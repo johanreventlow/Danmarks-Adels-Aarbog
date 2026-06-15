@@ -1,0 +1,24 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+# Node / Vite frontend
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.local
+.env.*.local
+*.local
+jr_tng_reventlow.sql
+# Afledt analyse af TNG-dumpet — kan indeholde levende-persondata (GDPR, invariant #8)
+docs/tng-reventlow-analyse.md
+
+# DAA-udtræk arbejdsmappe (kan indeholde levende-persondata)
+work/
+work_presens/
+
+# Kilde-PDF'er (store, ophavsret) — ikke i repo
+*.pdf
+web/vite.config.js
+web/vite.config.d.ts
