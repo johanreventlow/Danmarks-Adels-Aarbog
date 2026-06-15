@@ -85,7 +85,7 @@ CREATE TABLE person (
   levende       BOOLEAN DEFAULT FALSE,   -- GDPR: AFLEDT synlighed (levende vs. afdød)
   privat        BOOLEAN DEFAULT FALSE,   -- GDPR: MANUEL skjulning, uafhængig af levende (TNG: living vs. private)
   status        TEXT,                    -- fx 'kendt hul / ikke undersøgt'
-  koen          TEXT,                    -- 'mand'|'kvinde'|'ukendt' (vocab 'koen'); NULL = ikke registreret. Arbejdsværdi; afledes af konklusion hvis omstridt.
+  koen          TEXT CHECK (koen IN ('mand','kvinde','ukendt')),  -- vocab 'koen'; NULL = ikke registreret. Arbejdsværdi; afledes af konklusion hvis omstridt.
   -- afledt visnings-cache (envejs-projektion af konklusioner; redigeres ALDRIG direkte):
   visning_navn  TEXT,
   visning_foedt TEXT,

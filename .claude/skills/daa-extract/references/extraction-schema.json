@@ -68,6 +68,11 @@
           "partner_navn": {"type": ["string", "null"]},
           "partner_ekstern_ref": {"type": ["string", "null"], "description": "fx 'DAA 1930, II, 71' — ekstern kilde/identitet, IKKE ny person"},
           "type": {"type": ["string", "null"], "enum": ["vielse", "partnerskab", "ugift union", null]},
+          "dato_raw": {"type": ["string", "null"], "description": "vielsesdato ordret, fx 'g. 26. juli 1975' — årstal SKAL findes i raw_text"},
+          "date_min": {"type": ["string", "null"], "description": "ISO YYYY-MM-DD el. null"},
+          "date_max": {"type": ["string", "null"]},
+          "sted": {"type": ["string", "null"], "description": "vielsessted"},
+          "skilt": {"type": "boolean", "description": "true hvis ægteskabet blev opløst (skilt)"},
           "note": {"type": ["string", "null"], "description": "fri tekst, fx svigerforældre (F.: ...)"}
         }
       }

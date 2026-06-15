@@ -1,5 +1,6 @@
 {
   "_doc": "Kontrolleret vokabular (invariant #9). Schemes -> kanoniske koder. Bruges af validate (flag ukendte = drift/fejl, advisory) og load (seed vocab-tabellen). 'embede' er bevidst åbent (mange embeder); det valideres heuristisk, ikke mod en udtømmende liste.",
+  "koen": ["mand", "kvinde", "ukendt"],
   "faktatype": [
     "navn", "tilnavn", "fødsel", "dåb", "konfirmation", "død", "begravelse",
     "floruit", "titel", "erhverv", "adling", "dekoration", "bopæl",

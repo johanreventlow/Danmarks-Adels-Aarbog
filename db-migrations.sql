@@ -27,6 +27,14 @@ ALTER TABLE narrative  ADD COLUMN IF NOT EXISTS privat BOOLEAN DEFAULT FALSE;
 -- #5 (minor) Arkiv-adresse.
 ALTER TABLE repository ADD COLUMN IF NOT EXISTS adresse TEXT;
 
+-- 2026-06-15 (normaliserings-pass): koen kontrolleret på DB-niveau (invariant #9).
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'person_koen_chk') then
+    alter table person add constraint person_koen_chk
+      check (koen in ('mand','kvinde','ukendt'));
+  end if;
+end $$;
+
 -- #1 Barn-relationstype: INGEN skemaændring — udvidet vocab på family_member.rolle
 --    ('barn' | 'adopteret_barn' | 'plejebarn' | 'stedbarn'). Kun 'barn' tæller
 --    som blodslægtskab i finderen.

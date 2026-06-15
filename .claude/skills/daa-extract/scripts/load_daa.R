@@ -50,8 +50,9 @@ add_extid <- function(pid, sid, linje, nr)
 add_narr <- function(pid, sid, side, tekst)
   ex("INSERT INTO narrative (id, subjekt_type, subjekt_id, source_id, side, tekst) VALUES ($1,'person',$2,$3,$4,$5)",
      list(nid("narrative"), pid, sid, side, tekst))
-add_fact <- function(pid, ft) { fid <- nid("fact")
-  ex("INSERT INTO fact (id, subjekt_type, subjekt_id, faktatype) VALUES ($1,'person',$2,$3)", list(fid, pid, ft)); fid }
+add_fact <- function(sid_, ft, sted_id=NA, st="person") { fid <- nid("fact")
+  ex("INSERT INTO fact (id, subjekt_type, subjekt_id, faktatype, sted_id) VALUES ($1,$2,$3,$4,$5)",
+     list(fid, st, sid_, ft, sted_id)); fid }
 add_assertion <- function(tt, tid, vaerdi=NA, dmin=NA, dmax=NA, qual=NA, raw=NA) { aid <- nid("assertion")
   ex(paste("INSERT INTO assertion (id,target_type,target_id,vaerdi_tekst,date_min,date_max,date_qualifier,date_raw)",
            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"), list(aid, tt, tid, vaerdi, dmin, dmax, qual, raw)); aid }
@@ -61,36 +62,55 @@ add_citation <- function(aid, sid, side=NA, kval="primær")
 add_conclusion <- function(tt, tid, chosen, status="afklaret", by=udgave)
   ex(paste("INSERT INTO conclusion (id,target_type,target_id,valgt_assertion_id,status,blaastemplet_af)",
            "VALUES ($1,$2,$3,$4,$5,$6)"), list(nid("conclusion"), tt, tid, chosen, status, by))
-fact_value <- function(pid, ft, vaerdi=NA, dmin=NA, dmax=NA, qual=NA, raw=NA, sid, side) {
-  fid <- add_fact(pid, ft); aid <- add_assertion("fact", fid, vaerdi, iso(dmin), iso(dmax), qual, raw)
-  add_citation(aid, sid, side); add_conclusion("fact", fid, aid); invisible(fid) }
-add_family <- function(type="union") { fid <- nid("family"); ex("INSERT INTO family (id,type) VALUES ($1,$2)", list(fid,type)); fid }
-add_member <- function(fid, pid, rolle, ordinal=NA, konfidens=NA)
-  ex("INSERT INTO family_member (family_id,person_id,rolle,ordinal,konfidens) VALUES ($1,$2,$3,$4,$5)",
-     list(fid, pid, rolle, ordinal, konfidens))
-# get-or-create på navn: ejendom/organisation/begivenhed er FÆLLES entiteter med
-# en række ejere/deltagere over tid (datamodel §5). Samme gods (fx Wittenberg)
-# må kun findes ÉN gang; ejerne knyttes via relation, ikke som dublet-rækker.
+add_note <- function(tt, tid, indhold) {
+  if (is.null(indhold) || is.na(indhold) || !nzchar(trimws(indhold))) return(invisible())
+  ex("INSERT INTO note (id, target_type, target_id, indhold) VALUES ($1,$2,$3,$4)",
+     list(nid("note"), tt, tid, indhold)) }
 .cache <- new.env(parent = emptyenv())
-get_or_create <- function(tabel, navn) {
+# get-or-create på navn: sted/ejendom/organisation/begivenhed er FÆLLES entiteter
+# (datamodel §5). Samme navn (Wittenberg, "Plön Kr.") må kun findes ÉN gang.
+get_place <- function(navn) {
+  if (is.null(navn) || length(navn)==0 || is.na(navn) || !nzchar(trimws(navn))) return(NA)
+  k <- paste0("place::", tolower(trimws(navn)))
+  if (exists(k, envir=.cache, inherits=FALSE)) return(get(k, envir=.cache))
+  id <- nid("place"); ex("INSERT INTO place (id, navn) VALUES ($1,$2)", list(id, navn))
+  assign(k, id, envir=.cache); id }
+get_or_create <- function(tabel, navn, sted=NA) {
   k <- paste0(tabel, "::", tolower(trimws(navn)))
-  if (exists(k, envir = .cache, inherits = FALSE)) return(get(k, envir = .cache))
-  id <- nid(tabel); ex(sprintf("INSERT INTO %s (id,navn) VALUES ($1,$2)", tabel), list(id, navn))
-  assign(k, id, envir = .cache); id
-}
-add_estate <- function(navn) get_or_create("estate", navn)
+  if (exists(k, envir=.cache, inherits=FALSE)) return(get(k, envir=.cache))
+  id <- nid(tabel)
+  if (tabel == "estate")
+    ex("INSERT INTO estate (id,navn,sted_id) VALUES ($1,$2,$3)", list(id, navn, get_place(sted)))
+  else
+    ex(sprintf("INSERT INTO %s (id,navn) VALUES ($1,$2)", tabel), list(id, navn))
+  assign(k, id, envir=.cache); id }
+add_estate <- function(navn, sted=NA) get_or_create("estate", navn, sted)
 add_org    <- function(navn) get_or_create("organisation", navn)
 add_event  <- function(navn) get_or_create("historical_event", navn)
 add_relation <- function(st, sid_, ot, oid_, rolle, raw=NA, em=NA) { rid <- nid("relation")
   ex(paste("INSERT INTO relation (id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,erhvervelsesmaade,periode_raw)",
            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"), list(rid, st, sid_, ot, oid_, rolle, em, raw)); invisible(rid) }
+# fakta MED evidenslag (assertion+citation+conclusion) — bruges til person OG familie
+fact_value <- function(pid, ft, vaerdi=NA, dmin=NA, dmax=NA, qual=NA, raw=NA, sid, side, sted=NA, st="person") {
+  fid <- add_fact(pid, ft, get_place(sted), st)
+  aid <- add_assertion("fact", fid, vaerdi, iso(dmin), iso(dmax), qual, raw)
+  add_citation(aid, sid, side); add_conclusion("fact", fid, aid); invisible(fid) }
+add_family <- function(type="union") { fid <- nid("family"); ex("INSERT INTO family (id,type) VALUES ($1,$2)", list(fid,type)); fid }
+add_member <- function(fid, pid, rolle, ordinal=NA, konfidens=NA)
+  ex("INSERT INTO family_member (family_id,person_id,rolle,ordinal,konfidens) VALUES ($1,$2,$3,$4,$5)",
+     list(fid, pid, rolle, ordinal, konfidens))
+# relation MED evidenslag (invariant #4: gælder også relationer)
+rel_value <- function(st, sid_, ot, oid_, rolle, raw=NA, em=NA, sid) {
+  rid <- add_relation(st, sid_, ot, oid_, rolle, raw, em)
+  aid <- add_assertion("relation", rid, vaerdi=rolle, raw=raw)
+  add_citation(aid, sid); add_conclusion("relation", rid, aid); invisible(rid) }
 g <- function(x, k, d=NA) if (!is.null(x[[k]])) x[[k]] else d
 # Seed kontrolleret vokabular (invariant #9) fra vocab.json — idempotent.
 seed_vocab <- function() {
   vp <- ".claude/skills/daa-extract/references/vocab.json"
   if (!file.exists(vp)) return(invisible())
   v <- fromJSON(vp, simplifyVector = TRUE)
-  schemes <- c(faktatype="faktatype", relation_rolle="rolle",
+  schemes <- c(koen="koen", faktatype="faktatype", relation_rolle="rolle",
                familie_rolle="familie_rolle", slaegtskab_rolle="slaegtskab",
                embede_eksempler="embede")
   for (key in names(schemes)) for (code in v[[key]])
@@ -139,7 +159,7 @@ tryCatch({
     for (f in g(rec, "facts", list())) {
       fact_value(pid, f$faktatype, vaerdi = g(f,"vaerdi"), dmin = g(f,"date_min"),
                  dmax = g(f,"date_max"), qual = g(f,"date_qualifier"), raw = g(f,"date_raw"),
-                 sid = src, side = side)
+                 sid = src, side = side, sted = g(f,"sted"))
     }
   }
 
@@ -148,7 +168,8 @@ tryCatch({
     pid <- get(key(rec$linje, lbl_of(rec)), envir = pmap)
     side <- g(rec, "sider", g(rec, "side"))
 
-    # ægteskaber: familie pr. union; partner oprettes minimalt hvis navngivet
+    # ægteskaber: familie pr. union; partner oprettes minimalt hvis navngivet.
+    # Vielse/skilsmisse loades som FAMILIE-fakta (m. evidenslag); note bevares.
     fams <- list()
     for (a in g(rec, "aegteskaber", list())) {
       fam <- add_family(g(a, "type", "union"))
@@ -157,6 +178,14 @@ tryCatch({
         sp <- add_person(); fact_value(sp, "navn", vaerdi = a$partner_navn, sid = src, side = side)
         add_member(fam, sp, "partner", ordinal = g(a, "ordinal"))
       }
+      if (!is.null(a$dato_raw) || !is.null(a$date_min) || !is.null(a[["sted"]]))
+        fact_value(fam, "vielse", dmin = g(a,"date_min"), dmax = g(a,"date_max"),
+                   raw = g(a,"dato_raw"), sted = g(a,"sted"), sid = src, side = side, st = "family")
+      if (isTRUE(a$skilt))
+        fact_value(fam, "skilsmisse", raw = "skilt", sid = src, side = side, st = "family")
+      add_note("family", fam, g(a, "note", NULL))
+      if (!is.null(a$partner_ekstern_ref) && !is.na(a$partner_ekstern_ref))
+        add_note("family", fam, paste("partner ekstern ref:", a$partner_ekstern_ref))
       fams[[length(fams) + 1]] <- fam
     }
     # børn: knyt til første union (v1-forenkling), opret familie hvis ingen ægteskab
@@ -174,34 +203,35 @@ tryCatch({
       }
     }
 
-    # godser -> estate + relation 'ejer'
+    # godser -> estate (m. sted) + relation 'ejer' MED evidenslag
     for (gd in g(rec, "godser", list())) {
-      eid <- add_estate(gd$navn)
-      add_relation("person", pid, "estate", eid, "ejer", raw = g(gd, "periode_raw"), em = "født/arvet")
+      eid <- add_estate(gd$navn, g(gd, "sted"))
+      rel_value("person", pid, "estate", eid, "ejer", raw = g(gd, "periode_raw"), em = "født/arvet", sid = src)
     }
-    # embeder -> organisation + relation (rolle)
+    # embeder -> organisation + relation MED evidenslag
     for (em in g(rec, "embeder", list())) {
       oid <- add_org(g(em, "organisation", em$rolle))
-      add_relation("person", pid, "organisation", oid, em$rolle, raw = g(em, "dato_raw"))
+      rel_value("person", pid, "organisation", oid, em$rolle, raw = g(em, "dato_raw"), sid = src)
     }
-    # begivenheder -> historical_event + relation
+    # begivenheder -> historical_event + relation MED evidenslag
     for (bv in g(rec, "begivenheder", list())) {
       hid <- add_event(bv$navn)
-      add_relation("person", pid, "historical_event", hid, bv$rolle, raw = g(bv, "dato_raw"))
+      rel_value("person", pid, "historical_event", hid, bv$rolle, raw = g(bv, "dato_raw"), sid = src)
     }
   }
 
-  # ---- visnings-cache (envejs-projektion fra konklusioner) ----
-  ex("
-    UPDATE person p SET
-      visning_navn = (SELECT a.vaerdi_tekst FROM conclusion c
+  # ---- visnings-cache: ALLE fire felter regenereres fra konklusioner ----
+  # (invariant #4: envejs-projektion). LIMIT 1 da en person kan have flere
+  # titel/navn-fakta; vælg vilkårlig blåstemplet.
+  vexpr <- function(faktatype, kol) sprintf(
+    "(SELECT a.%s FROM conclusion c
         JOIN assertion a ON a.id = c.valgt_assertion_id
         JOIN fact f ON f.id = c.target_id AND c.target_type='fact'
-        WHERE f.subjekt_type='person' AND f.subjekt_id=p.id AND f.faktatype='navn'),
-      visning_doed = (SELECT a.date_raw FROM conclusion c
-        JOIN assertion a ON a.id = c.valgt_assertion_id
-        JOIN fact f ON f.id = c.target_id AND c.target_type='fact'
-        WHERE f.subjekt_type='person' AND f.subjekt_id=p.id AND f.faktatype='død')")
+        WHERE f.subjekt_type='person' AND f.subjekt_id=p.id AND f.faktatype='%s' LIMIT 1)",
+    kol, faktatype)
+  ex(sprintf("UPDATE person p SET visning_navn=%s, visning_foedt=%s, visning_doed=%s, visning_titel=%s",
+             vexpr("navn", "vaerdi_tekst"), vexpr("fødsel", "date_raw"),
+             vexpr("død", "date_raw"), vexpr("titel", "vaerdi_tekst")))
 
   dbCommit(con); message(sprintf("Indlæst %d poster (udgave %s).", length(clean), udgave))
 }, error = function(e) { dbRollback(con); dbDisconnect(con)
