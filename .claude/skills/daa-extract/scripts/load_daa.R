@@ -42,63 +42,62 @@ model_tables <- c("note","citation","conclusion","assertion","relation","fact",
 .seq <- new.env(parent = emptyenv())
 nid <- function(t) { v <- (if (is.null(.seq[[t]])) 0L else .seq[[t]]) + 1L; .seq[[t]] <- v; v }
 
-# ---- helpers (samme mønster som supabase_load.R) ----
-add_person <- function(koen = NA) { pid <- nid("person")
-  ex("INSERT INTO person (id, levende, koen) VALUES ($1, FALSE, $2)", list(pid, koen)); pid }
-add_extid <- function(pid, sid, linje, nr)
-  ex("INSERT INTO person_external_id (person_id, source_id, linje, nr) VALUES ($1,$2,$3,$4)", list(pid, sid, linje, nr))
-add_narr <- function(pid, sid, side, tekst)
-  ex("INSERT INTO narrative (id, subjekt_type, subjekt_id, source_id, side, tekst) VALUES ($1,'person',$2,$3,$4,$5)",
-     list(nid("narrative"), pid, sid, side, tekst))
-add_fact <- function(sid_, ft, sted_id=NA, st="person") { fid <- nid("fact")
-  ex("INSERT INTO fact (id, subjekt_type, subjekt_id, faktatype, sted_id) VALUES ($1,$2,$3,$4,$5)",
-     list(fid, st, sid_, ft, sted_id)); fid }
-add_assertion <- function(tt, tid, vaerdi=NA, dmin=NA, dmax=NA, qual=NA, raw=NA) { aid <- nid("assertion")
-  ex(paste("INSERT INTO assertion (id,target_type,target_id,vaerdi_tekst,date_min,date_max,date_qualifier,date_raw)",
-           "VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"), list(aid, tt, tid, vaerdi, dmin, dmax, qual, raw)); aid }
-add_citation <- function(aid, sid, side=NA, kval="primær")
-  ex("INSERT INTO citation (id, assertion_id, source_id, side, kvalitet) VALUES ($1,$2,$3,$4,$5)",
-     list(nid("citation"), aid, sid, side, kval))
-add_conclusion <- function(tt, tid, chosen, status="afklaret", by=udgave)
-  ex(paste("INSERT INTO conclusion (id,target_type,target_id,valgt_assertion_id,status,blaastemplet_af)",
-           "VALUES ($1,$2,$3,$4,$5,$6)"), list(nid("conclusion"), tt, tid, chosen, status, by))
+# ---- BULK-INSERT: akkumulér rækker i hukommelsen, COPY per tabel til sidst ----
+# (én lang single-row-transaktion over pooleren er både langsom OG skrøbelig —
+#  forbindelsen dropper. Vi laver ingen DB-kald under passene; flush_all() skriver
+#  hver tabel med dbAppendTable/COPY i FK-rækkefølge i én kort transaktion.)
+.buf <- new.env(parent = emptyenv())
+push <- function(tbl, row) { .buf[[tbl]] <- c(.buf[[tbl]], list(row)); invisible() }
+rows_to_df <- function(rows) {
+  cols <- names(rows[[1]])
+  data <- lapply(cols, function(cn)
+    unlist(lapply(rows, function(r) { v <- r[[cn]]; if (is.null(v)) NA else v }), use.names = FALSE))
+  names(data) <- cols
+  as.data.frame(data, stringsAsFactors = FALSE, optional = TRUE)
+}
+flush_all <- function() {
+  ord <- c("place","person","person_external_id","estate","organisation","historical_event",
+           "fact","assertion","citation","conclusion","family","family_member","relation","note","narrative")
+  for (tbl in ord) { rows <- .buf[[tbl]]; if (length(rows)) dbAppendTable(con, tbl, rows_to_df(rows)) }
+}
+
+add_person <- function(koen = NA) { id <- nid("person"); push("person", list(id=id, levende=FALSE, koen=koen)); id }
+add_extid <- function(pid, sid, linje, nr) push("person_external_id", list(person_id=pid, source_id=sid, linje=linje, nr=nr))
+add_narr <- function(pid, sid, side, tekst) push("narrative", list(id=nid("narrative"), subjekt_type="person", subjekt_id=pid, source_id=sid, side=side, tekst=tekst))
+add_fact <- function(sid_, ft, sted_id=NA, st="person") { id <- nid("fact"); push("fact", list(id=id, subjekt_type=st, subjekt_id=sid_, faktatype=ft, sted_id=sted_id)); id }
+add_assertion <- function(tt, tid, vaerdi=NA, dmin=NA, dmax=NA, qual=NA, raw=NA) { id <- nid("assertion")
+  push("assertion", list(id=id, target_type=tt, target_id=tid, vaerdi_tekst=vaerdi, date_min=dmin, date_max=dmax, date_qualifier=qual, date_raw=raw)); id }
+add_citation <- function(aid, sid, side=NA, kval="primær") push("citation", list(id=nid("citation"), assertion_id=aid, source_id=sid, side=side, kvalitet=kval))
+add_conclusion <- function(tt, tid, chosen, status="afklaret", by=udgave) push("conclusion", list(id=nid("conclusion"), target_type=tt, target_id=tid, valgt_assertion_id=chosen, status=status, blaastemplet_af=by))
 add_note <- function(tt, tid, indhold) {
   if (is.null(indhold) || is.na(indhold) || !nzchar(trimws(indhold))) return(invisible())
-  ex("INSERT INTO note (id, target_type, target_id, indhold) VALUES ($1,$2,$3,$4)",
-     list(nid("note"), tt, tid, indhold)) }
+  push("note", list(id=nid("note"), target_type=tt, target_id=tid, indhold=indhold)) }
 .cache <- new.env(parent = emptyenv())
-# get-or-create på navn: sted/ejendom/organisation/begivenhed er FÆLLES entiteter
-# (datamodel §5). Samme navn (Wittenberg, "Plön Kr.") må kun findes ÉN gang.
+# get-or-create på navn: sted/ejendom/org/begivenhed er FÆLLES entiteter (datamodel §5).
 get_place <- function(navn) {
   if (is.null(navn) || length(navn)==0 || is.na(navn) || !nzchar(trimws(navn))) return(NA)
   k <- paste0("place::", tolower(trimws(navn)))
   if (exists(k, envir=.cache, inherits=FALSE)) return(get(k, envir=.cache))
-  id <- nid("place"); ex("INSERT INTO place (id, navn) VALUES ($1,$2)", list(id, navn))
-  assign(k, id, envir=.cache); id }
+  id <- nid("place"); push("place", list(id=id, navn=navn)); assign(k, id, envir=.cache); id }
 get_or_create <- function(tabel, navn, sted=NA) {
   k <- paste0(tabel, "::", tolower(trimws(navn)))
   if (exists(k, envir=.cache, inherits=FALSE)) return(get(k, envir=.cache))
   id <- nid(tabel)
-  if (tabel == "estate")
-    ex("INSERT INTO estate (id,navn,sted_id) VALUES ($1,$2,$3)", list(id, navn, get_place(sted)))
-  else
-    ex(sprintf("INSERT INTO %s (id,navn) VALUES ($1,$2)", tabel), list(id, navn))
+  if (tabel == "estate") push("estate", list(id=id, navn=navn, sted_id=get_place(sted)))
+  else push(tabel, list(id=id, navn=navn))
   assign(k, id, envir=.cache); id }
 add_estate <- function(navn, sted=NA) get_or_create("estate", navn, sted)
 add_org    <- function(navn) get_or_create("organisation", navn)
 add_event  <- function(navn) get_or_create("historical_event", navn)
-add_relation <- function(st, sid_, ot, oid_, rolle, raw=NA, em=NA) { rid <- nid("relation")
-  ex(paste("INSERT INTO relation (id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,erhvervelsesmaade,periode_raw)",
-           "VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"), list(rid, st, sid_, ot, oid_, rolle, em, raw)); invisible(rid) }
-# fakta MED evidenslag (assertion+citation+conclusion) — bruges til person OG familie
+add_relation <- function(st, sid_, ot, oid_, rolle, raw=NA, em=NA) { id <- nid("relation")
+  push("relation", list(id=id, subjekt_type=st, subjekt_id=sid_, objekt_type=ot, objekt_id=oid_, rolle=rolle, erhvervelsesmaade=em, periode_raw=raw)); id }
 fact_value <- function(pid, ft, vaerdi=NA, dmin=NA, dmax=NA, qual=NA, raw=NA, sid, side, sted=NA, st="person") {
   fid <- add_fact(pid, ft, get_place(sted), st)
   aid <- add_assertion("fact", fid, vaerdi, iso(dmin), iso(dmax), qual, raw)
   add_citation(aid, sid, side); add_conclusion("fact", fid, aid); invisible(fid) }
-add_family <- function(type="union") { fid <- nid("family"); ex("INSERT INTO family (id,type) VALUES ($1,$2)", list(fid,type)); fid }
+add_family <- function(type="union") { id <- nid("family"); push("family", list(id=id, type=type)); id }
 add_member <- function(fid, pid, rolle, ordinal=NA, konfidens=NA)
-  ex("INSERT INTO family_member (family_id,person_id,rolle,ordinal,konfidens) VALUES ($1,$2,$3,$4,$5)",
-     list(fid, pid, rolle, ordinal, konfidens))
+  push("family_member", list(family_id=fid, person_id=pid, rolle=rolle, ordinal=ordinal, konfidens=konfidens))
 # relation MED evidenslag (invariant #4: gælder også relationer)
 rel_value <- function(st, sid_, ot, oid_, rolle, raw=NA, em=NA, sid) {
   rid <- add_relation(st, sid_, ot, oid_, rolle, raw, em)
@@ -193,10 +192,17 @@ tryCatch({
     if (is.list(b) && !is.null(b$nr_range)) {
       fam <- if (length(fams)) fams[[1]] else add_family("union")
       if (!length(fams)) add_member(fam, pid, "partner")
-      lin <- g(b, "linje", rec$linje); rng <- b$nr_range
+      stated <- g(b, "linje", rec$linje); rng <- b$nr_range
       for (n in seq(rng[[1]], rng[[2]])) {
-        ck <- key(lin, as.character(n))
-        if (exists(ck, envir = pmap, inherits = FALSE)) {
+        # boern.linje er ofte forurenet (kuld-markør forvekslet med linje). Stol
+        # kun på den hvis den faktisk har barnets nr; ellers brug forælderens linje
+        # (børn bliver i grenen). Bevarer ægte kryds-linje (stated linje har nr'et).
+        ck <- NULL
+        for (cand in c(stated, rec$linje)) {
+          k2 <- key(cand, as.character(n))
+          if (exists(k2, envir = pmap, inherits = FALSE)) { ck <- k2; break }
+        }
+        if (!is.null(ck)) {
           konf <- if (isTRUE(get0(ck, envir = umap, inherits = FALSE))) "formodet" else NA
           add_member(fam, get(ck, envir = pmap), "barn", konfidens = konf)
         }
@@ -219,6 +225,9 @@ tryCatch({
       rel_value("person", pid, "historical_event", hid, bv$rolle, raw = g(bv, "dato_raw"), sid = src)
     }
   }
+
+  # ---- skriv alle akkumulerede rækker (bulk COPY, FK-rækkefølge) ----
+  flush_all()
 
   # ---- visnings-cache: ALLE fire felter regenereres fra konklusioner ----
   # (invariant #4: envejs-projektion). LIMIT 1 da en person kan have flere
