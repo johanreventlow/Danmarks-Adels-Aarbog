@@ -1,0 +1,25 @@
+{
+  "_doc": "Kontrolleret vokabular (invariant #9). Schemes -> kanoniske koder. Bruges af validate (flag ukendte = drift/fejl, advisory) og load (seed vocab-tabellen). 'embede' er bevidst åbent (mange embeder); det valideres heuristisk, ikke mod en udtømmende liste.",
+  "faktatype": [
+    "navn", "tilnavn", "fødsel", "dåb", "konfirmation", "død", "begravelse",
+    "floruit", "titel", "erhverv", "adling", "dekoration", "bopæl",
+    "dødsårsag", "klosterindgang", "uddannelse", "embede"
+  ],
+  "relation_rolle": [
+    "ejer", "indehaver", "deltager", "besegler", "vidne", "gerningsmand",
+    "afbildet", "skabt_af", "forfatter", "emne_for"
+  ],
+  "familie_rolle": [
+    "partner", "barn", "adopteret_barn", "plejebarn", "stedbarn"
+  ],
+  "slaegtskab_rolle": [
+    "mor", "far", "søster", "bror", "søskende",
+    "farfars farbror", "fars søster", "farbror", "morbror", "faster", "moster"
+  ],
+  "embede_eksempler": [
+    "amtmand", "kannik", "provst", "klosterprovst", "høvedsmand", "abbed",
+    "munk", "klerk", "notar", "vikar", "kansler", "ritmester", "kammerjunker",
+    "premierløjtnant", "råd", "overhofmester", "staller", "biskop", "lensmand",
+    "konventualinde", "kaptajn", "oberstløjtnant", "hofjægermester", "kammerherre"
+  ]
+}

@@ -85,6 +85,18 @@ add_relation <- function(st, sid_, ot, oid_, rolle, raw=NA, em=NA) { rid <- nid(
   ex(paste("INSERT INTO relation (id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,erhvervelsesmaade,periode_raw)",
            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"), list(rid, st, sid_, ot, oid_, rolle, em, raw)); invisible(rid) }
 g <- function(x, k, d=NA) if (!is.null(x[[k]])) x[[k]] else d
+# Seed kontrolleret vokabular (invariant #9) fra vocab.json — idempotent.
+seed_vocab <- function() {
+  vp <- ".claude/skills/daa-extract/references/vocab.json"
+  if (!file.exists(vp)) return(invisible())
+  v <- fromJSON(vp, simplifyVector = TRUE)
+  schemes <- c(faktatype="faktatype", relation_rolle="rolle",
+               familie_rolle="familie_rolle", slaegtskab_rolle="slaegtskab",
+               embede_eksempler="embede")
+  for (key in names(schemes)) for (code in v[[key]])
+    ex("INSERT INTO vocab (scheme,code,label) VALUES ($1,$2,$3) ON CONFLICT (scheme,code) DO NOTHING",
+       list(unname(schemes[key]), code, code))
+}
 # normalisér delvise datoer til ISO (DB-kolonnen er DATE). "1240"->"1240-01-01",
 # "1240-05"->"1240-05-01". Ugyldigt (fx span "1240-1245") -> NA; date_raw bevares altid.
 iso <- function(d) {
@@ -101,6 +113,8 @@ dbBegin(con)
 tryCatch({
   if (RESET) { message("RESET: tømmer model-tabeller…")
     ex(paste0("TRUNCATE ", paste(model_tables, collapse=", "), " CASCADE;")) }
+
+  seed_vocab()
 
   src <- nid("source")
   ex("INSERT INTO source (id, slags, titel, udgave, ekstern) VALUES ($1,'DAA-udgave',$2,$3,FALSE)",

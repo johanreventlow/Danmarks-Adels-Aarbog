@@ -23,6 +23,14 @@ ALLOWED_TOP = {"linje", "nr", "nr_label", "usikker", "navn", "tilnavn", "koen",
                "facts", "godser", "embeder", "aegteskaber", "boern",
                "begivenheder", "narrative"}
 
+# Kontrolleret vokabular (invariant #9): flag drift/fejl som advisory.
+try:
+    _vocab = json.load(open(os.path.join(os.path.dirname(__file__), '..', 'references', 'vocab.json'), encoding='utf-8'))
+except Exception:
+    _vocab = {}
+FAKTATYPER = set(_vocab.get('faktatype', []))
+REL_ROLLER = set(_vocab.get('relation_rolle', []))
+
 
 def norm(s):
     return re.sub(r'\s+', ' ', (s or '')).strip()
@@ -105,6 +113,20 @@ def validate(rec, src, known_by_linje):
     extra = set(rec.keys()) - ALLOWED_TOP
     if extra:
         issues.append(f'R5: ukendte/ikke-tilladte felter (mulig tredjeparts-oprettelse): {sorted(extra)}')
+
+    # V9 (advisory): kontrolleret vokabular — fang drift/fejl uden at blokere.
+    for f in rec.get('facts') or []:
+        ft = f.get('faktatype')
+        if ft and FAKTATYPER and ft not in FAKTATYPER:
+            advisory.append(f'V9: ukendt faktatype "{ft}" (ej i vocab)')
+    for bv in rec.get('begivenheder') or []:
+        rl = bv.get('rolle')
+        if rl and REL_ROLLER and rl not in REL_ROLLER:
+            advisory.append(f'V9: ukendt begivenheds-rolle "{rl}"')
+    for em in rec.get('embeder') or []:
+        rl = em.get('rolle') or ''
+        if '(' in rl or ' og ' in rl or ' med ' in rl or len(rl.split()) > 4:
+            advisory.append(f'V9: mistænkelig embede-rolle "{rl}" (sammensat/ikke-rolle?)')
 
     return issues, advisory
 
