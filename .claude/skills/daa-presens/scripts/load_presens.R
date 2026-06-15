@@ -100,29 +100,30 @@ tryCatch({
       if (is.null(p$foraelder_lokal_id) && is.null(p$relation_til_hoved) && is.null(head_pid)) head_pid <- pid
       total <- total + 1
     }
-    # pass B: relationer (forælder-barn, ægtefælle, kollateral)
+    # pass B: relationer (ægtefælle, kollateral)
     for (p in blk$personer) {
       pid <- get(p$lokal_id, envir = lmap)
-      # ægtefælle-familier
-      fams <- list()
       for (a in g(p, "aegteskaber", list())) {
         fam <- add_family(); add_member(fam, pid, "partner", ordinal = g(a, "ordinal"))
         if (!is.null(a$partner_navn) && !is.na(a$partner_navn)) {
           sp <- add_person(); fact_value(sp, "navn", vaerdi = a$partner_navn, sid = src)
           add_member(fam, sp, "partner", ordinal = g(a, "ordinal"))
         }
-        fams[[length(fams)+1]] <- fam
       }
-      # forælder-barn: dette barns forælder -> familie (genbrug forælderens 1. ægteskab hvis muligt)
-      par <- p[["foraelder_lokal_id"]]
-      if (!is.null(par) && exists(par, envir = lmap, inherits = FALSE)) {
-        ppid <- get(par, envir = lmap)
-        fam <- nid("family"); ex("INSERT INTO family (id,type) VALUES ($1,'vielse')", list(fam))
-        add_member(fam, ppid, "partner"); add_member(fam, pid, "barn")
-      }
-      # kollateral -> relation til gren-hoved
       if (!is.null(p$relation_til_hoved) && !is.na(p$relation_til_hoved) && !is.null(head_pid) && pid != head_pid)
         add_relation(pid, head_pid, p$relation_til_hoved)
+    }
+    # pass C: forælder-barn — ÉN familie per forælder med ALLE børn (ikke én per barn)
+    kids <- new.env(parent = emptyenv())
+    for (p in blk$personer) {
+      par <- p[["foraelder_lokal_id"]]
+      if (!is.null(par) && exists(par, envir = lmap, inherits = FALSE))
+        assign(par, c(get0(par, envir = kids, ifnotfound = integer(0)),
+                      get(p$lokal_id, envir = lmap)), envir = kids)
+    }
+    for (par in ls(kids)) {
+      fam <- add_family(); add_member(fam, get(par, envir = lmap), "partner")
+      for (cpid in get(par, envir = kids)) add_member(fam, cpid, "barn")
     }
   }
 

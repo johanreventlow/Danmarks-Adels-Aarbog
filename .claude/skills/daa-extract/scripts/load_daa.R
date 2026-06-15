@@ -68,9 +68,19 @@ add_family <- function(type="union") { fid <- nid("family"); ex("INSERT INTO fam
 add_member <- function(fid, pid, rolle, ordinal=NA, konfidens=NA)
   ex("INSERT INTO family_member (family_id,person_id,rolle,ordinal,konfidens) VALUES ($1,$2,$3,$4,$5)",
      list(fid, pid, rolle, ordinal, konfidens))
-add_estate <- function(navn) { eid <- nid("estate"); ex("INSERT INTO estate (id,navn) VALUES ($1,$2)", list(eid,navn)); eid }
-add_org <- function(navn) { oid <- nid("organisation"); ex("INSERT INTO organisation (id,navn) VALUES ($1,$2)", list(oid,navn)); oid }
-add_event <- function(navn) { hid <- nid("historical_event"); ex("INSERT INTO historical_event (id,navn) VALUES ($1,$2)", list(hid,navn)); hid }
+# get-or-create på navn: ejendom/organisation/begivenhed er FÆLLES entiteter med
+# en række ejere/deltagere over tid (datamodel §5). Samme gods (fx Wittenberg)
+# må kun findes ÉN gang; ejerne knyttes via relation, ikke som dublet-rækker.
+.cache <- new.env(parent = emptyenv())
+get_or_create <- function(tabel, navn) {
+  k <- paste0(tabel, "::", tolower(trimws(navn)))
+  if (exists(k, envir = .cache, inherits = FALSE)) return(get(k, envir = .cache))
+  id <- nid(tabel); ex(sprintf("INSERT INTO %s (id,navn) VALUES ($1,$2)", tabel), list(id, navn))
+  assign(k, id, envir = .cache); id
+}
+add_estate <- function(navn) get_or_create("estate", navn)
+add_org    <- function(navn) get_or_create("organisation", navn)
+add_event  <- function(navn) get_or_create("historical_event", navn)
 add_relation <- function(st, sid_, ot, oid_, rolle, raw=NA, em=NA) { rid <- nid("relation")
   ex(paste("INSERT INTO relation (id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,erhvervelsesmaade,periode_raw)",
            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"), list(rid, st, sid_, ot, oid_, rolle, em, raw)); invisible(rid) }
