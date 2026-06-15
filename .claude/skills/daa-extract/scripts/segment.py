@@ -21,11 +21,16 @@ rapporten (stderr) flagger manglende linje-kontekst og huller/dubletter i nr.
 import sys, re, json
 
 PAGE_RE    = re.compile(r'^###\s*PAGE\s+(\d+)\s*###\s*$')
-# Ægte post-start: løbenummer + ≥2 mellemrum (kolonne-justeret i -layout).
-# Skelner "1.  Gottschalk" (post) fra ombrudt "1. af Holstens…" ("Gerhard 1.").
-POST_RE    = re.compile(r'^\s*(\d{1,4})\.\s{2,}(\S.*)$')
+# Ægte post-start: valgfrit "?"-præfiks (bogens markør for usikkert/formodet
+# medlemskab -> konfidens) + løbenummer (+ valgfrit bogstav-suffiks "15a") + ≥2
+# mellemrum (kolonne-justeret i -layout). Skelner "1.  Gottschalk" fra ombrudt
+# "1. af Holstens…" ("Gerhard 1."). Under-numre 15a./15b. = DISTINKTE personer.
+POST_RE    = re.compile(r'^\s*(\?)?\s*(\d{1,4})([a-z]?)\.\s{2,}(\S.*)$')
 ROMAN_RE   = re.compile(r'^\s*([IVX]{1,5})\s*$')
-LINJE_NAME = re.compile(r'DEN\s+\S.*LINJE', re.I)             # gren-header
+# Gren-header = versal-linje der indeholder "LINJE"/"LINJEN". Fanger både
+# "DEN HOLSTENSKE LINJE", "DEN LENSGREVELIGE LINJE AF 1767" OG "LINJEN GALLENTIN".
+# Krav om VERSALER undgår falsk match på små-bogstavs-krydsref "(se I. Den … linje nr. 29)".
+LINJE_NAME = re.compile(r'^[A-ZÆØÅ0-9 .]*\bLINJEN?\b[A-ZÆØÅ0-9 .]*$')
 SLGT_RE    = re.compile(r'^\s*(\w+)\s+slægtled\s*$', re.I)
 MARR_RE    = re.compile(r'^\s*((?:af [\w ]+ ægteskab )?med .+):\s*$', re.I)
 NOISE_RE   = re.compile(r'^\s*(von\s+R\s*E.*|Ridder\s+.+sønner)\s*$', re.I)
@@ -108,9 +113,9 @@ def main(path):
         m = POST_RE.match(line)
         if m:
             flush(posts, cur)
-            cur = {'linje': linje, 'nr': int(m.group(1)), 'kuld': kuld,
-                   'slaegtled': slaegtled, 'aegteskab_kontekst': marr,
-                   '_lines': [m.group(2)], '_pages': [page]}
+            cur = {'linje': linje, 'nr': int(m.group(2)), 'nr_label': m.group(2) + m.group(3),
+                   'usikker': bool(m.group(1)), 'kuld': kuld, 'slaegtled': slaegtled,
+                   'aegteskab_kontekst': marr, '_lines': [m.group(4)], '_pages': [page]}
             i += 1; continue
 
         if cur is not None:
@@ -125,21 +130,26 @@ def main(path):
 
 
 def _quality_report(posts):
-    """Fang stille fejl. nr er GLOBALT -> tjek contiguity samlet, ikke per linje."""
+    """Fang stille fejl. nr RESETTER per linje, så contiguity tjekkes PER LINJE
+    ((linje,nr) er nøglen, jf. krydsref '(III, 37)')."""
     no_linje = [p['nr'] for p in posts if not p['linje']]
     if no_linje:
         print(f'[segment] ADVARSEL: {len(no_linje)} poster uden linje-kontekst '
               f'(gren-header før intervallet?): nr {no_linje}', file=sys.stderr)
-    nrs = [p['nr'] for p in posts]
-    dupes = sorted({n for n in nrs if nrs.count(n) > 1})
-    if dupes:
-        print(f'[segment] ADVARSEL: dublet-løbenumre: {dupes}', file=sys.stderr)
-    s = sorted(set(nrs))
-    if s:
-        gaps = [n for n in range(s[0], s[-1] + 1) if n not in set(s)]
+    by_linje = {}
+    for p in posts:
+        by_linje.setdefault(p['linje'], []).append(p)
+    for lin, ps in sorted(by_linje.items(), key=lambda kv: str(kv[0])):
+        labels = [p.get('nr_label', str(p['nr'])) for p in ps]
+        dupes = sorted({l for l in labels if labels.count(l) > 1})   # 15a≠15b; to rene "15" = dublet
+        if dupes:
+            print(f'[segment] ADVARSEL: dublet-poster i linje {lin}: {dupes}', file=sys.stderr)
+        base = sorted({p['nr'] for p in ps})                          # basenr (15a/15b -> 15)
+        gaps = [n for n in range(base[0], base[-1] + 1) if n not in set(base)]
         if gaps:
-            print(f'[segment] ADVARSEL: hul i løbenumre (droppet post?): mangler {gaps}',
+            print(f'[segment] ADVARSEL: hul i basenr i linje {lin} (droppet post?): mangler {gaps}',
                   file=sys.stderr)
+        print(f'[segment] linje {lin}: {len(ps)} poster, basenr {base[0]}-{base[-1]}', file=sys.stderr)
 
 
 if __name__ == '__main__':

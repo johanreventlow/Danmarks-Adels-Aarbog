@@ -19,8 +19,9 @@ Reglerne (kan-tjekkes-deterministisk delmængde):
 """
 import sys, os, re, json, argparse
 
-ALLOWED_TOP = {"linje", "nr", "navn", "tilnavn", "koen", "facts", "godser",
-               "embeder", "aegteskaber", "boern", "begivenheder", "narrative"}
+ALLOWED_TOP = {"linje", "nr", "nr_label", "usikker", "navn", "tilnavn", "koen",
+               "facts", "godser", "embeder", "aegteskaber", "boern",
+               "begivenheder", "narrative"}
 
 
 def norm(s):
@@ -44,13 +45,13 @@ def collect_dates(rec):
     return out
 
 
-def validate(rec, src, known_global):
+def validate(rec, src, known_by_linje):
     """Returnér liste af regelbrud (tom = ren).
 
     Narrativen er IKKE LLM'ens ansvar: den autoritative prosa er kilde-postens
     raw_text fra posts.json. Vi tjekker derfor alt mod kilden, og main() fletter
     raw_text ind i den rene record (LLM'en udtrækker kun struktureret rygrad)."""
-    issues = []
+    issues, advisory = [], []
     src_text = norm(src['raw_text']) if src else ''
 
     # K: linje/nr-konsistens
@@ -61,11 +62,14 @@ def validate(rec, src, known_global):
     if src is not None and not src_text:
         issues.append('R6: kilde-postens raw_text er tom')
 
-    # R1: dato-værdier findes ordret i den autoritative prosa
+    # R1: hvert ÅRSTAL i en udtrukket dato skal forekomme i prosaen. Fanger
+    # hallucination (opdigtede år) uden at falsk-flagge AFLEDTE spans (floruit
+    # "-1257-1272-" skrives aldrig ordret i bogen) eller dag/måned-reformatering.
     hay = src_text
     for d in collect_dates(rec):
-        if norm(d) not in hay:
-            issues.append(f'R1: dato "{d}" findes ikke ordret i narrative')
+        missing = [y for y in re.findall(r'\d{4}', d or '') if y not in hay]
+        if missing:
+            issues.append(f'R1: årstal {missing} i dato "{d}" findes ikke i prosaen (hallucination?)')
 
     # R4: ægteskabs-ordinaler strengt stigende
     ords = [a.get('ordinal') for a in (rec.get('aegteskaber') or []) if a.get('ordinal') is not None]
@@ -81,13 +85,19 @@ def validate(rec, src, known_global):
     if b and b.get('nr_range'):
         rng = b['nr_range']
         if len(rng) == 2 and rng[0] <= rng[1]:
-            lo, hi = min(known_global), max(known_global) if known_global else (0, 0)
-            true_gaps = [n for n in range(rng[0], rng[1] + 1)
-                         if n not in known_global and lo <= n <= hi]
+            lin = b.get('linje') or rec.get('linje')
+            known = known_by_linje.get(lin, set())
+            true_gaps = []
+            if known:
+                lo, hi = min(known), max(known)
+                true_gaps = [n for n in range(rng[0], rng[1] + 1)
+                             if n not in known and lo <= n <= hi]
             if true_gaps:
-                issues.append(f'R2: børn-nr mangler inden i segmenteret vindue (droppet post?): {true_gaps}')
+                issues.append(f'R2: børn-basenr mangler inden i linje {lin}s vindue (droppet post?): {true_gaps}')
+            # R3 er ADVISORY: bogen er selv ofte inkonsistent ("5 (7?) børn"),
+            # og load bygger børn fra nr_range uanset antal. Blokerer ikke.
             if b.get('antal') is not None and b['antal'] != (rng[1] - rng[0] + 1):
-                issues.append(f'R3: antal børn ({b["antal"]}) matcher ikke nr_range {rng}')
+                advisory.append(f'R3: antal børn ({b["antal"]}) matcher ikke nr_range {rng} (bog-tvetydighed?)')
         else:
             issues.append(f'R2: ugyldigt nr_range {rng}')
 
@@ -96,7 +106,7 @@ def validate(rec, src, known_global):
     if extra:
         issues.append(f'R5: ukendte/ikke-tilladte felter (mulig tredjeparts-oprettelse): {sorted(extra)}')
 
-    return issues
+    return issues, advisory
 
 
 def main():
@@ -108,27 +118,33 @@ def main():
     args = ap.parse_args()
 
     posts = json.load(open(args.posts, encoding='utf-8'))
-    src_by_key = {(p['linje'], p['nr']): p for p in posts}
-    known_global = {p['nr'] for p in posts}     # løbenr er globalt på tværs af grene
+    # nøgle på (linje, nr_label): nr resetter per linje OG 15a/15b deler basenr
+    src_by_key = {(p['linje'], p.get('nr_label', str(p['nr']))): p for p in posts}
+    known_by_linje = {}
+    for p in posts:
+        known_by_linje.setdefault(p['linje'], set()).add(p['nr'])    # basenr per linje
 
-    clean, review = [], []
+    clean, review, advisories = [], [], 0
     files = sorted(f for f in os.listdir(args.extracted_dir) if f.endswith('.json'))
     for fn in files:
         rec = json.load(open(os.path.join(args.extracted_dir, fn), encoding='utf-8'))
-        src = src_by_key.get((rec.get('linje'), rec.get('nr')))
-        issues = validate(rec, src, known_global)
+        src = src_by_key.get((rec.get('linje'), rec.get('nr_label') or str(rec.get('nr'))))
+        issues, advisory = validate(rec, src, known_by_linje)
         if issues:
             review.append({'fil': fn, 'linje': rec.get('linje'), 'nr': rec.get('nr'),
-                           'navn': rec.get('navn'), 'brud': issues})
+                           'navn': rec.get('navn'), 'brud': issues, 'advisory': advisory})
         else:
             # flet den AUTORITATIVE narrativ ind fra kilden (overskriver evt. LLM-narrativ)
             rec['narrative'] = src['raw_text']
             clean.append(rec)
+            for adv in advisory:
+                advisories += 1
+                print(f'[validate] ~ linje {rec.get("linje")} nr {rec.get("nr_label")}: {adv}', file=sys.stderr)
 
     json.dump(clean, open(args.clean, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
     json.dump(review, open(args.review, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
 
-    print(f'[validate] {len(clean)} rene, {len(review)} flaggede (kræver review)', file=sys.stderr)
+    print(f'[validate] {len(clean)} rene, {len(review)} flaggede (kræver review), {advisories} advisory', file=sys.stderr)
     for r in review:
         print(f'  FLAG linje {r["linje"]} nr {r["nr"]} ({r["navn"]}):', file=sys.stderr)
         for b in r['brud']:

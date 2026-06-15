@@ -62,7 +62,7 @@ add_conclusion <- function(tt, tid, chosen, status="afklaret", by=udgave)
   ex(paste("INSERT INTO conclusion (id,target_type,target_id,valgt_assertion_id,status,blaastemplet_af)",
            "VALUES ($1,$2,$3,$4,$5,$6)"), list(nid("conclusion"), tt, tid, chosen, status, by))
 fact_value <- function(pid, ft, vaerdi=NA, dmin=NA, dmax=NA, qual=NA, raw=NA, sid, side) {
-  fid <- add_fact(pid, ft); aid <- add_assertion("fact", fid, vaerdi, dmin, dmax, qual, raw)
+  fid <- add_fact(pid, ft); aid <- add_assertion("fact", fid, vaerdi, iso(dmin), iso(dmax), qual, raw)
   add_citation(aid, sid, side); add_conclusion("fact", fid, aid); invisible(fid) }
 add_family <- function(type="union") { fid <- nid("family"); ex("INSERT INTO family (id,type) VALUES ($1,$2)", list(fid,type)); fid }
 add_member <- function(fid, pid, rolle, ordinal=NA, konfidens=NA)
@@ -75,6 +75,16 @@ add_relation <- function(st, sid_, ot, oid_, rolle, raw=NA, em=NA) { rid <- nid(
   ex(paste("INSERT INTO relation (id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,erhvervelsesmaade,periode_raw)",
            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"), list(rid, st, sid_, ot, oid_, rolle, em, raw)); invisible(rid) }
 g <- function(x, k, d=NA) if (!is.null(x[[k]])) x[[k]] else d
+# normalisér delvise datoer til ISO (DB-kolonnen er DATE). "1240"->"1240-01-01",
+# "1240-05"->"1240-05-01". Ugyldigt (fx span "1240-1245") -> NA; date_raw bevares altid.
+iso <- function(d) {
+  if (is.null(d) || length(d) == 0 || is.na(d) || d == "") return(NA)
+  d <- as.character(d)
+  if (grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}$", d)) return(d)
+  if (grepl("^[0-9]{4}-[0-9]{2}$", d)) return(paste0(d, "-01"))
+  if (grepl("^[0-9]{4}$", d)) return(paste0(d, "-01-01"))
+  NA
+}
 
 # ================= LOAD (én transaktion) =================
 dbBegin(con)
@@ -86,14 +96,17 @@ tryCatch({
   ex("INSERT INTO source (id, slags, titel, udgave, ekstern) VALUES ($1,'DAA-udgave',$2,$3,FALSE)",
      list(src, paste("Dansk Adels Aarbog –", udgave), udgave))
 
-  pmap <- new.env(parent = emptyenv())          # (linje-nr) -> person_id
-  key  <- function(linje, nr) paste0(linje, "-", nr)
+  pmap <- new.env(parent = emptyenv())          # (linje-nr_label) -> person_id
+  umap <- new.env(parent = emptyenv())          # (linje-nr_label) -> usikker (TRUE/FALSE)
+  key  <- function(linje, lbl) paste0(linje, "-", lbl)
+  lbl_of <- function(rec) g(rec, "nr_label", as.character(rec$nr))
 
   # ---- pass 1: personer, external_id, narrative, fakta ----
   for (rec in clean) {
     pid <- add_person(g(rec, "koen"))
-    assign(key(rec$linje, rec$nr), pid, envir = pmap)
-    add_extid(pid, src, rec$linje, rec$nr)
+    k <- key(rec$linje, lbl_of(rec))
+    assign(k, pid, envir = pmap); assign(k, isTRUE(rec$usikker), envir = umap)
+    add_extid(pid, src, rec$linje, rec$nr)        # ekstern-id bærer basenr (heltal)
     side <- g(rec, "sider", g(rec, "side"))
     add_narr(pid, src, side, rec$narrative)
     fact_value(pid, "navn", vaerdi = rec$navn, sid = src, side = side)
@@ -108,7 +121,7 @@ tryCatch({
 
   # ---- pass 2: slægtskab + relationer ----
   for (rec in clean) {
-    pid <- get(key(rec$linje, rec$nr), envir = pmap)
+    pid <- get(key(rec$linje, lbl_of(rec)), envir = pmap)
     side <- g(rec, "sider", g(rec, "side"))
 
     # ægteskaber: familie pr. union; partner oprettes minimalt hvis navngivet
@@ -129,9 +142,11 @@ tryCatch({
       if (!length(fams)) add_member(fam, pid, "partner")
       lin <- g(b, "linje", rec$linje); rng <- b$nr_range
       for (n in seq(rng[[1]], rng[[2]])) {
-        ck <- key(lin, n)
-        if (exists(ck, envir = pmap, inherits = FALSE))
-          add_member(fam, get(ck, envir = pmap), "barn")
+        ck <- key(lin, as.character(n))
+        if (exists(ck, envir = pmap, inherits = FALSE)) {
+          konf <- if (isTRUE(get0(ck, envir = umap, inherits = FALSE))) "formodet" else NA
+          add_member(fam, get(ck, envir = pmap), "barn", konfidens = konf)
+        }
       }
     }
 
