@@ -100,8 +100,10 @@ def validate(rec, src, known_by_linje):
                 lo, hi = min(known), max(known)
                 true_gaps = [n for n in range(rng[0], rng[1] + 1)
                              if n not in known and lo <= n <= hi]
+            # ADVISORY: kan ikke skelne droppet post fra bogens sammenlagte interval
+            # ("95.-97. Børn."). Ægte drops fanges af segment.py's contiguity-tjek.
             if true_gaps:
-                issues.append(f'R2: børn-basenr mangler inden i linje {lin}s vindue (droppet post?): {true_gaps}')
+                advisory.append(f'R2: børn-basenr uden individuel post i linje {lin}: {true_gaps} (sammenlagt interval el. droppet?)')
             # R3 er ADVISORY: bogen er selv ofte inkonsistent ("5 (7?) børn"),
             # og load bygger børn fra nr_range uanset antal. Blokerer ikke.
             if b.get('antal') is not None and b['antal'] != (rng[1] - rng[0] + 1):
