@@ -15,7 +15,9 @@ do $$
 declare t text;
 begin
   foreach t in array array[
-    'person', 'fact', 'assertion', 'conclusion'
+    'person', 'fact', 'assertion', 'conclusion',
+    'person_external_id', 'family', 'family_member', 'relation', 'narrative',
+    'estate', 'organisation', 'historical_event', 'place', 'source'
   ] loop
     -- 1) PostgREST tilgår basen som rollen 'anon' -> kræver SELECT-grant.
     execute format('grant select on table public.%I to anon;', t);
@@ -37,7 +39,9 @@ end $$;
 --  do $$
 --  declare t text;
 --  begin
---    foreach t in array array['person','fact','assertion','conclusion'] loop
+--    foreach t in array array['person','fact','assertion','conclusion',
+--      'person_external_id','family','family_member','relation','narrative',
+--      'estate','organisation','historical_event','place','source'] loop
 --      execute format('drop policy if exists dev_anon_read on public.%I;', t);
 --      execute format('revoke select on table public.%I from anon;', t);
 --    end loop;
