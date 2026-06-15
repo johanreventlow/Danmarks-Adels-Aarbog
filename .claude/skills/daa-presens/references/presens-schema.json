@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DAA-præsensliste: udtræk per gren-blok (trin ③)",
+  "description": "Ét objekt per gren-blok. personer[] er et fladt array, men træet rekonstrueres via foraelder_lokal_id (peger på et andet lokal_id i SAMME blok). Opret ALDRIG forældre/svigerforældre/ægtefæller fra '(søn af …)'/'(F.: …)' som egne person-poster — de hører i note-felter. Kilden er OCR'et: rens navne for initial-mellemrum (C hristian->Christian), tolk f/j som dødsdagger.",
+  "type": "object",
+  "required": ["linje", "gren", "personer"],
+  "additionalProperties": false,
+  "properties": {
+    "linje": {"type": ["string", "null"]},
+    "gren": {"type": "integer"},
+    "personer": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["lokal_id", "navn", "koen"],
+        "additionalProperties": false,
+        "properties": {
+          "lokal_id": {"type": "string", "description": "unik i blokken, fx 'head','a','a.1','a.1.b','sostre.1'"},
+          "foraelder_lokal_id": {"type": ["string", "null"], "description": "lokal_id på forælder i SAMME blok (efterkommer-træ); null for gren-hoved og kollaterale sektions-toppe"},
+          "relation_til_hoved": {"type": ["string", "null"], "description": "kun for kollaterale: 'søster','bror','søskende','farfars farbror',… ellers null"},
+          "titel": {"type": ["string", "null"], "description": "Greve|Komtesse|lensgreve|Grevinde|…"},
+          "navn": {"type": "string", "description": "OCR-renset, uden titel"},
+          "koen": {"type": "string", "enum": ["mand", "kvinde", "ukendt"]},
+          "foedsel": {"$ref": "#/$defs/datofakta"},
+          "doed": {"$ref": "#/$defs/datofakta"},
+          "erhverv": {"type": "array", "items": {"type": "string"}},
+          "bopael": {"type": ["string", "null"], "description": "nuværende residens fra [..], fx 'Stenstrup, Svendborg'"},
+          "foraeldre_note": {"type": ["string", "null"], "description": "tekst fra '(søn af …)'/'(F.: …)' — IKKE nye person-poster"},
+          "aegteskaber": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["ordinal"],
+              "additionalProperties": false,
+              "properties": {
+                "ordinal": {"type": "integer"},
+                "partner_navn": {"type": ["string", "null"]},
+                "partner_foraeldre": {"type": ["string", "null"], "description": "'(F.: …)' som tekst"},
+                "partner_foedsel_raw": {"type": ["string", "null"]},
+                "dato_raw": {"type": ["string", "null"]},
+                "sted": {"type": ["string", "null"]},
+                "skilt": {"type": "boolean"}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "datofakta": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "date_raw": {"type": ["string", "null"], "description": "som læst (OCR-tolerant)"},
+        "date_min": {"type": ["string", "null"]},
+        "date_max": {"type": ["string", "null"]},
+        "sted": {"type": ["string", "null"]}
+      }
+    }
+  }
+}
