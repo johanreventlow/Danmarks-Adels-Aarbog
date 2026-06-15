@@ -115,8 +115,11 @@ tryCatch({
       pid <- add_person(g(p, "koen"))
       assign(p$lokal_id, pid, envir = lmap)
       add_extid(pid, src, blk$linje)
-      navn <- if (!is.null(p$titel) && !is.na(p$titel)) paste(p$titel, p$navn) else p$navn
-      fact_value(pid, "navn", vaerdi = navn, sid = src)
+      # titel bages IKKE ind i navnet — navn og titel er separate fakta; display
+      # komponerer (visning_navn + visning_titel). Jf. datamodel §5.
+      fact_value(pid, "navn", vaerdi = p$navn, sid = src)
+      if (!is.null(p$titel) && !is.na(p$titel) && nzchar(trimws(p$titel)))
+        fact_value(pid, "titel", vaerdi = p$titel, sid = src)
       f <- p[["foedsel"]]; if (is.list(f)) fact_value(pid, "fødsel", dmin=dd(f,"date_min"), dmax=dd(f,"date_max"), raw=dd(f,"date_raw"), sted=dd(f,"sted"), sid=src)
       d <- p[["doed"]];    if (is.list(d)) fact_value(pid, "død",    dmin=dd(d,"date_min"), dmax=dd(d,"date_max"), raw=dd(d,"date_raw"), sted=dd(d,"sted"), sid=src)
       for (e in g(p, "erhverv", list())) fact_value(pid, "erhverv", vaerdi = e, sid = src)
