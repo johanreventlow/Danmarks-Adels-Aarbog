@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DAA-post struktureret udtræk (trin ③)",
+  "description": "Ét objekt per stamtavle-post — KUN struktureret rygrad. UDLED IKKE narrative: den ordrette prosa flettes deterministisk ind fra posts.json (raw_text) af validate.py, så den aldrig trunkeres/parafraseres. Opret ALDRIG tredjeparts-personer (konger, paver, vidner) — de nævnes kun. Hver dato-værdi SKAL forekomme ordret i kilde-postens raw_text.",
+  "type": "object",
+  "required": ["linje", "nr", "navn"],
+  "additionalProperties": false,
+  "properties": {
+    "linje": {"type": "string", "description": "romertal, fx 'I'"},
+    "nr": {"type": "integer", "description": "løbenummer i linjen"},
+    "navn": {"type": "string"},
+    "tilnavn": {"type": ["string", "null"], "description": "fx 'kaldet Kale'"},
+    "koen": {"type": ["string", "null"], "enum": ["mand", "kvinde", "ukendt", null]},
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["faktatype"],
+        "additionalProperties": false,
+        "properties": {
+          "faktatype": {"type": "string", "description": "navn|fødsel|død|floruit|dåb|begravelse|titel|adling|dekoration|dødsårsag|..."},
+          "vaerdi": {"type": ["string", "null"]},
+          "date_raw": {"type": ["string", "null"], "description": "ordret som i bogen — SKAL findes i narrative. For ALLE dato-fakta (fødsel/død/floruit/dåb/begravelse) er date_raw OBLIGATORISK og kopieres verbatim; syntetisér ALDRIG en normaliseret span i vaerdi i stedet (floruit-spanet hører i date_min/date_max + verbatim i date_raw)."},
+          "date_min": {"type": ["string", "null"], "description": "ISO YYYY-MM-DD el. null"},
+          "date_max": {"type": ["string", "null"]},
+          "date_qualifier": {"type": ["string", "null"], "enum": ["exact", "before", "after", "about", "between", "floruit", "until_event", "open_end", "ongoing", null]},
+          "sted": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "godser": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["navn"],
+        "additionalProperties": false,
+        "properties": {
+          "navn": {"type": "string"},
+          "periode_raw": {"type": ["string", "null"]},
+          "period_type": {"type": ["string", "null"]},
+          "sted": {"type": ["string", "null"], "description": "sogn/kreds, fx 'Selent S., Plön Kr.'"}
+        }
+      }
+    },
+    "embeder": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["rolle"],
+        "additionalProperties": false,
+        "properties": {
+          "organisation": {"type": ["string", "null"]},
+          "rolle": {"type": "string"},
+          "dato_raw": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "aegteskaber": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ordinal"],
+        "additionalProperties": false,
+        "properties": {
+          "ordinal": {"type": "integer", "description": "1, 2, 3 (gift 1°/2°/3°)"},
+          "partner_navn": {"type": ["string", "null"]},
+          "partner_ekstern_ref": {"type": ["string", "null"], "description": "fx 'DAA 1930, II, 71' — ekstern kilde/identitet, IKKE ny person"},
+          "type": {"type": ["string", "null"], "enum": ["vielse", "partnerskab", "ugift union", null]},
+          "note": {"type": ["string", "null"], "description": "fri tekst, fx svigerforældre (F.: ...)"}
+        }
+      }
+    },
+    "boern": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "antal": {"type": ["integer", "null"]},
+        "slaegtled": {"type": ["string", "null"]},
+        "linje": {"type": ["string", "null"]},
+        "nr_range": {"type": ["array", "null"], "items": {"type": "integer"}, "description": "[lav, høj]"}
+      }
+    },
+    "begivenheder": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["navn", "rolle"],
+        "additionalProperties": false,
+        "properties": {
+          "navn": {"type": "string"},
+          "rolle": {"type": "string"},
+          "dato_raw": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "narrative": {"type": ["string", "null"], "description": "UDLED IKKE — flettes deterministisk fra posts.json af validate.py. Felt tolereres men ignoreres/overskrives."}
+  }
+}
