@@ -26,7 +26,7 @@ export interface Relations {
 
 const PERSON_COLS = "id, visning_navn, visning_titel, visning_foedt, visning_doed, koen";
 
-export interface FactRow { faktatype: string; vaerdi: string | null; dato: string | null; }
+export interface FactRow { faktatype: string; vaerdi: string | null; dato: string | null; iso: string | null; }
 export interface PersonDetail { facts: FactRow[]; notes: string[]; narrative: string | null; }
 
 // Fokus-personens lagdelte fakta (via konklusion) + den fulde narrativ-prosa.
@@ -49,18 +49,18 @@ export async function getPersonDetail(personId: number): Promise<PersonDetail> {
     const chosen = new Map<number, number>();
     for (const c of concs ?? []) if (c.valgt_assertion_id != null) chosen.set(c.target_id, c.valgt_assertion_id);
     const aIds = [...new Set(chosen.values())];
-    const aById = new Map<number, { vaerdi_tekst: string | null; date_raw: string | null }>();
+    const aById = new Map<number, { vaerdi_tekst: string | null; date_raw: string | null; date_min: string | null }>();
     if (aIds.length) {
       const { data: asserts } = await supabase
-        .from("assertion").select("id, vaerdi_tekst, date_raw").in("id", aIds)
-        .returns<{ id: number; vaerdi_tekst: string | null; date_raw: string | null }[]>();
+        .from("assertion").select("id, vaerdi_tekst, date_raw, date_min").in("id", aIds)
+        .returns<{ id: number; vaerdi_tekst: string | null; date_raw: string | null; date_min: string | null }[]>();
       for (const a of asserts ?? []) aById.set(a.id, a);
     }
     rows = factList
       .filter((f) => f.faktatype !== "navn") // navn vises i kortets titel
       .map((f) => {
         const a = aById.get(chosen.get(f.id) ?? -1);
-        return { faktatype: f.faktatype, vaerdi: a?.vaerdi_tekst ?? null, dato: a?.date_raw ?? null };
+        return { faktatype: f.faktatype, vaerdi: a?.vaerdi_tekst ?? null, dato: a?.date_raw ?? null, iso: a?.date_min ?? null };
       });
   }
 

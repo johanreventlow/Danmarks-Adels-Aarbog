@@ -63,7 +63,7 @@ export default function App() {
 
 function FocusCard({ p, detail }: { p: RelPerson; detail: PersonDetail | null }) {
   const facts = (detail?.facts ?? [])
-    .map((f) => ({ faktatype: f.faktatype, value: [f.vaerdi, f.dato].filter(Boolean).join(" · ") }))
+    .map((f) => ({ faktatype: f.faktatype, value: [f.vaerdi, expandRel(f.dato, f.iso)].filter(Boolean).join(" · ") }))
     .filter((f) => f.value);
   return (
     <section style={s.focus}>
@@ -134,6 +134,17 @@ function lifespan(p: RelPerson): string {
 }
 function clean(x: string | null): string {
   return (x ?? "").replace(/^[*†]\s*/, "").trim();
+}
+// Ekspandér relative referencer i rå dato-tekst vha. den opløste ISO-dato:
+// "s.å." -> årstal, "s.m." -> månedsnavn + år. Gør visningen selv-forklarende.
+const MDR = ["jan.", "febr.", "marts", "april", "maj", "juni", "juli", "aug.", "sept.", "okt.", "nov.", "dec."];
+function expandRel(raw: string | null, iso: string | null): string | null {
+  if (!raw || !iso || !/^\d{4}-\d{2}/.test(iso)) return raw;
+  const year = iso.slice(0, 4);
+  let out = raw.replace(/s\.å\./gi, year);
+  const mo = parseInt(iso.slice(5, 7), 10);
+  if (mo >= 1 && mo <= 12) out = out.replace(/s\.m\./gi, `${MDR[mo - 1]} ${year}`);
+  return out;
 }
 function extid(p: RelPerson): string {
   return p.linje && p.nr != null ? `${p.linje}-${p.nr}` : "";
