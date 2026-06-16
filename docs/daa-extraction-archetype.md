@@ -84,6 +84,21 @@ Dette er fejlkilderne der afgør model-valg:
 | "(1561-†)" | `until_event` / `open_end` | min sat, åben til død |
 | "1966–" | `ongoing` | max NULL |
 
+## 4b. Forkortelser
+
+To slags, håndteres forskelligt:
+- **Relative referencer** (`s.å.`=samme år, `s.m.`=samme måned, `s.st.`/`sst.`=samme
+  sted, `s.d.`=samme dag) opløses til ABSOLUT ved udtræk vha. konteksten (forrige
+  dato/sted i posten); rå tekst bevares i date_raw. (Aktuelt ~84% opløst.)
+- **Domæne-forkortelser** = kontrolleret vokab. Bogens "Generelle forkortelser"
+  (bagstof) er seedet i `vocab(scheme='forkortelse')` via
+  `references/forkortelser.json` (S.=Sogn, H.=Herred, Kr.=Kreds, F.=Forældre,
+  bibliografi m.m.).
+- **Dekorations-/orden-koder** (`R.`, `D.M.`, `S.K.`, `Ty.J.1.`, `Pr.R.Ø.1.`,
+  `F.Æ.L.4.` …) er DAA-standard og har INGEN nøgle i denne særudgave. De bevares
+  rå (`dekoration`-fakta). Nøglen hentes fra en ANDEN DAA-udgave senere og seedes
+  i `vocab(scheme='dekoration')` — fabrikér dem ikke.
+
 ## 5. Valideringsregler (gør et svagere udtræk forsvarligt)
 
 Køres efter hvert post-udtræk; flagér til review ved brud:

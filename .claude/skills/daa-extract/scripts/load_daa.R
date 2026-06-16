@@ -127,6 +127,12 @@ seed_vocab <- function() {
   for (key in names(schemes)) for (code in v[[key]])
     ex("INSERT INTO vocab (scheme,code,label) VALUES ($1,$2,$3) ON CONFLICT (scheme,code) DO NOTHING",
        list(unname(schemes[key]), code, code))
+  # forkortelsesnøgle fra bogens bagstof (kode -> betydning)
+  fp <- ".claude/skills/daa-extract/references/forkortelser.json"
+  if (file.exists(fp)) { fk <- fromJSON(fp, simplifyVector = TRUE)
+    for (code in names(fk))
+      ex("INSERT INTO vocab (scheme,code,label) VALUES ('forkortelse',$1,$2) ON CONFLICT (scheme,code) DO NOTHING",
+         list(code, fk[[code]])) }
 }
 # normalisér delvise datoer til ISO (DB-kolonnen er DATE). "1240"->"1240-01-01",
 # "1240-05"->"1240-05-01". Ugyldigt (fx span "1240-1245") -> NA; date_raw bevares altid.
