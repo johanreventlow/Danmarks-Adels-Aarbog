@@ -37,6 +37,8 @@ Hvert udtræk bliver `assertion` (+ `conclusion` blåstemplet "DAA <udgave>") +
 | Død (†) | `fact` | `død` | "† 11. febr. 1604" |
 | Floruit (kun aktiv-span) | `fact` | `floruit` | "-1223-1247-" |
 | Begravelse/dåb | `fact` | `begravelse`/`dåb` | hvis nævnt |
+| Erhverv (hver dateret stilling) | `fact` | `erhverv` | "Project Officer hos IRCT 2005-2007", "direktør 2019-" |
+| Uddannelse/akademisk grad | `fact` | `uddannelse` | "student 1996", "cand.mag. 2008" (cand./dr./ph.d./mag./LL.M./stud.) |
 | Titel/rang | `fact` | `titel` | "ridder", "Tysk kansler", "greve" |
 | Adling/patent | `fact` | `adling` | monark + dato + patent |
 | Dekoration/orden | `fact` + `relation`→organisation | `dekoration` | Elefantordenen |
