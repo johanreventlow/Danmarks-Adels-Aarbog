@@ -99,6 +99,8 @@ function Group({ title, people, onPick }: { title: string; people: RelPerson[]; 
           <button key={p.id} style={s.card} onClick={() => onPick(p.id)}>
             <div style={s.cardName}>{displayName(p)}</div>
             <div style={s.cardMeta}>{[lifespan(p), extid(p)].filter(Boolean).join(" · ")}</div>
+            {p.vielse && <div style={s.marr}>⚭ {p.vielse.replace(/^Gift\s+/i, "")}{p.skilt ? " · skilt" : ""}</div>}
+            {!p.vielse && p.skilt && <div style={s.marr}>⚭ skilt</div>}
             {p.konfidens && p.konfidens !== "sikker" && (
               <div style={s.konf}>⚠ {p.konfidens}</div>
             )}
@@ -168,5 +170,6 @@ const s: Record<string, React.CSSProperties> = {
   card: { textAlign: "left", border: "1px solid #e2e2e2", borderRadius: 10, padding: "0.6rem 0.8rem", background: "#fff", cursor: "pointer", minWidth: 180, boxShadow: "0 1px 2px rgba(0,0,0,0.04)" },
   cardName: { fontWeight: 600, fontSize: "0.95rem" },
   cardMeta: { color: "#777", fontSize: "0.8rem", marginTop: "0.15rem" },
+  marr: { color: "#555", fontSize: "0.76rem", marginTop: "0.25rem", lineHeight: 1.35 },
   konf: { color: "#b5560a", fontSize: "0.72rem", marginTop: "0.2rem" },
 };

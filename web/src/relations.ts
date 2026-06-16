@@ -11,6 +11,8 @@ export interface RelPerson {
   linje?: string | null;
   nr?: number | null;
   konfidens?: string | null; // på family_member-linket (sikker/formodet/...)
+  vielse?: string | null;    // vielsesdato(er) fra familiens vielse-fakta (kun ægtefæller)
+  skilt?: boolean;           // familien har skilsmisse-fakta
 }
 
 export interface Relations {
@@ -135,6 +137,47 @@ export async function getRelations(personId: number): Promise<Relations> {
     }
   }
 
+  // ægteskabs-fakta (vielse/skilsmisse) for union-familier — vielse/skilsmisse er
+  // FAMILIE-fakta, ikke person-fakta, så de hentes separat og hæftes på ægtefællen.
+  const marrByFam = new Map<number, { vielse: string | null; skilt: boolean }>();
+  const unionIds = [...unionFams];
+  if (unionIds.length) {
+    const { data: ff } = await supabase
+      .from("fact").select("id, subjekt_id, faktatype")
+      .eq("subjekt_type", "family").in("subjekt_id", unionIds).in("faktatype", ["vielse", "skilsmisse"])
+      .returns<{ id: number; subjekt_id: number; faktatype: string }[]>();
+    const fl = ff ?? [];
+    for (const f of fl) {
+      const m = marrByFam.get(f.subjekt_id) ?? { vielse: null, skilt: false };
+      if (f.faktatype === "skilsmisse") m.skilt = true;
+      marrByFam.set(f.subjekt_id, m);
+    }
+    const vIds = fl.filter((f) => f.faktatype === "vielse").map((f) => f.id);
+    if (vIds.length) {
+      const { data: cc } = await supabase.from("conclusion").select("target_id, valgt_assertion_id")
+        .eq("target_type", "fact").in("target_id", vIds).returns<{ target_id: number; valgt_assertion_id: number | null }[]>();
+      const aMap = new Map<number, number>();
+      for (const c of cc ?? []) if (c.valgt_assertion_id != null) aMap.set(c.target_id, c.valgt_assertion_id);
+      const aIds = [...new Set(aMap.values())];
+      if (aIds.length) {
+        const { data: aa } = await supabase.from("assertion").select("id, date_raw").in("id", aIds).returns<{ id: number; date_raw: string | null }[]>();
+        const dr = new Map<number, string | null>(); for (const a of aa ?? []) dr.set(a.id, a.date_raw);
+        for (const f of fl) if (f.faktatype === "vielse") { const m = marrByFam.get(f.subjekt_id); if (m) m.vielse = dr.get(aMap.get(f.id) ?? -1) ?? m.vielse; }
+      }
+    }
+  }
+
+  // ægtefæller med vielse/skilsmisse hæftet på (beholder family_id-konteksten)
+  const spouses: RelPerson[] = [];
+  const seenSp = new Set<number>();
+  for (const m of memberList) {
+    if (!unionFams.has(m.family_id) || m.rolle !== "partner" || m.person_id === personId || seenSp.has(m.person_id)) continue;
+    const p = pById.get(m.person_id); if (!p) continue;
+    seenSp.add(m.person_id);
+    const marr = marrByFam.get(m.family_id);
+    spouses.push({ ...p, konfidens: m.konfidens, vielse: marr?.vielse ?? null, skilt: marr?.skilt ?? false });
+  }
+
   const pick = (famSet: Set<number>, rolle: string): RelPerson[] => {
     const seen = new Set<number>();
     const out: RelPerson[] = [];
@@ -151,7 +194,7 @@ export async function getRelations(personId: number): Promise<Relations> {
     person: me,
     parents: pick(birthFams, "partner"),
     siblings: pick(birthFams, "barn"),
-    spouses: pick(unionFams, "partner"),
+    spouses,
     children: pick(unionFams, "barn"),
   };
 }
