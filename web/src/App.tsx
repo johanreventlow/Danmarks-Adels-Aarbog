@@ -94,7 +94,10 @@ function Group({ title, people, onPick }: { title: string; people: RelPerson[]; 
 // --- helpers ---
 function displayName(p: RelPerson): string {
   const navn = p.visning_navn ?? "(uden navn)";
-  return p.visning_titel ? `${p.visning_titel} ${navn}` : navn;
+  const titel = p.visning_titel?.trim();
+  if (!titel) return navn;
+  // nogle navne har titlen bagt ind (udtræks-inkonsistens) — undgå dobbelt titel
+  return navn.toLowerCase().startsWith(titel.toLowerCase()) ? navn : `${titel} ${navn}`;
 }
 function lifespan(p: RelPerson): string {
   const f = clean(p.visning_foedt), d = clean(p.visning_doed);
