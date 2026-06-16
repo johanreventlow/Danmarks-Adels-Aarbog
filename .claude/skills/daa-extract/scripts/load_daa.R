@@ -116,13 +116,6 @@ split_title <- function(navn) {
     return(list(titel=w[1], rest=paste(w[-1], collapse=" ")))
   list(titel=NA, rest=navn)
 }
-# Akademiske grader er UDDANNELSE, ikke erhverv (cand.jur., LL.M., ph.d., dr.phil.,
-# mag.scient., lic., stud., student). Klassificér erhverv-værdier ved load.
-ft_erhverv <- function(v) {
-  if (is.null(v) || is.na(v)) return("erhverv")
-  if (grepl("^(cand\\.|dr\\.|mag\\.|lic\\.|stud\\.|ph\\.?d|ll\\.[mb]|h\\.d\\.|m\\.a\\.|b\\.a\\.)", tolower(trimws(v))) ||
-      tolower(trimws(v)) == "student") "uddannelse" else "erhverv"
-}
 # Seed kontrolleret vokabular (invariant #9) fra vocab.json — idempotent.
 seed_vocab <- function() {
   vp <- ".claude/skills/daa-extract/references/vocab.json"
@@ -185,8 +178,8 @@ tryCatch({
     if (!is.null(rec$tilnavn) && !is.na(rec$tilnavn))
       fact_value(pid, "tilnavn", vaerdi = rec$tilnavn, sid = src, side = side)
     for (f in g(rec, "facts", list())) {
-      ft <- if (identical(f$faktatype, "erhverv")) ft_erhverv(g(f,"vaerdi")) else f$faktatype
-      fact_value(pid, ft, vaerdi = g(f,"vaerdi"), dmin = g(f,"date_min"),
+      if (f$faktatype %in% c("erhverv", "uddannelse")) next   # foreløbig IKKE rygrad — bliver i narrativen
+      fact_value(pid, f$faktatype, vaerdi = g(f,"vaerdi"), dmin = g(f,"date_min"),
                  dmax = g(f,"date_max"), qual = g(f,"date_qualifier"), raw = g(f,"date_raw"),
                  sid = src, side = side, sted = g(f,"sted"))
     }
@@ -211,8 +204,11 @@ tryCatch({
         pf <- a[["partner_foedsel"]]; if (is.list(pf)) fact_value(sp, "fødsel", dmin=g(pf,"date_min"), dmax=g(pf,"date_max"), raw=g(pf,"date_raw"), sted=g(pf,"sted"), sid=src, side=side)
         pd <- a[["partner_daab"]];   if (is.list(pd)) fact_value(sp, "dåb",    dmin=g(pd,"date_min"), dmax=g(pd,"date_max"), raw=g(pd,"date_raw"), sted=g(pd,"sted"), sid=src, side=side)
         px <- a[["partner_doed"]];   if (is.list(px)) fact_value(sp, "død",    dmin=g(px,"date_min"), dmax=g(px,"date_max"), raw=g(px,"date_raw"), sted=g(px,"sted"), sid=src, side=side)
-        for (e in g(a, "partner_erhverv", list())) fact_value(sp, ft_erhverv(e), vaerdi=e, sid=src, side=side)
-        add_note("person", sp, g(a, "partner_foraeldre", NULL))   # ægtefælles forældre
+        # ægtefælle har ingen narrativ -> forældre + erhverv/udd. samles i en bio-note
+        sp_parts <- c()
+        spf <- g(a, "partner_foraeldre", NULL); if (!is.null(spf) && !is.na(spf)) sp_parts <- c(sp_parts, spf)
+        sp_erh <- g(a, "partner_erhverv", list()); if (length(sp_erh)) sp_parts <- c(sp_parts, paste("Erhverv/udd.:", paste(unlist(sp_erh), collapse=", ")))
+        if (length(sp_parts)) add_note("person", sp, paste(sp_parts, collapse=" — "))
         add_member(fam, sp, "partner", ordinal = g(a, "ordinal"))
       }
       if (!is.null(a$dato_raw) || !is.null(a$date_min) || !is.null(a[["sted"]]))
