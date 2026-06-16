@@ -22,3 +22,6 @@ work_presens/
 *.pdf
 web/vite.config.js
 web/vite.config.d.ts
+
+# Agent-worktrees (harness-sandkasser)
+.claude/worktrees/
