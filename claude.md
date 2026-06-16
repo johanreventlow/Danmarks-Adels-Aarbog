@@ -59,8 +59,14 @@ Kernefunktionen er **"er vi i familie?"** — slægtskabssøgning på tværs af 
   privat-flag på person/note/narrative, repository.adresse). `schema.sql` er source of
   truth; kør `db-migrations.sql` for at afstemme en allerede deployet base. Se også
   `docs/tng-reventlow-analyse.md`.
-- **Seed-data** kan loades med `supabase_load.R` (login i `~/.Renviron`).
-- **Endnu ikke lavet:** frontend, RLS-politikker, rigtig GEDCOM/TNG-import, slægtskabsfinder, multimedie/Storage.
+- **Aktuel tilstand (2026-06-16):** Hele Reventlow-stamtavlen er loadet (591 poster →
+  934 personer) via `/daa-extract`. App-skive med klikbar slægtskabs-visning kører
+  (web/). Nær families ægtefæller beriget. Se `docs/changelog.md` + `docs/decisions.md`.
+  Parsere: `/daa-extract` (stamtavle), `/daa-presens` (præsensliste).
+- **Endnu ikke lavet:** rigtigt RLS-lag (kritisk før multi-bruger — nulevende-data i
+  basen nu), ægtefælle-rygrad for HELE slægten (kun nær familie pt.), dekorations-nøgle
+  (fra anden DAA-udgave), rigtig GEDCOM/TNG-import (enrichment), multimedie/Storage.
+- **Load:** `supabase_load.R` er erstattet af `/daa-extract`'s `load_daa.R` (bulk, ~14 sek).
 
 ---
 
