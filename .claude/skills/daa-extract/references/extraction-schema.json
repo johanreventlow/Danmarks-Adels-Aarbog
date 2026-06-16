@@ -76,7 +76,7 @@
           "partner_foedsel": {"$ref": "#/$defs/datofakta", "description": "gift-ind ægtefælles fødsel (de har ingen egen post; data står i denne post)"},
           "partner_daab": {"$ref": "#/$defs/datofakta", "description": "ægtefælles dåb"},
           "partner_doed": {"$ref": "#/$defs/datofakta", "description": "ægtefælles død"},
-          "partner_erhverv": {"type": "array", "items": {"type": "string"}, "description": "ægtefælles erhverv/titel-erhverv"},
+          "partner_erhverv": {"type": "array", "items": {"type": "string"}, "description": "ægtefælles erhverv. NB: akademiske grader (cand.jur., LL.M., ph.d., dr.phil., mag.scient., student) er UDDANNELSE — loaderen klassificerer dem dog automatisk, så medtag dem her."},
           "partner_foraeldre": {"type": ["string", "null"], "description": "ægtefælles forældre fra '(F.: …)' — tekst, ikke nye personer"},
           "note": {"type": ["string", "null"], "description": "anden fri tekst om ægteskabet"}
         }
