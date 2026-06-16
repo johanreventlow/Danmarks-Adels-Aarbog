@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getRelations, resolvePersonId, type RelPerson, type Relations } from "./relations";
+import { getRelations, getPersonDetail, resolvePersonId, type PersonDetail, type RelPerson, type Relations } from "./relations";
 
 // Start-fokus: Johan Martin (linje V, nr 186).
 const START = { linje: "V", nr: 186 };
@@ -7,6 +7,7 @@ const START = { linje: "V", nr: 186 };
 export default function App() {
   const [focusId, setFocusId] = useState<number | null>(null);
   const [data, setData] = useState<Relations | null>(null);
+  const [detail, setDetail] = useState<PersonDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -22,8 +23,8 @@ export default function App() {
     if (focusId == null) return;
     let alive = true;
     setLoading(true);
-    getRelations(focusId)
-      .then((d) => alive && (setData(d), setError(null)))
+    Promise.all([getRelations(focusId), getPersonDetail(focusId)])
+      .then(([rel, det]) => alive && (setData(rel), setDetail(det), setError(null)))
       .catch((e) => alive && setError(describe(e)))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
@@ -48,7 +49,7 @@ export default function App() {
 
       {data && !loading && (
         <>
-          <FocusCard p={data.person} />
+          <FocusCard p={data.person} detail={detail} />
           <Group title="Forældre" people={data.parents} onPick={setFocusId} />
           <Group title="Ægtefælle(r)" people={data.spouses} onPick={setFocusId} />
           <Group title="Søskende" people={data.siblings} onPick={setFocusId} />
@@ -60,13 +61,30 @@ export default function App() {
   );
 }
 
-function FocusCard({ p }: { p: RelPerson }) {
+function FocusCard({ p, detail }: { p: RelPerson; detail: PersonDetail | null }) {
+  const facts = (detail?.facts ?? []).filter((f) => f.value);
   return (
     <section style={s.focus}>
       <div style={s.focusName}>{displayName(p)}</div>
       <div style={s.focusMeta}>
         {[p.koen, lifespan(p), extid(p)].filter(Boolean).join(" · ") || "—"}
       </div>
+      {facts.length > 0 && (
+        <dl style={s.facts}>
+          {facts.map((f, i) => (
+            <div key={i} style={s.factRow}>
+              <dt style={s.factType}>{f.faktatype}</dt>
+              <dd style={s.factVal}>{f.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {detail?.narrative && (
+        <details style={s.narr}>
+          <summary style={s.narrSum}>Fuld biografi (kilde-prosa)</summary>
+          <p style={s.narrText}>{detail.narrative}</p>
+        </details>
+      )}
     </section>
   );
 }
@@ -136,6 +154,13 @@ const s: Record<string, React.CSSProperties> = {
   focus: { border: "2px solid #1a1a1a", borderRadius: 12, padding: "1rem 1.25rem", marginBottom: "1.5rem", background: "#fff" },
   focusName: { fontSize: "1.3rem", fontWeight: 700 },
   focusMeta: { color: "#555", marginTop: "0.25rem", fontSize: "0.9rem" },
+  facts: { margin: "0.75rem 0 0", display: "grid", gridTemplateColumns: "auto 1fr", gap: "0.2rem 0.8rem" },
+  factRow: { display: "contents" },
+  factType: { fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.03em", color: "#8a8a8a" },
+  factVal: { margin: 0, fontSize: "0.88rem" },
+  narr: { marginTop: "0.8rem", borderTop: "1px solid #eee", paddingTop: "0.5rem" },
+  narrSum: { fontSize: "0.82rem", color: "#5a5a5a", cursor: "pointer", fontWeight: 600 },
+  narrText: { fontSize: "0.85rem", lineHeight: 1.5, color: "#333", marginTop: "0.5rem", whiteSpace: "pre-wrap" },
   group: { marginBottom: "1.25rem" },
   groupTitle: { fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.05em", color: "#7a7a7a", margin: "0 0 0.5rem" },
   count: { color: "#bbb" },

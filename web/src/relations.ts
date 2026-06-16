@@ -23,6 +23,52 @@ export interface Relations {
 
 const PERSON_COLS = "id, visning_navn, visning_titel, visning_foedt, visning_doed, koen";
 
+export interface FactRow { faktatype: string; value: string | null; }
+export interface PersonDetail { facts: FactRow[]; narrative: string | null; }
+
+// Fokus-personens lagdelte fakta (via konklusion) + den fulde narrativ-prosa.
+// Den dybe biografi (dåb, uddannelse, karriere…) ligger i narrativen — kun
+// rygrads-fakta er struktureret (datamodel §6).
+export async function getPersonDetail(personId: number): Promise<PersonDetail> {
+  const { data: facts } = await supabase
+    .from("fact").select("id, faktatype")
+    .eq("subjekt_type", "person").eq("subjekt_id", personId)
+    .returns<{ id: number; faktatype: string }[]>();
+  const factList = facts ?? [];
+  const ids = factList.map((f) => f.id);
+
+  let rows: FactRow[] = [];
+  if (ids.length) {
+    const { data: concs } = await supabase
+      .from("conclusion").select("target_id, valgt_assertion_id")
+      .eq("target_type", "fact").in("target_id", ids)
+      .returns<{ target_id: number; valgt_assertion_id: number | null }[]>();
+    const chosen = new Map<number, number>();
+    for (const c of concs ?? []) if (c.valgt_assertion_id != null) chosen.set(c.target_id, c.valgt_assertion_id);
+    const aIds = [...new Set(chosen.values())];
+    const aById = new Map<number, { vaerdi_tekst: string | null; date_raw: string | null }>();
+    if (aIds.length) {
+      const { data: asserts } = await supabase
+        .from("assertion").select("id, vaerdi_tekst, date_raw").in("id", aIds)
+        .returns<{ id: number; vaerdi_tekst: string | null; date_raw: string | null }[]>();
+      for (const a of asserts ?? []) aById.set(a.id, a);
+    }
+    rows = factList
+      .filter((f) => f.faktatype !== "navn") // navn vises i kortets titel
+      .map((f) => {
+        const a = aById.get(chosen.get(f.id) ?? -1);
+        return { faktatype: f.faktatype, value: a ? a.date_raw ?? a.vaerdi_tekst : null };
+      });
+  }
+
+  const { data: narr } = await supabase
+    .from("narrative").select("tekst")
+    .eq("subjekt_type", "person").eq("subjekt_id", personId)
+    .returns<{ tekst: string }[]>();
+  const narrative = (narr ?? []).map((n) => n.tekst).join("\n\n") || null;
+  return { facts: rows, narrative };
+}
+
 // Slå person-id op fra bogens (linje, nr).
 export async function resolvePersonId(linje: string, nr: number): Promise<number> {
   const { data, error } = await supabase

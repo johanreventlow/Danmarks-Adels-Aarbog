@@ -104,6 +104,18 @@ rel_value <- function(st, sid_, ot, oid_, rolle, raw=NA, em=NA, sid) {
   aid <- add_assertion("relation", rid, vaerdi=rolle, raw=raw)
   add_citation(aid, sid); add_conclusion("relation", rid, aid); invisible(rid) }
 g <- function(x, k, d=NA) if (!is.null(x[[k]])) x[[k]] else d
+# Adskil ledende adelstitel fra navnet (titel != navn, datamodel §5). Nogle
+# udtræk bager titlen ind i navnet -> ryddes her, så navn-fakta er rent.
+.titler <- c("lensgrevinde","lensgreve","rigsgrevinde","rigsgreve","grevinde","komtesse",
+             "greve","friherreinde","friherre","baronesse","baron","hertuginde","hertug",
+             "prinsesse","prins","fyrstinde","fyrste")
+split_title <- function(navn) {
+  if (is.null(navn) || length(navn)==0 || is.na(navn)) return(list(titel=NA, rest=navn))
+  w <- strsplit(trimws(navn), "\\s+")[[1]]
+  if (length(w) >= 2 && tolower(w[1]) %in% .titler)
+    return(list(titel=w[1], rest=paste(w[-1], collapse=" ")))
+  list(titel=NA, rest=navn)
+}
 # Seed kontrolleret vokabular (invariant #9) fra vocab.json — idempotent.
 seed_vocab <- function() {
   vp <- ".claude/skills/daa-extract/references/vocab.json"
@@ -152,7 +164,11 @@ tryCatch({
     add_extid(pid, src, rec$linje, rec$nr)        # ekstern-id bærer basenr (heltal)
     side <- g(rec, "sider", g(rec, "side"))
     add_narr(pid, src, side, rec$narrative)
-    fact_value(pid, "navn", vaerdi = rec$navn, sid = src, side = side)
+    tp <- split_title(rec$navn)
+    fact_value(pid, "navn", vaerdi = tp$rest, sid = src, side = side)
+    # bevar titel som fakta hvis den var bagt ind i navnet og ikke allerede findes
+    if (!is.na(tp$titel) && !any(vapply(g(rec, "facts", list()), function(f) identical(f$faktatype, "titel"), logical(1))))
+      fact_value(pid, "titel", vaerdi = tp$titel, sid = src, side = side)
     if (!is.null(rec$tilnavn) && !is.na(rec$tilnavn))
       fact_value(pid, "tilnavn", vaerdi = rec$tilnavn, sid = src, side = side)
     for (f in g(rec, "facts", list())) {
@@ -174,7 +190,9 @@ tryCatch({
       fam <- add_family(g(a, "type", "union"))
       add_member(fam, pid, "partner", ordinal = g(a, "ordinal"))
       if (!is.null(a$partner_navn) && !is.na(a$partner_navn)) {
-        sp <- add_person(); fact_value(sp, "navn", vaerdi = a$partner_navn, sid = src, side = side)
+        sp <- add_person(); sp_t <- split_title(a$partner_navn)
+        fact_value(sp, "navn", vaerdi = sp_t$rest, sid = src, side = side)
+        if (!is.na(sp_t$titel)) fact_value(sp, "titel", vaerdi = sp_t$titel, sid = src, side = side)
         add_member(fam, sp, "partner", ordinal = g(a, "ordinal"))
       }
       if (!is.null(a$dato_raw) || !is.null(a$date_min) || !is.null(a[["sted"]]))
