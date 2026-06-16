@@ -101,6 +101,7 @@ function Group({ title, people, onPick }: { title: string; people: RelPerson[]; 
             <div style={s.cardMeta}>{[lifespan(p), extid(p)].filter(Boolean).join(" · ")}</div>
             {p.vielse && <div style={s.marr}>⚭ {p.vielse.replace(/^Gift\s+/i, "")}{p.skilt ? " · skilt" : ""}</div>}
             {!p.vielse && p.skilt && <div style={s.marr}>⚭ skilt</div>}
+            {p.note && <div style={s.spouseNote}>{p.note}</div>}
             {p.konfidens && p.konfidens !== "sikker" && (
               <div style={s.konf}>⚠ {p.konfidens}</div>
             )}
@@ -171,5 +172,6 @@ const s: Record<string, React.CSSProperties> = {
   cardName: { fontWeight: 600, fontSize: "0.95rem" },
   cardMeta: { color: "#777", fontSize: "0.8rem", marginTop: "0.15rem" },
   marr: { color: "#555", fontSize: "0.76rem", marginTop: "0.25rem", lineHeight: 1.35 },
+  spouseNote: { color: "#777", fontSize: "0.74rem", marginTop: "0.3rem", lineHeight: 1.4, whiteSpace: "pre-wrap", borderTop: "1px dashed #eee", paddingTop: "0.3rem" },
   konf: { color: "#b5560a", fontSize: "0.72rem", marginTop: "0.2rem" },
 };

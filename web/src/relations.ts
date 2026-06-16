@@ -13,6 +13,7 @@ export interface RelPerson {
   konfidens?: string | null; // på family_member-linket (sikker/formodet/...)
   vielse?: string | null;    // vielsesdato(er) fra familiens vielse-fakta (kun ægtefæller)
   skilt?: boolean;           // familien har skilsmisse-fakta
+  note?: string | null;      // gift-ind ægtefælles bio (forældre/fødsel/dåb) fra familie-note
 }
 
 export interface Relations {
@@ -167,7 +168,20 @@ export async function getRelations(personId: number): Promise<Relations> {
     }
   }
 
-  // ægtefæller med vielse/skilsmisse hæftet på (beholder family_id-konteksten)
+  // familie-noter for union-familier — gift-ind ægtefælles bio står typisk her
+  // (forældre/fødsel/dåb/erhverv), da hun ikke har egen post i stamtavlen.
+  const noteByFam = new Map<number, string>();
+  if (unionIds.length) {
+    const { data: nn } = await supabase.from("note").select("target_id, indhold")
+      .eq("target_type", "family").in("target_id", unionIds)
+      .returns<{ target_id: number; indhold: string | null }[]>();
+    for (const n of nn ?? []) if (n.indhold && !/^partner ekstern ref:/i.test(n.indhold)) {
+      const prev = noteByFam.get(n.target_id);
+      noteByFam.set(n.target_id, prev ? `${prev}\n${n.indhold}` : n.indhold);
+    }
+  }
+
+  // ægtefæller med vielse/skilsmisse + bio-note hæftet på (beholder family_id-konteksten)
   const spouses: RelPerson[] = [];
   const seenSp = new Set<number>();
   for (const m of memberList) {
@@ -175,7 +189,7 @@ export async function getRelations(personId: number): Promise<Relations> {
     const p = pById.get(m.person_id); if (!p) continue;
     seenSp.add(m.person_id);
     const marr = marrByFam.get(m.family_id);
-    spouses.push({ ...p, konfidens: m.konfidens, vielse: marr?.vielse ?? null, skilt: marr?.skilt ?? false });
+    spouses.push({ ...p, konfidens: m.konfidens, vielse: marr?.vielse ?? null, skilt: marr?.skilt ?? false, note: noteByFam.get(m.family_id) ?? null });
   }
 
   const pick = (famSet: Set<number>, rolle: string): RelPerson[] => {
