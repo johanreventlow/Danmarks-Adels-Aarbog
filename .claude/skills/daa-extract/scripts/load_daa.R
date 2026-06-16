@@ -254,9 +254,12 @@ tryCatch({
       rel_value("person", pid, "organisation", oid, em$rolle, raw = g(em, "dato_raw"), sid = src)
     }
     # begivenheder -> historical_event + relation MED evidenslag
+    # Skip poster uden navn (kun dato); brug "deltager" som fallback-rolle
     for (bv in g(rec, "begivenheder", list())) {
+      if (is.null(bv$navn) || is.na(bv$navn) || !nzchar(trimws(bv$navn))) next
+      rolle <- if (!is.null(bv$rolle) && !is.na(bv$rolle) && nzchar(trimws(bv$rolle))) bv$rolle else "deltager"
       hid <- add_event(bv$navn)
-      rel_value("person", pid, "historical_event", hid, bv$rolle, raw = g(bv, "dato_raw"), sid = src)
+      rel_value("person", pid, "historical_event", hid, rolle, raw = g(bv, "dato_raw"), sid = src)
     }
   }
 
