@@ -199,6 +199,12 @@ tryCatch({
         sp <- add_person(); sp_t <- split_title(a$partner_navn)
         fact_value(sp, "navn", vaerdi = sp_t$rest, sid = src, side = side)
         if (!is.na(sp_t$titel)) fact_value(sp, "titel", vaerdi = sp_t$titel, sid = src, side = side)
+        # gift-ind ægtefælles rygrad som RIGTIGE fakta på hende (ingen egen post)
+        pf <- a[["partner_foedsel"]]; if (is.list(pf)) fact_value(sp, "fødsel", dmin=g(pf,"date_min"), dmax=g(pf,"date_max"), raw=g(pf,"date_raw"), sted=g(pf,"sted"), sid=src, side=side)
+        pd <- a[["partner_daab"]];   if (is.list(pd)) fact_value(sp, "dåb",    dmin=g(pd,"date_min"), dmax=g(pd,"date_max"), raw=g(pd,"date_raw"), sted=g(pd,"sted"), sid=src, side=side)
+        px <- a[["partner_doed"]];   if (is.list(px)) fact_value(sp, "død",    dmin=g(px,"date_min"), dmax=g(px,"date_max"), raw=g(px,"date_raw"), sted=g(px,"sted"), sid=src, side=side)
+        for (e in g(a, "partner_erhverv", list())) fact_value(sp, "erhverv", vaerdi=e, sid=src, side=side)
+        add_note("person", sp, g(a, "partner_foraeldre", NULL))   # ægtefælles forældre
         add_member(fam, sp, "partner", ordinal = g(a, "ordinal"))
       }
       if (!is.null(a$dato_raw) || !is.null(a$date_min) || !is.null(a[["sted"]]))

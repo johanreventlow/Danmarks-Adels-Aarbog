@@ -27,7 +27,7 @@ export interface Relations {
 const PERSON_COLS = "id, visning_navn, visning_titel, visning_foedt, visning_doed, koen";
 
 export interface FactRow { faktatype: string; value: string | null; }
-export interface PersonDetail { facts: FactRow[]; narrative: string | null; }
+export interface PersonDetail { facts: FactRow[]; notes: string[]; narrative: string | null; }
 
 // Fokus-personens lagdelte fakta (via konklusion) + den fulde narrativ-prosa.
 // Den dybe biografi (dåb, uddannelse, karriere…) ligger i narrativen — kun
@@ -64,12 +64,18 @@ export async function getPersonDetail(personId: number): Promise<PersonDetail> {
       });
   }
 
+  const { data: nn } = await supabase
+    .from("note").select("indhold")
+    .eq("target_type", "person").eq("target_id", personId)
+    .returns<{ indhold: string | null }[]>();
+  const notes = (nn ?? []).map((n) => n.indhold).filter((x): x is string => !!x);
+
   const { data: narr } = await supabase
     .from("narrative").select("tekst")
     .eq("subjekt_type", "person").eq("subjekt_id", personId)
     .returns<{ tekst: string }[]>();
   const narrative = (narr ?? []).map((n) => n.tekst).join("\n\n") || null;
-  return { facts: rows, narrative };
+  return { facts: rows, notes, narrative };
 }
 
 // Slå person-id op fra bogens (linje, nr).

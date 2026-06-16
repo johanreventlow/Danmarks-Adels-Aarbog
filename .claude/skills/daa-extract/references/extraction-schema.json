@@ -73,7 +73,12 @@
           "date_max": {"type": ["string", "null"]},
           "sted": {"type": ["string", "null"], "description": "vielsessted"},
           "skilt": {"type": "boolean", "description": "true hvis ægteskabet blev opløst (skilt)"},
-          "note": {"type": ["string", "null"], "description": "fri tekst, fx svigerforældre (F.: ...)"}
+          "partner_foedsel": {"$ref": "#/$defs/datofakta", "description": "gift-ind ægtefælles fødsel (de har ingen egen post; data står i denne post)"},
+          "partner_daab": {"$ref": "#/$defs/datofakta", "description": "ægtefælles dåb"},
+          "partner_doed": {"$ref": "#/$defs/datofakta", "description": "ægtefælles død"},
+          "partner_erhverv": {"type": "array", "items": {"type": "string"}, "description": "ægtefælles erhverv/titel-erhverv"},
+          "partner_foraeldre": {"type": ["string", "null"], "description": "ægtefælles forældre fra '(F.: …)' — tekst, ikke nye personer"},
+          "note": {"type": ["string", "null"], "description": "anden fri tekst om ægteskabet"}
         }
       }
     },
@@ -101,5 +106,17 @@
       }
     },
     "narrative": {"type": ["string", "null"], "description": "UDLED IKKE — flettes deterministisk fra posts.json af validate.py. Felt tolereres men ignoreres/overskrives."}
+  },
+  "$defs": {
+    "datofakta": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "date_raw": {"type": ["string", "null"], "description": "som læst; årstal SKAL findes i raw_text"},
+        "date_min": {"type": ["string", "null"], "description": "ISO YYYY-MM-DD el. null"},
+        "date_max": {"type": ["string", "null"]},
+        "sted": {"type": ["string", "null"]}
+      }
+    }
   }
 }

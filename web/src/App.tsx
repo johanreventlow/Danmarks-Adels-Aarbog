@@ -79,6 +79,9 @@ function FocusCard({ p, detail }: { p: RelPerson; detail: PersonDetail | null })
           ))}
         </dl>
       )}
+      {detail?.notes?.map((n, i) => (
+        <div key={i} style={s.noteRow}>{n}</div>
+      ))}
       {detail?.narrative && (
         <details style={s.narr}>
           <summary style={s.narrSum}>Fuld biografi (kilde-prosa)</summary>
@@ -161,6 +164,7 @@ const s: Record<string, React.CSSProperties> = {
   factRow: { display: "contents" },
   factType: { fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.03em", color: "#8a8a8a" },
   factVal: { margin: 0, fontSize: "0.88rem" },
+  noteRow: { marginTop: "0.6rem", fontSize: "0.83rem", color: "#555", lineHeight: 1.4 },
   narr: { marginTop: "0.8rem", borderTop: "1px solid #eee", paddingTop: "0.5rem" },
   narrSum: { fontSize: "0.82rem", color: "#5a5a5a", cursor: "pointer", fontWeight: 600 },
   narrText: { fontSize: "0.85rem", lineHeight: 1.5, color: "#333", marginTop: "0.5rem", whiteSpace: "pre-wrap" },
