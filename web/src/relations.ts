@@ -26,7 +26,7 @@ export interface Relations {
 
 const PERSON_COLS = "id, visning_navn, visning_titel, visning_foedt, visning_doed, koen";
 
-export interface FactRow { faktatype: string; value: string | null; }
+export interface FactRow { faktatype: string; vaerdi: string | null; dato: string | null; }
 export interface PersonDetail { facts: FactRow[]; notes: string[]; narrative: string | null; }
 
 // Fokus-personens lagdelte fakta (via konklusion) + den fulde narrativ-prosa.
@@ -60,7 +60,7 @@ export async function getPersonDetail(personId: number): Promise<PersonDetail> {
       .filter((f) => f.faktatype !== "navn") // navn vises i kortets titel
       .map((f) => {
         const a = aById.get(chosen.get(f.id) ?? -1);
-        return { faktatype: f.faktatype, value: a ? a.date_raw ?? a.vaerdi_tekst : null };
+        return { faktatype: f.faktatype, vaerdi: a?.vaerdi_tekst ?? null, dato: a?.date_raw ?? null };
       });
   }
 

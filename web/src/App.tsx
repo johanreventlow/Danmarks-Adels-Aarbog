@@ -62,7 +62,9 @@ export default function App() {
 }
 
 function FocusCard({ p, detail }: { p: RelPerson; detail: PersonDetail | null }) {
-  const facts = (detail?.facts ?? []).filter((f) => f.value);
+  const facts = (detail?.facts ?? [])
+    .map((f) => ({ faktatype: f.faktatype, value: [f.vaerdi, f.dato].filter(Boolean).join(" · ") }))
+    .filter((f) => f.value);
   return (
     <section style={s.focus}>
       <div style={s.focusName}>{displayName(p)}</div>
