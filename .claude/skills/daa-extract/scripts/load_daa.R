@@ -95,6 +95,16 @@ fact_value <- function(pid, ft, vaerdi=NA, dmin=NA, dmax=NA, qual=NA, raw=NA, si
   fid <- add_fact(pid, ft, get_place(sted), st)
   aid <- add_assertion("fact", fid, vaerdi, iso(dmin), iso(dmax), qual, raw)
   add_citation(aid, sid, side); add_conclusion("fact", fid, aid); invisible(fid) }
+# Ægtefælle-dato kan komme STRUKTURERET (list m. date_min/max/raw/sted) ELLER
+# som rå STRING ("* 26. sept. 1687") — udtrækket er inkonsistent. Begge -> fakta;
+# raw bevares altid (display bruger date_raw). String: kun raw, ingen ISO-dato.
+sp_date <- function(sp, ft, val, sid, side) {
+  if (is.null(val)) return(invisible())
+  if (is.list(val))
+    fact_value(sp, ft, dmin=g(val,"date_min"), dmax=g(val,"date_max"), raw=g(val,"date_raw"), sted=g(val,"sted"), sid=sid, side=side)
+  else if (is.character(val) && nzchar(trimws(val)))
+    fact_value(sp, ft, raw=val, sid=sid, side=side)
+}
 add_family <- function(type="union") { id <- nid("family"); push("family", list(id=id, type=type)); id }
 add_member <- function(fid, pid, rolle, ordinal=NA, konfidens=NA)
   push("family_member", list(family_id=fid, person_id=pid, rolle=rolle, ordinal=ordinal, konfidens=konfidens))
@@ -201,14 +211,16 @@ tryCatch({
         fact_value(sp, "navn", vaerdi = sp_t$rest, sid = src, side = side)
         if (!is.na(sp_t$titel)) fact_value(sp, "titel", vaerdi = sp_t$titel, sid = src, side = side)
         # gift-ind ægtefælles rygrad som RIGTIGE fakta på hende (ingen egen post)
-        pf <- a[["partner_foedsel"]]; if (is.list(pf)) fact_value(sp, "fødsel", dmin=g(pf,"date_min"), dmax=g(pf,"date_max"), raw=g(pf,"date_raw"), sted=g(pf,"sted"), sid=src, side=side)
-        pd <- a[["partner_daab"]];   if (is.list(pd)) fact_value(sp, "dåb",    dmin=g(pd,"date_min"), dmax=g(pd,"date_max"), raw=g(pd,"date_raw"), sted=g(pd,"sted"), sid=src, side=side)
-        px <- a[["partner_doed"]];   if (is.list(px)) fact_value(sp, "død",    dmin=g(px,"date_min"), dmax=g(px,"date_max"), raw=g(px,"date_raw"), sted=g(px,"sted"), sid=src, side=side)
-        # ægtefælle har ingen narrativ -> forældre + erhverv/udd. samles i en bio-note
+        sp_date(sp, "fødsel", a[["partner_foedsel"]], src, side)
+        sp_date(sp, "dåb",    a[["partner_daab"]],    src, side)
+        sp_date(sp, "død",    a[["partner_doed"]],    src, side)
+        # ægtefælle har ingen narrativ -> forældre + erhverv/udd. samles i en bio-note.
+        # Noten lægges på FAMILIEN (ikke personen): appen viser gift-ind ægtefælles
+        # bio via familie-noter i relations-visningen (jf. relations.ts).
         sp_parts <- c()
         spf <- g(a, "partner_foraeldre", NULL); if (!is.null(spf) && !is.na(spf)) sp_parts <- c(sp_parts, spf)
         sp_erh <- g(a, "partner_erhverv", list()); if (length(sp_erh)) sp_parts <- c(sp_parts, paste("Erhverv/udd.:", paste(unlist(sp_erh), collapse=", ")))
-        if (length(sp_parts)) add_note("person", sp, paste(sp_parts, collapse=" — "))
+        if (length(sp_parts)) add_note("family", fam, paste(sp_parts, collapse=" — "))
         add_member(fam, sp, "partner", ordinal = g(a, "ordinal"))
       }
       if (!is.null(a$dato_raw) || !is.null(a$date_min) || !is.null(a[["sted"]]))
