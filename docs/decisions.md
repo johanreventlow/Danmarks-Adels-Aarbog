@@ -7,6 +7,15 @@ Børne-referencer ("3 børn: Tiende slægtled, II, nr. 31-35") parses determinis
 `validate.py` (`derive_boern`), ikke af LLM-trinnet — LLM'en missede dem systematisk
 (Codex-udtræk: kun 38/123 fanget). Teksten er regulær; deterministisk kode er fejlfri.
 
+**aegteskaber-udtræk er stadig LLM (åben):** Modsat boern parses ægteskaber af
+LLM-trinnet — og det misser ~9% (26/288 poster har "Gift" i narrativ men tom
+`aegteskaber`, fx V-106 Christian Benedictus' ægtefælle Sophie Pauline Schjær).
+Børn loades alligevel (deterministisk boern), men deres familie får ingen partner.
+**Anbefalet fix:** løft ægteskabs-klausulen til deterministisk parsing i `validate.py`
+(som boern). Klausulen er regulær ("Gift [dato] [sted] med Navn (F.: forældre),
+* fødsel, † død") men rigere end boern (ordinaler, 1°/2°, skilsmisse, b.v.,
+ægtefælle-forældre) → mere regex-arbejde. Ikke implementeret.
+
 **Kryds-gren-tvetydighed (åben):** Romertallet i børne-ref ("…, II, nr. 31") er bogens
 INTERNE gren-tæller i slægtleddet, IKKE JSON-linjen (I-V). Det matcher JSON-linjen ~85%,
 men `nr` genbruges på tværs af 133 linjer, så i 145 tilfælde findes barn-nr i BÅDE
