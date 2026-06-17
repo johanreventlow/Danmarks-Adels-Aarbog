@@ -36,6 +36,47 @@ def norm(s):
     return re.sub(r'\s+', ' ', (s or '')).strip()
 
 
+# Børne-reference er DETERMINISTISK tekst ("3 børn: Tiende slægtled, II, nr. 31-35"
+# / "Søn: ... nr. 199." / "Datter: ... nr. 5."). LLM-trinnet (③) misser den ofte,
+# så vi udleder den her i deterministisk kode (filosofi: trin ④ er fejlfri kode).
+# Overskriver et evt. LLM-boern, så feltet altid er konsistent.
+#
+# OBS: den fangede `linje` er bogens INTERNE gren-tæller i slægtleddet, IKKE
+# JSON-linjen (de matcher kun ~85%). Loaderen bruger den som "stated" hint med
+# fallback til forælderens linje. Den genuine kryds-gren-tvetydighed (nr genbrugt
+# på tværs af linjer) løses IKKE her — se docs/decisions.md (era-tie-break).
+# Antal er valgfrit ("børn:" alene) og kan have parentes-kvalifikator ("5 (7?) børn").
+# Den stærke anker er halen ": [X slægtled,] [gren,] nr. N" — en narrativ-omtale
+# ("deres børn boede…") har ikke kolon+nr og matcher derfor ikke.
+BOERN_RE = re.compile(
+    r'(?:(\d+)\s*(?:\([^)]*\))?\s+)?'                        # valgfrit antal (+ "(7?)")
+    r'(?:b(?:ø|o)rn|s(?:ø|o)nner|d(?:ø|o)tre|S(?:ø|o)n|Datter)'
+    r'\s*\(?\??\)?\s*:\s*'                                   # valgfri "?"/"(?)" + kolon
+    r'([\wÆØÅæøå]+(?:\s*\([^)]*\))?\s+slægtled)?[^.]*?'      # valgfrit "X slægtled"
+    r'(?:\b(I{1,3}V?|VI?I?)\s*,\s*)?'                        # valgfri intern gren-tæller
+    r'nr\.\s*(\d+)\s*[‑–-]?\s*(\d*)',                        # nr X[- Y] (tåler linjebrud)
+    re.I)
+
+
+def derive_boern(raw_text):
+    """Udled boern {antal, slaegtled, linje, nr_range} fra postens prosa.
+    Returnér None hvis ingen børne-reference findes."""
+    m = BOERN_RE.search(raw_text or '')
+    if not m:
+        return None
+    antal_str, slgt, lin, lo, hi = m.groups()
+    lo = int(lo)
+    hi = int(hi) if hi else lo
+    # Eksplicit antal hvis angivet ("5 børn"); ellers bredden ("Søn"/bar "børn:")
+    antal = int(antal_str) if antal_str else (hi - lo + 1)
+    return {
+        'antal': antal,
+        'slaegtled': norm(slgt) if slgt else None,
+        'linje': lin.upper() if lin else None,
+        'nr_range': [lo, hi],
+    }
+
+
 def collect_dates(rec):
     out = []
     for f in rec.get('facts') or []:
@@ -153,6 +194,14 @@ def main():
     for fn in files:
         rec = json.load(open(os.path.join(args.extracted_dir, fn), encoding='utf-8'))
         src = src_by_key.get((rec.get('linje'), rec.get('nr_label') or str(rec.get('nr'))))
+        # DETERMINISTISK boern: udled fra kilde-prosaen (overskriver LLM-feltet).
+        # LLM-trinnet misser ofte børne-referencer; teksten er regulær.
+        if src:
+            derived = derive_boern(src['raw_text'])
+            if derived:
+                rec['boern'] = derived
+            elif rec.get('boern') is not None:
+                rec['boern'] = None   # LLM-hallucineret boern uden tekst-belæg
         issues, advisory = validate(rec, src, known_by_linje)
         if issues:
             review.append({'fil': fn, 'linje': rec.get('linje'), 'nr': rec.get('nr'),

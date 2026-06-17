@@ -2,6 +2,20 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## boern udledes deterministisk; boern.linje er IKKE JSON-linjen (2026-06-17)
+Børne-referencer ("3 børn: Tiende slægtled, II, nr. 31-35") parses deterministisk i
+`validate.py` (`derive_boern`), ikke af LLM-trinnet — LLM'en missede dem systematisk
+(Codex-udtræk: kun 38/123 fanget). Teksten er regulær; deterministisk kode er fejlfri.
+
+**Kryds-gren-tvetydighed (åben):** Romertallet i børne-ref ("…, II, nr. 31") er bogens
+INTERNE gren-tæller i slægtleddet, IKKE JSON-linjen (I-V). Det matcher JSON-linjen ~85%,
+men `nr` genbruges på tværs af 133 linjer, så i 145 tilfælde findes barn-nr i BÅDE
+"stated" og forælder-linje. Loaderen (`load_daa.R`) vælger stated først → 97 verificerede
+fejl (stated-kandidat historisk umulig, hundreder af år fra forælder), 38 ægte kryds-gren
+(stated korrekt), ~10 uklare. **Anbefalet fix:** era-baseret tie-break — afvis stated hvis
+kandidatens fødselsår er >80 år fra forælderens; ellers behold stated. Påvirker kun ældre
+linjer I/III (Reventlow-hovedlinje V er entydig). Ikke implementeret endnu.
+
 ## Import: DAA-PDF først, TNG kun enrichment (2026-06-15)
 Databasen bygges fra den trykte DAA (autoritativ, kohærent kilde), ikke fra TNG-dumpet
 (25k personer, blandede tredjeparts-kilder → ville forurene grundlaget). TNG bliver

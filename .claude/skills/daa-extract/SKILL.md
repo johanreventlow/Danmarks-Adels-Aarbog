@@ -79,6 +79,13 @@ parafrase. `segment.py` har allerede den ordrette `raw_text` per (linje,nr), og
 `validate.py` fletter den deterministisk ind i de rene records. LLM'en
 udtrækker altså kun fakta/relationer/slægtskab.
 
+**`boern` udledes DETERMINISTISK, ikke af LLM'en.** Børne-referencen er regulær
+tekst ("3 børn: Tiende slægtled, II, nr. 31-35" / "Søn: … nr. 199."). LLM-trinnet
+missede den systematisk, så `validate.py` (trin ④) parser den fra kilde-prosaen
+og overskriver et evt. LLM-`boern`. LLM'en *må* stadig udfylde feltet, men det
+ignoreres. OBS: `boern.linje` er bogens INTERNE gren-tæller i slægtleddet, IKKE
+JSON-linjen (matcher kun ~85%) — se `docs/decisions.md` om kryds-gren-tvetydighed.
+
 Prompten til hver post (skema-tvunget output) skal indeholde:
 - postens `raw_text`, `linje`, `nr`, `slaegtled`, `aegteskab_kontekst`
 - hele `docs/daa-extraction-archetype.md`-kontrakten (især §3 fælderne og §4 datoer)
