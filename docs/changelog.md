@@ -1,5 +1,23 @@
 # Changelog
 
+## Ægtefælle-rygrad for hele slægten + deterministisk boern (2026-06-17)
+* Re-load af hele stamtavlen med ægtefælle-rygrad for HELE slægten (ikke kun nær
+  familie): 591 poster → 925 personer (591 hoved + 334 ægtefæller). Backup-dump af
+  forrige base gemt (`work/dump_before_reload_*.rds`, 22.702 rækker).
+* Loader-fixes: `sp_date()` tåler nu både struktureret (object) og rå string
+  partner-datoer (udtræk var inkonsistent: 198 string vs 29 object for fødsel);
+  ægtefælle-bio-note flyttet fra person til `family` (så appen viser den);
+  begivenheder uden navn skippes + fallback-rolle "deltager".
+* **`boern` udledes nu DETERMINISTISK** i `validate.py` (`derive_boern`) — LLM-trinnet
+  missede børne-referencer systematisk (Codex fangede 38/123). Regex hærdet mod alle
+  fraseringer (plural sønner/døtre, "?"-markør, "5 (7?) børn", bar "børn:", linjebrudt
+  range). Fanger 123 ægte, afviser hallucinerede uden tekst-belæg.
+* Bugs fundet+fixet: forkerte forældre (dato-linje læst som post-header i ad-hoc patch);
+  manglende ægtefælle-info (string-datoer ej parset).
+* Undersøgt: 145 kryds-gren-tvetydige boern-links (`boern.linje` = bogens interne
+  gren-tæller, IKKE JSON-linje). 97 verificerede fejl, 38 ægte kryds-gren. Era-tie-break
+  anbefalet (next-step). Rammer også linje V (fx V-73→V-106).
+
 ## App-skive + slægtskabs-UI (2026-06-15/16)
 * Minimal Vite/React/Supabase-app der renderer lagdelte evidens-data.
 * Relations-visning centreret på en fokus-person (forældre/søskende/ægtefælle/børn),
