@@ -63,6 +63,21 @@ class TestMerge(unittest.TestCase):
         self.assertEqual(len(new_review), 1)         # havnet i review
         self.assertNotIn(KEY, promoted)
 
+    def test_fejlet_eskalering_beholder_brud_i_review(self):
+        # NEW2 (Codex 2026-06-18): en fejlet eskalering skal i review med
+        # validate.main()-formen (brud/advisory), ikke som rå reext-record.
+        reext_bad = rec(facts=[{"faktatype": "død", "date_raw": "† 1999"}])  # R1-blok
+        esc = [{"linje": "I", "nr": 5, "nr_label": "5", "grunde": ["R8: ..."]}]
+        new_clean, new_review, promoted = em.merge_escalated(
+            esc, {KEY: reext_bad}, {KEY: rec()}, SRC, {}, clean=[], review=[])
+        self.assertEqual(promoted, [])
+        self.assertEqual(len(new_review), 1)
+        r = new_review[0]
+        self.assertTrue(r["brud"])                   # brud-feltet er udfyldt (ikke rå record)
+        self.assertEqual(r["nr_label"], "5")
+        self.assertEqual(r["navn"], "Iwan")
+        self.assertIn("advisory", r)
+
 class TestDecideR8SetSubset(unittest.TestCase):
     """C2 + C2b: R8-type-swap og manglende snapshot."""
 

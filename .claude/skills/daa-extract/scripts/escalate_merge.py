@@ -76,6 +76,7 @@ def merge_escalated(escalation, reext_by_key, snap_by_key, src_by_key, known_by_
     """Returnér (new_clean, new_review, promoted_keys)."""
     clean_by_key = {_key(r): r for r in clean}
     review_keys = {(r.get('linje'), r.get('nr_label') or str(r.get('nr'))) for r in review}
+    fail_diag = {}                              # key -> (issues, advisory) for fejlede eskaleringer
     promoted = []
     for ent in escalation:
         key = (ent['linje'], ent['nr_label'])
@@ -97,14 +98,24 @@ def merge_escalated(escalation, reext_by_key, snap_by_key, src_by_key, known_by_
         else:
             review_keys.add(key)
             clean_by_key.pop(key, None)         # en R8-post der nu fejler må IKKE blive i clean
+            fail_diag[key] = (issues, advisory)
     new_clean = list(clean_by_key.values())
-    # genopbyg review: behold eksisterende der ikke blev promoveret + nye fejlende
+    # genopbyg review: behold eksisterende der ikke blev promoveret + nye fejlende.
+    # Fejlede eskaleringer skal have validate.main()-review-formen (brud/advisory),
+    # så menneskets recovery-sti ser HVORFOR posten fejlede — ikke den rå reext.
     new_review = [r for r in review if _key(r) in review_keys]
     for key in review_keys:
         if not any(_key(r) == key for r in new_review):
-            r = reext_by_key.get(key)
-            if r is not None:
-                new_review.append(r)
+            reext = reext_by_key.get(key)
+            if reext is not None:
+                issues, advisory = fail_diag.get(key, ([], []))
+                new_review.append({
+                    'fil': f"{reext.get('linje')}-{reext.get('nr_label') or reext.get('nr')}.json",
+                    'linje': reext.get('linje'), 'nr': reext.get('nr'),
+                    'nr_label': reext.get('nr_label') or str(reext.get('nr')),
+                    'navn': reext.get('navn'),
+                    'brud': issues, 'advisory': advisory,
+                })
     return new_clean, new_review, promoted
 
 
