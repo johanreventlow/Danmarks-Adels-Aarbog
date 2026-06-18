@@ -4,6 +4,8 @@
 
 **Goal:** Gør DAA-udtrækket sikkert eager — deterministisk ægteskabs-udtræk + golden-test-net + mismatch-flagging (Fase A), og felt-proveniens (`citation.citat_tekst`) så fakta kan genverificeres/afstemmes uden ny LLM-kørsel (Fase B / Tier 1).
 
+> **Implementerings-udfald (2026-06-18):** Task 2's deterministiske ægteskabs-udtræk blev **demoteret til advisory-only** efter whole-branch-review (regex-overskrivning korrumperede 74% af partnernavne på rigtig parentes-tæt prosa). `derive_aegteskaber()` driver nu kun R8-flag; LLM-feltet er autoritativt. Tasks 1, 3–7 leveret som planlagt. **Task 8 (re-kørsel + load) er ikke kørt** — bruger-gated. Se spec §4.2.
+
 **Architecture:** Den deterministiske validerings-/udlednings-layer (`validate.py`) er hvor risiko-gatesne bor; LLM-output (`work/extracted/*.json`) er en regenererbar kandidat-cache, DB'en bygges fra den på ~14s. Golden tests dækker det deterministiske layer (LLM-trinnet er ikke-deterministisk og testes ikke direkte). Proveniens-spanet skrives ind i extraction-JSON, gates som substring af `raw_text`, og trådes via `load_daa.R` til `citation.citat_tekst`.
 
 **Tech Stack:** Python 3.9 (stdlib `unittest` — pytest er IKKE installeret), R (DBI/RPostgres), regex. PostgreSQL/Supabase-skema findes; ingen skemaændring nødvendig (`citat_tekst` findes allerede).

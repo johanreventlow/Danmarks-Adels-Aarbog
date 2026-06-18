@@ -108,11 +108,16 @@ Eager-udtræk hæver indsatsen på validering, fordi mere LLM-output betros til 
    moderne lange poster, tvetydige børnelinks, relative datoer) med forventet
    JSON for centrale felter. Bygger regressionsnettet før parser/validator
    ændres. (Findes pt. ikke — `scripts/` har nul tests.)
-2. **Deterministisk ægteskaber.** Kopiér `derive_boern()`-mønstret fra
-   `validate.py` til ægteskaber (`g.`/`1°`/`med`/`skilt`/`†`/`(F.: …)`).
-   Overskriv LLM-feltet i `main()` præcis som børn i dag. Fjerner den kendte
-   LLM-miss (~9% iflg. log — verificér mod faktisk mismatch-måling, ikke
-   antaget tal).
+2. **Deterministisk ægteskaber.** ~~Kopiér `derive_boern()`-mønstret fra
+   `validate.py` til ægteskaber og overskriv LLM-feltet i `main()` præcis som
+   børn.~~ **REVIDERET ved implementering (2026-06-18):** demoteret til
+   *advisory-only*. Whole-branch-review fandt empirisk at ægteskabs-prosa er
+   parentes-tæt (`(F.: …)`, citater, tredjeparts-remarriages) og IKKE regulær
+   som børne-prosa — en regex-overskrivning korrumperede 74% af partnernavne
+   (fx I-49 droppede rigtig ægtefælle, indsatte en tredjeparts remarriage).
+   `derive_aegteskaber()` bevares, men driver kun R8-mismatch-flag; LLM-feltet
+   er autoritativt for ægteskaber. Det målte tilbageværende miss er **4,1%
+   dødsfakta** (24/591); ægteskaber forbliver LLM-udtrukket med advisory-flag.
 3. **Mismatch-flag for slægtskab.** `validate.py` udleder forventede signaler
    fra prosaen (forventet antal ægteskaber, partnernavn til stede, fødsel/død,
    børneklausul) og flagger manglende udtræk til review. Slægtskabsfelter får
