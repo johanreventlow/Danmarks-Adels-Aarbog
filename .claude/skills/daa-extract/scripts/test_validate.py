@@ -116,5 +116,27 @@ class TestProvenansGate(unittest.TestCase):
         self.assertEqual(len(bad), 1)
 
 
+class TestEscalationEntry(unittest.TestCase):
+    def test_blokerende_eskaleres(self):
+        rec = {"linje": "I", "nr": 5, "nr_label": "5"}
+        e = validate.escalation_entry(rec, ["R1: årstal ..."], [])
+        self.assertIsNotNone(e)
+        self.assertEqual(e["nr_label"], "5")
+        self.assertEqual(e["grunde"], ["R1: årstal ..."])
+
+    def test_r8_miss_eskaleres(self):
+        rec = {"linje": "I", "nr": 5, "nr_label": "5"}
+        e = validate.escalation_entry(rec, [], ["R8: prosa nævner død, men intet død-fakta"])
+        self.assertIsNotNone(e)
+        self.assertEqual(e["grunde"], ["R8: prosa nævner død, men intet død-fakta"])
+
+    def test_ren_post_eskaleres_ikke(self):
+        self.assertIsNone(validate.escalation_entry({"linje": "I", "nr": 5}, [], []))
+
+    def test_v9_vocab_eskalerer_ikke(self):
+        e = validate.escalation_entry({"linje": "I", "nr": 5}, [], ["V9: ukendt faktatype"])
+        self.assertIsNone(e)
+
+
 if __name__ == "__main__":
     unittest.main()

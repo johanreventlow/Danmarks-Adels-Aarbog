@@ -180,6 +180,20 @@ def derive_aegteskaber(raw_text):
     return [seen[k] for k in sorted(seen)]
 
 
+def escalation_entry(rec, issues, advisory):
+    """Worklist-post hvis posten skal eskaleres: blokerende brud ELLER R8-miss.
+    V9/R2/R3-advisory udløser IKKE eskalering. Returnér None hvis ren."""
+    r8 = [a for a in (advisory or []) if a.startswith('R8')]
+    if issues or r8:
+        return {
+            'linje': rec.get('linje'),
+            'nr': rec.get('nr'),
+            'nr_label': rec.get('nr_label') or str(rec.get('nr')),
+            'grunde': list(issues or []) + r8,
+        }
+    return None
+
+
 def expected_signals(raw_text):
     """Udled forventede signaler fra prosaen.
 
@@ -317,6 +331,7 @@ def main():
     ap.add_argument('extracted_dir')
     ap.add_argument('--clean', required=True)
     ap.add_argument('--review', required=True)
+    ap.add_argument('--escalate', help='skriv eskalerings-worklist (blokerende + R8) hertil')
     args = ap.parse_args()
 
     posts = json.load(open(args.posts, encoding='utf-8'))
@@ -326,7 +341,7 @@ def main():
     for p in posts:
         known_by_linje.setdefault(p['linje'], set()).add(p['nr'])    # basenr per linje
 
-    clean, review, advisories = [], [], 0
+    clean, review, escalation, advisories = [], [], [], 0
     files = sorted(f for f in os.listdir(args.extracted_dir) if f.endswith('.json'))
     for fn in files:
         rec = json.load(open(os.path.join(args.extracted_dir, fn), encoding='utf-8'))
@@ -342,6 +357,9 @@ def main():
         # NB: aegteskaber er IKKE deterministisk — LLM-udtræk er autoritativt.
         # derive_aegteskaber() bruges kun advisory i expected_signals() (R8).
         issues, advisory = validate(rec, src, known_by_linje)
+        ent = escalation_entry(rec, issues, advisory)
+        if ent:
+            escalation.append(ent)
         if issues:
             review.append({'fil': fn, 'linje': rec.get('linje'), 'nr': rec.get('nr'),
                            'navn': rec.get('navn'), 'brud': issues, 'advisory': advisory})
@@ -355,6 +373,8 @@ def main():
 
     json.dump(clean, open(args.clean, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
     json.dump(review, open(args.review, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+    if args.escalate:
+        json.dump(escalation, open(args.escalate, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
 
     print(f'[validate] {len(clean)} rene, {len(review)} flaggede (kræver review), {advisories} advisory', file=sys.stderr)
     for r in review:
