@@ -1,0 +1,64 @@
+{
+  "linje": "I",
+  "nr": 62,
+  "nr_label": "62",
+  "usikker": false,
+  "navn": "Johann",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1563",
+      "date_raw": "† 1563",
+      "date_min": "1563-01-01",
+      "date_max": "1563-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Gram",
+      "periode_raw": "(1519-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Tovskov",
+      "periode_raw": "(1519-†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Birgitte Hansdatter [Lindenov]",
+      "partner_ekstern_ref": "DAA 1902, 286",
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Amt- og lensmand Hans Johansen [L.] til Fovslet og Berete Eriksdatter [Rosenkrantz]",
+      "note": null
+    }
+  ],
+  "boern": {
+    "antal": 2,
+    "slaegtled": "Tiende slægtled",
+    "linje": "II",
+    "nr_range": [
+      77,
+      78
+    ]
+  },
+  "begivenheder": []
+}

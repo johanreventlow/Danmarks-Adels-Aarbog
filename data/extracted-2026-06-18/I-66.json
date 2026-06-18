@@ -1,0 +1,25 @@
+{
+  "linje": "I",
+  "nr": 66,
+  "nr_label": "66",
+  "usikker": false,
+  "navn": "Joachim",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "25. juni 1519",
+      "date_raw": "* 25. juni 1519",
+      "date_min": "1519-06-25",
+      "date_max": "1519-06-25",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

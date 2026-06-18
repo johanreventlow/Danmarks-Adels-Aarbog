@@ -1,0 +1,32 @@
+{
+  "linje": "V",
+  "nr": 169,
+  "nr_label": "169",
+  "usikker": false,
+  "navn": "Greve Einar Karl Ludwig",
+  "tilnavn": "til Wittenberg",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1962-05-02",
+      "date_raw": "2. maj 1962",
+      "date_min": "1962-05-02",
+      "date_max": "1962-05-02",
+      "date_qualifier": "exact",
+      "sted": "Kiel"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "vesttyske Pionier Bataillons reserve",
+      "rolle": "premierløjtnant",
+      "dato_raw": null
+    },
+    {
+      "organisation": "erhverv",
+      "rolle": "agronom",
+      "dato_raw": null
+    }
+  ]
+}

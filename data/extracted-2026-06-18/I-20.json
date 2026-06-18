@@ -1,0 +1,41 @@
+{
+  "linje": "I",
+  "nr": 20,
+  "nr_label": "20",
+  "usikker": false,
+  "navn": "Augustin",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "(-1353)",
+      "date_min": "1353-01-01",
+      "date_max": "1353-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    },
+    {
+      "faktatype": "titel",
+      "vaerdi": "væbner",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Dunkelstorf",
+      "periode_raw": "solgte 1353 (23. april)",
+      "period_type": "salg",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

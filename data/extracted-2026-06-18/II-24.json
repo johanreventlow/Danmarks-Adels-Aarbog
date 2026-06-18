@@ -1,0 +1,56 @@
+{
+  "linje": "II",
+  "nr": 24,
+  "nr_label": "24",
+  "usikker": false,
+  "navn": "Dorothea Sophia",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1700 indskrevet i Sankt Johanniskloster ved Slesvig",
+      "date_raw": "1700 indskrevet i Sankt Johanniskloster ved Slesvig",
+      "date_min": "1700-01-01",
+      "date_max": "1700-12-31",
+      "date_qualifier": "exact",
+      "sted": "Slesvig"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Johan Motzfeldt",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 1717",
+      "date_min": "1717-01-01",
+      "date_max": "1717-12-31",
+      "sted": "Slesvig By",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 1660",
+        "date_min": "1660-01-01",
+        "date_max": "1660-12-31",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1732",
+        "date_min": "1732-01-01",
+        "date_max": "1732-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "oberst",
+        "kommandant"
+      ],
+      "partner_foraeldre": null,
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

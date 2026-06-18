@@ -1,0 +1,53 @@
+{
+  "linje": "III",
+  "nr": 53,
+  "nr_label": "53",
+  "usikker": false,
+  "navn": "Christian",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1662",
+      "date_raw": "dræbt 1662 i København i duel af Christian Bielke",
+      "date_min": "1662-01-01",
+      "date_max": "1662-12-31",
+      "date_qualifier": "exact",
+      "sted": "København"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Rostock",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1651"
+    },
+    {
+      "organisation": "Strassburg",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1656"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "16. aug. 1637",
+      "date_min": "1637-08-16",
+      "date_max": "1637-08-16",
+      "sted": "Lübeck",
+      "note": "Døbt 26. s.m. og bisat 6. okt. s.å. i Slesvig Domkirke."
+    },
+    {
+      "type": "hyldede",
+      "dato_raw": "1661",
+      "date_min": "1661-01-01",
+      "date_max": "1661-12-31",
+      "sted": null,
+      "note": "Hyldede hertug Christian Albrecht af Gottorp."
+    }
+  ]
+}

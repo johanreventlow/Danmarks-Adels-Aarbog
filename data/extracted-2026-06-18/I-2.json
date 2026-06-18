@@ -1,0 +1,24 @@
+{
+  "linje": "I",
+  "nr": 2,
+  "nr_label": "2",
+  "navn": "Eler",
+  "tilnavn": "Kale",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": "nævnes ca. 1240-1245, 1243, 1247",
+      "date_raw": "ca. 1240-1245",
+      "date_min": "1240-01-01",
+      "date_max": "1247-02-22",
+      "date_qualifier": "floruit"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [],
+  "usikker": false,
+  "koen": "mand"
+}

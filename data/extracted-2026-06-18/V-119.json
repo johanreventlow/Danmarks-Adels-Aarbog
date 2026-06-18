@@ -1,0 +1,58 @@
+{
+  "linje": "V",
+  "nr": 119,
+  "nr_label": "119",
+  "usikker": false,
+  "navn": "Agnes Sophie Amalia Clara",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 3. dec. 1861",
+      "date_min": "1861-12-03",
+      "date_max": "1861-12-03",
+      "date_qualifier": "exact",
+      "sted": "Kiel"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 27. sept. 1947",
+      "date_min": "1947-09-27",
+      "date_max": "1947-09-27",
+      "date_qualifier": "exact",
+      "sted": "Preetz Adelige Kloster"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "begravet på Damp",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Damp"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "Konventualinde",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

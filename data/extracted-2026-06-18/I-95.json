@@ -1,0 +1,62 @@
+{
+  "linje": "I",
+  "nr": 95,
+  "nr_label": "95",
+  "usikker": false,
+  "navn": "Clarelia",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1. april 1603",
+      "date_raw": "* 1. april 1603",
+      "date_min": "1603-04-01",
+      "date_max": "1603-04-01",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "18. marts 1668",
+      "date_raw": "† 18. marts 1668",
+      "date_min": "1668-03-18",
+      "date_max": "1668-03-18",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Godske von Ahlefeldt",
+      "partner_ekstern_ref": "DAA 1982-84, 601 f.",
+      "type": "vielse",
+      "dato_raw": "Gift 1622",
+      "date_min": "1622-01-01",
+      "date_max": "1622-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 1594",
+        "date_min": "1594-01-01",
+        "date_max": "1594-12-31",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1. jan. 1643",
+        "date_min": "1643-01-01",
+        "date_max": "1643-01-01",
+        "sted": "Oldenburg Kirke"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Cai von A. til Stubbe, Rieseby samt Lille Nordby og Magdalene von Ahlefeldt",
+      "note": "Ca. 1890 ført til Ludwigsburg."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

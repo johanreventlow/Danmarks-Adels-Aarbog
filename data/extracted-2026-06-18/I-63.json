@@ -1,0 +1,101 @@
+{
+  "linje": "I",
+  "nr": 63,
+  "nr_label": "63",
+  "usikker": false,
+  "navn": "Siwert",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "efter 1575",
+      "date_raw": "† efter 1575",
+      "date_min": "1575-01-01",
+      "date_max": null,
+      "date_qualifier": "after",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Gneningen",
+      "periode_raw": "(-1523-1569-)",
+      "period_type": "tenure",
+      "sted": "Lensahr S., Ostholstein Kr."
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Steinburg",
+      "rolle": "amtmand",
+      "dato_raw": "1546-1550"
+    },
+    {
+      "organisation": "Wilstermark",
+      "rolle": "landfoged",
+      "dato_raw": "1548"
+    },
+    {
+      "organisation": "Preetz",
+      "rolle": "klosterprovst",
+      "dato_raw": "1556-1559"
+    },
+    {
+      "organisation": "Strand",
+      "rolle": "staller",
+      "dato_raw": "1559"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Margaretha von Pogwisch",
+      "partner_ekstern_ref": "DAA 1931, II, 18",
+      "type": "vielse",
+      "dato_raw": "Gift 1°",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Gottorpsk råd Benedict von P. til Gneningen og NN",
+      "note": "Arvede Gneningen efter faderen."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Anna von Ahlefeldt",
+      "partner_ekstern_ref": "DAA 1982-84, 583",
+      "type": "vielse",
+      "dato_raw": "Gift 2° før 1565",
+      "date_min": "1565-01-01",
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1585",
+        "date_min": "1585-01-01",
+        "date_max": "1585-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Jürgen von A. til Gronenberg og Anna von Sested",
+      "note": "Bisat i Plön."
+    }
+  ],
+  "boern": {
+    "antal": 4,
+    "slaegtled": "Tiende slægtled",
+    "linje": "III",
+    "nr_range": [
+      79,
+      82
+    ]
+  },
+  "begivenheder": []
+}

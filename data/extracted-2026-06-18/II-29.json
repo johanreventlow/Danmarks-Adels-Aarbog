@@ -1,0 +1,31 @@
+{
+  "linje": "II",
+  "nr": 29,
+  "nr_label": "29",
+  "usikker": false,
+  "navn": "Anna Margaretha Levecke",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "12. jan. 1741 i Malchow Kloster",
+      "date_raw": "† 12. jan. 1741 i Malchow Kloster",
+      "date_min": "1741-01-12",
+      "date_max": "1741-01-12",
+      "date_qualifier": "exact",
+      "sted": "Malchow Kloster"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Dobbertin Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": "1723 (23. nov.)"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

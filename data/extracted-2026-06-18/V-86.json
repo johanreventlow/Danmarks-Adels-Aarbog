@@ -1,0 +1,97 @@
+{
+  "linje": "V",
+  "nr": 86,
+  "nr_label": "86",
+  "usikker": false,
+  "navn": "Hilda Charlotte Malvine Agnes",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "9. dec. 1836",
+      "date_min": "1836-12-09",
+      "date_max": null,
+      "date_qualifier": "exact",
+      "sted": "Aalstrup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 18. juni 1837",
+      "date_min": "1837-06-18",
+      "date_max": null,
+      "date_qualifier": "exact",
+      "sted": "Landet Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "16. marts 1897",
+      "date_min": "1897-03-16",
+      "date_max": null,
+      "date_qualifier": "exact",
+      "sted": "Hedvigsfrid ved Halmstad, Sverige"
+    },
+    {
+      "faktatype": "bisættelse",
+      "vaerdi": null,
+      "date_raw": "bisat 21. s.m.",
+      "date_min": "1897-03-21",
+      "date_max": null,
+      "date_qualifier": "exact",
+      "sted": "Halmstad Kirke"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "begravet 23. s.m.",
+      "date_min": "1897-03-23",
+      "date_max": null,
+      "date_qualifier": "exact",
+      "sted": "Gudmuntorp Kirkegård"
+    },
+    {
+      "faktatype": "klosterindgang",
+      "vaerdi": "Konventualinde i Preetz Adelige Kloster",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Preetz Adelige Kloster"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Christian Detlev Frederik Vilhelm Ferdinand greve af Reventlow til Ugerup",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 15. okt. 1862",
+      "date_min": "1862-10-15",
+      "date_max": null,
+      "sted": "Garnisons Kirke, København",
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Chargé d’affaires, gehejmekonferensråd Friderich Detlef greve af R. og Birgitte Friederiche Christensen",
+      "note": "se nr. 95"
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

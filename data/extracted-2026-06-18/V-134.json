@@ -1,0 +1,36 @@
+{
+  "linje": "V",
+  "nr": 134,
+  "nr_label": "134",
+  "usikker": false,
+  "navn": "Komtesse Malvine Frederikke",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1868-07-30",
+      "date_raw": "30. juli 1868",
+      "date_min": "1868-07-30",
+      "date_max": "1868-07-30",
+      "date_qualifier": "exact",
+      "sted": "Ugerup"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1940-08-23",
+      "date_raw": "23. aug. 1940",
+      "date_min": "1940-08-23",
+      "date_max": "1940-08-23",
+      "date_qualifier": "exact",
+      "sted": "Stockholm"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde i",
+      "dato_raw": null
+    }
+  ]
+}

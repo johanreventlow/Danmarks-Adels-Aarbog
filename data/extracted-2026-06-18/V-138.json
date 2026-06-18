@@ -1,0 +1,76 @@
+{
+  "linje": "V",
+  "nr": 138,
+  "nr_label": "138",
+  "usikker": false,
+  "navn": "Komtesse Naka",
+  "tilnavn": "til Brahetrolleborg",
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1920-05-09",
+      "date_raw": "9. maj 1920",
+      "date_min": "1920-05-09",
+      "date_max": "1920-05-09",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1920-07-18",
+      "date_raw": "døbt 18. juli s.å. i Brahetrolleborg Kirke",
+      "date_min": "1920-07-18",
+      "date_max": "1920-07-18",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "2001-02-04",
+      "date_raw": "4. febr. 2001",
+      "date_min": "2001-02-04",
+      "date_max": "2001-02-04",
+      "date_qualifier": "exact",
+      "sted": "Nøjsomhed, Brahetrolleborg"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Dronning Anna Sophies Enkestiftelse",
+      "rolle": "m.a. direktionen for",
+      "dato_raw": "1983-†"
+    },
+    {
+      "organisation": "Den Reventlowske Stiftelse Theophiliskoven",
+      "rolle": "m.a. best. for",
+      "dato_raw": "-1963-1984-"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Erik Mourier",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 6. april 1940",
+      "date_min": "1940-04-06",
+      "date_max": "1940-04-06",
+      "sted": "Brahetrolleborg Kirke",
+      "skilt": false,
+      "partner_foedsel": "* 13. aug. 1908 på Teglværksgaarden ved Dragsholm",
+      "partner_daab": "hjemmedøbt 6. sept. s.å., fremstillet 20. maj 1909 i Høve Kirke",
+      "partner_doed": {
+        "date_raw": "† 7. okt. 1994 i Odense",
+        "date_min": "1994-10-07",
+        "date_max": "1994-10-07",
+        "sted": "Odense"
+      },
+      "partner_erhverv": [
+        "hofjægermester"
+      ],
+      "partner_foraeldre": "Alfred M. til Øholt og Thora Marie Magdalene Fönss",
+      "note": null
+    }
+  ]
+}

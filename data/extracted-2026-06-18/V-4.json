@@ -1,0 +1,96 @@
+{
+  "linje": "V",
+  "nr": 4,
+  "nr_label": "4",
+  "usikker": false,
+  "navn": "Friherreinde Christina Sophia",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1757-06-27",
+      "date_raw": "† 27. juni 1757 på Fuirendal",
+      "date_min": "1757-06-27",
+      "date_max": "1757-06-27",
+      "date_qualifier": "exact",
+      "sted": "Fuirendal"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Niels greve Friis",
+      "partner_ekstern_ref": "DAA 1942, II, 78f",
+      "type": "vielse",
+      "dato_raw": "Gift 1° 14. sept. 1688",
+      "date_min": "1688-09-14",
+      "date_max": "1688-09-14",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 22. juni 1665",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 9. (19.?) febr. 1699 i Haag",
+        "date_min": "1699-02-09",
+        "date_max": "1699-02-19",
+        "sted": "Haag"
+      },
+      "partner_erhverv": [
+        "stiftsbefalingsmand",
+        "amtmand",
+        "kammerherre"
+      ],
+      "partner_foraeldre": "Rentemester, stiftsbefalingsmand, amtmand, gehejmeråd Mogens greve F. til grevskabet Frijsenborg samt baroniet Frisenvold og Anna Maria von Offenberg",
+      "note": "Til grevskabet Frijsenborg med Boller, Møgelkær og Favrskov."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Ulrich Adolph greve Holstein",
+      "partner_ekstern_ref": "DAA 1988-90, 664 f.",
+      "type": "vielse",
+      "dato_raw": "Gift 2° 24. dec. 1700",
+      "date_min": "1700-12-24",
+      "date_max": "1700-12-24",
+      "sted": "København",
+      "skilt": false,
+      "partner_foedsel": "* 14. april 1664 på Futterkamp",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 23. aug. 1737 på Holsteinborg",
+        "date_min": "1737-08-23",
+        "date_max": "1737-08-23",
+        "sted": "Holsteinborg"
+      },
+      "partner_erhverv": [
+        "storkansler",
+        "kammerherre",
+        "gehejmeråd",
+        "amtmand"
+      ],
+      "partner_foraeldre": "Mecklenburgsk amtmand, dansk oberst Adam Christopher von H. til Netzeband, Buchholz samt Grabow og Catharina Christina von Reventlow til Beckhof og Vandlinggaard",
+      "note": "Til grevskabet Holsteinborg og Sorgenfri."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "30. okt. 1672",
+      "date_min": "1672-10-30",
+      "date_max": "1672-10-30",
+      "sted": "Haderslev",
+      "note": "Bisat i Det Holsteinske Kapel i Ørslev Kirke."
+    },
+    {
+      "type": "stiftede",
+      "dato_raw": "1743 (1. maj)",
+      "date_min": "1743-05-01",
+      "date_max": "1743-05-01",
+      "sted": "Fuirendal Sogn",
+      "note": "Grevinde Holsteins Legat for Fattige i Fuirendal Sogn."
+    }
+  ]
+}

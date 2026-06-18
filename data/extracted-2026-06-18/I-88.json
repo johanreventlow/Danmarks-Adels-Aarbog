@@ -1,0 +1,76 @@
+{
+  "linje": "I",
+  "nr": 88,
+  "nr_label": "88",
+  "usikker": false,
+  "navn": "Bartram",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "ca. 1585",
+      "date_raw": "* ca. 1585",
+      "date_min": "1585-01-01",
+      "date_max": "1585-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "dræbt i slutningen af 1610",
+      "date_raw": "dræbt i slutningen af 1610",
+      "date_min": "1610-01-01",
+      "date_max": "1610-12-31",
+      "date_qualifier": "about",
+      "sted": "Egernførde"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Wittenberg",
+      "periode_raw": "(1606-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Lammershagen",
+      "periode_raw": "(1606-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Waterneverstorf",
+      "periode_raw": "(1606-†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Hedwig von Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 147",
+      "type": "vielse",
+      "dato_raw": "Trolovet 1607",
+      "date_min": "1607-01-01",
+      "date_max": "1607-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* nov. 1594",
+        "date_min": "1594-11-01",
+        "date_max": "1594-11-30",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Jaspar von R. til Schmoel samt Hvolgaard og Lucia von Qualen",
+      "note": "De levede 1609 'sponsalia som brud og brudgom'."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

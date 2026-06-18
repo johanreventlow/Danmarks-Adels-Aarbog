@@ -1,0 +1,103 @@
+{
+  "linje": "I",
+  "nr": 118,
+  "nr_label": "118",
+  "usikker": false,
+  "navn": "Friedrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1688",
+      "date_raw": "* 1688",
+      "date_min": "1688-01-01",
+      "date_max": "1688-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "26. jan. 1752",
+      "date_raw": "† 26. jan. 1752",
+      "date_min": "1752-01-26",
+      "date_max": "1752-01-26",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Wittenberg",
+      "periode_raw": "(1712-1744)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1703"
+    },
+    {
+      "organisation": null,
+      "rolle": "kammerjunker",
+      "dato_raw": "1730-1743 (4. jan.)"
+    },
+    {
+      "organisation": "dronning Sophie Magdalene",
+      "rolle": "overhofmester",
+      "dato_raw": "1743 (5. marts)-"
+    },
+    {
+      "organisation": "Husum og Svavested Amter og overstaller i Eidersted, Everskop og Utholm",
+      "rolle": "amtmand",
+      "dato_raw": "1749 (4. marts)-†"
+    },
+    {
+      "organisation": null,
+      "rolle": "konferensråd",
+      "dato_raw": "1749 (30. maj)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Dorothea Sophia von Brockdorff",
+      "partner_ekstern_ref": "DAA 1936, II, 52",
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 26. dec. 1686",
+        "date_min": "1686-12-26",
+        "date_max": "1686-12-26",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1755",
+        "date_min": "1755-01-01",
+        "date_max": "1755-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Konferens- og landråd Detlef von B. til Rohlstorf, Osterrade og Kluwensiek og Margaretha Oelgard von Ahlefeldt",
+      "note": "6 børn: Femtende slægtled, III, nr. 123-128."
+    }
+  ],
+  "boern": {
+    "antal": 6,
+    "slaegtled": "Femtende slægtled",
+    "linje": "III",
+    "nr_range": [
+      123,
+      128
+    ]
+  },
+  "begivenheder": []
+}

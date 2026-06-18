@@ -1,0 +1,80 @@
+{
+  "linje": "II",
+  "nr": 11,
+  "nr_label": "11",
+  "usikker": false,
+  "navn": "Cord Dietrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "31. dec. 1652",
+      "date_raw": "* 31. dec. 1652",
+      "date_min": "1652-12-31",
+      "date_max": "1652-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "9. nov. 1690",
+      "date_raw": "† 9. nov. 1690",
+      "date_min": "1690-11-09",
+      "date_max": "1690-11-09",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Fahren",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Rendsborg",
+      "rolle": "fændrik",
+      "dato_raw": "1675"
+    },
+    {
+      "organisation": "Dronningens Livreg.",
+      "rolle": "kaptajn",
+      "dato_raw": "1677 (11. febr.)"
+    },
+    {
+      "organisation": null,
+      "rolle": "sekondmajor",
+      "dato_raw": "1683 (6. jan.)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Magdalena Sophia von Plessen",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 7. maj 1686",
+      "date_min": "1686-05-07",
+      "date_max": "1686-05-07",
+      "sted": "Zittow",
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 19. febr. 1732 s.st.",
+        "date_min": "1732-02-19",
+        "date_max": "1732-02-19",
+        "sted": "Zittow"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Mecklenburgsk løjtnant, kejserlig oberst Helmold von P. til Cambs, Zittow, Buchholz, Raben-Steinfeld, Godern samt Pinnow og Oelgard von Oertzen",
+      "note": "Bisat i Zittow Kirke."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

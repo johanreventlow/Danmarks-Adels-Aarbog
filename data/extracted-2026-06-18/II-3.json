@@ -1,0 +1,28 @@
+{
+  "linje": "II",
+  "nr": 3,
+  "nr_label": "3",
+  "usikker": false,
+  "navn": "Hans",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [
+    {
+      "navn": "Gallentin",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": null
+    },
+    {
+      "navn": "Wendisch Zülow",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

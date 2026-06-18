@@ -1,0 +1,187 @@
+{
+  "linje": "V",
+  "nr": 25,
+  "nr_label": "25",
+  "usikker": false,
+  "navn": "Greve Christian Detlef",
+  "tilnavn": "til grevskabet Christiansborg, grevskabet Reventlow, baroniet Brahetrolleborg, Danstedgaard, Farumgaard og Gammel Holtegaard",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1775-03-30",
+      "date_raw": "† 30. marts 1775 i København",
+      "date_min": "1775-03-30",
+      "date_max": "1775-03-30",
+      "date_qualifier": "exact",
+      "sted": "København"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "grevskabet Christiansborg (senere Christianssæde)",
+      "periode_raw": "(1736‑†, fik fra 1741 navn af Christianssæde)",
+      "period_type": "tenure",
+      "sted": "Skørringe S., Fuglse H."
+    },
+    {
+      "navn": "grevskabet Reventlow",
+      "periode_raw": "(1759‑†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "baroniet Brahetrolleborg",
+      "periode_raw": "(1759‑†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Danstedgaard",
+      "periode_raw": "(1758‑†)",
+      "period_type": "tenure",
+      "sted": "Nebbelunde S., Fuglse H."
+    },
+    {
+      "navn": "Farumgaard",
+      "periode_raw": "(1759‑1768)",
+      "period_type": "tenure",
+      "sted": "Farum S., Ølstykke H."
+    },
+    {
+      "navn": "Gammel Holtegaard",
+      "periode_raw": "(1760)",
+      "period_type": "tenure",
+      "sted": "ved Holte"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Højesteret",
+      "rolle": "assessor",
+      "dato_raw": "1736 (20. febr.)-1770 (1. marts)"
+    },
+    {
+      "organisation": "hvid ridder",
+      "rolle": "ridder",
+      "dato_raw": "1729 (11. okt.)"
+    },
+    {
+      "organisation": "kammerherre",
+      "rolle": "kammerherre",
+      "dato_raw": "1735 (5. dec.)"
+    },
+    {
+      "organisation": "gehejmeråd",
+      "rolle": "gehejmeråd",
+      "dato_raw": "1744 (22. maj)-†"
+    },
+    {
+      "organisation": "Dronning Anna Sophias Enkestiftelse",
+      "rolle": "direktør",
+      "dato_raw": "1754 (22. marts)-†"
+    },
+    {
+      "organisation": "Det Reventlowske Gravkapel i Horslunde Kirke",
+      "rolle": "indrettede",
+      "dato_raw": "1755"
+    },
+    {
+      "organisation": "det Reventlowske palæ i København",
+      "rolle": "besidder",
+      "dato_raw": "1759-†"
+    },
+    {
+      "organisation": "gehejekonferensråd",
+      "rolle": "gehejekonferensråd",
+      "dato_raw": "1763 (31. marts)-†"
+    },
+    {
+      "organisation": "Tirsted Kirke",
+      "rolle": "gav altersølv",
+      "dato_raw": "1764"
+    },
+    {
+      "organisation": "Horslunde Kirke",
+      "rolle": "gav dåbsfad",
+      "dato_raw": "1768"
+    },
+    {
+      "organisation": "Brahetrolleborg Kirke",
+      "rolle": "gav alterstager",
+      "dato_raw": "1768"
+    },
+    {
+      "organisation": "Errindlev Kirke",
+      "rolle": "gav sygekalk",
+      "dato_raw": "1773"
+    },
+    {
+      "organisation": "Højesteret",
+      "rolle": "ekstraordinær assessor",
+      "dato_raw": "1773-1775"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Johanna Friderica Sophia rigsfriherreinde von Bothmer",
+      "partner_ekstern_ref": "DAA 1997-99, 879f.",
+      "type": "vielse",
+      "dato_raw": "Gift 1° 12. febr. 1737",
+      "date_min": "1737-02-12",
+      "date_max": "1737-02-12",
+      "sted": "det Holsteinske Palæ i Stormgade, København",
+      "skilt": false,
+      "partner_foedsel": "* 26. aug. 1718 i København",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 17. april 1754 på Plön Slot",
+        "date_min": "1754-04-17",
+        "date_max": "1754-04-17",
+        "sted": "Plön Slot"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kurhannoveransk generalløjtnant, dansk general Johann Friedrich rigsgreve von B. og Sophia Hedewig von Holstein",
+      "note": "Uforløst i sit svangerskab."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Charlotta Amalia komtesse Holstein",
+      "partner_ekstern_ref": "DAA 1988-90, 753",
+      "type": "vielse",
+      "dato_raw": "Gift 2° 7. aug. 1762",
+      "date_min": "1762-08-07",
+      "date_max": "1762-08-07",
+      "sted": "Ledreborg",
+      "skilt": false,
+      "partner_foedsel": "* 27. juni 1736 i København",
+      "partner_daab": "døbt s.d. i Hof- og Slotskirken",
+      "partner_doed": {
+        "date_raw": "† 13. juni 1792 på Hummeltofte ved Frederiksdal",
+        "date_min": "1792-06-13",
+        "date_max": "1792-06-13",
+        "sted": "Hummeltofte ved Frederiksdal"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Oversekretær, hofmarskal, overkammerherre, stiftamtmand, gehejmeråd Johann Ludwig greve H. til grevskabet Ledreborg, Bavelse, Næsbyholm m.fl. og Helvig Vind til Vrejlevkloster, Rønnovsholm og Fuglsig",
+      "note": "Bisat 21. s.m. i Holmens Kirke og ført til Det Reventlowske Kapel i Horslunde Kirke."
+    }
+  ],
+  "boern": {
+    "antal": 7,
+    "slaegtled": "Fjerde (femtende) slægtled",
+    "linje": "II, nr. 39-44",
+    "nr_range": null
+  },
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "10. marts 1710",
+      "date_min": "1710-03-10",
+      "date_max": "1710-03-10",
+      "sted": null,
+      "note": "Bisat i Sankt Petri Kirke og senere ført til Det Reventlowske Kapel i Horslunde Kirke."
+    }
+  ]
+}

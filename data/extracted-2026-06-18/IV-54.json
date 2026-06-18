@@ -1,0 +1,40 @@
+{
+  "linje": "IV",
+  "nr": 54,
+  "nr_label": "54",
+  "usikker": false,
+  "navn": "Komtesse Marie Christiane",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1905-05-12",
+      "date_raw": "† 12. maj 1905 i Rom",
+      "date_min": "1905-05-12",
+      "date_max": "1905-05-12",
+      "date_qualifier": "exact",
+      "sted": "Rom"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "23. juni 1845",
+      "date_min": "1845-06-23",
+      "date_max": "1845-06-23",
+      "sted": null,
+      "note": "Bisat på Campo Cestio Kirkegård, Rom."
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "linje": "III",
+  "nr": 51,
+  "nr_label": "51",
+  "usikker": false,
+  "navn": "Anna",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1707-04-16",
+      "date_raw": "† 16. april 1707",
+      "date_min": "1707-04-16",
+      "date_max": "1707-04-16",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Dietrich von Bülow",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1676",
+        "date_min": "1676-01-01",
+        "date_max": "1676-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Johann Friedrich von B. til Klein-Bölkow, Mickenhagen, Hohen Luckow samt Oedeskirchen og Margaretha von Vieregg",
+      "note": "Til Hohen Luckow."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

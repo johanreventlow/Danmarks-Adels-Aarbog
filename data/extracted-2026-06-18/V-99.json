@@ -1,0 +1,43 @@
+{
+  "linje": "V",
+  "nr": 99,
+  "nr_label": "99",
+  "usikker": false,
+  "navn": "(Søn)",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* og † 19. juni 1858",
+      "date_min": "1858-06-19",
+      "date_max": "1858-06-19",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "* og † 19. juni 1858",
+      "date_min": "1858-06-19",
+      "date_max": "1858-06-19",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Theophili Skov"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

@@ -1,0 +1,62 @@
+{
+  "linje": "V",
+  "nr": 163,
+  "nr_label": "163",
+  "usikker": false,
+  "navn": "Greve Iven Eduard Rowland",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1926-06-02",
+      "date_raw": "2. juni 1926",
+      "date_min": "1926-06-02",
+      "date_max": "1926-06-02",
+      "date_qualifier": "exact",
+      "sted": "Rudbjerggaard"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1926-06-27",
+      "date_raw": "døbt 27. s.m. i Tillitse Kirke",
+      "date_min": "1926-06-27",
+      "date_max": "1926-06-27",
+      "date_qualifier": "exact",
+      "sted": "Tillitse Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "2003-07-20",
+      "date_raw": "20. juli 2003",
+      "date_min": "2003-07-20",
+      "date_max": "2003-07-20",
+      "date_qualifier": "exact",
+      "sted": "Hillerød"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Tove Ida Marie Branner",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 27. jan. 1950",
+      "date_min": "1950-01-27",
+      "date_max": "1950-01-27",
+      "sted": "Skovshoved Kirke",
+      "skilt": false,
+      "partner_foedsel": "* 24. april 1927 i København",
+      "partner_daab": "døbt 12. juni s.å. i Frederiks Kirke",
+      "partner_doed": {
+        "date_raw": "† 10. marts 2021 i Rungsted",
+        "date_min": "2021-03-10",
+        "date_max": "2021-03-10",
+        "sted": "Rungsted"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kaptajn, grosserer Troels Smith B. og Anna Margrethe Simonsen",
+      "note": null
+    }
+  ]
+}

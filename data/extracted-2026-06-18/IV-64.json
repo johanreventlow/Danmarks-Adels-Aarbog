@@ -1,0 +1,85 @@
+{
+  "linje": "IV",
+  "nr": 64,
+  "nr_label": "64",
+  "usikker": false,
+  "navn": "Greve Heinrich Ernst Emil Kurt",
+  "tilnavn": "til Wittenberg",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1938-01-12",
+      "date_raw": "† 12. jan. 1938 s.st.",
+      "date_min": "1938-01-12",
+      "date_max": "1938-01-12",
+      "date_qualifier": "exact",
+      "sted": "Wittenberg"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Wittenberg",
+      "periode_raw": "(1906-†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Landeværnskavaleriet",
+      "rolle": "preussisk ritmester",
+      "dato_raw": null
+    },
+    {
+      "organisation": "preussisk amtsdommer",
+      "rolle": "amtdommer",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Det Adelige Kloster i Uetersen",
+      "rolle": "klosterprovst",
+      "dato_raw": "1912-1920"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Anna Ottilie Mathilde Christiane rigsgrevinde zu Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 136f",
+      "type": "vielse",
+      "dato_raw": "Gift 21. aug. 1906",
+      "date_min": "1906-08-21",
+      "date_max": "1906-08-21",
+      "sted": "Breitenburg",
+      "skilt": false,
+      "partner_foedsel": "* 30. maj 1878 på Pronstorf",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 24. jan. 1969 på Wittenberg",
+        "date_min": "1969-01-24",
+        "date_max": "1969-01-24",
+        "sted": "Wittenberg"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Badensk kammerherre og legationsråd, preussisk premierløjtnant Otto August Christian Carl Johann Wilhelm rigsgreve zu R. til fideikommisgodset Breitenburg og Adelheid Luise von Buchwaldt til fideikommisgodset Osterhof og Pronstorf",
+      "note": "4 børn."
+    }
+  ],
+  "boern": {
+    "antal": 4,
+    "slaegtled": "Sjette (nittende) slægtled",
+    "linje": "II, nr. 77-81",
+    "nr_range": null
+  },
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "18. nov. 1868",
+      "date_min": "1868-11-18",
+      "date_max": "1868-11-18",
+      "sted": "Wittenberg",
+      "note": "Begravet på det Reventlowske gravsted på Selent Kirkegård."
+    }
+  ]
+}

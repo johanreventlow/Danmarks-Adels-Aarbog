@@ -1,0 +1,63 @@
+{
+  "linje": "II",
+  "nr": 10,
+  "nr_label": "10",
+  "usikker": false,
+  "navn": "Hartwich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1668",
+      "date_raw": "† 1668",
+      "date_min": "1668-01-01",
+      "date_max": "1668-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Fahren",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Clara Metta Behr",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1668",
+        "date_min": "1668-01-01",
+        "date_max": "1668-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Mecklenburgsk landråd Cord B. til Grese og Anna Dorothea von Vieregg",
+      "note": null
+    }
+  ],
+  "boern": {
+    "antal": 7,
+    "slaegtled": "Niende slægtled",
+    "linje": "II",
+    "nr_range": [
+      11,
+      17
+    ]
+  },
+  "begivenheder": []
+}

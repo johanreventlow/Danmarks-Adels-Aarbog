@@ -1,0 +1,28 @@
+{
+  "linje": "III",
+  "nr": 35,
+  "nr_label": "35",
+  "usikker": false,
+  "navn": "Lorenz",
+  "tilnavn": "til Ziesendorf",
+  "koen": "mand",
+  "facts": [],
+  "godser": [
+    {
+      "navn": "Ziesendorf",
+      "periode_raw": "(1624-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Brockhusen",
+      "periode_raw": "(1624-†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

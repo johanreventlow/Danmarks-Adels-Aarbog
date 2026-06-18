@@ -1,0 +1,36 @@
+{
+  "linje": "III",
+  "nr": 127,
+  "nr_label": "127",
+  "usikker": false,
+  "navn": "Catharina",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1713-04-03",
+      "date_raw": "3. april 1713",
+      "date_min": "1713-04-03",
+      "date_max": "1713-04-03",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1781-12-17",
+      "date_raw": "17. dec. 1781",
+      "date_min": "1781-12-17",
+      "date_max": "1781-12-17",
+      "date_qualifier": "exact",
+      "sted": "Uetersen Adelige Kloster"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Det Adelige Kloster i Uetersen",
+      "rolle": "konventualinde / priorinde",
+      "dato_raw": "1749 (16. sept.) / 1773 (14. okt.)-†"
+    }
+  ]
+}

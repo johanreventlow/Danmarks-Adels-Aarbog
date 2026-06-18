@@ -1,0 +1,98 @@
+{
+  "linje": "I",
+  "nr": 74,
+  "nr_label": "74",
+  "usikker": false,
+  "navn": "Otto",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "27. marts 1618",
+      "date_raw": "† 27. marts 1618",
+      "date_min": "1618-03-27",
+      "date_max": "1618-03-27",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Stocksee",
+      "periode_raw": "(1569-1606)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Schönweide",
+      "periode_raw": "(1569-)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Wittenberg",
+      "periode_raw": "(1584-1606, 1610-†)",
+      "period_type": "tenure",
+      "sted": "Selent S., Plön Kr."
+    },
+    {
+      "navn": "Lammershagen",
+      "periode_raw": "(1592-1606, 1610-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Waterneverstorf",
+      "periode_raw": "(1592-1606, 1610-†)",
+      "period_type": "tenure",
+      "sted": "Lütjenburg S., Plön Kr."
+    },
+    {
+      "navn": "Futterkamp",
+      "periode_raw": "(1602-1618)",
+      "period_type": "tenure",
+      "sted": "Blekendorf S., Plön Kr."
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Dorothea von Ahlefeldt",
+      "partner_ekstern_ref": "DAA 1982-84, 554",
+      "type": "vielse",
+      "dato_raw": "Gift 1581",
+      "date_min": "1581-01-01",
+      "date_max": "1581-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* ca. 1553",
+        "date_min": "1553-01-01",
+        "date_max": "1553-12-31",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1635",
+        "date_min": "1635-01-01",
+        "date_max": "1635-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Bartram von A. og Dorothea von Rantzau",
+      "note": "Bisat i Det Reventlowske Kapel i Lütjenburg Kirke."
+    }
+  ],
+  "boern": {
+    "antal": 4,
+    "slaegtled": "Ellevte slægtled",
+    "linje": "II",
+    "nr_range": [
+      88,
+      91
+    ]
+  },
+  "begivenheder": []
+}

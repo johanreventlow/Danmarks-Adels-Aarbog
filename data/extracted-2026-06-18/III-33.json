@@ -1,0 +1,21 @@
+{
+  "linje": "III",
+  "nr": 33,
+  "nr_label": "33",
+  "usikker": false,
+  "navn": "Adam",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Rostock",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1577"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

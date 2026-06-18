@@ -1,0 +1,78 @@
+{
+  "linje": "I",
+  "nr": 42,
+  "nr_label": "42",
+  "usikker": false,
+  "navn": "Hinrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 1465",
+      "date_min": "1465-01-01",
+      "date_max": "1465-12-31",
+      "date_qualifier": "exact",
+      "sted": "Tielenburg"
+    },
+    {
+      "faktatype": "dødsårsag",
+      "vaerdi": "dræbt af ditmarskerne",
+      "date_raw": "1465",
+      "date_min": "1465-01-01",
+      "date_max": "1465-12-31",
+      "date_qualifier": "exact",
+      "sted": "Tielenburg"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Stenfelt",
+      "periode_raw": "1451 (6. okt.)",
+      "period_type": "leje",
+      "sted": "ved Slesvig By"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "amtmand",
+      "dato_raw": "1443-1446"
+    },
+    {
+      "organisation": null,
+      "rolle": "høvedsmand",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Anna NN",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "Kong Christian 1. gav hende 1465 (4. dec.) livsbrev på et hus i Egernførde og 1473 (8. maj) brev for den skade, som hendes salig søn Hinrich havde lidt."
+    }
+  ],
+  "boern": {
+    "antal": 3,
+    "slaegtled": "Ottende",
+    "linje": "I",
+    "nr_range": [
+      51,
+      53
+    ]
+  },
+  "begivenheder": []
+}

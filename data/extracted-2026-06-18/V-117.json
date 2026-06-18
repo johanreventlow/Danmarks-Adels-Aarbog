@@ -1,0 +1,106 @@
+{
+  "linje": "V",
+  "nr": 117,
+  "nr_label": "117",
+  "usikker": false,
+  "navn": "Heinrich Carl Christian Detlev Hartwig August",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 2. maj 1861",
+      "date_min": "1861-05-02",
+      "date_max": null,
+      "date_qualifier": "exact",
+      "sted": "Bordesholm"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "faldt 24. okt. 1914",
+      "date_min": "1914-10-24",
+      "date_max": null,
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "dødsårsag",
+      "vaerdi": "faldt",
+      "date_raw": "faldt 24. okt. 1914",
+      "date_min": "1914-10-24",
+      "date_max": null,
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Luisenstädtischer Kirkegård, Kreuzberg, Friedrichshain-Kreuzberg, Berlin"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "2. hannoveranske Infanterie-Reg. Nr. 77",
+      "rolle": "sekondløjtnant",
+      "dato_raw": "1890"
+    },
+    {
+      "organisation": "2. hannoveranske Infanterie-Reg. Nr. 77",
+      "rolle": "premierløjtnant",
+      "dato_raw": "1895"
+    },
+    {
+      "organisation": "Inspektionen for Infanteriskolen",
+      "rolle": "adjudant",
+      "dato_raw": null
+    },
+    {
+      "organisation": null,
+      "rolle": "oberstløjtnant",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Reserveinfanteri-Reg. Nr. 5",
+      "rolle": "chef",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Hanna Marie Ella Frank",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 30. marts 1894",
+      "date_min": "1894-03-30",
+      "date_max": null,
+      "sted": "Celle",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 5. marts 1875",
+        "date_min": "1875-03-05",
+        "date_max": null,
+        "sted": "Elbing"
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 2. juli 1920",
+        "date_min": "1920-07-02",
+        "date_max": null,
+        "sted": "Berlin"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Preussisk landråd Maximilian F. og Olga Kressmann",
+      "note": "begravet på Luisenstädtischer Kirkegård"
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

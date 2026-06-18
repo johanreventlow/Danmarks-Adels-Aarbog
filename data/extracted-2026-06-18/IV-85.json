@@ -1,0 +1,59 @@
+{
+  "linje": "IV",
+  "nr": 85,
+  "nr_label": "85",
+  "usikker": false,
+  "navn": "Komtesse Agnes Gertrud Louise",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "lille",
+      "date_raw": "† lille",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Alexander Kirchstein",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 14. aug. 1959",
+      "date_min": "1959-08-14",
+      "date_max": "1959-08-14",
+      "sted": "Selent Kirke",
+      "skilt": false,
+      "partner_foedsel": "* 29. maj 1930 i Artschau ved Danzig",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 18. febr. 2015",
+        "date_min": "2015-02-18",
+        "date_max": "2015-02-18",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "pastor"
+      ],
+      "partner_foraeldre": null,
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "28. maj 1931",
+      "date_min": "1931-05-28",
+      "date_max": "1931-05-28",
+      "sted": "Potsdam",
+      "note": null
+    }
+  ]
+}

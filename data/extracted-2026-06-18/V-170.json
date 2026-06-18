@@ -1,0 +1,46 @@
+{
+  "linje": "V",
+  "nr": 170,
+  "nr_label": "170",
+  "usikker": false,
+  "navn": "Greve Nicolaus Franz Friedrich",
+  "tilnavn": "til Eckhof",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1964-12-12",
+      "date_raw": "12. dec. 1964",
+      "date_min": "1964-12-12",
+      "date_max": "1964-12-12",
+      "date_qualifier": "exact",
+      "sted": "Kiel"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "erhverv",
+      "rolle": "løjtnant / agronom",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Caroline Boyens",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 16. dec. 1997",
+      "date_min": "1997-12-16",
+      "date_max": "1997-12-16",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 17. nov. 1969",
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": null
+    }
+  ]
+}

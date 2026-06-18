@@ -1,0 +1,48 @@
+{
+  "linje": "II",
+  "nr": 7,
+  "nr_label": "7",
+  "usikker": false,
+  "navn": "Magdalena",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "juni 1618",
+      "date_raw": "† juni 1618",
+      "date_min": "1618-06-01",
+      "date_max": "1618-06-30",
+      "date_qualifier": "about",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Wipert von Plessen",
+      "partner_ekstern_ref": "DAA 1934, 130 f",
+      "type": "vielse",
+      "dato_raw": "Gift 1606",
+      "date_min": "1606-01-01",
+      "date_max": "1606-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1624, før 2. sept.",
+        "date_min": "1624-01-01",
+        "date_max": "1624-09-02",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Mecklenburgsk råd og oberst Berend von P. til Arpshagen samt Hackenfeld og Anna von Pentz",
+      "note": "Bisat nov. 1625 i Klütz Kirke; gift 1° før 1572 med Margaretha Barner."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

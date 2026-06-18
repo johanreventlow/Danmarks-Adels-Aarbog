@@ -1,0 +1,36 @@
+{
+  "linje": "III",
+  "nr": 129,
+  "nr_label": "129",
+  "usikker": false,
+  "navn": "Anna Maria",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1719-01-01",
+      "date_raw": "1719",
+      "date_min": "1719-01-01",
+      "date_max": "1719-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1765-02-07",
+      "date_raw": "7. febr. 1765",
+      "date_min": "1765-02-07",
+      "date_max": "1765-02-07",
+      "date_qualifier": "exact",
+      "sted": "Preetz"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde i",
+      "dato_raw": null
+    }
+  ]
+}

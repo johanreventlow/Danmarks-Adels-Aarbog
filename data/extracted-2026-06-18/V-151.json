@@ -1,0 +1,71 @@
+{
+  "linje": "V",
+  "nr": 151,
+  "nr_label": "151",
+  "usikker": false,
+  "navn": "Greve Carl Ludwig Erich Ernst Victor Christian Detlev Alexander",
+  "tilnavn": "til Damp med Dorotheenthal",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1910-03-25",
+      "date_raw": "25. marts 1910",
+      "date_min": "1910-03-25",
+      "date_max": "1910-03-25",
+      "date_qualifier": "exact",
+      "sted": "Frankfurt a. d. Oder"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1978-10-29",
+      "date_raw": "29. okt. 1978",
+      "date_min": "1978-10-29",
+      "date_max": "1978-10-29",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Doris Anna Laura Theuer",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 1° 19. dec. 1938",
+      "date_min": "1938-12-19",
+      "date_max": "1938-12-19",
+      "sted": "Potsdam",
+      "skilt": true,
+      "partner_foedsel": "* 5. marts 1911 i Breslau",
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Preussisk major af reserven Alfred T. til Coritau og Katharina Schmidt",
+      "note": null
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Dr.med. Nina Nora Maja Pryadkin",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 2° 4. aug. 1951",
+      "date_min": "1951-08-04",
+      "date_max": "1951-08-04",
+      "sted": "Kiel",
+      "skilt": false,
+      "partner_foedsel": "* 4. aug. 1918 i Woronesh, Rusland",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 18. april 2003",
+        "date_min": "2003-04-18",
+        "date_max": "2003-04-18",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Dr.med. Nikolaus P. og Lydia de Gefier",
+      "note": null
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "linje": "III",
+  "nr": 9,
+  "nr_label": "9",
+  "usikker": false,
+  "navn": "Hartwich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1378",
+      "date_raw": "† 1378",
+      "date_min": "1378-01-01",
+      "date_max": "1378-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Harmstorf",
+      "periode_raw": "(før 1378)",
+      "period_type": "tenure",
+      "sted": "Bentwisch S., Rostock Kr."
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Abele NN",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "Til Harmstorf."
+    }
+  ],
+  "boern": {
+    "antal": 5,
+    "slaegtled": "Femte slægtled",
+    "linje": null,
+    "nr_range": [
+      10,
+      14
+    ]
+  },
+  "begivenheder": []
+}

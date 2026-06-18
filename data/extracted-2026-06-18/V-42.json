@@ -1,0 +1,29 @@
+{
+  "linje": "V",
+  "nr": 42,
+  "nr_label": "42",
+  "usikker": false,
+  "navn": "Greve Christian Detlef Friderich",
+  "tilnavn": "til grevskaberne Christianssæde og Reventlow",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1748-03-11",
+      "date_raw": "11. marts 1748",
+      "date_min": "1748-03-11",
+      "date_max": "1748-03-11",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1827-10-11",
+      "date_raw": "11. okt. 1827",
+      "date_min": "1827-10-11",
+      "date_max": "1827-10-11",
+      "date_qualifier": "exact",
+      "sted": "Christianssæde"
+    }
+  ]
+}

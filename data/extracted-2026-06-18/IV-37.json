@@ -1,0 +1,45 @@
+{
+  "linje": "IV",
+  "nr": 37,
+  "nr_label": "37",
+  "usikker": false,
+  "navn": "Greve Werner",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1870-08-06",
+      "date_raw": "faldt 6. aug. 1870 ved Spichern",
+      "date_min": "1870-08-06",
+      "date_max": "1870-08-06",
+      "date_qualifier": "exact",
+      "sted": "Spichern"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Heidelberg",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1855 (28. april)"
+    },
+    {
+      "organisation": "1. Niederschlesische Infanterie-Reg.",
+      "rolle": "løjtnant",
+      "dato_raw": "preussisk"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "faldt",
+      "dato_raw": "6. aug. 1870",
+      "date_min": "1870-08-06",
+      "date_max": "1870-08-06",
+      "sted": "Spichern",
+      "note": null
+    }
+  ]
+}

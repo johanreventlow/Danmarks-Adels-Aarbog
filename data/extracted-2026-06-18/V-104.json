@@ -1,0 +1,61 @@
+{
+  "linje": "V",
+  "nr": 104,
+  "nr_label": "104",
+  "usikker": false,
+  "navn": "Hilda Benedicte",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 12. sept. 1870",
+      "date_min": "1870-09-12",
+      "date_max": "1870-09-12",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "hjemmedøbt",
+      "date_raw": "hjemmedøbt 14. s.m.",
+      "date_min": "1870-09-14",
+      "date_max": "1870-09-14",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† s.d.",
+      "date_min": "1870-09-12",
+      "date_max": "1870-09-12",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "bisat fra Brahetrolleborg Kirke og begravet i Theophili Skov",
+      "date_raw": "bisat 18. s.m.",
+      "date_min": "1870-09-18",
+      "date_max": "1870-09-18",
+      "date_qualifier": "exact",
+      "sted": "Theophili Skov"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

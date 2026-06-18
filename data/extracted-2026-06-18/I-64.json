@@ -1,0 +1,25 @@
+{
+  "linje": "I",
+  "nr": 64,
+  "nr_label": "64",
+  "usikker": false,
+  "navn": "Iwan",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "ung",
+      "date_raw": "† ung",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

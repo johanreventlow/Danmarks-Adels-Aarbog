@@ -1,0 +1,40 @@
+{
+  "linje": "IV",
+  "nr": 61,
+  "nr_label": "61",
+  "usikker": false,
+  "navn": "Komtesse Julia Karoline Magda Theodora",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1941-09-01",
+      "date_raw": "† 1. sept. 1941 i Preetz",
+      "date_min": "1941-09-01",
+      "date_max": "1941-09-01",
+      "date_qualifier": "exact",
+      "sted": "Preetz"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "30. juli 1863",
+      "date_min": "1863-07-30",
+      "date_max": "1863-07-30",
+      "sted": "Kiel",
+      "note": null
+    }
+  ]
+}

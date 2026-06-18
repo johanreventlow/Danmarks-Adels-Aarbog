@@ -1,0 +1,40 @@
+{
+  "linje": "IV",
+  "nr": 62,
+  "nr_label": "62",
+  "usikker": false,
+  "navn": "Komtesse Ottilie Karoline Adelaide Josephine",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1945-12-22",
+      "date_raw": "† 22. dec. 1945 i Itzehoe",
+      "date_min": "1945-12-22",
+      "date_max": "1945-12-22",
+      "date_qualifier": "exact",
+      "sted": "Itzehoe"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "29. nov. 1864",
+      "date_min": "1864-11-29",
+      "date_max": "1864-11-29",
+      "sted": "Düsternbrook, Kiel",
+      "note": null
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "linje": "I",
+  "nr": 78,
+  "nr_label": "78",
+  "usikker": false,
+  "navn": "Magdalena",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "ca. 1560",
+      "date_raw": "† ca. 1560",
+      "date_min": "1560-01-01",
+      "date_max": "1560-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Tovskov",
+      "periode_raw": "(1563)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Hinrich von Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 164f",
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [
+        "amtmand"
+      ],
+      "partner_foraeldre": "Hertugelig amtmand og råd Otto von R. til Bülk samt Knoop og Anna Breide",
+      "note": "Bisat 20. dec. 1563 i Åstrup Kirke."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

@@ -1,0 +1,125 @@
+{
+  "linje": "V",
+  "nr": 73,
+  "nr_label": "73",
+  "usikker": false,
+  "navn": "Edvard Vilhelm",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 8. april 1810 på Pederstrup",
+      "date_min": "1810-04-08",
+      "date_max": "1810-04-08",
+      "date_qualifier": "exact",
+      "sted": "Pederstrup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 28. s.m. i Vesterborg Kirke",
+      "date_min": "1810-04-28",
+      "date_max": "1810-04-28",
+      "date_qualifier": "exact",
+      "sted": "Vesterborg Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 20. sept. 1868 på Pederstrup",
+      "date_min": "1868-09-20",
+      "date_max": "1868-09-20",
+      "date_qualifier": "exact",
+      "sted": "Pederstrup"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 29. s.m. fra Vesterborg Kirke og begravet i Theophili Skov",
+      "date_min": "1868-09-29",
+      "date_max": "1868-09-29",
+      "date_qualifier": "exact",
+      "sted": "Theophili Skov"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Pederstrup Hovedgaard",
+      "periode_raw": "havde 1850 (1. febr.) og endnu 1860 (1. febr.) i forpagtning",
+      "period_type": "forpagtning",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "den danske legation i London",
+      "rolle": "attaché",
+      "dato_raw": "1835-1836"
+    },
+    {
+      "organisation": null,
+      "rolle": "løjtnant à la suite",
+      "dato_raw": "1842"
+    },
+    {
+      "organisation": null,
+      "rolle": "hofjægermester",
+      "dato_raw": "1851"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Amalie Johanne Magdalene Elisabeth (Helene) von Heimbruch",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 12. juli 1844 i Verden a.d. Aller",
+      "date_min": "1844-07-12",
+      "date_max": "1844-07-12",
+      "sted": "Verden a.d. Aller",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 21. juli 1824 i Verden a.d. Aller",
+        "date_min": "1824-07-21",
+        "date_max": "1824-07-21",
+        "sted": "Verden a.d. Aller"
+      },
+      "partner_daab": {
+        "date_raw": "døbt 29. sept. s.å. på Koppel",
+        "date_min": "1824-09-29",
+        "date_max": "1824-09-29",
+        "sted": "Koppel"
+      },
+      "partner_doed": {
+        "date_raw": "† 16. jan. 1911 i København",
+        "date_min": "1911-01-16",
+        "date_max": "1911-01-16",
+        "sted": "København"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Hannoveransk major Joachim Christian von H. til allodialgodserne Varste og Polle samt til Ruschbaden og Katharine Hedwig Luise von der Wisch",
+      "note": "som den sidste af sin slægt"
+    }
+  ],
+  "boern": {
+    "antal": 6,
+    "slaegtled": "Syvende (attende)",
+    "linje": "III",
+    "nr_range": [
+      106,
+      111
+    ]
+  },
+  "begivenheder": []
+}

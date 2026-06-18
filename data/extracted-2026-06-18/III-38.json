@@ -1,0 +1,28 @@
+{
+  "linje": "III",
+  "nr": 38,
+  "nr_label": "38",
+  "usikker": false,
+  "navn": "Anna Valentina",
+  "tilnavn": "til Gerdshagen",
+  "koen": "kvinde",
+  "facts": [],
+  "godser": [
+    {
+      "navn": "Gerdshagen",
+      "periode_raw": "(1640-1649)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Clausdorf",
+      "periode_raw": "(1640-1649)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

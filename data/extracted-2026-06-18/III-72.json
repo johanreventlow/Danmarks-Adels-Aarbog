@@ -1,0 +1,101 @@
+{
+  "linje": "III",
+  "nr": 72,
+  "nr_label": "72",
+  "usikker": false,
+  "navn": "Elisabeth Christina",
+  "tilnavn": "til Bienebek, Borghorst og Wittmold",
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1721",
+      "date_raw": "† 1721",
+      "date_min": "1721-01-01",
+      "date_max": "1721-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Bienebek",
+      "periode_raw": "(1684-1707)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Borghorst",
+      "periode_raw": "(1684-1707)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Wittmold",
+      "periode_raw": "(1716-)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Cai von Thienen",
+      "partner_ekstern_ref": "DAA 1935, II, 96",
+      "type": "vielse",
+      "dato_raw": "Gift 1°",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 10. jan. 1656",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 16. dec. 1701",
+        "date_min": "1701-12-16",
+        "date_max": "1701-12-16",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Amtmand Hans von T. til Wahlstorf, Borghorst, Warleberg samt Rathmannsdorf og Elisabeth von Buchwaldt",
+      "note": "Til Borghorst og Bienebek."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Wulf von Brockdorff",
+      "partner_ekstern_ref": "DAA 1936, II, 60",
+      "type": "vielse",
+      "dato_raw": "Gift 2° 1708",
+      "date_min": "1708-01-01",
+      "date_max": "1708-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 28. jan. 1651",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 19. juli 1732",
+        "date_min": "1732-07-19",
+        "date_max": "1732-07-19",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "gehejmekonferensråd",
+        "gehejme- og landråd"
+      ],
+      "partner_foraeldre": "Gottorpsk hofmester, fransk oberstløjtnant Joachim von B. til Wensin, Stocksee, Rohlstorf samt Altenhof og Anna Margaretha von Rantzau",
+      "note": "Gift 1° 1678 med Ide von Rumohr; gift 2° jan. 1694 med Lucia von Rantzau."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "ca. 5. juni 1672",
+      "date_min": "1672-06-01",
+      "date_max": "1672-06-30",
+      "sted": "Hemmelmark",
+      "note": "Bisat 10. marts s.å. i Plön."
+    }
+  ]
+}

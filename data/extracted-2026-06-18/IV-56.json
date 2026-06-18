@@ -1,0 +1,67 @@
+{
+  "linje": "IV",
+  "nr": 56,
+  "nr_label": "56",
+  "usikker": false,
+  "navn": "Komtesse Elisabeth Sophie",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1933-09-15",
+      "date_raw": "† 15. sept. 1933 på Ober-Ellguth",
+      "date_min": "1933-09-15",
+      "date_max": "1933-09-15",
+      "date_qualifier": "exact",
+      "sted": "Ober-Ellguth"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Ober-Ellguth ved Tschirnau",
+      "periode_raw": null,
+      "period_type": "tenure",
+      "sted": "Schlesien"
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Carl Heinrich Julius von Roeder",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 18. okt. 1892",
+      "date_min": "1892-10-18",
+      "date_max": "1892-10-18",
+      "sted": "Jersbek",
+      "skilt": false,
+      "partner_foedsel": "* 28. febr. 1865 i Breslau",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 18. sept. 1940 på Juppendorf ved Guhrau",
+        "date_min": "1940-09-18",
+        "date_max": "1940-09-18",
+        "sted": "Juppendorf ved Guhrau"
+      },
+      "partner_erhverv": [
+        "preussisk landråd",
+        "major"
+      ],
+      "partner_foraeldre": null,
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "17. okt. 1866",
+      "date_min": "1866-10-17",
+      "date_max": "1866-10-17",
+      "sted": "Stegen",
+      "note": null
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "linje": "I",
+  "nr": 133,
+  "nr_label": "133",
+  "usikker": false,
+  "navn": "Christina Maria",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1752-01-01",
+      "date_raw": "1752",
+      "date_min": "1752-01-01",
+      "date_max": "1752-12-31",
+      "date_qualifier": "exact",
+      "sted": "Randers"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1752-04-30",
+      "date_raw": "døbt 30. april s.å. i Sankt Mortens Kirke",
+      "date_min": "1752-04-30",
+      "date_max": "1752-04-30",
+      "date_qualifier": "exact",
+      "sted": "Sankt Mortens Kirke, Randers"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1813-04-09",
+      "date_raw": "9. april 1813",
+      "date_min": "1813-04-09",
+      "date_max": "1813-04-09",
+      "date_qualifier": "exact",
+      "sted": "Uetersen Adelige Kloster"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Uetersen Adelige Kloster",
+      "rolle": "konventualinde i",
+      "dato_raw": null
+    }
+  ]
+}

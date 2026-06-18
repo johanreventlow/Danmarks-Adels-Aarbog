@@ -1,0 +1,56 @@
+{
+  "linje": "III",
+  "nr": 80,
+  "nr_label": "80",
+  "usikker": false,
+  "navn": "Anna Emerentia",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1753-02-04",
+      "date_raw": "† 4. febr. 1753 i Preetz Adelige Kloster",
+      "date_min": "1753-02-04",
+      "date_max": "1753-02-04",
+      "date_qualifier": "exact",
+      "sted": "Preetz Adelige Kloster"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Det Adelige Kloster i Uetersen",
+      "rolle": "priorinde",
+      "dato_raw": "1713 (13. okt.)-†"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "1680",
+      "date_min": "1680-01-01",
+      "date_max": "1680-12-31",
+      "sted": "Hemmelmark",
+      "note": "Døbt 1. marts s.å. i Borby Kirke; 73 år og begravet 5. marts s.å. på Preetz Klostergård."
+    },
+    {
+      "type": "stiftede",
+      "dato_raw": "1716",
+      "date_min": "1716-01-01",
+      "date_max": "1716-12-31",
+      "sted": "Uetersen",
+      "note": "Bekostede renovering af koret og stiftede en barokkrucifiks."
+    },
+    {
+      "type": "stiftede",
+      "dato_raw": "1735",
+      "date_min": "1735-01-01",
+      "date_max": "1735-12-31",
+      "sted": "Uetersen",
+      "note": "Stiftede et fattighus og en Armenkapital på 110.000 mark."
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "linje": "IV",
+  "nr": 78,
+  "nr_label": "78",
+  "usikker": false,
+  "navn": "Komtesse Adelheid (Lilli) Margarethe",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1981-12-13",
+      "date_raw": "† 13. dec. 1981 i Kiel",
+      "date_min": "1981-12-13",
+      "date_max": "1981-12-13",
+      "date_qualifier": "exact",
+      "sted": "Kiel"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Sankt Jürgen Kirke, Gettorp",
+      "rolle": "bisat",
+      "dato_raw": "18. s.m."
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Einar greve af Reventlow",
+      "partner_ekstern_ref": "von Reventlow. V. Den grevelige linje af 1673, nr. 129",
+      "type": "vielse",
+      "dato_raw": "Gift 15. maj 1929",
+      "date_min": "1929-05-15",
+      "date_max": "1929-05-15",
+      "sted": "Wittenberg",
+      "skilt": false,
+      "partner_foedsel": "* 27. febr. 1893 på Brostorp",
+      "partner_daab": "døbt 3. april s.å. i Gudmuntorp Kirke",
+      "partner_doed": {
+        "date_raw": "† 8. sept. 1974 på Wulfshagen",
+        "date_min": "1974-09-08",
+        "date_max": "1974-09-08",
+        "sted": "Wulfshagen"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Frederik Ferdinand Eduard greve af R. til Wännberga samt Brostorp og Ida Mathilde komtesse Moltke",
+      "note": "Begravet i haven på Wulfshagen."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "17. maj 1909",
+      "date_min": "1909-05-17",
+      "date_max": "1909-05-17",
+      "sted": "Osterhof ved Itzehoe",
+      "note": null
+    }
+  ]
+}

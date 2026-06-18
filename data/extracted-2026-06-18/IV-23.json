@@ -1,0 +1,61 @@
+{
+  "linje": "IV",
+  "nr": 23,
+  "nr_label": "23",
+  "usikker": false,
+  "navn": "Komtesse Elisabeth Cornelia",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1890-05-11",
+      "date_raw": "† 11. maj 1890 på Niendorf",
+      "date_min": "1890-05-11",
+      "date_max": "1890-05-11",
+      "date_qualifier": "exact",
+      "sted": "Niendorf"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Josias Friedrich Ernst lensbaron von Heintze-Weissenrode",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 30. sept. 1823",
+      "date_min": "1823-09-30",
+      "date_max": "1823-09-30",
+      "sted": "Knoop",
+      "skilt": false,
+      "partner_foedsel": "* 22. sept. 1800 på Schwarzenbeck",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 26. jan. 1867 på Niendorf",
+        "date_min": "1867-01-26",
+        "date_max": "1867-01-26",
+        "sted": "Niendorf"
+      },
+      "partner_erhverv": [
+        "dansk kammerherre",
+        "gehejmekonferensråd",
+        "amtmand"
+      ],
+      "partner_foraeldre": "Professor, dr.jur. et med., etatsråd Friedrich Adolf rigsfriherre von H.-W. til fideikommisgodserne Hagen, Dobersdorf samt Schädtbeck og Henriette Friederike Christiane Blome",
+      "note": "Til fideikommisgodserne Hagen, Dobersdorf og Schädtbeck samt til Niendorf og Reecke."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "28. aug. 1804",
+      "date_min": "1804-08-28",
+      "date_max": "1804-08-28",
+      "sted": null,
+      "note": "Døbt 7. okt. s.å. i Dänischenhagen Kirke."
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "linje": "V",
+  "nr": 30,
+  "nr_label": "30",
+  "usikker": false,
+  "navn": "Christian Detlef",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "14. aug. 1733",
+      "date_min": "1733-08-14",
+      "date_max": "1733-08-14",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "5. jan. 1735",
+      "date_min": "1735-01-05",
+      "date_max": "1735-01-05",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "20. maj 1751",
+      "date_min": "1751-05-20",
+      "date_max": "1751-05-20",
+      "date_qualifier": "exact",
+      "sted": "Det Reventlowske Kapel i Dybbøl Kirke"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

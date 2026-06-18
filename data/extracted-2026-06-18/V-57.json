@@ -1,0 +1,61 @@
+{
+  "linje": "V",
+  "nr": 57,
+  "nr_label": "57",
+  "usikker": false,
+  "navn": "Charlotte Augusta Agnes",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 13. jan. 1790",
+      "date_min": "1790-01-13",
+      "date_max": null,
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 12. jan. 1864",
+      "date_min": "1864-01-12",
+      "date_max": null,
+      "date_qualifier": "exact",
+      "sted": "Pederstrup"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 19. s.m. fra Vesterborg Kirke og begravet i Theophili Skov",
+      "date_min": "1864-01-19",
+      "date_max": null,
+      "date_qualifier": "exact",
+      "sted": "Theophili Skov"
+    },
+    {
+      "faktatype": "klosterindgang",
+      "vaerdi": "Konventualinde",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Preetz Adelige Kloster"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

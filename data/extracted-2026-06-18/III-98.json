@@ -1,0 +1,51 @@
+{
+  "linje": "III",
+  "nr": 98,
+  "nr_label": "98",
+  "usikker": false,
+  "navn": "Charlotta Amalia",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1722-11-23",
+      "date_raw": "† 23. nov. 1722 i Hamburg",
+      "date_min": "1722-11-23",
+      "date_max": "1722-11-23",
+      "date_qualifier": "exact",
+      "sted": "Hamburg"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Bendix von Ahlefeldt",
+      "partner_ekstern_ref": "DAA 1982-84, 634",
+      "type": "vielse",
+      "dato_raw": "Gift 1710 i Hamburg",
+      "date_min": "1710-01-01",
+      "date_max": "1710-12-31",
+      "sted": "Hamburg",
+      "skilt": false,
+      "partner_foedsel": "* 23. aug. 1684",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 10. marts 1739 på Niendorf a. d. Stecknitz ved Lübeck",
+        "date_min": "1739-03-10",
+        "date_max": "1739-03-10",
+        "sted": "Niendorf a. d. Stecknitz ved Lübeck"
+      },
+      "partner_erhverv": [
+        "gottorpsk landråd",
+        "amtmand"
+      ],
+      "partner_foraeldre": "Brandenburgsk kammerjunker, kursachsisk kammerherre, hof- og justitsråd, gottorpsk landråd og amtmand Bendix von A. til Haselau, Gamich samt Meischau og Maria Elisabeth Moltke",
+      "note": "Til Haselau."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

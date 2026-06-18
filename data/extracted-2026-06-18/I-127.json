@@ -1,0 +1,49 @@
+{
+  "linje": "I",
+  "nr": 127,
+  "nr_label": "127",
+  "usikker": false,
+  "navn": "Wulf Friedrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1723 på Wittenberg",
+      "date_raw": "* 1723 på Wittenberg",
+      "date_min": "1723-01-01",
+      "date_max": "1723-12-31",
+      "date_qualifier": "exact",
+      "sted": "Wittenberg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "13. nov. s.å. i Selent Kirke",
+      "date_raw": "døbt 13. nov. s.å. i Selent Kirke",
+      "date_min": "1723-11-13",
+      "date_max": "1723-11-13",
+      "date_qualifier": "exact",
+      "sted": "Selent Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1742 i København",
+      "date_raw": "† 1742 i København",
+      "date_min": "1742-01-01",
+      "date_max": "1742-12-31",
+      "date_qualifier": "exact",
+      "sted": "København"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "kong Christian 6.",
+      "rolle": "page",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

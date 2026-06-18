@@ -1,0 +1,121 @@
+{
+  "linje": "III",
+  "nr": 79,
+  "nr_label": "79",
+  "usikker": false,
+  "navn": "Hinrich",
+  "tilnavn": "til Gottesgabe og Glasau",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1726-03-01",
+      "date_raw": "† 1. marts 1726 på Glasau",
+      "date_min": "1726-03-01",
+      "date_max": "1726-03-01",
+      "date_qualifier": "exact",
+      "sted": "Glasau"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Gottesgabe",
+      "periode_raw": "(-1708)",
+      "period_type": "tenure",
+      "sted": "Karby S., Egernførde Kr."
+    },
+    {
+      "navn": "Glasau",
+      "periode_raw": "(1705-†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Basel",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1685 (12. juni)"
+    },
+    {
+      "organisation": "Livreg. til Fods",
+      "rolle": "kadet",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Livreg. til Fods",
+      "rolle": "fændrik",
+      "dato_raw": "1697 (13. april)"
+    },
+    {
+      "organisation": "Siena",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1698 (6. dec.)"
+    },
+    {
+      "organisation": "kammerjunker",
+      "rolle": "kammerjunker",
+      "dato_raw": "1699 (16. jan.)-"
+    },
+    {
+      "organisation": "Bataljon Prins Georg i kejserlig sold i Italien",
+      "rolle": "kaptajn",
+      "dato_raw": "1700 (14. dec.)"
+    },
+    {
+      "organisation": "1. Danske gevorbne Infanterireg.",
+      "rolle": "sekondmajor",
+      "dato_raw": "1703 (19. aug.)"
+    },
+    {
+      "organisation": "1. Danske gevorbne Infanterireg.",
+      "rolle": "oberstløjtnant",
+      "dato_raw": "1704 (1. nov.)"
+    },
+    {
+      "organisation": "oberst til fods",
+      "rolle": "oberst",
+      "dato_raw": "1711 (2. okt.)"
+    },
+    {
+      "organisation": "Generalstaben",
+      "rolle": "opført",
+      "dato_raw": "1713"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Augusta Sophia von Reventlow",
+      "partner_ekstern_ref": "von Reventlow. I. Den holstenske linje, nr. 112",
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 1679",
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kammerjunker Detlef von R. til Wittenberg samt Lammershagen og Maria Elisabeth von Buchwaldt",
+      "note": "2 børn."
+    }
+  ],
+  "boern": {
+    "antal": 2,
+    "slaegtled": "Fjortende slægtled",
+    "linje": "II, nr. 101-102",
+    "nr_range": null
+  },
+  "begivenheder": [
+    {
+      "type": "ansøgte",
+      "dato_raw": "1705",
+      "date_min": "1705-01-01",
+      "date_max": "1705-12-31",
+      "sted": null,
+      "note": "Ansøgte igen om at blive akkommoderet; Gottesgabe solgt 1708 på hans vegne af broderen Cay Friedrich for 11.333 rdlr., Glasau solgt 1728 af kreditorer til broderen Cay Friedrich."
+    }
+  ]
+}

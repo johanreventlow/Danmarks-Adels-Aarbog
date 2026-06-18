@@ -1,0 +1,161 @@
+{
+  "linje": "IV",
+  "nr": 19,
+  "nr_label": "19",
+  "usikker": false,
+  "navn": "Greve Ernst Christian",
+  "tilnavn": "til Farve og Wittenberg",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1873-02-17",
+      "date_raw": "† 17. febr. 1873 på Farve",
+      "date_min": "1873-02-17",
+      "date_max": "1873-02-17",
+      "date_qualifier": "exact",
+      "sted": "Farve"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Farve",
+      "periode_raw": "(1834-†)",
+      "period_type": "tenure",
+      "sted": "Hohenstein S., Ostholstein Kr."
+    },
+    {
+      "navn": "Wittenberg",
+      "periode_raw": "(1852-1856)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Gotha",
+      "rolle": "gymnasium",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1818 (31. okt.)"
+    },
+    {
+      "organisation": "Heidelberg",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1819 (25. okt.)"
+    },
+    {
+      "organisation": "Gottorp",
+      "rolle": "cand.jur.",
+      "dato_raw": "1822"
+    },
+    {
+      "organisation": "Berlin",
+      "rolle": "attaché",
+      "dato_raw": "1823 (17. maj)-1826"
+    },
+    {
+      "organisation": "Wagrische landwirtschaftliche Vereins",
+      "rolle": "medstifter og sekretær/direktør",
+      "dato_raw": "1828-1869"
+    },
+    {
+      "organisation": "kammerherre",
+      "rolle": "kammerherre",
+      "dato_raw": "1835 (28. juli)"
+    },
+    {
+      "organisation": "den holstenske Stænderforsamling",
+      "rolle": "medlem",
+      "dato_raw": "1835-1846"
+    },
+    {
+      "organisation": "provisoriske regering",
+      "rolle": "sendt til Wien",
+      "dato_raw": "1848 (april)"
+    },
+    {
+      "organisation": "Kongress deutscher Landwirte",
+      "rolle": "fmd.",
+      "dato_raw": "1848 (juli)"
+    },
+    {
+      "organisation": "Fællesregeringen",
+      "rolle": "sendt til Frankfurt a. M.",
+      "dato_raw": "1849 (jan.)"
+    },
+    {
+      "organisation": "København",
+      "rolle": "sendt til forlig",
+      "dato_raw": "1849 (febr.) og sommer 1850-1851"
+    },
+    {
+      "organisation": "Rigsrådet",
+      "rolle": "kongevalgt m.a.",
+      "dato_raw": "1855 (2. okt.)-1857 (sept.)"
+    },
+    {
+      "organisation": "ministeriet Hall",
+      "rolle": "afslog ministerpost",
+      "dato_raw": "1857 (april)"
+    },
+    {
+      "organisation": "Det Adelige Kloster Itzehoe",
+      "rolle": "Verbitter",
+      "dato_raw": "1863-"
+    },
+    {
+      "organisation": "preussiske Herrehus",
+      "rolle": "livsvarigt m.a.",
+      "dato_raw": "1867 (jan.)-†"
+    },
+    {
+      "organisation": "den første slesvig-holstenske Provinsiallanddag",
+      "rolle": "landdagsmarskal",
+      "dato_raw": "1868"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Sophie Adelaide von Buchwaldt",
+      "partner_ekstern_ref": "DAA 1913, 167",
+      "type": "vielse",
+      "dato_raw": "Gift 28. okt. 1825",
+      "date_min": "1825-10-28",
+      "date_max": "1825-10-28",
+      "sted": "Hagen",
+      "skilt": false,
+      "partner_foedsel": "* 9. aug. 1802 på Farve",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 23. febr. 1882 s.st.",
+        "date_min": "1882-02-23",
+        "date_max": "1882-02-23",
+        "sted": "Farve"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kammerherre Wulf von B. til Neudorff samt Farve og Benedicta Charlotta Blome",
+      "note": "7 børn."
+    }
+  ],
+  "boern": {
+    "antal": 7,
+    "slaegtled": "Fjerde (syttende) slægtled",
+    "linje": "IV, nr. 41-47",
+    "nr_range": null
+  },
+  "begivenheder": [
+    {
+      "type": "udgav",
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "note": "Skrev flere bøger og artikler om landbrug."
+    }
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "linje": "V",
+  "nr": 156,
+  "nr_label": "156",
+  "usikker": false,
+  "navn": "Greve Friedrich",
+  "tilnavn": "Fritz Carl Heinrich til Wulfshagen og Eckhof",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1936-08-18",
+      "date_raw": "18. aug. 1936",
+      "date_min": "1936-08-18",
+      "date_max": "1936-08-18",
+      "date_qualifier": "exact",
+      "sted": "Wulfshagen"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1936-10-15",
+      "date_raw": "hjemmedøbt 15. okt. s.å. på Wulfshagen",
+      "date_min": "1936-10-15",
+      "date_max": "1936-10-15",
+      "date_qualifier": "exact",
+      "sted": "Wulfshagen"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "2008-08-15",
+      "date_raw": "15. aug. 2008",
+      "date_min": "2008-08-15",
+      "date_max": "2008-08-15",
+      "date_qualifier": "exact",
+      "sted": "Wulfshagen"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Wulfshagen",
+      "periode_raw": "(1962‑2005)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Eckhof",
+      "periode_raw": "(1972-†)",
+      "period_type": "tenure",
+      "sted": "Strande S., Rendburg-Egernførde Kr."
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Jutta Lage",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 16. nov. 1961",
+      "date_min": "1961-11-16",
+      "date_max": "1961-11-16",
+      "sted": "Lütjenburg Kirke",
+      "skilt": false,
+      "partner_foedsel": "* 29. maj 1940 i Neubrandenburg, Mecklenburg",
+      "partner_daab": "døbt 11. aug. 1940 i Neubrandenburg",
+      "partner_doed": {
+        "date_raw": "† 16. jan. 2020",
+        "date_min": "2020-01-16",
+        "date_max": "2020-01-16",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Landmand Franz L. og Eleonore Albert",
+      "note": null
+    }
+  ]
+}

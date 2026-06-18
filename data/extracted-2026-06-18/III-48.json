@@ -1,0 +1,57 @@
+{
+  "linje": "III",
+  "nr": 48,
+  "nr_label": "48",
+  "usikker": false,
+  "navn": "Anna",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "i Rostock af pest",
+      "date_raw": "† i Rostock af pest",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Rostock"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Christoph von Bülow",
+      "partner_ekstern_ref": "DAA 1963, II, 9",
+      "type": "vielse",
+      "dato_raw": "Gift 1627",
+      "date_min": "1627-01-01",
+      "date_max": "1627-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1646",
+        "date_min": "1646-01-01",
+        "date_max": "1646-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Berend von B. til Klein-Bölkow og Elisabeth von Vieregg",
+      "note": "Til Gross-Siemen."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "7. jan. 1606",
+      "date_min": "1606-01-07",
+      "date_max": "1606-01-07",
+      "sted": null,
+      "note": null
+    }
+  ]
+}

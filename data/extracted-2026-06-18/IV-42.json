@@ -1,0 +1,50 @@
+{
+  "linje": "IV",
+  "nr": 42,
+  "nr_label": "42",
+  "usikker": false,
+  "navn": "Greve Wulf Magnus Lucius",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1860-10-22",
+      "date_raw": "† 22. okt. 1860 på Madeira",
+      "date_min": "1860-10-22",
+      "date_max": "1860-10-22",
+      "date_qualifier": "exact",
+      "sted": "Madeira"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "2. schleswig-holsteinische Jägercorps",
+      "rolle": "i",
+      "dato_raw": "1848-"
+    },
+    {
+      "organisation": "Heidelberg",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1849 (21. sept.)"
+    },
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1852"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "18. maj 1831",
+      "date_min": "1831-05-18",
+      "date_max": "1831-05-18",
+      "sted": "Farve",
+      "note": null
+    }
+  ]
+}

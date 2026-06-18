@@ -1,0 +1,29 @@
+{
+  "linje": "I",
+  "nr": 40,
+  "nr_label": "40",
+  "usikker": false,
+  "navn": "Nicolaus",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "1439–1470",
+      "date_min": "1439-01-01",
+      "date_max": "1470-10-11",
+      "date_qualifier": "floruit",
+      "sted": null
+    },
+    {
+      "faktatype": "titel",
+      "vaerdi": "væbner",
+      "date_raw": "1469 [marts]",
+      "date_min": "1469-03-01",
+      "date_max": "1469-03-31",
+      "date_qualifier": "about",
+      "sted": null
+    }
+  ]
+}

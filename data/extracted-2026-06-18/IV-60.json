@@ -1,0 +1,45 @@
+{
+  "linje": "IV",
+  "nr": 60,
+  "nr_label": "60",
+  "usikker": false,
+  "navn": "Komtesse Adelaide (Lilli) Julie Georgine Ottilie",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1942-01-30",
+      "date_raw": "† 30. jan. 1942 i Preetz",
+      "date_min": "1942-01-30",
+      "date_max": "1942-01-30",
+      "date_qualifier": "exact",
+      "sted": "Preetz"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Diakon-Mutterhaus Königin-Elisabeth-Hospital i Berlin-Ober-Schöneweide",
+      "rolle": "forstanderinde",
+      "dato_raw": "1903-1935"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "30. juni 1862",
+      "date_min": "1862-06-30",
+      "date_max": "1862-06-30",
+      "sted": "Kiel",
+      "note": null
+    }
+  ]
+}

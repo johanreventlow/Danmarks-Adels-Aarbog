@@ -1,0 +1,46 @@
+{
+  "linje": "V",
+  "nr": 172,
+  "nr_label": "172",
+  "usikker": false,
+  "navn": "Greve Moritz Christoph",
+  "tilnavn": "til Wulfshagen",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1970-04-15",
+      "date_raw": "15. april 1970",
+      "date_min": "1970-04-15",
+      "date_max": "1970-04-15",
+      "date_qualifier": "exact",
+      "sted": "Egernførde"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1970-08-03",
+      "date_raw": "døbt 3. aug. s.å. i Sankt Jürgen Kirke, Gettorp",
+      "date_min": "1970-08-03",
+      "date_max": "1970-08-03",
+      "date_qualifier": "exact",
+      "sted": "Sankt Jürgen Kirke, Gettorp"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Tüttendorf",
+      "rolle": "stedfortrædende borgmester i",
+      "dato_raw": "2013-"
+    },
+    {
+      "organisation": "Det slesvig-holstenske Ridderskabs vedvarende Deputation",
+      "rolle": "m.a.",
+      "dato_raw": "2014-"
+    },
+    {
+      "organisation": "Sankt Johanniskloster ved Slesvig",
+      "rolle": "klosterprovst for",
+      "dato_raw": "2019-"
+    }
+  ]
+}

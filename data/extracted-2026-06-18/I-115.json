@@ -1,0 +1,75 @@
+{
+  "linje": "I",
+  "nr": 115,
+  "nr_label": "115",
+  "usikker": false,
+  "navn": "Otto",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1683",
+      "date_raw": "* 1683",
+      "date_min": "1683-01-01",
+      "date_max": "1683-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1755 i Lübeck",
+      "date_raw": "† 1755 i Lübeck",
+      "date_min": "1755-01-01",
+      "date_max": "1755-12-31",
+      "date_qualifier": "exact",
+      "sted": "Lübeck"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Wittenberg",
+      "periode_raw": "(1690-1712 og 1744-†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1703"
+    },
+    {
+      "organisation": "Lübeck Domkapitel",
+      "rolle": "senior",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Hedwig Ida von Sala",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 28. aug. 1767",
+        "date_min": "1767-08-28",
+        "date_max": "1767-08-28",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "Bisat i Hamberge Kirke."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

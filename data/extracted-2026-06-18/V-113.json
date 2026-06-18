@@ -1,0 +1,61 @@
+{
+  "linje": "V",
+  "nr": 113,
+  "nr_label": "113",
+  "usikker": false,
+  "navn": "Friederich Christian Detlef Ludwig Emil",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 15. juni 1853 i Tønder",
+      "date_min": "1853-06-15",
+      "date_max": "1853-06-15",
+      "date_qualifier": "exact",
+      "sted": "Tønder"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 28. juli s.å. i Tønder Kirke",
+      "date_min": "1853-07-28",
+      "date_max": "1853-07-28",
+      "date_qualifier": "exact",
+      "sted": "Tønder Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "faldt 4. febr. 1875 på Sumatra",
+      "date_min": "1875-02-04",
+      "date_max": "1875-02-04",
+      "date_qualifier": "exact",
+      "sted": "Sumatra"
+    },
+    {
+      "faktatype": "dødsårsag",
+      "vaerdi": "faldt",
+      "date_raw": "faldt 4. febr. 1875 på Sumatra",
+      "date_min": "1875-02-04",
+      "date_max": "1875-02-04",
+      "date_qualifier": "exact",
+      "sted": "Sumatra"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

@@ -1,0 +1,163 @@
+{
+  "linje": "IV",
+  "nr": 36,
+  "nr_label": "36",
+  "usikker": false,
+  "navn": "Greve Curt",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1914-10-13",
+      "date_raw": "† 13. okt. 1914 på Damp",
+      "date_min": "1914-10-13",
+      "date_max": "1914-10-13",
+      "date_qualifier": "exact",
+      "sted": "Damp"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Württemberg",
+      "rolle": "skoleelev",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Katharineum i Lübeck",
+      "rolle": "skoleelev",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Bonn og Berlin",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1854"
+    },
+    {
+      "organisation": "preussiske justitsvæsen",
+      "rolle": "ansat",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Glogau",
+      "rolle": "auskultant",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Görlitz",
+      "rolle": "auskultant",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Kulm og Frankfurt a. d. O.",
+      "rolle": "hos statsanklageren",
+      "dato_raw": null
+    },
+    {
+      "organisation": "preussisk premierløjtnant",
+      "rolle": "premierløjtnant",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Guben i Niederlausitz",
+      "rolle": "landråd",
+      "dato_raw": "1867-"
+    },
+    {
+      "organisation": "preussiske Abgeordnetenhaus",
+      "rolle": "m.a.",
+      "dato_raw": "1870-1873"
+    },
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "klosterprovst",
+      "dato_raw": "1877-1907"
+    },
+    {
+      "organisation": "slesvig-holstenske Provinsiallanddag",
+      "rolle": "landdagsmarskal",
+      "dato_raw": "1878- og 1888-"
+    },
+    {
+      "organisation": "Provinsiallanddagen og Provinsialudvalget",
+      "rolle": "1. fmd.",
+      "dato_raw": "1889 (juni)-"
+    },
+    {
+      "organisation": "Provinsialkommissionen for Kunst, Videnskab og Mindesmærkepleje",
+      "rolle": "fmd.",
+      "dato_raw": "1892-"
+    },
+    {
+      "organisation": "det preussiske Herrehus",
+      "rolle": "livsvarigt m.a.",
+      "dato_raw": "1890-†"
+    },
+    {
+      "organisation": "Landeforeningen for Indre Mission",
+      "rolle": "fmd.",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Fællessynoden",
+      "rolle": "præsident",
+      "dato_raw": "1894-1912"
+    },
+    {
+      "organisation": "Landekirkens Synodaludvalg",
+      "rolle": "fmd.",
+      "dato_raw": "1894-1912"
+    },
+    {
+      "organisation": "Gesellschaft für Schleswig-Holsteinische Geschichte",
+      "rolle": "fmd. for best.",
+      "dato_raw": "1897-1898"
+    },
+    {
+      "organisation": "preussisk virkelig gehejmeråd",
+      "rolle": "virkelig gehejmeråd",
+      "dato_raw": "1898-"
+    },
+    {
+      "organisation": "Kiel Universitet",
+      "rolle": "Dr.theol.h.c.",
+      "dato_raw": "1904"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Luise Auguste Pauline Elise von Qualen",
+      "partner_ekstern_ref": "DAA 1925, 494",
+      "type": "vielse",
+      "dato_raw": "Gift 28. sept. 1871",
+      "date_min": "1871-09-28",
+      "date_max": "1871-09-28",
+      "sted": "Preetz",
+      "skilt": false,
+      "partner_foedsel": "* 19. okt. 1850 i Sankt Margarethen",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 4. sept. 1932",
+        "date_min": "1932-09-04",
+        "date_max": "1932-09-04",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kirchspielvogt, kammerjunker Josias Friedrich Christian von Q. og Anna Hensler",
+      "note": "Havde 1905-1927 brugsretten til Damp."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "flyttede",
+      "dato_raw": "1911",
+      "date_min": "1911-01-01",
+      "date_max": "1911-12-31",
+      "sted": "Damp",
+      "note": "Flyttede fra Preetz til Damp."
+    }
+  ]
+}

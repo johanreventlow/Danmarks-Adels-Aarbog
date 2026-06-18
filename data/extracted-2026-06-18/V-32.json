@@ -1,0 +1,53 @@
+{
+  "linje": "V",
+  "nr": 32,
+  "nr_label": "32",
+  "usikker": false,
+  "navn": "Greve Christian Detlef",
+  "tilnavn": "til grevskabet Reventlow, baroniet Brahetrolleborg, stamhusene Frisenvold og Krenkerup samt det Reventlowske palæ i København",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1735-11-01",
+      "date_raw": "1. nov. 1735",
+      "date_min": "1735-11-01",
+      "date_max": "1735-11-01",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1759-12-10",
+      "date_raw": "10. dec. 1759",
+      "date_min": "1759-12-10",
+      "date_max": "1759-12-10",
+      "date_qualifier": "exact",
+      "sted": "København"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Ida Lucia Scheel von Plessen",
+      "partner_ekstern_ref": "DAA 1934, 146",
+      "type": "vielse",
+      "dato_raw": "Gift 5. april 1758",
+      "date_min": "1758-04-05",
+      "date_max": "1758-04-05",
+      "sted": "København",
+      "skilt": false,
+      "partner_foedsel": "* 18. dec. 1740 på Fussingø",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 22. marts 1792",
+        "date_min": "1792-03-22",
+        "date_max": "1792-03-22",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Overceremonimester, kammerherre Mogens Scheel von P. og Elisabeth Christina von Thienen",
+      "note": null
+    }
+  ]
+}

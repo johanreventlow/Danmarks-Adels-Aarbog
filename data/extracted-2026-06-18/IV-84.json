@@ -1,0 +1,106 @@
+{
+  "linje": "IV",
+  "nr": 84,
+  "nr_label": "84",
+  "usikker": false,
+  "navn": "Lensgreve Henning Lothar Gerd",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "2010-09-09",
+      "date_raw": "† 9. sept. 2010",
+      "date_min": "2010-09-09",
+      "date_max": "2010-09-09",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Kiel",
+      "rolle": "student",
+      "dato_raw": "1950"
+    },
+    {
+      "organisation": "universiteterne i Kiel, Heidelberg, Bethel, Göttingen",
+      "rolle": "studeret teologi",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Göttingen Universitet",
+      "rolle": "Dr.theol.",
+      "dato_raw": "1958"
+    },
+    {
+      "organisation": "Kiel Universitet",
+      "rolle": "videnskabelig assistent",
+      "dato_raw": "1959-"
+    },
+    {
+      "organisation": "Kiel Universitet",
+      "rolle": "jus docendi",
+      "dato_raw": "1960"
+    },
+    {
+      "organisation": "Kiel Universitet",
+      "rolle": "privatdocent",
+      "dato_raw": "1960-1964"
+    },
+    {
+      "organisation": "Göttingen Universitet",
+      "rolle": "docent",
+      "dato_raw": "1964-1965"
+    },
+    {
+      "organisation": "Bochum Universitet",
+      "rolle": "universitetsprofessor i teologi",
+      "dato_raw": "1965-1994"
+    },
+    {
+      "organisation": "Sheffield Universitet",
+      "rolle": "Dr. i evangelisk teologi",
+      "dato_raw": "1982"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Hedwig Mundhenke",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 21. maj 1959",
+      "date_min": "1959-05-21",
+      "date_max": "1959-05-21",
+      "sted": "Hameln",
+      "skilt": false,
+      "partner_foedsel": "* 28. nov. 1931 i Hameln",
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [
+        "pastor",
+        "lærer"
+      ],
+      "partner_foraeldre": "Fagskoleoverlærer Karl M. og Hedwig Ramm",
+      "note": "3 sønner."
+    }
+  ],
+  "boern": {
+    "antal": 3,
+    "slaegtled": "Syvende (tyvende) slægtled",
+    "linje": "nr. 86-88",
+    "nr_range": null
+  },
+  "begivenheder": [
+    {
+      "type": "forfatter",
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "note": "Har skrevet flere teologiske værker."
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "linje": "III",
+  "nr": 109,
+  "nr_label": "109",
+  "usikker": false,
+  "navn": "Anna Henrietta",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1720",
+      "date_raw": "† 1720",
+      "date_min": "1720-01-01",
+      "date_max": "1720-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "25. juni 1719",
+      "date_min": "1719-06-25",
+      "date_max": "1719-06-25",
+      "sted": null,
+      "note": null
+    }
+  ]
+}

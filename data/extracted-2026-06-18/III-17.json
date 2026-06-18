@@ -1,0 +1,44 @@
+{
+  "linje": "III",
+  "nr": 17,
+  "nr_label": "17",
+  "usikker": false,
+  "navn": "Hinrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Leipzig",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1442"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Ilsabe von Axekow",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Var ifølge en anetavle gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "af huset Blangow og Varenholz",
+      "note": null
+    }
+  ],
+  "boern": {
+    "antal": 2,
+    "slaegtled": "Ottende slægtled",
+    "linje": "nr. 18-19",
+    "nr_range": null
+  },
+  "begivenheder": []
+}

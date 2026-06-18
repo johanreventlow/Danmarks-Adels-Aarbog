@@ -1,0 +1,38 @@
+{
+  "linje": "V",
+  "nr": 10,
+  "nr_label": "10",
+  "usikker": false,
+  "navn": "Cecilia Catharina",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Friherreinde",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 1685",
+      "date_min": "1685-01-01",
+      "date_max": "1685-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 1691",
+      "date_min": "1691-01-01",
+      "date_max": "1691-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    }
+  ]
+}

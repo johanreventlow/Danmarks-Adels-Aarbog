@@ -1,0 +1,40 @@
+{
+  "linje": "IV",
+  "nr": 8,
+  "nr_label": "8",
+  "usikker": false,
+  "navn": "Komtesse Sophia Magdalena",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1848-01-29",
+      "date_raw": "† 29. jan. 1848 i Preetz",
+      "date_min": "1848-01-29",
+      "date_max": "1848-01-29",
+      "date_qualifier": "exact",
+      "sted": "Preetz"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "30. maj 1765",
+      "date_min": "1765-05-30",
+      "date_max": "1765-05-30",
+      "sted": "København",
+      "note": "Døbt 5. juni s.å. i Hof- og Slotskirken."
+    }
+  ]
+}

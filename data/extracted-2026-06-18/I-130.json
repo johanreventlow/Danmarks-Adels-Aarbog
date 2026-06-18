@@ -1,0 +1,74 @@
+{
+  "linje": "I",
+  "nr": 130,
+  "nr_label": "130",
+  "usikker": false,
+  "navn": "Friderica Elisabeth",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "8. okt. 1746 i Randers",
+      "date_raw": "* 8. okt. 1746 i Randers",
+      "date_min": "1746-10-08",
+      "date_max": "1746-10-08",
+      "date_qualifier": "exact",
+      "sted": "Randers"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "23. okt. s.å. i Sankt Mortens Kirke s.st.",
+      "date_raw": "døbt 23. okt. s.å. i Sankt Mortens Kirke s.st.",
+      "date_min": "1746-10-23",
+      "date_max": "1746-10-23",
+      "date_qualifier": "exact",
+      "sted": "Randers"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "8. maj 1787 i Kiel",
+      "date_raw": "† 8. maj 1787 i Kiel",
+      "date_min": "1787-05-08",
+      "date_max": "1787-05-08",
+      "date_qualifier": "exact",
+      "sted": "Kiel"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Christian Magnus Friderich greve Moltke",
+      "partner_ekstern_ref": "DAA 1991-93, 718",
+      "type": "vielse",
+      "dato_raw": "Gift 16. (24.?) juli 1762",
+      "date_min": "1762-07-16",
+      "date_max": "1762-07-24",
+      "sted": "Farenstedgaard",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 16. okt. 1741 i København",
+        "date_min": "1741-10-16",
+        "date_max": "1741-10-16",
+        "sted": "København"
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 23. nov. 1813 s.st.",
+        "date_min": "1813-11-23",
+        "date_max": "1813-11-23",
+        "sted": "København"
+      },
+      "partner_erhverv": [
+        "generalløjtnant",
+        "kammerherre"
+      ],
+      "partner_foraeldre": "Overhofmarskal, gehejmeråd Adam Gottlob greve M. til grevskabet Bregentved og baronierne Høgholm og Lindenborg og Christiane Friderica von Brüggemann",
+      "note": "1769 (29. jan.) de l’Union parfaite."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

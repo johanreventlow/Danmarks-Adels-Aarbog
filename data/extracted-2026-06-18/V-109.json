@@ -1,0 +1,110 @@
+{
+  "linje": "V",
+  "nr": 109,
+  "nr_label": "109",
+  "usikker": false,
+  "navn": "Malvine Caroline Charlotte Eduarda",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 22. sept. 1851 på Pederstrup",
+      "date_min": "1851-09-22",
+      "date_max": "1851-09-22",
+      "date_qualifier": "exact",
+      "sted": "Pederstrup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 13. nov. s.å. i Vesterborg Kirke",
+      "date_min": "1851-11-13",
+      "date_max": "1851-11-13",
+      "date_qualifier": "exact",
+      "sted": "Vesterborg Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 21. sept. 1914 på Astrup",
+      "date_min": "1914-09-21",
+      "date_max": "1914-09-21",
+      "date_qualifier": "exact",
+      "sted": "Astrup"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "bisat",
+      "date_raw": "bisat i Holmens Kirke, København",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Holmens Kirke, København"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "begravet 1918 på Südlicher Friedhof i München",
+      "date_min": "1918-01-01",
+      "date_max": "1918-12-31",
+      "date_qualifier": "about",
+      "sted": "Südlicher Friedhof, München"
+    },
+    {
+      "faktatype": "klosterindgang",
+      "vaerdi": "Preetz Adelige Kloster",
+      "date_raw": "Indskrevet i Preetz Adelige Kloster",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Preetz Adelige Kloster"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Eugen friherre von Lotzbeck til Ottenweyher og Weyern i Baden samt Eisolzried, Nanhofen og Hard i Bayern",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 9. marts 1874 i Firenze, Italien",
+      "date_min": "1874-03-09",
+      "date_max": "1874-03-09",
+      "sted": "Firenze, Italien",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 29. marts 1845 i München",
+        "date_min": "1845-03-29",
+        "date_max": "1845-03-29",
+        "sted": "München"
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 3. juli 1922 på Kennenburg ved Esslingen",
+        "date_min": "1922-07-03",
+        "date_max": "1922-07-03",
+        "sted": "Kennenburg ved Esslingen"
+      },
+      "partner_erhverv": [
+        "bayersk kammerherre",
+        "arvelig rigsråd"
+      ],
+      "partner_foraeldre": "Bayersk kammerherre, arvelig rigsråd Karl Ludwig friherre von L. til Weyhern, Eisolzried, Nanhofen samt Hard og Johanna Antonie Hill",
+      "note": "begravet på Südlicher Friedhof i München"
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

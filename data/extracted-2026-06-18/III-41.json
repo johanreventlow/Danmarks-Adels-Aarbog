@@ -1,0 +1,70 @@
+{
+  "linje": "III",
+  "nr": 41,
+  "nr_label": "41",
+  "usikker": false,
+  "navn": "Dorothea",
+  "tilnavn": "til Reetz",
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1670-02-02",
+      "date_raw": "* 2. febr. 1607 på Ziesendorf, † 2. febr. 1670 i Rostock",
+      "date_min": "1670-02-02",
+      "date_max": "1670-02-02",
+      "date_qualifier": "exact",
+      "sted": "Rostock"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Reetz",
+      "periode_raw": "(1636-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Scharstorf",
+      "periode_raw": null,
+      "period_type": "residence",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Claus von Oertzen",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "forlovet 1625 og gift 1627",
+      "date_min": "1627-01-01",
+      "date_max": "1627-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 29. marts 1606 på Clausdorf",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 21. aug. 1638 i Rostock",
+        "date_min": "1638-08-21",
+        "date_max": "1638-08-21",
+        "sted": "Rostock"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Mecklenburgsk Amthauptmann Jürgen von O. til Clausdorf og Anna von der Wisch",
+      "note": "Ægteparret lod opsætte glas med deres våbener og navne i Doberan Klosterkirke."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "bisat",
+      "dato_raw": "14. juli s.å.",
+      "date_min": "1670-07-14",
+      "date_max": "1670-07-14",
+      "sted": "Doberan Klosterkirke",
+      "note": "Overført til Hanstorf Kirke."
+    }
+  ]
+}

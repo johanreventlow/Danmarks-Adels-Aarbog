@@ -1,0 +1,40 @@
+{
+  "linje": "IV",
+  "nr": 77,
+  "nr_label": "77",
+  "usikker": false,
+  "navn": "Lensgreve Adolf Otto Detlev Hans",
+  "tilnavn": "til Wittenberg",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1939-09-10",
+      "date_raw": "faldt 10. sept. 1939 i Piatek, Polen",
+      "date_min": "1939-09-10",
+      "date_max": "1939-09-10",
+      "date_qualifier": "exact",
+      "sted": "Piatek, Polen"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Retsassessor",
+      "rolle": "retsassessor",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "27. aug. 1907",
+      "date_min": "1907-08-27",
+      "date_max": "1907-08-27",
+      "sted": "Itzehoe",
+      "note": "Begravet på det Reventlowske gravsted på Selent Kirkegård."
+    }
+  ]
+}

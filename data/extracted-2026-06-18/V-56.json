@@ -1,0 +1,190 @@
+{
+  "linje": "V",
+  "nr": 56,
+  "nr_label": "56",
+  "usikker": false,
+  "navn": "Einert (Einar) Carl Detlef",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "6. jan. 1788 i København",
+      "date_min": "1788-01-06",
+      "date_max": "1788-01-06",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "hjemmedøbt",
+      "date_raw": "hjemmedøbt 13. s.m. s.st. (Sankt Petri Sogns kirkebog)",
+      "date_min": "1788-01-13",
+      "date_max": "1788-01-13",
+      "date_qualifier": "exact",
+      "sted": "Sankt Petri Sogn, København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "4. maj 1867 på Pederstrup",
+      "date_min": "1867-05-04",
+      "date_max": "1867-05-04",
+      "date_qualifier": "exact",
+      "sted": "Pederstrup"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "bisat fra Vesterborg Kirke, begravet i Theophili Skov",
+      "date_raw": "bisat 11. s.m. fra Vesterborg Kirke og begravet i Theophili Skov",
+      "date_min": "1867-05-11",
+      "date_max": "1867-05-11",
+      "date_qualifier": "exact",
+      "sted": "Theophili Skov"
+    },
+    {
+      "faktatype": "adling",
+      "vaerdi": "naturaliseret som svensk adelsmand (primogenitur), introduceret på Det svenske Ridderhus nr. 2335",
+      "date_raw": "1860 (4. maj) naturaliseret ... 1861 (31. dec.) introduceret",
+      "date_min": "1860-05-04",
+      "date_max": "1861-12-31",
+      "date_qualifier": "between",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Pugerup",
+      "periode_raw": "1845‑†",
+      "period_type": null,
+      "sted": "Gudmuntorp S., Malmöhus Len"
+    },
+    {
+      "navn": "Vännberga",
+      "periode_raw": "1845-†",
+      "period_type": null,
+      "sted": "Östra Strö S., Malmöhus Len"
+    },
+    {
+      "navn": "Frugården",
+      "periode_raw": "1856‑†",
+      "period_type": null,
+      "sted": "Vänersnäs S., Skaraborg Len"
+    },
+    {
+      "navn": "Vänersnäs",
+      "periode_raw": "1856‑†",
+      "period_type": null,
+      "sted": "Vänersnäs S., Skaraborg Len"
+    },
+    {
+      "navn": "Ilnestorp",
+      "periode_raw": "1856‑†",
+      "period_type": null,
+      "sted": "Västra Vrams S., Kristianstad Len"
+    },
+    {
+      "navn": "Trulstorp",
+      "periode_raw": "1865‑†",
+      "period_type": null,
+      "sted": "Östra Strö S., Malmöhus Len"
+    },
+    {
+      "navn": "Ugerup",
+      "periode_raw": "1865‑†",
+      "period_type": null,
+      "sted": "Köpinge S., Kristianstad Len"
+    },
+    {
+      "navn": "Finnhult",
+      "periode_raw": "‑†",
+      "period_type": null,
+      "sted": "Gudmuntorp S., Malmöhus Len"
+    },
+    {
+      "navn": "Brostorp",
+      "periode_raw": "‑†",
+      "period_type": null,
+      "sted": "Gudmuntorp S., Malmöhus Len"
+    },
+    {
+      "navn": "Kråkarp",
+      "periode_raw": "‑†",
+      "period_type": null,
+      "sted": "Gudmuntorp S., Malmöhus Len"
+    },
+    {
+      "navn": "halve Skarhult",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": "Skarhult S., Malmöhus Len"
+    },
+    {
+      "navn": "Jeppstorp",
+      "periode_raw": "‑†",
+      "period_type": null,
+      "sted": "Östra Strö S., Malmöhus Len"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Højesteret",
+      "rolle": "auskultant",
+      "dato_raw": "1810 (24. juli)‑1817"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Hildeborg (Hilda) Sophie af Reventlow",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 24. juni 1829 (Vesterborg Sogns kirkebog)",
+      "date_min": "1829-06-24",
+      "date_max": "1829-06-24",
+      "sted": "Vesterborg",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "12. dec. 1804 på Pederstrup",
+        "date_min": "1804-12-12",
+        "date_max": "1804-12-12",
+        "sted": "Pederstrup"
+      },
+      "partner_daab": {
+        "date_raw": "døbt 22. jan. 1805 i Vesterborg Kirke",
+        "date_min": "1805-01-22",
+        "date_max": "1805-01-22",
+        "sted": "Vesterborg Kirke"
+      },
+      "partner_doed": {
+        "date_raw": "6. maj 1868 på Pugerup, bisat 17. s.m. fra Vesterborg Kirke og begravet i Theophili Skov",
+        "date_min": "1868-05-06",
+        "date_max": "1868-05-06",
+        "sted": "Pugerup"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kammerherre Christian Detlef greve af R. til grevskaberne Christianssæde samt Reventlow og Margarete Benedicte von Qualen",
+      "note": "komtesse af Reventlow; se nr. 70"
+    }
+  ],
+  "boern": {
+    "antal": 11,
+    "slaegtled": "Sjette (syttende) slægtled",
+    "linje": "IV",
+    "nr_range": [
+      82,
+      92
+    ]
+  },
+  "begivenheder": []
+}

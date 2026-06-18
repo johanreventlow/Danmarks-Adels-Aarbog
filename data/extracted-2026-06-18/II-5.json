@@ -1,0 +1,48 @@
+{
+  "linje": "II",
+  "nr": 5,
+  "nr_label": "5",
+  "usikker": false,
+  "navn": "Hartwich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [
+    {
+      "navn": "Gallentin",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Catharina von Zülow",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "af huset Marsow",
+      "note": null
+    }
+  ],
+  "boern": {
+    "antal": 2,
+    "slaegtled": "Sjette slægtled",
+    "linje": "II",
+    "nr_range": [
+      6,
+      7
+    ]
+  },
+  "begivenheder": []
+}

@@ -1,0 +1,54 @@
+{
+  "linje": "V",
+  "nr": 77,
+  "nr_label": "77",
+  "usikker": false,
+  "navn": "Clara Sophia Anna",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse"
+    },
+    {
+      "faktatype": "fødsel",
+      "date_raw": "* 15. febr. 1820",
+      "date_min": "1820-02-15",
+      "date_max": "1820-02-15",
+      "date_qualifier": "exact",
+      "sted": "Sandbjerg"
+    },
+    {
+      "faktatype": "dåb",
+      "date_raw": "døbt 31. marts s.å.",
+      "date_min": "1820-03-31",
+      "date_max": "1820-03-31",
+      "date_qualifier": "exact",
+      "sted": "Dybbøl Kirke"
+    },
+    {
+      "faktatype": "død",
+      "date_raw": "† 12. maj 1876",
+      "date_min": "1876-05-12",
+      "date_max": "1876-05-12",
+      "date_qualifier": "exact",
+      "sted": "Preetz"
+    },
+    {
+      "faktatype": "begravelse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Preetz Klosterkirkegård"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    }
+  ]
+}

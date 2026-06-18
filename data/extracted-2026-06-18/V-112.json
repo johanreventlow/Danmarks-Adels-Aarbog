@@ -1,0 +1,83 @@
+{
+  "linje": "V",
+  "nr": 112,
+  "nr_label": "112",
+  "usikker": false,
+  "navn": "Frederike Gerhardine Louise Sophie Agnes",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 5. juni 1852 i Tønder",
+      "date_min": "1852-06-05",
+      "date_max": "1852-06-05",
+      "date_qualifier": "exact",
+      "sted": "Tønder"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 18. juli s.å. i Tønder Kirke",
+      "date_min": "1852-07-18",
+      "date_max": "1852-07-18",
+      "date_qualifier": "exact",
+      "sted": "Tønder Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 29. marts 1916 på Wulfshagen",
+      "date_min": "1916-03-29",
+      "date_max": "1916-03-29",
+      "date_qualifier": "exact",
+      "sted": "Wulfshagen"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Carl Franz Jacob Alexander von Asseburg-Neindorf",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 30. aug. 1872 i Friedrichsberg Kirke, Slesvig By",
+      "date_min": "1872-08-30",
+      "date_max": "1872-08-30",
+      "sted": "Friedrichsberg Kirke, Slesvig By",
+      "skilt": true,
+      "partner_foedsel": {
+        "date_raw": "* 25. maj 1845 på Neindorf",
+        "date_min": "1845-05-25",
+        "date_max": "1845-05-25",
+        "sted": "Neindorf"
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 29. marts 1913 s.st.",
+        "date_min": "1913-03-29",
+        "date_max": "1913-03-29",
+        "sted": "Neindorf"
+      },
+      "partner_erhverv": [
+        "preussisk ritmester",
+        "landråd"
+      ],
+      "partner_foraeldre": "Naturlig søn af kammerherre Maximilian Asche greve von der A. til Neindorf og adoptivsøn af dennes hustru Friederike Bernhardine grevinde Blücher von Wahlstatt til Hornhausen",
+      "note": "Til fideikommisgodset Neindorf med Neubrandsleben, Gunsleben samt Hornhausen (Oschersleben Kr.) og Eggenstädt samt Brandsleben‑Holtz (Wanzleben Kr.) og Gross‑Menow (Ruppin Kr.); skilt 3. okt. 1888."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

@@ -1,0 +1,60 @@
+{
+  "linje": "III",
+  "nr": 76,
+  "nr_label": "76",
+  "usikker": false,
+  "navn": "Christian",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "dræbt omkring 1694",
+      "date_raw": "skal 1694 være dræbt",
+      "date_min": "1694-01-01",
+      "date_max": "1694-12-31",
+      "date_qualifier": "approx",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Bataljon Sjælland i engelsk sold i Irland",
+      "rolle": "fændrik",
+      "dato_raw": "1689"
+    },
+    {
+      "organisation": "Bataljon Sjælland",
+      "rolle": "sekondløjtnant",
+      "dato_raw": "1691"
+    },
+    {
+      "organisation": "Flandern",
+      "rolle": "overført med bataljonen",
+      "dato_raw": "1692"
+    },
+    {
+      "organisation": "Bataljon Sjælland",
+      "rolle": "premierløjtnant",
+      "dato_raw": "1693"
+    },
+    {
+      "organisation": "samme reg.",
+      "rolle": "kaptajnløjtnant",
+      "dato_raw": "1694"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "dræbt",
+      "dato_raw": "1694",
+      "date_min": "1694-01-01",
+      "date_max": "1694-12-31",
+      "sted": null,
+      "note": "Af løjtnant Johann Friedrich von Thüngern af samme reg."
+    }
+  ]
+}

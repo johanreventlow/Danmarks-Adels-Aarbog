@@ -1,0 +1,20 @@
+{
+  "linje": "V",
+  "nr": 185,
+  "nr_label": "185",
+  "usikker": false,
+  "navn": "Komtesse Fanny Sophie",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "2001-05-06",
+      "date_raw": "6. maj 2001",
+      "date_min": "2001-05-06",
+      "date_max": "2001-05-06",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ]
+}

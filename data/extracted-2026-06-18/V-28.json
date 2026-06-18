@@ -1,0 +1,61 @@
+{
+  "linje": "V",
+  "nr": 28,
+  "nr_label": "28",
+  "usikker": false,
+  "navn": "Christopher",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "1716 i Altona",
+      "date_min": "1716-01-01",
+      "date_max": "1716-12-31",
+      "date_qualifier": "between",
+      "sted": "Altona"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "7. april s.å.",
+      "date_min": "1716-04-07",
+      "date_max": "1716-04-07",
+      "date_qualifier": "exact",
+      "sted": "Sankt Trinitatis Kirke, Altona"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "1717",
+      "date_min": "1717-01-01",
+      "date_max": "1717-12-31",
+      "date_qualifier": "between",
+      "sted": null
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "26. aug. s.å.",
+      "date_min": "1717-08-26",
+      "date_max": "1717-08-26",
+      "date_qualifier": "exact",
+      "sted": "Avning Kirke"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

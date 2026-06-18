@@ -1,0 +1,70 @@
+{
+  "linje": "V",
+  "nr": 91,
+  "nr_label": "91",
+  "usikker": false,
+  "navn": "Hilda Louise Carolina Emma Adelheid",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 14. aug. 1847 på Pugerup",
+      "date_min": "1847-08-14",
+      "date_max": "1847-08-14",
+      "date_qualifier": "exact",
+      "sted": "Pugerup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 12. okt. s.å. i Gudmuntorp Kirke",
+      "date_min": "1847-10-12",
+      "date_max": "1847-10-12",
+      "date_qualifier": "exact",
+      "sted": "Gudmuntorp Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 21. febr. 1914 i Helsingborg",
+      "date_min": "1914-02-21",
+      "date_max": "1914-02-21",
+      "date_qualifier": "exact",
+      "sted": "Helsingborg"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "begravet 27. s.m. på Gudmuntorp Kirkegård",
+      "date_min": "1914-02-27",
+      "date_max": "1914-02-27",
+      "date_qualifier": "exact",
+      "sted": "Gudmuntorp Kirkegård"
+    },
+    {
+      "faktatype": "klosterindgang",
+      "vaerdi": "Konventualinde i Preetz Adelige Kloster",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Preetz Adelige Kloster"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

@@ -1,0 +1,50 @@
+{
+  "linje": "I",
+  "nr": 128,
+  "nr_label": "128",
+  "usikker": false,
+  "navn": "Friedrich Adolph",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1729 på Wittenberg",
+      "date_raw": "* 1729 på Wittenberg",
+      "date_min": "1729-01-01",
+      "date_max": "1729-12-31",
+      "date_qualifier": "exact",
+      "sted": "Wittenberg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "17. febr. s.å. i Selent Kirke",
+      "date_raw": "døbt 17. febr. s.å. i Selent Kirke",
+      "date_min": "1729-02-17",
+      "date_max": "1729-02-17",
+      "date_qualifier": "exact",
+      "sted": "Selent Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "7. febr. 1773 i Kiel",
+      "date_raw": "† 7. febr. 1773 i Kiel",
+      "date_min": "1773-02-07",
+      "date_max": "1773-02-07",
+      "date_qualifier": "exact",
+      "sted": "Kiel"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Wittenberg",
+      "periode_raw": "(1755-1764)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

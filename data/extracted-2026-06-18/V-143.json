@@ -1,0 +1,38 @@
+{
+  "linje": "V",
+  "nr": 143,
+  "nr_label": "143",
+  "usikker": false,
+  "navn": "Komtesse Malvina Louise Genoveva",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1882-06-19",
+      "date_raw": "19. juni 1882",
+      "date_min": "1882-06-19",
+      "date_max": "1882-06-19",
+      "date_qualifier": "exact",
+      "sted": "Christianslund"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1882-08-27",
+      "date_raw": "døbt 27. aug. s.å. i Ørum Kirke",
+      "date_min": "1882-08-27",
+      "date_max": "1882-08-27",
+      "date_qualifier": "exact",
+      "sted": "Ørum Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1895-12-27",
+      "date_raw": "27. dec. 1895",
+      "date_min": "1895-12-27",
+      "date_max": "1895-12-27",
+      "date_qualifier": "exact",
+      "sted": "Christianslund"
+    }
+  ]
+}

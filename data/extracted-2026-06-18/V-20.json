@@ -1,0 +1,155 @@
+{
+  "linje": "V",
+  "nr": 20,
+  "nr_label": "20",
+  "usikker": false,
+  "navn": "Greve Conrad Detlef",
+  "tilnavn": "til grevskabet Reventlow, baroniet Brahetrolleborg, stamhuset Frisenvold, stamhuset Krenkerup, Tølløsegaard og Brusgaard",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1750-07-24",
+      "date_raw": "† 24. juli 1750 i Rønne",
+      "date_min": "1750-07-24",
+      "date_max": "1750-07-24",
+      "date_qualifier": "exact",
+      "sted": "Rønne"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "grevskabet Reventlow",
+      "periode_raw": "(1738-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "baroniet Brahetrolleborg",
+      "periode_raw": "(1738-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "stamhuset Frisenvold",
+      "periode_raw": "(1739-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "stamhuset Krenkerup",
+      "periode_raw": "(1739-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Tølløsegaard",
+      "periode_raw": "(1737-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Brusgaard",
+      "periode_raw": "(1744-†, lagt under Frisenvold)",
+      "period_type": "tenure",
+      "sted": "Ølst S., Galten H."
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "kammerherre",
+      "rolle": "kammerherre",
+      "dato_raw": "1721 (14. juli)"
+    },
+    {
+      "organisation": "Leyden",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1722 (3. april)"
+    },
+    {
+      "organisation": "Haderslev Amt",
+      "rolle": "amtmand",
+      "dato_raw": "1725 (26. april)-1731 (6. okt.)"
+    },
+    {
+      "organisation": "hvid ridder",
+      "rolle": "ridder",
+      "dato_raw": "1728 (11. okt.)"
+    },
+    {
+      "organisation": "gehejmeråd",
+      "rolle": "gehejmeråd",
+      "dato_raw": "1740 (28. nov.)-†"
+    },
+    {
+      "organisation": "General-Landets Økonomi- og Kommercekollegium",
+      "rolle": "deputeret",
+      "dato_raw": "1747 (13. febr.)-†"
+    },
+    {
+      "organisation": "gehejmekonferensråd",
+      "rolle": "gehejmekonferensråd",
+      "dato_raw": "1747 (4. sept.)-†"
+    },
+    {
+      "organisation": "grevskabet Schackenborg",
+      "rolle": "meddirektør",
+      "dato_raw": "1747-"
+    },
+    {
+      "organisation": "Højesteret",
+      "rolle": "assessor",
+      "dato_raw": "1748"
+    },
+    {
+      "organisation": "Sjællands Stift og Københavns Amt",
+      "rolle": "stiftamtmand og amtmand",
+      "dato_raw": "1749 (29. jan.)-†"
+    },
+    {
+      "organisation": "Det Reventlowske Kapel i Dybbøl Kirke",
+      "rolle": "opførte",
+      "dato_raw": "1750 (færdig 1751)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Wilhelmina Augusta prinsesse af Slesvig-Holsten-Plön",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 20. sept. 1731",
+      "date_min": "1731-09-20",
+      "date_max": "1731-09-20",
+      "sted": "Altona",
+      "skilt": false,
+      "partner_foedsel": "* 17. nov. 1704",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 16. marts 1749 i København",
+        "date_min": "1749-03-16",
+        "date_max": "1749-03-16",
+        "sted": "København"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Preussisk generalmajor Christian Carl hertug af S.-H.-P. til Søbygaard samt Gottesgabe og Dorothea Christina von Aichelberg",
+      "note": "Bisat senere i Det Reventlowske Kapel i Dybbøl Kirke."
+    }
+  ],
+  "boern": {
+    "antal": 10,
+    "slaegtled": "Fjerde (femtende) slægtled",
+    "linje": "I, nr. 29-38",
+    "nr_range": null
+  },
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "23. juli 1704",
+      "date_min": "1704-07-23",
+      "date_max": "1704-07-23",
+      "sted": "Frankfurt a. M.",
+      "note": "Bisat i Det Reventlowske Kapel i Dybbøl Kirke."
+    }
+  ]
+}

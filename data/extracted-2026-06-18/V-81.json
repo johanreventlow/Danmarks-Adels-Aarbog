@@ -1,0 +1,70 @@
+{
+  "linje": "V",
+  "nr": 81,
+  "nr_label": "81",
+  "usikker": false,
+  "navn": "Charlotte Hanne Christiane Hildeborg",
+  "tilnavn": "Lotte",
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 20. marts 1835 på Frihedsminde",
+      "date_min": "1835-03-20",
+      "date_max": "1835-03-20",
+      "date_qualifier": "exact",
+      "sted": "Frihedsminde"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 28. aug. s.å. i Skørringe Kirke",
+      "date_min": "1835-08-28",
+      "date_max": "1835-08-28",
+      "date_qualifier": "exact",
+      "sted": "Skørringe Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 6. juni 1854 på Kastrupgaard",
+      "date_min": "1854-06-06",
+      "date_max": "1854-06-06",
+      "date_qualifier": "exact",
+      "sted": "Kastrupgaard"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 11. s.m. fra Kastrupgaard (Tårnby Sogns kirkebog) og begravet i Theophili Skov",
+      "date_min": "1854-06-11",
+      "date_max": "1854-06-11",
+      "date_qualifier": "exact",
+      "sted": "Theophili Skov"
+    },
+    {
+      "faktatype": "klosterindgang",
+      "vaerdi": "Vallø Adelige Stift",
+      "date_raw": "1840 (26. juni) indskrevet i Vallø Adelige Stift",
+      "date_min": "1840-06-26",
+      "date_max": "1840-06-26",
+      "date_qualifier": "exact",
+      "sted": "Vallø Adelige Stift"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

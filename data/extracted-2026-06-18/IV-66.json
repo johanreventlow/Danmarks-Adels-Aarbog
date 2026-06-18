@@ -1,0 +1,40 @@
+{
+  "linje": "IV",
+  "nr": 66,
+  "nr_label": "66",
+  "usikker": false,
+  "navn": "Komtesse Margarethe Auguste Karoline",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1947-03-01",
+      "date_raw": "† 1. marts 1947 på Wittenberg",
+      "date_min": "1947-03-01",
+      "date_max": "1947-03-01",
+      "date_qualifier": "exact",
+      "sted": "Wittenberg"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Itzehoe Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "22. juni 1873",
+      "date_min": "1873-06-22",
+      "date_max": "1873-06-22",
+      "sted": "Wittenberg",
+      "note": null
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "linje": "II",
+  "nr": 6,
+  "nr_label": "6",
+  "usikker": false,
+  "navn": "Arend",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [
+    {
+      "navn": "Gallentin",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Elisabeth Magnussen",
+      "partner_ekstern_ref": "DAA 1950, II, 51",
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Underfoged Poul M. til Blansgaard samt Haabølgaard og Anna Blome",
+      "note": "Tjente i sin enkestand som hofdame hos Christina af Södermanland af huset Gottorp."
+    }
+  ],
+  "boern": {
+    "antal": 2,
+    "slaegtled": "Syvende slægtled",
+    "linje": "II",
+    "nr_range": [
+      8,
+      9
+    ]
+  },
+  "begivenheder": []
+}

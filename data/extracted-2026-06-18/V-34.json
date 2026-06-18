@@ -1,0 +1,84 @@
+{
+  "linje": "V",
+  "nr": 34,
+  "nr_label": "34",
+  "usikker": false,
+  "navn": "Friderica",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "20. dec. 1737",
+      "date_min": "1737-12-20",
+      "date_max": "1737-12-20",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "5. febr. 1820",
+      "date_min": "1820-02-05",
+      "date_max": "1820-02-05",
+      "date_qualifier": "exact",
+      "sted": "Slesvig By"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "11. s.m.",
+      "date_min": "1820-02-11",
+      "date_max": "1820-02-11",
+      "date_qualifier": "exact",
+      "sted": "Friedrichsberg Kirke, Slesvig By"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Detlef Christian von Rumohr",
+      "partner_ekstern_ref": "DAA 1937, II, 127",
+      "type": "vielse",
+      "dato_raw": "5. okt. 1763",
+      "date_min": "1763-10-05",
+      "date_max": "1763-10-05",
+      "sted": "København",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "3. jan. 1724",
+        "date_min": "1724-01-03",
+        "date_max": "1724-01-03",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "23. april 1808",
+        "date_min": "1808-04-23",
+        "date_max": "1808-04-23",
+        "sted": "Slesvig By"
+      },
+      "partner_erhverv": [
+        "viceadmiral",
+        "gehejmekonferensråd",
+        "gehejmeråd",
+        "amtmand",
+        "kammerherre"
+      ],
+      "partner_foraeldre": "Land- og konferensråd Hans von R. til Roest, Priesholz samt Bukhagen og Adelheid Benedicta von Ahlefeldt",
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

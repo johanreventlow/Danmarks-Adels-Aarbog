@@ -1,0 +1,34 @@
+{
+  "linje": "IV",
+  "nr": 10,
+  "nr_label": "10",
+  "usikker": false,
+  "navn": "Komtesse Margaretha Magdalena Hedewig",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1787-06-02",
+      "date_raw": "begravet 2. juni 1787 på Gentofte Kirkegård",
+      "date_min": "1787-06-02",
+      "date_max": "1787-06-02",
+      "date_qualifier": "exact",
+      "sted": "Gentofte Kirkegård"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "1786",
+      "date_min": "1786-01-01",
+      "date_max": "1786-12-31",
+      "sted": "København",
+      "note": "Døbt 24. okt. s.å. i Sankt Petri Kirke."
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "linje": "III",
+  "nr": 42,
+  "nr_label": "42",
+  "usikker": false,
+  "navn": "Ulrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "ca. 1608",
+      "date_raw": "* ca. 1608",
+      "date_min": "1608-01-01",
+      "date_max": "1608-12-31",
+      "date_qualifier": "circa",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

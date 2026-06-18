@@ -1,0 +1,51 @@
+{
+  "linje": "I",
+  "nr": 69,
+  "nr_label": "69",
+  "usikker": false,
+  "navn": "Sophia",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "22. febr. 1525",
+      "date_raw": "* 22. febr. 1525",
+      "date_min": "1525-02-22",
+      "date_max": "1525-02-22",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Ove von Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 105",
+      "type": "vielse",
+      "dato_raw": "Gift senest 1561",
+      "date_min": null,
+      "date_max": "1561-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* ca. 1530",
+        "date_min": "1530-01-01",
+        "date_max": "1530-12-31",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [
+        "gottorpsk råd",
+        "amtmand"
+      ],
+      "partner_foraeldre": "Wulf von R. til Wittenberg og Ilsabe von Ahlefeldt",
+      "note": "Kvitterede 1561 i omslaget i Kiel med sin hustru for 10.000 rigsdaler brudeskat."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

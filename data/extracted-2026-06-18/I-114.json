@@ -1,0 +1,64 @@
+{
+  "linje": "I",
+  "nr": 114,
+  "nr_label": "114",
+  "usikker": false,
+  "navn": "Ide Clarelia",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "28. febr. 1682",
+      "date_raw": "* 28. febr. 1682",
+      "date_min": "1682-02-28",
+      "date_max": "1682-02-28",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1729",
+      "date_raw": "† 1729",
+      "date_min": "1729-01-01",
+      "date_max": "1729-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Joachim Diedrich von Dewitz",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 2. dec. 1669",
+        "date_min": "1669-12-02",
+        "date_max": "1669-12-02",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 18. aug. 1723",
+        "date_min": "1723-08-18",
+        "date_max": "1723-08-18",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "oberst"
+      ],
+      "partner_foraeldre": "Henning von D. til Gross Daberkow, Gentzkow samt Jatzke og Dorothea von Levetzow",
+      "note": "Ægteskabskontrakt af 3. jan. 1711; bisat i det Dewitzske kapel i tårnet i Sønderby Kirke."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

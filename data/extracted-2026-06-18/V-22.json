@@ -1,0 +1,43 @@
+{
+  "linje": "V",
+  "nr": 22,
+  "nr_label": "22",
+  "usikker": false,
+  "navn": "Cai Bertram",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "14. aug. 1706",
+      "date_min": "1706-08-14",
+      "date_max": "1706-08-14",
+      "date_qualifier": "exact",
+      "sted": "Verona"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "s.å.",
+      "date_min": "1706-08-14",
+      "date_max": "1706-12-31",
+      "date_qualifier": "between",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

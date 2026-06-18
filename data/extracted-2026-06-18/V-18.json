@@ -1,0 +1,58 @@
+{
+  "linje": "V",
+  "nr": 18,
+  "nr_label": "18",
+  "usikker": false,
+  "navn": "Friderich Ludwig",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "31. jan. 1701",
+      "date_min": "1701-01-31",
+      "date_max": "1701-01-31",
+      "date_qualifier": "exact",
+      "sted": "Haderslev"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "ca. 1724",
+      "date_min": "1724-01-01",
+      "date_max": "1724-12-31",
+      "date_qualifier": "about",
+      "sted": "Padua"
+    },
+    {
+      "faktatype": "dødsårsag",
+      "vaerdi": "kopper",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "kammerjunker",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

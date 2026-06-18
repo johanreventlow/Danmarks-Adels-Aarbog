@@ -1,0 +1,70 @@
+{
+  "linje": "V",
+  "nr": 40,
+  "nr_label": "40",
+  "usikker": false,
+  "navn": "Christiana Benedicta",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "22. juli 1745",
+      "date_min": "1745-07-22",
+      "date_max": "1745-07-22",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "23. s.m.",
+      "date_min": "1745-07-23",
+      "date_max": "1745-07-23",
+      "date_qualifier": "exact",
+      "sted": "Hof- og Slotskirken, København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "11. aug. 1746",
+      "date_min": "1746-08-11",
+      "date_max": "1746-08-11",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "13. s.m.",
+      "date_min": "1746-08-13",
+      "date_max": "1746-08-13",
+      "date_qualifier": "exact",
+      "sted": "Holmens Kirke, København"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "ca. 1755",
+      "date_min": "1755-01-01",
+      "date_max": "1755-12-31",
+      "date_qualifier": "about",
+      "sted": "Det Reventlowske Kapel i Horslunde Kirke"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

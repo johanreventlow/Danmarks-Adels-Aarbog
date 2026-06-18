@@ -1,0 +1,43 @@
+{
+  "linje": "V",
+  "nr": 14,
+  "nr_label": "14",
+  "usikker": false,
+  "navn": "Anna Sophia",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Friherreinde",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 1688",
+      "date_min": "1688-01-01",
+      "date_max": "1688-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "lille",
+      "date_raw": "† lille",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

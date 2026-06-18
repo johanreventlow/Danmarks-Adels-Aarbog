@@ -1,0 +1,60 @@
+{
+  "linje": "I",
+  "nr": 82,
+  "nr_label": "82",
+  "usikker": false,
+  "navn": "Abel",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Hans von Pogwisch",
+      "partner_ekstern_ref": "DAA 1931, II, 49",
+      "type": "vielse",
+      "dato_raw": "Gift 1°",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1601",
+        "date_min": "1601-01-01",
+        "date_max": "1601-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kgl. råd Benedict von P. til Farve, Petersdorf samt Schwelbeck og Berte von der Wisch",
+      "note": "Til Maslev."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Adolf Friedrich von Sested",
+      "partner_ekstern_ref": "DAA 1940, II, 139",
+      "type": "vielse",
+      "dato_raw": "Gift 2°",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* vist nok 1587",
+        "date_min": "1587-01-01",
+        "date_max": "1587-12-31",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Detlef von S. til Sarlhusen og Dorothea von Buchwaldt",
+      "note": "Levede 1626, men død ikke længe efter."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

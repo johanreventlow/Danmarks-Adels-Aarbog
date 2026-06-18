@@ -1,0 +1,65 @@
+{
+  "linje": "V",
+  "nr": 135,
+  "nr_label": "135",
+  "usikker": false,
+  "navn": "Komtesse Anne Ermegaard Abela",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1890-07-03",
+      "date_raw": "3. juli 1890",
+      "date_min": "1890-07-03",
+      "date_max": "1890-07-03",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1890-07-07",
+      "date_raw": "hjemmedøbt 7. s.m.",
+      "date_min": "1890-07-07",
+      "date_max": "1890-07-07",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1969-09-27",
+      "date_raw": "27. sept. 1969",
+      "date_min": "1969-09-27",
+      "date_max": "1969-09-27",
+      "date_qualifier": "exact",
+      "sted": "Faaborg"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Curt-Ludwig Heinrich Georg Max Erdmann Eberhard greve von Haugwitz-Hardenberg-Reventlow",
+      "partner_ekstern_ref": "DAA 2012-14, 643",
+      "type": "vielse",
+      "dato_raw": "Gift 29. okt. 1910",
+      "date_min": "1910-10-29",
+      "date_max": "1910-10-29",
+      "sted": "Brahetrolleborg Kirke",
+      "skilt": false,
+      "partner_foedsel": "* 24. sept. 1885 i Potsdam",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 23. sept. 1956 i København",
+        "date_min": "1956-09-23",
+        "date_max": "1956-09-23",
+        "sted": "København"
+      },
+      "partner_erhverv": [
+        "preussisk premierløjtnant",
+        "cand.jur."
+      ],
+      "partner_foraeldre": "Preussisk major, cand. jur. Eberhard Karl Paul Erdmann Emanuel greve von H.‑H.‑R. og Katharina Elisabeth Maximiliane Georgine grevinde zu Pappenheim",
+      "note": null
+    }
+  ]
+}

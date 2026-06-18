@@ -1,0 +1,72 @@
+{
+  "linje": "V",
+  "nr": 71,
+  "nr_label": "71",
+  "usikker": false,
+  "navn": "Louise Malvina Genoveva",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 29. nov. 1806 på Pederstrup",
+      "date_min": "1806-11-29",
+      "date_max": "1806-11-29",
+      "date_qualifier": "exact",
+      "sted": "Pederstrup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 28. jan. 1807 i Vesterborg Kirke",
+      "date_min": "1807-01-28",
+      "date_max": "1807-01-28",
+      "date_qualifier": "exact",
+      "sted": "Vesterborg Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 17. april 1891 i København",
+      "date_min": "1891-04-17",
+      "date_max": "1891-04-17",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "begravet i Theophili Skov",
+      "date_raw": "bisat 22. s.m. fra Garnisons Kirke s.st.",
+      "date_min": "1891-04-22",
+      "date_max": "1891-04-22",
+      "date_qualifier": "exact",
+      "sted": "Garnisons Kirke, København"
+    },
+    {
+      "faktatype": "floruit",
+      "vaerdi": "boede på Pederstrup",
+      "date_raw": "boede 1834 (1. febr.) og endnu 1880 (1. febr.) på Pederstrup",
+      "date_min": "1834-02-01",
+      "date_max": "1880-02-01",
+      "date_qualifier": "floruit",
+      "sted": "Pederstrup"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    }
+  ]
+}

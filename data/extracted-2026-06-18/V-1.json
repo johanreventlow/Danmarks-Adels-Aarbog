@@ -1,0 +1,264 @@
+{
+  "linje": "V",
+  "nr": 1,
+  "nr_label": "1",
+  "usikker": false,
+  "navn": "Greve Conrad de Reventlow",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1708-07-21",
+      "date_raw": "† 21. juli 1708 på Clausholm",
+      "date_min": "1708-07-21",
+      "date_max": "1708-07-21",
+      "date_qualifier": "exact",
+      "sted": "Clausholm"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "grevskabet Reventlow",
+      "periode_raw": "(3. okt. 1685‑†)",
+      "period_type": "tenure",
+      "sted": "oprettet af Sandbjerg med Sottrup og Snogbæk"
+    },
+    {
+      "navn": "det Reventlowske palæ",
+      "periode_raw": "(1682-†)",
+      "period_type": "tenure",
+      "sted": "Købmagergade, København"
+    },
+    {
+      "navn": "Futterkamp",
+      "periode_raw": "(1660‑1672)",
+      "period_type": "tenure",
+      "sted": "Kaköhl S., Plön Kr."
+    },
+    {
+      "navn": "Segeberg Kalkværk med Gieschenhagen",
+      "periode_raw": "(1673‑1684)",
+      "period_type": "tenure",
+      "sted": "ved Segeberg i Holsten"
+    },
+    {
+      "navn": "Thurø med Marsvinsvold",
+      "periode_raw": "(1673‑1674)",
+      "period_type": "tenure",
+      "sted": "Thurø S., Sunds H."
+    },
+    {
+      "navn": "Clausholm",
+      "periode_raw": "(1683‑†)",
+      "period_type": "tenure",
+      "sted": "Voldum S., Galten H."
+    },
+    {
+      "navn": "Frisenvold",
+      "periode_raw": "(1684‑1703)",
+      "period_type": "tenure",
+      "sted": "Voldum S., Galten H."
+    },
+    {
+      "navn": "Løjstrup",
+      "periode_raw": "(1684‑1703)",
+      "period_type": "tenure",
+      "sted": "Ørum S., Galten H."
+    },
+    {
+      "navn": "Vandlinggaard",
+      "periode_raw": "(1684‑1686, 1705)",
+      "period_type": "tenure",
+      "sted": "Sønder Starup S., Haderslev H."
+    },
+    {
+      "navn": "Uregaard",
+      "periode_raw": "(‑1690)",
+      "period_type": "tenure",
+      "sted": "Tistrup S., Øster Horne H."
+    },
+    {
+      "navn": "Kalø",
+      "periode_raw": "(1690‑1703)",
+      "period_type": "tenure",
+      "sted": "Bregnet S., Øster Lisbjerg H."
+    },
+    {
+      "navn": "Seekamp",
+      "periode_raw": "(‑†)",
+      "period_type": "tenure",
+      "sted": "ved Kiel"
+    },
+    {
+      "navn": "Kollerup",
+      "periode_raw": "(1692‑†)",
+      "period_type": "tenure",
+      "sted": "Hadbjerg S., Galten H."
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Tyske Kancelli",
+      "rolle": "hof- og kancelliråd",
+      "dato_raw": "1667 (20. juli)-"
+    },
+    {
+      "organisation": "Tønderske Kommission",
+      "rolle": "m.a.",
+      "dato_raw": "1668 (juli)-"
+    },
+    {
+      "organisation": "Tyske Kancelli",
+      "rolle": "spidsen for",
+      "dato_raw": "1668 (febr.)"
+    },
+    {
+      "organisation": "amtmand på Haderslevhus",
+      "rolle": "amtmand",
+      "dato_raw": "1670 (15. nov.)-1684 (5. juni)"
+    },
+    {
+      "organisation": "hvid ridder",
+      "rolle": "ridder",
+      "dato_raw": "1671 (12. okt.)"
+    },
+    {
+      "organisation": "Slesvig og Holsten",
+      "rolle": "landråd",
+      "dato_raw": "1672 (21. maj)-"
+    },
+    {
+      "organisation": "gevelig stand",
+      "rolle": "ophøjet",
+      "dato_raw": "1673 (3. juli)"
+    },
+    {
+      "organisation": "oberst",
+      "rolle": "oberst",
+      "dato_raw": "1675 (29. nov.)"
+    },
+    {
+      "organisation": "2. fynske nationale Rytterreg.",
+      "rolle": "chef",
+      "dato_raw": "1675-1676"
+    },
+    {
+      "organisation": "Højesteret",
+      "rolle": "assessor og præsident",
+      "dato_raw": "1680-1690 / 1690-†"
+    },
+    {
+      "organisation": "blå ridder",
+      "rolle": "ridder",
+      "dato_raw": "1681 (1. juli)"
+    },
+    {
+      "organisation": "Københavns Universitet",
+      "rolle": "patron",
+      "dato_raw": "1681 (1. juli)-†"
+    },
+    {
+      "organisation": "Gehejmekonsejlet",
+      "rolle": "m.a.",
+      "dato_raw": "1682-†"
+    },
+    {
+      "organisation": "Gottorp",
+      "rolle": "amtmand",
+      "dato_raw": "1684 (5. juni)-1689"
+    },
+    {
+      "organisation": "Sankt Petri Kirke, København",
+      "rolle": "patron",
+      "dato_raw": "1686-†"
+    },
+    {
+      "organisation": "Brandvæsenet og Lanternerne i København",
+      "rolle": "hoveddirektør",
+      "dato_raw": "1687 (9. juli)-"
+    },
+    {
+      "organisation": "Det Kgl. Ridderakademi i København",
+      "rolle": "patron",
+      "dato_raw": "1692 (2. febr.)-†"
+    },
+    {
+      "organisation": "Commercien og Negotien",
+      "rolle": "m.a.",
+      "dato_raw": "1693 (4. juli)-"
+    },
+    {
+      "organisation": "ferske, såvel Pumpe- som Springvand i København",
+      "rolle": "hoveddirektør",
+      "dato_raw": "1694 (17. marts)-"
+    },
+    {
+      "organisation": "storkansler",
+      "rolle": "storkansler",
+      "dato_raw": "1699 (26. aug.)-†"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Anna Margaretha Gabel",
+      "partner_ekstern_ref": "DAA 1893, 144",
+      "type": "vielse",
+      "dato_raw": "Gift 1° 21. juli 1667",
+      "date_min": "1667-07-21",
+      "date_max": "1667-07-21",
+      "sted": "København",
+      "skilt": false,
+      "partner_foedsel": "* 6. juni 1651 i København",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 25. aug. 1678 s.st.",
+        "date_min": "1678-08-25",
+        "date_max": "1678-08-25",
+        "sted": "København"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Statholder, gehejmeetats- og kommerceråd Christopher G. til Bavelse, Rantzausholm samt Segeberg Kalkværk og Armgard Badenhaupt",
+      "note": "Bisat i Det Reventlowske Kapel i Slesvig Domkirke."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Sophia Amalia Hahn",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 2° 1. maj 1681",
+      "date_min": "1681-05-01",
+      "date_max": "1681-05-01",
+      "sted": "København",
+      "skilt": false,
+      "partner_foedsel": "* 25. marts 1664",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 28. marts 1722 på Frydenlund",
+        "date_min": "1722-03-28",
+        "date_max": "1722-03-28",
+        "sted": "Frydenlund"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Overjægermester Vincents Joachim H. og Sidsel Kaas",
+      "note": "Solgte 1718 Clausholm til kong Frederik 4."
+    }
+  ],
+  "boern": {
+    "antal": 17,
+    "slaegtled": "Andet (trettende) slægtled",
+    "linje": "nr. 2-17",
+    "nr_range": null
+  },
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "21. april 1644",
+      "date_min": "1644-04-21",
+      "date_max": "1644-04-21",
+      "sted": "København",
+      "note": null
+    }
+  ]
+}

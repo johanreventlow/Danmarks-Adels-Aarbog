@@ -1,0 +1,112 @@
+{
+  "linje": "IV",
+  "nr": 4,
+  "nr_label": "4",
+  "usikker": false,
+  "navn": "Greve Christian",
+  "tilnavn": "til Wittenberg",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1816-11-27",
+      "date_raw": "† 27. nov. 1816 på Wittenberg",
+      "date_min": "1816-11-27",
+      "date_max": "1816-11-27",
+      "date_qualifier": "exact",
+      "sted": "Wittenberg"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Wittenberg",
+      "periode_raw": "(1783-†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1776 (6. april)"
+    },
+    {
+      "organisation": "Livreg. Rytteri",
+      "rolle": "kammerjunker",
+      "dato_raw": "1777 (29. jan.)"
+    },
+    {
+      "organisation": "Livreg. Rytteri",
+      "rolle": "sekondløjtnant",
+      "dato_raw": "1778 (11. febr.)"
+    },
+    {
+      "organisation": "Livreg. Rytteri",
+      "rolle": "ritmester",
+      "dato_raw": "1781 (17. jan.)"
+    },
+    {
+      "organisation": "2. Husarkorps / Husarreg.",
+      "rolle": "forsat",
+      "dato_raw": "1783 (18. febr.)"
+    },
+    {
+      "organisation": "Husarreg.",
+      "rolle": "eskadronschef",
+      "dato_raw": "1788 (22. aug.)"
+    },
+    {
+      "organisation": "kong Christian 7.",
+      "rolle": "generaladjudant",
+      "dato_raw": "1789 (9. jan.)"
+    },
+    {
+      "organisation": "major",
+      "rolle": "major",
+      "dato_raw": "1789 (23. jan.)"
+    },
+    {
+      "organisation": "premiermajor",
+      "rolle": "premiermajor",
+      "dato_raw": "1791 (27. maj)"
+    },
+    {
+      "organisation": "Husarreg.",
+      "rolle": "à la suite / karakt. oberstløjtnant",
+      "dato_raw": "1798 (7. sept., fra 14. jan. 1791 at regne)"
+    },
+    {
+      "organisation": "Livreg. Rytteri",
+      "rolle": "virkelig oberstløjtnant",
+      "dato_raw": "1802 (19. febr.)"
+    },
+    {
+      "organisation": "Husarreg.",
+      "rolle": "forsat og karakt. oberst",
+      "dato_raw": "1803 (13. maj) og s.å. (10. juni)"
+    },
+    {
+      "organisation": "Kavaleriet",
+      "rolle": "oberst à la suite",
+      "dato_raw": "1806 (29. aug.)"
+    },
+    {
+      "organisation": "Kavaleriet",
+      "rolle": "karakt. generalmajor",
+      "dato_raw": "1809 (18. jan.)"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "opførte",
+      "dato_raw": "1800-1802",
+      "date_min": "1800-01-01",
+      "date_max": "1802-12-31",
+      "sted": "Wittenberg",
+      "note": "Oprettede mejerigårdene Hohenhütten og Christiansruhe."
+    }
+  ]
+}

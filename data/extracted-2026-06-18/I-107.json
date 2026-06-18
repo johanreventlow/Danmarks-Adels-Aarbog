@@ -1,0 +1,25 @@
+{
+  "linje": "I",
+  "nr": 107,
+  "nr_label": "107",
+  "usikker": false,
+  "navn": "Anna Dorothea",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1705 i Kiel",
+      "date_raw": "† 1705 i Kiel",
+      "date_min": "1705-01-01",
+      "date_max": "1705-12-31",
+      "date_qualifier": "exact",
+      "sted": "Kiel"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

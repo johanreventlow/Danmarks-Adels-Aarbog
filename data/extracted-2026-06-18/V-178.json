@@ -1,0 +1,52 @@
+{
+  "linje": "V",
+  "nr": 178,
+  "nr_label": "178",
+  "usikker": false,
+  "navn": "Komtesse Charlotte Mariane Ingeborg",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1961-05-04",
+      "date_raw": "4. maj 1961",
+      "date_min": "1961-05-04",
+      "date_max": "1961-05-04",
+      "date_qualifier": "exact",
+      "sted": "Rungsted"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1961-07-23",
+      "date_raw": "døbt 23. juli s.å. i Rungsted Kirke",
+      "date_min": "1961-07-23",
+      "date_max": "1961-07-23",
+      "date_qualifier": "exact",
+      "sted": "Rungsted Kirke"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Knut Melvær",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 22. nov. 1986",
+      "date_min": "1986-11-22",
+      "date_max": "1986-11-22",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 22. juli 1954 i Oslo",
+      "partner_daab": "døbt 7. nov. s.å. i Haslev Kirke, Norge",
+      "partner_doed": null,
+      "partner_erhverv": [
+        "civiling.",
+        "cand.polyt.",
+        "H.D."
+      ],
+      "partner_foraeldre": "Apoteker, farmaceut Torfinn M. og farmaceut Hanne Lynge",
+      "note": null
+    }
+  ]
+}

@@ -1,0 +1,133 @@
+{
+  "linje": "V",
+  "nr": 92,
+  "nr_label": "92",
+  "usikker": false,
+  "navn": "Frederik Ferdinand Eduard",
+  "tilnavn": "Fritz",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 5. juli 1850 på Pugerup",
+      "date_min": "1850-07-05",
+      "date_max": "1850-07-05",
+      "date_qualifier": "exact",
+      "sted": "Pugerup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 8. aug. s.å. i Gudmuntorp Kirke",
+      "date_min": "1850-08-08",
+      "date_max": "1850-08-08",
+      "date_qualifier": "exact",
+      "sted": "Gudmuntorp Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 6. jan. 1910 i Lund",
+      "date_min": "1910-01-06",
+      "date_max": "1910-01-06",
+      "date_qualifier": "exact",
+      "sted": "Lund"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "bisat",
+      "date_raw": "bisat 12. s.m. fra Allhelgonakirke, Lund",
+      "date_min": "1910-01-12",
+      "date_max": "1910-01-12",
+      "date_qualifier": "exact",
+      "sted": "Allhelgonakirke, Lund"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "begravet 13. s.m. på Gudmuntorp Kirkegård",
+      "date_min": "1910-01-13",
+      "date_max": "1910-01-13",
+      "date_qualifier": "exact",
+      "sted": "Gudmuntorp Kirkegård"
+    },
+    {
+      "faktatype": "adling",
+      "vaerdi": "svensk adelsmand",
+      "date_raw": "1908 (26. okt.)",
+      "date_min": "1908-10-26",
+      "date_max": "1908-10-26",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Wännberga",
+      "periode_raw": "1867-1893",
+      "period_type": null,
+      "sted": null
+    },
+    {
+      "navn": "Brostorp",
+      "periode_raw": "1867-1893",
+      "period_type": null,
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Ida Mathilde Moltke",
+      "partner_ekstern_ref": "DAA 1991-93, 737",
+      "type": "vielse",
+      "dato_raw": "Gift 9. okt. 1889 i Garnisons Kirke, København",
+      "date_min": "1889-10-09",
+      "date_max": "1889-10-09",
+      "sted": "Garnisons Kirke, København",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 25. marts 1861 på Tryggevælde",
+        "date_min": "1861-03-25",
+        "date_max": "1861-03-25",
+        "sted": "Tryggevælde"
+      },
+      "partner_daab": {
+        "date_raw": "døbt 5. maj s.å. i Karise Kirke",
+        "date_min": "1861-05-05",
+        "date_max": "1861-05-05",
+        "sted": "Karise Kirke"
+      },
+      "partner_doed": {
+        "date_raw": "† 21. jan. 1945 på Orup, Malmöhus Len",
+        "date_min": "1945-01-21",
+        "date_max": "1945-01-21",
+        "sted": "Orup, Malmöhus Len"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Forpagter Joachim Richard Henry greve M. og Julie Charlotte Frederikke Westermann",
+      "note": "bisat 26. s.m. fra Gudmuntorp Kirke og begravet s.d. på Gudmuntorp Kirkegård"
+    }
+  ],
+  "boern": {
+    "antal": 6,
+    "slaegtled": "Syvende (attende)",
+    "linje": "VII",
+    "nr_range": [
+      127,
+      132
+    ]
+  },
+  "begivenheder": []
+}

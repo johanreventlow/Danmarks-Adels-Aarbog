@@ -1,0 +1,111 @@
+{
+  "linje": "V",
+  "nr": 62,
+  "nr_label": "62",
+  "usikker": false,
+  "navn": "Detlef Christian Ernst",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 29. aug. 1782 på Brahetrolleborg",
+      "date_min": "1782-08-29",
+      "date_max": "1782-08-29",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 10. juni 1854 på Brahetrolleborg",
+      "date_min": "1854-06-10",
+      "date_max": "1854-06-10",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 19. s.m. fra Brahetrolleborg Kirke og begravet på Brahetrolleborg Kirkegård",
+      "date_min": "1854-06-19",
+      "date_max": "1854-06-19",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg Kirkegård"
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "R.",
+      "date_raw": "28. jan. 1812",
+      "date_min": "1812-01-28",
+      "date_max": "1812-01-28",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "K.",
+      "date_raw": "28. juni 1842",
+      "date_min": "1842-06-28",
+      "date_max": "1842-06-28",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "baroniet Brahetrolleborg",
+      "periode_raw": "1801‑†",
+      "period_type": null,
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "kammerherre",
+      "dato_raw": "1811 (22. jan.)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Charlotte Dorothea Christine Josephine Schimmelmann",
+      "partner_ekstern_ref": "DAA1934, II, 212",
+      "type": "vielse",
+      "dato_raw": "Gift 29. nov. 1807 på Brahetrolleborg",
+      "date_min": "1807-11-29",
+      "date_max": "1807-11-29",
+      "sted": "Brahetrolleborg",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 12. marts 1790",
+        "date_min": "1790-03-12",
+        "date_max": "1790-03-12",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 3. april 1852 på Brahetrolleborg, bisat 13. s.m. fra Brahetrolleborg Kirke og begravet på Brahetrolleborg Kirkegård",
+        "date_min": "1852-04-03",
+        "date_max": "1852-04-03",
+        "sted": "Brahetrolleborg"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kammerherre, hofjægermester, gesandt Friederich Joseph greve S. til Ahrensburg og Ernestina Friderica Juliane von Ahlefeldt",
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

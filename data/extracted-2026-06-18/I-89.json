@@ -1,0 +1,128 @@
+{
+  "linje": "I",
+  "nr": 89,
+  "nr_label": "89",
+  "usikker": false,
+  "navn": "Iwan",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "ca. 1588",
+      "date_raw": "* ca. 1588",
+      "date_min": "1588-01-01",
+      "date_max": "1588-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "6. dec. 1628 i Lübeck",
+      "date_raw": "† 6. dec. 1628 i Lübeck",
+      "date_min": "1628-12-06",
+      "date_max": "1628-12-06",
+      "date_qualifier": "exact",
+      "sted": "Lübeck"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Stocksee",
+      "periode_raw": "(1606-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Futterkamp",
+      "periode_raw": "(1606-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Wittenberg",
+      "periode_raw": "(1618-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "name": "Lammershagen",
+      "periode_raw": "(1618-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Waterneverstorf",
+      "periode_raw": "(1618-†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Anna von Pogwisch",
+      "partner_ekstern_ref": "DAA 1931, II, 58",
+      "type": "vielse",
+      "dato_raw": "Gift 1° før 1609",
+      "date_min": null,
+      "date_max": "1609-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 1594",
+        "date_min": "1594-01-01",
+        "date_max": "1594-12-31",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1623",
+        "date_min": "1623-01-01",
+        "date_max": "1623-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Hauptmann, hofjunker Bartram von P. til Schönhorst og Magdalena von Rantzau",
+      "note": null
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Dorothea von Pogwisch",
+      "partner_ekstern_ref": "DAA 1931, II, 32",
+      "type": "vielse",
+      "dato_raw": "Gift 2° 15. sept. 1625",
+      "date_min": "1625-09-15",
+      "date_max": "1625-09-15",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 16. febr. 1609",
+        "date_min": "1609-02-16",
+        "date_max": "1609-02-16",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 18. okt. 1635",
+        "date_min": "1635-10-18",
+        "date_max": "1635-10-18",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Benedict von P. til Övelgönne samt Kletkamp og Magdalena von Brockdorff",
+      "note": "Bisat 11. dec. s.å. i Kiel."
+    }
+  ],
+  "boern": {
+    "antal": 2,
+    "slaegtled": "Tolvte slægtled",
+    "linje": "II",
+    "nr_range": [
+      96,
+      97
+    ]
+  },
+  "begivenheder": []
+}

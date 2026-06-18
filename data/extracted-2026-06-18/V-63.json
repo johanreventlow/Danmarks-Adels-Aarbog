@@ -1,0 +1,63 @@
+{
+  "linje": "V",
+  "nr": 63,
+  "nr_label": "63",
+  "usikker": false,
+  "navn": "Henriette Auguste",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 12. juni 1784",
+      "date_min": "1784-06-12",
+      "date_max": "1784-06-12",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 20. s.m.",
+      "date_min": "1784-06-20",
+      "date_max": "1784-06-20",
+      "date_qualifier": "exact",
+      "sted": "Sankt Petri Kirke, København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 20. jan. 1850",
+      "date_min": "1850-01-20",
+      "date_max": "1850-01-20",
+      "date_qualifier": "exact",
+      "sted": "Odense"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 29. s.m. fra Sankt Knuds Kirke s.st. og begravet på Brahetrolleborg Kirkegård",
+      "date_min": "1850-01-29",
+      "date_max": "1850-01-29",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg Kirkegård"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "linje": "I",
+  "nr": 101,
+  "nr_label": "101",
+  "usikker": false,
+  "navn": "Magdalena",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1643",
+      "date_raw": "* 1643",
+      "date_min": "1643-01-01",
+      "date_max": "1643-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1703",
+      "date_raw": "† 1703",
+      "date_min": "1703-01-01",
+      "date_max": "1703-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Wilhelm von Rumohr",
+      "partner_ekstern_ref": "DAA 1937, II, 122",
+      "type": "vielse",
+      "dato_raw": "Gift 23. nov. 1657",
+      "date_min": "1657-11-23",
+      "date_max": "1657-11-23",
+      "sted": "Kiel",
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Hinrich von R. til Roest, Tøstrup samt Hohenlieth og Ide von Brockdorff",
+      "note": "Til Nøer, Grönwohld og Dänisch Lindau; levede 1680."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

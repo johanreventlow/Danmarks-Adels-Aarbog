@@ -1,0 +1,33 @@
+{
+  "linje": "III",
+  "nr": 15,
+  "nr_label": "15",
+  "usikker": false,
+  "navn": "Hinrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [
+    {
+      "navn": "Ziesendorf",
+      "periode_raw": "(-1428-)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Laage",
+      "rolle": "kirkeherre",
+      "dato_raw": "1402 (29. nov.)"
+    },
+    {
+      "organisation": "Schwerin",
+      "rolle": "domherre",
+      "dato_raw": "1423"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

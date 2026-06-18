@@ -1,0 +1,41 @@
+{
+  "linje": "I",
+  "nr": 19,
+  "nr_label": "19",
+  "usikker": false,
+  "navn": "Johann",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "1353 (23. april) – 1360 (12. marts)",
+      "date_min": "1353-04-23",
+      "date_max": "1360-03-12",
+      "date_qualifier": "floruit",
+      "sted": null
+    },
+    {
+      "faktatype": "titel",
+      "vaerdi": "væbner",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Dunkelstorf",
+      "periode_raw": "(-1353)",
+      "period_type": "ejerskab indtil salg",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

@@ -1,0 +1,62 @@
+{
+  "linje": "V",
+  "nr": 8,
+  "nr_label": "8",
+  "usikker": false,
+  "navn": "Grevinde Anna Margaretha",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1710-03-21",
+      "date_raw": "† 21. marts 1710 på Gram",
+      "date_min": "1710-03-21",
+      "date_max": "1710-03-21",
+      "date_qualifier": "exact",
+      "sted": "Gram"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Hans greve Schack",
+      "partner_ekstern_ref": "DAA 1932, II, 63",
+      "type": "vielse",
+      "dato_raw": "Gift 16. marts 1699",
+      "date_min": "1699-03-16",
+      "date_max": "1699-03-16",
+      "sted": "København",
+      "skilt": false,
+      "partner_foedsel": "* 4. marts (15. april?) 1676 i Ribe",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 22. sept. 1719 i København",
+        "date_min": "1719-09-22",
+        "date_max": "1719-09-22",
+        "sted": "København"
+      },
+      "partner_erhverv": [
+        "stiftsbefalingsmand",
+        "amtmand",
+        "gehejmeråd",
+        "kammerherre"
+      ],
+      "partner_foraeldre": "Stiftsbefalingsmand, amtmand Otto Didrik greve S. til grevskabet Schackenborg, Gram, Brink samt Gisselfeld og Sophia Dorothea von Marschalck",
+      "note": "Til grevskabet Schackenborg, Gram og Brink."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "6. okt. 1682",
+      "date_min": "1682-10-06",
+      "date_max": "1682-10-06",
+      "sted": null,
+      "note": "Bisat i Den Schackske Gravkrypt i Møgeltønder Kirke."
+    }
+  ]
+}

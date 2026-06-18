@@ -1,0 +1,56 @@
+{
+  "linje": "I",
+  "nr": 39,
+  "nr_label": "39",
+  "usikker": false,
+  "navn": "Iwan",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "Nævnes 1410 ... levede 1425",
+      "date_min": "1410-01-01",
+      "date_max": "1425-12-31",
+      "date_qualifier": "floruit",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Bentfeld",
+      "periode_raw": "-1421",
+      "period_type": null,
+      "sted": "Giekau Sogn"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "væbner",
+      "dato_raw": "1421"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Cecilie (Split?)",
+      "partner_ekstern_ref": null,
+      "type": null,
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "se nr. 28"
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

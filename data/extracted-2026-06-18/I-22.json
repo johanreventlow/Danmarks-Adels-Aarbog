@@ -1,0 +1,34 @@
+{
+  "linje": "I",
+  "nr": 22,
+  "nr_label": "22",
+  "usikker": false,
+  "navn": "Iwan",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "væbner",
+      "date_raw": "1367 (31. marts) ... var da endnu væbner",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "1364 (9. marts) ... 1367 (31. marts)",
+      "date_min": "1364-03-09",
+      "date_max": "1367-03-31",
+      "date_qualifier": "floruit",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

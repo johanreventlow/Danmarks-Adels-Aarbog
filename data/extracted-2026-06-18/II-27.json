@@ -1,0 +1,55 @@
+{
+  "linje": "II",
+  "nr": 27,
+  "nr_label": "27",
+  "usikker": false,
+  "navn": "Sophia Margaretha",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "27. aug. 1748 i Rendsborg",
+      "date_raw": "† 27. aug. 1748 i Rendsborg",
+      "date_min": "1748-08-27",
+      "date_max": "1748-08-27",
+      "date_qualifier": "exact",
+      "sted": "Rendsborg"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Claus Jørgen Schnell",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 5. okt. 1741",
+      "date_min": "1741-10-05",
+      "date_max": "1741-10-05",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 5. april 1702 i Christiania",
+        "date_min": "1702-04-05",
+        "date_max": "1702-04-05",
+        "sted": "Christiania"
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 9. marts 1738 s.st.",
+        "date_min": "1738-03-09",
+        "date_max": "1738-03-09",
+        "sted": "Christiania"
+      },
+      "partner_erhverv": [
+        "generalløjtnant"
+      ],
+      "partner_foraeldre": "Foged Jørgen S. og Magdalene Matthisdatter",
+      "note": "Gift 2° 1750 med Hedwig Margaretha Müller."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

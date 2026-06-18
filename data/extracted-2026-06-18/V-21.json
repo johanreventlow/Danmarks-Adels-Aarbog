@@ -1,0 +1,61 @@
+{
+  "linje": "V",
+  "nr": 21,
+  "nr_label": "21",
+  "usikker": false,
+  "navn": "Anna Margaretha Christiana",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Grevinde",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "18. juli 1705",
+      "date_min": "1705-07-18",
+      "date_max": "1705-07-18",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "ung",
+      "date_raw": "† ung",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "bisat i kapel",
+      "date_raw": "1751 bisat i Det Reventlowske Kapel i Dybbøl Kirke",
+      "date_min": "1751-01-01",
+      "date_max": "1751-12-31",
+      "date_qualifier": "between",
+      "sted": "Det Reventlowske Kapel, Dybbøl Kirke"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "kiste begravet på kirkegården",
+      "date_raw": "kiste begravet 1934 på kirkegården",
+      "date_min": "1934-01-01",
+      "date_max": "1934-12-31",
+      "date_qualifier": "between",
+      "sted": "kirkegården, Dybbøl Kirke"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

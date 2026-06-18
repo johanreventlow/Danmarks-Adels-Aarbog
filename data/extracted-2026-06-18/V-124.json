@@ -1,0 +1,107 @@
+{
+  "linje": "V",
+  "nr": 124,
+  "nr_label": "124",
+  "usikker": false,
+  "navn": "Carl Herrmann Ernst Friedrich Otto Detlev",
+  "tilnavn": "Catty",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 2. febr. 1874",
+      "date_min": "1874-02-02",
+      "date_max": "1874-02-02",
+      "date_qualifier": "exact",
+      "sted": "Husum Slot"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 17. april s.å.",
+      "date_min": "1874-04-17",
+      "date_max": "1874-04-17",
+      "date_qualifier": "exact",
+      "sted": "Sankt Marien Kirke, Husum"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 11. okt. 1961",
+      "date_min": "1961-10-11",
+      "date_max": "1961-10-11",
+      "date_qualifier": "exact",
+      "sted": "Damp"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Damp",
+      "periode_raw": "1887-†",
+      "period_type": null,
+      "sted": null
+    },
+    {
+      "navn": "Dorotheenthal",
+      "periode_raw": "1914-†",
+      "period_type": null,
+      "sted": "Waabs S., Egernførde Kr."
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "major",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Helene Elisabeth von dem Knesebeck-Milendonck",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 18. aug. 1908",
+      "date_min": "1908-08-18",
+      "date_max": "1908-08-18",
+      "sted": "Karwe (Ruppin Kr.)",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 24. okt. 1878",
+        "date_min": "1878-10-24",
+        "date_max": "1878-10-24",
+        "sted": "Bagenz (Spremberg Kr.)"
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 20. dec. 1968",
+        "date_min": "1968-12-20",
+        "date_max": "1968-12-20",
+        "sted": "Damp"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Preussisk landråd og ritmester Erich Carl Friedrich Wilhelm Paridam friherre von dem K.-M. til Karwe samt Bagenz og Helene Berta Jeannette Eugenie Elmira Melanie von Ohlen und Adlerscron",
+      "note": null
+    }
+  ],
+  "boern": {
+    "antal": 3,
+    "slaegtled": "Ottende (nittende)",
+    "linje": "V",
+    "nr_range": [
+      151,
+      153
+    ]
+  },
+  "begivenheder": []
+}

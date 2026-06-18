@@ -1,0 +1,38 @@
+{
+  "linje": "V",
+  "nr": 142,
+  "nr_label": "142",
+  "usikker": false,
+  "navn": "Komtesse Helene Kristine Sofie Henriette",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1880-11-20",
+      "date_raw": "20. nov. 1880",
+      "date_min": "1880-11-20",
+      "date_max": "1880-11-20",
+      "date_qualifier": "exact",
+      "sted": "Christianslund"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1880-12-22",
+      "date_raw": "hjemmedøbt 22. dec. s.å.",
+      "date_min": "1880-12-22",
+      "date_max": "1880-12-22",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1883-06-07",
+      "date_raw": "7. juni 1883",
+      "date_min": "1883-06-07",
+      "date_max": "1883-06-07",
+      "date_qualifier": "exact",
+      "sted": "Christianslund"
+    }
+  ]
+}

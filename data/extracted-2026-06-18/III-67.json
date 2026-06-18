@@ -1,0 +1,25 @@
+{
+  "linje": "III",
+  "nr": 67,
+  "nr_label": "67",
+  "usikker": false,
+  "navn": "Detlef",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1666",
+      "date_raw": "* 1666",
+      "date_min": "1666-01-01",
+      "date_max": "1666-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

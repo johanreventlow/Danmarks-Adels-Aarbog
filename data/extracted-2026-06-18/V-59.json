@@ -1,0 +1,67 @@
+{
+  "linje": "V",
+  "nr": 59,
+  "nr_label": "59",
+  "usikker": false,
+  "navn": "Friderica Ædele Charlotte",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 10. dec. 1785 i København",
+      "date_min": "1785-12-10",
+      "date_max": "1785-12-10",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "hjemmedøbt, fremstillet 10. febr. 1786 i Holmens Kirke s.st.",
+      "date_min": "1786-02-10",
+      "date_max": "1786-02-10",
+      "date_qualifier": "exact",
+      "sted": "Holmens Kirke, København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 1835 på Marcotte, Frankrig",
+      "date_min": "1835-01-01",
+      "date_max": "1835-12-31",
+      "date_qualifier": "about",
+      "sted": "Marcotte, Frankrig"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Felix Clair de Mont",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "til Gellenoy og Marcotte"
+    }
+  ],
+  "boern": null
+}

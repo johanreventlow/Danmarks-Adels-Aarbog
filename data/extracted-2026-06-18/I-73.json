@@ -1,0 +1,60 @@
+{
+  "linje": "I",
+  "nr": 73,
+  "nr_label": "73",
+  "usikker": false,
+  "navn": "Benedicte",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "ca. 1620",
+      "date_raw": "† ca. 1620",
+      "date_min": "1620-01-01",
+      "date_max": "1620-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Joachim von Brockdorff",
+      "partner_ekstern_ref": "DAA 1931, II, 77",
+      "type": "vielse",
+      "dato_raw": "gift 1583",
+      "date_min": "1583-01-01",
+      "date_max": "1583-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Joachim von B. og Dorothea von Buchwaldt",
+      "note": "Til Tralau."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Salome Heesten",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "gift 2°",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "Levede 1626 og 1630 i Oldesloe."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

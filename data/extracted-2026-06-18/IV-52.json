@@ -1,0 +1,65 @@
+{
+  "linje": "IV",
+  "nr": 52,
+  "nr_label": "52",
+  "usikker": false,
+  "navn": "Komtesse Anna Laura Kunigunde",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1927-10-22",
+      "date_raw": "† 22. okt. 1927 i Vossloch ved Elmshorn",
+      "date_min": "1927-10-22",
+      "date_max": "1927-10-22",
+      "date_qualifier": "exact",
+      "sted": "Vossloch ved Elmshorn"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "indskrevet",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Friedrich Wilhelm Heinrich Otto von Hedemann-Heespen",
+      "partner_ekstern_ref": "DAA 1898, 180",
+      "type": "vielse",
+      "dato_raw": "Gift 24. febr. 1860",
+      "date_min": "1860-02-24",
+      "date_max": "1860-02-24",
+      "sted": "Seelust ved Kiel",
+      "skilt": false,
+      "partner_foedsel": "* 21. aug. 1827 på Deutsch-Nienhof",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 14. jan. 1905 s.st.",
+        "date_min": "1905-01-14",
+        "date_max": "1905-01-14",
+        "sted": "Deutsch-Nienhof"
+      },
+      "partner_erhverv": [
+        "slesvig-holstensk løjtnant"
+      ],
+      "partner_foraeldre": "Anhalt-dessausk kammerherre Johann Friedrich von H.-H. til Deutsch-Nienhof samt Pohlsee og Emma Thecla Agnes von Saldern",
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "5. nov. 1841",
+      "date_min": "1841-11-05",
+      "date_max": "1841-11-05",
+      "sted": "Bordesholm",
+      "note": null
+    }
+  ]
+}

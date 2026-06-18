@@ -1,0 +1,34 @@
+{
+  "linje": "I",
+  "nr": 119,
+  "nr_label": "119",
+  "usikker": false,
+  "navn": "Christian Albrecht",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [
+    {
+      "navn": "Brunsholm",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": null
+    },
+    {
+      "navn": "Grünholz",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "kaptajn",
+      "dato_raw": "1729"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

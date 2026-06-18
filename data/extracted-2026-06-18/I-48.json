@@ -1,0 +1,29 @@
+{
+  "linje": "I",
+  "nr": 48,
+  "nr_label": "48",
+  "usikker": true,
+  "navn": "Margaretha",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "1481",
+      "date_min": "1481-01-01",
+      "date_max": "1481-12-31",
+      "date_qualifier": "floruit",
+      "sted": "Sankt Johanniskloster ved Slesvig"
+    },
+    {
+      "faktatype": "klosterindgang",
+      "vaerdi": null,
+      "date_raw": "1481",
+      "date_min": "1481-01-01",
+      "date_max": "1481-12-31",
+      "date_qualifier": "before",
+      "sted": "Sankt Johanniskloster ved Slesvig"
+    }
+  ]
+}

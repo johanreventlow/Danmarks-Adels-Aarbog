@@ -1,0 +1,28 @@
+{
+  "linje": "III",
+  "nr": 27,
+  "nr_label": "27",
+  "usikker": false,
+  "navn": "Henneke",
+  "tilnavn": "til Ziesendorf",
+  "koen": "mand",
+  "facts": [],
+  "godser": [
+    {
+      "navn": "Ziesendorf",
+      "periode_raw": "(-1588-1620-)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Reetz",
+      "periode_raw": "(1606-†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

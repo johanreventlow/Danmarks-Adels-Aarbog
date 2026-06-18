@@ -1,0 +1,45 @@
+{
+  "linje": "IV",
+  "nr": 35,
+  "nr_label": "35",
+  "usikker": false,
+  "navn": "Komtesse Fanny",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1883-06-20",
+      "date_raw": "† 20. juni 1883 på Preetz Adelige Kloster",
+      "date_min": "1883-06-20",
+      "date_max": "1883-06-20",
+      "date_qualifier": "exact",
+      "sted": "Preetz Adelige Kloster"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    },
+    {
+      "organisation": "kronprins Friedrich af Preussens børn",
+      "rolle": "overguvernante",
+      "dato_raw": "1866-"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "29. april 1832",
+      "date_min": "1832-04-29",
+      "date_max": "1832-04-29",
+      "sted": null,
+      "note": null
+    }
+  ]
+}

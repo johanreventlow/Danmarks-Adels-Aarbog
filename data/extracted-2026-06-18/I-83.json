@@ -1,0 +1,79 @@
+{
+  "linje": "I",
+  "nr": 83,
+  "nr_label": "83",
+  "usikker": false,
+  "navn": "Jaspar",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "ca. 1610",
+      "date_raw": "† ca. 1610",
+      "date_min": "1610-01-01",
+      "date_max": "1610-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Rixdorf",
+      "periode_raw": "(1604-1606)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Tramm",
+      "periode_raw": "(-1597-)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Ide von Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 44",
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 1570",
+        "date_min": "1570-01-01",
+        "date_max": "1570-12-31",
+        "sted": null
+      },
+      "partner_daab": {
+        "date_raw": "døbt 22. jan. 1571",
+        "date_min": "1571-01-22",
+        "date_max": "1571-01-22",
+        "sted": null
+      },
+      "partner_doed": {
+        "date_raw": "† 1. jan. 1638 på Ehlerstorf",
+        "date_min": "1638-01-01",
+        "date_max": "1638-01-01",
+        "sted": "Ehlerstorf"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Gottorpsk råd og amtmand Povl von R. til Bothkamp, Lindved, Stendorf, Arlevad, Schaphus, Beyenfleth samt Hemmelmark og Beate von Sested til Hemmelmark og Kohøved",
+      "note": "Bisat 16. marts s.å. i gravkammer i Sankt Nicolai Kirke, Kiel."
+    }
+  ],
+  "boern": {
+    "antal": 2,
+    "slaegtled": "Tolvte slægtled",
+    "linje": "I",
+    "nr_range": [
+      94,
+      95
+    ]
+  },
+  "begivenheder": []
+}

@@ -1,0 +1,25 @@
+{
+  "linje": "III",
+  "nr": 25,
+  "nr_label": "25",
+  "usikker": false,
+  "navn": "David",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "før faderen",
+      "date_raw": "† før faderen",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

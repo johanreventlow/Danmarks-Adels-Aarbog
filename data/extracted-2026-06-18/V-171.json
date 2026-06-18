@@ -1,0 +1,50 @@
+{
+  "linje": "V",
+  "nr": 171,
+  "nr_label": "171",
+  "usikker": false,
+  "navn": "Komtesse Anna Sophie",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1970-04-15",
+      "date_raw": "15. april 1970",
+      "date_min": "1970-04-15",
+      "date_max": "1970-04-15",
+      "date_qualifier": "exact",
+      "sted": "Egernførde"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1970-08-03",
+      "date_raw": "døbt 3. aug. s.å. i Sankt Jürgen Kirke, Gettorp",
+      "date_min": "1970-08-03",
+      "date_max": "1970-08-03",
+      "date_qualifier": "exact",
+      "sted": "Sankt Jürgen Kirke, Gettorp"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Nikolaus Engelbert Albert Johannes prins von Croÿ, greve von Schmettau",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 11. maj 2001",
+      "date_min": "2001-05-11",
+      "date_max": "2001-05-11",
+      "sted": "Wulfshagen",
+      "skilt": true,
+      "partner_foedsel": "* 21. juli 1953 i Bochum",
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [
+        "dyrlæge"
+      ],
+      "partner_foraeldre": "Matthias greve von S. og Maria Elisabeth Ludmilla Josepha prinsesse von Croÿ",
+      "note": "skilt 9. juni 2020"
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "linje": "IV",
+  "nr": 27,
+  "nr_label": "27",
+  "usikker": false,
+  "navn": "Greve Traugott",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1849-03-11",
+      "date_raw": "faldt 11. marts 1849 i en duel i Haderslev",
+      "date_min": "1849-03-11",
+      "date_max": "1849-03-11",
+      "date_qualifier": "exact",
+      "sted": "Haderslev"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Ratzeburg Domskole",
+      "rolle": "elev",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1830 (22. april)"
+    },
+    {
+      "organisation": "Göttingen",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1835 (5. maj)"
+    },
+    {
+      "organisation": "Kiel",
+      "rolle": "cand.jur.",
+      "dato_raw": "1840"
+    },
+    {
+      "organisation": "regeringen på Gottorp",
+      "rolle": "auskultant",
+      "dato_raw": null
+    },
+    {
+      "organisation": "1. schleswig-holsteinische Jägercorps",
+      "rolle": "løjtnant",
+      "dato_raw": "1848"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "4. dec. 1812",
+      "date_min": "1812-12-04",
+      "date_max": "1812-12-04",
+      "sted": "Falkenberg",
+      "note": "Døbt 1814 i Sankt Michaelis Kirke, Slesvig By."
+    }
+  ]
+}

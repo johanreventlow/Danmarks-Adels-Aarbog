@@ -1,0 +1,33 @@
+{
+  "linje": "I",
+  "nr": 93,
+  "nr_label": "93",
+  "usikker": false,
+  "navn": "Barbara",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Wulf von Pogwisch",
+      "partner_ekstern_ref": "DAA 1931, II, 31, 64f",
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Wulf von P. til Bukhagen samt Kronsgaard og Margarethe von Hagen til Bukhagen og Kronsgaard",
+      "note": "Nævnes 1613, † 1632 i Kalmar."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

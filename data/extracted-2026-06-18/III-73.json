@@ -1,0 +1,130 @@
+{
+  "linje": "III",
+  "nr": 73,
+  "nr_label": "73",
+  "usikker": false,
+  "navn": "Detlef",
+  "tilnavn": "til Holtenklinken, Hemmelmark og Stubbe",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1733-01-24",
+      "date_raw": "† 24. jan. 1733 i Kiel",
+      "date_min": "1733-01-24",
+      "date_max": "1733-01-24",
+      "date_qualifier": "exact",
+      "sted": "Kiel"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Holtenklinken",
+      "periode_raw": "(1692-1697)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Hemmelmark",
+      "periode_raw": "(1692-1697)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Stubbe",
+      "periode_raw": "(1722-†)",
+      "period_type": "tenure",
+      "sted": "Rieseby S., Rendsborg-Egernførde Kr."
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "dansk kammerjunker",
+      "rolle": "kammerjunker",
+      "dato_raw": "1692 (19. okt.)"
+    },
+    {
+      "organisation": "Slesvig og Holsten",
+      "rolle": "landråd",
+      "dato_raw": "1692 (19. okt.) ekspektance"
+    },
+    {
+      "organisation": "Slesvig Domkapitel",
+      "rolle": "amtmand",
+      "dato_raw": "1701 (6. dec.)-1721 (3. febr.)"
+    },
+    {
+      "organisation": "Slesvig og Holsten",
+      "rolle": "landråd",
+      "dato_raw": "1705-"
+    },
+    {
+      "organisation": "hvid ridder",
+      "rolle": "ridder",
+      "dato_raw": "1709 (28. aug.)"
+    },
+    {
+      "organisation": "gehejmeråd",
+      "rolle": "gehejmeråd",
+      "dato_raw": "1722 (22. maj)"
+    },
+    {
+      "organisation": "konferensråd",
+      "rolle": "konferensråd",
+      "dato_raw": "1729 (11. okt.)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Magdalena Sibylla rigsgrevinde von Der Nath",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 1° 20. dec. 1692",
+      "date_min": "1692-12-20",
+      "date_max": "1692-12-20",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 10. febr. 1717",
+        "date_min": "1717-02-10",
+        "date_max": "1717-02-10",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kursachsisk generalfeltmarskalløjtnant, gehejme- og krigsråd, overfalkonermester Gerhard rigsgreve von Der N. til baroniet Cortesheimb, Kaden, Sierhagen samt Hasselburg og kursachsisk overhofmesterinde Christina von Ahlefeldt",
+      "note": null
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Magdalena Helwig von Rumohr",
+      "partner_ekstern_ref": "DAA 1937, II, 112 f.",
+      "type": "vielse",
+      "dato_raw": "Gift 2° 1721",
+      "date_min": "1721-01-01",
+      "date_max": "1721-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 1671",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 18. juni 1740",
+        "date_min": "1740-06-18",
+        "date_max": "1740-06-18",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Asmus von R. til Dyttebøl samt Kronsgaard og Dorothea von Ahlefeldt",
+      "note": "Ægtepagten dateret 9. febr. s.å.; hustruen testamenteredes Stubbe."
+    }
+  ],
+  "boern": {
+    "antal": 3,
+    "slaegtled": "Fjortende slægtled",
+    "linje": "I, nr. 98-100",
+    "nr_range": null
+  },
+  "begivenheder": []
+}

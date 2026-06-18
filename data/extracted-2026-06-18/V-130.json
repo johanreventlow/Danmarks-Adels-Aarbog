@@ -1,0 +1,64 @@
+{
+  "linje": "V",
+  "nr": 130,
+  "nr_label": "130",
+  "usikker": false,
+  "navn": "Komtesse Benny",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1894-11-25",
+      "date_raw": "25. nov. 1894",
+      "date_min": "1894-11-25",
+      "date_max": "1894-11-25",
+      "date_qualifier": "exact",
+      "sted": "Brostorp"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1894-12-16",
+      "date_raw": "døbt 16. dec. s.å. i Gudmuntorp Kirke",
+      "date_min": "1894-12-16",
+      "date_max": "1894-12-16",
+      "date_qualifier": "exact",
+      "sted": "Gudmuntorp Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1965-10-31",
+      "date_raw": "31. okt. 1965",
+      "date_min": "1965-10-31",
+      "date_max": "1965-10-31",
+      "date_qualifier": "exact",
+      "sted": "Köln"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Friedrich Albert Wilhelm friherre von Rheinbaben",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 20. juni 1928",
+      "date_min": "1928-06-20",
+      "date_max": "1928-06-20",
+      "sted": "Örgryte Kirke, Göteborg",
+      "skilt": false,
+      "partner_foedsel": "* 30. juli 1899 i Kiel",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 15. nov. 1972 i Köln",
+        "date_min": "1972-11-15",
+        "date_max": "1972-11-15",
+        "sted": "Köln"
+      },
+      "partner_erhverv": [
+        "overingeniør"
+      ],
+      "partner_foraeldre": "Kejserlig tysk flådekaptajn Friedrich Wilhelm Nikolaus friherre von R. og Alice Gayen",
+      "note": null
+    }
+  ]
+}

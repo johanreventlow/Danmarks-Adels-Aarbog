@@ -1,0 +1,27 @@
+{
+  "linje": "I",
+  "nr": 23,
+  "nr_label": "23",
+  "usikker": false,
+  "navn": "Hartwich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "Var 1366 (24. sept.) ... nævnes 1375 (29. okt.)",
+      "date_min": "1366-09-24",
+      "date_max": "1375-10-29",
+      "date_qualifier": "floruit",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Reinfeld Kloster",
+      "rolle": "abbed",
+      "dato_raw": "1366 (24. sept.)"
+    }
+  ]
+}

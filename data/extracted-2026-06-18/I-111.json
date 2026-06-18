@@ -1,0 +1,34 @@
+{
+  "linje": "I",
+  "nr": 111,
+  "nr_label": "111",
+  "usikker": false,
+  "navn": "Detlef",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1677",
+      "date_raw": "* 1677",
+      "date_min": "1677-01-01",
+      "date_max": "1677-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1678",
+      "date_raw": "† 1678",
+      "date_min": "1678-01-01",
+      "date_max": "1678-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

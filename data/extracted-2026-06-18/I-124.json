@@ -1,0 +1,34 @@
+{
+  "linje": "I",
+  "nr": 124,
+  "nr_label": "124",
+  "usikker": false,
+  "navn": "Otto Hinrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1719 på Wittenberg",
+      "date_raw": "* 1719 på Wittenberg",
+      "date_min": "1719-01-01",
+      "date_max": "1719-12-31",
+      "date_qualifier": "exact",
+      "sted": "Wittenberg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "20. marts s.å. i Selent Kirke",
+      "date_raw": "døbt 20. marts s.å. i Selent Kirke",
+      "date_min": "1719-03-20",
+      "date_max": "1719-03-20",
+      "date_qualifier": "exact",
+      "sted": "Selent Kirke"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

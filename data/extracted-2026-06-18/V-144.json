@@ -1,0 +1,62 @@
+{
+  "linje": "V",
+  "nr": 144,
+  "nr_label": "144",
+  "usikker": false,
+  "navn": "Lensgreve Eduard Vilhelm Sofus Kristian",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1883-11-28",
+      "date_raw": "28. nov. 1883",
+      "date_min": "1883-11-28",
+      "date_max": "1883-11-28",
+      "date_qualifier": "exact",
+      "sted": "Christianslund"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1884-04-06",
+      "date_raw": "hjemmedøbt 6. april 1884",
+      "date_min": "1884-04-06",
+      "date_max": "1884-04-06",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1963-07-26",
+      "date_raw": "26. juli 1963",
+      "date_min": "1963-07-26",
+      "date_max": "1963-07-26",
+      "date_qualifier": "exact",
+      "sted": "Tirsbakke, Tisvildeleje"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Else Sophie Nathalie Bardenfleth",
+      "partner_ekstern_ref": "DAA 1948, II, 20",
+      "type": "vielse",
+      "dato_raw": "Gift 4. nov. 1910",
+      "date_min": "1910-11-04",
+      "date_max": "1910-11-04",
+      "sted": "Holmens Kirke, København",
+      "skilt": false,
+      "partner_foedsel": "* 2. jan. 1884 i København",
+      "partner_daab": "døbt 22. febr. s.å. i Holmens Kirke s.st.",
+      "partner_doed": {
+        "date_raw": "† 27. okt. 1964 s.st.",
+        "date_min": "1964-10-27",
+        "date_max": "1964-10-27",
+        "sted": "København"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kontreadmiral, hofchef, kammerherre Frederik Carl Christian B. og Ida Elise Cathrine Meldal",
+      "note": null
+    }
+  ]
+}

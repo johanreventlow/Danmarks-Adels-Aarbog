@@ -1,0 +1,81 @@
+{
+  "linje": "I",
+  "nr": 126,
+  "nr_label": "126",
+  "usikker": false,
+  "navn": "Augusta Christina",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1722 på Wittenberg",
+      "date_raw": "* 1722 på Wittenberg",
+      "date_min": "1722-01-01",
+      "date_max": "1722-12-31",
+      "date_qualifier": "exact",
+      "sted": "Wittenberg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "15. marts s.å. i Selent Kirke",
+      "date_raw": "døbt 15. marts s.å. i Selent Kirke",
+      "date_min": "1722-03-15",
+      "date_max": "1722-03-15",
+      "date_qualifier": "exact",
+      "sted": "Selent Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "9. okt. 1789",
+      "date_raw": "† 9. okt. 1789",
+      "date_min": "1789-10-09",
+      "date_max": "1789-10-09",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Wittenberg",
+      "periode_raw": "(1755-1764)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Christian Detlef Revenfeld",
+      "partner_ekstern_ref": "Revenfeld, 7",
+      "type": "vielse",
+      "dato_raw": "Gift 7. april 1752",
+      "date_min": "1752-04-07",
+      "date_max": "1752-04-07",
+      "sted": "Husum Slot",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 30. marts 1724 i Hamburg",
+        "date_min": "1724-03-30",
+        "date_max": "1724-03-30",
+        "sted": "Hamburg"
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 29. nov. 1794 på Dänisch Nienhof",
+        "date_min": "1794-11-29",
+        "date_max": "1794-11-29",
+        "sted": "Dänisch Nienhof"
+      },
+      "partner_erhverv": [
+        "kammerherre",
+        "landråd"
+      ],
+      "partner_foraeldre": "Overkrigssekretær, generalløjtnant Detlef R. til Vandlinggaard og Anna Catharine Woldenberg",
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

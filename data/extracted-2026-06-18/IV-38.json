@@ -1,0 +1,65 @@
+{
+  "linje": "IV",
+  "nr": 38,
+  "nr_label": "38",
+  "usikker": false,
+  "navn": "Komtesse Louise",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1886-06-21",
+      "date_raw": "† 21. juni 1886 på Tzschernowitz",
+      "date_min": "1886-06-21",
+      "date_max": "1886-06-21",
+      "date_qualifier": "exact",
+      "sted": "Tzschernowitz"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "indskrevet",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Ewald Friedrich August Konrad greve Kleist vom Loss",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 28. maj 1861",
+      "date_min": "1861-05-28",
+      "date_max": "1861-05-28",
+      "sted": "Starzeddel",
+      "skilt": false,
+      "partner_foedsel": "* 3. aug. 1825 på Olbernhau",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 6. aug. 1877 i Johannisbad, Bøhmen",
+        "date_min": "1877-08-06",
+        "date_max": "1877-08-06",
+        "sted": "Johannisbad, Bøhmen"
+      },
+      "partner_erhverv": [
+        "preussisk landråd"
+      ],
+      "partner_foraeldre": "Preussisk hofjægermester, major Wilhelm Bogislaff greve K. vom L. til Werchau Knippelsdorf, Beesgen, Döben, Olbernhau, m.fl., og Auguste Isidore Constatine grevinde vom Loss",
+      "note": "Til Tzschernowitz, Beesgen, Döben og Olbernhau."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "16. dec. 1838",
+      "date_min": "1838-12-16",
+      "date_max": "1838-12-16",
+      "sted": "Preetz",
+      "note": "Indskrevet i Preetz Adelige Kloster."
+    }
+  ]
+}

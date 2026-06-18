@@ -1,0 +1,47 @@
+{
+  "linje": "I",
+  "nr": 5,
+  "nr_label": "5",
+  "navn": "Iwan",
+  "tilnavn": null,
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "† før 1261 (22. aug.)",
+      "date_raw": "† før 1261 (22. aug.)",
+      "date_min": null,
+      "date_max": "1261-08-22",
+      "date_qualifier": "before"
+    },
+    {
+      "faktatype": "floruit",
+      "vaerdi": "nævnes 1248, 1255",
+      "date_raw": "1248 (29. febr.)",
+      "date_min": "1248-02-29",
+      "date_max": "1255-05-07",
+      "date_qualifier": "floruit"
+    },
+    {
+      "faktatype": "titel",
+      "vaerdi": "ridder",
+      "date_raw": "1248 (29. febr.)",
+      "date_min": "1248-02-29",
+      "date_max": null,
+      "date_qualifier": "exact"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": {
+    "tekst": "3 sønner?",
+    "reference_slægtled": "Tredje",
+    "nr_range": [
+      7,
+      9
+    ]
+  },
+  "begivenheder": [],
+  "usikker": false,
+  "koen": "mand"
+}

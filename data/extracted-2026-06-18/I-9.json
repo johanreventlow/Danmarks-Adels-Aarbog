@@ -1,0 +1,47 @@
+{
+  "linje": "I",
+  "nr": 9,
+  "nr_label": "9",
+  "usikker": false,
+  "navn": "Iwan",
+  "tilnavn": "til Waschbuk",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "ridder",
+      "date_raw": "1316 (6. febr.)",
+      "date_min": "1316-02-06",
+      "date_max": "1316-02-06",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "(-1336)",
+      "date_min": null,
+      "date_max": "1336",
+      "date_qualifier": "before",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Waschbuk",
+      "periode_raw": "-1336",
+      "period_type": "until_event",
+      "sted": "Hahnsühn S., Ostholstein Kr."
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "ridder",
+      "dato_raw": "1316 (6. febr.)"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

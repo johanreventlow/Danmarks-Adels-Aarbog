@@ -1,0 +1,82 @@
+{
+  "linje": "IV",
+  "nr": 50,
+  "nr_label": "50",
+  "usikker": false,
+  "navn": "Greve Georg Carl Ernst",
+  "tilnavn": "til Kaltenhof",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1910-06-17",
+      "date_raw": "† 17. juni 1910 i Kiel",
+      "date_min": "1910-06-17",
+      "date_max": "1910-06-17",
+      "date_qualifier": "exact",
+      "sted": "Kiel"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Kaltenhof",
+      "periode_raw": "(1848-†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Berta Louise von Thielau",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 1° 1. juni 1867",
+      "date_min": "1867-06-01",
+      "date_max": "1867-06-01",
+      "sted": "Lampertswalde",
+      "skilt": false,
+      "partner_foedsel": "* 25. maj 1846 i Leuben",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 17. febr. 1871 på Kaltenhof",
+        "date_min": "1871-02-17",
+        "date_max": "1871-02-17",
+        "sted": "Kaltenhof"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Hans Karl von T. til Lampertswalde og Luise Berta von Thielau",
+      "note": "Bisat 20. s.m. fra Dänischenhagen Kirke."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Ida Pauline Klementine von Gruben",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 2° 8. juni 1872",
+      "date_min": "1872-06-08",
+      "date_max": "1872-06-08",
+      "sted": "Staucha i Sachsen",
+      "skilt": false,
+      "partner_foedsel": "* 25. aug. 1852 i Gotha",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 16. juni 1905 på Kaltenhof",
+        "date_min": "1905-06-16",
+        "date_max": "1905-06-16",
+        "sted": "Kaltenhof"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Sachsen-coburgsk og gothask kammerherre, vicegehejmeråd og overhofmester, preussisk løjtnant Eduard Leopold von G. til Staucha samt Röhrsdorf og Maria Louise von Hartitzsch",
+      "note": "5 børn."
+    }
+  ],
+  "boern": {
+    "antal": 5,
+    "slaegtled": "Femte (attende) slægtled",
+    "linje": "III, nr. 68-72",
+    "nr_range": null
+  },
+  "begivenheder": []
+}

@@ -1,0 +1,40 @@
+{
+  "linje": "III",
+  "nr": 90,
+  "nr_label": "90",
+  "usikker": false,
+  "navn": "Conrad Detlef",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "ung",
+      "date_raw": "† ung",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "dronning Anna Sophia",
+      "rolle": "kammerjunker",
+      "dato_raw": "1728 (22. jan.)-1729-"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "1701",
+      "date_min": "1701-01-01",
+      "date_max": "1701-12-31",
+      "sted": null,
+      "note": null
+    }
+  ]
+}

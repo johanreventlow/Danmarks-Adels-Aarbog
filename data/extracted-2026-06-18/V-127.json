@@ -1,0 +1,65 @@
+{
+  "linje": "V",
+  "nr": 127,
+  "nr_label": "127",
+  "usikker": false,
+  "navn": "Komtesse Ebba",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1891-01-23",
+      "date_raw": "23. jan. 1891",
+      "date_min": "1891-01-23",
+      "date_max": "1891-01-23",
+      "date_qualifier": "exact",
+      "sted": "Brostorp"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1891-02-18",
+      "date_raw": "døbt 18. febr. s.å. på Finnhult",
+      "date_min": "1891-02-18",
+      "date_max": "1891-02-18",
+      "date_qualifier": "exact",
+      "sted": "Finnhult"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1971-10-06",
+      "date_raw": "6. okt. 1971",
+      "date_min": "1971-10-06",
+      "date_max": "1971-10-06",
+      "date_qualifier": "exact",
+      "sted": "Wulfshagen"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Carl Andreas Fürst",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 6. juni 1916",
+      "date_min": "1916-06-06",
+      "date_max": "1916-06-06",
+      "sted": "Lund Domkirke",
+      "skilt": false,
+      "partner_foedsel": "* 24. maj 1888 i Lund",
+      "partner_daab": "døbt 9. juni s.å. i Lund Domkirke",
+      "partner_doed": {
+        "date_raw": "† 31. dec. 1981 i Kalmar",
+        "date_min": "1981-12-31",
+        "date_max": "1981-12-31",
+        "sted": "Kalmar"
+      },
+      "partner_erhverv": [
+        "overlæge",
+        "med.dr. h.c."
+      ],
+      "partner_foraeldre": "Professor anatomie, med.dr. Carl Magnus F. og Hanna Olga Haanshus",
+      "note": null
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "linje": "II",
+  "nr": 9,
+  "nr_label": "9",
+  "usikker": false,
+  "navn": "Achim",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [
+    {
+      "navn": "Fahren",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": "Fahren S., Plön Kr."
+    },
+    {
+      "navn": "Goldebeck",
+      "periode_raw": "(-1635)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Maslow",
+      "periode_raw": "(-1637-)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Dorothea von Bülow",
+      "partner_ekstern_ref": "DAA 1963, II, 9",
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Svensk ritmester Engelke von B. og Catharina von Negendank",
+      "note": "Bisat i Elmenhorst Kirke."
+    }
+  ],
+  "boern": {
+    "antal": 1,
+    "slaegtled": "Ottende slægtled",
+    "linje": "II",
+    "nr_range": [
+      10,
+      10
+    ]
+  },
+  "begivenheder": []
+}

@@ -1,0 +1,24 @@
+{
+  "linje": "IV",
+  "nr": 89,
+  "nr_label": "89",
+  "usikker": false,
+  "navn": "Greve Nils Christian",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "16. aug. 2005",
+      "date_min": "2005-08-16",
+      "date_max": "2005-08-16",
+      "sted": "Summit, New Jersey, U.S.A.",
+      "note": null
+    }
+  ]
+}

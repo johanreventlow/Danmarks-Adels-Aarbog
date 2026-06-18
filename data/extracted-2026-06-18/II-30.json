@@ -1,0 +1,25 @@
+{
+  "linje": "II",
+  "nr": 30,
+  "nr_label": "30",
+  "usikker": false,
+  "navn": "Eleonora Sophia",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaierdi": "7. juni 1733 i København",
+      "date_raw": "† 7. juni 1733 i København",
+      "date_min": "1733-06-07",
+      "date_max": "1733-06-07",
+      "date_qualifier": "exact",
+      "sted": "København"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

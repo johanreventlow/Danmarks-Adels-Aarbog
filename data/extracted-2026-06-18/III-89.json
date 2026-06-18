@@ -1,0 +1,187 @@
+{
+  "linje": "III",
+  "nr": 89,
+  "nr_label": "89",
+  "usikker": false,
+  "navn": "Claus",
+  "tilnavn": "til Eskær, Skivehus, Astrup, Osterrade med Bovenau og Kluvensieck",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1758-05-10",
+      "date_raw": "† 10. maj 1758 i København",
+      "date_min": "1758-05-10",
+      "date_max": "1758-05-10",
+      "date_qualifier": "exact",
+      "sted": "København"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Eskær",
+      "periode_raw": "(1735-1750)",
+      "period_type": "tenure",
+      "sted": "Grinderslev S., Nørre H."
+    },
+    {
+      "navn": "Skivehus",
+      "periode_raw": "(1735-1750)",
+      "period_type": "tenure",
+      "sted": "Skive Kommune, Viborg Amt"
+    },
+    {
+      "navn": "Astrup",
+      "periode_raw": "(1735-1750)",
+      "period_type": "tenure",
+      "sted": "Grinderslev S., Nørre H."
+    },
+    {
+      "navn": "Osterrade med Bovenau",
+      "periode_raw": "(1753-†)",
+      "period_type": "tenure",
+      "sted": "Bovenau S., Rendsburg-Egernførde Kr."
+    },
+    {
+      "navn": "Kluvensieck",
+      "periode_raw": "(1753-†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1709 (14. jan.)"
+    },
+    {
+      "organisation": "Halle",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1711 (7. nov.)"
+    },
+    {
+      "organisation": "kammerjunker",
+      "rolle": "kammerjunker",
+      "dato_raw": "1714 (25. aug.)-1727"
+    },
+    {
+      "organisation": "dronning Anna Sophia",
+      "rolle": "hos",
+      "dato_raw": "1721 (23. juni, fra 1. marts s.å. at regne)-1722 (30. marts)"
+    },
+    {
+      "organisation": "kong Frederik 4.",
+      "rolle": "hos",
+      "dato_raw": "1722 (31. marts)-1727"
+    },
+    {
+      "organisation": "amtmand over Skanderborg og Åkær Amter",
+      "rolle": "amtmand",
+      "dato_raw": "1728 (20. okt.)-1730 (27. okt.)"
+    },
+    {
+      "organisation": "stiftsbefalingsmand over Ålborg Stift og amtmand over Ålborghus, Åstrup, Børglum og Sejlstrup Amter",
+      "rolle": "stiftsbefalingsmand og amtmand",
+      "dato_raw": "1730 (28. okt.)-1736 (1. marts, afsked 20. febr.)"
+    },
+    {
+      "organisation": "Højesteret",
+      "rolle": "assessor",
+      "dato_raw": "1733-1758"
+    },
+    {
+      "organisation": "Højesteret og Hofretten",
+      "rolle": "tilforordnet med løn",
+      "dato_raw": "1736 (27. jan.)"
+    },
+    {
+      "organisation": "Verbitter for Det Adelige Kloster i Itzehoe",
+      "rolle": "Verbitter",
+      "dato_raw": "1736 (20. juli)-†"
+    },
+    {
+      "organisation": "Det Adelige Sankt Johanniskloster ved Slesvig",
+      "rolle": "klosterprovst",
+      "dato_raw": "1736-†"
+    },
+    {
+      "organisation": "Højesteret",
+      "rolle": "præsident",
+      "dato_raw": "s.d.-†"
+    },
+    {
+      "organisation": "gehejmeråd",
+      "rolle": "gehejmeråd",
+      "dato_raw": "1736 (28. nov.)-"
+    },
+    {
+      "organisation": "gehejekonferensråd",
+      "rolle": "gehejekonferensråd",
+      "dato_raw": "1747 (4. sept.)-"
+    },
+    {
+      "organisation": "de l’Union parfaite",
+      "rolle": "ridder",
+      "dato_raw": "1751 (31. marts)"
+    },
+    {
+      "organisation": "Lübeck",
+      "rolle": "gesandt",
+      "dato_raw": "1756"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Christiana Barbara von Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 62 f.",
+      "type": "vielse",
+      "dato_raw": "Gift 1° 7. nov. 1727",
+      "date_min": "1727-11-07",
+      "date_max": "1727-11-07",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 10. juni 1683 i København",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 16. juli 1747 s.st.",
+        "date_min": "1747-07-16",
+        "date_max": "1747-07-16",
+        "sted": "København"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Generalløjtnant Johann von R. til Bramminge samt Frydendal og Sophia Amalia Friis til Ørslev Kloster og Bidstrup",
+      "note": "Gift 1° 4. okt. 1698 på Frydendal med oberst Verner Parsberg."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Charlotta Dorothea Scheel von Plessen",
+      "partner_ekstern_ref": "DAA 1934, II, 145",
+      "type": "vielse",
+      "dato_raw": "Gift 2° 6. nov. 1748",
+      "date_min": "1748-11-06",
+      "date_max": "1748-11-06",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 25. aug. 1724 på Fussingø",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 25. maj 1771",
+        "date_min": "1771-05-25",
+        "date_max": "1771-05-25",
+        "sted": "haven på Osterrade"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Gehejmeråd Christian Ludwig Scheel von P. og Charlotta Amalia Skeel",
+      "note": "Indsatte 1759 i sit testamente gehejmeråd Detlef Reventlow og hustru til universalarvinger."
+    }
+  ],
+  "boern": {
+    "antal": 1,
+    "slaegtled": "Fjortende slægtled",
+    "linje": "IV, nr. 118",
+    "nr_range": null
+  },
+  "begivenheder": []
+}

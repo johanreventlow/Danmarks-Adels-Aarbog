@@ -1,0 +1,42 @@
+{
+  "linje": "III",
+  "nr": 78,
+  "nr_label": "78",
+  "usikker": false,
+  "navn": "Christina Augusta",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Friedrich Wilhelm von Canitz",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 16. nov. 1708",
+      "date_min": "1708-11-16",
+      "date_max": "1708-11-16",
+      "sted": "Königsberg",
+      "skilt": false,
+      "partner_foedsel": "* 1656",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† febr. 1719",
+        "date_min": "1719-02-01",
+        "date_max": "1719-02-28",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "preussisk gehejme- og etatsråd",
+        "overborggreve for kongeriget Preussen",
+        "overappellationsretspræsident"
+      ],
+      "partner_foraeldre": null,
+      "note": "Til Podangen, Lampe og Maulfritzen."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

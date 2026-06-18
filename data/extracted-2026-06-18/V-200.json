@@ -1,0 +1,29 @@
+{
+  "linje": "V",
+  "nr": 200,
+  "nr_label": "200",
+  "usikker": false,
+  "navn": "Komtesse Franziska Anne",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "2021-08-21",
+      "date_raw": "21. aug. 2021",
+      "date_min": "2021-08-21",
+      "date_max": "2021-08-21",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "2022-01-22",
+      "date_raw": "døbt 22. jan. 2022 i Sankt Johannes Kirke",
+      "date_min": "2022-01-22",
+      "date_max": "2022-01-22",
+      "date_qualifier": "exact",
+      "sted": "Sankt Johannes Kirke, København"
+    }
+  ]
+}

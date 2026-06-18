@@ -1,0 +1,99 @@
+{
+  "linje": "V",
+  "nr": 76,
+  "nr_label": "76",
+  "usikker": false,
+  "navn": "Liane Benedicte Sophie Louise Caroline",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 22. juni 1818 på Sandbjerg",
+      "date_min": "1818-06-22",
+      "date_max": "1818-06-22",
+      "date_qualifier": "exact",
+      "sted": "Sandbjerg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 20. aug. s.å. i Dybbøl Kirke",
+      "date_min": "1818-08-20",
+      "date_max": "1818-08-20",
+      "date_qualifier": "exact",
+      "sted": "Dybbøl Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 16. dec. 1903 på Wulfshagen",
+      "date_min": "1903-12-16",
+      "date_max": "1903-12-16",
+      "date_qualifier": "exact",
+      "sted": "Wulfshagen"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "begravet i haven på Wulfshagen",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Wulfshagen"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Wulfshagen",
+      "periode_raw": "(1882‑†)",
+      "period_type": "ejerskab",
+      "sted": "Gettorp S., Egernførde Kr."
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Carl von Qualen",
+      "partner_ekstern_ref": "DAA 1925, 494",
+      "type": "vielse",
+      "dato_raw": "Gift 18. aug. 1853",
+      "date_min": "1853-08-18",
+      "date_max": "1853-08-18",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 18. aug. 1818 på Damp",
+        "date_min": "1818-08-18",
+        "date_max": "1818-08-18",
+        "sted": "Damp"
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 18. febr. 1882 på Wulfshagen",
+        "date_min": "1882-02-18",
+        "date_max": "1882-02-18",
+        "sted": "Wulfshagen"
+      },
+      "partner_erhverv": [
+        "kammerjunker",
+        "klosterprovst"
+      ],
+      "partner_foraeldre": "Kammerjunker Henning Bendix von Q. til Damp og Louise Augusta komtesse Holck",
+      "note": "Til Wulfshagen (1856‑†) og Damp (1870‑†). Begravet 23. febr. 1882 i haven på Wulfshagen."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

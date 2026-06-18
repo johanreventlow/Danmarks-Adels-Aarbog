@@ -1,0 +1,96 @@
+{
+  "linje": "V",
+  "nr": 45,
+  "nr_label": "45",
+  "usikker": false,
+  "navn": "Juliane Friderica Christiane",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "15. febr. 1759 i København",
+      "date_min": "1759-02-15",
+      "date_max": "1759-02-15",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "16. s.m. i Hof- og Slotskirken s.st.",
+      "date_min": "1759-02-16",
+      "date_max": "1759-02-16",
+      "date_qualifier": "exact",
+      "sted": "Hof- og Slotskirken, København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "17. maj 1793 i Regensburg, Bayern",
+      "date_min": "1793-05-17",
+      "date_max": "1793-05-17",
+      "date_qualifier": "exact",
+      "sted": "Regensburg, Bayern"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Krenkerup",
+      "periode_raw": "1759-†",
+      "period_type": "besidder",
+      "sted": null
+    },
+    {
+      "navn": "Frisenvold",
+      "periode_raw": "1762-†",
+      "period_type": "besidder",
+      "sted": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Carl August von Hardenberg",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "8. juni 1774",
+      "date_min": "1774-06-08",
+      "date_max": "1774-06-08",
+      "sted": "Sierhagen",
+      "skilt": true,
+      "partner_foedsel": {
+        "date_raw": "31. maj 1750 i Essenrode ved Gifhorn i Hannover",
+        "date_min": "1750-05-31",
+        "date_max": "1750-05-31",
+        "sted": "Essenrode ved Gifhorn i Hannover"
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "26. nov. 1822 i Genua",
+        "date_min": "1822-11-26",
+        "date_max": "1822-11-26",
+        "sted": "Genua"
+      },
+      "partner_erhverv": [
+        "gehejmeråd",
+        "preussisk stats- og krigsminister",
+        "statskansler"
+      ],
+      "partner_foraeldre": "Kurhannoveransk og storbritanisk feltmarskal Christian Ludwig von H. til Vorderhaus, Hardenberg, Geismar samt Lindau og Anna Sophia Ehrengard von Bülow",
+      "note": "skilt 1788 på grund af hustruens formentlige kærlighedsforhold til prinsen af Wales"
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

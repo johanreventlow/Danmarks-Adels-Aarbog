@@ -1,0 +1,69 @@
+{
+  "linje": "III",
+  "nr": 83,
+  "nr_label": "83",
+  "usikker": false,
+  "navn": "Sophia Magdalena",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1750-07-29",
+      "date_raw": "† 29. juli 1750 på Knoop",
+      "date_min": "1750-07-29",
+      "date_max": "1750-07-29",
+      "date_qualifier": "exact",
+      "sted": "Knoop"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Projenstorf",
+      "periode_raw": null,
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Friedrich von Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 118",
+      "type": "vielse",
+      "dato_raw": "Gift 2. sept. 1713",
+      "date_min": "1713-09-02",
+      "date_max": "1713-09-02",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 30. jan. 1659",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 8. febr. 1723 i Kiel",
+        "date_min": "1723-02-08",
+        "date_max": "1723-02-08",
+        "sted": "Kiel"
+      },
+      "partner_erhverv": [
+        "kancellipræsident",
+        "gehejmeråd",
+        "landråd",
+        "ritmester"
+      ],
+      "partner_foraeldre": "Generalvagtmester, gottorpsk landråd og amtmand Hans von R. til Putlos, Panker samt Klampe og Dorothea Oelgard Blome",
+      "note": "Greve Heinrich Christoph von Baudissin fik af hendes bror Cay Friedrich ved hendes død overdraget Projenstorf."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "ca. 1684",
+      "date_min": "1684-01-01",
+      "date_max": "1684-12-31",
+      "sted": null,
+      "note": null
+    }
+  ]
+}

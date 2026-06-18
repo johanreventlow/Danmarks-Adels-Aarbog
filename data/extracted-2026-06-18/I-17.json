@@ -1,0 +1,31 @@
+{
+  "linje": "I",
+  "nr": 17,
+  "nr_label": "17",
+  "usikker": false,
+  "navn": "Nicolaus",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "1348 (8. nov.)",
+      "date_min": "1348-11-08",
+      "date_max": "1348-11-08",
+      "date_qualifier": "floruit",
+      "sted": "Slesvig"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "kirken i Slesvig",
+      "rolle": "kannik",
+      "dato_raw": "1348 (8. nov.)"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

@@ -1,0 +1,65 @@
+{
+  "linje": "V",
+  "nr": 158,
+  "nr_label": "158",
+  "usikker": false,
+  "navn": "Lensgreve Christian Benedict Frederik",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1915-10-31",
+      "date_raw": "31. okt. 1915",
+      "date_min": "1915-10-31",
+      "date_max": "1915-10-31",
+      "date_qualifier": "exact",
+      "sted": "London"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1915-11-28",
+      "date_raw": "døbt 28. nov. s.å. i Queen’s Chapel, St. James’ Palace",
+      "date_min": "1915-11-28",
+      "date_max": "1915-11-28",
+      "date_qualifier": "exact",
+      "sted": "Queen’s Chapel, St. James’ Palace"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1984-08-02",
+      "date_raw": "2. aug. 1984",
+      "date_min": "1984-08-02",
+      "date_max": "1984-08-02",
+      "date_qualifier": "exact",
+      "sted": "Skovridergården ved Støvring"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Beke komtesse Ahlefeldt-Laurvig",
+      "partner_ekstern_ref": "DAA 1982-84, 710",
+      "type": "vielse",
+      "dato_raw": "Gift 21. april 1945",
+      "date_min": "1945-04-21",
+      "date_max": "1945-04-21",
+      "sted": "Frederiksberg Slotskirke",
+      "skilt": false,
+      "partner_foedsel": "* 23. sept. 1921 på Kjærsgaard",
+      "partner_daab": "døbt 30. okt. s.å. i Brenderup Kirke",
+      "partner_doed": {
+        "date_raw": "† 19. marts 2012 i Strøby Egede",
+        "date_min": "2012-03-19",
+        "date_max": "2012-03-19",
+        "sted": "Strøby Egede"
+      },
+      "partner_erhverv": [
+        "dekanesse",
+        "lektor"
+      ],
+      "partner_foraeldre": "Cand.phil. Julius greve A.-L. til Kjærsgaard og Edele Sophie Charlotte Elisabeth Cederfeld de Simonsen",
+      "note": null
+    }
+  ]
+}

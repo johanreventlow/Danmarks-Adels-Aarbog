@@ -1,0 +1,29 @@
+{
+  "linje": "V",
+  "nr": 191,
+  "nr_label": "191",
+  "usikker": false,
+  "navn": "Komtesse Ida Elisabeth",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1995-09-26",
+      "date_raw": "26. sept. 1995",
+      "date_min": "1995-09-26",
+      "date_max": "1995-09-26",
+      "date_qualifier": "exact",
+      "sted": "Slagelse"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1996",
+      "date_raw": "døbt 1996 i Vejlø Kirke",
+      "date_min": "1996-01-01",
+      "date_max": "1996-12-31",
+      "date_qualifier": "exact",
+      "sted": "Vejlø Kirke"
+    }
+  ]
+}

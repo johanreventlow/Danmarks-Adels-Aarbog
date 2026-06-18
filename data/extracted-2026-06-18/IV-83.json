@@ -1,0 +1,40 @@
+{
+  "linje": "IV",
+  "nr": 83,
+  "nr_label": "83",
+  "usikker": false,
+  "navn": "Greve Heinrich Adolf Kurt Hans",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1939-09-10",
+      "date_raw": "faldt 10. sept. 1939 i Polen",
+      "date_min": "1939-09-10",
+      "date_max": "1939-09-10",
+      "date_qualifier": "exact",
+      "sted": "Polen"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "tyske flyvevåben",
+      "rolle": "fændrik og løjtnant",
+      "dato_raw": "1937-1938"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "25. nov. 1917",
+      "date_min": "1917-11-25",
+      "date_max": "1917-11-25",
+      "sted": "Guben",
+      "note": null
+    }
+  ]
+}

@@ -1,0 +1,106 @@
+{
+  "linje": "V",
+  "nr": 70,
+  "nr_label": "70",
+  "usikker": false,
+  "navn": "Hildeborg Sophie",
+  "tilnavn": "Hilda",
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 12. dec. 1804",
+      "date_min": "1804-12-12",
+      "date_max": "1804-12-12",
+      "date_qualifier": "exact",
+      "sted": "Pederstrup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 22. jan 1805",
+      "date_min": "1805-01-22",
+      "date_max": "1805-01-22",
+      "date_qualifier": "exact",
+      "sted": "Vesterborg Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 6. maj 1868",
+      "date_min": "1868-05-06",
+      "date_max": "1868-05-06",
+      "date_qualifier": "exact",
+      "sted": "Pugerup"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 17. s.m.",
+      "date_min": "1868-05-17",
+      "date_max": "1868-05-17",
+      "date_qualifier": "exact",
+      "sted": "Theophili Skov"
+    },
+    {
+      "faktatype": "klosterindgang",
+      "vaerdi": "Konventualinde",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Preetz Adelige Kloster"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Einert Carl Detlef greve af Reventlow",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 24. juni 1829",
+      "date_min": "1829-06-24",
+      "date_max": "1829-06-24",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 6. jan. 1788",
+        "date_min": "1788-01-06",
+        "date_max": "1788-01-06",
+        "sted": "København"
+      },
+      "partner_daab": {
+        "date_raw": "hjemmedøbt 13. s.m. s.st.",
+        "date_min": "1788-01-13",
+        "date_max": "1788-01-13",
+        "sted": "København"
+      },
+      "partner_doed": {
+        "date_raw": "† 4. maj 1867",
+        "date_min": "1867-05-04",
+        "date_max": "1867-05-04",
+        "sted": "Pederstrup"
+      },
+      "partner_erhverv": [
+        "auskultant",
+        "cand.jur."
+      ],
+      "partner_foraeldre": "Gehejmestatsminister Christian Detlef Friderich greve af R. til grevskaberne Christianssæde samt Reventlow og Sophie Friderica Louise Charlotte von Beulwitz",
+      "note": "se nr. 56; greve af Reventlow til Pugerup"
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

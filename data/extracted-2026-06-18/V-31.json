@@ -1,0 +1,98 @@
+{
+  "linje": "V",
+  "nr": 31,
+  "nr_label": "31",
+  "usikker": false,
+  "navn": "Dorothea Benedicta Friderica",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "13. okt. 1734",
+      "date_min": "1734-10-13",
+      "date_max": "1734-10-13",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "20. dec. 1766",
+      "date_min": "1766-12-20",
+      "date_max": "1766-12-20",
+      "date_qualifier": "exact",
+      "sted": "Büdingen"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Sankt Marien Kirke, Büdingen"
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "de l'Union parfaite",
+      "date_raw": "1754 (31. marts)",
+      "date_min": "1754-03-31",
+      "date_max": "1754-03-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Tølløsegaard",
+      "periode_raw": "1750-1763",
+      "period_type": null,
+      "sted": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Gustav Friedrich greve zu Ysenburg-Büdingen",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "21. nov. 1749",
+      "date_min": "1749-11-21",
+      "date_max": "1749-11-21",
+      "sted": "Brahetrolleborg",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "7. aug. 1715",
+        "date_min": "1715-08-07",
+        "date_max": "1715-08-07",
+        "sted": "Gedern"
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "12. febr. 1768",
+        "date_min": "1768-02-12",
+        "date_max": "1768-02-12",
+        "sted": "Gedern"
+      },
+      "partner_erhverv": [
+        "dansk generalmajor",
+        "kammerherre",
+        "domherre i Halberstadt"
+      ],
+      "partner_foraeldre": "F.: Ernst Casimir greve zu Y.-B. til Büdingen og Christiana Eleonora grevinde von Stolberg-Gedern",
+      "note": "Bisat i Sankt Marien Kirke, Büdingen. Gift 2° 5. dec. 1767 med Augusta Friederica grevinde von Stolberg-Wernigerode (* 4. sept. 1743, † 9. jan. 1783)"
+    }
+  ],
+  "boern": null
+}

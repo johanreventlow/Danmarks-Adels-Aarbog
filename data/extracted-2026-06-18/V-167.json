@@ -1,0 +1,48 @@
+{
+  "linje": "V",
+  "nr": 167,
+  "nr_label": "167",
+  "usikker": false,
+  "navn": "Greve Christian-Detlev Ludwig Alexander Nikolaus",
+  "tilnavn": "til Damp",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1952-05-04",
+      "date_raw": "4. maj 1952",
+      "date_min": "1952-05-04",
+      "date_max": "1952-05-04",
+      "date_qualifier": "exact",
+      "sted": "Stuttgart"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "2013-10-04",
+      "date_raw": "4. okt. 2013",
+      "date_min": "2013-10-04",
+      "date_max": "2013-10-04",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Marie-Louise Lohman",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 5. nov. 1949",
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": null
+    }
+  ]
+}

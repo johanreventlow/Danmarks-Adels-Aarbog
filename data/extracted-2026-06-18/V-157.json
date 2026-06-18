@@ -1,0 +1,64 @@
+{
+  "linje": "V",
+  "nr": 157,
+  "nr_label": "157",
+  "usikker": false,
+  "navn": "Komtesse Sybille Malvina Lonny",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1912-08-24",
+      "date_raw": "24. august 1912",
+      "date_min": "1912-08-24",
+      "date_max": "1912-08-24",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1912-10-14",
+      "date_raw": "døbt 14. okt. s.å. i Sankt Jacobs Kirke",
+      "date_min": "1912-10-14",
+      "date_max": "1912-10-14",
+      "date_qualifier": "exact",
+      "sted": "Sankt Jacobs Kirke, København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1998-08-21",
+      "date_raw": "21. august 1998",
+      "date_min": "1998-08-21",
+      "date_max": "1998-08-21",
+      "date_qualifier": "exact",
+      "sted": "København"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Jonas Bruun",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 14. maj 1941",
+      "date_min": "1941-05-14",
+      "date_max": "1941-05-14",
+      "sted": "Hof- og Slotskirken, København",
+      "skilt": false,
+      "partner_foedsel": "* 3. juli 1911 i København",
+      "partner_daab": "døbt 13. aug. s.å. i Mariakirke s.st.",
+      "partner_doed": {
+        "date_raw": "† 25. november 1977 i København",
+        "date_min": "1977-11-25",
+        "date_max": "1977-11-25",
+        "sted": "København"
+      },
+      "partner_erhverv": [
+        "højesteretssagfører"
+      ],
+      "partner_foraeldre": "Hans Henrik Marcelius B. og Elisabeth Poulsen",
+      "note": null
+    }
+  ]
+}

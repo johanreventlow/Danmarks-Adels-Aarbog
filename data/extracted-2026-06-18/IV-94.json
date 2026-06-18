@@ -1,0 +1,24 @@
+{
+  "linje": "IV",
+  "nr": 94,
+  "nr_label": "94",
+  "usikker": false,
+  "navn": "Greve Bertram Markus Ulrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "17. sept. 2001",
+      "date_min": "2001-09-17",
+      "date_max": "2001-09-17",
+      "sted": "Wiesbaden",
+      "note": null
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "linje": "V",
+  "nr": 182,
+  "nr_label": "182",
+  "usikker": false,
+  "navn": "Greve Alexander",
+  "tilnavn": "til Damp",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1985-01-14",
+      "date_raw": "14. jan. 1985",
+      "date_min": "1985-01-14",
+      "date_max": "1985-01-14",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Paulina Eliette Beatrice Grebe",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 9. juli 2021",
+      "date_min": "2021-07-09",
+      "date_max": "2021-07-09",
+      "sted": "Damp",
+      "skilt": false,
+      "partner_foedsel": "* 11. juli 1991 i Hamburg",
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [
+        "stud.med."
+      ],
+      "partner_foraeldre": "Dr. Michael G. og Dr. Evelyn Anne McRitchie",
+      "note": null
+    }
+  ]
+}

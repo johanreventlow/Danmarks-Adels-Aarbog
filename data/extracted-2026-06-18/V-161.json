@@ -1,0 +1,38 @@
+{
+  "linje": "V",
+  "nr": 161,
+  "nr_label": "161",
+  "usikker": false,
+  "navn": "Greve Ludvig Alfred Otto",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1916-02-16",
+      "date_raw": "16. febr. 1916",
+      "date_min": "1916-02-16",
+      "date_max": "1916-02-16",
+      "date_qualifier": "exact",
+      "sted": "Aarhus"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1916-06-23",
+      "date_raw": "døbt 23. juni s.å. i Viborg Domkirke",
+      "date_min": "1916-06-23",
+      "date_max": "1916-06-23",
+      "date_qualifier": "exact",
+      "sted": "Viborg Domkirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1945-04-06",
+      "date_raw": "6. april 1945",
+      "date_min": "1945-04-06",
+      "date_max": "1945-04-06",
+      "date_qualifier": "exact",
+      "sted": "Ryparken i Hellerup"
+    }
+  ]
+}

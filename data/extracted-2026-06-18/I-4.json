@@ -1,0 +1,32 @@
+{
+  "linje": "I",
+  "nr": 4,
+  "nr_label": "4",
+  "navn": "Hinrich",
+  "tilnavn": null,
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": "nævnes 1261, 1272",
+      "date_raw": "1261 (22. aug.)",
+      "date_min": "1261-08-22",
+      "date_max": "1272-01-01",
+      "date_qualifier": "floruit"
+    },
+    {
+      "faktatype": "titel",
+      "vaerdi": "ridder",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [],
+  "usikker": false,
+  "koen": "mand"
+}

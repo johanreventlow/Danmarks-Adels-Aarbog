@@ -1,0 +1,40 @@
+{
+  "linje": "III",
+  "nr": 69,
+  "nr_label": "69",
+  "usikker": false,
+  "navn": "Henneke",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1697",
+      "date_raw": "faldt 1697 ved Barcelona",
+      "date_min": "1697-01-01",
+      "date_max": "1697-12-31",
+      "date_qualifier": "exact",
+      "sted": "Barcelona"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Royal Danois",
+      "rolle": "kaptajn",
+      "dato_raw": "1697"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "faldt",
+      "dato_raw": "1697",
+      "date_min": "1697-01-01",
+      "date_max": "1697-12-31",
+      "sted": "Barcelona",
+      "note": "I fransk tjeneste."
+    }
+  ]
+}

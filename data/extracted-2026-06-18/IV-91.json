@@ -1,0 +1,24 @@
+{
+  "linje": "IV",
+  "nr": 91,
+  "nr_label": "91",
+  "usikker": false,
+  "navn": "Greve Leonard Christian",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "6. maj 2010",
+      "date_min": "2010-05-06",
+      "date_max": "2010-05-06",
+      "sted": "Summit",
+      "note": null
+    }
+  ]
+}

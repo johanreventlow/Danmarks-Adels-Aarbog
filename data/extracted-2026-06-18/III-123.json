@@ -1,0 +1,138 @@
+{
+  "linje": "III",
+  "nr": 123,
+  "nr_label": "123",
+  "usikker": false,
+  "navn": "Detlef Conrad",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1794-03-04",
+      "date_raw": "† 4. marts 1794 i Celle",
+      "date_min": "1794-03-04",
+      "date_max": "1794-03-04",
+      "date_qualifier": "exact",
+      "sted": "Celle"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1724 (4. april)"
+    },
+    {
+      "organisation": "Halle",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1729 (18. juni)"
+    },
+    {
+      "organisation": "Frankfurt",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1730"
+    },
+    {
+      "organisation": "Leiden",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1731 (15. marts)"
+    },
+    {
+      "organisation": "Leipzig Universitet",
+      "rolle": "immatrikuleret og diss.iur.",
+      "dato_raw": "1733 (6. juni) og 1735 (1. april) og 1735 (29. april)"
+    },
+    {
+      "organisation": "kammerjunker",
+      "rolle": "kammerjunker",
+      "dato_raw": "1734 (23. juni)-"
+    },
+    {
+      "organisation": "Neuenburg i Oldenburg",
+      "rolle": "landfoged",
+      "dato_raw": "1738 (5. febr.)-1757 (?)"
+    },
+    {
+      "organisation": "gehejmeråd",
+      "rolle": "gehejmeråd",
+      "dato_raw": "1747-"
+    },
+    {
+      "organisation": "kammerherre",
+      "rolle": "kammerherre",
+      "dato_raw": "1750 (31. marts)"
+    },
+    {
+      "organisation": "Holsten",
+      "rolle": "landråd",
+      "dato_raw": "1754-"
+    },
+    {
+      "organisation": "dronning Caroline Mathilde",
+      "rolle": "overhofmester",
+      "dato_raw": "1765 (12. nov., fra 1. dec.)-1768 (ca. 29. marts)"
+    },
+    {
+      "organisation": "dronning Sophie Magdalene",
+      "rolle": "overhofmester",
+      "dato_raw": "1765 (20. nov.)-"
+    },
+    {
+      "organisation": "hvid ridder",
+      "rolle": "ridder",
+      "dato_raw": "1766 (29. jan.)"
+    },
+    {
+      "organisation": "de l’Union parfaite",
+      "rolle": "ridder",
+      "dato_raw": "1766"
+    },
+    {
+      "organisation": "gehejmeråd",
+      "rolle": "gehejmeråd",
+      "dato_raw": "s.å. (23. maj)-†"
+    },
+    {
+      "organisation": "gehejekonferensråd",
+      "rolle": "gehejekonferensråd",
+      "dato_raw": "1768 (29. jan.)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Veronica Margaretha Clementina von Klinkowström",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 2. april 1748",
+      "date_min": "1748-04-02",
+      "date_max": "1748-04-02",
+      "sted": "Klüverswerder",
+      "skilt": false,
+      "partner_foedsel": "* 4. febr. 1708 i Hannover",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 2. dec. 1773 i Celle",
+        "date_min": "1773-12-02",
+        "date_max": "1773-12-02",
+        "sted": "Celle"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Hannoveransk generalløjtnant, guvernør Balthasar von K. og NN von Pufendorff",
+      "note": "Gift 1° med NN von Busch."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "6. april 1708",
+      "date_min": "1708-04-06",
+      "date_max": "1708-04-06",
+      "sted": null,
+      "note": "Bisat 12. marts s.å. i muret gravhvælving i Achim Kirke."
+    }
+  ]
+}

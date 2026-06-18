@@ -1,0 +1,41 @@
+{
+  "linje": "I",
+  "nr": 24,
+  "nr_label": "24",
+  "usikker": false,
+  "navn": "Johann",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "1371–1395",
+      "date_min": "1371-03-11",
+      "date_max": "1395-11-14",
+      "date_qualifier": "floruit",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Odense Stift",
+      "rolle": "klerk",
+      "dato_raw": "1371 (11. marts)"
+    },
+    {
+      "organisation": null,
+      "rolle": "notar",
+      "dato_raw": "1384 (29. juni)"
+    },
+    {
+      "organisation": "Sankt Mariæ Kirke i Lübeck",
+      "rolle": "vikar",
+      "dato_raw": "1395 (14. nov.)"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

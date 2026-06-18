@@ -1,0 +1,70 @@
+{
+  "linje": "I",
+  "nr": 36,
+  "nr_label": "36",
+  "usikker": false,
+  "navn": "Hartwich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "(-1433-1447/1448-)",
+      "date_min": "1433-01-01",
+      "date_max": "1448-12-31",
+      "date_qualifier": "floruit",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Schmoel",
+      "periode_raw": "1433-1447/1448",
+      "period_type": null,
+      "sted": null
+    },
+    {
+      "navn": "Holm",
+      "periode_raw": "1421",
+      "period_type": "forpagtning",
+      "sted": "Schöneberg Sogn"
+    },
+    {
+      "navn": "Schalkendorf",
+      "periode_raw": "1470",
+      "period_type": "særeje",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Ghese NN",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "Nævnt som hustru ved forpagtning af gården Holm 1421"
+    }
+  ],
+  "boern": {
+    "antal": 5,
+    "slaegtled": "Syvende",
+    "linje": "I",
+    "nr_range": [
+      42,
+      48
+    ]
+  },
+  "begivenheder": []
+}

@@ -1,0 +1,65 @@
+{
+  "linje": "III",
+  "nr": 116,
+  "nr_label": "116",
+  "usikker": false,
+  "navn": "Cai Bertram",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1750-10-26",
+      "date_raw": "† 26. okt. 1750 i København",
+      "date_min": "1750-10-26",
+      "date_max": "1750-10-26",
+      "date_qualifier": "exact",
+      "sted": "København"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Göttingen",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1746 (23. april)"
+    },
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1747 (12. april)"
+    },
+    {
+      "organisation": "Göttingen",
+      "rolle": "atter i Göttingen",
+      "dato_raw": "1749 (dec.)"
+    },
+    {
+      "organisation": "Der deutschen Gesellschaft zu Göttingen",
+      "rolle": "medlem",
+      "dato_raw": "1750 (9. juni)-†"
+    },
+    {
+      "organisation": "kammerjunker",
+      "rolle": "kammerjunker",
+      "dato_raw": "1750 (11. sept.)-†"
+    },
+    {
+      "organisation": "Teutsche Gesellschaft i København",
+      "rolle": "æresmedlem",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "1. juni 1728",
+      "date_min": "1728-06-01",
+      "date_max": "1728-06-01",
+      "sted": "Altenhof",
+      "note": "Bisat 2. nov. s.å. i Holmens Kirke."
+    }
+  ]
+}

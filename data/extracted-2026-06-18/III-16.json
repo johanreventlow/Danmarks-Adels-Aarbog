@@ -1,0 +1,55 @@
+{
+  "linje": "III",
+  "nr": 16,
+  "nr_label": "16",
+  "usikker": false,
+  "navn": "Henneke",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1452",
+      "date_raw": "levede 1452",
+      "date_min": "1452-01-01",
+      "date_max": "1452-12-31",
+      "date_qualifier": "open_end",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Ziesendorf",
+      "periode_raw": "(-1419-1428-)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Adelheid von Levetzow",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": null
+    }
+  ],
+  "boern": {
+    "antal": 1,
+    "slaegtled": "Syvende slægtled",
+    "linje": "nr. 17",
+    "nr_range": null
+  },
+  "begivenheder": []
+}

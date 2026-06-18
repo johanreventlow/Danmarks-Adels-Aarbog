@@ -1,0 +1,74 @@
+{
+  "linje": "I",
+  "nr": 67,
+  "nr_label": "67",
+  "usikker": false,
+  "navn": "Margaretha",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "29. maj 1522",
+      "date_raw": "* 29. maj 1522",
+      "date_min": "1522-05-29",
+      "date_max": "1522-05-29",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "efter 1595",
+      "date_raw": "† efter 1595",
+      "date_min": "1595-01-01",
+      "date_max": null,
+      "date_qualifier": "after",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Otto von der Wisch",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 1°",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Amtmand Nicolaus von der W. til Ehlerstorf og NN",
+      "note": "Til Grundtoft og Ehlerstorf; levede endnu 1564."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Hinrich von Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 105f",
+      "type": "vielse",
+      "dato_raw": "Gift 2°",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1598",
+        "date_min": "1598-01-01",
+        "date_max": "1598-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Wulf von R. til Wittenberg og Ilsabe von Ahlefeldt",
+      "note": "Bisat i Grevesmühlen Kirke."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

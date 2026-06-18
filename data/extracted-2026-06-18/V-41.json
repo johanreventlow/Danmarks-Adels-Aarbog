@@ -1,0 +1,29 @@
+{
+  "linje": "V",
+  "nr": 41,
+  "nr_label": "41",
+  "usikker": false,
+  "navn": "Komtesse Friderica Lovise",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1746-08-21",
+      "date_raw": "21. aug. 1746",
+      "date_min": "1746-08-21",
+      "date_max": "1746-08-21",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1824-11-29",
+      "date_raw": "29. nov. 1824",
+      "date_min": "1824-11-29",
+      "date_max": "1824-11-29",
+      "date_qualifier": "exact",
+      "sted": "Pederstrup"
+    }
+  ]
+}

@@ -1,0 +1,104 @@
+{
+  "linje": "I",
+  "nr": 106,
+  "nr_label": "106",
+  "usikker": false,
+  "navn": "Otto",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "ca. 1660",
+      "date_raw": "* ca. 1660",
+      "date_min": "1660-01-01",
+      "date_max": "1660-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "24. juni 1700 i Rendsborg",
+      "date_raw": "† 24. juni 1700 i Rendsborg",
+      "date_min": "1700-06-24",
+      "date_max": "1700-06-24",
+      "date_qualifier": "exact",
+      "sted": "Rendsborg"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Brunsholm",
+      "periode_raw": "(1698-†)",
+      "period_type": "tenure",
+      "sted": "Sterup S., Flensborg Landkreds"
+    },
+    {
+      "navn": "Grünholz",
+      "periode_raw": "(1699-†)",
+      "period_type": "tenure",
+      "sted": "Sterup S., Flensborg Landkreds"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1679"
+    },
+    {
+      "organisation": "Livgarden til Fods",
+      "rolle": "sekondløjtnant",
+      "dato_raw": "1687-1689"
+    },
+    {
+      "organisation": null,
+      "rolle": "oberstløjtnant",
+      "dato_raw": "1695 (1. nov.)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Cecilia von Wickede",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift ca. 1688",
+      "date_min": "1688-01-01",
+      "date_max": "1688-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 1664 i Lübeck",
+        "date_min": "1664-01-01",
+        "date_max": "1664-12-31",
+        "sted": "Lübeck"
+      },
+      "partner_daab": {
+        "date_raw": "døbt 14. jan. s.å. i Sankt Jacobs Kirke s.st.",
+        "date_min": "1664-01-14",
+        "date_max": "1664-01-14",
+        "sted": "Lübeck"
+      },
+      "partner_doed": {
+        "date_raw": "† efter 1729",
+        "date_min": "1729-01-01",
+        "date_max": null,
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Gottschalk von W. til Moisling og Cecilia von Höveln",
+      "note": "Boede 1712 til Grünholz og solgte Brunsholm med samtykke af sine sønner."
+    }
+  ],
+  "boern": {
+    "antal": 3,
+    "slaegtled": "Femtende slægtled",
+    "linje": "I",
+    "nr_range": [
+      119,
+      121
+    ]
+  },
+  "begivenheder": []
+}

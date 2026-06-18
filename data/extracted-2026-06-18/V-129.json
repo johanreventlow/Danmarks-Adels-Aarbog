@@ -1,0 +1,70 @@
+{
+  "linje": "V",
+  "nr": 129,
+  "nr_label": "129",
+  "usikker": false,
+  "navn": "Greve Einar",
+  "tilnavn": "til Wulfshagen",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1893-02-27",
+      "date_raw": "27. febr. 1893",
+      "date_min": "1893-02-27",
+      "date_max": "1893-02-27",
+      "date_qualifier": "exact",
+      "sted": "Brostorp"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1893-04-03",
+      "date_raw": "døbt 3. april s.å. i Gudmuntorp Kirke",
+      "date_min": "1893-04-03",
+      "date_max": "1893-04-03",
+      "date_qualifier": "exact",
+      "sted": "Gudmuntorp Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1974-09-08",
+      "date_raw": "8. sept. 1974",
+      "date_min": "1974-09-08",
+      "date_max": "1974-09-08",
+      "date_qualifier": "exact",
+      "sted": "Wulfshagen"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Wulfshagen",
+      "periode_raw": "(1929-1962)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Adelheid (Lilli) Margarethe komtesse de Reventlou",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 15. maj 1929",
+      "date_min": "1929-05-15",
+      "date_max": "1929-05-15",
+      "sted": "Wittenberg",
+      "skilt": false,
+      "partner_foedsel": "* 17. maj 1909 på Osterhof ved Itzehoe",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 13. dec. 1981 i Kiel",
+        "date_min": "1981-12-13",
+        "date_max": "1981-12-13",
+        "sted": "Kiel"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Amtsdommer, klosterprovst Heinrich Ernst Emil Kurt greve de R. til Wittenberg og Anna Ottilie Mathilda Christiane rigsgrevinde zu Rantzau",
+      "note": null
+    }
+  ]
+}

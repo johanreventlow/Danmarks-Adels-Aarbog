@@ -1,0 +1,79 @@
+{
+  "linje": "I",
+  "nr": 43,
+  "nr_label": "43",
+  "usikker": false,
+  "navn": "Nicolaus von Reventlow",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "(-1472-1479)",
+      "date_min": "1472-01-01",
+      "date_max": "1479-12-31",
+      "date_qualifier": "floruit",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† senest 1496",
+      "date_min": null,
+      "date_max": "1496-12-31",
+      "date_qualifier": "before",
+      "sted": null
+    },
+    {
+      "faktatype": "titel",
+      "vaerdi": "ridder",
+      "date_raw": "1453",
+      "date_min": "1453-01-01",
+      "date_max": "1453-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Gaarz",
+      "periode_raw": "-1472-1479",
+      "period_type": null,
+      "sted": "Göhl S., Oldenburg Kr."
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "kgl. råd",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Mette von Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 34",
+      "type": "vielse",
+      "dato_raw": "Var gift 1469",
+      "date_min": "1469-01-01",
+      "date_max": "1469-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 9. maj 1489",
+        "date_min": "1489-05-09",
+        "date_max": "1489-05-09",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Råd, amtmand Breide von R. (til Krummendiek?) og Drude von Ratlow",
+      "note": "nævnes 1469 med ægtefællen"
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

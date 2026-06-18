@@ -1,0 +1,103 @@
+{
+  "linje": "III",
+  "nr": 54,
+  "nr_label": "54",
+  "usikker": false,
+  "navn": "Hinrich",
+  "tilnavn": "til Bienebek",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "formentlig 1677",
+      "date_raw": "formentlig † 1677",
+      "date_min": "1677-01-01",
+      "date_max": "1677-12-31",
+      "date_qualifier": "circa",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Bienebek",
+      "periode_raw": "(1671-†)",
+      "period_type": "tenure",
+      "sted": "Tumby S., Rendsborg-Egernførde Kr."
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Rostock",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1651"
+    },
+    {
+      "organisation": "Orléans",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1662 (20. dec.)"
+    },
+    {
+      "organisation": "Rauchs gevorbne Rytterreg.",
+      "rolle": "ritmester",
+      "dato_raw": "1676"
+    },
+    {
+      "organisation": "slaget ved Lund",
+      "rolle": "deltog",
+      "dato_raw": "1676 (4. dec.)"
+    },
+    {
+      "organisation": "Slesvigske, senere 2. Fynske",
+      "rolle": "stod rimeligvis i broderen Conrads reg.",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Magdalena Christina von Ahlefeldt",
+      "partner_ekstern_ref": "DAA 1982-84, 630",
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 7. sept. 1644",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 5. dec. 1720",
+        "date_min": "1720-12-05",
+        "date_max": "1720-12-05",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Hinrich von A. til Kluvensiek, Osterrade samt Sehested og Catharina von Ahlefeldt",
+      "note": "Aflagde 1684 hyldningseden; var enke i 44 år."
+    }
+  ],
+  "boern": {
+    "antal": 1,
+    "slaegtled": "Trettende slægtled",
+    "linje": "II, nr. 72",
+    "nr_range": null
+  },
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "31. okt. 1638",
+      "date_min": "1638-10-31",
+      "date_max": "1638-10-31",
+      "sted": "Satjewitz",
+      "note": "Døbt 2. nov. s.å."
+    },
+    {
+      "type": "såret",
+      "dato_raw": "1676 (4. dec.)",
+      "date_min": "1676-12-04",
+      "date_max": "1676-12-04",
+      "sted": "Lund",
+      "note": "Hårdt såret i slaget ved Lund."
+    }
+  ]
+}

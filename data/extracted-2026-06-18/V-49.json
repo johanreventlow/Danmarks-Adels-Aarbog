@@ -1,0 +1,70 @@
+{
+  "linje": "V",
+  "nr": 49,
+  "nr_label": "49",
+  "usikker": false,
+  "navn": "Conrad Detlef Carl Einert",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "17. marts 1778",
+      "date_min": "1778-03-17",
+      "date_max": "1778-03-17",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "19. s.m.",
+      "date_min": "1778-03-19",
+      "date_max": "1778-03-19",
+      "date_qualifier": "exact",
+      "sted": "Hof- og Slotskirken, København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "1. april s.å.",
+      "date_min": "1778-04-01",
+      "date_max": "1778-04-01",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "bisat",
+      "date_raw": "15. s.m.",
+      "date_min": "1778-04-15",
+      "date_max": "1778-04-15",
+      "date_qualifier": "exact",
+      "sted": "Holmens Kirke, København → Det Reventlowske Kapel i Horslunde Kirke"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "16. okt. 1827",
+      "date_min": "1827-10-16",
+      "date_max": "1827-10-16",
+      "date_qualifier": "exact",
+      "sted": "Horslunde Kirkegård"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

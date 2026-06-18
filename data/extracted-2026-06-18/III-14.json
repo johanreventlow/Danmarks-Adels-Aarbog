@@ -1,0 +1,22 @@
+{
+  "linje": "III",
+  "nr": 14,
+  "nr_label": "14",
+  "usikker": false,
+  "navn": "Werner",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [
+    {
+      "navn": "Langen Jarchow",
+      "periode_raw": "(-1398)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

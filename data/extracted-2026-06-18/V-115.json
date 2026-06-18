@@ -1,0 +1,104 @@
+{
+  "linje": "V",
+  "nr": 115,
+  "nr_label": "115",
+  "usikker": false,
+  "navn": "Christian Detlef Ludwig Wilhelm Sophus Emil",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 3. sept. 1857",
+      "date_min": "1857-09-03",
+      "date_max": "1857-09-03",
+      "date_qualifier": "exact",
+      "sted": "Tønder"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 28. okt. s.å.",
+      "date_min": "1857-10-28",
+      "date_max": "1857-10-28",
+      "date_qualifier": "exact",
+      "sted": "Tønder Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 21. maj 1895",
+      "date_min": "1895-05-21",
+      "date_max": "1895-05-21",
+      "date_qualifier": "exact",
+      "sted": "Mühlhausen"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Det Reventlowske Kapel i Dybbøl Kirke"
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "R.St. Stan.3.",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "preussiske Garde-Grenadier-Reg. Nr. 1",
+      "rolle": "premierløjtnant",
+      "dato_raw": "1890"
+    },
+    {
+      "organisation": "7. Badenske Infanterie-Reg. Nr. 142",
+      "rolle": "kaptajn",
+      "dato_raw": "ved død"
+    },
+    {
+      "organisation": "7. Badenske Infanterie-Reg. Nr. 142",
+      "rolle": "kompagnichef",
+      "dato_raw": "ved død"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Georgine Albertine Ernestine von Ahlefeldt",
+      "partner_ekstern_ref": "se nr. 75",
+      "type": null,
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

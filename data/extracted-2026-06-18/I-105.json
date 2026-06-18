@@ -1,0 +1,25 @@
+{
+  "linje": "I",
+  "nr": 105,
+  "nr_label": "105",
+  "usikker": false,
+  "navn": "Bartram",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "ca. 1655",
+      "date_raw": "* ca. 1655",
+      "date_min": "1655-01-01",
+      "date_max": "1655-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

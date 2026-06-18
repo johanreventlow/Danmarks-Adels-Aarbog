@@ -1,0 +1,69 @@
+{
+  "linje": "IV",
+  "nr": 28,
+  "nr_label": "28",
+  "usikker": false,
+  "navn": "Greve Joachim",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1870-10-26",
+      "date_raw": "† 26. okt. 1870 på Jersbek af lazaretfeber",
+      "date_min": "1870-10-26",
+      "date_max": "1870-10-26",
+      "date_qualifier": "exact",
+      "sted": "Jersbek"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Heidelberg",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1857 (2. maj)"
+    },
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1858"
+    },
+    {
+      "organisation": "preussiske hær",
+      "rolle": "Johanniterridder",
+      "dato_raw": "1870"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Selma Emilie Sophie Bertha komtesse von Gronsfeld-Diepenbroick",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 23. juli 1864",
+      "date_min": "1864-07-23",
+      "date_max": "1864-07-23",
+      "sted": "Stuttgart",
+      "skilt": false,
+      "partner_foedsel": "* 21. jan. 1844 i Esslingen",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 26. marts 1903 på Jersbek",
+        "date_min": "1903-03-26",
+        "date_max": "1903-03-26",
+        "sted": "Jersbek"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Württembergsk generalmajor Friedrich Karl Adolf Vollrath greve von G.-D. og Luise friherreinde von Wirsing",
+      "note": "5 børn."
+    }
+  ],
+  "boern": {
+    "antal": 5,
+    "slaegtled": "Femte (attende) slægtled",
+    "linje": "I, nr. 55-59",
+    "nr_range": null
+  },
+  "begivenheder": []
+}

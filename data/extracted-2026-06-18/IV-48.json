@@ -1,0 +1,65 @@
+{
+  "linje": "IV",
+  "nr": 48,
+  "nr_label": "48",
+  "usikker": false,
+  "navn": "Komtesse Sophie Louise Friederike",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1930-07-27",
+      "date_raw": "† 27. juli 1930 i Freiburg im Breisgau",
+      "date_min": "1930-07-27",
+      "date_max": "1930-07-27",
+      "date_qualifier": "exact",
+      "sted": "Freiburg im Breisgau"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Vallø Adelige Stift",
+      "rolle": "indskrevet",
+      "dato_raw": "1862 (20. maj)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Arthur Joseph August friherre von Schönau",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 2. aug. 1865",
+      "date_min": "1865-08-02",
+      "date_max": "1865-08-02",
+      "sted": "Wehr",
+      "skilt": false,
+      "partner_foedsel": "* 14. dec. 1836 på Wehr",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 9. jan. 1897 på Waldkirch",
+        "date_min": "1897-01-09",
+        "date_max": "1897-01-09",
+        "sted": "Waldkirch"
+      },
+      "partner_erhverv": [
+        "badensk kammerherre"
+      ],
+      "partner_foraeldre": "Adolf August Joseph Anton friherre von S. til Wehr samt Wieladingen og Thecla grevinde von Thurn-Valsássina zu Berg",
+      "note": "Til Wehr og Wieladingen i Baden."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "22. jan. 1846",
+      "date_min": "1846-01-22",
+      "date_max": "1846-01-22",
+      "sted": "Christiansruhe ved Preetz, Holsten",
+      "note": null
+    }
+  ]
+}

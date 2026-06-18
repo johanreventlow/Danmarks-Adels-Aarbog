@@ -1,0 +1,40 @@
+{
+  "linje": "IV",
+  "nr": 5,
+  "nr_label": "5",
+  "usikker": false,
+  "navn": "Komtesse Hedevig Ide",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1837-04-04",
+      "date_raw": "† 4. april 1837",
+      "date_min": "1837-04-04",
+      "date_max": "1837-04-04",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "1. dec. 1760",
+      "date_min": "1760-12-01",
+      "date_max": "1760-12-01",
+      "sted": "København",
+      "note": "Døbt 3. s.m. i Hof- og Slotskirken."
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "linje": "IV",
+  "nr": 87,
+  "nr_label": "87",
+  "usikker": false,
+  "navn": "Greve Heinrich Jürgen Karl",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Dipl. psychologist",
+      "rolle": "fag",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "4. jan. 1963",
+      "date_min": "1963-01-04",
+      "date_max": "1963-01-04",
+      "sted": "Kiel",
+      "note": null
+    }
+  ]
+}

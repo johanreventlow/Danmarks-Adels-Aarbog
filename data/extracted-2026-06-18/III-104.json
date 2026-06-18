@@ -1,0 +1,24 @@
+{
+  "linje": "III",
+  "nr": 104,
+  "nr_label": "104",
+  "usikker": false,
+  "navn": "Detlef lensgreve de Reventlou",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "henvisning",
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "note": "Se IV. Den lensgrevelige linje af 1767."
+    }
+  ]
+}

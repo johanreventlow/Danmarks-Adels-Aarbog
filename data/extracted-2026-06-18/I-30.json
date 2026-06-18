@@ -1,0 +1,20 @@
+{
+  "linje": "I",
+  "nr": 30,
+  "nr_label": "30",
+  "usikker": false,
+  "navn": "Wille",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "klosterindgang",
+      "vaerdi": "Itzehoe Kloster",
+      "date_raw": "1376 (5. jan.)",
+      "date_min": "1376-01-05",
+      "date_max": "1376-01-05",
+      "date_qualifier": "exact",
+      "sted": "Itzehoe Kloster"
+    }
+  ]
+}

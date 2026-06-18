@@ -1,0 +1,99 @@
+{
+  "linje": "I",
+  "nr": 16,
+  "nr_label": "16",
+  "usikker": false,
+  "navn": "Iwan von Reventlow",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "1349-1391",
+      "date_min": "1349-05-29",
+      "date_max": "1391-06-23",
+      "date_qualifier": "floruit",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Techelsdorf",
+      "periode_raw": "-1352",
+      "period_type": "until",
+      "sted": "Techelsdorf S., Rendsborg-Egernførde Kr."
+    },
+    {
+      "navn": "Bülk",
+      "periode_raw": "-1353",
+      "period_type": "until",
+      "sted": "Strande S., Rendsborg-Egernførde Kr."
+    },
+    {
+      "navn": "Schönkirchen",
+      "periode_raw": "-1356",
+      "period_type": "until",
+      "sted": "Schönkirchen S., Plön Kr."
+    },
+    {
+      "navn": "andel i Gowens",
+      "periode_raw": "-1353-",
+      "period_type": "floruit",
+      "sted": "Neukirchen S., Plön Kr."
+    },
+    {
+      "navn": "Birkenmoor",
+      "periode_raw": "-1353-",
+      "period_type": "floruit",
+      "sted": "Dänischenhagen S., Rendsborg-Egernførde Kr."
+    },
+    {
+      "navn": "Langwedel",
+      "periode_raw": "-1357-1376-",
+      "period_type": "floruit",
+      "sted": "Langwedel S., Rendsborg-Egernførde Kr."
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "væbner",
+      "dato_raw": "1349"
+    },
+    {
+      "organisation": null,
+      "rolle": "ridder",
+      "dato_raw": "1359"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Beke von Pogwisch",
+      "partner_ekstern_ref": "DAA 1936, II, 10",
+      "type": "vielse",
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Ridder Otte von P. og NN",
+      "note": null
+    }
+  ],
+  "boern": {
+    "antal": 5,
+    "slaegtled": "Femte",
+    "linje": "I",
+    "nr_range": [
+      26,
+      30
+    ]
+  },
+  "begivenheder": []
+}

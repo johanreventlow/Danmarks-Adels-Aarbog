@@ -1,0 +1,20 @@
+{
+  "linje": "I",
+  "nr": 41,
+  "nr_label": "41a",
+  "usikker": false,
+  "navn": "Marquard",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "Solgte 1423",
+      "date_min": "1423-01-01",
+      "date_max": "1423-12-31",
+      "date_qualifier": "floruit",
+      "sted": null
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "linje": "III",
+  "nr": 74,
+  "nr_label": "74",
+  "usikker": false,
+  "navn": "Hinrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "ung",
+      "date_raw": "† ung",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

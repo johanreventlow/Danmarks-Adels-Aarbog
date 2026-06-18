@@ -1,0 +1,86 @@
+{
+  "linje": "I",
+  "nr": 72,
+  "nr_label": "72",
+  "usikker": false,
+  "navn": "Detlef",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "11. febr. 1604",
+      "date_raw": "† 11. febr. 1604",
+      "date_min": "1604-02-11",
+      "date_max": "1604-02-11",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Rixdorf",
+      "periode_raw": "(1561-†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Livgarden",
+      "rolle": "kaptajn",
+      "dato_raw": "1563 (29. dec.)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Anna von Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 71",
+      "type": "vielse",
+      "dato_raw": "Gift 1°",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kejserlig ritmester, hertugelig marskal og råd, amtmand Nicolaus von R. til Beyenfleth og Magdalena von Rantzau til Doberstorf",
+      "note": null
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Anna von Pogwisch",
+      "partner_ekstern_ref": "DAA 1931, II, 56",
+      "type": "vielse",
+      "dato_raw": "Gift 2°",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 14. juni 1609",
+        "date_min": "1609-06-14",
+        "date_max": "1609-06-14",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Amtmand Wulf von P. til Doberstorf og Magdalena von Rantzau",
+      "note": "Boede 1608 på Rixdorf."
+    }
+  ],
+  "boern": {
+    "antal": 5,
+    "slaegtled": "Ellevte slægtled",
+    "linje": "I",
+    "nr_range": [
+      83,
+      87
+    ]
+  },
+  "begivenheder": []
+}

@@ -1,0 +1,26 @@
+{
+  "linje": "III",
+  "nr": 43,
+  "nr_label": "43",
+  "usikker": false,
+  "navn": "Povl",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Rostock",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1612 (25. april)"
+    },
+    {
+      "organisation": "Heidelberg",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1614"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

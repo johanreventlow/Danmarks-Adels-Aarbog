@@ -1,0 +1,148 @@
+{
+  "linje": "IV",
+  "nr": 3,
+  "nr_label": "3",
+  "usikker": false,
+  "navn": "Greve Friedrich",
+  "tilnavn": "til Emkendorf",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1828-09-26",
+      "date_raw": "† 26. sept. 1828 på Emkendorf",
+      "date_min": "1828-09-26",
+      "date_max": "1828-09-26",
+      "date_qualifier": "exact",
+      "sted": "Emkendorf"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Emkendorf",
+      "periode_raw": "(1783-†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Göttingen",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1769 (16. okt.)-1773 (påske)"
+    },
+    {
+      "organisation": "Glückstadt",
+      "rolle": "regeringsråd",
+      "dato_raw": "1776-1778"
+    },
+    {
+      "organisation": "kammerherre",
+      "rolle": "kammerherre",
+      "dato_raw": "1776 (1. febr.)"
+    },
+    {
+      "organisation": "Admiralitets- og Kommissariatskollegiet",
+      "rolle": "3. civildeputeret",
+      "dato_raw": "1778 (9. marts)-1789"
+    },
+    {
+      "organisation": "Dehns Palæ i København",
+      "rolle": "ejer",
+      "dato_raw": "1779-1794"
+    },
+    {
+      "organisation": "Stockholm",
+      "rolle": "envoyé extraordinaire",
+      "dato_raw": "1780 (4. aug.)-1784 (12. marts)"
+    },
+    {
+      "organisation": "kejserlige romerske hof",
+      "rolle": "gesandt",
+      "dato_raw": "1784 (13. marts)"
+    },
+    {
+      "organisation": "London",
+      "rolle": "envoyé extraordinaire",
+      "dato_raw": "1784 (11. juni)-1788 (22. aug.)"
+    },
+    {
+      "organisation": "Napoli",
+      "rolle": "envoyé extraordinaire",
+      "dato_raw": "1788 (15. nov.)"
+    },
+    {
+      "organisation": "Berlin",
+      "rolle": "gesandt",
+      "dato_raw": "1789 (2. jan.)"
+    },
+    {
+      "organisation": "hvid ridder",
+      "rolle": "ridder",
+      "dato_raw": "1790 (31. juli)"
+    },
+    {
+      "organisation": "gehejmeråd",
+      "rolle": "gehejmeråd",
+      "dato_raw": "1800-†"
+    },
+    {
+      "organisation": "Kiel Universitet",
+      "rolle": "kurator",
+      "dato_raw": "1800 (28. marts)-1808"
+    },
+    {
+      "organisation": "Berlin",
+      "rolle": "gesandt",
+      "dato_raw": "1818 (28. okt.)-†"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Friderica Juliana Schimmelmann",
+      "partner_ekstern_ref": "DAA 1934, 211",
+      "type": "vielse",
+      "dato_raw": "Gift 1° 16. aug. 1779",
+      "date_min": "1779-08-16",
+      "date_max": "1779-08-16",
+      "sted": "Ahrensburg",
+      "skilt": false,
+      "partner_foedsel": "* 16. febr. 1763 i København",
+      "partner_daab": "døbt 17. s.m. i Hof- og Slotskirken",
+      "partner_doed": {
+        "date_raw": "† 27. dec. 1816 på Emkendorf",
+        "date_min": "1816-12-27",
+        "date_max": "1816-12-27",
+        "sted": "Emkendorf"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Skatmester, gehejmeråd Heinrich Carl greve S. til grevskabet Lindenborg, Ahrensburg samt Wandsbeck og Carolina Tugendreich Friedeborn",
+      "note": "Skrev digte."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Charlotte Christiane Wilhelmina Friederica grevinde von Schlippenbach",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 2° 5. jan. 1822",
+      "date_min": "1822-01-05",
+      "date_max": "1822-01-05",
+      "sted": "Berlin",
+      "skilt": false,
+      "partner_foedsel": "* 21. juni 1794",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† ml. 1. og 6. juni 1840",
+        "date_min": "1840-06-01",
+        "date_max": "1840-06-06",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Carl Friedrich Wilhelm greve von S. til Schönermark og Carolina Friederica rigsgrevinde von Beust",
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

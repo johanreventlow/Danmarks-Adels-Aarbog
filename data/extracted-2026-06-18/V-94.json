@@ -1,0 +1,70 @@
+{
+  "linje": "V",
+  "nr": 94,
+  "nr_label": "94",
+  "usikker": false,
+  "navn": "Malwine Louise Anna",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 17. dec. 1831",
+      "date_min": "1831-12-17",
+      "date_max": "1831-12-17",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 28. maj 1857 i London, England",
+      "date_min": "1857-05-28",
+      "date_max": "1857-05-28",
+      "date_qualifier": "exact",
+      "sted": "London, England"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Alfred Franz Carl greve von Reventlow-Criminil",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 27. maj 1854 i Garnisons Kirke, København",
+      "date_min": "1854-05-27",
+      "date_max": "1854-05-27",
+      "sted": "Garnisons Kirke, København",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 11. sept. 1825 på Schwarzenbeck",
+        "date_min": "1825-09-11",
+        "date_max": "1825-09-11",
+        "sted": "Schwarzenbeck"
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 22. okt. 1898 på Ruhleben",
+        "date_min": "1898-10-22",
+        "date_max": "1898-10-22",
+        "sted": "Ruhleben"
+      },
+      "partner_erhverv": [
+        "kammerherre",
+        "legationssekretær"
+      ],
+      "partner_foraeldre": "Dansk udenrigsminister Heinrich Anna greve von R.‑C., født Le Merchier comte de Merchier og Louise Sophie Jeanette rigsgrevinde zu Rantzau",
+      "note": "Alfred til Ruhleben ved Plön. Gift 2° 4. sept. 1860 med Bertha Ida Louise Camilla komtesse de Reventlou, * 2. okt. 1835 på Farve, † 16. aug. 1869 på Ruhleben, se von Reventlow. IV. Den lensgrevelige linje af 1767, nr. 44; gift 3° 2. dec. 1873 på Farve med Marie Louise Christiane komtesse de Reventlou, * 2. dec. 1833, † 27. dec. 1910 på Ruhleben, se von Reventlow. IV. Den lensgrevelige linje af 1767, nr. 43."
+    }
+  ]
+}

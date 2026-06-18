@@ -1,0 +1,170 @@
+{
+  "linje": "V",
+  "nr": 89,
+  "nr_label": "89",
+  "usikker": false,
+  "navn": "Conrad Ferdinand Edvard",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 17. aug. 1840 på Aalstrup",
+      "date_min": "1840-08-17",
+      "date_max": "1840-08-17",
+      "date_qualifier": "exact",
+      "sted": "Aalstrup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 6. okt. s.å. i Skørringe Kirke (Landet Sogns kirkebog)",
+      "date_min": "1840-10-06",
+      "date_max": "1840-10-06",
+      "date_qualifier": "exact",
+      "sted": "Skørringe Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 7. maj 1905 i Lund",
+      "date_min": "1905-05-07",
+      "date_max": "1905-05-07",
+      "date_qualifier": "exact",
+      "sted": "Lund"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 13. s.m. fra Gudmuntorp Kirke og begravet på Gudmuntorp Kirkegård",
+      "date_min": "1905-05-13",
+      "date_max": "1905-05-13",
+      "date_qualifier": "exact",
+      "sted": "Gudmuntorp Kirke"
+    },
+    {
+      "faktatype": "adling",
+      "vaerdi": "svensk adelsmand ved broderens død",
+      "date_raw": "1902 (14. maj)",
+      "date_min": "1902-05-14",
+      "date_max": "1902-05-14",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "R.",
+      "date_raw": "24. juli 1889",
+      "date_min": "1889-07-24",
+      "date_max": "1889-07-24",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "E.M.2.",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Trulstorp",
+      "periode_raw": "1867-1884",
+      "period_type": null,
+      "sted": null
+    },
+    {
+      "navn": "Getå",
+      "periode_raw": "1882-1884",
+      "period_type": null,
+      "sted": "Krokek S., Östergötland Len"
+    },
+    {
+      "navn": "Kyleberg",
+      "periode_raw": "1884-1893",
+      "period_type": null,
+      "sted": "Svanhals S., Östergötland Len"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "sekondløjtnant",
+      "dato_raw": "1864"
+    },
+    {
+      "organisation": "Skånska Dragonreg.",
+      "rolle": "fanejunker",
+      "dato_raw": "1865 (16. febr.)"
+    },
+    {
+      "organisation": null,
+      "rolle": "underløjtnant",
+      "dato_raw": "1866 (4. juli)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Emilia Augusta Teresita Sparre af Söfdeborg",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 24. juni 1882 på Getå",
+      "date_min": "1882-06-24",
+      "date_max": "1882-06-24",
+      "sted": "Getå",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 28. jan. 1863 i Norrköping",
+        "date_min": "1863-01-28",
+        "date_max": "1863-01-28",
+        "sted": "Norrköping"
+      },
+      "partner_daab": {
+        "date_raw": "døbt 26. febr. s.å. i Skönberga Kirke, Östergötland Len",
+        "date_min": "1863-02-26",
+        "date_max": "1863-02-26",
+        "sted": "Skönberga Kirke"
+      },
+      "partner_doed": {
+        "date_raw": "† 27. febr. 1955 i Lund",
+        "date_min": "1955-02-27",
+        "date_max": "1955-02-27",
+        "sted": "Lund"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Svensk sekondløjtnant Lars Erik Georg greve S. af S. og Hanna Jakobina Schubert",
+      "note": "Hustruen bisat 5. marts 1955 fra Gudmuntorp Kirke og begravet på Gudmuntorp Kirkegård."
+    }
+  ],
+  "boern": {
+    "antal": 2,
+    "slaegtled": "Syvende (attende)",
+    "linje": "VI",
+    "nr_range": [
+      125,
+      126
+    ]
+  },
+  "begivenheder": [
+    {
+      "navn": "dansk-tyske krig 1864",
+      "rolle": "deltager",
+      "dato_raw": "1864"
+    }
+  ]
+}

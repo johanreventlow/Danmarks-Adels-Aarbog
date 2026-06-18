@@ -1,0 +1,28 @@
+{
+  "linje": "III",
+  "nr": 37,
+  "nr_label": "37",
+  "usikker": false,
+  "navn": "Detlef",
+  "tilnavn": "til Reetz",
+  "koen": "mand",
+  "facts": [],
+  "godser": [
+    {
+      "navn": "Reetz",
+      "periode_raw": "(1636-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Neudorff",
+      "periode_raw": "(1642-†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

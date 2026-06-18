@@ -1,0 +1,40 @@
+{
+  "linje": "III",
+  "nr": 10,
+  "nr_label": "10",
+  "usikker": false,
+  "navn": "Hinrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [
+    {
+      "navn": "Harmstorf",
+      "periode_raw": "(-1378)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Ziesendorf",
+      "periode_raw": "(1397-†)",
+      "period_type": "tenure",
+      "sted": "Ziesendorf S., Rostock Landkr."
+    },
+    {
+      "navn": "Langen Jarchow",
+      "periode_raw": "(-1398)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Schwaan",
+      "rolle": "foged",
+      "dato_raw": "1399 (16. maj)"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

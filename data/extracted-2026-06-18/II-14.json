@@ -1,0 +1,76 @@
+{
+  "linje": "II",
+  "nr": 14,
+  "nr_label": "14",
+  "usikker": false,
+  "navn": "Hartwich Hinrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "ca. 1657",
+      "date_raw": "* ca. 1657",
+      "date_min": "1657-01-01",
+      "date_max": "1657-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "faldt mellem 1. og 4. juni 1697",
+      "date_raw": "faldt mellem 1. og 4. juni 1697",
+      "date_min": "1697-06-01",
+      "date_max": "1697-06-04",
+      "date_qualifier": "between",
+      "sted": "Holmer Skanse"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Dronningens Livreg.",
+      "rolle": "premierløjtnant",
+      "dato_raw": "1677 (12. nov.)"
+    },
+    {
+      "organisation": null,
+      "rolle": "kaptajnløjtnant",
+      "dato_raw": "1697"
+    },
+    {
+      "organisation": "Dronningens Livreg.",
+      "rolle": "kaptajn",
+      "dato_raw": "1681 (okt.)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Catharina von dem Bussche",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "Bisat 14. febr. 1716 i Kaleby."
+    }
+  ],
+  "boern": {
+    "antal": 8,
+    "slaegtled": "Tiende slægtled",
+    "linje": "I",
+    "nr_range": [
+      18,
+      25
+    ]
+  },
+  "begivenheder": []
+}

@@ -1,0 +1,36 @@
+{
+  "linje": "III",
+  "nr": 128,
+  "nr_label": "128",
+  "usikker": false,
+  "navn": "Sophia Magdalena",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1715-08-20",
+      "date_raw": "20. aug. 1715",
+      "date_min": "1715-08-20",
+      "date_max": "1715-08-20",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1771-10-20",
+      "date_raw": "20. okt. 1771",
+      "date_min": "1771-10-20",
+      "date_max": "1771-10-20",
+      "date_qualifier": "exact",
+      "sted": "Itzehoe"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Itzehoe Adelige Kloster",
+      "rolle": "konventualinde i",
+      "dato_raw": null
+    }
+  ]
+}

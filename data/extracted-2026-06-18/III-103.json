@@ -1,0 +1,52 @@
+{
+  "linje": "III",
+  "nr": 103,
+  "nr_label": "103",
+  "usikker": false,
+  "navn": "Benedicte Margaretha",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1742-07-09",
+      "date_raw": "† 9. juli 1742",
+      "date_min": "1742-07-09",
+      "date_max": "1742-07-09",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Johann von Bülow",
+      "partner_ekstern_ref": "DAA 1964, II, 69",
+      "type": "vielse",
+      "dato_raw": "Gift aug. 1741",
+      "date_min": "1741-08-01",
+      "date_max": "1741-08-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Hans Joachim von B. til Plüskow, Grabow, Trambs samt Moltow og Elisabeth von Strahlendorff",
+      "note": "Til Trambs; gift 2° 1745 med Hedwig Margaretha Sophia von Bassewitz."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "10. juli 1711",
+      "date_min": "1711-07-10",
+      "date_max": "1711-07-10",
+      "sted": null,
+      "note": null
+    }
+  ]
+}

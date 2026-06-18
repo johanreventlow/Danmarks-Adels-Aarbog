@@ -1,0 +1,46 @@
+{
+  "linje": "II",
+  "nr": 4,
+  "nr_label": "4",
+  "usikker": false,
+  "navn": "Achim",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [
+    {
+      "navn": "Gallentin",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": null
+    },
+    {
+      "navn": "Wendisch Zülow",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Dorothea von Braelstorff",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "Eller Dorothea von Strahlendorff."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

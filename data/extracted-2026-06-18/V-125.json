@@ -1,0 +1,38 @@
+{
+  "linje": "V",
+  "nr": 125,
+  "nr_label": "125",
+  "usikker": false,
+  "navn": "Rudolf Einar",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 15. april 1883 på Getå",
+      "date_min": "1883-04-15",
+      "date_max": "1883-04-15",
+      "date_qualifier": "exact",
+      "sted": "Getå"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 6. jan. 1888 på Kyleberg, Östergötland Len",
+      "date_min": "1888-01-06",
+      "date_max": "1888-01-06",
+      "date_qualifier": "exact",
+      "sted": "Kyleberg, Östergötland Len"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "linje": "V",
+  "nr": 38,
+  "nr_label": "38",
+  "usikker": false,
+  "navn": "Christiana Ulrica",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "12. dec. 1743",
+      "date_min": "1743-12-12",
+      "date_max": "1743-12-12",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "16. maj 1748",
+      "date_min": "1748-05-16",
+      "date_max": "1748-05-16",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "20. maj 1751",
+      "date_min": "1751-05-20",
+      "date_max": "1751-05-20",
+      "date_qualifier": "exact",
+      "sted": "Det Reventlowske Kapel i Dybbøl Kirke"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

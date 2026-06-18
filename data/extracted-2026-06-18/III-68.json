@@ -1,0 +1,73 @@
+{
+  "linje": "III",
+  "nr": 68,
+  "nr_label": "68",
+  "usikker": false,
+  "navn": "Berend",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1695",
+      "date_raw": "dræbt 1695 i duel i Flandern",
+      "date_min": "1695-01-01",
+      "date_max": "1695-12-31",
+      "date_qualifier": "exact",
+      "sted": "Flandern"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Dronningens Livreg.",
+      "rolle": "fændrik",
+      "dato_raw": "1685"
+    },
+    {
+      "organisation": "Bataljon Dronningen i engelsk sold til Irland",
+      "rolle": "med",
+      "dato_raw": "1689"
+    },
+    {
+      "organisation": "Juuls Reg.",
+      "rolle": "kaptajn reformé",
+      "dato_raw": "1690"
+    },
+    {
+      "organisation": "Royal Danois",
+      "rolle": "kaptajn reformé og komp.chef",
+      "dato_raw": "1692"
+    },
+    {
+      "organisation": "Prins Frederiks Reg.",
+      "rolle": "ansøgte ansættelse",
+      "dato_raw": "1692"
+    },
+    {
+      "organisation": "Saint Omer",
+      "rolle": "var i",
+      "dato_raw": "1695 (29. sept.)"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "1667",
+      "date_min": "1667-01-01",
+      "date_max": "1667-12-31",
+      "sted": null,
+      "note": "Gik i dansk tjeneste og skrev 1691 fra Belver i Katalonien."
+    },
+    {
+      "type": "dræbt",
+      "dato_raw": "1695",
+      "date_min": "1695-01-01",
+      "date_max": "1695-12-31",
+      "sted": "Flandern",
+      "note": "Dræbt i duel."
+    }
+  ]
+}

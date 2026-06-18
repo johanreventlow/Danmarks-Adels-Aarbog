@@ -1,0 +1,87 @@
+{
+  "linje": "III",
+  "nr": 93,
+  "nr_label": "93",
+  "usikker": false,
+  "navn": "Christina Magdalena",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1713-06-27",
+      "date_raw": "† 27. juni 1713",
+      "date_min": "1713-06-27",
+      "date_max": "1713-06-27",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Cai von Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 143",
+      "type": "vielse",
+      "dato_raw": "Gift 1° 1699",
+      "date_min": "1699-01-01",
+      "date_max": "1699-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 25. okt. 1650",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 15. jan. 1704 i Kiel",
+        "date_min": "1704-01-15",
+        "date_max": "1704-01-15",
+        "sted": "Kiel"
+      },
+      "partner_erhverv": [
+        "holstensk landråd",
+        "dansk gehejme- og landråd"
+      ],
+      "partner_foraeldre": "Hofjunker Hans von R. til Neuhaus, Satjewitz, Löhrstorf samt Grossenbrode og Ide von Buchwaldt til Doberstorf",
+      "note": "Gift 1° 1670 med Catharina Margaretha Blome; gift 2° med Dorothea von Reventlow."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Georg Heinrich friherre von Schlitz genannt von Görtz",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 2° 1703",
+      "date_min": "1703-01-01",
+      "date_max": "1703-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 24. dec. 1668",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "henrettet 19. febr. 1719 i Stockholm",
+        "date_min": "1719-02-19",
+        "date_max": "1719-02-19",
+        "sted": "Stockholm"
+      },
+      "partner_erhverv": [
+        "holstensk regeringsleder",
+        "minister",
+        "gehejmeråd",
+        "kammerherre"
+      ],
+      "partner_foraeldre": "Domherre, Ritterhauptmann, arvelandmarskal Philip Friedrich friherre von S. genannt von G. og Anna Juliane Elisabeth von Minnigerode",
+      "note": "Fik 1712 på sin hustrus vegne tilkendt halvdelen af Oregaard."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "ca. 1682",
+      "date_min": "1682-01-01",
+      "date_max": "1682-12-31",
+      "sted": null,
+      "note": null
+    }
+  ]
+}

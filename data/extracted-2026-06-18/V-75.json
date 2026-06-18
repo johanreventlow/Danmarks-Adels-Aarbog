@@ -1,0 +1,167 @@
+{
+  "linje": "V",
+  "nr": 75,
+  "nr_label": "75",
+  "usikker": false,
+  "navn": "Arthur Christian Dethlef Ludewig Eugen",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "4. jan. 1817",
+      "date_min": "1817-01-04",
+      "date_max": "1817-01-04",
+      "date_qualifier": "exact",
+      "sted": "Sandbjerg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "29. marts s.å.",
+      "date_min": "1817-03-29",
+      "date_max": "1817-03-29",
+      "date_qualifier": "exact",
+      "sted": "Dybbøl Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "8. febr. 1878",
+      "date_min": "1878-02-08",
+      "date_max": "1878-02-08",
+      "date_qualifier": "exact",
+      "sted": "Braunschweig"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 14. s.m. i Dybbøl Kirke",
+      "date_min": "1878-02-14",
+      "date_max": "1878-02-14",
+      "date_qualifier": "exact",
+      "sted": "Dybbøl Kirke"
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "R.",
+      "date_raw": "9. sept. 1849",
+      "date_min": "1849-09-09",
+      "date_max": "1849-09-09",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "D.M.",
+      "date_raw": "6. okt. 1852",
+      "date_min": "1852-10-06",
+      "date_max": "1852-10-06",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Overretten i Slesvig",
+      "rolle": "auskultant",
+      "dato_raw": null
+    },
+    {
+      "organisation": "regeringen på Gottorp",
+      "rolle": "auskultant",
+      "dato_raw": "1847-"
+    },
+    {
+      "organisation": null,
+      "rolle": "sekondløjtnant",
+      "dato_raw": "1849"
+    },
+    {
+      "organisation": null,
+      "rolle": "premierløjtnant",
+      "dato_raw": "s.å. (9. sept.) 1849"
+    },
+    {
+      "organisation": "Tønder Amt",
+      "rolle": "konstitueret amtmand",
+      "dato_raw": "1850 (30. juli‑19. dec.)"
+    },
+    {
+      "organisation": "Tønder Amt",
+      "rolle": "overdigegreve",
+      "dato_raw": "1850 (30. juli‑19. dec.)"
+    },
+    {
+      "organisation": "Tønder og Løgumkloster Amter",
+      "rolle": "amtmand",
+      "dato_raw": "1850 (19. dec.)‑1860 (11. april)"
+    },
+    {
+      "organisation": null,
+      "rolle": "kammerherre",
+      "dato_raw": "1851 (1. jan.)"
+    },
+    {
+      "organisation": "Kiel, Cronshagen og Bordesholm Amter",
+      "rolle": "amtmand",
+      "dato_raw": "1860 (11. april)‑1863 (28. dec.)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Georgine Albertine Ernestine von Ahlefeldt",
+      "partner_ekstern_ref": "DAA 1982-84, 647f",
+      "type": "vielse",
+      "dato_raw": "27. sept. 1850",
+      "date_min": "1850-09-27",
+      "date_max": "1850-09-27",
+      "sted": "Saxtorf",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "5. april 1828",
+        "date_min": "1828-04-05",
+        "date_max": "1828-04-05",
+        "sted": "Saxtorf"
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "7. juni 1902",
+        "date_min": "1902-06-07",
+        "date_max": "1902-06-07",
+        "sted": "Hasenheide ved Berlin"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kammerherre, stænderdeputeret Carl Friedrich Georg von A. til Eskilsmark samt Saxtorf og Friederike von Klöcker",
+      "note": null
+    }
+  ],
+  "boern": {
+    "antal": 7,
+    "slaegtled": "Syvende (attende)",
+    "linje": "IV",
+    "nr_range": [
+      112,
+      118
+    ]
+  },
+  "begivenheder": [
+    {
+      "navn": "Treårskrigen",
+      "rolle": "frivillig husar",
+      "dato_raw": "1848‑1850"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "linje": "I",
+  "nr": 129,
+  "nr_label": "129",
+  "usikker": false,
+  "navn": "Magdalena Sophia",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1745 i Randers",
+      "date_raw": "* 1745 i Randers",
+      "date_min": "1745-01-01",
+      "date_max": "1745-12-31",
+      "date_qualifier": "exact",
+      "sted": "Randers"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "16. juli s.å. i Sankt Mortens Kirke s.st.",
+      "date_raw": "døbt 16. juli s.å. i Sankt Mortens Kirke s.st.",
+      "date_min": "1745-07-16",
+      "date_max": "1745-07-16",
+      "date_qualifier": "exact",
+      "sted": "Randers"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "s.å.",
+      "date_raw": "† s.å.",
+      "date_min": "1745-01-01",
+      "date_max": "1745-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

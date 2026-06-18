@@ -1,0 +1,99 @@
+{
+  "linje": "II",
+  "nr": 19,
+  "nr_label": "19",
+  "usikker": false,
+  "navn": "Johann Christoph",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1686 i Glückstadt",
+      "date_raw": "* 1686 i Glückstadt",
+      "date_min": "1686-01-01",
+      "date_max": "1686-12-31",
+      "date_qualifier": "exact",
+      "sted": "Glückstadt"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1. marts s.å. i Glückstadt Slotskirke",
+      "date_raw": "døbt 1. marts s.å. i Glückstadt Slotskirke",
+      "date_min": "1686-03-01",
+      "date_max": "1686-03-01",
+      "date_qualifier": "exact",
+      "sted": "Glückstadt Slotskirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "24. sept. 1737 i København",
+      "date_raw": "† 24. sept. 1737 i København",
+      "date_min": "1737-09-24",
+      "date_max": "1737-09-24",
+      "date_qualifier": "exact",
+      "sted": "København"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Bataljon Oldenburg",
+      "rolle": "sekondløjtnant",
+      "dato_raw": "1703 (13. okt.)"
+    },
+    {
+      "organisation": "Bataljon Oldenburg",
+      "rolle": "premierløjtnant",
+      "dato_raw": "1705 (10. april)"
+    },
+    {
+      "organisation": "Grenadèrkorpset",
+      "rolle": "premierløjtnant",
+      "dato_raw": "1708 (10. febr.)"
+    },
+    {
+      "organisation": "Grenadèrkorpset",
+      "rolle": "karakt. kaptajn",
+      "dato_raw": "1711 (8. juni)"
+    },
+    {
+      "organisation": "Grenadèrkorpset",
+      "rolle": "virkelig kaptajn",
+      "dato_raw": "1712 (4. juni)"
+    },
+    {
+      "organisation": "Kronprinsens Reg.",
+      "rolle": "sekondmajor",
+      "dato_raw": "1717 (12. marts)"
+    },
+    {
+      "organisation": null,
+      "rolle": "oberst",
+      "dato_raw": "1719 (13. jan.)"
+    },
+    {
+      "organisation": "Kronprinsens Reg.",
+      "rolle": "chef",
+      "dato_raw": "s.d."
+    },
+    {
+      "organisation": null,
+      "rolle": "brigadér",
+      "dato_raw": "1730 (28. nov.)"
+    },
+    {
+      "organisation": null,
+      "rolle": "generalmajor",
+      "dato_raw": "1733 (22. juni)"
+    },
+    {
+      "organisation": null,
+      "rolle": "hvid ridder",
+      "dato_raw": "1737 (15. maj)"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

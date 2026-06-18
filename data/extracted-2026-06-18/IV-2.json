@@ -1,0 +1,226 @@
+{
+  "linje": "IV",
+  "nr": 2,
+  "nr_label": "2",
+  "usikker": false,
+  "navn": "Lensgreve Cay Friedrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1834-08-06",
+      "date_raw": "† 6. aug. 1834 på Altenhof",
+      "date_min": "1834-08-06",
+      "date_max": "1834-08-06",
+      "date_qualifier": "exact",
+      "sted": "Altenhof"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Altenhof",
+      "periode_raw": "(1783-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Aschau",
+      "periode_raw": "(1783-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Glasau",
+      "periode_raw": "(1783-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Carlsminde",
+      "periode_raw": "(1799-1804)",
+      "period_type": "tenure",
+      "sted": "Søllerød Kommune, Københavns Amt"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Göttingen",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1769 (16. okt.)-1773 (påske)"
+    },
+    {
+      "organisation": "Overretten på Gottorp",
+      "rolle": "auskultant",
+      "dato_raw": "1773 (maj)-1776"
+    },
+    {
+      "organisation": "kammerherre",
+      "rolle": "kammerherre",
+      "dato_raw": "1773 (16. nov.)"
+    },
+    {
+      "organisation": "Overretten på Gottorp",
+      "rolle": "overretsråd",
+      "dato_raw": "1775-1779"
+    },
+    {
+      "organisation": "landretten s.st.",
+      "rolle": "landretsråd",
+      "dato_raw": "1776-1779"
+    },
+    {
+      "organisation": "Madrid",
+      "rolle": "envoyé extraordinaire",
+      "dato_raw": "1779 (22. okt.)-1784 (12. marts)"
+    },
+    {
+      "organisation": "hvid ridder",
+      "rolle": "ridder",
+      "dato_raw": "1782 (1. maj)"
+    },
+    {
+      "organisation": "Flensborg",
+      "rolle": "amtmand",
+      "dato_raw": "1784-1788 (10. nov.)"
+    },
+    {
+      "organisation": "Den Kgl. oktrojerede Bank",
+      "rolle": "m.a. overdirektionen",
+      "dato_raw": "1784 (12. nov.)-1802 (12. dec.)"
+    },
+    {
+      "organisation": "Kanalkommissionen",
+      "rolle": "m.a.",
+      "dato_raw": "1784 (12. nov.)-1787 (?)"
+    },
+    {
+      "organisation": "Det Kgl. Bibliotek",
+      "rolle": "chef",
+      "dato_raw": "1784 (26. nov.)-1802 (22. dec.)"
+    },
+    {
+      "organisation": "Kreditkassen",
+      "rolle": "m.a. direktionen",
+      "dato_raw": "1786 (16. aug.)-1798 (28. marts)"
+    },
+    {
+      "organisation": "Stockholm",
+      "rolle": "envoyé extraordinaire",
+      "dato_raw": "1788 (18. jan.)-1794 (11. april)"
+    },
+    {
+      "organisation": "overkammerjunker",
+      "rolle": "overkammerjunker",
+      "dato_raw": "1788 (10. nov.)-1797"
+    },
+    {
+      "organisation": "gehejmeråd",
+      "rolle": "gehejmeråd",
+      "dato_raw": "1790-"
+    },
+    {
+      "organisation": "Det Kgl. Mønt- og Medaillekabinet",
+      "rolle": "chef",
+      "dato_raw": "1793 (31. juli)-1803 (12. jan.)"
+    },
+    {
+      "organisation": "Det Kgl. Kunstkammer",
+      "rolle": "chef",
+      "dato_raw": "1794 (22. aug.)-1802 (17. marts)"
+    },
+    {
+      "organisation": "Botanisk Have ved Charlottenborg",
+      "rolle": "direktør",
+      "dato_raw": "1794 (22. aug.)-1802 (17. marts)"
+    },
+    {
+      "organisation": "Det Kgl. Videnskabernes Selskab",
+      "rolle": "æresmedlem",
+      "dato_raw": "1795 (6. febr.)-†"
+    },
+    {
+      "organisation": "Gehejmestatsrådet",
+      "rolle": "gehejmestatsminister",
+      "dato_raw": "1797 (5. juli)-1802 (12. dec.)"
+    },
+    {
+      "organisation": "Tyske Kancelli",
+      "rolle": "præsident",
+      "dato_raw": "1797 (5. juli)-1802 (12. dec.)"
+    },
+    {
+      "organisation": "Frederiks Tyske Kirke",
+      "rolle": "patron",
+      "dato_raw": "1800 (10. jan.)-1803"
+    },
+    {
+      "organisation": "Kiel Universitet",
+      "rolle": "kurator",
+      "dato_raw": "1808 (16. sept.)"
+    },
+    {
+      "organisation": "Lauenburg",
+      "rolle": "guvernør og landdrost",
+      "dato_raw": "1816 (26. nov.)-1833 (19. marts)"
+    },
+    {
+      "organisation": "Lauenburg-Ratzeburgische Bibelgesellschaft",
+      "rolle": "præsident",
+      "dato_raw": "1816-†"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Wilhelmina Magdalena Ulrica komtesse af Bernstorff",
+      "partner_ekstern_ref": "DAA 1934, 26",
+      "type": "vielse",
+      "dato_raw": "Gift 1° 6. nov. 1785",
+      "date_min": "1785-11-06",
+      "date_max": "1785-11-06",
+      "sted": "Gartow",
+      "skilt": false,
+      "partner_foedsel": "* 10. okt. 1766 på Gartow",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 10. maj 1787 i barselsseng i København",
+        "date_min": "1787-05-10",
+        "date_max": "1787-05-10",
+        "sted": "København"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Hannoveransk kammerherre og gehejmeråd Joachim Bechtold lensgreve af B. til Gartow, Wedendorf, m.fl., og Magdalena Hedwig von Lowzow",
+      "note": "Bisat 16. s.m. fra Sankt Petri Kirke og ført til Det Reventlowske Gravkapel i Sarau Kirke."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Emilia Louisa Henrietta komtesse af Bernstorff",
+      "partner_ekstern_ref": "DAA 1934, 36",
+      "type": "vielse",
+      "dato_raw": "Gift 2° 24. april 1797",
+      "date_min": "1797-04-24",
+      "date_max": "1797-04-24",
+      "sted": "København",
+      "skilt": false,
+      "partner_foedsel": "* 7. okt. 1766 i København",
+      "partner_daab": "døbt 13. s.m. i Hof- og Slotskirken",
+      "partner_doed": {
+        "date_raw": "† 26. nov. 1855 i Preetz",
+        "date_min": "1855-11-26",
+        "date_max": "1855-11-26",
+        "sted": "Preetz"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Statsminister Andreas Petrus greve af B. til Wedendorf, Wotersen, Stintenburg, m.fl., og Henriette Friederike rigsgrevinde von Stolberg",
+      "note": null
+    }
+  ],
+  "boern": {
+    "antal": 5,
+    "slaegtled": "Tredje (sekstende) slægtled",
+    "linje": "I, nr. 10-14",
+    "nr_range": null
+  },
+  "begivenheder": []
+}

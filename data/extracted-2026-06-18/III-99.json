@@ -1,0 +1,80 @@
+{
+  "linje": "III",
+  "nr": 99,
+  "nr_label": "99",
+  "usikker": false,
+  "navn": "Christina Dorothea",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1734-09-01",
+      "date_raw": "† 1. sept. 1734",
+      "date_min": "1734-09-01",
+      "date_max": "1734-09-01",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Jacob Dietrich von Bülow",
+      "partner_ekstern_ref": "DAA 1964, II, 72",
+      "type": "vielse",
+      "dato_raw": "Gift 1° 18. maj 1715",
+      "date_min": "1715-05-18",
+      "date_max": "1715-05-18",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 2. maj 1689",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 10. jan. 1731 i Mölln",
+        "date_min": "1731-01-10",
+        "date_max": "1731-01-10",
+        "sted": "Mölln"
+      },
+      "partner_erhverv": [
+        "Amtshauptmann",
+        "konsistorialassessor"
+      ],
+      "partner_foraeldre": "Lüneburgsk hofdommer, lauenburgsk arvelandmarskal, landråd og kammerherre Joachim Werner von B. til stamhuset Lundenøs, Gudow, Bygholm samt, Stiernholm og Susanna Franzina von Bodendick",
+      "note": "Ægtepagten dateret 20. febr. s.å."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Detlef von Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 144",
+      "type": "vielse",
+      "dato_raw": "Gift 2° 19. april 1732",
+      "date_min": "1732-04-19",
+      "date_max": "1732-04-19",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 1687 på Tralau",
+      "partner_daab": "døbt 15. febr. s.å. i Oldesloe",
+      "partner_doed": null,
+      "partner_erhverv": [
+        "svensk kaptajn",
+        "braunschweig-lüneburgsk oberstløjtnant"
+      ],
+      "partner_foraeldre": "Detlef von R. til Tralau og Sophia Maria von Bülow",
+      "note": "Levede 1734 i Mölln."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "18. maj 1699",
+      "date_min": "1699-05-18",
+      "date_max": "1699-05-18",
+      "sted": null,
+      "note": null
+    }
+  ]
+}

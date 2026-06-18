@@ -1,0 +1,29 @@
+{
+  "linje": "V",
+  "nr": 189,
+  "nr_label": "189",
+  "usikker": false,
+  "navn": "Komtesse Dina Marie",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1981-10-14",
+      "date_raw": "14. okt. 1981",
+      "date_min": "1981-10-14",
+      "date_max": "1981-10-14",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1981",
+      "date_raw": "døbt i Nørrevang Kirke",
+      "date_min": "1981-01-01",
+      "date_max": "1981-12-31",
+      "date_qualifier": "exact",
+      "sted": "Nørrevang Kirke"
+    }
+  ]
+}

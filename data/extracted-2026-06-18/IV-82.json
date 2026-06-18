@@ -1,0 +1,79 @@
+{
+  "linje": "IV",
+  "nr": 82,
+  "nr_label": "82",
+  "usikker": false,
+  "navn": "Komtesse Nancy Ida",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1977-05-12",
+      "date_raw": "† 12. maj 1977 i Marl, Tyskland",
+      "date_min": "1977-05-12",
+      "date_max": "1977-05-12",
+      "date_qualifier": "exact",
+      "sted": "Marl, Tyskland"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Friedrich Wilhelm Raeder",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 1° 21. marts 1936",
+      "date_min": "1936-03-21",
+      "date_max": "1936-03-21",
+      "sted": "Potsdam",
+      "skilt": true,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [
+        "regeringsråd"
+      ],
+      "partner_foraeldre": null,
+      "note": null
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Kurt Heinrich Hans Christian Albrecht Walther Barthold von Bassewitz",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 2° 6. dec. 1956",
+      "date_min": "1956-12-06",
+      "date_max": "1956-12-06",
+      "sted": "Kiel",
+      "skilt": false,
+      "partner_foedsel": "* 9. april 1924 på Fuchshöfen, Østpreussen",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 16. sept. 1987 i Marl",
+        "date_min": "1987-09-16",
+        "date_max": "1987-09-16",
+        "sted": "Marl"
+      },
+      "partner_erhverv": [
+        "Dr.rer.nat.",
+        "fysiker"
+      ],
+      "partner_foraeldre": "Tysk ritmester Friedrich Detlof Ulrich Hermann Kurt von B. til Fuchshöfen og Carla Katharina Christa Emilie Henriette Klara-Marie Frieda rigsgrevinde zu Rantzau",
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "20. febr. 1913",
+      "date_min": "1913-02-20",
+      "date_max": "1913-02-20",
+      "sted": "Guben",
+      "note": null
+    }
+  ]
+}

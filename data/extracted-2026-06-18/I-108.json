@@ -1,0 +1,45 @@
+{
+  "linje": "I",
+  "nr": 108,
+  "nr_label": "108",
+  "usikker": false,
+  "navn": "Margaretha Hedewig",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "efter 1698",
+      "date_raw": "† efter 1698",
+      "date_min": "1698-01-01",
+      "date_max": null,
+      "date_qualifier": "after",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Wulf Philip Leicken",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 1689",
+      "date_min": "1689-01-01",
+      "date_max": "1689-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [
+        "dansk løjtnant"
+      ],
+      "partner_foraeldre": null,
+      "note": "Faldt 1700 i Husum Skanse."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

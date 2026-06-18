@@ -1,0 +1,54 @@
+{
+  "linje": "I",
+  "nr": 112,
+  "nr_label": "112",
+  "usikker": false,
+  "navn": "Augusta Sophia",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1679",
+      "date_raw": "* 1679",
+      "date_min": "1679-01-01",
+      "date_max": "1679-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1. marts 1726 på Glasau",
+      "date_raw": "† 1. marts 1726 på Glasau",
+      "date_min": "1726-03-01",
+      "date_max": "1726-03-01",
+      "date_qualifier": "exact",
+      "sted": "Glasau"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Hinrich von Reventlow",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [
+        "oberst"
+      ],
+      "partner_foraeldre": "Gehejmeråd, amtmand, hof- og landråd Henning von R. til Hemmelmark, Möhlhorst, Glasau, Altenhof samt Gottesgabe og Margaretha von Rumohr",
+      "note": "Til Gottesgabe og Glasau."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

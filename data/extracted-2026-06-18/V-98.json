@@ -1,0 +1,97 @@
+{
+  "linje": "V",
+  "nr": 98,
+  "nr_label": "98",
+  "usikker": false,
+  "navn": "Benedicte Christiane Polly Gustava",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 25. marts 1829 på Pederstrup",
+      "date_min": "1829-03-25",
+      "date_max": "1829-03-25",
+      "date_qualifier": "exact",
+      "sted": "Pederstrup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "hjemmedåb (if. kgl. bevilling)",
+      "date_raw": "hjemmedøbt 31. maj s.å.",
+      "date_min": "1829-05-31",
+      "date_max": "1829-05-31",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 19. marts 1906 i København",
+      "date_min": "1906-03-19",
+      "date_max": "1906-03-19",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 24. s.m. fra Halsted Kirke og begravet s.d. i Juellinge Dyrehave",
+      "date_min": "1906-03-24",
+      "date_max": "1906-03-24",
+      "date_qualifier": "exact",
+      "sted": "Juellinge Dyrehave"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Friderich Julius Krag-Juel-Vind-Frijs",
+      "partner_ekstern_ref": "DAA 2006-08, 734f",
+      "type": "vielse",
+      "dato_raw": "Gift 24. juni 1847 i Skørringe Kirke",
+      "date_min": "1847-06-24",
+      "date_max": "1847-06-24",
+      "sted": "Skørringe Kirke",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 28. aug. 1821 på Wedelslund",
+        "date_min": "1821-08-28",
+        "date_max": "1821-08-28",
+        "sted": "Wedelslund"
+      },
+      "partner_daab": {
+        "date_raw": "hjemmedøbt 31. s.m., fremstillet 14. juli 1822 i Sjelle Kirke",
+        "date_min": "1821-08-31",
+        "date_max": "1821-08-31",
+        "sted": "Sjelle Kirke"
+      },
+      "partner_doed": {
+        "date_raw": "† 14. sept. 1885 i København, bisat 21. s.m. fra Halsted Kirke og begravet s.d. i Juellinge Dyrehave",
+        "date_min": "1885-09-14",
+        "date_max": "1885-09-14",
+        "sted": "København"
+      },
+      "partner_erhverv": [
+        "kammerherre",
+        "medlem af Rigsrådets Landsting"
+      ],
+      "partner_foraeldre": "(F.: Kaptajn, kammerjunker Erhard greve K.‑J.‑V.(‑F.) til Wedelslund og Caroline Tugendreich Adelheid Reiche)",
+      "note": "til baroniet Juellinge og Gottesgabe"
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

@@ -1,0 +1,218 @@
+{
+  "linje": "V",
+  "nr": 101,
+  "nr_label": "101",
+  "usikker": false,
+  "navn": "Christian Einar Ferdinand Ludvig Edvard",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Lensgreve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "18. juli 1864",
+      "date_min": "1864-07-18",
+      "date_max": "1864-07-18",
+      "date_qualifier": "exact",
+      "sted": "Pederstrup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "hjemmedøbt 11. sept. s.å.",
+      "date_min": "1864-09-11",
+      "date_max": "1864-09-11",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "2. febr. 1929",
+      "date_min": "1929-02-02",
+      "date_max": "1929-02-02",
+      "date_qualifier": "exact",
+      "sted": "Svendborg"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 9. s.m. fra Vesterborg Kirke og begravet i Theophili Skov",
+      "date_min": "1929-02-09",
+      "date_max": "1929-02-09",
+      "date_qualifier": "exact",
+      "sted": "Theophili Skov"
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "R.",
+      "date_raw": "13. febr. 1907",
+      "date_min": "1907-02-13",
+      "date_max": "1907-02-13",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "Ty.J.2.",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "grevskabet Reventlow",
+      "periode_raw": "1875‑afløst 10. sept. 1924",
+      "period_type": null,
+      "sted": null
+    },
+    {
+      "navn": "Sandbjerg",
+      "periode_raw": "1924‑†",
+      "period_type": null,
+      "sted": null
+    },
+    {
+      "navn": "grevskabet Christianssæde",
+      "periode_raw": "1889‑afløst 26. marts 1924",
+      "period_type": null,
+      "sted": null
+    },
+    {
+      "navn": "Christianssæde med Pederstrup, Aalstrup og Frihedsminde",
+      "periode_raw": "1924‑†",
+      "period_type": null,
+      "sted": null
+    },
+    {
+      "navn": "baroniet Brahetrolleborg",
+      "periode_raw": "1875‑afløst 26. marts 1924",
+      "period_type": null,
+      "sted": null
+    },
+    {
+      "navn": "Brahetrolleborg med Sølyst, Egneborg, Høbbet og Brændegaard",
+      "periode_raw": "1924‑†",
+      "period_type": null,
+      "sted": null
+    },
+    {
+      "navn": "Pugerup",
+      "periode_raw": "1889‑1918",
+      "period_type": null,
+      "sted": null
+    },
+    {
+      "navn": "Vännberga",
+      "periode_raw": "1893-1918",
+      "period_type": null,
+      "sted": null
+    },
+    {
+      "navn": "Brostorp",
+      "periode_raw": "1893-1918",
+      "period_type": null,
+      "sted": null
+    },
+    {
+      "navn": "Lyngsdalsgaard",
+      "periode_raw": "1895‑1905",
+      "period_type": "medejer",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "hofjægermester",
+      "dato_raw": "1888"
+    },
+    {
+      "organisation": null,
+      "rolle": "kammerherre",
+      "dato_raw": "1921 (29. sept.)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Agnes Margrethe komtesse Moltke",
+      "partner_ekstern_ref": "DAA 1991-93, 738",
+      "type": "vielse",
+      "dato_raw": "g. 1° 23. juli 1889 i Garnisons Kirke, København",
+      "date_min": "1889-07-23",
+      "date_max": "1889-07-23",
+      "sted": "Garnisons Kirke, København",
+      "skilt": true,
+      "partner_foedsel": {
+        "date_raw": "31. juli 1866 på Tryggevælde",
+        "date_min": "1866-07-31",
+        "date_max": "1866-07-31",
+        "sted": "Tryggevælde"
+      },
+      "partner_daab": {
+        "date_raw": "døbt 14. sept. s.å. i Karise Kirke",
+        "date_min": "1866-09-14",
+        "date_max": "1866-09-14",
+        "sted": "Karise Kirke"
+      },
+      "partner_doed": {
+        "date_raw": "1. juni 1941 i København",
+        "date_min": "1941-06-01",
+        "date_max": "1941-06-01",
+        "sted": "København"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Forpagter Joachim Richard Henry greve M. og Julie Charlotte Frederikke Westermann",
+      "note": "skilt 26. maj 1893 s.st."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Lucie‑Marie Ludovika Anastasia Adelheid Karola Hedwig komtesse von Haugwitz‑Hardenberg‑Reventlow",
+      "partner_ekstern_ref": "DAA 2012-2014, 643",
+      "type": "vielse",
+      "dato_raw": "g. 2° 26. nov. 1909 i Pasing ved München, Tyskland",
+      "date_min": "1909-11-26",
+      "date_max": "1909-11-26",
+      "sted": "Pasing ved München, Tyskland",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "24. okt. 1884 i Züllichau, Brandenburg, Preussen",
+        "date_min": "1884-10-24",
+        "date_max": "1884-10-24",
+        "sted": "Züllichau, Brandenburg, Preussen"
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "20. april 1984 på Brahetrolleborg",
+        "date_min": "1984-04-20",
+        "date_max": "1984-04-20",
+        "sted": "Brahetrolleborg"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Preussisk major Eberhard Karl Paul Erdmann Emmanuel greve von H.‑H.‑R. og Cathinka Elisabeth Maximiliana Georgine komtesse zu Pappenheim",
+      "note": "Til Brahetrolleborg (1929‑1960) med Brændegaard (1929-1960), Christianssæde (1929-1934/1938) og Pederstrup Hovedbygning og Park (1929-1938). Bisat 26. s.m. fra Brahetrolleborg Kirke, urne nedsat i Theophili Skov. Gift 2° 19. juli 1940 i Paddington, London, med britisk oberstløjtnant Bertram James Walker."
+    }
+  ],
+  "boern": {
+    "antal": 4,
+    "slaegtled": "Ottende (nittende)",
+    "linje": "I",
+    "nr_range": [
+      135,
+      138
+    ]
+  }
+}

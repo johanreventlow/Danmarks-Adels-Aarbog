@@ -1,0 +1,90 @@
+{
+  "linje": "III",
+  "nr": 64,
+  "nr_label": "64",
+  "usikker": false,
+  "navn": "Sophia",
+  "tilnavn": "til Fresenburg",
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1731-06-19",
+      "date_raw": "† 19. juni 1731 på Sehested",
+      "date_min": "1731-06-19",
+      "date_max": "1731-06-19",
+      "date_qualifier": "exact",
+      "sted": "Sehested"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Fresenburg",
+      "periode_raw": "(1694-1699)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Otto von Ahlefeldt",
+      "partner_ekstern_ref": "DAA 1982-84, 557",
+      "type": "vielse",
+      "dato_raw": "Gift 1° 6. sept. 1681",
+      "date_min": "1681-09-06",
+      "date_max": "1681-09-06",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* ca. 1655",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1694",
+        "date_min": "1694-01-01",
+        "date_max": "1694-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "dansk kammerjunker"
+      ],
+      "partner_foraeldre": "Detlef von A. til Schulenburg samt Fresenburg og Dorothea Elisabeth von Rantzau",
+      "note": "Bisat i Oldesloe Kirke, senere bisat i Sankt Ægidii Kirke, Lübeck."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Bendix von Ahlefeldt",
+      "partner_ekstern_ref": "DAA 1982-84, 631",
+      "type": "vielse",
+      "dato_raw": "Gift 2° 1694",
+      "date_min": "1694-01-01",
+      "date_max": "1694-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 21. marts 1650 (?)",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 19. april 1712 på Osterrade",
+        "date_min": "1712-04-19",
+        "date_max": "1712-04-19",
+        "sted": "Osterrade"
+      },
+      "partner_erhverv": [
+        "gehejme- og landråd"
+      ],
+      "partner_foraeldre": "Hinrich von A. til Kluvensiek, Osterrade samt Sehested og Catharina von Ahlefeldt",
+      "note": "Gift 1° marts 1677 med Catharina von Buchwaldt; 2° med Margaretha von Brockdorff."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "11. juli 1658",
+      "date_min": "1658-07-11",
+      "date_max": "1658-07-11",
+      "sted": "Lübeck",
+      "note": "Solgte 1699 Fresenburg og 1714 ved konkursen efter sin afdøde mand dennes godser Kronsburg, Osterrade og Sehested."
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "linje": "I",
+  "nr": 13,
+  "nr_label": "13",
+  "usikker": false,
+  "navn": "Otte",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "-1353-1358-",
+      "date_min": "1353",
+      "date_max": "1358",
+      "date_qualifier": "floruit",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Bliesdorf",
+      "periode_raw": "-1358",
+      "period_type": "until_event",
+      "sted": "Schashagen S., Ostholstein Kr."
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "væbner",
+      "dato_raw": "1354 (9. marts)"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

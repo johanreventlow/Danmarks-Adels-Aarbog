@@ -1,0 +1,25 @@
+{
+  "linje": "I",
+  "nr": 57,
+  "nr_label": "57",
+  "usikker": false,
+  "navn": "Lüder",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "ca. 1547",
+      "date_raw": "† ca. 1547",
+      "date_min": "1547-01-01",
+      "date_max": "1547-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

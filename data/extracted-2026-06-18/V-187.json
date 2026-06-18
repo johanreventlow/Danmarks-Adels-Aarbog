@@ -1,0 +1,51 @@
+{
+  "linje": "V",
+  "nr": 187,
+  "nr_label": "187",
+  "usikker": false,
+  "navn": "Komtesse Julie",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1980-04-24",
+      "date_raw": "24. april 1980",
+      "date_min": "1980-04-24",
+      "date_max": "1980-04-24",
+      "date_qualifier": "exact",
+      "sted": "Odense"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1980-06-06",
+      "date_raw": "døbt 6. juni s.å. i Støvring Kirke",
+      "date_min": "1980-06-06",
+      "date_max": "1980-06-06",
+      "date_qualifier": "exact",
+      "sted": "Støvring Kirke"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Simon Holmen Clemmensen",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 2. aug. 2008",
+      "date_min": "2008-08-02",
+      "date_max": "2008-08-02",
+      "sted": "Løgeskov",
+      "skilt": true,
+      "partner_foedsel": "* 24. dec. 1976 i København",
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [
+        "specialkonsulent",
+        "cand.scient.pol."
+      ],
+      "partner_foraeldre": "Dr.phil., cand.scient. Steen C. og Marianne Holmen",
+      "note": null
+    }
+  ]
+}

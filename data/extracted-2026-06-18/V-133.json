@@ -1,0 +1,64 @@
+{
+  "linje": "V",
+  "nr": 133,
+  "nr_label": "133",
+  "usikker": false,
+  "navn": "Komtesse Hildeborg Jutta Agnes",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1864-03-17",
+      "date_raw": "17. marts 1864",
+      "date_min": "1864-03-17",
+      "date_max": "1864-03-17",
+      "date_qualifier": "exact",
+      "sted": "Denningarum, Östra Broby S., Kristianstad Len"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1864-04-14",
+      "date_raw": "døbt 14. april s.å.",
+      "date_min": "1864-04-14",
+      "date_max": "1864-04-14",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1918-06-21",
+      "date_raw": "21. juni 1918",
+      "date_min": "1918-06-21",
+      "date_max": "1918-06-21",
+      "date_qualifier": "exact",
+      "sted": "Ballingslöv, Hässleholm, Kristianstad Len"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Carl Georg Wallenstjerna",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 26. sept. 1905",
+      "date_min": "1905-09-26",
+      "date_max": "1905-09-26",
+      "sted": "Helsingør",
+      "skilt": false,
+      "partner_foedsel": "* 25. febr. 1854 på Altuna",
+      "partner_daab": "døbt 29. marts s.å. i Altuna Kirke",
+      "partner_doed": {
+        "date_raw": "† 20. dec. 1928 i Preetz",
+        "date_min": "1928-12-20",
+        "date_max": "1928-12-20",
+        "sted": "Preetz"
+      },
+      "partner_erhverv": [
+        "skibskaptajn"
+      ],
+      "partner_foraeldre": "Svensk kaptajn Carl Axel W. og Amalia Georgina Henriette Branting",
+      "note": null
+    }
+  ]
+}

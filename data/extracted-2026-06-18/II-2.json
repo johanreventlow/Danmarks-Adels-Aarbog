@@ -1,0 +1,46 @@
+{
+  "linje": "II",
+  "nr": 2,
+  "nr_label": "2",
+  "usikker": false,
+  "navn": "Henneke",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [
+    {
+      "navn": "Gallentin",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": null
+    },
+    {
+      "navn": "Wendisch Rambow",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Abel NN",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

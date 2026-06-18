@@ -1,0 +1,57 @@
+{
+  "linje": "I",
+  "nr": 31,
+  "nr_label": "31",
+  "usikker": false,
+  "navn": "Detlef",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "1383 (5. juni)",
+      "date_min": "1383-06-05",
+      "date_max": "1383-06-05",
+      "date_qualifier": "floruit",
+      "sted": "Lüneburg"
+    },
+    {
+      "faktatype": "klosterindgang",
+      "vaerdi": "Reinfeld Kloster",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Reinfeld Kloster"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Beke von Pogwisch",
+      "partner_ekstern_ref": null,
+      "type": null,
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "se nr. 16"
+    }
+  ],
+  "boern": {
+    "antal": 3,
+    "slaegtled": null,
+    "linje": null,
+    "nr_range": null
+  },
+  "begivenheder": []
+}

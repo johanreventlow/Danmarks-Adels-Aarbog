@@ -1,0 +1,38 @@
+{
+  "linje": "V",
+  "nr": 137,
+  "nr_label": "137",
+  "usikker": false,
+  "navn": "Greve Christian Ditlev Eberhard Preben Ferdinand",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1912-06-20",
+      "date_raw": "20. juni 1912",
+      "date_min": "1912-06-20",
+      "date_max": "1912-06-20",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1912-07-18",
+      "date_raw": "døbt 18. juli s.å. i Brahetrolleborg Kirke",
+      "date_min": "1912-07-18",
+      "date_max": "1912-07-18",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1928-04-06",
+      "date_raw": "6. april 1928",
+      "date_min": "1928-04-06",
+      "date_max": "1928-04-06",
+      "date_qualifier": "exact",
+      "sted": "Shrewsbury School, England"
+    }
+  ]
+}

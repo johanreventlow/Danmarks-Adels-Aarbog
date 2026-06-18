@@ -1,0 +1,98 @@
+{
+  "linje": "III",
+  "nr": 63,
+  "nr_label": "63",
+  "usikker": false,
+  "navn": "Dorothea",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1697-07-01",
+      "date_raw": "† 1. juli 1697 på Neuhaus",
+      "date_min": "1697-07-01",
+      "date_max": "1697-07-01",
+      "date_qualifier": "exact",
+      "sted": "Neuhaus"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Neuhaus",
+      "periode_raw": "(1636-†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Hans Heinrich rigsfriherre Kielmann von Kielmannseck",
+      "partner_ekstern_ref": "DAA 1923, 479",
+      "type": "vielse",
+      "dato_raw": "Gift 1° 25. nov. 1675",
+      "date_min": "1675-11-25",
+      "date_max": "1675-11-25",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 29. sept. 1636",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 2. juni 1686 på Quarnbek",
+        "date_min": "1686-06-02",
+        "date_max": "1686-06-02",
+        "sted": "Quarnbek"
+      },
+      "partner_erhverv": [
+        "gottorpsk kammer-",
+        "land- og gehejmeråd",
+        "m.a. den holsten-gottorpske regering",
+        "amtmand",
+        "domherre",
+        "dansk gehejme- og landråd",
+        "generalkrigskommissær",
+        "klosterprovst"
+      ],
+      "partner_foraeldre": "Gottorpsk hofkansler, regerings- og kammerpræsident, gehejme- og hofråd, amtmand, hofpfalzgreve, klosterprovst Johann Adolf K. von K. til Cronshagen samt Satrupholm og Margaretha von Hatten",
+      "note": "Gift 1° 26. maj 1663 med Meta von der Wisch."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Cai von Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 143",
+      "type": "vielse",
+      "dato_raw": "Gift 2° 1691",
+      "date_min": "1691-01-01",
+      "date_max": "1691-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 25. okt. 1650",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 15. jan. 1704 i Kiel",
+        "date_min": "1704-01-15",
+        "date_max": "1704-01-15",
+        "sted": "Kiel"
+      },
+      "partner_erhverv": [
+        "holstensk landråd",
+        "dansk gehejme- og landråd"
+      ],
+      "partner_foraeldre": "Hans von R. til Neuhaus, Satjewietz, Löhrstorf samt Grossenbrode og Ide von Buchwaldt til Doberstorf",
+      "note": "Gift 1° 1670 med Catharina Margaretha Blome; gift 3° 1699 med Christina Magdalena von Reventlow."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "22. jan. 1657",
+      "date_min": "1657-01-22",
+      "date_max": "1657-01-22",
+      "sted": null,
+      "note": "Bisat 8. sept. s.å. i Det Kielmannseckske Gravkapel i Slesvig Domkirke."
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "linje": "V",
+  "nr": 51,
+  "nr_label": "51",
+  "usikker": false,
+  "navn": "Greve Ludvig Ditlew",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1780-06-07",
+      "date_raw": "7. juni 1780",
+      "date_min": "1780-06-07",
+      "date_max": "1780-06-07",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1780-06-11",
+      "date_raw": "døbt 11. s.m. i Vesterborg Kirke",
+      "date_min": "1780-06-11",
+      "date_max": "1780-06-11",
+      "date_qualifier": "exact",
+      "sted": "Vesterborg Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1857-06-10",
+      "date_raw": "10. juni 1857",
+      "date_min": "1857-06-10",
+      "date_max": "1857-06-10",
+      "date_qualifier": "exact",
+      "sted": "Preetz"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Agnes Benedicte Sophie Christiane Friderike friherreinde von Hammerstein-Loxten",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 24. juni 1815",
+      "date_min": "1815-06-24",
+      "date_max": "1815-06-24",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 18. sept. 1795",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 19. jan. 1824 på Sandbjerg",
+        "date_min": "1824-01-19",
+        "date_max": "1824-01-19",
+        "sted": "Sandbjerg"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Oldenburgsk regeringspræsident, storbritannisk og hannoveransk gehejmeråd, oberst Hans Detlev friherre von H.-L. og Sophie Dorothea Louise komtesse Holck",
+      "note": null
+    }
+  ]
+}

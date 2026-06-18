@@ -1,0 +1,38 @@
+{
+  "linje": "V",
+  "nr": 55,
+  "nr_label": "55",
+  "usikker": false,
+  "navn": "Greve Ernst Christopher Detlef",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1786-08-06",
+      "date_raw": "6. aug. 1786",
+      "date_min": "1786-08-06",
+      "date_max": "1786-08-06",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1786-08-13",
+      "date_raw": "hjemmedøbt 13. s.m.",
+      "date_min": "1786-08-13",
+      "date_max": "1786-08-13",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1859-01-18",
+      "date_raw": "18. jan. 1859",
+      "date_min": "1859-01-18",
+      "date_max": "1859-01-18",
+      "date_qualifier": "exact",
+      "sted": "København"
+    }
+  ]
+}

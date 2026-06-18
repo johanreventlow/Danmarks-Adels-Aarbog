@@ -1,0 +1,69 @@
+{
+  "linje": "V",
+  "nr": 181,
+  "nr_label": "181",
+  "usikker": false,
+  "navn": "Greve Otto Frederik Iuel",
+  "tilnavn": "til Agerup",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1960-02-02",
+      "date_raw": "2. febr. 1960",
+      "date_min": "1960-02-02",
+      "date_max": "1960-02-02",
+      "date_qualifier": "exact",
+      "sted": "Agerup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1960-05-08",
+      "date_raw": "døbt 8. maj s.å. i Våbensted Kirke",
+      "date_min": "1960-05-08",
+      "date_max": "1960-05-08",
+      "date_qualifier": "exact",
+      "sted": "Våbensted Kirke"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Nina Glarner",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 1° 3. febr. 1990",
+      "date_min": "1990-02-03",
+      "date_max": "1990-02-03",
+      "sted": "Viby Kirke",
+      "skilt": true,
+      "partner_foedsel": "* 19. nov. 1963 i Aarhus",
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [
+        "senere psykoterapeut"
+      ],
+      "partner_foraeldre": "Civilingeniør, cand.polyt. Georg G. og tandlæge, cand.odont. Else Østermark",
+      "note": null
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Sophie Henriette Raben-Levetzau",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 2° 24. sept. 2007",
+      "date_min": "2007-09-24",
+      "date_max": "2007-09-24",
+      "sted": "Nykøbing Falster",
+      "skilt": false,
+      "partner_foedsel": "* 27. maj 1965 i Gentofte",
+      "partner_daab": "døbt 18. sept. s.å. i Ordrup Kirke",
+      "partner_doed": null,
+      "partner_erhverv": [
+        "billedkunstner"
+      ],
+      "partner_foraeldre": "Direktør, forfatter Frederik Ivan Josias R.-L. og Birgit Paula Jerichow",
+      "note": null
+    }
+  ]
+}
