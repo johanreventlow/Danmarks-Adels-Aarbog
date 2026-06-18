@@ -100,5 +100,21 @@ class TestExpectedSignals(unittest.TestCase):
         self.assertTrue(doed_flags, "Mangler R8-advisory for død")
 
 
+class TestProvenansGate(unittest.TestCase):
+    def _run(self, rec, raw):
+        src = {"raw_text": raw}
+        issues, _ = validate.validate(rec, src, {})
+        return issues
+
+    def test_span_findes(self):
+        rec = {"linje": "I", "nr": 1, "facts": [{"faktatype": "død", "kilde_span": "† 1300"}]}
+        self.assertEqual([i for i in self._run(rec, "N.N. † 1300, til X.") if i.startswith("R7")], [])
+
+    def test_span_hallucineret(self):
+        rec = {"linje": "I", "nr": 1, "facts": [{"faktatype": "død", "kilde_span": "† 1399"}]}
+        bad = [i for i in self._run(rec, "N.N. † 1300, til X.") if i.startswith("R7")]
+        self.assertEqual(len(bad), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

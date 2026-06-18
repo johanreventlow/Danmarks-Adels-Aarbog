@@ -239,6 +239,13 @@ def validate(rec, src, known_by_linje):
         if missing:
             issues.append(f'R1: årstal {missing} i dato "{d}" findes ikke i prosaen (hallucination?)')
 
+    # R7: felt-proveniens — hvert kilde_span SKAL være ordret substring af prosaen.
+    spans = [f.get('kilde_span') for f in (rec.get('facts') or [])]
+    spans += [a.get('kilde_span') for a in (rec.get('aegteskaber') or [])]
+    for sp in spans:
+        if sp and norm(sp) not in hay:
+            issues.append(f'R7: kilde_span "{sp}" findes ikke ordret i prosaen (hallucination?)')
+
     # R4: ægteskabs-ordinaler strengt stigende
     ords = [a.get('ordinal') for a in (rec.get('aegteskaber') or []) if a.get('ordinal') is not None]
     if ords != sorted(set(ords)) or len(ords) != len(set(ords)):
