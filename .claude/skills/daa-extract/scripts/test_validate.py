@@ -51,5 +51,54 @@ class TestDeriveAegteskaber(unittest.TestCase):
         self.assertIn(got[0]["dato_raw"].strip(), raw)
 
 
+class TestExpectedSignals(unittest.TestCase):
+    def test_venter_aegteskab_men_mangler(self):
+        raw = "N.N. g. 1750 m. Sofie. † 1799."
+        sig = validate.expected_signals(raw)
+        self.assertTrue(sig["venter_aegteskab"])
+        self.assertTrue(sig["venter_doed"])
+
+    def test_ingen_signaler(self):
+        raw = "N.N. levede ugift uden kendte børn."
+        sig = validate.expected_signals(raw)
+        self.assertFalse(sig["venter_aegteskab"])
+        self.assertFalse(sig["venter_boern"])
+        self.assertFalse(sig["venter_doed"])
+
+    def test_venter_boern(self):
+        raw = "N.N. 3 børn: Tiende slægtled, II, nr. 31-35."
+        sig = validate.expected_signals(raw)
+        self.assertTrue(sig["venter_boern"])
+        self.assertFalse(sig["venter_aegteskab"])
+
+    def test_doed_dagger_symbol(self):
+        raw = "N.N. † 1801."
+        sig = validate.expected_signals(raw)
+        self.assertTrue(sig["venter_doed"])
+        self.assertFalse(sig["venter_aegteskab"])
+        self.assertFalse(sig["venter_boern"])
+
+    def test_r8_advisory_i_validate(self):
+        """validate() tilføjer R8-advisories (non-blocking) ved mismatch."""
+        rec = {
+            "linje": "I",
+            "nr": 1,
+            "nr_label": "1",
+            "navn": "N.N.",
+            "aegteskaber": [],
+            "boern": None,
+            "facts": [],
+        }
+        src = {"raw_text": "N.N. g. 1750 m. Sofie. † 1799.", "linje": "I", "nr": 1, "nr_label": "1"}
+        issues, advisory = validate.validate(rec, src, {"I": {1}})
+        self.assertEqual(issues, [], "R8 må ikke blokere (skal være advisory, ikke issue)")
+        r8_lines = [a for a in advisory if a.startswith("R8:")]
+        self.assertGreaterEqual(len(r8_lines), 2, f"Forventet mindst 2 R8-advisories, fik: {advisory}")
+        aegt_flags = [a for a in r8_lines if "ægteskab" in a]
+        doed_flags = [a for a in r8_lines if "død" in a]
+        self.assertTrue(aegt_flags, "Mangler R8-advisory for ægteskab")
+        self.assertTrue(doed_flags, "Mangler R8-advisory for død")
+
+
 if __name__ == "__main__":
     unittest.main()

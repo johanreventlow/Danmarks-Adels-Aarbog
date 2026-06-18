@@ -180,6 +180,22 @@ def derive_aegteskaber(raw_text):
     return [seen[k] for k in sorted(seen)]
 
 
+def expected_signals(raw_text):
+    """Udled forventede signaler fra prosaen.
+
+    Returnér dict med booleans:
+        venter_aegteskab  — prosa indeholder Gift/g.-markør
+        venter_boern      — prosa indeholder børne-reference med nr.
+        venter_doed       — prosa indeholder dødstegn (†/☩) eller "døde"/"d."
+    """
+    txt = norm(raw_text or '')
+    return {
+        'venter_aegteskab': bool(derive_aegteskaber(txt)),
+        'venter_boern': BOERN_RE.search(txt) is not None,
+        'venter_doed': bool(re.search(r'[†☩]|\bdøde?\b|\bd\.\s*\d', txt, re.I)),
+    }
+
+
 def collect_dates(rec):
     out = []
     for f in rec.get('facts') or []:
@@ -273,6 +289,16 @@ def validate(rec, src, known_by_linje):
         rl = em.get('rolle') or ''
         if '(' in rl or ' og ' in rl or ' med ' in rl or len(rl.split()) > 4:
             advisory.append(f'V9: mistænkelig embede-rolle "{rl}" (sammensat/ikke-rolle?)')
+
+    # R8 (advisory): mismatch mellem prosa-signaler og udtrukket rygrad.
+    # Non-blocking — advisories er diagnostik, ikke blokér-kriteriet.
+    if src_text:
+        sig = expected_signals(src_text)
+        if sig['venter_aegteskab'] and not (rec.get('aegteskaber')):
+            advisory.append('R8: prosa nævner ægteskab, men intet udtrukket')
+        if sig['venter_doed'] and not any(
+                f.get('faktatype') == 'død' for f in (rec.get('facts') or [])):
+            advisory.append('R8: prosa nævner død, men intet død-fakta')
 
     return issues, advisory
 
