@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""Eskalerings-merge (trin ④b-plumbing): re-validér Opus-gen-udtræk og merge.
+
+Promote-kriterium: 0 blokerende brud OG ikke flere R8-misses end Sonnet-snapshottet.
+Promoverede poster markeres _escalated=True (load_daa.R stamper blaastemplet_af).
+REPLACE hvis nøglen allerede er i clean (R8-post der loadede); ellers APPEND.
+Stadig-fejlende sikres i review.json. Diff-rapport: se gen_diff() (Task 3).
+"""
+import os, sys, json, argparse
+sys.path.insert(0, os.path.dirname(__file__))
+import validate
+
+
+def count_r8(advisory):
+    return sum(1 for a in (advisory or []) if a.startswith('R8'))
+
+
+def _key(rec):
+    return (rec.get('linje'), rec.get('nr_label') or str(rec.get('nr')))
+
+
+def decide(reextracted, snapshot, src, known_by_linje):
+    """(promote, issues, advisory) for et Opus-gen-udtræk."""
+    issues, advisory = validate.validate(reextracted, src, known_by_linje)
+    _, snap_adv = validate.validate(snapshot, src, known_by_linje)
+    promote = (not issues) and count_r8(advisory) <= count_r8(snap_adv)
+    return promote, issues, advisory
+
+
+def merge_escalated(escalation, reext_by_key, snap_by_key, src_by_key, known_by_linje, clean, review):
+    """Returnér (new_clean, new_review, promoted_keys)."""
+    clean_by_key = {_key(r): r for r in clean}
+    review_keys = {(r.get('linje'), r.get('nr_label') or str(r.get('nr'))) for r in review}
+    promoted = []
+    for ent in escalation:
+        key = (ent['linje'], ent['nr_label'])
+        reext = reext_by_key.get(key)
+        if reext is None:
+            continue
+        snap = snap_by_key.get(key, reext)
+        src = src_by_key.get(key)
+        promote, issues, advisory = decide(reext, snap, src, known_by_linje)
+        if promote:
+            # flet autoritativ narrativ ind som validate.main() gør, + marker
+            merged = dict(reext)
+            if src:
+                merged['narrative'] = src['raw_text']
+            merged['_escalated'] = True
+            clean_by_key[key] = merged          # REPLACE el. APPEND (samme operation på dict)
+            review_keys.discard(key)
+            promoted.append(key)
+        else:
+            review_keys.add(key)
+            clean_by_key.pop(key, None)         # en R8-post der nu fejler må IKKE blive i clean
+    new_clean = list(clean_by_key.values())
+    # genopbyg review: behold eksisterende der ikke blev promoveret + nye fejlende
+    new_review = [r for r in review if _key(r) in review_keys]
+    for key in review_keys:
+        if not any(_key(r) == key for r in new_review):
+            r = reext_by_key.get(key)
+            if r is not None:
+                new_review.append(r)
+    return new_clean, new_review, promoted
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('posts'); ap.add_argument('reextracted_dir'); ap.add_argument('snapshot_dir')
+    ap.add_argument('escalation'); ap.add_argument('clean'); ap.add_argument('review')
+    args = ap.parse_args()
+    posts = json.load(open(args.posts, encoding='utf-8'))
+    src_by_key = {(p['linje'], p.get('nr_label', str(p['nr']))): p for p in posts}
+    known_by_linje = {}
+    for p in posts:
+        known_by_linje.setdefault(p['linje'], set()).add(p['nr'])
+    escalation = json.load(open(args.escalation, encoding='utf-8'))
+
+    def load_dir(d):
+        out = {}
+        for fn in os.listdir(d):
+            if fn.endswith('.sonnet.json'): continue
+            if fn.endswith('.json'):
+                r = json.load(open(os.path.join(d, fn), encoding='utf-8'))
+                out[(r.get('linje'), r.get('nr_label') or str(r.get('nr')))] = r
+        return out
+
+    def load_snaps(d):
+        out = {}
+        for fn in os.listdir(d):
+            if fn.endswith('.sonnet.json'):
+                r = json.load(open(os.path.join(d, fn), encoding='utf-8'))
+                out[(r.get('linje'), r.get('nr_label') or str(r.get('nr')))] = r
+        return out
+
+    reext = load_dir(args.reextracted_dir)
+    snaps = load_snaps(args.snapshot_dir)
+    clean = json.load(open(args.clean, encoding='utf-8'))
+    review = json.load(open(args.review, encoding='utf-8'))
+    new_clean, new_review, promoted = merge_escalated(escalation, reext, snaps, src_by_key, known_by_linje, clean, review)
+    json.dump(new_clean, open(args.clean, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+    json.dump(new_review, open(args.review, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+    print(f'[escalate] {len(promoted)} promoveret, {len(new_review)} stadig i review', file=sys.stderr)
+
+
+if __name__ == '__main__':
+    main()

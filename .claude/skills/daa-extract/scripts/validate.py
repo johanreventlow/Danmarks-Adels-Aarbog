@@ -21,7 +21,7 @@ import sys, os, re, json, argparse
 
 ALLOWED_TOP = {"linje", "nr", "nr_label", "usikker", "navn", "tilnavn", "koen",
                "facts", "godser", "embeder", "aegteskaber", "boern",
-               "begivenheder", "narrative"}
+               "begivenheder", "narrative", "_escalated"}
 
 # Kontrolleret vokabular (invariant #9): flag drift/fejl som advisory.
 try:
