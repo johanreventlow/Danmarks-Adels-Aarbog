@@ -1,0 +1,56 @@
+{
+  "linje": "V",
+  "nr": 66,
+  "nr_label": "66",
+  "usikker": false,
+  "navn": "Agnes",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 7. okt. 1789",
+      "date_min": "1789-10-07",
+      "date_max": "1789-10-07",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 25. s.m.",
+      "date_min": "1789-10-25",
+      "date_max": "1789-10-25",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 16. maj 1790",
+      "date_min": "1790-05-16",
+      "date_max": "1790-05-16",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 24. s.m. fra Brahetrolleborg Kirke og begravet på Brahetrolleborg Kirkegård",
+      "date_min": "1790-05-24",
+      "date_max": "1790-05-24",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg Kirkegård"
+    }
+  ]
+}

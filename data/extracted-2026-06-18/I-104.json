@@ -1,0 +1,57 @@
+{
+  "linje": "I",
+  "nr": 104,
+  "nr_label": "104",
+  "usikker": false,
+  "navn": "Christina",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1654",
+      "date_raw": "* 1654",
+      "date_min": "1654-01-01",
+      "date_max": "1654-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1674",
+      "date_raw": "† 1674",
+      "date_min": "1674-01-01",
+      "date_max": "1674-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Bendix Hans von Buchwaldt",
+      "partner_ekstern_ref": "DAA 1913, 135",
+      "type": "vielse",
+      "dato_raw": "Gift 26. jan. 1669",
+      "date_min": "1669-01-26",
+      "date_max": "1669-01-26",
+      "sted": "Kiel",
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1684, kort før 2. marts",
+        "date_min": "1684-01-01",
+        "date_max": "1684-03-02",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Joachim von B. til Langesø og Margaretha von Wensin",
+      "note": "Gift 2° 1680 med Oelgard von Ratlow; hun fragik arv og gæld."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

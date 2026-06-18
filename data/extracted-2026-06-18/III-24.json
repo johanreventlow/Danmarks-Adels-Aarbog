@@ -1,0 +1,28 @@
+{
+  "linje": "III",
+  "nr": 24,
+  "nr_label": "24",
+  "usikker": false,
+  "navn": "Heine",
+  "tilnavn": "til Ziesendorf",
+  "koen": "mand",
+  "facts": [],
+  "godser": [
+    {
+      "navn": "Ziesendorf",
+      "periode_raw": "(-1568-)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Schwasdorf",
+      "periode_raw": "(-1555-1568-)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

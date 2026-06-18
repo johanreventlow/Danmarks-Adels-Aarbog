@@ -1,0 +1,29 @@
+{
+  "linje": "V",
+  "nr": 197,
+  "nr_label": "197",
+  "usikker": false,
+  "navn": "Greve Mathias Conrad",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "2004-07-22",
+      "date_raw": "22. juli 2004",
+      "date_min": "2004-07-22",
+      "date_max": "2004-07-22",
+      "date_qualifier": "exact",
+      "sted": "Gentofte"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "2004-11-06",
+      "date_raw": "døbt 6. nov. s.å. i Våbensted Kirke",
+      "date_min": "2004-11-06",
+      "date_max": "2004-11-06",
+      "date_qualifier": "exact",
+      "sted": "Våbensted Kirke"
+    }
+  ]
+}

@@ -67,7 +67,7 @@ add_narr <- function(pid, sid, side, tekst) push("narrative", list(id=nid("narra
 add_fact <- function(sid_, ft, sted_id=NA, st="person") { id <- nid("fact"); push("fact", list(id=id, subjekt_type=st, subjekt_id=sid_, faktatype=ft, sted_id=sted_id)); id }
 add_assertion <- function(tt, tid, vaerdi=NA, dmin=NA, dmax=NA, qual=NA, raw=NA) { id <- nid("assertion")
   push("assertion", list(id=id, target_type=tt, target_id=tid, vaerdi_tekst=vaerdi, date_min=dmin, date_max=dmax, date_qualifier=qual, date_raw=raw)); id }
-add_citation <- function(aid, sid, side=NA, kval="primær") push("citation", list(id=nid("citation"), assertion_id=aid, source_id=sid, side=side, kvalitet=kval))
+add_citation <- function(aid, sid, side=NA, kval="primær", citat=NA) push("citation", list(id=nid("citation"), assertion_id=aid, source_id=sid, side=side, citat_tekst=citat, kvalitet=kval))
 add_conclusion <- function(tt, tid, chosen, status="afklaret", by=udgave) push("conclusion", list(id=nid("conclusion"), target_type=tt, target_id=tid, valgt_assertion_id=chosen, status=status, blaastemplet_af=by))
 add_note <- function(tt, tid, indhold) {
   if (is.null(indhold) || is.na(indhold) || !nzchar(trimws(indhold))) return(invisible())
@@ -91,10 +91,10 @@ add_org    <- function(navn) get_or_create("organisation", navn)
 add_event  <- function(navn) get_or_create("historical_event", navn)
 add_relation <- function(st, sid_, ot, oid_, rolle, raw=NA, em=NA) { id <- nid("relation")
   push("relation", list(id=id, subjekt_type=st, subjekt_id=sid_, objekt_type=ot, objekt_id=oid_, rolle=rolle, erhvervelsesmaade=em, periode_raw=raw)); id }
-fact_value <- function(pid, ft, vaerdi=NA, dmin=NA, dmax=NA, qual=NA, raw=NA, sid, side, sted=NA, st="person") {
+fact_value <- function(pid, ft, vaerdi=NA, dmin=NA, dmax=NA, qual=NA, raw=NA, sid, side, sted=NA, st="person", span=NA) {
   fid <- add_fact(pid, ft, get_place(sted), st)
   aid <- add_assertion("fact", fid, vaerdi, iso(dmin), iso(dmax), qual, raw)
-  add_citation(aid, sid, side); add_conclusion("fact", fid, aid); invisible(fid) }
+  add_citation(aid, sid, side, citat=span); add_conclusion("fact", fid, aid); invisible(fid) }
 # Ægtefælle-dato kan komme STRUKTURERET (list m. date_min/max/raw/sted) ELLER
 # som rå STRING ("* 26. sept. 1687") — udtrækket er inkonsistent. Begge -> fakta;
 # raw bevares altid (display bruger date_raw). String: kun raw, ingen ISO-dato.
@@ -191,7 +191,7 @@ tryCatch({
       if (f$faktatype %in% c("erhverv", "uddannelse")) next   # foreløbig IKKE rygrad — bliver i narrativen
       fact_value(pid, f$faktatype, vaerdi = g(f,"vaerdi"), dmin = g(f,"date_min"),
                  dmax = g(f,"date_max"), qual = g(f,"date_qualifier"), raw = g(f,"date_raw"),
-                 sid = src, side = side, sted = g(f,"sted"))
+                 sid = src, side = side, sted = g(f,"sted"), span = g(f,"kilde_span"))
     }
   }
 
@@ -225,7 +225,8 @@ tryCatch({
       }
       if (!is.null(a$dato_raw) || !is.null(a$date_min) || !is.null(a[["sted"]]))
         fact_value(fam, "vielse", dmin = g(a,"date_min"), dmax = g(a,"date_max"),
-                   raw = g(a,"dato_raw"), sted = g(a,"sted"), sid = src, side = side, st = "family")
+                   raw = g(a,"dato_raw"), sted = g(a,"sted"), sid = src, side = side,
+                   st = "family", span = g(a,"kilde_span"))
       if (isTRUE(a$skilt))
         fact_value(fam, "skilsmisse", raw = "skilt", sid = src, side = side, st = "family")
       add_note("family", fam, g(a, "note", NULL))

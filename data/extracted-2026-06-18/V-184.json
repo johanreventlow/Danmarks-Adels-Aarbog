@@ -1,0 +1,20 @@
+{
+  "linje": "V",
+  "nr": 184,
+  "nr_label": "184",
+  "usikker": false,
+  "navn": "Komtesse Victoria Franziska Marie",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1998-07-15",
+      "date_raw": "15. juli 1998",
+      "date_min": "1998-07-15",
+      "date_max": "1998-07-15",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ]
+}

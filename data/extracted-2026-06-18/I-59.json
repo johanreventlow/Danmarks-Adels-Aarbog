@@ -1,0 +1,72 @@
+{
+  "linje": "I",
+  "nr": 59,
+  "nr_label": "59",
+  "usikker": false,
+  "navn": "Detlef",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "ca. 1483",
+      "date_raw": "* ca. 1483",
+      "date_min": "1483-01-01",
+      "date_max": "1483-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "12. maj 1536 i Slesvig By",
+      "date_raw": "† 12. maj 1536 i Slesvig By",
+      "date_min": "1536-05-12",
+      "date_max": "1536-05-12",
+      "date_qualifier": "exact",
+      "sted": "Slesvig By"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Rixdorf",
+      "periode_raw": "(1519-1520)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "kannik",
+      "dato_raw": "1513"
+    },
+    {
+      "organisation": "Slesvig",
+      "rolle": "vicar",
+      "dato_raw": "1514"
+    },
+    {
+      "organisation": "Hamburg",
+      "rolle": "kannik",
+      "dato_raw": "1514"
+    },
+    {
+      "organisation": "Slesvig",
+      "rolle": "kansler",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Reinbek Kloster",
+      "rolle": "provst",
+      "dato_raw": "1526-"
+    },
+    {
+      "organisation": "Lübeck",
+      "rolle": "biskop",
+      "dato_raw": "1535-†"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

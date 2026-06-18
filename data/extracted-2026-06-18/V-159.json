@@ -1,0 +1,62 @@
+{
+  "linje": "V",
+  "nr": 159,
+  "nr_label": "159",
+  "usikker": false,
+  "navn": "Greve Henning Detlev Aage Einar",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1922-01-12",
+      "date_raw": "12. jan. 1922",
+      "date_min": "1922-01-12",
+      "date_max": "1922-01-12",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1922-02-10",
+      "date_raw": "hjemmedøbt 10. febr. s.å.",
+      "date_min": "1922-02-10",
+      "date_max": "1922-02-10",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1990-04-19",
+      "date_raw": "19. april 1990",
+      "date_min": "1990-04-19",
+      "date_max": "1990-04-19",
+      "date_qualifier": "exact",
+      "sted": "Rinkenæs"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Anne Sylvest Larsen",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 26. aug. 1955",
+      "date_min": "1955-08-26",
+      "date_max": "1955-08-26",
+      "sted": "Tibirke Kirke",
+      "skilt": false,
+      "partner_foedsel": "* 8. juni 1936 i København",
+      "partner_daab": "døbt 26. juli s.å. i Simon Peters Kirke",
+      "partner_doed": {
+        "date_raw": "† 4. april 1989 i Rinkenæs",
+        "date_min": "1989-04-04",
+        "date_max": "1989-04-04",
+        "sted": "Rinkenæs"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Næstfmd. Børge Julius L. og Agnete Olsen",
+      "note": null
+    }
+  ]
+}

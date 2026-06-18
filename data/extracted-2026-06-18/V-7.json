@@ -1,0 +1,63 @@
+{
+  "linje": "V",
+  "nr": 7,
+  "nr_label": "7",
+  "usikker": false,
+  "navn": "Grevinde Armgard Margareta",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1709-01-07",
+      "date_raw": "† 7. jan. 1709 i København",
+      "date_min": "1709-01-07",
+      "date_max": "1709-01-07",
+      "date_qualifier": "exact",
+      "sted": "København"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Friderich greve Ahlefeldt",
+      "partner_ekstern_ref": "DAA 1982-84, 682 f.",
+      "type": "vielse",
+      "dato_raw": "Gift 3. jan. 1695",
+      "date_min": "1695-01-03",
+      "date_max": "1695-01-03",
+      "sted": "København",
+      "skilt": false,
+      "partner_foedsel": "* 21. april 1662 i Flensborg",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 10. juni 1708 i Regensburg",
+        "date_min": "1708-06-10",
+        "date_max": "1708-06-10",
+        "sted": "Regensburg"
+      },
+      "partner_erhverv": [
+        "statholder",
+        "guvernør",
+        "general",
+        "land- og gehejmeråd",
+        "kammerherre"
+      ],
+      "partner_foraeldre": "Storkansler, statholder, guvernør, generalkrigskommissær, landråd Friderich greve A. til grevskabet Langeland, rigsgrevskabet Rixingen, baroniet Mörsberg m.fl. og Margareta Dorothea rigsgrevinde zu Rantzau",
+      "note": "Fik ifølge ægtefællens testamente tillagt indtægterne af Skovbølgaard."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "17. aug. 1679",
+      "date_min": "1679-08-17",
+      "date_max": "1679-08-17",
+      "sted": "København",
+      "note": "Bisat 12. s.m. fra Sankt Petri Kirke og ført til Det Reventlowske Kapel i Radsted Kirke."
+    }
+  ]
+}

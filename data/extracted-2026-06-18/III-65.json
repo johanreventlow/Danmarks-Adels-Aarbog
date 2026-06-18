@@ -1,0 +1,25 @@
+{
+  "linje": "III",
+  "nr": 65,
+  "nr_label": "65",
+  "usikker": false,
+  "navn": "Lorenz Detlef",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1658",
+      "date_raw": "* 1658",
+      "date_min": "1658-01-01",
+      "date_max": "1658-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

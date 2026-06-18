@@ -1,0 +1,29 @@
+{
+  "linje": "V",
+  "nr": 15,
+  "nr_label": "15",
+  "usikker": false,
+  "navn": "Conrad",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Friherre",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "som lille",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ]
+}

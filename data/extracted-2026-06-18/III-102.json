@@ -1,0 +1,60 @@
+{
+  "linje": "III",
+  "nr": 102,
+  "nr_label": "102",
+  "usikker": false,
+  "navn": "Elisabeth Sophia",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1763",
+      "date_raw": "† 1763",
+      "date_min": "1763-01-01",
+      "date_max": "1763-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Christoph von Ahlefeldt",
+      "partner_ekstern_ref": "DAA 1982-84, 680",
+      "type": "vielse",
+      "dato_raw": "Gift 27. sept. 1743",
+      "date_min": "1743-09-27",
+      "date_max": "1743-09-27",
+      "sted": "Uetersen",
+      "skilt": false,
+      "partner_foedsel": "* ca. 1720",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1763",
+        "date_min": "1763-01-01",
+        "date_max": "1763-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "slesvig-holstensk landråd",
+        "dansk løjtnant"
+      ],
+      "partner_foraeldre": "Johann Adolph von A. til Oppendorf samt Schönhorst og Magdalena Blome",
+      "note": "Til Marutendorf."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "ca. 1725",
+      "date_min": "1725-01-01",
+      "date_max": "1725-12-31",
+      "sted": null,
+      "note": null
+    }
+  ]
+}

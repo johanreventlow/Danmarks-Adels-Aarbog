@@ -1,0 +1,115 @@
+{
+  "linje": "V",
+  "nr": 65,
+  "nr_label": "65",
+  "usikker": false,
+  "navn": "Vilhelmine Julie",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 30. juli 1788 på Brahetrolleborg",
+      "date_min": "1788-07-30",
+      "date_max": "1788-07-30",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 14. aug. s.å. i Brahetrolleborg Kirke",
+      "date_min": "1788-08-14",
+      "date_max": "1788-08-14",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 8. okt. 1868 på Holsteinborg",
+      "date_min": "1868-10-08",
+      "date_max": "1868-10-08",
+      "date_qualifier": "exact",
+      "sted": "Holsteinborg"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 16. s.m. fra Holsteinborg Kirke og begravet s.d. på Holsteinborg Kirkegård",
+      "date_min": "1868-10-16",
+      "date_max": "1868-10-16",
+      "date_qualifier": "exact",
+      "sted": "Holsteinborg Kirke"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Fuirendal",
+      "periode_raw": "1840",
+      "period_type": "enkesæde",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Det Fuirendaler Institut",
+      "rolle": "patronesse",
+      "dato_raw": "1840-†"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Friderich Adolph Holstein",
+      "partner_ekstern_ref": "DAA 1988-90, 669 f.",
+      "type": "vielse",
+      "dato_raw": "Gift 4. maj 1808 på Brahetrolleborg",
+      "date_min": "1808-05-04",
+      "date_max": "1808-05-04",
+      "sted": "Brahetrolleborg",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 18. okt. 1784 på Waterneverstorf",
+        "date_min": "1784-10-18",
+        "date_max": "1784-10-18",
+        "sted": "Waterneverstorf"
+      },
+      "partner_daab": {
+        "date_raw": "døbt 21. s.m. i Lütjenburg Kirke",
+        "date_min": "1784-10-21",
+        "date_max": "1784-10-21",
+        "sted": "Lütjenburg Kirke"
+      },
+      "partner_doed": {
+        "date_raw": "† 21. maj 1836 på Holsteinborg",
+        "date_min": "1836-05-21",
+        "date_max": "1836-05-21",
+        "sted": "Holsteinborg"
+      },
+      "partner_erhverv": [
+        "kammerherre",
+        "stænderdeputeret"
+      ],
+      "partner_foraeldre": "Kammerherre Hinrich greve H. til grevskabet Holsteinborg, Waterneverstorf, Farve samt Gross‑Kollmar og Friderica Christiana Maria rigsgrevinde zu Rantzau",
+      "note": "Greve til grevskabet Holsteinborg; bisat 27. s.m. (maj 1836) fra Holsteinborg Kirke og begravet s.d. på Holsteinborg Kirkegård"
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

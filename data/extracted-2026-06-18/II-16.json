@@ -1,0 +1,109 @@
+{
+  "linje": "II",
+  "nr": 16,
+  "nr_label": "16",
+  "usikker": false,
+  "navn": "Engel Christoph",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "ca. 1662",
+      "date_raw": "* ca. 1662",
+      "date_min": "1662-01-01",
+      "date_max": "1662-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "29. sept. 1700 ved Tønningen",
+      "date_raw": "† 29. sept. 1700 ved Tønningen",
+      "date_min": "1700-09-29",
+      "date_max": "1700-09-29",
+      "date_qualifier": "exact",
+      "sted": "Tønningen"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Lundsgaard",
+      "periode_raw": "(1700 (1. maj)-†)",
+      "period_type": "tenure",
+      "sted": "Ullerup S., Nybøl H."
+    },
+    {
+      "navn": "Filipsborg",
+      "periode_raw": "(1700 (1. maj)-†)",
+      "period_type": "tenure",
+      "sted": "Ullerup S., Nybøl H."
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Dronningens Livreg.",
+      "rolle": "fændrik",
+      "dato_raw": "1684"
+    },
+    {
+      "organisation": null,
+      "rolle": "sekondløjtnant",
+      "dato_raw": "1687"
+    },
+    {
+      "organisation": null,
+      "rolle": "premierløjtnant",
+      "dato_raw": "1690"
+    },
+    {
+      "organisation": null,
+      "rolle": "karakt. kaptajn",
+      "dato_raw": "1693 (17. jan.)"
+    },
+    {
+      "organisation": null,
+      "rolle": "virkelig kaptajn",
+      "dato_raw": "1697 (30. jan.)"
+    },
+    {
+      "organisation": "Glücksborg",
+      "rolle": "gottorpsk oberstløjtnant",
+      "dato_raw": "s.å."
+    },
+    {
+      "organisation": "Glücksborg",
+      "rolle": "hofmester",
+      "dato_raw": "s.å."
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Anna Leveke von Graevenitz",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 31. okt. 1691",
+      "date_min": "1691-10-31",
+      "date_max": "1691-10-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "Levede 1741 i Glückstadt."
+    }
+  ],
+  "boern": {
+    "antal": 2,
+    "slaegtled": "Tiende slægtled",
+    "linje": "II",
+    "nr_range": [
+      26,
+      27
+    ]
+  },
+  "begivenheder": []
+}

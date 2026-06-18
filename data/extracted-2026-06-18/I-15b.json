@@ -1,0 +1,40 @@
+{
+  "linje": "I",
+  "nr": 15,
+  "nr_label": "15b",
+  "usikker": false,
+  "navn": "Reymar",
+  "tilnavn": "Keye",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "Nævnes 1355 (10. maj)",
+      "date_min": "1355-05-10",
+      "date_max": "1355-05-10",
+      "date_qualifier": "floruit",
+      "sted": "Lübeck"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Elisabeth NN",
+      "partner_ekstern_ref": "se nr. 1",
+      "type": null,
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": null
+    }
+  ],
+  "boern": null
+}

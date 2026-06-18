@@ -1,0 +1,65 @@
+{
+  "linje": "V",
+  "nr": 64,
+  "nr_label": "64",
+  "usikker": false,
+  "navn": "Caroline Sophia Lovise",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 16. okt. 1786",
+      "date_min": "1786-10-16",
+      "date_max": "1786-10-16",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 29. s.m.",
+      "date_min": "1786-10-29",
+      "date_max": "1786-10-29",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 15. nov. 1802",
+      "date_min": "1802-11-15",
+      "date_max": "1802-11-15",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Brahetrolleborg Kirkegård"
+    },
+    {
+      "faktatype": "klosterindgang",
+      "vaerdi": "Preetz Adelige Kloster",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ]
+}

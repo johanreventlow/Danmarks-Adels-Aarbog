@@ -1,0 +1,61 @@
+{
+  "linje": "V",
+  "nr": 37,
+  "nr_label": "37",
+  "usikker": false,
+  "navn": "Lovisa Charlotta",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "5. dec. 1742 i København",
+      "date_min": "1742-12-05",
+      "date_max": "1742-12-05",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "6. s.m. i Hof- og Slotskirken s.st.",
+      "date_min": "1742-12-06",
+      "date_max": "1742-12-06",
+      "date_qualifier": "exact",
+      "sted": "Hof- og Slotskirken, København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "18. marts 1744",
+      "date_min": "1744-03-18",
+      "date_max": "1744-03-18",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 20. maj 1751 i Det Reventlowske Kapel i Dybbøl Kirke",
+      "date_min": "1751-05-20",
+      "date_max": "1751-05-20",
+      "date_qualifier": "exact",
+      "sted": "Det Reventlowske Kapel i Dybbøl Kirke"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

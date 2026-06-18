@@ -1,0 +1,60 @@
+{
+  "linje": "III",
+  "nr": 120,
+  "nr_label": "120",
+  "usikker": false,
+  "navn": "Dorothea",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1728",
+      "date_raw": "† 1728",
+      "date_min": "1728-01-01",
+      "date_max": "1728-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Christian von Schönfeld",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 29. jan. 1718",
+      "date_min": "1718-01-29",
+      "date_max": "1718-01-29",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1728",
+        "date_min": "1728-01-01",
+        "date_max": "1728-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "landråd",
+        "kammerjunker"
+      ],
+      "partner_foraeldre": null,
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "26. aug. 1703",
+      "date_min": "1703-08-26",
+      "date_max": "1703-08-26",
+      "sted": null,
+      "note": "Bisat 31. okt. s.å. i Kiel."
+    }
+  ]
+}

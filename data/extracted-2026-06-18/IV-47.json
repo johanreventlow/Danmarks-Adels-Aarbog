@@ -1,0 +1,65 @@
+{
+  "linje": "IV",
+  "nr": 47,
+  "nr_label": "47",
+  "usikker": false,
+  "navn": "Komtesse Sophie Theodora Julie",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1924/39",
+      "date_raw": "† 1924/39",
+      "date_min": "1924-01-01",
+      "date_max": "1939-12-31",
+      "date_qualifier": "approx",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "indskrevet",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Ernst Rudolf Schmieding",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 9. dec. 1880",
+      "date_min": "1880-12-09",
+      "date_max": "1880-12-09",
+      "sted": "Farve",
+      "skilt": false,
+      "partner_foedsel": "* 22. juni 1840",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 18. april 1909",
+        "date_min": "1909-04-18",
+        "date_max": "1909-04-18",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "sognepræst"
+      ],
+      "partner_foraeldre": null,
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "2. dec. 1844",
+      "date_min": "1844-12-02",
+      "date_max": "1844-12-02",
+      "sted": null,
+      "note": null
+    }
+  ]
+}

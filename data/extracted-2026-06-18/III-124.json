@@ -1,0 +1,40 @@
+{
+  "linje": "III",
+  "nr": 124,
+  "nr_label": "124",
+  "usikker": false,
+  "navn": "Hinrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1709",
+      "date_raw": "* 12. nov. 1709",
+      "date_min": "1709-01-01",
+      "date_max": "1709-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1724 (4. april)"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "12. nov. 1709",
+      "date_min": "1709-11-12",
+      "date_max": "1709-11-12",
+      "sted": null,
+      "note": null
+    }
+  ]
+}

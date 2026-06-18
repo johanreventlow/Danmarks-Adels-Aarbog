@@ -1,0 +1,40 @@
+{
+  "linje": "I",
+  "nr": 46,
+  "nr_label": "46",
+  "usikker": false,
+  "navn": "Elsebe",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "Var † 1485",
+      "date_min": null,
+      "date_max": "1485-12-31",
+      "date_qualifier": "before",
+      "sted": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Henning von Brockdorff",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "Til Roystorp og Bürau. Beseglede 1469 (2. maj) adelens forbundsbrev, beseglede 1470 (11. okt.) forbundsbrevet. Elsebe var enke efter ham."
+    }
+  ],
+  "boern": null
+}

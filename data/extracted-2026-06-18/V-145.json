@@ -1,0 +1,38 @@
+{
+  "linje": "V",
+  "nr": 145,
+  "nr_label": "145",
+  "usikker": false,
+  "navn": "Komtesse Anna Sybille",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1888-08-03",
+      "date_raw": "3. aug. 1888",
+      "date_min": "1888-08-03",
+      "date_max": "1888-08-03",
+      "date_qualifier": "exact",
+      "sted": "Christianslund"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1888-09-09",
+      "date_raw": "døbt 9. sept. s.å. i Ørum Kirke",
+      "date_min": "1888-09-09",
+      "date_max": "1888-09-09",
+      "date_qualifier": "exact",
+      "sted": "Ørum Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1918-10-22",
+      "date_raw": "22. okt. 1918",
+      "date_min": "1918-10-22",
+      "date_max": "1918-10-22",
+      "date_qualifier": "exact",
+      "sted": "Tårbæk"
+    }
+  ]
+}

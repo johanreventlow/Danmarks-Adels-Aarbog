@@ -1,0 +1,119 @@
+{
+  "linje": "IV",
+  "nr": 16,
+  "nr_label": "16",
+  "usikker": false,
+  "navn": "Greve Heinrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1842-07-02",
+      "date_raw": "† 2. juli 1842 i Hildesheim",
+      "date_min": "1842-07-02",
+      "date_max": "1842-07-02",
+      "date_qualifier": "exact",
+      "sted": "Hildesheim"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1814 (25. okt.)"
+    },
+    {
+      "organisation": "Göttingen",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1818 (9. april)"
+    },
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1818 (31. okt.)-1820"
+    },
+    {
+      "organisation": "Departementet for de udenrigske Anliggender",
+      "rolle": "surnumerær kancellist",
+      "dato_raw": "1819"
+    },
+    {
+      "organisation": "Gottorp",
+      "rolle": "cand.jur.",
+      "dato_raw": "1820"
+    },
+    {
+      "organisation": "Det slesvig-holsten-lauenburgske Kancelli",
+      "rolle": "auskultant",
+      "dato_raw": "1822-1825"
+    },
+    {
+      "organisation": "Berlin",
+      "rolle": "legationssekretær",
+      "dato_raw": "1825 (19. nov.)-1828 (26. dec.)"
+    },
+    {
+      "organisation": "Forbundsdagen i Frankfurt a. M.",
+      "rolle": "legationssekretær",
+      "dato_raw": "1828 (27. dec.)-1831 (18. april)"
+    },
+    {
+      "organisation": "Flensborg Amt",
+      "rolle": "amtmand",
+      "dato_raw": "1831 (27. april)-1834 (26. aug.)"
+    },
+    {
+      "organisation": "Det nordiske Oldskriftselskab",
+      "rolle": "ordentlig m.a.",
+      "dato_raw": "1832-†"
+    },
+    {
+      "organisation": "kammerherre",
+      "rolle": "kammerherre",
+      "dato_raw": "1834 (3. juli)"
+    },
+    {
+      "organisation": "den slesvig-holstenske regering",
+      "rolle": "6. råd",
+      "dato_raw": "1834 (26. aug.)-"
+    },
+    {
+      "organisation": "Bordesholm, Kiel og Kronshagen Amter",
+      "rolle": "amtmand",
+      "dato_raw": "1839 (13. april)-1842"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Julia Louisa Ida Friederike rigsgrevinde zu Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 85",
+      "type": "vielse",
+      "dato_raw": "Gift 19. juli 1831",
+      "date_min": "1831-07-19",
+      "date_max": "1831-07-19",
+      "sted": "Rastorf",
+      "skilt": false,
+      "partner_foedsel": "* 25. juli 1808 i Itzehoe",
+      "partner_daab": "døbt 14. aug. s.å. i Sankt Nicolai Kirke, Kiel",
+      "partner_doed": {
+        "date_raw": "† 9. dec. 1894 i Kiel",
+        "date_min": "1894-12-09",
+        "date_max": "1894-12-09",
+        "sted": "Kiel"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Gehejmekonferensråd, kammerherre Carl Æmilius rigsgreve zu R. til Rastorf samt Rethwisch og Emilia Hedwig Carolina komtesse af Bernstorff",
+      "note": "Gift 2° 31. aug. 1844 i Kiel."
+    }
+  ],
+  "boern": {
+    "antal": 4,
+    "slaegtled": "Fjerde (syttende) slægtled",
+    "linje": "II, nr. 31-34",
+    "nr_range": null
+  },
+  "begivenheder": []
+}

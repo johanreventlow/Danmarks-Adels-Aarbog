@@ -1,0 +1,78 @@
+{
+  "linje": "IV",
+  "nr": 49,
+  "nr_label": "49",
+  "usikker": false,
+  "navn": "Greve Heinrich Christian Georg",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1884-02-15",
+      "date_raw": "† 15. febr. 1884 i Palermo",
+      "date_min": "1884-02-15",
+      "date_max": "1884-02-15",
+      "date_qualifier": "exact",
+      "sted": "Palermo"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Plön",
+      "rolle": "skoleelev",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Heidelberg",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1861 (12. nov.)"
+    },
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1862 (2. maj)"
+    },
+    {
+      "organisation": "Bargteheide",
+      "rolle": "kirchspielvogt",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Theophile Julia Lydia Dorothea grevinde von Keyserlingk",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 27. maj 1869",
+      "date_min": "1869-05-27",
+      "date_max": "1869-05-27",
+      "sted": "Dresden",
+      "skilt": false,
+      "partner_foedsel": "* 28. sept. 1845 på Gaicken",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 9. april 1882 i Heidelberg",
+        "date_min": "1882-04-09",
+        "date_max": "1882-04-09",
+        "sted": "Heidelberg"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Karl greve von K. til Pedwahlen, Gaicken samt Grösen og Jenny (Johanna) Friederike friherreinde von Buckenvörde genannt von Stempel",
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "21. juni 1838",
+      "date_min": "1838-06-21",
+      "date_max": "1838-06-21",
+      "sted": "Slesvig By",
+      "note": "Døbt 20. juli s.å. i Friedrichsberg Kirke."
+    }
+  ]
+}

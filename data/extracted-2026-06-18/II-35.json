@@ -1,0 +1,70 @@
+{
+  "linje": "II",
+  "nr": 35,
+  "nr_label": "35",
+  "usikker": false,
+  "navn": "Ulrica Augusta",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "2. marts 1736",
+      "date_raw": "* 2. marts 1736",
+      "date_min": "1736-03-02",
+      "date_max": "1736-03-02",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "25. juni 1764 i Egernførde",
+      "date_raw": "† 25. juni 1764 i Egernførde",
+      "date_min": "1764-06-25",
+      "date_max": "1764-06-25",
+      "date_qualifier": "exact",
+      "sted": "Egernførde"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Carl Adolph von Bülow",
+      "partner_ekstern_ref": "DAA 1963, II, 49",
+      "type": "vielse",
+      "dato_raw": "Gift 25. sept. 1759",
+      "date_min": "1759-09-25",
+      "date_max": "1759-09-25",
+      "sted": "Egernførde",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 11. maj 1731 på Vemmetofte",
+        "date_min": "1731-05-11",
+        "date_max": "1731-05-11",
+        "sted": "Vemmetofte"
+      },
+      "partner_daab": {
+        "date_raw": "døbt 14. s.m. i Vemmetofte Slotskirke",
+        "date_min": "1731-05-14",
+        "date_max": "1731-05-14",
+        "sted": "Vemmetofte Slotskirke"
+      },
+      "partner_doed": {
+        "date_raw": "† 21. april 1794 på Tøjstrup",
+        "date_min": "1794-04-21",
+        "date_max": "1794-04-21",
+        "sted": "Tøjstrup"
+      },
+      "partner_erhverv": [
+        "sekondmajor",
+        "hofjunker"
+      ],
+      "partner_foraeldre": "Hofmarskal, kammerherre og amtmand Engelke von B. og hoffrøken Metta Henrietta von Vieregg",
+      "note": "Gift 2° 28. okt. 1768 på Tøjstrup med Augusta Eleonora von Grambow."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

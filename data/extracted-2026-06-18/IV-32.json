@@ -1,0 +1,108 @@
+{
+  "linje": "IV",
+  "nr": 32,
+  "nr_label": "32",
+  "usikker": false,
+  "navn": "Greve Adolph Ludwig Christian",
+  "tilnavn": "til Wittenberg",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1906-12-17",
+      "date_raw": "† 17. dec. 1906 på Wittenberg",
+      "date_min": "1906-12-17",
+      "date_max": "1906-12-17",
+      "date_qualifier": "exact",
+      "sted": "Wittenberg"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Wittenberg",
+      "periode_raw": "(1856-†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Heidelberg",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1855 (5. maj)"
+    },
+    {
+      "organisation": "Berlin",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1855"
+    },
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1857 (17. maj)"
+    },
+    {
+      "organisation": "preussisk virkelig gehejmeråd",
+      "rolle": "virkelig gehejmeråd",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Det Adelige Kloster Itzehoe",
+      "rolle": "Verbitter",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Det slesvig-holstenske Ridderskab",
+      "rolle": "1. prælat",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Nancy rigsgrevinde zu Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 91",
+      "type": "vielse",
+      "dato_raw": "Gift 25. juli 1861",
+      "date_min": "1861-07-25",
+      "date_max": "1861-07-25",
+      "sted": "Kiel",
+      "skilt": false,
+      "partner_foedsel": "* 8. aug. 1844 i Teplitz",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 9. sept. 1911 i Preetz",
+        "date_min": "1911-09-09",
+        "date_max": "1911-09-09",
+        "sted": "Preetz"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Dansk landråd, overappellationsretsråd i Kiel, cand.jur. Kuno Georg Wiprecht rigsgreve zu R. og Adelaide Conradine Marie baronesse von Löwenstern",
+      "note": "8 børn."
+    }
+  ],
+  "boern": {
+    "antal": 8,
+    "slaegtled": "Femte (attende) slægtled",
+    "linje": "II, nr. 60-67",
+    "nr_range": null
+  },
+  "begivenheder": [
+    {
+      "type": "opførte",
+      "dato_raw": "1868",
+      "date_min": "1868-01-01",
+      "date_max": "1868-12-31",
+      "sted": "Wittenberg",
+      "note": "Opførte den nuværende hovedbygning."
+    },
+    {
+      "type": "solgte",
+      "dato_raw": "1905 (6. marts)",
+      "date_min": "1905-03-06",
+      "date_max": "1905-03-06",
+      "sted": null,
+      "note": "Solgte avlsgårdene Hohenhütten, Hasselburg og Christiansruhe samt forpagtergården Dünsternbusch og de tre landsbyer Stellböken, Martensrade og Wittenberger Passau."
+    }
+  ]
+}

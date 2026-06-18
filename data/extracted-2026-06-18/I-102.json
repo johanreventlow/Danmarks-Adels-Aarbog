@@ -1,0 +1,31 @@
+{
+  "linje": "I",
+  "nr": 102,
+  "nr_label": "102",
+  "usikker": false,
+  "navn": "Benedicta",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1644",
+      "date_raw": "* 1644",
+      "date_min": "1644-01-01",
+      "date_max": "1644-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

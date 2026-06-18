@@ -1,0 +1,76 @@
+{
+  "linje": "III",
+  "nr": 47,
+  "nr_label": "47",
+  "usikker": false,
+  "navn": "Ulrich",
+  "tilnavn": "til Gnemern, Gischow og Grese",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "levede 1635",
+      "date_raw": "levede 1635",
+      "date_min": "1635-01-01",
+      "date_max": "1635-12-31",
+      "date_qualifier": "open_end",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Gnemern",
+      "periode_raw": "(alle 1622-1629)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Gischow",
+      "periode_raw": "(alle 1622-1629)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Grese",
+      "periode_raw": "(alle 1622-1629)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Ilsabe von Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 28",
+      "type": "vielse",
+      "dato_raw": "Gift 8. nov. 1626",
+      "date_min": "1626-11-08",
+      "date_max": "1626-11-08",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 14. okt. 1596",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 12. aug. 1652",
+        "date_min": "1652-08-12",
+        "date_max": "1652-08-12",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Godske von R. til Deutsch-Nienhof, Westensee samt Trøjborg og Anna Blome til Trøjborg",
+      "note": "Gift 2° 27. aug. 1639 med Christopher von Drieberg til Lütkensprenz."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "immatrikulation",
+      "dato_raw": "1617 (okt.)",
+      "date_min": "1617-10-01",
+      "date_max": "1617-10-31",
+      "sted": "Rostock",
+      "note": "Pantsatte 1628 med broderen Lorenz Gnemern og Grese."
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "linje": "V",
+  "nr": 48,
+  "nr_label": "48",
+  "usikker": false,
+  "navn": "Christopher Ernst Ditlev",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "26. sept. 1776",
+      "date_min": "1776-09-26",
+      "date_max": "1776-09-26",
+      "date_qualifier": "exact",
+      "sted": "Christianssæde"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "9. nov. 1781",
+      "date_min": "1781-11-09",
+      "date_max": "1781-11-09",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "bisat i Det Reventlowske Kapel i Horslunde Kirke",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Det Reventlowske Kapel, Horslunde Kirke"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "begravet tillige med faderen på det Reventlowske gravsted",
+      "date_raw": "16. okt. 1827",
+      "date_min": "1827-10-16",
+      "date_max": "1827-10-16",
+      "date_qualifier": "exact",
+      "sted": "Horslunde Kirkegård"
+    }
+  ],
+  "boern": null
+}

@@ -1,0 +1,43 @@
+{
+  "linje": "I",
+  "nr": 84,
+  "nr_label": "84",
+  "usikker": false,
+  "navn": "Magdalena",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1602",
+      "date_raw": "† 1602",
+      "date_min": "1602-01-01",
+      "date_max": "1602-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Christoffer von Buchwaldt",
+      "partner_ekstern_ref": "DAA 1913, 138",
+      "type": "vielse",
+      "dato_raw": "Gift før 1594",
+      "date_min": null,
+      "date_max": "1594-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Detlef von B. til Pronstorf, Gram, Tovskov samt Nybøl og Anna von Reventlow, se nr. 77",
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

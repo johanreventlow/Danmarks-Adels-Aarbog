@@ -1,0 +1,70 @@
+{
+  "linje": "I",
+  "nr": 71,
+  "nr_label": "71",
+  "usikker": false,
+  "navn": "Anna",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "17. dec. 1530",
+      "date_raw": "* 17. dec. 1530",
+      "date_min": "1530-12-17",
+      "date_max": "1530-12-17",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "senest 1583",
+      "date_raw": "levede endnu 1583",
+      "date_min": null,
+      "date_max": "1583-12-31",
+      "date_qualifier": "open_end",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Drage",
+      "periode_raw": "(-1576-)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Wulfsborstel",
+      "periode_raw": "(-1579-)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Wulf von Sested",
+      "partner_ekstern_ref": "DAA 1940, 134 f.",
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1571, før 19. juni",
+        "date_min": "1571-01-01",
+        "date_max": "1571-06-19",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kgl. råd, statholder, amtmand Henneke von S. til Olpenæs, Sehested, Krummendiek, Sarlhusen samt Drage og Margaretha vam Damme til Krummendiek og Hennekenborstel",
+      "note": "Opkaldt efter moderen, som formentlig døde i barselsseng."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

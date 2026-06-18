@@ -1,0 +1,59 @@
+{
+  "linje": "I",
+  "nr": 18,
+  "nr_label": "18",
+  "usikker": false,
+  "navn": "Nicolaus til Dunkelstorf",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "(-1353)",
+      "date_min": "1353-01-01",
+      "date_max": "1353-12-31",
+      "date_qualifier": "before",
+      "sted": null
+    },
+    {
+      "faktatype": "titel",
+      "vaerdi": "væbner",
+      "date_raw": "1353",
+      "date_min": "1353-01-01",
+      "date_max": "1353-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Dunkelstorf",
+      "periode_raw": "solgte 1353 (23. april)",
+      "period_type": "ejer (til salg)",
+      "sted": "Ahrensbök S., Ostholstein Kr."
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": null,
+      "partner_ekstern_ref": "se nr. 11",
+      "type": "vielse",
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "med NN (se nr. 11)"
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

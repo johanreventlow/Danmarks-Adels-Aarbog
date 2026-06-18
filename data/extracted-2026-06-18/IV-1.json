@@ -1,0 +1,206 @@
+{
+  "linje": "IV",
+  "nr": 1,
+  "nr_label": "1",
+  "usikker": false,
+  "navn": "Lensgreve Detlef de Reventlou",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1783-12-05",
+      "date_raw": "† 5. dec. 1783 i Kiel",
+      "date_min": "1783-12-05",
+      "date_max": "1783-12-05",
+      "date_qualifier": "exact",
+      "sted": "Kiel"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Altenhof",
+      "periode_raw": "(1762-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Glasau",
+      "periode_raw": "(1762-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Emkendorf",
+      "periode_raw": "(1764-†)",
+      "period_type": "tenure",
+      "sted": "Westensee S., Rendsburg Kr."
+    },
+    {
+      "navn": "Wittenberg",
+      "periode_raw": "(1764-†)",
+      "period_type": "tenure",
+      "sted": "Selent S., Plön Kr."
+    },
+    {
+      "navn": "Aschau",
+      "periode_raw": "(1782-†)",
+      "period_type": "tenure",
+      "sted": "ved Altenhof"
+    },
+    {
+      "navn": "Osterrade",
+      "periode_raw": "(1758-1772)",
+      "period_type": "tenure",
+      "sted": "Bovenau S., Rendsburg Kr."
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1730 (25. jan.)"
+    },
+    {
+      "organisation": "Frankfurt a.d. O.",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1730 (okt.)"
+    },
+    {
+      "organisation": "Leipzig Universitet",
+      "rolle": "immatrikuleret/cand.jur.",
+      "dato_raw": "1733 (6. juni) og 1735 (1. april)"
+    },
+    {
+      "organisation": "dronning Sophie Magdalene",
+      "rolle": "kammerjunker",
+      "dato_raw": "1736 (21. nov., fra 23. juni s.å. at regne)-1746 (5. sept.)"
+    },
+    {
+      "organisation": "Tyske Kancelli",
+      "rolle": "deltog i ugentlig kancellisession",
+      "dato_raw": "1737-1749"
+    },
+    {
+      "organisation": "kammerherre",
+      "rolle": "kammerherre",
+      "dato_raw": "1746 (6. sept.)"
+    },
+    {
+      "organisation": "Altona",
+      "rolle": "overpræsident",
+      "dato_raw": "1749 (10. marts)-1751"
+    },
+    {
+      "organisation": "Paris",
+      "rolle": "envoyé extraordinaire",
+      "dato_raw": "1750 (9. juni) udpeget; 1751 (15. marts) s.st.; ankom 8. april 1751"
+    },
+    {
+      "organisation": "hvid ridder",
+      "rolle": "ridder",
+      "dato_raw": "1754 (31. marts)"
+    },
+    {
+      "organisation": "kronprins Christian (7.)",
+      "rolle": "hofmester",
+      "dato_raw": "1755 (8. juni, fra 1. jan. s.å. at regne)-1763 (1. febr.)"
+    },
+    {
+      "organisation": "de l’Union parfaite",
+      "rolle": "ridder",
+      "dato_raw": "1756 (31. marts)"
+    },
+    {
+      "organisation": "gehejmeråd",
+      "rolle": "gehejmeråd",
+      "dato_raw": "1759 (31. marts)-"
+    },
+    {
+      "organisation": "kronprins Christian (7.)",
+      "rolle": "overhofmester",
+      "dato_raw": "1763 (2. febr.)-1766 (13. jan.)"
+    },
+    {
+      "organisation": "Gehejmekonsejlet",
+      "rolle": "gehejmeråd",
+      "dato_raw": "1763 (3. febr.)-1768 (8. febr.) og 1768 (marts)-1770 (10. dec.)"
+    },
+    {
+      "organisation": "1. deputeret for Finanserne",
+      "rolle": "1. deputeret",
+      "dato_raw": "1764 (19. nov.)-1768 (8. febr.)"
+    },
+    {
+      "organisation": "Vestindisk-guineisk Rente- og Generaltoldkammerkollegium",
+      "rolle": "1. deputeret",
+      "dato_raw": "1764 (19. nov.)-1768 (8. febr.) og 1768 (marts)-1770 (10. dec.)"
+    },
+    {
+      "organisation": "Overskattedirektionen",
+      "rolle": "medlem",
+      "dato_raw": "1764 (19. nov.)-1769"
+    },
+    {
+      "organisation": "Fonden ad usus publicos",
+      "rolle": "direktør",
+      "dato_raw": "1765 (15. jan.)-1768 (8. febr.)"
+    },
+    {
+      "organisation": "overkammerherre",
+      "rolle": "overkammerherre",
+      "dato_raw": "1766 (14. jan.)"
+    },
+    {
+      "organisation": "blå ridder",
+      "rolle": "ridder",
+      "dato_raw": "1766 (29. jan.)"
+    },
+    {
+      "organisation": "Kommissionen til Undersøgelse af Rigets Handelsbalance og Finanser",
+      "rolle": "medlem",
+      "dato_raw": "1767 (11. dec.)-"
+    },
+    {
+      "organisation": "Københavns Bank",
+      "rolle": "meddirektør",
+      "dato_raw": "1769-1770 (10. dec.)"
+    },
+    {
+      "organisation": "Kiel Universitet",
+      "rolle": "kurator",
+      "dato_raw": "1775 (16. febr.)-†"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Margarethe Raben",
+      "partner_ekstern_ref": "DAA 1970-71, II, 10",
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 8. dec. 1726 i København",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 13. sept. 1794 i Kiel",
+        "date_min": "1794-09-13",
+        "date_max": "1794-09-13",
+        "sted": "Kiel"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Gehejmeråd, overhofmester, stiftamtmand, gehejmekonferensråd (Christian) Friderich R. til Kjærstrup samt Bremersvold og Berte von Plessen",
+      "note": "Kopulationsafgift betalt 30. juni 1745."
+    }
+  ],
+  "boern": {
+    "antal": 9,
+    "slaegtled": "Andet (femtende) slægtled",
+    "linje": "nr. 2-9",
+    "nr_range": null
+  },
+  "begivenheder": []
+}

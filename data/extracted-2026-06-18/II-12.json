@@ -1,0 +1,64 @@
+{
+  "linje": "II",
+  "nr": 12,
+  "nr_label": "12",
+  "usikker": false,
+  "navn": "Anna Dorothea",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "ca. 1654",
+      "date_raw": "* ca. 1654",
+      "date_min": "1654-01-01",
+      "date_max": "1654-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "30. april 1696",
+      "date_raw": "† 30. april 1696",
+      "date_min": "1696-04-30",
+      "date_max": "1696-04-30",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Cord Hinrich von Bülow",
+      "partner_ekstern_ref": "DAA 1963, II, 10",
+      "type": "vielse",
+      "dato_raw": "Gift 1696",
+      "date_min": "1696-01-01",
+      "date_max": "1696-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 29. aug. 1655",
+        "date_min": "1655-08-29",
+        "date_max": "1655-08-29",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 9. sept. 1707",
+        "date_min": "1707-09-09",
+        "date_max": "1707-09-09",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "løjtnant"
+      ],
+      "partner_foraeldre": "Berend Friedrich von B. til Gross-Siemen og Hinrica von Lowtzow",
+      "note": "Stiftede kirkestol i Retschow Kirke ved Kröpelin."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

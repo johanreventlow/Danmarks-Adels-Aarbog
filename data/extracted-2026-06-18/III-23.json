@@ -1,0 +1,28 @@
+{
+  "linje": "III",
+  "nr": 23,
+  "nr_label": "23",
+  "usikker": false,
+  "navn": "Lorenz",
+  "tilnavn": "til Ziesendorf",
+  "koen": "mand",
+  "facts": [],
+  "godser": [
+    {
+      "navn": "Ziesendorf",
+      "periode_raw": "(-1575-1577-)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Reetz",
+      "periode_raw": "(-1575-1577-)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

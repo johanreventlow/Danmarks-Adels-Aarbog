@@ -1,0 +1,24 @@
+{
+  "linje": "IV",
+  "nr": 93,
+  "nr_label": "93",
+  "usikker": false,
+  "navn": "Greve Lorenz Christian Ulrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "6. jan. 1993",
+      "date_min": "1993-01-06",
+      "date_max": "1993-01-06",
+      "sted": "Koblenz",
+      "note": null
+    }
+  ]
+}

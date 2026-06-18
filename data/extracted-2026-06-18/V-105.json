@@ -1,0 +1,38 @@
+{
+  "linje": "V",
+  "nr": 105,
+  "nr_label": "105",
+  "usikker": false,
+  "navn": "(Søn)",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* og † 29. nov. 1871",
+      "date_min": "1871-11-29",
+      "date_max": "1871-11-29",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "* og † 29. nov. 1871",
+      "date_min": "1871-11-29",
+      "date_max": "1871-11-29",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "begravet i Theophili Skov",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Theophili Skov"
+    }
+  ]
+}

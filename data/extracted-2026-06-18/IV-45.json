@@ -1,0 +1,67 @@
+{
+  "linje": "IV",
+  "nr": 45,
+  "nr_label": "45",
+  "usikker": false,
+  "navn": "Komtesse Charlotte Henriette Georgine Friederikke",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1918-01-23",
+      "date_raw": "† 23. jan. 1918 i Kiel",
+      "date_min": "1918-01-23",
+      "date_max": "1918-01-23",
+      "date_qualifier": "exact",
+      "sted": "Kiel"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "indskrevet",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Detlev von Buchwaldt",
+      "partner_ekstern_ref": "DAA 1913, 172f",
+      "type": "vielse",
+      "dato_raw": "Gift 25. marts 1884",
+      "date_min": "1884-03-25",
+      "date_max": "1884-03-25",
+      "sted": "Farve",
+      "skilt": false,
+      "partner_foedsel": "* 29. dec. 1839 på Neudorf",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 7. dec. 1907 s.st.",
+        "date_min": "1907-12-07",
+        "date_max": "1907-12-07",
+        "sted": "Neudorf"
+      },
+      "partner_erhverv": [
+        "preussisk ritmester",
+        "landskabsråd",
+        "amtsforstander"
+      ],
+      "partner_foraeldre": "Dansk kammerherre og sekondløjtnant, slesvig-holstensk oberstløjtnant Caspar von B. til Neudorff samt Tralau og Molly Ferdinandine Arnemann",
+      "note": "Gift 1° 20. juli 1869 i Wedellsborg Kapel."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "19. juli 1838",
+      "date_min": "1838-07-19",
+      "date_max": "1838-07-19",
+      "sted": "Farve",
+      "note": null
+    }
+  ]
+}

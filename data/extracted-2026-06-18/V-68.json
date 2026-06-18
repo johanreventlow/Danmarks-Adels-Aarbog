@@ -1,0 +1,97 @@
+{
+  "linje": "V",
+  "nr": 68,
+  "nr_label": "68",
+  "usikker": false,
+  "navn": "Christian Johan Ludvig Conradt",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 9. sept. 1801 på Frihedsminde",
+      "date_min": "1801-09-09",
+      "date_max": "1801-09-09",
+      "date_qualifier": "exact",
+      "sted": "Frihedsminde"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "hjemmedøbt",
+      "date_raw": "hjemmedøbt s.d.",
+      "date_min": "1801-09-09",
+      "date_max": "1801-09-09",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 27. sept. 1828",
+      "date_min": "1828-09-27",
+      "date_max": "1828-09-27",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "bisat fra Vesterborg Kirke og begravet i Theophili Skov",
+      "date_raw": "bisat 1. okt. s.å.",
+      "date_min": "1828-10-01",
+      "date_max": "1828-10-01",
+      "date_qualifier": "exact",
+      "sted": "Vesterborg Kirke"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Polly Holck-Winterfeldt",
+      "partner_ekstern_ref": "DAA 1925, 444",
+      "type": "vielse",
+      "dato_raw": "Gift 16. maj 1828",
+      "date_min": "1828-05-16",
+      "date_max": "1828-05-16",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 28. okt. 1799",
+        "date_min": "1799-10-28",
+        "date_max": "1799-10-28",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 2. juni 1867, bisat 11. juni s.å. fra Vesterborg Kirke og begravet i Theophili Skov",
+        "date_min": "1867-06-02",
+        "date_max": "1867-06-02",
+        "sted": "Vesterborg Kirke"
+      },
+      "partner_erhverv": [
+        "hof- og hofstiftsdame"
+      ],
+      "partner_foraeldre": "Kammerherre, oberst Gustav greve H.-W. og Catharine Marie Brown",
+      "note": null
+    }
+  ],
+  "boern": {
+    "antal": 1,
+    "slaegtled": "Syvende (attende)",
+    "linje": "I",
+    "nr_range": [
+      98,
+      98
+    ]
+  },
+  "begivenheder": []
+}

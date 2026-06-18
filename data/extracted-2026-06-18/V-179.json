@@ -1,0 +1,51 @@
+{
+  "linje": "V",
+  "nr": 179,
+  "nr_label": "179",
+  "usikker": false,
+  "navn": "Greve Niels Otto Rudolph Iuel",
+  "tilnavn": "til Hverringe med Broløkke og Bøgebjerg",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1956-09-12",
+      "date_raw": "12. sept. 1956",
+      "date_min": "1956-09-12",
+      "date_max": "1956-09-12",
+      "date_qualifier": "exact",
+      "sted": "Agerup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1956-12-09",
+      "date_raw": "døbt 9. dec. s.å. i Våbensted Kirke",
+      "date_min": "1956-12-09",
+      "date_max": "1956-12-09",
+      "date_qualifier": "exact",
+      "sted": "Våbensted Kirke"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Birgitte Benedicte Sand",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 11. febr. 1987",
+      "date_min": "1987-02-11",
+      "date_max": "1987-02-11",
+      "sted": "København",
+      "skilt": false,
+      "partner_foedsel": "* 3. april 1955 i København",
+      "partner_daab": "døbt 30. aug. s.å. i Farum Kirke",
+      "partner_doed": null,
+      "partner_erhverv": [
+        "læge",
+        "cand.med."
+      ],
+      "partner_foraeldre": "Landsretssagfører, cand.jur. Rudolf S. og cand.jur. Birgit Madsen",
+      "note": null
+    }
+  ]
+}

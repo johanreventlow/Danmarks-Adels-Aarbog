@@ -1,0 +1,46 @@
+{
+  "linje": "II",
+  "nr": 15,
+  "nr_label": "15",
+  "usikker": false,
+  "navn": "Jobst Detlef",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "ca. 1660",
+      "date_raw": "* ca. 1660",
+      "date_min": "1660-01-01",
+      "date_max": "1660-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Sjællandske Infanterireg.",
+      "rolle": "fændrik",
+      "dato_raw": "1687"
+    },
+    {
+      "organisation": "Sjællandske Infanterireg.",
+      "rolle": "sekondløjtnant",
+      "dato_raw": "1689"
+    },
+    {
+      "organisation": "Sjællandske Infanterireg.",
+      "rolle": "kaptajnløjtnant",
+      "dato_raw": "1692"
+    },
+    {
+      "organisation": "Bataljon Sjælland",
+      "rolle": "med Bataljon Sjælland i engelsk-hollandsk sold i Brabant",
+      "dato_raw": "1702"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

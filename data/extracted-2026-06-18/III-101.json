@@ -1,0 +1,25 @@
+{
+  "linje": "III",
+  "nr": 101,
+  "nr_label": "101",
+  "usikker": false,
+  "navn": "Detlef",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1714",
+      "date_raw": "* 1714",
+      "date_min": "1714-01-01",
+      "date_max": "1714-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

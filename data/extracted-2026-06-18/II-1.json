@@ -1,0 +1,44 @@
+{
+  "linje": "II",
+  "nr": 1,
+  "nr_label": "1",
+  "usikker": false,
+  "navn": "Gottschalk von Reventlow",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "senest 1414",
+      "date_raw": "† senest 1414",
+      "date_min": null,
+      "date_max": "1414-12-31",
+      "date_qualifier": "before",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Belau",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": "Bornhöved S., Plön Kr."
+    },
+    {
+      "navn": "Gallentin",
+      "periode_raw": "(-1393-)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Wendisch Rambow",
+      "periode_raw": "(-1393-1394-)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

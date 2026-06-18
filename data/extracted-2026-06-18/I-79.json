@@ -1,0 +1,73 @@
+{
+  "linje": "I",
+  "nr": 79,
+  "nr_label": "79",
+  "usikker": false,
+  "navn": "Hinrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "før 1621",
+      "date_raw": "† før 1621",
+      "date_min": null,
+      "date_max": "1621-12-31",
+      "date_qualifier": "before",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Gneningen",
+      "periode_raw": "(-1577-1580-)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Waschbuk",
+      "periode_raw": "(-1587-)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Clara von Pogwisch",
+      "partner_ekstern_ref": "DAA 1931, II, 42",
+      "type": "vielse",
+      "dato_raw": "Gift senest 1587",
+      "date_min": null,
+      "date_max": "1587-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Hans von P. til Farve, Maslev samt Petersdorf og Agathe von Rantzau",
+      "note": "1°?"
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Helene NN",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift (2°?)",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

@@ -1,0 +1,100 @@
+{
+  "linje": "V",
+  "nr": 107,
+  "nr_label": "107",
+  "usikker": false,
+  "navn": "Benedicte Catharine Malvine Luise Magdalene Adelheid",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 7. aug. 1847",
+      "date_min": "1847-08-07",
+      "date_max": null,
+      "date_qualifier": "exact",
+      "sted": "Pederstrup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 1. sept. s.å.",
+      "date_min": "1847-09-01",
+      "date_max": null,
+      "date_qualifier": "exact",
+      "sted": "Vesterborg Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 23. jan. 1919",
+      "date_min": "1919-01-23",
+      "date_max": null,
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 5. marts s.å.",
+      "date_min": "1919-03-05",
+      "date_max": null,
+      "date_qualifier": "exact",
+      "sted": "Skørringe Kirke"
+    },
+    {
+      "faktatype": "klosterindgang",
+      "vaerdi": "Preetz Adelige Kloster",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Friedrich von Rosen",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 22. juli 1869",
+      "date_min": "1869-07-22",
+      "date_max": null,
+      "sted": "Vesterborg Kirke",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 13. maj 1839",
+        "date_min": "1839-05-13",
+        "date_max": null,
+        "sted": "Segeberg"
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 30. maj 1898",
+        "date_min": "1898-05-30",
+        "date_max": null,
+        "sted": "Marienberg ved Boppard am Rhein"
+      },
+      "partner_erhverv": [
+        "hofjægermester",
+        "kammerjunker",
+        "løjtnant",
+        "forpagter af Christianssæde"
+      ],
+      "partner_foraeldre": "Kammerherre, amtmand Wilhelm Ludwig Carl von R. og Sophie Marie Decker",
+      "note": "Bisat 8. juni s.å. (1898) fra Skørringe Kirke og begravet på Skørringe Kirkegård."
+    }
+  ],
+  "boern": null
+}

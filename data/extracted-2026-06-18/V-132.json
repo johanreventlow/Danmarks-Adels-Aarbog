@@ -1,0 +1,65 @@
+{
+  "linje": "V",
+  "nr": 132,
+  "nr_label": "132",
+  "usikker": false,
+  "navn": "Komtesse Märta",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1898-07-15",
+      "date_raw": "15. juli 1898",
+      "date_min": "1898-07-15",
+      "date_max": "1898-07-15",
+      "date_qualifier": "exact",
+      "sted": "Wrangelsborg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1898-08-08",
+      "date_raw": "døbt 8. aug. s.å. i Gudmuntorp Kirke",
+      "date_min": "1898-08-08",
+      "date_max": "1898-08-08",
+      "date_qualifier": "exact",
+      "sted": "Gudmuntorp Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1966-05-05",
+      "date_raw": "5. maj 1966",
+      "date_min": "1966-05-05",
+      "date_max": "1966-05-05",
+      "date_qualifier": "exact",
+      "sted": "Värnamo"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Lars Harald Mörling",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 24. aug. 1917",
+      "date_min": "1917-08-24",
+      "date_max": "1917-08-24",
+      "sted": "Klosterkirken, Lund",
+      "skilt": false,
+      "partner_foedsel": "* 18. okt. 1888 i Järnboås",
+      "partner_daab": "døbt 20. nov. s.å. i Järnboås Kirke",
+      "partner_doed": {
+        "date_raw": "† 1. juni 1976 i Linköping",
+        "date_min": "1976-06-01",
+        "date_max": "1976-06-01",
+        "sted": "Linköping"
+      },
+      "partner_erhverv": [
+        "svensk major",
+        "rektor"
+      ],
+      "partner_foraeldre": "Lars M. og Amanda Charlotta Pettersson",
+      "note": null
+    }
+  ]
+}

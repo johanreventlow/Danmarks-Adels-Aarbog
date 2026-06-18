@@ -1,0 +1,28 @@
+{
+  "linje": "III",
+  "nr": 34,
+  "nr_label": "34",
+  "usikker": false,
+  "navn": "David",
+  "tilnavn": "til Schwasdorf",
+  "koen": "mand",
+  "facts": [],
+  "godser": [
+    {
+      "navn": "Schwasdorf",
+      "periode_raw": "(- efter 1613)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Schwetzin",
+      "periode_raw": "(-efter 1613)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

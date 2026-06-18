@@ -1,0 +1,43 @@
+{
+  "linje": "I",
+  "nr": 75,
+  "nr_label": "75",
+  "usikker": false,
+  "navn": "Elsabe",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "ca. 1615",
+      "date_raw": "† ca. 1615",
+      "date_min": "1615-01-01",
+      "date_max": "1615-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Breide von Ahlefeldt",
+      "partner_ekstern_ref": "DAA 1982-84, 610",
+      "type": "vielse",
+      "dato_raw": "Gift 19. april 1574",
+      "date_min": "1574-04-19",
+      "date_max": "1574-04-19",
+      "sted": "Flensborg",
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Jürgen von A. til Undevad, Langballiggaard (Freienwillen), Farensted samt Grönwohld og Catherine Breide til Grönwohld og Sønder Farensted",
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

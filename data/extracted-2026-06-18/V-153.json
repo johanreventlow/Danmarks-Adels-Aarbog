@@ -1,0 +1,36 @@
+{
+  "linje": "V",
+  "nr": 153,
+  "nr_label": "153",
+  "usikker": false,
+  "navn": "Greve Alexander Hans Theodor Georg Hartwig Friedrich Wilhelm Detlev",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1922-07-21",
+      "date_raw": "21. juli 1922",
+      "date_min": "1922-07-21",
+      "date_max": "1922-07-21",
+      "date_qualifier": "exact",
+      "sted": "Plön"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1944-02-02",
+      "date_raw": "2. febr. 1944",
+      "date_min": "1944-02-02",
+      "date_max": "1944-02-02",
+      "date_qualifier": "exact",
+      "sted": "Nettuno, Italien"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "panserreg.",
+      "rolle": "premierløjtnant",
+      "dato_raw": "Tysk"
+    }
+  ]
+}

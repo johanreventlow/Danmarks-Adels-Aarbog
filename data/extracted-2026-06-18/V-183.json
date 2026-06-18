@@ -1,0 +1,20 @@
+{
+  "linje": "V",
+  "nr": 183,
+  "nr_label": "183",
+  "usikker": false,
+  "navn": "Greve Karl",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1987-11-11",
+      "date_raw": "11. nov. 1987",
+      "date_min": "1987-11-11",
+      "date_max": "1987-11-11",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ]
+}

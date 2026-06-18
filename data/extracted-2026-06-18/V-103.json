@@ -1,0 +1,56 @@
+{
+  "linje": "V",
+  "nr": 103,
+  "nr_label": "103",
+  "usikker": false,
+  "navn": "Ludvig Kai Conrad",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 7. juni 1869 på Pederstrup",
+      "date_min": "1869-06-07",
+      "date_max": "1869-06-07",
+      "date_qualifier": "exact",
+      "sted": "Pederstrup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "hjemmedøbt",
+      "date_raw": "hjemmedøbt 29. s.m. (Vesterborg Sogns kirkebog)",
+      "date_min": "1869-06-29",
+      "date_max": "1869-06-29",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† s.d. på Pederstrup",
+      "date_min": "1869-06-07",
+      "date_max": "1869-06-07",
+      "date_qualifier": "exact",
+      "sted": "Pederstrup"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "bisat fra Vesterborg Kirke og begravet i Theophili Skov",
+      "date_raw": "bisat 3. juli s.å. fra Vesterborg Kirke og begravet i Theophili Skov",
+      "date_min": "1869-07-03",
+      "date_max": "1869-07-03",
+      "date_qualifier": "exact",
+      "sted": "Vesterborg Kirke"
+    }
+  ]
+}

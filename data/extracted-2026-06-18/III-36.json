@@ -1,0 +1,25 @@
+{
+  "linje": "III",
+  "nr": 36,
+  "nr_label": "36",
+  "usikker": false,
+  "navn": "Cord",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "18 år gl.",
+      "date_raw": "† 18 år gl. i Italien",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Italien"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

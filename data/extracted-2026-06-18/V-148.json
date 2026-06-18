@@ -1,0 +1,62 @@
+{
+  "linje": "V",
+  "nr": 148,
+  "nr_label": "148",
+  "usikker": false,
+  "navn": "Greve Otto Karl Ferdinand",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1887-12-14",
+      "date_raw": "14. dec. 1887",
+      "date_min": "1887-12-14",
+      "date_max": "1887-12-14",
+      "date_qualifier": "exact",
+      "sted": "Skelstofte"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1888-04-23",
+      "date_raw": "døbt 23. april 1888 i Vesterborg Kirke",
+      "date_min": "1888-04-23",
+      "date_max": "1888-04-23",
+      "date_qualifier": "exact",
+      "sted": "Vesterborg Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1929-03-02",
+      "date_raw": "2. marts 1929",
+      "date_min": "1929-03-02",
+      "date_max": "1929-03-02",
+      "date_qualifier": "exact",
+      "sted": "København"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Ada Jessie Howard Grøn",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 27. april 1915",
+      "date_min": "1915-04-27",
+      "date_max": "1915-04-27",
+      "sted": "Frederiks Kirke, København",
+      "skilt": false,
+      "partner_foedsel": "* 24. aug. 1891 i Gentofte",
+      "partner_daab": "døbt 20. okt. s.å. i Sankt Pauls Kirke i København",
+      "partner_doed": {
+        "date_raw": "† 12. nov. 1983 i Ordrup",
+        "date_min": "1983-11-12",
+        "date_max": "1983-11-12",
+        "sted": "Ordrup"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kammerherre, stiftamtmand, cand.jur. Harry Rowland Howard Grøn og Ida Lucinde Henriette Hansen",
+      "note": null
+    }
+  ]
+}

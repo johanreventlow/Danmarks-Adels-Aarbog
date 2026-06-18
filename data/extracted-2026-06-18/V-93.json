@@ -1,0 +1,82 @@
+{
+  "linje": "V",
+  "nr": 93,
+  "nr_label": "93",
+  "usikker": false,
+  "navn": "Hilda Sophie Charlotte",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 20. maj 1828",
+      "date_min": "1828-05-20",
+      "date_max": "1828-05-20",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 29. jan. 1900 på Amalienborg, København",
+      "date_min": "1900-01-29",
+      "date_max": "1900-01-29",
+      "date_qualifier": "exact",
+      "sted": "Amalienborg, København"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 3. febr. s.å. fra Horslunde Kirke og begravet på det Reventlowske gravsted på Horslunde Kirkegård",
+      "date_min": "1900-02-03",
+      "date_max": "1900-02-03",
+      "date_qualifier": "exact",
+      "sted": "Horslunde Kirkegård"
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "Vallø Stiftsorden",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Vallø Adelige Stift",
+      "rolle": "stiftsdame",
+      "dato_raw": "1873"
+    },
+    {
+      "organisation": "hoffet hos kronprins Christian (9.) og kronprinsesse Louise",
+      "rolle": "hofdame",
+      "dato_raw": "1860 (1. febr.)-1863"
+    },
+    {
+      "organisation": "hoffet hos dronning Louise af Danmark",
+      "rolle": "hofdame",
+      "dato_raw": "1863-1898"
+    },
+    {
+      "organisation": "Det kvindelige Velgørende Selskab, København",
+      "rolle": "bestyrerinde",
+      "dato_raw": "1881 (28. okt.)-1899 (28. okt.)"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

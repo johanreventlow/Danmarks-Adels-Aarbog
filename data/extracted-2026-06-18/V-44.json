@@ -1,0 +1,29 @@
+{
+  "linje": "V",
+  "nr": 44,
+  "nr_label": "44",
+  "usikker": false,
+  "navn": "Greve Johann Ludwig",
+  "tilnavn": "til baroniet Brahetrolleborg",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1751-04-28",
+      "date_raw": "28. april 1751",
+      "date_min": "1751-04-28",
+      "date_max": "1751-04-28",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1801-03-01",
+      "date_raw": "1. marts 1801",
+      "date_min": "1801-03-01",
+      "date_max": "1801-03-01",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "linje": "III",
+  "nr": 77,
+  "nr_label": "77",
+  "usikker": false,
+  "navn": "Ide Margaretha",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1730-02-17",
+      "date_raw": "† 17. febr. 1730",
+      "date_min": "1730-02-17",
+      "date_max": "1730-02-17",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Hemmelmark",
+      "periode_raw": "ca. 5. juni 1672",
+      "period_type": "residence",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Christoff Wilhelm von Lehsten",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 26. jan. 1689",
+      "date_min": "1689-01-26",
+      "date_max": "1689-01-26",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 14. okt. 1662",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 5. dec. 1723",
+        "date_min": "1723-12-05",
+        "date_max": "1723-12-05",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "mecklenburgsk landråd",
+        "dansk oberst"
+      ],
+      "partner_foraeldre": "Hans Friedrich von L. til Wardow, Dölitz, Crivitz, m.fl. og Ilsabe von Oertzen",
+      "note": "Til Dölitz, Boddin, Lunow, Poggelow, Schönau og Gross Nieköhr."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "ca. 5. juni 1672",
+      "date_min": "1672-06-01",
+      "date_max": "1672-06-30",
+      "sted": "Hemmelmark",
+      "note": null
+    }
+  ]
+}

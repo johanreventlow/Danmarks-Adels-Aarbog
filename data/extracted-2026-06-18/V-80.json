@@ -1,0 +1,65 @@
+{
+  "linje": "V",
+  "nr": 80,
+  "nr_label": "80",
+  "usikker": false,
+  "navn": "Anna Frederikke Sofie Cicilia",
+  "tilnavn": "Anny",
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 14. april 1830 på Frihedsminde",
+      "date_min": "1830-04-14",
+      "date_max": "1830-04-14",
+      "date_qualifier": "exact",
+      "sted": "Frihedsminde"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 22. sept. s.å. i Skørringe Kirke",
+      "date_min": "1830-09-22",
+      "date_max": "1830-09-22",
+      "date_qualifier": "exact",
+      "sted": "Skørringe Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 17. april 1853 på Kastrupgaard",
+      "date_min": "1853-04-17",
+      "date_max": "1853-04-17",
+      "date_qualifier": "exact",
+      "sted": "Kastrupgaard"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 24. s.m. fra Tårnby Kirke og begravet i Theophili Skov",
+      "date_min": "1853-04-24",
+      "date_max": "1853-04-24",
+      "date_qualifier": "exact",
+      "sted": "Tårnby Kirke; Theophili Skov"
+    },
+    {
+      "faktatype": "klosterindgang",
+      "vaerdi": "Konventualinde i Preetz Adelige Kloster",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Preetz Adelige Kloster"
+    }
+  ]
+}

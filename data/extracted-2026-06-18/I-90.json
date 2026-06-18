@@ -1,0 +1,57 @@
+{
+  "linje": "I",
+  "nr": 90,
+  "nr_label": "90",
+  "usikker": false,
+  "navn": "Dorothea",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1650",
+      "date_raw": "† 1650",
+      "date_min": "1650-01-01",
+      "date_max": "1650-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Dänisch Lindau",
+      "periode_raw": "(1609/1610-†)",
+      "period_type": "tenure",
+      "sted": "Boren S., Slesvig-Flensborg Kr."
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Moritz von Ratlow",
+      "partner_ekstern_ref": "DAA 2015-17, 522",
+      "type": "vielse",
+      "dato_raw": "Gift 1601",
+      "date_min": "1601-01-01",
+      "date_max": "1601-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1609/1610",
+        "date_min": "1609-01-01",
+        "date_max": "1610-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "amtmand"
+      ],
+      "partner_foraeldre": "Bartram von R. til Dänisch Lindau og Abel von Rantzau",
+      "note": "Bisat 8. juli s.å. i Egernførde Kirke."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

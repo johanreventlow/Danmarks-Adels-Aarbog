@@ -1,0 +1,59 @@
+{
+  "linje": "IV",
+  "nr": 80,
+  "nr_label": "80",
+  "usikker": false,
+  "navn": "Komtesse Ottilie",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1992-06-24",
+      "date_raw": "† 24. juni 1992 på Helmstorf",
+      "date_min": "1992-06-24",
+      "date_max": "1992-06-24",
+      "date_qualifier": "exact",
+      "sted": "Helmstorf"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Magnus Alexander Hugo Eck Eberhard von Buchwaldt",
+      "partner_ekstern_ref": "DAA 1913, 166",
+      "type": "vielse",
+      "dato_raw": "Gift 25. aug. 1939",
+      "date_min": "1939-08-25",
+      "date_max": "1939-08-25",
+      "sted": "Wittenberg",
+      "skilt": false,
+      "partner_foedsel": "* 4. maj 1910 på Flehm ved Plön",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 23. marts 1987",
+        "date_min": "1987-03-23",
+        "date_max": "1987-03-23",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "tysk kaptajn"
+      ],
+      "partner_foraeldre": "Magnus Christoph Caspar Carl von B. til fideikommisgodset Helmstorf og Alice friherreinde von Reischach",
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "30. marts 1913",
+      "date_min": "1913-03-30",
+      "date_max": "1913-03-30",
+      "sted": "Uetersen",
+      "note": null
+    }
+  ]
+}

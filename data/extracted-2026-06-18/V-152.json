@@ -1,0 +1,90 @@
+{
+  "linje": "V",
+  "nr": 152,
+  "nr_label": "152",
+  "usikker": false,
+  "navn": "Komtesse Helene Erika Emilie Agnes Marie Anna Franziska",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1911-09-29",
+      "date_raw": "29. sept. 1911",
+      "date_min": "1911-09-29",
+      "date_max": "1911-09-29",
+      "date_qualifier": "exact",
+      "sted": "Frankfurt a. d. Oder"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1911-11-11",
+      "date_raw": "døbt 11. nov. s.å. s.st.",
+      "date_min": "1911-11-11",
+      "date_max": "1911-11-11",
+      "date_qualifier": "exact",
+      "sted": "Frankfurt a. d. Oder"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "2013-01-21",
+      "date_raw": "21. jan. 2013",
+      "date_min": "2013-01-21",
+      "date_max": "2013-01-21",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Ernst-Günther Wilhelm Konrad Wulbrand Bock von Wulfingen",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 1° 5. marts 1937",
+      "date_min": "1937-03-05",
+      "date_max": "1937-03-05",
+      "sted": "Brodersby Kirke",
+      "skilt": false,
+      "partner_foedsel": "* 1. febr. 1912 i Soest, Westfalen",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "faldt 27. jan. 1943 ved Stalingrad, Rusland",
+        "date_min": "1943-01-27",
+        "date_max": "1943-01-27",
+        "sted": "Stalingrad, Rusland"
+      },
+      "partner_erhverv": [
+        "major",
+        "generalstabsofficer"
+      ],
+      "partner_foraeldre": "Preussisk kaptajn Karl Albert Hermann Wulbrand Bock von W. og Erika Angelika Antonie Klara von Sydow",
+      "note": null
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Christoff Tassilo Hans-Harald von Hartmann",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 2° 16. okt. 1948",
+      "date_min": "1948-10-16",
+      "date_max": "1948-10-16",
+      "sted": "München",
+      "skilt": false,
+      "partner_foedsel": "* 16. juli 1910 i Bautzen",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 4. jan. 2005",
+        "date_min": "2005-01-04",
+        "date_max": "2005-01-04",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "kaptajn",
+        "direktør"
+      ],
+      "partner_foraeldre": "Sachsisk major Carl Gottlieb Hans von H. og Elisabeth Krug von Nidda",
+      "note": null
+    }
+  ]
+}

@@ -1,0 +1,116 @@
+{
+  "linje": "V",
+  "nr": 88,
+  "nr_label": "88",
+  "usikker": false,
+  "navn": "Einar Christian Frederich Ernst Ludvig Konrad",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 18. maj 1839 på Aalstrup",
+      "date_min": "1839-05-18",
+      "date_max": "1839-05-18",
+      "date_qualifier": "exact",
+      "sted": "Aalstrup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "hjemmedøbt 5. aug. s.å. og fremstillet 2. okt. s.å. i Landet Kirke",
+      "date_min": "1839-08-05",
+      "date_max": "1839-08-05",
+      "date_qualifier": "exact",
+      "sted": "Landet Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 14. maj 1902 på Bistingsmåla",
+      "date_min": "1902-05-14",
+      "date_max": "1902-05-14",
+      "date_qualifier": "exact",
+      "sted": "Bistingsmåla"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 21. s.m. fra Mönsterås Kirke og begravet s.d. på Mönsterås Kirkegård",
+      "date_min": "1902-05-21",
+      "date_max": "1902-05-21",
+      "date_qualifier": "exact",
+      "sted": "Mönsterås Kirkegård"
+    },
+    {
+      "faktatype": "adling",
+      "vaerdi": "svensk adelsmand",
+      "date_raw": "1867 (4. maj) svensk adelsmand ved faderens død",
+      "date_min": "1867-05-04",
+      "date_max": "1867-05-04",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Pugerup",
+      "periode_raw": "1867-1889",
+      "period_type": null,
+      "sted": null
+    },
+    {
+      "navn": "en gård i Bistingsmåla",
+      "periode_raw": null,
+      "period_type": "ejede",
+      "sted": "Mönsterås S., Kalmar Len"
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Maria Charlotta Jonsson",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 22. dec. 1899 i Mönsterås Kirke",
+      "date_min": "1899-12-22",
+      "date_max": "1899-12-22",
+      "sted": "Mönsterås Kirke",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 18. maj 1867 på Vållö ved Mönsterås",
+        "date_min": "1867-05-18",
+        "date_max": "1867-05-18",
+        "sted": "Vållö ved Mönsterås"
+      },
+      "partner_daab": {
+        "date_raw": "døbt 30. s.m. i Mönsterås Kirke",
+        "date_min": "1867-05-30",
+        "date_max": "1867-05-30",
+        "sted": "Mönsterås Kirke"
+      },
+      "partner_doed": {
+        "date_raw": "† 5. sept. 1948 i Mönsterås",
+        "date_min": "1948-09-05",
+        "date_max": "1948-09-05",
+        "sted": "Mönsterås"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Husmand Carl Gustav J. og Maria Lovisa Svensdotter",
+      "note": "begravet på Mönsterås Kirkegård"
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

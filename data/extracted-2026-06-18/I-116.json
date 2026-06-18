@@ -1,0 +1,36 @@
+{
+  "linje": "I",
+  "nr": 116,
+  "nr_label": "116",
+  "usikker": false,
+  "navn": "Detlef",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1684",
+      "date_raw": "* 1684",
+      "date_min": "1684-01-01",
+      "date_max": "1684-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "1. Bataljon Sjællandske",
+      "rolle": "premierløjtnant",
+      "dato_raw": "1698-1699"
+    },
+    {
+      "organisation": "2. Bataljon Sjællandske",
+      "rolle": "med 2. Bataljon Sjællandske i Brabant i engelsk-hollandsk sold",
+      "dato_raw": "1702 (-3. juni)"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

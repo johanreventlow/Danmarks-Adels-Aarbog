@@ -1,0 +1,53 @@
+{
+  "linje": "I",
+  "nr": 81,
+  "nr_label": "81",
+  "usikker": false,
+  "navn": "Agathe",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "før 1616",
+      "date_raw": "† før 1616",
+      "date_min": null,
+      "date_max": "1616-12-31",
+      "date_qualifier": "before",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Claus von Pogwisch",
+      "partner_ekstern_ref": "DAA 1931, II, 21f,31",
+      "type": "vielse",
+      "dato_raw": "Gift 1596",
+      "date_min": "1596-01-01",
+      "date_max": "1596-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 1552",
+        "date_min": "1552-01-01",
+        "date_max": "1552-12-31",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1. okt. 1638 i Slesvig By",
+        "date_min": "1638-10-01",
+        "date_max": "1638-10-01",
+        "sted": "Slesvig By"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Domherre Hinrich von P. og Barbara von Plesse",
+      "note": "Gift 2° 1616 med Margaretha Höcken, levede 1630."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

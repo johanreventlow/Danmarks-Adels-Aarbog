@@ -1,0 +1,146 @@
+{
+  "linje": "III",
+  "nr": 49,
+  "nr_label": "49",
+  "usikker": false,
+  "navn": "Berend",
+  "tilnavn": "til Ziesendorf",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1695",
+      "date_raw": "† 1695",
+      "date_min": "1695-01-01",
+      "date_max": "1695-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Ziesendorf",
+      "periode_raw": "(-1664-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Brockhusen",
+      "periode_raw": "(-1664-1675-)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Cammin",
+      "periode_raw": "i Pommern for 18 år",
+      "period_type": "tenure",
+      "sted": "Pommern"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Nykøbing Slot",
+      "rolle": "page hos prins Christian (5.)",
+      "dato_raw": "1643"
+    },
+    {
+      "organisation": "Schönfeldts gevorbne Infanterireg.",
+      "rolle": "kaptajn",
+      "dato_raw": "1676 (okt.)"
+    },
+    {
+      "organisation": "Sydjyske nationale Infanterireg.",
+      "rolle": "2. udskrivning",
+      "dato_raw": "1677 (25. jan.)"
+    },
+    {
+      "organisation": "Christianopel",
+      "rolle": "krigsfange",
+      "dato_raw": "1677"
+    },
+    {
+      "organisation": "1. Jyske Infanterireg.",
+      "rolle": "nævnes",
+      "dato_raw": "1678 (27. juni og okt.)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Christina von Damme",
+      "partner_ekstern_ref": "DAA 1920, 458",
+      "type": "vielse",
+      "dato_raw": "Gift 1°",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 19. dec. 1661",
+        "date_min": "1661-12-19",
+        "date_max": "1661-12-19",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Wulf von D. til Hohenlieth, Schirnau samt Bürau og Dorothea von Rantzau til Bürau",
+      "note": "Bisat i Buchholz Kirke."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Anna Maria von Weltzien",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 2°",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† ca. 1672",
+        "date_min": "1672-01-01",
+        "date_max": "1672-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Daniel (Deneke) von W. til Sammit, Tessin, Reimershagen samt Todenhagen og Ilsabe von Mörder",
+      "note": null
+    },
+    {
+      "ordinal": 3,
+      "partner_navn": "NN von Lützow",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 3°",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Oberst Egidius von L. til Neuhof og NN von Husahn",
+      "note": null
+    }
+  ],
+  "boern": {
+    "antal": 7,
+    "slaegtled": "Trettende slægtled",
+    "linje": "I, nr. 65-71",
+    "nr_range": null
+  },
+  "begivenheder": [
+    {
+      "type": "fald",
+      "dato_raw": "1675",
+      "date_min": "1675-01-01",
+      "date_max": "1675-12-31",
+      "sted": "Ziesendorf og Brockhusen",
+      "note": "Brandeburgske tropper hærgede godserne."
+    }
+  ]
+}

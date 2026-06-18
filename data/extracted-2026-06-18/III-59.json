@@ -1,0 +1,86 @@
+{
+  "linje": "III",
+  "nr": 59,
+  "nr_label": "59",
+  "usikker": false,
+  "navn": "Elisabeth Sophia",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1702",
+      "date_raw": "† 1702 i Kiel",
+      "date_min": "1702-01-01",
+      "date_max": "1702-12-31",
+      "date_qualifier": "exact",
+      "sted": "Kiel"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Blomeske Frihus",
+      "periode_raw": "(1688-†)",
+      "period_type": "tenure",
+      "sted": "Flämischestrasse i Kiel"
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Hieronymus von Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 168",
+      "type": "vielse",
+      "dato_raw": "Gift 1° 1661",
+      "date_min": "1661-01-01",
+      "date_max": "1661-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 1614",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1679",
+        "date_min": "1679-01-01",
+        "date_max": "1679-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Otto von R. til Seekamp samt Rathmannsdorf og Elisabeth von Rumohr",
+      "note": "Til Nütschau og Hemmelmark."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Bendix Blome",
+      "partner_ekstern_ref": "DAA 1935, II, 28",
+      "type": "vielse",
+      "dato_raw": "Gift 2° 28. juni 1683",
+      "date_min": "1683-06-28",
+      "date_max": "1683-06-28",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 22. (29.?) juni 1627",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 27. marts 1688",
+        "date_min": "1688-03-27",
+        "date_max": "1688-03-27",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Gottorpsk jægermester, dansk amtmand i Åbenrå Otto B. til Rastorf, Aschau, Deutsch Nienhof, Dänisch Nienhof samt Kaltenhof og Dorothea von Sested",
+      "note": "Gift 1° 29. aug. 1658 med Dorothea von Buchwaldt."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "29. dec. 1645",
+      "date_min": "1645-12-29",
+      "date_max": "1645-12-29",
+      "sted": "Flensborg",
+      "note": "Bisat 29. nov. s.å. i Kiel og ført til Schönkirchen Kirke."
+    }
+  ]
+}

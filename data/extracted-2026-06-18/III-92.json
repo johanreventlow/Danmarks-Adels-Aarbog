@@ -1,0 +1,131 @@
+{
+  "linje": "III",
+  "nr": 92,
+  "nr_label": "92",
+  "usikker": false,
+  "navn": "Detlef",
+  "tilnavn": "til Schmoel, Hohenfelde, Lehmkulen, Cronshagen, Rantzau og Kollmar",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1755-05-10",
+      "date_raw": "† 10. maj 1755 i Slesvig By",
+      "date_min": "1755-05-10",
+      "date_max": "1755-05-10",
+      "date_qualifier": "exact",
+      "sted": "Slesvig By"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Schmoel",
+      "periode_raw": "(1701-1737)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Hohenfelde",
+      "periode_raw": "(1701-1737)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Lehmkulen",
+      "periode_raw": "(1732-1737)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Cronshagen",
+      "periode_raw": "(-1737)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Rantzau",
+      "periode_raw": "(1732-1737)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Kollmar",
+      "periode_raw": "(1732-1737)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Det Ridderlige Akademi i København",
+      "rolle": "på",
+      "dato_raw": "1698-"
+    },
+    {
+      "organisation": "1. Bataljon Sjælland i polsk sold i Sachsen",
+      "rolle": "premierløjtnant",
+      "dato_raw": "1698-1699"
+    },
+    {
+      "organisation": "kammerjunker",
+      "rolle": "kammerjunker",
+      "dato_raw": "1699-"
+    },
+    {
+      "organisation": "Schmoeler Hof i Kiel",
+      "rolle": "ejer",
+      "dato_raw": "1701-1737/1745"
+    },
+    {
+      "organisation": "Bataljon Sjælland i engelsk sold i Brabrant",
+      "rolle": "med",
+      "dato_raw": "1702 (-3. juni)"
+    },
+    {
+      "organisation": "Slesvig og Holsten",
+      "rolle": "landråd",
+      "dato_raw": "1705 (17. marts)-†"
+    },
+    {
+      "organisation": "Sankt Johanniskloster ved Slesvig",
+      "rolle": "klosterprovst",
+      "dato_raw": "1717 (30. nov.)-†"
+    },
+    {
+      "organisation": "gehejmeråd",
+      "rolle": "gehejmeråd",
+      "dato_raw": "1722 (22. maj)-†"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Anna Margretha von Jessen",
+      "partner_ekstern_ref": "DAA 1937, II, 85",
+      "type": "vielse",
+      "dato_raw": "Gift 18. aug. 1702",
+      "date_min": "1702-08-18",
+      "date_max": "1702-08-18",
+      "sted": "Altona",
+      "skilt": false,
+      "partner_foedsel": "* 16. sept. 1681 i København",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 16. sept. 1744 s.st.",
+        "date_min": "1744-09-16",
+        "date_max": "1744-09-16",
+        "sted": "København"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Gehejmeråd, oversekretær, ambassadør, slesvigsk regeringspræsident, dr.jur. Thomas Balthasar von J. til Deutsch-Nienhof, Klægsbøl samt Binnenau og Elisabeth Biermann von Ehrenschild",
+      "note": "10 børn."
+    }
+  ],
+  "boern": {
+    "antal": 10,
+    "slaegtled": "Fjortende slægtled",
+    "linje": "VI, nr. 120-129",
+    "nr_range": null
+  },
+  "begivenheder": []
+}

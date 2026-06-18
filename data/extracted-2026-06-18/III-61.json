@@ -1,0 +1,201 @@
+{
+  "linje": "III",
+  "nr": 61,
+  "nr_label": "61",
+  "usikker": false,
+  "navn": "Friedrich",
+  "tilnavn": "til Gischow",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1728-10-29",
+      "date_raw": "† 29. okt. 1728",
+      "date_min": "1728-10-29",
+      "date_max": "1728-10-29",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Gischow",
+      "periode_raw": "(-1675)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Neudorff",
+      "periode_raw": "(1664-1719)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Schönweide",
+      "periode_raw": "(1682-senest 1693)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Kollmar",
+      "periode_raw": "(Klein Kollmar S., Steinburg Kr.)",
+      "period_type": "tenure",
+      "sted": "Klein Kollmar S., Steinburg Kr."
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Hestgarden",
+      "rolle": "løjtnant",
+      "dato_raw": "1665"
+    },
+    {
+      "organisation": "militiens midler",
+      "rolle": "hofjunker",
+      "dato_raw": "1669 (1. nov., fra 8. s.m. at regne)"
+    },
+    {
+      "organisation": "prins Jørgen af Danmark",
+      "rolle": "kammerjunker",
+      "dato_raw": "1671 (16. nov.)"
+    },
+    {
+      "organisation": "2. Fynske nationale Rytterreg.",
+      "rolle": "ritmester",
+      "dato_raw": "1675"
+    },
+    {
+      "organisation": "Øster og Vester Gønge Herreds Komp.",
+      "rolle": "chef",
+      "dato_raw": "1676 (22. juli)"
+    },
+    {
+      "organisation": "major",
+      "rolle": "major",
+      "dato_raw": "1676 (23. okt.)"
+    },
+    {
+      "organisation": "1. Sjællandske nationale Rytterreg.",
+      "rolle": "tiltrådt",
+      "dato_raw": "1677 (efter opløsning)"
+    },
+    {
+      "organisation": "Slesvig og Holsten",
+      "rolle": "landråd",
+      "dato_raw": "1682 (2. sept.)-"
+    },
+    {
+      "organisation": "Husum Amt",
+      "rolle": "amtmand",
+      "dato_raw": "1684 (5. juni)-1689 (12. juli)"
+    },
+    {
+      "organisation": "virkelig etatsråd",
+      "rolle": "rang",
+      "dato_raw": "1685 (11. maj)"
+    },
+    {
+      "organisation": "Det Adelige Kloster i Uetersen",
+      "rolle": "klosterprovst",
+      "dato_raw": "1696-1725"
+    },
+    {
+      "organisation": "Det Adelige Kloster i Itzehoe",
+      "rolle": "Verbitter",
+      "dato_raw": "1696-1725"
+    },
+    {
+      "organisation": "gehejmeråd",
+      "rolle": "gehejmeråd",
+      "dato_raw": "1699 (28. okt.)-†"
+    },
+    {
+      "organisation": "Bredsted",
+      "rolle": "hovedbygning opført",
+      "dato_raw": "1703"
+    },
+    {
+      "organisation": "blå ridder",
+      "rolle": "ridder",
+      "dato_raw": "1727 (16. april)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Catharina von Brockdorff",
+      "partner_ekstern_ref": "DAA 1936, II, 51",
+      "type": "vielse",
+      "dato_raw": "Gift 1° 24. okt. 1672",
+      "date_min": "1672-10-24",
+      "date_max": "1672-10-24",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 10. jan. 1644",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 13. okt. 1673 i barselsseng",
+        "date_min": "1673-10-13",
+        "date_max": "1673-10-13",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Gottorpsk hofmester, fransk oberstløjtnant Joachim von B. til Wensin, Stocksee, Rohlstorf samt Altenhof og Anna Margaretha von Rantzau",
+      "note": null
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Anna Hedwig von Qualen",
+      "partner_ekstern_ref": "DAA 1925, 485",
+      "type": "vielse",
+      "dato_raw": "Gift 2° 1677",
+      "date_min": "1677-01-01",
+      "date_max": "1677-12-31",
+      "sted": "Kiel",
+      "skilt": false,
+      "partner_foedsel": "* 1642",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 18. marts 1717 i Itzehoe",
+        "date_min": "1717-03-18",
+        "date_max": "1717-03-18",
+        "sted": "Itzehoe"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Gottorpsk landråd, amtmand Claus von Q. til Siggen og Lucie Beate von Rantzau",
+      "note": "Ægtepagten dateret Kiel 27. jan. s.å. og der ringet for hende i Kiel 26. april s.å., bisat i Krempe Kirke."
+    }
+  ],
+  "boern": {
+    "antal": 6,
+    "slaegtled": "Trettende slægtled",
+    "linje": "IV, nr. 85-90",
+    "nr_range": null
+  },
+  "begivenheder": [
+    {
+      "type": "immatrikulation",
+      "dato_raw": "1665",
+      "date_min": "1665-01-01",
+      "date_max": "1665-12-31",
+      "sted": "Kiel",
+      "note": null
+    },
+    {
+      "type": "guerillakrig",
+      "dato_raw": "1676 (efterår)",
+      "date_min": "1676-09-01",
+      "date_max": "1676-11-30",
+      "sted": "Kristianstad og Øster Gønge Herred",
+      "note": "Førte herfra sammen med friskytterne guerillakrig mod svenske strejfpartier."
+    },
+    {
+      "type": "såret",
+      "dato_raw": "1676 (4. dec.)",
+      "date_min": "1676-12-04",
+      "date_max": "1676-12-04",
+      "sted": "Lund",
+      "note": "Deltog som volontør i slaget ved Lund."
+    }
+  ]
+}

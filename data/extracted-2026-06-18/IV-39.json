@@ -1,0 +1,51 @@
+{
+  "linje": "IV",
+  "nr": 39,
+  "nr_label": "39",
+  "usikker": false,
+  "navn": "Greve Carl",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "efter 1924",
+      "date_raw": "† efter 1924",
+      "date_min": "1925-01-01",
+      "date_max": "9999-12-31",
+      "date_qualifier": "open_end",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "2. Garde-Feld-Art.-Reg. Nr. 2",
+      "rolle": "major",
+      "dato_raw": "1887"
+    },
+    {
+      "organisation": "1. Brandenburgische Feld-Art.-Reg. Nr. 3 “General-Feldzeugmeister”",
+      "rolle": "major / oberstløjtnant",
+      "dato_raw": "1890-1891"
+    },
+    {
+      "organisation": "Nordschlesische Feld-Art.-Reg. “von Podbielski”",
+      "rolle": "oberstløjtnant og kommandør / oberst og kommandør",
+      "dato_raw": "1892-1897"
+    },
+    {
+      "organisation": "5. Art.-Brigade",
+      "rolle": "kommandør",
+      "dato_raw": "1900"
+    },
+    {
+      "organisation": "til disposition",
+      "rolle": "generalmajor / generalløjtnant",
+      "dato_raw": "1899 / 1901 / 1904"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

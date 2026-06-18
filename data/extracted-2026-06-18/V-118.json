@@ -1,0 +1,61 @@
+{
+  "linje": "V",
+  "nr": 118,
+  "nr_label": "118",
+  "usikker": false,
+  "navn": "Liane Clara Julie",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 22. jan. 1867 på Sandbjerg",
+      "date_min": "1867-01-22",
+      "date_max": "1867-01-22",
+      "date_qualifier": "exact",
+      "sted": "Sandbjerg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 11. febr. s.å. i Dybbøl Kirke",
+      "date_min": "1867-02-11",
+      "date_max": "1867-02-11",
+      "date_qualifier": "exact",
+      "sted": "Dybbøl Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 12. febr. s.å. på Sandbjerg",
+      "date_min": "1867-02-12",
+      "date_max": "1867-02-12",
+      "date_qualifier": "exact",
+      "sted": "Sandbjerg"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 15. s.m. i Dybbøl Kirke og indsat i Det Reventlowske Kapel s.st. (trækiste begravet 1934 på kirkegården)",
+      "date_min": "1867-02-15",
+      "date_max": "1867-02-15",
+      "date_qualifier": "exact",
+      "sted": "Dybbøl Kirke"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

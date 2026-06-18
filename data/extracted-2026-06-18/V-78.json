@@ -1,0 +1,89 @@
+{
+  "linje": "V",
+  "nr": 78,
+  "nr_label": "78",
+  "usikker": false,
+  "navn": "Friderike Sophie Louise Charlotte",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "5. sept. 1822 på Sandbjerg",
+      "date_min": "1822-09-05",
+      "date_max": "1822-09-05",
+      "date_qualifier": "exact",
+      "sted": "Sandbjerg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 21. marts 1823 i Dybbøl Kirke",
+      "date_min": "1823-03-21",
+      "date_max": "1823-03-21",
+      "date_qualifier": "exact",
+      "sted": "Dybbøl Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "22. nov. 1891 i Reinbek",
+      "date_min": "1891-11-22",
+      "date_max": "1891-11-22",
+      "date_qualifier": "exact",
+      "sted": "Reinbek"
+    },
+    {
+      "faktatype": "klosterindgang",
+      "vaerdi": "Preetz Adelige Kloster",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Preetz"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Wilhelm von Qualen",
+      "partner_ekstern_ref": "DAA 1925, 494",
+      "type": "vielse",
+      "dato_raw": "Gift 18. maj 1855 på Damp",
+      "date_min": "1855-05-18",
+      "date_max": "1855-05-18",
+      "sted": "Damp",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "2. aug. 1823 på Damp",
+        "date_min": "1823-08-02",
+        "date_max": "1823-08-02",
+        "sted": "Damp"
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "7. juni 1887 på Damp",
+        "date_min": "1887-06-07",
+        "date_max": "1887-06-07",
+        "sted": "Damp"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kammerjunker Henning Bendix von Q. til Damp og Louise Augusta komtesse Holck",
+      "note": "Wilhelm von Qualen til Damp (1882) og Flarupgaard; indsatte sin hustrus brorsøn Carl Herrmann Ernst Friedrich Otto Detlev greve af Reventlow (se nr. 124) som arving til Damp."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

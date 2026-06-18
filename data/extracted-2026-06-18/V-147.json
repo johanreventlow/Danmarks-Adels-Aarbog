@@ -1,0 +1,62 @@
+{
+  "linje": "V",
+  "nr": 147,
+  "nr_label": "147",
+  "usikker": false,
+  "navn": "Greve Edvard August",
+  "tilnavn": "til Nørre Gyldenbjerg",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1886-08-29",
+      "date_raw": "29. aug. 1886",
+      "date_min": "1886-08-29",
+      "date_max": "1886-08-29",
+      "date_qualifier": "exact",
+      "sted": "Skelstofte"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1886-09-26",
+      "date_raw": "døbt 26. sept. s.å. i Vesterborg Kirke",
+      "date_min": "1886-09-26",
+      "date_max": "1886-09-26",
+      "date_qualifier": "exact",
+      "sted": "Vesterborg Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1918-11-10",
+      "date_raw": "10. nov. 1918",
+      "date_min": "1918-11-10",
+      "date_max": "1918-11-10",
+      "date_qualifier": "exact",
+      "sted": "Springforbi, Klampenborg"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Inger Marie Konow",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 13. sept. 1917",
+      "date_min": "1917-09-13",
+      "date_max": "1917-09-13",
+      "sted": "Ryde Kirke",
+      "skilt": false,
+      "partner_foedsel": "* 12. aug. 1895 på Gammelgaard",
+      "partner_daab": "døbt 14. okt. s.å. i Ryde Kirke",
+      "partner_doed": {
+        "date_raw": "† 11. febr. 1920 i Tårbæk",
+        "date_min": "1920-02-11",
+        "date_max": "1920-02-11",
+        "sted": "Tårbæk"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Hofjægermester Wilhelm August K. til Gammelgaard og Alida Albeck",
+      "note": null
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "linje": "V",
+  "nr": 120,
+  "nr_label": "120",
+  "usikker": false,
+  "navn": "Theodor Carl Ludwig Detlev",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 24. dec. 1862",
+      "date_min": "1862-12-24",
+      "date_max": "1862-12-24",
+      "date_qualifier": "exact",
+      "sted": "Kiel"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 6. febr. 1863",
+      "date_min": "1863-02-06",
+      "date_max": "1863-02-06",
+      "date_qualifier": "exact",
+      "sted": "Dybbøl Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 21. maj 1878",
+      "date_min": "1878-05-21",
+      "date_max": "1878-05-21",
+      "date_qualifier": "exact",
+      "sted": "Husum Slot"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "indsat i Det Reventlowske Kapel",
+      "date_raw": "bisat 28. s.m. [maj] 1878",
+      "date_min": "1878-05-28",
+      "date_max": "1878-05-28",
+      "date_qualifier": "exact",
+      "sted": "Dybbøl Kirke"
+    }
+  ]
+}

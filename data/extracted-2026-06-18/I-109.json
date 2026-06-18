@@ -1,0 +1,25 @@
+{
+  "linje": "I",
+  "nr": 109,
+  "nr_label": "109",
+  "usikker": false,
+  "navn": "Bartram",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1675",
+      "date_raw": "† 1675",
+      "date_min": "1675-01-01",
+      "date_max": "1675-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

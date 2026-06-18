@@ -1,0 +1,72 @@
+{
+  "linje": "II",
+  "nr": 32,
+  "nr_label": "32",
+  "usikker": false,
+  "navn": "Dorothea Charlotta",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1. febr. 1731",
+      "date_raw": "* 1. febr. 1731",
+      "date_min": "1731-02-01",
+      "date_max": "1731-02-01",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "5. nov. 1763 i Egernførde",
+      "date_raw": "† 5. nov. 1763 i Egernførde",
+      "date_min": "1763-11-05",
+      "date_max": "1763-11-05",
+      "date_qualifier": "exact",
+      "sted": "Egernførde"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Friderich Wilhelm Otte",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 6. aug. 1748",
+      "date_min": "1748-08-06",
+      "date_max": "1748-08-06",
+      "sted": "Egernførde",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 1715 i Egernførde",
+        "date_min": "1715-01-01",
+        "date_max": "1715-12-31",
+        "sted": "Egernførde"
+      },
+      "partner_daab": {
+        "date_raw": "døbt 5. juli s.å. i Sankt Nicolai Kirke s.st.",
+        "date_min": "1715-07-05",
+        "date_max": "1715-07-05",
+        "sted": "Egernførde"
+      },
+      "partner_doed": {
+        "date_raw": "† 24. aug. 1766 i Egernførde",
+        "date_min": "1766-08-24",
+        "date_max": "1766-08-24",
+        "sted": "Egernførde"
+      },
+      "partner_erhverv": [
+        "kancelliråd",
+        "borgmester",
+        "købmand",
+        "skibsreder"
+      ],
+      "partner_foraeldre": "Købmand, skibsreder Christian O. til Krieseby og Elsabe Claussen",
+      "note": "Til Bienebek."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

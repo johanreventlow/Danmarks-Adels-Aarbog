@@ -1,0 +1,61 @@
+{
+  "linje": "V",
+  "nr": 83,
+  "nr_label": "83",
+  "usikker": false,
+  "navn": "Christiane Benedicte Malvine Louise",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 28. febr. 1832 på Aalstrup",
+      "date_min": "1832-02-28",
+      "date_max": "1832-02-28",
+      "date_qualifier": "exact",
+      "sted": "Aalstrup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 6. juni s.å. i Landet Kirke",
+      "date_min": "1832-06-06",
+      "date_max": "1832-06-06",
+      "date_qualifier": "exact",
+      "sted": "Landet Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 24. marts 1833",
+      "date_min": "1833-03-24",
+      "date_max": "1833-03-24",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "begravet i Theophili Skov",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Theophili Skov"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

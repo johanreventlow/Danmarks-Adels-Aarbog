@@ -1,0 +1,79 @@
+{
+  "linje": "V",
+  "nr": 16,
+  "nr_label": "16",
+  "usikker": false,
+  "navn": "Ulrica Eleonora",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Grevinde"
+    },
+    {
+      "faktatype": "fødsel",
+      "date_raw": "1. nov. 1690",
+      "date_min": "1690-11-01",
+      "date_max": "1690-11-01",
+      "date_qualifier": "exact"
+    },
+    {
+      "faktatype": "død",
+      "date_raw": "12. sept. 1754",
+      "date_min": "1754-09-12",
+      "date_max": "1754-09-12",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "begravelse",
+      "date_raw": "28. s.m.",
+      "date_min": "1754-09-28",
+      "date_max": "1754-09-28",
+      "date_qualifier": "exact",
+      "sted": "Det Gyldenløveske Kapel i Vor Frue Kirke, København"
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "de l'Union parfaite",
+      "date_raw": "1747 (31. marts)",
+      "date_min": "1747-03-31",
+      "date_max": "1747-03-31",
+      "date_qualifier": "exact"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Ferdinand Anton greve Danneskiold-Laurvig",
+      "partner_ekstern_ref": "DAA 1937, II, 57 f.",
+      "type": "vielse",
+      "dato_raw": "20. dec. 1713",
+      "date_min": "1713-12-20",
+      "date_max": "1713-12-20",
+      "sted": "København",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "11. juli 1688",
+        "date_min": "1688-07-11",
+        "date_max": "1688-07-11",
+        "sted": null
+      },
+      "partner_doed": {
+        "date_raw": "18. sept. 1754",
+        "date_min": "1754-09-18",
+        "date_max": "1754-09-18",
+        "sted": "København"
+      },
+      "partner_erhverv": [
+        "overstaldmester",
+        "oberst",
+        "gehejmeråd"
+      ],
+      "partner_foraeldre": "Ulrich Friderich Gyldenløve til grevskaberne Laurvig og Tønsberg, Kalø m.fl. og Antoinetta Augusta grevinde af Aldenburg",
+      "note": "Ægtefællen bisat 28. sept. 1754 i Det Gyldenløveske Kapel i Vor Frue Kirke, København (sarkofag tilintetgjort 5. sept. 1807). Tidligere gift 1° 15. marts 1711 med Meta Catharina von Ahlefeldt (* 25. aug. 1686 i Reinbek, † 5. marts 1712 i Hamburg, bisat 2. juni 1712 i Det Gyldenløveske Kapel i Vor Frue Kirke, København; sarkofag tilintetgjort 5. sept. 1807)."
+    }
+  ],
+  "boern": null
+}

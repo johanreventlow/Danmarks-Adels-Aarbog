@@ -1,0 +1,29 @@
+{
+  "linje": "I",
+  "nr": 52,
+  "nr_label": "52",
+  "usikker": false,
+  "navn": "Hinrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† mellem 1469 (2. maj) og 1473 (8. maj)",
+      "date_min": "1469-05-02",
+      "date_max": "1473-05-08",
+      "date_qualifier": "between",
+      "sted": null
+    },
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "Beseglede 1469 (2. maj) i Kiel adelens forbundsbrev",
+      "date_min": "1469-05-02",
+      "date_max": "1469-05-02",
+      "date_qualifier": "floruit",
+      "sted": "Kiel"
+    }
+  ]
+}

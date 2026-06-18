@@ -1,0 +1,29 @@
+{
+  "linje": "V",
+  "nr": 198,
+  "nr_label": "198",
+  "usikker": false,
+  "navn": "Komtesse Sybille Vega Raben",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "2008-02-11",
+      "date_raw": "11. febr. 2008",
+      "date_min": "2008-02-11",
+      "date_max": "2008-02-11",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "2008-08-30",
+      "date_raw": "døbt 30. aug. s.å. i Våbensted Kirke",
+      "date_min": "2008-08-30",
+      "date_max": "2008-08-30",
+      "date_qualifier": "exact",
+      "sted": "Våbensted Kirke"
+    }
+  ]
+}

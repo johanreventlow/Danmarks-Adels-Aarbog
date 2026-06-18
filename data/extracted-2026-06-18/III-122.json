@@ -1,0 +1,24 @@
+{
+  "linje": "III",
+  "nr": 122,
+  "nr_label": "122",
+  "usikker": false,
+  "navn": "Elisabeth",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "22. nov. 1705",
+      "date_min": "1705-11-22",
+      "date_max": "1705-11-22",
+      "sted": null,
+      "note": "Bisat 27. juli 1763 i Preetz."
+    }
+  ]
+}

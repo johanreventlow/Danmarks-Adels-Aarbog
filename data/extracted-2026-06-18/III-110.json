@@ -1,0 +1,60 @@
+{
+  "linje": "III",
+  "nr": 110,
+  "nr_label": "110",
+  "usikker": false,
+  "navn": "Sophia Friderica Dorothea",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1792-01-29",
+      "date_raw": "† 29. jan. 1792 på Pronstorf",
+      "date_min": "1792-01-29",
+      "date_max": "1792-01-29",
+      "date_qualifier": "exact",
+      "sted": "Pronstorf"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Henning von Buchwaldt",
+      "partner_ekstern_ref": "DAA 1913, 164",
+      "type": "vielse",
+      "dato_raw": "Gift 1753",
+      "date_min": "1753-01-01",
+      "date_max": "1753-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 18. sept. 1705 på Pronstorf",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 18. sept. 1760 s.st.",
+        "date_min": "1760-09-18",
+        "date_max": "1760-09-18",
+        "sted": "Pronstorf"
+      },
+      "partner_erhverv": [
+        "amtmand",
+        "konferensråd"
+      ],
+      "partner_foraeldre": "Dansk landråd Hinrich von B. til Helmstorf, Futterkamp samt Pronstorf og Catharina von Reventlow, se nr. 93",
+      "note": "Bisat 6. febr. s.å. i Sankt Nicolai Kirke, Kiel, og ført til Pronstorf Kirke."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "1720",
+      "date_min": "1720-01-01",
+      "date_max": "1720-12-31",
+      "sted": null,
+      "note": null
+    }
+  ]
+}

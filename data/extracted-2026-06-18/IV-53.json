@@ -1,0 +1,67 @@
+{
+  "linje": "IV",
+  "nr": 53,
+  "nr_label": "53",
+  "usikker": false,
+  "navn": "Komtesse Margarethe (Magda) Hedewig Julie",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1919-08-25",
+      "date_raw": "† 25. aug. 1919 s.st.",
+      "date_min": "1919-08-25",
+      "date_max": "1919-08-25",
+      "date_qualifier": "exact",
+      "sted": "Bordesholm"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "indskrevet",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Johann Adolf Ernst baron von Heintze-Weissenrode",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 4. sept. 1862",
+      "date_min": "1862-09-04",
+      "date_max": "1862-09-04",
+      "sted": "Kiel",
+      "skilt": false,
+      "partner_foedsel": "* 7. marts 1829 i Slesvig By",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 6. okt. 1904",
+        "date_min": "1904-10-06",
+        "date_max": "1904-10-06",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "preussisk gehejmeregeringsråd",
+        "landråd",
+        "amtmand"
+      ],
+      "partner_foraeldre": "Dansk kammerherre, gehejmekonferensråd og amtmand Josias Friedrich Ernst lensbaron von H.-W. til Niendorf samt Reecke og Elisabeth Cornelia komtesse de Reventlou, se nr. 23",
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "14. marts 1843",
+      "date_min": "1843-03-14",
+      "date_max": "1843-03-14",
+      "sted": "Bordesholm",
+      "note": null
+    }
+  ]
+}

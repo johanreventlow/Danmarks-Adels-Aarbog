@@ -1,0 +1,46 @@
+{
+  "linje": "V",
+  "nr": 154,
+  "nr_label": "154",
+  "usikker": false,
+  "navn": "Komtesse Benedicte Adelheid Louise",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1930-06-26",
+      "date_raw": "26. juni 1930",
+      "date_min": "1930-06-26",
+      "date_max": "1930-06-26",
+      "date_qualifier": "exact",
+      "sted": "Wulfshagen"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Carl greve Villavicencio-Margheri",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 26. april 1956",
+      "date_min": "1956-04-26",
+      "date_max": "1956-04-26",
+      "sted": "Gettorp",
+      "skilt": false,
+      "partner_foedsel": "* 7. juli 1931 i Wördl ved Rudolfswert, Krain",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 13. febr. 2006 i Hamburg",
+        "date_min": "2006-02-13",
+        "date_max": "2006-02-13",
+        "sted": "Hamburg"
+      },
+      "partner_erhverv": [
+        "salgschef"
+      ],
+      "partner_foraeldre": null,
+      "note": null
+    }
+  ]
+}

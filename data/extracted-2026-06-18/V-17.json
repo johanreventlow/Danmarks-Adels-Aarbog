@@ -1,0 +1,80 @@
+{
+  "linje": "V",
+  "nr": 17,
+  "nr_label": "17",
+  "usikker": false,
+  "navn": "Grevinde Anna Sophia, fyrstinde af Slesvig",
+  "tilnavn": "til grevskabet Vallø, Lellinge og Taagerød og Clausholm",
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1743-01-07",
+      "date_raw": "† 7. jan. 1743 på Clausholm",
+      "date_min": "1743-01-07",
+      "date_max": "1743-01-07",
+      "date_qualifier": "exact",
+      "sted": "Clausholm"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "grevskabet Vallø",
+      "periode_raw": "(1713‑1730)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Lellinge og Taagerød",
+      "periode_raw": "(1713, begge opgået 8. marts 1721 i grevskabet)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Clausholm",
+      "periode_raw": "(1730‑†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Frederik 4.",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift til venstre hånd 26. juni 1712 og til højre hånd 4. april 1721",
+      "date_min": "1712-06-26",
+      "date_max": "1721-04-04",
+      "sted": "København / Skanderborg Slot / Københavns Slot",
+      "skilt": false,
+      "partner_foedsel": "* 11. okt. 1671 på Københavns Slot",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 12. okt. 1730 på Odense Slot",
+        "date_min": "1730-10-12",
+        "date_max": "1730-10-12",
+        "sted": "Odense Slot"
+      },
+      "partner_erhverv": [
+        "konge til Danmark og Norge",
+        "hertug til Slesvig og Holsten",
+        "greve til Oldenburg og Delmenhorst"
+      ],
+      "partner_foraeldre": "Christian 5. og Charlotte Amalie af Hessen-Kassel",
+      "note": "Trolovet under et maskebal på Koldinghus; bestemte 1743 oprettelsen af Dronning Anna Sophies Enkestiftelse."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "16. april 1693",
+      "date_min": "1693-04-16",
+      "date_max": "1693-04-16",
+      "sted": null,
+      "note": "Blev fyrstinde af Slesvig i 1712."
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "linje": "III",
+  "nr": 58,
+  "nr_label": "58",
+  "usikker": false,
+  "navn": "Conrad greve de Reventlow",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "henvisning",
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "note": "Se V. Den grevelige linje af 1673."
+    }
+  ]
+}

@@ -1,0 +1,145 @@
+{
+  "linje": "IV",
+  "nr": 7,
+  "nr_label": "7",
+  "usikker": false,
+  "navn": "Greve Heinrich",
+  "tilnavn": "til Kaltenhof, Falkenberg, Aakær, Dybvad og Wittenberg",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1848-01-31",
+      "date_raw": "† 31. jan. 1848 i det Reventlowske hus i Kiel",
+      "date_min": "1848-01-31",
+      "date_max": "1848-01-31",
+      "date_qualifier": "exact",
+      "sted": "Kiel"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Kaltenhof",
+      "periode_raw": "(1780-†)",
+      "period_type": "tenure",
+      "sted": "Dänischenhagen S., Egernførde Kr."
+    },
+    {
+      "navn": "Falkenberg",
+      "periode_raw": "(1797-1829)",
+      "period_type": "tenure",
+      "sted": "Slesvig Sankt Michaelis S., Slesvig Kr."
+    },
+    {
+      "navn": "Aakær",
+      "periode_raw": "(1802-1811 medejer, 1816-1836 eneejer)",
+      "period_type": "tenure",
+      "sted": "Falling S., Hads H."
+    },
+    {
+      "navn": "Dybvad",
+      "periode_raw": "(medejer 1809-1816, eneejer 1816-1836)",
+      "period_type": "tenure",
+      "sted": "Gosmer S., Hads H."
+    },
+    {
+      "navn": "Wittenberg",
+      "periode_raw": "(1816-1842)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Leipzig",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1784 (4. juni)"
+    },
+    {
+      "organisation": "Husarreg.",
+      "rolle": "sekondritmester",
+      "dato_raw": "1788 (22. aug.)"
+    },
+    {
+      "organisation": "Livreg. Rytteri",
+      "rolle": "forsat",
+      "dato_raw": "1790 (9. april)"
+    },
+    {
+      "organisation": "Livreg. Rytteri",
+      "rolle": "chef for 4. Eskadron",
+      "dato_raw": "1791 (9. sept.)-1793 (5. april)"
+    },
+    {
+      "organisation": "Livreg. Rytteri",
+      "rolle": "chef for 2. Eskadron",
+      "dato_raw": "1793 (5. april)-1802 (14. april)"
+    },
+    {
+      "organisation": "kammerherre",
+      "rolle": "kammerherre",
+      "dato_raw": "1793 (28. okt.)"
+    },
+    {
+      "organisation": "Livreg. Rytteri / armeen",
+      "rolle": "à la suite",
+      "dato_raw": "1802 (14. april)"
+    },
+    {
+      "organisation": "Husarreg.",
+      "rolle": "opfører hovedbygning på Falkenberg",
+      "dato_raw": "1803"
+    },
+    {
+      "organisation": "oberstløjtnants anciennitet",
+      "rolle": "reserveret",
+      "dato_raw": "1808 (14. juli)"
+    },
+    {
+      "organisation": "Husarreg.",
+      "rolle": "oberstløjtnant à la suite",
+      "dato_raw": "1809 (9. okt.)"
+    },
+    {
+      "organisation": "oberst",
+      "rolle": "afsked",
+      "dato_raw": "1812 (20. maj)"
+    },
+    {
+      "organisation": "generalmajor",
+      "rolle": "afsked",
+      "dato_raw": "1828 (1. nov.)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Sophia Anna rigsgrevinde von Baudissin",
+      "partner_ekstern_ref": "DAA 1909, 60",
+      "type": "vielse",
+      "dato_raw": "Gift 21. maj 1794",
+      "date_min": "1794-05-21",
+      "date_max": "1794-05-21",
+      "sted": "Knoop",
+      "skilt": false,
+      "partner_foedsel": "* 20. dec. 1778 i København",
+      "partner_daab": "døbt 29. s.m. i Sankt Petri Kirke",
+      "partner_doed": {
+        "date_raw": "† 22. dec. 1853 i det Reventlowske hus i Kiel",
+        "date_min": "1853-12-22",
+        "date_max": "1853-12-22",
+        "sted": "Kiel"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Gehejmekonferensråd, kammerherre, gesandt Heinrich Friedrich rigsgreve von B. til Rixdorf, Knoop, Pronstorf, m.fl., og Adelaide Carolina Cornelia komtesse Schimmelmann",
+      "note": null
+    }
+  ],
+  "boern": {
+    "antal": 13,
+    "slaegtled": "Tredje (sekstende) slægtled",
+    "linje": "II, nr. 15-27",
+    "nr_range": null
+  },
+  "begivenheder": []
+}

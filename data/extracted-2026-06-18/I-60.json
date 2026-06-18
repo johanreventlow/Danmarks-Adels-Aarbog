@@ -1,0 +1,199 @@
+{
+  "linje": "I",
+  "nr": 60,
+  "nr_label": "60",
+  "usikker": false,
+  "navn": "Iwan",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "ca. 1484",
+      "date_raw": "* ca. 1484",
+      "date_min": "1484-01-01",
+      "date_max": "1484-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "ca. 25. okt. 1569",
+      "date_raw": "† ca. 25. okt. 1569",
+      "date_min": "1569-10-25",
+      "date_max": "1569-10-25",
+      "date_qualifier": "about",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Rixdorf",
+      "periode_raw": "(1520-1561)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Schönweide",
+      "periode_raw": "(1535-1542)",
+      "period_type": "tenure",
+      "sted": "Neukirchen S., Plön Kr."
+    },
+    {
+      "navn": "Stocksee",
+      "periode_raw": "(1543-†)",
+      "period_type": "tenure",
+      "sted": "Bornhöved S., Segeberg Kr."
+    },
+    {
+      "navn": "Stellböken",
+      "periode_raw": "(1543-)",
+      "period_type": "tenure",
+      "sted": "Selent S., Plön Kr."
+    },
+    {
+      "navn": "Lammershagen",
+      "periode_raw": "(ca. 1500-ca. 1550)",
+      "period_type": "tenure",
+      "sted": "Selent S., Plön Kr."
+    },
+    {
+      "navn": "Visgaarde",
+      "periode_raw": "(1548-)",
+      "period_type": "tenure",
+      "sted": "Tinglev S., Slogs H."
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Segeberg",
+      "rolle": "amtmand",
+      "dato_raw": "1526-1530"
+    },
+    {
+      "organisation": "Gottorp",
+      "rolle": "amtmand",
+      "dato_raw": "1533-1534"
+    },
+    {
+      "organisation": "Tønder",
+      "rolle": "amtmand",
+      "dato_raw": "1533-1537"
+    },
+    {
+      "organisation": null,
+      "rolle": "kgl. råd",
+      "dato_raw": "1533"
+    },
+    {
+      "organisation": null,
+      "rolle": "statholder",
+      "dato_raw": "1534-1536"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Anna von Ahlefeldt",
+      "partner_ekstern_ref": "DAA 1982-84, 545",
+      "type": "vielse",
+      "dato_raw": "Gift 1° ca. 1518",
+      "date_min": "1518-01-01",
+      "date_max": "1518-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 27. april 1488",
+        "date_min": "1488-04-27",
+        "date_max": "1488-04-27",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† formentlig dec. 1530",
+        "date_min": "1530-12-01",
+        "date_max": "1530-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Amtmand Hinrich von A. til Tørning samt Pronstorf og ? Catharina von Buchwaldt",
+      "note": null
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Anna von Buchwaldt",
+      "partner_ekstern_ref": "DAA 1913, 126",
+      "type": "vielse",
+      "dato_raw": "Gift 2°",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1546",
+        "date_min": "1546-01-01",
+        "date_max": "1546-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Otte von B. til Wensin og Benedicte von Rantzau",
+      "note": null
+    },
+    {
+      "ordinal": 3,
+      "partner_navn": "Margaretha von Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 165",
+      "type": "vielse",
+      "dato_raw": "Gift 3°",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1550",
+        "date_min": "1550-01-01",
+        "date_max": "1550-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Amtmand, råd, marskal, ridder Otte von R. til Bülk samt Knoop og Anna Breide",
+      "note": null
+    },
+    {
+      "ordinal": 4,
+      "partner_navn": "Margaretha von Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 105",
+      "type": "vielse",
+      "dato_raw": "Gift 4° ca. 1550",
+      "date_min": "1550-01-01",
+      "date_max": "1550-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1594",
+        "date_min": "1594-01-01",
+        "date_max": "1594-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Nicolaus von R. til Rastorf og Catharina NN",
+      "note": "Formentlig bisat i Lebrade Kirke."
+    }
+  ],
+  "boern": {
+    "antal": 11,
+    "slaegtled": "Tiende slægtled",
+    "linje": "I",
+    "nr_range": [
+      66,
+      76
+    ]
+  },
+  "begivenheder": []
+}

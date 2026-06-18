@@ -1,0 +1,31 @@
+{
+  "linje": "I",
+  "nr": 15,
+  "nr_label": "15a",
+  "usikker": false,
+  "navn": "Eler",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "1333 (7. aug.)",
+      "date_min": "1333-08-07",
+      "date_max": "1333-08-07",
+      "date_qualifier": "exact",
+      "sted": "Viborg"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Viborg Landsting",
+      "rolle": "landstingshører",
+      "dato_raw": "1333 (7. aug.)"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

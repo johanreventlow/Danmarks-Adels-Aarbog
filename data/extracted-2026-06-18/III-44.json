@@ -1,0 +1,53 @@
+{
+  "linje": "III",
+  "nr": 44,
+  "nr_label": "44",
+  "usikker": false,
+  "navn": "Lorenz",
+  "tilnavn": "til Gnemern, Gischow og Grese",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "ca. 1635",
+      "date_raw": "† ca. 1635",
+      "date_min": "1635-01-01",
+      "date_max": "1635-12-31",
+      "date_qualifier": "circa",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Gnemern",
+      "periode_raw": "(alle 1622-1629)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Gischow",
+      "periode_raw": "(alle 1622-1629)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Grese",
+      "periode_raw": "(alle 1622-1629)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "immatrikulation",
+      "dato_raw": "1617 (okt.)",
+      "date_min": "1617-10-01",
+      "date_max": "1617-10-31",
+      "sted": "Rostock",
+      "note": "Pantsatte 1628 med broderen Ulrich Gnemern og Grese for gæld efter deres far og afstod deres godser 1629 til kreditorerne."
+    }
+  ]
+}

@@ -1,0 +1,100 @@
+{
+  "linje": "V",
+  "nr": 114,
+  "nr_label": "114",
+  "usikker": false,
+  "navn": "Sophia Benedicta Christiana Charlotte Caroline",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 21. nov. 1854",
+      "date_min": "1854-11-21",
+      "date_max": "1854-11-21",
+      "date_qualifier": "exact",
+      "sted": "Tønder"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 16. jan. 1855",
+      "date_min": "1855-01-16",
+      "date_max": "1855-01-16",
+      "date_qualifier": "exact",
+      "sted": "Tønder Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 22. okt. 1929",
+      "date_min": "1929-10-22",
+      "date_max": "1929-10-22",
+      "date_qualifier": "exact",
+      "sted": "Kiel"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "haven på Wulfshagen"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Wulfshagen",
+      "periode_raw": "Arvede 1903 (1903‑†)",
+      "period_type": "ejet",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Ludwig Ernst Adolph Detlev greve af Reventlow",
+      "partner_ekstern_ref": "se nr. 121",
+      "type": "vielse",
+      "dato_raw": "Gift 15. okt. 1892",
+      "date_min": "1892-10-15",
+      "date_max": "1892-10-15",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 5. juli 1864",
+        "date_min": "1864-07-05",
+        "date_max": "1864-07-05",
+        "sted": "Kiel"
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 22. maj 1906",
+        "date_min": "1906-05-22",
+        "date_max": "1906-05-22",
+        "sted": "Wiesbaden"
+      },
+      "partner_erhverv": [
+        "rigsdagsmedlem",
+        "advokat",
+        "cand.jur."
+      ],
+      "partner_foraeldre": "Amtmand Ludewig Christian Dethlew Friderich greve af R. og Emilie Julia Anna Louise rigsgrevinde zu Rantzau",
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

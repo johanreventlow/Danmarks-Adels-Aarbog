@@ -1,0 +1,103 @@
+{
+  "linje": "II",
+  "nr": 18,
+  "nr_label": "18",
+  "usikker": false,
+  "navn": "Hartwig Diedrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1684",
+      "date_raw": "* 1684",
+      "date_min": "1684-01-01",
+      "date_max": "1684-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "6. maj 1754 i København",
+      "date_raw": "† 6. maj 1754 i København",
+      "date_min": "1754-05-06",
+      "date_max": "1754-05-06",
+      "date_qualifier": "exact",
+      "sted": "København"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Dronningens Livreg.",
+      "rolle": "fændrik",
+      "dato_raw": "1700"
+    },
+    {
+      "organisation": "Bataljon Dronningen",
+      "rolle": "i kejserlig sold",
+      "dato_raw": "1702 (7. dec.)"
+    },
+    {
+      "organisation": "1. danske gevorbne Infanterireg.",
+      "rolle": "sekondløjtnant",
+      "dato_raw": "i kejserlig sold i Italien og Ungarn"
+    },
+    {
+      "organisation": "1. danske gevorbne Infanterireg.",
+      "rolle": "premierløjtnant",
+      "dato_raw": "1705 (1. april)"
+    },
+    {
+      "organisation": null,
+      "rolle": "kaptajn",
+      "dato_raw": "1712 (18. juni)"
+    },
+    {
+      "organisation": "Garnisonsreg.",
+      "rolle": "sekondmajor",
+      "dato_raw": "1728 (22. juli)"
+    },
+    {
+      "organisation": null,
+      "rolle": "karakt. oberstløjtnant",
+      "dato_raw": "1738 (13. jan.)"
+    },
+    {
+      "organisation": null,
+      "rolle": "virkelig oberst",
+      "dato_raw": "1743 (25. nov.)"
+    },
+    {
+      "organisation": "Garnisonsreg. (Citadellet)",
+      "rolle": "chef",
+      "dato_raw": "s.d.-1752"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Lucia Dorothea von Thomstorf",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 14. febr. 1716",
+      "date_min": "1716-02-14",
+      "date_max": "1716-02-14",
+      "sted": "Mecklenburg",
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1746",
+        "date_min": "1746-01-01",
+        "date_max": "1746-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Clement Hinrich von T. til Kargow og Dorothea Levecke von Reventlow, se nr. 13",
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

@@ -1,0 +1,96 @@
+{
+  "linje": "V",
+  "nr": 61,
+  "nr_label": "61",
+  "usikker": false,
+  "navn": "Charlotte Amalia",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 3. juli 1780 i København",
+      "date_min": "1780-07-03",
+      "date_max": "1780-07-03",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 27. april 1843 på Arreskov",
+      "date_min": "1843-04-27",
+      "date_max": "1843-04-27",
+      "date_qualifier": "exact",
+      "sted": "Arreskov"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "indsat i Det Schaffalitzky de Muckadellske Kapel i Hillerslev Kirke",
+      "date_raw": "bisat 5. maj s.å. fra Øster Hæsinge Kirke",
+      "date_min": "1843-05-05",
+      "date_max": "1843-05-05",
+      "date_qualifier": "exact",
+      "sted": "Øster Hæsinge Kirke"
+    },
+    {
+      "faktatype": "klosterindgang",
+      "vaerdi": "Konventualinde",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Preetz Adelige Kloster"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Erik Skeel greve Schaffalitzky de Muckadell",
+      "partner_ekstern_ref": "DAA 1928, II, 108",
+      "type": "vielse",
+      "dato_raw": "Gift 19. april 1799 på Brahetrolleborg",
+      "date_min": "1799-04-19",
+      "date_max": "1799-04-19",
+      "sted": "Brahetrolleborg",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 5. okt. 1744 på Arreskov",
+        "date_min": "1744-10-05",
+        "date_max": "1744-10-05",
+        "sted": "Arreskov"
+      },
+      "partner_daab": {
+        "date_raw": "døbt 29. dec. s.å. i Øster Hæsinge Kirke",
+        "date_min": "1744-12-29",
+        "date_max": "1744-12-29",
+        "sted": "Øster Hæsinge Kirke"
+      },
+      "partner_doed": {
+        "date_raw": "† 7. febr. 1833 på Arreskov",
+        "date_min": "1833-02-07",
+        "date_max": "1833-02-07",
+        "sted": "Arreskov"
+      },
+      "partner_erhverv": [
+        "kammerherre"
+      ],
+      "partner_foraeldre": "Kammerherre, gehejmeråd, oberst Albrecht Christopher greve S. de M. til grevskabet Arreskov og Berthe (Birgitte) Kirstine Iuel Reedtz",
+      "note": "til grevskabet Muckadell"
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

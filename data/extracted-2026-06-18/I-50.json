@@ -1,0 +1,33 @@
+{
+  "linje": "I",
+  "nr": 50,
+  "nr_label": "50",
+  "usikker": false,
+  "navn": "NN",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "NN Wulf",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "Mor til Hartwich Wulf til Sturenhagen."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

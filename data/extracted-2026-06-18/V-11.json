@@ -1,0 +1,38 @@
+{
+  "linje": "V",
+  "nr": 11,
+  "nr_label": "11",
+  "usikker": false,
+  "navn": "Ulrica Eleonora",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Friherreinde",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 1686",
+      "date_min": "1686-01-01",
+      "date_max": "1686-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 1686",
+      "date_min": "1686-01-01",
+      "date_max": "1686-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    }
+  ]
+}

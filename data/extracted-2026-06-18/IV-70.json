@@ -1,0 +1,45 @@
+{
+  "linje": "IV",
+  "nr": 70,
+  "nr_label": "70",
+  "usikker": false,
+  "navn": "Greve Georg Christian Eugen Heinrich Carl",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1891-05-06",
+      "date_raw": "† 6. maj 1891 i Lübeck",
+      "date_min": "1891-05-06",
+      "date_max": "1891-05-06",
+      "date_qualifier": "exact",
+      "sted": "Lübeck"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Dänischenhagen Kirkegård",
+      "rolle": "begravet",
+      "dato_raw": "8. s.m."
+    },
+    {
+      "organisation": "Gymnasieelev i Lübeck",
+      "rolle": "elev",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "18. febr. 1874",
+      "date_min": "1874-02-18",
+      "date_max": "1874-02-18",
+      "sted": "Kaltenhof",
+      "note": null
+    }
+  ]
+}

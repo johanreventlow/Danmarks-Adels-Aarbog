@@ -1,0 +1,34 @@
+{
+  "linje": "III",
+  "nr": 106,
+  "nr_label": "106",
+  "usikker": false,
+  "navn": "Ottilia Elisabeth",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1717",
+      "date_raw": "† 1717",
+      "date_min": "1717-01-01",
+      "date_max": "1717-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "18. aug. 1715",
+      "date_min": "1715-08-18",
+      "date_max": "1715-08-18",
+      "sted": null,
+      "note": null
+    }
+  ]
+}

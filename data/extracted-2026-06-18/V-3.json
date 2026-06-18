@@ -1,0 +1,243 @@
+{
+  "linje": "V",
+  "nr": 3,
+  "nr_label": "3",
+  "usikker": false,
+  "navn": "Greve Christian Detlef",
+  "tilnavn": "til grevskabet Reventlow, grevskabet Christiansborg, baroniet Brahetrolleborg, stamhuset Frisenvold og stamhuset Krenkerup, Tølløsegaard og Sehestedt",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1738-10-01",
+      "date_raw": "† 1. okt. 1738 på Tølløse",
+      "date_min": "1738-10-01",
+      "date_max": "1738-10-01",
+      "date_qualifier": "exact",
+      "sted": "Tølløse"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "grevskabet Reventlow",
+      "periode_raw": "(1708‑†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "grevskabet Christiansborg (senere Christianssæde)",
+      "periode_raw": "(25. juli 1729‑†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "baroniet Brahetrolleborg",
+      "periode_raw": "(28. dec. 1722‑†)",
+      "period_type": "tenure",
+      "sted": "Brahetrolleborg S., Sallinge H."
+    },
+    {
+      "navn": "stamhuset Frisenvold",
+      "periode_raw": "(1731‑†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "stamhuset Krenkerup",
+      "periode_raw": "(1736‑†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Tølløsegaard",
+      "periode_raw": "(1728‑1737)",
+      "period_type": "tenure",
+      "sted": "Tølløse S., Merløse H."
+    },
+    {
+      "navn": "Sehestedt",
+      "periode_raw": "(1731‑†)",
+      "period_type": "tenure",
+      "sted": "Sehestedt S., Egernførde Kr."
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Haderslev Amt",
+      "rolle": "amtmand",
+      "dato_raw": "1685 (1. jan.)-1725 (26. april)"
+    },
+    {
+      "organisation": "viceoverjægermester",
+      "rolle": "viceoverjægermester",
+      "dato_raw": "1687 (14. juni)-1699 (13. april)"
+    },
+    {
+      "organisation": "overjægermester",
+      "rolle": "overjægermester",
+      "dato_raw": "1699 (14. april, fra 1. jan. s.å. at regne)-1730 (28. okt.)"
+    },
+    {
+      "organisation": "Landråd",
+      "rolle": "landråd",
+      "dato_raw": "1684"
+    },
+    {
+      "organisation": "Haag",
+      "rolle": "envoyé extraordinaire",
+      "dato_raw": "1691 (3. febr.)"
+    },
+    {
+      "organisation": "1. Rytterreg. (La Forests reg.)",
+      "rolle": "karakt. oberst",
+      "dato_raw": "1692 (23. aug.)"
+    },
+    {
+      "organisation": "det danske komp. i Irland",
+      "rolle": "overtallig oberst",
+      "dato_raw": "1692"
+    },
+    {
+      "organisation": "Livreg. til Hest",
+      "rolle": "chef",
+      "dato_raw": "1697 (23. aug.)-1714"
+    },
+    {
+      "organisation": "kammerherre",
+      "rolle": "kammerherre",
+      "dato_raw": "1698 (15. aug.)"
+    },
+    {
+      "organisation": "Sachsen",
+      "rolle": "sendt til",
+      "dato_raw": "1699"
+    },
+    {
+      "organisation": "kejserlig sold",
+      "rolle": "østrigsk regimentschef",
+      "dato_raw": "1700"
+    },
+    {
+      "organisation": "generalvagtmester",
+      "rolle": "generalvagtmester",
+      "dato_raw": "1702"
+    },
+    {
+      "organisation": "kejserlig oberstfelttøjmester",
+      "rolle": "oberstfelttøjmester",
+      "dato_raw": "1705 (30. okt.)"
+    },
+    {
+      "organisation": "blå ridder",
+      "rolle": "ridder",
+      "dato_raw": "1707 (26. maj)"
+    },
+    {
+      "organisation": "gehejmeråd",
+      "rolle": "gehejmeråd",
+      "dato_raw": "1707-†"
+    },
+    {
+      "organisation": "general af Infanteriet",
+      "rolle": "general af Infanteriet",
+      "dato_raw": "1707 (10. juni)"
+    },
+    {
+      "organisation": "Altona",
+      "rolle": "overpræsident",
+      "dato_raw": "1713 (14. marts)-1732"
+    },
+    {
+      "organisation": "undersøgelseskommissionen vedrørende Afdelingernes og Individernes Forhold under slaget ved Gadebusch",
+      "rolle": "præsident",
+      "dato_raw": "1713 (23. marts)-†"
+    },
+    {
+      "organisation": "Højesteret",
+      "rolle": "assessor",
+      "dato_raw": "1718-1738"
+    },
+    {
+      "organisation": "Frederik 4.",
+      "rolle": "overkammerherre",
+      "dato_raw": "1719-1730"
+    },
+    {
+      "organisation": "den Reventlowske Stiftelse i Altona",
+      "rolle": "oprettede",
+      "dato_raw": "1721 (13. maj)"
+    },
+    {
+      "organisation": "baroniet Brahetrolleborg",
+      "rolle": "forlenet",
+      "dato_raw": "1722 (28. dec.)"
+    },
+    {
+      "organisation": "Bygningskommissionen",
+      "rolle": "præsident",
+      "dato_raw": "1729 (maj)-"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Anna Christiana Gyldenløve",
+      "partner_ekstern_ref": "DAA 1997-99, 879f.",
+      "type": "vielse",
+      "dato_raw": "Trolovet af kong Christian 5.",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 1676 i København",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 11. aug. 1689 s.st.",
+        "date_min": "1689-08-11",
+        "date_max": "1689-08-11",
+        "sted": "København"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kong Christian 5. og Sophia Amalia Moth, grevinde til Samsøe",
+      "note": "Trolovet før brylluppet."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Benedicte Margaretha von Brockdorff",
+      "partner_ekstern_ref": "DAA 1936, II, 25",
+      "type": "vielse",
+      "dato_raw": "Gift 1700",
+      "date_min": "1700-01-01",
+      "date_max": "1700-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 1678 (?)",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 7. juni 1739 på Tølløse",
+        "date_min": "1739-06-07",
+        "date_max": "1739-06-07",
+        "sted": "Tølløse"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Svensk oberst Cai Bertram von B. til herskabet Doorn (Büren), Kletkamp, m.fl., og Hedwig von Rantzau",
+      "note": "Fik 1703 tilskødet Frisenvold, Kalø og Løjstrup."
+    }
+  ],
+  "boern": {
+    "antal": 11,
+    "slaegtled": "Tredje (fjortende) slægtled",
+    "linje": "nr. 18-28",
+    "nr_range": null
+  },
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "21. juni 1671",
+      "date_min": "1671-06-21",
+      "date_max": "1671-06-21",
+      "sted": "Haderslev",
+      "note": null
+    }
+  ]
+}

@@ -1,0 +1,117 @@
+{
+  "linje": "V",
+  "nr": 122,
+  "nr_label": "122",
+  "usikker": false,
+  "navn": "Ernst Einar Ludwig Christian Detlev",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 18. aug. 1869 på Husum Slot",
+      "date_min": "1869-08-18",
+      "date_max": "1869-08-18",
+      "date_qualifier": "exact",
+      "sted": "Husum Slot"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 19. sept. s.å. i Sankt Marien Kirke, Husum",
+      "date_min": "1869-09-19",
+      "date_max": "1869-09-19",
+      "date_qualifier": "exact",
+      "sted": "Sankt Marien Kirke, Husum"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 21. nov. 1943 i Tegernsee ved München",
+      "date_min": "1943-11-21",
+      "date_max": "1943-11-21",
+      "date_qualifier": "exact",
+      "sted": "Tegernsee ved München"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "begravet på Bornstedt Kirkegård, Potsdam",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Bornstedt Kirkegård, Potsdam"
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "M.Gr.3.",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "den tyske marine",
+      "rolle": "1. løjtnant",
+      "dato_raw": "1898"
+    },
+    {
+      "organisation": "den tyske marine",
+      "rolle": "kaptajnløjtnant",
+      "dato_raw": "1899"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Marie Gabrielle Blanche d’Allemont de Broutillot",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 14. marts 1895 i Altona",
+      "date_min": "1895-03-14",
+      "date_max": "1895-03-14",
+      "sted": "Altona",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 19. sept. 1873 i Paris",
+        "date_min": "1873-09-19",
+        "date_max": "1873-09-19",
+        "sted": "Paris"
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 15. april 1937 i Potsdam",
+        "date_min": "1937-04-15",
+        "date_max": "1937-04-15",
+        "sted": "Potsdam"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "komtesse; begravet på Bornstedt Kirkegård"
+    }
+  ],
+  "boern": {
+    "antal": 1,
+    "slaegtled": "Ottende (nittende) slægtled",
+    "linje": "IV",
+    "nr_range": [
+      150,
+      150
+    ]
+  },
+  "begivenheder": []
+}

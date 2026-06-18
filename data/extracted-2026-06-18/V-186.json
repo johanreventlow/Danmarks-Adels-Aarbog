@@ -1,0 +1,52 @@
+{
+  "linje": "V",
+  "nr": 186,
+  "nr_label": "186",
+  "usikker": false,
+  "navn": "Greve Johan Martin",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1977-06-03",
+      "date_raw": "3. juni 1977",
+      "date_min": "1977-06-03",
+      "date_max": "1977-06-03",
+      "date_qualifier": "exact",
+      "sted": "Stege"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1977-09-04",
+      "date_raw": "døbt 4. sept. s.å. i Støvringgård Klosterkirke",
+      "date_min": "1977-09-04",
+      "date_max": "1977-09-04",
+      "date_qualifier": "exact",
+      "sted": "Støvringgård Klosterkirke"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Miriam Annkathrin Wernicke",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 12. dec. 2009 / 31. juli 2010",
+      "date_min": "2009-12-12",
+      "date_max": "2010-07-31",
+      "sted": "Berlin / Sankt Petri Kirke, København",
+      "skilt": false,
+      "partner_foedsel": "* 3. marts 1975 i Berlin",
+      "partner_daab": "døbt 31. maj s.å. i Alte Dorfkirche, Berlin-Lichterfelde",
+      "partner_doed": null,
+      "partner_erhverv": [
+        "Director of Operations",
+        "cand.jur.",
+        "LL.M."
+      ],
+      "partner_foraeldre": "Selvstændig Wolfgang Heinz W. og redaktionssekretær Ingrid Fohrmann",
+      "note": null
+    }
+  ]
+}

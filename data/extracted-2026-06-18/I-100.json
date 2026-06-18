@@ -1,0 +1,40 @@
+{
+  "linje": "I",
+  "nr": 100,
+  "nr_label": "100",
+  "usikker": false,
+  "navn": "Dorothea Christina",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1640",
+      "date_raw": "* 1640",
+      "date_min": "1640-01-01",
+      "date_max": "1640-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1689",
+      "date_raw": "† 1689",
+      "date_min": "1689-01-01",
+      "date_max": "1689-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

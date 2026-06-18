@@ -1,0 +1,47 @@
+{
+  "linje": "III",
+  "nr": 50,
+  "nr_label": "50",
+  "usikker": false,
+  "navn": "Valentina",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1668-10-19",
+      "date_raw": "† 19. okt. 1668",
+      "date_min": "1668-10-19",
+      "date_max": "1668-10-19",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Jürgen von Blücher",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [
+        "mecklenburgsk major",
+        "kejserlig oberst­ vagtmester",
+        "dansk oberstløjtnant"
+      ],
+      "partner_foraeldre": "Jürgen von B. til Waschow og Anna von Lützow",
+      "note": "Var 1657 mecklenburgsk major, faldt 4. dec. 1676 i slaget ved Lund; gift 2° 17. nov. 1669 med Margaretha von der Lühe."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

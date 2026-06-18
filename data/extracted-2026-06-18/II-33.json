@@ -1,0 +1,65 @@
+{
+  "linje": "II",
+  "nr": 33,
+  "nr_label": "33",
+  "usikker": false,
+  "navn": "Hartwig Otto",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "10. sept. 1732",
+      "date_raw": "* 10. sept. 1732",
+      "date_min": "1732-09-10",
+      "date_max": "1732-09-10",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "25. sept. 1772",
+      "date_raw": "† 25. sept. 1772",
+      "date_min": "1772-09-25",
+      "date_max": "1772-09-25",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "hertugen af Slesvig-Holsten-Plön",
+      "rolle": "page",
+      "dato_raw": "1743"
+    },
+    {
+      "organisation": "Kongens Livreg.",
+      "rolle": "sekondløjtnant",
+      "dato_raw": "1743 (25. april)"
+    },
+    {
+      "organisation": "Norske Livreg.",
+      "rolle": "sekondløjtnant",
+      "dato_raw": "fra 4. jan. 1764"
+    },
+    {
+      "organisation": "Kongens Livreg.",
+      "rolle": "premierløjtnant",
+      "dato_raw": "1756 (29. dec.)"
+    },
+    {
+      "organisation": "Kongens Livreg.",
+      "rolle": "kaptajn",
+      "dato_raw": "1759 (13. juni)"
+    },
+    {
+      "organisation": "3. slesvig-holstenske nationale Bataljon",
+      "rolle": "major",
+      "dato_raw": "1772 (4. sept.)"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

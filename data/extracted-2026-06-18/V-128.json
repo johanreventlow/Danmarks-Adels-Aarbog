@@ -1,0 +1,38 @@
+{
+  "linje": "V",
+  "nr": 128,
+  "nr_label": "128",
+  "usikker": false,
+  "navn": "Greve Einar Joakim",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1892-01-09",
+      "date_raw": "9. jan. 1892",
+      "date_min": "1892-01-09",
+      "date_max": "1892-01-09",
+      "date_qualifier": "exact",
+      "sted": "Brostorp"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1892-01-18",
+      "date_raw": "døbt 18. s.m. i Gudmuntorp Kirke",
+      "date_min": "1892-01-18",
+      "date_max": "1892-01-18",
+      "date_qualifier": "exact",
+      "sted": "Gudmuntorp Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1892-01-23",
+      "date_raw": "23. s.m. s.st.",
+      "date_min": "1892-01-23",
+      "date_max": "1892-01-23",
+      "date_qualifier": "exact",
+      "sted": "Gudmuntorp"
+    }
+  ]
+}

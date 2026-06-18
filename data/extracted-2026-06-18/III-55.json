@@ -1,0 +1,162 @@
+{
+  "linje": "III",
+  "nr": 55,
+  "nr_label": "55",
+  "usikker": false,
+  "navn": "Henning",
+  "tilnavn": "til Hemmelmark",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1705-01-30",
+      "date_raw": "† 30. jan. 1705",
+      "date_min": "1705-01-30",
+      "date_max": "1705-01-30",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Hemmelmark",
+      "periode_raw": "(1675-1692)",
+      "period_type": "tenure",
+      "sted": "Borby S., Rendsborg-Egernførde Kr."
+    },
+    {
+      "navn": "Möhlhorst (Mølskov)",
+      "periode_raw": "(-1684-)",
+      "period_type": "tenure",
+      "sted": "Flekkeby S., Rendsborg-Egernførde Kr."
+    },
+    {
+      "navn": "Glasau",
+      "periode_raw": "(1687-†)",
+      "period_type": "tenure",
+      "sted": "Sarau S., Segeberg Kr."
+    },
+    {
+      "navn": "Altenhof",
+      "periode_raw": "(1691-†)",
+      "period_type": "tenure",
+      "sted": "Egernførde Landsogn, Egernførde Kr."
+    },
+    {
+      "navn": "Gottesgabe (Sterdebølgaard)",
+      "periode_raw": "(-1687-)",
+      "period_type": "tenure",
+      "sted": "Bordelum S., Nordfriesland Kr."
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Rostock",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1651"
+    },
+    {
+      "organisation": "Orléans",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1662"
+    },
+    {
+      "organisation": "kronprins Christian (5.)",
+      "rolle": "kammerjunker",
+      "dato_raw": "1664 (26. maj)-1665 (15. nov.)"
+    },
+    {
+      "organisation": "Sønderborg Amt",
+      "rolle": "amtmand",
+      "dato_raw": "1667 (3. jan.)-1675 (9. aug.)"
+    },
+    {
+      "organisation": "Nordborg Amt",
+      "rolle": "amtmand",
+      "dato_raw": "1669-1675 (9. aug.)"
+    },
+    {
+      "organisation": "Tyske Kancelli",
+      "rolle": "hofråd",
+      "dato_raw": "1672 (15. nov.)"
+    },
+    {
+      "organisation": "Svavested Amt",
+      "rolle": "amtmand",
+      "dato_raw": "1675 (25. aug.)-1679 (24. okt.)"
+    },
+    {
+      "organisation": "Slesvig Domkirke",
+      "rolle": "købte gravkapel",
+      "dato_raw": "1675/1677"
+    },
+    {
+      "organisation": "Slesvig og Holsten",
+      "rolle": "landråd",
+      "dato_raw": "1677 (8. juni)-"
+    },
+    {
+      "organisation": "Ejderstedt",
+      "rolle": "inspektør",
+      "dato_raw": "1677 (24. marts)-1679 (okt.)"
+    },
+    {
+      "organisation": "Flensborg Amt",
+      "rolle": "amtmand",
+      "dato_raw": "1679 (24. okt.)-†"
+    },
+    {
+      "organisation": "gehejmeråd",
+      "rolle": "gehejmeråd",
+      "dato_raw": "1682 (13. jan.)-†"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Margaretha von Rumohr",
+      "partner_ekstern_ref": "DAA 1939, II, 123",
+      "type": "vielse",
+      "dato_raw": "Gift 24. dec. 1665",
+      "date_min": "1665-12-24",
+      "date_max": "1665-12-24",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 7. nov. 1638 på Roest",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 11. marts 1705 i Kiel",
+        "date_min": "1705-03-11",
+        "date_max": "1705-03-11",
+        "sted": "Kiel"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Hinrich von R. til Roest, Tøstrup samt Hohenlieth og Ide von Brockdorff",
+      "note": "Bisat 5. maj s.å. i Kiel og ført til Det Reventlowske Gravkapel i Sarau Kirke."
+    }
+  ],
+  "boern": {
+    "antal": 12,
+    "slaegtled": "Trettende slægtled",
+    "linje": "III, nr. 73-84",
+    "nr_range": null
+  },
+  "begivenheder": [
+    {
+      "type": "hyldede",
+      "dato_raw": "1684",
+      "date_min": "1684-01-01",
+      "date_max": "1684-12-31",
+      "sted": null,
+      "note": "Hvid ridder; symbolum: Perdit qvod vivit qui Deum et Regem suum non colit."
+    },
+    {
+      "type": "opførte",
+      "dato_raw": "1688",
+      "date_min": "1688-01-01",
+      "date_max": "1688-12-31",
+      "sted": "Bredsted",
+      "note": "Opførte hovedbygningen på Bredsted."
+    }
+  ]
+}

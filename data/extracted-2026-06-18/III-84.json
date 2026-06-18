@@ -1,0 +1,110 @@
+{
+  "linje": "III",
+  "nr": 84,
+  "nr_label": "84",
+  "usikker": false,
+  "navn": "Cay Friedrich",
+  "tilnavn": "til Altenhof, Dörphof og Glasau",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1762-11-29",
+      "date_raw": "† 29. nov. 1762 på Altenhof",
+      "date_min": "1762-11-29",
+      "date_max": "1762-11-29",
+      "date_qualifier": "exact",
+      "sted": "Altenhof"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Altenhof",
+      "periode_raw": "(1705-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Dörphof (Torp)",
+      "periode_raw": "(1723-†)",
+      "period_type": "tenure",
+      "sted": "Karby S., Egernførde Kr."
+    },
+    {
+      "navn": "Glasau",
+      "periode_raw": "(1728-†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Fynske gevorbne Infanterireg.",
+      "rolle": "fændrik",
+      "dato_raw": "1703 (28. april)"
+    },
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1704 (4. febr.)"
+    },
+    {
+      "organisation": "Kiel",
+      "rolle": "sekondløjtnant",
+      "dato_raw": "1704 (11. okt.)"
+    },
+    {
+      "organisation": "etaten",
+      "rolle": "udstreget",
+      "dato_raw": "1705"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Hedwig Ida von Buchwaldt",
+      "partner_ekstern_ref": "DAA 1913, 182",
+      "type": "vielse",
+      "dato_raw": "Gift 12. april 1710",
+      "date_min": "1710-04-12",
+      "date_max": "1710-04-12",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 12. marts 1690",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 6. juni 1761",
+        "date_min": "1761-06-06",
+        "date_max": "1761-06-06",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Bendix Bertram von B. til Lammershagen og Ottilia Elisabeth von Ahlefeldt",
+      "note": "15 børn."
+    }
+  ],
+  "boern": {
+    "antal": 15,
+    "slaegtled": "Fjortende slægtled",
+    "linje": "III, nr. 103-117",
+    "nr_range": null
+  },
+  "begivenheder": [
+    {
+      "type": "opførte",
+      "dato_raw": "1722-1728",
+      "date_min": "1722-01-01",
+      "date_max": "1728-12-31",
+      "sted": "Altenhof",
+      "note": "Opførte hovedbygningen."
+    },
+    {
+      "type": "indrettede",
+      "dato_raw": "ca. 1750",
+      "date_min": "1750-01-01",
+      "date_max": "1750-12-31",
+      "sted": "Altenhof",
+      "note": "Lod indrette hovedbygningen med stuklofter og gobeliner."
+    }
+  ]
+}

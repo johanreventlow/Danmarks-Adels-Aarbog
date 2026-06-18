@@ -1,0 +1,40 @@
+{
+  "linje": "III",
+  "nr": 126,
+  "nr_label": "126",
+  "usikker": false,
+  "navn": "Maria Elisabeth",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1777-10-23",
+      "date_raw": "† 23. okt. 1777 i Preetz",
+      "date_min": "1777-10-23",
+      "date_max": "1777-10-23",
+      "date_qualifier": "exact",
+      "sted": "Preetz"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "sept. 1712",
+      "date_min": "1712-09-01",
+      "date_max": "1712-09-30",
+      "sted": null,
+      "note": "Måske hende, der 1746 afgik som hofdame i Plön."
+    }
+  ]
+}

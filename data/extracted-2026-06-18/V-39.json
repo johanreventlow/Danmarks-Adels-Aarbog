@@ -1,0 +1,70 @@
+{
+  "linje": "V",
+  "nr": 39,
+  "nr_label": "39",
+  "usikker": false,
+  "navn": "Christian Friderich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "23. sept. 1743",
+      "date_min": "1743-09-23",
+      "date_max": "1743-09-23",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "25. s.m.",
+      "date_min": "1743-09-25",
+      "date_max": "1743-09-25",
+      "date_qualifier": "exact",
+      "sted": "Hof- og Slotskirken, København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "26. febr. 1744",
+      "date_min": "1744-02-26",
+      "date_max": "1744-02-26",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "3. marts s.å.",
+      "date_min": "1744-03-03",
+      "date_max": "1744-03-03",
+      "date_qualifier": "exact",
+      "sted": "Holmens Kirke, København"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "overflyttet til kapel",
+      "date_raw": "ca. 1755",
+      "date_min": "1755-01-01",
+      "date_max": "1755-12-31",
+      "date_qualifier": "about",
+      "sted": "Det Reventlowske Kapel, Horslunde Kirke"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

@@ -1,0 +1,61 @@
+{
+  "linje": "IV",
+  "nr": 22,
+  "nr_label": "22",
+  "usikker": false,
+  "navn": "Komtesse Louise Frederique Fanny (Franziska)",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1856-02-13",
+      "date_raw": "† 13. febr. 1856 på Heiligenstedten",
+      "date_min": "1856-02-13",
+      "date_max": "1856-02-13",
+      "date_qualifier": "exact",
+      "sted": "Heiligenstedten"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Adolph Friedrich baron Blome",
+      "partner_ekstern_ref": "DAA 1935, II, 40",
+      "type": "vielse",
+      "dato_raw": "Gift 30. aug. 1823",
+      "date_min": "1823-08-30",
+      "date_max": "1823-08-30",
+      "sted": "Wittenberg",
+      "skilt": false,
+      "partner_foedsel": "* 15. marts 1798 på Salzau",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 10. juli 1875 på Heiligenstedten",
+        "date_min": "1875-07-10",
+        "date_max": "1875-07-10",
+        "sted": "Heiligenstedten"
+      },
+      "partner_erhverv": [
+        "kammerherre",
+        "gesandt",
+        "Verbitter"
+      ],
+      "partner_foraeldre": "Kammerherre Friedrich B. til Salzau samt Det Blomeske Vildnis og Charlotte Juliane rigsgrevinde von Platen zu Hallermund",
+      "note": "Bisat i Probsteierhagen Kirke."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "28. juli 1803",
+      "date_min": "1803-07-28",
+      "date_max": "1803-07-28",
+      "sted": "Falkenberg",
+      "note": "Døbt 22. aug. s.å. i Dänischenhagen Kirke."
+    }
+  ]
+}

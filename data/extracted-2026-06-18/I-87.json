@@ -1,0 +1,97 @@
+{
+  "linje": "I",
+  "nr": 87,
+  "nr_label": "87",
+  "usikker": false,
+  "navn": "Anna",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "før 1608",
+      "date_raw": "† før 1608",
+      "date_min": null,
+      "date_max": "1608-12-31",
+      "date_qualifier": "before",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Gaarz",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": null
+    },
+    {
+      "navn": "Rixdorf",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": null
+    },
+    {
+      "navn": "Rosenhof",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": null
+    },
+    {
+      "navn": "Manhagen",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Detlef von Brockdorff",
+      "partner_ekstern_ref": "DAA 1936, II, 10",
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* ca. 1554",
+        "date_min": "1554-01-01",
+        "date_max": "1554-12-31",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1616",
+        "date_min": "1616-01-01",
+        "date_max": "1616-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "hofjunker"
+      ],
+      "partner_foraeldre": "Joachim von B. og Apollonia von Ahlefeldt",
+      "note": "Klosterprovst; indbudt 1596 til kong Christian 4.s kroning, oprettede 1615 testamente."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Abel von Gadendorp",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 2° 1608",
+      "date_min": "1608-01-01",
+      "date_max": "1608-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "Var 1605-1608 priorinde for Det Adelige Kloster i Preetz, levede 1615."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

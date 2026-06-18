@@ -1,0 +1,29 @@
+{
+  "linje": "V",
+  "nr": 196,
+  "nr_label": "196",
+  "usikker": false,
+  "navn": "Greve Andreas Ditlev",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1991-12-13",
+      "date_raw": "13. dec. 1991",
+      "date_min": "1991-12-13",
+      "date_max": "1991-12-13",
+      "date_qualifier": "exact",
+      "sted": "Gentofte"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1992-06-13",
+      "date_raw": "døbt 13. juni 1992 i Våbensted Kirke",
+      "date_min": "1992-06-13",
+      "date_max": "1992-06-13",
+      "date_qualifier": "exact",
+      "sted": "Våbensted Kirke"
+    }
+  ]
+}

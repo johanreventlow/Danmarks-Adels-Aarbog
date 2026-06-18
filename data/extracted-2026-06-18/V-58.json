@@ -1,0 +1,187 @@
+{
+  "linje": "V",
+  "nr": 58,
+  "nr_label": "58",
+  "usikker": false,
+  "navn": "Friderich Detlef",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 25. nov. 1791",
+      "date_min": "1791-11-25",
+      "date_max": "1791-11-25",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Sankt Petri Kirke, København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 6. okt. 1851",
+      "date_min": "1851-10-06",
+      "date_max": "1851-10-06",
+      "date_qualifier": "exact",
+      "sted": "Glasgow, Skotland"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "begravet 6. maj 1852",
+      "date_min": "1852-05-06",
+      "date_max": "1852-05-06",
+      "date_qualifier": "exact",
+      "sted": "det Reventlowske gravsted på Horslunde Kirkegård"
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "R.",
+      "date_raw": "7. sept. 1833",
+      "date_min": "1833-09-07",
+      "date_max": "1833-09-07",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "K.",
+      "date_raw": "8. april 1840",
+      "date_min": "1840-04-08",
+      "date_max": "1840-04-08",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "D.M.",
+      "date_raw": "17. jan. 1841",
+      "date_min": "1841-01-17",
+      "date_max": "1841-01-17",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "S.K.",
+      "date_raw": "22. maj 1841",
+      "date_min": "1841-05-22",
+      "date_max": "1841-05-22",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "P.S.B.A.2",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "Pr.R.Ø.2",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "kammerherre",
+      "dato_raw": "1826 (22. maj)"
+    },
+    {
+      "organisation": "Brasilien",
+      "rolle": "chargé d’affaires og generalkonsul",
+      "dato_raw": "1830 (6. jan.)‑1834 (29. maj)"
+    },
+    {
+      "organisation": "Wien",
+      "rolle": "chargé d’affaires ad interim",
+      "dato_raw": "1834 (30. maj)"
+    },
+    {
+      "organisation": "Portugal",
+      "rolle": "chargé d’affaires",
+      "dato_raw": "1834 (22. juli)‑1839 (20. aug.)"
+    },
+    {
+      "organisation": "England",
+      "rolle": "overordentlig gesandt og befuldmægtiget minister",
+      "dato_raw": "1841 (1. sept., 9. sept. resolution, 18. okt. bestalling og ordre)‑†"
+    },
+    {
+      "organisation": null,
+      "rolle": "gehejmekonferensråd",
+      "dato_raw": "1848 (2. nov.)-†"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Birgitte Frideriche Christensen",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 3. maj 1830 i København, hjemmeviet (tilladelse 29. april s.å.)",
+      "date_min": "1830-05-03",
+      "date_max": "1830-05-03",
+      "sted": "København",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 7. febr. 1807",
+        "date_min": "1807-02-07",
+        "date_max": "1807-02-07",
+        "sted": "Assens"
+      },
+      "partner_daab": {
+        "date_raw": "hjemmedøbt 9. s.m. og fremstillet 22. s.m. i Assens Kirke",
+        "date_min": "1807-02-09",
+        "date_max": "1807-02-22",
+        "sted": "Assens Kirke"
+      },
+      "partner_doed": {
+        "date_raw": "† 16. nov. 1868",
+        "date_min": "1868-11-16",
+        "date_max": "1868-11-16",
+        "sted": "København"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Overtoldbetjent Carl Christian C. og Anne Willumsen",
+      "note": "begravet 28. s.m. på det Reventlowske gravsted på Horslunde Kirkegård"
+    }
+  ],
+  "boern": {
+    "antal": 5,
+    "slaegtled": "Sjette (syttende)",
+    "linje": "V",
+    "nr_range": [
+      93,
+      97
+    ]
+  },
+  "begivenheder": []
+}

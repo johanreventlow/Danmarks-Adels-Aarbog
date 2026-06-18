@@ -1,0 +1,40 @@
+{
+  "linje": "IV",
+  "nr": 14,
+  "nr_label": "14",
+  "usikker": false,
+  "navn": "Komtesse Maria Emilie",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1883-03-01",
+      "date_raw": "† 1. marts 1883",
+      "date_min": "1883-03-01",
+      "date_max": "1883-03-01",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "28. april 1811",
+      "date_min": "1811-04-28",
+      "date_max": "1811-04-28",
+      "sted": null,
+      "note": "Bisat i Sarau Kirke."
+    }
+  ]
+}

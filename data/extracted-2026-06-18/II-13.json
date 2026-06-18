@@ -1,0 +1,62 @@
+{
+  "linje": "II",
+  "nr": 13,
+  "nr_label": "13",
+  "usikker": false,
+  "navn": "Dorothea Levecke",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "25. marts 1656",
+      "date_raw": "* 25. marts 1656",
+      "date_min": "1656-03-25",
+      "date_max": "1656-03-25",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "27. april 1697",
+      "date_raw": "† 27. april 1697",
+      "date_min": "1697-04-27",
+      "date_max": "1697-04-27",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Clement Hinrich von Thomstorf",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 25. juni 1683",
+      "date_min": "1683-06-25",
+      "date_max": "1683-06-25",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 14. febr. 1645",
+        "date_min": "1645-02-14",
+        "date_max": "1645-02-14",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 2. maj 1724",
+        "date_min": "1724-05-02",
+        "date_max": "1724-05-02",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Sigismund August von T. til Kargow samt Bergfeld og Lucia von Staffeldt",
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

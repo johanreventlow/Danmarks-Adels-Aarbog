@@ -1,0 +1,25 @@
+{
+  "linje": "III",
+  "nr": 88,
+  "nr_label": "88",
+  "usikker": false,
+  "navn": "Christina",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "18 måneder gammel",
+      "date_raw": "† 18 måneder gammel",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

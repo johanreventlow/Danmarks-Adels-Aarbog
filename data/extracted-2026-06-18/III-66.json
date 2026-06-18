@@ -1,0 +1,25 @@
+{
+  "linje": "III",
+  "nr": 66,
+  "nr_label": "66",
+  "usikker": false,
+  "navn": "Joachim Friedrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "bisat 1665",
+      "date_raw": "Bisat 1665 i Buchholz Kirke",
+      "date_min": "1665-01-01",
+      "date_max": "1665-12-31",
+      "date_qualifier": "exact",
+      "sted": "Buchholz Kirke"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

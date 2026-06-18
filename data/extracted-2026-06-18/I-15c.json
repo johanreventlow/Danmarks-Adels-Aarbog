@@ -1,0 +1,27 @@
+{
+  "linje": "I",
+  "nr": 15,
+  "nr_label": "15c",
+  "usikker": false,
+  "navn": "Emeke",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "1365 (7. juli)",
+      "date_min": "1365-07-07",
+      "date_max": "1365-07-07",
+      "date_qualifier": "floruit",
+      "sted": "Kolding"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "væbner",
+      "dato_raw": "1365"
+    }
+  ]
+}

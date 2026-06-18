@@ -1,0 +1,29 @@
+{
+  "linje": "V",
+  "nr": 190,
+  "nr_label": "190",
+  "usikker": false,
+  "navn": "Greve Bjarke Eduard Roland",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1983-09-01",
+      "date_raw": "1. sept. 1983",
+      "date_min": "1983-09-01",
+      "date_max": "1983-09-01",
+      "date_qualifier": "exact",
+      "sted": "Nykøbing Falster"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1983",
+      "date_raw": "døbt i Vejlø Kirke",
+      "date_min": "1983-01-01",
+      "date_max": "1983-12-31",
+      "date_qualifier": "exact",
+      "sted": "Vejlø Kirke"
+    }
+  ]
+}

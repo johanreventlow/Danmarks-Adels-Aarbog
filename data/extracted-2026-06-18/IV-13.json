@@ -1,0 +1,195 @@
+{
+  "linje": "IV",
+  "nr": 13,
+  "nr_label": "13",
+  "usikker": false,
+  "navn": "Greve Theodor",
+  "tilnavn": "til fideikommisgodset Jersbek, Stegen og Neuendorf",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1873-02-04",
+      "date_raw": "† 4. febr. 1873 på Jersbek",
+      "date_min": "1873-02-04",
+      "date_max": "1873-02-04",
+      "date_qualifier": "exact",
+      "sted": "Jersbek"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Jersbek",
+      "periode_raw": "(1840-†)",
+      "period_type": "tenure",
+      "sted": "Bargteheide S., Stormarn Kr."
+    },
+    {
+      "navn": "Stegen",
+      "periode_raw": "(1840-†)",
+      "period_type": "tenure",
+      "sted": "Oldesloe S., Stormarn Kr."
+    },
+    {
+      "navn": "Neuendorf",
+      "periode_raw": "(1835-†)",
+      "period_type": "tenure",
+      "sted": "Neuendorf S., Steinburg Kr."
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1818 (18. april)"
+    },
+    {
+      "organisation": "Heidelberg",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1818 (okt.)"
+    },
+    {
+      "organisation": "Göttingen",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1820 (okt.)"
+    },
+    {
+      "organisation": "Det slesvig-holsten-lauenburgske Kancelli i København",
+      "rolle": "auskultant",
+      "dato_raw": "1825-1828"
+    },
+    {
+      "organisation": "hofjægermester",
+      "rolle": "hofjægermester",
+      "dato_raw": "1827 (3. juli)"
+    },
+    {
+      "organisation": "Sankt Petersborg",
+      "rolle": "legationssekretær",
+      "dato_raw": "1828 (13. dec.)-1834 (25. febr. afsked)"
+    },
+    {
+      "organisation": "Cismar Amt",
+      "rolle": "amtmand",
+      "dato_raw": "1834 (17. dec.)-1838"
+    },
+    {
+      "organisation": "Den slesvigske Stænderforsamling",
+      "rolle": "m.a. og vicepræsident",
+      "dato_raw": "1840-1846"
+    },
+    {
+      "organisation": "Det Adelige Kloster Sankt Johannis ved Slesvig",
+      "rolle": "klosterprovst",
+      "dato_raw": "1840-1847"
+    },
+    {
+      "organisation": "Jersbek",
+      "rolle": "oprettede fideikommisgods",
+      "dato_raw": "1840"
+    },
+    {
+      "organisation": "kammerherre",
+      "rolle": "kammerherre",
+      "dato_raw": "1841 (10. juli)"
+    },
+    {
+      "organisation": "Den holstenske Stænderforsamling",
+      "rolle": "m.a.",
+      "dato_raw": "1842-1846 og 1855-"
+    },
+    {
+      "organisation": "Forenede Stænderforsamling i Rendsburg",
+      "rolle": "m.a. og 2. vicepræsident",
+      "dato_raw": "1848 (9. april-okt.)"
+    },
+    {
+      "organisation": "Landsforsamlingen",
+      "rolle": "m.a.",
+      "dato_raw": "1848 (sommer)"
+    },
+    {
+      "organisation": "Landsforsamlingsudvalget",
+      "rolle": "m.a.",
+      "dato_raw": "1848"
+    },
+    {
+      "organisation": "Fællesregeringen",
+      "rolle": "præsident",
+      "dato_raw": "1848 (22. okt.)-1849 (26. marts)"
+    },
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "klosterprovst valgt",
+      "dato_raw": "1852"
+    },
+    {
+      "organisation": "Rigsrådet",
+      "rolle": "m.a.",
+      "dato_raw": "1856 (4. jan.)-1857 (sept.)"
+    },
+    {
+      "organisation": "Vertrauensmännerkonferencen i Berlin",
+      "rolle": "m.a.",
+      "dato_raw": "1867"
+    },
+    {
+      "organisation": "den første slesvig-holstenske Provinsiallanddag",
+      "rolle": "m.a.",
+      "dato_raw": "1867-"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Sophie komtesse af Bernstorff",
+      "partner_ekstern_ref": "DAA 1934, 38",
+      "type": "vielse",
+      "dato_raw": "Gift 1° 3. dec. 1834",
+      "date_min": "1834-12-03",
+      "date_max": "1834-12-03",
+      "sted": "Trefoldighedskirke, Berlin",
+      "skilt": false,
+      "partner_foedsel": "* 29. jan. 1807 i København",
+      "partner_daab": "døbt 9. april s.å. i Christians Kirke",
+      "partner_doed": {
+        "date_raw": "† 7. marts 1857 i La Tour de Peilz ved Genève-søen",
+        "date_min": "1857-03-07",
+        "date_max": "1857-03-07",
+        "sted": "La Tour de Peilz"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kammerherre, envoyé Joachim Friedrich greve af B. til Neuendorf og Elisabeth Sophie Henriette von Blücher",
+      "note": null
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Asta Georgine friherreinde von dem Bussche-Ippenburg genannt von Kessell",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 2° 14. sept. 1858",
+      "date_min": "1858-09-14",
+      "date_max": "1858-09-14",
+      "sted": "Ippenburg i Hannover",
+      "skilt": false,
+      "partner_foedsel": "* 6. april 1831 på Hackhausen ved Rhinen",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 7. okt. 1881 på Ober Stefansdorf i Schlesien",
+        "date_min": "1881-10-07",
+        "date_max": "1881-10-07",
+        "sted": "Ober Stefansdorf i Schlesien"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Preussisk kammerherre og landråd Julius Clamor Friedrich Wilhelm Carl greve von dem B.-I. genannt von K. til Hackhausen og Thora Charlotte Auguste Julie komtesse af Bernstorff",
+      "note": null
+    }
+  ],
+  "boern": {
+    "antal": 3,
+    "slaegtled": "Fjerde (syttende) slægtled",
+    "linje": "I, nr. 28-30",
+    "nr_range": null
+  },
+  "begivenheder": []
+}

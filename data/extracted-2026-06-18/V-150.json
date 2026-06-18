@@ -1,0 +1,60 @@
+{
+  "linje": "V",
+  "nr": 150,
+  "nr_label": "150",
+  "usikker": false,
+  "navn": "Greve Marie Eugen Stephan Roger",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1896-04-09",
+      "date_raw": "9. april 1896",
+      "date_min": "1896-04-09",
+      "date_max": "1896-04-09",
+      "date_qualifier": "exact",
+      "sted": "Berlin"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1945-01-01",
+      "date_raw": "1945",
+      "date_min": "1945-01-01",
+      "date_max": "1945-12-31",
+      "date_qualifier": "exact",
+      "sted": "Tscherepowitz, Rusland"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Flak Transport Abtheilung 3",
+      "rolle": "Gefreiter",
+      "dato_raw": "1939 (10. okt.)"
+    },
+    {
+      "organisation": "Einheit Reichsluftfahrtsministerium Generalluftzeugmeister 3",
+      "rolle": "ved",
+      "dato_raw": "1941 (7. juli) og 1942 (21. jan.)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Asta Margarete Erna Immendorff",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 1° 26. nov. 1925",
+      "date_min": "1925-11-26",
+      "date_max": "1925-11-26",
+      "sted": "Berlin",
+      "skilt": true,
+      "partner_foedsel": "* 25. febr. 1908 i Witten an der Ruhr",
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": null
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "linje": "I",
+  "nr": 58,
+  "nr_label": "58",
+  "usikker": false,
+  "navn": "Werner",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1496, før 10. okt.",
+      "date_raw": "† 1496, før 10. okt.",
+      "date_min": "1496-01-01",
+      "date_max": "1496-10-10",
+      "date_qualifier": "before",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Eldena Kloster",
+      "rolle": "klosterprovst",
+      "dato_raw": "mellem 1477 og 1482"
+    },
+    {
+      "organisation": "Preetz Kloster",
+      "rolle": "klosterprovst",
+      "dato_raw": "1482 og 1484"
+    },
+    {
+      "organisation": null,
+      "rolle": "præst",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

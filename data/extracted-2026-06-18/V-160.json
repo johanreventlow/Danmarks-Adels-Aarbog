@@ -1,0 +1,99 @@
+{
+  "linje": "V",
+  "nr": 160,
+  "nr_label": "160",
+  "usikker": false,
+  "navn": "Greve Einar Ludvig August",
+  "tilnavn": "til Rudbjerggaard",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1918-06-23",
+      "date_raw": "23. juni 1918",
+      "date_min": "1918-06-23",
+      "date_max": "1918-06-23",
+      "date_qualifier": "exact",
+      "sted": "Nørre Glamsbjerg, Dannemare Sogn"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1918-08-18",
+      "date_raw": "døbt 18. aug. s.å. i Tillitse Kirke",
+      "date_min": "1918-08-18",
+      "date_max": "1918-08-18",
+      "date_qualifier": "exact",
+      "sted": "Tillitse Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "2006-02-09",
+      "date_raw": "9. febr. 2006",
+      "date_min": "2006-02-09",
+      "date_max": "2006-02-09",
+      "date_qualifier": "exact",
+      "sted": "Vestenskov"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Hjemstavnsforeningen",
+      "rolle": "m.a.",
+      "dato_raw": "1945-1949"
+    },
+    {
+      "organisation": "Maribo Amts landøkonomiske Selskab",
+      "rolle": "m.a. best. for",
+      "dato_raw": "1949-1967"
+    },
+    {
+      "organisation": "Centralforeningen af Tolvmandsforeninger og større Landbrugere i Danmark",
+      "rolle": "m.a. best. for",
+      "dato_raw": "1949-1967"
+    },
+    {
+      "organisation": "Hjemmeværnet, Komp. Tillitse",
+      "rolle": "m.a.",
+      "dato_raw": "1949-1983"
+    },
+    {
+      "organisation": "Mælkeleverandørforeningen til Den Danske Kondenseringsfabrik A/S",
+      "rolle": "fmd. for best. for",
+      "dato_raw": "1955-1962"
+    },
+    {
+      "organisation": "Det Adelige Stift Vallø",
+      "rolle": "kurator for",
+      "dato_raw": "1961-1981"
+    },
+    {
+      "organisation": "Den Reventlowske Stiftelse Theophiliskoven",
+      "rolle": "m.a. best. for",
+      "dato_raw": "1963-1989"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Grethe Johanne Barfoed Høj",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 28. juni 1962",
+      "date_min": "1962-06-28",
+      "date_max": "1962-06-28",
+      "sted": "København",
+      "skilt": false,
+      "partner_foedsel": "* 24. april 1919 på Skaarupgaard, Herritslev S.",
+      "partner_daab": "døbt 27. juli s.å. i Herritslev Kirke",
+      "partner_doed": {
+        "date_raw": "† 5. april 2006 på Rudbjerggard",
+        "date_min": "2006-04-05",
+        "date_max": "2006-04-05",
+        "sted": "Rudbjerggard"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Proprietær Rasmus Johansen H. og Johanne Barfoed",
+      "note": "gift 1° 17. nov. 1944 i Herritslev Kirke med forpagter Erik Sigismund Frederik von Rosen"
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "linje": "IV",
+  "nr": 68,
+  "nr_label": "68",
+  "usikker": false,
+  "navn": "Komtesse Margaretha Adelaide Maria Luise Henriette",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1935-05-25",
+      "date_raw": "† 25. maj 1935 i Kiel",
+      "date_min": "1935-05-25",
+      "date_max": "1935-05-25",
+      "date_qualifier": "exact",
+      "sted": "Kiel"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Dänischenhagen Kirke",
+      "rolle": "døbt",
+      "dato_raw": "11. juli s.å."
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Magnus Eduard Emil Bruun de Neergaard",
+      "partner_ekstern_ref": "DAA 1968-69, II, 12",
+      "type": "vielse",
+      "dato_raw": "Gift 28. dec. 1891",
+      "date_min": "1891-12-28",
+      "date_max": "1891-12-28",
+      "sted": "Kaltenhof",
+      "skilt": false,
+      "partner_foedsel": "* 1. juli 1855 på Hof Altona ved Oevelgönne",
+      "partner_daab": "døbt 4. aug. s.å. i Altona",
+      "partner_doed": {
+        "date_raw": "† 20. sept. 1940 i Kiel",
+        "date_min": "1940-09-20",
+        "date_max": "1940-09-20",
+        "sted": "Kiel"
+      },
+      "partner_erhverv": [
+        "preussisk kaptajn",
+        "kammerherre"
+      ],
+      "partner_foraeldre": "Carl Erik Johann Bruun de N. til fideikommisgodset Eckhof og Jarsdorf og Alette Wilhelmine komtesse Moltke",
+      "note": "schwarzburgsk overhofmarskal og overhofmester."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "9. juni 1869",
+      "date_min": "1869-06-09",
+      "date_max": "1869-06-09",
+      "sted": "Kaltenhof",
+      "note": null
+    }
+  ]
+}

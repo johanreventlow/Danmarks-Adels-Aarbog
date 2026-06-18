@@ -1,0 +1,52 @@
+{
+  "linje": "V",
+  "nr": 53,
+  "nr_label": "53",
+  "usikker": false,
+  "navn": "Louise Sybille",
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse"
+    },
+    {
+      "faktatype": "fødsel",
+      "date_raw": "30. juni 1783",
+      "date_min": "1783-06-30",
+      "date_max": "1783-06-30",
+      "date_qualifier": "exact",
+      "sted": "Bernstorff Slot"
+    },
+    {
+      "faktatype": "dåb",
+      "date_raw": "8. juli 1783",
+      "date_min": "1783-07-08",
+      "date_max": "1783-07-08",
+      "date_qualifier": "exact",
+      "sted": "Sankt Petri Kirke, København"
+    },
+    {
+      "faktatype": "død",
+      "date_raw": "1. maj 1848",
+      "date_min": "1848-05-01",
+      "date_max": "1848-05-01",
+      "date_qualifier": "exact",
+      "sted": "Pederstrup"
+    },
+    {
+      "faktatype": "begravelse",
+      "date_raw": "9. maj 1848",
+      "date_min": "1848-05-09",
+      "date_max": "1848-05-09",
+      "date_qualifier": "exact",
+      "sted": "Theophili Skov"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde"
+    }
+  ]
+}

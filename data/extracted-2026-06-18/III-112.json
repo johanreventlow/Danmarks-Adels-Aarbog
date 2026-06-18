@@ -1,0 +1,48 @@
+{
+  "linje": "III",
+  "nr": 112,
+  "nr_label": "112",
+  "usikker": false,
+  "navn": "Sophia Magdalena",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1797-11-10",
+      "date_raw": "† 10. nov. 1797 i Preetz Adelige Kloster",
+      "date_min": "1797-11-10",
+      "date_max": "1797-11-10",
+      "date_qualifier": "exact",
+      "sted": "Preetz Adelige Kloster"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": "1766 (29. jan.)"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "5. nov. 1722",
+      "date_min": "1722-11-05",
+      "date_max": "1722-11-05",
+      "sted": null,
+      "note": null
+    },
+    {
+      "type": "ordensoptagelse",
+      "dato_raw": "1766 (29. jan.)",
+      "date_min": "1766-01-29",
+      "date_max": "1766-01-29",
+      "sted": null,
+      "note": "de l’Union parfaite."
+    }
+  ]
+}

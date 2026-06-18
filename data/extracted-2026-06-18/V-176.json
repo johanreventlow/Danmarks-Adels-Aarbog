@@ -1,0 +1,54 @@
+{
+  "linje": "V",
+  "nr": 176,
+  "nr_label": "176",
+  "usikker": false,
+  "navn": "Greve Johan Ludvig Thomas",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1953-01-21",
+      "date_raw": "21. jan. 1953",
+      "date_min": "1953-01-21",
+      "date_max": "1953-01-21",
+      "date_qualifier": "exact",
+      "sted": "Charlottenlund"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1953-05-02",
+      "date_raw": "døbt 2. maj 1953 i Messias Kirke",
+      "date_min": "1953-05-02",
+      "date_max": "1953-05-02",
+      "date_qualifier": "exact",
+      "sted": "Messias Kirke"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Susanne Dalsgård Nielsen",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 4. april 1981",
+      "date_min": "1981-04-04",
+      "date_max": "1981-04-04",
+      "sted": "København",
+      "skilt": false,
+      "partner_foedsel": "* 3. sept. 1954 i Slagelse",
+      "partner_daab": "døbt 28. nov. s.å. i Sankt Peders Kirke",
+      "partner_doed": null,
+      "partner_erhverv": [
+        "professor",
+        "forskningsleder",
+        "speciallæge",
+        "dr.med.",
+        "mag. scient."
+      ],
+      "partner_foraeldre": "Læge, cand.med. Hans Marius N. og læge, cand.med. Elisabeth Christiansen",
+      "note": null
+    }
+  ]
+}

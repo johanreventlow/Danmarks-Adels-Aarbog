@@ -1,0 +1,34 @@
+{
+  "linje": "III",
+  "nr": 70,
+  "nr_label": "70",
+  "usikker": false,
+  "navn": "Hinrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1697",
+      "date_raw": "† 1697",
+      "date_min": "1697-01-01",
+      "date_max": "1697-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "født",
+      "dato_raw": "efter 1672",
+      "date_min": "1672-01-01",
+      "date_max": "1672-12-31",
+      "sted": null,
+      "note": "Kaldes endnu mindreårig."
+    }
+  ]
+}

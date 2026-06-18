@@ -1,0 +1,43 @@
+{
+  "linje": "V",
+  "nr": 155,
+  "nr_label": "155",
+  "usikker": false,
+  "navn": "Komtesse Juliane Sabine",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1932-06-11",
+      "date_raw": "11. juni 1932",
+      "date_min": "1932-06-11",
+      "date_max": "1932-06-11",
+      "date_qualifier": "exact",
+      "sted": "Wulfshagen"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Richard Floto",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 21. april 1961",
+      "date_min": "1961-04-21",
+      "date_max": "1961-04-21",
+      "sted": "Wulfshagen",
+      "skilt": false,
+      "partner_foedsel": "* 18. jan. 1930 på Teutendorf, Bad Doberan, Mecklenburg",
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [
+        "bankdirektør",
+        "agronom",
+        "dr.jur."
+      ],
+      "partner_foraeldre": "Administrator Richard F. og Ilse Edith Martha Auguste Gertmann",
+      "note": null
+    }
+  ]
+}

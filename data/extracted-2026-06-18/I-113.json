@@ -1,0 +1,25 @@
+{
+  "linje": "I",
+  "nr": 113,
+  "nr_label": "113",
+  "usikker": false,
+  "navn": "Christina",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1681",
+      "date_raw": "* 1681",
+      "date_min": "1681-01-01",
+      "date_max": "1681-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

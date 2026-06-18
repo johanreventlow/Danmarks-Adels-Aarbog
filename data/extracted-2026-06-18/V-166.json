@@ -1,0 +1,32 @@
+{
+  "linje": "V",
+  "nr": 166,
+  "nr_label": "166",
+  "usikker": false,
+  "navn": "Greve Ludwig Alfred Karl Erich Alexander Christian Detlev",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1941-10-07",
+      "date_raw": "7. okt. 1941",
+      "date_min": "1941-10-07",
+      "date_max": "1941-10-07",
+      "date_qualifier": "exact",
+      "sted": "Damp"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "reservens",
+      "rolle": "kaptajn af reserven",
+      "dato_raw": null
+    },
+    {
+      "organisation": "erhverv",
+      "rolle": "forretningsmand",
+      "dato_raw": null
+    }
+  ]
+}

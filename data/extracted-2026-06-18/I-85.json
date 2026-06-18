@@ -1,0 +1,52 @@
+{
+  "linje": "I",
+  "nr": 85,
+  "nr_label": "85",
+  "usikker": false,
+  "navn": "Clarelia",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "ca. 1573",
+      "date_raw": "* ca. 1573",
+      "date_min": "1573-01-01",
+      "date_max": "1573-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "25. juni 1598 i Kiel",
+      "date_raw": "† 25. juni 1598 i Kiel",
+      "date_min": "1598-06-25",
+      "date_max": "1598-06-25",
+      "date_qualifier": "exact",
+      "sted": "Kiel"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Detlef von Ahlefeldt",
+      "partner_ekstern_ref": "DAA 1982-84, 627",
+      "type": "vielse",
+      "dato_raw": "Gift senest 1587",
+      "date_min": null,
+      "date_max": "1587-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kgl. råd, klosterprovst Bendix von A. til Haseldorf og Emerentia von Brockdorff",
+      "note": "Myrdet 17. marts 1599 i landsbyen Braak ved Neumünster og bisat i Haseldorf Kirke."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

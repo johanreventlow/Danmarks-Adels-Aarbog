@@ -1,0 +1,60 @@
+{
+  "linje": "IV",
+  "nr": 18,
+  "nr_label": "18",
+  "usikker": false,
+  "navn": "Komtesse Julia Friederica Josephina",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1881-07-03",
+      "date_raw": "† 3. juli 1881 i Lübeck",
+      "date_min": "1881-07-03",
+      "date_max": "1881-07-03",
+      "date_qualifier": "exact",
+      "sted": "Lübeck"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Joseph Franz Christian rigsgreve von Baudissin",
+      "partner_ekstern_ref": "DAA 1909, 65",
+      "type": "vielse",
+      "dato_raw": "Gift 7. april 1820",
+      "date_min": "1820-04-07",
+      "date_max": "1820-04-07",
+      "sted": "Knoop",
+      "skilt": false,
+      "partner_foedsel": "* 9. jan. 1797 på Knoop",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 5. april 1871 på Borstel",
+        "date_min": "1871-04-05",
+        "date_max": "1871-04-05",
+        "sted": "Borstel"
+      },
+      "partner_erhverv": [
+        "kammerherre",
+        "ritmester"
+      ],
+      "partner_foraeldre": "Gehejmekonferensråd, kammerherre, gesandt Heinrich Friedrich rigsgreve von B. til Rixdorf, Knoop, Pronstorf, m.fl., og Adelaide Carolina Cornelia komtesse Schimmelmann",
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "21. aug. 1798",
+      "date_min": "1798-08-21",
+      "date_max": "1798-08-21",
+      "sted": "Kaltenhof",
+      "note": "Døbt 18. sept. s.å. i Slesvig Domkirke."
+    }
+  ]
+}

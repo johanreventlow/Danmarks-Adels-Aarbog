@@ -1,0 +1,58 @@
+{
+  "linje": "I",
+  "nr": 51,
+  "nr_label": "51",
+  "usikker": false,
+  "navn": "Hans",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 1494",
+      "date_min": "1494-01-01",
+      "date_max": "1494-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "1469 (2. maj)",
+      "date_min": "1469-05-02",
+      "date_max": "1469-05-02",
+      "date_qualifier": "floruit",
+      "sted": "Kiel"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Bordesholm Kirke"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Anna NN",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "se nr. 42; ifølge ligstenen i Bordesholm Kirke døde Anna som hans hustru"
+    }
+  ],
+  "boern": null
+}

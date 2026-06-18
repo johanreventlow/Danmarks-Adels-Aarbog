@@ -1,0 +1,40 @@
+{
+  "linje": "IV",
+  "nr": 9,
+  "nr_label": "9",
+  "usikker": false,
+  "navn": "Komtesse Caroline Mathilde",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1834-09-21",
+      "date_raw": "† 21. sept. 1834 i Itzehoe",
+      "date_min": "1834-09-21",
+      "date_max": "1834-09-21",
+      "date_qualifier": "exact",
+      "sted": "Itzehoe"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Itzehoe Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "3. jan. 1767",
+      "date_min": "1767-01-03",
+      "date_max": "1767-01-03",
+      "sted": "København",
+      "note": "Døbt 7. s.m. i Hof- og Slotskirken."
+    }
+  ]
+}

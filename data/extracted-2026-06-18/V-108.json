@@ -1,0 +1,138 @@
+{
+  "linje": "V",
+  "nr": 108,
+  "nr_label": "108",
+  "usikker": false,
+  "navn": "Ludvig Alexander Edvard",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "5. nov. 1848",
+      "date_min": "1848-11-05",
+      "date_max": "1848-11-05",
+      "date_qualifier": "exact",
+      "sted": "Pederstrup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 8. april 1849",
+      "date_min": "1849-04-08",
+      "date_max": "1849-04-08",
+      "date_qualifier": "exact",
+      "sted": "Vesterborg Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "19. juni 1916",
+      "date_min": "1916-06-19",
+      "date_max": "1916-06-19",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 26. s.m. fra Tillitse Kirke og begravet på det Reventlowske gravsted på Tillitse Kirkegård",
+      "date_min": "1916-06-26",
+      "date_max": "1916-06-26",
+      "date_qualifier": "exact",
+      "sted": "Tillitse Kirkegård"
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "R.",
+      "date_raw": "3. okt. 1898",
+      "date_min": "1898-10-03",
+      "date_max": "1898-10-03",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "D.M.",
+      "date_raw": "1. juni 1907",
+      "date_min": "1907-06-01",
+      "date_max": "1907-06-01",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Rudbjerggaard",
+      "periode_raw": "1891‑†",
+      "period_type": null,
+      "sted": "Tillitse S., Lollands Sønder H."
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "hofjægermester",
+      "dato_raw": null
+    },
+    {
+      "organisation": null,
+      "rolle": "kammerherre",
+      "dato_raw": "1909"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Benedicte Ulfsparre Bech",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 20. juli 1883",
+      "date_min": "1883-07-20",
+      "date_max": "1883-07-20",
+      "sted": "Humlebæk Kirke",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "6. marts 1857",
+        "date_min": "1857-03-06",
+        "date_max": "1857-03-06",
+        "sted": "Valbygaard"
+      },
+      "partner_daab": {
+        "date_raw": "døbt 31. maj. s.å.",
+        "date_min": "1857-05-31",
+        "date_max": "1857-05-31",
+        "sted": "Sankt Mikkels Kirke, Slagelse"
+      },
+      "partner_doed": {
+        "date_raw": "23. febr. 1938",
+        "date_min": "1938-02-23",
+        "date_max": "1938-02-23",
+        "sted": "Rudbjerggaard"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Hofjægermester August Villads B. til Fredsholm, Valbygaard, Brorupgaard samt Moselundgaard og Margrethe Christine Rothe",
+      "note": "til Rudbjerggaard (1916‑†); bisat 1. marts 1938 fra Tillitse Kirke og begravet på det Reventlowske gravsted på Tillitse Kirkegård"
+    }
+  ],
+  "boern": {
+    "antal": 4,
+    "slaegtled": "Ottende (nittende) slægtled",
+    "linje": "III",
+    "nr_range": [
+      146,
+      149
+    ]
+  },
+  "begivenheder": []
+}

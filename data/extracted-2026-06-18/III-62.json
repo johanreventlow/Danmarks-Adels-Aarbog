@@ -1,0 +1,152 @@
+{
+  "linje": "III",
+  "nr": 62,
+  "nr_label": "62",
+  "usikker": false,
+  "navn": "Detlef",
+  "tilnavn": "til Reetz",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1701-11-04",
+      "date_raw": "† 4. nov. 1701 i Slesvig By",
+      "date_min": "1701-11-04",
+      "date_max": "1701-11-04",
+      "date_qualifier": "exact",
+      "sted": "Slesvig By"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Reetz",
+      "periode_raw": "(1664-1684)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Tesdorf",
+      "periode_raw": "(1681-1695)",
+      "period_type": "tenure",
+      "sted": "Hansühn S., Ostholstein Kr."
+    },
+    {
+      "navn": "Hemmelmark",
+      "periode_raw": "(1692-1697)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Kollmar",
+      "periode_raw": "(1694-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Oregaard",
+      "periode_raw": "(1694-1700)",
+      "period_type": "tenure",
+      "sted": "Ore S., Skovby H."
+    },
+    {
+      "navn": "Quarnbek",
+      "periode_raw": "(1695-1705)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Schmoel",
+      "periode_raw": "(1695-†)",
+      "period_type": "tenure",
+      "sted": "Schwartbuck S., Plön Kr."
+    },
+    {
+      "navn": "Hohenfelde",
+      "periode_raw": "(1696-†)",
+      "period_type": "tenure",
+      "sted": "med Schmoeler Hof (1695-†) i Dänischestrasse i Kiel og Höltenklinken (1699-†)"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1665"
+    },
+    {
+      "organisation": "Kavelstorf Kirke (Reetz)",
+      "rolle": "købte gravhvælving",
+      "dato_raw": "1686"
+    },
+    {
+      "organisation": "Det Adelige Kloster i Preetz",
+      "rolle": "klosterprovst",
+      "dato_raw": "1687 (20. dec.)-†"
+    },
+    {
+      "organisation": "Det Adelige Sankt Johanniskloster ved Slesvig",
+      "rolle": "klosterprovst",
+      "dato_raw": "1687 (20. dec.)-†"
+    },
+    {
+      "organisation": "konferensråd",
+      "rolle": "konferensråd",
+      "dato_raw": "1693 (18. febr.)"
+    },
+    {
+      "organisation": "hvid ridder",
+      "rolle": "ridder",
+      "dato_raw": "1693 (18. nov.)"
+    },
+    {
+      "organisation": "gehejmeråd",
+      "rolle": "gehejmeråd",
+      "dato_raw": "1696 (28. juli)"
+    },
+    {
+      "organisation": "gehemekonferensråd",
+      "rolle": "gehemekonferensråd",
+      "dato_raw": "1700"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Dorothea von Ahlefeldt",
+      "partner_ekstern_ref": "DAA 1982-84, 630",
+      "type": "vielse",
+      "dato_raw": "Gift 18. nov. 1676",
+      "date_min": "1676-11-18",
+      "date_max": "1676-11-18",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* ca. 1648",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 12. okt. 1720 på Kollmar",
+        "date_min": "1720-10-12",
+        "date_max": "1720-10-12",
+        "sted": "Kollmar"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Hinrich von A. til Kluvensiek, Osterrade samt Sehested og Catharina von Ahlefeldt",
+      "note": null
+    }
+  ],
+  "boern": {
+    "antal": 7,
+    "slaegtled": "Trettende slægtled",
+    "linje": "V, nr. 91-97",
+    "nr_range": null
+  },
+  "begivenheder": [
+    {
+      "type": "immatrikulation",
+      "dato_raw": "1665",
+      "date_min": "1665-01-01",
+      "date_max": "1665-12-31",
+      "sted": "Kiel",
+      "note": null
+    }
+  ]
+}

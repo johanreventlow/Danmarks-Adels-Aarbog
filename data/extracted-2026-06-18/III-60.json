@@ -1,0 +1,73 @@
+{
+  "linje": "III",
+  "nr": 60,
+  "nr_label": "60",
+  "usikker": false,
+  "navn": "Catharina Christina",
+  "tilnavn": "til Beckhof og Vandlinggaard",
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1705-02-21",
+      "date_raw": "† 21. febr. 1705",
+      "date_min": "1705-02-21",
+      "date_max": "1705-02-21",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Beckhof",
+      "periode_raw": "(1696-†)",
+      "period_type": "tenure",
+      "sted": "Beckhof S., Steinburg Kr."
+    },
+    {
+      "navn": "Vandlinggaard",
+      "periode_raw": "(1701-†)",
+      "period_type": "tenure",
+      "sted": "Sønder Starup S., Haderslev H."
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Adam Christopher von Holstein",
+      "partner_ekstern_ref": "DAA 1988-90, 617 f.",
+      "type": "vielse",
+      "dato_raw": "Gift 23. april 1663",
+      "date_min": "1663-04-23",
+      "date_max": "1663-04-23",
+      "sted": "Futterkamp",
+      "skilt": false,
+      "partner_foedsel": "* 12. febr. 1631 på Wredenhagen",
+      "partner_daab": "døbt 15. s.m.",
+      "partner_doed": {
+        "date_raw": "† 4. april 1691 på Ring Kloster",
+        "date_min": "1691-04-04",
+        "date_max": "1691-04-04",
+        "sted": "Ring Kloster"
+      },
+      "partner_erhverv": [
+        "mecklenburgsk amtmand",
+        "dansk oberst"
+      ],
+      "partner_foraeldre": "Mecklenburgsk amtmand Ulrich Adolph von H. til Buchholz, Grabow samt Rossow og Barbara von Schwerin",
+      "note": "Pantherre til Wredenhagen."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "8. april 1647",
+      "date_min": "1647-04-08",
+      "date_max": "1647-04-08",
+      "sted": "Haderslev",
+      "note": "Bisat i det Holsteinske kapel i Ørslev Kirke."
+    }
+  ]
+}

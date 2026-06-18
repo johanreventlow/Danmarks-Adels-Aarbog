@@ -1,0 +1,24 @@
+{
+  "linje": "III",
+  "nr": 71,
+  "nr_label": "71",
+  "usikker": false,
+  "navn": "Hanns Detlev",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "1678",
+      "date_min": "1678-01-01",
+      "date_max": "1678-12-31",
+      "sted": "Glückstadt",
+      "note": "Døbt 28. april s.å. i Glückstadt Slotskirke."
+    }
+  ]
+}

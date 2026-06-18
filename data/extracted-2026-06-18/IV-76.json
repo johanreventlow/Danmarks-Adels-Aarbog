@@ -1,0 +1,60 @@
+{
+  "linje": "IV",
+  "nr": 76,
+  "nr_label": "76",
+  "usikker": false,
+  "navn": "Komtesse Hedwig-Ide",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1956-01-20",
+      "date_raw": "† 20. jan. 1956 i Madison, Wisconsin, USA",
+      "date_min": "1956-01-20",
+      "date_max": "1956-01-20",
+      "date_qualifier": "exact",
+      "sted": "Madison, Wisconsin, USA"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Hans Heinrich Gerth",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 1938",
+      "date_min": "1938-01-01",
+      "date_max": "1938-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 24. april 1908 i Kassel",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 29. december 1978 i Glashütten, Taunus",
+        "date_min": "1978-12-29",
+        "date_max": "1978-12-29",
+        "sted": "Glashütten, Taunus"
+      },
+      "partner_erhverv": [
+        "professor i socialpsykologi og kultursociologi",
+        "Dr.phil."
+      ],
+      "partner_foraeldre": null,
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "15. okt. 1910",
+      "date_min": "1910-10-15",
+      "date_max": "1910-10-15",
+      "sted": "Altenhof",
+      "note": null
+    }
+  ]
+}

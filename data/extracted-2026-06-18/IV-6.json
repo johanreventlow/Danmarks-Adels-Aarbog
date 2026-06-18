@@ -1,0 +1,40 @@
+{
+  "linje": "IV",
+  "nr": 6,
+  "nr_label": "6",
+  "usikker": false,
+  "navn": "Komtesse Berthe",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1818-09-15",
+      "date_raw": "† 15. sept. 1818 i Preetz",
+      "date_min": "1818-09-15",
+      "date_max": "1818-09-15",
+      "date_qualifier": "exact",
+      "sted": "Preetz"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "20. febr. 1762",
+      "date_min": "1762-02-20",
+      "date_max": "1762-02-20",
+      "sted": "København",
+      "note": "Døbt 7. marts s.å. i Hof- og Slotskirken."
+    }
+  ]
+}

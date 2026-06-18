@@ -1,0 +1,177 @@
+{
+  "linje": "V",
+  "nr": 69,
+  "nr_label": "69",
+  "usikker": false,
+  "navn": "Carl Otto Ferdinand",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "20. april 1803",
+      "date_min": "1803-04-20",
+      "date_max": "1803-04-20",
+      "date_qualifier": "exact",
+      "sted": "Frihedsminde"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "28. maj s.å.",
+      "date_min": "1803-05-28",
+      "date_max": "1803-05-28",
+      "date_qualifier": "exact",
+      "sted": "Skørringe Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "11. sept. 1875",
+      "date_min": "1875-09-11",
+      "date_max": "1875-09-11",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "bisættelse",
+      "vaerdi": null,
+      "date_raw": "18. s.m.",
+      "date_min": "1875-09-18",
+      "date_max": "1875-09-18",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg Kirke"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "19. s.m.",
+      "date_min": "1875-09-19",
+      "date_max": "1875-09-19",
+      "date_qualifier": "exact",
+      "sted": "Theophili Skov"
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "R.",
+      "date_raw": "30. sept. 1858",
+      "date_min": "1858-09-30",
+      "date_max": "1858-09-30",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Reventlow",
+      "periode_raw": "1851-†",
+      "period_type": "grevskab",
+      "sted": null
+    },
+    {
+      "navn": "Christianssæde",
+      "periode_raw": "1851-†",
+      "period_type": "grevskab",
+      "sted": null
+    },
+    {
+      "navn": "Brahetrolleborg",
+      "periode_raw": "1854-†",
+      "period_type": "baroni",
+      "sted": null
+    },
+    {
+      "navn": "Nyholm",
+      "periode_raw": "1868-1874",
+      "period_type": null,
+      "sted": "Håsum S., Rødding H."
+    },
+    {
+      "navn": "Lyngdalsgaard",
+      "periode_raw": "-1872",
+      "period_type": "medejer",
+      "sted": "Homå S., Djurs Sønder H."
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "hofjægermester",
+      "dato_raw": "1840 (28. juni)"
+    },
+    {
+      "organisation": null,
+      "rolle": "kammerherre",
+      "dato_raw": "1851 (6. okt.)"
+    },
+    {
+      "organisation": "Den slesvigske Stænderforsamling",
+      "rolle": "kongevalgt medlem",
+      "dato_raw": "1853 (14. aug.)-1854 (10. jan.)"
+    },
+    {
+      "organisation": "Stutteri-Commission",
+      "rolle": "medlem",
+      "dato_raw": "1862 (19. febr.)-"
+    },
+    {
+      "organisation": null,
+      "rolle": "gehejmekonferensråd",
+      "dato_raw": "1866-†"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Benedicte (Benny) Christiane Reventlow",
+      "partner_ekstern_ref": "se nr. 84",
+      "type": "vielse",
+      "dato_raw": "14. okt. 1857",
+      "date_min": "1857-10-14",
+      "date_max": "1857-10-14",
+      "sted": "Vesterborg Kirke",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "17. jan. 1834",
+        "date_min": "1834-01-17",
+        "date_max": "1834-01-17",
+        "sted": "Aalstrup"
+      },
+      "partner_daab": {
+        "date_raw": "7. juni s.å.",
+        "date_min": "1834-06-07",
+        "date_max": "1834-06-07",
+        "sted": "Landet Kirke"
+      },
+      "partner_doed": {
+        "date_raw": "17. jan. 1893",
+        "date_min": "1893-01-17",
+        "date_max": "1893-01-17",
+        "sted": "København"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Auskultant, cand.jur. Einert Carl Detlef greve af R. til Pugerup og Hildeborg Sophie komtesse af Reventlow",
+      "note": "Komtesse af Reventlow. Beholdt fra 1875 iflg. ægtefællens testamente grevskabet Christianssæde, til den ældste søn blev myndig (1889). Bisat 24. marts 1893 fra Vesterborg Kirke og begravet i Theophili Skov."
+    }
+  ],
+  "boern": {
+    "antal": 7,
+    "slaegtled": "Syvende (attende)",
+    "linje": "II",
+    "nr_range": [
+      99,
+      105
+    ]
+  },
+  "begivenheder": []
+}

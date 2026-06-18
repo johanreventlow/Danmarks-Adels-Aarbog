@@ -1,0 +1,61 @@
+{
+  "linje": "I",
+  "nr": 77,
+  "nr_label": "77",
+  "usikker": false,
+  "navn": "Anna",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1602 i Flensborg",
+      "date_raw": "† 1602 i Flensborg",
+      "date_min": "1602-01-01",
+      "date_max": "1602-12-31",
+      "date_qualifier": "exact",
+      "sted": "Flensborg"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Gram",
+      "periode_raw": "(1563-1589)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Nybøl",
+      "periode_raw": "(1563-1589)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Detlef von Buchwaldt",
+      "partner_ekstern_ref": "DAA 1913, 126",
+      "type": "vielse",
+      "dato_raw": "Gift før 1557",
+      "date_min": null,
+      "date_max": "1557-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1596",
+        "date_min": "1596-01-01",
+        "date_max": "1596-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Hofjunker Henneke von B. til Pronstorf og Anna von Ahlefeldt",
+      "note": "Bisat i Sankt Mariæ Kirke, Flensborg."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

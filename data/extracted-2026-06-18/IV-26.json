@@ -1,0 +1,40 @@
+{
+  "linje": "IV",
+  "nr": 26,
+  "nr_label": "26",
+  "usikker": false,
+  "navn": "Komtesse Maria Juliana",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1819-12-03",
+      "date_raw": "† 3. dec. 1819 på Kaltenhof",
+      "date_min": "1819-12-03",
+      "date_max": "1819-12-03",
+      "date_qualifier": "exact",
+      "sted": "Kaltenhof"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Uetersen Adelige Kloster",
+      "rolle": "indskrevet",
+      "dato_raw": "1813"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "13. juli 1811",
+      "date_min": "1811-07-13",
+      "date_max": "1811-07-13",
+      "sted": null,
+      "note": "Døbt s.å. i Sankt Michaelis Kirke, Slesvig By; bisat 8. s.m. i Den Reventlowske Gravkrypt i Dänischenhagen Kirke."
+    }
+  ]
+}

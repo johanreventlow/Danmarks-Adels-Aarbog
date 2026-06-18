@@ -1,0 +1,21 @@
+{
+  "linje": "III",
+  "nr": 7,
+  "nr_label": "7",
+  "usikker": false,
+  "navn": "Hinrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Schwerin",
+      "rolle": "domherre",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

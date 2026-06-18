@@ -1,0 +1,82 @@
+{
+  "linje": "I",
+  "nr": 56,
+  "nr_label": "56",
+  "usikker": false,
+  "navn": "Joachim",
+  "tilnavn": "Jacob",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1519",
+      "date_raw": "† 1519",
+      "date_min": "1519-01-01",
+      "date_max": "1519-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Rixdorf",
+      "periode_raw": "(1493-)",
+      "period_type": "owned",
+      "sted": "Lebrade S., Plön Kr."
+    },
+    {
+      "navn": "Tovskov",
+      "periode_raw": "(ca. 1475-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Stensgaard",
+      "periode_raw": "(-1492-1493)",
+      "period_type": "owned",
+      "sted": null
+    },
+    {
+      "navn": "Gram",
+      "periode_raw": "(ca. 1475-†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "amtmand",
+      "dato_raw": "1482-1488"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Abel von Buchwaldt",
+      "partner_ekstern_ref": "DAA 1913, 147",
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Detlef von B. til Waterneverstorf, Sierhagen samt Borstel og NN",
+      "note": null
+    }
+  ],
+  "boern": {
+    "antal": 7,
+    "slaegtled": "Niende slægtled",
+    "linje": null,
+    "nr_range": [
+      59,
+      65
+    ]
+  },
+  "begivenheder": []
+}

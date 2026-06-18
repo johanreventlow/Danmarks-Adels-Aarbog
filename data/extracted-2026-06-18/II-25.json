@@ -1,0 +1,74 @@
+{
+  "linje": "II",
+  "nr": 25,
+  "nr_label": "25",
+  "usikker": false,
+  "navn": "Henning Friederich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1696 i Glückstadt",
+      "date_raw": "* 1696 i Glückstadt",
+      "date_min": "1696-01-01",
+      "date_max": "1696-12-31",
+      "date_qualifier": "exact",
+      "sted": "Glückstadt"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1. april s.å. i Glückstadt Slotskirke",
+      "date_raw": "døbt 1. april s.å. i Glückstadt Slotskirke",
+      "date_min": "1696-04-01",
+      "date_max": "1696-04-01",
+      "date_qualifier": "exact",
+      "sted": "Glückstadt Slotskirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "13. sept. 1719 i København",
+      "date_raw": "† 13. sept. 1719 i København",
+      "date_min": "1719-09-13",
+      "date_max": "1719-09-13",
+      "date_qualifier": "exact",
+      "sted": "København"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1703"
+    },
+    {
+      "organisation": "Admiralitetet",
+      "rolle": "månedsløjtnant",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Kaptajnløjtnant i årstjeneste",
+      "rolle": "kaptajnløjtnant",
+      "dato_raw": "s.å. (30. nov.)"
+    },
+    {
+      "organisation": "snauen Phoenix",
+      "rolle": "chef",
+      "dato_raw": "1718"
+    },
+    {
+      "organisation": "fregatten Fortuna",
+      "rolle": "chef",
+      "dato_raw": "s.å. (1. juli)"
+    },
+    {
+      "organisation": "Nordsøeskadren",
+      "rolle": "chef",
+      "dato_raw": "1719"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

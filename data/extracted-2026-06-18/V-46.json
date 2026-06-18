@@ -1,0 +1,34 @@
+{
+  "linje": "V",
+  "nr": 46,
+  "nr_label": "46",
+  "usikker": false,
+  "navn": "Barn",
+  "tilnavn": null,
+  "koen": "ukendt",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "dødfødt 1760",
+      "date_min": "1760-01-01",
+      "date_max": "1760-12-31",
+      "date_qualifier": "between",
+      "sted": null
+    },
+    {
+      "faktatype": "dødsårsag",
+      "vaerdi": "dødfødt",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

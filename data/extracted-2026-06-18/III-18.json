@@ -1,0 +1,55 @@
+{
+  "linje": "III",
+  "nr": 18,
+  "nr_label": "18",
+  "usikker": false,
+  "navn": "Henneke",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1550",
+      "date_raw": "ses sidste gang 1550",
+      "date_min": "1550-01-01",
+      "date_max": "1550-12-31",
+      "date_qualifier": "open_end",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Ziesendorf",
+      "periode_raw": "(-1494-1534-)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Dorothea von Lehsten",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Henning von L. til Gottin og Catharina von der Lühe",
+      "note": null
+    }
+  ],
+  "boern": {
+    "antal": 7,
+    "slaegtled": "Niende slægtled",
+    "linje": "nr. 20-26",
+    "nr_range": null
+  },
+  "begivenheder": []
+}

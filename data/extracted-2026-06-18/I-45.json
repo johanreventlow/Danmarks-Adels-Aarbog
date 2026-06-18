@@ -1,0 +1,76 @@
+{
+  "linje": "I",
+  "nr": 45,
+  "nr_label": "45",
+  "usikker": false,
+  "navn": "Tieluf",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1. aug. 147(5?)",
+      "date_raw": "† 1. aug. 147(5?)",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Guldborggaard",
+      "periode_raw": "(1465-†)",
+      "period_type": "tenure",
+      "sted": "Lindelse S., Langelands Sønder H."
+    },
+    {
+      "navn": "Gram",
+      "periode_raw": "(ca. 1467-†)",
+      "period_type": "tenure",
+      "sted": "Gram S., Frøs H."
+    },
+    {
+      "navn": "Steensgaard",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": "Svanninge S., Sallinge H."
+    },
+    {
+      "navn": "Tovskov",
+      "periode_raw": "(mellem 1468 og 1476-†)",
+      "period_type": "tenure",
+      "sted": "Sommersted S., Gram H."
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Sophie Joachimsdatter [Bjørn]",
+      "partner_ekstern_ref": "DAA 1887, 92",
+      "type": "vielse",
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Joachim Bjørnsen [B.] og Margretha Tagesdatter",
+      "note": null
+    }
+  ],
+  "boern": {
+    "antal": 3,
+    "slaegtled": "Ottende slægtled",
+    "linje": "II",
+    "nr_range": [
+      54,
+      56
+    ]
+  },
+  "begivenheder": []
+}

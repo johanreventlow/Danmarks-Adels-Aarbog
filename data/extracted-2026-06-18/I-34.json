@@ -1,0 +1,28 @@
+{
+  "linje": "I",
+  "nr": 34,
+  "nr_label": "34",
+  "usikker": false,
+  "navn": "NN",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "Nævnes 1390 (uden dag)",
+      "date_min": "1390-01-01",
+      "date_max": "1390-12-31",
+      "date_qualifier": "floruit",
+      "sted": "Preetz"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Preetz kloster",
+      "rolle": "nonne",
+      "dato_raw": "1390"
+    }
+  ],
+  "begivenheder": []
+}

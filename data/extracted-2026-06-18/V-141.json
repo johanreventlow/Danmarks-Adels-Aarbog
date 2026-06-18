@@ -1,0 +1,70 @@
+{
+  "linje": "V",
+  "nr": 141,
+  "nr_label": "141",
+  "usikker": false,
+  "navn": "Lensgreve Rudolph Eduard Vilhelm Ferdinand Christian",
+  "tilnavn": "til Agerup, Polle I og II, Bielawe og Lippe",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1879-02-09",
+      "date_raw": "9. febr. 1879",
+      "date_min": "1879-02-09",
+      "date_max": "1879-02-09",
+      "date_qualifier": "exact",
+      "sted": "Christianslund"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1879-05-25",
+      "date_raw": "hjemmedøbt 25. maj s.å.",
+      "date_min": "1879-05-25",
+      "date_max": "1879-05-25",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1945-11-08",
+      "date_raw": "8. nov. 1945",
+      "date_min": "1945-11-08",
+      "date_max": "1945-11-08",
+      "date_qualifier": "exact",
+      "sted": "København"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Agerup",
+      "periode_raw": "(1922‑†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Else Risom",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 11. aug. 1905",
+      "date_min": "1905-08-11",
+      "date_max": "1905-08-11",
+      "sted": "Hof- og Slotskirken, København",
+      "skilt": false,
+      "partner_foedsel": "* 17. maj 1882 i København",
+      "partner_daab": "døbt 10. nov. s.å. i Holmens Kirke s.st.",
+      "partner_doed": {
+        "date_raw": "† 15. aug. 1980",
+        "date_min": "1980-08-15",
+        "date_max": "1980-08-15",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Professor, læge, cand.med. Johann Maria R. og Thalia Rothe",
+      "note": null
+    }
+  ]
+}

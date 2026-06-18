@@ -1,0 +1,58 @@
+{
+  "linje": "I",
+  "nr": 49,
+  "nr_label": "49",
+  "usikker": false,
+  "navn": "Lüder",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "1469 (2. maj)",
+      "date_min": "1469-05-02",
+      "date_max": "1469-05-02",
+      "date_qualifier": "floruit",
+      "sted": "Kiel"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Schalkendorf",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Mette Breide",
+      "partner_ekstern_ref": "DAA 1942, II, 42",
+      "type": "vielse",
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Hans B. til Kaden, Stubbe samt Krieseby og NN",
+      "note": "gift 2° med Erik Schrandi til Schrandisgaard, Langekærslund og Avnbøllund, levede 1487, † før 1496"
+    }
+  ],
+  "boern": {
+    "antal": 1,
+    "slaegtled": "Ottende",
+    "linje": "III",
+    "nr_range": [
+      57,
+      57
+    ]
+  },
+  "begivenheder": []
+}

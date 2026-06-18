@@ -1,0 +1,47 @@
+{
+  "linje": "I",
+  "nr": 132,
+  "nr_label": "132",
+  "usikker": false,
+  "navn": "Sophia Margrethe",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1749-01-01",
+      "date_raw": "1749",
+      "date_min": "1749-01-01",
+      "date_max": "1749-12-31",
+      "date_qualifier": "exact",
+      "sted": "Randers"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1749-07-18",
+      "date_raw": "døbt 18. juli s.å. i Sankt Mortens Kirke",
+      "date_min": "1749-07-18",
+      "date_max": "1749-07-18",
+      "date_qualifier": "exact",
+      "sted": "Sankt Mortens Kirke, Randers"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1750-01-01",
+      "date_raw": "1750",
+      "date_min": "1750-01-01",
+      "date_max": "1750-12-31",
+      "date_qualifier": "exact",
+      "sted": "Randers"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "1750-01-20",
+      "date_raw": "bisat 20. jan. s.å.",
+      "date_min": "1750-01-20",
+      "date_max": "1750-01-20",
+      "date_qualifier": "exact",
+      "sted": "Sankt Mortens Kirke, Randers"
+    }
+  ]
+}

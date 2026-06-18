@@ -1,0 +1,85 @@
+{
+  "linje": "V",
+  "nr": 95,
+  "nr_label": "95",
+  "usikker": false,
+  "navn": "Christian Detlev Frederik Vilhelm Ferdinand",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 29. maj 1837 i Lissabon",
+      "date_min": "1837-05-29",
+      "date_max": "1837-05-29",
+      "date_qualifier": "exact",
+      "sted": "Lissabon"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 3. okt. 1904 i Halmstad",
+      "date_min": "1904-10-03",
+      "date_max": "1904-10-03",
+      "date_qualifier": "exact",
+      "sted": "Halmstad"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "begravet 8. s.m. på Gudmuntorp Kirkegård",
+      "date_min": "1904-10-08",
+      "date_max": "1904-10-08",
+      "date_qualifier": "exact",
+      "sted": "Gudmuntorp Kirkegård"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Ugerup",
+      "periode_raw": "1867-1892",
+      "period_type": "ejerskab",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Hilda Charlotte Malvina Agnes Reventlow",
+      "partner_ekstern_ref": "se nr. 86",
+      "type": "vielse",
+      "dato_raw": "Gift 15. okt. 1862 i Garnisons Kirke, København",
+      "date_min": "1862-10-15",
+      "date_max": "1862-10-15",
+      "sted": "Garnisons Kirke, København",
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": null
+    }
+  ],
+  "boern": {
+    "antal": 2,
+    "slaegtled": "Syvende (attende) slægtled",
+    "linje": "VIII",
+    "nr_range": [
+      133,
+      134
+    ]
+  },
+  "begivenheder": []
+}

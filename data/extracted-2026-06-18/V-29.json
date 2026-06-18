@@ -1,0 +1,61 @@
+{
+  "linje": "V",
+  "nr": 29,
+  "nr_label": "29",
+  "usikker": false,
+  "navn": "Friderich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "13. aug. 1732",
+      "date_min": "1732-08-13",
+      "date_max": "1732-08-13",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "16. nov. 1736",
+      "date_min": "1736-11-16",
+      "date_max": "1736-11-16",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 20. maj 1751",
+      "date_min": "1751-05-20",
+      "date_max": "1751-05-20",
+      "date_qualifier": "exact",
+      "sted": "Det Reventlowske Kapel i Dybbøl Kirke"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "egetræskiste begravet på kirkegården",
+      "date_raw": "1934",
+      "date_min": "1934-01-01",
+      "date_max": "1934-12-31",
+      "date_qualifier": "about",
+      "sted": "Dybbøl Kirke kirkegård"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

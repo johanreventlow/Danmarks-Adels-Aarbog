@@ -1,0 +1,29 @@
+{
+  "linje": "V",
+  "nr": 43,
+  "nr_label": "43",
+  "usikker": false,
+  "navn": "Greve Conrad Georg",
+  "tilnavn": "til grevskabet Reventlow, Ballegaard og Bøgskov samt Havnø",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1749-07-06",
+      "date_raw": "6. juli 1749",
+      "date_min": "1749-07-06",
+      "date_max": "1749-07-06",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1815-04-09",
+      "date_raw": "9. april 1815",
+      "date_min": "1815-04-09",
+      "date_max": "1815-04-09",
+      "date_qualifier": "exact",
+      "sted": "Sandbjerg"
+    }
+  ]
+}

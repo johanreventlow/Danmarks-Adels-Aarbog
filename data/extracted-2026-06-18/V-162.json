@@ -1,0 +1,65 @@
+{
+  "linje": "V",
+  "nr": 162,
+  "nr_label": "162",
+  "usikker": false,
+  "navn": "Greve Johan Otto",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1917-03-27",
+      "date_raw": "27. marts 1917",
+      "date_min": "1917-03-27",
+      "date_max": "1917-03-27",
+      "date_qualifier": "exact",
+      "sted": "Viborg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1917-06-29",
+      "date_raw": "døbt 29. juni s.å. i Viborg Domkirke",
+      "date_min": "1917-06-29",
+      "date_max": "1917-06-29",
+      "date_qualifier": "exact",
+      "sted": "Viborg Domkirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1977-08-25",
+      "date_raw": "25. aug. 1977",
+      "date_min": "1977-08-25",
+      "date_max": "1977-08-25",
+      "date_qualifier": "exact",
+      "sted": "Damgaard"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Inge Christensen",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 13. maj 1965",
+      "date_min": "1965-05-13",
+      "date_max": "1965-05-13",
+      "sted": "Fredericia",
+      "skilt": false,
+      "partner_foedsel": "* 12. nov. 1919 i København",
+      "partner_daab": "døbt 1. febr. 1920 i Elias Kirke",
+      "partner_doed": {
+        "date_raw": "† 13. marts 2008 på Damgaard",
+        "date_min": "2008-03-13",
+        "date_max": "2008-03-13",
+        "sted": "Damgaard"
+      },
+      "partner_erhverv": [
+        "translatør",
+        "adjunkt"
+      ],
+      "partner_foraeldre": "Højesteretssagfører, cand.jur. Christian Emanuel C. og Bodil Didrichsen",
+      "note": "gift 1° 7. maj 1941 med Hans Roepstorff"
+    }
+  ]
+}

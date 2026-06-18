@@ -1,0 +1,56 @@
+{
+  "linje": "V",
+  "nr": 82,
+  "nr_label": "82",
+  "usikker": false,
+  "navn": "Louise Benedicte Christiane Malvine",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 20. juli 1830 på Aalstrup",
+      "date_min": "1830-07-20",
+      "date_max": "1830-07-20",
+      "date_qualifier": "exact",
+      "sted": "Aalstrup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 14. sept. s.å. i Landet Kirke",
+      "date_min": "1830-09-14",
+      "date_max": "1830-09-14",
+      "date_qualifier": "exact",
+      "sted": "Landet Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 26. febr. 1837",
+      "date_min": "1837-02-26",
+      "date_max": "1837-02-26",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "begravet i Theophili Skov",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Theophili Skov"
+    }
+  ]
+}

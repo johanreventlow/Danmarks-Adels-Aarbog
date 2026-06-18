@@ -1,0 +1,22 @@
+{
+  "linje": "III",
+  "nr": 39,
+  "nr_label": "39",
+  "usikker": false,
+  "navn": "Ilsabe",
+  "tilnavn": "til Zierow",
+  "koen": "kvinde",
+  "facts": [],
+  "godser": [
+    {
+      "navn": "Zierow",
+      "periode_raw": "(1640-)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

@@ -1,0 +1,51 @@
+{
+  "linje": "I",
+  "nr": 65,
+  "nr_label": "65",
+  "usikker": false,
+  "navn": "Anna",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "senest 1550",
+      "date_raw": "† senest 1550",
+      "date_min": null,
+      "date_max": "1550-12-31",
+      "date_qualifier": "before",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Nicolaus von der Wisch",
+      "partner_ekstern_ref": "DAA 1931, II, 107",
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1559",
+        "date_min": "1559-01-01",
+        "date_max": "1559-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "gottorpsk råd",
+        "amtmand"
+      ],
+      "partner_foraeldre": "Amtmand Siwert von der W. til Hütten (Herrenhütten), Grünholz, Damp, Nordby samt Hesel og Anna von Ahlefeldt",
+      "note": "Gift 2° 1550 med Margaretha von Rantzau til Bienebek, Damp og Norby, levede 1565."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

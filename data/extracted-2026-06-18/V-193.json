@@ -1,0 +1,29 @@
+{
+  "linje": "V",
+  "nr": 193,
+  "nr_label": "193",
+  "usikker": false,
+  "navn": "Greve Ditlev Otto Iuel",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1988-11-25",
+      "date_raw": "25. nov. 1988",
+      "date_min": "1988-11-25",
+      "date_max": "1988-11-25",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1989-03-05",
+      "date_raw": "døbt 5. marts 1989 i Viby Kirke",
+      "date_min": "1989-03-05",
+      "date_max": "1989-03-05",
+      "date_qualifier": "exact",
+      "sted": "Viby Kirke"
+    }
+  ]
+}

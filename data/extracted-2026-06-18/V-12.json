@@ -1,0 +1,34 @@
+{
+  "linje": "V",
+  "nr": 12,
+  "nr_label": "12",
+  "usikker": false,
+  "navn": "Sophia Hedwig",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Grevinde",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "ung",
+      "date_raw": "† ung.",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

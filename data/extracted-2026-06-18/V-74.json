@@ -1,0 +1,61 @@
+{
+  "linje": "V",
+  "nr": 74,
+  "nr_label": "74",
+  "usikker": false,
+  "navn": "Benedicte Lovise Agnes",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 1. april 1813",
+      "date_min": "1813-04-01",
+      "date_max": "1813-04-01",
+      "date_qualifier": "exact",
+      "sted": "Pederstrup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 28. s.m.",
+      "date_min": "1813-04-28",
+      "date_max": "1813-04-28",
+      "date_qualifier": "exact",
+      "sted": "Vesterborg Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† maj s.å.",
+      "date_min": "1813-05-01",
+      "date_max": "1813-05-31",
+      "date_qualifier": "between",
+      "sted": null
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 29. s.m.",
+      "date_min": "1813-05-29",
+      "date_max": "1813-05-29",
+      "date_qualifier": "exact",
+      "sted": "Benedictes Lund (Theophili Skov)"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

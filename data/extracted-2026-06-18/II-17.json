@@ -1,0 +1,31 @@
+{
+  "linje": "II",
+  "nr": 17,
+  "nr_label": "17",
+  "usikker": false,
+  "navn": "Hans Christian",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Dronningens Livreg.",
+      "rolle": "fændrik",
+      "dato_raw": "1677 (12. nov.)"
+    },
+    {
+      "organisation": "Dronningens Livreg.",
+      "rolle": "dommer i Krigsretten",
+      "dato_raw": "1678 (1. febr.)"
+    },
+    {
+      "organisation": "Boyneburgs gevorbne Infanterireg.",
+      "rolle": "fændrik",
+      "dato_raw": "1687 (24. dec.)"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

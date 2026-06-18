@@ -1,0 +1,120 @@
+{
+  "linje": "II",
+  "nr": 20,
+  "nr_label": "20",
+  "usikker": false,
+  "navn": "Otto Hinrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1690 i Glückstadt",
+      "date_raw": "* 1690 i Glückstadt",
+      "date_min": "1690-01-01",
+      "date_max": "1690-12-31",
+      "date_qualifier": "exact",
+      "sted": "Glückstadt"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "22. juli s.å. i Glückstadt Slotskirke",
+      "date_raw": "døbt 22. juli s.å. i Glückstadt Slotskirke",
+      "date_min": "1690-07-22",
+      "date_max": "1690-07-22",
+      "date_qualifier": "exact",
+      "sted": "Glückstadt Slotskirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "29. april 1743 i Egernførde",
+      "date_raw": "† 29. april 1743 i Egernførde",
+      "date_min": "1743-04-29",
+      "date_max": "1743-04-29",
+      "date_qualifier": "exact",
+      "sted": "Egernførde"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Kiel Universitet",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1703"
+    },
+    {
+      "organisation": "gottorpsk tjeneste",
+      "rolle": "løjtnant",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Grenadérkorpset",
+      "rolle": "premierløjtnant i sekondløjtnants nummer",
+      "dato_raw": "1714 (23. marts)"
+    },
+    {
+      "organisation": "2. danske gevorbne Infanterireg.",
+      "rolle": "virkelig kaptajn",
+      "dato_raw": "1716 (16. okt.)"
+    },
+    {
+      "organisation": "Grenadérkorpset",
+      "rolle": "sekondmajor",
+      "dato_raw": "1725 (14. maj)"
+    },
+    {
+      "organisation": null,
+      "rolle": "karakt. oberst",
+      "dato_raw": "1733 (25. febr.)"
+    },
+    {
+      "organisation": null,
+      "rolle": "premiermajor",
+      "dato_raw": "1734 (24. febr.)"
+    },
+    {
+      "organisation": "Slesvig-holstenske nationale Infanterireg.",
+      "rolle": "virkelig oberst og chef",
+      "dato_raw": "1737 (12. juli)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Margarethe Eleonora von Plessen",
+      "partner_ekstern_ref": "DAA 1934, 175",
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* ca. 1692",
+        "date_min": "1692-01-01",
+        "date_max": "1692-12-31",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 7. april 1774 i Egernførde",
+        "date_min": "1774-04-07",
+        "date_max": "1774-04-07",
+        "sted": "Egernførde"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Mecklenburgsk Amtshauptmann, dansk sekondløjtnant Heinrich Detlef von P. til Radegast, Gross Neuenhagen, Rosenhagen, Basthorst samt Moisall og Margarethe Catharina von Uffeln",
+      "note": "Gift 1° med dansk oberstløjtnant Daniel Hinrich von Plessen."
+    }
+  ],
+  "boern": {
+    "antal": 8,
+    "slaegtled": "Ellevte slægtled",
+    "linje": null,
+    "nr_range": [
+      28,
+      35
+    ]
+  },
+  "begivenheder": []
+}

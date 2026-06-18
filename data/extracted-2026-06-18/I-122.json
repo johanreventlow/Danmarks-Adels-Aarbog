@@ -1,0 +1,40 @@
+{
+  "linje": "I",
+  "nr": 122,
+  "nr_label": "122",
+  "usikker": false,
+  "navn": "Detlef Christian",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "ca. 1720",
+      "date_raw": "* ca. 1720",
+      "date_min": "1720-01-01",
+      "date_max": "1720-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1749 på Wittenberg",
+      "date_raw": "† 1749 på Wittenberg",
+      "date_min": "1749-01-01",
+      "date_max": "1749-12-31",
+      "date_qualifier": "exact",
+      "sted": "Wittenberg"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Lübeck Domkirke",
+      "rolle": "struktuarius",
+      "dato_raw": "1739"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

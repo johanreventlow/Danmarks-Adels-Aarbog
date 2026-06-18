@@ -1,0 +1,34 @@
+{
+  "linje": "I",
+  "nr": 125,
+  "nr_label": "125",
+  "usikker": false,
+  "navn": "Jochen Hartwich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1720 på Wittenberg",
+      "date_raw": "* 1720 på Wittenberg",
+      "date_min": "1720-01-01",
+      "date_max": "1720-12-31",
+      "date_qualifier": "exact",
+      "sted": "Wittenberg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "5. sept. s.å. i Selent Kirke",
+      "date_raw": "døbt 5. sept. s.å. i Selent Kirke",
+      "date_min": "1720-09-05",
+      "date_max": "1720-09-05",
+      "date_qualifier": "exact",
+      "sted": "Selent Kirke"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

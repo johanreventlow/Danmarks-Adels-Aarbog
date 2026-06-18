@@ -1,0 +1,67 @@
+{
+  "linje": "I",
+  "nr": 37,
+  "nr_label": "37",
+  "usikker": false,
+  "navn": "Lüder",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "(-1421)",
+      "date_min": "1421-01-01",
+      "date_max": "1421-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    },
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "Nævnes 1410 ... solgte 1421",
+      "date_min": "1410-01-01",
+      "date_max": "1421-12-31",
+      "date_qualifier": "floruit",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Bentfeld",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": "Giekau S., Plön Kr."
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": null,
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "Gift med NN"
+    }
+  ],
+  "boern": {
+    "antal": 2,
+    "slaegtled": "Syvende",
+    "linje": "II",
+    "nr_range": [
+      49,
+      50
+    ]
+  },
+  "begivenheder": []
+}

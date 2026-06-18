@@ -1,0 +1,29 @@
+{
+  "linje": "V",
+  "nr": 199,
+  "nr_label": "199",
+  "usikker": false,
+  "navn": "Greve Frederik Johann",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "2013-06-22",
+      "date_raw": "22. juni 2013",
+      "date_min": "2013-06-22",
+      "date_max": "2013-06-22",
+      "date_qualifier": "exact",
+      "sted": "Hvidovre"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "2013-11-10",
+      "date_raw": "døbt 10. nov. s.å. i Søllerød Kirke",
+      "date_min": "2013-11-10",
+      "date_max": "2013-11-10",
+      "date_qualifier": "exact",
+      "sted": "Søllerød Kirke"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "linje": "V",
+  "nr": 96,
+  "nr_label": "96",
+  "usikker": false,
+  "navn": "Frederik Ernst Detlef",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 2. juni 1842",
+      "date_min": "1842-06-02",
+      "date_max": "1842-06-02",
+      "date_qualifier": "exact",
+      "sted": "London"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 14. dec. 1844",
+      "date_min": "1844-12-14",
+      "date_max": "1844-12-14",
+      "date_qualifier": "exact",
+      "sted": "London"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "begravet 6. maj 1852",
+      "date_min": "1852-05-06",
+      "date_max": "1852-05-06",
+      "date_qualifier": "exact",
+      "sted": "Horslunde Kirkegård"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

@@ -1,0 +1,57 @@
+{
+  "linje": "III",
+  "nr": 82,
+  "nr_label": "82",
+  "usikker": false,
+  "navn": "Catharina Amalia",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [],
+  "godser": [
+    {
+      "navn": "Hemmelmark",
+      "periode_raw": "(1681)",
+      "period_type": "residence",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "August Barthold von Lützow",
+      "partner_ekstern_ref": "DAA 1928, II, 99",
+      "type": "vielse",
+      "dato_raw": "Gift 26. okt. 1708",
+      "date_min": "1708-10-26",
+      "date_max": "1708-10-26",
+      "sted": "Dreilützow",
+      "skilt": false,
+      "partner_foedsel": "* 29. marts 1653",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 2. sept. 1722 i Wien",
+        "date_min": "1722-09-02",
+        "date_max": "1722-09-02",
+        "sted": "Wien"
+      },
+      "partner_erhverv": [
+        "dansk major",
+        "sachsen-lauenburgsk landdrost"
+      ],
+      "partner_foraeldre": "Sachsen-lauenburgsk landråd Barthold Heinrich von L. til Seedorf og Dorothea Maria von Bülow",
+      "note": "Gift 1° 1679 med Magdalena Catharina von Thienen."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "1681",
+      "date_min": "1681-01-01",
+      "date_max": "1681-12-31",
+      "sted": "Hemmelmark",
+      "note": "Tvilling og døbt 15. okt. s.å. i Borby Kirke."
+    }
+  ]
+}

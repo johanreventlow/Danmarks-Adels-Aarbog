@@ -1,0 +1,96 @@
+{
+  "linje": "I",
+  "nr": 121,
+  "nr_label": "121",
+  "usikker": false,
+  "navn": "Friedrich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "ca. 1699",
+      "date_raw": "* ca. 1699",
+      "date_min": "1699-01-01",
+      "date_max": "1699-12-31",
+      "date_qualifier": "about",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "20. dec. 1754 i Slesvig By",
+      "date_raw": "† 20. dec. 1754 i Slesvig By",
+      "date_min": "1754-12-20",
+      "date_max": "1754-12-20",
+      "date_qualifier": "exact",
+      "sted": "Slesvig By"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Holstenske gevorbne Rytterreg.",
+      "rolle": "kornet",
+      "dato_raw": "1718 (18. nov.)"
+    },
+    {
+      "organisation": "Slesvigske Rytterreg.",
+      "rolle": "løjtnant",
+      "dato_raw": "1720 (13. dec.)"
+    },
+    {
+      "organisation": "Slesvigske Rytterreg.",
+      "rolle": "ritmester",
+      "dato_raw": "1734 (15. marts)"
+    },
+    {
+      "organisation": "Randers",
+      "rolle": "garnison",
+      "dato_raw": "1751-1754 (24. juli)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Katharina Margaretha von Thoden",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 14. aug. 1744",
+      "date_min": "1744-08-14",
+      "date_max": "1744-08-14",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 1715",
+        "date_min": "1715-01-01",
+        "date_max": "1715-12-31",
+        "sted": null
+      },
+      "partner_daab": {
+        "date_raw": "døbt 18. sept. s.å. i Klütz Kirke",
+        "date_min": "1715-09-18",
+        "date_max": "1715-09-18",
+        "sted": "Klütz Kirke"
+      },
+      "partner_doed": {
+        "date_raw": "† 30. jan. 1795 i Kiel",
+        "date_min": "1795-01-30",
+        "date_max": "1795-01-30",
+        "sted": "Kiel"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "5 børn: Sekstende slægtled, nr. 129-133."
+    }
+  ],
+  "boern": {
+    "antal": 5,
+    "slaegtled": "Sekstende slægtled",
+    "linje": null,
+    "nr_range": [
+      129,
+      133
+    ]
+  },
+  "begivenheder": []
+}

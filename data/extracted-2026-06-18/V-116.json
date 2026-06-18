@@ -1,0 +1,63 @@
+{
+  "linje": "V",
+  "nr": 116,
+  "nr_label": "116",
+  "usikker": false,
+  "navn": "Johanne Charlotte Agnes Frederike Sophie Gottfriede",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "1. juli 1859",
+      "date_min": "1859-07-01",
+      "date_max": "1859-07-01",
+      "date_qualifier": "exact",
+      "sted": "Tønder"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "28. aug. s.å.",
+      "date_min": "1859-08-28",
+      "date_max": "1859-08-28",
+      "date_qualifier": "exact",
+      "sted": "Tønder Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "18. febr. 1924",
+      "date_min": "1924-02-18",
+      "date_max": "1924-02-18",
+      "date_qualifier": "exact",
+      "sted": "Wulfshagen"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Preetz Adelige Klosterkirkegård"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    }
+  ]
+}

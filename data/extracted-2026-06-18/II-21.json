@@ -1,0 +1,59 @@
+{
+  "linje": "II",
+  "nr": 21,
+  "nr_label": "21",
+  "usikker": false,
+  "navn": "Detlef Christian",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1719",
+      "date_raw": "† 1719",
+      "date_min": "1719-01-01",
+      "date_max": "1719-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1703"
+    },
+    {
+      "organisation": "gottorpsk tjeneste",
+      "rolle": "stod",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Dronningens Livreg.",
+      "rolle": "kaptajn",
+      "dato_raw": "1716 (27. nov.)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "NN",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "Bisat 14. febr. 1716 i Haddeby Sogns kirkebog."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

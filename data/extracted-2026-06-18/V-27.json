@@ -1,0 +1,43 @@
+{
+  "linje": "V",
+  "nr": 27,
+  "nr_label": "27",
+  "usikker": false,
+  "navn": "Sophia Hedwig",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Grevinde",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "sept. 1712",
+      "date_min": "1712-09-01",
+      "date_max": "1712-09-30",
+      "date_qualifier": "between",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "ung",
+      "date_raw": "ung.",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

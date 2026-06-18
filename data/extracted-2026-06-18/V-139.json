@@ -1,0 +1,29 @@
+{
+  "linje": "V",
+  "nr": 139,
+  "nr_label": "139",
+  "usikker": false,
+  "navn": "Søn",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1877-03-07",
+      "date_raw": "7. marts 1877",
+      "date_min": "1877-03-07",
+      "date_max": "1877-03-07",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1877-03-07",
+      "date_raw": "7. marts 1877",
+      "date_min": "1877-03-07",
+      "date_max": "1877-03-07",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "linje": "I",
+  "nr": 86,
+  "nr_label": "86",
+  "usikker": false,
+  "navn": "Abel",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Hans von Ahlefeldt",
+      "partner_ekstern_ref": "DAA 1982-84, 626",
+      "type": "vielse",
+      "dato_raw": "Gift 1°",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 3. febr. 1605",
+        "date_min": "1605-02-03",
+        "date_max": "1605-02-03",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kgl. råd, klosterprovst Bendix von A. til Haseldorf og Emerentia von Brockdorff",
+      "note": "Til Osterrade og Tramm."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Andreas Ehmbken",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 2°",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "Til Goldbeck og Bahlen i Grevesmühlen Amt."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

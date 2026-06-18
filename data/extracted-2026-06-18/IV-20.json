@@ -1,0 +1,60 @@
+{
+  "linje": "IV",
+  "nr": 20,
+  "nr_label": "20",
+  "usikker": false,
+  "navn": "Komtesse Agatha Sophia Louisa Ottilia",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1883-12-30",
+      "date_raw": "† 30. dec. 1883 på Seeburg ved Kiel",
+      "date_min": "1883-12-30",
+      "date_max": "1883-12-30",
+      "date_qualifier": "exact",
+      "sted": "Seeburg ved Kiel"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Christian Wilhelm Heinrich rigsgreve zu Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 88",
+      "type": "vielse",
+      "dato_raw": "Gift 19. febr. 1825",
+      "date_min": "1825-02-19",
+      "date_max": "1825-02-19",
+      "sted": "Aakær",
+      "skilt": false,
+      "partner_foedsel": "* 23. sept. 1796 på Ascheberg",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 18. maj 1848 på Seeburg",
+        "date_min": "1848-05-18",
+        "date_max": "1848-05-18",
+        "sted": "Seeburg"
+      },
+      "partner_erhverv": [
+        "overpræsident",
+        "kurator"
+      ],
+      "partner_foraeldre": "Overpræsident, kurator Christian Detlev Carl rigsgreve zu R. til Oppendorf, Ascheberg, Sæbygaard, m.fl., og Charlotta Henrietta Susanna von Diede zum Fürstenstein",
+      "note": "Til Dänisch Nienhof."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "28. okt. 1800",
+      "date_min": "1800-10-28",
+      "date_max": "1800-10-28",
+      "sted": null,
+      "note": "Døbt 21. nov. s.å. i Slesvig Domkirke."
+    }
+  ]
+}

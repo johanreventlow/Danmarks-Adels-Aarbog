@@ -1,0 +1,80 @@
+{
+  "linje": "V",
+  "nr": 26,
+  "nr_label": "26",
+  "usikker": false,
+  "navn": "Christina Armgard",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Grevinde",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "2. maj 1711",
+      "date_min": "1711-05-02",
+      "date_max": "1711-05-02",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "6. okt. 1779",
+      "date_min": "1779-10-06",
+      "date_max": "1779-10-06",
+      "date_qualifier": "exact",
+      "sted": "Plön"
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "de l'Union parfaite",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Friedrich Carl hertug af Slesvig-Holsten-Plön til Nordborg og Plön",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "18. juli 1730",
+      "date_min": "1730-07-18",
+      "date_max": "1730-07-18",
+      "sted": "Christiansborg, København",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "4. aug. 1706",
+        "date_min": "1706-08-04",
+        "date_max": "1706-08-04",
+        "sted": "Sønderborg"
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "18./19. okt. 1761",
+        "date_min": "1761-10-18",
+        "date_max": "1761-10-19",
+        "sted": "Traventhal"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Christian Carl hertug af S.-H.-P. til Nordborg og Dorothea Christina von Aichelberg (fru von Carlstein)",
+      "note": "bisat i Plön"
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

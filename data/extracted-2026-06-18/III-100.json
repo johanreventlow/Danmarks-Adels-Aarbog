@@ -1,0 +1,125 @@
+{
+  "linje": "III",
+  "nr": 100,
+  "nr_label": "100",
+  "usikker": false,
+  "navn": "Ide Margaretha",
+  "tilnavn": "til Sørup, Rosengaard, Sandbygaard, Lundegaard, Grimsted, Gottesgabe, Rudbjerggaard med Fredsholm og Søllestedgaard",
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1757-09-13",
+      "date_raw": "† 13. sept. 1757 på Rudbjerggaard",
+      "date_min": "1757-09-13",
+      "date_max": "1757-09-13",
+      "date_qualifier": "exact",
+      "sted": "Rudbjerggaard"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Sørup",
+      "periode_raw": "(1736-1743)",
+      "period_type": "tenure",
+      "sted": "Vetterslev S., Ringsted H."
+    },
+    {
+      "navn": "Rosengaard",
+      "periode_raw": "(1736-1743)",
+      "period_type": "tenure",
+      "sted": "Kværkeby S., Ringsted H."
+    },
+    {
+      "navn": "Sandbygaard",
+      "periode_raw": "(1736-1743)",
+      "period_type": "tenure",
+      "sted": "Sandby S., Tybjerg H."
+    },
+    {
+      "navn": "Lundegaard",
+      "periode_raw": "(1736-1743)",
+      "period_type": "tenure",
+      "sted": "Branderslev S., Lolland Sønder H."
+    },
+    {
+      "navn": "Grimsted",
+      "periode_raw": "(1752-†)",
+      "period_type": "tenure",
+      "sted": "Sandby S., Lolland Sønder H."
+    },
+    {
+      "navn": "Gottesgabe",
+      "periode_raw": "(1754-†)",
+      "period_type": "tenure",
+      "sted": "Kappel S., Lolland Sønder H."
+    },
+    {
+      "navn": "Rudbjerggaard med Fredsholm",
+      "periode_raw": "(1755-†)",
+      "period_type": "tenure",
+      "sted": "Tillitse S., Lolland Sønder H."
+    },
+    {
+      "navn": "Søllestedgaard",
+      "periode_raw": "(1757-†)",
+      "period_type": "tenure",
+      "sted": "Søllested S., Lolland Sønder H."
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Adam Christopher greve Knuth",
+      "partner_ekstern_ref": "DAA 1966, II, 26",
+      "type": "vielse",
+      "dato_raw": "Gift 16. dec. 1721",
+      "date_min": "1721-12-16",
+      "date_max": "1721-12-16",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 26. sept. 1687",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 23. jan. 1736 på Knuthenborg",
+        "date_min": "1736-01-23",
+        "date_max": "1736-01-23",
+        "sted": "Knuthenborg"
+      },
+      "partner_erhverv": [
+        "gehejmeråd",
+        "kammerherre"
+      ],
+      "partner_foraeldre": "Amtmand, virkelig etatsråd, konferensråd Eggert Christopher K. til Melz, Priborn, Aarsmarke, Bandholmsgaarden samt Maribo Ladegaard og Søster Lerche til Havlykkegaard",
+      "note": "Gift 1° 26. juni 1713 i København med Hedevig Ulrica Luxdorph."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "7. febr. 1701",
+      "date_min": "1701-02-07",
+      "date_max": "1701-02-07",
+      "sted": null,
+      "note": "Indskrevet i Preetz Adelige Kloster."
+    },
+    {
+      "type": "oprettede",
+      "dato_raw": "1740",
+      "date_min": "1740-01-01",
+      "date_max": "1740-12-31",
+      "sted": "Købelev",
+      "note": "Oprettede et hospital."
+    },
+    {
+      "type": "erigerede",
+      "dato_raw": "1743 (2. aug.)",
+      "date_min": "1743-08-02",
+      "date_max": "1743-08-02",
+      "sted": null,
+      "note": "Erigerede baronierne Conradsborg og Christiansdal."
+    }
+  ]
+}

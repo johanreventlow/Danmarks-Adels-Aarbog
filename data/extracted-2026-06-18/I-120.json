@@ -1,0 +1,117 @@
+{
+  "linje": "I",
+  "nr": 120,
+  "nr_label": "120",
+  "usikker": false,
+  "navn": "Detlef",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "ca. 1698 på Wesloe ved Lübeck",
+      "date_raw": "* ca. 1698 på Wesloe ved Lübeck",
+      "date_min": "1698-01-01",
+      "date_max": "1698-12-31",
+      "date_qualifier": "about",
+      "sted": "Wesloe ved Lübeck"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "28. okt. 1783 i Kiel",
+      "date_raw": "† 28. okt. 1783 i Kiel",
+      "date_min": "1783-10-28",
+      "date_max": "1783-10-28",
+      "date_qualifier": "exact",
+      "sted": "Kiel"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Grünholz",
+      "periode_raw": "(1731-)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Farenstedgaard",
+      "periode_raw": "(1754-1763)",
+      "period_type": "tenure",
+      "sted": "ved Slesvig By"
+    },
+    {
+      "navn": "Wittenberg",
+      "periode_raw": "(1764)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "sekondløjtnant",
+      "dato_raw": "1724 (14. aug.)"
+    },
+    {
+      "organisation": null,
+      "rolle": "karakt. kaptajn",
+      "dato_raw": "1731 (22. juni)"
+    },
+    {
+      "organisation": null,
+      "rolle": "landråd",
+      "dato_raw": "1754 (30. sept.)-"
+    },
+    {
+      "organisation": null,
+      "rolle": "kammerherre",
+      "dato_raw": "1759 (31. marts)"
+    },
+    {
+      "organisation": "Plön og Ahrensbök Amter",
+      "rolle": "amtmand",
+      "dato_raw": "1762 (17. maj)-1768"
+    },
+    {
+      "organisation": null,
+      "rolle": "hvid ridder",
+      "dato_raw": "1764 (1. sept.)"
+    },
+    {
+      "organisation": null,
+      "rolle": "gehejmeråd",
+      "dato_raw": "s.å. (14. dec.)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Magdalena von Buchwaldt",
+      "partner_ekstern_ref": "DAA 1913, 164",
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 7. maj 1702",
+        "date_min": "1702-05-07",
+        "date_max": "1702-05-07",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 10. juni 1767 i Plön",
+        "date_min": "1767-06-10",
+        "date_max": "1767-06-10",
+        "sted": "Plön"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Landråd Hinrich von B. til Pronstorf og Catharina von Reventlow, se von Reventlow. III. Den mecklenburgske linje, nr. 94",
+      "note": "Barnløst, og hun indsatte ved testamente af 1733 sin mand til universalarving."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

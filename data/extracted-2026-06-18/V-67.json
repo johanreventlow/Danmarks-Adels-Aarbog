@@ -1,0 +1,61 @@
+{
+  "linje": "V",
+  "nr": 67,
+  "nr_label": "67",
+  "usikker": false,
+  "navn": "Carl Andreas Ditlef",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 6. nov. 1793",
+      "date_min": "1793-11-06",
+      "date_max": "1793-11-06",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 17. jan. 1796",
+      "date_min": "1796-01-17",
+      "date_max": "1796-01-17",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "bisat",
+      "date_raw": "bisat 24. s.m.",
+      "date_min": "1796-01-24",
+      "date_max": "1796-01-24",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg Kirke"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "begravet",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Brahetrolleborg Kirkegård"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

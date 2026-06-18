@@ -1,0 +1,87 @@
+{
+  "linje": "V",
+  "nr": 9,
+  "nr_label": "9",
+  "usikker": false,
+  "navn": "Charlotta Amalia",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Grevinde",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 31. dec. 1683",
+      "date_min": "1683-12-31",
+      "date_max": "1683-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 1700",
+      "date_min": "1700-01-01",
+      "date_max": "1700-12-31",
+      "date_qualifier": null,
+      "sted": "Rendsborg"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Det Reventlowske Kapel i Slesvig Domkirke"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Otto Blome",
+      "partner_ekstern_ref": "DAA 1935, II, 31 f.",
+      "type": null,
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 3. juni 1684",
+        "date_min": "1684-06-03",
+        "date_max": "1684-06-03",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1. aug. 1738",
+        "date_min": "1738-08-01",
+        "date_max": "1738-08-01",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "overhofmester",
+        "overhofmarskal",
+        "gehejmeråd",
+        "gehejmekonferensråd",
+        "landråd",
+        "klosterprovst"
+      ],
+      "partner_foraeldre": "Kammerherre Bendix B. til Deutsch Nienhof, Dänisch Nienhof samt Kaltenhof og Elisabeth Sophia von Reventlow, se von Reventlow. III. Den mecklenburgske linje, nr. 59",
+      "note": "Trolovet (ikke fuldbyrdet ægteskab); Otto Blome til Dänisch Nienhof, Kaltenhof og Birkenmoor. Hans øvrige ægteskaber: gift 1° med Anna Margareta von Brockdorff, * ca. 1700, skilt 1725; 2° 28. okt. 1725 med Charlotta Amalia grevinde Friis, * 1692, † 1. dec. 1750."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

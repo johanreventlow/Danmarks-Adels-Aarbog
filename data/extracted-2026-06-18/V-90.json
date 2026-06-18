@@ -1,0 +1,101 @@
+{
+  "linje": "V",
+  "nr": 90,
+  "nr_label": "90",
+  "usikker": false,
+  "navn": "Christian Ditlef",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "23. april 1842",
+      "date_min": "1842-04-23",
+      "date_max": "1842-04-23",
+      "date_qualifier": "exact",
+      "sted": "Aalstrup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "16. aug. s.å.",
+      "date_min": "1842-08-16",
+      "date_max": "1842-08-16",
+      "date_qualifier": "exact",
+      "sted": "Landet Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "26. okt. 1908",
+      "date_min": "1908-10-26",
+      "date_max": "1908-10-26",
+      "date_qualifier": "exact",
+      "sted": "Lund"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 3. nov. s.å. fra Gudmuntorp Kirke",
+      "date_min": "1908-11-03",
+      "date_max": "1908-11-03",
+      "date_qualifier": "exact",
+      "sted": "Gudmuntorp Kirkegård"
+    },
+    {
+      "faktatype": "adling",
+      "vaerdi": "svensk adelsmand",
+      "date_raw": "1905 (7. maj)",
+      "date_min": "1905-05-07",
+      "date_max": "1905-05-07",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Finnhult",
+      "periode_raw": "1867-1878",
+      "period_type": "ejer",
+      "sted": null
+    },
+    {
+      "navn": "Jeppstorp",
+      "periode_raw": "1867-1878",
+      "period_type": "ejer",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Hildeborg Sophie komtesse af Reventlow",
+      "partner_ekstern_ref": "nr. 56",
+      "type": "vielse",
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

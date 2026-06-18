@@ -1,0 +1,39 @@
+{
+  "linje": "I",
+  "nr": 35,
+  "nr_label": "35",
+  "usikker": false,
+  "navn": "Owe",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "1389 (29. sept.)",
+      "date_min": "1389-09-29",
+      "date_max": "1389-09-29",
+      "date_qualifier": "floruit",
+      "sted": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Beke von Pogwisch",
+      "partner_ekstern_ref": "se nr. 16",
+      "type": "vielse",
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": null
+    }
+  ]
+}

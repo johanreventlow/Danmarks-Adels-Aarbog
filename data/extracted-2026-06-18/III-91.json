@@ -1,0 +1,170 @@
+{
+  "linje": "III",
+  "nr": 91,
+  "nr_label": "91",
+  "usikker": false,
+  "navn": "Rigsgreve Hinrich",
+  "tilnavn": "til Kollmar, Lehmkulen og Rantzau",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1732-01-12",
+      "date_raw": "† 12./13. jan. 1732 i et vildt drikkelag på Schmoeler Hof i Kiel",
+      "date_min": "1732-01-12",
+      "date_max": "1732-01-13",
+      "date_qualifier": "approx",
+      "sted": "Kiel"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Kollmar",
+      "periode_raw": "(1701-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Lehmkulen",
+      "periode_raw": "(1704-†)",
+      "period_type": "tenure",
+      "sted": "Lebrade S., Plön Kr."
+    },
+    {
+      "navn": "Rantzau",
+      "periode_raw": "(1728-†)",
+      "period_type": "tenure",
+      "sted": "Neukirchen S., Plön Kr."
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Det Ridderlige Akademi i København",
+      "rolle": "på",
+      "dato_raw": "1698-"
+    },
+    {
+      "organisation": "hof- og kammerjunker",
+      "rolle": "hof- og kammerjunker",
+      "dato_raw": "1699 (16. jan.)-"
+    },
+    {
+      "organisation": "gottorpsk tjeneste",
+      "rolle": "trådte i",
+      "dato_raw": "ca. 1700"
+    },
+    {
+      "organisation": "Wien",
+      "rolle": "sendebud",
+      "dato_raw": "1706"
+    },
+    {
+      "organisation": "romersk-tysk grevelig stand",
+      "rolle": "ophøjet",
+      "dato_raw": "1706 (23. juli)"
+    },
+    {
+      "organisation": "det storfyrstelige Rentekammer",
+      "rolle": "præsident",
+      "dato_raw": "1708-1718"
+    },
+    {
+      "organisation": "gottorpsk landråd",
+      "rolle": "landråd",
+      "dato_raw": "1708-1718"
+    },
+    {
+      "organisation": "kammerherre",
+      "rolle": "kammerherre",
+      "dato_raw": "1708-1718"
+    },
+    {
+      "organisation": "gehejmeråd",
+      "rolle": "gehejmeråd",
+      "dato_raw": "1708-1718"
+    },
+    {
+      "organisation": "Wien",
+      "rolle": "sendebud",
+      "dato_raw": "1710"
+    },
+    {
+      "organisation": "Tønder Amt",
+      "rolle": "amtmand",
+      "dato_raw": "1711-1713 (17. febr.)"
+    },
+    {
+      "organisation": "kejserlig rigshofråd",
+      "rolle": "rigshofråd",
+      "dato_raw": "1720"
+    },
+    {
+      "organisation": "kejserlig kammerer",
+      "rolle": "kammerer",
+      "dato_raw": "1720"
+    },
+    {
+      "organisation": "Det Adelige Sankt Johanniskloster ved Slesvig",
+      "rolle": "klosterprovst",
+      "dato_raw": "1725-†"
+    },
+    {
+      "organisation": "Det Adelige Kloster i Uetersen",
+      "rolle": "klosterprovst",
+      "dato_raw": "1725-†"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Wilhelmine von Brockdorff",
+      "partner_ekstern_ref": "DAA 1936, II, 60",
+      "type": "vielse",
+      "dato_raw": "Gift 1° 1704",
+      "date_min": "1704-01-01",
+      "date_max": "1704-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* ca. 1680",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1. juni 1706",
+        "date_min": "1706-06-01",
+        "date_max": "1706-06-01",
+        "sted": "Preetz"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Gehejmekonferensråd, gehejme- og landråd Wulf von B. til Nøer, Wensin, Sierhagen samt Dänischen Lindau og Ide von Rumohr",
+      "note": "Bisat 15. dec. s.å. i Preetz."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Maria Charlotta rigsgrevinde von Althann",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 2° 1708 i Wien",
+      "date_min": "1708-01-01",
+      "date_max": "1708-12-31",
+      "sted": "Wien",
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1735",
+        "date_min": "1735-01-01",
+        "date_max": "1735-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Johann rigsgreve von A. og Anna Theresia rigsgrevinde von Lemberg",
+      "note": null
+    }
+  ],
+  "boern": {
+    "antal": 1,
+    "slaegtled": "Fjortende slægtled",
+    "linje": "V, nr. 119",
+    "nr_range": null
+  },
+  "begivenheder": []
+}

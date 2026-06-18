@@ -1,0 +1,66 @@
+{
+  "linje": "III",
+  "nr": 81,
+  "nr_label": "81",
+  "usikker": false,
+  "navn": "Hedwig Elisabeth",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1751-06-20",
+      "date_raw": "† 20. juni 1751",
+      "date_min": "1751-06-20",
+      "date_max": "1751-06-20",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Hemmelmark",
+      "periode_raw": "(1681-)",
+      "period_type": "residence",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Henning von Arenstorff",
+      "partner_ekstern_ref": "DAA 1886, 23",
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 20. juni 1751",
+        "date_min": "1751-06-20",
+        "date_max": "1751-06-20",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "oberst"
+      ],
+      "partner_foraeldre": "Guvernør, generalmajor, vicepræsident, gehejmeråd Friderich von A. til Rosenow, Svanholm, Harridslevgaard samt Overgaard og Augusta Elisabeth von Rumohr",
+      "note": "Til Stougaard og Alsted; bisat i Tørring Kirke."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "1681",
+      "date_min": "1681-01-01",
+      "date_max": "1681-12-31",
+      "sted": "Hemmelmark",
+      "note": "Døbt 15. okt. s.å. i Borby Kirke og bisat 1. okt. 1744 i Tørring Kirke."
+    }
+  ]
+}

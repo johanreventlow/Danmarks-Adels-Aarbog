@@ -1,0 +1,59 @@
+{
+  "linje": "III",
+  "nr": 87,
+  "nr_label": "87",
+  "usikker": false,
+  "navn": "Catharina",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1739-01-31",
+      "date_raw": "† 31. jan. 1739 i Uetersen",
+      "date_min": "1739-01-31",
+      "date_max": "1739-01-31",
+      "date_qualifier": "exact",
+      "sted": "Uetersen"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Christian Ernst baron von Reichenbach",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 29. nov. 1705",
+      "date_min": "1705-11-29",
+      "date_max": "1705-11-29",
+      "sted": "Nienhof ved Lütjenburg",
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1739",
+        "date_min": "1739-01-01",
+        "date_max": "1739-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "etats- og landråd"
+      ],
+      "partner_foraeldre": null,
+      "note": "Ægtepagten dateret 27. dec. 1703; bisat 24. aug. s.å. i Kiel."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "ca. 1689",
+      "date_min": "1689-01-01",
+      "date_max": "1689-12-31",
+      "sted": null,
+      "note": "49 1/2 år gammel ved død."
+    }
+  ]
+}

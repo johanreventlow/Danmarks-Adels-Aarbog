@@ -1,0 +1,89 @@
+{
+  "linje": "I",
+  "nr": 98,
+  "nr_label": "98",
+  "usikker": false,
+  "navn": "Otto",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1634",
+      "date_raw": "* 1634",
+      "date_min": "1634-01-01",
+      "date_max": "1634-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "s. st.",
+      "date_raw": "† s.st.",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Wittenberg",
+      "periode_raw": "(1667-†)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Tresdorf",
+      "periode_raw": "(1667-†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "ritmester",
+      "dato_raw": "1657"
+    },
+    {
+      "organisation": null,
+      "rolle": "ritmester",
+      "dato_raw": "1675 (juni)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Magdalena Blome",
+      "partner_ekstern_ref": "DAA 1935, II, 28",
+      "type": "vielse",
+      "dato_raw": "Gift 1652",
+      "date_min": "1652-01-01",
+      "date_max": "1652-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* ca. 1635",
+        "date_min": "1635-01-01",
+        "date_max": "1635-12-31",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Gottorpsk jægermester, dansk amtmand Otto B. til Rastorf, Aschau, Deutsch og Dänisch Nienhof samt Kaltenhof og Dorothea von Sested",
+      "note": "Ægtepagt dateret Kiel 4. okt. s.å."
+    }
+  ],
+  "boern": {
+    "antal": 4,
+    "slaegtled": "Fjortende slægtled",
+    "linje": "I",
+    "nr_range": [
+      105,
+      108
+    ]
+  },
+  "begivenheder": []
+}

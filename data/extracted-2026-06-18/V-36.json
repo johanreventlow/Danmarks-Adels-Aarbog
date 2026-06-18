@@ -1,0 +1,94 @@
+{
+  "linje": "V",
+  "nr": 36,
+  "nr_label": "36",
+  "usikker": false,
+  "navn": "Sophia Magdalena",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "17. marts 1741 i København",
+      "date_min": "1741-03-17",
+      "date_max": "1741-03-17",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "18. s.m. i Hof- og Slotskirken s.st.",
+      "date_min": "1741-03-18",
+      "date_max": "1741-03-18",
+      "date_qualifier": "exact",
+      "sted": "Hof- og Slotskirken, København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "6. marts 1811 i Aarhus",
+      "date_min": "1811-03-06",
+      "date_max": "1811-03-06",
+      "date_qualifier": "exact",
+      "sted": "Aarhus"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 14. s.m. fra Viby Kirke og begravet på Viby Kirkegård",
+      "date_min": "1811-03-14",
+      "date_max": "1811-03-14",
+      "date_qualifier": "exact",
+      "sted": "Viby Kirkegård"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Nicolaus Maximilianus baron Gersdorff",
+      "partner_ekstern_ref": "DAA 1943, II, 57 f.",
+      "type": "vielse",
+      "dato_raw": "7. okt. 1760 på Traventhal",
+      "date_min": "1760-10-07",
+      "date_max": "1760-10-07",
+      "sted": "Traventhal",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "5. jan. 1725 på Husum Slot",
+        "date_min": "1725-01-05",
+        "date_max": "1725-01-05",
+        "sted": "Husum Slot"
+      },
+      "partner_daab": {
+        "date_raw": "hjemmedøbt 8. s.m. (Husum Sankt Marien Sogns kirkebog)",
+        "date_min": "1725-01-08",
+        "date_max": "1725-01-08",
+        "sted": null
+      },
+      "partner_doed": {
+        "date_raw": "26. sept. 1802",
+        "date_min": "1802-09-26",
+        "date_max": "1802-09-26",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "generalløjtnant",
+        "guvernør i København"
+      ],
+      "partner_foraeldre": "Stiftamtmand, gehejmekonferensråd, ordenssekretær, gehejmeråd Niels baron G. og hofdame Louise baronesse von Boineburg genannt Hohenstein",
+      "note": "ejer baroniet Marselisborg og Gross-Nordsee; bisat 8. okt. 1802 fra Viby Kirke og begravet på Viby Kirkegård"
+    }
+  ],
+  "boern": null
+}

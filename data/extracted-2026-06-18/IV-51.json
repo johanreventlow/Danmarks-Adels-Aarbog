@@ -1,0 +1,65 @@
+{
+  "linje": "IV",
+  "nr": 51,
+  "nr_label": "51",
+  "usikker": false,
+  "navn": "Komtesse Sophia Louise (Lilly) Adelaide",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1894-07-24",
+      "date_raw": "† 24. juli 1894 i Magdeburg",
+      "date_min": "1894-07-24",
+      "date_max": "1894-07-24",
+      "date_qualifier": "exact",
+      "sted": "Magdeburg"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "indskrevet",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Traugott Adelbert Ernst rigsgreve von Baudissin",
+      "partner_ekstern_ref": "DAA 1909, 66",
+      "type": "vielse",
+      "dato_raw": "Gift 9. juni 1865",
+      "date_min": "1865-06-09",
+      "date_max": "1865-06-09",
+      "sted": "Kiel",
+      "skilt": false,
+      "partner_foedsel": "* 16. juni 1831 på Projensdorf",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 2. maj 1905 i Eberswalde",
+        "date_min": "1905-05-02",
+        "date_max": "1905-05-02",
+        "sted": "Eberswalde"
+      },
+      "partner_erhverv": [
+        "preussisk regeringspræsident"
+      ],
+      "partner_foraeldre": "Kammer­ herre, ritmester Joseph Franz Christian rigsgreve von B. til Borstel samt Holm og Julia Friederica Josephine komtesse de Reventlou, se nr. 19",
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "31. aug. 1840",
+      "date_min": "1840-08-31",
+      "date_max": "1840-08-31",
+      "sted": "Slesvig By",
+      "note": "Døbt 28. okt. s.å. i Friedrichsberg Kirke."
+    }
+  ]
+}

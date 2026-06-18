@@ -1,0 +1,66 @@
+{
+  "linje": "V",
+  "nr": 52,
+  "nr_label": "52",
+  "usikker": false,
+  "navn": "Charlotte Lovise",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "6. febr. 1782",
+      "date_min": "1782-02-06",
+      "date_max": "1782-02-06",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "20. s.m.",
+      "date_min": "1782-02-20",
+      "date_max": "1782-02-20",
+      "date_qualifier": "exact",
+      "sted": "Hof- og Slotskirken, København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "15. juni s.å.",
+      "date_min": "1782-06-15",
+      "date_max": "1782-06-15",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "bisat",
+      "date_raw": "16. s.m.",
+      "date_min": "1782-06-16",
+      "date_max": "1782-06-16",
+      "date_qualifier": "exact",
+      "sted": "Det Reventlowske Kapel i Horslunde Kirke"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "16. okt. 1827",
+      "date_min": "1827-10-16",
+      "date_max": "1827-10-16",
+      "date_qualifier": "exact",
+      "sted": "Horslunde Kirkegård"
+    }
+  ],
+  "boern": null
+}

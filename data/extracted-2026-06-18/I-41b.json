@@ -1,0 +1,39 @@
+{
+  "linje": "I",
+  "nr": 41,
+  "nr_label": "41b",
+  "usikker": false,
+  "navn": "Henneke",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "1416 (26. nov.)",
+      "date_min": "1416-11-26",
+      "date_max": "1416-11-26",
+      "date_qualifier": "floruit",
+      "sted": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Cecilie (Split?)",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "se nr. 28"
+    }
+  ]
+}

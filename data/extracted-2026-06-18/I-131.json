@@ -1,0 +1,20 @@
+{
+  "linje": "I",
+  "nr": 131,
+  "nr_label": "131",
+  "usikker": false,
+  "navn": "Barn",
+  "tilnavn": null,
+  "koen": null,
+  "facts": [
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "1748-01-08",
+      "date_raw": "bisat 8. jan. 1748",
+      "date_min": "1748-01-08",
+      "date_max": "1748-01-08",
+      "date_qualifier": "exact",
+      "sted": "Sankt Mortens Kirke, Randers"
+    }
+  ]
+}

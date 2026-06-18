@@ -1,0 +1,55 @@
+{
+  "linje": "II",
+  "nr": 34,
+  "nr_label": "34",
+  "usikker": false,
+  "navn": "Heinrich Christian",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "22. febr. 1734",
+      "date_raw": "* 22. febr. 1734",
+      "date_min": "1734-02-22",
+      "date_max": "1734-02-22",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1760, før 25. maj",
+      "date_raw": "† 1760, før 25. maj",
+      "date_min": "1760-01-01",
+      "date_max": "1760-05-25",
+      "date_qualifier": "before",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Kongens Livreg.",
+      "rolle": "fændrik",
+      "dato_raw": "1751 (12. aug.)"
+    },
+    {
+      "organisation": "Kongens Livreg.",
+      "rolle": "karakt. sekondløjtnant",
+      "dato_raw": "1753 (14. febr.)"
+    },
+    {
+      "organisation": "Livgarden til Fods",
+      "rolle": "virkelig sekondløjtnant",
+      "dato_raw": "s.å. (25. april)"
+    },
+    {
+      "organisation": "armeen",
+      "rolle": "karakt. kaptajn",
+      "dato_raw": "1758 (6. dec.)"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

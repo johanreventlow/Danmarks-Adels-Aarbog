@@ -1,0 +1,38 @@
+{
+  "linje": "I",
+  "nr": 12,
+  "nr_label": "12",
+  "usikker": false,
+  "navn": "Doso",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "1347 (30. juni)",
+      "date_min": "1347-06-30",
+      "date_max": "1347-06-30",
+      "date_qualifier": "exact",
+      "sted": "Tielenburg i Ditmarsken"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Techelsdorf (halvdelen)",
+      "periode_raw": "-1347",
+      "period_type": "until_event",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "væbner",
+      "dato_raw": "1347 (30. juni)"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

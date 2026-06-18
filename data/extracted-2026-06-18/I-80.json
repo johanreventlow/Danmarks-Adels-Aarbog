@@ -1,0 +1,41 @@
+{
+  "linje": "I",
+  "nr": 80,
+  "nr_label": "80",
+  "usikker": false,
+  "navn": "Cai",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Anna von Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 111",
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Amtmand, Verbitter Christopher von R. til Quarnbek samt Marutendorf og Margaretha von Sested",
+      "note": "Bisat i Neustadt Kirke."
+    }
+  ],
+  "boern": {
+    "antal": 2,
+    "slaegtled": "Ellevte slægtled",
+    "linje": "III",
+    "nr_range": [
+      92,
+      93
+    ]
+  },
+  "begivenheder": []
+}

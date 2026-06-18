@@ -1,0 +1,62 @@
+{
+  "linje": "V",
+  "nr": 149,
+  "nr_label": "149",
+  "usikker": false,
+  "navn": "Greve Frederik Detlef Carl",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1893-05-05",
+      "date_raw": "5. maj 1893",
+      "date_min": "1893-05-05",
+      "date_max": "1893-05-05",
+      "date_qualifier": "exact",
+      "sted": "Rudbjerggaard"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1893-07-30",
+      "date_raw": "døbt 30. juli s.å. i Tillitse Kirke",
+      "date_min": "1893-07-30",
+      "date_max": "1893-07-30",
+      "date_qualifier": "exact",
+      "sted": "Tillitse Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1973-03-27",
+      "date_raw": "27. marts 1973",
+      "date_min": "1973-03-27",
+      "date_max": "1973-03-27",
+      "date_qualifier": "exact",
+      "sted": "Vindeholme"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Ada Jessie Howard Grøn",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "gift i første ægteskab med Ada Jessie Howard Grøn",
+      "date_min": "1915-04-27",
+      "date_max": "1915-04-27",
+      "sted": "Frederiks Kirke, København",
+      "skilt": false,
+      "partner_foedsel": "* 24. aug. 1891 i Gentofte",
+      "partner_daab": "døbt 20. okt. s.å. i Sankt Pauls Kirke i København",
+      "partner_doed": {
+        "date_raw": "† 12. nov. 1983 i Ordrup",
+        "date_min": "1983-11-12",
+        "date_max": "1983-11-12",
+        "sted": "Ordrup"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kammerherre, stiftamtmand, cand.jur. Harry Rowland Howard Grøn og Ida Lucinde Henriette Hansen",
+      "note": null
+    }
+  ]
+}

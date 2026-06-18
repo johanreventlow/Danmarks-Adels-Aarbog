@@ -1,0 +1,101 @@
+{
+  "linje": "V",
+  "nr": 84,
+  "nr_label": "84",
+  "usikker": false,
+  "navn": "Benedicte Christiane",
+  "tilnavn": "Benny",
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "17. jan. 1834",
+      "date_min": "1834-01-17",
+      "date_max": "1834-01-17",
+      "date_qualifier": "exact",
+      "sted": "Aalstrup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "7. juni s.å.",
+      "date_min": "1834-06-07",
+      "date_max": "1834-06-07",
+      "date_qualifier": "exact",
+      "sted": "Landet Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "17. jan. 1893",
+      "date_min": "1893-01-17",
+      "date_max": "1893-01-17",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "bisat fra Vesterborg Kirke, begravet i Theophili Skov",
+      "date_raw": "bisat 24. marts s.å.",
+      "date_min": "1893-03-24",
+      "date_max": "1893-03-24",
+      "date_qualifier": "exact",
+      "sted": "Vesterborg Kirke"
+    },
+    {
+      "faktatype": "klosterindgang",
+      "vaerdi": "Konventualinde i Preetz Adelige Kloster",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Preetz Adelige Kloster"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Carl Otto Ferdinand greve af Reventlow",
+      "partner_ekstern_ref": "se nr. 69",
+      "type": "vielse",
+      "dato_raw": "Gift 14. okt. 1857 i Vesterborg Kirke",
+      "date_min": "1857-10-14",
+      "date_max": "1857-10-14",
+      "sted": "Vesterborg Kirke",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "20. april 1803",
+        "date_min": "1803-04-20",
+        "date_max": "1803-04-20",
+        "sted": "Frihedsminde"
+      },
+      "partner_daab": {
+        "date_raw": "døbt 28. maj s.å.",
+        "date_min": "1803-05-28",
+        "date_max": "1803-05-28",
+        "sted": "Skørringe Kirke"
+      },
+      "partner_doed": {
+        "date_raw": "11. sept. 1875",
+        "date_min": "1875-09-11",
+        "date_max": "1875-09-11",
+        "sted": "Brahetrolleborg"
+      },
+      "partner_erhverv": [
+        "gehejmekonferensråd"
+      ],
+      "partner_foraeldre": "(F.: Kammerherre Christian Detlef greve af R. til grevskaberne Christianssæde samt Reventlow og Margarete Benedicte von Qualen)",
+      "note": "Til grevskaberne Reventlow og Christianssæde samt baroniet Brahetrolleborg. Bisat 18. s.m. fra Brahetrolleborg Kirke og begravet 19. s.m. i Theophili Skov (Vesterborg Sogns kirkebog)."
+    }
+  ]
+}

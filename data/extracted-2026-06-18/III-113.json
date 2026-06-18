@@ -1,0 +1,90 @@
+{
+  "linje": "III",
+  "nr": 113,
+  "nr_label": "113",
+  "usikker": false,
+  "navn": "Hinrich",
+  "tilnavn": "til Dörphof",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1807-04-07",
+      "date_raw": "† 7. april 1807",
+      "date_min": "1807-04-07",
+      "date_max": "1807-04-07",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Dörphof",
+      "periode_raw": "(-1771)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1743 (10. aug.)"
+    },
+    {
+      "organisation": "Halle",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1745 (24. marts)"
+    },
+    {
+      "organisation": "Slesvig og Holsten",
+      "rolle": "virkelig landråd",
+      "dato_raw": "1755 (10. marts)-"
+    },
+    {
+      "organisation": "kammerherre",
+      "rolle": "kammerherre",
+      "dato_raw": "1760 (8. sept.)"
+    },
+    {
+      "organisation": "hvid ridder",
+      "rolle": "ridder",
+      "dato_raw": "1773 (16. nov.)"
+    },
+    {
+      "organisation": "gehejmeråd",
+      "rolle": "gehejmeråd",
+      "dato_raw": "1783-†"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Agatha Hedwig Blome",
+      "partner_ekstern_ref": "DAA 1935, II, 34",
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 9. okt. 1732 på Borghorst",
+      "partner_daab": null,
+      "partner_doed": "† 19. maj 1812",
+      "partner_erhverv": [],
+      "partner_foraeldre": "Wulf B. til Hagen, Doberstorf samt Borghorst og Sophia von Brockdorff",
+      "note": "Begravet på Sankt Jürgens Kirkegård, Kiel."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "14. febr. 1724",
+      "date_min": "1724-02-14",
+      "date_max": "1724-02-14",
+      "sted": null,
+      "note": null
+    }
+  ]
+}

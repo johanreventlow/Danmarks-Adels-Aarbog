@@ -1,0 +1,50 @@
+{
+  "linje": "I",
+  "nr": 92,
+  "nr_label": "92",
+  "usikker": false,
+  "navn": "Siwert",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1635/1642",
+      "date_raw": "† 1635/1642",
+      "date_min": "1635-01-01",
+      "date_max": "1642-12-31",
+      "date_qualifier": "between",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Bankendorf",
+      "periode_raw": "(efter 1618-1642-)",
+      "period_type": "tenure",
+      "sted": "Oldenburg S., Ostholstein Kr."
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Anna von der Wisch",
+      "partner_ekstern_ref": "DAA 1931, II, 90",
+      "type": "vielse",
+      "dato_raw": "Gift efter 1618",
+      "date_min": "1618-01-01",
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Otto von der W. til Ehlerstorf og (Elisabeth von Blanckenheim?)",
+      "note": "Boede 1642 som enke i Neustadt."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

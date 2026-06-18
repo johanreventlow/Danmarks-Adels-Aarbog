@@ -1,0 +1,40 @@
+{
+  "linje": "IV",
+  "nr": 34,
+  "nr_label": "34",
+  "usikker": false,
+  "navn": "Komtesse Adeline Anna Friederike",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1927-07-18",
+      "date_raw": "† 18. juli 1927 i Preetz Adelige Kloster",
+      "date_min": "1927-07-18",
+      "date_max": "1927-07-18",
+      "date_qualifier": "exact",
+      "sted": "Preetz Adelige Kloster"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "15. febr. 1839",
+      "date_min": "1839-02-15",
+      "date_max": "1839-02-15",
+      "sted": "Slesvig By",
+      "note": "Kunstmaler; opholdt sig 1851-1862 i Kiel, 1862-1864 i Dresden, 1870'erne-1884 i Düsseldorf."
+    }
+  ]
+}

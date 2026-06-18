@@ -1,0 +1,20 @@
+{
+  "linje": "V",
+  "nr": 165,
+  "nr_label": "165",
+  "usikker": false,
+  "navn": "Komtesse Adriane Helene Agnes Katharina Christine",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1939-10-14",
+      "date_raw": "14. okt. 1939",
+      "date_min": "1939-10-14",
+      "date_max": "1939-10-14",
+      "date_qualifier": "exact",
+      "sted": "Damp"
+    }
+  ]
+}

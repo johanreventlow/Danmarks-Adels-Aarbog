@@ -1,0 +1,40 @@
+{
+  "linje": "IV",
+  "nr": 15,
+  "nr_label": "15",
+  "usikker": false,
+  "navn": "Komtesse Carolina Adelheid Tugendrech",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1839-12-03",
+      "date_raw": "† 3. dec. 1839",
+      "date_min": "1839-12-03",
+      "date_max": "1839-12-03",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Itzehoe Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "13. marts 1795",
+      "date_min": "1795-03-13",
+      "date_max": "1795-03-13",
+      "sted": "Slesvig By",
+      "note": "Døbt 29. s.m. i Slesvig Domkirke."
+    }
+  ]
+}

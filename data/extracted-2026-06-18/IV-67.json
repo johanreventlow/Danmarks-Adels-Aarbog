@@ -1,0 +1,90 @@
+{
+  "linje": "IV",
+  "nr": 67,
+  "nr_label": "67",
+  "usikker": false,
+  "navn": "Greve Detlev Christian",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1950-03-18",
+      "date_raw": "† 18. marts 1950 på Pronstorf",
+      "date_min": "1950-03-18",
+      "date_max": "1950-03-18",
+      "date_qualifier": "exact",
+      "sted": "Pronstorf"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Landeværnskavaleriet",
+      "rolle": "landråd og ritmester",
+      "dato_raw": "preussisk"
+    },
+    {
+      "organisation": "det preussiske Herrehus",
+      "rolle": "m.a.",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Jenny von Dechend",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 1° 14. maj 1912",
+      "date_min": "1912-05-14",
+      "date_max": "1912-05-14",
+      "sted": "Neu-Babelsberg ved Potsdam",
+      "skilt": true,
+      "partner_foedsel": "* 25. jan. 1893 i Berlin",
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Preussisk gehejmeregeringsråd, Dr.phil. Friedrich von D. og Ida Marck",
+      "note": "Skilt 1928."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Edith Engel",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 2° 23. nov. 1928",
+      "date_min": "1928-11-23",
+      "date_max": "1928-11-23",
+      "sted": "Potsdam",
+      "skilt": false,
+      "partner_foedsel": "* 24. febr. 1894 i Potsdam",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 27. juni 1988",
+        "date_min": "1988-06-27",
+        "date_max": "1988-06-27",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Professor Walter E. og Bertha Reichenbach",
+      "note": null
+    }
+  ],
+  "boern": {
+    "antal": 4,
+    "slaegtled": "Sjette (nittende) slægtled",
+    "linje": "III, nr. 82-85",
+    "nr_range": null
+  },
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "23. okt. 1876",
+      "date_min": "1876-10-23",
+      "date_max": "1876-10-23",
+      "sted": "Wittenberg",
+      "note": null
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "linje": "V",
+  "nr": 72,
+  "nr_label": "72",
+  "usikker": false,
+  "navn": "Ludvig Christian Ditlev Fredrik Leopold Ernst",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 16. juni 1808 på Pederstrup",
+      "date_min": "1808-06-16",
+      "date_max": "1808-06-16",
+      "date_qualifier": "exact",
+      "sted": "Pederstrup"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "hjemmedøbt",
+      "date_raw": "hjemmedøbt 9. sept. s.å.",
+      "date_min": "1808-09-09",
+      "date_max": "1808-09-09",
+      "date_qualifier": "exact",
+      "sted": "Pederstrup"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 5. nov. 1835 på Pederstrup",
+      "date_min": "1835-11-05",
+      "date_max": "1835-11-05",
+      "date_qualifier": "exact",
+      "sted": "Pederstrup"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "bisat fra Vesterborg Kirke og begravet i Theophili Skov",
+      "date_raw": "bisat 11. s.m.",
+      "date_min": "1835-11-11",
+      "date_max": "1835-11-11",
+      "date_qualifier": "exact",
+      "sted": "Theophili Skov"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "den hannoveranske Hestgarde",
+      "rolle": "løjtnant",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Katharina Gertrud Adelheid von der Decken",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 26. juli 1835 i Verden a.d. Aller",
+      "date_min": "1835-07-26",
+      "date_max": "1835-07-26",
+      "sted": "Verden a.d. Aller",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 30. nov. 1816 i Verden a.d. Aller",
+        "date_min": "1816-11-30",
+        "date_max": "1816-11-30",
+        "sted": "Verden a.d. Aller"
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 18. sept. 1895 s.st.",
+        "date_min": "1895-09-18",
+        "date_max": "1895-09-18",
+        "sted": "Verden a.d. Aller"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Hannoveransk generalløjtnant Weiphart Ludolf Hieronymus von der D. og Margarethe Adelheid Johanna von der Wisch",
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

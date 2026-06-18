@@ -1,0 +1,168 @@
+{
+  "linje": "IV",
+  "nr": 17,
+  "nr_label": "17",
+  "usikker": false,
+  "navn": "Greve Friedrich",
+  "tilnavn": "til Wittenberg, Raubart, Starzeddel og Vettersfelde",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1878-04-24",
+      "date_raw": "† 24. april 1878 på Starzeddel",
+      "date_min": "1878-04-24",
+      "date_max": "1878-04-24",
+      "date_qualifier": "exact",
+      "sted": "Starzeddel"
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Wittenberg",
+      "periode_raw": "(1842-1851)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Raubart",
+      "periode_raw": "(1853-1875)",
+      "period_type": "tenure",
+      "sted": "Lausitz"
+    },
+    {
+      "navn": "Starzeddel",
+      "periode_raw": "(1853-1875)",
+      "period_type": "tenure",
+      "sted": "Lausitz"
+    },
+    {
+      "navn": "Vettersfelde",
+      "periode_raw": "(1853-1875)",
+      "period_type": "tenure",
+      "sted": "Lausitz"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Katharineum i Lübeck",
+      "rolle": "undervist",
+      "dato_raw": "1814-1816"
+    },
+    {
+      "organisation": "Göttingen",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1816 (31. okt.)-1817"
+    },
+    {
+      "organisation": "Jena",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1818 (9. april)"
+    },
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1818 (31. okt.)-1820"
+    },
+    {
+      "organisation": "Gottorp Overret",
+      "rolle": "cand.jur.",
+      "dato_raw": "1820"
+    },
+    {
+      "organisation": "holsten-lauenburgske Overret",
+      "rolle": "auskultant",
+      "dato_raw": "1821-1825"
+    },
+    {
+      "organisation": "Landretten",
+      "rolle": "landråd",
+      "dato_raw": "1825-1827"
+    },
+    {
+      "organisation": "Overretten",
+      "rolle": "overretsråd",
+      "dato_raw": "1827-1834"
+    },
+    {
+      "organisation": "Overappellationsretten i Kiel",
+      "rolle": "overappellationsråd",
+      "dato_raw": "1834-1836"
+    },
+    {
+      "organisation": "kammerherre",
+      "rolle": "kammerherre",
+      "dato_raw": "1834 (3. juli)"
+    },
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "klosterprovst",
+      "dato_raw": "1836-1852"
+    },
+    {
+      "organisation": "Den holstenske Stænderforsamling i Itzehoe",
+      "rolle": "ridderskabsvalgt medlem",
+      "dato_raw": "1836-"
+    },
+    {
+      "organisation": "provisoriske regering",
+      "rolle": "præsident for og m.a.",
+      "dato_raw": "1848 (24. marts-22. okt.)"
+    },
+    {
+      "organisation": "statholderskabet over hertugdømmerne Slesvig, Holsten og Lauenburg",
+      "rolle": "m.a.",
+      "dato_raw": "1849 (26. marts)-1851 (1. febr.)"
+    },
+    {
+      "organisation": "preussiske Herrehus",
+      "rolle": "livsvarigt m.a.",
+      "dato_raw": "1861-†"
+    },
+    {
+      "organisation": "Kiel Universitet",
+      "rolle": "dr.jur.h.c.",
+      "dato_raw": "1865"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Marie Louise Henriette Wilhelmine rigsfriherreinde Löw von und zu Steinfurth",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 16. juni 1831",
+      "date_min": "1831-06-16",
+      "date_max": "1831-06-16",
+      "sted": "Staden ved Frankfurt a. M.",
+      "skilt": false,
+      "partner_foedsel": "* 14. febr. 1807 i Regensburg",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 27. maj 1864 på Starzeddel",
+        "date_min": "1864-05-27",
+        "date_max": "1864-05-27",
+        "sted": "Starzeddel"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Storbritannisk braunschweig-lüneburgsk oberst, kammerherre hos hertugen af York, Georg Carl Hermann Wilhelm rigsfriherre Löw von und zu S. og Louisa von Diede zum Fürstenstein",
+      "note": "6 børn."
+    }
+  ],
+  "boern": {
+    "antal": 6,
+    "slaegtled": "Fjerde (syttende) slægtled",
+    "linje": "III, nr. 35-40",
+    "nr_range": null
+  },
+  "begivenheder": [
+    {
+      "type": "mindesmærke",
+      "dato_raw": "1891",
+      "date_min": "1891-01-01",
+      "date_max": "1891-12-31",
+      "sted": "Slesvig By",
+      "note": "Mindesmærke for ham og W. Beseler rejstes."
+    }
+  ]
+}

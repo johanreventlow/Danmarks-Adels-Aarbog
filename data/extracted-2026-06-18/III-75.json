@@ -1,0 +1,31 @@
+{
+  "linje": "III",
+  "nr": 75,
+  "nr_label": "75",
+  "usikker": false,
+  "navn": "Henning",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "ung",
+      "date_raw": "† ung",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "pfalzisk",
+      "rolle": "kammerjunker",
+      "dato_raw": "Kurfyrstelig pfalzisk"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

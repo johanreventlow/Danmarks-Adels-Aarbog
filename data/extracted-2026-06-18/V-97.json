@@ -1,0 +1,91 @@
+{
+  "linje": "V",
+  "nr": 97,
+  "nr_label": "97",
+  "usikker": false,
+  "navn": "Elisabeth Jutta Frederikke",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 25. febr. 1847 i London",
+      "date_min": "1847-02-25",
+      "date_max": "1847-02-25",
+      "date_qualifier": "exact",
+      "sted": "London"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 17. sept. 1899 i Ordrup",
+      "date_min": "1899-09-17",
+      "date_max": "1899-09-17",
+      "date_qualifier": "exact",
+      "sted": "Ordrup"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "jordpåkastelse 23. s.m. og begravet i Helsingør (Helsingør Domsogns kirkebog)",
+      "date_min": "1899-09-23",
+      "date_max": "1899-09-23",
+      "date_qualifier": "exact",
+      "sted": "Helsingør"
+    },
+    {
+      "faktatype": "klosterindgang",
+      "vaerdi": "Preetz Adelige Kloster",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Oscar Alexander Viggo Tegner",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 23. maj 1879 i Garnisons Kirke, København",
+      "date_min": "1879-05-23",
+      "date_max": "1879-05-23",
+      "sted": "Garnisons Kirke, København",
+      "skilt": true,
+      "partner_foedsel": {
+        "date_raw": "* 12. maj 1842 på Paulinelyst i Tikøb",
+        "date_min": "1842-05-12",
+        "date_max": "1842-05-12",
+        "sted": "Paulinelyst i Tikøb"
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 17. maj 1893 i New York, USA",
+        "date_min": "1893-05-17",
+        "date_max": "1893-05-17",
+        "sted": "New York, USA"
+      },
+      "partner_erhverv": [
+        "grosserer"
+      ],
+      "partner_foraeldre": "Kommandørkaptajn Peter Wilhelm T. til Borupgaard og Johanne Cathrine Cecilia Christophersen",
+      "note": "separeret 20. marts 1885 og skilt 6. juli 1888"
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

@@ -1,0 +1,133 @@
+{
+  "linje": "V",
+  "nr": 79,
+  "nr_label": "79",
+  "usikker": false,
+  "navn": "Ludewig Christian Dethlew Friderich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 6. jan. 1824 på Sandbjerg",
+      "date_min": "1824-01-06",
+      "date_max": "1824-01-06",
+      "date_qualifier": "exact",
+      "sted": "Sandbjerg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "døbt 28. febr. s.å. i Dybbøl Kirke",
+      "date_min": "1824-02-28",
+      "date_max": "1824-02-28",
+      "date_qualifier": "exact",
+      "sted": "Dybbøl Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 14. juni 1893 i Lübeck",
+      "date_min": "1893-06-14",
+      "date_max": "1893-06-14",
+      "date_qualifier": "exact",
+      "sted": "Lübeck"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 18. s.m. i Dybbøl Kirke",
+      "date_min": "1893-06-18",
+      "date_max": "1893-06-18",
+      "date_qualifier": "exact",
+      "sted": "Dybbøl Kirke"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "4. Schleswig-holsteinische Jägercorps",
+      "rolle": "løjtnant",
+      "dato_raw": null
+    },
+    {
+      "organisation": null,
+      "rolle": "kancelliauditør",
+      "dato_raw": "1855-1856"
+    },
+    {
+      "organisation": null,
+      "rolle": "amtmand",
+      "dato_raw": "-1865"
+    },
+    {
+      "organisation": null,
+      "rolle": "amtmand",
+      "dato_raw": "1865-1889 (21. marts)"
+    },
+    {
+      "organisation": null,
+      "rolle": "overstaller",
+      "dato_raw": "1866-1868"
+    },
+    {
+      "organisation": "Husum Kreis",
+      "rolle": "landråd",
+      "dato_raw": "1868 (1. april)-1869"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Emilie Julia Anna Louise rigsgrevinde zu Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 90",
+      "type": "vielse",
+      "dato_raw": "Gift 20. juni 1860 i Reinbek",
+      "date_min": "1860-06-20",
+      "date_max": "1860-06-20",
+      "sted": "Reinbek",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 19. april 1834 i Sønderborg",
+        "date_min": "1834-04-19",
+        "date_max": "1834-04-19",
+        "sted": "Sønderborg"
+      },
+      "partner_daab": {
+        "date_raw": "døbt 2. juni s.å. i Sønderborg Kirke",
+        "date_min": "1834-06-02",
+        "date_max": "1834-06-02",
+        "sted": "Sønderborg Kirke"
+      },
+      "partner_doed": {
+        "date_raw": "† 19. nov. 1905 i Preetz",
+        "date_min": "1905-11-19",
+        "date_max": "1905-11-19",
+        "sted": "Preetz"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Dansk amtmand, landråd og kammerherre, cand.jur. Ernst rigsgreve zu R. og Agnes Louise Ferdinandine rigsgrevinde zu Rantzau",
+      "note": null
+    }
+  ],
+  "boern": {
+    "antal": 6,
+    "slaegtled": "Syvende (attende)",
+    "linje": "V",
+    "nr_range": [
+      119,
+      124
+    ]
+  },
+  "begivenheder": []
+}

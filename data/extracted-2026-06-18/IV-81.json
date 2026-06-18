@@ -1,0 +1,61 @@
+{
+  "linje": "IV",
+  "nr": 81,
+  "nr_label": "81",
+  "usikker": false,
+  "navn": "Lensgreve Friedrich",
+  "tilnavn": "til Farve og Wittenberg",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "2002-07-13",
+      "date_raw": "† 13. juli 2002",
+      "date_min": "2002-07-13",
+      "date_max": "2002-07-13",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Farve",
+      "periode_raw": "(1924-1926)",
+      "period_type": "tenure",
+      "sted": null
+    },
+    {
+      "navn": "Wittenberg",
+      "periode_raw": "(1939-†)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Friederike (Erika) von Donner",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 27. marts 1943",
+      "date_min": "1943-03-27",
+      "date_max": "1943-03-27",
+      "sted": "Lehmkuhlen",
+      "skilt": false,
+      "partner_foedsel": "* 30. sept. 1911 på Lehmkuhlen",
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Preussisk ritmester Conrad Heinrich friherre von D. til Lehmkuhlen samt Bredeneck og Agnes von Bülow",
+      "note": "begravet på det Reventlowske gravsted på Selent Kirkegård."
+    }
+  ],
+  "boern": {
+    "antal": 4,
+    "slaegtled": "Sjette (nittende) slægtled",
+    "linje": "I, nr. 73-76",
+    "nr_range": null
+  },
+  "begivenheder": []
+}

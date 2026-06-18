@@ -1,0 +1,34 @@
+{
+  "linje": "I",
+  "nr": 68,
+  "nr_label": "68",
+  "usikker": false,
+  "navn": "Gabriel",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "5. nov. 1523",
+      "date_raw": "* 5. nov. 1523",
+      "date_min": "1523-11-05",
+      "date_max": "1523-11-05",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "ung",
+      "date_raw": "† ung",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

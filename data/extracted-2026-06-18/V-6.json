@@ -1,0 +1,25 @@
+{
+  "linje": "V",
+  "nr": 6,
+  "nr_label": "6",
+  "usikker": false,
+  "navn": "Friherre Friderich",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "lille",
+      "date_raw": "† lille",
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

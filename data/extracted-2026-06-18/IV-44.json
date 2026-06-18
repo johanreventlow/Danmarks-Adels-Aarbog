@@ -1,0 +1,66 @@
+{
+  "linje": "IV",
+  "nr": 44,
+  "nr_label": "44",
+  "usikker": false,
+  "navn": "Komtesse Bertha Ida Louise Camilla",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1869-08-16",
+      "date_raw": "† 16. aug. 1869 på Ruhleben",
+      "date_min": "1869-08-16",
+      "date_max": "1869-08-16",
+      "date_qualifier": "exact",
+      "sted": "Ruhleben"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "indskrevet",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Alfred Franz Carl greve von Reventlow-Criminil",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 4. sept. 1860",
+      "date_min": "1860-09-04",
+      "date_max": "1860-09-04",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 11. sept. 1825 på Schwarzenbeck",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 22. okt. 1898 på Ruhleben",
+        "date_min": "1898-10-22",
+        "date_max": "1898-10-22",
+        "sted": "Ruhleben"
+      },
+      "partner_erhverv": [
+        "kammerherre",
+        "legationssekretær"
+      ],
+      "partner_foraeldre": "Dansk udenrigsminister Heinrich Anna greve von R.-C., født Le Merchier greve de Criminil og Louise Sophie Jeanette rigsgrevinde zu Rantzau",
+      "note": "Gift 3° med Marie Louise Christiane komtesse af Reventlou."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "2. okt. 1835",
+      "date_min": "1835-10-02",
+      "date_max": "1835-10-02",
+      "sted": "Farve",
+      "note": null
+    }
+  ]
+}

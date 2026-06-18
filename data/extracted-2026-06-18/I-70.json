@@ -1,0 +1,56 @@
+{
+  "linje": "I",
+  "nr": 70,
+  "nr_label": "70",
+  "usikker": false,
+  "navn": "Dorothea",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "13. juni 1527",
+      "date_raw": "* 13. juni 1527",
+      "date_min": "1527-06-13",
+      "date_max": "1527-06-13",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Ove von Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 105",
+      "type": "vielse",
+      "dato_raw": "Gift ca. 1560",
+      "date_min": "1560-01-01",
+      "date_max": "1560-12-31",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "* 1512",
+        "date_min": "1512-01-01",
+        "date_max": "1512-12-31",
+        "sted": null
+      },
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1567, kort før 13. april",
+        "date_min": "1567-04-01",
+        "date_max": "1567-04-13",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "gottorpsk råd",
+        "amtmand"
+      ],
+      "partner_foraeldre": "Nicolaus von R. til Rastorf og Catharina NN",
+      "note": "Opkaldt efter Dorothea von Heesten, Hinrich von Ahlefeldts mor."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

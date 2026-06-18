@@ -1,0 +1,89 @@
+{
+  "linje": "IV",
+  "nr": 25,
+  "nr_label": "25",
+  "usikker": false,
+  "navn": "Greve Christian Andreas Julius",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1845-03-27",
+      "date_raw": "† 27. marts 1845 i Bordesholm",
+      "date_min": "1845-03-27",
+      "date_max": "1845-03-27",
+      "date_qualifier": "exact",
+      "sted": "Bordesholm"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1826 (16. april)"
+    },
+    {
+      "organisation": "Göttingen",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1827 (1. juni)"
+    },
+    {
+      "organisation": "Gottorp",
+      "rolle": "cand.jur.",
+      "dato_raw": "1830"
+    },
+    {
+      "organisation": "landråd",
+      "rolle": "landråd",
+      "dato_raw": "1834-"
+    },
+    {
+      "organisation": "Hütten Amt",
+      "rolle": "amtmand",
+      "dato_raw": "1835 (13. maj)-1841 (9. juli)"
+    },
+    {
+      "organisation": "Bordesholm, Kiel og Kronshagen Amter",
+      "rolle": "amtmand",
+      "dato_raw": "1841 (14. juli)-†"
+    },
+    {
+      "organisation": "kammerherre",
+      "rolle": "kammerherre",
+      "dato_raw": "1843 (18. sept.)"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Georgine Marie Adelaide baronesse von Löwenstern",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 22. aug. 1837",
+      "date_min": "1837-08-22",
+      "date_max": "1837-08-22",
+      "sted": "Sølyst i Klampenborg",
+      "skilt": false,
+      "partner_foedsel": "* 21. jan. 1819 i Dresden",
+      "partner_daab": "døbt 2. febr. 1820",
+      "partner_doed": {
+        "date_raw": "† 16. april 1893 i Bordesholm",
+        "date_min": "1893-04-16",
+        "date_max": "1893-04-16",
+        "sted": "Bordesholm"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Russisk oberstløjtnant, dansk generalmajor George Heinrich baron von L. og Adelaide Tugendreich Laura komtesse Schimmelmann",
+      "note": "6 børn."
+    }
+  ],
+  "boern": {
+    "antal": 6,
+    "slaegtled": "Fjerde (syttende) slægtled",
+    "linje": "VI, nr. 49-54",
+    "nr_range": null
+  },
+  "begivenheder": []
+}

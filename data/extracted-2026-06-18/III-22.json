@@ -1,0 +1,34 @@
+{
+  "linje": "III",
+  "nr": 22,
+  "nr_label": "22",
+  "usikker": false,
+  "navn": "Detlef",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1547-05-23",
+      "date_raw": "Faldt 23. maj 1547 i slaget ved Drakenburg",
+      "date_min": "1547-05-23",
+      "date_max": "1547-05-23",
+      "date_qualifier": "exact",
+      "sted": "Drakenburg"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "fald",
+      "dato_raw": "23. maj 1547",
+      "date_min": "1547-05-23",
+      "date_max": "1547-05-23",
+      "sted": "Drakenburg",
+      "note": "Faldt i slaget ved Drakenburg."
+    }
+  ]
+}

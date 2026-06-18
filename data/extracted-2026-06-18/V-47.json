@@ -1,0 +1,29 @@
+{
+  "linje": "V",
+  "nr": 47,
+  "nr_label": "47",
+  "usikker": false,
+  "navn": "Greve Christian Detlef",
+  "tilnavn": "til grevskaberne Christianssæde og Reventlow",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1775-04-28",
+      "date_raw": "28. april 1775",
+      "date_min": "1775-04-28",
+      "date_max": "1775-04-28",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1851-01-30",
+      "date_raw": "30. jan. 1851",
+      "date_min": "1851-01-30",
+      "date_max": "1851-01-30",
+      "date_qualifier": "exact",
+      "sted": "Pederstrup"
+    }
+  ]
+}

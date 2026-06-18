@@ -1,0 +1,40 @@
+{
+  "linje": "I",
+  "nr": 99,
+  "nr_label": "99",
+  "usikker": false,
+  "navn": "Anna Margaretha",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1635",
+      "date_raw": "* 1635",
+      "date_min": "1635-01-01",
+      "date_max": "1635-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1676",
+      "date_raw": "† 1676",
+      "date_min": "1676-01-01",
+      "date_max": "1676-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

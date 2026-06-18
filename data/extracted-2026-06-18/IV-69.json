@@ -1,0 +1,60 @@
+{
+  "linje": "IV",
+  "nr": 69,
+  "nr_label": "69",
+  "usikker": false,
+  "navn": "Komtesse Bertha Christiane Caroline Luise",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1948-12-31",
+      "date_raw": "† 31. dec. 1948 i Hamburg-Blankenese",
+      "date_min": "1948-12-31",
+      "date_max": "1948-12-31",
+      "date_qualifier": "exact",
+      "sted": "Hamburg-Blankenese"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Dänischenhagen Kirke",
+      "rolle": "døbt",
+      "dato_raw": "19. s.m."
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Fritz Carl Gustav von Korff",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 30. okt. 1893",
+      "date_min": "1893-10-30",
+      "date_max": "1893-10-30",
+      "sted": "Kaltenhof",
+      "skilt": false,
+      "partner_foedsel": "* 7. okt. 1864 i Lingen",
+      "partner_daab": "døbt 23. s.m.",
+      "partner_doed": null,
+      "partner_erhverv": [
+        "preussisk amtsretsråd"
+      ],
+      "partner_foraeldre": "Preussisk gehejmeregeringsråd og landråd Friedrich Carl August von K. og Anna Sophie Luise Sievers",
+      "note": "† ..."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "12. febr. 1871",
+      "date_min": "1871-02-12",
+      "date_max": "1871-02-12",
+      "sted": "Kaltenhof",
+      "note": null
+    }
+  ]
+}

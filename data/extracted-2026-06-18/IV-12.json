@@ -1,0 +1,96 @@
+{
+  "linje": "IV",
+  "nr": 12,
+  "nr_label": "12",
+  "usikker": false,
+  "navn": "Greve Gottfried",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1870-04-26",
+      "date_raw": "† 26. april 1870 i Ratzeburg",
+      "date_min": "1870-04-26",
+      "date_max": "1870-04-26",
+      "date_qualifier": "exact",
+      "sted": "Ratzeburg"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1818 (18. april)"
+    },
+    {
+      "organisation": "Heidelberg",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1818 (29. okt.)"
+    },
+    {
+      "organisation": "Göttingen",
+      "rolle": "immatrikuleret",
+      "dato_raw": "1820"
+    },
+    {
+      "organisation": "Glückstadt",
+      "rolle": "cand.jur.",
+      "dato_raw": "1822"
+    },
+    {
+      "organisation": "Ratzeburg",
+      "rolle": "supplerende amtsskriver",
+      "dato_raw": "1825 (7. juni)-1829"
+    },
+    {
+      "organisation": "Sankt Petersborg",
+      "rolle": "ansat ved gesandtskabet",
+      "dato_raw": "1828-1834"
+    },
+    {
+      "organisation": "Ratzeburg",
+      "rolle": "2. embedsmand ved amtet",
+      "dato_raw": "1829 (8. juli-30. sept.)"
+    },
+    {
+      "organisation": "Cismar",
+      "rolle": "prædikat som amtmand",
+      "dato_raw": "1829 (30. sept.)-1838"
+    },
+    {
+      "organisation": "Ratzeburg",
+      "rolle": "2. råd ved den lauenburgske regering",
+      "dato_raw": "1833 (19. marts)-"
+    },
+    {
+      "organisation": "Hofretten i Ratzeburg",
+      "rolle": "2. assessor",
+      "dato_raw": "1833 (19. marts)-"
+    },
+    {
+      "organisation": "kammerherre",
+      "rolle": "kammerherre",
+      "dato_raw": "1840 (28. juni)"
+    },
+    {
+      "organisation": "Det Adelige Kloster Sankt Johannis ved Slesvig",
+      "rolle": "klosterprovst",
+      "dato_raw": "1840-s.å.-1847"
+    },
+    {
+      "organisation": "Ratzeburg",
+      "rolle": "hofretsdommer",
+      "dato_raw": "1851 (8. juli)"
+    },
+    {
+      "organisation": "Ratzeburg",
+      "rolle": "hofretspræsident",
+      "dato_raw": "1851 (9. juli)-1869"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

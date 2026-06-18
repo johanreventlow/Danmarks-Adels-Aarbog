@@ -1,0 +1,62 @@
+{
+  "linje": "V",
+  "nr": 54,
+  "nr_label": "54",
+  "usikker": false,
+  "navn": "Greve Conrad Detlef Cay",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1785-06-01",
+      "date_raw": "1. juni 1785",
+      "date_min": "1785-06-01",
+      "date_max": "1785-06-01",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1785-06-05",
+      "date_raw": "hjemmedøbt 5. s.m. s.st.",
+      "date_min": "1785-06-05",
+      "date_max": "1785-06-05",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1840-05-31",
+      "date_raw": "31. maj 1840",
+      "date_min": "1840-05-31",
+      "date_max": "1840-05-31",
+      "date_qualifier": "exact",
+      "sted": "Frihedsminde"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Hanne Caroline Rosenkilde",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 4. juni 1829",
+      "date_min": "1829-06-04",
+      "date_max": "1829-06-04",
+      "sted": "Garnisons Kirke, København",
+      "skilt": false,
+      "partner_foedsel": "* 14. juni 1806 i København",
+      "partner_daab": "døbt 12. juli s.å. i Garnisons Kirke",
+      "partner_doed": {
+        "date_raw": "† 25. okt. 1884 i København",
+        "date_min": "1884-10-25",
+        "date_max": "1884-10-25",
+        "sted": "København"
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Højesteretsassessor, konferensråd, cand.jur. Hans R. og Anna Frederikke Ernst",
+      "note": null
+    }
+  ]
+}

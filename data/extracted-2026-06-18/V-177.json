@@ -1,0 +1,50 @@
+{
+  "linje": "V",
+  "nr": 177,
+  "nr_label": "177",
+  "usikker": false,
+  "navn": "Komtesse Ida Benedicte",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1955-04-26",
+      "date_raw": "26. april 1955",
+      "date_min": "1955-04-26",
+      "date_max": "1955-04-26",
+      "date_qualifier": "exact",
+      "sted": "Charlottenlund"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1955-06-12",
+      "date_raw": "døbt 12. juni s.å. i Rungsted Kirke",
+      "date_min": "1955-06-12",
+      "date_max": "1955-06-12",
+      "date_qualifier": "exact",
+      "sted": "Rungsted Kirke"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Michael Sørensen",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 11. maj 1985",
+      "date_min": "1985-05-11",
+      "date_max": "1985-05-11",
+      "sted": "Frederiksborg Slotskirke",
+      "skilt": true,
+      "partner_foedsel": "* 20. aug. 1954 i København",
+      "partner_daab": "døbt i Søllerød Kirke",
+      "partner_doed": null,
+      "partner_erhverv": [
+        "ergoterapeut"
+      ],
+      "partner_foraeldre": "Kontorassistent John Allan S. og kontorassistent Tove Tørslev Sørensen",
+      "note": null
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "linje": "V",
+  "nr": 175,
+  "nr_label": "175",
+  "usikker": false,
+  "navn": "Lensgreve Christian Ditlev Ludvig",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1950-05-16",
+      "date_raw": "16. maj 1950",
+      "date_min": "1950-05-16",
+      "date_max": "1950-05-16",
+      "date_qualifier": "exact",
+      "sted": "Køge"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1950-08-27",
+      "date_raw": "døbt 27. aug. s.å. i Tibirke Kirke",
+      "date_min": "1950-08-27",
+      "date_max": "1950-08-27",
+      "date_qualifier": "exact",
+      "sted": "Tibirke Kirke"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Anni Gregersen",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 26. juli 1975",
+      "date_min": "1975-07-26",
+      "date_max": "1975-07-26",
+      "sted": "Støvringgård Klosterkirke",
+      "skilt": false,
+      "partner_foedsel": "* 12. nov. 1951 i Hjallese",
+      "partner_daab": "døbt 16. marts 1952 i Thomas Kingo Kirke, Odense",
+      "partner_doed": {
+        "date_raw": "† 14. okt. 2018 i Svendborg",
+        "date_min": "2018-10-14",
+        "date_max": "2018-10-14",
+        "sted": "Svendborg"
+      },
+      "partner_erhverv": [
+        "familieterapeut",
+        "socialrådgiver"
+      ],
+      "partner_foraeldre": "Vagtmester Hilmer Viggo G. og Gerda Andersen Mørkenborg",
+      "note": null
+    }
+  ]
+}

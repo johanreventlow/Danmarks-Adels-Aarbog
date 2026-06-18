@@ -1,0 +1,29 @@
+{
+  "linje": "V",
+  "nr": 85,
+  "nr_label": "85",
+  "usikker": false,
+  "navn": "Datter",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* og † 10. juli 1835",
+      "date_min": "1835-07-10",
+      "date_max": "1835-07-10",
+      "date_qualifier": "exact",
+      "sted": "Aalstrup"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "* og † 10. juli 1835",
+      "date_min": "1835-07-10",
+      "date_max": "1835-07-10",
+      "date_qualifier": "exact",
+      "sted": "Aalstrup"
+    }
+  ]
+}

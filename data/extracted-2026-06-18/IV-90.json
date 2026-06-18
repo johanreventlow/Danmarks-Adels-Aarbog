@@ -1,0 +1,24 @@
+{
+  "linje": "IV",
+  "nr": 90,
+  "nr_label": "90",
+  "usikker": false,
+  "navn": "Komtesse Kara Anita",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "30. maj 2007",
+      "date_min": "2007-05-30",
+      "date_max": "2007-05-30",
+      "sted": "Summit",
+      "note": null
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "linje": "III",
+  "nr": 19,
+  "nr_label": "19",
+  "usikker": false,
+  "navn": "Ilsabe",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Nicolaus von Lützow",
+      "partner_ekstern_ref": "DAA 1928, II, 69",
+      "type": "vielse",
+      "dato_raw": "Gift med",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [
+        "mecklenburgsk råd",
+        "ridder"
+      ],
+      "partner_foraeldre": "Mecklenburgsk råd og marskal, ridder Nicolaus von L. til Eickhof og Anna von Rantzau",
+      "note": "Til Eickhof."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

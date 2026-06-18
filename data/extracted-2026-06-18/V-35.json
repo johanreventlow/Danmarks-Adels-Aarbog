@@ -1,0 +1,89 @@
+{
+  "linje": "V",
+  "nr": 35,
+  "nr_label": "35",
+  "usikker": false,
+  "navn": "Christiana Carolina",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "22. april 1739",
+      "date_min": "1739-04-22",
+      "date_max": "1739-04-22",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "28. febr. 1762",
+      "date_min": "1762-02-28",
+      "date_max": "1762-02-28",
+      "date_qualifier": "exact",
+      "sted": "København"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "16. marts s.å.",
+      "date_min": "1762-03-16",
+      "date_max": "1762-03-16",
+      "date_qualifier": "exact",
+      "sted": "Det Holsteinske Kapel i Vor Frue Kirke, København"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Christian Holstein",
+      "partner_ekstern_ref": "DAA 1988-90, 752 f.",
+      "type": "vielse",
+      "dato_raw": "20. aug. 1757",
+      "date_min": "1757-08-20",
+      "date_max": "1757-08-20",
+      "sted": "Christiansborg, København",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "10. maj 1735",
+        "date_min": "1735-05-10",
+        "date_max": "1735-05-10",
+        "sted": "København"
+      },
+      "partner_daab": {
+        "date_raw": "11. s.m.",
+        "date_min": "1735-05-11",
+        "date_max": "1735-05-11",
+        "sted": "Hof- og Slotskirken, København"
+      },
+      "partner_doed": {
+        "date_raw": "15. juni 1799",
+        "date_min": "1799-06-15",
+        "date_max": "1799-06-15",
+        "sted": "København"
+      },
+      "partner_erhverv": [
+        "gehejmekonferensråd",
+        "overhofmarskal",
+        "kammerherre"
+      ],
+      "partner_foraeldre": "Oversekretær, hofmarskal, overkammerherre, stiftamtmand, gehejmeråd Johann Ludwig greve H. til grevskabet Ledreborg, Bavelse, Næsbyholm m.fl. og Helvig Vind til Vrejlevkloster, Rønnovsholm og Fuglsig",
+      "note": "Gift 2° 10. marts 1769 i Christiansborg (Hof- og Slotskirkens kirkebog) med overhofmesterinde, dekanesse Charlotta Elisabeth Henriette rigsfriherreinde zu Inn- und Knyphausen, * 23. febr. 1741 i Ostfriesland, † 18. maj 1809 på Vallø, s.m. bisat i Vallø Kirke, indsat 1810 i Gravhøjen på Ledreborg"
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

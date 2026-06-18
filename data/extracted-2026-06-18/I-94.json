@@ -1,0 +1,79 @@
+{
+  "linje": "I",
+  "nr": 94,
+  "nr_label": "94",
+  "usikker": false,
+  "navn": "Mette",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1668",
+      "date_raw": "† 1668",
+      "date_min": "1668-01-01",
+      "date_max": "1668-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [
+    {
+      "navn": "Ehlerstorf",
+      "periode_raw": null,
+      "period_type": null,
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Tönnies von Buchwaldt",
+      "partner_ekstern_ref": "DAA 1913, 153",
+      "type": "vielse",
+      "dato_raw": "Gift 1°",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1628",
+        "date_min": "1628-01-01",
+        "date_max": "1628-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "generalproviantkommissær"
+      ],
+      "partner_foraeldre": "Gottorpsk råd og amtmand Hinrich von B. til Sierhagen, Borstel, Blockshagen, Schierensee m.fl. og Helwig von Rantzau",
+      "note": "Bisat 1629 i Sankt Laurentii Kirke, Itzehoe."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Henning von Pogwisch",
+      "partner_ekstern_ref": "DAA 1931, II, 33",
+      "type": "vielse",
+      "dato_raw": "Gift 2°",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1660",
+        "date_min": "1660-01-01",
+        "date_max": "1660-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Henning von P. til Østergaard, Petersdorf samt Flügge og Katharina von Rantzau",
+      "note": "Bisat 11. april 1661 i Egernførde Kirke."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

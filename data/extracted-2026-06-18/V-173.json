@@ -1,0 +1,48 @@
+{
+  "linje": "V",
+  "nr": 173,
+  "nr_label": "173",
+  "usikker": false,
+  "navn": "Komtesse Alette",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1946-01-17",
+      "date_raw": "17. jan. 1946",
+      "date_min": "1946-01-17",
+      "date_max": "1946-01-17",
+      "date_qualifier": "exact",
+      "sted": "København"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Mads Kjæld Trautner",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 23. juni 1984",
+      "date_min": "1984-06-23",
+      "date_max": "1984-06-23",
+      "sted": "Tibirke Kirke",
+      "skilt": false,
+      "partner_foedsel": "* 22. nov. 1936 i Herning",
+      "partner_daab": "døbt 28. marts 1937 i Flødstrup Kirke",
+      "partner_doed": {
+        "date_raw": "† 5. marts 2014 i Hillerød",
+        "date_min": "2014-03-05",
+        "date_max": "2014-03-05",
+        "sted": "Hillerød"
+      },
+      "partner_erhverv": [
+        "speciallæge",
+        "lektor",
+        "cand.med."
+      ],
+      "partner_foraeldre": "Overlæge, dr.med. Kjeld T. og Inger Nicoline Seier Petersen",
+      "note": null
+    }
+  ]
+}

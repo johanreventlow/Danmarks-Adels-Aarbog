@@ -1,0 +1,29 @@
+{
+  "linje": "V",
+  "nr": 194,
+  "nr_label": "194",
+  "usikker": false,
+  "navn": "Komtesse Charlotte Benedicte Iuel",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1991-05-07",
+      "date_raw": "7. maj 1991",
+      "date_min": "1991-05-07",
+      "date_max": "1991-05-07",
+      "date_qualifier": "exact",
+      "sted": "Odense"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1991-07-21",
+      "date_raw": "døbt 21. juli s.å. i Viby Kirke",
+      "date_min": "1991-07-21",
+      "date_max": "1991-07-21",
+      "date_qualifier": "exact",
+      "sted": "Viby Kirke"
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "linje": "V",
+  "nr": 131,
+  "nr_label": "131",
+  "usikker": false,
+  "navn": "Komtesse Viveka",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1896-08-01",
+      "date_raw": "1. aug. 1896",
+      "date_min": "1896-08-01",
+      "date_max": "1896-08-01",
+      "date_qualifier": "exact",
+      "sted": "Wrangelsborg, Höör"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1896-08-21",
+      "date_raw": "døbt 21. aug. s.å. i Gudmuntorp Kirke",
+      "date_min": "1896-08-21",
+      "date_max": "1896-08-21",
+      "date_qualifier": "exact",
+      "sted": "Gudmuntorp Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1975-11-27",
+      "date_raw": "27. nov. 1975",
+      "date_min": "1975-11-27",
+      "date_max": "1975-11-27",
+      "date_qualifier": "exact",
+      "sted": "Målilla"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Preetz Adelige Kloster",
+      "rolle": "indskrevet / konventualinde",
+      "dato_raw": "1896 (22. juli) / 1934 (21. juni)"
+    }
+  ]
+}

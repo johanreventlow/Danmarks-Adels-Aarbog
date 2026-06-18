@@ -1,0 +1,97 @@
+{
+  "linje": "V",
+  "nr": 33,
+  "nr_label": "33",
+  "usikker": false,
+  "navn": "Conradina Augusta",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Komtesse",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "12. nov. 1736",
+      "date_min": "1736-11-12",
+      "date_max": "1736-11-12",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "27. sept. 1809",
+      "date_min": "1809-09-27",
+      "date_max": "1809-09-27",
+      "date_qualifier": "exact",
+      "sted": "Rudbjerggaard"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": "Tillitse Kirke"
+    },
+    {
+      "faktatype": "dekoration",
+      "vaerdi": "de l'Union parfaite",
+      "date_raw": "1770 (29. jan.)",
+      "date_min": "1770-01-29",
+      "date_max": "1770-01-29",
+      "date_qualifier": "exact",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Conrad Detlef Knuth",
+      "partner_ekstern_ref": "DAA 1966, II, 56",
+      "type": "vielse",
+      "dato_raw": "27. april 1753",
+      "date_min": "1753-04-27",
+      "date_max": "1753-04-27",
+      "sted": "København",
+      "skilt": false,
+      "partner_foedsel": {
+        "date_raw": "20. febr. 1730",
+        "date_min": "1730-02-20",
+        "date_max": "1730-02-20",
+        "sted": "København"
+      },
+      "partner_daab": {
+        "date_raw": "21. s.m.",
+        "date_min": "1730-02-21",
+        "date_max": "1730-02-21",
+        "sted": "Hof- og Slotskirken, København"
+      },
+      "partner_doed": {
+        "date_raw": "13. okt. 1805",
+        "date_min": "1805-10-13",
+        "date_max": "1805-10-13",
+        "sted": "Rudbjerggaard"
+      },
+      "partner_erhverv": [
+        "gehejmeråd",
+        "kammerherre"
+      ],
+      "partner_foraeldre": "Kammerherre, gehejmeråd Adam Christopher greve K. til grevskabet Knuthenborg, Sørup, Rosengaard m.fl. og Ide Margaretha von Reventlow til Sørup, Lundegaard, m.fl., se von Reventlow III. Den mecklenburgske linje, nr. 95",
+      "note": "Til baroniet Conradsborg, Rudbjerggaard, Gottesgabe og Fredsholm. Bisat 5. nov. 1805 fra Tillitse Kirke."
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

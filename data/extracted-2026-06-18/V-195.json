@@ -1,0 +1,51 @@
+{
+  "linje": "V",
+  "nr": 195,
+  "nr_label": "195",
+  "usikker": false,
+  "navn": "Greve Frederik Georg",
+  "tilnavn": "til Agerup",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1990-06-27",
+      "date_raw": "27. juni 1990",
+      "date_min": "1990-06-27",
+      "date_max": "1990-06-27",
+      "date_qualifier": "exact",
+      "sted": "Frederiksberg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1990-12-27",
+      "date_raw": "døbt 27. dec. s.å. i Sankt Jacobs Kirke, København",
+      "date_min": "1990-12-27",
+      "date_max": "1990-12-27",
+      "date_qualifier": "exact",
+      "sted": "Sankt Jacobs Kirke, København"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Lea Astrid Lund Sjögren",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 5. juni 2021",
+      "date_min": "2021-06-05",
+      "date_max": "2021-06-05",
+      "sted": "Agerup",
+      "skilt": false,
+      "partner_foedsel": "* 1. sept. 1988 i Hillerød",
+      "partner_daab": "døbt 26. dec. s.å. i Ramløse Kirke",
+      "partner_doed": null,
+      "partner_erhverv": [
+        "læge",
+        "cand. med."
+      ],
+      "partner_foraeldre": "Direktør, revisor Jesper Bo S. og sygeplejerske Anna Lund",
+      "note": null
+    }
+  ]
+}

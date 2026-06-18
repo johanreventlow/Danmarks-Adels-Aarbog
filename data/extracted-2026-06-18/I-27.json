@@ -1,0 +1,40 @@
+{
+  "linje": "I",
+  "nr": 27,
+  "nr_label": "27",
+  "usikker": false,
+  "navn": "Marquard",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "anklages 1338-1340 ... solgte 1359 (16. juli)",
+      "date_min": "1338-01-01",
+      "date_max": "1359-07-16",
+      "date_qualifier": "floruit",
+      "sted": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Beke von Pogwisch",
+      "partner_ekstern_ref": null,
+      "type": null,
+      "dato_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": null,
+      "note": "se nr. 16"
+    }
+  ],
+  "boern": null
+}

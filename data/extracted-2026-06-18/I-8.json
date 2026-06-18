@@ -1,0 +1,40 @@
+{
+  "linje": "I",
+  "nr": 8,
+  "nr_label": "8",
+  "usikker": false,
+  "navn": "Volrad",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "ridder",
+      "date_raw": "1321 (20. aug.)",
+      "date_min": "1321-08-20",
+      "date_max": "1321-08-20",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "-1321-1329-",
+      "date_min": "1321",
+      "date_max": "1329",
+      "date_qualifier": "floruit",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": null,
+      "rolle": "ridder",
+      "dato_raw": "1321 (20. aug.)"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

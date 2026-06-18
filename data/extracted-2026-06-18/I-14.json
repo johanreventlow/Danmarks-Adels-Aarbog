@@ -1,0 +1,46 @@
+{
+  "linje": "I",
+  "nr": 14,
+  "nr_label": "14",
+  "usikker": false,
+  "navn": "Eckhard",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "floruit",
+      "vaerdi": null,
+      "date_raw": "-1350-1357-",
+      "date_min": "1350",
+      "date_max": "1357",
+      "date_qualifier": "floruit",
+      "sted": null
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Ærø og Tåsinge provsti",
+      "rolle": "provst",
+      "dato_raw": "-1350 (2. maj)"
+    },
+    {
+      "organisation": "kirken i Slesvig",
+      "rolle": "kannik",
+      "dato_raw": "1350 (2. maj)"
+    },
+    {
+      "organisation": "kirken i Slesvig",
+      "rolle": "kantor",
+      "dato_raw": "1350 (2. maj)"
+    },
+    {
+      "organisation": "kirken i Slesvig",
+      "rolle": "provst",
+      "dato_raw": "1357 (20. marts)"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

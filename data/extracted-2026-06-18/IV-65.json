@@ -1,0 +1,40 @@
+{
+  "linje": "IV",
+  "nr": 65,
+  "nr_label": "65",
+  "usikker": false,
+  "navn": "Komtesse Gertrud Adelaide Theophile Elise Agnes Adolfine",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1931-03-30",
+      "date_raw": "† 30. marts 1931 i Berlin-Ober-Schöneweide",
+      "date_min": "1931-03-30",
+      "date_max": "1931-03-30",
+      "date_qualifier": "exact",
+      "sted": "Berlin-Ober-Schöneweide"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Uetersen Adelige Kloster",
+      "rolle": "konventualinde",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "4. dec. 1870",
+      "date_min": "1870-12-04",
+      "date_max": "1870-12-04",
+      "sted": "Wittenberg",
+      "note": null
+    }
+  ]
+}

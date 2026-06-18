@@ -1,0 +1,60 @@
+{
+  "linje": "II",
+  "nr": 28,
+  "nr_label": "28",
+  "usikker": false,
+  "navn": "Carl Friderich Christoph",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1718",
+      "date_raw": "* 1718",
+      "date_min": "1718-01-01",
+      "date_max": "1718-12-31",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "19. aug. 1745 i Egernførde af svindsot",
+      "date_raw": "† 19. aug. 1745 i Egernførde af svindsot",
+      "date_min": "1745-08-19",
+      "date_max": "1745-08-19",
+      "date_qualifier": "exact",
+      "sted": "Egernførde"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Kronprinsens Reg.",
+      "rolle": "fændrik reformé",
+      "dato_raw": "1734 (9. april)"
+    },
+    {
+      "organisation": "Kronprinsens Reg.",
+      "rolle": "virkelig fændrik",
+      "dato_raw": "s.å. (23. juni)"
+    },
+    {
+      "organisation": "Kronprinsens Reg.",
+      "rolle": "sekondløjtnant",
+      "dato_raw": "1735 (21. jan.)"
+    },
+    {
+      "organisation": "Grenadérkorpset",
+      "rolle": "ved Grenadérkorpset",
+      "dato_raw": "1739 (19. juni)"
+    },
+    {
+      "organisation": null,
+      "rolle": "premierløjtnant",
+      "dato_raw": "1743 (23. marts)"
+    }
+  ],
+  "aegteskaber": [],
+  "boern": null,
+  "begivenheder": []
+}

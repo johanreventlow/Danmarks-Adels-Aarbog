@@ -1,0 +1,29 @@
+{
+  "linje": "V",
+  "nr": 126,
+  "nr_label": "126",
+  "usikker": false,
+  "navn": "Greve Curt Hartvig Detlev Erik Christian Fredrik",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1886-03-11",
+      "date_raw": "11. marts 1886",
+      "date_min": "1886-03-11",
+      "date_max": "1886-03-11",
+      "date_qualifier": "exact",
+      "sted": "Kyleberg"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "1888-01-05",
+      "date_raw": "5. jan. 1888",
+      "date_min": "1888-01-05",
+      "date_max": "1888-01-05",
+      "date_qualifier": "exact",
+      "sted": "Kyleberg"
+    }
+  ]
+}

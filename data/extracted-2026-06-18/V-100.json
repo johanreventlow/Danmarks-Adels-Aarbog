@@ -1,0 +1,56 @@
+{
+  "linje": "V",
+  "nr": 100,
+  "nr_label": "100",
+  "usikker": false,
+  "navn": "Detlef Christian Einar",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "18. sept. 1860",
+      "date_min": "1860-09-18",
+      "date_max": "1860-09-18",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": null,
+      "date_raw": "4. nov. s.å.",
+      "date_min": "1860-11-04",
+      "date_max": "1860-11-04",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg Kirke"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "28. marts 1861",
+      "date_min": "1861-03-28",
+      "date_max": "1861-03-28",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg"
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": null,
+      "date_raw": "bisat 3. april s.å.",
+      "date_min": "1861-04-03",
+      "date_max": "1861-04-03",
+      "date_qualifier": "exact",
+      "sted": "Theophili Skov"
+    }
+  ]
+}

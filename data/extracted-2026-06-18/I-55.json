@@ -1,0 +1,67 @@
+{
+  "linje": "I",
+  "nr": 55,
+  "nr_label": "55",
+  "usikker": false,
+  "navn": "Ghese",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [],
+  "godser": [
+    {
+      "navn": "Gram",
+      "periode_raw": "(ca. 1475-1496)",
+      "period_type": "tenure",
+      "sted": null
+    }
+  ],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Peter von Ahlefeldt",
+      "partner_ekstern_ref": "DAA 1982-84, 542f",
+      "type": "vielse",
+      "dato_raw": "Gift 1°",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† mellem 16. jan. og 23. april 1483",
+        "date_min": "1483-01-16",
+        "date_max": "1483-04-23",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "amtmand"
+      ],
+      "partner_foraeldre": "Benedict von A. til Søgaard og Catharina von Dosenrode",
+      "note": "Enken aflagde regnskab til dronning Dorothea 23. april 1483."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Nicolaus von Lützow",
+      "partner_ekstern_ref": "DAA 1928, II, 69",
+      "type": "vielse",
+      "dato_raw": "Gift 2°",
+      "date_min": null,
+      "date_max": null,
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": null,
+      "partner_daab": null,
+      "partner_doed": null,
+      "partner_erhverv": [
+        "mecklenburgsk råd",
+        "ridder"
+      ],
+      "partner_foraeldre": "Mecklenburgsk råd og marskal, ridder Nicolaus von L. til Eickhof og Anna von Rantzau",
+      "note": null
+    }
+  ],
+  "boern": null,
+  "begivenheder": []
+}

@@ -1,0 +1,59 @@
+{
+  "linje": "III",
+  "nr": 108,
+  "nr_label": "108",
+  "usikker": false,
+  "navn": "Friderica Elisabeth",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1771-01-21",
+      "date_raw": "† 21. jan. 1771 i Sternberg",
+      "date_min": "1771-01-21",
+      "date_max": "1771-01-21",
+      "date_qualifier": "exact",
+      "sted": "Sternberg"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Joachim Albrecht von Sperling",
+      "partner_ekstern_ref": "DAA 1943, II, 152",
+      "type": "vielse",
+      "dato_raw": "Gift 7. maj 1734",
+      "date_min": "1734-05-07",
+      "date_max": "1734-05-07",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 1702",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 23. dec. 1762 i Sternberg",
+        "date_min": "1762-12-23",
+        "date_max": "1762-12-23",
+        "sted": "Sternberg"
+      },
+      "partner_erhverv": [
+        "dansk ritmester"
+      ],
+      "partner_foraeldre": "Joachim Ulrich von S. til Rubow samt Thurow og Clarelia von Sala",
+      "note": "Til Rubow, Schlagstorf, Thurow, Buchholz, Damelow m.fl."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "15. jan. 1718",
+      "date_min": "1718-01-15",
+      "date_max": "1718-01-15",
+      "sted": null,
+      "note": null
+    }
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "linje": "IV",
+  "nr": 21,
+  "nr_label": "21",
+  "usikker": false,
+  "navn": "Greve Carl Ludewig",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1867-04-19",
+      "date_raw": "† 19. april 1867 i Freiburg im Breisgau",
+      "date_min": "1867-04-19",
+      "date_max": "1867-04-19",
+      "date_qualifier": "exact",
+      "sted": "Freiburg im Breisgau"
+    }
+  ],
+  "godser": [],
+  "embeder": [
+    {
+      "organisation": "Slesvig By",
+      "rolle": "domskoleelev",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Kiel",
+      "rolle": "immatrikuleret (jura)",
+      "dato_raw": "1823 (21. april)"
+    },
+    {
+      "organisation": "Gottorp",
+      "rolle": "cand.jur.",
+      "dato_raw": "1830"
+    },
+    {
+      "organisation": "Christiansruhe ved Preetz",
+      "rolle": "forpagter",
+      "dato_raw": null
+    },
+    {
+      "organisation": "Wilhelminenhof ved Preetz",
+      "rolle": "forpagter",
+      "dato_raw": null
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Emma Luise Desirée de Wasmer",
+      "partner_ekstern_ref": null,
+      "type": "vielse",
+      "dato_raw": "Gift 16. april 1845",
+      "date_min": "1845-04-16",
+      "date_max": "1845-04-16",
+      "sted": null,
+      "skilt": false,
+      "partner_foedsel": "* 25. sept. 1819",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 20. aug. 1901",
+        "date_min": "1901-08-20",
+        "date_max": "1901-08-20",
+        "sted": null
+      },
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kammerherre, major Friedrich Detlef Wulff Benedict de W. og NN",
+      "note": "Datter i fjerde (syttende) slægtled."
+    }
+  ],
+  "boern": {
+    "antal": 1,
+    "slaegtled": "Fjerde (syttende) slægtled",
+    "linje": "V, nr. 48",
+    "nr_range": null
+  },
+  "begivenheder": []
+}

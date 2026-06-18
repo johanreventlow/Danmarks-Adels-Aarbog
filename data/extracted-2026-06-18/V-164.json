@@ -1,0 +1,79 @@
+{
+  "linje": "V",
+  "nr": 164,
+  "nr_label": "164",
+  "usikker": false,
+  "navn": "Greve Claus Detlev Frederik Ferdinand",
+  "tilnavn": "til Agerup",
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "fødsel",
+      "vaerdi": "1928-12-09",
+      "date_raw": "9. dec. 1928",
+      "date_min": "1928-12-09",
+      "date_max": "1928-12-09",
+      "date_qualifier": "exact",
+      "sted": "Frederiksberg"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "1929-03-03",
+      "date_raw": "hjemmedøbt 3. marts 1929",
+      "date_min": "1929-03-03",
+      "date_max": "1929-03-03",
+      "date_qualifier": "exact",
+      "sted": "Frederiksberg"
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": "2008-04-07",
+      "date_raw": "7. april 2008",
+      "date_min": "2008-04-07",
+      "date_max": "2008-04-07",
+      "date_qualifier": "exact",
+      "sted": "Bøgebjerg"
+    }
+  ],
+  "embeder": [
+    {
+      "organisation": "Hverringe",
+      "rolle": "administrator af",
+      "dato_raw": "1962-1987"
+    },
+    {
+      "organisation": "Stiftelsen Sorø Akademi",
+      "rolle": "landbrugskyndig konsulent for",
+      "dato_raw": "1982-1995"
+    },
+    {
+      "organisation": "lucernemelsfabrikken Karotina",
+      "rolle": "m.a. best. for",
+      "dato_raw": "1963-†"
+    },
+    {
+      "organisation": "Kerteminde Naturfredningsforening",
+      "rolle": "m.a. best. for",
+      "dato_raw": "1963-†"
+    }
+  ],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Ellen Marie Iuel",
+      "partner_ekstern_ref": "DAA 2000-02, 448",
+      "type": "vielse",
+      "dato_raw": "Gift 19. aug. 1954",
+      "date_min": "1954-08-19",
+      "date_max": "1954-08-19",
+      "sted": "Viby Kirke",
+      "skilt": false,
+      "partner_foedsel": "* 29. okt. 1929 på Hverringe",
+      "partner_daab": "døbt 22. dec. s.å. i Viby Kirke",
+      "partner_doed": null,
+      "partner_erhverv": [],
+      "partner_foraeldre": "Kammerherre, hofjægermester, landvæsenskommissær, cand.phil. Niels Rudolf I. til Hverringe med Bøgebjerg og cand.phil. Vibeke baronesse Wedell-Wedellsborg",
+      "note": null
+    }
+  ]
+}

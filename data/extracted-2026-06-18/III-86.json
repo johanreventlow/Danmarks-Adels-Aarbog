@@ -1,0 +1,85 @@
+{
+  "linje": "III",
+  "nr": 86,
+  "nr_label": "86",
+  "usikker": false,
+  "navn": "Abel",
+  "tilnavn": null,
+  "koen": "kvinde",
+  "facts": [
+    {
+      "faktatype": "død",
+      "vaerdi": "1717-02-26",
+      "date_raw": "† 26. febr. 1717 på Putlos",
+      "date_min": "1717-02-26",
+      "date_max": "1717-02-26",
+      "date_qualifier": "exact",
+      "sted": "Putlos"
+    }
+  ],
+  "godser": [],
+  "embeder": [],
+  "aegteskaber": [
+    {
+      "ordinal": 1,
+      "partner_navn": "Hans von Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 80",
+      "type": "vielse",
+      "dato_raw": "Gift 1° 1701 på Salzau",
+      "date_min": "1701-01-01",
+      "date_max": "1701-12-31",
+      "sted": "Salzau",
+      "skilt": false,
+      "partner_foedsel": "* ca. 1648",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 1703",
+        "date_min": "1703-01-01",
+        "date_max": "1703-12-31",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "gottorpsk hofmester"
+      ],
+      "partner_foraeldre": "Klosterprovst Frantz von R. til Salzau, Nütschau samt Rastorf og Anna Christina von Rantzau",
+      "note": "Vielsen bestemt til at foregå i samme uge."
+    },
+    {
+      "ordinal": 2,
+      "partner_navn": "Hans von Rantzau",
+      "partner_ekstern_ref": "DAA 1930, II, 120",
+      "type": "vielse",
+      "dato_raw": "Gift 2° 26. febr. 1707",
+      "date_min": "1707-02-26",
+      "date_max": "1707-02-26",
+      "sted": "Lütjenburg",
+      "skilt": false,
+      "partner_foedsel": "* ca. 1685",
+      "partner_daab": null,
+      "partner_doed": {
+        "date_raw": "† 19. okt. 1744",
+        "date_min": "1744-10-19",
+        "date_max": "1744-10-19",
+        "sted": null
+      },
+      "partner_erhverv": [
+        "landråd",
+        "amtmand",
+        "gehejmeråd"
+      ],
+      "partner_foraeldre": "Generalmajor Otto von R. til Putlos samt Bossee og Anna Magdalena von Brockdorff",
+      "note": "Gift 2° med Anne Vind Banner til Taastrup og Aalstrup; gift 3° med Sophia Lucretia von Wallmoden, f. von Gülen."
+    }
+  ],
+  "boern": null,
+  "begivenheder": [
+    {
+      "type": "foedt",
+      "dato_raw": "ca. 1680",
+      "date_min": "1680-01-01",
+      "date_max": "1680-12-31",
+      "sted": null,
+      "note": null
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "linje": "V",
+  "nr": 60,
+  "nr_label": "60",
+  "usikker": false,
+  "navn": "Dittlew Christian",
+  "tilnavn": null,
+  "koen": "mand",
+  "facts": [
+    {
+      "faktatype": "titel",
+      "vaerdi": "Greve",
+      "date_raw": null,
+      "date_min": null,
+      "date_max": null,
+      "date_qualifier": null,
+      "sted": null
+    },
+    {
+      "faktatype": "fødsel",
+      "vaerdi": null,
+      "date_raw": "* 14. febr. 1779",
+      "date_min": "1779-02-14",
+      "date_max": "1779-02-14",
+      "date_qualifier": "exact",
+      "sted": "København (Amaliegade)"
+    },
+    {
+      "faktatype": "dåb",
+      "vaerdi": "hjemmedøbt",
+      "date_raw": "hjemmedøbt s.d.",
+      "date_min": "1779-02-14",
+      "date_max": "1779-02-14",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "død",
+      "vaerdi": null,
+      "date_raw": "† 20. maj s.å.",
+      "date_min": "1779-05-20",
+      "date_max": "1779-05-20",
+      "date_qualifier": "exact",
+      "sted": null
+    },
+    {
+      "faktatype": "begravelse",
+      "vaerdi": "bisat fra Holmens Kirke, begravet på Brahetrolleborg Kirkegård",
+      "date_raw": "bisat 24. s.m.",
+      "date_min": "1779-05-24",
+      "date_max": "1779-05-24",
+      "date_qualifier": "exact",
+      "sted": "Brahetrolleborg Kirkegård"
+    }
+  ]
+}
