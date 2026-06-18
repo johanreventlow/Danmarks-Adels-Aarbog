@@ -98,14 +98,14 @@ def derive_boern(raw_text):
 #   - Tidlig/sen DAA-udgave skriver "trolovet" som forstadie; fanges som ægtefælle
 #   - "g.m." (gift med) som sammentrækning i nyere ægteskabsregistre
 
-_AEGT_SPLIT_RE = re.compile(r'(?<!\w)(?:Gift|g\.)\s*', re.I)
+_AEGT_SPLIT_RE = re.compile(r'(?:(?:^|\s)(?:Gift|g\.))\s*')
 _ORD_SPLIT_RE = re.compile(r'(?<!\()(\d)\s*°')  # split "1° ... 2° ..." internt
 # Partner-navn: stop ved sektions-separator " – ", parentes " (", komma+linje-skift,
 # eller en sentence-grænse ". " efterfulgt af stor bogstav.
 # Brug ikke-grådig match og negativ lookahead for sentence-grænse.
+# INGEN re.I: [A-ZÆØÅ]-ankeret skal binde på store bogstaver (undgår "med hans datter").
 _PARTNER_RE = re.compile(
-    r'\bm(?:ed|\.)\s+([A-ZÆØÅ][^,;(–\n]*?)(?=\s*(?:,|\s–\s|\s\(|\.\s+[A-ZÆØÅ0-9]|$))',
-    re.I)
+    r'\bm(?:ed|\.)\s+([A-ZÆØÅ][^,;(–\n]*?)(?=\s*(?:,|\s–\s|\s\(|\.\s+[A-ZÆØÅ0-9]|$))')
 _NAVN_STRIP_RE = re.compile(r'[.,;:]+$')   # fjern afsluttende tegnsætning
 _DATE_RE = re.compile(
     r'(?:ca\.?\s*|senest\s*|før\s*|efter\s*)?'
@@ -313,7 +313,7 @@ def main():
             if derived_a:
                 llm = {a.get('ordinal'): a for a in (rec.get('aegteskaber') or [])}
                 for a in derived_a:
-                    base = llm.get(a['ordinal'], {})
+                    base = dict(llm.get(a['ordinal'], {}))
                     base.update({k: v for k, v in a.items() if v is not None or k == 'skilt'})
                     a.clear(); a.update(base)
                 rec['aegteskaber'] = derived_a
