@@ -77,6 +77,109 @@ def derive_boern(raw_text):
     }
 
 
+# Ægteskabs-markører er faste i DAA-prosaen: "Gift"/"g." starter en klausul,
+# ordinaler "1°/2°/3°" nummererer dem, "med"/"m." indleder partneren,
+# "skilt" flagger opløsning.
+#
+# To split-strategier:
+#   A) Hvis teksten har "Gift 1°... Gift 2°..." (separate Gift-klausuler per ægtefælle),
+#      split på AEGT_SPLIT (Gift/g.) og håndtér hvert segment.
+#   B) Hvis teksten har "Gift 1°... 2°..." (enkelt Gift med ordinal-markerede
+#      under-klausuler), split de ordinaler internt i segmentet.
+#
+# Dato: Fanger dag-måned-år ("26. juli 1975"), år-kun ("1698"),
+# "ca. ÅÅÅÅ", "senest ÅÅÅÅ", "før ÅÅÅÅ". Grundet DAA-prosaen opfanger regex'en
+# altid et årstal som minimum. NB: dato_raw er fra norm()'et tekst, men da
+# norm() blot normaliserer whitespace er det altid en substring af raw_text.
+#
+# Mønstre der IKKE fanges (dokumenteret):
+#   - Separeret (separation, separeret) vs. skilsmisse (skilt) skelnes ikke
+#   - Datums-spans som "1680-1720" fortolkes som to årstal; blot første fanges
+#   - Tidlig/sen DAA-udgave skriver "trolovet" som forstadie; fanges som ægtefælle
+#   - "g.m." (gift med) som sammentrækning i nyere ægteskabsregistre
+
+_AEGT_SPLIT_RE = re.compile(r'(?<!\w)(?:Gift|g\.)\s*', re.I)
+_ORD_SPLIT_RE = re.compile(r'(?<!\()(\d)\s*°')  # split "1° ... 2° ..." internt
+# Partner-navn: stop ved sektions-separator " – ", parentes " (", komma+linje-skift,
+# eller en sentence-grænse ". " efterfulgt af stor bogstav.
+# Brug ikke-grådig match og negativ lookahead for sentence-grænse.
+_PARTNER_RE = re.compile(
+    r'\bm(?:ed|\.)\s+([A-ZÆØÅ][^,;(–\n]*?)(?=\s*(?:,|\s–\s|\s\(|\.\s+[A-ZÆØÅ0-9]|$))',
+    re.I)
+_NAVN_STRIP_RE = re.compile(r'[.,;:]+$')   # fjern afsluttende tegnsætning
+_DATE_RE = re.compile(
+    r'(?:ca\.?\s*|senest\s*|før\s*|efter\s*)?'
+    r'(?:\d{1,2}\.\s*\w+\.?\s*)?\d{4}')
+_ORD_NUM_RE = re.compile(r'^\s*(\d)\s*°')
+
+
+def derive_aegteskaber(raw_text):
+    """Udled ægteskaber deterministisk fra prosaen.
+
+    Returnér liste (evt. tom) af dicts med nøgler:
+        ordinal (int), partner_navn (str|None), dato_raw (str|None), skilt (bool)
+    """
+    txt = norm(raw_text or '')
+
+    # Trin 1: split på Gift/g. markører
+    gift_parts = _AEGT_SPLIT_RE.split(txt)
+    if len(gift_parts) < 2:
+        return []          # ingen Gift/g. markør fundet
+
+    out = []
+    running_ordinal = 0
+
+    for seg in gift_parts[1:]:   # gift_parts[0] = tekst før første markør
+        # Trin 2: find om segmentet indeholder ordinal-markører (1°, 2°, 3°...)
+        # Fx: "1° 1698 med Anna ..., 2° 1712 med Birgitte ..., skilt."
+        ord_positions = list(_ORD_SPLIT_RE.finditer(seg))
+
+        if ord_positions:
+            # Split på ordinal-markørerne og behandl hvert sub-segment
+            bounds = [(m.start(), m.group(1)) for m in ord_positions]
+            for i, (start, ord_str) in enumerate(bounds):
+                end = bounds[i + 1][0] if i + 1 < len(bounds) else len(seg)
+                sub = seg[start:end]
+                # Fjern selve ordinal-markøren fra starten inden videre parsning
+                sub_stripped = _ORD_NUM_RE.sub('', sub, count=1).lstrip('° ')
+                ordinal = int(ord_str)
+                running_ordinal = ordinal
+                pm = _PARTNER_RE.search(sub_stripped)
+                pre_med = re.split(r'\bm(?:ed|\.)\s', sub_stripped)[0]
+                dm = _DATE_RE.search(pre_med)
+                navn = _NAVN_STRIP_RE.sub('', norm(pm.group(1))) if pm else None
+                out.append({
+                    'ordinal': ordinal,
+                    'partner_navn': navn if navn else None,
+                    'dato_raw': dm.group(0).strip() if dm else None,
+                    'skilt': bool(re.search(r'\bskilt\b', sub, re.I)),
+                })
+        else:
+            # Ingen interne ordinaler — dette Gift er ét ægteskab
+            running_ordinal += 1
+            mo = _ORD_NUM_RE.match(seg)
+            ordinal = int(mo.group(1)) if mo else running_ordinal
+            seg_body = _ORD_NUM_RE.sub('', seg, count=1).lstrip('° ') if mo else seg
+            pm = _PARTNER_RE.search(seg_body)
+            pre_med = re.split(r'\bm(?:ed|\.)\s', seg_body)[0]
+            dm = _DATE_RE.search(pre_med)
+            navn = _NAVN_STRIP_RE.sub('', norm(pm.group(1))) if pm else None
+            out.append({
+                'ordinal': ordinal,
+                'partner_navn': navn if navn else None,
+                'dato_raw': dm.group(0).strip() if dm else None,
+                'skilt': bool(re.search(r'\bskilt\b', seg, re.I)),
+            })
+
+    # Dedupliker og sorter på ordinal (Guard mod dobbelt-split)
+    seen = {}
+    for a in out:
+        o = a['ordinal']
+        if o not in seen:
+            seen[o] = a
+    return [seen[k] for k in sorted(seen)]
+
+
 def collect_dates(rec):
     out = []
     for f in rec.get('facts') or []:
@@ -202,6 +305,18 @@ def main():
                 rec['boern'] = derived
             elif rec.get('boern') is not None:
                 rec['boern'] = None   # LLM-hallucineret boern uden tekst-belæg
+        # DETERMINISTISK aegteskaber: udled fra kilde-prosaen (overskriver LLM-feltet).
+        # Bevar LLM-felter vi ikke udleder (partner_foedsel, sted, type) ved at
+        # flette på ordinal; deterministiske felter vinder.
+        if src:
+            derived_a = derive_aegteskaber(src['raw_text'])
+            if derived_a:
+                llm = {a.get('ordinal'): a for a in (rec.get('aegteskaber') or [])}
+                for a in derived_a:
+                    base = llm.get(a['ordinal'], {})
+                    base.update({k: v for k, v in a.items() if v is not None or k == 'skilt'})
+                    a.clear(); a.update(base)
+                rec['aegteskaber'] = derived_a
         issues, advisory = validate(rec, src, known_by_linje)
         if issues:
             review.append({'fil': fn, 'linje': rec.get('linje'), 'nr': rec.get('nr'),
