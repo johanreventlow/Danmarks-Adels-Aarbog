@@ -63,6 +63,76 @@ class TestMerge(unittest.TestCase):
         self.assertEqual(len(new_review), 1)         # havnet i review
         self.assertNotIn(KEY, promoted)
 
+class TestDecideR8SetSubset(unittest.TestCase):
+    """C2 + C2b: R8-type-swap og manglende snapshot."""
+
+    def test_afvis_r8_type_swap(self):
+        # Snapshot: missede ægteskab (R8 ægteskab). Reext: misser død (R8 død) men har ægteskab.
+        # r8(reext)={R8: prosa nævner død...} ⊄ r8(snap)={R8: prosa nævner ægteskab...} → afvis.
+        src = {"raw_text": "Iwan † 1261. Gift med Sofie.", "linje": "I", "nr": 5}
+        snap = {"linje": "I", "nr": 5, "nr_label": "5", "navn": "Iwan",
+                "facts": [{"faktatype": "død", "date_raw": "† 1261"}],
+                "aegteskaber": []}
+        reext = {"linje": "I", "nr": 5, "nr_label": "5", "navn": "Iwan",
+                 "facts": [],
+                 "aegteskaber": [{"ordinal": 1, "partner_navn": "Sofie"}]}
+        promote, _, _ = em.decide(reext, snap, src, {})
+        self.assertFalse(promote, "Swap (snapshot misser ægteskab; reext misser død) skal afvises")
+
+    def test_manglende_snapshot_afvises(self):
+        # C2b: intet snapshot → promote=False (fail-closed).
+        src = {"raw_text": "Iwan † 1261. Gift med Sofie.", "linje": "I", "nr": 5}
+        reext = {"linje": "I", "nr": 5, "nr_label": "5", "navn": "Iwan",
+                 "facts": [{"faktatype": "død", "date_raw": "† 1261"}],
+                 "aegteskaber": []}
+        promote, _, _ = em.decide(reext, None, src, {})
+        self.assertFalse(promote, "Manglende snapshot skal give promote=False (fail-closed)")
+
+    def test_manglende_snapshot_i_merge(self):
+        # C2b integration: merge_escalated med snap_by_key tom → post forbliver i review.
+        src_map = {("I", "5"): {"raw_text": "Iwan † 1261. Gift med Sofie.", "linje": "I", "nr": 5}}
+        reext_rec = {"linje": "I", "nr": 5, "nr_label": "5", "navn": "Iwan",
+                     "facts": [{"faktatype": "død", "date_raw": "† 1261"}],
+                     "aegteskaber": []}
+        esc = [{"linje": "I", "nr": 5, "nr_label": "5", "grunde": ["R8: ..."]}]
+        new_clean, new_review, promoted = em.merge_escalated(
+            esc, {KEY: reext_rec}, {}, src_map, {}, clean=[], review=[])
+        self.assertEqual(len(new_clean), 0, "Ingen snapshot → skal ikke promoveres til clean")
+        self.assertNotIn(KEY, promoted)
+
+
+class TestMergeNrLabel(unittest.TestCase):
+    """C3: bogstav-suffixet post (nr_label '15a') fjernes korrekt fra review ved promote."""
+
+    def test_bogstav_post_fjernes_fra_review_ved_promote(self):
+        # Blokeringen af "15a" sættes i review med nr_label="15a".
+        # validate.main() skriver nu nr_label ind i review-recorden.
+        # merge_escalated bruger _key() = (linje, nr_label or str(nr)).
+        # Review-record skal matche og fjernes ved promote.
+        src_linje_15a = {"raw_text": "Peter til X. † 1700.", "linje": "I", "nr": 15, "nr_label": "15a"}
+        src_map = {("I", "15a"): src_linje_15a}
+        known = {"I": {15}}
+        reext_rec = {"linje": "I", "nr": 15, "nr_label": "15a", "navn": "Peter",
+                     "facts": [{"faktatype": "død", "date_raw": "† 1700"}],
+                     "aegteskaber": []}
+        snap_rec = {"linje": "I", "nr": 15, "nr_label": "15a", "navn": "Peter",
+                    "facts": [], "aegteskaber": []}
+        # Review-record med nr_label (som validate.main() nu skriver)
+        review_rec = {"linje": "I", "nr": 15, "nr_label": "15a", "navn": "Peter",
+                      "brud": ["R8: prosa nævner død, men intet død-fakta"]}
+        esc = [{"linje": "I", "nr": 15, "nr_label": "15a", "grunde": ["R8: ..."]}]
+        key_15a = ("I", "15a")
+        new_clean, new_review, promoted = em.merge_escalated(
+            esc, {key_15a: reext_rec}, {key_15a: snap_rec}, src_map, known,
+            clean=[], review=[review_rec])
+        self.assertIn(key_15a, promoted, "Post 15a skal promoveres")
+        # Post skal være i clean, IKKE i review
+        self.assertEqual(len(new_clean), 1)
+        review_keys = [em._key(r) for r in new_review]
+        self.assertNotIn(key_15a, review_keys,
+                         "Post 15a må ikke forblive i review efter promote")
+
+
 class TestDiff(unittest.TestCase):
     def test_field_diff_fanger_aendring(self):
         snap = {"navn": "Iwan", "facts": []}

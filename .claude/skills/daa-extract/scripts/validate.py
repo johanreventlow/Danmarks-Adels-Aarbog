@@ -325,6 +325,22 @@ def validate(rec, src, known_by_linje):
     return issues, advisory
 
 
+def normalize_record(rec, src):
+    """Anvend deterministiske overrides (boern fra prosa) som validate.main gør.
+
+    Muterer og returnerer rec. Kald FØR validering, så gaten ser den
+    normaliserede post. NB: aegteskaber er IKKE deterministisk — LLM-udtræk
+    er autoritativt; derive_aegteskaber() bruges kun advisory (R8).
+    """
+    if src:
+        derived = derive_boern(src['raw_text'])
+        if derived:
+            rec['boern'] = derived
+        elif rec.get('boern') is not None:
+            rec['boern'] = None   # LLM-hallucineret boern uden tekst-belæg
+    return rec
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('posts')
@@ -346,22 +362,16 @@ def main():
     for fn in files:
         rec = json.load(open(os.path.join(args.extracted_dir, fn), encoding='utf-8'))
         src = src_by_key.get((rec.get('linje'), rec.get('nr_label') or str(rec.get('nr'))))
-        # DETERMINISTISK boern: udled fra kilde-prosaen (overskriver LLM-feltet).
-        # LLM-trinnet misser ofte børne-referencer; teksten er regulær.
-        if src:
-            derived = derive_boern(src['raw_text'])
-            if derived:
-                rec['boern'] = derived
-            elif rec.get('boern') is not None:
-                rec['boern'] = None   # LLM-hallucineret boern uden tekst-belæg
-        # NB: aegteskaber er IKKE deterministisk — LLM-udtræk er autoritativt.
-        # derive_aegteskaber() bruges kun advisory i expected_signals() (R8).
+        # DETERMINISTISK boern: udled fra kilde-prosaen via normalize_record.
+        normalize_record(rec, src)
+        # NB: aegteskaber er IKKE deterministisk — se normalize_record().
         issues, advisory = validate(rec, src, known_by_linje)
         ent = escalation_entry(rec, issues, advisory)
         if ent:
             escalation.append(ent)
         if issues:
             review.append({'fil': fn, 'linje': rec.get('linje'), 'nr': rec.get('nr'),
+                           'nr_label': rec.get('nr_label') or str(rec.get('nr')),
                            'navn': rec.get('navn'), 'brud': issues, 'advisory': advisory})
         else:
             # flet den AUTORITATIVE narrativ ind fra kilden (overskriver evt. LLM-narrativ)

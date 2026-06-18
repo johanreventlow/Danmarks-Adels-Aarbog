@@ -11,8 +11,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 import validate
 
 
-def count_r8(advisory):
-    return sum(1 for a in (advisory or []) if a.startswith('R8'))
+def _r8_types(advisory):
+    """Mængden af R8-strenge i advisory-listen (stabil nøgle: den fulde besked)."""
+    return {a for a in (advisory or []) if a.startswith('R8')}
 
 
 def _key(rec):
@@ -20,10 +21,24 @@ def _key(rec):
 
 
 def decide(reextracted, snapshot, src, known_by_linje):
-    """(promote, issues, advisory) for et Opus-gen-udtræk."""
+    """(promote, issues, advisory) for et Opus-gen-udtræk.
+
+    Promote-kriterium:
+      1. Ingen blokerende brud.
+      2. Snapshot skal eksistere (mangler → afvis).
+      3. Mængden af R8-typer i reextracted ⊆ snapshot (ingen ny type introduceres).
+         Et swap (snapshot misser ægteskab; reext misser død) er 1==1 men IKKE delmængde
+         → afvises korrekt. Kun fjernede/bevarede R8-typer → promote.
+    """
+    # Normaliser boern deterministisk FØR validering (som validate.main() gør).
+    validate.normalize_record(reextracted, src)
     issues, advisory = validate.validate(reextracted, src, known_by_linje)
+    if snapshot is None:
+        # Mangler snapshot → kan ikke vurdere forbedring → afvis
+        return False, issues, advisory
     _, snap_adv = validate.validate(snapshot, src, known_by_linje)
-    promote = (not issues) and count_r8(advisory) <= count_r8(snap_adv)
+    # Tillad kun promote hvis ingen ny R8-type er introduceret ift. snapshottet
+    promote = (not issues) and (_r8_types(advisory) <= _r8_types(snap_adv))
     return promote, issues, advisory
 
 
@@ -67,7 +82,7 @@ def merge_escalated(escalation, reext_by_key, snap_by_key, src_by_key, known_by_
         reext = reext_by_key.get(key)
         if reext is None:
             continue
-        snap = snap_by_key.get(key, reext)
+        snap = snap_by_key.get(key)  # None → decide() afviser (fail-closed)
         src = src_by_key.get(key)
         promote, issues, advisory = decide(reext, snap, src, known_by_linje)
         if promote:
