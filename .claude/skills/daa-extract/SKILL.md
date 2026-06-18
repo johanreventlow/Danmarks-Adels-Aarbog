@@ -92,6 +92,10 @@ Prompten til hver post (skema-tvunget output) skal indeholde:
 - kravet: **hver udtrukket dato-værdi skal forekomme ordret i raw_text**
 - **dato-fakta:** `date_raw` er obligatorisk og verbatim (også floruit) — syntetisér
   aldrig en normaliseret span i `vaerdi`; spanet hører i `date_min`/`date_max`.
+- **kilde_span (proveniens):** for hvert fakta og ægteskab, kopiér den mindste
+  klausul fra `raw_text` der indeholder ankeret (dato-token, partnernavn,
+  godsnavn). Den SKAL være en ordret substring af `raw_text` — `validate.py`
+  afviser poster hvor et span ikke findes ordret (R7). Opfind aldrig spanet.
 - **begivenheder restriktivt:** kun navngivne, *delte* historiske events (slag,
   kroning, mord på greve Adolph 1315). Rutine-gerninger (vidne, stadfæstede,
   lenshyldning, immatrikulation) er IKKE events — de bliver i narrativen.

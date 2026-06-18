@@ -26,7 +26,8 @@
           "date_min": {"type": ["string", "null"], "description": "ISO YYYY-MM-DD el. null"},
           "date_max": {"type": ["string", "null"]},
           "date_qualifier": {"type": ["string", "null"], "enum": ["exact", "before", "after", "about", "between", "floruit", "until_event", "open_end", "ongoing", null]},
-          "sted": {"type": ["string", "null"]}
+          "sted": {"type": ["string", "null"]},
+          "kilde_span": {"type": ["string", "null"], "description": "mindste klausul i raw_text der indeholder dette faktas anker (dato/værdi). SKAL være substring af raw_text. Bruges til felt-proveniens (citation.citat_tekst)."}
         }
       }
     },
@@ -78,7 +79,8 @@
           "partner_doed": {"$ref": "#/$defs/datofakta", "description": "ægtefælles død"},
           "partner_erhverv": {"type": "array", "items": {"type": "string"}, "description": "ægtefælles erhverv + akademiske grader. Foreløbig IKKE rygrads-fakta — loaderen folder dem ind i ægtefællens bio-note (de har ingen narrativ)."},
           "partner_foraeldre": {"type": ["string", "null"], "description": "ægtefælles forældre fra '(F.: …)' — tekst, ikke nye personer"},
-          "note": {"type": ["string", "null"], "description": "anden fri tekst om ægteskabet"}
+          "note": {"type": ["string", "null"], "description": "anden fri tekst om ægteskabet"},
+          "kilde_span": {"type": ["string", "null"], "description": "klausulen i raw_text dette ægteskab kom fra; SKAL være substring af raw_text"}
         }
       }
     },
