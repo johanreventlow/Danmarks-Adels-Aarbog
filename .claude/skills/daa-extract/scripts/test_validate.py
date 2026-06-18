@@ -1,4 +1,4 @@
-import os, sys, unittest
+import os, sys, json, tempfile, unittest
 sys.path.insert(0, os.path.dirname(__file__))
 import validate
 
@@ -114,6 +114,85 @@ class TestProvenansGate(unittest.TestCase):
         rec = {"linje": "I", "nr": 1, "facts": [{"faktatype": "død", "kilde_span": "† 1399"}]}
         bad = [i for i in self._run(rec, "N.N. † 1300, til X.") if i.startswith("R7")]
         self.assertEqual(len(bad), 1)
+
+
+class TestEscalationEntry(unittest.TestCase):
+    def test_blokerende_eskaleres(self):
+        rec = {"linje": "I", "nr": 5, "nr_label": "5"}
+        e = validate.escalation_entry(rec, ["R1: årstal ..."], [])
+        self.assertIsNotNone(e)
+        self.assertEqual(e["nr_label"], "5")
+        self.assertEqual(e["grunde"], ["R1: årstal ..."])
+
+    def test_r8_miss_eskaleres(self):
+        rec = {"linje": "I", "nr": 5, "nr_label": "5"}
+        e = validate.escalation_entry(rec, [], ["R8: prosa nævner død, men intet død-fakta"])
+        self.assertIsNotNone(e)
+        self.assertEqual(e["grunde"], ["R8: prosa nævner død, men intet død-fakta"])
+
+    def test_ren_post_eskaleres_ikke(self):
+        self.assertIsNone(validate.escalation_entry({"linje": "I", "nr": 5}, [], []))
+
+    def test_v9_vocab_eskalerer_ikke(self):
+        e = validate.escalation_entry({"linje": "I", "nr": 5}, [], ["V9: ukendt faktatype"])
+        self.assertIsNone(e)
+
+
+class TestNormalizeRecord(unittest.TestCase):
+    """C1: normalize_record() deler boern-logikken med validate.main()."""
+
+    def test_udleder_boern_fra_prosa(self):
+        rec = {"linje": "I", "nr": 1, "boern": None}
+        src = {"raw_text": "N.N. 3 børn: Tiende slægtled, II, nr. 31-35."}
+        validate.normalize_record(rec, src)
+        self.assertIsNotNone(rec["boern"])
+        self.assertEqual(rec["boern"]["nr_range"], [31, 35])
+        self.assertEqual(rec["boern"]["antal"], 3)
+
+    def test_nulstiller_hallucineret_boern(self):
+        rec = {"linje": "I", "nr": 1, "boern": {"antal": 2, "nr_range": [10, 11]}}
+        src = {"raw_text": "N.N. Levede ugift uden børn."}
+        validate.normalize_record(rec, src)
+        self.assertIsNone(rec["boern"])
+
+    def test_ingen_src_bevaerer_boern(self):
+        boern = {"antal": 1, "nr_range": [5, 5]}
+        rec = {"linje": "I", "nr": 1, "boern": boern}
+        validate.normalize_record(rec, None)
+        self.assertEqual(rec["boern"], boern)
+
+
+class TestValidateMainReviewNrLabel(unittest.TestCase):
+    """C3: validate.main() skriver nr_label ind i review-recorden."""
+
+    def test_review_record_har_nr_label(self):
+        # Opsæt temp-mappe med én udtrukket post der fejler R1 (hallucination)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            posts = [{"linje": "I", "nr": 15, "nr_label": "15a",
+                      "raw_text": "Peter til X. † 1700."}]
+            posts_path = os.path.join(tmpdir, "posts.json")
+            json.dump(posts, open(posts_path, 'w', encoding='utf-8'), ensure_ascii=False)
+
+            # Extracted post med hallucineret årstal → R1-brud
+            rec = {"linje": "I", "nr": 15, "nr_label": "15a", "navn": "Peter",
+                   "facts": [{"faktatype": "død", "date_raw": "† 1999"}],
+                   "aegteskaber": [], "boern": None}
+            ext_dir = os.path.join(tmpdir, "extracted")
+            os.makedirs(ext_dir)
+            json.dump(rec, open(os.path.join(ext_dir, "015a.json"), 'w', encoding='utf-8'),
+                      ensure_ascii=False)
+
+            clean_path = os.path.join(tmpdir, "clean.json")
+            review_path = os.path.join(tmpdir, "review.json")
+
+            sys.argv = ["validate.py", posts_path, ext_dir,
+                        "--clean", clean_path, "--review", review_path]
+            validate.main()
+
+            review = json.load(open(review_path, encoding='utf-8'))
+            self.assertEqual(len(review), 1)
+            self.assertEqual(review[0].get("nr_label"), "15a",
+                             "review-record mangler nr_label — C3-fix ikke anvendt")
 
 
 if __name__ == "__main__":

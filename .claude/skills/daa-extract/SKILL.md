@@ -39,7 +39,8 @@ Trin 3 er det eneste LLM-trin. Trin 5 loader.
 
 ```
 PDF ──①pdftotext──> rå tekst ──②segment.py──> posts.json
-   ──③LLM-udtræk──> extracted.json ──④validate.py──> {clean.json, review.json}
+   ──③LLM-udtræk──> extracted.json ──④validate.py──> {clean.json, review.json, escalation.json}
+   ──④b Opus-eskalering (flaggede) ──> opdateret clean.json + escalation-diff.md
    ──⑤load_daa.R──> Supabase   (kun clean.json; review.json kræver menneske)
 ```
 
@@ -120,6 +121,34 @@ med præcis hvilken regel der brød og hvor. Et menneske skal gennemgå
 `clean.json` før load.
 
 Dette er bevidst blokerende: vi hellere mangler en post end loader en forkert.
+
+### ④b Auto-eskalering (agent-orkestreret, ÉT forsøg)
+
+Hvis trin ④ flagger poster i `escalation.json`, køres denne drift af agenten:
+
+1. **Snapshot Sonnet-output FØR overskrivning:** kopiér hver `work/extracted/<linje>-<nr>.json`
+   til `work/extracted/<linje>-<nr>.sonnet.json` (gemmer Sonnet's version til sammenligning).
+
+2. **Dispatch en Opus-subagent** (samme rolle som trin ③, samme skema) med postens
+   `grunde` fra worklisten ("tidligere forsøg missede/brød: …") som kontekst.
+   Opus overskriver `work/extracted/<linje>-<nr>.json` med sit re-udtræk.
+
+3. **Merge plumbingen (deterministisk):**
+   ```bash
+   python3 scripts/escalate_merge.py work/posts.json work/extracted/ work/extracted/ \
+     work/escalation.json work/clean.json work/review.json --diff work/escalation-diff.md
+   ```
+   
+   Scriptet re-validerer hvert Opus-output: består det **uden blokerende brud** OG
+   **har det ikke flere R8-misses end Sonnet-snapshotten**, promoveres det til
+   `clean.json` (markeret `_escalated: true`); ellers sikres det i `review.json`.
+   Diff-rappen (`escalation-diff.md`) viser hvad der ændrede sig per post.
+
+4. **Overflad resultatet:** "N poster eskaleret til Opus, M reddet/promoveret,
+   K stadig i review — se `work/escalation-diff.md`." Stadig-fejlende poster kræver
+   menneske.
+
+**ÉT forsøg per post:** gen-eskalér aldrig en post der allerede er prøvet med Opus.
 
 ### ⑤ Load til Supabase (R)
 

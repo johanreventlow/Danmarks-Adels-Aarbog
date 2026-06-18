@@ -68,7 +68,7 @@ add_fact <- function(sid_, ft, sted_id=NA, st="person") { id <- nid("fact"); pus
 add_assertion <- function(tt, tid, vaerdi=NA, dmin=NA, dmax=NA, qual=NA, raw=NA) { id <- nid("assertion")
   push("assertion", list(id=id, target_type=tt, target_id=tid, vaerdi_tekst=vaerdi, date_min=dmin, date_max=dmax, date_qualifier=qual, date_raw=raw)); id }
 add_citation <- function(aid, sid, side=NA, kval="primær", citat=NA) push("citation", list(id=nid("citation"), assertion_id=aid, source_id=sid, side=side, citat_tekst=citat, kvalitet=kval))
-add_conclusion <- function(tt, tid, chosen, status="afklaret", by=udgave) push("conclusion", list(id=nid("conclusion"), target_type=tt, target_id=tid, valgt_assertion_id=chosen, status=status, blaastemplet_af=by))
+add_conclusion <- function(tt, tid, chosen, status="afklaret", by=current_by) push("conclusion", list(id=nid("conclusion"), target_type=tt, target_id=tid, valgt_assertion_id=chosen, status=status, blaastemplet_af=by))
 add_note <- function(tt, tid, indhold) {
   if (is.null(indhold) || is.na(indhold) || !nzchar(trimws(indhold))) return(invisible())
   push("note", list(id=nid("note"), target_type=tt, target_id=tid, indhold=indhold)) }
@@ -155,6 +155,8 @@ iso <- function(d) {
   NA
 }
 
+current_by <- udgave   # konklusions-proveniens; sættes per record
+
 # ================= LOAD (én transaktion) =================
 dbBegin(con)
 tryCatch({
@@ -174,6 +176,7 @@ tryCatch({
 
   # ---- pass 1: personer, external_id, narrative, fakta ----
   for (rec in clean) {
+    current_by <- if (isTRUE(rec[["_escalated"]])) "Opus-escalated" else udgave
     pid <- add_person(g(rec, "koen"))
     k <- key(rec$linje, lbl_of(rec))
     assign(k, pid, envir = pmap); assign(k, isTRUE(rec$usikker), envir = umap)
@@ -197,6 +200,7 @@ tryCatch({
 
   # ---- pass 2: slægtskab + relationer ----
   for (rec in clean) {
+    current_by <- if (isTRUE(rec[["_escalated"]])) "Opus-escalated" else udgave
     pid <- get(key(rec$linje, lbl_of(rec)), envir = pmap)
     side <- g(rec, "sider", g(rec, "side"))
 
