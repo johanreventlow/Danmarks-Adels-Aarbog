@@ -191,6 +191,7 @@ def expected_signals(raw_text):
     txt = norm(raw_text or '')
     return {
         'venter_aegteskab': bool(derive_aegteskaber(txt)),
+        # venter_boern bruges ikke i R8 — børn håndteres deterministisk i main().
         'venter_boern': BOERN_RE.search(txt) is not None,
         'venter_doed': bool(re.search(r'[†☩]|\bdøde?\b|\bd\.\s*\d', txt, re.I)),
     }
@@ -338,18 +339,8 @@ def main():
                 rec['boern'] = derived
             elif rec.get('boern') is not None:
                 rec['boern'] = None   # LLM-hallucineret boern uden tekst-belæg
-        # DETERMINISTISK aegteskaber: udled fra kilde-prosaen (overskriver LLM-feltet).
-        # Bevar LLM-felter vi ikke udleder (partner_foedsel, sted, type) ved at
-        # flette på ordinal; deterministiske felter vinder.
-        if src:
-            derived_a = derive_aegteskaber(src['raw_text'])
-            if derived_a:
-                llm = {a.get('ordinal'): a for a in (rec.get('aegteskaber') or [])}
-                for a in derived_a:
-                    base = dict(llm.get(a['ordinal'], {}))
-                    base.update({k: v for k, v in a.items() if v is not None or k == 'skilt'})
-                    a.clear(); a.update(base)
-                rec['aegteskaber'] = derived_a
+        # NB: aegteskaber er IKKE deterministisk — LLM-udtræk er autoritativt.
+        # derive_aegteskaber() bruges kun advisory i expected_signals() (R8).
         issues, advisory = validate(rec, src, known_by_linje)
         if issues:
             review.append({'fil': fn, 'linje': rec.get('linje'), 'nr': rec.get('nr'),
