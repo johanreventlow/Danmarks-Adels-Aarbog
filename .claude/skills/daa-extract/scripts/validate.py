@@ -36,6 +36,17 @@ def norm(s):
     return re.sub(r'\s+', ' ', (s or '')).strip()
 
 
+def _strip_parens(txt):
+    """Fjern parentes-indhold (også nested). Tredjeparts-data (slægtninge, gift-
+    ind ægtefæller, kilde-refs) bor i parenteser; de skal ikke tælle som postens
+    egne signaler. Itererer indtil stabil, så nested '(F.: Hans (af Kaden))' tømmes."""
+    prev = None
+    while prev != txt:
+        prev = txt
+        txt = re.sub(r'\([^()]*\)', ' ', txt)
+    return txt
+
+
 # Børne-reference er DETERMINISTISK tekst ("3 børn: Tiende slægtled, II, nr. 31-35"
 # / "Søn: ... nr. 199." / "Datter: ... nr. 5."). LLM-trinnet (③) misser den ofte,
 # så vi udleder den her i deterministisk kode (filosofi: trin ④ er fejlfri kode).
@@ -203,11 +214,16 @@ def expected_signals(raw_text):
         venter_doed       — prosa indeholder dødstegn (†/☩) eller "døde"/"d."
     """
     txt = norm(raw_text or '')
+    # Parenteser bærer tredjeparts-data (slægtninge, gift-ind ægtefæller, kilde-
+    # refs). Et tredjeparts † eller "(gift…)" må ikke flagge POSTEN — strip dem
+    # før død/ægteskab-signal (pilot 2026-06-18: ellers falsk-eskaleres middelalder-
+    # poster med parentes-slægtninge). Børn er ikke parentes-baseret -> rå txt.
+    udenfor = _strip_parens(txt)
     return {
-        'venter_aegteskab': bool(derive_aegteskaber(txt)),
+        'venter_aegteskab': bool(derive_aegteskaber(udenfor)),
         # venter_boern bruges ikke i R8 — børn håndteres deterministisk i main().
         'venter_boern': BOERN_RE.search(txt) is not None,
-        'venter_doed': bool(re.search(r'[†☩]|\bdøde?\b|\bd\.\s*\d', txt, re.I)),
+        'venter_doed': bool(re.search(r'[†☩]|\bdøde?\b|\bd\.\s*\d', udenfor, re.I)),
     }
 
 

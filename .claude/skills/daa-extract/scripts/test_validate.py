@@ -78,6 +78,33 @@ class TestExpectedSignals(unittest.TestCase):
         self.assertFalse(sig["venter_aegteskab"])
         self.assertFalse(sig["venter_boern"])
 
+    # Pilot 2026-06-18: parenteser bærer tredjeparts-data (slægtninge, gift-ind,
+    # kilde-refs). Et tredjeparts † eller (gift…) i parentes må IKKE flagge posten.
+    def test_tredjeparts_doed_i_parentes_flagger_ikke(self):
+        raw = "Lüder til X. Beseglede 1469. Gift med Mette (F.: Hans B., † før 1496)."
+        sig = validate.expected_signals(raw)
+        self.assertFalse(sig["venter_doed"])     # † er kun i parentes (svigerfar)
+
+    def test_egen_doed_flagger_stadig(self):
+        raw = "Lüder † 1500. Gift med Mette (F.: Hans B., † før 1496)."
+        sig = validate.expected_signals(raw)
+        self.assertTrue(sig["venter_doed"])      # postens egen † uden for parentes
+
+    def test_tredjeparts_aegteskab_i_parentes_flagger_ikke(self):
+        raw = "Lüder, søn af NN (gift 2° med Erik Schrandi)."
+        sig = validate.expected_signals(raw)
+        self.assertFalse(sig["venter_aegteskab"])  # ægteskab kun i parentes (tredjepart)
+
+    def test_egen_aegteskab_uden_for_parentes_flagger(self):
+        raw = "Lüder. Gift med Mette Breide (gift 2° med Erik Schrandi)."
+        sig = validate.expected_signals(raw)
+        self.assertTrue(sig["venter_aegteskab"])   # postens eget ægteskab uden for parentes
+
+    def test_nestede_parenteser_strippes(self):
+        raw = "Lüder til X (F.: Hans (af Kaden) † 1490)."
+        sig = validate.expected_signals(raw)
+        self.assertFalse(sig["venter_doed"])     # nested parentes-† tæller ikke
+
     def test_r8_advisory_i_validate(self):
         """validate() tilføjer R8-advisories (non-blocking) ved mismatch."""
         rec = {
