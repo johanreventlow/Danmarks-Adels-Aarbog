@@ -27,6 +27,36 @@ def decide(reextracted, snapshot, src, known_by_linje):
     return promote, issues, advisory
 
 
+def field_diff(snapshot, reextracted):
+    """{felt: (gammel, ny)} for felter der ændrede sig (ignorér _escalated/narrative)."""
+    out = {}
+    keys = set(snapshot or {}) | set(reextracted or {})
+    keys -= {'_escalated', 'narrative'}
+    for k in keys:
+        old, new = (snapshot or {}).get(k), (reextracted or {}).get(k)
+        if old != new:
+            out[k] = (old, new)
+    return out
+
+
+def gen_diff(escalation, reext_by_key, snap_by_key, promoted, path):
+    """Skriv eskalerings-diff-rapport (markdown) til path."""
+    lines = ['# Eskalerings-diff (Sonnet → Opus)', '']
+    for ent in escalation:
+        key = (ent['linje'], ent['nr_label'])
+        d = field_diff(snap_by_key.get(key), reext_by_key.get(key))
+        status = 'PROMOVERET' if key in promoted else 'stadig i review'
+        lines.append(f'## {ent["linje"]}-{ent["nr_label"]} ({status})')
+        lines.append(f'Grunde: {", ".join(ent.get("grunde", []))}')
+        if not d:
+            lines.append('_ingen feltændring_')
+        for felt, (old, new) in sorted(d.items()):
+            lines.append(f'- **{felt}**: `{old}` → `{new}`')
+        lines.append('')
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines))
+
+
 def merge_escalated(escalation, reext_by_key, snap_by_key, src_by_key, known_by_linje, clean, review):
     """Returnér (new_clean, new_review, promoted_keys)."""
     clean_by_key = {_key(r): r for r in clean}
@@ -67,6 +97,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('posts'); ap.add_argument('reextracted_dir'); ap.add_argument('snapshot_dir')
     ap.add_argument('escalation'); ap.add_argument('clean'); ap.add_argument('review')
+    ap.add_argument('--diff', help='skriv diff-rapport (markdown) hertil')
     args = ap.parse_args()
     posts = json.load(open(args.posts, encoding='utf-8'))
     src_by_key = {(p['linje'], p.get('nr_label', str(p['nr']))): p for p in posts}
@@ -99,6 +130,8 @@ def main():
     new_clean, new_review, promoted = merge_escalated(escalation, reext, snaps, src_by_key, known_by_linje, clean, review)
     json.dump(new_clean, open(args.clean, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
     json.dump(new_review, open(args.review, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+    if args.diff:
+        gen_diff(escalation, reext, snaps, set(promoted), args.diff)
     print(f'[escalate] {len(promoted)} promoveret, {len(new_review)} stadig i review', file=sys.stderr)
 
 

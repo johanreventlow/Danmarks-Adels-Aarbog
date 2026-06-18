@@ -1,4 +1,4 @@
-import os, sys, unittest
+import os, sys, unittest, tempfile
 sys.path.insert(0, os.path.dirname(__file__))
 import escalate_merge as em
 
@@ -62,3 +62,44 @@ class TestMerge(unittest.TestCase):
         self.assertEqual(len(new_clean), 0)          # fjernet fra clean
         self.assertEqual(len(new_review), 1)         # havnet i review
         self.assertNotIn(KEY, promoted)
+
+class TestDiff(unittest.TestCase):
+    def test_field_diff_fanger_aendring(self):
+        snap = {"navn": "Iwan", "facts": []}
+        reext = {"navn": "Iwan", "facts": [{"faktatype": "død"}]}
+        d = em.field_diff(snap, reext)
+        self.assertIn("facts", d)
+        self.assertNotIn("navn", d)   # uændret felt udelades
+
+    def test_field_diff_tom_naar_identisk(self):
+        self.assertEqual(em.field_diff({"navn": "A"}, {"navn": "A"}), {})
+
+    def test_field_diff_ignorerer_escalated_og_narrative(self):
+        snap = {"navn": "A", "_escalated": False, "narrative": "old"}
+        reext = {"navn": "A", "_escalated": True, "narrative": "new"}
+        d = em.field_diff(snap, reext)
+        # skal være tom da _escalated og narrative ignoreres
+        self.assertEqual(d, {})
+
+    def test_gen_diff_markdown_format(self):
+        import tempfile
+        escalation = [
+            {"linje": "I", "nr_label": "5", "grunde": ["R8: ..."]}
+        ]
+        reext_by_key = {("I", "5"): {"navn": "Iwan", "facts": [{"faktatype": "død"}]}}
+        snap_by_key = {("I", "5"): {"navn": "Iwan", "facts": []}}
+        promoted = {("I", "5")}
+
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.md') as f:
+            path = f.name
+
+        try:
+            em.gen_diff(escalation, reext_by_key, snap_by_key, promoted, path)
+            with open(path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            self.assertIn("# Eskalerings-diff", content)
+            self.assertIn("## I-5 (PROMOVERET)", content)
+            self.assertIn("Grunde: R8: ...", content)
+            self.assertIn("- **facts**:", content)
+        finally:
+            os.unlink(path)
