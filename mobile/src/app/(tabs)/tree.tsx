@@ -178,23 +178,48 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
 }
 
 // ── Variant C · Spor (gestus-snap) ───────────────────────────────────────────
-const STEPY = 138;
+const STEPY = 138; // lodret afstand mellem generationer
+const ROWH = 118; // rækkehøjde (fokus-rammens højde)
 const CARD_W = 150;
 const CARD_H = 104;
-const CONTAINER_H = 560;
-const HTHRESH = 64;
-const VTHRESH = 44;
+const CARD_GAP = 14; // vandret mellemrum mellem søskende-kort
+const HTHRESH = 64; // træk-tærskel: søskende
+const VTHRESH = 44; // træk-tærskel: generation
 
 function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Model; activeLinje: string | null; linjeByPerson: Record<string, string>; linjeNavn: Record<string, string> }) {
   const router = useRouter();
   const snapPath = useStore((s) => s.snapPath);
   const snapDepth = useStore((s) => s.snapDepth);
 
-  const baseCenter = CONTAINER_H / 2 - CARD_H / 2;
-  const ty = useSharedValue(-snapDepth * STEPY);
+  // Hver generation (depth d) er en vandret række af ALLE søskende, centreret på den valgte
+  // via balancerede spacer-pladser (padL/padR) — så søskende peeker i siderne. Port af
+  // designets snapRows-logik (v2 linje 1273-1287).
+  const rows = useMemo(() => {
+    const maxD = snapPath.length - 1;
+    const out: { d: number; padL: number; padR: number; sibIds: string[]; selId: string }[] = [];
+    for (let d = 0; d <= maxD; d++) {
+      const sibIds = d === 0 ? [snapPath[0]] : childrenOf(model, snapPath[d - 1]).map((p) => p.id);
+      const selIndex = Math.max(0, sibIds.indexOf(snapPath[d]));
+      const leftN = selIndex;
+      const rightN = sibIds.length - 1 - selIndex;
+      out.push({
+        d,
+        padL: Math.max(0, rightN - leftN),
+        padR: Math.max(0, leftN - rightN),
+        sibIds,
+        selId: snapPath[d],
+      });
+    }
+    return out;
+  }, [model, snapPath]);
+
+  // Stakken er forankret på vertikal midte (top:50%); translateY rykker den fokuserede række
+  // til midten: -(snapDepth*STEPY + ROWH/2). Animeres .42s.
+  const targetY = -(snapDepth * STEPY + ROWH / 2);
+  const ty = useSharedValue(targetY);
   useEffect(() => {
-    ty.value = withTiming(-snapDepth * STEPY, { duration: 420 });
-  }, [snapDepth, ty]);
+    ty.value = withTiming(targetY, { duration: 420 });
+  }, [targetY, ty]);
   const stackStyle = useAnimatedStyle(() => ({ transform: [{ translateY: ty.value }] }));
 
   // Gesten memoiseres STABILT: store-opdateringer (snapDepth ændres pr. step) re-renderer
@@ -242,25 +267,33 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
         <View style={styles.snapGuide} pointerEvents="none" />
         {/* Kort-stak — ikke-interaktiv (pointerEvents none); al input går til gesten. */}
         <Animated.View style={[styles.snapStack, stackStyle]} pointerEvents="none">
-          {snapPath.map((pid, i) => {
-            const p = model.byId[pid];
-            if (!p) return null;
-            const isFocus = i === snapDepth;
-            return (
-              <View key={`${pid}-${i}`} style={[styles.snapRow, { top: baseCenter + i * STEPY }]}>
-                <View style={[styles.snapCard, { opacity: isFocus ? 1 : 0.5 }]}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
-                    <View style={styles.snapAvatar}><Serif size={14} color={Colors.bordeaux}>{initial(p.name)}</Serif></View>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Serif size={17} style={{ lineHeight: 17 }} numberOfLines={1}>{p.name}</Serif>
-                      {p.years ? <Mono size={9} color={Colors.textMuted} style={{ marginTop: 2 }}>{p.years}</Mono> : null}
+          {rows.map((row) => (
+            <View key={row.d} style={[styles.snapRow, { top: row.d * STEPY }]}>
+              {Array.from({ length: row.padL }).map((_, i) => (
+                <View key={`pl-${i}`} style={styles.snapSpacer} />
+              ))}
+              {row.sibIds.map((id) => {
+                const p = model.byId[id];
+                if (!p) return <View key={id} style={styles.snapSpacer} />;
+                const isFocus = row.d === snapDepth && id === row.selId;
+                return (
+                  <View key={id} style={[styles.snapCard, { opacity: isFocus ? 1 : 0.55 }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+                      <View style={styles.snapAvatar}><Serif size={14} color={Colors.bordeaux}>{initial(p.name)}</Serif></View>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Serif size={17} style={{ lineHeight: 17 }} numberOfLines={1}>{p.name}</Serif>
+                        {p.years ? <Mono size={9} color={Colors.textMuted} style={{ marginTop: 2 }}>{p.years}</Mono> : null}
+                      </View>
                     </View>
+                    {p.title ? <BtnLabel size={10.5} color={Colors.bordeaux} numberOfLines={1} style={{ marginTop: 7, fontFamily: Fonts.sansMedium }}>{p.title}</BtnLabel> : null}
                   </View>
-                  {p.title ? <BtnLabel size={10.5} color={Colors.bordeaux} numberOfLines={1} style={{ marginTop: 7, fontFamily: Fonts.sansMedium }}>{p.title}</BtnLabel> : null}
-                </View>
-              </View>
-            );
-          })}
+                );
+              })}
+              {Array.from({ length: row.padR }).map((_, i) => (
+                <View key={`pr-${i}`} style={styles.snapSpacer} />
+              ))}
+            </View>
+          ))}
         </Animated.View>
         {/* Center-fokus-ramme */}
         <View style={styles.snapFrame} pointerEvents="none" />
@@ -349,10 +382,11 @@ const styles = StyleSheet.create({
   bAvatar: { width: 34, height: 34, borderRadius: Radius.round, backgroundColor: '#f4ece0', borderWidth: StyleSheet.hairlineWidth, borderColor: Border.faint, alignItems: 'center', justifyContent: 'center' },
   bOpenBtn: { marginTop: 10, backgroundColor: Colors.bordeaux, borderRadius: 8, paddingVertical: 7, alignItems: 'center' },
   // Variant C
-  snapContainer: { height: CONTAINER_H, overflow: 'hidden', backgroundColor: Colors.paperBg },
+  snapContainer: { flex: 1, overflow: 'hidden', backgroundColor: Colors.paperBg },
   snapGuide: { position: 'absolute', left: '50%', top: 0, bottom: 0, width: 2, marginLeft: -1, backgroundColor: 'rgba(136,26,51,0.16)' },
-  snapStack: { position: 'absolute', left: 0, right: 0, top: 0 },
-  snapRow: { position: 'absolute', left: 0, right: 0, height: CARD_H, alignItems: 'center', justifyContent: 'center' },
+  snapStack: { position: 'absolute', left: 0, right: 0, top: '50%' },
+  snapRow: { position: 'absolute', left: 0, right: 0, height: ROWH, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: CARD_GAP },
+  snapSpacer: { width: CARD_W, height: CARD_H },
   snapCard: { width: CARD_W, height: CARD_H, backgroundColor: Colors.paperCard, borderWidth: 1.5, borderColor: Border.medium, borderRadius: 15, paddingHorizontal: 14, justifyContent: 'center', ...Shadow.card },
   snapAvatar: { width: 34, height: 34, borderRadius: Radius.round, backgroundColor: Colors.beige2, borderWidth: StyleSheet.hairlineWidth, borderColor: Border.faint, alignItems: 'center', justifyContent: 'center' },
   snapFrame: { position: 'absolute', left: '50%', top: '50%', width: 166, height: 118, marginLeft: -83, marginTop: -59, borderWidth: 1.5, borderColor: Colors.bordeaux, borderRadius: 18 },
