@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { InitialBadge } from '../../components/InitialBadge';
 import { LoadGate } from '../../components/LoadGate';
 import { Rise } from '../../components/Rise';
-import { Body, Kicker, Mono, Serif } from '../../components/Typography';
+import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
 import { counts } from '../../data/selectors';
 import { useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius } from '../../theme/tokens';
@@ -49,7 +49,7 @@ export default function HomeScreen() {
               <Kicker size={8}>Slægt</Kicker>
               <Serif size={18}>{SLAEGT}</Serif>
             </View>
-            <Mono color={Colors.bordeaux} size={11}>skift ▾</Mono>
+            <BtnLabel color={Colors.bordeaux} size={12}>skift ▾</BtnLabel>
           </Pressable>
         </Rise>
 

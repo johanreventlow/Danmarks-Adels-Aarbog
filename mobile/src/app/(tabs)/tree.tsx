@@ -6,7 +6,7 @@ import { useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadGate } from '../../components/LoadGate';
-import { Body, Kicker, Mono, Serif } from '../../components/Typography';
+import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
 import { treeFocusA } from '../../data/selectors';
 import type { ModelPerson } from '../../data/types';
 import { useStore } from '../../store/useStore';
@@ -119,7 +119,7 @@ export default function TreeScreen() {
 function LinjeChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
     <Pressable onPress={onPress} style={[styles.linjeChip, active && styles.linjeChipActive]}>
-      <Mono size={10} color={active ? Colors.paperBg : Colors.textSecondary2}>{label}</Mono>
+      <BtnLabel size={12} color={active ? Colors.paperBg : Colors.textSecondary2}>{label}</BtnLabel>
     </Pressable>
   );
 }
@@ -142,7 +142,7 @@ function SiblingCard({
       {person.title ? <Mono size={9} color={Colors.textMuted}>{person.title}</Mono> : null}
       {selected ? (
         <Pressable onPress={onOpen} style={styles.openBtn}>
-          <Mono size={10} color={Colors.paperBg}>Åbn profil ›</Mono>
+          <BtnLabel size={12} color={Colors.paperCard}>Åbn profil ›</BtnLabel>
         </Pressable>
       ) : null}
     </Pressable>

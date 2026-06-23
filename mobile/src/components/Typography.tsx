@@ -38,6 +38,17 @@ export function Serif({ style, color = Colors.ink, size = 24, italic = false, ..
   return <Text {...rest} style={[s, style]} />;
 }
 
+// Hanken Grotesk SemiBold — knap-/UI-labels (README §6: "knapper" = Hanken Grotesk).
+// IKKE Mono — Mono er kun til kickers/årstal/labels med letter-spacing.
+export function BtnLabel({ style, color = Colors.ink, size = 13, ...rest }: Props) {
+  const s: TextStyle = {
+    fontFamily: Fonts.sansSemi,
+    fontSize: size,
+    color,
+  };
+  return <Text {...rest} style={[s, style]} />;
+}
+
 // Hanken Grotesk — brødtekst/UI.
 export function Body({ style, color = Colors.textSecondary, size = 14, ...rest }: Props) {
   const s: TextStyle = {

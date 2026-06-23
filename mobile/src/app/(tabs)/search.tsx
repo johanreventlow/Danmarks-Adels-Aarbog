@@ -13,7 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { InitialBadge } from '../../components/InitialBadge';
 import { LoadGate } from '../../components/LoadGate';
-import { Body, Kicker, Mono, Serif } from '../../components/Typography';
+import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
 import { buildSearch, type SearchItem } from '../../data/selectors';
 import { useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius } from '../../theme/tokens';
@@ -53,10 +53,10 @@ export default function SearchScreen() {
             onChangeText={setQuery}
             autoCorrect={false}
           />
-          {/* Sortér-toggle */}
+          {/* Sortér-toggle (segmenteret, jf. design) */}
           <View style={styles.sortRow}>
-            <SortPill label="Alfabetisk" active={sort === 'alpha'} onPress={() => setSort('alpha')} />
-            <SortPill label="Efter fødeår" active={sort === 'born'} onPress={() => setSort('born')} />
+            <SortPill label="A–Å" active={sort === 'alpha'} onPress={() => setSort('alpha')} />
+            <SortPill label="Født" active={sort === 'born'} onPress={() => setSort('born')} />
           </View>
 
           {/* Alfabet-chips (§9.1) */}
@@ -120,7 +120,7 @@ function SortPill({
 }) {
   return (
     <Pressable onPress={onPress} style={[styles.sortPill, active && styles.sortPillActive]}>
-      <Mono size={10} color={active ? Colors.paperBg : Colors.textSecondary2}>{label}</Mono>
+      <BtnLabel size={11} color={active ? Colors.paperBg : Colors.textSecondary2}>{label}</BtnLabel>
     </Pressable>
   );
 }

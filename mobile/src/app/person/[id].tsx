@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { InitialBadge } from '../../components/InitialBadge';
 import { TopBar } from '../../components/TopBar';
-import { Body, Kicker, Mono, Serif } from '../../components/Typography';
+import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
 import { childrenByMarriage, parentsOf, spousesOf } from '../../data/selectors';
 import { useStore } from '../../store/useStore';
 import { Border, Colors, Radius } from '../../theme/tokens';
@@ -88,9 +88,9 @@ export default function PersonScreen() {
             <Body size={14}>{bioText}</Body>
             {bioLong ? (
               <Pressable onPress={() => setBioExpanded((v) => !v)}>
-                <Mono size={11} color={Colors.bordeaux} style={{ marginTop: 6 }}>
+                <BtnLabel size={12} color={Colors.bordeaux} style={{ marginTop: 6 }}>
                   {bioExpanded ? 'Vis mindre' : 'Læs hele biografien'}
-                </Mono>
+                </BtnLabel>
               </Pressable>
             ) : null}
           </Section>
@@ -200,6 +200,7 @@ export default function PersonScreen() {
             />
             <ActionButton
               label="Slægtskab"
+              primary
               onPress={() => {
                 useStore.setState({ relA: person.id });
                 router.push('/relate');
@@ -209,9 +210,9 @@ export default function PersonScreen() {
           <Pressable
             style={[styles.meToggle, isMe && styles.meToggleActive]}
             onPress={() => setMe(isMe ? null : person.id)}>
-            <Mono size={11} color={isMe ? Colors.bordeaux : Colors.textSecondary}>
+            <BtnLabel size={13} color={isMe ? Colors.bordeaux : Colors.textSecondary}>
               {isMe ? '★ Dette er dig — fjern markering' : 'Det er mig i slægten'}
-            </Mono>
+            </BtnLabel>
           </Pressable>
         </View>
       </ScrollView>
@@ -236,10 +237,11 @@ function Badge({ text, tint = Colors.beige }: { text: string; tint?: string }) {
   );
 }
 
-function ActionButton({ label, onPress }: { label: string; onPress: () => void }) {
+// primary = bordeaux-fyldt (Slægtskab); ellers beige m. blæk-tekst (Vis i stamtræ) — jf. design.
+function ActionButton({ label, onPress, primary = false }: { label: string; onPress: () => void; primary?: boolean }) {
   return (
-    <Pressable style={styles.action} onPress={onPress}>
-      <Mono size={11} color={Colors.paperBg}>{label}</Mono>
+    <Pressable style={[styles.action, primary ? styles.actionPrimary : styles.actionSecondary]} onPress={onPress}>
+      <BtnLabel size={13} color={primary ? Colors.paperCard : Colors.ink}>{label}</BtnLabel>
     </Pressable>
   );
 }
@@ -287,10 +289,15 @@ const styles = StyleSheet.create({
   },
   action: {
     flex: 1,
-    backgroundColor: Colors.bordeaux,
     borderRadius: Radius.field,
-    paddingVertical: 12,
+    paddingVertical: 13,
     alignItems: 'center',
+  },
+  actionPrimary: { backgroundColor: Colors.bordeaux },
+  actionSecondary: {
+    backgroundColor: Colors.beige2,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Border.light,
   },
   meToggle: {
     borderWidth: 1,
