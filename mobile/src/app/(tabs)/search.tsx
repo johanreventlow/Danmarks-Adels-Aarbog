@@ -13,7 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { InitialBadge } from '../../components/InitialBadge';
 import { LoadGate } from '../../components/LoadGate';
-import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
+import { Body, BtnLabel, Mono, Serif } from '../../components/Typography';
 import { buildSearch, type SearchItem } from '../../data/selectors';
 import { useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius } from '../../theme/tokens';
@@ -44,7 +44,6 @@ export default function SearchScreen() {
     <LoadGate>
       <View style={{ flex: 1, paddingTop: insets.top + 8 }}>
         <View style={styles.header}>
-          <Serif size={26} style={{ marginBottom: 10 }}>Søg</Serif>
           <TextInput
             style={styles.input}
             placeholder="Søg navn…"
@@ -128,25 +127,25 @@ function SortPill({
 function PersonRow({ item, onPress }: { item: SearchItem; onPress: () => void }) {
   return (
     <Pressable style={styles.row} onPress={onPress}>
-      <InitialBadge name={item.name} size={38} />
-      <View style={{ flex: 1 }}>
-        <Serif size={17}>{item.name}</Serif>
-        {item.years ? <Mono size={10}>{item.years}</Mono> : null}
+      <InitialBadge name={item.name} size={40} bg={Colors.beige2} />
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Serif size={18} style={{ lineHeight: 19 }}>{item.name}</Serif>
+        {item.years ? <Mono size={10} color={Colors.textMuted}>{item.years}</Mono> : null}
       </View>
-      <Kicker size={14} color={Colors.textMuted}>›</Kicker>
+      <Serif size={18} color="#bcae93">›</Serif>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  header: { paddingHorizontal: 20, paddingBottom: 8 },
+  header: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 8 },
   input: {
     backgroundColor: Colors.paperCard,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Border.medium,
     borderRadius: Radius.field,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
+    paddingHorizontal: 15,
+    paddingVertical: 13,
     fontFamily: Fonts.sans,
     fontSize: 15,
     color: Colors.ink,
@@ -171,17 +170,18 @@ const styles = StyleSheet.create({
   letterChipActive: { backgroundColor: Colors.bordeaux },
   sectionHeader: {
     backgroundColor: Colors.paperBg,
-    paddingHorizontal: 20,
-    paddingVertical: 4,
+    paddingHorizontal: 18,
+    paddingTop: 7,
+    paddingBottom: 3,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Border.faint,
+    borderBottomColor: 'rgba(34,31,26,0.07)',
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
+    gap: 13,
+    paddingVertical: 11,
+    paddingHorizontal: 18,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Border.faint,
   },
