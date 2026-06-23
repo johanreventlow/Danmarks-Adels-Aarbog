@@ -58,6 +58,8 @@ type State = {
   setQuery: (q: string) => void;
   setBrowseSort: (s: BrowseSort) => void;
   setActiveLetter: (l: string | null) => void;
+  setRelA: (id: string) => void;
+  setRelB: (id: string) => void;
 };
 
 export const useStore = create<State>((set, get) => ({
@@ -218,4 +220,6 @@ export const useStore = create<State>((set, get) => ({
   setQuery: (q) => set({ query: q }),
   setBrowseSort: (s) => set({ browseSort: s }),
   setActiveLetter: (l) => set({ activeLetter: l }),
+  setRelA: (id) => set({ relA: id }),
+  setRelB: (id) => set({ relB: id }),
 }));
