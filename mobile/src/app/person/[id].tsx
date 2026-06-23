@@ -48,7 +48,10 @@ export default function PersonScreen() {
   const estates = aux?.estatesBy[person.id] ?? [];
   const sources = aux?.sourcesBy[person.id] ?? [];
   const media = aux?.mediaBy[person.id] ?? [];
-  const bioLong = person.bio.length > BIO_CLAMP_CHARS;
+  // Vis udfold-toggle hvis bio enten er lang (tegn) ELLER har mange linjeskift — ellers
+  // ville en kort men afsnits-opdelt prosa blive klampet til 7 linjer uden mulighed for udfold.
+  const bioNewlines = (person.bio.match(/\n/g)?.length ?? 0);
+  const bioLong = person.bio.length > BIO_CLAMP_CHARS || bioNewlines >= BIO_CLAMP_LINES;
 
   return (
     <View style={{ flex: 1 }}>

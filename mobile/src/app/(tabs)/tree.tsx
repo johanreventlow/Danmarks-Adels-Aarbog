@@ -5,7 +5,7 @@
 //                  vandret=søskende; tærskler 64/44px; haptik pr. spring).
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
@@ -65,7 +65,7 @@ function VariantA({ model, insets }: { model: Model; insets: { bottom: number } 
   const router = useRouter();
   const focusId = useStore((s) => s.focusId);
   const setFocus = useStore((s) => s.setFocus);
-  const view = focusId ? treeFocusA(model, focusId) : null;
+  const view = useMemo(() => (focusId ? treeFocusA(model, focusId) : null), [model, focusId]);
   if (!view || !view.focus) {
     return <View style={{ padding: 24 }}><Kicker color={Colors.textMuted}>Vælg en linje eller person.</Kicker></View>;
   }
@@ -128,12 +128,15 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
   const path = useStore((s) => s.path);
   const selectAt = useStore((s) => s.selectAt);
   const scrollRef = useRef<ScrollView>(null);
-  const cols = buildColumns(model, path);
+  const cols = useMemo(() => buildColumns(model, path), [model, path]);
 
+  // Auto-scroll til nyeste kolonne. Keyer på hele stien (ikke kun .length): en re-selektion på
+  // samme dybde der afslører en ny børne-kolonne ændrer ikke length, men skal stadig scrolle.
+  const pathKey = path.join(',');
   useEffect(() => {
     const t = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 60);
     return () => clearTimeout(t);
-  }, [path.length]);
+  }, [pathKey]);
 
   return (
     <View style={{ flex: 1, paddingTop: 8 }}>

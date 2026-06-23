@@ -48,15 +48,20 @@ export function buildModel(db: Db): Model {
     if (!(pc.child in firstUnionKey)) firstUnionKey[pc.child] = key;
     if (key !== firstUnionKey[pc.child]) return;
     if (!(pc.child in firstParent)) firstParent[pc.child] = pc.parent;
-    (parentsByChild[pc.child] = parentsByChild[pc.child] || []).push(pc.parent);
+    const arr = (parentsByChild[pc.child] = parentsByChild[pc.child] || []);
+    if (!arr.includes(pc.parent)) arr.push(pc.parent); // dedup (flere påstande pr. link)
   });
 
   // Børn grupperet pr. ægteskab (union) — så børn fra flere ægteskaber vises hver for sig.
+  // Dedup: evidens-modellen tillader flere parentChild-rækker for samme link (flere påstande),
+  // så samme barn kan optræde to gange. Uden dedup giver childrenOf duplikat-ids → dublerede
+  // React-keys i træ-varianterne + desync i moveSnapSib (indexOf rammer forkert).
   const childrenByUnion: Record<string, Record<string, string[]>> = {};
   parentChild.forEach((pc) => {
     const k = pc.union || '__none';
     childrenByUnion[pc.parent] = childrenByUnion[pc.parent] || {};
-    (childrenByUnion[pc.parent][k] = childrenByUnion[pc.parent][k] || []).push(pc.child);
+    const arr = (childrenByUnion[pc.parent][k] = childrenByUnion[pc.parent][k] || []);
+    if (!arr.includes(pc.child)) arr.push(pc.child);
   });
 
   const unionById: Record<string, import('./types').Union> = {};

@@ -1,6 +1,6 @@
 // Person-vælger (M1) — bottom-sheet modal (README §5 modaler). Søgefelt + scroll-liste;
 // vælg en person til slægtskabs-felt A eller B. Port af v2-markup (linje 618-639).
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FlatList, Modal, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { compareDanish } from '../lib/collation';
 import { useStore } from '../store/useStore';
@@ -20,6 +20,12 @@ export function PersonPicker({
 }) {
   const model = useStore((s) => s.model);
   const [query, setQuery] = useState('');
+
+  // Nulstil søgetekst når sheet lukkes (også ved backdrop/Luk), så et stale filter ikke
+  // overlever til næste åbning.
+  useEffect(() => {
+    if (!visible) setQuery('');
+  }, [visible]);
 
   const results = useMemo(() => {
     const pool = model?.persons ?? [];

@@ -1,7 +1,7 @@
 // Er vi i familie? (README §5.4) — tro port af v2-designet (linje 546-597).
 // To person-felter A & B (→ person-vælger M1), "sæt mig"-genvej, mørkt resultat-kort med
 // relations-etiket + fælles ane, og "Forbindelsen, trin for trin"-tidslinje (A → LCA → B).
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadGate } from '../../components/LoadGate';
@@ -23,7 +23,10 @@ export default function RelateScreen() {
 
   const a = relA && model ? model.byId[relA] : null;
   const b = relB && model ? model.byId[relB] : null;
-  const rel = model && relA && relB ? computeRelationship(model, relA, relB) : null;
+  const rel = useMemo(
+    () => (model && relA && relB ? computeRelationship(model, relA, relB) : null),
+    [model, relA, relB],
+  );
   const me = meId && model ? model.byId[meId] : null;
   const meAvailable = !!me && relA !== meId;
 

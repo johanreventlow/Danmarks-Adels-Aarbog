@@ -123,7 +123,11 @@ export async function loadFromSupabase(): Promise<LoadResult> {
     const parents = mem
       .filter((m) => PR.includes(String(m.rolle || '').toLowerCase()))
       .sort((a, b) => (a.ordinal || 0) - (b.ordinal || 0));
-    const children = mem.filter((m) => CR.includes(String(m.rolle || '').toLowerCase()));
+    // Sortér børn efter ordinal — PostgREST har ingen garanteret rækkefølge, så uden dette
+    // ville søskende-rækkefølgen være udefineret (og kunne skifte mellem loads).
+    const children = mem
+      .filter((m) => CR.includes(String(m.rolle || '').toLowerCase()))
+      .sort((a, b) => (a.ordinal || 0) - (b.ordinal || 0));
     if (parents.length) {
       unions.push({
         id: 'f' + fid,

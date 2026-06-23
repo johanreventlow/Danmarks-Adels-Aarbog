@@ -181,8 +181,9 @@ export const useStore = create<State>((set, get) => ({
     if (!model || snapDepth === 0) return;
     const sibs = childrenOf(model, snapPath[snapDepth - 1]).map((p) => p.id);
     if (sibs.length < 2) return;
-    let i = sibs.indexOf(snapPath[snapDepth]);
-    i = Math.max(0, Math.min(i + delta, sibs.length - 1));
+    const idx = sibs.indexOf(snapPath[snapDepth]);
+    if (idx === -1) return; // fokus ikke blandt de beregnede søskende → undgå spring til sibs[0]
+    const i = Math.max(0, Math.min(idx + delta, sibs.length - 1));
     if (sibs[i] === snapPath[snapDepth]) return;
     const np = snapPath.slice(0, snapDepth);
     np[snapDepth] = sibs[i];
@@ -218,7 +219,9 @@ export const useStore = create<State>((set, get) => ({
   },
 
   setQuery: (q) => set({ query: q }),
-  setBrowseSort: (s) => set({ browseSort: s }),
+  // Fødeår-sort skjuler alfabet-baren; ryd activeLetter så et skjult bogstav-filter ikke
+  // genanvendes lydløst når man skifter tilbage til alfabetisk.
+  setBrowseSort: (s) => set(s === 'born' ? { browseSort: s, activeLetter: null } : { browseSort: s }),
   setActiveLetter: (l) => set({ activeLetter: l }),
   setRelA: (id) => set({ relA: id }),
   setRelB: (id) => set({ relB: id }),

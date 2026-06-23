@@ -28,9 +28,11 @@ stable
 security definer
 set search_path = public
 as $$
+  -- FAIL-CLOSED på levende: 'levende = false' udelukker også NULL (NULL = false → NULL → ej true),
+  -- så en person hvor levende aldrig blev sat ikke lækker. privat: NULL behandles som ikke-privat.
   select exists (
     select 1 from public.person p
-    where p.id = pid and coalesce(p.levende, false) = false and coalesce(p.privat, false) = false
+    where p.id = pid and p.levende = false and coalesce(p.privat, false) = false
   );
 $$;
 
@@ -47,7 +49,7 @@ begin
   -- =========================================================
   foreach t in array array[
     'vocab','repository','source','place','organisation','estate',
-    'coat_of_arms','lineage','family','historical_event','media'
+    'coat_of_arms','lineage','family','historical_event'
   ] loop
     execute format('grant select on table public.%I to anon;', t);
     execute format('alter table public.%I enable row level security;', t);
@@ -55,8 +57,17 @@ begin
     execute format('create policy anon_read on public.%I for select to anon using (true);', t);
   end loop;
 end $$;
--- NB: 'media' er tom nu. Når billeder af LEVENDE personer linkes, bør media gates
---     (fx via relation 'afbildet' → person_offentlig). Marker som TODO ved data-load.
+
+-- 'media' er BEVIDST udeladt af den offentlige liste: den kan holde billeder af LEVENDE
+-- personer, men har ingen levende/privat-kolonne (linkes via relation 'afbildet' → person).
+-- RLS aktiveres uden anon-politik (deny-all) indtil afbildet-gating er skrevet. Tabellen er
+-- tom nu, så app'en påvirkes ikke (media-hentning returnerer 0 rækker = nuværende tilstand).
+alter table public.media enable row level security;
+drop policy if exists anon_read on public.media;
+-- TODO: create policy anon_read on public.media for select to anon
+--   using (exists (select 1 from public.relation r
+--                  where r.objekt_type='media' and r.objekt_id=media.id and r.rolle='afbildet'
+--                        and public.person_offentlig(r.subjekt_id)));
 
 -- =========================================================
 -- 2) PERSON: kun afdøde, ikke-private.
@@ -65,7 +76,7 @@ grant select on table public.person to anon;
 alter table public.person enable row level security;
 drop policy if exists anon_read on public.person;
 create policy anon_read on public.person for select to anon
-  using (coalesce(levende, false) = false and coalesce(privat, false) = false);
+  using (levende = false and coalesce(privat, false) = false);  -- fail-closed: NULL levende skjules
 
 -- =========================================================
 -- 3) PERSONBUNDNE TABELLER: synlige kun hvis den refererede person er offentlig.
