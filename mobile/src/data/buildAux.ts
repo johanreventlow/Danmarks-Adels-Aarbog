@@ -6,6 +6,7 @@ import type {
   Aux,
   RawEstate,
   RawExtId,
+  RawLineage,
   RawMedia,
   RawOrg,
   RawRelation,
@@ -19,6 +20,7 @@ type BuildAuxInput = {
   estates: RawEstate[];
   orgs: RawOrg[];
   media: RawMedia[];
+  lineage?: RawLineage[];
 };
 
 export function buildAux({
@@ -28,6 +30,7 @@ export function buildAux({
   estates,
   orgs,
   media,
+  lineage,
 }: BuildAuxInput): Aux {
   const srcById: Record<string, RawSource> = {};
   (sources || []).forEach((s) => {
@@ -68,9 +71,19 @@ export function buildAux({
     const nr = x.nr == null ? 9999 : x.nr;
     if (!cur || nr < cur.nr) linjeHead[x.linje] = { id: String(x.person_id), nr };
   });
+  // Linje-navne fra lineage-tabellen (kode → navn). Fallback til kode hvis tabellen mangler/tom.
+  const linjeNavn: Aux['linjeNavn'] = {};
+  (lineage || []).forEach((l) => {
+    if (l.kode && l.navn) linjeNavn[l.kode] = l.navn;
+  });
   const linjeList: Aux['linjeList'] = Object.keys(linjeCounts)
     .sort()
-    .map((l) => ({ linje: l, count: linjeCounts[l], headId: linjeHead[l]?.id ?? null }));
+    .map((l) => ({
+      linje: l,
+      count: linjeCounts[l],
+      headId: linjeHead[l]?.id ?? null,
+      navn: linjeNavn[l] ?? null,
+    }));
 
   // Embeder/godser fra relation (kun subjekt_type=person — loaderen filtrerer allerede).
   const estatesBy: Aux['estatesBy'] = {};
@@ -143,5 +156,6 @@ export function buildAux({
     estateById,
     linjeByPerson,
     linjeList,
+    linjeNavn,
   };
 }

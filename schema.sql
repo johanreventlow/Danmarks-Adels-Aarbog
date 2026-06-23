@@ -96,9 +96,23 @@ CREATE TABLE person (
 CREATE TABLE person_external_id (        -- bogens (linje, nr.) som eksternt ID
   person_id BIGINT REFERENCES person(id),
   source_id BIGINT REFERENCES source(id),
-  linje     TEXT,                        -- 'I','V', ...
+  linje     TEXT,                        -- 'I','V', ... — rå bog-token (proveniens); join til lineage.kode
   nr        INTEGER,
   PRIMARY KEY (person_id, source_id)
+);
+
+CREATE TABLE lineage (                   -- SLÆGTSLINJE / GREN (fx Reventlows fem linjer)
+  id        BIGINT PRIMARY KEY,
+  source_id BIGINT REFERENCES source(id),  -- hvilken udgaves linje-inddeling
+  kode      TEXT,                          -- 'I'..'V' — matcher person_external_id.linje
+  navn      TEXT NOT NULL,                 -- 'Den holstenske linje', ...
+  UNIQUE (source_id, kode)
+  -- (a) NU: navngivning. Forward-kompatibel med (b)-promovering — tilføjes additivt senere:
+  --   * parent_lineage_id BIGINT REFERENCES lineage(id)  (forgrening: gren udgår af gren)
+  --   * status TEXT                                       ('uddød','kendt hul / ikke undersøgt')
+  --   * fact   subjekt_type='lineage'                     (adling, floruit, alternative navne m. evidens)
+  --   * relation lineage->coat_of_arms / ->source / person->lineage (konfidens på medlemskab)
+  -- En linje der adles → ny lineage-række + relation 'gren_af' til moderlinjen; jf. datamodel-oversigt §5/§9.
 );
 
 CREATE TABLE family (                    -- union/partnerskab
@@ -204,6 +218,7 @@ CREATE INDEX IF NOT EXISTS ix_fammember_person   ON family_member(person_id);
 CREATE INDEX IF NOT EXISTS ix_fammember_family   ON family_member(family_id);
 CREATE INDEX IF NOT EXISTS ix_extid_linje_nr     ON person_external_id(linje, nr);
 CREATE INDEX IF NOT EXISTS ix_extid_person       ON person_external_id(person_id);
+CREATE INDEX IF NOT EXISTS ix_lineage_src_kode   ON lineage(source_id, kode);
 CREATE INDEX IF NOT EXISTS ix_fact_subjekt       ON fact(subjekt_type, subjekt_id);
 CREATE INDEX IF NOT EXISTS ix_assertion_target   ON assertion(target_type, target_id);
 CREATE INDEX IF NOT EXISTS ix_conclusion_target  ON conclusion(target_type, target_id);

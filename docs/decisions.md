@@ -2,6 +2,27 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Slægtslinje promoveret til entitet `lineage` — (a) nu, (b) senere (2026-06-23)
+Linjer var bare et `linje`-label på `person_external_id`. Et label kan ikke bære navn,
+våben, adlingsdato eller forgrening. CLAUDE.md §9 + datamodel-oversigt §5 forhåndsgodkendte
+en promovering ("kan promoveres hvis branch-niveau-udsagn ønskes"); behovet for navne
+(og i andre slægter: linjer der adles → nye adelsfamilier) udløser den.
+
+**Valg: minimal entitet nu, ikke fuld udbygning.** `lineage` oprettes med kun
+`(id, source_id, kode, navn)` — trin (a), navngivning. Bevidst IKKE bygget endnu:
+`parent_lineage_id` (forgrening), `status`, `fact subjekt_type='lineage'` (adling/floruit/
+alternative navne m. evidens), `relation` til våben/kilde/person. Det er trin (b).
+
+**Hvorfor det ikke bryder invariant #2** ("nye behov = rolletyper, ikke tabeller): en
+linje er en ny *slags ting* med egen identitet, ikke en ny måde at forbinde på. Label-
+løsningen brød netop sammen ved "adlet gren → ny familie".
+
+**Hvorfor (a) ikke maler os i et hjørne:** (a) skaber SAMME tabel som (b) bruger, bare
+med færre kolonner. (b) er ren `ALTER ADD COLUMN` + nye relationer — nul rename, nul
+data-migration. Det rå `linje`-token på `person_external_id` bliver liggende som join-nøgle
+og proveniens (mapper til trykt side). Backfill udleder `source_id` fra data, så den binder
+til den faktiske DAA-source uanset id. App falder tilbage til `Linje {kode}` hvis navn mangler.
+
 ## boern udledes deterministisk; boern.linje er IKKE JSON-linjen (2026-06-17)
 Børne-referencer ("3 børn: Tiende slægtled, II, nr. 31-35") parses deterministisk i
 `validate.py` (`derive_boern`), ikke af LLM-trinnet — LLM'en missede dem systematisk

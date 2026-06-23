@@ -42,7 +42,7 @@ export default function TreeScreen() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.linjeRow}>
               <LinjeChip label="Hele slægten" active={!activeLinje} onPress={() => clearLinje()} />
               {linjeList.map((l) => (
-                <LinjeChip key={l.linje} label={`Linje ${l.linje}`} active={activeLinje === l.linje} onPress={() => pickLinje(l.linje, l.headId)} />
+                <LinjeChip key={l.linje} label={l.navn ?? `Linje ${l.linje}`} active={activeLinje === l.linje} onPress={() => pickLinje(l.linje, l.headId)} />
               ))}
             </ScrollView>
           ) : null}
@@ -51,7 +51,7 @@ export default function TreeScreen() {
         {!model ? null : variant === 'B' ? (
           <VariantB model={model} insets={insets} />
         ) : variant === 'C' ? (
-          <VariantC model={model} activeLinje={activeLinje} linjeByPerson={aux?.linjeByPerson ?? {}} />
+          <VariantC model={model} activeLinje={activeLinje} linjeByPerson={aux?.linjeByPerson ?? {}} linjeNavn={aux?.linjeNavn ?? {}} />
         ) : (
           <VariantA model={model} insets={insets} />
         )}
@@ -182,7 +182,7 @@ const CONTAINER_H = 560;
 const HTHRESH = 64;
 const VTHRESH = 44;
 
-function VariantC({ model, activeLinje, linjeByPerson }: { model: Model; activeLinje: string | null; linjeByPerson: Record<string, string> }) {
+function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Model; activeLinje: string | null; linjeByPerson: Record<string, string>; linjeNavn: Record<string, string> }) {
   const router = useRouter();
   const snapPath = useStore((s) => s.snapPath);
   const snapDepth = useStore((s) => s.snapDepth);
@@ -254,7 +254,7 @@ function VariantC({ model, activeLinje, linjeByPerson }: { model: Model; activeL
         {/* Top-overlay */}
         <View style={styles.snapTop} pointerEvents="none">
           <Mono size={9} color={Colors.gold} style={{ letterSpacing: 9 * 0.16, textTransform: 'uppercase' }}>
-            Gen {gen}{linje ? ` · Linje ${linje}` : ''}
+            Gen {gen}{linje ? ` · ${linjeNavn[linje] ?? `Linje ${linje}`}` : ''}
           </Mono>
           <View style={{ flex: 1 }} />
           {focusPerson ? <Serif size={13} italic color={Colors.textMuted} numberOfLines={1} style={{ maxWidth: 155, fontFamily: Fonts.serifItalic }}>{focusPerson.name}</Serif> : null}

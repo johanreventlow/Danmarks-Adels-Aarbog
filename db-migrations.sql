@@ -53,3 +53,33 @@ CREATE INDEX IF NOT EXISTS ix_person_visningnavn ON person(visning_navn);
 -- #1 Barn-relationstype: INGEN skemaændring — udvidet vocab på family_member.rolle
 --    ('barn' | 'adopteret_barn' | 'plejebarn' | 'stedbarn'). Kun 'barn' tæller
 --    som blodslægtskab i finderen.
+
+-- ---- 2026-06-23: SLÆGTSLINJER navngives — trin (a) af lineage-promovering ----
+--   Linjer levede kun som bart 'I'..'V'-token på person_external_id.linje.
+--   Her får de en entitet med navn. Forward-kompatibel med (b): adling, forgrening,
+--   eget våben m.m. tilføjes additivt senere (se schema.sql lineage-kommentar + §5/§9).
+CREATE TABLE IF NOT EXISTS lineage (
+  id        BIGINT PRIMARY KEY,
+  source_id BIGINT REFERENCES source(id),
+  kode      TEXT,
+  navn      TEXT NOT NULL,
+  UNIQUE (source_id, kode)
+);
+CREATE INDEX IF NOT EXISTS ix_lineage_src_kode ON lineage(source_id, kode);
+
+-- Backfill: udled (source_id, kode) fra de faktiske eksterne ID'er (ingen hardcodet
+-- source_id). Navn pr. kode fra DAA-stamtavlens linje-overskrifter. Idempotent.
+INSERT INTO lineage (id, source_id, kode, navn)
+SELECT row_number() OVER (ORDER BY x.source_id, x.kode) AS id,
+       x.source_id, x.kode,
+       CASE x.kode
+         WHEN 'I'   THEN 'Den holstenske linje'
+         WHEN 'II'  THEN 'Linjen Gallentin'
+         WHEN 'III' THEN 'Den mecklenburgske linje'
+         WHEN 'IV'  THEN 'Den lensgrevelige linje af 1767'
+         WHEN 'V'   THEN 'Den grevelige linje af 1673'
+       END AS navn
+FROM (SELECT DISTINCT source_id, linje AS kode
+      FROM person_external_id
+      WHERE linje IN ('I','II','III','IV','V')) x
+ON CONFLICT (source_id, kode) DO NOTHING;

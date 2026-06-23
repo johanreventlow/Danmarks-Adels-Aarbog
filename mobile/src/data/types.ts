@@ -30,6 +30,11 @@ export type RawExtId = {
   linje: string | null;
   nr: number | null;
 };
+export type RawLineage = {
+  source_id: number | string;
+  kode: string | null;
+  navn: string | null;
+};
 export type RawSource = {
   id: number | string;
   slags: string | null;
@@ -104,7 +109,7 @@ export type SourceRef = { ref: string; work: string };
 export type EstateRef = { navn: string; period: string };
 export type OfficeRef = { label: string; period: string; _y: number };
 export type OwnerRef = { personId: string; period: string; _y: number };
-export type LinjeEntry = { linje: string; count: number; headId: string | null };
+export type LinjeEntry = { linje: string; count: number; headId: string | null; navn: string | null };
 export type EstateListEntry = { id: string; navn: string; ownerCount: number };
 
 export type Aux = {
@@ -117,4 +122,5 @@ export type Aux = {
   estateById: Record<string, { id: string; navn: string; slags: string }>;
   linjeByPerson: Record<string, string>;
   linjeList: LinjeEntry[];
+  linjeNavn: Record<string, string>; // linje-kode ('I'..) → fuldt navn ('Den holstenske linje')
 };

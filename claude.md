@@ -108,7 +108,7 @@ To spor — **data (R)** og **app (TS)** — bundet af RLS:
 ## 9. Bevidst udskudt / åbne punkter
 
 - **RLS-politikker** er ikke skrevet endnu (skitse mangler).
-- **Slægtslinje som førsteklasses entitet** — pt. kun en linje-label på `person_external_id`; kan promoveres, hvis branch-niveau-udsagn ønskes.
+- **Slægtslinje som førsteklasses entitet** — **trin (a) gjort (2026-06-23):** `lineage`-tabel `(id, source_id, kode, navn)` giver linjerne navne (se `docs/decisions.md`). **Trin (b) udestår:** adling→ny slægt, forgrening (`gren_af`), eget våben, person↔linje m. konfidens — additivt (`ALTER ADD` + relationer), forward-kompatibelt.
 - **Embede som egen entitet** — kun hvor succession er interessant; ellers en rolle ind i en organisation.
 - **Fuld GEDCOM/TNG-importsti** — kun et håndtransskriberet udsnit findes nu.
 - **Fuldtekstindeks på `narrative`** — Postgres-only blok, kommenteret i `schema.sql`; afkommentér ved brug.

@@ -1,5 +1,24 @@
 # Changelog
 
+## Slægtslinjer navngives — `lineage`-entitet, trin (a) (2026-06-23)
+* Linjer levede kun som bart `'I'..'V'`-token på `person_external_id.linje`. Ny entitet
+  `lineage(id, source_id, kode, navn, UNIQUE(source_id,kode))` giver dem navne:
+  I=Den holstenske linje, II=Linjen Gallentin, III=Den mecklenburgske linje,
+  IV=Den lensgrevelige linje af 1767, V=Den grevelige linje af 1673.
+* `schema.sql` (source of truth) + idempotent migration i `db-migrations.sql`. Backfill
+  er **data-drevet**: `source_id` + `kode` udledes via `SELECT DISTINCT` fra
+  `person_external_id` (ingen hardcodet source-id); `ON CONFLICT DO NOTHING` → re-kørbar.
+* App (`mobile/`): `load.ts` henter `lineage` (tolerant `.catch(()=>[])` indtil migration
+  kørt), `buildAux.ts` bygger `linjeNavn`-map + `navn` på `linjeList`. UI viser navn med
+  fallback til `Linje {kode}`: linje-chips (tree), gen-header (VariantC), persondetalje-badge.
+* **Trin (b) bevidst udskudt:** adling→ny slægt, forgrening (`gren_af`), eget våben,
+  person↔linje m. konfidens. Tabellen er forward-kompatibel — (b) er ren `ALTER ADD` +
+  relationer senere. Se `docs/decisions.md` + datamodel-oversigt §5/§9.
+* Tests: `buildAux.test.ts` udvidet (navn-map, fallback til null, bagudkompatibilitet);
+  8/8 grøn, `tsc --noEmit` ren.
+* **Udestår:** migrationen er IKKE kørt mod live-basen endnu (auto-mode blokerede
+  produktions-skrivning); runner klar i `/tmp/run_lineage.R`.
+
 ## Ægtefælle-rygrad for hele slægten + deterministisk boern (2026-06-17)
 * Re-load af hele stamtavlen med ægtefælle-rygrad for HELE slægten (ikke kun nær
   familie): 591 poster → 925 personer (591 hoved + 334 ægtefæller). Backup-dump af

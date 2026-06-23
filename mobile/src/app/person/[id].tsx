@@ -43,6 +43,7 @@ export default function PersonScreen() {
   const spouses = spousesOf(model, person.id);
   const marriages = childrenByMarriage(model, person.id).filter((m) => m.children.length);
   const linje = aux?.linjeByPerson[person.id];
+  const linjeNavn = linje ? aux?.linjeNavn[linje] : undefined;
   const offices = aux?.officesBy[person.id] ?? [];
   const estates = aux?.estatesBy[person.id] ?? [];
   const sources = aux?.sourcesBy[person.id] ?? [];
@@ -67,7 +68,7 @@ export default function PersonScreen() {
               ) : null}
               {linje ? (
                 <View style={[styles.badge, styles.badgeBordered, { backgroundColor: Colors.beige2 }]}>
-                  <Mono size={10} color={Colors.textSecondary2} style={{ letterSpacing: 0 }}>Linje {linje}</Mono>
+                  <Mono size={10} color={Colors.textSecondary2} style={{ letterSpacing: 0 }}>{linjeNavn ?? `Linje ${linje}`}</Mono>
                 </View>
               ) : null}
               {person.title ? (
