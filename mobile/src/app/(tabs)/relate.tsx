@@ -17,7 +17,7 @@ export default function RelateScreen() {
 
   return (
     <LoadGate>
-      <ScrollView contentContainerStyle={{ padding: 20, paddingTop: insets.top + 16 }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 20, paddingTop: insets.top + 16 }}>
         <Serif size={26} style={{ marginBottom: 16 }}>Er vi i familie?</Serif>
         <View style={styles.field}>
           <Kicker size={8}>Person A</Kicker>

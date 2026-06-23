@@ -45,7 +45,7 @@ export default function HomeScreen() {
   return (
     <LoadGate>
       <ScrollView
-        style={{ backgroundColor: Colors.paperBg }}
+        style={{ flex: 1, backgroundColor: Colors.paperBg }}
         contentContainerStyle={{ paddingTop: insets.top, paddingBottom: 40 }}>
         {/* Slægts-chip */}
         <View style={{ padding: 16, paddingBottom: 0 }}>

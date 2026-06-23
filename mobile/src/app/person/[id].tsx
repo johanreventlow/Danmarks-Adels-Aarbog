@@ -52,7 +52,7 @@ export default function PersonScreen() {
   return (
     <View style={{ flex: 1 }}>
       <TopBar title={person.name} />
-      <ScrollView contentContainerStyle={{ paddingBottom: 28 }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 28 }}>
         {/* Header: portræt + navn + badges */}
         <View style={styles.header}>
           <StripedPlaceholder width={96} height={120} radius={12} label="portræt" />

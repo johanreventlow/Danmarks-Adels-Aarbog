@@ -51,7 +51,7 @@ export default function TreeScreen() {
             <Kicker color={Colors.textMuted}>Vælg en linje eller person for at se træet.</Kicker>
           </View>
         ) : (
-          <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: insets.bottom + 80 }}>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: insets.bottom + 80 }}>
             {/* Aner */}
             <CenterKicker text="Aner" style={{ marginTop: 6, marginBottom: 2 }} />
 

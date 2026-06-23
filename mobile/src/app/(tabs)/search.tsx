@@ -82,6 +82,7 @@ export default function SearchScreen() {
         </View>
 
         <SectionList
+          style={{ flex: 1 }}
           sections={sections}
           keyExtractor={(item) => item.id}
           stickySectionHeadersEnabled
