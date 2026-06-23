@@ -189,8 +189,6 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
   const router = useRouter();
   const snapPath = useStore((s) => s.snapPath);
   const snapDepth = useStore((s) => s.snapDepth);
-  const moveSnapGen = useStore((s) => s.moveSnapGen);
-  const moveSnapSib = useStore((s) => s.moveSnapSib);
 
   const baseCenter = CONTAINER_H / 2 - CARD_H / 2;
   const ty = useSharedValue(-snapDepth * STEPY);
@@ -199,46 +197,58 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
   }, [snapDepth, ty]);
   const stackStyle = useAnimatedStyle(() => ({ transform: [{ translateY: ty.value }] }));
 
-  const haptic = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-  const g = useRef<{ x: number; y: number; axis: 'x' | 'y' | null }>({ x: 0, y: 0, axis: null });
-
-  const pan = Gesture.Pan()
-    .runOnJS(true)
-    .onBegin(() => { g.current = { x: 0, y: 0, axis: null }; })
-    .onUpdate((e) => {
-      const s = g.current;
-      if (!s.axis && (Math.abs(e.translationX) > 10 || Math.abs(e.translationY) > 10)) {
-        s.axis = Math.abs(e.translationX) >= Math.abs(e.translationY) ? 'x' : 'y';
-      }
-      if (s.axis === 'x') {
-        const dx = e.translationX - s.x;
-        if (Math.abs(dx) >= HTHRESH) { moveSnapSib(dx < 0 ? 1 : -1); haptic(); s.x = e.translationX; }
-      } else if (s.axis === 'y') {
-        const dy = e.translationY - s.y;
-        if (Math.abs(dy) >= VTHRESH) { moveSnapGen(dy < 0 ? -1 : 1); haptic(); s.y = e.translationY; }
-      }
-    });
+  // Gesten memoiseres STABILT: store-opdateringer (snapDepth ændres pr. step) re-renderer
+  // komponenten, og en ny gesture-instans midt i et træk ville afbryde trækket (kun ét step
+  // pr. swipe). Callbacks læser/kalder via useStore.getState() i stedet for closures over
+  // skiftende state. Tryk håndteres her (ikke en indlejret Pressable, der ville kapre touch).
+  const gesture = useMemo(() => {
+    const haptic = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    const g: { x: number; y: number; axis: 'x' | 'y' | null } = { x: 0, y: 0, axis: null };
+    const pan = Gesture.Pan()
+      .runOnJS(true)
+      .onBegin(() => { g.x = 0; g.y = 0; g.axis = null; })
+      .onUpdate((e) => {
+        const store = useStore.getState();
+        if (!g.axis && (Math.abs(e.translationX) > 10 || Math.abs(e.translationY) > 10)) {
+          g.axis = Math.abs(e.translationX) >= Math.abs(e.translationY) ? 'x' : 'y';
+        }
+        if (g.axis === 'x') {
+          const dx = e.translationX - g.x;
+          if (Math.abs(dx) >= HTHRESH) { store.moveSnapSib(dx < 0 ? 1 : -1); haptic(); g.x = e.translationX; }
+        } else if (g.axis === 'y') {
+          const dy = e.translationY - g.y;
+          if (Math.abs(dy) >= VTHRESH) { store.moveSnapGen(dy < 0 ? -1 : 1); haptic(); g.y = e.translationY; }
+        }
+      });
+    const tap = Gesture.Tap()
+      .runOnJS(true)
+      .maxDistance(10)
+      .onEnd(() => {
+        const { snapPath: sp, snapDepth: sd } = useStore.getState();
+        const fid = sp[sd];
+        if (fid) router.push(`/person/${fid}`);
+      });
+    return Gesture.Race(pan, tap);
+  }, [router]);
 
   const focusPerson = snapPath[snapDepth] ? model.byId[snapPath[snapDepth]] : null;
   const gen = snapDepth + 1;
   const linje = focusPerson ? linjeByPerson[focusPerson.id] ?? activeLinje : activeLinje;
 
   return (
-    <GestureDetector gesture={pan}>
+    <GestureDetector gesture={gesture}>
       <View style={styles.snapContainer}>
         {/* Lodret guide-linje */}
         <View style={styles.snapGuide} pointerEvents="none" />
-        {/* Kort-stak */}
-        <Animated.View style={[styles.snapStack, stackStyle]} pointerEvents="box-none">
+        {/* Kort-stak — ikke-interaktiv (pointerEvents none); al input går til gesten. */}
+        <Animated.View style={[styles.snapStack, stackStyle]} pointerEvents="none">
           {snapPath.map((pid, i) => {
             const p = model.byId[pid];
             if (!p) return null;
             const isFocus = i === snapDepth;
             return (
-              <View key={`${pid}-${i}`} style={[styles.snapRow, { top: baseCenter + i * STEPY }]} pointerEvents="box-none">
-                <Pressable
-                  onPress={isFocus ? () => router.push(`/person/${pid}`) : undefined}
-                  style={[styles.snapCard, isFocus && { opacity: 1 }, !isFocus && { opacity: 0.5 }]}>
+              <View key={`${pid}-${i}`} style={[styles.snapRow, { top: baseCenter + i * STEPY }]}>
+                <View style={[styles.snapCard, { opacity: isFocus ? 1 : 0.5 }]}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
                     <View style={styles.snapAvatar}><Serif size={14} color={Colors.bordeaux}>{initial(p.name)}</Serif></View>
                     <View style={{ flex: 1, minWidth: 0 }}>
@@ -247,7 +257,7 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
                     </View>
                   </View>
                   {p.title ? <BtnLabel size={10.5} color={Colors.bordeaux} numberOfLines={1} style={{ marginTop: 7, fontFamily: Fonts.sansMedium }}>{p.title}</BtnLabel> : null}
-                </Pressable>
+                </View>
               </View>
             );
           })}
