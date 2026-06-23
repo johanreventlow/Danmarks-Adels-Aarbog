@@ -24,11 +24,13 @@ export default function TabsLayout() {
           paddingTop: 8,
           paddingBottom: 10,
           backgroundColor: Colors.paperCard,
-          borderTopColor: Border.medium,
+          borderTopColor: Border.light,
         },
         tabBarLabelStyle: {
-          fontFamily: Fonts.sansMedium,
+          // Designets tabbar-label: Hanken Grotesk 600 (ikoner er vores tilføjelse, beholdt).
+          fontFamily: Fonts.sansSemi,
           fontSize: 11,
+          letterSpacing: 0.1,
         },
       }}>
       <Tabs.Screen
