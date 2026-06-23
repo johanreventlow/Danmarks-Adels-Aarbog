@@ -42,7 +42,8 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="person/[id]" options={{ presentation: 'card' }} />
           </Stack>
-          <TextureOverlay />
+          {/* DEBUG bisekt: midlertidigt deaktiveret for at isolere scroll-bug. Re-aktivér efter test. */}
+          {false ? <TextureOverlay /> : null}
         </View>
         <StatusBar style="dark" />
       </SafeAreaProvider>
