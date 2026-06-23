@@ -41,6 +41,7 @@ export default function RootLayout() {
             }}>
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="person/[id]" options={{ presentation: 'card' }} />
+            <Stack.Screen name="about" />
             <Stack.Screen name="estates" />
             <Stack.Screen name="estate/[id]" />
             <Stack.Screen name="arms" />

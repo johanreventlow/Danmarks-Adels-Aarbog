@@ -4,12 +4,14 @@
 // 01–06 m. tællere, footer m. DAF-logo. Live-data fra store.
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { CrestRing } from '../../components/CrestRing';
 import { LoadGate } from '../../components/LoadGate';
 import { Rise } from '../../components/Rise';
+import { SlaegtPicker } from '../../components/SlaegtPicker';
 import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
 import { counts } from '../../data/selectors';
 import { useStore } from '../../store/useStore';
@@ -28,6 +30,7 @@ export default function HomeScreen() {
   const featuredId = useStore((s) => s.focusId);
   const meId = useStore((s) => s.meId);
 
+  const [slaegtOpen, setSlaegtOpen] = useState(false);
   const c = counts(model, aux);
   const featured = featuredId && model ? model.byId[featuredId] : null;
   const me = meId && model ? model.byId[meId] : null;
@@ -35,7 +38,7 @@ export default function HomeScreen() {
   // Udforsk-liste 01–06 med tællere (jf. v2-logik). ready=false = udskudt skærm.
   const sections = [
     { num: '01', title: 'Stamtræ', sub: 'Naviger op, ned og til siden i slægten', count: `${c.personer} personer`, href: '/tree', ready: true },
-    { num: '02', title: 'Om slægten', sub: 'Historisk indledning til stamtavlen', count: '', href: '/about', ready: false },
+    { num: '02', title: 'Om slægten', sub: 'Historisk indledning til stamtavlen', count: '', href: '/about', ready: true },
     { num: '03', title: 'Godser & ejendomme', sub: 'Besiddelser og deres ejere gennem tiden', count: c.godser ? `${c.godser} godser` : '', href: '/estates', ready: true },
     { num: '04', title: 'Slægtens våben', sub: 'Det autoriserede våben og øvrige gengivelser', count: '', href: '/arms', ready: true },
     { num: '05', title: 'Er vi i familie?', sub: 'Find slægtskabet mellem to personer', count: '', href: '/relate', ready: true },
@@ -50,7 +53,7 @@ export default function HomeScreen() {
         {/* Slægts-chip */}
         <View style={{ padding: 16, paddingBottom: 0 }}>
           <Rise index={0}>
-            <Pressable style={styles.slaegtChip} onPress={() => router.push('/search')}>
+            <Pressable style={styles.slaegtChip} onPress={() => setSlaegtOpen(true)}>
               <CrestRing letter={CREST} size={31} />
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Kicker size={8.5} color={Colors.textMuted2}>Slægt</Kicker>
@@ -188,6 +191,7 @@ export default function HomeScreen() {
           </Mono>
         </View>
       </ScrollView>
+      <SlaegtPicker visible={slaegtOpen} personCount={c.personer} onClose={() => setSlaegtOpen(false)} />
     </LoadGate>
   );
 }
