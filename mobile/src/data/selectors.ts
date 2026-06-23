@@ -63,6 +63,61 @@ export function siblingsOf(model: Model, id: string): ModelPerson[] {
   return sibs.length ? sibs : [person];
 }
 
+// Variant C · slægtsspor: byg en lodret linje [rod … fokus … første-barn-efterkommere].
+// depth = indeks for fokus-personen i path. Port af buildSnapPath fra v2-designet (linje 997).
+export function buildSnapPath(
+  model: Model,
+  fid: string,
+  fallbackRootId: string | null,
+): { path: string[]; depth: number } {
+  const up: string[] = [];
+  let c: ModelPerson | undefined = model.byId[fid];
+  let g = 0;
+  while (c && g < 40) {
+    up.unshift(c.id);
+    c = c.parentId ? model.byId[c.parentId] : undefined;
+    g++;
+  }
+  if (!up.length && fallbackRootId) up.push(fallbackRootId);
+  const path = up.slice();
+  let cur = path[path.length - 1];
+  let h = 0;
+  while (cur && h < 40) {
+    const kids = childrenOf(model, cur);
+    if (!kids.length) break;
+    cur = kids[0].id;
+    path.push(cur);
+    h++;
+  }
+  return { path, depth: Math.max(0, up.length - 1) };
+}
+
+// Variant B · drill-down kolonner: hver kolonne = en generation; kolonne N viser børn af den
+// valgte person i kolonne N-1. Port af b_cols-logikken (v2 linje 1335).
+export function buildColumns(
+  model: Model,
+  path: string[],
+): { level: number; people: ModelPerson[]; selected: string | null }[] {
+  const cols: { level: number; people: ModelPerson[]; selected: string | null }[] = [];
+  const rootP = path[0] ? model.byId[path[0]] : null;
+  if (!rootP) return cols;
+  cols.push({ level: 0, people: [rootP], selected: path[0] });
+  let cur = path[0];
+  let i = 1;
+  let guard = 0;
+  while (guard < 40) {
+    const kids = childrenOf(model, cur);
+    if (!kids.length) break;
+    const sel = path[i] ?? null;
+    cols.push({ level: i, people: kids, selected: sel });
+    if (!sel) break;
+    cur = sel;
+    i++;
+    guard++;
+  }
+  return cols;
+}
+
 // Variant A "kort-fokus": bedsteforælder, forælder, denne generations søskende, børn & grene.
 export function treeFocusA(model: Model, focusId: string) {
   const focus = model.byId[focusId] ?? null;

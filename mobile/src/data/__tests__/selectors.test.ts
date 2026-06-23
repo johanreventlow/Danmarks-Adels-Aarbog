@@ -1,5 +1,5 @@
 import { buildModel } from '../buildModel';
-import { buildSearch, treeFocusA } from '../selectors';
+import { buildColumns, buildSearch, buildSnapPath, treeFocusA } from '../selectors';
 import type { Db } from '../types';
 
 const mk = (id: string, name: string, born: number | null = null) => ({
@@ -71,5 +71,37 @@ describe('treeFocusA — variant A fokus', () => {
     expect(v.parent).toBeNull();
     expect(v.siblings.map((s) => s.id)).toEqual(['1']);
     expect(v.children.map((c) => c.id).sort()).toEqual(['3', '4']);
+  });
+});
+
+describe('buildSnapPath — variant C lodret linje', () => {
+  test('aner-til-fokus + første-barn-hale; depth peger på fokus', () => {
+    const r = buildSnapPath(model, '3', '1');
+    // 3's forælder er 1 → up=[1,3]; 3 har ingen børn → path=[1,3], depth=1 (fokus=3)
+    expect(r.path).toEqual(['1', '3']);
+    expect(r.depth).toBe(1);
+  });
+  test('fra roden: depth 0 + ned ad første barn', () => {
+    const r = buildSnapPath(model, '1', '1');
+    expect(r.depth).toBe(0);
+    expect(r.path[0]).toBe('1');
+    expect(r.path[1]).toBe('3'); // første barn
+  });
+});
+
+describe('buildColumns — variant B drill-down', () => {
+  test('rod-kolonne + børne-kolonne', () => {
+    const cols = buildColumns(model, ['1']);
+    expect(cols.map((c) => c.level)).toEqual([0, 1]);
+    expect(cols[0].people.map((p) => p.id)).toEqual(['1']);
+    expect(cols[1].people.map((p) => p.id).sort()).toEqual(['3', '4']);
+    expect(cols[1].selected).toBeNull();
+  });
+  test('valgt sti markerer selected pr. niveau', () => {
+    const cols = buildColumns(model, ['1', '3']);
+    expect(cols[0].selected).toBe('1');
+    expect(cols[1].selected).toBe('3');
+    // 3 har ingen børn → ingen tredje kolonne
+    expect(cols.length).toBe(2);
   });
 });
