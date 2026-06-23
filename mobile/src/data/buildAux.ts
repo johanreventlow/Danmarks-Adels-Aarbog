@@ -1,5 +1,6 @@
 // Port af buildAux() fra design-HTML (linje 808-868). Bygger hjælpe-indekser pr. person:
 // kilder (bogreference), embeder/godser (relation), linjer (grene I–V), medier.
+import { compareDanish } from '../lib/collation';
 import { parseYear, stripParen } from './fields';
 import type {
   Aux,
@@ -123,7 +124,7 @@ export function buildAux({
       ownersByEstate[eid].sort((a, b) => a._y - b._y);
       return { id: eid, navn, ownerCount: ownersByEstate[eid].length };
     })
-    .sort((a, b) => a.navn.localeCompare(b.navn, 'da'));
+    .sort((a, b) => compareDanish(a.navn, b.navn));
 
   // Medier pr. person (tom indtil medier linkes).
   const mediaBy: Aux['mediaBy'] = {};
