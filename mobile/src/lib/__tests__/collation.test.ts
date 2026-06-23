@@ -40,6 +40,16 @@ describe('initialOf — bruger efternavn (sidste token)', () => {
     expect(initialOf('')).toBe('#');
     expect(initialOf('   ')).toBe('#');
   });
+  test('springer ledende tegnsætning i efternavn over (DAA-rekonstruktioner)', () => {
+    expect(initialOf('Sophie Joachimsdatter [Bjørn]')).toBe('B');
+    expect(initialOf('Joachim (Jacob)')).toBe('J');
+    expect(initialOf('(Søn)')).toBe('S');
+    expect(initialOf('Cecilie (Split?)')).toBe('S');
+  });
+  test('efternavn med ÆØÅ midt i grupperes på første bogstav', () => {
+    expect(initialOf('Ada Jessie Howard Grøn')).toBe('G');
+    expect(initialOf('Grethe Johanne Barfoed Høj')).toBe('H');
+  });
 });
 
 describe('sortLetters', () => {

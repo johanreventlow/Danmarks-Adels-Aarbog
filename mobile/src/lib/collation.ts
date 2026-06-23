@@ -57,7 +57,10 @@ export function initialOf(name: string): string {
   if (!n) return '#';
   const tokens = n.split(/\s+/).filter(Boolean);
   const surname = tokens[tokens.length - 1] || n;
-  const first = surname[0]?.toUpperCase() ?? '#';
+  // Spring ledende ikke-bogstaver over (rekonstruerede/markerede efternavne: "[Bjørn]" → B,
+  // "(Søn)" → S). À-ÿ dækker Æ/Ø/Å — undgår \p{L} af hensyn til Hermes.
+  const cleaned = surname.replace(/^[^A-Za-zÀ-ÿ]+/, '');
+  const first = cleaned[0]?.toUpperCase() ?? '#';
   const folded = FOLD[first] ?? first;
   return rank[folded] !== undefined ? folded : '#';
 }
