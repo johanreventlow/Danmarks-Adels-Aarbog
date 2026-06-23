@@ -9,8 +9,10 @@ import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 export function TextureOverlay() {
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      {/* Vignet: radial(118% 90% at 50% 22%, transparent 56% → rgba(54,40,22,.09) 100%) */}
-      <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
+      {/* Vignet: radial(118% 90% at 50% 22%, transparent 56% → rgba(54,40,22,.09) 100%).
+          pointerEvents="none" SKAL sættes direkte på Svg — RN-svg's native lag arver ikke
+          parentens pointerEvents pålideligt på iOS, og opfanger ellers scroll-pan-gestus. */}
+      <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" pointerEvents="none">
         <Defs>
           <RadialGradient id="vignet" cx="50%" cy="22%" rx="59%" ry="45%">
             <Stop offset="56%" stopColor="rgb(54,40,22)" stopOpacity={0} />
@@ -20,7 +22,7 @@ export function TextureOverlay() {
         <Rect x="0" y="0" width="100%" height="100%" fill="url(#vignet)" />
       </Svg>
       {/* Film-korn (opacity-tilnærmelse, 1b) — meget svagt, ingen blend. */}
-      <View style={styles.grain} />
+      <View style={styles.grain} pointerEvents="none" />
     </View>
   );
 }
