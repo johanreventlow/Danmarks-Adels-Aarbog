@@ -144,12 +144,13 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
       <Mono size={9.5} color={Colors.textMuted} style={{ paddingHorizontal: 16, paddingBottom: 4, letterSpacing: 9.5 * 0.12, textTransform: 'uppercase' }}>
         Træk til siden gennem generationerne ▸
       </Mono>
-      <ScrollView ref={scrollRef} horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ gap: 10, paddingHorizontal: 16, paddingVertical: 8, paddingBottom: insets.bottom + 80, alignItems: 'flex-start' }}>
+      <ScrollView ref={scrollRef} horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ gap: 10, paddingHorizontal: 16, paddingVertical: 8, alignItems: 'stretch' }}>
         {cols.map((col) => (
-          <View key={col.level} style={{ width: 166, gap: 8 }}>
-            <Mono size={9} color={Colors.gold} style={{ letterSpacing: 9 * 0.1, textTransform: 'uppercase', paddingBottom: 2, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Border.light }}>
+          <View key={col.level} style={{ width: 166 }}>
+            <Mono size={9} color={Colors.gold} style={{ letterSpacing: 9 * 0.1, textTransform: 'uppercase', paddingBottom: 2, marginBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Border.light }}>
               Generation {col.level + 1}
             </Mono>
+            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: insets.bottom + 90 }}>
             {col.people.map((p) => {
               const sel = p.id === col.selected;
               const hasKids = childrenOf(model, p.id).length > 0;
@@ -171,6 +172,7 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
                 </Pressable>
               );
             })}
+            </ScrollView>
           </View>
         ))}
       </ScrollView>
@@ -247,8 +249,9 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
           const dx = e.translationX - g.x;
           if (Math.abs(dx) >= HTHRESH) { store.moveSnapSib(dx < 0 ? 1 : -1); haptic(); g.x = e.translationX; }
         } else if (g.axis === 'y') {
+          // Direkte-manipulation: træk fingeren op (dy<0) → stakken op → efterkommere (snapDepth+1).
           const dy = e.translationY - g.y;
-          if (Math.abs(dy) >= VTHRESH) { store.moveSnapGen(dy < 0 ? -1 : 1); haptic(); g.y = e.translationY; }
+          if (Math.abs(dy) >= VTHRESH) { store.moveSnapGen(dy < 0 ? 1 : -1); haptic(); g.y = e.translationY; }
         }
       });
     const tap = Gesture.Tap()
@@ -335,7 +338,7 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
         </View>
         {/* Bund-hjælpetekst */}
         <Mono size={8} color="#bcae93" style={styles.snapHint} pointerEvents="none">
-          ▲ aner · ▼ efterkommere · ◂ ▸ søskende · tryk for profil
+          træk ↕ generationer · ↔ søskende · tryk for profil
         </Mono>
       </View>
     </GestureDetector>
