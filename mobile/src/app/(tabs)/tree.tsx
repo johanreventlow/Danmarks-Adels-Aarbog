@@ -179,6 +179,7 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
 }
 
 // ── Variant C · Spor (gestus-snap) ───────────────────────────────────────────
+const ARROW: Record<Exclude<WayStep, 'arrived'>, string> = { up: '▲', down: '▼', left: '◂', right: '▸' };
 const STEPY = 138; // lodret afstand mellem generationer
 const ROWH = 118; // rækkehøjde (fokus-rammens højde)
 const CARD_W = 150;
@@ -196,8 +197,6 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
     () => (meId ? wayToMe(model, snapPath, snapDepth, meId) : undefined),
     [meId, model, snapPath, snapDepth],
   );
-  const ARROW: Record<Exclude<WayStep, 'arrived'>, string> = { up: '▲', down: '▼', left: '◂', right: '▸' };
-
   // Hver generation (depth d) er en vandret række af ALLE søskende, centreret på den valgte
   // via balancerede spacer-pladser (padL/padR) — så søskende peeker i siderne. Port af
   // designets snapRows-logik (v2 linje 1273-1287).

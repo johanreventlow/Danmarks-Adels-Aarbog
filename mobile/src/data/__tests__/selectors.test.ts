@@ -165,4 +165,15 @@ describe('wayToMe — vej til mig i Spor', () => {
   test('mig findes ikke i model → null', () => {
     expect(wayToMe(wayModel, path124.path, path124.depth, 'ukendt')).toBeNull();
   });
+
+  test('mig kræver søskendeskift mod tidligere-født → left', () => {
+    // fokus=3 (depth1, snapPath [1,3,5]), mig=2: søskendeskift 3→2 (tidligere-født) = left
+    const path3 = buildSnapPath(wayModel, '3', '1');
+    expect(wayToMe(wayModel, path3.path, path3.depth, '2')).toEqual({ step: 'left', remaining: 1 });
+  });
+
+  test('mig under ikke-førstefødt gren, dybere end synlig hale → down, 3', () => {
+    // fokus=1 (depth0, hale [1,2,4]), mig=5 under søskende 3: ned, søskendeskift, ned
+    expect(wayToMe(wayModel, path1.path, path1.depth, '5')).toEqual({ step: 'down', remaining: 3 });
+  });
 });
