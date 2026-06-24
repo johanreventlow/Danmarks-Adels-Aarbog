@@ -185,6 +185,7 @@ const CARD_H = 104;
 const CARD_GAP = 14; // vandret mellemrum mellem søskende-kort
 const FRAME_NUDGE = 17; // løfter fokus-ramme + badge så det centrerede kort lander i rammen (juster ved skævhed)
 const FRAME_NUDGE_X = 1.5; // skubber fokus-ramme en anelse mod højre (afbalancerer venstre/højre margin)
+const GAP_V = STEPY - CARD_H; // tomt lodret mellemrum under et (top-justeret) kort = rygrad-segment-højde
 
 function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Model; activeLinje: string | null; linjeByPerson: Record<string, string>; linjeNavn: Record<string, string> }) {
   const router = useRouter();
@@ -242,9 +243,6 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
 
   return (
     <View style={styles.snapContainer} onLayout={(e) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}>
-      {/* Neutral struktur-rygrad: forbinder de centrerede kort lodret (forælder→fokus→barn).
-          Ligger bag kortene, synlig i mellemrummene mellem generationerne. */}
-      <View style={styles.snapSpine} pointerEvents="none" />
       {/* Rød rute-tråd vises KUN når den fører til "mig" (way har et trin). */}
       {way && way.step && way.step !== 'arrived' && (
         <View style={[styles.snapGuide, styles.snapGuideLit]} pointerEvents="none" />
@@ -263,6 +261,9 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
             const isFocusRow = r.d === snapDepth;
             return (
               <View key={`${r.d}:${r.sibIds[0]}`} style={{ height: STEPY, justifyContent: 'center' }}>
+                {/* Lodret rygrad-segment i mellemrummet UNDER kortet (kortet er top-justeret),
+                    kun mellem kort der har en efterfølger → ingen gennemskin, intet dingl. */}
+                {r.d < rows.length - 1 && <View pointerEvents="none" style={styles.spineSeg} />}
                 <ScrollView
                   ref={(el) => { hRefs.current[r.d] = el; }}
                   horizontal
@@ -274,6 +275,11 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
                   onMomentumScrollEnd={(e) => onHEnd(r.d, r.selIndex, r.sibIds.length, e.nativeEvent.contentOffset.x)}
                   contentContainerStyle={{ paddingHorizontal: hPad, gap: CARD_GAP }}
                 >
+                  {/* Søskende-forbindelser: ét kort segment i HVERT mellemrum (kant-til-kant),
+                      aldrig bag et kort → ingen gennemskin. Følger kortene ved scroll. */}
+                  {r.sibIds.slice(1).map((_, i) => (
+                    <View key={`bus-${i}`} pointerEvents="none" style={{ position: 'absolute', top: CARD_H / 2 - 0.75, left: hPad + i * HSTEP + CARD_W, width: CARD_GAP, height: 1.5, backgroundColor: 'rgba(34,31,26,0.13)' }} />
+                  ))}
                   {r.sibIds.map((id, i) => {
                     const p = model.byId[id];
                     if (!p) return <View key={id} style={styles.snapSpacer} />;
@@ -404,7 +410,7 @@ const styles = StyleSheet.create({
   bOpenBtn: { marginTop: 10, backgroundColor: Colors.bordeaux, borderRadius: 8, paddingVertical: 7, alignItems: 'center' },
   // Variant C
   snapContainer: { flex: 1, overflow: 'hidden', backgroundColor: Colors.paperBg },
-  snapSpine: { position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1.5, marginLeft: -0.75, backgroundColor: 'rgba(34,31,26,0.13)' },
+  spineSeg: { position: 'absolute', left: '50%', marginLeft: -0.75, bottom: 0, width: 1.5, height: GAP_V, backgroundColor: 'rgba(34,31,26,0.13)' },
   snapGuide: { position: 'absolute', left: '50%', top: 0, bottom: 0, width: 2, marginLeft: -1, backgroundColor: 'rgba(136,26,51,0.16)' },
   snapGuideLit: { backgroundColor: 'rgba(136,26,51,0.40)' },
   wayBadge: { position: 'absolute', left: 0, right: 0, top: '50%', marginTop: -94 - FRAME_NUDGE, alignItems: 'center' },
