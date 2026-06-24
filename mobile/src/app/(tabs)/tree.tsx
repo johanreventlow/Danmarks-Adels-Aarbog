@@ -10,7 +10,7 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadGate } from '../../components/LoadGate';
 import { BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
-import { buildColumns, childrenOf, treeFocusA, wayToMe, type WayStep } from '../../data/selectors';
+import { buildColumns, childrenOf, routeToMe, treeFocusA, wayToMe, type WayStep } from '../../data/selectors';
 import type { Model, ModelPerson } from '../../data/types';
 import { useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius, Shadow } from '../../theme/tokens';
@@ -211,6 +211,37 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
     return out;
   }, [model, snapPath]);
 
+  // Rute til "mig" → hvilke mellemrum-segmenter farves røde. Følger gestus-planen fra fokus,
+  // men STOPPER hvor ruten forlader de synlige rækker (et lodret skridt EFTER et søskendeskift
+  // peger på en ikke-renderet gren). Resten kommunikeres af badgen "N spring til dig".
+  const route = useMemo(
+    () => (meId ? routeToMe(model, snapPath, snapDepth, meId) : null),
+    [meId, model, snapPath, snapDepth],
+  );
+  const red = useMemo(() => {
+    const redV = new Set<number>(); // række d hvis bund-segment (gap d→d+1) er rødt
+    const redH = new Set<string>(); // `${d}:${gapIndex}` vandret gap rødt
+    if (!route || route.length === 0) return { redV, redH };
+    let d = snapDepth;
+    let cursor: number | null = null;
+    let sawSibling = false;
+    for (const step of route) {
+      if (step === 'up' || step === 'down') {
+        if (sawSibling) break; // lodret skridt efter søskendeskift → off-screen
+        if (step === 'up') { redV.add(d - 1); d -= 1; } else { redV.add(d); d += 1; }
+        cursor = null;
+      } else {
+        const row = rows[d];
+        if (!row) break;
+        if (cursor === null) cursor = row.selIndex;
+        if (step === 'right') { redH.add(`${d}:${cursor}`); cursor += 1; }
+        else { cursor -= 1; redH.add(`${d}:${cursor}`); }
+        sawSibling = true;
+      }
+    }
+    return { redV, redH };
+  }, [route, rows, snapDepth]);
+
   // Native nested snap-scroll: lodret ScrollView = generationer (snap pr. STEPY), hver række =
   // horisontal ScrollView med søskende (snap pr. HSTEP). Centrering bages ind i padding, så
   // contentOffset = indeks*pitch lander kortet i midten. onMomentumScrollEnd → opdater store.
@@ -243,10 +274,6 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
 
   return (
     <View style={styles.snapContainer} onLayout={(e) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}>
-      {/* Rød rute-tråd vises KUN når den fører til "mig" (way har et trin). */}
-      {way && way.step && way.step !== 'arrived' && (
-        <View style={[styles.snapGuide, styles.snapGuideLit]} pointerEvents="none" />
-      )}
       {size.h > 0 ? (
         <ScrollView
           style={{ flex: 1 }}
@@ -262,8 +289,9 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
             return (
               <View key={`${r.d}:${r.sibIds[0]}`} style={{ height: STEPY, justifyContent: 'center' }}>
                 {/* Lodret rygrad-segment i mellemrummet UNDER kortet (kortet er top-justeret),
-                    kun mellem kort der har en efterfølger → ingen gennemskin, intet dingl. */}
-                {r.d < rows.length - 1 && <View pointerEvents="none" style={styles.spineSeg} />}
+                    kun mellem kort der har en efterfølger → ingen gennemskin, intet dingl.
+                    Rødt når det er på ruten til "mig". */}
+                {r.d < rows.length - 1 && <View pointerEvents="none" style={[styles.spineSeg, red.redV.has(r.d) && styles.routeSeg]} />}
                 <ScrollView
                   ref={(el) => { hRefs.current[r.d] = el; }}
                   horizontal
@@ -277,9 +305,12 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
                 >
                   {/* Søskende-forbindelser: ét kort segment i HVERT mellemrum (kant-til-kant),
                       aldrig bag et kort → ingen gennemskin. Følger kortene ved scroll. */}
-                  {r.sibIds.slice(1).map((_, i) => (
-                    <View key={`bus-${i}`} pointerEvents="none" style={{ position: 'absolute', top: CARD_H / 2 - 0.75, left: hPad + i * HSTEP + CARD_W, width: CARD_GAP, height: 1.5, backgroundColor: 'rgba(34,31,26,0.13)' }} />
-                  ))}
+                  {r.sibIds.slice(1).map((_, i) => {
+                    const onRoute = red.redH.has(`${r.d}:${i}`);
+                    return (
+                      <View key={`bus-${i}`} pointerEvents="none" style={{ position: 'absolute', top: CARD_H / 2 - (onRoute ? 1 : 0.75), left: hPad + i * HSTEP + CARD_W, width: CARD_GAP, height: onRoute ? 2 : 1.5, backgroundColor: onRoute ? Colors.bordeaux : 'rgba(34,31,26,0.13)' }} />
+                    );
+                  })}
                   {r.sibIds.map((id, i) => {
                     const p = model.byId[id];
                     if (!p) return <View key={id} style={styles.snapSpacer} />;
@@ -411,8 +442,7 @@ const styles = StyleSheet.create({
   // Variant C
   snapContainer: { flex: 1, overflow: 'hidden', backgroundColor: Colors.paperBg },
   spineSeg: { position: 'absolute', left: '50%', marginLeft: -0.75, bottom: 0, width: 1.5, height: GAP_V, backgroundColor: 'rgba(34,31,26,0.13)' },
-  snapGuide: { position: 'absolute', left: '50%', top: 0, bottom: 0, width: 2, marginLeft: -1, backgroundColor: 'rgba(136,26,51,0.16)' },
-  snapGuideLit: { backgroundColor: 'rgba(136,26,51,0.40)' },
+  routeSeg: { width: 2, marginLeft: -1, backgroundColor: Colors.bordeaux }, // rød rute-tråd-segment
   wayBadge: { position: 'absolute', left: 0, right: 0, top: '50%', marginTop: -94 - FRAME_NUDGE, alignItems: 'center' },
   wayPill: { backgroundColor: Colors.paperCard, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(136,26,51,0.30)', borderRadius: 14, paddingVertical: 5, paddingHorizontal: 12, ...Shadow.card },
   snapSpacer: { width: CARD_W, height: CARD_H },

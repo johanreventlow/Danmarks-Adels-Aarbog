@@ -1,5 +1,5 @@
 import { buildModel } from '../buildModel';
-import { buildColumns, buildSearch, buildSnapPath, treeFocusA, wayToMe } from '../selectors';
+import { buildColumns, buildSearch, buildSnapPath, routeToMe, treeFocusA, wayToMe } from '../selectors';
 import type { Db } from '../types';
 
 const mk = (id: string, name: string, born: number | null = null) => ({
@@ -175,5 +175,42 @@ describe('wayToMe — vej til mig i Spor', () => {
   test('mig under ikke-førstefødt gren, dybere end synlig hale → down, 3', () => {
     // fokus=1 (depth0, hale [1,2,4]), mig=5 under søskende 3: ned, søskendeskift, ned
     expect(wayToMe(wayModel, path1.path, path1.depth, '5')).toEqual({ step: 'down', remaining: 3 });
+  });
+});
+
+describe('routeToMe — hele rute-planen til mig (rute-tegning)', () => {
+  test('fokus == mig → tom plan', () => {
+    expect(routeToMe(wayModel, path124.path, path124.depth, '4')).toEqual([]);
+  });
+
+  test('mig er ane → op, op', () => {
+    expect(routeToMe(wayModel, path124.path, path124.depth, '1')).toEqual(['up', 'up']);
+  });
+
+  test('mig er fætter (forgrening) → op, højre, ned', () => {
+    expect(routeToMe(wayModel, path124.path, path124.depth, '5')).toEqual(['up', 'right', 'down']);
+  });
+
+  test('mig er førstefødt-efterkommer → ned, ned', () => {
+    expect(routeToMe(wayModel, path1.path, path1.depth, '4')).toEqual(['down', 'down']);
+  });
+
+  test('mig under ikke-førstefødt gren → ned, ned, højre', () => {
+    expect(routeToMe(wayModel, path1.path, path1.depth, '7')).toEqual(['down', 'down', 'right']);
+  });
+
+  test('søskendeskift mod tidligere-født → left', () => {
+    const path3 = buildSnapPath(wayModel, '3', '1');
+    expect(routeToMe(wayModel, path3.path, path3.depth, '2')).toEqual(['left']);
+  });
+
+  test('mig uden fælles ane → null', () => {
+    expect(routeToMe(wayModel, path124.path, path124.depth, '6')).toBeNull();
+  });
+
+  test('mig ligger på snapPath under fokus (scrollet op) → ren lodret, ingen falske søskendeskift', () => {
+    // snapPath = mig's egen linje [1,3,5]; fokus=1 (depth0); mig=5 ligger på stien i dybde 2.
+    // (3 er IKKE 1's førstefødte — gammel logik lagde fejlagtigt et søskendeskift ind.)
+    expect(routeToMe(wayModel, ['1', '3', '5'], 0, '5')).toEqual(['down', 'down']);
   });
 });

@@ -144,25 +144,21 @@ function ancestorsOf(model: Model, id: string): string[] {
   return out;
 }
 
-// Næste gestus + antal resterende spring fra fokus til mig i Spor-navigationen.
-// Bygger HELE gestus-planen konstruktivt (op til fælles ane → søskendeskift → ned),
-// så der ikke opstår op/ned-bounce ved gren-kryds. null = ingen fælles ane (ingen vej).
-export function wayToMe(
-  model: Model,
-  snapPath: string[],
-  snapDepth: number,
-  meId: string,
-): { step: WayStep; remaining: number } | null {
+// Bygger HELE gestus-planen fra fokus til mig (op til fælles ane → søskendeskift → ned),
+// konstruktivt så der ikke opstår op/ned-bounce ved gren-kryds.
+// null = ingen fælles ane (ingen vej); [] = fokus ER mig (du er der).
+function planToMe(model: Model, snapPath: string[], snapDepth: number, meId: string): WayStep[] | null {
   const focus = snapPath[snapDepth];
   if (!focus) return null;
-  if (focus === meId) return { step: 'arrived', remaining: 0 };
+  if (focus === meId) return [];
 
-  const A = snapPath.slice(0, snapDepth + 1); // fokus' anekæde (snapPath ER anekæden)
-  const M = ancestorsOf(model, meId);          // mig's anekæde
-  if (!M.length || A[0] !== M[0]) return null;  // ingen fælles ane → ingen vej
+  const M = ancestorsOf(model, meId); // mig's anekæde (rod → mig)
+  if (!M.length || snapPath[0] !== M[0]) return null; // ingen fælles ane → ingen vej
 
+  // Fælles præfiks af HELE snapPath og M — fanger at mig kan ligge på snapPath UNDER fokus
+  // (fx når man scrollede op fra mig), så ruten bliver ren lodret uden falske søskendeskift.
   let commonLen = 0;
-  while (commonLen < A.length && commonLen < M.length && A[commonLen] === M[commonLen]) commonLen++;
+  while (commonLen < snapPath.length && commonLen < M.length && snapPath[commonLen] === M[commonLen]) commonLen++;
 
   const plan: WayStep[] = [];
 
@@ -170,8 +166,13 @@ export function wayToMe(
   const childIndex = (parentId: string, childId: string): number =>
     childrenOf(model, parentId).findIndex((p) => p.id === childId);
 
-  // Nedstigning fra node M[d] (i dybde d) ned til mig: per niveau ned (lander på
-  // førstefødt) + søskende-trin til det rette barn.
+  // Lodret fra fokus til toDepth (op eller ned langs snapPath).
+  const vertical = (toDepth: number) => {
+    const delta = toDepth - snapDepth;
+    for (let s = 0; s < Math.abs(delta); s++) plan.push(delta < 0 ? 'up' : 'down');
+  };
+
+  // Firstborn-nedstigning fra node M[d] ned til mig: per niveau ned + søskende-trin til rette barn.
   const descendFrom = (d: number) => {
     for (let i = d; i < M.length - 1; i++) {
       plan.push('down');
@@ -181,25 +182,48 @@ export function wayToMe(
   };
 
   if (commonLen === M.length) {
-    // Mig er ane til fokus: mig ligger på A i dybde M.length-1 → klatr op.
-    const meDepth = M.length - 1;
-    for (let s = 0; s < snapDepth - meDepth; s++) plan.push('up');
-  } else if (commonLen === snapDepth + 1) {
-    // Fokus ligger på mig's egen kæde (A præfiks af M) → ren nedstigning.
-    descendFrom(snapDepth);
+    // Mig ligger PÅ snapPath (ane eller efterkommer på linjen) → ren lodret.
+    vertical(M.length - 1);
+  } else if (commonLen >= snapPath.length) {
+    // snapPath er præfiks af M; mig ligger dybere end snapPath-enden → ned til enden, så firstborn-nedstigning.
+    vertical(snapPath.length - 1);
+    descendFrom(snapPath.length - 1);
   } else {
-    // Ægte forgrening: klatr op til søskende-dybden commonLen, skift søskende
-    // fra A[commonLen] til M[commonLen] (samme forælder), stig så ned.
-    for (let s = 0; s < snapDepth - commonLen; s++) plan.push('up');
-    const fromIdx = childIndex(M[commonLen - 1], A[commonLen]);
+    // Sidelæns divergens ved commonLen: naviger til den dybde, skift søskende fra
+    // snapPath[commonLen] til M[commonLen] (samme forælder), stig så ned (firstborn).
+    vertical(commonLen);
+    const fromIdx = childIndex(M[commonLen - 1], snapPath[commonLen]);
     const toIdx = childIndex(M[commonLen - 1], M[commonLen]);
     const sib = toIdx - fromIdx;
     for (let s = 0; s < Math.abs(sib); s++) plan.push(sib > 0 ? 'right' : 'left');
     descendFrom(commonLen);
   }
+  return plan;
+}
 
-  if (!plan.length) return null;
+// Næste gestus + antal resterende spring fra fokus til mig i Spor-navigationen.
+// null = ingen fælles ane (ingen vej).
+export function wayToMe(
+  model: Model,
+  snapPath: string[],
+  snapDepth: number,
+  meId: string,
+): { step: WayStep; remaining: number } | null {
+  const plan = planToMe(model, snapPath, snapDepth, meId);
+  if (plan === null) return null;
+  if (plan.length === 0) return { step: 'arrived', remaining: 0 };
   return { step: plan[0], remaining: plan.length };
+}
+
+// Hele gestus-planen fra fokus til mig — til rute-tegning i Spor.
+// null = ingen vej; [] = du er der; ellers sekvensen af gestusser (up/down/left/right).
+export function routeToMe(
+  model: Model,
+  snapPath: string[],
+  snapDepth: number,
+  meId: string,
+): WayStep[] | null {
+  return planToMe(model, snapPath, snapDepth, meId);
 }
 
 export type SearchItem = { id: string; name: string; years: string; born: number | null };
