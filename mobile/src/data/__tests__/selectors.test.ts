@@ -1,5 +1,5 @@
 import { buildModel } from '../buildModel';
-import { buildColumns, buildSearch, buildSnapPath, treeFocusA } from '../selectors';
+import { buildColumns, buildSearch, buildSnapPath, treeFocusA, wayToMe } from '../selectors';
 import type { Db } from '../types';
 
 const mk = (id: string, name: string, born: number | null = null) => ({
@@ -103,5 +103,66 @@ describe('buildColumns — variant B drill-down', () => {
     expect(cols[1].selected).toBe('3');
     // 3 har ingen børn → ingen tredje kolonne
     expect(cols.length).toBe(2);
+  });
+});
+
+// Wayfinder-fixture: 1 ┬ 2 ┬ 4
+//                     │   └ 7
+//                     └ 3 ── 5      (6 = isoleret, egen rod)
+const wayDb: Db = {
+  persons: [
+    mk('1', 'Rod Reventlow', 1644),
+    mk('2', 'Andet led A', 1670),
+    mk('3', 'Andet led B', 1672),
+    mk('4', 'Tredje led A', 1700),
+    mk('7', 'Tredje led B', 1702),
+    mk('5', 'Tredje led C', 1704),
+    mk('6', 'Fremmed slægt', 1680),
+  ],
+  unions: [{ id: 'u1', p1: '1', p2: null, p2_name: null, year: null }],
+  parentChild: [
+    { child: '2', parent: '1', union: 'u1' },
+    { child: '3', parent: '1', union: 'u1' },
+    { child: '4', parent: '2', union: 'u1' },
+    { child: '7', parent: '2', union: 'u1' },
+    { child: '5', parent: '3', union: 'u1' },
+  ],
+};
+const wayModel = buildModel(wayDb);
+// snapPath for fokus=4: anekæde [1,2,4] + tom hale → depth 2
+const path124 = buildSnapPath(wayModel, '4', '1'); // { path:['1','2','4'], depth:2 }
+// snapPath for fokus=1: [1] + førstefødt-hale [2,4] → depth 0
+const path1 = buildSnapPath(wayModel, '1', '1');    // { path:['1','2','4'], depth:0 }
+
+describe('wayToMe — vej til mig i Spor', () => {
+  test('fokus == mig → arrived', () => {
+    expect(wayToMe(wayModel, path124.path, path124.depth, '4')).toEqual({ step: 'arrived', remaining: 0 });
+  });
+
+  test('mig er ane til fokus → up, antal generationer', () => {
+    expect(wayToMe(wayModel, path124.path, path124.depth, '1')).toEqual({ step: 'up', remaining: 2 });
+  });
+
+  test('mig er fætter (forgrening m. søskendeskift) → up først, 3 spring', () => {
+    // fokus=4 (depth2), mig=5: op til depth1, skift 2→3 (right), ned til 5
+    expect(wayToMe(wayModel, path124.path, path124.depth, '5')).toEqual({ step: 'up', remaining: 3 });
+  });
+
+  test('mig er førstefødt-efterkommer på linjen → down', () => {
+    // fokus=1 (depth0), mig=4: ned, ned
+    expect(wayToMe(wayModel, path1.path, path1.depth, '4')).toEqual({ step: 'down', remaining: 2 });
+  });
+
+  test('mig er efterkommer men ikke på førstefødt-hale → down først, søskende-trin tælles', () => {
+    // fokus=1 (depth0), mig=7: ned (→2), ned (→førstefødt 4), right (4→7)
+    expect(wayToMe(wayModel, path1.path, path1.depth, '7')).toEqual({ step: 'down', remaining: 3 });
+  });
+
+  test('mig uden fælles ane → null', () => {
+    expect(wayToMe(wayModel, path124.path, path124.depth, '6')).toBeNull();
+  });
+
+  test('mig findes ikke i model → null', () => {
+    expect(wayToMe(wayModel, path124.path, path124.depth, 'ukendt')).toBeNull();
   });
 });

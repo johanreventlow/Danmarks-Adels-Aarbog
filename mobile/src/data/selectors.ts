@@ -129,6 +129,79 @@ export function treeFocusA(model: Model, focusId: string) {
   return { focus, parent, grandparent, siblings, children, spouseName };
 }
 
+export type WayStep = 'up' | 'down' | 'left' | 'right' | 'arrived';
+
+// Anekæde inkl. personen selv, ældste først (samme klatre-mønster som buildSnapPath).
+function ancestorsOf(model: Model, id: string): string[] {
+  const out: string[] = [];
+  let c: ModelPerson | undefined = model.byId[id];
+  let g = 0;
+  while (c && g < 40) {
+    out.unshift(c.id);
+    c = c.parentId ? model.byId[c.parentId] : undefined;
+    g++;
+  }
+  return out;
+}
+
+// Næste gestus + antal resterende spring fra fokus til mig i Spor-navigationen.
+// Bygger HELE gestus-planen konstruktivt (op til fælles ane → søskendeskift → ned),
+// så der ikke opstår op/ned-bounce ved gren-kryds. null = ingen fælles ane (ingen vej).
+export function wayToMe(
+  model: Model,
+  snapPath: string[],
+  snapDepth: number,
+  meId: string,
+): { step: WayStep; remaining: number } | null {
+  const focus = snapPath[snapDepth];
+  if (!focus) return null;
+  if (focus === meId) return { step: 'arrived', remaining: 0 };
+
+  const A = snapPath.slice(0, snapDepth + 1); // fokus' anekæde (snapPath ER anekæden)
+  const M = ancestorsOf(model, meId);          // mig's anekæde
+  if (!M.length || A[0] !== M[0]) return null;  // ingen fælles ane → ingen vej
+
+  let commonLen = 0;
+  while (commonLen < A.length && commonLen < M.length && A[commonLen] === M[commonLen]) commonLen++;
+
+  const plan: WayStep[] = [];
+
+  // Søskende-indeks (førstefødt = 0). -1 hvis ikke fundet (defensivt).
+  const childIndex = (parentId: string, childId: string): number =>
+    childrenOf(model, parentId).findIndex((p) => p.id === childId);
+
+  // Nedstigning fra node M[d] (i dybde d) ned til mig: per niveau ned (lander på
+  // førstefødt) + søskende-trin til det rette barn.
+  const descendFrom = (d: number) => {
+    for (let i = d; i < M.length - 1; i++) {
+      plan.push('down');
+      const idx = childIndex(M[i], M[i + 1]);
+      for (let s = 0; s < idx; s++) plan.push('right');
+    }
+  };
+
+  if (commonLen === M.length) {
+    // Mig er ane til fokus: mig ligger på A i dybde M.length-1 → klatr op.
+    const meDepth = M.length - 1;
+    for (let s = 0; s < snapDepth - meDepth; s++) plan.push('up');
+  } else if (commonLen === snapDepth + 1) {
+    // Fokus ligger på mig's egen kæde (A præfiks af M) → ren nedstigning.
+    descendFrom(snapDepth);
+  } else {
+    // Ægte forgrening: klatr op til søskende-dybden commonLen, skift søskende
+    // fra A[commonLen] til M[commonLen] (samme forælder), stig så ned.
+    for (let s = 0; s < snapDepth - commonLen; s++) plan.push('up');
+    const fromIdx = childIndex(M[commonLen - 1], A[commonLen]);
+    const toIdx = childIndex(M[commonLen - 1], M[commonLen]);
+    const sib = toIdx - fromIdx;
+    for (let s = 0; s < Math.abs(sib); s++) plan.push(sib > 0 ? 'right' : 'left');
+    descendFrom(commonLen);
+  }
+
+  if (!plan.length) return null;
+  return { step: plan[0], remaining: plan.length };
+}
+
 export type SearchItem = { id: string; name: string; years: string; born: number | null };
 
 const sortName = (a: SearchItem, b: SearchItem) => compareDanish(a.name, b.name);
