@@ -242,6 +242,9 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
 
   return (
     <View style={styles.snapContainer} onLayout={(e) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}>
+      {/* Neutral struktur-rygrad: forbinder de centrerede kort lodret (forælder→fokus→barn).
+          Ligger bag kortene, synlig i mellemrummene mellem generationerne. */}
+      <View style={styles.snapSpine} pointerEvents="none" />
       {/* Rød rute-tråd vises KUN når den fører til "mig" (way har et trin). */}
       {way && way.step && way.step !== 'arrived' && (
         <View style={[styles.snapGuide, styles.snapGuideLit]} pointerEvents="none" />
@@ -401,6 +404,7 @@ const styles = StyleSheet.create({
   bOpenBtn: { marginTop: 10, backgroundColor: Colors.bordeaux, borderRadius: 8, paddingVertical: 7, alignItems: 'center' },
   // Variant C
   snapContainer: { flex: 1, overflow: 'hidden', backgroundColor: Colors.paperBg },
+  snapSpine: { position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1.5, marginLeft: -0.75, backgroundColor: 'rgba(34,31,26,0.13)' },
   snapGuide: { position: 'absolute', left: '50%', top: 0, bottom: 0, width: 2, marginLeft: -1, backgroundColor: 'rgba(136,26,51,0.16)' },
   snapGuideLit: { backgroundColor: 'rgba(136,26,51,0.40)' },
   wayBadge: { position: 'absolute', left: 0, right: 0, top: '50%', marginTop: -94 - FRAME_NUDGE, alignItems: 'center' },
