@@ -12,7 +12,8 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-na
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadGate } from '../../components/LoadGate';
 import { BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
-import { buildColumns, childrenOf, treeFocusA } from '../../data/selectors';
+import { buildColumns, childrenOf, treeFocusA, wayToMe } from '../../data/selectors';
+import type { WayStep } from '../../data/selectors';
 import type { Model, ModelPerson } from '../../data/types';
 import { useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius, Shadow } from '../../theme/tokens';
@@ -190,6 +191,12 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
   const router = useRouter();
   const snapPath = useStore((s) => s.snapPath);
   const snapDepth = useStore((s) => s.snapDepth);
+  const meId = useStore((s) => s.meId);
+  const way = useMemo(
+    () => (meId ? wayToMe(model, snapPath, snapDepth, meId) : undefined),
+    [meId, model, snapPath, snapDepth],
+  );
+  const ARROW: Record<Exclude<WayStep, 'arrived'>, string> = { up: '▲', down: '▼', left: '◂', right: '▸' };
 
   // Hver generation (depth d) er en vandret række af ALLE søskende, centreret på den valgte
   // via balancerede spacer-pladser (padL/padR) — så søskende peeker i siderne. Port af
@@ -263,8 +270,10 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
   return (
     <GestureDetector gesture={gesture}>
       <View style={styles.snapContainer}>
-        {/* Lodret guide-linje */}
-        <View style={styles.snapGuide} pointerEvents="none" />
+        {/* Lodret guide-linje — wayfinder mod eget kort */}
+        {(meId == null || way) && (
+          <View style={[styles.snapGuide, way ? styles.snapGuideLit : null]} pointerEvents="none" />
+        )}
         {/* Kort-stak — ikke-interaktiv (pointerEvents none); al input går til gesten. */}
         <Animated.View style={[styles.snapStack, stackStyle]} pointerEvents="none">
           {rows.map((row) => (
@@ -297,6 +306,26 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
         </Animated.View>
         {/* Center-fokus-ramme */}
         <View style={styles.snapFrame} pointerEvents="none" />
+        {/* Wayfinder-badge på linjen, over fokus-rammen */}
+        {meId == null ? (
+          <View style={styles.wayBadge} pointerEvents="none">
+            <View style={styles.wayPill}>
+              <Mono size={8} color={Colors.bordeaux} style={{ letterSpacing: 8 * 0.08, textTransform: 'uppercase' }}>Vælg dig selv i en profil</Mono>
+            </View>
+          </View>
+        ) : way?.step === 'arrived' ? (
+          <View style={styles.wayBadge} pointerEvents="none">
+            <View style={styles.wayPill}>
+              <Mono size={9} color={Colors.bordeaux} style={{ letterSpacing: 9 * 0.08 }}>★ Du er her</Mono>
+            </View>
+          </View>
+        ) : way ? (
+          <View style={styles.wayBadge} pointerEvents="none">
+            <View style={styles.wayPill}>
+              <Mono size={10} color={Colors.bordeaux}>{ARROW[way.step]} {way.remaining} spring til dig</Mono>
+            </View>
+          </View>
+        ) : null}
         {/* Top-overlay */}
         <View style={styles.snapTop} pointerEvents="none">
           <Mono size={9} color={Colors.gold} style={{ letterSpacing: 9 * 0.16, textTransform: 'uppercase' }}>
@@ -384,6 +413,9 @@ const styles = StyleSheet.create({
   // Variant C
   snapContainer: { flex: 1, overflow: 'hidden', backgroundColor: Colors.paperBg },
   snapGuide: { position: 'absolute', left: '50%', top: 0, bottom: 0, width: 2, marginLeft: -1, backgroundColor: 'rgba(136,26,51,0.16)' },
+  snapGuideLit: { backgroundColor: 'rgba(136,26,51,0.40)' },
+  wayBadge: { position: 'absolute', left: 0, right: 0, top: '50%', marginTop: -94, alignItems: 'center' },
+  wayPill: { backgroundColor: Colors.paperCard, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(136,26,51,0.30)', borderRadius: 14, paddingVertical: 5, paddingHorizontal: 12, ...Shadow.card },
   snapStack: { position: 'absolute', left: 0, right: 0, top: '50%' },
   snapRow: { position: 'absolute', left: 0, right: 0, height: ROWH, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: CARD_GAP },
   snapSpacer: { width: CARD_W, height: CARD_H },
