@@ -1,19 +1,16 @@
 // Stamtræ (README §5.2) — tre varianter + §9.2 linje-hop.
 //  A · Fokus     — lodret kort-fokus (bedsteforælder→forælder→søskende→børn).
 //  B · Kolonner  — vandret-scrollende drill-down kolonner, én pr. generation.
-//  C · Spor      — fuldskærms gestus-navigeret slægtsspor (træk lodret=generation,
-//                  vandret=søskende; tærskler 64/44px; haptik pr. spring).
+//  C · Spor      — fuldskærms native snap-scroll-spor (lodret=generation, vandret=søskende;
+//                  flydende momentum + snap til midte; haptik pr. landing).
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadGate } from '../../components/LoadGate';
 import { BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
-import { buildColumns, childrenOf, treeFocusA, wayToMe } from '../../data/selectors';
-import type { WayStep } from '../../data/selectors';
+import { buildColumns, childrenOf, treeFocusA, wayToMe, type WayStep } from '../../data/selectors';
 import type { Model, ModelPerson } from '../../data/types';
 import { useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius, Shadow } from '../../theme/tokens';
@@ -183,12 +180,11 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
 // ── Variant C · Spor (gestus-snap) ───────────────────────────────────────────
 const ARROW: Record<Exclude<WayStep, 'arrived'>, string> = { up: '▲', down: '▼', left: '◂', right: '▸' };
 const STEPY = 138; // lodret afstand mellem generationer
-const ROWH = 118; // rækkehøjde (fokus-rammens højde)
 const CARD_W = 150;
 const CARD_H = 104;
 const CARD_GAP = 14; // vandret mellemrum mellem søskende-kort
-const HTHRESH = 64; // træk-tærskel: søskende
-const VTHRESH = 44; // træk-tærskel: generation
+const FRAME_NUDGE = 17; // løfter fokus-ramme + badge så det centrerede kort lander i rammen (juster ved skævhed)
+const FRAME_NUDGE_X = 1.5; // skubber fokus-ramme en anelse mod højre (afbalancerer venstre/højre margin)
 
 function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Model; activeLinje: string | null; linjeByPerson: Record<string, string>; linjeNavn: Record<string, string> }) {
   const router = useRouter();
@@ -199,149 +195,140 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
     () => (meId ? wayToMe(model, snapPath, snapDepth, meId) : undefined),
     [meId, model, snapPath, snapDepth],
   );
-  // Hver generation (depth d) er en vandret række af ALLE søskende, centreret på den valgte
-  // via balancerede spacer-pladser (padL/padR) — så søskende peeker i siderne. Port af
-  // designets snapRows-logik (v2 linje 1273-1287).
+  const moveSnapGen = useStore((s) => s.moveSnapGen);
+  const moveSnapSib = useStore((s) => s.moveSnapSib);
+
+  // Hver generation (depth d) = en vandret snap-ScrollView med ALLE søskende; den valgte
+  // centreres. d=0 er kun roden. Førstefødt = indeks 0.
   const rows = useMemo(() => {
-    const maxD = snapPath.length - 1;
-    const out: { d: number; padL: number; padR: number; sibIds: string[]; selId: string }[] = [];
-    for (let d = 0; d <= maxD; d++) {
+    const out: { d: number; sibIds: string[]; selIndex: number }[] = [];
+    for (let d = 0; d < snapPath.length; d++) {
       const sibIds = d === 0 ? [snapPath[0]] : childrenOf(model, snapPath[d - 1]).map((p) => p.id);
       const selIndex = Math.max(0, sibIds.indexOf(snapPath[d]));
-      const leftN = selIndex;
-      const rightN = sibIds.length - 1 - selIndex;
-      out.push({
-        d,
-        padL: Math.max(0, rightN - leftN),
-        padR: Math.max(0, leftN - rightN),
-        sibIds,
-        selId: snapPath[d],
-      });
+      out.push({ d, sibIds, selIndex });
     }
     return out;
   }, [model, snapPath]);
 
-  // Stakken er forankret på vertikal midte (top:50%); translateY rykker den fokuserede række
-  // til midten: -(snapDepth*STEPY + ROWH/2). Animeres .42s.
-  const targetY = -(snapDepth * STEPY + ROWH / 2);
-  const ty = useSharedValue(targetY);
-  useEffect(() => {
-    ty.value = withTiming(targetY, { duration: 420 });
-  }, [targetY, ty]);
-  const stackStyle = useAnimatedStyle(() => ({ transform: [{ translateY: ty.value }] }));
+  // Native nested snap-scroll: lodret ScrollView = generationer (snap pr. STEPY), hver række =
+  // horisontal ScrollView med søskende (snap pr. HSTEP). Centrering bages ind i padding, så
+  // contentOffset = indeks*pitch lander kortet i midten. onMomentumScrollEnd → opdater store.
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  const hRefs = useRef<Record<number, ScrollView | null>>({});
+  const HSTEP = CARD_W + CARD_GAP;
+  const vPad = Math.max(0, size.h / 2 - STEPY / 2);
+  const hPad = Math.max(0, size.w / 2 - CARD_W / 2);
+  const haptic = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 
-  // Gesten memoiseres STABILT: store-opdateringer (snapDepth ændres pr. step) re-renderer
-  // komponenten, og en ny gesture-instans midt i et træk ville afbryde trækket (kun ét step
-  // pr. swipe). Callbacks læser/kalder via useStore.getState() i stedet for closures over
-  // skiftende state. Tryk håndteres her (ikke en indlejret Pressable, der ville kapre touch).
-  const gesture = useMemo(() => {
-    const haptic = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    const g: { x: number; y: number; axis: 'x' | 'y' | null } = { x: 0, y: 0, axis: null };
-    const pan = Gesture.Pan()
-      .runOnJS(true)
-      .onBegin(() => { g.x = 0; g.y = 0; g.axis = null; })
-      .onUpdate((e) => {
-        const store = useStore.getState();
-        if (!g.axis && (Math.abs(e.translationX) > 10 || Math.abs(e.translationY) > 10)) {
-          g.axis = Math.abs(e.translationX) >= Math.abs(e.translationY) ? 'x' : 'y';
-        }
-        if (g.axis === 'x') {
-          const dx = e.translationX - g.x;
-          if (Math.abs(dx) >= HTHRESH) { store.moveSnapSib(dx < 0 ? 1 : -1); haptic(); g.x = e.translationX; }
-        } else if (g.axis === 'y') {
-          // Direkte-manipulation: træk fingeren op (dy<0) → stakken op → efterkommere (snapDepth+1).
-          const dy = e.translationY - g.y;
-          if (Math.abs(dy) >= VTHRESH) { store.moveSnapGen(dy < 0 ? 1 : -1); haptic(); g.y = e.translationY; }
-        }
-      });
-    const tap = Gesture.Tap()
-      .runOnJS(true)
-      .maxDistance(10)
-      .onEnd(() => {
-        const { snapPath: sp, snapDepth: sd } = useStore.getState();
-        const fid = sp[sd];
-        if (fid) router.push(`/person/${fid}`);
-      });
-    return Gesture.Race(pan, tap);
-  }, [router]);
+  const onVEnd = (y: number) => {
+    const d = Math.round(y / STEPY);
+    if (d !== snapDepth && d >= 0 && d < snapPath.length) { moveSnapGen(d - snapDepth); haptic(); }
+  };
+  const onHEnd = (d: number, selIndex: number, len: number, x: number) => {
+    if (d !== snapDepth) return; // kun fokus-rækken styrer valget
+    const idx = Math.round(x / HSTEP);
+    if (idx !== selIndex && idx >= 0 && idx < len) { moveSnapSib(idx - selIndex); haptic(); }
+  };
+  const tapCard = (d: number, i: number, selIndex: number, id: string) => {
+    if (d !== snapDepth) return;
+    if (i === selIndex) { router.push(`/person/${id}`); return; }
+    hRefs.current[d]?.scrollTo({ x: i * HSTEP, animated: true });
+    moveSnapSib(i - selIndex); haptic();
+  };
 
   const focusPerson = snapPath[snapDepth] ? model.byId[snapPath[snapDepth]] : null;
   const gen = snapDepth + 1;
   const linje = focusPerson ? linjeByPerson[focusPerson.id] ?? activeLinje : activeLinje;
 
   return (
-    <GestureDetector gesture={gesture}>
-      <View style={styles.snapContainer}>
-        {/* Lodret guide-linje — wayfinder mod eget kort */}
-        {(meId == null || way) && (
-          <View style={[styles.snapGuide, way ? styles.snapGuideLit : null]} pointerEvents="none" />
-        )}
-        {/* Kort-stak — ikke-interaktiv (pointerEvents none); al input går til gesten. */}
-        <Animated.View style={[styles.snapStack, stackStyle]} pointerEvents="none">
-          {rows.map((row) => (
-            <View key={row.d} style={[styles.snapRow, { top: row.d * STEPY }]}>
-              {Array.from({ length: row.padL }).map((_, i) => (
-                <View key={`pl-${i}`} style={styles.snapSpacer} />
-              ))}
-              {row.sibIds.map((id) => {
-                const p = model.byId[id];
-                if (!p) return <View key={id} style={styles.snapSpacer} />;
-                const isFocus = row.d === snapDepth && id === row.selId;
-                return (
-                  <View key={id} style={[styles.snapCard, { opacity: isFocus ? 1 : 0.55 }]}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
-                      <View style={styles.snapAvatar}><Serif size={14} color={Colors.bordeaux}>{initial(p.name)}</Serif></View>
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <Serif size={17} style={{ lineHeight: 17 }} numberOfLines={1}>{p.name}</Serif>
-                        {p.years ? <Mono size={9} color={Colors.textMuted} style={{ marginTop: 2 }}>{p.years}</Mono> : null}
-                      </View>
-                    </View>
-                    {p.title ? <BtnLabel size={10.5} color={Colors.bordeaux} numberOfLines={1} style={{ marginTop: 7, fontFamily: Fonts.sansMedium }}>{p.title}</BtnLabel> : null}
-                  </View>
-                );
-              })}
-              {Array.from({ length: row.padR }).map((_, i) => (
-                <View key={`pr-${i}`} style={styles.snapSpacer} />
-              ))}
-            </View>
-          ))}
-        </Animated.View>
-        {/* Center-fokus-ramme */}
-        <View style={styles.snapFrame} pointerEvents="none" />
-        {/* Wayfinder-badge på linjen, over fokus-rammen */}
-        {meId == null ? (
-          <View style={styles.wayBadge} pointerEvents="none">
-            <View style={styles.wayPill}>
-              <Mono size={8} color={Colors.bordeaux} style={{ letterSpacing: 8 * 0.08, textTransform: 'uppercase' }}>Vælg dig selv i en profil</Mono>
-            </View>
+    <View style={styles.snapContainer} onLayout={(e) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}>
+      {/* Rød rute-tråd vises KUN når den fører til "mig" (way har et trin). */}
+      {way && way.step && way.step !== 'arrived' && (
+        <View style={[styles.snapGuide, styles.snapGuideLit]} pointerEvents="none" />
+      )}
+      {size.h > 0 ? (
+        <ScrollView
+          style={{ flex: 1 }}
+          showsVerticalScrollIndicator={false}
+          snapToOffsets={rows.map((_, i) => i * STEPY)}
+          decelerationRate="fast"
+          contentOffset={{ x: 0, y: snapDepth * STEPY }}
+          onMomentumScrollEnd={(e) => onVEnd(e.nativeEvent.contentOffset.y)}
+          contentContainerStyle={{ paddingTop: vPad, paddingBottom: vPad }}
+        >
+          {rows.map((r) => {
+            const isFocusRow = r.d === snapDepth;
+            return (
+              <View key={`${r.d}:${r.sibIds[0]}`} style={{ height: STEPY, justifyContent: 'center' }}>
+                <ScrollView
+                  ref={(el) => { hRefs.current[r.d] = el; }}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  snapToOffsets={r.sibIds.map((_, i) => i * HSTEP)}
+                  decelerationRate="fast"
+                  scrollEnabled={isFocusRow}
+                  contentOffset={{ x: r.selIndex * HSTEP, y: 0 }}
+                  onMomentumScrollEnd={(e) => onHEnd(r.d, r.selIndex, r.sibIds.length, e.nativeEvent.contentOffset.x)}
+                  contentContainerStyle={{ paddingHorizontal: hPad, gap: CARD_GAP }}
+                >
+                  {r.sibIds.map((id, i) => {
+                    const p = model.byId[id];
+                    if (!p) return <View key={id} style={styles.snapSpacer} />;
+                    const isSel = isFocusRow && i === r.selIndex;
+                    return (
+                      <Pressable key={id} onPress={() => tapCard(r.d, i, r.selIndex, id)} style={[styles.snapCard, { opacity: isFocusRow ? (isSel ? 1 : 0.62) : 0.45 }]}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+                          <View style={styles.snapAvatar}><Serif size={14} color={Colors.bordeaux}>{initial(p.name)}</Serif></View>
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Serif size={17} style={{ lineHeight: 17 }} numberOfLines={1}>{p.name}</Serif>
+                            {p.years ? <Mono size={9} color={Colors.textMuted} style={{ marginTop: 2 }}>{p.years}</Mono> : null}
+                          </View>
+                        </View>
+                        {p.title ? <BtnLabel size={10.5} color={Colors.bordeaux} numberOfLines={1} style={{ marginTop: 7, fontFamily: Fonts.sansMedium }}>{p.title}</BtnLabel> : null}
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            );
+          })}
+        </ScrollView>
+      ) : null}
+      {/* Center-fokus-ramme */}
+      <View style={styles.snapFrame} pointerEvents="none" />
+      {/* Wayfinder-badge på linjen, over fokus-rammen */}
+      {meId == null ? (
+        <View style={styles.wayBadge} pointerEvents="none">
+          <View style={styles.wayPill}>
+            <Mono size={8} color={Colors.bordeaux} style={{ letterSpacing: 8 * 0.08, textTransform: 'uppercase' }}>Vælg dig selv i en profil</Mono>
           </View>
-        ) : way?.step === 'arrived' ? (
-          <View style={styles.wayBadge} pointerEvents="none">
-            <View style={styles.wayPill}>
-              <Mono size={9} color={Colors.bordeaux} style={{ letterSpacing: 9 * 0.08 }}>★ Du er her</Mono>
-            </View>
-          </View>
-        ) : way ? (
-          <View style={styles.wayBadge} pointerEvents="none">
-            <View style={styles.wayPill}>
-              <Mono size={10} color={Colors.bordeaux}>{ARROW[way.step]} {way.remaining} spring til dig</Mono>
-            </View>
-          </View>
-        ) : null}
-        {/* Top-overlay */}
-        <View style={styles.snapTop} pointerEvents="none">
-          <Mono size={9} color={Colors.gold} style={{ letterSpacing: 9 * 0.16, textTransform: 'uppercase' }}>
-            Gen {gen}{linje ? ` · ${linjeNavn[linje] ?? `Linje ${linje}`}` : ''}
-          </Mono>
-          <View style={{ flex: 1 }} />
-          {focusPerson ? <Serif size={13} italic color={Colors.textMuted} numberOfLines={1} style={{ maxWidth: 155, fontFamily: Fonts.serifItalic }}>{focusPerson.name}</Serif> : null}
         </View>
-        {/* Bund-hjælpetekst */}
-        <Mono size={8} color="#bcae93" style={styles.snapHint} pointerEvents="none">
-          træk ↕ generationer · ↔ søskende · tryk for profil
+      ) : way?.step === 'arrived' ? (
+        <View style={styles.wayBadge} pointerEvents="none">
+          <View style={styles.wayPill}>
+            <Mono size={9} color={Colors.bordeaux} style={{ letterSpacing: 9 * 0.08 }}>★ Du er her</Mono>
+          </View>
+        </View>
+      ) : way ? (
+        <View style={styles.wayBadge} pointerEvents="none">
+          <View style={styles.wayPill}>
+            <Mono size={10} color={Colors.bordeaux}>{ARROW[way.step]} {way.remaining} spring til dig</Mono>
+          </View>
+        </View>
+      ) : null}
+      {/* Top-overlay */}
+      <View style={styles.snapTop} pointerEvents="none">
+        <Mono size={9} color={Colors.gold} style={{ letterSpacing: 9 * 0.16, textTransform: 'uppercase' }}>
+          Gen {gen}{linje ? ` · ${linjeNavn[linje] ?? `Linje ${linje}`}` : ''}
         </Mono>
+        <View style={{ flex: 1 }} />
+        {focusPerson ? <Serif size={13} italic color={Colors.textMuted} numberOfLines={1} style={{ maxWidth: 155, fontFamily: Fonts.serifItalic }}>{focusPerson.name}</Serif> : null}
       </View>
-    </GestureDetector>
+      {/* Bund-hjælpetekst */}
+      <Mono size={8} color="#bcae93" style={styles.snapHint} pointerEvents="none">
+        træk ↕ generationer · ↔ søskende · tryk for profil
+      </Mono>
+    </View>
   );
 }
 
@@ -416,14 +403,13 @@ const styles = StyleSheet.create({
   snapContainer: { flex: 1, overflow: 'hidden', backgroundColor: Colors.paperBg },
   snapGuide: { position: 'absolute', left: '50%', top: 0, bottom: 0, width: 2, marginLeft: -1, backgroundColor: 'rgba(136,26,51,0.16)' },
   snapGuideLit: { backgroundColor: 'rgba(136,26,51,0.40)' },
-  wayBadge: { position: 'absolute', left: 0, right: 0, top: '50%', marginTop: -94, alignItems: 'center' },
+  wayBadge: { position: 'absolute', left: 0, right: 0, top: '50%', marginTop: -94 - FRAME_NUDGE, alignItems: 'center' },
   wayPill: { backgroundColor: Colors.paperCard, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(136,26,51,0.30)', borderRadius: 14, paddingVertical: 5, paddingHorizontal: 12, ...Shadow.card },
-  snapStack: { position: 'absolute', left: 0, right: 0, top: '50%' },
-  snapRow: { position: 'absolute', left: 0, right: 0, height: ROWH, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: CARD_GAP },
   snapSpacer: { width: CARD_W, height: CARD_H },
   snapCard: { width: CARD_W, height: CARD_H, backgroundColor: Colors.paperCard, borderWidth: 1.5, borderColor: Border.medium, borderRadius: 15, paddingHorizontal: 14, justifyContent: 'center', ...Shadow.card },
   snapAvatar: { width: 34, height: 34, borderRadius: Radius.round, backgroundColor: Colors.beige2, borderWidth: StyleSheet.hairlineWidth, borderColor: Border.faint, alignItems: 'center', justifyContent: 'center' },
-  snapFrame: { position: 'absolute', left: '50%', top: '50%', width: 166, height: 118, marginLeft: -83, marginTop: -59, borderWidth: 1.5, borderColor: Colors.bordeaux, borderRadius: 18 },
+  // marginTop = -(højde/2) - FRAME_NUDGE; nudge løfter rammen op så det centrerede kort lander inni den.
+  snapFrame: { position: 'absolute', left: '50%', top: '50%', width: 166, height: 118, marginLeft: -83 + FRAME_NUDGE_X, marginTop: -59 - FRAME_NUDGE, borderWidth: 1.5, borderColor: Colors.bordeaux, borderRadius: 18 },
   snapTop: { position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 9, paddingBottom: 16 },
   snapHint: { position: 'absolute', bottom: 10, left: 0, right: 0, textAlign: 'center', letterSpacing: 8 * 0.08, textTransform: 'uppercase' },
 });
