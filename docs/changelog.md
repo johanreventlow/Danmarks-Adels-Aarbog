@@ -18,9 +18,12 @@
   (apply → SET ROLE anon → tæl → ROLLBACK): A=70 lækket, B (dev droppet)=0. Rettet:
   `db-rls.sql` dropper nu `dev_anon_read` på alle tabeller først. Re-sim: 0 lækket,
   893 afdøde + data loader stadig (narrative 550, relation 961, family_member 1205).
-* **Udestår:** `db-rls.sql` er IKKE deployet mod live endnu (auto-mode blokerede
-  produktions-skrivning); runner klar i `work/rls_deploy.R` (verificer-og-commit:
-  COMMIT kun hvis 0 lækket). Live kører stadig dev-permissivt (alt offentligt) indtil da.
+* **Deployet mod live (2026-06-25):** `db-rls.sql` kørt via `work/rls_deploy.R`
+  (verificer-og-commit). Verificeret som anon: 893 afdøde synlige, 0 levende lækket,
+  helper-fn på plads, `dev_anon_read` væk. anon-tier GDPR-lag er nu aktivt i prod.
+* **Udestår:** `authenticated`-tier (medlem/forsker ser levende slægtninge m. samtykke)
+  — skitse nederst i `db-rls.sql`, bygges når login/profiles er på plads. `media`-tabel
+  er deny-all indtil afbildet-gating skrives (tom nu).
 
 ## Slægtslinjer navngives — `lineage`-entitet, trin (a) (2026-06-23)
 * Linjer levede kun som bart `'I'..'V'`-token på `person_external_id.linje`. Ny entitet
