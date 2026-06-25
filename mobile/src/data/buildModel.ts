@@ -13,14 +13,19 @@ export function buildModel(db: Db): Model {
   const unions = db.unions ?? [];
 
   // Sanity-guard mod kendte udtræks-fejl (era-tie-break / kryds-gren-børn, CLAUDE.md §5):
-  // fjern forælder→barn-kanter hvor barnet er født FØR forælderen (begge år kendt). Stopgap i
-  // app-laget indtil data rettes mod den korrekte GEDCOM-base. Rører ikke basen.
+  // fjern umulige forælder→barn-kanter (barn ældre end forælder, eller født >1 år efter
+  // forælderens død — 1 års margin tillader posthume fødsler). Stopgap i app-laget indtil
+  // data rettes mod den korrekte GEDCOM-base. Rører ikke basen.
   const bornOf: Record<string, number | null> = {};
-  persons.forEach((p) => { bornOf[p.id] = p.born ?? null; });
+  const diedOf: Record<string, number | null> = {};
+  persons.forEach((p) => { bornOf[p.id] = p.born ?? null; diedOf[p.id] = p.died ?? null; });
   const parentChild = (db.parentChild ?? []).filter((pc) => {
     const cb = bornOf[pc.child];
     const pb = bornOf[pc.parent];
-    return !(cb != null && pb != null && cb < pb); // drop hvis barn ældre end forælder
+    const pd = diedOf[pc.parent];
+    if (cb != null && pb != null && cb < pb) return false; // barn ældre end forælder
+    if (cb != null && pd != null && cb > pd + 1) return false; // barn født >1 år efter forælders død
+    return true;
   });
 
   const nameOf = (id: string): string => persons.find((p) => p.id === id)?.name ?? '';
