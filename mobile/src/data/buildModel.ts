@@ -11,7 +11,17 @@ import type { Db, Model, ModelIndexes, ModelPerson } from './types';
 export function buildModel(db: Db): Model {
   const persons = db.persons ?? [];
   const unions = db.unions ?? [];
-  const parentChild = db.parentChild ?? [];
+
+  // Sanity-guard mod kendte udtræks-fejl (era-tie-break / kryds-gren-børn, CLAUDE.md §5):
+  // fjern forælder→barn-kanter hvor barnet er født FØR forælderen (begge år kendt). Stopgap i
+  // app-laget indtil data rettes mod den korrekte GEDCOM-base. Rører ikke basen.
+  const bornOf: Record<string, number | null> = {};
+  persons.forEach((p) => { bornOf[p.id] = p.born ?? null; });
+  const parentChild = (db.parentChild ?? []).filter((pc) => {
+    const cb = bornOf[pc.child];
+    const pb = bornOf[pc.parent];
+    return !(cb != null && pb != null && cb < pb); // drop hvis barn ældre end forælder
+  });
 
   const nameOf = (id: string): string => persons.find((p) => p.id === id)?.name ?? '';
 

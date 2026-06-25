@@ -66,3 +66,23 @@ describe('buildModel — første-union-reglen (barn i flere familier får ikke f
     expect(model.indexes.parentsByChild['3']).toEqual(['1']);
   });
 });
+
+describe('buildModel — sanity-guard mod umulige forælder→barn-kanter', () => {
+  const mkY = (id: string, name: string, born: number | null) => ({ id, name, born, died: null, years: '', title: '', bio: '' });
+  const db: Db = {
+    persons: [mkY('p', 'Sen forælder', 1880), mkY('c', 'Tidligt barn', 1685), mkY('ok', 'Rigtigt barn', 1910)],
+    unions: [{ id: 'f1', p1: 'p', p2: null, p2_name: null, year: null }],
+    parentChild: [
+      { child: 'c', parent: 'p', union: 'f1' }, // umulig: barn *1685 før forælder *1880
+      { child: 'ok', parent: 'p', union: 'f1' }, // gyldig
+    ],
+  };
+  const model = buildModel(db);
+
+  test('barn født før forælder droppes (børn-gruppe + parentId)', () => {
+    const kids = Object.values(model.indexes.childrenByUnion['p'] ?? {}).flat();
+    expect(kids).toEqual(['ok']);
+    expect(model.byId['c'].parentId).toBeNull();
+    expect(model.byId['ok'].parentId).toBe('p');
+  });
+});
