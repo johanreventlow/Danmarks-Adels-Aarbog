@@ -1,5 +1,27 @@
 # Changelog
 
+## `levende`-GDPR-cache udledt + RLS-deploy-bug rettet (2026-06-25)
+* **Root cause:** `load_daa.R:64` hardkodede `levende=FALSE` på hver person — flaget
+  blev aldrig udledt. Alle 963 stod FALSE, inkl. nulevende (fx Johan Martin, id 488,
+  f. 1977). Med RLS aktiv ville selv korrekt filter eksponere dem.
+* **Regel (bruger):** levende = født inden for seneste 100 år (ift. load-dato) UDEN
+  død/begravelse/dødsårsag-fakta og uden `visning_doed`. Fail-closed: ukendt fødselsår
+  → FALSE (de udaterede er tidlige aner). Udledt fra **struktureret** fødedato
+  (`assertion.date_min/max` via blåstemplet `conclusion`), ikke display-cachen.
+* **Backfill (live, committet):** 70 personer → `levende=TRUE`. To uafhængige metoder
+  (display-regex + struktureret fakta) konvergerede på præcis 70; risiko-bucket (166 uden
+  fødsels/død-fakta) verificeret til 0 levende (alle tidlige aner; edge-case id 940 =
+  1785-ægtefælle). `load_daa.R` fået derivations-pass så næste load ikke nulstiller.
+* **`db-rls.sql`-bug:** oprettede `anon_read` men droppede ALDRIG den midlertidige
+  `dev_anon_read` (USING true). Postgres OR'er permissive politikker → deploy as-is =
+  fuld læk (anon ser alle 70 levende). Verificeret via transaktionel sim mod live
+  (apply → SET ROLE anon → tæl → ROLLBACK): A=70 lækket, B (dev droppet)=0. Rettet:
+  `db-rls.sql` dropper nu `dev_anon_read` på alle tabeller først. Re-sim: 0 lækket,
+  893 afdøde + data loader stadig (narrative 550, relation 961, family_member 1205).
+* **Udestår:** `db-rls.sql` er IKKE deployet mod live endnu (auto-mode blokerede
+  produktions-skrivning); runner klar i `work/rls_deploy.R` (verificer-og-commit:
+  COMMIT kun hvis 0 lækket). Live kører stadig dev-permissivt (alt offentligt) indtil da.
+
 ## Slægtslinjer navngives — `lineage`-entitet, trin (a) (2026-06-23)
 * Linjer levede kun som bart `'I'..'V'`-token på `person_external_id.linje`. Ny entitet
   `lineage(id, source_id, kode, navn, UNIQUE(source_id,kode))` giver dem navne:

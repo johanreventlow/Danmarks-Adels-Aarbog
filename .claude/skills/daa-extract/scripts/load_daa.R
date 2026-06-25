@@ -296,6 +296,23 @@ tryCatch({
              vexpr("navn", "vaerdi_tekst"), vexpr("fødsel", "date_raw"),
              vexpr("død", "date_raw"), vexpr("titel", "vaerdi_tekst")))
 
+  # ---- levende: GDPR-cache (invariant #8), afledt — redigeres ALDRIG manuelt.
+  # Regel: født inden for seneste 100 år (ift. load-dato) UDEN død/begravelse/
+  # dødsårsag-fakta og uden visning_doed => levende. Fail-closed: ukendt fødselsår
+  # => FALSE (de udaterede er tidlige aner). Styrer RLS-synlighed (db-rls.sql).
+  ref_aar <- as.integer(format(Sys.Date(), "%Y"))
+  ex("UPDATE person SET levende = FALSE")
+  ex(sprintf("UPDATE person p SET levende = TRUE
+     WHERE EXISTS (SELECT 1 FROM conclusion c
+            JOIN assertion a ON a.id=c.valgt_assertion_id
+            JOIN fact f ON f.id=c.target_id AND c.target_type='fact'
+           WHERE f.subjekt_type='person' AND f.subjekt_id=p.id AND f.faktatype='fødsel'
+             AND COALESCE(EXTRACT(YEAR FROM a.date_min),EXTRACT(YEAR FROM a.date_max)) >= %d)
+       AND NOT EXISTS (SELECT 1 FROM fact f
+           WHERE f.subjekt_type='person' AND f.subjekt_id=p.id
+             AND f.faktatype IN ('død','begravelse','dødsårsag'))
+       AND COALESCE(TRIM(p.visning_doed),'') = ''", ref_aar - 100L))
+
   dbCommit(con); message(sprintf("Indlæst %d poster (udgave %s).", length(clean), udgave))
 }, error = function(e) { dbRollback(con); dbDisconnect(con)
   stop("Load fejlede, rullet tilbage: ", conditionMessage(e)) })

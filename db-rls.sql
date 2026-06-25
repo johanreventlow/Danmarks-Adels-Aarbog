@@ -39,6 +39,21 @@ $$;
 revoke all on function public.person_offentlig(bigint) from public;
 grant execute on function public.person_offentlig(bigint) to anon, authenticated;
 
+-- ---------- DROP DEV-LAGET FØRST ----------
+-- KRITISK: den midlertidige dev-RLS (web/dev-rls.sql) oprettede politikker
+-- 'dev_anon_read' med USING (true). Postgres OR'er permissive politikker for
+-- samme rolle+kommando, så hvis disse forbliver, bypasser de hele GDPR-filtret
+-- nedenfor (verificeret: anon ser da alle levende). Fjern dem på ALLE tabeller.
+do $$
+declare r record;
+begin
+  for r in select schemaname, tablename from pg_policies
+           where schemaname='public' and policyname='dev_anon_read'
+  loop
+    execute format('drop policy if exists dev_anon_read on %I.%I;', r.schemaname, r.tablename);
+  end loop;
+end $$;
+
 do $$
 declare t text;
 begin
