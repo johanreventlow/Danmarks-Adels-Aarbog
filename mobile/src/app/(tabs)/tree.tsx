@@ -184,7 +184,7 @@ const CARD_W = 150;
 const CARD_H = 104;
 const CARD_GAP = 14; // vandret mellemrum mellem søskende-kort
 const FRAME_NUDGE = 17; // løfter fokus-ramme + badge så det centrerede kort lander i rammen (juster ved skævhed)
-const FRAME_NUDGE_X = 1.5; // skubber fokus-ramme en anelse mod højre (afbalancerer venstre/højre margin)
+const FRAME_NUDGE_X = 0.5; // skubber fokus-ramme en anelse mod højre (afbalancerer venstre/højre margin)
 const GAP_V = STEPY - CARD_H; // tomt lodret mellemrum under et (top-justeret) kort = rygrad-segment-højde
 
 function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Model; activeLinje: string | null; linjeByPerson: Record<string, string>; linjeNavn: Record<string, string> }) {
@@ -221,13 +221,14 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
   const red = useMemo(() => {
     const redV = new Set<number>(); // række d hvis bund-segment (gap d→d+1) er rødt
     const redH = new Set<string>(); // `${d}:${gapIndex}` vandret gap rødt
-    if (!route || route.length === 0) return { redV, redH };
+    let exit: { d: number; sib: number } | null = null; // hvor ruten forlader skærmen (off-screen ned)
+    if (!route || route.length === 0) return { redV, redH, exit };
     let d = snapDepth;
     let cursor: number | null = null;
     let sawSibling = false;
     for (const step of route) {
       if (step === 'up' || step === 'down') {
-        if (sawSibling) break; // lodret skridt efter søskendeskift → off-screen
+        if (sawSibling) { exit = { d, sib: cursor ?? rows[d]?.selIndex ?? 0 }; break; } // lodret efter søskendeskift → off-screen
         if (step === 'up') { redV.add(d - 1); d -= 1; } else { redV.add(d); d += 1; }
         cursor = null;
       } else {
@@ -239,7 +240,7 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
         sawSibling = true;
       }
     }
-    return { redV, redH };
+    return { redV, redH, exit };
   }, [route, rows, snapDepth]);
 
   // Native nested snap-scroll: lodret ScrollView = generationer (snap pr. STEPY), hver række =
@@ -315,8 +316,10 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
                     const p = model.byId[id];
                     if (!p) return <View key={id} style={styles.snapSpacer} />;
                     const isSel = isFocusRow && i === r.selIndex;
+                    const isMe = id === meId;
                     return (
-                      <Pressable key={id} onPress={() => tapCard(r.d, i, r.selIndex, id)} style={[styles.snapCard, { opacity: isFocusRow ? (isSel ? 1 : 0.62) : 0.45 }]}>
+                      <Pressable key={id} onPress={() => tapCard(r.d, i, r.selIndex, id)} style={[styles.snapCard, isMe && styles.snapCardMe, { opacity: isFocusRow ? (isSel ? 1 : 0.62) : 0.45 }]}>
+                        {isMe && <Mono size={7.5} color={Colors.bordeaux} style={{ position: 'absolute', top: 6, right: 9, letterSpacing: 0.8 }}>★ DIG</Mono>}
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
                           <View style={styles.snapAvatar}><Serif size={14} color={Colors.bordeaux}>{initial(p.name)}</Serif></View>
                           <View style={{ flex: 1, minWidth: 0 }}>
@@ -328,6 +331,10 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
                       </Pressable>
                     );
                   })}
+                  {/* A: rute fortsætter off-screen ned fra dette søskende-kort */}
+                  {red.exit && red.exit.d === r.d && (
+                    <Mono size={13} color={Colors.bordeaux} style={{ position: 'absolute', top: CARD_H - 17, left: hPad + red.exit.sib * HSTEP, width: CARD_W, textAlign: 'center' }}>▾</Mono>
+                  )}
                 </ScrollView>
               </View>
             );
@@ -447,6 +454,7 @@ const styles = StyleSheet.create({
   wayPill: { backgroundColor: Colors.paperCard, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(136,26,51,0.30)', borderRadius: 14, paddingVertical: 5, paddingHorizontal: 12, ...Shadow.card },
   snapSpacer: { width: CARD_W, height: CARD_H },
   snapCard: { width: CARD_W, height: CARD_H, backgroundColor: Colors.paperCard, borderWidth: 1.5, borderColor: Border.medium, borderRadius: 15, paddingHorizontal: 14, justifyContent: 'center', ...Shadow.card },
+  snapCardMe: { borderColor: Colors.bordeaux, borderWidth: 2 }, // mig-kortet: rød ring
   snapAvatar: { width: 34, height: 34, borderRadius: Radius.round, backgroundColor: Colors.beige2, borderWidth: StyleSheet.hairlineWidth, borderColor: Border.faint, alignItems: 'center', justifyContent: 'center' },
   // marginTop = -(højde/2) - FRAME_NUDGE; nudge løfter rammen op så det centrerede kort lander inni den.
   snapFrame: { position: 'absolute', left: '50%', top: '50%', width: 166, height: 118, marginLeft: -83 + FRAME_NUDGE_X, marginTop: -59 - FRAME_NUDGE, borderWidth: 1.5, borderColor: Colors.bordeaux, borderRadius: 18 },
