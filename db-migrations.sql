@@ -217,3 +217,58 @@ BEGIN
   RETURN jsonb_build_object('fact_id',v_fact,'assertion_id',v_assert,
                             'citation_id',v_cit,'conclusion_id',v_concl);
 END $$;
+
+-- ---- 2026-06-26: Task 4 — redaktions-RPC'er (konklusion-skift + edit/slet) ----
+
+-- "Gør til konklusion": re-peg conclusion for assertionens fact til denne assertion.
+CREATE OR REPLACE FUNCTION red_set_konklusion(p_assertion_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_target_type text; v_target_id bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  SELECT target_type, target_id INTO v_target_type, v_target_id
+    FROM assertion WHERE id = p_assertion_id;
+  IF v_target_id IS NULL THEN RAISE EXCEPTION 'Ukendt assertion %', p_assertion_id; END IF;
+  UPDATE conclusion SET valgt_assertion_id = p_assertion_id, blaastemplet_naar = current_date
+    WHERE target_type = v_target_type AND target_id = v_target_id;
+END $$;
+
+-- PoC blød redigering: UPDATE assertion direkte (indkapslet — skift til insert-ny senere).
+CREATE OR REPLACE FUNCTION red_edit_oplysning(
+  p_assertion_id bigint, p_vaerdi text, p_date_raw text DEFAULT NULL, p_kilde_fritekst text DEFAULT NULL)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  UPDATE assertion SET vaerdi_tekst = p_vaerdi,
+                       date_raw = coalesce(p_date_raw, date_raw)
+    WHERE id = p_assertion_id;
+  IF p_kilde_fritekst IS NOT NULL THEN
+    UPDATE citation SET citat_tekst = p_kilde_fritekst WHERE assertion_id = p_assertion_id;
+  END IF;
+END $$;
+
+-- PoC blød sletning: DELETE assertion; var den valgt → re-peg konklusion til første
+-- tilbageværende oplysning på samme fact (fact-slot bevares).
+CREATE OR REPLACE FUNCTION red_slet_oplysning(p_assertion_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_target_type text; v_target_id bigint; v_was_chosen boolean; v_next bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  SELECT target_type, target_id INTO v_target_type, v_target_id
+    FROM assertion WHERE id = p_assertion_id;
+  IF v_target_id IS NULL THEN RETURN; END IF;
+  SELECT (valgt_assertion_id = p_assertion_id) INTO v_was_chosen
+    FROM conclusion WHERE target_type=v_target_type AND target_id=v_target_id;
+  DELETE FROM citation  WHERE assertion_id = p_assertion_id;
+  DELETE FROM assertion WHERE id = p_assertion_id;
+  IF coalesce(v_was_chosen,false) THEN
+    SELECT id INTO v_next FROM assertion
+      WHERE target_type=v_target_type AND target_id=v_target_id ORDER BY id LIMIT 1;
+    IF v_next IS NULL THEN
+      DELETE FROM conclusion WHERE target_type=v_target_type AND target_id=v_target_id;
+    ELSE
+      UPDATE conclusion SET valgt_assertion_id=v_next
+        WHERE target_type=v_target_type AND target_id=v_target_id;
+    END IF;
+  END IF;
+END $$;
