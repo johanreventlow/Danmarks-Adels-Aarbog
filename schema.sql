@@ -425,3 +425,64 @@ CREATE INDEX IF NOT EXISTS ix_person_visningnavn ON person(visning_navn);
 -- ALTER TABLE narrative ADD COLUMN fts tsvector
 --   GENERATED ALWAYS AS (to_tsvector('danish', coalesce(tekst,''))) STORED;
 -- CREATE INDEX narrative_fts_idx ON narrative USING GIN (fts);
+
+-- ---------- REDAKTIONS-RPC'ER (Task 5) ----------
+
+-- Direkte person-koen-sætter
+CREATE OR REPLACE FUNCTION red_set_koen(p_person_id bigint, p_koen text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  UPDATE person SET koen = p_koen WHERE id = p_person_id;  -- CHECK håndhæver vokabular
+END $$;
+
+-- Direkte person-privat-sætter
+CREATE OR REPLACE FUNCTION red_set_privat(p_person_id bigint, p_privat boolean)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  UPDATE person SET privat = p_privat WHERE id = p_person_id;
+END $$;
+
+-- Direkte person-sletning (og familje-relationer)
+CREATE OR REPLACE FUNCTION red_slet_person(p_person_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  DELETE FROM family_member WHERE person_id = p_person_id;
+  DELETE FROM person WHERE id = p_person_id;
+END $$;
+
+-- Upsert narrativ (find-or-create, opdater tekst)
+CREATE OR REPLACE FUNCTION red_upsert_narrativ(
+  p_subjekt_type text, p_subjekt_id bigint, p_tekst text, p_privat boolean DEFAULT false)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_id bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  SELECT id INTO v_id FROM narrative
+    WHERE subjekt_type=p_subjekt_type AND subjekt_id=p_subjekt_id ORDER BY id LIMIT 1;
+  IF v_id IS NULL THEN
+    INSERT INTO narrative(id, subjekt_type, subjekt_id, tekst, privat)
+      VALUES ((SELECT coalesce(max(id),0)+1 FROM narrative), p_subjekt_type, p_subjekt_id, p_tekst, p_privat)
+      RETURNING id INTO v_id;
+  ELSE
+    UPDATE narrative SET tekst=p_tekst, privat=p_privat WHERE id=v_id;
+  END IF;
+  RETURN v_id;
+END $$;
+
+-- Upsert relation (skaber ny relation direkte)
+CREATE OR REPLACE FUNCTION red_relation(
+  p_subjekt_type text, p_subjekt_id bigint, p_objekt_type text, p_objekt_id bigint,
+  p_rolle text, p_periode_raw text DEFAULT NULL)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_id bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle, periode_raw)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM relation),
+            p_subjekt_type, p_subjekt_id, p_objekt_type, p_objekt_id, p_rolle, p_periode_raw)
+    RETURNING id INTO v_id;
+  RETURN v_id;
+END $$;
