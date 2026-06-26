@@ -159,3 +159,61 @@ DROP TRIGGER IF EXISTS trg_assertion_regen ON assertion;
 CREATE TRIGGER trg_assertion_regen
   AFTER UPDATE ON assertion
   FOR EACH ROW EXECUTE FUNCTION trg_regen_from_assertion();
+
+-- ---- 2026-06-26: redaktions-app — rolle-helper + fact-triplet RPC (Task 3) ----
+
+-- Kalderens rolle (default 'medlem' hvis ingen profil). STABLE; bruger auth.uid().
+CREATE OR REPLACE FUNCTION current_rolle()
+RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+  SELECT coalesce((SELECT rolle FROM profiles WHERE id = auth.uid()), 'medlem');
+$$;
+
+-- Tilføj/opdater en oplysning på et fact-slot. Find-or-create fact → assertion →
+-- citation → upsert conclusion (peg på den nye assertion). Atomisk (én funktion = én txn).
+-- PoC: kilde er fritekst (source_id null, teksten i citat_tekst). Proper source-link senere.
+-- Note (id-tildeling): basen bruger eksplicitte BIGINT-PK'er (ikke IDENTITY) — derfor `max(id)+1`
+-- inde i funktionen. Det er race-følsomt under samtidighed, men acceptabelt i PoC (én redaktør).
+-- Migrér til IDENTITY/sekvenser når flerbruger-skrivning aktiveres.
+CREATE OR REPLACE FUNCTION red_upsert_fakta(
+  p_subjekt_type text, p_subjekt_id bigint, p_faktatype text, p_vaerdi text,
+  p_date_min date DEFAULT NULL, p_date_max date DEFAULT NULL,
+  p_date_qualifier text DEFAULT NULL, p_date_raw text DEFAULT NULL,
+  p_kilde_fritekst text DEFAULT NULL
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_fact bigint; v_assert bigint; v_cit bigint; v_concl bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN
+    RAISE EXCEPTION 'Kun redaktion må skrive fakta (din rolle: %)', current_rolle();
+  END IF;
+
+  SELECT id INTO v_fact FROM fact
+    WHERE subjekt_type=p_subjekt_type AND subjekt_id=p_subjekt_id AND faktatype=p_faktatype
+    LIMIT 1;
+  IF v_fact IS NULL THEN
+    INSERT INTO fact(id, subjekt_type, subjekt_id, faktatype)
+      VALUES ((SELECT coalesce(max(id),0)+1 FROM fact), p_subjekt_type, p_subjekt_id, p_faktatype)
+      RETURNING id INTO v_fact;
+  END IF;
+
+  INSERT INTO assertion(id, target_type, target_id, vaerdi_tekst,
+                        date_min, date_max, date_qualifier, date_raw, uforanderlig)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM assertion), 'fact', v_fact, p_vaerdi,
+            p_date_min, p_date_max, p_date_qualifier, p_date_raw, false)
+    RETURNING id INTO v_assert;
+
+  INSERT INTO citation(id, assertion_id, source_id, citat_tekst)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM citation), v_assert, NULL,
+            coalesce(p_kilde_fritekst,'(kilde mangler)'))
+    RETURNING id INTO v_cit;
+
+  INSERT INTO conclusion(id, target_type, target_id, valgt_assertion_id, status, blaastemplet_af, blaastemplet_naar)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM conclusion), 'fact', v_fact, v_assert,
+            'afklaret', 'Redaktør', current_date)
+    ON CONFLICT (target_type, target_id)
+    DO UPDATE SET valgt_assertion_id=excluded.valgt_assertion_id, status='afklaret',
+                  blaastemplet_af='Redaktør', blaastemplet_naar=current_date
+    RETURNING id INTO v_concl;
+
+  RETURN jsonb_build_object('fact_id',v_fact,'assertion_id',v_assert,
+                            'citation_id',v_cit,'conclusion_id',v_concl);
+END $$;
