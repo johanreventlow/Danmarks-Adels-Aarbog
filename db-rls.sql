@@ -207,9 +207,18 @@ create policy auth_read on public.narrative for select to authenticated
   using (coalesce(privat,false)=false);
 create policy auth_read on public.note for select to authenticated
   using (coalesce(privat,false)=false);
-create policy auth_read on public.assertion for select to authenticated using (true);
-create policy auth_read on public.conclusion for select to authenticated using (true);
-create policy auth_read on public.citation for select to authenticated using (true);
+create policy auth_read on public.assertion for select to authenticated
+  using (
+    (target_type = 'fact'     and exists (select 1 from public.fact f     where f.id = target_id))
+    or (target_type = 'relation' and exists (select 1 from public.relation r where r.id = target_id))
+  );
+create policy auth_read on public.conclusion for select to authenticated
+  using (
+    (target_type = 'fact'     and exists (select 1 from public.fact f     where f.id = target_id))
+    or (target_type = 'relation' and exists (select 1 from public.relation r where r.id = target_id))
+  );
+create policy auth_read on public.citation for select to authenticated
+  using (exists (select 1 from public.assertion a where a.id = assertion_id));
 
 -- profiles: hver bruger ser kun sin egen række.
 grant select on table public.profiles to authenticated;
