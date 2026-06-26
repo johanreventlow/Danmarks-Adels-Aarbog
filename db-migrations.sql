@@ -65,6 +65,8 @@ CREATE TABLE IF NOT EXISTS lineage (
   navn      TEXT NOT NULL,
   UNIQUE (source_id, kode)
 );
+-- RLS slås til ved oprettelse (offentlig anon-read-politik lander i db-rls.sql).
+ALTER TABLE lineage ENABLE ROW LEVEL SECURITY;
 CREATE INDEX IF NOT EXISTS ix_lineage_src_kode ON lineage(source_id, kode);
 
 -- Backfill: udled (source_id, kode) fra de faktiske eksterne ID'er (ingen hardcodet
