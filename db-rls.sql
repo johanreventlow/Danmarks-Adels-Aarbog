@@ -175,6 +175,62 @@ drop policy if exists anon_read on public.citation;
 create policy anon_read on public.citation for select to anon
   using (exists (select 1 from public.assertion a where a.id = assertion_id));
 
+-- =========================================================
+-- 5) AUTHENTICATED-LAG (medlem/redaktion): logget-ind ser OGSÅ levende.
+--    Samtykke-granularitet pr. levende person udskudt (se FREMTID).
+-- =========================================================
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'person','person_external_id','family_member','fact','relation','narrative','note',
+    'assertion','conclusion','citation'
+  ] loop
+    execute format('grant select on table public.%I to authenticated;', t);
+    execute format('drop policy if exists auth_read on public.%I;', t);
+  end loop;
+end $$;
+
+-- person: alt undtagen manuelt privat.
+create policy auth_read on public.person for select to authenticated
+  using (coalesce(privat,false) = false);
+-- personbundne: synlige hvis personen ikke er privat (levende tilladt for login).
+create policy auth_read on public.person_external_id for select to authenticated
+  using (exists (select 1 from person p where p.id=person_id and coalesce(p.privat,false)=false));
+create policy auth_read on public.family_member for select to authenticated
+  using (exists (select 1 from person p where p.id=person_id and coalesce(p.privat,false)=false));
+create policy auth_read on public.fact for select to authenticated
+  using (subjekt_type <> 'person'
+         or exists (select 1 from person p where p.id=subjekt_id and coalesce(p.privat,false)=false));
+create policy auth_read on public.relation for select to authenticated using (true);
+create policy auth_read on public.narrative for select to authenticated
+  using (coalesce(privat,false)=false);
+create policy auth_read on public.note for select to authenticated
+  using (coalesce(privat,false)=false);
+create policy auth_read on public.assertion for select to authenticated using (true);
+create policy auth_read on public.conclusion for select to authenticated using (true);
+create policy auth_read on public.citation for select to authenticated using (true);
+
+-- profiles: hver bruger ser kun sin egen række.
+grant select on table public.profiles to authenticated;
+alter table public.profiles enable row level security;
+drop policy if exists self_read on public.profiles;
+create policy self_read on public.profiles for select to authenticated using (id = auth.uid());
+
+-- RPC-grants: alle red_*-funktioner kaldbare af authenticated (rolle-tjek er INDE i dem).
+do $$
+declare fn text;
+begin
+  for fn in select proname from pg_proc where proname like 'red\_%' escape '\'
+  loop execute format('grant execute on function public.%I to authenticated;', fn); end loop;
+end $$;
+grant execute on function public.current_rolle() to authenticated;
+-- staging: authenticated læser kun egne forslag.
+grant select on table public.suggestion to authenticated;
+alter table public.suggestion enable row level security;
+drop policy if exists own_read on public.suggestion;
+create policy own_read on public.suggestion for select to authenticated using (forslagsstiller = auth.uid());
+
 -- =====================================================================
 --  FREMTID · 'authenticated'-lag (medlem/forsker) — SKITSE, ikke aktiv.
 --
