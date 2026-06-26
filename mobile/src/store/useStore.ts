@@ -38,6 +38,13 @@ type State = {
   relA: string | null;
   relB: string | null;
 
+  // Auth-slice
+  session: import('@supabase/supabase-js').Session | null;
+  rolle: import('./../lib/auth').Rolle;
+  reventlowPersonId: string | null;
+  dryRun: boolean;
+  showAnnotations: boolean;
+
   // Søg/bladr (§9.1)
   query: string;
   browseSort: BrowseSort;
@@ -60,6 +67,13 @@ type State = {
   setActiveLetter: (l: string | null) => void;
   setRelA: (id: string) => void;
   setRelB: (id: string) => void;
+
+  // Auth actions
+  doSignIn: (email: string, password: string) => Promise<void>;
+  doSignOut: () => Promise<void>;
+  hydrateAuth: () => Promise<void>;
+  setDryRun: (v: boolean) => void;
+  setShowAnnotations: (v: boolean) => void;
 };
 
 export const useStore = create<State>((set, get) => ({
@@ -78,6 +92,11 @@ export const useStore = create<State>((set, get) => ({
   meId: null,
   relA: null,
   relB: null,
+  session: null,
+  rolle: 'medlem',
+  reventlowPersonId: null,
+  dryRun: true,
+  showAnnotations: false,
   query: '',
   browseSort: 'alpha',
   activeLetter: null,
@@ -225,4 +244,30 @@ export const useStore = create<State>((set, get) => ({
   setActiveLetter: (l) => set({ activeLetter: l }),
   setRelA: (id) => set({ relA: id }),
   setRelB: (id) => set({ relB: id }),
+
+  doSignIn: async (email, password) => {
+    const { signIn } = await import('../lib/auth');
+    const res = await signIn(email, password);
+    set({ rolle: res.rolle, reventlowPersonId: res.reventlowPersonId });
+    const { supabase } = await import('../lib/supabase');
+    const { data } = supabase ? await supabase.auth.getSession() : { data: { session: null } };
+    set({ session: data.session });
+  },
+  doSignOut: async () => {
+    const { signOut } = await import('../lib/auth');
+    await signOut();
+    set({ session: null, rolle: 'medlem', reventlowPersonId: null });
+  },
+  hydrateAuth: async () => {
+    const { supabase } = await import('../lib/supabase');
+    if (!supabase) return;
+    const { data } = await supabase.auth.getSession();
+    if (data.session) {
+      const { fetchProfile } = await import('../lib/auth');
+      const prof = await fetchProfile(data.session.user.id);
+      set({ session: data.session, rolle: prof.rolle, reventlowPersonId: prof.reventlowPersonId });
+    }
+  },
+  setDryRun: (v) => set({ dryRun: v }),
+  setShowAnnotations: (v) => set({ showAnnotations: v }),
 }));
