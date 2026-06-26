@@ -333,3 +333,22 @@ BEGIN
     RETURNING id INTO v_id;
   RETURN v_id;
 END $$;
+
+-- ---- 2026-06-26: Task 6 — medlem-forslag til staging ----
+
+-- Medlem-forslag til staging (all authenticated)
+CREATE OR REPLACE FUNCTION red_suggest(
+  p_art text, p_subjekt_type text, p_subjekt_id bigint, p_felt text, p_vaerdi text,
+  p_kilde_fritekst text DEFAULT NULL, p_payload jsonb DEFAULT '{}'::jsonb, p_note text DEFAULT NULL)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_id bigint;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Login kræves for forslag'; END IF;
+  INSERT INTO suggestion(forslagsstiller, art, subjekt_type, subjekt_id, felt, vaerdi,
+                         kilde_fritekst, payload, note)
+    VALUES (auth.uid(), p_art, p_subjekt_type, p_subjekt_id, p_felt, p_vaerdi,
+            p_kilde_fritekst, coalesce(p_payload,'{}'::jsonb), p_note)
+    RETURNING id INTO v_id;
+  RETURN v_id;
+END $$;
+
