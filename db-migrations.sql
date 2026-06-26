@@ -100,3 +100,62 @@ CREATE TABLE IF NOT EXISTS suggestion (
   kilde_source_id BIGINT REFERENCES source(id), kilde_fritekst TEXT,
   payload JSONB DEFAULT '{}'::jsonb, note TEXT
 );
+
+-- ---- 2026-06-26: cache-regenerering af person.visning_* via trigger ----
+-- Recompute cache-felter fra personens konklusioner. Læser den VALGTE assertions værdi
+-- pr. faktatype. Dato-fakta (fødsel/død) bruger coalesce(date_raw, vaerdi_tekst).
+CREATE OR REPLACE FUNCTION regen_person_visning(pid BIGINT)
+RETURNS void LANGUAGE sql AS $$
+  UPDATE person p SET
+    visning_navn  = sub.navn,
+    visning_foedt = sub.foedt,
+    visning_doed  = sub.doed,
+    visning_titel = sub.titel
+  FROM (
+    SELECT
+      max(a.vaerdi_tekst) FILTER (WHERE f.faktatype='navn')  AS navn,
+      max(coalesce(a.date_raw,a.vaerdi_tekst)) FILTER (WHERE f.faktatype='fødsel') AS foedt,
+      max(coalesce(a.date_raw,a.vaerdi_tekst)) FILTER (WHERE f.faktatype='død')    AS doed,
+      max(a.vaerdi_tekst) FILTER (WHERE f.faktatype='titel') AS titel
+    FROM fact f
+    JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id
+    JOIN assertion  a ON a.id = c.valgt_assertion_id
+    WHERE f.subjekt_type='person' AND f.subjekt_id = pid
+  ) sub
+  WHERE p.id = pid;
+$$;
+
+-- Trigger-wrapper: udled berørt person fra conclusion-rækkens fact-target.
+CREATE OR REPLACE FUNCTION trg_regen_from_conclusion()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE pid BIGINT;
+BEGIN
+  SELECT f.subjekt_id INTO pid FROM fact f
+    WHERE f.id = coalesce(NEW.target_id, OLD.target_id)
+      AND coalesce(NEW.target_type, OLD.target_type)='fact'
+      AND f.subjekt_type='person';
+  IF pid IS NOT NULL THEN PERFORM regen_person_visning(pid); END IF;
+  RETURN NULL;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_conclusion_regen ON conclusion;
+CREATE TRIGGER trg_conclusion_regen
+  AFTER INSERT OR UPDATE OR DELETE ON conclusion
+  FOR EACH ROW EXECUTE FUNCTION trg_regen_from_conclusion();
+
+-- Edits af den VALGTE assertion ændrer cache-værdien uden at conclusion-rækken røres.
+CREATE OR REPLACE FUNCTION trg_regen_from_assertion()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE pid BIGINT;
+BEGIN
+  SELECT f.subjekt_id INTO pid FROM fact f
+    JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id
+    WHERE c.valgt_assertion_id = NEW.id AND f.subjekt_type='person';
+  IF pid IS NOT NULL THEN PERFORM regen_person_visning(pid); END IF;
+  RETURN NULL;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_assertion_regen ON assertion;
+CREATE TRIGGER trg_assertion_regen
+  AFTER UPDATE ON assertion
+  FOR EACH ROW EXECUTE FUNCTION trg_regen_from_assertion();
