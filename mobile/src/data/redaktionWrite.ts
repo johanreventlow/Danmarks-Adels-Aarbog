@@ -49,6 +49,11 @@ export function buildRpcCall(c: Change): RpcCall | null {
   return null;
 }
 
+// Menneskelæselig forhåndsvisning til dry-run-sheet (matcher prototypens kode-blok-stil).
+export function describeCall(call: RpcCall): string {
+  return `rpc ${call.fn}\n${JSON.stringify(call.args, null, 2)}`;
+}
+
 // dry-run: returnér det planlagte kald (UI viser fn+args). live: udfør via supabase.rpc.
 export async function submitChange(c: Change, opts: { dryRun: boolean }) {
   const call = buildRpcCall(c);

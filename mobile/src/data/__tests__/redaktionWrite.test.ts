@@ -1,4 +1,4 @@
-import { buildRpcCall, FELT_FAKTATYPE } from '../redaktionWrite';
+import { buildRpcCall, describeCall, FELT_FAKTATYPE } from '../redaktionWrite';
 
 describe('buildRpcCall', () => {
   it('mapper foedt → red_upsert_fakta m. faktatype fødsel', () => {
@@ -21,5 +21,13 @@ describe('buildRpcCall', () => {
   });
   it('FELT_FAKTATYPE har ikke koen (special-case)', () => {
     expect(FELT_FAKTATYPE.koen).toBeUndefined();
+  });
+});
+
+describe('describeCall', () => {
+  it('formatterer fn + pæn JSON', () => {
+    const s = describeCall({ fn: 'red_set_koen', args: { p_person_id: 7, p_koen: 'mand' } });
+    expect(s).toContain('rpc red_set_koen');
+    expect(s).toContain('"p_koen": "mand"');
   });
 });
