@@ -100,6 +100,10 @@ CREATE TABLE IF NOT EXISTS suggestion (
   kilde_source_id BIGINT REFERENCES source(id), kilde_fritekst TEXT,
   payload JSONB DEFAULT '{}'::jsonb, note TEXT
 );
+-- RLS slås til ved oprettelse (deny-all indtil politikker + grants lander i db-rls.sql).
+-- Lukker eksponerings-vinduet mellem migration og RLS-kørsel + tilfredsstiller Supabase-linteren.
+ALTER TABLE profiles   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE suggestion ENABLE ROW LEVEL SECURITY;
 
 -- ---- 2026-06-26: cache-regenerering af person.visning_* via trigger ----
 -- Recompute cache-felter fra personens konklusioner. Læser den VALGTE assertions værdi

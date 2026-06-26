@@ -137,6 +137,9 @@ CREATE TABLE suggestion (            -- staging: ikke-redaktion-forslag (manuelt
   payload         JSONB DEFAULT '{}'::jsonb,
   note            TEXT
 );
+-- RLS slås til ved oprettelse (deny-all indtil politikker + grants lander i db-rls.sql).
+ALTER TABLE profiles   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE suggestion ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE family (                    -- union/partnerskab
   id   BIGINT PRIMARY KEY,
