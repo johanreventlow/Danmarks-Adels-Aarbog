@@ -24,17 +24,20 @@ export type RpcCall = { fn: string; args: Record<string, unknown> };
 
 export function buildRpcCall(c: Change): RpcCall | null {
   const sid = Number(c.subjektId);
-  const aid = c.assertionId != null ? Number(c.assertionId) : undefined;
+  const aid = c.assertionId != null ? Number(c.assertionId) : null;
   if (c.art === 'setKonklusion') {
+    if (aid == null) return null;
     return { fn: 'red_set_konklusion', args: { p_assertion_id: aid } };
   }
   if (c.art === 'redigerOplysning') {
+    if (aid == null) return null;
     const args: Record<string, unknown> = { p_assertion_id: aid, p_vaerdi: c.vaerdi };
     if (c.felt && DATE_FELT.has(c.felt)) args.p_date_raw = c.vaerdi;
     if (c.kildeFritekst != null) args.p_kilde_fritekst = c.kildeFritekst;
     return { fn: 'red_edit_oplysning', args };
   }
   if (c.art === 'sletOplysning') {
+    if (aid == null) return null;
     return { fn: 'red_slet_oplysning', args: { p_assertion_id: aid } };
   }
   if (c.art === 'setPrivat') {

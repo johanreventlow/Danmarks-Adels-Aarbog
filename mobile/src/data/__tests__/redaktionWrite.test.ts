@@ -57,3 +57,19 @@ test('sletPerson → red_slet_person', () => {
 test('oversaetFejl: rolle-gating → dansk', () => {
   expect(oversaetFejl('Kun redaktion')).toBe('Kræver redaktør-rettigheder.');
 });
+
+test('sletOplysning → red_slet_oplysning', () => {
+  expect(buildRpcCall({ art: 'sletOplysning', subjektType: 'person', subjektId: '1', assertionId: '100' }))
+    .toEqual({ fn: 'red_slet_oplysning', args: { p_assertion_id: 100 } });
+});
+
+test('redigerOplysning med dato-felt → inkluderer p_date_raw', () => {
+  expect(buildRpcCall({ art: 'redigerOplysning', subjektType: 'person', subjektId: '1',
+    assertionId: '100', felt: 'foedt', vaerdi: 'ca. 1644' }))
+    .toEqual({ fn: 'red_edit_oplysning', args: { p_assertion_id: 100, p_vaerdi: 'ca. 1644', p_date_raw: 'ca. 1644' } });
+});
+
+test('sletOplysning uden assertionId → null', () => {
+  expect(buildRpcCall({ art: 'sletOplysning', subjektType: 'person', subjektId: '1' }))
+    .toBeNull();
+});
