@@ -76,17 +76,28 @@ læses IKKE i dag. Person-editoren ER en evidens-visning → nyt read-lag kræve
 **Ny fil `mobile/src/data/redaktionRead.ts`:**
 
 `fetchPersonEvidence(personId): Promise<PersonEvidence>` — **N separate queries + klient-side
-join** (modellen er polymorf: `assertion.target_type/target_id` og `conclusion.target_type/
-target_id` peger på `fact` UDEN rigtig FK, så PostgREST nested-select 400'er — derfor flade
-kald):
+join.** Kun de **polymorfe fact-links** blokerer nesting: `assertion.target_type/target_id` og
+`conclusion.target_type/target_id` peger på `fact` UDEN rigtig FK, så et nested-select fra
+`fact` ned i assertion 400'er. `citation → source` HAR derimod rigtige FK'er og kan nested-
+selectes. Derfor:
 
 1. `fact?subjekt_type=eq.person&subjekt_id=eq.{id}` → `factIds`, faktatype pr. fact.
 2. `assertion?target_type=eq.fact&target_id=in.({factIds})` → værdier + fuzzy-datoer.
 3. `conclusion?target_type=eq.fact&target_id=in.({factIds})` → `valgt_assertion_id` pr. fact.
-4. `citation?assertion_id=in.({assertionIds})` (+ `source`-opslag) → kilde pr. oplysning.
+4. `citation?assertion_id=in.({assertionIds})&select=*,source(slags,titel,udgave)` → kilder
+   pr. oplysning (nested source via FK). **Bemærk:** én assertion kan have FLERE citations
+   (ingen `UNIQUE(assertion_id)`), så kilder modelleres som liste, ikke ét felt.
 
-Samles til:
+Samles til (kolonner matcher faktisk schema — `citation` har `side, citat_tekst, citat_dato`;
+`source` har `slags, titel, udgave`; der findes INGEN `forfatter`-kolonne):
 ```ts
+type Kilde = {
+  sourceId: number | null;
+  sourceTitel?: string;       // source.titel
+  side?: string;              // citation.side
+  citatTekst?: string;        // citation.citat_tekst
+  citatDato?: string;         // citation.citat_dato
+};
 type FeltEvidens = {
   felt: string;                 // navn|foedt|doed|titel  (koen særskilt, §4)
   faktatype: string;
@@ -96,7 +107,7 @@ type FeltEvidens = {
     assertionId: number;
     vaerdi: string;
     dato?: { min, max, qualifier, raw };
-    kilde?: { sourceId, titel, side, citatTekst, forfatter, dato };
+    kilder: Kilde[];            // 0..n citations pr. assertion
     erKonklusion: boolean;
   }[];
   uenig: boolean;               // >1 distinkt værdi
@@ -128,8 +139,9 @@ Samme map som `redaktionWrite.ts FELT_FAKTATYPE`:
 Nyt view i `db-migrations.sql` (idempotent) + `schema.sql` (source of truth):
 
 ```sql
-create or replace view red_konflikt as
-select f.subjekt_id   as person_id,
+create or replace view red_konflikt
+  with (security_invoker = true) as          -- KRITISK: ellers kører viewet som ejer
+select f.subjekt_id   as person_id,          -- og omgår RLS → lækker private personers facts
        f.faktatype,
        count(distinct a.vaerdi_tekst) as antal_vaerdier,
        count(*)                       as antal_oplysninger
@@ -137,15 +149,22 @@ from fact f
 join assertion a
   on a.target_type = 'fact' and a.target_id = f.id
 where f.subjekt_type = 'person'
+  and f.faktatype in ('navn','titel')        -- v1: kun tekst-felter (se dato-note)
 group by f.subjekt_id, f.faktatype
 having count(distinct a.vaerdi_tekst) > 1;
 ```
 
 - "uenig" = **>1 distinkt værdi** (samme værdi fra to kilder = bekræftelse, ikke konflikt).
-- Dashboard læser `red_konflikt` direkte (RLS: arver tabel-politikker; tilføj `grant select`
-  + read-policy hvis nødvendigt — verificeres mod live-base).
-- **Dato-felter:** `vaerdi_tekst` kan være tom for fødsel/død; konflikt på datoer beror på
-  `date_raw`. Noteres i planen som forfin-punkt (kan undlade dato-felter fra view'et i v1).
+- **`security_invoker = true` er obligatorisk** (Codex-review, høj): et alm. PostgreSQL-view
+  kører ellers med ejer-rettigheder og **omgår RLS** på `fact`/`assertion` → lækker private
+  personers konflikter. Med `security_invoker` arver viewet kalderens RLS. Verificér eksplicit
+  at private personer IKKE returneres. `grant select on red_konflikt to authenticated`.
+- **Dato-felter (fødsel/død) udeladt af konflikt-kø i plan 1** (Codex-review, medium):
+  `vaerdi_tekst` er typisk tom for dato-fakta, så `distinct vaerdi_tekst` ville give 0 og misse
+  reelle dato-konflikter — værre end at udelade dem ærligt. Plan 1 lover derfor kun konflikt-
+  detektion på `navn`/`titel`. Dato-konflikt (kanonisk sammenligning af `date_min/max/raw`)
+  = plan 2. §6.2-editoren viser stadig flere dato-oplysninger pr. person; kun dashboard-køen
+  er afgrænset.
 
 ---
 
@@ -162,6 +181,11 @@ having count(distinct a.vaerdi_tekst) > 1;
 ### 6.2 Person-editor — `redaktion/person/[id].tsx` ★
 - Header: avatar + navn (`visning_navn`) + meta-chips (år, køn, id).
 - Handlinger: **Privat**-toggle (`red_set_privat`) + **Slet**-knap (→ slet-sheet).
+  **RLS-afhængighed (Codex-review, høj):** den nuværende `auth_read`-policy på `person`/`fact`
+  skjuler private rækker for ALLE authenticated — også redaktøren. Sætter redaktøren
+  `privat=true`, forsvinder personen ved næste re-fetch og kan ikke ophæves via UI. Plan 1
+  SKAL derfor tilføje en redaktion-specifik read-policy (`current_rolle()='redaktion'` ser også
+  private person/personbundne rækker) i `db-rls.sql`. Se §8b.
 - Evidens-note (kun hvis `showAnnotations`).
 - **Kerne-fakta** (5 kort: navn/foedt/doed/koen/titel), drevet af `fetchPersonEvidence`:
   - Sammenklappet: feltlabel + konklusionsværdi + kilde + "uenige"-tag + "N oplysn." + chevron.
@@ -169,8 +193,11 @@ having count(distinct a.vaerdi_tekst) > 1;
     handlinger **Gør til konklusion** (`red_set_konklusion`), **✎ redigér**
     (`red_edit_oplysning`), **🗑 slet** (`red_slet_oplysning`). **+ Tilføj oplysning**
     (`red_upsert_fakta`). `koen` → `red_set_koen`.
-- **Narrativ · biografi:** `TextInput` (multiline) + kilde-felt → `red_upsert_narrativ`
-  (**skrivbar**).
+- **Narrativ · biografi:** `TextInput` (multiline) → `red_upsert_narrativ` (**skrivbar**).
+  **Kilde-felt udeladt i plan 1** (Codex-review, medium): `red_upsert_narrativ` tager kun
+  `(subjekt_type, subjekt_id, tekst, privat)` — ingen `source_id`/`side`, selvom `narrative`-
+  tabellen har dem. Et kilde-felt ville blive tabt stille. Plan 1 redigerer kun teksten; kilde-
+  binding på narrativ kræver RPC-udvidelse (`source_id`/`side`) → plan 2.
 - **Familie & relationer** + **sektioner** (hverv/godser/kilder/våben): **read-only display**
   fra eksisterende model-selectors; redigering = plan 2.
 
@@ -192,6 +219,12 @@ Modal/overlay-komponenter (slide-op). Plan 1 leverer de tre kritiske:
   kalder RPC'en (`submitChange`) og viser resultat / fejltekst.
 - **Slet-bekræft:** relations-advarsel (hvilke kanter brydes) + acknowledge-checkbox →
   låser rød "Slet endeligt"-knap op → `red_slet_person`.
+  **Komplet cascade-advarsel (Codex-review, høj):** `red_slet_person` sletter relationer hvor
+  personen er subjekt **ELLER** objekt, men `load.ts` henter kun `subjekt_type='person'`-
+  relationer → modellen kender ikke INDGÅENDE kanter, så advarslen underrapporterer destruktive
+  konsekvenser. Plan 1 SKAL hente begge retninger til advarslen — enten via en udvidet
+  relations-fetch (subjekt OR objekt) eller en dry-run-RPC der returnerer den fulde cascade-
+  liste. Sidstnævnte er mest robust (matcher RPC'ens faktiske slette-logik 1:1).
 
 **Opret-sheet** (fra "Tilføj"-fane) = stub i plan 1.
 
@@ -214,6 +247,23 @@ RPC'erne er deployet live; kun TS-laget er create-only nu (`buildRpcCall` mapper
 Rolle (`store.rolle`) styrer hvilke handlinger UI viser: `medlem` ser kun forslag-flow.
 
 ---
+
+## 8b. DB-ændringer påkrævet i plan 1 (ikke kun UI)
+
+Codex-review afslørede at plan 1 IKKE er rent UI — tre små, additive DB-ændringer kræves
+(idempotent i `db-migrations.sql`/`db-rls.sql`; `schema.sql` opdateres som source of truth):
+
+1. **`red_konflikt`-view** med `security_invoker = true` + `grant select … to authenticated`
+   (§5). Uden security_invoker = GDPR-læk af private personers konflikter.
+2. **Redaktion-read-policy** på `person` + personbundne tabeller (`fact`, `person_external_id`,
+   `family_member`, `narrative`, `note`, `relation`, `assertion`, `conclusion`, `citation`):
+   `current_rolle()='redaktion'` ser også private rækker. Ellers låser privat-toggle redaktøren
+   ude (§6.2). Gates på `current_rolle()`, ikke `using(true)` — bevarer medlem-GDPR-laget.
+3. **Cascade-preview** for sletning: enten udvidet relations-fetch (subjekt OR objekt) i
+   read-laget, eller en `red_slet_person_preview(person_id)`-RPC (read-only, returnerer antal/
+   liste af berørte relationer/facts) der spejler `red_slet_person`-logikken (§7).
+
+Disse verificeres mod live-basen (samme REST-probe-metode som §0).
 
 ## 9. Tværgående
 
@@ -244,8 +294,14 @@ tilføj kun manglende redaktion-tokens additivt.
   dry-run-preview-generering; fejl-oversættelse (P0001 → dansk).
 - **DB:** `red_konflikt`-view verificeres mod live-base (returnerer forventede konflikt-rader;
   grant/RLS-læsbar for authenticated).
-- **UI:** lette render-tests (editor-kort folder ud, rolle gater handlinger). Manuel
-  funktionstest af login → editor → write (kræver seeded redaktion-profil).
+- **DB (RLS/sikkerhed):** test at `red_konflikt` med `security_invoker` IKKE returnerer private
+  personer (anon/medlem); at redaktion-read-policy giver redaktør adgang til privat-markeret
+  person efter `red_set_privat`. Verificeres mod live-base.
+- **UI:** lette render-tests (editor-kort folder ud, rolle gater handlinger) **forudsætter en
+  RN-testing-afhængighed** (`@testing-library/react-native` + `react-test-renderer`, React-19-
+  kompatibel) — findes IKKE i `package.json` i dag (Codex-review, lav). Plan 1: enten tilføj
+  afhængigheden (noteres i §12) ELLER nedprioritér render-tests til logik-only jest + manuel
+  funktionstest. Manuel: login → editor → write (kræver seeded redaktion-profil).
 
 ---
 
@@ -257,12 +313,18 @@ tilføj kun manglende redaktion-tokens additivt.
   `person/[id].tsx`.
 - `mobile/src/data/redaktionRead.ts` (+ test).
 - Sheet-komponenter (login, skrive-preview, slet-bekræft) under `mobile/src/components/`.
-- `red_konflikt`-view i `db-migrations.sql` + `schema.sql`.
 
 **Ændrede:**
 - `mobile/src/data/redaktionWrite.ts` (+ nye `buildRpcCall`-cases, fejl-oversættelse).
 - Evt. `mobile/src/theme/tokens.ts` (manglende redaktion-tokens, additivt).
 - `mobile/src/store/useStore.ts` (kun hvis UI kræver ny tværgående state — auth/dryRun findes).
+- `mobile/package.json` (kun hvis render-tests vælges: RN-testing-dep, §11).
+
+**DB-ændringer (§8b — additivt, idempotent):**
+- `db-migrations.sql` + `schema.sql`: `red_konflikt`-view (`security_invoker`); evt.
+  `red_slet_person_preview`-RPC.
+- `db-rls.sql`: redaktion-read-policy (private rækker synlige for `current_rolle()='redaktion'`)
+  på person + personbundne tabeller; `grant select on red_konflikt`.
 
 ---
 
