@@ -27,6 +27,8 @@ export const Colors = {
   beige3: '#e6ddcc',
   // Sandkasse-bg (uden for telefon)
   sandbox: '#e7e3da',
+  // Fejl/slet — bordeaux-rød (handoff §Design tokens)
+  danger: '#8a2b2b',
 } as const;
 
 // Ramme/separator-farver — rgba(34,31,26,.08–.14)
