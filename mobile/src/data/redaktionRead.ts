@@ -89,6 +89,28 @@ export async function fetchKonflikter(): Promise<Konflikt[]> {
   return (data ?? []).map(mapKonfliktRow);
 }
 
+export type SletPreview = {
+  antalRelationer: number;
+  antalFacts: number;
+  relationer: { rolle: string; retning: string; modpartId: number }[];
+};
+
+export async function fetchSletPreview(personId: string): Promise<SletPreview> {
+  const tom: SletPreview = { antalRelationer: 0, antalFacts: 0, relationer: [] };
+  if (!supabase) return tom;
+  const { data, error } = await supabase.rpc('red_slet_person_preview', { p_person_id: Number(personId) });
+  if (error || !data) return tom;
+  return {
+    antalRelationer: data.antal_relationer ?? 0,
+    antalFacts: data.antal_facts ?? 0,
+    relationer: (data.relationer ?? []).map((r: { rolle: string; retning: string; modpart_id: number }) => ({
+      rolle: r.rolle,
+      retning: r.retning,
+      modpartId: r.modpart_id,
+    })),
+  };
+}
+
 export async function fetchPersonEvidence(personId: string): Promise<PersonEvidence> {
   const empty: PersonEvidence = { felter: {}, koen: null };
   if (!supabase) return empty;
