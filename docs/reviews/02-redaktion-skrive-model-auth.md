@@ -1,5 +1,24 @@
 # Review 02 — Redaktions-skrive-model + auth
 
+> **Cycle-status (2026-06-27): KOMPLET.** Codex NO-SHIP → alle bekræftede fund rettet + live-verificeret.
+>
+> | ID | Severity | Bucket | Status | Commit |
+> |----|----------|--------|--------|--------|
+> | H1 | MEDIUM | False-confidence | ✅ Rettet (redaktion_read_all) | `35bd02e` |
+> | H2 | HIGH | Hard runtime-crash | ✅ Rettet (FK-sikker cascade) | `66a8cc4` |
+> | H3 | HIGH | PII-eksponering | ✅ Rettet (relation/narrative/note gated) | `35bd02e` |
+> | red_set_konklusion | MEDIUM | False-confidence | ✅ Rettet (upsert) | `66a8cc4` |
+> | M1 | LOW | Cleanup | ⏸ Defer (definér fact-kardinalitet i UI-fase) | — |
+> | M2 | LOW | Semantic drift | ⏸ Defer (strukturerede-dato-fase) | — |
+> | M3 | INFO | Accepteret debt | — (max(id)+1, PoC) | — |
+>
+> Allerede løst før dette review: FK-bug i `red_slet_oplysning` (`64a08da`), GDPR using(true)
+> på assertion/conclusion/citation (`074c62b`). Alle fixes deployet til prod + live-verificeret
+> (rollback-transaktioner): konklusion-upsert, cascade (temp + ægte person 1), H3-PII-gating
+> (authenticated ser ikke privat persons relation/narrativ).
+
+
+
 **Område:** evidens-skrive-RPC-lag + RLS + app write-lag (commits `ba2dae2..64a08da`).
 **Reviewer:** Claude (Phase 1). Codex adversarial: pending.
 **Kontekst:** PoC; blød-mutabel assertion bevidst (spec §2); `max(id)+1`-id-tildeling
