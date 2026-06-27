@@ -265,11 +265,13 @@ BEGIN
   IF v_target_id IS NULL THEN RETURN; END IF;
   SELECT (valgt_assertion_id = p_assertion_id) INTO v_was_chosen
     FROM conclusion WHERE target_type=v_target_type AND target_id=v_target_id;
-  DELETE FROM citation  WHERE assertion_id = p_assertion_id;
-  DELETE FROM assertion WHERE id = p_assertion_id;
+  -- VIGTIGT: slip FK'en (conclusion.valgt_assertion_id -> assertion.id) FØR assertion slettes,
+  -- ellers fejler DELETE med conclusion_valgt_assertion_id_fkey. Re-peg til første tilbageværende
+  -- oplysning (ekskl. den der slettes); ingen tilbage -> drop conclusion. Fact-slot bevares.
   IF coalesce(v_was_chosen,false) THEN
     SELECT id INTO v_next FROM assertion
-      WHERE target_type=v_target_type AND target_id=v_target_id ORDER BY id LIMIT 1;
+      WHERE target_type=v_target_type AND target_id=v_target_id AND id <> p_assertion_id
+      ORDER BY id LIMIT 1;
     IF v_next IS NULL THEN
       DELETE FROM conclusion WHERE target_type=v_target_type AND target_id=v_target_id;
     ELSE
@@ -277,6 +279,8 @@ BEGIN
         WHERE target_type=v_target_type AND target_id=v_target_id;
     END IF;
   END IF;
+  DELETE FROM citation  WHERE assertion_id = p_assertion_id;
+  DELETE FROM assertion WHERE id = p_assertion_id;
 END $$;
 
 -- ---- 2026-06-26: Task 5 — direkte person/narrativ/relation-RPC'er ----
