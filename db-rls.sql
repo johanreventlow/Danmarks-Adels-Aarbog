@@ -202,11 +202,25 @@ create policy auth_read on public.family_member for select to authenticated
 create policy auth_read on public.fact for select to authenticated
   using (subjekt_type <> 'person'
          or exists (select 1 from person p where p.id=subjekt_id and coalesce(p.privat,false)=false));
-create policy auth_read on public.relation for select to authenticated using (true);
+-- relation: gates på BÅDE person-endpoints (ikke-privat). Cycle 02 H3 — using(true) lækkede
+-- private personers relationer (ejerskab/hverv/kanter) til logget-ind medlemmer.
+create policy auth_read on public.relation for select to authenticated
+  using (
+    (subjekt_type <> 'person' or exists (select 1 from person p where p.id=subjekt_id and coalesce(p.privat,false)=false))
+    and (objekt_type <> 'person' or exists (select 1 from person p where p.id=objekt_id and coalesce(p.privat,false)=false))
+  );
+-- narrative/note: eget privat-flag OG (ikke-person ELLER refereret person ikke-privat).
+-- Cycle 02 H3 — manglede person-gating (ikke-flagget bio/note om privat person lækkede).
 create policy auth_read on public.narrative for select to authenticated
-  using (coalesce(privat,false)=false);
+  using (
+    coalesce(privat,false)=false
+    and (subjekt_type <> 'person' or exists (select 1 from person p where p.id=subjekt_id and coalesce(p.privat,false)=false))
+  );
 create policy auth_read on public.note for select to authenticated
-  using (coalesce(privat,false)=false);
+  using (
+    coalesce(privat,false)=false
+    and (target_type <> 'person' or exists (select 1 from person p where p.id=target_id and coalesce(p.privat,false)=false))
+  );
 create policy auth_read on public.assertion for select to authenticated
   using (
     (target_type = 'fact'     and exists (select 1 from public.fact f     where f.id = target_id))
@@ -233,12 +247,17 @@ begin
   for fn in select proname from pg_proc where proname like 'red\_%' escape '\'
   loop execute format('grant execute on function public.%I to authenticated;', fn); end loop;
 end $$;
+revoke all on function public.current_rolle() from public;   -- hygiejne: ikke kaldbar af anon
 grant execute on function public.current_rolle() to authenticated;
--- staging: authenticated læser kun egne forslag.
+-- staging: authenticated læser egne forslag; redaktion læser ALLE (kan tømme køen).
+-- Cycle 02 H1 — uden redaktion-read var staging-flowet usynligt for den der skal gennemse det.
 grant select on table public.suggestion to authenticated;
 alter table public.suggestion enable row level security;
 drop policy if exists own_read on public.suggestion;
+drop policy if exists redaktion_read_all on public.suggestion;
 create policy own_read on public.suggestion for select to authenticated using (forslagsstiller = auth.uid());
+create policy redaktion_read_all on public.suggestion for select to authenticated
+  using ((select public.current_rolle()) = 'redaktion');  -- (select ...) = én eval pr. statement
 
 -- =====================================================================
 --  FREMTID · 'authenticated'-lag (medlem/forsker) — SKITSE, ikke aktiv.
