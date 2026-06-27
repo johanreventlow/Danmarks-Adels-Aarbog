@@ -77,6 +77,18 @@ export function joinEvidence(rows: {
   return { felter, koen: rows.koen };
 }
 
+export type Konflikt = { personId: string; felt: string; antalVaerdier: number };
+
+export function mapKonfliktRow(r: { person_id: number; faktatype: string; antal_vaerdier: number }): Konflikt {
+  return { personId: String(r.person_id), felt: FAKTATYPE_FELT[r.faktatype] ?? r.faktatype, antalVaerdier: r.antal_vaerdier };
+}
+
+export async function fetchKonflikter(): Promise<Konflikt[]> {
+  if (!supabase) return [];
+  const { data } = await supabase.from('red_konflikt').select('person_id,faktatype,antal_vaerdier');
+  return (data ?? []).map(mapKonfliktRow);
+}
+
 export async function fetchPersonEvidence(personId: string): Promise<PersonEvidence> {
   const empty: PersonEvidence = { felter: {}, koen: null };
   if (!supabase) return empty;

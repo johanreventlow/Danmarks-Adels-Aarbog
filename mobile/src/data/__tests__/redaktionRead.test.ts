@@ -1,4 +1,4 @@
-import { joinEvidence } from '../redaktionRead';
+import { joinEvidence, mapKonfliktRow } from '../redaktionRead';
 
 const FACTS = [
   { id: 10, subjekt_type: 'person', subjekt_id: 1, faktatype: 'navn' },
@@ -13,6 +13,11 @@ const CONCS = [{ target_type: 'fact', target_id: 10, valgt_assertion_id: 100 }];
 const CITS = [
   { assertion_id: 100, source_id: 5, side: 's. 12', citat_tekst: 'Conrad', citat_dato: null, source: { titel: 'DAA 2018' } },
 ];
+
+test('mapKonfliktRow oversætter faktatype → UI-felt', () => {
+  expect(mapKonfliktRow({ person_id: 7, faktatype: 'navn', antal_vaerdier: 2 }))
+    .toEqual({ personId: '7', felt: 'navn', antalVaerdier: 2 });
+});
 
 test('joinEvidence samler felter, markerer konklusion + uenig', () => {
   const ev = joinEvidence({ facts: FACTS, assertions: ASSERTS, conclusions: CONCS, citations: CITS, koen: 'M' });
