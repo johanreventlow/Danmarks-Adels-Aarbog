@@ -259,6 +259,26 @@ create policy own_read on public.suggestion for select to authenticated using (f
 create policy redaktion_read_all on public.suggestion for select to authenticated
   using ((select public.current_rolle()) = 'redaktion');  -- (select ...) = én eval pr. statement
 
+-- 5b) REDAKTION-LAG: rolle=redaktion ser OGSÅ private rækker (ellers skjuler auth_read-laget
+-- en netop privat-markeret person for redaktøren selv — spec §8b, Codex-review høj).
+-- Additiv: hver tabel har nu (anon_read) + (auth_read ikke-privat) + (redaktion_read alt).
+do $$
+declare t text;
+begin
+  foreach t in array array['person','person_external_id','family_member','fact',
+                           'relation','narrative','note','assertion','conclusion','citation']
+  loop
+    execute format('drop policy if exists redaktion_read on public.%I;', t);
+    execute format(
+      'create policy redaktion_read on public.%I for select to authenticated '
+      || 'using ((select public.current_rolle()) = ''redaktion'');', t);
+  end loop;
+end $$;
+
+-- Konflikt-view: læsbar for authenticated (RLS håndhæves af security_invoker på basistabeller).
+grant select on public.red_konflikt to authenticated;
+grant select on public.red_konflikt to anon;
+
 -- =====================================================================
 --  FREMTID · 'authenticated'-lag (medlem/forsker) — SKITSE, ikke aktiv.
 --

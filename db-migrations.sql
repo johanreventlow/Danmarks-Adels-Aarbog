@@ -394,3 +394,69 @@ BEGIN
   RETURN v_id;
 END $$;
 
+-- =====================================================================
+-- 2026-06-27: red_konflikt-view, redaktion-read-RLS, slet-preview-RPC
+-- =====================================================================
+
+-- Konflikt-kø til redaktions-dashboard: kerne-tekstfelter med >1 DISTINKT værdi.
+-- security_invoker=true er KRITISK: ellers kører viewet med ejer-rettigheder og omgår RLS
+-- på fact/assertion → ville lække private personers konflikter (spec §5, Codex-review høj).
+-- v1: kun 'navn'/'titel' (dato-fakta har typisk tom vaerdi_tekst → udeladt, spec §5).
+CREATE OR REPLACE VIEW red_konflikt
+  WITH (security_invoker = true) AS
+SELECT f.subjekt_id AS person_id,
+       f.faktatype,
+       count(DISTINCT a.vaerdi_tekst) AS antal_vaerdier,
+       count(*)                       AS antal_oplysninger
+FROM fact f
+JOIN assertion a ON a.target_type = 'fact' AND a.target_id = f.id
+WHERE f.subjekt_type = 'person'
+  AND f.faktatype IN ('navn','titel')
+GROUP BY f.subjekt_id, f.faktatype
+HAVING count(DISTINCT a.vaerdi_tekst) > 1;
+
+-- Read-only forhåndsvisning af hvad red_slet_person ville slette. Spejler RPC'ens
+-- relations-logik: personen som subjekt ELLER objekt (spec §7, Codex-review høj).
+CREATE OR REPLACE FUNCTION red_slet_person_preview(p_person_id bigint)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_rels jsonb; v_nfacts int;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  SELECT count(*) INTO v_nfacts FROM fact
+    WHERE subjekt_type='person' AND subjekt_id=p_person_id;
+  SELECT coalesce(jsonb_agg(r), '[]'::jsonb) INTO v_rels FROM (
+    SELECT rolle,
+           CASE WHEN subjekt_type='person' AND subjekt_id=p_person_id
+                THEN 'ud' ELSE 'ind' END AS retning,
+           CASE WHEN subjekt_type='person' AND subjekt_id=p_person_id
+                THEN objekt_id ELSE subjekt_id END AS modpart_id
+    FROM relation
+    WHERE (subjekt_type='person' AND subjekt_id=p_person_id)
+       OR (objekt_type='person'  AND objekt_id=p_person_id)
+  ) r;
+  RETURN jsonb_build_object(
+    'antal_relationer', jsonb_array_length(v_rels),
+    'antal_facts', v_nfacts,
+    'relationer', v_rels);
+END $$;
+
+-- 5b) REDAKTION-LAG: rolle=redaktion ser OGSÅ private rækker (ellers skjuler auth_read-laget
+-- en netop privat-markeret person for redaktøren selv — spec §8b, Codex-review høj).
+-- Additiv: hver tabel har nu (anon_read) + (auth_read ikke-privat) + (redaktion_read alt).
+do $$
+declare t text;
+begin
+  foreach t in array array['person','person_external_id','family_member','fact',
+                           'relation','narrative','note','assertion','conclusion','citation']
+  loop
+    execute format('drop policy if exists redaktion_read on public.%I;', t);
+    execute format(
+      'create policy redaktion_read on public.%I for select to authenticated '
+      || 'using ((select public.current_rolle()) = ''redaktion'');', t);
+  end loop;
+end $$;
+
+-- Konflikt-view: læsbar for authenticated (RLS håndhæves af security_invoker på basistabeller).
+grant select on public.red_konflikt to authenticated;
+grant select on public.red_konflikt to anon;
+
