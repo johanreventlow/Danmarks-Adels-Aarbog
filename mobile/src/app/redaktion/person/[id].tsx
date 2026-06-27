@@ -4,8 +4,10 @@ import { ScrollView, View } from 'react-native';
 import { InitialBadge } from '../../../components/InitialBadge';
 import { TopBar } from '../../../components/TopBar';
 import { FaktaKort, type FaktaAction } from '../../../components/redaktion/FaktaKort';
+import { SkrivePreviewSheet } from '../../../components/redaktion/SkrivePreviewSheet';
 import { Body, Mono, Serif } from '../../../components/Typography';
 import { fetchPersonEvidence, type PersonEvidence } from '../../../data/redaktionRead';
+import { type Change } from '../../../data/redaktionWrite';
 import { useStore } from '../../../store/useStore';
 import { Colors } from '../../../theme/tokens';
 
@@ -16,11 +18,47 @@ export default function PersonEditor() {
   const model = useStore((s) => s.model);
   const showAnn = useStore((s) => s.showAnnotations);
   const [ev, setEv] = useState<PersonEvidence | null>(null);
+  const [pending, setPending] = useState<Change | null>(null);
   const person = id && model ? model.byId[id] : null;
 
   useEffect(() => { if (id) fetchPersonEvidence(id).then(setEv).catch(() => {}); }, [id]);
 
-  function onAction(a: FaktaAction) { console.log('action', a); } // wires i Task 9
+  function onAction(a: FaktaAction) {
+    if (a.type === 'gørKonklusion') {
+      setPending({
+        art: 'setKonklusion',
+        subjektType: 'person',
+        subjektId: id!,
+        assertionId: String(a.assertionId),
+      });
+    } else if (a.type === 'slet') {
+      setPending({
+        art: 'sletOplysning',
+        subjektType: 'person',
+        subjektId: id!,
+        assertionId: String(a.assertionId),
+      });
+    } else if (a.type === 'redigér') {
+      setPending({
+        art: 'redigerOplysning',
+        subjektType: 'person',
+        subjektId: id!,
+        assertionId: String(a.assertionId),
+        felt: a.felt,
+        vaerdi: a.vaerdi,
+        kildeFritekst: a.kilde,
+      });
+    } else if (a.type === 'tilføj') {
+      setPending({
+        art: 'fakta',
+        subjektType: 'person',
+        subjektId: id!,
+        felt: a.felt,
+        vaerdi: a.vaerdi,
+        kildeFritekst: a.kilde,
+      });
+    }
+  }
 
   if (!person) return (
     <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
@@ -47,6 +85,14 @@ export default function PersonEditor() {
           <FaktaKort key={felt} felt={felt} evidens={ev?.felter[felt]} onAction={onAction} />
         ))}
       </ScrollView>
+      <SkrivePreviewSheet
+        change={pending}
+        onClose={() => setPending(null)}
+        onApplied={() => {
+          setPending(null);
+          if (id) fetchPersonEvidence(id).then(setEv).catch(() => {});
+        }}
+      />
     </View>
   );
 }

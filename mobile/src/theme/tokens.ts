@@ -29,6 +29,11 @@ export const Colors = {
   sandbox: '#e7e3da',
   // Fejl/slet — bordeaux-rød (handoff §Design tokens)
   danger: '#8a2b2b',
+  // Redaktion-status (handoff §Design tokens)
+  konklusionGroen: '#1f5b3a',
+  konklusionFlade: '#eaf3ec',
+  liveRoed: '#c0392b',
+  konfliktFlade: '#f2dede',
 } as const;
 
 // Ramme/separator-farver — rgba(34,31,26,.08–.14)
