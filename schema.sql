@@ -365,8 +365,13 @@ BEGIN
   SELECT target_type, target_id INTO v_target_type, v_target_id
     FROM assertion WHERE id = p_assertion_id;
   IF v_target_id IS NULL THEN RAISE EXCEPTION 'Ukendt assertion %', p_assertion_id; END IF;
-  UPDATE conclusion SET valgt_assertion_id = p_assertion_id, blaastemplet_naar = current_date
-    WHERE target_type = v_target_type AND target_id = v_target_id;
+  -- Cycle 02: upsert frem for UPDATE — et fact m. assertions men ingen conclusion (importeret/
+  -- delvist) ville ellers give silent no-op (0 rækker) + falsk success.
+  INSERT INTO conclusion(id, target_type, target_id, valgt_assertion_id, status, blaastemplet_af, blaastemplet_naar)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM conclusion), v_target_type, v_target_id, p_assertion_id,
+            'afklaret', 'Redaktør', current_date)
+    ON CONFLICT (target_type, target_id)
+    DO UPDATE SET valgt_assertion_id = excluded.valgt_assertion_id, blaastemplet_naar = current_date;
 END $$;
 
 -- PoC blød redigering: UPDATE assertion direkte (indkapslet — skift til insert-ny senere).
@@ -452,12 +457,42 @@ BEGIN
 END $$;
 
 -- Direkte person-sletning (og familje-relationer)
+-- Cycle 02 H2: FK-sikker cascade. Tidligere slettede den kun family_member+person → fejlede med
+-- foreign_key_violation for enhver loadet person (non-cascade FK'er fra person_external_id/profiles/
+-- family_member → person). Slet evidens/relationer/notes/narrativ FØR person, i FK-rigtig orden
+-- (citation+conclusion FØR assertion, da conclusion.valgt_assertion_id → assertion).
 CREATE OR REPLACE FUNCTION red_slet_person(p_person_id bigint)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_facts bigint[]; v_rels bigint[];
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
-  DELETE FROM family_member WHERE person_id = p_person_id;
-  DELETE FROM person WHERE id = p_person_id;
+
+  SELECT coalesce(array_agg(id),'{}') INTO v_facts FROM fact
+    WHERE subjekt_type='person' AND subjekt_id=p_person_id;
+  SELECT coalesce(array_agg(id),'{}') INTO v_rels FROM relation
+    WHERE (subjekt_type='person' AND subjekt_id=p_person_id)
+       OR (objekt_type='person'  AND objekt_id=p_person_id);
+
+  UPDATE profiles SET reventlow_person_id = NULL WHERE reventlow_person_id = p_person_id;
+
+  DELETE FROM citation WHERE assertion_id IN (
+    SELECT id FROM assertion WHERE (target_type='fact'     AND target_id = ANY(v_facts))
+                                OR (target_type='relation' AND target_id = ANY(v_rels)));
+  DELETE FROM conclusion WHERE (target_type='fact'     AND target_id = ANY(v_facts))
+                            OR (target_type='relation' AND target_id = ANY(v_rels));
+  DELETE FROM assertion  WHERE (target_type='fact'     AND target_id = ANY(v_facts))
+                            OR (target_type='relation' AND target_id = ANY(v_rels));
+
+  DELETE FROM note WHERE (target_type='person'   AND target_id=p_person_id)
+                      OR (target_type='fact'     AND target_id = ANY(v_facts))
+                      OR (target_type='relation' AND target_id = ANY(v_rels));
+
+  DELETE FROM narrative          WHERE subjekt_type='person' AND subjekt_id=p_person_id;
+  DELETE FROM relation           WHERE id = ANY(v_rels);
+  DELETE FROM fact               WHERE id = ANY(v_facts);
+  DELETE FROM person_external_id WHERE person_id = p_person_id;
+  DELETE FROM family_member      WHERE person_id = p_person_id;
+  DELETE FROM person             WHERE id = p_person_id;
 END $$;
 
 -- Upsert narrativ (find-or-create, opdater tekst)
