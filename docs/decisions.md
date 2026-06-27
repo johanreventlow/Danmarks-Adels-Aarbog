@@ -2,6 +2,29 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Redaktions-UI: vertikal kerne-skive + 3 ikke-oplagte DB-valg (2026-06-27)
+Redaktør-appens UI bygget som **vertikal kerne-skive** (dashboard + person-editor + konto +
+3 sheets), ikke hele handoff-designet. Entitetslister, generisk record-editor, opret-flow og
+relations/sektion-redigering udskudt til plan 2 — kerne-skiven validerer hele evidens-skrive-stien
+end-to-end hurtigst. Køn-editor + familie/sektion-visning også udskudt (spec §6.2 ikke fuldt
+indfriet; bevidst nedskaleret, bruger-godkendt).
+
+**Tre ikke-oplagte DB-valg (Codex-review fangede dem som spec-fejl før impl):**
+1. **`red_konflikt`-view kræver `security_invoker=true`.** Et alm. PostgreSQL-view kører med
+   ejer-rettigheder og **omgår RLS** på fact/assertion → ville lække private personers konflikter
+   til anon/medlem. security_invoker arver kalderens RLS. (GDPR, invariant #8.)
+2. **Redaktion-read-RLS er nødvendig, ikke valgfri.** Den eksisterende `auth_read`-policy skjuler
+   private rækker for ALLE authenticated. Uden en redaktion-specifik policy ville en redaktørs egen
+   privat-toggle gøre personen usynlig for hende selv ved næste re-fetch (kan ikke ophæves). Løst med
+   policy gated på `current_rolle()='redaktion'` (ikke `using(true)` — bevarer medlem-GDPR-laget).
+   **Konsekvens:** en redaktør har fuldt indsyn i ALLE nulevende — bevidst privacy-udvidelse for rollen.
+3. **Slet-advarsel skal hente indgående OG udgående relationer.** `red_slet_person` sletter
+   relationer hvor personen er subjekt ELLER objekt, men app-modellen (`load.ts`) henter kun subjekt.
+   Egen `red_slet_person_preview`-RPC spejler RPC'ens slette-logik 1:1, så advarslen ikke underrapporterer.
+
+**Blød/mutabel assertion bevaret** (arvet fra 2026-06-26-spec): redigér=UPDATE, slet=DELETE bryder
+invariant #1 (uforanderlighed), men er bevidst PoC-valg m. reversibel migrationssti i RPC-kroppen.
+
 ## Slægtslinje promoveret til entitet `lineage` — (a) nu, (b) senere (2026-06-23)
 Linjer var bare et `linje`-label på `person_external_id`. Et label kan ikke bære navn,
 våben, adlingsdato eller forgrening. CLAUDE.md §9 + datamodel-oversigt §5 forhåndsgodkendte

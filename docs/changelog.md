@@ -1,5 +1,32 @@
 # Changelog
 
+## Redaktions-UI kerne-skive — implementeret + DB-deploy (2026-06-27)
+* **Hvad:** Vertikal kerne-skive af redaktør-appen (mobil editor): `redaktion/`-route-segment
+  med native `(red-tabs)`-navigation, dashboard (rolle-kort + dry-run + konflikt-kø +
+  entitets-grid), person-editor (evidens-lag: kerne-fakta navn/foedt/doed/titel med
+  konklusion←oplysninger, redigér/slet/gør-til-konklusion/tilføj via inline-editor + narrativ),
+  konto + login-sheet, skrive-preview-sheet (dry-run/live) og slet-bekræft m. cascade-advarsel.
+* **Nyt evidens-read-lag** (`mobile/src/data/redaktionRead.ts`): `fetchPersonEvidence` henter
+  den polymorfe model (fact/assertion/conclusion/citation) som N flade queries + klient-join
+  (target_type/target_id har ingen FK → nested-select 400'er; citation→source nestes via FK).
+  `fetchKonflikter` (konflikt-kø) + `fetchSletPreview` (cascade).
+* **Write-lag udvidet** (`redaktionWrite.ts`): `buildRpcCall`-cases for redigerOplysning/
+  sletOplysning/setKonklusion/setPrivat/sletPerson + `oversaetFejl` (dansk). Alle writes via
+  én path (dry-run preview ELLER live RPC); cache regenereres af DB-trigger.
+* **DB additivt (deployet live 2026-06-27):** `red_konflikt`-view (`security_invoker=true` —
+  KRITISK, ellers omgår viewet RLS og lækker private personers konflikter); redaktion-read-RLS
+  (rolle=redaktion ser private rækker, så privat-toggle ikke låser redaktøren ude);
+  `red_slet_person_preview`-RPC (cascade-advarsel der spejler red_slet_person's indgående+udgående
+  relations-slet). Backup taget før deploy (`~/daa-backup-20260627-redaktion-ui.sql`).
+  Live-verificeret: view returnerer konflikt-rækker, RPC rolle-gated (P0001), privat-læk lukket (anon ser 0 private).
+* **Review:** Codex-review af spec (8 fund indarbejdet før impl); per-task spec+quality-review;
+  final whole-branch review (opus) READY — RPC-kontrakt app↔DB, evidens-join, GDPR/RLS,
+  write-data-flow alle verificeret rene. 81/81 jest grøn, tsc rent.
+* **Udestår (plan 2, bevidst):** køn-editor i UI (red_set_koen-path findes+testet, intet kort);
+  familie/sektioner read-only-visning; entitetslister; generisk record-editor; opret-flow;
+  relations/sektion-redigering. Operationelt: seed en `redaktion`-profil (auth.users +
+  profiles.rolle='redaktion') for at teste happy-path-writes mod live; manuel e2e på device.
+
 ## `levende`-GDPR-cache udledt + RLS-deploy-bug rettet (2026-06-25)
 * **Root cause:** `load_daa.R:64` hardkodede `levende=FALSE` på hver person — flaget
   blev aldrig udledt. Alle 963 stod FALSE, inkl. nulevende (fx Johan Martin, id 488,
