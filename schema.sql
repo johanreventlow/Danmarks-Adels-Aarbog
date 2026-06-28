@@ -549,21 +549,27 @@ END $$;
 -- REDAKTIONS-DASHBOARD: konflikt-view + slet-preview
 -- =====================================================================
 
--- Konflikt-kø til redaktions-dashboard: kerne-tekstfelter med >1 DISTINKT værdi.
+-- Konflikt-kø til redaktions-dashboard: ægte kilde-uenighed = >1 DISTINKT værdi
+-- INDEN FOR ÉT fact (to kilder uenige om SAMME forhold). Grain er PR. FACT, ikke
+-- pr. (person,faktatype): en person kan have FLERE facts af samme type (fx 6 titler
+-- gennem livet) — det er legitime distinkte facts, ikke en konflikt (bruger-feedback
+-- 2026-06-28, fact-kardinalitet — se decisions.md).
 -- security_invoker=true er KRITISK: ellers kører viewet med ejer-rettigheder og omgår RLS
 -- på fact/assertion → ville lække private personers konflikter (spec §5, Codex-review høj).
 -- v1: kun 'navn'/'titel' (dato-fakta har typisk tom vaerdi_tekst → udeladt, spec §5).
 CREATE OR REPLACE VIEW red_konflikt
   WITH (security_invoker = true) AS
+-- fact_id sidst: CREATE OR REPLACE VIEW kan kun APPEND kolonner (ikke indsætte midt i).
 SELECT f.subjekt_id AS person_id,
        f.faktatype,
        count(DISTINCT a.vaerdi_tekst) AS antal_vaerdier,
-       count(*)                       AS antal_oplysninger
+       count(*)                       AS antal_oplysninger,
+       f.id         AS fact_id
 FROM fact f
 JOIN assertion a ON a.target_type = 'fact' AND a.target_id = f.id
 WHERE f.subjekt_type = 'person'
   AND f.faktatype IN ('navn','titel')
-GROUP BY f.subjekt_id, f.faktatype
+GROUP BY f.subjekt_id, f.faktatype, f.id
 HAVING count(DISTINCT a.vaerdi_tekst) > 1;
 
 -- Read-only forhåndsvisning af hvad red_slet_person ville slette. Spejler RPC'ens

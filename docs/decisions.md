@@ -2,6 +2,28 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Fact-kardinalitet: flere facts pr. (person, faktatype) er korrekt, ikke konflikt (2026-06-28)
+Bruger-feedback under live-test: person 199 viste kun 1 titel, og konflikt-køen flagede
+"6 uenige titel-værdier". Data-tjek: personen har **6 separate titel-facts** (kammerjunker,
+konferensråd, kammerherre, gehejmeråd, gehejmekonferensråd, landråd i Holsten) — alle
+legitime titler båret gennem livet, ikke konkurrerende påstande om samme forhold.
+
+**Beslutning: en person kan have N facts af samme faktatype, og det er den korrekte model.**
+Konsekvenser, rettet:
+- **`red_konflikt`-view:** grain ændret fra `(person, faktatype)` til **pr. fact** — ægte
+  konflikt = >1 distinkt assertion-værdi INDEN FOR ét fact (to kilder uenige om samme forhold).
+  Efter rettelsen: 0 konflikt-rækker i nuværende load (alle facts har én oplysning) — den
+  gamle kø var 100% falske positiver.
+- **`joinEvidence` / person-editor:** `PersonEvidence.felter` er nu `Record<felt, FeltEvidens[]>`
+  (liste pr. felt). Editoren viser ét kort PR. FACT under en felt-overskrift (titel → 6 kort).
+  Tidligere overskrev `joinEvidence` pr. felt → kun det sidste fact var synligt.
+
+**Kendt udeståelse (write-side):** `red_upsert_fakta` find-or-creater ÉT fact pr.
+(subjekt, faktatype), så "+ Tilføj oplysning" på et specifikt titel-kort kan endnu ikke
+målrette det rigtige fact / oprette et nyt distinkt fact. `redigér`/`slet`/`gør-til-konklusion`
+virker korrekt (assertion-id-baseret). Fact-målrettet tilføj kræver RPC-udvidelse (p_fact_id
+eller separat opret-nyt-fact-RPC) — udskudt.
+
 ## Redaktions-UI: vertikal kerne-skive + 3 ikke-oplagte DB-valg (2026-06-27)
 Redaktør-appens UI bygget som **vertikal kerne-skive** (dashboard + person-editor + konto +
 3 sheets), ikke hele handoff-designet. Entitetslister, generisk record-editor, opret-flow og

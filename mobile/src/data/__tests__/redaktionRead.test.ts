@@ -14,18 +14,36 @@ const CITS = [
   { assertion_id: 100, source_id: 5, side: 's. 12', citat_tekst: 'Conrad', citat_dato: null, source: { titel: 'DAA 2018' } },
 ];
 
-test('mapKonfliktRow oversætter faktatype → UI-felt', () => {
-  expect(mapKonfliktRow({ person_id: 7, faktatype: 'navn', antal_vaerdier: 2 }))
-    .toEqual({ personId: '7', felt: 'navn', antalVaerdier: 2 });
+test('mapKonfliktRow oversætter faktatype → UI-felt + bærer fact_id', () => {
+  expect(mapKonfliktRow({ person_id: 7, faktatype: 'navn', antal_vaerdier: 2, fact_id: 42 }))
+    .toEqual({ personId: '7', felt: 'navn', antalVaerdier: 2, factId: 42 });
 });
 
-test('joinEvidence samler felter, markerer konklusion + uenig', () => {
+test('joinEvidence samler felter (liste pr. felt), markerer konklusion + uenig pr. fact', () => {
   const ev = joinEvidence({ facts: FACTS, assertions: ASSERTS, conclusions: CONCS, citations: CITS, koen: 'M' });
   expect(ev.koen).toBe('M');
-  expect(ev.felter.navn.uenig).toBe(true); // Conrad ≠ Konrad
-  expect(ev.felter.navn.konklusionAssertionId).toBe(100);
-  expect(ev.felter.navn.oplysninger.find((o) => o.assertionId === 100)?.erKonklusion).toBe(true);
-  expect(ev.felter.navn.oplysninger.find((o) => o.assertionId === 100)?.kilder[0].sourceTitel).toBe('DAA 2018');
-  expect(ev.felter.foedt.uenig).toBe(false); // kun én oplysning
-  expect(ev.felter.foedt.oplysninger[0].dato?.raw).toBe('ca. 1644');
+  // navn-felt = liste m. ét fact; det fact har to oplysninger m. forskellig værdi → uenig.
+  expect(ev.felter.navn).toHaveLength(1);
+  expect(ev.felter.navn[0].uenig).toBe(true); // Conrad ≠ Konrad (samme fact)
+  expect(ev.felter.navn[0].konklusionAssertionId).toBe(100);
+  expect(ev.felter.navn[0].oplysninger.find((o) => o.assertionId === 100)?.erKonklusion).toBe(true);
+  expect(ev.felter.navn[0].oplysninger.find((o) => o.assertionId === 100)?.kilder[0].sourceTitel).toBe('DAA 2018');
+  expect(ev.felter.foedt[0].uenig).toBe(false); // kun én oplysning
+  expect(ev.felter.foedt[0].oplysninger[0].dato?.raw).toBe('ca. 1644');
+});
+
+test('joinEvidence: flere facts af samme type = liste, hver uenig=false (fact-kardinalitet)', () => {
+  // To separate titel-facts (fx "kammerherre" + "greve") — legitime distinkte facts, IKKE konflikt.
+  const facts = [
+    { id: 20, subjekt_type: 'person', subjekt_id: 2, faktatype: 'titel' },
+    { id: 21, subjekt_type: 'person', subjekt_id: 2, faktatype: 'titel' },
+  ];
+  const asserts = [
+    { id: 200, target_type: 'fact', target_id: 20, vaerdi_tekst: 'kammerherre', date_min: null, date_max: null, date_qualifier: null, date_raw: null },
+    { id: 201, target_type: 'fact', target_id: 21, vaerdi_tekst: 'greve', date_min: null, date_max: null, date_qualifier: null, date_raw: null },
+  ];
+  const ev = joinEvidence({ facts, assertions: asserts, conclusions: [], citations: [], koen: null });
+  expect(ev.felter.titel).toHaveLength(2); // begge titler vises
+  expect(ev.felter.titel.map((f) => f.oplysninger[0].vaerdi)).toEqual(['kammerherre', 'greve']);
+  expect(ev.felter.titel.every((f) => f.uenig === false)).toBe(true); // ingen falsk konflikt
 });

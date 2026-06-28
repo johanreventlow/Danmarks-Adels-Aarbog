@@ -13,6 +13,7 @@ import { useStore } from '../../../store/useStore';
 import { Border, Colors, Radius } from '../../../theme/tokens';
 
 const FELTER = ['navn', 'foedt', 'doed', 'titel']; // koen håndteres separat (ikke et fact)
+const FELT_LABEL: Record<string, string> = { navn: 'navn', foedt: 'født', doed: 'død', titel: 'titel' };
 
 export default function PersonEditor() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -119,9 +120,23 @@ export default function PersonEditor() {
             Konklusion ← oplysninger. Hver oplysning er én kildes udsagn.
           </Mono>
         ) : null}
-        {FELTER.map((felt) => (
-          <FaktaKort key={felt} felt={felt} evidens={ev?.felter[felt]} onAction={onAction} />
-        ))}
+        {FELTER.map((felt) => {
+          const facts = ev?.felter[felt] ?? [];
+          return (
+            <View key={felt} style={{ marginBottom: 6 }}>
+              <Mono size={9} color={Colors.gold} style={{ marginTop: 6, marginBottom: 4 }}>
+                {(FELT_LABEL[felt] ?? felt).toUpperCase()}
+              </Mono>
+              {facts.length === 0 ? (
+                <Mono size={9} color={Colors.textMuted2} style={{ marginBottom: 8 }}>— ingen oplysninger</Mono>
+              ) : (
+                facts.map((fe) => (
+                  <FaktaKort key={fe.factId} felt={felt} evidens={fe} hideFeltLabel onAction={onAction} />
+                ))
+              )}
+            </View>
+          );
+        })}
 
         {/* Narrativ-sektion */}
         <View style={editorStyles.narrativSektion}>

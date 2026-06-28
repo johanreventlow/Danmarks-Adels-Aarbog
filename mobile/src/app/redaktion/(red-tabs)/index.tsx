@@ -60,7 +60,7 @@ export default function Dashboard() {
             {konflikter.map((k) => {
               const navn = model?.byId[k.personId]?.name ?? `#${k.personId}`;
               return (
-                <Pressable key={`${k.personId}-${k.felt}`} style={styles.konfliktRow}
+                <Pressable key={`${k.personId}-${k.factId}`} style={styles.konfliktRow}
                   onPress={() => router.push(`/redaktion/person/${k.personId}` as never)}>
                   <InitialBadge name={navn} size={32} />
                   <View style={{ flex: 1, marginLeft: 10 }}>

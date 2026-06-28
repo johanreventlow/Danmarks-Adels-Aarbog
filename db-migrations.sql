@@ -398,21 +398,25 @@ END $$;
 -- 2026-06-27: red_konflikt-view, redaktion-read-RLS, slet-preview-RPC
 -- =====================================================================
 
--- Konflikt-kø til redaktions-dashboard: kerne-tekstfelter med >1 DISTINKT værdi.
+-- Konflikt-kø: ægte kilde-uenighed = >1 DISTINKT værdi INDEN FOR ÉT fact. Grain PR. FACT
+-- (ikke pr. person+faktatype): en person kan have flere facts af samme type (fx 6 titler)
+-- = legitime distinkte facts, ikke konflikt (bruger-feedback 2026-06-28, fact-kardinalitet).
 -- security_invoker=true er KRITISK: ellers kører viewet med ejer-rettigheder og omgår RLS
 -- på fact/assertion → ville lække private personers konflikter (spec §5, Codex-review høj).
 -- v1: kun 'navn'/'titel' (dato-fakta har typisk tom vaerdi_tekst → udeladt, spec §5).
+-- fact_id sidst: CREATE OR REPLACE VIEW kan kun APPEND kolonner (ikke indsætte midt i).
 CREATE OR REPLACE VIEW red_konflikt
   WITH (security_invoker = true) AS
 SELECT f.subjekt_id AS person_id,
        f.faktatype,
        count(DISTINCT a.vaerdi_tekst) AS antal_vaerdier,
-       count(*)                       AS antal_oplysninger
+       count(*)                       AS antal_oplysninger,
+       f.id         AS fact_id
 FROM fact f
 JOIN assertion a ON a.target_type = 'fact' AND a.target_id = f.id
 WHERE f.subjekt_type = 'person'
   AND f.faktatype IN ('navn','titel')
-GROUP BY f.subjekt_id, f.faktatype
+GROUP BY f.subjekt_id, f.faktatype, f.id
 HAVING count(DISTINCT a.vaerdi_tekst) > 1;
 
 -- Read-only forhåndsvisning af hvad red_slet_person ville slette. Spejler RPC'ens

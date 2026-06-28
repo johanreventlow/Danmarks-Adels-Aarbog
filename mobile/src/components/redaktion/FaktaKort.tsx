@@ -13,8 +13,8 @@ export type FaktaAction =
 // Inline-editor tilstand: hvilken oplysning redigeres (assertionId) eller 'ny'
 type EditState = { mode: 'redigér'; assertionId: number } | { mode: 'tilføj' } | null;
 
-export function FaktaKort({ felt, evidens, onAction }: {
-  felt: string; evidens?: FeltEvidens; onAction: (a: FaktaAction) => void;
+export function FaktaKort({ felt, evidens, onAction, hideFeltLabel = false }: {
+  felt: string; evidens?: FeltEvidens; onAction: (a: FaktaAction) => void; hideFeltLabel?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [editState, setEditState] = useState<EditState>(null);
@@ -60,7 +60,7 @@ export function FaktaKort({ felt, evidens, onAction }: {
     <View style={styles.card}>
       <Pressable style={styles.head} onPress={() => setOpen((v) => !v)}>
         <View style={{ flex: 1 }}>
-          <Mono size={9} color={Colors.textMuted}>{felt.toUpperCase()}</Mono>
+          {hideFeltLabel ? null : <Mono size={9} color={Colors.textMuted}>{felt.toUpperCase()}</Mono>}
           <Serif size={19}>{konkl?.vaerdi ?? '—'}</Serif>
         </View>
         {evidens?.uenig ? <Mono size={8} color={Colors.bordeaux}>UENIGE</Mono> : null}

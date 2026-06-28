@@ -31,7 +31,11 @@ export type FeltEvidens = {
   oplysninger: Oplysning[];
   uenig: boolean;
 };
-export type PersonEvidence = { felter: Record<string, FeltEvidens>; koen: string | null };
+// felter: en LISTE af facts pr. felt — en person kan have flere facts af samme type
+// (fx 6 titler gennem livet). Hvert fact er sin egen FeltEvidens (egne oplysninger +
+// konklusion + uenig). uenig er PR. FACT (kilde-uenighed om samme forhold), ikke på tværs
+// af distinkte facts (bruger-feedback 2026-06-28, fact-kardinalitet).
+export type PersonEvidence = { felter: Record<string, FeltEvidens[]>; koen: string | null };
 
 type RawFact = { id: number; faktatype: string };
 type RawAssert = { id: number; target_id: number; vaerdi_tekst: string | null;
@@ -53,8 +57,10 @@ export function joinEvidence(rows: {
     });
     citByAssert.set(c.assertion_id, list);
   }
-  const felter: Record<string, FeltEvidens> = {};
-  for (const f of rows.facts) {
+  const felter: Record<string, FeltEvidens[]> = {};
+  // Stabil rækkefølge: facts pr. felt sorteres på fact-id (samme orden hver gang).
+  const sortedFacts = [...rows.facts].sort((a, b) => a.id - b.id);
+  for (const f of sortedFacts) {
     const felt = FAKTATYPE_FELT[f.faktatype];
     if (!felt) continue; // kun kerne-fakta (navn/foedt/doed/titel)
     const valgt = concByFact.get(f.id) ?? null;
@@ -68,24 +74,30 @@ export function joinEvidence(rows: {
         kilder: citByAssert.get(a.id) ?? [],
         erKonklusion: a.id === valgt,
       }));
+    // uenig = >1 DISTINKT værdi inden for DETTE fact (ægte kilde-uenighed), ikke på tværs af facts.
     const distinkte = new Set(opl.map((o) => o.vaerdi));
-    felter[felt] = {
+    (felter[felt] ??= []).push({
       felt, faktatype: f.faktatype, factId: f.id,
       konklusionAssertionId: valgt, oplysninger: opl, uenig: distinkte.size > 1,
-    };
+    });
   }
   return { felter, koen: rows.koen };
 }
 
-export type Konflikt = { personId: string; felt: string; antalVaerdier: number };
+export type Konflikt = { personId: string; felt: string; antalVaerdier: number; factId: number };
 
-export function mapKonfliktRow(r: { person_id: number; faktatype: string; antal_vaerdier: number }): Konflikt {
-  return { personId: String(r.person_id), felt: FAKTATYPE_FELT[r.faktatype] ?? r.faktatype, antalVaerdier: r.antal_vaerdier };
+export function mapKonfliktRow(r: { person_id: number; faktatype: string; antal_vaerdier: number; fact_id?: number }): Konflikt {
+  return {
+    personId: String(r.person_id),
+    felt: FAKTATYPE_FELT[r.faktatype] ?? r.faktatype,
+    antalVaerdier: r.antal_vaerdier,
+    factId: r.fact_id ?? 0,
+  };
 }
 
 export async function fetchKonflikter(): Promise<Konflikt[]> {
   if (!supabase) return [];
-  const { data } = await supabase.from('red_konflikt').select('person_id,faktatype,antal_vaerdier');
+  const { data } = await supabase.from('red_konflikt').select('person_id,faktatype,antal_vaerdier,fact_id');
   return (data ?? []).map(mapKonfliktRow);
 }
 
