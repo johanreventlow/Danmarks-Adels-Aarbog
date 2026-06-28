@@ -28,7 +28,7 @@ const PAGE = 1000; // PostgREST cap pr. svar
 // PostgREST returnerer max 1000 rækker pr. svar uanset limit — så vi sideinddeler med .range().
 // VIGTIGT: gentag indtil et chunk er mindre end PAGE; stol ALDRIG på én bred .range(0, stort tal),
 // for serveren capper alligevel ved 1000 og resten tabes lydløst (advisor 2026-06-23).
-async function getAll<T>(
+export async function getAll<T>(
   makeQuery: () => {
     range: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>;
   },

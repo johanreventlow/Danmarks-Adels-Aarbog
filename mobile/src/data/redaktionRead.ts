@@ -2,7 +2,42 @@
 // fact via target_type/target_id UDEN rigtig FK), så vi henter N flade queries og joiner i
 // klienten. citation→source HAR FK og nestes (spec §3). Ren joinEvidence er testbar uden net.
 import { supabase } from '../lib/supabase';
+import { getAll } from './load';
+import { parseYear, fmtYears } from './fields';
 import { FELT_FAKTATYPE } from './redaktionWrite';
+
+// --- Redaktions-person-liste (pagineret, inkl. levende/privat) ---
+
+export type RedPerson = {
+  id: string; navn: string; aar: string; born: number | null; levende: boolean; privat: boolean;
+};
+type RawRedPerson = {
+  id: number; visning_navn: string | null; visning_foedt: string | null;
+  visning_doed: string | null; levende: boolean | null; privat: boolean | null;
+};
+
+export function mapRedPerson(r: RawRedPerson): RedPerson {
+  return {
+    id: String(r.id),
+    navn: r.visning_navn ?? '(uden navn)',
+    aar: fmtYears(r.visning_foedt, r.visning_doed),
+    born: parseYear(r.visning_foedt), // DIREKTE fra fødselsfeltet — aldrig dødsår
+    levende: Boolean(r.levende),
+    privat: Boolean(r.privat),
+  };
+}
+
+// Pagineret (PostgREST capper ved 1000 lydløst — getAll gentager .range indtil tomt).
+// getAll kaster videre ved Supabase-error → ingen tom-som-clean (cycle 03 NEW1).
+export async function fetchRedaktionPersoner(): Promise<RedPerson[]> {
+  if (!supabase) return [];
+  const sb = supabase;
+  const rows = await getAll<RawRedPerson>(() =>
+    sb.from('person').select('id,visning_navn,visning_foedt,visning_doed,levende,privat'));
+  return rows.map(mapRedPerson);
+}
+
+// --- Evidens-læsning til person-editor ---
 
 // faktatype → UI-felt (omvendt af FELT_FAKTATYPE).
 const FAKTATYPE_FELT: Record<string, string> = Object.fromEntries(

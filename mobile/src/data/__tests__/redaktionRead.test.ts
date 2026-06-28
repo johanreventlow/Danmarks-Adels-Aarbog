@@ -1,4 +1,9 @@
 import { joinEvidence, mapKonfliktRow } from '../redaktionRead';
+import { mapRedPerson } from '../redaktionRead';
+import * as load from '../load';
+import { fetchRedaktionPersoner } from '../redaktionRead';
+
+jest.mock('../../lib/supabase', () => ({ supabase: { from: () => ({ select: () => ({}) }) } }));
 
 const FACTS = [
   { id: 10, subjekt_type: 'person', subjekt_id: 1, faktatype: 'navn' },
@@ -64,4 +69,27 @@ test('joinEvidence: flere facts af samme type = liste, hver uenig=false (fact-ka
   expect(ev.felter.titel).toHaveLength(2); // begge titler vises
   expect(ev.felter.titel.map((f) => f.oplysninger[0].vaerdi)).toEqual(['kammerherre', 'greve']);
   expect(ev.felter.titel.every((f) => f.uenig === false)).toBe(true); // ingen falsk konflikt
+});
+
+test('mapRedPerson: born fra visning_foedt, IKKE dødsår (cycle 2A M1)', () => {
+  // Kun dødsår — born skal være null, ikke 1708.
+  expect(mapRedPerson({ id: 5, visning_navn: 'Conrad', visning_foedt: null, visning_doed: '1708', levende: false, privat: false }).born)
+    .toBeNull();
+  expect(mapRedPerson({ id: 6, visning_navn: 'Anne', visning_foedt: '1680', visning_doed: '1740', levende: false, privat: false }).born)
+    .toBe(1680);
+});
+
+test('mapRedPerson: navn-fallback + bools', () => {
+  const r = mapRedPerson({ id: 7, visning_navn: null, visning_foedt: null, visning_doed: null, levende: true, privat: null });
+  expect(r).toEqual({ id: '7', navn: '(uden navn)', aar: '', born: null, levende: true, privat: false });
+});
+
+test('fetchRedaktionPersoner samler alle sider (ingen trunkering)', async () => {
+  const page1 = Array.from({ length: 1000 }, (_, i) => ({ id: i + 1, visning_navn: `P${i}`, visning_foedt: '1700', visning_doed: null, levende: false, privat: false }));
+  const page2 = [{ id: 1001, visning_navn: 'Sidste', visning_foedt: '1800', visning_doed: null, levende: false, privat: false }];
+  const spy = jest.spyOn(load, 'getAll').mockResolvedValue([...page1, ...page2] as never);
+  const res = await fetchRedaktionPersoner();
+  expect(res).toHaveLength(1001);
+  expect(res[1000].navn).toBe('Sidste');
+  spy.mockRestore();
 });
