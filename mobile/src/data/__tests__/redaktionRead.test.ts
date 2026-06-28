@@ -1,4 +1,4 @@
-import { joinEvidence, mapKonfliktRow } from '../redaktionRead';
+import { joinEvidence, mapKonfliktRow, mapNarrativRow } from '../redaktionRead';
 import { mapRedPerson } from '../redaktionRead';
 import * as load from '../load';
 import { fetchRedaktionPersoner } from '../redaktionRead';
@@ -82,6 +82,20 @@ test('mapRedPerson: born fra visning_foedt, IKKE dødsår (cycle 2A M1)', () => 
 test('mapRedPerson: navn-fallback + bools', () => {
   const r = mapRedPerson({ id: 7, visning_navn: null, visning_foedt: null, visning_doed: null, levende: true, privat: null });
   expect(r).toEqual({ id: '7', navn: '(uden navn)', aar: '', born: null, levende: true, privat: false });
+});
+
+test('mapNarrativRow: første række uanset privat (skrive-mål == prefill)', () => {
+  // red_upsert_narrativ redigerer FØRSTE narrativ by id — prefill skal læse SAMME.
+  expect(mapNarrativRow([{ tekst: 'Privat bio', privat: true }, { tekst: 'Offentlig', privat: false }]))
+    .toEqual({ tekst: 'Privat bio', privat: true });
+});
+
+test('mapNarrativRow: tom liste → null', () => {
+  expect(mapNarrativRow([])).toBeNull();
+});
+
+test('mapNarrativRow: null-tekst → tom streng, privat-bool', () => {
+  expect(mapNarrativRow([{ tekst: null, privat: null }])).toEqual({ tekst: '', privat: false });
 });
 
 test('fetchRedaktionPersoner samler alle sider (ingen trunkering)', async () => {

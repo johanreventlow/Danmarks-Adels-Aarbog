@@ -163,6 +163,28 @@ export async function fetchSletPreview(personId: string): Promise<SletPreview> {
   };
 }
 
+// --- Narrativ-læsning til person-editor (Codex 2B #1: prefill-kilde == skrive-mål) ---
+
+export type PersonNarrativ = { tekst: string; privat: boolean };
+
+export function mapNarrativRow(rows: { tekst: string | null; privat: boolean | null }[]): PersonNarrativ | null {
+  const first = rows[0];
+  if (!first) return null;
+  return { tekst: first.tekst ?? '', privat: Boolean(first.privat) };
+}
+
+// Henter FØRSTE narrativ by id (uanset privat) = præcis den række red_upsert_narrativ redigerer.
+// Prefill-kilde == skrive-mål; privat-flaget bevares af editoren på Gem (Codex 2B #1).
+export async function fetchPersonNarrativ(id: string): Promise<PersonNarrativ | null> {
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from('narrative').select('tekst,privat')
+    .eq('subjekt_type', 'person').eq('subjekt_id', Number(id))
+    .order('id', { ascending: true }).limit(1);
+  if (error) throw new Error(error.message);
+  return mapNarrativRow(data ?? []);
+}
+
 export async function fetchPersonEvidence(personId: string): Promise<PersonEvidence> {
   const empty: PersonEvidence = { felter: {}, koen: null };
   if (!supabase) return empty;
