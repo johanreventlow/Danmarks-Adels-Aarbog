@@ -110,7 +110,7 @@ export default function PersonEditor() {
     });
   }
 
-  if (redaktionStatus === 'loading') return <CenterMsg title="Person">Henter…</CenterMsg>;
+  if (redaktionStatus === 'idle' || redaktionStatus === 'loading') return <CenterMsg title="Person">Henter…</CenterMsg>;
   if (redaktionStatus === 'error') return <CenterMsg title="Person">Kunne ikke hente redaktion-data.</CenterMsg>;
   if (!person) return <CenterMsg title="Person">Personen blev ikke fundet.</CenterMsg>;
 
