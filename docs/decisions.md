@@ -2,6 +2,23 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Plan 2A: separat redaktion-person-fetch + pool-baseret søg (2026-06-28)
+Redaktions-appen manglede in-app-navigation til personer (konflikt-køen tom efter kardinalitets-fix,
+entitetslister stub) → man tastede URL → web-reload → skrivemode nulstillet. 2A gav Entiteter-tab'en
+en person-liste.
+
+**Ikke-oplagt valg: SEPARAT `fetchRedaktionPersoner` frem for genbrug af den delte model.**
+Den delte publikums-model filtrerer `privat` ud (`load.ts:103`) OG loades ved boot som anon (kun
+offentlige). Genbrug ville enten skjule levende/private for redaktøren ELLER (ved reload-med-private)
+lække dem til publikums-fanerne (samme model). Separat fetch (RLS-gated, inkl. levende/privat) holder
+GDPR-grænsen ren. Verificeret: redaktion ser 963, anon 893.
+
+**Konsekvenser:**
+- `buildSearch` → pool-baseret `searchPool` (DRY; publikum + redaktion deler søg/alfabet/sort-logik).
+- Pagination obligatorisk (`getAll`/`.range`) — PostgREST capper ved 1000 lydløst (Codex 2A H1).
+- `RedPerson.born` direkte fra visning_foedt, ikke aar-strengen (ellers dødsår-som-fødeår, Codex 2A M1).
+- Tag på liste-rækker = `levende || privat` (de 70 skjulte er levende, ikke manuelt-private).
+
 ## Fact-kardinalitet: flere facts pr. (person, faktatype) er korrekt, ikke konflikt (2026-06-28)
 Bruger-feedback under live-test: person 199 viste kun 1 titel, og konflikt-køen flagede
 "6 uenige titel-værdier". Data-tjek: personen har **6 separate titel-facts** (kammerjunker,

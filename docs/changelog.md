@@ -1,5 +1,21 @@
 # Changelog
 
+## Plan 2A — person-liste & navigation i redaktions-appen (2026-06-28)
+* **Hvad:** Entiteter-tab'en har nu en rigtig person-liste (søg + alfabet-hop + alfabetisk/fødeår-sort)
+  → tap → person-editor. Dashboardets "Personer"-celle navigerer dertil. Løser URL-tastnings-smerten
+  (ingen in-app-vej til en person → web-reload → skrivemode nulstillet).
+* **Separat redaktion-fetch:** ny `fetchRedaktionPersoner` (mobile/src/data/redaktionRead.ts) henter ALLE
+  personer inkl. levende/privat via redaktion-sessionen — **pagineret** (genbrug `getAll`/`.range`,
+  PostgREST capper ved 1000 lydløst). Den delte publikums-model (`load.ts`) røres ikke → ingen GDPR-læk
+  i publikums-faner. Verificeret live: redaktion ser 963, anon 893 (70 levende skjult fra publikum).
+* **DRY:** `buildSearch` refaktoreret til pool-baseret `searchPool` (genbrugt af publikum + redaktion);
+  publikums-`search.tsx` uændret.
+* **Tags:** levende/privat-personer markeres i listen ("levende"/"privat"). `born` udledes direkte af
+  visning_foedt (ikke dødsår — Codex 2A M1). Fejl-tilstand i listen (ikke tom-som-clean — cycle 03 NEW1).
+* **Review:** Codex-review af spec (pagination + born-sort indarbejdet før impl); per-task spec+quality.
+  94/94 jest, tsc rent. Andre entiteter + generisk editor = 2C; køn/familie-visning = 2B.
+
+
 ## Redaktions-UI kerne-skive — implementeret + DB-deploy (2026-06-27)
 * **Hvad:** Vertikal kerne-skive af redaktør-appen (mobil editor): `redaktion/`-route-segment
   med native `(red-tabs)`-navigation, dashboard (rolle-kort + dry-run + konflikt-kø +
