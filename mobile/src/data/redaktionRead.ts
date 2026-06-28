@@ -99,7 +99,10 @@ export function mapKonfliktRow(r: { person_id: number; faktatype: string; antal_
 
 export async function fetchKonflikter(): Promise<Konflikt[]> {
   if (!supabase) return [];
-  const { data } = await supabase.from('red_konflikt').select('person_id,faktatype,antal_vaerdier,fact_id');
+  const { data, error } = await supabase.from('red_konflikt').select('person_id,faktatype,antal_vaerdier,fact_id');
+  // Kast ved fejl — ellers ville en RLS/grant/migration-fejl vise sig som en TOM kø
+  // ("ingen konflikter"), hvilket skjuler præcis de poster der skal gennemses (cycle 03 NEW1).
+  if (error) throw new Error(error.message);
   return (data ?? []).map(mapKonfliktRow);
 }
 

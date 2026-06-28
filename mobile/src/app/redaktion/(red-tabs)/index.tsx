@@ -18,10 +18,17 @@ export default function Dashboard() {
   const dryRun = useStore((s) => s.dryRun);
   const setDryRun = useStore((s) => s.setDryRun);
   const [konflikter, setKonflikter] = useState<Konflikt[]>([]);
+  const [konfliktFejl, setKonfliktFejl] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const c = counts(model, aux);
 
-  useEffect(() => { if (session) fetchKonflikter().then(setKonflikter).catch(() => {}); }, [session]);
+  useEffect(() => {
+    if (session) {
+      setKonfliktFejl(false);
+      // Fejl vises som eksplicit fejl-tilstand, ALDRIG som tom kø (cycle 03 NEW1).
+      fetchKonflikter().then(setKonflikter).catch(() => setKonfliktFejl(true));
+    }
+  }, [session]);
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
@@ -73,6 +80,15 @@ export default function Dashboard() {
           </>
         ) : null}
 
+        {session && konfliktFejl ? (
+          <View style={styles.konfliktFejl}>
+            <Mono size={9.5} color={Colors.liveRoed} style={{ marginBottom: 4 }}>TIL GENNEMSYN · FEJL</Mono>
+            <Mono size={11} color={Colors.danger}>
+              Kunne ikke hente konflikt-køen. Tom kø her betyder IKKE “ingen konflikter” — prøv igen.
+            </Mono>
+          </View>
+        ) : null}
+
         <Mono size={9.5} color={Colors.textMuted} style={{ marginTop: 12, marginBottom: 6 }}>
           ENTITETER I BASEN
         </Mono>
@@ -101,6 +117,8 @@ const styles = StyleSheet.create({
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   konfliktRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8ecef',
     borderWidth: 1, borderColor: 'rgba(136,26,51,0.2)', borderRadius: 13, padding: 12, marginBottom: 7 },
+  konfliktFejl: { backgroundColor: Colors.konfliktFlade, borderWidth: 1, borderColor: Colors.liveRoed,
+    borderRadius: 13, padding: 12, marginTop: 8, marginBottom: 7 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
   cell: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light,
     borderRadius: 13, padding: 14, minWidth: '47%' },
