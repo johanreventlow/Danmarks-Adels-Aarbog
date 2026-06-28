@@ -20,6 +20,8 @@ export default function PersonEditor() {
   const router = useRouter();
   const model = useStore((s) => s.model);
   const showAnn = useStore((s) => s.showAnnotations);
+  const dryRun = useStore((s) => s.dryRun);
+  const setDryRun = useStore((s) => s.setDryRun);
   const [ev, setEv] = useState<PersonEvidence | null>(null);
   const [pending, setPending] = useState<Change | null>(null);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -103,6 +105,23 @@ export default function PersonEditor() {
           <InitialBadge name={person.name} size={56} bg="#f8ecef" />
           <Serif size={25} style={{ marginTop: 8 }}>{person.name}</Serif>
           <Mono size={9} color={Colors.textMuted}>id {String(person.id)} · {ev?.koen ?? '—'}</Mono>
+        </View>
+
+        {/* Skrivemode (global, samme state som dashboard/konto) — placeret her så man kan
+            slå LIVE til lige hvor man skriver (in-app-nav til personer = plan 2). */}
+        <View style={[editorStyles.skrivemode, dryRun ? editorStyles.skrivemodeDry : editorStyles.skrivemodeLive]}>
+          <View style={{ flex: 1 }}>
+            <Mono size={8} color={Colors.textMuted}>SKRIVEMODE (HELE SESSIONEN)</Mono>
+            <Mono size={11} color={dryRun ? Colors.textSecondary2 : Colors.liveRoed}>
+              {dryRun ? 'Dry-run · skriver ikke' : 'LIVE · skriver til basen'}
+            </Mono>
+          </View>
+          <Switch
+            value={!dryRun}
+            onValueChange={(live) => setDryRun(!live)}
+            thumbColor={dryRun ? Colors.textMuted2 : Colors.liveRoed}
+            trackColor={{ false: Colors.beige3, true: Colors.konfliktFlade }}
+          />
         </View>
 
         {/* Handlingsrække: Privat-toggle + Slet-knap */}
@@ -328,5 +347,22 @@ const editorStyles = StyleSheet.create({
     borderRadius: Radius.field,
     paddingHorizontal: 16,
     paddingVertical: 8,
+  },
+  skrivemode: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: Radius.field,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 14,
+  },
+  skrivemodeDry: {
+    backgroundColor: Colors.paperCard,
+    borderColor: Border.light,
+  },
+  skrivemodeLive: {
+    backgroundColor: Colors.konfliktFlade,
+    borderColor: Colors.liveRoed,
   },
 });
