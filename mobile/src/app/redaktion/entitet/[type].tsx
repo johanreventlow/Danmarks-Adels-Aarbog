@@ -35,6 +35,9 @@ export default function EntitetListe() {
     return q ? rows.filter((r) => r.titel.toLowerCase().includes(q)) : rows;
   }, [rows, query]);
 
+  // Ukendt type-param → eksplicit besked (ikke en tavs tom liste). TITLER = allowlist.
+  // Placeret EFTER alle hooks (ellers betinget hook-eksekvering ved param-skift) — cycle 05 M1.
+  if (!TITLER[type ?? '']) return <Msg title="Entiteter">Ukendt entitetstype.</Msg>;
   // Auth-state (spec §4b): "Henter…" ALDRIG permanent for ikke-redaktører.
   if (rolle !== 'redaktion') return <Msg title={titel}>Kræver redaktør-rolle.</Msg>;
   if (redaktionStatus === 'error') return <Msg title={titel}>Kunne ikke hente redaktion-data.</Msg>;
