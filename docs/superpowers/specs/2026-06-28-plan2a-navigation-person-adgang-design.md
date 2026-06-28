@@ -29,25 +29,37 @@ Forudgående: `docs/superpowers/specs/2026-06-27-redaktion-ui-kerne-skive-design
 Nyt i `mobile/src/data/redaktionRead.ts`:
 
 ```ts
-export type RedPerson = { id: string; navn: string; aar: string; privat: boolean };
+export type RedPerson = {
+  id: string;
+  navn: string;
+  aar: string;            // KUN til visning ("1644–1708")
+  born: number | null;    // til born-sort — udledt DIREKTE af visning_foedt (ikke af aar)
+  levende: boolean;       // skjult fra publikum (de 70 levende)
+  privat: boolean;        // manuelt skjult (pt. 0)
+};
 
 export async function fetchRedaktionPersoner(): Promise<RedPerson[]> {
   if (!supabase) return [];
-  const { data, error } = await supabase
-    .from('person')
-    .select('id,visning_navn,visning_foedt,visning_doed,privat');
-  // Kast ved fejl — ALDRIG tom-som-clean (cycle 03 NEW1-læring): en RLS/grant-fejl må
-  // ikke fremstå som "ingen personer".
-  if (error) throw new Error(error.message);
-  return (data ?? []).map(mapRedPerson);
+  // PAGINÉR: PostgREST capper ved 1000 rækker pr. svar (lydløst). Genbrug getAll/.range()-
+  // mønsteret fra load.ts — basen har 963 personer nu, men ÉN import mere → >1000 → tabte
+  // personer (Codex cycle 2A H1). getAll kaster videre ved error (cycle 03 NEW1) → ingen
+  // tom-som-clean.
+  const rows = await getAll<RawRedPerson>(() =>
+    supabase!.from('person').select('id,visning_navn,visning_foedt,visning_doed,levende,privat'));
+  return rows.map(mapRedPerson);
 }
 ```
 
-- RLS gør arbejdet: logget ind som **redaktion** → `redaktion_read`-policy returnerer OGSÅ
-  private rækker (plan 1 §8b). Som `medlem`/anon → kun ikke-private.
-- `mapRedPerson(row)` → `{ id: String(id), navn: visning_navn ?? '(uden navn)', aar: fmtAar(foedt, doed), privat: Boolean(privat) }`. Ren funktion → unit-testes.
-- `fmtAar` genbruger samme år-formattering som publikums-modellen (`fields.ts`/`fmtYears`) hvor muligt; ellers en lille lokal `"foedt–doed"`-formattering.
-- Den delte `load.ts` (`.filter(p => !p.privat)`, linje 103) ændres IKKE.
+- **RLS verificeret live (2026-06-28):** `redaktion_read`-policy ER deployet og virker — som
+  **redaktion** returnerer `person` alle **963** rækker; som **anon** kun **893** (de 70
+  `levende` skjult). Forudsætning: `db-rls.sql` redaktion-read-lag deployet (gjort + verificeret).
+- `getAll` skal kaste videre ved Supabase-error (tilpas/genbrug eksisterende helper — den nuværende
+  `getAll` i load.ts kaster allerede via `if (error) throw error`).
+- `mapRedPerson(row)` → ren funktion: `navn = visning_navn ?? '(uden navn)'`; `born =
+  parseYear(visning_foedt)` (DIREKTE fra fødselsfeltet — IKKE fra dødsår); `aar =
+  fmtYears(visning_foedt, visning_doed)` (genbrug `fields.ts:fmtYears` — verificeret tager
+  streng-felter, samme som load.ts bruger); `levende`/`privat` = `Boolean(...)`.
+- Den delte `load.ts` (`.filter(p => !p.privat)`, linje 103) ændres IKKE → publikums-faner urørt.
 
 ## 3. Søge-logik: pool-baseret `buildSearch`
 
@@ -67,7 +79,12 @@ export function buildSearch(model, opts) {
 }
 ```
 
-Redaktions-listen mapper `RedPerson[]` → `SearchItem[]` (`{ id, name: navn, years: aar, born: <årstal-til-sort> }`) og kalder `searchPool`. `SearchItem` udvides IKKE med `privat`; privat-tag slås op separat i render via et `Set<id>` af private (eller en parallel map), så `SearchItem`-kontrakten holdes ren.
+Redaktions-listen mapper `RedPerson[]` → `SearchItem[]` (`{ id, name: navn, years: aar, born:
+p.born }`) og kalder `searchPool`. **`born` tages DIREKTE fra `RedPerson.born`** (udledt af
+visning_foedt), IKKE ved at re-parse `aar`-strengen — ellers ville en person uden fødselsår men
+med dødsår få dødsåret som born og sortere forkert (Codex cycle 2A M1). `SearchItem` udvides IKKE
+med levende/privat; tags slås op separat i render via et `Set<id>` (eller map) — så
+`SearchItem`-kontrakten holdes ren.
 
 **Bemærk:** `searchPool` bevarer eksakt samme adfærd som nuværende `buildSearch` (dansk alfabet-orden, Æ/Ø/Å sidst, alfabet-bar skjult ved born-sort/søgning). Refaktoreringen er ren udtræk — publikums-`search.tsx` skal stadig bestå uændret.
 
@@ -80,7 +97,10 @@ Person-liste, mønster fra `app/(tabs)/search.tsx`:
 - Alfabet-bar (chips, kun forekommende bogstaver) — **lokal** `activeLetter`-state; skjult ved søgning.
 - Sortér-toggle (alfabetisk / fødeår) — **lokal** `sort`-state.
 - `SectionList` med sticky bogstav-headers (alfa-sort) eller flad liste (born-sort).
-- Rad: `InitialBadge` + navn (Serif) + år (Mono) + **"privat"-tag** (mono, `Colors.bordeaux`-tonet) hvis privat. Tap → `router.push('/redaktion/person/' + id)`.
+- Rad: `InitialBadge` + navn (Serif) + år (Mono) + **"ikke-offentlig"-tag** (mono,
+  `Colors.bordeaux`-tonet) hvis `levende` ELLER `privat` — tekst "levende" hhv. "privat". (De 70
+  levende er den faktiske skjulte-fra-publikum-gruppe; `privat` er pt. 0.) Tap →
+  `router.push('/redaktion/person/' + id)`.
 - Henter via `fetchRedaktionPersoner()` i `useEffect` (afhænger af `session`); **fejl-tilstand** (eksplicit "Kunne ikke hente personer", ikke tom liste).
 - Tom-tilstand (0 personer, ingen fejl): "Ingen personer".
 
@@ -90,10 +110,25 @@ Person-liste, mønster fra `app/(tabs)/search.tsx`:
 - Grid-tallet forbliver fra den delte model (ikke-private count) — kan afvige let fra
   redaktions-listens fulde antal; acceptabelt (noteres).
 
-## 5. Privat-håndtering
-- Private personer vises i redaktions-listen (redaktion ser dem via RLS); markeret med tag.
-- Som ikke-redaktion: RLS giver kun ikke-private → listen viser ikke-private (ingen tag).
-- Ingen klient-side privat-filter i redaktions-stien (modsat publikums-`load.ts`).
+## 5. Skjult-fra-publikum-håndtering (levende + privat)
+- **Verificeret live:** redaktion ser alle 963 (inkl. 70 `levende`); anon ser 893. `redaktion_read`
+  er unconditional for rollen → redaktøren finder også levende personer publikum ikke kan.
+- Tag på rækken = `levende || privat` ("levende"/"privat"). Pt.: 70 levende, 0 privat.
+- Ingen klient-side filter i redaktions-stien (modsat publikums-`load.ts` der filtrerer privat).
+- Som ikke-redaktion: RLS giver kun det offentlige (893) → listen viser det, ingen tags.
+
+## 5b. Codex adversarial-review konsekvens (2026-06-28)
+**Verdict:** needs-attention → rettet i denne spec.
+- **H1 (pagination) — confirmed:** ét select rammer PostgREST's 1000-cap; `fetchRedaktionPersoner`
+  bruger nu `getAll/.range()` (§2). Plan SKAL teste mod >1000-datasæt.
+- **#2 (RLS-deployment) — recalibrated/empirisk afkræftet:** Codex læste db-rls.sql's header
+  ("RLS endnu ikke anvendt") og antog policy ikke live. Verificeret mod prod 2026-06-28:
+  redaktion ser 963, anon 893 → `redaktion_read` ER live + virker. Spec noterer deployment som
+  forudsætning + anbefaler integrationstest (anon/medlem/redaktion mod synlighed).
+- **M1 (born-sort) — confirmed:** `RedPerson.born` udledes nu direkte af visning_foedt, ikke af
+  aar-strengen (§2-3).
+- **Bekræftet sikkert af Codex:** navigation (`/redaktion/entiteter`, group ikke i URL), separat
+  tag-Set, fmtYears-genbrug, publikums-model-isolering.
 
 ## 6. Fejlhåndtering
 - `fetchRedaktionPersoner` kaster ved Supabase-fejl.
@@ -102,10 +137,15 @@ Person-liste, mønster fra `app/(tabs)/search.tsx`:
 
 ## 7. Test
 - **jest:** `searchPool` (alfabet-orden, query-filter, letter-filter, born-sort, showLetters-regel)
-  + bekræft `buildSearch`-wrapper giver samme output som før (regression). `mapRedPerson`
-  (navn-fallback, privat-bool, år-format).
-- **Manuel:** reload → log ind redaktion → Entiteter → liste m. private (tag) → søg → alfabet-hop
-  → tap → person-editor. Fejl-sti: manuel/noteret.
+  + **regression:** `buildSearch`-wrapper giver EKSAKT samme output som før refactor (snapshot/
+  eksplicit). `mapRedPerson` (navn-fallback; `born` fra visning_foedt — IKKE dødsår når foedt
+  mangler; levende/privat-bool; aar-format).
+- **Pagination:** test at `fetchRedaktionPersoner` henter >1000 rækker (mock getAll/range med
+  2 sider) — ingen lydløs trunkering (Codex H1).
+- **RLS-integration (anbefalet, R/psql):** bekræft synlighed pr. rolle mod prod/branch —
+  anon=893, redaktion=963; ved fremtidig manuel `privat`-markering: anon taber den, redaktion ser den.
+- **Manuel:** reload → log ind redaktion → Entiteter → liste (levende-tags) → søg → alfabet-hop
+  → tap → person-editor. Fejl-tilstand: manuel/noteret.
 
 ## 8. Berørte artefakter
 **Nye:** (ingen nye filer ud over screen-erstatning)
