@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { TopBar } from '../../../components/TopBar';
 import { Body, Serif } from '../../../components/Typography';
 import { useStore } from '../../../store/useStore';
-import { Border, Colors, Radius } from '../../../theme/tokens';
+import { Border, Colors } from '../../../theme/tokens';
 
 export default function Entiteter() {
   const router = useRouter();
