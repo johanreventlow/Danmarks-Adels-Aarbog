@@ -137,6 +137,9 @@ gods/kilde/organisation/medie; Personer-ruten genbruger 2A-listen.
 - Redigér/opret entiteter (ingen write-RPC'er endnu).
 - Detail-skærm for ikke-person-entiteter (D1 = ikke-tappbar).
 - Relations-redigering (2C-2).
-- `majorat` (ingen tabel i skemaet). [Våben/`coat_of_arms` ER nu inkluderet, jf. §0/§2.]
+- `majorat` som SELVSTÆNDIG entitet: findes ikke som tabel — entailment-godser (len/stamhus/
+  lensgrevskab) er en `slags` af `estate` og er dermed allerede i gods-listen. (`estate.slags` er
+  desuden NULL på alle 229 rækker nu.) Promovering af majorat til egen entitet = fremtidigt
+  model-arbejde (jf. lineage-promoveringen), ikke 2C-1. [Våben/`coat_of_arms` ER inkluderet, §0/§2.]
 - Bredere route-gate af hele `/redaktion` for ikke-redaktører (pre-eksisterende; §4b dækker kun listerne).
 - Forene de flade lister med separate redaktion-fetches (bruger redaktion-modellens data).
