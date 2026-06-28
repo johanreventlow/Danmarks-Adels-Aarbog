@@ -18,11 +18,13 @@ Konsekvenser, rettet:
   (liste pr. felt). Editoren viser ét kort PR. FACT under en felt-overskrift (titel → 6 kort).
   Tidligere overskrev `joinEvidence` pr. felt → kun det sidste fact var synligt.
 
-**Kendt udeståelse (write-side):** `red_upsert_fakta` find-or-creater ÉT fact pr.
-(subjekt, faktatype), så "+ Tilføj oplysning" på et specifikt titel-kort kan endnu ikke
-målrette det rigtige fact / oprette et nyt distinkt fact. `redigér`/`slet`/`gør-til-konklusion`
-virker korrekt (assertion-id-baseret). Fact-målrettet tilføj kræver RPC-udvidelse (p_fact_id
-eller separat opret-nyt-fact-RPC) — udskudt.
+**Write-side (løst 2026-06-28):** to nye RPC'er adskiller de to operationer som
+`red_upsert_fakta`'s find-or-create blandede sammen:
+- `red_tilfoej_oplysning(p_fact_id, …)` — operation A: ny oplysning til ET specifikt fact
+  (per-kort "+ Tilføj oplysning"). Rører ikke conclusion (kandidat; vælg med red_set_konklusion).
+- `red_opret_fakta(p_subjekt_type, p_subjekt_id, p_faktatype, …)` — operation B: ALTID nyt
+  distinkt fact (sektion-knap "+ Ny titel"). Tillader flere facts pr. faktatype.
+`red_upsert_fakta` (find-or-create) beholdes for R-load/bagudkomp, men UI bruger den ikke mere.
 
 ## Redaktions-UI: vertikal kerne-skive + 3 ikke-oplagte DB-valg (2026-06-27)
 Redaktør-appens UI bygget som **vertikal kerne-skive** (dashboard + person-editor + konto +

@@ -8,7 +8,8 @@ export type FaktaAction =
   | { type: 'gørKonklusion'; assertionId: number }
   | { type: 'redigér'; assertionId: number; felt: string; vaerdi: string; kilde?: string }
   | { type: 'slet'; assertionId: number }
-  | { type: 'tilføj'; felt: string; vaerdi: string; kilde?: string };
+  // tilføj = operation A: ny oplysning til DETTE fact (fact-målrettet, fact-kardinalitet).
+  | { type: 'tilføj'; factId: number; felt: string; vaerdi: string; kilde?: string };
 
 // Inline-editor tilstand: hvilken oplysning redigeres (assertionId) eller 'ny'
 type EditState = { mode: 'redigér'; assertionId: number } | { mode: 'tilføj' } | null;
@@ -43,9 +44,10 @@ export function FaktaKort({ felt, evidens, onAction, hideFeltLabel = false }: {
         vaerdi: scratch.vaerdi,
         kilde: scratch.kilde || undefined,
       });
-    } else {
+    } else if (evidens) {
       onAction({
         type: 'tilføj',
+        factId: evidens.factId,
         felt,
         vaerdi: scratch.vaerdi,
         kilde: scratch.kilde || undefined,

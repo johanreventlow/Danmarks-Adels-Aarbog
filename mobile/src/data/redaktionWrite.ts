@@ -10,10 +10,12 @@ const DATE_FELT = new Set(['foedt', 'doed']);
 
 export type Change = {
   art: 'fakta' | 'narrativ' | 'relation' | 'gods' | 'hverv'
-     | 'redigerOplysning' | 'sletOplysning' | 'setKonklusion' | 'setPrivat' | 'sletPerson';
+     | 'redigerOplysning' | 'sletOplysning' | 'setKonklusion' | 'setPrivat' | 'sletPerson'
+     | 'tilfoejOplysning' | 'opretFakta';
   subjektType: string;
   subjektId: string;
   assertionId?: string;
+  factId?: string;
   felt?: string;
   vaerdi?: string;
   kildeFritekst?: string;
@@ -45,6 +47,25 @@ export function buildRpcCall(c: Change): RpcCall | null {
   }
   if (c.art === 'sletPerson') {
     return { fn: 'red_slet_person', args: { p_person_id: sid } };
+  }
+  // Operation A: tilføj oplysning til EKSISTERENDE fact (fact-målrettet, fact-kardinalitet).
+  if (c.art === 'tilfoejOplysning') {
+    const fid = c.factId != null ? Number(c.factId) : null;
+    if (fid == null) return null;
+    const args: Record<string, unknown> = { p_fact_id: fid, p_vaerdi: c.vaerdi };
+    if (c.felt && DATE_FELT.has(c.felt)) args.p_date_raw = c.vaerdi;
+    if (c.kildeFritekst != null) args.p_kilde_fritekst = c.kildeFritekst;
+    return { fn: 'red_tilfoej_oplysning', args };
+  }
+  // Operation B: opret NYT distinkt fact (fx ny titel).
+  if (c.art === 'opretFakta' && c.felt && FELT_FAKTATYPE[c.felt]) {
+    const args: Record<string, unknown> = {
+      p_subjekt_type: c.subjektType, p_subjekt_id: sid,
+      p_faktatype: FELT_FAKTATYPE[c.felt], p_vaerdi: c.vaerdi,
+    };
+    if (DATE_FELT.has(c.felt)) args.p_date_raw = c.vaerdi;
+    if (c.kildeFritekst != null) args.p_kilde_fritekst = c.kildeFritekst;
+    return { fn: 'red_opret_fakta', args };
   }
   if (c.art === 'fakta' && c.felt === 'koen') {
     return { fn: 'red_set_koen', args: { p_person_id: sid, p_koen: c.vaerdi } };

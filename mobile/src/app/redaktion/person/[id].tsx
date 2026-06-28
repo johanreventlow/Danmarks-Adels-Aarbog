@@ -27,6 +27,9 @@ export default function PersonEditor() {
   const [privat, setPrivat] = useState(false);
   // narrativ-tekst: prefill fra person.bio (første ikke-private narrativ fra load)
   const [narrativTekst, setNarrativTekst] = useState('');
+  // Sektion-niveau "opret nyt fact"-form (operation B): hvilket felt + scratch-værdier.
+  const [addFelt, setAddFelt] = useState<string | null>(null);
+  const [addScratch, setAddScratch] = useState({ vaerdi: '', kilde: '' });
   const person = id && model ? model.byId[id] : null;
 
   useEffect(() => { if (id) fetchPersonEvidence(id).then(setEv).catch(() => {}); }, [id]);
@@ -60,15 +63,29 @@ export default function PersonEditor() {
         kildeFritekst: a.kilde,
       });
     } else if (a.type === 'tilføj') {
+      // Operation A: ny oplysning til DETTE fact (fact-målrettet).
       setPending({
-        art: 'fakta',
+        art: 'tilfoejOplysning',
         subjektType: 'person',
         subjektId: id!,
+        factId: String(a.factId),
         felt: a.felt,
         vaerdi: a.vaerdi,
         kildeFritekst: a.kilde,
       });
     }
+  }
+
+  // Operation B: opret nyt distinkt fact (fx ny titel) fra sektion-knappen.
+  function opretFakta(felt: string, vaerdi: string, kilde: string) {
+    setPending({
+      art: 'opretFakta',
+      subjektType: 'person',
+      subjektId: id!,
+      felt,
+      vaerdi,
+      kildeFritekst: kilde || undefined,
+    });
   }
 
   if (!person) return (
@@ -133,6 +150,49 @@ export default function PersonEditor() {
                 facts.map((fe) => (
                   <FaktaKort key={fe.factId} felt={felt} evidens={fe} hideFeltLabel onAction={onAction} />
                 ))
+              )}
+              {/* Operation B: opret nyt distinkt fact under feltet (fx ny titel). */}
+              {addFelt === felt ? (
+                <View style={editorStyles.addForm}>
+                  <TextInput
+                    style={editorStyles.addInput}
+                    placeholder={`Ny ${FELT_LABEL[felt] ?? felt}…`}
+                    placeholderTextColor={Colors.textMuted2}
+                    value={addScratch.vaerdi}
+                    onChangeText={(v) => setAddScratch((s) => ({ ...s, vaerdi: v }))}
+                    autoFocus
+                  />
+                  <TextInput
+                    style={editorStyles.addInput}
+                    placeholder="Kilde (valgfri)"
+                    placeholderTextColor={Colors.textMuted2}
+                    value={addScratch.kilde}
+                    onChangeText={(v) => setAddScratch((s) => ({ ...s, kilde: v }))}
+                  />
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <Pressable
+                      style={editorStyles.addOpret}
+                      onPress={() => {
+                        if (!addScratch.vaerdi.trim()) return;
+                        opretFakta(felt, addScratch.vaerdi.trim(), addScratch.kilde.trim());
+                        setAddFelt(null);
+                        setAddScratch({ vaerdi: '', kilde: '' });
+                      }}
+                    >
+                      <BtnLabel color="#fff">Opret</BtnLabel>
+                    </Pressable>
+                    <Pressable style={editorStyles.addAnnuller} onPress={() => setAddFelt(null)}>
+                      <BtnLabel color={Colors.textMuted}>Annullér</BtnLabel>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <Pressable
+                  onPress={() => { setAddFelt(felt); setAddScratch({ vaerdi: '', kilde: '' }); }}
+                  style={{ paddingVertical: 6 }}
+                >
+                  <Mono size={9} color={Colors.bordeaux}>+ Ny {FELT_LABEL[felt] ?? felt}</Mono>
+                </Pressable>
               )}
             </View>
           );
@@ -235,5 +295,38 @@ const editorStyles = StyleSheet.create({
     padding: 14,
     alignItems: 'center',
     marginTop: 10,
+  },
+  addForm: {
+    backgroundColor: Colors.paperCard,
+    borderWidth: 1,
+    borderColor: Border.light,
+    borderRadius: Radius.field,
+    padding: 10,
+    marginBottom: 8,
+    gap: 8,
+  },
+  addInput: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: Border.medium,
+    borderRadius: Radius.field,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontFamily: 'HankenGrotesk_400Regular',
+    fontSize: 13,
+    color: Colors.ink,
+  },
+  addOpret: {
+    backgroundColor: Colors.konklusionGroen,
+    borderRadius: Radius.field,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  addAnnuller: {
+    borderWidth: 1,
+    borderColor: Border.medium,
+    borderRadius: Radius.field,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
 });

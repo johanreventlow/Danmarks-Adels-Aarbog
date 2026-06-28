@@ -73,3 +73,30 @@ test('sletOplysning uden assertionId → null', () => {
   expect(buildRpcCall({ art: 'sletOplysning', subjektType: 'person', subjektId: '1' }))
     .toBeNull();
 });
+
+// Operation A: tilføj oplysning til eksisterende fact (fact-målrettet).
+test('tilfoejOplysning → red_tilfoej_oplysning m. fact_id', () => {
+  expect(buildRpcCall({ art: 'tilfoejOplysning', subjektType: 'person', subjektId: '1',
+    factId: '607', felt: 'titel', vaerdi: 'kammerherre', kildeFritekst: 'DAA' }))
+    .toEqual({ fn: 'red_tilfoej_oplysning',
+      args: { p_fact_id: 607, p_vaerdi: 'kammerherre', p_kilde_fritekst: 'DAA' } });
+});
+
+test('tilfoejOplysning uden factId → null', () => {
+  expect(buildRpcCall({ art: 'tilfoejOplysning', subjektType: 'person', subjektId: '1', vaerdi: 'x' }))
+    .toBeNull();
+});
+
+test('tilfoejOplysning dato-felt → inkluderer p_date_raw', () => {
+  expect(buildRpcCall({ art: 'tilfoejOplysning', subjektType: 'person', subjektId: '1',
+    factId: '11', felt: 'foedt', vaerdi: 'ca. 1644' }))
+    .toEqual({ fn: 'red_tilfoej_oplysning', args: { p_fact_id: 11, p_vaerdi: 'ca. 1644', p_date_raw: 'ca. 1644' } });
+});
+
+// Operation B: opret nyt distinkt fact (fx ny titel).
+test('opretFakta → red_opret_fakta m. faktatype', () => {
+  expect(buildRpcCall({ art: 'opretFakta', subjektType: 'person', subjektId: '1',
+    felt: 'titel', vaerdi: 'greve', kildeFritekst: 'DAA' }))
+    .toEqual({ fn: 'red_opret_fakta',
+      args: { p_subjekt_type: 'person', p_subjekt_id: 1, p_faktatype: 'titel', p_vaerdi: 'greve', p_kilde_fritekst: 'DAA' } });
+});

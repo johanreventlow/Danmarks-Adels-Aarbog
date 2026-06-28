@@ -464,3 +464,64 @@ end $$;
 grant select on public.red_konflikt to authenticated;
 grant select on public.red_konflikt to anon;
 
+
+-- =====================================================================
+-- 2026-06-28: fact-målrettet skrivning (fact-kardinalitet)
+--   red_tilfoej_oplysning (operation A: oplysning til eksisterende fact)
+--   red_opret_fakta       (operation B: nyt distinkt fact)
+-- (Funktionskroppe er source-of-truth i schema.sql; her idempotent gentaget.)
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION red_tilfoej_oplysning(
+  p_fact_id bigint, p_vaerdi text,
+  p_date_min date DEFAULT NULL, p_date_max date DEFAULT NULL,
+  p_date_qualifier text DEFAULT NULL, p_date_raw text DEFAULT NULL,
+  p_kilde_fritekst text DEFAULT NULL
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_assert bigint; v_cit bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM fact WHERE id = p_fact_id) THEN
+    RAISE EXCEPTION 'Fact % findes ikke', p_fact_id;
+  END IF;
+  INSERT INTO assertion(id, target_type, target_id, vaerdi_tekst,
+                        date_min, date_max, date_qualifier, date_raw, uforanderlig)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM assertion), 'fact', p_fact_id, p_vaerdi,
+            p_date_min, p_date_max, p_date_qualifier, p_date_raw, false)
+    RETURNING id INTO v_assert;
+  INSERT INTO citation(id, assertion_id, source_id, citat_tekst)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM citation), v_assert, NULL,
+            coalesce(p_kilde_fritekst,'(kilde mangler)'))
+    RETURNING id INTO v_cit;
+  RETURN jsonb_build_object('assertion_id', v_assert, 'citation_id', v_cit);
+END $$;
+
+CREATE OR REPLACE FUNCTION red_opret_fakta(
+  p_subjekt_type text, p_subjekt_id bigint, p_faktatype text, p_vaerdi text,
+  p_date_min date DEFAULT NULL, p_date_max date DEFAULT NULL,
+  p_date_qualifier text DEFAULT NULL, p_date_raw text DEFAULT NULL,
+  p_kilde_fritekst text DEFAULT NULL
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_fact bigint; v_assert bigint; v_cit bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  INSERT INTO fact(id, subjekt_type, subjekt_id, faktatype)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM fact), p_subjekt_type, p_subjekt_id, p_faktatype)
+    RETURNING id INTO v_fact;
+  INSERT INTO assertion(id, target_type, target_id, vaerdi_tekst,
+                        date_min, date_max, date_qualifier, date_raw, uforanderlig)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM assertion), 'fact', v_fact, p_vaerdi,
+            p_date_min, p_date_max, p_date_qualifier, p_date_raw, false)
+    RETURNING id INTO v_assert;
+  INSERT INTO citation(id, assertion_id, source_id, citat_tekst)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM citation), v_assert, NULL,
+            coalesce(p_kilde_fritekst,'(kilde mangler)'))
+    RETURNING id INTO v_cit;
+  INSERT INTO conclusion(id, target_type, target_id, valgt_assertion_id, status, blaastemplet_af, blaastemplet_naar)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM conclusion), 'fact', v_fact, v_assert,
+            'afklaret', 'Redaktør', current_date);
+  RETURN jsonb_build_object('fact_id', v_fact, 'assertion_id', v_assert, 'citation_id', v_cit);
+END $$;
+
+grant execute on function public.red_tilfoej_oplysning(bigint,text,date,date,text,text,text) to authenticated;
+grant execute on function public.red_opret_fakta(text,bigint,text,text,date,date,text,text,text) to authenticated;
