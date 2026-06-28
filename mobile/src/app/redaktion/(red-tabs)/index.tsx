@@ -93,7 +93,7 @@ export default function Dashboard() {
           ENTITETER I BASEN
         </Mono>
         <View style={styles.grid}>
-          <GridCell n={c.personer} label="Personer" />
+          <GridCell n={c.personer} label="Personer" onPress={() => router.navigate('/redaktion/entiteter')} />
           {/* flere celler additivt fra counts(): familier, godser, kilder … */}
         </View>
       </ScrollView>
@@ -102,12 +102,12 @@ export default function Dashboard() {
   );
 }
 
-function GridCell({ n, label }: { n: number; label: string }) {
+function GridCell({ n, label, onPress }: { n: number; label: string; onPress?: () => void }) {
   return (
-    <View style={styles.cell}>
+    <Pressable style={styles.cell} onPress={onPress} disabled={!onPress}>
       <Serif size={21} color={Colors.bordeaux}>{n}</Serif>
       <Body size={13}>{label}</Body>
-    </View>
+    </Pressable>
   );
 }
 
