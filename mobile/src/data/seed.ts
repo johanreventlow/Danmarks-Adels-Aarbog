@@ -5,11 +5,11 @@ import type { Aux, Db } from './types';
 
 const db: Db = {
   persons: [
-    { id: 's1', name: 'Conrad Reventlow', born: 1644, died: 1708, years: '1644–1708', title: 'Storkansler', bio: 'Dansk statsmand og storkansler. (Offline-seed — fuld biografi i live-basen.)' },
-    { id: 's2', name: 'Christian Ditlev Reventlow', born: 1671, died: 1738, years: '1671–1738', title: 'Greve', bio: 'Søn af Conrad. (Offline-seed.)' },
-    { id: 's3', name: 'Anna Sophie Reventlow', born: 1693, died: 1743, years: '1693–1743', title: 'Dronning', bio: 'Datter af Conrad; senere dronning. (Offline-seed.)' },
-    { id: 's4', name: 'Conrad Detlev Reventlow', born: 1704, died: 1750, years: '1704–1750', title: 'Greve', bio: 'Søn af Christian Ditlev. (Offline-seed.)' },
-    { id: 's5', name: 'Christian Ditlev Reventlow', born: 1748, died: 1827, years: '1748–1827', title: 'Statsminister', bio: 'Reformator og statsminister. (Offline-seed.)' },
+    { id: 's1', name: 'Conrad Reventlow', born: 1644, died: 1708, years: '1644–1708', title: 'Storkansler', bio: 'Dansk statsmand og storkansler. (Offline-seed — fuld biografi i live-basen.)', privat: false },
+    { id: 's2', name: 'Christian Ditlev Reventlow', born: 1671, died: 1738, years: '1671–1738', title: 'Greve', bio: 'Søn af Conrad. (Offline-seed.)', privat: false },
+    { id: 's3', name: 'Anna Sophie Reventlow', born: 1693, died: 1743, years: '1693–1743', title: 'Dronning', bio: 'Datter af Conrad; senere dronning. (Offline-seed.)', privat: false },
+    { id: 's4', name: 'Conrad Detlev Reventlow', born: 1704, died: 1750, years: '1704–1750', title: 'Greve', bio: 'Søn af Christian Ditlev. (Offline-seed.)', privat: false },
+    { id: 's5', name: 'Christian Ditlev Reventlow', born: 1748, died: 1827, years: '1748–1827', title: 'Statsminister', bio: 'Reformator og statsminister. (Offline-seed.)', privat: false },
   ],
   unions: [
     { id: 'f1', p1: 's1', p2: null, p2_name: 'Anna Margrethe Gabel', year: null },

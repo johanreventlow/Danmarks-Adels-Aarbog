@@ -73,6 +73,7 @@ export type AppPerson = {
   years: string; // ordret: "* 1640", "† 1708", "1640–1708"
   title: string;
   bio: string;
+  privat: boolean;
 };
 
 // Db = output af loadFromSupabase; persons mangler stadig parentId/spouse.

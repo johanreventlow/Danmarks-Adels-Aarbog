@@ -5,6 +5,7 @@ import { supabase, supabaseEnabled } from '../lib/supabase';
 import { buildAux } from './buildAux';
 import { fmtYears, parseYear } from './fields';
 import type {
+  AppPerson,
   Aux,
   Db,
   ParentChild,
@@ -57,9 +58,28 @@ export type LoadResult = {
   relBId: string;
 };
 
+export function mapAppPersons(
+  persons: RawPerson[],
+  bioBy: Record<string, string>,
+  includePrivat: boolean,
+): AppPerson[] {
+  return (persons || [])
+    .filter((p) => includePrivat || !p.privat)
+    .map((p) => ({
+      id: String(p.id),
+      name: p.visning_navn || '(uden navn)',
+      born: parseYear(p.visning_foedt),
+      died: parseYear(p.visning_doed),
+      years: fmtYears(p.visning_foedt, p.visning_doed),
+      title: p.visning_titel || '',
+      bio: bioBy[String(p.id)] || '',
+      privat: Boolean(p.privat),
+    }));
+}
+
 // Henter alt fra Supabase og bygger mellem-formen. Kaster ved fejl — kalderen falder tilbage
 // til offline-seed.
-export async function loadFromSupabase(): Promise<LoadResult> {
+export async function loadFromSupabase(opts?: { includePrivat?: boolean }): Promise<LoadResult> {
   if (!supabaseEnabled || !supabase) throw new Error('Supabase ikke konfigureret');
   const sb = supabase;
 
@@ -99,17 +119,7 @@ export async function loadFromSupabase(): Promise<LoadResult> {
     if (!n.privat && !bioBy[String(n.subjekt_id)]) bioBy[String(n.subjekt_id)] = n.tekst ?? '';
   });
 
-  const appPersons = (persons || [])
-    .filter((p) => !p.privat)
-    .map((p) => ({
-      id: String(p.id),
-      name: p.visning_navn || '(uden navn)',
-      born: parseYear(p.visning_foedt),
-      died: parseYear(p.visning_doed),
-      years: fmtYears(p.visning_foedt, p.visning_doed),
-      title: p.visning_titel || '',
-      bio: bioBy[String(p.id)] || '',
-    }));
+  const appPersons = mapAppPersons(persons || [], bioBy, opts?.includePrivat ?? false);
 
   // Familie-nav → unions + parentChild (partner × barn).
   const byFam: Record<string, RawMember[]> = {};
