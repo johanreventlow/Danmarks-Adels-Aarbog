@@ -232,12 +232,13 @@ const sortName = (a: SearchItem, b: SearchItem) => compareDanish(a.name, b.name)
 const sortBorn = (a: SearchItem, b: SearchItem) =>
   (a.born ?? 99999) - (b.born ?? 99999) || compareDanish(a.name, b.name);
 
-// Bygger søge-/bladre-resultatet med §9.1-semantik:
+// Pool-baseret søge-/bladre-funktion med §9.1-semantik:
 //  - query filtrerer på navn (case-insensitiv, substring)
 //  - uden query + alfabetisk sort: activeLetter filtrerer på initial (efternavn)
 //  - sortering: alfabetisk (dansk) eller fødeår
-export function buildSearch(
-  model: Model | null,
+// Genbruges af både publikums-appen og redaktions-listen (DRY).
+export function searchPool(
+  pool: SearchItem[],
   opts: { query: string; sort: 'alpha' | 'born'; activeLetter: string | null },
 ): {
   matches: SearchItem[];
@@ -245,19 +246,11 @@ export function buildSearch(
   showLetters: boolean;
   groups: { letter: string; people: SearchItem[] }[];
 } {
-  const pool: SearchItem[] = (model?.persons ?? []).map((p) => ({
-    id: p.id,
-    name: p.name,
-    years: p.years,
-    born: p.born,
-  }));
   const q = opts.query.trim().toLowerCase();
 
   // Forekommende bogstaver (kun alfabetisk, ingen query, >1 bogstav).
   const present: Record<string, boolean> = {};
-  pool.forEach((p) => {
-    present[initialOf(p.name)] = true;
-  });
+  pool.forEach((p) => { present[initialOf(p.name)] = true; });
   const letterKeys = Object.keys(present).sort(compareDanish);
   const showLetters = opts.sort !== 'born' && !q && letterKeys.length > 1;
   const letters = [{ label: 'Alle', key: null as string | null }].concat(
@@ -274,13 +267,24 @@ export function buildSearch(
   let groups: { letter: string; people: SearchItem[] }[] = [];
   if (opts.sort !== 'born' && !q) {
     const byL: Record<string, SearchItem[]> = {};
-    matches.forEach((p) => {
-      (byL[initialOf(p.name)] ||= []).push(p);
-    });
-    groups = Object.keys(byL)
-      .sort(compareDanish)
-      .map((k) => ({ letter: k, people: byL[k] }));
+    matches.forEach((p) => { (byL[initialOf(p.name)] ||= []).push(p); });
+    groups = Object.keys(byL).sort(compareDanish).map((k) => ({ letter: k, people: byL[k] }));
   }
 
   return { matches, letters, showLetters, groups };
+}
+
+// Tynd wrapper: bygger pool fra model og delegerer til searchPool.
+// Bevares med uændret signatur + output så eksisterende skærme ikke brydes.
+export function buildSearch(
+  model: Model | null,
+  opts: { query: string; sort: 'alpha' | 'born'; activeLetter: string | null },
+) {
+  const pool: SearchItem[] = (model?.persons ?? []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    years: p.years,
+    born: p.born,
+  }));
+  return searchPool(pool, opts);
 }

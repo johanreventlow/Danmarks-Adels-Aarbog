@@ -1,6 +1,39 @@
 import { buildModel } from '../buildModel';
-import { buildColumns, buildSearch, buildSnapPath, routeToMe, treeFocusA, wayToMe } from '../selectors';
+import { buildColumns, buildSearch, buildSnapPath, routeToMe, searchPool, treeFocusA, wayToMe } from '../selectors';
 import type { Db } from '../types';
+import type { SearchItem } from '../selectors';
+
+// NB: initialOf bruger efternavn (sidst token) — testfixture bruger Æbeltoft som efternavn
+// for at POOL-grupperne reelt inkluderer 'Æ' sidst i dansk orden (brief antog fornavn-gruppering).
+const POOL: SearchItem[] = [
+  { id: '1', name: 'Conrad Reventlow', years: '1644–1708', born: 1644 },
+  { id: '2', name: 'Anne Reventlow', years: '1680–1740', born: 1680 },
+  { id: '3', name: 'Ingrid Æbeltoft', years: '1600–1650', born: 1600 },
+];
+
+test('searchPool: query filtrerer på navn (case-insensitiv)', () => {
+  const r = searchPool(POOL, { query: 'anne', sort: 'alpha', activeLetter: null });
+  expect(r.matches.map((m) => m.id)).toEqual(['2']);
+});
+
+test('searchPool: born-sort sorterer på fødeår, alfabet-bar skjult', () => {
+  const r = searchPool(POOL, { query: '', sort: 'born', activeLetter: null });
+  expect(r.matches.map((m) => m.born)).toEqual([1600, 1644, 1680]);
+  expect(r.showLetters).toBe(false);
+});
+
+test('searchPool: dansk alfabet — Æ sidst i grupper', () => {
+  const r = searchPool(POOL, { query: '', sort: 'alpha', activeLetter: null });
+  expect(r.groups[r.groups.length - 1].letter).toBe('Æ');
+});
+
+test('buildSearch-wrapper giver samme matches som searchPool på model.persons', () => {
+  const model = { persons: [{ id: '9', name: 'Test Person', years: '1700', born: 1700 }] } as never;
+  const viaWrapper = buildSearch(model, { query: '', sort: 'alpha', activeLetter: null });
+  const viaPool = searchPool([{ id: '9', name: 'Test Person', years: '1700', born: 1700 }],
+    { query: '', sort: 'alpha', activeLetter: null });
+  expect(viaWrapper.matches).toEqual(viaPool.matches);
+});
 
 const mk = (id: string, name: string, born: number | null = null) => ({
   id,
