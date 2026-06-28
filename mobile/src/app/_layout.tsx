@@ -18,11 +18,13 @@ export default function RootLayout() {
   const fontsLoaded = useAppFonts();
   const load = useStore((s) => s.load);
   const hydrateMe = useStore((s) => s.hydrateMe);
+  const hydrateAuth = useStore((s) => s.hydrateAuth);
 
   useEffect(() => {
     hydrateMe();
+    hydrateAuth(); // genskab logget-ind session fra storage ved boot/reload (ellers "glemmes" login)
     load();
-  }, [hydrateMe, load]);
+  }, [hydrateMe, hydrateAuth, load]);
 
   useEffect(() => {
     if (fontsLoaded) SplashScreen.hideAsync().catch(() => {});
