@@ -7,7 +7,8 @@ import { FaktaKort, type FaktaAction } from '../../../components/redaktion/Fakta
 import { SletBekraeftSheet } from '../../../components/redaktion/SletBekraeftSheet';
 import { SkrivePreviewSheet } from '../../../components/redaktion/SkrivePreviewSheet';
 import { Body, BtnLabel, Mono, Serif } from '../../../components/Typography';
-import { fetchPersonEvidence, type PersonEvidence } from '../../../data/redaktionRead';
+import { parentsOf, spousesOf, childrenByMarriage } from '../../../data/selectors';
+import { fetchPersonEvidence, fetchPersonNarrativ, type PersonEvidence } from '../../../data/redaktionRead';
 import { type Change } from '../../../data/redaktionWrite';
 import { useStore } from '../../../store/useStore';
 import { Border, Colors, Radius } from '../../../theme/tokens';
@@ -15,29 +16,48 @@ import { Border, Colors, Radius } from '../../../theme/tokens';
 const FELTER = ['navn', 'foedt', 'doed', 'titel']; // koen håndteres separat (ikke et fact)
 const FELT_LABEL: Record<string, string> = { navn: 'navn', foedt: 'født', doed: 'død', titel: 'titel' };
 
+function CenterMsg({ title, children }: { title: string; children: string }) {
+  return (
+    <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
+      <TopBar title={title} />
+      <Body color={Colors.textMuted} style={{ padding: 24 }}>{children}</Body>
+    </View>
+  );
+}
+
 export default function PersonEditor() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const model = useStore((s) => s.model);
+  const redaktionModel = useStore((s) => s.redaktionModel);
+  const redaktionAux = useStore((s) => s.redaktionAux);
+  const redaktionStatus = useStore((s) => s.redaktionStatus);
   const showAnn = useStore((s) => s.showAnnotations);
   const dryRun = useStore((s) => s.dryRun);
   const setDryRun = useStore((s) => s.setDryRun);
   const [ev, setEv] = useState<PersonEvidence | null>(null);
   const [pending, setPending] = useState<Change | null>(null);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-  // privat: model har ikke feltet; bruger lokal optimistisk state (false som default)
+  const person = id && redaktionModel ? redaktionModel.byId[id] : null;
+
+  // privat: initialiseres fra redaktionModel.byId[id].privat
   const [privat, setPrivat] = useState(false);
-  // narrativ-tekst: prefill fra person.bio (første ikke-private narrativ fra load)
+  useEffect(() => { if (person) setPrivat(Boolean(person.privat)); }, [person?.privat]);
+
+  // narrativ-tekst + narrativ-privat: prefill fra fetchPersonNarrativ (skrive-mål + privat bevares)
   const [narrativTekst, setNarrativTekst] = useState('');
+  const [narrativPrivat, setNarrativPrivat] = useState(false);
+  useEffect(() => {
+    if (id) fetchPersonNarrativ(id).then((n) => {
+      setNarrativTekst(n?.tekst ?? '');
+      setNarrativPrivat(n?.privat ?? false);
+    }).catch(() => {});
+  }, [id]);
+
   // Sektion-niveau "opret nyt fact"-form (operation B): hvilket felt + scratch-værdier.
   const [addFelt, setAddFelt] = useState<string | null>(null);
   const [addScratch, setAddScratch] = useState({ vaerdi: '', kilde: '' });
-  const person = id && model ? model.byId[id] : null;
 
   useEffect(() => { if (id) fetchPersonEvidence(id).then(setEv).catch(() => {}); }, [id]);
-
-  // Seed narrativ-tekst fra model.bio (den første ikke-private narrativ, ordret fra basen).
-  useEffect(() => { if (person?.bio) setNarrativTekst(person.bio); }, [person?.bio]);
 
   function onAction(a: FaktaAction) {
     if (a.type === 'gørKonklusion') {
@@ -90,12 +110,9 @@ export default function PersonEditor() {
     });
   }
 
-  if (!person) return (
-    <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
-      <TopBar title="Person" />
-      <Body color={Colors.textMuted} style={{ padding: 24 }}>Personen blev ikke fundet.</Body>
-    </View>
-  );
+  if (redaktionStatus === 'loading') return <CenterMsg title="Person">Henter…</CenterMsg>;
+  if (redaktionStatus === 'error') return <CenterMsg title="Person">Kunne ikke hente redaktion-data.</CenterMsg>;
+  if (!person) return <CenterMsg title="Person">Personen blev ikke fundet.</CenterMsg>;
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
@@ -217,14 +234,26 @@ export default function PersonEditor() {
           );
         })}
 
+        {/* Køn (redigerbart — arbejdsværdi, ikke et fact) */}
+        <View style={{ marginBottom: 6 }}>
+          <Mono size={9} color={Colors.gold} style={{ marginTop: 6, marginBottom: 4 }}>KØN</Mono>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {(['mand', 'kvinde', 'ukendt'] as const).map((k) => {
+              const aktiv = (ev?.koen ?? 'ukendt') === k;
+              return (
+                <Pressable key={k}
+                  style={[editorStyles.koenPille, aktiv && editorStyles.koenPilleAktiv]}
+                  onPress={() => setPending({ art: 'fakta', subjektType: 'person', subjektId: id!, felt: 'koen', vaerdi: k })}>
+                  <BtnLabel size={12} color={aktiv ? '#fff' : Colors.textSecondary2}>{k}</BtnLabel>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
         {/* Narrativ-sektion */}
         <View style={editorStyles.narrativSektion}>
           <Mono size={10} color={Colors.textMuted} style={{ marginBottom: 6 }}>Narrativ / biografi</Mono>
-          {person.bio && narrativTekst === person.bio ? (
-            <Mono size={9} color={Colors.textMuted2} style={{ marginBottom: 4 }}>
-              (prefill fra model — kun første ikke-private narrativ)
-            </Mono>
-          ) : null}
           <TextInput
             multiline
             value={narrativTekst}
@@ -236,18 +265,49 @@ export default function PersonEditor() {
           />
           <Pressable
             style={editorStyles.gemKnap}
-            onPress={() => {
-              setPending({
-                art: 'narrativ',
-                subjektType: 'person',
-                subjektId: id!,
-                vaerdi: narrativTekst,
-              });
-            }}
+            onPress={() => setPending({ art: 'narrativ', subjektType: 'person', subjektId: id!,
+              vaerdi: narrativTekst, payload: { privat: narrativPrivat } })}
           >
             <BtnLabel color="#fff">Gem narrativ</BtnLabel>
           </Pressable>
         </View>
+
+        {/* Familie & relationer (read-only) */}
+        {redaktionModel ? (() => {
+          const foraeldre = parentsOf(redaktionModel, id!);
+          const aegtefaeller = spousesOf(redaktionModel, id!);
+          const aegteskaber = childrenByMarriage(redaktionModel, id!).filter((m) => m.children.length);
+          const off = redaktionAux?.officesBy[id!] ?? [];
+          const god = redaktionAux?.estatesBy[id!] ?? [];
+          const kld = redaktionAux?.sourcesBy[id!] ?? [];
+          const PersonRad = ({ pid, navn }: { pid: string | null; navn: string }) => (
+            <Pressable style={editorStyles.relRad} disabled={!pid}
+              onPress={() => pid && router.push(`/redaktion/person/${pid}` as never)}>
+              <InitialBadge name={navn} size={28} />
+              <Body size={14} style={{ marginLeft: 8 }}>{navn}</Body>
+            </Pressable>
+          );
+          return (
+            <View style={editorStyles.relSektion}>
+              {foraeldre.length ? (<><Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>FORÆLDRE</Mono>
+                {foraeldre.map((p) => <PersonRad key={p.id} pid={p.id} navn={p.name} />)}</>) : null}
+              {aegtefaeller.length ? (<><Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>ÆGTEFÆLLER</Mono>
+                {aegtefaeller.map((s, i) => <PersonRad key={s.id ?? i} pid={s.id} navn={s.name} />)}</>) : null}
+              {aegteskaber.map((m, i) => (
+                <View key={m.unionId ?? i}>
+                  <Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>BØRN{m.spouseName ? ` · m. ${m.spouseName}` : ''}</Mono>
+                  {m.children.map((c) => <PersonRad key={c.id} pid={c.id} navn={c.name} />)}
+                </View>
+              ))}
+              {off.length ? (<><Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>HVERV</Mono>
+                {off.map((o, i) => <View key={i} style={editorStyles.sekRad}><Body size={13}>{o.label}</Body>{o.period ? <Mono size={9} color={Colors.textMuted}>{o.period}</Mono> : null}</View>)}</>) : null}
+              {god.length ? (<><Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>GODSER</Mono>
+                {god.map((g, i) => <View key={i} style={editorStyles.sekRad}><Body size={13}>{g.navn}</Body>{g.period ? <Mono size={9} color={Colors.textMuted}>{g.period}</Mono> : null}</View>)}</>) : null}
+              {kld.length ? (<><Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>KILDER</Mono>
+                {kld.map((s, i) => <View key={i} style={editorStyles.sekRad}><Body size={13}>{s.work}</Body><Mono size={9} color={Colors.textMuted}>{s.ref}</Mono></View>)}</>) : null}
+            </View>
+          );
+        })() : null}
       </ScrollView>
 
       <SkrivePreviewSheet
@@ -364,5 +424,34 @@ const editorStyles = StyleSheet.create({
   skrivemodeLive: {
     backgroundColor: Colors.konfliktFlade,
     borderColor: Colors.liveRoed,
+  },
+  koenPille: {
+    borderWidth: 1,
+    borderColor: Border.medium,
+    borderRadius: Radius.chip,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+  },
+  koenPilleAktiv: {
+    backgroundColor: Colors.bordeaux,
+    borderColor: Colors.bordeaux,
+  },
+  relSektion: {
+    marginTop: 16,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: Border.light,
+  },
+  relLabel: {
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  relRad: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 5,
+  },
+  sekRad: {
+    paddingVertical: 4,
   },
 });
