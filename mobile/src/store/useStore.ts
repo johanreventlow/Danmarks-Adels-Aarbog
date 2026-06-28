@@ -68,6 +68,12 @@ type State = {
   setRelA: (id: string) => void;
   setRelB: (id: string) => void;
 
+  // Redaktion-model-slice (adskilt fra publikums-model — ingen GDPR-læk)
+  redaktionModel: import('../data/types').Model | null;
+  redaktionAux: import('../data/types').Aux | null;
+  redaktionStatus: 'idle' | 'loading' | 'ready' | 'error';
+  loadRedaktionModel: () => Promise<void>;
+
   // Auth actions
   doSignIn: (email: string, password: string) => Promise<void>;
   doSignOut: () => Promise<void>;
@@ -100,6 +106,9 @@ export const useStore = create<State>((set, get) => ({
   query: '',
   browseSort: 'alpha',
   activeLetter: null,
+  redaktionModel: null,
+  redaktionAux: null,
+  redaktionStatus: 'idle',
 
   load: async () => {
     if (get().status === 'loading') return;
@@ -244,6 +253,19 @@ export const useStore = create<State>((set, get) => ({
   setActiveLetter: (l) => set({ activeLetter: l }),
   setRelA: (id) => set({ relA: id }),
   setRelB: (id) => set({ relB: id }),
+
+  loadRedaktionModel: async () => {
+    if (get().redaktionStatus === 'loading' || get().redaktionStatus === 'ready') return;
+    set({ redaktionStatus: 'loading' });
+    try {
+      const res = await loadFromSupabase({ includePrivat: true });
+      const model = buildModel(res.db);
+      set({ redaktionModel: model, redaktionAux: res.aux, redaktionStatus: 'ready' });
+    } catch {
+      // Redaktion skal VIDE hvis det fejler — ingen seed-fallback, ingen tom-som-clean.
+      set({ redaktionStatus: 'error' });
+    }
+  },
 
   doSignIn: async (email, password) => {
     const { signIn } = await import('../lib/auth');
