@@ -43,14 +43,20 @@ export default function PersonEditor() {
   const [privat, setPrivat] = useState(false);
   useEffect(() => { if (person) setPrivat(Boolean(person.privat)); }, [person?.privat]);
 
-  // narrativ-tekst + narrativ-privat: prefill fra fetchPersonNarrativ (skrive-mål + privat bevares)
+  // narrativ-tekst + narrativ-privat: prefill fra fetchPersonNarrativ (skrive-mål + privat bevares).
+  // narrativStatus BLOKERER Gem indtil prefill er lykkedes — ellers ville en slugt fetch-fejl
+  // (tom tekst vist) lade Gem OVERSKRIVE den eksisterende narrativ destruktivt (cycle 04 NEW1).
   const [narrativTekst, setNarrativTekst] = useState('');
   const [narrativPrivat, setNarrativPrivat] = useState(false);
+  const [narrativStatus, setNarrativStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   useEffect(() => {
-    if (id) fetchPersonNarrativ(id).then((n) => {
+    if (!id) return;
+    setNarrativStatus('loading');
+    fetchPersonNarrativ(id).then((n) => {
       setNarrativTekst(n?.tekst ?? '');
       setNarrativPrivat(n?.privat ?? false);
-    }).catch(() => {});
+      setNarrativStatus('ready');
+    }).catch(() => setNarrativStatus('error'));
   }, [id]);
 
   // Sektion-niveau "opret nyt fact"-form (operation B): hvilket felt + scratch-værdier.
@@ -254,22 +260,34 @@ export default function PersonEditor() {
         {/* Narrativ-sektion */}
         <View style={editorStyles.narrativSektion}>
           <Mono size={10} color={Colors.textMuted} style={{ marginBottom: 6 }}>Narrativ / biografi</Mono>
-          <TextInput
-            multiline
-            value={narrativTekst}
-            onChangeText={setNarrativTekst}
-            style={editorStyles.narrativInput}
-            placeholder="Skriv biografi her…"
-            placeholderTextColor={Colors.textMuted2}
-            textAlignVertical="top"
-          />
-          <Pressable
-            style={editorStyles.gemKnap}
-            onPress={() => setPending({ art: 'narrativ', subjektType: 'person', subjektId: id!,
-              vaerdi: narrativTekst, payload: { privat: narrativPrivat } })}
-          >
-            <BtnLabel color="#fff">Gem narrativ</BtnLabel>
-          </Pressable>
+          {narrativStatus === 'error' ? (
+            // Blokér editoren ved fetch-fejl — vis IKKE et tomt felt man kan komme til at gemme
+            // (det ville overskrive den eksisterende narrativ destruktivt, cycle 04 NEW1).
+            <Mono size={11} color={Colors.liveRoed}>
+              Kunne ikke hente narrativ. Gem er deaktiveret (undgår at overskrive eksisterende tekst). Genindlæs.
+            </Mono>
+          ) : (
+            <>
+              <TextInput
+                multiline
+                editable={narrativStatus === 'ready'}
+                value={narrativTekst}
+                onChangeText={setNarrativTekst}
+                style={editorStyles.narrativInput}
+                placeholder={narrativStatus === 'loading' ? 'Henter…' : 'Skriv biografi her…'}
+                placeholderTextColor={Colors.textMuted2}
+                textAlignVertical="top"
+              />
+              <Pressable
+                style={[editorStyles.gemKnap, narrativStatus !== 'ready' && { opacity: 0.5 }]}
+                disabled={narrativStatus !== 'ready'}
+                onPress={() => setPending({ art: 'narrativ', subjektType: 'person', subjektId: id!,
+                  vaerdi: narrativTekst, payload: { privat: narrativPrivat } })}
+              >
+                <BtnLabel color="#fff">Gem narrativ</BtnLabel>
+              </Pressable>
+            </>
+          )}
         </View>
 
         {/* Familie & relationer (read-only) */}
