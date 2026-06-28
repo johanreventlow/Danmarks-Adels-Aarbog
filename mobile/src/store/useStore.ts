@@ -278,7 +278,8 @@ export const useStore = create<State>((set, get) => ({
   doSignOut: async () => {
     const { signOut } = await import('../lib/auth');
     await signOut();
-    set({ session: null, rolle: 'medlem', reventlowPersonId: null });
+    set({ session: null, rolle: 'medlem', reventlowPersonId: null,
+          redaktionModel: null, redaktionAux: null, redaktionStatus: 'idle' });
   },
   hydrateAuth: async () => {
     const { supabase } = await import('../lib/supabase');
