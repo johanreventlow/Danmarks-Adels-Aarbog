@@ -168,7 +168,7 @@ export function buildAux({
   })).sort((a, b) => compareDanish(a.navn, b.navn));
   const vaabenListe = (arms || []).map((a) => ({
     id: String(a.id), blasonering: a.blasonering ?? '', note: a.note ?? '',
-  }));
+  })).sort((a, b) => compareDanish(a.blasonering, b.blasonering));
 
   return {
     sourcesBy,

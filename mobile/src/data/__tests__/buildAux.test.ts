@@ -14,9 +14,14 @@ test('buildAux: kildeListe fra sources (felt-map + sort)', () => {
   expect(aux.kildeListe[0]).toEqual({ id: '1', titel: 'Aarbog', slags: 'bog', udgave: 'DAA 2018' });
 });
 
-test('buildAux: vaabenListe fra arms (null-fallback)', () => {
-  const aux = buildAux({ ...base, arms: [{ id: 5, blasonering: null, note: 'x' }] as never });
-  expect(aux.vaabenListe).toEqual([{ id: '5', blasonering: '', note: 'x' }]);
+test('buildAux: vaabenListe fra arms (null-fallback + dansk-sorteret)', () => {
+  const aux = buildAux({ ...base, arms: [
+    { id: 5, blasonering: null, note: 'x' },
+    { id: 6, blasonering: 'Ørn', note: '' },
+    { id: 7, blasonering: 'Bjørn', note: '' },
+  ] as never });
+  expect(aux.vaabenListe[0]).toEqual({ id: '5', blasonering: '', note: 'x' }); // tom streng = mindst
+  expect(aux.vaabenListe.map((v) => v.blasonering)).toEqual(['', 'Bjørn', 'Ørn']); // dansk sort: Ø sidst
 });
 
 test('buildAux: godsListe komplet (inkl. ejerløse) m. ownerCount', () => {
