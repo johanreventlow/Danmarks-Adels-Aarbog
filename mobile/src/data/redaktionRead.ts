@@ -74,8 +74,10 @@ export function joinEvidence(rows: {
         kilder: citByAssert.get(a.id) ?? [],
         erKonklusion: a.id === valgt,
       }));
-    // uenig = >1 DISTINKT værdi inden for DETTE fact (ægte kilde-uenighed), ikke på tværs af facts.
-    const distinkte = new Set(opl.map((o) => o.vaerdi));
+    // uenig = >1 DISTINKT NON-TOM værdi inden for DETTE fact (ægte kilde-uenighed). Tomme
+    // værdier (manglende vaerdi_tekst+date_raw → '') ekskluderes — ellers ville en rigtig
+    // værdi + en tom assertion give falsk "uenig" (Codex cycle 03 H1).
+    const distinkte = new Set(opl.map((o) => o.vaerdi.trim()).filter(Boolean));
     (felter[felt] ??= []).push({
       felt, faktatype: f.faktatype, factId: f.id,
       konklusionAssertionId: valgt, oplysninger: opl, uenig: distinkte.size > 1,

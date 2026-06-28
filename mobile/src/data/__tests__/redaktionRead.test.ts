@@ -32,6 +32,24 @@ test('joinEvidence samler felter (liste pr. felt), markerer konklusion + uenig p
   expect(ev.felter.foedt[0].oplysninger[0].dato?.raw).toBe('ca. 1644');
 });
 
+test('joinEvidence: tom-værdi-assertion giver IKKE falsk uenig (cycle 03 H1)', () => {
+  // Ét fact med én rigtig værdi + én tom oplysning (null vaerdi_tekst + null date_raw).
+  const facts = [{ id: 30, subjekt_type: 'person', subjekt_id: 3, faktatype: 'titel' }];
+  const asserts = [
+    { id: 300, target_type: 'fact', target_id: 30, vaerdi_tekst: 'kammerherre', date_min: null, date_max: null, date_qualifier: null, date_raw: null },
+    { id: 301, target_type: 'fact', target_id: 30, vaerdi_tekst: null, date_min: null, date_max: null, date_qualifier: null, date_raw: null },
+  ];
+  const ev = joinEvidence({ facts, assertions: asserts, conclusions: [], citations: [], koen: null });
+  expect(ev.felter.titel[0].uenig).toBe(false); // tom værdi tæller ikke som konkurrerende
+  // To FORSKELLIGE non-tomme værdier på samme fact = ægte uenig.
+  const asserts2 = [
+    { id: 302, target_type: 'fact', target_id: 30, vaerdi_tekst: 'kammerherre', date_min: null, date_max: null, date_qualifier: null, date_raw: null },
+    { id: 303, target_type: 'fact', target_id: 30, vaerdi_tekst: 'greve', date_min: null, date_max: null, date_qualifier: null, date_raw: null },
+  ];
+  const ev2 = joinEvidence({ facts, assertions: asserts2, conclusions: [], citations: [], koen: null });
+  expect(ev2.felter.titel[0].uenig).toBe(true);
+});
+
 test('joinEvidence: flere facts af samme type = liste, hver uenig=false (fact-kardinalitet)', () => {
   // To separate titel-facts (fx "kammerherre" + "greve") — legitime distinkte facts, IKKE konflikt.
   const facts = [
