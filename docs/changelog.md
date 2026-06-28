@@ -1,5 +1,21 @@
 # Changelog
 
+## Plan 2C-1 — entitetslister (read-only) i redaktions-appen (2026-06-28)
+* **Hvad:** Entiteter-tab er nu en type-menu med 6 typer (Personer · Godser · Kilder ·
+  Organisationer · Medier · Våben), hver med tæller → read-only liste. Personer åbner 2A-listen →
+  editor; de øvrige er read-only browse (ingen entitets-write-RPC'er endnu = 2C-2/2C-3).
+* **Data:** `buildAux` udvidet med fem flade lister (`kilde/org/medie/gods/vaabenListe`) fra de rå
+  arrays den allerede modtager + ét nyt `coat_of_arms`-fetch (våben). Læses fra redaktion-modellens
+  aux (2B) — ingen ekstra fetch for de fire. `godsListe` er komplet (inkl. ejerløse godser, modsat
+  `estateList`); ejer-tæller bevaret.
+* **Auth-state:** lister/menu viser "Kræver redaktør-rolle" for ikke-redaktører (Codex fangede at de
+  ellers ville sidde fast på "Henter…" permanent). "Henter…" kun under redaktør-load.
+* **Korrektion (Codex):** `coat_of_arms` (våben) FINDES — tidligere fejlpåstand om manglende tabel
+  rettet; våben inkluderet. `majorat` korrekt udeladt (en `slags` af estate, ingen egen tabel).
+* **Review:** Codex-spec-review (auth-state + våben) + per-task spec+quality. 104/104 jest, tsc rent.
+  Relations-redigering = 2C-2; entitets-write + detail-editor = 2C-3.
+
+
 ## Plan 2B — editor-dybde: selv-forsynende editor + køn + familie/sektion (2026-06-28)
 * **Hvad:** Person-editoren åbner nu for ALLE personer inkl. de 70 levende (før: "Personen blev
   ikke fundet" fordi den lænede sig på den delte anon-model på 893). Tilføjet: køn-editor

@@ -2,6 +2,23 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Plan 2C-1: entitetslister read-only via udvidet buildAux (2026-06-28)
+Redaktions-appens Entiteter-tab viste kun personer (2A). 2C-1 gjorde den til en type-menu med
+read-only lister over de øvrige entiteter.
+
+**Ikke-oplagte fund/valg:**
+- **RPC-fladen er person-centrisk.** Ingen write-RPC for source/organisation/estate/media/coat_of_arms
+  → 2C-1 er nødvendigvis read-only; entitets-redigering kræver nye RPC'er (= 2C-3).
+- **Datakilde: udvidet `buildAux`, ikke separate fetches.** De fire lister (kilde/org/medie/gods)
+  kommer fra de rå arrays buildAux allerede modtager → ingen ekstra fetch. Kun `coat_of_arms` er nyt.
+- **`majorat` er ikke en entitet** — det er en `slags` af `estate` (len/stamhus/lensgrevskab) og er
+  dermed i gods-listen. (estate.slags er desuden NULL på alle 229 rækker nu.) Promovering til egen
+  entitet = fremtidigt model-arbejde (jf. lineage-promoveringen).
+- **`coat_of_arms` (våben) FINDES** — Codex fangede en fejlpåstand om at tabellen manglede; våben
+  inkluderet.
+- **Auth-state-kontrakt:** lister/menu skelner rolle≠redaktion ("Kræver redaktør") fra load
+  ("Henter…") — ellers permanent "Henter…" for ikke-redaktører (Codex).
+
 ## Plan 2B: separat redaktion-MODEL frem for per-person re-derivation (2026-06-28)
 Person-editoren lænede sig på den delte anon-model (893, uden levende) → "ikke fundet" for de 70
 levende som 2A nu når. Det oprindelige design var en per-person `fetchRedaktionPerson(id)` der
