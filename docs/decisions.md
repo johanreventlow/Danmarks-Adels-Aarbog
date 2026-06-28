@@ -2,6 +2,29 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Plan 2B: separat redaktion-MODEL frem for per-person re-derivation (2026-06-28)
+Person-editoren lænede sig på den delte anon-model (893, uden levende) → "ikke fundet" for de 70
+levende som 2A nu når. Det oprindelige design var en per-person `fetchRedaktionPerson(id)` der
+re-deriverede familie/sektioner.
+
+**Codex-review afslørede at re-derivationen ville DIVERGERE** fra den faktiske logik:
+`buildModel` chrono-filtrerer umulige forælder-barn-kanter + vælger første fødselsfamilie;
+`buildAux` klassificerer hverv som BÅDE organisation OG `historical_event` med specifik
+format/sort. En forenklet re-implementering ville vise andre (flere/umulige) forældre og mangle
+hverv ift. publikums-visningen.
+
+**Beslutning: SEPARAT REDAKTION-MODEL.** Load én ekstra fuld model via redaktion-sessionen
+(`loadFromSupabase({includePrivat:true})` → `buildModel`), gemt i en adskilt store-slice. Editoren
+bruger de EKSISTERENDE selektorer/aux uændret → ingen divergens, pagination gratis (getAll), al
+derivation genbrugt. Publikums-faner bruger uændret den offentlige model (ingen GDPR-læk).
+
+**Konsekvenser:**
+- To modeller side om side (offentlig 893 / redaktion 963). Lazy-loadet ved rolle=redaktion.
+- `AppPerson.privat` tilføjet (toggle-init); `loadFromSupabase` får `includePrivat`-param.
+- Narrativ-privat-fix (`fetchPersonNarrativ` = skrive-mål + bevar privat) — `red_upsert_narrativ`
+  redigerer første narrativ uanset privat, så prefill skal læse SAMME række.
+- Kun køn redigerbart i 2B; familie/sektion read-only (relations-redigering = 2C).
+
 ## Plan 2A: separat redaktion-person-fetch + pool-baseret søg (2026-06-28)
 Redaktions-appen manglede in-app-navigation til personer (konflikt-køen tom efter kardinalitets-fix,
 entitetslister stub) → man tastede URL → web-reload → skrivemode nulstillet. 2A gav Entiteter-tab'en

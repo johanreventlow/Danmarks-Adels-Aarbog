@@ -1,5 +1,25 @@
 # Changelog
 
+## Plan 2B — editor-dybde: selv-forsynende editor + køn + familie/sektion (2026-06-28)
+* **Hvad:** Person-editoren åbner nu for ALLE personer inkl. de 70 levende (før: "Personen blev
+  ikke fundet" fordi den lænede sig på den delte anon-model på 893). Tilføjet: køn-editor
+  (redigerbar: mand/kvinde/ukendt → `red_set_koen`), familie (forældre/ægtefæller/børn) +
+  sektioner (hverv/godser/kilder) **read-only**.
+* **Separat redaktion-model:** ny store-slice (`redaktionModel`/`redaktionAux`) loades via
+  redaktion-sessionen (`loadFromSupabase({includePrivat:true})` → 963 inkl. levende, getAll-
+  pagineret), adskilt fra publikums-modellen → ingen GDPR-læk i publikums-faner. Editoren bruger
+  de EKSISTERENDE selektorer (`parentsOf`/`childrenByMarriage`) + aux uændret → ingen divergens
+  fra publikums-visningen (Codex-aligned, se decisions).
+* **Narrativ-privat-fix:** `fetchPersonNarrativ` henter første narrativ by id (= præcis skrive-
+  målet for `red_upsert_narrativ`) og editoren bevarer privat-flaget på Gem — før kunne en privat
+  bio overskrives + gøres offentlig (Codex 2B #1).
+* **Privat-toggle** initialiseres nu fra `person.privat` (før hardkodet false). `AppPerson.privat`
+  tilføjet; publikums-load uændret default.
+* **Review:** Codex-spec-review (skiftede arkitektur fra per-person re-derivation → separat model,
+  fangede pagination + familie/hverv-divergens + narrativ-tab) + per-task spec+quality + idle-race-
+  fix. 100/100 jest, tsc rent. Relations-redigering + medier + generisk editor = 2C.
+
+
 ## Plan 2A — person-liste & navigation i redaktions-appen (2026-06-28)
 * **Hvad:** Entiteter-tab'en har nu en rigtig person-liste (søg + alfabet-hop + alfabetisk/fødeår-sort)
   → tap → person-editor. Dashboardets "Personer"-celle navigerer dertil. Løser URL-tastnings-smerten
