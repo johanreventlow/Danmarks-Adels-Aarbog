@@ -1,5 +1,5 @@
 import { RedPersonListe } from '../../../components/redaktion/RedPersonListe';
 
-export default function Entiteter() {
+export default function EntitetPerson() {
   return <RedPersonListe />;
 }

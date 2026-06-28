@@ -16,6 +16,8 @@ export default function RedaktionLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(red-tabs)" />
       <Stack.Screen name="person/[id]" />
+      <Stack.Screen name="entitet/person" />
+      <Stack.Screen name="entitet/[type]" />
     </Stack>
   );
 }
