@@ -1,5 +1,5 @@
-import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import { Pressable, SectionList, StyleSheet, TextInput, View } from 'react-native';
 import { InitialBadge } from '../InitialBadge';
 import { TopBar } from '../TopBar';
@@ -11,18 +11,23 @@ import { Border, Colors, Radius } from '../../theme/tokens';
 
 export function RedPersonListe() {
   const router = useRouter();
-  const session = useStore((s) => s.session);
+  const rolle = useStore((s) => s.rolle);
   const [personer, setPersoner] = useState<RedPerson[]>([]);
   const [fejl, setFejl] = useState(false);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<'alpha' | 'born'>('alpha');
   const [activeLetter, setActiveLetter] = useState<string | null>(null);
 
-  useEffect(() => {
-    setFejl(false);
-    // Fejl vises eksplicit, ALDRIG som tom liste (cycle 03 NEW1).
-    fetchRedaktionPersoner().then(setPersoner).catch(() => setFejl(true));
-  }, [session]);
+  // Re-henter ved HVERT focus → listen er frisk når man vender tilbage fra editoren efter en
+  // write (cycle 05 NEW1). Kun for redaktør (RLS gater alligevel). Fejl vises eksplicit,
+  // ALDRIG som tom liste (cycle 03 NEW1).
+  useFocusEffect(
+    useCallback(() => {
+      if (rolle !== 'redaktion') return;
+      setFejl(false);
+      fetchRedaktionPersoner().then(setPersoner).catch(() => setFejl(true));
+    }, [rolle]),
+  );
 
   // RedPerson → SearchItem-pool; tags slås op separat (holder SearchItem ren).
   const pool = useMemo<SearchItem[]>(
@@ -43,6 +48,15 @@ export function RedPersonListe() {
     if (groups.length) return groups.map((g) => ({ title: g.letter, data: g.people }));
     return [{ title: '', data: matches }];
   }, [groups, matches]);
+
+  // Rolle-guard EFTER alle hooks (konsistent m. [type]/menu auth-state; cycle 05 M2).
+  if (rolle !== 'redaktion')
+    return (
+      <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
+        <TopBar title="Personer" showBack={false} />
+        <Body color={Colors.textMuted} style={{ padding: 24 }}>Kræver redaktør-rolle.</Body>
+      </View>
+    );
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
