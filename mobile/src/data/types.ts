@@ -53,6 +53,7 @@ export type RawRelation = {
 export type RawEstate = { id: number | string; navn: string | null; slags: string | null };
 export type RawOrg = { id: number | string; navn: string | null; slags: string | null };
 export type RawMedia = { person_id?: number | string | null; [k: string]: unknown };
+export type RawArms = { id: number | string; blasonering: string | null; note: string | null };
 
 // Mellem-form fra loadFromSupabase (FØR buildModel udleder parentId/spouse).
 export type Union = {
@@ -124,4 +125,9 @@ export type Aux = {
   linjeByPerson: Record<string, string>;
   linjeList: LinjeEntry[];
   linjeNavn: Record<string, string>; // linje-kode ('I'..) → fuldt navn ('Den holstenske linje')
+  kildeListe: { id: string; titel: string; slags: string; udgave: string }[];
+  orgListe: { id: string; navn: string; slags: string }[];
+  medieListe: { id: string; titel: string; slags: string; kunstner: string; datering: string }[];
+  godsListe: { id: string; navn: string; slags: string; ownerCount: number }[];
+  vaabenListe: { id: string; blasonering: string; note: string }[];
 };

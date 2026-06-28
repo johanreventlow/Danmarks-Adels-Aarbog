@@ -37,6 +37,11 @@ const aux: Aux = {
   linjeByPerson: { s1: 'I', s2: 'I', s3: 'I', s4: 'I', s5: 'I' },
   linjeList: [{ linje: 'I', count: 5, headId: 's1', navn: 'Den holstenske linje' }],
   linjeNavn: { I: 'Den holstenske linje' },
+  kildeListe: [],
+  orgListe: [],
+  medieListe: [],
+  godsListe: [],
+  vaabenListe: [],
 };
 
 export const SEED = {

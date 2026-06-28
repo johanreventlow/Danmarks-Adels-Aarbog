@@ -1,6 +1,43 @@
 import { buildAux } from '../buildAux';
 import type { RawExtId, RawLineage, RawSource } from '../types';
 
+// --- Task 1: flade entitets-lister (2C-1) ---
+
+const base = { extIds: [], sources: [], relations: [], estates: [], orgs: [], media: [], lineage: [], arms: [] };
+
+test('buildAux: kildeListe fra sources (felt-map + sort)', () => {
+  const aux = buildAux({ ...base, sources: [
+    { id: 2, slags: 'kirkebog', titel: 'Øster', udgave: '1700', ekstern: null },
+    { id: 1, slags: 'bog', titel: 'Aarbog', udgave: 'DAA 2018', ekstern: null },
+  ] as never });
+  expect(aux.kildeListe.map((k) => k.titel)).toEqual(['Aarbog', 'Øster']); // dansk sort, Ø sidst
+  expect(aux.kildeListe[0]).toEqual({ id: '1', titel: 'Aarbog', slags: 'bog', udgave: 'DAA 2018' });
+});
+
+test('buildAux: vaabenListe fra arms (null-fallback)', () => {
+  const aux = buildAux({ ...base, arms: [{ id: 5, blasonering: null, note: 'x' }] as never });
+  expect(aux.vaabenListe).toEqual([{ id: '5', blasonering: '', note: 'x' }]);
+});
+
+test('buildAux: godsListe komplet (inkl. ejerløse) m. ownerCount', () => {
+  const aux = buildAux({ ...base,
+    estates: [{ id: 1, navn: 'Brahetrolleborg', slags: null }, { id: 2, navn: 'Ejerløs', slags: null }] as never,
+    relations: [{ subjekt_type: 'person', subjekt_id: 9, objekt_type: 'estate', objekt_id: 1, rolle: 'ejer', periode_raw: null }] as never,
+  });
+  const brahe = aux.godsListe.find((g) => g.id === '1');
+  const ejerloes = aux.godsListe.find((g) => g.id === '2');
+  expect(brahe?.ownerCount).toBe(1);
+  expect(ejerloes?.ownerCount).toBe(0); // ejerløs gods er MED (modsat estateList)
+});
+
+test('buildAux: orgListe + medieListe felt-map', () => {
+  const aux = buildAux({ ...base,
+    orgs: [{ id: 1, navn: 'Hæren', slags: 'myndighed' }] as never,
+    media: [{ id: 1, slags: 'foto', titel: 'Portræt', kunstner: 'NN', datering: '1900' }] as never });
+  expect(aux.orgListe[0]).toEqual({ id: '1', navn: 'Hæren', slags: 'myndighed' });
+  expect(aux.medieListe[0]).toEqual({ id: '1', titel: 'Portræt', slags: 'foto', kunstner: 'NN', datering: '1900' });
+});
+
 describe('buildAux — linje-stamfader = laveste nr (§9.2 kritisk path)', () => {
   const extIds: RawExtId[] = [
     { person_id: 10, source_id: 1, linje: 'I', nr: 5 },

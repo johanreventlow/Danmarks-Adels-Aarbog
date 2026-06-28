@@ -4,6 +4,7 @@ import { compareDanish } from '../lib/collation';
 import { parseYear, stripParen } from './fields';
 import type {
   Aux,
+  RawArms,
   RawEstate,
   RawExtId,
   RawLineage,
@@ -21,6 +22,7 @@ type BuildAuxInput = {
   orgs: RawOrg[];
   media: RawMedia[];
   lineage?: RawLineage[];
+  arms?: RawArms[];
 };
 
 export function buildAux({
@@ -31,6 +33,7 @@ export function buildAux({
   orgs,
   media,
   lineage,
+  arms,
 }: BuildAuxInput): Aux {
   const srcById: Record<string, RawSource> = {};
   (sources || []).forEach((s) => {
@@ -146,6 +149,27 @@ export function buildAux({
     if (pid) (mediaBy[pid] = mediaBy[pid] || []).push(m);
   });
 
+  // Flade entitets-lister (2C-1, read-only browse). Rene mappings, dansk-sorteret.
+  const kildeListe = (sources || []).map((s) => ({
+    id: String(s.id), titel: s.titel ?? '', slags: s.slags ?? '', udgave: s.udgave ?? '',
+  })).sort((a, b) => compareDanish(a.titel, b.titel));
+  const orgListe = (orgs || []).map((o) => ({
+    id: String(o.id), navn: o.navn ?? '(uden navn)', slags: o.slags ?? '',
+  })).sort((a, b) => compareDanish(a.navn, b.navn));
+  const medieListe = (media || []).map((m) => ({
+    id: String((m as { id?: unknown }).id ?? ''), titel: String((m as { titel?: unknown }).titel ?? ''),
+    slags: String((m as { slags?: unknown }).slags ?? ''), kunstner: String((m as { kunstner?: unknown }).kunstner ?? ''),
+    datering: String((m as { datering?: unknown }).datering ?? ''),
+  })).sort((a, b) => compareDanish(a.titel, b.titel));
+  // godsListe: KOMPLET (alle estates, ikke kun ejede); ownerCount fra ownersByEstate (0 hvis ingen).
+  const godsListe = (estates || []).map((e) => ({
+    id: String(e.id), navn: e.navn ?? '(uden navn)', slags: e.slags ?? '',
+    ownerCount: (ownersByEstate[String(e.id)] || []).length,
+  })).sort((a, b) => compareDanish(a.navn, b.navn));
+  const vaabenListe = (arms || []).map((a) => ({
+    id: String(a.id), blasonering: a.blasonering ?? '', note: a.note ?? '',
+  }));
+
   return {
     sourcesBy,
     estatesBy,
@@ -157,5 +181,10 @@ export function buildAux({
     linjeByPerson,
     linjeList,
     linjeNavn,
+    kildeListe,
+    orgListe,
+    medieListe,
+    godsListe,
+    vaabenListe,
   };
 }

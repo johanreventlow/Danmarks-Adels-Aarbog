@@ -9,6 +9,7 @@ import type {
   Aux,
   Db,
   ParentChild,
+  RawArms,
   RawEstate,
   RawExtId,
   RawLineage,
@@ -83,7 +84,7 @@ export async function loadFromSupabase(opts?: { includePrivat?: boolean }): Prom
   if (!supabaseEnabled || !supabase) throw new Error('Supabase ikke konfigureret');
   const sb = supabase;
 
-  const [persons, , members, narratives, extIds, sources, relations, estates, orgs, media, lineage] =
+  const [persons, , members, narratives, extIds, sources, relations, estates, orgs, media, lineage, arms] =
     await Promise.all([
       getAll<RawPerson>(() =>
         sb.from('person').select('id,visning_navn,visning_foedt,visning_doed,visning_titel,koen,privat'),
@@ -111,6 +112,8 @@ export async function loadFromSupabase(opts?: { includePrivat?: boolean }): Prom
       getAll<RawMedia>(() => sb.from('media').select('*')),
       // Tolerant: lineage-tabellen findes måske ikke endnu (migration ej kørt) → tom = fallback til 'Linje {kode}'.
       getAll<RawLineage>(() => sb.from('lineage').select('source_id,kode,navn')).catch(() => [] as RawLineage[]),
+      // Tolerant: coat_of_arms-tabellen findes måske ikke endnu.
+      getAll<RawArms>(() => sb.from('coat_of_arms').select('id,blasonering,note')).catch(() => [] as RawArms[]),
     ]);
 
   // Biografi pr. person — første ikke-private narrativ.
@@ -161,7 +164,7 @@ export async function loadFromSupabase(opts?: { includePrivat?: boolean }): Prom
   const db: Db = { persons: appPersons, unions, parentChild };
   if (!db.persons.length) throw new Error('Ingen personer hentet');
 
-  const aux = buildAux({ extIds, sources, relations, estates, orgs, media, lineage });
+  const aux = buildAux({ extIds, sources, relations, estates, orgs, media, lineage, arms });
 
   // Vælg fornuftige start-id'er (flest børn = midt i træet).
   const childSet = new Set(parentChild.map((e) => e.child));
