@@ -4,7 +4,7 @@
 * **Hvad:** Redaktøren kan nu tilføje og afkoble ægtefælle/partner, tilføje og afkoble børn
   samt justere konfidens på familie-links direkte i person-editoren — alt via det eksisterende
   SkrivePreviewSheet-gate (dry-run → live). HVERV/GODSER/KILDER er uændrede fra 2C-2a.
-* **4 nye SECURITY DEFINER RPC'er (udestår i prod — controller-gate):**
+* **4 nye SECURITY DEFINER RPC'er (deployet mod prod 2026-06-29):**
   - `red_opret_union(p_partner_a, p_partner_b, p_type, p_ordinal)` — opretter ny family-entitet
     + 2 partner-links. INGEN auto-dedup: samme par kan gifte sig igen — par-dedup ville flette
     børn og event-tidslinjer fra to selvstændige ægteskaber (Codex H2). partner_a==b og ugyldig
@@ -36,7 +36,14 @@
   (sletFamilieLink). FORÆLDRE-sektionen (personen som barn): forældre-NAVNE er read-only, men
   konfidens kan justeres og forkert forælder kan afkobles ("🗑 afkobl forælder" → sletFamilieLink).
 * **Test:** 121/121 jest, tsc rent.
-* **Udestår (controller-gate):** live RPC-deploy mod prod, rollback-tests, manuel web-e2e.
+* **Controller-gate kørt (2026-06-29):** schema-backup (15 funktioner →
+  `docs/db-backups/2026-06-29-prod-red-functions-2c2b-pre.sql`), 4 RPC'er deployet + grant-loop re-kørt,
+  rollback-tests bestået (nul mutation): H2 samme par → 2 selvstændige unioner (ingen kollaps); H3
+  cyklus-guard + selv-forælder afvist + PK-dublet no-op; konfidens-UPDATE + valideringer; H1 slet alle
+  family-links → family-entitet + 276+ facts + 700+ notes INTAKT.
+* **Final-review-fix:** era-advarsel medtager nu fokus-forælderens egne datoer (manglede → eget barn-tilføj
+  ikke era-tjekket, dødt for én-forælder-unioner).
+* **Udestår:** kun manuel web-e2e. Bredere redaktionModel-invalidering efter familie-write = §9-follow-up.
 
 
 ## Plan 2C-2a — redigerbar sektion-relationer (hverv/godser) i redaktør-person-editoren (2026-06-29)
