@@ -1,7 +1,7 @@
 # Design: Versionering (ændringshistorik + restore) og hyperlinks i tekster
 
 **Dato:** 2026-06-30
-**Status:** Godkendt design — klar til implementeringsplan
+**Status:** Godkendt design, hærdet efter Codex adversarisk review — klar til implementeringsplan
 **Scope:** To additive features i den eksisterende evidensbaserede datamodel (Supabase/Postgres). PoC: Reventlow.
 
 ---
@@ -11,30 +11,36 @@
 To redaktionelle features til følgesvend-appen:
 
 1. **Hyperlinks i tekster** — redaktøren kan indsætte klikbare links fra fri-tekst (narrativer, noter) til personer og andre entiteter.
-2. **Versionering** — en fuld ændringslog over *alt redaktionelt* (fakta, relationer, konfidens, narrativer, noter), med mulighed for at **fortryde** (restore) enhver ændring tilbage til tidligere tilstand. Det skal altid kunne ses **hvem** der har redigeret hvad og hvornår.
+2. **Versionering** — en fuld ændringslog over *alt redaktionelt* (fakta, relationer, konfidens, narrativer, noter, kontekst-entiteter), med mulighed for at **fortryde** (restore) enhver ændring tilbage til tidligere tilstand. Det skal altid kunne ses **hvem** der har redigeret hvad og hvornår.
 
 Begge er additive: ingen eksisterende tabel skifter betydning, intet brydes. De er synergiske — versionering gør hyperlinks robuste ved restore, og begge genbruger modellens eksisterende mønstre (polymorfe `(type,id)`, afledt projektion, evidens-som-historik).
 
 ---
 
-## 2. Beslutninger truffet under brainstorm
+## 2. Beslutninger
 
 | # | Beslutning | Begrundelse |
 |---|---|---|
-| B1 | **Scope:** log på *alt redaktionelt*, restore på *alt*. | Brugerønske: maksimal sporbarhed + fortrydelse. |
-| B2 | **Fangst-mekanisme: hybrid** (DB-trigger gør tungt før/efter-snapshot; RPC åbner change_set via session-variabel). | Trigger = komplet + DRY; RPC-flag = ingen bulk-load-støj + semantisk etiket. Se §4.3. |
-| B3 | **Attribution snapshottes** (frosset `actor_navn` på change_set, ikke kun FK). | Audit-log skal forblive læsbar selv om brugeren senere omdøbes/slettes. |
-| B4 | **Hyperlinks = inline-markup-token** i teksten (ikke offset-baseret annotation-tabel). | Tokenet bor i prosaen → versioneres gratis ved restore. Offsets ville brække ved hver redigering/tilbagerulning. Se §5. |
-| B5 | **`red_edit_oplysning` skifter til append** (ny påstand + re-peg konklusion) frem for direkte `UPDATE assertion`. | Ærer invariant #1 (*påstande uforanderlige*); versionering gør append billigt. Se §6. |
-| B6 | **Restore-konflikt: detektér + advar, last-write-wins ved bekræftelse.** Ingen grene, ingen merge. | "Enklere end git." Se §4.5. |
+| B1 | **Scope:** log på *alt redaktionelt* (ekshaustiv tabel-liste, §4.3.1), restore på *alt*. | Brugerønske: maksimal sporbarhed + fortrydelse. |
+| B2 | **Fangst-mekanisme: hybrid** (DB-trigger gør tungt før/efter-snapshot; RPC åbner change_set via session-variabel). | Trigger = komplet + DRY; RPC-flag = ingen bulk-load-støj + semantisk etiket. |
+| B3 | **Attribution snapshottes** (frosset `actor_navn`/`actor_rolle` på change_set; `actor_id`-FK er `ON DELETE SET NULL`, og de frosne felter er den autoritative kilde). | Audit-log skal forblive læsbar selv om brugeren senere omdøbes/slettes. |
+| B4 | **Hyperlinks = inline-markup-token** i teksten (ikke offset-baseret annotation-tabel). | Tokenet bor i prosaen → versioneres gratis ved restore. |
+| B5 | **`red_edit_oplysning` skifter til append** (ny påstand + re-peg konklusion). | Ærer invariant #1 (*påstande uforanderlige*). NB: kalder *ikke* `red_set_konklusion` som nested RPC — bruger en intern hjælper uden eget change_set (B7). |
+| B6 | **Restore-konflikt: optimistisk verifikation + advar.** Ingen grene, ingen merge. | "Enklere end git", men sikkert (B9). |
+| **B7** | **`begin_change_set` er re-entrant:** yderste RPC ejer change_set; indre kald genbruger det aktive (opretter ikke nyt, nulstiller ikke session-variablen). | Fjerner H1: nested `red_*` ville ellers splitte én handling over flere change_sets. |
+| **B8** | **Per-tabel versionerbar-kolonne-projektion.** `person.visning_*` (ren cache) udelukkes fra både snapshot og inverse; cache regenereres én gang efter restore. `koen`/`privat`/`status`/`levende` ER redaktionelle → versioneres. | Fjerner H2: hele-række-snapshot ville ellers rulle forældet cache tilbage. |
+| **B9** | **Optimistisk inverse-apply:** før hvert inverse sammenlignes den nuværende række med change_event'ets `efter`-snapshot. Divergens → afbryd og rapportér (også under `p_force`, som rapporterer divergensen frem for at overskrive blindt). | Fjerner H4: blind PK-baseret overskrivning kunne smadre en fremmed/genbrugt række. |
+| **B10** | **Historik er kun synlig for redaktion i PoC** (deny-all RLS for medlemmer; al adgang via SECURITY DEFINER-API, ingen rå table-grants på `change_set`/`change_event`). | Neutraliserer C1+M4 (GDPR-læk via `foer`-snapshot) pragmatisk; medlems-vendt historik m. frosset synligheds-metadata er fremtids-sti (§7). |
+| **B11** | **Eksplicit table→PK-registry** styrer `row_pk`-udtræk (kanonisk JSON-nøgleorden, type-bevarende). | Fjerner M2: sammensatte/forskelligt-navngivne PK'er (`family_member` 3-kol, `person_external_id` 2-kol, `vocab` 2-kol). |
+| **B12** | **Hyperlinks er IKKE round-trip-bare ved eksport i PoC** (fladgøres til visningstekst; type/id tabes). Fremtidig GEDCOM SCHMA-extension kan bevare mål-identitet. | Lukker M6 som bevidst valg frem for skjult tab. |
 
 ---
 
 ## 3. Datamodel-invarianter respekteret
 
-- **Evidens-som-historik:** fakta har allerede native versionering (uforanderlige påstande + foranderlig konklusion). Versioneringen her *supplerer* dette for de foranderlige dele (narrativer, relationer, flag) og giver ét fælles, fortryd-bart change-set-lag ovenpå — den re-peger fx konklusion til en tidligere påstand ved restore frem for at duplikere evidenslagets logik.
-- **Afledt projektion:** `text_mention`-indekset (§5.3) regenereres fra teksten, redigeres aldrig direkte — samme envejs-mønster som `person.visning_*`-cachen.
-- **Polymorfe referencer:** hyperlink-token og change_event bruger `(type, id)`-par uden hård FK, som resten af modellen.
+- **Evidens-som-historik:** fakta har allerede native versionering (uforanderlige påstande + foranderlig konklusion). Versioneringen her *supplerer* dette for de foranderlige dele og giver ét fælles, fortryd-bart change-set-lag ovenpå — restore re-peger fx konklusion til en tidligere påstand frem for at duplikere evidenslagets logik.
+- **Afledt projektion:** `text_mention`-indekset (§5.3) og `person.visning_*` regenereres, redigeres/versioneres aldrig direkte (B8).
+- **Polymorfe referencer:** hyperlink-token og change_event bruger `(type, id)`-par uden hård FK.
 
 ---
 
@@ -45,7 +51,7 @@ Begge er additive: ingen eksisterende tabel skifter betydning, intet brydes. De 
 | felt | type | hvad |
 |---|---|---|
 | `id` | BIGINT PK | |
-| `actor_id` | UUID → `auth.users` | hvem (FK, nullable for system) |
+| `actor_id` | UUID → `auth.users` **ON DELETE SET NULL** | hvem (nullable; frosne felter er autoritative — B3) |
 | `actor_navn` | TEXT | **frosset** navn-snapshot på commit-tidspunktet |
 | `actor_rolle` | TEXT | frosset rolle |
 | `created_at` | TIMESTAMPTZ DEFAULT now() | hvornår |
@@ -53,7 +59,11 @@ Begge er additive: ingen eksisterende tabel skifter betydning, intet brydes. De 
 | `summary` | TEXT | menneske-tekst, fx "Rettede dødsdato på Chr. Ditlev Reventlow" |
 | `subjekt_type` | TEXT | hint til filtrering ("historik for denne person") |
 | `subjekt_id` | BIGINT | hint |
-| `reverted_by` | BIGINT → change_set(id) | nullable; peger på det change_set der fortrød dette (giver redo) |
+| `subjekt_synlighed` | TEXT | **frosset** synligheds-klasse (`offentlig`/`levende`/`privat`) på commit-tidspunktet → tillader RLS-autorisation efter at subjektet er slettet (C1-sti for fremtidig medlems-historik) |
+| `reverteret` | BOOLEAN DEFAULT false | afledt cache; sandheden er reversal-kæden (B-felt nedenfor) |
+| `reverterer_id` | BIGINT → change_set(id) | hvis dette change_set ER en fortrydelse: hvilket sæt det fortrød (immutabel reversal-kæde — M3) |
+
+Undo-tilstand udledes af `reverterer_id`-kæden, ikke af en muterbar peger: et change_set er "aktivt" hvis intet senere, ikke-selv-reverteret sæt peger på det via `reverterer_id`. Gentaget undo/redo bliver dermed en kæde af reversaler (B7→fortryd→fortryd-af-fortryd …), og man kan afvise at fortryde et allerede-reverteret sæt.
 
 ### 4.2 `change_event` — én rørt række inden i et change_set
 
@@ -61,95 +71,95 @@ Begge er additive: ingen eksisterende tabel skifter betydning, intet brydes. De 
 |---|---|---|
 | `id` | BIGINT PK | |
 | `change_set_id` | BIGINT → change_set(id) | |
-| `seq` | INT | rækkefølge inden for change_set (afgør korrekt baglæns inverse-apply) |
+| `seq` | INT | rækkefølge inden for change_set (afgør baglæns inverse-apply) |
 | `tabel` | TEXT | fx `assertion` |
-| `row_pk` | JSONB | sammensat PK håndteres (`family_member` har 3-kolonne PK) |
+| `row_pk` | JSONB | kanonisk PK-repræsentation via table→PK-registry (B11) |
 | `op` | TEXT | `INSERT` / `UPDATE` / `DELETE` |
-| `foer` | JSONB | hele OLD-rækken (NULL ved INSERT) |
-| `efter` | JSONB | hele NEW-rækken (NULL ved DELETE) |
+| `foer` | JSONB | versionerbare kolonner af OLD-rækken (NULL ved INSERT; ekskl. `visning_*` — B8) |
+| `efter` | JSONB | versionerbare kolonner af NEW-rækken (NULL ved DELETE; ekskl. `visning_*` — B8) |
 
 ### 4.3 Plumbing (hybrid)
 
-1. **`begin_change_set(operation, summary, subjekt_type, subjekt_id) RETURNS bigint`**
-   - Indsætter change_set-rækken (slår `actor_navn`/`actor_rolle` op fra `profiles` for `auth.uid()`, email som fallback).
-   - Sætter session-variabel: `PERFORM set_config('app.change_set_id', <id>::text, true)` (txn-local).
-   - Sætter `app.change_seq` = 0.
-   - Kaldes som **første linje** i hver `red_*`-RPC.
+**`begin_change_set(operation, summary, subjekt_type, subjekt_id) RETURNS bigint` (re-entrant — B7):**
+- Hvis `current_setting('app.change_set_id', true)` allerede er sat → returnér det eksisterende id (genbrug; opret intet nyt, nulstil intet).
+- Ellers: slå `actor_navn`/`actor_rolle` op fra `profiles` for `auth.uid()` (email som fallback), beregn `subjekt_synlighed`, indsæt change_set-rækken, `PERFORM set_config('app.change_set_id', <id>::text, true)`, `app.change_seq=0`.
+- Kaldes som **første linje** i hver `red_*`-RPC. Interne hjælpere (fx B5's re-peg) kalder ikke en anden change_set-åbnende RPC; de udfører rå DML, som triggeren fanger ind under det aktive sæt.
 
-2. **Generisk trigger-funktion `log_change()`** (AFTER INSERT/UPDATE/DELETE, FOR EACH ROW):
-   - `cs := current_setting('app.change_set_id', true)`. **Hvis NULL/tom → RETURN** (bulk-load-sti: ingen logning).
-   - Ellers: inkrementér seq, indsæt change_event med `TG_TABLE_NAME`, `TG_OP`, `to_jsonb(OLD)`, `to_jsonb(NEW)`, og PK udtrukket til `row_pk`.
-   - Én funktion, genbrugt på alle loggede tabeller.
+**Generisk trigger `log_change()`** (AFTER INSERT/UPDATE/DELETE, FOR EACH ROW):
+- `cs := current_setting('app.change_set_id', true)`. **NULL/tom → RETURN** (bulk-load-sti).
+- Slå tabellens versionerbare kolonner + PK-kolonner op i registry (B8/B11); byg `foer`/`efter`/`row_pk` ud fra projektionen (ikke rå `to_jsonb(OLD/NEW)`).
+- For `person`: hvis kun `visning_*` ændrede sig → RETURN (cache-regenerering logges ikke).
+- Inkrementér seq, indsæt change_event.
 
-3. **Triggere tilknyttes:** `assertion`, `conclusion`, `citation`, `fact`, `relation`, `family`, `family_member`, `narrative`, `note`, `person`.
-   - **`person`:** cache-kolonnerne (`visning_*`) regenereres af eksisterende triggere og udelukkes fra logning (de er afledte, ikke redaktionelle). Implementeres ved kun at logge når ikke-cache-kolonner ændrer sig (sammenlign OLD/NEW på `koen`/`privat`/`status`/`levende`), ellers RETURN.
+#### 4.3.1 Versioneret scope (ekshaustivt — B1, lukker C2+H3)
 
-4. **Bulk-load** (`/daa-extract`, `load_daa.R`) sætter aldrig `app.change_set_id` → seed forbliver tavst og loggen ren. Ingen ændring nødvendig i loaderen.
+**Loggede tabeller:** `person` (ekskl. `visning_*`), `person_external_id`, `family`, `family_member`, `fact`, `relation`, `assertion`, `conclusion`, `citation`, `narrative`, `note`, `source`, `repository`, `place`, `organisation`, `estate`, `media`, `historical_event`, `coat_of_arms`, `lineage`, `vocab`.
 
-### 4.4 Restore — fortryd et change_set
+**`profiles`:** versionér kun `reventlow_person_id`-bindingen (redaktionel relation til træet). `email`/`rolle`/`id` versioneres ikke (auth/PII). Dette sikrer at person-restore genskaber profil-bindingen (C2).
 
-`red_fortryd_change_set(p_change_set_id bigint)`:
-1. Åbn et **nyt** change_set (`operation='fortryd'`, summary="Fortrød: <original summary>") — fortrydelsen logges også og er selv fortryd-bar (= redo).
-2. Gennemløb originalens change_events i **omvendt `seq`-orden** og anvend inverse:
-   - `INSERT` → `DELETE` rækken (by `row_pk`)
-   - `DELETE` → genindsæt `foer`
-   - `UPDATE` → sæt rækken tilbage til `foer`
-3. Markér originalen: `reverted_by = <nyt change_set id>`.
+**Ikke logget:** `change_set`, `change_event`, `text_mention` (selv-reference / afledt), `suggestion` (staging).
 
-Restore på fakta falder naturligt ud af dette: en re-peget konklusion er bare en `UPDATE conclusion` der rulles tilbage.
+### 4.4 Restore — fortryd et change_set (én transaktion — M1/H5)
 
-### 4.5 Restore-konflikt (B6)
+`red_fortryd_change_set(p_change_set_id bigint, p_force boolean DEFAULT false)`:
+1. Afvis hvis sættet allerede er reverteret (§4.1-kæde) eller er bulk/system.
+2. Åbn et **nyt** change_set (`operation='fortryd'`, `reverterer_id=p_change_set_id`).
+3. Gennemløb originalens events i **omvendt `seq`-orden**. For hvert event:
+   - **Optimistisk tjek (B9):** hent nuværende række via `row_pk`; sammenlign med event'ets `efter`. Divergens (og ikke `p_force`) → `RAISE EXCEPTION` med rapport. Under `p_force`: log divergensen i summary, fortsæt.
+   - Anvend inverse: `INSERT`→slet · `DELETE`→genindsæt `foer` · `UPDATE`→sæt tilbage til `foer`.
+4. Regenerér afledte projektioner **én gang** til sidst: berørte personers `visning_*` (kald `regen_person_visning`) og `text_mention` for berørte narrativer/noter.
+5. **Hele operationen er én transaktion.** Ingen per-event exception-swallowing; enhver fejl ruller hele inversen + det nye change_set tilbage.
 
-Hvis en *nyere* change_set har rørt en af de samme rækker (match på `tabel`+`row_pk` i et change_event med højere `created_at`), kan fortrydelse af den ældre overskrive den nyere.
+**FK-sikkerhed (H5):** omvendt-seq giver FK-sikker genindsættelse, *fordi* destruktive RPC'er sletter børn før forældre (eksisterende invariant i `red_slet_person`/`red_slet_relation`). **Krav til implementeringen:** hver destruktiv RPC skal have en test der verificerer fuld restore af dens afhængighedsgraf. Fremtidig hærdning hvis cascades introduceres: `SET CONSTRAINTS ALL DEFERRED` i restore-transaktionen.
 
-- **Adfærd:** `red_fortryd_change_set` får parameter `p_force boolean DEFAULT false`. Uden force: hvis konflikt detekteres → `RAISE EXCEPTION` med besked om hvilke nyere change_sets der rører samme data. UI viser advarsel; bruger bekræfter → kald igen med `p_force=true` → last-write-wins.
-- Ingen grene, ingen merge, ingen tre-vejs-fletning.
+### 4.5 Restore-konflikt (B6/B9)
+
+Konflikt = den optimistiske `efter`-sammenligning (§4.4 trin 3) fejler: den nuværende række matcher ikke hvad change_set'et efterlod. Det fanger både loggede *og* uloggede mellemliggende ændringer (B9 dækker H4's PK-genbrug, da en genbrugt PK giver en ikke-matchende `efter`). Uden `p_force`: afbryd + rapportér de afvigende rækker. Med `p_force`: last-write-wins, divergens noteret i audit-summary.
 
 ### 4.6 ID-tildeling
 
-Følger basens nuværende `max(id)+1`-mønster (race-følsomt, accepteret under single-writer-PoC — samme klasse som de eksisterende RPC'er). Re-indsættelse ved DELETE-restore genbruger den oprindelige `id` fra `foer`-snapshottet. Migrér til IDENTITY/sekvenser når flerbruger-skrivning aktiveres (eksisterende kendt gæld).
+Følger basens `max(id)+1`-mønster (single-writer-PoC; eksisterende gæld). DELETE-restore genbruger oprindelig `id` fra `foer`. Den optimistiske `efter`-kontrol (B9) beskytter mod at en mellemtidig genbrugt PK overskrives blindt. Migrér til IDENTITY/sekvenser ved flerbruger-skrivning.
 
 ---
 
 ## 5. Hyperlinks
 
-### 5.1 Format
+### 5.1 Token-grammatik (formel — M5)
 
-Inline-token i fri-tekst-felter (`narrative.tekst`, `note.indhold`):
+Inline-token i fri-tekst (`narrative.tekst`, `note.indhold`):
 
 ```
-[[person:482|Christian Ditlev Reventlow]]
-  type   id   visningstekst
+[[<type>:<id>|<visningstekst>]]
 ```
 
-`type` ∈ { `person`, `estate`, `place`, `organisation`, `source`, `coat_of_arms`, `family`, `historical_event`, `media`, `lineage` } — samme polymorfe entitetssæt som resten af modellen.
+- `type` ∈ fast vokabular: `person`, `estate`, `place`, `organisation`, `source`, `coat_of_arms`, `family`, `historical_event`, `media`, `lineage`. Ukendt type → behandles som almindelig tekst (ikke link).
+- `id` = heltal uden foranstillede nuller.
+- `visningstekst` = vilkårlig tekst; tegnene `|`, `[`, `]` escapes som `\|`, `\[`, `\]`. Parser læser ikke-escaped `]]` som token-slut.
+- **Malformet token** (manglende felt, ikke-talt id, ukendt type, ubalanceret) → renderes som rå tekst, indekseres ikke, fejler ikke.
+- Én delt parser-specifikation + conformance-fixtures bruges af editor, renderer, indekser og eksport (samme adfærd alle steder).
 
 ### 5.2 Rendering & eksport
 
 - **App:** parser tokens → klikbart link til entitetens visning.
-- **GEDCOM/tekst-eksport:** fladgøres til ren `visningstekst` (linket droppes). Visningsteksten bor i tokenet → eksport forbliver læsbar.
+- **Eksport (GEDCOM/tekst):** fladgøres til `visningstekst` (escapes fjernes). **Links er ikke round-trip-bare i PoC (B12)** — type/id tabes; re-import genskaber ikke linket. Fremtidig SCHMA-extension kan bevare mål-identitet hvis det bliver et krav.
 
-### 5.3 Referentiel integritet (ingen FK i fri-tekst)
+### 5.3 Afledt nævne-indeks `text_mention` (L1)
 
-Et token kan pege på en slettet entitet. To greb:
+| felt | type |
+|---|---|
+| `kilde_type` | TEXT (`narrative`/`note`) |
+| `kilde_id` | BIGINT |
+| `maal_type` | TEXT |
+| `maal_id` | BIGINT |
+| **PK** | `(kilde_type, kilde_id, maal_type, maal_id)` — dedupliceret pr. kilde-række (gentagne nævnelser af samme mål = én række; positioner gemmes ikke) |
 
-1. **Visningsteksten er gemt i tokenet** → et dødt link viser stadig læsbar tekst, brækker ikke siden.
-2. **Afledt nævne-indeks `text_mention`** (regenereret af trigger ved narrativ/note-gem):
-
-   | felt | type |
-   |---|---|
-   | `kilde_type` | TEXT (`narrative`/`note`) |
-   | `kilde_id` | BIGINT |
-   | `maal_type` | TEXT |
-   | `maal_id` | BIGINT |
-
-   - **Ikke** sandhedskilde (tokenet er) — ren projektion, som `visning_*`. Versioneres ikke; regenereres.
-   - Køber: **baglæns-links** ("hvor er person X nævnt?") + **døde-links-rapport** til redaktions-dashboardet (mention hvor `maal_id` ikke længere findes).
-   - Genereres af en trigger på `narrative`/`note` der parser tokens ud af teksten (regex på `[[type:id|...]]`) og opdaterer indekset for den række.
+- **Ikke** sandhedskilde (tokenet er); ren projektion, regenereres. Trigger på `narrative`/`note` parser tokens og **erstatter hele projektionen for den kilde-række** (DELETE eksisterende for `(kilde_type,kilde_id)` + INSERT nye).
+- Køber: baglæns-links ("hvor er X nævnt?") + døde-links-rapport (`maal_id` findes ikke længere).
+- **RLS (M4):** en `text_mention` eksponeres kun hvis **både** kilde-teksten (`narrative`/`note` synlighed, inkl. `privat`-flag) **og** mål-entiteten er synlig for kalderen. Forældreløse kilde-ID'er afsløres ikke.
 
 ### 5.4 Indsættelse (UI — udskudt)
 
-@-vælger i editoren der opslår entitet og producerer tokenet. Datamodel-uafhængigt; hører til implementeringsplanen for app-laget.
+@-vælger i editoren der opslår entitet og producerer tokenet. Hører til app-lagets implementeringsplan.
 
 ---
 
@@ -157,37 +167,62 @@ Et token kan pege på en slettet entitet. To greb:
 
 | Område | Ændring | Størrelse |
 |---|---|---|
-| Alle `red_*`-RPC'er | Tilføj `begin_change_set(...)` som første linje | mekanisk |
-| `red_edit_oplysning` | **B5:** skift fra direkte `UPDATE assertion` til append (ny påstand + `red_set_konklusion`-re-peg). Honorerer invariant #1. | lille refactor |
-| `profiles` | Tilføj `navn TEXT` (kilde til frosset `actor_navn`; email fallback) | additivt ALTER |
-| `schema.sql` + `db-migrations.sql` | Nye tabeller (`change_set`, `change_event`, `text_mention`), generisk trigger + tilknytninger, `begin_change_set`, `red_fortryd_change_set`, mention-trigger, historik-views | ny idempotent blok |
-| **RLS** | Politikker for `change_set`/`change_event`/`text_mention`. Se §7. | afhænger af RLS-lag |
-| App (TS) | Editor m. @-vælger, token-renderer, historik-visning, fortryd-knap, døde-links-rapport | separat impl-plan |
+| Alle `red_*`-RPC'er | Tilføj `begin_change_set(...)` (re-entrant) som første linje | mekanisk |
+| `red_edit_oplysning` | B5: append (ny påstand) via intern hjælper (ikke nested RPC — B7) | lille refactor |
+| `profiles` | Tilføj `navn TEXT`; versionér kun `reventlow_person_id` (§4.3.1) | additivt ALTER |
+| `schema.sql` + `db-migrations.sql` | Nye tabeller (`change_set`, `change_event`, `text_mention`), table→PK-registry, generisk trigger + tilknytninger (§4.3.1), `begin_change_set`, `red_fortryd_change_set`, mention-trigger, SECURITY DEFINER-historik-API | ny idempotent blok |
+| **RLS** | Deny-all på historik-tabeller; redaktion-only adgang via API (B10); `text_mention`-gating (M4) | se §7 |
+| App (TS) | Editor m. @-vælger, token-renderer (delt parser), historik-visning, fortryd-knap, døde-links-rapport | separat impl-plan |
 
 ---
 
-## 7. RLS / synlighed (skal lukkes mod det kommende RLS-lag)
+## 7. RLS / synlighed
 
-Historik kan lække ellers-skjulte data (en fortrudt privat-biografi ligger i `change_event.foer`). Regler:
-
-- **Redaktion:** ser al historik.
-- **Medlem/anonym:** ser kun historik for entiteter de i forvejen må se. Historik for en levende/privat person følger **samme synlighed som personen selv**.
-- **Implementering:** `change_event` indeholder rå `foer`/`efter`-JSONB af potentielt private rækker → må aldrig eksponeres bredt. Historik-views skal bruge `security_invoker = true` (samme fælde som `red_konflikt`-viewet) og filtrere på personens synlighed.
-- Konkret politik-SQL skrives sammen med det øvrige RLS-lag (endnu ikke skrevet — jf. CLAUDE.md §9). Dette spec fastlægger *reglen*; politik-koden er en afhængighed.
+- **PoC (B10):** `change_set`/`change_event`/`text_mention` har deny-all RLS for ikke-redaktion. Al historik-læsning sker via SECURITY DEFINER-funktioner der kun returnerer til `current_rolle()='redaktion'`. Ingen rå `foer`/`efter` eksponeres til medlemmer. Dette neutraliserer C1+M4 for PoC.
+- **Fremtid (medlems-vendt historik):** brug frosset `subjekt_synlighed` (§4.1) + mål/kilde-gating (§5.3) til at autorisere historiske rækker selv efter at subjektet er slettet. Aldrig rå table-grant.
+- Historik-API-funktioner bruger samme `security_invoker`/SECURITY DEFINER-disciplin som `red_konflikt`-viewet for ikke at omgå person-synlighed.
+- Konkret politik-SQL skrives sammen med det øvrige RLS-lag (endnu ikke skrevet — jf. CLAUDE.md §9). Dette spec fastlægger *reglerne*; politik-koden er en afhængighed.
 
 ---
 
 ## 8. Bevidst udeladt (YAGNI)
 
-- **Grene/merge** i versioneringen — kun lineær log + last-write-wins-restore.
-- **Diff-visning på ord-niveau** for narrativer — før/efter-tekst gemmes; pæn diff-UI er senere pynt.
-- **Offset-baserede annotationer** for hyperlinks — afvist (B4).
+- **Grene/merge** — kun lineær log + optimistisk last-write-wins-restore.
+- **Diff-UI på ord-niveau** — før/efter-tekst gemmes; pæn diff er senere pynt.
+- **Medlems-vendt historik** — kun redaktion i PoC (B10).
+- **Round-trip-bare hyperlinks i eksport** — udeladt (B12).
 - **Logning af bulk-load** — bevidst tavs (B2).
-- **IDENTITY/sekvens-migrering** — eksisterende gæld, ikke en del af dette.
+- **IDENTITY/sekvens-migrering** — eksisterende gæld.
+- **Deferred FK-constraints i restore** — kun hvis cascades introduceres (§4.4).
 
 ---
 
 ## 9. Åbne afhængigheder
 
-1. **RLS-laget** (§7) skal eksistere før multi-bruger-eksponering af historik.
+1. **RLS-laget** (§7) skal eksistere før evt. medlems-vendt historik.
 2. **App-impl-plan** for editor/renderer/historik-UI er separat (TS-spor).
+3. **Table→PK-registry** (B11) skal defineres konkret i implementeringen (kan udledes fra `information_schema` eller hardcodes).
+
+---
+
+## Bilag A — Codex adversarisk review (2026-06-30)
+
+16 findings (2 Critical, 6 High, 6 Medium, 1 Low), alle indarbejdet:
+
+| ID | Severity | Lukket af |
+|---|---|---|
+| C1 historik-filtrering efter sletning | Critical | B10 (redaktion-only) + `subjekt_synlighed` (§4.1) |
+| C2 person-restore mister ulogget tilstand | Critical | §4.3.1 (ekshaustiv scope inkl. `person_external_id`/`profiles`) |
+| H1 nested RPC splitter change_set | High | B7 (re-entrant) |
+| H2 snapshot ruller cache/`koen` tilbage | High | B8 (kolonne-projektion) |
+| H3 scope mangler entitets-klasser | High | §4.3.1 |
+| H4 konflikt-tjek usikkert | High | B9 (optimistisk `efter`-verifikation) |
+| H5 baglæns-seq ikke FK-garanteret | High | §4.4 (RPC-invariant + restore-tests + deferred-constraints-sti) |
+| H6 actor-FK blokerer sletning | High | B3 (`ON DELETE SET NULL`) |
+| M1 restore-transaktionalitet | Medium | §4.4 (én txn) |
+| M2 `row_pk`-udtræk udesignet | Medium | B11 (PK-registry) |
+| M3 redo/undo tvetydig | Medium | §4.1 (reversal-kæde) |
+| M4 nævne-indeks lækker | Medium | §5.3 (dobbelt-gating) + B10 |
+| M5 token-grammatik | Medium | §5.1 (formel grammatik) |
+| M6 eksport tabsgivende | Medium | B12 (eksplicit valg) |
+| L1 `text_mention`-nøgle | Low | §5.3 (PK + replace-semantik) |
