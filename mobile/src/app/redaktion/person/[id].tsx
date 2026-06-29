@@ -597,10 +597,16 @@ export default function PersonEditor() {
         <BarnSheet scratch={barnScratch}
           advarsel={eraAdvarsel(
             redaktionModel?.byId?.[barnScratch.personId]?.born ?? null,
-            (familie.somPartner.find((u) => u.familyId === barnScratch.familyId)?.partnere ?? []).map((pt) => ({
-              foedsel: redaktionModel?.byId?.[pt.personId]?.born ?? null,
-              doed: redaktionModel?.byId?.[pt.personId]?.died ?? null,
-            }))
+            [
+              // Fokus-personen er selv en forælder i denne union, men mapFamilieRows filtrerer
+              // den ud af `partnere` — medtag dens datoer eksplicit, ellers er era-tjekket dødt
+              // for unioner med kun én registreret forælder (almindeligt i DAA).
+              { foedsel: redaktionModel?.byId?.[id!]?.born ?? null, doed: redaktionModel?.byId?.[id!]?.died ?? null },
+              ...(familie.somPartner.find((u) => u.familyId === barnScratch.familyId)?.partnere ?? []).map((pt) => ({
+                foedsel: redaktionModel?.byId?.[pt.personId]?.born ?? null,
+                doed: redaktionModel?.byId?.[pt.personId]?.died ?? null,
+              })),
+            ]
           )}
           onClose={() => setBarnScratch(null)}
           onGem={(rolle, konfidens) => {
