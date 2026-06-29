@@ -175,9 +175,11 @@ på prod-data.
 
 ## Pre-prod-run follow-ups (fra final whole-branch review 2026-06-29)
 
-Bindende opgaver før prod-kørsler:
+Bindende opgaver før prod-kørsler (opdateret efter dual-review cycle 07, Codex 2026-06-29):
 
 - [ ] Færdiggør trin 3-4-glue (`scored` → `crosswalk`) og kalibrér blok-vindue/score-vægte/tier-cutoffs mod et håndlabelt facit-sæt.
-- [ ] Før `render_report` wires: map relaterede `person_id` i `detalje`-strenge til DAA linje/nr-labels, OG tilføj TNG-side `living/private`-filtrering (lukker PII-over-blokering + den halv-håndhævede GDPR-invariant — TNG-flagene bæres allerede ind i DuckDB men læses ikke endnu).
-- [ ] Ret review-kø-persistens: bevar bekræft/afvis/ny-id-afgørelser på tværs af fulde gen-kørsler (crosswalk genbygges nu fra bunden hver gang → afgørelser tabes; afviste "huskes" ikke).
+- [ ] **PII-gate (recalibreret, H1):** tekst-scan er IKKE tilstrækkelig primær-kontrol — `\b<id>\b` har false-negatives (`p123`, `I123`, bogstav-tilstødende id). Modellér i stedet hver refereret vores/TNG-person STRUKTURELT, join BEGGE privacy-flag (vores `levende/privat` + TNG `living/private` — sidstnævnte bæres ind i DuckDB men læses ikke endnu), afvis ukendt privacy-state, og filtrér FØR formatering. Behold tekst-scan kun som defense-in-depth. Map relaterede `person_id` i `detalje` til DAA linje/nr-labels.
+- [ ] Ret review-kø-persistens (H2): bevar bekræft/afvis/ny-id-afgørelser på tværs af fulde gen-kørsler (crosswalk genbygges nu fra bunden hver gang → afgørelser tabes; afviste "huskes" ikke).
+- [ ] **Validér injektivitet ved accept (M2):** efter `merge_review_decisions` skal duplikat `tng_id` (eller `person_id`) afvises — ellers vælger `match()` silently FØRSTE og fejl-attribuerer relationer i `06-compare.R`. Verificeret: `match("I9", c("I9","I9"))` → 1.
 - [ ] Implementér `tng_children`-reshape (rå `familyID/personID + frel/mrel` → `child_tng/father_tng/mother_tng` via join til `tng_families`: far=husband, mor=wife) med test før trin-6 aktiveres.
+- [ ] **mysqldump-escapes (H0-rest):** `fix_mysql_literals` oversætter ikke `\n \r \t \0 \Z` (efterlades literalt). Backtick-i-værdi-korruption er FIXET (cycle07, quote-aware). Escape-oversættelse udestår — lav impact på de konsumerede kolonner (navne/datoer/id), men implementér hvis fritekst-felter (fx birthplace) senere konsumeres.

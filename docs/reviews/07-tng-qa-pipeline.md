@@ -114,9 +114,10 @@ Verdict: needs-attention. Empirisk reproduceret i denne reconcile (Rule 1).
 - Cleanup/sub-optimal: ekskluderet
 
 **Beslutning:**
-- **NEW H0:** FIX NU (eneste reachable silent-corruption) — gør backtick→`"` quote-aware
-  (kun identifier-prefix før `VALUES`, værdi-backticks bevares) + regression-test.
-  Escape-oversættelse (`\n` osv.) = follow-up (lav impact på brugte kolonner).
+- **NEW H0:** ✅ FIXET (commit 0a3ab88) — backtick→`"` nu quote-aware (kun statement-hoved
+  før `VALUES (`, værdi-backticks bevares) + 2 regression-tests (PASS 64). Re-smoke mod
+  ægte dump bekræfter 25745/10016/18995 uændret. Escape-oversættelse (`\n` osv.) = follow-up
+  (lav impact på brugte kolonner).
 - **H1/H2/M2/H3:** follow-ups (bag trin-3-4-guard); H1 recalibreret til strukturel model.
 
 **Læring:** row-count-grønne tests maskerer værdi-korruption (jf. dual-review Cycle D M1).
