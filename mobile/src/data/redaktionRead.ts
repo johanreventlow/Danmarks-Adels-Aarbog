@@ -220,9 +220,9 @@ export async function fetchPersonRelationer(id: string, aux: import('./types').A
 
 export type FamiliePartner = { personId: string; navn: string; konfidens: string | null; ordinal: number | null };
 export type FamilieBarn = { personId: string; navn: string; rolle: string; konfidens: string | null };
-export type Union = { familyId: string; type: string; partnere: FamiliePartner[]; boern: FamilieBarn[] };
+export type FamilieUnion = { familyId: string; type: string; partnere: FamiliePartner[]; boern: FamilieBarn[] };
 export type SomBarn = { familyId: string; rolle: string; konfidens: string | null; foraeldre: { personId: string; navn: string }[] };
-export type PersonFamilie = { somPartner: Union[]; somBarn: SomBarn[] };
+export type PersonFamilie = { somPartner: FamilieUnion[]; somBarn: SomBarn[] };
 type RawFamRow = { family_id: number; person_id: number; rolle: string; ordinal: number | null; konfidens: string | null };
 type RawFamilyMeta = { id: number; type: string | null };
 const BARN_ROLLER = ['barn', 'adopteret_barn', 'plejebarn', 'stedbarn'];
@@ -235,7 +235,7 @@ export function mapFamilieRows(personId: string, families: RawFamilyMeta[], memb
     const k = String(m.family_id);
     (byFamily.get(k) ?? byFamily.set(k, []).get(k)!).push(m);
   });
-  const somPartner: Union[] = [];
+  const somPartner: FamilieUnion[] = [];
   const somBarn: SomBarn[] = [];
   byFamily.forEach((rows, familyId) => {
     const mig = rows.find((r) => String(r.person_id) === personId);
@@ -267,7 +267,8 @@ export async function fetchPersonFamilie(id: string, model: import('./types').Mo
   const famIds = Array.from(new Set(mine.map((m) => m.family_id)));
   if (!famIds.length) return { somPartner: [], somBarn: [] };
   const members = await getAll<RawFamRow>(() =>
-    sb.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens').in('family_id', famIds));
+    sb.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens').in('family_id', famIds)
+      .order('ordinal', { ascending: true, nullsFirst: false }).order('person_id'));
   const families = await getAll<RawFamilyMeta>(() =>
     sb.from('family').select('id,type').in('id', famIds));
   return mapFamilieRows(id, families, members, model);
