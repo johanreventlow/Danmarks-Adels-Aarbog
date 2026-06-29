@@ -141,3 +141,33 @@ test('sletFamilieLink → red_slet_familie_link', () => {
 test('opretUnion uden påkrævet payload → null', () => {
   expect(buildRpcCall({ art: 'opretUnion', subjektType: 'person', subjektId: '7', payload: { partnerA: '7' } as never })).toBeNull();
 });
+
+describe('buildRpcCall opret-arter', () => {
+  it('opretPerson → red_opret_person, kun udfyldte args', () => {
+    const c = { art: 'opretPerson', subjektType: 'person', subjektId: '',
+      payload: { navn: 'Conrad', koen: 'mand', levende: false, privat: true,
+                 foedtRaw: '1700', doedRaw: '', titelRaw: 'greve' } } as const;
+    expect(buildRpcCall(c)).toEqual({ fn: 'red_opret_person', args: {
+      p_navn: 'Conrad', p_koen: 'mand', p_levende: false, p_privat: true,
+      p_foedt_raw: '1700', p_titel_raw: 'greve' } });   // doedRaw='' udeladt
+  });
+  it('opretPerson uden navn → null', () => {
+    expect(buildRpcCall({ art: 'opretPerson', subjektType: 'person', subjektId: '',
+      payload: { navn: '' } } as const)).toBeNull();
+  });
+  it('opretEstate → red_opret_estate', () => {
+    expect(buildRpcCall({ art: 'opretEstate', subjektType: 'estate', subjektId: '',
+      payload: { navn: 'Brahetrolleborg', slags: 'gods' } } as const))
+      .toEqual({ fn: 'red_opret_estate', args: { p_navn: 'Brahetrolleborg', p_slags: 'gods' } });
+  });
+  it('opretKilde → red_opret_kilde', () => {
+    expect(buildRpcCall({ art: 'opretKilde', subjektType: 'source', subjektId: '',
+      payload: { titel: 'DAA 2018-20', slags: 'DAA-udgave', ekstern: false } } as const))
+      .toEqual({ fn: 'red_opret_kilde', args: { p_titel: 'DAA 2018-20', p_slags: 'DAA-udgave', p_ekstern: false } });
+  });
+  it('opretOrganisation → red_opret_organisation', () => {
+    expect(buildRpcCall({ art: 'opretOrganisation', subjektType: 'organisation', subjektId: '',
+      payload: { navn: 'Livgarden', slags: 'regiment' } } as const))
+      .toEqual({ fn: 'red_opret_organisation', args: { p_navn: 'Livgarden', p_slags: 'regiment' } });
+  });
+});

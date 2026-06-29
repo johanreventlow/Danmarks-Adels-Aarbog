@@ -12,7 +12,8 @@ export type Change = {
   art: 'fakta' | 'narrativ' | 'relation' | 'gods' | 'hverv'
      | 'redigerOplysning' | 'sletOplysning' | 'setKonklusion' | 'setPrivat' | 'sletPerson'
      | 'tilfoejOplysning' | 'opretFakta' | 'sletRelation' | 'tilfoejRelation'
-     | 'opretUnion' | 'tilfoejBarn' | 'setFamilieKonfidens' | 'sletFamilieLink';
+     | 'opretUnion' | 'tilfoejBarn' | 'setFamilieKonfidens' | 'sletFamilieLink'
+     | 'opretPerson' | 'opretEstate' | 'opretKilde' | 'opretOrganisation';
   subjektType: string;
   subjektId: string;
   assertionId?: string;
@@ -131,6 +132,42 @@ export function buildRpcCall(c: Change): RpcCall | null {
     return { fn: 'red_set_familie_konfidens', args: { ...b, p_konfidens: c.konfidens ?? null } }; }
   if (c.art === 'sletFamilieLink') { const b = famLinkBase(c); if (!b) return null;
     return { fn: 'red_slet_familie_link', args: b }; }
+  if (c.art === 'opretPerson') {
+    const p = c.payload || {};
+    if (!p.navn) return null;
+    const args: Record<string, unknown> = { p_navn: p.navn };
+    if (p.koen != null) args.p_koen = p.koen;
+    if (p.levende != null) args.p_levende = p.levende;
+    if (p.privat != null) args.p_privat = p.privat;
+    if (p.foedtRaw) args.p_foedt_raw = p.foedtRaw;
+    if (p.doedRaw) args.p_doed_raw = p.doedRaw;
+    if (p.titelRaw) args.p_titel_raw = p.titelRaw;
+    return { fn: 'red_opret_person', args };
+  }
+  if (c.art === 'opretEstate') {
+    const p = c.payload || {};
+    if (!p.navn) return null;
+    const args: Record<string, unknown> = { p_navn: p.navn };
+    if (p.slags) args.p_slags = p.slags;
+    if (p.stedId != null) args.p_sted_id = Number(p.stedId);
+    return { fn: 'red_opret_estate', args };
+  }
+  if (c.art === 'opretKilde') {
+    const p = c.payload || {};
+    if (!p.titel) return null;
+    const args: Record<string, unknown> = { p_titel: p.titel };
+    if (p.slags) args.p_slags = p.slags;
+    if (p.udgave) args.p_udgave = p.udgave;
+    if (p.ekstern != null) args.p_ekstern = p.ekstern;
+    return { fn: 'red_opret_kilde', args };
+  }
+  if (c.art === 'opretOrganisation') {
+    const p = c.payload || {};
+    if (!p.navn) return null;
+    const args: Record<string, unknown> = { p_navn: p.navn };
+    if (p.slags) args.p_slags = p.slags;
+    return { fn: 'red_opret_organisation', args };
+  }
   return null;
 }
 
