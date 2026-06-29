@@ -1,149 +1,177 @@
 # Design: TNG-kvalitetssikring via crosswalk
 
 > Status: godkendt-til-plan · 2026-06-29 · branch `feat/tng-qa-crosswalk`
+> Revideret efter Codex-review 2026-06-29 (se §"Codex-review-fund indarbejdet").
 
 ## Formål
 
-Brug `jr_tng_reventlow.sql` (TNG-genealogi-dump, ~25.745 personer, bedre
-relations-kvalitet) som **facit** til at kvalitetssikre relationerne i vores
-egen Supabase-base (925 personer, loadet fra DAA-PDF). Konkret afsløre fejl-loadede
+Brug `jr_tng_reventlow.sql` (TNG-genealogi-dump, ~25.745 personer) som
+**sammenlignings-reference** til at kvalitetssikre relationerne i vores egen
+Supabase-base (925 personer, loadet fra DAA-PDF). Konkret afsløre kandidat-fejl i
 **ægteskaber**, **forældre-barn-relationer**, **datoer** og **køn**.
 
-**Eksplicit ikke-mål (denne iteration):** oprette eller redigere personer/relationer
-i vores base. Pipelinen er **read-only** mod Supabase. Output er en rapport til
-manuel afgørelse + en genbrugbar crosswalk. Auto-skrivning (fx til `suggestion`)
-er bevidst udskudt.
+**TNG er IKKE et facit.** Dumpets kilder er blandede (web-sites, tredjeparts-GEDCOM,
+trykte værker — `docs/tng-reventlow-analyse.md:118`). Uenigheder klassificeres som
+**uafklarede** til manuel afgørelse, ikke som "vores fejl". Reference, ikke dom.
+
+**Eksplicit ikke-mål (denne iteration):** oprette/redigere personer/relationer i vores
+base. Pipelinen er **read-only** mod Supabase. Output: rapport + genbrugbar crosswalk.
+Auto-skrivning (fx til `suggestion`) er bevidst udskudt.
 
 ## Baggrund / nuværende tilstand
 
-- **Vores base** (Supabase Postgres): `person` (id, koen, visning_navn/foedt/doed,
-  privat/levende), `person_external_id` (DAA linje/nr per source), `family` +
-  `family_member` (rolle ∈ partner/barn/adopteret_barn/plejebarn/stedbarn, ordinal,
-  konfidens), evidenslag (`assertion` m. date_min/date_max for fødsel/død-fakta).
-- **TNG-dump** (MySQL, git-ignoreret, indeholder levende-persondata): `tng_people`
-  (personID `I<n>`, firstname/lastname, struktureret `birthdatetr`/`deathdatetr`,
-  `sex`, `famc`), `tng_families` (husband/wife/marrdatetr), `tng_children`
-  (familyID/personID + `frel`/`mrel` = forhold til far/mor). Analysen i
-  `docs/tng-reventlow-analyse.md` (read-only, 2026-06-15) beskriver dumpet fuldt.
-- **Ingen direkte join-nøgle** mellem de to baser → matching er fuzzy.
+- **Vores base** (Supabase Postgres): `person` (id, koen, visning_*, **levende/privat**),
+  `person_external_id` (DAA linje/nr per source), `family` (type ∈ vielse/partnerskab/
+  ugift union) + `family_member` (rolle ∈ partner/barn/adopteret_barn/plejebarn/
+  stedbarn, ordinal, konfidens), evidenslag (`assertion`, `conclusion.valgt_assertion_id`).
+- **TNG-dump** (MySQL, git-ignoreret, levende-persondata): `tng_people` (personID `I<n>`,
+  firstname/lastname, `birthdatetr`/`deathdatetr`, `sex`, `famc`, **`living`/`private`**),
+  `tng_families` (husband/wife, marrdatetr), `tng_children` (familyID/personID +
+  `frel`/`mrel` = forhold til hhv. far/mor). Fuld beskrivelse i
+  `docs/tng-reventlow-analyse.md`.
+- **Ingen direkte join-nøgle** → matching er fuzzy record-linkage.
 
 ## Centrale beslutninger
 
 1. **Matchings-tilgang A — attribut-baseret scored record-linkage.** Match KUN på
    person-attributter (navn + datoer + køn), aldrig på relationer.
-   **Begrundelse (ikke-cirkularitet):** TNG's relationer er facit. Hvis matching
-   byggede på relationer, ville en forkert relation hos os blokere matchen og dermed
-   skjule netop den fejl vi leder efter. Struktur-enighed må højst optræde som et
-   *transparent flag* i review-køen, aldrig som match-nøgle.
-2. **Implicit "Reventlow"-efternavn.** TNG udelader ofte efternavnet (hele træet
-   ER Reventlow). Navne-normalisering indsætter implicit "Reventlow" når efternavn
-   mangler/er tomt — i BEGGE baser — før sammenligning.
-3. **Tre-tier matching:** `auto` (entydig, navn+dato enige), `review` (tvivl eller
-   flertydig), `none`. Kun review-køen kræver manuel gennemgang.
-4. **Crosswalk er en lokal git-ignored fil.** Den mapper også til levende personer →
-   GDPR-følsom. Den lever IKKE i Supabase og committes IKKE til git.
-5. **TNG indlæses i lokal DuckDB** (dumpet er bare INSERTs → ingen MySQL-server).
-6. **Sprog: R** (projekt-standard ETL: DBI/RPostgres/duckdb).
+   **Ikke-cirkularitet:** relationer er det vi QA'er; byggede matching på dem, ville en
+   forkert relation blokere matchen og skjule fejlen. Struktur-enighed må højst være et
+   *transparent flag* i review-køen, aldrig match-nøgle.
+2. **Implicit "Reventlow" er en SVAG, proveniens-afhængig hypotese — ikke automatisk.**
+   Tomt efternavn kan betyde (a) Reventlow (TNG-konvention), (b) en **indgiftet ægtefælle**
+   (som typisk IKKE er Reventlow), (c) NN/ukendt, (d) parse-fejl, (e) privacy-suppression.
+   Implicit Reventlow tilføjer kun et svagt match-signal og kun hvor proveniensen støtter
+   det (fx personen er i en Reventlow-gren som barn, ikke som indgiftet partner). Aldrig
+   nok til `auto` alene.
+3. **Crosswalk er injektiv (global 1:1).** To af vores personer må aldrig pege på samme
+   TNG-personID. Tildeling løses globalt (ikke grådigt per-person), så tvetydige
+   dobbelt-claims fanges → `review`, ikke silent.
+4. **`auto`-tier kræver attribut-entydighed.** Et par auto-accepteres kun hvis
+   attribut-kombinationen (normaliseret navn + dato-interval + køn) er ~entydig i TNG —
+   beregn kandidat-tæthed først. Mange "Conrad Reventlow" m. overlappende årtier → tvinges
+   til `review` uanset score.
+5. **Kant-sammenligning kun når BEGGE endepunkter er matchet 1:1.** Asymmetri (925 vs.
+   25.745): en matchet persons TNG-ægtefælle/forælder/barn kan være uden for vores scope.
+   Sammenlign en relation kun hvis begge dens personer har accepteret match; ellers
+   rapportér `uden-for-scope/ukendt` — aldrig "mangler hos os".
+6. **Tre-tier matching:** `auto` / `review` / `none`. Kun review-køen kræver manuelt arbejde.
+7. **Crosswalk = lokal git-ignored fil** (mapper også til levende → GDPR-følsom; ikke i
+   Supabase, ikke i git).
+8. **TNG → lokal DuckDB** (dumpet er bare INSERTs → ingen MySQL-server).
+9. **Sprog: R** (DBI/RPostgres/duckdb).
+10. **Read-only, least-privilege DB-adgang.** Pipelinen bruger en dedikeret SELECT-only
+    rolle/forbindelse (ikke den fulde load-bruger fra `supabase_load.R`), read-only
+    transaktion, og validerer ved opstart at den ikke kan skrive. RLS er kun slået til på
+    profiles/suggestion (`schema.sql:140`), så person-data er ubeskyttet på DB-niveau →
+    least-privilege-rollen er værnet.
 
 ## Arkitektur — pipeline-trin
 
-Hvert trin er en isoleret R-funktion/script med veldefineret input/output, så det
-kan testes og gen-køres uafhængigt. Pipelinen er **idempotent**.
+Hvert trin er en isoleret, gen-kørbar R-funktion. Pipelinen er **idempotent**.
 
 ### Trin 1 — Extract TNG-subset → DuckDB
-- **Input:** `jr_tng_reventlow.sql`
-- **Gør:** parser INSERT-rækker for KUN `tng_people`, `tng_families`,
-  `tng_children`, `tng_associations` → lokal DuckDB-fil (`data/tng.duckdb`,
-  git-ignored). MySQL-specifik syntaks (backticks, ENGINE-clauses) ignoreres;
-  kun de fire tabellers kolonner + rækker udtrækkes.
-- **Output:** DuckDB med fire tabeller.
-- **Note:** kun de kolonner vi bruger behøver bevares (personID, navne, datoer,
-  sex, famc, husband/wife, familyID, frel/mrel).
+Parser INSERT-rækker for `tng_people`, `tng_families`, `tng_children`,
+`tng_associations` → `data/tng.duckdb` (git-ignored). Bevarer **`living`/`private`**
+(nødvendigt for redaktion i trin 6). Logger checksum (SHA-256) af dump-filen.
 
-### Trin 2 — Pull vores data fra Supabase
-- **Input:** Supabase-forbindelse (Session pooler, sslmode=require; creds i
-  `~/.Renviron`).
-- **Gør:** SELECT (read-only) fra `person`, `person_external_id`, `family`,
-  `family_member`, og `assertion`+`fact` for fødsel/død-datoer.
-- **Output:** R-data-frames.
+### Trin 2 — Pull vores data (read-only, least-privilege)
+SELECT fra `person` (inkl. **levende/privat**), `person_external_id`, `family`,
+`family_member`, samt `conclusion`+`assertion`+`fact` for fødsel/død (via
+`conclusion.valgt_assertion_id` — den blåstemplede værdi, ikke vilkårlig assertion).
+Fail fast ved manglende creds/forbindelse.
 
 ### Trin 3 — Normalisér begge baser
-- **Navn:** parse til (fornavne, efternavn); indsæt implicit "Reventlow" hvor
-  efternavn mangler; strip titler/prædikater (greve, lensgreve, til …);
-  diakritik BEVARES (æøå, accenter — aldrig ASCII-folding af danske tegn);
-  lowercase til sammenligning; behold rå form til rapport.
-- **Dato:** vores `visning_foedt`/`visning_doed` (tekst) parses til (år_min, år_max);
-  fallback til `assertion.date_min/date_max` hvis tekst ikke parser. TNG
-  `birthdatetr`/`deathdatetr` (date) → år. Fuzzy: interval, ikke punkt.
-- **Køn:** vores `koen` (mand/kvinde/ukendt) vs. TNG `sex` (M/F) → fælles vokabular.
+- **Navn:** parse til (fornavne, partikler, efternavn); håndtér patronymer, navne-
+  partikler (von/til/af), pige-/giftenavn, aliaser, "NN/ukendt"; implicit Reventlow
+  per beslutning #2; strip titler/prædikater (greve, lensgreve, til …); **diakritik
+  BEVARES** (æøå/accenter — aldrig ASCII-folding); lowercase kun til sammenligning;
+  rå form bevares til rapport.
+- **Dato:** vores datoer fra `conclusion`-valgte assertions (date_min/max + qualifier,
+  bevar usikkerhed); fallback `visning_*`-tekst-parse. TNG `*tr`-date → interval.
+  Sammenligning på interval-overlap, ikke punkt.
+- **Køn:** `koen` (mand/kvinde/ukendt) vs. TNG `sex` (M/F) → fælles vokabular.
 
 ### Trin 4 — Blok + score → tiers
-- **Blokering:** kandidat-par hvor fødselsår overlapper (±N års vindue, N angives
-  i plan) ELLER fornavn-initial matcher — for at undgå 925×25.745 fuld-kryds.
-- **Score:** vægtet sum af Jaro-Winkler(navn) + dato-enighed (fødsel+død) +
-  køn-enighed. Tærskler (angives i plan) → `auto`/`review`/`none`.
-  Entydighed: hvis flere TNG-kandidater scorer højt for samme vores-person →
-  tving `review` (aldrig auto ved tvetydighed).
-- **Output:** `data/tng-crosswalk.csv` (vores person_id, TNG personID, tier, score,
-  match-begrundelse) + `data/tng-review-queue.csv` (kun `review`-tier).
+- **Blokering:** kandidat-par hvor fødselsår-interval overlapper (±N år) ELLER fornavn-
+  initial matcher (undgår 925×25.745).
+- **Score:** vægtet Jaro-Winkler(navn) + dato-overlap + køn-enighed.
+- **Tier-tildeling:** `auto` kun ved høj score **OG** attribut-entydighed (#4) **OG**
+  injektiv tildeling (#3); flertydige/dobbelt-claimede → `review`; rest → `none`.
+- **Output:** `data/tng-crosswalk.csv` + `data/tng-review-queue.csv`.
+- **Kvalitets-eval:** et lille **håndlabelt facit-sæt** (kendte sande/falske par)
+  bruges til at måle precision/recall og kalibrere tærskler/vægte — ikke kun ad-hoc tests.
 
-### Trin 5 — Manuel review (idempotent gen-kørsel)
-- Du udfylder `tng-review-queue.csv` (kolonne `afgoerelse` ∈ bekræft/afvis/ny-id).
-- Gen-kørsel læser bekræftede afgørelser → flettes permanent ind i crosswalk;
-  afviste markeres så de ikke dukker op igen. Allerede-afgjorte par genstilles ikke.
+### Trin 5 — Manuel review (idempotent)
+Du udfylder `tng-review-queue.csv` (`afgoerelse` ∈ bekræft/afvis/ny-id). Gen-kørsel
+fletter bekræftede permanent ind; afviste huskes (dukker ikke op igen). Crosswalk-rækker
+bærer **proveniens**: dump-checksum, config-version, reviewer, tidsstempel. Skifter dump-
+checksum eller normaliserings-config → berørte auto-afgørelser invalideres til ny review.
 
 ### Trin 6 — Sammenlign relationer → diskrepans-rapport
-For hvert matchet par (auto + bekræftet review):
-- **Ægteskaber:** vores partner-sæt (via `family_member` rolle=partner) mappet gennem
-  crosswalk vs. TNG `tng_families` husband/wife. Rapportér: mangler-hos-os,
-  ekstra-hos-os, uenig-partner.
-- **Forældre-barn:** vores barn-links vs. TNG `tng_children`, inkl. `frel`/`mrel`
-  (biologisk vs. adopteret/plejebarn ↔ vores rolle-subtyper). Rapportér samme tre
-  kategorier + relationstype-uenighed.
-- **Datoer:** fødsel/død hvor BEGGE har værdi; uenighed > tolerance (interval-overlap).
-- **Køn:** koen vs. sex-uenighed.
+For hvert par hvor begge endepunkter er matchet 1:1 (#5):
+- **Ægteskaber:** partner-sæt + **marrdate** + `family.type` (vielse/partnerskab/union)
+  vs. `tng_families`. Kategorier: mangler/ekstra/uenig (kun når begge i scope).
+- **Forældre-barn:** **per-forælder** (TNG `frel` vs. far, `mrel` vs. mor) mod vores
+  family→barn-kanter; biologisk vs. adopteret/plejebarn ↔ vores rolle-subtyper.
+- **Datoer:** fødsel/død hvor begge har værdi; uenighed = ikke-overlappende intervaller.
+- **Køn:** koen vs. sex.
 
-Hver diskrepans annoteres med, at årsagen kan være (a) vores fejl, (b) TNG-fejl,
-(c) fejl-match — rapporten **dømmer ikke**, men lister til din afgørelse, med
-linje/nr-labels for hurtig opslag i vores base.
+Hver diskrepans: årsag kan være (a) vores fejl, (b) TNG-reference-fejl, (c) fejl-match.
+Rapporten **dømmer ikke** — lister til din afgørelse, med linje/nr-labels.
 
 ## Outputs
 
 | Fil | Indhold | Skæbne |
 |---|---|---|
-| `data/tng.duckdb` | TNG-subset (fire tabeller) | git-ignored, lokal cache |
-| `data/tng-crosswalk.csv` | person_id ↔ TNG personID ↔ tier ↔ score | git-ignored (levende-data), genbrugbar |
-| `data/tng-review-queue.csv` | tvivlsmatches til manuel afgørelse | git-ignored |
-| `docs/reviews/tng-qa-rapport-YYYY-MM-DD.md` | diskrepanser per dimension | committes (skal være fri for levende-PII — kun afdøde/anonymiserede labels; se risici) |
+| `data/tng.duckdb` | TNG-subset + living/private | git-ignored |
+| `data/tng-crosswalk.csv` | person_id ↔ personID ↔ tier ↔ score ↔ proveniens | git-ignored (levende-data) |
+| `data/tng-review-queue.csv` | tvivlsmatches + afgørelses-kolonne | git-ignored |
+| `docs/reviews/tng-qa-rapport-YYYY-MM-DD.md` | diskrepanser per dimension | committes — **kun efter PII-gate** |
+
+## GDPR / PII (kritisk)
+
+- Committed rapport må **ikke** indeholde levende-PII. `person_id` + DAA linje/nr er
+  re-identificerbart → ikke nok at undlade navne.
+- **Regel:** kanter/personer hvor enten vores `levende`/`privat` ELLER TNG `living`/
+  `private` er sat, udelades fra den committede rapport (eller aggregeres uden
+  identifikatorer). Derfor bæres begge baser's flag gennem pipelinen (#trin 1+2).
+- **Pre-commit PII-gate:** automatisk test der afviser commit hvis rapporten indeholder
+  identifikatorer for en levende/privat person. Crosswalk/review-kø/duckdb er git-ignored
+  og forlader aldrig disken.
 
 ## Fejlhåndtering
 
-- Manglende Supabase-creds / forbindelse → fail fast med klar besked.
-- Person uden parsbar dato → indgår i matching på navn+køn alene, markeres
-  lav-konfidens (typisk `review`/`none`).
-- TNG-personID der ikke findes (dangling famc/child) → springes over, logges.
-- Tom/manglende efternavn begge steder → implicit Reventlow (beslutning #2).
+- Manglende creds/forbindelse → fail fast.
+- Person uden parsbar dato → matches på navn+køn alene, lav konfidens (→ review/none).
+- Dangling TNG famc/child-personID → springes over, logges.
+- Tomt efternavn → svag hypotese (#2), ikke automatisk Reventlow.
 
 ## Test (risiko-baseret)
 
-- **Navne-normalisering:** unit-tests m. golden cases — implicit Reventlow,
-  titel-strip, diakritik-bevarelse, fornavn-varianter (Conrad/Conradt).
-- **Dato-parsing:** golden cases fra vores `visning_*`-formater + TNG-datoer.
-- **Match-scoring:** håndlavede par med kendt facit (samme person / forskellig
-  person / tvetydig) → forventet tier.
-- **Relations-sammenligning:** syntetiske mini-baser med kendte diskrepanser →
-  forventet rapport-output.
-- Manuel ende-til-ende-kørsel mod et lille udsnit før fuld kørsel.
+- **Navne-normalisering:** golden cases — implicit Reventlow (inkl. indgiftet-undtagelse),
+  titel-strip, diakritik-bevarelse, patronym/partikel/pigenavn/alias/NN, fornavn-varianter.
+- **Dato-parsing:** golden cases fra `visning_*` + conclusion-assertions + TNG.
+- **Match:** facit-sæt m. precision/recall + tier-forventninger (sand/falsk/tvetydig).
+- **Injektivitet:** test at dobbelt-claim → review, ikke silent.
+- **Scope-guard:** test at uden-for-scope-endepunkt → `ukendt`, ikke "mangler".
+- **Relations-sammenligning:** syntetiske mini-baser m. kendte diskrepanser.
+- **PII-gate:** test at levende-person-identifikator i rapport → commit afvist.
+- Manuel ende-til-ende mod lille udsnit før fuld kørsel.
 
 ## Risici / åbne punkter
 
-- **GDPR i rapporten:** diskrepans-rapporten committes til git → den må IKKE
-  indeholde levende-PII. Mitigering: rapporten bruger person_id + DAA linje/nr som
-  labels (ikke navne på levende), eller filtrerer levende fra rapport-teksten.
-  Afklares i plan-fasen (præcis label-strategi).
-- **Match-tærskler** (blokerings-vindue N, score-vægte, tier-cutoffs) fastlægges
-  empirisk i plan/implementering mod et stikprøve-udsnit.
-- **DAA-grene i TNG:** TNG dækker langt mere end Reventlow-DAA-udsnittet; matching
-  går fra vores 925 → TNG, så TNG-overskud er uskadeligt (ingen scope-filter nødvendig).
-- **Identitets-tvetydighed:** gentagne navne+årtier (mange "Conrad Reventlow") →
-  forventet stor review-kø; struktur-flag (ikke-match-nøgle) kan hjælpe manuelt.
+- **Tærskler** (blokerings-vindue N, score-vægte, cutoffs) kalibreres mod facit-sættet.
+- **Identitets-tvetydighed:** mange "Conrad Reventlow" → stor review-kø forventet;
+  attribut-entydigheds-gaten (#4) styrer det.
+- **TNG-reference-kvalitet:** blandede kilder → uenigheder er uafklarede, ikke domme.
+
+## Codex-review-fund indarbejdet (2026-06-29)
+
+Critical: PII-gate + bær begge baser's levende/privat-flag (§GDPR, trin 1+2).
+High: least-privilege read-only rolle (#10); scope-guard på kanter (#5); injektiv 1:1
+crosswalk (#3); attribut-entydighed før auto (#4); implicit-Reventlow som svag hypotese
+(#2); TNG som reference ikke facit (§Formål); per-forælder frel/mrel-sammenligning (trin 6).
+Medium: dato fra conclusion.valgt_assertion_id + bevar qualifier (trin 3); marriage-QA
+inkl. dato+family.type (trin 6); facit-sæt m. precision/recall (trin 4). Low: crosswalk-
+proveniens + stale-invalidation (trin 5).
