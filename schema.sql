@@ -585,6 +585,40 @@ BEGIN
   RETURN v_id;
 END $$;
 
+-- FK-ORDNET slet af en relation + dens evidens (relationer har 955 assertion+conclusion med
+-- target_type='relation' UDEN FK → flad DELETE forældreløser dem). Spejler red_slet_person.
+CREATE OR REPLACE FUNCTION red_slet_relation(p_relation_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  DELETE FROM citation WHERE assertion_id IN
+    (SELECT id FROM assertion WHERE target_type='relation' AND target_id=p_relation_id);
+  DELETE FROM conclusion WHERE target_type='relation' AND target_id=p_relation_id;
+  DELETE FROM assertion  WHERE target_type='relation' AND target_id=p_relation_id;
+  DELETE FROM note       WHERE target_type='relation' AND target_id=p_relation_id;
+  DELETE FROM relation   WHERE id=p_relation_id;
+END $$;
+
+-- Valideret + idempotent tilføj af person↔org/estate-relation (erstatter rå red_relation for UI).
+CREATE OR REPLACE FUNCTION red_tilfoej_relation(
+  p_subjekt_id bigint, p_objekt_type text, p_objekt_id bigint, p_rolle text, p_periode_raw text DEFAULT NULL)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_id bigint; v_findes boolean;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_objekt_type NOT IN ('organisation','estate') THEN RAISE EXCEPTION 'Ugyldig objekt_type %', p_objekt_type; END IF;
+  IF p_objekt_type='organisation' THEN SELECT EXISTS(SELECT 1 FROM organisation WHERE id=p_objekt_id) INTO v_findes;
+  ELSE SELECT EXISTS(SELECT 1 FROM estate WHERE id=p_objekt_id) INTO v_findes; END IF;
+  IF NOT v_findes THEN RAISE EXCEPTION 'Objekt %/% findes ikke', p_objekt_type, p_objekt_id; END IF;
+  SELECT id INTO v_id FROM relation WHERE subjekt_type='person' AND subjekt_id=p_subjekt_id
+    AND objekt_type=p_objekt_type AND objekt_id=p_objekt_id AND coalesce(rolle,'')=coalesce(p_rolle,'') LIMIT 1;
+  IF v_id IS NOT NULL THEN RETURN v_id; END IF;
+  INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle, periode_raw)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM relation), 'person', p_subjekt_id, p_objekt_type, p_objekt_id, p_rolle, p_periode_raw)
+    RETURNING id INTO v_id;
+  RETURN v_id;
+END $$;
+
 -- Medlem-forslag til staging (all authenticated)
 CREATE OR REPLACE FUNCTION red_suggest(
   p_art text, p_subjekt_type text, p_subjekt_id bigint, p_felt text, p_vaerdi text,
