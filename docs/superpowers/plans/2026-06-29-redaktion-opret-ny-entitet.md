@@ -139,20 +139,47 @@ Expected: ERROR `Kun redaktion` (P0001) — fordi `execute_sql` kører uden `rol
 
 - [ ] **Step 7: Happy-path rollback-test (under redaktion-kontekst)**
 
-Kør under en redaktion-JWT (eller midlertidig `SET LOCAL request.jwt.claims` der giver `current_rolle()='redaktion'`):
+Kører via `mcp__supabase__execute_sql`. Bruger en `DO`-blok (IKKE psql-`\gset`, som ikke er SQL og ikke
+kan eksekveres af PostgREST). Kræver en seedet redaktion-profil: `<redaktion-auth-uid>` = en faktisk
+`auth.users.id` hvis `profiles.rolle='redaktion'` (så `current_rolle()` returnerer 'redaktion'). Asserts
+sker med `RAISE EXCEPTION` inde i blokken; hele transaktionen rulles tilbage.
+
 ```sql
 BEGIN;
 SET LOCAL request.jwt.claims = '{"sub":"<redaktion-auth-uid>","role":"authenticated"}';
-SELECT red_opret_person('Testperson Reventlow', 'mand', false, true, '1700', '1755', 'kammerherre') AS pid \gset
-SELECT visning_navn, privat, levende, koen FROM person WHERE id=:pid;          -- visning_navn='Testperson Reventlow', privat=t
-SELECT faktatype FROM fact WHERE subjekt_type='person' AND subjekt_id=:pid ORDER BY 1; -- død, fødsel, navn, titel
-SELECT red_opret_estate('Testgods', 'gods', NULL);
-SELECT red_opret_kilde('Test-kirkebog', 'kirkebog', NULL, false);
--- NULL/whitespace navn afvises:
-SELECT red_opret_person(NULL);    -- ERROR 'Navn er påkrævet'
+DO $$
+DECLARE pid bigint; v_navn text; v_privat boolean; v_facts int;
+BEGIN
+  pid := red_opret_person('Testperson Reventlow', 'mand', false, true, '1700', '1755', 'kammerherre');
+  SELECT visning_navn, privat INTO v_navn, v_privat FROM person WHERE id = pid;
+  IF v_navn <> 'Testperson Reventlow' THEN RAISE EXCEPTION 'visning_navn forkert: %', v_navn; END IF;
+  IF v_privat IS NOT TRUE THEN RAISE EXCEPTION 'privat ikke true (anon ville kunne læse)'; END IF;
+  SELECT count(*) INTO v_facts FROM fact WHERE subjekt_type='person' AND subjekt_id = pid;
+  IF v_facts <> 4 THEN RAISE EXCEPTION 'forventede 4 facts (navn/fødsel/død/titel), fik %', v_facts; END IF;
+  PERFORM red_opret_estate('Testgods', 'gods', NULL);
+  PERFORM red_opret_kilde('Test-kirkebog', 'kirkebog', NULL, false);
+  PERFORM red_opret_organisation('Testregiment', 'regiment');
+  RAISE NOTICE 'happy-path OK (pid=%)', pid;
+END $$;
 ROLLBACK;
 ```
-Expected: person-række + 4 facts + `visning_navn` regenereret + `privat=t`; estate/kilde oprettet; NULL-navn → ERROR. Alt rullet tilbage.
+Expected: `NOTICE happy-path OK` (ingen EXCEPTION) → person-række + 4 facts + `visning_navn` regenereret +
+`privat=t` + estate/kilde/org oprettet. Alt rullet tilbage.
+
+Kør derefter NULL-navn-afvisning separat (en exception ville ellers afbryde DO-blokken):
+```sql
+BEGIN;
+SET LOCAL request.jwt.claims = '{"sub":"<redaktion-auth-uid>","role":"authenticated"}';
+SELECT red_opret_person(NULL);          -- forventet: ERROR 'Navn er påkrævet'
+ROLLBACK;
+```
+Og whitespace-navn:
+```sql
+BEGIN;
+SET LOCAL request.jwt.claims = '{"sub":"<redaktion-auth-uid>","role":"authenticated"}';
+SELECT red_opret_person('   ');         -- forventet: ERROR 'Navn er påkrævet'
+ROLLBACK;
+```
 
 - [ ] **Step 8: Commit**
 
@@ -478,8 +505,11 @@ export function OpretSheet({ visible, onClose }: { visible: boolean; onClose: ()
   const slagsListe = type === 'estate' ? ESTATE_SLAGS : type === 'kilde' ? KILDE_SLAGS : ORG_SLAGS;
   const kanGemme = navn.trim().length > 0;
 
+  // KUN én native Modal synlig ad gangen (Codex: nested native Modal upålidelig på iOS).
+  // Opret-Modal skjules mens preview er åben; SkrivePreviewSheet rendres som SØSKENDE, ikke inde i.
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={luk}>
+    <>
+    <Modal visible={visible && !pending} transparent animationType="slide" onRequestClose={luk}>
       <Pressable style={styles.backdrop} onPress={luk} />
       <View style={styles.sheet}>
         {!type ? (
@@ -550,9 +580,9 @@ export function OpretSheet({ visible, onClose }: { visible: boolean; onClose: ()
           </ScrollView>
         )}
       </View>
-
-      <SkrivePreviewSheet change={pending} onClose={() => setPending(null)} onApplied={efterOpret} />
     </Modal>
+    <SkrivePreviewSheet change={pending} onClose={() => setPending(null)} onApplied={efterOpret} />
+    </>
   );
 }
 
@@ -684,3 +714,4 @@ git commit -m "docs(redaktion): changelog + decisions for opret-ny-entitet"
 - **Placeholder-scan:** ingen TBD/TODO; al kode konkret.
 - **Type-konsistens:** `loadRedaktionModel(force?)` (Task 3) = samme som kaldt i OpretSheet (Task 5); `onApplied(result?)` (Task 4) = samme som forbrugt i OpretSheet; Change-payload-felter (Task 2) = samme navne brugt i `byg()` (Task 5); RPC-signaturer (Task 1) = args i buildRpcCall (Task 2).
 - **Afvigelse fra spec:** B1 dropper re-throw (regresserede swallow-kaldere) → OpretSheet tjekker `redaktionStatus` i stedet; gods-sted udskudt (ingen place-picker). Begge noteret i spec §5.3/§5.2.
+- **Codex plan-review (2026-06-30):** to fund rettet. (blocker) nestet native Modal → OpretSheet rendrer nu kun én Modal ad gangen (`visible={visible && !pending}`) + SkrivePreviewSheet som søskende uden for første Modal. (major) Task 1 happy-path-test brugte psql-`\gset` (ikke SQL) → omskrevet til `DO`-blok med `RAISE EXCEPTION`-asserts, eksekverbar via `execute_sql`.
