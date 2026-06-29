@@ -160,7 +160,7 @@ for afdøde. Kortlægningen er den sikre løsning.
 | Trin 1: TNG → DuckDB | Kørbar (kræver `jr_tng_reventlow.sql`) |
 | Trin 2: Supabase pull | Kørbar (kræver env-vars + forbindelse) |
 | Trin 3-4: normalisér + match | **Skelet** — kalibreres mod facit-sæt |
-| Trin 5: review-merge + write | Kørbar (afhænger af at `crosswalk` er bygget) |
+| Trin 5: review-merge + write | Stopper med actionabel besked hvis `crosswalk` mangler |
 | Trin 6: sammenlign + rapport | **Skelet** — aktiveres efter PII-gate-løsning |
 
 Fuld e2e-kørsel er en manuel procedure; ingen automatiseret CI-gate kobles

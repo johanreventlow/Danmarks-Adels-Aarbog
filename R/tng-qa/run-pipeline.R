@@ -75,6 +75,14 @@ message("== Trin 3-4: normalisér + match ==")
 #
 # crosswalk <- assign_tiers(scored, cfg)
 
+# Guard: trin 3-4 glue must be completed before trin 5 can run
+if (!exists("crosswalk")) stop(
+  "Trin 3-4 (scored -> crosswalk) er en kalibrerings-skeleton der endnu ikke er ",
+  "færdiggjort. Byg `scored` fra ours+tng_people og afkommentér ",
+  "`crosswalk <- assign_tiers(scored, cfg)` før trin 5-6 kan køre. ",
+  "Se docs/tng-qa-koersel.md (kalibrering mod facit-sæt)."
+)
+
 # ---- Trin 5: review-merge (hvis afgørelser findes) ------------------------
 message("== Trin 5: review-merge (hvis afgørelser findes) ==")
 if (file.exists(rq_csv)) {
