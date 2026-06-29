@@ -1,11 +1,4 @@
-import { eraAdvarsel, parseAar } from '../eraAdvarsel';
-
-test('parseAar: træk første 4-cifrede årstal', () => {
-  expect(parseAar('1650')).toBe(1650);
-  expect(parseAar('f. 1650 i Kbh')).toBe(1650);
-  expect(parseAar(null)).toBeNull();
-  expect(parseAar('ukendt')).toBeNull();
-});
+import { eraAdvarsel } from '../eraAdvarsel';
 
 test('eraAdvarsel: barn født før forælder → advarsel', () => {
   expect(eraAdvarsel(1600, [{ foedsel: 1650, doed: 1700 }])).toMatch(/før forælder/i);

@@ -225,7 +225,7 @@ export type SomBarn = { familyId: string; rolle: string; konfidens: string | nul
 export type PersonFamilie = { somPartner: FamilieUnion[]; somBarn: SomBarn[] };
 type RawFamRow = { family_id: number; person_id: number; rolle: string; ordinal: number | null; konfidens: string | null };
 type RawFamilyMeta = { id: number; type: string | null };
-const BARN_ROLLER = ['barn', 'adopteret_barn', 'plejebarn', 'stedbarn'];
+export const BARN_ROLLER = ['barn', 'adopteret_barn', 'plejebarn', 'stedbarn'] as const;
 
 export function mapFamilieRows(personId: string, families: RawFamilyMeta[], members: RawFamRow[], model: import('./types').Model | null): PersonFamilie {
   const navnAf = (pid: number) => model?.byId?.[String(pid)]?.name ?? `#${pid}`;
@@ -233,7 +233,8 @@ export function mapFamilieRows(personId: string, families: RawFamilyMeta[], memb
   const byFamily = new Map<string, RawFamRow[]>();
   members.forEach((m) => {
     const k = String(m.family_id);
-    (byFamily.get(k) ?? byFamily.set(k, []).get(k)!).push(m);
+    if (!byFamily.has(k)) byFamily.set(k, []);
+    byFamily.get(k)!.push(m);
   });
   const somPartner: FamilieUnion[] = [];
   const somBarn: SomBarn[] = [];
@@ -248,11 +249,11 @@ export function mapFamilieRows(personId: string, families: RawFamilyMeta[], memb
         familyId, type: typeAf.get(familyId) ?? '',
         partnere: rows.filter((r) => r.rolle === 'partner' && String(r.person_id) !== personId)
           .map((r) => ({ personId: String(r.person_id), navn: navnAf(r.person_id), konfidens: r.konfidens, ordinal: r.ordinal })),
-        boern: rows.filter((r) => BARN_ROLLER.includes(r.rolle) && String(r.person_id) !== personId)
+        boern: rows.filter((r) => (BARN_ROLLER as readonly string[]).includes(r.rolle) && String(r.person_id) !== personId)
           .map((r) => ({ personId: String(r.person_id), navn: navnAf(r.person_id), rolle: r.rolle, konfidens: r.konfidens })),
       });
     }
-    migRows.filter((r) => BARN_ROLLER.includes(r.rolle)).forEach((mig) => {
+    migRows.filter((r) => (BARN_ROLLER as readonly string[]).includes(r.rolle)).forEach((mig) => {
       somBarn.push({
         familyId, rolle: mig.rolle, konfidens: mig.konfidens,
         foraeldre: rows.filter((r) => r.rolle === 'partner')
@@ -270,11 +271,13 @@ export async function fetchPersonFamilie(id: string, model: import('./types').Mo
     sb.from('family_member').select('family_id').eq('person_id', Number(id)));
   const famIds = Array.from(new Set(mine.map((m) => m.family_id)));
   if (!famIds.length) return { somPartner: [], somBarn: [] };
-  const members = await getAll<RawFamRow>(() =>
-    sb.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens').in('family_id', famIds)
-      .order('ordinal', { ascending: true, nullsFirst: false }).order('person_id'));
-  const families = await getAll<RawFamilyMeta>(() =>
-    sb.from('family').select('id,type').in('id', famIds));
+  const [members, families] = await Promise.all([
+    getAll<RawFamRow>(() =>
+      sb.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens').in('family_id', famIds)
+        .order('ordinal', { ascending: true, nullsFirst: false }).order('person_id')),
+    getAll<RawFamilyMeta>(() =>
+      sb.from('family').select('id,type').in('id', famIds)),
+  ]);
   return mapFamilieRows(id, families, members, model);
 }
 

@@ -9,7 +9,7 @@ import { SkrivePreviewSheet } from '../../../components/redaktion/SkrivePreviewS
 import { EntitetPicker } from '../../../components/redaktion/EntitetPicker';
 import { PersonPicker } from '../../../components/redaktion/PersonPicker';
 import { Body, BtnLabel, Mono, Serif } from '../../../components/Typography';
-import { fetchPersonEvidence, fetchPersonNarrativ, fetchPersonRelationer, fetchPersonFamilie, type PersonEvidence, type PersonRelation, type PersonFamilie } from '../../../data/redaktionRead';
+import { fetchPersonEvidence, fetchPersonNarrativ, fetchPersonRelationer, fetchPersonFamilie, BARN_ROLLER, type PersonEvidence, type PersonRelation, type PersonFamilie } from '../../../data/redaktionRead';
 import { eraAdvarsel } from '../../../data/eraAdvarsel';
 import { type Change } from '../../../data/redaktionWrite';
 import { useStore } from '../../../store/useStore';
@@ -20,7 +20,6 @@ const FELT_LABEL: Record<string, string> = { navn: 'navn', foedt: 'født', doed:
 
 const KONFIDENS_VAERDIER = ['sikker', 'sandsynlig', 'formodet', 'omstridt'] as const;
 const UNION_TYPER = ['vielse', 'partnerskab', 'ugift union'] as const;
-const BARN_ROLLER_UI = ['barn', 'adopteret_barn', 'plejebarn', 'stedbarn'] as const;
 
 function CenterMsg({ title, children }: { title: string; children: string }) {
   return (
@@ -44,6 +43,25 @@ function KonfidensVaelger({ vaerdi, onVael }: { vaerdi: string | null; onVael: (
       <Pressable style={editorStyles.koenPille} onPress={() => onVael(null)}>
         <BtnLabel size={10} color={Colors.textMuted}>ryd</BtnLabel>
       </Pressable>
+    </View>
+  );
+}
+
+function FamilieEditRad({ label, konfidens, onKonfidens, onSlet }: { label: string; konfidens: string | null; onKonfidens: (k: string | null) => void; onSlet: () => void }) {
+  return (
+    <View style={editorStyles.relEditRad}>
+      <View style={{ flex: 1 }}><Body size={13}>{label}</Body></View>
+      <KonfidensVaelger vaerdi={konfidens} onVael={onKonfidens} />
+      <Pressable onPress={onSlet}><Mono size={9} color={Colors.danger}>🗑</Mono></Pressable>
+    </View>
+  );
+}
+
+function SheetButtons({ marginTop, onGem, onClose, gemLabel }: { marginTop?: number; onGem: () => void; onClose: () => void; gemLabel?: string }) {
+  return (
+    <View style={{ flexDirection: 'row', gap: 8, marginTop: marginTop ?? 12 }}>
+      <Pressable style={editorStyles.addOpret} onPress={onGem}><BtnLabel color="#fff">{gemLabel ?? 'Gem'}</BtnLabel></Pressable>
+      <Pressable style={editorStyles.addAnnuller} onPress={onClose}><BtnLabel color={Colors.textMuted}>Annullér</BtnLabel></Pressable>
     </View>
   );
 }
@@ -78,17 +96,10 @@ function UnionTypeSheet({ partner, onClose, onGem }: {
           onChangeText={setOrdinalTekst}
           keyboardType="numeric"
         />
-        <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-          <Pressable style={editorStyles.addOpret} onPress={() => {
+        <SheetButtons onGem={() => {
             const ordinal = ordinalTekst.trim() ? Number(ordinalTekst.trim()) : null;
             onGem(valgtType, ordinal);
-          }}>
-            <BtnLabel color="#fff">Gem</BtnLabel>
-          </Pressable>
-          <Pressable style={editorStyles.addAnnuller} onPress={onClose}>
-            <BtnLabel color={Colors.textMuted}>Annullér</BtnLabel>
-          </Pressable>
-        </View>
+          }} onClose={onClose} />
       </View>
     </Modal>
   );
@@ -113,7 +124,7 @@ function BarnSheet({ scratch, advarsel, onClose, onGem }: {
         ) : null}
         <Mono size={9} color={Colors.gold} style={{ marginBottom: 6 }}>ROLLE</Mono>
         <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-          {BARN_ROLLER_UI.map((r) => (
+          {BARN_ROLLER.map((r) => (
             <Pressable key={r}
               style={[editorStyles.koenPille, rolle === r && editorStyles.koenPilleAktiv]}
               onPress={() => setRolle(r)}>
@@ -123,14 +134,7 @@ function BarnSheet({ scratch, advarsel, onClose, onGem }: {
         </View>
         <Mono size={9} color={Colors.gold} style={{ marginBottom: 6 }}>KONFIDENS</Mono>
         <KonfidensVaelger vaerdi={konfidens} onVael={setKonfidens} />
-        <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
-          <Pressable style={editorStyles.addOpret} onPress={() => onGem(rolle, konfidens)}>
-            <BtnLabel color="#fff">Gem</BtnLabel>
-          </Pressable>
-          <Pressable style={editorStyles.addAnnuller} onPress={onClose}>
-            <BtnLabel color={Colors.textMuted}>Annullér</BtnLabel>
-          </Pressable>
-        </View>
+        <SheetButtons marginTop={14} onGem={() => onGem(rolle, konfidens)} onClose={onClose} />
       </View>
     </Modal>
   );
@@ -163,14 +167,7 @@ function RelTilfoejSheet({ scratch, onClose, onGem }: {
           value={periode}
           onChangeText={setPeriode}
         />
-        <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-          <Pressable style={editorStyles.addOpret} onPress={() => onGem(rolle, periode)}>
-            <BtnLabel color="#fff">Gem</BtnLabel>
-          </Pressable>
-          <Pressable style={editorStyles.addAnnuller} onPress={onClose}>
-            <BtnLabel color={Colors.textMuted}>Annullér</BtnLabel>
-          </Pressable>
-        </View>
+        <SheetButtons onGem={() => onGem(rolle, periode)} onClose={onClose} />
       </View>
     </Modal>
   );
@@ -287,6 +284,8 @@ export default function PersonEditor() {
   if (redaktionStatus === 'idle' || redaktionStatus === 'loading') return <CenterMsg title="Person">Henter…</CenterMsg>;
   if (redaktionStatus === 'error') return <CenterMsg title="Person">Kunne ikke hente redaktion-data.</CenterMsg>;
   if (!person) return <CenterMsg title="Person">Personen blev ikke fundet.</CenterMsg>;
+
+  const datoeFor = (pid: string) => ({ foedsel: redaktionModel?.byId?.[pid]?.born ?? null, doed: redaktionModel?.byId?.[pid]?.died ?? null });
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
@@ -475,25 +474,15 @@ export default function PersonEditor() {
                 <View key={u.familyId}>
                   <Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>ÆGTEFÆLLE ({u.type})</Mono>
                   {u.partnere.map((pt) => (
-                    <View key={pt.personId} style={editorStyles.relEditRad}>
-                      <View style={{ flex: 1 }}><Body size={13}>{pt.navn}</Body></View>
-                      <KonfidensVaelger vaerdi={pt.konfidens}
-                        onVael={(k) => setPending({ art: 'setFamilieKonfidens', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: pt.personId, rolle: 'partner', konfidens: k })} />
-                      <Pressable onPress={() => setPending({ art: 'sletFamilieLink', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: pt.personId, rolle: 'partner' })}>
-                        <Mono size={9} color={Colors.danger}>🗑</Mono>
-                      </Pressable>
-                    </View>
+                    <FamilieEditRad key={pt.personId} label={pt.navn} konfidens={pt.konfidens}
+                      onKonfidens={(k) => setPending({ art: 'setFamilieKonfidens', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: pt.personId, rolle: 'partner', konfidens: k })}
+                      onSlet={() => setPending({ art: 'sletFamilieLink', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: pt.personId, rolle: 'partner' })} />
                   ))}
                   <Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>BØRN</Mono>
                   {u.boern.map((b) => (
-                    <View key={`${b.personId}-${b.rolle}`} style={editorStyles.relEditRad}>
-                      <View style={{ flex: 1 }}><Body size={13}>{b.navn}{b.rolle !== 'barn' ? ` · ${b.rolle}` : ''}</Body></View>
-                      <KonfidensVaelger vaerdi={b.konfidens}
-                        onVael={(k) => setPending({ art: 'setFamilieKonfidens', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: b.personId, rolle: b.rolle, konfidens: k })} />
-                      <Pressable onPress={() => setPending({ art: 'sletFamilieLink', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: b.personId, rolle: b.rolle })}>
-                        <Mono size={9} color={Colors.danger}>🗑</Mono>
-                      </Pressable>
-                    </View>
+                    <FamilieEditRad key={`${b.personId}-${b.rolle}`} label={b.navn + (b.rolle !== 'barn' ? ' · ' + b.rolle : '')} konfidens={b.konfidens}
+                      onKonfidens={(k) => setPending({ art: 'setFamilieKonfidens', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: b.personId, rolle: b.rolle, konfidens: k })}
+                      onSlet={() => setPending({ art: 'sletFamilieLink', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: b.personId, rolle: b.rolle })} />
                   ))}
                   <Pressable style={{ paddingVertical: 6 }} onPress={() => setBarnPickerFam(u.familyId)}>
                     <Mono size={9} color={Colors.bordeaux}>+ Tilføj barn</Mono>
@@ -600,16 +589,10 @@ export default function PersonEditor() {
         <BarnSheet scratch={barnScratch}
           advarsel={eraAdvarsel(
             redaktionModel?.byId?.[barnScratch.personId]?.born ?? null,
-            [
-              // Fokus-personen er selv en forælder i denne union, men mapFamilieRows filtrerer
-              // den ud af `partnere` — medtag dens datoer eksplicit, ellers er era-tjekket dødt
-              // for unioner med kun én registreret forælder (almindeligt i DAA).
-              { foedsel: redaktionModel?.byId?.[id!]?.born ?? null, doed: redaktionModel?.byId?.[id!]?.died ?? null },
-              ...(familie.somPartner.find((u) => u.familyId === barnScratch.familyId)?.partnere ?? []).map((pt) => ({
-                foedsel: redaktionModel?.byId?.[pt.personId]?.born ?? null,
-                doed: redaktionModel?.byId?.[pt.personId]?.died ?? null,
-              })),
-            ]
+            // Fokus-personen er selv en forælder i denne union, men mapFamilieRows filtrerer
+            // den ud af `partnere` — medtag dens datoer eksplicit, ellers er era-tjekket dødt
+            // for unioner med kun én registreret forælder (almindeligt i DAA).
+            [datoeFor(id!), ...(familie.somPartner.find((u) => u.familyId === barnScratch.familyId)?.partnere ?? []).map((pt) => datoeFor(pt.personId))]
           )}
           onClose={() => setBarnScratch(null)}
           onGem={(rolle, konfidens) => {

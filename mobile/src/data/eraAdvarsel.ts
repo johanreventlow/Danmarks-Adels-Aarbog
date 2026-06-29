@@ -1,11 +1,5 @@
 const DOEDS_MARGIN = 1; // år efter forælders død et barn stadig kan fødes (graviditet)
 
-export function parseAar(s: string | null): number | null {
-  if (!s) return null;
-  const m = s.match(/\d{4}/);
-  return m ? Number(m[0]) : null;
-}
-
 export function eraAdvarsel(
   barnFoedselAar: number | null,
   foraeldre: { foedsel: number | null; doed: number | null }[],

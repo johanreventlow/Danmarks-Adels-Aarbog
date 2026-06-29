@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useStore } from '../../store/useStore';
-import { Border, Colors, Radius } from '../../theme/tokens';
+import { Colors } from '../../theme/tokens';
 import { Body, Mono, Serif } from '../Typography';
+import { pickerSheetStyles } from './pickerSheetStyles';
 
 export function EntitetPicker({ type, onValg, onClose }: {
   type: 'organisation' | 'estate';
@@ -21,15 +22,15 @@ export function EntitetPicker({ type, onValg, onClose }: {
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} />
-      <View style={styles.sheet}>
+      <Pressable style={pickerSheetStyles.backdrop} onPress={onClose} />
+      <View style={pickerSheetStyles.sheet}>
         <Serif size={20} style={{ marginBottom: 10 }}>{type === 'organisation' ? 'Vælg organisation' : 'Vælg gods'}</Serif>
-        <TextInput style={styles.input} placeholder="Søg…" placeholderTextColor={Colors.textMuted}
+        <TextInput style={pickerSheetStyles.input} placeholder="Søg…" placeholderTextColor={Colors.textMuted}
           value={query} onChangeText={setQuery} autoFocus />
         <ScrollView style={{ maxHeight: 320 }}>
           {liste.length === 0 ? <Body color={Colors.textMuted} style={{ padding: 12 }}>Ingen.</Body> : null}
           {liste.map((x) => (
-            <Pressable key={x.id} style={styles.row}
+            <Pressable key={x.id} style={pickerSheetStyles.row}
               onPress={() => { onValg({ objektType: type, objektId: x.id, navn: x.navn }); onClose(); }}>
               <Body size={14}>{x.navn}</Body>
               <Mono size={8} color={Colors.textMuted}>#{x.id}</Mono>
@@ -40,11 +41,3 @@ export function EntitetPicker({ type, onValg, onClose }: {
     </Modal>
   );
 }
-
-const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(34,31,26,0.4)' },
-  sheet: { backgroundColor: Colors.paperBg, borderTopLeftRadius: Radius.sheet, borderTopRightRadius: Radius.sheet, padding: 20, paddingBottom: 36 },
-  input: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light, borderRadius: Radius.field,
-    paddingHorizontal: 12, paddingVertical: 9, marginBottom: 8, fontFamily: 'HankenGrotesk_400Regular', fontSize: 14 },
-  row: { paddingVertical: 9, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Border.light },
-});

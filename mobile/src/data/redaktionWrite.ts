@@ -30,6 +30,11 @@ export type Change = {
 
 export type RpcCall = { fn: string; args: Record<string, unknown> };
 
+function famLinkBase(c: Change): { p_family_id: number; p_person_id: number; p_rolle: string } | null {
+  if (c.familyId == null || c.personId == null || !c.rolle) return null;
+  return { p_family_id: Number(c.familyId), p_person_id: Number(c.personId), p_rolle: c.rolle };
+}
+
 export function buildRpcCall(c: Change): RpcCall | null {
   const sid = Number(c.subjektId);
   const aid = c.assertionId != null ? Number(c.assertionId) : null;
@@ -122,16 +127,10 @@ export function buildRpcCall(c: Change): RpcCall | null {
       p_family_id: Number(p.familyId), p_barn_id: Number(p.barnId),
       p_rolle: p.rolle || 'barn', p_konfidens: p.konfidens ?? null } };
   }
-  if (c.art === 'setFamilieKonfidens') {
-    if (c.familyId == null || c.personId == null || !c.rolle) return null;
-    return { fn: 'red_set_familie_konfidens', args: {
-      p_family_id: Number(c.familyId), p_person_id: Number(c.personId), p_rolle: c.rolle, p_konfidens: c.konfidens ?? null } };
-  }
-  if (c.art === 'sletFamilieLink') {
-    if (c.familyId == null || c.personId == null || !c.rolle) return null;
-    return { fn: 'red_slet_familie_link', args: {
-      p_family_id: Number(c.familyId), p_person_id: Number(c.personId), p_rolle: c.rolle } };
-  }
+  if (c.art === 'setFamilieKonfidens') { const b = famLinkBase(c); if (!b) return null;
+    return { fn: 'red_set_familie_konfidens', args: { ...b, p_konfidens: c.konfidens ?? null } }; }
+  if (c.art === 'sletFamilieLink') { const b = famLinkBase(c); if (!b) return null;
+    return { fn: 'red_slet_familie_link', args: b }; }
   return null;
 }
 
