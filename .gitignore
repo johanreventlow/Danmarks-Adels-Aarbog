@@ -2,6 +2,8 @@
 .Rhistory
 .RData
 .Ruserdata
+.DS_Store
+.antigravitycli/
 # Node / Vite frontend
 node_modules/
 dist/
@@ -13,6 +15,10 @@ dist/
 jr_tng_reventlow.sql
 # Afledt analyse af TNG-dumpet — kan indeholde levende-persondata (GDPR, invariant #8)
 docs/tng-reventlow-analyse.md
+# TNG-QA-afledte filer (crosswalk/review-kø/duckdb) — mapper til levende-data (GDPR, invariant #8)
+data/tng.duckdb
+data/tng-crosswalk.csv
+data/tng-review-queue.csv
 
 # DAA-udtræk arbejdsmappe (kan indeholde levende-persondata)
 work/
@@ -20,6 +26,9 @@ work_presens/
 
 # Kilde-PDF'er (store, ophavsret) — ikke i repo
 *.pdf
+
+# Udtrukne billeder fra DAA (store, ophavsret) — på disk, ikke i repo
+media/
 web/vite.config.js
 web/vite.config.d.ts
 
