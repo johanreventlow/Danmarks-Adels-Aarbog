@@ -2,13 +2,15 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
-## Opret: privat=true default + sted udskudt (2026-06-29)
+## Opret: privat FORCERET true + sted udskudt (2026-06-29, hærdet 2026-06-30)
 
-**Ny person oprettes med `privat=true`, ikke blot `levende=false`.**
+**Ny person oprettes med `privat=true` — IKKE konfigurerbar ved opret.**
 RLS-reglen `levende=false AND privat=false` gør personen anon-læsbar. En glemt levende-toggle
-ville ellers publicere en nulevende person umiddelbart ved opret. `privat=true` som default kræver
-en bevidst handling af redaktøren for at gøre personen synlig — via `red_set_privat`. Ansvaret
-for synlighed placeres dermed eksplicit hos redaktøren, ikke i en implicit-off standardtilstand.
+ville ellers publicere en nulevende person umiddelbart ved opret. Frem til cycle-08 var `p_privat`
+en parameter med default `true`, men en crafted kald med `p_privat=false` kunne omgå beskyttelsen.
+**cycle-08 (2026-06-30):** `p_privat`-parameteren fjernet helt — `INSERT` hardkoder `privat=true`.
+Gammel 7-arg signatur DROPpet; ny 6-arg erstatter. Synlighed skiftes udelukkende via
+`red_set_privat`. Ansvaret for synlighed placeres dermed eksplicit hos redaktøren.
 
 **Gods-sted udskudt.**
 `EntitetPicker` understøtter kun organisation/estate, og `redaktionAux` har ingen `placeListe`.

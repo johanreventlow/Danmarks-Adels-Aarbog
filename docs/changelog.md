@@ -40,6 +40,11 @@
 * **Codex-review-fix (2026-06-30):** nestet native Modal fjernet — OpretSheet rendrer nu én Modal
   ad gangen + SkrivePreviewSheet som søskende; Task 1 happy-path-test omskrevet fra psql-`\gset`
   til `DO`-blok med `RAISE EXCEPTION`-asserts (eksekverbar via `execute_sql`).
+* **GDPR-hærdning cycle-08 (2026-06-30):** `p_privat`-param fjernet fra `red_opret_person` — privat
+  er nu FORCERET `true` i INSERT-kroppen; gammel 7-arg-signatur DROPpet på PROD (ny 6-arg erstatter).
+  Synlighed skiftes herefter udelukkende via `red_set_privat`. `OpretSheet` og `buildRpcCall`
+  fjerner `privat`-feltet fra payload; jest-test opdateret (30/30). Lukker anon-eksponerings-footgun:
+  en crafted RPC-kald med `p_privat=false` kunne gøre en afdød person anon-læsbar ved opret.
 
 ## Plan 2C-2b — redigerbar familie-sektion (partner + barn + konfidens) i redaktør-person-editoren (2026-06-29)
 * **Hvad:** Redaktøren kan nu tilføje og afkoble ægtefælle/partner, tilføje og afkoble børn
