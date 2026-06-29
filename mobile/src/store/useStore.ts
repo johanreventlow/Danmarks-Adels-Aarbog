@@ -72,7 +72,7 @@ type State = {
   redaktionModel: import('../data/types').Model | null;
   redaktionAux: import('../data/types').Aux | null;
   redaktionStatus: 'idle' | 'loading' | 'ready' | 'error';
-  loadRedaktionModel: () => Promise<void>;
+  loadRedaktionModel: (force?: boolean) => Promise<void>;
 
   // Auth actions
   doSignIn: (email: string, password: string) => Promise<void>;
@@ -254,15 +254,15 @@ export const useStore = create<State>((set, get) => ({
   setRelA: (id) => set({ relA: id }),
   setRelB: (id) => set({ relB: id }),
 
-  loadRedaktionModel: async () => {
-    if (get().redaktionStatus === 'loading' || get().redaktionStatus === 'ready') return;
+  loadRedaktionModel: async (force?: boolean) => {
+    if (!force && (get().redaktionStatus === 'loading' || get().redaktionStatus === 'ready')) return;
     set({ redaktionStatus: 'loading' });
     try {
       const res = await loadFromSupabase({ includePrivat: true });
       const model = buildModel(res.db);
       set({ redaktionModel: model, redaktionAux: res.aux, redaktionStatus: 'ready' });
     } catch {
-      // Redaktion skal VIDE hvis det fejler — ingen seed-fallback, ingen tom-som-clean.
+      // Redaktion skal VIDE hvis det fejler — ingen seed-fallback. Kaldere tjekker redaktionStatus.
       set({ redaktionStatus: 'error' });
     }
   },
