@@ -564,6 +564,8 @@ END $$;
 
 -- 2026-06-29: 2C-2b familie-RPC'er (1/2)
 -- Opret partner-union. INGEN auto-dedup (Codex H2): samme par kan gifte sig igen.
+-- NB: p_ordinal er UNIONENS sekvensnummer (skrives ens til begge partnere), ikke hver partners
+--     individuelle ægteskabstal — per-partner-ordinal er en fremtidig additiv udvidelse (cycle 07 H2).
 CREATE OR REPLACE FUNCTION red_opret_union(p_partner_a bigint, p_partner_b bigint, p_type text, p_ordinal int DEFAULT NULL)
 RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_fam bigint;
@@ -594,6 +596,8 @@ BEGIN
 END $$;
 
 -- Slet ÉT familie-link. INGEN family-entitets-sletning (Codex H1): family bærer facts/notes uden FK.
+-- Idempotent: no-op (ingen RAISE) hvis triplen ikke findes — tilsigtet, matcher red_slet_relation/red_slet_person
+--   (UI sender altid friskt-hentede triples; cycle 07 H4).
 CREATE OR REPLACE FUNCTION red_slet_familie_link(p_family_id bigint, p_person_id bigint, p_rolle text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
@@ -604,6 +608,9 @@ END $$;
 -- 2026-06-29: 2C-2b familie-RPC'er (2/2)
 -- Tilføj barn til en union. Struktur-guards (Codex H3): barn ≠ partner i samme family;
 -- ingen ane-cyklus (recursiv CTE: descendants(barn) må ikke indeholde en partner i family).
+-- NB: cyklus-tjekket er pre-INSERT uden lås — to samtidige txn'er kan i teorien hver indsætte den anden
+--   som barn og tilsammen lukke en cyklus. Accepteret under projektets single-writer-PoC-antagelse
+--   (samme klasse som max(id)+1; cycle 07 Codex H1). Advisory-lock = fremtidig hærdning hvis multi-writer.
 CREATE OR REPLACE FUNCTION red_tilfoej_barn(p_family_id bigint, p_barn_id bigint, p_rolle text DEFAULT 'barn', p_konfidens text DEFAULT NULL)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_cyklus boolean;

@@ -238,23 +238,27 @@ export function mapFamilieRows(personId: string, families: RawFamilyMeta[], memb
   const somPartner: FamilieUnion[] = [];
   const somBarn: SomBarn[] = [];
   byFamily.forEach((rows, familyId) => {
-    const mig = rows.find((r) => String(r.person_id) === personId);
-    if (!mig) return;
-    if (mig.rolle === 'partner') {
+    // Bucket ALLE fokus-personens medlemskaber i denne familie — ikke kun det første
+    // (cycle 07 Codex H2): family_member-PK inkluderer rolle, så samme person kan have flere
+    // barn-roller i samme familie; find-first ville skjule de øvrige links (uredigerbare).
+    const migRows = rows.filter((r) => String(r.person_id) === personId);
+    if (!migRows.length) return;
+    if (migRows.some((r) => r.rolle === 'partner')) {
       somPartner.push({
         familyId, type: typeAf.get(familyId) ?? '',
         partnere: rows.filter((r) => r.rolle === 'partner' && String(r.person_id) !== personId)
           .map((r) => ({ personId: String(r.person_id), navn: navnAf(r.person_id), konfidens: r.konfidens, ordinal: r.ordinal })),
-        boern: rows.filter((r) => BARN_ROLLER.includes(r.rolle))
+        boern: rows.filter((r) => BARN_ROLLER.includes(r.rolle) && String(r.person_id) !== personId)
           .map((r) => ({ personId: String(r.person_id), navn: navnAf(r.person_id), rolle: r.rolle, konfidens: r.konfidens })),
       });
-    } else if (BARN_ROLLER.includes(mig.rolle)) {
+    }
+    migRows.filter((r) => BARN_ROLLER.includes(r.rolle)).forEach((mig) => {
       somBarn.push({
         familyId, rolle: mig.rolle, konfidens: mig.konfidens,
         foraeldre: rows.filter((r) => r.rolle === 'partner')
           .map((r) => ({ personId: String(r.person_id), navn: navnAf(r.person_id) })),
       });
-    }
+    });
   });
   return { somPartner, somBarn };
 }
