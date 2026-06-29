@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SkrivePreviewSheet } from './SkrivePreviewSheet';
 import { pickerSheetStyles } from './pickerSheetStyles';
@@ -77,7 +77,11 @@ export function OpretSheet({ visible, onClose }: { visible: boolean; onClose: ()
   async function efterOpret(result?: unknown) {
     const t = type; // bevares før nulstil
     await useStore.getState().loadRedaktionModel(true);
-    if (useStore.getState().redaktionStatus !== 'ready') return; // forced reload fejlede → bliv på sheet
+    if (useStore.getState().redaktionStatus !== 'ready') {
+      Alert.alert('Oprettet', 'Posten blev oprettet, men listen kunne ikke opdateres. Genindlæs appen for at se den.');
+      luk();
+      return;
+    }
     luk();
     if (t === 'person' && result != null) router.push(`/redaktion/person/${result}` as never);
   }
