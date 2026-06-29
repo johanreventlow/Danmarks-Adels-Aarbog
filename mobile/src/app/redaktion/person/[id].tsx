@@ -1,14 +1,15 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { InitialBadge } from '../../../components/InitialBadge';
 import { TopBar } from '../../../components/TopBar';
 import { FaktaKort, type FaktaAction } from '../../../components/redaktion/FaktaKort';
 import { SletBekraeftSheet } from '../../../components/redaktion/SletBekraeftSheet';
 import { SkrivePreviewSheet } from '../../../components/redaktion/SkrivePreviewSheet';
+import { EntitetPicker } from '../../../components/redaktion/EntitetPicker';
 import { Body, BtnLabel, Mono, Serif } from '../../../components/Typography';
 import { parentsOf, spousesOf, childrenByMarriage } from '../../../data/selectors';
-import { fetchPersonEvidence, fetchPersonNarrativ, type PersonEvidence } from '../../../data/redaktionRead';
+import { fetchPersonEvidence, fetchPersonNarrativ, fetchPersonRelationer, type PersonEvidence, type PersonRelation } from '../../../data/redaktionRead';
 import { type Change } from '../../../data/redaktionWrite';
 import { useStore } from '../../../store/useStore';
 import { Border, Colors, Radius } from '../../../theme/tokens';
@@ -22,6 +23,46 @@ function CenterMsg({ title, children }: { title: string; children: string }) {
       <TopBar title={title} />
       <Body color={Colors.textMuted} style={{ padding: 24 }}>{children}</Body>
     </View>
+  );
+}
+
+function RelTilfoejSheet({ scratch, onClose, onGem }: {
+  scratch: { objektType: string; objektId: string; navn: string; rolle: string; periode: string };
+  onClose: () => void;
+  onGem: (rolle: string, periode: string) => void;
+}) {
+  const [rolle, setRolle] = useState(scratch.rolle);
+  const [periode, setPeriode] = useState(scratch.periode);
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={editorStyles.modalBackdrop} onPress={onClose} />
+      <View style={editorStyles.modalSheet}>
+        <Serif size={20} style={{ marginBottom: 10 }}>Tilføj relation</Serif>
+        <Body size={14} style={{ marginBottom: 12 }}>{scratch.navn}</Body>
+        <TextInput
+          style={editorStyles.addInput}
+          placeholder="Rolle (valgfri)"
+          placeholderTextColor={Colors.textMuted2}
+          value={rolle}
+          onChangeText={setRolle}
+        />
+        <TextInput
+          style={[editorStyles.addInput, { marginTop: 8 }]}
+          placeholder="Periode (valgfri)"
+          placeholderTextColor={Colors.textMuted2}
+          value={periode}
+          onChangeText={setPeriode}
+        />
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+          <Pressable style={editorStyles.addOpret} onPress={() => onGem(rolle, periode)}>
+            <BtnLabel color="#fff">Gem</BtnLabel>
+          </Pressable>
+          <Pressable style={editorStyles.addAnnuller} onPress={onClose}>
+            <BtnLabel color={Colors.textMuted}>Annullér</BtnLabel>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -64,6 +105,13 @@ export default function PersonEditor() {
   const [addScratch, setAddScratch] = useState({ vaerdi: '', kilde: '' });
 
   useEffect(() => { if (id) fetchPersonEvidence(id).then(setEv).catch(() => {}); }, [id]);
+
+  const [relationer, setRelationer] = useState<PersonRelation[]>([]);
+  const [pickerType, setPickerType] = useState<'organisation' | 'estate' | null>(null);
+  const [relScratch, setRelScratch] = useState<{ objektType: string; objektId: string; navn: string; rolle: string; periode: string } | null>(null);
+  useEffect(() => {
+    if (id) fetchPersonRelationer(id, redaktionAux).then(setRelationer).catch(() => {});
+  }, [id, redaktionAux]);
 
   function onAction(a: FaktaAction) {
     if (a.type === 'gørKonklusion') {
@@ -295,8 +343,6 @@ export default function PersonEditor() {
           const foraeldre = parentsOf(redaktionModel, id!);
           const aegtefaeller = spousesOf(redaktionModel, id!);
           const aegteskaber = childrenByMarriage(redaktionModel, id!).filter((m) => m.children.length);
-          const off = redaktionAux?.officesBy[id!] ?? [];
-          const god = redaktionAux?.estatesBy[id!] ?? [];
           const kld = redaktionAux?.sourcesBy[id!] ?? [];
           const PersonRad = ({ pid, navn }: { pid: string | null; navn: string }) => (
             <Pressable style={editorStyles.relRad} disabled={!pid}
@@ -317,10 +363,40 @@ export default function PersonEditor() {
                   {m.children.map((c) => <PersonRad key={c.id} pid={c.id} navn={c.name} />)}
                 </View>
               ))}
-              {off.length ? (<><Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>HVERV</Mono>
-                {off.map((o, i) => <View key={i} style={editorStyles.sekRad}><Body size={13}>{o.label}</Body>{o.period ? <Mono size={9} color={Colors.textMuted}>{o.period}</Mono> : null}</View>)}</>) : null}
-              {god.length ? (<><Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>GODSER</Mono>
-                {god.map((g, i) => <View key={i} style={editorStyles.sekRad}><Body size={13}>{g.navn}</Body>{g.period ? <Mono size={9} color={Colors.textMuted}>{g.period}</Mono> : null}</View>)}</>) : null}
+              {/* HVERV (redigerbart) */}
+              <Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>HVERV</Mono>
+              {relationer.filter((r) => r.art === 'hverv' || r.art === 'event').map((r) => (
+                <View key={r.relationId} style={editorStyles.relEditRad}>
+                  <View style={{ flex: 1 }}>
+                    <Body size={13}>{r.navn}{r.rolle ? ` · ${r.rolle}` : ''}</Body>
+                    {r.periode ? <Mono size={9} color={Colors.textMuted}>{r.periode}</Mono> : null}
+                  </View>
+                  <Pressable onPress={() => setPending({ art: 'sletRelation', subjektType: 'person', subjektId: id!, relationId: String(r.relationId) })}>
+                    <Mono size={9} color={Colors.danger}>🗑</Mono>
+                  </Pressable>
+                </View>
+              ))}
+              <Pressable style={{ paddingVertical: 6 }} onPress={() => { setPickerType('organisation'); setRelScratch(null); }}>
+                <Mono size={9} color={Colors.bordeaux}>+ Tilføj hverv</Mono>
+              </Pressable>
+
+              {/* GODSER (redigerbart) */}
+              <Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>GODSER</Mono>
+              {relationer.filter((r) => r.art === 'gods').map((r) => (
+                <View key={r.relationId} style={editorStyles.relEditRad}>
+                  <View style={{ flex: 1 }}>
+                    <Body size={13}>{r.navn}{r.rolle ? ` · ${r.rolle}` : ''}</Body>
+                    {r.periode ? <Mono size={9} color={Colors.textMuted}>{r.periode}</Mono> : null}
+                  </View>
+                  <Pressable onPress={() => setPending({ art: 'sletRelation', subjektType: 'person', subjektId: id!, relationId: String(r.relationId) })}>
+                    <Mono size={9} color={Colors.danger}>🗑</Mono>
+                  </Pressable>
+                </View>
+              ))}
+              <Pressable style={{ paddingVertical: 6 }} onPress={() => { setPickerType('estate'); setRelScratch(null); }}>
+                <Mono size={9} color={Colors.bordeaux}>+ Tilføj gods</Mono>
+              </Pressable>
+
               {kld.length ? (<><Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>KILDER</Mono>
                 {kld.map((s, i) => <View key={i} style={editorStyles.sekRad}><Body size={13}>{s.work}</Body><Mono size={9} color={Colors.textMuted}>{s.ref}</Mono></View>)}</>) : null}
             </View>
@@ -328,12 +404,26 @@ export default function PersonEditor() {
         })() : null}
       </ScrollView>
 
+      {pickerType ? (
+        <EntitetPicker type={pickerType}
+          onClose={() => setPickerType(null)}
+          onValg={(v) => setRelScratch({ ...v, rolle: '', periode: '' })} />
+      ) : null}
+      {relScratch ? (
+        <RelTilfoejSheet scratch={relScratch} onClose={() => setRelScratch(null)}
+          onGem={(rolle, periode) => {
+            setPending({ art: 'tilfoejRelation', subjektType: 'person', subjektId: id!,
+              payload: { objektType: relScratch.objektType, objektId: relScratch.objektId, rolle, periodeRaw: periode || null } });
+            setRelScratch(null);
+          }} />
+      ) : null}
       <SkrivePreviewSheet
         change={pending}
         onClose={() => setPending(null)}
         onApplied={() => {
           setPending(null);
           if (id) fetchPersonEvidence(id).then(setEv).catch(() => {});
+          if (id) fetchPersonRelationer(id, redaktionAux).then(setRelationer).catch(() => {});
         }}
       />
       {confirmDeleteOpen ? (
@@ -463,6 +553,24 @@ const editorStyles = StyleSheet.create({
   relLabel: {
     marginTop: 10,
     marginBottom: 4,
+  },
+  relEditRad: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 5,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(34,31,26,0.4)',
+  },
+  modalSheet: {
+    backgroundColor: Colors.paperBg,
+    borderTopLeftRadius: Radius.sheet,
+    borderTopRightRadius: Radius.sheet,
+    padding: 20,
+    paddingBottom: 36,
+    borderTopWidth: 1,
+    borderColor: Border.light,
   },
   relRad: {
     flexDirection: 'row',
