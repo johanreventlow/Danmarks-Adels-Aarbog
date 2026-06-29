@@ -95,8 +95,13 @@ Efter første kørsel indeholder `data/tng-review-queue.csv` rækker med
 | `afvis`   | Afvis match (markeres `afvist`)       |
 | `ny-id`   | Brug `ny_tng_id`-kolonnen i stedet   |
 
-Gem filen og kør pipelinen igen — `merge_review_decisions()` er idempotent
-og bevarer proveniens (afgørelse-kolonner skrives med i crosswalk-CSV).
+Gem filen og kør pipelinen igen. **Vigtig caveat:** afgørelse-persistens
+på tværs af fulde genakørsler er IKKE endnu implementeret. `run-pipeline.R`
+genbygger `crosswalk` fra bunden ved hver kørsel og skriver kun
+`person_id,tng_id,score,tier` til crosswalk-CSV — bekræftede/afviste
+afgørelser fra review-kø-CSV tabes ved næste genakørsel. `merge_review_decisions()`
+muterer kun `tier` in-memory inden trin 5 (der ændringer ej persisteres til
+CSV mellem kørsler). Løsning: se "Pre-prod-run follow-ups" nedenfor.
 
 ---
 
@@ -165,3 +170,14 @@ for afdøde. Kortlægningen er den sikre løsning.
 
 Fuld e2e-kørsel er en manuel procedure; ingen automatiseret CI-gate kobles
 på prod-data.
+
+---
+
+## Pre-prod-run follow-ups (fra final whole-branch review 2026-06-29)
+
+Bindende opgaver før prod-kørsler:
+
+- [ ] Færdiggør trin 3-4-glue (`scored` → `crosswalk`) og kalibrér blok-vindue/score-vægte/tier-cutoffs mod et håndlabelt facit-sæt.
+- [ ] Før `render_report` wires: map relaterede `person_id` i `detalje`-strenge til DAA linje/nr-labels, OG tilføj TNG-side `living/private`-filtrering (lukker PII-over-blokering + den halv-håndhævede GDPR-invariant — TNG-flagene bæres allerede ind i DuckDB men læses ikke endnu).
+- [ ] Ret review-kø-persistens: bevar bekræft/afvis/ny-id-afgørelser på tværs af fulde gen-kørsler (crosswalk genbygges nu fra bunden hver gang → afgørelser tabes; afviste "huskes" ikke).
+- [ ] Implementér `tng_children`-reshape (rå `familyID/personID + frel/mrel` → `child_tng/father_tng/mother_tng` via join til `tng_families`: far=husband, mor=wife) med test før trin-6 aktiveres.
