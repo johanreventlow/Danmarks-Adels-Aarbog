@@ -486,7 +486,7 @@ export default function PersonEditor() {
                   ))}
                   <Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>BØRN</Mono>
                   {u.boern.map((b) => (
-                    <View key={b.personId} style={editorStyles.relEditRad}>
+                    <View key={`${b.personId}-${b.rolle}`} style={editorStyles.relEditRad}>
                       <View style={{ flex: 1 }}><Body size={13}>{b.navn}{b.rolle !== 'barn' ? ` · ${b.rolle}` : ''}</Body></View>
                       <KonfidensVaelger vaerdi={b.konfidens}
                         onVael={(k) => setPending({ art: 'setFamilieKonfidens', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: b.personId, rolle: b.rolle, konfidens: k })} />
@@ -512,8 +512,11 @@ export default function PersonEditor() {
                   <View style={editorStyles.relEditRad}>
                     <KonfidensVaelger vaerdi={sb.konfidens}
                       onVael={(k) => setPending({ art: 'setFamilieKonfidens', subjektType: 'person', subjektId: id!, familyId: sb.familyId, personId: id!, rolle: sb.rolle, konfidens: k })} />
+                    {/* Fjerner barnets membership i HELE forældre-familien (begge forældre afkobles —
+                        modellen kan ikke afkoble én forælder uden at flytte barnet). Dry-run-preview =
+                        bekræftelses-gate (cycle 07 Codex H3: tidligere label "afkobl forælder" var misvisende). */}
                     <Pressable onPress={() => setPending({ art: 'sletFamilieLink', subjektType: 'person', subjektId: id!, familyId: sb.familyId, personId: id!, rolle: sb.rolle })}>
-                      <Mono size={9} color={Colors.danger}>🗑 afkobl forælder</Mono>
+                      <Mono size={9} color={Colors.danger}>🗑 fjern fra denne forældre-familie</Mono>
                     </Pressable>
                   </View>
                 </View>

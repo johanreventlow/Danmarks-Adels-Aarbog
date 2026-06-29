@@ -154,6 +154,32 @@ test('mapFamilieRows: ukendt person → #id-fallback', () => {
   expect(r.somPartner[0].boern[0].navn).toBe('#99');
 });
 
+test('mapFamilieRows: fokus-barn under to roller i samme familie → begge i somBarn (cycle 07 H2)', () => {
+  // Person 7 er både 'barn' og 'adopteret_barn' i familie 30 (PK tillader det). Begge links skal
+  // vises, så begge kan redigeres/afkobles — find-first ville have skjult det ene.
+  const members = [
+    { family_id: 30, person_id: 1, rolle: 'partner', ordinal: null, konfidens: null },
+    { family_id: 30, person_id: 7, rolle: 'barn', ordinal: null, konfidens: 'sikker' },
+    { family_id: 30, person_id: 7, rolle: 'adopteret_barn', ordinal: null, konfidens: 'formodet' },
+  ];
+  const r = mapFamilieRows('7', [{ id: 30, type: 'vielse' }] as never, members as never, MODEL);
+  expect(r.somBarn.map((b) => b.rolle).sort()).toEqual(['adopteret_barn', 'barn']);
+  expect(r.somBarn.find((b) => b.rolle === 'adopteret_barn')?.konfidens).toBe('formodet');
+});
+
+test('mapFamilieRows: fokus-person ekskluderet fra egen unions boern (data-fejl-guard)', () => {
+  // Person 7 fejlagtigt både partner OG barn i familie 40 → må IKKE fremstå som sit eget barn.
+  const members = [
+    { family_id: 40, person_id: 7, rolle: 'partner', ordinal: null, konfidens: null },
+    { family_id: 40, person_id: 2, rolle: 'partner', ordinal: null, konfidens: null },
+    { family_id: 40, person_id: 7, rolle: 'barn', ordinal: null, konfidens: null },
+    { family_id: 40, person_id: 3, rolle: 'barn', ordinal: null, konfidens: null },
+  ];
+  const r = mapFamilieRows('7', [{ id: 40, type: 'vielse' }] as never, members as never, MODEL);
+  expect(r.somPartner[0].boern.map((b) => b.personId)).toEqual(['3']); // 7 ekskluderet
+  expect(r.somBarn).toHaveLength(1); // 7's egen barn-rolle dukker op i somBarn (uafhængigt)
+});
+
 test('fetchRedaktionPersoner samler alle sider (ingen trunkering)', async () => {
   const page1 = Array.from({ length: 1000 }, (_, i) => ({ id: i + 1, visning_navn: `P${i}`, visning_foedt: '1700', visning_doed: null, levende: false, privat: false }));
   const page2 = [{ id: 1001, visning_navn: 'Sidste', visning_foedt: '1800', visning_doed: null, levende: false, privat: false }];
