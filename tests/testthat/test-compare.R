@@ -17,3 +17,29 @@ test_that("compare_marriages reports agreement", {
   out <- compare_marriages(our_pairs, tng_families, xwalk)
   expect_true("enig" %in% out$kategori)
 })
+
+test_that("compare_parent_child matches per-parent role, not lumped", {
+  xwalk <- data.frame(person_id = c(1L,2L), tng_id = c("I1","I2"), stringsAsFactors = FALSE)
+  our_pc <- data.frame(child_id = 1L, parent_id = 2L, rolle = "fader", stringsAsFactors = FALSE)
+  tng_ok  <- data.frame(child_tng = "I1", father_tng = "I2", mother_tng = NA_character_, stringsAsFactors = FALSE)
+  tng_bad <- data.frame(child_tng = "I1", father_tng = NA_character_, mother_tng = "I2", stringsAsFactors = FALSE)
+  expect_true("enig"  %in% compare_parent_child(our_pc, tng_ok,  xwalk)$kategori)
+  expect_false("enig" %in% compare_parent_child(our_pc, tng_bad, xwalk)$kategori)  # role mismatch
+})
+
+test_that("compare_parent_child reports mangler_hos_os when TNG edge absent in ours", {
+  xwalk <- data.frame(person_id = c(1L,2L), tng_id = c("I1","I2"), stringsAsFactors = FALSE)
+  our_pc <- data.frame(child_id = integer(0), parent_id = integer(0), rolle = character(0), stringsAsFactors = FALSE)
+  tng <- data.frame(child_tng = "I1", father_tng = "I2", mother_tng = NA_character_, stringsAsFactors = FALSE)
+  out <- compare_parent_child(our_pc, tng, xwalk)
+  expect_true("mangler_hos_os" %in% out$kategori)
+  expect_s3_class(out, "data.frame")
+})
+
+test_that("compare_marriages returns well-formed empty df on no edges", {
+  xwalk <- data.frame(person_id = integer(0), tng_id = character(0), stringsAsFactors = FALSE)
+  our_pairs <- data.frame(person_id = integer(0), spouse_id = integer(0))
+  tng_families <- data.frame(husband = character(0), wife = character(0), marrdatetr = character(0), stringsAsFactors = FALSE)
+  out <- compare_marriages(our_pairs, tng_families, xwalk)
+  expect_s3_class(out, "data.frame"); expect_equal(nrow(out), 0L)
+})

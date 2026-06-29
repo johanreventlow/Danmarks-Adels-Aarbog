@@ -54,25 +54,57 @@ compare_marriages <- function(our_pairs, tng_families, xwalk) {
       rows[[length(rows)+1]] <- data.frame(person_id = p_h, tng_id = h,
         kategori = "mangler_hos_os", detalje = sprintf("TNG: %s—%s", h, w))
   }
-  do.call(rbind, rows)
+  if (length(rows)) do.call(rbind, rows) else
+    data.frame(person_id = integer(0), tng_id = character(0),
+               kategori = character(0), detalje = character(0), stringsAsFactors = FALSE)
 }
 
 compare_parent_child <- function(our_pc, tng_children, xwalk) {
-  # our_pc: data.frame(child_id, parent_id, rolle); tng_children: data.frame(child_tng, father_tng, mother_tng, frel, mrel)
-  to_tng <- function(pid) xwalk$tng_id[match(pid, xwalk$person_id)]
+  # our_pc: data.frame(child_id, parent_id, rolle) ; rolle %in% c("fader","moder","ukendt")
+  # tng_children: data.frame(child_tng, father_tng, mother_tng)
+  to_tng  <- function(pid) xwalk$tng_id[match(pid, xwalk$person_id)]
+  to_ours <- function(tid) xwalk$person_id[match(tid, xwalk$tng_id)]
   rows <- list()
+  # ---- our edges -> TNG (per-parent) ----
   for (i in seq_len(nrow(our_pc))) {
     c_t <- to_tng(our_pc$child_id[i]); p_t <- to_tng(our_pc$parent_id[i])
     if (is.na(c_t) || is.na(p_t)) {
-      rows[[length(rows)+1]] <- data.frame(child_id = our_pc$child_id[i], tng_id = NA_character_,
-        kategori = "uden_for_scope", detalje = "barn/forælder ikke matchet"); next }
+      rows[[length(rows) + 1]] <- data.frame(child_id = our_pc$child_id[i], tng_id = NA_character_,
+        kategori = "uden_for_scope", detalje = "barn/forælder ikke matchet", stringsAsFactors = FALSE)
+      next
+    }
     tc <- tng_children[tng_children$child_tng == c_t, ]
-    hit <- nrow(tc) && (p_t %in% c(tc$father_tng, tc$mother_tng))
-    rows[[length(rows)+1]] <- data.frame(child_id = our_pc$child_id[i], tng_id = c_t,
+    rolle <- our_pc$rolle[i]
+    tng_parent <- if (identical(rolle, "fader")) tc$father_tng
+                  else if (identical(rolle, "moder")) tc$mother_tng
+                  else c(tc$father_tng, tc$mother_tng)
+    hit <- nrow(tc) > 0 && (p_t %in% tng_parent)
+    rows[[length(rows) + 1]] <- data.frame(child_id = our_pc$child_id[i], tng_id = c_t,
       kategori = if (hit) "enig" else "ekstra_hos_os",
-      detalje = sprintf("vores forælder %d (%s)", our_pc$parent_id[i], our_pc$rolle[i]))
+      detalje = sprintf("vores %s %d", rolle, our_pc$parent_id[i]), stringsAsFactors = FALSE)
   }
-  do.call(rbind, rows)
+  # ---- TNG edges -> ours (mangler_hos_os), per-parent, scope-guarded ----
+  our_set <- paste(our_pc$child_id, our_pc$parent_id, sep = "-")
+  for (i in seq_len(nrow(tng_children))) {
+    c_t <- tng_children$child_tng[i]; c_o <- to_ours(c_t)
+    if (is.na(c_o)) next
+    for (slot in c("father_tng", "mother_tng")) {
+      pt <- tng_children[[slot]][i]
+      if (is.na(pt) || !nzchar(pt)) next
+      p_o <- to_ours(pt)
+      if (is.na(p_o)) {
+        rows[[length(rows) + 1]] <- data.frame(child_id = c_o, tng_id = c_t,
+          kategori = "uden_for_scope", detalje = sprintf("TNG-%s uden for scope", slot), stringsAsFactors = FALSE)
+        next
+      }
+      if (!(paste(c_o, p_o, sep = "-") %in% our_set))
+        rows[[length(rows) + 1]] <- data.frame(child_id = c_o, tng_id = c_t,
+          kategori = "mangler_hos_os", detalje = sprintf("TNG %s: %s", slot, pt), stringsAsFactors = FALSE)
+    }
+  }
+  if (length(rows)) do.call(rbind, rows) else
+    data.frame(child_id = integer(0), tng_id = character(0),
+               kategori = character(0), detalje = character(0), stringsAsFactors = FALSE)
 }
 
 compare_dates_sex <- function(our_attr, tng_people, xwalk) {
