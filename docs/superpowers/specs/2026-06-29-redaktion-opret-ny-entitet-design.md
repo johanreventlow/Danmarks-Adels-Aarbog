@@ -40,8 +40,11 @@ UI-form → Change-objekt → buildRpcCall(c) → RpcCall{fn,args}
         → SkrivePreviewSheet-gate (dry-run → bekræft → live)
 ```
 
-Tilføjelser er **additive**: nye Change-arter, nye buildRpcCall-cases, nye RPC'er, én ny
-sheet-komponent. Eksisterende editor og RPC'er røres ikke.
+Tilføjelser er **mest additive**: nye Change-arter, nye buildRpcCall-cases, nye RPC'er, én ny
+sheet-komponent. **To eksisterende stykker SKAL dog ændres** (afdækket i Codex-review, se §5.3):
+`SkrivePreviewSheet.onApplied` skal bære live-resultatet (ny id), og `loadRedaktionModel` skal kunne
+tvinge en reload. Begge er bagudkompatible for eksisterende kaldere. Eksisterende RPC'er og
+person-editorens write-logik røres ikke.
 
 ---
 
@@ -52,22 +55,34 @@ Alle: `current_rolle() <> 'redaktion'` → RAISE. id allokeres med `coalesce(max
 (husstil, jf. `red_upsert_fakta`; race accepteret i single-editor PoC). Komposit + atomisk
 (én funktion = én transaktion), jf. `red_opret_union`.
 
-### 3.1 `red_opret_person(p_navn text, p_koen text DEFAULT NULL, p_levende boolean DEFAULT false, p_privat boolean DEFAULT false, p_foedt_raw text DEFAULT NULL, p_doed_raw text DEFAULT NULL, p_titel_raw text DEFAULT NULL) RETURNS bigint`
+### 3.1 `red_opret_person(p_navn text, p_koen text DEFAULT NULL, p_levende boolean DEFAULT false, p_privat boolean DEFAULT true, p_foedt_raw text DEFAULT NULL, p_doed_raw text DEFAULT NULL, p_titel_raw text DEFAULT NULL) RETURNS bigint`
 
-1. rolle-gate. Tom/whitespace `p_navn` → RAISE (`'Navn er påkrævet'`).
+1. rolle-gate. **Påkrævet navn afviser BÅDE NULL og whitespace:**
+   `IF nullif(btrim(p_navn),'') IS NULL THEN RAISE 'Navn er påkrævet'` (Codex: `btrim()=''` alene
+   afviser ikke NULL).
 2. `v_id := coalesce(max(id),0)+1 FROM person`.
 3. `INSERT person(id, levende, privat, koen) VALUES (v_id, p_levende, p_privat, p_koen)`.
-   Køn er en **kolonne** på person (ikke et fact) → sættes direkte. `levende` **default false**
-   (undgår at lægge nulevende-data i det stadig-åbne dev-RLS-læselag utilsigtet).
-4. `PERFORM red_upsert_fakta('person', v_id, 'navn', p_navn)` → opretter fact→assertion→
-   conclusion → trigger `regen_person_visning` regenererer `visning_navn`.
+   Køn = **kolonne** på person → sættes direkte.
+   **`privat` defaulter til `true` (privatlivs-fix, Codex major + advisor-reconcile):** RLS-reglen er
+   `levende=false AND privat=false → anon-læsbar` (afdød-semantik). Med `levende DEFAULT false` ville
+   en glemt levende-toggle på en faktisk-nulevende person publicere den til `anon`. At læne sig på
+   levende-retning er forkert; i stedet skjuler `privat=true` enhver ny person uanset levende-status,
+   indtil redaktøren bevidst klassificerer og afpublicerer. Reversibelt via eksisterende
+   `red_set_privat`. `levende` forbliver et eksplicit toggle i formularen (driver ikke synlighed alene).
+4. `PERFORM red_upsert_fakta('person', v_id, 'navn', p_navn)` → fact→assertion→conclusion → trigger
+   `regen_person_visning` regenererer `visning_navn` i samme transaktion.
 5. Valgfrit: `PERFORM red_upsert_fakta('person', v_id, 'fødsel', p_foedt_raw, p_date_raw => p_foedt_raw)`
-   og tilsvarende for 'død' og 'titel' (titel uden dato) — kun når argumentet er non-null/non-blank.
-   (Named-notation `=>` for at ramme `p_date_raw` som er 8. positionelle arg.)
+   og tilsvarende 'død' samt 'titel' (uden dato) — kun når argumentet er non-null/non-blank.
+   (Named-notation `=>` for at ramme `p_date_raw`, 8. positionelle arg.)
 6. `RETURN v_id`.
 
-> Den interne `PERFORM red_upsert_fakta` re-tjekker `current_rolle()`; det overlever inde i
-> SECURITY DEFINER-sessionen. Faktatyper matcher `FELT_FAKTATYPE` i appen (navn/fødsel/død/titel).
+> **Titel-invariant (Codex major):** `red_upsert_fakta` er find-or-create med `LIMIT 1`; det er kun
+> sikkert her, fordi en reelt ny person endnu ikke har et titel-fact. **Senere** titel-tilføjelser
+> SKAL bruge multi-fact-operationen `red_opret_fakta` (som editoren allerede gør) — ellers overskrives
+> den første titel. Opret rører kun ÉN titel.
+>
+> Den interne `PERFORM red_upsert_fakta` re-tjekker `current_rolle()`; overlever inde i SECURITY
+> DEFINER-sessionen. Faktatyper matcher `FELT_FAKTATYPE` (navn/fødsel/død/titel).
 
 ### 3.2 `red_opret_estate(p_navn text, p_slags text DEFAULT NULL, p_sted_id bigint DEFAULT NULL) RETURNS bigint`
 rolle-gate; tom navn → RAISE; id=max+1; `INSERT estate(id, navn, slags, sted_id)`; RETURN id.
@@ -117,26 +132,42 @@ opretOrganisation → red_opret_organisation { p_navn, p_slags }
 - Bygger et `Change` → routes gennem **samme** SkrivePreviewSheet-gate (dry-run → live).
   Påkrævet-felt tomt → submit disabled.
 
-### 5.3 ⭐ Post-create cache-reload FØR navigation (kritisk — ikke hale)
+### 5.3 ⭐ Post-create: forced cache-reload + ID-transport (kritisk — Codex-blockers B1/B2)
 Editoren læser `redaktionModel.byId[id]`; listerne læser `redaktionAux`. En netop-oprettet entitet
-findes i **ingen** af dem før reload → uden dette lander create→edit på en **blank editor**, og en
-ny gods/kilde/org er **usynlig** i listen.
+findes i **ingen** af dem før reload → uden dette lander create→edit på en **blank editor**
+("Personen blev ikke fundet", `person/[id].tsx:286`), og en ny gods/kilde/org er **usynlig** i listen.
 
-`loadRedaktionModel()` (store) genindlæser **både** model og aux i ét kald (sætter
-`redaktionModel` + `redaktionAux` sammen). Post-create-sekvens ved live-success:
+**To eksisterende stykker mekanik holder IKKE — derfor i implementerings-scope (modsiger §2's
+"røres ikke"):**
+
+**B1 — `loadRedaktionModel()` er ikke en reload.** `useStore.ts:258` early-returner når
+`redaktionStatus === 'ready'` (= netop post-create-tilstanden) → kaldet er et no-op, model/aux
+forbliver stale. **Fix:** parametrisér `loadRedaktionModel(force?: boolean)` — `force` springer
+`ready`-early-return over. Ved fejl skal status blive `'error'` OG kaldet **re-throwe** (i dag sluges
+fejlen og resolver normalt → navigation ville ske oven på en fejlet refresh, Codex major).
+
+**B2 — `SkrivePreviewSheet` smider den nye id væk.** `run()` (linje ~30) gør
+`await submitChange(...)` uden at bruge returværdien, og `onApplied(): void` bærer intet resultat.
+**Fix:** udvid til `onApplied: (result?: unknown) => void` og videregiv live-RPC-resultatet
+(`RETURNS bigint`). Bagudkompatibelt — eksisterende kaldere (person-editoren) ignorerer den
+valgfrie param.
+
+**Post-create-sekvens ved live-success (i OpretSheet, efter gate'ens `onApplied(result)`):**
 
 ```
-await RPC (returnerer ny id) → await loadRedaktionModel() → DEREFTER navigér/luk
+result = ny id (fra red_opret_*)  →  await loadRedaktionModel(true)
+  →  hvis redaktionStatus !== 'ready': vis fejl, navigér IKKE
+  →  ellers: navigér/luk
 ```
 
-- **Person:** efter reload → `router.push('/redaktion/person/[nyId]')` (`byId[nyId]` findes nu →
-  fortsæt redigering). Forced reload vælges frem for optimistisk byId-patch, fordi `visning_navn`
-  er trigger-afledt af navn-konklusionen — en patch skulle replikere visnings-logikken.
-- **Gods/kilde/org:** efter reload → luk sheet; ny række synlig i `entitet/[type]` + opdateret tæller
-  i `entiteter`-fanen (begge læser `redaktionAux`, som nu er frisk).
+- **Person:** `router.push('/redaktion/person/[result]')` (`byId[result]` findes nu efter forced reload).
+  Forced reload frem for optimistisk byId-patch, fordi `visning_navn` er trigger-afledt af
+  navn-konklusionen — en patch skulle replikere visnings-logikken.
+- **Gods/kilde/org:** luk sheet; ny række synlig i `entitet/[type]` + opdateret tæller i
+  `entiteter`-fanen (begge læser `redaktionAux`, nu frisk).
 
-> Bemærk: `entitet/[type].tsx` har i dag *ingen* focus-refetch (kun `RedPersonListe` har) → den
-> eksplicitte reload er den eneste mekanisme der gør nye rækker synlige.
+> Bemærk: `entitet/[type].tsx` har *ingen* focus-refetch (kun `RedPersonListe` har) → den eksplicitte
+> forced reload er den eneste mekanisme der gør nye rækker synlige.
 
 ---
 
@@ -145,12 +176,17 @@ await RPC (returnerer ny id) → await loadRedaktionModel() → DEREFTER navigé
 - **jest (rene, netværksfri, matcher `redaktionWrite.test.ts`):** `buildRpcCall` for de 4 nye arter
   → korrekt fn + args; valgfrie felter udeladt når null; påkrævet-felt-mangel → `null`.
 - **DB rollback-test (live, som de øvrige RPC'er):**
-  - opret person → person-række + navn-fact + `visning_navn` regenereret; valgfri født/død/titel-facts.
+  - opret person → person-række + navn-fact + `visning_navn` regenereret; valgfri født/død/titel-facts;
+    **`privat=true` som default** (verificér ny person IKKE anon-læsbar).
   - opret estate/kilde/org → korrekt række.
-  - tom navn/titel → RAISE.
+  - **NULL navn OG whitespace-navn → RAISE** (begge, jf. `nullif(btrim())`).
   - rolle-gate: anon-kald → P0001 "Kun redaktion".
   - alt rulles tilbage (nul blivende mutation).
-- **Manuel web-e2e:** opret person → land i editor med navnet sat; opret gods → vises i listen.
+- **B1-test:** `loadRedaktionModel(true)` på `ready`-state henter faktisk frisk data (ny entitet i
+  model/aux); fejl re-throwes (resolver ikke stille).
+- **B2-test:** `SkrivePreviewSheet` live-success kalder `onApplied(result)` med ny id.
+- **Manuel web-e2e:** opret person → forced reload → land i editor med navnet sat; opret gods → vises
+  i listen + tæller opdateret.
 
 ---
 
@@ -161,19 +197,29 @@ await RPC (returnerer ny id) → await loadRedaktionModel() → DEREFTER navigé
 | `schema.sql`, `db-migrations.sql` | 4 nye RPC'er + grant-loop |
 | `mobile/src/data/redaktionWrite.ts` | 4 Change-arter + buildRpcCall-cases |
 | `mobile/src/data/__tests__/redaktionWrite.test.ts` | tests for de 4 arter |
-| `mobile/src/components/redaktion/OpretSheet.tsx` | ny: grid + type-forms |
+| `mobile/src/components/redaktion/OpretSheet.tsx` | ny: grid + type-forms + post-create reload/nav |
 | `mobile/src/app/redaktion/(red-tabs)/_layout.tsx` | wire Tilføj-intercept → OpretSheet |
-| (post-create) | reload-før-navigér i OpretSheet success-path |
+| `mobile/src/components/redaktion/SkrivePreviewSheet.tsx` | **B2:** `onApplied(result?)` bærer ny id |
+| `mobile/src/store/useStore.ts` | **B1:** `loadRedaktionModel(force?)` + re-throw ved fejl |
 
 ---
 
 ## 8. Risici og afvejninger
 
-- **MAX+1 id-race:** kun et problem ved samtidige skrivninger; PoC er single-editor. Accepteret,
-  matcher `red_upsert_fakta`.
-- **Tavse dubletter:** ingen UNIQUE-constraint → to entiteter med samme navn er muligt. Flaget, ikke
-  løst (konsistent med `red_opret_union`).
-- **Nulevende-data:** `levende=true` ved opret lægger persondata i det stadig-åbne dev-RLS-læselag.
-  Bruger valgte opret frem for RLS-hærdning → ikke en blocker her; `levende` defaulter til `false`.
+- **MAX+1 id-race (Codex major → accepteret-med-forbehold):** intet håndhæver single-editor, og flere
+  profiler *kan* have `rolle='redaktion'` → samtidige opret kan kollidere på PK efter brugerbekræftelse.
+  Men ALLE eksisterende write-RPC'er (`red_upsert_fakta`, `red_opret_union` …) deler præcis samme
+  mønster — at fikse det kun her ville være inkonsistent. PoC kører single-editor (Johan). **Beslutning:**
+  behold MAX+1 nu; post-PoC migrering til sequence/identity (ELLER advisory-lock i alle opret-RPC'er)
+  som separat hærdnings-opgave. Dokumenteret, ikke løst i denne skive.
+- **Slags ikke valideret i RPC (Codex minor):** `slags`/`koen` har ingen DB-constraint, og RPC'erne
+  validerer ikke de annoncerede vokabularer — UI-arrays beskytter ikke direkte RPC-kald (som dog kræver
+  `rolle=redaktion`). Accepteret for PoC (UI-gated). Evt. senere: `p_slags`-validering mod `vocab` i hver
+  opret-RPC, eller CHECK-constraint.
+- **Tavse dubletter:** ingen UNIQUE på navn/titel → dubletter mulige. Flaget, ikke løst (konsistent med
+  `red_opret_union`). Kilde-dubletter værd at advare om i senere skive.
+- **Leksikalsk display-titel (Codex minor, præ-eksisterende):** `regen_person_visning` kollapser flere
+  titel-facts via `max(vaerdi_tekst)` (leksikalsk, ikke kronologi/redaktionelt valg). Påvirker IKKE denne
+  skive (opret sætter kun én titel), men en deterministisk display-titel-regel er en separat forbedring.
 - **Cache-invaliderings-gæld (§9):** den bredere "reload redaktionModel efter ALLE writes"-gæld fra
-  cycle 05 er stadig udestående; denne skive løser den kun for opret-stien (eksplicit reload).
+  cycle 05 er stadig udestående; denne skive løser den kun for opret-stien (forced reload).
