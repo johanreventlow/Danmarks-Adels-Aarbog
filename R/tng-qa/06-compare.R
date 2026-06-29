@@ -1,0 +1,100 @@
+# Trin 6: relations-sammenligning. Kant sammenlignes KUN når begge endepunkter matchet.
+
+our_spouse_pairs <- function(family, family_member) {
+  partners <- family_member[family_member$rolle == "partner", ]
+  out <- data.frame(person_id = integer(0), spouse_id = integer(0))
+  for (fid in unique(partners$family_id)) {
+    ps <- partners$person_id[partners$family_id == fid]
+    if (length(ps) >= 2)
+      for (a in ps) for (b in ps) if (a != b)
+        out <- rbind(out, data.frame(person_id = a, spouse_id = b))
+  }
+  unique(out)
+}
+
+compare_marriages <- function(our_pairs, tng_families, xwalk) {
+  to_tng <- function(pid) xwalk$tng_id[match(pid, xwalk$person_id)]
+  rows <- list()
+  # our edges -> is there a TNG family with the matched pair?
+  tng_set <- rbind(
+    data.frame(a = tng_families$husband, b = tng_families$wife, stringsAsFactors = FALSE),
+    data.frame(a = tng_families$wife, b = tng_families$husband, stringsAsFactors = FALSE)
+  )
+  for (i in seq_len(nrow(our_pairs))) {
+    pid <- our_pairs$person_id[i]; sid <- our_pairs$spouse_id[i]
+    t_p <- to_tng(pid); t_s <- to_tng(sid)
+    if (is.na(t_p) || is.na(t_s)) {
+      rows[[length(rows)+1]] <- data.frame(person_id = pid, tng_id = NA_character_,
+        kategori = "uden_for_scope", detalje = "ægtefælle ikke matchet")
+      next
+    }
+    hit <- any(tng_set$a == t_p & tng_set$b == t_s)
+    rows[[length(rows)+1]] <- data.frame(person_id = pid, tng_id = t_p,
+      kategori = if (hit) "enig" else "ekstra_hos_os",
+      detalje = sprintf("vores: %d—%d", pid, sid))
+  }
+  # TNG edges where our matched person has a spouse in TNG we lack
+  our_set <- rbind(
+    data.frame(a = our_pairs$person_id, b = our_pairs$spouse_id),
+    data.frame(a = our_pairs$spouse_id, b = our_pairs$person_id)
+  )
+  for (i in seq_len(nrow(tng_families))) {
+    h <- tng_families$husband[i]; w <- tng_families$wife[i]
+    p_h <- xwalk$person_id[match(h, xwalk$tng_id)]
+    p_w <- xwalk$person_id[match(w, xwalk$tng_id)]
+    if (is.na(p_h) || is.na(p_w)) {
+      known <- if (!is.na(p_h)) p_h else if (!is.na(p_w)) p_w else NA_integer_
+      if (!is.na(known))
+        rows[[length(rows)+1]] <- data.frame(person_id = known, tng_id = if (!is.na(p_h)) h else w,
+          kategori = "uden_for_scope", detalje = "TNG-ægtefælle uden for vores scope")
+      next
+    }
+    has <- any(our_set$a == p_h & our_set$b == p_w)
+    if (!has)
+      rows[[length(rows)+1]] <- data.frame(person_id = p_h, tng_id = h,
+        kategori = "mangler_hos_os", detalje = sprintf("TNG: %s—%s", h, w))
+  }
+  do.call(rbind, rows)
+}
+
+compare_parent_child <- function(our_pc, tng_children, xwalk) {
+  # our_pc: data.frame(child_id, parent_id, rolle); tng_children: data.frame(child_tng, father_tng, mother_tng, frel, mrel)
+  to_tng <- function(pid) xwalk$tng_id[match(pid, xwalk$person_id)]
+  rows <- list()
+  for (i in seq_len(nrow(our_pc))) {
+    c_t <- to_tng(our_pc$child_id[i]); p_t <- to_tng(our_pc$parent_id[i])
+    if (is.na(c_t) || is.na(p_t)) {
+      rows[[length(rows)+1]] <- data.frame(child_id = our_pc$child_id[i], tng_id = NA_character_,
+        kategori = "uden_for_scope", detalje = "barn/forælder ikke matchet"); next }
+    tc <- tng_children[tng_children$child_tng == c_t, ]
+    hit <- nrow(tc) && (p_t %in% c(tc$father_tng, tc$mother_tng))
+    rows[[length(rows)+1]] <- data.frame(child_id = our_pc$child_id[i], tng_id = c_t,
+      kategori = if (hit) "enig" else "ekstra_hos_os",
+      detalje = sprintf("vores forælder %d (%s)", our_pc$parent_id[i], our_pc$rolle[i]))
+  }
+  do.call(rbind, rows)
+}
+
+compare_dates_sex <- function(our_attr, tng_people, xwalk) {
+  # our_attr: data.frame(person_id, birth_min,birth_max,death_min,death_max, koen)
+  rows <- list()
+  for (i in seq_len(nrow(our_attr))) {
+    pid <- our_attr$person_id[i]; tid <- xwalk$tng_id[match(pid, xwalk$person_id)]
+    if (is.na(tid)) next
+    tp <- tng_people[tng_people$personID == tid, ]
+    if (!nrow(tp)) next
+    tb <- tng_date_to_interval(tp$birthdatetr[1]); td <- tng_date_to_interval(tp$deathdatetr[1])
+    if (!intervals_overlap(c(our_attr$birth_min[i], our_attr$birth_max[i]), tb))
+      rows[[length(rows)+1]] <- data.frame(person_id = pid, tng_id = tid, kategori = "dato_uenig",
+        detalje = sprintf("fødsel: vores [%s,%s] vs TNG %s", our_attr$birth_min[i], our_attr$birth_max[i], tp$birthdatetr[1]))
+    if (!intervals_overlap(c(our_attr$death_min[i], our_attr$death_max[i]), td))
+      rows[[length(rows)+1]] <- data.frame(person_id = pid, tng_id = tid, kategori = "dato_uenig",
+        detalje = sprintf("død: vores [%s,%s] vs TNG %s", our_attr$death_min[i], our_attr$death_max[i], tp$deathdatetr[1]))
+    if (normalize_sex(our_attr$koen[i]) != normalize_sex(tp$sex[1]) &&
+        normalize_sex(tp$sex[1]) != "ukendt" && normalize_sex(our_attr$koen[i]) != "ukendt")
+      rows[[length(rows)+1]] <- data.frame(person_id = pid, tng_id = tid, kategori = "køn_uenig",
+        detalje = sprintf("vores %s vs TNG %s", our_attr$koen[i], tp$sex[1]))
+  }
+  if (length(rows)) do.call(rbind, rows) else
+    data.frame(person_id = integer(0), tng_id = character(0), kategori = character(0), detalje = character(0))
+}
