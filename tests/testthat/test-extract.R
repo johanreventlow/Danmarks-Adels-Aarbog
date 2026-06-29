@@ -30,3 +30,11 @@ test_that("build_tng_duckdb loads column-list multi-line INSERT (real dump forma
   expect_equal(ppl$personID, c("I1", "I2"))
   expect_equal(ppl$firstname, c("Conrad", "Sophie"))
 })
+
+test_that("fix_mysql_literals preserves backticks inside quoted values (quote-aware)", {
+  expect_equal(fix_mysql_literals("INSERT INTO `t` VALUES (1,'a`b`c')"),
+               'INSERT INTO "t" VALUES (1,\'a`b`c\')')
+  # identifier backticks in the head still converted, incl. column-list form:
+  expect_equal(fix_mysql_literals("INSERT INTO `t` (`c1`,`c2`) VALUES (1,'x')"),
+               'INSERT INTO "t" ("c1","c2") VALUES (1,\'x\')')
+})

@@ -7,7 +7,16 @@ fix_mysql_literals <- function(s) {
   s <- gsub("\\\\'", "''", s, perl = TRUE)          # \'  -> ''
   s <- gsub('\\\\"', '"', s, perl = TRUE)           # \"  -> "
   s <- gsub(SENT, "\\", s, fixed = TRUE)                # sentinel -> single backslash
-  s <- gsub("`", '"', s, fixed = TRUE)              # backtick-identifiers -> double quotes
+  # Backtick-identifiers -> double quotes, men KUN i statement-hovedet (før første
+  # VALUES (-tuple), så backticks inde i citerede værdi-data bevares (quote-aware).
+  m <- regexpr("(?i)VALUES\\s*\\(", s, perl = TRUE)
+  if (m > 0) {
+    head <- substr(s, 1, m - 1)
+    tail <- substr(s, m, nchar(s))
+    s <- paste0(gsub("`", '"', head, fixed = TRUE), tail)
+  } else {
+    s <- gsub("`", '"', s, fixed = TRUE)  # fragment uden VALUES: uændret adfærd
+  }
   s
 }
 

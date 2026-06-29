@@ -79,6 +79,50 @@ Se invariant 3-caveat. To review-rækker kan pege på samme `tng_id`; menneske-g
   on.exit-cleanup; `assert_readonly` ej testet (kræver live PG). `07-report.R`: `.label`
   bruger `%s` på numerisk `nr`.
 
+## Codex adversarial-review konsekvens (2026-06-29)
+
+Verdict: needs-attention. Empirisk reproduceret i denne reconcile (Rule 1).
+
+**Bekræftet (verified empirisk):**
+- **NEW H0 [HIGH] — mysqldump-literal-korruption (`01-extract-tng.R` fix_mysql_literals).**
+  Reproduceret: `fix_mysql_literals("INSERT INTO \`t\` VALUES (1,'a\`b\`c')")` → `...'a"b"c'`
+  (backticks i VÆRDI korrumperet til `"`, fordi `gsub("\`",'"')` er global). Desuden
+  efterlades MySQL-escapes `\n \r \t \0 \Z` utranslaterede (`(1,'line1\nline2')` →
+  literal `\n`). **Reachable:** extract-trinnet kører før trin-3-4-guarden; row-count-tests
+  passerer mens værdier ændres silently. Bucket: **silent-corruption**. Real-impact på de
+  faktisk konsumerede kolonner (navne/datoer/køn/id/husband/wife/frel/mrel) er LAV
+  (backticks/escapes optræder reelt ikke der), men bug'en er reel og generisk.
+- **H2 — review-kø-persistens:** confirmed. (`match()`-rebuild taber afgørelser.)
+- **M2 — review-tier ikke injektiv:** confirmed m. konkret impact — reproduceret:
+  duplikat `tng_id` → `match("I9", ...)` returnerer FØRSTE (10), ignorerer 20 silently →
+  fejl-attribuerede relationer i `06-compare.R`. Bucket: **silent-corruption** (bag guard).
+- **M1 — strip_titles partikel-strip:** confirmed (match-kvalitet).
+- **H3 — tng_children reshape:** confirmed, intentional skeleton.
+
+**Recalibreret:**
+1. **H1 (PII):** Codex understreger gappet er større end "kun TNG-side". Tekst-scan er
+   forkert primær-kontrol: regex `\b<id>\b` har false-negatives (`p123`, `I123`,
+   bogstav-tilstødende id evader); `filter_living` ser kun rækkens egen `person_id` mens
+   relaterede personer optræder i `detalje`. → **Fix-strategi ændret:** modellér hver
+   refereret vores/TNG-person strukturelt, join BEGGE privacy-flag, afvis ukendt
+   privacy-state, filtrér FØR formatering; behold tekst-scan kun som defense-in-depth.
+
+**Impact-buckets (Codex-reddede/-skærpede, verified):**
+- Hard runtime-crash: 0
+- Silent-corruption: 2 (NEW H0 mysqldump-værdikorruption [reachable]; M2 match()-først [bag guard])
+- False-confidence/process: 1 (H1 recalibrering — tekst-scan ikke fail-closed nok)
+- Cleanup/sub-optimal: ekskluderet
+
+**Beslutning:**
+- **NEW H0:** FIX NU (eneste reachable silent-corruption) — gør backtick→`"` quote-aware
+  (kun identifier-prefix før `VALUES`, værdi-backticks bevares) + regression-test.
+  Escape-oversættelse (`\n` osv.) = follow-up (lav impact på brugte kolonner).
+- **H1/H2/M2/H3:** follow-ups (bag trin-3-4-guard); H1 recalibreret til strukturel model.
+
+**Læring:** row-count-grønne tests maskerer værdi-korruption (jf. dual-review Cycle D M1).
+Whole-statement gsub på SQL er ikke quote-aware → korrumperer værdi-data. Generisk regel:
+SQL-literal-transformation skal respektere streng-grænser.
+
 ## Bevidst udskudt
 - bio-vs-adopteret (frel/mrel) i forældre-barn (spec trin-6 nævner det; kræver vores
   rolle-subtyper plumbed i trin-6-glue).
