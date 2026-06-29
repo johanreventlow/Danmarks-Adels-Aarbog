@@ -652,3 +652,69 @@ END $$;
 ALTER TABLE lineage ADD COLUMN IF NOT EXISTS parent_lineage_id BIGINT REFERENCES lineage(id);
 ALTER TABLE lineage ADD COLUMN IF NOT EXISTS status TEXT;
 CREATE INDEX IF NOT EXISTS ix_lineage_parent ON lineage(parent_lineage_id);
+
+-- ============ OPRET-NY-ENTITET (2026-06-29) ============
+-- Komposite SECURITY DEFINER opret-RPC'er. id=max+1 (husstil). privat=true default (privatliv).
+CREATE OR REPLACE FUNCTION red_opret_person(
+  p_navn text, p_koen text DEFAULT NULL, p_levende boolean DEFAULT false,
+  p_privat boolean DEFAULT true, p_foedt_raw text DEFAULT NULL,
+  p_doed_raw text DEFAULT NULL, p_titel_raw text DEFAULT NULL
+) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_id bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF nullif(btrim(p_navn),'') IS NULL THEN RAISE EXCEPTION 'Navn er påkrævet'; END IF;
+  IF p_koen IS NOT NULL AND p_koen NOT IN ('mand','kvinde','ukendt')
+    THEN RAISE EXCEPTION 'Ugyldigt køn %', p_koen; END IF;
+  v_id := (SELECT coalesce(max(id),0)+1 FROM person);
+  INSERT INTO person(id, levende, privat, koen) VALUES (v_id, p_levende, p_privat, p_koen);
+  PERFORM red_upsert_fakta('person', v_id, 'navn', p_navn);
+  IF nullif(btrim(p_foedt_raw),'') IS NOT NULL THEN
+    PERFORM red_upsert_fakta('person', v_id, 'fødsel', p_foedt_raw, p_date_raw => p_foedt_raw);
+  END IF;
+  IF nullif(btrim(p_doed_raw),'') IS NOT NULL THEN
+    PERFORM red_upsert_fakta('person', v_id, 'død', p_doed_raw, p_date_raw => p_doed_raw);
+  END IF;
+  IF nullif(btrim(p_titel_raw),'') IS NOT NULL THEN
+    PERFORM red_upsert_fakta('person', v_id, 'titel', p_titel_raw);
+  END IF;
+  RETURN v_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION red_opret_estate(p_navn text, p_slags text DEFAULT NULL, p_sted_id bigint DEFAULT NULL)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_id bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF nullif(btrim(p_navn),'') IS NULL THEN RAISE EXCEPTION 'Navn er påkrævet'; END IF;
+  v_id := (SELECT coalesce(max(id),0)+1 FROM estate);
+  INSERT INTO estate(id, navn, slags, sted_id) VALUES (v_id, p_navn, p_slags, p_sted_id);
+  RETURN v_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION red_opret_kilde(p_titel text, p_slags text DEFAULT NULL, p_udgave text DEFAULT NULL, p_ekstern boolean DEFAULT false)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_id bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF nullif(btrim(p_titel),'') IS NULL THEN RAISE EXCEPTION 'Titel er påkrævet'; END IF;
+  v_id := (SELECT coalesce(max(id),0)+1 FROM source);
+  INSERT INTO source(id, slags, titel, udgave, ekstern) VALUES (v_id, p_slags, p_titel, p_udgave, p_ekstern);
+  RETURN v_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION red_opret_organisation(p_navn text, p_slags text DEFAULT NULL)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_id bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF nullif(btrim(p_navn),'') IS NULL THEN RAISE EXCEPTION 'Navn er påkrævet'; END IF;
+  v_id := (SELECT coalesce(max(id),0)+1 FROM organisation);
+  INSERT INTO organisation(id, navn, slags) VALUES (v_id, p_navn, p_slags);
+  RETURN v_id;
+END $$;
+
+grant execute on function public.red_opret_person(text,text,boolean,boolean,text,text,text) to authenticated;
+grant execute on function public.red_opret_estate(text,text,bigint) to authenticated;
+grant execute on function public.red_opret_kilde(text,text,text,boolean) to authenticated;
+grant execute on function public.red_opret_organisation(text,text) to authenticated;
