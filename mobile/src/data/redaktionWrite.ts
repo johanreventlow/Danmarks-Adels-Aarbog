@@ -11,11 +11,12 @@ const DATE_FELT = new Set(['foedt', 'doed']);
 export type Change = {
   art: 'fakta' | 'narrativ' | 'relation' | 'gods' | 'hverv'
      | 'redigerOplysning' | 'sletOplysning' | 'setKonklusion' | 'setPrivat' | 'sletPerson'
-     | 'tilfoejOplysning' | 'opretFakta';
+     | 'tilfoejOplysning' | 'opretFakta' | 'sletRelation' | 'tilfoejRelation';
   subjektType: string;
   subjektId: string;
   assertionId?: string;
   factId?: string;
+  relationId?: string;
   felt?: string;
   vaerdi?: string;
   kildeFritekst?: string;
@@ -89,6 +90,17 @@ export function buildRpcCall(c: Change): RpcCall | null {
     return { fn: 'red_relation', args: {
       p_subjekt_type: c.subjektType, p_subjekt_id: sid,
       p_objekt_type: p.objektType, p_objekt_id: p.objektId,
+      p_rolle: p.rolle, p_periode_raw: p.periodeRaw ?? null } };
+  }
+  if (c.art === 'sletRelation') {
+    const rid = c.relationId != null ? Number(c.relationId) : null;
+    if (rid == null) return null;
+    return { fn: 'red_slet_relation', args: { p_relation_id: rid } };
+  }
+  if (c.art === 'tilfoejRelation') {
+    const p = c.payload || {};
+    return { fn: 'red_tilfoej_relation', args: {
+      p_subjekt_id: sid, p_objekt_type: p.objektType, p_objekt_id: Number(p.objektId),
       p_rolle: p.rolle, p_periode_raw: p.periodeRaw ?? null } };
   }
   return null;
