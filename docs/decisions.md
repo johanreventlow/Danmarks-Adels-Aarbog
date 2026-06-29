@@ -2,6 +2,18 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Opret: privat=true default + sted udskudt (2026-06-29)
+
+**Ny person oprettes med `privat=true`, ikke blot `levende=false`.**
+RLS-reglen `levende=false AND privat=false` gør personen anon-læsbar. En glemt levende-toggle
+ville ellers publicere en nulevende person umiddelbart ved opret. `privat=true` som default kræver
+en bevidst handling af redaktøren for at gøre personen synlig — via `red_set_privat`. Ansvaret
+for synlighed placeres dermed eksplicit hos redaktøren, ikke i en implicit-off standardtilstand.
+
+**Gods-sted udskudt.**
+`EntitetPicker` understøtter kun organisation/estate, og `redaktionAux` har ingen `placeListe`.
+En sted-picker til gods kræver ny aux-datasektion og ny picker-komponent — ikke i scope for PoC.
+
 ## Plan 2C-2b: redigerbar familie-sektion — 5 nøgle-valg (2026-06-29)
 
 **`red_slet_familie_link` sletter aldrig `family`-entiteten (Codex H1).**

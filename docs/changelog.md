@@ -22,6 +22,25 @@
 * **Roadmap:** `docs/moed-en-slaegtning-roadmap.md` — telefon-til-telefon slægtskab ved fysisk
   møde (NameDrop-stil dobbelt-aktiv-handling, QR-MVP → BLE → UWB, GDPR-samtykke-design).
 
+## Opret-ny-entitet — Tilføj-fanen (2026-06-29)
+* **Hvad:** Redaktøren kan oprette ny person/gods/kilde/organisation fra "Tilføj"-fanen gennem
+  dry-run→live-gate; person → lander i editoren, øvrige → vises i listen.
+* **4 nye SECURITY DEFINER RPC'er (deployet prod):** `red_opret_person` (INSERT + navn/født/død/titel
+  som facts via `red_upsert_fakta`, privat=true default), `red_opret_estate`, `red_opret_kilde`,
+  `red_opret_organisation`. id=max+1, NULL/whitespace-navn afvist. Grants tilføjet i
+  `db-migrations.sql` (schema.sql bærer ingen grants by design; db-rls.sql grant-loop dækker red_*).
+* **B1/B2 (Codex-review):** `loadRedaktionModel(force)` tvinger reload (var no-op på 'ready');
+  `SkrivePreviewSheet.onApplied(result)` bærer ny id til navigation.
+* **`OpretSheet`:** grid + per-type formularer; `buildRpcCall`-cases for 4 opret-arter; enkelt-Modal
+  (kun én Modal synlig ad gangen via `visible={visible && !pending}`); wire til Tilføj-fanen.
+* **Privatliv:** ny person privat=true (levende=false=anon-læsbar → glemt toggle ville publicere).
+* **Udskudt:** sted-picker til gods (ingen place-picker/placeListe); inline-opret fra PersonPicker;
+  medie/våben/majorat; dedup-UNIQUE; id-sequence (post-PoC).
+* **Test:** jest (`buildRpcCall` opret-arter) + DB rollback-test + manuel web-e2e.
+* **Codex-review-fix (2026-06-30):** nestet native Modal fjernet — OpretSheet rendrer nu én Modal
+  ad gangen + SkrivePreviewSheet som søskende; Task 1 happy-path-test omskrevet fra psql-`\gset`
+  til `DO`-blok med `RAISE EXCEPTION`-asserts (eksekverbar via `execute_sql`).
+
 ## Plan 2C-2b — redigerbar familie-sektion (partner + barn + konfidens) i redaktør-person-editoren (2026-06-29)
 * **Hvad:** Redaktøren kan nu tilføje og afkoble ægtefælle/partner, tilføje og afkoble børn
   samt justere konfidens på familie-links direkte i person-editoren — alt via det eksisterende
