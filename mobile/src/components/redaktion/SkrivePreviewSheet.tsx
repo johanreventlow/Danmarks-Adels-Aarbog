@@ -8,7 +8,7 @@ import { BtnLabel, Mono, Serif } from '../Typography';
 export function SkrivePreviewSheet({ change, onClose, onApplied }: {
   change: Change | null;
   onClose: () => void;
-  onApplied: () => void;
+  onApplied: (result?: unknown) => void;
 }) {
   const dryRun = useStore((s) => s.dryRun);
   const [status, setStatus] = useState<'idle' | 'busy' | 'ok' | 'err'>('idle');
@@ -27,9 +27,9 @@ export function SkrivePreviewSheet({ change, onClose, onApplied }: {
     setStatus('busy');
     setFejl(null);
     try {
-      await submitChange(change as Change, { dryRun });
+      const res = await submitChange(change as Change, { dryRun });
       setStatus('ok');
-      if (!dryRun) onApplied();
+      if (!dryRun) onApplied('result' in res ? res.result : undefined);
     } catch (e) {
       setFejl(oversaetFejl(e instanceof Error ? e.message : String(e)));
       setStatus('err');
