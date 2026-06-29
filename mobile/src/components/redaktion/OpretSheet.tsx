@@ -155,7 +155,7 @@ export function OpretSheet({ visible, onClose }: { visible: boolean; onClose: ()
               onPress={() => { const c = byg(); if (c) setPending(c); }}>
               <BtnLabel color="#fff">Gennemse & opret</BtnLabel>
             </Pressable>
-            <Pressable style={styles.cancel} onPress={() => setType(null)}>
+            <Pressable style={styles.cancel} onPress={nulstil}>
               <BtnLabel color={Colors.textSecondary}>Tilbage</BtnLabel>
             </Pressable>
           </ScrollView>
