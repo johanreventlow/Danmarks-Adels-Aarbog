@@ -28,11 +28,22 @@ load_tng_table <- function(con, dump_path, table) {
   coldef <- paste(sprintf('"%s" VARCHAR', cols), collapse = ", ")
   DBI::dbExecute(con, sprintf('CREATE TABLE "%s" (%s)', table, coldef))
   lines <- readLines(dump_path, warn = FALSE)
-  ins <- grep(sprintf("^INSERT INTO `%s` VALUES", table), lines, value = TRUE)
-  n <- 0L
-  for (stmt in ins) {
-    fixed <- fix_mysql_literals(stmt)
-    DBI::dbExecute(con, fixed)
+  # Match both "INSERT INTO `t` VALUES (...)" (single-line) and
+  # "INSERT INTO `t` (`col`,...) VALUES" (column-list multi-line).
+  header_pat <- sprintf("^INSERT INTO `%s`", table)
+  i <- 1L
+  while (i <= length(lines)) {
+    if (grepl(header_pat, lines[i], fixed = FALSE)) {
+      # Collect lines until statement ends with ";"
+      stmt_lines <- lines[i]
+      while (!grepl(";\\s*$", lines[i]) && i < length(lines)) {
+        i <- i + 1L
+        stmt_lines <- c(stmt_lines, lines[i])
+      }
+      fixed <- fix_mysql_literals(paste(stmt_lines, collapse = "\n"))
+      DBI::dbExecute(con, fixed)
+    }
+    i <- i + 1L
   }
   DBI::dbGetQuery(con, sprintf('SELECT COUNT(*) AS n FROM "%s"', table))$n
 }
