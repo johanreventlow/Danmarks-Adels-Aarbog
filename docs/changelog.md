@@ -13,9 +13,9 @@
     eksisterende family. Cyklus-guard via recursiv CTE: tilføjer en ane som barn → RAISE (Codex H3).
     Selv-forælder (barn==en af familiens partnere) afvises. PK-dublet = no-op. Ugyldig
     rolle/konfidens afvises.
-  - `red_set_familie_konfidens(p_family_id, p_person_id, p_konfidens)` — UPDATE
+  - `red_set_familie_konfidens(p_family_id, p_person_id, p_rolle, p_konfidens)` — UPDATE
     `family_member.konfidens` for præcist ét link; ukendt link → RAISE; ugyldig konfidens → RAISE.
-  - `red_slet_familie_link(p_family_id, p_person_id)` — sletter KUN `family_member`-rækken.
+  - `red_slet_familie_link(p_family_id, p_person_id, p_rolle)` — sletter KUN `family_member`-rækken.
     Sletter ALDRIG `family`-entiteten (heller ikke når det er det sidste link), da family bærer
     276+ facts og 700+ notes uden FK — en family-sletning ville efterlade al evidens forældreløs
     (Codex H1).
@@ -33,7 +33,8 @@
 * **Redigerbar ÆGTEFÆLLE/BØRN/FORÆLDRE-sektion** i person-editoren: tilføj partner
   (PersonPicker → opretUnion), tilføj barn (PersonPicker → tilfoejBarn, m. era-advarsel),
   juster konfidens (KonfidensVaelger → setFamilieKonfidens), afkobl
-  (SletBekræft → sletFamilieLink). FORÆLDRE-sektionen er read-only (ingen slet-forælder-RPC).
+  (sletFamilieLink). FORÆLDRE-sektionen (personen som barn): forældre-NAVNE er read-only, men
+  konfidens kan justeres og forkert forælder kan afkobles ("🗑 afkobl forælder" → sletFamilieLink).
 * **Test:** 121/121 jest, tsc rent.
 * **Udestår (controller-gate):** live RPC-deploy mod prod, rollback-tests, manuel web-e2e.
 
