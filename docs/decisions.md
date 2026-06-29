@@ -2,6 +2,47 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Plan 2C-2b: redigerbar familie-sektion — 5 nøgle-valg (2026-06-29)
+
+**`red_slet_familie_link` sletter aldrig `family`-entiteten (Codex H1).**
+`family`-tabellen bærer i gennemsnit 276 facts og 700 notes i nuværende load. Disse binder via
+`(target_type='family', target_id)` — polymorfisk, ingen FK, ingen cascade-constraint. En
+sletning af family-rækken ville efterlade al evidens forældreløs. RPC'en sletter KUN
+`family_member`-rækkerne. En tom family (ingen members) er bedre end orphaned evidens;
+fjernelse af en tom family kræver eksplicit audit og separat RPC.
+
+**Ingen auto-dedup af unioner i `red_opret_union` (Codex H2).**
+Et par (A, B) kan logisk have to selvstændige ægteskaber (fx skilsmisse + gengifte). En
+pair-dedup (`WHERE partner_a=X AND partner_b=Y → returnér eksisterende family_id`) ville flette
+børn og ægteskabs-events fra to distinkte tidslinjer ind i ét family-objekt. RPC'en opretter
+ALTID en ny family-entitet + 2 partner-links. Ansvaret for at identificere et allerede
+eksisterende ægteskab og vælge det korrekte family-objekt ligger i UI-laget / redaktøren.
+
+**Cyklus-guard + selv-forælder-afvisning i `red_tilfoej_barn` (Codex H3).**
+To separate afvisninger i RPC-laget (SECURITY DEFINER, ikke kun klient-lag):
+(1) Selv-forælder: `p_barn_id` == en af familiens partnere → RAISE.
+(2) Cyklus: recursiv CTE traverserer opad i slægtstræet fra `p_barn_id`; hvis nogen ane == en
+af familiens partnere → RAISE.
+Begge afvisninger er nødvendige i databaselaget — klient-side-guard alene kan omgås ved
+direkte RPC-kald.
+
+**`fetchPersonFamilie` separat fra `redaktionAux`.**
+`redaktionAux` sammensætter familie-visningen til display (formaterede listestrenge), men
+eksponerer hverken `family_member.konfidens` eller primærnøglerne (`family_id` + `person_id`)
+som slet- og konfidens-kaldene kræver. Separat fetch mod `family_member`-tabellen var den eneste
+korrekte løsning — omskrivning af aux-kontrakten ville bryde resten af editoren. Analogt med
+2C-2a's valg af separat `fetchPersonRelationer`.
+
+**Era-validering: klient-side advar-og-tillad.**
+`eraAdvarsel` er en blød advarsel, ikke en hard-reject. Begrundelse: 27 af de eksisterende
+familie-links i databasen er historisk inkonsistente (era-fejl fra DAA-parseren) — en
+hard-reject ville blokere korrekt redigering af disse poster. Redaktøren modtager advarslen,
+bekræfter og fortsætter. Hard-reject forudsætter at alle 27 era-fejl er rettet i basen.
+
+**Live RPC-deploy + rollback-tests + manuel e2e er controller-gated.**
+Samme model som tidligere plans: bruger-OK + backup (R/RPostgres) inden DDL kører mod prod.
+App-siden er komplet og testet (121/121 jest, tsc rent); RPC'erne eksisterer endnu ikke i prod.
+
 ## Plan 2C-2a: redigerbar sektion-relationer — scope + nøgle-valg (2026-06-29)
 
 **Redigerbart scope: kun relation-baserede hverv/godser; familie og kilder read-only.**

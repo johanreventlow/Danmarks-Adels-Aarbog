@@ -11,12 +11,17 @@ const DATE_FELT = new Set(['foedt', 'doed']);
 export type Change = {
   art: 'fakta' | 'narrativ' | 'relation' | 'gods' | 'hverv'
      | 'redigerOplysning' | 'sletOplysning' | 'setKonklusion' | 'setPrivat' | 'sletPerson'
-     | 'tilfoejOplysning' | 'opretFakta' | 'sletRelation' | 'tilfoejRelation';
+     | 'tilfoejOplysning' | 'opretFakta' | 'sletRelation' | 'tilfoejRelation'
+     | 'opretUnion' | 'tilfoejBarn' | 'setFamilieKonfidens' | 'sletFamilieLink';
   subjektType: string;
   subjektId: string;
   assertionId?: string;
   factId?: string;
   relationId?: string;
+  familyId?: string;
+  personId?: string;
+  rolle?: string;
+  konfidens?: string | null;
   felt?: string;
   vaerdi?: string;
   kildeFritekst?: string;
@@ -102,6 +107,30 @@ export function buildRpcCall(c: Change): RpcCall | null {
     return { fn: 'red_tilfoej_relation', args: {
       p_subjekt_id: sid, p_objekt_type: p.objektType, p_objekt_id: Number(p.objektId),
       p_rolle: p.rolle, p_periode_raw: p.periodeRaw ?? null } };
+  }
+  if (c.art === 'opretUnion') {
+    const p = c.payload || {};
+    if (p.partnerA == null || p.partnerB == null || !p.type) return null;
+    return { fn: 'red_opret_union', args: {
+      p_partner_a: Number(p.partnerA), p_partner_b: Number(p.partnerB), p_type: p.type,
+      p_ordinal: p.ordinal != null ? Number(p.ordinal) : null } };
+  }
+  if (c.art === 'tilfoejBarn') {
+    const p = c.payload || {};
+    if (p.familyId == null || p.barnId == null) return null;
+    return { fn: 'red_tilfoej_barn', args: {
+      p_family_id: Number(p.familyId), p_barn_id: Number(p.barnId),
+      p_rolle: p.rolle || 'barn', p_konfidens: p.konfidens ?? null } };
+  }
+  if (c.art === 'setFamilieKonfidens') {
+    if (c.familyId == null || c.personId == null || !c.rolle) return null;
+    return { fn: 'red_set_familie_konfidens', args: {
+      p_family_id: Number(c.familyId), p_person_id: Number(c.personId), p_rolle: c.rolle, p_konfidens: c.konfidens ?? null } };
+  }
+  if (c.art === 'sletFamilieLink') {
+    if (c.familyId == null || c.personId == null || !c.rolle) return null;
+    return { fn: 'red_slet_familie_link', args: {
+      p_family_id: Number(c.familyId), p_person_id: Number(c.personId), p_rolle: c.rolle } };
   }
   return null;
 }

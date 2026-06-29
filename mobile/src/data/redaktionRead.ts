@@ -216,6 +216,64 @@ export async function fetchPersonRelationer(id: string, aux: import('./types').A
   return mapRelationRow(rows, aux);
 }
 
+// --- Familie-læsning til person-editor (2C-2b) ---
+
+export type FamiliePartner = { personId: string; navn: string; konfidens: string | null; ordinal: number | null };
+export type FamilieBarn = { personId: string; navn: string; rolle: string; konfidens: string | null };
+export type FamilieUnion = { familyId: string; type: string; partnere: FamiliePartner[]; boern: FamilieBarn[] };
+export type SomBarn = { familyId: string; rolle: string; konfidens: string | null; foraeldre: { personId: string; navn: string }[] };
+export type PersonFamilie = { somPartner: FamilieUnion[]; somBarn: SomBarn[] };
+type RawFamRow = { family_id: number; person_id: number; rolle: string; ordinal: number | null; konfidens: string | null };
+type RawFamilyMeta = { id: number; type: string | null };
+const BARN_ROLLER = ['barn', 'adopteret_barn', 'plejebarn', 'stedbarn'];
+
+export function mapFamilieRows(personId: string, families: RawFamilyMeta[], members: RawFamRow[], model: import('./types').Model | null): PersonFamilie {
+  const navnAf = (pid: number) => model?.byId?.[String(pid)]?.name ?? `#${pid}`;
+  const typeAf = new Map(families.map((f) => [String(f.id), f.type ?? '']));
+  const byFamily = new Map<string, RawFamRow[]>();
+  members.forEach((m) => {
+    const k = String(m.family_id);
+    (byFamily.get(k) ?? byFamily.set(k, []).get(k)!).push(m);
+  });
+  const somPartner: FamilieUnion[] = [];
+  const somBarn: SomBarn[] = [];
+  byFamily.forEach((rows, familyId) => {
+    const mig = rows.find((r) => String(r.person_id) === personId);
+    if (!mig) return;
+    if (mig.rolle === 'partner') {
+      somPartner.push({
+        familyId, type: typeAf.get(familyId) ?? '',
+        partnere: rows.filter((r) => r.rolle === 'partner' && String(r.person_id) !== personId)
+          .map((r) => ({ personId: String(r.person_id), navn: navnAf(r.person_id), konfidens: r.konfidens, ordinal: r.ordinal })),
+        boern: rows.filter((r) => BARN_ROLLER.includes(r.rolle))
+          .map((r) => ({ personId: String(r.person_id), navn: navnAf(r.person_id), rolle: r.rolle, konfidens: r.konfidens })),
+      });
+    } else if (BARN_ROLLER.includes(mig.rolle)) {
+      somBarn.push({
+        familyId, rolle: mig.rolle, konfidens: mig.konfidens,
+        foraeldre: rows.filter((r) => r.rolle === 'partner')
+          .map((r) => ({ personId: String(r.person_id), navn: navnAf(r.person_id) })),
+      });
+    }
+  });
+  return { somPartner, somBarn };
+}
+
+export async function fetchPersonFamilie(id: string, model: import('./types').Model | null): Promise<PersonFamilie> {
+  if (!supabase) return { somPartner: [], somBarn: [] };
+  const sb = supabase;
+  const mine = await getAll<{ family_id: number }>(() =>
+    sb.from('family_member').select('family_id').eq('person_id', Number(id)));
+  const famIds = Array.from(new Set(mine.map((m) => m.family_id)));
+  if (!famIds.length) return { somPartner: [], somBarn: [] };
+  const members = await getAll<RawFamRow>(() =>
+    sb.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens').in('family_id', famIds)
+      .order('ordinal', { ascending: true, nullsFirst: false }).order('person_id'));
+  const families = await getAll<RawFamilyMeta>(() =>
+    sb.from('family').select('id,type').in('id', famIds));
+  return mapFamilieRows(id, families, members, model);
+}
+
 export async function fetchPersonEvidence(personId: string): Promise<PersonEvidence> {
   const empty: PersonEvidence = { felter: {}, koen: null };
   if (!supabase) return empty;

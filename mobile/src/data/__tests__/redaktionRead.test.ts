@@ -118,6 +118,42 @@ test('mapRelationRow: ukendt objekt-id → fallback-navn', () => {
     .toBe('#99');
 });
 
+// --- mapFamilieRows ---
+
+import { mapFamilieRows } from '../redaktionRead';
+
+const MODEL = { byId: {
+  '1': { name: 'Far' }, '2': { name: 'Mor' },
+  '3': { name: 'Barn A' }, '7': { name: 'Fokus' },
+} } as never;
+
+test('mapFamilieRows: union m. partnere+børn, og person som barn', () => {
+  const families = [{ id: 10, type: 'vielse' }, { id: 20, type: 'vielse' }];
+  const members = [
+    // family 10: fokus(7) + far(1) partnere, barn A(3)
+    { family_id: 10, person_id: 7, rolle: 'partner', ordinal: 1, konfidens: null },
+    { family_id: 10, person_id: 1, rolle: 'partner', ordinal: 1, konfidens: 'sikker' },
+    { family_id: 10, person_id: 3, rolle: 'barn', ordinal: null, konfidens: null },
+    // family 20: fokus(7) er barn af far(1)+mor(2)
+    { family_id: 20, person_id: 1, rolle: 'partner', ordinal: null, konfidens: null },
+    { family_id: 20, person_id: 2, rolle: 'partner', ordinal: null, konfidens: null },
+    { family_id: 20, person_id: 7, rolle: 'barn', ordinal: null, konfidens: 'formodet' },
+  ];
+  const r = mapFamilieRows('7', families as never, members as never, MODEL);
+  expect(r.somPartner).toEqual([{ familyId: '10', type: 'vielse',
+    partnere: [{ personId: '1', navn: 'Far', konfidens: 'sikker', ordinal: 1 }],
+    boern: [{ personId: '3', navn: 'Barn A', rolle: 'barn', konfidens: null }] }]);
+  expect(r.somBarn).toEqual([{ familyId: '20', rolle: 'barn', konfidens: 'formodet',
+    foraeldre: [{ personId: '1', navn: 'Far' }, { personId: '2', navn: 'Mor' }] }]);
+});
+
+test('mapFamilieRows: ukendt person → #id-fallback', () => {
+  const r = mapFamilieRows('7', [{ id: 10, type: 'vielse' }] as never,
+    [{ family_id: 10, person_id: 7, rolle: 'partner', ordinal: null, konfidens: null },
+     { family_id: 10, person_id: 99, rolle: 'barn', ordinal: null, konfidens: null }] as never, MODEL);
+  expect(r.somPartner[0].boern[0].navn).toBe('#99');
+});
+
 test('fetchRedaktionPersoner samler alle sider (ingen trunkering)', async () => {
   const page1 = Array.from({ length: 1000 }, (_, i) => ({ id: i + 1, visning_navn: `P${i}`, visning_foedt: '1700', visning_doed: null, levende: false, privat: false }));
   const page2 = [{ id: 1001, visning_navn: 'Sidste', visning_foedt: '1800', visning_doed: null, levende: false, privat: false }];

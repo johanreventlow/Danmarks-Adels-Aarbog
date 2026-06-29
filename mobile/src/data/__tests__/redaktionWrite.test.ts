@@ -116,3 +116,28 @@ test('tilfoejRelation → red_tilfoej_relation fra payload', () => {
 test('sletRelation uden relationId → null', () => {
   expect(buildRpcCall({ art: 'sletRelation', subjektType: 'person', subjektId: '1' })).toBeNull();
 });
+
+// --- Task 5: familie-cases ---
+test('opretUnion → red_opret_union', () => {
+  expect(buildRpcCall({ art: 'opretUnion', subjektType: 'person', subjektId: '7',
+    payload: { partnerA: '7', partnerB: '1', type: 'vielse', ordinal: 1 } }))
+    .toEqual({ fn: 'red_opret_union', args: { p_partner_a: 7, p_partner_b: 1, p_type: 'vielse', p_ordinal: 1 } });
+});
+test('tilfoejBarn → red_tilfoej_barn', () => {
+  expect(buildRpcCall({ art: 'tilfoejBarn', subjektType: 'person', subjektId: '7',
+    payload: { familyId: '10', barnId: '3', rolle: 'barn', konfidens: 'sikker' } }))
+    .toEqual({ fn: 'red_tilfoej_barn', args: { p_family_id: 10, p_barn_id: 3, p_rolle: 'barn', p_konfidens: 'sikker' } });
+});
+test('setFamilieKonfidens → red_set_familie_konfidens (NULL ryd)', () => {
+  expect(buildRpcCall({ art: 'setFamilieKonfidens', subjektType: 'person', subjektId: '7',
+    familyId: '10', personId: '1', rolle: 'partner', konfidens: null }))
+    .toEqual({ fn: 'red_set_familie_konfidens', args: { p_family_id: 10, p_person_id: 1, p_rolle: 'partner', p_konfidens: null } });
+});
+test('sletFamilieLink → red_slet_familie_link', () => {
+  expect(buildRpcCall({ art: 'sletFamilieLink', subjektType: 'person', subjektId: '7',
+    familyId: '10', personId: '3', rolle: 'barn' }))
+    .toEqual({ fn: 'red_slet_familie_link', args: { p_family_id: 10, p_person_id: 3, p_rolle: 'barn' } });
+});
+test('opretUnion uden påkrævet payload → null', () => {
+  expect(buildRpcCall({ art: 'opretUnion', subjektType: 'person', subjektId: '7', payload: { partnerA: '7' } as never })).toBeNull();
+});

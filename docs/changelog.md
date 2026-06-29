@@ -1,5 +1,51 @@
 # Changelog
 
+## Plan 2C-2b — redigerbar familie-sektion (partner + barn + konfidens) i redaktør-person-editoren (2026-06-29)
+* **Hvad:** Redaktøren kan nu tilføje og afkoble ægtefælle/partner, tilføje og afkoble børn
+  samt justere konfidens på familie-links direkte i person-editoren — alt via det eksisterende
+  SkrivePreviewSheet-gate (dry-run → live). HVERV/GODSER/KILDER er uændrede fra 2C-2a.
+* **4 nye SECURITY DEFINER RPC'er (deployet mod prod 2026-06-29):**
+  - `red_opret_union(p_partner_a, p_partner_b, p_type, p_ordinal)` — opretter ny family-entitet
+    + 2 partner-links. INGEN auto-dedup: samme par kan gifte sig igen — par-dedup ville flette
+    børn og event-tidslinjer fra to selvstændige ægteskaber (Codex H2). partner_a==b og ugyldig
+    type afvises med RAISE.
+  - `red_tilfoej_barn(p_family_id, p_barn_id, p_rolle, p_konfidens)` — tilføjer barn-link til
+    eksisterende family. Cyklus-guard via recursiv CTE: tilføjer en ane som barn → RAISE (Codex H3).
+    Selv-forælder (barn==en af familiens partnere) afvises. PK-dublet = no-op. Ugyldig
+    rolle/konfidens afvises.
+  - `red_set_familie_konfidens(p_family_id, p_person_id, p_rolle, p_konfidens)` — UPDATE
+    `family_member.konfidens` for præcist ét link; ukendt link → RAISE; ugyldig konfidens → RAISE.
+  - `red_slet_familie_link(p_family_id, p_person_id, p_rolle)` — sletter KUN `family_member`-rækken.
+    Sletter ALDRIG `family`-entiteten (heller ikke når det er det sidste link), da family bærer
+    276+ facts og 700+ notes uden FK — en family-sletning ville efterlade al evidens forældreløs
+    (Codex H1).
+* **`fetchPersonFamilie`** — per-person familie-fetch (unioner + barn-af-links), separat fra
+  `redaktionAux` der ikke eksponerer `family_member.konfidens` eller de primærnøgler
+  (`family_id`/`person_id`) som slet- og konfidens-kaldene kræver.
+* **`eraAdvarsel`** — klient-side blød dato-advarsel (barn født udenfor forældrenes plausible
+  livsrum). Advarer og tillader — afviser ikke. 27 verificerede historisk-inkonsistente tilfælde
+  i eksisterende data ville trigger en hard-reject uberettiget.
+* **`PersonPicker`** — sheet-komponent til valg af person (søg + tryk), brugt ved
+  "+ Tilføj partner" og "+ Tilføj barn" i editoren.
+* **`buildRpcCall`-cases** for `opretUnion` / `tilfoejBarn` / `setFamilieKonfidens` /
+  `sletFamilieLink`; type `Change` udvidet med `familyId`, `personId` (familie-kontekst)
+  og de 4 nye Change-arter.
+* **Redigerbar ÆGTEFÆLLE/BØRN/FORÆLDRE-sektion** i person-editoren: tilføj partner
+  (PersonPicker → opretUnion), tilføj barn (PersonPicker → tilfoejBarn, m. era-advarsel),
+  juster konfidens (KonfidensVaelger → setFamilieKonfidens), afkobl
+  (sletFamilieLink). FORÆLDRE-sektionen (personen som barn): forældre-NAVNE er read-only, men
+  konfidens kan justeres og forkert forælder kan afkobles ("🗑 afkobl forælder" → sletFamilieLink).
+* **Test:** 121/121 jest, tsc rent.
+* **Controller-gate kørt (2026-06-29):** schema-backup (15 funktioner →
+  `docs/db-backups/2026-06-29-prod-red-functions-2c2b-pre.sql`), 4 RPC'er deployet + grant-loop re-kørt,
+  rollback-tests bestået (nul mutation): H2 samme par → 2 selvstændige unioner (ingen kollaps); H3
+  cyklus-guard + selv-forælder afvist + PK-dublet no-op; konfidens-UPDATE + valideringer; H1 slet alle
+  family-links → family-entitet + 276+ facts + 700+ notes INTAKT.
+* **Final-review-fix:** era-advarsel medtager nu fokus-forælderens egne datoer (manglede → eget barn-tilføj
+  ikke era-tjekket, dødt for én-forælder-unioner).
+* **Udestår:** kun manuel web-e2e. Bredere redaktionModel-invalidering efter familie-write = §9-follow-up.
+
+
 ## Plan 2C-2a — redigerbar sektion-relationer (hverv/godser) i redaktør-person-editoren (2026-06-29)
 * **Hvad:** Redaktøren kan nu tilføje og slette hverv- og godser-relationer direkte i person-editoren.
   Familie (family_member) og kilder (external_id) forbliver read-only i denne plan; familie-redigering
