@@ -126,7 +126,9 @@ opretOrganisation → red_opret_organisation { p_navn, p_slags }
 - **Trin 2 — type-form** (kontrollerede felter, hardcodede vokab-arrays = husstil, jf.
   `KONFIDENS_VAERDIER`/`UNION_TYPER`):
   - **Person:** navn\* · køn (`mand/kvinde/ukendt`) · levende-toggle · født · død · titel.
-  - **Gods:** navn\* · slags (`gods/len/stamhus/lensgrevskab/baroni`) · sted (EntitetPicker, valgfri).
+  - **Gods:** navn\* · slags (`gods/len/stamhus/lensgrevskab/baroni`). *(Sted udskudt: `EntitetPicker`
+    understøtter kun organisation/estate, og Aux har ingen `placeListe` → ingen sted-picker findes.
+    RPC beholder `p_sted_id` forward-kompat; UI sender null. Sted tilføjes i senere skive.)*
   - **Kilde:** titel\* · slags (`kirkebog/DAA-udgave/bog/artikel/diplomsamling`) · udgave · ekstern-toggle.
   - **Organisation:** navn\* · slags (`amt/regiment/hof/institution/ridderorden`).
 - Bygger et `Change` → routes gennem **samme** SkrivePreviewSheet-gate (dry-run → live).
@@ -143,8 +145,10 @@ findes i **ingen** af dem før reload → uden dette lander create→edit på en
 **B1 — `loadRedaktionModel()` er ikke en reload.** `useStore.ts:258` early-returner når
 `redaktionStatus === 'ready'` (= netop post-create-tilstanden) → kaldet er et no-op, model/aux
 forbliver stale. **Fix:** parametrisér `loadRedaktionModel(force?: boolean)` — `force` springer
-`ready`-early-return over. Ved fejl skal status blive `'error'` OG kaldet **re-throwe** (i dag sluges
-fejlen og resolver normalt → navigation ville ske oven på en fejlet refresh, Codex major).
+`ready`-early-return over. Fejl-håndtering (Codex major: "navigation oven på fejlet refresh"): den
+eksisterende catch beholdes (sætter `redaktionStatus='error'`, resolver — **ikke** re-throw, da
+eksisterende mount-kaldere afventer uden try/catch og ville give unhandled rejection). I stedet
+**tjekker OpretSheet `redaktionStatus` efter await** og navigerer KUN ved `'ready'`.
 
 **B2 — `SkrivePreviewSheet` smider den nye id væk.** `run()` (linje ~30) gør
 `await submitChange(...)` uden at bruge returværdien, og `onApplied(): void` bærer intet resultat.
