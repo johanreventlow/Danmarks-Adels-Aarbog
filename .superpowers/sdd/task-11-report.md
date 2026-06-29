@@ -38,3 +38,25 @@
 1. **Trin 3-4 er kommentar-skelet** — kalibreres mod håndlabelt facit-sæt; `scored`-tabel + blokerings-glue færdiggøres inden prod-kørsel.
 2. **GDPR PII-gate** — `detalje`-strenge i `disc` indeholder rå person_id på relaterede personer; kortlæg til DAA linje/nr-labels inden `render_report()` så rapporten er committable.
 3. **Trin 3-4 pseudo-kode note** — `visning_navn` bruges som `first`-arg til `normalize_name()` som illustration; implementøren skal korrekt splitte fornavn/efternavn fra `visning_*`-felterne.
+
+---
+
+## Fix 2026-06-29: Guard mod undefined `crosswalk`
+
+**Problem:** Orkestratoren havde trin 3-4 som kommentar-skelet, men trin 5-6 refererede `crosswalk` uden at blive bygget — script fejlede med uhjælpsomt `Error: object 'crosswalk' not found`.
+
+**Løsning:** Indsæt eksplicit guard efter trin 3-4-skelet:
+```r
+if (!exists("crosswalk")) stop(
+  "Trin 3-4 (scored -> crosswalk) er en kalibrerings-skeleton der endnu ikke er ",
+  "færdiggjort. Byg `scored` fra ours+tng_people og afkommentér ",
+  "`crosswalk <- assign_tiers(scored, cfg)` før trin 5-6 kan køre. ",
+  "Se docs/tng-qa-koersel.md (kalibrering mod facit-sæt)."
+)
+```
+
+**Commit:** `5bfeea9` — fix(tng-qa): orkestrator stopper med actionable besked når trin 3-4-glue mangler
+
+**Verificering:**
+- Parse: `Rscript -e 'invisible(parse("R/tng-qa/run-pipeline.R")); cat("parse OK\n")'` → **parse OK**
+- Test: `Rscript run-tests.R` → **PASS 62** (ingen regression)
