@@ -371,9 +371,13 @@ export default function PersonEditor() {
                     <Body size={13}>{r.navn}{r.rolle ? ` · ${r.rolle}` : ''}</Body>
                     {r.periode ? <Mono size={9} color={Colors.textMuted}>{r.periode}</Mono> : null}
                   </View>
-                  <Pressable onPress={() => setPending({ art: 'sletRelation', subjektType: 'person', subjektId: id!, relationId: String(r.relationId) })}>
-                    <Mono size={9} color={Colors.danger}>🗑</Mono>
-                  </Pressable>
+                  {/* Kun hverv (organisation) er redigerbart; historical_event vises read-only
+                      (cycle 06 NEW1 — undgå utilsigtet sletning af event-evidens uden for scope). */}
+                  {r.art === 'hverv' ? (
+                    <Pressable onPress={() => setPending({ art: 'sletRelation', subjektType: 'person', subjektId: id!, relationId: String(r.relationId) })}>
+                      <Mono size={9} color={Colors.danger}>🗑</Mono>
+                    </Pressable>
+                  ) : null}
                 </View>
               ))}
               <Pressable style={{ paddingVertical: 6 }} onPress={() => { setPickerType('organisation'); setRelScratch(null); }}>
