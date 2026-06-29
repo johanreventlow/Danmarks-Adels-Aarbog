@@ -17,6 +17,10 @@ const KOEN = ['mand', 'kvinde', 'ukendt'];
 const ESTATE_SLAGS = ['gods', 'len', 'stamhus', 'lensgrevskab', 'baroni'];
 const KILDE_SLAGS = ['kirkebog', 'DAA-udgave', 'bog', 'artikel', 'diplomsamling'];
 const ORG_SLAGS = ['amt', 'regiment', 'hof', 'institution', 'ridderorden'];
+// Eksplicit map (ikke ternary-fallthrough): en type uden slags-entry får tom liste, ikke ORG_SLAGS.
+const SLAGS_BY_TYPE: Partial<Record<EntType, string[]>> = {
+  estate: ESTATE_SLAGS, kilde: KILDE_SLAGS, organisation: ORG_SLAGS,
+};
 
 function Pille({ valgt, label, onPress }: { valgt: boolean; label: string; onPress: () => void }) {
   return (
@@ -87,7 +91,7 @@ export function OpretSheet({ visible, onClose }: { visible: boolean; onClose: ()
   }
 
   const navnLabel = type === 'kilde' ? 'Titel' : 'Navn';
-  const slagsListe = type === 'estate' ? ESTATE_SLAGS : type === 'kilde' ? KILDE_SLAGS : ORG_SLAGS;
+  const slagsListe = type ? SLAGS_BY_TYPE[type] ?? [] : [];
   const kanGemme = navn.trim().length > 0;
 
   // KUN én native Modal synlig ad gangen (Codex: nested native Modal upålidelig på iOS).
@@ -95,7 +99,7 @@ export function OpretSheet({ visible, onClose }: { visible: boolean; onClose: ()
   return (
     <>
     <Modal visible={visible && !pending} transparent animationType="slide" onRequestClose={luk}>
-      <Pressable style={styles.backdrop} onPress={luk} />
+      <Pressable style={pickerSheetStyles.backdrop} onPress={luk} />
       <View style={styles.sheet}>
         {!type ? (
           <>
@@ -172,7 +176,6 @@ export function OpretSheet({ visible, onClose }: { visible: boolean; onClose: ()
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(34,31,26,0.4)' },
   sheet: { backgroundColor: Colors.paperBg, borderTopLeftRadius: Radius.sheet, borderTopRightRadius: Radius.sheet,
     padding: 20, paddingBottom: 36, borderTopWidth: 1, borderColor: Border.light },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
