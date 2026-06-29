@@ -2,7 +2,7 @@
 
 default_cfg <- function() list(
   year_window = 5L, w_name = 0.6, w_birth = 0.2, w_death = 0.1, w_sex = 0.1,
-  auto_cutoff = 0.90, review_cutoff = 0.70, ambiguity_margin = 0.05
+  auto_cutoff = 0.90, review_cutoff = 0.70, ambiguity_margin = 0.05  # RESERVERET: endnu ikke brugt af assign_tiers (fremtidig nær-score-tvetydighed)
 )
 
 name_similarity <- function(key_a, key_b) {

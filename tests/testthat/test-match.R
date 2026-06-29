@@ -3,7 +3,7 @@ test_that("name_similarity rewards near-identical keys", {
   expect_lt(name_similarity("conrad reventlow", "ditlev brockdorff"), 0.6)
 })
 
-test_that("assign_tiers enforces injective 1:1 and ambiguity->review", {
+test_that("assign_tiers enforces injective 1:1 and conflict->none", {
   cfg <- default_cfg()
   scored <- data.frame(
     person_id = c(1L, 1L, 2L),
@@ -30,4 +30,16 @@ test_that("eval_precision_recall computes against truth", {
   pr <- eval_precision_recall(cw, truth)
   expect_equal(pr$precision, 2/3)
   expect_equal(pr$recall, 2/3)
+})
+
+test_that("assign_tiers sends high-score non-unique (unclaimed) to review, not auto", {
+  cfg <- default_cfg()
+  scored <- data.frame(
+    person_id = 5L, tng_id = "I50",
+    name_sim = 0.99, birth_overlap = TRUE, death_overlap = TRUE,
+    sex_eq = TRUE, unique_block = FALSE,
+    stringsAsFactors = FALSE
+  )
+  out <- assign_tiers(scored, cfg)
+  expect_equal(out$tier, "review")   # >= auto_cutoff but not unique -> review, never auto
 })
