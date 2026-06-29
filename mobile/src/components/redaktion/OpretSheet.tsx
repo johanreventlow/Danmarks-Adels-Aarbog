@@ -53,7 +53,7 @@ export function OpretSheet({ visible, onClose }: { visible: boolean; onClose: ()
     if (type === 'person') {
       if (!navn.trim()) return null;
       return { art: 'opretPerson', subjektType: 'person', subjektId: '',
-        payload: { navn: navn.trim(), koen: koen ?? undefined, levende, privat: true,
+        payload: { navn: navn.trim(), koen: koen ?? undefined, levende,
           foedtRaw: foedt.trim(), doedRaw: doed.trim(), titelRaw: titel.trim() } };
     }
     if (type === 'estate') {

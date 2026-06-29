@@ -143,13 +143,13 @@ test('opretUnion uden påkrævet payload → null', () => {
 });
 
 describe('buildRpcCall opret-arter', () => {
-  it('opretPerson → red_opret_person, kun udfyldte args', () => {
+  it('opretPerson → red_opret_person, kun udfyldte args, ingen p_privat', () => {
     const c = { art: 'opretPerson', subjektType: 'person', subjektId: '',
-      payload: { navn: 'Conrad', koen: 'mand', levende: false, privat: true,
+      payload: { navn: 'Conrad', koen: 'mand', levende: false,
                  foedtRaw: '1700', doedRaw: '', titelRaw: 'greve' } } as const;
     expect(buildRpcCall(c)).toEqual({ fn: 'red_opret_person', args: {
-      p_navn: 'Conrad', p_koen: 'mand', p_levende: false, p_privat: true,
-      p_foedt_raw: '1700', p_titel_raw: 'greve' } });   // doedRaw='' udeladt
+      p_navn: 'Conrad', p_koen: 'mand', p_levende: false,
+      p_foedt_raw: '1700', p_titel_raw: 'greve' } });   // doedRaw='' udeladt; p_privat fjernet
   });
   it('opretPerson uden navn → null', () => {
     expect(buildRpcCall({ art: 'opretPerson', subjektType: 'person', subjektId: '',

@@ -138,7 +138,6 @@ export function buildRpcCall(c: Change): RpcCall | null {
     const args: Record<string, unknown> = { p_navn: p.navn };
     if (p.koen != null) args.p_koen = p.koen;
     if (p.levende != null) args.p_levende = p.levende;
-    if (p.privat != null) args.p_privat = p.privat;
     if (p.foedtRaw) args.p_foedt_raw = p.foedtRaw;
     if (p.doedRaw) args.p_doed_raw = p.doedRaw;
     if (p.titelRaw) args.p_titel_raw = p.titelRaw;

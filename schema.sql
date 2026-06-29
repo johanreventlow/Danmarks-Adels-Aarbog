@@ -775,8 +775,7 @@ END $$;
 -- Komposite SECURITY DEFINER opret-RPC'er. id=max+1 (husstil). privat=true default (privatliv).
 CREATE OR REPLACE FUNCTION red_opret_person(
   p_navn text, p_koen text DEFAULT NULL, p_levende boolean DEFAULT false,
-  p_privat boolean DEFAULT true, p_foedt_raw text DEFAULT NULL,
-  p_doed_raw text DEFAULT NULL, p_titel_raw text DEFAULT NULL
+  p_foedt_raw text DEFAULT NULL, p_doed_raw text DEFAULT NULL, p_titel_raw text DEFAULT NULL
 ) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_id bigint;
 BEGIN
@@ -785,7 +784,7 @@ BEGIN
   IF p_koen IS NOT NULL AND p_koen NOT IN ('mand','kvinde','ukendt')
     THEN RAISE EXCEPTION 'Ugyldigt køn %', p_koen; END IF;
   v_id := (SELECT coalesce(max(id),0)+1 FROM person);
-  INSERT INTO person(id, levende, privat, koen) VALUES (v_id, p_levende, p_privat, p_koen);
+  INSERT INTO person(id, levende, privat, koen) VALUES (v_id, p_levende, true, p_koen);
   PERFORM red_upsert_fakta('person', v_id, 'navn', p_navn);
   IF nullif(btrim(p_foedt_raw),'') IS NOT NULL THEN
     PERFORM red_upsert_fakta('person', v_id, 'fødsel', p_foedt_raw, p_date_raw => p_foedt_raw);
