@@ -13,7 +13,7 @@ EntitetPicker, redigerbar editor-sektion.
 | H1 grant-omission i db-migrations.sql | — | ❌ DISMISSED (PUBLIC-default execute, verificeret) |
 | M1 p_rolle '' vs NULL | — | ❌ DISMISSED (rolle NOT NULL → mit fix ville crashe inserts) |
 | NEW1 historical_event sletbar i editor | MEDIUM | ✅ Confirmed (Codex-fund) → rettet |
-| NEW2 red_tilfoej_relation validerer ej person-subjekt | MEDIUM | ✅ Confirmed (Codex-fund) → rettet |
+| NEW2 red_tilfoej_relation validerer ej person-subjekt | MEDIUM | ✅ Confirmed (Codex-fund) → rettet + prod-redeployet (rollback-test: dinglende person afvist, gyldig ok) |
 
 Final whole-branch review (opus) dækkede tværgående risici (GDPR/RLS, FK-order, write-path, type-kontrakt,
 stale-cache) — alle PASS. Denne cycle = kode-niveau-fund den ikke gravede i. **Codex flippede begge mine
