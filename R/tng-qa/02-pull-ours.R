@@ -14,10 +14,10 @@ connect_readonly <- function() {
 }
 
 assert_readonly <- function(con) {
-  ok <- tryCatch({
-    DBI::dbExecute(con, "CREATE TEMP TABLE _ro_probe(x int)"); FALSE
-  }, error = function(e) TRUE)
-  if (!ok) stop("Forbindelsen er IKKE read-only — afbryd (least-privilege krav).")
+  ro <- DBI::dbGetQuery(con, "SELECT current_setting('transaction_read_only') AS ro")$ro
+  if (!identical(ro, "on"))
+    stop("Forbindelsen er IKKE read-only (transaction_read_only=", ro,
+         ") — afbryd (least-privilege krav).")
   invisible(TRUE)
 }
 
