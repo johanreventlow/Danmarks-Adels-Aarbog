@@ -185,6 +185,37 @@ export async function fetchPersonNarrativ(id: string): Promise<PersonNarrativ | 
   return mapNarrativRow(data ?? []);
 }
 
+// --- Relationer pr. person (pagineret, inkl. id til redaktøren) ---
+
+export type PersonRelation = {
+  relationId: number; art: 'hverv' | 'gods' | 'event';
+  objektType: string; objektId: string; navn: string; rolle: string; periode: string;
+};
+type RawRelRow = { id: number; objekt_type: string; objekt_id: number; rolle: string | null; periode_raw: string | null };
+
+export function mapRelationRow(rows: RawRelRow[], aux: import('./types').Aux | null): PersonRelation[] {
+  const orgNavn = new Map((aux?.orgListe ?? []).map((o) => [o.id, o.navn]));
+  const godsNavn = new Map((aux?.godsListe ?? []).map((g) => [g.id, g.navn]));
+  return rows.map((r) => {
+    const objektId = String(r.objekt_id);
+    let art: PersonRelation['art'] = 'event';
+    let navn = `Begivenhed #${objektId}`;
+    if (r.objekt_type === 'organisation') { art = 'hverv'; navn = orgNavn.get(objektId) ?? `#${objektId}`; }
+    else if (r.objekt_type === 'estate') { art = 'gods'; navn = godsNavn.get(objektId) ?? `#${objektId}`; }
+    return { relationId: r.id, art, objektType: r.objekt_type, objektId, navn, rolle: r.rolle ?? '', periode: r.periode_raw ?? '' };
+  });
+}
+
+export async function fetchPersonRelationer(id: string, aux: import('./types').Aux | null): Promise<PersonRelation[]> {
+  if (!supabase) return [];
+  const sb = supabase;
+  const rows = await getAll<RawRelRow>(() =>
+    sb.from('relation').select('id,objekt_type,objekt_id,rolle,periode_raw')
+      .eq('subjekt_type', 'person').eq('subjekt_id', Number(id))
+      .in('objekt_type', ['organisation', 'estate', 'historical_event']).order('id'));
+  return mapRelationRow(rows, aux);
+}
+
 export async function fetchPersonEvidence(personId: string): Promise<PersonEvidence> {
   const empty: PersonEvidence = { felter: {}, koen: null };
   if (!supabase) return empty;

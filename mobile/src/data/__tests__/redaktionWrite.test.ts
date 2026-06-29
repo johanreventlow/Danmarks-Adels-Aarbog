@@ -100,3 +100,19 @@ test('opretFakta → red_opret_fakta m. faktatype', () => {
     .toEqual({ fn: 'red_opret_fakta',
       args: { p_subjekt_type: 'person', p_subjekt_id: 1, p_faktatype: 'titel', p_vaerdi: 'greve', p_kilde_fritekst: 'DAA' } });
 });
+
+test('sletRelation → red_slet_relation', () => {
+  expect(buildRpcCall({ art: 'sletRelation', subjektType: 'person', subjektId: '1', relationId: '100' }))
+    .toEqual({ fn: 'red_slet_relation', args: { p_relation_id: 100 } });
+});
+
+test('tilfoejRelation → red_tilfoej_relation fra payload', () => {
+  expect(buildRpcCall({ art: 'tilfoejRelation', subjektType: 'person', subjektId: '7',
+    payload: { objektType: 'estate', objektId: '5', rolle: 'ejer', periodeRaw: '1700' } }))
+    .toEqual({ fn: 'red_tilfoej_relation',
+      args: { p_subjekt_id: 7, p_objekt_type: 'estate', p_objekt_id: 5, p_rolle: 'ejer', p_periode_raw: '1700' } });
+});
+
+test('sletRelation uden relationId → null', () => {
+  expect(buildRpcCall({ art: 'sletRelation', subjektType: 'person', subjektId: '1' })).toBeNull();
+});

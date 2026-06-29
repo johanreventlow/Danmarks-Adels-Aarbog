@@ -1,4 +1,4 @@
-import { joinEvidence, mapKonfliktRow, mapNarrativRow } from '../redaktionRead';
+import { joinEvidence, mapKonfliktRow, mapNarrativRow, mapRelationRow } from '../redaktionRead';
 import { mapRedPerson } from '../redaktionRead';
 import * as load from '../load';
 import { fetchRedaktionPersoner } from '../redaktionRead';
@@ -96,6 +96,26 @@ test('mapNarrativRow: tom liste → null', () => {
 
 test('mapNarrativRow: null-tekst → tom streng, privat-bool', () => {
   expect(mapNarrativRow([{ tekst: null, privat: null }])).toEqual({ tekst: '', privat: false });
+});
+
+const AUX = { orgListe: [{ id: '1', navn: 'Hæren', slags: '' }], godsListe: [{ id: '5', navn: 'Brahetrolleborg', slags: '', ownerCount: 1 }] } as never;
+
+test('mapRelationRow: art + navn-opslag fra aux', () => {
+  const rows = [
+    { id: 100, objekt_type: 'organisation', objekt_id: 1, rolle: 'oberst', periode_raw: '1700–1710' },
+    { id: 101, objekt_type: 'estate', objekt_id: 5, rolle: 'ejer', periode_raw: null },
+    { id: 102, objekt_type: 'historical_event', objekt_id: 9, rolle: 'deltager', periode_raw: null },
+  ];
+  expect(mapRelationRow(rows as never, AUX)).toEqual([
+    { relationId: 100, art: 'hverv', objektType: 'organisation', objektId: '1', navn: 'Hæren', rolle: 'oberst', periode: '1700–1710' },
+    { relationId: 101, art: 'gods', objektType: 'estate', objektId: '5', navn: 'Brahetrolleborg', rolle: 'ejer', periode: '' },
+    { relationId: 102, art: 'event', objektType: 'historical_event', objektId: '9', navn: 'Begivenhed #9', rolle: 'deltager', periode: '' },
+  ]);
+});
+
+test('mapRelationRow: ukendt objekt-id → fallback-navn', () => {
+  expect(mapRelationRow([{ id: 1, objekt_type: 'estate', objekt_id: 99, rolle: null, periode_raw: null }] as never, AUX)[0].navn)
+    .toBe('#99');
 });
 
 test('fetchRedaktionPersoner samler alle sider (ingen trunkering)', async () => {
