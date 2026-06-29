@@ -2,6 +2,38 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Plan 2C-2a: redigerbar sektion-relationer — scope + nøgle-valg (2026-06-29)
+
+**Redigerbart scope: kun relation-baserede hverv/godser; familie og kilder read-only.**
+Familie (family_member) og kilder (external_id) er udeladt af 2C-2a. Familie-redigering
+kræver separat semantik (opret familie-enhed, kobl forælder/barn, håndtér
+`family_member.konfidens`) og er udskudt til plan 2C-2b. Kilder (external_id) kræver
+opret-flow for nye source-entiteter. Begge deferred = bevidst scope-grænse.
+
+**Separat `fetchPersonRelationer` frem for genbrug af `redaktionAux`.**
+`redaktionAux` eksponerer relationer som formaterede listestrenge uden `relation.id`.
+Slet-kaldet (`red_slet_relation`) kræver præcist `relation_id`. En separat pagineret
+fetch (direkte mod `relation`-tabellen, filtreret på `subjekt_id`) var den eneste
+korrekte løsning — genbrug af aux ville kræve en destruktiv omskrivning af aux-kontrakten
+der bryder resten af editoren.
+
+**`red_slet_relation` skal FK-ordne evidens-slettelsen manuelt.**
+`relation`-tabellen har intet ON DELETE CASCADE til sin evidens: `assertion`, `conclusion`,
+`citation`, `note` binder på `(target_type='relation', target_id)` — polymorft, uden FK.
+RPC'en sletter i rækkefølge citation → conclusion → assertion → note → relation for at
+undgå forældreløse evidens-rækker. (~955 evidens-rækker er knyttet til relationer i nuværende load.)
+Løsningen er bevidst SECURITY DEFINER + rolle-gated (anon → P0001) som de øvrige red_*-RPC'er.
+
+**`red_tilfoej_relation` validerer objekt_type og eksistens + dup-guard.**
+Validering af `objekt_type` mod tilladt sæt og eksistens af `objekt_id` sker i RPC'en
+(ikke i app-laget) — nødvendigt for at undgå FK-violation + meningsløse relationer ved
+klientfejl. Dup-guard returnerer eksisterende `relation.id` ved gentagelse (idempotent),
+ingen dublet indsættes.
+
+**Live RPC-deploy + rollback-test + manuel e2e er controller-gated.**
+Samme model som tidligere DDL-deploys: bruger-OK + backup inden DDL kører mod prod.
+App-siden er komplet; RPC'erne eksisterer endnu ikke i prod.
+
 ## Plan 2C-1: entitetslister read-only via udvidet buildAux (2026-06-28)
 Redaktions-appens Entiteter-tab viste kun personer (2A). 2C-1 gjorde den til en type-menu med
 read-only lister over de øvrige entiteter.

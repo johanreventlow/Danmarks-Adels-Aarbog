@@ -1,5 +1,29 @@
 # Changelog
 
+## Plan 2C-2a — redigerbar sektion-relationer (hverv/godser) i redaktør-person-editoren (2026-06-29)
+* **Hvad:** Redaktøren kan nu tilføje og slette hverv- og godser-relationer direkte i person-editoren.
+  Familie (family_member) og kilder (external_id) forbliver read-only i denne plan; familie-redigering
+  er udskudt til 2C-2b. Alle ændringer passerer igennem det eksisterende SkrivePreviewSheet-gate
+  (dry-run → live).
+* **To nye SECURITY DEFINER RPC'er (afventer controller-deploy mod prod):**
+  - `red_slet_relation(p_relation_id)` — FK-ordnet evidens-cascade:
+    citation → conclusion → assertion → note → relation. Nødvendigt fordi relations bærer ~955
+    evidens-rækker uden FK (target_type/target_id er polymorft, ingen cascade-constraint).
+  - `red_tilfoej_relation(p_subjekt_id, p_objekt_type, p_objekt_id, p_rolle, p_periode_raw)` —
+    validerer objekt_type + eksistens, dup-guard (returnerer eksisterende id ved gentagelse,
+    ingen dublet), indsætter relation.
+* **`fetchPersonRelationer`** — ny pagineret per-person relations-fetch (ikke via `redaktionAux`,
+  som dropper relation-id'er og ikke kan bruges til slet-kald).
+* **`EntitetPicker`** — sheet-komponent til valg af entitet (gods, organisation m.fl.) med
+  type-menu + navne-liste, brugt ved "+ Tilføj hverv/gods" i editoren.
+* **`buildRpcCall`-cases** for `sletRelation` + `tilfoejRelation` (relations-kald vha. eksisterende
+  write-gate); type `Change` udvidet med `relationId`, `sletRelation`, `tilfoejRelation`.
+* **Test:** 109/109 jest, tsc rent.
+* **Udestår (controller-gate):** live RPC-deploy mod prod + rollback-test + manuel e2e er IKKE
+  gennemført endnu — afventer bruger-OK + backup som tidligere DDL-deploys. Featuren er komplet
+  app-side, men RPC'erne eksisterer endnu ikke i prod.
+
+
 ## Plan 2C-1 — entitetslister (read-only) i redaktions-appen (2026-06-28)
 * **Hvad:** Entiteter-tab er nu en type-menu med 6 typer (Personer · Godser · Kilder ·
   Organisationer · Medier · Våben), hver med tæller → read-only liste. Personer åbner 2A-listen →
