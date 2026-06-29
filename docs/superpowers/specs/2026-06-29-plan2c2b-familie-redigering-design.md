@@ -49,13 +49,19 @@ Alle gater `IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktio
 1. **`red_opret_union(p_partner_a bigint, p_partner_b bigint, p_type text, p_ordinal int DEFAULT NULL) RETURNS bigint`**
    - Validér begge personer findes (`EXISTS person`). Validér `p_partner_a <> p_partner_b`.
    - Validér `p_type ∈ ('vielse','partnerskab','ugift union')`.
-   - Dup-guard: hvis en family allerede har præcis disse to (og kun disse to) som `partner`, returnér dens id.
-   - Ellers: `INSERT family(max+1, p_type)`; `INSERT family_member(fam, p_partner_a, 'partner', p_ordinal, NULL)`
+   - **INGEN auto-dedup** (Codex H2): opretter ALTID ny union. Pair-only dedup ville kollapse legitimt
+     andet-ægteskab mellem samme to personer og flette børn/event-tidslinjer = data-korruption. UI viser
+     personens eksisterende unioner, så redaktøren undgår utilsigtede dubletter (blød, klient-side).
+   - `INSERT family(max+1, p_type)`; `INSERT family_member(fam, p_partner_a, 'partner', p_ordinal, NULL)`
      + samme for b. Returnér family_id.
 
 2. **`red_tilfoej_barn(p_family_id bigint, p_barn_id bigint, p_rolle text DEFAULT 'barn', p_konfidens text DEFAULT NULL) RETURNS void`**
    - Validér family findes (`EXISTS family`), barn-person findes, `p_rolle ∈ ('barn','adopteret_barn','plejebarn','stedbarn')`.
    - Validér `p_konfidens` NULL eller ∈ konfidens-vocab.
+   - **Struktur-guards (Codex H3):**
+     - Barnet må IKKE være partner i samme family (selv-forælder) → RAISE.
+     - Barnet må IKKE allerede være ane til en af familiens partnere (cyklus) → recursiv CTE over
+       partner→barn-kanter; RAISE hvis kant ville lukke en cyklus.
    - Dup-guard: hvis `(p_family_id, p_barn_id, p_rolle)` allerede findes → no-op (ingen fejl).
    - `INSERT family_member(p_family_id, p_barn_id, p_rolle, NULL, p_konfidens)`.
 
@@ -66,8 +72,11 @@ Alle gater `IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktio
 
 4. **`red_slet_familie_link(p_family_id bigint, p_person_id bigint, p_rolle text) RETURNS void`**
    - `DELETE FROM family_member WHERE family_id=p_family_id AND person_id=p_person_id AND rolle=p_rolle`.
-   - Oprydning: hvis family derefter har 0 partnere OG 0 børn → `DELETE FROM family WHERE id=p_family_id`.
-   - Ingen evidens-cascade (familie-links bærer ingen evidens).
+   - **INGEN family-entitets-sletning** (Codex H1): family-entiteten bærer selv data — 276 `fact`
+     (`subjekt_type='family'`, vielse/skilsmisse-events m. deres assertions/conclusions) + 700 `note`
+     (`target_type='family'`), uden FK. At slette en tom family ville forældreløse disse. Derfor sletter
+     RPC'en KUN family_member-rækken; en tom family (0 medlemmer) tolereres og beholder sine facts/notes
+     intakt. Egentlig family-entitets-sletning (FK-ordnet) er et separat, fremtidigt RPC — uden for scope.
 
 ### Fetch + mapper (`mobile/src/data/redaktionRead.ts`)
 
@@ -128,9 +137,11 @@ ved manglende påkrævede felter (no-op, som eksisterende cases).
 
 - **jest:** `mapFamilieRows` (struktur + navne-opslag + fallback); `buildRpcCall` 4 cases; `eraAdvarsel`
   grænsetilfælde (barn før forælder, efter død, NULL-år → ingen advarsel).
-- **SQL rollback-tests** (nul mutation) pr. RPC: dup-guards (opret_union returnerer eksisterende;
-  tilfoej_barn no-op ved dublet), validering (person/family findes, type/rolle/konfidens-vocab,
-  partner_a≠b), tom-family-oprydning ved sidste slet, konfidens-UPDATE rammer rigtige række.
+- **SQL rollback-tests** (nul mutation) pr. RPC: validering (person/family findes, type/rolle/konfidens-vocab,
+  partner_a≠b); tilfoej_barn no-op ved PK-dublet; **struktur-guards (Codex H3): selv-forælder afvist,
+  partner-som-barn afvist, multi-generations-cyklus afvist**; konfidens-UPDATE rammer rigtige række;
+  **slet_link sletter KUN family_member (efterlader family + dens facts/notes intakt — Codex H1)**;
+  opret_union opretter ALTID ny union for samme par (Codex H2 — ingen kollaps).
 - **manuel web-e2e.**
 
 ## Non-goals (udskudt)
@@ -141,6 +152,29 @@ ved manglende påkrævede felter (no-op, som eksisterende cases).
 - Bredere `redaktionModel`-invalidering ud over familie-fetchen (spec §9-follow-up, jf. 2C-1/2C-2a).
 - Ændring af union-`type` efter oprettelse; ændring af `ordinal` efter oprettelse.
 - in-place navne-redigering af partner/barn (gøres i den persons egen editor).
+
+## Codex adversarial-review (2026-06-29) — indarbejdet
+
+Codex fandt 3 HIGH design-fejl, alle verificeret empirisk mod basen og rettet ovenfor:
+
+- **H1 [HIGH] empty-family-cleanup forældreløser family-data.** Verificeret: 276 `fact`
+  (`subjekt_type='family'`) + 700 `note` (`target_type='family'`) hænger på family-entiteten uden FK.
+  Min "ingen evidens"-verifikation gjaldt *links*, ikke entiteten. → `red_slet_familie_link` sletter nu
+  KUN family_member; ingen family-entitets-sletning.
+- **H2 [HIGH] pair-only dup-guard kollapser legitimt gen-ægteskab.** Samme to personer kan gifte sig igen
+  (ordinal 2); auto-dedup ville flette unioner + børn = korruption. → fjernet auto-dedup; opret_union
+  opretter altid ny union; UI viser eksisterende unioner som blød guard.
+- **H3 [HIGH] selv-forælder/ane-cyklus.** Kun `partner_a≠partner_b` valideredes. → `red_tilfoej_barn`
+  validerer nu: barn ikke partner i samme family + ingen cyklus (recursiv CTE).
+
+**Dismissed/bekræftet sikkert af Codex:** klient-side era-advarsel OK *efter* struktur-guards (H3 dækker
+det strukturelle, era kun dato-blød); redaktør-kun living-person-opslag OK hvis RLS verificeres (samme
+GDPR-grænse som 2B — fetchPersonFamilie confined til redaktør-editor, navne via redaktionModel); NULL
+konfidens skema-konsistent; family vs family_member-inserts kolliderer ikke (forskellige tabeller);
+RPC/UI-dækning + param-mapping adækvat med eksakte tests.
+
+**Læring:** "entitet X bærer ingen evidens" ≠ "entitet X er ureferenced" — polymorfe `fact`/`note`/
+`relation`-endpoints uden FK skal tjekkes pr. target_type FØR man sletter en entitet. Se [[fk-ordning-evidens-slet]].
 
 ## Påvirkede filer
 
