@@ -60,3 +60,9 @@ if (!exists("crosswalk")) stop(
 **Verificering:**
 - Parse: `Rscript -e 'invisible(parse("R/tng-qa/run-pipeline.R")); cat("parse OK\n")'` → **parse OK**
 - Test: `Rscript run-tests.R` → **PASS 62** (ingen regression)
+
+---
+
+## Docs-korrektion 2026-06-29: afgørelse-persistens-påstand + pre-prod follow-ups
+
+**Commit:** `23dd760` — docs(tng-qa): ret review-kø-persistens-påstand + bindende pre-prod follow-ups. Korrekte og dokumenterer 4 bindende pre-prod opgaver.
