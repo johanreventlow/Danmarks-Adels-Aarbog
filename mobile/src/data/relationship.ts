@@ -205,7 +205,7 @@ export type RelationLine = {
   multiplicitet: number;
   // Visningsnavn pr. sammenslået linjes ane/anepar (længde === multiplicitet).
   aner: string[];
-  // Antal indbyrdes KANT-disjunkte stier bag linjen (korroboration). ≥2 ⇒ slægtskabet er
+  // Antal indbyrdes NODE-disjunkte stier bag linjen (korroboration). ≥2 ⇒ slægtskabet er
   // bekræftet ad uafhængige veje, selv hvis den viste sti har et svagt led. ≤ multiplicitet.
   uafhaengige: number;
 };
@@ -218,6 +218,9 @@ export type RelationResult = {
   lcaName: string;
   steps: RelationStep[];
   lines: RelationLine[]; // alle distinkte linjer, nærmeste først
+  // True når den viste (nærmeste) linje er usikker, men en ANDEN linje bekræfter slægtskabet
+  // solidt — så usikkerheds-flaget ikke står alene. Afledt fakta, ikke en visnings-beslutning.
+  alternativSolidLinje?: boolean;
 };
 
 function buildSteps(model: Model, ra: Reach, rb: Reach, aId: string, bId: string, rep: string): RelationStep[] {
@@ -245,24 +248,21 @@ function weakestOnPath(steps: RelationStep[]): Konfidens {
   return weakest;
 }
 
-// Kant-sæt for en sti (retnings-uafhængige forælder↔barn-kanter mellem nabotrin).
-function edgeSet(steps: RelationStep[]): Set<string> {
+// Mellem-knuder på en sti (alt mellem endepunkterne A og B, inkl. LCA-regionen).
+function innerNodes(steps: RelationStep[]): Set<string> {
   const out = new Set<string>();
-  for (let i = 1; i < steps.length; i++) {
-    const x = steps[i - 1].id;
-    const y = steps[i].id;
-    out.add(x < y ? `${x}|${y}` : `${y}|${x}`);
-  }
+  for (let i = 1; i < steps.length - 1; i++) out.add(steps[i].id);
   return out;
 }
 
-// Antal indbyrdes KANT-disjunkte stier (grådigt, nærmeste først). To stier der ikke deler
-// en kant er uafhængig bekræftelse af slægtskabet; ≥2 ⇒ korroboreret.
+// Antal indbyrdes NODE-disjunkte stier (grådigt, nærmeste først). To stier der ikke deler
+// en mellem-PERSON er uafhængig bekræftelse (Mengers definition) — deler de en person, er
+// beviskæden delvist den samme, og de tæller ikke som uafhængige. ≥2 ⇒ korroboreret.
 function uafhaengigeAntal(members: RelationLine[]): number {
   const valgt: Set<string>[] = [];
   for (const m of members) {
-    const es = edgeSet(m.steps);
-    if (valgt.every((c) => disjunkt(c, es))) valgt.push(es);
+    const ns = innerNodes(m.steps);
+    if (valgt.every((c) => disjunkt(c, ns))) valgt.push(ns);
   }
   return valgt.length;
 }
@@ -358,5 +358,6 @@ export function computeRelationship(model: Model, aId: string, bId: string): Rel
 
   const merged = mergeSameDistanceLines(lines);
   const p = merged[0];
-  return { found: true, label: p.label, lcaId: p.lcaId, lcaName: p.lcaName, steps: p.steps, lines: merged };
+  const alternativSolidLinje = p.usikker && merged.slice(1).some((l) => !l.usikker);
+  return { found: true, label: p.label, lcaId: p.lcaId, lcaName: p.lcaName, steps: p.steps, lines: merged, alternativSolidLinje };
 }
