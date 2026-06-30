@@ -281,3 +281,18 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: change_set/change_event findes m. korrekt actor-FK';
 END $$;
+
+-- ===== Versionering Task 3: begin_change_set re-entrant =====
+DO $$
+DECLARE a bigint; b bigint;
+BEGIN
+  PERFORM set_config('app.change_set_id', '', true);  -- nulstil
+  a := begin_change_set('test_op','sum','person',1);
+  b := begin_change_set('indre_op','sum2','person',1); -- nested → skal genbruge a
+  IF a <> b THEN RAISE EXCEPTION 'FEJL: nested begin_change_set gav nyt id (% <> %)', a, b; END IF;
+  IF current_setting('app.change_set_id', true) <> a::text THEN
+    RAISE EXCEPTION 'FEJL: session-variabel ikke sat'; END IF;
+  DELETE FROM change_set WHERE id=a;  -- oprydning
+  PERFORM set_config('app.change_set_id', '', true);
+  RAISE NOTICE 'OK: begin_change_set er re-entrant';
+END $$;

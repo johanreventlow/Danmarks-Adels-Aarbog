@@ -899,3 +899,41 @@ CREATE TABLE IF NOT EXISTS change_event (
 CREATE INDEX IF NOT EXISTS ix_change_event_set  ON change_event(change_set_id, seq);
 CREATE INDEX IF NOT EXISTS ix_change_set_subjekt ON change_set(subjekt_type, subjekt_id);
 CREATE INDEX IF NOT EXISTS ix_change_set_revert  ON change_set(reverterer_id);
+-- ---------- VERSIONERING: begin_change_set ----------
+-- Synligheds-klasse på subjektet, frosset på commit-tid (C1-sti for fremtidig
+-- medlems-historik). Kun person har levende/privat; øvrige = 'offentlig'.
+CREATE OR REPLACE FUNCTION _subjekt_synlighed(p_type text, p_id bigint)
+RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+  SELECT CASE
+    WHEN p_type='person' THEN (
+      SELECT CASE WHEN coalesce(pr.privat,false) THEN 'privat'
+                  WHEN coalesce(pr.levende,false) THEN 'levende'
+                  ELSE 'offentlig' END
+      FROM person pr WHERE pr.id=p_id)
+    ELSE 'offentlig' END;
+$$;
+
+-- Re-entrant: yderste kald ejer change_set'et; indre kald genbruger det aktive (B7).
+CREATE OR REPLACE FUNCTION begin_change_set(
+  p_operation text, p_summary text, p_subjekt_type text DEFAULT NULL, p_subjekt_id bigint DEFAULT NULL)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_existing text; v_id bigint; v_uid uuid; v_navn text; v_rolle text;
+BEGIN
+  v_existing := current_setting('app.change_set_id', true);
+  IF v_existing IS NOT NULL AND v_existing <> '' THEN
+    RETURN v_existing::bigint;  -- genbrug aktivt sæt; opret intet, nulstil intet
+  END IF;
+  v_uid := auth.uid();
+  SELECT coalesce(p.email, v_uid::text), p.rolle INTO v_navn, v_rolle
+    FROM profiles p WHERE p.id = v_uid;
+  v_navn  := coalesce(v_navn, 'ukendt');
+  v_rolle := coalesce(v_rolle, 'medlem');
+  v_id := (SELECT coalesce(max(id),0)+1 FROM change_set);
+  INSERT INTO change_set(id, actor_id, actor_navn, actor_rolle, operation, summary,
+                         subjekt_type, subjekt_id, subjekt_synlighed)
+    VALUES (v_id, v_uid, v_navn, v_rolle, p_operation, p_summary,
+            p_subjekt_type, p_subjekt_id, _subjekt_synlighed(p_subjekt_type, p_subjekt_id));
+  PERFORM set_config('app.change_set_id', v_id::text, true);
+  PERFORM set_config('app.change_seq', '0', true);
+  RETURN v_id;
+END $$;
