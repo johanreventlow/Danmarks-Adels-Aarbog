@@ -316,10 +316,10 @@ export default function PersonEditor() {
             </Mono>
           </View>
           <Switch
-            value={!dryRun}
-            onValueChange={(live) => setDryRun(!live)}
+            value={dryRun}
+            onValueChange={setDryRun}
             thumbColor={dryRun ? Colors.textMuted2 : Colors.liveRoed}
-            trackColor={{ false: Colors.beige3, true: Colors.konfliktFlade }}
+            trackColor={{ false: Colors.konfliktFlade, true: Colors.beige3 }}
           />
         </View>
 
