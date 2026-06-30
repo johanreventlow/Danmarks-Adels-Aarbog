@@ -4,11 +4,11 @@
 import { supabase, supabaseEnabled } from '../lib/supabase';
 import { buildAux } from './buildAux';
 import { fmtYears, parseYear } from './fields';
+import { normalizeKoen, normalizeKonfidens } from './types';
 import type {
   AppPerson,
   Aux,
   Db,
-  Konfidens,
   ParentChild,
   RawArms,
   RawEstate,
@@ -76,7 +76,7 @@ export function mapAppPersons(
       title: p.visning_titel || '',
       bio: bioBy[String(p.id)] || '',
       privat: Boolean(p.privat),
-      koen: p.koen === 'mand' || p.koen === 'kvinde' ? p.koen : null,
+      koen: normalizeKoen(p.koen),
     }));
 }
 
@@ -154,9 +154,7 @@ export async function loadFromSupabase(opts?: { includePrivat?: boolean }): Prom
     }
     children.forEach((c) => {
       // Konfidens sidder på BARNETS medlemskabslink (rolle='barn'), ikke forælderens.
-      const k = c.konfidens;
-      const konfidens: Konfidens =
-        k === 'sikker' || k === 'sandsynlig' || k === 'formodet' || k === 'omstridt' ? k : null;
+      const konfidens = normalizeKonfidens(c.konfidens);
       parents.forEach((pa) => {
         parentChild.push({
           child: String(c.person_id),

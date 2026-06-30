@@ -6,6 +6,7 @@
 // hvor persons IKKE har parentId/spouse. buildModel er et separat 2. stadie der afleder dem.
 // I React var indekserne implicitte instans-felter; her returneres de eksplicit så Zustand-
 // storen kan gemme dem (uden dem: træ uden forældre, tomme børn-grupper).
+import { KONFIDENS_RANK } from './types';
 import type { Db, Model, ModelIndexes, ModelPerson } from './types';
 
 export function buildModel(db: Db): Model {
@@ -87,14 +88,13 @@ export function buildModel(db: Db): Model {
   // Konfidens pr. forælder→barn-kant (nøgle `${child}|${parent}`). Beholder den STÆRKESTE
   // hvis samme kant optræder flere gange (flere påstande): én sikker påstand bør ikke
   // overskrives af en formodet for samme link.
-  const konfRank: Record<string, number> = { omstridt: 0, formodet: 1, sandsynlig: 2, sikker: 3 };
   const konfByEdge: ModelIndexes['konfByEdge'] = {};
   parentChild.forEach((pc) => {
     const k = pc.konfidens ?? null;
     if (k == null) return;
     const key = `${pc.child}|${pc.parent}`;
     const prev = konfByEdge[key];
-    if (prev == null || konfRank[k] > konfRank[prev]) konfByEdge[key] = k;
+    if (prev == null || KONFIDENS_RANK[k] > KONFIDENS_RANK[prev]) konfByEdge[key] = k;
   });
 
   const modelPersons: ModelPerson[] = persons.map((p) => ({

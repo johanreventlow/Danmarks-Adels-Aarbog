@@ -11,11 +11,14 @@
 // kønsneutral fallback der matcher de oprindelige strenge.
 //
 // Rene funktioner (testbare).
+import { KONFIDENS_RANK, KONFIDENS_VALUES } from './types';
 import type { Koen, Konfidens, Model } from './types';
 
-// Konfidens-rang: svag→stærk. null (uangivet) holdes uden for "svageste led"-beregningen,
-// så en bunke uangivne links ikke får hver sti til at se usikker ud.
-const KONF_RANK: Record<string, number> = { omstridt: 0, formodet: 1, sandsynlig: 2, sikker: 3 };
+// Konfidens-rang (KONFIDENS_RANK, svag→stærk) bor i types.ts. null (uangivet) holdes uden
+// for "svageste led"-beregningen, så en bunke uangivne links ikke får stien til at se usikker ud.
+// Til sortering: uangivet (null) rangerer som "stærkt" (straffes ikke). Endelig sentinel,
+// så to uangivne linjer giver 0 (ikke NaN) i komparatoren.
+const weakRank = (k: Konfidens) => (k == null ? KONFIDENS_VALUES.length : KONFIDENS_RANK[k]);
 
 // Konfidens på forælder→barn-kanten mellem x og y (retnings-uafhængigt opslag).
 function edgeKonf(model: Model, x: string, y: string): Konfidens {
@@ -117,6 +120,14 @@ function g(k: Koen | undefined, mand: string, kvinde: string, neutral: string): 
   return k === 'mand' ? mand : k === 'kvinde' ? kvinde : neutral;
 }
 
+// Par-etiket efter de TO køn: begge mænd / begge kvinder / blandet / ukendt (neutral).
+function gendered(a: Koen | undefined, b: Koen | undefined, mm: string, kk: string, blandet: string, neutral: string): string {
+  if (a === 'mand' && b === 'mand') return mm;
+  if (a === 'kvinde' && b === 'kvinde') return kk;
+  if ((a === 'mand' && b === 'kvinde') || (a === 'kvinde' && b === 'mand')) return blandet;
+  return neutral;
+}
+
 export type LabelOpts = { koenA?: Koen; koenB?: Koen; half?: boolean };
 
 // Oversæt generations-afstande (d1 = A→LCA, d2 = B→LCA) til dansk etiket. Uden køn/half
@@ -144,16 +155,8 @@ export function relationshipLabel(d1: number, d2: number, opts: LabelOpts = {}):
   if (deg === 0) {
     // Søskende-plan.
     if (rem === 0) {
-      const base =
-        koenA === 'mand' && koenB === 'mand' ? 'Brødre'
-        : koenA === 'kvinde' && koenB === 'kvinde' ? 'Søstre'
-        : (koenA === 'mand' && koenB === 'kvinde') || (koenA === 'kvinde' && koenB === 'mand') ? 'Bror & søster'
-        : 'Søskende';
-      if (!half) return base;
-      return base === 'Brødre' ? 'Halvbrødre'
-        : base === 'Søstre' ? 'Halvsøstre'
-        : base === 'Bror & søster' ? 'Halvbror & halvsøster'
-        : 'Halvsøskende';
+      if (!half) return gendered(koenA, koenB, 'Brødre', 'Søstre', 'Bror & søster', 'Søskende');
+      return gendered(koenA, koenB, 'Halvbrødre', 'Halvsøstre', 'Halvbror & halvsøster', 'Halvsøskende');
     }
     // Onkel/tante-plan: den ældre har mindst afstand til LCA.
     const elderK = d1 < d2 ? koenA : koenB;
@@ -166,11 +169,7 @@ export function relationshipLabel(d1: number, d2: number, opts: LabelOpts = {}):
   }
 
   // Fætter/kusine-plan.
-  const cousin =
-    koenA === 'mand' && koenB === 'mand' ? 'fætre'
-    : koenA === 'kvinde' && koenB === 'kvinde' ? 'kusiner'
-    : (koenA === 'mand' && koenB === 'kvinde') || (koenA === 'kvinde' && koenB === 'mand') ? 'fætter & kusine'
-    : 'fætter/kusine';
+  const cousin = gendered(koenA, koenB, 'fætre', 'kusiner', 'fætter & kusine', 'fætter/kusine');
   let s = `${deg}. grads ${cousin}`;
   if (rem > 0) s += ' · ' + rem + ' gang' + (rem > 1 ? 'e' : '') + ' forskudt';
   return half ? s + ' (halv)' : s;
@@ -213,17 +212,6 @@ export type RelationResult = {
   lines: RelationLine[]; // alle distinkte linjer, nærmeste først
 };
 
-// Laveste fælles ane som id (bilineal, nærmeste). null hvis ingen påvist forbindelse.
-export function lcaId(model: Model, a: string, b: string): string | null {
-  if (a === b) return a;
-  const mrcas = mostRecentCommon(model, ancestorReach(model, a), ancestorReach(model, b));
-  if (!mrcas.length) return null;
-  // Vælg den nærmeste (mindste samlede afstand) deterministisk.
-  const ra = ancestorReach(model, a);
-  const rb = ancestorReach(model, b);
-  return mrcas.slice().sort((x, y) => ra.dist[x] + rb.dist[x] - (ra.dist[y] + rb.dist[y]) || (x < y ? -1 : 1))[0];
-}
-
 function buildSteps(model: Model, ra: Reach, rb: Reach, aId: string, bId: string, rep: string): RelationStep[] {
   const cA = pathUp(ra, aId, rep); // A … LCA
   const cB = pathUp(rb, bId, rep); // B … LCA
@@ -244,7 +232,7 @@ function weakestOnPath(steps: RelationStep[]): Konfidens {
   for (const s of steps) {
     const k = s.edgeKonfidens;
     if (k == null) continue;
-    if (weakest == null || KONF_RANK[k] < KONF_RANK[weakest]) weakest = k;
+    if (weakest == null || KONFIDENS_RANK[k] < KONFIDENS_RANK[weakest]) weakest = k;
   }
   return weakest;
 }
@@ -288,12 +276,11 @@ export function computeRelationship(model: Model, aId: string, bId: string): Rel
     const steps = buildSteps(model, ra, rb, a.id, b.id, rep);
     const coupleNames = couple ? `${model.byId[rep]?.name ?? ''} & ${model.byId[rep === c ? partner! : c]?.name ?? ''}` : undefined;
     const weakestKonfidens = weakestOnPath(steps);
-    const usikker = weakestKonfidens != null && KONF_RANK[weakestKonfidens] <= KONF_RANK.formodet;
+    const usikker = weakestKonfidens != null && KONFIDENS_RANK[weakestKonfidens] <= KONFIDENS_RANK.formodet;
     lines.push({ label, lcaId: rep, lcaName: model.byId[rep]?.name ?? '', coupleNames, half, d1, d2, steps, weakestKonfidens, usikker });
   }
 
   // Nærmeste først: mindste samlede afstand, så mest balancerede, så stærkeste led, så id.
-  const weakRank = (k: Konfidens) => (k == null ? 99 : KONF_RANK[k]); // uangivet rangerer som "stærkt" (ikke straffet)
   lines.sort(
     (x, y) =>
       x.d1 + x.d2 - (y.d1 + y.d2) ||

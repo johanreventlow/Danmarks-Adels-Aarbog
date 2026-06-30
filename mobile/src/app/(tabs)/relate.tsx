@@ -95,34 +95,33 @@ export default function RelateScreen() {
         {rel && rel.steps.length ? (
           <View style={{ marginTop: 20 }}>
             <Kicker size={9.5} style={{ marginBottom: 4, letterSpacing: 9.5 * 0.14 }}>Forbindelsen, trin for trin</Kicker>
-            {rel.steps.map((s, i) => (
-              <View key={`${s.id}-${i}`}>
-                <View style={styles.stepRow}>
-                  <View style={styles.dotCol}>
-                    <View style={[styles.dot, { backgroundColor: s.isLca ? Colors.gold : Colors.bordeaux, borderColor: s.isLca ? Colors.gold : 'rgba(136,26,51,0.25)' }]} />
-                  </View>
-                  <View style={[styles.stepCard, s.isLca ? styles.stepCardLca : styles.stepCardNormal]}>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Serif size={17} style={{ lineHeight: 18 }}>{s.name}</Serif>
-                      {s.years ? <Mono size={9.5} color={Colors.textMuted} style={{ marginTop: 2 }}>{s.years}</Mono> : null}
+            {rel.steps.map((s, i) => {
+              const linkKonf = i < rel.steps.length - 1 ? konfTekst(rel.steps[i + 1]?.edgeKonfidens) : '';
+              return (
+                <View key={`${s.id}-${i}`}>
+                  <View style={styles.stepRow}>
+                    <View style={styles.dotCol}>
+                      <View style={[styles.dot, { backgroundColor: s.isLca ? Colors.gold : Colors.bordeaux, borderColor: s.isLca ? Colors.gold : 'rgba(136,26,51,0.25)' }]} />
                     </View>
-                    {s.isLca ? <Mono size={8} color={Colors.gold} style={{ letterSpacing: 0.6, textTransform: 'uppercase' }}>Fælles ane</Mono> : null}
+                    <View style={[styles.stepCard, s.isLca ? styles.stepCardLca : styles.stepCardNormal]}>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Serif size={17} style={{ lineHeight: 18 }}>{s.name}</Serif>
+                        {s.years ? <Mono size={9.5} color={Colors.textMuted} style={{ marginTop: 2 }}>{s.years}</Mono> : null}
+                      </View>
+                      {s.isLca ? <Mono size={8} color={Colors.gold} style={{ letterSpacing: 0.6, textTransform: 'uppercase' }}>Fælles ane</Mono> : null}
+                    </View>
                   </View>
-                </View>
-                {i < rel.steps.length - 1 ? (
-                  konfTekst(rel.steps[i + 1]?.edgeKonfidens) ? (
+                  {i < rel.steps.length - 1 ? (
                     <View style={styles.stepLink}>
                       <View style={styles.stepArrow} />
-                      <Mono size={8} color={Colors.bordeaux} style={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                        {konfTekst(rel.steps[i + 1]?.edgeKonfidens)} led
-                      </Mono>
+                      {linkKonf ? (
+                        <Mono size={8} color={Colors.bordeaux} style={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>{linkKonf} led</Mono>
+                      ) : null}
                     </View>
-                  ) : (
-                    <View style={styles.stepArrow} />
-                  )
-                ) : null}
-              </View>
-            ))}
+                  ) : null}
+                </View>
+              );
+            })}
           </View>
         ) : null}
       </ScrollView>
