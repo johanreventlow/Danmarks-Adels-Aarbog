@@ -6,7 +6,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { childrenOf, loadModel } from './data/model';
 import { initials, konfTekst } from './data/format';
 import { computeRelationship, type RelationResult } from './data/relationship';
-import type { Model } from './data/types';
+import { fetchArms, fetchAbout, fetchEstates, fetchEstateOwners, type ArmsItem, type EstateItem, type EstateOwner } from './data/public';
+import type { Model, ModelPerson } from './data/types';
 
 const T = {
   pageBg: '#ece6da', paper: '#fbf8f1', panel: '#f4efe6', beige: '#ece4d6',
@@ -15,8 +16,8 @@ const T = {
   serif: "'Cormorant Garamond',serif", sans: "'Hanken Grotesk',sans-serif", mono: "'JetBrains Mono',monospace",
 };
 const NAV: [string, string, boolean][] = [
-  ['Stamtræ', 'tree', true], ['Slægtskab', 'relate', true],
-  ['Søg', 'search', false], ['Godser', 'estates', false], ['Våben', 'arms', false], ['Om slægten', 'about', false],
+  ['Stamtræ', 'tree', true], ['Slægtskab', 'relate', true], ['Søg', 'search', true],
+  ['Godser', 'estates', true], ['Våben', 'arms', true], ['Om slægten', 'about', true],
 ];
 function useFonts() {
   useEffect(() => {
@@ -40,6 +41,11 @@ export default function Folgesvend() {
   const [relA, setRelA] = useState<string | null>(null);
   const [relB, setRelB] = useState<string | null>(null);
   const [relSlot, setRelSlot] = useState<'A' | 'B'>('A');
+  const [estates, setEstates] = useState<EstateItem[] | null>(null);
+  const [arms, setArms] = useState<ArmsItem[] | null>(null);
+  const [about, setAbout] = useState<string[] | null>(null);
+  const [estateId, setEstateId] = useState<string | null>(null);
+  const [estateOwners, setEstateOwners] = useState<EstateOwner[]>([]);
 
   useEffect(() => {
     loadModel().then((m) => {
@@ -47,6 +53,12 @@ export default function Folgesvend() {
       setFocusId(startFokus(m));
     }).catch((e) => setErr(describeErr(e)));
   }, []);
+
+  // Lazy-load pr. visning (én gang).
+  useEffect(() => { if (mode === 'estates' && !estates) fetchEstates().then(setEstates).catch(() => setEstates([])); }, [mode, estates]);
+  useEffect(() => { if (mode === 'arms' && !arms) fetchArms().then(setArms).catch(() => setArms([])); }, [mode, arms]);
+  useEffect(() => { if (mode === 'about' && !about) fetchAbout().then(setAbout).catch(() => setAbout([])); }, [mode, about]);
+  useEffect(() => { if (estateId) fetchEstateOwners(estateId, model).then(setEstateOwners).catch(() => setEstateOwners([])); }, [estateId, model]);
 
   const persons = model?.persons ?? [];
   // Sortér én gang (personerne er stabile); filtrér kun pr. tastetryk.
@@ -80,7 +92,7 @@ export default function Folgesvend() {
         <div style={{ flex: 1 }} />
         <div style={{ display: 'flex', gap: 4 }}>
           {NAV.map(([label, m, on]) => (
-            <div key={m} onClick={() => on && setMode(m)} title={on ? '' : 'Kommer'} style={{ padding: '7px 13px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: on ? 'pointer' : 'default', background: mode === m ? T.bordeaux : 'transparent', color: mode === m ? T.paper : (on ? '#3d382f' : T.muted3) }}>{label}</div>
+            <div key={m} onClick={() => { if (on) { setMode(m); if (m === 'estates') setEstateId(null); } }} title={on ? '' : 'Kommer'} style={{ padding: '7px 13px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: on ? 'pointer' : 'default', background: mode === m ? T.bordeaux : 'transparent', color: mode === m ? T.paper : (on ? '#3d382f' : T.muted3) }}>{label}</div>
           ))}
         </div>
         <a href="#redaktion" style={{ fontSize: 11.5, fontWeight: 600, color: T.bordeaux, textDecoration: 'none', marginLeft: 6 }}>Redaktion ↗</a>
@@ -113,6 +125,10 @@ export default function Folgesvend() {
         <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
           {mode === 'tree' ? <TreeView model={model} focusId={focusId} onPick={setFocusId} />
             : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={setFocusId} />
+            : mode === 'search' ? <SearchView persons={filtered} query={query} onPick={(id) => { setFocusId(id); setMode('tree'); }} />
+            : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} owners={estateOwners} onOpen={setEstateId} onBack={() => setEstateId(null)} onPickOwner={(id) => { setFocusId(id); setMode('tree'); }} />
+            : mode === 'arms' ? <ArmsView arms={arms} />
+            : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} />
             : <Placeholder label={NAV.find((n) => n[1] === mode)?.[0] ?? ''} />}
         </div>
       </div>
@@ -293,6 +309,144 @@ function RelateView({ model, rel, relA, relB, slot, setSlot, onPickStep }: {
     </div>
   );
 }
+
+// ---- Søg ----
+function SearchView({ persons, query, onPick }: { persons: ModelPerson[]; query: string; onPick: (id: string) => void }) {
+  return (
+    <div style={{ padding: '30px 40px 50px' }}>
+      <Kicker>Slægten Reventlow</Kicker>
+      <H1>Søg</H1>
+      <div style={{ width: 42, height: 1.5, background: T.bordeaux, margin: '11px 0 6px' }} />
+      <div style={{ fontSize: 13, color: T.muted, marginTop: 4, marginBottom: 18 }}>Skriv i søgefeltet til venstre — {persons.length} {query ? 'træffere' : 'personer'}.</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(190px,1fr))', gap: 12 }}>
+        {persons.map((p) => (
+          <div key={p.id} onClick={() => onPick(p.id)} style={{ display: 'flex', alignItems: 'center', gap: 11, background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: 12, cursor: 'pointer', boxShadow: '0 1px 2px rgba(34,31,26,.03)' }}>
+            <Avatar n={p.name} size={36} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+              <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 1 }}>{p.years || '—'}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---- Godser & ejendomme ----
+function EstatesView({ estates, estateId, estate, owners, onOpen, onBack, onPickOwner }: {
+  estates: EstateItem[] | null; estateId: string | null; estate: EstateItem | null;
+  owners: EstateOwner[]; onOpen: (id: string) => void; onBack: () => void; onPickOwner: (id: string) => void;
+}) {
+  if (estateId && estate) {
+    return (
+      <div style={{ padding: '26px 40px 50px', maxWidth: 620 }}>
+        <div onClick={onBack} style={{ fontSize: 12.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', marginBottom: 14 }}>‹ Alle godser</div>
+        <div style={{ fontFamily: T.serif, fontSize: 32, fontWeight: 600, lineHeight: 1.02 }}>{estate.navn}</div>
+        {estate.slags && <div style={{ display: 'inline-block', marginTop: 9, fontSize: 11.5, fontWeight: 600, color: T.bordeaux, background: '#f4e2e6', border: '1px solid rgba(136,26,51,.16)', padding: '5px 10px', borderRadius: 7 }}>{estate.slags}</div>}
+        <Label>Ejere &amp; tilknytninger gennem tiden</Label>
+        {owners.length ? (
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {owners.map((o, i) => (
+              <div key={o.personId + i} style={{ display: 'flex', alignItems: 'flex-start', gap: 13 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 'none', width: 13, paddingTop: 6 }}>
+                  <div style={{ width: 11, height: 11, borderRadius: '50%', background: T.bordeaux }} />
+                  {i < owners.length - 1 && <div style={{ width: 2, flex: 1, minHeight: 28, background: 'rgba(136,26,51,.22)', marginTop: 2 }} />}
+                </div>
+                <div onClick={() => onPickOwner(o.personId)} style={{ flex: 1, cursor: 'pointer', paddingBottom: 18 }}>
+                  {(o.periode || o.rolle) && <div style={{ fontFamily: T.mono, fontSize: 10.5, color: T.muted2 }}>{[o.periode, o.rolle].filter(Boolean).join(' · ')}</div>}
+                  <div style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 600, lineHeight: 1.05, marginTop: 1 }}>{o.navn} ›</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : <div style={{ fontSize: 12.5, color: T.muted3 }}>Ingen registrerede ejere.</div>}
+      </div>
+    );
+  }
+  return (
+    <div style={{ padding: '30px 40px 50px' }}>
+      <Kicker>Slægten Reventlow</Kicker>
+      <H1>Godser &amp; ejendomme</H1>
+      <div style={{ width: 42, height: 1.5, background: T.bordeaux, margin: '11px 0 6px' }} />
+      <div style={{ fontSize: 13, color: T.muted, marginTop: 4, marginBottom: 20 }}>Besiddelser knyttet til slægten — klik for ejerrækken gennem tiden.</div>
+      {!estates ? <div style={{ color: T.muted3 }}>Henter…</div> : !estates.length ? <div style={{ color: T.muted3 }}>Ingen godser registreret.</div> : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 12 }}>
+          {estates.map((e) => (
+            <div key={e.id} onClick={() => onOpen(e.id)} style={{ background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 13, padding: 15, cursor: 'pointer', boxShadow: '0 1px 2px rgba(34,31,26,.03)' }}>
+              <span style={{ width: 36, height: 36, borderRadius: 8, background: T.beige, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 17, color: T.bordeaux }}>⌂</span>
+              <div style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 600, lineHeight: 1.05, marginTop: 11 }}>{e.navn}</div>
+              <div style={{ fontSize: 11.5, color: T.muted, marginTop: 3 }}>{[e.slags, e.ownerCount ? `${e.ownerCount} tilknytning${e.ownerCount === 1 ? '' : 'er'}` : ''].filter(Boolean).join(' · ') || '—'}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Slægtens våben ----
+function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
+  const main = arms?.[0];
+  const rest = (arms ?? []).slice(1);
+  return (
+    <div style={{ padding: '30px 40px 50px', maxWidth: 640 }}>
+      <Kicker>Slægten Reventlow</Kicker>
+      <H1>Slægtens våben</H1>
+      <div style={{ width: 42, height: 1.5, background: T.bordeaux, margin: '11px 0 18px' }} />
+      {!arms ? <div style={{ color: T.muted3 }}>Henter…</div> : (
+        <>
+          <div style={{ background: T.ink, borderRadius: 16, padding: 26, display: 'flex', gap: 24, alignItems: 'center' }}>
+            <div style={{ width: 150, height: 185, borderRadius: 10, background: 'repeating-linear-gradient(45deg,#3a352c 0 9px,#322d25 9px 18px)', border: '1px solid rgba(231,201,143,.2)', flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><span style={{ fontFamily: T.mono, fontSize: 10, color: T.gold }}>våbenskjold</span></div>
+            <div>
+              <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.goldLight }}>Autoriseret våben</div>
+              <div style={{ fontSize: 12, color: T.cream, marginTop: 3 }}>Dansk Adels Forenings gældende gengivelse</div>
+              <div style={{ fontFamily: T.serif, fontSize: 17, fontStyle: 'italic', lineHeight: 1.45, color: T.paper, marginTop: 14 }}>{main?.blasonering || 'Blasonering ikke registreret.'}</div>
+            </div>
+          </div>
+          {rest.length > 0 && (
+            <>
+              <Label>Øvrige gengivelser &amp; varianter</Label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
+                {rest.map((v) => (
+                  <div key={v.id} style={{ background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: 11 }}>
+                    <div style={{ width: '100%', aspectRatio: '.82', borderRadius: 8, background: 'repeating-linear-gradient(45deg,#ece4d6 0 8px,#e2d8c8 8px 16px)', border: '1px solid rgba(34,31,26,.08)' }} />
+                    <div style={{ fontFamily: T.serif, fontSize: 14, fontWeight: 600, marginTop: 7, lineHeight: 1.1 }}>{v.blasonering.slice(0, 40) || 'variant'}</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---- Om slægten ----
+function AboutView({ about, personCount, estateCount }: { about: string[] | null; personCount: number; estateCount: number | null }) {
+  return (
+    <div style={{ padding: '30px 40px 50px', maxWidth: 680 }}>
+      <div style={{ fontFamily: T.serif, fontSize: 34, fontWeight: 600, lineHeight: 1.02 }}>Slægten Reventlow</div>
+      <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted2, marginTop: 8 }}>Indledning til stamtavlen · Danmarks Adels Aarbog</div>
+      <div style={{ display: 'flex', gap: 22, marginTop: 16 }}>
+        <Counter n={personCount} label="personer" />
+        {estateCount != null && <Counter n={estateCount} label="godser" />}
+      </div>
+      <div style={{ height: 1, background: 'rgba(34,31,26,.12)', margin: '20px 0' }} />
+      {!about ? <div style={{ color: T.muted3 }}>Henter…</div> : about.length ? about.map((t, i) => (
+        <div key={i} style={{ fontFamily: T.serif, fontSize: 16, lineHeight: 1.6, color: '#3d382f', marginBottom: 16, whiteSpace: 'pre-wrap' }}>{t}</div>
+      )) : (
+        <div style={{ border: '1px dashed rgba(34,31,26,.2)', borderRadius: 11, padding: 16, background: T.paper, fontSize: 13, lineHeight: 1.5, color: T.muted }}>
+          Ingen slægts-narrativ registreret endnu. Indledningen indlæses fra stamtavlen (narrative · subjekt_type slaegt).
+        </div>
+      )}
+    </div>
+  );
+}
+const Counter = ({ n, label }: { n: number; label: string }) => (
+  <div><span style={{ fontFamily: T.serif, fontSize: 28, fontWeight: 600, color: T.bordeaux }}>{n.toLocaleString('da')}</span> <span style={{ fontSize: 12.5, color: T.muted }}>{label}</span></div>
+);
 
 // ---- små byggeklodser ----
 const Kicker = ({ children }: { children: React.ReactNode }) => <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.2em', textTransform: 'uppercase', color: T.gold, marginBottom: 6 }}>{children}</div>;
