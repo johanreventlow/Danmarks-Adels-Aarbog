@@ -438,17 +438,43 @@ BEGIN
 END $$;
 
 -- PoC blød redigering: UPDATE assertion direkte (indkapslet — skift til insert-ny senere).
+-- Append-baseret edit: bevarer den gamle påstand (invariant #1), opretter ny + re-peger
+-- konklusion via INTERN logik (ikke red_set_konklusion-RPC → undgår nested change_set, B7).
+-- void → jsonb: kræver DROP FUNCTION før CREATE i db-migrations.sql.
 CREATE OR REPLACE FUNCTION red_edit_oplysning(
   p_assertion_id bigint, p_vaerdi text, p_date_raw text DEFAULT NULL, p_kilde_fritekst text DEFAULT NULL)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_tt text; v_tid bigint; v_old assertion; v_new bigint; v_cit bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
-  UPDATE assertion SET vaerdi_tekst = p_vaerdi,
-                       date_raw = coalesce(p_date_raw, date_raw)
-    WHERE id = p_assertion_id;
-  IF p_kilde_fritekst IS NOT NULL THEN
-    UPDATE citation SET citat_tekst = p_kilde_fritekst WHERE assertion_id = p_assertion_id;
+  PERFORM begin_change_set('red_edit_oplysning', format('Rettede oplysning %s', p_assertion_id), NULL, NULL);
+  SELECT * INTO v_old FROM assertion WHERE id=p_assertion_id;
+  IF v_old.id IS NULL THEN RAISE EXCEPTION 'Ukendt assertion %', p_assertion_id; END IF;
+
+  INSERT INTO assertion(id, target_type, target_id, vaerdi_tekst, date_min, date_max,
+                        date_qualifier, date_raw, calendar, uforanderlig)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM assertion), v_old.target_type, v_old.target_id,
+            p_vaerdi, v_old.date_min, v_old.date_max, v_old.date_qualifier,
+            coalesce(p_date_raw, v_old.date_raw), v_old.calendar, false)
+    RETURNING id INTO v_new;
+
+  INSERT INTO citation(id, assertion_id, source_id, citat_tekst)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM citation), v_new, NULL,
+            coalesce(p_kilde_fritekst, '(kilde mangler)'))
+    RETURNING id INTO v_cit;
+
+  -- intern re-peg (ikke RPC): kun hvis den gamle påstand var den valgte
+  UPDATE conclusion SET valgt_assertion_id=v_new, blaastemplet_naar=current_date
+    WHERE target_type=v_old.target_type AND target_id=v_old.target_id
+      AND valgt_assertion_id=p_assertion_id;
+  IF NOT FOUND THEN
+    INSERT INTO conclusion(id, target_type, target_id, valgt_assertion_id, status, blaastemplet_af, blaastemplet_naar)
+      VALUES ((SELECT coalesce(max(id),0)+1 FROM conclusion), v_old.target_type, v_old.target_id,
+              v_new, 'afklaret', 'Redaktør', current_date)
+    ON CONFLICT (target_type, target_id) DO UPDATE SET valgt_assertion_id=v_new, blaastemplet_naar=current_date;
   END IF;
+
+  RETURN jsonb_build_object('ny_assertion_id', v_new, 'citation_id', v_cit);
 END $$;
 
 -- PoC blød sletning: DELETE assertion; var den valgt → re-peg konklusion til første

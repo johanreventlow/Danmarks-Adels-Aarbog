@@ -369,3 +369,29 @@ EXCEPTION WHEN OTHERS THEN
   IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: nested red_opret_person re-entrant (ét sæt, person+fakta logget)';
   ELSE RAISE; END IF;
 END $$;
+
+-- ===== Versionering Task 6: red_edit_oplysning append =====
+DO $$
+DECLARE v_fact bigint; v_old bigint; v_concl_valgt bigint; n_before int; n_after int; r jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+  r := red_opret_fakta('person',(SELECT id FROM person LIMIT 1),'tilnavn','gammel',NULL,NULL,NULL,NULL,'k');
+  v_old := (r->>'assertion_id')::bigint; v_fact := (r->>'fact_id')::bigint;
+  SELECT count(*) INTO n_before FROM assertion WHERE target_type='fact' AND target_id=v_fact;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_edit_oplysning(v_old, 'rettet', NULL, NULL);
+  SELECT count(*) INTO n_after FROM assertion WHERE target_type='fact' AND target_id=v_fact;
+  IF n_after <> n_before + 1 THEN RAISE EXCEPTION 'FEJL: edit oprettede ikke ny assertion (% -> %)', n_before, n_after; END IF;
+  IF NOT EXISTS (SELECT 1 FROM assertion WHERE id=v_old AND vaerdi_tekst='gammel') THEN
+    RAISE EXCEPTION 'FEJL: gammel assertion blev muteret/slettet'; END IF;
+  SELECT valgt_assertion_id INTO v_concl_valgt FROM conclusion WHERE target_type='fact' AND target_id=v_fact;
+  IF (SELECT vaerdi_tekst FROM assertion WHERE id=v_concl_valgt) <> 'rettet' THEN
+    RAISE EXCEPTION 'FEJL: konklusion peger ikke på ny værdi'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: red_edit_oplysning er append';
+  ELSE RAISE; END IF;
+END $$;
