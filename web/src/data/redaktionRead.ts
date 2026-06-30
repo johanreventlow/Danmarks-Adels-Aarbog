@@ -167,6 +167,40 @@ export async function fetchPersonNarrativ(id: string): Promise<PersonNarrativ | 
   return mapNarrativRow(data ?? []);
 }
 
+// --- Generiske entitets-lister (simple tabeller) til midter-panelet ---
+
+export type EntityRecord = { id: string; label: string; sub: string; badge: string };
+
+// Trivielt læsbare entiteter (én tabel). Family/majorat/hverv/medie har ikke en simpel
+// liste-kilde og returnerer tom (UI viser "kommer"-tilstand) — dedikerede reads er follow-up.
+export async function fetchEntityRecords(entity: string): Promise<EntityRecord[]> {
+  const sel = async <T>(table: string, cols: string): Promise<T[]> =>
+    getAll<T>(() => supabase.from(table).select(cols));
+  if (entity === 'estate') {
+    const rows = await sel<{ id: number; navn: string | null; slags: string | null }>('estate', 'id,navn,slags');
+    return rows.map((r) => ({ id: String(r.id), label: r.navn ?? '(uden navn)', sub: r.slags ?? 'gods', badge: '⌂' }));
+  }
+  if (entity === 'source') {
+    const rows = await sel<{ id: number; titel: string | null; slags: string | null }>('source', 'id,titel,slags');
+    return rows.map((r) => ({ id: String(r.id), label: r.titel ?? '(uden titel)', sub: r.slags ?? 'kilde', badge: '§' }));
+  }
+  if (entity === 'org') {
+    const rows = await sel<{ id: number; navn: string | null; slags: string | null }>('organisation', 'id,navn,slags');
+    return rows.map((r) => ({ id: String(r.id), label: r.navn ?? '(uden navn)', sub: r.slags ?? 'organisation', badge: '◈' }));
+  }
+  if (entity === 'arms') {
+    const rows = await sel<{ id: number; blasonering: string | null }>('coat_of_arms', 'id,blasonering');
+    return rows.map((r) => ({ id: String(r.id), label: (r.blasonering ?? '(uden blasonering)').slice(0, 48), sub: 'våben', badge: '⛨' }));
+  }
+  if (entity === 'narrative') {
+    const rows = await sel<{ id: number; subjekt_type: string | null; tekst: string | null; privat: boolean | null }>(
+      'narrative', 'id,subjekt_type,tekst,privat');
+    return rows.map((r) => ({ id: String(r.id), label: (r.tekst ?? '(tom)').slice(0, 48),
+      sub: (r.subjekt_type ?? '?') + (r.privat ? ' · privat' : ' · offentlig'), badge: '¶' }));
+  }
+  return [];
+}
+
 // --- Slet-preview (relations-advarsel til slet-modalen) ---
 
 export type SletPreview = {

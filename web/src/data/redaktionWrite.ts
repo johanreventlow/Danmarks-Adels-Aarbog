@@ -12,7 +12,8 @@ export type Change = {
   art: 'fakta' | 'narrativ' | 'relation' | 'gods' | 'hverv'
      | 'redigerOplysning' | 'sletOplysning' | 'setKonklusion' | 'setPrivat' | 'sletPerson'
      | 'tilfoejOplysning' | 'opretFakta' | 'sletRelation' | 'tilfoejRelation'
-     | 'opretUnion' | 'tilfoejBarn' | 'setFamilieKonfidens' | 'sletFamilieLink';
+     | 'opretUnion' | 'tilfoejBarn' | 'setFamilieKonfidens' | 'sletFamilieLink'
+     | 'forslag'; // generisk entitets-feltredigering uden direkte RPC → red_suggest
   subjektType: string;
   subjektId: string;
   assertionId?: string;
@@ -139,15 +140,35 @@ export function describeCall(call: RpcCall): string {
   return `rpc ${call.fn}\n${JSON.stringify(call.args, null, 2)}`;
 }
 
+// Forslag → staging (red_suggest). Routing-fallback: ikke-redaktion, eller redaktion på en
+// art uden direkte RPC (fx generisk entitets-feltredigering). Bygger ALTID et gyldigt kald.
+export function buildSuggestCall(c: Change): RpcCall {
+  return { fn: 'red_suggest', args: {
+    p_art: c.art,
+    p_subjekt_type: c.subjektType,
+    p_subjekt_id: c.subjektId != null && c.subjektId !== '' ? Number(c.subjektId) : null,
+    p_felt: c.felt ?? null,
+    p_vaerdi: c.vaerdi ?? null,
+    p_kilde_fritekst: c.kildeFritekst ?? null,
+    p_payload: c.payload ?? {},
+    p_note: null,
+  } };
+}
+
+// Vælg kald efter rolle: redaktion + kendt art → direkte red_*-RPC; ellers → red_suggest (staging).
+export function planCall(c: Change, role: string | undefined): RpcCall {
+  const direct = role === 'redaktion' ? buildRpcCall(c) : null;
+  return direct ?? buildSuggestCall(c);
+}
+
 // dry-run: returnér det planlagte kald (UI viser fn+args). live: udfør via supabase.rpc.
-export async function submitChange(c: Change, opts: { dryRun: boolean }) {
-  const call = buildRpcCall(c);
-  if (!call) throw new Error(`Kan ikke bygge RPC-kald for art=${c.art} felt=${c.felt}`);
-  if (opts.dryRun) return { dryRun: true as const, call };
-  if (!supabase) throw new Error('Supabase ikke konfigureret');
+export async function submitChange(c: Change, opts: { dryRun: boolean; role?: string }) {
+  const call = planCall(c, opts.role);
+  const direkte = call.fn !== 'red_suggest';
+  if (opts.dryRun) return { dryRun: true as const, call, direkte };
   const { data, error } = await supabase.rpc(call.fn, call.args);
   if (error) throw new Error(error.message);
-  return { dryRun: false as const, call, result: data };
+  return { dryRun: false as const, call, direkte, result: data };
 }
 
 // PostgREST/Postgres-fejl → dansk UI-tekst (spec §9). Fald tilbage til rå besked.
