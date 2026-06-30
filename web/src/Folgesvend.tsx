@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { childrenOf, loadModel } from './data/model';
 import { initials, konfTekst } from './data/format';
 import { computeRelationship, type RelationResult } from './data/relationship';
-import { fetchArms, fetchAbout, fetchEstates, fetchEstateOwners, fetchPersonDetail, type ArmsItem, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
+import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
 import type { Model, ModelPerson } from './data/types';
 
 const T = {
@@ -46,6 +46,7 @@ export default function Folgesvend() {
   const [about, setAbout] = useState<string[] | null>(null);
   const [estateId, setEstateId] = useState<string | null>(null);
   const [estateOwners, setEstateOwners] = useState<EstateOwner[]>([]);
+  const [estateInfo, setEstateInfo] = useState<EstateInfo | null>(null);
   const [detail, setDetail] = useState<PersonDetailData | null>(null);
 
   useEffect(() => {
@@ -60,6 +61,7 @@ export default function Folgesvend() {
   useEffect(() => { if (mode === 'arms' && !arms) fetchArms().then(setArms).catch(() => setArms([])); }, [mode, arms]);
   useEffect(() => { if (mode === 'about' && !about) fetchAbout().then(setAbout).catch(() => setAbout([])); }, [mode, about]);
   useEffect(() => { if (estateId) fetchEstateOwners(estateId, model).then(setEstateOwners).catch(() => setEstateOwners([])); }, [estateId, model]);
+  useEffect(() => { if (estateId) { setEstateInfo(null); fetchEstateInfo(estateId).then(setEstateInfo).catch(() => setEstateInfo({ narrativ: '', sted: '' })); } }, [estateId]);
   // Detalje (bio/embeder/godser) for fokus-personen — til højre-panelet.
   useEffect(() => { if (!focusId) { setDetail(null); return; } setDetail(null); fetchPersonDetail(focusId).then(setDetail).catch(() => setDetail({ bio: '', offices: [], estates: [] })); }, [focusId]);
 
@@ -129,7 +131,7 @@ export default function Folgesvend() {
           {mode === 'tree' ? <TreeView model={model} focusId={focusId} onPick={setFocusId} />
             : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={setFocusId} />
             : mode === 'search' ? <SearchView persons={filtered} query={query} onPick={(id) => { setFocusId(id); setMode('tree'); }} />
-            : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} owners={estateOwners} onOpen={setEstateId} onBack={() => setEstateId(null)} onPickOwner={(id) => { setFocusId(id); setMode('tree'); }} />
+            : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} onOpen={setEstateId} onBack={() => setEstateId(null)} onPickOwner={(id) => { setFocusId(id); setMode('tree'); }} />
             : mode === 'arms' ? <ArmsView arms={arms} />
             : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} />
             : <Placeholder label={NAV.find((n) => n[1] === mode)?.[0] ?? ''} />}
@@ -425,8 +427,8 @@ function SearchView({ persons, query, onPick }: { persons: ModelPerson[]; query:
 }
 
 // ---- Godser & ejendomme ----
-function EstatesView({ estates, estateId, estate, owners, onOpen, onBack, onPickOwner }: {
-  estates: EstateItem[] | null; estateId: string | null; estate: EstateItem | null;
+function EstatesView({ estates, estateId, estate, info, owners, onOpen, onBack, onPickOwner }: {
+  estates: EstateItem[] | null; estateId: string | null; estate: EstateItem | null; info: EstateInfo | null;
   owners: EstateOwner[]; onOpen: (id: string) => void; onBack: () => void; onPickOwner: (id: string) => void;
 }) {
   if (estateId && estate) {
@@ -434,7 +436,16 @@ function EstatesView({ estates, estateId, estate, owners, onOpen, onBack, onPick
       <div style={{ padding: '26px 40px 50px', maxWidth: 620 }}>
         <div onClick={onBack} style={{ fontSize: 12.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', marginBottom: 14 }}>‹ Alle godser</div>
         <div style={{ fontFamily: T.serif, fontSize: 32, fontWeight: 600, lineHeight: 1.02 }}>{estate.navn}</div>
-        {estate.slags && <div style={{ display: 'inline-block', marginTop: 9, fontSize: 11.5, fontWeight: 600, color: T.bordeaux, background: '#f4e2e6', border: '1px solid rgba(136,26,51,.16)', padding: '5px 10px', borderRadius: 7 }}>{estate.slags}</div>}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginTop: 9 }}>
+          {estate.slags && <span style={{ fontSize: 11.5, fontWeight: 600, color: T.bordeaux, background: '#f4e2e6', border: '1px solid rgba(136,26,51,.16)', padding: '5px 10px', borderRadius: 7 }}>{estate.slags}</span>}
+          {info?.sted && <span style={{ fontSize: 11.5, fontWeight: 600, color: T.muted, background: T.beige, border: '1px solid rgba(34,31,26,.1)', padding: '5px 10px', borderRadius: 7 }}>⌖ {info.sted}</span>}
+        </div>
+        {/* Vis intet under load (info===null); derefter narrativ eller tom-tilstand. */}
+        {info && (info.narrativ ? (
+          <div style={{ marginTop: 16, fontFamily: T.serif, fontSize: 15.5, lineHeight: 1.6, color: '#3d382f', whiteSpace: 'pre-wrap' }}>{info.narrativ}</div>
+        ) : (
+          <div style={{ marginTop: 16, border: '1px dashed rgba(34,31,26,.2)', borderRadius: 11, padding: 14, background: T.paper, fontSize: 12.5, color: T.muted3 }}>Ingen godshistorik registreret endnu.</div>
+        ))}
         <Label>Ejere &amp; tilknytninger gennem tiden</Label>
         {owners.length ? (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -489,6 +500,7 @@ function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
               <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.goldLight }}>Autoriseret våben</div>
               <div style={{ fontSize: 12, color: T.cream, marginTop: 3 }}>Dansk Adels Forenings gældende gengivelse</div>
               <div style={{ fontFamily: T.serif, fontSize: 17, fontStyle: 'italic', lineHeight: 1.45, color: T.paper, marginTop: 14 }}>{main?.blasonering || 'Blasonering ikke registreret.'}</div>
+              {main?.note && <div style={{ fontSize: 11.5, color: T.cream, marginTop: 10, lineHeight: 1.45 }}>{main.note}</div>}
             </div>
           </div>
           {rest.length > 0 && (
@@ -498,7 +510,7 @@ function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
                 {rest.map((v) => (
                   <div key={v.id} style={{ background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: 11 }}>
                     <div style={{ width: '100%', aspectRatio: '.82', borderRadius: 8, background: 'repeating-linear-gradient(45deg,#ece4d6 0 8px,#e2d8c8 8px 16px)', border: '1px solid rgba(34,31,26,.08)' }} />
-                    <div style={{ fontFamily: T.serif, fontSize: 14, fontWeight: 600, marginTop: 7, lineHeight: 1.1 }}>{v.blasonering.slice(0, 40) || 'variant'}</div>
+                    <div style={{ fontFamily: T.serif, fontSize: 14, fontWeight: 600, marginTop: 7, lineHeight: 1.1 }}>{v.note || v.blasonering.slice(0, 40) || 'variant'}</div>
                   </div>
                 ))}
               </div>

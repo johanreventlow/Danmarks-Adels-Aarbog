@@ -16,7 +16,8 @@ async function safe<T>(fn: () => Promise<T>, fallback: T, label: string): Promis
 
 export type EstateItem = { id: string; navn: string; slags: string; ownerCount: number };
 export type EstateOwner = { personId: string; navn: string; rolle: string; periode: string };
-export type ArmsItem = { id: string; blasonering: string };
+export type ArmsItem = { id: string; blasonering: string; note: string };
+export type EstateInfo = { narrativ: string; sted: string };
 
 type RawEstate = { id: number; navn: string | null; slags: string | null };
 type RawEstateRel = { subjekt_id: number; objekt_id: number; rolle: string | null; periode_raw: string | null };
@@ -54,10 +55,29 @@ export function fetchEstateOwners(estateId: string, model: Model | null): Promis
 
 export function fetchArms(): Promise<ArmsItem[]> {
   return safe(async () => {
-    const rows = await getAll<{ id: number; blasonering: string | null }>(() =>
-      supabase.from('coat_of_arms').select('id,blasonering'));
-    return rows.map((r) => ({ id: String(r.id), blasonering: r.blasonering ?? '' }));
+    const rows = await getAll<{ id: number; blasonering: string | null; note: string | null }>(() =>
+      supabase.from('coat_of_arms').select('id,blasonering,note'));
+    return rows.map((r) => ({ id: String(r.id), blasonering: r.blasonering ?? '', note: r.note ?? '' }));
   }, [], 'fetchArms');
+}
+
+// Gods-detalje: historik-narrativ (offentlig) + beliggenhed (place via sted_id). Tolerant.
+export function fetchEstateInfo(estateId: string): Promise<EstateInfo> {
+  return safe(async () => {
+    const [narr, est] = await Promise.all([
+      supabase.from('narrative').select('tekst').eq('subjekt_type', 'estate').eq('subjekt_id', Number(estateId))
+        .eq('privat', false).order('id', { ascending: true }).limit(1),
+      supabase.from('estate').select('sted_id').eq('id', Number(estateId)).maybeSingle(),
+    ]);
+    const narrativ = ((narr.data ?? [])[0] as { tekst: string | null } | undefined)?.tekst ?? '';
+    let sted = '';
+    const stedId = (est.data as { sted_id: number | null } | null)?.sted_id;
+    if (stedId) {
+      const { data: pl } = await supabase.from('place').select('navn').eq('id', stedId).maybeSingle();
+      sted = (pl as { navn: string | null } | null)?.navn ?? '';
+    }
+    return { narrativ, sted };
+  }, { narrativ: '', sted: '' }, 'fetchEstateInfo');
 }
 
 // --- Person-detalje (bio + embeder + godser) til højre-panelet ---
