@@ -338,3 +338,115 @@ describe('kønsbestemte etiketter', () => {
     expect(relationshipLabel(1, 2)).toBe('Onkel/tante & niece/nevø');
   });
 });
+
+// Dybe direkte linjer (olde/tipolde/efterkommer) + køn på anen — sjældnere afstande
+// der ikke rammes af det lille test-træ, men som etiket-tabellen skal levere korrekt.
+describe('relationshipLabel — dybe & kønnede direkte linjer', () => {
+  test('olde/tipolde/efterkommer (neutral)', () => {
+    expect(relationshipLabel(0, 3)).toBe('Oldeforælder & oldebarn');
+    expect(relationshipLabel(4, 0)).toBe('Tipoldeforælder & tipoldebarn');
+    expect(relationshipLabel(0, 5)).toBe('Tip-tipoldeforælder & efterkommer');
+  });
+  test('køn på anen (anen = afstand 0)', () => {
+    expect(relationshipLabel(0, 1, { koenA: 'mand' })).toBe('Far & barn');
+    expect(relationshipLabel(2, 0, { koenB: 'kvinde' })).toBe('Bedstemor & barnebarn');
+    expect(relationshipLabel(0, 3, { koenA: 'kvinde' })).toBe('Oldemor & oldebarn');
+    expect(relationshipLabel(0, 4, { koenA: 'mand' })).toBe('Tipoldefar & tipoldebarn');
+  });
+  test('søn/datter efter efterkommerens køn (anen = afstand 0-siden)', () => {
+    expect(relationshipLabel(0, 1, { koenA: 'kvinde', koenB: 'mand' })).toBe('Mor & søn');
+    expect(relationshipLabel(1, 0, { koenA: 'kvinde', koenB: 'kvinde' })).toBe('Mor & datter');
+    expect(relationshipLabel(1, 0, { koenA: 'kvinde' })).toBe('Forælder & datter'); // anens køn ukendt
+  });
+});
+
+// Grandonkel-planet (rem===2) + halv-suffiks på onkel- og fætter-etiketter.
+describe('relationshipLabel — grandonkel & halv-suffiks', () => {
+  test('grandonkel/-tante & grandnevø/-niece', () => {
+    expect(relationshipLabel(1, 3)).toBe('Grandonkel/-tante & grandniece/-nevø');
+    expect(relationshipLabel(1, 3, { koenA: 'mand', koenB: 'kvinde' })).toBe('Grandonkel & grandniece');
+    expect(relationshipLabel(3, 1, { koenA: 'kvinde', koenB: 'mand' })).toBe('Grandonkel & grandniece');
+  });
+  test('halv-suffiks på onkel og fætter', () => {
+    expect(relationshipLabel(1, 2, { half: true })).toBe('Onkel/tante & niece/nevø (halv)');
+    expect(relationshipLabel(2, 2, { half: true })).toBe('1. grads fætter/kusine (halv)');
+    expect(relationshipLabel(1, 3, { half: true })).toBe('Grandonkel/-tante & grandniece/-nevø (halv)');
+  });
+});
+
+// alternativSolidLinje: NÆRMESTE linje hviler på et svagt led, men en FJERNERE linje
+// bekræfter slægtskabet solidt — flaget løfter usikkerheden uden at skjule den.
+//   Nær (usikker): A & B er 1. grads fætre via G, men B→Pb-leddet er omstridt.
+//   Fjern (solid): A & B er 2. grads fætre via K, alle led uangivne (ingen svaghed).
+// NB: et barns to forældre SKAL dele union (buildModel tager kun forældre fra første
+// union), så A og B har hver ÉT forælder-par-union (uA/uB).
+describe('alternativSolidLinje — fjernere solid linje bekræfter', () => {
+  const mk7 = (id: string) => ({ id, name: id, born: null, died: null, years: '', title: '', bio: '', koen: null });
+  const single = (id: string) => ({ id, p1: id, p2: null, p2_name: null, year: null });
+  const db7: Db = {
+    persons: ['A', 'B', 'Pa', 'Pb', 'Qa', 'Qb', 'Ra', 'Rb', 'G', 'K'].map(mk7),
+    unions: [
+      { id: 'uA', p1: 'Pa', p2: 'Qa', p2_name: null, year: null },
+      { id: 'uB', p1: 'Pb', p2: 'Qb', p2_name: null, year: null },
+      ...['Ra', 'Rb', 'G', 'K'].map(single),
+    ],
+    parentChild: [
+      { child: 'A', parent: 'Pa', union: 'uA' },
+      { child: 'A', parent: 'Qa', union: 'uA' },
+      { child: 'B', parent: 'Pb', union: 'uB', konfidens: 'omstridt' },
+      { child: 'B', parent: 'Qb', union: 'uB' },
+      { child: 'Pa', parent: 'G', union: 'uPa' },
+      { child: 'Pb', parent: 'G', union: 'uPb' },
+      { child: 'Qa', parent: 'Ra', union: 'uQa' },
+      { child: 'Qb', parent: 'Rb', union: 'uQb' },
+      { child: 'Ra', parent: 'K', union: 'uRa' },
+      { child: 'Rb', parent: 'K', union: 'uRb' },
+    ],
+  };
+  const m7 = buildModel(db7);
+
+  test('nærmeste linje usikker, fjernere solid → alternativSolidLinje=true', () => {
+    const r = computeRelationship(m7, 'A', 'B');
+    expect(r.lines[0].label).toBe('1. grads fætter/kusine');
+    expect(r.lines[0].usikker).toBe(true);
+    expect(r.alternativSolidLinje).toBe(true);
+    expect(r.lines.some((l) => !l.usikker && l.label === '2. grads fætter/kusine')).toBe(true);
+  });
+});
+
+// Korroboration med DELT mellem-knude: to lige-fjerne linjer der deler en mellem-PERSON
+// er ikke uafhængig bekræftelse (Mengers definition). multiplicitet=2, men uafhaengige=1.
+//   A's eneste forælder N nedstammer fra to IKKE-gifte aner G1, G2 (via N's forælder-par
+//   P1 & P2). B nedstammer fra både G1 og G2 ad hver sin gren. Begge linjer går gennem N.
+describe('korroboration — delt mellem-knude tæller ikke som uafhængig', () => {
+  const mk8 = (id: string) => ({ id, name: id, born: null, died: null, years: '', title: '', bio: '', koen: null });
+  const single = (id: string) => ({ id, p1: id, p2: null, p2_name: null, year: null });
+  const db8: Db = {
+    persons: ['A', 'B', 'N', 'P1', 'P2', 'Q1', 'Q2', 'G1', 'G2'].map(mk8),
+    unions: [
+      { id: 'uN', p1: 'P1', p2: 'P2', p2_name: null, year: null }, // N's forælder-par
+      { id: 'uB', p1: 'Q1', p2: 'Q2', p2_name: null, year: null }, // B's forælder-par
+      ...['G1', 'G2'].map(single), // G1 & G2 er IKKE ægtefæller → to distinkte linjer
+    ],
+    parentChild: [
+      { child: 'A', parent: 'N', union: 'uA' },
+      { child: 'N', parent: 'P1', union: 'uN' },
+      { child: 'N', parent: 'P2', union: 'uN' },
+      { child: 'P1', parent: 'G1', union: 'uP1' },
+      { child: 'P2', parent: 'G2', union: 'uP2' },
+      { child: 'B', parent: 'Q1', union: 'uB' },
+      { child: 'B', parent: 'Q2', union: 'uB' },
+      { child: 'Q1', parent: 'G1', union: 'uQ1' },
+      { child: 'Q2', parent: 'G2', union: 'uQ2' },
+    ],
+  };
+  const m8 = buildModel(db8);
+
+  test('to linjer i samme afstand → multiplicitet=2, men delt N ⇒ uafhaengige=1', () => {
+    const r = computeRelationship(m8, 'A', 'B');
+    expect(r.lines[0].multiplicitet).toBe(2);
+    expect(r.lines[0].uafhaengige).toBe(1);
+    // Begge stier deler mellem-knuden N.
+    expect(r.lines[0].steps.map((s) => s.id)).toContain('N');
+  });
+});
