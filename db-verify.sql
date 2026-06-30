@@ -395,3 +395,23 @@ EXCEPTION WHEN OTHERS THEN
   IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: red_edit_oplysning er append';
   ELSE RAISE; END IF;
 END $$;
+
+-- ===== Versionering Task 7: restore-hjælpere =====
+DO $$
+DECLARE v_id bigint; cur jsonb;
+BEGIN
+  v_id := (SELECT coalesce(max(id),0)+1 FROM note);
+  PERFORM _version_upsert_row('note', jsonb_build_object('id',v_id,'target_type','person','target_id',1,'indhold','A','privat',false));
+  cur := _version_current_row('note', jsonb_build_object('id',v_id));
+  IF cur->>'indhold' <> 'A' THEN RAISE EXCEPTION 'FEJL: upsert insert virkede ikke'; END IF;
+  PERFORM _version_upsert_row('note', jsonb_build_object('id',v_id,'target_type','person','target_id',1,'indhold','B','privat',false));
+  cur := _version_current_row('note', jsonb_build_object('id',v_id));
+  IF cur->>'indhold' <> 'B' THEN RAISE EXCEPTION 'FEJL: upsert update virkede ikke'; END IF;
+  PERFORM _version_delete_row('note', jsonb_build_object('id',v_id));
+  IF _version_current_row('note', jsonb_build_object('id',v_id)) IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: delete virkede ikke'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: restore-hjælpere round-trip';
+  ELSE RAISE; END IF;
+END $$;

@@ -923,3 +923,47 @@ BEGIN
                 || 'FOR EACH ROW EXECUTE FUNCTION log_change()', r.tabel);
   END LOOP;
 END $$;
+
+-- 2026-06-30: versionering — restore-hjælpere
+-- ---------- VERSIONERING: restore-hjælpere ----------
+-- WHERE-klausul fra pk-jsonb med korrekt type-cast pr. kolonne (via udt_name).
+CREATE OR REPLACE FUNCTION _version_pk_where(p_tabel text, p_pk jsonb)
+RETURNS text LANGUAGE sql STABLE AS $$
+  SELECT string_agg(format('%I = (%L)::%s', c.column_name, p_pk->>c.column_name, c.udt_name), ' AND ')
+  FROM version_pk_registry r, unnest(r.pk_cols) k
+  JOIN information_schema.columns c
+    ON c.table_schema='public' AND c.table_name=p_tabel AND c.column_name=k
+  WHERE r.tabel=p_tabel;
+$$;
+
+CREATE OR REPLACE FUNCTION _version_current_row(p_tabel text, p_pk jsonb)
+RETURNS jsonb LANGUAGE plpgsql STABLE AS $$
+DECLARE v_skip text[]; v_row jsonb;
+BEGIN
+  SELECT coalesce(skip_cols,'{}') INTO v_skip FROM version_pk_registry WHERE tabel=p_tabel;
+  EXECUTE format('SELECT to_jsonb(t) FROM %I t WHERE %s', p_tabel, _version_pk_where(p_tabel, p_pk))
+    INTO v_row;
+  IF v_row IS NULL THEN RETURN NULL; END IF;
+  RETURN v_row - v_skip;  -- samme projektion som log_change
+END $$;
+
+-- Upsert til nøjagtig snapshot-tilstand. Manglende (skip-)kolonner → NULL (cache regenereres efter).
+CREATE OR REPLACE FUNCTION _version_upsert_row(p_tabel text, p_row jsonb)
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_pk_cols text; v_set text;
+BEGIN
+  SELECT string_agg(quote_ident(k),',') INTO v_pk_cols
+    FROM version_pk_registry r, unnest(r.pk_cols) k WHERE r.tabel=p_tabel;
+  SELECT string_agg(format('%I = excluded.%I', column_name, column_name), ',') INTO v_set
+    FROM information_schema.columns
+    WHERE table_schema='public' AND table_name=p_tabel;
+  EXECUTE format(
+    'INSERT INTO %1$I SELECT (jsonb_populate_record(null::%1$I, $1)).* ON CONFLICT (%2$s) DO UPDATE SET %3$s',
+    p_tabel, v_pk_cols, v_set) USING p_row;
+END $$;
+
+CREATE OR REPLACE FUNCTION _version_delete_row(p_tabel text, p_pk jsonb)
+RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  EXECUTE format('DELETE FROM %I WHERE %s', p_tabel, _version_pk_where(p_tabel, p_pk));
+END $$;
