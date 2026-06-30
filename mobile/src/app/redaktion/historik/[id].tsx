@@ -9,7 +9,7 @@ import { TopBar } from '../../../components/TopBar';
 import { SkrivePreviewSheet } from '../../../components/redaktion/SkrivePreviewSheet';
 import { Body, BtnLabel, Mono, Serif } from '../../../components/Typography';
 import { fetchHistorik, fetchDoedeLinks, type HistPost, type DoedLink } from '../../../data/redaktionRead';
-import { type Change, oversaetFejl } from '../../../data/redaktionWrite';
+import { type Change, oversaetFejl, erFortrydKonflikt } from '../../../data/redaktionWrite';
 import { Border, Colors, Radius } from '../../../theme/tokens';
 
 export default function HistorikSkaerm() {
@@ -35,14 +35,15 @@ export default function HistorikSkaerm() {
   useEffect(() => { indlæs(); }, [indlæs]);
 
   const startFortryd = useCallback((post: HistPost, force: boolean) => {
+    // changeSetId bevares som post.id (allerede streng) — buildRpcCall konverterer til
+    // Number ved RPC-grænsen; ingen grund til en Number→String-tur-retur her i mellemtiden.
     setPending({ art: 'fortryd', subjektType: 'person', subjektId: String(id),
-      payload: { changeSetId: Number(post.id), force } });
+      payload: { changeSetId: post.id, force } });
   }, [id]);
 
-  // Beskeds-match holdes i sync med DB-RAISE'en i red_fortryd_change_set (spec-B9).
   const handleError = useCallback((rawMessage: string) => {
-    if (/afvist.*force/i.test(rawMessage) && pending?.payload?.force !== true) {
-      const post = poster.find((p) => p.id === String(pending?.payload?.changeSetId));
+    if (erFortrydKonflikt(rawMessage) && pending?.payload?.force !== true) {
+      const post = poster.find((p) => p.id === pending?.payload?.changeSetId);
       if (post) {
         Alert.alert('Nyere ændring rører samme data', 'Fortryd alligevel?', [
           { text: 'Annullér', style: 'cancel' },

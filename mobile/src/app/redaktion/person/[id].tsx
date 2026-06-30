@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { InitialBadge } from '../../../components/InitialBadge';
 import { TopBar } from '../../../components/TopBar';
@@ -199,7 +199,9 @@ export default function PersonEditor() {
   const [narrativTekst, setNarrativTekst] = useState('');
   const [narrativPrivat, setNarrativPrivat] = useState(false);
   const [narrativStatus, setNarrativStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [narrativSelPos, setNarrativSelPos] = useState(0);
+  // ref, ikke state: cursor-position påvirker aldrig render-output (kun læst ved
+  // mention-indsættelse) — useState her ville trigge et unødigt re-render pr. tastetryk.
+  const narrativSelPos = useRef(0);
   const [mentionPickerÅben, setMentionPickerÅben] = useState(false);
   useEffect(() => {
     if (!id) return;
@@ -451,7 +453,7 @@ export default function PersonEditor() {
                 editable={narrativStatus === 'ready'}
                 value={narrativTekst}
                 onChangeText={setNarrativTekst}
-                onSelectionChange={(e) => setNarrativSelPos(e.nativeEvent.selection.start)}
+                onSelectionChange={(e) => { narrativSelPos.current = e.nativeEvent.selection.start; }}
                 style={editorStyles.narrativInput}
                 placeholder={narrativStatus === 'loading' ? 'Henter…' : 'Skriv biografi her…'}
                 placeholderTextColor={Colors.textMuted2}
@@ -469,9 +471,9 @@ export default function PersonEditor() {
                 <MentionPicker
                   onClose={() => setMentionPickerÅben(false)}
                   onVælg={(token) => {
-                    const r = insertAt(narrativTekst, narrativSelPos, token);
+                    const r = insertAt(narrativTekst, narrativSelPos.current, token);
                     setNarrativTekst(r.text);
-                    setNarrativSelPos(r.cursor);
+                    narrativSelPos.current = r.cursor;
                   }}
                 />
               ) : null}

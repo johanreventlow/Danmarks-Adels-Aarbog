@@ -192,6 +192,13 @@ export async function submitChange(c: Change, opts: { dryRun: boolean }) {
   return { dryRun: false as const, call, result: data };
 }
 
+// Genkender red_fortryd_change_set's B9-divergens-RAISE ("... afvist (brug force)").
+// Co-lokaliseret med oversaetFejl (samme rå-besked-klassifikations-mønster); beskeds-
+// matchen skal holdes i sync med DB-RAISE-teksten (schema.sql/db-migrations.sql).
+export function erFortrydKonflikt(rawMessage: string): boolean {
+  return /afvist.*force/i.test(rawMessage);
+}
+
 // PostgREST/Postgres-fejl → dansk UI-tekst (spec §9). Fald tilbage til rå besked.
 export function oversaetFejl(message: string): string {
   if (/kun redaktion/i.test(message)) return 'Kræver redaktør-rettigheder.';

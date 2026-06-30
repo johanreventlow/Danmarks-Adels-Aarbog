@@ -5,11 +5,6 @@ export type MentionType =
   | 'person' | 'estate' | 'place' | 'organisation' | 'source'
   | 'coat_of_arms' | 'family' | 'historical_event' | 'media' | 'lineage';
 
-const TYPES = new Set<string>([
-  'person', 'estate', 'place', 'organisation', 'source',
-  'coat_of_arms', 'family', 'historical_event', 'media', 'lineage',
-]);
-
 export type Segment =
   | { kind: 'text'; text: string }
   | { kind: 'link'; maalType: MentionType; maalId: number; label: string };
@@ -32,10 +27,11 @@ export function parseNarrativ(text: string): Segment[] {
     const m = HEAD.exec(rest);
     if (!m || m.index !== 0) {
       // ingen token ved start: flyt tekst frem til næste mulige token (mindst ét tegn)
+      // m===null → nextStart=rest.length>=1 (while-vagten); m findes → m.index!==0 → m.index>=1.
+      // nextStart er altså her altid >=1; intet Math.max-gulv nødvendigt.
       const nextStart = m ? m.index : rest.length;
-      const take = Math.max(nextStart, 1);
-      buf += rest.slice(0, take);
-      rest = rest.slice(take);
+      buf += rest.slice(0, nextStart);
+      rest = rest.slice(nextStart);
       continue;
     }
     // find uescaped ]] efter hovedet
@@ -48,7 +44,9 @@ export function parseNarrativ(text: string): Segment[] {
       if (after[i] === ']' && after[i + 1] === ']') { closed = true; break; }
       label += after[i]; i += 1;
     }
-    if (!closed || !TYPES.has(m[1])) { // malformet → rå tekst (ét tegn ad gangen)
+    // m[1] er altid et gyldigt vokabular-medlem her — HEAD's alternation begrænser allerede
+    // capture-gruppen til de 10 kendte typer; ukendt type matcher HEAD slet ikke (m===null).
+    if (!closed) { // malformet (uafsluttet) → rå tekst (ét tegn ad gangen)
       buf += rest[0]; rest = rest.slice(1); continue;
     }
     if (buf) { out.push({ kind: 'text', text: buf }); buf = ''; }

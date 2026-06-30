@@ -1,4 +1,4 @@
-import { buildRpcCall, describeCall, oversaetFejl, FELT_FAKTATYPE } from '../redaktionWrite';
+import { buildRpcCall, describeCall, oversaetFejl, erFortrydKonflikt, FELT_FAKTATYPE } from '../redaktionWrite';
 
 describe('buildRpcCall', () => {
   it('mapper foedt → red_upsert_fakta m. faktatype fødsel', () => {
@@ -195,4 +195,10 @@ test('fortryd uden changeSetId → null', () => {
 
 test('oversaetFejl: allerede fortrudt → dansk (review10 H2, defensiv fallback)', () => {
   expect(oversaetFejl('FEJL: change_set 12 er allerede fortrudt')).toBe('Denne ændring er allerede fortrudt.');
+});
+
+test('erFortrydKonflikt: matcher den litterale DB-RAISE-tekst (red_fortryd_change_set B9)', () => {
+  // Pinning mod schema.sql:1119 — drifter teksten, skal denne test fange det (altitude-fund cycle 10).
+  expect(erFortrydKonflikt("FEJL: nyere ændring rører fact/{\"id\":1} — afvist (brug force)")).toBe(true);
+  expect(erFortrydKonflikt('FEJL: change_set 12 er allerede fortrudt')).toBe(false);
 });
