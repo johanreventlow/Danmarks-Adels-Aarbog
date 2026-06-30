@@ -831,3 +831,42 @@ BEGIN
   RETURN v_id;
 END $$;
 
+-- =====================================================================
+--  VERSIONERING + HYPERLINKS (2026-06-30)
+--  Additive features: fortryd-bar redaktionel ændringshistorik + hyperlinks.
+--  Spec: docs/superpowers/specs/2026-06-30-versionering-og-hyperlinks-design.md
+-- =====================================================================
+
+-- ---------- VERSIONERING: PK/skip-kolonne-registry ----------
+-- Styrer den generiske log_change-trigger: hvilke kolonner udgør PK (→ row_pk)
+-- og hvilke kolonner springes over i snapshot (afledt cache; spec-B8/B11).
+CREATE TABLE IF NOT EXISTS version_pk_registry (
+  tabel     TEXT PRIMARY KEY,
+  pk_cols   TEXT[] NOT NULL,
+  skip_cols TEXT[] NOT NULL DEFAULT '{}'
+);
+
+INSERT INTO version_pk_registry (tabel, pk_cols, skip_cols) VALUES
+  ('person',             ARRAY['id'], ARRAY['visning_navn','visning_foedt','visning_doed','visning_titel']),
+  ('person_external_id', ARRAY['person_id','source_id'], '{}'),
+  ('family',             ARRAY['id'], '{}'),
+  ('family_member',      ARRAY['family_id','person_id','rolle'], '{}'),
+  ('fact',               ARRAY['id'], '{}'),
+  ('relation',           ARRAY['id'], '{}'),
+  ('assertion',          ARRAY['id'], '{}'),
+  ('conclusion',         ARRAY['id'], '{}'),
+  ('citation',           ARRAY['id'], '{}'),
+  ('narrative',          ARRAY['id'], '{}'),
+  ('note',               ARRAY['id'], '{}'),
+  ('source',             ARRAY['id'], '{}'),
+  ('repository',         ARRAY['id'], '{}'),
+  ('place',              ARRAY['id'], '{}'),
+  ('organisation',       ARRAY['id'], '{}'),
+  ('estate',             ARRAY['id'], '{}'),
+  ('media',              ARRAY['id'], '{}'),
+  ('historical_event',   ARRAY['id'], '{}'),
+  ('coat_of_arms',       ARRAY['id'], '{}'),
+  ('lineage',            ARRAY['id'], '{}'),
+  ('vocab',              ARRAY['scheme','code'], '{}'),
+  ('profiles',           ARRAY['id'], ARRAY['email','rolle'])  -- versionér kun reventlow_person_id-binding (spec §4.3.1)
+ON CONFLICT (tabel) DO UPDATE SET pk_cols=excluded.pk_cols, skip_cols=excluded.skip_cols;

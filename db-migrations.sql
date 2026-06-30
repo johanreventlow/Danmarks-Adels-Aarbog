@@ -719,3 +719,40 @@ grant execute on function public.red_opret_person(text,text,boolean,text,text,te
 grant execute on function public.red_opret_estate(text,text,bigint) to authenticated;
 grant execute on function public.red_opret_kilde(text,text,text,boolean) to authenticated;
 grant execute on function public.red_opret_organisation(text,text) to authenticated;
+
+
+-- =====================================================================
+-- 2026-06-30: versionering + hyperlinks (idempotent spejling af schema.sql)
+-- =====================================================================
+
+-- 2026-06-30: versionering — PK-registry
+CREATE TABLE IF NOT EXISTS version_pk_registry (
+  tabel     TEXT PRIMARY KEY,
+  pk_cols   TEXT[] NOT NULL,
+  skip_cols TEXT[] NOT NULL DEFAULT '{}'
+);
+
+INSERT INTO version_pk_registry (tabel, pk_cols, skip_cols) VALUES
+  ('person',             ARRAY['id'], ARRAY['visning_navn','visning_foedt','visning_doed','visning_titel']),
+  ('person_external_id', ARRAY['person_id','source_id'], '{}'),
+  ('family',             ARRAY['id'], '{}'),
+  ('family_member',      ARRAY['family_id','person_id','rolle'], '{}'),
+  ('fact',               ARRAY['id'], '{}'),
+  ('relation',           ARRAY['id'], '{}'),
+  ('assertion',          ARRAY['id'], '{}'),
+  ('conclusion',         ARRAY['id'], '{}'),
+  ('citation',           ARRAY['id'], '{}'),
+  ('narrative',          ARRAY['id'], '{}'),
+  ('note',               ARRAY['id'], '{}'),
+  ('source',             ARRAY['id'], '{}'),
+  ('repository',         ARRAY['id'], '{}'),
+  ('place',              ARRAY['id'], '{}'),
+  ('organisation',       ARRAY['id'], '{}'),
+  ('estate',             ARRAY['id'], '{}'),
+  ('media',              ARRAY['id'], '{}'),
+  ('historical_event',   ARRAY['id'], '{}'),
+  ('coat_of_arms',       ARRAY['id'], '{}'),
+  ('lineage',            ARRAY['id'], '{}'),
+  ('vocab',              ARRAY['scheme','code'], '{}'),
+  ('profiles',           ARRAY['id'], ARRAY['email','rolle'])
+ON CONFLICT (tabel) DO UPDATE SET pk_cols=excluded.pk_cols, skip_cols=excluded.skip_cols;

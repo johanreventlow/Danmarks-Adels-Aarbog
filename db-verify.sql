@@ -242,3 +242,26 @@ BEGIN
   DELETE FROM relation WHERE id = -910;
   DELETE FROM lineage  WHERE id IN (-910,-911);
 END $$;
+
+
+-- =====================================================================
+--  VERSIONERING + HYPERLINKS (2026-06-30) — asserts pr. task
+--  Køres mod KOPI/branch-base, aldrig prod (jf. plan Global Constraints).
+-- =====================================================================
+
+-- ===== Versionering Task 1: PK-registry =====
+DO $$
+BEGIN
+  IF to_regclass('public.version_pk_registry') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: version_pk_registry mangler';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM version_pk_registry WHERE tabel='family_member'
+                 AND pk_cols = ARRAY['family_id','person_id','rolle']) THEN
+    RAISE EXCEPTION 'FEJL: family_member composite PK ikke registreret korrekt';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM version_pk_registry WHERE tabel='person'
+                 AND skip_cols @> ARRAY['visning_navn','visning_foedt','visning_doed','visning_titel']) THEN
+    RAISE EXCEPTION 'FEJL: person visning_* ikke i skip_cols';
+  END IF;
+  RAISE NOTICE 'OK: version_pk_registry seeded';
+END $$;
