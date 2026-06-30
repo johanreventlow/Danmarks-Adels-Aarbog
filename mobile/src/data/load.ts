@@ -4,6 +4,7 @@
 import { supabase, supabaseEnabled } from '../lib/supabase';
 import { buildAux } from './buildAux';
 import { fmtYears, parseYear } from './fields';
+import { normalizeKoen, normalizeKonfidens } from './types';
 import type {
   AppPerson,
   Aux,
@@ -75,6 +76,7 @@ export function mapAppPersons(
       title: p.visning_titel || '',
       bio: bioBy[String(p.id)] || '',
       privat: Boolean(p.privat),
+      koen: normalizeKoen(p.koen),
     }));
 }
 
@@ -90,7 +92,7 @@ export async function loadFromSupabase(opts?: { includePrivat?: boolean }): Prom
         sb.from('person').select('id,visning_navn,visning_foedt,visning_doed,visning_titel,koen,privat'),
       ),
       getAll<{ id: number; type: string }>(() => sb.from('family').select('id,type')),
-      getAll<RawMember>(() => sb.from('family_member').select('family_id,person_id,rolle,ordinal')),
+      getAll<RawMember>(() => sb.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens')),
       getAll<RawNarrative>(() =>
         sb
           .from('narrative')
@@ -151,11 +153,14 @@ export async function loadFromSupabase(opts?: { includePrivat?: boolean }): Prom
       });
     }
     children.forEach((c) => {
+      // Konfidens sidder på BARNETS medlemskabslink (rolle='barn'), ikke forælderens.
+      const konfidens = normalizeKonfidens(c.konfidens);
       parents.forEach((pa) => {
         parentChild.push({
           child: String(c.person_id),
           parent: String(pa.person_id),
           union: 'f' + fid,
+          konfidens,
         });
       });
     });

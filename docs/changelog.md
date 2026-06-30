@@ -1,5 +1,27 @@
 # Changelog
 
+## Slægtskabsfinder: bilineal multi-linje + konfidens på stien (2026-06-30)
+* **Bilineal:** "Er vi i familie?" (`mobile/src/data/relationship.ts`) traverserer nu BEGGE
+  forældre-linjer (BFS over `parentsByChild`) i stedet for kun den primære forælder-kæde.
+  Slægtskab via mor-linjen blev før tavst overset — en reel korrekthedsfejl i en sammengift slægt.
+* **Multi-linje:** returnerer alle distinkte forbindelses-linjer (`lines[]`), nærmeste først.
+  Anepar grupperes til ÉN linje (helsøskende vises ikke som to). Klassisk dobbelt-fætterskab
+  giver to anepar-linjer. "Halv" markeres kun når den anden forælder faktisk er kendt og
+  forskellig (ingen falske halvsøskende fra datahuller).
+* **Køn:** kønsbestemte moderne etiketter (Fætter/Kusine, Onkel & niece, Mor & søn) via
+  `person.koen`, med kønsneutral fallback der matcher de oprindelige strenge.
+* **Konfidens på stien (invariant #7):** `family_member.konfidens` trækkes nu ind i modellen
+  (loader + kant-indeks `konfByEdge`). Hver linje beregner sit SVAGESTE staterede led; en sti
+  gennem et formodet/omstridt led flages (`usikker`) — på resultat-kortet, pr. trin på
+  tidslinjen, og på øvrige linjer. Uangivne led larmer ikke. Samme kant med flere påstande
+  beholder den stærkeste konfidens. *Hage:* de fleste eksisterende links er `NULL` (bulk-load),
+  så visningen viser usikkerhed i takt med at konfidens-data berigt (fx de 97 kendte fejl-links).
+* **Datalag:** `koen` + `konfidens` tilføjet til visningsmodellen (types + loader), bagudkompatibelt.
+* **Tests:** relationship-suiten udvidet 6 → 27 (bilineal, anepar-collapse, halv, dobbelt
+  fætterskab, kønsetiketter, konfidens-svageste-led). Hele suiten 141/141 grøn, tsc + eslint rene.
+* **Roadmap:** `docs/moed-en-slaegtning-roadmap.md` — telefon-til-telefon slægtskab ved fysisk
+  møde (NameDrop-stil dobbelt-aktiv-handling, QR-MVP → BLE → UWB, GDPR-samtykke-design).
+
 ## Plan 2C-2b — redigerbar familie-sektion (partner + barn + konfidens) i redaktør-person-editoren (2026-06-29)
 * **Hvad:** Redaktøren kan nu tilføje og afkoble ægtefælle/partner, tilføje og afkoble børn
   samt justere konfidens på familie-links direkte i person-editoren — alt via det eksisterende

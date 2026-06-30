@@ -17,6 +17,7 @@ export type RawMember = {
   person_id: number | string;
   rolle: string | null;
   ordinal: number | null;
+  konfidens?: string | null;
 };
 export type RawNarrative = {
   subjekt_id: number | string;
@@ -63,7 +64,30 @@ export type Union = {
   p2_name: string | null;
   year: number | null;
 };
-export type ParentChild = { child: string; parent: string; union: string };
+export type ParentChild = { child: string; parent: string; union: string; konfidens?: Konfidens };
+
+// Køn — normaliseret fra rådata ('mand'/'kvinde'/'ukendt'/null) til det slægtskabs-
+// finderen bruger til kønsbestemte etiketter. null = ukendt → kønsneutral fallback.
+export type Koen = 'mand' | 'kvinde' | null;
+
+// Konfidens på et slægtskabs-link (family_member.konfidens). Stærk→svag; null = uangivet
+// (intet udsagn). Slægtskabsfinderen flager stien hvis den går gennem et svagt led.
+export type Konfidens = 'sikker' | 'sandsynlig' | 'formodet' | 'omstridt' | null;
+
+// Gyldige konfidens-værdier i svagest→stærkest-rækkefølge (spejler family_member.konfidens-
+// CHECK i schema.sql). Rang AFLEDES af rækkefølgen, så ordningen kun lever ét sted.
+export const KONFIDENS_VALUES = ['omstridt', 'formodet', 'sandsynlig', 'sikker'] as const;
+export const KONFIDENS_RANK: Record<string, number> = Object.fromEntries(
+  KONFIDENS_VALUES.map((v, i) => [v, i]),
+);
+
+// Normalisér rå streng-værdier fra basen til de typede unioner (ukendt → null).
+export function normalizeKonfidens(k: string | null | undefined): Konfidens {
+  return k != null && (KONFIDENS_VALUES as readonly string[]).includes(k) ? (k as Konfidens) : null;
+}
+export function normalizeKoen(k: string | null | undefined): Koen {
+  return k === 'mand' || k === 'kvinde' ? k : null;
+}
 
 // En person i appens visningsmodel.
 export type AppPerson = {
@@ -75,6 +99,7 @@ export type AppPerson = {
   title: string;
   bio: string;
   privat: boolean;
+  koen?: Koen; // valgfri: ældre fixtures/seed mangler den → behandles som ukendt
 };
 
 // Db = output af loadFromSupabase; persons mangler stadig parentId/spouse.
@@ -98,6 +123,9 @@ export type ModelIndexes = {
   parentsByChild: Record<string, string[]>;
   childrenByUnion: Record<string, Record<string, string[]>>;
   unionById: Record<string, Union>;
+  // Konfidens pr. forælder→barn-kant, nøgle `${child}|${parent}`. Bruges af slægtskabs-
+  // finderen til at finde det svageste led på en sti. Mangler kant = uangivet.
+  konfByEdge: Record<string, Konfidens>;
 };
 
 export type Model = {
