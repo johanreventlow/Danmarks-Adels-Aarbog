@@ -75,6 +75,7 @@ export function mapAppPersons(
       title: p.visning_titel || '',
       bio: bioBy[String(p.id)] || '',
       privat: Boolean(p.privat),
+      koen: p.koen === 'mand' || p.koen === 'kvinde' ? p.koen : null,
     }));
 }
 

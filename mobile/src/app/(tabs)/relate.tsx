@@ -56,8 +56,8 @@ export default function RelateScreen() {
           <View style={styles.result}>
             <Mono size={9.5} color={Colors.goldLight} style={{ letterSpacing: 9.5 * 0.16, textTransform: 'uppercase' }}>Slægtskab</Mono>
             <Serif size={25} color={Colors.paperBg} style={{ marginTop: 7, lineHeight: 27, textAlign: 'center' }}>{rel.label}</Serif>
-            {rel.found && rel.lcaName ? (
-              <Body size={12.5} color="#cabfa9" style={{ marginTop: 8 }}>Fælles ane: {rel.lcaName}</Body>
+            {rel.found && (rel.lines[0]?.coupleNames || rel.lcaName) ? (
+              <Body size={12.5} color="#cabfa9" style={{ marginTop: 8 }}>Fælles ane: {rel.lines[0]?.coupleNames || rel.lcaName}</Body>
             ) : null}
           </View>
         ) : (
@@ -65,6 +65,19 @@ export default function RelateScreen() {
             <Body size={13} color={Colors.textMuted}>Vælg to personer for at finde slægtskabet.</Body>
           </View>
         )}
+
+        {/* Øvrige linjer — i en sammengift slægt er to personer ofte beslægtet ad flere veje. */}
+        {rel && rel.found && rel.lines.length > 1 ? (
+          <View style={styles.alsoBox}>
+            <Kicker size={9.5} style={{ marginBottom: 6, letterSpacing: 9.5 * 0.14 }}>Også beslægtet</Kicker>
+            {rel.lines.slice(1).map((l) => (
+              <View key={l.lcaId} style={styles.alsoRow}>
+                <Serif size={14} style={{ flex: 1, lineHeight: 16 }}>{l.label}</Serif>
+                <Body size={11} color={Colors.textMuted} style={{ flexShrink: 0 }}>via {l.coupleNames || l.lcaName}</Body>
+              </View>
+            ))}
+          </View>
+        ) : null}
 
         {/* Trin for trin */}
         {rel && rel.steps.length ? (
@@ -141,6 +154,8 @@ const styles = StyleSheet.create({
   },
   result: { marginTop: 18, backgroundColor: Colors.ink, borderRadius: 14, paddingVertical: 18, paddingHorizontal: 18, alignItems: 'center' },
   resultEmpty: { marginTop: 18, backgroundColor: Colors.paperCard, borderRadius: 14, padding: 18, alignItems: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: Border.light },
+  alsoBox: { marginTop: 14, backgroundColor: Colors.paperCard, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: Border.light },
+  alsoRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 5 },
   stepRow: { flexDirection: 'row', alignItems: 'center', gap: 13, paddingVertical: 3 },
   dotCol: { width: 26, alignItems: 'center' },
   dot: { width: 11, height: 11, borderRadius: Radius.round, borderWidth: 2 },

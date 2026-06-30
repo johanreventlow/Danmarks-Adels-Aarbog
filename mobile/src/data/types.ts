@@ -65,6 +65,10 @@ export type Union = {
 };
 export type ParentChild = { child: string; parent: string; union: string };
 
+// Køn — normaliseret fra rådata ('mand'/'kvinde'/'ukendt'/null) til det slægtskabs-
+// finderen bruger til kønsbestemte etiketter. null = ukendt → kønsneutral fallback.
+export type Koen = 'mand' | 'kvinde' | null;
+
 // En person i appens visningsmodel.
 export type AppPerson = {
   id: string;
@@ -75,6 +79,7 @@ export type AppPerson = {
   title: string;
   bio: string;
   privat: boolean;
+  koen?: Koen; // valgfri: ældre fixtures/seed mangler den → behandles som ukendt
 };
 
 // Db = output af loadFromSupabase; persons mangler stadig parentId/spouse.
