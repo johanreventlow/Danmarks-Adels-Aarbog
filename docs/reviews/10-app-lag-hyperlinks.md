@@ -152,18 +152,36 @@ macOS Accessibility-rettigheder som System Events/AppleScript ville).
 2. **✅ KONFIRMERET.** Bio-klamp + "Læs hele biografien"/"Vis mindre"-toggle fungerede korrekt
    gentagne gange med `NarrativRenderer`s multi-segment `Text`-børn (inkl. det injicerede
    testtoken til sidst i en lang biografi) — ingen layout- eller klamp-regression.
-3. **❌ IKKE TESTET — blokeret af mangel på redaktør-login.** MentionPicker insert-at-cursor
-   kræver `rolle === 'redaktion'` (Supabase-session), som kræver en adgangskode jeg ikke har
-   og ikke bør bede om i chatten. `redaktion/_layout.tsx` gater hele redaktions-segmentet på
-   `useStore().rolle`; `LoginSheet.tsx` er e-mail+password (ingen magic-link/OTP-vej udenom).
-4. **❌ IKKE TESTET — samme blocker.** Fortryd-flowet (dry-run og LIVE) kræver redaktør-login.
-   Bemærk desuden: en reel LIVE-fortryd mod prod reverterer en ægte `change_set` — bør IKKE
-   afprøves mod prod uden separat eksplicit godkendelse, selv når login er muligt (ingen
-   lokal Supabase-stack tilgængelig — `docker` mangler, kun `supabase` CLI er installeret).
-5. **❌ IKKE TESTET — samme blocker** (kræver en reel B9-divergens-situation + login).
-6. **❌ IKKE TESTET — samme blocker** (kræver login + eksisterende historik-data).
+**Opdateret igen samme session — brugeren loggede selv ind som redaktør** (jeg har ingen
+adgangskode og skrev den ikke; brugeren tastede den direkte i simulatoren). Det afslørede
+desuden et separat, reelt UI-fund (ikke i den oprindelige punch-list): se "Fund: omvendt
+dry-run-toggle-polaritet" nedenfor.
 
-**Konklusion:** de to vigtigste/risikofyldte punkter (faktisk token-rendering + klamp-robusthed)
-er nu verificeret på et rigtigt device, ikke kun statisk. De fire resterende punkter (3-6) er
-alle redaktør-auth-gatede og kræver enten at brugeren selv logger ind i simulatoren (jeg
-observerer/screenshotter videre derfra) eller accepterer punkterne som forblivende uverificerede.
+3. **✅ KONFIRMERET (empirisk, real device, redaktør-login).** Søgte "Theodor" i MentionPicker,
+   valgte en træffer — token `[[person:302|Theodor]]` blev indsat MIDT i den eksisterende
+   bio-tekst ved markørens faktiske position (ikke for enden), og markøren flyttede sig
+   korrekt til lige efter det indsatte token. Insert-at-cursor virker som tilsigtet.
+4. **❌ STADIG IKKE TESTET — ny blocker (ikke længere login).** `select count(*) from
+   change_set` mod prod → **0 rækker**. Ingen redaktør har nogensinde lavet en LIVE-skrivning
+   gennem app'en endnu, så `hist_for_subjekt` returnerer tomt for enhver person (bekræftet:
+   tom, fejlfri "Ingen ændringer registreret."-tilstand for person 111). Fortryd-flowet kan
+   ikke afprøves uden FØRST at oprette mindst én reel `change_set` via en LIVE-skrivning —
+   hvilket kræver separat eksplicit godkendelse (se global regel om git/prod-gates), ikke kun
+   login. Ren visnings-/fejl-fri tomtilstand er dog selv verificeret.
+5. **❌ IKKE TESTET — samme blocker** (kræver mindst to konkurrerende `change_set`-rækker).
+6. **❌ IKKE TESTET — samme blocker** (kræver en allerede-fortrudt `change_set`-række).
+
+**Fund: omvendt dry-run-toggle-polaritet (brugerfund, rettet samme session).** Switchen i
+`redaktion/person/[id].tsx` var kablet `value={!dryRun}` (ON/højre = LIVE), mens den
+IDENTISKE switch på Konto- og dashboard-skærmen bruger `value={dryRun}` (ON/højre =
+dry-run/sikker) — samme globale felt, modsat retning afhængig af skærm. Brugeren opdagede
+dette ved selvsyn ("den lille pil... er anvendt inkonsekvent"). Rettet i `ecad25c`
+(`value={dryRun}`/`onValueChange={setDryRun}`, matcher de to andre skærme; `trackColor`-par
+byttet om for uændret visuelt resultat). Ikke en del af dual-review cycle 10 — fanget først
+ved faktisk brug af appen, hvilket er præcis den slags fund statisk review ikke kan nå.
+
+**Konklusion:** punkt 1-3 er nu fuldt empirisk verificeret på et rigtigt device (inkl. med
+ægte redaktør-login). Punkt 4-6 kræver at mindst én reel LIVE-skrivning foretages i prod
+først (0 eksisterende change_set-rækker) — en handling der kræver separat eksplicit
+godkendelse, ikke kun adgang. Et ægte UI-bug (toggle-polaritet) blev fundet og rettet
+undervejs, udenfor den oprindelige punch-list.
