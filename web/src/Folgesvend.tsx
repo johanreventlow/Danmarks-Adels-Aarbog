@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { childrenOf, loadModel } from './data/model';
 import { initials, konfTekst } from './data/format';
 import { computeRelationship, type RelationResult } from './data/relationship';
-import { fetchArms, fetchAbout, fetchEstates, fetchEstateOwners, type ArmsItem, type EstateItem, type EstateOwner } from './data/public';
+import { fetchArms, fetchAbout, fetchEstates, fetchEstateOwners, fetchPersonDetail, type ArmsItem, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
 import type { Model, ModelPerson } from './data/types';
 
 const T = {
@@ -46,6 +46,7 @@ export default function Folgesvend() {
   const [about, setAbout] = useState<string[] | null>(null);
   const [estateId, setEstateId] = useState<string | null>(null);
   const [estateOwners, setEstateOwners] = useState<EstateOwner[]>([]);
+  const [detail, setDetail] = useState<PersonDetailData | null>(null);
 
   useEffect(() => {
     loadModel().then((m) => {
@@ -59,6 +60,8 @@ export default function Folgesvend() {
   useEffect(() => { if (mode === 'arms' && !arms) fetchArms().then(setArms).catch(() => setArms([])); }, [mode, arms]);
   useEffect(() => { if (mode === 'about' && !about) fetchAbout().then(setAbout).catch(() => setAbout([])); }, [mode, about]);
   useEffect(() => { if (estateId) fetchEstateOwners(estateId, model).then(setEstateOwners).catch(() => setEstateOwners([])); }, [estateId, model]);
+  // Detalje (bio/embeder/godser) for fokus-personen — til højre-panelet.
+  useEffect(() => { if (!focusId) { setDetail(null); return; } setDetail(null); fetchPersonDetail(focusId).then(setDetail).catch(() => setDetail({ bio: '', offices: [], estates: [] })); }, [focusId]);
 
   const persons = model?.persons ?? [];
   // Sortér én gang (personerne er stabile); filtrér kun pr. tastetryk.
@@ -131,6 +134,11 @@ export default function Folgesvend() {
             : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} />
             : <Placeholder label={NAV.find((n) => n[1] === mode)?.[0] ?? ''} />}
         </div>
+
+        {/* Højre: person-detalje (kun i person-centriske visninger) */}
+        {['tree', 'relate', 'search'].includes(mode) && model && focusId && (
+          <DetailPanel model={model} focusId={focusId} detail={detail} onPick={setFocusId} />
+        )}
       </div>
     </div>
   );
@@ -306,6 +314,95 @@ function RelateView({ model, rel, relA, relB, slot, setSlot, onPickStep }: {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ---- Person-detalje (højre panel) ----
+function DetailPanel({ model, focusId, detail, onPick }: { model: Model; focusId: string; detail: PersonDetailData | null; onPick: (id: string) => void }) {
+  const p = model.byId[focusId];
+  if (!p) return null;
+  const parents = (model.indexes.parentsByChild[focusId] ?? []).map((id) => model.byId[id]).filter(Boolean) as { id: string; name: string }[];
+  const spouses = (model.indexes.spousesBy[focusId] ?? []);
+  const children = childrenOf(model, focusId);
+  return (
+    <div data-scroll style={{ flex: 'none', width: 392, borderLeft: '1px solid rgba(34,31,26,.1)', background: T.paper, overflowY: 'auto' }}>
+      <div style={{ padding: '24px 24px 36px' }}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+          <div style={{ width: 92, height: 116, borderRadius: 11, background: 'repeating-linear-gradient(45deg,#ece4d6 0 9px,#e2d8c8 9px 18px)', border: '1px solid rgba(34,31,26,.1)', flex: 'none', display: 'flex', alignItems: 'flex-end', padding: 8 }}><span style={{ fontFamily: T.mono, fontSize: 9, color: T.muted }}>portræt</span></div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: T.serif, fontSize: 27, lineHeight: 1, fontWeight: 600 }}>{p.name}</div>
+            {p.years && <div style={{ fontFamily: T.mono, fontSize: 11, color: T.muted2, marginTop: 6 }}>{p.years}</div>}
+            {p.title && <div style={{ display: 'inline-block', fontSize: 11, fontWeight: 600, color: T.bordeaux, background: '#f4e2e6', border: '1px solid rgba(136,26,51,.16)', padding: '4px 9px', borderRadius: 6, marginTop: 9 }}>{p.title}</div>}
+          </div>
+        </div>
+
+        {parents.length > 0 && (
+          <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px 7px' }}>
+            <span style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.gold }}>Barn af</span>
+            {parents.map((pa, i) => (
+              <span key={pa.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                {i > 0 && <span style={{ fontFamily: T.serif, fontSize: 15, fontStyle: 'italic', color: T.gold }}>&amp;</span>}
+                <span onClick={() => onPick(pa.id)} style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>{pa.name} ›</span>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {detail?.bio && <div style={{ marginTop: 14, fontSize: 13.5, lineHeight: 1.55, color: '#3d382f' }}>{detail.bio}</div>}
+
+        {spouses.length > 0 && (
+          <div style={{ marginTop: 14, fontFamily: T.serif, fontSize: 15, fontStyle: 'italic', color: T.muted, lineHeight: 1.5 }}>⚭ gift med{' '}
+            {spouses.map((sp, i) => (
+              <span key={(sp.id ?? sp.name) + i}>
+                {i > 0 && <span style={{ color: T.gold }}>· </span>}
+                {sp.id ? <span onClick={() => onPick(sp.id!)} style={{ fontWeight: 600, fontStyle: 'normal', color: T.bordeaux, cursor: 'pointer' }}>{sp.name} ›</span> : <span>{sp.name}</span>}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {children.length > 0 && (
+          <>
+            <Label>Børn</Label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+              {children.map((c) => (
+                <div key={c.id} onClick={() => onPick(c.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 9, padding: '6px 11px 6px 7px', cursor: 'pointer' }}>
+                  <div style={{ width: 26, height: 26, borderRadius: '50%', background: T.beige, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 11, fontWeight: 600, color: T.bordeaux }}>{initials(c.name)}</div>
+                  <span style={{ fontFamily: T.serif, fontSize: 15, fontWeight: 600 }}>{c.name.split(' ')[0]}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {detail && detail.offices.length > 0 && (
+          <>
+            <Label>Embeder, rang &amp; hverv</Label>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {detail.offices.map((o, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '7px 0', borderBottom: '1px solid rgba(34,31,26,.07)' }}>
+                  <span style={{ flex: 1, fontSize: 13, color: '#3d382f', lineHeight: 1.3 }}>{o.label}</span>
+                  {o.period && <span style={{ fontFamily: T.mono, fontSize: 9.5, color: T.muted2, flex: 'none', whiteSpace: 'nowrap' }}>{o.period}</span>}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {detail && detail.estates.length > 0 && (
+          <>
+            <Label>Godser &amp; besiddelser</Label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+              {detail.estates.map((e, i) => (
+                <span key={e.id + i} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 8, padding: '6px 10px', fontFamily: T.serif, fontSize: 14, fontWeight: 600, color: T.ink }}>⌂ {e.navn}</span>
+              ))}
+            </div>
+          </>
+        )}
+
+        {detail === null && <div style={{ marginTop: 18, fontSize: 12, color: T.muted3 }}>Henter detaljer…</div>}
+      </div>
     </div>
   );
 }
