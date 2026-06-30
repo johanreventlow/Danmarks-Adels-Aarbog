@@ -17,6 +17,16 @@ function konfTekst(k?: Konfidens): string {
   return k === 'omstridt' ? 'omstridt' : k === 'formodet' ? 'formodet' : '';
 }
 
+// Positivt korroborations-signal: flere uafhængige veje, eller en solid alternativ-linje
+// der bekræfter slægtskabet selv om den viste sti har et svagt led. '' = intet at vise.
+function korroborationsTekst(rel: ReturnType<typeof computeRelationship>): string {
+  const p = rel.lines[0];
+  if (!p) return '';
+  if (p.uafhaengige >= 2) return `Bekræftet ad ${p.uafhaengige} uafhængige linjer`;
+  if (p.usikker && rel.lines.slice(1).some((l) => !l.usikker)) return 'Bekræftet ad en anden, sikker linje';
+  return '';
+}
+
 export default function RelateScreen() {
   const insets = useSafeAreaInsets();
   const model = useStore((s) => s.model);
@@ -70,6 +80,11 @@ export default function RelateScreen() {
             {rel.found && rel.lines[0]?.usikker ? (
               <Body size={11.5} color={Colors.goldLight} style={{ marginTop: 7, textAlign: 'center' }}>
                 ⚠ Forbindelsen går gennem et {konfTekst(rel.lines[0].weakestKonfidens)} led
+              </Body>
+            ) : null}
+            {rel.found && korroborationsTekst(rel) ? (
+              <Body size={11.5} color="#a9c2a0" style={{ marginTop: 7, textAlign: 'center' }}>
+                ✓ {korroborationsTekst(rel)}
               </Body>
             ) : null}
           </View>

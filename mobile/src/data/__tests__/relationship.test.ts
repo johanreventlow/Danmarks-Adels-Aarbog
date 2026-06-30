@@ -237,6 +237,17 @@ describe('multi-linje — dobbelt fætterskab', () => {
     expect(r.lines[0].aner.join(' | ')).toMatch(/Mfa & Mfk/);
     expect(r.lines[0].half).toBe(false);
   });
+  test('korroboration: to kant-disjunkte stier → uafhaengige === 2', () => {
+    // Far-side (A→fa→…→fb→B) og mor-side (A→ma→…→mb→B) deler ingen kant.
+    expect(computeRelationship(m5, 'A', 'B').lines[0].uafhaengige).toBe(2);
+  });
+});
+
+describe('korroboration — enkelt linje er ikke bekræftet', () => {
+  // Genbrug det simple træ fra toppen: A & B er fætre via ÉN fælles ane G (én sti).
+  test('enkelt forbindelse → uafhaengige === 1', () => {
+    expect(computeRelationship(model, 'A', 'B').lines[0].uafhaengige).toBe(1);
+  });
 });
 
 describe('multiplicitetForled', () => {
