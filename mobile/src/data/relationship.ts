@@ -186,20 +186,25 @@ export type RelationStep = {
   edgeKonfidens?: Konfidens;
 };
 
-// Én distinkt forbindelses-linje mellem A og B.
+// Én distinkt forbindelses-linje mellem A og B. Ved samme afstand ad flere uafhængige
+// anepar (fx dobbelt-fætterskab) slås linjerne sammen til én med multiplicitet > 1.
 export type RelationLine = {
   label: string;
-  lcaId: string;
+  lcaId: string; // repræsentant (nærmeste linjes ane); ved multiplicitet > 1 se `aner`
   lcaName: string;
-  coupleNames?: string; // sat når linjen går gennem et anepar ("Far & Mor")
+  coupleNames?: string; // sat når (repræsentant-)linjen går gennem et anepar ("Far & Mor")
   half: boolean;
   d1: number;
   d2: number;
-  steps: RelationStep[];
+  steps: RelationStep[]; // repræsentantens sti (de øvrige linjers stier udelades)
   // Svageste STATEREDE konfidens på stien (null = alle led uangivet/ingen svaghed).
   weakestKonfidens: Konfidens;
   // True når stien hviler på et formodet/omstridt led — finderen skal vise usikkerhed.
   usikker: boolean;
+  // Antal uafhængige linjer i samme afstand (1 = normal; 2 = dobbelt; 3 = tredobbelt …).
+  multiplicitet: number;
+  // Visningsnavn pr. sammenslået linjes ane/anepar (længde === multiplicitet).
+  aner: string[];
 };
 
 export type RelationResult = {
@@ -237,6 +242,35 @@ function weakestOnPath(steps: RelationStep[]): Konfidens {
   return weakest;
 }
 
+// Tællende forled til en sammenslået linje. 1 → '' (intet forled).
+const MULTIPLICITET_FORLED = ['', '', 'Dobbelt', 'Tredobbelt', 'Firdobbelt', 'Femdobbelt', 'Seksdobbelt'];
+export function multiplicitetForled(n: number): string {
+  return MULTIPLICITET_FORLED[n] ?? `${n}-dobbelt`;
+}
+
+// Slå linjer i SAMME afstand sammen: ens etiket ⇒ samme relation ad flere uafhængige
+// anepar (dobbelt-fætterskab). Bevarer nærmeste-først-rækkefølgen (lines er forsorteret).
+function mergeSameDistanceLines(lines: RelationLine[]): RelationLine[] {
+  const groups = new Map<string, RelationLine[]>();
+  for (const l of lines) {
+    const g = groups.get(l.label);
+    if (g) g.push(l);
+    else groups.set(l.label, [l]);
+  }
+  return Array.from(groups.values()).map((group) => {
+    if (group.length === 1) return group[0];
+    const rep = group[0]; // nærmeste medlem driver sti + repræsentant-ane
+    const forled = multiplicitetForled(group.length);
+    // Forled foran basen; basens første bogstav gøres lille ("Dobbelt onkel & niece",
+    // "Dobbelt 1. grads fætter/kusine" — cifferet påvirkes ikke).
+    const label = `${forled} ${rep.label.charAt(0).toLowerCase()}${rep.label.slice(1)}`;
+    // Korroboration: flere uafhængige linjer styrker forbindelsen — kun usikker hvis
+    // ALLE medlemmer er usikre (ingen solid alternativ-linje rydder flaget).
+    const usikker = group.every((m) => m.usikker);
+    return { ...rep, label, multiplicitet: group.length, aner: group.map((m) => m.coupleNames ?? m.lcaName), usikker };
+  });
+}
+
 // Beregn slægtskab mellem to personer: alle distinkte linjer (etiket + trin-for-trin-kæde).
 export function computeRelationship(model: Model, aId: string, bId: string): RelationResult {
   const a = model.byId[aId];
@@ -244,7 +278,7 @@ export function computeRelationship(model: Model, aId: string, bId: string): Rel
   const none: RelationResult = { found: false, label: '', lcaId: null, lcaName: '', steps: [], lines: [] };
   if (!a || !b) return none;
   if (a.id === b.id) {
-    const line: RelationLine = { label: 'Samme person', lcaId: a.id, lcaName: a.name, half: false, d1: 0, d2: 0, steps: [], weakestKonfidens: null, usikker: false };
+    const line: RelationLine = { label: 'Samme person', lcaId: a.id, lcaName: a.name, half: false, d1: 0, d2: 0, steps: [], weakestKonfidens: null, usikker: false, multiplicitet: 1, aner: [a.name] };
     return { found: true, label: line.label, lcaId: a.id, lcaName: a.name, steps: [], lines: [line] };
   }
 
@@ -274,10 +308,11 @@ export function computeRelationship(model: Model, aId: string, bId: string): Rel
     const half = !couple && isHalfThrough(model, ra, rb, rep);
     const label = relationshipLabel(d1, d2, { koenA: a.koen, koenB: b.koen, half });
     const steps = buildSteps(model, ra, rb, a.id, b.id, rep);
-    const coupleNames = couple ? `${model.byId[rep]?.name ?? ''} & ${model.byId[rep === c ? partner! : c]?.name ?? ''}` : undefined;
+    const lcaName = model.byId[rep]?.name ?? '';
+    const coupleNames = couple ? `${lcaName} & ${model.byId[rep === c ? partner! : c]?.name ?? ''}` : undefined;
     const weakestKonfidens = weakestOnPath(steps);
     const usikker = weakestKonfidens != null && KONFIDENS_RANK[weakestKonfidens] <= KONFIDENS_RANK.formodet;
-    lines.push({ label, lcaId: rep, lcaName: model.byId[rep]?.name ?? '', coupleNames, half, d1, d2, steps, weakestKonfidens, usikker });
+    lines.push({ label, lcaId: rep, lcaName, coupleNames, half, d1, d2, steps, weakestKonfidens, usikker, multiplicitet: 1, aner: [coupleNames ?? lcaName] });
   }
 
   // Nærmeste først: mindste samlede afstand, så mest balancerede, så stærkeste led, så id.
@@ -289,6 +324,7 @@ export function computeRelationship(model: Model, aId: string, bId: string): Rel
       (x.lcaId < y.lcaId ? -1 : x.lcaId > y.lcaId ? 1 : 0),
   );
 
-  const p = lines[0];
-  return { found: true, label: p.label, lcaId: p.lcaId, lcaName: p.lcaName, steps: p.steps, lines };
+  const merged = mergeSameDistanceLines(lines);
+  const p = merged[0];
+  return { found: true, label: p.label, lcaId: p.lcaId, lcaName: p.lcaName, steps: p.steps, lines: merged };
 }

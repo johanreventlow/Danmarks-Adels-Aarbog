@@ -1,5 +1,5 @@
 import { buildModel } from '../buildModel';
-import { computeRelationship, relationshipLabel } from '../relationship';
+import { computeRelationship, multiplicitetForled, relationshipLabel } from '../relationship';
 import type { Db } from '../types';
 
 const mk = (id: string, name: string) => ({ id, name, born: null, died: null, years: '', title: '', bio: '' });
@@ -223,15 +223,31 @@ describe('multi-linje — dobbelt fætterskab', () => {
   };
   const m5 = buildModel(db5);
 
-  test('præcis TO linjer (far-parret + mor-parret), ikke fire enkelt-aner', () => {
+  test('samme afstand ad to anepar → slås sammen til ÉN "Dobbelt"-linje', () => {
     const r = computeRelationship(m5, 'A', 'B');
-    expect(r.lines).toHaveLength(2);
-    expect(r.lines.every((l) => !!l.coupleNames)).toBe(true);
+    expect(r.lines).toHaveLength(1);
+    expect(r.lines[0].multiplicitet).toBe(2);
+    expect(r.label).toBe('Dobbelt 1. grads fætter/kusine');
   });
-  test('begge linjer = 1. grads fætter/kusine; ingen er halv', () => {
+  test('begge anepar listes på den sammenslåede linje', () => {
     const r = computeRelationship(m5, 'A', 'B');
-    expect(r.lines.map((l) => l.label)).toEqual(['1. grads fætter/kusine', '1. grads fætter/kusine']);
-    expect(r.lines.some((l) => l.half)).toBe(false);
+    expect(r.lines[0].aner).toHaveLength(2);
+    // Far-parret (Ffa & Ffk) og mor-parret (Mfa & Mfk), uanset rækkefølge.
+    expect(r.lines[0].aner.join(' | ')).toMatch(/Ffa & Ffk/);
+    expect(r.lines[0].aner.join(' | ')).toMatch(/Mfa & Mfk/);
+    expect(r.lines[0].half).toBe(false);
+  });
+});
+
+describe('multiplicitetForled', () => {
+  test('1 → tomt, 2 → Dobbelt, 3 → Tredobbelt, 6 → Seksdobbelt', () => {
+    expect(multiplicitetForled(1)).toBe('');
+    expect(multiplicitetForled(2)).toBe('Dobbelt');
+    expect(multiplicitetForled(3)).toBe('Tredobbelt');
+    expect(multiplicitetForled(6)).toBe('Seksdobbelt');
+  });
+  test('>6 falder tilbage til "N-dobbelt"', () => {
+    expect(multiplicitetForled(7)).toBe('7-dobbelt');
   });
 });
 
