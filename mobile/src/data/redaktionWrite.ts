@@ -13,7 +13,7 @@ export type Change = {
      | 'redigerOplysning' | 'sletOplysning' | 'setKonklusion' | 'setPrivat' | 'sletPerson'
      | 'tilfoejOplysning' | 'opretFakta' | 'sletRelation' | 'tilfoejRelation'
      | 'opretUnion' | 'tilfoejBarn' | 'setFamilieKonfidens' | 'sletFamilieLink'
-     | 'opretPerson' | 'opretEstate' | 'opretKilde' | 'opretOrganisation';
+     | 'opretPerson' | 'opretEstate' | 'opretKilde' | 'opretOrganisation' | 'fortryd';
   subjektType: string;
   subjektId: string;
   assertionId?: string;
@@ -42,6 +42,12 @@ export function buildRpcCall(c: Change): RpcCall | null {
   if (c.art === 'setKonklusion') {
     if (aid == null) return null;
     return { fn: 'red_set_konklusion', args: { p_assertion_id: aid } };
+  }
+  if (c.art === 'fortryd') {
+    const csId = c.payload?.changeSetId;
+    if (csId == null) return null;
+    return { fn: 'red_fortryd_change_set',
+             args: { p_change_set_id: Number(csId), p_force: Boolean(c.payload?.force) } };
   }
   if (c.art === 'redigerOplysning') {
     if (aid == null) return null;
@@ -186,10 +192,21 @@ export async function submitChange(c: Change, opts: { dryRun: boolean }) {
   return { dryRun: false as const, call, result: data };
 }
 
+// Genkender red_fortryd_change_set's B9-divergens-RAISE ("... afvist (brug force)").
+// Co-lokaliseret med oversaetFejl (samme rå-besked-klassifikations-mønster). Regex'en pinner
+// IKKE mod den levende DB-tekst — kun mod testens hardkodede kopi; drifter schema.sql's
+// RAISE-formulering, skal matchen opdateres her manuelt.
+export function erFortrydKonflikt(rawMessage: string): boolean {
+  return /afvist.*force/i.test(rawMessage);
+}
+
 // PostgREST/Postgres-fejl → dansk UI-tekst (spec §9). Fald tilbage til rå besked.
 export function oversaetFejl(message: string): string {
   if (/kun redaktion/i.test(message)) return 'Kræver redaktør-rettigheder.';
   if (/duplicate key|unique/i.test(message)) return 'Findes allerede.';
   if (/not configured|ikke konfigureret/i.test(message)) return 'Ingen forbindelse til basen.';
+  // Defensivt fald-tilbage (review10 H2): UI'en skal skjule Fortryd-knappen for allerede
+  // fortrudte poster, men hvis en race/forældet liste alligevel rammer DB-guarden direkte.
+  if (/allerede fortrudt/i.test(message)) return 'Denne ændring er allerede fortrudt.';
   return message;
 }

@@ -5,6 +5,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { NarrativRenderer } from '../../components/NarrativRenderer';
 import { StripedPlaceholder } from '../../components/StripedPlaceholder';
 import { TopBar } from '../../components/TopBar';
 import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
@@ -99,10 +100,9 @@ export default function PersonScreen() {
         {/* Biografi — klamp 7 linjer */}
         {person.bio ? (
           <View style={styles.block}>
-            <Body size={14} color={Colors.textSecondary} style={{ lineHeight: 14 * 1.55 }}
-              numberOfLines={bioExpanded ? undefined : BIO_CLAMP_LINES}>
-              {person.bio}
-            </Body>
+            <NarrativRenderer tekst={person.bio} size={14} color={Colors.textSecondary}
+              style={{ lineHeight: 14 * 1.55 }}
+              numberOfLines={bioExpanded ? undefined : BIO_CLAMP_LINES} />
             {bioLong ? (
               <Pressable onPress={() => setBioExpanded((v) => !v)}>
                 <BtnLabel size={12.5} color={Colors.bordeaux} style={{ marginTop: 8 }}>

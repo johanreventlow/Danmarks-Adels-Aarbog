@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { InitialBadge } from '../../../components/InitialBadge';
 import { TopBar } from '../../../components/TopBar';
@@ -8,7 +8,9 @@ import { SletBekraeftSheet } from '../../../components/redaktion/SletBekraeftShe
 import { SkrivePreviewSheet } from '../../../components/redaktion/SkrivePreviewSheet';
 import { EntitetPicker } from '../../../components/redaktion/EntitetPicker';
 import { PersonPicker } from '../../../components/redaktion/PersonPicker';
+import { MentionPicker } from '../../../components/redaktion/MentionPicker';
 import { Body, BtnLabel, Mono, Serif } from '../../../components/Typography';
+import { insertAt } from '../../../lib/mentions';
 import { fetchPersonEvidence, fetchPersonNarrativ, fetchPersonRelationer, fetchPersonFamilie, BARN_ROLLER, type PersonEvidence, type PersonRelation, type PersonFamilie } from '../../../data/redaktionRead';
 import { eraAdvarsel } from '../../../data/eraAdvarsel';
 import { type Change } from '../../../data/redaktionWrite';
@@ -197,6 +199,10 @@ export default function PersonEditor() {
   const [narrativTekst, setNarrativTekst] = useState('');
   const [narrativPrivat, setNarrativPrivat] = useState(false);
   const [narrativStatus, setNarrativStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  // ref, ikke state: cursor-position påvirker aldrig render-output (kun læst ved
+  // mention-indsættelse) — useState her ville trigge et unødigt re-render pr. tastetryk.
+  const narrativSelPos = useRef(0);
+  const [mentionPickerÅben, setMentionPickerÅben] = useState(false);
   useEffect(() => {
     if (!id) return;
     setNarrativStatus('loading');
@@ -295,6 +301,9 @@ export default function PersonEditor() {
           <InitialBadge name={person.name} size={56} bg="#f8ecef" />
           <Serif size={25} style={{ marginTop: 8 }}>{person.name}</Serif>
           <Mono size={9} color={Colors.textMuted}>id {String(person.id)} · {ev?.koen ?? '—'}</Mono>
+          <Pressable onPress={() => router.push(`/redaktion/historik/${id}` as never)} style={{ marginTop: 6 }}>
+            <BtnLabel size={12.5} color={Colors.bordeaux}>📜 Historik</BtnLabel>
+          </Pressable>
         </View>
 
         {/* Skrivemode (global, samme state som dashboard/konto) — placeret her så man kan
@@ -435,11 +444,16 @@ export default function PersonEditor() {
             </Mono>
           ) : (
             <>
+              <Pressable disabled={narrativStatus !== 'ready'} onPress={() => setMentionPickerÅben(true)}
+                style={{ alignSelf: 'flex-start', marginBottom: 6 }}>
+                <BtnLabel size={12.5} color={Colors.bordeaux}>🔗 Indsæt link</BtnLabel>
+              </Pressable>
               <TextInput
                 multiline
                 editable={narrativStatus === 'ready'}
                 value={narrativTekst}
                 onChangeText={setNarrativTekst}
+                onSelectionChange={(e) => { narrativSelPos.current = e.nativeEvent.selection.start; }}
                 style={editorStyles.narrativInput}
                 placeholder={narrativStatus === 'loading' ? 'Henter…' : 'Skriv biografi her…'}
                 placeholderTextColor={Colors.textMuted2}
@@ -453,6 +467,16 @@ export default function PersonEditor() {
               >
                 <BtnLabel color="#fff">Gem narrativ</BtnLabel>
               </Pressable>
+              {mentionPickerÅben ? (
+                <MentionPicker
+                  onClose={() => setMentionPickerÅben(false)}
+                  onVælg={(token) => {
+                    const r = insertAt(narrativTekst, narrativSelPos.current, token);
+                    setNarrativTekst(r.text);
+                    narrativSelPos.current = r.cursor;
+                  }}
+                />
+              ) : null}
             </>
           )}
         </View>

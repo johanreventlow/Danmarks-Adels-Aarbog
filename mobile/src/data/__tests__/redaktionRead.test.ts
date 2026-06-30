@@ -189,3 +189,43 @@ test('fetchRedaktionPersoner samler alle sider (ingen trunkering)', async () => 
   expect(res[1000].navn).toBe('Sidste');
   spy.mockRestore();
 });
+
+import { mapHistRow } from '../redaktionRead';
+
+describe('mapHistRow', () => {
+  it('mapper change_set-række til HistPost (ingen revertedIds → reverteret=false)', () => {
+    const r = { id: 12, actor_navn: 'Johan', created_at: '2026-06-30T10:00:00Z',
+                summary: 'Rettede dødsdato', reverterer_id: null } as any;
+    expect(mapHistRow(r)).toMatchObject({ id: '12', hvem: 'Johan', resume: 'Rettede dødsdato', reverteret: false });
+  });
+  // review10 H2: reverterer_id peger FRA fortrydelsen TIL den fortrudte — så status
+  // afhænger af om rækkens EGET id er i revertedIds (samlet fra hele listen), IKKE af
+  // rækkens eget reverterer_id-felt (det felt betyder "dette sæt fortrød X", ikke
+  // "dette sæt blev fortrudt").
+  it('rækkens id er i revertedIds → reverteret=true (den ORIGINALE, fortrudte handling)', () => {
+    const original = { id: 12, actor_navn: 'Johan', created_at: '2026-06-30T10:00:00Z',
+                        summary: 'Original handling', reverterer_id: null } as any;
+    expect(mapHistRow(original, new Set([12]))).toMatchObject({ reverteret: true });
+  });
+  it('rækken er selv en fortrydelse (reverterer_id sat) → reverteret afhænger IKKE af eget felt', () => {
+    const reversal = { id: 13, actor_navn: 'Johan', created_at: '2026-06-30T10:00:00Z',
+                        summary: 'Fortrød noget', reverterer_id: 12 } as any;
+    // reversal-rækken selv er ikke i revertedIds (ingen har fortrudt DEN) → false,
+    // selvom dens eget reverterer_id-felt er sat (den gamle, forkerte logik ville sige true).
+    expect(mapHistRow(reversal, new Set([12]))).toMatchObject({ reverteret: false });
+  });
+  it('manglende actor_navn/summary → fallback', () => {
+    const r = { id: 14, actor_navn: null, created_at: '2026-06-30T10:00:00Z',
+                summary: null, reverterer_id: null } as any;
+    expect(mapHistRow(r)).toMatchObject({ hvem: 'ukendt', resume: '(uden beskrivelse)' });
+  });
+});
+
+import { mapDoedLinkRow } from '../redaktionRead';
+
+describe('mapDoedLinkRow', () => {
+  it('mapper text_mention-række til DoedLink', () => {
+    const r = { kilde_type: 'narrative', kilde_id: 3, maal_type: 'person', maal_id: 999 } as any;
+    expect(mapDoedLinkRow(r)).toEqual({ kilde: 'narrative#3', maalType: 'person', maalId: '999' });
+  });
+});

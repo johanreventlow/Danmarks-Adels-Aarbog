@@ -1,4 +1,4 @@
-import { buildRpcCall, describeCall, oversaetFejl, FELT_FAKTATYPE } from '../redaktionWrite';
+import { buildRpcCall, describeCall, oversaetFejl, erFortrydKonflikt, FELT_FAKTATYPE } from '../redaktionWrite';
 
 describe('buildRpcCall', () => {
   it('mapper foedt → red_upsert_fakta m. faktatype fødsel', () => {
@@ -170,4 +170,37 @@ describe('buildRpcCall opret-arter', () => {
       payload: { navn: 'Livgarden', slags: 'regiment' } } as const))
       .toEqual({ fn: 'red_opret_organisation', args: { p_navn: 'Livgarden', p_slags: 'regiment' } });
   });
+});
+
+test('fortryd → red_fortryd_change_set m. force', () => {
+  const c = { art: 'fortryd', subjektType: 'person', subjektId: '7',
+              payload: { changeSetId: 12, force: true } } as const;
+  expect(buildRpcCall(c)).toEqual({
+    fn: 'red_fortryd_change_set', args: { p_change_set_id: 12, p_force: true },
+  });
+});
+
+test('fortryd uden force-flag → p_force=false', () => {
+  const c = { art: 'fortryd', subjektType: 'person', subjektId: '7',
+              payload: { changeSetId: 12 } } as const;
+  expect(buildRpcCall(c)).toEqual({
+    fn: 'red_fortryd_change_set', args: { p_change_set_id: 12, p_force: false },
+  });
+});
+
+test('fortryd uden changeSetId → null', () => {
+  const c = { art: 'fortryd', subjektType: 'person', subjektId: '7', payload: {} } as const;
+  expect(buildRpcCall(c)).toBeNull();
+});
+
+test('oversaetFejl: allerede fortrudt → dansk (review10 H2, defensiv fallback)', () => {
+  expect(oversaetFejl('FEJL: change_set 12 er allerede fortrudt')).toBe('Denne ændring er allerede fortrudt.');
+});
+
+test('erFortrydKonflikt: matcher en statisk kopi af DB-RAISE-teksten (red_fortryd_change_set B9)', () => {
+  // Fastlåser regex-adfærden mod et hardkodet eksempel — IKKE en levende kobling til
+  // schema.sql/db-migrations.sql. Drifter den faktiske RAISE-tekst, fanger denne test det ikke;
+  // hold matchen manuelt i sync (altitude-fund cycle 10).
+  expect(erFortrydKonflikt("FEJL: nyere ændring rører fact/{\"id\":1} — afvist (brug force)")).toBe(true);
+  expect(erFortrydKonflikt('FEJL: change_set 12 er allerede fortrudt')).toBe(false);
 });

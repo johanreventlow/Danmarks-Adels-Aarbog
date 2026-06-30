@@ -313,3 +313,42 @@ export async function fetchPersonEvidence(personId: string): Promise<PersonEvide
     koen: person?.koen ?? null,
   });
 }
+
+// ---------- Historik (versionering — DB-lag T2/T3/T11) ----------
+export type HistPost = { id: string; hvem: string; hvornaar: string; resume: string; reverteret: boolean };
+type RawHist = { id: number; actor_navn: string | null; created_at: string;
+                 summary: string | null; reverterer_id: number | null };
+
+// revertedIds: id'er på rækker der ER blevet fortrudt af en ANDEN række i samme liste
+// (review10 H2). r.reverterer_id peger omvendt — fra fortrydelsen TIL den fortrudte —
+// så status kan ikke afgøres af rækken selv; den kræver hele listens reverterer_id-mængde.
+export function mapHistRow(r: RawHist, revertedIds: ReadonlySet<number> = new Set()): HistPost {
+  return {
+    id: String(r.id),
+    hvem: r.actor_navn ?? 'ukendt',
+    hvornaar: new Date(r.created_at).toLocaleString('da-DK'),
+    resume: r.summary ?? '(uden beskrivelse)',
+    reverteret: revertedIds.has(r.id),
+  };
+}
+
+export async function fetchHistorik(personId: string): Promise<HistPost[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase.rpc('hist_for_subjekt', { p_type: 'person', p_id: Number(personId) });
+  if (error) throw new Error(error.message);
+  const rows: RawHist[] = data ?? [];
+  const revertedIds = new Set(rows.map((r) => r.reverterer_id).filter((id): id is number => id != null));
+  return rows.map((r) => mapHistRow(r, revertedIds));
+}
+
+// ---------- Døde links (hyperlinks — DB-lag T10/T11) ----------
+export type DoedLink = { kilde: string; maalType: string; maalId: string };
+export function mapDoedLinkRow(r: { kilde_type: string; kilde_id: number; maal_type: string; maal_id: number }): DoedLink {
+  return { kilde: `${r.kilde_type}#${r.kilde_id}`, maalType: r.maal_type, maalId: String(r.maal_id) };
+}
+export async function fetchDoedeLinks(): Promise<DoedLink[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase.from('red_doede_links').select('*');
+  if (error) throw new Error(error.message);
+  return (data ?? []).map(mapDoedLinkRow);
+}
