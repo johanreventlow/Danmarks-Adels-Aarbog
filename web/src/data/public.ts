@@ -62,6 +62,18 @@ export function fetchArms(): Promise<ArmsItem[]> {
 
 // --- Person-detalje (bio + embeder + godser) til højre-panelet ---
 
+// Slå organisation/estate-navne op i ét hug (delt af person-detalje + relations-læsning).
+export async function resolveOrgEstateNames(orgIds: number[], estIds: number[]): Promise<{ org: Map<string, string>; estate: Map<string, string> }> {
+  const [orgs, ests] = await Promise.all([
+    orgIds.length ? supabase.from('organisation').select('id,navn').in('id', orgIds) : Promise.resolve({ data: [] as { id: number; navn: string | null }[] }),
+    estIds.length ? supabase.from('estate').select('id,navn').in('id', estIds) : Promise.resolve({ data: [] as { id: number; navn: string | null }[] }),
+  ]);
+  return {
+    org: new Map((orgs.data ?? []).map((o) => [String(o.id), o.navn ?? ''])),
+    estate: new Map((ests.data ?? []).map((e) => [String(e.id), e.navn ?? ''])),
+  };
+}
+
 export type PersonOffice = { label: string; period: string };
 export type PersonEstate = { id: string; navn: string };
 export type PersonDetailData = { bio: string; offices: PersonOffice[]; estates: PersonEstate[] };
@@ -82,12 +94,7 @@ export function fetchPersonDetail(id: string): Promise<PersonDetailData> {
     const bio = ((narr.data ?? [])[0] as { tekst: string | null } | undefined)?.tekst ?? '';
     const orgIds = rels.filter((r) => r.objekt_type === 'organisation').map((r) => r.objekt_id);
     const estIds = rels.filter((r) => r.objekt_type === 'estate').map((r) => r.objekt_id);
-    const [orgs, ests] = await Promise.all([
-      orgIds.length ? supabase.from('organisation').select('id,navn').in('id', orgIds) : Promise.resolve({ data: [] as { id: number; navn: string | null }[] }),
-      estIds.length ? supabase.from('estate').select('id,navn').in('id', estIds) : Promise.resolve({ data: [] as { id: number; navn: string | null }[] }),
-    ]);
-    const orgNavn = new Map((orgs.data ?? []).map((o) => [String(o.id), o.navn ?? '']));
-    const estNavn = new Map((ests.data ?? []).map((e) => [String(e.id), e.navn ?? '']));
+    const { org: orgNavn, estate: estNavn } = await resolveOrgEstateNames(orgIds, estIds);
     const offices = rels.filter((r) => r.objekt_type === 'organisation').map((r) => ({
       label: [r.rolle, orgNavn.get(String(r.objekt_id))].filter(Boolean).join(' · ') || `#${r.objekt_id}`,
       period: r.periode_raw ?? '',

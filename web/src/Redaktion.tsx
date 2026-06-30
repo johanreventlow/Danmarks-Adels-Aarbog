@@ -7,9 +7,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { signIn, signOut, currentSession, type RedSession } from './data/auth';
 import {
   fetchRedaktionPersoner, fetchPersonEvidence, fetchPersonNarrativ, fetchSletPreview,
-  fetchEntityRecords, type RedPerson, type PersonEvidence, type FeltEvidens, type Oplysning,
-  type SletPreview, type EntityRecord,
+  fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, type RedPerson, type PersonEvidence,
+  type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation,
 } from './data/redaktionRead';
+import { loadModel } from './data/model';
+import type { Model } from './data/types';
 import { submitChange, describeCall, oversaetFejl, type Change } from './data/redaktionWrite';
 import { initials } from './data/format';
 
@@ -82,6 +84,11 @@ export default function Redaktion() {
   const [recCache, setRecCache] = useState<Record<string, EntityRecord[]>>({});
   const [evidence, setEvidence] = useState<PersonEvidence | null>(null);
   const [narrativ, setNarrativ] = useState<{ tekst: string; privat: boolean } | null>(null);
+  const [model, setModel] = useState<Model | null>(null);
+  const [familie, setFamilie] = useState<PersonFamilie | null>(null);
+  const [relationer, setRelationer] = useState<PersonRelation[] | null>(null);
+  const [picker, setPicker] = useState<{ kind: 'barn' | 'partner' | 'hverv' | 'gods'; familyId?: string } | null>(null);
+  const [pickQuery, setPickQuery] = useState('');
   const [loadErr, setLoadErr] = useState<string | null>(null);
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -100,6 +107,7 @@ export default function Redaktion() {
 
   // --- Initial load ---
   useEffect(() => { currentSession().then(setSession).catch(() => {}); }, []);
+  useEffect(() => { loadModel().then(setModel).catch(() => {}); }, []); // til familie-medlemmers navne
   useEffect(() => {
     fetchRedaktionPersoner().then((ps) => {
       setPersons(ps);
@@ -125,13 +133,21 @@ export default function Redaktion() {
 
   // Evidens + narrativ når en person vælges.
   const loadPerson = useCallback((id: string) => {
-    setEvidence(null); setNarrativ(null); setEditingAssert(null); setAddingFact(null);
+    setEvidence(null); setNarrativ(null); setFamilie(null); setRelationer(null); setEditingAssert(null); setAddingFact(null);
     fetchPersonEvidence(id).then(setEvidence).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
     fetchPersonNarrativ(id).then((n) => setNarrativ(n ?? { tekst: '', privat: false })).catch(() => setNarrativ({ tekst: '', privat: false }));
-  }, []);
+    fetchPersonFamilie(id, model).then(setFamilie).catch(() => setFamilie({ somPartner: [], somBarn: [] }));
+    fetchPersonRelationer(id).then(setRelationer).catch(() => setRelationer([]));
+  }, [model]);
   useEffect(() => {
     if (entity === 'person' && recordId) loadPerson(recordId);
   }, [entity, recordId, loadPerson]);
+
+  // Sørg for at picker-entiteten (org/estate) er hentet når picker åbner.
+  useEffect(() => {
+    const ent = picker?.kind === 'hverv' ? 'org' : picker?.kind === 'gods' ? 'estate' : null;
+    if (ent && !recCache[ent]) fetchEntityRecords(ent).then((rs) => setRecCache((c) => ({ ...c, [ent]: rs }))).catch(() => {});
+  }, [picker, recCache]);
 
   const curPerson = persons.find((p) => p.id === recordId) ?? null;
   const curRecord = records.find((r) => r.id === recordId) ?? null;
@@ -188,6 +204,7 @@ export default function Redaktion() {
       {renderLoginModal()}
       {renderConfirmModal()}
       {renderWriteModal()}
+      {renderPicker()}
     </div>
   );
 
@@ -314,11 +331,7 @@ export default function Redaktion() {
         {!evidence && <div style={{ color: T.muted3, fontSize: 12.5 }}>Henter evidens…</div>}
         {evidence && FELT_DEFS.flatMap(([felt, label]) => (evidence.felter[felt] ?? [{ felt, faktatype: felt, factId: -1, konklusionAssertionId: null, oplysninger: [], uenig: false } as FeltEvidens]).map((f) => renderFactCard(p.id, label, f)))}
 
-        {/* Familie/relationer/sektioner — visning porteres senere; redigér via mobil i dag. */}
-        <div style={sectionHeader(26)}>Familie, relationer & sektioner</div>
-        <div style={{ background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: '16px 16px', fontSize: 12.5, color: T.muted }}>
-          Familie- og relations-redigering (partnere · børn · hverv · godser · våben) findes i mobil-redaktøren og porteres til web som næste skive.
-        </div>
+        {renderFamilieRelationer(p.id)}
 
         {/* Narrativ */}
         <div style={sectionHeader(24)}>Narrativ · biografi</div>
@@ -412,6 +425,121 @@ export default function Redaktion() {
   }
 
   // ---- Generisk editor (entiteter uden direkte RPC → red_suggest) ----
+  // ---- Familie & relationer (2C-2b/2C-2a, web) ----
+  function renderFamilieRelationer(pid: string) {
+    const KONF = ['sikker', 'sandsynlig', 'formodet', 'omstridt'] as const;
+    const hverv = (relationer ?? []).filter((r) => r.art === 'hverv');
+    const godser = (relationer ?? []).filter((r) => r.art === 'gods');
+    const subHeader = (label: string, onAdd: () => void, addLabel: string, mt = 0) => (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7, marginTop: mt }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: T.muted }}>{label}</span>
+        <span onClick={onAdd} style={{ fontSize: 11, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>{addLabel}</span>
+      </div>
+    );
+    const konfidensChips = (current: string | null, onChange: (k: string) => void) => (
+      <div style={{ display: 'flex', gap: 3, flex: 'none' }}>
+        {KONF.map((k) => (
+          <span key={k} onClick={() => onChange(k)} title={k} style={{ fontFamily: T.mono, fontSize: 8, fontWeight: 600, padding: '3px 5px', borderRadius: 5, cursor: 'pointer', background: current === k ? T.bordeaux : T.beige, color: current === k ? T.paperText : T.muted }}>{k.slice(0, 3)}</span>
+        ))}
+      </div>
+    );
+    const linkRow = (navn: string, meta: string, onRemove: () => void, extra?: React.ReactNode) => (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 10, padding: '8px 11px', marginBottom: 6 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: T.serif, fontSize: 15, fontWeight: 600, lineHeight: 1.05 }}>{navn}</div>
+          {meta && <div style={{ fontFamily: T.mono, fontSize: 8.5, color: T.muted2, marginTop: 1 }}>{meta}</div>}
+        </div>
+        {extra}
+        <span onClick={onRemove} title="Fjern" style={{ color: '#bcae93', fontSize: 13, cursor: 'pointer', flex: 'none' }}>✕</span>
+      </div>
+    );
+    return (
+      <>
+        <div style={sectionHeader(26)}>Familie</div>
+        <div style={{ background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: '14px 15px' }}>
+          {!familie ? <div style={{ fontSize: 12.5, color: T.muted3 }}>Henter familie…</div> : (
+            <>
+              {familie.somPartner.map((u) => (
+                <div key={u.familyId} style={{ marginBottom: 13 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: T.muted }}>{u.type || 'partnerskab'} · {u.partnere.map((p) => p.navn).join(', ') || '(ukendt partner)'}</span>
+                    <span onClick={() => setPicker({ kind: 'barn', familyId: u.familyId })} style={{ fontSize: 11, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>+ Tilføj barn</span>
+                  </div>
+                  {u.boern.map((b) => linkRow(b.navn, b.rolle, () => run({ art: 'sletFamilieLink', subjektType: 'person', subjektId: pid, familyId: u.familyId, personId: b.personId, rolle: b.rolle }, 'Fjern barn'),
+                    konfidensChips(b.konfidens, (k) => run({ art: 'setFamilieKonfidens', subjektType: 'person', subjektId: pid, familyId: u.familyId, personId: b.personId, rolle: b.rolle, konfidens: k }, 'Konfidens'))))}
+                </div>
+              ))}
+              {familie.somBarn.map((sb, i) => (
+                <div key={sb.familyId + i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 12.5 }}>
+                  <span style={{ fontFamily: T.mono, fontSize: 8.5, letterSpacing: '.08em', textTransform: 'uppercase', color: T.gold }}>Barn af</span>
+                  <span style={{ fontFamily: T.serif, fontSize: 15, fontWeight: 600 }}>{sb.foraeldre.map((f) => f.navn).join(' & ') || '(ukendt)'}</span>
+                  <span style={{ fontFamily: T.mono, fontSize: 8.5, color: T.muted2 }}>{sb.rolle}{sb.konfidens ? ` · ${sb.konfidens}` : ''}</span>
+                </div>
+              ))}
+              <div onClick={() => setPicker({ kind: 'partner' })} style={{ fontSize: 12, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', marginTop: 6 }}>+ Nyt partnerskab</div>
+            </>
+          )}
+        </div>
+
+        <div style={sectionHeader(24)}>Embeder & godser</div>
+        <div style={{ background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: '14px 15px' }}>
+          {!relationer ? <div style={{ fontSize: 12.5, color: T.muted3 }}>Henter relationer…</div> : (
+            <>
+              {subHeader('Embeder, rang & hverv', () => setPicker({ kind: 'hverv' }), '+ Tilføj hverv')}
+              {hverv.length ? hverv.map((r) => linkRow(r.navn, [r.rolle, r.periode].filter(Boolean).join(' · '), () => run({ art: 'sletRelation', subjektType: 'person', subjektId: pid, relationId: String(r.relationId) }, 'Fjern hverv'))) : <div style={{ fontSize: 11.5, color: T.muted3, marginBottom: 8 }}>Ingen hverv.</div>}
+              {subHeader('Godser & besiddelser', () => setPicker({ kind: 'gods' }), '+ Tilføj gods', 10)}
+              {godser.length ? godser.map((r) => linkRow(r.navn, [r.rolle, r.periode].filter(Boolean).join(' · '), () => run({ art: 'sletRelation', subjektType: 'person', subjektId: pid, relationId: String(r.relationId) }, 'Fjern gods'))) : <div style={{ fontSize: 11.5, color: T.muted3 }}>Ingen godser.</div>}
+            </>
+          )}
+        </div>
+      </>
+    );
+  }
+
+  function renderPicker() {
+    if (!picker) return null;
+    const isPerson = picker.kind === 'barn' || picker.kind === 'partner';
+    const q = pickQuery.trim().toLowerCase();
+    const items: { id: string; label: string; sub: string }[] = isPerson
+      ? persons.filter((p) => p.navn.toLowerCase().includes(q)).slice(0, 40).map((p) => ({ id: p.id, label: p.navn, sub: p.aar || '—' }))
+      : (recCache[picker.kind === 'hverv' ? 'org' : 'estate'] ?? []).filter((r) => (r.label + ' ' + r.sub).toLowerCase().includes(q)).slice(0, 40).map((r) => ({ id: r.id, label: r.label, sub: r.sub }));
+    const titel = picker.kind === 'barn' ? 'Vælg barn' : picker.kind === 'partner' ? 'Vælg partner' : picker.kind === 'hverv' ? 'Vælg organisation' : 'Vælg gods';
+    const onPick = (id: string) => {
+      const sid = recordId!;
+      // type 'vielse' matcher mobilens UNION_TYPER (ikke 'ægteskab'); roller medlem/ejer er DB-fritekst.
+      const changes: Record<typeof picker.kind, Change> = {
+        barn: { art: 'tilfoejBarn', subjektType: 'person', subjektId: sid, payload: { familyId: picker.familyId, barnId: id, rolle: 'barn', konfidens: null } },
+        partner: { art: 'opretUnion', subjektType: 'person', subjektId: sid, payload: { partnerA: sid, partnerB: id, type: 'vielse', ordinal: null } },
+        hverv: { art: 'tilfoejRelation', subjektType: 'person', subjektId: sid, payload: { objektType: 'organisation', objektId: id, rolle: 'medlem', periodeRaw: null } },
+        gods: { art: 'tilfoejRelation', subjektType: 'person', subjektId: sid, payload: { objektType: 'estate', objektId: id, rolle: 'ejer', periodeRaw: null } },
+      };
+      run(changes[picker.kind], 'Tilføj');
+      setPicker(null); setPickQuery('');
+    };
+    return (
+      <div onClick={() => { setPicker(null); setPickQuery(''); }} style={overlay(96)}>
+        <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: '100%', maxHeight: '70vh', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ padding: '16px 18px 12px' }}>
+            <div style={{ fontFamily: T.serif, fontSize: 19, fontWeight: 600, marginBottom: 9 }}>{titel}</div>
+            <input autoFocus value={pickQuery} onChange={(e) => setPickQuery(e.target.value)} placeholder="Søg…" style={{ ...inp, background: '#fff' }} />
+          </div>
+          <div data-scroll style={{ flex: 1, overflowY: 'auto', padding: '0 10px 12px' }}>
+            {items.map((it) => (
+              <div key={it.id} onClick={() => onPick(it.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 9px', borderRadius: 9, cursor: 'pointer' }}>
+                <span style={{ width: 28, height: 28, borderRadius: isPerson ? '50%' : 7, background: T.beige, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 11, fontWeight: 600, color: T.bordeaux }}>{isPerson ? initials(it.label) : '⌂'}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: T.serif, fontSize: 15, fontWeight: 600, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.label}</div>
+                  <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2 }}>{it.sub}</div>
+                </div>
+              </div>
+            ))}
+            {!items.length && <div style={{ padding: '18px 10px', textAlign: 'center', fontSize: 12.5, color: T.muted3 }}>Ingen træffere.</div>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function renderGenericEditor() {
     const ent = ENTITIES.find((e) => e.key === entity);
     const db = ENTITY_DB[entity] ?? { type: entity, felt: 'navn' };

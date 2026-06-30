@@ -6,6 +6,8 @@ import { supabase } from '../supabase';
 import { fmtYears, parseYear } from './fields';
 import { getAll } from './paginate';
 import { FELT_FAKTATYPE } from './redaktionWrite';
+import { resolveOrgEstateNames } from './public';
+import type { Model } from './types';
 
 // --- Redaktions-person-liste (pagineret, inkl. levende/privat) ---
 
@@ -222,4 +224,87 @@ export async function fetchSletPreview(personId: string): Promise<SletPreview> {
       modpartId: r.modpart_id,
     })),
   };
+}
+
+// --- Familie-læsning til person-editor (porteret fra mobil 2C-2b — hold i sync) ---
+
+export type FamiliePartner = { personId: string; navn: string; konfidens: string | null; ordinal: number | null };
+export type FamilieBarn = { personId: string; navn: string; rolle: string; konfidens: string | null };
+export type FamilieUnion = { familyId: string; type: string; partnere: FamiliePartner[]; boern: FamilieBarn[] };
+export type SomBarn = { familyId: string; rolle: string; konfidens: string | null; foraeldre: { personId: string; navn: string }[] };
+export type PersonFamilie = { somPartner: FamilieUnion[]; somBarn: SomBarn[] };
+type RawFamRow = { family_id: number; person_id: number; rolle: string; ordinal: number | null; konfidens: string | null };
+type RawFamilyMeta = { id: number; type: string | null };
+export const BARN_ROLLER = ['barn', 'adopteret_barn', 'plejebarn', 'stedbarn'] as const;
+
+export function mapFamilieRows(personId: string, families: RawFamilyMeta[], members: RawFamRow[], model: Model | null): PersonFamilie {
+  const navnAf = (pid: number) => model?.byId?.[String(pid)]?.name ?? `#${pid}`;
+  const typeAf = new Map(families.map((f) => [String(f.id), f.type ?? '']));
+  const byFamily = new Map<string, RawFamRow[]>();
+  members.forEach((m) => {
+    const k = String(m.family_id);
+    if (!byFamily.has(k)) byFamily.set(k, []);
+    byFamily.get(k)!.push(m);
+  });
+  const somPartner: FamilieUnion[] = [];
+  const somBarn: SomBarn[] = [];
+  byFamily.forEach((rows, familyId) => {
+    // Bucket ALLE fokus-personens medlemskaber (PK inkl. rolle → flere barn-roller muligt).
+    const migRows = rows.filter((r) => String(r.person_id) === personId);
+    if (!migRows.length) return;
+    if (migRows.some((r) => r.rolle === 'partner')) {
+      somPartner.push({
+        familyId, type: typeAf.get(familyId) ?? '',
+        partnere: rows.filter((r) => r.rolle === 'partner' && String(r.person_id) !== personId)
+          .map((r) => ({ personId: String(r.person_id), navn: navnAf(r.person_id), konfidens: r.konfidens, ordinal: r.ordinal })),
+        boern: rows.filter((r) => (BARN_ROLLER as readonly string[]).includes(r.rolle) && String(r.person_id) !== personId)
+          .map((r) => ({ personId: String(r.person_id), navn: navnAf(r.person_id), rolle: r.rolle, konfidens: r.konfidens })),
+      });
+    }
+    migRows.filter((r) => (BARN_ROLLER as readonly string[]).includes(r.rolle)).forEach((mig) => {
+      somBarn.push({
+        familyId, rolle: mig.rolle, konfidens: mig.konfidens,
+        foraeldre: rows.filter((r) => r.rolle === 'partner')
+          .map((r) => ({ personId: String(r.person_id), navn: navnAf(r.person_id) })),
+      });
+    });
+  });
+  return { somPartner, somBarn };
+}
+
+export async function fetchPersonFamilie(id: string, model: Model | null): Promise<PersonFamilie> {
+  const mine = await getAll<{ family_id: number }>(() =>
+    supabase.from('family_member').select('family_id').eq('person_id', Number(id)));
+  const famIds = Array.from(new Set(mine.map((m) => m.family_id)));
+  if (!famIds.length) return { somPartner: [], somBarn: [] };
+  const [members, families] = await Promise.all([
+    getAll<RawFamRow>(() =>
+      supabase.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens').in('family_id', famIds)
+        .order('ordinal', { ascending: true, nullsFirst: false }).order('person_id')),
+    getAll<RawFamilyMeta>(() => supabase.from('family').select('id,type').in('id', famIds)),
+  ]);
+  return mapFamilieRows(id, families, members, model);
+}
+
+// --- Relationer pr. person (hverv/godser) — navne slås op direkte (ingen Aux i web) ---
+
+export type PersonRelation = { relationId: number; art: 'hverv' | 'gods' | 'event'; objektType: string; objektId: string; navn: string; rolle: string; periode: string };
+type RawRelRow = { id: number; objekt_type: string; objekt_id: number; rolle: string | null; periode_raw: string | null };
+
+export async function fetchPersonRelationer(id: string): Promise<PersonRelation[]> {
+  const rows = await getAll<RawRelRow>(() =>
+    supabase.from('relation').select('id,objekt_type,objekt_id,rolle,periode_raw')
+      .eq('subjekt_type', 'person').eq('subjekt_id', Number(id))
+      .in('objekt_type', ['organisation', 'estate', 'historical_event']).order('id'));
+  const orgIds = rows.filter((r) => r.objekt_type === 'organisation').map((r) => r.objekt_id);
+  const estIds = rows.filter((r) => r.objekt_type === 'estate').map((r) => r.objekt_id);
+  const { org: orgNavn, estate: estNavn } = await resolveOrgEstateNames(orgIds, estIds);
+  return rows.map((r) => {
+    const objektId = String(r.objekt_id);
+    let art: PersonRelation['art'] = 'event';
+    let navn = `Begivenhed #${objektId}`;
+    if (r.objekt_type === 'organisation') { art = 'hverv'; navn = orgNavn.get(objektId) || `#${objektId}`; }
+    else if (r.objekt_type === 'estate') { art = 'gods'; navn = estNavn.get(objektId) || `#${objektId}`; }
+    return { relationId: r.id, art, objektType: r.objekt_type, objektId, navn, rolle: r.rolle ?? '', periode: r.periode_raw ?? '' };
+  });
 }
