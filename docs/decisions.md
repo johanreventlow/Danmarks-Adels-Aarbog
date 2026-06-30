@@ -2,6 +2,32 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Versionering + hyperlinks DB-lag (2026-06-30)
+
+**`begin_change_set` wires i ALLE DML-skrive-RPC'er, inkl. de 4 opretter-RPC'er.**
+Implementeringsplanens task-liste nævnte 17 RPC'er og udelod `red_opret_person/estate/kilde/
+organisation`. Men `red_opret_person` kalder `red_upsert_fakta` nested — uden et change_set åbnet
+i den YDRE opretter ville person-INSERT'en ikke logges, og de nestede kald ville åbne separate sæt
+(spec-finding H1). Design-specens §6 ("Alle `red_*`") er den korrekte autoritet; planens liste var
+en mangel. `red_suggest` (staging) og `red_slet_person_preview` (read-only) forbliver uwired.
+
+**Restore-divergens-tjek dækker DELETE-inverse (ikke kun INSERT/UPDATE).**
+Den optimistiske B9-kontrol skal sammenligne nuværende række mod den *post-state* sættet efterlod:
+INSERT/UPDATE → `efter`, DELETE → SQL NULL (række skal være ABSENT). Den oprindelige plan-kode
+tjekkede kun INSERT/UPDATE, så en genbrugt PK efter en sletning kunne overskrives blindt ved
+fortryd. Dual-review-fund H1; rettet.
+
+**`_version_upsert_row` lister kun snapshot-kolonner i INSERT/SET.**
+Snapshot udelader skip_cols (`person.visning_*`, `profiles.email/rolle`). `(jsonb_populate_record).*`
+ville sætte dem NULL ved restore → `profiles.rolle NOT NULL`-crash, og NOT NULL-tjekket fyrer FØR
+ON CONFLICT-arbitrering, så det rammer selv ved UPDATE-restore af eksisterende række. Fix: eksplicit
+kolonne-liste fra snapshot-nøgler → skip_cols får DEFAULT ved insert, bevares ved update. Dual-review
+H2 (opgraderet fra LOW). Cache (`visning_*`) regenereres separat efter restore.
+
+**TOCTOU i restore deferret bevidst.** `_version_current_row`-tjek + inverse-DML er ikke atomiske.
+Acceptabelt under single-writer PoC (samme threat-model som `max(id)+1`-id-tildeling, spec §4.6);
+genåbnes ved flerbruger-skrivning.
+
 ## TNG-QA: tre kerne-valg i match + QA (2026-06-30)
 
 **Auto-tier = ambiguitets-margin, ikke `unique_block`.**

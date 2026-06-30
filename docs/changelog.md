@@ -1,5 +1,30 @@
 # Changelog
 
+## Versionering + hyperlinks (DB-lag) — implementeret, dual-reviewet, applied til prod (2026-06-30)
+* **Fortryd-bar redaktionel ændringshistorik:** hybrid change-set-log (`change_set`/
+  `change_event`) — hver `red_*`-skrive-RPC åbner et re-entrant `change_set`, og en generisk
+  `log_change`-trigger på alle 22 versionerede tabeller snapshotter før/efter-tilstand
+  (kolonne-projektion: `visning_*`/`email`/`rolle` ekskluderet). `red_fortryd_change_set`
+  inverse-applier ét sæt i én transaktion med optimistisk divergens-tjek.
+* **Append-baseret `red_edit_oplysning`:** ny påstand + re-peg konklusion (ærer invariant #1);
+  returtype `void→jsonb` (`ny_assertion_id`). App-laget upåvirket (consumer læser ikke retur).
+* **Hyperlinks i fri-tekst:** `[[type:id|tekst]]`-tokens → `parse_mentions` + afledt
+  `text_mention`-indeks (regen-trigger på narrative/note) + døde-links-view. RLS dobbelt-gating.
+* **Historik-API:** `hist_for_subjekt`/`hist_events` (redaktion-only, SECURITY DEFINER);
+  deny-all RLS på historik-tabeller.
+* **TDD mod lokal prod-kopi** (free tier → ingen branch; postgresql@17 + auth-shim + read-only
+  pg_dump). **5 bugs fanget før prod:** 3 under impl (begin_change_set-placering ved flerlinjet
+  rolle-tjek, assert-filter-fejlklassificering, `FOREACH IN ARRAY NULL`-crash) + 2 HIGH i
+  dual-review (Claude+Codex+code-analyzer, konvergent): DELETE-inverse manglede divergens-tjek
+  (blind PK-overskrivning) og `_version_upsert_row` nulstillede NOT NULL skip_cols
+  (`profiles.rolle`-crash). Begge empirisk reproduceret + regressions-testet. Se
+  `docs/reviews/09-versionering-hyperlinks-db.md`.
+* **Applied til prod Supabase (atomisk, --single-transaction):** verificeret — 4 tabeller,
+  22 log-triggere, RLS aktiv, `red_edit_oplysning`→jsonb, 963 personer uændret. Pre-apply
+  schema+data-backup taget lokalt. 24 verify-asserts grønne + clean-slate-konsistent.
+* **Bevidst deferret:** TOCTOU (single-writer PoC), parse_mentions open-token (delt-parser/app-lag),
+  `red_doede_links` dækker 3/10 mention-typer (completeness).
+
 ## TNG-QA: pipeline komplet ende-til-ende (Trin 1-6) + kalibrering (2026-06-30)
 * **Forbindelses-bug fixet:** top-level `on.exit()` under `source()` fyrede
   `dbDisconnect(shutdown=TRUE)` FØR næste query → "Invalid connection". Lukker nu
