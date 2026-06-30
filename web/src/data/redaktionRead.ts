@@ -1,0 +1,225 @@
+// Evidens-read-lag til web-redaktørbordet — porteret fra mobil (mobile/src/data/redaktionRead.ts).
+// Modellen er polymorf (assertion/conclusion peger på fact via target_type/target_id UDEN rigtig
+// FK), så vi henter N flade queries og joiner i klienten. citation→source HAR FK og nestes.
+// joinEvidence er ren/testbar uden net.
+import { supabase } from '../supabase';
+import { fmtYears, parseYear } from './fields';
+import { getAll } from './paginate';
+import { FELT_FAKTATYPE } from './redaktionWrite';
+
+// --- Redaktions-person-liste (pagineret, inkl. levende/privat) ---
+
+export type RedPerson = {
+  id: string; navn: string; aar: string; born: number | null; levende: boolean; privat: boolean;
+};
+type RawRedPerson = {
+  id: number; visning_navn: string | null; visning_foedt: string | null;
+  visning_doed: string | null; levende: boolean | null; privat: boolean | null;
+};
+
+export function mapRedPerson(r: RawRedPerson): RedPerson {
+  return {
+    id: String(r.id),
+    navn: r.visning_navn ?? '(uden navn)',
+    aar: fmtYears(r.visning_foedt, r.visning_doed),
+    born: parseYear(r.visning_foedt), // DIREKTE fra fødselsfeltet — aldrig dødsår
+    levende: Boolean(r.levende),
+    privat: Boolean(r.privat),
+  };
+}
+
+export async function fetchRedaktionPersoner(): Promise<RedPerson[]> {
+  const rows = await getAll<RawRedPerson>(() =>
+    supabase.from('person').select('id,visning_navn,visning_foedt,visning_doed,levende,privat'));
+  return rows.map(mapRedPerson);
+}
+
+// --- Evidens-læsning til person-editor ---
+
+// faktatype → UI-felt (omvendt af FELT_FAKTATYPE).
+const FAKTATYPE_FELT: Record<string, string> = Object.fromEntries(
+  Object.entries(FELT_FAKTATYPE).map(([felt, ft]) => [ft, felt]),
+);
+
+export type Kilde = {
+  sourceId: number | null;
+  sourceTitel?: string;
+  side?: string;
+  citatTekst?: string;
+  citatDato?: string;
+};
+export type Oplysning = {
+  assertionId: number;
+  vaerdi: string;
+  dato?: { min: string | null; max: string | null; qualifier: string | null; raw: string | null };
+  kilder: Kilde[];
+  erKonklusion: boolean;
+};
+export type FeltEvidens = {
+  felt: string;
+  faktatype: string;
+  factId: number;
+  konklusionAssertionId: number | null;
+  oplysninger: Oplysning[];
+  uenig: boolean;
+};
+// felter: en LISTE af facts pr. felt — en person kan have flere facts af samme type (fx 6 titler
+// gennem livet). uenig er PR. FACT (kilde-uenighed om samme forhold), ikke på tværs af distinkte facts.
+export type PersonEvidence = { felter: Record<string, FeltEvidens[]>; koen: string | null };
+
+type RawFact = { id: number; faktatype: string };
+type RawAssert = { id: number; target_id: number; vaerdi_tekst: string | null;
+  date_min: string | null; date_max: string | null; date_qualifier: string | null; date_raw: string | null };
+type RawConc = { target_id: number; valgt_assertion_id: number | null };
+type RawCit = { assertion_id: number; source_id: number | null; side: string | null;
+  citat_tekst: string | null; citat_dato: string | null; source?: { titel?: string } | null };
+
+export function joinEvidence(rows: {
+  facts: RawFact[]; assertions: RawAssert[]; conclusions: RawConc[]; citations: RawCit[]; koen: string | null;
+}): PersonEvidence {
+  const concByFact = new Map(rows.conclusions.map((c) => [c.target_id, c.valgt_assertion_id]));
+  const citByAssert = new Map<number, Kilde[]>();
+  for (const c of rows.citations) {
+    const list = citByAssert.get(c.assertion_id) ?? [];
+    list.push({
+      sourceId: c.source_id, sourceTitel: c.source?.titel ?? undefined,
+      side: c.side ?? undefined, citatTekst: c.citat_tekst ?? undefined, citatDato: c.citat_dato ?? undefined,
+    });
+    citByAssert.set(c.assertion_id, list);
+  }
+  const felter: Record<string, FeltEvidens[]> = {};
+  const sortedFacts = [...rows.facts].sort((a, b) => a.id - b.id);
+  for (const f of sortedFacts) {
+    const felt = FAKTATYPE_FELT[f.faktatype];
+    if (!felt) continue; // kun kerne-fakta (navn/foedt/doed/titel)
+    const valgt = concByFact.get(f.id) ?? null;
+    const opl = rows.assertions
+      .filter((a) => a.target_id === f.id)
+      .map<Oplysning>((a) => ({
+        assertionId: a.id,
+        vaerdi: a.vaerdi_tekst ?? a.date_raw ?? '',
+        dato: a.date_raw != null || a.date_min != null
+          ? { min: a.date_min, max: a.date_max, qualifier: a.date_qualifier, raw: a.date_raw } : undefined,
+        kilder: citByAssert.get(a.id) ?? [],
+        erKonklusion: a.id === valgt,
+      }));
+    // uenig = >1 DISTINKT NON-TOM værdi inden for DETTE fact. Tomme værdier ekskluderes
+    // (ellers ville en rigtig værdi + en tom assertion give falsk "uenig").
+    const distinkte = new Set(opl.map((o) => o.vaerdi.trim()).filter(Boolean));
+    (felter[felt] ??= []).push({
+      felt, faktatype: f.faktatype, factId: f.id,
+      konklusionAssertionId: valgt, oplysninger: opl, uenig: distinkte.size > 1,
+    });
+  }
+  return { felter, koen: rows.koen };
+}
+
+export async function fetchPersonEvidence(personId: string): Promise<PersonEvidence> {
+  const empty: PersonEvidence = { felter: {}, koen: null };
+  if (!personId) return empty;
+  const pid = Number(personId);
+  const { data: facts } = await supabase
+    .from('fact').select('id,faktatype').eq('subjekt_type', 'person').eq('subjekt_id', pid);
+  const factIds = (facts ?? []).map((f: RawFact) => f.id);
+  if (!factIds.length) {
+    const { data: p0 } = await supabase.from('person').select('koen').eq('id', pid).maybeSingle();
+    return { felter: {}, koen: p0?.koen ?? null };
+  }
+  const [{ data: assertions }, { data: conclusions }, { data: person }] = await Promise.all([
+    supabase.from('assertion').select('id,target_id,vaerdi_tekst,date_min,date_max,date_qualifier,date_raw')
+      .eq('target_type', 'fact').in('target_id', factIds),
+    supabase.from('conclusion').select('target_id,valgt_assertion_id')
+      .eq('target_type', 'fact').in('target_id', factIds),
+    supabase.from('person').select('koen').eq('id', pid).maybeSingle(),
+  ]);
+  const assertIds = (assertions ?? []).map((a: RawAssert) => a.id);
+  const { data: citations } = assertIds.length
+    ? await supabase.from('citation')
+        .select('assertion_id,source_id,side,citat_tekst,citat_dato,source(titel)')
+        .in('assertion_id', assertIds)
+    : { data: [] };
+  return joinEvidence({
+    facts: (facts ?? []) as RawFact[],
+    assertions: (assertions ?? []) as RawAssert[],
+    conclusions: (conclusions ?? []) as RawConc[],
+    citations: (citations ?? []) as RawCit[],
+    koen: person?.koen ?? null,
+  });
+}
+
+// --- Narrativ-læsning (prefill-kilde == skrive-mål for red_upsert_narrativ) ---
+
+export type PersonNarrativ = { tekst: string; privat: boolean };
+
+export function mapNarrativRow(rows: { tekst: string | null; privat: boolean | null }[]): PersonNarrativ | null {
+  const first = rows[0];
+  if (!first) return null;
+  return { tekst: first.tekst ?? '', privat: Boolean(first.privat) };
+}
+
+// FØRSTE narrativ by id (uanset privat) = præcis den række red_upsert_narrativ redigerer.
+export async function fetchPersonNarrativ(id: string): Promise<PersonNarrativ | null> {
+  const { data, error } = await supabase
+    .from('narrative').select('tekst,privat')
+    .eq('subjekt_type', 'person').eq('subjekt_id', Number(id))
+    .order('id', { ascending: true }).limit(1);
+  if (error) throw new Error(error.message);
+  return mapNarrativRow(data ?? []);
+}
+
+// --- Generiske entitets-lister (simple tabeller) til midter-panelet ---
+
+export type EntityRecord = { id: string; label: string; sub: string; badge: string };
+
+// Trivielt læsbare entiteter (én tabel). Family/majorat/hverv/medie har ikke en simpel
+// liste-kilde og returnerer tom (UI viser "kommer"-tilstand) — dedikerede reads er follow-up.
+export async function fetchEntityRecords(entity: string): Promise<EntityRecord[]> {
+  const sel = async <T>(table: string, cols: string): Promise<T[]> =>
+    getAll<T>(() => supabase.from(table).select(cols));
+  if (entity === 'estate') {
+    const rows = await sel<{ id: number; navn: string | null; slags: string | null }>('estate', 'id,navn,slags');
+    return rows.map((r) => ({ id: String(r.id), label: r.navn ?? '(uden navn)', sub: r.slags ?? 'gods', badge: '⌂' }));
+  }
+  if (entity === 'source') {
+    const rows = await sel<{ id: number; titel: string | null; slags: string | null }>('source', 'id,titel,slags');
+    return rows.map((r) => ({ id: String(r.id), label: r.titel ?? '(uden titel)', sub: r.slags ?? 'kilde', badge: '§' }));
+  }
+  if (entity === 'org') {
+    const rows = await sel<{ id: number; navn: string | null; slags: string | null }>('organisation', 'id,navn,slags');
+    return rows.map((r) => ({ id: String(r.id), label: r.navn ?? '(uden navn)', sub: r.slags ?? 'organisation', badge: '◈' }));
+  }
+  if (entity === 'arms') {
+    const rows = await sel<{ id: number; blasonering: string | null }>('coat_of_arms', 'id,blasonering');
+    return rows.map((r) => ({ id: String(r.id), label: (r.blasonering ?? '(uden blasonering)').slice(0, 48), sub: 'våben', badge: '⛨' }));
+  }
+  if (entity === 'narrative') {
+    const rows = await sel<{ id: number; subjekt_type: string | null; tekst: string | null; privat: boolean | null }>(
+      'narrative', 'id,subjekt_type,tekst,privat');
+    return rows.map((r) => ({ id: String(r.id), label: (r.tekst ?? '(tom)').slice(0, 48),
+      sub: (r.subjekt_type ?? '?') + (r.privat ? ' · privat' : ' · offentlig'), badge: '¶' }));
+  }
+  return [];
+}
+
+// --- Slet-preview (relations-advarsel til slet-modalen) ---
+
+export type SletPreview = {
+  antalRelationer: number;
+  antalFacts: number;
+  relationer: { rolle: string; retning: string; modpartId: number }[];
+};
+
+export async function fetchSletPreview(personId: string): Promise<SletPreview> {
+  const tom: SletPreview = { antalRelationer: 0, antalFacts: 0, relationer: [] };
+  const { data, error } = await supabase.rpc('red_slet_person_preview', { p_person_id: Number(personId) });
+  if (error || !data) return tom;
+  return {
+    antalRelationer: data.antal_relationer ?? 0,
+    antalFacts: data.antal_facts ?? 0,
+    relationer: (data.relationer ?? []).map((r: { rolle: string; retning: string; modpart_id: number }) => ({
+      rolle: r.rolle,
+      retning: r.retning,
+      modpartId: r.modpart_id,
+    })),
+  };
+}

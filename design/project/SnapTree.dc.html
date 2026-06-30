@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500;1,600&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}</style>
+</helmet>
+<div data-st="{{ uid }}" onPointerDown="{{ onPointerDown }}" onPointerMove="{{ onPointerMove }}" onPointerUp="{{ onPointerUp }}" onPointerCancel="{{ onPointerUp }}" onWheel="{{ onWheel }}" style="position:relative;height:100%;width:100%;overflow:hidden;background:#f4efe6;font-family:'Hanken Grotesk',sans-serif;touch-action:none;user-select:none;cursor:grab;">
+
+  <div style="position:absolute;left:50%;top:0;bottom:0;width:2px;margin-left:-1px;z-index:0;pointer-events:none;background:linear-gradient(180deg,transparent,rgba(136,26,51,.16) 14%,rgba(136,26,51,.16) 86%,transparent);"></div>
+
+  <div style="position:absolute;left:0;right:0;top:50%;transform:{{ stackTransform }};transition:transform .42s cubic-bezier(.22,.61,.36,1);z-index:1;">
+    <sc-for list="{{ rows }}" as="r" hint-placeholder-count="5">
+      <div style="position:absolute;left:0;right:0;top:{{ r.top }}px;height:118px;display:flex;align-items:center;justify-content:center;gap:16px;">
+        <sc-for list="{{ r.items }}" as="it" hint-placeholder-count="3">
+          <sc-if value="{{ it.spacer }}" hint-placeholder-val="{{ false }}">
+            <div style="width:150px;height:104px;flex:none;"></div>
+          </sc-if>
+          <sc-if value="{{ it.card }}" hint-placeholder-val="{{ true }}">
+            <div style="width:150px;height:104px;flex:none;background:#fbf8f1;border:1.5px solid rgba(34,31,26,.12);border-radius:15px;box-shadow:0 2px 9px rgba(34,31,26,.07);padding:13px 14px;display:flex;flex-direction:column;justify-content:center;">
+              <div style="display:flex;align-items:center;gap:9px;">
+                <div style="width:34px;height:34px;border-radius:50%;background:#ece4d6;border:1px solid rgba(34,31,26,.08);display:flex;align-items:center;justify-content:center;flex:none;font-family:'Cormorant Garamond',serif;font-size:14px;font-weight:600;color:#881A33;">{{ it.initials }}</div>
+                <div style="min-width:0;flex:1;">
+                  <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:600;line-height:1.02;color:#221f1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ it.name }}</div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#9a8f78;margin-top:2px;">{{ it.years }}</div>
+                </div>
+              </div>
+              <sc-if value="{{ it.hasTitle }}" hint-placeholder-val="{{ false }}"><div style="font-family:'Hanken Grotesk';font-size:10.5px;font-weight:500;color:#881A33;margin-top:7px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ it.title }}</div></sc-if>
+            </div>
+          </sc-if>
+        </sc-for>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="position:absolute;left:0;right:0;top:0;height:170px;z-index:3;pointer-events:none;background:linear-gradient(180deg,#f4efe6 8%,rgba(244,239,230,.72) 46%,transparent);"></div>
+  <div style="position:absolute;left:0;right:0;bottom:0;height:170px;z-index:3;pointer-events:none;background:linear-gradient(0deg,#f4efe6 8%,rgba(244,239,230,.72) 46%,transparent);"></div>
+  <div style="position:absolute;top:0;bottom:0;left:0;width:54px;z-index:3;pointer-events:none;background:linear-gradient(90deg,rgba(244,239,230,.85),transparent);"></div>
+  <div style="position:absolute;top:0;bottom:0;right:0;width:54px;z-index:3;pointer-events:none;background:linear-gradient(270deg,rgba(244,239,230,.85),transparent);"></div>
+
+  <div style="position:absolute;left:50%;top:50%;width:166px;height:118px;margin-left:-83px;margin-top:-59px;border:1.5px solid #881A33;border-radius:18px;box-shadow:0 0 0 5px rgba(136,26,51,.07),0 10px 26px rgba(136,26,51,.12);z-index:6;pointer-events:none;"></div>
+  <div style="position:absolute;left:50%;top:50%;margin-left:-5px;margin-top:-79px;width:10px;height:10px;border-left:2px solid #881A33;border-top:2px solid #881A33;transform:rotate(45deg);z-index:6;pointer-events:none;opacity:.5;"></div>
+
+  <div style="position:absolute;top:0;left:0;right:0;z-index:10;padding:11px 15px 20px;background:linear-gradient(180deg,#f4efe6,rgba(244,239,230,.85),transparent);pointer-events:none;">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:#b9a06a;">Gen {{ trailGen }} · Linje {{ trailLinje }}</span>
+      <span style="flex:1;"></span>
+      <span style="font-family:'Cormorant Garamond',serif;font-size:13px;font-style:italic;color:#9a8f78;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px;">{{ trailName }}</span>
+    </div>
+  </div>
+
+  <div style="position:absolute;bottom:0;left:0;right:0;z-index:10;text-align:center;padding:14px 0 11px;font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:#bcae93;pointer-events:none;">▲ aner&nbsp;&nbsp;·&nbsp;&nbsp;▼ efterkommere&nbsp;&nbsp;·&nbsp;&nbsp;◂ ▸ søskende</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:360,&quot;height&quot;:660},&quot;mode&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;camera&quot;,&quot;glide&quot;],&quot;default&quot;:&quot;glide&quot;,&quot;tsType&quot;:&quot;'camera'|'glide'&quot;}}">
+class Component extends DCLogic {
+  // Selvstændig prøve-slægt: ~10 generationer langs en rygrad, hver med 2-3 søskende.
+  TREE = [
+    {id:'c1', name:'Conrad Reventlow', born:1644, died:1708, title:'Storkansler', linje:'I', parent:null},
+    {id:'c2', name:'Christian Ditlev', born:1671, died:1738, title:'Generalfeltmarskal', linje:'I', parent:'c1'},
+    {id:'c2b', name:'Anna Sophie', born:1693, died:1743, title:'Dronning af Danmark', linje:'I', parent:'c1'},
+    {id:'c2c', name:'Conrad Ditlev', born:1675, died:1701, title:'Officer', linje:'I', parent:'c1'},
+    {id:'c3', name:'Ditlev Reventlow', born:1712, died:1783, title:'Gehejmeråd', linje:'I', parent:'c2'},
+    {id:'c3b', name:'Christiane', born:1710, died:1779, title:'Hofdame', linje:'I', parent:'c2'},
+    {id:'c4', name:'C. D. F. Reventlow', born:1748, died:1827, title:'Statsminister', linje:'III', parent:'c3'},
+    {id:'c4b', name:'Ludvig Reventlow', born:1751, died:1801, title:'Skolereformer', linje:'III', parent:'c3'},
+    {id:'c4c', name:'Louise Reventlow', born:1745, died:1822, title:'', linje:'III', parent:'c3'},
+    {id:'c5', name:'Christian Ditlev', born:1775, died:1851, title:'Lensgreve', linje:'III', parent:'c4'},
+    {id:'c5b', name:'Friederike', born:1778, died:1828, title:'', linje:'III', parent:'c4'},
+    {id:'c5c', name:'Einar Reventlow', born:1788, died:1867, title:'Diplomat', linje:'III', parent:'c4'},
+    {id:'c6', name:'Christian Einar', born:1817, died:1906, title:'Lensgreve', linje:'V', parent:'c5'},
+    {id:'c6b', name:'Ludvig Reventlow', born:1820, died:1887, title:'', linje:'V', parent:'c5'},
+    {id:'c7', name:'Christian Reventlow', born:1855, died:1925, title:'Lensgreve', linje:'V', parent:'c6'},
+    {id:'c7b', name:'Anne Margrethe', born:1850, died:1921, title:'', linje:'V', parent:'c6'},
+    {id:'c8', name:'Ditlev Reventlow', born:1890, died:1971, title:'Godsejer', linje:'V', parent:'c7'},
+    {id:'c8b', name:'Lucie Reventlow', born:1888, died:1960, title:'', linje:'V', parent:'c7'},
+    {id:'c9', name:'Johan Reventlow', born:1920, died:1998, title:'Forstkandidat', linje:'V', parent:'c8'},
+    {id:'c10', name:'Sofie Reventlow', born:1955, died:null, title:'Arkivar', linje:'V', parent:'c9'}
+  ];
+
+  // Mødre pr. barn — nogle flokke har halvsøskende med forskellige mødre (skifter relevant).
+  MOTHERS = {
+    c2:'Anna Margrethe Gabel', c2b:'Anna Margrethe Gabel', c2c:'Sophie Amalie v. Plessen',
+    c3:'Benedicte v. Brockdorff', c3b:'Benedicte v. Brockdorff',
+    c4:'Margrethe v. Raben', c4b:'Margrethe v. Raben', c4c:'Margrethe v. Raben',
+    c5:'Friederike v. Beulwitz', c5b:'Friederike v. Beulwitz', c5c:'Sophie v. Holstein',
+    c6:'Benedicte Tønne', c6b:'Benedicte Tønne',
+    c7:'Lucie Haxthausen', c7b:'Lucie Haxthausen',
+    c8:'Else Brockenhuus', c8b:'Else Brockenhuus',
+    c9:'Karen Krag', c10:'Ingeborg Juel'
+  };
+  motherOf(id){ return this.MOTHERS[id] || ''; }
+  haptic(){ try{ if(typeof navigator!=='undefined' && navigator.vibrate) navigator.vibrate(6); }catch(_){} }
+
+  ROWH = 118; STEPY = 138;
+
+  state = { path: null, focusDepth: 3 };
+
+  _idx(){
+    if(this._byId) return;
+    const byId={}, kids={};
+    this.TREE.forEach(n=>{ byId[n.id]=n; });
+    this.TREE.forEach(n=>{ if(n.parent){ (kids[n.parent]=kids[n.parent]||[]).push(n.id); } });
+    this._byId=byId; this._kids=kids; this._root=(this.TREE.find(n=>!n.parent)||{}).id;
+    this._uid='st'+Math.random().toString(36).slice(2,8);
+  }
+  childrenOf(id){ this._idx(); return this._kids[id]||[]; }
+  nodeOf(id){ this._idx(); return this._byId[id]||null; }
+  defaultPath(){
+    this._idx(); const p=[this._root]; let cur=this._root, g=0;
+    while(g<30){ const k=this.childrenOf(cur); if(!k.length) break; cur=k[0]; p.push(cur); g++; }
+    return p;
+  }
+  getPath(){ return this.state.path || this.defaultPath(); }
+  mode(){ return (this.props && this.props.mode) || 'glide'; }
+  clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+  initials(n){ if(!n) return ''; return n.name.split(' ').filter(Boolean).map(s=>s[0]).slice(0,2).join('').toUpperCase(); }
+  years(n){ if(!n) return ''; if(n.born&&n.died) return n.born+'\u2013'+n.died; if(n.born) return '* '+n.born; if(n.died) return '\u2020 '+n.died; return ''; }
+
+  componentDidMount(){
+    const p=this.defaultPath();
+    this.setState({ path:p, focusDepth:this.clamp(3,0,p.length-1) });
+  }
+
+  moveSibling(delta){
+    const path=this.getPath().slice(); const d=this.state.focusDepth;
+    if(d===0) return;
+    const sibs=this.childrenOf(path[d-1]); if(sibs.length<2) return;
+    let i=sibs.indexOf(path[d]); i=this.clamp(i+delta,0,sibs.length-1);
+    if(sibs[i]===path[d]) return;
+    const np=path.slice(0,d); np[d]=sibs[i];
+    let cur=sibs[i], g=d; while(g<30){ const k=this.childrenOf(cur); if(!k.length) break; cur=k[0]; np[g+1]=cur; g++; }
+    this.setState({ path:np }); this.haptic();
+  }
+  moveGen(delta){
+    const path=this.getPath(); const nd=this.clamp(this.state.focusDepth+delta,0,path.length-1);
+    if(nd!==this.state.focusDepth){ this.setState({ focusDepth:nd }); this.haptic(); }
+  }
+
+  onPointerDown(e){
+    if(this._flingT){ clearTimeout(this._flingT); this._flingT=null; }
+    const now=(typeof performance!=='undefined'?performance.now():Date.now());
+    this._g={ x:e.clientX, y:e.clientY, axis:null, vel:0, lastT:now, lastX:e.clientX, lastY:e.clientY };
+    try{ e.currentTarget.setPointerCapture(e.pointerId); }catch(_){}
+  }
+  onPointerMove(e){
+    const g=this._g; if(!g) return;
+    const now=(typeof performance!=='undefined'?performance.now():Date.now());
+    const dt=Math.max(8, now-g.lastT);
+    const instv=(g.axis==='x'?(e.clientX-g.lastX):(e.clientY-g.lastY))/dt;
+    g.vel = g.vel*0.65 + instv*0.35;
+    g.lastT=now; g.lastX=e.clientX; g.lastY=e.clientY;
+    const dx=e.clientX-g.x, dy=e.clientY-g.y;
+    if(!g.axis){ if(Math.abs(dx)>10||Math.abs(dy)>10){ g.axis=Math.abs(dx)>Math.abs(dy)?'x':'y'; } else { return; } }
+    if(g.axis==='lock') return;
+    const glide=this.mode()==='glide';
+    // Gren-modstand: det skal koste mere at hoppe til et søskende end at skifte generation.
+    const TH = g.axis==='x' ? 64 : 44;
+    if(g.axis==='x'){ if(Math.abs(dx)>=TH){ this.moveSibling(dx<0?1:-1); if(glide){ g.x=e.clientX; g.y=e.clientY; } else { g.axis='lock'; } } }
+    else { if(Math.abs(dy)>=TH){ this.moveGen(dy<0?1:-1); if(glide){ g.x=e.clientX; g.y=e.clientY; } else { g.axis='lock'; } } }
+  }
+  onPointerUp(){
+    const g=this._g; this._g=null;
+    if(!g || !g.axis || g.axis==='lock') return;
+    if(this.mode()!=='glide') return;
+    const speed=Math.abs(g.vel||0);
+    if(speed<0.45) return; // ikke et kast — bliv stående
+    const dir = g.vel<0 ? 1 : -1; // indhold trækkes op/venstre → fremad i træet
+    const n = Math.min(7, Math.round(speed*5));
+    this._fling(g.axis, dir, n, 66);
+  }
+  _fling(axis, dir, n, interval){
+    if(n<=0) return;
+    if(axis==='x') this.moveSibling(dir); else this.moveGen(dir);
+    this._flingT = setTimeout(()=>this._fling(axis, dir, n-1, Math.min(300, Math.round(interval*1.32))), interval);
+  }
+  onWheel(e){
+    try{ e.preventDefault(); }catch(_){}
+    const now=Date.now(); if(now < (this._wl||0)) return;
+    const dx=e.deltaX, dy=e.deltaY;
+    if(Math.abs(dx) > Math.abs(dy)) this.moveSibling(dx>0?1:-1);
+    else this.moveGen(dy>0?1:-1);
+    this._wl = now + (this.mode()==='camera'?300:150);
+  }
+
+  renderVals(){
+    this._idx();
+    const path=this.getPath();
+    const fd=this.clamp(this.state.focusDepth,0,path.length-1);
+    const maxD=path.length-1;
+    const ROWH=this.ROWH, STEPY=this.STEPY;
+
+    const rows=[];
+    for(let d=0; d<=maxD; d++){
+      const sibIds = d===0 ? [this._root] : this.childrenOf(path[d-1]);
+      const selIndex = Math.max(0, sibIds.indexOf(path[d]));
+      const leftN=selIndex, rightN=sibIds.length-1-selIndex;
+      const padL=Math.max(0,rightN-leftN), padR=Math.max(0,leftN-rightN);
+      const items=[];
+      for(let i=0;i<padL;i++) items.push({ spacer:true, card:false });
+      sibIds.forEach(id=>{ const n=this.nodeOf(id); items.push({ spacer:false, card:true, name:n.name, years:this.years(n), initials:this.initials(n), title:n.title||'', hasTitle:!!n.title }); });
+      for(let i=0;i<padR;i++) items.push({ spacer:true, card:false });
+      rows.push({ top:d*STEPY, items });
+    }
+
+    const focusNode=this.nodeOf(path[fd])||{};
+    const motherName=this.motherOf(path[fd]);
+    let hasHalf=false;
+    if(fd>0){ const sib=this.childrenOf(path[fd-1]); const ms={}; sib.forEach(id=>{ const m=this.motherOf(id); if(m) ms[m]=1; }); hasHalf=Object.keys(ms).length>1; }
+    return {
+      uid: this._uid,
+      onPointerDown:(e)=>this.onPointerDown(e),
+      onPointerMove:(e)=>this.onPointerMove(e),
+      onPointerUp:()=>this.onPointerUp(),
+      onWheel:(e)=>this.onWheel(e),
+      stackTransform: 'translateY('+(-(fd*STEPY + ROWH/2))+'px)',
+      rows,
+      trailGen: fd+1,
+      trailLinje: focusNode.linje || '\u2014',
+      trailName: focusNode.name || '',
+      motherName: motherName, hasMother: !!motherName,
+      hasHalf: hasHalf
+    };
+  }
+}
+</script>
+</body>
+</html>
