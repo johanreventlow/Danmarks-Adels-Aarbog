@@ -130,7 +130,7 @@ export default function Folgesvend() {
         <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
           {mode === 'tree' ? <TreeView model={model} focusId={focusId} onPick={setFocusId} />
             : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={setFocusId} />
-            : mode === 'search' ? <SearchView persons={filtered} query={query} onPick={(id) => { setFocusId(id); setMode('tree'); }} />
+            : mode === 'search' ? <SearchView persons={sorted} query={query} onPick={(id) => { setFocusId(id); setMode('tree'); }} />
             : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} onOpen={setEstateId} onBack={() => setEstateId(null)} onPickOwner={(id) => { setFocusId(id); setMode('tree'); }} />
             : mode === 'arms' ? <ArmsView arms={arms} />
             : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} />
@@ -405,23 +405,57 @@ function DetailPanel({ model, focusId, detail, onPick }: { model: Model; focusId
   );
 }
 
-// ---- Søg ----
+// ---- Søg (alfabet-hop §9.1 + sortér-toggle) ----
+const initialOf = (n: string) => (n.trim()[0] ?? '').toUpperCase();
 function SearchView({ persons, query, onPick }: { persons: ModelPerson[]; query: string; onPick: (id: string) => void }) {
+  const [sort, setSort] = useState<'navn' | 'aar'>('navn');
+  const q = query.trim().toLowerCase();
+  const list = useMemo(() => {
+    const arr = persons.filter((p) => !q || p.name.toLowerCase().includes(q));
+    if (sort === 'aar') return [...arr].sort((a, b) => (a.born ?? 9999) - (b.born ?? 9999) || a.name.localeCompare(b.name, 'da'));
+    return arr; // persons kommer allerede dansk-sorteret fra parent
+  }, [persons, q, sort]);
+  // Alfabet-bar kun ved navne-sort uden søgning (§9.1).
+  const showAlfabet = sort === 'navn' && !q;
+  const letters = useMemo(() => (showAlfabet ? [...new Set(list.map((p) => initialOf(p.name)).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'da')) : []), [list, showAlfabet]);
+
+  const card = (p: ModelPerson) => (
+    <div key={p.id} onClick={() => onPick(p.id)} style={{ display: 'flex', alignItems: 'center', gap: 11, background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: 12, cursor: 'pointer', boxShadow: '0 1px 2px rgba(34,31,26,.03)' }}>
+      <Avatar n={p.name} size={36} />
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+        <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 1 }}>{p.years || '—'}</div>
+      </div>
+    </div>
+  );
+  const grid = (items: ModelPerson[]) => <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(190px,1fr))', gap: 12 }}>{items.map(card)}</div>;
+
   return (
     <div style={{ padding: '30px 40px 50px' }}>
       <ViewHeader title="Søg" />
-      <div style={{ fontSize: 13, color: T.muted, marginTop: 4, marginBottom: 18 }}>Skriv i søgefeltet til venstre — {persons.length} {query ? 'træffere' : 'personer'}.</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(190px,1fr))', gap: 12 }}>
-        {persons.map((p) => (
-          <div key={p.id} onClick={() => onPick(p.id)} style={{ display: 'flex', alignItems: 'center', gap: 11, background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: 12, cursor: 'pointer', boxShadow: '0 1px 2px rgba(34,31,26,.03)' }}>
-            <Avatar n={p.name} size={36} />
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-              <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 1 }}>{p.years || '—'}</div>
-            </div>
-          </div>
-        ))}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 4, marginBottom: 16, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 13, color: T.muted }}>{list.length} {q ? 'træffere' : 'personer'} · søg i feltet til venstre</span>
+        <div style={{ flex: 1 }} />
+        <div style={{ display: 'flex', background: '#e6ddcc', borderRadius: 9, padding: 3, gap: 3 }}>
+          {(['navn', 'aar'] as const).map((s) => (
+            <span key={s} onClick={() => setSort(s)} style={{ padding: '6px 13px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: sort === s ? T.bordeaux : 'transparent', color: sort === s ? T.paper : '#3d382f' }}>{s === 'navn' ? 'A–Å' : 'Fødeår'}</span>
+          ))}
+        </div>
       </div>
+      {showAlfabet && letters.length > 1 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 16 }}>
+          {letters.map((l) => (
+            <span key={l} onClick={() => document.getElementById('sec-' + l)?.scrollIntoView({ block: 'start', behavior: 'smooth' })}
+              style={{ width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 7, background: T.beige, fontFamily: T.serif, fontSize: 14, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>{l}</span>
+          ))}
+        </div>
+      )}
+      {showAlfabet ? letters.map((l) => (
+        <div key={l}>
+          <div id={'sec-' + l} style={{ position: 'sticky', top: 0, background: T.pageBg, zIndex: 1, padding: '6px 0', fontFamily: T.serif, fontSize: 22, fontWeight: 600, color: T.bordeaux }}>{l}</div>
+          <div style={{ marginBottom: 12 }}>{grid(list.filter((p) => initialOf(p.name) === l))}</div>
+        </div>
+      )) : grid(list)}
     </div>
   );
 }
