@@ -576,3 +576,66 @@ EXCEPTION WHEN OTHERS THEN
   IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: non-person restore (tom regen-loop) virker';
   ELSE RAISE; END IF;
 END $$;
+
+-- ===== Review 09 H1: DELETE-inverse divergens-tjek (PK-genbrug) =====
+-- Bekræfter at restore afviser når en slettet PK er genbrugt af en fremmed række
+-- (uden force), og kun overskriver med force. Ville have fanget review09 H1.
+DO $$
+DECLARE v_nid bigint; cs bigint; cur text; afvist boolean := false;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+  v_nid := (SELECT coalesce(max(id),0)+1 FROM note);
+  cs := (SELECT coalesce(max(id),0)+1 FROM change_set);
+  INSERT INTO change_set(id,operation,summary,subjekt_synlighed) VALUES (cs,'t','slet note','offentlig');
+  INSERT INTO change_event(id,change_set_id,seq,tabel,row_pk,op,foer,efter)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM change_event), cs, 1, 'note',
+            jsonb_build_object('id',v_nid),'DELETE',
+            jsonb_build_object('id',v_nid,'target_type','person','target_id',1,'indhold','GAMMEL','privat',false), NULL);
+  INSERT INTO note(id,target_type,target_id,indhold,privat) VALUES (v_nid,'person',1,'FREMMED-NY',false);
+  -- uden force: skal afvise
+  BEGIN PERFORM red_fortryd_change_set(cs, false);
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM LIKE '%nyere ændring rører%' THEN afvist := true; ELSE RAISE; END IF; END;
+  IF NOT afvist THEN RAISE EXCEPTION 'FEJL: DELETE-inverse afviste ikke PK-genbrug'; END IF;
+  IF (SELECT indhold FROM note WHERE id=v_nid) <> 'FREMMED-NY' THEN
+    RAISE EXCEPTION 'FEJL: fremmed række blev rørt trods afvisning'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review09 H1 — DELETE-inverse afviser PK-genbrug';
+  ELSE RAISE; END IF;
+END $$;
+
+-- ===== Review 09 H2: restore bevarer skip_cols (profiles email/rolle) =====
+-- End-to-end: slet en profil-bundet person, fortryd → profilen genskabes med
+-- rolle/email intakt (ikke NULL-crash). Ville have fanget review09 H2.
+DO $$
+DECLARE v_uid uuid := '00000000-0000-0000-0000-000000000077'; v_pid bigint; cs bigint; r_after text; e_after text;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+  v_pid := red_opret_person('__verify_h2__','mand',false,NULL,NULL,NULL);
+  -- bind en profil til personen
+  INSERT INTO auth.users(id,email) VALUES (v_uid,'medlem@x') ON CONFLICT DO NOTHING;
+  INSERT INTO profiles(id,rolle,email,reventlow_person_id) VALUES (v_uid,'medlem','medlem@x',v_pid)
+    ON CONFLICT (id) DO UPDATE SET rolle='medlem', email='medlem@x', reventlow_person_id=v_pid;
+  -- slet personen (nulstiller profiles.reventlow_person_id → logget UPDATE)
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_slet_person(v_pid);
+  SELECT max(id) INTO cs FROM change_set;
+  -- fortryd → må IKKE crashe på rolle NOT NULL, og skal bevare email/rolle
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_fortryd_change_set(cs, false);
+  SELECT rolle, email INTO r_after, e_after FROM profiles WHERE id=v_uid;
+  IF r_after IS NULL OR e_after IS NULL THEN
+    RAISE EXCEPTION 'FEJL: restore nulstillede skip_cols (rolle=%, email=%)', r_after, e_after; END IF;
+  IF (SELECT reventlow_person_id FROM profiles WHERE id=v_uid) <> v_pid THEN
+    RAISE EXCEPTION 'FEJL: reventlow_person_id ikke genskabt'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review09 H2 — restore bevarer profiles skip_cols';
+  ELSE RAISE; END IF;
+END $$;

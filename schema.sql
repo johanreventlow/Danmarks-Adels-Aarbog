@@ -1057,16 +1057,19 @@ END $$;
 -- Upsert til nøjagtig snapshot-tilstand. Manglende (skip-)kolonner → NULL (cache regenereres efter).
 CREATE OR REPLACE FUNCTION _version_upsert_row(p_tabel text, p_row jsonb)
 RETURNS void LANGUAGE plpgsql AS $$
-DECLARE v_pk_cols text; v_set text;
+DECLARE v_pk_cols text; v_set text; v_cols text;
 BEGIN
   SELECT string_agg(quote_ident(k),',') INTO v_pk_cols
     FROM version_pk_registry r, unnest(r.pk_cols) k WHERE r.tabel=p_tabel;
-  SELECT string_agg(format('%I = excluded.%I', column_name, column_name), ',') INTO v_set
-    FROM information_schema.columns
-    WHERE table_schema='public' AND table_name=p_tabel;
+  -- Kun kolonner i snapshot'et: INSERT lister dem eksplicit (skip_cols får DEFAULT, ikke NULL),
+  -- ON CONFLICT opdaterer kun dem (skip_cols bevares). Undgår NOT NULL-crash på fx profiles.rolle
+  -- og rul-tilbage af person.visning_*-cache. review09 H2.
+  SELECT string_agg(quote_ident(key),','), string_agg(format('%I = excluded.%I', key, key), ',')
+    INTO v_cols, v_set
+    FROM jsonb_object_keys(p_row) AS key;
   EXECUTE format(
-    'INSERT INTO %1$I SELECT (jsonb_populate_record(null::%1$I, $1)).* ON CONFLICT (%2$s) DO UPDATE SET %3$s',
-    p_tabel, v_pk_cols, v_set) USING p_row;
+    'INSERT INTO %1$I (%2$s) SELECT %2$s FROM jsonb_populate_record(null::%1$I, $1) ON CONFLICT (%3$s) DO UPDATE SET %4$s',
+    p_tabel, v_cols, v_pk_cols, v_set) USING p_row;
 END $$;
 
 CREATE OR REPLACE FUNCTION _version_delete_row(p_tabel text, p_pk jsonb)
@@ -1080,7 +1083,7 @@ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE
   ev change_event; v_new_cs bigint; v_orig change_set;
   v_cur jsonb; v_pids bigint[] := '{}'; v_narr bigint[] := '{}'; v_notes bigint[] := '{}';
-  v_div int := 0; pid bigint;
+  v_div int := 0; pid bigint; v_forventet jsonb;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   SELECT * INTO v_orig FROM change_set WHERE id=p_change_set_id;
@@ -1107,12 +1110,13 @@ BEGIN
   FOR ev IN SELECT * FROM change_event WHERE change_set_id=p_change_set_id ORDER BY seq DESC LOOP
     -- optimistisk verifikation (B9): nuværende tilstand skal matche hvad sættet efterlod
     v_cur := _version_current_row(ev.tabel, ev.row_pk);
-    IF ev.op IN ('INSERT','UPDATE') THEN
-      IF v_cur IS DISTINCT FROM ev.efter THEN
-        v_div := v_div + 1;
-        IF NOT p_force THEN
-          RAISE EXCEPTION 'FEJL: nyere ændring rører %/% — afvist (brug force)', ev.tabel, ev.row_pk;
-        END IF;
+    -- B9-divergens for ALLE op-typer (review09 H1): DELETE efterlod række ABSENT (NULL),
+    -- INSERT/UPDATE efterlod ev.efter. Lukker blind PK-overskrivning ved DELETE-inverse.
+    v_forventet := CASE WHEN ev.op='DELETE' THEN NULL ELSE ev.efter END;
+    IF v_cur IS DISTINCT FROM v_forventet THEN
+      v_div := v_div + 1;
+      IF NOT p_force THEN
+        RAISE EXCEPTION 'FEJL: nyere ændring rører %/% — afvist (brug force)', ev.tabel, ev.row_pk;
       END IF;
     END IF;
     -- anvend inverse
