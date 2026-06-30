@@ -39,6 +39,49 @@ $$;
 revoke all on function public.person_offentlig(bigint) from public;
 grant execute on function public.person_offentlig(bigint) to anon, authenticated;
 
+-- media-gating-helpere. SECURITY DEFINER så de ser ALLE afbildet-relationer uden at blive
+-- re-filtreret af relation-RLS: et afbildet-link til en LEVENDE person er selv skjult for
+-- anon af relation-politikken, så en almindelig EXISTS-subquery i media-politikken ville
+-- fail-OPEN (ikke se det skjulte link → vise billedet). Definer-funktionen omgår det.
+create or replace function public.media_afbilder_skjult(mid bigint)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  -- True hvis billedet afbilder MINDST ÉN person der ikke er offentlig (levende/privat/ukendt).
+  select exists (
+    select 1 from public.relation r
+    where r.objekt_type = 'media' and r.objekt_id = mid
+      and r.subjekt_type = 'person' and r.rolle = 'afbildet'
+      and not public.person_offentlig(r.subjekt_id)
+  );
+$$;
+
+create or replace function public.media_afbilder_privat(mid bigint)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  -- True hvis billedet afbilder MINDST ÉN manuelt privat-markeret person (levende tilladt
+  -- for authenticated; kun privat skjules).
+  select exists (
+    select 1 from public.relation r
+    join public.person p on p.id = r.subjekt_id
+    where r.objekt_type = 'media' and r.objekt_id = mid
+      and r.subjekt_type = 'person' and r.rolle = 'afbildet'
+      and coalesce(p.privat, false) = true
+  );
+$$;
+
+revoke all on function public.media_afbilder_skjult(bigint) from public;
+revoke all on function public.media_afbilder_privat(bigint) from public;
+grant execute on function public.media_afbilder_skjult(bigint) to anon, authenticated;
+grant execute on function public.media_afbilder_privat(bigint) to authenticated;
+
 -- ---------- DROP DEV-LAGET FØRST ----------
 -- KRITISK: den midlertidige dev-RLS (web/dev-rls.sql) oprettede politikker
 -- 'dev_anon_read' med USING (true). Postgres OR'er permissive politikker for
@@ -73,16 +116,27 @@ begin
   end loop;
 end $$;
 
--- 'media' er BEVIDST udeladt af den offentlige liste: den kan holde billeder af LEVENDE
--- personer, men har ingen levende/privat-kolonne (linkes via relation 'afbildet' → person).
--- RLS aktiveres uden anon-politik (deny-all) indtil afbildet-gating er skrevet. Tabellen er
--- tom nu, så app'en påvirkes ikke (media-hentning returnerer 0 rækker = nuværende tilstand).
+-- 'media' har ingen egen levende/privat-kolonne; synligheden afledes af de personer billedet
+-- AFBILDER (relation rolle='afbildet' → person), via SECURITY DEFINER-helperne ovenfor.
+-- FAIL-CLOSED: et billede er synligt MEDMINDRE det afbilder en ikke-offentlig person.
+--   · objekt-fotos uden afbildet-person (segl, gods, våben) → offentlige
+--   · portræt af afdød, ikke-privat person → offentligt
+--   · ethvert billede der afbilder en levende/privat person → skjult for anon
+-- (NOT EXISTS-non-public, ikke EXISTS-public: et gruppebillede med BÅDE en afdød og en
+--  levende person skal skjules — ikke vises fordi den afdøde tilfældigvis er offentlig.)
+grant select on table public.media to anon, authenticated;
 alter table public.media enable row level security;
 drop policy if exists anon_read on public.media;
--- TODO: create policy anon_read on public.media for select to anon
---   using (exists (select 1 from public.relation r
---                  where r.objekt_type='media' and r.objekt_id=media.id and r.rolle='afbildet'
---                        and public.person_offentlig(r.subjekt_id)));
+create policy anon_read on public.media for select to anon
+  using (not public.media_afbilder_skjult(media.id));
+-- authenticated (medlem): levende tilladt, men manuelt privat skjules.
+drop policy if exists auth_read on public.media;
+create policy auth_read on public.media for select to authenticated
+  using (not public.media_afbilder_privat(media.id));
+-- redaktion: ser alt (additivt oven på de to ovenfor).
+drop policy if exists redaktion_read on public.media;
+create policy redaktion_read on public.media for select to authenticated
+  using ((select public.current_rolle()) = 'redaktion');
 
 -- =========================================================
 -- 2) PERSON: kun afdøde, ikke-private.
@@ -314,4 +368,6 @@ grant select on public.red_konflikt to anon;
 --    end loop;
 --  end $$;
 --  drop function if exists public.person_offentlig(bigint);
+--  drop function if exists public.media_afbilder_skjult(bigint);
+--  drop function if exists public.media_afbilder_privat(bigint);
 -- =====================================================================

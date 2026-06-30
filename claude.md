@@ -64,8 +64,7 @@ Kernefunktionen er **"er vi i familie?"** — slægtskabssøgning på tværs af 
   klikbar slægtskabs-visning kører (web/). **Ægtefælle-rygrad for HELE slægten** gjort.
   `boern` udledes nu deterministisk i `validate.py`. Se `docs/changelog.md` +
   `docs/decisions.md`. Parsere: `/daa-extract` (stamtavle), `/daa-presens` (præsensliste).
-- **Endnu ikke lavet:** rigtigt RLS-lag (kritisk før multi-bruger — nulevende-data i
-  basen nu); era-tie-break for kryds-gren-boern (97 fejl, rammer også linje V);
+- **Endnu ikke lavet:** era-tie-break for kryds-gren-boern (97 fejl, rammer også linje V);
   deterministisk aegteskaber-udtræk (~9% LLM-miss); dekorations-nøgle (fra anden
   DAA-udgave); rigtig GEDCOM/TNG-import (enrichment); multimedie/Storage.
 - **Load:** `supabase_load.R` er erstattet af `/daa-extract`'s `load_daa.R` (bulk, ~14 sek).
@@ -78,7 +77,7 @@ To spor — **data (R)** og **app (TS)** — bundet af RLS:
 
 1. **Seed basen:** kør `supabase_load.R` og bekræft rækker i Supabase Table Editor.
 2. **Første tynde app-skive:** TS/React + Supabase-side der læser én person og viser de lagdelte data (navn, floruit, omstridt dødsdato m. konklusion). Validerer stacken.
-3. **RLS:** levende vs. afdøde, medlem vs. forsker som Postgres-politikker (ikke skrevet endnu).
+3. **RLS:** levende vs. afdøde, medlem vs. forsker som Postgres-politikker — **gjort** (`db-rls.sql`, verificeret af `db-verify.sql`). Anon/authenticated/redaktion-lag inkl. media afbildet-gating. Udestår: samtykke-granularitet pr. levende person + forsker/medlem-tier (skitse i `db-rls.sql` §FREMTID).
 4. **Slægtskabsfinderen:** graf-traversal over stamtræet (fælles ane / MRCA, kusin-grad); vis konfidens på stien.
 5. **Rigtig import:** R-pipeline fra TNG/GEDCOM-eksport (og/eller selektiv DAA-parsing → narrative + udtrukne fakta).
 6. **Multimedie (Storage), DAA-krydsreferencer, abonnementstier.**
@@ -107,7 +106,7 @@ To spor — **data (R)** og **app (TS)** — bundet af RLS:
 
 ## 9. Bevidst udskudt / åbne punkter
 
-- **RLS-politikker** er ikke skrevet endnu (skitse mangler).
+- **RLS-politikker** — **skrevet** (`db-rls.sql` + `db-verify.sql`): anon (afdøde/ikke-private), authenticated (medlem ser levende, ej private), redaktion (ser alt), staging-politikker, og media afbildet-gating via SECURITY DEFINER-helpere. **Udestår:** samtykke-granularitet pr. levende person (`samtykke_offentlig`) og forsker- vs. medlem-tier — skitseret i `db-rls.sql` §FREMTID, designes når auth-laget bygges.
 - **Slægtslinje som førsteklasses entitet** — **trin (a) gjort (2026-06-23):** `lineage`-tabel `(id, source_id, kode, navn)` giver linjerne navne (se `docs/decisions.md`). **Trin (b) udestår:** adling→ny slægt, forgrening (`gren_af`), eget våben, person↔linje m. konfidens — additivt (`ALTER ADD` + relationer), forward-kompatibelt.
 - **Embede som egen entitet** — kun hvor succession er interessant; ellers en rolle ind i en organisation.
 - **Fuld GEDCOM/TNG-importsti** — kun et håndtransskriberet udsnit findes nu.

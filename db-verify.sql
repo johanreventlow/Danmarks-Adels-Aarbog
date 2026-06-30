@@ -160,3 +160,43 @@ SELECT count(*) FROM pg_policies
   WHERE schemaname='public'
     AND policyname IN ('anon_read','auth_read','self_read','own_read');
 -- Forventet: >= 12 (anon_read: mindst 1 fra tidligere migrations + auth_read: 10 + self_read: 1 + own_read: 1)
+
+
+-- ===== Task 8: media afbildet-gating (anon) =====
+-- Forvent: NOTICE "OK: media-gating ...". Seeder negative-id testrækker og rydder selv op.
+-- Kører faktisk som rolle 'anon' (SET LOCAL ROLE) for at RAMME RLS — SQL Editor er ellers
+-- ejer/bypass. Hele blokken er ét DO = én transaktion; rejser den, rulles seed-rækkerne tilbage.
+-- Verificerer fail-closed-reglen: afdød afbildet → synlig, levende afbildet → skjult,
+-- objekt uden afbildet-person → synlig.
+DO $$
+DECLARE vis_dead int; vis_live int; vis_obj int;
+BEGIN
+  -- ryd evt. rester fra et afbrudt løb
+  DELETE FROM relation WHERE id IN (-901,-902);
+  DELETE FROM media    WHERE id IN (-901,-902,-903);
+  DELETE FROM person   WHERE id IN (-901,-902);
+
+  INSERT INTO person(id, levende, privat) VALUES (-901, false, false), (-902, true, false);
+  INSERT INTO media(id, slags, titel) VALUES
+    (-901,'foto','portræt-afdød'), (-902,'foto','portræt-levende'), (-903,'segl','objekt-uden-person');
+  INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle) VALUES
+    (-901,'person',-901,'media',-901,'afbildet'),
+    (-902,'person',-902,'media',-902,'afbildet');
+
+  SET LOCAL ROLE anon;
+  SELECT count(*) INTO vis_dead FROM media WHERE id = -901;
+  SELECT count(*) INTO vis_live FROM media WHERE id = -902;
+  SELECT count(*) INTO vis_obj  FROM media WHERE id = -903;
+  RESET ROLE;
+
+  IF vis_dead = 1 AND vis_live = 0 AND vis_obj = 1 THEN
+    RAISE NOTICE 'OK: media-gating (afdød synlig, levende skjult, objekt synligt)';
+  ELSE
+    RAISE EXCEPTION 'media-gating FEJL: afdød=% (vent 1), levende=% (vent 0), objekt=% (vent 1)',
+      vis_dead, vis_live, vis_obj;
+  END IF;
+
+  DELETE FROM relation WHERE id IN (-901,-902);
+  DELETE FROM media    WHERE id IN (-901,-902,-903);
+  DELETE FROM person   WHERE id IN (-901,-902);
+END $$;
