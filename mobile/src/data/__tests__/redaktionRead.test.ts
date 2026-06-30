@@ -209,3 +209,12 @@ describe('mapHistRow', () => {
     expect(mapHistRow(r)).toMatchObject({ hvem: 'ukendt', resume: '(uden beskrivelse)' });
   });
 });
+
+import { mapDoedLinkRow } from '../redaktionRead';
+
+describe('mapDoedLinkRow', () => {
+  it('mapper text_mention-række til DoedLink', () => {
+    const r = { kilde_type: 'narrative', kilde_id: 3, maal_type: 'person', maal_id: 999 } as any;
+    expect(mapDoedLinkRow(r)).toEqual({ kilde: 'narrative#3', maalType: 'person', maalId: '999' });
+  });
+});

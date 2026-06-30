@@ -299,6 +299,9 @@ export default function PersonEditor() {
           <InitialBadge name={person.name} size={56} bg="#f8ecef" />
           <Serif size={25} style={{ marginTop: 8 }}>{person.name}</Serif>
           <Mono size={9} color={Colors.textMuted}>id {String(person.id)} · {ev?.koen ?? '—'}</Mono>
+          <Pressable onPress={() => router.push(`/redaktion/historik/${id}` as never)} style={{ marginTop: 6 }}>
+            <BtnLabel size={12.5} color={Colors.bordeaux}>📜 Historik</BtnLabel>
+          </Pressable>
         </View>
 
         {/* Skrivemode (global, samme state som dashboard/konto) — placeret her så man kan

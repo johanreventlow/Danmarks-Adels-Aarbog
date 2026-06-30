@@ -343,3 +343,15 @@ export async function fetchHistEvents(changeSetId: number): Promise<HistEvent[]>
   if (error) throw new Error(error.message);
   return (data ?? []).map((e: any) => ({ tabel: e.tabel, op: e.op, foer: e.foer, efter: e.efter }));
 }
+
+// ---------- Døde links (hyperlinks — DB-lag T10/T11) ----------
+export type DoedLink = { kilde: string; maalType: string; maalId: string };
+export function mapDoedLinkRow(r: { kilde_type: string; kilde_id: number; maal_type: string; maal_id: number }): DoedLink {
+  return { kilde: `${r.kilde_type}#${r.kilde_id}`, maalType: r.maal_type, maalId: String(r.maal_id) };
+}
+export async function fetchDoedeLinks(): Promise<DoedLink[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase.from('red_doede_links').select('*');
+  if (error) throw new Error(error.message);
+  return (data ?? []).map(mapDoedLinkRow);
+}
