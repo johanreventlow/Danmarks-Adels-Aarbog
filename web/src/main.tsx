@@ -1,9 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App";
+import Folgesvend from "./Folgesvend";
 import Redaktion from "./Redaktion";
 
-// Minimal hash-route: #publikum = read-only publikumsvisning (App); ellers redaktørbordet.
+// Hash-route: #redaktion = redaktørbordet; ellers publikums-følgesvenden.
 function Root() {
   const [hash, setHash] = React.useState(window.location.hash);
   React.useEffect(() => {
@@ -11,7 +11,7 @@ function Root() {
     window.addEventListener("hashchange", on);
     return () => window.removeEventListener("hashchange", on);
   }, []);
-  return hash.startsWith("#publikum") ? <App /> : <Redaktion />;
+  return hash.startsWith("#redaktion") ? <Redaktion /> : <Folgesvend />;
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
