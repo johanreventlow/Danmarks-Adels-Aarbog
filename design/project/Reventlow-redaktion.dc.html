@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500;1,600&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  [data-scroll]{scrollbar-width:thin;scrollbar-color:#cfc6b5 transparent;}
+  [data-scroll]::-webkit-scrollbar{width:9px;height:9px;}
+  [data-scroll]::-webkit-scrollbar-thumb{background:#cfc6b5;border-radius:5px;border:2px solid #f4efe6;}
+  [data-scroll]::-webkit-scrollbar-track{background:transparent;}
+  input,textarea,select{font-family:inherit;}
+</style>
+</helmet>
+<div style="height:100vh;display:flex;flex-direction:column;background:#ece6da;font-family:'Hanken Grotesk',sans-serif;color:#221f1a;overflow:hidden;">
+
+  <div style="flex:none;display:flex;align-items:center;gap:14px;padding:8px 22px;background:#2a211c;color:#f4efe6;z-index:40;">
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#e7c98f;">Design-oplæg</span>
+    <span style="font-family:'Hanken Grotesk';font-size:12.5px;color:#cabfa9;">Redaktør-arbejdsbord · skrivning via Supabase Auth — dry-run viser hvad der sendes; live skriver til basen (redaktion direkte, øvrige til staging).</span>
+    <div style="flex:1;"></div>
+    <div onClick="{{ onToggleAnno }}" style="display:flex;align-items:center;gap:7px;cursor:pointer;border:1px solid rgba(244,239,230,.25);border-radius:8px;padding:5px 11px;">
+      <span style="width:9px;height:9px;border-radius:50%;background:{{ annoDot }};flex:none;"></span>
+      <span style="font-family:'Hanken Grotesk';font-size:11.5px;color:#f4efe6;">Forklaringer</span>
+    </div>
+    <a href="Reventlow-web.dc.html" style="font-family:'Hanken Grotesk';font-size:11.5px;font-weight:600;color:#2a211c;background:#e7c98f;border-radius:8px;padding:6px 12px;text-decoration:none;">Åbn publikumsvisning ↗</a>
+  </div>
+
+  <div style="flex:none;height:60px;display:flex;align-items:center;gap:14px;padding:0 24px;background:#fbf8f1;border-bottom:1px solid rgba(34,31,26,.12);z-index:30;">
+    <div style="display:flex;align-items:center;gap:12px;flex:none;">
+      <span style="width:34px;height:34px;border-radius:8px;background:#881A33;display:flex;align-items:center;justify-content:center;flex:none;font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:600;color:#f4efe6;">R</span>
+      <div>
+        <div style="font-family:'Cormorant Garamond',serif;font-size:19px;font-weight:600;line-height:1;color:#221f1a;">Redaktion · Reventlow</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#9a8f78;margin-top:2px;">Danmarks Adels Aarbog · evidens-base</div>
+      </div>
+    </div>
+    <div style="flex:1;"></div>
+    <div onClick="{{ onToggleDry }}" style="display:flex;align-items:center;gap:7px;cursor:pointer;background:{{ dryBg }};border:1px solid {{ dryBorder }};border-radius:8px;padding:6px 11px;">
+      <span style="width:9px;height:9px;border-radius:50%;background:{{ dryDot }};flex:none;"></span>
+      <span style="font-family:'Hanken Grotesk';font-size:11.5px;font-weight:600;color:#f4efe6;">{{ dryLabel }}</span>
+    </div>
+    <sc-if value="{{ isAuthed }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;align-items:center;gap:8px;background:#f8ecef;border:1px solid #881A33;border-radius:9px;padding:5px 10px;">
+        <span style="width:26px;height:26px;border-radius:50%;background:#881A33;display:flex;align-items:center;justify-content:center;flex:none;font-family:'Cormorant Garamond',serif;font-size:11px;font-weight:600;color:#f4efe6;">{{ authInit }}</span>
+        <div>
+          <div style="font-family:'Hanken Grotesk';font-size:11.5px;font-weight:600;color:#221f1a;line-height:1;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ authEmail }}</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:8.5px;color:#9a8f78;margin-top:1px;">{{ authRoleLabel }}</div>
+        </div>
+        <span onClick="{{ onLogout }}" style="font-family:'Hanken Grotesk';font-size:10.5px;font-weight:600;color:#881A33;cursor:pointer;margin-left:4px;">Log ud</span>
+      </div>
+    </sc-if>
+    <sc-if value="{{ notAuthed }}" hint-placeholder-val="{{ true }}">
+      <div onClick="{{ onOpenLogin }}" style="display:flex;align-items:center;gap:7px;background:#e7c98f;border-radius:8px;padding:7px 14px;cursor:pointer;">
+        <span style="font-family:'Hanken Grotesk';font-size:12px;font-weight:600;color:#2a211c;">Log ind</span>
+      </div>
+    </sc-if>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0;">
+
+    <div data-scroll style="flex:none;width:226px;border-right:1px solid rgba(34,31,26,.1);background:#f4efe6;overflow-y:auto;padding:14px 12px;">
+      <div style="padding:0 8px 8px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#a99f8c;">Entiteter</div>
+      <sc-for list="{{ entities }}" as="e" hint-placeholder-count="9">
+        <div onClick="{{ e.onTap }}" style="display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:9px;cursor:pointer;background:{{ e.bg }};margin-bottom:2px;">
+          <span style="width:24px;height:24px;border-radius:6px;background:{{ e.iconBg }};display:flex;align-items:center;justify-content:center;flex:none;font-size:13px;color:{{ e.iconColor }};">{{ e.icon }}</span>
+          <span style="flex:1;font-family:'Hanken Grotesk';font-size:13px;font-weight:600;color:{{ e.color }};">{{ e.label }}</span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:{{ e.countColor }};">{{ e.count }}</span>
+        </div>
+      </sc-for>
+      <div style="margin-top:14px;border-top:1px solid rgba(34,31,26,.1);padding-top:12px;">
+        <div style="padding:0 8px 7px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#a99f8c;">Værktøjer</div>
+        <sc-for list="{{ tools }}" as="t" hint-placeholder-count="3">
+          <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:9px;cursor:default;opacity:.78;">
+            <span style="width:24px;height:24px;border-radius:6px;background:#ece4d6;display:flex;align-items:center;justify-content:center;flex:none;font-size:12px;color:#8a8170;">{{ t.icon }}</span>
+            <span style="flex:1;font-family:'Hanken Grotesk';font-size:12.5px;color:#6f675b;">{{ t.label }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div data-scroll style="flex:none;width:286px;border-right:1px solid rgba(34,31,26,.1);background:#f4efe6;overflow-y:auto;display:flex;flex-direction:column;">
+      <div style="padding:16px 16px 10px;position:sticky;top:0;background:#f4efe6;z-index:2;">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:9px;">
+          <div style="font-family:'Cormorant Garamond',serif;font-size:21px;font-weight:600;color:#221f1a;">{{ listTitle }}</div>
+          <div onClick="{{ onCreate }}" style="font-family:'Hanken Grotesk';font-size:11.5px;font-weight:600;color:#881A33;cursor:pointer;">+ Opret</div>
+        </div>
+        <input value="{{ query }}" onChange="{{ onQuery }}" placeholder="Søg…" style="width:100%;font-family:'Hanken Grotesk';font-size:13px;color:#221f1a;background:#fbf8f1;border:1px solid rgba(34,31,26,.14);border-radius:8px;padding:9px 11px;outline:none;" />
+      </div>
+      <div style="padding:2px 10px 12px;">
+        <sc-for list="{{ records }}" as="r" hint-placeholder-count="9">
+          <div onClick="{{ r.onTap }}" style="display:flex;align-items:center;gap:11px;padding:9px 9px;border-radius:9px;cursor:pointer;background:{{ r.bg }};">
+            <span style="width:30px;height:30px;border-radius:{{ r.avatarRadius }};background:#ece4d6;border:1px solid rgba(34,31,26,.08);display:flex;align-items:center;justify-content:center;flex:none;font-family:'Cormorant Garamond',serif;font-size:12px;font-weight:600;color:#881A33;">{{ r.badge }}</span>
+            <div style="flex:1;min-width:0;">
+              <div style="font-family:'Cormorant Garamond',serif;font-size:15.5px;font-weight:600;line-height:1.05;color:#221f1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ r.label }}</div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#9a8f78;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ r.sub }}</div>
+            </div>
+            <sc-if value="{{ r.privat }}" hint-placeholder-val="{{ false }}"><span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.06em;text-transform:uppercase;color:#8a2b2b;flex:none;">privat</span></sc-if>
+          </div>
+        </sc-for>
+        <sc-if value="{{ listEmpty }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:22px 10px;text-align:center;font-family:'Hanken Grotesk';font-size:12.5px;color:#a99f8c;">{{ emptyLabel }}</div>
+        </sc-if>
+      </div>
+    </div>
+
+    <div data-scroll style="flex:1;min-width:0;overflow-y:auto;background:#fbf8f1;">
+
+      <sc-if value="{{ isPerson }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:24px 30px 60px;max-width:780px;">
+          <div style="display:flex;align-items:flex-start;gap:16px;">
+            <div style="width:64px;height:64px;border-radius:50%;background:#f8ecef;border:1.5px solid #881A33;display:flex;align-items:center;justify-content:center;flex:none;font-family:'Cormorant Garamond',serif;font-size:24px;font-weight:600;color:#881A33;">{{ p.initials }}</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:600;line-height:1.0;color:#221f1a;">{{ p.name }}</div>
+              <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:7px;">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#9a8f78;">{{ p.years }}</span>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#6f675b;background:#ece4d6;border-radius:5px;padding:3px 7px;">id {{ p.id }}</span>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#6f675b;background:#ece4d6;border-radius:5px;padding:3px 7px;">{{ p.koen }}</span>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:7px;align-items:flex-end;flex:none;">
+              <div onClick="{{ p.onTogglePrivat }}" style="display:flex;align-items:center;gap:8px;background:{{ p.privatBg }};border:1.5px solid {{ p.privatBorder }};border-radius:8px;padding:6px 11px;cursor:pointer;">
+                <span style="width:26px;height:15px;border-radius:8px;background:{{ p.privatTrack }};position:relative;flex:none;"><span style="position:absolute;top:1.5px;left:{{ p.privatKnob }};width:11px;height:11px;border-radius:50%;background:#fff;"></span></span>
+                <span style="font-family:'Hanken Grotesk';font-size:12px;font-weight:600;color:{{ p.privatColor }};">Privat</span>
+              </div>
+              <div onClick="{{ p.onDelete }}" style="display:flex;align-items:center;gap:7px;background:#fbf8f1;border:1.5px solid rgba(138,43,43,.3);border-radius:8px;padding:6px 11px;cursor:pointer;">
+                <span style="font-size:12px;color:#8a2b2b;">🗑</span>
+                <span style="font-family:'Hanken Grotesk';font-size:12px;font-weight:600;color:#8a2b2b;">Slet person</span>
+              </div>
+            </div>
+          </div>
+
+          <sc-if value="{{ showAnno }}" hint-placeholder-val="{{ true }}">
+            <div style="margin-top:16px;border:1px dashed rgba(136,26,51,.4);border-radius:11px;padding:13px 15px;background:#f8ecef;">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#881A33;margin-bottom:4px;">Sådan virker evidens-laget</div>
+              <div style="font-family:'Hanken Grotesk';font-size:12.5px;line-height:1.5;color:#3d382f;">Hvert <b>faktum</b> (født, død, navn…) vises som en <b>konklusion</b> — den blåstemplede værdi — der hviler på en eller flere <b>oplysninger</b>, hver med sin egen <b>kildeangivelse</b>. Redaktøren tilføjer oplysninger og vælger hvilken der bliver konklusion. Intet overskrives destruktivt; uenige kilder bevares side om side.</div>
+            </div>
+          </sc-if>
+
+          <div style="margin-top:22px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#b9a06a;margin-bottom:10px;">Kerne-fakta · konklusion ← oplysninger</div>
+          <sc-for list="{{ facts }}" as="f" hint-placeholder-count="4">
+            <div style="background:#f4efe6;border:1px solid rgba(34,31,26,.1);border-radius:12px;margin-bottom:9px;overflow:hidden;">
+              <div onClick="{{ f.onToggle }}" style="display:flex;align-items:center;gap:13px;padding:12px 15px;cursor:pointer;">
+                <span style="flex:none;width:78px;font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.04em;text-transform:uppercase;color:#9a8f78;">{{ f.label }}</span>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-family:'Cormorant Garamond',serif;font-size:19px;font-weight:600;line-height:1.1;color:#221f1a;">{{ f.value }}</div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#9a8f78;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">⮡ {{ f.sourceLabel }}</div>
+                </div>
+                <sc-if value="{{ f.hasConflict }}" hint-placeholder-val="{{ false }}"><span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.06em;text-transform:uppercase;color:#8a2b2b;background:#f2dede;border-radius:5px;padding:3px 7px;flex:none;">uenige kilder</span></sc-if>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#6f675b;background:#ece4d6;border-radius:5px;padding:3px 7px;flex:none;">{{ f.countLabel }}</span>
+                <span style="color:#bcae93;font-size:11px;flex:none;">{{ f.chevron }}</span>
+              </div>
+              <sc-if value="{{ f.expanded }}" hint-placeholder-val="{{ false }}">
+                <div style="padding:2px 15px 14px;">
+                  <sc-for list="{{ f.assertions }}" as="a" hint-placeholder-count="2">
+                    <div style="display:flex;align-items:flex-start;gap:11px;background:{{ a.rowBg }};border:1px solid {{ a.rowBorder }};border-radius:10px;padding:10px 12px;margin-bottom:7px;">
+                      <span style="width:11px;height:11px;border-radius:50%;background:{{ a.dot }};flex:none;margin-top:4px;"></span>
+                      <sc-if value="{{ a.notEditing }}" hint-placeholder-val="{{ true }}">
+                        <div style="flex:1;min-width:0;">
+                          <div style="display:flex;align-items:baseline;gap:8px;"><span style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:600;color:#221f1a;">{{ a.v }}</span><span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.06em;text-transform:uppercase;color:{{ a.statusColor }};">{{ a.statusLabel }}</span></div>
+                          <div style="font-family:'Hanken Grotesk';font-size:12px;color:#6f675b;margin-top:3px;">§ {{ a.src }}</div>
+                          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#a99f8c;margin-top:2px;">{{ a.meta }}</div>
+                        </div>
+                        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:none;">
+                          <sc-if value="{{ a.canChoose }}" hint-placeholder-val="{{ true }}"><div onClick="{{ a.onChoose }}" style="font-family:'Hanken Grotesk';font-size:11px;font-weight:600;color:#1f5b3a;border:1px solid rgba(31,91,58,.4);border-radius:7px;padding:6px 9px;cursor:pointer;white-space:nowrap;">Gør til konklusion</div></sc-if>
+                          <div style="display:flex;gap:4px;">
+                            <span onClick="{{ a.onEdit }}" title="Redigér" style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:6px;border:1px solid rgba(34,31,26,.16);color:#6f675b;font-size:12px;cursor:pointer;">✎</span>
+                            <span onClick="{{ a.onDelete }}" title="Slet oplysning" style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:6px;border:1px solid rgba(138,43,43,.3);color:#8a2b2b;font-size:12px;cursor:pointer;">🗑</span>
+                          </div>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ a.editing }}" hint-placeholder-val="{{ false }}">
+                        <div style="flex:1;min-width:0;">
+                          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#881A33;margin-bottom:7px;">Redigér oplysning</div>
+                          <input value="{{ a.editVal }}" onChange="{{ a.onEditVal }}" placeholder="Værdi" style="width:100%;font-family:'Hanken Grotesk';font-size:13px;color:#221f1a;background:#fff;border:1px solid rgba(34,31,26,.18);border-radius:7px;padding:8px 10px;outline:none;margin-bottom:7px;" />
+                          <input value="{{ a.editSrc }}" onChange="{{ a.onEditSrc }}" placeholder="Kildeangivelse — kilde, side/linje/nr" style="width:100%;font-family:'Hanken Grotesk';font-size:13px;color:#221f1a;background:#fff;border:1px solid rgba(34,31,26,.18);border-radius:7px;padding:8px 10px;outline:none;" />
+                          <div style="display:flex;align-items:center;gap:8px;margin-top:9px;">
+                            <div onClick="{{ a.onSaveEdit }}" style="font-family:'Hanken Grotesk';font-size:12px;font-weight:600;color:#fbf8f1;background:#1f5b3a;border-radius:7px;padding:8px 13px;cursor:pointer;">Gem ændring</div>
+                            <div onClick="{{ a.onCancelEdit }}" style="font-family:'Hanken Grotesk';font-size:12px;font-weight:600;color:#6f675b;padding:8px 10px;cursor:pointer;">Annullér</div>
+                            <div style="flex:1;"></div>
+                            <div onClick="{{ a.onDelete }}" style="font-family:'Hanken Grotesk';font-size:12px;font-weight:600;color:#8a2b2b;border:1px solid rgba(138,43,43,.3);border-radius:7px;padding:8px 11px;cursor:pointer;">Slet</div>
+                          </div>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+                  <sc-if value="{{ f.adding }}" hint-placeholder-val="{{ false }}">
+                    <div style="background:#fbf8f1;border:1px solid rgba(34,31,26,.16);border-radius:10px;padding:12px;margin-top:3px;">
+                      <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#881A33;margin-bottom:8px;">Ny oplysning</div>
+                      <input value="{{ f.addVal }}" onChange="{{ f.onAddVal }}" placeholder="Værdi (fx 1644)" style="width:100%;font-family:'Hanken Grotesk';font-size:13px;color:#221f1a;background:#fff;border:1px solid rgba(34,31,26,.18);border-radius:7px;padding:8px 10px;outline:none;margin-bottom:7px;" />
+                      <input value="{{ f.addSrc }}" onChange="{{ f.onAddSrc }}" placeholder="Kildeangivelse — kilde, side/linje/nr" style="width:100%;font-family:'Hanken Grotesk';font-size:13px;color:#221f1a;background:#fff;border:1px solid rgba(34,31,26,.18);border-radius:7px;padding:8px 10px;outline:none;" />
+                      <div style="display:flex;gap:8px;margin-top:9px;">
+                        <div onClick="{{ f.onSaveAdd }}" style="font-family:'Hanken Grotesk';font-size:12px;font-weight:600;color:#fbf8f1;background:#1f5b3a;border-radius:7px;padding:8px 13px;cursor:pointer;">Registrér oplysning</div>
+                        <div onClick="{{ f.onCancelAdd }}" style="font-family:'Hanken Grotesk';font-size:12px;font-weight:600;color:#6f675b;padding:8px 10px;cursor:pointer;">Annullér</div>
+                      </div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ f.notAdding }}" hint-placeholder-val="{{ true }}">
+                    <div onClick="{{ f.onAdd }}" style="font-family:'Hanken Grotesk';font-size:12px;font-weight:600;color:#881A33;cursor:pointer;padding:4px 2px;">+ Tilføj oplysning</div>
+                  </sc-if>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+
+          <div style="margin-top:26px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#b9a06a;margin-bottom:10px;">Familie & relationer</div>
+          <div style="background:#f4efe6;border:1px solid rgba(34,31,26,.1);border-radius:12px;padding:14px 15px;">
+            <sc-for list="{{ relGroups }}" as="g" hint-placeholder-count="3">
+              <div style="margin-bottom:13px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;">
+                  <span style="font-family:'Hanken Grotesk';font-size:12px;font-weight:600;color:#6f675b;">{{ g.label }}</span>
+                  <span onClick="{{ g.onAdd }}" style="font-family:'Hanken Grotesk';font-size:11px;font-weight:600;color:#881A33;cursor:pointer;">+ Tilføj</span>
+                </div>
+                <sc-for list="{{ g.items }}" as="m" hint-placeholder-count="2">
+                  <div style="display:flex;align-items:center;gap:11px;background:#fbf8f1;border:1px solid rgba(34,31,26,.1);border-radius:10px;padding:9px 11px;margin-bottom:6px;">
+                    <span style="width:28px;height:28px;border-radius:50%;background:#ece4d6;display:flex;align-items:center;justify-content:center;flex:none;font-family:'Cormorant Garamond',serif;font-size:11px;font-weight:600;color:#881A33;">{{ m.initials }}</span>
+                    <div style="flex:1;min-width:0;">
+                      <div style="font-family:'Cormorant Garamond',serif;font-size:15px;font-weight:600;color:#221f1a;line-height:1.05;">{{ m.name }}</div>
+                      <div style="font-family:'JetBrains Mono',monospace;font-size:8.5px;color:#a99f8c;margin-top:1px;">§ {{ m.src }}</div>
+                    </div>
+                    <sc-if value="{{ m.hasRoles }}" hint-placeholder-val="{{ false }}">
+                      <div style="display:flex;background:#ece4d6;border-radius:7px;padding:2px;gap:2px;flex:none;">
+                        <sc-for list="{{ m.roles }}" as="ro" hint-placeholder-count="4">
+                          <span onClick="{{ ro.onTap }}" style="font-family:'Hanken Grotesk';font-size:10px;font-weight:600;padding:4px 7px;border-radius:5px;cursor:pointer;background:{{ ro.bg }};color:{{ ro.color }};">{{ ro.label }}</span>
+                        </sc-for>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ m.fixedRole }}" hint-placeholder-val="{{ false }}"><span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.06em;text-transform:uppercase;color:#9a8f78;flex:none;">{{ m.roleLabel }}</span></sc-if>
+                    <span style="color:#bcae93;font-size:13px;flex:none;cursor:pointer;">✕</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+
+          <sc-for list="{{ sections }}" as="sec" hint-placeholder-count="3">
+            <div style="margin-top:24px;display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#b9a06a;">{{ sec.label }}</span>
+              <span onClick="{{ sec.onAdd }}" style="font-family:'Hanken Grotesk';font-size:11px;font-weight:600;color:#881A33;cursor:pointer;">+ {{ sec.addLabel }}</span>
+            </div>
+            <sc-for list="{{ sec.rows }}" as="row" hint-placeholder-count="2">
+              <div style="display:flex;align-items:center;gap:12px;background:#f4efe6;border:1px solid rgba(34,31,26,.1);border-radius:10px;padding:11px 13px;margin-bottom:6px;">
+                <span style="width:30px;height:30px;border-radius:7px;background:#ece4d6;display:flex;align-items:center;justify-content:center;flex:none;font-size:14px;color:#881A33;">{{ row.icon }}</span>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:600;color:#221f1a;line-height:1.1;">{{ row.title }}</div>
+                  <div style="font-family:'Hanken Grotesk';font-size:11.5px;color:#6f675b;margin-top:1px;">{{ row.sub }}</div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:8.5px;color:#a99f8c;margin-top:2px;">§ {{ row.src }}</div>
+                </div>
+                <sc-if value="{{ row.hasPeriod }}" hint-placeholder-val="{{ false }}"><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#9a8f78;flex:none;">{{ row.period }}</span></sc-if>
+                <span style="color:#bcae93;font-size:12px;flex:none;cursor:pointer;">✎</span>
+              </div>
+            </sc-for>
+          </sc-for>
+
+          <div style="margin-top:24px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#b9a06a;margin-bottom:10px;">Narrativer · biografi & noter</div>
+          <div style="background:#f4efe6;border:1px solid rgba(34,31,26,.1);border-radius:12px;padding:14px 15px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+              <span style="font-family:'Hanken Grotesk';font-size:12px;font-weight:600;color:#6f675b;">Biografi · subjekt_type = person</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#9a8f78;">offentlig</span>
+            </div>
+            <textarea value="{{ bio }}" onChange="{{ onBio }}" style="width:100%;height:104px;font-family:'Hanken Grotesk';font-size:13px;line-height:1.55;color:#3d382f;background:#fff;border:1px solid rgba(34,31,26,.16);border-radius:9px;padding:11px 12px;outline:none;resize:vertical;"></textarea>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:9px;">
+              <input value="{{ bioKilde }}" onChange="{{ onBioKilde }}" placeholder="Kilde til narrativet" style="flex:1;font-family:'Hanken Grotesk';font-size:12px;color:#221f1a;background:#fff;border:1px solid rgba(34,31,26,.16);border-radius:7px;padding:8px 10px;outline:none;" />
+              <span style="font-family:'Hanken Grotesk';font-size:11px;color:#6f675b;display:flex;align-items:center;gap:6px;cursor:pointer;"><span style="width:24px;height:14px;border-radius:8px;background:#cfc6b5;position:relative;"><span style="position:absolute;top:1.5px;left:1.5px;width:11px;height:11px;border-radius:50%;background:#fff;"></span></span> privat</span>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isGeneric }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:24px 30px 60px;max-width:760px;">
+          <div style="display:flex;align-items:flex-start;gap:14px;">
+            <span style="width:54px;height:54px;border-radius:12px;background:#f8ecef;display:flex;align-items:center;justify-content:center;flex:none;font-size:24px;color:#881A33;">{{ gen.icon }}</span>
+            <div style="flex:1;">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#9a8f78;">{{ gen.kicker }}</div>
+              <div style="font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:600;line-height:1.05;color:#221f1a;margin-top:2px;">{{ gen.title }}</div>
+            </div>
+            <sc-if value="{{ gen.canDelete }}" hint-placeholder-val="{{ true }}">
+              <div onClick="{{ gen.onDelete }}" style="display:flex;align-items:center;gap:7px;flex:none;background:#fbf8f1;border:1.5px solid rgba(138,43,43,.3);border-radius:9px;padding:8px 12px;cursor:pointer;">
+                <span style="font-size:13px;color:#8a2b2b;">🗑</span>
+                <span style="font-family:'Hanken Grotesk';font-size:12px;font-weight:600;color:#8a2b2b;">Slet</span>
+              </div>
+            </sc-if>
+          </div>
+
+          <sc-if value="{{ showAnno }}" hint-placeholder-val="{{ true }}">
+            <div style="margin-top:16px;border:1px dashed rgba(136,26,51,.4);border-radius:11px;padding:13px 15px;background:#f8ecef;">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#881A33;margin-bottom:4px;">{{ gen.annoLabel }}</div>
+              <div style="font-family:'Hanken Grotesk';font-size:12.5px;line-height:1.5;color:#3d382f;">{{ gen.anno }}</div>
+            </div>
+          </sc-if>
+
+          <sc-for list="{{ gen.fields }}" as="fl" hint-placeholder-count="4">
+            <div style="margin-top:16px;">
+              <label style="display:block;font-family:'Hanken Grotesk';font-size:11px;font-weight:600;color:#6f675b;margin-bottom:5px;">{{ fl.label }}</label>
+              <sc-if value="{{ fl.isText }}" hint-placeholder-val="{{ true }}">
+                <input value="{{ fl.val }}" onChange="{{ fl.onInput }}" style="width:100%;font-family:'{{ fl.font }}';font-size:{{ fl.size }};color:#221f1a;background:#fff;border:1px solid rgba(34,31,26,.16);border-radius:8px;padding:10px 12px;outline:none;" />
+              </sc-if>
+              <sc-if value="{{ fl.isArea }}" hint-placeholder-val="{{ false }}">
+                <textarea value="{{ fl.val }}" onChange="{{ fl.onInput }}" style="width:100%;height:96px;font-family:'Hanken Grotesk';font-size:13px;line-height:1.55;color:#3d382f;background:#fff;border:1px solid rgba(34,31,26,.16);border-radius:8px;padding:11px 12px;outline:none;resize:vertical;"></textarea>
+              </sc-if>
+              <sc-if value="{{ fl.isChips }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                  <sc-for list="{{ fl.chips }}" as="ch" hint-placeholder-count="3">
+                    <span onClick="{{ ch.onTap }}" style="font-family:'Hanken Grotesk';font-size:12px;font-weight:600;padding:6px 11px;border-radius:8px;cursor:pointer;background:{{ ch.bg }};color:{{ ch.color }};border:1px solid {{ ch.border }};">{{ ch.label }}</span>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+
+          <sc-if value="{{ gen.hasTimeline }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:24px;display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#b9a06a;">{{ gen.timelineLabel }}</span>
+              <span style="font-family:'Hanken Grotesk';font-size:11px;font-weight:600;color:#881A33;cursor:pointer;">+ Tilføj</span>
+            </div>
+            <sc-for list="{{ gen.timeline }}" as="tl" hint-placeholder-count="3">
+              <div style="display:flex;align-items:center;gap:12px;background:#f4efe6;border:1px solid rgba(34,31,26,.1);border-radius:10px;padding:11px 13px;margin-bottom:6px;">
+                <span style="width:11px;height:11px;border-radius:50%;background:#881A33;flex:none;"></span>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:600;color:#221f1a;line-height:1.05;">{{ tl.title }}</div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:8.5px;color:#a99f8c;margin-top:2px;">§ {{ tl.src }}</div>
+                </div>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#9a8f78;flex:none;">{{ tl.period }}</span>
+                <span style="color:#bcae93;font-size:12px;flex:none;cursor:pointer;">✎</span>
+              </div>
+            </sc-for>
+          </sc-if>
+
+          <sc-if value="{{ gen.hasGallery }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:24px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#b9a06a;margin-bottom:10px;">{{ gen.galleryLabel }}</div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:11px;">
+              <sc-for list="{{ gen.gallery }}" as="gi" hint-placeholder-count="4">
+                <div style="background:#f4efe6;border:1px solid rgba(34,31,26,.1);border-radius:11px;padding:9px;">
+                  <div style="width:100%;aspect-ratio:.82;border-radius:7px;background:repeating-linear-gradient(45deg,#ece4d6 0 8px,#e2d8c8 8px 16px);border:1px solid rgba(34,31,26,.08);"></div>
+                  <div style="font-family:'Cormorant Garamond',serif;font-size:14px;font-weight:600;color:#221f1a;margin-top:6px;line-height:1.1;">{{ gi.title }}</div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:8.5px;color:#9a8f78;margin-top:1px;">{{ gi.meta }}</div>
+                </div>
+              </sc-for>
+              <div style="border:1px dashed rgba(34,31,26,.22);border-radius:11px;display:flex;align-items:center;justify-content:center;min-height:120px;font-family:'Hanken Grotesk';font-size:12px;color:#a99f8c;cursor:pointer;">+ Tilføj</div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ gen.hasUsage }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:24px;background:#f4efe6;border:1px solid rgba(34,31,26,.1);border-radius:11px;padding:13px 15px;display:flex;align-items:center;gap:12px;">
+              <span style="font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:600;color:#881A33;">{{ gen.usageCount }}</span>
+              <div>
+                <div style="font-family:'Hanken Grotesk';font-size:13px;font-weight:600;color:#221f1a;">{{ gen.usageLabel }}</div>
+                <div style="font-family:'Hanken Grotesk';font-size:11.5px;color:#6f675b;">{{ gen.usageSub }}</div>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ gen.isEmpty }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:20px;border:1px dashed rgba(34,31,26,.22);border-radius:12px;padding:34px;text-align:center;background:#f4efe6;">
+              <div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:600;color:#6f675b;">{{ gen.emptyTitle }}</div>
+              <div style="font-family:'Hanken Grotesk';font-size:12.5px;color:#a99f8c;margin-top:6px;max-width:340px;margin-left:auto;margin-right:auto;line-height:1.5;">{{ gen.emptyBody }}</div>
+              <div style="display:inline-block;margin-top:14px;font-family:'Hanken Grotesk';font-size:12.5px;font-weight:600;color:#fbf8f1;background:#881A33;border-radius:9px;padding:9px 16px;cursor:pointer;">{{ gen.emptyCta }}</div>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+    </div>
+  </div>
+
+  <sc-if value="{{ confirm.open }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;inset:0;background:rgba(34,27,22,.55);display:flex;align-items:center;justify-content:center;z-index:90;padding:24px;">
+      <div style="width:460px;max-width:100%;background:#fbf8f1;border-radius:16px;border:1px solid rgba(34,31,26,.14);box-shadow:0 24px 60px rgba(0,0,0,.3);overflow:hidden;">
+        <div style="padding:20px 22px 16px;display:flex;align-items:flex-start;gap:14px;">
+          <span style="width:42px;height:42px;border-radius:50%;background:#f2dede;display:flex;align-items:center;justify-content:center;flex:none;font-size:19px;color:#8a2b2b;">⚠</span>
+          <div style="flex:1;">
+            <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:600;line-height:1.1;color:#221f1a;">Slet {{ confirm.kindLabel }}?</div>
+            <div style="font-family:'Hanken Grotesk';font-size:13px;line-height:1.5;color:#3d382f;margin-top:5px;">Du er ved at slette <b>{{ confirm.label }}</b>. Posten fjernes permanent fra basen.</div>
+          </div>
+        </div>
+        <div style="margin:0 22px;background:#f8ecef;border:1px solid rgba(138,43,43,.25);border-radius:11px;padding:13px 15px;">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#8a2b2b;margin-bottom:6px;">Relationer der brydes</div>
+          <div style="font-family:'Hanken Grotesk';font-size:12.5px;line-height:1.5;color:#3d382f;">{{ confirm.relWarning }}</div>
+          <sc-if value="{{ confirm.hasRelList }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:9px;">
+              <sc-for list="{{ confirm.relList }}" as="rl" hint-placeholder-count="3">
+                <span style="font-family:'Hanken Grotesk';font-size:11px;font-weight:600;color:#8a2b2b;background:#fbf8f1;border:1px solid rgba(138,43,43,.25);border-radius:6px;padding:4px 8px;">{{ rl.label }}</span>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+        <div style="padding:16px 22px 18px;display:flex;align-items:center;gap:10px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1;" onClick="{{ confirm.onToggleAck }}">
+            <span style="width:18px;height:18px;border-radius:5px;border:1.5px solid {{ confirm.ackBorder }};background:{{ confirm.ackBg }};display:flex;align-items:center;justify-content:center;flex:none;font-size:11px;color:#fff;">{{ confirm.ackMark }}</span>
+            <span style="font-family:'Hanken Grotesk';font-size:12px;color:#3d382f;">Jeg forstår at relationerne brydes</span>
+          </label>
+        </div>
+        <div style="display:flex;gap:9px;padding:0 22px 20px;justify-content:flex-end;">
+          <div onClick="{{ confirm.onCancel }}" style="font-family:'Hanken Grotesk';font-size:12.5px;font-weight:600;color:#6f675b;border:1px solid rgba(34,31,26,.18);border-radius:9px;padding:10px 16px;cursor:pointer;">Annullér</div>
+          <div onClick="{{ confirm.onConfirm }}" style="font-family:'Hanken Grotesk';font-size:12.5px;font-weight:600;color:{{ confirm.confirmColor }};background:{{ confirm.confirmBg }};border-radius:9px;padding:10px 16px;cursor:{{ confirm.confirmCursor }};">Slet endeligt</div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ loginOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ onCloseLogin }}" style="position:fixed;inset:0;background:rgba(34,27,22,.55);display:flex;align-items:center;justify-content:center;z-index:95;padding:24px;">
+      <div style="width:380px;max-width:100%;background:#fbf8f1;border-radius:16px;border:1px solid rgba(34,31,26,.14);box-shadow:0 24px 60px rgba(0,0,0,.3);padding:22px 24px 20px;">
+        <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:600;color:#221f1a;">Redaktør-login</div>
+        <div style="font-family:'Hanken Grotesk';font-size:12px;color:#6f675b;margin-top:3px;margin-bottom:15px;">Supabase Auth · adgang og skriverettigheder afgøres af din rolle.</div>
+        <label style="display:block;font-family:'Hanken Grotesk';font-size:11px;font-weight:600;color:#6f675b;margin-bottom:4px;">E-mail</label>
+        <input value="{{ loginEmail }}" onChange="{{ onLoginEmail }}" placeholder="redaktion@adelsaarbog.dk" style="width:100%;font-family:'Hanken Grotesk';font-size:13px;color:#221f1a;background:#fff;border:1px solid rgba(34,31,26,.18);border-radius:8px;padding:9px 11px;outline:none;margin-bottom:11px;" />
+        <label style="display:block;font-family:'Hanken Grotesk';font-size:11px;font-weight:600;color:#6f675b;margin-bottom:4px;">Adgangskode</label>
+        <input value="{{ loginPw }}" onChange="{{ onLoginPw }}" type="password" style="width:100%;font-family:'Hanken Grotesk';font-size:13px;color:#221f1a;background:#fff;border:1px solid rgba(34,31,26,.18);border-radius:8px;padding:9px 11px;outline:none;" />
+        <sc-if value="{{ hasLoginErr }}" hint-placeholder-val="{{ false }}"><div style="font-family:'Hanken Grotesk';font-size:11.5px;color:#8a2b2b;margin-top:9px;">{{ loginErr }}</div></sc-if>
+        <div style="display:flex;gap:9px;margin-top:16px;justify-content:flex-end;">
+          <div onClick="{{ onCloseLogin }}" style="font-family:'Hanken Grotesk';font-size:12.5px;font-weight:600;color:#6f675b;padding:9px 12px;cursor:pointer;">Annullér</div>
+          <div onClick="{{ onDoLogin }}" style="font-family:'Hanken Grotesk';font-size:12.5px;font-weight:600;color:#fbf8f1;background:#881A33;border-radius:9px;padding:10px 18px;cursor:pointer;">{{ loginBtnLabel }}</div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ hasWrite }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ onCloseWrite }}" style="position:fixed;inset:0;background:rgba(34,27,22,.5);display:flex;align-items:center;justify-content:center;z-index:92;padding:24px;">
+      <div style="width:600px;max-width:100%;max-height:80vh;background:#fbf8f1;border-radius:16px;border:1px solid rgba(34,31,26,.14);box-shadow:0 24px 60px rgba(0,0,0,.3);display:flex;flex-direction:column;overflow:hidden;">
+        <div style="padding:18px 22px 14px;border-bottom:1px solid rgba(34,31,26,.1);">
+          <div style="display:flex;align-items:center;gap:9px;">
+            <span style="width:9px;height:9px;border-radius:50%;background:{{ write.dot }};flex:none;"></span>
+            <span style="font-family:'Cormorant Garamond',serif;font-size:21px;font-weight:600;color:#221f1a;">{{ write.title }}</span>
+          </div>
+          <div style="font-family:'Hanken Grotesk';font-size:12px;color:#6f675b;margin-top:5px;">{{ write.routeNote }}</div>
+        </div>
+        <div data-scroll style="flex:1;overflow-y:auto;padding:14px 22px;">
+          <sc-if value="{{ write.hasError }}" hint-placeholder-val="{{ false }}"><div style="font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.5;color:#8a2b2b;white-space:pre-wrap;">{{ write.error }}</div></sc-if>
+          <sc-for list="{{ write.lines }}" as="ln" hint-placeholder-count="3">
+            <div style="background:#2a211c;border-radius:9px;padding:11px 13px;margin-bottom:9px;"><pre style="margin:0;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5;color:#e7e0d2;white-space:pre-wrap;word-break:break-word;">{{ ln }}</pre></div>
+          </sc-for>
+          <sc-if value="{{ write.done }}" hint-placeholder-val="{{ false }}"><div style="font-family:'Hanken Grotesk';font-size:12.5px;color:#1f5b3a;font-weight:600;">✓ Udført ({{ write.resultCount }} kald).</div></sc-if>
+        </div>
+        <div style="padding:14px 22px;border-top:1px solid rgba(34,31,26,.1);display:flex;justify-content:flex-end;">
+          <div onClick="{{ onCloseWrite }}" style="font-family:'Hanken Grotesk';font-size:12.5px;font-weight:600;color:#fbf8f1;background:#881A33;border-radius:9px;padding:9px 18px;cursor:pointer;">Luk</div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:900},&quot;showAnnotations&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  state = {
+    entity: 'person',
+    recordId: 'p1',
+    query: '',
+    expanded: { 'p1:foedt': true },
+    addingTo: null,
+    showAnno: true,
+    scratch: {},
+    people: null,
+    today: '2026-06-20',
+    deleted: {},
+    confirmDelete: null,
+    confirmAck: false,
+    auth: null,
+    dryRun: true,
+    loginOpen: false,
+    loginEmail: '',
+    loginPw: '',
+    loginErr: '',
+    loginBusy: false,
+    writePlan: null
+  };
+
+  SUPABASE = { url:'https://xjnvdhajfyrcytatnzos.supabase.co', anonKey:'sb_publishable_uqG6vWnnUEdE0K5wiCIYWg_raCWAqc3' };
+  W(){ if(!this._W) this._W = import('./redaktion-write.js'); return this._W; }
+  openLogin(){ this.setState({ loginOpen:true, loginErr:'' }); }
+  closeLogin(){ this.setState({ loginOpen:false }); }
+  async doLogin(){
+    const email=(this.state.loginEmail||'').trim(); const pw=this.state.loginPw||'';
+    if(!email||!pw){ this.setState({ loginErr:'Udfyld e-mail og adgangskode' }); return; }
+    this.setState({ loginBusy:true, loginErr:'' });
+    try{ const W=await this.W();
+      const s=await W.signIn(this.SUPABASE.url, this.SUPABASE.anonKey, email, pw);
+      let role='medlem'; try{ const prof=await W.getRole(this.SUPABASE.url, this.SUPABASE.anonKey, s.token, s.user.id); role=prof.rolle||'medlem'; }catch(_){}
+      this.setState({ auth:{ token:s.token, email, role }, loginOpen:false, loginBusy:false, loginPw:'' });
+    }catch(e){ this.setState({ loginErr:String((e&&e.message)||e), loginBusy:false }); }
+  }
+  doLogout(){ const a=this.state.auth; this.setState({ auth:null }); if(a) this.W().then(W=>{ try{ W.signOut(this.SUPABASE.url, this.SUPABASE.anonKey, a.token); }catch(_){} }); }
+  toggleDry(){ this.setState(st=>({ dryRun:!st.dryRun })); }
+  closeWrite(){ this.setState({ writePlan:null }); }
+  async runWrite(change){
+    const W=await this.W();
+    const role=(this.state.auth&&this.state.auth.role)||'medlem';
+    const plan=W.buildPlan(change, role);
+    const opts={ url:this.SUPABASE.url, anonKey:this.SUPABASE.anonKey, token:this.state.auth&&this.state.auth.token, dryRun:this.state.dryRun };
+    try{ const res=await W.submit(plan, opts);
+      this.setState({ writePlan:{ role, dryRun:!!res.dryRun, preview:res.preview||[], results:res.results||[], change } });
+    }catch(e){ this.setState({ writePlan:{ role, error:String((e&&e.message)||e), change } }); }
+  }
+
+  buildPeople(){
+    return [
+      { id:'p1', name:'Conrad Reventlow', years:'* 1644  †  1708', koen:'mand', privat:false, initials:'CR',
+        facts: {
+          navn:[ {v:'Conrad Reventlow', src:'DAA 2018 · Reventlow, tavle I, nr. 1', by:'Redaktion', when:'2024-03-12', chosen:true} ],
+          foedt:[ {v:'21. april 1644', src:'DAA 2018 · Reventlow, tavle I', by:'Redaktion', when:'2024-03-12', chosen:true},
+                  {v:'1643', src:'Danmarks Adels Aarbog 1896, s. 342', by:'OCR-import', when:'2023-11-02', chosen:false, conflict:true} ],
+          doed:[ {v:'21. juli 1708', src:'DAA 2018 · Reventlow, tavle I', by:'Redaktion', when:'2024-03-12', chosen:true} ],
+          koen:[ {v:'mand', src:'afledt af titel & navn', by:'system', when:'2023-11-02', chosen:true} ],
+          titel:[ {v:'Storkansler', src:'Bestalling 1699', by:'Redaktion', when:'2024-03-12', chosen:true},
+                  {v:'Greve af Reventlow (1673)', src:'Grevepatent 11. sep. 1673', by:'Redaktion', when:'2024-03-12', chosen:false} ]
+        },
+        parents:[ {id:'x1', name:'Ditlev Reventlow', src:'DAA 2018 · tavle I', role:'barn'},
+                  {id:'x2', name:'Anna Margrethe Hahn', src:'DAA 2018 · tavle I', role:'barn'} ],
+        partners:[ {id:'p3', name:'Anna Margrethe Gabel', src:'Vielse 1667 · Holmens Kirke'} ],
+        children:[ {id:'p2', name:'Christian Ditlev Reventlow', src:'DAA 2018 · tavle II', role:'barn'},
+                   {id:'c2', name:'Anna Sophie Reventlow', src:'DAA 2018 · tavle II', role:'barn'},
+                   {id:'c3', name:'Conradine Reventlow', src:'fol. 1682, plejeoptaget', role:'plejebarn'} ],
+        offices:[ {title:'Storkansler', org:'Gehejmekonseillet', period:'1699–1708', src:'Bestalling 1699'},
+                  {title:'Stiftamtmand', org:'Sjællands Stift', period:'1685–1699', src:'DAA 2018 · biografi'} ],
+        estates:[ {title:'Clausholm', role:'ejer', period:'1673–1708', src:'Skøde 1673'},
+                  {title:'Frisenvold', role:'ejer', period:'1681–1708', src:'DAA 2018 · godsregister'} ],
+        bookrefs:[ {linje:'I', nr:'1', source:'Danmarks Adels Aarbog 2018'} ],
+        bio:'Ophøjet til greve i 1673 og udnævnt til storkansler 1699. Regnes som stamfader til den danske greveslægt Reventlow.',
+        bioKilde:'DAA 2018 · biografisk indledning',
+        arms:[ {title:'DAA-gengivelse', meta:'autoriseret · 2018'}, {title:'Segl 1699', meta:'segl · dateret'} ]
+      },
+      { id:'p2', name:'Christian Ditlev Reventlow', years:'* 1671  †  1738', koen:'mand', privat:false, initials:'CD',
+        facts: {
+          navn:[ {v:'Christian Ditlev Reventlow', src:'DAA 2018 · tavle II, nr. 4', by:'Redaktion', when:'2024-03-12', chosen:true} ],
+          foedt:[ {v:'21. juli 1671', src:'DAA 2018 · tavle II', by:'Redaktion', when:'2024-03-12', chosen:true} ],
+          doed:[ {v:'1. okt. 1738', src:'DAA 2018 · tavle II', by:'Redaktion', when:'2024-03-12', chosen:true} ],
+          koen:[ {v:'mand', src:'afledt', by:'system', when:'2023-11-02', chosen:true} ],
+          titel:[ {v:'Greve · Generalfeltmarskal', src:'DAA 2018 · biografi', by:'Redaktion', when:'2024-03-12', chosen:true} ]
+        },
+        parents:[ {id:'p1', name:'Conrad Reventlow', src:'DAA 2018 · tavle II', role:'barn'} ],
+        partners:[ {id:'x4', name:'Benedicte von Brockdorff', src:'Vielse 1700'} ],
+        children:[ {id:'x5', name:'Ditlev Reventlow', src:'DAA 2018 · tavle III', role:'barn'} ],
+        offices:[ {title:'Generalfeltmarskal', org:'Hæren', period:'1717–1738', src:'DAA 2018 · biografi'} ],
+        estates:[ {title:'Christianssæde', role:'ejer', period:'1729–1738', src:'Erektionspatent 1729'} ],
+        bookrefs:[ {linje:'II', nr:'4', source:'Danmarks Adels Aarbog 2018'} ],
+        bio:'Militær og godsejer, der samlede betydelige besiddelser på Lolland og Sjælland og oprettede grevskabet Christianssæde.',
+        bioKilde:'DAA 2018',
+        arms:[ {title:'DAA-gengivelse', meta:'autoriseret · 2018'} ]
+      },
+      { id:'p3', name:'Anna Margrethe Gabel', years:'* 1649  †  1678', koen:'kvinde', privat:false, initials:'AG',
+        facts: {
+          navn:[ {v:'Anna Margrethe Gabel', src:'DAA 2018 · Gabel, tavle I', by:'Redaktion', when:'2024-03-12', chosen:true} ],
+          foedt:[ {v:'1649', src:'DAA 2018 · Gabel', by:'Redaktion', when:'2024-03-12', chosen:true} ],
+          doed:[ {v:'1678', src:'DAA 2018 · Gabel', by:'Redaktion', when:'2024-03-12', chosen:true},
+                 {v:'1679', src:'Wibergs Præstehistorie', by:'OCR-import', when:'2023-11-02', chosen:false, conflict:true} ],
+          koen:[ {v:'kvinde', src:'afledt', by:'system', when:'2023-11-02', chosen:true} ],
+          titel:[ {v:'Grevinde', src:'ved ægteskab 1667', by:'Redaktion', when:'2024-03-12', chosen:true} ]
+        },
+        parents:[ {id:'x6', name:'Christoffer Gabel', src:'DAA 2018 · Gabel', role:'barn'} ],
+        partners:[ {id:'p1', name:'Conrad Reventlow', src:'Vielse 1667'} ],
+        children:[ {id:'p2', name:'Christian Ditlev Reventlow', src:'DAA 2018', role:'barn'} ],
+        offices:[],
+        estates:[],
+        bookrefs:[ {linje:'—', nr:'—', source:'Danmarks Adels Aarbog 2018 (Gabel)'} ],
+        bio:'',
+        bioKilde:'',
+        arms:[]
+      }
+    ];
+  }
+
+  people(){ return this.state.people || (this.state.people = this.buildPeople()); }
+  curPerson(){ const ps = this.people(); return ps.find(p=>p.id===this.state.recordId) || ps[0]; }
+  initialsOf(name){ return (name||'').split(' ').filter(Boolean).map(s=>s[0]).slice(0,2).join('').toUpperCase(); }
+
+  // --- mutationer (kun i hukommelsen — POC) ---
+  patchPerson(id, fn){ this.setState(st=>{ const ps=(st.people||this.buildPeople()).map(p=> p.id===id ? fn({...p}) : p); return { people: ps }; }); }
+  setChosen(pid, key, idx){ this.patchPerson(pid, p=>{ const facts={...p.facts}; facts[key]=facts[key].map((a,i)=>({...a, chosen:i===idx})); return {...p, facts}; }); }
+  editAssertion(pid, key, idx){ this.patchPerson(pid, p=>{ const facts={...p.facts}; facts[key]=facts[key].map((a,i)=> i===idx ? {...a,
+      v:(this.state.scratch['ed:'+pid+':'+key+':'+idx+':v'] ?? a.v).trim(),
+      src:(this.state.scratch['ed:'+pid+':'+key+':'+idx+':src'] ?? a.src).trim()||'(kilde mangler)',
+      by:'Redaktør (dig)', when:this.state.today } : a); return {...p, facts}; });
+    this.setState(st=>{ const sc={...st.scratch}; delete sc['ed:'+pid+':'+key+':'+idx+':v']; delete sc['ed:'+pid+':'+key+':'+idx+':src']; return { editingAssert:null, scratch:sc }; }); }
+  deleteAssertion(pid, key, idx){ this.patchPerson(pid, p=>{ const facts={...p.facts}; let arr=facts[key].filter((a,i)=>i!==idx);
+      if(arr.length && !arr.some(a=>a.chosen)) arr=arr.map((a,i)=>({...a, chosen:i===0})); facts[key]=arr; return {...p, facts}; });
+    this.setState({ editingAssert:null }); }
+  togglePrivat(pid){ this.patchPerson(pid, p=>({...p, privat:!p.privat})); }
+  setChildRole(pid, idx, role){ this.patchPerson(pid, p=>{ const children=p.children.map((c,i)=> i===idx ? {...c, role} : c); return {...p, children}; }); }
+
+  // --- sletning med relations-advarsel ---
+  deleteInfo(entity, id){
+    if(entity==='person'){
+      const p = this.people().find(x=>x.id===id) || {};
+      const rels = [];
+      (p.parents||[]).forEach(r=>rels.push('forælder: '+r.name));
+      (p.partners||[]).forEach(r=>rels.push('ægtefælle: '+r.name));
+      (p.children||[]).forEach(r=>rels.push('barn: '+r.name));
+      (p.offices||[]).forEach(r=>rels.push('hverv: '+r.title));
+      (p.estates||[]).forEach(r=>rels.push('gods: '+r.title));
+      (p.arms||[]).length && rels.push('våben tilknyttet');
+      const n = rels.length;
+      return { kindLabel:'person', label:p.name||'denne person',
+        relWarning: n? (n+' relation'+(n===1?'':'er')+' til andre poster brydes — familiekanter, hverv, godsejerskaber og kildehenvisninger fjernes. Personen forsvinder fra stamtræet.') : 'Ingen registrerede relationer brydes.',
+        relList: rels.slice(0,8).map(label=>({label})) };
+    }
+    const map = {
+      estate: { kindLabel:'gods', relWarning:'7 ejer-relationer til 6 personer brydes, og 1 tilknyttet narrativ mister sit subjekt. Hvis godset indgår i et majorat, fjernes tilknytningen dertil.', relList:['Conrad Reventlow','Chr. D. Reventlow','+ 4 ejere','majorat: Grevskabet Christianssæde'] },
+      majorat: { kindLabel:'majorat', relWarning:'3 omfattede godser frigøres fra båndlæggelsen, og successorrækken (indehaver-relationer) opløses. Godserne og personerne består som egne poster.', relList:['Christianssæde','Pederstrup','Skelstofte','successorrække: 3 indehavere'] },
+      source: { kindLabel:'kilde', relWarning:'1247 henvisninger (person_external_id + kildeangivelser på oplysninger) mister deres kilde og står herefter ukildet.', relList:['1247 kildeangivelser','312 bogreferencer'] },
+      narrative: { kindLabel:'narrativ', relWarning:'Narrativet er knyttet til ét subjekt (person/slægt/gods). Subjektet består, men mister denne tekst.', relList:['subjekt: Conrad Reventlow'] },
+      office: { kindLabel:'hverv', relWarning:'Relationen mellem personen og organisationen fjernes. Begge poster består.', relList:['person: Conrad Reventlow','organisation: Gehejmekonseillet'] },
+      org: { kindLabel:'organisation', relWarning:'14 hverv peger på denne organisation og mister deres tilknytning.', relList:['14 hverv-relationer'] },
+      family: { kindLabel:'familie', relWarning:'Familien opløses: partner- og barn-kanter mellem de tilknyttede personer fjernes. Personerne består.', relList:['2 partnere','3 børn'] },
+      arms: { kindLabel:'våben', relWarning:'Personer og slægtslinjer der fører dette våben mister deres tilknytning, og tilhørende gengivelser/segl frakobles.', relList:['slægt: Reventlow','3 medie-gengivelser'] },
+      media: { kindLabel:'medie', relWarning:'Mediets tilknytninger til personer/godser/våben fjernes.', relList:[] }
+    };
+    const info = map[entity] || { kindLabel:'post', relWarning:'Tilknyttede relationer brydes.', relList:[] };
+    const rec = (this.recordsFor(entity).find(r=>r.id===id)) || {};
+    return { kindLabel:info.kindLabel, label:rec.label||('denne '+info.kindLabel), relWarning:info.relWarning, relList:(info.relList||[]).map(label=>({label})) };
+  }
+  requestDelete(entity, id){ this.setState({ confirmDelete:{ entity, id }, confirmAck:false }); }
+  cancelDelete(){ this.setState({ confirmDelete:null, confirmAck:false }); }
+  performDelete(){
+    const cd = this.state.confirmDelete; if(!cd || !this.state.confirmAck) return;
+    this.setState(st=>{
+      const deleted = {...st.deleted, [cd.entity+':'+cd.id]:true };
+      let people = st.people, recordId = st.recordId;
+      if(cd.entity==='person'){ people = (st.people||this.buildPeople()).filter(p=>p.id!==cd.id); }
+      // vælg næste post i listen
+      const remaining = this.recordsFor(cd.entity).filter(r=> r.id!==cd.id && !deleted[cd.entity+':'+r.id]);
+      if(recordId===cd.id) recordId = remaining[0] ? remaining[0].id : null;
+      return { deleted, people, recordId, confirmDelete:null, confirmAck:false };
+    });
+  }
+  toggleFact(pid, key){ const k=pid+':'+key; this.setState(st=>({ expanded:{...st.expanded, [k]:!st.expanded[k]} })); }
+  scKey(pid, key){ return 'na:'+pid+':'+key; }
+  addAssertion(pid, key){
+    const v = (this.state.scratch[this.scKey(pid,key)+':v']||'').trim();
+    const src = (this.state.scratch[this.scKey(pid,key)+':src']||'').trim();
+    if(!v){ return; }
+    this.patchPerson(pid, p=>{ const facts={...p.facts}; facts[key]=facts[key].concat([{v, src:src||'(kilde mangler)', by:'Redaktør (dig)', when:this.state.today, chosen:false}]); return {...p, facts}; });
+    this.setState(st=>{ const sc={...st.scratch}; delete sc[this.scKey(pid,key)+':v']; delete sc[this.scKey(pid,key)+':src']; return { addingTo:null, scratch:sc }; });
+    this.runWrite({ art:'fakta', subjektType:'person', subjektId:pid, felt:key, vaerdi:v, kildeFritekst: src||'(kilde mangler)' });
+  }
+  scVal(key, fb){ const v=this.state.scratch[key]; return v===undefined?(fb||''):v; }
+  onSc(key){ return (e)=>{ const val=e.target.value; this.setState(st=>({ scratch:{...st.scratch, [key]:val} })); }; }
+
+  ENTITIES = [
+    { key:'person', label:'Personer', icon:'☗', count:1247 },
+    { key:'family', label:'Familier & relationer', icon:'⚭', count:402 },
+    { key:'narrative', label:'Narrativer', icon:'¶', count:318 },
+    { key:'office', label:'Embeder & hverv', icon:'❦', count:1530 },
+    { key:'estate', label:'Godser', icon:'⌂', count:169 },
+    { key:'majorat', label:'Majorater', icon:'⚜', count:34 },
+    { key:'org', label:'Organisationer', icon:'◈', count:88 },
+    { key:'source', label:'Kilder', icon:'§', count:54 },
+    { key:'arms', label:'Våben', icon:'⛨', count:12 },
+    { key:'media', label:'Medier', icon:'▦', count:0 }
+  ];
+
+  recordsFor(entity){
+    const ps = this.people();
+    if(entity==='person') return ps.map(p=>({ id:p.id, label:p.name, sub:p.years.replace(/\s+/g,' '), badge:p.initials, privat:p.privat, round:true }));
+    if(entity==='family') return [
+      { id:'f1', label:'Conrad Reventlow ⚭ A. M. Gabel', sub:'2 partnere · 3 børn', badge:'⚭' },
+      { id:'f2', label:'Chr. D. Reventlow ⚭ B. v. Brockdorff', sub:'2 partnere · 1 barn', badge:'⚭' },
+      { id:'f3', label:'Ludvig Reventlow ⚭ S. Schubart', sub:'2 partnere · 4 børn', badge:'⚭' }
+    ];
+    if(entity==='narrative') return [
+      { id:'n1', label:'Biografi · Conrad Reventlow', sub:'person · offentlig', badge:'¶' },
+      { id:'n2', label:'Slægtens oprindelse', sub:'slaegt · offentlig', badge:'¶' },
+      { id:'n3', label:'Heraldisk indledning', sub:'slaegt · offentlig', badge:'¶' },
+      { id:'n4', label:'Christianssædes historie', sub:'estate · offentlig', badge:'¶' },
+      { id:'n5', label:'Note om dåbsdato', sub:'person · privat', badge:'¶', privat:true }
+    ];
+    if(entity==='office') return [
+      { id:'o1', label:'Storkansler', sub:'Conrad Reventlow · 1699–1708', badge:'❦' },
+      { id:'o2', label:'Generalfeltmarskal', sub:'Chr. D. Reventlow · 1717', badge:'❦' },
+      { id:'o3', label:'Stiftamtmand', sub:'Conrad Reventlow · 1685', badge:'❦' }
+    ];
+    if(entity==='estate') return [
+      { id:'e1', label:'Christianssæde', sub:'hovedgård · 7 ejere', badge:'⌂' },
+      { id:'e2', label:'Clausholm', sub:'hovedgård · 5 ejere', badge:'⌂' },
+      { id:'e3', label:'Brahetrolleborg', sub:'hovedgård · 9 ejere', badge:'⌂' }
+    ];
+    if(entity==='majorat') return [
+      { id:'m1', label:'Grevskabet Christianssæde', sub:'grevskab · oprettet 1729', badge:'⚜' },
+      { id:'m2', label:'Grevskabet Reventlow', sub:'grevskab · oprettet 1673', badge:'⚜' },
+      { id:'m3', label:'Baroniet Brahetrolleborg', sub:'baroni · oprettet 1672', badge:'⚜' },
+      { id:'m4', label:'Stamhuset Pederstrup', sub:'stamhus · oprettet 1686', badge:'⚜' }
+    ];
+    if(entity==='org') return [
+      { id:'g1', label:'Gehejmekonseillet', sub:'myndighed', badge:'◈' },
+      { id:'g2', label:'Danske Kancelli', sub:'myndighed', badge:'◈' }
+    ];
+    if(entity==='source') return [
+      { id:'s1', label:'Danmarks Adels Aarbog 2018', sub:'trykt værk · 1247 henv.', badge:'§' },
+      { id:'s2', label:'DAA 1896', sub:'trykt værk · 312 henv.', badge:'§' },
+      { id:'s3', label:'Grevepatent 1673', sub:'arkivalie · 1 henv.', badge:'§' }
+    ];
+    if(entity==='arms') return [
+      { id:'a1', label:'Reventlow', sub:'autoriseret', badge:'⛨' },
+      { id:'a2', label:'Reventlow, linje V', sub:'brisering', badge:'⛨' }
+    ];
+    if(entity==='media') return [];
+    return [];
+  }
+
+  defaultRecord(entity){ const r=this.recordsFor(entity); return r[0] ? r[0].id : null; }
+  setEntity(key){ this.setState({ entity:key, recordId:this.defaultRecord(key), query:'', addingTo:null }); }
+
+  renderVals(){
+    const s = this.state;
+    const out = {};
+    out.showAnno = s.showAnno;
+    out.annoDot = s.showAnno ? '#1f8a5b' : '#6f675b';
+    out.onToggleAnno = ()=>this.setState(st=>({ showAnno:!st.showAnno }));
+    out.draftStamp = s.today;
+
+    // --- Skrivning / login / dry-run ---
+    out.dryDot = s.dryRun ? '#e7c98f' : '#ff6b6b';
+    out.dryBg = s.dryRun ? 'rgba(244,239,230,.1)' : '#7a2230';
+    out.dryBorder = s.dryRun ? 'rgba(244,239,230,.25)' : '#a83246';
+    out.dryLabel = s.dryRun ? 'Dry-run · skriver ikke' : 'LIVE · skriver til basen';
+    out.onToggleDry = ()=>this.toggleDry();
+    const a = s.auth;
+    out.isAuthed = !!a; out.notAuthed = !a;
+    out.authEmail = a ? a.email : '';
+    out.authInit = a ? (a.email||'?').slice(0,2).toUpperCase() : '';
+    out.authRoleLabel = a ? (a.role==='redaktion' ? 'redaktion · skriver direkte' : (a.role+' · forslag til staging')) : '';
+    out.onOpenLogin = ()=>this.openLogin();
+    out.onLogout = ()=>this.doLogout();
+    out.loginOpen = !!s.loginOpen;
+    out.onCloseLogin = ()=>this.closeLogin();
+    out.loginEmail = s.loginEmail||''; out.onLoginEmail = (e)=>this.setState({ loginEmail:e.target.value });
+    out.loginPw = s.loginPw||''; out.onLoginPw = (e)=>this.setState({ loginPw:e.target.value });
+    out.onDoLogin = ()=>this.doLogin();
+    out.loginErr = s.loginErr||''; out.hasLoginErr = !!s.loginErr;
+    out.loginBtnLabel = s.loginBusy ? 'Logger ind…' : 'Log ind';
+    const wp = s.writePlan;
+    out.hasWrite = !!wp;
+    if(wp){
+      out.write = {
+        dryRun: !!wp.dryRun, hasError: !!wp.error, error: wp.error||'',
+        lines: wp.preview||[], done: (wp.results||[]).length>0, resultCount: (wp.results||[]).length,
+        dot: wp.error ? '#ff6b6b' : (wp.dryRun ? '#e7c98f' : '#1f8a5b'),
+        title: wp.error ? 'Skrivning fejlede' : (wp.dryRun ? 'Dry-run · dette ville blive sendt' : 'Sendt til basen'),
+        routeNote: wp.role==='redaktion' ? 'Rolle: redaktion → direkte til evidens-tabellerne (assertion + citation, opdater conclusion).' : ('Rolle: '+wp.role+' → ét forslag i staging (suggestion), afventer redaktionel godkendelse.')
+      };
+    } else {
+      out.write = { dryRun:true, hasError:false, error:'', lines:[], done:false, resultCount:0, dot:'#e7c98f', title:'', routeNote:'' };
+    }
+    out.onCloseWrite = ()=>this.closeWrite();
+
+    out.entities = this.ENTITIES.map(e=>{
+      const active = e.key===s.entity;
+      return { label:e.label, icon:e.icon, count:e.count,
+        onTap: ()=>this.setEntity(e.key),
+        bg: active ? '#fbf8f1' : 'transparent',
+        iconBg: active ? '#881A33' : '#ece4d6', iconColor: active ? '#f4efe6' : '#8a8170',
+        color: active ? '#221f1a' : '#3d382f', countColor: active ? '#881A33' : '#a99f8c' };
+    });
+    out.tools = [ {icon:'⎘', label:'Importér udtræk'}, {icon:'✓', label:'Datakvalitet'}, {icon:'↻', label:'Versionshistorik'} ];
+
+    const entLabel = (this.ENTITIES.find(e=>e.key===s.entity)||{}).label || '';
+    out.listTitle = entLabel;
+    out.onCreate = ()=>{};
+    out.query = s.query;
+    out.onQuery = (e)=>this.setState({ query:e.target.value });
+    const q = (s.query||'').trim().toLowerCase();
+    let recs = this.recordsFor(s.entity).filter(r=> !s.deleted[s.entity+':'+r.id]);
+    if(q) recs = recs.filter(r=> (r.label+' '+(r.sub||'')).toLowerCase().includes(q));
+    out.records = recs.map(r=>({ ...r, badge:r.badge, avatarRadius: r.round ? '50%' : '7px',
+      bg: r.id===s.recordId ? '#efe7d7' : 'transparent', privat:!!r.privat,
+      onTap: ()=>this.setState({ recordId:r.id, addingTo:null }) }));
+    out.listEmpty = recs.length===0;
+    out.emptyLabel = q ? 'Ingen træffere' : 'Ingen poster endnu';
+
+    out.isPerson = s.entity==='person';
+    out.isGeneric = s.entity!=='person';
+
+    if(s.entity==='person'){
+      const p = this.curPerson();
+      out.p = { id:p.id, name:p.name, years:p.years, koen:p.koen, initials:p.initials,
+        onDelete: ()=>this.requestDelete('person', p.id),
+        onTogglePrivat: ()=>this.togglePrivat(p.id),
+        privatBg: p.privat ? '#f8ecef' : '#f4efe6', privatBorder: p.privat ? '#881A33' : 'rgba(34,31,26,.16)',
+        privatColor: p.privat ? '#881A33' : '#6f675b', privatTrack: p.privat ? '#881A33' : '#cfc6b5',
+        privatKnob: p.privat ? '12.5px' : '1.5px' };
+
+      const factDefs = [ ['navn','Navn'], ['foedt','Født'], ['doed','Død'], ['koen','Køn'], ['titel','Titel/rang'] ];
+      out.facts = factDefs.map(([key,label])=>{
+        const arr = p.facts[key] || [];
+        const chosen = arr.find(a=>a.chosen) || arr[0] || {};
+        const ek = p.id+':'+key;
+        const expanded = !!s.expanded[ek];
+        const distinct = new Set(arr.map(a=>a.v)).size;
+        return { key, label, value: chosen.v || '—', sourceLabel: chosen.src || 'ingen kilde',
+          countLabel: arr.length + (arr.length===1?' oplysning':' oplysninger'),
+          hasConflict: arr.length>1 && distinct>1,
+          expanded, chevron: expanded?'▾':'▸', onToggle: ()=>this.toggleFact(p.id, key),
+          assertions: arr.map((a,i)=>{ const ak=p.id+':'+key+':'+i; const editing=s.editingAssert===ak; return { v:a.v, src:a.src, meta:'Tilføjet af '+(a.by||'ukendt')+' · '+(a.when||'')+' · '+(a.src||'uden kilde'),
+            dot: a.chosen?'#1f5b3a':(a.conflict?'#8a2b2b':'#bcae93'),
+            statusLabel: a.chosen?'konklusion':'oplysning', statusColor: a.chosen?'#1f5b3a':'#9a8f78',
+            rowBg: a.chosen?'#eaf3ec':'#fbf8f1', rowBorder: a.chosen?'rgba(31,91,58,.32)':'rgba(34,31,26,.1)',
+            canChoose: !a.chosen, onChoose: ()=>this.setChosen(p.id, key, i),
+            editing, notEditing: !editing,
+            onEdit: ()=>this.setState({ editingAssert:ak, addingTo:null }),
+            onCancelEdit: ()=>this.setState({ editingAssert:null }),
+            onSaveEdit: ()=>this.editAssertion(p.id, key, i),
+            onDelete: ()=>this.deleteAssertion(p.id, key, i),
+            editVal: this.scVal('ed:'+ak+':v', a.v), onEditVal: this.onSc('ed:'+ak+':v'),
+            editSrc: this.scVal('ed:'+ak+':src', a.src), onEditSrc: this.onSc('ed:'+ak+':src') }; }),
+          adding: s.addingTo===ek, notAdding: s.addingTo!==ek,
+          onAdd: ()=>this.setState({ addingTo:ek }),
+          onCancelAdd: ()=>this.setState({ addingTo:null }),
+          onSaveAdd: ()=>this.addAssertion(p.id, key),
+          addVal: this.scVal(this.scKey(p.id,key)+':v',''), onAddVal: this.onSc(this.scKey(p.id,key)+':v'),
+          addSrc: this.scVal(this.scKey(p.id,key)+':src',''), onAddSrc: this.onSc(this.scKey(p.id,key)+':src') };
+      });
+
+      const roleOpts = [ ['barn','barn'], ['adopteret_barn','adopt.'], ['plejebarn','pleje'], ['stedbarn','sted'] ];
+      const simpleItems = (arr, role)=> (arr||[]).map(m=>({ initials:this.initialsOf(m.name), name:m.name, src:m.src,
+        hasRoles:false, fixedRole:!!role, roleLabel:role||'' }));
+      out.relGroups = [
+        { label:'Forældre (barn af)', onAdd:()=>{}, items: simpleItems(p.parents, 'barn') },
+        { label:'Ægtefæller (partner)', onAdd:()=>{}, items: simpleItems(p.partners, 'partner') },
+        { label:'Børn', onAdd:()=>{}, items: (p.children||[]).map((c,idx)=>({ initials:this.initialsOf(c.name), name:c.name, src:c.src,
+            hasRoles:true, fixedRole:false,
+            roles: roleOpts.map(([val,lab])=>({ label:lab, onTap:()=>this.setChildRole(p.id, idx, val),
+              bg: c.role===val?'#881A33':'transparent', color: c.role===val?'#f4efe6':'#6f675b' })) })) }
+      ];
+
+      out.sections = [
+        { label:'Embeder, rang & hverv · relation → organisation', addLabel:'Tilføj hverv', onAdd:()=>{},
+          rows:(p.offices||[]).map(o=>({ icon:'❦', title:o.title, sub:o.org, src:o.src, hasPeriod:!!o.period, period:o.period })) },
+        { label:'Godser & besiddelser · relation → estate', addLabel:'Tilføj gods', onAdd:()=>{},
+          rows:(p.estates||[]).map(e=>({ icon:'⌂', title:e.title, sub:'rolle: '+e.role, src:e.src, hasPeriod:!!e.period, period:e.period })) },
+        { label:'Kilder & bogreference · person_external_id → source', addLabel:'Tilføj reference', onAdd:()=>{},
+          rows:(p.bookrefs||[]).map(b=>({ icon:'§', title:b.source, sub:'linje '+b.linje+' · nr. '+b.nr, src:b.source, hasPeriod:false, period:'' })) },
+        { label:'Våben · coat_of_arms', addLabel:'Knyt våben', onAdd:()=>{},
+          rows:(p.arms||[]).map(a=>({ icon:'⛨', title:a.title, sub:a.meta, src:'coat_of_arms', hasPeriod:false, period:'' })) }
+      ];
+
+      out.bio = this.scVal('bio:'+p.id, p.bio); out.onBio = this.onSc('bio:'+p.id);
+      out.bioKilde = this.scVal('biok:'+p.id, p.bioKilde); out.onBioKilde = this.onSc('biok:'+p.id);
+    } else {
+      out.gen = this.genericEditor(s.entity);
+      out.gen.canDelete = !out.gen.isEmpty && !!s.recordId;
+      out.gen.onDelete = ()=>this.requestDelete(s.entity, s.recordId);
+    }
+
+    const cd = s.confirmDelete;
+    if(cd){
+      const info = this.deleteInfo(cd.entity, cd.id);
+      out.confirm = { open:true, kindLabel:info.kindLabel, label:info.label, relWarning:info.relWarning,
+        hasRelList: (info.relList||[]).length>0, relList: info.relList,
+        onCancel: ()=>this.cancelDelete(), onConfirm: ()=>this.performDelete(),
+        onToggleAck: ()=>this.setState(st=>({ confirmAck:!st.confirmAck })),
+        ackMark: s.confirmAck?'✓':'', ackBg: s.confirmAck?'#8a2b2b':'#fff', ackBorder: s.confirmAck?'#8a2b2b':'rgba(34,31,26,.3)',
+        confirmBg: s.confirmAck?'#8a2b2b':'#e7d9d9', confirmColor: s.confirmAck?'#fff':'#b79c9c', confirmCursor: s.confirmAck?'pointer':'not-allowed' };
+    } else {
+      out.confirm = { open:false, kindLabel:'', label:'', relWarning:'', hasRelList:false, relList:[],
+        onCancel:()=>{}, onConfirm:()=>{}, onToggleAck:()=>{}, ackMark:'', ackBg:'#fff', ackBorder:'rgba(34,31,26,.3)',
+        confirmBg:'#e7d9d9', confirmColor:'#b79c9c', confirmCursor:'not-allowed' };
+    }
+
+    return out;
+  }
+
+  field(key, label, val, opts){ opts=opts||{}; return { label, isText:!opts.area&&!opts.chips, isArea:!!opts.area, isChips:!!opts.chips,
+    val:this.scVal(key, val), onInput:this.onSc(key), font:opts.font||'Hanken Grotesk', size:opts.size||'14px', chips:opts.chips||[] }; }
+
+  chipField(label, options, current, scKey){
+    const val = this.scVal(scKey, current);
+    return { label, isText:false, isArea:false, isChips:true, chips: options.map(o=>({ label:o, onTap:this.onSc(scKey).bind(null,{target:{value:o}}),
+      bg: o===val?'#881A33':'#fbf8f1', color:o===val?'#f4efe6':'#3d382f', border:o===val?'#881A33':'rgba(34,31,26,.16)' })) };
+  }
+
+  genericEditor(entity){
+    const rid = this.state.recordId;
+    if(entity==='estate'){
+      return { icon:'⌂', kicker:'Gods · estate', title:'Christianssæde',
+        annoLabel:'Selvstændig post', anno:'Godset er en selvstændig post (navn, slags). Ejerrækken er relationer (relation → estate, rolle ejer) med periode og kildeangivelse. Hvis godset indgår i et majorat, knyttes det dertil — selve majoratet redigeres under "Majorater".',
+        fields:[ this.field('est:navn','Navn','Christianssæde'), this.chipField('Slags', ['hovedgård','herregård','ladegård','avlsgård','len'], 'hovedgård', 'est:slags'),
+          this.chipField('Del af majorat', ['Grevskabet Christianssæde','Grevskabet Reventlow','(ingen)'], 'Grevskabet Christianssæde', 'est:majorat'),
+          this.field('est:bio','Beskrivelse (narrative · subjekt_type estate)','Indgik fra 1729 i grevskabet Christianssæde sammen med Pederstrup og Skelstofte.', {area:true}) ],
+        hasTimeline:true, timelineLabel:'Ejere gennem tiden · relation', timeline:[
+          {title:'Conrad Reventlow', period:'1673–1708', src:'Skøde 1673'},
+          {title:'Christian Ditlev Reventlow', period:'1729–1738', src:'Erektionspatent 1729'},
+          {title:'Christian Ditlev (II) Reventlow', period:'1738–1775', src:'DAA 2018'} ],
+        hasUsage:true, usageCount:'7', usageLabel:'registrerede ejer-relationer', usageSub:'fordelt på 6 personer' };
+    }
+    if(entity==='majorat'){
+      return { icon:'⚜', kicker:'Majorat · entail', title:'Grevskabet Christianssæde',
+        annoLabel:'Båndlagt gods med arvefølge', anno:'Et majorat binder ét eller flere godser sammen som en udelelig masse, der går samlet videre efter en fast arvefølge — ofte knyttet til en titel (lensgreve, lensbaron). Hovedformerne er grevskab, baroni, stamhus og fideikommis. De omfattede godser forbliver egne poster og knyttes hertil.',
+        fields:[ this.field('maj:navn','Navn','Grevskabet Christianssæde', {font:'Cormorant Garamond', size:'18px'}),
+          this.chipField('Form', ['grevskab','baroni','stamhus','fideikommis','fideikommisgods','familiefideikommis','pengefideikommis','successorfond'], 'grevskab', 'maj:form'),
+          this.chipField('Tilknyttet titel', ['lensgreve','lensbaron/friherre','(ingen titel)'], 'lensgreve', 'maj:titel'),
+          this.field('maj:oprettet','Oprettet (erektionsår)','1729'),
+          this.field('maj:arv','Arvefølge','Primogenitur — ældste søn, agnatisk linje'),
+          this.chipField('Status', ['bestående','afløst 1919','opløst'], 'afløst 1919', 'maj:status'),
+          this.field('maj:hjemmel','Hjemmel / erektionspatent','Erektionspatent 6. okt. 1729') ],
+        hasTimeline:true, timelineLabel:'Successorrække · indehavere', timeline:[
+          {title:'Christian Ditlev Reventlow · 1. lensgreve', period:'1729–1738', src:'Erektionspatent 1729'},
+          {title:'Christian Ditlev (II) Reventlow', period:'1738–1775', src:'DAA 2018'},
+          {title:'Christian Ditlev (IV) Reventlow', period:'1775–1827', src:'DAA 2018'} ],
+        hasUsage:true, usageCount:'3', usageLabel:'omfattede godser', usageSub:'Christianssæde · Pederstrup · Skelstofte' };
+    }
+    if(entity==='source'){
+      return { icon:'§', kicker:'Kilde · source', title:'Danmarks Adels Aarbog 2018',
+        annoLabel:'Kildeangivelsernes fundament', anno:'En kilde er den post, alle kildeangivelser peger på. Når du retter titel eller udgave her, opdateres henvisningen alle de steder en oplysning bygger på kilden.',
+        fields:[ this.field('src:titel','Titel','Danmarks Adels Aarbog 2018', {font:'Cormorant Garamond', size:'18px'}),
+          this.chipField('Slags', ['trykt værk','arkivalie','kirkebog','folketælling','online'], 'trykt værk', 'src:slags'),
+          this.field('src:udg','Udgave / årgang','105. årgang, 2018'),
+          this.field('src:ekstern','Ekstern reference (URL/DOI)','') ],
+        hasUsage:true, usageCount:'1247', usageLabel:'henvisninger i basen', usageSub:'person_external_id + kildeangivelser' };
+    }
+    if(entity==='narrative'){
+      return { icon:'¶', kicker:'Narrativ · narrative', title:'Biografi · Conrad Reventlow',
+        annoLabel:'Fritekst med subjekt & privathed', anno:'Narrativer kan hænge på enhver subjekt-type (person, slægt, gods…). Privat-flaget styrer om teksten vises i publikumsvisningen — redaktionen ser altid alt.',
+        fields:[ this.chipField('Subjekt-type', ['person','slaegt','estate','organisation'], 'person', 'nar:type'),
+          this.field('nar:subj','Subjekt','Conrad Reventlow (id p1)'),
+          this.field('nar:tekst','Tekst','Ophøjet til greve i 1673 og udnævnt til storkansler 1699. Regnes som stamfader til den danske greveslægt Reventlow.', {area:true}),
+          this.chipField('Synlighed', ['offentlig','privat'], 'offentlig', 'nar:priv'),
+          this.field('nar:kilde','Kilde','DAA 2018 · biografisk indledning') ] };
+    }
+    if(entity==='office'){
+      return { icon:'❦', kicker:'Hverv · relation → organisation', title:'Storkansler',
+        annoLabel:'Relation med rolle & periode', anno:'Et hverv er en relation mellem en person og en organisation med en rolle og en periode (periode_raw bevares ordret), samt en kildeangivelse.',
+        fields:[ this.field('off:person','Person','Conrad Reventlow (id p1)'),
+          this.field('off:rolle','Rolle','Storkansler'),
+          this.field('off:org','Organisation','Gehejmekonseillet'),
+          this.field('off:periode','Periode (periode_raw)','1699–1708'),
+          this.field('off:kilde','Kildeangivelse','Bestalling 1699') ] };
+    }
+    if(entity==='family'){
+      return { icon:'⚭', kicker:'Familie · family + family_member', title:'Conrad Reventlow ⚭ A. M. Gabel',
+        annoLabel:'Roller bygger træet', anno:'En familie samler partnere og børn via family_member-roller. Blodslægtskab = barn; adopteret_barn / plejebarn / stedbarn knytter til træet uden at tælle som blodlinje.',
+        fields:[ this.field('fam:type','Familie-type','ægteskab'),
+          this.field('fam:p1','Partner 1','Conrad Reventlow'),
+          this.field('fam:p2','Partner 2','Anna Margrethe Gabel') ],
+        hasTimeline:true, timelineLabel:'Børn · rolle pr. kant', timeline:[
+          {title:'Christian Ditlev Reventlow · barn', period:'barn', src:'DAA 2018'},
+          {title:'Anna Sophie Reventlow · barn', period:'barn', src:'DAA 2018'},
+          {title:'Conradine Reventlow · plejebarn', period:'plejebarn', src:'fol. 1682'} ] };
+    }
+    if(entity==='org'){
+      return { icon:'◈', kicker:'Organisation · organisation', title:'Gehejmekonseillet',
+        annoLabel:'Reference-post', anno:'Organisationer er reference-poster som hverv peger på. Ret navnet her, og alle embeds-relationer følger med.',
+        fields:[ this.field('org:navn','Navn','Gehejmekonseillet'), this.chipField('Slags', ['myndighed','hær','kirke','hof','akademi'], 'myndighed', 'org:slags') ],
+        hasUsage:true, usageCount:'14', usageLabel:'hverv peger hertil', usageSub:'relation → organisation' };
+    }
+    if(entity==='arms'){
+      return { icon:'⛨', kicker:'Våben · coat_of_arms', title:'Reventlow',
+        annoLabel:'Blasonering + gengivelser', anno:'Våbnet har en autoriseret blasonering (tekst) og et galleri af gengivelser/segl via media. Linje-briseringer kan registreres som varianter.',
+        fields:[ this.field('arm:blas','Blasonering','I sølv tre (2,1) røde roser med guld frøhus.', {area:true}) ],
+        hasGallery:true, galleryLabel:'Gengivelser & segl · media', gallery:[
+          {title:'DAA-gengivelse', meta:'autoriseret · 2018'}, {title:'Ældre stik', meta:'variant · 1800-tal'}, {title:'Segl 1699', meta:'segl · dateret'} ] };
+    }
+    if(entity==='media'){
+      return { icon:'▦', kicker:'Medier · media', title:'Medie-bibliotek', isEmpty:true,
+        annoLabel:'Endnu tom', anno:'media-tabellen er tom. Når billeder uploades og knyttes til personer/godser/våben (relation, objekt_type media), vises de automatisk i publikumsvisningen.',
+        emptyTitle:'Ingen medier endnu', emptyBody:'Træk billeder herind, eller importér fra et udtræk. Hvert medie knyttes til en eller flere poster med rolle (fx afbildet, fører våben).', emptyCta:'Upload medie' };
+    }
+    return { icon:'•', kicker:'', title:'', fields:[] };
+  }
+}
+</script>
+</body>
+</html>

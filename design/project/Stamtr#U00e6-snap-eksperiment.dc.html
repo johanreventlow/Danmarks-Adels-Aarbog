@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500;1,600&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>*{box-sizing:border-box;}</style>
+</helmet>
+<div style="width:max-content;min-width:100%;min-height:100vh;box-sizing:border-box;padding:48px;background:#e7e5df;font-family:'Hanken Grotesk',sans-serif;color:#221f1a;">
+
+  <div style="max-width:760px;margin-bottom:34px;">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#b9a06a;margin-bottom:8px;">Koncept-udforskning · stamtræ</div>
+    <div style="font-family:'Cormorant Garamond',serif;font-size:38px;font-weight:600;line-height:1.02;color:#221f1a;">Snap-navigeret stamtræ</div>
+    <div style="width:46px;height:1.5px;background:#881A33;margin:14px 0;"></div>
+    <div style="font-family:'Hanken Grotesk';font-size:15px;line-height:1.6;color:#5a5246;">Ren gestus — ingen knapper. Swipe <b>op</b> til aner, <b>ned</b> til efterkommere, <b>til siden</b> mellem søskende (kun inden for samme gren). Fokus holdes altid centreret, og bevægelsen <i>låser</i> til rækker og kolonner. Prøv begge modeller herunder og mærk forskellen — vinderen bliver en tredje variant ved siden af “Fokus” og “Kolonner”.</div>
+  </div>
+
+  <div style="display:flex;gap:48px;align-items:flex-start;">
+
+    <div style="flex:none;">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:5px;">
+        <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:600;color:#221f1a;">A · Kamera</span>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#9a8f78;">ét klik pr. swipe</span>
+      </div>
+      <div style="font-family:'Hanken Grotesk';font-size:12.5px;line-height:1.5;color:#6f675b;max-width:360px;margin-bottom:13px;">Hver swipe rykker præcis ét trin og gencentrerer. Mest “låser fast” — rolig og forudsigelig.</div>
+      <div style="width:360px;height:660px;background:#0e0d0b;border-radius:42px;padding:9px;box-shadow:0 40px 80px rgba(20,17,13,.28),0 6px 18px rgba(20,17,13,.16);">
+        <div style="width:100%;height:100%;border-radius:34px;overflow:hidden;position:relative;">
+          <dc-import name="SnapTree" mode="camera" hint-size="100%,100%" style="position:absolute;inset:0;"></dc-import>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:none;">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:5px;">
+        <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:600;color:#221f1a;">B · Glid <span style="font-style:italic;font-weight:500;color:#881A33;">forfinet</span></span>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#9a8f78;">momentum + haptik</span>
+      </div>
+      <div style="font-family:'Hanken Grotesk';font-size:12.5px;line-height:1.5;color:#6f675b;max-width:360px;margin-bottom:13px;">Et kast glider gennem flere led med blødt momentum og lander altid snappet. Gren-skift har en lille modstand (svært at hoppe til søskende ved et uheld), og hvert snap giver et haptisk tik på telefonen.</div>
+      <div style="width:360px;height:660px;background:#0e0d0b;border-radius:42px;padding:9px;box-shadow:0 40px 80px rgba(20,17,13,.28),0 6px 18px rgba(20,17,13,.16);">
+        <div style="width:100%;height:100%;border-radius:34px;overflow:hidden;position:relative;">
+          <dc-import name="SnapTree" mode="glide" hint-size="100%,100%" style="position:absolute;inset:0;"></dc-import>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:none;width:300px;padding-top:6px;">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:#b9a06a;margin-bottom:12px;">Sådan læses det</div>
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <div>
+          <div style="font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:600;color:#221f1a;">Rygraden</div>
+          <div style="font-family:'Hanken Grotesk';font-size:13px;line-height:1.55;color:#5a5246;margin-top:2px;">Den lodrette linje er din direkte slægtslinje. Det centrerede kort er “her”; rækken over er forælder, rækken under er børn af den centrerede.</div>
+        </div>
+        <div>
+          <div style="font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:600;color:#221f1a;">Kun inden for grenen</div>
+          <div style="font-family:'Hanken Grotesk';font-size:13px;line-height:1.55;color:#5a5246;margin-top:2px;">Sidelæns ser du kun søskende med samme forælder. Vælger du et nyt søskende, følger børnene nedenunder med — så du altid bevæger dig i én sammenhængende gren.</div>
+        </div>
+        <div>
+          <div style="font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:600;color:#221f1a;">Du er her</div>
+          <div style="font-family:'Hanken Grotesk';font-size:13px;line-height:1.55;color:#5a5246;margin-top:2px;">Sporet foroven (Gen · Linje) fortæller hvor i træet du befinder dig, så dybden aldrig bliver forvirrende.</div>
+        </div>
+        <div style="border-top:1px solid rgba(34,31,26,.14);padding-top:14px;font-family:'Hanken Grotesk';font-size:12px;line-height:1.5;color:#8a8170;">Begge bruger samme prøve-slægt (10 generationer). Træk med musen i feltet — på touch er det swipe, og haptikken mærkes bedst på telefon.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

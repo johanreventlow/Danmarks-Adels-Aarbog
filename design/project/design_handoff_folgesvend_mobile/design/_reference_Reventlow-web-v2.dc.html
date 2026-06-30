@@ -1,0 +1,1329 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500;1,600&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  [data-scroll]{scrollbar-width:thin;scrollbar-color:#cfc6b5 transparent;}
+  [data-scroll]::-webkit-scrollbar{width:9px;height:9px;}
+  [data-scroll]::-webkit-scrollbar-thumb{background:#cfc6b5;border-radius:5px;border:2px solid #f4efe6;}
+  [data-scroll]::-webkit-scrollbar-track{background:transparent;}
+  @keyframes daaView{from{transform:translateY(8px)}to{transform:none}}
+  .daa-view{animation:daaView .4s cubic-bezier(.2,.7,.2,1) both;}
+</style>
+</helmet>
+<div style="height:100vh;display:flex;flex-direction:column;background:#f4efe6;font-family:'Hanken Grotesk',sans-serif;color:#221f1a;overflow:hidden;">
+
+  <div style="flex:none;height:66px;display:flex;align-items:center;gap:22px;padding:0 26px;background:#fbf8f1;border-bottom:1px solid rgba(34,31,26,.1);z-index:30;">
+    <div style="display:flex;align-items:center;gap:13px;flex:none;">
+      <img src="assets/daf-logo.png" alt="Dansk Adels Forening" style="width:40px;height:40px;object-fit:contain;" />
+      <div>
+        <div style="font-family:'Cormorant Garamond',serif;font-size:21px;font-weight:600;line-height:1;color:#221f1a;">Danmarks Adels Aarbog</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:#9a8f78;margin-top:2px;">Følgesvend · Dansk Adels Forening</div>
+      </div>
+    </div>
+
+    <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;">
+      <sc-for list="{{ nav }}" as="n" hint-placeholder-count="5">
+        <div onClick="{{ n.onTap }}" style="padding:8px 15px;border-radius:9px;font-family:'Hanken Grotesk';font-size:13.5px;font-weight:600;cursor:pointer;background:{{ n.bg }};color:{{ n.color }};">{{ n.label }}</div>
+      </sc-for>
+    </div>
+
+    <div style="flex:none;display:flex;align-items:center;gap:12px;">
+      <div onClick="{{ onToggleEdit }}" style="display:flex;align-items:center;gap:7px;background:{{ editBtnBg }};border:1.5px solid {{ editBtnBorder }};border-radius:9px;padding:7px 13px;cursor:pointer;">
+        <span style="font-size:13px;color:{{ editBtnColor }};">✎</span>
+        <span style="font-family:'Hanken Grotesk';font-size:13px;font-weight:600;color:{{ editBtnColor }};">{{ editBtnLabel }}</span>
+      </div>
+      <div onClick="{{ onOpenSlaegt }}" style="display:flex;align-items:center;gap:9px;background:#f4efe6;border:1px solid rgba(34,31,26,.12);border-radius:9px;padding:6px 12px;cursor:pointer;">
+        <span style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(136,26,51,.55);box-shadow:inset 0 0 0 2px #f4efe6,inset 0 0 0 2.5px rgba(136,26,51,.28);display:flex;align-items:center;justify-content:center;flex:none;font-family:'Cormorant Garamond',serif;font-size:13px;font-weight:600;color:#881A33;">{{ slaegt.crest }}</span>
+        <span style="font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:600;color:#221f1a;">{{ slaegt.name }}</span>
+        <span style="font-family:'Hanken Grotesk';font-size:11px;color:#9a8f78;">▾</span>
+      </div>
+      <sc-if value="{{ me.set }}" hint-placeholder-val="{{ false }}">
+        <div onClick="{{ me.onOpen }}" title="Din plads i slægten" style="width:38px;height:38px;border-radius:50%;background:#f8ecef;border:1.5px solid #881A33;display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:'Cormorant Garamond',serif;font-size:15px;font-weight:600;color:#881A33;flex:none;">{{ me.initials }}</div>
+      </sc-if>
+    </div>
+  </div>
+
+  <sc-if value="{{ isEditing }}" hint-placeholder-val="{{ false }}">
+    <div style="flex:none;display:flex;align-items:center;gap:14px;padding:9px 26px;background:#2a211c;color:#f4efe6;z-index:25;">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#e7c98f;">✎ Redigeringstilstand</span>
+      <span style="font-family:'Hanken Grotesk';font-size:12.5px;color:#cabfa9;">Ret felter direkte · klik en person i listen for at tilføje en relation</span>
+      <div style="flex:1;"></div>
+      <span style="font-family:'Hanken Grotesk';font-size:12.5px;color:#f4efe6;">{{ draftLabel }}</span>
+      <div onClick="{{ onReview }}" style="font-family:'Hanken Grotesk';font-size:12.5px;font-weight:600;color:{{ reviewColor }};background:{{ reviewBg }};border:1px solid {{ reviewBorder }};border-radius:8px;padding:7px 14px;cursor:{{ reviewCursor }};">Gennemse &amp; indsend</div>
+    </div>
+  </sc-if>
+
+  <div style="flex:1;display:flex;min-height:0;">
+
+    <div data-scroll style="flex:none;width:312px;border-right:1px solid rgba(34,31,26,.1);background:#f4efe6;overflow-y:auto;display:flex;flex-direction:column;">
+      <div style="padding:20px 20px 14px;border-bottom:1px solid rgba(34,31,26,.08);">
+        <div style="display:flex;gap:16px;align-items:stretch;">
+          <div><div style="font-family:'Cormorant Garamond',serif;font-size:23px;font-weight:600;color:#881A33;line-height:1;">{{ slaegt.personCount }}</div><div style="font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:#a99f8c;margin-top:3px;">personer</div></div>
+          <div style="width:1px;background:rgba(34,31,26,.12);"></div>
+          <div><div style="font-family:'Cormorant Garamond',serif;font-size:23px;font-weight:600;color:#881A33;line-height:1;">{{ slaegt.lineCount }}</div><div style="font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:#a99f8c;margin-top:3px;">linjer</div></div>
+          <div style="width:1px;background:rgba(34,31,26,.12);"></div>
+          <div><div style="font-family:'Cormorant Garamond',serif;font-size:23px;font-weight:600;color:#881A33;line-height:1;">{{ slaegt.estateCount }}</div><div style="font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:#a99f8c;margin-top:3px;">godser</div></div>
+        </div>
+      </div>
+
+      <sc-if value="{{ ctx.show }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:16px 18px 4px;">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#9a8f78;margin-bottom:9px;">{{ ctx.label }}</div>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <sc-for list="{{ ctx.items }}" as="c" hint-placeholder-count="3">
+              <div onClick="{{ c.onTap }}" style="display:flex;align-items:center;gap:10px;background:#fbf8f1;border:1px solid rgba(34,31,26,.1);border-radius:10px;padding:8px 11px;cursor:pointer;">
+                <span style="width:30px;height:30px;border-radius:{{ c.radius }};background:#ece4d6;border:1px solid rgba(34,31,26,.08);display:flex;align-items:center;justify-content:center;flex:none;font-family:'Cormorant Garamond',serif;font-size:13px;font-weight:600;color:#881A33;">{{ c.badge }}</span>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:#b9a06a;">{{ c.kicker }}</div>
+                  <div style="font-family:'Cormorant Garamond',serif;font-size:15px;font-weight:600;color:#221f1a;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ c.name }}</div>
+                </div>
+                <span style="color:#bcae93;font-size:15px;flex:none;">›</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <div style="padding:14px 18px 10px;">
+        <input value="{{ query }}" onChange="{{ onQuery }}" placeholder="Søg navn…" style="width:100%;font-family:'Hanken Grotesk';font-size:14px;color:#221f1a;background:#fbf8f1;border:1px solid rgba(34,31,26,.14);border-radius:9px;padding:11px 13px;outline:none;" />
+        <sc-if value="{{ pick.active }}" hint-placeholder-val="{{ false }}">
+          <div style="margin-top:9px;background:#f8ecef;border:1px solid rgba(136,26,51,.25);border-radius:9px;padding:9px 12px;display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <span style="font-family:'Hanken Grotesk';font-size:12px;font-weight:600;color:#881A33;">{{ pick.label }}</span>
+            <span onClick="{{ pick.onCancel }}" style="font-family:'Hanken Grotesk';font-size:11px;font-weight:600;color:#9a8f78;cursor:pointer;">annullér</span>
+          </div>
+        </sc-if>
+      </div>
+
+      <div style="padding:0 18px 8px;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#9a8f78;margin-bottom:7px;">Linjer</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+          <div onClick="{{ onLinjeAll }}" style="padding:5px 11px;border-radius:15px;font-family:'Hanken Grotesk';font-size:11.5px;font-weight:600;cursor:pointer;background:{{ linjeAllBg }};color:{{ linjeAllColor }};border:1px solid {{ linjeAllBorder }};">Hele slægten</div>
+          <sc-for list="{{ linjeChips }}" as="l" hint-placeholder-count="5">
+            <div onClick="{{ l.onTap }}" style="padding:5px 11px;border-radius:15px;font-family:'Hanken Grotesk';font-size:11.5px;font-weight:600;cursor:pointer;background:{{ l.bg }};color:{{ l.color }};border:1px solid {{ l.border }};">{{ l.label }}</div>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="padding:6px 10px 8px;flex:1;display:flex;flex-direction:column;min-height:0;">
+        <div style="padding:0 8px 7px;display:flex;align-items:center;justify-content:space-between;gap:8px;">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#a99f8c;">{{ browseLabel }}</span>
+          <div style="display:flex;background:#e6ddcc;border-radius:7px;padding:2px;gap:2px;flex:none;">
+            <span onClick="{{ onSortAlpha }}" style="font-family:'Hanken Grotesk';font-size:10px;font-weight:600;padding:3px 8px;border-radius:5px;cursor:pointer;background:{{ sortAlphaBg }};color:{{ sortAlphaColor }};">A–Å</span>
+            <span onClick="{{ onSortBorn }}" style="font-family:'Hanken Grotesk';font-size:10px;font-weight:600;padding:3px 8px;border-radius:5px;cursor:pointer;background:{{ sortBornBg }};color:{{ sortBornColor }};">Født</span>
+          </div>
+        </div>
+        <sc-if value="{{ showLetters }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-wrap:wrap;gap:3px;padding:0 8px 9px;">
+            <sc-for list="{{ letters }}" as="L" hint-placeholder-count="12">
+              <span onClick="{{ L.onTap }}" style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:500;min-width:19px;height:19px;padding:0 3px;display:flex;align-items:center;justify-content:center;border-radius:5px;cursor:pointer;background:{{ L.bg }};color:{{ L.color }};">{{ L.label }}</span>
+            </sc-for>
+          </div>
+        </sc-if>
+        <div style="flex:1;">
+          <sc-for list="{{ browseGroups }}" as="g" hint-placeholder-count="4">
+            <sc-if value="{{ g.hasHeader }}" hint-placeholder-val="{{ false }}">
+              <div style="position:sticky;top:0;background:#f4efe6;padding:7px 9px 3px;font-family:'Cormorant Garamond',serif;font-size:15px;font-weight:600;color:#b9a06a;z-index:2;border-bottom:1px solid rgba(34,31,26,.07);">{{ g.letter }}</div>
+            </sc-if>
+            <sc-for list="{{ g.people }}" as="p" hint-placeholder-count="6">
+              <div onClick="{{ p.onTap }}" style="display:flex;align-items:center;gap:11px;padding:7px 9px;border-radius:9px;cursor:pointer;background:{{ p.rowBg }};">
+                <div style="width:32px;height:32px;border-radius:50%;background:#ece4d6;border:1px solid rgba(34,31,26,.08);display:flex;align-items:center;justify-content:center;flex:none;font-family:'Cormorant Garamond',serif;font-size:13px;font-weight:600;color:#881A33;">{{ p.initials }}</div>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:600;line-height:1.05;color:#221f1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ p.name }}</div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#9a8f78;margin-top:1px;">{{ p.years }}</div>
+                </div>
+              </div>
+            </sc-for>
+          </sc-for>
+          <sc-if value="{{ browseEmpty }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:12px 9px;font-family:'Hanken Grotesk';font-size:12px;color:#a99f8c;">Ingen træffere</div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+
+    <div data-scroll style="flex:1;min-width:0;overflow-y:auto;background:#f4efe6;">
+
+      <sc-if value="{{ isTree }}" hint-placeholder-val="{{ true }}">
+        <div class="daa-view" style="padding:30px 40px 50px;min-height:100%;position:relative;">
+          <svg viewBox="0 0 100 120" style="position:absolute;top:104px;right:34px;width:116px;height:auto;z-index:0;opacity:.09;pointer-events:none;" fill="none"><path d="M10,8 H90 V58 C90,90 50,113 50,113 C50,113 10,90 10,58 Z" stroke="#881A33" stroke-width="1.4"/><path d="M19,18 H81 V57 C81,82 50,100 50,100 C50,100 19,82 19,57 Z" stroke="#b9a06a" stroke-width="1"/></svg>
+          <div style="position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:16px;">
+            <div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:#b9a06a;margin-bottom:6px;">Slægten {{ slaegt.name }}</div>
+              <div style="font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:600;color:#221f1a;line-height:1;">Stamtræ</div>
+              <div style="width:42px;height:1.5px;background:#881A33;margin-top:11px;"></div>
+            </div>
+            <div style="display:flex;background:#e6ddcc;border-radius:10px;padding:3px;gap:3px;">
+              <div onClick="{{ onSegA }}" style="padding:7px 16px;border-radius:7px;font-family:'Hanken Grotesk';font-size:12.5px;font-weight:600;cursor:pointer;background:{{ segABg }};color:{{ segAColor }};">Fokus</div>
+              <div onClick="{{ onSegB }}" style="padding:7px 16px;border-radius:7px;font-family:'Hanken Grotesk';font-size:12.5px;font-weight:600;cursor:pointer;background:{{ segBBg }};color:{{ segBColor }};">Kolonner</div>
+            </div>
+          </div>
+
+          <sc-if value="{{ isVariantA }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;align-items:center;padding-top:10px;">
+              <sc-if value="{{ a_hasGrandparent }}" hint-placeholder-val="{{ false }}">
+                <div onClick="{{ a_grandparent.onTap }}" style="display:flex;align-items:center;gap:8px;padding:7px 16px;border-radius:20px;background:#ece4d6;border:1px solid rgba(34,31,26,.08);cursor:pointer;opacity:.8;">
+                  <span style="color:#9a8f78;font-size:12px;">▲</span>
+                  <span style="font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:600;color:#5a5246;">{{ a_grandparent.name }}</span>
+                </div>
+                <div style="width:1px;height:18px;background:rgba(34,31,26,.18);"></div>
+              </sc-if>
+
+              <sc-if value="{{ a_hasParent }}" hint-placeholder-val="{{ false }}">
+                <div onClick="{{ a_parent.onTap }}" style="display:flex;align-items:center;gap:12px;background:#fbf8f1;border:1px solid rgba(34,31,26,.1);border-radius:13px;padding:11px 18px 11px 12px;cursor:pointer;box-shadow:0 1px 2px rgba(34,31,26,.04);">
+                  <div style="width:40px;height:40px;border-radius:50%;background:#ece4d6;border:1px solid rgba(34,31,26,.08);display:flex;align-items:center;justify-content:center;flex:none;font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:600;color:#881A33;">{{ a_parent.initials }}</div>
+                  <div>
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:#b9a06a;">Forælder ▲</div>
+                    <div style="font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:600;line-height:1.05;color:#221f1a;">{{ a_parent.name }}</div>
+                  </div>
+                </div>
+                <div style="width:1px;height:22px;background:rgba(34,31,26,.22);"></div>
+              </sc-if>
+
+              <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#a99f8c;margin:6px 0 12px;">Denne generation</div>
+              <div style="display:flex;flex-wrap:wrap;gap:13px;justify-content:center;max-width:760px;">
+                <sc-for list="{{ a_siblings }}" as="p" hint-placeholder-count="3">
+                  <div onClick="{{ p.onTap }}" style="position:relative;width:188px;background:{{ p.cardBg }};border:1.5px solid {{ p.cardBorder }};border-radius:15px;padding:16px;cursor:pointer;box-shadow:{{ p.cardShadow }};">
+                    <sc-if value="{{ p.selected }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;top:12px;right:13px;font-family:'JetBrains Mono',monospace;font-size:7.5px;letter-spacing:.1em;text-transform:uppercase;color:#881A33;">I fokus</div></sc-if>
+                    <div style="width:56px;height:56px;border-radius:50%;background:#f4ece0;border:1px solid rgba(34,31,26,.08);display:flex;align-items:center;justify-content:center;font-family:'Cormorant Garamond',serif;font-size:23px;font-weight:600;color:#881A33;">{{ p.initials }}</div>
+                    <div style="font-family:'Cormorant Garamond',serif;font-size:21px;line-height:1.04;font-weight:600;color:#221f1a;margin-top:11px;">{{ p.name }}</div>
+                    <sc-if value="{{ p.hasYears }}" hint-placeholder-val="{{ true }}"><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#9a8f78;margin-top:4px;">{{ p.years }}</div></sc-if>
+                    <sc-if value="{{ p.hasTitle }}" hint-placeholder-val="{{ false }}"><div style="font-family:'Hanken Grotesk';font-size:11.5px;font-weight:500;color:#881A33;margin-top:6px;line-height:1.3;">{{ p.title }}</div></sc-if>
+                    <sc-if value="{{ p.hasChildren }}" hint-placeholder-val="{{ false }}"><div style="font-family:'Hanken Grotesk';font-size:10.5px;color:#6f675b;margin-top:8px;">↓ {{ p.childLabel }}</div></sc-if>
+                  </div>
+                </sc-for>
+              </div>
+
+              <sc-if value="{{ a_hasSpouse }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-top:12px;font-family:'Cormorant Garamond',serif;font-size:15px;font-style:italic;color:#6f675b;">⚭ gift med {{ a_spouseName }}</div>
+              </sc-if>
+
+              <sc-if value="{{ a_hasChildren }}" hint-placeholder-val="{{ false }}">
+                <div style="width:1px;height:22px;background:rgba(34,31,26,.22);margin:16px 0 4px;"></div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#a99f8c;margin:6px 0 12px;">Børn &amp; grene</div>
+                <div style="display:flex;flex-wrap:wrap;gap:11px;justify-content:center;max-width:820px;">
+                  <sc-for list="{{ a_children }}" as="p" hint-placeholder-count="3">
+                    <div onClick="{{ p.onTap }}" style="width:150px;background:#fbf8f1;border:1px solid rgba(34,31,26,.1);border-radius:12px;padding:13px;cursor:pointer;box-shadow:0 1px 2px rgba(34,31,26,.04);">
+                      <div style="width:40px;height:40px;border-radius:50%;background:#ece4d6;border:1px solid rgba(34,31,26,.08);display:flex;align-items:center;justify-content:center;font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:600;color:#881A33;">{{ p.initials }}</div>
+                      <div style="font-family:'Cormorant Garamond',serif;font-size:17px;line-height:1.05;font-weight:600;color:#221f1a;margin-top:9px;">{{ p.name }}</div>
+                      <sc-if value="{{ p.hasYears }}" hint-placeholder-val="{{ true }}"><div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#9a8f78;margin-top:3px;">{{ p.years }}</div></sc-if>
+                      <sc-if value="{{ p.hasChildren }}" hint-placeholder-val="{{ false }}"><div style="font-family:'Hanken Grotesk';font-size:10px;color:#881A33;margin-top:6px;">↓ {{ p.childLabel }}</div></sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+              <sc-if value="{{ a_noChildren }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-top:18px;font-family:'Hanken Grotesk';font-size:12.5px;color:#a99f8c;">Ingen registrerede efterkommere</div>
+              </sc-if>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isVariantB }}" hint-placeholder-val="{{ false }}">
+            <div data-scroll data-bcols style="display:flex;gap:14px;overflow-x:auto;padding:10px 0 16px;align-items:flex-start;">
+              <sc-for list="{{ b_cols }}" as="col" hint-placeholder-count="4">
+                <div style="flex:none;width:208px;display:flex;flex-direction:column;gap:9px;">
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#b9a06a;padding:0 2px 4px;border-bottom:1px solid rgba(34,31,26,.1);">{{ col.label }}</div>
+                  <sc-for list="{{ col.items }}" as="p" hint-placeholder-count="3">
+                    <div onClick="{{ p.onTap }}" style="background:{{ p.cardBg }};border:1.5px solid {{ p.cardBorder }};border-radius:12px;padding:11px 13px;cursor:pointer;box-shadow:{{ p.cardShadow }};display:flex;align-items:center;gap:10px;">
+                      <div style="width:34px;height:34px;border-radius:50%;background:#f4ece0;border:1px solid rgba(34,31,26,.08);display:flex;align-items:center;justify-content:center;flex:none;font-family:'Cormorant Garamond',serif;font-size:14px;font-weight:600;color:#881A33;">{{ p.initials }}</div>
+                      <div style="min-width:0;flex:1;">
+                        <div style="font-family:'Cormorant Garamond',serif;font-size:16px;line-height:1.02;font-weight:600;color:#221f1a;">{{ p.name }}</div>
+                        <sc-if value="{{ p.hasYears }}" hint-placeholder-val="{{ true }}"><div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#9a8f78;margin-top:2px;">{{ p.years }}</div></sc-if>
+                      </div>
+                      <sc-if value="{{ p.hasChildren }}" hint-placeholder-val="{{ false }}"><span style="color:#bcae93;font-size:16px;flex:none;">›</span></sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isEstates }}" hint-placeholder-val="{{ false }}">
+        <div class="daa-view" style="padding:30px 40px 50px;">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:#b9a06a;margin-bottom:6px;">Slægten {{ slaegt.name }}</div>
+          <div style="font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:600;color:#221f1a;line-height:1;">Godser &amp; ejendomme</div>
+          <div style="width:42px;height:1.5px;background:#881A33;margin:11px 0 6px;"></div>
+          <div style="font-family:'Hanken Grotesk';font-size:13px;color:#6f675b;margin-top:4px;margin-bottom:20px;">Besiddelser knyttet til slægten — klik for ejerrækken gennem tiden.</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">
+            <sc-for list="{{ estateList }}" as="e" hint-placeholder-count="9">
+              <div onClick="{{ e.onTap }}" style="background:#fbf8f1;border:1px solid rgba(34,31,26,.1);border-radius:13px;padding:15px;cursor:pointer;box-shadow:0 1px 2px rgba(34,31,26,.03);">
+                <span style="width:36px;height:36px;border-radius:8px;background:#ece4d6;display:flex;align-items:center;justify-content:center;font-family:'Cormorant Garamond',serif;font-size:17px;color:#881A33;">⌂</span>
+                <div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:600;line-height:1.05;color:#221f1a;margin-top:11px;">{{ e.navn }}</div>
+                <div style="font-family:'Hanken Grotesk';font-size:11.5px;color:#6f675b;margin-top:3px;">{{ e.ownerLabel }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isEstateDetail }}" hint-placeholder-val="{{ false }}">
+        <div class="daa-view" style="padding:26px 40px 50px;max-width:620px;">
+          <div onClick="{{ onEstatesBack }}" style="font-family:'Hanken Grotesk';font-size:12.5px;font-weight:600;color:#881A33;cursor:pointer;margin-bottom:14px;">‹ Alle godser</div>
+          <div style="font-family:'Cormorant Garamond',serif;font-size:32px;font-weight:600;color:#221f1a;line-height:1.02;">{{ estate.navn }}</div>
+          <sc-if value="{{ estate.hasSlags }}" hint-placeholder-val="{{ false }}"><div style="display:inline-block;margin-top:9px;font-family:'Hanken Grotesk';font-size:11.5px;font-weight:600;color:#881A33;background:#f4e2e6;border:1px solid rgba(136,26,51,.16);padding:5px 10px;border-radius:7px;">{{ estate.slags }}</div></sc-if>
+          <div style="margin-top:18px;border:1px dashed rgba(34,31,26,.2);border-radius:11px;padding:15px;background:#fbf8f1;">
+            <div style="font-family:'Hanken Grotesk';font-size:13px;line-height:1.5;color:#6f675b;">Beskrivelse af godsets historie indlæses fra Aarbogen.</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#b9a06a;margin-top:9px;">Kommer snart</div>
+          </div>
+          <div style="margin-top:26px;font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:#a99f8c;margin-bottom:14px;">Ejere gennem tiden</div>
+          <div style="display:flex;flex-direction:column;">
+            <sc-for list="{{ estate.owners }}" as="o" hint-placeholder-count="4">
+              <div style="display:flex;align-items:flex-start;gap:13px;">
+                <div style="display:flex;flex-direction:column;align-items:center;flex:none;width:13px;padding-top:6px;">
+                  <div style="width:11px;height:11px;border-radius:50%;background:#881A33;"></div>
+                  <sc-if value="{{ o.hasLine }}" hint-placeholder-val="{{ true }}"><div style="width:2px;flex:1;min-height:28px;background:rgba(136,26,51,.22);margin-top:2px;"></div></sc-if>
+                </div>
+                <div onClick="{{ o.onTap }}" style="flex:1;cursor:pointer;padding-bottom:18px;">
+                  <sc-if value="{{ o.hasPeriod }}" hint-placeholder-val="{{ true }}"><div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#9a8f78;">{{ o.period }}</div></sc-if>
+                  <div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:600;line-height:1.05;color:#221f1a;margin-top:1px;">{{ o.name }} ›</div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isArms }}" hint-placeholder-val="{{ false }}">
+        <div class="daa-view" style="padding:30px 40px 50px;max-width:640px;">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:#b9a06a;margin-bottom:6px;">Slægten {{ slaegt.name }}</div>
+          <div style="font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:600;color:#221f1a;line-height:1;">Slægtens våben</div>
+          <div style="width:42px;height:1.5px;background:#881A33;margin:11px 0 18px;"></div>
+          <div style="background:#221f1a;border-radius:16px;padding:26px;display:flex;gap:24px;align-items:center;">
+            <div style="width:150px;height:185px;border-radius:10px;background:repeating-linear-gradient(45deg,#3a352c 0 9px,#322d25 9px 18px);border:1px solid rgba(231,201,143,.2);flex:none;display:flex;align-items:center;justify-content:center;"><span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#b9a06a;">våbenskjold</span></div>
+            <div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#e7c98f;">Autoriseret våben</div>
+              <div style="font-family:'Hanken Grotesk';font-size:12px;color:#cabfa9;margin-top:3px;">Dansk Adels Forenings gældende gengivelse</div>
+              <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-style:italic;line-height:1.45;color:#f4efe6;margin-top:14px;">{{ arms.blasonering }}</div>
+            </div>
+          </div>
+          <div style="margin-top:26px;font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#9a8f78;">Øvrige gengivelser &amp; segl</div>
+          <div style="font-family:'Hanken Grotesk';font-size:12px;color:#a99f8c;margin-bottom:14px;">Varianter over tid, brisering mellem linjer, daterede segl</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
+            <sc-for list="{{ arms.variants }}" as="v" hint-placeholder-count="4">
+              <div style="background:#fbf8f1;border:1px solid rgba(34,31,26,.1);border-radius:12px;padding:11px;">
+                <div style="width:100%;aspect-ratio:.82;border-radius:8px;background:repeating-linear-gradient(45deg,#ece4d6 0 8px,#e2d8c8 8px 16px);border:1px solid rgba(34,31,26,.08);"></div>
+                <div style="font-family:'Cormorant Garamond',serif;font-size:15px;font-weight:600;color:#221f1a;margin-top:7px;line-height:1.1;">{{ v.titel }}</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#9a8f78;margin-top:2px;">{{ v.meta }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isAbout }}" hint-placeholder-val="{{ false }}">
+        <div class="daa-view" style="padding:30px 40px 50px;max-width:680px;">
+          <div style="font-family:'Cormorant Garamond',serif;font-size:34px;font-weight:600;color:#221f1a;line-height:1.02;">Slægten {{ slaegt.name }}</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#9a8f78;margin-top:8px;">Indledning til stamtavlen · {{ slaegt.sourceLabel }}</div>
+          <div style="height:1px;background:rgba(34,31,26,.12);margin:20px 0;"></div>
+          <sc-for list="{{ aboutSections }}" as="art" hint-placeholder-count="2">
+            <div style="margin-bottom:22px;">
+              <div style="font-family:'Cormorant Garamond',serif;font-size:23px;font-weight:600;color:#221f1a;margin-bottom:9px;">{{ art.heading }}</div>
+              <div style="border:1px dashed rgba(34,31,26,.2);border-radius:11px;padding:16px;background:#fbf8f1;">
+                <div style="font-family:'Hanken Grotesk';font-size:13px;line-height:1.5;color:#6f675b;">{{ art.note }}</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#b9a06a;margin-top:9px;">Indlæses fra stamtavlen</div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isRelate }}" hint-placeholder-val="{{ false }}">
+        <div class="daa-view" style="padding:30px 40px 50px;max-width:640px;">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:#b9a06a;margin-bottom:6px;">Slægten {{ slaegt.name }}</div>
+          <div style="font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:600;color:#221f1a;line-height:1;">Er vi i familie?</div>
+          <div style="width:42px;height:1.5px;background:#881A33;margin:11px 0 6px;"></div>
+          <div style="font-family:'Hanken Grotesk';font-size:13px;color:#6f675b;margin-top:4px;margin-bottom:20px;">Vælg to personer — brug "skift" og klik en person i listen til venstre.</div>
+          <div style="display:flex;align-items:stretch;gap:12px;">
+            <div onClick="{{ rel.onSwapA }}" style="flex:1;background:{{ rel.aCardBg }};border:1.5px solid {{ rel.aCardBorder }};border-radius:14px;padding:16px;cursor:pointer;display:flex;flex-direction:column;align-items:center;text-align:center;">
+              <div style="width:50px;height:50px;border-radius:50%;background:#ece4d6;border:1px solid rgba(34,31,26,.08);display:flex;align-items:center;justify-content:center;font-family:'Cormorant Garamond',serif;font-size:21px;font-weight:600;color:#881A33;">{{ rel.aInit }}</div>
+              <div style="font-family:'Cormorant Garamond',serif;font-size:18px;line-height:1.05;font-weight:600;color:#221f1a;margin-top:10px;">{{ rel.aName }}</div>
+              <div style="font-family:'Hanken Grotesk';font-size:11px;color:#881A33;margin-top:6px;font-weight:600;">{{ rel.aHint }}</div>
+            </div>
+            <div style="display:flex;align-items:center;font-family:'Cormorant Garamond',serif;font-size:22px;font-style:italic;color:#b9a06a;">&amp;</div>
+            <div onClick="{{ rel.onSwapB }}" style="flex:1;background:{{ rel.bCardBg }};border:1.5px solid {{ rel.bCardBorder }};border-radius:14px;padding:16px;cursor:pointer;display:flex;flex-direction:column;align-items:center;text-align:center;">
+              <div style="width:50px;height:50px;border-radius:50%;background:#ece4d6;border:1px solid rgba(34,31,26,.08);display:flex;align-items:center;justify-content:center;font-family:'Cormorant Garamond',serif;font-size:21px;font-weight:600;color:#881A33;">{{ rel.bInit }}</div>
+              <div style="font-family:'Cormorant Garamond',serif;font-size:18px;line-height:1.05;font-weight:600;color:#221f1a;margin-top:10px;">{{ rel.bName }}</div>
+              <div style="font-family:'Hanken Grotesk';font-size:11px;color:#881A33;margin-top:6px;font-weight:600;">{{ rel.bHint }}</div>
+            </div>
+          </div>
+
+          <div style="margin-top:20px;background:#221f1a;border-radius:14px;padding:20px;text-align:center;">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:#e7c98f;">Slægtskab</div>
+            <div style="font-family:'Cormorant Garamond',serif;font-size:27px;line-height:1.1;font-weight:600;color:#f4efe6;margin-top:7px;">{{ rel.label }}</div>
+            <sc-if value="{{ rel.hasLca }}" hint-placeholder-val="{{ false }}"><div style="font-family:'Hanken Grotesk';font-size:12.5px;color:#cabfa9;margin-top:8px;">Fælles ane: {{ rel.lcaName }}</div></sc-if>
+          </div>
+
+          <div style="margin-top:22px;font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:#a99f8c;margin-bottom:6px;">Forbindelsen, trin for trin</div>
+          <div style="display:flex;flex-direction:column;">
+            <sc-for list="{{ rel.steps }}" as="st" hint-placeholder-count="4">
+              <div style="display:flex;align-items:center;gap:13px;padding:3px 0;">
+                <div style="width:26px;display:flex;justify-content:center;flex:none;"><div style="width:11px;height:11px;border-radius:50%;background:{{ st.dot }};border:2px solid {{ st.ring }};"></div></div>
+                <div onClick="{{ st.onTap }}" style="flex:1;background:{{ st.bg }};border:1px solid {{ st.border }};border-radius:11px;padding:10px 14px;display:flex;align-items:center;gap:8px;cursor:pointer;">
+                  <div style="flex:1;">
+                    <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:600;line-height:1.04;color:#221f1a;">{{ st.name }}</div>
+                    <sc-if value="{{ st.hasYears }}" hint-placeholder-val="{{ true }}"><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#9a8f78;margin-top:2px;">{{ st.years }}</div></sc-if>
+                  </div>
+                  <sc-if value="{{ st.isLca }}" hint-placeholder-val="{{ false }}"><div style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:#b9a06a;flex:none;">Fælles ane</div></sc-if>
+                </div>
+              </div>
+              <sc-if value="{{ st.hasArrow }}" hint-placeholder-val="{{ false }}"><div style="margin-left:12px;width:2px;height:9px;background:rgba(34,31,26,.18);"></div></sc-if>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+    </div>
+
+    <div data-scroll style="flex:none;width:392px;border-left:1px solid rgba(34,31,26,.1);background:#fbf8f1;overflow-y:auto;">
+      <sc-if value="{{ hasDetail }}" hint-placeholder-val="{{ true }}">
+        <sc-if value="{{ isEditing }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:22px 24px 36px;">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#a99f8c;margin-bottom:12px;">Redigér person</div>
+            <label style="display:block;font-family:'Hanken Grotesk';font-size:11px;font-weight:600;color:#6f675b;margin-bottom:4px;">Navn</label>
+            <input value="{{ edit.navn }}" onChange="{{ edit.onNavn }}" style="width:100%;font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:600;color:#221f1a;background:#fff;border:1px solid rgba(34,31,26,.18);border-radius:8px;padding:9px 11px;outline:none;margin-bottom:13px;" />
+            <div style="display:flex;gap:10px;margin-bottom:13px;">
+              <div style="flex:1;"><label style="display:block;font-family:'Hanken Grotesk';font-size:11px;font-weight:600;color:#6f675b;margin-bottom:4px;">Født</label><input value="{{ edit.foedt }}" onChange="{{ edit.onFoedt }}" style="width:100%;font-family:'JetBrains Mono',monospace;font-size:12px;color:#221f1a;background:#fff;border:1px solid rgba(34,31,26,.18);border-radius:8px;padding:9px 11px;outline:none;" /></div>
+              <div style="flex:1;"><label style="display:block;font-family:'Hanken Grotesk';font-size:11px;font-weight:600;color:#6f675b;margin-bottom:4px;">Død</label><input value="{{ edit.doed }}" onChange="{{ edit.onDoed }}" style="width:100%;font-family:'JetBrains Mono',monospace;font-size:12px;color:#221f1a;background:#fff;border:1px solid rgba(34,31,26,.18);border-radius:8px;padding:9px 11px;outline:none;" /></div>
+            </div>
+            <label style="display:block;font-family:'Hanken Grotesk';font-size:11px;font-weight:600;color:#6f675b;margin-bottom:4px;">Titel / rang</label>
+            <input value="{{ edit.titel }}" onChange="{{ edit.onTitel }}" style="width:100%;font-family:'Hanken Grotesk';font-size:13px;color:#221f1a;background:#fff;border:1px solid rgba(34,31,26,.18);border-radius:8px;padding:9px 11px;outline:none;margin-bottom:13px;" />
+            <label style="display:block;font-family:'Hanken Grotesk';font-size:11px;font-weight:600;color:#6f675b;margin-bottom:4px;">Biografi</label>
+            <textarea value="{{ edit.bio }}" onChange="{{ edit.onBio }}" style="width:100%;height:120px;font-family:'Hanken Grotesk';font-size:13px;line-height:1.5;color:#3d382f;background:#fff;border:1px solid rgba(34,31,26,.18);border-radius:8px;padding:10px 11px;outline:none;resize:vertical;"></textarea>
+
+            <div style="margin-top:14px;background:#f4efe6;border:1px solid rgba(34,31,26,.1);border-radius:9px;padding:11px 12px;">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#9a8f78;">Kilde til ændringen</div>
+              <input value="{{ edit.kilde }}" onChange="{{ edit.onKilde }}" placeholder="fx DAA 2024, tavle III · folketælling 1901" style="width:100%;font-family:'Hanken Grotesk';font-size:12px;color:#221f1a;background:#fff;border:1px solid rgba(34,31,26,.16);border-radius:7px;padding:8px 10px;outline:none;margin-top:6px;" />
+              <div style="font-family:'Hanken Grotesk';font-size:10.5px;color:#a99f8c;margin-top:6px;">Rettelser registreres som påstande med kilde og sendes til redaktionel godkendelse — den trykte værdi overskrives ikke direkte.</div>
+            </div>
+
+            <div style="margin-top:20px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#a99f8c;margin-bottom:9px;">Relationer</div>
+            <sc-for list="{{ edit.relGroups }}" as="rg" hint-placeholder-count="3">
+              <div style="margin-bottom:11px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;">
+                  <span style="font-family:'Hanken Grotesk';font-size:11.5px;font-weight:600;color:#6f675b;">{{ rg.label }}</span>
+                  <span onClick="{{ rg.onAdd }}" style="font-family:'Hanken Grotesk';font-size:11px;font-weight:600;color:#881A33;cursor:pointer;">{{ rg.addLabel }}</span>
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                  <sc-for list="{{ rg.items }}" as="it" hint-placeholder-count="2">
+                    <div style="display:flex;align-items:center;gap:7px;background:{{ it.bg }};border:1px solid {{ it.border }};border-radius:8px;padding:5px 8px 5px 10px;">
+                      <span style="font-family:'Cormorant Garamond',serif;font-size:14px;font-weight:600;color:{{ it.color }};text-decoration:{{ it.strike }};">{{ it.name }}</span>
+                      <sc-if value="{{ it.isNew }}" hint-placeholder-val="{{ false }}"><span style="font-family:'JetBrains Mono',monospace;font-size:7.5px;letter-spacing:.06em;text-transform:uppercase;color:#1f8a5b;">ny</span></sc-if>
+                      <span onClick="{{ it.onToggle }}" style="font-size:13px;color:#9a8f78;cursor:pointer;line-height:1;">{{ it.toggleIcon }}</span>
+                    </div>
+                  </sc-for>
+                  <sc-if value="{{ rg.empty }}" hint-placeholder-val="{{ false }}"><span style="font-family:'Hanken Grotesk';font-size:11.5px;color:#bcae93;">ingen</span></sc-if>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ isReadingDetail }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:24px 24px 36px;">
+          <sc-if value="{{ detail.hasBack }}" hint-placeholder-val="{{ false }}">
+            <div onClick="{{ detail.onBack }}" style="display:inline-flex;align-items:center;gap:5px;font-family:'Hanken Grotesk';font-size:12.5px;font-weight:600;color:#881A33;cursor:pointer;margin-bottom:14px;">‹ Tilbage til {{ detail.backName }}</div>
+          </sc-if>
+          <div style="display:flex;gap:16px;align-items:flex-start;">
+            <div style="width:92px;height:116px;border-radius:11px;background:repeating-linear-gradient(45deg,#ece4d6 0 9px,#e2d8c8 9px 18px);border:1px solid rgba(34,31,26,.1);flex:none;display:flex;align-items:flex-end;padding:8px;"><span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#6f675b;">portræt</span></div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-family:'Cormorant Garamond',serif;font-size:27px;line-height:1.0;font-weight:600;color:#221f1a;">{{ detail.name }}</div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#9a8f78;margin-top:6px;">{{ detail.years }}</div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:9px;">
+                <sc-if value="{{ detail.isMe }}" hint-placeholder-val="{{ false }}"><div style="font-family:'Hanken Grotesk';font-size:10.5px;font-weight:700;color:#fbf8f1;background:#881A33;padding:4px 9px;border-radius:6px;">★ Dig</div></sc-if>
+                <sc-if value="{{ detail.hasLinje }}" hint-placeholder-val="{{ false }}"><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#6f675b;background:#ece4d6;border:1px solid rgba(34,31,26,.1);padding:4px 8px;border-radius:6px;">Linje {{ detail.linje }}</div></sc-if>
+                <sc-if value="{{ detail.hasTitle }}" hint-placeholder-val="{{ false }}"><div style="font-family:'Hanken Grotesk';font-size:11px;font-weight:600;color:#881A33;background:#f4e2e6;border:1px solid rgba(136,26,51,.16);padding:4px 9px;border-radius:6px;">{{ detail.title }}</div></sc-if>
+              </div>
+            </div>
+          </div>
+
+          <sc-if value="{{ detail.hasParents }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:16px;display:flex;align-items:center;flex-wrap:wrap;gap:4px 7px;">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#b9a06a;">Barn af</span>
+              <sc-for list="{{ detail.parents }}" as="pa" hint-placeholder-count="2">
+                <span style="display:inline-flex;align-items:center;gap:4px;">
+                  <sc-if value="{{ pa.sep }}" hint-placeholder-val="{{ false }}"><span style="font-family:'Cormorant Garamond',serif;font-size:15px;font-style:italic;color:#b9a06a;">&amp;</span></sc-if>
+                  <span onClick="{{ pa.onTap }}" style="font-family:'Cormorant Garamond',serif;font-size:16px;font-weight:600;color:#881A33;cursor:pointer;">{{ pa.name }} ›</span>
+                </span>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ detail.hasBio }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:14px;font-family:'Hanken Grotesk';font-size:13.5px;line-height:1.55;color:#3d382f;">{{ detail.bio }}</div>
+          </sc-if>
+
+          <sc-if value="{{ detail.hasSpouse }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:14px;font-family:'Cormorant Garamond',serif;font-size:15px;font-style:italic;color:#6f675b;line-height:1.5;">⚭ gift med
+              <sc-for list="{{ detail.spouses }}" as="sp" hint-placeholder-count="1">
+                <span style="display:inline;">
+                  <sc-if value="{{ sp.sep }}" hint-placeholder-val="{{ false }}"><span style="color:#b9a06a;">·&nbsp;</span></sc-if>
+                  <sc-if value="{{ sp.clickable }}" hint-placeholder-val="{{ false }}"><span onClick="{{ sp.onTap }}" style="font-weight:600;font-style:normal;color:#881A33;cursor:pointer;">{{ sp.name }} ›</span></sc-if>
+                  <sc-if value="{{ sp.text }}" hint-placeholder-val="{{ true }}"><span>{{ sp.name }}</span></sc-if>
+                </span>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ detail.hasChildren }}" hint-placeholder-val="{{ false }}">
+            <sc-for list="{{ detail.childGroups }}" as="g" hint-placeholder-count="1">
+              <div style="margin-top:20px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#a99f8c;margin-bottom:9px;">{{ g.label }}</div>
+              <div style="display:flex;flex-wrap:wrap;gap:7px;">
+                <sc-for list="{{ g.children }}" as="c" hint-placeholder-count="3">
+                  <div onClick="{{ c.onTap }}" style="display:flex;align-items:center;gap:8px;background:#f4efe6;border:1px solid rgba(34,31,26,.1);border-radius:9px;padding:6px 11px 6px 7px;cursor:pointer;">
+                    <div style="width:26px;height:26px;border-radius:50%;background:#ece4d6;display:flex;align-items:center;justify-content:center;flex:none;font-family:'Cormorant Garamond',serif;font-size:11px;font-weight:600;color:#881A33;">{{ c.initials }}</div>
+                    <span style="font-family:'Cormorant Garamond',serif;font-size:15px;font-weight:600;color:#221f1a;">{{ c.first }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-for>
+          </sc-if>
+
+          <sc-if value="{{ detail.hasOffices }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:22px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#a99f8c;margin-bottom:8px;">Embeder, rang &amp; hverv</div>
+            <div style="display:flex;flex-direction:column;">
+              <sc-for list="{{ detail.offices }}" as="o" hint-placeholder-count="3">
+                <div style="display:flex;align-items:baseline;gap:10px;padding:7px 0;border-bottom:1px solid rgba(34,31,26,.07);">
+                  <span style="flex:1;font-family:'Hanken Grotesk';font-size:13px;color:#3d382f;line-height:1.3;">{{ o.label }}</span>
+                  <sc-if value="{{ o.hasPeriod }}" hint-placeholder-val="{{ true }}"><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#9a8f78;flex:none;white-space:nowrap;">{{ o.period }}</span></sc-if>
+                </div>
+              </sc-for>
+            </div>
+            <sc-if value="{{ detail.hasOfficeMore }}" hint-placeholder-val="{{ false }}"><div style="font-family:'Hanken Grotesk';font-size:11.5px;color:#a99f8c;margin-top:8px;">{{ detail.officeMore }}</div></sc-if>
+          </sc-if>
+
+          <sc-if value="{{ detail.hasEstates }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:22px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#a99f8c;margin-bottom:9px;">Godser &amp; besiddelser</div>
+            <div style="display:flex;flex-wrap:wrap;gap:7px;">
+              <sc-for list="{{ detail.estates }}" as="e" hint-placeholder-count="3">
+                <div onClick="{{ e.onTap }}" style="display:flex;align-items:center;gap:6px;background:#f4efe6;border:1px solid rgba(34,31,26,.1);border-radius:8px;padding:6px 10px;cursor:{{ e.cursor }};">
+                  <span style="font-family:'Cormorant Garamond',serif;font-size:15px;font-weight:600;color:#221f1a;">{{ e.navn }}</span>
+                  <sc-if value="{{ e.hasPeriod }}" hint-placeholder-val="{{ true }}"><span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#9a8f78;">{{ e.period }}</span></sc-if>
+                  <sc-if value="{{ e.navigable }}" hint-placeholder-val="{{ false }}"><span style="color:#bcae93;font-size:13px;">›</span></sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <div style="margin-top:22px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#a99f8c;margin-bottom:8px;">Kilde i Aarbogen</div>
+          <sc-if value="{{ detail.hasSources }}" hint-placeholder-val="{{ true }}">
+            <sc-for list="{{ detail.sources }}" as="src" hint-placeholder-count="1">
+              <div style="display:flex;align-items:center;gap:11px;padding:9px 0;border-bottom:1px solid rgba(34,31,26,.08);">
+                <span style="font-family:'Cormorant Garamond',serif;font-size:18px;color:#881A33;flex:none;">§</span>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-family:'Hanken Grotesk';font-size:13px;font-weight:600;color:#221f1a;line-height:1.25;">{{ src.work }}</div>
+                  <sc-if value="{{ src.hasRef }}" hint-placeholder-val="{{ true }}"><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#9a8f78;margin-top:2px;">{{ src.ref }}</div></sc-if>
+                </div>
+              </div>
+            </sc-for>
+          </sc-if>
+          <sc-if value="{{ detail.noSources }}" hint-placeholder-val="{{ false }}"><div style="font-family:'Hanken Grotesk';font-size:12.5px;color:#a99f8c;">Ingen bogreference registreret.</div></sc-if>
+
+          <div onClick="{{ detail.onFocusTree }}" style="margin-top:24px;display:flex;align-items:center;justify-content:center;gap:7px;font-family:'Hanken Grotesk';font-size:12.5px;font-weight:600;color:#3d382f;background:#f4efe6;border:1.5px solid rgba(34,31,26,.16);padding:11px 0;border-radius:10px;cursor:pointer;">
+            <span style="font-size:13px;">⊹</span> Sæt i fokus i stamtræet
+          </div>
+          <div style="margin-top:9px;display:flex;gap:9px;">
+            <div onClick="{{ detail.onRelate }}" style="flex:1;text-align:center;font-family:'Hanken Grotesk';font-size:12.5px;font-weight:600;color:#fbf8f1;background:#881A33;padding:11px 0;border-radius:10px;cursor:pointer;">Find slægtskab</div>
+            <div onClick="{{ detail.onToggleMe }}" style="flex:1;text-align:center;font-family:'Hanken Grotesk';font-size:12.5px;font-weight:600;color:{{ detail.meColor }};background:{{ detail.meBg }};border:1.5px solid {{ detail.meBorder }};padding:11px 0;border-radius:10px;cursor:pointer;">{{ detail.meLabel }}</div>
+          </div>
+        </div>
+        </sc-if>
+      </sc-if>
+    </div>
+
+  </div>
+
+  <sc-if value="{{ reviewOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ onCloseReview }}" style="position:fixed;inset:0;z-index:70;background:rgba(20,17,13,.5);display:flex;align-items:center;justify-content:center;">
+      <div style="width:540px;max-height:80vh;background:#f4efe6;border-radius:16px;box-shadow:0 30px 70px rgba(20,17,13,.4);display:flex;flex-direction:column;overflow:hidden;">
+        <div style="padding:20px 24px;border-bottom:1px solid rgba(34,31,26,.1);">
+          <div style="font-family:'Cormorant Garamond',serif;font-size:24px;font-weight:600;color:#221f1a;">Gennemse ændringer</div>
+          <div style="font-family:'Hanken Grotesk';font-size:12.5px;color:#6f675b;margin-top:3px;">Indsendes som forslag til redaktionel godkendelse — den trykte Aarbog er kilden indtil en redaktør godkender.</div>
+        </div>
+        <div data-scroll style="flex:1;overflow-y:auto;padding:14px 24px;">
+          <sc-if value="{{ hasChanges }}" hint-placeholder-val="{{ true }}">
+            <sc-for list="{{ changes }}" as="ch" hint-placeholder-count="3">
+              <div style="display:flex;gap:11px;padding:10px 0;border-bottom:1px solid rgba(34,31,26,.08);">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.06em;text-transform:uppercase;color:{{ ch.tagColor }};background:{{ ch.tagBg }};padding:3px 7px;border-radius:5px;flex:none;height:max-content;">{{ ch.tag }}</span>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-family:'Hanken Grotesk';font-size:13px;color:#221f1a;">{{ ch.text }}</div>
+                  <sc-if value="{{ ch.hasFrom }}" hint-placeholder-val="{{ false }}"><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#9a8f78;margin-top:2px;">{{ ch.from }} → {{ ch.to }}</div></sc-if>
+                  <div style="font-family:'Hanken Grotesk';font-size:11px;color:#a99f8c;margin-top:2px;">{{ ch.who }}</div>
+                </div>
+              </div>
+            </sc-for>
+          </sc-if>
+          <sc-if value="{{ noChanges }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:24px 0;text-align:center;font-family:'Hanken Grotesk';font-size:13px;color:#a99f8c;">Ingen ændringer endnu.</div>
+          </sc-if>
+        </div>
+        <div style="padding:16px 24px;border-top:1px solid rgba(34,31,26,.1);display:flex;align-items:center;gap:12px;">
+          <span style="flex:1;font-family:'Hanken Grotesk';font-size:12px;color:#6f675b;">{{ draftLabel }}</span>
+          <div onClick="{{ onCloseReview }}" style="font-family:'Hanken Grotesk';font-size:13px;font-weight:600;color:#6f675b;cursor:pointer;padding:9px 14px;">Annullér</div>
+          <div onClick="{{ onSubmit }}" style="font-family:'Hanken Grotesk';font-size:13px;font-weight:600;color:#fbf8f1;background:{{ submitBg }};border-radius:9px;padding:10px 18px;cursor:{{ submitCursor }};">Indsend forslag</div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ submittedToast }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;left:50%;bottom:30px;transform:translateX(-50%);z-index:80;background:#1f5b3a;color:#eafff3;font-family:'Hanken Grotesk';font-size:13px;font-weight:600;padding:13px 22px;border-radius:11px;box-shadow:0 12px 30px rgba(20,17,13,.3);">✓ Forslag indsendt til redaktionel godkendelse</div>
+  </sc-if>
+
+  <sc-if value="{{ isSlaegtPicking }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeSlaegt }}" style="position:fixed;inset:0;z-index:60;background:rgba(20,17,13,.42);display:flex;align-items:flex-start;justify-content:flex-end;">
+      <div style="margin:62px 26px 0;width:340px;background:#f4efe6;border-radius:14px;box-shadow:0 24px 60px rgba(20,17,13,.3);padding:16px 18px 20px;">
+        <div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:600;color:#221f1a;margin-bottom:3px;">Vælg slægt</div>
+        <div style="font-family:'Hanken Grotesk';font-size:11.5px;color:#a99f8c;margin-bottom:12px;">Hver ny slægt er sit eget datasæt. Slægtskab kan findes på tværs.</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <sc-for list="{{ slaegtList }}" as="sl" hint-placeholder-count="4">
+            <div style="display:flex;align-items:center;gap:12px;background:{{ sl.bg }};border:1.5px solid {{ sl.border }};border-radius:12px;padding:12px 14px;">
+              <span style="width:34px;height:34px;border-radius:50%;background:{{ sl.crestBg }};display:flex;align-items:center;justify-content:center;flex:none;font-family:'Cormorant Garamond',serif;font-size:15px;font-weight:600;color:{{ sl.crestColor }};">{{ sl.crest }}</span>
+              <div style="flex:1;min-width:0;">
+                <div style="font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:600;line-height:1.05;color:#221f1a;">{{ sl.name }}</div>
+                <div style="font-family:'Hanken Grotesk';font-size:11px;color:#6f675b;margin-top:1px;">{{ sl.sub }}</div>
+              </div>
+              <sc-if value="{{ sl.active }}" hint-placeholder-val="{{ false }}"><span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:#881A33;flex:none;">aktiv</span></sc-if>
+              <sc-if value="{{ sl.coming }}" hint-placeholder-val="{{ false }}"><span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:#bcae93;flex:none;">ikke tilføjet</span></sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <div style="position:fixed;inset:0;pointer-events:none;z-index:50;mix-blend-mode:multiply;opacity:.45;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='150'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.28'/%3E%3C/svg%3E&quot;);"></div>
+  <div style="position:fixed;inset:0;pointer-events:none;z-index:51;background:radial-gradient(120% 80% at 50% 14%,transparent 62%,rgba(54,40,22,.08) 100%);"></div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:900},&quot;defaultVariant&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;A&quot;,&quot;B&quot;],&quot;default&quot;:&quot;A&quot;,&quot;tsType&quot;:&quot;'A'|'B'&quot;},&quot;showLifeYears&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  db = {
+    persons: [
+      {id:'r1', name:'Conrad Reventlow', born:1644, died:1708, title:'Storkansler · Greve', bio:'Ophøjet til greve i 1673 og udnævnt til storkansler. Regnes som stamfader til den danske greveslægt Reventlow.'},
+      {id:'r2', name:'Christian Ditlev Reventlow', born:1671, died:1738, title:'Greve · Generalfeltmarskal', bio:'Militær og godsejer, der samlede betydelige besiddelser på Lolland og Sjælland.'},
+      {id:'r6', name:'Ditlev Reventlow', born:1712, died:1783, title:'Gehejmeråd · Statsmand', bio:'Indflydelsesrig embedsmand ved hoffet og overhofmester for kronprinsen.'},
+      {id:'r8', name:'Christian Ditlev Frederik Reventlow', born:1748, died:1827, title:'Statsminister · Landboreformer', bio:'Drivkraft bag de store landboreformer og stavnsbåndets ophævelse i 1788.'},
+      {id:'r9', name:'Ludvig Reventlow', born:1751, died:1801, title:'Godsejer · Skolereformer', bio:'Grundlagde reformskoler på Brahetrolleborg.'},
+      {id:'r12', name:'Christian Ditlev Reventlow', born:1775, died:1851, title:'Lensgreve', bio:'Overtog lensgrevskabet Christianssæde.'},
+      {id:'r16', name:'Christian Einar Reventlow', born:1817, died:1906, title:'Lensgreve', bio:'Moderniserede godsdriften gennem anden halvdel af 1800-tallet.'},
+      {id:'r21', name:'Christian Reventlow', born:1855, died:1925, title:'Lensgreve', bio:'Sidste lensgreve før lensafløsningen i 1919.'},
+      {id:'r23', name:'Ditlev Reventlow', born:1890, died:1971, title:'Godsejer', bio:''},
+      {id:'r24', name:'Johan Reventlow', born:1920, died:1998, title:'Forstkandidat', bio:'Drev skovbruget på familiens jorder.'}
+    ],
+    unions: [
+      {id:'u1', p1:'r1', p2:null, p2_name:'Anna Margrethe Gabel', year:1667},
+      {id:'u2', p1:'r2', p2:null, p2_name:'Benedicte von Brockdorff', year:1700},
+      {id:'u6', p1:'r6', p2:null, p2_name:'Margrethe von Raben', year:1747},
+      {id:'u8', p1:'r8', p2:null, p2_name:'Friederike von Beulwitz', year:1774},
+      {id:'u12', p1:'r12', p2:null, p2_name:'Benedicte Tønne', year:1800},
+      {id:'u16', p1:'r16', p2:null, p2_name:'Lucie Haxthausen', year:1846},
+      {id:'u21', p1:'r21', p2:null, p2_name:'Else Brockenhuus', year:1884}
+    ],
+    parentChild: [
+      {child:'r2', parent:'r1', union:'u1'},
+      {child:'r6', parent:'r2', union:'u2'},
+      {child:'r8', parent:'r6', union:'u6'}, {child:'r9', parent:'r6', union:'u6'},
+      {child:'r12', parent:'r8', union:'u8'},
+      {child:'r16', parent:'r12', union:'u12'},
+      {child:'r21', parent:'r16', union:'u16'},
+      {child:'r23', parent:'r21', union:'u21'},
+      {child:'r24', parent:'r23', union:null}
+    ]
+  };
+  persons = this.buildModel(this.db);
+
+  state = {
+    mode: 'tree',
+    variant: (this.props && this.props.defaultVariant) || 'A',
+    focusId: 'r6',
+    selectedId: 'r8',
+    path: ['r1'],
+    estateId: null,
+    activeLinje: null,
+    relA: 'r8', relB: 'r24',
+    pickTarget: null,
+    navHistory: [],
+    query: '',
+    browseSort: 'alpha',
+    activeLetter: null,
+    meId: null,
+    editMode: false,
+    draft: { fields:{}, relAdd:[], relRemove:[] },
+    reviewOpen: false,
+    submitted: false
+  };
+
+  buildModel(db){
+    const sp = {}, spousesBy = {};
+    const nameOf = id => (db.persons.find(p=>p.id===id)||{}).name || '';
+    (db.unions||[]).forEach(u=>{
+      const n2 = u.p2_name || (u.p2 ? nameOf(u.p2) : '');
+      const n1 = u.p1 ? nameOf(u.p1) : '';
+      const add=(pid,oid,oname)=>{ if(!pid||!oname) return; const arr=spousesBy[pid]=spousesBy[pid]||[]; if(!arr.some(x=>x.id===(oid||null)&&x.name===oname)) arr.push({id:oid||null,name:oname}); if(!(pid in sp)) sp[pid]=oname; };
+      add(u.p1, u.p2||null, n2);
+      add(u.p2, u.p1||null, n1);
+    });
+    this._spousesBy = spousesBy;
+    const firstParent = {}, childIdx = {}, parentsByChild = {}, firstUnionKey = {};
+    // børn pr. forælder (på tværs af alle familier — en forælders børneliste er korrekt)
+    (db.parentChild||[]).forEach(pc=>{ (childIdx[pc.parent] = childIdx[pc.parent] || new Set()).add(pc.child); });
+    // forældre pr. barn: kun fra den PRIMÆRE fødselsfamilie (første union), så et barn der
+    // fejlagtigt optræder som 'barn' i flere familier ikke får flettet 3-4 forældre sammen.
+    (db.parentChild||[]).forEach(pc=>{
+      const key = pc.union || '__none';
+      if(!(pc.child in firstUnionKey)) firstUnionKey[pc.child] = key;
+      if(key !== firstUnionKey[pc.child]) return;
+      if(!(pc.child in firstParent)) firstParent[pc.child] = pc.parent;
+      (parentsByChild[pc.child] = parentsByChild[pc.child] || []).push(pc.parent);
+    });
+    this._childIdx = childIdx;
+    this._parentsByChild = parentsByChild;
+    // børn grupperet pr. ægteskab (union) — så børn fra flere ægteskaber kan vises hver for sig.
+    const cbu = {};
+    (db.parentChild||[]).forEach(pc=>{ const k = pc.union || '__none'; (cbu[pc.parent] = cbu[pc.parent]||{}); (cbu[pc.parent][k] = cbu[pc.parent][k]||[]).push(pc.child); });
+    const unionById = {}; (db.unions||[]).forEach(u=> unionById[u.id]=u);
+    this._childrenByUnion = cbu;
+    this._unionById = unionById;
+    return (db.persons||[]).map(p=>({ ...p, parentId: firstParent[p.id]||null, spouse: sp[p.id]||'' }));
+  }
+
+  SCHEMA = { parentRoles: ['partner'], childRoles: ['barn'] };
+  SUPABASE = { enabled:true, url:'https://xjnvdhajfyrcytatnzos.supabase.co', anonKey:'sb_publishable_uqG6vWnnUEdE0K5wiCIYWg_raCWAqc3' };
+
+  buildAux({ extIds, sources, relations, estates, orgs, media }){
+    const srcById = {}; (sources||[]).forEach(s=> srcById[s.id] = s);
+    const estById = {}; (estates||[]).forEach(e=> estById[e.id] = e.navn);
+    const orgById = {}; (orgs||[]).forEach(o=> orgById[o.id] = o.navn);
+    const stripParen = s => s==null ? '' : String(s).replace(/^[\s(]+|[\s)]+$/g,'').trim();
+
+    const sourcesBy = {};
+    (extIds||[]).forEach(x=>{
+      const src = srcById[x.source_id] || {};
+      const work = src.titel || src.udgave || 'Kilde';
+      const place = [x.linje ? ('Linje ' + x.linje) : '', (x.nr!=null) ? ('nr. ' + x.nr) : ''].filter(Boolean).join(', ');
+      (sourcesBy[String(x.person_id)] = sourcesBy[String(x.person_id)] || []).push({ ref: place, work });
+    });
+
+    const linjeByPerson = {}, linjeCounts = {}, linjeHead = {};
+    (extIds||[]).forEach(x=>{
+      if(!x.linje) return;
+      linjeByPerson[String(x.person_id)] = x.linje;
+      linjeCounts[x.linje] = (linjeCounts[x.linje]||0) + 1;
+      const cur = linjeHead[x.linje];
+      if(!cur || (x.nr!=null && x.nr < cur.nr)) linjeHead[x.linje] = { id:String(x.person_id), nr: x.nr==null?9999:x.nr };
+    });
+    const linjeList = Object.keys(linjeCounts).sort().map(l=>({ linje:l, count:linjeCounts[l], headId: (linjeHead[l]||{}).id || null }));
+
+    const estatesBy = {}, officesBy = {};
+    const estById2 = {}; (estates||[]).forEach(e=> estById2[e.id] = e);
+    const ownersByEstate = {};
+    (relations||[]).forEach(r=>{
+      const pid = String(r.subjekt_id);
+      const per = stripParen(r.periode_raw);
+      if(r.objekt_type === 'estate'){
+        (estatesBy[pid] = estatesBy[pid] || []).push({ id: r.objekt_id, navn: estById[r.objekt_id] || ('Gods #'+r.objekt_id), period: per });
+        if((r.rolle||'').toLowerCase()==='ejer'){
+          (ownersByEstate[r.objekt_id] = ownersByEstate[r.objekt_id] || []).push({ personId: pid, period: per, _y: this.parseYear(r.periode_raw) || 9999 });
+        }
+      } else if(r.objekt_type === 'organisation' || r.objekt_type === 'historical_event'){
+        const org = orgById[r.objekt_id] || '';
+        const role = (r.rolle || '').trim();
+        const label = (org && org.toLowerCase() !== role.toLowerCase()) ? (role ? role + ', ' + org : org) : role;
+        (officesBy[pid] = officesBy[pid] || []).push({ label, period: per, _y: this.parseYear(r.periode_raw) || 9999 });
+      }
+    });
+    Object.values(officesBy).forEach(arr => arr.sort((a,b)=> a._y - b._y));
+
+    const estateById = {};
+    const estateList = Object.keys(ownersByEstate).map(eid=>{
+      const e = estById2[eid] || { id:eid, navn:'Gods #'+eid };
+      const navn = e.navn || ('Gods #'+eid);
+      estateById[eid] = { id:eid, navn, slags:e.slags||'' };
+      ownersByEstate[eid].sort((a,b)=> a._y - b._y);
+      return { id:eid, navn, ownerCount: ownersByEstate[eid].length };
+    }).sort((a,b)=> String(a.navn).localeCompare(String(b.navn),'da'));
+
+    const mediaBy = {};
+    (media||[]).forEach(m=>{ const pid = m.person_id!=null ? String(m.person_id) : null; if(pid) (mediaBy[pid] = mediaBy[pid] || []).push(m); });
+
+    return { sourcesBy, estatesBy, officesBy, mediaBy, ownersByEstate, estateList, estateById, linjeByPerson, linjeList };
+  }
+
+  parseYear(s){ if(s==null) return null; const m = String(s).match(/\d{3,4}/); return m ? parseInt(m[0],10) : null; }
+  fmtYears(f, d){
+    const clean = s => s==null ? '' : String(s).replace(/^[*†\s]+/,'').trim();
+    const F = clean(f), D = clean(d);
+    if(F && D) return F + '\u2013' + D;
+    if(F) return '* ' + F;
+    if(D) return '\u2020 ' + D;
+    return '';
+  }
+  async loadFromSupabase(){
+    const cfg = this.SUPABASE;
+    if(!cfg.enabled || !cfg.url || !cfg.anonKey) return;
+    const base = cfg.url.replace(/\/+$/,'') + '/rest/v1/';
+    const h = { apikey: cfg.anonKey, Authorization: 'Bearer ' + cfg.anonKey };
+    // PostgREST returnerer max 1000 rækker pr. svar uanset limit — så vi sideinddeler med offset.
+    const getAll = async (t, q='select=*') => {
+      let all=[], from=0; const page=1000;
+      for(let i=0;i<400;i++){
+        const r = await fetch(base + t + '?' + q + '&limit=' + page + '&offset=' + from, { headers:h });
+        const chunk = await r.json();
+        if(!Array.isArray(chunk) || !chunk.length) break;
+        all = all.concat(chunk);
+        if(chunk.length < page) break;
+        from += page;
+      }
+      return all;
+    };
+    try {
+      const [persons, families, members, narratives, extIds, sources, relations, estates, orgs, media] = await Promise.all([
+        getAll('person', 'select=id,visning_navn,visning_foedt,visning_doed,visning_titel,koen,privat'),
+        getAll('family', 'select=id,type'),
+        getAll('family_member', 'select=family_id,person_id,rolle,ordinal'),
+        getAll('narrative', 'select=subjekt_id,subjekt_type,tekst,privat&subjekt_type=eq.person'),
+        getAll('person_external_id', 'select=person_id,source_id,linje,nr'),
+        getAll('source', 'select=id,slags,titel,udgave,ekstern'),
+        getAll('relation', 'select=subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw&subjekt_type=eq.person'),
+        getAll('estate', 'select=id,navn,slags'),
+        getAll('organisation', 'select=id,navn,slags'),
+        getAll('media', 'select=*')
+      ]);
+      const PR = this.SCHEMA.parentRoles, CR = this.SCHEMA.childRoles;
+      const bioBy = {};
+      (narratives||[]).forEach(n=>{ if(!n.privat && !bioBy[n.subjekt_id]) bioBy[n.subjekt_id] = n.tekst; });
+      const appPersons = (persons||[]).filter(p=>!p.privat).map(p=>({
+        id: String(p.id), name: p.visning_navn || '(uden navn)',
+        born: this.parseYear(p.visning_foedt), died: this.parseYear(p.visning_doed),
+        years: this.fmtYears(p.visning_foedt, p.visning_doed), title: p.visning_titel || '', bio: bioBy[p.id] || ''
+      }));
+      const byFam = {};
+      (members||[]).forEach(m=>{ (byFam[m.family_id] = byFam[m.family_id] || []).push(m); });
+      const unions = [], parentChild = [];
+      Object.keys(byFam).forEach(fid=>{
+        const mem = byFam[fid];
+        const parents = mem.filter(m=>PR.includes(String(m.rolle||'').toLowerCase())).sort((a,b)=>(a.ordinal||0)-(b.ordinal||0));
+        const children = mem.filter(m=>CR.includes(String(m.rolle||'').toLowerCase()));
+        if(parents.length) unions.push({ id:'f'+fid, p1:String(parents[0].person_id), p2: parents[1]?String(parents[1].person_id):null, p2_name:null, year:null });
+        children.forEach(c=>{ parents.forEach(pa=>{ parentChild.push({ child:String(c.person_id), parent:String(pa.person_id), union:'f'+fid }); }); });
+      });
+      const db = { persons: appPersons, unions, parentChild };
+      if(!db.persons.length) return;
+      const aux = this.buildAux({ extIds, sources, relations, estates, orgs, media });
+      const childSet = new Set(parentChild.map(e=>e.child));
+      const parentSet = new Set(parentChild.map(e=>e.parent));
+      const kids = {}; parentChild.forEach(e=>{ kids[e.parent]=(kids[e.parent]||0)+1; });
+      const byKids = (a,b)=>(kids[b.id]||0)-(kids[a.id]||0);
+      const midTree = db.persons.filter(p=>childSet.has(p.id) && parentSet.has(p.id)).sort(byKids);
+      const anyParent = db.persons.filter(p=>parentSet.has(p.id)).sort(byKids);
+      const roots = db.persons.filter(p=>!childSet.has(p.id));
+      const focus = midTree[0] || anyParent[0] || roots[0] || db.persons[0];
+      const root = roots[0] || db.persons[0];
+      this._rootId = root.id;
+      const leaves = db.persons.filter(p=>!parentSet.has(p.id));
+      const relA = leaves[0] || db.persons[0];
+      const relB = leaves[1] || leaves[0] || db.persons[0];
+      this.setState({ db, aux, focusId: focus.id, selectedId: focus.id, path: [root.id], relA: relA.id, relB: relB.id });
+    } catch(e){ console.warn('Supabase-hentning fejlede – fortsætter på lokal seed.', e && (e.stack||e.message||e)); }
+  }
+  componentDidMount(){
+    this.loadFromSupabase();
+    try { const me = localStorage.getItem('daa_me_id'); if(me) this.setState({ meId: me }); } catch(e){}
+  }
+  setMe(id){ try { localStorage.setItem('daa_me_id', id); } catch(e){} this.setState({ meId: id }); }
+  clearMe(){ try { localStorage.removeItem('daa_me_id'); } catch(e){} this.setState({ meId: null }); }
+
+  byId(id){ return this.persons.find(p => p.id === id) || null; }
+  childrenOf(id){ const set = this._childIdx && this._childIdx[id]; if(!set) return []; const out=[]; set.forEach(cid=>{ const p=this.byId(cid); if(p) out.push(p); }); return out; }
+  childGroupsOf(id){
+    const cbu = this._childrenByUnion && this._childrenByUnion[id];
+    if(!cbu) return [];
+    return Object.keys(cbu).map(uid=>{
+      const u = this._unionById && this._unionById[uid];
+      let spName='', spId=null;
+      if(u){ if(u.p1===id){ spId=u.p2||null; spName=u.p2_name||(u.p2?((this.byId(u.p2)||{}).name||''):''); } else { spId=u.p1||null; spName=(this.byId(u.p1)||{}).name||''; } }
+      const children = cbu[uid].map(cid=>this.byId(cid)).filter(Boolean);
+      return { spouseName: spName, spouseId: spId, children };
+    }).filter(g=>g.children.length);
+  }
+  parentsOf(id){ const arr = (this._parentsByChild && this._parentsByChild[id]) || []; const seen={}; const out=[]; arr.forEach(pid=>{ if(seen[pid]) return; seen[pid]=1; const p=this.byId(pid); if(p) out.push(p); }); return out; }
+  initials(p){ if(!p) return ''; return p.name.split(' ').filter(Boolean).map(s=>s[0]).slice(0,2).join('').toUpperCase(); }
+  yearsOf(p){ if(!p) return ''; if(p.years!=null && p.years!=='') return p.years; const b=p.born, d=p.died; if(b&&d) return b+'\u2013'+d; if(b) return '* '+b; if(d) return '\u2020 '+d; return ''; }
+  firstName(p){ return p ? p.name.split(' ')[0] : ''; }
+  showYears(){ return this.props ? this.props.showLifeYears !== false : true; }
+  overallRootId(){ return this._rootId || (this.persons[0] && this.persons[0].id) || null; }
+
+  setMode(m){ this.setState({ mode:m, estateId:null, pickTarget:null }); }
+  deskFocus(id){ this.setState({ focusId:id, selectedId:id, path:[id], navHistory:[] }); }
+  // Naviger til en person via en relation i højre spalte og husk hvor vi kom fra, så vi kan gå tilbage.
+  goToPerson(id){ if(!id) return; this.setState(st=>{ const prev=st.selectedId; const hist=(prev && prev!==id)?st.navHistory.concat([prev]):st.navHistory; return { focusId:id, selectedId:id, path:[id], navHistory:hist }; }); }
+  goBack(){ this.setState(st=>{ if(!st.navHistory.length) return {}; const hist=st.navHistory.slice(); const prev=hist.pop(); return { focusId:prev, selectedId:prev, path:[prev], navHistory:hist }; }); }
+  // Sæt den valgte person i fokus i stamtræet i midterkolonnen.
+  focusInTree(id){ if(!id) return; this.setState({ mode:'tree', focusId:id, selectedId:id, path:[id] }); }
+  deskSelect(id){ this.setState({ selectedId:id }); }
+  pickLinje(linje, headId){ if(headId) this.setState({ activeLinje:linje, focusId:headId, selectedId:headId, path:[headId], mode:'tree' }); }
+  clearLinje(){ this.setState({ activeLinje:null, focusId:this.overallRootId(), path:[this.overallRootId()], mode:'tree' }); }
+  selectAt(level, id){ this.setState({ path: this.state.path.slice(0, level).concat([id]), selectedId:id }); }
+
+  onBrowseTap(id){
+    const t = this.state.pickTarget;
+    if(t==='A') this.setState({ relA:id, pickTarget:null });
+    else if(t==='B') this.setState({ relB:id, pickTarget:null });
+    else if(t==='addChild' || t==='addSpouse' || t==='addParent'){ this.addRelation(t, id); }
+    else this.deskFocus(id);
+  }
+
+  // === Redigering (kladde i hukommelsen — ikke skrevet til Supabase i POC'en) ===
+  toggleEdit(){ this.setState(st=>({ editMode:!st.editMode, pickTarget:null, reviewOpen:false })); }
+  effPerson(per){ if(!per) return per; const f = this.state.draft.fields[String(per.id)]; return f ? { ...per, ...f } : per; }
+  setField(pid, key, value){
+    this.setState(st=>{
+      const fields = { ...st.draft.fields };
+      const cur = { ...(fields[pid]||{}) };
+      cur[key] = value; cur.__pid = pid;
+      fields[pid] = cur;
+      return { draft: { ...st.draft, fields } };
+    });
+  }
+  addRelation(kind, otherId){
+    const sel = this.state.selectedId; if(!sel || !otherId || otherId===sel) { this.setState({pickTarget:null}); return; }
+    const type = kind==='addChild' ? 'child' : kind==='addSpouse' ? 'spouse' : 'parent';
+    this.setState(st=>{
+      const relAdd = st.draft.relAdd.concat([{ type, person: sel, other: otherId }]);
+      return { draft: { ...st.draft, relAdd }, pickTarget:null };
+    });
+  }
+  toggleRemoveRel(type, person, otherId){
+    this.setState(st=>{
+      // hvis det er en netop tilføjet relation → fjern den fra relAdd; ellers marker eksisterende som fjernet (toggle)
+      const isAdded = st.draft.relAdd.some(r=>r.type===type && r.person===person && r.other===otherId);
+      if(isAdded){ return { draft: { ...st.draft, relAdd: st.draft.relAdd.filter(r=>!(r.type===type && r.person===person && r.other===otherId)) } }; }
+      const exists = st.draft.relRemove.some(r=>r.type===type && r.person===person && r.other===otherId);
+      const relRemove = exists ? st.draft.relRemove.filter(r=>!(r.type===type && r.person===person && r.other===otherId))
+                               : st.draft.relRemove.concat([{ type, person, other: otherId }]);
+      return { draft: { ...st.draft, relRemove } };
+    });
+  }
+  draftCount(){ const d=this.state.draft; let n=0; Object.values(d.fields).forEach(f=>{ Object.keys(f).forEach(k=>{ if(k!=='__pid') n++; }); }); return n + d.relAdd.length + d.relRemove.length; }
+  isRemoved(type, person, otherId){ return this.state.draft.relRemove.some(r=>r.type===type && r.person===person && r.other===otherId); }
+  submitDraft(){
+    this.setState({ draft:{ fields:{}, relAdd:[], relRemove:[] }, reviewOpen:false, submitted:true });
+    setTimeout(()=>{ try{ this.setState({ submitted:false }); }catch(e){} }, 2600);
+  }
+  buildChanges(){
+    const d = this.state.draft; const out = [];
+    const labels = { navn:'Navn', foedt:'Født', doed:'Død', titel:'Titel', bio:'Biografi', kilde:'Kilde' };
+    Object.keys(d.fields).forEach(pid=>{
+      const orig = this.byId(pid) || {}; const f = d.fields[pid];
+      Object.keys(f).forEach(k=>{
+        if(k==='__pid') return;
+        const ov = { navn:orig.name, foedt:(orig.born!=null?orig.born:orig.years), doed:orig.died, titel:orig.title, bio:orig.bio, kilde:'' }[k];
+        out.push({ tag:'rettet', tagColor:'#7a5a12', tagBg:'#f3ecd6',
+          text:(labels[k]||k)+' · '+(orig.name||pid),
+          hasFrom: k!=='bio' && k!=='kilde',
+          from: String(ov==null||ov===''?'—':ov).slice(0,42), to: String(f[k]||'—').slice(0,42),
+          who:'foreslået rettelse med kilde' });
+      });
+    });
+    d.relAdd.forEach(r=>{
+      const a=this.byId(r.person)||{}, b=this.byId(r.other)||{};
+      const lbl = r.type==='child'?'barn':r.type==='spouse'?'ægtefælle':'forælder';
+      out.push({ tag:'tilføjet', tagColor:'#1f5b3a', tagBg:'#d8efe0', text:'Ny '+lbl+': '+(b.name||r.other), hasFrom:false, who:'til '+(a.name||r.person) });
+    });
+    d.relRemove.forEach(r=>{
+      const a=this.byId(r.person)||{}, b=this.byId(r.other)||{};
+      const lbl = r.type==='child'?'barn':r.type==='spouse'?'ægtefælle':'forælder';
+      out.push({ tag:'fjernet', tagColor:'#8a2b2b', tagBg:'#f2dede', text:'Fjern '+lbl+': '+(b.name||r.other), hasFrom:false, who:'fra '+(a.name||r.person) });
+    });
+    return out;
+  }
+
+  ancestorsInclusive(id){ const out=[]; let c=this.byId(id); let guard=0; while(c && guard<40){ out.push(c); c=this.byId(c.parentId); guard++; } return out; }
+  lcaId(a,b){ const A=this.ancestorsInclusive(a).map(x=>x.id); const B=this.ancestorsInclusive(b); for(const x of B){ if(A.includes(x.id)) return x.id; } return this.overallRootId(); }
+  chainTo(id, lca){ const out=[]; let c=this.byId(id); let guard=0; while(c && guard<40){ out.push(c); if(c.id===lca) break; c=this.byId(c.parentId); guard++; } return out; }
+  relationshipLabel(d1, d2){
+    if(d1===0 && d2===0) return 'Samme person';
+    if(d1===0 || d2===0){
+      const n = d1 + d2;
+      const asc = ['Forælder & barn','Bedsteforælder & barnebarn','Oldeforælder & oldebarn','Tipoldeforælder & tipoldebarn','Tip-tipoldeforælder & efterkommer'];
+      return n-1 < asc.length ? asc[n-1] : 'Direkte forfædre-linje';
+    }
+    const minD = Math.min(d1,d2), rem = Math.abs(d1-d2), deg = minD - 1;
+    if(deg === 0){
+      if(rem === 0) return 'Søskende';
+      if(rem === 1) return 'Onkel/tante & niece/nevø';
+      return 'Grandonkel/-tante & grandniece/-nevø';
+    }
+    let s = deg + '. grads fætter/kusine';
+    if(rem > 0) s += ' · ' + rem + ' gang' + (rem>1?'e':'') + ' forskudt';
+    return s;
+  }
+
+  componentDidUpdate(){
+    const dv = this.props && this.props.defaultVariant;
+    if(dv && dv !== this._lastVariantProp){ this._lastVariantProp = dv; if(dv !== this.state.variant) this.setState({ variant: dv }); }
+    if(this.state.mode==='tree' && this.state.variant==='B' && this._lastPath !== this.state.path){
+      this._lastPath = this.state.path;
+      const el = document.querySelector('[data-bcols]');
+      if(el) el.scrollTo({ left: el.scrollWidth, behavior: 'smooth' });
+    }
+  }
+
+  treeCard(p){
+    if(!p) return null;
+    const kids = this.childrenOf(p.id);
+    const sel = p.id===this.state.focusId;
+    return {
+      id:p.id, name:p.name, first:this.firstName(p), initials:this.initials(p), years:this.yearsOf(p),
+      hasYears: this.showYears() && !!(p.years || p.born), title:p.title||'', hasTitle:!!p.title,
+      hasChildren: kids.length>0, childLabel: kids.length ? (kids.length + ' ' + (kids.length===1?'gren':'grene')) : '',
+      selected: sel,
+      cardBg: sel ? '#f8ecef' : '#fbf8f1',
+      cardBorder: sel ? '#881A33' : 'rgba(34,31,26,.1)',
+      cardShadow: sel ? '0 4px 14px rgba(136,26,51,.14)' : '0 1px 2px rgba(34,31,26,.04)',
+      onTap: ()=>this.deskFocus(p.id)
+    };
+  }
+
+  renderVals(){
+    if(this.state.db && this.state.db !== this._dbSrc){ this._dbSrc = this.state.db; this.persons = this.buildModel(this.state.db); }
+    const s = this.state;
+    const aux = s.aux || {};
+    const out = {};
+
+    // Header nav
+    const navDef = [['Stamtræ','tree'],['Godser','estates'],['Våben','arms'],['Om slægten','about'],['Slægtskab','relate']];
+    const modeGroup = (s.mode==='estate') ? 'estates' : s.mode;
+    out.nav = navDef.map(([label,m])=>({
+      label, onTap: ()=>this.setMode(m),
+      bg: modeGroup===m ? '#881A33' : 'transparent',
+      color: modeGroup===m ? '#f4efe6' : '#3d382f'
+    }));
+
+    out.isTree = s.mode==='tree';
+    out.isEstates = s.mode==='estates';
+    out.isEstateDetail = s.mode==='estate';
+    out.isArms = s.mode==='arms';
+    out.isAbout = s.mode==='about';
+    out.isRelate = s.mode==='relate';
+
+    // Slægt + picker
+    out.slaegt = { name:'Reventlow', crest:'R', personCount:this.persons.length||0, lineCount:(aux.linjeList?aux.linjeList.length:5), estateCount:(aux.estateList?aux.estateList.length:0), sourceLabel:'DAA 2018-20' };
+    out.onOpenSlaegt = ()=>this.setState({ slaegtPicking:true });
+    out.isSlaegtPicking = !!s.slaegtPicking;
+    out.closeSlaegt = ()=>this.setState({ slaegtPicking:false });
+
+    // === Redigering ===
+    const editing = !!s.editMode;
+    const count = this.draftCount();
+    out.isEditing = editing;
+    out.isReadingDetail = !editing;
+    out.onToggleEdit = ()=>this.toggleEdit();
+    out.editBtnLabel = editing ? 'Færdig' : 'Redigér';
+    out.editBtnBg = editing ? '#881A33' : '#f4efe6';
+    out.editBtnBorder = editing ? '#881A33' : 'rgba(34,31,26,.16)';
+    out.editBtnColor = editing ? '#fbf8f1' : '#3d382f';
+    out.draftLabel = count===0 ? 'Ingen ændringer' : (count + (count===1?' ændring':' ændringer'));
+    const canReview = count>0;
+    out.onReview = ()=> canReview && this.setState({ reviewOpen:true });
+    out.reviewBg = canReview ? '#e7c98f' : 'transparent';
+    out.reviewBorder = canReview ? '#e7c98f' : 'rgba(244,239,230,.3)';
+    out.reviewColor = canReview ? '#2a211c' : 'rgba(244,239,230,.5)';
+    out.reviewCursor = canReview ? 'pointer' : 'default';
+    out.reviewOpen = !!s.reviewOpen;
+    out.onCloseReview = ()=>this.setState({ reviewOpen:false });
+    out.onSubmit = ()=> canReview && this.submitDraft();
+    out.submitBg = canReview ? '#1f5b3a' : '#9aa39a';
+    out.submitCursor = canReview ? 'pointer' : 'default';
+    out.submittedToast = !!s.submitted;
+    out.hasChanges = count>0;
+    out.noChanges = count===0;
+    out.changes = this.buildChanges();
+    out.slaegtList = [
+      { name:'Reventlow', crest:'R', sub:(this.persons.length||0)+' personer · DAA 2018-20', active:true },
+      { name:'Bardenfleth', crest:'B', sub:'Tilføjes i kommende udtræk', coming:true },
+      { name:'Ahlefeldt-Laurvig', crest:'A', sub:'Tilføjes i kommende udtræk', coming:true },
+      { name:'Scheel', crest:'S', sub:'Tilføjes i kommende udtræk', coming:true }
+    ].map(sl=>({ ...sl, bg: sl.active?'#f8ecef':'#fbf8f1', border: sl.active?'#881A33':'rgba(34,31,26,.1)', crestBg: sl.active?'#881A33':'#ece4d6', crestColor: sl.active?'#f4efe6':'#bcae93' }));
+
+    // Me
+    const mePerson = s.meId ? this.byId(s.meId) : null;
+    out.me = { set:!!mePerson, initials: mePerson?this.initials(mePerson):'', onOpen: ()=> mePerson && this.deskFocus(mePerson.id) };
+
+    // Linje
+    const linjeListData = aux.linjeList || [];
+    out.linjeChips = linjeListData.map(l=>({
+      label:'Linje '+l.linje, onTap: ()=> l.headId && this.pickLinje(l.linje, l.headId),
+      bg: s.activeLinje===l.linje ? '#881A33' : 'transparent',
+      color: s.activeLinje===l.linje ? '#f4efe6' : '#6f675b',
+      border: s.activeLinje===l.linje ? '#881A33' : 'rgba(34,31,26,.18)'
+    }));
+    out.onLinjeAll = ()=>this.clearLinje();
+    out.linjeAllBg = s.activeLinje ? 'transparent' : '#881A33';
+    out.linjeAllColor = s.activeLinje ? '#6f675b' : '#f4efe6';
+    out.linjeAllBorder = s.activeLinje ? 'rgba(34,31,26,.18)' : '#881A33';
+
+    // === Kontekst-blok ("Spring til") — skifter efter visning (B1) ===
+    const estatesMode = (s.mode==='estates' || s.mode==='estate');
+    if(estatesMode){
+      out.ctx = { show:true, label:'Godser', items:(aux.estateList||[]).slice(0,6).map(e=>({
+        kicker: e.ownerCount + (e.ownerCount===1?' ejer':' ejere'), name:e.navn, badge:'⌂', radius:'8px',
+        onTap: ()=>this.setState({ mode:'estate', estateId:e.id })
+      })) };
+    } else {
+      const jumps = [];
+      const rootP = this.byId(this.overallRootId());
+      if(rootP) jumps.push({ kicker:'Stamfader', name:rootP.name, badge:this.initials(rootP), radius:'50%', onTap:()=>this.focusInTree(rootP.id) });
+      const youngest = this.persons.slice().sort((a,b)=>(b.born||0)-(a.born||0))[0];
+      if(youngest && (!rootP || youngest.id!==rootP.id)) jumps.push({ kicker:'Yngste slægtled', name:youngest.name, badge:this.initials(youngest), radius:'50%', onTap:()=>this.focusInTree(youngest.id) });
+      if(mePerson) jumps.push({ kicker:'Din plads', name:mePerson.name, badge:this.initials(mePerson), radius:'50%', onTap:()=>this.focusInTree(mePerson.id) });
+      out.ctx = { show: jumps.length>0, label:'Spring til', items: jumps };
+    }
+
+    // === A–Å register ===
+    const q = (s.query||'').trim().toLowerCase();
+    let pool = this.persons;
+    if(s.activeLinje && aux.linjeByPerson) pool = pool.filter(p=> aux.linjeByPerson[p.id]===s.activeLinje);
+    const initialOf = p => ((p.name||'?').trim().charAt(0) || '?').toUpperCase();
+    const sortName = (a,b)=> a.name.localeCompare(b.name, 'da');
+    const sortBorn = (a,b)=> (a.born||9999)-(b.born||9999);
+
+    // Bogstav-strip (afledt af linje-filtreret pulje, uafhængigt af søgning/bogstav-valg)
+    const present = {}; pool.forEach(p=>{ present[initialOf(p)] = true; });
+    const letterKeys = Object.keys(present).sort((a,b)=> a.localeCompare(b,'da'));
+    out.showLetters = (s.browseSort!=='born' && !q && letterKeys.length>1);
+    out.letters = [{label:'Alle', key:null}].concat(letterKeys.map(k=>({label:k, key:k}))).map(L=>{
+      const on = (s.activeLetter===L.key) || (L.key===null && !s.activeLetter);
+      return { label:L.label, onTap: ()=>this.setState({ activeLetter:L.key }), bg: on?'#881A33':'transparent', color: on?'#f4efe6':'#6f675b' };
+    });
+
+    let matches = pool.filter(p=> !q || p.name.toLowerCase().includes(q));
+    if(!q && s.browseSort!=='born' && s.activeLetter) matches = matches.filter(p=> initialOf(p)===s.activeLetter);
+    matches = matches.slice().sort(s.browseSort==='born' ? sortBorn : sortName);
+
+    out.browseLabel = q ? (matches.length + (matches.length===1?' træffer':' træffere'))
+                        : (s.activeLinje ? ('Linje '+s.activeLinje+' · '+matches.length) : (matches.length + ' personer'));
+    const mapRow = p=>({ id:p.id, name:p.name, initials:this.initials(p), years:this.yearsOf(p),
+      rowBg: p.id===s.selectedId ? '#efe7d7' : 'transparent', onTap: ()=>this.onBrowseTap(p.id) });
+    if(s.browseSort!=='born' && !q){
+      const byL = {}; matches.forEach(p=>{ const k=initialOf(p); (byL[k]=byL[k]||[]).push(p); });
+      out.browseGroups = Object.keys(byL).sort((a,b)=>a.localeCompare(b,'da')).map(k=>({ letter:k, hasHeader:true, people: byL[k].map(mapRow) }));
+    } else {
+      out.browseGroups = [{ letter:'', hasHeader:false, people: matches.map(mapRow) }];
+    }
+    out.browseEmpty = matches.length===0;
+    out.onSortAlpha = ()=>this.setState({ browseSort:'alpha' });
+    out.onSortBorn = ()=>this.setState({ browseSort:'born', activeLetter:null });
+    out.sortAlphaBg = s.browseSort!=='born' ? '#fbf8f1' : 'transparent';
+    out.sortAlphaColor = s.browseSort!=='born' ? '#881A33' : '#8a8170';
+    out.sortBornBg = s.browseSort==='born' ? '#fbf8f1' : 'transparent';
+    out.sortBornColor = s.browseSort==='born' ? '#881A33' : '#8a8170';
+    out.query = s.query;
+    out.onQuery = (e)=>this.setState({ query: e.target.value });
+    const pickLabels = { A:'Klik en person → person A', B:'Klik en person → person B', addParent:'Klik en person → tilføj som forælder', addSpouse:'Klik en person → tilføj som ægtefælle', addChild:'Klik en person → tilføj som barn' };
+    out.pick = { active: !!s.pickTarget, label: pickLabels[s.pickTarget] || 'Vælg en person', onCancel: ()=>this.setState({ pickTarget:null }) };
+
+    // Tree variant
+    out.isVariantA = s.variant==='A';
+    out.isVariantB = s.variant==='B';
+    out.onSegA = ()=>this.setState({ variant:'A' });
+    out.onSegB = ()=>this.setState({ variant:'B' });
+    out.segABg = s.variant==='A' ? '#fbf8f1' : 'transparent';
+    out.segAColor = s.variant==='A' ? '#881A33' : '#8a8170';
+    out.segBBg = s.variant==='B' ? '#fbf8f1' : 'transparent';
+    out.segBColor = s.variant==='B' ? '#881A33' : '#8a8170';
+
+    const focus = this.byId(s.focusId);
+    const parent = focus ? this.byId(focus.parentId) : null;
+    const gp = parent ? this.byId(parent.parentId) : null;
+    out.a_hasParent = !!parent;
+    out.a_parent = parent ? this.treeCard(parent) : null;
+    out.a_hasGrandparent = !!gp;
+    out.a_grandparent = gp ? this.treeCard(gp) : null;
+    const sibs = parent ? this.childrenOf(parent.id) : [focus].filter(Boolean);
+    out.a_siblings = sibs.map(p => this.treeCard(p));
+    out.a_hasSpouse = !!(focus && focus.spouse);
+    out.a_spouseName = focus ? (focus.spouse||'') : '';
+    const kids = focus ? this.childrenOf(focus.id) : [];
+    out.a_hasChildren = kids.length>0;
+    out.a_noChildren = kids.length===0;
+    out.a_children = kids.map(p => this.treeCard(p));
+
+    // Variant B columns
+    const path = s.path; const cols = [];
+    const rootP = this.byId(path[0]);
+    if(rootP){
+      cols.push({ people:[rootP], sel:path[0], level:0 });
+      let cur = path[0], i = 1, guard = 0;
+      while(guard<40){
+        const kk = this.childrenOf(cur);
+        if(!kk.length) break;
+        const sel = path[i];
+        cols.push({ people:kk, sel, level:i });
+        if(!sel) break;
+        cur = sel; i++; guard++;
+      }
+    }
+    out.b_cols = cols.map(col=>({ label:'Generation '+(col.level+1), items: col.people.map(p=>{
+      const c = this.treeCard(p); c.selected = p.id===col.sel; c.cardBg = c.selected?'#f8ecef':'#fbf8f1'; c.cardBorder = c.selected?'#881A33':'rgba(34,31,26,.1)';
+      c.onTap = ()=>this.selectAt(col.level, p.id);
+      return c;
+    }) }));
+
+    // Estates
+    out.estateList = (aux.estateList||[]).map(e=>({
+      navn:e.navn, ownerLabel: e.ownerCount + ' ' + (e.ownerCount===1?'registreret ejer':'registrerede ejere'),
+      onTap: ()=>this.setState({ mode:'estate', estateId:e.id })
+    }));
+    out.onEstatesBack = ()=>this.setState({ mode:'estates', estateId:null });
+    const est = aux.estateById ? aux.estateById[s.estateId] : null;
+    if(est){
+      const owners = (aux.ownersByEstate && aux.ownersByEstate[s.estateId]) || [];
+      out.estate = { navn:est.navn, slags:est.slags||'', hasSlags:!!est.slags, owners: owners.map((o,i)=>({
+        name:(this.byId(o.personId)||{}).name||'Ukendt ejer', period:o.period, hasPeriod:!!o.period, hasLine: i<owners.length-1,
+        onTap: ()=> this.byId(o.personId) && this.deskSelect(o.personId)
+      })) };
+    }
+
+    // Arms / about
+    out.arms = { blasonering:'Blasonering indlæses fra coat_of_arms.', variants:[
+      { titel:'DAA-gengivelse', meta:'autoriseret · 2018-20' }, { titel:'Ældre stik', meta:'variant · 1800-tal' },
+      { titel:'Segl', meta:'segl · dateret' }, { titel:'Linje-brisering', meta:'variant · linje V' } ] };
+    out.aboutSections = [
+      { heading:'Slægtens oprindelse', note:'Den indledende slægtshistorie fra Aarbogens stamtavle indlæses her — fuldtekstsøgbar.', subjektType:'slaegt' },
+      { heading:'Heraldisk indledning', note:'Det heraldiske forsatsstof som selvstændig artikel.', subjektType:'slaegt' }
+    ];
+
+    // Relate
+    const a = this.byId(s.relA), b = this.byId(s.relB);
+    if(a && b){
+      let rel;
+      if(a.id===b.id){
+        rel = { aName:a.name, bName:b.name, aInit:this.initials(a), bInit:this.initials(b), label:'Samme person', hasLca:false, lcaName:'', steps:[] };
+      } else {
+        const L = this.lcaId(a.id, b.id);
+        const cA = this.chainTo(a.id, L), cB = this.chainTo(b.id, L);
+        const d1 = cA.length-1, d2 = cB.length-1;
+        const down = cB.slice(0,-1).reverse();
+        const full = cA.concat(down);
+        const lcaIndex = cA.length-1;
+        const steps = full.map((p,idx)=>{
+          const isLca = idx===lcaIndex;
+          return { name:p.name, years:this.yearsOf(p), hasYears:this.showYears()&&!!(p.years||p.born), isLca, hasArrow: idx<full.length-1,
+            dot: isLca?'#b9a06a':'#881A33', ring: isLca?'#b9a06a':'rgba(136,26,51,.25)', bg: isLca?'#f3ecdb':'#fbf8f1', border: isLca?'rgba(185,160,106,.5)':'rgba(34,31,26,.1)',
+            onTap: ()=>this.deskSelect(p.id) };
+        });
+        rel = { aName:a.name, bName:b.name, aInit:this.initials(a), bInit:this.initials(b), label:this.relationshipLabel(d1,d2), hasLca:true, lcaName:(this.byId(L)||{}).name||'', steps };
+      }
+      rel.onSwapA = ()=>this.setState({ pickTarget:'A' });
+      rel.onSwapB = ()=>this.setState({ pickTarget:'B' });
+      rel.aHint = s.pickTarget==='A' ? 'vælg i listen ◂' : 'skift';
+      rel.bHint = s.pickTarget==='B' ? 'vælg i listen ◂' : 'skift';
+      rel.aCardBg = s.pickTarget==='A' ? '#f8ecef' : '#fbf8f1';
+      rel.aCardBorder = s.pickTarget==='A' ? '#881A33' : 'rgba(34,31,26,.1)';
+      rel.bCardBg = s.pickTarget==='B' ? '#f8ecef' : '#fbf8f1';
+      rel.bCardBorder = s.pickTarget==='B' ? '#881A33' : 'rgba(34,31,26,.1)';
+      out.rel = rel;
+    }
+
+    // Detail (right rail)
+    const per = this.byId(s.selectedId);
+    out.hasDetail = !!per;
+    if(per){
+      const pid = String(per.id);
+      const ch = this.childrenOf(per.id);
+      const offList = (aux.officesBy && aux.officesBy[pid]) || [];
+      const estList = (aux.estatesBy && aux.estatesBy[pid]) || [];
+      const srcList = (aux.sourcesBy && aux.sourcesBy[pid]) || [];
+      const isMe = s.meId && String(s.meId)===pid;
+      const myLinje = aux.linjeByPerson ? aux.linjeByPerson[pid] : null;
+      const pars = this.parentsOf(per.id);
+      const ov = s.draft.fields[pid] || {};
+      const dName = ('navn' in ov) ? ov.navn : per.name;
+      const dTitle = ('titel' in ov) ? ov.titel : (per.title||'');
+      const dBio = ('bio' in ov) ? ov.bio : (per.bio||'');
+      const dYears = (('foedt' in ov)||('doed' in ov)) ? this.fmtYears(('foedt' in ov ? ov.foedt : per.born), ('doed' in ov ? ov.doed : per.died)) : this.yearsOf(per);
+      const histLen = (s.navHistory||[]).length;
+      out.detail = {
+        hasBack: histLen>0, backName: histLen>0 ? ((this.byId(s.navHistory[histLen-1])||{}).name||'forrige') : '', onBack: ()=>this.goBack(),
+        name: dName, years: dYears,
+        isMe: !!isMe, hasLinje: !!myLinje, linje: myLinje||'', title: dTitle, hasTitle: !!dTitle,
+        hasParents: pars.length>0, parents: pars.map((pp,i)=>({ name:pp.name, sep:i>0, onTap: ()=>this.goToPerson(pp.id) })),
+        bio: dBio, hasBio: !!dBio,
+        hasSpouse: !!(this._spousesBy && this._spousesBy[pid] && this._spousesBy[pid].length),
+        spouses: ((this._spousesBy && this._spousesBy[pid])||[]).map((sp,i)=>({ name: sp.name, sep: i>0, clickable: !!(sp.id && this.byId(sp.id)), text: !(sp.id && this.byId(sp.id)), onTap: ()=>{ if(sp.id && this.byId(sp.id)) this.goToPerson(sp.id); } })),
+        hasChildren: ch.length>0,
+        childGroups: this.childGroupsOf(per.id).map(g=>({
+          label: (this.childGroupsOf(per.id).length>1 && g.spouseName) ? ('Børn med ' + g.spouseName) : 'Børn',
+          children: g.children.map(c=>({ first:this.firstName(c), initials:this.initials(c), onTap: ()=>this.goToPerson(c.id) }))
+        })),
+        offices: offList.slice(0,10).map(o=>({ label:o.label, period:o.period, hasPeriod:!!o.period })),
+        hasOffices: offList.length>0, hasOfficeMore: offList.length>10, officeMore: offList.length>10 ? ('+ '+(offList.length-10)+' flere hverv') : '',
+        estates: estList.map(e=>{ const navigable = !!(aux.estateById && aux.estateById[e.id]); return { navn:e.navn, period:e.period, hasPeriod:!!e.period, navigable, cursor: navigable?'pointer':'default', onTap: ()=> navigable && this.setState({ mode:'estate', estateId:e.id }) }; }), hasEstates: estList.length>0,
+        sources: srcList.map(x=>({ ref:x.ref, work:x.work, hasRef:!!x.ref })), hasSources: srcList.length>0, noSources: srcList.length===0,
+        onRelate: ()=>this.setState({ mode:'relate', relA: per.id }),
+        onFocusTree: ()=>this.focusInTree(per.id),
+        onToggleMe: ()=> isMe ? this.clearMe() : this.setMe(pid),
+        meLabel: isMe ? '★ Fjern' : 'Det er mig',
+        meColor: isMe ? '#881A33' : '#6f675b',
+        meBg: isMe ? '#f8ecef' : '#f4efe6',
+        meBorder: isMe ? '#881A33' : 'rgba(34,31,26,.16)'
+      };
+
+      // Redigerings-form
+      const fld = (k, fallback)=> (k in ov) ? ov[k] : fallback;
+      const relItem = (type, otherId, name, isNew)=>{
+        const removed = this.isRemoved(type, pid, otherId);
+        return { name, isNew: !!isNew, color: removed ? '#bcae93' : '#221f1a',
+          strike: removed ? 'line-through' : 'none',
+          bg: isNew ? '#e2f3e9' : (removed ? '#f2e6e6' : '#f4efe6'),
+          border: isNew ? 'rgba(31,138,91,.35)' : (removed ? 'rgba(138,43,43,.25)' : 'rgba(34,31,26,.1)'),
+          toggleIcon: removed ? '↩' : '✕',
+          onToggle: ()=>this.toggleRemoveRel(type, pid, otherId) };
+      };
+      const addedOf = (type)=> s.draft.relAdd.filter(r=>r.type===type && r.person===pid);
+      const parItems = pars.map(pp=>relItem('parent', pp.id, pp.name, false))
+        .concat(addedOf('parent').map(r=>relItem('parent', r.other, (this.byId(r.other)||{}).name||'?', true)));
+      const spItems = ((this._spousesBy && this._spousesBy[pid])||[]).filter(sp=>sp.id).map(sp=>relItem('spouse', sp.id, sp.name, false))
+        .concat(addedOf('spouse').map(r=>relItem('spouse', r.other, (this.byId(r.other)||{}).name||'?', true)));
+      const chItems = ch.map(c=>relItem('child', c.id, c.name, false))
+        .concat(addedOf('child').map(r=>relItem('child', r.other, (this.byId(r.other)||{}).name||'?', true)));
+      out.edit = {
+        navn: fld('navn', per.name),
+        foedt: fld('foedt', per.born!=null ? String(per.born) : (per.years||'')),
+        doed: fld('doed', per.died!=null ? String(per.died) : ''),
+        titel: fld('titel', per.title||''),
+        bio: fld('bio', per.bio||''),
+        kilde: fld('kilde', ''),
+        onNavn: (e)=>this.setField(pid,'navn',e.target.value),
+        onFoedt: (e)=>this.setField(pid,'foedt',e.target.value),
+        onDoed: (e)=>this.setField(pid,'doed',e.target.value),
+        onTitel: (e)=>this.setField(pid,'titel',e.target.value),
+        onBio: (e)=>this.setField(pid,'bio',e.target.value),
+        onKilde: (e)=>this.setField(pid,'kilde',e.target.value),
+        relGroups: [
+          { label:'Forældre', addLabel:'+ Tilføj', empty: parItems.length===0, items: parItems, onAdd: ()=>this.setState({ pickTarget:'addParent' }) },
+          { label:'Ægtefæller', addLabel:'+ Tilføj', empty: spItems.length===0, items: spItems, onAdd: ()=>this.setState({ pickTarget:'addSpouse' }) },
+          { label:'Børn', addLabel:'+ Tilføj', empty: chItems.length===0, items: chItems, onAdd: ()=>this.setState({ pickTarget:'addChild' }) }
+        ]
+      };
+    }
+
+    return out;
+  }
+}
+</script>
+</body>
+</html>
