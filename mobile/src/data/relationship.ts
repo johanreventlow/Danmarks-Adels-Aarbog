@@ -11,7 +11,17 @@
 // kønsneutral fallback der matcher de oprindelige strenge.
 //
 // Rene funktioner (testbare).
-import type { Koen, Model } from './types';
+import type { Koen, Konfidens, Model } from './types';
+
+// Konfidens-rang: svag→stærk. null (uangivet) holdes uden for "svageste led"-beregningen,
+// så en bunke uangivne links ikke får hver sti til at se usikker ud.
+const KONF_RANK: Record<string, number> = { omstridt: 0, formodet: 1, sandsynlig: 2, sikker: 3 };
+
+// Konfidens på forælder→barn-kanten mellem x og y (retnings-uafhængigt opslag).
+function edgeKonf(model: Model, x: string, y: string): Konfidens {
+  const k = model.indexes.konfByEdge;
+  return k[`${x}|${y}`] ?? k[`${y}|${x}`] ?? null;
+}
 
 // ── Ane-traversal ────────────────────────────────────────────────────────────
 
@@ -173,6 +183,8 @@ export type RelationStep = {
   name: string;
   years: string;
   isLca: boolean;
+  // Konfidens på kanten der fører OP til dette trin fra det forrige (undefined for første trin).
+  edgeKonfidens?: Konfidens;
 };
 
 // Én distinkt forbindelses-linje mellem A og B.
@@ -185,6 +197,10 @@ export type RelationLine = {
   d1: number;
   d2: number;
   steps: RelationStep[];
+  // Svageste STATEREDE konfidens på stien (null = alle led uangivet/ingen svaghed).
+  weakestKonfidens: Konfidens;
+  // True når stien hviler på et formodet/omstridt led — finderen skal vise usikkerhed.
+  usikker: boolean;
 };
 
 export type RelationResult = {
@@ -216,8 +232,21 @@ function buildSteps(model: Model, ra: Reach, rb: Reach, aId: string, bId: string
   const lcaIndex = cA.length - 1;
   return fullIds.map((pid, idx) => {
     const p = model.byId[pid];
-    return { id: pid, name: p?.name ?? '', years: p?.years ?? '', isLca: idx === lcaIndex };
+    // Kanten op til dette trin = mellem forrige knude og denne (parent↔barn, retning ligegyldig).
+    const edgeKonfidens = idx > 0 ? edgeKonf(model, fullIds[idx - 1], pid) : undefined;
+    return { id: pid, name: p?.name ?? '', years: p?.years ?? '', isLca: idx === lcaIndex, edgeKonfidens };
   });
+}
+
+// Svageste staterede konfidens på en sti (null hvis alle led er uangivet).
+function weakestOnPath(steps: RelationStep[]): Konfidens {
+  let weakest: Konfidens = null;
+  for (const s of steps) {
+    const k = s.edgeKonfidens;
+    if (k == null) continue;
+    if (weakest == null || KONF_RANK[k] < KONF_RANK[weakest]) weakest = k;
+  }
+  return weakest;
 }
 
 // Beregn slægtskab mellem to personer: alle distinkte linjer (etiket + trin-for-trin-kæde).
@@ -227,7 +256,7 @@ export function computeRelationship(model: Model, aId: string, bId: string): Rel
   const none: RelationResult = { found: false, label: '', lcaId: null, lcaName: '', steps: [], lines: [] };
   if (!a || !b) return none;
   if (a.id === b.id) {
-    const line: RelationLine = { label: 'Samme person', lcaId: a.id, lcaName: a.name, half: false, d1: 0, d2: 0, steps: [] };
+    const line: RelationLine = { label: 'Samme person', lcaId: a.id, lcaName: a.name, half: false, d1: 0, d2: 0, steps: [], weakestKonfidens: null, usikker: false };
     return { found: true, label: line.label, lcaId: a.id, lcaName: a.name, steps: [], lines: [line] };
   }
 
@@ -258,14 +287,18 @@ export function computeRelationship(model: Model, aId: string, bId: string): Rel
     const label = relationshipLabel(d1, d2, { koenA: a.koen, koenB: b.koen, half });
     const steps = buildSteps(model, ra, rb, a.id, b.id, rep);
     const coupleNames = couple ? `${model.byId[rep]?.name ?? ''} & ${model.byId[rep === c ? partner! : c]?.name ?? ''}` : undefined;
-    lines.push({ label, lcaId: rep, lcaName: model.byId[rep]?.name ?? '', coupleNames, half, d1, d2, steps });
+    const weakestKonfidens = weakestOnPath(steps);
+    const usikker = weakestKonfidens != null && KONF_RANK[weakestKonfidens] <= KONF_RANK.formodet;
+    lines.push({ label, lcaId: rep, lcaName: model.byId[rep]?.name ?? '', coupleNames, half, d1, d2, steps, weakestKonfidens, usikker });
   }
 
-  // Nærmeste først: mindste samlede afstand, så mest balancerede, så deterministisk på id.
+  // Nærmeste først: mindste samlede afstand, så mest balancerede, så stærkeste led, så id.
+  const weakRank = (k: Konfidens) => (k == null ? 99 : KONF_RANK[k]); // uangivet rangerer som "stærkt" (ikke straffet)
   lines.sort(
     (x, y) =>
       x.d1 + x.d2 - (y.d1 + y.d2) ||
       Math.max(x.d1, x.d2) - Math.max(y.d1, y.d2) ||
+      weakRank(y.weakestKonfidens) - weakRank(x.weakestKonfidens) ||
       (x.lcaId < y.lcaId ? -1 : x.lcaId > y.lcaId ? 1 : 0),
   );
 

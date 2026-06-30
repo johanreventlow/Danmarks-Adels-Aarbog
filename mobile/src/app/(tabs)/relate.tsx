@@ -8,8 +8,14 @@ import { LoadGate } from '../../components/LoadGate';
 import { PersonPicker } from '../../components/PersonPicker';
 import { Body, Kicker, Mono, Serif } from '../../components/Typography';
 import { computeRelationship } from '../../data/relationship';
+import type { Konfidens } from '../../data/types';
 import { useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius, Shadow } from '../../theme/tokens';
+
+// Vis kun de led der reelt er usikre (formodet/omstridt); sikre/sandsynlige/uangivne flages ikke.
+function konfTekst(k?: Konfidens): string {
+  return k === 'omstridt' ? 'omstridt' : k === 'formodet' ? 'formodet' : '';
+}
 
 export default function RelateScreen() {
   const insets = useSafeAreaInsets();
@@ -59,6 +65,11 @@ export default function RelateScreen() {
             {rel.found && (rel.lines[0]?.coupleNames || rel.lcaName) ? (
               <Body size={12.5} color="#cabfa9" style={{ marginTop: 8 }}>Fælles ane: {rel.lines[0]?.coupleNames || rel.lcaName}</Body>
             ) : null}
+            {rel.found && rel.lines[0]?.usikker ? (
+              <Body size={11.5} color={Colors.goldLight} style={{ marginTop: 7, textAlign: 'center' }}>
+                ⚠ Forbindelsen går gennem et {konfTekst(rel.lines[0].weakestKonfidens)} led
+              </Body>
+            ) : null}
           </View>
         ) : (
           <View style={styles.resultEmpty}>
@@ -73,6 +84,7 @@ export default function RelateScreen() {
             {rel.lines.slice(1).map((l) => (
               <View key={l.lcaId} style={styles.alsoRow}>
                 <Serif size={14} style={{ flex: 1, lineHeight: 16 }}>{l.label}</Serif>
+                {l.usikker ? <Mono size={8} color={Colors.bordeaux} style={{ flexShrink: 0, textTransform: 'uppercase', letterSpacing: 0.5 }}>{konfTekst(l.weakestKonfidens)}</Mono> : null}
                 <Body size={11} color={Colors.textMuted} style={{ flexShrink: 0 }}>via {l.coupleNames || l.lcaName}</Body>
               </View>
             ))}
@@ -97,7 +109,18 @@ export default function RelateScreen() {
                     {s.isLca ? <Mono size={8} color={Colors.gold} style={{ letterSpacing: 0.6, textTransform: 'uppercase' }}>Fælles ane</Mono> : null}
                   </View>
                 </View>
-                {i < rel.steps.length - 1 ? <View style={styles.stepArrow} /> : null}
+                {i < rel.steps.length - 1 ? (
+                  konfTekst(rel.steps[i + 1]?.edgeKonfidens) ? (
+                    <View style={styles.stepLink}>
+                      <View style={styles.stepArrow} />
+                      <Mono size={8} color={Colors.bordeaux} style={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                        {konfTekst(rel.steps[i + 1]?.edgeKonfidens)} led
+                      </Mono>
+                    </View>
+                  ) : (
+                    <View style={styles.stepArrow} />
+                  )
+                ) : null}
               </View>
             ))}
           </View>
@@ -163,4 +186,5 @@ const styles = StyleSheet.create({
   stepCardNormal: { backgroundColor: Colors.paperCard, borderColor: Border.light },
   stepCardLca: { backgroundColor: '#f3ecdb', borderColor: 'rgba(185,160,106,0.5)' },
   stepArrow: { marginLeft: 12, width: 2, height: 9, backgroundColor: 'rgba(34,31,26,0.18)' },
+  stepLink: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 });

@@ -235,6 +235,62 @@ describe('multi-linje — dobbelt fætterskab', () => {
   });
 });
 
+// Konfidens på stien: svageste led flager usikkerhed (invariant #7) uden at lade
+// uangivne led larme. Konfidens sidder på barnets link (parentChild.konfidens).
+describe('konfidens på stien — svageste led', () => {
+  const mk6 = (id: string) => ({ id, name: id, born: null, died: null, years: '', title: '', bio: '', koen: null });
+  //  G ─┬─ P1 ── A
+  //     └─ P2 ── B     (A,B fætre via G)
+  const tree = (bLink: 'sikker' | 'sandsynlig' | 'formodet' | 'omstridt' | undefined, extra: Partial<Db> = {}): Db => ({
+    persons: ['G', 'P1', 'P2', 'A', 'B'].map(mk6),
+    unions: [
+      { id: 'fG', p1: 'G', p2: null, p2_name: null, year: null },
+      { id: 'fP1', p1: 'P1', p2: null, p2_name: null, year: null },
+      { id: 'fP2', p1: 'P2', p2: null, p2_name: null, year: null },
+    ],
+    parentChild: [
+      { child: 'P1', parent: 'G', union: 'fG' },
+      { child: 'P2', parent: 'G', union: 'fG' },
+      { child: 'A', parent: 'P1', union: 'fP1' },
+      { child: 'B', parent: 'P2', union: 'fP2', konfidens: bLink },
+    ],
+    ...extra,
+  });
+
+  test('ren sti (ingen konfidens) → usikker=false, weakest=null', () => {
+    const r = computeRelationship(buildModel(tree(undefined)), 'A', 'B');
+    expect(r.lines[0].usikker).toBe(false);
+    expect(r.lines[0].weakestKonfidens).toBeNull();
+  });
+  test('formodet led → usikker=true, weakest=formodet, og kanten sidder på B-trinnet', () => {
+    const r = computeRelationship(buildModel(tree('formodet')), 'A', 'B');
+    expect(r.lines[0].usikker).toBe(true);
+    expect(r.lines[0].weakestKonfidens).toBe('formodet');
+    expect(r.steps.find((s) => s.id === 'B')?.edgeKonfidens).toBe('formodet');
+  });
+  test('sikker led flager IKKE usikkerhed', () => {
+    const r = computeRelationship(buildModel(tree('sikker')), 'A', 'B');
+    expect(r.lines[0].weakestKonfidens).toBe('sikker');
+    expect(r.lines[0].usikker).toBe(false);
+  });
+  test('omstridt er svagere end formodet (svageste vinder)', () => {
+    // Tilføj et formodet led højere oppe (A→P1) sammen med et omstridt (B→P2).
+    const db = tree('omstridt');
+    db.parentChild = db.parentChild.map((pc) =>
+      pc.child === 'A' && pc.parent === 'P1' ? { ...pc, konfidens: 'formodet' as const } : pc,
+    );
+    const r = computeRelationship(buildModel(db), 'A', 'B');
+    expect(r.lines[0].weakestKonfidens).toBe('omstridt');
+  });
+  test('samme kant med flere påstande → STÆRKESTE bevares', () => {
+    const db = tree('formodet');
+    db.parentChild.push({ child: 'B', parent: 'P2', union: 'fP2', konfidens: 'sikker' });
+    const r = computeRelationship(buildModel(db), 'A', 'B');
+    expect(r.lines[0].weakestKonfidens).toBe('sikker');
+    expect(r.lines[0].usikker).toBe(false);
+  });
+});
+
 // Kønsbestemte moderne etiketter (relationshipLabel med koen-opts).
 describe('kønsbestemte etiketter', () => {
   test('fætter/kusine efter køn', () => {

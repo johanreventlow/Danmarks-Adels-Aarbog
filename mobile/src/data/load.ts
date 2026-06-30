@@ -8,6 +8,7 @@ import type {
   AppPerson,
   Aux,
   Db,
+  Konfidens,
   ParentChild,
   RawArms,
   RawEstate,
@@ -91,7 +92,7 @@ export async function loadFromSupabase(opts?: { includePrivat?: boolean }): Prom
         sb.from('person').select('id,visning_navn,visning_foedt,visning_doed,visning_titel,koen,privat'),
       ),
       getAll<{ id: number; type: string }>(() => sb.from('family').select('id,type')),
-      getAll<RawMember>(() => sb.from('family_member').select('family_id,person_id,rolle,ordinal')),
+      getAll<RawMember>(() => sb.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens')),
       getAll<RawNarrative>(() =>
         sb
           .from('narrative')
@@ -152,11 +153,16 @@ export async function loadFromSupabase(opts?: { includePrivat?: boolean }): Prom
       });
     }
     children.forEach((c) => {
+      // Konfidens sidder på BARNETS medlemskabslink (rolle='barn'), ikke forælderens.
+      const k = c.konfidens;
+      const konfidens: Konfidens =
+        k === 'sikker' || k === 'sandsynlig' || k === 'formodet' || k === 'omstridt' ? k : null;
       parents.forEach((pa) => {
         parentChild.push({
           child: String(c.person_id),
           parent: String(pa.person_id),
           union: 'f' + fid,
+          konfidens,
         });
       });
     });

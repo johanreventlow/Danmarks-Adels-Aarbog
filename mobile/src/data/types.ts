@@ -17,6 +17,7 @@ export type RawMember = {
   person_id: number | string;
   rolle: string | null;
   ordinal: number | null;
+  konfidens?: string | null;
 };
 export type RawNarrative = {
   subjekt_id: number | string;
@@ -63,11 +64,15 @@ export type Union = {
   p2_name: string | null;
   year: number | null;
 };
-export type ParentChild = { child: string; parent: string; union: string };
+export type ParentChild = { child: string; parent: string; union: string; konfidens?: Konfidens };
 
 // Køn — normaliseret fra rådata ('mand'/'kvinde'/'ukendt'/null) til det slægtskabs-
 // finderen bruger til kønsbestemte etiketter. null = ukendt → kønsneutral fallback.
 export type Koen = 'mand' | 'kvinde' | null;
+
+// Konfidens på et slægtskabs-link (family_member.konfidens). Stærk→svag; null = uangivet
+// (intet udsagn). Slægtskabsfinderen flager stien hvis den går gennem et svagt led.
+export type Konfidens = 'sikker' | 'sandsynlig' | 'formodet' | 'omstridt' | null;
 
 // En person i appens visningsmodel.
 export type AppPerson = {
@@ -103,6 +108,9 @@ export type ModelIndexes = {
   parentsByChild: Record<string, string[]>;
   childrenByUnion: Record<string, Record<string, string[]>>;
   unionById: Record<string, Union>;
+  // Konfidens pr. forælder→barn-kant, nøgle `${child}|${parent}`. Bruges af slægtskabs-
+  // finderen til at finde det svageste led på en sti. Mangler kant = uangivet.
+  konfByEdge: Record<string, Konfidens>;
 };
 
 export type Model = {

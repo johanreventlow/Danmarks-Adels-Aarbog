@@ -84,6 +84,19 @@ export function buildModel(db: Db): Model {
     unionById[u.id] = u;
   });
 
+  // Konfidens pr. forælder→barn-kant (nøgle `${child}|${parent}`). Beholder den STÆRKESTE
+  // hvis samme kant optræder flere gange (flere påstande): én sikker påstand bør ikke
+  // overskrives af en formodet for samme link.
+  const konfRank: Record<string, number> = { omstridt: 0, formodet: 1, sandsynlig: 2, sikker: 3 };
+  const konfByEdge: ModelIndexes['konfByEdge'] = {};
+  parentChild.forEach((pc) => {
+    const k = pc.konfidens ?? null;
+    if (k == null) return;
+    const key = `${pc.child}|${pc.parent}`;
+    const prev = konfByEdge[key];
+    if (prev == null || konfRank[k] > konfRank[prev]) konfByEdge[key] = k;
+  });
+
   const modelPersons: ModelPerson[] = persons.map((p) => ({
     ...p,
     parentId: firstParent[p.id] || null,
@@ -101,6 +114,7 @@ export function buildModel(db: Db): Model {
     parentsByChild,
     childrenByUnion,
     unionById,
+    konfByEdge,
   };
 
   return { persons: modelPersons, byId, indexes };
