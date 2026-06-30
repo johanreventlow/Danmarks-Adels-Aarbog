@@ -197,5 +197,8 @@ export function oversaetFejl(message: string): string {
   if (/kun redaktion/i.test(message)) return 'Kræver redaktør-rettigheder.';
   if (/duplicate key|unique/i.test(message)) return 'Findes allerede.';
   if (/not configured|ikke konfigureret/i.test(message)) return 'Ingen forbindelse til basen.';
+  // Defensivt fald-tilbage (review10 H2): UI'en skal skjule Fortryd-knappen for allerede
+  // fortrudte poster, men hvis en race/forældet liste alligevel rammer DB-guarden direkte.
+  if (/allerede fortrudt/i.test(message)) return 'Denne ændring er allerede fortrudt.';
   return message;
 }

@@ -192,3 +192,7 @@ test('fortryd uden changeSetId → null', () => {
   const c = { art: 'fortryd', subjektType: 'person', subjektId: '7', payload: {} } as const;
   expect(buildRpcCall(c)).toBeNull();
 });
+
+test('oversaetFejl: allerede fortrudt → dansk (review10 H2, defensiv fallback)', () => {
+  expect(oversaetFejl('FEJL: change_set 12 er allerede fortrudt')).toBe('Denne ændring er allerede fortrudt.');
+});

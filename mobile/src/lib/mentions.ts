@@ -17,8 +17,11 @@ export type Segment =
 // type:id-hoved; label fanges manuelt frem til uescaped ]]
 const HEAD = /\[\[(person|estate|place|organisation|source|coat_of_arms|family|historical_event|media|lineage):(0|[1-9][0-9]*)\|/;
 
+// Escape-alfabet: \ | [ ] — backslash MED i klassen (review10 H1), så scanneren nedenfor
+// (der altid behandler \<næste-tegn> som ÉT escaped 2-tegns-par) aldrig kan fejltolke en
+// ueskaperet trailing backslash som starten på et escape af afgrænserens første ']'.
 function unescape(s: string): string {
-  return s.replace(/\\([|[\]])/g, '$1');
+  return s.replace(/\\([\\|[\]])/g, '$1');
 }
 
 export function parseNarrativ(text: string): Segment[] {
@@ -56,9 +59,11 @@ export function parseNarrativ(text: string): Segment[] {
   return out;
 }
 
-// Byg et token; escaper |[] i visningsteksten (omvendt af parseNarrativ's unescape).
+// Byg et token; escaper \|[] i visningsteksten (omvendt af parseNarrativ's unescape).
+// Backslash skal escapes FØRST (review10 H1) — ellers ville en literal backslash i
+// labelen blive fejltolket af scanneren som start på et escape af det følgende tegn.
 export function makeToken(type: MentionType, id: number, label: string): string {
-  const esc = label.replace(/([|[\]])/g, '\\$1');
+  const esc = label.replace(/[\\|[\]]/g, (ch) => `\\${ch}`);
   return `[[${type}:${id}|${esc}]]`;
 }
 

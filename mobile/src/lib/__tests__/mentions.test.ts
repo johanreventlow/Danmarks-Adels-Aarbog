@@ -50,3 +50,14 @@ describe('makeToken/insertAt', () => {
     expect(insertAt('ab', -5, 'X')).toEqual({ text: 'Xab', cursor: 1 });
   });
 });
+
+describe('makeToken/parseNarrativ — backslash-roundtrip (review10 H1)', () => {
+  const cases = ['X\\', 'a\\|b', 'a\\b', 'a|b]c[', '\\\\dobbelt', 'normal', 'sti\\til\\fil'];
+  for (const label of cases) {
+    it(`roundtrip bevarer "${label}"`, () => {
+      const tok = makeToken('person', 1, label);
+      const segs = parseNarrativ(tok);
+      expect(segs).toEqual([{ kind: 'link', maalType: 'person', maalId: 1, label }]);
+    });
+  }
+});
