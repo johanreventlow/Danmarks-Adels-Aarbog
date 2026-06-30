@@ -40,3 +40,5 @@ web/vite.config.d.ts
 
 # Supabase CLI-link-state (project-ref/pooler-URL — infra-id, aldrig commit)
 supabase/.temp/
+# MCP-config (indeholder Supabase project-ref — infra-id, lokal pr. maskine)
+.mcp.json
