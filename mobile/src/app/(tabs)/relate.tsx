@@ -62,8 +62,10 @@ export default function RelateScreen() {
           <View style={styles.result}>
             <Mono size={9.5} color={Colors.goldLight} style={{ letterSpacing: 9.5 * 0.16, textTransform: 'uppercase' }}>Slægtskab</Mono>
             <Serif size={25} color={Colors.paperBg} style={{ marginTop: 7, lineHeight: 27, textAlign: 'center' }}>{rel.label}</Serif>
-            {rel.found && (rel.lines[0]?.coupleNames || rel.lcaName) ? (
-              <Body size={12.5} color="#cabfa9" style={{ marginTop: 8 }}>Fælles ane: {rel.lines[0]?.coupleNames || rel.lcaName}</Body>
+            {rel.found && rel.lines[0]?.aner.length ? (
+              <Body size={12.5} color="#cabfa9" style={{ marginTop: 8 }}>
+                {rel.lines[0].multiplicitet > 1 ? 'Fælles aner' : 'Fælles ane'}: {rel.lines[0].aner.join(' · ')}
+              </Body>
             ) : null}
             {rel.found && rel.lines[0]?.usikker ? (
               <Body size={11.5} color={Colors.goldLight} style={{ marginTop: 7, textAlign: 'center' }}>
@@ -85,7 +87,7 @@ export default function RelateScreen() {
               <View key={l.lcaId} style={styles.alsoRow}>
                 <Serif size={14} style={{ flex: 1, lineHeight: 16 }}>{l.label}</Serif>
                 {l.usikker ? <Mono size={8} color={Colors.bordeaux} style={{ flexShrink: 0, textTransform: 'uppercase', letterSpacing: 0.5 }}>{konfTekst(l.weakestKonfidens)}</Mono> : null}
-                <Body size={11} color={Colors.textMuted} style={{ flexShrink: 0 }}>via {l.coupleNames || l.lcaName}</Body>
+                <Body size={11} color={Colors.textMuted} style={{ flexShrink: 0 }}>via {l.aner.join(' · ')}</Body>
               </View>
             ))}
           </View>
