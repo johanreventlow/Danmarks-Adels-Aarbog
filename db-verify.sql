@@ -265,3 +265,19 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: version_pk_registry seeded';
 END $$;
+
+-- ===== Versionering Task 2: change_set/change_event =====
+DO $$
+BEGIN
+  IF to_regclass('public.change_set') IS NULL OR to_regclass('public.change_event') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: change_set/change_event mangler';
+  END IF;
+  -- actor_id skal være ON DELETE SET NULL (spec-B3/H6)
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.referential_constraints rc
+    JOIN information_schema.key_column_usage k ON k.constraint_name=rc.constraint_name
+    WHERE k.table_name='change_set' AND k.column_name='actor_id' AND rc.delete_rule='SET NULL') THEN
+    RAISE EXCEPTION 'FEJL: change_set.actor_id mangler ON DELETE SET NULL';
+  END IF;
+  RAISE NOTICE 'OK: change_set/change_event findes m. korrekt actor-FK';
+END $$;

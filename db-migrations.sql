@@ -756,3 +756,34 @@ INSERT INTO version_pk_registry (tabel, pk_cols, skip_cols) VALUES
   ('vocab',              ARRAY['scheme','code'], '{}'),
   ('profiles',           ARRAY['id'], ARRAY['email','rolle'])
 ON CONFLICT (tabel) DO UPDATE SET pk_cols=excluded.pk_cols, skip_cols=excluded.skip_cols;
+
+-- 2026-06-30: versionering — change_set/change_event
+-- ---------- VERSIONERING: change_set / change_event ----------
+CREATE TABLE IF NOT EXISTS change_set (
+  id                BIGINT PRIMARY KEY,
+  actor_id          UUID REFERENCES auth.users(id) ON DELETE SET NULL,  -- frosne felter er autoritative (B3)
+  actor_navn        TEXT,
+  actor_rolle       TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  operation         TEXT,
+  summary           TEXT,
+  subjekt_type      TEXT,
+  subjekt_id        BIGINT,
+  subjekt_synlighed TEXT,                       -- frosset: 'offentlig'|'levende'|'privat' (C1-sti)
+  reverterer_id     BIGINT REFERENCES change_set(id)  -- dette saet fortroed hvilket (reversal-kaede; M3)
+);
+
+CREATE TABLE IF NOT EXISTS change_event (
+  id            BIGINT PRIMARY KEY,
+  change_set_id BIGINT NOT NULL REFERENCES change_set(id),
+  seq           INT NOT NULL,
+  tabel         TEXT NOT NULL,
+  row_pk        JSONB NOT NULL,
+  op            TEXT NOT NULL CHECK (op IN ('INSERT','UPDATE','DELETE')),
+  foer          JSONB,
+  efter         JSONB
+);
+
+CREATE INDEX IF NOT EXISTS ix_change_event_set  ON change_event(change_set_id, seq);
+CREATE INDEX IF NOT EXISTS ix_change_set_subjekt ON change_set(subjekt_type, subjekt_id);
+CREATE INDEX IF NOT EXISTS ix_change_set_revert  ON change_set(reverterer_id);
