@@ -2,6 +2,23 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Versionering + hyperlinks App-lag (2026-06-30)
+
+**Escape-fix lagt på encode-siden (`makeToken`), ikke decode-siden (scanneren).**
+Mit første fix-forsøg (H1) var at indsnævre scannerens backslash-gren til kun `\|[]`. Det løser
+intet: `]` er legitimt eskaperet, så en ueskaperet trailing backslash sluger stadig afgrænserens
+første `]` uanset hvor smal regex'en er — verificeret empirisk med en node-simulation af begge
+varianter. Korrekt fix: eskaper `\` SELV i `makeToken`; scanneren forbliver uændret, fordi dens
+ubegrænsede "backslash+næste-tegn=ét par"-logik er korrekt, NÅR encoderen garanterer at enhver
+literal backslash altid er doblet. Generel læring: et escape-alfabet skal inkludere escape-tegnet
+selv, ikke kun de tegn det beskytter.
+
+**`reverteret`-status beregnes fra HELE historik-listen, ikke fra rækkens eget felt.**
+`change_set.reverterer_id` på række R betyder "R fortrød hvilket sæt" — sat på det NYE
+reversal-sæt, peger TILBAGE på det ORIGINALE. En original post X's eget `reverterer_id` forbliver
+derfor NULL efter X er fortrudt. `mapHistRow` tager nu et `revertedIds`-sæt (alle `reverterer_id`-
+værdier fra hele resultatet) som parameter, i stedet for at læse feltet direkte på hver række.
+
 ## Versionering + hyperlinks DB-lag (2026-06-30)
 
 **`begin_change_set` wires i ALLE DML-skrive-RPC'er, inkl. de 4 opretter-RPC'er.**

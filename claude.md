@@ -73,9 +73,17 @@ Kernefunktionen er **"er vi i familie?"** — slægtskabssøgning på tværs af 
   `red_fortryd_change_set`-restore) og hyperlinks (`[[type:id|tekst]]` → `parse_mentions` +
   `text_mention`-indeks). Append-baseret `red_edit_oplysning` (void→jsonb). Dual-reviewet
   (Claude+Codex+code-analyzer), 24 verify-asserts grønne, applied atomisk. Se `docs/reviews/09-*.md`
-  + `docs/superpowers/plans/2026-06-30-versionering-hyperlinks-db-lag.md`. **Udestår:** app-lag-plan
-  (editor-@-vælger, historik-UI, fortryd-knap — `2026-06-30-versionering-hyperlinks-app-lag.md`);
-  deferrede review-punkter (TOCTOU, parse_mentions open-token, `red_doede_links` 3/10 typer).
+  + `docs/superpowers/plans/2026-06-30-versionering-hyperlinks-db-lag.md`.
+  Deferrede review-punkter (TOCTOU, parse_mentions open-token, `red_doede_links` 3/10 typer).
+- **Versionering + hyperlinks (App-lag, RN/Expo) kode-komplet, IKKE Expo-kørt (2026-06-30):**
+  `mentions.ts` (token-parser/encoder) + `NarrativRenderer` + `MentionPicker` (@-vælger) +
+  redaktionel historik-skærm m. fortryd (ruter gennem `SkrivePreviewSheet`-dry-run/LIVE-flow).
+  Dual-reviewet (Claude+Codex, cycle 10: H1 escape-asymmetri, H2 omvendt `reverteret`-semantik,
+  M3 fejl-svælgning) + `/simplify`. `tsc`/jest grøn (197/197) — det er statisk verifikation,
+  IKKE runtime-bevis; intet device/simulator brugt i denne session. Se
+  `docs/reviews/10-app-lag-hyperlinks.md` §"Manuel Expo-verifikation" for udestående punch-list
+  (vigtigst: ingen LIVE-narrativ har endnu et `[[...]]`-token, så rendering er reelt ikke afprøvet
+  mod rigtige data). Branch `feat/versionering-hyperlinks-app-lag` — IKKE merget/pushet.
 - **TNG-QA-pipeline komplet (2026-06-30):** read-only R-pipeline (`R/tng-qa/`, Trin 1-6)
   matcher vores personer mod et TNG-dump (auto-tier margin-kalibreret) og producerer en
   GDPR-sikker rapport (`docs/reviews/tng-qa-rapport-<dato>.md`, input-gating PII-gate) der

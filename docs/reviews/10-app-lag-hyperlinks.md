@@ -5,8 +5,10 @@
 `redaktionRead.ts`/`redaktionWrite.ts` (historik/fortryd/døde-links-tilføjelser),
 `SkrivePreviewSheet.tsx` (ny `onError`-prop), `historik/[id].tsx`, editor-/visnings-wiring.
 **Reviewer:** Claude (draft) → Codex (adversarisk) → reconcile.
-**Verifikation:** `tsc --noEmit` 0 fejl, jest 187/187 grøn (begge er det skarpeste automatiserede
-signal her — komponenter/skærme er IKKE Expo-kørt, jf. plan §"Test-niveau").
+**Verifikation:** `tsc --noEmit` 0 fejl, jest 197/197 grøn efter `/simplify` (begge er det
+skarpeste automatiserede signal her — komponenter/skærme er IKKE Expo-kørt, jf. plan
+§"Test-niveau"). **Status er derfor kode-komplet + statisk verificeret, IKKE runtime-verificeret.**
+Se §"Manuel Expo-verifikation" nedenfor for hvad der udestår før den påstand kan styrkes.
 
 ---
 
@@ -128,3 +130,37 @@ beskytter — ellers kan en literal forekomst af escape-tegnet i brugerdata bliv
 starten på en escape-sekvens af et efterfølgende, urelateret afgrænsnings-tegn. Symmetrisk
 encode/decode (samme tegnklasse begge veje) er nødvendig, ikke kun tilstrækkelig — en
 asymmetri opdages ikke af enheds-tests der kun tester decode-siden isoleret.
+
+---
+
+## Manuel Expo-verifikation — punch list (udestår)
+
+Ingen device/simulator tilgængelig i denne session. Følgende er IKKE kørt og bør tjekkes
+manuelt før app-laget regnes for produktionsklart (ikke kun "kode-komplet"):
+
+1. **Eksisterende narrativer indeholder ingen `[[...]]`-tokens.** Funktionen er helt ny — intet
+   i den nuværende base har nogen redaktør indsat et token i endnu. Det betyder at
+   `NarrativRenderer` over LIVE-data i dag falder tilbage til ren tekst og reelt ikke afprøver
+   link-rendering. **For at teste noget reelt:** indsæt først et token (via redaktør-editorens
+   nye "🔗 Indsæt link"-knap, eller hånd-indsæt `[[person:<id>|tekst>]]` i en testnarrativ) —
+   "ser fint ud" uden det betyder kun "faldt korrekt tilbage til plain text", ikke "links virker".
+2. **Bio-klamp + "Læs hele biografien"-toggle** stadig korrekt med indlejrede `Text`-spans fra
+   `NarrativRenderer` (clamp-adfærd er testet for ren tekst tidligere, ikke for multi-segment-bio).
+3. **MentionPicker insert-at-cursor** — vælg en person midt i en eksisterende narrativ-tekst,
+   bekræft token indsættes på markørens position (ikke for enden), og at cursor flyttes korrekt
+   bagefter (testet i `mentions.test.ts` som ren funktion, ikke i selve `TextInput`-interaktionen).
+4. **Fortryd-flowet end-to-end** i både dry-run og LIVE: tryk "Fortryd" → `SkrivePreviewSheet`
+   viser korrekt forhåndsvisning → "Skriv til basen" → historik-listen refresher og posten
+   markeres som fortrudt.
+5. **Konflikt-retry ("Fortryd alligevel")** — udløs B9-divergens-guarden (fortryd en post hvis
+   underliggende fact er ændret af en nyere change_set) og bekræft `Alert`-dialogen tilbyder
+   force-retry, og at den rammer DB'en med `force: true`.
+6. **Den aktive "Fortryd"-knap på en fortrudt post (en redo).** H2-fixet gør korrekt at en
+   *original* post viser "Fortrudt" (inaktiv), men en post der ER en fortrydelse (har sat
+   `reverterer_id` på en anden) viser stadig en aktiv "Fortryd"-knap — det er teknisk en gyldig
+   "fortryd fortrydelsen"-handling (en redo), men knappen er uændret-mærket og denne sti er
+   aldrig manuelt afprøvet. Bør verificeres bevidst, ikke antaget korrekt af analogi.
+
+**Hvorfor dette ikke kan lukkes med `tsc`/jest alene:** disse er interaktions- og
+render-rækkefølge-spørgsmål (cursor-position, nested-Text-clamp, Alert-flow) som ikke har
+RNTL-setup i repoet (jf. plan §"Test-niveau") og derfor kun kan afgøres i en kørende Expo-app.

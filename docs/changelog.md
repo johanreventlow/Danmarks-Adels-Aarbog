@@ -1,5 +1,35 @@
 # Changelog
 
+## Versionering + hyperlinks (App-lag, RN/Expo) — kode-komplet, dual-reviewet, IKKE Expo-kørt (2026-06-30)
+* **Hyperlink-tokens i narrativ:** `mentions.ts` (parser/encoder, ren funktion, 17 jest-tests)
+  + `NarrativRenderer` (klikbar visning, wrapper `Typography.Body` 1:1) + `MentionPicker`
+  (@-mention-søgning, indsæt-ved-cursor i redaktør-editoren).
+  Token-grammatik (spec §5.1): `[[type:id|tekst]]`, 10 fast entity-typer, `\|[]`-escape.
+* **Redaktionel historik-skærm** (`redaktion/historik/[id].tsx`): change_set-liste m. "Fortryd"
+  + en samlet døde-links-rapport (D1/D3). Fortryd ruter gennem den eksisterende
+  `pending`+`SkrivePreviewSheet`-modal (dry-run/LIVE-bekræftelse) — IKKE et direkte
+  `submitChange`-kald, som var en tavs no-op i dry-run (fanget proaktivt før review).
+* **Dual-review (cycle 10, Claude+Codex):** H1 [HIGH] escape-asymmetri — `makeToken` eskaperede
+  ikke `\` selv, så et label der ender på backslash fik scanneren til at sluge afgrænserens `]`
+  og hele tokenet lækkede som synlig tekst. Min første fix-recipe (narrow scanner-regex) var
+  selv FORKERT — Codex korrigerede til encode-siden (escape `\` i `makeToken`); empirisk
+  verificeret med 7 round-trip-cases. H2 [MEDIUM] `reverteret`-feltet havde omvendt semantik
+  (`reverterer_id` peger FRA den nye fortrydelse TIL den originale, ikke omvendt) — Fortryd-
+  knappen forblev aktiv på allerede-fortrudte poster. M3 [MEDIUM, Codex-only fund] stille
+  fejl-svælgning i `MentionPicker` umuliggjorde at skelne netværksfejl fra reelt nul personer.
+  Se `docs/reviews/10-app-lag-hyperlinks.md`.
+* **`/simplify`:** 6 behavior-preserving cleanups (NarrativRenderer→Body-wrapper, dødt
+  TYPES-sæt + dead defensiveness i mentions.ts, `erFortrydKonflikt`-ekstraktion + regressionstest,
+  unødig Number/String-tur-retur fjernet, `useRef` i stedet for `useState` til cursor-position).
+* **Verifikation: `tsc --noEmit` 0 fejl, jest 197/197 grøn.** Det er taget for hvad det er — det
+  dækker rene funktioner og mappere, IKKE render/interaktion (cursor-indsætning i `TextInput`,
+  nested-`Text`-clamp, `Alert`-flow). **Ikke Expo-kørt i denne session** (intet device/simulator
+  tilgængeligt) — se manuel punch-list i review-dokumentet, §"Manuel Expo-verifikation".
+  Vigtigst deri: eksisterende narrativer i basen har INGEN `[[...]]`-tokens endnu (funktionen
+  er ny), så `NarrativRenderer` over LIVE-data i dag tester reelt kun plain-text-fallbacken.
+* **Branch `feat/versionering-hyperlinks-app-lag` ikke merget/pushet** — afventer brugerens
+  beslutning (git-gate).
+
 ## Versionering + hyperlinks (DB-lag) — implementeret, dual-reviewet, applied til prod (2026-06-30)
 * **Fortryd-bar redaktionel ændringshistorik:** hybrid change-set-log (`change_set`/
   `change_event`) — hver `red_*`-skrive-RPC åbner et re-entrant `change_set`, og en generisk

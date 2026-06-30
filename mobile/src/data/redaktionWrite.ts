@@ -193,8 +193,9 @@ export async function submitChange(c: Change, opts: { dryRun: boolean }) {
 }
 
 // Genkender red_fortryd_change_set's B9-divergens-RAISE ("... afvist (brug force)").
-// Co-lokaliseret med oversaetFejl (samme rå-besked-klassifikations-mønster); beskeds-
-// matchen skal holdes i sync med DB-RAISE-teksten (schema.sql/db-migrations.sql).
+// Co-lokaliseret med oversaetFejl (samme rå-besked-klassifikations-mønster). Regex'en pinner
+// IKKE mod den levende DB-tekst — kun mod testens hardkodede kopi; drifter schema.sql's
+// RAISE-formulering, skal matchen opdateres her manuelt.
 export function erFortrydKonflikt(rawMessage: string): boolean {
   return /afvist.*force/i.test(rawMessage);
 }

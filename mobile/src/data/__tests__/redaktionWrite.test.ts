@@ -197,8 +197,10 @@ test('oversaetFejl: allerede fortrudt → dansk (review10 H2, defensiv fallback)
   expect(oversaetFejl('FEJL: change_set 12 er allerede fortrudt')).toBe('Denne ændring er allerede fortrudt.');
 });
 
-test('erFortrydKonflikt: matcher den litterale DB-RAISE-tekst (red_fortryd_change_set B9)', () => {
-  // Pinning mod schema.sql:1119 — drifter teksten, skal denne test fange det (altitude-fund cycle 10).
+test('erFortrydKonflikt: matcher en statisk kopi af DB-RAISE-teksten (red_fortryd_change_set B9)', () => {
+  // Fastlåser regex-adfærden mod et hardkodet eksempel — IKKE en levende kobling til
+  // schema.sql/db-migrations.sql. Drifter den faktiske RAISE-tekst, fanger denne test det ikke;
+  // hold matchen manuelt i sync (altitude-fund cycle 10).
   expect(erFortrydKonflikt("FEJL: nyere ændring rører fact/{\"id\":1} — afvist (brug force)")).toBe(true);
   expect(erFortrydKonflikt('FEJL: change_set 12 er allerede fortrudt')).toBe(false);
 });
