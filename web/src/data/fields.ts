@@ -1,3 +1,5 @@
+// PORTERET fra mobile/src/data/fields.ts — hold i sync (delt logik, separate npm-pakker;
+// delt-pakke/monorepo-ekstraktion er en follow-up).
 // Felt-hjælpere — port fra design-HTML (parseYear linje 872, fmtYears 873-880, stripParen 812).
 
 // Første 3-4-cifrede årstal i en streng, ellers null.

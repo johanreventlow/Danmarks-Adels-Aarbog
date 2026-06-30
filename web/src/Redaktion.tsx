@@ -3,14 +3,14 @@
 // (konklusion ← oplysninger) via de rigtige red_*-RPC'er; generiske entiteter foreslås til
 // staging (red_suggest). Dry-run viser hvad der sendes; live skriver. Pixel-tro mod designet,
 // men struktur er ren React (ikke prototypens DCLogic).
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { signIn, signOut, currentSession, type RedSession } from './data/auth';
 import {
   fetchRedaktionPersoner, fetchPersonEvidence, fetchPersonNarrativ, fetchSletPreview,
   fetchEntityRecords, type RedPerson, type PersonEvidence, type FeltEvidens, type Oplysning,
   type SletPreview, type EntityRecord,
 } from './data/redaktionRead';
-import { submitChange, describeCall, oversaetFejl, type Change, type RpcCall } from './data/redaktionWrite';
+import { submitChange, describeCall, oversaetFejl, type Change } from './data/redaktionWrite';
 
 // --- Tokens (fra designet) ---
 const T = {
@@ -34,6 +34,19 @@ const ENTITIES = [
   { key: 'media', label: 'Medier', icon: '▦' },
 ];
 const FELT_DEFS: [string, string][] = [['navn', 'Navn'], ['foedt', 'Født'], ['doed', 'Død'], ['titel', 'Titel/rang']];
+// UI-entitetsnøgle → DB subjekt_type + primær-felt (til forslag via red_suggest). Eksplicit
+// map, så UI-nøgler ('org','arms') ikke lækker rå til basen, der bruger fulde navne.
+const ENTITY_DB: Record<string, { type: string; felt: string }> = {
+  estate: { type: 'estate', felt: 'navn' },
+  source: { type: 'source', felt: 'titel' },
+  org: { type: 'organisation', felt: 'navn' },
+  arms: { type: 'coat_of_arms', felt: 'blasonering' },
+  narrative: { type: 'narrative', felt: 'tekst' },
+  family: { type: 'family', felt: 'type' },
+  office: { type: 'relation', felt: 'rolle' },
+  majorat: { type: 'majorat', felt: 'navn' },
+  media: { type: 'media', felt: 'titel' },
+};
 const initials = (navn: string) => navn.split(' ').filter(Boolean).map((s) => s[0]).slice(0, 2).join('').toUpperCase();
 const konklusionAf = (f: FeltEvidens): Oplysning | undefined => f.oplysninger.find((o) => o.erKonklusion) ?? f.oplysninger[0];
 const kildeAf = (o: Oplysning): string => {
@@ -102,10 +115,13 @@ export default function Redaktion() {
     return recCache[entity] ?? [];
   }, [entity, persons, recCache]);
 
+  // Lazy entitets-liste pr. type, kun ÉN gang (ref-dedup → effekten genkører ikke når cachen fyldes).
+  const fetchedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (entity === 'person' || recCache[entity]) return;
-    fetchEntityRecords(entity).then((rs) => setRecCache((c) => ({ ...c, [entity]: rs }))).catch(() => {});
-  }, [entity, recCache]);
+    if (entity === 'person' || fetchedRef.current.has(entity)) return;
+    fetchedRef.current.add(entity);
+    fetchEntityRecords(entity).then((rs) => setRecCache((c) => ({ ...c, [entity]: rs }))).catch(() => fetchedRef.current.delete(entity));
+  }, [entity]);
 
   // Evidens + narrativ når en person vælges.
   const loadPerson = useCallback((id: string) => {
@@ -128,10 +144,9 @@ export default function Redaktion() {
   const run = useCallback(async (change: Change, titel: string) => {
     try {
       const res = await submitChange(change, { dryRun, role });
-      const call: RpcCall = res.call;
       setWriteView({
         title: dryRun ? 'Dry-run · dette ville blive sendt' : (res.direkte ? 'Sendt til basen' : 'Forslag sendt til staging'),
-        lines: [describeCall(call)], error: '', done: !dryRun, dryRun, direkte: res.direkte,
+        lines: [describeCall(res.call)], error: '', done: !dryRun, dryRun, direkte: res.direkte,
       });
       if (!dryRun && entity === 'person' && recordId) loadPerson(recordId);
     } catch (e) {
@@ -289,32 +304,32 @@ export default function Redaktion() {
         </div>
 
         {showAnno && (
-          <div style={{ marginTop: 16, border: '1px dashed rgba(136,26,51,.4)', borderRadius: 11, padding: '13px 15px', background: '#f8ecef' }}>
+          <div style={{ marginTop: 16, ...annoBox }}>
             <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux, marginBottom: 4 }}>Sådan virker evidens-laget</div>
             <div style={{ fontSize: 12.5, lineHeight: 1.5, color: '#3d382f' }}>Hvert <b>faktum</b> vises som en <b>konklusion</b> (den blåstemplede værdi) ovenpå en eller flere <b>oplysninger</b>, hver med sin <b>kildeangivelse</b>. Redaktøren tilføjer oplysninger og vælger konklusionen; intet overskrives destruktivt.</div>
           </div>
         )}
 
-        <div style={{ marginTop: 22, fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.gold, marginBottom: 10 }}>Kerne-fakta · konklusion ← oplysninger</div>
+        <div style={sectionHeader(22)}>Kerne-fakta · konklusion ← oplysninger</div>
         {!evidence && <div style={{ color: T.muted3, fontSize: 12.5 }}>Henter evidens…</div>}
         {evidence && FELT_DEFS.flatMap(([felt, label]) => (evidence.felter[felt] ?? [{ felt, faktatype: felt, factId: -1, konklusionAssertionId: null, oplysninger: [], uenig: false } as FeltEvidens]).map((f) => renderFactCard(p.id, label, f)))}
 
         {/* Familie/relationer/sektioner — visning porteres senere; redigér via mobil i dag. */}
-        <div style={{ marginTop: 26, fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.gold, marginBottom: 10 }}>Familie, relationer & sektioner</div>
+        <div style={sectionHeader(26)}>Familie, relationer & sektioner</div>
         <div style={{ background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: '16px 16px', fontSize: 12.5, color: T.muted }}>
           Familie- og relations-redigering (partnere · børn · hverv · godser · våben) findes i mobil-redaktøren og porteres til web som næste skive.
         </div>
 
         {/* Narrativ */}
-        <div style={{ marginTop: 24, fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.gold, marginBottom: 10 }}>Narrativ · biografi</div>
+        <div style={sectionHeader(24)}>Narrativ · biografi</div>
         <div style={{ background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: '14px 15px' }}>
-          <textarea value={narrativ ? sc('bio:' + p.id, narrativ.tekst) : ''} onChange={(e) => setSc('bio:' + p.id, e.target.value)} style={{ width: '100%', height: 104, fontSize: 13, lineHeight: 1.55, color: '#3d382f', background: '#fff', border: '1px solid rgba(34,31,26,.16)', borderRadius: 9, padding: '11px 12px', outline: 'none', resize: 'vertical' }} />
+          <textarea value={narrativ?.tekst ?? ''} onChange={(e) => setNarrativ((n) => ({ tekst: e.target.value, privat: n?.privat ?? false }))} style={{ width: '100%', height: 104, fontSize: 13, lineHeight: 1.55, color: '#3d382f', background: '#fff', border: '1px solid rgba(34,31,26,.16)', borderRadius: 9, padding: '11px 12px', outline: 'none', resize: 'vertical' }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 9 }}>
             <label style={{ fontSize: 11, color: T.muted, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
               <input type="checkbox" checked={!!narrativ?.privat} onChange={(e) => setNarrativ((n) => ({ tekst: n?.tekst ?? '', privat: e.target.checked }))} /> privat
             </label>
             <div style={{ flex: 1 }} />
-            <div onClick={() => run({ art: 'narrativ', subjektType: 'person', subjektId: p.id, vaerdi: sc('bio:' + p.id, narrativ?.tekst ?? ''), payload: { privat: !!narrativ?.privat } }, 'Narrativ')} style={{ fontSize: 12, fontWeight: 600, color: T.paper, background: T.green, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' }}>Gem narrativ</div>
+            <div onClick={() => run({ art: 'narrativ', subjektType: 'person', subjektId: p.id, vaerdi: narrativ?.tekst ?? '', payload: { privat: !!narrativ?.privat } }, 'Narrativ')} style={{ fontSize: 12, fontWeight: 600, color: T.paper, background: T.green, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' }}>Gem narrativ</div>
           </div>
         </div>
       </div>
@@ -399,6 +414,7 @@ export default function Redaktion() {
   // ---- Generisk editor (entiteter uden direkte RPC → red_suggest) ----
   function renderGenericEditor() {
     const ent = ENTITIES.find((e) => e.key === entity);
+    const db = ENTITY_DB[entity] ?? { type: entity, felt: 'navn' };
     if (!curRecord) return <div style={{ padding: 30, color: T.muted3 }}>{records.length ? 'Vælg en post.' : 'Ingen liste-kilde for denne entitet endnu.'}</div>;
     return (
       <div style={{ padding: '24px 30px 60px', maxWidth: 760 }}>
@@ -410,15 +426,15 @@ export default function Redaktion() {
           </div>
         </div>
         {showAnno && (
-          <div style={{ marginTop: 16, border: '1px dashed rgba(136,26,51,.4)', borderRadius: 11, padding: '13px 15px', background: '#f8ecef', fontSize: 12.5, lineHeight: 1.5, color: '#3d382f' }}>
+          <div style={{ marginTop: 16, ...annoBox, fontSize: 12.5, lineHeight: 1.5, color: '#3d382f' }}>
             Generiske entiteter har endnu ingen direkte skrive-RPC. Ændringer sendes som <b>forslag til staging</b> (red_suggest) og afventer redaktionel godkendelse. Dedikerede red_*-RPC'er er en follow-up.
           </div>
         )}
         <div style={{ marginTop: 18 }}>
-          <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: T.muted, marginBottom: 5 }}>Primær værdi (navn/titel)</label>
+          <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: T.muted, marginBottom: 5 }}>Primær værdi · {db.felt}</label>
           <input value={sc('gen:' + entity + ':' + curRecord.id, curRecord.label)} onChange={(e) => setSc('gen:' + entity + ':' + curRecord.id, e.target.value)} style={{ ...inp, background: '#fff' }} />
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <div onClick={() => run({ art: 'forslag', subjektType: entity, subjektId: curRecord.id, felt: 'navn', vaerdi: sc('gen:' + entity + ':' + curRecord.id, curRecord.label) }, 'Forslag')} style={{ ...btnGreen, background: T.bordeaux }}>Foreslå ændring</div>
+            <div onClick={() => run({ art: 'forslag', subjektType: db.type, subjektId: curRecord.id, felt: db.felt, vaerdi: sc('gen:' + entity + ':' + curRecord.id, curRecord.label) }, 'Forslag')} style={{ ...btnGreen, background: T.bordeaux }}>Foreslå ændring</div>
           </div>
         </div>
       </div>
@@ -517,3 +533,5 @@ const btnGreen: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#
 const btnGhost: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#6f675b', padding: '8px 10px', cursor: 'pointer' };
 const iconBtn: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 6, border: '1px solid rgba(34,31,26,.16)', color: '#6f675b', fontSize: 12, cursor: 'pointer' };
 const overlay = (z: number): React.CSSProperties => ({ position: 'fixed', inset: 0, background: 'rgba(34,27,22,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: z, padding: 24 });
+const sectionHeader = (mt: number): React.CSSProperties => ({ marginTop: mt, fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.gold, marginBottom: 10 });
+const annoBox: React.CSSProperties = { border: '1px dashed rgba(136,26,51,.4)', borderRadius: 11, padding: '13px 15px', background: '#f8ecef' };

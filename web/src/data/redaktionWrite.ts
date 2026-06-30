@@ -1,3 +1,5 @@
+// PORTERET fra mobile/src/data/redaktionWrite.ts — hold i sync (web udvider med buildSuggestCall
+// + planCall rolle-routing). Delt-pakke-ekstraktion er en follow-up.
 // Oversætter en UI-redigering ("change") til ét RPC-kald mod skrive-laget (Task 3–6).
 // Ren build-funktion (buildRpcCall) er netværksfri og unit-testes; submitChange udfører.
 import { supabase } from '../supabase';
