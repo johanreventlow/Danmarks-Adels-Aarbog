@@ -970,7 +970,7 @@ BEGIN
     RETURN v_existing::bigint;  -- genbrug aktivt sæt; opret intet, nulstil intet
   END IF;
   v_uid := auth.uid();
-  SELECT coalesce(p.email, v_uid::text), p.rolle INTO v_navn, v_rolle
+  SELECT coalesce(p.navn, p.email, v_uid::text), p.rolle INTO v_navn, v_rolle
     FROM profiles p WHERE p.id = v_uid;
   v_navn  := coalesce(v_navn, 'ukendt');
   v_rolle := coalesce(v_rolle, 'medlem');
@@ -1140,9 +1140,8 @@ BEGIN
   END LOOP;
   -- text_mention regenereres af mention-trigger ved narrativ/note-skrivning (Task 10);
   -- ved restore kalder vi den eksplicit (funktion tilføjes i Task 10):
-  -- (GENAKTIVERES I TASK 10:)
-  -- PERFORM _regen_mentions_for('narrative', n) FROM unnest(v_narr) n;
-  -- PERFORM _regen_mentions_for('note', n)      FROM unnest(v_notes) n;
+  PERFORM _regen_mentions_for('narrative', n) FROM unnest(v_narr) n;
+  PERFORM _regen_mentions_for('note', n)      FROM unnest(v_notes) n;
 
   IF v_div > 0 THEN
     UPDATE change_set SET summary = summary || format(' [%s divergenser tvunget]', v_div) WHERE id=v_new_cs;
@@ -1163,3 +1162,48 @@ RETURNS TABLE(maal_type text, maal_id bigint) LANGUAGE sql IMMUTABLE AS $$
     'g'
   ) AS m;
 $$;
+-- ---------- HYPERLINKS: text_mention (afledt indeks) ----------
+CREATE TABLE IF NOT EXISTS text_mention (
+  kilde_type TEXT NOT NULL,            -- 'narrative' | 'note'
+  kilde_id   BIGINT NOT NULL,
+  maal_type  TEXT NOT NULL,
+  maal_id    BIGINT NOT NULL,
+  PRIMARY KEY (kilde_type, kilde_id, maal_type, maal_id)
+);
+CREATE INDEX IF NOT EXISTS ix_text_mention_maal ON text_mention(maal_type, maal_id);
+
+-- Erstat HELE projektionen for én kilde-række (dedup via PK).
+CREATE OR REPLACE FUNCTION _regen_mentions_for(p_kilde_type text, p_kilde_id bigint)
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_tekst text;
+BEGIN
+  DELETE FROM text_mention WHERE kilde_type=p_kilde_type AND kilde_id=p_kilde_id;
+  IF p_kilde_type='narrative' THEN SELECT tekst INTO v_tekst FROM narrative WHERE id=p_kilde_id;
+  ELSIF p_kilde_type='note'   THEN SELECT indhold INTO v_tekst FROM note WHERE id=p_kilde_id; END IF;
+  IF v_tekst IS NULL THEN RETURN; END IF;
+  INSERT INTO text_mention(kilde_type, kilde_id, maal_type, maal_id)
+    SELECT p_kilde_type, p_kilde_id, maal_type, maal_id FROM parse_mentions(v_tekst)
+    ON CONFLICT DO NOTHING;
+END $$;
+
+CREATE OR REPLACE FUNCTION trg_regen_mentions()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE v_kilde text := TG_TABLE_NAME;  -- 'narrative' | 'note'
+BEGIN
+  IF TG_OP='DELETE' THEN
+    DELETE FROM text_mention WHERE kilde_type=v_kilde AND kilde_id=OLD.id;
+  ELSE
+    PERFORM _regen_mentions_for(v_kilde, NEW.id);
+  END IF;
+  RETURN NULL;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_mentions_narrative ON narrative;
+CREATE TRIGGER trg_mentions_narrative AFTER INSERT OR UPDATE OR DELETE ON narrative
+  FOR EACH ROW EXECUTE FUNCTION trg_regen_mentions();
+DROP TRIGGER IF EXISTS trg_mentions_note ON note;
+CREATE TRIGGER trg_mentions_note AFTER INSERT OR UPDATE OR DELETE ON note
+  FOR EACH ROW EXECUTE FUNCTION trg_regen_mentions();
+
+-- profiles.navn (kilde til frosset actor_navn; spec §6)
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS navn TEXT;

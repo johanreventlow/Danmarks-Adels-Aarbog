@@ -495,3 +495,23 @@ BEGIN
     RAISE EXCEPTION 'FEJL: token ikke parset korrekt'; END IF;
   RAISE NOTICE 'OK: parse_mentions';
 END $$;
+
+-- ===== Hyperlinks Task 10: text_mention =====
+DO $$
+DECLARE v_nid bigint; n int;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);  -- bulk-sti, ingen versionering af testdata
+  v_nid := (SELECT coalesce(max(id),0)+1 FROM narrative);
+  INSERT INTO narrative(id,subjekt_type,subjekt_id,tekst)
+    VALUES (v_nid,'person',1,'[[person:1|a]] og [[person:1|igen]] og [[estate:2|g]]');
+  SELECT count(*) INTO n FROM text_mention WHERE kilde_type='narrative' AND kilde_id=v_nid;
+  IF n <> 2 THEN RAISE EXCEPTION 'FEJL: forventede 2 dedup-mentions, fik %', n; END IF;  -- person:1 dedup
+  UPDATE narrative SET tekst='[[lineage:5|x]]' WHERE id=v_nid;  -- replace
+  SELECT count(*) INTO n FROM text_mention WHERE kilde_type='narrative' AND kilde_id=v_nid;
+  IF n <> 1 OR NOT EXISTS (SELECT 1 FROM text_mention WHERE kilde_id=v_nid AND maal_type='lineage') THEN
+    RAISE EXCEPTION 'FEJL: replace-semantik virkede ikke'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: text_mention dedup + replace';
+  ELSE RAISE; END IF;
+END $$;
