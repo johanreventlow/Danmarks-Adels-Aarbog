@@ -3,9 +3,10 @@
 // (variant A, fokus-centreret) og Slægtskab ("Er vi i familie?", med multi-linje + konfidens
 // + korroboration fra den porterede finder). Søg/Godser/Våben/Om følger.
 import { useEffect, useMemo, useState } from 'react';
-import { loadModel } from './data/model';
+import { childrenOf, loadModel } from './data/model';
+import { initials, konfTekst } from './data/format';
 import { computeRelationship, type RelationResult } from './data/relationship';
-import type { Konfidens, Model, ModelPerson } from './data/types';
+import type { Model } from './data/types';
 
 const T = {
   pageBg: '#ece6da', paper: '#fbf8f1', panel: '#f4efe6', beige: '#ece4d6',
@@ -17,9 +18,6 @@ const NAV: [string, string, boolean][] = [
   ['Stamtræ', 'tree', true], ['Slægtskab', 'relate', true],
   ['Søg', 'search', false], ['Godser', 'estates', false], ['Våben', 'arms', false], ['Om slægten', 'about', false],
 ];
-const initials = (n: string) => n.split(' ').filter(Boolean).map((s) => s[0]).slice(0, 2).join('').toUpperCase();
-const konfTekst = (k?: Konfidens) => (k === 'omstridt' ? 'omstridt' : k === 'formodet' ? 'formodet' : '');
-
 function useFonts() {
   useEffect(() => {
     if (document.getElementById('daa-pub-fonts')) return;
@@ -46,19 +44,17 @@ export default function Folgesvend() {
   useEffect(() => {
     loadModel().then((m) => {
       setModel(m);
-      // Start på personen med flest børn (midt i træet).
-      let best: string | null = null; let max = -1;
-      for (const p of m.persons) { const n = m.indexes.childIdx[p.id]?.size ?? 0; if (n > max) { max = n; best = p.id; } }
-      setFocusId(best ?? m.persons[0]?.id ?? null);
+      setFocusId(startFokus(m));
     }).catch((e) => setErr(describeErr(e)));
   }, []);
 
   const persons = model?.persons ?? [];
+  // Sortér én gang (personerne er stabile); filtrér kun pr. tastetryk.
+  const sorted = useMemo(() => [...persons].sort((a, b) => a.name.localeCompare(b.name, 'da')), [persons]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const base = q ? persons.filter((p) => p.name.toLowerCase().includes(q)) : persons;
-    return [...base].sort((a, b) => a.name.localeCompare(b.name, 'da')).slice(0, 400);
-  }, [persons, query]);
+    return (q ? sorted.filter((p) => p.name.toLowerCase().includes(q)) : sorted).slice(0, 400);
+  }, [sorted, query]);
 
   const rel = useMemo(() => (model && relA && relB ? computeRelationship(model, relA, relB) : null), [model, relA, relB]);
 
@@ -133,12 +129,14 @@ function TreeView({ model, focusId, onPick }: { model: Model | null; focusId: st
   if (!model || !focusId) return <div style={{ padding: 40, color: T.muted3 }}>Henter…</div>;
   const f = model.byId[focusId];
   if (!f) return <div style={{ padding: 40, color: T.muted3 }}>Ukendt person.</div>;
+  // Forenkling: stamtræet viser den PRIMÆRE forælder-linje (f.parentId). Slægtskabsfinderen er
+  // bilineal (begge forældre) — så et halvsøskende via den anden forælder kan optræde som
+  // beslægtet uden at stå i søskende-rækken her. Bevidst (variant A kan ikke vise to-forælder-celler).
   const parent = f.parentId ? model.byId[f.parentId] : null;
   const grand = parent?.parentId ? model.byId[parent.parentId] : null;
-  const sibIds = f.parentId ? [...(model.indexes.childIdx[f.parentId] ?? new Set<string>())] : [focusId];
-  const siblings = (sibIds.length ? sibIds : [focusId]).map((id) => model.byId[id]).filter(Boolean) as ModelPerson[];
+  const siblings = f.parentId ? childrenOf(model, f.parentId) : [f];
   const spouses = (model.indexes.spousesBy[focusId] ?? []).map((s) => s.name).filter(Boolean);
-  const children = [...(model.indexes.childIdx[focusId] ?? new Set<string>())].map((id) => model.byId[id]).filter(Boolean) as ModelPerson[];
+  const children = childrenOf(model, focusId);
   const childCount = (id: string) => model.indexes.childIdx[id]?.size ?? 0;
 
   return (
@@ -304,6 +302,18 @@ const Stem = ({ h, mt = 0 }: { h: number; mt?: number }) => <div style={{ width:
 const Avatar = ({ n, size }: { n: string; size: number }) => (
   <div style={{ width: size, height: size, borderRadius: '50%', background: '#f4ece0', border: '1px solid rgba(34,31,26,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: size * 0.4, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{initials(n)}</div>
 );
+
+// Start-fokus midt i træet: en person med BÅDE børn og forælder, flest børn (som mobil).
+// Fallback: flest børn generelt; ellers første person.
+function startFokus(m: Model): string | null {
+  let best: string | null = null; let max = -1;
+  for (const p of m.persons) {
+    const n = m.indexes.childIdx[p.id]?.size ?? 0;
+    if (n > 0 && p.parentId && n > max) { max = n; best = p.id; }
+  }
+  if (!best) for (const p of m.persons) { const n = m.indexes.childIdx[p.id]?.size ?? 0; if (n > max) { max = n; best = p.id; } }
+  return best ?? m.persons[0]?.id ?? null;
+}
 
 function describeErr(e: unknown): string {
   const m = e instanceof Error ? e.message : String(e);

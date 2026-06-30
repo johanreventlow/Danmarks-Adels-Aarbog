@@ -5,10 +5,20 @@ import { supabase } from '../supabase';
 import { buildModel } from './buildModel';
 import { fmtYears, parseYear } from './fields';
 import { getAll } from './paginate';
-import { normalizeKoen, normalizeKonfidens, type AppPerson, type Db, type Model, type ParentChild, type Union } from './types';
+import { normalizeKoen, normalizeKonfidens, type AppPerson, type Db, type Model, type ModelPerson, type ParentChild, type Union } from './types';
 
 const PARTNER_ROLLER = ['partner'];
-const BARN_ROLLE = 'barn'; // kun blodslægt tæller som forælder→barn-kant
+// KUN blodslægt ('barn') bliver en forælder→barn-kant — matcher mobile/src/data/load.ts og
+// holder slægtskabsfinderen blod-baseret. adopteret_/pleje-/stedbarn (som redaktionen kan se)
+// indgår bevidst IKKE i stamtræet/finderen; de er ikke blodslægt.
+const BARN_ROLLE = 'barn';
+
+// Børn af en person som ModelPerson[] (childIdx er Sets). Delt af stamtræ-visningen.
+export function childrenOf(model: Model, id: string): ModelPerson[] {
+  return [...(model.indexes.childIdx[id] ?? new Set<string>())]
+    .map((cid) => model.byId[cid])
+    .filter(Boolean) as ModelPerson[];
+}
 
 type RawPerson = {
   id: number | string; visning_navn: string | null; visning_foedt: string | null;

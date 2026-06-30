@@ -11,6 +11,7 @@ import {
   type SletPreview, type EntityRecord,
 } from './data/redaktionRead';
 import { submitChange, describeCall, oversaetFejl, type Change } from './data/redaktionWrite';
+import { initials } from './data/format';
 
 // --- Tokens (fra designet) ---
 const T = {
@@ -47,7 +48,6 @@ const ENTITY_DB: Record<string, { type: string; felt: string }> = {
   majorat: { type: 'majorat', felt: 'navn' },
   media: { type: 'media', felt: 'titel' },
 };
-const initials = (navn: string) => navn.split(' ').filter(Boolean).map((s) => s[0]).slice(0, 2).join('').toUpperCase();
 const konklusionAf = (f: FeltEvidens): Oplysning | undefined => f.oplysninger.find((o) => o.erKonklusion) ?? f.oplysninger[0];
 const kildeAf = (o: Oplysning): string => {
   const k = o.kilder[0];
