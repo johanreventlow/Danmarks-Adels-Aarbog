@@ -444,7 +444,7 @@ END $$;
 CREATE OR REPLACE FUNCTION red_edit_oplysning(
   p_assertion_id bigint, p_vaerdi text, p_date_raw text DEFAULT NULL, p_kilde_fritekst text DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
-DECLARE v_tt text; v_tid bigint; v_old assertion; v_new bigint; v_cit bigint;
+DECLARE v_old assertion; v_new bigint; v_cit bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   PERFORM begin_change_set('red_edit_oplysning', format('Rettede oplysning %s', p_assertion_id), NULL, NULL);
@@ -996,7 +996,7 @@ CREATE OR REPLACE FUNCTION log_change()
 RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
   v_cs text; v_seq int; v_skip text[];
-  v_foer jsonb; v_efter jsonb;
+  v_foer jsonb; v_efter jsonb; v_old jsonb; v_new jsonb;
 BEGIN
   v_cs := current_setting('app.change_set_id', true);
   IF v_cs IS NULL OR v_cs = '' THEN RETURN NULL; END IF;  -- bulk-load-sti: ingen logning
@@ -1005,8 +1005,9 @@ BEGIN
   v_skip := coalesce(v_skip, '{}');
 
   -- projektion: fjern skip-kolonner (afledt cache; B8)
-  v_foer  := CASE WHEN TG_OP='INSERT' THEN NULL ELSE (to_jsonb(OLD) - v_skip) END;
-  v_efter := CASE WHEN TG_OP='DELETE' THEN NULL ELSE (to_jsonb(NEW) - v_skip) END;
+  v_old := to_jsonb(OLD); v_new := to_jsonb(NEW);  -- serialisér én gang (ingen CSE i PL/pgSQL)
+  v_foer  := CASE WHEN TG_OP='INSERT' THEN NULL ELSE (v_old - v_skip) END;
+  v_efter := CASE WHEN TG_OP='DELETE' THEN NULL ELSE (v_new - v_skip) END;
 
   -- no-op-skip: hvis kun skip-kolonner ændrede sig (fx ren cache-regen), log intet
   IF TG_OP='UPDATE' AND v_foer = v_efter THEN RETURN NULL; END IF;
@@ -1017,7 +1018,7 @@ BEGIN
   INSERT INTO change_event(id, change_set_id, seq, tabel, row_pk, op, foer, efter)
   VALUES ((SELECT coalesce(max(id),0)+1 FROM change_event),
           v_cs::bigint, v_seq, TG_TABLE_NAME,
-          _row_pk(TG_TABLE_NAME, coalesce(to_jsonb(NEW), to_jsonb(OLD))),
+          _row_pk(TG_TABLE_NAME, coalesce(v_new, v_old)),
           TG_OP, v_foer, v_efter);
   RETURN NULL;
 END $$;
@@ -1050,8 +1051,7 @@ BEGIN
   SELECT coalesce(skip_cols,'{}') INTO v_skip FROM version_pk_registry WHERE tabel=p_tabel;
   EXECUTE format('SELECT to_jsonb(t) FROM %I t WHERE %s', p_tabel, _version_pk_where(p_tabel, p_pk))
     INTO v_row;
-  IF v_row IS NULL THEN RETURN NULL; END IF;
-  RETURN v_row - v_skip;  -- samme projektion som log_change
+  RETURN v_row - v_skip;  -- samme projektion som log_change (NULL - skip = NULL)
 END $$;
 
 -- Upsert til nøjagtig snapshot-tilstand. Manglende (skip-)kolonner → NULL (cache regenereres efter).
@@ -1101,7 +1101,7 @@ BEGIN
   INSERT INTO change_set(id, actor_id, actor_navn, actor_rolle, operation, summary,
                          subjekt_type, subjekt_id, subjekt_synlighed, reverterer_id)
     VALUES (v_new_cs, auth.uid(),
-            coalesce((SELECT email FROM profiles WHERE id=auth.uid()), 'ukendt'),
+            coalesce((SELECT coalesce(p.navn, p.email, auth.uid()::text) FROM profiles p WHERE p.id=auth.uid()), 'ukendt'),
             current_rolle(), 'fortryd',
             format('Fortrød: %s', coalesce(v_orig.summary,'(uden tekst)')),
             v_orig.subjekt_type, v_orig.subjekt_id, v_orig.subjekt_synlighed, p_change_set_id);
@@ -1122,9 +1122,7 @@ BEGIN
     -- anvend inverse
     IF ev.op='INSERT' THEN
       PERFORM _version_delete_row(ev.tabel, ev.row_pk);
-    ELSIF ev.op='DELETE' THEN
-      PERFORM _version_upsert_row(ev.tabel, ev.foer);
-    ELSE  -- UPDATE
+    ELSE  -- DELETE eller UPDATE: genskab foer-tilstand
       PERFORM _version_upsert_row(ev.tabel, ev.foer);
     END IF;
     -- saml berørte for cache/indeks-regen
@@ -1139,7 +1137,7 @@ BEGIN
   END LOOP;
 
   -- regenerér afledte projektioner ÉN gang (B8 + hyperlinks)
-  FOREACH pid IN ARRAY coalesce((SELECT array_agg(DISTINCT x) FROM unnest(v_pids) x), ARRAY[]::bigint[]) LOOP
+  FOR pid IN SELECT DISTINCT unnest(v_pids) LOOP
     PERFORM regen_person_visning(pid);
   END LOOP;
   -- text_mention regenereres af mention-trigger ved narrativ/note-skrivning (Task 10);
