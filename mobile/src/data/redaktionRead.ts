@@ -313,3 +313,33 @@ export async function fetchPersonEvidence(personId: string): Promise<PersonEvide
     koen: person?.koen ?? null,
   });
 }
+
+// ---------- Historik (versionering — DB-lag T2/T3/T11) ----------
+export type HistPost = { id: string; hvem: string; hvornaar: string; resume: string; reverteret: boolean };
+type RawHist = { id: number; actor_navn: string | null; created_at: string;
+                 summary: string | null; reverterer_id: number | null };
+
+export function mapHistRow(r: RawHist): HistPost {
+  return {
+    id: String(r.id),
+    hvem: r.actor_navn ?? 'ukendt',
+    hvornaar: new Date(r.created_at).toLocaleString('da-DK'),
+    resume: r.summary ?? '(uden beskrivelse)',
+    reverteret: r.reverterer_id != null, // dette sæt ER en fortrydelse
+  };
+}
+
+export async function fetchHistorik(personId: string): Promise<HistPost[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase.rpc('hist_for_subjekt', { p_type: 'person', p_id: Number(personId) });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map(mapHistRow);
+}
+
+export type HistEvent = { tabel: string; op: string; foer: unknown; efter: unknown };
+export async function fetchHistEvents(changeSetId: number): Promise<HistEvent[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase.rpc('hist_events', { p_change_set_id: changeSetId });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((e: any) => ({ tabel: e.tabel, op: e.op, foer: e.foer, efter: e.efter }));
+}

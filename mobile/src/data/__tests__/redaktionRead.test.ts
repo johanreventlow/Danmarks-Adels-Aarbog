@@ -189,3 +189,23 @@ test('fetchRedaktionPersoner samler alle sider (ingen trunkering)', async () => 
   expect(res[1000].navn).toBe('Sidste');
   spy.mockRestore();
 });
+
+import { mapHistRow } from '../redaktionRead';
+
+describe('mapHistRow', () => {
+  it('mapper change_set-række til HistPost', () => {
+    const r = { id: 12, actor_navn: 'Johan', created_at: '2026-06-30T10:00:00Z',
+                summary: 'Rettede dødsdato', reverterer_id: null } as any;
+    expect(mapHistRow(r)).toMatchObject({ id: '12', hvem: 'Johan', resume: 'Rettede dødsdato', reverteret: false });
+  });
+  it('reverterer_id sat → reverteret=true', () => {
+    const r = { id: 13, actor_navn: 'Johan', created_at: '2026-06-30T10:00:00Z',
+                summary: 'Fortrød noget', reverterer_id: 12 } as any;
+    expect(mapHistRow(r).reverteret).toBe(true);
+  });
+  it('manglende actor_navn/summary → fallback', () => {
+    const r = { id: 14, actor_navn: null, created_at: '2026-06-30T10:00:00Z',
+                summary: null, reverterer_id: null } as any;
+    expect(mapHistRow(r)).toMatchObject({ hvem: 'ukendt', resume: '(uden beskrivelse)' });
+  });
+});
