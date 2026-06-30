@@ -1,9 +1,18 @@
-// Lean offentlige læse-queries til publikums-visningerne (Godser, Våben, Om slægten).
-// Tolerant: returnerer tomt ved fejl (manglende tabel/RLS) → visningen viser en tom-tilstand
-// frem for at vælte hele siden.
+// Lean offentlige læse-queries til publikums-visningerne (Godser, Våben, Om, person-detalje).
+// Fejl-tolerant via safe(): logger og returnerer tomt ved manglende tabel/RLS, så visningen
+// viser en tom-tilstand frem for at vælte siden — men breakage er ikke HELT tavst (console).
 import { supabase } from '../supabase';
 import { getAll } from './paginate';
 import type { Model } from './types';
+
+async function safe<T>(fn: () => Promise<T>, fallback: T, label: string): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    console.warn(`[public] ${label} fejlede:`, e);
+    return fallback;
+  }
+}
 
 export type EstateItem = { id: string; navn: string; slags: string; ownerCount: number };
 export type EstateOwner = { personId: string; navn: string; rolle: string; periode: string };
@@ -12,8 +21,8 @@ export type ArmsItem = { id: string; blasonering: string };
 type RawEstate = { id: number; navn: string | null; slags: string | null };
 type RawEstateRel = { subjekt_id: number; objekt_id: number; rolle: string | null; periode_raw: string | null };
 
-export async function fetchEstates(): Promise<EstateItem[]> {
-  try {
+export function fetchEstates(): Promise<EstateItem[]> {
+  return safe(async () => {
     const [estates, rels] = await Promise.all([
       getAll<RawEstate>(() => supabase.from('estate').select('id,navn,slags')),
       getAll<{ objekt_id: number }>(() => supabase.from('relation').select('objekt_id').eq('objekt_type', 'estate')),
@@ -23,14 +32,12 @@ export async function fetchEstates(): Promise<EstateItem[]> {
     return estates
       .map((e) => ({ id: String(e.id), navn: e.navn ?? '(uden navn)', slags: e.slags ?? '', ownerCount: count[String(e.id)] ?? 0 }))
       .sort((a, b) => b.ownerCount - a.ownerCount || a.navn.localeCompare(b.navn, 'da'));
-  } catch {
-    return [];
-  }
+  }, [], 'fetchEstates');
 }
 
 // Ejerrækken for ét gods — navne slås op i den allerede-indlæste model (ingen ekstra person-fetch).
-export async function fetchEstateOwners(estateId: string, model: Model | null): Promise<EstateOwner[]> {
-  try {
+export function fetchEstateOwners(estateId: string, model: Model | null): Promise<EstateOwner[]> {
+  return safe(async () => {
     const rows = await getAll<RawEstateRel>(() =>
       supabase.from('relation').select('subjekt_id,objekt_id,rolle,periode_raw')
         .eq('objekt_type', 'estate').eq('objekt_id', Number(estateId)).eq('subjekt_type', 'person'));
@@ -42,19 +49,15 @@ export async function fetchEstateOwners(estateId: string, model: Model | null): 
         periode: r.periode_raw ?? '',
       }))
       .sort((a, b) => a.periode.localeCompare(b.periode, 'da'));
-  } catch {
-    return [];
-  }
+  }, [], 'fetchEstateOwners');
 }
 
-export async function fetchArms(): Promise<ArmsItem[]> {
-  try {
+export function fetchArms(): Promise<ArmsItem[]> {
+  return safe(async () => {
     const rows = await getAll<{ id: number; blasonering: string | null }>(() =>
       supabase.from('coat_of_arms').select('id,blasonering'));
     return rows.map((r) => ({ id: String(r.id), blasonering: r.blasonering ?? '' }));
-  } catch {
-    return [];
-  }
+  }, [], 'fetchArms');
 }
 
 // --- Person-detalje (bio + embeder + godser) til højre-panelet ---
@@ -65,16 +68,18 @@ export type PersonDetailData = { bio: string; offices: PersonOffice[]; estates: 
 
 type RawPersonRel = { objekt_type: string; objekt_id: number; rolle: string | null; periode_raw: string | null };
 
-export async function fetchPersonDetail(id: string): Promise<PersonDetailData> {
+export function fetchPersonDetail(id: string): Promise<PersonDetailData> {
   const empty: PersonDetailData = { bio: '', offices: [], estates: [] };
-  try {
+  return safe(async () => {
     const [narr, rels] = await Promise.all([
-      supabase.from('narrative').select('tekst,privat').eq('subjekt_type', 'person').eq('subjekt_id', Number(id)).order('id', { ascending: true }).limit(1),
+      // Første OFFENTLIGE narrativ (privat filtreret i query — ikke skjult bagefter, så en
+      // privat note først ikke gemmer en senere offentlig bio).
+      supabase.from('narrative').select('tekst').eq('subjekt_type', 'person').eq('subjekt_id', Number(id))
+        .eq('privat', false).order('id', { ascending: true }).limit(1),
       getAll<RawPersonRel>(() => supabase.from('relation').select('objekt_type,objekt_id,rolle,periode_raw')
         .eq('subjekt_type', 'person').eq('subjekt_id', Number(id)).in('objekt_type', ['organisation', 'estate'])),
     ]);
-    const bioRow = (narr.data ?? [])[0] as { tekst: string | null; privat: boolean | null } | undefined;
-    const bio = bioRow && !bioRow.privat ? (bioRow.tekst ?? '') : '';
+    const bio = ((narr.data ?? [])[0] as { tekst: string | null } | undefined)?.tekst ?? '';
     const orgIds = rels.filter((r) => r.objekt_type === 'organisation').map((r) => r.objekt_id);
     const estIds = rels.filter((r) => r.objekt_type === 'estate').map((r) => r.objekt_id);
     const [orgs, ests] = await Promise.all([
@@ -91,18 +96,14 @@ export async function fetchPersonDetail(id: string): Promise<PersonDetailData> {
       id: String(r.objekt_id), navn: estNavn.get(String(r.objekt_id)) || `#${r.objekt_id}`,
     }));
     return { bio, offices, estates };
-  } catch {
-    return empty;
-  }
+  }, empty, 'fetchPersonDetail');
 }
 
 // Indledende narrativer på slægts-niveau (subjekt_type 'slaegt'/'lineage') til "Om slægten".
-export async function fetchAbout(): Promise<string[]> {
-  try {
+export function fetchAbout(): Promise<string[]> {
+  return safe(async () => {
     const rows = await getAll<{ tekst: string | null; privat: boolean | null }>(() =>
       supabase.from('narrative').select('tekst,privat,subjekt_type').in('subjekt_type', ['slaegt', 'lineage']));
     return rows.filter((r) => !r.privat && r.tekst).map((r) => r.tekst as string);
-  } catch {
-    return [];
-  }
+  }, [], 'fetchAbout');
 }

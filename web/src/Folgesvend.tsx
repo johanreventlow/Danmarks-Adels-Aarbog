@@ -165,9 +165,7 @@ function TreeView({ model, focusId, onPick }: { model: Model | null; focusId: st
 
   return (
     <div style={{ padding: '30px 40px 50px' }}>
-      <Kicker>Slægten Reventlow</Kicker>
-      <H1>Stamtræ</H1>
-      <div style={{ width: 42, height: 1.5, background: T.bordeaux, margin: '11px 0 18px' }} />
+      <ViewHeader title="Stamtræ" mb="18px" />
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         {grand && (
           <>
@@ -242,9 +240,7 @@ function RelateView({ model, rel, relA, relB, slot, setSlot, onPickStep }: {
     : (p0?.usikker && rel?.alternativSolidLinje) ? 'Bekræftet ad en anden, sikker linje' : '';
   return (
     <div style={{ padding: '30px 40px 50px', maxWidth: 640 }}>
-      <Kicker>Slægten Reventlow</Kicker>
-      <H1>Er vi i familie?</H1>
-      <div style={{ width: 42, height: 1.5, background: T.bordeaux, margin: '11px 0 6px' }} />
+      <ViewHeader title="Er vi i familie?" />
       <div style={{ fontSize: 13, color: T.muted, marginTop: 4, marginBottom: 20 }}>Klik et felt for at vælge slot, og vælg en person i listen til venstre.</div>
       <div style={{ display: 'flex', alignItems: 'stretch', gap: 12 }}>
         {(['A', 'B'] as const).map((sl) => {
@@ -411,9 +407,7 @@ function DetailPanel({ model, focusId, detail, onPick }: { model: Model; focusId
 function SearchView({ persons, query, onPick }: { persons: ModelPerson[]; query: string; onPick: (id: string) => void }) {
   return (
     <div style={{ padding: '30px 40px 50px' }}>
-      <Kicker>Slægten Reventlow</Kicker>
-      <H1>Søg</H1>
-      <div style={{ width: 42, height: 1.5, background: T.bordeaux, margin: '11px 0 6px' }} />
+      <ViewHeader title="Søg" />
       <div style={{ fontSize: 13, color: T.muted, marginTop: 4, marginBottom: 18 }}>Skriv i søgefeltet til venstre — {persons.length} {query ? 'træffere' : 'personer'}.</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(190px,1fr))', gap: 12 }}>
         {persons.map((p) => (
@@ -463,9 +457,7 @@ function EstatesView({ estates, estateId, estate, owners, onOpen, onBack, onPick
   }
   return (
     <div style={{ padding: '30px 40px 50px' }}>
-      <Kicker>Slægten Reventlow</Kicker>
-      <H1>Godser &amp; ejendomme</H1>
-      <div style={{ width: 42, height: 1.5, background: T.bordeaux, margin: '11px 0 6px' }} />
+      <ViewHeader title="Godser &amp; ejendomme" />
       <div style={{ fontSize: 13, color: T.muted, marginTop: 4, marginBottom: 20 }}>Besiddelser knyttet til slægten — klik for ejerrækken gennem tiden.</div>
       {!estates ? <div style={{ color: T.muted3 }}>Henter…</div> : !estates.length ? <div style={{ color: T.muted3 }}>Ingen godser registreret.</div> : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 12 }}>
@@ -488,9 +480,7 @@ function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
   const rest = (arms ?? []).slice(1);
   return (
     <div style={{ padding: '30px 40px 50px', maxWidth: 640 }}>
-      <Kicker>Slægten Reventlow</Kicker>
-      <H1>Slægtens våben</H1>
-      <div style={{ width: 42, height: 1.5, background: T.bordeaux, margin: '11px 0 18px' }} />
+      <ViewHeader title="Slægtens våben" mb="18px" />
       {!arms ? <div style={{ color: T.muted3 }}>Henter…</div> : (
         <>
           <div style={{ background: T.ink, borderRadius: 16, padding: 26, display: 'flex', gap: 24, alignItems: 'center' }}>
@@ -548,6 +538,15 @@ const Counter = ({ n, label }: { n: number; label: string }) => (
 // ---- små byggeklodser ----
 const Kicker = ({ children }: { children: React.ReactNode }) => <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.2em', textTransform: 'uppercase', color: T.gold, marginBottom: 6 }}>{children}</div>;
 const H1 = ({ children }: { children: React.ReactNode }) => <div style={{ fontFamily: T.serif, fontSize: 30, fontWeight: 600, lineHeight: 1 }}>{children}</div>;
+// Fælles visnings-overskrift: kicker + titel + bordeaux-streg. mb='6px' når der følger en
+// undertekst, '18px' når overskriften står alene.
+const ViewHeader = ({ title, mb = '6px' }: { title: string; mb?: string }) => (
+  <>
+    <Kicker>Slægten Reventlow</Kicker>
+    <H1>{title}</H1>
+    <div style={{ width: 42, height: 1.5, background: T.bordeaux, margin: `11px 0 ${mb}` }} />
+  </>
+);
 const Label = ({ children }: { children: React.ReactNode }) => <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted3, margin: '6px 0 12px' }}>{children}</div>;
 const Stem = ({ h, mt = 0 }: { h: number; mt?: number }) => <div style={{ width: 1, height: h, background: 'rgba(34,31,26,.22)', marginTop: mt }} />;
 const Avatar = ({ n, size }: { n: string; size: number }) => (
