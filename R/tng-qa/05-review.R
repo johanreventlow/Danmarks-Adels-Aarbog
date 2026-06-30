@@ -2,8 +2,13 @@
 
 merge_review_decisions <- function(crosswalk, decisions) {
   cw <- crosswalk
+  # Robust mod en review-kø UDEN udfyldte afgørelser (fx en frisk kø fra forrige
+  # run): mangler `afgoerelse`-kolonnen helt -> intet at flette.
+  if (is.null(decisions[["afgoerelse"]])) return(cw)
   for (i in seq_len(nrow(decisions))) {
-    pid <- decisions$person_id[i]; a <- decisions$afgoerelse[i]
+    a <- decisions$afgoerelse[i]
+    if (is.na(a) || !nzchar(trimws(a))) next   # tom/uudfyldt afgørelse -> spring over
+    pid <- decisions$person_id[i]
     row <- which(cw$person_id == pid)
     if (!length(row)) next
     if (a == "bekræft") cw$tier[row] <- "accepted"

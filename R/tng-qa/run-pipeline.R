@@ -67,7 +67,12 @@ if (file.exists(rq_csv)) {
   crosswalk <- merge_review_decisions(crosswalk, dec)
 }
 write.csv(crosswalk, cw_csv, row.names = FALSE)
-write.csv(crosswalk[crosswalk$tier == "review", ], rq_csv, row.names = FALSE)
+# Review-kø MED udfyldelige beslutnings-kolonner: brugeren sætter `afgoerelse`
+# (bekræft/afvis/ny-id) + evt. `ny_tng_id`; næste run fletter dem ind (Trin 5).
+rq <- crosswalk[crosswalk$tier == "review", ]
+rq$afgoerelse <- ""
+rq$ny_tng_id  <- ""
+write.csv(rq, rq_csv, row.names = FALSE)
 
 # ---- Trin 6: sammenlign + rapport -----------------------------------------
 message("== Trin 6: sammenlign + rapport ==")
