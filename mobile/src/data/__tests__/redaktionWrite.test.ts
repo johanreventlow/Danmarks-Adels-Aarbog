@@ -171,3 +171,24 @@ describe('buildRpcCall opret-arter', () => {
       .toEqual({ fn: 'red_opret_organisation', args: { p_navn: 'Livgarden', p_slags: 'regiment' } });
   });
 });
+
+test('fortryd → red_fortryd_change_set m. force', () => {
+  const c = { art: 'fortryd', subjektType: 'person', subjektId: '7',
+              payload: { changeSetId: 12, force: true } } as const;
+  expect(buildRpcCall(c)).toEqual({
+    fn: 'red_fortryd_change_set', args: { p_change_set_id: 12, p_force: true },
+  });
+});
+
+test('fortryd uden force-flag → p_force=false', () => {
+  const c = { art: 'fortryd', subjektType: 'person', subjektId: '7',
+              payload: { changeSetId: 12 } } as const;
+  expect(buildRpcCall(c)).toEqual({
+    fn: 'red_fortryd_change_set', args: { p_change_set_id: 12, p_force: false },
+  });
+});
+
+test('fortryd uden changeSetId → null', () => {
+  const c = { art: 'fortryd', subjektType: 'person', subjektId: '7', payload: {} } as const;
+  expect(buildRpcCall(c)).toBeNull();
+});

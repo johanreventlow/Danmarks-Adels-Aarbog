@@ -13,7 +13,7 @@ export type Change = {
      | 'redigerOplysning' | 'sletOplysning' | 'setKonklusion' | 'setPrivat' | 'sletPerson'
      | 'tilfoejOplysning' | 'opretFakta' | 'sletRelation' | 'tilfoejRelation'
      | 'opretUnion' | 'tilfoejBarn' | 'setFamilieKonfidens' | 'sletFamilieLink'
-     | 'opretPerson' | 'opretEstate' | 'opretKilde' | 'opretOrganisation';
+     | 'opretPerson' | 'opretEstate' | 'opretKilde' | 'opretOrganisation' | 'fortryd';
   subjektType: string;
   subjektId: string;
   assertionId?: string;
@@ -42,6 +42,12 @@ export function buildRpcCall(c: Change): RpcCall | null {
   if (c.art === 'setKonklusion') {
     if (aid == null) return null;
     return { fn: 'red_set_konklusion', args: { p_assertion_id: aid } };
+  }
+  if (c.art === 'fortryd') {
+    const csId = c.payload?.changeSetId;
+    if (csId == null) return null;
+    return { fn: 'red_fortryd_change_set',
+             args: { p_change_set_id: Number(csId), p_force: Boolean(c.payload?.force) } };
   }
   if (c.art === 'redigerOplysning') {
     if (aid == null) return null;
