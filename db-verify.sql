@@ -531,3 +531,48 @@ BEGIN
   END;
   RAISE NOTICE 'OK: historik-API redaktion-gated + døde-links-view findes';
 END $$;
+
+-- ===== Versionering Task 7b: composite-PK restore-hjælpere (B11/M2) =====
+-- T7 dækkede kun enkelt-id (note). Her: family_member (3-kol PK) gennem alle tre
+-- helper-stier — fanger ON CONFLICT-constraint-match + multi-kolonne WHERE-cast.
+DO $$
+DECLARE cur jsonb; pk jsonb := jsonb_build_object('family_id',1,'person_id',1,'rolle','__verify_fm__');
+BEGIN
+  PERFORM _version_upsert_row('family_member',
+    jsonb_build_object('family_id',1,'person_id',1,'rolle','__verify_fm__','ordinal',9,'konfidens','sikker'));
+  cur := _version_current_row('family_member', pk);
+  IF cur->>'konfidens' <> 'sikker' THEN RAISE EXCEPTION 'FEJL: composite upsert-insert virkede ikke (%)', cur; END IF;
+  -- update via ON CONFLICT (samme composite-nøgle)
+  PERFORM _version_upsert_row('family_member',
+    jsonb_build_object('family_id',1,'person_id',1,'rolle','__verify_fm__','ordinal',9,'konfidens','formodet'));
+  cur := _version_current_row('family_member', pk);
+  IF cur->>'konfidens' <> 'formodet' THEN RAISE EXCEPTION 'FEJL: composite upsert-update virkede ikke (%)', cur; END IF;
+  PERFORM _version_delete_row('family_member', pk);
+  IF _version_current_row('family_member', pk) IS NOT NULL THEN RAISE EXCEPTION 'FEJL: composite delete virkede ikke'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: composite-PK restore-hjælpere round-trip';
+  ELSE RAISE; END IF;
+END $$;
+
+-- ===== Versionering Task 8c: non-person restore (tom v_pids — regen-loop no-op) =====
+-- Alle øvrige restore-asserts rørte en person. Her: undo en kilde-oprettelse (ingen person,
+-- ingen conclusion) → v_pids tom → FOREACH IN ARRAY NULL skal være no-op, ikke fejle.
+DO $$
+DECLARE v_sid bigint; cs bigint;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+  v_sid := red_opret_kilde('__verify_kilde__', NULL, NULL, false);
+  SELECT max(id) INTO cs FROM change_set;
+  IF NOT EXISTS (SELECT 1 FROM source WHERE id=v_sid) THEN RAISE EXCEPTION 'FEJL: kilde ikke oprettet'; END IF;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_fortryd_change_set(cs, false);
+  IF EXISTS (SELECT 1 FROM source WHERE id=v_sid) THEN RAISE EXCEPTION 'FEJL: non-person restore slettede ikke kilden'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: non-person restore (tom regen-loop) virker';
+  ELSE RAISE; END IF;
+END $$;

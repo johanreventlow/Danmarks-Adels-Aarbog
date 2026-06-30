@@ -1030,7 +1030,7 @@ BEGIN
   END LOOP;
 
   -- regenerér afledte projektioner ÉN gang (B8 + hyperlinks)
-  FOREACH pid IN ARRAY (SELECT array_agg(DISTINCT x) FROM unnest(v_pids) x) LOOP
+  FOREACH pid IN ARRAY coalesce((SELECT array_agg(DISTINCT x) FROM unnest(v_pids) x), ARRAY[]::bigint[]) LOOP
     PERFORM regen_person_visning(pid);
   END LOOP;
   -- text_mention regenereres af mention-trigger ved narrativ/note-skrivning (Task 10);
