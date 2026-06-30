@@ -28,13 +28,33 @@ transport- + samtykke-lag ovenpå. Den ene telefon skal bare lære den andens pe
 Ægte *passiv* baggrunds-genkendelse ("telefonerne ser hinanden af sig selv") er dyrest —
 især iOS-baggrunds-BLE af et custom-id. BLE GATT er laveste cross-platform fællesnævner.
 
+## Interaktionsmodel: dobbelt aktiv handling (NameDrop-stil)
+
+**Bærende princip:** opdagelse sker KUN når *begge* brugere samtidig har sat app'en i
+"mød en slægtning"-tilstand og holder telefonerne tæt sammen — svarende til iPhones
+NameDrop (kontakt-udveksling kræver to telefoner tæt på hinanden + begges aktive valg).
+Aldrig passiv baggrunds-søgning.
+
+Konkret rendezvous-flow:
+1. Begge åbner "Mød en slægtning" → app'en lytter/annoncerer i et kort, tidsafgrænset
+   vindue (fx 30 sek), tydeligt signaleret i UI ("søger i nærheden …").
+2. Kun enheder der *samtidig* er i dette vindue OG fysisk tæt på (nær-felt: NFC-tap,
+   QR, eller kort-rækkevidde-BLE/RSSI-tærskel) matcher — ikke alt der scanner i rummet.
+3. Match → begge ser en bekræftelses-prompt med modpartens *navn* (ikke fuld profil) →
+   først ved gensidigt "ja" beregnes og vises slægtskabet.
+4. Vinduet lukker af sig selv; intet annonceres bagefter.
+
+Dette eliminerer stort set den passive-udsendelse-bekymring: der er intet at opsnappe
+udenfor de få sekunder hvor begge bevidst har valgt at mødes.
+
 ## Privatliv / GDPR er det styrende krav
 
 Projektet er *"GDPR indbygget"* og handler om **nulevende**. Passiv udsendelse af "jeg er
 person X i Reventlow-træet" til alle der scanner i nærheden, strider mod privatlivs-
 invarianten. Design SKAL være samtykke-først:
 
-1. **Gensidig opt-in:** identitet afsløres først når *begge* aktivt trykker "forbind".
+1. **Dobbelt aktiv handling:** kun match når begge er i mød-vinduet samtidig og fysisk
+   tæt på (se interaktionsmodellen ovenfor); identitet afsløres først ved gensidigt "ja".
    Ingen passiv baggrunds-udsendelse af hvem man er.
 2. **Efemere id'er:** roterende tokens i æteren, aldrig fast person-id i klartekst.
 3. **Privatlivs-bevarende handshake (ønsket):** udveksl kun *hashede ane-fingeraftryk*
@@ -46,9 +66,12 @@ invarianten. Design SKAL være samtykke-først:
 ## Faser
 
 1. **Fase 1 — QR/mødekode-MVP.** Telefon A viser QR (eller 6-cifret kode), telefon B
-   scanner → gensidigt samtykke → `computeRelationship` → resultat-kort. Cross-platform
-   trivielt, ingen entitlements, virker offline. Genbruger finderen 1:1.
-2. **Fase 2 — BLE-nærhed** med roterende efemere id'er + gensidig opt-in (kræver dev-build).
+   scanner → gensidigt samtykke → `computeRelationship` → resultat-kort. Er i sig selv
+   den reneste "dobbelt aktiv handling" (begge skal gøre noget). Cross-platform trivielt,
+   ingen entitlements, virker offline. Genbruger finderen 1:1.
+2. **Fase 2 — BLE nær-felt** i et kort mød-vindue (RSSI-tærskel ⇒ kun helt tæt på),
+   roterende efemere id'er + gensidig opt-in (kræver dev-build). Automatiserer trin 1's
+   håndtryk uden QR, men beholder dobbelt-aktiv-princippet.
 3. **Fase 3 — UWB-retning** ("din slægtning står derovre") som stævne-feature.
 
 ## Afhængigheder
