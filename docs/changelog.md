@@ -1,5 +1,29 @@
 # Changelog
 
+## TNG-QA: pipeline komplet ende-til-ende (Trin 1-6) + kalibrering (2026-06-30)
+* **Forbindelses-bug fixet:** top-level `on.exit()` under `source()` fyrede
+  `dbDisconnect(shutdown=TRUE)` FØR næste query → "Invalid connection". Lukker nu
+  forbindelser efter sidste brug.
+* **Trin 3-4-glue (`scored` → `crosswalk`):** `our_match_frame`/`tng_match_frame`/
+  `build_scored` — blokering på fornavns-initial + fødselsår-vindue, vektoriseret
+  overlap, top-K pr. person rangeret på score. Fix: `person.id` bigint→integer
+  (data.frame recycler ikke integer64); DATE→år-konvertering.
+* **Auto-tier bootstrap-kalibreret:** den uniforme "Reventlow" gjorde `unique_block`
+  ubrugelig (auto=0). Erstattet med ambiguitets-margin (`ambiguity_margin=0.05`):
+  auto kræver score≥0.90 OG bedste kandidat klart foran nr. 2 OG top-kandidat.
+  Kalibreret mod bootstrap-ankre (entydige eksakte matches). `calibrate.R` ny.
+* **Dato-overlap som scoring-evidens:** `birth/death_overlap` er nu kun TRUE ved
+  reel dato på begge sider (`.overlap_evidence`) — fjerner 0.3 "gratis" vægt på
+  dato-løse par. Auto kræver nu reel fødselsårs-korroboration. auto≈347, review≈658.
+* **Trin 5 gen-kørsels-crash fixet:** review-køen skrives nu med udfyldelig
+  `afgoerelse`-kolonne; `merge_review_decisions` tåler tom/manglende afgørelse.
+* **Trin 6 aktiveret — relations-QA mod TNG:** sammenligner ægteskaber/forælder-barn/
+  datoer/køn; producerer `docs/reviews/tng-qa-rapport-<dato>.md`. **GDPR PII-gate =
+  input-gating** (filtrér begge sider til afdøde-ikke-private FØR sammenligning,
+  fail-closed) — verificeret 0/70 levende-id i rapporten. Første kørsel: 183
+  handlingsorienterede uenigheder.
+* **Tests:** 35 (match/report/review/extract/pull), alle grønne.
+
 ## Slægtskabsfinder: bilineal multi-linje + konfidens på stien (2026-06-30)
 * **Bilineal:** "Er vi i familie?" (`mobile/src/data/relationship.ts`) traverserer nu BEGGE
   forældre-linjer (BFS over `parentsByChild`) i stedet for kun den primære forælder-kæde.

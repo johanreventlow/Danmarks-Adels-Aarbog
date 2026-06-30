@@ -2,6 +2,32 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## TNG-QA: tre kerne-valg i match + QA (2026-06-30)
+
+**Auto-tier = ambiguitets-margin, ikke `unique_block`.**
+Næsten alle i basen hedder "Reventlow", så `unique_block` ("ene plausible navne-kandidat")
+er ALDRIG sand → auto var altid 0. Valgt: auto kræver at bedste kandidat er ≥
+`ambiguity_margin` (0.05) foran nr. 2 (+ score≥cutoff + top-kandidat). Kalibreret mod
+*bootstrap-ankre* (entydige eksakte matches) i stedet for et håndlabelt facit-sæt — bevidst
+hurtig-start; ankrene er korrekte pr. konstruktion, så de validerer ikke præcision uafhængigt
+(non-anker-auto øjen-kontrolleres i `calibrate.R`). Forkastet: sænke `unique_block`-strenghed
+(ville ikke skalere med uniform efternavn).
+
+**Dato-overlap tæller kun som scoring-evidens ved reel dato på begge sider.**
+`intervals_overlap` returnerer TRUE når begge datoer er ukendte (NA→±Inf), så et middelmådigt
+navne-match fik 0.3 "gratis" vægt og kunne auto-promoteres på navn alene (fx forskelligt
+efternavn, ingen datoer). `.overlap_evidence` kræver dato på begge sider. Konsekvens: auto
+kræver reel fødselsårs-korroboration (navne-only maxer på 0.7). Bivirkning: dato-løse
+nr.2-kandidater taber vægt → større margin → flere entydige auto (273→347).
+
+**GDPR PII-gate = INPUT-gating, ikke output-gating.**
+Filtrér ALLE sammenlignings-input (vores + TNG) til afdøde-ikke-private FØR sammenligning, så
+ingen levende person kan komme ind i `disc` — heller ikke som relateret 2.-endepunkt. Reducerer
+garantien til én kontrollerbar invariant frem for "hver refereret id på hver række blev tjekket".
+KRITISK: TNG-siden filtreres OGSÅ (ellers navngiver `mangler_hos_os` en levende ægtefælle til en
+afdød). Fail-closed på ukendt privacy. Forkastet: output-filtrering af `disc` + tekst-scan
+(`assert_no_living_pii`) som primær — degraderet til backstop (svækkes når id'er → labels).
+
 ## Opret: privat FORCERET true + sted udskudt (2026-06-29, hærdet 2026-06-30)
 
 **Ny person oprettes med `privat=true` — IKKE konfigurerbar ved opret.**
