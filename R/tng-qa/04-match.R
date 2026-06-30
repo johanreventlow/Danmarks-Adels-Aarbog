@@ -2,7 +2,11 @@
 
 default_cfg <- function() list(
   year_window = 5L, w_name = 0.6, w_birth = 0.2, w_death = 0.1, w_sex = 0.1,
-  auto_cutoff = 0.90, review_cutoff = 0.70, ambiguity_margin = 0.05  # RESERVERET: endnu ikke brugt af assign_tiers (fremtidig nær-score-tvetydighed)
+  # auto kræver score >= auto_cutoff OG at bedste kandidat er mindst
+  # ambiguity_margin foran nr. 2 (kalibreret mod bootstrap-ankre 2026-06-30:
+  # margin 0.05 -> 86% af de entydige eksakte matches auto-promoteres). Den
+  # uniforme "Reventlow" gør unique_block ubrugelig som auto-gate -> margin i stedet.
+  auto_cutoff = 0.90, review_cutoff = 0.70, ambiguity_margin = 0.05
 )
 
 name_similarity <- function(key_a, key_b) {
@@ -20,13 +24,24 @@ assign_tiers <- function(scored, cfg) {
   scored$score <- mapply(score_pair, scored$name_sim, scored$birth_overlap,
                          scored$death_overlap, scored$sex_eq,
                          MoreArgs = list(cfg = cfg))
+  # Per-person: ambiguitets-margin (bedste - næstbedste score) + flag for personens
+  # TOP-kandidat. margin=Inf hvis kun én kandidat (ingen tvetydighed).
+  scored$margin <- NA_real_
+  scored$is_top <- FALSE
+  for (idx in split(seq_len(nrow(scored)), scored$person_id)) {
+    o <- idx[order(-scored$score[idx])]
+    scored$margin[idx]  <- if (length(o) < 2L) Inf else scored$score[o[1]] - scored$score[o[2]]
+    scored$is_top[o[1]] <- TRUE
+  }
   scored <- scored[order(-scored$score), ]
   used_tng <- character(0); assigned_person <- integer(0)
   scored$tier <- "none"
   for (i in seq_len(nrow(scored))) {
     pid <- scored$person_id[i]; tid <- scored$tng_id[i]; sc <- scored$score[i]
     if (pid %in% assigned_person || tid %in% used_tng) { scored$tier[i] <- "none"; next }
-    if (sc >= cfg$auto_cutoff && isTRUE(scored$unique_block[i])) {
+    # auto KUN på personens top-kandidat: hvis nr. 1 er claimet af en anden,
+    # falder personen til review — aldrig auto på et ringere 2.-valg.
+    if (sc >= cfg$auto_cutoff && scored$margin[i] >= cfg$ambiguity_margin && scored$is_top[i]) {
       scored$tier[i] <- "auto"; used_tng <- c(used_tng, tid); assigned_person <- c(assigned_person, pid)
     } else if (sc >= cfg$review_cutoff) {
       scored$tier[i] <- "review"

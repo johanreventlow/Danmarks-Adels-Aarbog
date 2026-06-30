@@ -42,11 +42,11 @@ dbDisconnect(scon)  # luk straks efter sidste brug (samme on.exit-fælde som tco
 
 # ---- Trin 3-4: normalisér + match -----------------------------------------
 # Byggeklodser: our_match_frame / tng_match_frame / build_scored (04-match.R).
-# VIGTIGT: cfg-tærsklerne (auto_cutoff=0.90, review_cutoff=0.70) er IKKE
-# kalibreret — intet facit-sæt findes endnu. Tier-tællingerne nedenfor er
-# DIAGNOSTISKE, ikke et endeligt resultat. Den uniforme "Reventlow"-efternavn
-# hæver name_sim's bund (review oversvømmes nær cutoff), og dato-løse par får
-# gratis vægt (overlap NA→TRUE). Se docs/tng-qa-koersel.md § "Trin 3-4".
+# AUTO-kriteriet er BOOTSTRAP-kalibreret (2026-06-30): auto kræver score >=
+# auto_cutoff OG margin >= ambiguity_margin til nr. 2 (se default_cfg + calibrate.R).
+# review_cutoff er IKKE kalibreret (kræver håndlabelt facit-sæt) — review-tier'en
+# er stadig bred. Auto-tier'en er spot-check-valideret men ikke uafhængigt
+# præcisions-målt. Se docs/tng-qa-koersel.md § "Trin 3-4".
 message("== Trin 3-4: normalisér + match ==")
 our_norm  <- our_match_frame(ours$person, ours$dates)
 tng_norm  <- tng_match_frame(tng_people)
@@ -57,7 +57,7 @@ n_unmatched <- nrow(our_norm) - length(unique(scored$person_id))
 tier_tab    <- table(factor(crosswalk$tier, levels = c("auto", "review", "none")))
 message(sprintf("  %d personer x %d TNG -> %d kandidat-par (%d uden kandidat)",
                 nrow(our_norm), nrow(tng_norm), nrow(scored), n_unmatched))
-message(sprintf("  tiers (DIAGNOSTISK, ukalibreret): auto=%d review=%d none=%d",
+message(sprintf("  tiers: auto=%d review=%d none=%d (auto bootstrap-kalibreret; review bred)",
                 tier_tab[["auto"]], tier_tab[["review"]], tier_tab[["none"]]))
 
 # ---- Trin 5: review-merge (hvis afgørelser findes) ------------------------

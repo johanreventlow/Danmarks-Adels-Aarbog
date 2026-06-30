@@ -52,20 +52,36 @@ Kørsel fra repo-roden (vigtigt — stier er relative til roden).
 
 ---
 
-## Trin 3-4: blokering + score (kalibrering påkrævet)
+## Trin 3-4: blokering + score (BOOTSTRAP-kalibreret 2026-06-30)
 
-Orkestratoren (`R/tng-qa/run-pipeline.R`) har trin 3-4 som et
-kommentar-skelet. Blok-konstruktionen og score-beregningerne er
-fuldt testede byggeklodser (T4-T7, 59 tests), men **tærskler og
-blok-parametre kalibreres empirisk** inden prod-kørsel:
+Trin 3-4-glue'en (`our_match_frame`/`tng_match_frame`/`build_scored`) er
+implementeret; pipelinen kører ende-til-ende. `auto`-kriteriet er
+**bootstrap-kalibreret** (uden håndlabelt facit-sæt) — se `R/tng-qa/calibrate.R`:
 
-1. **Håndlabel et facit-sæt** (~30-50 personer med kendte TNG-IDs).
-2. Byg `scored`-tabellen (se kommentar-skeletons i `run-pipeline.R`
-   trin 3-4) og kald `eval_precision_recall(crosswalk, truth)`.
-3. Justér `cfg$auto_cutoff` / `cfg$review_cutoff` / `year_window` i
-   `default_cfg()` (se `R/tng-qa/04-match.R`) til ønsket præcision/recall.
-4. Fjern kommentar-hash fra `crosswalk <- assign_tiers(scored, cfg)` og
-   løb pipelinen igen mod facit-sættet til tilfredsstillende metrics.
+- **auto** = score ≥ `auto_cutoff` (0.90) **OG** bedste kandidat er ≥
+  `ambiguity_margin` (0.05) foran nr. 2. (Det uniforme "Reventlow" gjorde den
+  oprindelige `unique_block`-gate ubrugelig — alle har mange ens-navngivne
+  kandidater — så `auto` var altid 0. Margin-gaten erstatter den.)
+- **Kalibrering:** de ENTYDIGE EKSAKTE matches (navn ≥ 0.98 + eksakt fødsel +
+  død + køn) bruges som bootstrap-"truth" (221 ankre). Margin 0.05 → 84% af
+  ankrene auto-promoteres. Resultat på fuld base: **auto≈273, review≈6580,
+  none≈2756** (af 963 personer m. kandidat).
+
+**ÆRLIGE begrænsninger (ikke endeligt kalibreret):**
+- Anker-recall er IKKE en uafhængig præcisions-måling (ankrene er korrekte pr.
+  konstruktion). Den reelle kontrol er `calibrate.R`'s liste over **non-anker-auto**
+  (matches der auto-promoteres uden at være eksakte ankre). Øjen-kontrol 2026-06-30:
+  ~85/87 korrekte (stavevarianter detlev/detlef, sophie/sophia osv. m. matchende år).
+- **Restrisiko — dato-løse par:** `intervals_overlap` returnerer TRUE når BEGGE
+  datoer er ukendte (NA→±Inf), så et middelmådigt navne-match + 0.3 "gratis"
+  dato/køns-vægt kan krydse 0.90 (fx `franziska reventlow → franciska christensen`,
+  forskelligt efternavn, ingen datoer). Forfining: kreditér kun overlap når mindst
+  én side har en dato. `review_cutoff` (0.70) er heller ikke kalibreret → bred review.
+- **Endeligt facit-sæt** (håndlabel ~30-50, inkl. tvetydige/negative cases) er
+  stadig det rigtige næste skridt; kald `eval_precision_recall(crosswalk, truth)`.
+
+Genkør kalibrering: `Rscript R/tng-qa/calibrate.R` (sweep over auto_cutoff × margin
++ non-anker-auto spot-check-liste).
 
 ### `scored`-tabel-struktur
 

@@ -97,14 +97,40 @@ test_that("build_scored top-K capper på score, ikke name_sim — fødsels-korre
   expect_true(sc$birth_overlap)
 })
 
-test_that("assign_tiers sends high-score non-unique (unclaimed) to review, not auto", {
+test_that("assign_tiers: entydig høj-score (margin=Inf, én kandidat) -> auto", {
   cfg <- default_cfg()
   scored <- data.frame(
     person_id = 5L, tng_id = "I50",
-    name_sim = 0.99, birth_overlap = TRUE, death_overlap = TRUE,
-    sex_eq = TRUE, unique_block = FALSE,
-    stringsAsFactors = FALSE
-  )
+    name_sim = 1.0, birth_overlap = TRUE, death_overlap = TRUE, sex_eq = TRUE,
+    unique_block = FALSE, stringsAsFactors = FALSE)
   out <- assign_tiers(scored, cfg)
-  expect_equal(out$tier, "review")   # >= auto_cutoff but not unique -> review, never auto
+  expect_equal(out$tier, "auto")   # ingen nr. 2 -> ingen tvetydighed -> auto
+})
+
+test_that("assign_tiers: tæt nr. 2 (margin < ambiguity_margin) -> review, ikke auto", {
+  cfg <- default_cfg()                # ambiguity_margin = 0.05
+  scored <- data.frame(
+    person_id = c(5L, 5L), tng_id = c("I50", "I51"),
+    name_sim = c(1.00, 0.98), birth_overlap = TRUE, death_overlap = TRUE,
+    sex_eq = TRUE, unique_block = FALSE, stringsAsFactors = FALSE)
+  out <- assign_tiers(scored, cfg)
+  # top1=1.0, top2=0.6*0.98+0.4=0.988 -> margin 0.012 < 0.05 -> tvetydig -> review
+  expect_false(any(out$tier == "auto"))
+  expect_equal(out$tier[out$tng_id == "I50"], "review")
+})
+
+test_that("assign_tiers: top-kandidat claimet væk -> review, ALDRIG auto på 2.-valg", {
+  cfg <- default_cfg()
+  scored <- data.frame(
+    person_id = c(2L, 1L, 1L),
+    tng_id    = c("I9", "I9", "I8"),
+    name_sim  = c(1.00, 0.99, 0.90),   # person1's margin (I9 vs I8) = 0.054 >= 0.05
+    birth_overlap = TRUE, death_overlap = TRUE, sex_eq = TRUE,
+    unique_block = FALSE, stringsAsFactors = FALSE)
+  out <- assign_tiers(scored, cfg)
+  # person2 vinder I9 (auto). person1's top (I9) tabt; selv om I8-score 0.94 >=
+  # cutoff OG margin >= 0.05, er I8 IKKE person1's top -> aldrig auto -> review.
+  expect_equal(out$tier[out$person_id == 2L & out$tng_id == "I9"], "auto")
+  expect_false(any(out$person_id == 1L & out$tier == "auto"))
+  expect_equal(out$tier[out$person_id == 1L & out$tng_id == "I8"], "review")
 })
