@@ -73,6 +73,17 @@ assign_tiers <- function(scored, cfg) {
   amin <= bmax & bmin <= amax
 }
 
+# Overlap som SCORING-EVIDENS: TRUE kun når BEGGE sider har en dato OG de
+# overlapper. Ukendt dato = manglende evidens, ikke enighed -> FALSE (ellers
+# fik dato-løse par 0.3 "gratis" vægt og kunne fejlagtigt auto-promoteres).
+# Bruges KUN til score-signalet; blokerings-vinduet beholder fortsat dato-løse
+# kandidater (en ægte match må ikke tabes fordi datoen mangler).
+.overlap_evidence <- function(amin, amax, bmin, bmax) {
+  a_known <- !is.na(amin) | !is.na(amax)
+  b_known <- !is.na(bmin) | !is.na(bmax)
+  a_known & b_known & .overlap_vec(amin, amax, bmin, bmax)
+}
+
 # Normalisér VORES folk til match-rammen. visning_navn er kun fornavne for
 # Reventlow'er -> normalize_name(last="") tilføjer implicit "Reventlow", så
 # nøglen flugter med TNG's firstname+lastname="Reventlow".
@@ -166,9 +177,9 @@ build_scored <- function(our_norm, tng_norm, cfg) {
     cand <- cand[plausible, , drop = FALSE]; sims <- sims[plausible]
     n_plausible <- nrow(cand)                   # driver unique_block (ægte unikhed)
 
-    bo <- .overlap_vec(obmin, obmax, cand$birth_min, cand$birth_max)
-    do <- .overlap_vec(our_norm$death_min[i], our_norm$death_max[i],
-                       cand$death_min, cand$death_max)
+    bo <- .overlap_evidence(obmin, obmax, cand$birth_min, cand$birth_max)
+    do <- .overlap_evidence(our_norm$death_min[i], our_norm$death_max[i],
+                            cand$death_min, cand$death_max)
     # ukendt køn tæller ikke som match (undgår gratis w_sex-vægt).
     se <- our_norm$sex[i] == cand$sex & our_norm$sex[i] != "ukendt"
 

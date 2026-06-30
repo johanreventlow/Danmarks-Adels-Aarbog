@@ -62,23 +62,31 @@ implementeret; pipelinen kører ende-til-ende. `auto`-kriteriet er
   `ambiguity_margin` (0.05) foran nr. 2. (Det uniforme "Reventlow" gjorde den
   oprindelige `unique_block`-gate ubrugelig — alle har mange ens-navngivne
   kandidater — så `auto` var altid 0. Margin-gaten erstatter den.)
-- **Kalibrering:** de ENTYDIGE EKSAKTE matches (navn ≥ 0.98 + eksakt fødsel +
-  død + køn) bruges som bootstrap-"truth" (221 ankre). Margin 0.05 → 84% af
-  ankrene auto-promoteres. Resultat på fuld base: **auto≈273, review≈6580,
-  none≈2756** (af 963 personer m. kandidat).
+- **Dato-evidens (vigtig):** `birth_overlap`/`death_overlap` som SCORING-signal
+  tæller kun som TRUE når BEGGE sider har en dato OG de overlapper
+  (`.overlap_evidence`). Ukendt dato = manglende evidens, ikke enighed. (Ellers
+  fik dato-løse par 0.3 "gratis" vægt og kunne auto-promoteres på navn alene — fx
+  `franziska reventlow → franciska christensen`.) Konsekvens: **auto kræver nu reel
+  fødselsårs-korroboration** (et rent navne-match maxer på 0.7 < auto_cutoff).
+  Blokerings-vinduet beholder dog fortsat dato-løse kandidater.
+- **Kalibrering:** de ENTYDIGE EKSAKTE matches (navn ≥ 0.98 + eksakt fødsel + død +
+  køn) bruges som bootstrap-"truth". Margin 0.05 → **100% anker-recall**. Resultat
+  på fuld base: **auto≈347, review≈658, none≈8604** (af 963 personer m. kandidat;
+  par-tal). Review faldt fra ~6580 til ~658 efter dato-evidens-fixet — nu reelt
+  gennemgåeligt manuelt.
 
 **ÆRLIGE begrænsninger (ikke endeligt kalibreret):**
 - Anker-recall er IKKE en uafhængig præcisions-måling (ankrene er korrekte pr.
-  konstruktion). Den reelle kontrol er `calibrate.R`'s liste over **non-anker-auto**
-  (matches der auto-promoteres uden at være eksakte ankre). Øjen-kontrol 2026-06-30:
-  ~85/87 korrekte (stavevarianter detlev/detlef, sophie/sophia osv. m. matchende år).
-- **Restrisiko — dato-løse par:** `intervals_overlap` returnerer TRUE når BEGGE
-  datoer er ukendte (NA→±Inf), så et middelmådigt navne-match + 0.3 "gratis"
-  dato/køns-vægt kan krydse 0.90 (fx `franziska reventlow → franciska christensen`,
-  forskelligt efternavn, ingen datoer). Forfining: kreditér kun overlap når mindst
-  én side har en dato. `review_cutoff` (0.70) er heller ikke kalibreret → bred review.
-- **Endeligt facit-sæt** (håndlabel ~30-50, inkl. tvetydige/negative cases) er
-  stadig det rigtige næste skridt; kald `eval_precision_recall(crosswalk, truth)`.
+  konstruktion). Den reelle kontrol er `calibrate.R`'s liste over **non-anker-auto**.
+  Øjen-kontrol 2026-06-30: alle auto har dato-evidens; non-anker-auto er
+  stavevarianter (detlev/detlef, sophie/sophia, christina/christine) m. matchende
+  år, samt eksakt-navn + fødselsår for nulevende uden dødsår.
+- **Dato-fattige personer** (de ~300 uden fødselsår) får nu sjældent forslag —
+  et navne-only-match er for svagt til auto/review. Ærlig konsekvens af uniform
+  efternavn; kræver datoer for at matche pålideligt.
+- `review_cutoff` (0.70) er ikke kalibreret, og et **endeligt håndlabelt facit-sæt**
+  (inkl. tvetydige/negative cases) er stadig det rigtige næste skridt; kald
+  `eval_precision_recall(crosswalk, truth)`.
 
 Genkør kalibrering: `Rscript R/tng-qa/calibrate.R` (sweep over auto_cutoff × margin
 + non-anker-auto spot-check-liste).

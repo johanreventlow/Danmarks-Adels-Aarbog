@@ -3,6 +3,14 @@ test_that("name_similarity rewards near-identical keys", {
   expect_lt(name_similarity("conrad reventlow", "ditlev brockdorff"), 0.6)
 })
 
+test_that(".overlap_evidence kræver dato på BEGGE sider (ukendt != enighed)", {
+  expect_true(.overlap_evidence(1644, 1644, 1644, 1644))   # begge kendt + overlap
+  expect_false(.overlap_evidence(1644, 1644, 1700, 1700))  # begge kendt, ingen overlap
+  expect_false(.overlap_evidence(NA_integer_, NA_integer_, 1644, 1644))  # vores ukendt
+  expect_false(.overlap_evidence(1644, 1644, NA_integer_, NA_integer_))  # TNG ukendt
+  expect_false(.overlap_evidence(NA_integer_, NA_integer_, NA_integer_, NA_integer_))  # begge ukendt
+})
+
 test_that("assign_tiers enforces injective 1:1 and conflict->none", {
   cfg <- default_cfg()
   scored <- data.frame(
