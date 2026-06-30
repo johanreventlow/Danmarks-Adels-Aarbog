@@ -642,3 +642,13 @@ BEGIN
   INSERT INTO family_member(family_id, person_id, rolle, ordinal, konfidens)
     VALUES (p_family_id, p_barn_id, p_rolle, NULL, p_konfidens);
 END $$;
+
+
+-- ---- 2026-06-30: lineage trin (b) — forgrening + status (additivt) ----
+--   Trin (a) gav linjerne navne. (b) tilføjer to additive kolonner; resten af (b)
+--   (adling, medlemskab, eget våben) rider på de polymorfe fact/relation-tabeller og
+--   kræver ingen skema-ændring. Ældre rækker får NULL → forward-kompatibelt.
+--   Se schema.sql lineage-kommentar + datamodel-oversigt §5/§9.
+ALTER TABLE lineage ADD COLUMN IF NOT EXISTS parent_lineage_id BIGINT REFERENCES lineage(id);
+ALTER TABLE lineage ADD COLUMN IF NOT EXISTS status TEXT;
+CREATE INDEX IF NOT EXISTS ix_lineage_parent ON lineage(parent_lineage_id);

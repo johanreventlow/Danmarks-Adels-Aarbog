@@ -200,3 +200,45 @@ BEGIN
   DELETE FROM media    WHERE id IN (-901,-902,-903);
   DELETE FROM person   WHERE id IN (-901,-902);
 END $$;
+
+
+-- ===== Task 9: lineage trin (b) — forgrening + status =====
+-- Forvent: kolonnerne findes, og en selv-refererende gren (parent_lineage_id) + en
+-- 'gren_af'-relation kan oprettes og resolveres. Seeder negative-id rækker, rydder op.
+SELECT
+  (SELECT count(*) FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='lineage' AND column_name='parent_lineage_id') AS har_parent,
+  (SELECT count(*) FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='lineage' AND column_name='status') AS har_status;
+-- Forvent har_parent=1, har_status=1
+
+DO $$
+DECLARE resolved_navn text; rel_ok int;
+BEGIN
+  DELETE FROM relation WHERE id = -910;
+  DELETE FROM lineage  WHERE id IN (-910,-911);
+
+  -- moderlinje + adlet gren der udgår af den
+  INSERT INTO lineage(id, navn, status) VALUES (-910,'Test-moderlinje', NULL);
+  INSERT INTO lineage(id, navn, parent_lineage_id, status)
+    VALUES (-911,'Test-gren (adlet)', -910, 'uddød');
+  -- evidens-bærende 'gren_af'-relation (polymorf, ingen skema-ændring)
+  INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle, konfidens)
+    VALUES (-910,'lineage',-911,'lineage',-910,'gren_af','sandsynlig');
+
+  -- FK resolves: grenens parent peger på moderlinjens navn
+  SELECT m.navn INTO resolved_navn
+    FROM lineage g JOIN lineage m ON m.id = g.parent_lineage_id WHERE g.id = -911;
+  SELECT count(*) INTO rel_ok FROM relation
+    WHERE id=-910 AND rolle='gren_af' AND subjekt_type='lineage' AND objekt_type='lineage';
+
+  IF resolved_navn = 'Test-moderlinje' AND rel_ok = 1 THEN
+    RAISE NOTICE 'OK: lineage (b) — forgrening + gren_af-relation';
+  ELSE
+    RAISE EXCEPTION 'lineage (b) FEJL: parent_navn=% (vent Test-moderlinje), rel_ok=% (vent 1)',
+      resolved_navn, rel_ok;
+  END IF;
+
+  DELETE FROM relation WHERE id = -910;
+  DELETE FROM lineage  WHERE id IN (-910,-911);
+END $$;

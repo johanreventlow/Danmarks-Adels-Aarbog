@@ -106,13 +106,16 @@ CREATE TABLE lineage (                   -- SLÆGTSLINJE / GREN (fx Reventlows f
   source_id BIGINT REFERENCES source(id),  -- hvilken udgaves linje-inddeling
   kode      TEXT,                          -- 'I'..'V' — matcher person_external_id.linje
   navn      TEXT NOT NULL,                 -- 'Den holstenske linje', ...
+  -- (b) PROMOVERING (2026-06-30): forgrening + status. Tilføjet additivt; ældre rækker har NULL.
+  parent_lineage_id BIGINT REFERENCES lineage(id),  -- forgrening: gren udgår af gren (NULL = rod)
+  status    TEXT,                          -- fri tekst, fx 'uddød', 'kendt hul / ikke undersøgt'
   UNIQUE (source_id, kode)
-  -- (a) NU: navngivning. Forward-kompatibel med (b)-promovering — tilføjes additivt senere:
-  --   * parent_lineage_id BIGINT REFERENCES lineage(id)  (forgrening: gren udgår af gren)
-  --   * status TEXT                                       ('uddød','kendt hul / ikke undersøgt')
-  --   * fact   subjekt_type='lineage'                     (adling, floruit, alternative navne m. evidens)
-  --   * relation lineage->coat_of_arms / ->source / person->lineage (konfidens på medlemskab)
-  -- En linje der adles → ny lineage-række + relation 'gren_af' til moderlinjen; jf. datamodel-oversigt §5/§9.
+  -- Resten af (b) kræver INGEN skema-ændring — den rider på de polymorfe evidens-tabeller:
+  --   * fact     subjekt_type='lineage'  → adling, floruit, alternative navne m. evidens
+  --   * relation lineage→coat_of_arms / →source / person→lineage (konfidens på medlemskab)
+  -- En linje der adles → ny lineage-række + relation rolle='gren_af' til moderlinjen
+  --   (parent_lineage_id er den hurtige FK; 'gren_af'-relationen bærer evidens/konfidens).
+  -- Jf. datamodel-oversigt §5/§9.
 );
 
 -- ---------- AUTH / REDAKTION ----------

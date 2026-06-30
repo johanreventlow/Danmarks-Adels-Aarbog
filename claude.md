@@ -107,7 +107,7 @@ To spor — **data (R)** og **app (TS)** — bundet af RLS:
 ## 9. Bevidst udskudt / åbne punkter
 
 - **RLS-politikker** — **skrevet** (`db-rls.sql` + `db-verify.sql`): anon (afdøde/ikke-private), authenticated (medlem ser levende, ej private), redaktion (ser alt), staging-politikker, og media afbildet-gating via SECURITY DEFINER-helpere. **Udestår:** samtykke-granularitet pr. levende person (`samtykke_offentlig`) og forsker- vs. medlem-tier — skitseret i `db-rls.sql` §FREMTID, designes når auth-laget bygges.
-- **Slægtslinje som førsteklasses entitet** — **trin (a) gjort (2026-06-23):** `lineage`-tabel `(id, source_id, kode, navn)` giver linjerne navne (se `docs/decisions.md`). **Trin (b) udestår:** adling→ny slægt, forgrening (`gren_af`), eget våben, person↔linje m. konfidens — additivt (`ALTER ADD` + relationer), forward-kompatibelt.
+- **Slægtslinje som førsteklasses entitet** — **trin (a) gjort (2026-06-23):** `lineage`-tabel `(id, source_id, kode, navn)` giver linjerne navne (se `docs/decisions.md`). **Trin (b) skema gjort (2026-06-30):** additive kolonner `parent_lineage_id` (forgrening) + `status` på `lineage` (schema.sql + db-migrations.sql, verificeret af db-verify.sql Task 9); adling/medlemskab/eget våben rider på de polymorfe `fact`/`relation`-tabeller (rolle `gren_af`, `person→lineage` m. konfidens) — ingen skema-ændring. **Udestår:** app-surfacing (redaktør-UI til at sætte forgrening/status + offentlig visning af linje-hierarkiet).
 - **Embede som egen entitet** — kun hvor succession er interessant; ellers en rolle ind i en organisation.
 - **Fuld GEDCOM/TNG-importsti** — kun et håndtransskriberet udsnit findes nu.
 - **Fuldtekstindeks på `narrative`** — Postgres-only blok, kommenteret i `schema.sql`; afkommentér ved brug.
