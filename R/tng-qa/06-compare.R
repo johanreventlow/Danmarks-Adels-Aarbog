@@ -1,5 +1,56 @@
 # Trin 6: relations-sammenligning. Kant sammenlignes KUN når begge endepunkter matchet.
 
+# ---- Glue: byg sammenlignings-input fra ours / TNG -------------------------
+
+# Vores forælder-barn modelleres som 'barn' + 'partner' i samme family (ingen
+# fader/moder-rolle). Udled (barn, partner)-par; rolle='ukendt' tjekker
+# edge-eksistens mod begge TNG-slots (køn-mismatch fanges af compare_dates_sex).
+derive_our_pc <- function(family_member) {
+  fm <- family_member
+  parts <- lapply(unique(fm$family_id), function(fid) {
+    kids    <- as.integer(fm$person_id[fm$family_id == fid & fm$rolle == "barn"])
+    parents <- as.integer(fm$person_id[fm$family_id == fid & fm$rolle == "partner"])
+    if (!length(kids) || !length(parents)) return(NULL)
+    expand.grid(child_id = kids, parent_id = parents, KEEP.OUT.ATTRS = FALSE)
+  })
+  parts <- Filter(Negate(is.null), parts)
+  if (!length(parts))
+    return(data.frame(child_id = integer(0), parent_id = integer(0), rolle = character(0)))
+  out <- unique(do.call(rbind, parts))
+  out$rolle <- "ukendt"
+  out
+}
+
+# Vores datoer/køn til compare_dates_sex. DATE -> heltals-år (flugter med
+# tng_date_to_interval). Genbruger .year_int fra 04-match.R.
+our_attr_frame <- function(person, dates) {
+  births <- dates[dates$faktatype == "fødsel", ]
+  deaths <- dates[dates$faktatype == "død", ]
+  parts <- lapply(seq_len(nrow(person)), function(i) {
+    p <- person[i, ]
+    b <- births[births$person_id == p$id, ]
+    d <- deaths[deaths$person_id == p$id, ]
+    data.frame(
+      person_id = as.integer(p$id),
+      birth_min = if (nrow(b)) .year_int(b$date_min) else NA_integer_,
+      birth_max = if (nrow(b)) .year_int(b$date_max) else NA_integer_,
+      death_min = if (nrow(d)) .year_int(d$date_min) else NA_integer_,
+      death_max = if (nrow(d)) .year_int(d$date_max) else NA_integer_,
+      koen = p$koen, stringsAsFactors = FALSE)
+  })
+  do.call(rbind, parts)
+}
+
+# Reshape rå tng_children (familyID/personID) -> (child, far, mor) via join til
+# tng_families: far = husband, mor = wife. Tom streng -> NA.
+reshape_tng_children <- function(tng_children, tng_families) {
+  fam <- tng_families[, c("familyID", "husband", "wife")]
+  m   <- merge(tng_children[, c("personID", "familyID")], fam, by = "familyID", all.x = TRUE)
+  nz  <- function(x) ifelse(!is.na(x) & nzchar(x), x, NA_character_)
+  data.frame(child_tng = m$personID, father_tng = nz(m$husband),
+             mother_tng = nz(m$wife), stringsAsFactors = FALSE)
+}
+
 our_spouse_pairs <- function(family, family_member) {
   partners <- family_member[family_member$rolle == "partner", ]
   out <- data.frame(person_id = integer(0), spouse_id = integer(0))

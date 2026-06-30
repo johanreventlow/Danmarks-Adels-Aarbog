@@ -76,31 +76,36 @@ write.csv(rq, rq_csv, row.names = FALSE)
 
 # ---- Trin 6: sammenlign + rapport -----------------------------------------
 message("== Trin 6: sammenlign + rapport ==")
-xwalk <- accepted_crosswalk(crosswalk)
-#
-# Byg sammenlignings-input og kør de tre dimensioner:
-#
-#   our_pairs <- our_spouse_pairs(ours$family, ours$family_member)
-#   our_pc    <- <aflede child_id/parent_id/rolle fra ours$family_member>
-#   our_attr  <- <join ours$person + ours$dates til
-#                  data.frame(person_id, birth_min, birth_max,
-#                             death_min, death_max, koen)>
-#
-#   disc <- rbind(
-#     compare_marriages(our_pairs, tng_families, xwalk),
-#     compare_parent_child(our_pc, tng_children, xwalk),
-#     compare_dates_sex(our_attr, tng_people, xwalk)
-#   )
-#   disc$person_id <- as.integer(disc$person_id)    # entydigt for PII-gate
-#
-# GDPR-note: PII-gate fejler lukket hvis `detalje`-strengen indeholder
-# raw person_id på en levende person. Kortlæg related person_ids til
-# DAA linje/nr-labels (ours$external_id) FØR render_report(), så
-# rapporten er committable. Se docs/tng-qa-koersel.md § "GDPR PII-gate".
-#
-#   living <- ours$person$id[ours$person$levende | ours$person$privat]
-#   md <- render_report(disc, ours$external_id, living, format(Sys.Date()))
-#   writeLines(md, sprintf("docs/reviews/tng-qa-rapport-%s.md",
-#                          format(Sys.Date())))
+
+# Sammenlignings-input
+our_pairs <- our_spouse_pairs(ours$family, ours$family_member)
+our_pc    <- derive_our_pc(ours$family_member)
+our_attr  <- our_attr_frame(ours$person, ours$dates)
+tngc      <- reshape_tng_children(tng_children, tng_families)
+
+# PRIMÆR PII-kontrol: input-gating til afdøde-ikke-private på BEGGE sider, FØR
+# sammenligning (se 07-report.R). Ingen levende/privat person kan så optræde i
+# `disc` — heller ikke som relateret endepunkt. assert_no_living_pii er backstop.
+g <- gate_inputs(accepted_crosswalk(crosswalk), our_pairs, our_pc, our_attr,
+                 tng_families, tngc,
+                 safe_our = safe_our_ids(ours$person),
+                 safe_tng = safe_tng_ids(tng_people))
+
+pc <- compare_parent_child(g$our_pc, g$tng_children, g$xwalk)
+names(pc)[names(pc) == "child_id"] <- "person_id"
+disc <- rbind(
+  compare_marriages(g$our_pairs, g$tng_families, g$xwalk),
+  pc,
+  compare_dates_sex(g$our_attr, tng_people, g$xwalk)
+)
+disc$person_id <- as.integer(disc$person_id)
+
+living  <- as.integer(ours$person$id[ours$person$levende %in% TRUE | ours$person$privat %in% TRUE])
+md      <- render_report(disc, ours$external_id, living, format(Sys.Date()))
+dir.create("docs/reviews", showWarnings = FALSE, recursive = TRUE)
+rapport <- sprintf("docs/reviews/tng-qa-rapport-%s.md", format(Sys.Date()))
+writeLines(md, rapport)
+act <- sum(disc$kategori %in% c("ekstra_hos_os", "mangler_hos_os", "dato_uenig", "køn_uenig"))
+message(sprintf("  %d uenigheder (%d handlingsorienterede) -> %s", nrow(disc), act, rapport))
 
 message("Færdig. Crosswalk: ", cw_csv)

@@ -145,29 +145,28 @@ Kommittable rapport-filer skrives til `docs/reviews/tng-qa-rapport-DATO.md`
 
 ---
 
-## GDPR PII-gate (KENDT BEGRÆNSNING)
+## GDPR PII-gate (LØST — input-gating)
 
-`render_report()` i trin 6 kalder `assert_no_living_pii()`, der scanner
-rapport-teksten for rå numeriske `person_id`-værdier på levende/private
-personer. Gaten **fejler lukket** — hele rapporten blokeres hvis *én*
-`detalje`-streng indeholder et sådant ID.
+**Primær kontrol = INPUT-gating** (`gate_inputs()` i `07-report.R`): ALLE
+sammenlignings-input filtreres til afdøde-ikke-private på BEGGE sider FØR
+sammenligning. Ingen levende/privat person kan så komme ind i `disc` — heller
+ikke som relateret/2.-endepunkt. Det reducerer garantien til ÉN kontrollerbar
+invariant ("begge input-sæt indeholder kun afdøde-ikke-private") frem for
+"hver refereret id på hver række blev tjekket".
 
-**Konsekvens:** `compare_marriages()`, `compare_parent_child()` og
-`compare_dates_sex()` skriver `person_id`-numre direkte i `detalje`-feltet
-(fx `"vores: 42—99"`, `"TNG father_tng: P1234"`). Hvis `42` eller `99`
-er levende, blokeres rapporten.
+- **Begge privacy-kilder:** vores `safe_our_ids()` (`levende=false AND privat
+  ikke true`) + TNG `safe_tng_ids()` (`living="0" AND private="0"`). **Fail-closed:**
+  ukendt state ⇒ ikke sikker.
+- **Begge sider filtreres:** `our_pairs/our_pc/our_attr` + `tng_families/tng_children`
+  (+ crosswalk). Filtreres KUN vores side, ville en afdød P gift med levende L
+  stadig give en `mangler_hos_os`-række der navngiver L — derfor gates TNG også.
+- **`assert_no_living_pii()` er nu KUN en backstop**, ikke den primære garanti
+  (den svækkes når id'er mappes til labels). Primær person mappes til DAA
+  linje/nr-label; relaterede afdøde-id'er i `detalje` er ikke GDPR-PII.
 
-**Løsning inden trin 6 aktiveres:**
-
-```r
-# Kortlæg alle person_id-referencer i detalje til DAA linje/nr-labels
-# (brug .label()-hjælperen eller en streng-erstatning mod ours$external_id),
-# ELLER filtrer rækker med levende-relatives fra disc, FØR render_report().
-```
-
-Funktionen `filter_living()` fjerner rækker, hvor `disc$person_id` er
-levende — men den dækker ikke levende ID'er der optræder i `detalje`-teksten
-for afdøde. Kortlægningen er den sikre løsning.
+Rapporten detaljerer kun de 4 handlingsorienterede kategorier; `enig`/
+`uden_for_scope` opsummeres som tal. Verificeret 2026-06-30: 0 af 70 levende
+person-id i den genererede rapport.
 
 ---
 
@@ -188,9 +187,9 @@ for afdøde. Kortlægningen er den sikre løsning.
 |------|--------|
 | Trin 1: TNG → DuckDB | Kørbar (kræver `jr_tng_reventlow.sql`) |
 | Trin 2: Supabase pull | Kørbar (kræver env-vars + forbindelse) |
-| Trin 3-4: normalisér + match | **Skelet** — kalibreres mod facit-sæt |
-| Trin 5: review-merge + write | Stopper med actionabel besked hvis `crosswalk` mangler |
-| Trin 6: sammenlign + rapport | **Skelet** — aktiveres efter PII-gate-løsning |
+| Trin 3-4: normalisér + match | **Aktiv** — auto bootstrap-kalibreret (margin); review bred |
+| Trin 5: review-merge + write | Aktiv — skriver udfyldelig review-kø; tåler gen-kørsel |
+| Trin 6: sammenlign + rapport | **Aktiv** — input-gating PII-gate; skriver `docs/reviews/tng-qa-rapport-<dato>.md` |
 
 Fuld e2e-kørsel er en manuel procedure; ingen automatiseret CI-gate kobles
 på prod-data.
@@ -201,9 +200,9 @@ på prod-data.
 
 Bindende opgaver før prod-kørsler (opdateret efter dual-review cycle 07, Codex 2026-06-29):
 
-- [ ] Færdiggør trin 3-4-glue (`scored` → `crosswalk`) og kalibrér blok-vindue/score-vægte/tier-cutoffs mod et håndlabelt facit-sæt.
-- [ ] **PII-gate (recalibreret, H1):** tekst-scan er IKKE tilstrækkelig primær-kontrol — `\b<id>\b` har false-negatives (`p123`, `I123`, bogstav-tilstødende id). Modellér i stedet hver refereret vores/TNG-person STRUKTURELT, join BEGGE privacy-flag (vores `levende/privat` + TNG `living/private` — sidstnævnte bæres ind i DuckDB men læses ikke endnu), afvis ukendt privacy-state, og filtrér FØR formatering. Behold tekst-scan kun som defense-in-depth. Map relaterede `person_id` i `detalje` til DAA linje/nr-labels.
-- [ ] Ret review-kø-persistens (H2): bevar bekræft/afvis/ny-id-afgørelser på tværs af fulde gen-kørsler (crosswalk genbygges nu fra bunden hver gang → afgørelser tabes; afviste "huskes" ikke).
+- [x] **Trin 3-4-glue + kalibrering (2026-06-30):** glue implementeret; auto bootstrap-kalibreret (margin-baseret, dato-evidens). Håndlabelt facit-sæt + `review_cutoff`-kalibrering udestår stadig.
+- [x] **PII-gate (H1) LØST (2026-06-30):** input-gating på begge sider (afdøde-ikke-private, fail-closed) — se §"GDPR PII-gate" ovenfor. Verificeret 0 levende-id i rapporten.
+- [ ] Ret review-kø-persistens (H2): bevar bekræft/afvis/ny-id-afgørelser på tværs af fulde gen-kørsler (crosswalk genbygges nu fra bunden hver gang → afgørelser tabes; afviste "huskes" ikke). (Trin 5-crash på frisk kø er fixet; persistens udestår.)
 - [ ] **Validér injektivitet ved accept (M2):** efter `merge_review_decisions` skal duplikat `tng_id` (eller `person_id`) afvises — ellers vælger `match()` silently FØRSTE og fejl-attribuerer relationer i `06-compare.R`. Verificeret: `match("I9", c("I9","I9"))` → 1.
-- [ ] Implementér `tng_children`-reshape (rå `familyID/personID + frel/mrel` → `child_tng/father_tng/mother_tng` via join til `tng_families`: far=husband, mor=wife) med test før trin-6 aktiveres.
+- [x] **`tng_children`-reshape (2026-06-30):** implementeret som `reshape_tng_children()` (far=husband, mor=wife) + brugt i Trin 6.
 - [ ] **mysqldump-escapes (H0-rest):** `fix_mysql_literals` oversætter ikke `\n \r \t \0 \Z` (efterlades literalt). Backtick-i-værdi-korruption er FIXET (cycle07, quote-aware). Escape-oversættelse udestår — lav impact på de konsumerede kolonner (navne/datoer/id), men implementér hvis fritekst-felter (fx birthplace) senere konsumeres.
