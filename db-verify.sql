@@ -481,3 +481,17 @@ EXCEPTION WHEN OTHERS THEN
   IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: person-slet-restore genskaber fuld FK-graf';
   ELSE RAISE; END IF;
 END $$;
+
+-- ===== Hyperlinks Task 9: parse_mentions =====
+DO $$
+DECLARE n int; got record;
+BEGIN
+  -- gyldigt token + malformet + ukendt type + escaped pipe i visningstekst
+  SELECT count(*) INTO n FROM parse_mentions(
+    'Se [[person:482|Chr. D. Reventlow]] og [[estate:7|Christianssæde]]. '
+    || 'Malformet [[person:abc|x]] ukendt [[ufo:1|y]] escaped [[person:9|a\|b]].');
+  IF n <> 3 THEN RAISE EXCEPTION 'FEJL: forventede 3 gyldige mentions, fik %', n; END IF;
+  IF NOT EXISTS (SELECT 1 FROM parse_mentions('[[person:482|x]]') WHERE maal_type='person' AND maal_id=482) THEN
+    RAISE EXCEPTION 'FEJL: token ikke parset korrekt'; END IF;
+  RAISE NOTICE 'OK: parse_mentions';
+END $$;

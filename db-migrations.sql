@@ -1044,3 +1044,19 @@ BEGIN
   END IF;
   RETURN jsonb_build_object('reversal_change_set', v_new_cs, 'divergenser', v_div);
 END $$;
+
+-- 2026-06-30: hyperlinks — parse_mentions
+-- ---------- HYPERLINKS: token-parser ----------
+-- Grammatik (spec §5.1): [[<type>:<id>|<visningstekst>]]
+--   type ∈ fast vokabular; id = heltal uden foranstillede nuller; visningstekst vilkårlig
+--   (| [ ] escapes som \| \[ \]). Malformet/ukendt type → ignoreres.
+CREATE OR REPLACE FUNCTION parse_mentions(p_tekst text)
+RETURNS TABLE(maal_type text, maal_id bigint) LANGUAGE sql IMMUTABLE AS $$
+  SELECT m[1] AS maal_type, m[2]::bigint AS maal_id
+  FROM regexp_matches(
+    coalesce(p_tekst,''),
+    -- type-gruppe begrænset til vokabularet; id uden foranstillet nul (0 eller 1-9…)
+    '\[\[(person|estate|place|organisation|source|coat_of_arms|family|historical_event|media|lineage):(0|[1-9][0-9]*)\|',
+    'g'
+  ) AS m;
+$$;
