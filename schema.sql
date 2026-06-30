@@ -1074,3 +1074,78 @@ RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
   EXECUTE format('DELETE FROM %I WHERE %s', p_tabel, _version_pk_where(p_tabel, p_pk));
 END $$;
+-- ---------- VERSIONERING: restore ----------
+CREATE OR REPLACE FUNCTION red_fortryd_change_set(p_change_set_id bigint, p_force boolean DEFAULT false)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE
+  ev change_event; v_new_cs bigint; v_orig change_set;
+  v_cur jsonb; v_pids bigint[] := '{}'; v_narr bigint[] := '{}'; v_notes bigint[] := '{}';
+  v_div int := 0; pid bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  SELECT * INTO v_orig FROM change_set WHERE id=p_change_set_id;
+  IF v_orig.id IS NULL THEN RAISE EXCEPTION 'FEJL: change_set % findes ikke', p_change_set_id; END IF;
+  -- allerede reverteret? (reversal-kæde; M3)
+  IF EXISTS (SELECT 1 FROM change_set WHERE reverterer_id=p_change_set_id) THEN
+    RAISE EXCEPTION 'FEJL: change_set % er allerede fortrudt', p_change_set_id;
+  END IF;
+
+  -- åbn reversal-sæt (re-entrant: triggere fanger ikke restore-DML ind under DET, da vi
+  -- bevidst NULLER app.change_set_id under selve inverse — se nedenfor). Vi logger restore
+  -- som ÉT change_set uden child-events for ikke at dobbelt-logge; reversal-kæden er sporet.
+  PERFORM set_config('app.change_set_id','',true);  -- undgå at inverse-DML re-logges
+  v_new_cs := (SELECT coalesce(max(id),0)+1 FROM change_set);
+  INSERT INTO change_set(id, actor_id, actor_navn, actor_rolle, operation, summary,
+                         subjekt_type, subjekt_id, subjekt_synlighed, reverterer_id)
+    VALUES (v_new_cs, auth.uid(),
+            coalesce((SELECT email FROM profiles WHERE id=auth.uid()), 'ukendt'),
+            current_rolle(), 'fortryd',
+            format('Fortrød: %s', coalesce(v_orig.summary,'(uden tekst)')),
+            v_orig.subjekt_type, v_orig.subjekt_id, v_orig.subjekt_synlighed, p_change_set_id);
+
+  -- inverse-apply i OMVENDT seq-orden, alt i denne ene transaktion
+  FOR ev IN SELECT * FROM change_event WHERE change_set_id=p_change_set_id ORDER BY seq DESC LOOP
+    -- optimistisk verifikation (B9): nuværende tilstand skal matche hvad sættet efterlod
+    v_cur := _version_current_row(ev.tabel, ev.row_pk);
+    IF ev.op IN ('INSERT','UPDATE') THEN
+      IF v_cur IS DISTINCT FROM ev.efter THEN
+        v_div := v_div + 1;
+        IF NOT p_force THEN
+          RAISE EXCEPTION 'FEJL: nyere ændring rører %/% — afvist (brug force)', ev.tabel, ev.row_pk;
+        END IF;
+      END IF;
+    END IF;
+    -- anvend inverse
+    IF ev.op='INSERT' THEN
+      PERFORM _version_delete_row(ev.tabel, ev.row_pk);
+    ELSIF ev.op='DELETE' THEN
+      PERFORM _version_upsert_row(ev.tabel, ev.foer);
+    ELSE  -- UPDATE
+      PERFORM _version_upsert_row(ev.tabel, ev.foer);
+    END IF;
+    -- saml berørte for cache/indeks-regen
+    IF ev.tabel='person'    THEN v_pids := v_pids || (ev.row_pk->>'id')::bigint; END IF;
+    IF ev.tabel='conclusion' THEN
+      SELECT f.subjekt_id INTO pid FROM fact f
+        WHERE f.id=(coalesce(ev.foer,ev.efter)->>'target_id')::bigint AND f.subjekt_type='person';
+      IF pid IS NOT NULL THEN v_pids := v_pids || pid; END IF;
+    END IF;
+    IF ev.tabel='narrative' THEN v_narr := v_narr || (ev.row_pk->>'id')::bigint; END IF;
+    IF ev.tabel='note'      THEN v_notes := v_notes || (ev.row_pk->>'id')::bigint; END IF;
+  END LOOP;
+
+  -- regenerér afledte projektioner ÉN gang (B8 + hyperlinks)
+  FOREACH pid IN ARRAY (SELECT array_agg(DISTINCT x) FROM unnest(v_pids) x) LOOP
+    PERFORM regen_person_visning(pid);
+  END LOOP;
+  -- text_mention regenereres af mention-trigger ved narrativ/note-skrivning (Task 10);
+  -- ved restore kalder vi den eksplicit (funktion tilføjes i Task 10):
+  -- (GENAKTIVERES I TASK 10:)
+  -- PERFORM _regen_mentions_for('narrative', n) FROM unnest(v_narr) n;
+  -- PERFORM _regen_mentions_for('note', n)      FROM unnest(v_notes) n;
+
+  IF v_div > 0 THEN
+    UPDATE change_set SET summary = summary || format(' [%s divergenser tvunget]', v_div) WHERE id=v_new_cs;
+  END IF;
+  RETURN jsonb_build_object('reversal_change_set', v_new_cs, 'divergenser', v_div);
+END $$;

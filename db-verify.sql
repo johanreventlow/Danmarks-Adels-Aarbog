@@ -415,3 +415,69 @@ EXCEPTION WHEN OTHERS THEN
   IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: restore-hjælpere round-trip';
   ELSE RAISE; END IF;
 END $$;
+
+-- ===== Versionering Task 8: restore =====
+DO $$
+DECLARE r jsonb; v_fact bigint; v_aid bigint; cs bigint; v_val text;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  -- opret en oplysning (change_set #1)
+  PERFORM set_config('app.change_set_id','',true);
+  r := red_opret_fakta('person',(SELECT id FROM person LIMIT 1),'tilnavn','original',NULL,NULL,NULL,NULL,'k');
+  v_aid := (r->>'assertion_id')::bigint; v_fact := (r->>'fact_id')::bigint;
+  SELECT max(id) INTO cs FROM change_set;
+  -- fortryd #1 → fact/assertion/citation/conclusion skal forsvinde igen
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_fortryd_change_set(cs, false);
+  IF EXISTS (SELECT 1 FROM assertion WHERE id=v_aid) THEN
+    RAISE EXCEPTION 'FEJL: restore slettede ikke den oprettede assertion'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM change_set WHERE reverterer_id=cs) THEN
+    RAISE EXCEPTION 'FEJL: ingen reversal-change_set oprettet'; END IF;
+  -- dobbelt-fortryd af samme sæt skal afvises
+  BEGIN
+    PERFORM red_fortryd_change_set(cs, false);
+    RAISE EXCEPTION 'FEJL: dobbelt-fortryd blev ikke afvist';
+  EXCEPTION WHEN OTHERS THEN
+    -- forventet: funktionen afviser med "... er allerede fortrudt" → svælg.
+    -- Re-raise KUN hvis afvisningen udeblev (vores egen "blev ikke afvist"-fejl).
+    IF SQLERRM LIKE '%blev ikke afvist%' THEN RAISE;
+    END IF;
+  END;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: restore round-trip + dobbelt-fortryd afvist';
+  ELSE RAISE; END IF;
+END $$;
+
+-- ===== Versionering Task 8b: person-slet-restore (FK-graf, H5) =====
+-- Dækker H5: red_slet_person sletter børn før forælder → omvendt-seq genindsætter
+-- forælder før børn (FK-sikkert). Fakta-stien (8a) rører ikke denne ordning.
+DO $$
+DECLARE v_pid bigint; cs_del bigint; n_facts_before int; n_facts_after int;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+  v_pid := red_opret_person('__verify_slet__','kvinde',false,'1600','1660','Fru');
+  SELECT count(*) INTO n_facts_before FROM fact WHERE subjekt_type='person' AND subjekt_id=v_pid;
+  -- slet personen (eget change_set)
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_slet_person(v_pid);
+  SELECT max(id) INTO cs_del FROM change_set;
+  IF EXISTS (SELECT 1 FROM person WHERE id=v_pid) THEN RAISE EXCEPTION 'FEJL: person ikke slettet'; END IF;
+  -- fortryd sletningen → person + alle børn (fact/assertion/citation/conclusion) tilbage
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_fortryd_change_set(cs_del, false);
+  IF NOT EXISTS (SELECT 1 FROM person WHERE id=v_pid) THEN
+    RAISE EXCEPTION 'FEJL: person ikke genskabt ved restore'; END IF;
+  SELECT count(*) INTO n_facts_after FROM fact WHERE subjekt_type='person' AND subjekt_id=v_pid;
+  IF n_facts_after <> n_facts_before THEN
+    RAISE EXCEPTION 'FEJL: fakta ikke fuldt genskabt (% -> %)', n_facts_before, n_facts_after; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: person-slet-restore genskaber fuld FK-graf';
+  ELSE RAISE; END IF;
+END $$;
