@@ -8,7 +8,9 @@ import { SletBekraeftSheet } from '../../../components/redaktion/SletBekraeftShe
 import { SkrivePreviewSheet } from '../../../components/redaktion/SkrivePreviewSheet';
 import { EntitetPicker } from '../../../components/redaktion/EntitetPicker';
 import { PersonPicker } from '../../../components/redaktion/PersonPicker';
+import { MentionPicker } from '../../../components/redaktion/MentionPicker';
 import { Body, BtnLabel, Mono, Serif } from '../../../components/Typography';
+import { insertAt } from '../../../lib/mentions';
 import { fetchPersonEvidence, fetchPersonNarrativ, fetchPersonRelationer, fetchPersonFamilie, BARN_ROLLER, type PersonEvidence, type PersonRelation, type PersonFamilie } from '../../../data/redaktionRead';
 import { eraAdvarsel } from '../../../data/eraAdvarsel';
 import { type Change } from '../../../data/redaktionWrite';
@@ -197,6 +199,8 @@ export default function PersonEditor() {
   const [narrativTekst, setNarrativTekst] = useState('');
   const [narrativPrivat, setNarrativPrivat] = useState(false);
   const [narrativStatus, setNarrativStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [narrativSelPos, setNarrativSelPos] = useState(0);
+  const [mentionPickerÅben, setMentionPickerÅben] = useState(false);
   useEffect(() => {
     if (!id) return;
     setNarrativStatus('loading');
@@ -435,11 +439,16 @@ export default function PersonEditor() {
             </Mono>
           ) : (
             <>
+              <Pressable disabled={narrativStatus !== 'ready'} onPress={() => setMentionPickerÅben(true)}
+                style={{ alignSelf: 'flex-start', marginBottom: 6 }}>
+                <BtnLabel size={12.5} color={Colors.bordeaux}>🔗 Indsæt link</BtnLabel>
+              </Pressable>
               <TextInput
                 multiline
                 editable={narrativStatus === 'ready'}
                 value={narrativTekst}
                 onChangeText={setNarrativTekst}
+                onSelectionChange={(e) => setNarrativSelPos(e.nativeEvent.selection.start)}
                 style={editorStyles.narrativInput}
                 placeholder={narrativStatus === 'loading' ? 'Henter…' : 'Skriv biografi her…'}
                 placeholderTextColor={Colors.textMuted2}
@@ -453,6 +462,16 @@ export default function PersonEditor() {
               >
                 <BtnLabel color="#fff">Gem narrativ</BtnLabel>
               </Pressable>
+              {mentionPickerÅben ? (
+                <MentionPicker
+                  onClose={() => setMentionPickerÅben(false)}
+                  onVælg={(token) => {
+                    const r = insertAt(narrativTekst, narrativSelPos, token);
+                    setNarrativTekst(r.text);
+                    setNarrativSelPos(r.cursor);
+                  }}
+                />
+              ) : null}
             </>
           )}
         </View>

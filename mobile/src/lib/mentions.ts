@@ -55,3 +55,15 @@ export function parseNarrativ(text: string): Segment[] {
   if (buf) out.push({ kind: 'text', text: buf });
   return out;
 }
+
+// Byg et token; escaper |[] i visningsteksten (omvendt af parseNarrativ's unescape).
+export function makeToken(type: MentionType, id: number, label: string): string {
+  const esc = label.replace(/([|[\]])/g, '\\$1');
+  return `[[${type}:${id}|${esc}]]`;
+}
+
+// Indsæt tekst ved cursor-position; klamp position til [0, len]; returnér ny tekst + cursor.
+export function insertAt(text: string, pos: number, insert: string): { text: string; cursor: number } {
+  const p = Math.max(0, Math.min(pos, text.length));
+  return { text: text.slice(0, p) + insert + text.slice(p), cursor: p + insert.length };
+}

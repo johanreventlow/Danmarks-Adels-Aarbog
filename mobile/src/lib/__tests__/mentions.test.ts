@@ -30,3 +30,23 @@ describe('parseNarrativ', () => {
     expect(parseNarrativ(undefined as unknown as string)).toEqual([]);
   });
 });
+
+import { makeToken, insertAt } from '../mentions';
+
+describe('makeToken/insertAt', () => {
+  it('makeToken escaper specialtegn i label', () => {
+    expect(makeToken('person', 5, 'a|b]c')).toBe('[[person:5|a\\|b\\]c]]');
+  });
+  it('makeToken roundtrip via parseNarrativ bevarer label', () => {
+    const tok = makeToken('person', 5, 'a|b]c[');
+    const segs = parseNarrativ(tok);
+    expect(segs).toEqual([{ kind: 'link', maalType: 'person', maalId: 5, label: 'a|b]c[' }]);
+  });
+  it('insertAt indsætter ved position og flytter cursor', () => {
+    expect(insertAt('Hej  verden', 4, 'X')).toEqual({ text: 'Hej X verden', cursor: 5 });
+  });
+  it('insertAt klamper position til [0,len]', () => {
+    expect(insertAt('ab', 99, 'X')).toEqual({ text: 'abX', cursor: 3 });
+    expect(insertAt('ab', -5, 'X')).toEqual({ text: 'Xab', cursor: 1 });
+  });
+});
