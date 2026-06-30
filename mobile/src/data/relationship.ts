@@ -249,7 +249,10 @@ export function multiplicitetForled(n: number): string {
 }
 
 // Slå linjer i SAMME afstand sammen: ens etiket ⇒ samme relation ad flere uafhængige
-// anepar (dobbelt-fætterskab). Bevarer nærmeste-først-rækkefølgen (lines er forsorteret).
+// anepar (dobbelt-fætterskab). Etiketten er den rette grupperings-nøgle — den kanoniserer
+// allerede symmetriske afstande ((d1,d2)/(d2,d1)), grad, forskydning, halv OG køn til én
+// streng, så kun reelt ens relationer flettes (et råt (d1,d2)-tuple ville fejle på symmetri).
+// Bevarer nærmeste-først-rækkefølgen (lines er forsorteret).
 function mergeSameDistanceLines(lines: RelationLine[]): RelationLine[] {
   const groups = new Map<string, RelationLine[]>();
   for (const l of lines) {
@@ -259,15 +262,14 @@ function mergeSameDistanceLines(lines: RelationLine[]): RelationLine[] {
   }
   return Array.from(groups.values()).map((group) => {
     if (group.length === 1) return group[0];
-    const rep = group[0]; // nærmeste medlem driver sti + repræsentant-ane
-    const forled = multiplicitetForled(group.length);
+    const rep = group[0]; // nærmeste medlem driver etiket-base, sti og konfidens-felter
     // Forled foran basen; basens første bogstav gøres lille ("Dobbelt onkel & niece",
     // "Dobbelt 1. grads fætter/kusine" — cifferet påvirkes ikke).
-    const label = `${forled} ${rep.label.charAt(0).toLowerCase()}${rep.label.slice(1)}`;
-    // Korroboration: flere uafhængige linjer styrker forbindelsen — kun usikker hvis
-    // ALLE medlemmer er usikre (ingen solid alternativ-linje rydder flaget).
-    const usikker = group.every((m) => m.usikker);
-    return { ...rep, label, multiplicitet: group.length, aner: group.map((m) => m.coupleNames ?? m.lcaName), usikker };
+    const label = `${multiplicitetForled(group.length)} ${rep.label.charAt(0).toLowerCase()}${rep.label.slice(1)}`;
+    // Konfidens-felterne arves fra repræsentanten (den viste sti), så usikker og
+    // weakestKonfidens forbliver konsistente. (Korroboration — at flere uafhængige linjer
+    // styrker forbindelsen og kunne rydde usikker-flaget — er en bevidst udskudt follow-up.)
+    return { ...rep, label, multiplicitet: group.length, aner: group.map((m) => m.coupleNames ?? m.lcaName) };
   });
 }
 
