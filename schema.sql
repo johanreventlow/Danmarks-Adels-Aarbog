@@ -937,3 +937,52 @@ BEGIN
   PERFORM set_config('app.change_seq', '0', true);
   RETURN v_id;
 END $$;
+-- ---------- VERSIONERING: generisk log_change ----------
+-- Byg kanonisk row_pk fra registry'ets pk_cols.
+CREATE OR REPLACE FUNCTION _row_pk(p_tabel text, p_row jsonb)
+RETURNS jsonb LANGUAGE sql STABLE AS $$
+  SELECT coalesce(jsonb_object_agg(k, p_row->k), '{}'::jsonb)
+  FROM version_pk_registry r, unnest(r.pk_cols) k
+  WHERE r.tabel = p_tabel;
+$$;
+
+CREATE OR REPLACE FUNCTION log_change()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  v_cs text; v_seq int; v_skip text[];
+  v_foer jsonb; v_efter jsonb;
+BEGIN
+  v_cs := current_setting('app.change_set_id', true);
+  IF v_cs IS NULL OR v_cs = '' THEN RETURN NULL; END IF;  -- bulk-load-sti: ingen logning
+
+  SELECT skip_cols INTO v_skip FROM version_pk_registry WHERE tabel = TG_TABLE_NAME;
+  v_skip := coalesce(v_skip, '{}');
+
+  -- projektion: fjern skip-kolonner (afledt cache; B8)
+  v_foer  := CASE WHEN TG_OP='INSERT' THEN NULL ELSE (to_jsonb(OLD) - v_skip) END;
+  v_efter := CASE WHEN TG_OP='DELETE' THEN NULL ELSE (to_jsonb(NEW) - v_skip) END;
+
+  -- no-op-skip: hvis kun skip-kolonner ændrede sig (fx ren cache-regen), log intet
+  IF TG_OP='UPDATE' AND v_foer = v_efter THEN RETURN NULL; END IF;
+
+  v_seq := coalesce(nullif(current_setting('app.change_seq', true),''),'0')::int + 1;
+  PERFORM set_config('app.change_seq', v_seq::text, true);
+
+  INSERT INTO change_event(id, change_set_id, seq, tabel, row_pk, op, foer, efter)
+  VALUES ((SELECT coalesce(max(id),0)+1 FROM change_event),
+          v_cs::bigint, v_seq, TG_TABLE_NAME,
+          _row_pk(TG_TABLE_NAME, coalesce(to_jsonb(NEW), to_jsonb(OLD))),
+          TG_OP, v_foer, v_efter);
+  RETURN NULL;
+END $$;
+
+-- Tilknyt log_change-trigger til alle registrerede tabeller (idempotent loop).
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT tabel FROM version_pk_registry LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS trg_log_%1$s ON %1$I', r.tabel);
+    EXECUTE format('CREATE TRIGGER trg_log_%1$s AFTER INSERT OR UPDATE OR DELETE ON %1$I '
+                || 'FOR EACH ROW EXECUTE FUNCTION log_change()', r.tabel);
+  END LOOP;
+END $$;

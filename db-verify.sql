@@ -296,3 +296,29 @@ BEGIN
   PERFORM set_config('app.change_set_id', '', true);
   RAISE NOTICE 'OK: begin_change_set er re-entrant';
 END $$;
+
+-- ===== Versionering Task 4: log_change trigger =====
+DO $$
+DECLARE cs bigint; n int; ev change_event;
+BEGIN
+  -- (a) UDEN aktivt change_set: en UPDATE logges IKKE (bulk-load-sti)
+  PERFORM set_config('app.change_set_id','',true);
+  UPDATE person SET status=status WHERE id=(SELECT id FROM person LIMIT 1);
+  -- (b) MED aktivt change_set: en ægte ændring logges
+  cs := begin_change_set('test_log','t','person',NULL);
+  UPDATE person SET status='__verify__' WHERE id=(SELECT id FROM person LIMIT 1);
+  SELECT count(*) INTO n FROM change_event WHERE change_set_id=cs AND tabel='person';
+  IF n <> 1 THEN RAISE EXCEPTION 'FEJL: forventede 1 person-event, fik %', n; END IF;
+  -- (c) visning_* ekskluderet fra snapshot
+  SELECT * INTO ev FROM change_event WHERE change_set_id=cs AND tabel='person' LIMIT 1;
+  IF ev.efter ? 'visning_navn' THEN RAISE EXCEPTION 'FEJL: visning_navn ikke ekskluderet'; END IF;
+  -- (d) kun-visning-ændring logges IKKE
+  UPDATE person SET visning_navn='__x__' WHERE id=(ev.row_pk->>'id')::bigint;
+  IF (SELECT count(*) FROM change_event WHERE change_set_id=cs AND tabel='person') <> 1 THEN
+    RAISE EXCEPTION 'FEJL: kun-cache-ændring blev logget'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';  -- rul alt tilbage (vi muterede rigtige rækker)
+EXCEPTION
+  WHEN OTHERS THEN
+    IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: log_change logger korrekt (rullet tilbage)';
+    ELSE RAISE; END IF;
+END $$;
