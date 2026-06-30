@@ -34,3 +34,9 @@ web/vite.config.d.ts
 
 # Agent-worktrees (harness-sandkasser)
 .claude/worktrees/
+
+# Redundante design-bundles (udpakket indhold ligger i design/)
+*.zip
+
+# Supabase CLI-link-state (project-ref/pooler-URL — infra-id, aldrig commit)
+supabase/.temp/

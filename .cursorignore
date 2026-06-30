@@ -1,0 +1,19 @@
+# Large local/generated artifacts. Open explicitly only when needed.
+work/
+work_presens/
+.claude/worktrees/
+
+# Dependency/build output
+node_modules/
+web/node_modules/
+dist/
+web/dist/
+
+# Large private/source artifacts
+*.pdf
+jr_tng_reventlow.sql
+
+# Local IDE/agent state
+.Rproj.user/
+.antigravitycli/
+.DS_Store
