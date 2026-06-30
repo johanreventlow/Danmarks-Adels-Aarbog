@@ -242,3 +242,337 @@ BEGIN
   DELETE FROM relation WHERE id = -910;
   DELETE FROM lineage  WHERE id IN (-910,-911);
 END $$;
+
+
+-- =====================================================================
+--  VERSIONERING + HYPERLINKS (2026-06-30) — asserts pr. task
+--  Køres mod KOPI/branch-base, aldrig prod (jf. plan Global Constraints).
+-- =====================================================================
+
+-- ===== Versionering Task 1: PK-registry =====
+DO $$
+BEGIN
+  IF to_regclass('public.version_pk_registry') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: version_pk_registry mangler';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM version_pk_registry WHERE tabel='family_member'
+                 AND pk_cols = ARRAY['family_id','person_id','rolle']) THEN
+    RAISE EXCEPTION 'FEJL: family_member composite PK ikke registreret korrekt';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM version_pk_registry WHERE tabel='person'
+                 AND skip_cols @> ARRAY['visning_navn','visning_foedt','visning_doed','visning_titel']) THEN
+    RAISE EXCEPTION 'FEJL: person visning_* ikke i skip_cols';
+  END IF;
+  RAISE NOTICE 'OK: version_pk_registry seeded';
+END $$;
+
+-- ===== Versionering Task 2: change_set/change_event =====
+DO $$
+BEGIN
+  IF to_regclass('public.change_set') IS NULL OR to_regclass('public.change_event') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: change_set/change_event mangler';
+  END IF;
+  -- actor_id skal være ON DELETE SET NULL (spec-B3/H6)
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.referential_constraints rc
+    JOIN information_schema.key_column_usage k ON k.constraint_name=rc.constraint_name
+    WHERE k.table_name='change_set' AND k.column_name='actor_id' AND rc.delete_rule='SET NULL') THEN
+    RAISE EXCEPTION 'FEJL: change_set.actor_id mangler ON DELETE SET NULL';
+  END IF;
+  RAISE NOTICE 'OK: change_set/change_event findes m. korrekt actor-FK';
+END $$;
+
+-- ===== Versionering Task 3: begin_change_set re-entrant =====
+DO $$
+DECLARE a bigint; b bigint;
+BEGIN
+  PERFORM set_config('app.change_set_id', '', true);  -- nulstil
+  a := begin_change_set('test_op','sum','person',1);
+  b := begin_change_set('indre_op','sum2','person',1); -- nested → skal genbruge a
+  IF a <> b THEN RAISE EXCEPTION 'FEJL: nested begin_change_set gav nyt id (% <> %)', a, b; END IF;
+  IF current_setting('app.change_set_id', true) <> a::text THEN
+    RAISE EXCEPTION 'FEJL: session-variabel ikke sat'; END IF;
+  DELETE FROM change_set WHERE id=a;  -- oprydning
+  PERFORM set_config('app.change_set_id', '', true);
+  RAISE NOTICE 'OK: begin_change_set er re-entrant';
+END $$;
+
+-- ===== Versionering Task 4: log_change trigger =====
+DO $$
+DECLARE cs bigint; n int; ev change_event;
+BEGIN
+  -- (a) UDEN aktivt change_set: en UPDATE logges IKKE (bulk-load-sti)
+  PERFORM set_config('app.change_set_id','',true);
+  UPDATE person SET status=status WHERE id=(SELECT id FROM person LIMIT 1);
+  -- (b) MED aktivt change_set: en ægte ændring logges
+  cs := begin_change_set('test_log','t','person',NULL);
+  UPDATE person SET status='__verify__' WHERE id=(SELECT id FROM person LIMIT 1);
+  SELECT count(*) INTO n FROM change_event WHERE change_set_id=cs AND tabel='person';
+  IF n <> 1 THEN RAISE EXCEPTION 'FEJL: forventede 1 person-event, fik %', n; END IF;
+  -- (c) visning_* ekskluderet fra snapshot
+  SELECT * INTO ev FROM change_event WHERE change_set_id=cs AND tabel='person' LIMIT 1;
+  IF ev.efter ? 'visning_navn' THEN RAISE EXCEPTION 'FEJL: visning_navn ikke ekskluderet'; END IF;
+  -- (d) kun-visning-ændring logges IKKE
+  UPDATE person SET visning_navn='__x__' WHERE id=(ev.row_pk->>'id')::bigint;
+  IF (SELECT count(*) FROM change_event WHERE change_set_id=cs AND tabel='person') <> 1 THEN
+    RAISE EXCEPTION 'FEJL: kun-cache-ændring blev logget'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';  -- rul alt tilbage (vi muterede rigtige rækker)
+EXCEPTION
+  WHEN OTHERS THEN
+    IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: log_change logger korrekt (rullet tilbage)';
+    ELSE RAISE; END IF;
+END $$;
+
+-- ===== Versionering Task 5: RPC-wiring =====
+DO $$
+DECLARE r jsonb; cs bigint; n int;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+  r := red_opret_fakta('person',(SELECT id FROM person LIMIT 1),'tilnavn','__verify__',NULL,NULL,NULL,NULL,'testkilde');
+  -- find seneste change_set og tæl events (fact+assertion+citation+conclusion = 4)
+  SELECT max(id) INTO cs FROM change_set;
+  SELECT count(*) INTO n FROM change_event WHERE change_set_id=cs;
+  IF n < 4 THEN RAISE EXCEPTION 'FEJL: red_opret_fakta grupperede ikke 4 rækker (fik %)', n; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: RPC grupperer rækker i ét change_set';
+  ELSE RAISE; END IF;
+END $$;
+
+-- ===== Versionering Task 5b: re-entrant nested wiring (red_opret_person → red_upsert_fakta) =====
+-- Dækker flerlinjet-rolle-tjek-stien (red_upsert_fakta) som 5a ikke rører, og B7-re-entrancy:
+-- nested red_* må IKKE åbne et nyt change_set.
+DO $$
+DECLARE r jsonb; v_pid bigint; cs_before bigint; cs_after bigint; n_sets int; n_person int; n_fact int;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+  cs_before := (SELECT coalesce(max(id),0) FROM change_set);
+  v_pid := red_opret_person('__verify_person__','mand',false,'1700','1750',NULL);
+  cs_after := (SELECT coalesce(max(id),0) FROM change_set);
+  -- præcis ÉT nyt change_set (re-entrancy: nested red_upsert_fakta åbnede ikke flere)
+  n_sets := cs_after - cs_before;
+  IF n_sets <> 1 THEN RAISE EXCEPTION 'FEJL: red_opret_person åbnede % change_sets (vent 1)', n_sets; END IF;
+  -- person-INSERT logget i sættet (beviser ydre begin_change_set kørte FØR person-INSERT)
+  SELECT count(*) INTO n_person FROM change_event WHERE change_set_id=cs_after AND tabel='person' AND op='INSERT';
+  IF n_person <> 1 THEN RAISE EXCEPTION 'FEJL: person-INSERT ikke logget (fik %)', n_person; END IF;
+  -- nested red_upsert_fakta logget i SAMME sæt (beviser red_upsert_fakta-wiring kører for redaktion)
+  SELECT count(*) INTO n_fact FROM change_event WHERE change_set_id=cs_after AND tabel='fact' AND op='INSERT';
+  IF n_fact < 1 THEN RAISE EXCEPTION 'FEJL: nested fakta ikke logget i samme sæt (fik %)', n_fact; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: nested red_opret_person re-entrant (ét sæt, person+fakta logget)';
+  ELSE RAISE; END IF;
+END $$;
+
+-- ===== Versionering Task 6: red_edit_oplysning append =====
+DO $$
+DECLARE v_fact bigint; v_old bigint; v_concl_valgt bigint; n_before int; n_after int; r jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+  r := red_opret_fakta('person',(SELECT id FROM person LIMIT 1),'tilnavn','gammel',NULL,NULL,NULL,NULL,'k');
+  v_old := (r->>'assertion_id')::bigint; v_fact := (r->>'fact_id')::bigint;
+  SELECT count(*) INTO n_before FROM assertion WHERE target_type='fact' AND target_id=v_fact;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_edit_oplysning(v_old, 'rettet', NULL, NULL);
+  SELECT count(*) INTO n_after FROM assertion WHERE target_type='fact' AND target_id=v_fact;
+  IF n_after <> n_before + 1 THEN RAISE EXCEPTION 'FEJL: edit oprettede ikke ny assertion (% -> %)', n_before, n_after; END IF;
+  IF NOT EXISTS (SELECT 1 FROM assertion WHERE id=v_old AND vaerdi_tekst='gammel') THEN
+    RAISE EXCEPTION 'FEJL: gammel assertion blev muteret/slettet'; END IF;
+  SELECT valgt_assertion_id INTO v_concl_valgt FROM conclusion WHERE target_type='fact' AND target_id=v_fact;
+  IF (SELECT vaerdi_tekst FROM assertion WHERE id=v_concl_valgt) <> 'rettet' THEN
+    RAISE EXCEPTION 'FEJL: konklusion peger ikke på ny værdi'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: red_edit_oplysning er append';
+  ELSE RAISE; END IF;
+END $$;
+
+-- ===== Versionering Task 7: restore-hjælpere =====
+DO $$
+DECLARE v_id bigint; cur jsonb;
+BEGIN
+  v_id := (SELECT coalesce(max(id),0)+1 FROM note);
+  PERFORM _version_upsert_row('note', jsonb_build_object('id',v_id,'target_type','person','target_id',1,'indhold','A','privat',false));
+  cur := _version_current_row('note', jsonb_build_object('id',v_id));
+  IF cur->>'indhold' <> 'A' THEN RAISE EXCEPTION 'FEJL: upsert insert virkede ikke'; END IF;
+  PERFORM _version_upsert_row('note', jsonb_build_object('id',v_id,'target_type','person','target_id',1,'indhold','B','privat',false));
+  cur := _version_current_row('note', jsonb_build_object('id',v_id));
+  IF cur->>'indhold' <> 'B' THEN RAISE EXCEPTION 'FEJL: upsert update virkede ikke'; END IF;
+  PERFORM _version_delete_row('note', jsonb_build_object('id',v_id));
+  IF _version_current_row('note', jsonb_build_object('id',v_id)) IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: delete virkede ikke'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: restore-hjælpere round-trip';
+  ELSE RAISE; END IF;
+END $$;
+
+-- ===== Versionering Task 8: restore =====
+DO $$
+DECLARE r jsonb; v_fact bigint; v_aid bigint; cs bigint; v_val text;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  -- opret en oplysning (change_set #1)
+  PERFORM set_config('app.change_set_id','',true);
+  r := red_opret_fakta('person',(SELECT id FROM person LIMIT 1),'tilnavn','original',NULL,NULL,NULL,NULL,'k');
+  v_aid := (r->>'assertion_id')::bigint; v_fact := (r->>'fact_id')::bigint;
+  SELECT max(id) INTO cs FROM change_set;
+  -- fortryd #1 → fact/assertion/citation/conclusion skal forsvinde igen
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_fortryd_change_set(cs, false);
+  IF EXISTS (SELECT 1 FROM assertion WHERE id=v_aid) THEN
+    RAISE EXCEPTION 'FEJL: restore slettede ikke den oprettede assertion'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM change_set WHERE reverterer_id=cs) THEN
+    RAISE EXCEPTION 'FEJL: ingen reversal-change_set oprettet'; END IF;
+  -- dobbelt-fortryd af samme sæt skal afvises
+  BEGIN
+    PERFORM red_fortryd_change_set(cs, false);
+    RAISE EXCEPTION 'FEJL: dobbelt-fortryd blev ikke afvist';
+  EXCEPTION WHEN OTHERS THEN
+    -- forventet: funktionen afviser med "... er allerede fortrudt" → svælg.
+    -- Re-raise KUN hvis afvisningen udeblev (vores egen "blev ikke afvist"-fejl).
+    IF SQLERRM LIKE '%blev ikke afvist%' THEN RAISE;
+    END IF;
+  END;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: restore round-trip + dobbelt-fortryd afvist';
+  ELSE RAISE; END IF;
+END $$;
+
+-- ===== Versionering Task 8b: person-slet-restore (FK-graf, H5) =====
+-- Dækker H5: red_slet_person sletter børn før forælder → omvendt-seq genindsætter
+-- forælder før børn (FK-sikkert). Fakta-stien (8a) rører ikke denne ordning.
+DO $$
+DECLARE v_pid bigint; cs_del bigint; n_facts_before int; n_facts_after int;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+  v_pid := red_opret_person('__verify_slet__','kvinde',false,'1600','1660','Fru');
+  SELECT count(*) INTO n_facts_before FROM fact WHERE subjekt_type='person' AND subjekt_id=v_pid;
+  -- slet personen (eget change_set)
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_slet_person(v_pid);
+  SELECT max(id) INTO cs_del FROM change_set;
+  IF EXISTS (SELECT 1 FROM person WHERE id=v_pid) THEN RAISE EXCEPTION 'FEJL: person ikke slettet'; END IF;
+  -- fortryd sletningen → person + alle børn (fact/assertion/citation/conclusion) tilbage
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_fortryd_change_set(cs_del, false);
+  IF NOT EXISTS (SELECT 1 FROM person WHERE id=v_pid) THEN
+    RAISE EXCEPTION 'FEJL: person ikke genskabt ved restore'; END IF;
+  SELECT count(*) INTO n_facts_after FROM fact WHERE subjekt_type='person' AND subjekt_id=v_pid;
+  IF n_facts_after <> n_facts_before THEN
+    RAISE EXCEPTION 'FEJL: fakta ikke fuldt genskabt (% -> %)', n_facts_before, n_facts_after; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: person-slet-restore genskaber fuld FK-graf';
+  ELSE RAISE; END IF;
+END $$;
+
+-- ===== Hyperlinks Task 9: parse_mentions =====
+DO $$
+DECLARE n int; got record;
+BEGIN
+  -- gyldigt token + malformet + ukendt type + escaped pipe i visningstekst
+  SELECT count(*) INTO n FROM parse_mentions(
+    'Se [[person:482|Chr. D. Reventlow]] og [[estate:7|Christianssæde]]. '
+    || 'Malformet [[person:abc|x]] ukendt [[ufo:1|y]] escaped [[person:9|a\|b]].');
+  IF n <> 3 THEN RAISE EXCEPTION 'FEJL: forventede 3 gyldige mentions, fik %', n; END IF;
+  IF NOT EXISTS (SELECT 1 FROM parse_mentions('[[person:482|x]]') WHERE maal_type='person' AND maal_id=482) THEN
+    RAISE EXCEPTION 'FEJL: token ikke parset korrekt'; END IF;
+  RAISE NOTICE 'OK: parse_mentions';
+END $$;
+
+-- ===== Hyperlinks Task 10: text_mention =====
+DO $$
+DECLARE v_nid bigint; n int;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);  -- bulk-sti, ingen versionering af testdata
+  v_nid := (SELECT coalesce(max(id),0)+1 FROM narrative);
+  INSERT INTO narrative(id,subjekt_type,subjekt_id,tekst)
+    VALUES (v_nid,'person',1,'[[person:1|a]] og [[person:1|igen]] og [[estate:2|g]]');
+  SELECT count(*) INTO n FROM text_mention WHERE kilde_type='narrative' AND kilde_id=v_nid;
+  IF n <> 2 THEN RAISE EXCEPTION 'FEJL: forventede 2 dedup-mentions, fik %', n; END IF;  -- person:1 dedup
+  UPDATE narrative SET tekst='[[lineage:5|x]]' WHERE id=v_nid;  -- replace
+  SELECT count(*) INTO n FROM text_mention WHERE kilde_type='narrative' AND kilde_id=v_nid;
+  IF n <> 1 OR NOT EXISTS (SELECT 1 FROM text_mention WHERE kilde_id=v_nid AND maal_type='lineage') THEN
+    RAISE EXCEPTION 'FEJL: replace-semantik virkede ikke'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: text_mention dedup + replace';
+  ELSE RAISE; END IF;
+END $$;
+
+-- ===== Task 11: historik-RLS + døde links =====
+DO $$
+DECLARE n int;
+BEGIN
+  IF to_regclass('public.red_doede_links') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: red_doede_links view mangler'; END IF;
+  -- hist_for_subjekt skal RAISE for ikke-redaktion (SQL Editor = medlem)
+  BEGIN
+    PERFORM * FROM hist_for_subjekt('person', 1);
+    RAISE EXCEPTION 'FEJL: hist_for_subjekt tillod ikke-redaktion';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'FEJL:%' THEN RAISE; END IF;  -- vores assert-fejl propagerer
+  END;
+  RAISE NOTICE 'OK: historik-API redaktion-gated + døde-links-view findes';
+END $$;
+
+-- ===== Versionering Task 7b: composite-PK restore-hjælpere (B11/M2) =====
+-- T7 dækkede kun enkelt-id (note). Her: family_member (3-kol PK) gennem alle tre
+-- helper-stier — fanger ON CONFLICT-constraint-match + multi-kolonne WHERE-cast.
+DO $$
+DECLARE cur jsonb; pk jsonb := jsonb_build_object('family_id',1,'person_id',1,'rolle','__verify_fm__');
+BEGIN
+  PERFORM _version_upsert_row('family_member',
+    jsonb_build_object('family_id',1,'person_id',1,'rolle','__verify_fm__','ordinal',9,'konfidens','sikker'));
+  cur := _version_current_row('family_member', pk);
+  IF cur->>'konfidens' <> 'sikker' THEN RAISE EXCEPTION 'FEJL: composite upsert-insert virkede ikke (%)', cur; END IF;
+  -- update via ON CONFLICT (samme composite-nøgle)
+  PERFORM _version_upsert_row('family_member',
+    jsonb_build_object('family_id',1,'person_id',1,'rolle','__verify_fm__','ordinal',9,'konfidens','formodet'));
+  cur := _version_current_row('family_member', pk);
+  IF cur->>'konfidens' <> 'formodet' THEN RAISE EXCEPTION 'FEJL: composite upsert-update virkede ikke (%)', cur; END IF;
+  PERFORM _version_delete_row('family_member', pk);
+  IF _version_current_row('family_member', pk) IS NOT NULL THEN RAISE EXCEPTION 'FEJL: composite delete virkede ikke'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: composite-PK restore-hjælpere round-trip';
+  ELSE RAISE; END IF;
+END $$;
+
+-- ===== Versionering Task 8c: non-person restore (tom v_pids — regen-loop no-op) =====
+-- Alle øvrige restore-asserts rørte en person. Her: undo en kilde-oprettelse (ingen person,
+-- ingen conclusion) → v_pids tom → FOREACH IN ARRAY NULL skal være no-op, ikke fejle.
+DO $$
+DECLARE v_sid bigint; cs bigint;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+  v_sid := red_opret_kilde('__verify_kilde__', NULL, NULL, false);
+  SELECT max(id) INTO cs FROM change_set;
+  IF NOT EXISTS (SELECT 1 FROM source WHERE id=v_sid) THEN RAISE EXCEPTION 'FEJL: kilde ikke oprettet'; END IF;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_fortryd_change_set(cs, false);
+  IF EXISTS (SELECT 1 FROM source WHERE id=v_sid) THEN RAISE EXCEPTION 'FEJL: non-person restore slettede ikke kilden'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: non-person restore (tom regen-loop) virker';
+  ELSE RAISE; END IF;
+END $$;
