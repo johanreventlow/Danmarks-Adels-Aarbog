@@ -5,10 +5,13 @@ import { useStore } from '../../store/useStore';
 import { Border, Colors, Radius } from '../../theme/tokens';
 import { BtnLabel, Mono, Serif } from '../Typography';
 
-export function SkrivePreviewSheet({ change, onClose, onApplied }: {
+export function SkrivePreviewSheet({ change, onClose, onApplied, onError }: {
   change: Change | null;
   onClose: () => void;
   onApplied: (result?: unknown) => void;
+  // Ekstra hook (additiv, ingen ændring for eksisterende kaldere): rå fejlbesked,
+  // før dansk oversættelse — bruges fx til at genkende DB-RAISE-mønstre (fortryd-konflikt).
+  onError?: (rawMessage: string) => void;
 }) {
   const dryRun = useStore((s) => s.dryRun);
   const [status, setStatus] = useState<'idle' | 'busy' | 'ok' | 'err'>('idle');
@@ -31,8 +34,10 @@ export function SkrivePreviewSheet({ change, onClose, onApplied }: {
       setStatus('ok');
       if (!dryRun) onApplied('result' in res ? res.result : undefined);
     } catch (e) {
-      setFejl(oversaetFejl(e instanceof Error ? e.message : String(e)));
+      const raw = e instanceof Error ? e.message : String(e);
+      setFejl(oversaetFejl(raw));
       setStatus('err');
+      onError?.(raw);
     }
   }
 

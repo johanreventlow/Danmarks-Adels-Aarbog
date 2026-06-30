@@ -336,14 +336,6 @@ export async function fetchHistorik(personId: string): Promise<HistPost[]> {
   return (data ?? []).map(mapHistRow);
 }
 
-export type HistEvent = { tabel: string; op: string; foer: unknown; efter: unknown };
-export async function fetchHistEvents(changeSetId: number): Promise<HistEvent[]> {
-  if (!supabase) return [];
-  const { data, error } = await supabase.rpc('hist_events', { p_change_set_id: changeSetId });
-  if (error) throw new Error(error.message);
-  return (data ?? []).map((e: any) => ({ tabel: e.tabel, op: e.op, foer: e.foer, efter: e.efter }));
-}
-
 // ---------- Døde links (hyperlinks — DB-lag T10/T11) ----------
 export type DoedLink = { kilde: string; maalType: string; maalId: string };
 export function mapDoedLinkRow(r: { kilde_type: string; kilde_id: number; maal_type: string; maal_id: number }): DoedLink {

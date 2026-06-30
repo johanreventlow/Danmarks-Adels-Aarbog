@@ -1,22 +1,24 @@
 // Ændringshistorik for en person (D1) — viser change_set-poster m. fortryd-knap +
 // en samlet døde-links-rapport (D3). Redaktion-only API (hist_for_subjekt/red_doede_links).
+// Fortryd ruter gennem SkrivePreviewSheet (samme dry-run/LIVE-bekræftelses-flow som resten
+// af editoren) — ikke et direkte submitChange-kald, som ville være et tavst no-op i dry-run.
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { TopBar } from '../../../components/TopBar';
+import { SkrivePreviewSheet } from '../../../components/redaktion/SkrivePreviewSheet';
 import { Body, BtnLabel, Mono, Serif } from '../../../components/Typography';
 import { fetchHistorik, fetchDoedeLinks, type HistPost, type DoedLink } from '../../../data/redaktionRead';
-import { submitChange, oversaetFejl } from '../../../data/redaktionWrite';
-import { useStore } from '../../../store/useStore';
+import { type Change, oversaetFejl } from '../../../data/redaktionWrite';
 import { Border, Colors, Radius } from '../../../theme/tokens';
 
 export default function HistorikSkaerm() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const dryRun = useStore((s) => s.dryRun);
   const [poster, setPoster] = useState<HistPost[]>([]);
   const [doede, setDoede] = useState<DoedLink[]>([]);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [fejl, setFejl] = useState<string | null>(null);
+  const [pending, setPending] = useState<Change | null>(null);
 
   const indlæs = useCallback(async () => {
     try {
@@ -32,26 +34,23 @@ export default function HistorikSkaerm() {
   }, [id]);
   useEffect(() => { indlæs(); }, [indlæs]);
 
-  const fortryd = useCallback(async (post: HistPost, force: boolean) => {
-    try {
-      await submitChange({
-        art: 'fortryd', subjektType: 'person', subjektId: String(id),
-        payload: { changeSetId: Number(post.id), force },
-      }, { dryRun });
-      await indlæs();
-    } catch (e: any) {
-      const msg = e.message as string;
-      // Beskeds-match holdes i sync med DB-RAISE'en i red_fortryd_change_set (spec-B9).
-      if (/afvist.*force/i.test(msg) && !force) {
+  const startFortryd = useCallback((post: HistPost, force: boolean) => {
+    setPending({ art: 'fortryd', subjektType: 'person', subjektId: String(id),
+      payload: { changeSetId: Number(post.id), force } });
+  }, [id]);
+
+  // Beskeds-match holdes i sync med DB-RAISE'en i red_fortryd_change_set (spec-B9).
+  const handleError = useCallback((rawMessage: string) => {
+    if (/afvist.*force/i.test(rawMessage) && pending?.payload?.force !== true) {
+      const post = poster.find((p) => p.id === String(pending?.payload?.changeSetId));
+      if (post) {
         Alert.alert('Nyere ændring rører samme data', 'Fortryd alligevel?', [
           { text: 'Annullér', style: 'cancel' },
-          { text: 'Fortryd alligevel', style: 'destructive', onPress: () => fortryd(post, true) },
+          { text: 'Fortryd alligevel', style: 'destructive', onPress: () => startFortryd(post, true) },
         ]);
-      } else {
-        Alert.alert('Fejl', oversaetFejl(msg));
       }
     }
-  }, [id, dryRun, indlæs]);
+  }, [pending, poster, startFortryd]);
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
@@ -70,7 +69,7 @@ export default function HistorikSkaerm() {
                 {post.hvem} · {post.hvornaar}
               </Mono>
               {!post.reverteret ? (
-                <Pressable style={styles.fortrydKnap} onPress={() => fortryd(post, false)}>
+                <Pressable style={styles.fortrydKnap} onPress={() => startFortryd(post, false)}>
                   <BtnLabel color={Colors.danger}>Fortryd</BtnLabel>
                 </Pressable>
               ) : (
@@ -93,6 +92,12 @@ export default function HistorikSkaerm() {
           </View>
         </ScrollView>
       ) : null}
+      <SkrivePreviewSheet
+        change={pending}
+        onClose={() => setPending(null)}
+        onApplied={() => { setPending(null); indlæs(); }}
+        onError={handleError}
+      />
     </View>
   );
 }
