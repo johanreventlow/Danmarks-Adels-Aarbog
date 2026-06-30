@@ -515,3 +515,19 @@ EXCEPTION WHEN OTHERS THEN
   IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: text_mention dedup + replace';
   ELSE RAISE; END IF;
 END $$;
+
+-- ===== Task 11: historik-RLS + døde links =====
+DO $$
+DECLARE n int;
+BEGIN
+  IF to_regclass('public.red_doede_links') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: red_doede_links view mangler'; END IF;
+  -- hist_for_subjekt skal RAISE for ikke-redaktion (SQL Editor = medlem)
+  BEGIN
+    PERFORM * FROM hist_for_subjekt('person', 1);
+    RAISE EXCEPTION 'FEJL: hist_for_subjekt tillod ikke-redaktion';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'FEJL:%' THEN RAISE; END IF;  -- vores assert-fejl propagerer
+  END;
+  RAISE NOTICE 'OK: historik-API redaktion-gated + døde-links-view findes';
+END $$;

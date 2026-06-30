@@ -371,3 +371,34 @@ grant select on public.red_konflikt to anon;
 --  drop function if exists public.media_afbilder_skjult(bigint);
 --  drop function if exists public.media_afbilder_privat(bigint);
 -- =====================================================================
+
+
+-- =====================================================================
+-- 2026-06-30: VERSIONERING + MENTIONS — RLS
+-- =====================================================================
+-- Historik-tabeller: deny-all for anon/authenticated; al adgang via SECURITY DEFINER-API (B10).
+ALTER TABLE change_set   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE change_event ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON change_set, change_event FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION hist_for_subjekt(text,bigint) TO authenticated;
+GRANT EXECUTE ON FUNCTION hist_events(bigint)            TO authenticated;
+GRANT EXECUTE ON FUNCTION red_fortryd_change_set(bigint,boolean) TO authenticated;
+
+-- text_mention: dobbelt-gating (M4) — kilde-tekst OG mål synlig.
+ALTER TABLE text_mention ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tm_read ON text_mention;
+CREATE POLICY tm_read ON text_mention FOR SELECT TO anon, authenticated
+USING (
+  -- kilde-tekst synlig (person-bundet narrativ/note → personens synlighed; ikke-privat)
+  CASE kilde_type
+    WHEN 'narrative' THEN EXISTS (SELECT 1 FROM narrative n WHERE n.id=kilde_id
+       AND coalesce(n.privat,false)=false
+       AND (n.subjekt_type<>'person' OR person_offentlig(n.subjekt_id)))
+    WHEN 'note' THEN EXISTS (SELECT 1 FROM note nt WHERE nt.id=kilde_id
+       AND coalesce(nt.privat,false)=false
+       AND (nt.target_type<>'person' OR person_offentlig(nt.target_id)))
+    ELSE false END
+  AND
+  -- mål synlig (person → person_offentlig; øvrige entiteter offentlige i PoC)
+  (maal_type<>'person' OR person_offentlig(maal_id))
+);
