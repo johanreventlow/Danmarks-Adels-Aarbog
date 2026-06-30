@@ -26,62 +26,39 @@ cfg    <- default_cfg()
 # ---- Trin 1: TNG -> DuckDB ------------------------------------------------
 message("== Trin 1: TNG -> DuckDB ==")
 build_tng_duckdb(dump, db)
-tcon <- dbConnect(duckdb::duckdb(), db); on.exit(dbDisconnect(tcon, shutdown = TRUE), add = TRUE)
+tcon <- dbConnect(duckdb::duckdb(), db)
 tng_people   <- dbGetQuery(tcon, 'SELECT * FROM tng_people')
 tng_families <- dbGetQuery(tcon, 'SELECT * FROM tng_families')
 tng_children <- dbGetQuery(tcon, 'SELECT * FROM tng_children')
+# Luk straks efter sidste brug. Et top-level on.exit() under source() bindes
+# per-udtryk og ville fyre shutdown FØR næste query -> "Invalid connection".
+dbDisconnect(tcon, shutdown = TRUE)
 
 # ---- Trin 2: Supabase (read-only) -----------------------------------------
 message("== Trin 2: Supabase (read-only) ==")
-scon <- connect_readonly(); assert_readonly(scon); on.exit(dbDisconnect(scon), add = TRUE)
+scon <- connect_readonly(); assert_readonly(scon)
 ours <- pull_ours(scon)
+dbDisconnect(scon)  # luk straks efter sidste brug (samme on.exit-fælde som tcon)
 
 # ---- Trin 3-4: normalisér + match -----------------------------------------
+# Byggeklodser: our_match_frame / tng_match_frame / build_scored (04-match.R).
+# VIGTIGT: cfg-tærsklerne (auto_cutoff=0.90, review_cutoff=0.70) er IKKE
+# kalibreret — intet facit-sæt findes endnu. Tier-tællingerne nedenfor er
+# DIAGNOSTISKE, ikke et endeligt resultat. Den uniforme "Reventlow"-efternavn
+# hæver name_sim's bund (review oversvømmes nær cutoff), og dato-løse par får
+# gratis vægt (overlap NA→TRUE). Se docs/tng-qa-koersel.md § "Trin 3-4".
 message("== Trin 3-4: normalisér + match ==")
-#
-# Byg `scored` (data.frame med kolonner person_id, tng_id, name_sim,
-# birth_overlap, death_overlap, sex_eq, unique_block) ved at:
-#
-#   1. Normalisér vores folk:
-#      our_norm <- lapply(seq_len(nrow(ours$person)), function(i) {
-#        p <- ours$person[i, ]
-#        nm <- normalize_name(p$visning_navn, last = "", married_in = FALSE)
-#        birth <- ours$dates[ours$dates$person_id == p$id &
-#                            ours$dates$faktatype == "fødsel", ]
-#        death <- ours$dates[ours$dates$person_id == p$id &
-#                            ours$dates$faktatype == "død",   ]
-#        list(person_id  = p$id,
-#             name_key   = nm$key,
-#             birth_int  = if (nrow(birth)) c(birth$date_min[1], birth$date_max[1])
-#                          else c(NA_integer_, NA_integer_),
-#             death_int  = if (nrow(death)) c(death$date_min[1], death$date_max[1])
-#                          else c(NA_integer_, NA_integer_),
-#             koen       = p$koen)
-#      })
-#
-#   2. Normalisér TNG-folk analogt (normalize_name / tng_date_to_interval).
-#
-#   3. Bloker (fx felles efternavn-initial + ±cfg$year_window fødselsdekade).
-#      unique_block = TRUE hvis TNG-kandidaten er ENESTE kandidat i blokken.
-#
-#   4. Score hvert kandidat-par med score_pair() og saml i `scored`.
-#      scored = data.frame(person_id, tng_id,
-#                          name_sim, birth_overlap, death_overlap, sex_eq,
-#                          unique_block)
-#
-# Tærsklerne (cfg$auto_cutoff = 0.90, cfg$review_cutoff = 0.70) er IKKE
-# empirisk kalibreret endnu — justér mod facit-sæt inden prod.
-# Se docs/tng-qa-koersel.md § "Trin 3-4" for kalibreringsprocedure.
-#
-# crosswalk <- assign_tiers(scored, cfg)
+our_norm  <- our_match_frame(ours$person, ours$dates)
+tng_norm  <- tng_match_frame(tng_people)
+scored    <- build_scored(our_norm, tng_norm, cfg)
+crosswalk <- assign_tiers(scored, cfg)
 
-# Guard: trin 3-4 glue must be completed before trin 5 can run
-if (!exists("crosswalk")) stop(
-  "Trin 3-4 (scored -> crosswalk) er en kalibrerings-skeleton der endnu ikke er ",
-  "færdiggjort. Byg `scored` fra ours+tng_people og afkommentér ",
-  "`crosswalk <- assign_tiers(scored, cfg)` før trin 5-6 kan køre. ",
-  "Se docs/tng-qa-koersel.md (kalibrering mod facit-sæt)."
-)
+n_unmatched <- nrow(our_norm) - length(unique(scored$person_id))
+tier_tab    <- table(factor(crosswalk$tier, levels = c("auto", "review", "none")))
+message(sprintf("  %d personer x %d TNG -> %d kandidat-par (%d uden kandidat)",
+                nrow(our_norm), nrow(tng_norm), nrow(scored), n_unmatched))
+message(sprintf("  tiers (DIAGNOSTISK, ukalibreret): auto=%d review=%d none=%d",
+                tier_tab[["auto"]], tier_tab[["review"]], tier_tab[["none"]]))
 
 # ---- Trin 5: review-merge (hvis afgørelser findes) ------------------------
 message("== Trin 5: review-merge (hvis afgørelser findes) ==")
