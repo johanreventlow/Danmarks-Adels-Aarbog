@@ -68,6 +68,19 @@ Kernefunktionen er **"er vi i familie?"** — slægtskabssøgning på tværs af 
   deterministisk aegteskaber-udtræk (~9% LLM-miss); dekorations-nøgle (fra anden
   DAA-udgave); rigtig GEDCOM/TNG-import (enrichment); multimedie/Storage.
 - **Load:** `supabase_load.R` er erstattet af `/daa-extract`'s `load_daa.R` (bulk, ~14 sek).
+- **Versionering + hyperlinks (DB-lag) LIVE i prod (2026-06-30):** fortryd-bar redaktionel
+  ændringshistorik (`change_set`/`change_event` + generisk `log_change`-trigger på 22 tabeller +
+  `red_fortryd_change_set`-restore) og hyperlinks (`[[type:id|tekst]]` → `parse_mentions` +
+  `text_mention`-indeks). Append-baseret `red_edit_oplysning` (void→jsonb). Dual-reviewet
+  (Claude+Codex+code-analyzer), 24 verify-asserts grønne, applied atomisk. Se `docs/reviews/09-*.md`
+  + `docs/superpowers/plans/2026-06-30-versionering-hyperlinks-db-lag.md`. **Udestår:** app-lag-plan
+  (editor-@-vælger, historik-UI, fortryd-knap — `2026-06-30-versionering-hyperlinks-app-lag.md`);
+  deferrede review-punkter (TOCTOU, parse_mentions open-token, `red_doede_links` 3/10 typer).
+- **TNG-QA-pipeline komplet (2026-06-30):** read-only R-pipeline (`R/tng-qa/`, Trin 1-6)
+  matcher vores personer mod et TNG-dump (auto-tier margin-kalibreret) og producerer en
+  GDPR-sikker rapport (`docs/reviews/tng-qa-rapport-<dato>.md`, input-gating PII-gate) der
+  lister relations-/dato-uenigheder til review. Udestår: håndlabelt facit-sæt, `review_cutoff`-
+  kalibrering, review-kø-persistens. Se `docs/tng-qa-koersel.md`.
 
 ---
 
