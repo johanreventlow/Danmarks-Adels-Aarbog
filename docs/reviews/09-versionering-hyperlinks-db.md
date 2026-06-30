@@ -98,3 +98,15 @@ Verdict: needs-attention → **needs-fix** (2 HIGH bekræftet, begge rettet + re
 - Deferred (out-of-scope threat-model): 1 (H3 TOCTOU).
 
 **Læring:** ON CONFLICT DO UPDATE beskytter ikke mod NOT NULL-violation i selve INSERT-rækkedannelsen — partial-snapshot-restore skal liste insert-kolonner eksplicit, ikke `(jsonb_populate_record).*`. Og B9-divergens-tjek skal dække DELETE-inverse (post-state = NULL), ikke kun INSERT/UPDATE.
+
+---
+
+## Tredje reviewer (code-analyzer-agent) — konvergens + ét ekstra fund (2026-06-30)
+
+En uafhængig code-analyzer-agent (parallelt med Codex) **konvergerede på præcis H1 og H2** — to uafhængige reviewere + empirisk reproduktion = høj sikkerhed. Bekræftede desuden VERIFIED-SAFE-listen (composite-PK row_pk, re-entrancy, B9-symmetri for UPDATE/INSERT, re-logging-prevention, reverse-seq FK, tm_read dobbelt-gating).
+
+**M1 [LOW] — parse_mentions matcher uafsluttede tokens:** regex'en kræver ikke `]]`, så `[[person:1|tekst uden lukning` og `\[[person:1|x]]` (escaped åbning) skaber fantom-`text_mention`-rækker. Spec §5.1 siger "ubalanceret → indekseres ikke", så det er en afvigelse.
+- **Impact:** LOW — indeks-støj fra malformet input; INGEN sikkerhed (tm_read gater uafhængigt af indeks-korrekthed) og INGEN korruption; recoverable via regen.
+- **DEFER (bevidst):** planens T9-note gjorde eksplicit parseren "kun token-HOVEDET ... fuld escaping-håndtering hører til app-rendereren", og spec §5.1 kræver én *delt* parser-specifikation + conformance-fixtures på tværs af editor/renderer/indekser/eksport. En piecemeal SQL-stramning nu ville desuden risikere false-negatives på korrekt-escaped `\]` i visningsteksten. Hører til den delte-parser-opgave i app-laget.
+
+**Konvergens-konklusion:** to ship-blocking HIGH-bugs (H1, H2) fundet af begge reviewere, reproduceret og rettet. Én LOW deferret med begrundelse. Ingen yderligere korrektheds- eller sikkerhedsfund.
