@@ -8,6 +8,7 @@ import { LoadGate } from '../../components/LoadGate';
 import { PersonPicker } from '../../components/PersonPicker';
 import { Body, Kicker, Mono, Serif } from '../../components/Typography';
 import { computeRelationship } from '../../data/relationship';
+import type { RelationResult } from '../../data/relationship';
 import type { Konfidens } from '../../data/types';
 import { useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius, Shadow } from '../../theme/tokens';
@@ -15,6 +16,16 @@ import { Border, Colors, Fonts, Radius, Shadow } from '../../theme/tokens';
 // Vis kun de led der reelt er usikre (formodet/omstridt); sikre/sandsynlige/uangivne flages ikke.
 function konfTekst(k?: Konfidens): string {
   return k === 'omstridt' ? 'omstridt' : k === 'formodet' ? 'formodet' : '';
+}
+
+// Positivt korroborations-signal: flere uafhængige veje, eller en solid alternativ-linje
+// der bekræfter slægtskabet selv om den viste sti har et svagt led. '' = intet at vise.
+function korroborationsTekst(rel: RelationResult): string {
+  const p = rel.lines[0];
+  if (!p) return '';
+  if (p.uafhaengige >= 2) return `Bekræftet ad ${p.uafhaengige} uafhængige linjer`;
+  if (rel.alternativSolidLinje) return 'Bekræftet ad en anden, sikker linje';
+  return '';
 }
 
 export default function RelateScreen() {
@@ -35,6 +46,7 @@ export default function RelateScreen() {
   );
   const me = meId && model ? model.byId[meId] : null;
   const meAvailable = !!me && relA !== meId;
+  const korrob = rel && rel.found ? korroborationsTekst(rel) : '';
 
   return (
     <LoadGate>
@@ -70,6 +82,11 @@ export default function RelateScreen() {
             {rel.found && rel.lines[0]?.usikker ? (
               <Body size={11.5} color={Colors.goldLight} style={{ marginTop: 7, textAlign: 'center' }}>
                 ⚠ Forbindelsen går gennem et {konfTekst(rel.lines[0].weakestKonfidens)} led
+              </Body>
+            ) : null}
+            {korrob ? (
+              <Body size={11.5} color="#a9c2a0" style={{ marginTop: 7, textAlign: 'center' }}>
+                ✓ {korrob}
               </Body>
             ) : null}
           </View>
