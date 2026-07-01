@@ -19,6 +19,7 @@ docs/tng-reventlow-analyse.md
 data/tng.duckdb
 data/tng-crosswalk.csv
 data/tng-review-queue.csv
+data/tng-corroboration.csv
 
 # DAA-udtræk arbejdsmappe (kan indeholde levende-persondata)
 work/
