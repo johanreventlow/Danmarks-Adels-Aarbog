@@ -8,14 +8,18 @@
 derive_our_pc <- function(family_member) {
   fm <- family_member
   parts <- lapply(unique(fm$family_id), function(fid) {
-    kids    <- as.integer(fm$person_id[fm$family_id == fid & fm$rolle == "barn"])
-    parents <- as.integer(fm$person_id[fm$family_id == fid & fm$rolle == "partner"])
-    if (!length(kids) || !length(parents)) return(NULL)
-    expand.grid(child_id = kids, parent_id = parents, KEEP.OUT.ATTRS = FALSE)
+    kid_rows <- fm[fm$family_id == fid & fm$rolle == "barn", ]
+    parents  <- as.integer(fm$person_id[fm$family_id == fid & fm$rolle == "partner"])
+    if (!nrow(kid_rows) || !length(parents)) return(NULL)
+    do.call(rbind, lapply(seq_len(nrow(kid_rows)), function(k) {
+      data.frame(child_id = as.integer(kid_rows$person_id[k]), parent_id = parents,
+                 konfidens = kid_rows$konfidens[k], stringsAsFactors = FALSE)
+    }))
   })
   parts <- Filter(Negate(is.null), parts)
   if (!length(parts))
-    return(data.frame(child_id = integer(0), parent_id = integer(0), rolle = character(0)))
+    return(data.frame(child_id = integer(0), parent_id = integer(0),
+                       rolle = character(0), konfidens = character(0)))
   out <- unique(do.call(rbind, parts))
   out$rolle <- "ukendt"
   out

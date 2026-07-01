@@ -43,3 +43,38 @@ test_that("compare_marriages returns well-formed empty df on no edges", {
   out <- compare_marriages(our_pairs, tng_families, xwalk)
   expect_s3_class(out, "data.frame"); expect_equal(nrow(out), 0L)
 })
+
+test_that("derive_our_pc bærer konfidens videre fra barnets family_member-række", {
+  fm <- data.frame(
+    family_id = c(1L, 1L), person_id = c(10L, 20L),
+    rolle = c("partner", "barn"), ordinal = c(NA, NA),
+    konfidens = c(NA, "sandsynlig"), stringsAsFactors = FALSE)
+  out <- derive_our_pc(fm)
+  expect_equal(nrow(out), 1L)
+  expect_equal(out$child_id, 20L)
+  expect_equal(out$parent_id, 10L)
+  expect_equal(out$konfidens, "sandsynlig")
+})
+
+test_that("derive_our_pc returnerer velformet tom data.frame med konfidens-kolonne", {
+  fm <- data.frame(family_id = integer(0), person_id = integer(0),
+                   rolle = character(0), ordinal = integer(0),
+                   konfidens = character(0), stringsAsFactors = FALSE)
+  out <- derive_our_pc(fm)
+  expect_s3_class(out, "data.frame")
+  expect_equal(nrow(out), 0L)
+  expect_true("konfidens" %in% names(out))
+})
+
+test_that("derive_our_pc håndterer flere børn i samme familie med forskellig konfidens", {
+  fm <- data.frame(
+    family_id = c(1L, 1L, 1L),
+    person_id = c(10L, 20L, 21L),
+    rolle = c("partner", "barn", "barn"),
+    ordinal = c(NA, NA, NA),
+    konfidens = c(NA, "sikker", "omstridt"), stringsAsFactors = FALSE)
+  out <- derive_our_pc(fm)
+  expect_equal(nrow(out), 2L)
+  expect_equal(out$konfidens[out$child_id == 20L], "sikker")
+  expect_equal(out$konfidens[out$child_id == 21L], "omstridt")
+})
