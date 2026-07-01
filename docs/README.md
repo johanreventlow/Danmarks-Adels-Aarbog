@@ -1,0 +1,65 @@
+# Dokumentationsindeks
+
+Digital følgesvend til Danmarks Adels Aarbog (PoC: familien Reventlow). Denne fil
+sorterer dokumentationen efter *hvad den er til* — så gældende arkitektur ikke drukner
+i historiske planer og afsluttede reviews.
+
+---
+
+## 📌 Læs disse først
+
+| Dokument | Hvad |
+|---|---|
+| [`../claude.md`](../claude.md) | Projekt-handoff: vision, arkitektur, invarianter (§3 er ufravigelige), aktuel tilstand. |
+| [`../datamodel-oversigt.md`](../datamodel-oversigt.md) | **Autoritativ** konceptuel modelbeskrivelse — *hvorfor* modellen ser sådan ud. |
+| [`database-current-state.md`](database-current-state.md) | **Hvad er faktisk i prod nu** + hvilke SQL-filer der er autoritative + deploy-procedure. |
+
+## 🟢 Aktuel status & løbende log
+
+| Dokument | Hvad |
+|---|---|
+| [`changelog.md`](changelog.md) | Kronologisk log: hvad ændrede sig, fejl fanget, reviews, testniveau, prod-status. Nyeste øverst. |
+| [`decisions.md`](decisions.md) | Arkitektur-beslutningslog: ikke-oplagte valg + hvorfor alternativer blev fravalgt. |
+
+## 🗄️ Skema & database (autoritative filer i repo-roden)
+
+| Fil | Rolle |
+|---|---|
+| [`../schema.sql`](../schema.sql) | Source of truth for hele skemaet. |
+| [`../db-migrations.sql`](../db-migrations.sql) | Idempotente additive migrationer oven på en deployet base. |
+| [`../db-rls.sql`](../db-rls.sql) | RLS-lag (anon-tier live; se `database-current-state.md`). |
+| [`../db-verify.sql`](../db-verify.sql) | Adfærds-verifikation (asserts efter deploy). |
+
+## 🔧 Data-pipelines
+
+| Dokument | Hvad |
+|---|---|
+| [`daa-extraction-archetype.md`](daa-extraction-archetype.md) | `/daa-extract` — parser DAA-stamtavle-PDF → datamodel. |
+| [`daa-presens-archetype.md`](daa-presens-archetype.md) | `/daa-presens` — parser præsensliste (nulevende medlemmer). |
+| [`tng-qa-koersel.md`](tng-qa-koersel.md) | TNG-QA-pipeline (`R/tng-qa/`): read-only QA af relationer/datoer mod et TNG-dump. |
+
+## 🗺️ Roadmaps
+
+| Dokument | Hvad |
+|---|---|
+| [`moed-en-slaegtning-roadmap.md`](moed-en-slaegtning-roadmap.md) | Telefon-til-telefon slægtskab ved fysisk møde (QR → BLE → UWB). |
+
+---
+
+## 🗂️ Historiske artefakter (kontekst, ikke gældende sandhed)
+
+Afsluttede planer, specs og reviews. Værdifulde som *hvorfor blev det gjort sådan*,
+men **ikke** kilde til aktuel tilstand — brug changelog + `database-current-state.md` til det.
+
+- **`reviews/`** — afsluttede review-runder (dual-review Claude+Codex, QA-rapporter).
+  Fx `09-versionering-hyperlinks-db.md`, `10-app-lag-hyperlinks.md`.
+- **`superpowers/plans/`** — implementeringsplaner (én pr. feature, tidsstemplet).
+- **`superpowers/specs/`** — design-specs der gik forud for planerne.
+- **`tng-qa-rapport-<dato>.md`** (i `reviews/`) — genererede QA-rapporter (GDPR-gated output).
+
+---
+
+## App-lag
+
+- **`../mobile/`** — React Native / Expo-app (redaktør + publikum). Se [`../mobile/README.md`](../mobile/README.md).
+- **`../web/`** — web-skive (TypeScript/React + Supabase).

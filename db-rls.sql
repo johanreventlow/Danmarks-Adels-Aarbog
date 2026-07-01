@@ -7,14 +7,22 @@
 --  skjulning oven på. Personbundne rækker (slægtskab, narrativ, fakta) gates på
 --  den refererede persons synlighed.
 --
---  ⚠️  IKKE ANVENDT ENDNU. Dette er et review-artefakt. FØR det køres mod den
---      LEVENDE Supabase-base:
---        1. Kør mod en KOPI/branch-base og verificér at app-skiven stadig loader
---           (den vil herefter kun se afdøde/ikke-private personer via anon-nøglen —
---           levende presens-medlemmer bliver USYNLIGE for anon, hvilket er hensigten).
+--  ✅  ANVENDT I PROD (anon-tier) siden 2026-06-25 — kørt via work/rls_deploy.R.
+--      Verificeret som anon: 893 afdøde synlige, 0 levende lækket, den midlertidige
+--      dev_anon_read (USING true) droppet på alle tabeller. Deny-all-RLS på historik-
+--      tabellerne kom til med versioneringslaget (2026-06-30). Se docs/changelog.md
+--      (2026-06-25 + 2026-06-30) og docs/database-current-state.md for den samlede
+--      prod-status. Denne fil forbliver source-of-truth for RLS-definitionen.
+--
+--  ⚠️  FØR du kører ÆNDRINGER i denne fil mod den LEVENDE base igen:
+--        1. Kør mod en KOPI/branch-base (eller lokal prod-kopi) og verificér at app-
+--           skiven stadig loader — anon ser kun afdøde/ikke-private; levende presens-
+--           medlemmer er USYNLIGE for anon (hensigten). En re-kørsel er skrevet
+--           idempotent (drop-if-exists), men verificér mod kopi først.
 --        2. Bekræft PostgREST-pagineringen stadig henter forventet antal rækker.
---        3. Et fremtidigt 'authenticated'-lag (medlem/forsker via profiles +
---           samtykke) tilføjer adgang til levende — se §"FREMTID" nederst.
+--        3. 'authenticated'-laget (medlem/forsker via profiles + samtykke) er stadig
+--           IKKE bygget — kun skitseret i §"FREMTID" nederst. Levende data er indtil
+--           da usynlige for alle uden redaktion-rolle.
 --      Kør i Supabase: SQL Editor -> indsæt -> Run. Teardown nederst.
 -- =====================================================================
 

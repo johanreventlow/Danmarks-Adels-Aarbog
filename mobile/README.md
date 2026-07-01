@@ -1,56 +1,93 @@
-# Welcome to your Expo app 👋
+# Følgesvend — mobil-app (React Native / Expo)
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Mobil-appen til **Danmarks Adels Aarbog-følgesvenden** (PoC: familien Reventlow). Samme
+Supabase-backend som `../web/`. To publikummer i én app:
 
-## Get started
+- **Publikum** (anon / medlem): browse personer, slægter, godser, våben — og
+  slægtskabsfinderen *"er vi i familie?"*.
+- **Redaktør** (login → `redaktion`-rolle): redigér oplysninger gennem en
+  dry-run → LIVE-gate, redaktionel ændringshistorik med fortryd, og `[[type:id|tekst]]`-
+  hyperlinks i fri-tekst-narrativer.
 
-1. Install dependencies
+> **Datamodel & backend-status:** se [`../docs/database-current-state.md`](../docs/database-current-state.md)
+> og [`../datamodel-oversigt.md`](../datamodel-oversigt.md). Invarianterne i
+> [`../claude.md`](../claude.md) §3 (evidens før konklusion, cache-felter regenereres,
+> GDPR via `person.levende`) gælder også her.
 
-   ```bash
-   npm install
-   ```
+---
 
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Kom i gang
 
 ```bash
-npm run reset-project
+npm install
+npm start          # expo start — vælg iOS / Android / web i outputtet
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Andre scripts (`package.json`):
 
-### Other setup steps
+| Script | Gør |
+|---|---|
+| `npm start` | Expo dev-server |
+| `npm run ios` / `npm run android` | Byg + kør på simulator/emulator/device |
+| `npm run web` | Kør som web (react-native-web) |
+| `npm run lint` | `expo lint` (ESLint) |
+| `npm test` | Jest (rene funktioner, mappere, datalag — ikke render/interaktion) |
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+---
 
-## Learn more
+## Miljøvariabler
 
-To learn more about developing your project with Expo, look at the following resources:
+Supabase-nøgler er **ikke** hardcoded. Sæt dem i `mobile/.env` (git-ignoreret) med
+`EXPO_PUBLIC_`-prefix, så de eksponeres i klient-bundlen:
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```
+EXPO_PUBLIC_SUPABASE_URL=https://<projekt>.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=<anon-nøgle>
+```
 
-## Join the community
+Mangler de, falder appen tilbage på et **offline-seed** (se `src/lib/supabase.ts`) — nyttigt
+til UI-arbejde uden netværk, men uden live-data. Brug **anon-nøglen**, ikke service-role:
+RLS sørger for at anon kun ser afdøde ikke-private personer (GDPR — se
+`database-current-state.md` §2).
 
-Join our community of developers creating universal apps.
+---
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Struktur (`src/`)
+
+| Mappe | Indhold |
+|---|---|
+| `app/` | Expo Router (file-based routing): `(tabs)`, `person/`, `estate(s)`, `redaktion/`, `arms`, `about`. |
+| `data/` | Datalag mod Supabase — bl.a. `relationship.ts` (bilineal slægtskabsfinder m. konfidens på stien). |
+| `lib/` | `supabase.ts` (klient + offline-seed), `mentions.ts` (`[[type:id\|tekst]]`-token-parser/encoder), auth. |
+| `store/` | Zustand-state (redaktion-write-flow m.m.). |
+| `components/` | UI, bl.a. `NarrativRenderer` (klikbare hyperlinks) + `MentionPicker` (@-vælger). |
+| `theme/` | Typografi/farver. |
+
+---
+
+## Supabase-kontrakt
+
+- **Læsning:** direkte via `@supabase/supabase-js` (PostgREST), gated af RLS. Paginér med
+  `.range()` — basen har >1000 rækker (default-loft er 1000).
+- **Skrivning (kun redaktør):** går gennem `red_*`-RPC'er (SECURITY DEFINER, rolle-gated),
+  aldrig direkte table-writes. Hver skrivning åbner et fortryd-bart `change_set`. Se
+  redaktions-flowet i `store/` + `SkrivePreviewSheet` (dry-run → LIVE).
+
+---
+
+## Fejlsøgning
+
+| Symptom | Sandsynlig årsag |
+|---|---|
+| Ingen data / kun seed-personer | `.env` mangler eller forkert nøgle → offline-seed-fallback. |
+| Tom liste selvom base har rækker | RLS: anon ser kun afdøde ikke-private. Log ind som redaktør for at se levende/private. |
+| Kun 1000 rækker hentet | Manglende `.range()`-paginering. |
+| Skrivning fejler med rolle-fejl | Bruger er ikke `redaktion` i `profiles`. |
+| Expo-API opfører sig uventet | Expo v56 har breaking changes — læs `https://docs.expo.dev/versions/v56.0.0/` (jf. `AGENTS.md`). |
+
+---
+
+## Bemærk
+
+Expo **v56** har brud ift. tidligere versioner. Læs de versionerede docs
+(`https://docs.expo.dev/versions/v56.0.0/`) før du skriver kode — se `AGENTS.md`.
