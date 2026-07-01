@@ -129,16 +129,36 @@ CSV mellem kørsler). Løsning: se "Pre-prod-run follow-ups" nedenfor.
 
 ---
 
+## Familie-corroboration (Fase 1)
+
+Trin 4b beriger review-køen med `familie_status`/`familie_stoette_antal`/
+`familie_detalje`: for en review-kandidat med en allerede `auto`-matchet
+forælder/barn tjekkes om TNG's egen familie-graf faktisk forbinder de to —
+se `docs/superpowers/specs/2026-07-01-tng-qa-relationel-corroboration-design.md`.
+
+**Tal-afstemning:** design-specens baggrundsafsnit nævner 185 bekræftede
+par (af 253 med en auto-matchet nabo), fundet ved en engangs-analyse UDEN
+konfidens-filter. Den faktiske Fase 1-kørsel (2026-07-01) viste i stedet
+**96 bekræftet / 157 modstridende** (samme 253 i alt). Forskellen er IKKE en
+regression — den skyldes at `family_corroboration()` (til forskel fra
+engangs-analysen) udelukker naboer hvor `family_member.konfidens=="omstridt"`
+(design-beslutning #3, ny i denne feature). Nogle af de tidligere "185
+bekræftede" byggede altså på omstridte forælder-barn-links, som nu korrekt
+falder ud af nævneren for "bekræftet" og tælles som "modstridende" i stedet.
+
+---
+
 ## Output-filer
 
-Alle tre filer er **git-ignorerede** (GDPR — indeholder eller afledede af
+Alle fire filer er **git-ignorerede** (GDPR — indeholder eller afledede af
 levende-persondata jf. invariant §8):
 
-| Fil                        | Indhold                                                |
-|----------------------------|--------------------------------------------------------|
-| `data/tng.duckdb`          | Lokal kopi af TNG-dump (MySQL → DuckDB)               |
-| `data/tng-crosswalk.csv`   | Mapping `person_id ↔ tng_id` med `score` og `tier`   |
-| `data/tng-review-queue.csv`| Subset af crosswalk med `tier == "review"`             |
+| Fil                            | Indhold                                                |
+|--------------------------------|--------------------------------------------------------|
+| `data/tng.duckdb`              | Lokal kopi af TNG-dump (MySQL → DuckDB)               |
+| `data/tng-crosswalk.csv`       | Mapping `person_id ↔ tng_id` med `score` og `tier`   |
+| `data/tng-review-queue.csv`    | Subset af crosswalk med `tier == "review"`, beriget med `familie_status`/`familie_stoette_antal`/`familie_detalje` (Fase 1) |
+| `data/tng-corroboration.csv`   | KUN bekræftede forælder/barn-kanter fra familie-corroboration (Fase 1); forbruges endnu ikke af noget (Fase 2 er blokeret, se design-spec) |
 
 Kommittable rapport-filer skrives til `docs/reviews/tng-qa-rapport-DATO.md`
 (se GDPR PII-gate nedenfor).
