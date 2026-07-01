@@ -43,7 +43,7 @@ server <- function(input, output, session) {
 
   output$tabel <- renderDT({
     datatable(rq()[, vis_kolonner], selection = "single", rownames = FALSE,
-             options = list(pageLength = 20)) |>
+             options = list(pageLength = 10)) |>
       formatStyle("familie_status", backgroundColor = styleEqual(
         c("bekraeftet", "modstridende", "ingen_auto_nabo"),
         c("#d4edda", "#f8d7da", "#f0f0f0")))
