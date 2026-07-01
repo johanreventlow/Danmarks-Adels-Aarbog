@@ -95,6 +95,9 @@ rq <- merge(rq, familie_summary, by = c("person_id", "tng_id"), all.x = TRUE, so
 rq$familie_status[is.na(rq$familie_status)] <- "ingen_auto_nabo"
 rq$familie_stoette_antal[is.na(rq$familie_stoette_antal)] <- 0L
 rq$familie_detalje[is.na(rq$familie_detalje)] <- ""
+# Berig med navne/datoer til menneskelig gennemgang (Shiny-app + manuel
+# CSV-redigering) — samme lokale, git-ignorerede fil, ingen ny PII-eksponering.
+rq <- enrich_review_queue(rq, ours$person, ours$external_id, tng_people)
 write.csv(rq, rq_csv, row.names = FALSE)
 
 # ---- Trin 6: sammenlign + rapport -----------------------------------------
