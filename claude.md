@@ -64,9 +64,11 @@ Kernefunktionen er **"er vi i familie?"** — slægtskabssøgning på tværs af 
   klikbar slægtskabs-visning kører (web/). **Ægtefælle-rygrad for HELE slægten** gjort.
   `boern` udledes nu deterministisk i `validate.py`. Se `docs/changelog.md` +
   `docs/decisions.md`. Parsere: `/daa-extract` (stamtavle), `/daa-presens` (præsensliste).
-- **Endnu ikke lavet:** era-tie-break for kryds-gren-boern (97 fejl, rammer også linje V);
-  deterministisk aegteskaber-udtræk (~9% LLM-miss); dekorations-nøgle (fra anden
-  DAA-udgave); rigtig GEDCOM/TNG-import (enrichment); multimedie/Storage.
+- **Endnu ikke lavet:** deterministisk aegteskaber-udtræk (~9% LLM-miss); dekorations-nøgle
+  (fra anden DAA-udgave); rigtig GEDCOM/TNG-import (enrichment); multimedie/Storage.
+  (era-tie-break/kryds-gren-boern viste sig at være samme rodårsag som
+  flere-forældrepar-fejlen nedenfor og er løst som sideeffekt — mobil-guard i
+  `buildModel.ts` er formentlig overflødig, men ikke fjernet.)
 - **Load:** `supabase_load.R` er erstattet af `/daa-extract`'s `load_daa.R` (bulk, ~14 sek).
 - **Versionering + hyperlinks (DB-lag) LIVE i prod (2026-06-30):** fortryd-bar redaktionel
   ændringshistorik (`change_set`/`change_event` + generisk `log_change`-trigger på 22 tabeller +
@@ -93,6 +95,12 @@ Kernefunktionen er **"er vi i familie?"** — slægtskabssøgning på tværs af 
   GDPR-sikker rapport (`docs/reviews/tng-qa-rapport-<dato>.md`, input-gating PII-gate) der
   lister relations-/dato-uenigheder til review. Udestår: håndlabelt facit-sæt, `review_cutoff`-
   kalibrering, review-kø-persistens. Se `docs/tng-qa-koersel.md`.
+- **Flere-forældrepar datafix (2026-07-01):** 90 personer havde beviseligt modstridende
+  forældrepar (163 fejlagtige `barn`-links af 559) pga. et upålideligt LLM-felt der blev
+  afprøvet FØR forælderens egen linje i `load_daa.R`'s child-matching. Rettet i loaderen
+  (rækkefølge byttet) + prod-data korrigeret via versioneret SQL-sletning (`change_set` #3,
+  fortrydbart). 4 personer uden linje-match + 46 nu-forældreløse personer kræver manuel
+  opfølgning. Se `docs/reviews/11-flere-foraeldre-datafix.md`.
 
 ---
 

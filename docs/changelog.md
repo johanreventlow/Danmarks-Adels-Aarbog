@@ -1,5 +1,20 @@
 # Changelog
 
+## Flere-forældrepar datafix (2026-07-01)
+* **Bruger observerede** at personer så ud til at have flere forældrepar. Undersøgt:
+  90 personer med beviseligt modstridende forældrepar, 163 fejlagtige `barn`-links i alt
+  (af 559). Rodårsag: `load_daa.R`'s child-linje-fallback prøvede et upålideligt LLM-udtrukket
+  `boern.linje`-felt FØR forælderens egen linje — når feltet var forurenet, matchede et
+  genbrugt løbenummer nogle gange en helt anden gren/generation.
+* **Rettet:** `load_daa.R:246-260` dropper nu `stated`-fallback helt, matcher
+  udelukkende egen linje (så en gen-indlæsning ikke kan genskabe fejlen). Prod-data
+  korrigeret ved SQL-sletning af de 163 spuriøse rækker (kørt som versioneret `change_set`
+  #3, fuldt fortrydbart), lokal backup af `family_member` gemt i `work/`. 4 personer uden
+  linje-match + 46 nu-forældreløse personer er sandsynligvis rescuable via en målrettet
+  gen-kørsel af den fixede loader (ikke gjort her — kræver egen plan). Sideeffekt: løste
+  også den tidligere kendte era-tie-break-fejl (børn født før forældre) fuldt ud.
+  Se `docs/reviews/11-flere-foraeldre-datafix.md`.
+
 ## Versionering + hyperlinks — real-device Expo-verifikation + DB-bugfix (2026-07-01)
 * **App-lag afprøvet på ægte iPhone-simulator mod rigtig prod-Supabase** (`idb`-baserede taps,
   ikke kun statisk `tsc`/jest). Konfirmeret empirisk: hyperlink-rendering/navigation,

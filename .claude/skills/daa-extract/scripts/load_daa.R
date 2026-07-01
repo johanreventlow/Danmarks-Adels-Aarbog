@@ -243,16 +243,19 @@ tryCatch({
     if (is.list(b) && !is.null(b$nr_range)) {
       fam <- if (length(fams)) fams[[1]] else add_family("union")
       if (!length(fams)) add_member(fam, pid, "partner")
-      stated <- g(b, "linje", rec$linje); rng <- b$nr_range
+      rng <- b$nr_range
       for (n in seq(rng[[1]], rng[[2]])) {
-        # boern.linje er ofte forurenet (kuld-markør forvekslet med linje). Stol
-        # kun på den hvis den faktisk har barnets nr; ellers brug forælderens linje
-        # (børn bliver i grenen). Bevarer ægte kryds-linje (stated linje har nr'et).
-        ck <- NULL
-        for (cand in c(stated, rec$linje)) {
-          k2 <- key(cand, as.character(n))
-          if (exists(k2, envir = pmap, inherits = FALSE)) { ck <- k2; break }
-        }
+        # boern.linje ("stated") er ofte forurenet (kuld-markør forvekslet med
+        # linje) og DAA's løbenumre genbruges per gren — en forurenet stated-linje
+        # matcher derfor nogle gange tilfældigt en helt anden gren/generation
+        # (fundet i prod: nr. 29 findes i linje I og blev fejlagtigt "fundet" via
+        # en forurenet stated-linje for linje IV/V-forældre; ramte 163 barn-links,
+        # se docs/reviews/11-flere-foraeldre-datafix.md). Match derfor UDELUKKENDE
+        # inden for forælderens egen linje (børn bliver i grenen) — ingen
+        # stated-fallback. Sjældne ægte kryds-linje-børn fanges ikke af v1 og må
+        # tilføjes manuelt; det er sikrere end den forurenede heuristik.
+        k2 <- key(rec$linje, as.character(n))
+        ck <- if (exists(k2, envir = pmap, inherits = FALSE)) k2 else NULL
         if (!is.null(ck)) {
           konf <- if (isTRUE(get0(ck, envir = umap, inherits = FALSE))) "formodet" else NA
           add_member(fam, get(ck, envir = pmap), "barn", konfidens = konf)
