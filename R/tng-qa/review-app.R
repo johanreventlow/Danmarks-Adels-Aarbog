@@ -19,14 +19,14 @@ rq_csv <- file.path("..", "..", "data", "tng-review-queue.csv")
 ui <- fluidPage(
   titlePanel("TNG-QA — gennemgå usikre kandidater"),
   fluidRow(column(12, textOutput("fremgang"))),
+  fluidRow(column(12, DTOutput("tabel"))),
+  hr(),
   fluidRow(
-    column(8, DTOutput("tabel")),
-    column(4,
-      h4("Beslutning for valgt kandidat"),
-      uiOutput("valgt_info"),
-      radioButtons("afgoerelse", "Afgørelse:",
-                   choices = c("(ingen endnu)" = "", "Bekræft" = "bekræft",
-                              "Afvis" = "afvis", "Andet TNG-id" = "ny-id")),
+    column(7, h4("Valgt kandidat"), uiOutput("valgt_info")),
+    column(5,
+      selectInput("afgoerelse", "Afgørelse:",
+                 choices = c("(ingen endnu)" = "", "Bekræft" = "bekræft",
+                            "Afvis" = "afvis", "Andet TNG-id" = "ny-id")),
       conditionalPanel("input.afgoerelse == 'ny-id'",
                        textInput("ny_tng_id", "Nyt TNG-id (fx I1234):")),
       actionButton("gem", "Gem beslutning", class = "btn-primary")
@@ -69,7 +69,7 @@ server <- function(input, output, session) {
   observeEvent(valgt_raekke(), {
     r <- valgt_raekke()
     if (!is.null(r)) {
-      updateRadioButtons(session, "afgoerelse", selected = if (nzchar(r$afgoerelse)) r$afgoerelse else "")
+      updateSelectInput(session, "afgoerelse", selected = if (nzchar(r$afgoerelse)) r$afgoerelse else "")
       updateTextInput(session, "ny_tng_id", value = r$ny_tng_id)
     }
   })
