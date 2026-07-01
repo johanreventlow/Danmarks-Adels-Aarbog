@@ -80,6 +80,22 @@ export function mapAppPersons(
     }));
 }
 
+// Sorterer forældre (partner-rolle-medlemmer af en familie) så far kommer før mor —
+// DAA er patrilineær, linje/nr følger mandslinjen. `ordinal` er ægteskabs-nummer
+// (1./2. ægteskab for DEN person), ikke en far/mor-markør: to forældre har typisk
+// begge ordinal=1 for deres respektive første ægteskab, så en ren ordinal-sortering
+// er vilkårlig og kan lige så godt vise mor som far i stamtræets forælder-slot.
+// Kun tie-breaker for to forældre af samme/ukendt køn.
+export function compareParentOrder(
+  a: { person_id: number | string; ordinal: number | null },
+  b: { person_id: number | string; ordinal: number | null },
+  koenById: Record<string, string | null>,
+): number {
+  const rank = (k: string | null) => (k === 'mand' ? 0 : k === 'kvinde' ? 1 : 2);
+  const koenDiff = rank(koenById[String(a.person_id)] ?? null) - rank(koenById[String(b.person_id)] ?? null);
+  return koenDiff !== 0 ? koenDiff : (a.ordinal || 0) - (b.ordinal || 0);
+}
+
 // Henter alt fra Supabase og bygger mellem-formen. Kaster ved fejl — kalderen falder tilbage
 // til offline-seed.
 export async function loadFromSupabase(opts?: { includePrivat?: boolean }): Promise<LoadResult> {
@@ -126,6 +142,12 @@ export async function loadFromSupabase(opts?: { includePrivat?: boolean }): Prom
 
   const appPersons = mapAppPersons(persons || [], bioBy, opts?.includePrivat ?? false);
 
+  // koen pr. person — bruges KUN til at afgøre forælder-rækkefølge nedenfor (ordinal er
+  // ægteskabs-nummer, ikke far/mor-markør; to forældre i samme familie har typisk begge
+  // ordinal=1 for deres respektive første ægteskab, så en ordinal-sortering er vilkårlig).
+  const koenById: Record<string, string | null> = {};
+  appPersons.forEach((p) => { koenById[p.id] = p.koen ?? null; });
+
   // Familie-nav → unions + parentChild (partner × barn).
   const byFam: Record<string, RawMember[]> = {};
   (members || []).forEach((m) => {
@@ -137,7 +159,7 @@ export async function loadFromSupabase(opts?: { includePrivat?: boolean }): Prom
     const mem = byFam[fid];
     const parents = mem
       .filter((m) => PR.includes(String(m.rolle || '').toLowerCase()))
-      .sort((a, b) => (a.ordinal || 0) - (b.ordinal || 0));
+      .sort((a, b) => compareParentOrder(a, b, koenById));
     // Sortér børn efter ordinal — PostgREST har ingen garanteret rækkefølge, så uden dette
     // ville søskende-rækkefølgen være udefineret (og kunne skifte mellem loads).
     const children = mem

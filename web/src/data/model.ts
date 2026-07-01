@@ -26,6 +26,22 @@ type RawPerson = {
 };
 type RawMember = { family_id: number | string; person_id: number | string; rolle: string | null; ordinal: number | null; konfidens: string | null };
 
+// Sorterer forældre (partner-rolle-medlemmer af en familie) så far kommer før mor —
+// DAA er patrilineær, linje/nr følger mandslinjen. `ordinal` er ægteskabs-nummer
+// (1./2. ægteskab for DEN person), ikke en far/mor-markør: to forældre har typisk
+// begge ordinal=1 for deres respektive første ægteskab, så en ren ordinal-sortering
+// er vilkårlig og kan lige så godt vise mor som far i stamtræets forælder-slot.
+// Kun tie-breaker for to forældre af samme/ukendt køn. Matcher mobile/src/data/load.ts.
+export function compareParentOrder(
+  a: { person_id: number | string; ordinal: number | null },
+  b: { person_id: number | string; ordinal: number | null },
+  koenById: Record<string, string | null>,
+): number {
+  const rank = (k: string | null) => (k === 'mand' ? 0 : k === 'kvinde' ? 1 : 2);
+  const koenDiff = rank(koenById[String(a.person_id)] ?? null) - rank(koenById[String(b.person_id)] ?? null);
+  return koenDiff !== 0 ? koenDiff : (a.ordinal ?? 0) - (b.ordinal ?? 0);
+}
+
 export async function loadModel(): Promise<Model> {
   const [persons, members] = await Promise.all([
     getAll<RawPerson>(() => supabase.from('person').select('id,visning_navn,visning_foedt,visning_doed,visning_titel,koen,privat')),
@@ -44,6 +60,12 @@ export async function loadModel(): Promise<Model> {
     koen: normalizeKoen(p.koen),
   }));
 
+  // koen pr. person — bruges KUN til at afgøre forælder-rækkefølge nedenfor (ordinal er
+  // ægteskabs-nummer, ikke far/mor-markør; to forældre i samme familie har typisk begge
+  // ordinal=1 for deres respektive første ægteskab, så en ordinal-sortering er vilkårlig).
+  const koenById: Record<string, string | null> = {};
+  appPersons.forEach((p) => { koenById[p.id] = p.koen ?? null; });
+
   // Familie-medlemmer → unions (partner × partner) + parentChild (partner → barn).
   const byFam: Record<string, RawMember[]> = {};
   members.forEach((m) => { (byFam[String(m.family_id)] ??= []).push(m); });
@@ -53,7 +75,7 @@ export async function loadModel(): Promise<Model> {
     const mem = byFam[fid];
     const parents = mem
       .filter((m) => PARTNER_ROLLER.includes(String(m.rolle ?? '').toLowerCase()))
-      .sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0));
+      .sort((a, b) => compareParentOrder(a, b, koenById));
     const children = mem
       .filter((m) => String(m.rolle ?? '').toLowerCase() === BARN_ROLLE)
       .sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0));
