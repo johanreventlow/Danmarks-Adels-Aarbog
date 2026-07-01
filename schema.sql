@@ -1064,9 +1064,18 @@ BEGIN
   -- Kun kolonner i snapshot'et: INSERT lister dem eksplicit (skip_cols får DEFAULT, ikke NULL),
   -- ON CONFLICT opdaterer kun dem (skip_cols bevares). Undgår NOT NULL-crash på fx profiles.rolle
   -- og rul-tilbage af person.visning_*-cache. review09 H2.
+  -- Ekskluder desuden GENERATED ALWAYS-kolonner (fx narrative.fts) — Postgres tillader IKKE en
+  -- eksplicit værdi for dem i INSERT/UPDATE, uanset skip_cols; de genberegnes automatisk.
+  -- Uden dette fejler fortryd hårdt for enhver tabel med en generated-kolonne (fundet ved
+  -- manuel Expo-test 2026-07-01, ikke af statisk review).
   SELECT string_agg(quote_ident(key),','), string_agg(format('%I = excluded.%I', key, key), ',')
     INTO v_cols, v_set
-    FROM jsonb_object_keys(p_row) AS key;
+    FROM jsonb_object_keys(p_row) AS key
+    WHERE NOT EXISTS (
+      SELECT 1 FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
+      WHERE c.relnamespace = 'public'::regnamespace AND c.relname = p_tabel
+        AND a.attname = key AND a.attgenerated = 's'
+    );
   EXECUTE format(
     'INSERT INTO %1$I (%2$s) SELECT %2$s FROM jsonb_populate_record(null::%1$I, $1) ON CONFLICT (%3$s) DO UPDATE SET %4$s',
     p_tabel, v_cols, v_pk_cols, v_set) USING p_row;

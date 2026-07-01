@@ -1,5 +1,23 @@
 # Changelog
 
+## Versionering + hyperlinks — real-device Expo-verifikation + DB-bugfix (2026-07-01)
+* **App-lag afprøvet på ægte iPhone-simulator mod rigtig prod-Supabase** (`idb`-baserede taps,
+  ikke kun statisk `tsc`/jest). Konfirmeret empirisk: hyperlink-rendering/navigation,
+  bio-klamp, MentionPicker insert-at-cursor, fortryd-flow, redo-knap på reversal-post.
+  Konflikt-retry (B9-divergens) forbliver utestet.
+* **DB-bug fundet + rettet:** `_version_upsert_row` (fortryd-restore-helper) manglede eksklusion
+  af `GENERATED ALWAYS`-kolonner fra sin dynamiske `INSERT`/`ON CONFLICT`-kolonneliste —
+  Postgres tillader slet ikke en eksplicit værdi for disse. Ramte `narrative.fts` (aktiv
+  fuldtekstsøgning i prod, selvom CLAUDE.md §9 hævdede den var kommenteret ud — schema-drift).
+  Konsekvens: fortryd fejlede hårdt for ENHVER tabel med en generated-kolonne. Transaktionen
+  rullede korrekt atomisk tilbage (ingen delvis korruption), fundet + rettet + genverificeret
+  ved en ægte LIVE-testskrivning + fortryd på en obskur testperson (godkendt af bruger).
+  Migration anvendt til prod; `schema.sql`/`db-migrations.sql` opdateret.
+* **UI-bug fundet + rettet (brugerfund):** dry-run-toggle-switchen i `redaktion/person/[id].tsx`
+  havde omvendt polaritet ift. den identiske switch på Konto-/dashboard-skærmen — samme felt,
+  modsat "til højre = sikker"-betydning afhængig af skærm.
+* Se `docs/reviews/10-app-lag-hyperlinks.md` for fuld verifikations-log.
+
 ## Versionering + hyperlinks (App-lag, RN/Expo) — kode-komplet, dual-reviewet, IKKE Expo-kørt (2026-06-30)
 * **Hyperlink-tokens i narrativ:** `mentions.ts` (parser/encoder, ren funktion, 17 jest-tests)
   + `NarrativRenderer` (klikbar visning, wrapper `Typography.Body` 1:1) + `MentionPicker`

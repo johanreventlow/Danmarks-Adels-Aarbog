@@ -79,11 +79,15 @@ Kernefunktionen er **"er vi i familie?"** — slægtskabssøgning på tværs af 
   `mentions.ts` (token-parser/encoder) + `NarrativRenderer` + `MentionPicker` (@-vælger) +
   redaktionel historik-skærm m. fortryd (ruter gennem `SkrivePreviewSheet`-dry-run/LIVE-flow).
   Dual-reviewet (Claude+Codex, cycle 10: H1 escape-asymmetri, H2 omvendt `reverteret`-semantik,
-  M3 fejl-svælgning) + `/simplify`. `tsc`/jest grøn (197/197). **Delvist Expo-verificeret** mod
-  iOS-simulator + rigtig prod-Supabase (`idb`-baserede taps): token-rendering/navigation og
-  bio-klamp KONFIRMERET empirisk (real device); MentionPicker/fortryd/konflikt-retry/redo-knap
-  forbliver UTESTEDE — blokeret af redaktør-login (kræver adgangskode, ikke indhentet). Se
-  `docs/reviews/10-app-lag-hyperlinks.md` §"Manuel Expo-verifikation".
+  M3 fejl-svælgning) + `/simplify`. `tsc`/jest grøn (197/197). **Expo-verificeret mod iOS-
+  simulator + rigtig prod-Supabase** (`idb`-baserede taps, redaktør-login af bruger, én godkendt
+  LIVE-testskrivning): token-rendering/navigation, bio-klamp, MentionPicker insert-at-cursor,
+  fortryd-flow og redo-knap på reversal-post ALLE konfirmeret empirisk. Konflikt-retry
+  (item 5, kræver konstrueret B9-divergens) forbliver utestet. Fandt undervejs: (1) omvendt
+  dry-run-toggle-polaritet i person-editoren (UI-bug, rettet), (2) `_version_upsert_row`
+  manglede eksklusion af `GENERATED ALWAYS`-kolonner — gjorde fortryd strukturelt knækket for
+  enhver tabel med en sådan kolonne (`narrative.fts` i praksis); migration anvendt til prod +
+  schema.sql/db-migrations.sql. Se `docs/reviews/10-app-lag-hyperlinks.md`.
 - **TNG-QA-pipeline komplet (2026-06-30):** read-only R-pipeline (`R/tng-qa/`, Trin 1-6)
   matcher vores personer mod et TNG-dump (auto-tier margin-kalibreret) og producerer en
   GDPR-sikker rapport (`docs/reviews/tng-qa-rapport-<dato>.md`, input-gating PII-gate) der

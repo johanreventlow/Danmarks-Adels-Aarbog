@@ -161,15 +161,45 @@ dry-run-toggle-polaritet" nedenfor.
    valgte en træffer — token `[[person:302|Theodor]]` blev indsat MIDT i den eksisterende
    bio-tekst ved markørens faktiske position (ikke for enden), og markøren flyttede sig
    korrekt til lige efter det indsatte token. Insert-at-cursor virker som tilsigtet.
-4. **❌ STADIG IKKE TESTET — ny blocker (ikke længere login).** `select count(*) from
-   change_set` mod prod → **0 rækker**. Ingen redaktør har nogensinde lavet en LIVE-skrivning
-   gennem app'en endnu, så `hist_for_subjekt` returnerer tomt for enhver person (bekræftet:
-   tom, fejlfri "Ingen ændringer registreret."-tilstand for person 111). Fortryd-flowet kan
-   ikke afprøves uden FØRST at oprette mindst én reel `change_set` via en LIVE-skrivning —
-   hvilket kræver separat eksplicit godkendelse (se global regel om git/prod-gates), ikke kun
-   login. Ren visnings-/fejl-fri tomtilstand er dog selv verificeret.
-5. **❌ IKKE TESTET — samme blocker** (kræver mindst to konkurrerende `change_set`-rækker).
-6. **❌ IKKE TESTET — samme blocker** (kræver en allerede-fortrudt `change_set`-række).
+**Opdateret igen — brugeren godkendte separat én minimal LIVE-testskrivning** (append af en
+testsætning til `narrative` for en obskur 1600-talsperson, id 111 "Abel"), specifikt for at
+skabe den første nogensinde `change_set`-række i prod og dermed kunne teste fortryd-flowet.
+
+4. **🐛→✅ KONFIRMERET, men afslørede en REEL PROD-BUG undervejs.** Første fortryd-forsøg
+   (`red_fortryd_change_set`, `p_change_set_id: 1`) fejlede hårdt med en ægte Postgres-fejl:
+   `cannot insert a non-DEFAULT value into column "fts"`. Rodårsag (verificeret i live skema):
+   `narrative.fts` er en `GENERATED ALWAYS AS (to_tsvector('danish', tekst)) STORED`-kolonne
+   — aktiv i prod, selvom `CLAUDE.md` §9 hævder fuldtekstindekset er "kommenteret ud" (endnu
+   et schema-drift-fund). `_version_upsert_row` bygger sin `INSERT`/`ON CONFLICT`-kolonneliste
+   direkte fra `jsonb_object_keys(p_row)` og ekskluderede kun de kendte `skip_cols`
+   (review09 H2) — IKKE generated-kolonner generelt. Det betyder **enhver tabel med en
+   generated-kolonne har en strukturelt knækket fortryd-sti**, ikke kun `narrative`.
+   Transaktionen rullede korrekt atomisk tilbage (Postgres tillader slet ikke handlingen) —
+   ingen delvis korruption, `change_set.reverterer_id` forblev `null`, verificeret via
+   read-only SQL. **Fix anvendt til prod** (`version_upsert_row_exclude_generated_cols`-
+   migration, `schema.sql`+`db-migrations.sql` opdateret): `WHERE NOT EXISTS (SELECT 1 FROM
+   pg_attribute a JOIN pg_class c ... WHERE ... a.attgenerated = 's')` filtrerer nu
+   kolonnelisten. Genkørt fortryd efter fix: **lykkedes** — `change_set #2` oprettet med
+   `reverterer_id: 1`, Abels narrativ-tekst genoprettet til nøjagtig original ordlyd
+   (verificeret via read-only SQL, ikke kun UI).
+5. **❌ IKKE TESTET.** Kræver en reel B9-divergens (to konkurrerende ændringer af samme
+   underliggende data) — vurderet for høj yderligere prod-risiko til at konstruere i denne
+   omgang uden en ny, separat godkendelse.
+6. **✅ KONFIRMERET (empirisk, ægte data).** Efter fortryd viste historik-listen korrekt: den
+   ORIGINALE post ("Opdaterede narrativ...") fik label "Fortrudt" (inaktiv, ingen knap) —
+   H2-fixets `revertedIds`-beregning virker på ægte data. Reversal-posten ("Fortrød:
+   Opdaterede narrativ...") viste en AKTIV "Fortryd"-knap — bekræfter at dette teknisk er en
+   gyldig redo-handling, som forudset i H2-analysen; knappen er fortsat uændret-mærket
+   (ingen "Fortryd fortrydelsen"-tekst), men adfærden er nu verificeret korrekt, ikke kun
+   antaget.
+
+**To reelle nær-uheld under manuel test (proces-læring, ikke app-bugs).** Under interaktion
+via `idb`-baserede taps ramte to koordinat-fejl utilsigtet destruktive/forkerte forhåndsvisninger
+(`red_slet_familie_link` og `red_set_koen`) — begge fanget og annulleret FØR "Skriv til basen",
+takket være at `SkrivePreviewSheet` altid viser den eksakte RPC + argumenter før udførelse.
+Ingen af de to nåede databasen. Læring: efter enhver tekstindtastning der kan ændre layoutets
+højde, skal knap-koordinater genhentes friskt (`idb ui describe-all`) umiddelbart før tryk —
+et screenshot taget selv ét kommando tidligere kan være forældet nok til at ramme forkert.
 
 **Fund: omvendt dry-run-toggle-polaritet (brugerfund, rettet samme session).** Switchen i
 `redaktion/person/[id].tsx` var kablet `value={!dryRun}` (ON/højre = LIVE), mens den
@@ -180,8 +210,13 @@ dette ved selvsyn ("den lille pil... er anvendt inkonsekvent"). Rettet i `ecad25
 byttet om for uændret visuelt resultat). Ikke en del af dual-review cycle 10 — fanget først
 ved faktisk brug af appen, hvilket er præcis den slags fund statisk review ikke kan nå.
 
-**Konklusion:** punkt 1-3 er nu fuldt empirisk verificeret på et rigtigt device (inkl. med
-ægte redaktør-login). Punkt 4-6 kræver at mindst én reel LIVE-skrivning foretages i prod
-først (0 eksisterende change_set-rækker) — en handling der kræver separat eksplicit
-godkendelse, ikke kun adgang. Et ægte UI-bug (toggle-polaritet) blev fundet og rettet
-undervejs, udenfor den oprindelige punch-list.
+**Konklusion:** punkt 1, 2, 3, 4 og 6 er nu fuldt empirisk verificeret på et rigtigt device
+mod ægte prod-data (inkl. redaktør-login og én godkendt LIVE-testskrivning). Punkt 5
+(konflikt-retry) forbliver utestet — kræver en konstrueret B9-divergens, vurderet til at
+kræve separat ny godkendelse. To ægte fund undervejs, ingen del af den oprindelige
+dual-review cycle 10, begge kun opdaget ved faktisk kørsel:
+1. **UI-bug** (brugerfund): omvendt dry-run-toggle-polaritet i `redaktion/person/[id].tsx` — rettet.
+2. **DB-bug** (HIGH, hard-crash-bucket): `_version_upsert_row` manglede eksklusion af
+   `GENERATED ALWAYS`-kolonner — gjorde fortryd strukturelt knækket for enhver tabel med en
+   sådan kolonne (`narrative.fts` i praksis). Migration anvendt til prod + `schema.sql`/
+   `db-migrations.sql` opdateret; genkørt fortryd bekræftet succesfuld efter fix.
