@@ -40,6 +40,12 @@ scon <- connect_readonly(); assert_readonly(scon)
 ours <- pull_ours(scon)
 dbDisconnect(scon)  # luk straks efter sidste brug (samme on.exit-fælde som tcon)
 
+# our_pc/tngc flyttet op fra Trin 6: Trin 4b (nedenfor) skal bruge dem FØR
+# Trin 5's merge, og de afhænger kun af ours/tng_families/tng_children —
+# ikke af crosswalk. our_pairs/our_attr forbliver ved Trin 6 (ubrugt af 4b).
+our_pc <- derive_our_pc(ours$family_member)
+tngc   <- reshape_tng_children(tng_children, tng_families)
+
 # ---- Trin 3-4: normalisér + match -----------------------------------------
 # Byggeklodser: our_match_frame / tng_match_frame / build_scored (04-match.R).
 # AUTO-kriteriet er BOOTSTRAP-kalibreret (2026-06-30): auto kræver score >=
@@ -60,6 +66,19 @@ message(sprintf("  %d personer x %d TNG -> %d kandidat-par (%d uden kandidat)",
 message(sprintf("  tiers: auto=%d review=%d none=%d (auto bootstrap-kalibreret; review bred)",
                 tier_tab[["auto"]], tier_tab[["review"]], tier_tab[["none"]]))
 
+# ---- Trin 4b: relationel corroboration (annotation, IKKE tier-ændring) ----
+# Fase 1 af docs/superpowers/specs/2026-07-01-tng-qa-relationel-corroboration-design.md.
+# Beregnes på DENNE ferske crosswalk, FØR Trin 5's merge flipper review->accepted/afvist.
+message("== Trin 4b: relationel corroboration ==")
+corrob <- family_corroboration(crosswalk, our_pc, tngc)
+confirmed_edges <- unique(corrob[corrob$status == "bekraeftet", c("child_id", "parent_id")])
+write.csv(confirmed_edges, "data/tng-corroboration.csv", row.names = FALSE)
+familie_summary <- aggregate_familie_status(corrob)
+message(sprintf("  %d review-par med familie-nabo (bekræftet=%d, modstridende=%d)",
+                nrow(familie_summary),
+                sum(familie_summary$familie_status == "bekraeftet"),
+                sum(familie_summary$familie_status == "modstridende")))
+
 # ---- Trin 5: review-merge (hvis afgørelser findes) ------------------------
 message("== Trin 5: review-merge (hvis afgørelser findes) ==")
 if (file.exists(rq_csv)) {
@@ -72,16 +91,19 @@ write.csv(crosswalk, cw_csv, row.names = FALSE)
 rq <- crosswalk[crosswalk$tier == "review", ]
 rq$afgoerelse <- ""
 rq$ny_tng_id  <- ""
+rq <- merge(rq, familie_summary, by = c("person_id", "tng_id"), all.x = TRUE, sort = FALSE)
+rq$familie_status[is.na(rq$familie_status)] <- "ingen_auto_nabo"
+rq$familie_stoette_antal[is.na(rq$familie_stoette_antal)] <- 0L
+rq$familie_detalje[is.na(rq$familie_detalje)] <- ""
 write.csv(rq, rq_csv, row.names = FALSE)
 
 # ---- Trin 6: sammenlign + rapport -----------------------------------------
 message("== Trin 6: sammenlign + rapport ==")
 
-# Sammenlignings-input
+# Sammenlignings-input. our_pc/tngc er allerede beregnet ovenfor (Trin 4b
+# har brug for dem tidligere i pipelinen) — kun our_pairs/our_attr er nye her.
 our_pairs <- our_spouse_pairs(ours$family, ours$family_member)
-our_pc    <- derive_our_pc(ours$family_member)
 our_attr  <- our_attr_frame(ours$person, ours$dates)
-tngc      <- reshape_tng_children(tng_children, tng_families)
 
 # PRIMÆR PII-kontrol: input-gating til afdøde-ikke-private på BEGGE sider, FØR
 # sammenligning (se 07-report.R). Ingen levende/privat person kan så optræde i
