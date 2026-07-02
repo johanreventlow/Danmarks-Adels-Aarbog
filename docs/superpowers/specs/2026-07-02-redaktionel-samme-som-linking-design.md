@@ -46,8 +46,8 @@ gyldige (Codex-2: ingen CHECK/NOT NULL/trigger kræver citation). Collapse-fetch
 serialiserer kun samme_som-mutationer, IKKE andre skrivere — så allokeringen er **ikke** race-fri, og det påstås
 ikke. Denne feature indfører ikke problemet og kan ikke løse det lokalt (fixet er sequences/identity på de delte
 evidens-tabeller = en tværgående migration, uden for scope). Konsekvens i praksis: en sjælden PK-kollision ruller
-identitets-operationen tilbage; redaktøren prøver igen. **Åbent punkt til brugeren:** acceptér denne arvede
-begrænsning for v1, eller prioritér den globale sequence-migration separat.
+identitets-operationen tilbage; redaktøren prøver igen. **Beslutning (bruger, 2026-07-02): accepteret for v1**
+(A) — den arvede begrænsning står; global sequence-migration er separat fremtidigt arbejde.
 
 ## 4. Graf-invarianter håndhævet i en TRIGGER (Codex-3 H1) + retnings-semantik + concurrency
 
@@ -67,7 +67,10 @@ undo-restore, load-script, manuel) og validerer, under en tabel-bred advisory-l�
 3. **G3 out-degree ≤ 1:** `NEW.subjekt_id` er ikke allerede subjekt (alias) mod en ANDEN kanonisk → ingen multi-sink.
 4. **G4 alias er ikke en eksisterende kanonisk:** `NEW.subjekt_id` er ikke objekt (sink) i noget samme_som-link →
    ingen stille re-root.
-5. **G5 acyklisk:** følg kanonisk-pointere fra `NEW.objekt_id`; hvis `NEW.subjekt_id` nås → cyklus → `RAISE`.
+**(G5 acyklisk fjernet i /simplify-passet):** en eksplicit graf-walk viste sig at være død kode — en ny
+alias→kanonisk-kant kan kun lukke en cyklus hvis `alias` har en indgående kant og dermed er et objekt,
+hvilket G4 allerede afviser. Empirisk bekræftet (trigger-unit-test). G3+G4 håndhæver invarianten fuldt; en
+walk kunne endda fejle en urelateret insert ved en trigger-disabled rå-SQL-injiceret cyklus.
 
 (G1 eksistens dækkes af FK'er på `relation.subjekt_id/objekt_id`.) DELETE behøver ingen check (fjernelse af en kant
 kan kun gøre grafen mere gyldig) — så undo-restore (re-insert) valideres af INSERT-triggeren; en restore der ville

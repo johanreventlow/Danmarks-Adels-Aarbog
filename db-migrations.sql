@@ -565,17 +565,25 @@ grant execute on function public.red_opret_fakta(text,bigint,text,text,date,date
 -- 2026-06-28: 2C-2a relation-RPC'er
 -- FK-ORDNET slet af en relation + dens evidens (relationer har 955 assertion+conclusion med
 -- target_type='relation' UDEN FK → flad DELETE forældreløser dem). Spejler red_slet_person.
-CREATE OR REPLACE FUNCTION red_slet_relation(p_relation_id bigint)
+-- Delt intern helper (ingen change_set/rolle-gate — kalderen ejer dem, B7). Én kilde til FK-orden
+-- for red_slet_relation OG red_fjern_samme_som.
+CREATE OR REPLACE FUNCTION _delete_relation_evidence(p_relation_id bigint)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
-  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
-  PERFORM begin_change_set('red_slet_relation', format('Slettede relation %s', p_relation_id), NULL, NULL);
   DELETE FROM citation WHERE assertion_id IN
     (SELECT id FROM assertion WHERE target_type='relation' AND target_id=p_relation_id);
   DELETE FROM conclusion WHERE target_type='relation' AND target_id=p_relation_id;
   DELETE FROM assertion  WHERE target_type='relation' AND target_id=p_relation_id;
   DELETE FROM note       WHERE target_type='relation' AND target_id=p_relation_id;
   DELETE FROM relation   WHERE id=p_relation_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION red_slet_relation(p_relation_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_slet_relation', format('Slettede relation %s', p_relation_id), NULL, NULL);
+  PERFORM _delete_relation_evidence(p_relation_id);
 END $$;
 
 -- Valideret + idempotent tilføj af person↔org/estate-relation (erstatter rå red_relation for UI).
@@ -1183,7 +1191,6 @@ grant execute on function public.red_flyt_barn(bigint, bigint, bigint, text) to 
 -- ============================================================================
 CREATE OR REPLACE FUNCTION enforce_samme_som_invariants() RETURNS trigger
 LANGUAGE plpgsql SET search_path=public AS $$
-DECLARE v_cur bigint; v_steps int := 0;
 BEGIN
   IF NEW.rolle <> 'samme_som' OR NEW.subjekt_type <> 'person' OR NEW.objekt_type <> 'person' THEN
     RETURN NEW;
@@ -1200,14 +1207,7 @@ BEGIN
              AND objekt_id = NEW.subjekt_id) THEN
     RAISE EXCEPTION 'samme_som: person % er allerede kanonisk for andre — skift retning via fjern+genopret', NEW.subjekt_id;
   END IF;
-  v_cur := NEW.objekt_id; -- G5 acyklisk (defense-in-depth; subsumeret af G4 for velformede grafer)
-  WHILE v_cur IS NOT NULL LOOP
-    IF v_cur = NEW.subjekt_id THEN RAISE EXCEPTION 'samme_som: kanten ville lukke en cyklus'; END IF;
-    v_steps := v_steps + 1;
-    IF v_steps > 10000 THEN RAISE EXCEPTION 'samme_som: for lang kæde (mulig eksisterende cyklus)'; END IF;
-    SELECT objekt_id INTO v_cur FROM relation WHERE rolle='samme_som' AND subjekt_type='person'
-      AND objekt_type='person' AND subjekt_id = v_cur LIMIT 1;
-  END LOOP;
+  -- G3+G4 håndhæver invarianten fuldt (cyklus umulig: kræver at alias er et objekt, hvilket G4 afviser).
   RETURN NEW;
 END $$;
 DROP TRIGGER IF EXISTS trg_enforce_samme_som ON relation;
@@ -1249,11 +1249,7 @@ BEGIN
     RAISE EXCEPTION 'Relation % er ikke et person→person samme_som-link', p_relation_id;
   END IF;
   PERFORM begin_change_set('red_fjern_samme_som', format('Fjernede samme_som-link %s', p_relation_id), NULL, NULL);
-  DELETE FROM citation   WHERE assertion_id IN (SELECT id FROM assertion WHERE target_type='relation' AND target_id=p_relation_id);
-  DELETE FROM conclusion WHERE target_type='relation' AND target_id=p_relation_id;
-  DELETE FROM assertion  WHERE target_type='relation' AND target_id=p_relation_id;
-  DELETE FROM note       WHERE target_type='relation' AND target_id=p_relation_id;
-  DELETE FROM relation   WHERE id=p_relation_id;
+  PERFORM _delete_relation_evidence(p_relation_id);
 END $$;
 
 GRANT EXECUTE ON FUNCTION public.red_samme_som(bigint, bigint) TO authenticated;

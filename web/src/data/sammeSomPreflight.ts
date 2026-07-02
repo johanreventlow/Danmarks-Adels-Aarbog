@@ -11,7 +11,8 @@ export function previewSammeSom(
   hypotetisk: SameAsEdge,
 ): { folder: boolean; grund: string | null } {
   const r = collapseSameAs(rawDb, [...existingEdges, hypotetisk], new Map());
-  const medlemmer = new Set([hypotetisk.alias, hypotetisk.canonical]);
-  const karantæne = r.quarantined.find((q) => q.members.some((m) => medlemmer.has(m)));
+  const karantæne = r.quarantined.find(
+    (q) => q.members.includes(hypotetisk.alias) || q.members.includes(hypotetisk.canonical),
+  );
   return karantæne ? { folder: false, grund: karantæne.reason } : { folder: true, grund: null };
 }
