@@ -14,6 +14,17 @@ async function safe<T>(fn: () => Promise<T>, fallback: T, label: string): Promis
   }
 }
 
+// Behold første forekomst pr. nøgle (rækkefølge-bevarende dedup).
+function dedupBy<T>(arr: T[], key: (t: T) => string): T[] {
+  const seen = new Set<string>();
+  return arr.filter((t) => {
+    const k = key(t);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
 export type EstateItem = { id: string; navn: string; slags: string; ownerCount: number };
 export type EstateOwner = { personId: string; navn: string; rolle: string; periode: string };
 export type ArmsItem = { id: string; blasonering: string; note: string };
@@ -37,14 +48,10 @@ export function fetchEstates(): Promise<EstateItem[]> {
 }
 
 // Ejerrækken for ét gods — navne slås op i den allerede-indlæste model (ingen ekstra person-fetch).
-// canonicalIdById: en ejer-relation kan være registreret under et foldet alias-person-id, som er
-// fjernet fra den collapsede model.byId → kanonisér før navne-opslag (ellers vises '#<id>').
-export function fetchEstateOwners(
-  estateId: string,
-  model: Model | null,
-  canonicalIdById: Record<string, string> = {},
-): Promise<EstateOwner[]> {
-  const canon = (id: string) => canonicalIdById[id] ?? id;
+// En ejer-relation kan være registreret under et foldet alias-person-id, som er fjernet fra den
+// collapsede model.byId → kanonisér via model.canonicalIdById før navne-opslag (ellers vises '#<id>').
+export function fetchEstateOwners(estateId: string, model: Model | null): Promise<EstateOwner[]> {
+  const canon = (id: string) => model?.canonicalIdById?.[id] ?? id;
   return safe(async () => {
     const rows = await getAll<RawEstateRel>(() =>
       supabase.from('relation').select('subjekt_id,objekt_id,rolle,periode_raw')
@@ -139,15 +146,19 @@ export function fetchPersonDetail(id: string, memberIds?: string[]): Promise<Per
     const estIds = rels.filter((r) => r.objekt_type === 'estate').map((r) => r.objekt_id);
     const { org: orgNavn, estate: estNavn } = await resolveOrgEstateNames(orgIds, estIds);
     // Dedup ved union over foldede medlemmer: samme embede/gods fra to medlems-poster → én.
-    const officeSeen = new Set<string>();
-    const offices = rels.filter((r) => r.objekt_type === 'organisation').map((r) => ({
-      label: [r.rolle, orgNavn.get(String(r.objekt_id))].filter(Boolean).join(' · ') || `#${r.objekt_id}`,
-      period: r.periode_raw ?? '',
-    })).filter((o) => { const k = `${o.label}|${o.period}`; if (officeSeen.has(k)) return false; officeSeen.add(k); return true; });
-    const estateSeen = new Set<string>();
-    const estates = rels.filter((r) => r.objekt_type === 'estate').map((r) => ({
-      id: String(r.objekt_id), navn: estNavn.get(String(r.objekt_id)) || `#${r.objekt_id}`,
-    })).filter((e) => { if (estateSeen.has(e.id)) return false; estateSeen.add(e.id); return true; });
+    const offices = dedupBy(
+      rels.filter((r) => r.objekt_type === 'organisation').map((r) => ({
+        label: [r.rolle, orgNavn.get(String(r.objekt_id))].filter(Boolean).join(' · ') || `#${r.objekt_id}`,
+        period: r.periode_raw ?? '',
+      })),
+      (o) => `${o.label}|${o.period}`,
+    );
+    const estates = dedupBy(
+      rels.filter((r) => r.objekt_type === 'estate').map((r) => ({
+        id: String(r.objekt_id), navn: estNavn.get(String(r.objekt_id)) || `#${r.objekt_id}`,
+      })),
+      (e) => e.id,
+    );
     return { bio, offices, estates };
   }, empty, 'fetchPersonDetail');
 }

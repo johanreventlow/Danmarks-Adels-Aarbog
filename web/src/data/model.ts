@@ -8,15 +8,7 @@ import { buildLineage } from './lineage';
 import { buildSources } from './sources';
 import { fmtYears, parseYear } from './fields';
 import { getAll } from './paginate';
-import { normalizeKoen, normalizeKonfidens, type AppPerson, type Db, type Model, type ModelPerson, type ParentChild, type Provenance, type RawExtId, type RawLineage, type RawSource, type Union } from './types';
-
-// Resultat af loadModel: den byggede Model + samme_som-alias-map (rute/fokus-resolution) +
-// proveniens pr. kanonisk person (til badge). Se collapseSameAs / spec 2026-07-02.
-export type LoadModelResult = {
-  model: Model;
-  canonicalIdById: Record<string, string>;
-  mergedFrom: Record<string, Provenance[]>;
-};
+import { normalizeKoen, normalizeKonfidens, type AppPerson, type Db, type Model, type ModelPerson, type ParentChild, type RawExtId, type RawLineage, type RawSource, type Union } from './types';
 
 const PARTNER_ROLLER = ['partner'];
 // KUN blodslægt ('barn') bliver en forælder→barn-kant — matcher mobile/src/data/load.ts og
@@ -53,9 +45,10 @@ export function compareParentOrder(
   return koenDiff !== 0 ? koenDiff : (a.ordinal ?? 0) - (b.ordinal ?? 0);
 }
 
-// collapse: default true; redaktion slår FRA (collapse:false) for at slå navne op på de rå
-// DB-poster (et foldet alias ville ellers mangle i model.byId) — spec §8 (model holdes separat).
-export async function loadModel(opts?: { collapse?: boolean }): Promise<LoadModelResult> {
+// Returnerer Model med samme_som-alias-map (canonicalIdById) + proveniens (mergedFrom på
+// model.byId) stampet på. collapse: default true; redaktion slår FRA (collapse:false) for at slå
+// navne op på de rå DB-poster (et foldet alias ville ellers mangle i model.byId) — spec §8.
+export async function loadModel(opts?: { collapse?: boolean }): Promise<Model> {
   const [persons, members, extIds, lineageRows, sources, sameAsRel, approvedConc] = await Promise.all([
     getAll<RawPerson>(() => supabase.from('person').select('id,visning_navn,visning_foedt,visning_doed,visning_titel,koen,privat')),
     getAll<RawMember>(() => supabase.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens')),
@@ -136,10 +129,11 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<LoadMode
     ...buildModel(collapsed.db),
     lineage: buildLineage(extIds, lineageRows, collapsed.canonicalIdById),
     sourcesBy: buildSources(extIds, sources, collapsed.canonicalIdById),
+    canonicalIdById: collapsed.canonicalIdById,
   };
   // Påfør proveniens på de foldede kanoniske personer (til badge i detalje-panelet).
   for (const [canon, prov] of Object.entries(collapsed.mergedFrom)) {
     if (model.byId[canon]) model.byId[canon].mergedFrom = prov;
   }
-  return { model, canonicalIdById: collapsed.canonicalIdById, mergedFrom: collapsed.mergedFrom };
+  return model;
 }

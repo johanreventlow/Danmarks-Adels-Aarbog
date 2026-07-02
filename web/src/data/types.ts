@@ -151,6 +151,9 @@ export type Model = {
   lineage?: Lineage;
   // "Kilde i Aarbogen"-referencer pr. person (§ + trykt værk + "Linje X, nr. N"). Valgfrit.
   sourcesBy?: Record<string, SourceRef[]>;
+  // samme_som-collapse: ethvert medlems-id → kanonisk id. Bor på modellen (én kilde), så
+  // runtime-læsere resolver alias-id'er uden at tråde et separat map ved siden af.
+  canonicalIdById?: Record<string, string>;
 };
 
 // Linje-projektion pr. slægt (grene). byPerson: person_id → linje-kode; list: chips-data

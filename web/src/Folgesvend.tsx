@@ -38,9 +38,6 @@ function useFonts() {
 export default function Folgesvend() {
   useFonts();
   const [model, setModel] = useState<Model | null>(null);
-  // samme_som-collapse: ethvert medlems-id → kanonisk id. Alle indgående id'er (fokus, rel, mig)
-  // resolves gennem det, så et link til enten et alias eller den kanoniske lander på samme person.
-  const [canonicalIdById, setCanonicalIdById] = useState<Record<string, string>>({});
   const [err, setErr] = useState<string | null>(null);
   const [mode, setMode] = useState('tree');
   const [focusId, setFocusId] = useState<string | null>(null);
@@ -63,15 +60,15 @@ export default function Folgesvend() {
   const [detail, setDetail] = useState<PersonDetailData | null>(null);
 
   useEffect(() => {
-    loadModel().then((r) => {
-      setModel(r.model);
-      setCanonicalIdById(r.canonicalIdById);
-      setFocusId(startFokus(r.model));
+    loadModel().then((m) => {
+      setModel(m);
+      setFocusId(startFokus(m));
     }).catch((e) => setErr(describeErr(e)));
   }, []);
 
-  // Resolv et (evt. alias-)id til dets kanoniske. Bruges ved alle indgående id'er.
-  const canon = (id: string) => canonicalIdById[id] ?? id;
+  // Resolv et (evt. alias-)id til dets kanoniske (samme_som-collapse). canonicalIdById bor på
+  // modellen; alle indgående id'er (fokus, rel, mig) resolves gennem det.
+  const canon = (id: string) => model?.canonicalIdById?.[id] ?? id;
   const meCanon = meId ? canon(meId) : null;
 
   // Estates hentes eager (én gang) — bruges både af godser-visningen OG sidebar-statistikkens
@@ -85,9 +82,9 @@ export default function Folgesvend() {
     if (!estateId) return;
     let cancelled = false;
     setEstateOwners([]);
-    fetchEstateOwners(estateId, model, canonicalIdById).then((o) => { if (!cancelled) setEstateOwners(o); }).catch(() => { if (!cancelled) setEstateOwners([]); });
+    fetchEstateOwners(estateId, model).then((o) => { if (!cancelled) setEstateOwners(o); }).catch(() => { if (!cancelled) setEstateOwners([]); });
     return () => { cancelled = true; };
-  }, [estateId, model, canonicalIdById]);
+  }, [estateId, model]);
   useEffect(() => {
     if (!estateId) return;
     let cancelled = false;
