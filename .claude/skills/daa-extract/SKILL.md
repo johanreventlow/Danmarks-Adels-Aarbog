@@ -156,6 +156,11 @@ Hvis trin ④ flagger poster i `escalation.json`, køres denne drift af agenten:
 Rscript scripts/load_daa.R work/clean.json
 ```
 
+**Append som default** (ingen TRUNCATE, review 12 2026-07-02): en ny slægt
+sameksisterer med allerede loadede slægter; id'er allokeres fra `MAX(id)`.
+`--reset` tømmer model-tabellerne først (kun ved en fuld gen-load fra bunden —
+cascade-sletter ALT afledt data, inkl. redaktionel historik).
+
 Loader hver post som: `narrative` (fuld prosa, source = DAA-udgaven) +
 `fact`/`assertion`/`conclusion`/`citation` for rygraden + `family`/
 `family_member` for slægtskab + `relation` for godser/embeder/begivenheder.

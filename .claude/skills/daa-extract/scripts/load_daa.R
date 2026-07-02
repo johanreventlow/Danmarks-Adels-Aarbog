@@ -3,9 +3,16 @@
 #  load_daa.R — loader VALIDERET DAA-udtræk (clean.json) til Supabase.
 #  Erstatter det håndtransskriberede udsnit i supabase_load.R.
 #
-#  Brug:  Rscript load_daa.R clean.json [udgave] [--no-reset]
+#  Brug:  Rscript load_daa.R clean.json [udgave] [--reset]
 #         udgave default "DAA 2018-20".
 #  Login fra ~/.Renviron (samme som supabase_load.R).
+#
+#  APPEND-mode som default (review 12, 2026-07-02 — matcher load_presens.R's mønster):
+#  id'er allokeres fra MAX(id) i basen, ingen TRUNCATE. --reset tømmer model-tabellerne
+#  først (kun hvis du vil starte forfra — cascade-sletter ALT afledt data, inkl.
+#  redaktionel historik/change_set). Tidligere var reset default med --no-reset som
+#  opt-out; en glemt flag destruerede da redaktionsarbejde. Nu kræver destruktion et
+#  eksplicit --reset.
 #
 #  Loader pr. post: narrative (fuld prosa) + fact/assertion/conclusion/
 #  citation for rygraden + family/family_member for slægtskab + relation
@@ -17,10 +24,10 @@
 suppressMessages({library(DBI); library(jsonlite)})
 
 argv    <- commandArgs(trailingOnly = TRUE)
-if (length(argv) < 1) stop("brug: load_daa.R clean.json [udgave] [--no-reset]")
+if (length(argv) < 1) stop("brug: load_daa.R clean.json [udgave] [--reset]")
 path    <- argv[1]
 udgave  <- if (length(argv) >= 2 && !startsWith(argv[2], "--")) argv[2] else "DAA 2018-20"
-RESET   <- !("--no-reset" %in% argv)
+RESET   <- "--reset" %in% argv
 
 clean <- fromJSON(path, simplifyVector = FALSE)
 if (!length(clean)) stop("clean.json er tom — intet at loade.")
@@ -37,9 +44,24 @@ ex <- function(sql, params = list()) if (length(params)) dbExecute(con, sql, par
 model_tables <- c("note","citation","conclusion","assertion","relation","fact",
                   "family_member","family","person_external_id","narrative","person",
                   "coat_of_arms","historical_event","media","estate","organisation","place","source")
+# Tabeller denne loader selv allokerer id'er til via nid() (dvs. har egen bigint id-kolonne
+# OG bruges af scriptet — person_external_id/family_member er komposit-nøgle-junction-tabeller
+# uden id-kolonne; coat_of_arms/media populeres ikke af denne loader).
+id_tables <- c("source","person","place","estate","organisation","historical_event",
+               "fact","assertion","citation","conclusion","family","note","narrative","relation")
 
-# id-allokering: start fra max(id) i basen (eller 0 efter reset)
+# id-allokering: start fra max(id) i basen (eller 0 efter --reset). seed_seq() SKAL køres
+# efter en evt. RESET-TRUNCATE (samme transaktion), ellers ses de gamle id'er stadig —
+# og i append-mode (default) er den den eneste ting der forhindrer PK-kollision mod
+# eksisterende slægters data. review 12 (2026-07-02): kommentaren her hævdede "start fra
+# max(id)" uden at koden nogensinde læste basen — nid() startede altid fra 1, hvilket gjorde
+# append (dengang --no-reset) reelt ubrugeligt (crashede på PK-kollision mod enhver befolket
+# base). Mønsteret er porteret fra load_presens.R's fungerende seed_seq().
 .seq <- new.env(parent = emptyenv())
+seed_seq <- function() for (t in id_tables) {
+  m <- dbGetQuery(con, sprintf("SELECT COALESCE(MAX(id),0) m FROM %s", t))$m[1]
+  .seq[[t]] <- as.integer(m)
+}
 nid <- function(t) { v <- (if (is.null(.seq[[t]])) 0L else .seq[[t]]) + 1L; .seq[[t]] <- v; v }
 
 # ---- BULK-INSERT: akkumulér rækker i hukommelsen, COPY per tabel til sidst ----
@@ -162,6 +184,8 @@ dbBegin(con)
 tryCatch({
   if (RESET) { message("RESET: tømmer model-tabeller…")
     ex(paste0("TRUNCATE ", paste(model_tables, collapse=", "), " CASCADE;")) }
+
+  seed_seq()   # skal køre EFTER en evt. TRUNCATE, og under alle omstændigheder før nid()
 
   seed_vocab()
 
