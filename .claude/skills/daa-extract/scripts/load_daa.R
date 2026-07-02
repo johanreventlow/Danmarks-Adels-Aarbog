@@ -200,8 +200,14 @@ current_by <- udgave   # konklusions-proveniens; sættes per record
 # ================= LOAD (én transaktion) =================
 dbBegin(con)
 tryCatch({
-  if (RESET) { message("RESET: tømmer model-tabeller…")
-    ex(paste0("TRUNCATE ", paste(model_tables, collapse=", "), " CASCADE;")) }
+  if (RESET) {
+    cs <- tryCatch(dbGetQuery(con, "SELECT operation FROM change_set"),
+                   error = function(e) data.frame(operation = character(0)))
+    if (has_editorial_changes(cs))
+      stop("RESET (--reset) afvist: basen har redaktionelle change_set-rækker (red_*). Kør uden --reset (append) eller bekræft eksplicit sletning.")
+    message("RESET: tømmer model-tabeller…")
+    ex(paste0("TRUNCATE ", paste(model_tables, collapse=", "), " CASCADE;"))
+  }
 
   seed_seq()      # skal køre EFTER en evt. TRUNCATE, og under alle omstændigheder før nid()
   preload_cache() # samme timing-krav — før get_place()/get_or_create() bruges

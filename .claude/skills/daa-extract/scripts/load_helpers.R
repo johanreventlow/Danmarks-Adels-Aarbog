@@ -9,3 +9,10 @@ buffer_counts <- function(buf) {
   tbls <- names(buf)
   vapply(setNames(tbls, tbls), function(t) length(buf[[t]]), integer(1))
 }
+
+# Redaktionelle change_set-rækker (operation 'red_%') markerer arbejde der ikke må
+# TRUNCATE'es. Import/load-changes gør ikke. Ren funktion; cs = data.frame m. 'operation'.
+has_editorial_changes <- function(cs) {
+  if (is.null(cs) || !nrow(cs)) return(FALSE)
+  any(grepl("^red_", cs$operation))
+}
