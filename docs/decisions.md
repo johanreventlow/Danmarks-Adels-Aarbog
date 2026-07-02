@@ -360,3 +360,16 @@ slægter, hvor collapse tegner selve kryds-slægt-broen ("er vi i familie?").
 visning + søge-dedup) — DB-kanten er ikke selv-eksekverende. (2) Automatisk detektion
 i skala via crosswalk/matching når nye slægter importeres (manuel linking kun til få
 kendte tilfælde nu; crosswalk er for støjende til bulk uden injektiv matcher).
+
+## Reload-strategi + durable post-load-fixup (2026-07-02)
+DAA-basen genindlæses med `load_daa.R --reset` (fuld TRUNCATE+rebuild), IKKE append
+(append dublerer hele basen — id'er allokeres fra MAX(id)). RESET-guarden afviser dog
+`--reset` mod en base med redaktionelle `change_set`-rækker; `--force-reset` tilsidesætter
+bevidst (sletter dem). **Læring fra data-tab-hændelse (2026-07-02):** en TRUNCATE CASCADE
+rammer også `profiles`/`lineage`/`suggestion` (FK-kaskade), og enhver hånd-applyet live-edit
+(lineage-navne, redaktør-profiler, `samme_som`-links) går tabt ved næste reload. Derfor:
+efter-load-korrektioner der ikke bor i loaderens automatiske pipeline SKAL ligge i et
+committet, idempotent `post_load_fixup.R` med par-/entitets-opslag på reload-invariante nøgler
+(linje/nr, ikke person-id). Alternativ (differentiel upsert-loader der bevarer redaktionelt
+arbejde) er afvist for nu — større arbejde, egen OpenSpec. **Verificeret:** reload → 922
+personer, TNG-QA manglende links 125→10.

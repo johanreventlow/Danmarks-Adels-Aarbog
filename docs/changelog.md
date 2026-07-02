@@ -1,5 +1,40 @@
 # Changelog
 
+## DAA-reimport Etape 1+2, data-tab-genopretning, grundlægger-links, samme_som-design (2026-07-02)
+
+**Etape 1 — loader/validate-hærdning (merget til main, pushet):** 9-task subagent-drevet
+forløb (final-reviewet af Opus). Partner-dedup via `partner_ekstern_ref` (dry-run: 41 færre
+dubletter); børne-løkke rewrite (15a/15b-opslag + observerbar logging af uopløste — kun 3
+uopløste i hele stamtavlen); deterministisk `date_min/max` fra `date_raw` (+ floruit-spans);
+`--dry-run` + RESET-guard (fail-closed) + `--force-reset`; frossen trin ③-prompt
+(`references/extract-prompt.md`). Union-heuristik reverteret efter Opus-review (brugte
+forkert kontekst-entitet, 0-impact). Suiter: R 181, validate 38, escalate 16.
+
+**Data-tab-hændelse + Etape 2-reload:** Live-basen (`xjnvdhajfyrcytatnzos` — appen, R og MCP
+peger alle her) var i en TIDLIGERE session overskrevet til 3 test-personer. Bruger godkendte
+reset-reload af fuldt datasæt: `load_daa.R clean-v2.json --reset --force-reset` → **922
+personer** (41 færre dubletter), cache regenereret, 70 levende. TRUNCATE CASCADE ramte også
+`profiles`/`lineage`/`suggestion` → genoprettet (redaktør-profil for johan@reventlow.dk;
+5 lineage-navne) i et durabelt, idempotent `post_load_fixup.R` (par-opslag på linje/nr =
+reload-sikkert). Ryddet 32 orphaned `change_set` + 191 `change_event`.
+
+**TNG-QA-måling (docs/reviews/tng-qa-rapport-2026-07-02.md):** manglende relations-links
+**125 → 10** (Etape 1 genindvandt 92%), enig 177 → 288, 0 falske links. Bekræfter empirisk
+at de manglende links var et linking-problem (bucket c=0), ikke et udtræks-problem — re-udtræk
+var ikke nødvendigt. Rest: 10 kryds-linje-links (Etape 4) + 5 dato-uenigheder (fejl-attribueret
+`date_raw`).
+
+**Grundlægger-identitets-links:** Conrad de Reventlow (III-58↔V-1) + Detlef de Reventlou
+(III-104↔IV-1) — samme person i to linjer — linket via `samme_som`-relation (evidenslag),
+bekræftet via TNG-crosswalk. Løser samtidig 2 af de 10 manglende links.
+
+**samme_som-collapse — design + plan (dual-reviewet, ikke implementeret):** frontend
+identitets-projektion så en person med flere DB-poster vises som ÉN (søgning/person-visning/
+slægtskabsfinder). Spec `docs/superpowers/specs/2026-07-02-samme-som-collapse-design.md`
+(Codex-reviewet: valideret reversibel projektion, completeness-baseret GDPR, konflikt-karantæne).
+Plan `docs/superpowers/plans/2026-07-02-samme-som-collapse.md` (9 tasks, web+mobile). **Klar til
+implementering næste session.**
+
 ## Flere-forældrepar datafix (2026-07-01)
 * **Bruger observerede** at personer så ud til at have flere forældrepar. Undersøgt:
   90 personer med beviseligt modstridende forældrepar, 163 fejlagtige `barn`-links i alt
