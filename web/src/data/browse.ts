@@ -18,11 +18,12 @@ export function buildBrowse(
   query: string,
   sort: 'navn' | 'aar',
   activeLetter: string | null,
-  opts?: { linjeByPerson?: Record<string, string>; activeLinje?: string | null },
+  opts?: { linjeByPerson?: Record<string, string[]>; activeLinje?: string | null },
 ): BrowseResult {
-  // Gren-filter (§9.2) FØRST: begræns til den aktive linjes medlemmer før query/sortering.
+  // Gren-filter (§9.2) FØRST: begræns til den aktive linjes medlemmer før query/sortering. En
+  // person kan høre til flere linjer (collapsed grundlægger) → medtag hvis linjen er blandt dem.
   const scoped = opts?.activeLinje && opts.linjeByPerson
-    ? persons.filter((p) => opts.linjeByPerson![p.id] === opts.activeLinje)
+    ? persons.filter((p) => (opts.linjeByPerson![p.id] ?? []).includes(opts.activeLinje!))
     : persons;
   const q = query.trim().toLowerCase();
   const pool = q ? scoped.filter((p) => p.name.toLowerCase().includes(q)) : scoped;

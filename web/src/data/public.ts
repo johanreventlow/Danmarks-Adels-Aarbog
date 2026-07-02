@@ -100,18 +100,29 @@ export type PersonDetailData = { bio: string; offices: PersonOffice[]; estates: 
 
 type RawPersonRel = { objekt_type: string; objekt_id: number; rolle: string | null; periode_raw: string | null };
 
-export function fetchPersonDetail(id: string): Promise<PersonDetailData> {
+// memberIds: for en samme_som-foldet person, alle medlems-id'er i gruppen — narrativ + relationer
+// unioneres over dem (spec §8). Uden memberIds (ikke-foldet) = kun personens eget id.
+export function fetchPersonDetail(id: string, memberIds?: string[]): Promise<PersonDetailData> {
   const empty: PersonDetailData = { bio: '', offices: [], estates: [] };
+  const ids = memberIds && memberIds.length ? memberIds : [id];
+  const numIds = ids.map(Number).filter((n) => !Number.isNaN(n));
   return safe(async () => {
     const [narr, rels] = await Promise.all([
-      // Første OFFENTLIGE narrativ (privat filtreret i query — ikke skjult bagefter, så en
-      // privat note først ikke gemmer en senere offentlig bio).
-      supabase.from('narrative').select('tekst').eq('subjekt_type', 'person').eq('subjekt_id', Number(id))
-        .eq('privat', false).order('id', { ascending: true }).limit(1),
+      // OFFENTLIGE narrativer for alle medlems-id'er (privat filtreret i query — ikke skjult
+      // bagefter, så en privat note først ikke gemmer en senere offentlig bio).
+      supabase.from('narrative').select('subjekt_id,tekst').eq('subjekt_type', 'person').in('subjekt_id', numIds)
+        .eq('privat', false).order('id', { ascending: true }),
       getAll<RawPersonRel>(() => supabase.from('relation').select('objekt_type,objekt_id,rolle,periode_raw')
-        .eq('subjekt_type', 'person').eq('subjekt_id', Number(id)).in('objekt_type', ['organisation', 'estate'])),
+        .eq('subjekt_type', 'person').in('subjekt_id', numIds).in('objekt_type', ['organisation', 'estate'])),
     ]);
-    const bio = ((narr.data ?? [])[0] as { tekst: string | null } | undefined)?.tekst ?? '';
+    // Narrativ = union: første offentlige narrativ PR. medlem, i medlems-rækkefølge, sammenføjet.
+    // (For en ikke-foldet person = præcis den første offentlige, som før.)
+    const firstByMember = new Map<string, string>();
+    for (const n of (narr.data ?? []) as { subjekt_id: number | string; tekst: string | null }[]) {
+      const k = String(n.subjekt_id);
+      if (!firstByMember.has(k) && n.tekst) firstByMember.set(k, n.tekst);
+    }
+    const bio = ids.map((mid) => firstByMember.get(mid)).filter(Boolean).join('\n\n');
     const orgIds = rels.filter((r) => r.objekt_type === 'organisation').map((r) => r.objekt_id);
     const estIds = rels.filter((r) => r.objekt_type === 'estate').map((r) => r.objekt_id);
     const { org: orgNavn, estate: estNavn } = await resolveOrgEstateNames(orgIds, estIds);

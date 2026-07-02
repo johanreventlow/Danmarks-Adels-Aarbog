@@ -156,7 +156,7 @@ export type Model = {
 // Linje-projektion pr. slægt (grene). byPerson: person_id → linje-kode; list: chips-data
 // (kode, antal, stamfader=headId, fuldt navn); navn: kode → fuldt navn.
 export type Lineage = {
-  byPerson: Record<string, string>;
+  byPerson: Record<string, string[]>; // flere linjer pr. person (en collapsed grundlægger hører til flere)
   list: LinjeEntry[];
   navn: Record<string, string>;
 };

@@ -112,7 +112,8 @@ export default function Redaktion() {
 
   // --- Initial load ---
   useEffect(() => { currentSession().then(setSession).catch(() => {}); }, []);
-  useEffect(() => { loadModel().then(setModel).catch(() => {}); }, []); // til familie-medlemmers navne
+  // Redaktion collapser IKKE: navne slås op på de rå DB-poster (spec §8 — model holdes separat).
+  useEffect(() => { loadModel({ collapse: false }).then((r) => setModel(r.model)).catch(() => {}); }, []);
   useEffect(() => {
     fetchRedaktionPersoner().then((ps) => {
       setPersons(ps);

@@ -38,6 +38,9 @@ function useFonts() {
 export default function Folgesvend() {
   useFonts();
   const [model, setModel] = useState<Model | null>(null);
+  // samme_som-collapse: ethvert medlems-id → kanonisk id. Alle indgående id'er (fokus, rel, mig)
+  // resolves gennem det, så et link til enten et alias eller den kanoniske lander på samme person.
+  const [canonicalIdById, setCanonicalIdById] = useState<Record<string, string>>({});
   const [err, setErr] = useState<string | null>(null);
   const [mode, setMode] = useState('tree');
   const [focusId, setFocusId] = useState<string | null>(null);
@@ -60,11 +63,16 @@ export default function Folgesvend() {
   const [detail, setDetail] = useState<PersonDetailData | null>(null);
 
   useEffect(() => {
-    loadModel().then((m) => {
-      setModel(m);
-      setFocusId(startFokus(m));
+    loadModel().then((r) => {
+      setModel(r.model);
+      setCanonicalIdById(r.canonicalIdById);
+      setFocusId(startFokus(r.model));
     }).catch((e) => setErr(describeErr(e)));
   }, []);
+
+  // Resolv et (evt. alias-)id til dets kanoniske. Bruges ved alle indgående id'er.
+  const canon = (id: string) => canonicalIdById[id] ?? id;
+  const meCanon = meId ? canon(meId) : null;
 
   // Estates hentes eager (én gang) — bruges både af godser-visningen OG sidebar-statistikkens
   // "godser"-tæller. Én pagineret query; billig nok til mount.
@@ -88,7 +96,13 @@ export default function Folgesvend() {
     return () => { cancelled = true; };
   }, [estateId]);
   // Detalje (bio/embeder/godser) for fokus-personen — til højre-panelet.
-  useEffect(() => { if (!focusId) { setDetail(null); return; } setDetail(null); fetchPersonDetail(focusId).then(setDetail).catch(() => setDetail({ bio: '', offices: [], estates: [] })); }, [focusId]);
+  useEffect(() => {
+    if (!focusId) { setDetail(null); return; }
+    setDetail(null);
+    // Foldet person: hent detalje for ALLE medlems-id'er (narrativ/relationer unioneres — spec §8).
+    const members = model?.byId[focusId]?.mergedFrom?.map((m) => m.personId);
+    fetchPersonDetail(focusId, members).then(setDetail).catch(() => setDetail({ bio: '', offices: [], estates: [] }));
+  }, [focusId, model]);
 
   const persons = model?.persons ?? [];
   const linjeList = model?.lineage?.list ?? [];
@@ -100,10 +114,12 @@ export default function Folgesvend() {
 
   const rel = useMemo(() => (model && relA && relB ? computeRelationship(model, relA, relB) : null), [model, relA, relB]);
 
-  // Navigér til en person + husk den forrige (til detalje-panelets back-knap).
+  // Navigér til en person + husk den forrige (til detalje-panelets back-knap). Resolv til kanonisk,
+  // så et link til enten et alias eller den kanoniske lander på den samlede person.
   const navigateTo = (id: string) => {
-    if (focusId && focusId !== id) setFocusHistory([...focusHistory, focusId]);
-    setFocusId(id);
+    const cid = canon(id);
+    if (focusId && focusId !== cid) setFocusHistory([...focusHistory, focusId]);
+    setFocusId(cid);
   };
   const goBack = () => {
     if (!focusHistory.length) return;
@@ -120,19 +136,22 @@ export default function Folgesvend() {
   };
   const clearLinje = () => { setActiveLinje(null); setMode('tree'); };
 
-  // "Det er mig"-markering (localStorage) — samme person igen = fjern markering.
+  // "Det er mig"-markering (localStorage) — samme person igen = fjern markering. Gemmer kanonisk id,
+  // og sammenligner kanonisk (et gemt alias-meId matcher stadig den kanoniske person).
   const toggleMe = (id: string) => {
-    const next = meId === id ? null : id;
+    const cid = canon(id);
+    const next = meId && canon(meId) === cid ? null : cid;
     setMeId(next);
     if (next) window.localStorage.setItem('daa_me_id', next);
     else window.localStorage.removeItem('daa_me_id');
   };
 
   const pickPerson = (id: string) => {
+    const cid = canon(id);
     if (mode === 'relate') {
-      if (relSlot === 'A') { setRelA(id); setRelSlot('B'); } else { setRelB(id); setRelSlot('A'); }
+      if (relSlot === 'A') { setRelA(cid); setRelSlot('B'); } else { setRelB(cid); setRelSlot('A'); }
     } else {
-      navigateTo(id);
+      navigateTo(cid);
     }
   };
 
@@ -175,8 +194,8 @@ export default function Folgesvend() {
             <span style={{ width: 26, height: 26, borderRadius: '50%', border: '1px solid rgba(136,26,51,.55)', boxShadow: 'inset 0 0 0 2px #f4efe6, inset 0 0 0 2.5px rgba(136,26,51,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 13, fontWeight: 600, color: T.bordeaux }}>R</span>
             <span style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.ink }}>Reventlow</span>
           </div>
-          {meId && model?.byId[meId] && (
-            <div onClick={() => { setMode('tree'); navigateTo(meId); }} title="Din plads i slægten" style={{ width: 38, height: 38, borderRadius: '50%', background: '#f8ecef', border: `1.5px solid ${T.bordeaux}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontFamily: T.serif, fontSize: 15, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{initials(model.byId[meId].name)}</div>
+          {meCanon && model?.byId[meCanon] && (
+            <div onClick={() => { setMode('tree'); navigateTo(meCanon); }} title="Din plads i slægten" style={{ width: 38, height: 38, borderRadius: '50%', background: '#f8ecef', border: `1.5px solid ${T.bordeaux}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontFamily: T.serif, fontSize: 15, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{initials(model.byId[meCanon].name)}</div>
           )}
           <a href="#redaktion" style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.bordeaux, textDecoration: 'none' }}>Redaktion ↗</a>
         </div>
@@ -257,7 +276,7 @@ export default function Folgesvend() {
         {/* Center */}
         <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
           {mode === 'tree' ? <TreeView model={model} focusId={focusId} onPick={navigateTo} />
-            : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={navigateTo} meId={meId} onSetMeA={() => { if (meId) { setRelA(meId); setRelSlot('B'); } }} />
+            : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={navigateTo} meId={meCanon} onSetMeA={() => { if (meCanon) { setRelA(meCanon); setRelSlot('B'); } }} />
             : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} onOpen={setEstateId} onBack={() => setEstateId(null)} onPickOwner={(id) => { navigateTo(id); setMode('tree'); }} />
             : mode === 'arms' ? <ArmsView arms={arms} />
             : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} />
@@ -271,7 +290,7 @@ export default function Folgesvend() {
             backName={backName} onBack={goBack}
             onFocusTree={() => setMode('tree')}
             onRelate={() => { setRelA(focusId); setRelB(null); setRelSlot('B'); setMode('relate'); }}
-            isMe={focusId === meId} onToggleMe={() => toggleMe(focusId)}
+            isMe={focusId === meCanon} onToggleMe={() => toggleMe(focusId)}
           />
         )}
       </div>
@@ -472,8 +491,20 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
   const parents = (model.indexes.parentsByChild[focusId] ?? []).map((id) => model.byId[id]).filter(Boolean) as { id: string; name: string }[];
   const spouses = (model.indexes.spousesBy[focusId] ?? []);
   const children = childrenOf(model, focusId);
-  const linje = model.lineage?.byPerson[focusId] ?? null;
+  const linjer = model.lineage?.byPerson[focusId] ?? [];
   const sources = model.sourcesBy?.[focusId] ?? [];
+  // Proveniens: er personen foldet af flere DAA-poster (samme_som), vis hvilke linjer/numre.
+  const mergedFrom = p.mergedFrom ?? [];
+  const proveniens =
+    mergedFrom.length > 1
+      ? mergedFrom
+          .map((m) => {
+            const navn = m.linje ? model.lineage?.navn[m.linje] ?? `linje ${m.linje}` : 'ukendt linje';
+            const ref = m.linje && m.nr != null ? ` (${m.linje}-${m.nr})` : '';
+            return `${navn}${ref}`;
+          })
+          .join(' og ')
+      : null;
   return (
     <div data-scroll style={{ flex: 'none', width: 392, borderLeft: '1px solid rgba(34,31,26,.1)', background: T.paper, overflowY: 'auto' }}>
       <div style={{ padding: '24px 24px 36px' }}>
@@ -485,12 +516,19 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontFamily: T.serif, fontSize: 27, lineHeight: 1, fontWeight: 600 }}>{p.name}</div>
             {p.years && <div style={{ fontFamily: T.mono, fontSize: 11, color: T.muted2, marginTop: 6 }}>{p.years}</div>}
-            {/* Badges: ★ Dig + Linje X + titel. */}
-            {(isMe || linje || p.title) && (
+            {/* Badges: ★ Dig + Linje(r) + titel. */}
+            {(isMe || linjer.length > 0 || p.title) && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 9 }}>
                 {isMe && <div style={{ fontFamily: T.sans, fontSize: 10.5, fontWeight: 700, color: T.paper, background: T.bordeaux, padding: '4px 9px', borderRadius: 6 }}>★ Dig</div>}
-                {linje && <div style={{ fontFamily: T.mono, fontSize: 9.5, color: T.muted, background: T.beige, border: '1px solid rgba(34,31,26,.1)', padding: '4px 8px', borderRadius: 6 }}>Linje {linje}</div>}
+                {linjer.map((lk) => (
+                  <div key={lk} style={{ fontFamily: T.mono, fontSize: 9.5, color: T.muted, background: T.beige, border: '1px solid rgba(34,31,26,.1)', padding: '4px 8px', borderRadius: 6 }}>{model.lineage?.navn[lk] ?? `Linje ${lk}`}</div>
+                ))}
                 {p.title && <div style={{ fontSize: 11, fontWeight: 600, color: T.bordeaux, background: '#f4e2e6', border: '1px solid rgba(136,26,51,.16)', padding: '4px 9px', borderRadius: 6 }}>{p.title}</div>}
+              </div>
+            )}
+            {proveniens && (
+              <div style={{ fontFamily: T.sans, fontSize: 11, color: T.muted2, marginTop: 8, lineHeight: 1.45 }}>
+                Optræder i Aarbogen som {proveniens}.
               </div>
             )}
           </div>

@@ -84,7 +84,7 @@ describe('buildBrowse — H1: ugyldigt activeLetter falder tilbage til Alle (ing
   });
 
   test('activeLetter fjernet af gren-filter → falder tilbage til Alle', () => {
-    const byLinje: Record<string, string> = { '1': 'I', '2': 'I' }; // linje I = kun Reventlow (R)
+    const byLinje: Record<string, string[]> = { '1': ['I'], '2': ['I'] }; // linje I = kun Reventlow (R)
     // Bruger havde valgt 'Æ' i hele slægten; skifter så til linje I (uden Æ-efternavne).
     const r = buildBrowse(people, '', 'navn', 'Æ', { linjeByPerson: byLinje, activeLinje: 'I' });
     expect(r.groups.map((g) => g.letter)).toEqual(['R']); // ikke [] → ingen dead-end
@@ -99,7 +99,7 @@ describe('buildBrowse — H1: ugyldigt activeLetter falder tilbage til Alle (ing
 
 describe('buildBrowse — gren-filter (§9.2, activeLinje)', () => {
   // Reventlow(1,2) → linje I; Ærø(3),Øster(4) → II; resten uden linje.
-  const byLinje: Record<string, string> = { '1': 'I', '2': 'I', '3': 'II', '4': 'II' };
+  const byLinje: Record<string, string[]> = { '1': ['I'], '2': ['I'], '3': ['II'], '4': ['II'] };
 
   test('activeLinje begrænser til grenens medlemmer (stadig grupperet)', () => {
     const r = buildBrowse(people, '', 'navn', null, { linjeByPerson: byLinje, activeLinje: 'I' });
