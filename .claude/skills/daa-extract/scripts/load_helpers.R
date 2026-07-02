@@ -16,3 +16,12 @@ has_editorial_changes <- function(cs) {
   if (is.null(cs) || !nrow(cs)) return(FALSE)
   any(grepl("^red_", cs$operation))
 }
+
+`%||%` <- function(a, b) if (is.null(a) || length(a) == 0) b else a
+
+# Er en DB-fejlbesked et "relation findes ikke"-signal (Postgres 42P01)? Så er
+# change_set-tabellen fraværende (umigreret base) -> sikkert at antage 0 redaktionelle
+# rækker. Alle andre fejl er usikre og skal fejle lukket.
+is_missing_table_error <- function(msg) {
+  grepl("does not exist|42P01", msg %||% "", ignore.case = TRUE)
+}

@@ -201,8 +201,17 @@ current_by <- udgave   # konklusions-proveniens; sættes per record
 dbBegin(con)
 tryCatch({
   if (RESET) {
-    cs <- tryCatch(dbGetQuery(con, "SELECT operation FROM change_set"),
-                   error = function(e) data.frame(operation = character(0)))
+    cs <- tryCatch(
+      dbGetQuery(con, "SELECT operation FROM change_set"),
+      error = function(e) {
+        if (is_missing_table_error(conditionMessage(e))) {
+          message("change_set-tabellen findes ikke — antager ingen redaktionelle rækker.")
+          data.frame(operation = character(0))
+        } else {
+          stop("RESET (--reset) afvist: kunne ikke verificere change_set (",
+               conditionMessage(e), "). Fejler lukket for at beskytte evt. redaktionelt arbejde.")
+        }
+      })
     if (has_editorial_changes(cs))
       stop("RESET (--reset) afvist: basen har redaktionelle change_set-rækker (red_*). Kør uden --reset (append) eller bekræft eksplicit sletning.")
     message("RESET: tømmer model-tabeller…")
