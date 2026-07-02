@@ -74,6 +74,29 @@ describe('buildBrowse — query giver flad, ufiltreret liste', () => {
   });
 });
 
+describe('buildBrowse — H1: ugyldigt activeLetter falder tilbage til Alle (ingen dead-end)', () => {
+  test('activeLetter der ikke findes i pool → alle grupper vises (ikke blank)', () => {
+    // 'X' er intet efternavns-initial → må ikke give tom liste.
+    const r = buildBrowse(people, '', 'navn', 'X', null);
+    expect(r.grouped).toBe(true);
+    expect(r.groups.length).toBeGreaterThan(0);
+    expect(r.flat).toHaveLength(people.length);
+  });
+
+  test('activeLetter fjernet af gren-filter → falder tilbage til Alle', () => {
+    const byLinje: Record<string, string> = { '1': 'I', '2': 'I' }; // linje I = kun Reventlow (R)
+    // Bruger havde valgt 'Æ' i hele slægten; skifter så til linje I (uden Æ-efternavne).
+    const r = buildBrowse(people, '', 'navn', 'Æ', { linjeByPerson: byLinje, activeLinje: 'I' });
+    expect(r.groups.map((g) => g.letter)).toEqual(['R']); // ikke [] → ingen dead-end
+    expect(r.flat.map((p) => p.id).sort()).toEqual(['1', '2']);
+  });
+
+  test('gyldigt activeLetter respekteres stadig', () => {
+    const r = buildBrowse(people, '', 'navn', 'R', null);
+    expect(r.groups.map((g) => g.letter)).toEqual(['R']);
+  });
+});
+
 describe('buildBrowse — gren-filter (§9.2, activeLinje)', () => {
   // Reventlow(1,2) → linje I; Ærø(3),Øster(4) → II; resten uden linje.
   const byLinje: Record<string, string> = { '1': 'I', '2': 'I', '3': 'II', '4': 'II' };

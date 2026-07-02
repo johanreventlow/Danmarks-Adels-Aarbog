@@ -39,8 +39,13 @@ export function buildBrowse(
   const byL: Record<string, ModelPerson[]> = {};
   flat.forEach((p) => { (byL[initialOf(p.name)] ??= []).push(p); });
   const letters = sortLetters(Object.keys(byL));
+  // Defensivt (review 15 H1): ignorér activeLetter hvis bogstavet ikke findes i den aktuelle
+  // pool — ellers giver fx et gren-filter der fjerner bogstavet en blank, låst liste (groups=[]
+  // mens flat.length>0, så hverken rækker eller "Ingen træffere" vises). Robust mod ALLE
+  // pool-skift-stier (linje/query/sort), ikke kun eksplicit nulstilling i kalder.
+  const effectiveLetter = activeLetter && letters.includes(activeLetter) ? activeLetter : null;
   const groups = letters
-    .filter((l) => !activeLetter || l === activeLetter)
+    .filter((l) => !effectiveLetter || l === effectiveLetter)
     .map((l) => ({ letter: l, people: byL[l] }));
   return { grouped: true, flat, letters, groups };
 }

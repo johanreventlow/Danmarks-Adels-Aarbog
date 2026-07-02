@@ -71,8 +71,22 @@ export default function Folgesvend() {
   useEffect(() => { if (!estates) fetchEstates().then(setEstates).catch(() => setEstates([])); }, [estates]);
   useEffect(() => { if (mode === 'arms' && !arms) fetchArms().then(setArms).catch(() => setArms([])); }, [mode, arms]);
   useEffect(() => { if (mode === 'about' && !about) fetchAbout().then(setAbout).catch(() => setAbout([])); }, [mode, about]);
-  useEffect(() => { if (estateId) fetchEstateOwners(estateId, model).then(setEstateOwners).catch(() => setEstateOwners([])); }, [estateId, model]);
-  useEffect(() => { if (estateId) { setEstateInfo(null); fetchEstateInfo(estateId).then(setEstateInfo).catch(() => setEstateInfo({ narrativ: '', sted: '' })); } }, [estateId]);
+  // Gods-detalje-fetches (review 15 M3): cancelled-guard så en sen resolver for gods A ikke
+  // permanent overskriver gods B's data, når man skifter gods hurtigt.
+  useEffect(() => {
+    if (!estateId) return;
+    let cancelled = false;
+    setEstateOwners([]);
+    fetchEstateOwners(estateId, model).then((o) => { if (!cancelled) setEstateOwners(o); }).catch(() => { if (!cancelled) setEstateOwners([]); });
+    return () => { cancelled = true; };
+  }, [estateId, model]);
+  useEffect(() => {
+    if (!estateId) return;
+    let cancelled = false;
+    setEstateInfo(null);
+    fetchEstateInfo(estateId).then((info) => { if (!cancelled) setEstateInfo(info); }).catch(() => { if (!cancelled) setEstateInfo({ narrativ: '', sted: '' }); });
+    return () => { cancelled = true; };
+  }, [estateId]);
   // Detalje (bio/embeder/godser) for fokus-personen — til højre-panelet.
   useEffect(() => { if (!focusId) { setDetail(null); return; } setDetail(null); fetchPersonDetail(focusId).then(setDetail).catch(() => setDetail({ bio: '', offices: [], estates: [] })); }, [focusId]);
 
@@ -207,7 +221,7 @@ export default function Folgesvend() {
 
           <div style={{ padding: '6px 10px 8px', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ padding: '0 8px 7px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <span style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>{activeLinje && !query ? `Linje ${activeLinje} · ${browse.flat.length}` : `${browse.flat.length} ${query ? 'træffere' : 'personer'}`}</span>
+              <span style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>{`${activeLinje ? `Linje ${activeLinje} · ` : ''}${browse.flat.length} ${query ? 'træffere' : 'personer'}`}</span>
               <div style={{ display: 'flex', background: '#e6ddcc', borderRadius: 7, padding: 2, gap: 2, flex: 'none' }}>
                 {(['navn', 'aar'] as const).map((s) => (
                   <span key={s} onClick={() => setBrowseSort(s)} style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 5, cursor: 'pointer', background: browseSort === s ? T.bordeaux : 'transparent', color: browseSort === s ? T.paper : '#3d382f' }}>{s === 'navn' ? 'A–Å' : 'Født'}</span>

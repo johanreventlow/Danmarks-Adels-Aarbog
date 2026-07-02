@@ -49,11 +49,13 @@ export async function loadModel(): Promise<Model> {
     getAll<RawPerson>(() => supabase.from('person').select('id,visning_navn,visning_foedt,visning_doed,visning_titel,koen,privat')),
     getAll<RawMember>(() => supabase.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens')),
     // Linje/nr pr. person (grene) — tolerant: tabellen/kolonnerne kan mangle i ældre baser.
-    getAll<RawExtId>(() => supabase.from('person_external_id').select('person_id,source_id,linje,nr')).catch(() => [] as RawExtId[]),
+    // Review 15: log ved fejl, så en RLS/drifts-fejl ikke stiltiende ligner "ingen linjer"
+    // (graceful degradation bevares, men degraderingen bliver synlig i konsol/telemetri).
+    getAll<RawExtId>(() => supabase.from('person_external_id').select('person_id,source_id,linje,nr')).catch((e) => { console.warn('[loadModel] person_external_id utilgængelig — linjer/kilder degraderet:', e); return [] as RawExtId[]; }),
     // Linje-navne — lineage-tabellen findes måske ikke endnu (fallback til 'Linje {kode}').
-    getAll<RawLineage>(() => supabase.from('lineage').select('source_id,kode,navn')).catch(() => [] as RawLineage[]),
+    getAll<RawLineage>(() => supabase.from('lineage').select('source_id,kode,navn')).catch((e) => { console.warn('[loadModel] lineage utilgængelig — bruger linje-koder som navne:', e); return [] as RawLineage[]; }),
     // Kilder (trykt værk) — til "Kilde i Aarbogen" pr. person.
-    getAll<RawSource>(() => supabase.from('source').select('id,slags,titel,udgave,ekstern')).catch(() => [] as RawSource[]),
+    getAll<RawSource>(() => supabase.from('source').select('id,slags,titel,udgave,ekstern')).catch((e) => { console.warn('[loadModel] source utilgængelig — Kilde-i-Aarbogen degraderet:', e); return [] as RawSource[]; }),
   ]);
 
   const appPersons: AppPerson[] = persons.map((p) => ({
