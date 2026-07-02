@@ -205,3 +205,7 @@ class TestDiff(unittest.TestCase):
             self.assertIn("- **facts**:", content)
         finally:
             os.unlink(path)
+
+
+if __name__ == '__main__':
+    unittest.main()

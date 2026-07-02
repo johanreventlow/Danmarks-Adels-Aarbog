@@ -18,10 +18,11 @@
 #  citation for rygraden + family/family_member for slægtskab + relation
 #  for godser/embeder/begivenheder. Alt under én source = DAA-udgaven.
 #
-#  Børn knyttes via boern.nr_range til den union aegteskab_kontekst peger på
-#  (falder tilbage til første union hvis ukendt/uden ægteskab). Opslag der ikke
-#  matcher et løbenummer i forælderens egen linje (heller ikke via en 15a/15b-
-#  variant) logges i work/load-unresolved.csv frem for at blive droppet tavst.
+#  Børn knyttes via boern.nr_range til FØRSTE union (v1) — korrekt multi-union-
+#  splitning kræver barnets eget aegteskab_kontekst, ikke rec's (som beskriver
+#  rec's egen afstamning), og er udskudt. Opslag der ikke matcher et løbenummer
+#  i forælderens egen linje (heller ikke via en 15a/15b-variant) logges i
+#  work/load-unresolved.csv frem for at blive droppet tavst.
 # =====================================================================
 suppressMessages({library(DBI); library(jsonlite)})
 # load_helpers.R: rene, DB-frie hjælpere (buffer_counts m.fl.) — path er repo-root-relativ,
@@ -309,14 +310,12 @@ tryCatch({
     # børn: knyt til den KORREKTE union (via aegteskab_kontekst), opret familie hvis intet ægteskab.
     b <- rec[["boern"]]                       # direkte opslag: NULL hvis fraværende
     if (is.list(b) && !is.null(b$nr_range)) {
-      ui  <- union_index_for_kontekst(rec$aegteskab_kontekst)
-      fam <- if (length(fams) && !is.na(ui) && ui <= length(fams)) {
-        fams[[ui]]
-      } else if (length(fams)) {
-        fams[[1]]
-      } else {
-        add_family("union")
-      }
+      # Børn hænges på FØRSTE union (v1). Korrekt multi-union-splitning kræver
+      # BARNETS eget aegteskab_kontekst (som angiver hvilket af DENNE forælders
+      # ægteskaber barnet kom fra) — ikke rec's eget felt, der beskriver rec's
+      # egen afstamning. Udskudt; kuld/aegteskab_kontekst plumbes stadig (merge_kontekst)
+      # som substrat til den korrekte fremtidige binding.
+      fam <- if (length(fams)) fams[[1]] else add_family("union")
       if (!length(fams)) add_member(fam, pid, "partner")
       rng <- b$nr_range
       pk  <- ls(pmap)                          # pmap er fuldt bygget i pass 1; konstant her

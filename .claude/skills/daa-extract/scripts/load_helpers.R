@@ -23,7 +23,7 @@ has_editorial_changes <- function(cs) {
 # change_set-tabellen fraværende (umigreret base) -> sikkert at antage 0 redaktionelle
 # rækker. Alle andre fejl er usikre og skal fejle lukket.
 is_missing_table_error <- function(msg) {
-  grepl("does not exist|42P01", msg %||% "", ignore.case = TRUE)
+  grepl("relation .* does not exist|42P01", msg %||% "", ignore.case = TRUE)
 }
 
 # Intern reference = "se nr. N" / "nr. N" / "… linje, nr. N" i SAMME kilde.
@@ -40,17 +40,6 @@ parse_intern_ref <- function(ref, default_linje) {
   list(linje = linje, nr = nr)
 }
 
-# Hvilken union (1-baseret) hører et barnekuld til, udledt af aegteskab_kontekst
-# ("af første ægteskab med …"). NA -> kalder falder tilbage til union 1.
-union_index_for_kontekst <- function(kontekst) {
-  if (is.null(kontekst) || length(kontekst) == 0 || is.na(kontekst)) return(NA_integer_)
-  k <- tolower(kontekst)
-  ord <- c("første"=1L, "anden"=2L, "andet"=2L, "tredje"=3L, "fjerde"=4L, "femte"=5L)
-  for (w in names(ord)) if (grepl(paste0("\\b", w, " ægteskab"), k)) return(ord[[w]])
-  m <- regmatches(k, regexpr("(\\d+)\\.\\s*ægteskab", k))
-  if (length(m) && nzchar(m)) return(as.integer(sub("\\..*", "", m)))
-  NA_integer_
-}
 # Nøgler i pmap der matcher et barn-basenr. Foretræk eksakt "linje-nr"; ellers
 # 15a/15b-varianter (barn af en 15a/15b-forælder registreres under labels, ikke basenr).
 resolve_barn_keys <- function(linje, nr, pmap_keys) {
