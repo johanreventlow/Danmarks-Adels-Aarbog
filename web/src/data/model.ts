@@ -3,9 +3,11 @@
 // behøver — ikke Aux/godser/våben). Rolle-vokab: partner = forælder-par, barn = blodslægt.
 import { supabase } from '../supabase';
 import { buildModel } from './buildModel';
+import { buildLineage } from './lineage';
+import { buildSources } from './sources';
 import { fmtYears, parseYear } from './fields';
 import { getAll } from './paginate';
-import { normalizeKoen, normalizeKonfidens, type AppPerson, type Db, type Model, type ModelPerson, type ParentChild, type Union } from './types';
+import { normalizeKoen, normalizeKonfidens, type AppPerson, type Db, type Model, type ModelPerson, type ParentChild, type RawExtId, type RawLineage, type RawSource, type Union } from './types';
 
 const PARTNER_ROLLER = ['partner'];
 // KUN blodslægt ('barn') bliver en forælder→barn-kant — matcher mobile/src/data/load.ts og
@@ -43,9 +45,17 @@ export function compareParentOrder(
 }
 
 export async function loadModel(): Promise<Model> {
-  const [persons, members] = await Promise.all([
+  const [persons, members, extIds, lineageRows, sources] = await Promise.all([
     getAll<RawPerson>(() => supabase.from('person').select('id,visning_navn,visning_foedt,visning_doed,visning_titel,koen,privat')),
     getAll<RawMember>(() => supabase.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens')),
+    // Linje/nr pr. person (grene) — tolerant: tabellen/kolonnerne kan mangle i ældre baser.
+    // Review 15: log ved fejl, så en RLS/drifts-fejl ikke stiltiende ligner "ingen linjer"
+    // (graceful degradation bevares, men degraderingen bliver synlig i konsol/telemetri).
+    getAll<RawExtId>(() => supabase.from('person_external_id').select('person_id,source_id,linje,nr')).catch((e) => { console.warn('[loadModel] person_external_id utilgængelig — linjer/kilder degraderet:', e); return [] as RawExtId[]; }),
+    // Linje-navne — lineage-tabellen findes måske ikke endnu (fallback til 'Linje {kode}').
+    getAll<RawLineage>(() => supabase.from('lineage').select('source_id,kode,navn')).catch((e) => { console.warn('[loadModel] lineage utilgængelig — bruger linje-koder som navne:', e); return [] as RawLineage[]; }),
+    // Kilder (trykt værk) — til "Kilde i Aarbogen" pr. person.
+    getAll<RawSource>(() => supabase.from('source').select('id,slags,titel,udgave,ekstern')).catch((e) => { console.warn('[loadModel] source utilgængelig — Kilde-i-Aarbogen degraderet:', e); return [] as RawSource[]; }),
   ]);
 
   const appPersons: AppPerson[] = persons.map((p) => ({
@@ -89,5 +99,9 @@ export async function loadModel(): Promise<Model> {
   });
 
   const db: Db = { persons: appPersons, unions, parentChild };
-  return buildModel(db);
+  return {
+    ...buildModel(db),
+    lineage: buildLineage(extIds, lineageRows),
+    sourcesBy: buildSources(extIds, sources),
+  };
 }
