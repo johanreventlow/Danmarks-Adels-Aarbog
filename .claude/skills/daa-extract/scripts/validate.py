@@ -192,6 +192,33 @@ def derive_aegteskaber(raw_text):
     return [seen[k] for k in sorted(seen)]
 
 
+_MDR = {'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'maj': 5, 'jun': 6,
+        'jul': 7, 'aug': 8, 'sep': 9, 'okt': 10, 'nov': 11, 'dec': 12}
+
+
+def derive_date_bounds(date_raw):
+    """Udled (date_min, date_max) ISO deterministisk fra rå dato. Kun år -> hele
+    året; dag-måned-år -> punkt; to årstal -> span (floruit "1257-1272",
+    invariant #5). Uparsebart (0 eller >2 årstal) -> (None, None); date_raw
+    bevares altid andetsteds. LLM'en skal IKKE selv syntetisere disse."""
+    if not date_raw:
+        return (None, None)
+    t = date_raw.strip().lower()
+    years = re.findall(r'\d{4}', t)
+    if not years or len(years) > 2:
+        return (None, None)
+    if len(years) == 2:                       # span: bevar begge grænser
+        return (f"{min(years)}-01-01", f"{max(years)}-12-31")
+    y = years[0]
+    dm = re.search(r'(\d{1,2})\.\s*([a-zæøå]+)', t)
+    if dm and dm.group(2)[:3] in _MDR:
+        mo = _MDR[dm.group(2)[:3]]
+        da = int(dm.group(1))
+        iso = f"{y}-{mo:02d}-{da:02d}"
+        return (iso, iso)
+    return (f"{y}-01-01", f"{y}-12-31")
+
+
 def escalation_entry(rec, issues, advisory):
     """Worklist-post hvis posten skal eskaleres: blokerende brud ELLER R8-miss.
     V9/R2/R3-advisory udløser IKKE eskalering. Returnér None hvis ren."""
@@ -270,6 +297,16 @@ def validate(rec, src, known_by_linje):
         missing = [y for y in re.findall(r'\d{4}', d or '') if y not in hay]
         if missing:
             issues.append(f'R1: årstal {missing} i dato "{d}" findes ikke i prosaen (hallucination?)')
+
+    # R1 (hærdet): det udledte date_min-år skal faktisk stå i date_raw. Fanger
+    # fejl-attribuering (fx et vielsesår udtrukket som dødsår) som den
+    # ovenstående prosa-tjek ikke ser, fordi begge årstal forekommer i prosaen.
+    for f in (rec.get('facts') or []):
+        dmin = f.get('date_min')
+        if dmin and f.get('date_raw'):
+            yr = dmin[:4]
+            if yr not in f['date_raw']:
+                issues.append(f'R1: date_min-år {yr} findes ikke i date_raw "{f["date_raw"]}" (fejl-attribueret dato?)')
 
     # R7: felt-proveniens — hvert kilde_span SKAL være ordret substring af prosaen.
     spans = [f.get('kilde_span') for f in (rec.get('facts') or [])]
@@ -355,6 +392,13 @@ def normalize_record(rec, src):
             rec['boern'] = derived
         elif rec.get('boern') is not None:
             rec['boern'] = None   # LLM-hallucineret boern uden tekst-belæg
+    # Deterministisk dato-udledning: date_min/date_max overskrives ALTID fra
+    # date_raw. LLM'en må ikke selv syntetisere disse (fri ISO-syntese var
+    # kilden til fejl-attribuering, se hærdet R1 i validate()).
+    for f in rec.get('facts') or []:
+        if f.get('date_raw'):
+            lo, hi = derive_date_bounds(f['date_raw'])
+            f['date_min'], f['date_max'] = lo, hi
     return rec
 
 
