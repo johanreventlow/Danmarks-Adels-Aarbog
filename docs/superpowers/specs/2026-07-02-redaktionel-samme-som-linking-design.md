@@ -40,43 +40,60 @@ bevidst fra data-afledte links (R-scriptet citerer en DAA-kilde). Assertions ude
 gyldige (Codex-2: ingen CHECK/NOT NULL/trigger kræver citation). Collapse-fetchen kræver kun `relation` +
 `afklaret` conclusion (`model.ts`/`load.ts`) — kontrakten er dækket.
 
-**ID-allokering:** de tre id'er allokeres via den etablerede `red_*`-konvention `(SELECT coalesce(max(id),0)+1 …)`.
-Det er race-følsomt codebase-bredt, men **advisory-låsen (§4 trin 2) serialiserer `red_samme_som`**, så
-allokeringen er race-fri her. En global hærdning (sequences/identity på alle evidens-tabeller) er et separat
-tværgående anliggende, uden for scope.
+**ID-allokering (Codex-3 H2 — ærlig afgrænsning):** de tre id'er allokeres via den etablerede `red_*`-konvention
+`(SELECT coalesce(max(id),0)+1 …)`. Dette er **codebase-bredt race-følsomt**: ENHVER anden samtidig `red_*`-skriver
+(og `begin_change_set`/`log_change` selv) kan vælge samme id og få en PK-fejl → rollback. samme_som-advisory-låsen
+serialiserer kun samme_som-mutationer, IKKE andre skrivere — så allokeringen er **ikke** race-fri, og det påstås
+ikke. Denne feature indfører ikke problemet og kan ikke løse det lokalt (fixet er sequences/identity på de delte
+evidens-tabeller = en tværgående migration, uden for scope). Konsekvens i praksis: en sjælden PK-kollision ruller
+identitets-operationen tilbage; redaktøren prøver igen. **Åbent punkt til brugeren:** acceptér denne arvede
+begrænsning for v1, eller prioritér den globale sequence-migration separat.
 
-## 4. Graf-invarianter i RPC'en (H1) + retnings-semantik (H2) + concurrency (Codex-2)
+## 4. Graf-invarianter håndhævet i en TRIGGER (Codex-3 H1) + retnings-semantik + concurrency
 
-`samme_som` skal danne **stjerner/træer med præcis én sink pr. komponent** (kanonisk = den unikke sink). Den
-kanoniske identitet må aldrig skifte som stille sideeffekt af en add. `red_samme_som` håndhæver dette
-autoritativt. **Rækkefølgen er præcis** (retter Codex-2 M1 — idempotens FØR change_set):
+`samme_som` skal danne **træer med præcis én sink pr. komponent** (kanonisk = den unikke sink); den kanoniske
+identitet må aldrig skifte som stille sideeffekt. Collapse KARANTÆNERER en multi-sink-komponent → én forkert kant
+kan slå et helt collapse fra. Invarianten beskytter altså delte data og **skal håndhæves under RPC-laget**, ellers
+omgår andre skrive-veje den (Codex-3: `red_relation` med vilkårlig `rolle`, `red_slet_*`, `red_fortryd_change_set`,
+`post_load_fixup.R`, manuel SQL).
 
+**Enforcement-grænse = trigger `enforce_samme_som_invariants` BEFORE INSERT ON `relation`** (kun når
+`rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'`). Den fyrer for ENHVER insert-vej (RPC,
+undo-restore, load-script, manuel) og validerer, under en tabel-bred advisory-lås:
+
+1. **`pg_advisory_xact_lock(hashtext('samme_som_mutation'))`** — serialisér samme_som-inserts (reentrant; også
+   taget af `red_samme_som` tidligt, se nedenfor). Fjerner phantom-edge-racet (Codex-2 H1).
+2. **G0 self-link:** `NEW.subjekt_id <> NEW.objekt_id`.
+3. **G3 out-degree ≤ 1:** `NEW.subjekt_id` er ikke allerede subjekt (alias) mod en ANDEN kanonisk → ingen multi-sink.
+4. **G4 alias er ikke en eksisterende kanonisk:** `NEW.subjekt_id` er ikke objekt (sink) i noget samme_som-link →
+   ingen stille re-root.
+5. **G5 acyklisk:** følg kanonisk-pointere fra `NEW.objekt_id`; hvis `NEW.subjekt_id` nås → cyklus → `RAISE`.
+
+(G1 eksistens dækkes af FK'er på `relation.subjekt_id/objekt_id`.) DELETE behøver ingen check (fjernelse af en kant
+kan kun gøre grafen mere gyldig) — så undo-restore (re-insert) valideres af INSERT-triggeren; en restore der ville
+bryde invarianten (fx en konkurrerende kant tilføjet i mellemtiden) afvises rent.
+
+**`red_samme_som(p_alias_id, p_objekt_id)`** er en tynd, evidens-komplet wrapper OVENPÅ triggeren. Rækkefølge
+(Codex-2 M1 — idempotens FØR change_set):
 1. `IF current_rolle() <> 'redaktion' THEN RAISE`.
-2. **`PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'))`** — serialisér ALLE identitets-mutationer
-   (add + fjern). Identitets-linking er en sjælden operation, så fuld serialisering har ingen praktisk pris og
-   fjerner både phantom-edge-racet (Codex-2 H1: `SELECT FOR UPDATE` låser kun eksisterende rækker, så to
-   samtidige A→B/A→C ville begge passere G3) OG ID-kollision (Codex-2 M2). Lås også i `red_fjern_samme_som`.
-3. **G0 self-link:** `p_alias_id <> p_objekt_id`, ellers `RAISE`.
-4. **G1 eksistens:** begge personer findes.
-5. **G2 idempotens (præcis retning) — FØR `begin_change_set`:** findes `alias→objekt` allerede → returnér
-   eksisterende relation-id uden at åbne et change_set (ingen tom audit-post ved gentagelse).
-6. **`PERFORM begin_change_set(...)`**.
-7. **G3 out-degree ≤ 1:** `p_alias_id` må ikke allerede være subjekt (alias) i et samme_som-link mod en ANDEN
-   kanonisk → forhindrer multi-sink (A→B + A→C, der ville karantænere hele komponenten).
-8. **G4 alias er ikke en eksisterende kanonisk:** `p_alias_id` må ikke være objekt (sink) i noget eksisterende
-   samme_som-link → forhindrer stille re-root (at demote en sink til alias flytter komponentens kanoniske identitet).
-9. **G5 acyklisk:** følg kanonisk-pointere fra `p_objekt_id`; hvis `p_alias_id` nås, ville kanten lukke en cyklus → `RAISE`.
-10. Indsæt relation + assertion + conclusion (§3).
+2. `PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'))` (samme nøgle som triggeren; reentrant — gør
+   G2+insert atomisk).
+3. **G2 idempotens FØR `begin_change_set`:** findes `alias→objekt` → returnér eksisterende relation-id (intet change_set).
+4. `PERFORM begin_change_set(...)`.
+5. Indsæt relation (**triggeren validerer G0/G3/G4/G5**) + assertion + conclusion (§3).
 
-Codex-2 verificerede at **G3+G4+G5 bevarer præcis én sink pr. komponent** — også når `p_objekt_id` selv er et
-alias (kæder D→A1→C er tilladt og benigne: sink C er uændret; det er træer, ikke bogstavelige stjerner). Intet
-sekventielt modeksempel findes. Kæder rører ikke rute/bogmærke-stabilitet fordi sinken ikke flytter; UI'ens
-"effektiv retning"-visning (nedenfor) er tilstrækkelig — `p_objekt_id` behøver IKKE tvinges til at være en sink.
+**`red_relation` (generisk) afviser `rolle='samme_som'`** → tvinger brug af `red_samme_som` (så man ikke kan skabe
+en evidens-ufuldstændig samme_som-relation uden conclusion). `post_load_fixup.R` bliver nu governet af triggeren
+(dens 2 links er gyldige). Manuel privilegeret SQL er stadig en eksplicit invariant-brydende vedligeholdelses-vej
+(dokumenteret) — men den normale + undo + load-veje er alle dækket.
 
-**Retningsskift (re-root) er eksplicit (H2):** modsat-retning-add (`B→A` mens `A→B` findes) rammer G4/G5 →
-afvist. For at skifte kanonisk: **fjern linket og genopret modsat** (to versionerede, eksplicitte trin). Ingen
-dedikeret `red_reroot`-RPC i v1 (YAGNI — komponenter er par i praksis; UI'ens "Byt retning" planlægger fjern+opret).
-Preview/resultat viser altid den **effektive retning** (hvem der er kanonisk = komponentens sink).
+Codex-2 verificerede at **G3+G4+G5 bevarer præcis én sink pr. komponent** — også når `objekt` selv er et alias
+(kæder D→A1→C er tilladt/benigne: sink C uændret; træer, ikke bogstavelige stjerner). Intet sekventielt modeksempel.
+Kæder rører ikke rute/bogmærke-stabilitet (sinken flytter ikke); UI'ens "effektiv retning"-visning er tilstrækkelig.
+
+**Retningsskift (re-root) er eksplicit:** modsat-retning-add (`B→A` mens `A→B` findes) rammer G4/G5 → afvist. For at
+skifte kanonisk: **fjern linket og genopret modsat** (to versionerede trin). Ingen `red_reroot`-RPC i v1 (YAGNI —
+komponenter er par; UI'ens "Byt retning" planlægger fjern+opret). Preview/resultat viser den **effektive retning**.
 
 ## 5. Slette-sekvens (H3) — komplet + fortrydbar
 
@@ -138,6 +155,9 @@ GDPR-eksponering: RPC'en ændrer kun evidens-laget; RLS + completeness styrer of
   G5 cyklus afvist; kæde D→A1→C tilladt (sink forbliver C, komponent folder til C).
 - G2-idempotens (samme retning → samme id) opretter **INGEN** ny change_set (tom-audit-tjek).
 - ikke-redaktion afvist (`current_rolle`).
+- **trigger-enforcement (Codex-3):** en bar `INSERT` af en samme_som-relation uden om RPC'en der bryder G0/G3/G4/G5
+  afvises af triggeren; `red_relation` med `rolle='samme_som'` afvises; undo-restore af et link der ville bryde
+  invarianten afvises rent.
 - fjern → alle evidens-rækker væk; **fjern + fortryd af de 2 eksisterende citerede links** (change_set-restore).
 - **concurrency** (Codex-2): serialiseret via advisory-lås — verificér at to `red_samme_som`-kald der deler
   et alias ikke begge kan committe (anden ser førstes kant → G3 afviser), og at disjunkte kald ikke
@@ -158,8 +178,9 @@ GDPR-eksponering: RPC'en ændrer kun evidens-laget; RLS + completeness styrer of
 
 ## 11. Berørte filer (forventet)
 
-- `schema.sql` + `db-migrations.sql` — `red_samme_som` + `red_fjern_samme_som` (idempotent).
-- `db-verify.sql` — nye asserts.
+- `schema.sql` + `db-migrations.sql` — trigger `enforce_samme_som_invariants` (BEFORE INSERT ON relation) +
+  `red_samme_som` + `red_fjern_samme_som` + guard i `red_relation` (afvis `rolle='samme_som'`). Alt idempotent.
+- `db-verify.sql` — nye asserts (inkl. at trigger-veje uden om RPC'en også afvises).
 - `web/src/data/redaktionWrite.ts` + `mobile/src/data/redaktionWrite.ts` — Change-arter.
 - `web/src/data/redaktionRead.ts` + `mobile/src/data/redaktionRead.ts` — link-fetch.
 - `web/src/Redaktion.tsx` + `mobile/src/app/redaktion/person/[id].tsx` — UI.
@@ -191,6 +212,21 @@ Concurrency-fund:
 - **M2** (`max(id)+1` race-følsom for disjunkte kald) → §3: advisory-låsen serialiserer allokeringen; global
   sequence-hærdning er tværgående og uden for scope.
 
-**Læring 2:** row-level `FOR UPDATE` beskytter ikke mod *phantom* kanter (rækker der endnu ikke findes). For en
-sjælden mutation er en enkelt tabel-bred advisory-lås både simplere og mere robust end per-række/per-komponent-låsning
-— den lukker phantom-edge OG id-allokerings-racet med én mekanisme.
+**Læring 2:** row-level `FOR UPDATE` beskytter ikke mod *phantom* kanter (rækker der endnu ikke findes). En tabel-bred
+advisory-lås lukker phantom-edge-racet for de veje der TAGER låsen.
+
+### Codex-review runde 3 (på revideret spec, 2026-07-02)
+
+Verdict: **needs-attention → løst inline.** Codex fandt at en RPC-lokal lås ikke håndhæver en invariant som andre
+veje omgår:
+
+- **H1** (`red_relation`/`red_slet_*`/`red_fortryd`/`post_load_fixup.R`/manuel SQL omgår RPC-låsen) → §4:
+  invarianten flyttet til en **BEFORE INSERT-trigger på `relation`** (dækker ALLE insert-veje, tager selv låsen) +
+  `red_relation` afviser `rolle='samme_som'`. red_samme_som er nu en tynd evidens-wrapper ovenpå triggeren.
+- **H2** (`max(id)+1` race mod ANDRE red_*-skrivere, ikke kun samme_som) → §3: **falsk "race-fri"-påstand fjernet**;
+  dokumenteret som arvet codebase-bred begrænsning; ærligt åbent punkt til brugeren (accept v1 vs. global
+  sequence-migration).
+
+**Læring 3:** en invariant der beskytter DELTE data skal håndhæves på den laveste fælles skrive-grænse (trigger/
+constraint), ikke i én RPC — ellers er den kun sand "hvis alle bruger min RPC". Og en RPC-lokal lås kan ikke gøre en
+codebase-bred `max(id)+1`-allokering race-fri; det er ærligt at afgrænse frem for at påstå en garanti mekanismen ikke giver.
