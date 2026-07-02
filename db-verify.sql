@@ -639,3 +639,44 @@ EXCEPTION WHEN OTHERS THEN
   IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review09 H2 — restore bevarer profiles skip_cols';
   ELSE RAISE; END IF;
 END $$;
+
+-- ===== samme_som redaktionel identitets-sammenkædning (spec 2026-07-02) =====
+-- End-to-end: red_samme_som skaber relation+assertion+afklaret-conclusion; idempotent; triggeren
+-- afviser G3 multi-sink; red_fjern_samme_som fjerner al evidens. Ruller tilbage.
+DO $$
+DECLARE a bigint; b bigint; c bigint; rel bigint; rel2 bigint; n_ass int; n_con int;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true); a := red_opret_person('__ss_a__','mand',false,NULL,NULL,NULL);
+  PERFORM set_config('app.change_set_id','',true); b := red_opret_person('__ss_b__','mand',false,NULL,NULL,NULL);
+  PERFORM set_config('app.change_set_id','',true); c := red_opret_person('__ss_c__','mand',false,NULL,NULL,NULL);
+  -- opret a→b
+  PERFORM set_config('app.change_set_id','',true); rel := red_samme_som(a,b);
+  IF NOT EXISTS(SELECT 1 FROM relation WHERE id=rel AND rolle='samme_som' AND subjekt_id=a AND objekt_id=b) THEN
+    RAISE EXCEPTION 'FEJL: samme_som-relation ikke oprettet'; END IF;
+  SELECT count(*) INTO n_con FROM conclusion WHERE target_type='relation' AND target_id=rel AND status='afklaret';
+  IF n_con <> 1 THEN RAISE EXCEPTION 'FEJL: afklaret conclusion mangler (n=%)', n_con; END IF;
+  -- idempotens: samme retning → samme id
+  PERFORM set_config('app.change_set_id','',true); rel2 := red_samme_som(a,b);
+  IF rel2 <> rel THEN RAISE EXCEPTION 'FEJL: idempotens brudt (% <> %)', rel2, rel; END IF;
+  -- G3 multi-sink: a→c skal afvises af triggeren
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true); PERFORM red_samme_som(a,c);
+    RAISE EXCEPTION 'FEJL: G3 multi-sink accepteret';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'FEJL:%' THEN RAISE; END IF;
+    IF SQLERRM !~* 'multi-sink' THEN RAISE EXCEPTION 'FEJL: forkert afvisning: %', SQLERRM; END IF;
+  END;
+  -- fjern → al evidens væk
+  PERFORM set_config('app.change_set_id','',true); PERFORM red_fjern_samme_som(rel);
+  SELECT count(*) INTO n_ass FROM assertion WHERE target_type='relation' AND target_id=rel;
+  SELECT count(*) INTO n_con FROM conclusion WHERE target_type='relation' AND target_id=rel;
+  IF n_ass <> 0 OR n_con <> 0 OR EXISTS(SELECT 1 FROM relation WHERE id=rel) THEN
+    RAISE EXCEPTION 'FEJL: fjern efterlod evidens (ass=%, con=%)', n_ass, n_con; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: samme_som — opret/idempotens/G3-multi-sink/fjern virker';
+  ELSE RAISE; END IF;
+END $$;
