@@ -88,20 +88,29 @@ export default function Folgesvend() {
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: T.pageBg, fontFamily: T.sans, color: T.ink, overflow: 'hidden' }}>
-      {/* Header */}
-      <div style={{ flex: 'none', height: 58, display: 'flex', alignItems: 'center', gap: 18, padding: '0 22px', background: T.paper, borderBottom: '1px solid rgba(34,31,26,.12)' }}>
-        <span style={{ width: 32, height: 32, borderRadius: 8, background: T.bordeaux, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.paper }}>R</span>
-        <div>
-          <div style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600, lineHeight: 1 }}>Slægten Reventlow</div>
-          <div style={{ fontFamily: T.mono, fontSize: 8.5, letterSpacing: '.12em', textTransform: 'uppercase', color: T.muted2, marginTop: 2 }}>Danmarks Adels Aarbog · følgesvend</div>
+      {/* Header (port af design 66px: logo + titel · centreret nav · slægt-chip).
+          Udskudt til Fase 2: redigér-knap (inline-redigering) + "din plads"-avatar (mig-koncept). */}
+      <div style={{ flex: 'none', height: 66, display: 'flex', alignItems: 'center', gap: 22, padding: '0 26px', background: T.paper, borderBottom: '1px solid rgba(34,31,26,.1)', zIndex: 30 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 13, flex: 'none' }}>
+          <img src="/daf-logo.png" alt="Dansk Adels Forening" style={{ width: 40, height: 40, objectFit: 'contain' }} />
+          <div>
+            <div style={{ fontFamily: T.serif, fontSize: 21, fontWeight: 600, lineHeight: 1, color: T.ink }}>Danmarks Adels Aarbog</div>
+            <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.16em', textTransform: 'uppercase', color: T.muted2, marginTop: 2 }}>Følgesvend · Dansk Adels Forening</div>
+          </div>
         </div>
-        <div style={{ flex: 1 }} />
-        <div style={{ display: 'flex', gap: 4 }}>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
           {NAV.map(([label, m, on]) => (
-            <div key={m} onClick={() => { if (on) { setMode(m); if (m === 'estates') setEstateId(null); } }} title={on ? '' : 'Kommer'} style={{ padding: '7px 13px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: on ? 'pointer' : 'default', background: mode === m ? T.bordeaux : 'transparent', color: mode === m ? T.paper : (on ? '#3d382f' : T.muted3) }}>{label}</div>
+            <div key={m} onClick={() => { if (on) { setMode(m); if (m === 'estates') setEstateId(null); } }} title={on ? '' : 'Kommer'} style={{ padding: '8px 15px', borderRadius: 9, fontFamily: T.sans, fontSize: 13.5, fontWeight: 600, cursor: on ? 'pointer' : 'default', background: mode === m ? T.bordeaux : 'transparent', color: mode === m ? T.paper : (on ? '#3d382f' : T.muted3) }}>{label}</div>
           ))}
         </div>
-        <a href="#redaktion" style={{ fontSize: 11.5, fontWeight: 600, color: T.bordeaux, textDecoration: 'none', marginLeft: 6 }}>Redaktion ↗</a>
+        <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 12 }}>
+          {/* Slægt-chip — statisk (multi-slægt-vælger er ikke wired endnu). */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, background: T.panel, border: '1px solid rgba(34,31,26,.12)', borderRadius: 9, padding: '6px 12px' }}>
+            <span style={{ width: 26, height: 26, borderRadius: '50%', border: '1px solid rgba(136,26,51,.55)', boxShadow: 'inset 0 0 0 2px #f4efe6, inset 0 0 0 2.5px rgba(136,26,51,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 13, fontWeight: 600, color: T.bordeaux }}>R</span>
+            <span style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.ink }}>Reventlow</span>
+          </div>
+          <a href="#redaktion" style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.bordeaux, textDecoration: 'none' }}>Redaktion ↗</a>
+        </div>
       </div>
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
