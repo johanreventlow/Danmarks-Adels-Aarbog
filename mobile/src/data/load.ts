@@ -3,12 +3,14 @@
 // SEPARAT bagefter (i storen) for at udlede parentId/spouse + indekser.
 import { supabase, supabaseEnabled } from '../lib/supabase';
 import { buildAux } from './buildAux';
+import { collapseSameAs } from './collapseSameAs';
 import { fmtYears, parseYear } from './fields';
 import { normalizeKoen, normalizeKonfidens } from './types';
 import type {
   AppPerson,
   Aux,
   Db,
+  Provenance,
   ParentChild,
   RawArms,
   RawEstate,
@@ -58,6 +60,9 @@ export type LoadResult = {
   focusId: string;
   relAId: string;
   relBId: string;
+  // samme_som-collapse: ethvert medlems-id → kanonisk id + proveniens pr. kanonisk (til badge).
+  canonicalIdById: Record<string, string>;
+  mergedFrom: Record<string, Provenance[]>;
 };
 
 export function mapAppPersons(
@@ -98,12 +103,29 @@ export function compareParentOrder(
 
 // Henter alt fra Supabase og bygger mellem-formen. Kaster ved fejl — kalderen falder tilbage
 // til offline-seed.
-export async function loadFromSupabase(opts?: { includePrivat?: boolean }): Promise<LoadResult> {
+export async function loadFromSupabase(opts?: {
+  includePrivat?: boolean;
+  collapse?: boolean; // default true; redaktion slår FRA for at se de separate DB-poster (spec §8)
+}): Promise<LoadResult> {
   if (!supabaseEnabled || !supabase) throw new Error('Supabase ikke konfigureret');
   const sb = supabase;
 
-  const [persons, , members, narratives, extIds, sources, relations, estates, orgs, media, lineage, arms] =
-    await Promise.all([
+  const [
+    persons,
+    ,
+    members,
+    narratives,
+    extIds,
+    sources,
+    relations,
+    estates,
+    orgs,
+    media,
+    lineage,
+    arms,
+    sameAsRel,
+    approvedConc,
+  ] = await Promise.all([
       getAll<RawPerson>(() =>
         sb.from('person').select('id,visning_navn,visning_foedt,visning_doed,visning_titel,koen,privat'),
       ),
@@ -132,6 +154,20 @@ export async function loadFromSupabase(opts?: { includePrivat?: boolean }): Prom
       getAll<RawLineage>(() => sb.from('lineage').select('source_id,kode,navn')).catch(() => [] as RawLineage[]),
       // Tolerant: coat_of_arms-tabellen findes måske ikke endnu.
       getAll<RawArms>(() => sb.from('coat_of_arms').select('id,blasonering,note')).catch(() => [] as RawArms[]),
+      // samme_som-relationer (person→person). Kanterne er retningsbestemte: subjekt=alias, objekt=kanonisk.
+      getAll<{ id: number | string; subjekt_id: number | string; objekt_id: number | string }>(() =>
+        sb
+          .from('relation')
+          .select('id,subjekt_id,objekt_id')
+          .eq('rolle', 'samme_som')
+          .eq('subjekt_type', 'person')
+          .eq('objekt_type', 'person'),
+      ).catch(() => [] as { id: number | string; subjekt_id: number | string; objekt_id: number | string }[]),
+      // Afklarede (blåstemplede) konklusioner på relationer — kun disse identiteter foldes (spec §4).
+      // Polymorf kobling (conclusion.target_type/target_id), ingen FK → hentes separat + matches i JS.
+      getAll<{ target_id: number | string }>(() =>
+        sb.from('conclusion').select('target_id').eq('target_type', 'relation').eq('status', 'afklaret'),
+      ).catch(() => [] as { target_id: number | string }[]),
     ]);
 
   // Biografi pr. person — første ikke-private narrativ.
@@ -188,16 +224,33 @@ export async function loadFromSupabase(opts?: { includePrivat?: boolean }): Prom
     });
   });
 
-  const db: Db = { persons: appPersons, unions, parentChild };
-  if (!db.persons.length) throw new Error('Ingen personer hentet');
+  const rawDb: Db = { persons: appPersons, unions, parentChild };
+  if (!rawDb.persons.length) throw new Error('Ingen personer hentet');
+
+  // samme_som-collapse FØR alt andet: fold flere person-rækker der er samme fysiske person til
+  // ÉN kanonisk post (spec 2026-07-02). Kun afklarede identiteter foldes; konflikter karantæneres.
+  const approved = new Set((approvedConc || []).map((c) => String(c.target_id)));
+  const edges =
+    opts?.collapse === false
+      ? []
+      : (sameAsRel || [])
+          .filter((r) => approved.has(String(r.id)))
+          .map((r) => ({ alias: String(r.subjekt_id), canonical: String(r.objekt_id) }));
+  const extMap = new Map((extIds || []).map((x) => [String(x.person_id), { linje: x.linje, nr: x.nr }]));
+  const collapsed = collapseSameAs(rawDb, edges, extMap);
+  if (collapsed.quarantined.length) {
+    console.warn('[samme_som] karantæne (foldes ikke):', collapsed.quarantined);
+  }
+  const db = collapsed.db;
 
   const aux = buildAux({ extIds, sources, relations, estates, orgs, media, lineage, arms });
 
-  // Vælg fornuftige start-id'er (flest børn = midt i træet).
-  const childSet = new Set(parentChild.map((e) => e.child));
-  const parentSet = new Set(parentChild.map((e) => e.parent));
+  // Vælg fornuftige start-id'er (flest børn = midt i træet) — på den COLLAPSED db, så et start-id
+  // aldrig peger på et foldet alias.
+  const childSet = new Set(db.parentChild.map((e) => e.child));
+  const parentSet = new Set(db.parentChild.map((e) => e.parent));
   const kids: Record<string, number> = {};
-  parentChild.forEach((e) => {
+  db.parentChild.forEach((e) => {
     kids[e.parent] = (kids[e.parent] || 0) + 1;
   });
   const byKids = (a: { id: string }, b: { id: string }) => (kids[b.id] || 0) - (kids[a.id] || 0);
@@ -217,5 +270,7 @@ export async function loadFromSupabase(opts?: { includePrivat?: boolean }): Prom
     focusId: focus.id,
     relAId: relA.id,
     relBId: relB.id,
+    canonicalIdById: collapsed.canonicalIdById,
+    mergedFrom: collapsed.mergedFrom,
   };
 }

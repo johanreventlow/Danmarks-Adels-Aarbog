@@ -38,6 +38,9 @@ type State = {
   relA: string | null;
   relB: string | null;
 
+  // samme_som-collapse: ethvert medlems-id → kanonisk id (alias-resolution i ruter/fokus/mig).
+  canonicalIdById: Record<string, string>;
+
   // Auth-slice
   session: import('@supabase/supabase-js').Session | null;
   rolle: import('./../lib/auth').Rolle;
@@ -52,6 +55,7 @@ type State = {
 
   // actions
   load: () => Promise<void>;
+  canonicalId: (id: string) => string; // resolv et (evt. alias-)id til dets kanoniske
   hydrateMe: () => Promise<void>;
   setMe: (id: string | null) => Promise<void>;
   setFocus: (id: string) => void;
@@ -98,6 +102,7 @@ export const useStore = create<State>((set, get) => ({
   meId: null,
   relA: null,
   relB: null,
+  canonicalIdById: {},
   session: null,
   rolle: 'medlem',
   reventlowPersonId: null,
@@ -116,7 +121,13 @@ export const useStore = create<State>((set, get) => ({
     try {
       const res = await loadFromSupabase();
       const model = buildModel(res.db);
+      // Påfør proveniens på de foldede kanoniske personer (til badge i person-visningen).
+      for (const [canon, prov] of Object.entries(res.mergedFrom)) {
+        if (model.byId[canon]) model.byId[canon].mergedFrom = prov;
+      }
       const snap = buildSnapPath(model, res.focusId, res.rootId);
+      // Resolv et gemt (evt. alias-)meId til den kanoniske, så "mig" peger på den samlede person.
+      const me = get().meId;
       set({
         status: 'ready',
         source: 'live',
@@ -129,6 +140,8 @@ export const useStore = create<State>((set, get) => ({
         snapDepth: snap.depth,
         relA: res.relAId,
         relB: res.relBId,
+        canonicalIdById: res.canonicalIdById,
+        meId: me ? (res.canonicalIdById[me] ?? me) : me,
       });
     } catch (e) {
       // Offline-fallback: indlejret Reventlow-seed, så appen ikke står blank.
@@ -147,9 +160,12 @@ export const useStore = create<State>((set, get) => ({
         snapDepth: snap.depth,
         relA: SEED.relAId,
         relB: SEED.relBId,
+        canonicalIdById: {}, // seed har ingen samme_som
       });
     }
   },
+
+  canonicalId: (id) => get().canonicalIdById[id] ?? id,
 
   hydrateMe: async () => {
     try {
@@ -258,7 +274,9 @@ export const useStore = create<State>((set, get) => ({
     if (!force && (get().redaktionStatus === 'loading' || get().redaktionStatus === 'ready')) return;
     set({ redaktionStatus: 'loading' });
     try {
-      const res = await loadFromSupabase({ includePrivat: true });
+      // Redaktion collapser IKKE: en redaktør skal se de separate DB-poster for at forvalte
+      // samme_som-links (spec §8 — redaktions-modellen holdes eksplicit separat).
+      const res = await loadFromSupabase({ includePrivat: true, collapse: false });
       const model = buildModel(res.db);
       set({ redaktionModel: model, redaktionAux: res.aux, redaktionStatus: 'ready' });
     } catch {
