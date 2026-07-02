@@ -29,7 +29,9 @@ export function buildModel(db: Db): Model {
     return true;
   });
 
-  const nameOf = (id: string): string => persons.find((p) => p.id === id)?.name ?? '';
+  // O(1)-opslag i stedet for lineær scan pr. union (review 12: O(P·U)-hotspot ved 50k+ personer).
+  const nameById = new Map(persons.map((p) => [p.id, p.name]));
+  const nameOf = (id: string): string => nameById.get(id) ?? '';
 
   // Ægtefæller pr. person — begge retninger, deduplikeret.
   const sp: Record<string, string> = {};

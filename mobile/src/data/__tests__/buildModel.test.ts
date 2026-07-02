@@ -67,6 +67,29 @@ describe('buildModel — første-union-reglen (barn i flere familier får ikke f
   });
 });
 
+describe('buildModel — nameOf-opslag (O(1)-map, review 12)', () => {
+  test('union med p2_name (ingen p2-person) bruger p2_name direkte', () => {
+    const db: Db = {
+      persons: [mk('1', 'Enke')],
+      unions: [{ id: 'f1', p1: '1', p2: null, p2_name: 'Afdød Ægtefælle', year: null }],
+      parentChild: [],
+    };
+    const model = buildModel(db);
+    expect(model.byId['1'].spouse).toBe('Afdød Ægtefælle');
+  });
+
+  test('union der refererer et ikke-eksisterende person-id degraderer til tom streng, ikke crash', () => {
+    const db: Db = {
+      persons: [mk('1', 'Person')],
+      unions: [{ id: 'f1', p1: '1', p2: 'ukendt-id', p2_name: null, year: null }],
+      parentChild: [],
+    };
+    expect(() => buildModel(db)).not.toThrow();
+    const model = buildModel(db);
+    expect(model.byId['1'].spouse).toBe('');
+  });
+});
+
 describe('buildModel — sanity-guard mod umulige forælder→barn-kanter', () => {
   const mkY = (id: string, name: string, born: number | null, died: number | null = null) => ({ id, name, born, died, years: '', title: '', bio: '' });
   const db: Db = {
