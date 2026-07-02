@@ -309,7 +309,9 @@ begin
   for fn in select proname from pg_proc where proname like 'red\_%' escape '\'
   loop execute format('grant execute on function public.%I to authenticated;', fn); end loop;
 end $$;
-revoke all on function public.current_rolle() from public;   -- hygiejne: ikke kaldbar af anon
+-- "from public" alene revoker ikke anon/authenticated (Supabase grantér dem direkte,
+-- jf. 2026-07-02-hærdningen nedenfor) — naevn anon eksplicit så hygiejne-hensigten reelt holder.
+revoke all on function public.current_rolle() from public, anon;
 grant execute on function public.current_rolle() to authenticated;
 -- staging: authenticated læser egne forslag; redaktion læser ALLE (kan tømme køen).
 -- Cycle 02 H1 — uden redaktion-read var staging-flowet usynligt for den der skal gennemse det.
