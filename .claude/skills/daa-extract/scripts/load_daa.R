@@ -31,10 +31,11 @@ suppressMessages({library(DBI); library(jsonlite)})
 source(".claude/skills/daa-extract/scripts/load_helpers.R")
 
 argv    <- commandArgs(trailingOnly = TRUE)
-if (length(argv) < 1) stop("brug: load_daa.R clean.json [udgave] [--reset] [--dry-run]")
+if (length(argv) < 1) stop("brug: load_daa.R clean.json [udgave] [--reset] [--force-reset] [--dry-run]")
 path    <- argv[1]
 udgave  <- if (length(argv) >= 2 && !startsWith(argv[2], "--")) argv[2] else "DAA 2018-20"
-RESET   <- "--reset" %in% argv
+RESET       <- "--reset" %in% argv
+FORCE_RESET <- "--force-reset" %in% argv   # tilsidesæt RESET-guarden bevidst (sletter change_set-arbejde)
 DRY_RUN <- "--dry-run" %in% argv
 
 clean <- fromJSON(path, simplifyVector = FALSE)
@@ -216,8 +217,10 @@ tryCatch({
                conditionMessage(e), "). Fejler lukket for at beskytte evt. redaktionelt arbejde.")
         }
       })
-    if (has_editorial_changes(cs))
-      stop("RESET (--reset) afvist: basen har redaktionelle change_set-rækker (red_*). Kør uden --reset (append) eller bekræft eksplicit sletning.")
+    if (has_editorial_changes(cs) && !FORCE_RESET)
+      stop("RESET (--reset) afvist: basen har redaktionelle change_set-rækker (red_*). Kør uden --reset (append) eller tilføj --force-reset for bevidst at slette dem.")
+    if (has_editorial_changes(cs) && FORCE_RESET)
+      message("ADVARSEL: --force-reset tilsidesætter RESET-guarden — redaktionelle change_set-rækker slettes.")
     message("RESET: tømmer model-tabeller…")
     ex(paste0("TRUNCATE ", paste(model_tables, collapse=", "), " CASCADE;"))
   }
