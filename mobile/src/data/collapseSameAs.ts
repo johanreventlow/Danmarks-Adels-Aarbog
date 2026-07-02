@@ -2,7 +2,8 @@
 // (linket via afklarede samme_som-relationer) til ÉN kanonisk post FØR buildModel, så
 // slægtskabs-motoren forbliver urørt. Reversibel (returnerer alias-map + proveniens) og
 // valideret (konflikter karantæneres, foldes ikke). Se spec 2026-07-02-samme-som-collapse-design.md.
-import type { SameAsEdge, QuarantineNote, Db, AppPerson } from './types';
+import { fmtYears } from './fields';
+import type { SameAsEdge, QuarantineNote, Db, AppPerson, CollapseResult, Provenance } from './types';
 
 // Union-find over samme_som-kanter → grupper. Kanonisk = unik sink (alias-outdegree 0).
 // Karantæne hvis: ingen unik sink, retnings-cyklus, eller endpoint ukendt (ufuldstændig
@@ -98,7 +99,7 @@ export function validateGroups(
   // Vital/køn-konflikt pr. gruppe (defense-in-depth, spec §6.5).
   for (const [canon, ids] of groups) {
     const ps = ids.map((id) => personById.get(id)).filter(Boolean) as AppPerson[];
-    const koen = [...new Set(ps.map((p) => p.koen).filter((k) => k && k !== 'ukendt'))];
+    const koen = [...new Set(ps.map((p) => p.koen).filter(Boolean))];
     if (koen.length > 1) {
       rej(canon, `kendt-forskelligt køn (${koen.join(',')})`);
       continue;
@@ -174,4 +175,84 @@ export function validateGroups(
   }
   const accepted = new Map([...groups].filter(([c]) => !rejected.has(c)));
   return { accepted, quarantined };
+}
+
+// Regenerér display-år fra de coalescede tal via samme formatter som loaderen (fields.ts),
+// så et flettet person-år er format-konsistent med resten af appen (sti-visningen bruger
+// `years` separat — inkonsistens ville ellers lydløst afvige fra fmtYears).
+const regenYears = (born: number | null, died: number | null): string =>
+  fmtYears(born == null ? null : String(born), died == null ? null : String(died));
+
+// Fuld projektion: gruppér (Task 1) → validér/karantænér (Task 2) → flet accepterede grupper til
+// deres kanoniske post og omskriv alle graf-kanter til kanoniske id'er. Reversibel: returnerer
+// alias-map + mergedFrom (proveniens) + karantæne. Motoren (buildModel/relationship) forbliver urørt.
+export function collapseSameAs(
+  rawDb: Db,
+  edges: SameAsEdge[],
+  ext: Map<string, { linje: string | null; nr: number | null }>,
+): CollapseResult {
+  const known = new Set(rawDb.persons.map((p) => p.id));
+  const { groups, quarantined: q1 } = groupSameAs(edges, known);
+  const { accepted, quarantined: q2 } = validateGroups(groups, rawDb);
+  const quarantined = [...q1, ...q2];
+
+  const canonicalIdById: Record<string, string> = {};
+  for (const [canon, ids] of accepted) for (const id of ids) canonicalIdById[id] = canon;
+  const canon = (id: string) => canonicalIdById[id] ?? id;
+
+  // Flet personer til den kanoniske post (coalesce: kanonisk først, derefter alias'er).
+  const personById = new Map(rawDb.persons.map((p) => [p.id, p]));
+  const mergedFrom: Record<string, Provenance[]> = {};
+  const mergedPersons: AppPerson[] = [];
+  const droppedAlias = new Set<string>();
+  for (const [canonId, ids] of accepted) {
+    const primary = personById.get(canonId)!;
+    const others = ids.filter((id) => id !== canonId).map((id) => personById.get(id)!).filter(Boolean);
+    const coalesce = <K extends keyof AppPerson>(k: K): AppPerson[K] =>
+      (primary[k] ?? others.find((o) => o[k] != null)?.[k]) as AppPerson[K];
+    const born = coalesce('born');
+    const died = coalesce('died');
+    mergedPersons.push({
+      ...primary,
+      born,
+      died,
+      years: regenYears(born as number | null, died as number | null),
+      title: primary.title || others.find((o) => o.title)?.title || '',
+      koen: primary.koen ?? others.find((o) => o.koen)?.koen,
+      privat: ids.some((id) => Boolean(personById.get(id)?.privat)), // OR
+    });
+    mergedFrom[canonId] = ids.map((id) => ({
+      personId: id,
+      linje: ext.get(id)?.linje ?? null,
+      nr: ext.get(id)?.nr ?? null,
+    }));
+    for (const id of ids) if (id !== canonId) droppedAlias.add(id);
+  }
+  const persons = rawDb.persons
+    .filter((p) => !accepted.has(p.id) && !droppedAlias.has(p.id))
+    .concat(mergedPersons);
+
+  // Omskriv unions til kanoniske id'er (dedup familie-bevidst: unik på familie-id).
+  const seenUnion = new Set<string>();
+  const unions = rawDb.unions
+    .map((u) => ({ ...u, p1: u.p1 == null ? u.p1 : canon(u.p1), p2: u.p2 == null ? u.p2 : canon(u.p2) }))
+    .filter((u) => {
+      if (seenUnion.has(u.id)) return false;
+      seenUnion.add(u.id);
+      return true;
+    });
+
+  // Omskriv parentChild til kanoniske id'er (dedup på kanonisk-forælder|kanonisk-barn|familie —
+  // ikke kun endpoints, ellers aggregerer buildModel's konfidens-logik kanter på tværs af familier).
+  const seenPc = new Set<string>();
+  const parentChild = rawDb.parentChild
+    .map((pc) => ({ ...pc, child: canon(pc.child), parent: canon(pc.parent) }))
+    .filter((pc) => {
+      const k = `${pc.parent}|${pc.child}|${pc.union}`;
+      if (seenPc.has(k)) return false;
+      seenPc.add(k);
+      return true;
+    });
+
+  return { db: { persons, unions, parentChild }, canonicalIdById, mergedFrom, quarantined };
 }

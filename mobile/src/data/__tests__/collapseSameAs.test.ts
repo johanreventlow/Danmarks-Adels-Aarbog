@@ -1,4 +1,4 @@
-import { groupSameAs, validateGroups } from '../collapseSameAs';
+import { groupSameAs, validateGroups, collapseSameAs } from '../collapseSameAs';
 import type { Db, AppPerson } from '../types';
 
 const known = (...ids: string[]) => new Set(ids);
@@ -126,5 +126,73 @@ describe('validateGroups', () => {
     const d = db([P('A', { born: 1600, died: 1650 }), P('B', { born: 1700, died: 1750 })], []);
     const { quarantined } = validateGroups(g, d);
     expect(quarantined[0].reason).toMatch(/levetid|vital/i);
+  });
+});
+
+describe('collapseSameAs (fuld)', () => {
+  const ext = new Map([
+    ['III58', { linje: 'III', nr: 58 }],
+    ['V1', { linje: 'V', nr: 1 }],
+    ['far', { linje: 'III', nr: 40 }],
+  ]);
+  it('Conrad: fletter datoer + arver forælder + mergedFrom + regen years', () => {
+    const rawDb: Db = {
+      persons: [
+        P('III58', { name: 'Conrad', born: null }),
+        P('V1', { name: 'Conrad de Reventlow', born: 1644, died: 1708 }),
+        P('far', { name: 'Iwan' }),
+      ],
+      unions: [],
+      parentChild: [{ child: 'III58', parent: 'far', union: 'f1' }],
+    };
+    const r = collapseSameAs(rawDb, [{ alias: 'III58', canonical: 'V1' }], ext);
+    expect(r.canonicalIdById['III58']).toBe('V1');
+    const v1 = r.db.persons.find((p) => p.id === 'V1')!;
+    expect(v1.born).toBe(1644); // coalesce
+    expect(v1.years).toContain('1644'); // regenereret
+    expect(r.db.persons.some((p) => p.id === 'III58')).toBe(false); // foldet væk
+    expect(r.db.parentChild.find((pc) => pc.child === 'V1')?.parent).toBe('far'); // arvet forælder
+    expect(r.mergedFrom['V1']).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ linje: 'III', nr: 58 }),
+        expect.objectContaining({ linje: 'V', nr: 1 }),
+      ]),
+    );
+  });
+  it('privat = OR', () => {
+    const rawDb: Db = {
+      persons: [P('A', { privat: false }), P('B', { privat: true })],
+      unions: [],
+      parentChild: [],
+    };
+    const r = collapseSameAs(rawDb, [{ alias: 'A', canonical: 'B' }], new Map());
+    expect(r.db.persons.find((p) => p.id === 'B')!.privat).toBe(true);
+  });
+  it('kant-dedup familie-bevidst: samme (forælder,barn,familie) → én; forskellig familie bevares', () => {
+    const rawDb: Db = {
+      persons: [P('A'), P('B'), P('c')],
+      unions: [],
+      parentChild: [
+        { child: 'c', parent: 'A', union: 'f1' },
+        { child: 'c', parent: 'B', union: 'f1' },
+        { child: 'c', parent: 'B', union: 'f2' },
+      ],
+    };
+    const r = collapseSameAs(rawDb, [{ alias: 'A', canonical: 'B' }], new Map());
+    const cEdges = r.db.parentChild.filter((pc) => pc.child === 'c' && pc.parent === 'B');
+    expect(cEdges.map((e) => e.union).sort()).toEqual(['f1', 'f2']); // f1 deduplikeret, f2 bevaret
+  });
+  it('karantæneret gruppe foldes ikke (begge poster forbliver)', () => {
+    const rawDb: Db = { persons: [P('A'), P('B'), P('C')], unions: [], parentChild: [] };
+    const r = collapseSameAs(
+      rawDb,
+      [
+        { alias: 'A', canonical: 'B' },
+        { alias: 'A', canonical: 'C' },
+      ],
+      new Map(),
+    );
+    expect(r.db.persons.map((p) => p.id).sort()).toEqual(['A', 'B', 'C']);
+    expect(r.quarantined.length).toBe(1);
   });
 });
