@@ -745,6 +745,44 @@ BEGIN
     VALUES (p_family_id, p_barn_id, p_rolle, NULL, p_konfidens);
 END $$;
 
+-- Ret ordinal (rækkefølge) på et familie-link. Bruges bl.a. til søskende-visningsrækkefølge
+-- (mobile/src/data/load.ts sorterer 'barn'-rækker efter ordinal) når fødselsår er ukendt/
+-- upræcist, men den indbyrdes rækkefølge kendes. Samme felt bruges for 'partner'-rækker til
+-- ægteskabs-sekvensnummer (red_opret_union) — generisk "sæt ordinal", matcher
+-- red_set_familie_konfidens' mønster (2026-07-02).
+CREATE OR REPLACE FUNCTION red_set_familie_ordinal(p_family_id bigint, p_person_id bigint, p_rolle text, p_ordinal int)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_n int;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_set_familie_ordinal', format('Satte ordinal %s på familie-link %s/%s/%s', p_ordinal, p_family_id, p_person_id, p_rolle), 'person', p_person_id);
+  UPDATE family_member SET ordinal=p_ordinal
+    WHERE family_id=p_family_id AND person_id=p_person_id AND rolle=p_rolle;
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  IF v_n = 0 THEN RAISE EXCEPTION 'Familie-link findes ikke (%, %, %)', p_family_id, p_person_id, p_rolle; END IF;
+END $$;
+
+-- Flyt et barn fra ét forhold til et andet (fx rettelse af forkert mor/far-par — barnet var
+-- registreret under den forkerte af personens flere unioner). Tynd wrapper om
+-- red_tilfoej_barn + red_slet_familie_link: genbruger deres cyklus-/partner-guards uændret i
+-- stedet for at duplikere dem. begin_change_set() her sikrer ÉT change_set for hele
+-- flytningen — de indre kald genbruger det allerede-aktive sæt (verificeret re-entrant, B7/T5b
+-- i docs/reviews/09-versionering-hyperlinks-db.md), opretter ikke separate sæt. Ordinal
+-- nulstilles bevidst ved flytning (søskende-rækkefølge er unions-specifik); konfidens bevares.
+CREATE OR REPLACE FUNCTION red_flyt_barn(p_fra_family_id bigint, p_til_family_id bigint, p_barn_id bigint, p_rolle text DEFAULT 'barn')
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_konfidens text;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_flyt_barn', format('Flyttede barn %s fra familie %s til familie %s', p_barn_id, p_fra_family_id, p_til_family_id), 'person', p_barn_id);
+  IF p_fra_family_id = p_til_family_id THEN RAISE EXCEPTION 'Fra- og til-familie er ens'; END IF;
+  SELECT konfidens INTO v_konfidens FROM family_member
+    WHERE family_id=p_fra_family_id AND person_id=p_barn_id AND rolle=p_rolle;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Barn-link findes ikke (family %, person %, rolle %)', p_fra_family_id, p_barn_id, p_rolle; END IF;
+  PERFORM red_tilfoej_barn(p_til_family_id, p_barn_id, p_rolle, v_konfidens);
+  PERFORM red_slet_familie_link(p_fra_family_id, p_barn_id, p_rolle);
+END $$;
+
 -- Medlem-forslag til staging (all authenticated)
 CREATE OR REPLACE FUNCTION red_suggest(
   p_art text, p_subjekt_type text, p_subjekt_id bigint, p_felt text, p_vaerdi text,

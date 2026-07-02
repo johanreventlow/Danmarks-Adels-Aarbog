@@ -1141,3 +1141,37 @@ SELECT m.* FROM text_mention m
 WHERE (m.maal_type='person' AND NOT EXISTS (SELECT 1 FROM person  p WHERE p.id=m.maal_id))
    OR (m.maal_type='estate' AND NOT EXISTS (SELECT 1 FROM estate  e WHERE e.id=m.maal_id))
    OR (m.maal_type='lineage' AND NOT EXISTS (SELECT 1 FROM lineage l WHERE l.id=m.maal_id));
+
+-- 2026-07-02: søskende-rækkefølge (ordinal på familie-links) + flyt barn mellem forhold
+-- (brugerfund: forkert mor/far-par tilskrevet et barn kan i dag kun rettes ved en manuel
+-- to-trins-omvej på tværs af to profiler). Testet mod prod via BEGIN/ROLLBACK-sandkasse
+-- (ordinal-sæt, ugyldigt-link-fejl, atomisk flyt m. bevaret konfidens, samme-fra/til-fejl,
+-- ét change_set/to change_events, red_fortryd_change_set gendanner korrekt) før anvendt.
+CREATE OR REPLACE FUNCTION red_set_familie_ordinal(p_family_id bigint, p_person_id bigint, p_rolle text, p_ordinal int)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_n int;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_set_familie_ordinal', format('Satte ordinal %s på familie-link %s/%s/%s', p_ordinal, p_family_id, p_person_id, p_rolle), 'person', p_person_id);
+  UPDATE family_member SET ordinal=p_ordinal
+    WHERE family_id=p_family_id AND person_id=p_person_id AND rolle=p_rolle;
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  IF v_n = 0 THEN RAISE EXCEPTION 'Familie-link findes ikke (%, %, %)', p_family_id, p_person_id, p_rolle; END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION red_flyt_barn(p_fra_family_id bigint, p_til_family_id bigint, p_barn_id bigint, p_rolle text DEFAULT 'barn')
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_konfidens text;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_flyt_barn', format('Flyttede barn %s fra familie %s til familie %s', p_barn_id, p_fra_family_id, p_til_family_id), 'person', p_barn_id);
+  IF p_fra_family_id = p_til_family_id THEN RAISE EXCEPTION 'Fra- og til-familie er ens'; END IF;
+  SELECT konfidens INTO v_konfidens FROM family_member
+    WHERE family_id=p_fra_family_id AND person_id=p_barn_id AND rolle=p_rolle;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Barn-link findes ikke (family %, person %, rolle %)', p_fra_family_id, p_barn_id, p_rolle; END IF;
+  PERFORM red_tilfoej_barn(p_til_family_id, p_barn_id, p_rolle, v_konfidens);
+  PERFORM red_slet_familie_link(p_fra_family_id, p_barn_id, p_rolle);
+END $$;
+
+grant execute on function public.red_set_familie_ordinal(bigint, bigint, text, int) to authenticated;
+grant execute on function public.red_flyt_barn(bigint, bigint, bigint, text) to authenticated;
