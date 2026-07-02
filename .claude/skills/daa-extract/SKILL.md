@@ -87,19 +87,12 @@ og overskriver et evt. LLM-`boern`. LLM'en *må* stadig udfylde feltet, men det
 ignoreres. OBS: `boern.linje` er bogens INTERNE gren-tæller i slægtleddet, IKKE
 JSON-linjen (matcher kun ~85%) — se `docs/decisions.md` om kryds-gren-tvetydighed.
 
-Prompten til hver post (skema-tvunget output) skal indeholde:
-- postens `raw_text`, `linje`, `nr`, `slaegtled`, `aegteskab_kontekst`
-- hele `docs/daa-extraction-archetype.md`-kontrakten (især §3 fælderne og §4 datoer)
-- kravet: **hver udtrukket dato-værdi skal forekomme ordret i raw_text**
-- **dato-fakta:** `date_raw` er obligatorisk og verbatim (også floruit) — syntetisér
-  aldrig en normaliseret span i `vaerdi`; spanet hører i `date_min`/`date_max`.
-- **kilde_span (proveniens):** for hvert fakta og ægteskab, kopiér den mindste
-  klausul fra `raw_text` der indeholder ankeret (dato-token, partnernavn,
-  godsnavn). Den SKAL være en ordret substring af `raw_text` — `validate.py`
-  afviser poster hvor et span ikke findes ordret (R7). Opfind aldrig spanet.
-- **begivenheder restriktivt:** kun navngivne, *delte* historiske events (slag,
-  kroning, mord på greve Adolph 1315). Rutine-gerninger (vidne, stadfæstede,
-  lenshyldning, immatrikulation) er IKKE events — de bliver i narrativen.
+Brug den **frosne prompt** i `references/extract-prompt.md` uændret — den er den
+autoritative kontrakt for trin ③ (postens input-felter, dato-/kilde_span-krav, hvad
+der er rygrad, embeder-vs-karriere, model-tier). Rediger promptfilen (ikke ad hoc pr.
+kørsel), og bump `prompt-version` i dens header ved ændringer, så modeller/kørsler kan
+sammenlignes uden prompt-drift. NB: `date_min`/`date_max` udledes nu deterministisk i
+trin ④ fra `date_raw` — LLM'en skal prioritere at få `date_raw` ordret rigtigt.
 
 Gem ét JSON-objekt per post til `work/extracted/<linje>-<nr>.json`.
 
@@ -114,7 +107,7 @@ python3 scripts/validate.py work/posts.json work/extracted/ \
   --clean work/clean.json --review work/review.json
 ```
 
-Tjekker de 6 regler (se `references/archetype.md` §5). En post med ÉT brud
+Tjekker de 6 regler (se `docs/daa-extraction-archetype.md` §5). En post med ÉT brud
 ryger i `review.json` og **loades ikke**. Scriptet udskriver en review-rapport
 med præcis hvilken regel der brød og hvor. Et menneske skal gennemgå
 `review.json`, rette (eller gen-køre med Opus), og flytte godkendte poster til

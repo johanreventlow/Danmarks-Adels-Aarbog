@@ -18,16 +18,24 @@
 #  citation for rygraden + family/family_member for slægtskab + relation
 #  for godser/embeder/begivenheder. Alt under én source = DAA-udgaven.
 #
-#  KENDT v1-forenkling: børn knyttes til forælderens familie via boern.nr_range
-#  (ikke per-ægteskab-gruppering). Forfines i review/senere iteration.
+#  Børn knyttes via boern.nr_range til FØRSTE union (v1) — korrekt multi-union-
+#  splitning kræver barnets eget aegteskab_kontekst, ikke rec's (som beskriver
+#  rec's egen afstamning), og er udskudt. Opslag der ikke matcher et løbenummer
+#  i forælderens egen linje (heller ikke via en 15a/15b-variant) logges i
+#  work/load-unresolved.csv frem for at blive droppet tavst.
 # =====================================================================
 suppressMessages({library(DBI); library(jsonlite)})
+# load_helpers.R: rene, DB-frie hjælpere (buffer_counts m.fl.) — path er repo-root-relativ,
+# samme konvention som seed_vocab()'s vocab.json/forkortelser.json nedenfor (scriptet
+# forudsætter Rscript køres fra repo-roden, jf. skillets Quick-run).
+source(".claude/skills/daa-extract/scripts/load_helpers.R")
 
 argv    <- commandArgs(trailingOnly = TRUE)
-if (length(argv) < 1) stop("brug: load_daa.R clean.json [udgave] [--reset]")
+if (length(argv) < 1) stop("brug: load_daa.R clean.json [udgave] [--reset] [--dry-run]")
 path    <- argv[1]
 udgave  <- if (length(argv) >= 2 && !startsWith(argv[2], "--")) argv[2] else "DAA 2018-20"
 RESET   <- "--reset" %in% argv
+DRY_RUN <- "--dry-run" %in% argv
 
 clean <- fromJSON(path, simplifyVector = FALSE)
 if (!length(clean)) stop("clean.json er tom — intet at loade.")
@@ -69,6 +77,7 @@ nid <- function(t) { v <- (if (is.null(.seq[[t]])) 0L else .seq[[t]]) + 1L; .seq
 #  forbindelsen dropper. Vi laver ingen DB-kald under passene; flush_all() skriver
 #  hver tabel med dbAppendTable/COPY i FK-rækkefølge i én kort transaktion.)
 .buf <- new.env(parent = emptyenv())
+.unresolved <- new.env(parent = emptyenv()); .unresolved$rows <- list()
 push <- function(tbl, row) { .buf[[tbl]] <- c(.buf[[tbl]], list(row)); invisible() }
 rows_to_df <- function(rows) {
   cols <- names(rows[[1]])
@@ -195,8 +204,23 @@ current_by <- udgave   # konklusions-proveniens; sættes per record
 # ================= LOAD (én transaktion) =================
 dbBegin(con)
 tryCatch({
-  if (RESET) { message("RESET: tømmer model-tabeller…")
-    ex(paste0("TRUNCATE ", paste(model_tables, collapse=", "), " CASCADE;")) }
+  if (RESET) {
+    cs <- tryCatch(
+      dbGetQuery(con, "SELECT operation FROM change_set"),
+      error = function(e) {
+        if (is_missing_table_error(conditionMessage(e))) {
+          message("change_set-tabellen findes ikke — antager ingen redaktionelle rækker.")
+          data.frame(operation = character(0))
+        } else {
+          stop("RESET (--reset) afvist: kunne ikke verificere change_set (",
+               conditionMessage(e), "). Fejler lukket for at beskytte evt. redaktionelt arbejde.")
+        }
+      })
+    if (has_editorial_changes(cs))
+      stop("RESET (--reset) afvist: basen har redaktionelle change_set-rækker (red_*). Kør uden --reset (append) eller bekræft eksplicit sletning.")
+    message("RESET: tømmer model-tabeller…")
+    ex(paste0("TRUNCATE ", paste(model_tables, collapse=", "), " CASCADE;"))
+  }
 
   seed_seq()      # skal køre EFTER en evt. TRUNCATE, og under alle omstændigheder før nid()
   preload_cache() # samme timing-krav — før get_place()/get_or_create() bruges
@@ -248,7 +272,14 @@ tryCatch({
     for (a in g(rec, "aegteskaber", list())) {
       fam <- add_family(g(a, "type", "union"))
       add_member(fam, pid, "partner", ordinal = g(a, "ordinal"))
-      if (!is.null(a$partner_navn) && !is.na(a$partner_navn)) {
+      ref <- parse_intern_ref(g(a, "partner_ekstern_ref"), rec$linje)
+      existing_key <- if (!is.null(ref)) key(ref$linje, ref$nr) else NULL
+      if (!is.null(existing_key) && exists(existing_key, envir = pmap, inherits = FALSE)) {
+        # partner_ekstern_ref pegede internt på en person der allerede findes i
+        # denne kilde (fx "se nr. 97") — link den eksisterende i stedet for at
+        # oprette en dublet-stub.
+        add_member(fam, get(existing_key, envir = pmap), "partner", ordinal = g(a, "ordinal"))
+      } else if (!is.null(a$partner_navn) && !is.na(a$partner_navn)) {
         sp <- add_person(); sp_t <- split_title(a$partner_navn)
         fact_value(sp, "navn", vaerdi = sp_t$rest, sid = src, side = side)
         if (!is.na(sp_t$titel)) fact_value(sp, "titel", vaerdi = sp_t$titel, sid = src, side = side)
@@ -276,27 +307,32 @@ tryCatch({
         add_note("family", fam, paste("partner ekstern ref:", a$partner_ekstern_ref))
       fams[[length(fams) + 1]] <- fam
     }
-    # børn: knyt til første union (v1-forenkling), opret familie hvis ingen ægteskab
-    b <- rec[["boern"]]                       # direkte opslag: NULL hvis fraværende (g() ville give NA -> $ fejler)
+    # børn: knyt til den KORREKTE union (via aegteskab_kontekst), opret familie hvis intet ægteskab.
+    b <- rec[["boern"]]                       # direkte opslag: NULL hvis fraværende
     if (is.list(b) && !is.null(b$nr_range)) {
+      # Børn hænges på FØRSTE union (v1). Korrekt multi-union-splitning kræver
+      # BARNETS eget aegteskab_kontekst (som angiver hvilket af DENNE forælders
+      # ægteskaber barnet kom fra) — ikke rec's eget felt, der beskriver rec's
+      # egen afstamning. Udskudt; kuld/aegteskab_kontekst plumbes stadig (merge_kontekst)
+      # som substrat til den korrekte fremtidige binding.
       fam <- if (length(fams)) fams[[1]] else add_family("union")
       if (!length(fams)) add_member(fam, pid, "partner")
       rng <- b$nr_range
+      pk  <- ls(pmap)                          # pmap er fuldt bygget i pass 1; konstant her
+      # Match UDELUKKENDE inden for forælderens egen linje (børn bliver i grenen); ingen
+      # forurenet stated-linje-fallback (jf. review 11 / 163-rækkers-buggen). 15a/15b-børn
+      # nås via resolve_barn_keys. Uopløste opslag logges frem for at droppes tavst.
       for (n in seq(rng[[1]], rng[[2]])) {
-        # boern.linje ("stated") er ofte forurenet (kuld-markør forvekslet med
-        # linje) og DAA's løbenumre genbruges per gren — en forurenet stated-linje
-        # matcher derfor nogle gange tilfældigt en helt anden gren/generation
-        # (fundet i prod: nr. 29 findes i linje I og blev fejlagtigt "fundet" via
-        # en forurenet stated-linje for linje IV/V-forældre; ramte 163 barn-links,
-        # se docs/reviews/11-flere-foraeldre-datafix.md). Match derfor UDELUKKENDE
-        # inden for forælderens egen linje (børn bliver i grenen) — ingen
-        # stated-fallback. Sjældne ægte kryds-linje-børn fanges ikke af v1 og må
-        # tilføjes manuelt; det er sikrere end den forurenede heuristik.
-        k2 <- key(rec$linje, as.character(n))
-        ck <- if (exists(k2, envir = pmap, inherits = FALSE)) k2 else NULL
-        if (!is.null(ck)) {
-          konf <- if (isTRUE(get0(ck, envir = umap, inherits = FALSE))) "formodet" else NA
-          add_member(fam, get(ck, envir = pmap), "barn", konfidens = konf)
+        keys <- resolve_barn_keys(rec$linje, n, pk)
+        if (length(keys)) {
+          for (ck in keys) {
+            konf <- if (isTRUE(get0(ck, envir = umap, inherits = FALSE))) "formodet" else NA
+            add_member(fam, get(ck, envir = pmap), "barn", konfidens = konf)
+          }
+        } else {
+          .unresolved$rows <- c(.unresolved$rows, list(list(
+            forael_linje = rec$linje, forael_nr = lbl_of(rec),
+            barn_nr = as.character(n), aarsag = barn_lookup_reason(keys))))
         }
       }
     }
@@ -354,9 +390,21 @@ tryCatch({
              AND f.faktatype IN ('død','begravelse','dødsårsag'))
        AND COALESCE(TRIM(p.visning_doed),'') = ''", ref_aar - 100L))
 
-  dbCommit(con); message(sprintf("Indlæst %d poster (udgave %s).", length(clean), udgave))
+  if (DRY_RUN) {
+    message("DRY-RUN: ingen commit. Bufret pr. tabel:")
+    print(buffer_counts(.buf))
+    dbRollback(con)
+  } else {
+    dbCommit(con); message(sprintf("Indlæst %d poster (udgave %s).", length(clean), udgave))
+  }
 }, error = function(e) { dbRollback(con); dbDisconnect(con)
   stop("Load fejlede, rullet tilbage: ", conditionMessage(e)) })
+
+if (length(.unresolved$rows)) {
+  ur <- do.call(rbind, lapply(.unresolved$rows, function(r) as.data.frame(r, stringsAsFactors = FALSE)))
+  write.csv(ur, "work/load-unresolved.csv", row.names = FALSE)
+  message(sprintf("BEMÆRK: %d uopløste barn-opslag — se work/load-unresolved.csv", nrow(ur)))
+}
 
 counts <- dbGetQuery(con, "SELECT 'person' t, count(*) n FROM person
   UNION ALL SELECT 'fact', count(*) FROM fact

@@ -222,5 +222,61 @@ class TestValidateMainReviewNrLabel(unittest.TestCase):
                              "review-record mangler nr_label — C3-fix ikke anvendt")
 
 
+class TestDateBounds(unittest.TestCase):
+    def test_aar_kun(self):
+        self.assertEqual(validate.derive_date_bounds("1698"), ("1698-01-01", "1698-12-31"))
+
+    def test_fuld_dato(self):
+        self.assertEqual(validate.derive_date_bounds("26. juli 1975"), ("1975-07-26", "1975-07-26"))
+
+    def test_ca(self):
+        lo, hi = validate.derive_date_bounds("ca. 1500")
+        self.assertTrue(lo.startswith("1500") and hi.startswith("1500"))
+
+    def test_uparsebar(self):
+        self.assertEqual(validate.derive_date_bounds("ukendt"), (None, None))
+
+    def test_to_aars_span_bevares(self):
+        self.assertEqual(validate.derive_date_bounds("1257-1272"), ("1257-01-01", "1272-12-31"))
+
+    def test_flere_end_to_aar_uparsebart(self):
+        self.assertEqual(validate.derive_date_bounds("1500 1600 1700"), (None, None))
+
+
+class TestNormalizeRecordDateOverride(unittest.TestCase):
+    """normalize_record overskriver date_min/date_max deterministisk fra date_raw."""
+
+    def test_overskriver_llm_dato(self):
+        rec = {"linje": "I", "nr": 1,
+               "facts": [{"faktatype": "død", "date_raw": "1750", "date_min": "1999-01-01", "date_max": "1999-12-31"}]}
+        src = {"raw_text": "N.N. død 1750."}
+        validate.normalize_record(rec, src)
+        self.assertEqual(rec["facts"][0]["date_min"], "1750-01-01")
+        self.assertEqual(rec["facts"][0]["date_max"], "1750-12-31")
+
+    def test_span_bevares_ved_normalize(self):
+        rec = {"linje": "I", "nr": 1,
+               "facts": [{"faktatype": "floruit", "date_raw": "1257-1272"}]}
+        src = {"raw_text": "N.N. floruit 1257-1272."}
+        validate.normalize_record(rec, src)
+        self.assertEqual(rec["facts"][0]["date_min"], "1257-01-01")
+        self.assertEqual(rec["facts"][0]["date_max"], "1272-12-31")
+
+
+class TestKontekstMerge(unittest.TestCase):
+    def test_merge_kuld_og_kontekst(self):
+        rec = {"linje": "I", "nr": 66, "nr_label": "66", "navn": "X"}
+        src = {"linje": "I", "nr": 66, "nr_label": "66",
+               "raw_text": "X, til Y. 1700.", "kuld": "I",
+               "aegteskab_kontekst": "af første ægteskab med Anna von Ahlefeldt"}
+        out = validate.merge_kontekst(dict(rec), src)
+        self.assertEqual(out["kuld"], "I")
+        self.assertEqual(out["aegteskab_kontekst"], "af første ægteskab med Anna von Ahlefeldt")
+
+    def test_merge_haandterer_manglende_src(self):
+        out = validate.merge_kontekst({"linje":"I","nr":1,"nr_label":"1","navn":"X"}, None)
+        self.assertIsNone(out["kuld"])
+
+
 if __name__ == "__main__":
     unittest.main()

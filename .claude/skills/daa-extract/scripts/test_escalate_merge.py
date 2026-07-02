@@ -63,6 +63,23 @@ class TestMerge(unittest.TestCase):
         self.assertEqual(len(new_review), 1)         # havnet i review
         self.assertNotIn(KEY, promoted)
 
+    def test_promoveret_post_faar_kuld_og_aegteskab_kontekst_fra_src(self):
+        # NEW3: promote-stien skal flette kuld/aegteskab_kontekst ind ligesom
+        # den direkte validate.main()-sti gør (loaderen bruger dem til
+        # union-binding af børn).
+        src_med_kontekst = {
+            "raw_text": "Iwan † 1261. Gift med Sofie.", "linje": "I", "nr": 5,
+            "kuld": "I", "aegteskab_kontekst": "af første ægteskab med Sofie",
+        }
+        reext = rec(facts=[{"faktatype": "død", "date_raw": "† 1261"}])
+        esc = [{"linje": "I", "nr": 5, "nr_label": "5", "grunde": ["R8: ..."]}]
+        new_clean, new_review, promoted = em.merge_escalated(
+            esc, {KEY: reext}, {KEY: rec()}, {KEY: src_med_kontekst}, {},
+            clean=[], review=[])
+        self.assertIn(KEY, promoted)
+        self.assertEqual(new_clean[0]["kuld"], "I")
+        self.assertEqual(new_clean[0]["aegteskab_kontekst"], "af første ægteskab med Sofie")
+
     def test_fejlet_eskalering_beholder_brud_i_review(self):
         # NEW2 (Codex 2026-06-18): en fejlet eskalering skal i review med
         # validate.main()-formen (brud/advisory), ikke som rå reext-record.
@@ -188,3 +205,7 @@ class TestDiff(unittest.TestCase):
             self.assertIn("- **facts**:", content)
         finally:
             os.unlink(path)
+
+
+if __name__ == '__main__':
+    unittest.main()
