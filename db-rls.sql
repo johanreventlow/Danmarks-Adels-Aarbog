@@ -400,11 +400,16 @@ GRANT EXECUTE ON FUNCTION red_fortryd_change_set(bigint,boolean) TO authenticate
 -- hhv. en levende/privat-status-oracle og fri indsættelse i det ellers deny-
 -- all'ede change_set). Al legitim adgang sker via SECURITY DEFINER-kæden fra
 -- red_*-RPC'erne; ejeren (postgres) bypasser revoke/RLS ved interne kald.
+-- OBS: Supabase grantér anon/authenticated EXECUTE DIREKTE (ikke via PUBLIC) via
+-- egne ALTER DEFAULT PRIVILEGES — "FROM PUBLIC" alene er dokumenteret utilstrækkeligt
+-- i prod (verificeret 2026-07-02: proacl beholdt anon/authenticated efter revoke).
+-- Navngiv altid rollerne eksplicit.
 -- =====================================================================
 ALTER TABLE version_pk_registry ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON version_pk_registry FROM anon, authenticated;
 REVOKE EXECUTE ON FUNCTION _subjekt_synlighed(text, bigint),
-                           begin_change_set(text, text, text, bigint) FROM PUBLIC;
+                           begin_change_set(text, text, text, bigint)
+  FROM PUBLIC, anon, authenticated;
 
 -- text_mention: dobbelt-gating (M4) — kilde-tekst OG mål synlig.
 ALTER TABLE text_mention ENABLE ROW LEVEL SECURITY;
