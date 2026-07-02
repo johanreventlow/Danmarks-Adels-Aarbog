@@ -246,7 +246,7 @@ CREATE TABLE narrative (          -- bevaret biografisk prosa (substrat); fakta 
 -- Recompute cache-felter fra personens konklusioner. Læser den VALGTE assertions værdi
 -- pr. faktatype. Dato-fakta (fødsel/død) bruger coalesce(date_raw, vaerdi_tekst).
 CREATE OR REPLACE FUNCTION regen_person_visning(pid BIGINT)
-RETURNS void LANGUAGE sql AS $$
+RETURNS void LANGUAGE sql SET search_path=public AS $$
   UPDATE person p SET
     visning_navn  = sub.navn,
     visning_foedt = sub.foedt,
@@ -268,7 +268,7 @@ $$;
 
 -- Trigger-wrapper: udled berørt person fra conclusion-rækkens fact-target.
 CREATE OR REPLACE FUNCTION trg_regen_from_conclusion()
-RETURNS trigger LANGUAGE plpgsql AS $$
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
 DECLARE pid BIGINT;
 BEGIN
   SELECT f.subjekt_id INTO pid FROM fact f
@@ -286,7 +286,7 @@ CREATE TRIGGER trg_conclusion_regen
 
 -- Edits af den VALGTE assertion ændrer cache-værdien uden at conclusion-rækken røres.
 CREATE OR REPLACE FUNCTION trg_regen_from_assertion()
-RETURNS trigger LANGUAGE plpgsql AS $$
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
 DECLARE pid BIGINT;
 BEGIN
   SELECT f.subjekt_id INTO pid FROM fact f
@@ -1024,14 +1024,14 @@ END $$;
 -- ---------- VERSIONERING: generisk log_change ----------
 -- Byg kanonisk row_pk fra registry'ets pk_cols.
 CREATE OR REPLACE FUNCTION _row_pk(p_tabel text, p_row jsonb)
-RETURNS jsonb LANGUAGE sql STABLE AS $$
+RETURNS jsonb LANGUAGE sql STABLE SET search_path=public AS $$
   SELECT coalesce(jsonb_object_agg(k, p_row->k), '{}'::jsonb)
   FROM version_pk_registry r, unnest(r.pk_cols) k
   WHERE r.tabel = p_tabel;
 $$;
 
 CREATE OR REPLACE FUNCTION log_change()
-RETURNS trigger LANGUAGE plpgsql AS $$
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
 DECLARE
   v_cs text; v_seq int; v_skip text[];
   v_foer jsonb; v_efter jsonb; v_old jsonb; v_new jsonb;
@@ -1074,7 +1074,7 @@ END $$;
 -- ---------- VERSIONERING: restore-hjælpere ----------
 -- WHERE-klausul fra pk-jsonb med korrekt type-cast pr. kolonne (via udt_name).
 CREATE OR REPLACE FUNCTION _version_pk_where(p_tabel text, p_pk jsonb)
-RETURNS text LANGUAGE sql STABLE AS $$
+RETURNS text LANGUAGE sql STABLE SET search_path=public AS $$
   SELECT string_agg(format('%I = (%L)::%s', c.column_name, p_pk->>c.column_name, c.udt_name), ' AND ')
   FROM version_pk_registry r, unnest(r.pk_cols) k
   JOIN information_schema.columns c
@@ -1083,7 +1083,7 @@ RETURNS text LANGUAGE sql STABLE AS $$
 $$;
 
 CREATE OR REPLACE FUNCTION _version_current_row(p_tabel text, p_pk jsonb)
-RETURNS jsonb LANGUAGE plpgsql STABLE AS $$
+RETURNS jsonb LANGUAGE plpgsql STABLE SET search_path=public AS $$
 DECLARE v_skip text[]; v_row jsonb;
 BEGIN
   SELECT coalesce(skip_cols,'{}') INTO v_skip FROM version_pk_registry WHERE tabel=p_tabel;
@@ -1094,7 +1094,7 @@ END $$;
 
 -- Upsert til nøjagtig snapshot-tilstand. Manglende (skip-)kolonner → NULL (cache regenereres efter).
 CREATE OR REPLACE FUNCTION _version_upsert_row(p_tabel text, p_row jsonb)
-RETURNS void LANGUAGE plpgsql AS $$
+RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
 DECLARE v_pk_cols text; v_set text; v_cols text;
 BEGIN
   SELECT string_agg(quote_ident(k),',') INTO v_pk_cols
@@ -1120,7 +1120,7 @@ BEGIN
 END $$;
 
 CREATE OR REPLACE FUNCTION _version_delete_row(p_tabel text, p_pk jsonb)
-RETURNS void LANGUAGE plpgsql AS $$
+RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
 BEGIN
   EXECUTE format('DELETE FROM %I WHERE %s', p_tabel, _version_pk_where(p_tabel, p_pk));
 END $$;
@@ -1202,7 +1202,7 @@ END $$;
 --   type ∈ fast vokabular; id = heltal uden foranstillede nuller; visningstekst vilkårlig
 --   (| [ ] escapes som \| \[ \]). Malformet/ukendt type → ignoreres.
 CREATE OR REPLACE FUNCTION parse_mentions(p_tekst text)
-RETURNS TABLE(maal_type text, maal_id bigint) LANGUAGE sql IMMUTABLE AS $$
+RETURNS TABLE(maal_type text, maal_id bigint) LANGUAGE sql IMMUTABLE SET search_path=public AS $$
   SELECT m[1] AS maal_type, m[2]::bigint AS maal_id
   FROM regexp_matches(
     coalesce(p_tekst,''),
@@ -1223,7 +1223,7 @@ CREATE INDEX IF NOT EXISTS ix_text_mention_maal ON text_mention(maal_type, maal_
 
 -- Erstat HELE projektionen for én kilde-række (dedup via PK).
 CREATE OR REPLACE FUNCTION _regen_mentions_for(p_kilde_type text, p_kilde_id bigint)
-RETURNS void LANGUAGE plpgsql AS $$
+RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
 DECLARE v_tekst text;
 BEGIN
   DELETE FROM text_mention WHERE kilde_type=p_kilde_type AND kilde_id=p_kilde_id;
@@ -1236,7 +1236,7 @@ BEGIN
 END $$;
 
 CREATE OR REPLACE FUNCTION trg_regen_mentions()
-RETURNS trigger LANGUAGE plpgsql AS $$
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
 DECLARE v_kilde text := TG_TABLE_NAME;  -- 'narrative' | 'note'
 BEGIN
   IF TG_OP='DELETE' THEN

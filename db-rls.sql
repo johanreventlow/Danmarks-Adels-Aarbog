@@ -392,6 +392,20 @@ GRANT EXECUTE ON FUNCTION hist_for_subjekt(text,bigint) TO authenticated;
 GRANT EXECUTE ON FUNCTION hist_events(bigint)            TO authenticated;
 GRANT EXECUTE ON FUNCTION red_fortryd_change_set(bigint,boolean) TO authenticated;
 
+-- =====================================================================
+-- 2026-07-02: SIKKERHEDSHÆRDNING (review 12) — version_pk_registry (intet RLS,
+-- Supabases default-privileges gav anon fuld DML inkl. TRUNCATE — et forgiftet
+-- register knækker log_change/fortryd) og _subjekt_synlighed/begin_change_set
+-- (rene interne hjælpefunktioner uden egen rolle-gate, PostgREST-kaldbare som
+-- hhv. en levende/privat-status-oracle og fri indsættelse i det ellers deny-
+-- all'ede change_set). Al legitim adgang sker via SECURITY DEFINER-kæden fra
+-- red_*-RPC'erne; ejeren (postgres) bypasser revoke/RLS ved interne kald.
+-- =====================================================================
+ALTER TABLE version_pk_registry ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON version_pk_registry FROM anon, authenticated;
+REVOKE EXECUTE ON FUNCTION _subjekt_synlighed(text, bigint),
+                           begin_change_set(text, text, text, bigint) FROM PUBLIC;
+
 -- text_mention: dobbelt-gating (M4) — kilde-tekst OG mål synlig.
 ALTER TABLE text_mention ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tm_read ON text_mention;
