@@ -22,12 +22,17 @@
 #  (ikke per-ægteskab-gruppering). Forfines i review/senere iteration.
 # =====================================================================
 suppressMessages({library(DBI); library(jsonlite)})
+# load_helpers.R: rene, DB-frie hjælpere (buffer_counts m.fl.) — path er repo-root-relativ,
+# samme konvention som seed_vocab()'s vocab.json/forkortelser.json nedenfor (scriptet
+# forudsætter Rscript køres fra repo-roden, jf. skillets Quick-run).
+source(".claude/skills/daa-extract/scripts/load_helpers.R")
 
 argv    <- commandArgs(trailingOnly = TRUE)
-if (length(argv) < 1) stop("brug: load_daa.R clean.json [udgave] [--reset]")
+if (length(argv) < 1) stop("brug: load_daa.R clean.json [udgave] [--reset] [--dry-run]")
 path    <- argv[1]
 udgave  <- if (length(argv) >= 2 && !startsWith(argv[2], "--")) argv[2] else "DAA 2018-20"
 RESET   <- "--reset" %in% argv
+DRY_RUN <- "--dry-run" %in% argv
 
 clean <- fromJSON(path, simplifyVector = FALSE)
 if (!length(clean)) stop("clean.json er tom — intet at loade.")
@@ -354,7 +359,13 @@ tryCatch({
              AND f.faktatype IN ('død','begravelse','dødsårsag'))
        AND COALESCE(TRIM(p.visning_doed),'') = ''", ref_aar - 100L))
 
-  dbCommit(con); message(sprintf("Indlæst %d poster (udgave %s).", length(clean), udgave))
+  if (DRY_RUN) {
+    message("DRY-RUN: ingen commit. Bufret pr. tabel:")
+    print(buffer_counts(.buf))
+    dbRollback(con)
+  } else {
+    dbCommit(con); message(sprintf("Indlæst %d poster (udgave %s).", length(clean), udgave))
+  }
 }, error = function(e) { dbRollback(con); dbDisconnect(con)
   stop("Load fejlede, rullet tilbage: ", conditionMessage(e)) })
 
