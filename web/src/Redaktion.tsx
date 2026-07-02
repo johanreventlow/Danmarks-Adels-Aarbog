@@ -14,6 +14,7 @@ import { loadModel } from './data/model';
 import type { Model } from './data/types';
 import { submitChange, describeCall, oversaetFejl, type Change } from './data/redaktionWrite';
 import { initials } from './data/format';
+import { NarrativRenderer } from './components/NarrativRenderer';
 
 // --- Tokens (fra designet) ---
 const T = {
@@ -342,6 +343,17 @@ export default function Redaktion() {
         <div style={sectionHeader(24)}>Narrativ · biografi</div>
         <div style={{ background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: '14px 15px' }}>
           <textarea value={narrativ?.tekst ?? ''} onChange={(e) => setNarrativ((n) => ({ tekst: e.target.value, privat: n?.privat ?? false }))} style={{ width: '100%', height: 104, fontSize: 13, lineHeight: 1.55, color: '#3d382f', background: '#fff', border: '1px solid rgba(34,31,26,.16)', borderRadius: 9, padding: '11px 12px', outline: 'none', resize: 'vertical' }} />
+          {/* Passiv forhåndsvisning — viser hvordan [[type:id|tekst]]-links renderes for publikum,
+              så redaktøren kan se om en redigering har brudt et eksisterende link. Ikke klikbar
+              (undgår at navigere væk fra en igangværende redigering, jf. review 12 fund om
+              korrumperbare tokens i den rå textarea). Fanger KUN knækket token-grammatik — et
+              syntaktisk gyldigt token der peger på forkert id ser identisk ud med et korrekt. */}
+          {!!narrativ?.tekst && (
+            <div style={{ marginTop: 8, ...annoBox, fontSize: 11.5, lineHeight: 1.5, color: T.muted }}>
+              <div style={{ fontSize: 9.5, letterSpacing: '.08em', textTransform: 'uppercase', color: T.muted3, marginBottom: 3 }}>Sådan vises det for besøgende</div>
+              <NarrativRenderer tekst={narrativ.tekst} onPickPerson={() => {}} linkColor={T.bordeaux} inactiveColor={T.muted2} />
+            </div>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 9 }}>
             <label style={{ fontSize: 11, color: T.muted, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
               <input type="checkbox" checked={!!narrativ?.privat} onChange={(e) => setNarrativ((n) => ({ tekst: n?.tekst ?? '', privat: e.target.checked }))} /> privat

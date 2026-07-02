@@ -8,6 +8,7 @@ import { initials, konfTekst } from './data/format';
 import { computeRelationship, type RelationResult } from './data/relationship';
 import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
 import type { Model, ModelPerson } from './data/types';
+import { NarrativRenderer } from './components/NarrativRenderer';
 
 const T = {
   pageBg: '#ece6da', paper: '#fbf8f1', panel: '#f4efe6', beige: '#ece4d6',
@@ -347,7 +348,7 @@ function DetailPanel({ model, focusId, detail, onPick }: { model: Model; focusId
           </div>
         )}
 
-        {detail?.bio && <div style={{ marginTop: 14, fontSize: 13.5, lineHeight: 1.55, color: '#3d382f' }}>{detail.bio}</div>}
+        {detail?.bio && <div style={{ marginTop: 14, fontSize: 13.5, lineHeight: 1.55, color: '#3d382f' }}><NarrativRenderer tekst={detail.bio} onPickPerson={onPick} linkColor={T.bordeaux} inactiveColor={T.muted2} /></div>}
 
         {spouses.length > 0 && (
           <div style={{ marginTop: 14, fontFamily: T.serif, fontSize: 15, fontStyle: 'italic', color: T.muted, lineHeight: 1.5 }}>⚭ gift med{' '}
@@ -476,7 +477,7 @@ function EstatesView({ estates, estateId, estate, info, owners, onOpen, onBack, 
         </div>
         {/* Vis intet under load (info===null); derefter narrativ eller tom-tilstand. */}
         {info && (info.narrativ ? (
-          <div style={{ marginTop: 16, fontFamily: T.serif, fontSize: 15.5, lineHeight: 1.6, color: '#3d382f', whiteSpace: 'pre-wrap' }}>{info.narrativ}</div>
+          <div style={{ marginTop: 16, fontFamily: T.serif, fontSize: 15.5, lineHeight: 1.6, color: '#3d382f', whiteSpace: 'pre-wrap' }}><NarrativRenderer tekst={info.narrativ} onPickPerson={onPickOwner} linkColor={T.bordeaux} inactiveColor={T.muted2} /></div>
         ) : (
           <div style={{ marginTop: 16, border: '1px dashed rgba(34,31,26,.2)', borderRadius: 11, padding: 14, background: T.paper, fontSize: 12.5, color: T.muted3 }}>Ingen godshistorik registreret endnu.</div>
         ))}
