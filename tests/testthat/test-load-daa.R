@@ -46,3 +46,54 @@ test_that("barn_lookup_reason klassificerer på resolverede nøgler", {
   expect_equal(barn_lookup_reason(c("I-30")), "ok")
   expect_equal(barn_lookup_reason(character(0)), "nr_ikke_i_forael_linje")
 })
+
+# ---- match_barn_union: barnets aegteskab_kontekst -> hvilket af forælderens ægteskaber ----
+# Bygger på ægte Reventlow-data (Conrad V-1, Iwan I-60, Berend III-49, Friedrich III-61).
+aeg <- function(...) list(...)                       # bekvemmelighed
+m2  <- aeg(list(ordinal=1L, partner_navn="Anna Margaretha Gabel"),
+           list(ordinal=2L, partner_navn="Sophia Amalia Hahn"))
+
+test_that("match_barn_union rammer rette union når navn OG ordenstal er enige", {
+  expect_equal(match_barn_union("af første ægteskab med Anna Margaretha Gabel", m2)$idx, 1L)
+  r <- match_barn_union("af andet ægteskab med Sophia Amalia Hahn", m2)
+  expect_equal(r$idx, 2L)
+  expect_equal(r$via, "begge")
+})
+
+test_that("ordenstal bryder tvetydigt partnernavn (Iwan I-60: 3. og 4. ægteskab samme navn)", {
+  m4 <- aeg(list(ordinal=1L, partner_navn="Anna von Ahlefeldt"),
+            list(ordinal=2L, partner_navn="Anna von Buchwaldt"),
+            list(ordinal=3L, partner_navn="Margaretha von Rantzau"),
+            list(ordinal=4L, partner_navn="Margaretha von Rantzau"))
+  r <- match_barn_union("af tredje ægteskab med Margaretha von Rantzau", m4)
+  expect_equal(r$idx, 3L)         # navn matcher 3 OG 4; "tredje" afgør
+  expect_equal(r$via, "ordenstal")
+})
+
+test_that("partnernavn alene afgør når ordenstal-ord mangler", {
+  r <- match_barn_union("med Anna Maria von Weltzien",
+                        aeg(list(ordinal=1L, partner_navn="Christina von Damme"),
+                            list(ordinal=2L, partner_navn="Anna Maria von Weltzien")))
+  expect_equal(r$idx, 2L)
+  expect_equal(r$via, "partner")
+})
+
+test_that("ukendt partner (ikke blandt ægteskaberne) giver NA, ikke gæt (Friedrich III-61)", {
+  m <- aeg(list(ordinal=1L, partner_navn="Catharina von Brockdorff"),
+           list(ordinal=2L, partner_navn="Anna Hedwig von Qualen"))
+  r <- match_barn_union("med Margaretha von Rumohr (se nr. 55)", m)
+  expect_true(is.na(r$idx))
+  expect_equal(r$reason, "ukendt_partner")
+})
+
+test_that("navn og ordenstal i konflikt giver NA (ingen gætning)", {
+  r <- match_barn_union("af første ægteskab med Sophia Amalia Hahn", m2)
+  expect_true(is.na(r$idx))
+  expect_equal(r$reason, "konflikt_partner_vs_ordenstal")
+})
+
+test_that("tom kontekst og ingen ægteskaber giver sigende NA-reason", {
+  expect_equal(match_barn_union("", m2)$reason, "tom_kontekst")
+  expect_equal(match_barn_union(NA, m2)$reason, "tom_kontekst")
+  expect_equal(match_barn_union("af andet ægteskab med X", list())$reason, "ingen_aegteskaber")
+})

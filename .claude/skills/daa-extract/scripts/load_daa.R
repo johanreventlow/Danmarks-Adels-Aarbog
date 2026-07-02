@@ -18,11 +18,13 @@
 #  citation for rygraden + family/family_member for slægtskab + relation
 #  for godser/embeder/begivenheder. Alt under én source = DAA-udgaven.
 #
-#  Børn knyttes via boern.nr_range til FØRSTE union (v1) — korrekt multi-union-
-#  splitning kræver barnets eget aegteskab_kontekst, ikke rec's (som beskriver
-#  rec's egen afstamning), og er udskudt. Opslag der ikke matcher et løbenummer
-#  i forælderens egen linje (heller ikke via en 15a/15b-variant) logges i
-#  work/load-unresolved.csv frem for at blive droppet tavst.
+#  Børn knyttes via boern.nr_range til den KORREKTE union: ved 2+ ægteskaber
+#  matches hvert barns eget aegteskab_kontekst til rette union (match_barn_union,
+#  load_helpers.R — partnernavn primær, ordenstal kryds-tjek). Uafklarede
+#  (tom/tvetydig kontekst el. ikke-registreret forbindelse) parkeres på en
+#  dedikeret union for forælderen frem for at fejl-tilknyttes 1. ægteskab.
+#  Opslag der ikke matcher et løbenummer i forælderens egen linje (heller ikke
+#  via en 15a/15b-variant) logges i work/load-unresolved.csv frem for at droppes.
 # =====================================================================
 suppressMessages({library(DBI); library(jsonlite)})
 # load_helpers.R: rene, DB-frie hjælpere (buffer_counts m.fl.) — path er repo-root-relativ,
@@ -236,6 +238,7 @@ tryCatch({
 
   pmap <- new.env(parent = emptyenv())          # (linje-nr_label) -> person_id
   umap <- new.env(parent = emptyenv())          # (linje-nr_label) -> usikker (TRUE/FALSE)
+  recmap <- new.env(parent = emptyenv())        # (linje-nr_label) -> rec (til barnets aegteskab_kontekst)
   key  <- function(linje, lbl) paste0(linje, "-", lbl)
   lbl_of <- function(rec) g(rec, "nr_label", as.character(rec$nr))
 
@@ -245,6 +248,7 @@ tryCatch({
     pid <- add_person(g(rec, "koen"))
     k <- key(rec$linje, lbl_of(rec))
     assign(k, pid, envir = pmap); assign(k, isTRUE(rec$usikker), envir = umap)
+    assign(k, rec, envir = recmap)
     add_extid(pid, src, rec$linje, rec$nr)        # ekstern-id bærer basenr (heltal)
     side <- g(rec, "sider", g(rec, "side"))
     add_narr(pid, src, side, rec$narrative)
@@ -310,16 +314,27 @@ tryCatch({
         add_note("family", fam, paste("partner ekstern ref:", a$partner_ekstern_ref))
       fams[[length(fams) + 1]] <- fam
     }
-    # børn: knyt til den KORREKTE union (via aegteskab_kontekst), opret familie hvis intet ægteskab.
+    # børn: knyt til den KORREKTE union via barnets eget aegteskab_kontekst.
     b <- rec[["boern"]]                       # direkte opslag: NULL hvis fraværende
     if (is.list(b) && !is.null(b$nr_range)) {
-      # Børn hænges på FØRSTE union (v1). Korrekt multi-union-splitning kræver
-      # BARNETS eget aegteskab_kontekst (som angiver hvilket af DENNE forælders
-      # ægteskaber barnet kom fra) — ikke rec's eget felt, der beskriver rec's
-      # egen afstamning. Udskudt; kuld/aegteskab_kontekst plumbes stadig (merge_kontekst)
-      # som substrat til den korrekte fremtidige binding.
-      fam <- if (length(fams)) fams[[1]] else add_family("union")
-      if (!length(fams)) add_member(fam, pid, "partner")
+      # 0-1 ægteskaber: ingen tvetydighed — behold enkelt-union (uændret adfærd).
+      # 2+ ægteskaber: match hvert barn til den union barnets `aegteskab_kontekst`
+      # udpeger (match_barn_union: partnernavn primær, ordenstal kryds-tjek). Børn
+      # hvis kontekst er tom/tvetydig/navngiver en ikke-registreret forbindelse
+      # parkeres på en dedikeret union for forælderen (aldrig fejl-tilknyttet 1.
+      # ægteskab) og logges, jf. review 11's princip om ingen tavse fejl-links.
+      default_fam <- if (length(fams)) fams[[1]] else add_family("union")
+      if (!length(fams)) add_member(default_fam, pid, "partner")
+      multi <- length(fams) >= 2
+      park_fam <- NULL
+      park_union <- function() {               # lazy: kun oprettet hvis et barn faktisk parkeres
+        if (is.null(park_fam)) { park_fam <<- add_family("union"); add_member(park_fam, pid, "partner") }
+        park_fam
+      }
+      log_unres <- function(n, aarsag)
+        .unresolved$rows <- c(.unresolved$rows, list(list(
+          forael_linje = rec$linje, forael_nr = lbl_of(rec),
+          barn_nr = as.character(n), aarsag = aarsag)))
       rng <- b$nr_range
       pk  <- ls(pmap)                          # pmap er fuldt bygget i pass 1; konstant her
       # Match UDELUKKENDE inden for forælderens egen linje (børn bliver i grenen); ingen
@@ -327,15 +342,21 @@ tryCatch({
       # nås via resolve_barn_keys. Uopløste opslag logges frem for at droppes tavst.
       for (n in seq(rng[[1]], rng[[2]])) {
         keys <- resolve_barn_keys(rec$linje, n, pk)
-        if (length(keys)) {
-          for (ck in keys) {
-            konf <- if (isTRUE(get0(ck, envir = umap, inherits = FALSE))) "formodet" else NA
-            add_member(fam, get(ck, envir = pmap), "barn", konfidens = konf)
+        if (!length(keys)) { log_unres(n, barn_lookup_reason(keys)); next }
+        for (ck in keys) {
+          fam <- default_fam
+          if (multi) {
+            crec <- get0(ck, envir = recmap, inherits = FALSE)
+            mu <- match_barn_union(if (is.null(crec)) NA else crec[["aegteskab_kontekst"]], rec$aegteskaber)
+            if (!is.na(mu$idx)) {
+              fam <- fams[[mu$idx]]
+            } else {
+              fam <- park_union()
+              log_unres(n, paste0("union_", mu$reason))
+            }
           }
-        } else {
-          .unresolved$rows <- c(.unresolved$rows, list(list(
-            forael_linje = rec$linje, forael_nr = lbl_of(rec),
-            barn_nr = as.character(n), aarsag = barn_lookup_reason(keys))))
+          konf <- if (isTRUE(get0(ck, envir = umap, inherits = FALSE))) "formodet" else NA
+          add_member(fam, get(ck, envir = pmap), "barn", konfidens = konf)
         }
       }
     }
