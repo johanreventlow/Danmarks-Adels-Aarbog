@@ -3,7 +3,7 @@
 // (konklusion ← oplysninger) via de rigtige red_*-RPC'er; generiske entiteter foreslås til
 // staging (red_suggest). Dry-run viser hvad der sendes; live skriver. Pixel-tro mod designet,
 // men struktur er ren React (ikke prototypens DCLogic).
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { signIn, signOut, currentSession, type RedSession } from './data/auth';
 import {
   fetchRedaktionPersoner, fetchPersonEvidence, fetchPersonNarrativ, fetchSletPreview,
@@ -173,13 +173,16 @@ export default function Redaktion() {
   }, [records, query]);
 
   // Person-browse spejler Følgesvend: driv af den redaktør-authoritative `persons` (RedPerson har
-  // allerede id/navn/born) + linje-metadata fra `model.lineage` (samme id-rum, collapse:false). Et
-  // `name`-alias lader RedPerson opfylde buildBrowse's minimale BrowsePerson-shape.
+  // allerede id/navn/born) + linje-metadata fra `model.lineage`. id-rummene flugter fordi redaktør-
+  // modellen loades `collapse:false` (model-person-id == rå RedPerson-id); et `name`-alias lader
+  // RedPerson opfylde buildBrowse's minimale BrowsePerson-shape. Kun beregnet for person-entiteten
+  // (null ellers) — så et søge-tastetryk under fx Kilder ikke browser hele slægten unødigt.
   const linjeList = model?.lineage?.list ?? [];
-  const browseInput = useMemo(() => persons.map((p) => ({ ...p, name: p.navn })), [persons]);
+  const linjeByPerson = model?.lineage?.byPerson;
   const personBrowse = useMemo(
-    () => buildBrowse(browseInput, query, browseSort, activeLetter, { linjeByPerson: model?.lineage?.byPerson, activeLinje }),
-    [browseInput, query, browseSort, activeLetter, model, activeLinje],
+    () => entity !== 'person' ? null
+      : buildBrowse(persons.map((p) => ({ ...p, name: p.navn })), query, browseSort, activeLetter, { linjeByPerson, activeLinje }),
+    [entity, persons, query, browseSort, activeLetter, linjeByPerson, activeLinje],
   );
 
   // --- Skrivning ---
@@ -301,21 +304,22 @@ export default function Redaktion() {
   // ---- Record-liste ----
   function renderList() {
     const title = ENTITIES.find((e) => e.key === entity)?.label ?? '';
-    const isPerson = entity === 'person';
-    const b = personBrowse;
-    const personRow = (p: (typeof browseInput)[number]) => {
-      const active = p.id === recordId;
-      return (
-        <div key={p.id} onClick={() => setRecordId(p.id)} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 9px', borderRadius: 9, cursor: 'pointer', background: active ? '#efe7d7' : 'transparent' }}>
-          <span style={{ width: 30, height: 30, borderRadius: '50%', background: T.beige, border: '1px solid rgba(34,31,26,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 12, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{initials(p.navn)}</span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontFamily: T.serif, fontSize: 15.5, fontWeight: 600, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.navn}</div>
-            <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.aar || '—'}</div>
-          </div>
-          {p.privat && <span style={{ fontFamily: T.mono, fontSize: 8, letterSpacing: '.06em', textTransform: 'uppercase', color: T.red, flex: 'none' }}>privat</span>}
+    const b = personBrowse; // non-null ⇔ entity === 'person' (fungerer som person-diskriminator)
+    // Fælles liste-række (person + generiske entiteter): round = avatar-form, tail = valgfrit suffiks.
+    const listRow = (o: { id: string; badge: string; label: string; sub: string; round: number | string; tail?: ReactNode }) => (
+      <div key={o.id} onClick={() => setRecordId(o.id)} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 9px', borderRadius: 9, cursor: 'pointer', background: o.id === recordId ? '#efe7d7' : 'transparent' }}>
+        <span style={{ width: 30, height: 30, borderRadius: o.round, background: T.beige, border: '1px solid rgba(34,31,26,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 12, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{o.badge}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: T.serif, fontSize: 15.5, fontWeight: 600, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.label}</div>
+          <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.sub}</div>
         </div>
-      );
-    };
+        {o.tail}
+      </div>
+    );
+    const pRow = (p: { id: string; navn: string; aar: string; privat: boolean }) => listRow({
+      id: p.id, badge: initials(p.navn), label: p.navn, sub: p.aar || '—', round: '50%',
+      tail: p.privat ? <span style={{ fontFamily: T.mono, fontSize: 8, letterSpacing: '.06em', textTransform: 'uppercase', color: T.red, flex: 'none' }}>privat</span> : undefined,
+    });
     return (
       <div data-scroll style={{ flex: 'none', width: 286, borderRight: '1px solid rgba(34,31,26,.1)', background: T.panel, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: '16px 16px 10px', position: 'sticky', top: 0, background: T.panel, zIndex: 2 }}>
@@ -325,7 +329,7 @@ export default function Redaktion() {
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Søg…" style={{ width: '100%', fontSize: 13, color: T.ink, background: T.paper, border: '1px solid rgba(34,31,26,.14)', borderRadius: 8, padding: '9px 11px', outline: 'none' }} />
         </div>
 
-        {isPerson ? (
+        {b ? (
           <>
             {/* Linje-filter (§9.2) — filtrerer kun listen; redaktør har intet stamtræ at hoppe fokus i. */}
             {linjeList.length > 0 && (
@@ -367,27 +371,16 @@ export default function Redaktion() {
                 ? b.groups.map((g) => (
                     <div key={g.letter}>
                       <div style={{ padding: '7px 9px 3px', fontFamily: T.serif, fontSize: 15, fontWeight: 600, color: T.gold, borderBottom: '1px solid rgba(34,31,26,.07)' }}>{g.letter}</div>
-                      {g.people.map(personRow)}
+                      {g.people.map(pRow)}
                     </div>
                   ))
-                : b.flat.map(personRow)}
+                : b.flat.map(pRow)}
               {!b.flat.length && <div style={{ padding: '22px 10px', textAlign: 'center', fontSize: 12.5, color: T.muted3 }}>{persons.length ? 'Ingen træffere' : 'Henter…'}</div>}
             </div>
           </>
         ) : (
           <div style={{ padding: '2px 10px 12px' }}>
-            {filtered.map((r) => {
-              const active = r.id === recordId;
-              return (
-                <div key={r.id} onClick={() => setRecordId(r.id)} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 9px', borderRadius: 9, cursor: 'pointer', background: active ? '#efe7d7' : 'transparent' }}>
-                  <span style={{ width: 30, height: 30, borderRadius: 7, background: T.beige, border: '1px solid rgba(34,31,26,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 12, fontWeight: 600, color: T.bordeaux }}>{r.badge}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontFamily: T.serif, fontSize: 15.5, fontWeight: 600, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.label}</div>
-                    <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.sub}</div>
-                  </div>
-                </div>
-              );
-            })}
+            {filtered.map((r) => listRow({ id: r.id, badge: r.badge, label: r.label, sub: r.sub, round: 7 }))}
             {!filtered.length && <div style={{ padding: '22px 10px', textAlign: 'center', fontSize: 12.5, color: T.muted3 }}>{query ? 'Ingen træffere' : 'Ingen liste-kilde endnu'}</div>}
           </div>
         )}
