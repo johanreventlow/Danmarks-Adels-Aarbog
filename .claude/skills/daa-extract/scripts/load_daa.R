@@ -268,7 +268,14 @@ tryCatch({
     for (a in g(rec, "aegteskaber", list())) {
       fam <- add_family(g(a, "type", "union"))
       add_member(fam, pid, "partner", ordinal = g(a, "ordinal"))
-      if (!is.null(a$partner_navn) && !is.na(a$partner_navn)) {
+      ref <- parse_intern_ref(g(a, "partner_ekstern_ref"), rec$linje)
+      existing_key <- if (!is.null(ref)) key(ref$linje, ref$nr) else NULL
+      if (!is.null(existing_key) && exists(existing_key, envir = pmap, inherits = FALSE)) {
+        # partner_ekstern_ref pegede internt på en person der allerede findes i
+        # denne kilde (fx "se nr. 97") — link den eksisterende i stedet for at
+        # oprette en dublet-stub.
+        add_member(fam, get(existing_key, envir = pmap), "partner", ordinal = g(a, "ordinal"))
+      } else if (!is.null(a$partner_navn) && !is.na(a$partner_navn)) {
         sp <- add_person(); sp_t <- split_title(a$partner_navn)
         fact_value(sp, "navn", vaerdi = sp_t$rest, sid = src, side = side)
         if (!is.na(sp_t$titel)) fact_value(sp, "titel", vaerdi = sp_t$titel, sid = src, side = side)

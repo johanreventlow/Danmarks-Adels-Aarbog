@@ -25,3 +25,17 @@ has_editorial_changes <- function(cs) {
 is_missing_table_error <- function(msg) {
   grepl("does not exist|42P01", msg %||% "", ignore.case = TRUE)
 }
+
+# Intern reference = "se nr. N" / "nr. N" / "… linje, nr. N" i SAMME kilde.
+# Ekstern (anden DAA-udgave, "DAA 1937, II, 122") -> NULL: stub oprettes stadig.
+parse_intern_ref <- function(ref, default_linje) {
+  if (is.null(ref) || length(ref) == 0 || is.na(ref)) return(NULL)
+  if (grepl("DAA|\\b1[89]\\d\\d\\b", ref)) return(NULL)   # ekstern udgave
+  linje <- default_linje
+  lm <- regmatches(ref, regexpr("\\b(I{1,3}V?|VI{0,3})\\b(?=\\.?\\s*Den|,\\s*nr)", ref, perl=TRUE))
+  if (length(lm) && nzchar(lm)) linje <- lm
+  nm <- regmatches(ref, regexpr("nr\\.?\\s*(\\d+)", ref, perl=TRUE))
+  if (!length(nm) || !nzchar(nm)) return(NULL)
+  nr <- sub(".*?(\\d+).*", "\\1", nm)
+  list(linje = linje, nr = nr)
+}
