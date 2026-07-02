@@ -95,6 +95,19 @@ add_note <- function(tt, tid, indhold) {
   if (is.null(indhold) || is.na(indhold) || !nzchar(trimws(indhold))) return(invisible())
   push("note", list(id=nid("note"), target_type=tt, target_id=tid, indhold=indhold)) }
 .cache <- new.env(parent = emptyenv())
+# Preload .cache med EKSISTERENDE fælles-entiteter (Codex dual-review, review 14, 2026-07-02):
+# uden dette genkender get_place/get_or_create ikke en allerede-indlæst slægts "Clausholm" i
+# append-mode (.cache starter tom hver kørsel) og opretter en DUPLIKAT-række med nyt id i
+# stedet for at genbruge den eksisterende — stille semantisk datakorruption af fælles-
+# entiteter på tværs af slægter. No-op i RESET-mode (tomme tabeller). Skal køre EFTER en evt.
+# RESET-TRUNCATE, samme sted som seed_seq() (bruger samme MAX(id)-timing-krav).
+preload_cache <- function() {
+  for (tabel in c("place", "estate", "organisation", "historical_event")) {
+    rows <- dbGetQuery(con, sprintf("SELECT id, navn FROM %s", tabel))
+    if (nrow(rows)) for (i in seq_len(nrow(rows)))
+      assign(paste0(tabel, "::", tolower(trimws(rows$navn[i]))), rows$id[i], envir=.cache)
+  }
+}
 # get-or-create på navn: sted/ejendom/org/begivenhed er FÆLLES entiteter (datamodel §5).
 get_place <- function(navn) {
   if (is.null(navn) || length(navn)==0 || is.na(navn) || !nzchar(trimws(navn))) return(NA)
@@ -185,7 +198,8 @@ tryCatch({
   if (RESET) { message("RESET: tømmer model-tabeller…")
     ex(paste0("TRUNCATE ", paste(model_tables, collapse=", "), " CASCADE;")) }
 
-  seed_seq()   # skal køre EFTER en evt. TRUNCATE, og under alle omstændigheder før nid()
+  seed_seq()      # skal køre EFTER en evt. TRUNCATE, og under alle omstændigheder før nid()
+  preload_cache() # samme timing-krav — før get_place()/get_or_create() bruges
 
   seed_vocab()
 
