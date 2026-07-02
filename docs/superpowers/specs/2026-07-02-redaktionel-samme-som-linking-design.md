@@ -37,34 +37,53 @@ MINUS citation):
 **Ingen `citation`.** En manuel redaktionel identitets-beslutning har ingen ekstern kilde — provenansen er
 `change_set` (via `begin_change_set`, fortrydbart) + `conclusion.blaastemplet_af`. Dette adskiller sig
 bevidst fra data-afledte links (R-scriptet citerer en DAA-kilde). Assertions uden citation er strukturelt
-gyldige. Collapse-fetchen kræver kun `relation` + `afklaret` conclusion (`model.ts`/`load.ts`) — kontrakten er dækket.
+gyldige (Codex-2: ingen CHECK/NOT NULL/trigger kræver citation). Collapse-fetchen kræver kun `relation` +
+`afklaret` conclusion (`model.ts`/`load.ts`) — kontrakten er dækket.
 
-## 4. Graf-invarianter i RPC'en (H1) + retnings-semantik (H2)
+**ID-allokering:** de tre id'er allokeres via den etablerede `red_*`-konvention `(SELECT coalesce(max(id),0)+1 …)`.
+Det er race-følsomt codebase-bredt, men **advisory-låsen (§4 trin 2) serialiserer `red_samme_som`**, så
+allokeringen er race-fri her. En global hærdning (sequences/identity på alle evidens-tabeller) er et separat
+tværgående anliggende, uden for scope.
 
-`samme_som` skal danne **stjerner**: én kanonisk sink pr. komponent, N aliaser der peger ind. `red_samme_som`
-håndhæver dette transaktionelt (efter `begin_change_set`), med `SELECT … FOR UPDATE` på de berørte
-`samme_som`-rækker i komponenten (concurrency-sikkerhed):
+## 4. Graf-invarianter i RPC'en (H1) + retnings-semantik (H2) + concurrency (Codex-2)
 
-- **G0 self-link:** `p_alias_id <> p_objekt_id`, ellers `RAISE`.
-- **G1 eksistens:** begge personer findes.
-- **G2 idempotens (præcis retning):** findes `alias→objekt` allerede → returnér eksisterende relation-id (no-op).
-- **G3 out-degree ≤ 1:** `p_alias_id` må ikke allerede være subjekt (alias) i et samme_som-link mod en ANDEN
-  kanonisk → forhindrer multi-sink (A→B + A→C, der ville karantænere hele komponenten).
-- **G4 alias er ikke en eksisterende kanonisk:** `p_alias_id` må ikke være objekt (sink) i noget eksisterende
-  samme_som-link → forhindrer stille re-root (at demote en sink til alias flytter komponentens kanoniske identitet).
-- **G5 acyklisk:** følg kanonisk-pointere fra `p_objekt_id`; hvis `p_alias_id` nås, ville kanten lukke en cyklus → `RAISE`.
+`samme_som` skal danne **stjerner/træer med præcis én sink pr. komponent** (kanonisk = den unikke sink). Den
+kanoniske identitet må aldrig skifte som stille sideeffekt af en add. `red_samme_som` håndhæver dette
+autoritativt. **Rækkefølgen er præcis** (retter Codex-2 M1 — idempotens FØR change_set):
+
+1. `IF current_rolle() <> 'redaktion' THEN RAISE`.
+2. **`PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'))`** — serialisér ALLE identitets-mutationer
+   (add + fjern). Identitets-linking er en sjælden operation, så fuld serialisering har ingen praktisk pris og
+   fjerner både phantom-edge-racet (Codex-2 H1: `SELECT FOR UPDATE` låser kun eksisterende rækker, så to
+   samtidige A→B/A→C ville begge passere G3) OG ID-kollision (Codex-2 M2). Lås også i `red_fjern_samme_som`.
+3. **G0 self-link:** `p_alias_id <> p_objekt_id`, ellers `RAISE`.
+4. **G1 eksistens:** begge personer findes.
+5. **G2 idempotens (præcis retning) — FØR `begin_change_set`:** findes `alias→objekt` allerede → returnér
+   eksisterende relation-id uden at åbne et change_set (ingen tom audit-post ved gentagelse).
+6. **`PERFORM begin_change_set(...)`**.
+7. **G3 out-degree ≤ 1:** `p_alias_id` må ikke allerede være subjekt (alias) i et samme_som-link mod en ANDEN
+   kanonisk → forhindrer multi-sink (A→B + A→C, der ville karantænere hele komponenten).
+8. **G4 alias er ikke en eksisterende kanonisk:** `p_alias_id` må ikke være objekt (sink) i noget eksisterende
+   samme_som-link → forhindrer stille re-root (at demote en sink til alias flytter komponentens kanoniske identitet).
+9. **G5 acyklisk:** følg kanonisk-pointere fra `p_objekt_id`; hvis `p_alias_id` nås, ville kanten lukke en cyklus → `RAISE`.
+10. Indsæt relation + assertion + conclusion (§3).
+
+Codex-2 verificerede at **G3+G4+G5 bevarer præcis én sink pr. komponent** — også når `p_objekt_id` selv er et
+alias (kæder D→A1→C er tilladt og benigne: sink C er uændret; det er træer, ikke bogstavelige stjerner). Intet
+sekventielt modeksempel findes. Kæder rører ikke rute/bogmærke-stabilitet fordi sinken ikke flytter; UI'ens
+"effektiv retning"-visning (nedenfor) er tilstrækkelig — `p_objekt_id` behøver IKKE tvinges til at være en sink.
 
 **Retningsskift (re-root) er eksplicit (H2):** modsat-retning-add (`B→A` mens `A→B` findes) rammer G4/G5 →
 afvist. For at skifte kanonisk: **fjern linket og genopret modsat** (to versionerede, eksplicitte trin). Ingen
 dedikeret `red_reroot`-RPC i v1 (YAGNI — komponenter er par i praksis; UI'ens "Byt retning" planlægger fjern+opret).
-Preview/resultat viser altid den **effektive retning** (hvem der er kanonisk).
+Preview/resultat viser altid den **effektive retning** (hvem der er kanonisk = komponentens sink).
 
 ## 5. Slette-sekvens (H3) — komplet + fortrydbar
 
-`red_fjern_samme_som(p_relation_id)`: redaktion-gated, egen `begin_change_set` (ikke nested — B7-mønster).
-Validér at target er en **person→person `samme_som`**-relation (ellers `RAISE` — RPC'en må ikke bruges til
-vilkårlige relationer). Genbrug derefter `red_slet_relation`'s KOMPLETTE evidens-sletning (verificeret
-`schema.sql`), i FK-orden:
+`red_fjern_samme_som(p_relation_id)`: redaktion-gated, **samme advisory-lås som §4 trin 2** (så en samtidig add
+ikke racer en delete), egen `begin_change_set` (ikke nested — B7-mønster). Validér at target er en
+**person→person `samme_som`**-relation (ellers `RAISE` — RPC'en må ikke bruges til vilkårlige relationer).
+Genbrug derefter `red_slet_relation`'s KOMPLETTE evidens-sletning (verificeret `schema.sql`), i FK-orden:
 
 ```
 DELETE citation  WHERE assertion_id IN (SELECT id FROM assertion WHERE target_type='relation' AND target_id=p_relation_id);
@@ -116,9 +135,13 @@ GDPR-eksponering: RPC'en ændrer kun evidens-laget; RLS + completeness styrer of
 - opret → relation(samme_som) + assertion(vaerdi_tekst) + conclusion(afklaret, valgt_assertion_id sat) findes.
 - G0 self-link afvist; G1 ukendt person afvist; G2 idempotens (samme retning → samme id, ingen dublet).
 - G3 multi-sink afvist (A→B eksisterer, A→C afvises); G4 re-root-add afvist (A→B eksisterer, B→A afvises);
-  G5 cyklus afvist.
+  G5 cyklus afvist; kæde D→A1→C tilladt (sink forbliver C, komponent folder til C).
+- G2-idempotens (samme retning → samme id) opretter **INGEN** ny change_set (tom-audit-tjek).
 - ikke-redaktion afvist (`current_rolle`).
 - fjern → alle evidens-rækker væk; **fjern + fortryd af de 2 eksisterende citerede links** (change_set-restore).
+- **concurrency** (Codex-2): serialiseret via advisory-lås — verificér at to `red_samme_som`-kald der deler
+  et alias ikke begge kan committe (anden ser førstes kant → G3 afviser), og at disjunkte kald ikke
+  ID-kolliderer. (Testes med to transaktioner mod den lokale prod-kopi.)
 
 **App (`redaktionWrite`-tests, web+mobile):**
 - `sammeSom`/`fjernSammeSom` Change → korrekt RPC-kald (fn+args), dry-run vs LIVE.
@@ -155,3 +178,19 @@ Verdict: **needs-attention → løst inline.** Alle fund verificeret empirisk mo
 **Læring:** I et RLS-gated system kan en klient-side pre-flight ikke være sikkerheds-grænsen for invarianter —
 den ser et andet datasæt end den offentlige forbruger. Invarianter der beskytter delte data (unik sink, acyklisk)
 skal håndhæves transaktionelt i DB'en. Klient-checks er rådgivende, mærket med hvilken projektion de gælder.
+
+### Codex-review runde 2 (på spec'en, 2026-07-02)
+
+Verdict: **needs-attention → løst inline.** Codex bekræftede at G0-G5 er korrekte (intet sekventielt modeksempel;
+kæder benigne, sink unik), no-citation er skema-sikkert, og redaktion-gaten holder gennem SECURITY DEFINER.
+Concurrency-fund:
+
+- **H1** (`SELECT FOR UPDATE` låser kun eksisterende rækker → phantom-edge-race A→B/A→C) → §4 trin 2:
+  én transaktions-`pg_advisory_xact_lock` serialiserer alle identitets-mutationer (sjælden op → ingen praktisk pris).
+- **M1** (G2-idempotens efter `begin_change_set` → tom change_set) → §4: G2 flyttet FØR `begin_change_set`.
+- **M2** (`max(id)+1` race-følsom for disjunkte kald) → §3: advisory-låsen serialiserer allokeringen; global
+  sequence-hærdning er tværgående og uden for scope.
+
+**Læring 2:** row-level `FOR UPDATE` beskytter ikke mod *phantom* kanter (rækker der endnu ikke findes). For en
+sjælden mutation er en enkelt tabel-bred advisory-lås både simplere og mere robust end per-række/per-komponent-låsning
+— den lukker phantom-edge OG id-allokerings-racet med én mekanisme.
