@@ -44,6 +44,7 @@ export default function Folgesvend() {
   const [query, setQuery] = useState('');
   const [browseSort, setBrowseSort] = useState<'navn' | 'aar'>('navn'); // sidebar-sortering (§9.1)
   const [activeLetter, setActiveLetter] = useState<string | null>(null); // alfabet-filter (null = Alle)
+  const [activeLinje, setActiveLinje] = useState<string | null>(null); // gren-filter (§9.2, null = hele slægten)
   const [focusHistory, setFocusHistory] = useState<string[]>([]); // person→person-navigation (back-knap)
   const [relA, setRelA] = useState<string | null>(null);
   const [relB, setRelB] = useState<string | null>(null);
@@ -74,10 +75,15 @@ export default function Folgesvend() {
   useEffect(() => { if (!focusId) { setDetail(null); return; } setDetail(null); fetchPersonDetail(focusId).then(setDetail).catch(() => setDetail({ bio: '', offices: [], estates: [] })); }, [focusId]);
 
   const persons = model?.persons ?? [];
-  // Sidebar-browse (§9.1): filtrér på query, sortér (navn dansk / fødeår), og — kun ved
-  // navne-sort uden søgning — gruppér på efternavns-initial med sticky bogstav-headers +
-  // alfabet-hop. activeLetter filtrerer til ét bogstav (null = Alle).
-  const browse = useMemo(() => buildBrowse(persons, query, browseSort, activeLetter), [persons, query, browseSort, activeLetter]);
+  const linjeList = model?.lineage?.list ?? [];
+  // Browse-listen (§9.1, se buildBrowse) med gren-filter (§9.2): begræns pool til den aktive
+  // linjes medlemmer FØR alfabet/sortering.
+  const browse = useMemo(() => {
+    const pool = activeLinje && model?.lineage
+      ? persons.filter((p) => model.lineage!.byPerson[p.id] === activeLinje)
+      : persons;
+    return buildBrowse(pool, query, browseSort, activeLetter);
+  }, [persons, model, query, browseSort, activeLetter, activeLinje]);
 
   const rel = useMemo(() => (model && relA && relB ? computeRelationship(model, relA, relB) : null), [model, relA, relB]);
 
@@ -92,6 +98,14 @@ export default function Folgesvend() {
     setFocusHistory(focusHistory.slice(0, -1));
   };
   const backName = focusHistory.length && model ? (model.byId[focusHistory[focusHistory.length - 1]]?.name ?? null) : null;
+
+  // Gren-navigation (§9.2): vælg linje → hop fokus til stamfader + filtrér; ryd → hele slægten.
+  const pickLinje = (linje: string, headId: string | null) => {
+    setActiveLinje(linje);
+    setMode('tree');
+    if (headId) navigateTo(headId);
+  };
+  const clearLinje = () => { setActiveLinje(null); setMode('tree'); };
 
   const pickPerson = (id: string) => {
     if (mode === 'relate') {
@@ -152,6 +166,8 @@ export default function Folgesvend() {
             <div style={{ display: 'flex', gap: 16, alignItems: 'stretch' }}>
               <Stat n={persons.length} label="personer" />
               <div style={{ width: 1, background: 'rgba(34,31,26,.12)' }} />
+              <Stat n={linjeList.length || null} label="linjer" />
+              <div style={{ width: 1, background: 'rgba(34,31,26,.12)' }} />
               <Stat n={estates?.length ?? null} label="godser" />
             </div>
           </div>
@@ -166,9 +182,22 @@ export default function Folgesvend() {
             {!model && <div style={{ fontSize: 12, color: T.muted3, marginTop: 8 }}>Henter slægten…</div>}
           </div>
 
+          {/* Linje-filter (§9.2) — klik hopper fokus til grenens stamfader + filtrerer listen. */}
+          {linjeList.length > 0 && (
+            <div style={{ padding: '0 18px 8px' }}>
+              <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2, marginBottom: 7 }}>Linjer</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                <LinjeChip label="Hele slægten" active={!activeLinje} onClick={clearLinje} />
+                {linjeList.map((l) => (
+                  <LinjeChip key={l.linje} label={`Linje ${l.linje}`} title={l.navn ?? undefined} active={activeLinje === l.linje} onClick={() => pickLinje(l.linje, l.headId)} />
+                ))}
+              </div>
+            </div>
+          )}
+
           <div style={{ padding: '6px 10px 8px', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ padding: '0 8px 7px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <span style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>{browse.flat.length} {query ? 'træffere' : 'personer'}</span>
+              <span style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>{activeLinje && !query ? `Linje ${activeLinje} · ${browse.flat.length}` : `${browse.flat.length} ${query ? 'træffere' : 'personer'}`}</span>
               <div style={{ display: 'flex', background: '#e6ddcc', borderRadius: 7, padding: 2, gap: 2, flex: 'none' }}>
                 {(['navn', 'aar'] as const).map((s) => (
                   <span key={s} onClick={() => setBrowseSort(s)} style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 5, cursor: 'pointer', background: browseSort === s ? T.bordeaux : 'transparent', color: browseSort === s ? T.paper : '#3d382f' }}>{s === 'navn' ? 'A–Å' : 'Født'}</span>
@@ -412,6 +441,7 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
   const parents = (model.indexes.parentsByChild[focusId] ?? []).map((id) => model.byId[id]).filter(Boolean) as { id: string; name: string }[];
   const spouses = (model.indexes.spousesBy[focusId] ?? []);
   const children = childrenOf(model, focusId);
+  const linje = model.lineage?.byPerson[focusId] ?? null;
   return (
     <div data-scroll style={{ flex: 'none', width: 392, borderLeft: '1px solid rgba(34,31,26,.1)', background: T.paper, overflowY: 'auto' }}>
       <div style={{ padding: '24px 24px 36px' }}>
@@ -423,7 +453,13 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontFamily: T.serif, fontSize: 27, lineHeight: 1, fontWeight: 600 }}>{p.name}</div>
             {p.years && <div style={{ fontFamily: T.mono, fontSize: 11, color: T.muted2, marginTop: 6 }}>{p.years}</div>}
-            {p.title && <div style={{ display: 'inline-block', fontSize: 11, fontWeight: 600, color: T.bordeaux, background: '#f4e2e6', border: '1px solid rgba(136,26,51,.16)', padding: '4px 9px', borderRadius: 6, marginTop: 9 }}>{p.title}</div>}
+            {/* Badges: Linje X + titel ("★ Dig" udskudt til mig-koncept). */}
+            {(linje || p.title) && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 9 }}>
+                {linje && <div style={{ fontFamily: T.mono, fontSize: 9.5, color: T.muted, background: T.beige, border: '1px solid rgba(34,31,26,.1)', padding: '4px 8px', borderRadius: 6 }}>Linje {linje}</div>}
+                {p.title && <div style={{ fontSize: 11, fontWeight: 600, color: T.bordeaux, background: '#f4e2e6', border: '1px solid rgba(136,26,51,.16)', padding: '4px 9px', borderRadius: 6 }}>{p.title}</div>}
+              </div>
+            )}
           </div>
         </div>
 
@@ -634,6 +670,10 @@ const Stat = ({ n, label }: { n: number | null; label: string }) => (
     <div style={{ fontFamily: T.serif, fontSize: 23, fontWeight: 600, color: T.bordeaux, lineHeight: 1 }}>{n == null ? '—' : n.toLocaleString('da')}</div>
     <div style={{ fontFamily: T.mono, fontSize: 8.5, letterSpacing: '.08em', textTransform: 'uppercase', color: T.muted3, marginTop: 3 }}>{label}</div>
   </div>
+);
+// Gren-filter-chip (§9.2). Aktiv = bordeaux fyld.
+const LinjeChip = ({ label, active, onClick, title }: { label: string; active: boolean; onClick: () => void; title?: string }) => (
+  <div onClick={onClick} title={title} style={{ padding: '5px 11px', borderRadius: 15, fontFamily: T.sans, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', background: active ? T.bordeaux : 'transparent', color: active ? T.paper : T.muted, border: `1px solid ${active ? T.bordeaux : 'rgba(34,31,26,.18)'}` }}>{label}</div>
 );
 
 // ---- små byggeklodser ----
