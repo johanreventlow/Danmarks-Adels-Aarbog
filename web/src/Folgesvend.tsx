@@ -46,6 +46,8 @@ export default function Folgesvend() {
   const [activeLetter, setActiveLetter] = useState<string | null>(null); // alfabet-filter (null = Alle)
   const [activeLinje, setActiveLinje] = useState<string | null>(null); // gren-filter (§9.2, null = hele slægten)
   const [focusHistory, setFocusHistory] = useState<string[]>([]); // person→person-navigation (back-knap)
+  // "Mig" i slægten (PoC: localStorage; flyttes til profiles.reventlow_person_id ved login).
+  const [meId, setMeId] = useState<string | null>(() => (typeof window !== 'undefined' ? window.localStorage.getItem('daa_me_id') : null));
   const [relA, setRelA] = useState<string | null>(null);
   const [relB, setRelB] = useState<string | null>(null);
   const [relSlot, setRelSlot] = useState<'A' | 'B'>('A');
@@ -104,6 +106,14 @@ export default function Folgesvend() {
   };
   const clearLinje = () => { setActiveLinje(null); setMode('tree'); };
 
+  // "Det er mig"-markering (localStorage) — samme person igen = fjern markering.
+  const toggleMe = (id: string) => {
+    const next = meId === id ? null : id;
+    setMeId(next);
+    if (next) window.localStorage.setItem('daa_me_id', next);
+    else window.localStorage.removeItem('daa_me_id');
+  };
+
   const pickPerson = (id: string) => {
     if (mode === 'relate') {
       if (relSlot === 'A') { setRelA(id); setRelSlot('B'); } else { setRelB(id); setRelSlot('A'); }
@@ -151,6 +161,9 @@ export default function Folgesvend() {
             <span style={{ width: 26, height: 26, borderRadius: '50%', border: '1px solid rgba(136,26,51,.55)', boxShadow: 'inset 0 0 0 2px #f4efe6, inset 0 0 0 2.5px rgba(136,26,51,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 13, fontWeight: 600, color: T.bordeaux }}>R</span>
             <span style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.ink }}>Reventlow</span>
           </div>
+          {meId && model?.byId[meId] && (
+            <div onClick={() => { setMode('tree'); navigateTo(meId); }} title="Din plads i slægten" style={{ width: 38, height: 38, borderRadius: '50%', background: '#f8ecef', border: `1.5px solid ${T.bordeaux}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontFamily: T.serif, fontSize: 15, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{initials(model.byId[meId].name)}</div>
+          )}
           <a href="#redaktion" style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.bordeaux, textDecoration: 'none' }}>Redaktion ↗</a>
         </div>
       </div>
@@ -230,7 +243,7 @@ export default function Folgesvend() {
         {/* Center */}
         <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
           {mode === 'tree' ? <TreeView model={model} focusId={focusId} onPick={navigateTo} />
-            : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={navigateTo} />
+            : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={navigateTo} meId={meId} onSetMeA={() => { if (meId) { setRelA(meId); setRelSlot('B'); } }} />
             : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} onOpen={setEstateId} onBack={() => setEstateId(null)} onPickOwner={(id) => { navigateTo(id); setMode('tree'); }} />
             : mode === 'arms' ? <ArmsView arms={arms} />
             : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} />
@@ -244,6 +257,7 @@ export default function Folgesvend() {
             backName={backName} onBack={goBack}
             onFocusTree={() => setMode('tree')}
             onRelate={() => { setRelA(focusId); setRelB(null); setRelSlot('B'); setMode('relate'); }}
+            isMe={focusId === meId} onToggleMe={() => toggleMe(focusId)}
           />
         )}
       </div>
@@ -343,12 +357,14 @@ function TreeView({ model, focusId, onPick }: { model: Model | null; focusId: st
 }
 
 // ---- Slægtskab ("Er vi i familie?") ----
-function RelateView({ model, rel, relA, relB, slot, setSlot, onPickStep }: {
+function RelateView({ model, rel, relA, relB, slot, setSlot, onPickStep, meId, onSetMeA }: {
   model: Model | null; rel: RelationResult | null; relA: string | null; relB: string | null;
   slot: 'A' | 'B'; setSlot: (s: 'A' | 'B') => void; onPickStep: (id: string) => void;
+  meId: string | null; onSetMeA: () => void;
 }) {
   const a = relA && model ? model.byId[relA] : null;
   const b = relB && model ? model.byId[relB] : null;
+  const me = meId && model ? model.byId[meId] : null;
   const p0 = rel?.lines[0];
   const korrob = p0 && p0.uafhaengige >= 2 ? `Bekræftet ad ${p0.uafhaengige} uafhængige linjer`
     : (p0?.usikker && rel?.alternativSolidLinje) ? 'Bekræftet ad en anden, sikker linje' : '';
@@ -356,6 +372,9 @@ function RelateView({ model, rel, relA, relB, slot, setSlot, onPickStep }: {
     <div style={{ padding: '30px 40px 50px', maxWidth: 640 }}>
       <ViewHeader title="Er vi i familie?" />
       <div style={{ fontSize: 13, color: T.muted, marginTop: 4, marginBottom: 20 }}>Klik et felt for at vælge slot, og vælg en person i listen til venstre.</div>
+      {me && relA !== meId && (
+        <div onClick={onSetMeA} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 14, background: '#f8ecef', border: '1px solid rgba(136,26,51,.25)', borderRadius: 9, padding: '8px 12px', cursor: 'pointer', fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, color: T.bordeaux }}>★ Sæt mig ({me.name}) som første person</div>
+      )}
       <div style={{ display: 'flex', alignItems: 'stretch', gap: 12 }}>
         {(['A', 'B'] as const).map((sl) => {
           const person = sl === 'A' ? a : b;
@@ -429,9 +448,10 @@ function RelateView({ model, rel, relA, relB, slot, setSlot, onPickStep }: {
 }
 
 // ---- Person-detalje (højre panel) ----
-function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocusTree, onRelate }: {
+function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocusTree, onRelate, isMe, onToggleMe }: {
   model: Model; focusId: string; detail: PersonDetailData | null; onPick: (id: string) => void;
   backName: string | null; onBack: () => void; onFocusTree: () => void; onRelate: () => void;
+  isMe: boolean; onToggleMe: () => void;
 }) {
   const p = model.byId[focusId];
   if (!p) return null;
@@ -451,9 +471,10 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontFamily: T.serif, fontSize: 27, lineHeight: 1, fontWeight: 600 }}>{p.name}</div>
             {p.years && <div style={{ fontFamily: T.mono, fontSize: 11, color: T.muted2, marginTop: 6 }}>{p.years}</div>}
-            {/* Badges: Linje X + titel ("★ Dig" udskudt til mig-koncept). */}
-            {(linje || p.title) && (
+            {/* Badges: ★ Dig + Linje X + titel. */}
+            {(isMe || linje || p.title) && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 9 }}>
+                {isMe && <div style={{ fontFamily: T.sans, fontSize: 10.5, fontWeight: 700, color: T.paper, background: T.bordeaux, padding: '4px 9px', borderRadius: 6 }}>★ Dig</div>}
                 {linje && <div style={{ fontFamily: T.mono, fontSize: 9.5, color: T.muted, background: T.beige, border: '1px solid rgba(34,31,26,.1)', padding: '4px 8px', borderRadius: 6 }}>Linje {linje}</div>}
                 {p.title && <div style={{ fontSize: 11, fontWeight: 600, color: T.bordeaux, background: '#f4e2e6', border: '1px solid rgba(136,26,51,.16)', padding: '4px 9px', borderRadius: 6 }}>{p.title}</div>}
               </div>
@@ -543,12 +564,13 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
           </>
         )}
 
-        {/* Handlinger — "Det er mig"-toggle udskudt til Fase 2 (mig-koncept). */}
+        {/* Handlinger: fokus · slægtskab · "det er mig"-toggle. */}
         <div onClick={onFocusTree} style={{ marginTop: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, color: '#3d382f', background: T.panel, border: '1.5px solid rgba(34,31,26,.16)', padding: '11px 0', borderRadius: 10, cursor: 'pointer' }}>
           <span style={{ fontSize: 13 }}>⊹</span> Sæt i fokus i stamtræet
         </div>
         <div style={{ marginTop: 9, display: 'flex', gap: 9 }}>
           <div onClick={onRelate} style={{ flex: 1, textAlign: 'center', fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, color: T.paper, background: T.bordeaux, padding: '11px 0', borderRadius: 10, cursor: 'pointer' }}>Find slægtskab</div>
+          <div onClick={onToggleMe} title={isMe ? 'Fjern din markering' : 'Marker denne person som dig'} style={{ flex: 1, textAlign: 'center', fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, color: isMe ? T.bordeaux : '#3d382f', background: isMe ? '#f8ecef' : T.panel, border: `1.5px solid ${isMe ? T.bordeaux : 'rgba(34,31,26,.16)'}`, padding: '11px 0', borderRadius: 10, cursor: 'pointer' }}>{isMe ? '★ Dette er dig' : 'Det er mig'}</div>
         </div>
       </div>
     </div>
