@@ -243,7 +243,13 @@ function TreeView({ model, focusId, onPick }: { model: Model | null; focusId: st
   const childCount = (id: string) => model.indexes.childIdx[id]?.size ?? 0;
 
   return (
-    <div style={{ padding: '30px 40px 50px' }}>
+    <div style={{ padding: '30px 40px 50px', position: 'relative', minHeight: '100%' }}>
+      {/* Dekorativt våbenskjold-vandmærke (port af design). */}
+      <svg viewBox="0 0 100 120" style={{ position: 'absolute', top: 104, right: 34, width: 116, height: 'auto', zIndex: 0, opacity: 0.09, pointerEvents: 'none' }} fill="none">
+        <path d="M10,8 H90 V58 C90,90 50,113 50,113 C50,113 10,90 10,58 Z" stroke={T.bordeaux} strokeWidth={1.4} />
+        <path d="M19,18 H81 V57 C81,82 50,100 50,100 C50,100 19,82 19,57 Z" stroke={T.gold} strokeWidth={1} />
+      </svg>
+      <div style={{ position: 'relative', zIndex: 1 }}>
       <ViewHeader title="Stamtræ" mb="18px" />
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         {grand && (
@@ -302,6 +308,7 @@ function TreeView({ model, focusId, onPick }: { model: Model | null; focusId: st
         ) : (
           <div style={{ marginTop: 18, fontSize: 12.5, color: T.muted3 }}>Ingen registrerede efterkommere</div>
         )}
+      </div>
       </div>
     </div>
   );
