@@ -5,6 +5,24 @@
 import { fmtYears } from './fields';
 import type { SameAsEdge, QuarantineNote, Db, AppPerson, CollapseResult, Provenance } from './types';
 
+// Tilføj til et Set under nøglen `k` (opret sættet ved første brug).
+const addTo = <K>(m: Map<K, Set<string>>, k: K, v: string): void => {
+  let s = m.get(k);
+  if (!s) m.set(k, (s = new Set()));
+  s.add(v);
+};
+
+// Behold første forekomst pr. nøgle (rækkefølge-bevarende dedup).
+const dedupeByKey = <T>(arr: T[], key: (t: T) => string): T[] => {
+  const seen = new Set<string>();
+  return arr.filter((t) => {
+    const k = key(t);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+};
+
 // Union-find over samme_som-kanter → grupper. Kanonisk = unik sink (alias-outdegree 0).
 // Karantæne hvis: ingen unik sink, retnings-cyklus, eller endpoint ukendt (ufuldstændig
 // komponent — RLS kan have skjult en tvilling). Reversibel: kalder får medlems-lister.
@@ -42,15 +60,10 @@ export function groupSameAs(
     union(e.alias, e.canonical);
   }
 
-  // Komponent-medlemmer + alias-flag (om noden nogensinde optræder som alias).
+  // Komponent-medlemmer + alias-mængde (noder der optræder som alias, dvs. har outdegree > 0).
   const members = new Map<string, Set<string>>();
-  const isAlias = new Map<string, boolean>();
-  for (const id of parent.keys()) {
-    const r = find(id);
-    (members.get(r) ?? members.set(r, new Set()).get(r)!).add(id);
-    if (!isAlias.has(id)) isAlias.set(id, false);
-  }
-  for (const e of edgeList) isAlias.set(e.alias, true);
+  for (const id of parent.keys()) addTo(members, find(id), id);
+  const aliasSet = new Set(edgeList.map((e) => e.alias));
 
   const groups = new Map<string, string[]>();
   const quarantined: QuarantineNote[] = [];
@@ -61,7 +74,7 @@ export function groupSameAs(
       quarantined.push({ members: ids, reason: `ufuldstændig komponent (mangler ${missing.join(',')})` });
       continue;
     }
-    const sinks = ids.filter((id) => !isAlias.get(id)); // aldrig alias = sink-kandidat
+    const sinks = ids.filter((id) => !aliasSet.has(id)); // aldrig alias = sink-kandidat
     if (sinks.length !== 1) {
       quarantined.push({ members: ids, reason: `ingen unik sink (kandidater: ${sinks.join(',') || 'ingen'})` });
       continue;
@@ -138,7 +151,7 @@ export function validateGroups(
       if (canon && accepted0.has(canon)) rej(canon, 'selv-forælder efter merge');
       continue;
     }
-    (childToParents.get(c) ?? childToParents.set(c, new Set()).get(c)!).add(p);
+    addTo(childToParents, c, p);
   }
   // Global cyklus-detektion (DFS opad). Marker gruppen der lukker cyklen.
   const WHITE = 0,
@@ -196,9 +209,9 @@ export function collapseSameAs(
   const { accepted, quarantined: q2 } = validateGroups(groups, rawDb);
   const quarantined = [...q1, ...q2];
 
-  const canonicalIdById: Record<string, string> = {};
-  for (const [canon, ids] of accepted) for (const id of ids) canonicalIdById[id] = canon;
-  const canon = (id: string) => canonicalIdById[id] ?? id;
+  const cm = canonMap(accepted);
+  const canonicalIdById: Record<string, string> = Object.fromEntries(cm);
+  const canon = (id: string) => cm.get(id) ?? id;
 
   // Flet personer til den kanoniske post (coalesce: kanonisk først, derefter alias'er).
   const personById = new Map(rawDb.persons.map((p) => [p.id, p]));
@@ -233,26 +246,17 @@ export function collapseSameAs(
     .concat(mergedPersons);
 
   // Omskriv unions til kanoniske id'er (dedup familie-bevidst: unik på familie-id).
-  const seenUnion = new Set<string>();
-  const unions = rawDb.unions
-    .map((u) => ({ ...u, p1: u.p1 == null ? u.p1 : canon(u.p1), p2: u.p2 == null ? u.p2 : canon(u.p2) }))
-    .filter((u) => {
-      if (seenUnion.has(u.id)) return false;
-      seenUnion.add(u.id);
-      return true;
-    });
+  const unions = dedupeByKey(
+    rawDb.unions.map((u) => ({ ...u, p1: u.p1 == null ? u.p1 : canon(u.p1), p2: u.p2 == null ? u.p2 : canon(u.p2) })),
+    (u) => u.id,
+  );
 
   // Omskriv parentChild til kanoniske id'er (dedup på kanonisk-forælder|kanonisk-barn|familie —
   // ikke kun endpoints, ellers aggregerer buildModel's konfidens-logik kanter på tværs af familier).
-  const seenPc = new Set<string>();
-  const parentChild = rawDb.parentChild
-    .map((pc) => ({ ...pc, child: canon(pc.child), parent: canon(pc.parent) }))
-    .filter((pc) => {
-      const k = `${pc.parent}|${pc.child}|${pc.union}`;
-      if (seenPc.has(k)) return false;
-      seenPc.add(k);
-      return true;
-    });
+  const parentChild = dedupeByKey(
+    rawDb.parentChild.map((pc) => ({ ...pc, child: canon(pc.child), parent: canon(pc.parent) })),
+    (pc) => `${pc.parent}|${pc.child}|${pc.union}`,
+  );
 
   return { db: { persons, unions, parentChild }, canonicalIdById, mergedFrom, quarantined };
 }
