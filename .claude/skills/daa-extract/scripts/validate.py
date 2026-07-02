@@ -298,16 +298,6 @@ def validate(rec, src, known_by_linje):
         if missing:
             issues.append(f'R1: årstal {missing} i dato "{d}" findes ikke i prosaen (hallucination?)')
 
-    # R1 (hærdet): det udledte date_min-år skal faktisk stå i date_raw. Fanger
-    # fejl-attribuering (fx et vielsesår udtrukket som dødsår) som den
-    # ovenstående prosa-tjek ikke ser, fordi begge årstal forekommer i prosaen.
-    for f in (rec.get('facts') or []):
-        dmin = f.get('date_min')
-        if dmin and f.get('date_raw'):
-            yr = dmin[:4]
-            if yr not in f['date_raw']:
-                issues.append(f'R1: date_min-år {yr} findes ikke i date_raw "{f["date_raw"]}" (fejl-attribueret dato?)')
-
     # R7: felt-proveniens — hvert kilde_span SKAL være ordret substring af prosaen.
     spans = [f.get('kilde_span') for f in (rec.get('facts') or [])]
     spans += [a.get('kilde_span') for a in (rec.get('aegteskaber') or [])]
@@ -394,7 +384,7 @@ def normalize_record(rec, src):
             rec['boern'] = None   # LLM-hallucineret boern uden tekst-belæg
     # Deterministisk dato-udledning: date_min/date_max overskrives ALTID fra
     # date_raw. LLM'en må ikke selv syntetisere disse (fri ISO-syntese var
-    # kilden til fejl-attribuering, se hærdet R1 i validate()).
+    # kilden til fejl-attribuering).
     for f in rec.get('facts') or []:
         if f.get('date_raw'):
             lo, hi = derive_date_bounds(f['date_raw'])

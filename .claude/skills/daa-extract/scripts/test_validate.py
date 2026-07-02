@@ -243,25 +243,6 @@ class TestDateBounds(unittest.TestCase):
         self.assertEqual(validate.derive_date_bounds("1500 1600 1700"), (None, None))
 
 
-class TestR1DateAttribution(unittest.TestCase):
-    """Hærdet R1: date_min's år skal faktisk stå i date_raw (fanger fejl-
-    attribuering, fx et vielsesår udtrukket som dødsår)."""
-
-    def test_mis_attribueret_dato_flager(self):
-        rec = {"linje": "I", "nr": 1,
-               "facts": [{"faktatype": "død", "date_raw": "1698", "date_min": "1750-01-01"}]}
-        src = {"raw_text": "N.N. gift 1698, død 1750."}
-        issues, _ = validate.validate(rec, src, {})
-        self.assertTrue(any(i.startswith("R1") and "fejl-attribueret" in i for i in issues))
-
-    def test_korrekt_attribueret_dato_flager_ikke(self):
-        rec = {"linje": "I", "nr": 1,
-               "facts": [{"faktatype": "død", "date_raw": "1750", "date_min": "1750-01-01"}]}
-        src = {"raw_text": "N.N. gift 1698, død 1750."}
-        issues, _ = validate.validate(rec, src, {})
-        self.assertFalse(any("fejl-attribueret" in i for i in issues))
-
-
 class TestNormalizeRecordDateOverride(unittest.TestCase):
     """normalize_record overskriver date_min/date_max deterministisk fra date_raw."""
 
