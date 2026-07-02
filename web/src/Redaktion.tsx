@@ -7,12 +7,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { signIn, signOut, currentSession, type RedSession } from './data/auth';
 import {
   fetchRedaktionPersoner, fetchPersonEvidence, fetchPersonNarrativ, fetchSletPreview,
-  fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, nudgeOrdinal, type RedPerson, type PersonEvidence,
-  type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation,
+  fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, fetchSammeSomLinks, nudgeOrdinal, type RedPerson, type PersonEvidence,
+  type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
 } from './data/redaktionRead';
+import { previewSammeSom } from './data/sammeSomPreflight';
 import { loadModel } from './data/model';
 import type { Model } from './data/types';
 import { submitChange, describeCall, oversaetFejl, type Change } from './data/redaktionWrite';
+import { buildBrowse } from './data/browse';
 import { initials } from './data/format';
 import { NarrativRenderer } from './components/NarrativRenderer';
 
@@ -80,6 +82,10 @@ export default function Redaktion() {
   const [entity, setEntity] = useState('person');
   const [recordId, setRecordId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  // Person-browse (spejler Følgesvend §9.1/§9.2): sortér (navn/fødeår), alfabet-hop, linje-filter.
+  const [browseSort, setBrowseSort] = useState<'navn' | 'aar'>('navn');
+  const [activeLetter, setActiveLetter] = useState<string | null>(null);
+  const [activeLinje, setActiveLinje] = useState<string | null>(null);
 
   const [persons, setPersons] = useState<RedPerson[]>([]);
   const [recCache, setRecCache] = useState<Record<string, EntityRecord[]>>({});
@@ -88,7 +94,10 @@ export default function Redaktion() {
   const [model, setModel] = useState<Model | null>(null);
   const [familie, setFamilie] = useState<PersonFamilie | null>(null);
   const [relationer, setRelationer] = useState<PersonRelation[] | null>(null);
-  const [picker, setPicker] = useState<{ kind: 'barn' | 'partner' | 'hverv' | 'gods'; familyId?: string } | null>(null);
+  const [sammeSom, setSammeSom] = useState<SammeSomLink[]>([]);
+  // Retningsbekræftelse for et nyt samme_som-link: den valgte person + hvem der er kanonisk.
+  const [ssConfirm, setSsConfirm] = useState<{ personId: string; navn: string; kanoniskId: string } | null>(null);
+  const [picker, setPicker] = useState<{ kind: 'barn' | 'partner' | 'hverv' | 'gods' | 'sammeSom'; familyId?: string } | null>(null);
   const [pickQuery, setPickQuery] = useState('');
   // Flyt et barn til et af PERSONENS EGNE andre forhold (brugerfund 2026-07-02: forkert
   // mor/far-par). Ikke en fri søgning som `picker` ovenfor — bevidst begrænset til de forhold
@@ -144,6 +153,7 @@ export default function Redaktion() {
     fetchPersonNarrativ(id).then((n) => setNarrativ(n ?? { tekst: '', privat: false })).catch(() => setNarrativ({ tekst: '', privat: false }));
     fetchPersonFamilie(id, model).then(setFamilie).catch(() => setFamilie({ somPartner: [], somBarn: [] }));
     fetchPersonRelationer(id).then(setRelationer).catch(() => setRelationer([]));
+    fetchSammeSomLinks(id).then(setSammeSom).catch(() => setSammeSom([]));
   }, [model]);
   useEffect(() => {
     if (entity === 'person' && recordId) loadPerson(recordId);
@@ -161,6 +171,16 @@ export default function Redaktion() {
     const q = query.trim().toLowerCase();
     return q ? records.filter((r) => (r.label + ' ' + r.sub).toLowerCase().includes(q)) : records;
   }, [records, query]);
+
+  // Person-browse spejler Følgesvend: driv af den redaktør-authoritative `persons` (RedPerson har
+  // allerede id/navn/born) + linje-metadata fra `model.lineage` (samme id-rum, collapse:false). Et
+  // `name`-alias lader RedPerson opfylde buildBrowse's minimale BrowsePerson-shape.
+  const linjeList = model?.lineage?.list ?? [];
+  const browseInput = useMemo(() => persons.map((p) => ({ ...p, name: p.navn })), [persons]);
+  const personBrowse = useMemo(
+    () => buildBrowse(browseInput, query, browseSort, activeLetter, { linjeByPerson: model?.lineage?.byPerson, activeLinje }),
+    [browseInput, query, browseSort, activeLetter, model, activeLinje],
+  );
 
   // --- Skrivning ---
   const run = useCallback(async (change: Change, titel: string) => {
@@ -211,6 +231,7 @@ export default function Redaktion() {
       {renderConfirmModal()}
       {renderWriteModal()}
       {renderPicker()}
+      {renderSammeSomConfirm()}
       {renderFlytBarnPicker()}
     </div>
   );
@@ -218,11 +239,18 @@ export default function Redaktion() {
   // ---- Top bar ----
   function renderTopBar() {
     return (
-      <div style={{ flex: 'none', height: 60, display: 'flex', alignItems: 'center', gap: 14, padding: '0 24px', background: T.paper, borderBottom: '1px solid rgba(34,31,26,.12)', zIndex: 30 }}>
-        <span style={{ width: 34, height: 34, borderRadius: 8, background: T.bordeaux, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 17, fontWeight: 600, color: T.paperText }}>R</span>
-        <div>
-          <div style={{ fontFamily: T.serif, fontSize: 19, fontWeight: 600, lineHeight: 1, color: T.ink }}>Redaktion · Reventlow</div>
-          <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', color: T.muted2, marginTop: 2 }}>Danmarks Adels Aarbog · evidens-base</div>
+      <div style={{ flex: 'none', height: 66, display: 'flex', alignItems: 'center', gap: 22, padding: '0 26px', background: T.paper, borderBottom: '1px solid rgba(34,31,26,.1)', zIndex: 30 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 13, flex: 'none' }}>
+          <img src="/daf-logo.png" alt="Dansk Adels Forening" style={{ width: 40, height: 40, objectFit: 'contain' }} />
+          <div>
+            <div style={{ fontFamily: T.serif, fontSize: 21, fontWeight: 600, lineHeight: 1, color: T.ink }}>Danmarks Adels Aarbog</div>
+            <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.16em', textTransform: 'uppercase', color: T.muted2, marginTop: 2 }}>Redaktion · Dansk Adels Forening</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, background: T.panel, border: '1px solid rgba(34,31,26,.12)', borderRadius: 9, padding: '6px 12px', flex: 'none' }}>
+          <span style={{ width: 26, height: 26, borderRadius: '50%', border: '1px solid rgba(136,26,51,.55)', boxShadow: 'inset 0 0 0 2px #f4efe6, inset 0 0 0 2.5px rgba(136,26,51,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 13, fontWeight: 600, color: T.bordeaux }}>R</span>
+          <span style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.ink }}>Reventlow</span>
+          <span style={{ fontFamily: T.sans, fontSize: 11, color: T.muted2 }}>▾</span>
         </div>
         <div style={{ flex: 1 }} />
         <div onClick={() => setShowAnno((v) => !v)} style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', border: '1px solid rgba(34,31,26,.18)', borderRadius: 8, padding: '5px 11px' }}>
@@ -273,6 +301,21 @@ export default function Redaktion() {
   // ---- Record-liste ----
   function renderList() {
     const title = ENTITIES.find((e) => e.key === entity)?.label ?? '';
+    const isPerson = entity === 'person';
+    const b = personBrowse;
+    const personRow = (p: (typeof browseInput)[number]) => {
+      const active = p.id === recordId;
+      return (
+        <div key={p.id} onClick={() => setRecordId(p.id)} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 9px', borderRadius: 9, cursor: 'pointer', background: active ? '#efe7d7' : 'transparent' }}>
+          <span style={{ width: 30, height: 30, borderRadius: '50%', background: T.beige, border: '1px solid rgba(34,31,26,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 12, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{initials(p.navn)}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: T.serif, fontSize: 15.5, fontWeight: 600, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.navn}</div>
+            <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.aar || '—'}</div>
+          </div>
+          {p.privat && <span style={{ fontFamily: T.mono, fontSize: 8, letterSpacing: '.06em', textTransform: 'uppercase', color: T.red, flex: 'none' }}>privat</span>}
+        </div>
+      );
+    };
     return (
       <div data-scroll style={{ flex: 'none', width: 286, borderRight: '1px solid rgba(34,31,26,.1)', background: T.panel, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: '16px 16px 10px', position: 'sticky', top: 0, background: T.panel, zIndex: 2 }}>
@@ -281,21 +324,73 @@ export default function Redaktion() {
           </div>
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Søg…" style={{ width: '100%', fontSize: 13, color: T.ink, background: T.paper, border: '1px solid rgba(34,31,26,.14)', borderRadius: 8, padding: '9px 11px', outline: 'none' }} />
         </div>
-        <div style={{ padding: '2px 10px 12px' }}>
-          {filtered.map((r) => {
-            const active = r.id === recordId;
-            return (
-              <div key={r.id} onClick={() => setRecordId(r.id)} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 9px', borderRadius: 9, cursor: 'pointer', background: active ? '#efe7d7' : 'transparent' }}>
-                <span style={{ width: 30, height: 30, borderRadius: entity === 'person' ? '50%' : 7, background: T.beige, border: '1px solid rgba(34,31,26,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 12, fontWeight: 600, color: T.bordeaux }}>{r.badge}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: T.serif, fontSize: 15.5, fontWeight: 600, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.label}</div>
-                  <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.sub}</div>
+
+        {isPerson ? (
+          <>
+            {/* Linje-filter (§9.2) — filtrerer kun listen; redaktør har intet stamtræ at hoppe fokus i. */}
+            {linjeList.length > 0 && (
+              <div style={{ padding: '0 14px 8px' }}>
+                <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2, marginBottom: 7 }}>Linjer</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {[{ linje: null as string | null, navn: null as string | null }, ...linjeList].map((l) => {
+                    const on = activeLinje === l.linje;
+                    return (
+                      <div key={l.linje ?? 'all'} onClick={() => setActiveLinje(l.linje)} title={l.navn ?? undefined} style={{ padding: '5px 11px', borderRadius: 15, fontFamily: T.sans, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', background: on ? T.bordeaux : 'transparent', color: on ? T.paper : T.muted, border: `1px solid ${on ? T.bordeaux : 'rgba(34,31,26,.18)'}` }}>{l.linje ? `Linje ${l.linje}` : 'Hele slægten'}</div>
+                    );
+                  })}
                 </div>
               </div>
-            );
-          })}
-          {!filtered.length && <div style={{ padding: '22px 10px', textAlign: 'center', fontSize: 12.5, color: T.muted3 }}>{query ? 'Ingen træffere' : (entity === 'person' ? 'Henter…' : 'Ingen liste-kilde endnu')}</div>}
-        </div>
+            )}
+
+            <div style={{ padding: '0 14px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <span style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>{`${activeLinje ? `Linje ${activeLinje} · ` : ''}${b.flat.length} ${query ? 'træffere' : 'personer'}`}</span>
+              <div style={{ display: 'flex', background: '#e6ddcc', borderRadius: 7, padding: 2, gap: 2, flex: 'none' }}>
+                {(['navn', 'aar'] as const).map((s) => (
+                  <span key={s} onClick={() => setBrowseSort(s)} style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 5, cursor: 'pointer', background: browseSort === s ? T.bordeaux : 'transparent', color: browseSort === s ? T.paper : '#3d382f' }}>{s === 'navn' ? 'A–Å' : 'Født'}</span>
+                ))}
+              </div>
+            </div>
+
+            {b.grouped && b.letters.length > 1 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, padding: '0 14px 9px' }}>
+                {[{ key: null as string | null, label: 'Alle' }, ...b.letters.map((l) => ({ key: l as string | null, label: l }))].map((L) => {
+                  const on = activeLetter === L.key;
+                  return (
+                    <span key={L.label} onClick={() => setActiveLetter(L.key)} style={{ fontFamily: T.mono, fontSize: 10, fontWeight: 500, minWidth: 19, height: 19, padding: '0 3px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 5, cursor: 'pointer', background: on ? T.bordeaux : T.beige, color: on ? T.paper : T.muted }}>{L.label}</span>
+                  );
+                })}
+              </div>
+            )}
+
+            <div style={{ padding: '2px 10px 12px' }}>
+              {b.grouped
+                ? b.groups.map((g) => (
+                    <div key={g.letter}>
+                      <div style={{ padding: '7px 9px 3px', fontFamily: T.serif, fontSize: 15, fontWeight: 600, color: T.gold, borderBottom: '1px solid rgba(34,31,26,.07)' }}>{g.letter}</div>
+                      {g.people.map(personRow)}
+                    </div>
+                  ))
+                : b.flat.map(personRow)}
+              {!b.flat.length && <div style={{ padding: '22px 10px', textAlign: 'center', fontSize: 12.5, color: T.muted3 }}>{persons.length ? 'Ingen træffere' : 'Henter…'}</div>}
+            </div>
+          </>
+        ) : (
+          <div style={{ padding: '2px 10px 12px' }}>
+            {filtered.map((r) => {
+              const active = r.id === recordId;
+              return (
+                <div key={r.id} onClick={() => setRecordId(r.id)} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 9px', borderRadius: 9, cursor: 'pointer', background: active ? '#efe7d7' : 'transparent' }}>
+                  <span style={{ width: 30, height: 30, borderRadius: 7, background: T.beige, border: '1px solid rgba(34,31,26,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 12, fontWeight: 600, color: T.bordeaux }}>{r.badge}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: T.serif, fontSize: 15.5, fontWeight: 600, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.label}</div>
+                    <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.sub}</div>
+                  </div>
+                </div>
+              );
+            })}
+            {!filtered.length && <div style={{ padding: '22px 10px', textAlign: 'center', fontSize: 12.5, color: T.muted3 }}>{query ? 'Ingen træffere' : 'Ingen liste-kilde endnu'}</div>}
+          </div>
+        )}
       </div>
     );
   }
@@ -521,6 +616,12 @@ export default function Redaktion() {
               {hverv.length ? hverv.map((r) => linkRow(r.navn, [r.rolle, r.periode].filter(Boolean).join(' · '), () => run({ art: 'sletRelation', subjektType: 'person', subjektId: pid, relationId: String(r.relationId) }, 'Fjern hverv'))) : <div style={{ fontSize: 11.5, color: T.muted3, marginBottom: 8 }}>Ingen hverv.</div>}
               {subHeader('Godser & besiddelser', () => setPicker({ kind: 'gods' }), '+ Tilføj gods', 10)}
               {godser.length ? godser.map((r) => linkRow(r.navn, [r.rolle, r.periode].filter(Boolean).join(' · '), () => run({ art: 'sletRelation', subjektType: 'person', subjektId: pid, relationId: String(r.relationId) }, 'Fjern gods'))) : <div style={{ fontSize: 11.5, color: T.muted3 }}>Ingen godser.</div>}
+              {subHeader('Samme person', () => setPicker({ kind: 'sammeSom' }), '+ Marker som samme person', 10)}
+              {sammeSom.length ? sammeSom.map((l) => linkRow(
+                persons.find((p) => p.id === l.modpartId)?.navn ?? `#${l.modpartId}`,
+                l.retning === 'alias' ? 'denne foldes ind i' : 'foldes ind i denne',
+                () => run({ art: 'fjernSammeSom', subjektType: 'person', subjektId: pid, relationId: l.relationId }, 'Fjern samme-person-link'),
+              )) : <div style={{ fontSize: 11.5, color: T.muted3 }}>Ingen identitets-links.</div>}
             </>
           )}
         </div>
@@ -530,16 +631,21 @@ export default function Redaktion() {
 
   function renderPicker() {
     if (!picker) return null;
-    const isPerson = picker.kind === 'barn' || picker.kind === 'partner';
+    const isPerson = picker.kind === 'barn' || picker.kind === 'partner' || picker.kind === 'sammeSom';
     const q = pickQuery.trim().toLowerCase();
     const items: { id: string; label: string; sub: string }[] = isPerson
-      ? persons.filter((p) => p.navn.toLowerCase().includes(q)).slice(0, 40).map((p) => ({ id: p.id, label: p.navn, sub: p.aar || '—' }))
+      ? persons.filter((p) => p.id !== recordId && p.navn.toLowerCase().includes(q)).slice(0, 40).map((p) => ({ id: p.id, label: p.navn, sub: p.aar || '—' }))
       : (recCache[picker.kind === 'hverv' ? 'org' : 'estate'] ?? []).filter((r) => (r.label + ' ' + r.sub).toLowerCase().includes(q)).slice(0, 40).map((r) => ({ id: r.id, label: r.label, sub: r.sub }));
-    const titel = picker.kind === 'barn' ? 'Vælg barn' : picker.kind === 'partner' ? 'Vælg partner' : picker.kind === 'hverv' ? 'Vælg organisation' : 'Vælg gods';
+    const titel = picker.kind === 'barn' ? 'Vælg barn' : picker.kind === 'partner' ? 'Vælg partner' : picker.kind === 'sammeSom' ? 'Vælg samme person' : picker.kind === 'hverv' ? 'Vælg organisation' : 'Vælg gods';
     const onPick = (id: string) => {
       const sid = recordId!;
+      if (picker.kind === 'sammeSom') {
+        setSsConfirm({ personId: id, navn: persons.find((p) => p.id === id)?.navn ?? id, kanoniskId: sid });
+        setPicker(null); setPickQuery('');
+        return;
+      }
       // type 'vielse' matcher mobilens UNION_TYPER (ikke 'ægteskab'); roller medlem/ejer er DB-fritekst.
-      const changes: Record<typeof picker.kind, Change> = {
+      const changes: Record<Exclude<typeof picker.kind, 'sammeSom'>, Change> = {
         barn: { art: 'tilfoejBarn', subjektType: 'person', subjektId: sid, payload: { familyId: picker.familyId, barnId: id, rolle: 'barn', konfidens: null } },
         partner: { art: 'opretUnion', subjektType: 'person', subjektId: sid, payload: { partnerA: sid, partnerB: id, type: 'vielse', ordinal: null } },
         hverv: { art: 'tilfoejRelation', subjektType: 'person', subjektId: sid, payload: { objektType: 'organisation', objektId: id, rolle: 'medlem', periodeRaw: null } },
@@ -566,6 +672,46 @@ export default function Redaktion() {
               </div>
             ))}
             {!items.length && <div style={{ padding: '18px 10px', textAlign: 'center', fontSize: 12.5, color: T.muted3 }}>Ingen træffere.</div>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderSammeSomConfirm() {
+    if (!ssConfirm) return null;
+    const sid = recordId!;
+    const redigeretNavn = persons.find((p) => p.id === sid)?.navn ?? sid;
+    const kanonisk = ssConfirm.kanoniskId === sid ? { id: sid, navn: redigeretNavn } : { id: ssConfirm.personId, navn: ssConfirm.navn };
+    const alias = ssConfirm.kanoniskId === sid ? { id: ssConfirm.personId, navn: ssConfirm.navn } : { id: sid, navn: redigeretNavn };
+    // Rå-db til rådgivende pre-flight (rekonstrueret fra redaktionsmodellen; kun personer + forældre-kanter bruges).
+    const rawDb = {
+      persons: model?.persons ?? [],
+      unions: [],
+      parentChild: Object.entries(model?.indexes.parentsByChild ?? {}).flatMap(
+        ([child, parents]) => parents.map((parent) => ({ child, parent, union: '' })),
+      ),
+    };
+    const preview = previewSammeSom(rawDb, [], { alias: alias.id, canonical: kanonisk.id });
+    return (
+      <div onClick={() => setSsConfirm(null)} style={overlay(96)}>
+        <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: '100%', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: 20 }}>
+          <div style={{ fontFamily: T.serif, fontSize: 19, fontWeight: 600, marginBottom: 14 }}>Samme person</div>
+          <div style={{ fontFamily: T.mono, fontSize: 9, color: T.gold, marginBottom: 3 }}>KANONISK (beholdes)</div>
+          <div style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, marginBottom: 10 }}>{kanonisk.navn}</div>
+          <div style={{ fontFamily: T.mono, fontSize: 9, color: T.gold, marginBottom: 3 }}>FOLDES IND I OVENSTÅENDE</div>
+          <div style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, marginBottom: 12 }}>{alias.navn}</div>
+          <div onClick={() => setSsConfirm({ ...ssConfirm, kanoniskId: ssConfirm.kanoniskId === sid ? ssConfirm.personId : sid })}
+            style={{ fontFamily: T.mono, fontSize: 11, color: T.bordeaux, cursor: 'pointer', marginBottom: 12 }}>⇅ Byt retning</div>
+          {!preview.folder ? (
+            <div style={{ fontSize: 11.5, color: T.bordeaux, marginBottom: 12, lineHeight: 1.4 }}>
+              ⚠ Foldes ikke endnu — {preview.grund}. Linket oprettes, men personerne vises separat til konflikten er løst. (redaktionel projektion — offentlig visning kan afvige)
+            </div>
+          ) : null}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <div onClick={() => setSsConfirm(null)} style={{ padding: '9px 16px', borderRadius: 9, background: T.beige, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Annullér</div>
+            <div onClick={() => { run({ art: 'sammeSom', subjektType: 'person', subjektId: sid, payload: { aliasId: alias.id, objektId: kanonisk.id } }, 'Marker som samme person'); setSsConfirm(null); }}
+              style={{ padding: '9px 16px', borderRadius: 9, background: T.bordeaux, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Gem</div>
           </div>
         </div>
       </div>
