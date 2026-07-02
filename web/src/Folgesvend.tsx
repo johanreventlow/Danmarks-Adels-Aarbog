@@ -9,7 +9,7 @@ import { computeRelationship, type RelationResult } from './data/relationship';
 import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
 import type { Model, ModelPerson } from './data/types';
 import { NarrativRenderer } from './components/NarrativRenderer';
-import { compareDanish, initialOf, sortLetters } from './lib/collation';
+import { buildBrowse } from './data/browse';
 
 const T = {
   pageBg: '#ece6da', paper: '#fbf8f1', panel: '#f4efe6', beige: '#ece4d6',
@@ -77,23 +77,7 @@ export default function Folgesvend() {
   // Sidebar-browse (§9.1): filtrér på query, sortér (navn dansk / fødeår), og — kun ved
   // navne-sort uden søgning — gruppér på efternavns-initial med sticky bogstav-headers +
   // alfabet-hop. activeLetter filtrerer til ét bogstav (null = Alle).
-  const browse = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const pool = q ? persons.filter((p) => p.name.toLowerCase().includes(q)) : persons;
-    if (browseSort === 'aar') {
-      const flat = [...pool].sort((a, b) => (a.born ?? 9999) - (b.born ?? 9999) || compareDanish(a.name, b.name));
-      return { grouped: false as const, flat, letters: [] as string[], groups: [] as { letter: string; people: ModelPerson[] }[] };
-    }
-    const flat = [...pool].sort((a, b) => compareDanish(a.name, b.name));
-    if (q) return { grouped: false as const, flat, letters: [] as string[], groups: [] };
-    const byL: Record<string, ModelPerson[]> = {};
-    flat.forEach((p) => { (byL[initialOf(p.name)] ??= []).push(p); });
-    const letters = sortLetters(Object.keys(byL));
-    const groups = letters
-      .filter((l) => !activeLetter || l === activeLetter)
-      .map((l) => ({ letter: l, people: byL[l] }));
-    return { grouped: true as const, flat, letters, groups };
-  }, [persons, query, browseSort, activeLetter]);
+  const browse = useMemo(() => buildBrowse(persons, query, browseSort, activeLetter), [persons, query, browseSort, activeLetter]);
 
   const rel = useMemo(() => (model && relA && relB ? computeRelationship(model, relA, relB) : null), [model, relA, relB]);
 
