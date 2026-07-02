@@ -9,6 +9,7 @@ import { computeRelationship, type RelationResult } from './data/relationship';
 import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
 import type { Model, ModelPerson } from './data/types';
 import { NarrativRenderer } from './components/NarrativRenderer';
+import { compareDanish, initialOf, sortLetters } from './lib/collation';
 
 const T = {
   pageBg: '#ece6da', paper: '#fbf8f1', panel: '#f4efe6', beige: '#ece4d6',
@@ -16,9 +17,11 @@ const T = {
   muted: '#6f675b', muted2: '#9a8f78', muted3: '#a99f8c', cream: '#cabfa9',
   serif: "'Cormorant Garamond',serif", sans: "'Hanken Grotesk',sans-serif", mono: "'JetBrains Mono',monospace",
 };
+// Nav matcher designets navDef — Søg er FJERNET (browsing bor nu i sidebaren: søgefelt +
+// sortér + alfabet-hop + grupperet liste), så center-fladen har tree/estates/arms/about/relate.
 const NAV: [string, string, boolean][] = [
-  ['Stamtræ', 'tree', true], ['Slægtskab', 'relate', true], ['Søg', 'search', true],
-  ['Godser', 'estates', true], ['Våben', 'arms', true], ['Om slægten', 'about', true],
+  ['Stamtræ', 'tree', true], ['Godser', 'estates', true], ['Våben', 'arms', true],
+  ['Om slægten', 'about', true], ['Slægtskab', 'relate', true],
 ];
 function useFonts() {
   useEffect(() => {
@@ -39,6 +42,8 @@ export default function Folgesvend() {
   const [mode, setMode] = useState('tree');
   const [focusId, setFocusId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [browseSort, setBrowseSort] = useState<'navn' | 'aar'>('navn'); // sidebar-sortering (§9.1)
+  const [activeLetter, setActiveLetter] = useState<string | null>(null); // alfabet-filter (null = Alle)
   const [relA, setRelA] = useState<string | null>(null);
   const [relB, setRelB] = useState<string | null>(null);
   const [relSlot, setRelSlot] = useState<'A' | 'B'>('A');
@@ -57,8 +62,9 @@ export default function Folgesvend() {
     }).catch((e) => setErr(describeErr(e)));
   }, []);
 
-  // Lazy-load pr. visning (én gang).
-  useEffect(() => { if (mode === 'estates' && !estates) fetchEstates().then(setEstates).catch(() => setEstates([])); }, [mode, estates]);
+  // Estates hentes eager (én gang) — bruges både af godser-visningen OG sidebar-statistikkens
+  // "godser"-tæller. Én pagineret query; billig nok til mount.
+  useEffect(() => { if (!estates) fetchEstates().then(setEstates).catch(() => setEstates([])); }, [estates]);
   useEffect(() => { if (mode === 'arms' && !arms) fetchArms().then(setArms).catch(() => setArms([])); }, [mode, arms]);
   useEffect(() => { if (mode === 'about' && !about) fetchAbout().then(setAbout).catch(() => setAbout([])); }, [mode, about]);
   useEffect(() => { if (estateId) fetchEstateOwners(estateId, model).then(setEstateOwners).catch(() => setEstateOwners([])); }, [estateId, model]);
@@ -67,12 +73,26 @@ export default function Folgesvend() {
   useEffect(() => { if (!focusId) { setDetail(null); return; } setDetail(null); fetchPersonDetail(focusId).then(setDetail).catch(() => setDetail({ bio: '', offices: [], estates: [] })); }, [focusId]);
 
   const persons = model?.persons ?? [];
-  // Sortér én gang (personerne er stabile); filtrér kun pr. tastetryk.
-  const sorted = useMemo(() => [...persons].sort((a, b) => a.name.localeCompare(b.name, 'da')), [persons]);
-  const filtered = useMemo(() => {
+  // Sidebar-browse (§9.1): filtrér på query, sortér (navn dansk / fødeår), og — kun ved
+  // navne-sort uden søgning — gruppér på efternavns-initial med sticky bogstav-headers +
+  // alfabet-hop. activeLetter filtrerer til ét bogstav (null = Alle).
+  const browse = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return (q ? sorted.filter((p) => p.name.toLowerCase().includes(q)) : sorted).slice(0, 400);
-  }, [sorted, query]);
+    const pool = q ? persons.filter((p) => p.name.toLowerCase().includes(q)) : persons;
+    if (browseSort === 'aar') {
+      const flat = [...pool].sort((a, b) => (a.born ?? 9999) - (b.born ?? 9999) || compareDanish(a.name, b.name));
+      return { grouped: false as const, flat, letters: [] as string[], groups: [] as { letter: string; people: ModelPerson[] }[] };
+    }
+    const flat = [...pool].sort((a, b) => compareDanish(a.name, b.name));
+    if (q) return { grouped: false as const, flat, letters: [] as string[], groups: [] };
+    const byL: Record<string, ModelPerson[]> = {};
+    flat.forEach((p) => { (byL[initialOf(p.name)] ??= []).push(p); });
+    const letters = sortLetters(Object.keys(byL));
+    const groups = letters
+      .filter((l) => !activeLetter || l === activeLetter)
+      .map((l) => ({ letter: l, people: byL[l] }));
+    return { grouped: true as const, flat, letters, groups };
+  }, [persons, query, browseSort, activeLetter]);
 
   const rel = useMemo(() => (model && relA && relB ? computeRelationship(model, relA, relB) : null), [model, relA, relB]);
 
@@ -82,6 +102,20 @@ export default function Folgesvend() {
     } else {
       setFocusId(id);
     }
+  };
+
+  // Sidebar-liste-række (delt af grupperet + flad visning).
+  const personRow = (p: ModelPerson) => {
+    const sel = mode === 'relate' ? (p.id === relA || p.id === relB) : p.id === focusId;
+    return (
+      <div key={p.id} onClick={() => pickPerson(p.id)} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '7px 9px', borderRadius: 9, cursor: 'pointer', background: sel ? '#efe7d7' : 'transparent' }}>
+        <span style={{ width: 32, height: 32, borderRadius: '50%', background: T.beige, border: '1px solid rgba(34,31,26,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 13, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{initials(p.name)}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+          <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 1 }}>{p.years || '—'}{relA === p.id ? ' · A' : relB === p.id ? ' · B' : ''}</div>
+        </div>
+      </div>
+    );
   };
 
   if (err) return <div style={{ fontFamily: T.sans, padding: 40, color: T.bordeaux, whiteSpace: 'pre-wrap' }}>{err}</div>;
@@ -114,25 +148,59 @@ export default function Folgesvend() {
       </div>
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        {/* Venstre: søg + person-liste */}
-        <div data-scroll style={{ flex: 'none', width: 280, borderRight: '1px solid rgba(34,31,26,.1)', background: T.panel, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '14px 14px 10px', position: 'sticky', top: 0, background: T.panel, zIndex: 2 }}>
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={mode === 'relate' ? `Vælg person ${relSlot}…` : 'Søg navn…'} style={{ width: '100%', fontSize: 13, color: T.ink, background: T.paper, border: '1px solid rgba(34,31,26,.14)', borderRadius: 8, padding: '9px 11px', outline: 'none' }} />
+        {/* Venstre: sidebar-browse (port af design — stats · søg · sortér/alfabet/grupperet liste).
+            Udskudt til Fase 2: "linjer"-stat + linje-filter-chips (kræver lineage-datalag). */}
+        <div data-scroll style={{ flex: 'none', width: 312, borderRight: '1px solid rgba(34,31,26,.1)', background: T.panel, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '20px 20px 14px', borderBottom: '1px solid rgba(34,31,26,.08)' }}>
+            <div style={{ display: 'flex', gap: 16, alignItems: 'stretch' }}>
+              <Stat n={persons.length} label="personer" />
+              <div style={{ width: 1, background: 'rgba(34,31,26,.12)' }} />
+              <Stat n={estates?.length ?? null} label="godser" />
+            </div>
+          </div>
+
+          <div style={{ padding: '14px 18px 10px' }}>
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Søg navn…" style={{ width: '100%', fontFamily: T.sans, fontSize: 14, color: T.ink, background: T.paper, border: '1px solid rgba(34,31,26,.14)', borderRadius: 9, padding: '11px 13px', outline: 'none' }} />
+            {mode === 'relate' && (
+              <div style={{ marginTop: 9, background: '#f8ecef', border: '1px solid rgba(136,26,51,.25)', borderRadius: 9, padding: '9px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.bordeaux }}>Vælg person {relSlot} i listen</span>
+              </div>
+            )}
             {!model && <div style={{ fontSize: 12, color: T.muted3, marginTop: 8 }}>Henter slægten…</div>}
           </div>
-          <div style={{ padding: '2px 10px 14px' }}>
-            {filtered.map((p) => {
-              const sel = mode === 'relate' ? (p.id === relA || p.id === relB) : p.id === focusId;
-              return (
-                <div key={p.id} onClick={() => pickPerson(p.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 9px', borderRadius: 9, cursor: 'pointer', background: sel ? '#efe7d7' : 'transparent' }}>
-                  <span style={{ width: 28, height: 28, borderRadius: '50%', background: T.beige, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 11, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{initials(p.name)}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontFamily: T.serif, fontSize: 15, fontWeight: 600, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-                    <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 1 }}>{p.years || '—'}{relA === p.id ? ' · A' : relB === p.id ? ' · B' : ''}</div>
-                  </div>
-                </div>
-              );
-            })}
+
+          <div style={{ padding: '6px 10px 8px', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div style={{ padding: '0 8px 7px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <span style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>{browse.flat.length} {query ? 'træffere' : 'personer'}</span>
+              <div style={{ display: 'flex', background: '#e6ddcc', borderRadius: 7, padding: 2, gap: 2, flex: 'none' }}>
+                {(['navn', 'aar'] as const).map((s) => (
+                  <span key={s} onClick={() => setBrowseSort(s)} style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 5, cursor: 'pointer', background: browseSort === s ? T.bordeaux : 'transparent', color: browseSort === s ? T.paper : '#3d382f' }}>{s === 'navn' ? 'A–Å' : 'Født'}</span>
+                ))}
+              </div>
+            </div>
+
+            {browse.grouped && browse.letters.length > 1 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, padding: '0 8px 9px' }}>
+                {[{ key: null as string | null, label: 'Alle' }, ...browse.letters.map((l) => ({ key: l as string | null, label: l }))].map((L) => {
+                  const on = activeLetter === L.key;
+                  return (
+                    <span key={L.label} onClick={() => setActiveLetter(L.key)} style={{ fontFamily: T.mono, fontSize: 10, fontWeight: 500, minWidth: 19, height: 19, padding: '0 3px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 5, cursor: 'pointer', background: on ? T.bordeaux : T.beige, color: on ? T.paper : T.muted }}>{L.label}</span>
+                  );
+                })}
+              </div>
+            )}
+
+            <div style={{ flex: 1 }}>
+              {browse.grouped
+                ? browse.groups.map((g) => (
+                    <div key={g.letter}>
+                      <div style={{ position: 'sticky', top: 0, background: T.panel, padding: '7px 9px 3px', fontFamily: T.serif, fontSize: 15, fontWeight: 600, color: T.gold, zIndex: 2, borderBottom: '1px solid rgba(34,31,26,.07)' }}>{g.letter}</div>
+                      {g.people.map(personRow)}
+                    </div>
+                  ))
+                : browse.flat.map(personRow)}
+              {browse.flat.length === 0 && model && <div style={{ padding: '12px 9px', fontFamily: T.sans, fontSize: 12, color: T.muted3 }}>Ingen træffere</div>}
+            </div>
           </div>
         </div>
 
@@ -140,7 +208,6 @@ export default function Folgesvend() {
         <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
           {mode === 'tree' ? <TreeView model={model} focusId={focusId} onPick={setFocusId} />
             : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={setFocusId} />
-            : mode === 'search' ? <SearchView persons={sorted} query={query} onPick={(id) => { setFocusId(id); setMode('tree'); }} />
             : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} onOpen={setEstateId} onBack={() => setEstateId(null)} onPickOwner={(id) => { setFocusId(id); setMode('tree'); }} />
             : mode === 'arms' ? <ArmsView arms={arms} />
             : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} />
@@ -148,7 +215,7 @@ export default function Folgesvend() {
         </div>
 
         {/* Højre: person-detalje (kun i person-centriske visninger) */}
-        {['tree', 'relate', 'search'].includes(mode) && model && focusId && (
+        {['tree', 'relate'].includes(mode) && model && focusId && (
           <DetailPanel model={model} focusId={focusId} detail={detail} onPick={setFocusId} />
         )}
       </div>
@@ -415,60 +482,8 @@ function DetailPanel({ model, focusId, detail, onPick }: { model: Model; focusId
   );
 }
 
-// ---- Søg (alfabet-hop §9.1 + sortér-toggle) ----
-const initialOf = (n: string) => (n.trim()[0] ?? '').toUpperCase();
-function SearchView({ persons, query, onPick }: { persons: ModelPerson[]; query: string; onPick: (id: string) => void }) {
-  const [sort, setSort] = useState<'navn' | 'aar'>('navn');
-  const q = query.trim().toLowerCase();
-  const list = useMemo(() => {
-    const arr = persons.filter((p) => !q || p.name.toLowerCase().includes(q));
-    if (sort === 'aar') return [...arr].sort((a, b) => (a.born ?? 9999) - (b.born ?? 9999) || a.name.localeCompare(b.name, 'da'));
-    return arr; // persons kommer allerede dansk-sorteret fra parent
-  }, [persons, q, sort]);
-  // Alfabet-bar kun ved navne-sort uden søgning (§9.1).
-  const showAlfabet = sort === 'navn' && !q;
-  const letters = useMemo(() => (showAlfabet ? [...new Set(list.map((p) => initialOf(p.name)).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'da')) : []), [list, showAlfabet]);
-
-  const card = (p: ModelPerson) => (
-    <div key={p.id} onClick={() => onPick(p.id)} style={{ display: 'flex', alignItems: 'center', gap: 11, background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: 12, cursor: 'pointer', boxShadow: '0 1px 2px rgba(34,31,26,.03)' }}>
-      <Avatar n={p.name} size={36} />
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-        <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 1 }}>{p.years || '—'}</div>
-      </div>
-    </div>
-  );
-  const grid = (items: ModelPerson[]) => <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(190px,1fr))', gap: 12 }}>{items.map(card)}</div>;
-
-  return (
-    <div style={{ padding: '30px 40px 50px' }}>
-      <ViewHeader title="Søg" />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 4, marginBottom: 16, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 13, color: T.muted }}>{list.length} {q ? 'træffere' : 'personer'} · søg i feltet til venstre</span>
-        <div style={{ flex: 1 }} />
-        <div style={{ display: 'flex', background: '#e6ddcc', borderRadius: 9, padding: 3, gap: 3 }}>
-          {(['navn', 'aar'] as const).map((s) => (
-            <span key={s} onClick={() => setSort(s)} style={{ padding: '6px 13px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: sort === s ? T.bordeaux : 'transparent', color: sort === s ? T.paper : '#3d382f' }}>{s === 'navn' ? 'A–Å' : 'Fødeår'}</span>
-          ))}
-        </div>
-      </div>
-      {showAlfabet && letters.length > 1 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 16 }}>
-          {letters.map((l) => (
-            <span key={l} onClick={() => document.getElementById('sec-' + l)?.scrollIntoView({ block: 'start', behavior: 'smooth' })}
-              style={{ width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 7, background: T.beige, fontFamily: T.serif, fontSize: 14, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>{l}</span>
-          ))}
-        </div>
-      )}
-      {showAlfabet ? letters.map((l) => (
-        <div key={l}>
-          <div id={'sec-' + l} style={{ position: 'sticky', top: 0, background: T.pageBg, zIndex: 1, padding: '6px 0', fontFamily: T.serif, fontSize: 22, fontWeight: 600, color: T.bordeaux }}>{l}</div>
-          <div style={{ marginBottom: 12 }}>{grid(list.filter((p) => initialOf(p.name) === l))}</div>
-        </div>
-      )) : grid(list)}
-    </div>
-  );
-}
+// (Søg-center-visningen er fjernet — browsing bor nu i sidebaren: sortér + alfabet-hop §9.1 +
+//  grupperet liste med sticky headers. Se `browse`-memo + venstre panel i Folgesvend().)
 
 // ---- Godser & ejendomme ----
 function EstatesView({ estates, estateId, estate, info, owners, onOpen, onBack, onPickOwner }: {
@@ -589,6 +604,13 @@ function AboutView({ about, personCount, estateCount }: { about: string[] | null
 }
 const Counter = ({ n, label }: { n: number; label: string }) => (
   <div><span style={{ fontFamily: T.serif, fontSize: 28, fontWeight: 600, color: T.bordeaux }}>{n.toLocaleString('da')}</span> <span style={{ fontSize: 12.5, color: T.muted }}>{label}</span></div>
+);
+// Sidebar-statistik-celle (tal over label). n=null → placeholder mens data hentes.
+const Stat = ({ n, label }: { n: number | null; label: string }) => (
+  <div>
+    <div style={{ fontFamily: T.serif, fontSize: 23, fontWeight: 600, color: T.bordeaux, lineHeight: 1 }}>{n == null ? '—' : n.toLocaleString('da')}</div>
+    <div style={{ fontFamily: T.mono, fontSize: 8.5, letterSpacing: '.08em', textTransform: 'uppercase', color: T.muted3, marginTop: 3 }}>{label}</div>
+  </div>
 );
 
 // ---- små byggeklodser ----
