@@ -117,10 +117,16 @@ begin
     'vocab','repository','source','place','organisation','estate',
     'coat_of_arms','lineage','family','historical_event'
   ] loop
-    execute format('grant select on table public.%I to anon;', t);
+    execute format('grant select on table public.%I to anon, authenticated;', t);
     execute format('alter table public.%I enable row level security;', t);
     execute format('drop policy if exists anon_read on public.%I;', t);
     execute format('create policy anon_read on public.%I for select to anon using (true);', t);
+    -- authenticated (medlem/forsker/redaktion): samme offentlige adgang som anon — disse
+    -- tabeller har ingen person-PII (se kommentar ovenfor). Uden denne policy mister enhver
+    -- logget-ind bruger ALLE rækker (anon's grant gælder ikke for authenticated-rollen),
+    -- hvilket viste sig som "#<id>" i stedet for navne i app-laget (gods/hverv/kilde/linje).
+    execute format('drop policy if exists auth_read on public.%I;', t);
+    execute format('create policy auth_read on public.%I for select to authenticated using (true);', t);
   end loop;
 end $$;
 
