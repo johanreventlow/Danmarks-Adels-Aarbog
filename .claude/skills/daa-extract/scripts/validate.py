@@ -21,7 +21,8 @@ import sys, os, re, json, argparse
 
 ALLOWED_TOP = {"linje", "nr", "nr_label", "usikker", "navn", "tilnavn", "koen",
                "facts", "godser", "embeder", "aegteskaber", "boern",
-               "begivenheder", "narrative", "_escalated"}
+               "begivenheder", "narrative", "_escalated",
+               "kuld", "aegteskab_kontekst"}
 
 # Kontrolleret vokabular (invariant #9): flag drift/fejl som advisory.
 try:
@@ -357,6 +358,14 @@ def normalize_record(rec, src):
     return rec
 
 
+def merge_kontekst(rec, src):
+    """Flet kuld + aegteskab_kontekst fra kilde-posten ind (loaderen bruger dem
+    til union-binding). Begge kan være None."""
+    rec['kuld'] = src.get('kuld') if src else None
+    rec['aegteskab_kontekst'] = src.get('aegteskab_kontekst') if src else None
+    return rec
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('posts')
@@ -392,6 +401,7 @@ def main():
         else:
             # flet den AUTORITATIVE narrativ ind fra kilden (overskriver evt. LLM-narrativ)
             rec['narrative'] = src['raw_text']
+            merge_kontekst(rec, src)
             clean.append(rec)
             for adv in advisory:
                 advisories += 1

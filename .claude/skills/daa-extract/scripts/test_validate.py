@@ -222,5 +222,20 @@ class TestValidateMainReviewNrLabel(unittest.TestCase):
                              "review-record mangler nr_label — C3-fix ikke anvendt")
 
 
+class TestKontekstMerge(unittest.TestCase):
+    def test_merge_kuld_og_kontekst(self):
+        rec = {"linje": "I", "nr": 66, "nr_label": "66", "navn": "X"}
+        src = {"linje": "I", "nr": 66, "nr_label": "66",
+               "raw_text": "X, til Y. 1700.", "kuld": "I",
+               "aegteskab_kontekst": "af første ægteskab med Anna von Ahlefeldt"}
+        out = validate.merge_kontekst(dict(rec), src)
+        self.assertEqual(out["kuld"], "I")
+        self.assertEqual(out["aegteskab_kontekst"], "af første ægteskab med Anna von Ahlefeldt")
+
+    def test_merge_haandterer_manglende_src(self):
+        out = validate.merge_kontekst({"linje":"I","nr":1,"nr_label":"1","navn":"X"}, None)
+        self.assertIsNone(out["kuld"])
+
+
 if __name__ == "__main__":
     unittest.main()
