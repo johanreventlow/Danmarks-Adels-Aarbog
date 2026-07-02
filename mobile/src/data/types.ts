@@ -109,10 +109,27 @@ export type Db = {
   parentChild: ParentChild[];
 };
 
+// samme_som-collapse (frontend identitets-projektion). En fysisk person kan optræde som
+// flere person-rækker; en afklaret samme_som-relation linker dem. Kanterne er retnings-
+// bestemte (subjekt=alias, objekt=kanonisk). Se docs/superpowers/specs/2026-07-02-samme-som-collapse-design.md.
+export type SameAsEdge = { alias: string; canonical: string; konfidens?: Konfidens };
+// Kilde-proveniens for et medlem af en collapsed gruppe (til badge: hvilken DAA-linje/nr).
+export type Provenance = { personId: string; linje: string | null; nr: number | null };
+// En gruppe der IKKE blev foldet + hvorfor (aldrig tavs oprydning — jf. spec §6).
+export type QuarantineNote = { members: string[]; reason: string };
+// Resultatet af collapseSameAs: projiceret graf + reversibelt alias-map + proveniens + karantæne.
+export type CollapseResult = {
+  db: Db;
+  canonicalIdById: Record<string, string>; // ETHVERT medlems-id → kanonisk id
+  mergedFrom: Record<string, Provenance[]>; // kanonisk id → alle kilde-poster
+  quarantined: QuarantineNote[];
+};
+
 // Person beriget af buildModel (parentId + spouse afledt).
 export type ModelPerson = AppPerson & {
   parentId: string | null;
   spouse: string;
+  mergedFrom?: Provenance[]; // sat efter collapse: alle kilde-poster hvis personen er foldet
 };
 
 // Side-indekser fra buildModel — i React var det instans-felter (_childIdx osv.);
