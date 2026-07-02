@@ -339,3 +339,24 @@ Sonnet til stamtavle-udtræk (klarer tredjeparts-fælder, dense biografier). Hai
 testet: rammer genealogisk rygrad tæt, men taber på klassifikations-nuancer (karriere
 vs embede) og er flakier. Forkastet for fuld kørsel efter clobber-fejl; egnet til
 billig broaden HVIS isolerede output-mapper + terse output.
+
+## Identitetssammenkædning: `samme_som`-relation + collapse i app (løsning A) (2026-07-02)
+Samme fysiske person kan optræde som FLERE person-poster: (a) slægtslinje-
+grundlæggere står i DAA to gange (oprindelses-linje + som rod af egen linje, fx
+Conrad de Reventlow III-58/V-1, Detlef IV-1/III-104); (b) indgiftede der har egen
+slægt et andet sted (fx Beke Ahlefeldt-Laurvig: ægtefælle-stub i Reventlow NU,
+barn af Julius Ahlefeldt i kommende Ahlefeldt-import).
+
+**Valg: LINK, ikke merge.** En `samme_som`-relation (person→person, evidenslag)
+forbinder posterne; begge DB-rækker bevares (proveniens + fortrydbart, datamodel
+§9). Frontend COLLAPSER dem via traversal → brugeren møder ÉN person (én søgetræffer,
+én person-visning der samler begge posters fakta/relationer, én knude i
+slægtskabsfinderen). Applied durabelt i post_load_fixup.R (reload-sikkert, opslag på
+linje/nr). Samme mekanisme dækker begge tilfælde — men betydningen adskiller sig:
+grundlægger = redundant dublet at skjule; indgiftet-med-egen-slægt = én person i TO
+slægter, hvor collapse tegner selve kryds-slægt-broen ("er vi i familie?").
+
+**Udestår:** (1) frontend samme_som-traversal (web+mobile: kinship-finder + person-
+visning + søge-dedup) — DB-kanten er ikke selv-eksekverende. (2) Automatisk detektion
+i skala via crosswalk/matching når nye slægter importeres (manuel linking kun til få
+kendte tilfælde nu; crosswalk er for støjende til bulk uden injektiv matcher).
