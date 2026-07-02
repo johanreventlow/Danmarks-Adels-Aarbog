@@ -135,6 +135,8 @@ export type Model = {
   // Lineage (grene I–V) — valgfrit: udfyldes af loadModel når person_external_id/lineage
   // er tilgængelige; undefined = graceful degradation (ingen linje-chips/badge).
   lineage?: Lineage;
+  // "Kilde i Aarbogen"-referencer pr. person (§ + trykt værk + "Linje X, nr. N"). Valgfrit.
+  sourcesBy?: Record<string, SourceRef[]>;
 };
 
 // Linje-projektion pr. slægt (grene). byPerson: person_id → linje-kode; list: chips-data

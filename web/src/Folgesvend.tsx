@@ -439,6 +439,7 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
   const spouses = (model.indexes.spousesBy[focusId] ?? []);
   const children = childrenOf(model, focusId);
   const linje = model.lineage?.byPerson[focusId] ?? null;
+  const sources = model.sourcesBy?.[focusId] ?? [];
   return (
     <div data-scroll style={{ flex: 'none', width: 392, borderLeft: '1px solid rgba(34,31,26,.1)', background: T.paper, overflowY: 'auto' }}>
       <div style={{ padding: '24px 24px 36px' }}>
@@ -525,6 +526,22 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
         )}
 
         {detail === null && <div style={{ marginTop: 18, fontSize: 12, color: T.muted3 }}>Henter detaljer…</div>}
+
+        {/* Kilde i Aarbogen (§ + trykt værk + "Linje X, nr. N"). */}
+        {sources.length > 0 && (
+          <>
+            <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted3, margin: '22px 0 8px' }}>Kilde i Aarbogen</div>
+            {sources.map((s, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 0', borderBottom: '1px solid rgba(34,31,26,.08)' }}>
+                <span style={{ fontFamily: T.serif, fontSize: 18, color: T.bordeaux, flex: 'none' }}>§</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.ink, lineHeight: 1.25 }}>{s.work}</div>
+                  {s.ref && <div style={{ fontFamily: T.mono, fontSize: 10, color: T.muted2, marginTop: 2 }}>{s.ref}</div>}
+                </div>
+              </div>
+            ))}
+          </>
+        )}
 
         {/* Handlinger — "Det er mig"-toggle udskudt til Fase 2 (mig-koncept). */}
         <div onClick={onFocusTree} style={{ marginTop: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, color: '#3d382f', background: T.panel, border: '1.5px solid rgba(34,31,26,.16)', padding: '11px 0', borderRadius: 10, cursor: 'pointer' }}>

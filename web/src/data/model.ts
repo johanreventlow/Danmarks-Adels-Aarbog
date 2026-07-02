@@ -4,9 +4,10 @@
 import { supabase } from '../supabase';
 import { buildModel } from './buildModel';
 import { buildLineage } from './lineage';
+import { buildSources } from './sources';
 import { fmtYears, parseYear } from './fields';
 import { getAll } from './paginate';
-import { normalizeKoen, normalizeKonfidens, type AppPerson, type Db, type Model, type ModelPerson, type ParentChild, type RawExtId, type RawLineage, type Union } from './types';
+import { normalizeKoen, normalizeKonfidens, type AppPerson, type Db, type Model, type ModelPerson, type ParentChild, type RawExtId, type RawLineage, type RawSource, type Union } from './types';
 
 const PARTNER_ROLLER = ['partner'];
 // KUN blodslægt ('barn') bliver en forælder→barn-kant — matcher mobile/src/data/load.ts og
@@ -44,13 +45,15 @@ export function compareParentOrder(
 }
 
 export async function loadModel(): Promise<Model> {
-  const [persons, members, extIds, lineageRows] = await Promise.all([
+  const [persons, members, extIds, lineageRows, sources] = await Promise.all([
     getAll<RawPerson>(() => supabase.from('person').select('id,visning_navn,visning_foedt,visning_doed,visning_titel,koen,privat')),
     getAll<RawMember>(() => supabase.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens')),
     // Linje/nr pr. person (grene) — tolerant: tabellen/kolonnerne kan mangle i ældre baser.
     getAll<RawExtId>(() => supabase.from('person_external_id').select('person_id,source_id,linje,nr')).catch(() => [] as RawExtId[]),
     // Linje-navne — lineage-tabellen findes måske ikke endnu (fallback til 'Linje {kode}').
     getAll<RawLineage>(() => supabase.from('lineage').select('source_id,kode,navn')).catch(() => [] as RawLineage[]),
+    // Kilder (trykt værk) — til "Kilde i Aarbogen" pr. person.
+    getAll<RawSource>(() => supabase.from('source').select('id,slags,titel,udgave,ekstern')).catch(() => [] as RawSource[]),
   ]);
 
   const appPersons: AppPerson[] = persons.map((p) => ({
@@ -94,5 +97,9 @@ export async function loadModel(): Promise<Model> {
   });
 
   const db: Db = { persons: appPersons, unions, parentChild };
-  return { ...buildModel(db), lineage: buildLineage(extIds, lineageRows) };
+  return {
+    ...buildModel(db),
+    lineage: buildLineage(extIds, lineageRows),
+    sourcesBy: buildSources(extIds, sources),
+  };
 }
