@@ -18,9 +18,14 @@ export function buildBrowse(
   query: string,
   sort: 'navn' | 'aar',
   activeLetter: string | null,
+  opts?: { linjeByPerson?: Record<string, string>; activeLinje?: string | null },
 ): BrowseResult {
+  // Gren-filter (§9.2) FØRST: begræns til den aktive linjes medlemmer før query/sortering.
+  const scoped = opts?.activeLinje && opts.linjeByPerson
+    ? persons.filter((p) => opts.linjeByPerson![p.id] === opts.activeLinje)
+    : persons;
   const q = query.trim().toLowerCase();
-  const pool = q ? persons.filter((p) => p.name.toLowerCase().includes(q)) : persons;
+  const pool = q ? scoped.filter((p) => p.name.toLowerCase().includes(q)) : scoped;
 
   if (sort === 'aar') {
     const flat = [...pool].sort((a, b) => (a.born ?? 9999) - (b.born ?? 9999) || compareDanish(a.name, b.name));

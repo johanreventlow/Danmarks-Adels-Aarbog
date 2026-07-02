@@ -76,14 +76,11 @@ export default function Folgesvend() {
 
   const persons = model?.persons ?? [];
   const linjeList = model?.lineage?.list ?? [];
-  // Browse-listen (§9.1, se buildBrowse) med gren-filter (§9.2): begræns pool til den aktive
-  // linjes medlemmer FØR alfabet/sortering.
-  const browse = useMemo(() => {
-    const pool = activeLinje && model?.lineage
-      ? persons.filter((p) => model.lineage!.byPerson[p.id] === activeLinje)
-      : persons;
-    return buildBrowse(pool, query, browseSort, activeLetter);
-  }, [persons, model, query, browseSort, activeLetter, activeLinje]);
+  // Browse-listen (§9.1) + gren-filter (§9.2) — al logik i buildBrowse (ren + testet).
+  const browse = useMemo(
+    () => buildBrowse(persons, query, browseSort, activeLetter, { linjeByPerson: model?.lineage?.byPerson, activeLinje }),
+    [persons, model, query, browseSort, activeLetter, activeLinje],
+  );
 
   const rel = useMemo(() => (model && relA && relB ? computeRelationship(model, relA, relB) : null), [model, relA, relB]);
 

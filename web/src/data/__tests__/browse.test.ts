@@ -74,6 +74,34 @@ describe('buildBrowse — query giver flad, ufiltreret liste', () => {
   });
 });
 
+describe('buildBrowse — gren-filter (§9.2, activeLinje)', () => {
+  // Reventlow(1,2) → linje I; Ærø(3),Øster(4) → II; resten uden linje.
+  const byLinje: Record<string, string> = { '1': 'I', '2': 'I', '3': 'II', '4': 'II' };
+
+  test('activeLinje begrænser til grenens medlemmer (stadig grupperet)', () => {
+    const r = buildBrowse(people, '', 'navn', null, { linjeByPerson: byLinje, activeLinje: 'I' });
+    expect(r.grouped).toBe(true);
+    expect(r.flat.map((p) => p.id).sort()).toEqual(['1', '2']); // kun linje I
+    expect(r.letters).toEqual(['R']); // begge Reventlow
+  });
+
+  test('linje-filter komponeres MED query', () => {
+    const r = buildBrowse(people, 'anna', 'navn', null, { linjeByPerson: byLinje, activeLinje: 'I' });
+    expect(r.flat.map((p) => p.id)).toEqual(['2']); // Anna Reventlow er i linje I
+  });
+
+  test('linje-filter komponeres MED alfabet-filter', () => {
+    const r = buildBrowse(people, '', 'navn', 'Æ', { linjeByPerson: byLinje, activeLinje: 'II' });
+    expect(r.groups).toHaveLength(1);
+    expect(r.groups[0].people.map((p) => p.id)).toEqual(['3']); // kun Ærø i II under Æ
+  });
+
+  test('ingen activeLinje → uændret (alle personer)', () => {
+    const r = buildBrowse(people, '', 'navn', null, { linjeByPerson: byLinje, activeLinje: null });
+    expect(r.flat).toHaveLength(people.length);
+  });
+});
+
 describe('buildBrowse — fødeår-sort', () => {
   const r = buildBrowse(people, '', 'aar', null);
 
