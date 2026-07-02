@@ -109,10 +109,24 @@ export type Db = {
   parentChild: ParentChild[];
 };
 
+// samme_som-collapse (frontend identitets-projektion). Spejl af mobile — se
+// docs/superpowers/specs/2026-07-02-samme-som-collapse-design.md. Kanterne er retningsbestemte
+// (subjekt=alias, objekt=kanonisk); afklarede identiteter foldes, konflikter karantæneres.
+export type SameAsEdge = { alias: string; canonical: string; konfidens?: Konfidens };
+export type Provenance = { personId: string; linje: string | null; nr: number | null };
+export type QuarantineNote = { members: string[]; reason: string };
+export type CollapseResult = {
+  db: Db;
+  canonicalIdById: Record<string, string>; // ETHVERT medlems-id → kanonisk id
+  mergedFrom: Record<string, Provenance[]>; // kanonisk id → alle kilde-poster
+  quarantined: QuarantineNote[];
+};
+
 // Person beriget af buildModel (parentId + spouse afledt).
 export type ModelPerson = AppPerson & {
   parentId: string | null;
   spouse: string;
+  mergedFrom?: Provenance[]; // sat efter collapse: alle kilde-poster hvis personen er foldet
 };
 
 // Side-indekser fra buildModel — i React var det instans-felter (_childIdx osv.);
