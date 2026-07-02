@@ -18,8 +18,10 @@
 #  citation for rygraden + family/family_member for slægtskab + relation
 #  for godser/embeder/begivenheder. Alt under én source = DAA-udgaven.
 #
-#  KENDT v1-forenkling: børn knyttes til forælderens familie via boern.nr_range
-#  (ikke per-ægteskab-gruppering). Forfines i review/senere iteration.
+#  Børn knyttes via boern.nr_range til den union aegteskab_kontekst peger på
+#  (falder tilbage til første union hvis ukendt/uden ægteskab). Opslag der ikke
+#  matcher et løbenummer i forælderens egen linje (heller ikke via en 15a/15b-
+#  variant) logges i work/load-unresolved.csv frem for at blive droppet tavst.
 # =====================================================================
 suppressMessages({library(DBI); library(jsonlite)})
 # load_helpers.R: rene, DB-frie hjælpere (buffer_counts m.fl.) — path er repo-root-relativ,
@@ -74,6 +76,7 @@ nid <- function(t) { v <- (if (is.null(.seq[[t]])) 0L else .seq[[t]]) + 1L; .seq
 #  forbindelsen dropper. Vi laver ingen DB-kald under passene; flush_all() skriver
 #  hver tabel med dbAppendTable/COPY i FK-rækkefølge i én kort transaktion.)
 .buf <- new.env(parent = emptyenv())
+.unresolved <- new.env(parent = emptyenv()); .unresolved$rows <- list()
 push <- function(tbl, row) { .buf[[tbl]] <- c(.buf[[tbl]], list(row)); invisible() }
 rows_to_df <- function(rows) {
   cols <- names(rows[[1]])
@@ -303,27 +306,34 @@ tryCatch({
         add_note("family", fam, paste("partner ekstern ref:", a$partner_ekstern_ref))
       fams[[length(fams) + 1]] <- fam
     }
-    # børn: knyt til første union (v1-forenkling), opret familie hvis ingen ægteskab
-    b <- rec[["boern"]]                       # direkte opslag: NULL hvis fraværende (g() ville give NA -> $ fejler)
+    # børn: knyt til den KORREKTE union (via aegteskab_kontekst), opret familie hvis intet ægteskab.
+    b <- rec[["boern"]]                       # direkte opslag: NULL hvis fraværende
     if (is.list(b) && !is.null(b$nr_range)) {
-      fam <- if (length(fams)) fams[[1]] else add_family("union")
+      ui  <- union_index_for_kontekst(rec$aegteskab_kontekst)
+      fam <- if (length(fams) && !is.na(ui) && ui <= length(fams)) {
+        fams[[ui]]
+      } else if (length(fams)) {
+        fams[[1]]
+      } else {
+        add_family("union")
+      }
       if (!length(fams)) add_member(fam, pid, "partner")
       rng <- b$nr_range
+      pk  <- ls(pmap)                          # pmap er fuldt bygget i pass 1; konstant her
+      # Match UDELUKKENDE inden for forælderens egen linje (børn bliver i grenen); ingen
+      # forurenet stated-linje-fallback (jf. review 11 / 163-rækkers-buggen). 15a/15b-børn
+      # nås via resolve_barn_keys. Uopløste opslag logges frem for at droppes tavst.
       for (n in seq(rng[[1]], rng[[2]])) {
-        # boern.linje ("stated") er ofte forurenet (kuld-markør forvekslet med
-        # linje) og DAA's løbenumre genbruges per gren — en forurenet stated-linje
-        # matcher derfor nogle gange tilfældigt en helt anden gren/generation
-        # (fundet i prod: nr. 29 findes i linje I og blev fejlagtigt "fundet" via
-        # en forurenet stated-linje for linje IV/V-forældre; ramte 163 barn-links,
-        # se docs/reviews/11-flere-foraeldre-datafix.md). Match derfor UDELUKKENDE
-        # inden for forælderens egen linje (børn bliver i grenen) — ingen
-        # stated-fallback. Sjældne ægte kryds-linje-børn fanges ikke af v1 og må
-        # tilføjes manuelt; det er sikrere end den forurenede heuristik.
-        k2 <- key(rec$linje, as.character(n))
-        ck <- if (exists(k2, envir = pmap, inherits = FALSE)) k2 else NULL
-        if (!is.null(ck)) {
-          konf <- if (isTRUE(get0(ck, envir = umap, inherits = FALSE))) "formodet" else NA
-          add_member(fam, get(ck, envir = pmap), "barn", konfidens = konf)
+        keys <- resolve_barn_keys(rec$linje, n, pk)
+        if (length(keys)) {
+          for (ck in keys) {
+            konf <- if (isTRUE(get0(ck, envir = umap, inherits = FALSE))) "formodet" else NA
+            add_member(fam, get(ck, envir = pmap), "barn", konfidens = konf)
+          }
+        } else {
+          .unresolved$rows <- c(.unresolved$rows, list(list(
+            forael_linje = rec$linje, forael_nr = lbl_of(rec),
+            barn_nr = as.character(n), aarsag = barn_lookup_reason(keys))))
         }
       }
     }
@@ -390,6 +400,12 @@ tryCatch({
   }
 }, error = function(e) { dbRollback(con); dbDisconnect(con)
   stop("Load fejlede, rullet tilbage: ", conditionMessage(e)) })
+
+if (length(.unresolved$rows)) {
+  ur <- do.call(rbind, lapply(.unresolved$rows, function(r) as.data.frame(r, stringsAsFactors = FALSE)))
+  write.csv(ur, "work/load-unresolved.csv", row.names = FALSE)
+  message(sprintf("BEMÆRK: %d uopløste barn-opslag — se work/load-unresolved.csv", nrow(ur)))
+}
 
 counts <- dbGetQuery(con, "SELECT 'person' t, count(*) n FROM person
   UNION ALL SELECT 'fact', count(*) FROM fact

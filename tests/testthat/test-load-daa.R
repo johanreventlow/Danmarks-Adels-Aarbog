@@ -36,3 +36,20 @@ test_that("parse_intern_ref afviser eksterne udgave-refs", {
   expect_null(parse_intern_ref("DAA 1913, 135", "I"))
   expect_null(parse_intern_ref(NA, "I"))
 })
+
+test_that("union_index_for_kontekst mapper ordinal-tekst til indeks", {
+  expect_equal(union_index_for_kontekst("af første ægteskab med Anna von Ahlefeldt"), 1L)
+  expect_equal(union_index_for_kontekst("af andet ægteskab med NN"), 2L)
+  expect_equal(union_index_for_kontekst("af 3. ægteskab"), 3L)
+  expect_true(is.na(union_index_for_kontekst("med Elisabeth NN (se nr. 1)")))
+  expect_true(is.na(union_index_for_kontekst(NULL)))
+})
+test_that("resolve_barn_keys foretrækker eksakt basenr, ellers a/b-varianter", {
+  expect_equal(resolve_barn_keys("I", 15, c("I-15", "I-15a")), "I-15")
+  expect_setequal(resolve_barn_keys("I", 15, c("I-15a", "I-15b")), c("I-15a", "I-15b"))
+  expect_equal(resolve_barn_keys("I", 99, c("I-15")), character(0))
+})
+test_that("barn_lookup_reason klassificerer på resolverede nøgler", {
+  expect_equal(barn_lookup_reason(c("I-30")), "ok")
+  expect_equal(barn_lookup_reason(character(0)), "nr_ikke_i_forael_linje")
+})
