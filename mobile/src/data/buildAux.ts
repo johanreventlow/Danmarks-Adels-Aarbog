@@ -75,8 +75,12 @@ export function buildAux(
     if (!x.linje) return;
     const pid = cid(String(x.person_id));
     const arr = (linjeByPerson[pid] = linjeByPerson[pid] || []);
-    if (!arr.includes(x.linje)) arr.push(x.linje);
-    linjeCounts[x.linje] = (linjeCounts[x.linje] || 0) + 1;
+    // Tæl distinkte kanoniske personer pr. linje (ikke ext-rækker), så en foldet person med
+    // flere rækker i samme linje ikke inflaterer count.
+    if (!arr.includes(x.linje)) {
+      arr.push(x.linje);
+      linjeCounts[x.linje] = (linjeCounts[x.linje] || 0) + 1;
+    }
     const cur = linjeHead[x.linje];
     const nr = x.nr == null ? 9999 : x.nr;
     if (!cur || nr < cur.nr) linjeHead[x.linje] = { id: pid, nr };

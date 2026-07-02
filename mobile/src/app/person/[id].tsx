@@ -43,7 +43,9 @@ export default function PersonScreen() {
     );
   }
 
-  const isMe = meId === person.id;
+  // Kanonisér meId ved sammenligningen: et gemt alias-meId (fra AsyncStorage før collapse-map
+  // er klar) skal stadig matche den kanoniske person — robust uanset hydrate/load-rækkefølge.
+  const isMe = meId != null && canonicalId(meId) === person.id;
   const parents = parentsOf(model, person.id);
   const spouses = spousesOf(model, person.id);
   const marriages = childrenByMarriage(model, person.id).filter((m) => m.children.length);
