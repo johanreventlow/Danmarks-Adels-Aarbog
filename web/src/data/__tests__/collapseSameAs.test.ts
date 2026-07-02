@@ -1,4 +1,6 @@
 import { groupSameAs, validateGroups, collapseSameAs } from '../collapseSameAs';
+import { buildModel } from '../buildModel';
+import { computeRelationship } from '../relationship';
 import type { Db, AppPerson } from '../types';
 
 const known = (...ids: string[]) => new Set(ids);
@@ -210,6 +212,16 @@ describe('collapseSameAs (fuld)', () => {
     const r = collapseSameAs(rawDb, [{ alias: 'A', canonical: 'B' }], new Map());
     expect(r.db.persons.find((p) => p.id === 'B')!.privat).toBe(true);
   });
+  it('bio = union, kanonisk først, dedup eksakte (spec §8)', () => {
+    const rawDb: Db = {
+      persons: [P('A', { bio: 'se linje V' }), P('B', { bio: 'fuld biografi' }), P('c', { bio: 'fuld biografi' })],
+      unions: [],
+      parentChild: [],
+    };
+    // A→B og c→B: kanonisk B's bio først, alias A's stub efter, c's dublet-bio fjernet.
+    const r = collapseSameAs(rawDb, [{ alias: 'A', canonical: 'B' }, { alias: 'c', canonical: 'B' }], new Map());
+    expect(r.db.persons.find((p) => p.id === 'B')!.bio).toBe('fuld biografi\n\nse linje V');
+  });
   it('kant-dedup familie-bevidst: samme (forælder,barn,familie) → én; forskellig familie bevares', () => {
     const rawDb: Db = {
       persons: [P('A'), P('B'), P('c')],
@@ -253,6 +265,54 @@ describe('collapseSameAs (fuld)', () => {
     );
     expect(r.db.persons.map((p) => p.id).sort()).toEqual(['A', 'B', 'C']);
     expect(r.quarantined.length).toBe(1);
+  });
+});
+
+// Ende-til-ende: den projicerede graf gennem MOTOREN (buildModel → computeRelationship). Verificerer
+// featurens FORMÅL ("er vi i familie?") — spec §10 relationship-regression + at den arvede forælder-
+// kant overlever buildModel's umulig-forælder-guard med de regenererede år.
+describe('collapse → buildModel → relationship (integration)', () => {
+  // Conrad: alias A255 (III-58, har forælder 'far', ingen datoer) + kanonisk C392 (V-1, datoer,
+  // ingen forælder). X nedstammer fra alias-siden, Y fra kanonisk-siden.
+  const rawDb: Db = {
+    persons: [
+      P('A255'),
+      P('C392', { born: 1644, died: 1708 }),
+      P('far', { born: 1620, died: 1690 }),
+      P('X'),
+      P('Y'),
+    ],
+    unions: [
+      { id: 'fFar', p1: 'far', p2: null, p2_name: null, year: null },
+      { id: 'fA', p1: 'A255', p2: null, p2_name: null, year: null },
+      { id: 'fC', p1: 'C392', p2: null, p2_name: null, year: null },
+    ],
+    parentChild: [
+      { child: 'A255', parent: 'far', union: 'fFar' },
+      { child: 'X', parent: 'A255', union: 'fA' },
+      { child: 'Y', parent: 'C392', union: 'fC' },
+    ],
+  };
+  const edges = [{ alias: 'A255', canonical: 'C392' }];
+
+  it('UFOLDET: X og Y er disjunkte (ikke i familie)', () => {
+    const model = buildModel(rawDb);
+    expect(computeRelationship(model, 'X', 'Y').found).toBe(false);
+  });
+
+  it('FOLDET: X og Y bliver søskende via den samlede Conrad', () => {
+    const model = buildModel(collapseSameAs(rawDb, edges, new Map()).db);
+    const r = computeRelationship(model, 'X', 'Y');
+    expect(r.found).toBe(true);
+    expect(r.label).toBe('Søskende');
+    expect(r.lcaId).toBe('C392'); // den ene, samlede Conrad — ikke to disjunkte
+  });
+
+  it('FOLDET: den arvede forælder-kant (255→far → 392→far) overlever buildModel-guarden', () => {
+    const model = buildModel(collapseSameAs(rawDb, edges, new Map()).db);
+    expect(model.indexes.parentsByChild['C392']).toContain('far'); // kant bevaret
+    expect(model.byId['C392'].years).toContain('1644'); // regenererede år brugt af guarden
+    expect(computeRelationship(model, 'C392', 'far').label).toBe('Forælder & barn');
   });
   // Regression (review-fund): cyklus-attribution må kun ramme grupper der faktisk ER i cyklussen.
   // Her skaber N's merge cyklussen P↔N; M er en accepteret gruppe på DFS-stakken FØR cyklussen,

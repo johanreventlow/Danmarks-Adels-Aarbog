@@ -282,6 +282,9 @@ export function collapseSameAs(
       title: primary.title || others.find((o) => o.title)?.title || '',
       koen: primary.koen ?? others.find((o) => o.koen)?.koen,
       privat: ids.some((id) => Boolean(personById.get(id)?.privat)), // OR
+      // Narrativ = UNION (spec §8), kanonisk (fuld) bio først, dedup eksakte. No-op på web (bio='';
+      // web unionerer narrativer i public.ts) — men fikser mobile hvor bio bæres på personen.
+      bio: [...new Set([primary.bio, ...others.map((o) => o.bio)].filter(Boolean))].join('\n\n'),
     });
     mergedFrom[canonId] = ids.map((id) => ({
       personId: id,
