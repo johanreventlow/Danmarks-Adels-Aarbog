@@ -24,9 +24,13 @@ export default function PersonScreen() {
   const meId = useStore((s) => s.meId);
   const setMe = useStore((s) => s.setMe);
   const setFocus = useStore((s) => s.setFocus);
+  const canonicalId = useStore((s) => s.canonicalId);
   const [bioExpanded, setBioExpanded] = useState(false);
 
-  const person = id && model ? model.byId[id] : null;
+  // Resolv rute-id til kanonisk: et link til enten et alias (fx III-58) eller den kanoniske (V-1)
+  // lander på den samme, samlede person (samme_som-collapse).
+  const personId = id ? canonicalId(String(id)) : null;
+  const person = personId && model ? model.byId[personId] : null;
 
   if (!person || !model) {
     return (
@@ -44,8 +48,18 @@ export default function PersonScreen() {
   const spouses = spousesOf(model, person.id);
   const marriages = childrenByMarriage(model, person.id).filter((m) => m.children.length);
   const linjer = aux?.linjeByPerson[person.id] ?? [];
-  const linje = linjer[0];
-  const linjeNavn = linje ? aux?.linjeNavn[linje] : undefined;
+  // Proveniens: er personen foldet af flere DAA-poster (samme_som), vis hvilke linjer/numre.
+  const mergedFrom = person.mergedFrom ?? [];
+  const proveniens =
+    mergedFrom.length > 1
+      ? mergedFrom
+          .map((m) => {
+            const navn = m.linje ? aux?.linjeNavn[m.linje] ?? `linje ${m.linje}` : 'ukendt linje';
+            const ref = m.linje && m.nr != null ? ` (${m.linje}-${m.nr})` : '';
+            return `${navn}${ref}`;
+          })
+          .join(' og ')
+      : null;
   const offices = aux?.officesBy[person.id] ?? [];
   const estates = aux?.estatesBy[person.id] ?? [];
   const sources = aux?.sourcesBy[person.id] ?? [];
@@ -71,17 +85,22 @@ export default function PersonScreen() {
                   <BtnLabel size={11} color={Colors.paperCard} style={{ fontFamily: Fonts.sansBold }}>★ Dig</BtnLabel>
                 </View>
               ) : null}
-              {linje ? (
-                <View style={[styles.badge, styles.badgeBordered, { backgroundColor: Colors.beige2 }]}>
-                  <Mono size={10} color={Colors.textSecondary2} style={{ letterSpacing: 0 }}>{linjeNavn ?? `Linje ${linje}`}</Mono>
+              {linjer.map((lk) => (
+                <View key={lk} style={[styles.badge, styles.badgeBordered, { backgroundColor: Colors.beige2 }]}>
+                  <Mono size={10} color={Colors.textSecondary2} style={{ letterSpacing: 0 }}>{aux?.linjeNavn[lk] ?? `Linje ${lk}`}</Mono>
                 </View>
-              ) : null}
+              ))}
               {person.title ? (
                 <View style={[styles.badge, { backgroundColor: Colors.bordeauxFillLight2, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(136,26,51,0.16)' }]}>
                   <BtnLabel size={11.5} color={Colors.bordeaux}>{person.title}</BtnLabel>
                 </View>
               ) : null}
             </View>
+            {proveniens ? (
+              <Body size={11} color={Colors.textMuted} style={{ marginTop: 9, lineHeight: 11 * 1.45 }}>
+                Optræder i Aarbogen som {proveniens}.
+              </Body>
+            ) : null}
           </View>
         </View>
 
