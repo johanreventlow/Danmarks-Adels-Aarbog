@@ -15,6 +15,7 @@ export type Change = {
      | 'redigerOplysning' | 'sletOplysning' | 'setKonklusion' | 'setPrivat' | 'sletPerson'
      | 'tilfoejOplysning' | 'opretFakta' | 'sletRelation' | 'tilfoejRelation'
      | 'opretUnion' | 'tilfoejBarn' | 'setFamilieKonfidens' | 'sletFamilieLink'
+     | 'setFamilieOrdinal' | 'flytBarn'
      | 'forslag'; // generisk entitets-feltredigering uden direkte RPC → red_suggest
   subjektType: string;
   subjektId: string;
@@ -22,9 +23,11 @@ export type Change = {
   factId?: string;
   relationId?: string;
   familyId?: string;
+  tilFamilyId?: string;
   personId?: string;
   rolle?: string;
   konfidens?: string | null;
+  ordinal?: number | null;
   felt?: string;
   vaerdi?: string;
   kildeFritekst?: string;
@@ -134,6 +137,14 @@ export function buildRpcCall(c: Change): RpcCall | null {
     return { fn: 'red_set_familie_konfidens', args: { ...b, p_konfidens: c.konfidens ?? null } }; }
   if (c.art === 'sletFamilieLink') { const b = famLinkBase(c); if (!b) return null;
     return { fn: 'red_slet_familie_link', args: b }; }
+  if (c.art === 'setFamilieOrdinal') { const b = famLinkBase(c); if (!b || c.ordinal == null) return null;
+    return { fn: 'red_set_familie_ordinal', args: { ...b, p_ordinal: c.ordinal } }; }
+  if (c.art === 'flytBarn') {
+    if (c.familyId == null || c.tilFamilyId == null || c.personId == null || !c.rolle) return null;
+    return { fn: 'red_flyt_barn', args: {
+      p_fra_family_id: Number(c.familyId), p_til_family_id: Number(c.tilFamilyId),
+      p_barn_id: Number(c.personId), p_rolle: c.rolle } };
+  }
   return null;
 }
 

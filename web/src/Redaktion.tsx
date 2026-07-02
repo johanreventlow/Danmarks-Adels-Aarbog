@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { signIn, signOut, currentSession, type RedSession } from './data/auth';
 import {
   fetchRedaktionPersoner, fetchPersonEvidence, fetchPersonNarrativ, fetchSletPreview,
-  fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, type RedPerson, type PersonEvidence,
+  fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, nudgeOrdinal, type RedPerson, type PersonEvidence,
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation,
 } from './data/redaktionRead';
 import { loadModel } from './data/model';
@@ -89,6 +89,10 @@ export default function Redaktion() {
   const [relationer, setRelationer] = useState<PersonRelation[] | null>(null);
   const [picker, setPicker] = useState<{ kind: 'barn' | 'partner' | 'hverv' | 'gods'; familyId?: string } | null>(null);
   const [pickQuery, setPickQuery] = useState('');
+  // Flyt et barn til et af PERSONENS EGNE andre forhold (brugerfund 2026-07-02: forkert
+  // mor/far-par). Ikke en fri søgning som `picker` ovenfor — bevidst begrænset til de forhold
+  // der allerede vises på denne side, så et barn ikke kan flyttes til en urelateret persons familie.
+  const [flytBarn, setFlytBarn] = useState<{ fraFamilyId: string; personId: string; rolle: string; navn: string } | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -205,6 +209,7 @@ export default function Redaktion() {
       {renderConfirmModal()}
       {renderWriteModal()}
       {renderPicker()}
+      {renderFlytBarnPicker()}
     </div>
   );
 
@@ -465,8 +470,22 @@ export default function Redaktion() {
                     <span style={{ fontSize: 12, fontWeight: 600, color: T.muted }}>{u.type || 'partnerskab'} · {u.partnere.map((p) => p.navn).join(', ') || '(ukendt partner)'}</span>
                     <span onClick={() => setPicker({ kind: 'barn', familyId: u.familyId })} style={{ fontSize: 11, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>+ Tilføj barn</span>
                   </div>
-                  {u.boern.map((b) => linkRow(b.navn, b.rolle, () => run({ art: 'sletFamilieLink', subjektType: 'person', subjektId: pid, familyId: u.familyId, personId: b.personId, rolle: b.rolle }, 'Fjern barn'),
-                    konfidensChips(b.konfidens, (k) => run({ art: 'setFamilieKonfidens', subjektType: 'person', subjektId: pid, familyId: u.familyId, personId: b.personId, rolle: b.rolle, konfidens: k }, 'Konfidens'))))}
+                  {u.boern.map((b, i) => {
+                    const opOrdinal = nudgeOrdinal(u.boern, i, 'op');
+                    const nedOrdinal = nudgeOrdinal(u.boern, i, 'ned');
+                    const pil = (retning: '↑' | '↓', ordinal: number | null, titel: string) => (
+                      <span key={retning} onClick={ordinal == null ? undefined : () => run({ art: 'setFamilieOrdinal', subjektType: 'person', subjektId: pid, familyId: u.familyId, personId: b.personId, rolle: b.rolle, ordinal }, titel)}
+                        style={{ fontSize: 12, cursor: ordinal == null ? 'default' : 'pointer', color: ordinal == null ? T.muted3 : T.muted, padding: '0 2px' }}>{retning}</span>
+                    );
+                    return linkRow(b.navn, b.rolle, () => run({ art: 'sletFamilieLink', subjektType: 'person', subjektId: pid, familyId: u.familyId, personId: b.personId, rolle: b.rolle }, 'Fjern barn'),
+                      <>
+                        {pil('↑', opOrdinal, 'Flyt op')}
+                        {pil('↓', nedOrdinal, 'Flyt ned')}
+                        {konfidensChips(b.konfidens, (k) => run({ art: 'setFamilieKonfidens', subjektType: 'person', subjektId: pid, familyId: u.familyId, personId: b.personId, rolle: b.rolle, konfidens: k }, 'Konfidens'))}
+                        <span onClick={() => setFlytBarn({ fraFamilyId: u.familyId, personId: b.personId, rolle: b.rolle, navn: b.navn })}
+                          style={{ fontFamily: T.mono, fontSize: 9, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>flyt→</span>
+                      </>);
+                  })}
                 </div>
               ))}
               {familie.somBarn.map((sb, i) => (
@@ -534,6 +553,38 @@ export default function Redaktion() {
               </div>
             ))}
             {!items.length && <div style={{ padding: '18px 10px', textAlign: 'center', fontSize: 12.5, color: T.muted3 }}>Ingen træffere.</div>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderFlytBarnPicker() {
+    if (!flytBarn) return null;
+    const pid = recordId!;
+    const andre = (familie?.somPartner ?? []).filter((u) => u.familyId !== flytBarn.fraFamilyId);
+    const onVael = (tilFamilyId: string) => {
+      run({ art: 'flytBarn', subjektType: 'person', subjektId: pid,
+        familyId: flytBarn.fraFamilyId, tilFamilyId, personId: flytBarn.personId, rolle: flytBarn.rolle }, 'Flyt barn');
+      setFlytBarn(null);
+    };
+    return (
+      <div onClick={() => setFlytBarn(null)} style={overlay(96)}>
+        <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: '100%', maxHeight: '70vh', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ padding: '16px 18px 12px' }}>
+            <div style={{ fontFamily: T.serif, fontSize: 19, fontWeight: 600, marginBottom: 4 }}>Flyt {flytBarn.navn} til…</div>
+            <div style={{ fontSize: 11.5, color: T.muted2 }}>Kun personens egne andre forhold — ikke en fri søgning.</div>
+          </div>
+          <div data-scroll style={{ flex: 1, overflowY: 'auto', padding: '0 10px 12px' }}>
+            {andre.map((u) => (
+              <div key={u.familyId} onClick={() => onVael(u.familyId)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 9px', borderRadius: 9, cursor: 'pointer' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: T.serif, fontSize: 15, fontWeight: 600, lineHeight: 1.05 }}>{u.partnere.map((p) => p.navn).join(' & ') || '(ukendt partner)'}</div>
+                  <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2 }}>{u.type}</div>
+                </div>
+              </div>
+            ))}
+            {!andre.length && <div style={{ padding: '18px 10px', textAlign: 'center', fontSize: 12.5, color: T.muted3 }}>Personen har ingen andre registrerede forhold.</div>}
           </div>
         </div>
       </div>

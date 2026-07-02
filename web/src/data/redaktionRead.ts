@@ -229,13 +229,28 @@ export async function fetchSletPreview(personId: string): Promise<SletPreview> {
 // --- Familie-læsning til person-editor (porteret fra mobil 2C-2b — hold i sync) ---
 
 export type FamiliePartner = { personId: string; navn: string; konfidens: string | null; ordinal: number | null };
-export type FamilieBarn = { personId: string; navn: string; rolle: string; konfidens: string | null };
+export type FamilieBarn = { personId: string; navn: string; rolle: string; konfidens: string | null; ordinal: number | null };
 export type FamilieUnion = { familyId: string; type: string; partnere: FamiliePartner[]; boern: FamilieBarn[] };
 export type SomBarn = { familyId: string; rolle: string; konfidens: string | null; foraeldre: { personId: string; navn: string }[] };
 export type PersonFamilie = { somPartner: FamilieUnion[]; somBarn: SomBarn[] };
 type RawFamRow = { family_id: number; person_id: number; rolle: string; ordinal: number | null; konfidens: string | null };
 type RawFamilyMeta = { id: number; type: string | null };
 export const BARN_ROLLER = ['barn', 'adopteret_barn', 'plejebarn', 'stedbarn'] as const;
+
+// Beregner ny ordinal-værdi til at flytte ét barn ét skridt op/ned i søskende-visningsrækkefølgen
+// (porteret fra mobile/src/data/redaktionRead.ts — hold i sync). "Klem ind"-teknik: sætter KUN
+// det flyttede barns ordinal (ét red_set_familie_ordinal-kald), til en værdi der sorterer lige
+// før/efter naboen — rører aldrig naboens egen ordinal-værdi. `boern` skal være i NUVÆRENDE
+// visningsrækkefølge (som fetchPersonFamilie allerede leverer).
+export function nudgeOrdinal(
+  boern: { ordinal: number | null }[],
+  index: number,
+  retning: 'op' | 'ned',
+): number | null {
+  const effektiv = (i: number) => boern[i].ordinal ?? (i + 1) * 10;
+  if (retning === 'op') return index > 0 ? effektiv(index - 1) - 1 : null;
+  return index < boern.length - 1 ? effektiv(index + 1) + 1 : null;
+}
 
 export function mapFamilieRows(personId: string, families: RawFamilyMeta[], members: RawFamRow[], model: Model | null): PersonFamilie {
   const navnAf = (pid: number) => model?.byId?.[String(pid)]?.name ?? `#${pid}`;
@@ -258,7 +273,7 @@ export function mapFamilieRows(personId: string, families: RawFamilyMeta[], memb
         partnere: rows.filter((r) => r.rolle === 'partner' && String(r.person_id) !== personId)
           .map((r) => ({ personId: String(r.person_id), navn: navnAf(r.person_id), konfidens: r.konfidens, ordinal: r.ordinal })),
         boern: rows.filter((r) => (BARN_ROLLER as readonly string[]).includes(r.rolle) && String(r.person_id) !== personId)
-          .map((r) => ({ personId: String(r.person_id), navn: navnAf(r.person_id), rolle: r.rolle, konfidens: r.konfidens })),
+          .map((r) => ({ personId: String(r.person_id), navn: navnAf(r.person_id), rolle: r.rolle, konfidens: r.konfidens, ordinal: r.ordinal })),
       });
     }
     migRows.filter((r) => (BARN_ROLLER as readonly string[]).includes(r.rolle)).forEach((mig) => {
