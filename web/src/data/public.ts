@@ -37,18 +37,28 @@ export function fetchEstates(): Promise<EstateItem[]> {
 }
 
 // Ejerrækken for ét gods — navne slås op i den allerede-indlæste model (ingen ekstra person-fetch).
-export function fetchEstateOwners(estateId: string, model: Model | null): Promise<EstateOwner[]> {
+// canonicalIdById: en ejer-relation kan være registreret under et foldet alias-person-id, som er
+// fjernet fra den collapsede model.byId → kanonisér før navne-opslag (ellers vises '#<id>').
+export function fetchEstateOwners(
+  estateId: string,
+  model: Model | null,
+  canonicalIdById: Record<string, string> = {},
+): Promise<EstateOwner[]> {
+  const canon = (id: string) => canonicalIdById[id] ?? id;
   return safe(async () => {
     const rows = await getAll<RawEstateRel>(() =>
       supabase.from('relation').select('subjekt_id,objekt_id,rolle,periode_raw')
         .eq('objekt_type', 'estate').eq('objekt_id', Number(estateId)).eq('subjekt_type', 'person'));
     return rows
-      .map((r) => ({
-        personId: String(r.subjekt_id),
-        navn: model?.byId?.[String(r.subjekt_id)]?.name ?? `#${r.subjekt_id}`,
-        rolle: r.rolle ?? '',
-        periode: r.periode_raw ?? '',
-      }))
+      .map((r) => {
+        const pid = canon(String(r.subjekt_id));
+        return {
+          personId: pid,
+          navn: model?.byId?.[pid]?.name ?? `#${r.subjekt_id}`,
+          rolle: r.rolle ?? '',
+          periode: r.periode_raw ?? '',
+        };
+      })
       .sort((a, b) => a.periode.localeCompare(b.periode, 'da'));
   }, [], 'fetchEstateOwners');
 }
@@ -115,24 +125,29 @@ export function fetchPersonDetail(id: string, memberIds?: string[]): Promise<Per
       getAll<RawPersonRel>(() => supabase.from('relation').select('objekt_type,objekt_id,rolle,periode_raw')
         .eq('subjekt_type', 'person').in('subjekt_id', numIds).in('objekt_type', ['organisation', 'estate'])),
     ]);
-    // Narrativ = union: første offentlige narrativ PR. medlem, i medlems-rækkefølge, sammenføjet.
+    // Narrativ = union: første offentlige narrativ PR. medlem, sammenføjet. Kanonisk (id) FØRST,
+    // så den fulde founder-bio leder frem for en kort kryds-reference-stub fra en alias-post.
     // (For en ikke-foldet person = præcis den første offentlige, som før.)
     const firstByMember = new Map<string, string>();
     for (const n of (narr.data ?? []) as { subjekt_id: number | string; tekst: string | null }[]) {
       const k = String(n.subjekt_id);
       if (!firstByMember.has(k) && n.tekst) firstByMember.set(k, n.tekst);
     }
-    const bio = ids.map((mid) => firstByMember.get(mid)).filter(Boolean).join('\n\n');
+    const orderedIds = [id, ...ids.filter((m) => m !== id)];
+    const bio = [...new Set(orderedIds.map((mid) => firstByMember.get(mid)).filter(Boolean) as string[])].join('\n\n');
     const orgIds = rels.filter((r) => r.objekt_type === 'organisation').map((r) => r.objekt_id);
     const estIds = rels.filter((r) => r.objekt_type === 'estate').map((r) => r.objekt_id);
     const { org: orgNavn, estate: estNavn } = await resolveOrgEstateNames(orgIds, estIds);
+    // Dedup ved union over foldede medlemmer: samme embede/gods fra to medlems-poster → én.
+    const officeSeen = new Set<string>();
     const offices = rels.filter((r) => r.objekt_type === 'organisation').map((r) => ({
       label: [r.rolle, orgNavn.get(String(r.objekt_id))].filter(Boolean).join(' · ') || `#${r.objekt_id}`,
       period: r.periode_raw ?? '',
-    }));
+    })).filter((o) => { const k = `${o.label}|${o.period}`; if (officeSeen.has(k)) return false; officeSeen.add(k); return true; });
+    const estateSeen = new Set<string>();
     const estates = rels.filter((r) => r.objekt_type === 'estate').map((r) => ({
       id: String(r.objekt_id), navn: estNavn.get(String(r.objekt_id)) || `#${r.objekt_id}`,
-    }));
+    })).filter((e) => { if (estateSeen.has(e.id)) return false; estateSeen.add(e.id); return true; });
     return { bio, offices, estates };
   }, empty, 'fetchPersonDetail');
 }

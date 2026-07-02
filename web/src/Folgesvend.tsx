@@ -85,9 +85,9 @@ export default function Folgesvend() {
     if (!estateId) return;
     let cancelled = false;
     setEstateOwners([]);
-    fetchEstateOwners(estateId, model).then((o) => { if (!cancelled) setEstateOwners(o); }).catch(() => { if (!cancelled) setEstateOwners([]); });
+    fetchEstateOwners(estateId, model, canonicalIdById).then((o) => { if (!cancelled) setEstateOwners(o); }).catch(() => { if (!cancelled) setEstateOwners([]); });
     return () => { cancelled = true; };
-  }, [estateId, model]);
+  }, [estateId, model, canonicalIdById]);
   useEffect(() => {
     if (!estateId) return;
     let cancelled = false;
