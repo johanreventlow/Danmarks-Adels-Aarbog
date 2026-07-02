@@ -91,6 +91,7 @@ def merge_escalated(escalation, reext_by_key, snap_by_key, src_by_key, known_by_
             merged = dict(reext)
             if src:
                 merged['narrative'] = src['raw_text']
+            validate.merge_kontekst(merged, src)
             merged['_escalated'] = True
             clean_by_key[key] = merged          # REPLACE el. APPEND (samme operation på dict)
             review_keys.discard(key)
