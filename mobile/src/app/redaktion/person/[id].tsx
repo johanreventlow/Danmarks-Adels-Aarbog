@@ -11,7 +11,7 @@ import { PersonPicker } from '../../../components/redaktion/PersonPicker';
 import { MentionPicker } from '../../../components/redaktion/MentionPicker';
 import { Body, BtnLabel, Mono, Serif } from '../../../components/Typography';
 import { insertAt } from '../../../lib/mentions';
-import { fetchPersonEvidence, fetchPersonNarrativ, fetchPersonRelationer, fetchPersonFamilie, BARN_ROLLER, type PersonEvidence, type PersonRelation, type PersonFamilie } from '../../../data/redaktionRead';
+import { fetchPersonEvidence, fetchPersonNarrativ, fetchPersonRelationer, fetchPersonFamilie, nudgeOrdinal, BARN_ROLLER, type PersonEvidence, type PersonRelation, type PersonFamilie, type FamilieUnion } from '../../../data/redaktionRead';
 import { eraAdvarsel } from '../../../data/eraAdvarsel';
 import { type Change } from '../../../data/redaktionWrite';
 import { useStore } from '../../../store/useStore';
@@ -49,13 +49,50 @@ function KonfidensVaelger({ vaerdi, onVael }: { vaerdi: string | null; onVael: (
   );
 }
 
-function FamilieEditRad({ label, konfidens, onKonfidens, onSlet }: { label: string; konfidens: string | null; onKonfidens: (k: string | null) => void; onSlet: () => void }) {
+function FamilieEditRad({ label, konfidens, onKonfidens, onSlet, onOp, onNed, onFlyt }: {
+  label: string; konfidens: string | null; onKonfidens: (k: string | null) => void; onSlet: () => void;
+  // Kun relevant for børn (søskende-rækkefølge + flyt mellem forhold, brugerfund 2026-07-02) —
+  // udeladt for partner-rækker.
+  onOp?: () => void; onNed?: () => void; onFlyt?: () => void;
+}) {
   return (
     <View style={editorStyles.relEditRad}>
       <View style={{ flex: 1 }}><Body size={13}>{label}</Body></View>
+      {onOp || onNed ? (
+        <View style={{ flexDirection: 'row' }}>
+          <Pressable disabled={!onOp} onPress={onOp}><Mono size={11} color={onOp ? Colors.textSecondary2 : Colors.textMuted3}>↑</Mono></Pressable>
+          <Pressable disabled={!onNed} onPress={onNed} style={{ marginLeft: 4 }}><Mono size={11} color={onNed ? Colors.textSecondary2 : Colors.textMuted3}>↓</Mono></Pressable>
+        </View>
+      ) : null}
       <KonfidensVaelger vaerdi={konfidens} onVael={onKonfidens} />
+      {onFlyt ? (
+        <Pressable onPress={onFlyt} style={{ marginLeft: 4 }}><Mono size={9} color={Colors.bordeaux}>flyt→</Mono></Pressable>
+      ) : null}
       <Pressable onPress={onSlet}><Mono size={9} color={Colors.danger}>🗑</Mono></Pressable>
     </View>
+  );
+}
+
+function FlytBarnSheet({ barnNavn, andreUnioner, onClose, onVael }: {
+  barnNavn: string;
+  andreUnioner: FamilieUnion[];
+  onClose: () => void;
+  onVael: (tilFamilyId: string) => void;
+}) {
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={editorStyles.modalBackdrop} onPress={onClose} />
+      <View style={editorStyles.modalSheet}>
+        <Serif size={20} style={{ marginBottom: 10 }}>Flyt {barnNavn} til…</Serif>
+        {andreUnioner.length === 0 ? (
+          <Body size={13} color={Colors.textMuted}>Personen har ingen andre registrerede forhold at flytte til.</Body>
+        ) : andreUnioner.map((u) => (
+          <Pressable key={u.familyId} style={editorStyles.relRad} onPress={() => onVael(u.familyId)}>
+            <Body size={14}>{u.partnere.map((p) => p.navn).join(' & ') || '(ukendt partner)'} · {u.type}</Body>
+          </Pressable>
+        ))}
+      </View>
+    </Modal>
   );
 }
 
@@ -235,6 +272,7 @@ export default function PersonEditor() {
   const [barnPickerFam, setBarnPickerFam] = useState<string | null>(null);
   const [unionScratch, setUnionScratch] = useState<{ personId: string; navn: string } | null>(null);
   const [barnScratch, setBarnScratch] = useState<{ familyId: string; personId: string; navn: string } | null>(null);
+  const [flytBarnScratch, setFlytBarnScratch] = useState<{ fraFamilyId: string; personId: string; rolle: string; navn: string } | null>(null);
 
   function onAction(a: FaktaAction) {
     if (a.type === 'gørKonklusion') {
@@ -503,11 +541,18 @@ export default function PersonEditor() {
                       onSlet={() => setPending({ art: 'sletFamilieLink', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: pt.personId, rolle: 'partner' })} />
                   ))}
                   <Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>BØRN</Mono>
-                  {u.boern.map((b) => (
-                    <FamilieEditRad key={`${b.personId}-${b.rolle}`} label={b.navn + (b.rolle !== 'barn' ? ' · ' + b.rolle : '')} konfidens={b.konfidens}
-                      onKonfidens={(k) => setPending({ art: 'setFamilieKonfidens', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: b.personId, rolle: b.rolle, konfidens: k })}
-                      onSlet={() => setPending({ art: 'sletFamilieLink', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: b.personId, rolle: b.rolle })} />
-                  ))}
+                  {u.boern.map((b, i) => {
+                    const opOrdinal = nudgeOrdinal(u.boern, i, 'op');
+                    const nedOrdinal = nudgeOrdinal(u.boern, i, 'ned');
+                    return (
+                      <FamilieEditRad key={`${b.personId}-${b.rolle}`} label={b.navn + (b.rolle !== 'barn' ? ' · ' + b.rolle : '')} konfidens={b.konfidens}
+                        onKonfidens={(k) => setPending({ art: 'setFamilieKonfidens', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: b.personId, rolle: b.rolle, konfidens: k })}
+                        onSlet={() => setPending({ art: 'sletFamilieLink', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: b.personId, rolle: b.rolle })}
+                        onOp={opOrdinal == null ? undefined : () => setPending({ art: 'setFamilieOrdinal', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: b.personId, rolle: b.rolle, ordinal: opOrdinal })}
+                        onNed={nedOrdinal == null ? undefined : () => setPending({ art: 'setFamilieOrdinal', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: b.personId, rolle: b.rolle, ordinal: nedOrdinal })}
+                        onFlyt={() => setFlytBarnScratch({ fraFamilyId: u.familyId, personId: b.personId, rolle: b.rolle, navn: b.navn })} />
+                    );
+                  })}
                   <Pressable style={{ paddingVertical: 6 }} onPress={() => setBarnPickerFam(u.familyId)}>
                     <Mono size={9} color={Colors.bordeaux}>+ Tilføj barn</Mono>
                   </Pressable>
@@ -623,6 +668,16 @@ export default function PersonEditor() {
             setPending({ art: 'tilfoejBarn', subjektType: 'person', subjektId: id!,
               payload: { familyId: barnScratch.familyId, barnId: barnScratch.personId, rolle, konfidens } });
             setBarnScratch(null);
+          }} />
+      ) : null}
+      {flytBarnScratch ? (
+        <FlytBarnSheet barnNavn={flytBarnScratch.navn}
+          andreUnioner={familie.somPartner.filter((u) => u.familyId !== flytBarnScratch.fraFamilyId)}
+          onClose={() => setFlytBarnScratch(null)}
+          onVael={(tilFamilyId) => {
+            setPending({ art: 'flytBarn', subjektType: 'person', subjektId: id!,
+              familyId: flytBarnScratch.fraFamilyId, tilFamilyId, personId: flytBarnScratch.personId, rolle: flytBarnScratch.rolle });
+            setFlytBarnScratch(null);
           }} />
       ) : null}
       <SkrivePreviewSheet

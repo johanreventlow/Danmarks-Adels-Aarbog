@@ -142,6 +142,26 @@ test('opretUnion uden påkrævet payload → null', () => {
   expect(buildRpcCall({ art: 'opretUnion', subjektType: 'person', subjektId: '7', payload: { partnerA: '7' } as never })).toBeNull();
 });
 
+// --- brugerfund 2026-07-02: søskende-rækkefølge + flyt barn mellem forhold ---
+test('setFamilieOrdinal → red_set_familie_ordinal', () => {
+  expect(buildRpcCall({ art: 'setFamilieOrdinal', subjektType: 'person', subjektId: '7',
+    familyId: '10', personId: '3', rolle: 'barn', ordinal: 5 }))
+    .toEqual({ fn: 'red_set_familie_ordinal', args: { p_family_id: 10, p_person_id: 3, p_rolle: 'barn', p_ordinal: 5 } });
+});
+test('setFamilieOrdinal uden ordinal → null', () => {
+  expect(buildRpcCall({ art: 'setFamilieOrdinal', subjektType: 'person', subjektId: '7',
+    familyId: '10', personId: '3', rolle: 'barn' })).toBeNull();
+});
+test('flytBarn → red_flyt_barn', () => {
+  expect(buildRpcCall({ art: 'flytBarn', subjektType: 'person', subjektId: '7',
+    familyId: '10', tilFamilyId: '20', personId: '3', rolle: 'barn' }))
+    .toEqual({ fn: 'red_flyt_barn', args: { p_fra_family_id: 10, p_til_family_id: 20, p_barn_id: 3, p_rolle: 'barn' } });
+});
+test('flytBarn uden tilFamilyId → null', () => {
+  expect(buildRpcCall({ art: 'flytBarn', subjektType: 'person', subjektId: '7',
+    familyId: '10', personId: '3', rolle: 'barn' })).toBeNull();
+});
+
 describe('buildRpcCall opret-arter', () => {
   it('opretPerson → red_opret_person, kun udfyldte args, ingen p_privat', () => {
     const c = { art: 'opretPerson', subjektType: 'person', subjektId: '',

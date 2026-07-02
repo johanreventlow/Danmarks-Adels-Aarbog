@@ -142,9 +142,48 @@ test('mapFamilieRows: union m. partnere+børn, og person som barn', () => {
   const r = mapFamilieRows('7', families as never, members as never, MODEL);
   expect(r.somPartner).toEqual([{ familyId: '10', type: 'vielse',
     partnere: [{ personId: '1', navn: 'Far', konfidens: 'sikker', ordinal: 1 }],
-    boern: [{ personId: '3', navn: 'Barn A', rolle: 'barn', konfidens: null }] }]);
+    boern: [{ personId: '3', navn: 'Barn A', rolle: 'barn', konfidens: null, ordinal: null }] }]);
   expect(r.somBarn).toEqual([{ familyId: '20', rolle: 'barn', konfidens: 'formodet',
     foraeldre: [{ personId: '1', navn: 'Far' }, { personId: '2', navn: 'Mor' }] }]);
+});
+
+test('mapFamilieRows: boern bærer ordinal videre (søskende-rækkefølge, brugerfund 2026-07-02)', () => {
+  const members = [
+    { family_id: 10, person_id: 7, rolle: 'partner', ordinal: null, konfidens: null },
+    { family_id: 10, person_id: 3, rolle: 'barn', ordinal: 2, konfidens: null },
+    { family_id: 10, person_id: 4, rolle: 'barn', ordinal: 1, konfidens: null },
+  ];
+  const r = mapFamilieRows('7', [{ id: 10, type: 'vielse' }] as never, members as never, MODEL);
+  expect(r.somPartner[0].boern.map((b) => [b.personId, b.ordinal])).toEqual([['3', 2], ['4', 1]]);
+});
+
+// --- nudgeOrdinal (søskende-rækkefølge, brugerfund 2026-07-02) ---
+import { nudgeOrdinal } from '../redaktionRead';
+
+test('nudgeOrdinal: op flytter til lige under naboens eksplicitte ordinal', () => {
+  const boern = [{ ordinal: 1 }, { ordinal: 2 }, { ordinal: 3 }];
+  expect(nudgeOrdinal(boern, 2, 'op')).toBe(1); // naboen (index 1) har ordinal=2 -> 2-1=1
+});
+
+test('nudgeOrdinal: ned flytter til lige over naboens eksplicitte ordinal', () => {
+  const boern = [{ ordinal: 1 }, { ordinal: 2 }, { ordinal: 3 }];
+  expect(nudgeOrdinal(boern, 0, 'ned')).toBe(3); // naboen (index 1) har ordinal=2 -> 2+1=3
+});
+
+test('nudgeOrdinal: bruger index-baseret fallback (i+1)*10 når ordinal er NULL', () => {
+  const boern = [{ ordinal: null }, { ordinal: null }, { ordinal: null }];
+  // Flyt index 2 op: naboen (index 1) har ingen ordinal -> effektiv (1+1)*10=20 -> 19
+  expect(nudgeOrdinal(boern, 2, 'op')).toBe(19);
+});
+
+test('nudgeOrdinal: kan ikke flytte det første barn op', () => {
+  const boern = [{ ordinal: 1 }, { ordinal: 2 }];
+  expect(nudgeOrdinal(boern, 0, 'op')).toBeNull();
+});
+
+test('nudgeOrdinal: kan ikke flytte det sidste barn ned', () => {
+  const boern = [{ ordinal: 1 }, { ordinal: 2 }];
+  expect(nudgeOrdinal(boern, 1, 'ned')).toBeNull();
 });
 
 test('mapFamilieRows: ukendt person → #id-fallback', () => {
