@@ -43,7 +43,8 @@ export default function PersonScreen() {
   const parents = parentsOf(model, person.id);
   const spouses = spousesOf(model, person.id);
   const marriages = childrenByMarriage(model, person.id).filter((m) => m.children.length);
-  const linje = aux?.linjeByPerson[person.id];
+  const linjer = aux?.linjeByPerson[person.id] ?? [];
+  const linje = linjer[0];
   const linjeNavn = linje ? aux?.linjeNavn[linje] : undefined;
   const offices = aux?.officesBy[person.id] ?? [];
   const estates = aux?.estatesBy[person.id] ?? [];

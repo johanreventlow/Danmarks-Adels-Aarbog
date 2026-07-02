@@ -167,7 +167,7 @@ export type Aux = {
   ownersByEstate: Record<string, OwnerRef[]>;
   estateList: EstateListEntry[];
   estateById: Record<string, { id: string; navn: string; slags: string }>;
-  linjeByPerson: Record<string, string>;
+  linjeByPerson: Record<string, string[]>; // flere linjer pr. person (en collapsed grundlægger hører til flere)
   linjeList: LinjeEntry[];
   linjeNavn: Record<string, string>; // linje-kode ('I'..) → fuldt navn ('Den holstenske linje')
   kildeListe: { id: string; titel: string; slags: string; udgave: string }[];

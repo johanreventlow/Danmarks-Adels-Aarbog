@@ -243,7 +243,10 @@ export async function loadFromSupabase(opts?: {
   }
   const db = collapsed.db;
 
-  const aux = buildAux({ extIds, sources, relations, estates, orgs, media, lineage, arms });
+  const aux = buildAux(
+    { extIds, sources, relations, estates, orgs, media, lineage, arms },
+    collapsed.canonicalIdById,
+  );
 
   // Vælg fornuftige start-id'er (flest børn = midt i træet) — på den COLLAPSED db, så et start-id
   // aldrig peger på et foldet alias.

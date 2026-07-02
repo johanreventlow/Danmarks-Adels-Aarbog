@@ -187,7 +187,7 @@ const FRAME_NUDGE = 17; // løfter fokus-ramme + badge så det centrerede kort l
 const FRAME_NUDGE_X = 0.5; // skubber fokus-ramme en anelse mod højre (afbalancerer venstre/højre margin)
 const GAP_V = STEPY - CARD_H; // tomt lodret mellemrum under et (top-justeret) kort = rygrad-segment-højde
 
-function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Model; activeLinje: string | null; linjeByPerson: Record<string, string>; linjeNavn: Record<string, string> }) {
+function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Model; activeLinje: string | null; linjeByPerson: Record<string, string[]>; linjeNavn: Record<string, string> }) {
   const router = useRouter();
   const snapPath = useStore((s) => s.snapPath);
   const snapDepth = useStore((s) => s.snapDepth);
@@ -271,7 +271,7 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
 
   const focusPerson = snapPath[snapDepth] ? model.byId[snapPath[snapDepth]] : null;
   const gen = snapDepth + 1;
-  const linje = focusPerson ? linjeByPerson[focusPerson.id] ?? activeLinje : activeLinje;
+  const linje = focusPerson ? linjeByPerson[focusPerson.id]?.[0] ?? activeLinje : activeLinje;
 
   return (
     <View style={styles.snapContainer} onLayout={(e) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}>
