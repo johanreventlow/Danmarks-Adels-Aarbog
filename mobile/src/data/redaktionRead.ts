@@ -369,3 +369,32 @@ export async function fetchDoedeLinks(): Promise<DoedLink[]> {
   if (error) throw new Error(error.message);
   return (data ?? []).map(mapDoedLinkRow);
 }
+
+// --- samme_som identitets-links (spec 2026-07-02) ---
+export type SammeSomLink = { relationId: string; retning: 'alias' | 'kanonisk'; modpartId: string };
+
+// Klassificér rå samme_som-rækker set fra personId: alias hvis personen er subjekt (peger på en
+// kanonisk), kanonisk hvis personen er objekt (andre peger på den). Ren/testbar.
+export function mapSammeSomLinks(
+  personId: string,
+  rows: { id: number | string; subjekt_id: number | string; objekt_id: number | string }[],
+): SammeSomLink[] {
+  return rows.map((r) =>
+    String(r.subjekt_id) === personId
+      ? { relationId: String(r.id), retning: 'alias' as const, modpartId: String(r.objekt_id) }
+      : { relationId: String(r.id), retning: 'kanonisk' as const, modpartId: String(r.subjekt_id) },
+  );
+}
+
+// Hent alle samme_som-links der involverer personId (begge retninger).
+export async function fetchSammeSomLinks(personId: string): Promise<SammeSomLink[]> {
+  if (!supabase) return [];
+  const { data } = await supabase
+    .from('relation')
+    .select('id,subjekt_id,objekt_id')
+    .eq('rolle', 'samme_som')
+    .eq('subjekt_type', 'person')
+    .eq('objekt_type', 'person')
+    .or(`subjekt_id.eq.${Number(personId)},objekt_id.eq.${Number(personId)}`);
+  return mapSammeSomLinks(personId, (data ?? []) as never);
+}

@@ -1,6 +1,19 @@
 import { joinEvidence, mapKonfliktRow, mapNarrativRow, mapRelationRow } from '../redaktionRead';
-import { mapRedPerson } from '../redaktionRead';
+import { mapRedPerson, mapSammeSomLinks } from '../redaktionRead';
 import * as load from '../load';
+
+describe('mapSammeSomLinks — klassificér retning', () => {
+  it('personen som subjekt = alias, som objekt = kanonisk', () => {
+    const rows = [
+      { id: 972, subjekt_id: 255, objekt_id: 392 }, // 255 er alias for 392
+      { id: 5, subjekt_id: 40, objekt_id: 255 }, // 40 er alias for 255 → 255 er kanonisk her
+    ];
+    expect(mapSammeSomLinks('255', rows)).toEqual([
+      { relationId: '972', retning: 'alias', modpartId: '392' },
+      { relationId: '5', retning: 'kanonisk', modpartId: '40' },
+    ]);
+  });
+});
 import { fetchRedaktionPersoner } from '../redaktionRead';
 
 jest.mock('../../lib/supabase', () => ({ supabase: { from: () => ({ select: () => ({}) }) } }));
