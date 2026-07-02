@@ -1,0 +1,148 @@
+# TNG-QA-rapport 2026-07-01
+
+> TNG = sammenlignings-reference, ikke facit. Uenighed = uafklaret til afgørelse.
+
+## Oversigt
+
+- ekstra_hos_os: 0
+- mangler_hos_os: 125
+- dato_uenig: 4
+- køn_uenig: 0
+- uden_for_scope: 1037
+- enig: 177
+
+## mangler_hos_os (125)
+
+- **V-56** (I12017): TNG: I12017—I12053
+- **V-95** (I13291): TNG: I13291—I13080
+- **V-121** (I13361): TNG: I13361—I14145
+- **V-158** (I15614): TNG: I15614—I15917
+- **IV-17** (I12388): TNG father_tng: I11390
+- **IV-23** (I12850): TNG father_tng: I11390
+- **IV-27** (I11413): TNG father_tng: I11390
+- **IV-18** (I12494): TNG father_tng: I11390
+- **IV-25** (I11312): TNG father_tng: I11390
+- **IV-26** (I10641): TNG father_tng: I11390
+- **IV-22** (I11643): TNG father_tng: I11390
+- **IV-19** (I12224): TNG father_tng: I11390
+- **IV-16** (I11211): TNG father_tng: I11390
+- **IV-57** (I17884): TNG father_tng: I12126
+- **IV-56** (I14272): TNG father_tng: I12126
+- **IV-55** (I13555): TNG father_tng: I12126
+- **IV-58** (I12708): TNG father_tng: I12126
+- **IV-59** (I14420): TNG father_tng: I12126
+- **IV-29** (I11941): TNG father_tng: I12222
+- **IV-28** (I12126): TNG father_tng: I12222
+- **V-38** (I8557): TNG father_tng: I8620
+- **V-35** (I8969): TNG father_tng: I8620
+- **V-31** (I9431): TNG father_tng: I8620
+- **V-36** (I10400): TNG father_tng: I8620
+- **V-33** (I10355): TNG father_tng: I8620
+- **V-32** (I8882): TNG father_tng: I8620
+- **V-37** (I8444): TNG father_tng: I8620
+- **V-30** (I8159): TNG father_tng: I8620
+- **V-34** (I10651): TNG father_tng: I8620
+- **V-29** (I8209): TNG father_tng: I8620
+- **V-98** (I13353): TNG father_tng: I10856
+- **V-73** (I12062): TNG father_tng: I11480
+- **V-72** (I11056): TNG father_tng: I11480
+- **V-74** (I10451): TNG father_tng: I11480
+- **V-68** (I10856): TNG father_tng: I11480
+- **V-70** (I12053): TNG father_tng: I11480
+- **V-71** (I12879): TNG father_tng: I11480
+- **IV-76** (I14931): TNG father_tng: I14420
+- **IV-74** (I18005): TNG father_tng: I14420
+- **IV-75** (I14975): TNG father_tng: I14420
+- **I-118** (I8666): TNG father_tng: I6789
+- **I-115** (I8747): TNG father_tng: I6789
+- **I-114** (I7968): TNG father_tng: I6789
+- **I-111** (I6454): TNG father_tng: I6789
+- **I-117** (I6673): TNG father_tng: I6789
+- **V-45** (I9902): TNG father_tng: I8882
+- **IV-70** (I12881): TNG father_tng: I13482
+- **IV-72** (I14108): TNG father_tng: I13482
+- **II-18** (I8726): TNG father_tng: I7006
+- **II-19** (I8236): TNG father_tng: I7006
+- **II-25** (I7677): TNG father_tng: I7006
+- **II-20** (I8417): TNG father_tng: I7006
+- **V-103** (I12089): TNG mother_tng: I12940
+- **V-100** (I11796): TNG mother_tng: I12940
+- **V-102** (I12007): TNG mother_tng: I12940
+- **V-104** (I12123): TNG mother_tng: I12940
+- **V-101** (I14124): TNG mother_tng: I12940
+- **III-35** (I5185): TNG father_tng: I4844
+- **IV-14** (I12550): TNG father_tng: I11017
+- **IV-12** (I12116): TNG father_tng: I11017
+- **IV-11** (I12691): TNG father_tng: I11017
+- **IV-13** (I12222): TNG father_tng: I11017
+- **III-99** (I8145): TNG father_tng: I8115
+- **III-100** (I8829): TNG father_tng: I8115
+- **III-98** (I7774): TNG father_tng: I8115
+- **V-80** (I11566): TNG father_tng: I11186
+- **V-81** (I11593): TNG father_tng: I11186
+- **V-111** (I13938): TNG father_tng: I12062
+- **V-110** (I14096): TNG father_tng: I12062
+- **V-107** (I13795): TNG father_tng: I12062
+- **V-109** (I13615): TNG father_tng: I12062
+- **V-108** (I13685): TNG father_tng: I12062
+- **V-106** (I13927): TNG father_tng: I12062
+- **IV-83** (I14459): TNG father_tng: I14792
+- **IV-82** (I15442): TNG father_tng: I14792
+- **V-89** (I13320): TNG father_tng: I12017
+- **V-89** (I13320): TNG mother_tng: I12053
+- **V-88** (I13236): TNG father_tng: I12017
+- **V-88** (I13236): TNG mother_tng: I12053
+- **V-90** (I13428): TNG father_tng: I12017
+- **V-90** (I13428): TNG mother_tng: I12053
+- **V-86** (I13080): TNG father_tng: I12017
+- **V-86** (I13080): TNG mother_tng: I12053
+- **V-84** (I12940): TNG father_tng: I12017
+- **V-84** (I12940): TNG mother_tng: I12053
+- **V-83** (I25441): TNG father_tng: I12017
+- **V-83** (I25441): TNG mother_tng: I12053
+- **V-92** (I13466): TNG father_tng: I12017
+- **V-92** (I13466): TNG mother_tng: I12053
+- **V-82** (I25440): TNG father_tng: I12017
+- **V-82** (I25440): TNG mother_tng: I12053
+- **V-91** (I13600): TNG father_tng: I12017
+- **V-91** (I13600): TNG mother_tng: I12053
+- **V-133** (I13759): TNG mother_tng: I13080
+- **V-134** (I19766): TNG mother_tng: I13080
+- **V-1** (I7355): TNG father_tng: I6031
+- **IV-40** (I17983): TNG father_tng: I12388
+- **IV-38** (I12718): TNG father_tng: I12388
+- **IV-37** (I12430): TNG father_tng: I12388
+- **IV-39** (I17982): TNG father_tng: I12388
+- **IV-35** (I12566): TNG father_tng: I12388
+- **III-42** (I16189): TNG father_tng: I4844
+- **III-37** (I6031): TNG father_tng: I4844
+- **IV-69** (I14751): TNG father_tng: I13482
+- **IV-68** (I14320): TNG father_tng: I13482
+- **IV-1** (I9639): TNG father_tng: I8980
+- **IV-32** (I13376): TNG father_tng: I11211
+- **IV-31** (I11382): TNG father_tng: I11211
+- **IV-33** (I13727): TNG father_tng: I11211
+- **IV-34** (I13981): TNG father_tng: I11211
+- **III-94** (I7578): TNG father_tng: I7138
+- **III-92** (I8765): TNG father_tng: I7138
+- **III-91** (I8083): TNG father_tng: I7138
+- **I-126** (I9807): TNG father_tng: I8666
+- **I-128** (I9318): TNG father_tng: I8666
+- **I-127** (I8358): TNG father_tng: I8666
+- **I-124** (I18190): TNG father_tng: I8666
+- **V-62** (I11595): TNG father_tng: I10111
+- **V-66** (I9822): TNG father_tng: I10111
+- **V-67** (I9982): TNG father_tng: I10111
+- **V-64** (I10159): TNG father_tng: I10111
+- **V-63** (I11449): TNG father_tng: I10111
+- **V-65** (I12064): TNG father_tng: I10111
+- **V-60** (I9504): TNG father_tng: I10111
+- **V-61** (I11248): TNG father_tng: I10111
+
+## dato_uenig (4)
+
+- **IV-16** (I11211): død: vores [1842,1842] vs TNG 1841-07-02
+- **IV-34** (I13981): død: vores [1927,1927] vs TNG 1924-07-18
+- **V-102** (I12007): død: vores [1869,1869] vs TNG 1867-02-07
+- **V-31** (I9431): død: vores [1766,1766] vs TNG 1776-12-20
+
