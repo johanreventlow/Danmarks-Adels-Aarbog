@@ -50,15 +50,22 @@ function KonfidensVaelger({ vaerdi, onVael }: { vaerdi: string | null; onVael: (
   );
 }
 
-function FamilieEditRad({ label, konfidens, onKonfidens, onSlet, onOp, onNed, onFlyt }: {
-  label: string; konfidens: string | null; onKonfidens: (k: string | null) => void; onSlet: () => void;
+function FamilieEditRad({ label, aar, konfidens, onKonfidens, onSlet, onOp, onNed, onFlyt, onOpen }: {
+  label: string; aar?: string; konfidens: string | null; onKonfidens: (k: string | null) => void; onSlet: () => void;
   // Kun relevant for børn (søskende-rækkefølge + flyt mellem forhold, brugerfund 2026-07-02) —
   // udeladt for partner-rækker.
   onOp?: () => void; onNed?: () => void; onFlyt?: () => void;
+  // onOpen (valgfri): gør navnet klikbart → naviger til den person (router.push, ny editor-skærm).
+  onOpen?: () => void;
 }) {
   return (
     <View style={editorStyles.relEditRad}>
-      <View style={{ flex: 1 }}><Body size={13}>{label}</Body></View>
+      <View style={{ flex: 1 }}>
+        {onOpen
+          ? <Pressable onPress={onOpen}><Body size={13} color={Colors.bordeaux}>{label} ↗</Body></Pressable>
+          : <Body size={13}>{label}</Body>}
+        {aar ? <Mono size={9} color={Colors.textMuted2}>{aar}</Mono> : null}
+      </View>
       {onOp || onNed ? (
         <View style={{ flexDirection: 'row' }}>
           <Pressable disabled={!onOp} onPress={onOp}><Mono size={11} color={onOp ? Colors.textSecondary2 : Colors.textMuted3}>↑</Mono></Pressable>
@@ -590,7 +597,8 @@ export default function PersonEditor() {
                 <View key={u.familyId}>
                   <Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>ÆGTEFÆLLE ({u.type})</Mono>
                   {u.partnere.map((pt) => (
-                    <FamilieEditRad key={pt.personId} label={pt.navn} konfidens={pt.konfidens}
+                    <FamilieEditRad key={pt.personId} label={pt.navn} aar={pt.aar} konfidens={pt.konfidens}
+                      onOpen={() => router.push(`/redaktion/person/${pt.personId}` as never)}
                       onKonfidens={(k) => setPending({ art: 'setFamilieKonfidens', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: pt.personId, rolle: 'partner', konfidens: k })}
                       onSlet={() => setPending({ art: 'sletFamilieLink', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: pt.personId, rolle: 'partner' })} />
                   ))}
@@ -599,7 +607,8 @@ export default function PersonEditor() {
                     const opOrdinal = nudgeOrdinal(u.boern, i, 'op');
                     const nedOrdinal = nudgeOrdinal(u.boern, i, 'ned');
                     return (
-                      <FamilieEditRad key={`${b.personId}-${b.rolle}`} label={b.navn + (b.rolle !== 'barn' ? ' · ' + b.rolle : '')} konfidens={b.konfidens}
+                      <FamilieEditRad key={`${b.personId}-${b.rolle}`} label={b.navn + (b.rolle !== 'barn' ? ' · ' + b.rolle : '')} aar={b.aar} konfidens={b.konfidens}
+                        onOpen={() => router.push(`/redaktion/person/${b.personId}` as never)}
                         onKonfidens={(k) => setPending({ art: 'setFamilieKonfidens', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: b.personId, rolle: b.rolle, konfidens: k })}
                         onSlet={() => setPending({ art: 'sletFamilieLink', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: b.personId, rolle: b.rolle })}
                         onOp={opOrdinal == null ? undefined : () => setPending({ art: 'setFamilieOrdinal', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: b.personId, rolle: b.rolle, ordinal: opOrdinal })}

@@ -136,8 +136,8 @@ test('mapRelationRow: ukendt objekt-id → fallback-navn', () => {
 import { mapFamilieRows } from '../redaktionRead';
 
 const MODEL = { byId: {
-  '1': { name: 'Far' }, '2': { name: 'Mor' },
-  '3': { name: 'Barn A' }, '7': { name: 'Fokus' },
+  '1': { name: 'Far', years: '1620–1680' }, '2': { name: 'Mor', years: '1625–1690' },
+  '3': { name: 'Barn A', years: '* 1650' }, '7': { name: 'Fokus' },
 } } as never;
 
 test('mapFamilieRows: union m. partnere+børn, og person som barn', () => {
@@ -154,8 +154,8 @@ test('mapFamilieRows: union m. partnere+børn, og person som barn', () => {
   ];
   const r = mapFamilieRows('7', families as never, members as never, MODEL);
   expect(r.somPartner).toEqual([{ familyId: '10', type: 'vielse',
-    partnere: [{ personId: '1', navn: 'Far', konfidens: 'sikker', ordinal: 1 }],
-    boern: [{ personId: '3', navn: 'Barn A', rolle: 'barn', konfidens: null, ordinal: null }] }]);
+    partnere: [{ personId: '1', navn: 'Far', aar: '1620–1680', konfidens: 'sikker', ordinal: 1 }],
+    boern: [{ personId: '3', navn: 'Barn A', aar: '* 1650', rolle: 'barn', konfidens: null, ordinal: null }] }]);
   expect(r.somBarn).toEqual([{ familyId: '20', rolle: 'barn', konfidens: 'formodet',
     foraeldre: [{ personId: '1', navn: 'Far' }, { personId: '2', navn: 'Mor' }] }]);
 });
