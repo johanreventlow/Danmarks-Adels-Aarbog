@@ -17,6 +17,7 @@ export type Change = {
      | 'opretUnion' | 'tilfoejBarn' | 'setFamilieKonfidens' | 'sletFamilieLink'
      | 'setFamilieOrdinal' | 'flytBarn'
      | 'sammeSom' | 'fjernSammeSom' // redaktionel identitets-sammenkædning (samme_som)
+     | 'opretKilde' // opret ny source (DAA-udgave) — routes gennem submitChange (dry-run/staging)
      | 'forslag'; // generisk entitets-feltredigering uden direkte RPC → red_suggest
   subjektType: string;
   subjektId: string;
@@ -103,6 +104,15 @@ export function buildRpcCall(c: Change): RpcCall | null {
       p_privat: Boolean(c.payload?.privat),
       p_source_id: (c.payload?.sourceId as number | null | undefined) ?? null,
       p_side: (c.payload?.side as string | null | undefined) ?? null } };
+  }
+  if (c.art === 'opretKilde') {
+    const p = c.payload || {};
+    if (!p.titel) return null;
+    return { fn: 'red_opret_kilde', args: {
+      p_titel: p.titel, p_slags: (p.slags as string | null | undefined) ?? null,
+      p_udgave: (p.udgave as string | null | undefined) ?? null,
+      p_ekstern: Boolean(p.ekstern ?? false),
+      p_aar: (p.aar as number | null | undefined) ?? null } };
   }
   if (c.art === 'relation' || c.art === 'gods' || c.art === 'hverv') {
     const p = c.payload || {};

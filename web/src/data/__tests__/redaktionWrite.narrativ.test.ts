@@ -17,3 +17,14 @@ describe('narrativ arg-builder (source-nøglet)', () => {
     expect(call?.args).toMatchObject({ p_privat: true, p_source_id: null, p_side: null });
   });
 });
+
+describe('opretKilde arg-builder', () => {
+  it('mapper ny DAA-udgave → red_opret_kilde med p_aar', () => {
+    const call = buildRpcCall({ art: 'opretKilde', subjektType: 'source', subjektId: '',
+      payload: { titel: 'DAA 1982-84', slags: 'DAA-udgave', udgave: 'DAA 1982-84', aar: 1982 } });
+    expect(call).toMatchObject({ fn: 'red_opret_kilde', args: { p_titel: 'DAA 1982-84', p_slags: 'DAA-udgave', p_udgave: 'DAA 1982-84', p_aar: 1982, p_ekstern: false } });
+  });
+  it('uden titel → null', () => {
+    expect(buildRpcCall({ art: 'opretKilde', subjektType: 'source', subjektId: '', payload: {} })).toBeNull();
+  });
+});

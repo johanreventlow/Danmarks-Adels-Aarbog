@@ -11,7 +11,6 @@ import {
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
   type PersonNarrativ, type SourceRow,
 } from './data/redaktionRead';
-import { supabase } from './supabase';
 import { previewSammeSom } from './data/sammeSomPreflight';
 import { loadModel } from './data/model';
 import type { Model } from './data/types';
@@ -136,6 +135,8 @@ export default function Redaktion() {
       setRecordId((cur) => cur ?? ps[0]?.id ?? null);
     }).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
   }, []);
+  // Kilde-liste (udgave-picker) er person-uafhængig → hentes én gang. opretUdgave refresher selv.
+  useEffect(() => { fetchSources().then(setSources).catch(() => setSources([])); }, []);
 
   // Records for aktuel entitet (person = live person-liste; øvrige = lazy fetch + cache).
   const records: EntityRecord[] = useMemo(() => {
@@ -161,11 +162,10 @@ export default function Redaktion() {
     fetchPersonEvidence(id).then(setEvidence).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
     fetchPersonNarrativer(id).then((ns) => {
       setNarrativer(ns);
-      const first = ns[0] ?? null;
+      const first = ns[0];
       setAktivSourceId(first?.sourceId ?? 1);
       setNarrativUdkast({ tekst: first?.tekst ?? '', privat: first?.privat ?? false, side: first?.side ?? '' });
     }).catch(() => { setNarrativer([]); setAktivSourceId(1); setNarrativUdkast({ tekst: '', privat: false, side: '' }); });
-    fetchSources().then(setSources).catch(() => setSources([]));
     fetchPersonFamilie(id, model).then(setFamilie).catch(() => setFamilie({ somPartner: [], somBarn: [] }));
     fetchPersonRelationer(id).then(setRelationer).catch(() => setRelationer([]));
     fetchSammeSomLinks(id).then(setSammeSom).catch(() => setSammeSom([]));
@@ -179,23 +179,25 @@ export default function Redaktion() {
     setNarrativUdkast({ tekst: n?.tekst ?? '', privat: n?.privat ?? false, side: n?.side ?? '' });
   }, [narrativer]);
 
-  // Opret en ny DAA-udgave (source) og gør den til aktiv fane med tomt udkast. red_opret_kilde
-  // er versioneret (begin_change_set); kaldes direkte da vi skal bruge den nye id med det samme.
+  // Opret en ny DAA-udgave (source) via det delte submitChange-flow — så dry-run/staging/rolle-
+  // routing honoreres som for al anden skrivning. På LIVE bruges det nye source-id straks (skift
+  // aktiv fane, tomt udkast); på dry-run vises kun previewet (intet oprettet).
   const opretUdgave = useCallback(async () => {
     if (!nyUdgave || !nyUdgave.titel.trim()) return;
+    const change: Change = { art: 'opretKilde', subjektType: 'source', subjektId: '', payload: {
+      titel: nyUdgave.titel.trim(), slags: 'DAA-udgave',
+      udgave: nyUdgave.udgave.trim() || null, aar: nyUdgave.aar.trim() ? Number(nyUdgave.aar) : null } };
     try {
-      const { data, error } = await supabase.rpc('red_opret_kilde', {
-        p_titel: nyUdgave.titel.trim(), p_slags: 'DAA-udgave',
-        p_udgave: nyUdgave.udgave.trim() || null,
-        p_aar: nyUdgave.aar.trim() ? Number(nyUdgave.aar) : null,
-      });
-      if (error) throw error;
-      const nyId = Number(data);
-      setSources(await fetchSources());
-      setNyUdgave(null); setAktivSourceId(nyId);
-      setNarrativUdkast({ tekst: '', privat: false, side: '' });
-    } catch (e) { setLoadErr(oversaetFejl(String((e as Error)?.message ?? e))); }
-  }, [nyUdgave]);
+      const res = await submitChange(change, { dryRun, role });
+      setWriteView({ title: dryRun ? 'Dry-run · dette ville blive sendt' : (res.direkte ? 'Sendt til basen' : 'Forslag sendt til staging'),
+        lines: [describeCall(res.call)], error: '', done: !dryRun, dryRun, direkte: res.direkte });
+      if (!res.dryRun && res.direkte && res.result != null) {
+        setSources(await fetchSources());
+        setNyUdgave(null); setAktivSourceId(Number(res.result));
+        setNarrativUdkast({ tekst: '', privat: false, side: '' });
+      }
+    } catch (e) { setWriteView({ title: 'Ny udgave fejlede', lines: [], error: oversaetFejl(String((e as Error)?.message ?? e)), done: false, dryRun, direkte: false }); }
+  }, [nyUdgave, dryRun, role]);
   useEffect(() => {
     if (entity === 'person' && recordId) loadPerson(recordId);
   }, [entity, recordId, loadPerson]);
@@ -224,6 +226,12 @@ export default function Redaktion() {
     () => entity !== 'person' ? null
       : buildBrowse(persons.map((p) => ({ ...p, name: p.navn })), query, browseSort, activeLetter, { linjeByPerson, activeLinje }),
     [entity, persons, query, browseSort, activeLetter, linjeByPerson, activeLinje],
+  );
+
+  // Udgaver personen endnu ikke har en narrativ i — kandidater til "+ Ny udgave"-picker.
+  const ledigeSources = useMemo(
+    () => sources.filter((s) => !narrativer.some((n) => n.sourceId === s.id)),
+    [sources, narrativer],
   );
 
   // --- Skrivning ---
@@ -494,12 +502,12 @@ export default function Redaktion() {
             <div style={{ ...annoBox, marginBottom: 10, padding: '10px 11px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ fontSize: 10.5, color: T.muted }}>Vælg en udgave personen ikke har endnu:</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {sources.filter((s) => !narrativer.some((n) => n.sourceId === s.id)).map((s) => (
+                {ledigeSources.map((s) => (
                   <div key={s.id} onClick={() => vaelgUdgave(s.id)} style={{ fontSize: 11.5, padding: '4px 9px', borderRadius: 6, cursor: 'pointer', border: '1px solid rgba(34,31,26,.16)', color: T.muted }}>
                     {s.udgave ?? s.titel ?? `Kilde ${s.id}`}
                   </div>
                 ))}
-                {sources.filter((s) => !narrativer.some((n) => n.sourceId === s.id)).length === 0 && <span style={{ fontSize: 11, color: T.muted3 }}>(ingen ledige)</span>}
+                {ledigeSources.length === 0 && <span style={{ fontSize: 11, color: T.muted3 }}>(ingen ledige)</span>}
               </div>
               <div style={{ fontSize: 10.5, color: T.muted, marginTop: 2 }}>… eller opret en ny DAA-udgave:</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
