@@ -112,7 +112,13 @@ CREATE TABLE lineage (                   -- SLÆGTSLINJE / GREN (fx Reventlows f
   -- (b) PROMOVERING (2026-06-30): forgrening + status. Tilføjet additivt; ældre rækker har NULL.
   parent_lineage_id BIGINT REFERENCES lineage(id),  -- forgrening: gren udgår af gren (NULL = rod)
   status    TEXT,                          -- fri tekst, fx 'uddød', 'kendt hul / ikke undersøgt'
-  slaegtsnavn TEXT,                        -- families-efternavn ('Reventlow'); NULL = udeledt/ukendt (udledt-slægtsnavn-design)
+  -- families-efternavn ('Reventlow'); NULL = udeledt/ukendt (udledt-slægtsnavn-design). Bevidst en
+  -- ren kolonne, IKKE en fact-række (afviger fra invariant 3 "alt er et faktum", som ellers
+  -- gælder lineage-attributter som adling/floruit) — lineage_effective_slaegtsnavn() kaldes
+  -- rekursivt op ad parent_lineage_id INDE i regen_person_visning's per-person-trigger-sti; en
+  -- fact/assertion/conclusion-join i den løkke ville være markant dyrere. Hvis efternavnet en dag
+  -- får brug for evidenslag (fx to DAA-udgaver uenige om et grennavn), genovervej dette.
+  slaegtsnavn TEXT,
   UNIQUE (source_id, kode)
   -- Resten af (b) kræver INGEN skema-ændring — den rider på de polymorfe evidens-tabeller:
   --   * fact     subjekt_type='lineage'  → adling, floruit, alternative navne m. evidens
@@ -358,13 +364,20 @@ CREATE TABLE narrative (          -- bevaret biografisk prosa (substrat); fakta 
 -- Recompute cache-felter fra personens konklusioner. Læser den VALGTE assertions værdi
 -- pr. faktatype. Dato-fakta (fødsel/død) bruger coalesce(date_raw, vaerdi_tekst).
 -- Udvidet (udledt-slægtsnavn-design §4.5) til også at sætte visning_efternavn/visning_fuldt_navn.
--- efternavn_cte er fan-out-sikker (én række pr. person_id via GROUP BY): et fremtidigt
--- multi-linje-medlemskab tvetydiggør efternavnet frem for at give et vilkårligt SQL-valg —
--- se n_distinct-håndteringen + karantæne nedenfor.
+-- Efternavn-opslaget er fan-out-sikkert: LATERAL sikrer ÉN lineage_effective_slaegtsnavn-kald pr.
+-- linje-medlemskab (fremfor to — én for count(DISTINCT), én for min() — som i den oprindelige
+-- CTE-form), og resultatet genbruges BÅDE i UPDATE'ets CASE-logik og karantæne-tjekket nedenfor i
+-- stedet for at gen-joine person_external_id/lineage en ekstra gang (/simplify-fund, review 19).
 CREATE OR REPLACE FUNCTION regen_person_visning(pid BIGINT)
 RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
-DECLARE v_n_distinct INT;
+DECLARE v_n_distinct INT; v_slaegtsnavn TEXT;
 BEGIN
+  SELECT count(DISTINCT sn.v), min(sn.v) INTO v_n_distinct, v_slaegtsnavn
+  FROM person_external_id pei
+  JOIN lineage l ON l.source_id = pei.source_id AND l.kode = pei.linje
+  CROSS JOIN LATERAL (SELECT lineage_effective_slaegtsnavn(l.id) AS v) sn
+  WHERE pei.person_id = pid;
+
   WITH navn_agg AS (
     SELECT
       max(a.vaerdi_tekst) FILTER (WHERE f.faktatype='navn')  AS navn,
@@ -376,31 +389,22 @@ BEGIN
     JOIN assertion  a ON a.id = c.valgt_assertion_id
     WHERE f.subjekt_type='person' AND f.subjekt_id = pid
   ),
-  efternavn_cte AS (
-    SELECT pei.person_id,
-           count(DISTINCT lineage_effective_slaegtsnavn(l.id)) AS n_distinct,
-           min(lineage_effective_slaegtsnavn(l.id))            AS slaegtsnavn
-    FROM person_external_id pei
-    JOIN lineage l ON l.source_id = pei.source_id AND l.kode = pei.linje
-    WHERE pei.person_id = pid
-    GROUP BY pei.person_id
-  ),
   final AS (
     SELECT
       navn_agg.navn, navn_agg.foedt, navn_agg.doed, navn_agg.titel,
       CASE
         WHEN navn_agg.navn IS NULL THEN NULL
-        WHEN coalesce(efternavn_cte.n_distinct,0) <> 1 THEN NULL
-        WHEN slaegtsnavn_suffiks_match(navn_agg.navn, efternavn_cte.slaegtsnavn) THEN NULL
-        ELSE efternavn_cte.slaegtsnavn
+        WHEN coalesce(v_n_distinct,0) <> 1 THEN NULL
+        WHEN slaegtsnavn_suffiks_match(navn_agg.navn, v_slaegtsnavn) THEN NULL
+        ELSE v_slaegtsnavn
       END AS efternavn,
       CASE
         WHEN navn_agg.navn IS NULL THEN NULL
-        WHEN coalesce(efternavn_cte.n_distinct,0) <> 1 THEN navn_agg.navn
-        WHEN slaegtsnavn_suffiks_match(navn_agg.navn, efternavn_cte.slaegtsnavn) THEN navn_agg.navn
-        ELSE navn_agg.navn || ' ' || efternavn_cte.slaegtsnavn
+        WHEN coalesce(v_n_distinct,0) <> 1 THEN navn_agg.navn
+        WHEN slaegtsnavn_suffiks_match(navn_agg.navn, v_slaegtsnavn) THEN navn_agg.navn
+        ELSE navn_agg.navn || ' ' || v_slaegtsnavn
       END AS fuldt
-    FROM navn_agg LEFT JOIN efternavn_cte ON true
+    FROM navn_agg
   )
   UPDATE person p SET
     visning_navn = final.navn, visning_foedt = final.foedt, visning_doed = final.doed,
@@ -409,10 +413,6 @@ BEGIN
   WHERE p.id = pid
     AND (p.visning_navn, p.visning_foedt, p.visning_doed, p.visning_titel, p.visning_efternavn, p.visning_fuldt_navn)
         IS DISTINCT FROM (final.navn, final.foedt, final.doed, final.titel, final.efternavn, final.fuldt);
-
-  SELECT count(DISTINCT lineage_effective_slaegtsnavn(l.id)) INTO v_n_distinct
-  FROM person_external_id pei JOIN lineage l ON l.source_id=pei.source_id AND l.kode=pei.linje
-  WHERE pei.person_id = pid;
 
   IF v_n_distinct > 1 THEN
     INSERT INTO slaegtsnavn_karantaene(person_id, n_distinct) VALUES (pid, v_n_distinct)
