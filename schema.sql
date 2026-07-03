@@ -473,13 +473,16 @@ CREATE TRIGGER trg_external_id_regen
   AFTER INSERT OR UPDATE OR DELETE ON person_external_id
   FOR EACH ROW EXECUTE FUNCTION trg_regen_from_external_id();
 
--- lineage.slaegtsnavn/parent_lineage_id-ændring regenererer HELE det berørte undertræs medlemmer
--- (lineage_descendants — samme cyklus-sikre walker som skrive-tids cyklus-forebyggelsen).
+-- lineage.slaegtsnavn/parent_lineage_id-ændring (ELLER en frisk INSERT — review 19 H1: en fri
+-- --force-reset-genindlæsning opretter lineage-rækkerne FØRSTE gang via INSERT, og uden INSERT i
+-- trigger-betingelsen forbliver alle medlemmers cache stille NULL indtil en manuel sweep) regenererer
+-- HELE det berørte undertræs medlemmer (lineage_descendants — samme cyklus-sikre walker som
+-- skrive-tids cyklus-forebyggelsen). OLD findes ikke ved INSERT — TG_OP tjekkes derfor FØRST.
 CREATE OR REPLACE FUNCTION trg_regen_from_lineage()
 RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
 DECLARE v_lid BIGINT; v_pid BIGINT;
 BEGIN
-  IF (NEW.slaegtsnavn IS DISTINCT FROM OLD.slaegtsnavn) OR (NEW.parent_lineage_id IS DISTINCT FROM OLD.parent_lineage_id) THEN
+  IF TG_OP = 'INSERT' OR (NEW.slaegtsnavn IS DISTINCT FROM OLD.slaegtsnavn) OR (NEW.parent_lineage_id IS DISTINCT FROM OLD.parent_lineage_id) THEN
     FOR v_lid IN SELECT * FROM lineage_descendants(NEW.id) LOOP
       FOR v_pid IN
         SELECT DISTINCT pei.person_id FROM person_external_id pei
@@ -495,7 +498,7 @@ END $$;
 
 DROP TRIGGER IF EXISTS trg_lineage_regen ON lineage;
 CREATE TRIGGER trg_lineage_regen
-  AFTER UPDATE OF slaegtsnavn, parent_lineage_id ON lineage
+  AFTER INSERT OR UPDATE OF slaegtsnavn, parent_lineage_id ON lineage
   FOR EACH ROW EXECUTE FUNCTION trg_regen_from_lineage();
 
 -- ---------- REDAKTIONS-RPC'ER (Task 3) ----------
@@ -782,6 +785,9 @@ BEGIN
   DELETE FROM fact               WHERE id = ANY(v_facts);
   DELETE FROM person_external_id WHERE person_id = p_person_id;
   DELETE FROM family_member      WHERE person_id = p_person_id;
+  -- review 19 H2: slaegtsnavn_karantaene.person_id har ingen ON DELETE CASCADE — uden denne linje
+  -- fejler sletningen for enhver person der har >1 distinkt effektivt efternavn (fan-out).
+  DELETE FROM slaegtsnavn_karantaene WHERE person_id = p_person_id;
   DELETE FROM person             WHERE id = p_person_id;
 END $$;
 

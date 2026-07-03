@@ -1503,3 +1503,70 @@ DROP TRIGGER IF EXISTS trg_lineage_regen ON lineage;
 CREATE TRIGGER trg_lineage_regen
   AFTER UPDATE OF slaegtsnavn, parent_lineage_id ON lineage
   FOR EACH ROW EXECUTE FUNCTION trg_regen_from_lineage();
+
+-- 2026-07-03: udledt slægtsnavn — review 19 dual-review-fund (H1 + H2)
+-- H1: trg_lineage_regen fyrede kun på UPDATE. En frisk --force-reset-genindlæsning opretter
+-- lineage-rækkerne FØRSTE gang via INSERT (post_load_fixup.R) → triggeren fyrede aldrig →
+-- alle medlemmers visning_efternavn/visning_fuldt_navn forblev stille NULL. OLD findes ikke ved
+-- INSERT — TG_OP tjekkes derfor FØRST.
+CREATE OR REPLACE FUNCTION trg_regen_from_lineage()
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE v_lid BIGINT; v_pid BIGINT;
+BEGIN
+  IF TG_OP = 'INSERT' OR (NEW.slaegtsnavn IS DISTINCT FROM OLD.slaegtsnavn) OR (NEW.parent_lineage_id IS DISTINCT FROM OLD.parent_lineage_id) THEN
+    FOR v_lid IN SELECT * FROM lineage_descendants(NEW.id) LOOP
+      FOR v_pid IN
+        SELECT DISTINCT pei.person_id FROM person_external_id pei
+        JOIN lineage l ON l.source_id=pei.source_id AND l.kode=pei.linje
+        WHERE l.id = v_lid
+      LOOP
+        PERFORM regen_person_visning(v_pid);
+      END LOOP;
+    END LOOP;
+  END IF;
+  RETURN NULL;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_lineage_regen ON lineage;
+CREATE TRIGGER trg_lineage_regen
+  AFTER INSERT OR UPDATE OF slaegtsnavn, parent_lineage_id ON lineage
+  FOR EACH ROW EXECUTE FUNCTION trg_regen_from_lineage();
+
+-- H2: slaegtsnavn_karantaene.person_id har ingen ON DELETE CASCADE (bevidst — deny-all intern
+-- log). red_slet_person sletter fra alle andre evidens-/link-tabeller men rørte aldrig karantæne-
+-- tabellen → FK-violation ved sletning af en person med >1 distinkt effektivt efternavn (fan-out).
+CREATE OR REPLACE FUNCTION red_slet_person(p_person_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_facts bigint[]; v_rels bigint[];
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_slet_person', format('Slettede person %s', p_person_id), 'person', p_person_id);
+
+  SELECT coalesce(array_agg(id),'{}') INTO v_facts FROM fact
+    WHERE subjekt_type='person' AND subjekt_id=p_person_id;
+  SELECT coalesce(array_agg(id),'{}') INTO v_rels FROM relation
+    WHERE (subjekt_type='person' AND subjekt_id=p_person_id)
+       OR (objekt_type='person'  AND objekt_id=p_person_id);
+
+  UPDATE profiles SET reventlow_person_id = NULL WHERE reventlow_person_id = p_person_id;
+
+  DELETE FROM citation WHERE assertion_id IN (
+    SELECT id FROM assertion WHERE (target_type='fact'     AND target_id = ANY(v_facts))
+                                OR (target_type='relation' AND target_id = ANY(v_rels)));
+  DELETE FROM conclusion WHERE (target_type='fact'     AND target_id = ANY(v_facts))
+                            OR (target_type='relation' AND target_id = ANY(v_rels));
+  DELETE FROM assertion  WHERE (target_type='fact'     AND target_id = ANY(v_facts))
+                            OR (target_type='relation' AND target_id = ANY(v_rels));
+
+  DELETE FROM note WHERE (target_type='person'   AND target_id=p_person_id)
+                      OR (target_type='fact'     AND target_id = ANY(v_facts))
+                      OR (target_type='relation' AND target_id = ANY(v_rels));
+
+  DELETE FROM narrative          WHERE subjekt_type='person' AND subjekt_id=p_person_id;
+  DELETE FROM relation           WHERE id = ANY(v_rels);
+  DELETE FROM fact               WHERE id = ANY(v_facts);
+  DELETE FROM person_external_id WHERE person_id = p_person_id;
+  DELETE FROM family_member      WHERE person_id = p_person_id;
+  DELETE FROM slaegtsnavn_karantaene WHERE person_id = p_person_id;
+  DELETE FROM person             WHERE id = p_person_id;
+END $$;

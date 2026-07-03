@@ -878,3 +878,56 @@ BEGIN
   DELETE FROM lineage WHERE id=v_lineage;
   RAISE NOTICE 'OK: invalidation-triggere (person_external_id + lineage)';
 END $$;
+
+-- ===== Review 19 H1: frisk lineage-INSERT (ikke kun UPDATE) trigger regen =====
+DO $$
+DECLARE v_source BIGINT; v_lineage BIGINT; v_p BIGINT; v_fuldt TEXT;
+BEGIN
+  SELECT id INTO v_source FROM source LIMIT 1;
+  v_p := (SELECT coalesce(max(id),0)+1 FROM person);
+  INSERT INTO person(id, visning_navn) VALUES (v_p, 'Frisk Insert Person');
+  v_lineage := (SELECT coalesce(max(id),0)+1 FROM lineage);
+  -- external_id INDSAT FØR lineage-rækken findes (matcher load_daa.R → post_load_fixup.R-rækkefølgen).
+  INSERT INTO person_external_id(person_id, source_id, linje, nr) VALUES (v_p, v_source, '__TEST_H1', 1);
+  -- fresh INSERT (ikke UPDATE) på lineage — skal ALENE trigge regen af v_p uden noget eksplicit kald.
+  INSERT INTO lineage(id, source_id, kode, navn, slaegtsnavn) VALUES (v_lineage, v_source, '__TEST_H1', 'H1-test', 'Insertnavn');
+  SELECT visning_fuldt_navn INTO v_fuldt FROM person WHERE id=v_p;
+  IF v_fuldt <> 'Frisk Insert Person Insertnavn' THEN
+    RAISE EXCEPTION 'FEJL (review19 H1): lineage-INSERT trigger ikke regen, fik fuldt_navn=%', v_fuldt;
+  END IF;
+  DELETE FROM person_external_id WHERE person_id=v_p;
+  DELETE FROM person WHERE id=v_p;
+  DELETE FROM lineage WHERE id=v_lineage;
+  RAISE NOTICE 'OK: review19 H1 — frisk lineage-INSERT trigger regen';
+END $$;
+
+-- ===== Review 19 H2: red_slet_person for en karantæneret person =====
+DO $$
+DECLARE v_source BIGINT; v_source2 BIGINT; v_l1 BIGINT; v_l2 BIGINT; v_p BIGINT; v_uid UUID := '00000000-0000-0000-0000-000000000001';
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+  INSERT INTO profiles(id, rolle, email) VALUES (v_uid,'redaktion','t@x') ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  SELECT id INTO v_source FROM source LIMIT 1;
+  v_l1 := (SELECT coalesce(max(id),0)+1 FROM lineage);
+  INSERT INTO lineage(id, source_id, kode, navn, slaegtsnavn) VALUES (v_l1, v_source, '__TEST_H2A', 'A', 'Alfa');
+  v_source2 := (SELECT coalesce(max(id),0)+1 FROM source);
+  INSERT INTO source(id, slags, titel) VALUES (v_source2, 'DAA-udgave', 'Test-udgave H2');
+  v_l2 := v_l1 + 1;
+  INSERT INTO lineage(id, source_id, kode, navn, slaegtsnavn) VALUES (v_l2, v_source2, '__TEST_H2B', 'B', 'Beta');
+  v_p := (SELECT coalesce(max(id),0)+1 FROM person);
+  INSERT INTO person(id, visning_navn) VALUES (v_p, 'H2 Karantæne Person');
+  INSERT INTO person_external_id(person_id, source_id, linje, nr) VALUES (v_p, v_source, '__TEST_H2A', 1);
+  INSERT INTO person_external_id(person_id, source_id, linje, nr) VALUES (v_p, v_source2, '__TEST_H2B', 1);
+  PERFORM regen_person_visning(v_p);
+  IF NOT EXISTS (SELECT 1 FROM slaegtsnavn_karantaene WHERE person_id=v_p) THEN
+    RAISE EXCEPTION 'FEJL (review19 H2 setup): person burde være i karantæne';
+  END IF;
+  -- red_slet_person MÅ IKKE fejle (FK-violation) selvom personen er i karantæne.
+  PERFORM red_slet_person(v_p);
+  IF EXISTS (SELECT 1 FROM person WHERE id=v_p) OR EXISTS (SELECT 1 FROM slaegtsnavn_karantaene WHERE person_id=v_p) THEN
+    RAISE EXCEPTION 'FEJL (review19 H2): red_slet_person efterlod rester for en karantæneret person';
+  END IF;
+  DELETE FROM lineage WHERE id IN (v_l1, v_l2);
+  DELETE FROM source WHERE id=v_source2;
+  RAISE NOTICE 'OK: review19 H2 — red_slet_person virker for karantæneret person';
+END $$;
