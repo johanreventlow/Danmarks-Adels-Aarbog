@@ -10,7 +10,7 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadGate } from '../../components/LoadGate';
 import { BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
-import { buildColumns, childrenOf, routeToMe, treeFocusA, wayToMe, type WayStep } from '../../data/selectors';
+import { buildBidirectionalColumns, childrenOf, routeToMe, treeFocusA, wayToMe, type WayStep } from '../../data/selectors';
 import type { Model, ModelPerson } from '../../data/types';
 import { useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius, Shadow } from '../../theme/tokens';
@@ -120,46 +120,76 @@ function VariantA({ model, insets }: { model: Model; insets: { bottom: number } 
   );
 }
 
-// ── Variant B · Kolonner ─────────────────────────────────────────────────────
+// ── Variant B · Kolonner (bidirektionel: aner venstre · fokus · efterkommere højre) ───────────
+const B_STRIDE = 176; // kolonnebredde 166 + gap 10
 function VariantB({ model, insets }: { model: Model; insets: { bottom: number } }) {
   const router = useRouter();
-  const path = useStore((s) => s.path);
-  const selectAt = useStore((s) => s.selectAt);
+  const anchorId = useStore((s) => s.anchorId);
+  const up = useStore((s) => s.up);
+  const down = useStore((s) => s.down);
+  const selectAncestor = useStore((s) => s.selectAncestor);
+  const selectDescendant = useStore((s) => s.selectDescendant);
   const scrollRef = useRef<ScrollView>(null);
-  const cols = useMemo(() => buildColumns(model, path), [model, path]);
+  const viewW = useRef(0);
+  const prevUp = useRef(0), prevDown = useRef(0), prevAnchor = useRef<string | null>(null);
+  const cols = useMemo(() => (anchorId ? buildBidirectionalColumns(model, anchorId, up, down) : []), [model, anchorId, up, down]);
+  const anchorIdx = cols.findIndex((c) => c.kind === 'anchor');
 
-  // Auto-scroll til nyeste kolonne. Keyer på hele stien (ikke kun .length): en re-selektion på
-  // samme dybde der afslører en ny børne-kolonne ændrer ikke length, men skal stadig scrolle.
-  const pathKey = path.join(',');
+  // Auto-scroll (spec §5.5): centrér anker ved reset; afslør nyeste kolonne ved drill (ned → højre,
+  // op → venstre). setTimeout venter på RN-layout (samme mønster som før; verificeres manuelt i Expo).
   useEffect(() => {
-    const t = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 60);
+    const t = setTimeout(() => {
+      const sc = scrollRef.current;
+      if (!sc) return;
+      if (anchorId !== prevAnchor.current) {
+        const x = Math.max(0, anchorIdx * B_STRIDE - Math.max(0, (viewW.current - 166) / 2));
+        sc.scrollTo({ x, animated: false });          // centrér anker
+      } else if (down.length > prevDown.current) {
+        sc.scrollToEnd({ animated: true });           // ny efterkommer → højre
+      } else if (up.length > prevUp.current) {
+        sc.scrollTo({ x: 0, animated: true });        // ny ane → afslør venstre
+      }
+      prevUp.current = up.length; prevDown.current = down.length; prevAnchor.current = anchorId;
+    }, 60);
     return () => clearTimeout(t);
-  }, [pathKey]);
+  }, [anchorId, up.length, down.length, anchorIdx]);
 
   return (
     <View style={{ flex: 1, paddingTop: 8 }}>
       <Mono size={9.5} color={Colors.textMuted} style={{ paddingHorizontal: 16, paddingBottom: 4, letterSpacing: 9.5 * 0.12, textTransform: 'uppercase' }}>
-        Træk til siden gennem generationerne ▸
+        ◂ aner · fokus · efterkommere ▸
       </Mono>
-      <ScrollView ref={scrollRef} horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ gap: 10, paddingHorizontal: 16, paddingVertical: 8, alignItems: 'stretch' }}>
+      <ScrollView
+        ref={scrollRef}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ gap: 10, paddingHorizontal: 16, paddingVertical: 8, alignItems: 'stretch' }}
+        onLayout={(e) => { viewW.current = e.nativeEvent.layout.width; }}
+      >
         {cols.map((col) => (
-          <View key={col.level} style={{ width: 166 }}>
+          <View key={col.key} style={{ width: 166 }}>
             <Mono size={9} color={Colors.gold} style={{ letterSpacing: 9 * 0.1, textTransform: 'uppercase', paddingBottom: 2, marginBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Border.light }}>
-              Generation {col.level + 1}
+              {col.label}
             </Mono>
             <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: insets.bottom + 90 }}>
             {col.people.map((p) => {
-              const sel = p.id === col.selected;
-              const hasKids = childrenOf(model, p.id).length > 0;
+              const sel = p.id === col.selectedId;
+              const canAnc = col.kind === 'ancestor' && (model.indexes.parentsByChild[p.id]?.length ?? 0) > 0;
+              const canDesc = col.kind === 'descendant' && childrenOf(model, p.id).length > 0;
+              const onPress = col.kind === 'ancestor' ? () => selectAncestor(col.depth, p.id)
+                : col.kind === 'descendant' ? () => selectDescendant(col.depth, p.id)
+                : undefined;
               return (
-                <Pressable key={p.id} onPress={() => selectAt(col.level, p.id)} style={[styles.bCard, sel ? styles.bCardSelected : styles.bCardIdle]}>
+                <Pressable key={p.id} onPress={onPress} style={[styles.bCard, sel ? styles.bCardSelected : styles.bCardIdle]}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    {canAnc ? <Serif size={16} color="#bcae93">‹</Serif> : null}
                     <View style={styles.bAvatar}><Serif size={15} color={Colors.bordeaux}>{initial(p.name)}</Serif></View>
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Serif size={16} style={{ lineHeight: 17 }} numberOfLines={2}>{p.name}</Serif>
                       {p.years ? <Mono size={9} color={Colors.textMuted} style={{ marginTop: 2 }}>{p.years}</Mono> : null}
                     </View>
-                    {hasKids ? <Serif size={16} color="#bcae93">›</Serif> : null}
+                    {canDesc ? <Serif size={16} color="#bcae93">›</Serif> : null}
                   </View>
                   {sel ? (
                     <Pressable onPress={() => router.push(`/person/${p.id}`)} style={styles.bOpenBtn}>

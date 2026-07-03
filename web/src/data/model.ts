@@ -23,6 +23,15 @@ export function childrenOf(model: Model, id: string): ModelPerson[] {
     .filter(Boolean) as ModelPerson[];
 }
 
+// Forældre af en person som ModelPerson[] (fra primær fødselsfamilie, far før mor jf.
+// compareParentOrder i loaderen). Symmetrisk med childrenOf; bruges af ane-drillen i variant B.
+// Matcher mobilens selectors.parentsOf.
+export function parentsOf(model: Model, id: string): ModelPerson[] {
+  return (model.indexes.parentsByChild[id] ?? [])
+    .map((pid) => model.byId[pid])
+    .filter(Boolean) as ModelPerson[];
+}
+
 type RawPerson = {
   id: number | string; visning_navn: string | null; visning_foedt: string | null;
   visning_doed: string | null; visning_titel: string | null; koen: string | null; privat: boolean | null;

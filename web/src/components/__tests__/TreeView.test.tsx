@@ -4,69 +4,89 @@ import { TreeView } from '../../Folgesvend';
 import { buildModel } from '../../data/buildModel';
 import type { AppPerson, Db } from '../../data/types';
 
-const P = (id: string, o: Partial<AppPerson> = {}): AppPerson => ({
-  id, name: id, born: null, died: null, years: '', title: '', bio: '', privat: false, ...o,
+const P = (id: string, name: string): AppPerson => ({
+  id, name, born: null, died: null, years: '', title: '', bio: '', privat: false,
 });
 const db = (persons: AppPerson[], parentChild: Db['parentChild']): Db => ({ persons, unions: [], parentChild });
 
-// R → {C1, C2}; C1 → {G1, G2}.
+// Farfar+Farmor → Far (+ Mor) → Anna (fokus) → {Bo, Cille}; Bo → Ida → Emil.
 const model = buildModel(
   db(
-    [P('R'), P('C1'), P('C2'), P('G1'), P('G2')],
     [
-      { child: 'C1', parent: 'R', union: 'u1' },
-      { child: 'C2', parent: 'R', union: 'u1' },
-      { child: 'G1', parent: 'C1', union: 'u2' },
-      { child: 'G2', parent: 'C1', union: 'u2' },
+      P('A', 'Anna'), P('F', 'Far'), P('M', 'Mor'), P('GF', 'Farfar'), P('GM', 'Farmor'),
+      P('C1', 'Bo'), P('C2', 'Cille'), P('G1', 'Ida'), P('GG', 'Emil'),
+    ],
+    [
+      { child: 'F', parent: 'GF', union: 'u0' },
+      { child: 'F', parent: 'GM', union: 'u0' },
+      { child: 'A', parent: 'F', union: 'u1' },
+      { child: 'A', parent: 'M', union: 'u1' },
+      { child: 'C1', parent: 'A', union: 'u2' },
+      { child: 'C2', parent: 'A', union: 'u2' },
+      { child: 'G1', parent: 'C1', union: 'u3' },
+      { child: 'GG', parent: 'G1', union: 'u4' },
     ],
   ),
 );
+const props = { model, onPick: () => {}, onFocus: () => {} };
 
 describe('TreeView', () => {
-  it('viser Fokus-variant som standard (ingen kolonne-generationer)', () => {
-    render(<TreeView model={model} focusId="R" onPick={vi.fn()} onFocus={vi.fn()} />);
+  it('viser Fokus-variant som standard (ingen kolonne-labels)', () => {
+    render(<TreeView {...props} focusId="A" />);
     expect(screen.getByText('Denne generation')).toBeTruthy(); // variant A-markør
-    expect(screen.queryByText('Generation 1')).toBeNull();
+    expect(screen.queryByText('Forældre')).toBeNull();
   });
 
-  it('skifter til Kolonner-variant: kol 0 = fokus, kol 1 = børn', () => {
-    render(<TreeView model={model} focusId="R" onPick={vi.fn()} onFocus={vi.fn()} />);
+  it('Kolonner default: Forældre + Fokus + Børn synlige (begge retninger)', () => {
+    render(<TreeView {...props} focusId="A" />);
     fireEvent.click(screen.getByText('Kolonner'));
-    expect(screen.getByText('Generation 1')).toBeTruthy();
-    expect(screen.getByText('Generation 2')).toBeTruthy();
-    expect(screen.getByText('C1')).toBeTruthy();
-    expect(screen.getByText('C2')).toBeTruthy();
-    expect(screen.queryByText('Generation 3')).toBeNull(); // intet valgt endnu
+    expect(screen.getByText('Forældre')).toBeTruthy();
+    expect(screen.getByText('Børn')).toBeTruthy();
+    expect(screen.getByText('Far')).toBeTruthy();
+    expect(screen.getByText('Mor')).toBeTruthy();
+    expect(screen.getByText('Bo')).toBeTruthy();
+    expect(screen.getByText('Cille')).toBeTruthy();
+    expect(screen.queryByText('Bedsteforældre')).toBeNull(); // intet ane-valg endnu
+    expect(screen.queryByText('Børnebørn')).toBeNull();
+    // chevrons peger i drill-retningen
+    expect(screen.getAllByText('‹').length).toBeGreaterThan(0); // Far har forældre
+    expect(screen.getAllByText('›').length).toBeGreaterThan(0); // Bo har barn
   });
 
-  it('drill-down: valg af et barn åbner næste generation + kalder onFocus (uden historik)', () => {
-    const onPick = vi.fn();
-    const onFocus = vi.fn();
-    render(<TreeView model={model} focusId="R" onPick={onPick} onFocus={onFocus} />);
+  it('ane-drill: vælg Far → Bedsteforældre-kolonne + onFocus (ikke onPick)', () => {
+    let picked: string | null = null, focused: string | null = null;
+    render(<TreeView model={model} focusId="A" onPick={(id) => (picked = id)} onFocus={(id) => (focused = id)} />);
     fireEvent.click(screen.getByText('Kolonner'));
-    fireEvent.click(screen.getByText('C1')); // vælg barn med børn
-    expect(onFocus).toHaveBeenCalledWith('C1'); // drill = historik-fri fokus
-    expect(onPick).not.toHaveBeenCalled();      // IKKE historik-hoppet (variant A-vejen)
-    expect(screen.getByText('Generation 3')).toBeTruthy();
-    expect(screen.getByText('G1')).toBeTruthy();
-    expect(screen.getByText('G2')).toBeTruthy();
+    fireEvent.click(screen.getByText('Far'));
+    expect(focused).toBe('F');
+    expect(picked).toBeNull();
+    expect(screen.getByText('Bedsteforældre')).toBeTruthy();
+    expect(screen.getByText('Farfar')).toBeTruthy();
+    expect(screen.getByText('Farmor')).toBeTruthy();
   });
 
-  it('reset ved EKSTERN fokus-ændring: stien foldes til den nye fokus-person', () => {
-    const { rerender } = render(<TreeView model={model} focusId="R" onPick={vi.fn()} onFocus={vi.fn()} />);
+  it('efterkommer-drill: vælg Bo → Børnebørn-kolonne', () => {
+    render(<TreeView {...props} focusId="A" />);
     fireEvent.click(screen.getByText('Kolonner'));
-    fireEvent.click(screen.getByText('C1')); // drill R→C1
-    fireEvent.click(screen.getByText('G1')); // drill videre til R→C1→G1 (path-hale = G1)
-    expect(screen.getByText('Generation 3')).toBeTruthy();
+    fireEvent.click(screen.getByText('Bo'));
+    expect(screen.getByText('Børnebørn')).toBeTruthy();
+    expect(screen.getByText('Ida')).toBeTruthy();
+  });
 
-    // Ekstern navigation (fx via sidebar/detalje) sætter en ny focusId der IKKE er path-halen (G1).
-    // Modsat: at navigere til den allerede-drillede hale ville (korrekt) bevare stien.
-    rerender(<TreeView model={model} focusId="C1" onPick={vi.fn()} onFocus={vi.fn()} />);
-    // Variant B bevares, men stien foldes til C1: kol 0 = [C1], kol 1 = [G1, G2], ingen Generation 3.
-    expect(screen.getByText('Generation 1')).toBeTruthy();
-    expect(screen.getByText('Generation 2')).toBeTruthy();
-    expect(screen.queryByText('Generation 3')).toBeNull();
-    expect(screen.getByText('G1')).toBeTruthy(); // C1's barn i den friske Generation 2
-    expect(screen.queryByText('C2')).toBeNull(); // R's andet barn er ikke længere i stien
+  it('reset (BLOCKER-fix): ekstern nav til en node der er i down men IKKE frontier → nulstiller', () => {
+    const { rerender } = render(<TreeView {...props} focusId="A" />);
+    fireEvent.click(screen.getByText('Kolonner'));
+    fireEvent.click(screen.getByText('Bo'));  // down=[Bo]
+    fireEvent.click(screen.getByText('Ida')); // down=[Bo, Ida] → Oldebørn (Emil) vises
+    expect(screen.getByText('Oldebørn')).toBeTruthy();
+    expect(screen.getByText('Emil')).toBeTruthy();
+
+    // Ekstern nav til Bo: Bo ER i down, men er IKKE frontier (Ida er) → skal NULSTILLE til Bo.
+    // (Et fuldt medlemskabs-tjek ville forkert bevare visningen.)
+    rerender(<TreeView model={model} focusId="C1" onPick={() => {}} onFocus={() => {}} />);
+    expect(screen.queryByText('Oldebørn')).toBeNull(); // drill foldet
+    expect(screen.getByText('Forældre')).toBeTruthy(); // Bo's forældre (Anna)
+    expect(screen.getByText('Anna')).toBeTruthy();
+    expect(screen.getByText('Ida')).toBeTruthy();       // Bo's barn i frisk Børn-kolonne
   });
 });

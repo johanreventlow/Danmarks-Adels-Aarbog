@@ -1,4 +1,4 @@
-import { buildTreeColumns } from '../tree';
+import { buildBidirectionalColumns } from '../tree';
 import { buildModel } from '../buildModel';
 import type { AppPerson, Db } from '../types';
 
@@ -7,68 +7,106 @@ const P = (id: string, o: Partial<AppPerson> = {}): AppPerson => ({
 });
 const db = (persons: AppPerson[], parentChild: Db['parentChild']): Db => ({ persons, unions: [], parentChild });
 
-// Familie: R → {C1, C2}; C1 → {G1, G2}. C2 og grandchildren er blade.
+// Slægt: GF+GM → F (+ M) → A (fokus) → {C1, C2}; C1 → G1.
+//   GF, GM = bedsteforældre (F's forældre); F, M = A's forældre; C1,C2 = A's børn; G1 = C1's barn.
 const model = buildModel(
   db(
-    [P('R'), P('C1'), P('C2'), P('G1'), P('G2')],
+    [P('GF'), P('GM'), P('F'), P('M'), P('A'), P('C1'), P('C2'), P('G1')],
     [
-      { child: 'C1', parent: 'R', union: 'u1' },
-      { child: 'C2', parent: 'R', union: 'u1' },
-      { child: 'G1', parent: 'C1', union: 'u2' },
-      { child: 'G2', parent: 'C1', union: 'u2' },
+      { child: 'F', parent: 'GF', union: 'u0' },
+      { child: 'F', parent: 'GM', union: 'u0' },
+      { child: 'A', parent: 'F', union: 'u1' },
+      { child: 'A', parent: 'M', union: 'u1' },
+      { child: 'C1', parent: 'A', union: 'u2' },
+      { child: 'C2', parent: 'A', union: 'u2' },
+      { child: 'G1', parent: 'C1', union: 'u3' },
     ],
   ),
 );
+const ids = (people: { id: string }[]) => people.map((p) => p.id);
+const col = (cols: ReturnType<typeof buildBidirectionalColumns>, key: string) => cols.find((c) => c.key === key);
 
-describe('buildTreeColumns', () => {
-  it('tom path → ingen kolonner', () => {
-    expect(buildTreeColumns(model, [])).toEqual([]);
+describe('buildBidirectionalColumns', () => {
+  it('ukendt anker → ingen kolonner', () => {
+    expect(buildBidirectionalColumns(model, 'findes-ikke', [], [])).toEqual([]);
   });
 
-  it('ukendt rod → ingen kolonner', () => {
-    expect(buildTreeColumns(model, ['findes-ikke'])).toEqual([]);
+  it('default (ingen valg): [Forældre, Fokus, Børn] i rækkefølge, korrekte labels', () => {
+    const cols = buildBidirectionalColumns(model, 'A', [], []);
+    expect(cols.map((c) => c.key)).toEqual(['ancestor:1', 'anchor:0', 'descendant:1']);
+    expect(cols.map((c) => c.label)).toEqual(['Forældre', 'Fokus', 'Børn']);
+    expect(ids(col(cols, 'ancestor:1')!.people).sort()).toEqual(['F', 'M']);
+    expect(ids(col(cols, 'anchor:0')!.people)).toEqual(['A']);
+    expect(ids(col(cols, 'descendant:1')!.people).sort()).toEqual(['C1', 'C2']);
+    expect(col(cols, 'ancestor:1')!.selectedId).toBeNull();
+    expect(col(cols, 'descendant:1')!.selectedId).toBeNull();
+    expect(col(cols, 'anchor:0')!.selectedId).toBe('A');
   });
 
-  it('blad-person (ingen børn) → én kolonne med kun personen', () => {
-    const cols = buildTreeColumns(model, ['G1']);
-    expect(cols.length).toBe(1);
-    expect(cols[0].level).toBe(0);
-    expect(cols[0].label).toBe('Generation 1');
-    expect(cols[0].people.map((p) => p.id)).toEqual(['G1']);
-    expect(cols[0].selectedId).toBe('G1');
+  it('ane-drill: vælg forælder F → Bedsteforældre-kolonne (F’s forældre) dukker op til venstre', () => {
+    const cols = buildBidirectionalColumns(model, 'A', ['F'], []);
+    expect(cols.map((c) => c.key)).toEqual(['ancestor:2', 'ancestor:1', 'anchor:0', 'descendant:1']);
+    expect(col(cols, 'ancestor:1')!.selectedId).toBe('F');
+    expect(col(cols, 'ancestor:2')!.label).toBe('Bedsteforældre');
+    expect(ids(col(cols, 'ancestor:2')!.people).sort()).toEqual(['GF', 'GM']);
   });
 
-  it('rod med børn, ingen valgt barn → kol 0 = [rod], kol 1 = alle børn uden valg', () => {
-    const cols = buildTreeColumns(model, ['R']);
-    expect(cols.length).toBe(2);
-    expect(cols[0].people.map((p) => p.id)).toEqual(['R']);
-    expect(cols[0].selectedId).toBe('R');
-    expect(cols[1].level).toBe(1);
-    expect(cols[1].label).toBe('Generation 2');
-    expect(cols[1].people.map((p) => p.id).sort()).toEqual(['C1', 'C2']);
-    expect(cols[1].selectedId).toBeNull();
+  it('efterkommer-drill (regression): vælg barn C1 → Børnebørn-kolonne til højre', () => {
+    const cols = buildBidirectionalColumns(model, 'A', [], ['C1']);
+    expect(cols.map((c) => c.key)).toEqual(['ancestor:1', 'anchor:0', 'descendant:1', 'descendant:2']);
+    expect(col(cols, 'descendant:1')!.selectedId).toBe('C1');
+    expect(col(cols, 'descendant:2')!.label).toBe('Børnebørn');
+    expect(ids(col(cols, 'descendant:2')!.people)).toEqual(['G1']);
   });
 
-  it('drill R→C1 → tre kolonner, C1 valgt i kol 1, C1s børn i kol 2', () => {
-    const cols = buildTreeColumns(model, ['R', 'C1']);
-    expect(cols.length).toBe(3);
-    expect(cols[1].selectedId).toBe('C1');
-    expect(cols[2].level).toBe(2);
-    expect(cols[2].label).toBe('Generation 3');
-    expect(cols[2].people.map((p) => p.id).sort()).toEqual(['G1', 'G2']);
-    expect(cols[2].selectedId).toBeNull();
+  it('begge retninger samtidig: aner OG efterkommere udfoldet', () => {
+    const cols = buildBidirectionalColumns(model, 'A', ['F'], ['C1']);
+    expect(cols.map((c) => c.key)).toEqual(['ancestor:2', 'ancestor:1', 'anchor:0', 'descendant:1', 'descendant:2']);
   });
 
-  it('drill til blad R→C2 → stopper (C2 har ingen børn): to kolonner', () => {
-    const cols = buildTreeColumns(model, ['R', 'C2']);
-    expect(cols.length).toBe(2);
-    expect(cols[1].selectedId).toBe('C2');
+  it('retning uden data udelades (anker uden forældre → ingen ane-kolonne)', () => {
+    const cols = buildBidirectionalColumns(model, 'GF', [], []);
+    expect(cols.map((c) => c.kind)).not.toContain('ancestor'); // GF har ingen registrerede forældre
+    expect(cols[0].kind).toBe('anchor');
   });
 
-  it('drill i fuld dybde R→C1→G1 → C1 valgt i kol 1, G1 valgt i kol 2, ingen kol 3 (G1 er blad)', () => {
-    const cols = buildTreeColumns(model, ['R', 'C1', 'G1']);
-    expect(cols.length).toBe(3);
-    expect(cols[1].selectedId).toBe('C1');
-    expect(cols[2].selectedId).toBe('G1');
+  it('blad-person begge veje (G1: har forælder, ingen børn) → kun Forældre + Fokus', () => {
+    const cols = buildBidirectionalColumns(model, 'G1', [], []);
+    expect(cols.map((c) => c.key)).toEqual(['ancestor:1', 'anchor:0']);
+  });
+
+  it('dyb label-fallback: 5. slægtled tilbage/frem', () => {
+    // Byg en lineær 6-generations kæde p0→p1→…→p5 og drill helt igennem.
+    const chain = buildModel(
+      db(
+        ['p0', 'p1', 'p2', 'p3', 'p4', 'p5'].map((id) => P(id)),
+        [
+          { child: 'p1', parent: 'p0', union: 'c' },
+          { child: 'p2', parent: 'p1', union: 'c' },
+          { child: 'p3', parent: 'p2', union: 'c' },
+          { child: 'p4', parent: 'p3', union: 'c' },
+          { child: 'p5', parent: 'p4', union: 'c' },
+        ],
+      ),
+    );
+    const down = buildBidirectionalColumns(chain, 'p0', [], ['p1', 'p2', 'p3', 'p4']);
+    expect(col(down, 'descendant:5')!.label).toBe('5. slægtled frem');
+    const up = buildBidirectionalColumns(chain, 'p5', ['p4', 'p3', 'p2', 'p1'], []);
+    expect(col(up, 'ancestor:5')!.label).toBe('5. slægtled tilbage');
+  });
+
+  it('cyklus-guard: self-forælder terminerer uden gentagelse', () => {
+    const loop = buildModel(db([P('X')], [{ child: 'X', parent: 'X', union: 'c' }]));
+    const cols = buildBidirectionalColumns(loop, 'X', [], []);
+    // X er sin egen forælder: visited (seedet med ankeret X) filtrerer X ud → ingen ane-kolonne, terminerer.
+    expect(cols.map((c) => c.kind)).not.toContain('ancestor');
+    expect(cols.map((c) => c.kind)).not.toContain('descendant');
+    expect(cols.map((c) => c.key)).toEqual(['anchor:0']);
+  });
+
+  it('kolonne-keys er stabile og kollisionsfri på tværs af retninger', () => {
+    const cols = buildBidirectionalColumns(model, 'A', ['F'], ['C1']);
+    const keys = cols.map((c) => c.key);
+    expect(new Set(keys).size).toBe(keys.length); // ingen dublet-keys (ancestor:1 ≠ descendant:1)
   });
 });
