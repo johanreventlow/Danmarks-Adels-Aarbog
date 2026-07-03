@@ -199,7 +199,7 @@ $$;
 
 -- ---------- UDLEDT SLÆGTSNAVN: normalisering + suffiks-token-match (spec §4.6) ----------
 CREATE OR REPLACE FUNCTION slaegtsnavn_normaliser(s TEXT)
-RETURNS TEXT[] LANGUAGE sql IMMUTABLE AS $$
+RETURNS TEXT[] LANGUAGE sql IMMUTABLE SET search_path=public AS $$
   SELECT regexp_split_to_array(
     trim(regexp_replace(regexp_replace(lower(s), '[‐‑–]', '-', 'g'), '\s+', ' ', 'g')),
     '\s+'
@@ -209,7 +209,7 @@ $$;
 -- Suffiks-token-sekvens-match: navnets AFSLUTTENDE tokens == efternavnets tokens. Dækker
 -- fler-ords-efternavne ("von Brockdorff") og undgår falsk skip når efternavnet er et mellemnavn.
 CREATE OR REPLACE FUNCTION slaegtsnavn_suffiks_match(navn TEXT, slaegtsnavn TEXT)
-RETURNS BOOLEAN LANGUAGE plpgsql IMMUTABLE AS $$
+RETURNS BOOLEAN LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
 DECLARE n_tokens TEXT[]; s_tokens TEXT[]; n_len INT; s_len INT;
 BEGIN
   IF navn IS NULL OR slaegtsnavn IS NULL THEN RETURN FALSE; END IF;

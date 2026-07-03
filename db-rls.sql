@@ -422,6 +422,12 @@ REVOKE EXECUTE ON FUNCTION _subjekt_synlighed(text, bigint),
                            begin_change_set(text, text, text, bigint)
   FROM PUBLIC, anon, authenticated;
 
+-- 2026-07-03: udledt slægtsnavn — slaegtsnavn_karantaene er en ren intern log skrevet af
+-- regen_person_visning() (ejeren bypasser RLS ved interne kald); ingen redaktør-UI læser den
+-- endnu (spec §6, bevidst udskudt) → deny-all, samme mønster som version_pk_registry.
+ALTER TABLE slaegtsnavn_karantaene ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON slaegtsnavn_karantaene FROM anon, authenticated;
+
 -- text_mention: dobbelt-gating (M4) — kilde-tekst OG mål synlig.
 ALTER TABLE text_mention ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tm_read ON text_mention;
