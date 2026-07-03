@@ -261,15 +261,12 @@ alle backend/RLS-flader, `buildModel`/`relationship`/`tree`-motoren.
 
 ---
 
-## 8. Åbne spørgsmål til bruger-review
+## 8. Bruger-review — afklaret (2026-07-03)
 
-1. **`ctx`-semantik** (§3.4) — *besluttet efter Codex-review*: tree-only "I fokus" = fokus-person +
-   forælder(e) + linje(r). Bekræft venligst, eller sig til hvis du hellere vil have nære relationer
-   inkl. ægtefælle/børn eller "senest set".
-2. **Bogmærke-visningens indgang:** designet ruter via konto-menuen; uden auth bruger vi
-   bmQuick "Se alle". Er det tilstrækkeligt, eller ønskes også et top-nav-punkt "Bogmærker"?
-3. **Default bogmærke-sortering:** designet viser "Linje" som første segment → default `'linje'`.
-   OK?
+Alle tre bekræftet af bruger:
+1. **`ctx`-semantik** (§3.4): ✅ tree-only "I fokus" = fokus-person + forælder(e) + linje(r).
+2. **Bogmærke-visningens indgang:** ✅ kun bmQuick "Se alle" (ingen top-nav-ændring i Slice 1).
+3. **Default bogmærke-sortering:** ✅ `'linje'`.
 
 ## 9. Codex-review — resultat
 
