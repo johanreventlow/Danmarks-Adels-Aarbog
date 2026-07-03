@@ -1299,3 +1299,207 @@ BEGIN
   END IF;
   RETURN v_id;
 END $$;
+
+-- 2026-07-03: udledt slægtsnavn — nye kolonner (spec docs/superpowers/specs/2026-07-03-udledt-slaegtsnavn-design.md)
+ALTER TABLE lineage ADD COLUMN IF NOT EXISTS slaegtsnavn TEXT;
+ALTER TABLE person  ADD COLUMN IF NOT EXISTS visning_efternavn  TEXT;
+ALTER TABLE person  ADD COLUMN IF NOT EXISTS visning_fuldt_navn TEXT;
+
+UPDATE version_pk_registry
+  SET skip_cols = (SELECT array_agg(DISTINCT c) FROM unnest(skip_cols || ARRAY['visning_efternavn','visning_fuldt_navn']) c)
+  WHERE tabel = 'person';
+
+-- 2026-07-03: udledt slægtsnavn — cyklus-sikre lineage-graf-walkers + BEFORE-cyklus-vagt
+CREATE OR REPLACE FUNCTION lineage_ancestors(p_lineage_id BIGINT)
+RETURNS BIGINT[] LANGUAGE plpgsql STABLE SET search_path=public AS $$
+DECLARE
+  v_path BIGINT[] := ARRAY[]::BIGINT[];
+  v_current BIGINT := p_lineage_id;
+BEGIN
+  WHILE v_current IS NOT NULL LOOP
+    IF v_current = ANY(v_path) THEN
+      RAISE EXCEPTION 'lineage_ancestors: cyklus detekteret ved lineage-id %', v_current;
+    END IF;
+    IF array_length(v_path,1) IS NOT NULL AND array_length(v_path,1) > 50 THEN
+      RAISE EXCEPTION 'lineage_ancestors: dybde-grænse (50) overskredet fra lineage-id %', p_lineage_id;
+    END IF;
+    v_path := v_path || v_current;
+    SELECT parent_lineage_id INTO v_current FROM lineage WHERE id = v_current;
+  END LOOP;
+  RETURN v_path;
+END $$;
+
+CREATE OR REPLACE FUNCTION lineage_descendants(p_lineage_id BIGINT)
+RETURNS SETOF BIGINT LANGUAGE plpgsql STABLE SET search_path=public AS $$
+DECLARE
+  v_visited BIGINT[] := ARRAY[]::BIGINT[];
+  v_queue BIGINT[] := ARRAY[p_lineage_id];
+  v_current BIGINT; v_child BIGINT;
+BEGIN
+  WHILE array_length(v_queue,1) IS NOT NULL LOOP
+    v_current := v_queue[1];
+    v_queue := v_queue[2:array_length(v_queue,1)];
+    IF v_current = ANY(v_visited) THEN
+      RAISE EXCEPTION 'lineage_descendants: cyklus/gen-besøg detekteret ved lineage-id %', v_current;
+    END IF;
+    IF array_length(v_visited,1) IS NOT NULL AND array_length(v_visited,1) > 500 THEN
+      RAISE EXCEPTION 'lineage_descendants: dybde-grænse (500) overskredet fra lineage-id %', p_lineage_id;
+    END IF;
+    v_visited := v_visited || v_current;
+    RETURN NEXT v_current;
+    FOR v_child IN SELECT id FROM lineage WHERE parent_lineage_id = v_current LOOP
+      v_queue := v_queue || v_child;
+    END LOOP;
+  END LOOP;
+  RETURN;
+END $$;
+
+CREATE OR REPLACE FUNCTION trg_lineage_prevent_cycle()
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
+BEGIN
+  IF NEW.parent_lineage_id IS NOT NULL AND NEW.id = ANY(lineage_ancestors(NEW.parent_lineage_id)) THEN
+    RAISE EXCEPTION 'lineage: parent_lineage_id-tildeling ville skabe en cyklus (lineage % → %)', NEW.id, NEW.parent_lineage_id;
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_lineage_cycle_guard ON lineage;
+CREATE TRIGGER trg_lineage_cycle_guard
+  BEFORE INSERT OR UPDATE OF parent_lineage_id ON lineage
+  FOR EACH ROW EXECUTE FUNCTION trg_lineage_prevent_cycle();
+
+CREATE OR REPLACE FUNCTION lineage_effective_slaegtsnavn(p_lineage_id BIGINT)
+RETURNS TEXT LANGUAGE sql STABLE SET search_path=public AS $$
+  SELECT l.slaegtsnavn
+  FROM unnest(lineage_ancestors(p_lineage_id)) WITH ORDINALITY AS anc(id, ord)
+  JOIN lineage l ON l.id = anc.id
+  WHERE l.slaegtsnavn IS NOT NULL
+  ORDER BY anc.ord
+  LIMIT 1;
+$$;
+
+-- 2026-07-03: udledt slægtsnavn — normalisering + suffiks-token-match (spec §4.6)
+CREATE OR REPLACE FUNCTION slaegtsnavn_normaliser(s TEXT)
+RETURNS TEXT[] LANGUAGE sql IMMUTABLE AS $$
+  SELECT regexp_split_to_array(
+    trim(regexp_replace(regexp_replace(lower(s), '[‐‑–]', '-', 'g'), '\s+', ' ', 'g')),
+    '\s+'
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION slaegtsnavn_suffiks_match(navn TEXT, slaegtsnavn TEXT)
+RETURNS BOOLEAN LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE n_tokens TEXT[]; s_tokens TEXT[]; n_len INT; s_len INT;
+BEGIN
+  IF navn IS NULL OR slaegtsnavn IS NULL THEN RETURN FALSE; END IF;
+  n_tokens := slaegtsnavn_normaliser(navn);
+  s_tokens := slaegtsnavn_normaliser(slaegtsnavn);
+  n_len := coalesce(array_length(n_tokens,1),0);
+  s_len := coalesce(array_length(s_tokens,1),0);
+  IF s_len = 0 OR n_len < s_len THEN RETURN FALSE; END IF;
+  RETURN n_tokens[n_len - s_len + 1 : n_len] = s_tokens;
+END $$;
+
+CREATE TABLE IF NOT EXISTS slaegtsnavn_karantaene (
+  person_id  BIGINT PRIMARY KEY REFERENCES person(id),
+  n_distinct INT NOT NULL,
+  noteret_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 2026-07-03: udledt slægtsnavn — regen_person_visning-udvidelse (§4.5) + invalidation-triggere (§4.7)
+CREATE OR REPLACE FUNCTION regen_person_visning(pid BIGINT)
+RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE v_n_distinct INT;
+BEGIN
+  WITH navn_agg AS (
+    SELECT
+      max(a.vaerdi_tekst) FILTER (WHERE f.faktatype='navn')  AS navn,
+      max(coalesce(a.date_raw,a.vaerdi_tekst)) FILTER (WHERE f.faktatype='fødsel') AS foedt,
+      max(coalesce(a.date_raw,a.vaerdi_tekst)) FILTER (WHERE f.faktatype='død')    AS doed,
+      max(a.vaerdi_tekst) FILTER (WHERE f.faktatype='titel') AS titel
+    FROM fact f
+    JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id
+    JOIN assertion  a ON a.id = c.valgt_assertion_id
+    WHERE f.subjekt_type='person' AND f.subjekt_id = pid
+  ),
+  efternavn_cte AS (
+    SELECT pei.person_id,
+           count(DISTINCT lineage_effective_slaegtsnavn(l.id)) AS n_distinct,
+           min(lineage_effective_slaegtsnavn(l.id))            AS slaegtsnavn
+    FROM person_external_id pei
+    JOIN lineage l ON l.source_id = pei.source_id AND l.kode = pei.linje
+    WHERE pei.person_id = pid
+    GROUP BY pei.person_id
+  ),
+  final AS (
+    SELECT
+      navn_agg.navn, navn_agg.foedt, navn_agg.doed, navn_agg.titel,
+      CASE
+        WHEN navn_agg.navn IS NULL THEN NULL
+        WHEN coalesce(efternavn_cte.n_distinct,0) <> 1 THEN NULL
+        WHEN slaegtsnavn_suffiks_match(navn_agg.navn, efternavn_cte.slaegtsnavn) THEN NULL
+        ELSE efternavn_cte.slaegtsnavn
+      END AS efternavn,
+      CASE
+        WHEN navn_agg.navn IS NULL THEN NULL
+        WHEN coalesce(efternavn_cte.n_distinct,0) <> 1 THEN navn_agg.navn
+        WHEN slaegtsnavn_suffiks_match(navn_agg.navn, efternavn_cte.slaegtsnavn) THEN navn_agg.navn
+        ELSE navn_agg.navn || ' ' || efternavn_cte.slaegtsnavn
+      END AS fuldt
+    FROM navn_agg LEFT JOIN efternavn_cte ON true
+  )
+  UPDATE person p SET
+    visning_navn = final.navn, visning_foedt = final.foedt, visning_doed = final.doed,
+    visning_titel = final.titel, visning_efternavn = final.efternavn, visning_fuldt_navn = final.fuldt
+  FROM final
+  WHERE p.id = pid
+    AND (p.visning_navn, p.visning_foedt, p.visning_doed, p.visning_titel, p.visning_efternavn, p.visning_fuldt_navn)
+        IS DISTINCT FROM (final.navn, final.foedt, final.doed, final.titel, final.efternavn, final.fuldt);
+
+  SELECT count(DISTINCT lineage_effective_slaegtsnavn(l.id)) INTO v_n_distinct
+  FROM person_external_id pei JOIN lineage l ON l.source_id=pei.source_id AND l.kode=pei.linje
+  WHERE pei.person_id = pid;
+
+  IF v_n_distinct > 1 THEN
+    INSERT INTO slaegtsnavn_karantaene(person_id, n_distinct) VALUES (pid, v_n_distinct)
+      ON CONFLICT (person_id) DO UPDATE SET n_distinct=excluded.n_distinct, noteret_at=now();
+  ELSE
+    DELETE FROM slaegtsnavn_karantaene WHERE person_id = pid;
+  END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION trg_regen_from_external_id()
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
+BEGIN
+  IF TG_OP IN ('INSERT','UPDATE') THEN PERFORM regen_person_visning(NEW.person_id); END IF;
+  IF TG_OP IN ('DELETE','UPDATE') THEN PERFORM regen_person_visning(OLD.person_id); END IF;
+  RETURN NULL;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_external_id_regen ON person_external_id;
+CREATE TRIGGER trg_external_id_regen
+  AFTER INSERT OR UPDATE OR DELETE ON person_external_id
+  FOR EACH ROW EXECUTE FUNCTION trg_regen_from_external_id();
+
+CREATE OR REPLACE FUNCTION trg_regen_from_lineage()
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE v_lid BIGINT; v_pid BIGINT;
+BEGIN
+  IF (NEW.slaegtsnavn IS DISTINCT FROM OLD.slaegtsnavn) OR (NEW.parent_lineage_id IS DISTINCT FROM OLD.parent_lineage_id) THEN
+    FOR v_lid IN SELECT * FROM lineage_descendants(NEW.id) LOOP
+      FOR v_pid IN
+        SELECT DISTINCT pei.person_id FROM person_external_id pei
+        JOIN lineage l ON l.source_id=pei.source_id AND l.kode=pei.linje
+        WHERE l.id = v_lid
+      LOOP
+        PERFORM regen_person_visning(v_pid);
+      END LOOP;
+    END LOOP;
+  END IF;
+  RETURN NULL;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_lineage_regen ON lineage;
+CREATE TRIGGER trg_lineage_regen
+  AFTER UPDATE OF slaegtsnavn, parent_lineage_id ON lineage
+  FOR EACH ROW EXECUTE FUNCTION trg_regen_from_lineage();
