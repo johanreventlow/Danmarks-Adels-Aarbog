@@ -20,10 +20,12 @@ export type RawMember = {
   konfidens?: string | null;
 };
 export type RawNarrative = {
+  id: number;
   subjekt_id: number | string;
   subjekt_type: string;
   tekst: string | null;
   privat: boolean | null;
+  source_id: number | null;
 };
 export type RawExtId = {
   person_id: number | string;
@@ -41,6 +43,7 @@ export type RawSource = {
   slags: string | null;
   titel: string | null;
   udgave: string | null;
+  aar: number | null;
   ekstern: string | null;
 };
 export type RawRelation = {

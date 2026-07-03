@@ -4,6 +4,7 @@
 import { supabase, supabaseEnabled } from '../lib/supabase';
 import { buildAux } from './buildAux';
 import { collapseSameAs } from './collapseSameAs';
+import { pickPreferredBio, type NarrativeCand } from './pickPreferredBio';
 import { fmtYears, parseYear } from './fields';
 import { normalizeKoen, normalizeKonfidens } from './types';
 import type {
@@ -134,13 +135,13 @@ export async function loadFromSupabase(opts?: {
       getAll<RawNarrative>(() =>
         sb
           .from('narrative')
-          .select('subjekt_id,subjekt_type,tekst,privat')
+          .select('id,subjekt_id,subjekt_type,tekst,privat,source_id')
           .eq('subjekt_type', 'person'),
       ),
       getAll<RawExtId>(() =>
         sb.from('person_external_id').select('person_id,source_id,linje,nr'),
       ),
-      getAll<RawSource>(() => sb.from('source').select('id,slags,titel,udgave,ekstern')),
+      getAll<RawSource>(() => sb.from('source').select('id,slags,titel,udgave,aar,ekstern')),
       getAll<RawRelation>(() =>
         sb
           .from('relation')
@@ -170,11 +171,23 @@ export async function loadFromSupabase(opts?: {
       ).catch(() => [] as { target_id: number | string }[]),
     ]);
 
-  // Biografi pr. person — første ikke-private narrativ.
-  const bioBy: Record<string, string> = {};
+  // Biografi pr. person — foretrukne offentlige narrativ (nyeste DAA-udgave) via pickPreferredBio.
+  // Deterministisk pr. udgave i stedet for "første mødte" (som blev nondeterministisk når en
+  // person fik flere narrativ-rækker). collapseSameAs-merge nedenfor er uændret.
+  const srcById = new Map((sources || []).map((s) => [Number(s.id), s]));
+  const candsBy: Record<string, NarrativeCand[]> = {};
   (narratives || []).forEach((n) => {
-    if (!n.privat && !bioBy[String(n.subjekt_id)]) bioBy[String(n.subjekt_id)] = n.tekst ?? '';
+    if (n.privat) return;
+    const k = String(n.subjekt_id);
+    const s = n.source_id != null ? srcById.get(Number(n.source_id)) : undefined;
+    (candsBy[k] ??= []).push({ narrativeId: n.id, tekst: n.tekst, sourceId: n.source_id ?? null,
+      slags: s?.slags ?? null, aar: s?.aar ?? null, udgave: s?.udgave ?? null });
   });
+  const bioBy: Record<string, string> = {};
+  for (const k of Object.keys(candsBy)) {
+    const best = pickPreferredBio(candsBy[k]);
+    if (best?.tekst) bioBy[k] = best.tekst;
+  }
 
   const appPersons = mapAppPersons(persons || [], bioBy, opts?.includePrivat ?? false);
 
