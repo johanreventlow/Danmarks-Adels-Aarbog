@@ -258,3 +258,12 @@ To spor — **data (R)** og **app (TS)** — bundet af RLS:
   egen brainstorm: UI-i18n vs. indholds-i18n af navne/titler/stednavne/narrativ, og
   hvor oversættelse lander i evidenslaget (ny assertion vs. visningslag vs. flere
   narrative-rækker pr. kilde-sprog). Se `docs/tng-reventlow-analyse.md` §8.
+- **Geografisk kort-markering (punkter + evt. arealer) — udskudt, ikke designet.**
+  Brainstorm påbegyndt 2026-07-03, standset af bruger før designet blev skrevet
+  ("projekt til senere lejlighed"). Datakilde-beslutning taget inden pause: hvis/når
+  arbejdet genoptages, importér punkter fra TNG's `tng_places` (6.788 rækker,
+  lat/lon, fritekst-hierarki) — IKKE DIGDAG. TNG har KUN punkter, ingen polygondata;
+  areal-visning (fx et grevskabs historiske udstrækning) mangler stadig en
+  datakilde — DIGDAG (digdag.dk, Rigsarkivets historiske grænseatlas) blev foreslået
+  men ikke besluttet. `place` (schema.sql) har allerede `lat`/`lon`, ingen polygon-
+  kolonne. Se memory `tng-backlog-prioritering`.
