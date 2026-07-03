@@ -4,6 +4,10 @@
 import { supabase } from '../supabase';
 import { getAll } from './paginate';
 import type { Model } from './types';
+import { pickPreferredBio, type NarrativeCand } from './pickPreferredBio';
+
+// Rå narrativ-række med source-join (PostgREST embedded resource).
+type RawNarr = { id: number; subjekt_id: number | string; tekst: string | null; source_id: number | null; source: { slags: string | null; aar: number | null; udgave: string | null } | null };
 
 async function safe<T>(fn: () => Promise<T>, fallback: T, label: string): Promise<T> {
   try {
@@ -127,18 +131,27 @@ export function fetchPersonDetail(id: string, memberIds?: string[]): Promise<Per
     const [narr, rels] = await Promise.all([
       // OFFENTLIGE narrativer for alle medlems-id'er (privat filtreret i query — ikke skjult
       // bagefter, så en privat note først ikke gemmer en senere offentlig bio).
-      supabase.from('narrative').select('subjekt_id,tekst').eq('subjekt_type', 'person').in('subjekt_id', numIds)
+      supabase.from('narrative').select('id,subjekt_id,tekst,source_id,source:source_id(slags,aar,udgave)')
+        .eq('subjekt_type', 'person').in('subjekt_id', numIds)
         .eq('privat', false).order('id', { ascending: true }),
       getAll<RawPersonRel>(() => supabase.from('relation').select('objekt_type,objekt_id,rolle,periode_raw')
         .eq('subjekt_type', 'person').in('subjekt_id', numIds).in('objekt_type', ['organisation', 'estate'])),
     ]);
-    // Narrativ = union: første offentlige narrativ PR. medlem, sammenføjet. Kanonisk (id) FØRST,
-    // så den fulde founder-bio leder frem for en kort kryds-reference-stub fra en alias-post.
-    // (For en ikke-foldet person = præcis den første offentlige, som før.)
-    const firstByMember = new Map<string, string>();
-    for (const n of (narr.data ?? []) as { subjekt_id: number | string; tekst: string | null }[]) {
+    // Narrativ = union: foretrukne offentlige narrativ PR. medlem (nyeste DAA-udgave via
+    // pickPreferredBio), sammenføjet. Kanonisk (id) FØRST, så den fulde founder-bio leder
+    // frem for en kort kryds-reference-stub fra en alias-post. Per-medlem-valget er nu
+    // deterministisk pr. udgave (ikke "første by id"); cross-medlem-concat er uændret.
+    const candsByMember = new Map<string, NarrativeCand[]>();
+    for (const n of (narr.data ?? []) as unknown as RawNarr[]) {
       const k = String(n.subjekt_id);
-      if (!firstByMember.has(k) && n.tekst) firstByMember.set(k, n.tekst);
+      const arr = candsByMember.get(k) ?? [];
+      arr.push({ narrativeId: n.id, tekst: n.tekst, sourceId: n.source_id, slags: n.source?.slags ?? null, aar: n.source?.aar ?? null, udgave: n.source?.udgave ?? null });
+      candsByMember.set(k, arr);
+    }
+    const firstByMember = new Map<string, string>();
+    for (const [k, cands] of candsByMember) {
+      const best = pickPreferredBio(cands);
+      if (best?.tekst) firstByMember.set(k, best.tekst);
     }
     const orderedIds = [id, ...ids.filter((m) => m !== id)];
     const bio = [...new Set(orderedIds.map((mid) => firstByMember.get(mid)).filter(Boolean) as string[])].join('\n\n');
