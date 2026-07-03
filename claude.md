@@ -118,6 +118,14 @@ Kernefunktionen er **"er vi i familie?"** — slægtskabssøgning på tværs af 
   Codex opgraderede 2 defers til silent-corruption) + /simplify + empirisk prod-valideret
   (Conrad/Detlef folder rent) + ende-til-ende gennem slægtskabs-motoren (spec §10). Mobile 240,
   web 88. **Udestår:** manuel skærm-verifikation + merge/push.
+- **Redaktør-web-cohesion (web, commit `91b7797` på `feat/samme-som-collapse`, ikke pushet, 2026-07-03):**
+  redaktør-fladen bragt i tråd med web-v2. (a) Header: DAF-logo-lockup + "Danmarks Adels Aarbog" + mono
+  "Redaktion · Dansk Adels Forening" + slægt-chip (crest-ring + "Reventlow ▾") + 66px-mål; ført både i
+  design-mockuppen og `Redaktion.tsx`. (b) Person-liste spejler Følgesvend §9.1/§9.2: A–Å + alfabet-hop,
+  sortér navn/fødeår, linje-filter-chips (filtrerer kun — intet stamtræ). `buildBrowse` generaliseret
+  (`BrowsePerson`) så én motor driver både `ModelPerson` og `RedPerson`; driver af skrive-autoritativ
+  `persons` (ikke `model.persons`) — se `docs/decisions.md`. /simplify anvendt. tsc + 94/94 web-tests +
+  build grønne. **Udestår:** visuel/runtime-verifikation i browser (ingen browser-driver i repo'et).
 
 ---
 
