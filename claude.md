@@ -125,7 +125,7 @@ Kernefunktionen er **"er vi i familie?"** — slægtskabssøgning på tværs af 
   proveniens-badge; redaktion collapser IKKE. Dual-reviewet (Claude+Codex, `docs/reviews/16`+`17`,
   Codex opgraderede 2 defers til silent-corruption) + /simplify + empirisk prod-valideret
   (Conrad/Detlef folder rent) + ende-til-ende gennem slægtskabs-motoren (spec §10). Mobile 240,
-  web 88. **Udestår:** manuel skærm-verifikation (merget via PR #14).
+  web 88. **Merget til main** via PR #14 (collapseSameAs.ts på origin/main pr. 2026-07-03).
 - **Redaktør-web-cohesion (web, merget til main via PR #14, 2026-07-03):**
   redaktør-fladen bragt i tråd med web-v2. (a) Header: DAF-logo-lockup + "Danmarks Adels Aarbog" + mono
   "Redaktion · Dansk Adels Forening" + slægt-chip (crest-ring + "Reventlow ▾") + 66px-mål; ført både i
@@ -134,6 +134,17 @@ Kernefunktionen er **"er vi i familie?"** — slægtskabssøgning på tværs af 
   (`BrowsePerson`) så én motor driver både `ModelPerson` og `RedPerson`; driver af skrive-autoritativ
   `persons` (ikke `model.persons`) — se `docs/decisions.md`. /simplify anvendt. tsc + 94/94 web-tests +
   build grønne. **Udestår:** visuel/runtime-verifikation i browser (ingen browser-driver i repo'et).
+- **Stamtræ Kolonner-visning + bidirektionel aner/efterkommere IMPLEMENTERET (web+mobile, branch
+  `feat/stamtrae-kolonner`) (2026-07-03):** lukker item 8 (Kolonner) fra web-v2-porten OG udvider
+  visningen til begge retninger. Fokus er et fast anker; aner folder ud til venstre (Forældre →
+  Bedsteforældre → … → `N× Tipoldeforældre`), efterkommere til højre. Delt retnings-parametriseret
+  bygger (`buildBidirectionalColumns`, visited-cyklusguard + `kind:depth`-keys) spejlet web
+  (`data/tree.ts`) + mobile (`data/selectors.ts`); web parentsOf tilføjet. Tilstand: web lokal
+  `useState` m. frontier-reset; mobile zustand (`path`→`anchorId`/`up`/`down`, mutator-reset). Drill
+  via historik-fri `onFocus`. Design Codex-reviewet (1 BLOCKER: frontier- ikke medlemskabs-reset,
+  + 5 SHOULD-FIX indarbejdet; `docs/superpowers/specs/2026-07-03-*`). **Verificeret:** web tsc+109
+  tests+build (bruger-bekræftet visuelt), mobile tsc+249 tests + **iOS-simulator-verificeret mod prod**
+  (idb: bidirektionel drill/labels/chevrons/up-scroll + collapse gennem traversering). Variant A/C urørt.
 
 ---
 
