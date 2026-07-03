@@ -28,7 +28,7 @@ const model = buildModel(
     ],
   ),
 );
-const props = { model, onPick: () => {}, onFocus: () => {} };
+const props = { model, onPick: () => {}, onFocus: () => {}, hasBookmark: () => false, onToggleBookmark: () => {} };
 
 describe('TreeView', () => {
   it('viser Fokus-variant som standard (ingen kolonne-labels)', () => {
@@ -55,7 +55,7 @@ describe('TreeView', () => {
 
   it('ane-drill: vælg Far → Bedsteforældre-kolonne + onFocus (ikke onPick)', () => {
     let picked: string | null = null, focused: string | null = null;
-    render(<TreeView model={model} focusId="A" onPick={(id) => (picked = id)} onFocus={(id) => (focused = id)} />);
+    render(<TreeView model={model} focusId="A" onPick={(id) => (picked = id)} onFocus={(id) => (focused = id)} hasBookmark={() => false} onToggleBookmark={() => {}} />);
     fireEvent.click(screen.getByText('Kolonner'));
     fireEvent.click(screen.getByText('Far'));
     expect(focused).toBe('F');
@@ -83,7 +83,7 @@ describe('TreeView', () => {
 
     // Ekstern nav til Bo: Bo ER i down, men er IKKE frontier (Ida er) → skal NULSTILLE til Bo.
     // (Et fuldt medlemskabs-tjek ville forkert bevare visningen.)
-    rerender(<TreeView model={model} focusId="C1" onPick={() => {}} onFocus={() => {}} />);
+    rerender(<TreeView model={model} focusId="C1" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} />);
     expect(screen.queryByText('Oldebørn')).toBeNull(); // drill foldet
     expect(screen.getByText('Forældre')).toBeTruthy(); // Bo's forældre (Anna)
     expect(screen.getByText('Anna')).toBeTruthy();
