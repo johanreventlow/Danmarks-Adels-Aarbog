@@ -161,6 +161,17 @@ Kernefunktionen er **"er vi i familie?"** — slægtskabssøgning på tværs af 
   `red_*`-RPC'er) — se `docs/decisions.md`. Web 112/112 + mobile 249/249 + tsc grønne. **Runtime-verifik.
   udskudt til fysisk enhed** pga. RN-fetch-sim-bug (-1005; host+sim-Safari når Supabase, app ej) — se
   memory `mobil-sim-rn-fetch-1005`.
+- **Flere narrativer pr. person — udgave-nøglede narrativer (web+mobile, MERGET TIL MAIN `3537d13`
+  + PROD-LIVE, 2026-07-03):** en person kan bære én biografi pr. DAA-udgave (`source`).
+  `red_upsert_narrativ` nøgles nu på `(subjekt_type, subjekt_id, source_id)`; additiv `source.aar`
+  bærer udgave-kronologi; `red_opret_kilde` udvidet m. `p_aar`; gamle 4-arg-signaturer droppet.
+  Delt ren `pickPreferredBio` (spejlet web+mobil, nyeste DAA-udgave, DAA-only fallback) driver begge
+  læsere. Web-redaktør: udgave-faner + "+ Ny udgave" (via `submitChange`-flow). Mobil-redaktør:
+  minimal source-korrekt skrivevej (RPC-DROP var cross-client breaking). Cutover-orden **DB-først →
+  merge → push** (nye læsers source-embed matcher basen; ingen offentlig breakage). Dual-reviewet
+  (Codex, `docs/reviews/18`) + `/simplify` + advisor-gate; web 124/124, mobil 257/257. **Udestår:**
+  udgave-byline i læseren + fulde udgave-faner i mobil. Se `docs/superpowers/{specs,plans}/2026-07-03-
+  flere-narrativer-per-person*` + memory `flere-narrativer-per-person`.
 
 ---
 
