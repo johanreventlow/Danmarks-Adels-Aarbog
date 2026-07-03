@@ -24,6 +24,29 @@ mutator-reset** — navigations-mutatorer (setFocus/setVariant/pickLinje/…) ry
 mutatorer bevarer ankeret. Samme kontrakt, forskellig mekanisme pga. de to apps' state-mønstre.
 Fuld spec: `docs/superpowers/specs/2026-07-03-kolonner-aner-efterkommere-design.md`.
 
+## TNG er sammenlignings-reference, ikke facit; uenigheder loades som konkurrerende påstande (2026-07-03)
+
+TNG-QA-rapporten flaggede 5 dato-uenigheder. **Valgt:** adjudikér hver mod DAA-kilden (narrativen bevarer
+bogens prosa ordret); hvor vores `date_raw` matcher bogen (alle 5 gjorde), er TNG forkert — så vi ændrer
+IKKE vores data, men loader TNG's værdi som en **konkurrerende `assertion`** på samme fakta med vores
+konklusion uændret. **Hvorfor:** invariant §1 (alle kilders udsagn bevares, vores vurdering ovenpå) +
+rapportens egen header. **Fravalgt:** at behandle TNG som facit og "rette" vores data (ville have
+introduceret 5 fejl, da TNG var forkert i alle 5). Memory-premissen "fejl-attribueret date_raw" holdt ikke
+ved kilde-tjek. Læring: en QA-uenighed er en anledning til adjudikation, ikke et signal om egen fejl.
+
+## Spøgelses-unioner: barn "gift" med ane via mis-opløst "se nr."-ref; diskriminator = navn≠ref (2026-07-03)
+
+Loaderen skabte 26 barnløse unioner hvor et barn var "gift" med sin egen far/ane. Rod: en `aegteskab`
+hvor `partner_navn` (barnets mor, fra grupperings-headingen) og `partner_ekstern_ref` ("se nr. Y" → en ane)
+er UENIGE; `load_daa.R` linkede ref'en og ignorerede navnet. **Detektions-diskriminator (efter flere
+forsøg):** *ikke* "barnløs+ingen vielse" (fam 11 var ægte MEN barnløs uden vielse-fakta), *ikke* rekursiv
+ane-tjek (tidlige generationers ane-kæder er selv ufuldstændige → missede de fleste). Den pålidelige er
+**navn≠ref**: den opløste interne partners navn matcher ikke `partner_navn`. **Konsekvens:** loader-guarden
+skal afvise intern-ref-link ved navne-mismatch (ikke ved fravær af vielse). **Læring:** en kandidat blev
+manuelt bekræftet ægte af bruger (fam 11) FØR sletning — konservativ scope (kun høj-sikre) + menneske-review
+på tvivl forhindrede at et ægte kryds-linje-ægteskab blev slettet. Se også [[boern-multi-union-datafix]]
+(samme "se nr."/mor-heading-rod).
+
 ## Barn→union-matching: partnernavn primær, ordenstal kryds-tjek; parkér frem for at gætte (2026-07-03)
 
 Ved fix af flergifte-forældres børn-tilknytning skulle hvert barns fritekst-`aegteskab_kontekst`

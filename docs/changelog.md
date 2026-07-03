@@ -1,5 +1,36 @@
 # Changelog
 
+## TNG-QA Etape 3+4 + spøgelses-union-oprydning (2026-07-03)
+
+Adresserede TNG-QA-rapportens 5 dato-uenigheder (Etape 3) + 10 manglende links (Etape 4).
+Undervejs afdækkedes en **systematisk spøgelses-union-fejl** i data.
+
+**Etape 3 — vores datoer stod fast (change_set 3):** alle 5 dato-uenigheder blev adjudikeret mod
+DAA-kilden (narrativen) — vores `date_raw` matcher bogen i alle 5; TNG havde fejlene (1-10 år). I
+stedet for korrektion blev TNG oprettet som `source` (id 2) + TNG's 5 datoer loadet som
+**konkurrerende assertions** på død-fakta, med vores konklusion uændret blåstemplet (evidenslag §1).
+
+**Etape 4 — 8/10 falske positiver:** V-1/IV-1's "manglende far" fandtes allerede via samme_som;
+V-56/V-95 var allerede ægtefæller; QA-pipelinen traverserer bare ikke samme_som/stub-dubletter.
+Reelt: **V-121-dedup** (change_set 4 — ægtefælle-stub 826 = samme som V-114/409, intra-slægt-ægteskab)
++ **I-103-grenen** var strukturelt ødelagt.
+
+**I-103-gren-reparation (change_set 5):** loaderen havde skabt spøgelses-unioner mellem I-103 og hans
+far (I-97) + 3 sønner, efterladt 10 børn (I-109-118) forældreløse, og moderen uoprettet. Bogen: "Gift
+1673 med Maria Elisabeth von Buchwaldt til Tresdorf ... 10 børn". Genopbyggede fam 4 (bar det ægte
+vielse-1673-fakta): oprettede Maria Elisabeth, tilknyttede de 10 børn, slettede 3 spøgelses-unioner.
+
+**Spøgelses-union-oprydning (change_sets 6+7):** systematisk scan fandt **26 barnløse unioner** hvor et
+barn var fejl-"gift" med sin egen far/ane (fx I-19 Johann m. far I-11; I-12/13/15 m. progenitoren I-1).
+11 direkte-forælder + 15 ane-spøgelser slettet. Diskriminator: barnløs + begge interne + **navn≠ref**
+(se nedenfor). Én kryds-linje-union (fam 11, I-112 m. III-79 Hinrich) bekræftet ÆGTE af bruger, bevaret.
+
+**Rodårsag (dokumenteret, endnu ikke rettet i loader):** spøgelserne opstår når et barns mor-grupperings-
+heading ("med X (se nr. Y)") bliver til en fake-`aegteskab` hvor `partner_navn` (moderen) og
+`partner_ekstern_ref` ("se nr. Y" → en ane) er UENIGE; `load_daa.R` (~l.280) linker ref'en og ignorerer
+navnet → barn "gift" med ane. **Guard (næste skridt):** afvis intern-ref-link når navnet ikke matcher
+`partner_navn`. Et reload gen-skaber ellers alle 26 spøgelser. Alle 7 change_sets er fortrydbare.
+
 ## Børn af flergifte forældre knyttet til korrekt union (2026-07-03)
 
 Loaderen hang tidligere ALLE børn af en flergift forælder på forælderens FØRSTE union
