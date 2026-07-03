@@ -33,12 +33,16 @@ if (is.na(src)) stop("Ingen source — kør load_daa.R først.")
 
 dbBegin(con)
 tryCatch({
-  # ---- 1) lineage-navne (idempotent) ----
+  # ---- 1) lineage-navne + families-efternavn (idempotent) ----
+  # slaegtsnavn driver den udledte visning_efternavn/visning_fuldt_navn-cache (regen_person_visning,
+  # udledt-slægtsnavn-design). Alle 5 linjer er Reventlow i dag — ingen forgrening (parent_lineage_id
+  # er NULL for alle), så ét fælles efternavn er korrekt. Skift til pr.-linje-værdi hvis/når en gren
+  # adles til et andet navn (jf. spec §6 gren-variant, bevidst udskudt).
   lineage <- list(I="Den holstenske linje", II="Linjen Gallentin", III="Den mecklenburgske linje",
                   IV="Den lensgrevelige linje af 1767", V="Den grevelige linje af 1673")
   for (kode in names(lineage))
-    ex("INSERT INTO lineage (id, source_id, kode, navn) VALUES ($1,$2,$3,$4)
-        ON CONFLICT (source_id, kode) DO UPDATE SET navn=EXCLUDED.navn",
+    ex("INSERT INTO lineage (id, source_id, kode, navn, slaegtsnavn) VALUES ($1,$2,$3,$4,'Reventlow')
+        ON CONFLICT (source_id, kode) DO UPDATE SET navn=EXCLUDED.navn, slaegtsnavn=EXCLUDED.slaegtsnavn",
        list(nid("lineage"), src, kode, lineage[[kode]]))
 
   # ---- 2) redaktør-profil (idempotent) ----
