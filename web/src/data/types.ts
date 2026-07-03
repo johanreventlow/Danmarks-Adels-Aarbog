@@ -109,10 +109,24 @@ export type Db = {
   parentChild: ParentChild[];
 };
 
+// samme_som-collapse (frontend identitets-projektion). Spejl af mobile — se
+// docs/superpowers/specs/2026-07-02-samme-som-collapse-design.md. Kanterne er retningsbestemte
+// (subjekt=alias, objekt=kanonisk); afklarede identiteter foldes, konflikter karantæneres.
+export type SameAsEdge = { alias: string; canonical: string; konfidens?: Konfidens };
+export type Provenance = { personId: string; linje: string | null; nr: number | null };
+export type QuarantineNote = { members: string[]; reason: string };
+export type CollapseResult = {
+  db: Db;
+  canonicalIdById: Record<string, string>; // ETHVERT medlems-id → kanonisk id
+  mergedFrom: Record<string, Provenance[]>; // kanonisk id → alle kilde-poster
+  quarantined: QuarantineNote[];
+};
+
 // Person beriget af buildModel (parentId + spouse afledt).
 export type ModelPerson = AppPerson & {
   parentId: string | null;
   spouse: string;
+  mergedFrom?: Provenance[]; // sat efter collapse: alle kilde-poster hvis personen er foldet
 };
 
 // Side-indekser fra buildModel — i React var det instans-felter (_childIdx osv.);
@@ -137,12 +151,15 @@ export type Model = {
   lineage?: Lineage;
   // "Kilde i Aarbogen"-referencer pr. person (§ + trykt værk + "Linje X, nr. N"). Valgfrit.
   sourcesBy?: Record<string, SourceRef[]>;
+  // samme_som-collapse: ethvert medlems-id → kanonisk id. Bor på modellen (én kilde), så
+  // runtime-læsere resolver alias-id'er uden at tråde et separat map ved siden af.
+  canonicalIdById?: Record<string, string>;
 };
 
 // Linje-projektion pr. slægt (grene). byPerson: person_id → linje-kode; list: chips-data
 // (kode, antal, stamfader=headId, fuldt navn); navn: kode → fuldt navn.
 export type Lineage = {
-  byPerson: Record<string, string>;
+  byPerson: Record<string, string[]>; // flere linjer pr. person (en collapsed grundlægger hører til flere)
   list: LinjeEntry[];
   navn: Record<string, string>;
 };

@@ -101,6 +101,23 @@ Kernefunktionen er **"er vi i familie?"** — slægtskabssøgning på tværs af 
   (rækkefølge byttet) + prod-data korrigeret via versioneret SQL-sletning (`change_set` #3,
   fortrydbart). 4 personer uden linje-match + 46 nu-forældreløse personer kræver manuel
   opfølgning. Se `docs/reviews/11-flere-foraeldre-datafix.md`.
+- **DAA-reimport Etape 1+2 + data-tab-genopretning (2026-07-02):** Loader/validate hærdet
+  (Etape 1, merget+pushet: ekstern_ref-dedup, 15a/15b-børn, deterministiske datoer, RESET-guard,
+  `--force-reset`, frossen prompt). Live-basen var i tidligere session overskrevet til 3
+  test-personer; **reset-reloadet til 922 personer** via `clean-v2.json` + `--force-reset`.
+  Redaktør-profil + lineage-navne genoprettet i idempotent `post_load_fixup.R` (reload-sikkert).
+  **TNG-QA: manglende links 125→10** (92% genindvundet). Grundlægger-dubletter (Conrad III-58↔V-1,
+  Detlef III-104↔IV-1) linket via `samme_som`. Se changelog 2026-07-02.
+- **samme_som-collapse IMPLEMENTERET (web+mobile, branch `feat/samme-som-collapse`, ikke pushet):**
+  frontend identitets-projektion så en person med flere DB-poster vises som én. Ren `collapseSameAs`
+  FØR `buildModel` (motoren urørt): union-find → kanonisk = unik sink; fixed-point-validering +
+  karantæne (self-forælder/-ægtefælle/cyklus/konkurrerende forældre/vital-køn); merge m. years-regen
+  + konfidens-stærkeste dedup. Integration: fetch af afklarede `samme_som` + collapse, alias-map i
+  state (`meId` kanoniseret ved read-site), Aux-id-projektion (`linjeByPerson`→`string[]`),
+  proveniens-badge; redaktion collapser IKKE. Dual-reviewet (Claude+Codex, `docs/reviews/16`+`17`,
+  Codex opgraderede 2 defers til silent-corruption) + /simplify + empirisk prod-valideret
+  (Conrad/Detlef folder rent) + ende-til-ende gennem slægtskabs-motoren (spec §10). Mobile 240,
+  web 88. **Udestår:** manuel skærm-verifikation + merge/push.
 
 ---
 

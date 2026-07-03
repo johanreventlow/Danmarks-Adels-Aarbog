@@ -3,6 +3,7 @@
 // behøver — ikke Aux/godser/våben). Rolle-vokab: partner = forælder-par, barn = blodslægt.
 import { supabase } from '../supabase';
 import { buildModel } from './buildModel';
+import { collapseSameAs } from './collapseSameAs';
 import { buildLineage } from './lineage';
 import { buildSources } from './sources';
 import { fmtYears, parseYear } from './fields';
@@ -44,8 +45,11 @@ export function compareParentOrder(
   return koenDiff !== 0 ? koenDiff : (a.ordinal ?? 0) - (b.ordinal ?? 0);
 }
 
-export async function loadModel(): Promise<Model> {
-  const [persons, members, extIds, lineageRows, sources] = await Promise.all([
+// Returnerer Model med samme_som-alias-map (canonicalIdById) + proveniens (mergedFrom på
+// model.byId) stampet på. collapse: default true; redaktion slår FRA (collapse:false) for at slå
+// navne op på de rå DB-poster (et foldet alias ville ellers mangle i model.byId) — spec §8.
+export async function loadModel(opts?: { collapse?: boolean }): Promise<Model> {
+  const [persons, members, extIds, lineageRows, sources, sameAsRel, approvedConc] = await Promise.all([
     getAll<RawPerson>(() => supabase.from('person').select('id,visning_navn,visning_foedt,visning_doed,visning_titel,koen,privat')),
     getAll<RawMember>(() => supabase.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens')),
     // Linje/nr pr. person (grene) — tolerant: tabellen/kolonnerne kan mangle i ældre baser.
@@ -56,6 +60,14 @@ export async function loadModel(): Promise<Model> {
     getAll<RawLineage>(() => supabase.from('lineage').select('source_id,kode,navn')).catch((e) => { console.warn('[loadModel] lineage utilgængelig — bruger linje-koder som navne:', e); return [] as RawLineage[]; }),
     // Kilder (trykt værk) — til "Kilde i Aarbogen" pr. person.
     getAll<RawSource>(() => supabase.from('source').select('id,slags,titel,udgave,ekstern')).catch((e) => { console.warn('[loadModel] source utilgængelig — Kilde-i-Aarbogen degraderet:', e); return [] as RawSource[]; }),
+    // samme_som-relationer (person→person; subjekt=alias, objekt=kanonisk) + afklarede konklusioner.
+    // Polymorf kobling (conclusion.target_type/target_id), ingen FK → hentes separat + matches i JS.
+    getAll<{ id: number | string; subjekt_id: number | string; objekt_id: number | string }>(() =>
+      supabase.from('relation').select('id,subjekt_id,objekt_id').eq('rolle', 'samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person'),
+    ).catch((e) => { console.warn('[loadModel] samme_som-relationer utilgængelige — ingen collapse:', e); return [] as { id: number | string; subjekt_id: number | string; objekt_id: number | string }[]; }),
+    getAll<{ target_id: number | string }>(() =>
+      supabase.from('conclusion').select('target_id').eq('target_type', 'relation').eq('status', 'afklaret'),
+    ).catch((e) => { console.warn('[loadModel] conclusion utilgængelig — ingen collapse:', e); return [] as { target_id: number | string }[]; }),
   ]);
 
   const appPersons: AppPerson[] = persons.map((p) => ({
@@ -98,10 +110,30 @@ export async function loadModel(): Promise<Model> {
     });
   });
 
-  const db: Db = { persons: appPersons, unions, parentChild };
-  return {
-    ...buildModel(db),
-    lineage: buildLineage(extIds, lineageRows),
-    sourcesBy: buildSources(extIds, sources),
+  const rawDb: Db = { persons: appPersons, unions, parentChild };
+
+  // samme_som-collapse FØR buildModel: fold flere person-rækker der er samme fysiske person til
+  // ÉN kanonisk post (spec 2026-07-02). Kun afklarede identiteter foldes; konflikter karantæneres.
+  const approved = new Set((approvedConc || []).map((c) => String(c.target_id)));
+  const edges =
+    opts?.collapse === false
+      ? []
+      : (sameAsRel || [])
+          .filter((r) => approved.has(String(r.id)))
+          .map((r) => ({ alias: String(r.subjekt_id), canonical: String(r.objekt_id) }));
+  const extMap = new Map((extIds || []).map((x) => [String(x.person_id), { linje: x.linje, nr: x.nr }]));
+  const collapsed = collapseSameAs(rawDb, edges, extMap);
+  if (collapsed.quarantined.length) console.warn('[samme_som] karantæne (foldes ikke):', collapsed.quarantined);
+
+  const model: Model = {
+    ...buildModel(collapsed.db),
+    lineage: buildLineage(extIds, lineageRows, collapsed.canonicalIdById),
+    sourcesBy: buildSources(extIds, sources, collapsed.canonicalIdById),
+    canonicalIdById: collapsed.canonicalIdById,
   };
+  // Påfør proveniens på de foldede kanoniske personer (til badge i detalje-panelet).
+  for (const [canon, prov] of Object.entries(collapsed.mergedFrom)) {
+    if (model.byId[canon]) model.byId[canon].mergedFrom = prov;
+  }
+  return model;
 }

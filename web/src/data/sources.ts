@@ -3,7 +3,13 @@
 // (linje/nr + source_id) koblet mod source-tabellen (titel/udgave).
 import type { RawExtId, RawSource, SourceRef } from './types';
 
-export function buildSources(extIds: RawExtId[], sources: RawSource[]): Record<string, SourceRef[]> {
+export function buildSources(
+  extIds: RawExtId[],
+  sources: RawSource[],
+  // samme_som-collapse: nøgle kanoniseres → kilder for en foldet person samles under kanonisk id.
+  canonicalIdById: Record<string, string> = {},
+): Record<string, SourceRef[]> {
+  const cid = (id: string) => canonicalIdById[id] ?? id;
   const srcById: Record<string, RawSource> = {};
   (sources || []).forEach((s) => { srcById[String(s.id)] = s; });
 
@@ -14,7 +20,7 @@ export function buildSources(extIds: RawExtId[], sources: RawSource[]): Record<s
     const ref = [x.linje ? 'Linje ' + x.linje : '', x.nr != null ? 'nr. ' + x.nr : '']
       .filter(Boolean)
       .join(', ');
-    (out[String(x.person_id)] ??= []).push({ ref, work });
+    (out[cid(String(x.person_id))] ??= []).push({ ref, work });
   });
   return out;
 }

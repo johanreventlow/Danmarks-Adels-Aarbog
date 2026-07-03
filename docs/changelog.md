@@ -1,5 +1,64 @@
 # Changelog
 
+## Redaktionel samme_som-linking implementeret + DB live i prod (2026-07-02)
+
+Redaktør-funktion til at markere to `person`-poster som samme fysiske person (producenten til det
+allerede-live collapse). Fuld cyklus: brainstorm → 3× Codex-review (design+spec) → 7-task TDD-impl → /simplify.
+
+**DB (LIVE i prod, ende-til-ende-verificeret):** `enforce_samme_som_invariants`-**trigger** (BEFORE INSERT
+på `relation`) håndhæver graf-invarianterne (self-link, unik sink/ingen multi-sink, ingen re-root) for ALLE
+insert-veje — ikke kun RPC'en (Codex-3-fund: en RPC-lokal check kan omgås af `red_relation`/undo/load/manuel).
+`red_samme_som` (evidens-komplet wrapper: relation+assertion+afklaret-conclusion, advisory-lås, idempotent) +
+`red_fjern_samme_som` (komplet evidens-slet via delt `_delete_relation_evidence`-helper) + `red_relation`
+afviser `rolle='samme_som'`. Anvendt via MCP `apply_migration`; verificeret mod prod med rollback-DO-blok
+(opret/idempotens/G3-multi-sink/self-link/fjern) — 0 muterede rækker, 2 rigtige links intakte.
+
+**App (web+mobile spejlet, testet):** `sammeSom`/`fjernSammeSom` Change-arter, `fetchSammeSomLinks` +
+retnings-mapping, rådgivende `previewSammeSom` (kører collapse med hypotetisk kant), og UI i person-editorens
+relations-sektion ("Samme person"-liste + fjern + "Marker som samme person" → PersonPicker → retningsvælger +
+pre-flight-hint → dry-run/LIVE). Mobile 247, web 94, tsc rent.
+
+**Codex-fund (3 runder, alle løst):** invariant → trigger (H1); enten-retning skjuler re-root → modsat-retning
+afvist, re-root=fjern+opret (H2); slette-orden fejler på citations → genbrug komplet sekvens (H3); pre-flight
+ikke-autoritativt (RLS-datasæt-afvigelse); evidens-kontrakt (valgt_assertion_id/blaastemplet_af); concurrency
+→ advisory-lås; `max(id)+1`-race = arvet codebase-begrænsning (bruger-accepteret v1). /simplify: delt
+delete-helper + fjernet død G5-trigger-walk. Spec: `docs/superpowers/specs/2026-07-02-redaktionel-samme-som-linking-design.md`.
+
+**Udestår:** manuel live-verifikation af UI'et (web-browser + Expo).
+
+## samme_som-collapse implementeret (web + mobile) (2026-07-02)
+
+Frontend identitets-projektion: en person der optræder som flere DB-poster (linket via
+afklarede `samme_som`-relationer) vises nu som ÉN person i søgning, person-visning og
+slægtskabsfinder — i **både web og mobile**. 9-task plan (`docs/superpowers/plans/`)
+implementeret TDD, dual-reviewet efter hvert logisk trin.
+
+**Kerne (`collapseSameAs.ts`, spejlet web+mobile):** ren funktion der grupperer `samme_som`-
+linkede id'er (union-find), vælger kanonisk = unik sink, **validerer og karantænerer** konflikter
+(self-forælder/-ægtefælle, global cyklus, konkurrerende forældre, hard vital/køn-konflikt) på den
+kombinerede projicerede graf via en **fixed-point-løkke**, fletter person-posterne (coalesce,
+`years`-regen, `privat=OR`, konfidens-stærkeste kant-dedup) og omskriver alle graf-kanter til
+kanoniske id'er FØR `buildModel`. Motoren (`buildModel`/`relationship`) er URØRT. Reversibel:
+returnerer `canonicalIdById` + `mergedFrom` + `quarantined`.
+
+**Integration:** `load.ts`/`model.ts` henter godkendte `samme_som` (relation + afklaret conclusion,
+polymorf → to fetches + JS-match) og folder før `buildModel`. Alle person-id-bærende Aux-strukturer
+kanoniseres; `linjeByPerson` er nu multi-linje. Rute/fokus/rel/mig-id'er resolves gennem alias-map
+(inkl. `meId` ved read-site). Person-visningen viser multi-linje badge + proveniens-note
+("Optræder i Aarbogen som …"). Redaktion collapser IKKE (ser separate DB-poster).
+
+**Dual-review (7 kerne-fund + 3 integrations-fund, alle rettet):** Codex opgraderede to "defer"
+til reelle silent-corruption-bugs (konkurrerende forældre maskeret af rejekteret gruppe →
+fixed-point; konfidens-nedgradering ved dedup). code-analyzer fangede et meId-read-site-bug
+(★ Dig-badge brød for foldede personer). Se `docs/reviews/16-samme-som-collapse-kerne.md`.
+
+**Empirisk valideret mod prod:** de 2 eksisterende `samme_som` (Conrad III-58→V-1, Detlef
+III-104→IV-1) er begge `afklaret`, cross-linje, konflikt-fri → folder rent; founder'en arver
+sit forælder-link (der før manglede på founder-posten). Suiter: mobile 236, web 84.
+
+**Udestår (manuel):** Expo-simulator + web-browser-verifikation af selve skærmene (navigation
+via begge alias-ruter → samme samlede person + badge).
+
 ## DAA-reimport Etape 1+2, data-tab-genopretning, grundlægger-links, samme_som-design (2026-07-02)
 
 **Etape 1 — loader/validate-hærdning (merget til main, pushet):** 9-task subagent-drevet

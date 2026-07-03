@@ -25,9 +25,19 @@ describe('buildLineage', () => {
   const r = buildLineage(extIds, lineageRows);
 
   test('byPerson mapper person → linje-kode; personer uden linje udelades', () => {
-    expect(r.byPerson['10']).toBe('I');
-    expect(r.byPerson['21']).toBe('II');
+    expect(r.byPerson['10']).toEqual(['I']);
+    expect(r.byPerson['21']).toEqual(['II']);
     expect(r.byPerson['99']).toBeUndefined();
+  });
+
+  test('samme_som-kanonisering: foldet grundlægger hører til flere linjer + head kanoniseres', () => {
+    // III58 (linje III, nr 58) + V1 (linje V, nr 1) folder til V1.
+    const ext: RawExtId[] = [x('III58', 'III', 58), x('V1', 'V', 1)];
+    const rc = buildLineage(ext, [], { III58: 'V1' });
+    expect(rc.byPerson['V1']?.sort()).toEqual(['III', 'V']);
+    expect(rc.byPerson['III58']).toBeUndefined(); // alias-nøgle findes ikke
+    expect(rc.list.find((l) => l.linje === 'III')?.headId).toBe('V1'); // head var alias → kanonisk
+    expect(rc.list.find((l) => l.linje === 'III')?.count).toBe(1); // distinkt person, ikke ext-række
   });
 
   test('list er sorteret på kode med korrekt antal', () => {

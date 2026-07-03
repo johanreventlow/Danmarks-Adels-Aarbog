@@ -5,24 +5,29 @@
 import { compareDanish, initialOf, sortLetters } from '../lib/collation';
 import type { ModelPerson } from './types';
 
-export type BrowseGroup = { letter: string; people: ModelPerson[] };
-export type BrowseResult = {
+// buildBrowse bruger kun id/name/born — struktureres derfor over et minimalt person-shape, så
+// både publikums-`ModelPerson` (Folgesvend) OG redaktørens `RedPerson` (via et `name`-alias)
+// kan drive samme testede browse-logik uden duplikering.
+export type BrowsePerson = { id: string; name: string; born: number | null };
+export type BrowseGroup<P extends BrowsePerson = ModelPerson> = { letter: string; people: P[] };
+export type BrowseResult<P extends BrowsePerson = ModelPerson> = {
   grouped: boolean;
-  flat: ModelPerson[];
+  flat: P[];
   letters: string[];
-  groups: BrowseGroup[];
+  groups: BrowseGroup<P>[];
 };
 
-export function buildBrowse(
-  persons: ModelPerson[],
+export function buildBrowse<P extends BrowsePerson>(
+  persons: P[],
   query: string,
   sort: 'navn' | 'aar',
   activeLetter: string | null,
-  opts?: { linjeByPerson?: Record<string, string>; activeLinje?: string | null },
-): BrowseResult {
-  // Gren-filter (§9.2) FØRST: begræns til den aktive linjes medlemmer før query/sortering.
+  opts?: { linjeByPerson?: Record<string, string[]>; activeLinje?: string | null },
+): BrowseResult<P> {
+  // Gren-filter (§9.2) FØRST: begræns til den aktive linjes medlemmer før query/sortering. En
+  // person kan høre til flere linjer (collapsed grundlægger) → medtag hvis linjen er blandt dem.
   const scoped = opts?.activeLinje && opts.linjeByPerson
-    ? persons.filter((p) => opts.linjeByPerson![p.id] === opts.activeLinje)
+    ? persons.filter((p) => (opts.linjeByPerson![p.id] ?? []).includes(opts.activeLinje!))
     : persons;
   const q = query.trim().toLowerCase();
   const pool = q ? scoped.filter((p) => p.name.toLowerCase().includes(q)) : scoped;
@@ -36,7 +41,7 @@ export function buildBrowse(
   // Alfabet-hop kun ved navne-sort UDEN søgning.
   if (q) return { grouped: false, flat, letters: [], groups: [] };
 
-  const byL: Record<string, ModelPerson[]> = {};
+  const byL: Record<string, P[]> = {};
   flat.forEach((p) => { (byL[initialOf(p.name)] ??= []).push(p); });
   const letters = sortLetters(Object.keys(byL));
   // Defensivt (review 15 H1): ignorér activeLetter hvis bogstavet ikke findes i den aktuelle

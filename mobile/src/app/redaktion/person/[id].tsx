@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { InitialBadge } from '../../../components/InitialBadge';
 import { TopBar } from '../../../components/TopBar';
@@ -11,7 +11,8 @@ import { PersonPicker } from '../../../components/redaktion/PersonPicker';
 import { MentionPicker } from '../../../components/redaktion/MentionPicker';
 import { Body, BtnLabel, Mono, Serif } from '../../../components/Typography';
 import { insertAt } from '../../../lib/mentions';
-import { fetchPersonEvidence, fetchPersonNarrativ, fetchPersonRelationer, fetchPersonFamilie, nudgeOrdinal, BARN_ROLLER, type PersonEvidence, type PersonRelation, type PersonFamilie, type FamilieUnion } from '../../../data/redaktionRead';
+import { fetchPersonEvidence, fetchPersonNarrativ, fetchPersonRelationer, fetchPersonFamilie, fetchSammeSomLinks, nudgeOrdinal, BARN_ROLLER, type PersonEvidence, type PersonRelation, type PersonFamilie, type FamilieUnion, type SammeSomLink } from '../../../data/redaktionRead';
+import { previewSammeSom } from '../../../data/sammeSomPreflight';
 import { eraAdvarsel } from '../../../data/eraAdvarsel';
 import { type Change } from '../../../data/redaktionWrite';
 import { useStore } from '../../../store/useStore';
@@ -179,6 +180,42 @@ function BarnSheet({ scratch, advarsel, onClose, onGem }: {
   );
 }
 
+// Retningsvælger + rådgivende pre-flight for et samme_som-identitets-link.
+function SammeSomSheet({ redigeret, valgt, kanoniskId, onByt, preview, onClose, onGem }: {
+  redigeret: { id: string; navn: string };
+  valgt: { id: string; navn: string };
+  kanoniskId: string;
+  onByt: () => void;
+  preview: { folder: boolean; grund: string | null };
+  onClose: () => void;
+  onGem: () => void;
+}) {
+  const kanonisk = kanoniskId === redigeret.id ? redigeret : valgt;
+  const alias = kanoniskId === redigeret.id ? valgt : redigeret;
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={editorStyles.modalBackdrop} onPress={onClose} />
+      <View style={editorStyles.modalSheet}>
+        <Serif size={20} style={{ marginBottom: 12 }}>Samme person</Serif>
+        <Mono size={9} color={Colors.gold} style={{ marginBottom: 4 }}>KANONISK (beholdes)</Mono>
+        <Body size={15} style={{ marginBottom: 10 }}>{kanonisk.navn}</Body>
+        <Mono size={9} color={Colors.gold} style={{ marginBottom: 4 }}>FOLDES IND I OVENSTÅENDE</Mono>
+        <Body size={15} style={{ marginBottom: 12 }}>{alias.navn}</Body>
+        <Pressable style={{ paddingVertical: 6, marginBottom: 8 }} onPress={onByt}>
+          <Mono size={10} color={Colors.bordeaux}>⇅ Byt retning</Mono>
+        </Pressable>
+        {!preview.folder ? (
+          <Mono size={10} color={Colors.bordeaux} style={{ marginBottom: 10, lineHeight: 14 }}>
+            ⚠ Foldes ikke endnu — {preview.grund}. Linket oprettes, men personerne vises separat til
+            konflikten er løst. (redaktionel projektion — offentlig visning kan afvige)
+          </Mono>
+        ) : null}
+        <SheetButtons marginTop={6} onGem={onGem} onClose={onClose} />
+      </View>
+    </Modal>
+  );
+}
+
 function RelTilfoejSheet({ scratch, onClose, onGem }: {
   scratch: { objektType: string; objektId: string; navn: string; rolle: string; periode: string };
   onClose: () => void;
@@ -262,6 +299,23 @@ export default function PersonEditor() {
   useEffect(() => {
     if (id) fetchPersonRelationer(id, redaktionAux).then(setRelationer).catch(() => {});
   }, [id, redaktionAux]);
+
+  // Samme person (identitets-links, samme_som).
+  const [sammeSom, setSammeSom] = useState<SammeSomLink[]>([]);
+  const [ssPicker, setSsPicker] = useState(false);
+  // scratch: den valgte person + retning (kanoniskId = den der beholdes/foldes ind i).
+  const [ssScratch, setSsScratch] = useState<{ personId: string; navn: string; kanoniskId: string } | null>(null);
+  const refreshSammeSom = () => { if (id) fetchSammeSomLinks(id).then(setSammeSom).catch(() => {}); };
+  useEffect(refreshSammeSom, [id]);
+  // Rå-db til rådgivende pre-flight (rekonstrueret fra redaktionsmodellen; unions ej nødvendig for
+  // karantæne-tjekket — kun personer + forældre-kanter bruges).
+  const ssRawDb = useMemo(() => ({
+    persons: redaktionModel?.persons ?? [],
+    unions: [],
+    parentChild: Object.entries(redaktionModel?.indexes.parentsByChild ?? {}).flatMap(
+      ([child, parents]) => parents.map((parent) => ({ child, parent, union: '' })),
+    ),
+  }), [redaktionModel]);
 
   // Familie (2C-2b): redigerbar partner+barn-sektion.
   const [familie, setFamilie] = useState<PersonFamilie>({ somPartner: [], somBarn: [] });
@@ -618,6 +672,23 @@ export default function PersonEditor() {
                 <Mono size={9} color={Colors.bordeaux}>+ Tilføj gods</Mono>
               </Pressable>
 
+              {/* SAMME PERSON (identitets-links) */}
+              <Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>SAMME PERSON</Mono>
+              {sammeSom.map((l) => (
+                <View key={l.relationId} style={editorStyles.relEditRad}>
+                  <View style={{ flex: 1 }}>
+                    <Body size={13}>{redaktionModel?.byId?.[l.modpartId]?.name ?? `#${l.modpartId}`}</Body>
+                    <Mono size={9} color={Colors.textMuted}>{l.retning === 'alias' ? 'denne foldes ind i' : 'foldes ind i denne'}</Mono>
+                  </View>
+                  <Pressable onPress={() => setPending({ art: 'fjernSammeSom', subjektType: 'person', subjektId: id!, relationId: l.relationId })}>
+                    <Mono size={9} color={Colors.danger}>🗑</Mono>
+                  </Pressable>
+                </View>
+              ))}
+              <Pressable style={{ paddingVertical: 6 }} onPress={() => setSsPicker(true)}>
+                <Mono size={9} color={Colors.bordeaux}>+ Marker som samme person</Mono>
+              </Pressable>
+
               {kld.length ? (<><Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>KILDER</Mono>
                 {kld.map((s, i) => <View key={i} style={editorStyles.sekRad}><Body size={13}>{s.work}</Body><Mono size={9} color={Colors.textMuted}>{s.ref}</Mono></View>)}</>) : null}
             </View>
@@ -680,6 +751,29 @@ export default function PersonEditor() {
             setFlytBarnScratch(null);
           }} />
       ) : null}
+      {ssPicker ? (
+        <PersonPicker excludeId={id} onClose={() => setSsPicker(false)}
+          onValg={(v) => { setSsScratch({ personId: v.personId, navn: v.navn, kanoniskId: id! }); setSsPicker(false); }} />
+      ) : null}
+      {ssScratch ? (
+        <SammeSomSheet
+          redigeret={{ id: id!, navn: redaktionModel?.byId?.[id!]?.name ?? id! }}
+          valgt={{ id: ssScratch.personId, navn: ssScratch.navn }}
+          kanoniskId={ssScratch.kanoniskId}
+          onByt={() => setSsScratch({ ...ssScratch, kanoniskId: ssScratch.kanoniskId === id! ? ssScratch.personId : id! })}
+          preview={previewSammeSom(
+            ssRawDb,
+            [],
+            { alias: ssScratch.kanoniskId === id! ? ssScratch.personId : id!, canonical: ssScratch.kanoniskId },
+          )}
+          onClose={() => setSsScratch(null)}
+          onGem={() => {
+            const aliasId = ssScratch.kanoniskId === id! ? ssScratch.personId : id!;
+            setPending({ art: 'sammeSom', subjektType: 'person', subjektId: id!,
+              payload: { aliasId, objektId: ssScratch.kanoniskId } });
+            setSsScratch(null);
+          }} />
+      ) : null}
       <SkrivePreviewSheet
         change={pending}
         onClose={() => setPending(null)}
@@ -688,6 +782,7 @@ export default function PersonEditor() {
           if (id) fetchPersonEvidence(id).then(setEv).catch(() => {});
           if (id) fetchPersonRelationer(id, redaktionAux).then(setRelationer).catch(() => {});
           if (id) fetchPersonFamilie(id, redaktionModel).then(setFamilie).catch(() => {});
+          refreshSammeSom();
         }}
       />
       {confirmDeleteOpen ? (
