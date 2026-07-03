@@ -111,10 +111,12 @@ const COL_MAX_DEPTH = 40; // øvre loft (visited-Set nedenfor er den egentlige c
 const ANCESTOR_LABELS = ['Forældre', 'Bedsteforældre', 'Oldeforældre', 'Tipoldeforældre'];
 const DESCENDANT_LABELS = ['Børn', 'Børnebørn', 'Oldebørn', 'Tipoldebørn'];
 
+// Dybde 1-4 navngives; fra dybde 5 bruges den danske genealogiske kortform "N× tipoldeforældre"
+// (= tip-tip-…-oldeforældre): dybde 5 = 2×, 6 = 3× osv. → (dybde − 3)×.
 function colLabel(kind: 'ancestor' | 'descendant', depth: number): string {
   const table = kind === 'ancestor' ? ANCESTOR_LABELS : DESCENDANT_LABELS;
   if (depth >= 1 && depth <= table.length) return table[depth - 1];
-  return `${depth}. slægtled ${kind === 'ancestor' ? 'tilbage' : 'frem'}`;
+  return `${depth - 3}× ${kind === 'ancestor' ? 'Tipoldeforældre' : 'Tipoldebørn'}`;
 }
 
 function buildDirection(

@@ -75,7 +75,7 @@ describe('buildBidirectionalColumns', () => {
     expect(cols.map((c) => c.key)).toEqual(['ancestor:1', 'anchor:0']);
   });
 
-  it('dyb label-fallback: 5. slægtled tilbage/frem', () => {
+  it('dyb label-fallback: N× tipoldeforældre/-børn fra dybde 5', () => {
     // Byg en lineær 6-generations kæde p0→p1→…→p5 og drill helt igennem.
     const chain = buildModel(
       db(
@@ -90,9 +90,10 @@ describe('buildBidirectionalColumns', () => {
       ),
     );
     const down = buildBidirectionalColumns(chain, 'p0', [], ['p1', 'p2', 'p3', 'p4']);
-    expect(col(down, 'descendant:5')!.label).toBe('5. slægtled frem');
+    expect(col(down, 'descendant:4')!.label).toBe('Tipoldebørn'); // dybde 4 navngives stadig
+    expect(col(down, 'descendant:5')!.label).toBe('2× Tipoldebørn');
     const up = buildBidirectionalColumns(chain, 'p5', ['p4', 'p3', 'p2', 'p1'], []);
-    expect(col(up, 'ancestor:5')!.label).toBe('5. slægtled tilbage');
+    expect(col(up, 'ancestor:5')!.label).toBe('2× Tipoldeforældre');
   });
 
   it('cyklus-guard: self-forælder terminerer uden gentagelse', () => {

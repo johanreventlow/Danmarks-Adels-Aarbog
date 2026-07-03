@@ -46,11 +46,14 @@ Når Kolonner åbnes eller fokus skifter: **Forældre-kolonne synlig til venstre
 
 Relative slægts-labels centreret om ankeret (rene slægts-ord, ingen pile i headeren):
 
-| Retning | Dybde 1 | 2 | 3 | 4 | ≥5 (fallback) |
+| Retning | Dybde 1 | 2 | 3 | 4 | ≥5 (kortform) |
 |---|---|---|---|---|---|
-| Aner (venstre) | Forældre | Bedsteforældre | Oldeforældre | Tipoldeforældre | `"{n}. slægtled tilbage"` |
+| Aner (venstre) | Forældre | Bedsteforældre | Oldeforældre | Tipoldeforældre | `"{n−3}× Tipoldeforældre"` |
 | Anker | **Fokus** | — | — | — | — |
-| Efterkommere (højre) | Børn | Børnebørn | Oldebørn | Tipoldebørn | `"{n}. slægtled frem"` |
+| Efterkommere (højre) | Børn | Børnebørn | Oldebørn | Tipoldebørn | `"{n−3}× Tipoldebørn"` |
+
+Fra dybde 5 bruges den danske genealogiske kortform: dybde 5 = `2× Tipoldeforældre`
+(tip-tip-oldeforældre), 6 = `3× Tipoldeforældre`, osv. Samme for efterkommere.
 
 **Retnings-metafor er konsekvent vandret** (stribens akse), ikke lodret. Så:
 - Kant-vejledning ved stribens ender: `◀ aner` / `efterkommere ▶`.
