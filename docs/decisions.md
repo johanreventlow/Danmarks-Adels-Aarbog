@@ -2,6 +2,23 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Redaktør person-browse driver af `persons` (RedPerson), ikke `model.persons` (2026-07-03)
+
+Da Følgesvends browse-UX (a-z/fødsel-sort/linje-filter) blev porteret til redaktør-fladen, kunne listen
+have været drevet af den samme `model.persons` (ModelPerson) som Følgesvend bruger. Valgt i stedet: driv af
+redaktørens egen `persons` (RedPerson) + kun linje-metadata fra `model.lineage`. **Hvorfor:** redaktør-listen
+er *skrive-autoritativ* — `curPerson`/`recordId` skal altid resolve mod den redigerbare mængde. Hvis
+`model.persons` (collapse:false) var et subset/superset af RedPerson-mængden, ville listen enten skjule
+redigerbare personer eller vise rækker uden editor-backing. RedPerson bærer i forvejen `born` (parset fra
+`visning_foedt`, aldrig dødsår), så fødsels-sort krævede ingen ny data. `buildBrowse` blev derfor
+generaliseret strukturelt (`BrowsePerson = {id,name,born}`) frem for at tvinge redaktøren over på model-
+typen. **Fravalgt:** unify de to person-kilder upstream (unødvendig kobling; redaktøren har legitimt brug
+for den rå liste til redigering). Kontrakten der holder id-rummene flugtende: redaktør-modellen loades
+`collapse:false`, så model-person-id == rå RedPerson-id.
+
+**Linje-chip filtrerer kun listen (afvigelse fra Følgesvend).** På Følgesvend hopper et linje-klik også
+stamtræs-fokus til grenens stamfader. Redaktør-fladen har intet stamtræ, så chippen her *kun* filtrerer.
+
 ## Versionering + hyperlinks App-lag (2026-06-30)
 
 **Escape-fix lagt på encode-siden (`makeToken`), ikke decode-siden (scanneren).**

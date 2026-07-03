@@ -1,5 +1,29 @@
 # Changelog
 
+## Redaktør-web-cohesion: v2-header + person-browse (2026-07-03)
+
+Bragte redaktør-fladen (`web/`) i tråd med publikums-web-v2 (Følgesvend). Committet `91b7797` på
+`feat/samme-som-collapse`; header-ændringerne ført både i design-mockuppen og den kørende app.
+
+**Header (`design/project/Reventlow-redaktion.dc.html` + `web/src/Redaktion.tsx`):** DAF-logo-lockup +
+"Danmarks Adels Aarbog" + mono "Redaktion · Dansk Adels Forening" (erstatter R-firkant + "Redaktion ·
+Reventlow"); slægt-chip m. crest-ring + "Reventlow ▾" (verbatim fra web-v2); header-mål 66px/gap 22/
+padding 0 26px; mockup-link "Åbn publikumsvisning" → web-v2 (v1→v2).
+
+**Person-liste (spejler Følgesvend §9.1/§9.2):** A–Å grupperet liste + alfabet-hop, sortér navn/fødeår
+(`RedPerson.born`, aldrig dødsår), linje-filter som chips fra `model.lineage` (filtrerer KUN listen —
+redaktør har intet stamtræ at hoppe fokus i). `buildBrowse` generaliseret strukturelt (`BrowsePerson`)
+så samme testede motor driver både `ModelPerson` og `RedPerson` via et `name`-alias; id-rummene flugter
+fordi redaktør-modellen loades `collapse:false`. Ikke-person-entiteter beholder den flade søgeliste.
+
+**/simplify (4 parallelle agenter):** `personBrowse` gated til person-entiteten (ellers null — sparer en
+900+-personers browse ved hvert tastetryk under andre entiteter); to næsten-ens række-renderere gen-forenet
+til én `listRow`-helper; `browseInput`-memo inlinet; memo-dep smalnet til `lineage.byPerson`. Udskudt (uden
+for diff): udtræk delt `LinjeChip`/`<BrowseControls>` på tværs af Følgesvend+Redaktion.
+
+**Verifikation:** `tsc` rent · 94/94 web-tests (18 browse) · prod-build OK. **Ikke** visuelt/runtime-verificeret
+i browser (ingen browser-driver i repo'et).
+
 ## Redaktionel samme_som-linking implementeret + DB live i prod (2026-07-02)
 
 Redaktør-funktion til at markere to `person`-poster som samme fysiske person (producenten til det
