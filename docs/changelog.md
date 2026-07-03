@@ -20,9 +20,13 @@ Eksekveret write-frit mod alle 591 records via `--dry-run` (parkerede præcis 1:
 Conrad Gabel 6 / Hahn 10; 132 change-events (64×2+2+2 → intet barn tabt); kun family/family_member
 berørt; acceptance-gate grøn (Anna Sophie nu på Hahn).
 
-**Udestår:** III-85 (Detlef) har nu kun far — falsk Brockdorff-mor fjernet, men hans
-`aegteskab_kontekst` beskriver hans EGET ægteskab, så moderen er uoprettelig fra feltet; på
-partnerløs park-union, flagget til manuel genealogisk review.
+**III-85 (Detlef) — efterfølgende løst (`change_set 2`):** den automatiske parkering var her
+et falsk-negativt. `aegteskab_kontekst` var en ekstraktionsfejl (indeholdt en fremmed persons
+ægteskab "Margaretha von Rumohr"; Detlef døde som spæd og var aldrig gift). Bogens tekst: "af
+første ægteskab med Catharina von Brockdorff" — moderen ER Brockdorff (Friedrichs 1. ægteskab).
+Flyttet tilbage til fam 175 + park-union 380 slettet (`red_fortryd_change_set(2)`); kildefeltet i
+`clean-v2.json` rettet så reload rammer rigtigt (matcher: idx 1 via begge). Læring: parkering
+beskytter mod falske påstande, men et menneske med kilden er facittet.
 
 ## Redaktør-web-cohesion: v2-header + person-browse (2026-07-03)
 

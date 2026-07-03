@@ -113,8 +113,9 @@ Kernefunktionen er **"er vi i familie?"** — slægtskabssøgning på tværs af 
   partnernavn primær, ordenstal kryds-tjek, NA-frem-for-gæt) wired i `load_daa.R` (34 tests,
   dry-run mod alle 591 records). Prod-data rettet: 64 flyttet/1 parkeret i `change_set 1`
   (fortrydbart), verificeret (Conrad Gabel 6/Hahn 10, Anna Sophie nu på Hahn). Se
-  `fix_boern_multi_union.R` + changelog/decisions 2026-07-03. **Udestår:** III-85 (Detlef)
-  far-kun (mor uoprettelig fra `aegteskab_kontekst`), manuel genealogisk review.
+  `fix_boern_multi_union.R` + changelog/decisions 2026-07-03. III-85 (Detlef) efterfølgende
+  løst (`change_set 2`): parkeringen var falsk-negativ pga. ekstraktionsfejl i `aegteskab_kontekst`
+  — bogen siger 1. ægteskab (Catharina von Brockdorff); flyttet tilbage + kildefelt rettet.
 - **samme_som-collapse IMPLEMENTERET (web+mobile — merget til main via PR #14, 2026-07-03):**
   frontend identitets-projektion så en person med flere DB-poster vises som én. Ren `collapseSameAs`
   FØR `buildModel` (motoren urørt): union-find → kanonisk = unik sink; fixed-point-validering +
