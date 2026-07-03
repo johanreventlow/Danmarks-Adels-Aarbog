@@ -17,6 +17,16 @@ objekt per post til `work/extracted/<linje>-<nr_label>.json` (overskriv). Brug W
 Postens input (fra `posts.json`): `raw_text`, `linje`, `nr`, `nr_label`,
 `slaegtled`, `aegteskab_kontekst`, `kuld`.
 
+> **`aegteskab_kontekst` er et HINT fra segmenteringen (`segment.py`), ikke facit.**
+> Feltet er den nærmeste "af X ægteskab med Y:"-overskrift over posten. Kendte
+> fejlkilder: (a) headings der slutter på ":-" (kolon+bindestreg) matchede før ikke
+> og lod den FORRIGE heading klæbe til næste barn — rettet i `MARR_RE`; (b) for
+> enkelt-gifte forældre uden egen heading kan en tidligere forælders heading "bløde"
+> igennem (inert: loaderen bruger KUN feltet ved 2+ ægteskaber, og `match_barn_union`
+> parkerer frem for at gætte hvis navnet ikke er blandt forælderens ægteskaber).
+> Kopiér feltet VERBATIM — validér det ikke og find ikke på en mor ud fra det;
+> retten mor bindes deterministisk ved load. Se `docs/reviews/boern-mor-mismatch-review-2026-07-03.md`.
+
 ## Regler
 - Kopiér `linje`, `nr`, `nr_label` VERBATIM fra posten. `usikker` = postens værdi. UDLED IKKE `narrative` (den flettes deterministisk ind fra `raw_text` i trin ④).
 - `date_raw` er OBLIGATORISK og VERBATIM for alle dato-fakta (fødsel/dåb/død/begravelse/floruit). Det er det vigtigste dato-felt — få det ordret rigtigt.

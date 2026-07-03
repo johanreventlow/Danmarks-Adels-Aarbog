@@ -32,7 +32,7 @@ ROMAN_RE   = re.compile(r'^\s*([IVX]{1,5})\s*$')
 # Krav om VERSALER undgår falsk match på små-bogstavs-krydsref "(se I. Den … linje nr. 29)".
 LINJE_NAME = re.compile(r'^[A-ZÆØÅ0-9 .]*\bLINJEN?\b[A-ZÆØÅ0-9 .]*$')
 SLGT_RE    = re.compile(r'^\s*(\w+)\s+slægtled\s*$', re.I)
-MARR_RE    = re.compile(r'^\s*((?:af [\w ]+ ægteskab )?med .+):\s*$', re.I)
+MARR_RE    = re.compile(r'^\s*((?:af [\w ]+ ægteskab )?med .+):[\s\-–—]*$', re.I)
 NOISE_RE   = re.compile(r'^\s*(von\s+R\s*E.*|Ridder\s+.+sønner)\s*$', re.I)
 
 
@@ -127,6 +127,7 @@ def main(path):
     sys.stdout.write('\n')
     print(f'[segment] {len(posts)} poster', file=sys.stderr)
     _quality_report(posts)
+    return posts   # muliggør unit-test (kaldes via CLI hvor returværdien ignoreres)
 
 
 def _quality_report(posts):
