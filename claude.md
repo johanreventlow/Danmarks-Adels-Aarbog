@@ -153,6 +153,14 @@ Kernefunktionen er **"er vi i familie?"** — slægtskabssøgning på tværs af 
   + 5 SHOULD-FIX indarbejdet; `docs/superpowers/specs/2026-07-03-*`). **Verificeret:** web tsc+109
   tests+build (bruger-bekræftet visuelt), mobile tsc+249 tests + **iOS-simulator-verificeret mod prod**
   (idb: bidirektionel drill/labels/chevrons/up-scroll + collapse gennem traversering). Variant A/C urørt.
+- **Redaktør: klikbar familie-navigation + fødsels/dødsår (web+mobile, merget til main `bffdfc2`,
+  2026-07-03):** partnere/børn/forældre i redaktør-familieoversigten er nu klikbare (åbner deres
+  editor — web `setRecordId`, mobile `router.push`, genbruger `PersonRad`-primitiven); børn+partnere
+  viser årstal fra `model.byId.years` (ingen ekstra query, nyt `aar`-felt i `mapFamilieRows`, spejlet
+  web+mobile). Modellen urørt (navigation=læsning; edit/slet gik i forvejen gennem append/fortrydbare
+  `red_*`-RPC'er) — se `docs/decisions.md`. Web 112/112 + mobile 249/249 + tsc grønne. **Runtime-verifik.
+  udskudt til fysisk enhed** pga. RN-fetch-sim-bug (-1005; host+sim-Safari når Supabase, app ej) — se
+  memory `mobil-sim-rn-fetch-1005`.
 
 ---
 
