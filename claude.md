@@ -108,7 +108,14 @@ Kernefunktionen er **"er vi i familie?"** — slægtskabssøgning på tværs af 
   Redaktør-profil + lineage-navne genoprettet i idempotent `post_load_fixup.R` (reload-sikkert).
   **TNG-QA: manglende links 125→10** (92% genindvundet). Grundlægger-dubletter (Conrad III-58↔V-1,
   Detlef III-104↔IV-1) linket via `samme_som`. Se changelog 2026-07-02.
-- **samme_som-collapse IMPLEMENTERET (web+mobile, branch `feat/samme-som-collapse`, ikke pushet):**
+- **Børn af flergifte forældre → korrekt union (merget til main via `e79c821`, 2026-07-03):**
+  loaderen hang alle børn på 1. union; nu delt matcher `match_barn_union` (`load_helpers.R`:
+  partnernavn primær, ordenstal kryds-tjek, NA-frem-for-gæt) wired i `load_daa.R` (34 tests,
+  dry-run mod alle 591 records). Prod-data rettet: 64 flyttet/1 parkeret i `change_set 1`
+  (fortrydbart), verificeret (Conrad Gabel 6/Hahn 10, Anna Sophie nu på Hahn). Se
+  `fix_boern_multi_union.R` + changelog/decisions 2026-07-03. **Udestår:** III-85 (Detlef)
+  far-kun (mor uoprettelig fra `aegteskab_kontekst`), manuel genealogisk review.
+- **samme_som-collapse IMPLEMENTERET (web+mobile — merget til main via PR #14, 2026-07-03):**
   frontend identitets-projektion så en person med flere DB-poster vises som én. Ren `collapseSameAs`
   FØR `buildModel` (motoren urørt): union-find → kanonisk = unik sink; fixed-point-validering +
   karantæne (self-forælder/-ægtefælle/cyklus/konkurrerende forældre/vital-køn); merge m. years-regen
@@ -117,8 +124,8 @@ Kernefunktionen er **"er vi i familie?"** — slægtskabssøgning på tværs af 
   proveniens-badge; redaktion collapser IKKE. Dual-reviewet (Claude+Codex, `docs/reviews/16`+`17`,
   Codex opgraderede 2 defers til silent-corruption) + /simplify + empirisk prod-valideret
   (Conrad/Detlef folder rent) + ende-til-ende gennem slægtskabs-motoren (spec §10). Mobile 240,
-  web 88. **Udestår:** manuel skærm-verifikation + merge/push.
-- **Redaktør-web-cohesion (web, commit `91b7797` på `feat/samme-som-collapse`, ikke pushet, 2026-07-03):**
+  web 88. **Udestår:** manuel skærm-verifikation (merget via PR #14).
+- **Redaktør-web-cohesion (web, merget til main via PR #14, 2026-07-03):**
   redaktør-fladen bragt i tråd med web-v2. (a) Header: DAF-logo-lockup + "Danmarks Adels Aarbog" + mono
   "Redaktion · Dansk Adels Forening" + slægt-chip (crest-ring + "Reventlow ▾") + 66px-mål; ført både i
   design-mockuppen og `Redaktion.tsx`. (b) Person-liste spejler Følgesvend §9.1/§9.2: A–Å + alfabet-hop,

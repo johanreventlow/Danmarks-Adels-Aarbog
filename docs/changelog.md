@@ -1,5 +1,29 @@
 # Changelog
 
+## Børn af flergifte forældre knyttet til korrekt union (2026-07-03)
+
+Loaderen hang tidligere ALLE børn af en flergift forælder på forælderens FØRSTE union
+(`load_daa.R`, `fam <- fams[[1]]`), så børn af 2./3./4. ægteskab blev fejl-tilknyttet 1.
+ægteskab. Generelt problem: 20 flergifte forældre, 65 børn berørt — fx alle Conrad de
+Reventlows 10 andet-ægteskabs-børn (inkl. dronning Anna Sophie) lå på Anna Margaretha Gabel
+i stedet for Sophia Amalia Hahn. Dataene til at rette det lå der hele tiden i hvert barns
+`aegteskab_kontekst`.
+
+**Loader (`load_helpers.R` + `load_daa.R`):** delt DB-fri matcher `match_barn_union()` — barnets
+`aegteskab_kontekst` → rette union; partnernavn primær anker, ordenstal kryds-tjek, NA ved
+uenighed/ukendt partner (gætter aldrig). Wired i child-loop via `recmap` (nøgle→rec); kun ved
+2+ ægteskaber; uafklarede parkeres på partnerløs union frem for fejl-link. 34 testthat-tests.
+Eksekveret write-frit mod alle 591 records via `--dry-run` (parkerede præcis 1: III-85).
+
+**Prod-data (`fix_boern_multi_union.R`, samme matcher):** 64 børn flyttet, 1 parkeret, i ét
+`change_set` (id 1, fortrydbart via `red_fortryd_change_set(1)`); idempotens-guard. Verificeret:
+Conrad Gabel 6 / Hahn 10; 132 change-events (64×2+2+2 → intet barn tabt); kun family/family_member
+berørt; acceptance-gate grøn (Anna Sophie nu på Hahn).
+
+**Udestår:** III-85 (Detlef) har nu kun far — falsk Brockdorff-mor fjernet, men hans
+`aegteskab_kontekst` beskriver hans EGET ægteskab, så moderen er uoprettelig fra feltet; på
+partnerløs park-union, flagget til manuel genealogisk review.
+
 ## Redaktør-web-cohesion: v2-header + person-browse (2026-07-03)
 
 Bragte redaktør-fladen (`web/`) i tråd med publikums-web-v2 (Følgesvend). Committet `91b7797` på

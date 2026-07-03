@@ -2,6 +2,33 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Barn→union-matching: partnernavn primær, ordenstal kryds-tjek; parkér frem for at gætte (2026-07-03)
+
+Ved fix af flergifte-forældres børn-tilknytning skulle hvert barns fritekst-`aegteskab_kontekst`
+("af andet ægteskab med Sophia Amalia Hahn") mappes til rette union. **Valgt:** partnernavn som
+PRIMÆR anker (positions-uafhængigt) + ordenstals-ord som KRYDS-TJEK, med NA ved uenighed eller
+ukendt partner. **Hvorfor ikke bare ordenstal→position:** partnernavn kan være tvetydigt (Iwan I-60
+giftede sig med samme "Margaretha von Rantzau" i både 3. OG 4. ægteskab — kun ordenstallet afgør),
+OG ordinal-feltet kan være NA; de to signaler afdækker hinandens huller, og uenighed afslører
+ekstraktionsfejl gratis. **Parkering frem for gæt:** børn hvis kontekst navngiver en ikke-registreret
+forbindelse (III-85 Detlef, hvor feltet beskriver hans EGET ægteskab, ikke moderens) tilknyttes en
+partnerløs union — aldrig et forkert ægteskab. En partnerløs union gør INGEN påstand om moderen;
+den nuværende false-Brockdorff-tilknytning var en positiv falsk påstand. **Fravalgt:** LLM-baseret
+matching (deterministisk fritekst-matching gav 110/111 på rigtige data).
+
+## Prod-datafix via kirurgisk change_set (DELETE+INSERT), ikke reset-reload eller PK-UPDATE (2026-07-03)
+
+Den allerede-loadede base bar fejlen. **Valgt:** kirurgisk versioneret korrektion (ét `change_set`,
+64 flytninger som DELETE gammel + INSERT ny family_member-række) frem for (a) reset-reload fra fixet
+loader eller (b) `UPDATE family_member SET family_id`. **Hvorfor ikke reset-reload:** `--force-reset`s
+TRUNCATE CASCADE rammer profiles/lineage/suggestion + redaktionel historik (jf. [[base-identitet-og-reload]]);
+kirurgisk fix er reversibelt og har lille blast-radius. **Hvorfor DELETE+INSERT ikke UPDATE:** `family_id`
+er del af PK (family_id,person_id,rolle); en PK-muterende UPDATE er præcis den slags kant der skjulte
+den tidligere GENERATED-kolonne-fortryd-bug — DELETE+INSERT giver to rene, entydigt reversible change_events.
+**Delt matcher** mellem loader og korrektion, så de umuligt kan divergere. **Læring:** re-run-verifikation
+er tautologisk (samme matcher); uafhængig evidens var event-tællingen (no-op INSERT trigger-logger ikke →
+tab ville få 132-tallet til at komme til kort) + eksternt genealogisk holdepunkt (Anna Sophie var Hahns datter).
+
 ## Redaktør person-browse driver af `persons` (RedPerson), ikke `model.persons` (2026-07-03)
 
 Da Følgesvends browse-UX (a-z/fødsel-sort/linje-filter) blev porteret til redaktør-fladen, kunne listen
