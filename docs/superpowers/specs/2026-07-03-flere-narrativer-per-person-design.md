@@ -182,6 +182,9 @@ autoritativ):**
 ## 6. Bevidst udeladt (YAGNI / follow-up)
 
 - Fulde udgave-faner/valg i læser-fladen.
+- **Udgave-byline i læseren** ("— efter DAA 2018-20"): `pickPreferredBio` bærer `udgave`-feltet,
+  men `public.ts`/`load.ts` propagerer kun bio-teksten pt. Byline-rendering er udskudt (kun værdi
+  ved >1 udgave; kræver at source-metadata trådes gennem `fetchPersonDetail`-returtypen + mobil).
 - Fulde udgave-faner i **mobil-redaktøren** (mobil får kun minimal source-korrekt skrivevej nu).
 - Tematiske afsnit pr. udgave (Tilgang B).
 - Reorder/slet-UI ud over det nødvendige.

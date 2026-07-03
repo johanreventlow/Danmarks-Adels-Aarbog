@@ -29,8 +29,15 @@ eller opret DAA-udgave). textarea/privat/side binder til aktiv udgave; Gem sende
 `pickPreferredBio` (deterministisk, i stedet for "første by id"/"første mødte"). Adfærd uændret i
 dag (alle 591 narrativer = DAA source 1). Cross-medlem-concat (web founder-først) urørt.
 
-**Tests:** web 122/122 (+`pickPreferredBio`, `mapNarrativer`, arg-builder), mobil 257/257, tsc +
-build grønne. DB verificeret mod lokal prod-kopi + skema-shape-asserts i `db-verify.sql`.
+**Tests:** web 124/124 (+`pickPreferredBio`, `mapNarrativer`, arg-buildere inkl. `opretKilde`),
+mobil 257/257, tsc + build grønne. DB verificeret mod lokal prod-kopi + skema-shape-asserts i
+`db-verify.sql`. FK-embed-formen (objekt, ikke array) bekræftet mod eksisterende prod-kode
+(`joinEvidence`'s `citation→source(titel)`).
+
+**Udestår (bevidst):** (1) **Prod-cutover** — migrationerne er kun kørt mod lokal `daa_test`; den
+rigtige `DROP`-transition (gammel 4-arg → 6-arg) fyrer først ved koordineret merge + web-deploy.
+(2) **Udgave-byline i læseren** er udskudt (source-metadata dropfiltreres i `public.ts`/`load.ts`;
+kun værdi ved >1 udgave). Se spec §6.
 
 ## Redaktør: klikbar familie-navigation + fødsels/dødsår (web+mobile, 2026-07-03)
 
