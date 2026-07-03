@@ -194,6 +194,13 @@ Kernefunktionen er **"er vi i familie?"** — slægtskabssøgning på tværs af 
   bruger-godkendelse** (STOP-gate, endnu ikke givet): 3 ordnede prod-trin (migration → `post_load_fixup.R`
   — cascader regen af 580 linje-medlemmer via trigger — → fuld `regen_person_visning`-sweep for de
   ~343 ikke-medlemmer). Se memory `udledt-slaegtsnavn-db-lag-lokalt-verificeret`.
+- **TNG-analyse opfølgning + backlog-prioritering (2026-07-03, ren dokumentation, ingen kode):**
+  fuld gennemgang af `jr_tng_reventlow.sql` (37 tabeller + reelle rækketal) fandt nyt ift.
+  juni-analysen: foto-region-tagging/albums/event-scoped medielink, per-forælder barnerelation,
+  gemte rapporter (193 reelt brugte). Bruger-prioritering: **DNA afvist**; foto/medier udskudt
+  SAMLET til én design-session; **gemte rapporter/smart-lister = næste fokus**; navnepartikel
+  ("von"/"af") udskudt; **nyt ikke-designet krav:** flersproget stamtræ (ty/sv/no/en). Se §9 +
+  `docs/decisions.md` + `docs/tng-reventlow-analyse.md` §7-8 (git-ignoreret).
 
 ---
 
@@ -238,3 +245,14 @@ To spor — **data (R)** og **app (TS)** — bundet af RLS:
 - **Fuld GEDCOM/TNG-importsti** — kun et håndtransskriberet udsnit findes nu.
 - **Fuldtekstindeks på `narrative`** — Postgres-only blok, kommenteret i `schema.sql`; afkommentér ved brug.
 - **Identitetssammenkædning** (er to kilders person den samme?) holdes pragmatisk i PoC.
+- **TNG-inspireret backlog (2026-07-03, se `docs/tng-reventlow-analyse.md` §7-8):**
+  DNA-slægtskabsdata **afvist** (ikke en del af modellen). Foto/medie-rigdom
+  (region-tagging, albums, event-scoped medielink, medie-proveniens) **udskudt men
+  ønsket** — samlet design-session, ikke stykvis. Navnekomponentering/adelspartikel
+  ("von"/"af") **udskudt**. **Gemte rapporter/smart-lister er næste fokus** (TNG
+  har 193 reelt brugte — datakvalitets-/medlemsforespørgsels-værktøj til
+  redaktøren; byg som parametriserede forespørgsler, ikke rå SQL).
+- **Flersproget stamtræ (tysk/svensk/norsk/engelsk) — nyt, ikke designet.** Kræver
+  egen brainstorm: UI-i18n vs. indholds-i18n af navne/titler/stednavne/narrativ, og
+  hvor oversættelse lander i evidenslaget (ny assertion vs. visningslag vs. flere
+  narrative-rækker pr. kilde-sprog). Se `docs/tng-reventlow-analyse.md` §8.
