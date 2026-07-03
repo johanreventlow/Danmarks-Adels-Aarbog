@@ -100,7 +100,9 @@ export function buildRpcCall(c: Change): RpcCall | null {
   if (c.art === 'narrativ') {
     return { fn: 'red_upsert_narrativ', args: {
       p_subjekt_type: c.subjektType, p_subjekt_id: sid, p_tekst: c.vaerdi,
-      p_privat: Boolean(c.payload?.privat) } };
+      p_privat: Boolean(c.payload?.privat),
+      p_source_id: (c.payload?.sourceId as number | null | undefined) ?? null,
+      p_side: (c.payload?.side as string | null | undefined) ?? null } };
   }
   if (c.art === 'relation' || c.art === 'gods' || c.art === 'hverv') {
     const p = c.payload || {};

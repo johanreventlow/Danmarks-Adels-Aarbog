@@ -6,10 +6,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { signIn, signOut, currentSession, type RedSession } from './data/auth';
 import {
-  fetchRedaktionPersoner, fetchPersonEvidence, fetchPersonNarrativ, fetchSletPreview,
+  fetchRedaktionPersoner, fetchPersonEvidence, fetchPersonNarrativer, fetchSources, fetchSletPreview,
   fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, fetchSammeSomLinks, nudgeOrdinal, type RedPerson, type PersonEvidence,
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
+  type PersonNarrativ, type SourceRow,
 } from './data/redaktionRead';
+import { supabase } from './supabase';
 import { previewSammeSom } from './data/sammeSomPreflight';
 import { loadModel } from './data/model';
 import type { Model } from './data/types';
@@ -90,7 +92,12 @@ export default function Redaktion() {
   const [persons, setPersons] = useState<RedPerson[]>([]);
   const [recCache, setRecCache] = useState<Record<string, EntityRecord[]>>({});
   const [evidence, setEvidence] = useState<PersonEvidence | null>(null);
-  const [narrativ, setNarrativ] = useState<{ tekst: string; privat: boolean } | null>(null);
+  // Narrativ pr. udgave: liste (faner) + aktiv kilde + redigerbart udkast for den aktive fane.
+  const [narrativer, setNarrativer] = useState<PersonNarrativ[]>([]);
+  const [aktivSourceId, setAktivSourceId] = useState<number | null>(null);
+  const [narrativUdkast, setNarrativUdkast] = useState<{ tekst: string; privat: boolean; side: string }>({ tekst: '', privat: false, side: '' });
+  const [sources, setSources] = useState<SourceRow[]>([]);
+  const [nyUdgave, setNyUdgave] = useState<{ titel: string; udgave: string; aar: string } | null>(null);
   const [model, setModel] = useState<Model | null>(null);
   const [familie, setFamilie] = useState<PersonFamilie | null>(null);
   const [relationer, setRelationer] = useState<PersonRelation[] | null>(null);
@@ -148,13 +155,47 @@ export default function Redaktion() {
 
   // Evidens + narrativ når en person vælges.
   const loadPerson = useCallback((id: string) => {
-    setEvidence(null); setNarrativ(null); setFamilie(null); setRelationer(null); setEditingAssert(null); setAddingFact(null);
+    setEvidence(null); setNarrativer([]); setAktivSourceId(null); setNyUdgave(null);
+    setNarrativUdkast({ tekst: '', privat: false, side: '' });
+    setFamilie(null); setRelationer(null); setEditingAssert(null); setAddingFact(null);
     fetchPersonEvidence(id).then(setEvidence).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
-    fetchPersonNarrativ(id).then((n) => setNarrativ(n ?? { tekst: '', privat: false })).catch(() => setNarrativ({ tekst: '', privat: false }));
+    fetchPersonNarrativer(id).then((ns) => {
+      setNarrativer(ns);
+      const first = ns[0] ?? null;
+      setAktivSourceId(first?.sourceId ?? 1);
+      setNarrativUdkast({ tekst: first?.tekst ?? '', privat: first?.privat ?? false, side: first?.side ?? '' });
+    }).catch(() => { setNarrativer([]); setAktivSourceId(1); setNarrativUdkast({ tekst: '', privat: false, side: '' }); });
+    fetchSources().then(setSources).catch(() => setSources([]));
     fetchPersonFamilie(id, model).then(setFamilie).catch(() => setFamilie({ somPartner: [], somBarn: [] }));
     fetchPersonRelationer(id).then(setRelationer).catch(() => setRelationer([]));
     fetchSammeSomLinks(id).then(setSammeSom).catch(() => setSammeSom([]));
   }, [model]);
+
+  // Skift aktiv udgave-fane; nulstil udkast fra den fanes gemte narrativ (ugemte edits kasseres,
+  // som ved record-skift). sourceId==null når en ny udgave er valgt men endnu ikke gemt.
+  const vaelgUdgave = useCallback((sourceId: number | null) => {
+    setAktivSourceId(sourceId); setNyUdgave(null);
+    const n = narrativer.find((x) => x.sourceId === sourceId) ?? null;
+    setNarrativUdkast({ tekst: n?.tekst ?? '', privat: n?.privat ?? false, side: n?.side ?? '' });
+  }, [narrativer]);
+
+  // Opret en ny DAA-udgave (source) og gør den til aktiv fane med tomt udkast. red_opret_kilde
+  // er versioneret (begin_change_set); kaldes direkte da vi skal bruge den nye id med det samme.
+  const opretUdgave = useCallback(async () => {
+    if (!nyUdgave || !nyUdgave.titel.trim()) return;
+    try {
+      const { data, error } = await supabase.rpc('red_opret_kilde', {
+        p_titel: nyUdgave.titel.trim(), p_slags: 'DAA-udgave',
+        p_udgave: nyUdgave.udgave.trim() || null,
+        p_aar: nyUdgave.aar.trim() ? Number(nyUdgave.aar) : null,
+      });
+      if (error) throw error;
+      const nyId = Number(data);
+      setSources(await fetchSources());
+      setNyUdgave(null); setAktivSourceId(nyId);
+      setNarrativUdkast({ tekst: '', privat: false, side: '' });
+    } catch (e) { setLoadErr(oversaetFejl(String((e as Error)?.message ?? e))); }
+  }, [nyUdgave]);
   useEffect(() => {
     if (entity === 'person' && recordId) loadPerson(recordId);
   }, [entity, recordId, loadPerson]);
@@ -428,27 +469,69 @@ export default function Redaktion() {
 
         {renderFamilieRelationer(p.id)}
 
-        {/* Narrativ */}
+        {/* Narrativ · biografi — én pr. DAA-udgave (source-nøglet) */}
         <div style={sectionHeader(24)}>Narrativ · biografi</div>
         <div style={{ background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: '14px 15px' }}>
-          <textarea value={narrativ?.tekst ?? ''} onChange={(e) => setNarrativ((n) => ({ tekst: e.target.value, privat: n?.privat ?? false }))} style={{ width: '100%', height: 104, fontSize: 13, lineHeight: 1.55, color: '#3d382f', background: '#fff', border: '1px solid rgba(34,31,26,.16)', borderRadius: 9, padding: '11px 12px', outline: 'none', resize: 'vertical' }} />
+          {/* Udgave-faner: én pr. kilde personen har en narrativ i, + evt. ny (ugemt) udgave + "+ Ny udgave" */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+            {narrativer.map((n) => (
+              <div key={n.id} onClick={() => vaelgUdgave(n.sourceId)} style={{ fontSize: 11.5, padding: '4px 10px', borderRadius: 7, cursor: 'pointer',
+                background: n.sourceId === aktivSourceId ? T.bordeaux : 'transparent', color: n.sourceId === aktivSourceId ? T.paper : T.muted,
+                border: `1px solid ${n.sourceId === aktivSourceId ? T.bordeaux : 'rgba(34,31,26,.16)'}` }}>
+                {n.udgave ?? n.sourceTitel ?? `Kilde ${n.sourceId ?? '—'}`}{n.privat ? ' · privat' : ''}
+              </div>
+            ))}
+            {aktivSourceId != null && !narrativer.some((n) => n.sourceId === aktivSourceId) && (
+              <div style={{ fontSize: 11.5, padding: '4px 10px', borderRadius: 7, background: T.bordeaux, color: T.paper, border: `1px solid ${T.bordeaux}` }}>
+                {sources.find((s) => s.id === aktivSourceId)?.udgave ?? `Kilde ${aktivSourceId}`} · ny
+              </div>
+            )}
+            <div onClick={() => setNyUdgave({ titel: '', udgave: '', aar: '' })} style={{ fontSize: 11.5, padding: '4px 10px', borderRadius: 7, cursor: 'pointer', border: '1px dashed rgba(34,31,26,.3)', color: T.muted2 }}>+ Ny udgave</div>
+          </div>
+
+          {/* Ny udgave: vælg eksisterende kilde personen ikke har endnu, ELLER opret en ny DAA-udgave */}
+          {nyUdgave != null && (
+            <div style={{ ...annoBox, marginBottom: 10, padding: '10px 11px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontSize: 10.5, color: T.muted }}>Vælg en udgave personen ikke har endnu:</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {sources.filter((s) => !narrativer.some((n) => n.sourceId === s.id)).map((s) => (
+                  <div key={s.id} onClick={() => vaelgUdgave(s.id)} style={{ fontSize: 11.5, padding: '4px 9px', borderRadius: 6, cursor: 'pointer', border: '1px solid rgba(34,31,26,.16)', color: T.muted }}>
+                    {s.udgave ?? s.titel ?? `Kilde ${s.id}`}
+                  </div>
+                ))}
+                {sources.filter((s) => !narrativer.some((n) => n.sourceId === s.id)).length === 0 && <span style={{ fontSize: 11, color: T.muted3 }}>(ingen ledige)</span>}
+              </div>
+              <div style={{ fontSize: 10.5, color: T.muted, marginTop: 2 }}>… eller opret en ny DAA-udgave:</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <input placeholder="Titel" value={nyUdgave.titel} onChange={(e) => setNyUdgave((u) => ({ ...u!, titel: e.target.value }))} style={{ fontSize: 11.5, padding: '5px 8px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6, background: '#fff', color: '#3d382f', outline: 'none', flex: 1, minWidth: 120 }} />
+                <input placeholder="Udgave (DAA 1982-84)" value={nyUdgave.udgave} onChange={(e) => setNyUdgave((u) => ({ ...u!, udgave: e.target.value }))} style={{ fontSize: 11.5, padding: '5px 8px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6, background: '#fff', color: '#3d382f', outline: 'none', width: 150 }} />
+                <input placeholder="År" value={nyUdgave.aar} onChange={(e) => setNyUdgave((u) => ({ ...u!, aar: e.target.value }))} style={{ fontSize: 11.5, padding: '5px 8px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6, background: '#fff', color: '#3d382f', outline: 'none', width: 64 }} />
+                <div onClick={opretUdgave} style={{ fontSize: 11.5, fontWeight: 600, color: T.paper, background: T.green, borderRadius: 6, padding: '6px 11px', cursor: 'pointer' }}>Opret</div>
+              </div>
+            </div>
+          )}
+
+          <textarea value={narrativUdkast.tekst} onChange={(e) => setNarrativUdkast((u) => ({ ...u, tekst: e.target.value }))} style={{ width: '100%', height: 104, fontSize: 13, lineHeight: 1.55, color: '#3d382f', background: '#fff', border: '1px solid rgba(34,31,26,.16)', borderRadius: 9, padding: '11px 12px', outline: 'none', resize: 'vertical' }} />
           {/* Passiv forhåndsvisning — viser hvordan [[type:id|tekst]]-links renderes for publikum,
               så redaktøren kan se om en redigering har brudt et eksisterende link. Ikke klikbar
               (undgår at navigere væk fra en igangværende redigering, jf. review 12 fund om
               korrumperbare tokens i den rå textarea). Fanger KUN knækket token-grammatik — et
               syntaktisk gyldigt token der peger på forkert id ser identisk ud med et korrekt. */}
-          {!!narrativ?.tekst && (
+          {!!narrativUdkast.tekst && (
             <div style={{ marginTop: 8, ...annoBox, fontSize: 11.5, lineHeight: 1.5, color: T.muted }}>
               <div style={{ fontSize: 9.5, letterSpacing: '.08em', textTransform: 'uppercase', color: T.muted3, marginBottom: 3 }}>Sådan vises det for besøgende</div>
-              <NarrativRenderer tekst={narrativ.tekst} onPickPerson={() => {}} linkColor={T.bordeaux} inactiveColor={T.muted2} />
+              <NarrativRenderer tekst={narrativUdkast.tekst} onPickPerson={() => {}} linkColor={T.bordeaux} inactiveColor={T.muted2} />
             </div>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 9 }}>
             <label style={{ fontSize: 11, color: T.muted, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-              <input type="checkbox" checked={!!narrativ?.privat} onChange={(e) => setNarrativ((n) => ({ tekst: n?.tekst ?? '', privat: e.target.checked }))} /> privat
+              <input type="checkbox" checked={narrativUdkast.privat} onChange={(e) => setNarrativUdkast((u) => ({ ...u, privat: e.target.checked }))} /> privat
+            </label>
+            <label style={{ fontSize: 11, color: T.muted, display: 'flex', alignItems: 'center', gap: 5 }}>
+              side <input value={narrativUdkast.side} onChange={(e) => setNarrativUdkast((u) => ({ ...u, side: e.target.value }))} placeholder="fx 209-211" style={{ fontSize: 11, padding: '4px 7px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6, background: '#fff', color: '#3d382f', outline: 'none', width: 78 }} />
             </label>
             <div style={{ flex: 1 }} />
-            <div onClick={() => run({ art: 'narrativ', subjektType: 'person', subjektId: p.id, vaerdi: narrativ?.tekst ?? '', payload: { privat: !!narrativ?.privat } }, 'Narrativ')} style={{ fontSize: 12, fontWeight: 600, color: T.paper, background: T.green, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' }}>Gem narrativ</div>
+            <div onClick={() => run({ art: 'narrativ', subjektType: 'person', subjektId: p.id, vaerdi: narrativUdkast.tekst, payload: { privat: narrativUdkast.privat, sourceId: aktivSourceId, side: narrativUdkast.side.trim() || null } }, 'Narrativ')} style={{ fontSize: 12, fontWeight: 600, color: T.paper, background: T.green, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' }}>Gem narrativ</div>
           </div>
         </div>
       </div>
