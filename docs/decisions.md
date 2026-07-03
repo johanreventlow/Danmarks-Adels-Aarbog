@@ -356,10 +356,16 @@ linje/nr). Samme mekanisme dækker begge tilfælde — men betydningen adskiller
 grundlægger = redundant dublet at skjule; indgiftet-med-egen-slægt = én person i TO
 slægter, hvor collapse tegner selve kryds-slægt-broen ("er vi i familie?").
 
-**Udestår:** (1) frontend samme_som-traversal (web+mobile: kinship-finder + person-
-visning + søge-dedup) — DB-kanten er ikke selv-eksekverende. (2) Automatisk detektion
-i skala via crosswalk/matching når nye slægter importeres (manuel linking kun til få
-kendte tilfælde nu; crosswalk er for støjende til bulk uden injektiv matcher).
+**Status (2026-07-02): frontend-projektionen IMPLEMENTERET (web+mobile).** Ren funktion
+`collapseSameAs` folder de linkede poster til én kanonisk FØR `buildModel` (motoren urørt),
+valideret + reversibel (karantæne ved konflikt). Se changelog + `docs/reviews/16`+`17`.
+Dual-reviewet (Claude+Codex); empirisk valideret mod prod (Conrad/Detlef folder rent).
+
+**Udestår:** (1) Automatisk detektion i skala via crosswalk/matching når nye slægter
+importeres (manuel linking kun til få kendte tilfælde nu; crosswalk er for støjende til
+bulk uden injektiv matcher). (2) Kryds-slægt-broer (Beke-typen) — kræver server-side
+privacy-klasse før de kan foldes i publikums-web/mobile (spec §9). (3) Manuel skærm-
+verifikation (Expo-simulator + web-browser).
 
 ## Reload-strategi + durable post-load-fixup (2026-07-02)
 DAA-basen genindlæses med `load_daa.R --reset` (fuld TRUNCATE+rebuild), IKKE append

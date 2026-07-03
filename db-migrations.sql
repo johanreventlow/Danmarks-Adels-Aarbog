@@ -401,6 +401,7 @@ RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_id bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_rolle = 'samme_som' THEN RAISE EXCEPTION 'Brug red_samme_som til identitets-links'; END IF;
   PERFORM begin_change_set('red_relation', format('Relation %s: %s/%s → %s/%s', p_rolle, p_subjekt_type, p_subjekt_id, p_objekt_type, p_objekt_id), p_subjekt_type, p_subjekt_id);
   INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle, periode_raw)
     VALUES ((SELECT coalesce(max(id),0)+1 FROM relation),
@@ -564,17 +565,25 @@ grant execute on function public.red_opret_fakta(text,bigint,text,text,date,date
 -- 2026-06-28: 2C-2a relation-RPC'er
 -- FK-ORDNET slet af en relation + dens evidens (relationer har 955 assertion+conclusion med
 -- target_type='relation' UDEN FK → flad DELETE forældreløser dem). Spejler red_slet_person.
-CREATE OR REPLACE FUNCTION red_slet_relation(p_relation_id bigint)
+-- Delt intern helper (ingen change_set/rolle-gate — kalderen ejer dem, B7). Én kilde til FK-orden
+-- for red_slet_relation OG red_fjern_samme_som.
+CREATE OR REPLACE FUNCTION _delete_relation_evidence(p_relation_id bigint)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
-  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
-  PERFORM begin_change_set('red_slet_relation', format('Slettede relation %s', p_relation_id), NULL, NULL);
   DELETE FROM citation WHERE assertion_id IN
     (SELECT id FROM assertion WHERE target_type='relation' AND target_id=p_relation_id);
   DELETE FROM conclusion WHERE target_type='relation' AND target_id=p_relation_id;
   DELETE FROM assertion  WHERE target_type='relation' AND target_id=p_relation_id;
   DELETE FROM note       WHERE target_type='relation' AND target_id=p_relation_id;
   DELETE FROM relation   WHERE id=p_relation_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION red_slet_relation(p_relation_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_slet_relation', format('Slettede relation %s', p_relation_id), NULL, NULL);
+  PERFORM _delete_relation_evidence(p_relation_id);
 END $$;
 
 -- Valideret + idempotent tilføj af person↔org/estate-relation (erstatter rå red_relation for UI).
@@ -1175,3 +1184,73 @@ END $$;
 
 grant execute on function public.red_set_familie_ordinal(bigint, bigint, text, int) to authenticated;
 grant execute on function public.red_flyt_barn(bigint, bigint, bigint, text) to authenticated;
+
+-- ============================================================================
+-- 2026-07-02: Redaktionel identitets-sammenkædning (samme_som). Spec 2026-07-02.
+-- Invariant håndhæves i trigger (gælder ALLE insert-veje). Idempotent.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION enforce_samme_som_invariants() RETURNS trigger
+LANGUAGE plpgsql SET search_path=public AS $$
+BEGIN
+  IF NEW.rolle <> 'samme_som' OR NEW.subjekt_type <> 'person' OR NEW.objekt_type <> 'person' THEN
+    RETURN NEW;
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  IF NEW.subjekt_id = NEW.objekt_id THEN
+    RAISE EXCEPTION 'samme_som: kan ikke linke en person til sig selv';
+  END IF;
+  IF EXISTS (SELECT 1 FROM relation WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'
+             AND subjekt_id = NEW.subjekt_id AND objekt_id <> NEW.objekt_id) THEN
+    RAISE EXCEPTION 'samme_som: person % er allerede alias for en anden (ville give multi-sink)', NEW.subjekt_id;
+  END IF;
+  IF EXISTS (SELECT 1 FROM relation WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'
+             AND objekt_id = NEW.subjekt_id) THEN
+    RAISE EXCEPTION 'samme_som: person % er allerede kanonisk for andre — skift retning via fjern+genopret', NEW.subjekt_id;
+  END IF;
+  -- G3+G4 håndhæver invarianten fuldt (cyklus umulig: kræver at alias er et objekt, hvilket G4 afviser).
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS trg_enforce_samme_som ON relation;
+CREATE TRIGGER trg_enforce_samme_som BEFORE INSERT ON relation
+  FOR EACH ROW WHEN (NEW.rolle = 'samme_som') EXECUTE FUNCTION enforce_samme_som_invariants();
+
+CREATE OR REPLACE FUNCTION red_samme_som(p_alias_id bigint, p_objekt_id bigint)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_rel bigint; v_ass bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_alias_id) THEN RAISE EXCEPTION 'Person % findes ikke', p_alias_id; END IF;
+  IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_objekt_id) THEN RAISE EXCEPTION 'Person % findes ikke', p_objekt_id; END IF;
+  SELECT id INTO v_rel FROM relation WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'
+    AND subjekt_id=p_alias_id AND objekt_id=p_objekt_id LIMIT 1;
+  IF v_rel IS NOT NULL THEN RETURN v_rel; END IF;
+  PERFORM begin_change_set('red_samme_som',
+    format('Markerede person %s som samme som %s', p_alias_id, p_objekt_id), 'person', p_objekt_id);
+  INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM relation), 'person', p_alias_id, 'person', p_objekt_id, 'samme_som')
+    RETURNING id INTO v_rel;
+  INSERT INTO assertion(id, target_type, target_id, vaerdi_tekst)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM assertion), 'relation', v_rel, 'samme_som')
+    RETURNING id INTO v_ass;
+  INSERT INTO conclusion(id, target_type, target_id, valgt_assertion_id, status, blaastemplet_af)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM conclusion), 'relation', v_rel, v_ass, 'afklaret',
+            'redaktionel identitetssammenkædning');
+  RETURN v_rel;
+END $$;
+
+CREATE OR REPLACE FUNCTION red_fjern_samme_som(p_relation_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  IF NOT EXISTS(SELECT 1 FROM relation WHERE id=p_relation_id AND rolle='samme_som'
+                AND subjekt_type='person' AND objekt_type='person') THEN
+    RAISE EXCEPTION 'Relation % er ikke et person→person samme_som-link', p_relation_id;
+  END IF;
+  PERFORM begin_change_set('red_fjern_samme_som', format('Fjernede samme_som-link %s', p_relation_id), NULL, NULL);
+  PERFORM _delete_relation_evidence(p_relation_id);
+END $$;
+
+GRANT EXECUTE ON FUNCTION public.red_samme_som(bigint, bigint) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.red_fjern_samme_som(bigint) TO authenticated;

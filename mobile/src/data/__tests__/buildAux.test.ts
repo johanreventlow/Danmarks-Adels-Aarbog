@@ -68,9 +68,47 @@ describe('buildAux — linje-stamfader = laveste nr (§9.2 kritisk path)', () =>
     expect(aux.linjeList.find((l) => l.linje === 'I')?.count).toBe(3);
   });
 
-  test('linjeByPerson mapper person → linje (som streng-id)', () => {
-    expect(aux.linjeByPerson['11']).toBe('I');
-    expect(aux.linjeByPerson['21']).toBe('V');
+  test('linjeByPerson mapper person → linje(r) (array)', () => {
+    expect(aux.linjeByPerson['11']).toEqual(['I']);
+    expect(aux.linjeByPerson['21']).toEqual(['V']);
+  });
+});
+
+describe('buildAux — samme_som-kanonisering (Task 5)', () => {
+  // III58 (linje III) + V1 (linje V) folder til V1 → V1 hører til begge linjer, og alle person-
+  // id-bærende strukturer peger på V1.
+  const canonicalIdById = { III58: 'V1' };
+  const extIds: RawExtId[] = [
+    { person_id: 'III58', source_id: 1, linje: 'III', nr: 58 },
+    { person_id: 'V1', source_id: 1, linje: 'V', nr: 1 },
+  ];
+
+  test('linjeByPerson samler flere linjer for collapsed person', () => {
+    const aux = buildAux({ ...base, extIds }, canonicalIdById);
+    expect(aux.linjeByPerson['V1']?.sort()).toEqual(['III', 'V']);
+    expect(aux.linjeByPerson['III58']).toBeUndefined(); // alias-nøgle findes ikke
+  });
+
+  test('linjeList.headId kanoniseres (head var alias III58)', () => {
+    const aux = buildAux({ ...base, extIds }, canonicalIdById);
+    expect(aux.linjeList.find((l) => l.linje === 'III')?.headId).toBe('V1');
+  });
+
+  test('ownersByEstate.personId + sourcesBy-nøgle kanoniseres', () => {
+    const aux = buildAux(
+      {
+        ...base,
+        extIds,
+        estates: [{ id: 1, navn: 'Gods', slags: null }] as never,
+        relations: [
+          { subjekt_type: 'person', subjekt_id: 'III58', objekt_type: 'estate', objekt_id: 1, rolle: 'ejer', periode_raw: null },
+        ] as never,
+      },
+      canonicalIdById,
+    );
+    expect(aux.ownersByEstate['1']?.[0].personId).toBe('V1');
+    expect(aux.sourcesBy['V1']).toBeDefined();
+    expect(aux.sourcesBy['III58']).toBeUndefined();
   });
 });
 

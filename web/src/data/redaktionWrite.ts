@@ -16,6 +16,7 @@ export type Change = {
      | 'tilfoejOplysning' | 'opretFakta' | 'sletRelation' | 'tilfoejRelation'
      | 'opretUnion' | 'tilfoejBarn' | 'setFamilieKonfidens' | 'sletFamilieLink'
      | 'setFamilieOrdinal' | 'flytBarn'
+     | 'sammeSom' | 'fjernSammeSom' // redaktionel identitets-sammenkædning (samme_som)
      | 'forslag'; // generisk entitets-feltredigering uden direkte RPC → red_suggest
   subjektType: string;
   subjektId: string;
@@ -139,6 +140,15 @@ export function buildRpcCall(c: Change): RpcCall | null {
     return { fn: 'red_slet_familie_link', args: b }; }
   if (c.art === 'setFamilieOrdinal') { const b = famLinkBase(c); if (!b || c.ordinal == null) return null;
     return { fn: 'red_set_familie_ordinal', args: { ...b, p_ordinal: c.ordinal } }; }
+  if (c.art === 'sammeSom') {
+    const p = c.payload || {};
+    if (p.aliasId == null || p.objektId == null) return null;
+    return { fn: 'red_samme_som', args: { p_alias_id: Number(p.aliasId), p_objekt_id: Number(p.objektId) } };
+  }
+  if (c.art === 'fjernSammeSom') {
+    if (c.relationId == null) return null;
+    return { fn: 'red_fjern_samme_som', args: { p_relation_id: Number(c.relationId) } };
+  }
   if (c.art === 'flytBarn') {
     if (c.familyId == null || c.tilFamilyId == null || c.personId == null || !c.rolle) return null;
     return { fn: 'red_flyt_barn', args: {

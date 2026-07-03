@@ -25,16 +25,22 @@ type BuildAuxInput = {
   arms?: RawArms[];
 };
 
-export function buildAux({
-  extIds,
-  sources,
-  relations,
-  estates,
-  orgs,
-  media,
-  lineage,
-  arms,
-}: BuildAuxInput): Aux {
+export function buildAux(
+  {
+    extIds,
+    sources,
+    relations,
+    estates,
+    orgs,
+    media,
+    lineage,
+    arms,
+  }: BuildAuxInput,
+  // samme_som-collapse: alle person-id-bærende strukturer kanoniseres, så hjælpedata for en foldet
+  // person samles under den kanoniske id (spec §8). Default {} for bagudkompat i eksisterende tests.
+  canonicalIdById: Record<string, string> = {},
+): Aux {
+  const cid = (id: string) => canonicalIdById[id] ?? id;
   const srcById: Record<string, RawSource> = {};
   (sources || []).forEach((s) => {
     srcById[String(s.id)] = s;
@@ -48,7 +54,7 @@ export function buildAux({
     orgById[String(o.id)] = o.navn ?? '';
   });
 
-  // Kilder pr. person: trykt værk + "Linje X, nr. N".
+  // Kilder pr. person: trykt værk + "Linje X, nr. N". Nøgle kanoniseres → union pr. foldet person.
   const sourcesBy: Aux['sourcesBy'] = {};
   (extIds || []).forEach((x) => {
     const src = srcById[String(x.source_id)] || ({} as RawSource);
@@ -56,23 +62,28 @@ export function buildAux({
     const place = [x.linje ? 'Linje ' + x.linje : '', x.nr != null ? 'nr. ' + x.nr : '']
       .filter(Boolean)
       .join(', ');
-    (sourcesBy[String(x.person_id)] = sourcesBy[String(x.person_id)] || []).push({
-      ref: place,
-      work,
-    });
+    const pid = cid(String(x.person_id));
+    (sourcesBy[pid] = sourcesBy[pid] || []).push({ ref: place, work });
   });
 
-  // Linjer (grene): hver person hører til en linje; hver linje har en stamfader (laveste nr).
+  // Linjer (grene): hver person hører til en (eller flere) linje(r); hver linje har en stamfader
+  // (laveste nr). En collapsed grundlægger tilhører både oprindelses- og grundlagt-linje.
   const linjeByPerson: Aux['linjeByPerson'] = {};
   const linjeCounts: Record<string, number> = {};
   const linjeHead: Record<string, { id: string; nr: number }> = {};
   (extIds || []).forEach((x) => {
     if (!x.linje) return;
-    linjeByPerson[String(x.person_id)] = x.linje;
-    linjeCounts[x.linje] = (linjeCounts[x.linje] || 0) + 1;
+    const pid = cid(String(x.person_id));
+    const arr = (linjeByPerson[pid] = linjeByPerson[pid] || []);
+    // Tæl distinkte kanoniske personer pr. linje (ikke ext-rækker), så en foldet person med
+    // flere rækker i samme linje ikke inflaterer count.
+    if (!arr.includes(x.linje)) {
+      arr.push(x.linje);
+      linjeCounts[x.linje] = (linjeCounts[x.linje] || 0) + 1;
+    }
     const cur = linjeHead[x.linje];
     const nr = x.nr == null ? 9999 : x.nr;
-    if (!cur || nr < cur.nr) linjeHead[x.linje] = { id: String(x.person_id), nr };
+    if (!cur || nr < cur.nr) linjeHead[x.linje] = { id: pid, nr };
   });
   // Linje-navne fra lineage-tabellen (kode → navn). Fallback til kode hvis tabellen mangler/tom.
   const linjeNavn: Aux['linjeNavn'] = {};
@@ -98,7 +109,7 @@ export function buildAux({
   const ownersByEstate: Aux['ownersByEstate'] = {};
 
   (relations || []).forEach((r) => {
-    const pid = String(r.subjekt_id);
+    const pid = cid(String(r.subjekt_id));
     const per = stripParen(r.periode_raw);
     if (r.objekt_type === 'estate') {
       (estatesBy[pid] = estatesBy[pid] || []).push({
@@ -145,7 +156,7 @@ export function buildAux({
   // Medier pr. person (tom indtil medier linkes).
   const mediaBy: Aux['mediaBy'] = {};
   (media || []).forEach((m) => {
-    const pid = m.person_id != null ? String(m.person_id) : null;
+    const pid = m.person_id != null ? cid(String(m.person_id)) : null;
     if (pid) (mediaBy[pid] = mediaBy[pid] || []).push(m);
   });
 

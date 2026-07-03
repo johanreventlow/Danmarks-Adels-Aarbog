@@ -3,18 +3,30 @@
 // (fra person_external_id.linje); hver linje har en stamfader = medlemmet med laveste nr.
 import type { Lineage, RawExtId, RawLineage } from './types';
 
-export function buildLineage(extIds: RawExtId[], lineageRows: RawLineage[]): Lineage {
-  const byPerson: Record<string, string> = {};
+export function buildLineage(
+  extIds: RawExtId[],
+  lineageRows: RawLineage[],
+  // samme_som-collapse: person-id'er kanoniseres, så en foldet grundlægger hører til flere linjer
+  // (spec §8). Default {} for bagudkompat i eksisterende tests.
+  canonicalIdById: Record<string, string> = {},
+): Lineage {
+  const cid = (id: string) => canonicalIdById[id] ?? id;
+  const byPerson: Record<string, string[]> = {};
   const counts: Record<string, number> = {};
   const head: Record<string, { id: string; nr: number }> = {};
 
   (extIds || []).forEach((x) => {
     if (!x.linje) return;
-    byPerson[String(x.person_id)] = x.linje;
-    counts[x.linje] = (counts[x.linje] || 0) + 1;
+    const pid = cid(String(x.person_id));
+    const arr = (byPerson[pid] ??= []);
+    // Tæl distinkte kanoniske personer pr. linje (ikke ext-rækker).
+    if (!arr.includes(x.linje)) {
+      arr.push(x.linje);
+      counts[x.linje] = (counts[x.linje] || 0) + 1;
+    }
     const nr = x.nr == null ? 9999 : x.nr;
     const cur = head[x.linje];
-    if (!cur || nr < cur.nr) head[x.linje] = { id: String(x.person_id), nr };
+    if (!cur || nr < cur.nr) head[x.linje] = { id: pid, nr };
   });
 
   // Linje-navne fra lineage-tabellen (kode → navn); fallback til kode hvis tom/mangler.
