@@ -2,8 +2,9 @@
 // Header-nav · venstre person-liste/søg · center-visning. To visninger bygget: Stamtræ
 // (variant A, fokus-centreret) og Slægtskab ("Er vi i familie?", med multi-linje + konfidens
 // + korroboration fra den porterede finder). Søg/Godser/Våben/Om følger.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { childrenOf, loadModel } from './data/model';
+import { buildBidirectionalColumns } from './data/tree';
 import { initials, konfTekst } from './data/format';
 import { computeRelationship, type RelationResult } from './data/relationship';
 import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
@@ -272,7 +273,7 @@ export default function Folgesvend() {
 
         {/* Center */}
         <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
-          {mode === 'tree' ? <TreeView model={model} focusId={focusId} onPick={navigateTo} />
+          {mode === 'tree' ? <TreeView model={model} focusId={focusId} onPick={navigateTo} onFocus={(id) => setFocusId(canon(id))} />
             : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={navigateTo} meId={meCanon} onSetMeA={() => { if (meCanon) { setRelA(meCanon); setRelSlot('B'); } }} />
             : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} onOpen={setEstateId} onBack={() => setEstateId(null)} onPickOwner={(id) => { navigateTo(id); setMode('tree'); }} />
             : mode === 'arms' ? <ArmsView arms={arms} />
@@ -299,8 +300,62 @@ function Placeholder({ label }: { label: string }) {
   return <div style={{ padding: 40, fontFamily: T.serif, fontSize: 22, color: T.muted }}>{label} — visningen porteres som næste skive.</div>;
 }
 
-// ---- Stamtræ (variant A) ----
-function TreeView({ model, focusId, onPick }: { model: Model | null; focusId: string | null; onPick: (id: string) => void }) {
+// ---- Stamtræ (variant A "Fokus" + variant B "Kolonner") ----
+// Eksporteret så drill-down/toggle/reset-adfærden kan komponent-testes uden hele Folgesvend.
+// onPick = fokus-hop MED historik (variant A-kort, matcher designets goToPerson). onFocus =
+// drill-valg UDEN historik (variant B-kolonner, matcher designets selectAt) — så en dyb drill
+// ikke fylder detalje-panelets tilbage-stak med hvert generations-trin.
+export function TreeView({ model, focusId, onPick, onFocus }: { model: Model | null; focusId: string | null; onPick: (id: string) => void; onFocus: (id: string) => void }) {
+  // Visnings-variant (segmenteret kontrol) — bevares på tværs af fokus-skift (nulstilles kun når
+  // TreeView unmountes ved mode-skift til Godser/Våben/Slægtskab). Matcher designets state.variant.
+  const [variant, setVariant] = useState<'A' | 'B'>('A');
+  // Bidirektionel drill-tilstand (variant B): fast anker + valgte aner (op) + valgte efterkommere (ned).
+  // up[i] = valgt forælder i ane-ring i+1; down[i] = valgt barn i efterkommer-ring i+1.
+  const [anchorId, setAnchorId] = useState<string | null>(null);
+  const [up, setUp] = useState<string[]>([]);
+  const [down, setDown] = useState<string[]>([]);
+  const colsRef = useRef<HTMLDivElement>(null);
+  const anchorIdxRef = useRef(0);           // indeks på anker-kolonnen (til centrering)
+  const prevUp = useRef(0), prevDown = useRef(0), prevAnchor = useRef<string | null>(null), prevVariant = useRef<'A' | 'B'>('A');
+  const STRIDE = 222;                        // kolonnebredde 208 + gap 14
+
+  // Ankeret følger fokus-personen. Nulstil (ryd begge drill-retninger) KUN ved EKSTERN navigation.
+  // Frontier-tjek (IKKE fuldt medlemskab, jf. spec §5.3): efter en drill er focusId altid den
+  // YDERSTE valgte ane/efterkommer, så et frontier-match betyder "drill", ellers "ekstern nav →
+  // nulstil". Invariant: focusId + alle up/down-id'er er KANONISKE (focusId post-canon; up/down
+  // udvides kun med parentsOf/childrenOf-id'er) → korrekt lighed i tjekket.
+  useEffect(() => {
+    if (!focusId) return;
+    const keep =
+      (up.length === 0 && down.length === 0 && focusId === anchorId) ||
+      focusId === up[up.length - 1] ||
+      focusId === down[down.length - 1];
+    if (!keep) { setAnchorId(focusId); setUp([]); setDown([]); }
+  }, [focusId]); // bevidst kun focusId — up/down/anchorId læses som frontier ved fokus-skift
+
+  // Kompensér FØR paint når en ane-kolonne prepend'es, så ankeret ikke "hopper" (spec §5.5, fase 1).
+  useLayoutEffect(() => {
+    const el = colsRef.current;
+    if (el && variant === 'B' && up.length > prevUp.current) el.scrollLeft += (up.length - prevUp.current) * STRIDE;
+  }, [up.length, variant]);
+
+  // Efter paint (spec §5.5, fase 2): centrér anker ved reset/B-skift; afslør nyeste kolonne ved drill.
+  // scrollTo feature-detekteres (findes ikke i jsdom).
+  useEffect(() => {
+    const el = colsRef.current;
+    const sync = () => { prevUp.current = up.length; prevDown.current = down.length; prevAnchor.current = anchorId; prevVariant.current = variant; };
+    if (variant !== 'B' || !el?.scrollTo) { sync(); return; }
+    if (anchorId !== prevAnchor.current || prevVariant.current !== 'B') {
+      const target = Math.max(0, anchorIdxRef.current * STRIDE - (el.clientWidth - 208) / 2);
+      el.scrollTo({ left: target, behavior: 'smooth' });          // centrér anker
+    } else if (down.length > prevDown.current) {
+      el.scrollTo({ left: el.scrollWidth, behavior: 'smooth' });  // ny efterkommer → højre
+    } else if (up.length > prevUp.current) {
+      el.scrollTo({ left: Math.max(0, el.scrollLeft - STRIDE), behavior: 'smooth' }); // ny ane → afslør venstre
+    }
+    sync();
+  }, [variant, anchorId, up.length, down.length]);
+
   if (!model || !focusId) return <div style={{ padding: 40, color: T.muted3 }}>Henter…</div>;
   const f = model.byId[focusId];
   if (!f) return <div style={{ padding: 40, color: T.muted3 }}>Ukendt person.</div>;
@@ -313,6 +368,14 @@ function TreeView({ model, focusId, onPick }: { model: Model | null; focusId: st
   const spouses = (model.indexes.spousesBy[focusId] ?? []).map((s) => s.name).filter(Boolean);
   const children = childrenOf(model, focusId);
   const childCount = (id: string) => model.indexes.childIdx[id]?.size ?? 0;
+  const hasParents = (id: string) => (model.indexes.parentsByChild[id]?.length ?? 0) > 0;
+
+  // Drill-valg (variant B). onFocus opdaterer fokus UDEN historik, så detalje-panelet følger valget.
+  // Vi udvider up/down KUN med parentsOf/childrenOf-id'er (kanoniske) → frontier-invarianten holder.
+  const selectAncestor = (depth: number, id: string) => { setUp((prev) => prev.slice(0, depth - 1).concat(id)); onFocus(id); };
+  const selectDescendant = (depth: number, id: string) => { setDown((prev) => prev.slice(0, depth - 1).concat(id)); onFocus(id); };
+  const cols = variant === 'B' && anchorId ? buildBidirectionalColumns(model, anchorId, up, down) : [];
+  anchorIdxRef.current = Math.max(0, cols.findIndex((c) => c.kind === 'anchor'));
 
   return (
     <div style={{ padding: '30px 40px 50px', position: 'relative', minHeight: '100%' }}>
@@ -322,7 +385,50 @@ function TreeView({ model, focusId, onPick }: { model: Model | null; focusId: st
         <path d="M19,18 H81 V57 C81,82 50,100 50,100 C50,100 19,82 19,57 Z" stroke={T.gold} strokeWidth={1} />
       </svg>
       <div style={{ position: 'relative', zIndex: 1 }}>
-      <ViewHeader title="Stamtræ" mb="18px" />
+      {/* Header: titel til venstre, segmenteret kontrol (Fokus/Kolonner) til højre. */}
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 18 }}>
+        <div>
+          <ViewHeader title="Stamtræ" mb="0" />
+        </div>
+        <div style={{ display: 'flex', background: T.beige, borderRadius: 10, padding: 3, gap: 3, flex: 'none' }}>
+          {(['A', 'B'] as const).map((v) => {
+            const active = variant === v;
+            return (
+              <div key={v} onClick={() => setVariant(v)} style={{ padding: '7px 16px', borderRadius: 7, fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: active ? T.paper : 'transparent', color: active ? T.bordeaux : '#8a8170' }}>{v === 'A' ? 'Fokus' : 'Kolonner'}</div>
+            );
+          })}
+        </div>
+      </div>
+
+      {variant === 'B' ? (
+        <div ref={colsRef} data-scroll style={{ display: 'flex', gap: 14, overflowX: 'auto', padding: '10px 0 16px', alignItems: 'flex-start' }}>
+          {cols.map((col) => (
+            <div key={col.key} style={{ flex: 'none', width: 208, display: 'flex', flexDirection: 'column', gap: 9 }}>
+              <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.gold, padding: '0 2px 4px', borderBottom: '1px solid rgba(34,31,26,.1)' }}>{col.label}</div>
+              {col.people.map((p) => {
+                const sel = p.id === col.selectedId;
+                // Kort-chevron peger i drill-retningen: aner ‹ (venstre), efterkommere › (højre).
+                const canAnc = col.kind === 'ancestor' && hasParents(p.id);
+                const canDesc = col.kind === 'descendant' && childCount(p.id) > 0;
+                const onTap = col.kind === 'ancestor' ? () => selectAncestor(col.depth, p.id)
+                  : col.kind === 'descendant' ? () => selectDescendant(col.depth, p.id)
+                  : () => onFocus(p.id);
+                return (
+                  <div key={p.id} onClick={onTap} style={{ background: sel ? '#f8ecef' : T.paper, border: `1.5px solid ${sel ? T.bordeaux : 'rgba(34,31,26,.1)'}`, borderRadius: 12, padding: '11px 13px', cursor: 'pointer', boxShadow: sel ? '0 4px 14px rgba(136,26,51,.12)' : '0 1px 2px rgba(34,31,26,.04)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    {canAnc && <span style={{ color: '#bcae93', fontSize: 16, flex: 'none' }}>‹</span>}
+                    <Avatar n={p.name} size={34} />
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontFamily: T.serif, fontSize: 16, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+                      {p.years && <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 2 }}>{p.years}</div>}
+                    </div>
+                    {canDesc && <span style={{ color: '#bcae93', fontSize: 16, flex: 'none' }}>›</span>}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      ) : (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         {grand && (
           <>
@@ -381,6 +487,7 @@ function TreeView({ model, focusId, onPick }: { model: Model | null; focusId: st
           <div style={{ marginTop: 18, fontSize: 12.5, color: T.muted3 }}>Ingen registrerede efterkommere</div>
         )}
       </div>
+      )}
       </div>
     </div>
   );

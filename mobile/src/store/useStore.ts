@@ -29,8 +29,10 @@ type State = {
   variant: TreeVariant;
   activeLinje: string | null;
 
-  // Variant B (drill-down kolonner) + C (slægtsspor-snap)
-  path: string[];
+  // Variant B (bidirektionelle kolonner: fast anker + aner/efterkommere-drill) + C (slægtsspor-snap)
+  anchorId: string | null;
+  up: string[];
+  down: string[];
   snapPath: string[];
   snapDepth: number;
 
@@ -60,7 +62,8 @@ type State = {
   setMe: (id: string | null) => Promise<void>;
   setFocus: (id: string) => void;
   setVariant: (v: TreeVariant) => void;
-  selectAt: (level: number, id: string) => void;
+  selectAncestor: (depth: number, id: string) => void;
+  selectDescendant: (depth: number, id: string) => void;
   moveSnapGen: (delta: number) => void;
   moveSnapSib: (delta: number) => void;
   snapOpenId: () => string | null;
@@ -96,7 +99,9 @@ export const useStore = create<State>((set, get) => ({
   focusId: null,
   variant: 'A',
   activeLinje: null,
-  path: [],
+  anchorId: null,
+  up: [],
+  down: [],
   snapPath: [],
   snapDepth: 0,
   meId: null,
@@ -135,7 +140,9 @@ export const useStore = create<State>((set, get) => ({
         aux: res.aux,
         rootId: res.rootId,
         focusId: res.focusId,
-        path: [res.rootId],
+        anchorId: res.focusId,
+        up: [],
+        down: [],
         snapPath: snap.path,
         snapDepth: snap.depth,
         relA: res.relAId,
@@ -155,7 +162,9 @@ export const useStore = create<State>((set, get) => ({
         aux: SEED.aux,
         rootId: SEED.rootId,
         focusId: SEED.focusId,
-        path: [SEED.rootId],
+        anchorId: SEED.focusId,
+        up: [],
+        down: [],
         snapPath: snap.path,
         snapDepth: snap.depth,
         relA: SEED.relAId,
@@ -186,31 +195,29 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
+  // Ekstern navigation (sidebar/detalje) → ankeret flytter til den nye person + drill nulstilles.
   setFocus: (id) => {
     const m = get().model;
     const snap = m ? buildSnapPath(m, id, get().rootId) : { path: [id], depth: 0 };
-    set({ focusId: id, path: [id], snapPath: snap.path, snapDepth: snap.depth });
+    set({ focusId: id, anchorId: id, up: [], down: [], snapPath: snap.path, snapDepth: snap.depth });
   },
 
-  // Skift træ-variant. Ved C seedes snapPath fra fokus; ved B nulstilles drill-down til fokus.
+  // Skift træ-variant. Ved C seedes snapPath fra fokus; ved B forankres på fokus + nulstil drill.
   setVariant: (v) => {
     const { model, focusId, rootId } = get();
     if (v === 'C' && model && focusId) {
       const snap = buildSnapPath(model, focusId, rootId);
       set({ variant: 'C', snapPath: snap.path, snapDepth: snap.depth });
     } else if (v === 'B') {
-      set({ variant: 'B', path: [focusId ?? rootId ?? ''] });
+      set({ variant: 'B', anchorId: focusId ?? rootId ?? null, up: [], down: [] });
     } else {
       set({ variant: v });
     }
   },
 
-  // Variant B drill-down: vælg person på niveau `level` → trunkér sti og sæt fokus.
-  selectAt: (level, id) => {
-    const path = get().path.slice(0, level);
-    path[level] = id;
-    set({ path, focusId: id });
-  },
+  // Variant B drill (historik-fri): fokus følger valget, men ANKERET bevares (up/down udvides).
+  selectAncestor: (depth, id) => set({ up: get().up.slice(0, depth - 1).concat(id), focusId: id }),
+  selectDescendant: (depth, id) => set({ down: get().down.slice(0, depth - 1).concat(id), focusId: id }),
 
   // Variant C: skift generation (op=aner / ned=efterkommere) inden for snapPath.
   moveSnapGen: (delta) => {
@@ -253,13 +260,13 @@ export const useStore = create<State>((set, get) => ({
     if (!headId) return;
     const m = get().model;
     const snap = m ? buildSnapPath(m, headId, headId) : { path: [headId], depth: 0 };
-    set({ activeLinje: linje, focusId: headId, path: [headId], snapPath: snap.path, snapDepth: snap.depth });
+    set({ activeLinje: linje, focusId: headId, anchorId: headId, up: [], down: [], snapPath: snap.path, snapDepth: snap.depth });
   },
   clearLinje: () => {
     const { model, rootId } = get();
     const target = rootId ?? '';
     const snap = model && rootId ? buildSnapPath(model, rootId, rootId) : { path: [target], depth: 0 };
-    set({ activeLinje: null, focusId: rootId, path: [target], snapPath: snap.path, snapDepth: snap.depth });
+    set({ activeLinje: null, focusId: rootId, anchorId: rootId, up: [], down: [], snapPath: snap.path, snapDepth: snap.depth });
   },
 
   setQuery: (q) => set({ query: q }),

@@ -1,5 +1,5 @@
 import { buildModel } from '../buildModel';
-import { buildColumns, buildSearch, buildSnapPath, routeToMe, searchPool, treeFocusA, wayToMe } from '../selectors';
+import { buildBidirectionalColumns, buildSearch, buildSnapPath, routeToMe, searchPool, treeFocusA, wayToMe } from '../selectors';
 import type { Db } from '../types';
 import type { SearchItem } from '../selectors';
 
@@ -122,20 +122,29 @@ describe('buildSnapPath — variant C lodret linje', () => {
   });
 });
 
-describe('buildColumns — variant B drill-down', () => {
-  test('rod-kolonne + børne-kolonne', () => {
-    const cols = buildColumns(model, ['1']);
-    expect(cols.map((c) => c.level)).toEqual([0, 1]);
-    expect(cols[0].people.map((p) => p.id)).toEqual(['1']);
+describe('buildBidirectionalColumns — variant B (bidirektionel)', () => {
+  test('anker med børn, ingen forældre: [Fokus, Børn]', () => {
+    const cols = buildBidirectionalColumns(model, '1', [], []);
+    expect(cols.map((c) => c.key)).toEqual(['anchor:0', 'descendant:1']);
+    expect(cols[1].label).toBe('Børn');
     expect(cols[1].people.map((p) => p.id).sort()).toEqual(['3', '4']);
-    expect(cols[1].selected).toBeNull();
+    expect(cols[1].selectedId).toBeNull();
   });
-  test('valgt sti markerer selected pr. niveau', () => {
-    const cols = buildColumns(model, ['1', '3']);
-    expect(cols[0].selected).toBe('1');
-    expect(cols[1].selected).toBe('3');
-    // 3 har ingen børn → ingen tredje kolonne
-    expect(cols.length).toBe(2);
+  test('anker med forælder, ingen børn: [Forældre, Fokus]', () => {
+    const cols = buildBidirectionalColumns(model, '3', [], []);
+    expect(cols.map((c) => c.key)).toEqual(['ancestor:1', 'anchor:0']);
+    expect(cols[0].label).toBe('Forældre');
+    expect(cols[0].people.map((p) => p.id)).toEqual(['1']);
+  });
+  test('efterkommer-drill markerer selected + stopper ved barnløs', () => {
+    const cols = buildBidirectionalColumns(model, '1', [], ['3']);
+    expect(cols.find((c) => c.key === 'descendant:1')!.selectedId).toBe('3');
+    expect(cols.some((c) => c.key === 'descendant:2')).toBe(false); // 3 er barnløs
+  });
+  test('kolonne-keys er kollisionsfri', () => {
+    const cols = buildBidirectionalColumns(model, '1', [], ['3']);
+    const keys = cols.map((c) => c.key);
+    expect(new Set(keys).size).toBe(keys.length);
   });
 });
 

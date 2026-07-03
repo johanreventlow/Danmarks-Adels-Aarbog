@@ -78,6 +78,41 @@ delete-helper + fjernet død G5-trigger-walk. Spec: `docs/superpowers/specs/2026
 
 **Udestår:** manuel live-verifikation af UI'et (web-browser + Expo).
 
+## Stamtræ: Kolonner-visning + bidirektionel aner/efterkommere (web + mobile) (2026-07-03)
+
+Stamtræets **Kolonner-visning (variant B)** færdiggjort og udvidet til begge retninger, i
+**både web og mobile**.
+
+**Trin 1 — Kolonner på web (lukker item 8 fra web-v2-porten):** segmenteret kontrol
+Fokus/Kolonner + vandret-scrollende drill-down-kolonner (matcher mobilens eksisterende variant B).
+Ren `buildTreeColumns` i `web/src/data/tree.ts`; drill-valg gennem historik-fri `onFocus` (adskilt
+fra `onPick` så dyb drill ikke fylder tilbage-stakken). `/simplify` (4 fund anvendt) + advisor.
+
+**Trin 2 — bidirektionelle kolonner (aner + efterkommere):** fokus er nu et fast **anker** i
+midten; aner folder ud til venstre (Forældre → Bedsteforældre → Oldeforældre → Tipoldeforældre →
+**N× Tipoldeforældre**), efterkommere til højre (Børn → Børnebørn → …). Bilineal ane-drill via
+`parentsByChild` (vælg forælder → dens to forældre). Delt retnings-parametriseret bygger
+(`buildBidirectionalColumns` med visited-`Set`-cyklusguard + stabile `kind:depth`-keys), spejlet
+web (`data/tree.ts`) + mobile (`data/selectors.ts`). Web parentsOf tilføjet; mobile genbruger sin.
+
+**Tilstands-arkitektur:** web = lokal `useState` (`anchorId`/`up`/`down`) med **frontier-reset**
+(kun yderste ane/efterkommer bevares ved fokus-skift — ellers ekstern nav → nulstil); mobile =
+zustand-slice (`path` → `anchorId`/`up`/`down`), navigations-mutatorer nulstiller eksplicit, drill-
+mutatorer bevarer ankeret. Auto-scroll: centrér anker + kompensér prepend (web `useLayoutEffect`;
+mobile scroll-events). Variant A/C urørt.
+
+**Codex-review af design-spec (1 BLOCKER + 5 SHOULD-FIX indarbejdet):** BLOCKER = reset måtte være
+frontier-baseret, ikke fuldt medlemskab (ekstern nav til en mid-strip-node skal folde drillen);
+plus rigtig cyklus-guard, kollisionsfri kolonne-keys, platform-specifik scroll, forældre-antal ej
+antaget=2, dansk genealogisk label-kortform. Se `docs/superpowers/specs/2026-07-03-kolonner-aner-
+efterkommere-design.md`.
+
+**Verificeret:** web tsc + 109 tests + build; mobile tsc + 249 tests. **Web visuelt bekræftet af
+bruger.** **Mobile empirisk verificeret i iOS-simulator mod prod-Supabase** (idb-drevet): bidirektionel
+default (begge forældre), 3 niveauer ane-drill m. korrekte labels/chevrons, glidende up-scroll, og
+samme_som-collapse gennem traverseringen (Conrad → Detlef). Descendant-drill på mobile ikke separat
+gentestet denne session (barnløs fokus-linje), men samme mekanisme + web-verificeret.
+
 ## samme_som-collapse implementeret (web + mobile) (2026-07-02)
 
 Frontend identitets-projektion: en person der optræder som flere DB-poster (linket via

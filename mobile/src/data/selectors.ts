@@ -92,30 +92,71 @@ export function buildSnapPath(
   return { path, depth: Math.max(0, up.length - 1) };
 }
 
-// Variant B · drill-down kolonner: hver kolonne = en generation; kolonne N viser børn af den
-// valgte person i kolonne N-1. Port af b_cols-logikken (v2 linje 1335).
-export function buildColumns(
+// Variant B · Kolonner (bidirektionel): fokus-personen er et fast ANKER i midten; aner folder
+// ud til venstre (Forældre → Bedsteforældre → …), efterkommere til højre (Børn → Børnebørn → …).
+// up[i] = valgt forælder i ane-ring i+1; down[i] = valgt barn i efterkommer-ring i+1. En retning
+// stopper ved første ring uden valg eller når den valgte er forældre-/barnløs. Delt design med
+// web (web/src/data/tree.ts) — se docs/superpowers/specs/2026-07-03-kolonner-aner-efterkommere-design.md.
+export type ColumnKind = 'ancestor' | 'anchor' | 'descendant';
+export type TreeColumn = {
+  key: string;               // STABIL identitet `${kind}:${depth}` — ancestor:1 ≠ descendant:1
+  kind: ColumnKind;
+  depth: number;             // 0 = anker, 1.. = ring-afstand
+  label: string;
+  people: ModelPerson[];
+  selectedId: string | null;
+};
+
+const COL_MAX_DEPTH = 40; // øvre loft (visited-Set nedenfor er den egentlige cyklus-guard)
+const ANCESTOR_LABELS = ['Forældre', 'Bedsteforældre', 'Oldeforældre', 'Tipoldeforældre'];
+const DESCENDANT_LABELS = ['Børn', 'Børnebørn', 'Oldebørn', 'Tipoldebørn'];
+
+// Dybde 1-4 navngives; fra dybde 5 bruges den danske genealogiske kortform "N× tipoldeforældre"
+// (= tip-tip-…-oldeforældre): dybde 5 = 2×, 6 = 3× osv. → (dybde − 3)×.
+function colLabel(kind: 'ancestor' | 'descendant', depth: number): string {
+  const table = kind === 'ancestor' ? ANCESTOR_LABELS : DESCENDANT_LABELS;
+  if (depth >= 1 && depth <= table.length) return table[depth - 1];
+  return `${depth - 3}× ${kind === 'ancestor' ? 'Tipoldeforældre' : 'Tipoldebørn'}`;
+}
+
+function buildDirection(
   model: Model,
-  path: string[],
-): { level: number; people: ModelPerson[]; selected: string | null }[] {
-  const cols: { level: number; people: ModelPerson[]; selected: string | null }[] = [];
-  const rootP = path[0] ? model.byId[path[0]] : null;
-  if (!rootP) return cols;
-  cols.push({ level: 0, people: [rootP], selected: path[0] });
-  let cur = path[0];
-  let i = 1;
-  let guard = 0;
-  while (guard < 40) {
-    const kids = childrenOf(model, cur);
-    if (!kids.length) break;
-    const sel = path[i] ?? null;
-    cols.push({ level: i, people: kids, selected: sel });
+  anchorId: string,
+  selections: string[],
+  traverse: (m: Model, id: string) => ModelPerson[],
+  kind: 'ancestor' | 'descendant',
+): TreeColumn[] {
+  const cols: TreeColumn[] = [];
+  const visited = new Set<string>([anchorId]);
+  let cur = anchorId;
+  let depth = 1;
+  while (depth <= COL_MAX_DEPTH) {
+    const people = traverse(model, cur).filter((p) => !visited.has(p.id));
+    if (!people.length) break;
+    const sel = selections[depth - 1] ?? null;
+    cols.push({ key: `${kind}:${depth}`, kind, depth, label: colLabel(kind, depth), people, selectedId: sel });
     if (!sel) break;
+    visited.add(sel);
     cur = sel;
-    i++;
-    guard++;
+    depth += 1;
   }
   return cols;
+}
+
+export function buildBidirectionalColumns(
+  model: Model,
+  anchorId: string,
+  up: string[],
+  down: string[],
+): TreeColumn[] {
+  const anchor = model.byId[anchorId];
+  if (!anchor) return [];
+  const ancestors = buildDirection(model, anchorId, up, parentsOf, 'ancestor');
+  const descendants = buildDirection(model, anchorId, down, childrenOf, 'descendant');
+  const anchorCol: TreeColumn = {
+    key: 'anchor:0', kind: 'anchor', depth: 0, label: 'Fokus', people: [anchor], selectedId: anchorId,
+  };
+  return [...ancestors.reverse(), anchorCol, ...descendants];
 }
 
 // Variant A "kort-fokus": bedsteforælder, forælder, denne generations søskende, børn & grene.
