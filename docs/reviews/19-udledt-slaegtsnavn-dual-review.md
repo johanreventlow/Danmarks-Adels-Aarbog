@@ -148,3 +148,9 @@ regressioner.
 reload — men ikke at CASCADEN der propagerer værdien til `person`-cachen også gør, fordi triggeren
 kun lyttede på UPDATE. En "reload-durabilitet"-test skal eksplicit teste en FRISK INSERT-sti, ikke
 kun en gentaget UPDATE-sti på allerede-eksisterende rækker — de to rammer forskellig trigger-logik.
+
+## Phase 5-6: Anvendt til prod (2026-07-03, bruger-godkendt)
+
+Begge fixes (H1 + H2) anvendt til prod via `mcp__supabase__apply_migration`. Data uændret (0/923
+mangler `visning_fuldt_navn`, 0 karantæne, 580 fik afledt efternavn — matcher pre-fix-tilstand,
+som forventet da fixet kun rører fremtidige INSERT/DELETE-stier, ikke eksisterende data).
