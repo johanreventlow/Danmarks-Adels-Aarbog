@@ -451,6 +451,7 @@ export default function Redaktion() {
               <span style={{ fontFamily: T.mono, fontSize: 10, color: T.muted2 }}>{p.aar || '—'}</span>
               <span style={{ fontFamily: T.mono, fontSize: 9, color: T.muted, background: T.beige, borderRadius: 5, padding: '3px 7px' }}>id {p.id}</span>
               <span style={{ fontFamily: T.mono, fontSize: 9, color: T.muted, background: T.beige, borderRadius: 5, padding: '3px 7px' }}>{evidence?.koen ?? 'køn ?'}</span>
+              {p.efternavnAfledt && <span title="Efternavnet er afledt af linje-medlemskab, ikke en del af bogens rå navn" style={{ fontFamily: T.mono, fontSize: 9, color: T.bordeaux, background: '#f4e2e6', border: '1px solid rgba(136,26,51,.16)', borderRadius: 5, padding: '3px 7px' }}>efternavn afledt af linje</span>}
             </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7, alignItems: 'flex-end' }}>

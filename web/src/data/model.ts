@@ -33,7 +33,7 @@ export function parentsOf(model: Model, id: string): ModelPerson[] {
 }
 
 type RawPerson = {
-  id: number | string; visning_navn: string | null; visning_foedt: string | null;
+  id: number | string; visning_navn: string | null; visning_fuldt_navn: string | null; visning_foedt: string | null;
   visning_doed: string | null; visning_titel: string | null; koen: string | null; privat: boolean | null;
 };
 type RawMember = { family_id: number | string; person_id: number | string; rolle: string | null; ordinal: number | null; konfidens: string | null };
@@ -59,7 +59,7 @@ export function compareParentOrder(
 // navne op på de rå DB-poster (et foldet alias ville ellers mangle i model.byId) — spec §8.
 export async function loadModel(opts?: { collapse?: boolean }): Promise<Model> {
   const [persons, members, extIds, lineageRows, sources, sameAsRel, approvedConc] = await Promise.all([
-    getAll<RawPerson>(() => supabase.from('person').select('id,visning_navn,visning_foedt,visning_doed,visning_titel,koen,privat')),
+    getAll<RawPerson>(() => supabase.from('person').select('id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_titel,koen,privat')),
     getAll<RawMember>(() => supabase.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens')),
     // Linje/nr pr. person (grene) — tolerant: tabellen/kolonnerne kan mangle i ældre baser.
     // Review 15: log ved fejl, så en RLS/drifts-fejl ikke stiltiende ligner "ingen linjer"
@@ -81,7 +81,9 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<Model> {
 
   const appPersons: AppPerson[] = persons.map((p) => ({
     id: String(p.id),
-    name: p.visning_navn ?? '(uden navn)',
+    // Fallback til visning_navn er MIDLERTIDIG kompat (spec §4.9) — visning_fuldt_navn er NULL
+    // for personer der endnu ikke er regenereret efter udledt-slægtsnavn-backfillen.
+    name: p.visning_fuldt_navn ?? p.visning_navn ?? '(uden navn)',
     born: parseYear(p.visning_foedt),
     died: parseYear(p.visning_doed),
     years: fmtYears(p.visning_foedt, p.visning_doed),
