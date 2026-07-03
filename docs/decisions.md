@@ -2,6 +2,28 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Bidirektionelle stamtræs-kolonner: fast anker + frontier-reset (2026-07-03)
+
+Stamtræets Kolonner-visning (variant B) blev udvidet til begge retninger (aner venstre / efterkommere
+højre) fra en fast **anker**-person. To ikke-oplagte valg:
+
+**1. Fast anker, ikke re-centrering.** Ankeret flytter sig ikke ved drill; kun fokus (detalje-panel)
+følger valget. **Hvorfor:** matcher den eksisterende descendant-drills semantik og holder tilstanden
+enkel; visningen viser én ane-linje opad + efterkommere nedad fra ankeret — *ikke* kollaterale
+slægtninge. **Fravalgt:** re-centrering på hvert valg (mere eksplorativt, men kolonnerne "hopper", og
+det ville kræve at afkoble `focusId` fra `selectedId`, som web-appen bevidst konflaterer).
+
+**2. Reset via frontier-tjek, IKKE fuldt medlemskab.** Når `focusId` skifter afgøres om drill-stien
+bevares eller nulstilles. **Valgt:** bevar kun hvis `focusId` er den YDERSTE valgte ane/efterkommer
+(eller ankeret). **Hvorfor (Codex-BLOCKER):** et fuldt medlemskabs-tjek (`focusId ∈ up/down`) kan
+ikke skelne intern drill fra ekstern navigation til en person der tilfældigvis allerede er valgt —
+drill A→B→C, klik så B i sidebaren → B∈down → ville forkert bevare stien i strid med "ekstern nav
+nulstiller". Frontier-formen spejler den beviste baseline (hale-tjek). **Platform-divergens (bevidst):**
+web bruger en `useState`+effekt med frontier-tjek; mobile (zustand) opnår det samme via **eksplicit
+mutator-reset** — navigations-mutatorer (setFocus/setVariant/pickLinje/…) rydder `up`/`down`, drill-
+mutatorer bevarer ankeret. Samme kontrakt, forskellig mekanisme pga. de to apps' state-mønstre.
+Fuld spec: `docs/superpowers/specs/2026-07-03-kolonner-aner-efterkommere-design.md`.
+
 ## Barn→union-matching: partnernavn primær, ordenstal kryds-tjek; parkér frem for at gætte (2026-07-03)
 
 Ved fix af flergifte-forældres børn-tilknytning skulle hvert barns fritekst-`aegteskab_kontekst`
