@@ -116,6 +116,14 @@ Kernefunktionen er **"er vi i familie?"** — slægtskabssøgning på tværs af 
   `fix_boern_multi_union.R` + changelog/decisions 2026-07-03. III-85 (Detlef) efterfølgende
   løst (`change_set 2`): parkeringen var falsk-negativ pga. ekstraktionsfejl i `aegteskab_kontekst`
   — bogen siger 1. ægteskab (Catharina von Brockdorff); flyttet tilbage + kildefelt rettet.
+- **TNG-QA Etape 3+4 + spøgelses-union-oprydning (prod, 2026-07-03):** Etape 3 = vores 5 datoer stod
+  fast (bogen bekræfter; TNG forkert) → TNG oprettet som `source` (id 2) + 5 konkurrerende dato-
+  assertions (`change_set 3`, konklusion uændret). Etape 4 = 8/10 falske positiver (samme_som/stub).
+  Afdækkede systematisk **spøgelses-union-fejl**: 26 barnløse unioner hvor et barn var fejl-"gift"
+  med sin far/ane (mor-heading "med X (se nr. Y)" → fake-aegteskab, navn≠ref). Oprydt: V-121-dedup
+  (`cs4`), I-103-gren genopbygget m. Maria Elisabeth + 10 børn (`cs5`), 26 spøgelser slettet (`cs6+7`).
+  fam 11 bruger-bekræftet ægte, bevaret. **UDESTÅR:** loader-guard (afvis intern-ref-link ved navne-
+  mismatch) — ellers gen-skaber reload de 26. Se changelog/decisions/[[tng-qa-etape-3-4-spoegelses-unioner]].
 - **samme_som-collapse IMPLEMENTERET (web+mobile — merget til main via PR #14, 2026-07-03):**
   frontend identitets-projektion så en person med flere DB-poster vises som én. Ren `collapseSameAs`
   FØR `buildModel` (motoren urørt): union-find → kanonisk = unik sink; fixed-point-validering +
