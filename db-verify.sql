@@ -680,3 +680,18 @@ EXCEPTION WHEN OTHERS THEN
   IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: samme_som — opret/idempotens/G3-multi-sink/fjern virker';
   ELSE RAISE; END IF;
 END $$;
+
+-- Task: flere narrativer pr. person (2026-07-03) — skema-shape
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns WHERE table_name='source' AND column_name='aar')<>1 THEN
+    RAISE EXCEPTION 'FEJL: source.aar mangler'; END IF;
+  IF (SELECT count(*) FROM information_schema.parameters
+      WHERE specific_name IN (SELECT specific_name FROM information_schema.routines WHERE routine_name='red_upsert_narrativ')
+        AND parameter_name='p_source_id')<>1 THEN
+    RAISE EXCEPTION 'FEJL: red_upsert_narrativ mangler p_source_id'; END IF;
+  IF (SELECT count(*) FROM information_schema.parameters
+      WHERE specific_name IN (SELECT specific_name FROM information_schema.routines WHERE routine_name='red_opret_kilde')
+        AND parameter_name='p_aar')<>1 THEN
+    RAISE EXCEPTION 'FEJL: red_opret_kilde mangler p_aar'; END IF;
+  RAISE NOTICE 'OK: flere-narrativer skema (source.aar, red_upsert_narrativ.p_source_id, red_opret_kilde.p_aar)';
+END $$;

@@ -1254,3 +1254,48 @@ END $$;
 
 GRANT EXECUTE ON FUNCTION public.red_samme_som(bigint, bigint) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.red_fjern_samme_som(bigint) TO authenticated;
+
+-- ============================================================================
+-- FLERE NARRATIVER PR. PERSON (udgave-nøglede narrativer) — 2026-07-03
+-- Spec: docs/superpowers/specs/2026-07-03-flere-narrativer-per-person-design.md
+-- ============================================================================
+
+-- ---------- source.aar (udgave-kronologi) + red_opret_kilde(p_aar) ----------
+ALTER TABLE source ADD COLUMN IF NOT EXISTS aar SMALLINT;
+UPDATE source SET aar=2018 WHERE id=1 AND aar IS NULL;   -- backfill eksisterende DAA 2018-20-udgave
+
+DROP FUNCTION IF EXISTS red_opret_kilde(text, text, text, boolean);   -- gammel 4-arg → undgå PostgREST-overload
+CREATE OR REPLACE FUNCTION red_opret_kilde(p_titel text, p_slags text DEFAULT NULL, p_udgave text DEFAULT NULL, p_ekstern boolean DEFAULT false, p_aar smallint DEFAULT NULL)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_id bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_opret_kilde', format('Oprettede kilde %s', p_titel), NULL, NULL);
+  IF nullif(btrim(p_titel),'') IS NULL THEN RAISE EXCEPTION 'Titel er påkrævet'; END IF;
+  v_id := (SELECT coalesce(max(id),0)+1 FROM source);
+  INSERT INTO source(id, slags, titel, udgave, aar, ekstern) VALUES (v_id, p_slags, p_titel, p_udgave, p_aar, p_ekstern);
+  RETURN v_id;
+END $$;
+
+-- ---------- red_upsert_narrativ nøglet på (subjekt_type, subjekt_id, source_id) ----------
+DROP FUNCTION IF EXISTS red_upsert_narrativ(text, bigint, text, boolean);   -- gammel 4-arg → undgå overload
+CREATE OR REPLACE FUNCTION red_upsert_narrativ(
+  p_subjekt_type text, p_subjekt_id bigint, p_tekst text, p_privat boolean,
+  p_source_id bigint, p_side text DEFAULT NULL)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_id bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_upsert_narrativ', format('Opdaterede narrativ på %s/%s (kilde %s)', p_subjekt_type, p_subjekt_id, p_source_id), p_subjekt_type, p_subjekt_id);
+  SELECT id INTO v_id FROM narrative
+    WHERE subjekt_type=p_subjekt_type AND subjekt_id=p_subjekt_id AND source_id IS NOT DISTINCT FROM p_source_id
+    ORDER BY id LIMIT 1;
+  IF v_id IS NULL THEN
+    INSERT INTO narrative(id, subjekt_type, subjekt_id, source_id, tekst, side, privat)
+      VALUES ((SELECT coalesce(max(id),0)+1 FROM narrative), p_subjekt_type, p_subjekt_id, p_source_id, p_tekst, p_side, p_privat)
+      RETURNING id INTO v_id;
+  ELSE
+    UPDATE narrative SET tekst=p_tekst, privat=p_privat, side=COALESCE(p_side, side) WHERE id=v_id;
+  END IF;
+  RETURN v_id;
+END $$;
