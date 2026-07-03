@@ -172,30 +172,33 @@ Kernefunktionen er **"er vi i familie?"** — slægtskabssøgning på tværs af 
   (Codex, `docs/reviews/18`) + `/simplify` + advisor-gate; web 124/124, mobil 257/257. **Udestår:**
   udgave-byline i læseren + fulde udgave-faner i mobil. Se `docs/superpowers/{specs,plans}/2026-07-03-
   flere-narrativer-per-person*` + memory `flere-narrativer-per-person`.
-- **Web v3 Slice 1 — læsning + bogmærker (branch `feat/web-v3-laesning-bogmaerker`, IKKE merget/pushet,
-  2026-07-03):** localStorage-bogmærker (kanonisk via samme_som-collapse, async re-normalisering),
+- **Web v3 Slice 1 — læsning + bogmærker (MERGET TIL MAIN + PUSHET, 2026-07-03):**
+  localStorage-bogmærker (kanonisk via samme_som-collapse, async re-normalisering),
   ctx-kontekst-quicknav ("I fokus" i tree-mode), bmQuick-sidebar + fuld `BookmarksView`, `SlaegtPicker`-
-  modal på slægt-chippen. Codex-dual-reviewet spec, TDD (147/147 web-tests), empirisk browser-verificeret
-  mod prod (Playwright: toggle-flag→bmQuick→"Se alle"→bogmærke-række navigerer atomisk tilbage til
-  tree-mode; slægt-picker backdrop/Escape). Se `docs/superpowers/specs/2026-07-03-web-v3-slice1-*`.
-- **Udledt slægtsnavn — DB-lag PROD-LIVE, reader-adoption på branch (2026-07-03):** afledt
-  families-efternavn for fødte medlemmer uden efternavn i DAA (`lineage.slaegtsnavn` fortrydbar
-  kilde + `person.visning_efternavn`/`visning_fuldt_navn` envejs-cache på skip-listen).
-  `regen_person_visning()` udvidet (fan-out-sikker CTE, suffiks-token-match, tvetydig-karantæne);
-  cyklus-sikre `lineage_ancestors`/`lineage_descendants` genbruges skrive+læse-tid; to nye
-  invalidation-triggere. `post_load_fixup.R` gjort reload-durabel. 3× Codex-reviewet spec + egen
-  implementeringsplan (`docs/superpowers/plans/2026-07-03-udledt-slaegtsnavn.md`). **Verificeret
-  LOKALT** (pg_dump read-only prod-kopi, brugergodkendt) FØR prod: `db-migrations.sql` kørt mod en
-  GAMMEL (prod-svarende) skema-kopi (den reelle delta-sti) — alle asserts grønne, empirisk
-  backfill-dry-run matchede spec §2 eksakt. **Bruger godkendte alle 3 prod-trin (2026-07-03) —
-  ANVENDT TIL PROD:** migration → `post_load_fixup.R` (cascade-regen af 580 linje-medlemmer) →
-  fuld `regen_person_visning`-sweep for de resterende 343. Prod-tal bekræftede lokal test 1:1
-  (591 fødte/580 fik efternavn/11 sprunget over/0 karantæne, 0/923 mangler `visning_fuldt_navn`).
-  `get_advisors` fandt EFTER migrationen 2 huller i det nye (karantæne-tabel uden RLS + 2 funktioner
-  uden `search_path`) — rettet + anvendt (bruger-godkendt) samme dag, begge bekræftet lukkede.
-  Web+mobile læsere (branch `feat/udledt-slaegtsnavn-v2`, IKKE merget/pushet) skiftet til
-  `visning_fuldt_navn` (fallback `visning_navn`); redaktør-badge "efternavn afledt af linje".
-  web tsc+124/124, mobile tsc+258/258. Se memory `udledt-slaegtsnavn-db-lag-lokalt-verificeret`.
+  modal på slægt-chippen. Codex-dual-reviewet spec + egen /simplify-cyklus (delte UI-primitiver i
+  `components/primitives.tsx`, memoization, `parentsOf`-genbrug). Bogmærke-ikonet er en rigtig SVG
+  bogmærke-ribbon (bruger-feedback: den oprindelige ⚑/⚐-glyf lignede et flag). TDD (147/147
+  web-tests), empirisk browser-verificeret mod prod (Playwright: toggle-flag→bmQuick→"Se alle"→
+  bogmærke-række navigerer atomisk tilbage til tree-mode; slægt-picker backdrop/Escape).
+  Se `docs/superpowers/specs/2026-07-03-web-v3-slice1-*`.
+- **Udledt slægtsnavn — DB-lag PROD-LIVE + web/mobile reader-adoption (MERGET TIL MAIN + PUSHET,
+  2026-07-03):** afledt families-efternavn for fødte medlemmer uden efternavn i DAA
+  (`lineage.slaegtsnavn` fortrydbar kilde + `person.visning_efternavn`/`visning_fuldt_navn` envejs-
+  cache på skip-listen). `regen_person_visning()` udvidet (fan-out-sikker CTE, suffiks-token-match,
+  tvetydig-karantæne); cyklus-sikre `lineage_ancestors`/`lineage_descendants` genbruges skrive+
+  læse-tid; to nye invalidation-triggere. `post_load_fixup.R` gjort reload-durabel. 3× Codex-
+  reviewet spec + egen implementeringsplan + dual-review-cyklus (review 19: 2 HIGH-fund — trigger
+  fyrede kun på UPDATE ikke INSERT, `red_slet_person` manglede karantæne-oprydning — begge rettet +
+  anvendt til prod) + /simplify (fjernet dobbelt fan-out-beregning i `regen_person_visning`).
+  **Verificeret LOKALT** FØR prod: `db-migrations.sql` kørt mod en GAMMEL (prod-svarende) skema-
+  kopi (den reelle delta-sti) — alle asserts grønne. **Bruger godkendte alle 3 prod-trin
+  (2026-07-03) — ANVENDT TIL PROD:** migration → `post_load_fixup.R` (cascade-regen af 580 linje-
+  medlemmer) → fuld `regen_person_visning`-sweep for de resterende 343. Prod-tal bekræftede lokal
+  test 1:1 (591 fødte/580 fik efternavn/11 sprunget over/0 karantæne). `get_advisors` fandt EFTER
+  migrationen 2 huller (karantæne-tabel uden RLS + 2 funktioner uden `search_path`) — rettet +
+  anvendt (bruger-godkendt) samme dag. Web+mobile læsere skiftet til `visning_fuldt_navn` (fallback
+  `visning_navn`); redaktør-badge "efternavn afledt af linje". Se memory
+  `udledt-slaegtsnavn-db-lag-lokalt-verificeret`, `docs/reviews/19-udledt-slaegtsnavn-dual-review.md`.
 - **TNG-analyse opfølgning + backlog-prioritering (2026-07-03, ren dokumentation, ingen kode):**
   fuld gennemgang af `jr_tng_reventlow.sql` (37 tabeller + reelle rækketal) fandt nyt ift.
   juni-analysen: foto-region-tagging/albums/event-scoped medielink, per-forælder barnerelation,
