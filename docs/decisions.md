@@ -2,6 +2,26 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Redaktør-navigation + edit/slet bryder IKKE evidensmodellen (2026-07-03)
+
+Spørgsmål der opstod: strider det mod evidensmodellen at lade redaktøren navigere til partnere/børn
+og redigere/slette dem? **Svar: nej** — og det er værd at fastholde hvorfor, da det er let at fejllæse
+invariant §1 ("påstande er uforanderlige") som et generelt redigeringsforbud.
+
+**Hvorfor det er sikkert:** Invariant §1 gælder kun *påstande* (`assertion`) — konklusioner, relationer
+og familie-links er per design det *foranderlige* fortolkningslag ovenpå. Redigering sker append-baseret
+(`red_edit_oplysning`: void→jsonb, ny påstand + ny konklusion, aldrig overskrivning), og sletning kører
+gennem `change_set`/`change_event` (fortrydbar). Navigation er ren læsning. Alle tre respekterer altså
+evidenslaget.
+
+**Den eneste reelle kant:** hard-delete af en *hel person* (`red_slet_person`) trækker en FK-ordnet
+cascade der også fjerner de underliggende påstande — dvs. man sletter kildens udsagn, ikke bare sin
+fortolkning. Derfor bevidst bevaret bag `red_slet_person_preview` + eksplicit bekræftelse. Sletning af
+*links* (familie-relation, konklusion) er uproblematisk.
+
+**Årstal på børn/partnere:** hentet fra `model.byId[pid].years` (afledt cache), ikke en ny query —
+konsistent med invariant §4 (cache er envejs-projektion, læses aldrig som autoritet, men fint til visning).
+
 ## Bidirektionelle stamtræs-kolonner: fast anker + frontier-reset (2026-07-03)
 
 Stamtræets Kolonner-visning (variant B) blev udvidet til begge retninger (aner venstre / efterkommere

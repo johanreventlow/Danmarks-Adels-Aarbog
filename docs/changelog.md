@@ -1,5 +1,30 @@
 # Changelog
 
+## Redaktør: klikbar familie-navigation + fødsels/dødsår (web+mobile, 2026-07-03)
+
+Redaktør-familieoversigten kan nu **navigeres** og viser mere kontekst. Merget til `main`
+(`bffdfc2`) + pushet.
+
+**Navigation.** Partnere, børn og forældre i familie-sektionen er nu klikbare og åbner den
+pågældende persons redaktør-flade. Web: `setRecordId` (samme flade); mobile: `router.push`
+(ny editor-skærm) — sidstnævnte genbruger nøjagtig `PersonRad`-primitiven der allerede drev
+forældre-navigation. Ugemte narrativ-edits kasseres stille ved navigation, bevidst identisk med
+person-listens eksisterende adfærd.
+
+**Fødsels/dødsår.** Børn (og partnere) viser nu årstal i oversigten. Kilden er den allerede
+loadede `model.byId[pid].years` (samme cache som navne-opslaget) — **ingen ekstra DB-query**.
+Nyt `aar`-felt tilføjet `FamilieBarn`/`FamiliePartner` i read-laget (`mapFamilieRows`), spejlet
+web+mobile for at holde "hold i sync"-kontrakten.
+
+**Modellen urørt:** navigation er ren læsning; edit/slet gik i forvejen gennem de append-baserede /
+fortrydbare `red_*`-RPC'er. Ingen invariant-brud.
+
+**Verifikation:** web 112/112 + mobile 249/249 tests + tsc grønne; web build ok; ny
+`redaktionRead.test.ts` (web) + opdateret mobil-test dækker år-propagering. iOS-simulator-
+runtime-verifikation **udskudt til fysisk enhed** pga. et RN-fetch-miljøbug på simulatoren
+(-1005 "network connection was lost" mens host-curl + sim-Safari når Supabase fint) — ikke en
+fejl i ændringen. Se memory `mobil-sim-rn-fetch-1005`.
+
 ## TNG-QA Etape 3+4 + spøgelses-union-oprydning (2026-07-03)
 
 Adresserede TNG-QA-rapportens 5 dato-uenigheder (Etape 3) + 10 manglende links (Etape 4).
