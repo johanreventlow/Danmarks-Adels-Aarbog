@@ -1,5 +1,37 @@
 # Changelog
 
+## Flere narrativer pr. person — udgave-nøglede narrativer (DB + web + mobile, 2026-07-03)
+
+En person kan nu bære **én biografi pr. DAA-udgave** (`source`) i stedet for præcis én. Spec +
+dual-review + plan i `docs/superpowers/{specs,plans}/2026-07-03-*` og `docs/reviews/18-*`.
+Implementeret på feature-branch `feat/flere-narrativer-per-person`; **prod-cutover udskudt** til
+koordineret merge + web-deploy (RPC-DROP er en cross-client breaking change — se decisions).
+
+**DB.** `red_upsert_narrativ` nøgles nu på `(subjekt_type, subjekt_id, source_id)` (var: første
+række by id). Ny additiv `source.aar SMALLINT` bærer udgave-kronologi (source-id ≠ kronologi, og
+`source.udgave` er upålidelig fritekst). `red_opret_kilde` udvidet med `p_aar`. Gamle 4-arg-
+signaturer droppes eksplicit (undgår PostgREST-overload-tvetydighed). `side = COALESCE(p_side, side)`
+så en udeladt side ikke slettes. Tabellen selv var uændret (flere rækker pr. person var altid lovligt).
+Verificeret lokalt mod `daa_test`-prod-kopi: to udgaver = to rækker, re-upsert bevarer side,
+**fortryd er per narrativ-id** (fortryd af udgave B lader udgave A urørt), 4-arg back-compat.
+
+**Delt selector.** `pickPreferredBio` (ren, spejlet identisk i web+mobile) vælger den foretrukne
+offentlige biografi pr. subjekt: `aar DESC NULLS LAST, source_id DESC, narrative_id DESC`, filtreret
+til `slags='DAA-udgave'` (ingen vilkårlig TNG-stub-fallback). Bruges af begge læsere.
+
+**Web-redaktør.** Udgave-faner under "Narrativ · biografi" + "+ Ny udgave" (vælg eksisterende kilde
+eller opret DAA-udgave). textarea/privat/side binder til aktiv udgave; Gem sender `p_source_id`.
+
+**Mobil-redaktør (minimal, obligatorisk).** Read henter `source_id`, Gem sender `p_source_id`
+(default 1) → knækker ikke af RPC-DROP. Single-narrativ-UI bevaret; faner er follow-up.
+
+**Læsere.** Web `public.ts` + mobil `load.ts` vælger foretrukne DAA-udgave pr. medlem/person via
+`pickPreferredBio` (deterministisk, i stedet for "første by id"/"første mødte"). Adfærd uændret i
+dag (alle 591 narrativer = DAA source 1). Cross-medlem-concat (web founder-først) urørt.
+
+**Tests:** web 122/122 (+`pickPreferredBio`, `mapNarrativer`, arg-builder), mobil 257/257, tsc +
+build grønne. DB verificeret mod lokal prod-kopi + skema-shape-asserts i `db-verify.sql`.
+
 ## Redaktør: klikbar familie-navigation + fødsels/dødsår (web+mobile, 2026-07-03)
 
 Redaktør-familieoversigten kan nu **navigeres** og viser mere kontekst. Merget til `main`
