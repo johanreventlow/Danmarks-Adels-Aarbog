@@ -1,7 +1,7 @@
 # Design: Bidirektionelle kolonner (aner + efterkommere) i stamtræet
 
 **Dato:** 2026-07-03
-**Status:** Godkendt (design) — afventer implementeringsplan
+**Status:** Godkendt (design) + Codex-reviewet (1 BLOCKER + 5 SHOULD-FIX + 2 NICE-TO-HAVE indarbejdet) — afventer implementeringsplan
 **Omfang:** Web (`web/`) + Mobil (`mobile/`). Kun stamtræets variant B ("Kolonner"). Variant A ("Fokus") og C ("Spor") røres ikke.
 
 ---
@@ -42,15 +42,19 @@ To symmetriske drill-retninger fra ankeret:
 
 Når Kolonner åbnes eller fokus skifter: **Forældre-kolonne synlig til venstre + Børn-kolonne til højre**, med **fokus-kolonnen centreret** (auto-scroll til midten). Så begge retninger er umiddelbart synlige — brugeren skal ikke gætte, at man kan scrolle til venstre. Kolonner uden data (fx ingen registrerede forældre) udelades helt i den retning.
 
-## 4. Kolonne-labels (erstatter "Generation N")
+## 4. Kolonne-labels & retnings-affordances (erstatter "Generation N")
 
-Relative slægts-labels centreret om ankeret:
+Relative slægts-labels centreret om ankeret (rene slægts-ord, ingen pile i headeren):
 
 | Retning | Dybde 1 | 2 | 3 | 4 | ≥5 (fallback) |
 |---|---|---|---|---|---|
-| Aner ▲ | Forældre | Bedsteforældre | Oldeforældre | Tipoldeforældre | `"{n}. slægtled ↑"` |
+| Aner (venstre) | Forældre | Bedsteforældre | Oldeforældre | Tipoldeforældre | `"{n}. slægtled tilbage"` |
 | Anker | **Fokus** | — | — | — | — |
-| Efterkommere ▼ | Børn | Børnebørn | Oldebørn | Tipoldebørn | `"{n}. slægtled ↓"` |
+| Efterkommere (højre) | Børn | Børnebørn | Oldebørn | Tipoldebørn | `"{n}. slægtled frem"` |
+
+**Retnings-metafor er konsekvent vandret** (stribens akse), ikke lodret. Så:
+- Kant-vejledning ved stribens ender: `◀ aner` / `efterkommere ▶`.
+- **Kort-chevron peger i drill-retningen:** ane-kort med forældre viser en **venstre-chevron `‹`** (drill mod venstre); efterkommer-kort med børn viser en **højre-chevron `›`** (som i dag). Anker-kortet har ingen chevron.
 
 ## 5. Arkitektur
 
@@ -64,23 +68,35 @@ Generaliser den nuværende bygger til at tage en **traverserings-funktion**:
 type Traverse = (model: Model, id: string) => ModelPerson[]; // childrenOf | parentsOf
 
 type TreeColumn = {
+  key: string;              // STABIL identitet: `${kind}:${depth}` (ancestor:1 ≠ descendant:1)
   kind: 'ancestor' | 'anchor' | 'descendant';
-  depth: number;            // 0 = anker, 1 = første ring, …
+  depth: number;            // 0 = anker, 1 = første ring, … (positiv i BEGGE retninger)
   label: string;            // relativt slægts-label (§4)
-  people: ModelPerson[];
+  people: ModelPerson[];    // ALLE registrerede (ordnet, se nedenfor) — ikke antaget = 2
   selectedId: string | null;
 };
 
 // Bygger kolonner der udvider fra ankeret i ÉN retning (ankeret IKKE inkluderet):
 // selections[i] = valgt person i ring i+1; kæden stopper ved første ring uden valg
-// eller når den valgte er barn-/forældreløs. Guard mod cyklus (MAX_DEPTH).
+// eller når den valgte er barn-/forældreløs.
 function buildDirection(model, anchorId, selections, traverse, kind): TreeColumn[];
 
 // Komposer: [...aner omvendt, ankerkolonne, ...efterkommere]
 function buildBidirectionalColumns(model, anchorId, up, down): TreeColumn[];
 ```
 
-`parentsOf(model, id)` er en tynd wrapper om `parentsByChild[id]` → `ModelPerson[]` (kanoniske efter samme_som-collapse), symmetrisk med den eksisterende `childrenOf`. Tilføjes til `web/src/data/model.ts` og mobilens tilsvarende.
+**Cyklus-guard (rigtig, ikke bare iterations-loft):** `MAX_DEPTH` alene stopper ikke en
+cyklus — en self-forælder eller en person der optræder to gange på samme kæde ville rendere
+gentaget. `buildDirection` fører derfor et **visited-`Set`** seedet med `anchorId` og stopper
+FØR en allerede-set id gentages (pr. retning). Cross-retnings-dublet (samme person i både `up`
+og `down`, kun muligt ved defekt data) er en datafejl der i værste fald viser personen to gange
+— bundet, ingen uendelig løkke. Testes med self-edge + ane/efterkommer-løkke.
+
+**`parentsOf`:** `web/src/data/model.ts` mangler den → **tilføjes på web** (tynd wrapper om
+`parentsByChild[id]` → `ModelPerson[]`, kanoniske efter samme_som-collapse). **Mobil har den
+allerede** (`mobile/src/data/selectors.ts:37`) → genbruges. Ane-kolonnen viser **alle**
+registrerede forældre i stabil rækkefølge (far før mor, jf. `compareParentOrder` — normativt),
+robust over for 1, 2 eller (ved defekt data) flere forældre.
 
 ### 5.2 Drill-tilstand
 
@@ -93,16 +109,37 @@ To selektions-arrays i stedet for det nuværende ene `path`:
 - **Web:** lokal `useState` i `TreeView`.
 - **Mobil:** `useStore` (zustand) — den nuværende `path`-slice erstattes/udvides tilsvarende. Variant C's egen sti-tilstand røres ikke.
 
-### 5.3 Reset-effekt (invariant bevaret)
+### 5.3 Reset-effekt (frontier-tjek, IKKE fuldt medlemskab)
 
-Én effekt kilet på `focusId`: bevar tilstanden hvis `focusId` er ankeret eller en aktuelt valgt node (op/ned); ellers ekstern navigation → nulstil (`anchorId = focusId`, `up = []`, `down = []`).
+**Rettet efter Codex-review (BLOCKER):** et fuldt medlemskabs-tjek (`focusId ∈ up/down`) kan
+IKKE skelne intern drill fra ekstern navigation til en person der tilfældigvis allerede er valgt.
+Modeksempel: drill `A→B→C` (`down=[B,C]`), klik så `B` i sidebaren → `B ∈ down` → tilstanden ville
+(forkert) bevares, i strid med §2. Den nuværende descendant-baseline undgår dette ved kun at
+acceptere path-**halen** (`Folgesvend.tsx`), ikke medlemskab.
+
+Bidirektional analog: efter en drill er `focusId` altid den netop valgte = den **yderste** (frontier)
+node i den retning der blev udvidet. Effekten bevarer derfor kun ved frontier-match:
 
 ```
-if (focusId === anchorId || up.includes(focusId) || down.includes(focusId)) keep;
-else reset to { anchorId: focusId, up: [], down: [] };
+const keep =
+  (up.length === 0 && down.length === 0 && focusId === anchorId) ||
+  focusId === up[up.length - 1] ||      // yderste ane
+  focusId === down[down.length - 1];    // yderste efterkommer
+if (!keep) reset to { anchorId: focusId, up: [], down: [] };
 ```
 
-**Invariant (load-bearing):** `focusId` og alle id'er i `up`/`down` er **kanoniske** (`focusId` er post-`canon` fra `navigateTo`/`onFocus`; `up`/`down` udvides KUN med `parentsOf`/`childrenOf`-id'er, som er kanoniske efter samme_som-collapse). Ellers ville medlemskabs-tjekket fejle og nulstille ved hvert drill-tap.
+Drill-tap afkorter+udvider ét retnings-array og sætter fokus = den nye frontier → `keep` holder.
+Ekstern navigation (sidebar/detalje/back) sætter fokus til en vilkårlig node → typisk ikke en
+frontier → nulstil. Residual-edge: ekstern navigation der lander præcis på en nuværende frontier
+bevarer visningen — men den node ER allerede den yderste synlige, så det er korrekt (samme klasse
+som baseline'ens "navigér til halen bevarer stien").
+
+*(Alternativ, lige så korrekt: en provenance-`ref` sat synkront i `selectAncestor`/`selectDescendant`;
+frontier-tjekket vælges fordi det er tilstandsløst og spejler den beviste baseline.)*
+
+**Invariant (load-bearing):** `focusId` og alle id'er i `up`/`down` er **kanoniske** (`focusId` er
+post-`canon`; `up`/`down` udvides KUN med `parentsOf`/`childrenOf`-id'er). Kanoniske id'er sikrer
+korrekt **lighed** i frontier-tjekket — de afgør ikke event-oprindelse; det gør frontier-formen.
 
 ### 5.4 Valg af kort (historik-fri)
 
@@ -113,11 +150,23 @@ selectAncestor(depth, id):   setUp(prev => prev.slice(0, depth-1).concat(id));  
 selectDescendant(depth, id): setDown(prev => prev.slice(0, depth-1).concat(id)); onFocus(id)
 ```
 
-### 5.5 Auto-scroll
+### 5.5 Auto-scroll (platform-specifik, todelt ved prepend)
 
-- **Mount/reset:** centrér anker-kolonnen i viewporten.
+- **Mount/reset:** centrér anker-kolonnen i viewporten (scroll til ankerets offset − (viewport−kolonnebredde)/2).
 - **Ned-drill** (`down` voksede): scroll højre til nyeste kolonne (som i dag).
-- **Op-drill** (`up` voksede): afslør den nye venstre-kolonne. **Risiko:** at prepende en venstre-kolonne forskyder eksisterende indhold til højre → fokus-kolonnen "hopper". Implementeringen skal kompensere `scrollLeft` med den tilføjede kolonnes bredde (eller scrolle så den nye kolonne bliver synlig uden at ankeret springer). Kaldes ud som eksplicit implementeringsopgave.
+- **Op-drill** (`up` voksede): en venstre-kolonne prepend'es → alt eksisterende indhold forskydes til
+  højre, så ankeret "hopper". Todelt håndtering:
+  1. **Kompensér før paint** så ankeret IKKE springer (web: `useLayoutEffect`, sæt `scrollLeft +=`
+     den tilføjede kolonnes bredde+gap; RN: der findes ingen `scrollLeft` — brug `onContentSizeChange`/
+     `onLayout` til at få ny bredde og `scrollTo({x, animated:false})` med eksplicit offset, IKKE en
+     `setTimeout`-baseret `scrollToEnd`, der ikke er en layout-garanti).
+  2. **Afslør** derefter den nye kolonne med en lille animeret scroll.
+- **Prioritet på smalle skærme:** kan viewporten ikke rumme både anker og den nye kolonne, **vinder
+  "afslør den nye kolonne"** (ankeret må forskydes) — ellers var op-drillen usynlig. Dette er den
+  eksplicitte konflikt-regel Codex efterspurgte.
+- **Måle-strategi:** kolonnebredder er faste (web ~208px, RN 166px) + kendt gap → kompensationen
+  regnes deterministisk uden per-kort-måling. Web: automatiseret assertion på anker-scroll-mål (spy
+  på `scrollTo`/`scrollLeft`). RN: eksplicit manuel Expo-checkliste (op-drill springer ikke).
 
 ## 6. Testning
 
@@ -126,19 +175,43 @@ selectDescendant(depth, id): setDown(prev => prev.slice(0, depth-1).concat(id));
   - anker med både forældre og børn, ingen valg → `[Forældre, Fokus, Børn]` med korrekte labels.
   - ane-drill: vælg forælder → Bedsteforældre-kolonne dukker op; korrekt `selectedId`.
   - efterkommer-drill (regression): uændret adfærd.
-  - dybde-labels + ≥5 fallback.
+  - dybde-labels + ≥5 fallback (`{n}. slægtled tilbage/frem`).
   - retning uden data udelades.
-- **Web RTL (`TreeView`):** default viser Forældre+Børn; op-drill afslører Bedsteforældre; ned-drill afslører Børnebørn; ekstern `focusId`-ændring nulstiller til den nye person; `onFocus` kaldes (ikke `onPick`).
-- Mobil: unit-test af `buildColumns`/`buildBidirectionalColumns` i `selectors.test.ts`; skærm-verifikation manuelt (Expo).
+  - **kolonne-`key`-identitet:** `ancestor:1` og `descendant:1` har forskellige keys (ingen kollision).
+  - **cyklus-guard:** self-forælder (person er sin egen forælder) + ane/efterkommer-løkke → bounded,
+    ingen gentagen render, terminerer.
+  - **forældre-antal:** 1, 2, dedup-collapsed og (defekt) >2 forældre → alle vises, far-før-mor-ordnet.
+- **Web RTL (`TreeView`):** default viser Forældre+Børn; op-drill afslører Bedsteforældre; ned-drill
+  afslører Børnebørn; `onFocus` kaldes (ikke `onPick`).
+  - **reset:** ekstern `focusId`-ændring til en person der IKKE er en frontier → nulstil til den
+    person (kol 0-analog). Inkl. modeksemplet: drill `A→B→C`, ekstern nav til `B` → **nulstiller**
+    (bevarer IKKE), da `B` ikke er down-frontier.
+  - **centrering:** ved åbning/reset kaldes scroll-mål = anker-kolonnens offset (spy på `scrollTo`);
+    "centreret" = anker i viewportens midte når begge sider har plads, ellers blot synligt. Fuld
+    visuel centrering verificeres manuelt.
+- **Mobil:** unit-test af den delte bygger i `selectors.test.ts` (samme cases som web-unit);
+  skærm-verifikation manuelt (Expo) inkl. op-drill-scroll-checkliste (§5.5).
 
 ## 7. Berørte filer (forventet)
 
-**Web:** `web/src/data/tree.ts` (bygger), `web/src/data/model.ts` (`parentsOf`), `web/src/Folgesvend.tsx` (`TreeView`-tilstand + render + scroll), tests.
-**Mobil:** `mobile/src/data/selectors.ts` (bygger + `parentsOf`), `mobile/src/store/useStore.ts` (tilstand), `mobile/src/app/(tabs)/tree.tsx` (variant B render + scroll), tests.
+**Web:** `web/src/data/tree.ts` (bygger), `web/src/data/model.ts` (**tilføj** `parentsOf`),
+`web/src/Folgesvend.tsx` (`TreeView`-tilstand + render + scroll), tests.
+**Mobil:** `mobile/src/data/selectors.ts` (bygger; `parentsOf` findes allerede — genbruges),
+`mobile/src/store/useStore.ts` (erstat `path`-slice med `anchorId`/`up`/`down`; opdatér ALLE
+mutatorer der i dag rører `path`: `load`, `setFocus`, `setVariant`, `pickLinje`, `clearLinje`,
+`setPath`/`selectAt`-analogen), `mobile/src/app/(tabs)/tree.tsx` (variant B render + scroll), tests.
+Variant A (`focusId`) og C (`snapPath`/`snapDepth`) læser IKKE `path` (Codex-verificeret) og røres ikke.
 
 ## 8. Risici / åbne implementeringsdetaljer
 
-1. **Layout-shift ved prepend af venstre-kolonner** (§5.5) — skal håndteres, ellers springer visningen ved op-drill.
-2. **Mobil zustand-migration** — den nuværende `path`-slice bruges kun af variant B; verificér ingen anden variant læser den før erstatning.
-3. **Deep labels** — verificér de danske slægts-termer (tipoldeforældre osv.) og fallback-formen læser rent.
-4. **`parentsOf`-ordning** — forældre bør vises konsistent (far før mor, jf. `compareParentOrder`) i ane-kolonnerne.
+1. **Layout-shift ved prepend af venstre-kolonner** (§5.5) — todelt kompensér+afslør; smalskærm-prioritet
+   defineret (afslør vinder). Web `useLayoutEffect`; RN via layout/content-size-events, ikke `setTimeout`.
+2. **Mobil zustand-migration** — `path` læses kun af variant B (verificeret), men flere mutatorer
+   sætter den; alle skal migreres til det nye slice (§7), ellers efterlades død/inkonsistent tilstand.
+3. **Reset-provenance** — frontier-tjekket (§5.3), ikke fuldt medlemskab; residual-edge (ekstern nav
+   til en frontier bevarer visningen) er bevidst accepteret.
+4. **Cyklus/dublet i data** — visited-`Set` pr. retning (§5.1); cross-retnings-dublet (defekt data)
+   viser i værste fald personen to gange, bundet.
+5. **Deep labels** — verificér de danske slægts-termer (tipoldeforældre osv.) + fallback læser rent.
+6. **Forældre-antal & -ordning** — antag ikke præcis 2; vis alle registrerede, far-før-mor
+   (`compareParentOrder`), normativt.
