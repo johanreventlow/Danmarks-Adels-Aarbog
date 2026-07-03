@@ -102,9 +102,13 @@ export function buildRpcCall(c: Change): RpcCall | null {
     return { fn: 'red_upsert_fakta', args };
   }
   if (c.art === 'narrativ') {
+    // p_source_id default 1 (primær DAA-udgave) hvis prefill ikke gav en kilde — mobil
+    // redigerer den source-korrekte primær-række (single-narrativ-UI; faner er follow-up).
     return { fn: 'red_upsert_narrativ', args: {
       p_subjekt_type: c.subjektType, p_subjekt_id: sid, p_tekst: c.vaerdi,
-      p_privat: Boolean(c.payload?.privat) } };
+      p_privat: Boolean(c.payload?.privat),
+      p_source_id: (c.payload?.sourceId as number | null | undefined) ?? 1,
+      p_side: (c.payload?.side as string | null | undefined) ?? null } };
   }
   if (c.art === 'relation' || c.art === 'gods' || c.art === 'hverv') {
     const p = c.payload || {};

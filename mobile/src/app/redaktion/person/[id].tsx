@@ -279,6 +279,8 @@ export default function PersonEditor() {
   // (tom tekst vist) lade Gem OVERSKRIVE den eksisterende narrativ destruktivt (cycle 04 NEW1).
   const [narrativTekst, setNarrativTekst] = useState('');
   const [narrativPrivat, setNarrativPrivat] = useState(false);
+  // source_id fra prefill = den udgave-række Gem skal ramme (default 1 = primær DAA-udgave).
+  const [narrativSourceId, setNarrativSourceId] = useState<number | null>(null);
   const [narrativStatus, setNarrativStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   // ref, ikke state: cursor-position påvirker aldrig render-output (kun læst ved
   // mention-indsættelse) — useState her ville trigge et unødigt re-render pr. tastetryk.
@@ -290,6 +292,7 @@ export default function PersonEditor() {
     fetchPersonNarrativ(id).then((n) => {
       setNarrativTekst(n?.tekst ?? '');
       setNarrativPrivat(n?.privat ?? false);
+      setNarrativSourceId(n?.sourceId ?? null);
       setNarrativStatus('ready');
     }).catch(() => setNarrativStatus('error'));
   }, [id]);
@@ -562,7 +565,7 @@ export default function PersonEditor() {
                 style={[editorStyles.gemKnap, narrativStatus !== 'ready' && { opacity: 0.5 }]}
                 disabled={narrativStatus !== 'ready'}
                 onPress={() => setPending({ art: 'narrativ', subjektType: 'person', subjektId: id!,
-                  vaerdi: narrativTekst, payload: { privat: narrativPrivat } })}
+                  vaerdi: narrativTekst, payload: { privat: narrativPrivat, sourceId: narrativSourceId } })}
               >
                 <BtnLabel color="#fff">Gem narrativ</BtnLabel>
               </Pressable>

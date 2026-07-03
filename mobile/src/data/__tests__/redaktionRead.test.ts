@@ -97,18 +97,18 @@ test('mapRedPerson: navn-fallback + bools', () => {
   expect(r).toEqual({ id: '7', navn: '(uden navn)', aar: '', born: null, levende: true, privat: false });
 });
 
-test('mapNarrativRow: første række uanset privat (skrive-mål == prefill)', () => {
-  // red_upsert_narrativ redigerer FØRSTE narrativ by id — prefill skal læse SAMME.
-  expect(mapNarrativRow([{ tekst: 'Privat bio', privat: true }, { tekst: 'Offentlig', privat: false }]))
-    .toEqual({ tekst: 'Privat bio', privat: true });
+test('mapNarrativRow: første række uanset privat (skrive-mål == prefill), m. sourceId', () => {
+  // red_upsert_narrativ redigerer FØRSTE narrativ by id — prefill skal læse SAMME + dens source_id.
+  expect(mapNarrativRow([{ tekst: 'Privat bio', privat: true, source_id: 2 }, { tekst: 'Offentlig', privat: false, source_id: 1 }]))
+    .toEqual({ tekst: 'Privat bio', privat: true, sourceId: 2 });
 });
 
 test('mapNarrativRow: tom liste → null', () => {
   expect(mapNarrativRow([])).toBeNull();
 });
 
-test('mapNarrativRow: null-tekst → tom streng, privat-bool', () => {
-  expect(mapNarrativRow([{ tekst: null, privat: null }])).toEqual({ tekst: '', privat: false });
+test('mapNarrativRow: null-tekst → tom streng, privat-bool, sourceId null', () => {
+  expect(mapNarrativRow([{ tekst: null, privat: null }])).toEqual({ tekst: '', privat: false, sourceId: null });
 });
 
 const AUX = { orgListe: [{ id: '1', navn: 'Hæren', slags: '' }], godsListe: [{ id: '5', navn: 'Brahetrolleborg', slags: '', ownerCount: 1 }] } as never;

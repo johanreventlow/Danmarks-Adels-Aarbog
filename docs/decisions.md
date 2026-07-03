@@ -2,6 +2,35 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Flere narrativer pr. person: kilde-nøgling + per-subjekt selector (2026-07-03)
+
+**Kilde-nøgling frem for id-liste eller konkatenering.** En persons narrativer nøgles på
+`(subjekt, source_id)` — én biografi pr. DAA-udgave. Forkastede alternativer: en generisk
+id-adresseret liste (over-engineering ift. udgave-driveren; kilde mister sin organiserende rolle)
+og konkatenering til én narrativ (bryder invariant §6 "prosa ordret" + §7 "udgave = source", og
+gør privat-flag pr. udgave umuligt). Modellen bar det allerede — kun UI/read/write kollapsede N→1.
+
+**`source.aar` frem for `max(source_id)` eller leksikalsk `udgave`.** "Nyeste udgave" kræver et
+struktureret sorterbart felt: `source.id` er ren PK (en senere oprettet TNG-kilde ville vinde
+forkert), og `source.udgave` er ukontrolleret fritekst ('DAA særudgave' bryder leksikalsk sort).
+Codex-fund i dual-review; additiv `aar`-kolonne + `red_opret_kilde(p_aar)` er svaret.
+
+**Selectoren er per-subjekt, IKKE per foldet gruppe.** Spec'ens første formulering sagde "vælg på
+tværs af hele identitetsgruppen", men web's cross-medlem-concat (`public.ts` founder-bio + alias-
+stub) er *tilsigtet* og må ikke regressere. I stedet gøres per-medlem-valget deterministisk pr.
+udgave (`pickPreferredBio`), og hver apps eksisterende cross-medlem-komposition er urørt.
+Determinisme opnås via fuld orden i selectoren, ikke via gruppe-niveau-valg.
+
+**DAA-only fallback (ingen vilkårlig stub).** Når ingen DAA-udgave findes, viser læseren *ingen*
+bio frem for en vilkårlig ikke-DAA-narrativ — ellers kunne en TNG-stub blive autoritativ biografi.
+Fremadrettet (TNG-enrichment) udvides `BIO_SLAGS` bevidst, ikke ved at åbne for "enhver offentlig".
+
+**RPC-DROP er cross-client breaking → mobil i scope + prod-cutover udskudt.** Antagelsen "app er
+eneste klient/lockstep" var forkert: web OG mobil deler RPC-kontrakt. At droppe en RPC-signatur
+knækker den anden klients deployede bundle indtil den redeployes. Derfor: (a) mobil-redaktøren fik
+en minimal source-korrekt skrivevej i samme omgang, og (b) DB-migrationer testes mod en lokal
+prod-kopi og anvendes først mod prod ved koordineret merge + web-deploy (nul breakage-vindue).
+
 ## Redaktør-navigation + edit/slet bryder IKKE evidensmodellen (2026-07-03)
 
 Spørgsmål der opstod: strider det mod evidensmodellen at lade redaktøren navigere til partnere/børn

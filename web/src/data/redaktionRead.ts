@@ -149,24 +149,40 @@ export async function fetchPersonEvidence(personId: string): Promise<PersonEvide
   });
 }
 
-// --- Narrativ-læsning (prefill-kilde == skrive-mål for red_upsert_narrativ) ---
+// --- Narrativ-læsning: ALLE udgaver pr. person (source-join til byline + ordning) ---
+// Én narrativ pr. (person, source_id). Redaktøren viser en fane pr. udgave; skrive-målet
+// (red_upsert_narrativ) nøgles på source_id, så prefill-kilde == skrive-mål pr. udgave.
 
-export type PersonNarrativ = { tekst: string; privat: boolean };
+export type PersonNarrativ = { id: number; sourceId: number | null; sourceTitel: string | null; udgave: string | null; side: string | null; tekst: string; privat: boolean };
 
-export function mapNarrativRow(rows: { tekst: string | null; privat: boolean | null }[]): PersonNarrativ | null {
-  const first = rows[0];
-  if (!first) return null;
-  return { tekst: first.tekst ?? '', privat: Boolean(first.privat) };
+type RawNarrativRow = { id: number; source_id: number | null; side: string | null; tekst: string | null; privat: boolean | null; source: { titel: string | null; udgave: string | null } | null };
+
+export function mapNarrativer(rows: RawNarrativRow[]): PersonNarrativ[] {
+  return rows
+    .map((r) => ({
+      id: r.id, sourceId: r.source_id, sourceTitel: r.source?.titel ?? null,
+      udgave: r.source?.udgave ?? null, side: r.side, tekst: r.tekst ?? '', privat: Boolean(r.privat),
+    }))
+    .sort((a, b) => (a.sourceId ?? Infinity) - (b.sourceId ?? Infinity) || a.id - b.id);
 }
 
-// FØRSTE narrativ by id (uanset privat) = præcis den række red_upsert_narrativ redigerer.
-export async function fetchPersonNarrativ(id: string): Promise<PersonNarrativ | null> {
+export async function fetchPersonNarrativer(id: string): Promise<PersonNarrativ[]> {
   const { data, error } = await supabase
-    .from('narrative').select('tekst,privat')
+    .from('narrative').select('id,source_id,side,tekst,privat,source:source_id(titel,udgave)')
     .eq('subjekt_type', 'person').eq('subjekt_id', Number(id))
-    .order('id', { ascending: true }).limit(1);
+    .order('source_id', { ascending: true }).order('id', { ascending: true });
   if (error) throw new Error(error.message);
-  return mapNarrativRow(data ?? []);
+  return mapNarrativer((data ?? []) as unknown as RawNarrativRow[]);
+}
+
+export type SourceRow = { id: number; titel: string | null; udgave: string | null; slags: string | null; aar: number | null };
+
+export async function fetchSources(): Promise<SourceRow[]> {
+  const { data, error } = await supabase
+    .from('source').select('id,titel,udgave,slags,aar')
+    .order('aar', { ascending: false, nullsFirst: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as SourceRow[];
 }
 
 // --- Generiske entitets-lister (simple tabeller) til midter-panelet ---

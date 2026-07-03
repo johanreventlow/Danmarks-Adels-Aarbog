@@ -16,6 +16,19 @@ describe('buildRpcCall — samme_som (identitets-links)', () => {
   });
 });
 
+describe('buildRpcCall — narrativ (source-nøglet)', () => {
+  it('sender p_source_id fra payload + p_side', () => {
+    const call = buildRpcCall({ art: 'narrativ', subjektType: 'person', subjektId: '5',
+      vaerdi: 'bio', payload: { privat: false, sourceId: 2, side: '12' } } as never);
+    expect(call).toMatchObject({ fn: 'red_upsert_narrativ', args: { p_source_id: 2, p_side: '12', p_privat: false } });
+  });
+  it('defaulter p_source_id til 1 (primær DAA-udgave) når payload mangler kilde', () => {
+    const call = buildRpcCall({ art: 'narrativ', subjektType: 'person', subjektId: '5',
+      vaerdi: 'bio', payload: { privat: true } } as never);
+    expect(call?.args).toMatchObject({ p_source_id: 1, p_side: null, p_privat: true });
+  });
+});
+
 describe('buildRpcCall', () => {
   it('mapper foedt → red_upsert_fakta m. faktatype fødsel', () => {
     const c = { art: 'fakta', subjektType: 'person', subjektId: '7', felt: 'foedt',

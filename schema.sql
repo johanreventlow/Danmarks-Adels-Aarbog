@@ -34,6 +34,7 @@ CREATE TABLE source (             -- = kilde/værk; også DAA-udgaver og ekstern
   slags         TEXT,             -- 'kirkebog','DAA-udgave','diplomsamling','bog','artikel','segl'
   titel         TEXT,
   udgave        TEXT,             -- fx 'DAA 2018-20', 'DAA 1982-84'
+  aar           SMALLINT,         -- udgave-kronologi (struktureret; udgave-fritekst er upålidelig til sortering)
   ekstern       BOOLEAN DEFAULT FALSE,   -- eksternt referenceværk (Gotha, ES, DBL ...)
   repository_id BIGINT REFERENCES repository(id)
 );
@@ -588,22 +589,27 @@ BEGIN
   DELETE FROM person             WHERE id = p_person_id;
 END $$;
 
--- Upsert narrativ (find-or-create, opdater tekst)
+-- Upsert narrativ, nøglet på (subjekt_type, subjekt_id, source_id) — én narrativ pr. udgave.
+-- p_source_id er den faktiske nøgle (begge app-klienter sender den). side=COALESCE så en
+-- udeladt side ikke sletter eksisterende sidereference. NB: gammel 4-arg-signatur droppes i
+-- db-migrations.sql (cross-client breaking change; web+mobil opdateret i lockstep).
 CREATE OR REPLACE FUNCTION red_upsert_narrativ(
-  p_subjekt_type text, p_subjekt_id bigint, p_tekst text, p_privat boolean DEFAULT false)
+  p_subjekt_type text, p_subjekt_id bigint, p_tekst text, p_privat boolean,
+  p_source_id bigint, p_side text DEFAULT NULL)
 RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_id bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
-  PERFORM begin_change_set('red_upsert_narrativ', format('Opdaterede narrativ på %s/%s', p_subjekt_type, p_subjekt_id), p_subjekt_type, p_subjekt_id);
+  PERFORM begin_change_set('red_upsert_narrativ', format('Opdaterede narrativ på %s/%s (kilde %s)', p_subjekt_type, p_subjekt_id, p_source_id), p_subjekt_type, p_subjekt_id);
   SELECT id INTO v_id FROM narrative
-    WHERE subjekt_type=p_subjekt_type AND subjekt_id=p_subjekt_id ORDER BY id LIMIT 1;
+    WHERE subjekt_type=p_subjekt_type AND subjekt_id=p_subjekt_id AND source_id IS NOT DISTINCT FROM p_source_id
+    ORDER BY id LIMIT 1;
   IF v_id IS NULL THEN
-    INSERT INTO narrative(id, subjekt_type, subjekt_id, tekst, privat)
-      VALUES ((SELECT coalesce(max(id),0)+1 FROM narrative), p_subjekt_type, p_subjekt_id, p_tekst, p_privat)
+    INSERT INTO narrative(id, subjekt_type, subjekt_id, source_id, tekst, side, privat)
+      VALUES ((SELECT coalesce(max(id),0)+1 FROM narrative), p_subjekt_type, p_subjekt_id, p_source_id, p_tekst, p_side, p_privat)
       RETURNING id INTO v_id;
   ELSE
-    UPDATE narrative SET tekst=p_tekst, privat=p_privat WHERE id=v_id;
+    UPDATE narrative SET tekst=p_tekst, privat=p_privat, side=COALESCE(p_side, side) WHERE id=v_id;
   END IF;
   RETURN v_id;
 END $$;
@@ -980,7 +986,7 @@ BEGIN
   RETURN v_id;
 END $$;
 
-CREATE OR REPLACE FUNCTION red_opret_kilde(p_titel text, p_slags text DEFAULT NULL, p_udgave text DEFAULT NULL, p_ekstern boolean DEFAULT false)
+CREATE OR REPLACE FUNCTION red_opret_kilde(p_titel text, p_slags text DEFAULT NULL, p_udgave text DEFAULT NULL, p_ekstern boolean DEFAULT false, p_aar smallint DEFAULT NULL)
 RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_id bigint;
 BEGIN
@@ -988,7 +994,7 @@ BEGIN
   PERFORM begin_change_set('red_opret_kilde', format('Oprettede kilde %s', p_titel), NULL, NULL);
   IF nullif(btrim(p_titel),'') IS NULL THEN RAISE EXCEPTION 'Titel er påkrævet'; END IF;
   v_id := (SELECT coalesce(max(id),0)+1 FROM source);
-  INSERT INTO source(id, slags, titel, udgave, ekstern) VALUES (v_id, p_slags, p_titel, p_udgave, p_ekstern);
+  INSERT INTO source(id, slags, titel, udgave, aar, ekstern) VALUES (v_id, p_slags, p_titel, p_udgave, p_aar, p_ekstern);
   RETURN v_id;
 END $$;
 
