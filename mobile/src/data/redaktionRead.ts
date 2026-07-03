@@ -218,8 +218,8 @@ export async function fetchPersonRelationer(id: string, aux: import('./types').A
 
 // --- Familie-læsning til person-editor (2C-2b) ---
 
-export type FamiliePartner = { personId: string; navn: string; konfidens: string | null; ordinal: number | null };
-export type FamilieBarn = { personId: string; navn: string; rolle: string; konfidens: string | null; ordinal: number | null };
+export type FamiliePartner = { personId: string; navn: string; aar: string; konfidens: string | null; ordinal: number | null };
+export type FamilieBarn = { personId: string; navn: string; aar: string; rolle: string; konfidens: string | null; ordinal: number | null };
 export type FamilieUnion = { familyId: string; type: string; partnere: FamiliePartner[]; boern: FamilieBarn[] };
 export type SomBarn = { familyId: string; rolle: string; konfidens: string | null; foraeldre: { personId: string; navn: string }[] };
 export type PersonFamilie = { somPartner: FamilieUnion[]; somBarn: SomBarn[] };
@@ -246,6 +246,8 @@ export const BARN_ROLLER = ['barn', 'adopteret_barn', 'plejebarn', 'stedbarn'] a
 
 export function mapFamilieRows(personId: string, families: RawFamilyMeta[], members: RawFamRow[], model: import('./types').Model | null): PersonFamilie {
   const navnAf = (pid: number) => model?.byId?.[String(pid)]?.name ?? `#${pid}`;
+  // Fødsels/dødsår fra samme cache som navnet (model.byId[pid].years) — ingen ekstra query.
+  const aarAf = (pid: number) => model?.byId?.[String(pid)]?.years ?? '';
   const typeAf = new Map(families.map((f) => [String(f.id), f.type ?? '']));
   const byFamily = new Map<string, RawFamRow[]>();
   members.forEach((m) => {
@@ -265,9 +267,9 @@ export function mapFamilieRows(personId: string, families: RawFamilyMeta[], memb
       somPartner.push({
         familyId, type: typeAf.get(familyId) ?? '',
         partnere: rows.filter((r) => r.rolle === 'partner' && String(r.person_id) !== personId)
-          .map((r) => ({ personId: String(r.person_id), navn: navnAf(r.person_id), konfidens: r.konfidens, ordinal: r.ordinal })),
+          .map((r) => ({ personId: String(r.person_id), navn: navnAf(r.person_id), aar: aarAf(r.person_id), konfidens: r.konfidens, ordinal: r.ordinal })),
         boern: rows.filter((r) => (BARN_ROLLER as readonly string[]).includes(r.rolle) && String(r.person_id) !== personId)
-          .map((r) => ({ personId: String(r.person_id), navn: navnAf(r.person_id), rolle: r.rolle, konfidens: r.konfidens, ordinal: r.ordinal })),
+          .map((r) => ({ personId: String(r.person_id), navn: navnAf(r.person_id), aar: aarAf(r.person_id), rolle: r.rolle, konfidens: r.konfidens, ordinal: r.ordinal })),
       });
     }
     migRows.filter((r) => (BARN_ROLLER as readonly string[]).includes(r.rolle)).forEach((mig) => {

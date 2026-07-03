@@ -549,10 +549,16 @@ export default function Redaktion() {
         ))}
       </div>
     );
-    const linkRow = (navn: string, meta: string, onRemove: () => void, extra?: React.ReactNode) => (
+    // onOpen (valgfri): gør navnet klikbart → naviger til den person (kun for person-rækker,
+    // ikke hverv/godser). Skifter recordId som browse-listen gør; ugemte narrativ-edits kasseres
+    // stille — samme adfærd som person-listen (bevidst konsistent, ingen ny advarsel).
+    const linkRow = (navn: string, meta: string, onRemove: () => void, extra?: React.ReactNode, onOpen?: () => void) => (
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 10, padding: '8px 11px', marginBottom: 6 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: T.serif, fontSize: 15, fontWeight: 600, lineHeight: 1.05 }}>{navn}</div>
+          <div onClick={onOpen} title={onOpen ? 'Åbn person' : undefined}
+            style={{ fontFamily: T.serif, fontSize: 15, fontWeight: 600, lineHeight: 1.05, cursor: onOpen ? 'pointer' : 'default', color: onOpen ? T.bordeaux : undefined, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            {navn}{onOpen && <span style={{ fontSize: 10, opacity: .55 }}>↗</span>}
+          </div>
           {meta && <div style={{ fontFamily: T.mono, fontSize: 8.5, color: T.muted2, marginTop: 1 }}>{meta}</div>}
         </div>
         {extra}
@@ -568,7 +574,16 @@ export default function Redaktion() {
               {familie.somPartner.map((u) => (
                 <div key={u.familyId} style={{ marginBottom: 13 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: T.muted }}>{u.type || 'partnerskab'} · {u.partnere.map((p) => p.navn).join(', ') || '(ukendt partner)'}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: T.muted }}>
+                      {u.type || 'partnerskab'} ·{' '}
+                      {u.partnere.length ? u.partnere.map((p, idx) => (
+                        <span key={p.personId}>
+                          <span onClick={() => setRecordId(p.personId)} title="Åbn person" style={{ color: T.bordeaux, cursor: 'pointer' }}>{p.navn}</span>
+                          {p.aar ? <span style={{ color: T.muted3, fontWeight: 500 }}> ({p.aar})</span> : null}
+                          {idx < u.partnere.length - 1 ? ', ' : ''}
+                        </span>
+                      )) : '(ukendt partner)'}
+                    </span>
                     <span onClick={() => setPicker({ kind: 'barn', familyId: u.familyId })} style={{ fontSize: 11, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>+ Tilføj barn</span>
                   </div>
                   {u.boern.map((b, i) => {
@@ -578,21 +593,29 @@ export default function Redaktion() {
                       <span key={retning} onClick={ordinal == null ? undefined : () => run({ art: 'setFamilieOrdinal', subjektType: 'person', subjektId: pid, familyId: u.familyId, personId: b.personId, rolle: b.rolle, ordinal }, titel)}
                         style={{ fontSize: 12, cursor: ordinal == null ? 'default' : 'pointer', color: ordinal == null ? T.muted3 : T.muted, padding: '0 2px' }}>{retning}</span>
                     );
-                    return linkRow(b.navn, b.rolle, () => run({ art: 'sletFamilieLink', subjektType: 'person', subjektId: pid, familyId: u.familyId, personId: b.personId, rolle: b.rolle }, 'Fjern barn'),
+                    return linkRow(b.navn, [b.rolle, b.aar].filter(Boolean).join(' · '), () => run({ art: 'sletFamilieLink', subjektType: 'person', subjektId: pid, familyId: u.familyId, personId: b.personId, rolle: b.rolle }, 'Fjern barn'),
                       <>
                         {pil('↑', opOrdinal, 'Flyt op')}
                         {pil('↓', nedOrdinal, 'Flyt ned')}
                         {konfidensChips(b.konfidens, (k) => run({ art: 'setFamilieKonfidens', subjektType: 'person', subjektId: pid, familyId: u.familyId, personId: b.personId, rolle: b.rolle, konfidens: k }, 'Konfidens'))}
                         <span onClick={() => setFlytBarn({ fraFamilyId: u.familyId, personId: b.personId, rolle: b.rolle, navn: b.navn })}
                           style={{ fontFamily: T.mono, fontSize: 9, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>flyt→</span>
-                      </>);
+                      </>,
+                      () => setRecordId(b.personId));
                   })}
                 </div>
               ))}
               {familie.somBarn.map((sb, i) => (
                 <div key={sb.familyId + i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 12.5 }}>
                   <span style={{ fontFamily: T.mono, fontSize: 8.5, letterSpacing: '.08em', textTransform: 'uppercase', color: T.gold }}>Barn af</span>
-                  <span style={{ fontFamily: T.serif, fontSize: 15, fontWeight: 600 }}>{sb.foraeldre.map((f) => f.navn).join(' & ') || '(ukendt)'}</span>
+                  <span style={{ fontFamily: T.serif, fontSize: 15, fontWeight: 600 }}>
+                    {sb.foraeldre.length ? sb.foraeldre.map((f, j) => (
+                      <span key={f.personId}>
+                        <span onClick={() => setRecordId(f.personId)} title="Åbn person" style={{ color: T.bordeaux, cursor: 'pointer' }}>{f.navn}</span>
+                        {j < sb.foraeldre.length - 1 ? ' & ' : ''}
+                      </span>
+                    )) : '(ukendt)'}
+                  </span>
                   <span style={{ fontFamily: T.mono, fontSize: 8.5, color: T.muted2 }}>{sb.rolle}{sb.konfidens ? ` · ${sb.konfidens}` : ''}</span>
                 </div>
               ))}
