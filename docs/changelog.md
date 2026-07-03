@@ -1,5 +1,26 @@
 # Changelog
 
+## TNG-analyse opfølgning + backlog-prioritering (2026-07-03)
+
+Fuld gennemgang af `jr_tng_reventlow.sql` (alle 37 `CREATE TABLE`-blokke + reelle
+rækketal via quote-aware parsing, ikke kun stikprøver som juni-analysen). Nye fund
+tilføjet som §7 i `docs/tng-reventlow-analyse.md` (git-ignoreret, levende-data):
+foto-regionmarkering/albums/event-scoped medielink (46/5/119 reelt brugte rækker),
+`frel`/`mrel` er per-forælder ikke pr. familie (44 reelle adopted/foster-rækker),
+gemte rapporter reelt brugt 193 gange, finkornet TNG-rettighedsmodel som RLS-
+reference. Status opdateret: barn-rolle-vokabular, `person.privat` og
+`citation.citat_tekst/citat_dato` (alle fra juni-analysen) er allerede rettet i
+schema.sql.
+
+**Bruger-prioritering (§8):** DNA **afvist** (ikke udskudt). Foto/medie-rigdom
+**udskudt samlet** til én fælles design-session (ikke stykvis). Gemte rapporter/
+smart-lister = **næste fokus**. Navnepartikel ("von"/"af") udskudt. **Nyt,
+ikke-designet krav rejst i samme samtale:** flersproget stamtræ (tysk/svensk/norsk/
+engelsk) — kræver egen brainstorm om UI-i18n vs. indholds-i18n og hvor oversættelse
+lander i evidenslaget/`narrative`. Se `docs/decisions.md` + `CLAUDE.md` §9.
+
+Ingen kodeændringer denne session — kun dokumentation/prioritering.
+
 ## Flere narrativer pr. person — udgave-nøglede narrativer (DB + web + mobile, 2026-07-03)
 
 En person kan nu bære **én biografi pr. DAA-udgave** (`source`) i stedet for præcis én. Spec +

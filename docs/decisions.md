@@ -517,3 +517,31 @@ committet, idempotent `post_load_fixup.R` med par-/entitets-opslag på reload-in
 (linje/nr, ikke person-id). Alternativ (differentiel upsert-loader der bevarer redaktionelt
 arbejde) er afvist for nu — større arbejde, egen OpenSpec. **Verificeret:** reload → 922
 personer, TNG-QA manglende links 125→10.
+
+## TNG-funktionalitet: prioritering af backlog (2026-07-03)
+
+Efter fuld gennemgang af familiens TNG-dump (`jr_tng_reventlow.sql`, se
+`docs/tng-reventlow-analyse.md`) er fire opfølgningspunkter prioriteret:
+
+- **DNA-slægtskabsdata: AFVIST**, ikke udskudt. Ingen ny tabel/faktatype/relation
+  til Y-DNA/mtDNA/centiMorgans/DNA-matches bygges, selvom familiens TNG rummer 20
+  reelle test og "er vi i familie?" er kernefunktionen. Fravalgt af bruger uden
+  begrundelse påkrævet — lukker sagen, ingen genåbning uden eksplicit ny anmodning.
+- **Foto/medie-rigdom (region-tagging à la Facebook-tagging, albums, event-scoped
+  medielink, geokodning+proveniens på medier): UDSKUDT SAMLET.** Ønsket, men skal
+  designes som én sammenhængende medie-arkitektur-beslutning, ikke fire spredte
+  enkelt-features. Ingen implementering før den samlede session.
+- **Gemte rapporter/smart-lister: NÆSTE FOKUS.** TNG-familien har 193 reelt brugte
+  brugerdefinerede lister — det eneste §7-punkt med både stærk evidens for værdi OG
+  eksplicit bruger-interesse nu. Implementeres som parametriserede forespørgsler i
+  app-koden (ikke TNG's rå `sqlselect`-tekstfelt — SQL-injektions-mønster).
+- **Navnekomponentering (adelspartikel "von"/"af", jf. TNG `lnprefix`): UDSKUDT.**
+  Ikke afvist, men ingen ændring af navne-som-fri-tekst-i-assertion før videre
+  overvejelse.
+
+**Nyt, ikke-designet krav rejst i samme samtale: flersproget stamtræ** (tysk,
+svensk, norsk, engelsk). Ikke en del af TNG-analysen — et selvstændigt fremtidigt
+scope-punkt. Rejser ubesvarede spørgsmål (UI-i18n vs. indholds-i18n; hvor
+oversættelse lander i evidenslaget; hvad der sker med `narrative`s ordret-prosa-
+invariant på tværs af sprog) der kræver egen brainstorm, ikke besvaret her. Se
+`docs/tng-reventlow-analyse.md` §8.

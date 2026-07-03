@@ -13,9 +13,13 @@ import type { Model } from './types';
 
 export type RedPerson = {
   id: string; navn: string; aar: string; born: number | null; levende: boolean; privat: boolean;
+  // Proveniens/gennemsigtighed (udledt-slægtsnavn-design §4.4): true når visning_efternavn er
+  // afledt af linje-medlemskab. `navn` forbliver den RÅ visning_navn — redaktion collapser/
+  // omskriver aldrig bogens påstand, kun et badge markerer at et efternavn er tilføjet ved visning.
+  efternavnAfledt: boolean;
 };
 type RawRedPerson = {
-  id: number; visning_navn: string | null; visning_foedt: string | null;
+  id: number; visning_navn: string | null; visning_efternavn: string | null; visning_foedt: string | null;
   visning_doed: string | null; levende: boolean | null; privat: boolean | null;
 };
 
@@ -27,12 +31,13 @@ export function mapRedPerson(r: RawRedPerson): RedPerson {
     born: parseYear(r.visning_foedt), // DIREKTE fra fødselsfeltet — aldrig dødsår
     levende: Boolean(r.levende),
     privat: Boolean(r.privat),
+    efternavnAfledt: r.visning_efternavn != null,
   };
 }
 
 export async function fetchRedaktionPersoner(): Promise<RedPerson[]> {
   const rows = await getAll<RawRedPerson>(() =>
-    supabase.from('person').select('id,visning_navn,visning_foedt,visning_doed,levende,privat'));
+    supabase.from('person').select('id,visning_navn,visning_efternavn,visning_foedt,visning_doed,levende,privat'));
   return rows.map(mapRedPerson);
 }
 

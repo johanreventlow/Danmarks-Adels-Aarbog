@@ -86,15 +86,21 @@ test('joinEvidence: flere facts af samme type = liste, hver uenig=false (fact-ka
 
 test('mapRedPerson: born fra visning_foedt, IKKE dødsår (cycle 2A M1)', () => {
   // Kun dødsår — born skal være null, ikke 1708.
-  expect(mapRedPerson({ id: 5, visning_navn: 'Conrad', visning_foedt: null, visning_doed: '1708', levende: false, privat: false }).born)
+  expect(mapRedPerson({ id: 5, visning_navn: 'Conrad', visning_efternavn: null, visning_foedt: null, visning_doed: '1708', levende: false, privat: false }).born)
     .toBeNull();
-  expect(mapRedPerson({ id: 6, visning_navn: 'Anne', visning_foedt: '1680', visning_doed: '1740', levende: false, privat: false }).born)
+  expect(mapRedPerson({ id: 6, visning_navn: 'Anne', visning_efternavn: null, visning_foedt: '1680', visning_doed: '1740', levende: false, privat: false }).born)
     .toBe(1680);
 });
 
 test('mapRedPerson: navn-fallback + bools', () => {
-  const r = mapRedPerson({ id: 7, visning_navn: null, visning_foedt: null, visning_doed: null, levende: true, privat: null });
-  expect(r).toEqual({ id: '7', navn: '(uden navn)', aar: '', born: null, levende: true, privat: false });
+  const r = mapRedPerson({ id: 7, visning_navn: null, visning_efternavn: null, visning_foedt: null, visning_doed: null, levende: true, privat: null });
+  expect(r).toEqual({ id: '7', navn: '(uden navn)', aar: '', born: null, levende: true, privat: false, efternavnAfledt: false });
+});
+
+test('mapRedPerson: efternavnAfledt afspejler visning_efternavn (udledt-slægtsnavn)', () => {
+  const r = mapRedPerson({ id: 8, visning_navn: 'Conrad', visning_efternavn: 'Reventlow', visning_foedt: null, visning_doed: null, levende: false, privat: false });
+  expect(r.navn).toBe('Conrad');       // rå visning_navn, IKKE overskrevet
+  expect(r.efternavnAfledt).toBe(true);
 });
 
 test('mapNarrativRow: første række uanset privat (skrive-mål == prefill), m. sourceId', () => {

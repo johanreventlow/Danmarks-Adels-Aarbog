@@ -75,7 +75,9 @@ export function mapAppPersons(
     .filter((p) => includePrivat || !p.privat)
     .map((p) => ({
       id: String(p.id),
-      name: p.visning_navn || '(uden navn)',
+      // Fallback til visning_navn er MIDLERTIDIG kompat (spec §4.9) — visning_fuldt_navn er NULL
+      // for personer der endnu ikke er regenereret efter udledt-slægtsnavn-backfillen.
+      name: p.visning_fuldt_navn || p.visning_navn || '(uden navn)',
       born: parseYear(p.visning_foedt),
       died: parseYear(p.visning_doed),
       years: fmtYears(p.visning_foedt, p.visning_doed),
@@ -128,7 +130,7 @@ export async function loadFromSupabase(opts?: {
     approvedConc,
   ] = await Promise.all([
       getAll<RawPerson>(() =>
-        sb.from('person').select('id,visning_navn,visning_foedt,visning_doed,visning_titel,koen,privat'),
+        sb.from('person').select('id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_titel,koen,privat'),
       ),
       getAll<{ id: number; type: string }>(() => sb.from('family').select('id,type')),
       getAll<RawMember>(() => sb.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens')),

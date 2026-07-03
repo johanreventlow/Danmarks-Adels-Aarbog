@@ -5,6 +5,7 @@
 export type RawPerson = {
   id: number | string;
   visning_navn: string | null;
+  visning_fuldt_navn: string | null;
   visning_foedt: string | null;
   visning_doed: string | null;
   visning_titel: string | null;

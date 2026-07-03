@@ -260,8 +260,9 @@ BEGIN
     RAISE EXCEPTION 'FEJL: family_member composite PK ikke registreret korrekt';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM version_pk_registry WHERE tabel='person'
-                 AND skip_cols @> ARRAY['visning_navn','visning_foedt','visning_doed','visning_titel']) THEN
-    RAISE EXCEPTION 'FEJL: person visning_* ikke i skip_cols';
+                 AND skip_cols @> ARRAY['visning_navn','visning_foedt','visning_doed','visning_titel',
+                                         'visning_efternavn','visning_fuldt_navn']) THEN
+    RAISE EXCEPTION 'FEJL: person visning_* (inkl. udledt-slægtsnavn-kolonnerne) ikke i skip_cols';
   END IF;
   RAISE NOTICE 'OK: version_pk_registry seeded';
 END $$;
@@ -694,4 +695,239 @@ DO $$ BEGIN
         AND parameter_name='p_aar')<>1 THEN
     RAISE EXCEPTION 'FEJL: red_opret_kilde mangler p_aar'; END IF;
   RAISE NOTICE 'OK: flere-narrativer skema (source.aar, red_upsert_narrativ.p_source_id, red_opret_kilde.p_aar)';
+END $$;
+
+-- ===== Udledt slægtsnavn Task 1: lineage-graf-walkers + cyklus-vagt =====
+DO $$
+DECLARE v_anc BIGINT[];
+BEGIN
+  IF to_regprocedure('lineage_ancestors(bigint)') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: lineage_ancestors mangler';
+  END IF;
+  IF to_regprocedure('lineage_descendants(bigint)') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: lineage_descendants mangler';
+  END IF;
+  SELECT lineage_ancestors(id) INTO v_anc FROM lineage WHERE kode='I' LIMIT 1;
+  IF v_anc IS NULL OR array_length(v_anc,1) <> 1 THEN
+    RAISE EXCEPTION 'FEJL: lineage_ancestors(I) skal returnere præcis [sig selv] uden forgrening, fik %', v_anc;
+  END IF;
+  RAISE NOTICE 'OK: lineage_ancestors basal';
+END $$;
+
+DO $$
+DECLARE v_a BIGINT; v_b BIGINT; v_source BIGINT;
+BEGIN
+  SELECT id INTO v_source FROM source LIMIT 1;
+  v_a := (SELECT coalesce(max(id),0)+1 FROM lineage);
+  INSERT INTO lineage(id, source_id, kode, navn) VALUES (v_a, v_source, '__TEST_A', 'Test A');
+  v_b := v_a + 1;
+  INSERT INTO lineage(id, source_id, kode, navn, parent_lineage_id) VALUES (v_b, v_source, '__TEST_B', 'Test B', v_a);
+  BEGIN
+    UPDATE lineage SET parent_lineage_id = v_b WHERE id = v_a;  -- ville lukke løkken A→B→A
+    RAISE EXCEPTION 'FEJL: cyklus A→B→A blev IKKE afvist';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'FEJL:%' THEN RAISE; END IF;
+    IF SQLERRM NOT LIKE '%cyklus%' THEN RAISE; END IF;
+    RAISE NOTICE 'OK: cyklus A→B→A korrekt afvist (%)', SQLERRM;
+  END;
+  DELETE FROM lineage WHERE id IN (v_a, v_b);
+END $$;
+
+-- ===== Udledt slægtsnavn Task 2: nye kolonner + skip-liste =====
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='lineage' AND column_name='slaegtsnavn') THEN
+    RAISE EXCEPTION 'FEJL: lineage.slaegtsnavn mangler';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='person' AND column_name='visning_efternavn') THEN
+    RAISE EXCEPTION 'FEJL: person.visning_efternavn mangler';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='person' AND column_name='visning_fuldt_navn') THEN
+    RAISE EXCEPTION 'FEJL: person.visning_fuldt_navn mangler';
+  END IF;
+  RAISE NOTICE 'OK: udledt-slægtsnavn nye kolonner';
+END $$;
+
+-- ===== Udledt slægtsnavn Task 3: normalisering + suffiks-match (spec §4.6, 5 eksempler) =====
+DO $$
+BEGIN
+  IF NOT slaegtsnavn_suffiks_match('Detlef von Reventlow', 'Reventlow') THEN
+    RAISE EXCEPTION 'FEJL: "Detlef von Reventlow" burde matche "Reventlow" (partikel)';
+  END IF;
+  IF slaegtsnavn_suffiks_match('X Ahlefeldt', 'Ahlefeldt-Laurvig-Lehn') THEN
+    RAISE EXCEPTION 'FEJL: "X Ahlefeldt" må IKKE matche "Ahlefeldt-Laurvig-Lehn" (rod ≠ gren-variant)';
+  END IF;
+  IF NOT slaegtsnavn_suffiks_match('X Ahlefeldt', 'Ahlefeldt') THEN
+    RAISE EXCEPTION 'FEJL: "X Ahlefeldt" burde matche rod "Ahlefeldt"';
+  END IF;
+  IF slaegtsnavn_suffiks_match('Anna Reventlow Hansen', 'Reventlow') THEN
+    RAISE EXCEPTION 'FEJL: "Anna Reventlow Hansen" må IKKE matche (Reventlow er mellemnavn, ikke suffiks)';
+  END IF;
+  IF NOT slaegtsnavn_suffiks_match('X von Brockdorff', 'von Brockdorff') THEN
+    RAISE EXCEPTION 'FEJL: "X von Brockdorff" burde matche fler-ords-efternavnet "von Brockdorff"';
+  END IF;
+  RAISE NOTICE 'OK: suffiks-token-match (5/5 spec-eksempler)';
+END $$;
+
+-- ===== Udledt slægtsnavn Task 4: regen_person_visning-udvidelse =====
+DO $$
+DECLARE v_source BIGINT; v_lineage BIGINT; v_p BIGINT; v_efternavn TEXT; v_fuldt TEXT;
+BEGIN
+  SELECT id INTO v_source FROM source LIMIT 1;
+  v_lineage := (SELECT coalesce(max(id),0)+1 FROM lineage);
+  INSERT INTO lineage(id, source_id, kode, navn, slaegtsnavn) VALUES (v_lineage, v_source, '__TEST_L', 'Test-linje', 'Reventlow');
+
+  -- (a) enkelt-fornavn, født medlem uden efternavn i visning_navn
+  v_p := (SELECT coalesce(max(id),0)+1 FROM person);
+  INSERT INTO person(id, visning_navn) VALUES (v_p, 'Conrad');
+  INSERT INTO person_external_id(person_id, source_id, linje, nr) VALUES (v_p, v_source, '__TEST_L', 999);
+  PERFORM regen_person_visning(v_p);
+  SELECT visning_efternavn, visning_fuldt_navn INTO v_efternavn, v_fuldt FROM person WHERE id=v_p;
+  IF v_efternavn <> 'Reventlow' OR v_fuldt <> 'Conrad Reventlow' THEN
+    RAISE EXCEPTION 'FEJL: (a) enkelt-fornavn — fik efternavn=% fuldt=%', v_efternavn, v_fuldt;
+  END IF;
+
+  -- (d) allerede indeholder efternavnet → NULL, uændret visning_navn
+  UPDATE person SET visning_navn = 'Detlef von Reventlow' WHERE id=v_p;
+  PERFORM regen_person_visning(v_p);
+  SELECT visning_efternavn, visning_fuldt_navn INTO v_efternavn, v_fuldt FROM person WHERE id=v_p;
+  IF v_efternavn IS NOT NULL OR v_fuldt <> 'Detlef von Reventlow' THEN
+    RAISE EXCEPTION 'FEJL: (d) allerede-Reventlow skal give NULL efternavn, fik % / %', v_efternavn, v_fuldt;
+  END IF;
+
+  -- (e) indgift-ægtefælle uden external_id → NULL
+  DELETE FROM person_external_id WHERE person_id=v_p;
+  UPDATE person SET visning_navn='Anna Ingift' WHERE id=v_p;
+  PERFORM regen_person_visning(v_p);
+  SELECT visning_efternavn, visning_fuldt_navn INTO v_efternavn, v_fuldt FROM person WHERE id=v_p;
+  IF v_efternavn IS NOT NULL OR v_fuldt <> 'Anna Ingift' THEN
+    RAISE EXCEPTION 'FEJL: (e) indgift skal give NULL efternavn, fik % / %', v_efternavn, v_fuldt;
+  END IF;
+
+  DELETE FROM person WHERE id=v_p;
+  DELETE FROM lineage WHERE id=v_lineage;
+  RAISE NOTICE 'OK: regen_person_visning — (a)/(d)/(e) scenarier';
+END $$;
+
+-- Fan-out → karantæne (to distinkte linjer/sources, to distinkte efternavne)
+DO $$
+DECLARE v_source BIGINT; v_source2 BIGINT; v_l1 BIGINT; v_l2 BIGINT; v_l3 BIGINT; v_p BIGINT; v_efternavn TEXT;
+BEGIN
+  SELECT id INTO v_source FROM source LIMIT 1;
+  v_l1 := (SELECT coalesce(max(id),0)+1 FROM lineage);
+  INSERT INTO lineage(id, source_id, kode, navn, slaegtsnavn) VALUES (v_l1, v_source, '__TEST_FO1', 'A', 'Alfa');
+  v_l2 := v_l1 + 1;
+  INSERT INTO lineage(id, source_id, kode, navn, slaegtsnavn) VALUES (v_l2, v_source, '__TEST_FO2', 'B', 'Beta');
+  v_p := (SELECT coalesce(max(id),0)+1 FROM person);
+  INSERT INTO person(id, visning_navn) VALUES (v_p, 'Fanout Person');
+  INSERT INTO person_external_id(person_id, source_id, linje, nr) VALUES (v_p, v_source, '__TEST_FO1', 1);
+
+  v_source2 := (SELECT coalesce(max(id),0)+1 FROM source);
+  INSERT INTO source(id, slags, titel) VALUES (v_source2, 'DAA-udgave', 'Test-udgave 2');
+  v_l3 := v_l2 + 1;
+  INSERT INTO lineage(id, source_id, kode, navn, slaegtsnavn) VALUES (v_l3, v_source2, '__TEST_FO2', 'B2', 'Beta');
+  INSERT INTO person_external_id(person_id, source_id, linje, nr) VALUES (v_p, v_source2, '__TEST_FO2', 1);
+
+  PERFORM regen_person_visning(v_p);
+  SELECT visning_efternavn INTO v_efternavn FROM person WHERE id=v_p;
+  IF v_efternavn IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: fan-out (2 distinkte efternavne) skal give NULL, fik %', v_efternavn;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM slaegtsnavn_karantaene WHERE person_id=v_p) THEN
+    RAISE EXCEPTION 'FEJL: fan-out skal logges i slaegtsnavn_karantaene';
+  END IF;
+  PERFORM regen_person_visning(v_p);  -- idempotens: karantæne-rækken må ikke duplikeres
+  IF (SELECT count(*) FROM slaegtsnavn_karantaene WHERE person_id=v_p) <> 1 THEN
+    RAISE EXCEPTION 'FEJL: karantæne-log er ikke idempotent (upsert)';
+  END IF;
+
+  DELETE FROM slaegtsnavn_karantaene WHERE person_id=v_p;
+  DELETE FROM person_external_id WHERE person_id=v_p;
+  DELETE FROM person WHERE id=v_p;
+  DELETE FROM lineage WHERE id IN (v_l1, v_l2, v_l3);
+  DELETE FROM source WHERE id=v_source2;
+  RAISE NOTICE 'OK: fan-out → karantæne + idempotens';
+END $$;
+
+-- ===== Udledt slægtsnavn Task 5: invalidation-triggere (person_external_id + lineage) =====
+DO $$
+DECLARE v_source BIGINT; v_lineage BIGINT; v_p BIGINT; v_fuldt TEXT;
+BEGIN
+  SELECT id INTO v_source FROM source LIMIT 1;
+  v_lineage := (SELECT coalesce(max(id),0)+1 FROM lineage);
+  INSERT INTO lineage(id, source_id, kode, navn, slaegtsnavn) VALUES (v_lineage, v_source, '__TEST_TRG', 'Trigger-test', 'Testnavn');
+  v_p := (SELECT coalesce(max(id),0)+1 FROM person);
+  INSERT INTO person(id, visning_navn) VALUES (v_p, 'Trigger Person');
+
+  -- INSERT på person_external_id skal regenerere UDEN eksplicit regen-kald
+  INSERT INTO person_external_id(person_id, source_id, linje, nr) VALUES (v_p, v_source, '__TEST_TRG', 1);
+  SELECT visning_fuldt_navn INTO v_fuldt FROM person WHERE id=v_p;
+  IF v_fuldt <> 'Trigger Person Testnavn' THEN
+    RAISE EXCEPTION 'FEJL: person_external_id-INSERT trigger regen ikke, fik fuldt_navn=%', v_fuldt;
+  END IF;
+
+  -- UPDATE på lineage.slaegtsnavn skal regenerere undertræets medlemmer UDEN eksplicit regen-kald
+  UPDATE lineage SET slaegtsnavn = 'Nytnavn' WHERE id = v_lineage;
+  SELECT visning_fuldt_navn INTO v_fuldt FROM person WHERE id=v_p;
+  IF v_fuldt <> 'Trigger Person Nytnavn' THEN
+    RAISE EXCEPTION 'FEJL: lineage.slaegtsnavn-UPDATE trigger ikke subtræ-regen, fik fuldt_navn=%', v_fuldt;
+  END IF;
+
+  DELETE FROM person_external_id WHERE person_id=v_p;
+  DELETE FROM person WHERE id=v_p;
+  DELETE FROM lineage WHERE id=v_lineage;
+  RAISE NOTICE 'OK: invalidation-triggere (person_external_id + lineage)';
+END $$;
+
+-- ===== Review 19 H1: frisk lineage-INSERT (ikke kun UPDATE) trigger regen =====
+DO $$
+DECLARE v_source BIGINT; v_lineage BIGINT; v_p BIGINT; v_fuldt TEXT;
+BEGIN
+  SELECT id INTO v_source FROM source LIMIT 1;
+  v_p := (SELECT coalesce(max(id),0)+1 FROM person);
+  INSERT INTO person(id, visning_navn) VALUES (v_p, 'Frisk Insert Person');
+  v_lineage := (SELECT coalesce(max(id),0)+1 FROM lineage);
+  -- external_id INDSAT FØR lineage-rækken findes (matcher load_daa.R → post_load_fixup.R-rækkefølgen).
+  INSERT INTO person_external_id(person_id, source_id, linje, nr) VALUES (v_p, v_source, '__TEST_H1', 1);
+  -- fresh INSERT (ikke UPDATE) på lineage — skal ALENE trigge regen af v_p uden noget eksplicit kald.
+  INSERT INTO lineage(id, source_id, kode, navn, slaegtsnavn) VALUES (v_lineage, v_source, '__TEST_H1', 'H1-test', 'Insertnavn');
+  SELECT visning_fuldt_navn INTO v_fuldt FROM person WHERE id=v_p;
+  IF v_fuldt <> 'Frisk Insert Person Insertnavn' THEN
+    RAISE EXCEPTION 'FEJL (review19 H1): lineage-INSERT trigger ikke regen, fik fuldt_navn=%', v_fuldt;
+  END IF;
+  DELETE FROM person_external_id WHERE person_id=v_p;
+  DELETE FROM person WHERE id=v_p;
+  DELETE FROM lineage WHERE id=v_lineage;
+  RAISE NOTICE 'OK: review19 H1 — frisk lineage-INSERT trigger regen';
+END $$;
+
+-- ===== Review 19 H2: red_slet_person for en karantæneret person =====
+DO $$
+DECLARE v_source BIGINT; v_source2 BIGINT; v_l1 BIGINT; v_l2 BIGINT; v_p BIGINT; v_uid UUID := '00000000-0000-0000-0000-000000000001';
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+  INSERT INTO profiles(id, rolle, email) VALUES (v_uid,'redaktion','t@x') ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  SELECT id INTO v_source FROM source LIMIT 1;
+  v_l1 := (SELECT coalesce(max(id),0)+1 FROM lineage);
+  INSERT INTO lineage(id, source_id, kode, navn, slaegtsnavn) VALUES (v_l1, v_source, '__TEST_H2A', 'A', 'Alfa');
+  v_source2 := (SELECT coalesce(max(id),0)+1 FROM source);
+  INSERT INTO source(id, slags, titel) VALUES (v_source2, 'DAA-udgave', 'Test-udgave H2');
+  v_l2 := v_l1 + 1;
+  INSERT INTO lineage(id, source_id, kode, navn, slaegtsnavn) VALUES (v_l2, v_source2, '__TEST_H2B', 'B', 'Beta');
+  v_p := (SELECT coalesce(max(id),0)+1 FROM person);
+  INSERT INTO person(id, visning_navn) VALUES (v_p, 'H2 Karantæne Person');
+  INSERT INTO person_external_id(person_id, source_id, linje, nr) VALUES (v_p, v_source, '__TEST_H2A', 1);
+  INSERT INTO person_external_id(person_id, source_id, linje, nr) VALUES (v_p, v_source2, '__TEST_H2B', 1);
+  PERFORM regen_person_visning(v_p);
+  IF NOT EXISTS (SELECT 1 FROM slaegtsnavn_karantaene WHERE person_id=v_p) THEN
+    RAISE EXCEPTION 'FEJL (review19 H2 setup): person burde være i karantæne';
+  END IF;
+  -- red_slet_person MÅ IKKE fejle (FK-violation) selvom personen er i karantæne.
+  PERFORM red_slet_person(v_p);
+  IF EXISTS (SELECT 1 FROM person WHERE id=v_p) OR EXISTS (SELECT 1 FROM slaegtsnavn_karantaene WHERE person_id=v_p) THEN
+    RAISE EXCEPTION 'FEJL (review19 H2): red_slet_person efterlod rester for en karantæneret person';
+  END IF;
+  DELETE FROM lineage WHERE id IN (v_l1, v_l2);
+  DELETE FROM source WHERE id=v_source2;
+  RAISE NOTICE 'OK: review19 H2 — red_slet_person virker for karantæneret person';
 END $$;
