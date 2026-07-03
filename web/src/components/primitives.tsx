@@ -24,14 +24,24 @@ export const Avatar = ({ n, size }: { n: string; size: number }) => (
   <div style={{ width: size, height: size, borderRadius: '50%', background: '#f4ece0', border: '1px solid rgba(34,31,26,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: size * 0.4, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{initials(n)}</div>
 );
 // Bogmærke-toggle (§3.3). Sidder ofte inde i et klikbart kort — stopPropagation forhindrer at
-// et bogmærke-klik også trigger kortets egen navigation.
+// et bogmærke-klik også trigger kortets egen navigation. Rigtig bogmærke-ribbon (rektangel med
+// V-hak i bunden), ikke et flag — SVG frem for et Unicode-glyf for konsistent rendering på tværs
+// af browsere/fonte (bruger-feedback: den tidligere ⚑/⚐-glyf lignede et flag, ikke et bogmærke).
 export const BookmarkFlag = ({ active, onClick }: { active: boolean; onClick: () => void }) => (
   <span
     onClick={(e) => { e.stopPropagation(); onClick(); }}
     title={active ? 'Fjern bogmærke' : 'Bogmærk denne person'}
-    style={{ cursor: 'pointer', fontSize: 15, lineHeight: 1, color: active ? T.bordeaux : T.muted2, flex: 'none' }}
+    style={{ cursor: 'pointer', lineHeight: 1, flex: 'none', display: 'inline-flex' }}
   >
-    {active ? '⚑' : '⚐'}
+    <svg width={14} height={17} viewBox="0 0 14 17" style={{ display: 'block' }}>
+      <path
+        d="M3 1.5 H11 V15.5 L7 11.8 L3 15.5 Z"
+        fill={active ? T.bordeaux : 'none'}
+        stroke={active ? T.bordeaux : T.muted2}
+        strokeWidth={1.3}
+        strokeLinejoin="round"
+      />
+    </svg>
   </span>
 );
 
