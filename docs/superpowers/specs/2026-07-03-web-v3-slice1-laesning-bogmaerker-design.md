@@ -3,7 +3,10 @@
 **Dato:** 2026-07-03
 **Branch:** `feat/web-v3-slice1` (fra `main`)
 **Kilde-design:** `Reventlow-web-v3.dc.html` (Claude Design-projekt `Danmarks Adels Aarbog app`)
-**Status:** Design — afventer review (Codex) + implementeringsplan
+**Status:** Implementeret (2026-07-03) — TDD (bookmarks.ts + BookmarksView + SlaegtPicker),
+wired i `Folgesvend.tsx` (ctx, bmQuick, BookmarkFlag, bookmarks-mode, slægt-chip). tsc + hele
+web-testsuiten (147/147) grøn + empirisk browser-verificeret mod prod (Playwright: toggle-flag →
+bmQuick → "Se alle" → bogmærke-række → atomisk tilbage til tree-mode; slægt-picker backdrop/Escape).
 
 ---
 

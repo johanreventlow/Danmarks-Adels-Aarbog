@@ -11,13 +11,13 @@ import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners
 import type { Model, ModelPerson } from './data/types';
 import { NarrativRenderer } from './components/NarrativRenderer';
 import { buildBrowse } from './data/browse';
+import { useBookmarks, type BookmarkSort } from './data/bookmarks';
+import { BookmarksView } from './components/BookmarksView';
+import { SlaegtPicker } from './components/SlaegtPicker';
+import { T } from './theme';
 
-const T = {
-  pageBg: '#ece6da', paper: '#fbf8f1', panel: '#f4efe6', beige: '#ece4d6',
-  ink: '#221f1a', bordeaux: '#881A33', gold: '#b9a06a', goldLight: '#e7c98f',
-  muted: '#6f675b', muted2: '#9a8f78', muted3: '#a99f8c', cream: '#cabfa9',
-  serif: "'Cormorant Garamond',serif", sans: "'Hanken Grotesk',sans-serif", mono: "'JetBrains Mono',monospace",
-};
+// Kun Reventlow findes i dag; vælgeren er 1-punkt + "flere kommer"-note (spec §2 ikke-mål).
+const SLAEGTER = [{ id: 'reventlow', navn: 'Reventlow' }];
 // Nav matcher designets navDef — Søg er FJERNET (browsing bor nu i sidebaren: søgefelt +
 // sortér + alfabet-hop + grupperet liste), så center-fladen har tree/estates/arms/about/relate.
 const NAV: [string, string, boolean][] = [
@@ -71,6 +71,11 @@ export default function Folgesvend() {
   // modellen; alle indgående id'er (fokus, rel, mig) resolves gennem det.
   const canon = (id: string) => model?.canonicalIdById?.[id] ?? id;
   const meCanon = meId ? canon(meId) : null;
+  // Bogmærker (web v3 Slice 1) — localStorage, kanonisk via canon(). bmSort default 'linje'
+  // (designets første segment, spec §4). slaegtOpen = slægt-vælger-modal på header-chippen.
+  const bookmarks = useBookmarks(canon);
+  const [bmSort, setBmSort] = useState<BookmarkSort>('linje');
+  const [slaegtOpen, setSlaegtOpen] = useState(false);
 
   // Estates hentes eager (én gang) — bruges både af godser-visningen OG sidebar-statistikkens
   // "godser"-tæller. Én pagineret query; billig nok til mount.
@@ -144,6 +149,27 @@ export default function Folgesvend() {
     else window.localStorage.removeItem('daa_me_id');
   };
 
+  // Bogmærke-række → tree-nav (Codex BLOCKER-fix, spec §3.3): detalje-panelet vises kun i
+  // tree/relate, så et klik fra bookmarks-mode ville ellers være visuelt resultatløst.
+  const pickBookmark = (id: string) => { navigateTo(id); setMode('tree'); };
+
+  // Kontekst-quicknav (§3.4): KUN tree-mode (relate har sine egne A/B-kort som kontekst — et
+  // focusId-baseret "I fokus" ville i relate vise en forældet person, jf. spec). Fokus-personen
+  // selv (ingen-op) + hver forælder (navigateTo) + hver linje personen hører til (pickLinje).
+  const ctxItems: { key: string; kicker: string; badge: string; label: string; shape: 'circle' | 'square'; onTap: (() => void) | null }[] = [];
+  if (mode === 'tree' && model && focusId && model.byId[focusId]) {
+    const f = model.byId[focusId];
+    ctxItems.push({ key: `self-${f.id}`, kicker: 'VALGT', badge: initials(f.name), label: f.name, shape: 'circle', onTap: null });
+    for (const pid of model.indexes.parentsByChild[focusId] ?? []) {
+      const p = model.byId[pid];
+      if (p) ctxItems.push({ key: `parent-${pid}`, kicker: 'FORÆLDER', badge: initials(p.name), label: p.name, shape: 'circle', onTap: () => navigateTo(pid) });
+    }
+    for (const kode of model.lineage?.byPerson[focusId] ?? []) {
+      const headId = model.lineage?.list.find((e) => e.linje === kode)?.headId ?? null;
+      ctxItems.push({ key: `linje-${kode}`, kicker: 'LINJE', badge: kode, label: model.lineage?.navn[kode] ?? `Linje ${kode}`, shape: 'square', onTap: () => pickLinje(kode, headId) });
+    }
+  }
+
   const pickPerson = (id: string) => {
     const cid = canon(id);
     if (mode === 'relate') {
@@ -187,10 +213,11 @@ export default function Folgesvend() {
           ))}
         </div>
         <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 12 }}>
-          {/* Slægt-chip — statisk (multi-slægt-vælger er ikke wired endnu). */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9, background: T.panel, border: '1px solid rgba(34,31,26,.12)', borderRadius: 9, padding: '6px 12px' }}>
+          {/* Slægt-chip — åbner slægt-vælger-modal (kosmetisk, kun Reventlow findes — spec §3.3). */}
+          <div onClick={() => setSlaegtOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 9, background: T.panel, border: '1px solid rgba(34,31,26,.12)', borderRadius: 9, padding: '6px 12px', cursor: 'pointer' }}>
             <span style={{ width: 26, height: 26, borderRadius: '50%', border: '1px solid rgba(136,26,51,.55)', boxShadow: 'inset 0 0 0 2px #f4efe6, inset 0 0 0 2.5px rgba(136,26,51,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 13, fontWeight: 600, color: T.bordeaux }}>R</span>
             <span style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.ink }}>Reventlow</span>
+            <span style={{ fontSize: 10, color: T.muted2 }}>▾</span>
           </div>
           {meCanon && model?.byId[meCanon] && (
             <div onClick={() => { setMode('tree'); navigateTo(meCanon); }} title="Din plads i slægten" style={{ width: 38, height: 38, borderRadius: '50%', background: '#f8ecef', border: `1.5px solid ${T.bordeaux}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontFamily: T.serif, fontSize: 15, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{initials(model.byId[meCanon].name)}</div>
@@ -203,6 +230,50 @@ export default function Folgesvend() {
         {/* Venstre: sidebar-browse (port af design — stats · søg · sortér/alfabet/grupperet liste).
             Udskudt til Fase 2: "linjer"-stat + linje-filter-chips (kræver lineage-datalag). */}
         <div data-scroll style={{ flex: 'none', width: 312, borderRight: '1px solid rgba(34,31,26,.1)', background: T.panel, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+          {/* ctx — "I fokus" (§3.4): kun tree-mode. */}
+          {ctxItems.length > 0 && (
+            <div style={{ padding: '16px 18px 10px', borderBottom: '1px solid rgba(34,31,26,.08)' }}>
+              <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2, marginBottom: 8 }}>I fokus</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                {ctxItems.map((it) => (
+                  <div key={it.key} onClick={it.onTap ?? undefined} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 6px', borderRadius: 8, cursor: it.onTap ? 'pointer' : 'default' }}>
+                    <span style={{ width: 24, height: 24, borderRadius: it.shape === 'circle' ? '50%' : 6, background: T.beige, border: '1px solid rgba(34,31,26,.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 10.5, fontWeight: 600, color: T.bordeaux }}>{it.badge}</span>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontFamily: T.mono, fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>{it.kicker}</div>
+                      <div style={{ fontFamily: T.serif, fontSize: 14, fontWeight: 600, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.label}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* bmQuick — top 3 bogmærker + "Se alle" (§3.3). Eneste indgang til bookmarks-mode. */}
+          {bookmarks.ids.size > 0 && (
+            <div style={{ padding: '14px 18px 10px', borderBottom: '1px solid rgba(34,31,26,.08)' }}>
+              <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2, marginBottom: 8 }}>Bogmærker</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                {[...bookmarks.ids].slice(0, 3).map((id) => {
+                  const p = model?.byId[id];
+                  if (!p) return null;
+                  return (
+                    <div key={id} onClick={() => pickBookmark(id)} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 6px', borderRadius: 8, cursor: 'pointer' }}>
+                      <span style={{ width: 24, height: 24, borderRadius: '50%', background: T.beige, border: '1px solid rgba(34,31,26,.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 10.5, fontWeight: 600, color: T.bordeaux }}>{initials(p.name)}</span>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontFamily: T.serif, fontSize: 14, fontWeight: 600, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+                        {p.years && <div style={{ fontFamily: T.mono, fontSize: 8.5, color: T.muted3 }}>{p.years}</div>}
+                      </div>
+                      <BookmarkFlag active onClick={() => bookmarks.toggle(id)} />
+                    </div>
+                  );
+                })}
+              </div>
+              {bookmarks.ids.size > 3 && (
+                <div onClick={() => setMode('bookmarks')} style={{ marginTop: 5, fontFamily: T.sans, fontSize: 11.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', padding: '4px 6px' }}>Se alle ({bookmarks.ids.size})</div>
+              )}
+            </div>
+          )}
+
           <div style={{ padding: '20px 20px 14px', borderBottom: '1px solid rgba(34,31,26,.08)' }}>
             <div style={{ display: 'flex', gap: 16, alignItems: 'stretch' }}>
               <Stat n={persons.length} label="personer" />
@@ -273,11 +344,12 @@ export default function Folgesvend() {
 
         {/* Center */}
         <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
-          {mode === 'tree' ? <TreeView model={model} focusId={focusId} onPick={navigateTo} onFocus={(id) => setFocusId(canon(id))} />
+          {mode === 'tree' ? <TreeView model={model} focusId={focusId} onPick={navigateTo} onFocus={(id) => setFocusId(canon(id))} hasBookmark={bookmarks.has} onToggleBookmark={bookmarks.toggle} />
             : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={navigateTo} meId={meCanon} onSetMeA={() => { if (meCanon) { setRelA(meCanon); setRelSlot('B'); } }} />
             : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} onOpen={setEstateId} onBack={() => setEstateId(null)} onPickOwner={(id) => { navigateTo(id); setMode('tree'); }} />
             : mode === 'arms' ? <ArmsView arms={arms} />
             : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} />
+            : mode === 'bookmarks' ? (model ? <BookmarksView model={model} ids={[...bookmarks.ids]} sort={bmSort} setSort={setBmSort} onPick={pickBookmark} onRemove={bookmarks.toggle} /> : <div style={{ padding: 40, color: T.muted3 }}>Henter…</div>)
             : <Placeholder label={NAV.find((n) => n[1] === mode)?.[0] ?? ''} />}
         </div>
 
@@ -289,9 +361,12 @@ export default function Folgesvend() {
             onFocusTree={() => setMode('tree')}
             onRelate={() => { setRelA(focusId); setRelB(null); setRelSlot('B'); setMode('relate'); }}
             isMe={focusId === meCanon} onToggleMe={() => toggleMe(focusId)}
+            isBookmarked={bookmarks.has(focusId)} onToggleBookmark={() => bookmarks.toggle(focusId)}
           />
         )}
       </div>
+
+      <SlaegtPicker open={slaegtOpen} slaegter={SLAEGTER} activeId="reventlow" onClose={() => setSlaegtOpen(false)} onPick={() => setSlaegtOpen(false)} />
     </div>
   );
 }
@@ -305,7 +380,10 @@ function Placeholder({ label }: { label: string }) {
 // onPick = fokus-hop MED historik (variant A-kort, matcher designets goToPerson). onFocus =
 // drill-valg UDEN historik (variant B-kolonner, matcher designets selectAt) — så en dyb drill
 // ikke fylder detalje-panelets tilbage-stak med hvert generations-trin.
-export function TreeView({ model, focusId, onPick, onFocus }: { model: Model | null; focusId: string | null; onPick: (id: string) => void; onFocus: (id: string) => void }) {
+export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggleBookmark }: {
+  model: Model | null; focusId: string | null; onPick: (id: string) => void; onFocus: (id: string) => void;
+  hasBookmark: (id: string) => boolean; onToggleBookmark: (id: string) => void;
+}) {
   // Visnings-variant (segmenteret kontrol) — bevares på tværs af fokus-skift (nulstilles kun når
   // TreeView unmountes ved mode-skift til Godser/Våben/Slægtskab). Matcher designets state.variant.
   const [variant, setVariant] = useState<'A' | 'B'>('A');
@@ -421,6 +499,7 @@ export function TreeView({ model, focusId, onPick, onFocus }: { model: Model | n
                       <div style={{ fontFamily: T.serif, fontSize: 16, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
                       {p.years && <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 2 }}>{p.years}</div>}
                     </div>
+                    <BookmarkFlag active={hasBookmark(p.id)} onClick={() => onToggleBookmark(p.id)} />
                     {canDesc && <span style={{ color: '#bcae93', fontSize: 16, flex: 'none' }}>›</span>}
                   </div>
                 );
@@ -457,6 +536,7 @@ export function TreeView({ model, focusId, onPick, onFocus }: { model: Model | n
             const sel = p.id === focusId;
             return (
               <div key={p.id} onClick={() => onPick(p.id)} style={{ position: 'relative', width: 188, background: sel ? '#fff' : T.paper, border: `1.5px solid ${sel ? T.bordeaux : 'rgba(34,31,26,.1)'}`, borderRadius: 15, padding: 16, cursor: 'pointer', boxShadow: sel ? '0 4px 14px rgba(136,26,51,.12)' : '0 1px 2px rgba(34,31,26,.04)' }}>
+                <div style={{ position: 'absolute', top: 12, left: 13 }}><BookmarkFlag active={hasBookmark(p.id)} onClick={() => onToggleBookmark(p.id)} /></div>
                 {sel && <div style={{ position: 'absolute', top: 12, right: 13, fontFamily: T.mono, fontSize: 7.5, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux }}>I fokus</div>}
                 <Avatar n={p.name} size={56} />
                 <div style={{ fontFamily: T.serif, fontSize: 21, lineHeight: 1.04, fontWeight: 600, marginTop: 11 }}>{p.name}</div>
@@ -585,10 +665,10 @@ function RelateView({ model, rel, relA, relB, slot, setSlot, onPickStep, meId, o
 }
 
 // ---- Person-detalje (højre panel) ----
-function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocusTree, onRelate, isMe, onToggleMe }: {
+function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocusTree, onRelate, isMe, onToggleMe, isBookmarked, onToggleBookmark }: {
   model: Model; focusId: string; detail: PersonDetailData | null; onPick: (id: string) => void;
   backName: string | null; onBack: () => void; onFocusTree: () => void; onRelate: () => void;
-  isMe: boolean; onToggleMe: () => void;
+  isMe: boolean; onToggleMe: () => void; isBookmarked: boolean; onToggleBookmark: () => void;
 }) {
   const p = model.byId[focusId];
   if (!p) return null;
@@ -618,7 +698,10 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
         <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
           <div style={{ width: 92, height: 116, borderRadius: 11, background: 'repeating-linear-gradient(45deg,#ece4d6 0 9px,#e2d8c8 9px 18px)', border: '1px solid rgba(34,31,26,.1)', flex: 'none', display: 'flex', alignItems: 'flex-end', padding: 8 }}><span style={{ fontFamily: T.mono, fontSize: 9, color: T.muted }}>portræt</span></div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontFamily: T.serif, fontSize: 27, lineHeight: 1, fontWeight: 600 }}>{p.name}</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <div style={{ fontFamily: T.serif, fontSize: 27, lineHeight: 1, fontWeight: 600, minWidth: 0 }}>{p.name}</div>
+              <BookmarkFlag active={isBookmarked} onClick={onToggleBookmark} />
+            </div>
             {p.years && <div style={{ fontFamily: T.mono, fontSize: 11, color: T.muted2, marginTop: 6 }}>{p.years}</div>}
             {/* Badges: ★ Dig + Linje(r) + titel. */}
             {(isMe || linjer.length > 0 || p.title) && (
@@ -884,6 +967,17 @@ const Label = ({ children }: { children: React.ReactNode }) => <div style={{ fon
 const Stem = ({ h, mt = 0 }: { h: number; mt?: number }) => <div style={{ width: 1, height: h, background: 'rgba(34,31,26,.22)', marginTop: mt }} />;
 const Avatar = ({ n, size }: { n: string; size: number }) => (
   <div style={{ width: size, height: size, borderRadius: '50%', background: '#f4ece0', border: '1px solid rgba(34,31,26,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: size * 0.4, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{initials(n)}</div>
+);
+// Bogmærke-toggle (§3.3). Sidder ofte inde i et klikbart kort — stopPropagation forhindrer at
+// et bogmærke-klik også trigger kortets egen navigation.
+const BookmarkFlag = ({ active, onClick }: { active: boolean; onClick: () => void }) => (
+  <span
+    onClick={(e) => { e.stopPropagation(); onClick(); }}
+    title={active ? 'Fjern bogmærke' : 'Bogmærk denne person'}
+    style={{ cursor: 'pointer', fontSize: 15, lineHeight: 1, color: active ? T.bordeaux : T.muted2, flex: 'none' }}
+  >
+    {active ? '⚑' : '⚐'}
+  </span>
 );
 
 // Start-fokus midt i træet: en person med BÅDE børn og forælder, flest børn (som mobil).
