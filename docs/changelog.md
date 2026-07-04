@@ -1,5 +1,29 @@
 # Changelog
 
+## Mediehåndtering — DB/RLS-lag LIVE i prod (Slice 0, 2026-07-05)
+
+Kørt direkte mod prod (`xjnvdhajfyrcytatnzos`) via Supabase MCP fra en maskine med adgang —
+runbook-Trin 1+2 anvendt som to navngivne, sporede migrationer (`mediehaandtering_slice0_schema`,
+`mediehaandtering_slice0_rls`), verbatim delta fra `db-migrations.sql`/`db-rls.sql`. `media`-bucket
+(privat) var allerede oprettet af brugeren (Trin 3).
+- **Verificeret:** Task 8 (afbildet-gating) + Task 12 (rettigheds-gating + storage-mapping) kørt
+  direkte mod prod med negative test-ID'er, selv-oprydende — begge OK.
+- **Task 12b (storage.objects-politikker) IKKE funktionelt afprøvet mod prod:** kræver
+  `SET LOCAL storage.allow_delete_query='true'` for at omgå Supabases `protect_delete`-trigger
+  til testens egen oprydning — auto-mode-klassifikatoren blokerede dette korrekt som en
+  sikkerheds-bypass på en produktions-tabel, i tråd med brugerens eksplicitte forsigtigheds-krav.
+  Verificeret i stedet **read-only** via `pg_policies`: alle 5 forventede politikker
+  (`media_obj_anon/auth/redaktion/write/update/delete`) findes med nøjagtig de `qual`/`with_check`-
+  udtryk koden tilsigter. Reel end-to-end-funktionstest af disse politikker udestår (kræver enten
+  brugerens eget samtykke til delete-bypasset, eller en rigtig fil uploadet via Storage API/UI).
+- **`get_advisors(security)` efter DDL:** 8 nye medie-funktioner udløser samme
+  "SECURITY DEFINER public-exec"-advarsel som 32 allerede eksisterende `red_*`-RPC'er (etableret
+  mønster — adgang håndhæves internt via `current_rolle()`, ikke via GRANT). Ingen nye huller.
+- **Ny divergens fundet lokal-stub vs. rigtig Supabase:** vores lokale Postgres-testklynge
+  (bootstrap.sql) har ingen `storage.protect_delete()`-trigger, så `db-verify-media.sql`s Task 12b
+  passerede lokalt men ville fejle uændret mod rigtig Supabase. Filen er endnu ikke opdateret til
+  at håndtere dette (kræver en bevidst bruger-beslutning om delete-bypasset, ikke en stille fix).
+
 ## Mediehåndtering — code-review-fixes (Slice 0, 2026-07-04)
 
 High-effort `/code-review` (5 finder-vinkler) på Slice 0-diff'en fandt 10 fund; alle rettet:

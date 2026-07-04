@@ -107,6 +107,15 @@ END $$;
 -- (media_obj_anon/auth) ved at indsætte objekt-rækker og læse dem under SET LOCAL ROLE — så en
 -- fail-open-politik (OR i stedet for AND, manglende rettigheds-gate, eller manglende bucket-guard)
 -- rejser her. Springes over hvis der ikke findes en 'media'-bucket (lokalt/pre-provisionering).
+--
+-- OBS (fundet 2026-07-05, mod rigtig prod): ægte Supabase har en storage.protect_delete()-trigger
+-- der blokerer DIREKTE DELETE FROM storage.objects ("brug Storage API'et i stedet") — vores lokale
+-- Postgres-teststub har den IKKE, så dette Task passerer lokalt men fejler uændret mod rigtig
+-- Supabase på selve oprydnings-DELETE'en. Sanktioneret escape-ventil (Supabases egen, ikke en
+-- workaround): `SET LOCAL storage.allow_delete_query = 'true';` som FØRSTE linje i DO-blokken —
+-- kun for varigheden af denne transaktion. Tilføj den bevidst selv hvis du kører dette i SQL
+-- Editoren; den er UDELADT her fordi en direkte delete-bypass på en produktions-storage-tabel
+-- er en beslutning kun du bør tage eksplicit, ikke noget der skal ligge klar til at køre stiltiende.
 DO $$
 DECLARE has_bucket boolean; vis_klar int; vis_spaerret int; vis_orphan int; vis_klar_auth int; vis_spaerret_auth int;
 BEGIN
