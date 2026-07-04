@@ -301,21 +301,16 @@ To spor — **data (R)** og **app (TS)** — bundet af RLS:
   sigt få bogmærker synkroniseret på tværs af enheder i stedet for kun lokalt —
   ikke besluttet, kræver egen brainstorm om scope (kun lokal-per-enhed, eller
   konto-bundet).
-- **Slægtskabs-felt A/B UX-bug + "det er mig"-knap for fremtrædende — nyt, ikke
-  rettet (2026-07-04, kun planlægning, men rodårsag allerede fundet).**
-  (a) "Sæt mig"-genvejen på slægtskabs-siden (`mobile/src/app/(tabs)/relate.tsx:56`,
-  `onPress={() => setRelA(meId!)}`) kalder ALTID `setRelA` — uanset om felt A i
-  forvejen er udfyldt. Når man kommer fra en personprofils "Slægtskab"-knap
-  (`mobile/src/app/person/[id].tsx:248`, `useStore.setState({ relA: person.id })`,
-  som forudfylder felt A med den viste person), overskriver "Sæt mig" derfor den
-  netop forudfyldte person i stedet for at udfylde det TOMME felt B — nøjagtig
-  brugerens observerede bug. Rettelse skal formentlig fylde det tomme felt (B hvis
-  A allerede er sat, ellers A), og stadig fungere uændret ved direkte navigation
-  til fanen (begge felter tomme fra `store/useStore.ts` `relA`/`relB`-default).
-  (b) "Det er mig i slægten"-knappen vises ubetinget på HVER personprofil
-  (`person/[id].tsx:253-257`, styret af `isMe`/`setMe` fra `store/useStore.ts`).
-  Når `meId` allerede er sat til én bestemt person, ønsker bruger IKKE denne
-  invitation til at (fejlagtigt) ommarkere "mig" på enhver anden tilfældig profil
-  — kun mulighed for at fjerne/ændre markeringen bør forblive let tilgængelig,
-  fx kun på den aktuelt markerede profil selv, eller flyttet til Konto-fanen som
-  en bevidst handling. Ikke besluttet hvor.
+- **Slægtskabs-felt A/B UX-bug + "det er mig"-knap for fremtrædende — RETTET
+  (2026-07-04, commit `66dbe74`).** (a) "Sæt mig"-genvejen på slægtskabs-siden
+  overskrev altid felt A (ødelagde den person man kom fra via en profils
+  "Slægtskab"-knap). Rettet med ren helper `chooseMeSlot` (`mobile/src/lib/
+  relateSlot.ts` + 6 unit-tests): fyld A hvis tomt, ellers B; skjul genvejen hvis
+  "mig" allerede sidder i et felt; label tilpasses ("som første/anden person").
+  (b) "Det er mig i slægten"-knappen vises nu kun når intet "mig" er sat, eller
+  på ens egen markerede profil (guard i `person/[id].tsx`); ny "Hvem er du i
+  slægten"-kontrol tilføjet på Konto-fanen (`(tabs)/konto.tsx`, genbruger
+  `PersonPicker`) til direkte valg/skift. Verificeret: tsc + 264/264 jest +
+  empirisk i iOS-simulator mod prod-data. **Fast-follow (ikke gjort):** web
+  (`Folgesvend.tsx` `RelateView`) har strukturelt samme "Sæt mig"-overskrivnings-
+  bug i sin egen lokale `useState`-udgave — samme rettelses-logik bør porteres.
