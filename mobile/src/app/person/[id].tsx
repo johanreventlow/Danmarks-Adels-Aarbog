@@ -249,13 +249,15 @@ export default function PersonScreen() {
             <BtnLabel size={13} color={Colors.paperCard}>Slægtskab</BtnLabel>
           </Pressable>
         </View>
-        <View style={{ marginTop: 10, paddingHorizontal: 22 }}>
-          <Pressable style={[styles.meToggle, isMe && styles.meToggleActive]} onPress={() => setMe(isMe ? null : person.id)}>
-            <BtnLabel size={13} color={isMe ? Colors.bordeaux : Colors.textSecondary}>
-              {isMe ? '★ Dette er dig — fjern markering' : 'Det er mig i slægten'}
-            </BtnLabel>
-          </Pressable>
-        </View>
+        {meId == null || isMe ? (
+          <View style={{ marginTop: 10, paddingHorizontal: 22 }}>
+            <Pressable style={[styles.meToggle, isMe && styles.meToggleActive]} onPress={() => setMe(isMe ? null : person.id)}>
+              <BtnLabel size={13} color={isMe ? Colors.bordeaux : Colors.textSecondary}>
+                {isMe ? '★ Dette er dig — fjern markering' : 'Det er mig i slægten'}
+              </BtnLabel>
+            </Pressable>
+          </View>
+        ) : null}
       </ScrollView>
     </View>
   );

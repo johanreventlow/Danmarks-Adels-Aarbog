@@ -10,6 +10,7 @@ import { Body, Kicker, Mono, Serif } from '../../components/Typography';
 import { computeRelationship } from '../../data/relationship';
 import type { RelationResult } from '../../data/relationship';
 import type { Konfidens } from '../../data/types';
+import { chooseMeSlot } from '../../lib/relateSlot';
 import { useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius, Shadow } from '../../theme/tokens';
 
@@ -45,17 +46,17 @@ export default function RelateScreen() {
     [model, relA, relB],
   );
   const me = meId && model ? model.byId[meId] : null;
-  const meAvailable = !!me && relA !== meId;
+  const meSlot = me && meId ? chooseMeSlot(relA, relB, meId) : null;
   const korrob = rel && rel.found ? korroborationsTekst(rel) : '';
 
   return (
     <LoadGate>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 18, paddingTop: insets.top + 14, paddingBottom: insets.bottom + 80 }}>
-        {/* Sæt mig som første person */}
-        {meAvailable ? (
-          <Pressable style={styles.meShortcut} onPress={() => setRelA(meId!)}>
+        {/* Sæt mig som den ledige/relevante person — udfylder A hvis tom, ellers B (se relateSlot.ts) */}
+        {meSlot ? (
+          <Pressable style={styles.meShortcut} onPress={() => (meSlot === 'A' ? setRelA(meId!) : setRelB(meId!))}>
             <Body size={12.5} color={Colors.bordeaux} style={{ fontFamily: Fonts.sansSemi }}>
-              ★ Sæt mig ({me!.name}) som første person
+              ★ Sæt mig ({me!.name}) som {meSlot === 'A' ? 'første' : 'anden'} person
             </Body>
           </Pressable>
         ) : null}
