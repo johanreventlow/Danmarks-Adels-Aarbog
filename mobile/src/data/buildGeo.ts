@@ -78,7 +78,7 @@ export function buildGeo(
       kind: 'estate',
       personId: null,
       estateId: String(e.id),
-      familyId: null,
+      unionId: null,
       year: null,
     };
     points.push(pt);
@@ -106,7 +106,7 @@ export function buildGeo(
         kind,
         personId: pid,
         estateId: null,
-        familyId: null,
+        unionId: null,
         year,
       };
       points.push(pt);
@@ -114,7 +114,13 @@ export function buildGeo(
     } else if (f.subjekt_type === 'family' && ft === 'vielse') {
       const fid = String(f.subjekt_id);
       const u = unionByFamilyId[fid];
-      if (!u) return; // ukendt/usynlig familie → intet punkt
+      if (!u) return; // ukendt familie → intet punkt
+      // RLS: emittér KUN hvis mindst én partner er synlig. Er begge private/filtreret fra,
+      // droppes punktet helt — ellers ville et privat pars vielsessted lække på overbliks-/
+      // nærhedskortet (personId er null dér, så byPerson-gaten alene beskytter ikke `points`).
+      // Set() afduplikerer p1===p2, som kan opstå hvis samme_som-collapse folder begge til én.
+      const visible = [...new Set([u.p1, u.p2].filter((pp): pp is string => !!pp && personIds.has(pp)))];
+      if (!visible.length) return;
       const pt: GeoPoint = {
         placeId: String(f.sted_id),
         navn: pl.navn,
@@ -123,14 +129,12 @@ export function buildGeo(
         kind: 'vielse',
         personId: null,
         estateId: null,
-        familyId: fid,
+        unionId: u.id, // app-konvention: 'f' + family_id (→ buildModel.unionById)
         year: u.year ?? null,
       };
       points.push(pt);
-      // Livskort: ægteskabet hører til BEGGE synlige partnere.
-      [u.p1, u.p2].forEach((pp) => {
-        if (pp && personIds.has(pp)) (byPerson[pp] = byPerson[pp] || []).push(pt);
-      });
+      // Livskort: ægteskabet hører til begge synlige partnere.
+      visible.forEach((pp) => (byPerson[pp] = byPerson[pp] || []).push(pt));
     }
   });
 

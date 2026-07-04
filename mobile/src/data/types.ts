@@ -215,7 +215,7 @@ export type GeoPoint = {
   kind: GeoKind;
   personId: string | null; // kanonisk person-id (fødsel/dåb/død/begravelse/bisættelse); null for gods/vielse
   estateId: string | null; // sat når kind === 'estate'
-  familyId: string | null; // rå family-id når kind === 'vielse'
+  unionId: string | null; // union-id ('f' + family_id, jf. buildModel.unionById) når kind === 'vielse'
   year: number | null; // udledt af person.born/died for fødsel/død; ellers null
 };
 

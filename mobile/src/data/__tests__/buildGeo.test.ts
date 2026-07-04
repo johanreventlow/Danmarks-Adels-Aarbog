@@ -107,9 +107,34 @@ test('buildGeo: vielse (family-fakta) indekseres på begge synlige partnere', ()
     facts: [{ subjekt_type: 'family', subjekt_id: '7', faktatype: 'vielse', sted_id: 2 }],
   });
   expect(geo.points).toHaveLength(1);
-  expect(geo.points[0]).toMatchObject({ kind: 'vielse', familyId: '7', year: 1670, personId: null });
+  expect(geo.points[0]).toMatchObject({ kind: 'vielse', unionId: 'f7', year: 1670, personId: null });
   expect(geo.byPerson['a'][0].kind).toBe('vielse');
   expect(geo.byPerson['b'][0].kind).toBe('vielse');
+});
+
+test('buildGeo: vielse — begge partnere private → intet punkt (RLS, ingen læk i points)', () => {
+  const geo = buildGeo({
+    ...base,
+    places,
+    persons: [], // både a og b er private/filtreret fra
+    unions: [{ id: 'f7', p1: 'a', p2: 'b', p2_name: null, year: null }],
+    facts: [{ subjekt_type: 'family', subjekt_id: '7', faktatype: 'vielse', sted_id: 2 }],
+  });
+  expect(geo.points).toHaveLength(0);
+  expect(geo.byPerson['a']).toBeUndefined();
+  expect(geo.byPerson['b']).toBeUndefined();
+});
+
+test('buildGeo: vielse — p1===p2 (foldet til én person) afdupliceres i byPerson', () => {
+  const geo = buildGeo({
+    ...base,
+    places,
+    persons: [person('a')],
+    unions: [{ id: 'f7', p1: 'a', p2: 'a', p2_name: null, year: null }],
+    facts: [{ subjekt_type: 'family', subjekt_id: '7', faktatype: 'vielse', sted_id: 2 }],
+  });
+  expect(geo.points).toHaveLength(1);
+  expect(geo.byPerson['a']).toHaveLength(1); // ikke 2
 });
 
 test('buildGeo: vielse — usynlig partner udelades af byPerson, men punktet består', () => {
