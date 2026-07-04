@@ -92,3 +92,99 @@ test_that("rows_to_apply: kun anvend-sandt + gyldige koordinater", {
   ap <- rows_to_apply(cw)
   expect_equal(ap$place_id, c(1L, 2L)) # 3 mangler koordinat, 4 er FALSE
 })
+
+test_that("compare_place_texts: eksakt/ascii-translit/fuzzy/ingen + NA ved tomt input", {
+  expect_equal(compare_place_texts("København", "København")$method, "eksakt")
+  expect_true(compare_place_texts("København", "København")$match)
+  cmp_ascii <- compare_place_texts("Plön", "Ploen")
+  expect_true(cmp_ascii$match); expect_equal(cmp_ascii$method, "ascii-translit")
+  cmp_fuzzy <- compare_place_texts("Kjøbenhavn", "København")
+  expect_true(cmp_fuzzy$match); expect_equal(cmp_fuzzy$method, "fuzzy")
+  cmp_no <- compare_place_texts("Helt Andet Sted", "København")
+  expect_false(cmp_no$match)
+  expect_true(is.na(compare_place_texts("", "København")$match))
+  expect_true(is.na(compare_place_texts(NA, "København")$match))
+})
+
+test_that("corroborate_places_by_person: bekræftende person -> checked+confirmed", {
+  crosswalk <- data.frame(place_id = 1, navn = "Christianssæde", tier = "review",
+                          tng_place = "Christianssæde, Lolland", stringsAsFactors = FALSE)
+  place_facts <- data.frame(person_id = 100, faktatype = "fødsel", place_id = 1, stringsAsFactors = FALSE)
+  person_crosswalk <- data.frame(person_id = 100, tng_id = 999, stringsAsFactors = FALSE)
+  tng_person_places <- data.frame(tng_id = 999, birthplace = "Christianssæde, Lolland",
+                                  deathplace = "", burialplace = "", baptplace = "", stringsAsFactors = FALSE)
+  out <- corroborate_places_by_person(crosswalk, place_facts, person_crosswalk, tng_person_places)
+  expect_equal(out$person_checked, 1L)
+  expect_equal(out$person_confirmed, 1L)
+  expect_match(out$person_detalje, "fødsel\\(birthplace\\)=OK")
+})
+
+test_that("corroborate_places_by_person: afvigende person -> checked men IKKE confirmed", {
+  crosswalk <- data.frame(place_id = 1, navn = "Kolding", tier = "review",
+                          tng_place = "Kolding, Vejle, Danmark", stringsAsFactors = FALSE)
+  place_facts <- data.frame(person_id = 100, faktatype = "død", place_id = 1, stringsAsFactors = FALSE)
+  person_crosswalk <- data.frame(person_id = 100, tng_id = 999, stringsAsFactors = FALSE)
+  tng_person_places <- data.frame(tng_id = 999, birthplace = "", deathplace = "Helt Andet Sted",
+                                  burialplace = "", baptplace = "", stringsAsFactors = FALSE)
+  out <- corroborate_places_by_person(crosswalk, place_facts, person_crosswalk, tng_person_places)
+  expect_equal(out$person_checked, 1L)
+  expect_equal(out$person_confirmed, 0L)
+  expect_match(out$person_detalje, "død\\(deathplace\\)=AFVIG")
+})
+
+test_that("corroborate_places_by_person: linket person UDEN auto-tier crosswalk-modpart springes over (ikke fejl)", {
+  # Regressionstest: fanget ved ægte kørsel mod prod (714 place-rækker, kun 342/925 personer
+  # har en auto-tier person-match) — pc_by_person[[ukendt_id]] KASTEDE ("subscript out of
+  # bounds") fordi opslaget dengang var en navngivet vektor, ikke en liste. Dette er
+  # HOVEDtilfældet i virkeligheden, ikke et sjældent edge-case.
+  crosswalk <- data.frame(place_id = 1, navn = "Kolding", tier = "review",
+                          tng_place = "Kolding, Vejle, Danmark", stringsAsFactors = FALSE)
+  place_facts <- data.frame(person_id = 12345, faktatype = "fødsel", place_id = 1, stringsAsFactors = FALSE)
+  out <- corroborate_places_by_person(
+    crosswalk, place_facts,
+    person_crosswalk = data.frame(person_id = integer(), tng_id = character(), stringsAsFactors = FALSE),
+    tng_person_places = data.frame(tng_id = character(), birthplace = character(), deathplace = character(),
+                                   burialplace = character(), baptplace = character(), stringsAsFactors = FALSE))
+  expect_equal(out$person_checked, 0L)
+  expect_equal(out$person_detalje, "")
+})
+
+test_that("corroborate_places_by_person: person-match uden tng_people-modpart springes over (ikke fejl)", {
+  # Samme fælde, anden opslags-tabel (tpp_by_id): tng_id findes i person-crosswalken,
+  # men ikke i tng_person_places (fx pga. gedcom-filtrering ved ekstraktion).
+  crosswalk <- data.frame(place_id = 1, navn = "Kolding", tier = "review",
+                          tng_place = "Kolding, Vejle, Danmark", stringsAsFactors = FALSE)
+  place_facts <- data.frame(person_id = 100, faktatype = "fødsel", place_id = 1, stringsAsFactors = FALSE)
+  person_crosswalk <- data.frame(person_id = 100, tng_id = "I999", stringsAsFactors = FALSE)
+  out <- corroborate_places_by_person(
+    crosswalk, place_facts, person_crosswalk,
+    tng_person_places = data.frame(tng_id = character(), birthplace = character(), deathplace = character(),
+                                   burialplace = character(), baptplace = character(), stringsAsFactors = FALSE))
+  expect_equal(out$person_checked, 0L)
+  expect_equal(out$person_detalje, "")
+})
+
+test_that("corroborate_places_by_person: ingen linkede/matchede personer -> 0/0, tom detalje", {
+  crosswalk <- data.frame(place_id = 1, navn = "Kolding", tier = "auto",
+                          tng_place = "Kolding, Vejle, Danmark", stringsAsFactors = FALSE)
+  out <- corroborate_places_by_person(
+    crosswalk, place_facts = data.frame(person_id = integer(), faktatype = character(), place_id = integer()),
+    person_crosswalk = data.frame(person_id = integer(), tng_id = integer()),
+    tng_person_places = data.frame(tng_id = integer(), birthplace = character(),
+                                   deathplace = character(), burialplace = character(), baptplace = character()))
+  expect_equal(out$person_checked, 0L)
+  expect_equal(out$person_confirmed, 0L)
+  expect_equal(out$person_detalje, "")
+})
+
+test_that("corroborate_places_by_person: none-tier (tng_place NA) springes over", {
+  crosswalk <- data.frame(place_id = 1, navn = "Ukendt", tier = "none",
+                          tng_place = NA_character_, stringsAsFactors = FALSE)
+  out <- corroborate_places_by_person(
+    crosswalk, place_facts = data.frame(person_id = 100, faktatype = "fødsel", place_id = 1),
+    person_crosswalk = data.frame(person_id = 100, tng_id = 999),
+    tng_person_places = data.frame(tng_id = 999, birthplace = "Et Sted", deathplace = "",
+                                   burialplace = "", baptplace = ""))
+  expect_equal(out$person_checked, 0L)
+  expect_equal(out$person_detalje, "")
+})

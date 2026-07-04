@@ -170,3 +170,94 @@ rows_to_apply <- function(crosswalk) {
   keep <- yes & !is.na(crosswalk$lat) & !is.na(crosswalk$lon)
   crosswalk[keep, c("place_id", "navn", "lat", "lon"), drop = FALSE]
 }
+
+# ---------------------------------------------------------------------------
+# Person-corroboration (annotation, IKKE tier-ændring — jf. R/tng-qa/04b-
+# corroboration.R's princip). Idé: en stedmatch bekræftes uafhængigt hvis en
+# person KNYTTET TIL STEDET hos os (via fact.sted_id) har en TNG-modpart (via
+# den eksisterende person-crosswalk) hvis eget fritekst-stedfelt for SAMME
+# hændelsestype peger på DEN SAMME TNG-kandidat. To uafhængige systemer der
+# siger det samme er stærkere evidens end navnelighed alene — men ændrer
+# aldrig tier/anvend automatisk; det er en ekstra kolonne til din vurdering.
+#
+# TNG har INGEN placeID-fremmednøgle på personer (birthplace/deathplace/
+# burialplace/baptplace i tng_people er fritekst, verificeret i dumpet) — så
+# dette er tekst-mod-tekst, ikke tekst-mod-koordinat.
+
+# Vores faktatype -> tng_people's fritekst-kolonne for samme hændelse.
+# bisættelse har intet dedikeret TNG-felt; burialplace bruges som bedste proxy
+# (begravelse OG bisættelse er begge "hvor kisten/liget var" i praksis).
+# vielse er bevidst UDELADT: familie-fakta (subjekt_type='family'), ikke person.
+FAKTATYPE_TO_TNG_FIELD <- c(
+  "fødsel" = "birthplace", "dåb" = "baptplace",
+  "død" = "deathplace", "begravelse" = "burialplace", "bisættelse" = "burialplace"
+)
+
+# Sammenlign to fritekst-stednavne parvist. Samme 3-trins-kaskade som match_places
+# (eksakt -> ascii-translit -> fuzzy), men for ét par frem for ét-mod-mange —
+# match_places rører derfor IKKE ved denne (adskilt for ikke at risikere allerede
+# testet/kørt kode). Returnerer NA ved tomt input (kan ikke afgøres, ikke "nej").
+compare_place_texts <- function(a, b, cfg = default_geo_cfg()) {
+  ka <- normalize_place_key(a); kb <- normalize_place_key(b)
+  if (is.na(ka) || is.na(kb) || !nzchar(ka) || !nzchar(kb)) {
+    return(list(match = NA, method = NA_character_, score = NA_real_))
+  }
+  if (ka == kb) return(list(match = TRUE, method = "eksakt", score = 1))
+  if (fold_da_ascii(ka) == fold_da_ascii(kb)) return(list(match = TRUE, method = "ascii-translit", score = 1))
+  sim <- stringdist::stringsim(ka, kb, method = "jw")
+  list(match = sim >= cfg$fuzzy_review_sim, method = "fuzzy", score = sim)
+}
+
+# Berig en place-crosswalk med person-corroboration. Rene data.frames ind og ud
+# (ingen DB/net) — orkestratoren henter data, denne funktion aggregerer.
+#   crosswalk:        output af build_geo_crosswalk() (place_id, tng_place, tier, ...)
+#   place_facts:       vores fact-rækker: data.frame(person_id, faktatype, place_id)
+#                      (subjekt_type='person', sted_id IS NOT NULL, faktatype i
+#                      names(FAKTATYPE_TO_TNG_FIELD))
+#   person_crosswalk:  AUTO-tier person-match: data.frame(person_id, tng_id)
+#                      (genbrug R/tng-qa's eksisterende, kalibrerede crosswalk —
+#                      ikke gen-beregnet her)
+#   tng_person_places: data.frame(tng_id, birthplace, deathplace, burialplace, baptplace)
+#                      fra tng_people
+# Tilføjer 3 kolonner: person_checked (antal linkede personer med TNG-modpart +
+# udfyldt felt), person_confirmed (heraf hvor mange stemmer overens),
+# person_detalje (fritekst-opsummering til menneskelig review).
+corroborate_places_by_person <- function(crosswalk, place_facts, person_crosswalk, tng_person_places, cfg = default_geo_cfg()) {
+  # setNames(as.list(...)): opslags-lister, IKKE navngivne atomære vektorer.
+  # `[[` på en atomær vektor KASTER ("subscript out of bounds") ved manglende
+  # nøgle; på en liste returnerer den roligt NULL. Manglende nøgle er
+  # HOVEDtilfældet her (langt de fleste linkede personer har ingen auto-tier
+  # TNG-modpart) — verificeret empirisk mod prod (kastede reelt ved første
+  # rigtige kørsel, ikke fanget af syntetiske enheds-tests der altid inkluderede
+  # den matchende nøgle).
+  pc_by_person <- setNames(as.list(person_crosswalk$tng_id), as.character(person_crosswalk$person_id))
+  tpp_by_id <- setNames(as.list(seq_len(nrow(tng_person_places))), as.character(tng_person_places$tng_id))
+
+  checked <- integer(nrow(crosswalk)); confirmed <- integer(nrow(crosswalk))
+  detalje <- character(nrow(crosswalk))
+  for (i in seq_len(nrow(crosswalk))) {
+    if (is.na(crosswalk$tng_place[i]) || !nzchar(crosswalk$tng_place[i])) { detalje[i] <- ""; next }
+    pf <- place_facts[place_facts$place_id == crosswalk$place_id[i], , drop = FALSE]
+    notes <- character(0)
+    for (j in seq_len(nrow(pf))) {
+      # %in%-guard FØR [[ -indeksering (samme "subscript out of bounds"-fælde som
+      # ovenfor): FAKTATYPE_TO_TNG_FIELD er en navngivet vektor, ikke en liste.
+      if (!pf$faktatype[j] %in% names(FAKTATYPE_TO_TNG_FIELD)) next
+      tng_field <- FAKTATYPE_TO_TNG_FIELD[[pf$faktatype[j]]]
+      tng_id <- pc_by_person[[as.character(pf$person_id[j])]]
+      if (is.null(tng_id)) next
+      row_idx <- tpp_by_id[[as.character(tng_id)]]
+      if (is.null(row_idx)) next
+      tng_text <- tng_person_places[[tng_field]][row_idx]
+      if (is.na(tng_text) || !nzchar(trimws(tng_text))) next
+      cmp <- compare_place_texts(tng_text, crosswalk$tng_place[i], cfg)
+      if (is.na(cmp$match)) next
+      checked[i] <- checked[i] + 1L
+      if (cmp$match) confirmed[i] <- confirmed[i] + 1L
+      notes <- c(notes, sprintf("%s(%s)=%s", pf$faktatype[j], tng_field, if (cmp$match) "OK" else "AFVIG"))
+    }
+    detalje[i] <- paste(notes, collapse = "; ")
+  }
+  cbind(crosswalk, person_checked = checked, person_confirmed = confirmed,
+       person_detalje = detalje, stringsAsFactors = FALSE)
+}
