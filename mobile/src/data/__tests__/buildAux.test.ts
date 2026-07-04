@@ -43,6 +43,31 @@ test('buildAux: orgListe + medieListe felt-map', () => {
   expect(aux.medieListe[0]).toEqual({ id: '1', titel: 'Portræt', slags: 'foto', kunstner: 'NN', datering: '1900' });
 });
 
+test('buildAux: mediaBy kobles via relation person→media (afbildet), ikke m.person_id', () => {
+  const media = [
+    { id: 1, slags: 'foto', titel: 'Portræt af 10' },
+    { id: 2, slags: 'segl', titel: 'Løst objekt uden afbildet-person' },
+  ] as never;
+  const relations = [
+    { subjekt_type: 'person', subjekt_id: 10, objekt_type: 'media', objekt_id: 1, rolle: 'afbildet', periode_raw: null },
+    // ikke-afbildet relation til media → skal IKKE tælle som portræt/materiale
+    { subjekt_type: 'person', subjekt_id: 10, objekt_type: 'media', objekt_id: 2, rolle: 'skabt_af', periode_raw: null },
+  ] as never;
+  const aux = buildAux({ ...base, media, relations });
+  expect(aux.mediaBy['10']?.map((m) => m.id)).toEqual([1]); // kun afbildet, i relations-rækkefølge
+  expect(aux.mediaBy['2']).toBeUndefined(); // media-id er ikke en person-nøgle (den gamle bug)
+});
+
+test('buildAux: mediaBy kanoniserer person-id (samme_som-collapse)', () => {
+  const media = [{ id: 1, slags: 'maleri', titel: 'P' }] as never;
+  const relations = [
+    { subjekt_type: 'person', subjekt_id: 58, objekt_type: 'media', objekt_id: 1, rolle: 'afbildet', periode_raw: null },
+  ] as never;
+  const aux = buildAux({ ...base, media, relations }, { '58': '1' }); // 58 foldet til kanonisk 1
+  expect(aux.mediaBy['1']?.map((m) => m.id)).toEqual([1]);
+  expect(aux.mediaBy['58']).toBeUndefined();
+});
+
 describe('buildAux — linje-stamfader = laveste nr (§9.2 kritisk path)', () => {
   const extIds: RawExtId[] = [
     { person_id: 10, source_id: 1, linje: 'I', nr: 5 },

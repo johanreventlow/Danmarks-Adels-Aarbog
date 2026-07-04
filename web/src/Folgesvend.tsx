@@ -8,6 +8,7 @@ import { buildBidirectionalColumns } from './data/tree';
 import { initials, konfTekst } from './data/format';
 import { computeRelationship, type RelationResult } from './data/relationship';
 import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
+import { pickPortrait, type MediaItem } from './data/media';
 import type { Model, ModelPerson } from './data/types';
 import { NarrativRenderer } from './components/NarrativRenderer';
 import { buildBrowse } from './data/browse';
@@ -104,7 +105,7 @@ export default function Folgesvend() {
     if (!estateId) return;
     let cancelled = false;
     setEstateInfo(null);
-    fetchEstateInfo(estateId).then((info) => { if (!cancelled) setEstateInfo(info); }).catch(() => { if (!cancelled) setEstateInfo({ narrativ: '', sted: '' }); });
+    fetchEstateInfo(estateId).then((info) => { if (!cancelled) setEstateInfo(info); }).catch(() => { if (!cancelled) setEstateInfo({ narrativ: '', sted: '', media: [] }); });
     return () => { cancelled = true; };
   }, [estateId]);
   // Detalje (bio/embeder/godser) for fokus-personen — til højre-panelet.
@@ -113,7 +114,7 @@ export default function Folgesvend() {
     setDetail(null);
     // Foldet person: hent detalje for ALLE medlems-id'er (narrativ/relationer unioneres — spec §8).
     const members = model?.byId[focusId]?.mergedFrom?.map((m) => m.personId);
-    fetchPersonDetail(focusId, members).then(setDetail).catch(() => setDetail({ bio: '', offices: [], estates: [] }));
+    fetchPersonDetail(focusId, members).then(setDetail).catch(() => setDetail({ bio: '', offices: [], estates: [], media: [] }));
   }, [focusId, model]);
 
   const persons = model?.persons ?? [];
@@ -668,6 +669,18 @@ function RelateView({ model, rel, relA, relB, slot, setSlot, onPickStep, meId, o
   );
 }
 
+// Medie-billede med fallback: intet render hvis signering fejlede (url=null). Klik åbner den
+// fulde (signed) URL i ny fane — RLS har allerede gatet at brugeren må se den.
+function MediaThumb({ m, w, h, radius = 10 }: { m: MediaItem; w: number | string; h: number | string; radius?: number }) {
+  if (!m.url) return null;
+  const cap = [m.titel, m.kunstner, m.datering].filter(Boolean).join(' · ');
+  return (
+    <img src={m.url} alt={m.titel || m.slags || 'medie'} title={cap || undefined}
+      onClick={() => window.open(m.url!, '_blank', 'noopener')}
+      style={{ width: w, height: h, objectFit: 'cover', borderRadius: radius, border: '1px solid rgba(34,31,26,.1)', cursor: 'zoom-in', display: 'block' }} />
+  );
+}
+
 // ---- Person-detalje (højre panel) ----
 function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocusTree, onRelate, isMe, onToggleMe, isBookmarked, onToggleBookmark }: {
   model: Model; focusId: string; detail: PersonDetailData | null; onPick: (id: string) => void;
@@ -681,6 +694,10 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
   const children = childrenOf(model, focusId);
   const linjer = model.lineage?.byPerson[focusId] ?? [];
   const sources = model.sourcesBy?.[focusId] ?? [];
+  // Portræt = hovedbilledet; galleri = de øvrige medier (materiale). RLS-gatet i data-laget.
+  const media = detail?.media ?? [];
+  const portrait = pickPortrait(media);
+  const gallery = media.filter((m) => m.url && m.id !== portrait?.id);
   // Proveniens: er personen foldet af flere DAA-poster (samme_som), vis hvilke linjer/numre.
   const mergedFrom = p.mergedFrom ?? [];
   const proveniens =
@@ -700,7 +717,11 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
           <div onClick={onBack} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', marginBottom: 14 }}>‹ Tilbage til {backName}</div>
         )}
         <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-          <div style={{ width: 92, height: 116, borderRadius: 11, background: 'repeating-linear-gradient(45deg,#ece4d6 0 9px,#e2d8c8 9px 18px)', border: '1px solid rgba(34,31,26,.1)', flex: 'none', display: 'flex', alignItems: 'flex-end', padding: 8 }}><span style={{ fontFamily: T.mono, fontSize: 9, color: T.muted }}>portræt</span></div>
+          {portrait ? (
+            <div style={{ flex: 'none' }}><MediaThumb m={portrait} w={92} h={116} radius={11} /></div>
+          ) : (
+            <div style={{ width: 92, height: 116, borderRadius: 11, background: 'repeating-linear-gradient(45deg,#ece4d6 0 9px,#e2d8c8 9px 18px)', border: '1px solid rgba(34,31,26,.1)', flex: 'none', display: 'flex', alignItems: 'flex-end', padding: 8 }}><span style={{ fontFamily: T.mono, fontSize: 9, color: T.muted }}>portræt</span></div>
+          )}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
               <div style={{ fontFamily: T.serif, fontSize: 27, lineHeight: 1, fontWeight: 600, minWidth: 0 }}>{p.name}</div>
@@ -789,6 +810,17 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
           </>
         )}
 
+        {gallery.length > 0 && (
+          <>
+            <Label>Materiale</Label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {gallery.map((m) => (
+                <MediaThumb key={m.id} m={m} w={84} h={84} radius={9} />
+              ))}
+            </div>
+          </>
+        )}
+
         {detail === null && <div style={{ marginTop: 18, fontSize: 12, color: T.muted3 }}>Henter detaljer…</div>}
 
         {/* Kilde i Aarbogen (§ + trykt værk + "Linje X, nr. N"). */}
@@ -837,6 +869,13 @@ function EstatesView({ estates, estateId, estate, info, owners, onOpen, onBack, 
           {estate.slags && <span style={{ fontSize: 11.5, fontWeight: 600, color: T.bordeaux, background: '#f4e2e6', border: '1px solid rgba(136,26,51,.16)', padding: '5px 10px', borderRadius: 7 }}>{estate.slags}</span>}
           {info?.sted && <span style={{ fontSize: 11.5, fontWeight: 600, color: T.muted, background: T.beige, border: '1px solid rgba(34,31,26,.1)', padding: '5px 10px', borderRadius: 7 }}>⌖ {info.sted}</span>}
         </div>
+        {info && info.media.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
+            {info.media.filter((m) => m.url).map((m) => (
+              <MediaThumb key={m.id} m={m} w={180} h={130} radius={11} />
+            ))}
+          </div>
+        )}
         {/* Vis intet under load (info===null); derefter narrativ eller tom-tilstand. */}
         {info && (info.narrativ ? (
           <div style={{ marginTop: 16, fontFamily: T.serif, fontSize: 15.5, lineHeight: 1.6, color: '#3d382f', whiteSpace: 'pre-wrap' }}><NarrativRenderer tekst={info.narrativ} onPickPerson={onPickOwner} linkColor={T.bordeaux} inactiveColor={T.muted2} /></div>
@@ -892,7 +931,11 @@ function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
       {!arms ? <div style={{ color: T.muted3 }}>Henter…</div> : (
         <>
           <div style={{ background: T.ink, borderRadius: 16, padding: 26, display: 'flex', gap: 24, alignItems: 'center' }}>
-            <div style={{ width: 150, height: 185, borderRadius: 10, background: 'repeating-linear-gradient(45deg,#3a352c 0 9px,#322d25 9px 18px)', border: '1px solid rgba(231,201,143,.2)', flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><span style={{ fontFamily: T.mono, fontSize: 10, color: T.gold }}>våbenskjold</span></div>
+            {main?.media?.[0]?.url ? (
+              <div style={{ flex: 'none' }}><MediaThumb m={main.media[0]} w={150} h={185} radius={10} /></div>
+            ) : (
+              <div style={{ width: 150, height: 185, borderRadius: 10, background: 'repeating-linear-gradient(45deg,#3a352c 0 9px,#322d25 9px 18px)', border: '1px solid rgba(231,201,143,.2)', flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><span style={{ fontFamily: T.mono, fontSize: 10, color: T.gold }}>våbenskjold</span></div>
+            )}
             <div>
               <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.goldLight }}>Autoriseret våben</div>
               <div style={{ fontSize: 12, color: T.cream, marginTop: 3 }}>Dansk Adels Forenings gældende gengivelse</div>
@@ -906,7 +949,11 @@ function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
                 {rest.map((v) => (
                   <div key={v.id} style={{ background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: 11 }}>
-                    <div style={{ width: '100%', aspectRatio: '.82', borderRadius: 8, background: 'repeating-linear-gradient(45deg,#ece4d6 0 8px,#e2d8c8 8px 16px)', border: '1px solid rgba(34,31,26,.08)' }} />
+                    {v.media?.[0]?.url ? (
+                      <MediaThumb m={v.media[0]} w="100%" h="auto" radius={8} />
+                    ) : (
+                      <div style={{ width: '100%', aspectRatio: '.82', borderRadius: 8, background: 'repeating-linear-gradient(45deg,#ece4d6 0 8px,#e2d8c8 8px 16px)', border: '1px solid rgba(34,31,26,.08)' }} />
+                    )}
                     <div style={{ fontFamily: T.serif, fontSize: 14, fontWeight: 600, marginTop: 7, lineHeight: 1.1 }}>{v.note || v.blasonering.slice(0, 40) || 'variant'}</div>
                   </div>
                 ))}

@@ -2,6 +2,7 @@
 // pladsholder, inline "barn af"/"gift med" i Cormorant, badges (Dig/Linje/titel), bio-klamp
 // 7 linjer, børn pr. ægteskab (50px avatarer), embeder, godser-tags, materiale-tomtilstand,
 // kilder m. §-tegn + "trykt værk", handlinger.
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -10,6 +11,7 @@ import { StripedPlaceholder } from '../../components/StripedPlaceholder';
 import { TopBar } from '../../components/TopBar';
 import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
 import { childrenByMarriage, parentsOf, spousesOf } from '../../data/selectors';
+import { pickPortrait, useMediaUris } from '../../lib/media';
 import { useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius } from '../../theme/tokens';
 
@@ -31,6 +33,13 @@ export default function PersonScreen() {
   // lander på den samme, samlede person (samme_som-collapse).
   const personId = id ? canonicalId(String(id)) : null;
   const person = personId && model ? model.byId[personId] : null;
+
+  // Medier (mediehåndtering Slice 0): udregnes FØR early-return så hook-kaldet er ubetinget.
+  const media = personId ? aux?.mediaBy[personId] ?? [] : [];
+  const mediaUris = useMediaUris(media);
+  const portrait = pickPortrait(media);
+  const portraitUri = portrait ? mediaUris[String(portrait.id)] : undefined;
+  const gallery = media.filter((m) => String(m.id) !== String(portrait?.id) && mediaUris[String(m.id)]);
 
   if (!person || !model) {
     return (
@@ -65,7 +74,6 @@ export default function PersonScreen() {
   const offices = aux?.officesBy[person.id] ?? [];
   const estates = aux?.estatesBy[person.id] ?? [];
   const sources = aux?.sourcesBy[person.id] ?? [];
-  const media = aux?.mediaBy[person.id] ?? [];
   // Vis udfold-toggle hvis bio enten er lang (tegn) ELLER har mange linjeskift — ellers
   // ville en kort men afsnits-opdelt prosa blive klampet til 7 linjer uden mulighed for udfold.
   const bioNewlines = (person.bio.match(/\n/g)?.length ?? 0);
@@ -77,7 +85,11 @@ export default function PersonScreen() {
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 28 }}>
         {/* Header: portræt + navn + badges */}
         <View style={styles.header}>
-          <StripedPlaceholder width={96} height={120} radius={12} label="portræt" />
+          {portraitUri ? (
+            <Image source={{ uri: portraitUri }} style={{ width: 96, height: 120, borderRadius: 12 }} contentFit="cover" transition={150} />
+          ) : (
+            <StripedPlaceholder width={96} height={120} radius={12} label="portræt" />
+          )}
           <View style={{ flex: 1, minWidth: 0, paddingTop: 4 }}>
             <Serif size={30} style={{ lineHeight: 30 }}>{person.name}</Serif>
             {person.years ? <Mono size={11} color={Colors.textMuted} style={{ marginTop: 7 }}>{person.years}</Mono> : null}
@@ -206,10 +218,20 @@ export default function PersonScreen() {
           </Section>
         ) : null}
 
-        {/* Materiale — tom-tilstand */}
+        {/* Materiale — galleri når billeder er tilknyttet, ellers tom-tilstand */}
         <Section title="Materiale">
-          {media.length ? (
-            <Body size={13} color={Colors.textMuted}>{media.length} medie-objekt(er) knyttet.</Body>
+          {gallery.length ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 9 }}>
+              {gallery.map((m) => (
+                <Image
+                  key={String(m.id)}
+                  source={{ uri: mediaUris[String(m.id)] }}
+                  style={{ width: 108, height: 108, borderRadius: 10, backgroundColor: Colors.beige2 }}
+                  contentFit="cover"
+                  transition={150}
+                />
+              ))}
+            </ScrollView>
           ) : (
             <>
               <View style={{ flexDirection: 'row', gap: 9 }}>

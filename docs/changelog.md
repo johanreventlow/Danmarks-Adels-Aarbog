@@ -33,7 +33,20 @@ kontrol-kolonne (som `person.levende`/`privat`).
   LOKALT:** hele kæden `schema → db-migrations → db-rls → db-verify` kørt mod en frisk Postgres 16
   med Supabase-stub (roller/auth/storage); begge medie-tasks grønne under faktisk RLS (rolle `anon`).
 - **Udestår (bruger-gatet):** anvendelse til prod (migration + `db-rls.sql` + bucket-oprettelse);
-  frontend-slices; vocab-seed for rig rettigheds-dokumentation (Slice 1).
+  vocab-seed for rig rettigheds-dokumentation (Slice 1); redaktør-upload (Slice 0g).
+
+**Frontend read-path (web + mobile, samme session):**
+- **Web** (`web/src/data/media.ts` nyt): signed-URL-helper (`createSignedUrls`, batch, 600s) +
+  `fetchPersonMedia` (person→media afbildet) + `fetchObjectMedia` (media→objekt). `fetchPersonDetail`
+  udvidet med `media`; portræt i `DetailPanel` (fald tilbage til placeholder) + "Materiale"-galleri;
+  objekt-billeder i `ArmsView` (hovedvåben + varianter) og `EstatesView`. Delt `MediaThumb`
+  (klik → fuld signed URL i ny fane). tsc + 147 web-tests + build grønne.
+- **Mobile** (`mobile/src/lib/media.ts` nyt): `signPaths` (TTL-cache) + `useMediaUris`-hook +
+  `pickPortrait`. **Rettet latent bug:** `buildAux.mediaBy` nøglede på `m.person_id` (kolonne findes
+  ikke → altid tom); nu koblet via relation person→media `afbildet` (2 nye enheds-tests).
+  Header-portræt + Materiale-galleri (`expo-image`, allerede installeret) i `person/[id].tsx`.
+  tsc + 260 mobile-tests grønne. **Empirisk device-verifikation udskudt** (RN-sim-fetch-bug,
+  se memory `mobil-sim-rn-fetch-1005`) — kræver prod-migreret base + fysisk enhed.
 
 ## TNG-analyse opfølgning + backlog-prioritering (2026-07-03)
 
