@@ -1,5 +1,40 @@
 # Changelog
 
+## Mediehåndtering — DB/Storage/RLS-fundament (Slice 0, 2026-07-04)
+
+Første skive af den samlede medie-design-session (`CLAUDE.md` §6.6/§9, udskudt "samlet,
+ikke stykvis"). **Kun DB-laget** i denne omgang; frontend (portræt/objekt-visning,
+redaktør-upload) og bulk-import følger som senere slices. Fuld plan i
+`docs/superpowers/plans/2026-07-04-mediehaandtering.md`.
+
+**Designprincip:** fysisk byte-metadata → kolonner på `media` (eneste legitime "fedning"
+af den tynde tabel); semantiske links → `relation` (`afbildet` findes allerede);
+rettigheds-*dokumentation* → `fact` på `subjekt_type='media'`; publikations-*gating* →
+kontrol-kolonne (som `person.levende`/`privat`).
+
+- **`media`-skema udvidet** (`schema.sql` + idempotente ALTER'er i `db-migrations.sql`):
+  storage-metadata (`bucket`, `storage_path`, `mime_type`, `byte_size`, `bredde`, `hoejde`,
+  `sha256`, `original_filnavn`, `upload_status`) + unikke indekser på `(bucket,storage_path)`
+  og `sha256`. To-fase upload: række (`'kladde'`) → bytes → `'klar'`.
+- **Rettigheder fra dag 1:** `maa_publiceres BOOLEAN DEFAULT false` (fail-closed) +
+  `rettigheder_status`. To **ortogonale** gating-dimensioner: GDPR-person-gating (fandtes)
+  + ny copyright/publikations-gating. Begge skal opfyldes for offentlig visning.
+- **RLS** (`db-rls.sql`): nye SECURITY DEFINER-helpers `media_rettigheder_ok` (kun
+  `maa_publiceres AND upload_status='klar'`) + `media_id_for_object` (objekt→media-mapping).
+  De tre `media`-tabel-politikker udvidet med rettigheds-gating. **Én privat bucket `media`**
+  + `storage.objects`-politikker der spejler media-stakken (signed URLs, ikke offentlige URLs
+  — begge dimensioner er tilbagekaldelige). Forældreløst objekt → fail-closed.
+- **RPC'er** (`schema.sql` + `db-migrations.sql`, husstil: SECURITY DEFINER, `current_rolle`-
+  gate, `begin_change_set`, `max(id)+1`): `red_opret_media`, `red_bekraeft_media_upload`,
+  `red_upload_media` (media + `afbildet`-relation i ét change_set via re-entrant B7),
+  `red_set_media_rettigheder`. Tilknytning af eksisterende media = eksisterende `red_relation`.
+- **Verify:** `db-verify.sql` Task 8 opdateret (fixturer sætter rettigheds-felter så afbildet-
+  testen isoleres) + ny **Task 12** (rettigheds-gating + storage-mapping). **Empirisk verificeret
+  LOKALT:** hele kæden `schema → db-migrations → db-rls → db-verify` kørt mod en frisk Postgres 16
+  med Supabase-stub (roller/auth/storage); begge medie-tasks grønne under faktisk RLS (rolle `anon`).
+- **Udestår (bruger-gatet):** anvendelse til prod (migration + `db-rls.sql` + bucket-oprettelse);
+  frontend-slices; vocab-seed for rig rettigheds-dokumentation (Slice 1).
+
 ## TNG-analyse opfølgning + backlog-prioritering (2026-07-03)
 
 Fuld gennemgang af `jr_tng_reventlow.sql` (alle 37 `CREATE TABLE`-blokke + reelle
