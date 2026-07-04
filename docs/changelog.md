@@ -24,6 +24,20 @@ High-effort `/code-review` (5 finder-vinkler) på Slice 0-diff'en fandt 10 fund;
 - **Re-verificeret:** hele SQL-kæden lokalt (Task 8/12/12b grønne, #1+#7-guards rejser); web tsc+147+build;
   mobile tsc+264 (4 nye pickPortrait-tests).
 
+**`/simplify` (4 vinkler) oven på fixes:**
+- **Altitude (sikkerhed):** GDPR-retnings-guarden løftet ind i `red_relation`-primitiven (afvis
+  `afbildet` med person på objekt-siden) — lukker fail-open for ALLE kaldere, ikke kun `red_upload_media`.
+  De to gating-dimensioner komponeret i `media_synlig_anon`/`media_synlig_auth`, delt af media-tabel-
+  OG storage.objects-politikkerne (ingen split-brain-drift, ét objekt→media-opslag pr. række).
+- **Reuse/efficiency:** web `signPaths` fik mobile's TTL-cache + `onAuthStateChange`-clear (ingen
+  re-signering/billed-re-download pr. visning); `MediaThumb` flyttet til `components/primitives.tsx`.
+- **Altitude/simplification:** web `fetchPersonMedia`/`fetchObjectMedia` samlet i én retnings-parametriseret
+  `fetchMediaByRelation`; mobile signable/portræt/galleri konsolideret i en `usePersonMedia`-model-hook;
+  `firstSignable`-helper delt i ArmsView; `red_set_media_rettigheder` 3 IF-blokke → én VALUES-løkke;
+  `fetchEstateInfo` kører nu medie-fetchen samtidig med narrativ/sted-kæden.
+- **Skippet (bevidst):** stribet-placeholder-ekstraktion (præeksisterende), `red_upload_media`-dobbelt-gate
+  (tilsigtet fail-fast + change-set-label), render-memoization (negligibel ved nuv. datastørrelser).
+
 ## Mediehåndtering — DB/Storage/RLS-fundament (Slice 0, 2026-07-04)
 
 Første skive af den samlede medie-design-session (`CLAUDE.md` §6.6/§9, udskudt "samlet,

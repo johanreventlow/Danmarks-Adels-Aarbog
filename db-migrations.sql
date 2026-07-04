@@ -402,6 +402,12 @@ DECLARE v_id bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   IF p_rolle = 'samme_som' THEN RAISE EXCEPTION 'Brug red_samme_som til identitets-links'; END IF;
+  -- GDPR-invariant ved fødslen (ikke kun i red_upload_media): en 'afbildet'-relation skal gå
+  -- person→media, fordi media_afbilder_skjult/privat KUN scanner (subjekt=person, objekt=media).
+  -- En person på objekt-siden ville være usynlig for gatingen → fail-open. Luk det for ALLE kaldere.
+  IF p_rolle = 'afbildet' AND p_objekt_type = 'person' THEN
+    RAISE EXCEPTION 'afbildet skal gå person→media (person kan ikke stå på objekt-siden — GDPR-gating)';
+  END IF;
   PERFORM begin_change_set('red_relation', format('Relation %s: %s/%s → %s/%s', p_rolle, p_subjekt_type, p_subjekt_id, p_objekt_type, p_objekt_id), p_subjekt_type, p_subjekt_id);
   INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle, periode_raw)
     VALUES ((SELECT coalesce(max(id),0)+1 FROM relation),
@@ -1732,13 +1738,9 @@ BEGIN
   UPDATE media SET rettigheder_status=coalesce(p_status, rettigheder_status),
                    maa_publiceres=coalesce(p_maa_publiceres, maa_publiceres)
    WHERE id=p_media_id;
-  IF nullif(btrim(p_licens),'') IS NOT NULL THEN
-    PERFORM red_upsert_fakta('media', p_media_id, 'licens', p_licens, p_kilde_fritekst => p_kilde_fritekst);
-  END IF;
-  IF nullif(btrim(p_kildehenvisning),'') IS NOT NULL THEN
-    PERFORM red_upsert_fakta('media', p_media_id, 'kildehenvisning', p_kildehenvisning, p_kilde_fritekst => p_kilde_fritekst);
-  END IF;
-  IF nullif(btrim(p_gengivelsestilladelse),'') IS NOT NULL THEN
-    PERFORM red_upsert_fakta('media', p_media_id, 'gengivelsestilladelse', p_gengivelsestilladelse, p_kilde_fritekst => p_kilde_fritekst);
-  END IF;
+  -- Rig rettigheds-dokumentation som facts (kun de udfyldte). Én løkke frem for tre ens IF-blokke.
+  PERFORM red_upsert_fakta('media', p_media_id, r.felt, r.val, p_kilde_fritekst => p_kilde_fritekst)
+    FROM (VALUES ('licens', p_licens), ('kildehenvisning', p_kildehenvisning),
+                 ('gengivelsestilladelse', p_gengivelsestilladelse)) AS r(felt, val)
+    WHERE nullif(btrim(r.val),'') IS NOT NULL;
 END $$;

@@ -11,7 +11,7 @@ import { StripedPlaceholder } from '../../components/StripedPlaceholder';
 import { TopBar } from '../../components/TopBar';
 import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
 import { childrenByMarriage, parentsOf, spousesOf } from '../../data/selectors';
-import { pickPortrait, useMediaUris } from '../../lib/media';
+import { usePersonMedia } from '../../lib/media';
 import { useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius } from '../../theme/tokens';
 
@@ -34,16 +34,9 @@ export default function PersonScreen() {
   const personId = id ? canonicalId(String(id)) : null;
   const person = personId && model ? model.byId[personId] : null;
 
-  // Medier (mediehåndtering Slice 0): udregnes FØR early-return så hook-kaldet er ubetinget.
+  // Medier (mediehåndtering Slice 0): model-hook FØR early-return så hook-kaldet er ubetinget.
   const media = personId ? aux?.mediaBy[personId] ?? [] : [];
-  const mediaUris = useMediaUris(media);
-  // Foretræk et portræt der faktisk kan signeres; fald tilbage til alle indtil uris er resolvet
-  // (ellers ville et usignérbart første-medie give permanent placeholder mens et gyldigt billede
-  // sad i galleriet). Når uris lander, re-render vælger et signerbart portræt.
-  const signable = media.filter((m) => mediaUris[String(m.id)]);
-  const portrait = pickPortrait(signable.length ? signable : media);
-  const portraitUri = portrait ? mediaUris[String(portrait.id)] : undefined;
-  const gallery = media.filter((m) => String(m.id) !== String(portrait?.id) && mediaUris[String(m.id)]);
+  const { portraitUri, gallery } = usePersonMedia(media);
 
   if (!person || !model) {
     return (
@@ -226,10 +219,10 @@ export default function PersonScreen() {
         <Section title="Materiale">
           {gallery.length ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 9 }}>
-              {gallery.map((m) => (
+              {gallery.map(({ media: m, uri }) => (
                 <Image
                   key={String(m.id)}
-                  source={{ uri: mediaUris[String(m.id)] }}
+                  source={{ uri }}
                   style={{ width: 108, height: 108, borderRadius: 10, backgroundColor: Colors.beige2 }}
                   contentFit="cover"
                   transition={150}

@@ -4,6 +4,7 @@
 // reimplementerede Avatar/ViewHeader inline i stedet for at importere dem herfra.
 import { T } from '../theme';
 import { initials } from '../data/format';
+import type { MediaItem } from '../data/media';
 
 export const Kicker = ({ children }: { children: React.ReactNode }) => (
   <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.2em', textTransform: 'uppercase', color: T.gold, marginBottom: 6 }}>{children}</div>
@@ -44,6 +45,19 @@ export const BookmarkFlag = ({ active, onClick }: { active: boolean; onClick: ()
     </svg>
   </span>
 );
+
+// Medie-billede med fallback: intet render hvis signering fejlede (url=null). Klik åbner den
+// fulde (signed) URL i ny fane — RLS har allerede gatet at brugeren må se den. Delt af
+// person-portræt/-galleri + gods/våben-visningerne.
+export const MediaThumb = ({ m, w, h, radius = 10 }: { m: MediaItem; w: number | string; h: number | string; radius?: number }) => {
+  if (!m.url) return null;
+  const cap = [m.titel, m.kunstner, m.datering].filter(Boolean).join(' · ');
+  return (
+    <img src={m.url} alt={m.titel || m.slags || 'medie'} title={cap || undefined}
+      onClick={() => window.open(m.url!, '_blank', 'noopener')}
+      style={{ width: w, height: h, objectFit: 'cover', borderRadius: radius, border: '1px solid rgba(34,31,26,.1)', cursor: 'zoom-in', display: 'block' }} />
+  );
+};
 
 // Kompakt sidebar-række (24×24 badge + navn + sekundær-linje), delt af ctx-sektionen og
 // bmQuick-sektionen i Folgesvend.tsx (/simplify-fund: var to næsten identiske inline-blokke).

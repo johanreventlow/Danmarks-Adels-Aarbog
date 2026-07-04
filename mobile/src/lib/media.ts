@@ -71,9 +71,25 @@ export function useMediaUris(media: RawMedia[]): Record<string, string> {
   return map;
 }
 
-// Vælg hovedbillede (portræt): første portræt-egnede, ellers første medie. Kald-siden bør
-// filtrere til signerbare medier først (se person/[id].tsx), så et usignérbart portræt ikke
-// giver permanent placeholder.
+// Vælg hovedbillede (portræt): første portræt-egnede, ellers første medie.
 export function pickPortrait(media: RawMedia[]): RawMedia | null {
   return media.find((m) => PORTRAIT_SLAGS.has(normSlags(String(m.slags ?? '')))) ?? media[0] ?? null;
+}
+
+// Model-hook: resolvér signed URLs + udled portræt/galleri ÉT sted (samme kontrakt som web's
+// data-lag), så visnings-komponenten forbruger en færdig model frem for at orkestrere rå dele.
+// Portræt vælges blandt SIGNERBARE medier (fald tilbage til alle indtil uris er resolvet), så et
+// usignérbart første-medie ikke giver permanent placeholder mens et gyldigt billede sad i galleriet.
+export function usePersonMedia(media: RawMedia[]): {
+  portraitUri: string | undefined;
+  gallery: Array<{ media: RawMedia; uri: string }>;
+} {
+  const uris = useMediaUris(media);
+  const signable = media.filter((m) => uris[String(m.id)]);
+  const portrait = pickPortrait(signable.length ? signable : media);
+  const portraitUri = portrait ? uris[String(portrait.id)] : undefined;
+  const gallery = signable
+    .filter((m) => String(m.id) !== String(portrait?.id))
+    .map((m) => ({ media: m, uri: uris[String(m.id)] }));
+  return { portraitUri, gallery };
 }

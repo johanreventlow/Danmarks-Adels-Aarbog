@@ -88,6 +88,8 @@ export function fetchArms(): Promise<ArmsItem[]> {
 // Gods-detalje: historik-narrativ (offentlig) + beliggenhed (place via sted_id). Tolerant.
 export function fetchEstateInfo(estateId: string): Promise<EstateInfo> {
   return safe(async () => {
+    // Medie-fetchen afhænger kun af estateId → kør den samtidig med narrativ/sted-kæden (ikke bagefter).
+    const mediaP = fetchObjectMedia('estate', [Number(estateId)]);
     const [narr, est] = await Promise.all([
       supabase.from('narrative').select('tekst').eq('subjekt_type', 'estate').eq('subjekt_id', Number(estateId))
         .eq('privat', false).order('id', { ascending: true }).limit(1),
@@ -100,7 +102,7 @@ export function fetchEstateInfo(estateId: string): Promise<EstateInfo> {
       const { data: pl } = await supabase.from('place').select('navn').eq('id', stedId).maybeSingle();
       sted = (pl as { navn: string | null } | null)?.navn ?? '';
     }
-    const media = (await fetchObjectMedia('estate', [Number(estateId)])).get(estateId) ?? [];
+    const media = (await mediaP).get(estateId) ?? [];
     return { narrativ, sted, media };
   }, { narrativ: '', sted: '', media: [] }, 'fetchEstateInfo');
 }

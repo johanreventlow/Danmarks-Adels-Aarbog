@@ -115,6 +115,22 @@ $$;
 revoke all on function public.media_id_for_object(text) from public;
 grant execute on function public.media_id_for_object(text) to anon, authenticated;
 
+-- Komponér de TO ortogonale gating-dimensioner (afbildet + rettigheder) ÉT sted, så media-tabellen
+-- og storage.objects deler nøjagtig samme synligheds-regel (ingen split-brain-drift) og objektet kun
+-- kortlægges til media ÉN gang pr. række. NULL mid (forældreløst objekt) → fail-closed (rettigheder_ok=false).
+create or replace function public.media_synlig_anon(mid bigint)
+returns boolean language sql stable set search_path=public as $$
+  select not public.media_afbilder_skjult(mid) and public.media_rettigheder_ok(mid);
+$$;
+create or replace function public.media_synlig_auth(mid bigint)
+returns boolean language sql stable set search_path=public as $$
+  select not public.media_afbilder_privat(mid) and public.media_rettigheder_ok(mid);
+$$;
+revoke all on function public.media_synlig_anon(bigint) from public;
+revoke all on function public.media_synlig_auth(bigint) from public;
+grant execute on function public.media_synlig_anon(bigint) to anon, authenticated;
+grant execute on function public.media_synlig_auth(bigint) to authenticated;
+
 -- ---------- DROP DEV-LAGET FØRST ----------
 -- KRITISK: den midlertidige dev-RLS (web/dev-rls.sql) oprettede politikker
 -- 'dev_anon_read' med USING (true). Postgres OR'er permissive politikker for
@@ -171,13 +187,11 @@ grant select on table public.media to anon, authenticated;
 alter table public.media enable row level security;
 drop policy if exists anon_read on public.media;
 create policy anon_read on public.media for select to anon
-  using (not public.media_afbilder_skjult(media.id)
-         and public.media_rettigheder_ok(media.id));
+  using (public.media_synlig_anon(media.id));
 -- authenticated (medlem): levende tilladt, men manuelt privat skjules; rettigheder gælder stadig.
 drop policy if exists auth_read on public.media;
 create policy auth_read on public.media for select to authenticated
-  using (not public.media_afbilder_privat(media.id)
-         and public.media_rettigheder_ok(media.id));
+  using (public.media_synlig_auth(media.id));
 -- redaktion: ser alt (additivt oven på de to ovenfor).
 drop policy if exists redaktion_read on public.media;
 create policy redaktion_read on public.media for select to authenticated
@@ -194,17 +208,14 @@ create policy redaktion_read on public.media for select to authenticated
 do $$ begin
   if exists (select 1 from information_schema.tables
              where table_schema='storage' and table_name='objects') then
-    -- SELECT
+    -- SELECT — samme synligheds-regel som media-tabellen (via media_synlig_*), så de to aldrig driver
+    -- fra hinanden; objekt→media kortlægges kun ÉN gang pr. række.
     drop policy if exists media_obj_anon on storage.objects;
     create policy media_obj_anon on storage.objects for select to anon using (
-      bucket_id = 'media'
-      and not public.media_afbilder_skjult(public.media_id_for_object(name))
-      and public.media_rettigheder_ok(public.media_id_for_object(name)));
+      bucket_id = 'media' and public.media_synlig_anon(public.media_id_for_object(name)));
     drop policy if exists media_obj_auth on storage.objects;
     create policy media_obj_auth on storage.objects for select to authenticated using (
-      bucket_id = 'media'
-      and not public.media_afbilder_privat(public.media_id_for_object(name))
-      and public.media_rettigheder_ok(public.media_id_for_object(name)));
+      bucket_id = 'media' and public.media_synlig_auth(public.media_id_for_object(name)));
     drop policy if exists media_obj_redaktion on storage.objects;
     create policy media_obj_redaktion on storage.objects for select to authenticated using (
       bucket_id = 'media' and (select public.current_rolle()) = 'redaktion');

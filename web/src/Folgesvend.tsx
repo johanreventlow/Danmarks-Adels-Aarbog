@@ -8,14 +8,14 @@ import { buildBidirectionalColumns } from './data/tree';
 import { initials, konfTekst } from './data/format';
 import { computeRelationship, type RelationResult } from './data/relationship';
 import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
-import { pickPortrait, type MediaItem } from './data/media';
+import { pickPortrait, firstSignable } from './data/media';
 import type { Model, ModelPerson } from './data/types';
 import { NarrativRenderer } from './components/NarrativRenderer';
 import { buildBrowse } from './data/browse';
 import { useBookmarks, type BookmarkSort } from './data/bookmarks';
 import { BookmarksView } from './components/BookmarksView';
 import { SlaegtPicker } from './components/SlaegtPicker';
-import { ViewHeader, Avatar, BookmarkFlag, SidebarMiniRow } from './components/primitives';
+import { ViewHeader, Avatar, BookmarkFlag, SidebarMiniRow, MediaThumb } from './components/primitives';
 import { T } from './theme';
 
 // Kun Reventlow findes i dag; vælgeren er 1-punkt + "flere kommer"-note (spec §2 ikke-mål).
@@ -669,18 +669,6 @@ function RelateView({ model, rel, relA, relB, slot, setSlot, onPickStep, meId, o
   );
 }
 
-// Medie-billede med fallback: intet render hvis signering fejlede (url=null). Klik åbner den
-// fulde (signed) URL i ny fane — RLS har allerede gatet at brugeren må se den.
-function MediaThumb({ m, w, h, radius = 10 }: { m: MediaItem; w: number | string; h: number | string; radius?: number }) {
-  if (!m.url) return null;
-  const cap = [m.titel, m.kunstner, m.datering].filter(Boolean).join(' · ');
-  return (
-    <img src={m.url} alt={m.titel || m.slags || 'medie'} title={cap || undefined}
-      onClick={() => window.open(m.url!, '_blank', 'noopener')}
-      style={{ width: w, height: h, objectFit: 'cover', borderRadius: radius, border: '1px solid rgba(34,31,26,.1)', cursor: 'zoom-in', display: 'block' }} />
-  );
-}
-
 // ---- Person-detalje (højre panel) ----
 function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocusTree, onRelate, isMe, onToggleMe, isBookmarked, onToggleBookmark }: {
   model: Model; focusId: string; detail: PersonDetailData | null; onPick: (id: string) => void;
@@ -925,7 +913,7 @@ function EstatesView({ estates, estateId, estate, info, owners, onOpen, onBack, 
 function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
   const main = arms?.[0];
   const rest = (arms ?? []).slice(1);
-  const mainCrest = main?.media.find((m) => m.url) ?? null; // første signerbare (ikke blindt media[0])
+  const mainCrest = main ? firstSignable(main.media) : null; // første signerbare (ikke blindt media[0])
   return (
     <div style={{ padding: '30px 40px 50px', maxWidth: 640 }}>
       <ViewHeader title="Slægtens våben" mb="18px" />
@@ -949,7 +937,7 @@ function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
               <Label>Øvrige gengivelser &amp; varianter</Label>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
                 {rest.map((v) => {
-                  const vImg = v.media.find((m) => m.url); // første signerbare variant-billede
+                  const vImg = firstSignable(v.media); // første signerbare variant-billede
                   return (
                     <div key={v.id} style={{ background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: 11 }}>
                       {/* Fast .82-aspekt uanset billede/placeholder, så grid-cellerne flugter. */}
