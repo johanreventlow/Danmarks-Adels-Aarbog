@@ -3,6 +3,7 @@
 // SEPARAT bagefter (i storen) for at udlede parentId/spouse + indekser.
 import { supabase, supabaseEnabled } from '../lib/supabase';
 import { buildAux } from './buildAux';
+import { buildGeo } from './buildGeo';
 import { collapseSameAs } from './collapseSameAs';
 import { pickPreferredBio, type NarrativeCand } from './pickPreferredBio';
 import { fmtYears, parseYear } from './fields';
@@ -11,17 +12,20 @@ import type {
   AppPerson,
   Aux,
   Db,
+  Geo,
   Provenance,
   ParentChild,
   RawArms,
   RawEstate,
   RawExtId,
+  RawFact,
   RawLineage,
   RawMedia,
   RawMember,
   RawNarrative,
   RawOrg,
   RawPerson,
+  RawPlace,
   RawRelation,
   RawSource,
   Union,
@@ -64,6 +68,8 @@ export type LoadResult = {
   // samme_som-collapse: ethvert medlems-id → kanonisk id + proveniens pr. kanonisk (til badge).
   canonicalIdById: Record<string, string>;
   mergedFrom: Record<string, Provenance[]>;
+  // Geo-lag (kortpunkter) — tomt indtil koordinat-berigelsen (tng_places + geokodning) er kørt.
+  geo: Geo;
 };
 
 export function mapAppPersons(
@@ -128,6 +134,8 @@ export async function loadFromSupabase(opts?: {
     arms,
     sameAsRel,
     approvedConc,
+    places,
+    facts,
   ] = await Promise.all([
       getAll<RawPerson>(() =>
         sb.from('person').select('id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_titel,koen,privat'),
@@ -150,7 +158,7 @@ export async function loadFromSupabase(opts?: {
           .select('subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw')
           .eq('subjekt_type', 'person'),
       ),
-      getAll<RawEstate>(() => sb.from('estate').select('id,navn,slags')),
+      getAll<RawEstate>(() => sb.from('estate').select('id,navn,slags,sted_id')),
       getAll<RawOrg>(() => sb.from('organisation').select('id,navn,slags')),
       getAll<RawMedia>(() => sb.from('media').select('*')),
       // Tolerant: lineage-tabellen findes måske ikke endnu (migration ej kørt) → tom = fallback til 'Linje {kode}'.
@@ -171,6 +179,18 @@ export async function loadFromSupabase(opts?: {
       getAll<{ target_id: number | string }>(() =>
         sb.from('conclusion').select('target_id').eq('target_type', 'relation').eq('status', 'afklaret'),
       ).catch(() => [] as { target_id: number | string }[]),
+      // Steder m. koordinater (tolerant: tabellen kan mangle i ældre env).
+      // .not('lat','is',null): buildGeo bruger kun steder MED koordinater, så vi henter kun dem.
+      //   Før berigelsen er lat/lon tomme overalt → 0 rækker i ét enkelt round-trip (ingen dead weight).
+      // .order('id'): place kan være >1000 rækker (tng_places ~6.788) efter berigelse → stabil rækkefølge
+      //   på tværs af getAll's paginerede .range()-kald, så grænse-rækker hverken duplikeres eller tabes.
+      getAll<RawPlace>(() =>
+        sb.from('place').select('id,navn,lat,lon').not('lat', 'is', null).order('id'),
+      ).catch(() => [] as RawPlace[]),
+      // Geo-bærende fakta: kun rækker med et sted (reducerer payload). Tolerant hvis RLS/tabel afviger.
+      getAll<RawFact>(() =>
+        sb.from('fact').select('subjekt_type,subjekt_id,faktatype,sted_id').not('sted_id', 'is', null).order('id'),
+      ).catch(() => [] as RawFact[]),
     ]);
 
   // Biografi pr. person — foretrukne offentlige narrativ (nyeste DAA-udgave) via pickPreferredBio.
@@ -263,6 +283,13 @@ export async function loadFromSupabase(opts?: {
     collapsed.canonicalIdById,
   );
 
+  // Geo-lag: bygges på den COLLAPSED + privat-filtrerede db.persons (RLS-gate). Tomt indtil
+  // koordinat-berigelsen udfylder place.lat/lon.
+  const geo = buildGeo(
+    { facts, estates, places, persons: db.persons, unions: db.unions },
+    collapsed.canonicalIdById,
+  );
+
   // Vælg fornuftige start-id'er (flest børn = midt i træet) — på den COLLAPSED db, så et start-id
   // aldrig peger på et foldet alias.
   const childSet = new Set(db.parentChild.map((e) => e.child));
@@ -290,5 +317,6 @@ export async function loadFromSupabase(opts?: {
     relBId: relB.id,
     canonicalIdById: collapsed.canonicalIdById,
     mergedFrom: collapsed.mergedFrom,
+    geo,
   };
 }
