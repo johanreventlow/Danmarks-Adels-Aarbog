@@ -270,3 +270,52 @@ To spor — **data (R)** og **app (TS)** — bundet af RLS:
   datakilde — DIGDAG (digdag.dk, Rigsarkivets historiske grænseatlas) blev foreslået
   men ikke besluttet. `place` (schema.sql) har allerede `lat`/`lon`, ingen polygon-
   kolonne. Se memory `tng-backlog-prioritering`.
+  **Ny vinkel (2026-07-04, kun planlægning):** bruger forestiller sig en
+  kortoversigt "à la Google Maps" — landmarks/steder knyttet til personer vist på
+  et kort, inkl. landmarks i brugerens egen geografiske nærhed (kræver enhedens
+  live GPS-position, ikke kun statiske historiske koordinater). Ubesvarede
+  spørgsmål til brainstorm-genoptagelsen: hvilke entiteter er "landmarks" (kun
+  `place`, eller også `estate`/`coat_of_arms`-lokationer?); nærheds-søgning kræver
+  location-permission-flow (mobile-only, ikke web); kort-bibliotek (`react-native-
+  maps`/MapKit vs. web-Leaflet — to platforme, mulig delt abstraktion à la
+  `buildBidirectionalColumns`-mønsteret).
+- **Del personprofil (fx via SMS) til en anden person — nyt, ikke designet
+  (2026-07-04, kun planlægning).** Sandsynlig løsning: nativ share-sheet
+  (`expo-sharing`/React Native `Share`) fra persondetalje-skærmen, ikke en
+  SMS-specifik integration — SMS bliver blot én af share-sheetets indbyggede
+  muligheder. Ubesvarede spørgsmål: deles et link til `web/`s persondetalje-side
+  (universelt, virker uden app) eller et app-deep-link (kræver Universal Links-
+  opsætning)? Og hvordan opfører et delt link sig for en modtager der ikke er logget
+  ind — respekterer det samme anon-RLS-gating (kun afdøde/ikke-private) som resten
+  af appen, eller kræver det login for at åbne overhovedet?
+- **Bogmærker i mobile/ — nyt, ikke designet (2026-07-04, kun planlægning).**
+  Findes allerede i `web/` (Web v3 Slice 1, se `web/src/data/bookmarks.ts` +
+  `BookmarksView.tsx`): `localStorage`-baseret, kanoniske person-id'er (samme_som-
+  collapset), egen kommentar i koden markerer det bevidst som en PoC-grænse —
+  en rigtig bruger-scoped/synkroniseret backend-store er udskudt til en senere
+  "Slice 2". Mobile mangler både lagring og en find-mine-bogmærker-skærm; mest
+  oplagte tilgang er at spejle web's kontrakt men med `@react-native-async-
+  storage/async-storage` (allerede en dependency i `mobile/package.json`) i stedet
+  for `localStorage`. Hænger sammen med den nye Konto-fane (login for medlem/
+  redaktion, se `docs/changelog.md` 2026-07-04): en logget-ind bruger kunne på
+  sigt få bogmærker synkroniseret på tværs af enheder i stedet for kun lokalt —
+  ikke besluttet, kræver egen brainstorm om scope (kun lokal-per-enhed, eller
+  konto-bundet).
+- **Slægtskabs-felt A/B UX-bug + "det er mig"-knap for fremtrædende — nyt, ikke
+  rettet (2026-07-04, kun planlægning, men rodårsag allerede fundet).**
+  (a) "Sæt mig"-genvejen på slægtskabs-siden (`mobile/src/app/(tabs)/relate.tsx:56`,
+  `onPress={() => setRelA(meId!)}`) kalder ALTID `setRelA` — uanset om felt A i
+  forvejen er udfyldt. Når man kommer fra en personprofils "Slægtskab"-knap
+  (`mobile/src/app/person/[id].tsx:248`, `useStore.setState({ relA: person.id })`,
+  som forudfylder felt A med den viste person), overskriver "Sæt mig" derfor den
+  netop forudfyldte person i stedet for at udfylde det TOMME felt B — nøjagtig
+  brugerens observerede bug. Rettelse skal formentlig fylde det tomme felt (B hvis
+  A allerede er sat, ellers A), og stadig fungere uændret ved direkte navigation
+  til fanen (begge felter tomme fra `store/useStore.ts` `relA`/`relB`-default).
+  (b) "Det er mig i slægten"-knappen vises ubetinget på HVER personprofil
+  (`person/[id].tsx:253-257`, styret af `isMe`/`setMe` fra `store/useStore.ts`).
+  Når `meId` allerede er sat til én bestemt person, ønsker bruger IKKE denne
+  invitation til at (fejlagtigt) ommarkere "mig" på enhver anden tilfældig profil
+  — kun mulighed for at fjerne/ændre markeringen bør forblive let tilgængelig,
+  fx kun på den aktuelt markerede profil selv, eller flyttet til Konto-fanen som
+  en bevidst handling. Ikke besluttet hvor.

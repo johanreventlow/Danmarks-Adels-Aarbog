@@ -1,7 +1,8 @@
-// Redaktions-tabbar: Oversigt · Entiteter · Tilføj · Konto (IKKE publikums-fanerne, spec §2).
-// "Tilføj" navigerer ikke — den åbner opret-sheet. Vi intercepter tabPress.
+// Redaktions-tabbar: Følgesvend · Oversigt · Entiteter · Tilføj · Konto (spec §2 + vej-ud-tilføjelse).
+// "Tilføj" og "Følgesvend" navigerer ikke til egne skærme — de intercepter tabPress
+// (opret-sheet, hhv. forlad redaktionen til publikums-fanerne).
 import { Ionicons } from '@expo/vector-icons';
-import { Tabs } from 'expo-router';
+import { Tabs, useRouter } from 'expo-router';
 import { useState } from 'react';
 import type { ColorValue } from 'react-native';
 import { OpretSheet } from '../../../components/redaktion/OpretSheet';
@@ -12,6 +13,7 @@ const icon = (name: IconName) => ({ color, size }: { color: ColorValue; size: nu
   <Ionicons name={name} color={color as string} size={size} />;
 
 export default function RedTabsLayout() {
+  const router = useRouter();
   const [opretOpen, setOpretOpen] = useState(false);
   return (
     <>
@@ -24,6 +26,11 @@ export default function RedTabsLayout() {
             backgroundColor: Colors.ink, borderTopColor: Border.medium },
           tabBarLabelStyle: { fontFamily: Fonts.sansSemi, fontSize: 11, letterSpacing: 0.1 },
         }}>
+        <Tabs.Screen
+          name="folgesvend"
+          options={{ title: 'Følgesvend', tabBarIcon: icon('arrow-back-circle-outline') }}
+          listeners={{ tabPress: (e) => { e.preventDefault(); router.navigate('/(tabs)'); } }}
+        />
         <Tabs.Screen name="index" options={{ title: 'Oversigt', tabBarIcon: icon('grid-outline') }} />
         <Tabs.Screen name="entiteter" options={{ title: 'Entiteter', tabBarIcon: icon('list-outline') }} />
         <Tabs.Screen

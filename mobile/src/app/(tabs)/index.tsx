@@ -43,6 +43,7 @@ export default function HomeScreen() {
     { num: '04', title: 'Slægtens våben', sub: 'Det autoriserede våben og øvrige gengivelser', count: '', href: '/arms', ready: true },
     { num: '05', title: 'Er vi i familie?', sub: 'Find slægtskabet mellem to personer', count: '', href: '/relate', ready: true },
     { num: '06', title: 'Søg', sub: 'Bladr blandt registrerede personer', count: '', href: '/search', ready: true },
+    { num: '07', title: 'Konto', sub: 'Log ind som medlem eller redaktør', count: '', href: '/konto', ready: true },
   ];
 
   return (

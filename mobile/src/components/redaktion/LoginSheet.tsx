@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { oversaetFejl } from '../../data/redaktionWrite';
 import { useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius } from '../../theme/tokens';
@@ -21,19 +21,23 @@ export function LoginSheet({ visible, onClose }: { visible: boolean; onClose: ()
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} />
-      <View style={styles.sheet}>
-        <View style={styles.handle} />
-        <Serif size={22} style={{ marginBottom: 14 }}>Log ind</Serif>
-        <TextInput style={styles.input} placeholder="E-mail" autoCapitalize="none"
-          keyboardType="email-address" value={email} onChangeText={setEmail} />
-        <TextInput style={styles.input} placeholder="Adgangskode" secureTextEntry
-          value={pw} onChangeText={setPw} />
-        {fejl ? <Mono size={11} color={Colors.bordeaux} style={{ marginBottom: 8 }}>{fejl}</Mono> : null}
-        <Pressable style={[styles.btn, busy && { opacity: 0.6 }]} disabled={busy} onPress={submit}>
-          <BtnLabel color="#fff">{busy ? 'Logger ind…' : 'Log ind'}</BtnLabel>
-        </Pressable>
-      </View>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <Pressable style={styles.backdrop} onPress={onClose} />
+        <View style={styles.sheet}>
+          <View style={styles.handle} />
+          <Serif size={22} style={{ marginBottom: 14 }}>Log ind</Serif>
+          <TextInput style={styles.input} placeholder="E-mail" autoCapitalize="none"
+            keyboardType="email-address" value={email} onChangeText={setEmail} />
+          <TextInput style={styles.input} placeholder="Adgangskode" secureTextEntry
+            value={pw} onChangeText={setPw} />
+          {fejl ? <Mono size={11} color={Colors.bordeaux} style={{ marginBottom: 8 }}>{fejl}</Mono> : null}
+          <Pressable style={[styles.btn, busy && { opacity: 0.6 }]} disabled={busy} onPress={submit}>
+            <BtnLabel color="#fff">{busy ? 'Logger ind…' : 'Log ind'}</BtnLabel>
+          </Pressable>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

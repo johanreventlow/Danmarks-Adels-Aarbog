@@ -49,6 +49,10 @@ export default function TabsLayout() {
         name="search"
         options={{ title: 'Søg', tabBarIcon: tabIcon('search-outline') }}
       />
+      <Tabs.Screen
+        name="konto"
+        options={{ title: 'Konto', tabBarIcon: tabIcon('person-circle-outline') }}
+      />
     </Tabs>
   );
 }
