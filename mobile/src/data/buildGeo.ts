@@ -43,17 +43,11 @@ export function buildGeo(
   const placeById: Record<string, { navn: string; lat: number; lon: number }> = {};
   (places || []).forEach((p) => {
     if (p.lat == null || p.lon == null) return;
-    placeById[String(p.id)] = { navn: p.navn ?? '', lat: Number(p.lat), lon: Number(p.lon) };
+    placeById[String(p.id)] = { navn: p.navn ?? '', lat: p.lat, lon: p.lon };
   });
 
-  // RLS-gate + år-opslag fra den synlige person-liste.
-  const personIds = new Set((persons || []).map((p) => p.id));
-  const bornById: Record<string, number | null> = {};
-  const diedById: Record<string, number | null> = {};
-  (persons || []).forEach((p) => {
-    bornById[p.id] = p.born;
-    diedById[p.id] = p.died;
-  });
+  // Synlige personer i ét opslag: RLS-membership (`has`) + fødsels-/døds-år (`get`).
+  const personById = new Map((persons || []).map((p) => [p.id, p]));
 
   // family_id → union (union.id = 'f' + family_id). p1/p2 er allerede kanoniske efter collapse.
   const unionByFamilyId: Record<string, Union> = {};
@@ -65,22 +59,30 @@ export function buildGeo(
   const byPerson: Record<string, GeoPoint[]> = {};
   const byEstate: Record<string, GeoPoint> = {};
 
+  // Byg et GeoPoint med all-null-defaults; kun de relevante felter overskrives pr. kind.
+  // Ét sted at redigere når GeoPoint får et nyt felt eller et nyt kind tilføjes.
+  const mkPoint = (
+    placeId: string,
+    pl: { navn: string; lat: number; lon: number },
+    over: Partial<GeoPoint> & { kind: GeoKind },
+  ): GeoPoint => ({
+    placeId,
+    navn: pl.navn,
+    lat: pl.lat,
+    lon: pl.lon,
+    personId: null,
+    estateId: null,
+    unionId: null,
+    year: null,
+    ...over,
+  });
+
   // Gods-punkter (offentlige — ikke person-gated).
   (estates || []).forEach((e) => {
     if (e.sted_id == null) return;
     const pl = placeById[String(e.sted_id)];
     if (!pl) return;
-    const pt: GeoPoint = {
-      placeId: String(e.sted_id),
-      navn: pl.navn,
-      lat: pl.lat,
-      lon: pl.lon,
-      kind: 'estate',
-      personId: null,
-      estateId: String(e.id),
-      unionId: null,
-      year: null,
-    };
+    const pt = mkPoint(String(e.sted_id), pl, { kind: 'estate', estateId: String(e.id) });
     points.push(pt);
     byEstate[String(e.id)] = pt;
   });
@@ -96,19 +98,10 @@ export function buildGeo(
       const kind = PERSON_FAKTA[ft];
       if (!kind) return;
       const pid = cid(String(f.subjekt_id));
-      if (!personIds.has(pid)) return; // RLS: privat/foldet-væk person → intet punkt
-      const year = kind === 'fødsel' ? bornById[pid] ?? null : kind === 'død' ? diedById[pid] ?? null : null;
-      const pt: GeoPoint = {
-        placeId: String(f.sted_id),
-        navn: pl.navn,
-        lat: pl.lat,
-        lon: pl.lon,
-        kind,
-        personId: pid,
-        estateId: null,
-        unionId: null,
-        year,
-      };
+      const person = personById.get(pid);
+      if (!person) return; // RLS: privat/foldet-væk person → intet punkt
+      const year = kind === 'fødsel' ? person.born : kind === 'død' ? person.died : null;
+      const pt = mkPoint(String(f.sted_id), pl, { kind, personId: pid, year });
       points.push(pt);
       (byPerson[pid] = byPerson[pid] || []).push(pt);
     } else if (f.subjekt_type === 'family' && ft === 'vielse') {
@@ -119,19 +112,13 @@ export function buildGeo(
       // droppes punktet helt — ellers ville et privat pars vielsessted lække på overbliks-/
       // nærhedskortet (personId er null dér, så byPerson-gaten alene beskytter ikke `points`).
       // Set() afduplikerer p1===p2, som kan opstå hvis samme_som-collapse folder begge til én.
-      const visible = [...new Set([u.p1, u.p2].filter((pp): pp is string => !!pp && personIds.has(pp)))];
+      const visible = [...new Set([u.p1, u.p2].filter((pp): pp is string => !!pp && personById.has(pp)))];
       if (!visible.length) return;
-      const pt: GeoPoint = {
-        placeId: String(f.sted_id),
-        navn: pl.navn,
-        lat: pl.lat,
-        lon: pl.lon,
+      const pt = mkPoint(String(f.sted_id), pl, {
         kind: 'vielse',
-        personId: null,
-        estateId: null,
         unionId: u.id, // app-konvention: 'f' + family_id (→ buildModel.unionById)
         year: u.year ?? null,
-      };
+      });
       points.push(pt);
       // Livskort: ægteskabet hører til begge synlige partnere.
       visible.forEach((pp) => (byPerson[pp] = byPerson[pp] || []).push(pt));

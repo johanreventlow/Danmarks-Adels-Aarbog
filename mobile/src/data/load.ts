@@ -179,10 +179,14 @@ export async function loadFromSupabase(opts?: {
       getAll<{ target_id: number | string }>(() =>
         sb.from('conclusion').select('target_id').eq('target_type', 'relation').eq('status', 'afklaret'),
       ).catch(() => [] as { target_id: number | string }[]),
-      // Steder m. koordinater (tolerant: lat/lon endnu tomme før berigelse; tabellen kan mangle i ældre env).
-      // .order('id'): place kan være >1000 rækker (tng_places ~6.788) → stabil rækkefølge på tværs af
-      // getAll's paginerede .range()-kald, så grænse-rækker hverken duplikeres eller tabes.
-      getAll<RawPlace>(() => sb.from('place').select('id,navn,lat,lon').order('id')).catch(() => [] as RawPlace[]),
+      // Steder m. koordinater (tolerant: tabellen kan mangle i ældre env).
+      // .not('lat','is',null): buildGeo bruger kun steder MED koordinater, så vi henter kun dem.
+      //   Før berigelsen er lat/lon tomme overalt → 0 rækker i ét enkelt round-trip (ingen dead weight).
+      // .order('id'): place kan være >1000 rækker (tng_places ~6.788) efter berigelse → stabil rækkefølge
+      //   på tværs af getAll's paginerede .range()-kald, så grænse-rækker hverken duplikeres eller tabes.
+      getAll<RawPlace>(() =>
+        sb.from('place').select('id,navn,lat,lon').not('lat', 'is', null).order('id'),
+      ).catch(() => [] as RawPlace[]),
       // Geo-bærende fakta: kun rækker med et sted (reducerer payload). Tolerant hvis RLS/tabel afviger.
       getAll<RawFact>(() =>
         sb.from('fact').select('subjekt_type,subjekt_id,faktatype,sted_id').not('sted_id', 'is', null).order('id'),
