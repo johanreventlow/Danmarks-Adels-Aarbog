@@ -37,7 +37,11 @@ export default function PersonScreen() {
   // Medier (mediehåndtering Slice 0): udregnes FØR early-return så hook-kaldet er ubetinget.
   const media = personId ? aux?.mediaBy[personId] ?? [] : [];
   const mediaUris = useMediaUris(media);
-  const portrait = pickPortrait(media);
+  // Foretræk et portræt der faktisk kan signeres; fald tilbage til alle indtil uris er resolvet
+  // (ellers ville et usignérbart første-medie give permanent placeholder mens et gyldigt billede
+  // sad i galleriet). Når uris lander, re-render vælger et signerbart portræt.
+  const signable = media.filter((m) => mediaUris[String(m.id)]);
+  const portrait = pickPortrait(signable.length ? signable : media);
   const portraitUri = portrait ? mediaUris[String(portrait.id)] : undefined;
   const gallery = media.filter((m) => String(m.id) !== String(portrait?.id) && mediaUris[String(m.id)]);
 

@@ -925,14 +925,15 @@ function EstatesView({ estates, estateId, estate, info, owners, onOpen, onBack, 
 function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
   const main = arms?.[0];
   const rest = (arms ?? []).slice(1);
+  const mainCrest = main?.media.find((m) => m.url) ?? null; // første signerbare (ikke blindt media[0])
   return (
     <div style={{ padding: '30px 40px 50px', maxWidth: 640 }}>
       <ViewHeader title="Slægtens våben" mb="18px" />
       {!arms ? <div style={{ color: T.muted3 }}>Henter…</div> : (
         <>
           <div style={{ background: T.ink, borderRadius: 16, padding: 26, display: 'flex', gap: 24, alignItems: 'center' }}>
-            {main?.media?.[0]?.url ? (
-              <div style={{ flex: 'none' }}><MediaThumb m={main.media[0]} w={150} h={185} radius={10} /></div>
+            {mainCrest ? (
+              <div style={{ flex: 'none' }}><MediaThumb m={mainCrest} w={150} h={185} radius={10} /></div>
             ) : (
               <div style={{ width: 150, height: 185, borderRadius: 10, background: 'repeating-linear-gradient(45deg,#3a352c 0 9px,#322d25 9px 18px)', border: '1px solid rgba(231,201,143,.2)', flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><span style={{ fontFamily: T.mono, fontSize: 10, color: T.gold }}>våbenskjold</span></div>
             )}
@@ -947,16 +948,22 @@ function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
             <>
               <Label>Øvrige gengivelser &amp; varianter</Label>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
-                {rest.map((v) => (
-                  <div key={v.id} style={{ background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: 11 }}>
-                    {v.media?.[0]?.url ? (
-                      <MediaThumb m={v.media[0]} w="100%" h="auto" radius={8} />
-                    ) : (
-                      <div style={{ width: '100%', aspectRatio: '.82', borderRadius: 8, background: 'repeating-linear-gradient(45deg,#ece4d6 0 8px,#e2d8c8 8px 16px)', border: '1px solid rgba(34,31,26,.08)' }} />
-                    )}
-                    <div style={{ fontFamily: T.serif, fontSize: 14, fontWeight: 600, marginTop: 7, lineHeight: 1.1 }}>{v.note || v.blasonering.slice(0, 40) || 'variant'}</div>
-                  </div>
-                ))}
+                {rest.map((v) => {
+                  const vImg = v.media.find((m) => m.url); // første signerbare variant-billede
+                  return (
+                    <div key={v.id} style={{ background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: 11 }}>
+                      {/* Fast .82-aspekt uanset billede/placeholder, så grid-cellerne flugter. */}
+                      {vImg ? (
+                        <div style={{ width: '100%', aspectRatio: '.82', borderRadius: 8, overflow: 'hidden' }}>
+                          <MediaThumb m={vImg} w="100%" h="100%" radius={8} />
+                        </div>
+                      ) : (
+                        <div style={{ width: '100%', aspectRatio: '.82', borderRadius: 8, background: 'repeating-linear-gradient(45deg,#ece4d6 0 8px,#e2d8c8 8px 16px)', border: '1px solid rgba(34,31,26,.08)' }} />
+                      )}
+                      <div style={{ fontFamily: T.serif, fontSize: 14, fontWeight: 600, marginTop: 7, lineHeight: 1.1 }}>{v.note || v.blasonering.slice(0, 40) || 'variant'}</div>
+                    </div>
+                  );
+                })}
               </div>
             </>
           )}

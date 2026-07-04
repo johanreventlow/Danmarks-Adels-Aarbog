@@ -1665,6 +1665,11 @@ BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   PERFORM begin_change_set('red_opret_media', format('Oprettede media %s', coalesce(p_titel,p_original_filnavn,'?')), 'media', NULL);
   IF nullif(btrim(p_slags),'') IS NULL THEN RAISE EXCEPTION 'Slags er påkrævet'; END IF;
+  -- sha256-dedup: samme bytes må kun registreres som ÉN media-række (genbrug den frem for at
+  -- oprette en dublet). Domæne-fejl frem for rå unique_violation (media_sha256_uidx).
+  IF p_sha256 IS NOT NULL AND EXISTS (SELECT 1 FROM media WHERE sha256 = p_sha256) THEN
+    RAISE EXCEPTION 'Medie med samme indhold findes allerede (sha256=%). Genbrug den eksisterende media-række via red_relation.', p_sha256;
+  END IF;
   v_id := (SELECT coalesce(max(id),0)+1 FROM media);
   INSERT INTO media(id, slags, titel, kunstner, datering, bucket, storage_path,
                     mime_type, byte_size, bredde, hoejde, sha256, original_filnavn,
@@ -1706,6 +1711,11 @@ BEGIN
     PERFORM red_relation('person', p_afbildet_person_id, 'media', v_media, 'afbildet');
   END IF;
   IF p_objekt_type IS NOT NULL AND p_objekt_id IS NOT NULL THEN
+    -- GDPR-guard: person-afbildning SKAL gå person→media (den retning media_afbilder_skjult/privat
+    -- scanner). Objekt-grenen laver media→objekt og ville ellers omgå gatingen for en person.
+    IF p_objekt_type = 'person' THEN
+      RAISE EXCEPTION 'Brug p_afbildet_person_id til personer (GDPR-gating kræver person→media-retning)';
+    END IF;
     PERFORM red_relation('media', v_media, p_objekt_type, p_objekt_id, 'afbildet');
   END IF;
   RETURN v_media;

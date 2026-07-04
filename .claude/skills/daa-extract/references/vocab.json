@@ -4,11 +4,15 @@
   "faktatype": [
     "navn", "tilnavn", "fødsel", "dåb", "konfirmation", "død", "begravelse",
     "floruit", "titel", "erhverv", "adling", "dekoration", "bopæl",
-    "dødsårsag", "klosterindgang", "uddannelse", "embede"
+    "dødsårsag", "klosterindgang", "uddannelse", "embede",
+    "licens", "kildehenvisning", "gengivelsestilladelse"
   ],
   "relation_rolle": [
     "ejer", "indehaver", "deltager", "besegler", "vidne", "gerningsmand",
-    "afbildet", "skabt_af", "forfatter", "emne_for"
+    "afbildet", "skabt_af", "forfatter", "emne_for", "rettighedshaver"
+  ],
+  "media_rettigheder_status": [
+    "ukendt", "public_domain", "licenseret", "tilladelse_givet", "begraenset", "spaerret"
   ],
   "familie_rolle": [
     "partner", "barn", "adopteret_barn", "plejebarn", "stedbarn"

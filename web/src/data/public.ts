@@ -79,9 +79,9 @@ export function fetchArms(): Promise<ArmsItem[]> {
   return safe(async () => {
     const rows = await getAll<{ id: number; blasonering: string | null; note: string | null }>(() =>
       supabase.from('coat_of_arms').select('id,blasonering,note'));
-    // Objekt-billeder pr. våben (afbildet media→coat_of_arms). Få rækker (varianter af ét slægtsvåben).
-    const media = await Promise.all(rows.map((r) => fetchObjectMedia('coat_of_arms', r.id)));
-    return rows.map((r, i) => ({ id: String(r.id), blasonering: r.blasonering ?? '', note: r.note ?? '', media: media[i] }));
+    // Objekt-billeder pr. våben (afbildet media→coat_of_arms) i ÉN batch (ikke N×3 rundture).
+    const mediaByArm = await fetchObjectMedia('coat_of_arms', rows.map((r) => r.id));
+    return rows.map((r) => ({ id: String(r.id), blasonering: r.blasonering ?? '', note: r.note ?? '', media: mediaByArm.get(String(r.id)) ?? [] }));
   }, [], 'fetchArms');
 }
 
@@ -100,7 +100,7 @@ export function fetchEstateInfo(estateId: string): Promise<EstateInfo> {
       const { data: pl } = await supabase.from('place').select('navn').eq('id', stedId).maybeSingle();
       sted = (pl as { navn: string | null } | null)?.navn ?? '';
     }
-    const media = await fetchObjectMedia('estate', Number(estateId));
+    const media = (await fetchObjectMedia('estate', [Number(estateId)])).get(estateId) ?? [];
     return { narrativ, sted, media };
   }, { narrativ: '', sted: '', media: [] }, 'fetchEstateInfo');
 }

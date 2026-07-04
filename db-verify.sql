@@ -976,3 +976,45 @@ BEGIN
   DELETE FROM media WHERE id IN (-911,-912,-913);
   RAISE NOTICE 'OK: media rettigheds-gating (spærret/kladde skjult, klar synlig) + storage-mapping (forældreløs fail-closed)';
 END $$;
+
+
+-- ===== Task 12b: storage.objects-POLITIKKER under faktiske roller (ikke kun helper-kald) =====
+-- Task 12 tester media-TABELLEN + helperne. Denne blok udøver de rigtige storage.objects-politikker
+-- (media_obj_anon/auth) ved at indsætte objekt-rækker og læse dem under SET LOCAL ROLE — så en
+-- fail-open-politik (OR i stedet for AND, manglende rettigheds-gate, eller manglende bucket-guard)
+-- rejser her. Springes over hvis der ikke findes en 'media'-bucket (lokalt/pre-provisionering).
+DO $$
+DECLARE has_bucket boolean; vis_klar int; vis_spaerret int; vis_orphan int; vis_klar_auth int; vis_spaerret_auth int;
+BEGIN
+  SELECT EXISTS(SELECT 1 FROM storage.buckets WHERE id='media') INTO has_bucket;
+  IF NOT has_bucket THEN
+    RAISE NOTICE 'SPRINGER OVER Task 12b (storage.objects-politikker): ingen media-bucket — opret den for fuld dækning';
+    RETURN;
+  END IF;
+  DELETE FROM storage.objects WHERE bucket_id='media' AND name IN ('test/klar.jpg','test/spaerret.jpg','test/orphan.jpg');
+  DELETE FROM media WHERE id IN (-921,-922);
+  INSERT INTO media(id, slags, titel, maa_publiceres, upload_status, bucket, storage_path) VALUES
+    (-921,'segl','obj-klar',    true, 'klar','media','test/klar.jpg'),
+    (-922,'segl','obj-spaerret',false,'klar','media','test/spaerret.jpg');
+  INSERT INTO storage.objects(bucket_id, name) VALUES
+    ('media','test/klar.jpg'), ('media','test/spaerret.jpg'), ('media','test/orphan.jpg'); -- orphan = ingen media-række
+
+  SET LOCAL ROLE anon;
+  SELECT count(*) INTO vis_klar     FROM storage.objects WHERE bucket_id='media' AND name='test/klar.jpg';
+  SELECT count(*) INTO vis_spaerret FROM storage.objects WHERE bucket_id='media' AND name='test/spaerret.jpg';
+  SELECT count(*) INTO vis_orphan   FROM storage.objects WHERE bucket_id='media' AND name='test/orphan.jpg';
+  RESET ROLE;
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO vis_klar_auth     FROM storage.objects WHERE bucket_id='media' AND name='test/klar.jpg';
+  SELECT count(*) INTO vis_spaerret_auth FROM storage.objects WHERE bucket_id='media' AND name='test/spaerret.jpg';
+  RESET ROLE;
+
+  IF NOT (vis_klar=1 AND vis_spaerret=0 AND vis_orphan=0 AND vis_klar_auth=1 AND vis_spaerret_auth=0) THEN
+    RAISE EXCEPTION 'storage.objects-gating FEJL: anon(klar=% [1], spaerret=% [0], orphan=% [0]), medlem(klar=% [1], spaerret=% [0])',
+      vis_klar, vis_spaerret, vis_orphan, vis_klar_auth, vis_spaerret_auth;
+  END IF;
+
+  DELETE FROM storage.objects WHERE bucket_id='media' AND name IN ('test/klar.jpg','test/spaerret.jpg','test/orphan.jpg');
+  DELETE FROM media WHERE id IN (-921,-922);
+  RAISE NOTICE 'OK: storage.objects-politikker (klar synlig anon+medlem; spærret + forældreløs skjult for begge)';
+END $$;

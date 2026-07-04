@@ -9,7 +9,14 @@ const SIGN_TTL = 600; // sek.
 const cache = new Map<string, { url: string; exp: number }>();
 
 // Portræt-egnede slags (hovedbillede på personkort). Spejler web PORTRAIT_SLAGS.
+// Sammenlign altid normaliseret (lowercase+trim), så 'Maleri'/'Portræt ' også genkendes.
 export const PORTRAIT_SLAGS = new Set(['foto', 'maleri', 'portræt', 'portraet']);
+const normSlags = (s: string) => s.trim().toLowerCase();
+
+// Ryd signed-URL-cachen ved auth/session-skift: signed URLs er bærer-tokens der virker uafhængigt
+// af session indtil udløb — uden dette kunne en bruger efter rolle-skift genbruge en tidligere
+// (mere privilegeret) brugers cachede URLs i op til ~TTL sekunder.
+supabase?.auth.onAuthStateChange(() => cache.clear());
 
 // Signér en batch stier i ét kald; path→url. Tolerant (fejl → udeladt). Bruger cache.
 export async function signPaths(paths: string[]): Promise<Map<string, string>> {
@@ -64,7 +71,9 @@ export function useMediaUris(media: RawMedia[]): Record<string, string> {
   return map;
 }
 
-// Vælg hovedbillede (portræt): første portræt-egnede, ellers første medie.
+// Vælg hovedbillede (portræt): første portræt-egnede, ellers første medie. Kald-siden bør
+// filtrere til signerbare medier først (se person/[id].tsx), så et usignérbart portræt ikke
+// giver permanent placeholder.
 export function pickPortrait(media: RawMedia[]): RawMedia | null {
-  return media.find((m) => PORTRAIT_SLAGS.has(String(m.slags ?? ''))) ?? media[0] ?? null;
+  return media.find((m) => PORTRAIT_SLAGS.has(normSlags(String(m.slags ?? '')))) ?? media[0] ?? null;
 }

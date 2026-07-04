@@ -214,7 +214,8 @@ do $$ begin
       with check (bucket_id = 'media' and (select public.current_rolle()) = 'redaktion');
     drop policy if exists media_obj_update on storage.objects;
     create policy media_obj_update on storage.objects for update to authenticated
-      using (bucket_id = 'media' and (select public.current_rolle()) = 'redaktion');
+      using (bucket_id = 'media' and (select public.current_rolle()) = 'redaktion')
+      with check (bucket_id = 'media' and (select public.current_rolle()) = 'redaktion');
     drop policy if exists media_obj_delete on storage.objects;
     create policy media_obj_delete on storage.objects for delete to authenticated
       using (bucket_id = 'media' and (select public.current_rolle()) = 'redaktion');

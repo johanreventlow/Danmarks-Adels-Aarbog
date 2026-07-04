@@ -18,8 +18,10 @@ type RawMediaRow = {
   kunstner: string | null; datering: string | null; storage_path: string | null;
 };
 
-// Portræt-egnede slags (til at vælge hovedbilledet på et personkort).
+// Portræt-egnede slags (til at vælge hovedbilledet på et personkort). Sammenlign altid
+// normaliseret (lowercase+trim), så 'Maleri'/'Portræt ' også genkendes.
 export const PORTRAIT_SLAGS = new Set(['foto', 'maleri', 'portræt', 'portraet']);
+const normSlags = (s: string) => s.trim().toLowerCase();
 
 const SIGN_TTL = 600; // sek. — dækker en detalje-visnings-session; fornys ved næste fetch.
 
@@ -59,28 +61,52 @@ async function loadMediaItems(mediaIds: number[]): Promise<MediaItem[]> {
 
 // Personens billeder: relation person(subjekt) → media(objekt), rolle 'afbildet'.
 // Denne retning er påkrævet af GDPR-gatingen (media_afbilder_skjult forudsætter person→media).
+// SELV-TOLERANT: en medie-/storage-fejl må ikke vælte den safe()-ombrudte forælder (som ville
+// blanke bio/embeder/godser), så vi fanger her og degraderer til tomt medie.
 export async function fetchPersonMedia(numIds: number[]): Promise<MediaItem[]> {
   if (!numIds.length) return [];
-  const rels = await getAll<{ objekt_id: number }>(() =>
-    supabase.from('relation').select('objekt_id')
-      .eq('subjekt_type', 'person').in('subjekt_id', numIds)
-      .eq('objekt_type', 'media').eq('rolle', 'afbildet'));
-  const ids = [...new Set(rels.map((r) => r.objekt_id))];
-  return loadMediaItems(ids);
+  try {
+    const rels = await getAll<{ objekt_id: number }>(() =>
+      supabase.from('relation').select('objekt_id')
+        .eq('subjekt_type', 'person').in('subjekt_id', numIds)
+        .eq('objekt_type', 'media').eq('rolle', 'afbildet'));
+    const ids = [...new Set(rels.map((r) => r.objekt_id))];
+    return await loadMediaItems(ids);
+  } catch (e) {
+    console.warn('[media] fetchPersonMedia fejlede:', e);
+    return [];
+  }
 }
 
 // Objekt-billeder (gods/våben/…): relation media(subjekt) → objekt, rolle 'afbildet'.
-export async function fetchObjectMedia(objektType: string, objektId: number): Promise<MediaItem[]> {
-  const rels = await getAll<{ subjekt_id: number }>(() =>
-    supabase.from('relation').select('subjekt_id')
-      .eq('objekt_type', objektType).eq('objekt_id', objektId)
-      .eq('subjekt_type', 'media').eq('rolle', 'afbildet'));
-  const ids = [...new Set(rels.map((r) => r.subjekt_id))];
-  return loadMediaItems(ids);
+// BATCHET: tag en id-liste og returnér objektId → MediaItem[] i ÉN relation+media+sign-triade
+// (spejler fetchPersonMedia's array-form; undgår N×3 rundture ved fx våben-listen). Selv-tolerant.
+export async function fetchObjectMedia(objektType: string, objektIds: number[]): Promise<Map<string, MediaItem[]>> {
+  const byObjekt = new Map<string, MediaItem[]>();
+  if (!objektIds.length) return byObjekt;
+  try {
+    const rels = await getAll<{ subjekt_id: number; objekt_id: number }>(() =>
+      supabase.from('relation').select('subjekt_id,objekt_id')
+        .eq('objekt_type', objektType).in('objekt_id', objektIds)
+        .eq('subjekt_type', 'media').eq('rolle', 'afbildet'));
+    const items = await loadMediaItems([...new Set(rels.map((r) => r.subjekt_id))]);
+    const itemById = new Map(items.map((it) => [it.id, it]));
+    for (const r of rels) {
+      const it = itemById.get(String(r.subjekt_id));
+      if (!it) continue;
+      const k = String(r.objekt_id);
+      const arr = byObjekt.get(k) ?? [];
+      arr.push(it);
+      byObjekt.set(k, arr);
+    }
+  } catch (e) {
+    console.warn('[media] fetchObjectMedia fejlede:', e);
+  }
+  return byObjekt;
 }
 
 // Vælg hovedbillede (portræt): første portræt-egnede med URL, ellers første med URL.
 export function pickPortrait(media: MediaItem[]): MediaItem | null {
   const withUrl = media.filter((m) => m.url);
-  return withUrl.find((m) => PORTRAIT_SLAGS.has(m.slags)) ?? withUrl[0] ?? null;
+  return withUrl.find((m) => PORTRAIT_SLAGS.has(normSlags(m.slags))) ?? withUrl[0] ?? null;
 }

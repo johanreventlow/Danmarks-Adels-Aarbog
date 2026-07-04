@@ -1,5 +1,29 @@
 # Changelog
 
+## Mediehåndtering — code-review-fixes (Slice 0, 2026-07-04)
+
+High-effort `/code-review` (5 finder-vinkler) på Slice 0-diff'en fandt 10 fund; alle rettet:
+- **#1 (sikkerhed) `red_upload_media`:** afviser nu `p_objekt_type='person'` i objekt-grenen —
+  ellers kunne en omvendt `media→person afbildet`-relation omgå GDPR-gatingen (schema.sql + db-migrations.sql).
+- **#2 (web fejl-isolation):** `fetchPersonMedia`/`fetchObjectMedia` er nu selv-tolerante (try/catch → []),
+  så en medie-/storage-fejl ikke længere blanker hele personpanelet/våben-listen.
+- **#3 (portræt):** `pickPortrait` normaliserer `slags` (case/trim) i web+mobile; mobile vælger portræt
+  blandt *signerbare* medier (ingen permanent placeholder når første medie fejler signering).
+- **#4 (test):** ny `db-verify.sql` Task 12b udøver de faktiske `storage.objects`-politikker under
+  `SET LOCAL ROLE anon`/`authenticated` (ikke kun helper-kald) — springes over uden `media`-bucket.
+- **#5 (efficiency):** `fetchObjectMedia` batchet til array-signatur (`Map<objektId, MediaItem[]>`);
+  `fetchArms` gik fra N×3 til én relation+media+sign-triade.
+- **#6 (session-læk):** mobile signed-URL-cache ryddes ved `onAuthStateChange`.
+- **#7:** `red_opret_media` giver domæne-fejl ved sha256-dublet (ikke rå 23505).
+- **#8:** `ArmsView` vælger første *signerbare* billede (ikke blindt `media[0]`) + fast .82-aspekt.
+- **#9:** `media_obj_update`-storage-politik fik `WITH CHECK`.
+- **#10 (vocab):** `licens`/`kildehenvisning`/`gengivelsestilladelse` (faktatype), `rettighedshaver` (rolle),
+  nyt `media_rettigheder_status`-scheme tilføjet `vocab.json`.
+- **Ryddet/afvist:** id-alloc-race (accepteret husstil), RPC schema↔migrations-mirror (konvention),
+  transient-placeholder (selv-heler), "eksisterende billeder forsvinder" (media-tabel tom i prod + fail-closed tilsigtet).
+- **Re-verificeret:** hele SQL-kæden lokalt (Task 8/12/12b grønne, #1+#7-guards rejser); web tsc+147+build;
+  mobile tsc+264 (4 nye pickPortrait-tests).
+
 ## Mediehåndtering — DB/Storage/RLS-fundament (Slice 0, 2026-07-04)
 
 Første skive af den samlede medie-design-session (`CLAUDE.md` §6.6/§9, udskudt "samlet,
