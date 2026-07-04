@@ -211,8 +211,11 @@ Free-tier: 1 GB storage, ~5 GB egress/md, 50 MB max fil, pauser efter 7 dages in
    *Migrations SKAL køres først (helperne læser de nye kolonner).*
 3. **Storage → New bucket:** navn `media`, **Public: FRA** (privat). Alternativt SQL:
    `insert into storage.buckets (id,name,public) values ('media','media',false) on conflict do nothing;`
-4. **SQL Editor → kør `db-verify.sql`:** forvent `OK: media-gating`, `OK: media rettigheds-gating`,
-   `OK: storage.objects-politikker`. (Task 12b kører kun når bucket'en findes.) Seeder/rydder selv op.
+4. **SQL Editor → kør `db-verify-media.sql`** (fokuseret medie-verify): forvent `OK: media-gating`,
+   `OK: media rettigheds-gating`, `OK: storage.objects-politikker`. (Task 12b kører kun når bucket'en
+   findes.) Seeder/rydder selv op. **Kør IKKE hele `db-verify.sql` i SQL Editoren** — den indeholder
+   ældre happy-path-redaktør-tasks (fx Task 4 → `red_slet_oplysning`) der RAISE'r `Kun redaktion`, fordi
+   `auth.uid()` er NULL i editoren (`current_rolle()`='medlem'). Kendt begrænsning, ikke en medie-fejl.
 5. **App-env:** `VITE_SUPABASE_*` / `EXPO_PUBLIC_SUPABASE_*` peger på projektet. Read-path bruger anon-nøglen;
    ingen nye hemmeligheder (service_role behøves først ved Slice 2 bulk-import).
 
