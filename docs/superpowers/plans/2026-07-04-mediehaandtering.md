@@ -191,3 +191,31 @@ Alle: `SECURITY DEFINER SET search_path=public`; gate `IF current_rolle()<>'reda
 
 ## Åbent punkt til afklaring ved build-start
 - **Primær-portræt-valg:** MVP bruger deterministisk "nyeste `klar` afbildet af slags foto/maleri". Eksplicit "dette er visnings-portrættet"-markering udskydes til Slice 3-kvalifikatoren. Bekræft dette er acceptabelt, ellers tilføjes et let flag i Slice 0.
+
+---
+
+## PROD-OPSÆTNING RUNBOOK (Slice 0) — kør i Supabase-dashboardet
+
+Al kode er committet/pushet + verificeret lokalt (Postgres 16 + Supabase-stub: Task 8/12/12b grønne;
+web tsc+147+build; mobile tsc+264). Prod-projektet mangler kun opsætning. Alle Supabase-afhængigheder er
+doc-verificeret understøttet; billed-transformationer (Pro-only) bruges IKKE — vi serverer originaler.
+Free-tier: 1 GB storage, ~5 GB egress/md, 50 MB max fil, pauser efter 7 dages inaktivitet.
+
+**Rækkefølge: migrations → rls → bucket → verify.**
+
+1. **SQL Editor → kør `db-migrations.sql`** (idempotent): media-kolonner + indekser + RPC'er
+   (`red_opret_media`, `red_bekraeft_media_upload`, `red_upload_media`, `red_set_media_rettigheder`) +
+   `red_relation` GDPR-guard + sha256-dedup.
+2. **SQL Editor → kør `db-rls.sql`** (re-runnable): helpers (`media_rettigheder_ok`, `media_id_for_object`,
+   `media_synlig_anon/auth`) + udvidede media-tabel-politikker + `storage.objects`-politikker.
+   *Migrations SKAL køres først (helperne læser de nye kolonner).*
+3. **Storage → New bucket:** navn `media`, **Public: FRA** (privat). Alternativt SQL:
+   `insert into storage.buckets (id,name,public) values ('media','media',false) on conflict do nothing;`
+4. **SQL Editor → kør `db-verify.sql`:** forvent `OK: media-gating`, `OK: media rettigheds-gating`,
+   `OK: storage.objects-politikker`. (Task 12b kører kun når bucket'en findes.) Seeder/rydder selv op.
+5. **App-env:** `VITE_SUPABASE_*` / `EXPO_PUBLIC_SUPABASE_*` peger på projektet. Read-path bruger anon-nøglen;
+   ingen nye hemmeligheder (service_role behøves først ved Slice 2 bulk-import).
+
+**Rollback:** kolonner additive (intet datatab); RPC-ændringer fortrydbare via `red_fortryd_change_set`;
+RLS rulles tilbage ved at køre forrige `db-rls.sql` fra git-historik. **Bucket SKAL være privat** —
+en offentlig bucket omgår RLS via permanente URLs.
