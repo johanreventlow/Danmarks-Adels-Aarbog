@@ -31,6 +31,25 @@ tng_place_leaf <- function(place) {
   }, character(1), USE.NAMES = FALSE)
 }
 
+# ASCII-translitererer danske/tyske diakritiske tegn til deres konventionelle postale/
+# tastatur-substitution (æ→ae, ø→oe, å→aa; plus ä/ö/ü/ß for det holstensk-tyske materiale).
+# MySQL-dumps fra ældre systemer translittererer ofte diakritik på denne måde, og generisk
+# Jaro-Winkler-similarity fanger den IKKE pålideligt for korte navne — verificeret empirisk:
+# "Plön" vs "Ploen" scorer kun jw=0.78 (langt under enhver fornuftig fuzzy-tærskel), mens en
+# ÆGTE stavevariant som "Kjøbenhavn" vs "København" scorer 0.97. Transliteration er derfor en
+# egen deterministisk match-tier (ikke en justering af fuzzy-tærsklen). Input SKAL være
+# small-caps (normalize_place_key kalder .lower() først).
+fold_da_ascii <- function(s) {
+  s <- gsub("æ", "ae", s, fixed = TRUE)
+  s <- gsub("ø", "oe", s, fixed = TRUE)
+  s <- gsub("å", "aa", s, fixed = TRUE)
+  s <- gsub("ä", "ae", s, fixed = TRUE)
+  s <- gsub("ö", "oe", s, fixed = TRUE)
+  s <- gsub("ü", "ue", s, fixed = TRUE)
+  s <- gsub("ß", "ss", s, fixed = TRUE)
+  s
+}
+
 # Parse + validér én koordinat fra TNG (VARCHAR i dumpet). NA ved tom/0/ugyldig —
 # TNG bruger "0"/"" for "ukendt", og en (0,0)-koordinat (Null Island) er aldrig et
 # dansk/holstensk sted.
@@ -53,7 +72,7 @@ pick_col <- function(df, candidates, what) {
 }
 
 default_geo_cfg <- function() list(
-  # Fuzzy-tærskel (Jaro-Winkler similarity) for review-tier når intet eksakt match findes.
+  # Fuzzy-tærskel (Jaro-Winkler similarity) for review-tier når intet eksakt/ascii-match findes.
   # IKKE kalibreret mod facit endnu — hold review bred, auto konservativ (som tng-qa).
   fuzzy_review_sim = 0.92,
   # Koordinater regnes som "enige" hvis de er ens afrundet til så mange decimaler (~100 m).
@@ -61,15 +80,18 @@ default_geo_cfg <- function() list(
 )
 
 # Byg TNG-opslag: én række pr. VALIDT (koordinat-bærende) tng_places-punkt, med
-# normaliseret blad-nøgle + fuld-nøgle. Input er allerede kolonne-udtrukket.
+# normaliseret blad-nøgle + fuld-nøgle (+ ASCII-foldede varianter). Input er allerede
+# kolonne-udtrukket.
 build_tng_index <- function(tng_place, tng_lat, tng_lon) {
   lat <- parse_coord(tng_lat, "lat")
   lon <- parse_coord(tng_lon, "lon")
   ok <- !is.na(lat) & !is.na(lon) & !is.na(tng_place)
+  leaf_key <- normalize_place_key(tng_place_leaf(tng_place[ok]))
+  full_key <- normalize_place_key(tng_place[ok])
   data.frame(
     place = tng_place[ok],
-    leaf_key = normalize_place_key(tng_place_leaf(tng_place[ok])),
-    full_key = normalize_place_key(tng_place[ok]),
+    leaf_key = leaf_key, full_key = full_key,
+    leaf_key_ascii = fold_da_ascii(leaf_key), full_key_ascii = fold_da_ascii(full_key),
     lat = lat[ok], lon = lon[ok],
     stringsAsFactors = FALSE
   )
@@ -87,20 +109,29 @@ build_tng_index <- function(tng_place, tng_lat, tng_lon) {
 #   tng_idx: output af build_tng_index()
 match_places <- function(places, tng_idx, cfg = default_geo_cfg()) {
   our_key <- normalize_place_key(places$navn)
+  our_key_ascii <- fold_da_ascii(our_key)
   out <- lapply(seq_len(nrow(places)), function(i) {
     key <- our_key[i]
+    key_ascii <- our_key_ascii[i]
     base <- data.frame(place_id = places$id[i], navn = places$navn[i], our_key = key,
                        tier = "none", method = NA_character_, score = NA_real_,
                        n_kandidater = 0L, tng_place = NA_character_,
                        lat = NA_real_, lon = NA_real_, stringsAsFactors = FALSE)
     if (is.na(key) || !nzchar(key)) return(base)
 
-    # 1) Eksakt: blad- eller fuld-nøgle er identisk.
+    # 1) Eksakt (rå nøgle): blad- eller fuld-nøgle er identisk.
     hit <- tng_idx[tng_idx$leaf_key == key | tng_idx$full_key == key, , drop = FALSE]
+    method <- "eksakt"
+    if (!nrow(hit)) {
+      # 1b) Eksakt via ASCII-translitteration (æ/ø/å/ä/ö/ü/ß) — deterministisk, IKKE fuzzy;
+      # se fold_da_ascii()-kommentaren for hvorfor dette ikke kan foldes ind i fuzzy-trinnet.
+      hit <- tng_idx[tng_idx$leaf_key_ascii == key_ascii | tng_idx$full_key_ascii == key_ascii, , drop = FALSE]
+      method <- "ascii-translit"
+    }
     if (nrow(hit)) {
       agree <- .coords_agree(hit$lat, hit$lon, cfg$coord_round)
       base$n_kandidater <- nrow(hit)
-      base$method <- "eksakt"
+      base$method <- method
       base$score <- 1
       base$tng_place <- hit$place[1]
       base$lat <- hit$lat[1]; base$lon <- hit$lon[1]
@@ -108,7 +139,8 @@ match_places <- function(places, tng_idx, cfg = default_geo_cfg()) {
       return(base)
     }
 
-    # 2) Fuzzy: bedste Jaro-Winkler-lighed mod blad-nøglerne.
+    # 2) Fuzzy: bedste Jaro-Winkler-lighed mod blad-nøglerne (rå — ascii-varianten er
+    # allerede afklaret i trin 1b, så dette er ægte stavevarianter/tastefejl).
     sim <- stringdist::stringsim(key, tng_idx$leaf_key, method = "jw")
     j <- which.max(sim)
     if (length(j) && sim[j] >= cfg$fuzzy_review_sim) {

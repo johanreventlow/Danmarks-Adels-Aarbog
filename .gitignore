@@ -20,6 +20,11 @@ data/tng.duckdb
 data/tng-crosswalk.csv
 data/tng-review-queue.csv
 data/tng-corroboration.csv
+# geo-enrich-afledte filer (samme begrundelse: afledt af TNG-dumpet)
+data/geo-tng.duckdb
+data/geo-crosswalk.csv
+data/geo-geocode-candidates.csv
+data/geo-geocode-cache.csv
 
 # DAA-udtræk arbejdsmappe (kan indeholde levende-persondata)
 work/

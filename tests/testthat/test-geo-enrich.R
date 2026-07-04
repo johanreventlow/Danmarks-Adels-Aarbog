@@ -15,6 +15,15 @@ test_that("tng_place_leaf: første komponent i hierarkiet, vektoriseret", {
   expect_equal(tng_place_leaf(c("København, Danmark", NA)), c("København", NA))
 })
 
+test_that("fold_da_ascii: dansk/tysk diakritik -> konventionel ASCII-translitteration", {
+  expect_equal(fold_da_ascii("københavn"), "koebenhavn")
+  expect_equal(fold_da_ascii("christianssæde"), "christianssaede")
+  expect_equal(fold_da_ascii("plön"), "ploen")
+  expect_equal(fold_da_ascii("gråsten"), "graasten")
+  expect_equal(fold_da_ascii("münchen"), "muenchen")
+  expect_equal(fold_da_ascii("straße"), "strasse")
+})
+
 test_that("parse_coord: tom/0/uden-for-interval -> NA; gyldig -> tal", {
   expect_true(is.na(parse_coord("0", "lat")))
   expect_true(is.na(parse_coord("", "lon")))
@@ -49,9 +58,25 @@ test_that("match_places: samme navn, forskellige punkter => review (tvetydigt)",
   expect_equal(m$n_kandidater, 2L)
 })
 
-test_that("match_places: kun fuzzy => review, aldrig auto; intet match => none", {
-  idx <- build_tng_index("Christianssæde, Lolland", "54.86", "11.28")
-  m_fuzzy <- match_places(data.frame(id = 1, navn = "Christianssaede"), idx) # ae vs æ
+test_that("match_places: ASCII-transliteret navn (æ/ø/å) => auto via tier 1b, IKKE fuzzy", {
+  # Verificeret empirisk: generisk Jaro-Winkler rammer KUN 0.78 for "Plön"~"Ploen" (under
+  # enhver fornuftig fuzzy-tærskel) — uden ascii-translit-tieren ville disse ende som "none".
+  idx <- build_tng_index(
+    tng_place = c("Christianssæde, Lolland", "Plön, Schleswig-Holstein"),
+    tng_lat   = c("54.86", "54.16"), tng_lon = c("11.28", "10.42"))
+  m1 <- match_places(data.frame(id = 1, navn = "Christianssaede"), idx)
+  expect_equal(m1$tier, "auto")
+  expect_equal(m1$method, "ascii-translit")
+  m2 <- match_places(data.frame(id = 2, navn = "Ploen"), idx)
+  expect_equal(m2$tier, "auto")
+  expect_equal(m2$method, "ascii-translit")
+})
+
+test_that("match_places: ægte stavevariant (ikke ascii-fold) => fuzzy/review; intet match => none", {
+  # Verificeret empirisk: "Kjøbenhavn" (historisk stavning) vs "København" scorer jw=0.97 —
+  # en ægte fuzzy-case, adskilt fra ascii-translit-tieren ovenfor.
+  idx <- build_tng_index("København, Danmark", "55.68", "12.57")
+  m_fuzzy <- match_places(data.frame(id = 1, navn = "Kjøbenhavn"), idx)
   expect_equal(m_fuzzy$tier, "review")
   expect_equal(m_fuzzy$method, "fuzzy")
   m_none <- match_places(data.frame(id = 2, navn = " Helt Andet Sted"), idx)
