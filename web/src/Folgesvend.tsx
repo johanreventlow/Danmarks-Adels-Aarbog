@@ -3,6 +3,7 @@
 // (variant A, fokus-centreret) og Slægtskab ("Er vi i familie?", med multi-linje + konfidens
 // + korroboration fra den porterede finder). Søg/Godser/Våben/Om følger.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { navigate, usePath } from './router';
 import { childrenOf, loadModel, parentsOf } from './data/model';
 import { buildBidirectionalColumns } from './data/tree';
 import { initials, konfTekst } from './data/format';
@@ -40,17 +41,50 @@ function useFonts() {
   }, []);
 }
 
+// URL-grammatik (ren path-routing, /vercel.json bærer SPA-fallback). '/' = tree uden eksplicit
+// fokus (default-person afgøres ved model-load). '/person/:id' & '/estate/:id' er de to
+// dybe-linkbare mål brugeren bad om; øvrige faner har hver deres egen faste sti. Slægtskabs-
+// fanens A/B-valg og sidebar-filtre (sort/bogstav/linje) er bevidst UDENFOR URL-scope.
+// Faste (id-løse) faners sti — delt tabel så retning (mode→sti) og modstående retning
+// (sti→mode, i parseFolgesvendPath) ikke kan komme ud af trit med hinanden (/simplify-fund).
+const MODE_PATH: Record<Exclude<Mode, 'tree'>, string> = {
+  estates: '/estates', relate: '/relate', arms: '/arms', about: '/about', bookmarks: '/bookmarks',
+};
+const PATH_MODE: Record<string, Mode> = Object.fromEntries(Object.entries(MODE_PATH).map(([m, p]) => [p.slice(1), m as Mode]));
+
+function parseFolgesvendPath(path: string): { mode: Mode; personId: string | null; estateId: string | null } {
+  const seg = path.split('/').filter(Boolean);
+  if (seg[0] === 'person' && seg[1]) return { mode: 'tree', personId: seg[1], estateId: null };
+  if (seg[0] === 'estate' && seg[1]) return { mode: 'estates', personId: null, estateId: seg[1] };
+  const mode = PATH_MODE[seg[0]];
+  return { mode: mode ?? 'tree', personId: null, estateId: null };
+}
+function pathForMode(m: Mode): string {
+  return m === 'tree' ? '/' : MODE_PATH[m];
+}
+
 export default function Folgesvend() {
   useFonts();
+  const path = usePath();
   const [model, setModel] = useState<Model | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [mode, setMode] = useState<Mode>('tree');
-  const [focusId, setFocusId] = useState<string | null>(null);
+  // mode/focusId/estateId initialiseres SYNKRONT fra URL'en ved mount (parseFolgesvendPath er
+  // ren streng-parsing, kræver ikke modellen) — undgår et synligt "flash" af startFokus's default
+  // før et gyldigt URL-id kan overtage. Validering (findes id'et? kanonisk id?) OG al senere
+  // synkronisering (egen navigation såvel som browserens back/forward) sker i den path-drevne
+  // effekt nedenfor, der reagerer på usePath() — se dens kommentar.
+  const initialPath = parseFolgesvendPath(window.location.pathname);
+  const [mode, setMode] = useState<Mode>(() => initialPath.mode);
+  const [focusId, setFocusId] = useState<string | null>(() => initialPath.personId);
   const [query, setQuery] = useState('');
   const [browseSort, setBrowseSort] = useState<'navn' | 'aar'>('navn'); // sidebar-sortering (§9.1)
   const [activeLetter, setActiveLetter] = useState<string | null>(null); // alfabet-filter (null = Alle)
   const [activeLinje, setActiveLinje] = useState<string | null>(null); // gren-filter (§9.2, null = hele slægten)
-  const [focusHistory, setFocusHistory] = useState<string[]>([]); // person→person-navigation (back-knap)
+  // Forrige fokus-person (kun til "◄ Tilbage til X"-labelen) — ÉN værdi, ikke en fuld stak:
+  // selve tilbage-navigationen er nu browserens rigtige back-knap (window.history.back()),
+  // som allerede har sin egen fulde historik. prevFocusId sættes kun af navigateTree (en
+  // "rigtig" navigation), ikke af focusOnly/driftFocus (Slægtskabs-fokus / Kolonner-drill).
+  const [prevFocusId, setPrevFocusId] = useState<string | null>(null);
   // "Mig" i slægten (PoC: localStorage; flyttes til profiles.reventlow_person_id ved login).
   const [meId, setMeId] = useState<string | null>(() => (typeof window !== 'undefined' ? window.localStorage.getItem('daa_me_id') : null));
   const [relA, setRelA] = useState<string | null>(null);
@@ -59,16 +93,13 @@ export default function Folgesvend() {
   const [estates, setEstates] = useState<EstateItem[] | null>(null);
   const [arms, setArms] = useState<ArmsItem[] | null>(null);
   const [about, setAbout] = useState<string[] | null>(null);
-  const [estateId, setEstateId] = useState<string | null>(null);
+  const [estateId, setEstateId] = useState<string | null>(() => initialPath.estateId);
   const [estateOwners, setEstateOwners] = useState<EstateOwner[]>([]);
   const [estateInfo, setEstateInfo] = useState<EstateInfo | null>(null);
   const [detail, setDetail] = useState<PersonDetailData | null>(null);
 
   useEffect(() => {
-    loadModel().then((m) => {
-      setModel(m);
-      setFocusId(startFokus(m));
-    }).catch((e) => setErr(describeErr(e)));
+    loadModel().then(setModel).catch((e) => setErr(describeErr(e)));
   }, []);
 
   // Resolv et (evt. alias-)id til dets kanoniske (samme_som-collapse). canonicalIdById bor på
@@ -89,6 +120,14 @@ export default function Folgesvend() {
   // Estates hentes eager (én gang) — bruges både af godser-visningen OG sidebar-statistikkens
   // "godser"-tæller. Én pagineret query; billig nok til mount.
   useEffect(() => { if (!estates) fetchEstates().then(setEstates).catch(() => setEstates([])); }, [estates]);
+  // URL'en pegede evt. på et gods-id (deep link) — valider det så snart listen er hentet;
+  // et forældet/forkert id falder pænt tilbage til gods-listen i stedet for en tom detaljevisning.
+  useEffect(() => {
+    if (estates && estateId && !estates.some((e) => e.id === estateId)) {
+      setEstateId(null);
+      navigate('/estates', { replace: true });
+    }
+  }, [estates, estateId]);
   useEffect(() => { if (mode === 'arms' && !arms) fetchArms().then(setArms).catch(() => setArms([])); }, [mode, arms]);
   useEffect(() => { if (mode === 'about' && !about) fetchAbout().then(setAbout).catch(() => setAbout([])); }, [mode, about]);
   // Gods-detalje-fetches (review 15 M3): cancelled-guard så en sen resolver for gods A ikke
@@ -126,27 +165,75 @@ export default function Folgesvend() {
 
   const rel = useMemo(() => (model && relA && relB ? computeRelationship(model, relA, relB) : null), [model, relA, relB]);
 
-  // Navigér til en person + husk den forrige (til detalje-panelets back-knap). Resolv til kanonisk,
-  // så et link til enten et alias eller den kanoniske lander på den samlede person.
-  const navigateTo = (id: string) => {
+  // Navigér til en person i STAMTRÆET — kanoniserer id'et, tvinger mode til 'tree' (matcher
+  // hvordan et sidebar-/detalje-panel-klik altid har betydet "vis denne person i træet",
+  // uanset hvilken fane man kom fra) og pusher en NY browser-historik-post. URL'en ER nu
+  // selve tilbage-stakken — DetailPanel's "◄ Tilbage" er blot window.history.back().
+  const navigateTree = (id: string) => {
     const cid = canon(id);
-    if (focusId && focusId !== cid) setFocusHistory([...focusHistory, focusId]);
+    const prev = focusId && focusId !== cid ? focusId : null;
+    setPrevFocusId(prev);
     setFocusId(cid);
+    setMode('tree');
+    navigate(`/person/${cid}`, { state: { prevFocusId: prev } });
   };
-  const goBack = () => {
-    if (!focusHistory.length) return;
-    setFocusId(focusHistory[focusHistory.length - 1]);
-    setFocusHistory(focusHistory.slice(0, -1));
+  // Fokus-skift UDEN navigation — bruges hvor det AKTUELLE mode bevidst skal bevares og ikke
+  // bør ligge i URL'en: Slægtskabs-fanens "trin for trin"-liste (relate er udenfor URL-scope,
+  // jf. plan) og detalje-panelets links mens man er i Slægtskab-mode.
+  const focusOnly = (id: string) => setFocusId(canon(id));
+  // Kolonner-variantens ane/efterkommer-drill (TreeView's onFocus): opdaterer URL'en så den
+  // forbliver delbar, men UDEN en ny back-entry pr. generations-trin — samme "ingen historik
+  // ved drill"-regel som før, nu udtrykt som en URL-replace i stedet for et no-op på et
+  // separat back-stack.
+  const driftFocus = (id: string) => {
+    const cid = canon(id);
+    setFocusId(cid);
+    navigate(`/person/${cid}`, { replace: true, state: { prevFocusId } });
   };
-  const backName = focusHistory.length && model ? (model.byId[focusHistory[focusHistory.length - 1]]?.name ?? null) : null;
+  // Fane-skift (header-nav + detalje-panelets "Sæt i fokus"/"Find slægtskab"-knapper).
+  const goToMode = (m: Mode) => {
+    setMode(m);
+    if (m === 'estates') setEstateId(null);
+    navigate(m === 'tree' && focusId ? `/person/${focusId}` : pathForMode(m));
+  };
+  const backName = prevFocusId && model ? (model.byId[prevFocusId]?.name ?? null) : null;
+
+  // Synkroniserer mode/focusId/estateId/prevFocusId med den AKTUELLE URL (usePath() reagerer
+  // BÅDE på egne navigate()-kald OG på browserens back/forward — /simplify-fund: erstatter en
+  // hånd-rullet window.addEventListener('popstate', …) med den delte hook router.ts allerede
+  // eksponerer til formålet). Kører også første gang modellen bliver klar (null → model), hvor
+  // den validerer/kanoniserer et evt. URL-id og retter URL'en hvis nødvendigt (alias/ugyldigt id)
+  // — samme arbejde mount-effekten lavede før, nu ét sted for både mount og efterfølgende navigation.
+  useEffect(() => {
+    if (!model) return;
+    const p = parseFolgesvendPath(path);
+    setMode(p.mode);
+    setEstateId(p.estateId);
+    setPrevFocusId((window.history.state as { prevFocusId?: string | null } | null)?.prevFocusId ?? null);
+    if (p.mode !== 'tree') return;
+    if (!p.personId) {
+      // Roden ('/') bærer ikke selv et fokus-id — deterministisk default, matcher altid samme
+      // person for samme model (ellers viser panelet stadig en FORRIGE person efter fx et back).
+      setFocusId(startFokus(model));
+      return;
+    }
+    const cid = canon(p.personId);
+    if (model.byId[cid]) {
+      setFocusId(cid);
+      if (cid !== p.personId) navigate(`/person/${cid}`, { replace: true }); // alias → kanonisk
+    } else {
+      setFocusId(startFokus(model));
+      navigate('/', { replace: true }); // ugyldigt/slettet id — forkast frem for at foregive et gæt
+    }
+  }, [path, model, canon]);
 
   // Gren-navigation (§9.2): vælg linje → hop fokus til stamfader + filtrér; ryd → hele slægten.
   const pickLinje = (linje: string, headId: string | null) => {
     setActiveLinje(linje);
-    setMode('tree');
-    if (headId) navigateTo(headId);
+    if (headId) navigateTree(headId);
+    else goToMode('tree');
   };
-  const clearLinje = () => { setActiveLinje(null); setMode('tree'); };
+  const clearLinje = () => { setActiveLinje(null); goToMode('tree'); };
 
   // "Det er mig"-markering (localStorage) — samme person igen = fjern markering. Gemmer kanonisk id,
   // og sammenligner kanonisk (et gemt alias-meId matcher stadig den kanoniske person).
@@ -160,7 +247,7 @@ export default function Folgesvend() {
 
   // Bogmærke-række → tree-nav (Codex BLOCKER-fix, spec §3.3): detalje-panelet vises kun i
   // tree/relate, så et klik fra bookmarks-mode ville ellers være visuelt resultatløst.
-  const pickBookmark = (id: string) => { navigateTo(id); setMode('tree'); };
+  const pickBookmark = (id: string) => navigateTree(id);
 
   // Linje-kode → LinjeEntry-opslag (headId m.m.) — bygget én gang, genbruges af ctx (nedenfor)
   // fremfor en lineær .find() pr. linje-kode (/simplify-fund).
@@ -171,14 +258,14 @@ export default function Folgesvend() {
 
   // Kontekst-quicknav (§3.4): KUN tree-mode (relate har sine egne A/B-kort som kontekst — et
   // focusId-baseret "I fokus" ville i relate vise en forældet person, jf. spec). Fokus-personen
-  // selv (ingen-op) + hver forælder (navigateTo, via delte parentsOf-hjælper — /simplify-fund) +
+  // selv (ingen-op) + hver forælder (navigateTree, via delte parentsOf-hjælper — /simplify-fund) +
   // hver linje personen hører til (pickLinje).
   const ctxItems: { key: string; kicker: string; badge: string; label: string; shape: 'circle' | 'square'; onTap: (() => void) | null }[] = [];
   if (mode === 'tree' && model && focusId && model.byId[focusId]) {
     const f = model.byId[focusId];
     ctxItems.push({ key: `self-${f.id}`, kicker: 'VALGT', badge: initials(f.name), label: f.name, shape: 'circle', onTap: null });
     for (const p of parentsOf(model, focusId)) {
-      ctxItems.push({ key: `parent-${p.id}`, kicker: 'FORÆLDER', badge: initials(p.name), label: p.name, shape: 'circle', onTap: () => navigateTo(p.id) });
+      ctxItems.push({ key: `parent-${p.id}`, kicker: 'FORÆLDER', badge: initials(p.name), label: p.name, shape: 'circle', onTap: () => navigateTree(p.id) });
     }
     for (const kode of model.lineage?.byPerson[focusId] ?? []) {
       const headId = linjeByKode.get(kode)?.headId ?? null;
@@ -191,7 +278,7 @@ export default function Folgesvend() {
     if (mode === 'relate') {
       if (relSlot === 'A') { setRelA(cid); setRelSlot('B'); } else { setRelB(cid); setRelSlot('A'); }
     } else {
-      navigateTo(cid);
+      navigateTree(cid);
     }
   };
 
@@ -225,7 +312,7 @@ export default function Folgesvend() {
         </div>
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
           {NAV.map(([label, m, on]) => (
-            <div key={m} onClick={() => { if (on) { setMode(m); if (m === 'estates') setEstateId(null); } }} title={on ? '' : 'Kommer'} style={{ padding: '8px 15px', borderRadius: 9, fontFamily: T.sans, fontSize: 13.5, fontWeight: 600, cursor: on ? 'pointer' : 'default', background: mode === m ? T.bordeaux : 'transparent', color: mode === m ? T.paper : (on ? '#3d382f' : T.muted3) }}>{label}</div>
+            <div key={m} onClick={() => { if (on) goToMode(m); }} title={on ? '' : 'Kommer'} style={{ padding: '8px 15px', borderRadius: 9, fontFamily: T.sans, fontSize: 13.5, fontWeight: 600, cursor: on ? 'pointer' : 'default', background: mode === m ? T.bordeaux : 'transparent', color: mode === m ? T.paper : (on ? '#3d382f' : T.muted3) }}>{label}</div>
           ))}
         </div>
         <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -236,9 +323,9 @@ export default function Folgesvend() {
             <span style={{ fontSize: 10, color: T.muted2 }}>▾</span>
           </div>
           {meCanon && model?.byId[meCanon] && (
-            <div onClick={() => { setMode('tree'); navigateTo(meCanon); }} title="Din plads i slægten" style={{ width: 38, height: 38, borderRadius: '50%', background: '#f8ecef', border: `1.5px solid ${T.bordeaux}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontFamily: T.serif, fontSize: 15, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{initials(model.byId[meCanon].name)}</div>
+            <div onClick={() => navigateTree(meCanon)} title="Din plads i slægten" style={{ width: 38, height: 38, borderRadius: '50%', background: '#f8ecef', border: `1.5px solid ${T.bordeaux}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontFamily: T.serif, fontSize: 15, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{initials(model.byId[meCanon].name)}</div>
           )}
-          <a href="#redaktion" style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.bordeaux, textDecoration: 'none' }}>Redaktion ↗</a>
+          <a href="/redaktion" onClick={(e) => { e.preventDefault(); navigate('/redaktion'); }} style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.bordeaux, textDecoration: 'none' }}>Redaktion ↗</a>
         </div>
       </div>
 
@@ -348,9 +435,9 @@ export default function Folgesvend() {
 
         {/* Center */}
         <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
-          {mode === 'tree' ? <TreeView model={model} focusId={focusId} onPick={navigateTo} onFocus={(id) => setFocusId(canon(id))} hasBookmark={bookmarks.has} onToggleBookmark={bookmarks.toggle} />
-            : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={navigateTo} meId={meCanon} onSetMeA={() => { if (meCanon) { setRelA(meCanon); setRelSlot('B'); } }} />
-            : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} onOpen={setEstateId} onBack={() => setEstateId(null)} onPickOwner={(id) => { navigateTo(id); setMode('tree'); }} />
+          {mode === 'tree' ? <TreeView model={model} focusId={focusId} onPick={navigateTree} onFocus={driftFocus} hasBookmark={bookmarks.has} onToggleBookmark={bookmarks.toggle} />
+            : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={focusOnly} meId={meCanon} onSetMeA={() => { if (meCanon) { setRelA(meCanon); setRelSlot('B'); } }} />
+            : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} onOpen={(id) => { setEstateId(id); navigate(`/estate/${id}`); }} onBack={() => { setEstateId(null); navigate('/estates'); }} onPickOwner={navigateTree} />
             : mode === 'arms' ? <ArmsView arms={arms} />
             : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} />
             : mode === 'bookmarks' ? (model ? <BookmarksView model={model} ids={bookmarkIds} sort={bmSort} setSort={setBmSort} onPick={pickBookmark} onRemove={bookmarks.toggle} /> : <div style={{ padding: 40, color: T.muted3 }}>Henter…</div>)
@@ -360,10 +447,10 @@ export default function Folgesvend() {
         {/* Højre: person-detalje (kun i person-centriske visninger) */}
         {['tree', 'relate'].includes(mode) && model && focusId && (
           <DetailPanel
-            model={model} focusId={focusId} detail={detail} onPick={navigateTo}
-            backName={backName} onBack={goBack}
-            onFocusTree={() => setMode('tree')}
-            onRelate={() => { setRelA(focusId); setRelB(null); setRelSlot('B'); setMode('relate'); }}
+            model={model} focusId={focusId} detail={detail} onPick={mode === 'tree' ? navigateTree : focusOnly}
+            backName={backName} onBack={() => window.history.back()}
+            onFocusTree={() => goToMode('tree')}
+            onRelate={() => { setRelA(focusId); setRelB(null); setRelSlot('B'); goToMode('relate'); }}
             isMe={focusId === meCanon} onToggleMe={() => toggleMe(focusId)}
             isBookmarked={bookmarks.has(focusId)} onToggleBookmark={() => bookmarks.toggle(focusId)}
           />
