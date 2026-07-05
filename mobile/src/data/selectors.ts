@@ -218,6 +218,10 @@ function fallbackRing(
 // visited (seedet med ankeret + de valgte) guard'er mod self-forælder/cyklus i defekt data.
 // `activeLokal`/`linje` (afledt af `activeCoord` i buildBidirectionalColumns) driver
 // kolonne-labels via `columnLabel`; `null` → v1's rene kinship-labels (ingen regression).
+// Efterkommer-fallback (dir=+1) er KUN et v2-tilbud og kræver `activeLokal != null` — uden
+// `activeCoord` skal opkaldere (endnu) uden UI-wiring til peers/labels ikke pludselig få en
+// uventet "muligt"-kolonne til højre (v1 havde slet ingen efterkommer-fallback). Ane-fallback
+// (dir=-1) forbliver ubetinget = v1-adfærd (kun styret af genCoords-tilstedeværelse).
 function buildDirection(
   model: Model,
   anchorId: string,
@@ -236,7 +240,8 @@ function buildDirection(
   while (depth <= COL_MAX_DEPTH) {
     const people = traverse(model, cur).filter((p) => !visited.has(p.id));
     if (!people.length) {
-      const fb = fallbackRing(model, genCoords, anchorId, cur, depth, dir);
+      const fallbackAllowed = dir === -1 || activeLokal != null;
+      const fb = fallbackAllowed ? fallbackRing(model, genCoords, anchorId, cur, depth, dir) : null;
       if (fb) cols.push(fb);
       break; // fallback-ringen er en bevidst dødende: vælg re-ankrer i stedet for at drille videre
     }

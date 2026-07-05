@@ -226,6 +226,19 @@ describe('buildBidirectionalColumns · v2 activeCoord (bidirektionel fallback + 
     expect(cols.find((c) => c.fallback)).toBeUndefined();
   });
 
+  it('(d) v1-adfærd: ingen efterkommer-fallback-ring når activeCoord=null, SELVOM et lokal+1-match findes '
+    + '(dagens kaldere uden UI-wiring til activeCoord må ikke pludselig se en ny "muligt"-kolonne)', () => {
+    const leafModel = buildModel(db([P('leaf'), P('X')], []));
+    const genCoords = {
+      leaf: [coord({ lokal: 20 })],
+      X: [coord({ lokal: 21, kuld: 'I' })], // ville matche hvis activeCoord var sat (jf. testen ovenfor)
+    };
+    const cols = buildBidirectionalColumns(leafModel, 'leaf', [], [], genCoords, null);
+    expect(cols.find((c) => c.fallback)).toBeUndefined();
+    const cols4arg = buildBidirectionalColumns(leafModel, 'leaf', [], [], genCoords);
+    expect(cols4arg.find((c) => c.fallback)).toBeUndefined();
+  });
+
   it('v1-regression: source/lineage-scoped ane-fallback + founder-hop uændret (dir=-1 via buildBidirectionalColumns)', () => {
     const fbModel = buildModel(db([P('P'), P('A'), P('B')], []));
     const genCoords = {
