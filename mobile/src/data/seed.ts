@@ -1,6 +1,7 @@
 // Minimal indlejret Reventlow-seed — offline-fallback hvis Supabase-hentning fejler.
 // Lille men struktur-gyldig (samme shapes som live-data), så UI'et kan rendere uden net.
 // Ikke autoritativt: live-data er kilden (README §8). Udvides ikke — det er kun en sikkerheds-net.
+import { EMPTY_GEO } from './buildGeo';
 import type { Aux, Db } from './types';
 
 const db: Db = {
@@ -47,6 +48,8 @@ const aux: Aux = {
 export const SEED = {
   db,
   aux,
+  // Offline-seed har ingen berigede koordinater → tomt geo-lag (kort viser ingen markører offline).
+  geo: EMPTY_GEO,
   rootId: 's1',
   focusId: 's2',
   relAId: 's3',

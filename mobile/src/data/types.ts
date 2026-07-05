@@ -55,8 +55,29 @@ export type RawRelation = {
   rolle: string | null;
   periode_raw: string | null;
 };
-export type RawEstate = { id: number | string; navn: string | null; slags: string | null };
+export type RawEstate = {
+  id: number | string;
+  navn: string | null;
+  slags: string | null;
+  sted_id?: number | string | null; // → place(id); base for gods-kortmarkør
+};
 export type RawOrg = { id: number | string; navn: string | null; slags: string | null };
+// Sted med koordinater. lat/lon er schema-klar men udfyldes først af berigelses-passet
+// (tng_places-import + geokodning) — indtil da filtrerer buildGeo koordinatløse steder fra.
+export type RawPlace = {
+  id: number | string;
+  navn: string | null;
+  lat: number | null;
+  lon: number | null;
+};
+// Geografisk-bærende fakta (fødsel/dåb/død/begravelse/bisættelse på person; vielse på family).
+// fact har BEVIDST ingen dato-kolonne (datoer bor i evidenslaget) → år udledes af personens born/died.
+export type RawFact = {
+  subjekt_type: string;
+  subjekt_id: number | string;
+  faktatype: string | null;
+  sted_id: number | string | null;
+};
 // Media-række (mediehåndtering Slice 0). person_id findes IKKE i skemaet — kobling til person
 // sker via relation (person→media, rolle 'afbildet'); se buildAux.mediaBy.
 export type RawMedia = {
@@ -189,4 +210,27 @@ export type Aux = {
   medieListe: { id: string; titel: string; slags: string; kunstner: string; datering: string }[];
   godsListe: { id: string; navn: string; slags: string; ownerCount: number }[];
   vaabenListe: { id: string; blasonering: string; note: string }[];
+};
+
+// --- Geo-lag (kort) ---------------------------------------------------------
+// Ét generisk kortpunkt. `kind` er "location-tag"-udvidelsespunktet: nye typer
+// (kirke, slagmark, ...) tilføjes her uden at røre kort-fladerne. Se buildGeo.ts.
+export type GeoKind = 'estate' | 'fødsel' | 'dåb' | 'død' | 'begravelse' | 'bisættelse' | 'vielse';
+
+export type GeoPoint = {
+  placeId: string;
+  navn: string; // stednavn (place.navn)
+  lat: number;
+  lon: number;
+  kind: GeoKind;
+  personId: string | null; // kanonisk person-id (fødsel/dåb/død/begravelse/bisættelse); null for gods/vielse
+  estateId: string | null; // sat når kind === 'estate'
+  unionId: string | null; // union-id ('f' + family_id, jf. buildModel.unionById) når kind === 'vielse'
+  year: number | null; // udledt af person.born/died for fødsel/død; ellers null
+};
+
+export type Geo = {
+  points: GeoPoint[]; // alle punkter (til overbliks-kort + nærhed)
+  byPerson: Record<string, GeoPoint[]>; // kanonisk person-id → punkter i personens liv (inkl. ægteskab) → livskort
+  byEstate: Record<string, GeoPoint>; // estate-id → godsets punkt → godskort/godsdetalje
 };

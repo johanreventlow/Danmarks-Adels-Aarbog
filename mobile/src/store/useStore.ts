@@ -4,11 +4,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { buildModel } from '../data/buildModel';
+import { EMPTY_GEO } from '../data/buildGeo';
 import { loadFromSupabase } from '../data/load';
 import { buildSnapPath } from '../data/selectors';
 import { SEED } from '../data/seed';
 import { childrenOf } from '../data/selectors';
-import type { Aux, Model } from '../data/types';
+import type { Aux, Geo, Model } from '../data/types';
 
 const ME_KEY = 'daa_me_id';
 
@@ -23,6 +24,7 @@ type State = {
   error: string | null;
   model: Model | null;
   aux: Aux | null;
+  geo: Geo; // kortpunkter (godskort/livskort/overblik/nærhed); EMPTY_GEO indtil load
 
   rootId: string | null;
   focusId: string | null;
@@ -95,6 +97,7 @@ export const useStore = create<State>((set, get) => ({
   error: null,
   model: null,
   aux: null,
+  geo: EMPTY_GEO,
   rootId: null,
   focusId: null,
   variant: 'A',
@@ -138,6 +141,7 @@ export const useStore = create<State>((set, get) => ({
         source: 'live',
         model,
         aux: res.aux,
+        geo: res.geo,
         rootId: res.rootId,
         focusId: res.focusId,
         anchorId: res.focusId,
@@ -160,6 +164,7 @@ export const useStore = create<State>((set, get) => ({
         error: e instanceof Error ? e.message : String(e),
         model,
         aux: SEED.aux,
+        geo: SEED.geo,
         rootId: SEED.rootId,
         focusId: SEED.focusId,
         anchorId: SEED.focusId,
