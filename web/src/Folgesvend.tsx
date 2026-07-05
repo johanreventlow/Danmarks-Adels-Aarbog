@@ -9,7 +9,7 @@ import { buildBidirectionalColumns } from './data/tree';
 import { initials, konfTekst } from './data/format';
 import { computeRelationship, type RelationResult } from './data/relationship';
 import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
-import { pickPortrait, firstSignable } from './data/media';
+import { pickPortrait, firstSignable, type MediaItem } from './data/media';
 import type { Model, ModelPerson } from './data/types';
 import { NarrativRenderer } from './components/NarrativRenderer';
 import { buildBrowse } from './data/browse';
@@ -17,6 +17,7 @@ import { useBookmarks, type BookmarkSort } from './data/bookmarks';
 import { BookmarksView } from './components/BookmarksView';
 import { SlaegtPicker } from './components/SlaegtPicker';
 import { ViewHeader, Avatar, BookmarkFlag, SidebarMiniRow, MediaThumb } from './components/primitives';
+import { Lightbox } from './components/Lightbox';
 import { T } from './theme';
 
 // Kun Reventlow findes i dag; vælgeren er 1-punkt + "flere kommer"-note (spec §2 ikke-mål).
@@ -762,6 +763,10 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
   backName: string | null; onBack: () => void; onFocusTree: () => void; onRelate: () => void;
   isMe: boolean; onToggleMe: () => void; isBookmarked: boolean; onToggleBookmark: () => void;
 }) {
+  // Lightbox (Slice A): useState skal stå FØR den betingede return nedenfor (Rules of Hooks) —
+  // portræt + galleri bliver ÉT navigerbart sæt (portræt først), så pil-tasterne bladrer gennem
+  // alle personens billeder uanset hvilket der blev klikket på.
+  const [lightbox, setLightbox] = useState<number | null>(null);
   const p = model.byId[focusId];
   if (!p) return null;
   const parents = parentsOf(model, focusId);
@@ -773,6 +778,7 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
   const media = detail?.media ?? [];
   const portrait = pickPortrait(media);
   const gallery = media.filter((m) => m.url && m.id !== portrait?.id);
+  const lightboxItems = [portrait, ...gallery].filter((m): m is MediaItem => !!m?.url);
   // Proveniens: er personen foldet af flere DAA-poster (samme_som), vis hvilke linjer/numre.
   const mergedFrom = p.mergedFrom ?? [];
   const proveniens =
@@ -786,6 +792,7 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
           .join(' og ')
       : null;
   return (
+    <>
     <div data-scroll style={{ flex: 'none', width: 392, borderLeft: '1px solid rgba(34,31,26,.1)', background: T.paper, overflowY: 'auto' }}>
       <div style={{ padding: '24px 24px 36px' }}>
         {backName && (
@@ -793,7 +800,7 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
         )}
         <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
           {portrait ? (
-            <div style={{ flex: 'none' }}><MediaThumb m={portrait} w={92} h={116} radius={11} /></div>
+            <div style={{ flex: 'none' }}><MediaThumb m={portrait} w={92} h={116} radius={11} onClick={() => setLightbox(0)} /></div>
           ) : (
             <div style={{ width: 92, height: 116, borderRadius: 11, background: 'repeating-linear-gradient(45deg,#ece4d6 0 9px,#e2d8c8 9px 18px)', border: '1px solid rgba(34,31,26,.1)', flex: 'none', display: 'flex', alignItems: 'flex-end', padding: 8 }}><span style={{ fontFamily: T.mono, fontSize: 9, color: T.muted }}>portræt</span></div>
           )}
@@ -890,7 +897,8 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
             <Label>Materiale</Label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {gallery.map((m) => (
-                <MediaThumb key={m.id} m={m} w={84} h={84} radius={9} />
+                <MediaThumb key={m.id} m={m} w={84} h={84} radius={9}
+                  onClick={() => setLightbox(lightboxItems.findIndex((x) => x.id === m.id))} />
               ))}
             </div>
           </>
@@ -924,6 +932,10 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
         </div>
       </div>
     </div>
+    {lightbox != null && (
+      <Lightbox items={lightboxItems} index={lightbox} onClose={() => setLightbox(null)} onNavigate={setLightbox} />
+    )}
+    </>
   );
 }
 
@@ -935,7 +947,9 @@ function EstatesView({ estates, estateId, estate, info, owners, onOpen, onBack, 
   estates: EstateItem[] | null; estateId: string | null; estate: EstateItem | null; info: EstateInfo | null;
   owners: EstateOwner[]; onOpen: (id: string) => void; onBack: () => void; onPickOwner: (id: string) => void;
 }) {
+  const [lightbox, setLightbox] = useState<number | null>(null); // Slice A — kun brugt i detalje-grenen nedenfor
   if (estateId && estate) {
+    const lightboxItems = (info?.media ?? []).filter((m): m is MediaItem => !!m.url);
     return (
       <div style={{ padding: '26px 40px 50px', maxWidth: 620 }}>
         <div onClick={onBack} style={{ fontSize: 12.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', marginBottom: 14 }}>‹ Alle godser</div>
@@ -946,8 +960,8 @@ function EstatesView({ estates, estateId, estate, info, owners, onOpen, onBack, 
         </div>
         {info && info.media.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
-            {info.media.filter((m) => m.url).map((m) => (
-              <MediaThumb key={m.id} m={m} w={180} h={130} radius={11} />
+            {lightboxItems.map((m, i) => (
+              <MediaThumb key={m.id} m={m} w={180} h={130} radius={11} onClick={() => setLightbox(i)} />
             ))}
           </div>
         )}
@@ -974,6 +988,9 @@ function EstatesView({ estates, estateId, estate, info, owners, onOpen, onBack, 
             ))}
           </div>
         ) : <div style={{ fontSize: 12.5, color: T.muted3 }}>Ingen registrerede ejere.</div>}
+        {lightbox != null && (
+          <Lightbox items={lightboxItems} index={lightbox} onClose={() => setLightbox(null)} onNavigate={setLightbox} />
+        )}
       </div>
     );
   }
@@ -998,9 +1015,13 @@ function EstatesView({ estates, estateId, estate, info, owners, onOpen, onBack, 
 
 // ---- Slægtens våben ----
 function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
+  const [lightbox, setLightbox] = useState<number | null>(null);
   const main = arms?.[0];
   const rest = (arms ?? []).slice(1);
   const mainCrest = main ? firstSignable(main.media) : null; // første signerbare (ikke blindt media[0])
+  const variantImgs = rest.map((v) => firstSignable(v.media));
+  // Lightbox (Slice A): hoved-våben + alle varianter er ÉT navigerbart sæt.
+  const lightboxItems = [mainCrest, ...variantImgs].filter((m): m is MediaItem => !!m?.url);
   return (
     <div style={{ padding: '30px 40px 50px', maxWidth: 640 }}>
       <ViewHeader title="Slægtens våben" mb="18px" />
@@ -1008,7 +1029,7 @@ function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
         <>
           <div style={{ background: T.ink, borderRadius: 16, padding: 26, display: 'flex', gap: 24, alignItems: 'center' }}>
             {mainCrest ? (
-              <div style={{ flex: 'none' }}><MediaThumb m={mainCrest} w={150} h={185} radius={10} /></div>
+              <div style={{ flex: 'none' }}><MediaThumb m={mainCrest} w={150} h={185} radius={10} onClick={() => setLightbox(0)} /></div>
             ) : (
               <div style={{ width: 150, height: 185, borderRadius: 10, background: 'repeating-linear-gradient(45deg,#3a352c 0 9px,#322d25 9px 18px)', border: '1px solid rgba(231,201,143,.2)', flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><span style={{ fontFamily: T.mono, fontSize: 10, color: T.gold }}>våbenskjold</span></div>
             )}
@@ -1023,14 +1044,15 @@ function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
             <>
               <Label>Øvrige gengivelser &amp; varianter</Label>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
-                {rest.map((v) => {
-                  const vImg = firstSignable(v.media); // første signerbare variant-billede
+                {rest.map((v, i) => {
+                  const vImg = variantImgs[i]; // første signerbare variant-billede
                   return (
                     <div key={v.id} style={{ background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: 11 }}>
                       {/* Fast .82-aspekt uanset billede/placeholder, så grid-cellerne flugter. */}
                       {vImg ? (
                         <div style={{ width: '100%', aspectRatio: '.82', borderRadius: 8, overflow: 'hidden' }}>
-                          <MediaThumb m={vImg} w="100%" h="100%" radius={8} />
+                          <MediaThumb m={vImg} w="100%" h="100%" radius={8}
+                            onClick={() => setLightbox(lightboxItems.findIndex((x) => x.id === vImg.id))} />
                         </div>
                       ) : (
                         <div style={{ width: '100%', aspectRatio: '.82', borderRadius: 8, background: 'repeating-linear-gradient(45deg,#ece4d6 0 8px,#e2d8c8 8px 16px)', border: '1px solid rgba(34,31,26,.08)' }} />
@@ -1043,6 +1065,9 @@ function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
             </>
           )}
         </>
+      )}
+      {lightbox != null && (
+        <Lightbox items={lightboxItems} index={lightbox} onClose={() => setLightbox(null)} onNavigate={setLightbox} />
       )}
     </div>
   );

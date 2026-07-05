@@ -49,12 +49,14 @@ export const BookmarkFlag = ({ active, onClick }: { active: boolean; onClick: ()
 // Medie-billede med fallback: intet render hvis signering fejlede (url=null). Klik åbner den
 // fulde (signed) URL i ny fane — RLS har allerede gatet at brugeren må se den. Delt af
 // person-portræt/-galleri + gods/våben-visningerne.
-export const MediaThumb = ({ m, w, h, radius = 10 }: { m: MediaItem; w: number | string; h: number | string; radius?: number }) => {
+// onClick (valgfri): åbn i en rigtig lightbox (Slice A) i stedet for en ny fane. Falder tilbage
+// til den gamle window.open-adfærd hvor ingen lightbox er koblet på (graceful, ingen dødt sted).
+export const MediaThumb = ({ m, w, h, radius = 10, onClick }: { m: MediaItem; w: number | string; h: number | string; radius?: number; onClick?: () => void }) => {
   if (!m.url) return null;
   const cap = [m.titel, m.kunstner, m.datering].filter(Boolean).join(' · ');
   return (
     <img src={m.url} alt={m.titel || m.slags || 'medie'} title={cap || undefined}
-      onClick={() => window.open(m.url!, '_blank', 'noopener')}
+      onClick={onClick ?? (() => window.open(m.url!, '_blank', 'noopener'))}
       style={{ width: w, height: h, objectFit: 'cover', borderRadius: radius, border: '1px solid rgba(34,31,26,.1)', cursor: 'zoom-in', display: 'block' }} />
   );
 };

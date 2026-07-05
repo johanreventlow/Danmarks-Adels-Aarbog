@@ -80,7 +80,10 @@ export function pickPortrait(media: RawMedia[]): RawMedia | null {
 // data-lag), så visnings-komponenten forbruger en færdig model frem for at orkestrere rå dele.
 // Portræt vælges blandt SIGNERBARE medier (fald tilbage til alle indtil uris er resolvet), så et
 // usignérbart første-medie ikke giver permanent placeholder mens et gyldigt billede sad i galleriet.
+// `portrait` (RawMedia, ikke kun uri) er additiv — til Lightbox (Slice A), der har brug for
+// id/titel til at bygge ét navigerbart sæt af portræt+galleri, ikke kun visnings-uri'en.
 export function usePersonMedia(media: RawMedia[]): {
+  portrait: RawMedia | null;
   portraitUri: string | undefined;
   gallery: Array<{ media: RawMedia; uri: string }>;
 } {
@@ -91,5 +94,5 @@ export function usePersonMedia(media: RawMedia[]): {
   const gallery = signable
     .filter((m) => String(m.id) !== String(portrait?.id))
     .map((m) => ({ media: m, uri: uris[String(m.id)] }));
-  return { portraitUri, gallery };
+  return { portrait, portraitUri, gallery };
 }
