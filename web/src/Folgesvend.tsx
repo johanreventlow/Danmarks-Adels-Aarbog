@@ -1007,7 +1007,7 @@ function EstatesView({ estates, estateId, estate, info, owners, geo, onOpen, onB
         )}
         {/* Vis intet under load (info===null); derefter narrativ eller tom-tilstand. */}
         {info && (info.narrativ ? (
-          <div style={{ marginTop: 16, fontFamily: T.serif, fontSize: 15.5, lineHeight: 1.6, color: '#3d382f', whiteSpace: 'pre-wrap' }}><NarrativRenderer tekst={info.narrativ} onPickPerson={onPickOwner} linkColor={T.bordeaux} inactiveColor={T.muted2} /></div>
+          <div style={{ marginTop: 16, fontFamily: T.serif, fontSize: 15.5, lineHeight: 1.6, color: '#3d382f' }}><NarrativRenderer tekst={info.narrativ} onPickPerson={onPickOwner} linkColor={T.bordeaux} inactiveColor={T.muted2} /></div>
         ) : (
           <div style={{ marginTop: 16, border: '1px dashed rgba(34,31,26,.2)', borderRadius: 11, padding: 14, background: T.paper, fontSize: 12.5, color: T.muted3 }}>Ingen godshistorik registreret endnu.</div>
         ))}
