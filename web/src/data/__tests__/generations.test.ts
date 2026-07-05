@@ -33,4 +33,12 @@ describe('previousAncestorGen', () => {
     const only = [coords[0]]; // kun V, lokal 1, ingen gen>1-koordinat
     expect(previousAncestorGen(only, 'V', 1)).toBeNull();
   });
+  it('stopper fail-closed når flere moderlinje-kandidater findes', () => {
+    const multi: GenCoord[] = [
+      { sourceId: '1', linje: 'V', lineageId: '50', parentLineageId: '10', lokal: 1, gennem: 12, kuld: null },
+      { sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 12, gennem: 12, kuld: null },
+      { sourceId: '1', linje: 'IIIb', lineageId: '10', parentLineageId: null, lokal: 8, gennem: 8, kuld: null },
+    ];
+    expect(previousAncestorGen(multi, 'V', 1)).toBeNull();
+  });
 });

@@ -27,7 +27,7 @@ export function buildGenCoords(
     (out[canon] ??= []).push({
       sourceId: String(x.source_id),
       linje: x.linje,
-      lineageId: lin ? String(lin.id) : null,
+      lineageId: lin && lin.id != null ? String(lin.id) : null,
       parentLineageId: lin && lin.parent_lineage_id != null ? String(lin.parent_lineage_id) : null,
       lokal: x.slaegtled_lokal ?? null,
       gennem: x.slaegtled_gennem ?? null,
