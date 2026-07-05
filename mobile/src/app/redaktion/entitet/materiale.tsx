@@ -1,18 +1,12 @@
 // Objekt-foto (mediehåndtering Slice 0h): minimal materiale-skærm for entiteter uden nogen
-// detail-editor endnu (gods/våben). Bevidst IKKE en fuld editor — kun galleri + upload/fjern/slet,
-// samme mønster som person-editorens Materiale-sektion, genbruger samme sheet + galleri + RPC'er.
+// detail-editor endnu (gods/våben). Bevidst IKKE en fuld editor — kun galleri + upload/fjern/slet
+// via den delte MaterialeSektion (samme komponent som entitet/slaegt-narrativ.tsx bruger).
 import { useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { TopBar } from '../../../components/TopBar';
 import { CenterMsg } from '../../../components/CenterMsg';
 import { Mono, Serif } from '../../../components/Typography';
-import { MediaGallery } from '../../../components/redaktion/MediaGallery';
-import { MediaUploadSheet } from '../../../components/redaktion/MediaUploadSheet';
-import { SkrivePreviewSheet } from '../../../components/redaktion/SkrivePreviewSheet';
-import { useMediaAndThumbUris } from '../../../lib/media';
-import { fetchObjectMediaRed, type PersonMedia } from '../../../data/redaktionRead';
-import { type Change } from '../../../data/redaktionWrite';
+import { MaterialeSektion } from '../../../components/redaktion/MaterialeSektion';
 import { useStore } from '../../../store/useStore';
 import { Colors } from '../../../theme/tokens';
 
@@ -24,17 +18,6 @@ export default function ObjektMateriale() {
   const { type, id, navn } = useLocalSearchParams<{ type: string; id: string; navn?: string }>();
   const rolle = useStore((s) => s.rolle);
   const objektType = OBJEKT_TYPE[type ?? ''];
-
-  const [media, setMedia] = useState<PersonMedia[]>([]);
-  const [uploadSheetOpen, setUploadSheetOpen] = useState(false);
-  const [pending, setPending] = useState<Change | null>(null);
-  const refreshMedia = () => { if (objektType && id) fetchObjectMediaRed(objektType, id).then(setMedia).catch(() => {}); };
-  useEffect(refreshMedia, [objektType, id]);
-  const { uris: mediaUris, thumbUris: mediaThumbUris } = useMediaAndThumbUris(
-    media.map((m) => ({ id: m.id, storage_path: m.storagePath, thumb_storage_path: m.thumbStoragePath })),
-    (m) => m.thumb_storage_path,
-  );
-
   const titel = navn ?? '(uden navn)';
 
   if (!objektType) return <CenterMsg title="Materiale">Ukendt entitetstype.</CenterMsg>;
@@ -46,33 +29,8 @@ export default function ObjektMateriale() {
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         <Serif size={20} style={{ marginBottom: 4 }}>{titel}</Serif>
         <Mono size={10} color={Colors.textMuted} style={{ marginBottom: 14 }}>Materiale</Mono>
-        <MediaGallery
-          media={media}
-          mediaUris={mediaUris}
-          mediaThumbUris={mediaThumbUris}
-          onFjern={(m) => setPending({ art: 'sletRelation', subjektType: objektType, subjektId: id!, relationId: m.relationId })}
-          onSlet={(m) => setPending({ art: 'fjernMedia', subjektType: objektType, subjektId: id!, mediaId: m.id })}
-        />
-        <Pressable style={{ paddingVertical: 6 }} onPress={() => setUploadSheetOpen(true)}>
-          <Mono size={9} color={Colors.bordeaux}>+ Tilføj billede</Mono>
-        </Pressable>
+        <MaterialeSektion objektType={objektType} objektId={id!} />
       </ScrollView>
-
-      {uploadSheetOpen ? (
-        <MediaUploadSheet
-          target={{ objektType, objektId: id! }}
-          onClose={() => setUploadSheetOpen(false)}
-          onGem={(payload) => {
-            setPending({ art: 'uploadMedia', subjektType: objektType, subjektId: id!, payload });
-            setUploadSheetOpen(false);
-          }}
-        />
-      ) : null}
-      <SkrivePreviewSheet
-        change={pending}
-        onClose={() => setPending(null)}
-        onApplied={() => { setPending(null); refreshMedia(); }}
-      />
     </View>
   );
 }
