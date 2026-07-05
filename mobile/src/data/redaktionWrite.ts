@@ -233,6 +233,9 @@ export function describeCall(call: RpcCall): string {
 // uploadMedia er særligt: bytes skal lande i Storage FØR RPC'en (Postgres-txn og Storage-upload
 // kan ikke dele transaktion, jf. planens to-fase-upload). Sker KUN i LIVE — dry-run rører hverken
 // Storage eller basen, ellers ville "Forhåndsvis" efterlade en rigtig fil i den private bucket.
+// red_upload_media opretter ALTID rækken som upload_status='kladde' (schema-default); først når
+// bytes reelt ligger i Storage (lige udført ovenfor) er det sandt at bekræfte 'klar' — derfor et
+// eksplicit andet RPC-kald bagefter, ikke en del af red_upload_media selv.
 export async function submitChange(c: Change, opts: { dryRun: boolean }) {
   const call = buildRpcCall(c);
   if (!call) throw new Error(`Kan ikke bygge RPC-kald for art=${c.art} felt=${c.felt}`);
@@ -246,6 +249,10 @@ export async function submitChange(c: Change, opts: { dryRun: boolean }) {
   }
   const { data, error } = await supabase.rpc(call.fn, call.args);
   if (error) throw new Error(error.message);
+  if (c.art === 'uploadMedia') {
+    const { error: bekraeftError } = await supabase.rpc('red_bekraeft_media_upload', { p_media_id: data });
+    if (bekraeftError) throw new Error(bekraeftError.message);
+  }
   return { dryRun: false as const, call, result: data };
 }
 

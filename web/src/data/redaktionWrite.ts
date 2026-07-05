@@ -241,6 +241,12 @@ export async function submitChange(c: Change, opts: { dryRun: boolean; role?: st
   }
   const { data, error } = await supabase.rpc(call.fn, call.args);
   if (error) throw new Error(error.message);
+  // red_upload_media opretter ALTID rækken som upload_status='kladde'; først når bytes reelt ligger
+  // i Storage (lige udført ovenfor) er det sandt at bekræfte 'klar' — derfor et separat RPC-kald.
+  if (c.art === 'uploadMedia') {
+    const { error: bekraeftError } = await supabase.rpc('red_bekraeft_media_upload', { p_media_id: data });
+    if (bekraeftError) throw new Error(bekraeftError.message);
+  }
   return { dryRun: false as const, call, direkte, result: data };
 }
 
