@@ -1,6 +1,7 @@
 // Afledte selektorer over model + aux. Rene funktioner (testbare) — skærmene kalder dem
 // frem for at grave i indekser direkte.
 import { compareDanish, initialOf } from '../lib/collation';
+import { previousAncestorGen, type GenCoord } from './generations';
 import type { Aux, Model, ModelPerson } from './types';
 
 // Forside-tællere: personer / linjer / godser.
@@ -98,6 +99,12 @@ export function buildSnapPath(
 // stopper ved første ring uden valg eller når den valgte er forældre-/barnløs. Delt design med
 // web (web/src/data/tree.ts) — se docs/superpowers/specs/2026-07-03-kolonner-aner-efterkommere-design.md.
 export type ColumnKind = 'ancestor' | 'anchor' | 'descendant';
+
+// Genereret koordinat-opslag pr. person — sendes EKSPLICIT ind (ikke `model.genCoordsByPerson`),
+// så bygge-funktionen forbliver platform-agnostisk: web sender model.genCoordsByPerson, mobil
+// sender store/LoadResult-værdien (mobils smalle `Model` bærer bevidst ikke feltet selv).
+export type GenCoords = Record<string, GenCoord[]>;
+
 export type TreeColumn = {
   key: string;               // STABIL identitet `${kind}:${depth}` — ancestor:1 ≠ descendant:1
   kind: ColumnKind;
@@ -105,6 +112,9 @@ export type TreeColumn = {
   label: string;
   people: ModelPerson[];
   selectedId: string | null;
+  fallback?: boolean;                         // true = ubeviste generations-naboer (ikke parentsOf)
+  genLabel?: string;                          // 'N. slægtled · <linje>-linjen (M. gennemgående)'
+  kuldGroups?: Record<string, ModelPerson[]>; // gruppering pr. kuld (v1, hvor kendt)
 };
 
 const COL_MAX_DEPTH = 40; // øvre loft (visited-Set nedenfor er den egentlige cyklus-guard)
@@ -119,12 +129,54 @@ function colLabel(kind: 'ancestor' | 'descendant', depth: number): string {
   return `${depth - 3}× ${kind === 'ancestor' ? 'Tipoldeforældre' : 'Tipoldebørn'}`;
 }
 
+// Byg fallback-ring: alle personer der deler den FORRIGE generations (linje, lokal)-koordinat med
+// `cur`, via `genCoords` (ekstern opslagstabel — ikke `model.genCoordsByPerson`). Ren projektion;
+// vælger ingen skrivning, opretter intet — kun kandidat-visning når `parentsOf` er tom. En founder
+// (lokal 1) bærer flere linje-koordinater i samme array (kryds-linje-hop via `previousAncestorGen`).
+function fallbackAncestorRing(
+  model: Model, genCoords: GenCoords | undefined, anchorId: string, cur: string, depth: number,
+): TreeColumn | null {
+  const coords = genCoords?.[cur];
+  if (!coords || !coords.length) return null;
+  // Vælg den koordinat vi traverserer på: første med et gyldigt spring til forrige generation.
+  for (const c of coords) {
+    if (c.lokal == null) continue;
+    const prev = previousAncestorGen(coords, c.linje, c.lokal);
+    if (!prev) continue;
+    const all = model.persons.filter((p) => {
+      if (p.id === anchorId || p.id === cur) return false;
+      const pc = genCoords?.[p.id];
+      return !!pc?.some((k) => k.linje === prev.linje && k.lokal === prev.lokal);
+    });
+    if (!all.length) continue;
+    const kuldGroups: Record<string, ModelPerson[]> = {};
+    for (const p of all) {
+      const k = genCoords?.[p.id]?.find(
+        (x) => x.linje === prev.linje && x.lokal === prev.lokal,
+      )?.kuld ?? '—';
+      (kuldGroups[k] ??= []).push(p);
+    }
+    const gennem = all
+      .map((p) => genCoords?.[p.id]?.find((x) => x.linje === prev.linje && x.lokal === prev.lokal)?.gennem)
+      .find((g) => g != null);
+    const genLabel = `${prev.lokal}. slægtled · ${prev.linje}-linjen`
+      + (gennem != null ? ` (${gennem}. gennemgående)` : '');
+    return {
+      key: `ancestor:${depth}:fb`, kind: 'ancestor', depth,
+      label: 'Muligt slægtled', people: all, selectedId: null,
+      fallback: true, genLabel, kuldGroups,
+    };
+  }
+  return null;
+}
+
 function buildDirection(
   model: Model,
   anchorId: string,
   selections: string[],
   traverse: (m: Model, id: string) => ModelPerson[],
   kind: 'ancestor' | 'descendant',
+  genCoords?: GenCoords,
 ): TreeColumn[] {
   const cols: TreeColumn[] = [];
   const visited = new Set<string>([anchorId]);
@@ -132,7 +184,13 @@ function buildDirection(
   let depth = 1;
   while (depth <= COL_MAX_DEPTH) {
     const people = traverse(model, cur).filter((p) => !visited.has(p.id));
-    if (!people.length) break;
+    if (!people.length) {
+      if (kind === 'ancestor') {
+        const fb = fallbackAncestorRing(model, genCoords, anchorId, cur, depth);
+        if (fb) cols.push(fb);
+      }
+      break; // fallback-ringen er en bevidst dødende: vælg re-ankrer i stedet for at drille videre
+    }
     const sel = selections[depth - 1] ?? null;
     cols.push({ key: `${kind}:${depth}`, kind, depth, label: colLabel(kind, depth), people, selectedId: sel });
     if (!sel) break;
@@ -148,10 +206,11 @@ export function buildBidirectionalColumns(
   anchorId: string,
   up: string[],
   down: string[],
+  genCoords?: GenCoords,
 ): TreeColumn[] {
   const anchor = model.byId[anchorId];
   if (!anchor) return [];
-  const ancestors = buildDirection(model, anchorId, up, parentsOf, 'ancestor');
+  const ancestors = buildDirection(model, anchorId, up, parentsOf, 'ancestor', genCoords);
   const descendants = buildDirection(model, anchorId, down, childrenOf, 'descendant');
   const anchorCol: TreeColumn = {
     key: 'anchor:0', kind: 'anchor', depth: 0, label: 'Fokus', people: [anchor], selectedId: anchorId,
