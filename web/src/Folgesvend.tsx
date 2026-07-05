@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { navigate, usePath } from './router';
 import { childrenOf, loadModel, parentsOf } from './data/model';
-import { buildBidirectionalColumns } from './data/tree';
+import { buildAnchorPeers, buildBidirectionalColumns, type ActiveCoord } from './data/tree';
 import { initials, konfTekst } from './data/format';
 import { computeRelationship, type RelationResult } from './data/relationship';
 import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
@@ -473,6 +473,22 @@ function Placeholder({ label }: { label: string }) {
 
 // ---- Stamtræ (variant A "Fokus" + variant B "Kolonner") ----
 // Eksporteret så drill-down/toggle/reset-adfærden kan komponent-testes uden hele Folgesvend.
+// v2: vælg den aktive slægtled-koordinat for `id` — fortsæt samme (sourceId, lineageId) som `prev`
+// hvis personen bærer en koordinat dér (bliv i den linje man browser), ellers personens laveste
+// `lokal` (deterministisk default, jf. design-spec §2). `prev = null` tvinger altid laveste-lokal —
+// bruges ved sand ekstern navigation, hvor der ikke er nogen "linje man kom fra" at fortsætte.
+function coordFor(model: Model | null, prev: ActiveCoord | null, id: string): ActiveCoord | null {
+  const coords = model?.genCoordsByPerson?.[id];
+  const valid = coords?.filter((c) => c.lokal != null) ?? [];
+  if (!valid.length) return null;
+  if (prev) {
+    const match = valid.find((c) => c.sourceId === prev.sourceId && c.lineageId === prev.lineageId);
+    if (match) return { sourceId: match.sourceId, lineageId: match.lineageId, lokal: match.lokal as number };
+  }
+  const lowest = [...valid].sort((a, b) => (a.lokal as number) - (b.lokal as number))[0];
+  return { sourceId: lowest.sourceId, lineageId: lowest.lineageId, lokal: lowest.lokal as number };
+}
+
 // onPick = fokus-hop MED historik (variant A-kort, matcher designets goToPerson). onFocus =
 // drill-valg UDEN historik (variant B-kolonner, matcher designets selectAt) — så en dyb drill
 // ikke fylder detalje-panelets tilbage-stak med hvert generations-trin.
@@ -488,6 +504,13 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
   const [anchorId, setAnchorId] = useState<string | null>(null);
   const [up, setUp] = useState<string[]>([]);
   const [down, setDown] = useState<string[]>([]);
+  // v2: den aktive linje-koordinat der driver naboer/fallback-retning/labels (design-spec §2).
+  const [activeCoord, setActiveCoord] = useState<ActiveCoord | null>(null);
+  const [showAllPeers, setShowAllPeers] = useState(false); // "+N flere i slægtledet" udfoldet
+  // Husker HVILKEN focusId et klik allerede satte activeCoord eksplicit for (peer/proven/fallback-
+  // kort, se `focusWithCoord` nedenfor) — så re-ankrings-effekten nedenfor ikke overskriver den
+  // klik-bevidste linje-kontekst med en generisk laveste-lokal-default (Codex HIGH-2).
+  const explicitCoordForRef = useRef<string | null>(null);
   const colsRef = useRef<HTMLDivElement>(null);
   const anchorIdxRef = useRef(0);           // indeks på anker-kolonnen (til centrering)
   const prevUp = useRef(0), prevDown = useRef(0), prevAnchor = useRef<string | null>(null), prevVariant = useRef<'A' | 'B'>('A');
@@ -504,7 +527,19 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
       (up.length === 0 && down.length === 0 && focusId === anchorId) ||
       focusId === up[up.length - 1] ||
       focusId === down[down.length - 1];
-    if (!keep) { setAnchorId(focusId); setUp([]); setDown([]); }
+    if (!keep) {
+      setAnchorId(focusId);
+      setUp([]); setDown([]);
+      setShowAllPeers(false);
+      // Et klik-handler (peer/proven/fallback) satte allerede activeCoord eksplicit for DENNE
+      // focusId → behold den (linje-kontekst fra klikket). Ellers: sand ekstern navigation
+      // (søgning/link/"det er mig") → default til personens laveste-lokal koordinat (§2).
+      if (explicitCoordForRef.current === focusId) {
+        explicitCoordForRef.current = null;
+      } else {
+        setActiveCoord(coordFor(model, null, focusId));
+      }
+    }
   }, [focusId]); // bevidst kun focusId — up/down/anchorId læses som frontier ved fokus-skift
 
   // Kompensér FØR paint når en ane-kolonne prepend'es, så ankeret ikke "hopper" (spec §5.5, fase 1).
@@ -544,12 +579,29 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
   const childCount = (id: string) => model.indexes.childIdx[id]?.size ?? 0;
   const hasParents = (id: string) => (model.indexes.parentsByChild[id]?.length ?? 0) > 0;
 
+  // v2: sæt activeCoord til `id`s koordinat i den linje der browses (jf. `coordFor`) OG husk (via
+  // ref'en) at denne focusId allerede har fået sin linje-kontekst eksplicit, så re-ankrings-
+  // effekten ovenfor ikke overskriver den med laveste-lokal-defaulten. Bruges af ALLE klik i
+  // Kolonner-visningen (aner/efterkommer-drill, peer-kort, fallback-kort) — ingen skrivning, blot
+  // navigations-state (design-spec §2/§4).
+  const focusWithCoord = (id: string) => {
+    setActiveCoord((prev) => coordFor(model, prev, id));
+    explicitCoordForRef.current = id;
+    onFocus(id);
+  };
   // Drill-valg (variant B). onFocus opdaterer fokus UDEN historik, så detalje-panelet følger valget.
   // Vi udvider up/down KUN med parentsOf/childrenOf-id'er (kanoniske) → frontier-invarianten holder.
-  const selectAncestor = (depth: number, id: string) => { setUp((prev) => prev.slice(0, depth - 1).concat(id)); onFocus(id); };
-  const selectDescendant = (depth: number, id: string) => { setDown((prev) => prev.slice(0, depth - 1).concat(id)); onFocus(id); };
-  const cols = variant === 'B' && anchorId ? buildBidirectionalColumns(model, anchorId, up, down, model.genCoordsByPerson) : [];
-  anchorIdxRef.current = Math.max(0, cols.findIndex((c) => c.kind === 'anchor'));
+  const selectAncestor = (depth: number, id: string) => { setUp((prev) => prev.slice(0, depth - 1).concat(id)); focusWithCoord(id); };
+  const selectDescendant = (depth: number, id: string) => { setDown((prev) => prev.slice(0, depth - 1).concat(id)); focusWithCoord(id); };
+  const cols = variant === 'B' && anchorId ? buildBidirectionalColumns(model, anchorId, up, down, model.genCoordsByPerson, activeCoord) : [];
+  // "+N flere i slægtledet" udfoldet: erstat den anker-kolonne buildBidirectionalColumns allerede
+  // klippede til cap=7, med en uklippet naboliste (genbrug den samme rene `buildAnchorPeers`).
+  const anchorColIdx = cols.findIndex((c) => c.kind === 'anchor');
+  if (anchorColIdx >= 0 && showAllPeers && (cols[anchorColIdx].overflowPeers ?? 0) > 0) {
+    const expanded = buildAnchorPeers(model, model.genCoordsByPerson, anchorId as string, activeCoord, Infinity);
+    cols[anchorColIdx] = { ...cols[anchorColIdx], people: expanded.people, overflowPeers: 0 };
+  }
+  anchorIdxRef.current = Math.max(0, anchorColIdx);
 
   return (
     <div style={{ padding: '30px 40px 50px', position: 'relative', minHeight: '100%' }}>
@@ -591,7 +643,7 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
                       <div style={{ fontFamily: T.mono, fontSize: 8.5, letterSpacing: '.08em', textTransform: 'uppercase', color: T.muted3, padding: '2px 2px 0' }}>Kuld {kuld}</div>
                     )}
                     {people.map((p) => (
-                      <div key={p.id} onClick={() => onFocus(p.id)} style={{ background: '#faf1dc', border: `1.5px dashed ${T.gold}`, borderRadius: 12, padding: '11px 13px', cursor: 'pointer', boxShadow: '0 1px 2px rgba(34,31,26,.04)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div key={p.id} onClick={() => focusWithCoord(p.id)} style={{ background: '#faf1dc', border: `1.5px dashed ${T.gold}`, borderRadius: 12, padding: '11px 13px', cursor: 'pointer', boxShadow: '0 1px 2px rgba(34,31,26,.04)', display: 'flex', alignItems: 'center', gap: 10 }}>
                         <Avatar n={p.name} size={34} />
                         <div style={{ minWidth: 0, flex: 1 }}>
                           <div style={{ fontFamily: T.serif, fontSize: 16, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
@@ -603,14 +655,43 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
                     ))}
                   </div>
                 ))
+              ) : col.kind === 'anchor' ? (
+                // v2: fokus dominant + slægtled-naboer dæmpede (§4). Naboer klikkes → re-ankrer +
+                // fortsætter aktiv linje (focusWithCoord). `overflowPeers`-kortet folder resten ud
+                // lokalt (`showAllPeers`, klippet uden cap via buildAnchorPeers ovenfor).
+                <>
+                  {col.people.filter((p) => p.id === col.focusId).map((p) => (
+                    <div key={p.id} onClick={() => focusWithCoord(p.id)} style={{ background: '#f8ecef', border: `1.5px solid ${T.bordeaux}`, borderRadius: 12, padding: '11px 13px', cursor: 'pointer', boxShadow: '0 4px 14px rgba(136,26,51,.12)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <Avatar n={p.name} size={34} />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontFamily: T.serif, fontSize: 16, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+                        {p.years && <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 2 }}>{p.years}</div>}
+                      </div>
+                      <BookmarkFlag active={hasBookmark(p.id)} onClick={() => onToggleBookmark(p.id)} />
+                    </div>
+                  ))}
+                  {col.people.filter((p) => p.id !== col.focusId).map((p) => (
+                    <div key={p.id} onClick={() => focusWithCoord(p.id)} style={{ background: T.paper, border: '1px solid rgba(34,31,26,.08)', borderRadius: 12, padding: '8px 11px', cursor: 'pointer', opacity: 0.6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Avatar n={p.name} size={24} />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontFamily: T.serif, fontSize: 13, lineHeight: 1.05, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+                        {p.years && <div style={{ fontFamily: T.mono, fontSize: 8, color: T.muted2, marginTop: 1 }}>{p.years}</div>}
+                      </div>
+                    </div>
+                  ))}
+                  {!!col.overflowPeers && (
+                    <div onClick={() => setShowAllPeers(true)} style={{ background: T.beige, border: '1px dashed rgba(34,31,26,.18)', borderRadius: 12, padding: '9px 11px', cursor: 'pointer', textAlign: 'center', fontFamily: T.sans, fontSize: 11.5, fontWeight: 600, color: '#5a5246' }}>
+                      + {col.overflowPeers} flere i slægtledet
+                    </div>
+                  )}
+                </>
               ) : col.people.map((p) => {
                 const sel = p.id === col.selectedId;
                 // Kort-chevron peger i drill-retningen: aner ‹ (venstre), efterkommere › (højre).
                 const canAnc = col.kind === 'ancestor' && hasParents(p.id);
                 const canDesc = col.kind === 'descendant' && childCount(p.id) > 0;
                 const onTap = col.kind === 'ancestor' ? () => selectAncestor(col.depth, p.id)
-                  : col.kind === 'descendant' ? () => selectDescendant(col.depth, p.id)
-                  : () => onFocus(p.id);
+                  : () => selectDescendant(col.depth, p.id);
                 return (
                   <div key={p.id} onClick={onTap} style={{ background: sel ? '#f8ecef' : T.paper, border: `1.5px solid ${sel ? T.bordeaux : 'rgba(34,31,26,.1)'}`, borderRadius: 12, padding: '11px 13px', cursor: 'pointer', boxShadow: sel ? '0 4px 14px rgba(136,26,51,.12)' : '0 1px 2px rgba(34,31,26,.04)', display: 'flex', alignItems: 'center', gap: 10 }}>
                     {canAnc && <span style={{ color: '#bcae93', fontSize: 16, flex: 'none' }}>‹</span>}

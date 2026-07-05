@@ -134,3 +134,82 @@ describe('TreeView — fallback-ring (D1: render af C1s genCoords-baserede ubevi
     expect(picked).toBeNull();
   });
 });
+
+describe('TreeView — v2 slægtled-naboer i anker-kolonnen (T6: aktiv-linje-koordinat + peer-render)', () => {
+  // Anna (fokus) er i III/G11; Xenia er en slægtled-nabo (samme III/G11) der OGSÅ bærer et andet,
+  // LAVERE `lokal` i en anden linje (V/G3) — bevidst opsat så en re-ankring til Xenia kun bevarer
+  // III-konteksten hvis klik-handleren rent faktisk bærer den aktive linje videre (§2/Codex HIGH-2);
+  // en naiv "laveste lokal"-default ville forkert skifte til V/3.
+  const peerModel = buildModel(
+    db(
+      [P('A', 'Anna'), P('F', 'Far'), P('M', 'Mor'), P('C1', 'Bo'), P('C2', 'Cille'), P('X', 'Xenia')],
+      [
+        { child: 'A', parent: 'F', union: 'u1' },
+        { child: 'A', parent: 'M', union: 'u1' },
+        { child: 'C1', parent: 'A', union: 'u2' },
+        { child: 'C2', parent: 'A', union: 'u2' },
+      ],
+    ),
+  );
+  (peerModel as typeof peerModel & { genCoordsByPerson: unknown }).genCoordsByPerson = {
+    A: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: null }],
+    X: [
+      { sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: null },
+      { sourceId: '1', linje: 'V', lineageId: '20', parentLineageId: null, lokal: 3, gennem: 3, kuld: null },
+    ],
+  };
+
+  it('anker viser fokus dominant + slægtled-nabo dæmpet, kombineret label, og klik re-ankrer (ingen skrivning)', () => {
+    let focused: string | null = null;
+    render(
+      <TreeView model={peerModel} focusId="A" onPick={() => {}} onFocus={(id) => (focused = id)} hasBookmark={() => false} onToggleBookmark={() => {}} />,
+    );
+    fireEvent.click(screen.getByText('Kolonner'));
+    expect(screen.getByText('Anna')).toBeTruthy();
+    expect(screen.getByText('Xenia')).toBeTruthy(); // dæmpet nabo-kort, jf. buildAnchorPeers
+    expect(screen.getByText(/^11\. slægtled · III-linjen$/)).toBeTruthy(); // §5 kombinations-label
+    fireEvent.click(screen.getByText('Xenia'));
+    expect(focused).toBe('X'); // re-ankrer via onFocus, ikke onPick
+  });
+
+  it('aktiv linje-koordinat bevares ved re-ankring til naboen (vælger IKKE naboens andet, lavere-lokal koordinat)', () => {
+    let focusId = 'A';
+    const onFocus = (id: string) => { focusId = id; };
+    const { rerender } = render(
+      <TreeView model={peerModel} focusId={focusId} onPick={() => {}} onFocus={onFocus} hasBookmark={() => false} onToggleBookmark={() => {}} />,
+    );
+    fireEvent.click(screen.getByText('Kolonner'));
+    fireEvent.click(screen.getByText('Xenia')); // sætter activeCoord til Xenias III/G11-koordinat (matcher Annas linje)
+    rerender(
+      <TreeView model={peerModel} focusId={focusId} onPick={() => {}} onFocus={onFocus} hasBookmark={() => false} onToggleBookmark={() => {}} />,
+    );
+    // Ankeret er nu Xenia; anker-labelen skal STADIG vise III-linjen/11. slægtled — havde re-ankrings-
+    // effekten overskrevet klikkets koordinat med Xenias laveste `lokal` (3, V-linjen), ville denne
+    // assertion fejle (Codex HIGH-2-regressionstest).
+    expect(screen.getByText(/^11\. slægtled · III-linjen$/)).toBeTruthy();
+    expect(screen.queryByText(/3\. slægtled · V-linjen/)).toBeNull();
+  });
+});
+
+describe('TreeView — v2 "+N flere i slægtledet" (cap/udfoldning, §4 Codex MEDIUM-6)', () => {
+  const naboer = Array.from({ length: 9 }, (_, i) => P(`Q${i}`, `Nabo ${i}`));
+  const overflowModel = buildModel(db([P('A', 'Anna'), ...naboer], []));
+  const coord = { sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: null };
+  (overflowModel as typeof overflowModel & { genCoordsByPerson: unknown }).genCoordsByPerson = {
+    A: [coord],
+    ...Object.fromEntries(naboer.map((p) => [p.id, [coord]])),
+  };
+
+  it('capper til 7 naboer + "+2 flere"-kort; klik udfolder resten (ingen skrivning)', () => {
+    render(
+      <TreeView model={overflowModel} focusId="A" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} />,
+    );
+    fireEvent.click(screen.getByText('Kolonner'));
+    expect(screen.getByText(/\+ ?2 flere i slægtledet/)).toBeTruthy();
+    expect(screen.queryByText('Nabo 7')).toBeNull(); // uden for cap
+    expect(screen.queryByText('Nabo 8')).toBeNull();
+    fireEvent.click(screen.getByText(/\+ ?2 flere i slægtledet/));
+    expect(screen.getByText('Nabo 7')).toBeTruthy();
+    expect(screen.getByText('Nabo 8')).toBeTruthy();
+  });
+});
