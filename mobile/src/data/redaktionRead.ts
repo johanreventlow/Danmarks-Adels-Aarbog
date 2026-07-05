@@ -167,26 +167,55 @@ export async function fetchSletPreview(personId: string): Promise<SletPreview> {
   };
 }
 
-// --- Narrativ-læsning til person-editor (Codex 2B #1: prefill-kilde == skrive-mål) ---
+// --- Narrativ-læsning: ALLE udgaver pr. subjekt (billeder-i-narrativer 2026-07-05, Slice C3) ---
+// Generaliseret fra person-only enkelt-række (Codex 2B #1: prefill-kilde == skrive-mål) til ALLE
+// udgaver af ethvert subjekt — spejler web's redaktionRead.ts (fetchNarrativer/mapNarrativer),
+// så person-editorens udgave-faner og den nye slægts/linje-editor deler ét read-lag.
 
-export type PersonNarrativ = { tekst: string; privat: boolean; sourceId: number | null };
+export type PersonNarrativ = { id: number; sourceId: number | null; sourceTitel: string | null; udgave: string | null; side: string | null; tekst: string; privat: boolean };
 
-export function mapNarrativRow(rows: { tekst: string | null; privat: boolean | null; source_id?: number | null }[]): PersonNarrativ | null {
-  const first = rows[0];
-  if (!first) return null;
-  return { tekst: first.tekst ?? '', privat: Boolean(first.privat), sourceId: first.source_id ?? null };
+type RawNarrativRow = { id: number; source_id: number | null; side: string | null; tekst: string | null; privat: boolean | null; source: { titel: string | null; udgave: string | null } | null };
+
+export function mapNarrativer(rows: RawNarrativRow[]): PersonNarrativ[] {
+  return rows
+    .map((r) => ({
+      id: r.id, sourceId: r.source_id, sourceTitel: r.source?.titel ?? null,
+      udgave: r.source?.udgave ?? null, side: r.side, tekst: r.tekst ?? '', privat: Boolean(r.privat),
+    }))
+    .sort((a, b) => (a.sourceId ?? Infinity) - (b.sourceId ?? Infinity) || a.id - b.id);
 }
 
-// Henter FØRSTE narrativ by id (uanset privat) = præcis den række red_upsert_narrativ redigerer.
-// Prefill-kilde == skrive-mål; privat-flaget bevares af editoren på Gem (Codex 2B #1).
-export async function fetchPersonNarrativ(id: string): Promise<PersonNarrativ | null> {
-  if (!supabase) return null;
+export async function fetchNarrativer(subjektType: string, subjektId: number): Promise<PersonNarrativ[]> {
+  if (!supabase) return [];
   const { data, error } = await supabase
-    .from('narrative').select('tekst,privat,source_id')
-    .eq('subjekt_type', 'person').eq('subjekt_id', Number(id))
-    .order('id', { ascending: true }).limit(1);
+    .from('narrative').select('id,source_id,side,tekst,privat,source:source_id(titel,udgave)')
+    .eq('subjekt_type', subjektType).eq('subjekt_id', subjektId)
+    .order('source_id', { ascending: true }).order('id', { ascending: true });
   if (error) throw new Error(error.message);
-  return mapNarrativRow(data ?? []);
+  return mapNarrativer((data ?? []) as unknown as RawNarrativRow[]);
+}
+
+export type SourceRow = { id: number; titel: string | null; udgave: string | null; slags: string | null; aar: number | null };
+
+export async function fetchSources(): Promise<SourceRow[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('source').select('id,titel,udgave,slags,aar')
+    .order('aar', { ascending: false, nullsFirst: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as SourceRow[];
+}
+
+// Rå lineage-rækker med deres RIGTIGE numeriske id (til subjekt_id på 'lineage'-narrativer) —
+// bevidst IKKE genbrugt fra redaktionAux's linjeList (den bærer kun linje-KODEN 'I'/'II'/… som
+// nøgle, ikke lineage.id).
+export type LineageRow = { id: number; kode: string; navn: string | null };
+
+export async function fetchLineages(): Promise<LineageRow[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase.from('lineage').select('id,kode,navn').order('kode', { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as LineageRow[];
 }
 
 // --- Relationer pr. person (pagineret, inkl. id til redaktøren) ---

@@ -9,14 +9,12 @@ import { SletBekraeftSheet } from '../../../components/redaktion/SletBekraeftShe
 import { SkrivePreviewSheet } from '../../../components/redaktion/SkrivePreviewSheet';
 import { EntitetPicker } from '../../../components/redaktion/EntitetPicker';
 import { PersonPicker } from '../../../components/redaktion/PersonPicker';
-import { MediaMentionPicker } from '../../../components/redaktion/MediaMentionPicker';
-import { MentionPicker } from '../../../components/redaktion/MentionPicker';
+import { NarrativEditor } from '../../../components/redaktion/NarrativEditor';
 import { MediaUploadSheet } from '../../../components/redaktion/MediaUploadSheet';
 import { MediaGallery } from '../../../components/redaktion/MediaGallery';
 import { Body, BtnLabel, Mono, Serif } from '../../../components/Typography';
-import { insertAt } from '../../../lib/mentions';
 import { useMediaAndThumbUris } from '../../../lib/media';
-import { fetchPersonEvidence, fetchPersonNarrativ, fetchPersonRelationer, fetchPersonFamilie, fetchPersonMedia, fetchSammeSomLinks, nudgeOrdinal, BARN_ROLLER, type PersonEvidence, type PersonRelation, type PersonFamilie, type PersonMedia, type FamilieUnion, type SammeSomLink } from '../../../data/redaktionRead';
+import { fetchPersonEvidence, fetchPersonRelationer, fetchPersonFamilie, fetchPersonMedia, fetchSammeSomLinks, nudgeOrdinal, BARN_ROLLER, type PersonEvidence, type PersonRelation, type PersonFamilie, type PersonMedia, type FamilieUnion, type SammeSomLink } from '../../../data/redaktionRead';
 import { previewSammeSom } from '../../../data/sammeSomPreflight';
 import { eraAdvarsel } from '../../../data/eraAdvarsel';
 import { type Change } from '../../../data/redaktionWrite';
@@ -270,30 +268,6 @@ export default function PersonEditor() {
   const [privat, setPrivat] = useState(false);
   useEffect(() => { if (person) setPrivat(Boolean(person.privat)); }, [person?.privat]);
 
-  // narrativ-tekst + narrativ-privat: prefill fra fetchPersonNarrativ (skrive-mål + privat bevares).
-  // narrativStatus BLOKERER Gem indtil prefill er lykkedes — ellers ville en slugt fetch-fejl
-  // (tom tekst vist) lade Gem OVERSKRIVE den eksisterende narrativ destruktivt (cycle 04 NEW1).
-  const [narrativTekst, setNarrativTekst] = useState('');
-  const [narrativPrivat, setNarrativPrivat] = useState(false);
-  // source_id fra prefill = den udgave-række Gem skal ramme (default 1 = primær DAA-udgave).
-  const [narrativSourceId, setNarrativSourceId] = useState<number | null>(null);
-  const [narrativStatus, setNarrativStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  // ref, ikke state: cursor-position påvirker aldrig render-output (kun læst ved
-  // mention-indsættelse) — useState her ville trigge et unødigt re-render pr. tastetryk.
-  const narrativSelPos = useRef(0);
-  const [mentionPickerÅben, setMentionPickerÅben] = useState(false);
-  const [mediaMentionPickerÅben, setMediaMentionPickerÅben] = useState(false);
-  useEffect(() => {
-    if (!id) return;
-    setNarrativStatus('loading');
-    fetchPersonNarrativ(id).then((n) => {
-      setNarrativTekst(n?.tekst ?? '');
-      setNarrativPrivat(n?.privat ?? false);
-      setNarrativSourceId(n?.sourceId ?? null);
-      setNarrativStatus('ready');
-    }).catch(() => setNarrativStatus('error'));
-  }, [id]);
-
   // Sektion-niveau "opret nyt fact"-form (operation B): hvilket felt + scratch-værdier.
   const [addFelt, setAddFelt] = useState<string | null>(null);
   const [addScratch, setAddScratch] = useState({ vaerdi: '', kilde: '' });
@@ -542,69 +516,7 @@ export default function PersonEditor() {
           </View>
         </View>
 
-        {/* Narrativ-sektion */}
-        <View style={editorStyles.narrativSektion}>
-          <Mono size={10} color={Colors.textMuted} style={{ marginBottom: 6 }}>Narrativ / biografi</Mono>
-          {narrativStatus === 'error' ? (
-            // Blokér editoren ved fetch-fejl — vis IKKE et tomt felt man kan komme til at gemme
-            // (det ville overskrive den eksisterende narrativ destruktivt, cycle 04 NEW1).
-            <Mono size={11} color={Colors.liveRoed}>
-              Kunne ikke hente narrativ. Gem er deaktiveret (undgår at overskrive eksisterende tekst). Genindlæs.
-            </Mono>
-          ) : (
-            <>
-              <View style={{ flexDirection: 'row', gap: 16, marginBottom: 6 }}>
-                <Pressable disabled={narrativStatus !== 'ready'} onPress={() => setMentionPickerÅben(true)}>
-                  <BtnLabel size={12.5} color={Colors.bordeaux}>🔗 Indsæt link</BtnLabel>
-                </Pressable>
-                <Pressable disabled={narrativStatus !== 'ready'} onPress={() => setMediaMentionPickerÅben(true)}>
-                  <BtnLabel size={12.5} color={Colors.bordeaux}>🖼 Indsæt billede</BtnLabel>
-                </Pressable>
-              </View>
-              <TextInput
-                multiline
-                editable={narrativStatus === 'ready'}
-                value={narrativTekst}
-                onChangeText={setNarrativTekst}
-                onSelectionChange={(e) => { narrativSelPos.current = e.nativeEvent.selection.start; }}
-                style={editorStyles.narrativInput}
-                placeholder={narrativStatus === 'loading' ? 'Henter…' : 'Skriv biografi her…'}
-                placeholderTextColor={Colors.textMuted2}
-                textAlignVertical="top"
-              />
-              <Pressable
-                style={[editorStyles.gemKnap, narrativStatus !== 'ready' && { opacity: 0.5 }]}
-                disabled={narrativStatus !== 'ready'}
-                onPress={() => setPending({ art: 'narrativ', subjektType: 'person', subjektId: id!,
-                  vaerdi: narrativTekst, payload: { privat: narrativPrivat, sourceId: narrativSourceId } })}
-              >
-                <BtnLabel color="#fff">Gem narrativ</BtnLabel>
-              </Pressable>
-              {mentionPickerÅben ? (
-                <MentionPicker
-                  onClose={() => setMentionPickerÅben(false)}
-                  onVælg={(token) => {
-                    const r = insertAt(narrativTekst, narrativSelPos.current, token);
-                    setNarrativTekst(r.text);
-                    narrativSelPos.current = r.cursor;
-                  }}
-                />
-              ) : null}
-              {mediaMentionPickerÅben ? (
-                <MediaMentionPicker
-                  media={media}
-                  thumbUris={mediaThumbUris}
-                  onClose={() => setMediaMentionPickerÅben(false)}
-                  onVælg={(token) => {
-                    const r = insertAt(narrativTekst, narrativSelPos.current, token);
-                    setNarrativTekst(r.text);
-                    narrativSelPos.current = r.cursor;
-                  }}
-                />
-              ) : null}
-            </>
-          )}
-        </View>
+        <NarrativEditor subjektType="person" subjektId={id!} media={media} mediaThumbUris={mediaThumbUris} />
 
         {/* Materiale (mediehåndtering Slice 0g+0h) */}
         <View style={editorStyles.narrativSektion}>
@@ -884,24 +796,6 @@ const editorStyles = StyleSheet.create({
     paddingTop: 16,
     borderTopWidth: 1,
     borderTopColor: Border.light,
-  },
-  narrativInput: {
-    backgroundColor: Colors.paperCard,
-    borderRadius: Radius.field,
-    borderWidth: 1,
-    borderColor: Border.medium,
-    padding: 12,
-    minHeight: 120,
-    fontFamily: 'HankenGrotesk_400Regular',
-    fontSize: 13,
-    color: Colors.ink,
-  },
-  gemKnap: {
-    backgroundColor: Colors.bordeaux,
-    borderRadius: Radius.field,
-    padding: 14,
-    alignItems: 'center',
-    marginTop: 10,
   },
   addForm: {
     backgroundColor: Colors.paperCard,
