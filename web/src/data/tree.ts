@@ -43,6 +43,38 @@ function labelFor(kind: 'ancestor' | 'descendant', depth: number): string {
   return `${depth - 3}× ${kind === 'ancestor' ? 'Tipoldeforældre' : 'Tipoldebørn'}`;
 }
 
+// v2-overskrift: kombinerer slægtskabsbetegnelse (ANCESTOR/DESCENDANT_LABELS) med det ABSOLUTTE
+// slægtled-tal (genCoord.lokal) + linje-navn, når kendt. Ren formattering — ingen I/O, intet
+// TreeColumn-behov; kaldes med de rå felter så den er testbar uafhængigt af
+// buildBidirectionalColumns (Task 4 kobler den ind som `label`-erstatning). Inlinet (ikke via
+// labelFor) så funktionen er selvstændig — `labelFor` fjernes i Task 4, `columnLabel` skal overleve
+// det uændret. Bevaret byte-identisk mellem web/src/data/tree.ts og mobile/src/data/selectors.ts.
+export function columnLabel(a: {
+  kind: ColumnKind;
+  depth: number;
+  slaegtled: number | null;
+  linje: string | null;
+  fallback?: boolean;
+}): string {
+  if (a.kind === 'anchor') {
+    if (a.slaegtled == null) return 'Fokus';
+    return `${a.slaegtled}. slægtled · ${a.linje}-linjen`;
+  }
+  if (a.fallback) {
+    return `muligt · ${a.slaegtled}. slægtled · ${a.linje}-linjen`;
+  }
+  if (a.depth <= 4) {
+    const table = a.kind === 'ancestor' ? ANCESTOR_LABELS : DESCENDANT_LABELS;
+    const kinship = table[a.depth - 1];
+    if (a.slaegtled == null) return kinship;
+    return `${kinship} · ${a.slaegtled}. slægtled`;
+  }
+  if (a.slaegtled == null) {
+    return `${a.depth - 3}× ${a.kind === 'ancestor' ? 'Tipoldeforældre' : 'Tipoldebørn'}`;
+  }
+  return `${a.slaegtled}. slægtled`;
+}
+
 // Byg fallback-ring: alle personer der deler den FORRIGE generations (linje, lokal)-koordinat med
 // `cur`, via `genCoords` (ekstern opslagstabel — ikke `model.genCoordsByPerson`). Ren projektion;
 // vælger ingen skrivning, opretter intet — kun kandidat-visning når `parentsOf` er tom. En founder

@@ -1,4 +1,4 @@
-import { buildBidirectionalColumns } from '../tree';
+import { buildBidirectionalColumns, columnLabel } from '../tree';
 import { buildModel } from '../buildModel';
 import type { AppPerson, Db } from '../types';
 
@@ -159,5 +159,55 @@ describe('fallback-ring', () => {
     const fb = cols.find((c) => c.fallback);
     expect(fb).toBeDefined();
     expect(fb!.people.map((p) => p.id).sort()).toEqual(['A', 'B']);
+  });
+});
+
+describe('columnLabel', () => {
+  it('anker m. slægtled → "N. slægtled · linje-linjen"', () => {
+    expect(columnLabel({ kind: 'anchor', depth: 0, slaegtled: 11, linje: 'III' })).toBe('11. slægtled · III-linjen');
+  });
+
+  it('anker uden slægtled → "Fokus"', () => {
+    expect(columnLabel({ kind: 'anchor', depth: 0, slaegtled: null, linje: null })).toBe('Fokus');
+  });
+
+  it('fallback → "muligt · N. slægtled · linje-linjen"', () => {
+    expect(columnLabel({ kind: 'ancestor', depth: 2, slaegtled: 9, linje: 'V', fallback: true }))
+      .toBe('muligt · 9. slægtled · V-linjen');
+  });
+
+  it('bevist ancestor depth≤4 m. slægtled → "kinship · N. slægtled"', () => {
+    expect(columnLabel({ kind: 'ancestor', depth: 1, slaegtled: 12, linje: 'III' })).toBe('Forældre · 12. slægtled');
+    expect(columnLabel({ kind: 'ancestor', depth: 4, slaegtled: 5, linje: 'III' }))
+      .toBe('Tipoldeforældre · 5. slægtled');
+  });
+
+  it('bevist ancestor depth≤4 uden slægtled → kun kinship', () => {
+    expect(columnLabel({ kind: 'ancestor', depth: 1, slaegtled: null, linje: null })).toBe('Forældre');
+  });
+
+  it('bevist descendant depth≤4 m. slægtled → "kinship · N. slægtled"', () => {
+    expect(columnLabel({ kind: 'descendant', depth: 1, slaegtled: 13, linje: 'III' })).toBe('Børn · 13. slægtled');
+  });
+
+  it('bevist descendant depth≤4 uden slægtled → kun kinship', () => {
+    expect(columnLabel({ kind: 'descendant', depth: 2, slaegtled: null, linje: null })).toBe('Børnebørn');
+  });
+
+  it('bevist ancestor depth≥5 m. slægtled → "N. slægtled" (ikke kinship-navn)', () => {
+    expect(columnLabel({ kind: 'ancestor', depth: 5, slaegtled: 3, linje: 'III' })).toBe('3. slægtled');
+  });
+
+  it('bevist ancestor depth≥5 uden slægtled → v1-fallback "N× Tipoldeforældre"', () => {
+    expect(columnLabel({ kind: 'ancestor', depth: 5, slaegtled: null, linje: null })).toBe('2× Tipoldeforældre');
+    expect(columnLabel({ kind: 'ancestor', depth: 7, slaegtled: null, linje: null })).toBe('4× Tipoldeforældre');
+  });
+
+  it('bevist descendant depth≥5 m. slægtled → "N. slægtled" (ikke kinship-navn)', () => {
+    expect(columnLabel({ kind: 'descendant', depth: 6, slaegtled: 20, linje: 'III' })).toBe('20. slægtled');
+  });
+
+  it('bevist descendant depth≥5 uden slægtled → v1-fallback "N× Tipoldebørn"', () => {
+    expect(columnLabel({ kind: 'descendant', depth: 5, slaegtled: null, linje: null })).toBe('2× Tipoldebørn');
   });
 });
