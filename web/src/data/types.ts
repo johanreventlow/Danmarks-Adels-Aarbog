@@ -184,6 +184,9 @@ export type Model = {
   canonicalIdById?: Record<string, string>;
   // Geo-lag (kortpunkter). Valgfrit: udfyldes af loadModel; tomt indtil koordinat-berigelsen kører.
   geo?: Geo;
+  // Generations-koordinater pr. kanonisk person-id (slægtled_lokal/gennem + kuld pr. linje).
+  // Valgfrit: udfyldes af loadModel via buildGenCoords (Task B2); bruges af tree-byggeren (C1).
+  genCoordsByPerson?: Record<string, import('./generations').GenCoord[]>;
 };
 
 // --- Geo-lag (kort) ---------------------------------------------------------

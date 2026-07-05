@@ -3,6 +3,7 @@
 // behøver — ikke Aux/godser/våben). Rolle-vokab: partner = forælder-par, barn = blodslægt.
 import { supabase } from '../supabase';
 import { buildGeo } from './buildGeo';
+import { buildGenCoords } from './generations';
 import { buildModel } from './buildModel';
 import { collapseSameAs } from './collapseSameAs';
 import { buildLineage } from './lineage';
@@ -65,9 +66,9 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<Model> {
     // Linje/nr pr. person (grene) — tolerant: tabellen/kolonnerne kan mangle i ældre baser.
     // Review 15: log ved fejl, så en RLS/drifts-fejl ikke stiltiende ligner "ingen linjer"
     // (graceful degradation bevares, men degraderingen bliver synlig i konsol/telemetri).
-    getAll<RawExtId>(() => supabase.from('person_external_id').select('person_id,source_id,linje,nr')).catch((e) => { console.warn('[loadModel] person_external_id utilgængelig — linjer/kilder degraderet:', e); return [] as RawExtId[]; }),
+    getAll<RawExtId>(() => supabase.from('person_external_id').select('person_id,source_id,linje,nr,slaegtled_lokal,slaegtled_gennem,kuld')).catch((e) => { console.warn('[loadModel] person_external_id utilgængelig — linjer/kilder degraderet:', e); return [] as RawExtId[]; }),
     // Linje-navne — lineage-tabellen findes måske ikke endnu (fallback til 'Linje {kode}').
-    getAll<RawLineage>(() => supabase.from('lineage').select('source_id,kode,navn')).catch((e) => { console.warn('[loadModel] lineage utilgængelig — bruger linje-koder som navne:', e); return [] as RawLineage[]; }),
+    getAll<RawLineage>(() => supabase.from('lineage').select('id,source_id,kode,navn,parent_lineage_id')).catch((e) => { console.warn('[loadModel] lineage utilgængelig — bruger linje-koder som navne:', e); return [] as RawLineage[]; }),
     // Kilder (trykt værk) — til "Kilde i Aarbogen" pr. person.
     getAll<RawSource>(() => supabase.from('source').select('id,slags,titel,udgave,ekstern')).catch((e) => { console.warn('[loadModel] source utilgængelig — Kilde-i-Aarbogen degraderet:', e); return [] as RawSource[]; }),
     // samme_som-relationer (person→person; subjekt=alias, objekt=kanonisk) + afklarede konklusioner.
@@ -153,6 +154,7 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<Model> {
       { facts, estates, places, persons: collapsed.db.persons, unions: collapsed.db.unions },
       collapsed.canonicalIdById,
     ),
+    genCoordsByPerson: buildGenCoords(extIds, lineageRows, collapsed.canonicalIdById),
   };
   // Påfør proveniens på de foldede kanoniske personer (til badge i detalje-panelet).
   for (const [canon, prov] of Object.entries(collapsed.mergedFrom)) {
