@@ -26,9 +26,13 @@ ren læsning ovenpå den eksisterende `Model`/`Aux`.
   **persistens over app-genstart**, Bogmærker-skærm — alle bekræftet empirisk. Krævede frisk
   native dev-client-build (`expo run:ios`) da den installerede binary var stale (manglede
   `react-native-webview` → `RNCWebViewModule`-crash ved boot; pre-eksisterende, ej vores kode).
-- **Udestår:** skive 5 (visuel afstemning af eksisterende skærme mod v3) + verifikation mod live-
-  Supabase-data (sim-fetch fejler; kræver fysisk enhed, jf. memory `mobil-sim-rn-fetch-1005`).
-  Se `docs/superpowers/{specs,plans}/2026-07-05-folgesvend-v3-*`.
+- **Skive 5 (visuel afstemning):** iOS-sim-audit af eksisterende sub-skærme (Om slægten, Stamtræ,
+  Slægtens våben, Persondetalje) mod v3-designet fandt dem **allerede pixel-tæt konforme** — de blev
+  bygget til v3 i tidligere sessioner (delt `TopBar` + tokens). **Ingen substantielle ændringer nødvendige.**
+  Godser/søg/slægtskab deler samme komponenter+afstamning (forventet konforme; endelig visuel pass
+  bør ske på fysisk enhed mod live-data).
+- **Udestår:** verifikation mod live-Supabase-data (sim-fetch fejler → SEED-fallback; kræver fysisk
+  enhed, jf. memory `mobil-sim-rn-fetch-1005`) + merge/push. Se `docs/superpowers/{specs,plans}/2026-07-05-folgesvend-v3-*`.
 
 ## Generations-reparation af stamtræet — hul-reparation via slægtled (web+mobile, PROD-LIVE + merget, 2026-07-05)
 
