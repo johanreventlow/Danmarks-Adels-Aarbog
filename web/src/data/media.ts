@@ -129,8 +129,21 @@ export function firstSignable(media: MediaItem[]): MediaItem | null {
   return media.find((m) => m.url) ?? null;
 }
 
+// Filtrér til rækker med en signeret url + typesnævr til ikke-null url. Delt af pickPortrait
+// herunder og af Lightbox-kaldere (Folgesvend.tsx/Redaktion.tsx), der skal bygge en navigerbar,
+// url-bærende liste uden hver at gentage den samme type-guard (/simplify-fund, Slice A).
+export function withUrl<T extends { url: string | null }>(items: (T | null | undefined)[]): (T & { url: string })[] {
+  return items.filter((m): m is T & { url: string } => !!m?.url);
+}
+
 // Vælg hovedbillede (portræt): første portræt-egnede med URL, ellers første med URL.
 export function pickPortrait(media: MediaItem[]): MediaItem | null {
-  const withUrl = media.filter((m) => m.url);
-  return withUrl.find((m) => PORTRAIT_SLAGS.has(normSlags(m.slags))) ?? withUrl[0] ?? null;
+  const signable = withUrl(media);
+  return signable.find((m) => PORTRAIT_SLAGS.has(normSlags(m.slags))) ?? signable[0] ?? null;
+}
+
+// Billedtekst: titel · kunstner · datering (kun de udfyldte). Delt af MediaThumb (primitives.tsx)
+// og Lightbox — samme formel, ét sted (/simplify-fund, Slice A).
+export function mediaCaption(m: { titel?: string | null; kunstner?: string | null; datering?: string | null }): string {
+  return [m.titel, m.kunstner, m.datering].filter(Boolean).join(' · ');
 }

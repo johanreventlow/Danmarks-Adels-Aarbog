@@ -17,9 +17,11 @@ import { loadModel } from './data/model';
 import type { Model } from './data/types';
 import { submitChange, describeCall, oversaetFejl, type Change } from './data/redaktionWrite';
 import { buildStoragePath } from './data/mediaUpload';
+import { withUrl } from './data/media';
 import { buildBrowse } from './data/browse';
 import { initials } from './data/format';
 import { NarrativRenderer } from './components/NarrativRenderer';
+import { Lightbox } from './components/Lightbox';
 
 const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 // Change-arter der kan ændre et materiale-galleri (Slice 0h) — bruges til at afgøre om
@@ -128,6 +130,7 @@ export default function Redaktion() {
   // Materiale (mediehåndtering Slice 0g). fetchRedPersonMedia signerer allerede internt (ét sted,
   // som media.ts's loadMediaItems) — media[].url er klar til brug, ingen separat uri-state/effekt.
   const [media, setMedia] = useState<PersonMedia[]>([]);
+  const [mediaLightbox, setMediaLightbox] = useState<number | null>(null); // Slice A
   const [mediaPick, setMediaPick] = useState<{ file: File; previewUrl: string } | null>(null);
   const [mediaForm, setMediaForm] = useState<{ slags: string; titel: string; maaPubliceres: boolean }>(
     { slags: 'foto', titel: '', maaPubliceres: false });
@@ -644,6 +647,10 @@ export default function Redaktion() {
     subjektType: string; subjektId: string; uploadTarget: Record<string, unknown>;
   }) {
     const mayUpload = role === 'redaktion';
+    // Lightbox (Slice A): kun url-bærende rækker er navigerbare (nogle kan mangle url, fx
+    // 'kladde' eller mislykket signering) — filtrér FØR indeksering, ellers kan pil-navigation
+    // lande på en url-løs post og lukke lightboxen uventet.
+    const mediaMedLightbox = withUrl(media);
     return (
       <>
         <div style={sectionHeader(24)}>Materiale</div>
@@ -653,7 +660,9 @@ export default function Redaktion() {
               {media.map((m) => (
                 <div key={m.id} style={{ width: 96 }}>
                   {m.url ? (
-                    <img src={m.url} alt={m.titel ?? m.slags} style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 10, background: T.beige }} />
+                    <img src={m.url} alt={m.titel ?? m.slags}
+                      onClick={() => setMediaLightbox(mediaMedLightbox.findIndex((x) => x.id === m.id))}
+                      style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 10, background: T.beige, cursor: 'zoom-in' }} />
                   ) : (
                     <div style={{ width: 96, height: 96, borderRadius: 10, background: T.beige }} />
                   )}
@@ -733,6 +742,9 @@ export default function Redaktion() {
             <div style={{ fontSize: 11.5, color: T.muted3 }}>Kun redaktion kan tilføje materiale.</div>
           )}
         </div>
+        {mediaLightbox != null && (
+          <Lightbox items={mediaMedLightbox} index={mediaLightbox} onClose={() => setMediaLightbox(null)} onNavigate={setMediaLightbox} />
+        )}
       </>
     );
   }

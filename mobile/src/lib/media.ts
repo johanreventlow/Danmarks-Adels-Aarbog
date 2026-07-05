@@ -76,20 +76,37 @@ export function pickPortrait(media: RawMedia[]): RawMedia | null {
   return media.find((m) => PORTRAIT_SLAGS.has(normSlags(String(m.slags ?? '')))) ?? media[0] ?? null;
 }
 
+// Lightbox-klar visning af ét medie (Slice A) — id/uri + de felter mediaCaption-formlen (web-
+// pendanten) bruger. Delt form for portræt og galleri, så begge kan smides i samme navigerbare liste.
+export type PersonMediaItem = { id: string; uri: string; titel: RawMedia['titel']; kunstner: RawMedia['kunstner']; datering: RawMedia['datering'] };
+function toLightboxItem(m: RawMedia, uri: string): PersonMediaItem {
+  return { id: String(m.id), uri, titel: m.titel, kunstner: m.kunstner, datering: m.datering };
+}
+
 // Model-hook: resolvér signed URLs + udled portræt/galleri ÉT sted (samme kontrakt som web's
 // data-lag), så visnings-komponenten forbruger en færdig model frem for at orkestrere rå dele.
 // Portræt vælges blandt SIGNERBARE medier (fald tilbage til alle indtil uris er resolvet), så et
 // usignérbart første-medie ikke giver permanent placeholder mens et gyldigt billede sad i galleriet.
+// portraitItem (ikke separate portrait+portraitUri) matcher galleriets {media,uri}-form — fjerner
+// et sammensat "portrait && portraitUri"-tjek fra kalderen (/simplify-fund, Slice A).
+// lightboxItems er portræt+galleri som ÉT navigerbart, url-bærende sæt — bygget her (ikke i
+// visningskomponenten), så komponenten forbruger en færdig liste i stedet for selv at kombinere.
 export function usePersonMedia(media: RawMedia[]): {
-  portraitUri: string | undefined;
+  portraitItem: { media: RawMedia; uri: string } | null;
   gallery: Array<{ media: RawMedia; uri: string }>;
+  lightboxItems: PersonMediaItem[];
 } {
   const uris = useMediaUris(media);
   const signable = media.filter((m) => uris[String(m.id)]);
   const portrait = pickPortrait(signable.length ? signable : media);
   const portraitUri = portrait ? uris[String(portrait.id)] : undefined;
+  const portraitItem = portrait && portraitUri ? { media: portrait, uri: portraitUri } : null;
   const gallery = signable
     .filter((m) => String(m.id) !== String(portrait?.id))
     .map((m) => ({ media: m, uri: uris[String(m.id)] }));
-  return { portraitUri, gallery };
+  const lightboxItems = [
+    ...(portraitItem ? [toLightboxItem(portraitItem.media, portraitItem.uri)] : []),
+    ...gallery.map((g) => toLightboxItem(g.media, g.uri)),
+  ];
+  return { portraitItem, gallery, lightboxItems };
 }
