@@ -18,6 +18,7 @@ import { useBookmarks, type BookmarkSort } from './data/bookmarks';
 import { BookmarksView } from './components/BookmarksView';
 import { SlaegtPicker } from './components/SlaegtPicker';
 import { GeoMap } from './components/GeoMap';
+import { ExpandableMiniMap } from './components/MapLightbox';
 import { ViewHeader, Avatar, BookmarkFlag, SidebarMiniRow, MediaThumb } from './components/primitives';
 import { Lightbox } from './components/Lightbox';
 import { T } from './theme';
@@ -873,7 +874,7 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
         {model.geo && lifeJourney(model.geo, focusId).length > 0 && (
           <div style={{ marginTop: 14 }}>
             <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2, marginBottom: 6 }}>Livsrejse</div>
-            <GeoMap points={lifeJourney(model.geo, focusId)} mode="mini" onPointPress={(pt) => { if (pt.personId && pt.personId !== focusId) onPick(pt.personId); }} />
+            <ExpandableMiniMap points={lifeJourney(model.geo, focusId)} />
           </div>
         )}
 
@@ -996,7 +997,7 @@ function EstatesView({ estates, estateId, estate, info, owners, geo, onOpen, onB
           {info?.sted && <span style={{ fontSize: 11.5, fontWeight: 600, color: T.muted, background: T.beige, border: '1px solid rgba(34,31,26,.1)', padding: '5px 10px', borderRadius: 7 }}>⌖ {info.sted}</span>}
         </div>
         {point && (
-          <div style={{ marginTop: 14 }}><GeoMap points={[point]} mode="mini" /></div>
+          <div style={{ marginTop: 14 }}><ExpandableMiniMap points={[point]} /></div>
         )}
         {info && info.media.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
