@@ -198,6 +198,7 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
                           {p.years ? <Mono size={9} color={Colors.textMuted} style={{ marginTop: 2 }}>{p.years}</Mono> : null}
                           <Mono size={8} color={Colors.gold} style={{ letterSpacing: 8 * 0.06, textTransform: 'uppercase', marginTop: 2 }}>muligt slægtled</Mono>
                         </View>
+                        {/* (ingen BookmarkFlag her — mobile-bogmærker er endnu ikke designet, jf. CLAUDE.md §9) */}
                       </View>
                     </Pressable>
                   ))}
