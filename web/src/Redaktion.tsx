@@ -8,7 +8,7 @@ import { navigate, usePath } from './router';
 import { signIn, signOut, currentSession, type RedSession } from './data/auth';
 import {
   fetchRedaktionPersoner, fetchPersonEvidence, fetchPersonNarrativer, fetchSources, fetchSletPreview,
-  fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, fetchSammeSomLinks, fetchRedPersonMedia, nudgeOrdinal, type RedPerson, type PersonEvidence,
+  fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, fetchSammeSomLinks, fetchRedPersonMedia, fetchRedObjectMedia, nudgeOrdinal, type RedPerson, type PersonEvidence,
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
   type PersonNarrativ, type SourceRow, type PersonMedia,
 } from './data/redaktionRead';
@@ -22,6 +22,11 @@ import { initials } from './data/format';
 import { NarrativRenderer } from './components/NarrativRenderer';
 
 const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
+// Change-arter der kan ændre et materiale-galleri (Slice 0h) — bruges til at afgøre om
+// person-editorens/objekt-editorens medieliste skal genhentes efter et gemt kald.
+const MEDIA_ARTER = new Set(['uploadMedia', 'fjernMedia', 'sletRelation']);
+// Generiske entiteter med et materiale-galleri (Slice 0h) — spejler mobiles HAR_MATERIALE.
+const HAR_OBJEKT_MATERIALE = new Set(['estate', 'arms']);
 
 // --- Tokens (fra designet) ---
 const T = {
@@ -270,6 +275,24 @@ export default function Redaktion() {
 
   const curPerson = persons.find((p) => p.id === recordId) ?? null;
   const curRecord = records.find((r) => r.id === recordId) ?? null;
+
+  // Objekt-foto (Slice 0h): estate/arms er de eneste generiske entiteter med et materiale-galleri
+  // (jf. renderGenericEditor). Genbruger person-editorens media/mediaPick/mediaForm-state — de to
+  // render-stier er gensidigt udelukkende via `entity`, så der er ingen race på delt state.
+  const refreshObjMedia = useCallback(() => {
+    if (!HAR_OBJEKT_MATERIALE.has(entity) || !curRecord) return;
+    const db = ENTITY_DB[entity];
+    fetchRedObjectMedia(db.type, curRecord.id).then(setMedia).catch(() => setMedia([]));
+  }, [entity, curRecord]);
+  useEffect(() => {
+    if (!HAR_OBJEKT_MATERIALE.has(entity)) return;
+    setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', maaPubliceres: false });
+    refreshObjMedia();
+    // refreshObjMedia afhænger kun af entity+curRecord.id reelt (curRecord-objektet skifter
+    // reference oftere end det); undgår gen-fetch-loop på uændret post.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entity, curRecord?.id]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return q ? records.filter((r) => (r.label + ' ' + r.sub).toLowerCase().includes(q)) : records;
@@ -302,11 +325,15 @@ export default function Redaktion() {
         title: dryRun ? 'Dry-run · dette ville blive sendt' : (res.direkte ? 'Sendt til basen' : 'Forslag sendt til staging'),
         lines: [describeCall(res.call)], error: '', done: !dryRun, dryRun, direkte: res.direkte,
       });
-      if (!dryRun && entity === 'person' && recordId) loadPerson(recordId, { skipMedia: change.art !== 'uploadMedia' });
+      // sletRelation dækker også ikke-media unlinks (hverv/gods) — en ekstra, harmløs medie-refetch
+      // for dem er billigere end at holde to separate art-lister i sync (/simplify-fund).
+      const mediaChanged = MEDIA_ARTER.has(change.art);
+      if (!dryRun && entity === 'person' && recordId) loadPerson(recordId, { skipMedia: !mediaChanged });
+      if (!dryRun && HAR_OBJEKT_MATERIALE.has(entity) && mediaChanged) refreshObjMedia();
     } catch (e) {
       setWriteView({ title: titel + ' fejlede', lines: [], error: oversaetFejl(String((e as Error)?.message ?? e)), done: false, dryRun, direkte: false });
     }
-  }, [dryRun, role, entity, recordId, loadPerson]);
+  }, [dryRun, role, entity, recordId, loadPerson, refreshObjMedia]);
 
   const doLogin = async () => {
     if (!login.email.trim() || !login.pw) { setLogin((l) => ({ ...l, err: 'Udfyld e-mail og adgangskode' })); return; }
@@ -604,7 +631,21 @@ export default function Redaktion() {
           </div>
         </div>
 
-        {/* Materiale (mediehåndtering Slice 0g) */}
+        {renderMateriale({ subjektType: 'person', subjektId: p.id, uploadTarget: { afbildetPersonId: p.id } })}
+      </div>
+    );
+  }
+
+  // Materiale-galleri + upload/fjern/slet — delt mellem person-editoren (afbildetPersonId) og
+  // objekt-foto på generiske entiteter (estate/coat_of_arms via objektType/objektId, Slice 0h).
+  // subjektType/subjektId styrer KUN red_suggest-fallbacken (buildRpcCall's uploadMedia/fjernMedia/
+  // sletRelation-grene læser dem ikke) — sat til noget meningsfuldt for audit-sporet alligevel.
+  function renderMateriale({ subjektType, subjektId, uploadTarget }: {
+    subjektType: string; subjektId: string; uploadTarget: Record<string, unknown>;
+  }) {
+    const mayUpload = role === 'redaktion';
+    return (
+      <>
         <div style={sectionHeader(24)}>Materiale</div>
         <div style={{ background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: '14px 15px' }}>
           {media.length ? (
@@ -619,6 +660,16 @@ export default function Redaktion() {
                   <div style={{ fontFamily: T.mono, fontSize: 8, color: T.muted2, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {m.slags}{m.uploadStatus !== 'klar' ? ` · ${m.uploadStatus}` : ''}{m.maaPubliceres ? '' : ' · ej publiceret'}
                   </div>
+                  {mayUpload ? (
+                    // Fjern = afkobl KUN denne subjekt (media + Storage-bytes upåvirket). Slet =
+                    // blødt fjern OVERALT (upload_status='fjernet'), fortrydbar via historik.
+                    <div style={{ display: 'flex', gap: 8, marginTop: 3 }}>
+                      <span onClick={() => m.relationId && run({ art: 'sletRelation', subjektType, subjektId, relationId: m.relationId }, 'Fjern billede')}
+                        style={{ fontFamily: T.mono, fontSize: 9, color: m.relationId ? T.muted : T.muted3, cursor: m.relationId ? 'pointer' : 'default' }}>Fjern</span>
+                      <span onClick={() => run({ art: 'fjernMedia', subjektType, subjektId, mediaId: m.id }, 'Slet billede')}
+                        style={{ fontFamily: T.mono, fontSize: 9, color: T.red, cursor: 'pointer' }}>Slet</span>
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -626,7 +677,7 @@ export default function Redaktion() {
             <div style={{ fontSize: 12, color: T.muted3, marginBottom: 10 }}>Intet materiale endnu.</div>
           )}
 
-          {role === 'redaktion' ? (
+          {mayUpload ? (
             <>
               <input ref={mediaInputRef} type="file" accept="image/*" style={{ display: 'none' }}
                 onChange={(e) => {
@@ -662,8 +713,8 @@ export default function Redaktion() {
                     <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                       <div onClick={() => {
                         if (!mediaForm.titel.trim()) return;
-                        run({ art: 'uploadMedia', subjektType: 'person', subjektId: p.id, payload: {
-                          afbildetPersonId: p.id, slags: mediaForm.slags, titel: mediaForm.titel.trim(),
+                        run({ art: 'uploadMedia', subjektType, subjektId, payload: {
+                          ...uploadTarget, slags: mediaForm.slags, titel: mediaForm.titel.trim(),
                           maaPubliceres: mediaForm.maaPubliceres, file: mediaPick.file, mimeType: mediaPick.file.type,
                           byteSize: mediaPick.file.size, originalFilnavn: mediaPick.file.name,
                           storagePath: buildStoragePath(mediaPick.file.type),
@@ -682,7 +733,7 @@ export default function Redaktion() {
             <div style={{ fontSize: 11.5, color: T.muted3 }}>Kun redaktion kan tilføje materiale.</div>
           )}
         </div>
-      </div>
+      </>
     );
   }
 
@@ -1022,6 +1073,11 @@ export default function Redaktion() {
             <div onClick={() => run({ art: 'forslag', subjektType: db.type, subjektId: curRecord.id, felt: db.felt, vaerdi: sc('gen:' + entity + ':' + curRecord.id, curRecord.label) }, 'Forslag')} style={{ ...btnGreen, background: T.bordeaux }}>Foreslå ændring</div>
           </div>
         </div>
+        {/* Objekt-foto (Slice 0h): kun estate/arms har et materiale-galleri — øvrige generiske
+            entiteter (kilder, organisationer, …) har endnu intet naturligt sted at hænge det op. */}
+        {HAR_OBJEKT_MATERIALE.has(entity)
+          ? renderMateriale({ subjektType: db.type, subjektId: curRecord.id, uploadTarget: { objektType: db.type, objektId: curRecord.id } })
+          : null}
       </div>
     );
   }

@@ -1,7 +1,8 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { TopBar } from '../../../components/TopBar';
+import { CenterMsg } from '../../../components/CenterMsg';
 import { Body, Mono, Serif } from '../../../components/Typography';
 import { useStore } from '../../../store/useStore';
 import { Border, Colors, Radius } from '../../../theme/tokens';
@@ -10,9 +11,13 @@ type Row = { id: string; titel: string; under: string };
 const TITLER: Record<string, string> = {
   gods: 'Godser', kilde: 'Kilder', organisation: 'Organisationer', medie: 'Medier', vaaben: 'Våben',
 };
+// Entitetstyper med objekt-foto-materiale (Slice 0h) — eneste tappbare rækker, ingen fuld
+// detail-editor findes endnu (jf. materiale.tsx's kommentar).
+const HAR_MATERIALE = new Set(['gods', 'vaaben']);
 
 export default function EntitetListe() {
   const { type } = useLocalSearchParams<{ type: string }>();
+  const router = useRouter();
   const rolle = useStore((s) => s.rolle);
   const redaktionStatus = useStore((s) => s.redaktionStatus);
   const aux = useStore((s) => s.redaktionAux);
@@ -34,14 +39,15 @@ export default function EntitetListe() {
     const q = query.trim().toLowerCase();
     return q ? rows.filter((r) => r.titel.toLowerCase().includes(q)) : rows;
   }, [rows, query]);
+  const harMateriale = HAR_MATERIALE.has(type ?? '');
 
   // Ukendt type-param → eksplicit besked (ikke en tavs tom liste). TITLER = allowlist.
   // Placeret EFTER alle hooks (ellers betinget hook-eksekvering ved param-skift) — cycle 05 M1.
-  if (!TITLER[type ?? '']) return <Msg title="Entiteter">Ukendt entitetstype.</Msg>;
+  if (!TITLER[type ?? '']) return <CenterMsg title="Entiteter">Ukendt entitetstype.</CenterMsg>;
   // Auth-state (spec §4b): "Henter…" ALDRIG permanent for ikke-redaktører.
-  if (rolle !== 'redaktion') return <Msg title={titel}>Kræver redaktør-rolle.</Msg>;
-  if (redaktionStatus === 'error') return <Msg title={titel}>Kunne ikke hente redaktion-data.</Msg>;
-  if (redaktionStatus !== 'ready') return <Msg title={titel}>Henter…</Msg>;
+  if (rolle !== 'redaktion') return <CenterMsg title={titel}>Kræver redaktør-rolle.</CenterMsg>;
+  if (redaktionStatus === 'error') return <CenterMsg title={titel}>Kunne ikke hente redaktion-data.</CenterMsg>;
+  if (redaktionStatus !== 'ready') return <CenterMsg title={titel}>Henter…</CenterMsg>;
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
@@ -49,27 +55,20 @@ export default function EntitetListe() {
       <TextInput style={styles.input} placeholder="Søg…" placeholderTextColor={Colors.textMuted}
         value={query} onChangeText={setQuery} autoCorrect={false} />
       <ScrollView contentContainerStyle={{ padding: 16 }}>
+        {/* gods/vaaben: tappbar → minimal materiale-skærm (Slice 0h). Øvrige typer har stadig
+            ingen detail-editor (D1). Konstant for hele listen — beregnes én gang, ikke pr. række. */}
         {filtered.length === 0 ? (
           <Body color={Colors.textMuted}>Ingen {titel.toLowerCase()}.</Body>
         ) : (
           filtered.map((r) => (
-            // Ikke-tappbar (D1) — ingen detail-editor endnu.
-            <View key={r.id} style={styles.row}>
-              <Serif size={16}>{r.titel}</Serif>
+            <Pressable key={r.id} disabled={!harMateriale} style={styles.row}
+              onPress={() => router.push({ pathname: '/redaktion/entitet/materiale', params: { type, id: r.id, navn: r.titel } })}>
+              <Serif size={16}>{r.titel}{harMateriale ? ' ↗' : ''}</Serif>
               {r.under ? <Mono size={9} color={Colors.textMuted}>{r.under}</Mono> : null}
-            </View>
+            </Pressable>
           ))
         )}
       </ScrollView>
-    </View>
-  );
-}
-
-function Msg({ title, children }: { title: string; children: string }) {
-  return (
-    <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
-      <TopBar title={title} />
-      <Body color={Colors.textMuted} style={{ padding: 24 }}>{children}</Body>
     </View>
   );
 }

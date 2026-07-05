@@ -1,5 +1,68 @@
 # Changelog
 
+## Mediehåndtering — Slice 0h: runtime-fix + slet/afkobl + objekt-foto (2026-07-05)
+
+Tre ting i forlængelse af Slice 0g, udløst af brugerens egen prod-test af upload-featuren:
+
+- **Reel bug fanget ved runtime-verifikation (rettet på begge platforme):** `submitChange`
+  kaldte aldrig `red_bekraeft_media_upload` efter `red_upload_media` — uploads sad derfor
+  fast som `upload_status='kladde'` for evigt (aldrig synlige efter gating). Brugeren
+  uploadede 3 rigtige testbilleder (Conrad/Anna Sophie Reventlow-portrætter) mod prod, som
+  afslørede fejlen; rettet, og de tre rækker flyttet til `'klar'` via det nu-virkende RPC-kald
+  (ikke en rå UPDATE — change-log intakt). Præcis den slags fejl unit-tests ikke fanger, fordi
+  `buildRpcCall` testes rent/netværksfrit og selve netværkskæden aldrig eksekveres af nogen test.
+- **Slet/afkobl billede (bruger-anmodet):** to distinkte, bevidst forskellige handlinger.
+  *Afkobl* ("Fjern") genbruger det eksisterende generiske `red_slet_relation`-RPC uændret —
+  den sletter kun selve `afbildet`-relationen (+ evidens), rører hverken `media`-rækken eller
+  Storage-bytes, så mediet kan stadig være tilknyttet andre. *Slet billede* er et nyt, lille
+  RPC (`red_fjern_media`) der sætter `upload_status='fjernet'` — elegant fordi
+  `media_rettigheder_ok` allerede kræver `upload_status='klar'`, så et fjernet billede
+  automatisk forsvinder fra al anon/auth-synlighed uden ny RLS-politik, og `media` har
+  allerede versionerings-triggeren (`trg_log_media`), så handlingen er gratis fortrydbar via
+  den eksisterende redaktionelle historik. Storage-bytes røres aldrig → Supabases
+  `storage.protect_delete()`-beskyttelse kommer aldrig i spil. En ægte hård sletning
+  (fjerne bytes fra Storage) er bevidst IKKE eksponeret i redaktør-UI'et — forbliver en
+  sjælden, manuel admin-handling.
+- **Objekt-foto-upload (gods/våben):** samme upload/galleri-mønster som person-portrætter,
+  nu også for `estate`/`coat_of_arms` via `red_upload_media`s eksisterende `p_objekt_type`-gren
+  (fandtes allerede server-side, kun UI manglede). Web: ny delt `renderMateriale()` i
+  `Redaktion.tsx` bruges af både person-editoren og `renderGenericEditor()` (estate/arms).
+  Mobile: ingen generisk entitets-detail-editor findes endnu, så en bevidst minimal,
+  selv-mærket "ikke en fuld editor"-skærm (`entitet/materiale.tsx`) blev tilføjet, nået via
+  tappbare gods/våben-rækker i `entitet/[type].tsx`; galleri + upload-sheet delt med
+  person-editoren via nye `MediaGallery`/`MediaUploadSheet`-komponenter.
+- **Arbejde udført i separat worktree** (`.claude/worktrees/media-slet-objektfoto`,
+  branch `feat/media-slet-objektfoto`) efter brugerens ønske.
+- **`/simplify` (4 agenter parallelt) anvendt — 4 reelle fund, alle rettet:**
+  (1) *simplification* — web's `run()` opdaterede kun objekt-editorens medie-refetch-
+  betingelse til at inkludere de nye `fjernMedia`/`sletRelation`-arter, men glemte
+  person-editorens parallelle `skipMedia`-betingelse (stadig kun `!== 'uploadMedia'`) — reelt
+  fund, ikke bare stil: ville have efterladt et lige-fjernet billede synligt i galleriet.
+  Rettet ved at udlede begge fra samme `mediaChanged`-boolean.
+  (2) *reuse* — mobile duplikerede hele galleri-markup'en (thumb + status + Fjern/Slet-knapper)
+  og tre style-objekter mellem person-editoren og den nye objekt-skærm, i stedet for at dele
+  den som web gjorde via `renderMateriale`; udtrukket til en ny delt `MediaGallery`-komponent
+  (og en `CenterMsg`-komponent, der samtidig lukkede en allerede-eksisterende 3-vejs
+  duplikering af "Henter…/fejl"-beskeden på tværs af person-editor og entitetsliste).
+  (3) *efficiency* — ingen fund (agenten bekræftede den nye `mediaFromRelPairs`-hale er en
+  reel dedup, ikke ekstra I/O; de to nye `useEffect`'er er korrekt gensidigt udelukkende).
+  (4) *altitude* — reelt datahazard: `red_bekraeft_media_upload`s ubetingede
+  `UPDATE ... WHERE id=p_media_id` kunne i teorien genoplive en blødt-slettet
+  (`'fjernet'`) række til `'klar'` igen ved et forsinket/gentaget bekræft-kald (ikke nået via
+  nuværende app-flow, men RPC'et bør ikke være afhængigt af det). Hærdet med
+  `AND upload_status <> 'fjernet'` i WHERE-klausulen, anvendt til prod via MCP samme dag.
+  Mindre fund også rettet: hoistede en pr.-række-genberegnet konstant i mobile, og udtrak
+  web's 3× gentagne `entity==='estate'||'arms'`-tjek til en delt `HAR_OBJEKT_MATERIALE`-Set
+  (spejler mobiles `HAR_MATERIALE`). **Bevidst sprunget over:** en SQL-verify-test for
+  `red_fjern_media`/guarden i `db-verify-media.sql` — filens etablerede mønster er specifikt
+  scopet til RLS-tests uden redaktør-kontekst (`SET LOCAL ROLE anon/authenticated`); en
+  RPC-kaldende test kræver JWT-claim-impersonering, som ikke passer den etablerede fil-kontrakt.
+  tsc + 272/272 jest (mobile) + tsc + 155/155 vitest + build (web) alle grønne efter fixene.
+- **Udestår:** samme kendte gap som Slice 0g — ingen automatiseret runtime-verifikation af
+  selve slet/afkobl/objekt-foto-UI'en (ingen browser-driver/iOS-simulator-tap-værktøj i
+  repo'et); "løse billeder"-admin-oversigt og rettigheds-workflow-UI (`red_set_media_rettigheder`)
+  forbliver separate, ikke-startede opgaver.
+
 ## Mediehåndtering — Slice 0g: redaktør-upload porteret til web (2026-07-05)
 
 Samme redaktør-portræt-upload som mobile (se ovenfor), nu også i web-arbejdsbordet

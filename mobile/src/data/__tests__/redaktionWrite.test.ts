@@ -249,6 +249,16 @@ describe('buildRpcCall — uploadMedia (mediehåndtering Slice 0g)', () => {
   });
 });
 
+describe('buildRpcCall — fjernMedia (mediehåndtering Slice 0h)', () => {
+  it('fjernMedia → red_fjern_media med p_media_id', () => {
+    const c = { art: 'fjernMedia', subjektType: 'person', subjektId: '42', mediaId: '91' } as const;
+    expect(buildRpcCall(c)).toEqual({ fn: 'red_fjern_media', args: { p_media_id: 91 } });
+  });
+  it('mangler mediaId → null', () => {
+    expect(buildRpcCall({ art: 'fjernMedia', subjektType: 'person', subjektId: '42' } as const)).toBeNull();
+  });
+});
+
 test('fortryd → red_fortryd_change_set m. force', () => {
   const c = { art: 'fortryd', subjektType: 'person', subjektId: '7',
               payload: { changeSetId: 12, force: true } } as const;
