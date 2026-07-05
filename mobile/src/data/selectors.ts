@@ -138,26 +138,41 @@ function fallbackAncestorRing(
 ): TreeColumn | null {
   const coords = genCoords?.[cur];
   if (!coords || !coords.length) return null;
+  // Deterministisk rækkefølge: laveste lokal først, så et ægte founder-hop (lokal 1) altid
+  // forsøges før en højere-lokal-medlemskab — uafhængigt af hentnings-/indsættelsesrækkefølgen
+  // fra DB'en (dual-review 2026-07-05).
+  const sorted = [...coords].sort((a, b) => (a.lokal ?? Infinity) - (b.lokal ?? Infinity));
   // Vælg den koordinat vi traverserer på: første med et gyldigt spring til forrige generation.
-  for (const c of coords) {
+  // NB: hvis personen reelt hører til flere linjer (flere GenCoord'er), viser ringen kun forrige
+  // generation for ÉT af dem — det er aldrig en påstand om en bestemt (mulig forkert) forælder,
+  // men et bevidst valg blandt flere gyldige medlemskaber; brugerens aktive traverserings-linje
+  // (`c`, i den rækkefølge vi prøver dem) afgør hvilket. Bevidst v2-forfinelse, ikke en bug —
+  // se dual-review 2026-07-05.
+  for (const c of sorted) {
     if (c.lokal == null) continue;
     const prev = previousAncestorGen(coords, c.linje, c.lokal);
     if (!prev) continue;
+    // Skop ringen til SAMME kilde (udgave) + SAMME (konkrete) linje som traverseringskoordinaten
+    // `c` — ellers ville to udgavers/linjers "linje III, slægtled 11" blive slået sammen i én ring.
+    // prevLineageId: samme linje som c ved et almindeligt ét-skridt-op (c.lineageId), men
+    // moderlinjen ved et founder-hop (c.parentLineageId) — spejler previousAncestorGen's egen logik.
+    const prevLineageId = (c.lokal as number) > 1 ? c.lineageId : c.parentLineageId;
+    const matchesPrev = (k: GenCoord) =>
+      k.linje === prev.linje && k.lokal === prev.lokal
+      && k.sourceId === c.sourceId && k.lineageId === prevLineageId;
     const all = model.persons.filter((p) => {
       if (p.id === anchorId || p.id === cur) return false;
       const pc = genCoords?.[p.id];
-      return !!pc?.some((k) => k.linje === prev.linje && k.lokal === prev.lokal);
+      return !!pc?.some(matchesPrev);
     });
     if (!all.length) continue;
     const kuldGroups: Record<string, ModelPerson[]> = {};
     for (const p of all) {
-      const k = genCoords?.[p.id]?.find(
-        (x) => x.linje === prev.linje && x.lokal === prev.lokal,
-      )?.kuld ?? '—';
+      const k = genCoords?.[p.id]?.find(matchesPrev)?.kuld ?? '—';
       (kuldGroups[k] ??= []).push(p);
     }
     const gennem = all
-      .map((p) => genCoords?.[p.id]?.find((x) => x.linje === prev.linje && x.lokal === prev.lokal)?.gennem)
+      .map((p) => genCoords?.[p.id]?.find(matchesPrev)?.gennem)
       .find((g) => g != null);
     const genLabel = `${prev.lokal}. slægtled · ${prev.linje}-linjen`
       + (gennem != null ? ` (${gennem}. gennemgående)` : '');

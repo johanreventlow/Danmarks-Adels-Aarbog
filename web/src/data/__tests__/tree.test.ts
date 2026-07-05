@@ -141,4 +141,23 @@ describe('fallback-ring', () => {
     const cols = buildBidirectionalColumns(fbModel, 'P', [], []);
     expect(cols.find((c) => c.fallback)).toBeUndefined();
   });
+
+  it('scoper ringen til samme kilde (udgave) — samme (linje,lokal) men anden sourceId medtages IKKE (F2, dual-review 2026-07-05)', () => {
+    const fbModel2 = buildModel(db([P('P'), P('A'), P('B'), P('D')], []));
+    const genCoords = {
+      P: [
+        { sourceId: '1', linje: 'V', lineageId: '50', parentLineageId: '10', lokal: 1, gennem: 12, kuld: null },
+        { sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 12, gennem: 12, kuld: null },
+      ],
+      A: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: 'I' }],
+      B: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: 'II' }],
+      // Samme (linje, lokal) som A/B, men en ANDEN udgave (sourceId '2') — en anden trykt DAA-
+      // udgaves "linje III, slægtled 11" må ikke smelte sammen med P's egen udgaves ring.
+      D: [{ sourceId: '2', linje: 'III', lineageId: '99', parentLineageId: null, lokal: 11, gennem: 11, kuld: 'I' }],
+    };
+    const cols = buildBidirectionalColumns(fbModel2, 'P', [], [], genCoords);
+    const fb = cols.find((c) => c.fallback);
+    expect(fb).toBeDefined();
+    expect(fb!.people.map((p) => p.id).sort()).toEqual(['A', 'B']);
+  });
 });

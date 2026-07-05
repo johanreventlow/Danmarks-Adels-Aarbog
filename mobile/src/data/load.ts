@@ -152,9 +152,13 @@ export async function loadFromSupabase(opts?: {
           .select('id,subjekt_id,subjekt_type,tekst,privat,source_id')
           .eq('subjekt_type', 'person'),
       ),
+      // Linje/nr + slægtled-koordinater pr. person — tolerant: kolonnerne kan mangle på en
+      // ikke-migreret base. Uden .catch ville en manglende kolonne fælde HELE Promise.all'et og
+      // erstatte det levende datasæt med det indlejrede SEED (F1, dual-review 2026-07-05) —
+      // degrader i stedet til "ingen linje/generations-data" som web's model.ts-pendant.
       getAll<RawExtId>(() =>
         sb.from('person_external_id').select('person_id,source_id,linje,nr,slaegtled_lokal,slaegtled_gennem,kuld'),
-      ),
+      ).catch((e) => { console.warn('[loadFromSupabase] person_external_id utilgængelig — linjer/generationer degraderet:', e); return [] as RawExtId[]; }),
       getAll<RawSource>(() => sb.from('source').select('id,slags,titel,udgave,aar,ekstern')),
       getAll<RawRelation>(() =>
         sb
