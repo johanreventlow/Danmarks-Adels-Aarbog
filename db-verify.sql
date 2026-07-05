@@ -1027,3 +1027,22 @@ BEGIN
             AND column_name IN ('slaegtled_lokal','slaegtled_gennem','kuld')) = 3,
     'Mangler generations-kolonner på person_external_id';
 END $$;
+
+-- Trigger-scoping: trg_external_id_regen skal være kolonne-scoped (UPDATE OF
+-- person_id, source_id, linje, nr), IKKE et bart "AFTER UPDATE" — ellers
+-- fyrer den unødigt på slaegtled_lokal/slaegtled_gennem/kuld-opdateringer
+-- (backfill_slaegtled.R), som ikke selv skal trigge lineage-regen.
+DO $$
+DECLARE
+  def text;
+BEGIN
+  SELECT pg_get_triggerdef(oid) INTO def
+    FROM pg_trigger
+   WHERE tgname = 'trg_external_id_regen' AND NOT tgisinternal;
+  ASSERT def IS NOT NULL, 'trg_external_id_regen findes ikke';
+  ASSERT position('UPDATE OF' in def) > 0,
+    'trg_external_id_regen er ikke kolonne-scoped (mangler UPDATE OF) — fyrer på ALLE updates';
+  ASSERT position('linje' in def) > 0 AND position('nr' in def) > 0,
+    'trg_external_id_regen UPDATE OF-liste mangler linje/nr-kolonner';
+  RAISE NOTICE 'OK: trg_external_id_regen er kolonne-scoped (%)', def;
+END $$;
