@@ -35,10 +35,13 @@ vises eksplicit. Primær rolle er **hul-reparation** (ikke en selvstændig brows
 
 - **Redaktør-forfremmelse** (gør en generations-nabo til en bevist forælder-kant) er **udskudt** —
   egen fremtidig skive. Feature'en skriver aldrig til evidenslaget.
-- **Efterkommer-retningen** (fallback nedad når børn mangler) **udskydes til v2**. v1 er kun
-  aner-retningen (mekanisk symmetrisk, men fordobler founder-tvetydigheden uden at løse den —
-  jf. Codex LOW). *Åbent spørgsmål til bruger-review — se §12.*
-- **Kuld-baseret indsnævring** af kandidatlisten udskydes til v2 (kuld persisteres ikke i v1).
+- **Efterkommer-retningen** (fallback nedad når børn mangler) **udskydes til v2** (bekræftet ved
+  bruger-review 2026-07-05). v1 er kun aner-retningen (mekanisk symmetrisk, men fordobler founder-
+  tvetydigheden uden at løse den — jf. Codex LOW).
+- **Fuld kuld→forælder-opløsning** (map en kuld-markør til den præcise forælder i gen−1) udskydes til
+  v2. `kuld` **fanges og persisteres allerede i v1** (billigt fra `segment.py`, besluttet ved
+  bruger-review 2026-07-05) og bruges til at **gruppere** fallback-ringen — den fulde parent-
+  resolution er v2.
 
 ## 4. Datamodel — kolonner, ikke fact
 
@@ -51,7 +54,10 @@ undtagelse for `lineage.slaegtsnavn` (schema.sql-kommentar).
 -- schema.sql (source of truth) + db-migrations.sql (idempotent ALTER for deployet base)
 ALTER TABLE person_external_id ADD COLUMN IF NOT EXISTS slaegtled_lokal  INTEGER;
 ALTER TABLE person_external_id ADD COLUMN IF NOT EXISTS slaegtled_gennem INTEGER;
+ALTER TABLE person_external_id ADD COLUMN IF NOT EXISTS kuld             TEXT;
 -- NULL = ikke fanget / bogen placerer ikke personen entydigt.
+-- kuld = børne-gruppe-markør (romertal) inde i grenen fra segment.py; bevaret som proveniens +
+--        til gruppering af fallback-ringen (fuld forælder-opløsning er v2).
 ```
 
 **Trigger-hærdning (Codex MEDIUM):** `trg_external_id_regen` (AFTER INSERT/UPDATE/DELETE på
@@ -74,7 +80,9 @@ Ren, deterministisk pipeline over `work/raw_full.txt`:
    **kuld**-markør inde i grenen — det må **aldrig** bruges som `linje` (Codex HIGH, se §13-2).
 3. **Dansk ordinal→heltal-tabel** (Første=1 … dæk det observerede spænd + margin). Fælles helper,
    unit-testet mod de faktiske header-linjer.
-4. **Producér `(source_id, linje, nr) → (lokal, gennem)`** og join til `person_external_id`.
+4. **Producér `(source_id, linje, nr) → (lokal, gennem, kuld)`** og join til `person_external_id`.
+   `kuld` tages fra `segment.py`'s eksisterende per-post-felt (de fritstående kuld-romertal inde i
+   grenen — IKKE børne-refernes romertal).
    - **Join-nøgle = `(source_id, linje, nr)`** (IKKE `nr` alene — resetter pr. gren).
    - **NULL/ukendt `linje` → karantæne**, ikke match (fail-closed).
    - **Suffiks-varianter** (`15a`/`15b`) deler integer-`nr` og dermed generation; **assertér** at
@@ -93,11 +101,11 @@ alias-rækker, `mergedFrom` bærer kun ét `{linje,nr}` uden generation, og `Mod
 linje-koder (hverken lineage-id eller `parent_lineage_id`). Derfor:
 
 1. **Udvid person-external-id-fetchen** (`model.ts` / mobile `load.ts`):
-   `select('person_id,source_id,linje,nr,slaegtled_lokal,slaegtled_gennem')`.
+   `select('person_id,source_id,linje,nr,slaegtled_lokal,slaegtled_gennem,kuld')`.
 2. **Udvid lineage-fetchen** til `select('id,source_id,kode,navn,parent_lineage_id')` (RawLineage +
    `Model.lineage` får `id` + `parentLineageId`).
 3. **Byg en kanonisk-person → koordinat-array** FØR traversal:
-   `Map<canonicalId, Array<{ sourceId, linje, lineageId, parentLineageId, lokal, gennem }>>`,
+   `Map<canonicalId, Array<{ sourceId, linje, lineageId, parentLineageId, lokal, gennem, kuld }>>`,
    hvor `person_id` kanoniseres via `collapseSameAs`' alias-map. Generation **coalesces aldrig** til
    én værdi — en founder bærer bevidst flere linje-medlemskaber med hver sit tal.
 
@@ -134,7 +142,10 @@ bevist som forælder"**, ikke antyde forældreskab.
 
 - **Ærlig over-claim-afgrænsning (Codex MEDIUM):** ringen viser HELE generationen i linjen ved
   gen−1 (kan være mange, ikke-ancestrale). Det er bevidst — vi *kan ikke* bevise hvem forælderen er.
-  Vis dem som "naboer", **cap/gruppér** ved lange lister, og gør labelen utvetydig.
+  Vis dem som "naboer", og gør labelen utvetydig.
+- **Kuld-gruppering (v1):** hvor `kuld` er kendt, **grupperes** fallback-ringen på kuld (billig,
+  ærlig strukturering af en lang liste) — uden at påstå at en given kuld er ankerets forælder. Fuld
+  kuld→forælder-opløsning er v2.
 - **NULL-generation (Codex LOW):** en person uden `slaegtled_lokal` kan ikke understøtte gen−1.
   **Skjul fallback** med en eksplicit "slægtled ukendt"-tilstand frem for at gætte naboskab.
 - **Delvist kendt ring (Codex MEDIUM):** v1-triggeren er "**ingen** bevist forælder → fallback".
@@ -160,12 +171,11 @@ bevist som forælder"**, ikke antyde forældreskab.
 - **(d) UI web:** fallback-ring-styling + generations-header i Kolonner-visningen; browser-verifikation.
 - **(e) UI mobile:** spejlet visning; simulator/enhed-verifikation.
 
-## 12. Åbne spørgsmål (til bruger-review)
+## 12. Afklaret ved bruger-review (2026-07-05)
 
-1. **Efterkommer-retning:** bekræft at v1 kun er aner-retningen (descendants udskudt til v2), eller
-   ønskes symmetrisk fra start trods den fordoblede founder-tvetydighed?
-2. **Kuld-persistering:** skal `kuld` fanges allerede nu (billigt fra segment.py) for at kunne
-   indsnævre kandidatlisten senere, eller er "hele generationen som naboer" fint for v1?
+1. **Efterkommer-retning:** v1 er **kun aner-retningen**; descendants-fallback udskudt til v2.
+2. **Kuld-persistering:** `kuld` **fanges og persisteres i v1** (kolonne på `person_external_id`) og
+   bruges til at gruppere fallback-ringen; fuld kuld→forælder-opløsning er v2.
 
 ## 13. Codex-review-fund og hvordan de er adresseret
 
