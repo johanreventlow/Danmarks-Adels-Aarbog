@@ -544,7 +544,7 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
   // Vi udvider up/down KUN med parentsOf/childrenOf-id'er (kanoniske) → frontier-invarianten holder.
   const selectAncestor = (depth: number, id: string) => { setUp((prev) => prev.slice(0, depth - 1).concat(id)); onFocus(id); };
   const selectDescendant = (depth: number, id: string) => { setDown((prev) => prev.slice(0, depth - 1).concat(id)); onFocus(id); };
-  const cols = variant === 'B' && anchorId ? buildBidirectionalColumns(model, anchorId, up, down) : [];
+  const cols = variant === 'B' && anchorId ? buildBidirectionalColumns(model, anchorId, up, down, model.genCoordsByPerson) : [];
   anchorIdxRef.current = Math.max(0, cols.findIndex((c) => c.kind === 'anchor'));
 
   return (
@@ -574,8 +574,32 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
         <div ref={colsRef} data-scroll style={{ display: 'flex', gap: 14, overflowX: 'auto', padding: '10px 0 16px', alignItems: 'flex-start' }}>
           {cols.map((col) => (
             <div key={col.key} style={{ flex: 'none', width: 208, display: 'flex', flexDirection: 'column', gap: 9 }}>
-              <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.gold, padding: '0 2px 4px', borderBottom: '1px solid rgba(34,31,26,.1)' }}>{col.label}</div>
-              {col.people.map((p) => {
+              <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.gold, padding: '0 2px 4px', borderBottom: '1px solid rgba(34,31,26,.1)' }}>{col.fallback ? col.genLabel : col.label}</div>
+              {col.fallback && (
+                <div style={{ fontFamily: T.sans, fontSize: 10.5, color: T.muted2, padding: '0 2px', marginTop: -6 }}>
+                  slægtled-naboer — ingen bevist som forælder
+                </div>
+              )}
+              {col.fallback ? (
+                Object.entries(col.kuldGroups ?? {}).map(([kuld, people]) => (
+                  <div key={kuld} style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                    {kuld !== '—' && (
+                      <div style={{ fontFamily: T.mono, fontSize: 8.5, letterSpacing: '.08em', textTransform: 'uppercase', color: T.muted3, padding: '2px 2px 0' }}>Kuld {kuld}</div>
+                    )}
+                    {people.map((p) => (
+                      <div key={p.id} onClick={() => onFocus(p.id)} style={{ background: '#faf1dc', border: `1.5px dashed ${T.gold}`, borderRadius: 12, padding: '11px 13px', cursor: 'pointer', boxShadow: '0 1px 2px rgba(34,31,26,.04)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <Avatar n={p.name} size={34} />
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontFamily: T.serif, fontSize: 16, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+                          {p.years && <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 2 }}>{p.years}</div>}
+                          <div style={{ fontFamily: T.mono, fontSize: 8, letterSpacing: '.06em', textTransform: 'uppercase', color: T.gold, marginTop: 2 }}>muligt slægtled</div>
+                        </div>
+                        <BookmarkFlag active={hasBookmark(p.id)} onClick={() => onToggleBookmark(p.id)} />
+                      </div>
+                    ))}
+                  </div>
+                ))
+              ) : col.people.map((p) => {
                 const sel = p.id === col.selectedId;
                 // Kort-chevron peger i drill-retningen: aner ‹ (venstre), efterkommere › (højre).
                 const canAnc = col.kind === 'ancestor' && hasParents(p.id);

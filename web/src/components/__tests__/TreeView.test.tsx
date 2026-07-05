@@ -90,3 +90,47 @@ describe('TreeView', () => {
     expect(screen.getByText('Ida')).toBeTruthy();       // Bo's barn i frisk Børn-kolonne
   });
 });
+
+describe('TreeView — fallback-ring (D1: render af C1s genCoords-baserede ubeviste ring)', () => {
+  // Founder 'P' uden beviste forældre; 'Nabo1'/'Nabo2' deler forrige slægtled via genCoords
+  // (samme opsætning som src/data/__tests__/tree.test.ts's fallback-ring-suite).
+  const fbModel = buildModel(
+    db([P('P', 'Poul'), P('N1', 'Nabo Et'), P('N2', 'Nabo To')], []),
+  );
+  // P er en collapset founder der bærer BEGGE koordinater (V-1 + III-12) — samme opsætning som
+  // src/data/__tests__/tree.test.ts's fallback-ring-suite; founder-hop'et lander på III lokal 11,
+  // som N1/N2 deler (kuld-adskilt).
+  (fbModel as typeof fbModel & { genCoordsByPerson: unknown }).genCoordsByPerson = {
+    P: [
+      { sourceId: '1', linje: 'V', lineageId: '50', parentLineageId: '10', lokal: 1, gennem: 12, kuld: null },
+      { sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 12, gennem: 12, kuld: null },
+    ],
+    N1: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: 'I' }],
+    N2: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: 'II' }],
+  };
+
+  it('viser genLabel + undertekst + "muligt slægtled"-tags for en fallback-ring', () => {
+    render(
+      <TreeView model={fbModel} focusId="P" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} />,
+    );
+    fireEvent.click(screen.getByText('Kolonner'));
+    expect(screen.getByText(/slægtled.*III-linjen/)).toBeTruthy(); // genLabel
+    expect(screen.getByText('slægtled-naboer — ingen bevist som forælder')).toBeTruthy();
+    expect(screen.getByText('Nabo Et')).toBeTruthy();
+    expect(screen.getByText('Nabo To')).toBeTruthy();
+    expect(screen.getAllByText('muligt slægtled').length).toBe(2);
+    expect(screen.getByText('Kuld I')).toBeTruthy();
+    expect(screen.getByText('Kuld II')).toBeTruthy();
+  });
+
+  it('klik på fallback-kort kalder onFocus (re-ankrer) — IKKE onPick, ingen skrivning', () => {
+    let picked: string | null = null, focused: string | null = null;
+    render(
+      <TreeView model={fbModel} focusId="P" onPick={(id) => (picked = id)} onFocus={(id) => (focused = id)} hasBookmark={() => false} onToggleBookmark={() => {}} />,
+    );
+    fireEvent.click(screen.getByText('Kolonner'));
+    fireEvent.click(screen.getByText('Nabo Et'));
+    expect(focused).toBe('N1');
+    expect(picked).toBeNull();
+  });
+});
