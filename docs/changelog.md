@@ -1,5 +1,37 @@
 # Changelog
 
+## Mediehåndtering — Slice 0g: redaktør-upload (mobile, 2026-07-05)
+
+Sidste stykke af Slice 0's "0f"-punkt: portræt-upload fra redaktør-person-editoren
+(`mobile/src/app/redaktion/person/[id].tsx`). Nye dependencies `expo-image-picker`
+(`~56.0.19`) + `expo-file-system` (`~56.0.8`), installeret via `npx expo install` —
+begge SDK-56-versionerede docs læst FØR kode (mobile/AGENTS.md-mandat); brugte SDK 56's
+nye `File`-klasse (`.bytes()`) i stedet for den deprecated `readAsStringAsync`.
+- **Ny `mobile/src/lib/mediaUpload.ts`:** `pickImage` (biblioteksvælger m. tilladelses-
+  request), `readFileBytes`, `buildStoragePath`, `performUpload` (læs+upload som én enhed).
+- **`redaktionWrite.ts`:** ny `Change`-art `uploadMedia` → `red_upload_media`. To-fase-upload
+  (bytes til Storage FØR RPC'en) sker KUN i LIVE, aldrig dry-run — ellers ville "Forhåndsvis"
+  efterlade en rigtig fil i den private bucket. Dynamisk `import('../lib/mediaUpload')` i
+  `submitChange` holder `buildRpcCall` netværks-/native-fri til test.
+- **`redaktionRead.ts`:** ny `fetchPersonMedia` (relation→media-join, samme mønster som
+  `fetchPersonFamilie`).
+- **UI:** ny "Materiale"-sektion + `MediaUploadSheet` i person-editoren (vælg billede →
+  slags/titel/må-publiceres → delt dry-run/LIVE-flow via `SkrivePreviewSheet`).
+- **`/simplify` (4 vinkler) anvendt:** (1) `fetchPersonMedia`s media-query manglede
+  `getAll`-wrapping ift. filens etablerede mønster — rettet; (2) `PersonMedia.relationId`
+  blev beregnet men aldrig brugt af UI'en — fjernet (YAGNI, tilføjes når en slet/erstat-
+  handling faktisk får brug for den); (3) `refreshMedia()` kørte ubetinget efter ENHVER
+  gemt ændring i editoren, ikke kun upload — nu gated på `pending?.art === 'uploadMedia'`;
+  (4) selve Storage-uploadet sad i `redaktionWrite.ts` og læste stien tilbage fra det
+  allerede-byggede (utypede) RPC-args-objekt — flyttet til `mediaUpload.ts`s nye
+  `performUpload`, kaldt direkte med payload-værdierne. Sprunget over: en 3. kopi af
+  pille-vælger-mønstret (ville kræve refaktorering af BarnSheet/UnionTypeSheet uden for
+  diffen); objekt-foto-grenen i `buildRpcCall` (ingen UI-kalder endnu, men RPC'en
+  understøtter det og der er en unit-test — bevidst dækning, ikke spekulativ kode).
+  tsc + 269/269 jest + lint alle grønne efter fixene.
+- **Udestår:** objekt-foto-upload-UI (estate/coat_of_arms, samme RPC-gren findes allerede);
+  runtime-verifikation på device/simulator (ingen fysisk enhed tilgængelig i denne session).
+
 ## Mediehåndtering — DB/RLS-lag LIVE i prod (Slice 0, 2026-07-05)
 
 Kørt direkte mod prod (`xjnvdhajfyrcytatnzos`) via Supabase MCP fra en maskine med adgang —

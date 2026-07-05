@@ -1,3 +1,4 @@
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
@@ -11,12 +12,16 @@ import { PersonPicker } from '../../../components/redaktion/PersonPicker';
 import { MentionPicker } from '../../../components/redaktion/MentionPicker';
 import { Body, BtnLabel, Mono, Serif } from '../../../components/Typography';
 import { insertAt } from '../../../lib/mentions';
-import { fetchPersonEvidence, fetchPersonNarrativ, fetchPersonRelationer, fetchPersonFamilie, fetchSammeSomLinks, nudgeOrdinal, BARN_ROLLER, type PersonEvidence, type PersonRelation, type PersonFamilie, type FamilieUnion, type SammeSomLink } from '../../../data/redaktionRead';
+import { useMediaUris } from '../../../lib/media';
+import { pickImage, buildStoragePath, type PickedImage } from '../../../lib/mediaUpload';
+import { fetchPersonEvidence, fetchPersonNarrativ, fetchPersonRelationer, fetchPersonFamilie, fetchPersonMedia, fetchSammeSomLinks, nudgeOrdinal, BARN_ROLLER, type PersonEvidence, type PersonRelation, type PersonFamilie, type PersonMedia, type FamilieUnion, type SammeSomLink } from '../../../data/redaktionRead';
 import { previewSammeSom } from '../../../data/sammeSomPreflight';
 import { eraAdvarsel } from '../../../data/eraAdvarsel';
 import { type Change } from '../../../data/redaktionWrite';
 import { useStore } from '../../../store/useStore';
 import { Border, Colors, Radius } from '../../../theme/tokens';
+
+const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 
 const FELTER = ['navn', 'foedt', 'doed', 'titel']; // koen håndteres separat (ikke et fact)
 const FELT_LABEL: Record<string, string> = { navn: 'navn', foedt: 'født', doed: 'død', titel: 'titel' };
@@ -223,6 +228,91 @@ function SammeSomSheet({ redigeret, valgt, kanoniskId, onByt, preview, onClose, 
   );
 }
 
+// Portræt-upload (mediehåndtering Slice 0g). Billedvalg sker uafhængigt af dry-run (kun lokal
+// enhedsadgang); selve upload af bytes til Storage sker først i submitChange's LIVE-gren, aldrig
+// her — sheeten bygger blot payload'en til den delte Change→SkrivePreviewSheet-flow.
+function MediaUploadSheet({ personId, onClose, onGem }: {
+  personId: string;
+  onClose: () => void;
+  onGem: (payload: Record<string, unknown>) => void;
+}) {
+  const [picked, setPicked] = useState<PickedImage | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [slags, setSlags] = useState<string>('foto');
+  const [titel, setTitel] = useState('');
+  const [maaPubliceres, setMaaPubliceres] = useState(false);
+  const [fejl, setFejl] = useState<string | null>(null);
+
+  async function vaelg() {
+    setFejl(null);
+    setBusy(true);
+    try {
+      const img = await pickImage();
+      if (!img) { setFejl('Intet billede valgt (afvist tilladelse eller annulleret).'); return; }
+      setPicked(img);
+      if (!titel && img.fileName) setTitel(img.fileName.replace(/\.[^.]+$/, ''));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={editorStyles.modalBackdrop} onPress={onClose} />
+      <View style={editorStyles.modalSheet}>
+        <Serif size={20} style={{ marginBottom: 10 }}>Tilføj billede</Serif>
+        {picked ? (
+          <Image source={{ uri: picked.uri }} style={{ width: 120, height: 120, borderRadius: 10, marginBottom: 12, alignSelf: 'center' }} contentFit="cover" />
+        ) : null}
+        <Pressable style={editorStyles.addAnnuller} onPress={vaelg} disabled={busy}>
+          <BtnLabel color={Colors.textSecondary2}>{picked ? 'Vælg andet billede' : 'Vælg billede fra bibliotek'}</BtnLabel>
+        </Pressable>
+        {fejl ? <Mono size={10} color={Colors.bordeaux} style={{ marginTop: 8 }}>{fejl}</Mono> : null}
+        {picked ? (
+          <>
+            <Mono size={9} color={Colors.gold} style={{ marginTop: 14, marginBottom: 6 }}>SLAGS</Mono>
+            <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+              {MEDIA_SLAGS.map((s) => (
+                <Pressable key={s}
+                  style={[editorStyles.koenPille, slags === s && editorStyles.koenPilleAktiv]}
+                  onPress={() => setSlags(s)}>
+                  <BtnLabel size={11} color={slags === s ? '#fff' : Colors.textSecondary2}>{s}</BtnLabel>
+                </Pressable>
+              ))}
+            </View>
+            <TextInput
+              style={[editorStyles.addInput, { marginTop: 12 }]}
+              placeholder="Titel"
+              placeholderTextColor={Colors.textMuted2}
+              value={titel}
+              onChangeText={setTitel}
+            />
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12 }}>
+              <Body size={13} style={{ marginRight: 8, flex: 1 }}>Må publiceres (rettigheder afklaret)</Body>
+              <Switch
+                value={maaPubliceres}
+                onValueChange={setMaaPubliceres}
+                thumbColor={maaPubliceres ? Colors.bordeaux : Colors.textMuted2}
+                trackColor={{ false: Colors.beige3, true: Colors.bordeauxFillLight2 }}
+              />
+            </View>
+            <SheetButtons marginTop={14} gemLabel="Gem" onClose={onClose} onGem={() => {
+              if (!titel.trim()) { setFejl('Titel er påkrævet.'); return; }
+              onGem({
+                afbildetPersonId: personId,
+                slags, titel: titel.trim(), maaPubliceres,
+                localUri: picked.uri, mimeType: picked.mimeType, byteSize: picked.byteSize,
+                bredde: picked.width, hoejde: picked.height, originalFilnavn: picked.fileName,
+                storagePath: buildStoragePath(picked.mimeType),
+              });
+            }} />
+          </>
+        ) : null}
+      </View>
+    </Modal>
+  );
+}
+
 function RelTilfoejSheet({ scratch, onClose, onGem }: {
   scratch: { objektType: string; objektId: string; navn: string; rolle: string; periode: string };
   onClose: () => void;
@@ -337,6 +427,13 @@ export default function PersonEditor() {
   const [unionScratch, setUnionScratch] = useState<{ personId: string; navn: string } | null>(null);
   const [barnScratch, setBarnScratch] = useState<{ familyId: string; personId: string; navn: string } | null>(null);
   const [flytBarnScratch, setFlytBarnScratch] = useState<{ fraFamilyId: string; personId: string; rolle: string; navn: string } | null>(null);
+
+  // Materiale (mediehåndtering Slice 0g).
+  const [media, setMedia] = useState<PersonMedia[]>([]);
+  const [uploadSheetOpen, setUploadSheetOpen] = useState(false);
+  const refreshMedia = () => { if (id) fetchPersonMedia(id).then(setMedia).catch(() => {}); };
+  useEffect(refreshMedia, [id]);
+  const mediaUris = useMediaUris(media.map((m) => ({ id: m.id, storage_path: m.storagePath })));
 
   function onAction(a: FaktaAction) {
     if (a.type === 'gørKonklusion') {
@@ -583,6 +680,33 @@ export default function PersonEditor() {
           )}
         </View>
 
+        {/* Materiale (mediehåndtering Slice 0g) */}
+        <View style={editorStyles.narrativSektion}>
+          <Mono size={10} color={Colors.textMuted} style={{ marginBottom: 6 }}>Materiale</Mono>
+          {media.length ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 9, marginBottom: 10 }}>
+              {media.map((m) => (
+                <View key={m.id} style={{ width: 96 }}>
+                  {mediaUris[m.id] ? (
+                    <Image source={{ uri: mediaUris[m.id] }} style={editorStyles.mediaThumb} contentFit="cover" />
+                  ) : (
+                    <View style={editorStyles.mediaThumb} />
+                  )}
+                  <Mono size={8} color={Colors.textMuted} numberOfLines={1} style={{ marginTop: 3 }}>
+                    {m.slags}{m.uploadStatus !== 'klar' ? ` · ${m.uploadStatus}` : ''}
+                    {m.maaPubliceres ? '' : ' · ej publiceret'}
+                  </Mono>
+                </View>
+              ))}
+            </ScrollView>
+          ) : (
+            <Mono size={9} color={Colors.textMuted2} style={{ marginBottom: 8 }}>— intet materiale endnu</Mono>
+          )}
+          <Pressable style={{ paddingVertical: 6 }} onPress={() => setUploadSheetOpen(true)}>
+            <Mono size={9} color={Colors.bordeaux}>+ Tilføj billede</Mono>
+          </Pressable>
+        </View>
+
         {/* Familie & relationer */}
         {redaktionModel ? (() => {
           const kld = redaktionAux?.sourcesBy[id!] ?? [];
@@ -767,6 +891,16 @@ export default function PersonEditor() {
         <PersonPicker excludeId={id} onClose={() => setSsPicker(false)}
           onValg={(v) => { setSsScratch({ personId: v.personId, navn: v.navn, kanoniskId: id! }); setSsPicker(false); }} />
       ) : null}
+      {uploadSheetOpen ? (
+        <MediaUploadSheet
+          personId={id!}
+          onClose={() => setUploadSheetOpen(false)}
+          onGem={(payload) => {
+            setPending({ art: 'uploadMedia', subjektType: 'person', subjektId: id!, payload });
+            setUploadSheetOpen(false);
+          }}
+        />
+      ) : null}
       {ssScratch ? (
         <SammeSomSheet
           redigeret={{ id: id!, navn: redaktionModel?.byId?.[id!]?.name ?? id! }}
@@ -795,6 +929,7 @@ export default function PersonEditor() {
           if (id) fetchPersonRelationer(id, redaktionAux).then(setRelationer).catch(() => {});
           if (id) fetchPersonFamilie(id, redaktionModel).then(setFamilie).catch(() => {});
           refreshSammeSom();
+          if (pending?.art === 'uploadMedia') refreshMedia();
         }}
       />
       {confirmDeleteOpen ? (
@@ -835,6 +970,12 @@ const editorStyles = StyleSheet.create({
     paddingTop: 16,
     borderTopWidth: 1,
     borderTopColor: Border.light,
+  },
+  mediaThumb: {
+    width: 96,
+    height: 96,
+    borderRadius: 10,
+    backgroundColor: Colors.beige2,
   },
   narrativInput: {
     backgroundColor: Colors.paperCard,

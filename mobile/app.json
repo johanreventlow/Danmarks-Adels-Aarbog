@@ -35,6 +35,13 @@
             "imageWidth": 76
           }
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Redaktion bruger dit billedbibliotek til at uploade portrætter og materiale til Aarbogen.",
+          "cameraPermission": "Redaktion bruger kameraet til at fotografere materiale til Aarbogen."
+        }
       ]
     ],
     "experiments": {
