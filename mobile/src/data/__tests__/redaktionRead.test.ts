@@ -287,3 +287,24 @@ describe('mapDoedLinkRow', () => {
     expect(mapDoedLinkRow(r)).toEqual({ kilde: 'narrative#3', maalType: 'person', maalId: '999' });
   });
 });
+
+import { mapPersonMediaRows } from '../redaktionRead';
+
+describe('mapPersonMediaRows (mediehåndtering Slice 0g)', () => {
+  it('mapper media-rækker til PersonMedia', () => {
+    const rows = [{ id: 91, slags: 'foto', titel: 'Portræt', storage_path: 'redaktor/a.jpg',
+                    upload_status: 'klar', maa_publiceres: true }];
+    expect(mapPersonMediaRows(rows)).toEqual([{
+      id: '91', slags: 'foto', titel: 'Portræt', storagePath: 'redaktor/a.jpg',
+      uploadStatus: 'klar', maaPubliceres: true,
+    }]);
+  });
+  it('manglende status/slags/maa_publiceres → fail-closed fallback (kladde, false)', () => {
+    const rows = [{ id: 92, slags: null, titel: null, storage_path: null,
+                    upload_status: null, maa_publiceres: null }];
+    expect(mapPersonMediaRows(rows)).toEqual([{
+      id: '92', slags: '', titel: null, storagePath: null,
+      uploadStatus: 'kladde', maaPubliceres: false,
+    }]);
+  });
+});

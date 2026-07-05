@@ -16,3 +16,32 @@ describe('buildRpcCall — samme_som (identitets-links)', () => {
     expect(buildRpcCall({ art: 'sammeSom', subjektType: 'person', subjektId: '255' } as never)).toBeNull();
   });
 });
+
+// Web-spejl af mobile-testen for uploadMedia (mediehåndtering Slice 0g).
+describe('buildRpcCall — uploadMedia (mediehåndtering Slice 0g)', () => {
+  it('portræt (afbildetPersonId) → red_upload_media med p_afbildet_person_id', () => {
+    const c = { art: 'uploadMedia', subjektType: 'person', subjektId: '42',
+      payload: { afbildetPersonId: '42', slags: 'foto', titel: 'Portræt', maaPubliceres: true,
+        storagePath: 'redaktor/x.jpg', mimeType: 'image/jpeg',
+        byteSize: 1234, originalFilnavn: 'x.jpg' } } as never;
+    expect(buildRpcCall(c)).toEqual({ fn: 'red_upload_media', args: {
+      p_slags: 'foto', p_titel: 'Portræt', p_storage_path: 'redaktor/x.jpg', p_mime: 'image/jpeg',
+      p_byte_size: 1234, p_bredde: null, p_hoejde: null, p_original_filnavn: 'x.jpg',
+      p_rettigheder_status: 'ukendt', p_maa_publiceres: true, p_afbildet_person_id: 42 } });
+  });
+  it('objekt-foto (objektType/objektId) → p_objekt_type/p_objekt_id, ingen p_afbildet_person_id', () => {
+    const c = { art: 'uploadMedia', subjektType: 'estate', subjektId: '7',
+      payload: { objektType: 'estate', objektId: '7', slags: 'foto', titel: 'Godset',
+        storagePath: 'redaktor/y.jpg', mimeType: 'image/jpeg' } } as never;
+    const call = buildRpcCall(c);
+    expect(call?.fn).toBe('red_upload_media');
+    expect(call?.args.p_objekt_type).toBe('estate');
+    expect(call?.args.p_objekt_id).toBe(7);
+    expect(call?.args.p_afbildet_person_id).toBeUndefined();
+  });
+  it('mangler titel → null (p_titel har intet DEFAULT i RPC-signaturen)', () => {
+    expect(buildRpcCall({ art: 'uploadMedia', subjektType: 'person', subjektId: '42',
+      payload: { afbildetPersonId: '42', slags: 'foto', titel: '',
+        storagePath: 'redaktor/x.jpg', mimeType: 'image/jpeg' } } as never)).toBeNull();
+  });
+});

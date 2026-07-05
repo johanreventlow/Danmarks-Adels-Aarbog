@@ -153,11 +153,21 @@ export function buildAux(
     })
     .sort((a, b) => compareDanish(a.navn, b.navn));
 
-  // Medier pr. person (tom indtil medier linkes).
-  const mediaBy: Aux['mediaBy'] = {};
+  // Medier pr. person: relation person(subjekt) → media(objekt), rolle 'afbildet' (samme retning
+  // som DB'ens afbildet-gating). media-rækken slås op på id. RLS har allerede skjult ikke-offentlige
+  // rækker. (Tidligere nøglede denne på m.person_id — en kolonne der ikke findes i skemaet → altid tom.)
+  const mediaById: Record<string, RawMedia> = {};
   (media || []).forEach((m) => {
-    const pid = m.person_id != null ? cid(String(m.person_id)) : null;
-    if (pid) (mediaBy[pid] = mediaBy[pid] || []).push(m);
+    if (m.id != null) mediaById[String(m.id)] = m;
+  });
+  const mediaBy: Aux['mediaBy'] = {};
+  (relations || []).forEach((r) => {
+    if (r.objekt_type !== 'media' || (r.rolle || '') !== 'afbildet') return;
+    const m = mediaById[String(r.objekt_id)];
+    if (m) {
+      const pid = cid(String(r.subjekt_id));
+      (mediaBy[pid] = mediaBy[pid] || []).push(m);
+    }
   });
 
   // Flade entitets-lister (2C-1, read-only browse). Rene mappings, dansk-sorteret.

@@ -3,6 +3,7 @@
 // Oversætter en UI-redigering ("change") til ét RPC-kald mod skrive-laget (Task 3–6).
 // Ren build-funktion (buildRpcCall) er netværksfri og unit-testes; submitChange udfører.
 import { supabase } from '../supabase';
+import { performUpload } from './mediaUpload';
 
 // felt → fact.faktatype. koen er BEVIDST udeladt: arbejdsværdi på person, ikke et fact.
 export const FELT_FAKTATYPE: Record<string, string> = {
@@ -18,6 +19,7 @@ export type Change = {
      | 'setFamilieOrdinal' | 'flytBarn'
      | 'sammeSom' | 'fjernSammeSom' // redaktionel identitets-sammenkædning (samme_som)
      | 'opretKilde' // opret ny source (DAA-udgave) — routes gennem submitChange (dry-run/staging)
+     | 'uploadMedia' // mediehåndtering Slice 0g — redaktør-upload (portræt/objekt-foto)
      | 'forslag'; // generisk entitets-feltredigering uden direkte RPC → red_suggest
   subjektType: string;
   subjektId: string;
@@ -167,6 +169,25 @@ export function buildRpcCall(c: Change): RpcCall | null {
       p_fra_family_id: Number(c.familyId), p_til_family_id: Number(c.tilFamilyId),
       p_barn_id: Number(c.personId), p_rolle: c.rolle } };
   }
+  // Portræt (p_afbildet_person_id) ELLER objekt-foto (p_objekt_type/p_objekt_id) — aldrig begge
+  // (red_upload_media/red_relation håndhæver GDPR-invarianten server-side). p_titel er PÅKRÆVET
+  // af RPC'en (intet DEFAULT) — payload skal altid sætte et.
+  if (c.art === 'uploadMedia') {
+    const p = c.payload || {};
+    if (!p.slags || !p.titel || !p.storagePath || !p.mimeType) return null;
+    const args: Record<string, unknown> = {
+      p_slags: p.slags, p_titel: p.titel, p_storage_path: p.storagePath, p_mime: p.mimeType,
+      p_byte_size: p.byteSize ?? null, p_bredde: p.bredde ?? null, p_hoejde: p.hoejde ?? null,
+      p_original_filnavn: p.originalFilnavn ?? null,
+      p_rettigheder_status: p.rettighederStatus ?? 'ukendt', p_maa_publiceres: Boolean(p.maaPubliceres),
+    };
+    if (p.afbildetPersonId != null) args.p_afbildet_person_id = Number(p.afbildetPersonId);
+    else if (p.objektType != null && p.objektId != null) {
+      args.p_objekt_type = p.objektType;
+      args.p_objekt_id = Number(p.objektId);
+    }
+    return { fn: 'red_upload_media', args };
+  }
   return null;
 }
 
@@ -197,12 +218,35 @@ export function planCall(c: Change, role: string | undefined): RpcCall {
 }
 
 // dry-run: returnér det planlagte kald (UI viser fn+args). live: udfør via supabase.rpc.
+// uploadMedia er særligt: bytes skal lande i Storage FØR RPC'en (Postgres-txn og Storage-upload
+// kan ikke dele transaktion). Sker KUN når kaldet reelt går direkte (direkte===true, dvs. rolle
+// redaktion) — falder changen igennem til red_suggest (ikke-redaktion) uploades intet, da
+// forslags-laget ikke ejer nogen fil-bytes at pege på.
 export async function submitChange(c: Change, opts: { dryRun: boolean; role?: string }) {
   const call = planCall(c, opts.role);
   const direkte = call.fn !== 'red_suggest';
+  // uploadMedia kan IKKE degradere til red_suggest: forslags-laget gemmer kun p_payload som jsonb,
+  // og en rå File-værdi JSON-serialiserer til '{}' (ingen egne enumerable felter) — en sådan
+  // "forslag sendt"-kvittering ville lyve. UI'en skjuler allerede knappen for ikke-redaktion
+  // (Redaktion.tsx), men denne gate er den robuste, ikke UI-afhængige grænse (fejler tydeligt
+  // fremfor at oprette et korrupt forslag med falsk succes).
+  if (c.art === 'uploadMedia' && !direkte) {
+    throw new Error('Medieupload kræver redaktør-rettigheder — kan ikke sendes som forslag.');
+  }
   if (opts.dryRun) return { dryRun: true as const, call, direkte };
+  if (c.art === 'uploadMedia') {
+    const p = c.payload || {};
+    if (!p.file || !p.storagePath) throw new Error('Mangler fil eller sti til upload');
+    await performUpload(p.file as File, String(p.storagePath));
+  }
   const { data, error } = await supabase.rpc(call.fn, call.args);
   if (error) throw new Error(error.message);
+  // red_upload_media opretter ALTID rækken som upload_status='kladde'; først når bytes reelt ligger
+  // i Storage (lige udført ovenfor) er det sandt at bekræfte 'klar' — derfor et separat RPC-kald.
+  if (c.art === 'uploadMedia') {
+    const { error: bekraeftError } = await supabase.rpc('red_bekraeft_media_upload', { p_media_id: data });
+    if (bekraeftError) throw new Error(bekraeftError.message);
+  }
   return { dryRun: false as const, call, direkte, result: data };
 }
 

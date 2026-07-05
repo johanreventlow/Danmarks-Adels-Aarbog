@@ -78,7 +78,17 @@ export type RawFact = {
   faktatype: string | null;
   sted_id: number | string | null;
 };
-export type RawMedia = { person_id?: number | string | null; [k: string]: unknown };
+// Media-række (mediehåndtering Slice 0). person_id findes IKKE i skemaet — kobling til person
+// sker via relation (person→media, rolle 'afbildet'); se buildAux.mediaBy.
+export type RawMedia = {
+  id: number | string;
+  slags?: string | null;
+  titel?: string | null;
+  kunstner?: string | null;
+  datering?: string | null;
+  storage_path?: string | null;
+  [k: string]: unknown;
+};
 export type RawArms = { id: number | string; blasonering: string | null; note: string | null };
 
 // Mellem-form fra loadFromSupabase (FØR buildModel udleder parentId/spouse).

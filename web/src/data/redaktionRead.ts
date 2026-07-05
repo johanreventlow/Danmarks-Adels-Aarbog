@@ -7,6 +7,7 @@ import { fmtYears, parseYear } from './fields';
 import { getAll } from './paginate';
 import { FELT_FAKTATYPE } from './redaktionWrite';
 import { resolveOrgEstateNames } from './public';
+import { signPaths } from './media';
 import type { Model } from './types';
 
 // --- Redaktions-person-liste (pagineret, inkl. levende/privat) ---
@@ -374,4 +375,44 @@ export async function fetchSammeSomLinks(personId: string): Promise<SammeSomLink
     .eq('objekt_type', 'person')
     .or(`subjekt_id.eq.${Number(personId)},objekt_id.eq.${Number(personId)}`);
   return mapSammeSomLinks(personId, (data ?? []) as never);
+}
+
+// --- Medier pr. person, redaktør-scope (mediehåndtering Slice 0g, porteret fra mobile) ---
+// Adskilt fra data/media.ts's fetchPersonMedia (den er RLS-gatet til 'klar'+maa_publiceres for
+// anon/medlem); redaktionens redaktion_read-politik viser ALLE upload_status, så redaktøren ser
+// egne uploads (også 'kladde') uanset rettigheds-/publikationsstatus. Navngivet forskelligt fra
+// media.ts's samme-formåls-funktion for at undgå importforveksling i Redaktion.tsx.
+export type PersonMedia = {
+  id: string; slags: string; titel: string | null; storagePath: string | null;
+  uploadStatus: string; maaPubliceres: boolean; url: string | null;
+};
+type RawPersonMediaRow = { id: number; slags: string | null; titel: string | null;
+  storage_path: string | null; upload_status: string | null; maa_publiceres: boolean | null };
+
+// signed er valgfri (default tom Map) så testen kan kalde ren, netværksfri — kun
+// fetchRedPersonMedia sender en reelt udfyldt Map (signeret ét sted, ligesom media.ts's
+// loadMediaItems, i stedet for at kalderen holder en separat mediaUris-state + effekt).
+export function mapPersonMediaRows(rows: RawPersonMediaRow[], signed: Map<string, string> = new Map()): PersonMedia[] {
+  return rows.map((m) => ({
+    id: String(m.id),
+    slags: m.slags ?? '',
+    titel: m.titel,
+    storagePath: m.storage_path,
+    uploadStatus: m.upload_status ?? 'kladde',
+    maaPubliceres: Boolean(m.maa_publiceres),
+    url: m.storage_path ? signed.get(m.storage_path) ?? null : null,
+  }));
+}
+
+export async function fetchRedPersonMedia(id: string): Promise<PersonMedia[]> {
+  const rels = await getAll<{ objekt_id: number }>(() =>
+    supabase.from('relation').select('objekt_id')
+      .eq('subjekt_type', 'person').eq('subjekt_id', Number(id))
+      .eq('objekt_type', 'media').eq('rolle', 'afbildet'));
+  if (!rels.length) return [];
+  const mediaIds = rels.map((r) => r.objekt_id);
+  const rows = await getAll<RawPersonMediaRow>(() =>
+    supabase.from('media').select('id,slags,titel,storage_path,upload_status,maa_publiceres').in('id', mediaIds));
+  const signed = await signPaths(rows.map((r) => r.storage_path ?? '').filter(Boolean));
+  return mapPersonMediaRows(rows, signed);
 }

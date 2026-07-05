@@ -1,5 +1,180 @@
 # Changelog
 
+## Mediehåndtering — Slice 0g: redaktør-upload porteret til web (2026-07-05)
+
+Samme redaktør-portræt-upload som mobile (se ovenfor), nu også i web-arbejdsbordet
+(`web/src/Redaktion.tsx`) — bruger-anmodet efter at have opdaget web kun havde en generisk
+læse/forslag-"Medier"-fane, intet reelt upload. Browser-nativt: et `<input type="file">`s
+`File`-objekt uploades direkte til `supabase.storage` (intet `expo-file-system`-ækvivalent
+nødvendigt). Ny "Materiale"-sektion i person-editoren, ny `web/src/data/mediaUpload.ts`
+(`buildStoragePath`/`performUpload`), ny `Change`-art `uploadMedia` i `redaktionWrite.ts`,
+ny `fetchRedPersonMedia` i `redaktionRead.ts` (adskilt fra `data/media.ts`s offentlige,
+RLS-begrænsede `fetchPersonMedia` — redaktøren skal se `kladde`/spærrede egne uploads).
+- **Rolle-gating, web-specifikt:** web's skrive-lag har (modsat mobile) en rolle-baseret
+  fallback til `red_suggest` for ikke-redaktion. Upload kan IKKE degradere til et forslag
+  (intet ejerskab af fil-bytes) — gated to steder: UI'en skjuler knappen for ikke-redaktion,
+  OG `submitChange` afviser eksplicit hvis kaldet alligevel ville route til `red_suggest`.
+- **`/simplify` (4 vinkler) anvendt:** (1) reuse — mindre, accepteret duplikering af en
+  5-linjers relations-query-form ift. `data/media.ts`s `fetchMediaByRelation` (sprunget over:
+  ægte genbrug kræver at omstrukturere en delt, allerede-testet offentlig modul for
+  marginal gevinst — samme afvejning som mobile allerede har); (2) simplification — foldede
+  signering ind i `fetchRedPersonMedia` selv (som `media.ts`s eget `loadMediaItems`-mønster)
+  i stedet for en separat `mediaUris`-state + `useEffect` med kun ét kaldested (mobile beholdt
+  sin tilsvarende to-trins-opdeling, fordi `useMediaUris` der er en reelt genbrugt hook på
+  tværs af flere skærme — web havde ingen sådan begrundelse); (3) efficiency — medie-refetch
+  var føjet ind i den allerede eksisterende "genindlæs ALT efter enhver gemt ændring"-liste;
+  nu kun ved en faktisk `uploadMedia`-ændring (ny `loadPerson(id, {skipMedia})`-parameter);
+  (4) altitude — en `uploadMedia`-ændring der (fejlagtigt eller pga. rolle-skift) falder
+  igennem til `red_suggest` ville serialisere et rå `File`-objekt til `'{}'` og rapportere
+  falsk succes; `submitChange` afviser nu eksplicit før det kan ske (bekræftet: DB/RLS er
+  den reelle autoritetsgrænse, UI-gaten er kun UX — statisk-import-valget for
+  `mediaUpload.ts` blev også bekræftet korrekt, ingen native afhængigheder på web modsat mobile).
+  tsc + 152/152 vitest + build alle grønne efter fixene.
+- **Udestår:** samme som mobile — objekt-foto-upload-UI (estate/våben), og reel browser-
+  runtime-verifikation (ingen browser-driver i repo'et, kun tsc/test/build).
+
+## Mediehåndtering — Slice 0g: redaktør-upload (mobile, 2026-07-05)
+
+Sidste stykke af Slice 0's "0f"-punkt: portræt-upload fra redaktør-person-editoren
+(`mobile/src/app/redaktion/person/[id].tsx`). Nye dependencies `expo-image-picker`
+(`~56.0.19`) + `expo-file-system` (`~56.0.8`), installeret via `npx expo install` —
+begge SDK-56-versionerede docs læst FØR kode (mobile/AGENTS.md-mandat); brugte SDK 56's
+nye `File`-klasse (`.bytes()`) i stedet for den deprecated `readAsStringAsync`.
+- **Ny `mobile/src/lib/mediaUpload.ts`:** `pickImage` (biblioteksvælger m. tilladelses-
+  request), `readFileBytes`, `buildStoragePath`, `performUpload` (læs+upload som én enhed).
+- **`redaktionWrite.ts`:** ny `Change`-art `uploadMedia` → `red_upload_media`. To-fase-upload
+  (bytes til Storage FØR RPC'en) sker KUN i LIVE, aldrig dry-run — ellers ville "Forhåndsvis"
+  efterlade en rigtig fil i den private bucket. Dynamisk `import('../lib/mediaUpload')` i
+  `submitChange` holder `buildRpcCall` netværks-/native-fri til test.
+- **`redaktionRead.ts`:** ny `fetchPersonMedia` (relation→media-join, samme mønster som
+  `fetchPersonFamilie`).
+- **UI:** ny "Materiale"-sektion + `MediaUploadSheet` i person-editoren (vælg billede →
+  slags/titel/må-publiceres → delt dry-run/LIVE-flow via `SkrivePreviewSheet`).
+- **`/simplify` (4 vinkler) anvendt:** (1) `fetchPersonMedia`s media-query manglede
+  `getAll`-wrapping ift. filens etablerede mønster — rettet; (2) `PersonMedia.relationId`
+  blev beregnet men aldrig brugt af UI'en — fjernet (YAGNI, tilføjes når en slet/erstat-
+  handling faktisk får brug for den); (3) `refreshMedia()` kørte ubetinget efter ENHVER
+  gemt ændring i editoren, ikke kun upload — nu gated på `pending?.art === 'uploadMedia'`;
+  (4) selve Storage-uploadet sad i `redaktionWrite.ts` og læste stien tilbage fra det
+  allerede-byggede (utypede) RPC-args-objekt — flyttet til `mediaUpload.ts`s nye
+  `performUpload`, kaldt direkte med payload-værdierne. Sprunget over: en 3. kopi af
+  pille-vælger-mønstret (ville kræve refaktorering af BarnSheet/UnionTypeSheet uden for
+  diffen); objekt-foto-grenen i `buildRpcCall` (ingen UI-kalder endnu, men RPC'en
+  understøtter det og der er en unit-test — bevidst dækning, ikke spekulativ kode).
+  tsc + 269/269 jest + lint alle grønne efter fixene.
+- **Udestår:** objekt-foto-upload-UI (estate/coat_of_arms, samme RPC-gren findes allerede);
+  runtime-verifikation på device/simulator (ingen fysisk enhed tilgængelig i denne session).
+
+## Mediehåndtering — DB/RLS-lag LIVE i prod (Slice 0, 2026-07-05)
+
+Kørt direkte mod prod (`xjnvdhajfyrcytatnzos`) via Supabase MCP fra en maskine med adgang —
+runbook-Trin 1+2 anvendt som to navngivne, sporede migrationer (`mediehaandtering_slice0_schema`,
+`mediehaandtering_slice0_rls`), verbatim delta fra `db-migrations.sql`/`db-rls.sql`. `media`-bucket
+(privat) var allerede oprettet af brugeren (Trin 3).
+- **Verificeret:** Task 8 (afbildet-gating) + Task 12 (rettigheds-gating + storage-mapping) kørt
+  direkte mod prod med negative test-ID'er, selv-oprydende — begge OK.
+- **Task 12b (storage.objects-politikker) IKKE funktionelt afprøvet mod prod:** kræver
+  `SET LOCAL storage.allow_delete_query='true'` for at omgå Supabases `protect_delete`-trigger
+  til testens egen oprydning — auto-mode-klassifikatoren blokerede dette korrekt som en
+  sikkerheds-bypass på en produktions-tabel, i tråd med brugerens eksplicitte forsigtigheds-krav.
+  Verificeret i stedet **read-only** via `pg_policies`: alle 5 forventede politikker
+  (`media_obj_anon/auth/redaktion/write/update/delete`) findes med nøjagtig de `qual`/`with_check`-
+  udtryk koden tilsigter. Reel end-to-end-funktionstest af disse politikker udestår (kræver enten
+  brugerens eget samtykke til delete-bypasset, eller en rigtig fil uploadet via Storage API/UI).
+- **`get_advisors(security)` efter DDL:** 8 nye medie-funktioner udløser samme
+  "SECURITY DEFINER public-exec"-advarsel som 32 allerede eksisterende `red_*`-RPC'er (etableret
+  mønster — adgang håndhæves internt via `current_rolle()`, ikke via GRANT). Ingen nye huller.
+- **Ny divergens fundet lokal-stub vs. rigtig Supabase:** vores lokale Postgres-testklynge
+  (bootstrap.sql) har ingen `storage.protect_delete()`-trigger, så `db-verify-media.sql`s Task 12b
+  passerede lokalt men ville fejle uændret mod rigtig Supabase. Filen er endnu ikke opdateret til
+  at håndtere dette (kræver en bevidst bruger-beslutning om delete-bypasset, ikke en stille fix).
+
+## Mediehåndtering — code-review-fixes (Slice 0, 2026-07-04)
+
+High-effort `/code-review` (5 finder-vinkler) på Slice 0-diff'en fandt 10 fund; alle rettet:
+- **#1 (sikkerhed) `red_upload_media`:** afviser nu `p_objekt_type='person'` i objekt-grenen —
+  ellers kunne en omvendt `media→person afbildet`-relation omgå GDPR-gatingen (schema.sql + db-migrations.sql).
+- **#2 (web fejl-isolation):** `fetchPersonMedia`/`fetchObjectMedia` er nu selv-tolerante (try/catch → []),
+  så en medie-/storage-fejl ikke længere blanker hele personpanelet/våben-listen.
+- **#3 (portræt):** `pickPortrait` normaliserer `slags` (case/trim) i web+mobile; mobile vælger portræt
+  blandt *signerbare* medier (ingen permanent placeholder når første medie fejler signering).
+- **#4 (test):** ny `db-verify.sql` Task 12b udøver de faktiske `storage.objects`-politikker under
+  `SET LOCAL ROLE anon`/`authenticated` (ikke kun helper-kald) — springes over uden `media`-bucket.
+- **#5 (efficiency):** `fetchObjectMedia` batchet til array-signatur (`Map<objektId, MediaItem[]>`);
+  `fetchArms` gik fra N×3 til én relation+media+sign-triade.
+- **#6 (session-læk):** mobile signed-URL-cache ryddes ved `onAuthStateChange`.
+- **#7:** `red_opret_media` giver domæne-fejl ved sha256-dublet (ikke rå 23505).
+- **#8:** `ArmsView` vælger første *signerbare* billede (ikke blindt `media[0]`) + fast .82-aspekt.
+- **#9:** `media_obj_update`-storage-politik fik `WITH CHECK`.
+- **#10 (vocab):** `licens`/`kildehenvisning`/`gengivelsestilladelse` (faktatype), `rettighedshaver` (rolle),
+  nyt `media_rettigheder_status`-scheme tilføjet `vocab.json`.
+- **Ryddet/afvist:** id-alloc-race (accepteret husstil), RPC schema↔migrations-mirror (konvention),
+  transient-placeholder (selv-heler), "eksisterende billeder forsvinder" (media-tabel tom i prod + fail-closed tilsigtet).
+- **Re-verificeret:** hele SQL-kæden lokalt (Task 8/12/12b grønne, #1+#7-guards rejser); web tsc+147+build;
+  mobile tsc+264 (4 nye pickPortrait-tests).
+
+**`/simplify` (4 vinkler) oven på fixes:**
+- **Altitude (sikkerhed):** GDPR-retnings-guarden løftet ind i `red_relation`-primitiven (afvis
+  `afbildet` med person på objekt-siden) — lukker fail-open for ALLE kaldere, ikke kun `red_upload_media`.
+  De to gating-dimensioner komponeret i `media_synlig_anon`/`media_synlig_auth`, delt af media-tabel-
+  OG storage.objects-politikkerne (ingen split-brain-drift, ét objekt→media-opslag pr. række).
+- **Reuse/efficiency:** web `signPaths` fik mobile's TTL-cache + `onAuthStateChange`-clear (ingen
+  re-signering/billed-re-download pr. visning); `MediaThumb` flyttet til `components/primitives.tsx`.
+- **Altitude/simplification:** web `fetchPersonMedia`/`fetchObjectMedia` samlet i én retnings-parametriseret
+  `fetchMediaByRelation`; mobile signable/portræt/galleri konsolideret i en `usePersonMedia`-model-hook;
+  `firstSignable`-helper delt i ArmsView; `red_set_media_rettigheder` 3 IF-blokke → én VALUES-løkke;
+  `fetchEstateInfo` kører nu medie-fetchen samtidig med narrativ/sted-kæden.
+- **Skippet (bevidst):** stribet-placeholder-ekstraktion (præeksisterende), `red_upload_media`-dobbelt-gate
+  (tilsigtet fail-fast + change-set-label), render-memoization (negligibel ved nuv. datastørrelser).
+
+## Mediehåndtering — DB/Storage/RLS-fundament (Slice 0, 2026-07-04)
+
+Første skive af den samlede medie-design-session (`CLAUDE.md` §6.6/§9, udskudt "samlet,
+ikke stykvis"). **Kun DB-laget** i denne omgang; frontend (portræt/objekt-visning,
+redaktør-upload) og bulk-import følger som senere slices. Fuld plan i
+`docs/superpowers/plans/2026-07-04-mediehaandtering.md`.
+
+**Designprincip:** fysisk byte-metadata → kolonner på `media` (eneste legitime "fedning"
+af den tynde tabel); semantiske links → `relation` (`afbildet` findes allerede);
+rettigheds-*dokumentation* → `fact` på `subjekt_type='media'`; publikations-*gating* →
+kontrol-kolonne (som `person.levende`/`privat`).
+
+- **`media`-skema udvidet** (`schema.sql` + idempotente ALTER'er i `db-migrations.sql`):
+  storage-metadata (`bucket`, `storage_path`, `mime_type`, `byte_size`, `bredde`, `hoejde`,
+  `sha256`, `original_filnavn`, `upload_status`) + unikke indekser på `(bucket,storage_path)`
+  og `sha256`. To-fase upload: række (`'kladde'`) → bytes → `'klar'`.
+- **Rettigheder fra dag 1:** `maa_publiceres BOOLEAN DEFAULT false` (fail-closed) +
+  `rettigheder_status`. To **ortogonale** gating-dimensioner: GDPR-person-gating (fandtes)
+  + ny copyright/publikations-gating. Begge skal opfyldes for offentlig visning.
+- **RLS** (`db-rls.sql`): nye SECURITY DEFINER-helpers `media_rettigheder_ok` (kun
+  `maa_publiceres AND upload_status='klar'`) + `media_id_for_object` (objekt→media-mapping).
+  De tre `media`-tabel-politikker udvidet med rettigheds-gating. **Én privat bucket `media`**
+  + `storage.objects`-politikker der spejler media-stakken (signed URLs, ikke offentlige URLs
+  — begge dimensioner er tilbagekaldelige). Forældreløst objekt → fail-closed.
+- **RPC'er** (`schema.sql` + `db-migrations.sql`, husstil: SECURITY DEFINER, `current_rolle`-
+  gate, `begin_change_set`, `max(id)+1`): `red_opret_media`, `red_bekraeft_media_upload`,
+  `red_upload_media` (media + `afbildet`-relation i ét change_set via re-entrant B7),
+  `red_set_media_rettigheder`. Tilknytning af eksisterende media = eksisterende `red_relation`.
+- **Verify:** `db-verify.sql` Task 8 opdateret (fixturer sætter rettigheds-felter så afbildet-
+  testen isoleres) + ny **Task 12** (rettigheds-gating + storage-mapping). **Empirisk verificeret
+  LOKALT:** hele kæden `schema → db-migrations → db-rls → db-verify` kørt mod en frisk Postgres 16
+  med Supabase-stub (roller/auth/storage); begge medie-tasks grønne under faktisk RLS (rolle `anon`).
+- **Udestår (bruger-gatet):** anvendelse til prod (migration + `db-rls.sql` + bucket-oprettelse);
+  vocab-seed for rig rettigheds-dokumentation (Slice 1); redaktør-upload (Slice 0g).
+
+**Frontend read-path (web + mobile, samme session):**
+- **Web** (`web/src/data/media.ts` nyt): signed-URL-helper (`createSignedUrls`, batch, 600s) +
+  `fetchPersonMedia` (person→media afbildet) + `fetchObjectMedia` (media→objekt). `fetchPersonDetail`
+  udvidet med `media`; portræt i `DetailPanel` (fald tilbage til placeholder) + "Materiale"-galleri;
+  objekt-billeder i `ArmsView` (hovedvåben + varianter) og `EstatesView`. Delt `MediaThumb`
+  (klik → fuld signed URL i ny fane). tsc + 147 web-tests + build grønne.
+- **Mobile** (`mobile/src/lib/media.ts` nyt): `signPaths` (TTL-cache) + `useMediaUris`-hook +
+  `pickPortrait`. **Rettet latent bug:** `buildAux.mediaBy` nøglede på `m.person_id` (kolonne findes
+  ikke → altid tom); nu koblet via relation person→media `afbildet` (2 nye enheds-tests).
+  Header-portræt + Materiale-galleri (`expo-image`, allerede installeret) i `person/[id].tsx`.
+  tsc + 260 mobile-tests grønne. **Empirisk device-verifikation udskudt** (RN-sim-fetch-bug,
+  se memory `mobil-sim-rn-fetch-1005`) — kræver prod-migreret base + fysisk enhed.
+
 ## TNG-analyse opfølgning + backlog-prioritering (2026-07-03)
 
 Fuld gennemgang af `jr_tng_reventlow.sql` (alle 37 `CREATE TABLE`-blokke + reelle

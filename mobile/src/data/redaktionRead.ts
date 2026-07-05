@@ -376,6 +376,44 @@ export async function fetchDoedeLinks(): Promise<DoedLink[]> {
   return (data ?? []).map(mapDoedLinkRow);
 }
 
+// --- Medier pr. person (mediehåndtering Slice 0g) ---
+// relation er polymorf uden FK (samme mønster som fakta/relationer ovenfor) — to flade queries:
+// person→media-links (kun til at finde id'erne), så media-rækkerne selv. redaktion_read-RLS viser
+// ALLE upload_status (også 'kladde'), så redaktøren ser egne uploads uanset rettigheds-status.
+// Ingen relationId på PersonMedia (endnu) — intet i UI'en bruger den; tilføjes når en slet/
+// erstat-handling rent faktisk har brug for at pege på selve afbildet-relationen.
+export type PersonMedia = {
+  id: string; slags: string; titel: string | null; storagePath: string | null;
+  uploadStatus: string; maaPubliceres: boolean;
+};
+type RawPersonMediaRow = { id: number; slags: string | null; titel: string | null;
+  storage_path: string | null; upload_status: string | null; maa_publiceres: boolean | null };
+
+export function mapPersonMediaRows(rows: RawPersonMediaRow[]): PersonMedia[] {
+  return rows.map((m) => ({
+    id: String(m.id),
+    slags: m.slags ?? '',
+    titel: m.titel,
+    storagePath: m.storage_path,
+    uploadStatus: m.upload_status ?? 'kladde',
+    maaPubliceres: Boolean(m.maa_publiceres),
+  }));
+}
+
+export async function fetchPersonMedia(id: string): Promise<PersonMedia[]> {
+  if (!supabase) return [];
+  const sb = supabase;
+  const rels = await getAll<{ objekt_id: number }>(() =>
+    sb.from('relation').select('objekt_id')
+      .eq('subjekt_type', 'person').eq('subjekt_id', Number(id))
+      .eq('objekt_type', 'media').eq('rolle', 'afbildet'));
+  if (!rels.length) return [];
+  const mediaIds = rels.map((r) => r.objekt_id);
+  const rows = await getAll<RawPersonMediaRow>(() =>
+    sb.from('media').select('id,slags,titel,storage_path,upload_status,maa_publiceres').in('id', mediaIds));
+  return mapPersonMediaRows(rows);
+}
+
 // --- samme_som identitets-links (spec 2026-07-02) ---
 export type SammeSomLink = { relationId: string; retning: 'alias' | 'kanonisk'; modpartId: string };
 

@@ -66,8 +66,27 @@ CREATE TABLE media (
   slags    TEXT,                  -- 'foto','maleri','segl','scanning'
   titel    TEXT,
   kunstner TEXT,                  -- ekstern skaber (intern skaber = relation)
-  datering TEXT
+  datering TEXT,
+  -- ---- fysisk byte-metadata (mediehåndtering 2026-07-04) ----
+  -- Eneste legitime "fedning" af den ellers tynde tabel: bytes har intet andet hjem.
+  -- Semantik (afbildet/ejer/placeret_på) forbliver relation; rettigheds-dokumentation forbliver fact.
+  bucket           TEXT NOT NULL DEFAULT 'media',
+  storage_path     TEXT,                          -- objekt-nøgle i bucket (= storage.objects.name)
+  mime_type        TEXT,
+  byte_size        BIGINT,
+  bredde           INT,
+  hoejde           INT,
+  sha256           TEXT,                          -- hex; dedup + deterministisk sti
+  original_filnavn TEXT,
+  upload_status    TEXT NOT NULL DEFAULT 'kladde',-- 'kladde'|'klar'|'fejlet' (to-fase: række → bytes → 'klar')
+  -- ---- publikations-gating (rettigheder, fra dag 1) ----
+  -- Kontrol-kolonne (som person.levende/privat) der driver RLS. FAIL-CLOSED: intet vises før frigivet.
+  -- Uafhængig af GDPR-person-gating: et rettigheds-begrænset billede af en afdød forbliver skjult.
+  maa_publiceres     BOOLEAN NOT NULL DEFAULT false,
+  rettigheder_status TEXT NOT NULL DEFAULT 'ukendt' -- vocab 'media_rettigheder_status'
 );
+CREATE UNIQUE INDEX IF NOT EXISTS media_storage_path_uidx ON media (bucket, storage_path) WHERE storage_path IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS media_sha256_uidx       ON media (sha256)               WHERE sha256 IS NOT NULL;
 
 CREATE TABLE historical_event (
   id   BIGINT PRIMARY KEY,
@@ -825,6 +844,12 @@ DECLARE v_id bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   IF p_rolle = 'samme_som' THEN RAISE EXCEPTION 'Brug red_samme_som til identitets-links'; END IF;
+  -- GDPR-invariant ved fødslen (ikke kun i red_upload_media): en 'afbildet'-relation skal gå
+  -- person→media, fordi media_afbilder_skjult/privat KUN scanner (subjekt=person, objekt=media).
+  -- En person på objekt-siden ville være usynlig for gatingen → fail-open. Luk det for ALLE kaldere.
+  IF p_rolle = 'afbildet' AND p_objekt_type = 'person' THEN
+    RAISE EXCEPTION 'afbildet skal gå person→media (person kan ikke stå på objekt-siden — GDPR-gating)';
+  END IF;
   PERFORM begin_change_set('red_relation', format('Relation %s: %s/%s → %s/%s', p_rolle, p_subjekt_type, p_subjekt_id, p_objekt_type, p_objekt_id), p_subjekt_type, p_subjekt_id);
   INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle, periode_raw)
     VALUES ((SELECT coalesce(max(id),0)+1 FROM relation),
@@ -1210,6 +1235,103 @@ BEGIN
   v_id := (SELECT coalesce(max(id),0)+1 FROM organisation);
   INSERT INTO organisation(id, navn, slags) VALUES (v_id, p_navn, p_slags);
   RETURN v_id;
+END $$;
+
+-- ============ MEDIER (mediehåndtering 2026-07-04, Slice 0) ============
+-- To-fase upload: Postgres-txn opretter rækken ('kladde'); Storage-upload sker separat
+-- (kan ikke dele txn); bekræftelse flipper til 'klar'. RLS + app viser kun 'klar'.
+-- maa_publiceres defaulter false → nyoprettet medie er skjult til en redaktør frigiver.
+CREATE OR REPLACE FUNCTION red_opret_media(
+  p_slags text, p_titel text DEFAULT NULL, p_kunstner text DEFAULT NULL, p_datering text DEFAULT NULL,
+  p_bucket text DEFAULT 'media', p_storage_path text DEFAULT NULL,
+  p_mime text DEFAULT NULL, p_byte_size bigint DEFAULT NULL,
+  p_bredde int DEFAULT NULL, p_hoejde int DEFAULT NULL,
+  p_sha256 text DEFAULT NULL, p_original_filnavn text DEFAULT NULL,
+  p_rettigheder_status text DEFAULT 'ukendt', p_maa_publiceres boolean DEFAULT false
+) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_id bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_opret_media', format('Oprettede media %s', coalesce(p_titel,p_original_filnavn,'?')), 'media', NULL);
+  IF nullif(btrim(p_slags),'') IS NULL THEN RAISE EXCEPTION 'Slags er påkrævet'; END IF;
+  -- sha256-dedup: samme bytes må kun registreres som ÉN media-række (genbrug den frem for at
+  -- oprette en dublet). Domæne-fejl frem for rå unique_violation (media_sha256_uidx).
+  IF p_sha256 IS NOT NULL AND EXISTS (SELECT 1 FROM media WHERE sha256 = p_sha256) THEN
+    RAISE EXCEPTION 'Medie med samme indhold findes allerede (sha256=%). Genbrug den eksisterende media-række via red_relation.', p_sha256;
+  END IF;
+  v_id := (SELECT coalesce(max(id),0)+1 FROM media);
+  INSERT INTO media(id, slags, titel, kunstner, datering, bucket, storage_path,
+                    mime_type, byte_size, bredde, hoejde, sha256, original_filnavn,
+                    upload_status, rettigheder_status, maa_publiceres)
+    VALUES (v_id, p_slags, p_titel, p_kunstner, p_datering, coalesce(p_bucket,'media'), p_storage_path,
+            p_mime, p_byte_size, p_bredde, p_hoejde, p_sha256, p_original_filnavn,
+            'kladde', coalesce(p_rettigheder_status,'ukendt'), coalesce(p_maa_publiceres,false));
+  RETURN v_id;
+END $$;
+
+-- Fase 2: bekræft at bytes er landet i Storage → flip til 'klar'.
+CREATE OR REPLACE FUNCTION red_bekraeft_media_upload(
+  p_media_id bigint, p_byte_size bigint DEFAULT NULL, p_sha256 text DEFAULT NULL
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_bekraeft_media_upload', format('Bekræftede upload af media %s', p_media_id), 'media', p_media_id);
+  UPDATE media SET upload_status='klar',
+                   byte_size=coalesce(p_byte_size, byte_size),
+                   sha256=coalesce(p_sha256, sha256)
+   WHERE id=p_media_id;
+END $$;
+
+-- Kombineret: opret media + afbildet-relation i ÉT change_set. begin_change_set er re-entrant
+-- (B7) → de nestede red_opret_media/red_relation slutter sig til samme sæt (fortrydes samlet).
+-- Portræt: sæt p_afbildet_person_id. Objekt-foto (gods/våben): sæt p_objekt_type/p_objekt_id.
+CREATE OR REPLACE FUNCTION red_upload_media(
+  p_slags text, p_titel text, p_storage_path text, p_mime text,
+  p_afbildet_person_id bigint DEFAULT NULL,
+  p_objekt_type text DEFAULT NULL, p_objekt_id bigint DEFAULT NULL,
+  p_byte_size bigint DEFAULT NULL, p_bredde int DEFAULT NULL, p_hoejde int DEFAULT NULL,
+  p_sha256 text DEFAULT NULL, p_original_filnavn text DEFAULT NULL,
+  p_rettigheder_status text DEFAULT 'ukendt', p_maa_publiceres boolean DEFAULT false
+) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_media bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_upload_media', format('Uploadede media %s', coalesce(p_titel,p_original_filnavn,'?')), 'media', NULL);
+  v_media := red_opret_media(p_slags, p_titel, NULL, NULL, 'media', p_storage_path,
+                             p_mime, p_byte_size, p_bredde, p_hoejde, p_sha256,
+                             p_original_filnavn, p_rettigheder_status, p_maa_publiceres);
+  IF p_afbildet_person_id IS NOT NULL THEN
+    PERFORM red_relation('person', p_afbildet_person_id, 'media', v_media, 'afbildet');
+  END IF;
+  IF p_objekt_type IS NOT NULL AND p_objekt_id IS NOT NULL THEN
+    -- GDPR-guard: person-afbildning SKAL gå person→media (den retning media_afbilder_skjult/privat
+    -- scanner). Objekt-grenen laver media→objekt og ville ellers omgå gatingen for en person.
+    IF p_objekt_type = 'person' THEN
+      RAISE EXCEPTION 'Brug p_afbildet_person_id til personer (GDPR-gating kræver person→media-retning)';
+    END IF;
+    PERFORM red_relation('media', v_media, p_objekt_type, p_objekt_id, 'afbildet');
+  END IF;
+  RETURN v_media;
+END $$;
+
+-- Sæt/opdater rettigheds-gating + (valgfrit) rig rettigheds-dokumentation som fact på medie-entiteten
+-- (Slice 1-brug; gating-kolonnerne virker allerede i Slice 0). Facts går via red_upsert_fakta (re-entrant).
+CREATE OR REPLACE FUNCTION red_set_media_rettigheder(
+  p_media_id bigint, p_status text, p_maa_publiceres boolean,
+  p_licens text DEFAULT NULL, p_kildehenvisning text DEFAULT NULL,
+  p_gengivelsestilladelse text DEFAULT NULL, p_kilde_fritekst text DEFAULT NULL
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_set_media_rettigheder', format('Rettigheder for media %s → %s', p_media_id, p_status), 'media', p_media_id);
+  UPDATE media SET rettigheder_status=coalesce(p_status, rettigheder_status),
+                   maa_publiceres=coalesce(p_maa_publiceres, maa_publiceres)
+   WHERE id=p_media_id;
+  -- Rig rettigheds-dokumentation som facts (kun de udfyldte). Én løkke frem for tre ens IF-blokke.
+  PERFORM red_upsert_fakta('media', p_media_id, r.felt, r.val, p_kilde_fritekst => p_kilde_fritekst)
+    FROM (VALUES ('licens', p_licens), ('kildehenvisning', p_kildehenvisning),
+                 ('gengivelsestilladelse', p_gengivelsestilladelse)) AS r(felt, val)
+    WHERE nullif(btrim(r.val),'') IS NOT NULL;
 END $$;
 
 -- =====================================================================

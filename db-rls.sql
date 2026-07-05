@@ -90,6 +90,47 @@ revoke all on function public.media_afbilder_privat(bigint) from public;
 grant execute on function public.media_afbilder_skjult(bigint) to anon, authenticated;
 grant execute on function public.media_afbilder_privat(bigint) to authenticated;
 
+-- rettigheds-gate (mediehåndtering 2026-07-04). ANDEN, ortogonal gating-dimension ved siden af
+-- afbildet-gatingen: copyright/publikationsret, uafhængig af GDPR-person-gating. FAIL-CLOSED:
+-- kun 'klar' + maa_publiceres=true er offentligt. maa_publiceres er en kontrol-kolonne (som
+-- person.privat), ikke et fact — RLS må ikke gå assertion→conclusion pr. billede pr. query.
+create or replace function public.media_rettigheder_ok(mid bigint)
+returns boolean language sql stable security definer set search_path=public as $$
+  select coalesce((select m.maa_publiceres and m.upload_status = 'klar'
+                     from public.media m where m.id = mid), false);
+$$;
+revoke all on function public.media_rettigheder_ok(bigint) from public;
+grant execute on function public.media_rettigheder_ok(bigint) to anon, authenticated;
+
+-- Kort et storage-objekt tilbage til dets media-række. Stien er autoritativ:
+-- storage.objects.name == media.storage_path (unikt pr. (bucket,storage_path)). SECURITY DEFINER
+-- så den kan læse media uafhængigt af kalderens RLS. Forældreløst objekt → NULL → fail-closed
+-- i storage-politikkerne nedenfor (media_rettigheder_ok(NULL)=false).
+create or replace function public.media_id_for_object(p_name text)
+returns bigint language sql stable security definer set search_path=public as $$
+  select m.id from public.media m
+   where m.bucket = 'media' and m.storage_path = p_name
+   limit 1;
+$$;
+revoke all on function public.media_id_for_object(text) from public;
+grant execute on function public.media_id_for_object(text) to anon, authenticated;
+
+-- Komponér de TO ortogonale gating-dimensioner (afbildet + rettigheder) ÉT sted, så media-tabellen
+-- og storage.objects deler nøjagtig samme synligheds-regel (ingen split-brain-drift) og objektet kun
+-- kortlægges til media ÉN gang pr. række. NULL mid (forældreløst objekt) → fail-closed (rettigheder_ok=false).
+create or replace function public.media_synlig_anon(mid bigint)
+returns boolean language sql stable set search_path=public as $$
+  select not public.media_afbilder_skjult(mid) and public.media_rettigheder_ok(mid);
+$$;
+create or replace function public.media_synlig_auth(mid bigint)
+returns boolean language sql stable set search_path=public as $$
+  select not public.media_afbilder_privat(mid) and public.media_rettigheder_ok(mid);
+$$;
+revoke all on function public.media_synlig_anon(bigint) from public;
+revoke all on function public.media_synlig_auth(bigint) from public;
+grant execute on function public.media_synlig_anon(bigint) to anon, authenticated;
+grant execute on function public.media_synlig_auth(bigint) to authenticated;
+
 -- ---------- DROP DEV-LAGET FØRST ----------
 -- KRITISK: den midlertidige dev-RLS (web/dev-rls.sql) oprettede politikker
 -- 'dev_anon_read' med USING (true). Postgres OR'er permissive politikker for
@@ -138,19 +179,59 @@ end $$;
 --   · ethvert billede der afbilder en levende/privat person → skjult for anon
 -- (NOT EXISTS-non-public, ikke EXISTS-public: et gruppebillede med BÅDE en afdød og en
 --  levende person skal skjules — ikke vises fordi den afdøde tilfældigvis er offentlig.)
+-- TO ortogonale gating-dimensioner (begge skal være opfyldt for offentlig visning):
+--   (1) afbildet-gating (GDPR/person) — media_afbilder_skjult/privat
+--   (2) rettigheds-gating (copyright/publikation) — media_rettigheder_ok
+-- Redaktion ser alt (additivt), uanset begge.
 grant select on table public.media to anon, authenticated;
 alter table public.media enable row level security;
 drop policy if exists anon_read on public.media;
 create policy anon_read on public.media for select to anon
-  using (not public.media_afbilder_skjult(media.id));
--- authenticated (medlem): levende tilladt, men manuelt privat skjules.
+  using (public.media_synlig_anon(media.id));
+-- authenticated (medlem): levende tilladt, men manuelt privat skjules; rettigheder gælder stadig.
 drop policy if exists auth_read on public.media;
 create policy auth_read on public.media for select to authenticated
-  using (not public.media_afbilder_privat(media.id));
+  using (public.media_synlig_auth(media.id));
 -- redaktion: ser alt (additivt oven på de to ovenfor).
 drop policy if exists redaktion_read on public.media;
 create policy redaktion_read on public.media for select to authenticated
   using ((select public.current_rolle()) = 'redaktion');
+
+-- ---------- STORAGE-OBJEKTER (mediehåndtering 2026-07-04) ----------
+-- ÉN privat bucket 'media' — ingen offentlig bucket. Selve bytes'ene serveres via kortlivede
+-- signed URLs (createSignedUrl), mintet på kalderens session, så disse politikker håndhæves på
+-- kalderens JWT/rolle. Hvorfor privat: begge gating-dimensioner er DYNAMISKE og tilbagekaldelige
+-- (person kan markeres privat; tilladelse kan trækkes; maa_publiceres kan flippe) — en offentlig,
+-- cache-bar URL kan ikke tilbagekaldes. Politikkerne spejler media-tabel-stakken 1:1 via
+-- objekt→media-mapping. Bucket'en skal oprettes som PRIVAT (Supabase Storage / storage.buckets)
+-- før disse politikker har effekt.
+do $$ begin
+  if exists (select 1 from information_schema.tables
+             where table_schema='storage' and table_name='objects') then
+    -- SELECT — samme synligheds-regel som media-tabellen (via media_synlig_*), så de to aldrig driver
+    -- fra hinanden; objekt→media kortlægges kun ÉN gang pr. række.
+    drop policy if exists media_obj_anon on storage.objects;
+    create policy media_obj_anon on storage.objects for select to anon using (
+      bucket_id = 'media' and public.media_synlig_anon(public.media_id_for_object(name)));
+    drop policy if exists media_obj_auth on storage.objects;
+    create policy media_obj_auth on storage.objects for select to authenticated using (
+      bucket_id = 'media' and public.media_synlig_auth(public.media_id_for_object(name)));
+    drop policy if exists media_obj_redaktion on storage.objects;
+    create policy media_obj_redaktion on storage.objects for select to authenticated using (
+      bucket_id = 'media' and (select public.current_rolle()) = 'redaktion');
+    -- WRITE: kun redaktion. Bulk-import bruger service_role (bypasser RLS helt) — se import_media.R.
+    drop policy if exists media_obj_write on storage.objects;
+    create policy media_obj_write on storage.objects for insert to authenticated
+      with check (bucket_id = 'media' and (select public.current_rolle()) = 'redaktion');
+    drop policy if exists media_obj_update on storage.objects;
+    create policy media_obj_update on storage.objects for update to authenticated
+      using (bucket_id = 'media' and (select public.current_rolle()) = 'redaktion')
+      with check (bucket_id = 'media' and (select public.current_rolle()) = 'redaktion');
+    drop policy if exists media_obj_delete on storage.objects;
+    create policy media_obj_delete on storage.objects for delete to authenticated
+      using (bucket_id = 'media' and (select public.current_rolle()) = 'redaktion');
+  end if;
+end $$;
 
 -- =========================================================
 -- 2) PERSON: kun afdøde, ikke-private.

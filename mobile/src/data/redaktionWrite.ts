@@ -1,5 +1,8 @@
 // Oversætter en UI-redigering ("change") til ét RPC-kald mod skrive-laget (Task 3–6).
 // Ren build-funktion (buildRpcCall) er netværksfri og unit-testes; submitChange udfører.
+// (mediaUpload.ts importeres dynamisk i submitChange, ikke statisk her — den rører native
+// device-API'er (billedvælger/filsystem) som ellers ville kræve jest-mocks for HELE denne fil,
+// selv i tests der kun øver buildRpcCall's rene logik.)
 import { supabase } from '../lib/supabase';
 
 // felt → fact.faktatype. koen er BEVIDST udeladt: arbejdsværdi på person, ikke et fact.
@@ -15,7 +18,8 @@ export type Change = {
      | 'opretUnion' | 'tilfoejBarn' | 'setFamilieKonfidens' | 'sletFamilieLink'
      | 'setFamilieOrdinal' | 'flytBarn'
      | 'sammeSom' | 'fjernSammeSom' // redaktionel identitets-sammenkædning (samme_som)
-     | 'opretPerson' | 'opretEstate' | 'opretKilde' | 'opretOrganisation' | 'fortryd';
+     | 'opretPerson' | 'opretEstate' | 'opretKilde' | 'opretOrganisation' | 'fortryd'
+     | 'uploadMedia'; // mediehåndtering Slice 0g — redaktør-upload (portræt/objekt-foto)
   subjektType: string;
   subjektId: string;
   assertionId?: string;
@@ -198,6 +202,25 @@ export function buildRpcCall(c: Change): RpcCall | null {
     if (p.slags) args.p_slags = p.slags;
     return { fn: 'red_opret_organisation', args };
   }
+  // Portræt (p_afbildet_person_id) ELLER objekt-foto (p_objekt_type/p_objekt_id) — aldrig
+  // begge (red_upload_media/red_relation håndhæver dette server-side, GDPR-invarianten).
+  // p_titel er PÅKRÆVET af RPC'en (intet DEFAULT) — payload skal altid sætte et.
+  if (c.art === 'uploadMedia') {
+    const p = c.payload || {};
+    if (!p.slags || !p.titel || !p.storagePath || !p.mimeType) return null;
+    const args: Record<string, unknown> = {
+      p_slags: p.slags, p_titel: p.titel, p_storage_path: p.storagePath, p_mime: p.mimeType,
+      p_byte_size: p.byteSize ?? null, p_bredde: p.bredde ?? null, p_hoejde: p.hoejde ?? null,
+      p_original_filnavn: p.originalFilnavn ?? null,
+      p_rettigheder_status: p.rettighederStatus ?? 'ukendt', p_maa_publiceres: Boolean(p.maaPubliceres),
+    };
+    if (p.afbildetPersonId != null) args.p_afbildet_person_id = Number(p.afbildetPersonId);
+    else if (p.objektType != null && p.objektId != null) {
+      args.p_objekt_type = p.objektType;
+      args.p_objekt_id = Number(p.objektId);
+    }
+    return { fn: 'red_upload_media', args };
+  }
   return null;
 }
 
@@ -207,13 +230,29 @@ export function describeCall(call: RpcCall): string {
 }
 
 // dry-run: returnér det planlagte kald (UI viser fn+args). live: udfør via supabase.rpc.
+// uploadMedia er særligt: bytes skal lande i Storage FØR RPC'en (Postgres-txn og Storage-upload
+// kan ikke dele transaktion, jf. planens to-fase-upload). Sker KUN i LIVE — dry-run rører hverken
+// Storage eller basen, ellers ville "Forhåndsvis" efterlade en rigtig fil i den private bucket.
+// red_upload_media opretter ALTID rækken som upload_status='kladde' (schema-default); først når
+// bytes reelt ligger i Storage (lige udført ovenfor) er det sandt at bekræfte 'klar' — derfor et
+// eksplicit andet RPC-kald bagefter, ikke en del af red_upload_media selv.
 export async function submitChange(c: Change, opts: { dryRun: boolean }) {
   const call = buildRpcCall(c);
   if (!call) throw new Error(`Kan ikke bygge RPC-kald for art=${c.art} felt=${c.felt}`);
   if (opts.dryRun) return { dryRun: true as const, call };
   if (!supabase) throw new Error('Supabase ikke konfigureret');
+  if (c.art === 'uploadMedia') {
+    const p = c.payload || {};
+    if (!p.localUri || !p.storagePath) throw new Error('Mangler lokal fil eller sti til upload');
+    const { performUpload } = await import('../lib/mediaUpload');
+    await performUpload(String(p.localUri), String(p.storagePath), String(p.mimeType ?? 'application/octet-stream'));
+  }
   const { data, error } = await supabase.rpc(call.fn, call.args);
   if (error) throw new Error(error.message);
+  if (c.art === 'uploadMedia') {
+    const { error: bekraeftError } = await supabase.rpc('red_bekraeft_media_upload', { p_media_id: data });
+    if (bekraeftError) throw new Error(bekraeftError.message);
+  }
   return { dryRun: false as const, call, result: data };
 }
 
