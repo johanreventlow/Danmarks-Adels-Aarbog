@@ -1018,3 +1018,12 @@ BEGIN
   DELETE FROM media WHERE id IN (-921,-922);
   RAISE NOTICE 'OK: storage.objects-politikker (klar synlig anon+medlem; spærret + forældreløs skjult for begge)';
 END $$;
+
+-- ===== Task 13: generations-reparation — slægtled-kolonner findes + trigger scoped =====
+DO $$
+BEGIN
+  ASSERT (SELECT count(*) FROM information_schema.columns
+          WHERE table_name='person_external_id'
+            AND column_name IN ('slaegtled_lokal','slaegtled_gennem','kuld')) = 3,
+    'Mangler generations-kolonner på person_external_id';
+END $$;
