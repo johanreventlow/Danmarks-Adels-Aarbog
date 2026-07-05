@@ -22,6 +22,7 @@ import { buildBrowse } from './data/browse';
 import { initials } from './data/format';
 import { NarrativRenderer } from './components/NarrativRenderer';
 import { Lightbox } from './components/Lightbox';
+import { insertAt, makeToken } from './lib/mentions';
 
 const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 // Change-arter der kan ændre et materiale-galleri (Slice 0h) — bruges til at afgøre om
@@ -121,6 +122,12 @@ export default function Redaktion() {
   const [narrativer, setNarrativer] = useState<PersonNarrativ[]>([]);
   const [aktivSourceId, setAktivSourceId] = useState<number | null>(null);
   const [narrativUdkast, setNarrativUdkast] = useState<{ tekst: string; privat: boolean; side: string }>({ tekst: '', privat: false, side: '' });
+  // Cursor-position i narrativ-textarea'en (billeder-i-narrativer 2026-07-05, Slice C2) — ref, ikke
+  // state: påvirker aldrig render-output, kun læst ved billed-indsættelse (samme mønster som
+  // mobile's narrativSelPos).
+  const narrativTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const narrativSelPos = useRef(0);
+  const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [sources, setSources] = useState<SourceRow[]>([]);
   const [nyUdgave, setNyUdgave] = useState<{ titel: string; udgave: string; aar: string } | null>(null);
   const [model, setModel] = useState<Model | null>(null);
@@ -247,6 +254,19 @@ export default function Redaktion() {
     const n = narrativer.find((x) => x.sourceId === sourceId) ?? null;
     setNarrativUdkast({ tekst: n?.tekst ?? '', privat: n?.privat ?? false, side: n?.side ?? '' });
   }, [narrativer]);
+
+  // Indsæt et token ved cursor-position i narrativ-textarea'en (billeder-i-narrativer 2026-07-05,
+  // Slice C2). setSelectionRange kræver at elementet har fokus igen — refocus FØR det, ellers
+  // flytter browseren blot cursor uden effekt.
+  const insertNarrativToken = useCallback((token: string) => {
+    const r = insertAt(narrativUdkast.tekst, narrativSelPos.current, token);
+    setNarrativUdkast((u) => ({ ...u, tekst: r.text }));
+    narrativSelPos.current = r.cursor;
+    requestAnimationFrame(() => {
+      const el = narrativTextareaRef.current;
+      if (el) { el.focus(); el.setSelectionRange(r.cursor, r.cursor); }
+    });
+  }, [narrativUdkast.tekst]);
 
   // Opret en ny DAA-udgave (source) via det delte submitChange-flow — så dry-run/staging/rolle-
   // routing honoreres som for al anden skrivning. På LIVE bruges det nye source-id straks (skift
@@ -376,6 +396,7 @@ export default function Redaktion() {
       {renderPicker()}
       {renderSammeSomConfirm()}
       {renderFlytBarnPicker()}
+      {renderMediaPicker()}
     </div>
   );
 
@@ -611,7 +632,13 @@ export default function Redaktion() {
             </div>
           )}
 
-          <textarea value={narrativUdkast.tekst} onChange={(e) => setNarrativUdkast((u) => ({ ...u, tekst: e.target.value }))} style={{ width: '100%', height: 104, fontSize: 13, lineHeight: 1.55, color: '#3d382f', background: '#fff', border: '1px solid rgba(34,31,26,.16)', borderRadius: 9, padding: '11px 12px', outline: 'none', resize: 'vertical' }} />
+          <div style={{ marginBottom: 6 }}>
+            <span onClick={() => setMediaPickerOpen(true)} style={{ fontSize: 11.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>🖼 Indsæt billede</span>
+          </div>
+          <textarea ref={narrativTextareaRef} value={narrativUdkast.tekst}
+            onChange={(e) => setNarrativUdkast((u) => ({ ...u, tekst: e.target.value }))}
+            onSelect={(e) => { narrativSelPos.current = e.currentTarget.selectionStart ?? 0; }}
+            style={{ width: '100%', height: 104, fontSize: 13, lineHeight: 1.55, color: '#3d382f', background: '#fff', border: '1px solid rgba(34,31,26,.16)', borderRadius: 9, padding: '11px 12px', outline: 'none', resize: 'vertical' }} />
           {/* Passiv forhåndsvisning — viser hvordan [[type:id|tekst]]-links renderes for publikum,
               så redaktøren kan se om en redigering har brudt et eksisterende link. Ikke klikbar
               (undgår at navigere væk fra en igangværende redigering, jf. review 12 fund om
@@ -992,6 +1019,31 @@ export default function Redaktion() {
               </div>
             ))}
             {!items.length && <div style={{ padding: '18px 10px', textAlign: 'center', fontSize: 12.5, color: T.muted3 }}>Ingen træffere.</div>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Billed-vælger til narrativ-indsættelse (billeder-i-narrativer 2026-07-05, Slice C2). Viser
+  // DENNE subjekts allerede indlæste egne uploadede billeder (samme `media`-state som Materiale-
+  // galleriet nedenfor allerede henter — intet nyt fetch-kald).
+  function renderMediaPicker() {
+    if (!mediaPickerOpen) return null;
+    const brugbar = media.filter((m) => m.thumbUrl);
+    return (
+      <div onClick={() => setMediaPickerOpen(false)} style={overlay(96)}>
+        <div onClick={(e) => e.stopPropagation()} style={{ width: 460, maxWidth: '100%', maxHeight: '70vh', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ padding: '16px 18px 12px', fontFamily: T.serif, fontSize: 19, fontWeight: 600 }}>Indsæt billede</div>
+          <div data-scroll style={{ flex: 1, overflowY: 'auto', padding: '0 14px 16px', display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            {brugbar.map((m) => (
+              <div key={m.id} onClick={() => { insertNarrativToken(makeToken('media', Number(m.id), m.titel ?? '')); setMediaPickerOpen(false); }}
+                style={{ width: 100, cursor: 'pointer' }}>
+                <img src={m.thumbUrl!} style={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 8, background: T.beige, display: 'block' }} />
+                {m.titel && <div style={{ fontSize: 10, color: T.muted, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.titel}</div>}
+              </div>
+            ))}
+            {!brugbar.length && <div style={{ padding: '18px 4px', fontSize: 12.5, color: T.muted3 }}>Ingen billeder uploadet endnu.</div>}
           </div>
         </div>
       </div>

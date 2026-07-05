@@ -9,6 +9,7 @@ import { SletBekraeftSheet } from '../../../components/redaktion/SletBekraeftShe
 import { SkrivePreviewSheet } from '../../../components/redaktion/SkrivePreviewSheet';
 import { EntitetPicker } from '../../../components/redaktion/EntitetPicker';
 import { PersonPicker } from '../../../components/redaktion/PersonPicker';
+import { MediaMentionPicker } from '../../../components/redaktion/MediaMentionPicker';
 import { MentionPicker } from '../../../components/redaktion/MentionPicker';
 import { MediaUploadSheet } from '../../../components/redaktion/MediaUploadSheet';
 import { MediaGallery } from '../../../components/redaktion/MediaGallery';
@@ -281,6 +282,7 @@ export default function PersonEditor() {
   // mention-indsættelse) — useState her ville trigge et unødigt re-render pr. tastetryk.
   const narrativSelPos = useRef(0);
   const [mentionPickerÅben, setMentionPickerÅben] = useState(false);
+  const [mediaMentionPickerÅben, setMediaMentionPickerÅben] = useState(false);
   useEffect(() => {
     if (!id) return;
     setNarrativStatus('loading');
@@ -551,10 +553,14 @@ export default function PersonEditor() {
             </Mono>
           ) : (
             <>
-              <Pressable disabled={narrativStatus !== 'ready'} onPress={() => setMentionPickerÅben(true)}
-                style={{ alignSelf: 'flex-start', marginBottom: 6 }}>
-                <BtnLabel size={12.5} color={Colors.bordeaux}>🔗 Indsæt link</BtnLabel>
-              </Pressable>
+              <View style={{ flexDirection: 'row', gap: 16, marginBottom: 6 }}>
+                <Pressable disabled={narrativStatus !== 'ready'} onPress={() => setMentionPickerÅben(true)}>
+                  <BtnLabel size={12.5} color={Colors.bordeaux}>🔗 Indsæt link</BtnLabel>
+                </Pressable>
+                <Pressable disabled={narrativStatus !== 'ready'} onPress={() => setMediaMentionPickerÅben(true)}>
+                  <BtnLabel size={12.5} color={Colors.bordeaux}>🖼 Indsæt billede</BtnLabel>
+                </Pressable>
+              </View>
               <TextInput
                 multiline
                 editable={narrativStatus === 'ready'}
@@ -577,6 +583,18 @@ export default function PersonEditor() {
               {mentionPickerÅben ? (
                 <MentionPicker
                   onClose={() => setMentionPickerÅben(false)}
+                  onVælg={(token) => {
+                    const r = insertAt(narrativTekst, narrativSelPos.current, token);
+                    setNarrativTekst(r.text);
+                    narrativSelPos.current = r.cursor;
+                  }}
+                />
+              ) : null}
+              {mediaMentionPickerÅben ? (
+                <MediaMentionPicker
+                  media={media}
+                  thumbUris={mediaThumbUris}
+                  onClose={() => setMediaMentionPickerÅben(false)}
                   onVælg={(token) => {
                     const r = insertAt(narrativTekst, narrativSelPos.current, token);
                     setNarrativTekst(r.text);
