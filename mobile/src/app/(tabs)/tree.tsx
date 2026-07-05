@@ -179,7 +179,7 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
             </Mono>
             {col.fallback ? (
               <Mono size={8.5} color={Colors.textMuted2} style={{ marginBottom: 8, lineHeight: 11 }}>
-                slægtled-naboer — ingen bevist som forælder
+                Ingen kendt forbindelse mellem slægtsled
               </Mono>
             ) : null}
             <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: insets.bottom + 90 }}>

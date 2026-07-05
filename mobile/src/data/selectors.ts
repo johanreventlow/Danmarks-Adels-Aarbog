@@ -147,12 +147,46 @@ export function columnLabel(a: {
     const table = a.kind === 'ancestor' ? ANCESTOR_LABELS : DESCENDANT_LABELS;
     const kinship = table[a.depth - 1];
     if (a.slaegtled == null) return kinship;
-    return `${kinship} · ${a.slaegtled}. slægtled`;
+    if (a.linje == null) return `${kinship} · ${a.slaegtled}. slægtled`;
+    return `${kinship} · ${a.slaegtled}. slægtled · ${a.linje}-linjen`;
   }
   if (a.slaegtled == null) {
     return `${a.depth - 3}× ${a.kind === 'ancestor' ? 'Tipoldeforældre' : 'Tipoldebørn'}`;
   }
-  return `${a.slaegtled}. slægtled`;
+  if (a.linje == null) return `${a.slaegtled}. slægtled`;
+  return `${a.slaegtled}. slægtled · ${a.linje}-linjen`;
+}
+
+// Læs kolonnens FAKTISKE (lokal, linje)-koordinat fra genCoords — ALDRIG aritmetik fra ankerets
+// activeLokal (som antog monoton ∓depth i samme linje; brister for en founder-anker der reelt
+// hopper linje — review 20 H1: person 290 fik "-7. slægtled" i stedet for bogens faktiske "III,
+// 4. slægtled"). Samler koordinaterne for alle `people` der har én; hvis de deler PRÆCIS ét
+// (lokal, linje)-par (konsensus), returneres det — ellers `null` (blandet/ukendt → ren kinship-
+// label, ingen gætning, jf. Codex-recalibrering i review 20). `selectedId`s koordinat bruges som
+// tiebreak hvis ringen ellers er tvetydig (fx en founder i ringen der selv bærer flere linje-
+// medlemskaber). Bevaret byte-identisk mellem web/src/data/tree.ts og mobile/src/data/selectors.ts.
+export function columnGen(
+  genCoords: GenCoords | undefined,
+  people: ModelPerson[],
+  selectedId?: string | null,
+): { lokal: number; linje: string } | null {
+  if (!genCoords) return null;
+  const pairs = new Map<string, { lokal: number; linje: string }>();
+  for (const p of people) {
+    for (const c of genCoords[p.id] ?? []) {
+      if (c.lokal == null) continue;
+      pairs.set(`${c.lokal}:${c.linje}`, { lokal: c.lokal, linje: c.linje });
+    }
+  }
+  if (pairs.size === 1) return [...pairs.values()][0];
+  if (pairs.size > 1 && selectedId != null) {
+    for (const c of genCoords[selectedId] ?? []) {
+      if (c.lokal == null) continue;
+      const key = `${c.lokal}:${c.linje}`;
+      if (pairs.has(key)) return pairs.get(key)!;
+    }
+  }
+  return null;
 }
 
 // Byg fallback-ring: alle personer der deler den NABO-generations (linje, lokal)-koordinat med
@@ -230,7 +264,6 @@ function buildDirection(
   kind: 'ancestor' | 'descendant',
   dir: -1 | 1,
   activeLokal: number | null,
-  linje: string | null,
   genCoords?: GenCoords,
 ): TreeColumn[] {
   const cols: TreeColumn[] = [];
@@ -240,14 +273,23 @@ function buildDirection(
   while (depth <= COL_MAX_DEPTH) {
     const people = traverse(model, cur).filter((p) => !visited.has(p.id));
     if (!people.length) {
-      const fallbackAllowed = dir === -1 || activeLokal != null;
+      // Efterkommer-fallback er patrilineal (DAA-linjen føres videre gennem manden): en kvinde
+      // fører ALDRIG linjen videre, så vis aldrig "muligt næste slægtled" som hendes efterkommer-
+      // kandidater (review 20 fix 3). Ane-fallback (dir=-1) er upåvirket — kvinder har naturligvis
+      // ane-linjer. Ukendt/manglende køn behandles som ikke-kvinde (uændret v1/v2-adfærd).
+      const curIsKvinde = model.byId[cur]?.koen === 'kvinde';
+      const fallbackAllowed = dir === -1 || (activeLokal != null && !curIsKvinde);
       const fb = fallbackAllowed ? fallbackRing(model, genCoords, anchorId, cur, depth, dir) : null;
       if (fb) cols.push(fb);
       break; // fallback-ringen er en bevidst dødende: vælg re-ankrer i stedet for at drille videre
     }
     const sel = selections[depth - 1] ?? null;
-    const slaegtled = activeLokal != null ? activeLokal + (kind === 'ancestor' ? -depth : depth) : null;
-    const label = columnLabel({ kind, depth, slaegtled, linje });
+    // Konsulter kun genCoords når vi er i v2-aktiv-koordinat-tilstand (`activeLokal != null`) —
+    // samme opt-in-gate som resten af filen. Uden den ville en kalder uden UI-wiring til
+    // activeCoord (der aldrig satte den fri) pludselig se slægtled-tal dukke op, fordi personerne
+    // i ringen TILFÆLDIGVIS har genCoords (v1-regression).
+    const g = activeLokal != null ? columnGen(genCoords, people, sel) : null;
+    const label = columnLabel({ kind, depth, slaegtled: g?.lokal ?? null, linje: g?.linje ?? null });
     cols.push({ key: `${kind}:${depth}`, kind, depth, label, people, selectedId: sel });
     if (!sel) break;
     visited.add(sel);
@@ -290,8 +332,8 @@ export function buildBidirectionalColumns(
   const ac = activeCoord ?? null;
   const linje = ac ? linjeNameFor(genCoords, ac.sourceId, ac.lineageId) : null;
   const activeLokal = ac ? ac.lokal : null;
-  const ancestors = buildDirection(model, anchorId, up, parentsOf, 'ancestor', -1, activeLokal, linje, genCoords);
-  const descendants = buildDirection(model, anchorId, down, childrenOf, 'descendant', 1, activeLokal, linje, genCoords);
+  const ancestors = buildDirection(model, anchorId, up, parentsOf, 'ancestor', -1, activeLokal, genCoords);
+  const descendants = buildDirection(model, anchorId, down, childrenOf, 'descendant', 1, activeLokal, genCoords);
   const peers = buildAnchorPeers(model, genCoords, anchorId, ac);
   const anchorCol: TreeColumn = {
     key: 'anchor:0', kind: 'anchor', depth: 0,

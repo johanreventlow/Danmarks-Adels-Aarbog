@@ -1,5 +1,5 @@
 import { buildModel } from '../buildModel';
-import { buildAnchorPeers, buildBidirectionalColumns, buildSearch, buildSnapPath, columnLabel, routeToMe, searchPool, treeFocusA, wayToMe } from '../selectors';
+import { buildAnchorPeers, buildBidirectionalColumns, buildSearch, buildSnapPath, columnGen, columnLabel, routeToMe, searchPool, treeFocusA, wayToMe } from '../selectors';
 import type { Db } from '../types';
 import type { SearchItem } from '../selectors';
 
@@ -245,17 +245,35 @@ describe('buildBidirectionalColumns · v2 activeCoord (bidirektionel fallback + 
     expect(anchor.overflowPeers).toBe(0);
   });
 
-  test('(c) bevist ancestor-kolonne får kombineret label "Forældre · N. slægtled" fra activeCoord', () => {
+  test('(c) bevist ancestor-kolonne får kombineret label "Forældre · N. slægtled · linje-linjen" fra genCoords (ikke aritmetik)', () => {
     const genCoords = { A: [coord()], F: [coord({ lokal: 10 })], M: [coord({ lokal: 10 })] };
     const cols = buildBidirectionalColumns(gModel, 'A', [], [], genCoords, active);
-    expect(cols.find((c) => c.key === 'ancestor:1')!.label).toBe('Forældre · 10. slægtled');
+    expect(cols.find((c) => c.key === 'ancestor:1')!.label).toBe('Forældre · 10. slægtled · III-linjen');
     expect(cols.find((c) => c.key === 'anchor:0')!.label).toBe('11. slægtled · III-linjen');
   });
 
-  test('(c) bevist descendant-kolonne får kombineret label "Børn · N. slægtled"', () => {
+  test('(c) bevist descendant-kolonne får kombineret label "Børn · N. slægtled · linje-linjen"', () => {
     const genCoords = { A: [coord()], C1: [coord({ lokal: 12 })], C2: [coord({ lokal: 12 })] };
     const cols = buildBidirectionalColumns(gModel, 'A', [], [], genCoords, active);
-    expect(cols.find((c) => c.key === 'descendant:1')!.label).toBe('Børn · 12. slægtled');
+    expect(cols.find((c) => c.key === 'descendant:1')!.label).toBe('Børn · 12. slægtled · III-linjen');
+  });
+
+  test('(H1-fix) bevist ancestor-kolonne læser FAKTISK koordinat fra genCoords — ikke activeLokal∓depth: '
+    + 'founder-anker (activeLokal=1, V-linjen) hvis ane reelt ligger i III/lokal 4 viser "4. slægtled · III-linjen", '
+    + 'IKKE arithmetikkens "0. slægtled" (review 20 H1, person 290-regression)', () => {
+    const founderDb: Db = {
+      persons: [mk('P', 'P'), mk('X', 'X')], unions: [], parentChild: [{ child: 'P', parent: 'X', union: 'u' }],
+    };
+    const founderModel = buildModel(founderDb);
+    const genCoords = {
+      P: [{ sourceId: '1', linje: 'V', lineageId: '50', parentLineageId: null, lokal: 1, gennem: 12, kuld: null }],
+      X: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 4, gennem: 4, kuld: null }],
+    };
+    const founderActive = { sourceId: '1', lineageId: '50', lokal: 1 };
+    const cols = buildBidirectionalColumns(founderModel, 'P', [], [], genCoords, founderActive);
+    expect(cols.find((c) => c.key === 'ancestor:1')!.label).toContain('4. slægtled');
+    expect(cols.find((c) => c.key === 'ancestor:1')!.label).toContain('III');
+    expect(cols.find((c) => c.key === 'ancestor:1')!.label).not.toContain('0. slægtled');
   });
 
   test('(a) efterkommer-fallback-ring bygges når childrenOf er tom + activeCoord givet (ny person i G+1)', () => {
@@ -282,6 +300,66 @@ describe('buildBidirectionalColumns · v2 activeCoord (bidirektionel fallback + 
     const activeAtLeaf = { sourceId: '1', lineageId: '10', lokal: 20 };
     const cols = buildBidirectionalColumns(leafModel, 'leaf', [], [], genCoords, activeAtLeaf);
     expect(cols.find((c) => c.fallback)).toBeUndefined();
+  });
+
+  test('(fix 3) efterkommer-fallback UDEBLIVER når `leaf` er en kvinde (patrilineal DAA-linje — hun fører den '
+    + 'ikke videre, review 20 fix 3), SELVOM genCoords + activeCoord ellers ville matche', () => {
+    const leafDb: Db = {
+      persons: [{ ...mk('leaf', 'leaf'), koen: 'kvinde' as const }, mk('X', 'X')], unions: [], parentChild: [],
+    };
+    const leafModel = buildModel(leafDb);
+    const genCoords = {
+      leaf: [coord({ lokal: 20 })],
+      X: [coord({ lokal: 21, kuld: 'I' })],
+    };
+    const activeAtLeaf = { sourceId: '1', lineageId: '10', lokal: 20 };
+    const cols = buildBidirectionalColumns(leafModel, 'leaf', [], [], genCoords, activeAtLeaf);
+    expect(cols.find((c) => c.fallback && c.kind === 'descendant')).toBeUndefined();
+  });
+
+  test('(fix 3) efterkommer-fallback VISES stadig for en mand (kontrol for testen ovenfor)', () => {
+    const leafDb: Db = {
+      persons: [{ ...mk('leaf', 'leaf'), koen: 'mand' as const }, mk('X', 'X')], unions: [], parentChild: [],
+    };
+    const leafModel = buildModel(leafDb);
+    const genCoords = {
+      leaf: [coord({ lokal: 20 })],
+      X: [coord({ lokal: 21, kuld: 'I' })],
+    };
+    const activeAtLeaf = { sourceId: '1', lineageId: '10', lokal: 20 };
+    const cols = buildBidirectionalColumns(leafModel, 'leaf', [], [], genCoords, activeAtLeaf);
+    expect(cols.find((c) => c.fallback && c.kind === 'descendant')).toBeDefined();
+  });
+
+  test('(fix 3) ukendt/manglende køn opfører sig som ikke-kvinde: efterkommer-fallback vises stadig', () => {
+    const leafDb: Db = { persons: [mk('leaf', 'leaf'), mk('X', 'X')], unions: [], parentChild: [] }; // mk() uden koen
+    const leafModel = buildModel(leafDb);
+    const genCoords = {
+      leaf: [coord({ lokal: 20 })],
+      X: [coord({ lokal: 21, kuld: 'I' })],
+    };
+    const activeAtLeaf = { sourceId: '1', lineageId: '10', lokal: 20 };
+    const cols = buildBidirectionalColumns(leafModel, 'leaf', [], [], genCoords, activeAtLeaf);
+    expect(cols.find((c) => c.fallback && c.kind === 'descendant')).toBeDefined();
+  });
+
+  test('(fix 3) ane-fallback (dir=-1) er UPÅVIRKET af køn: en kvindelig anker kan sagtens have ane-kandidater', () => {
+    const pDb: Db = {
+      persons: [{ ...mk('P', 'P'), koen: 'kvinde' as const }, mk('A', 'A'), mk('B', 'B')], unions: [], parentChild: [],
+    };
+    const pModel = buildModel(pDb);
+    const genCoords = {
+      P: [
+        { sourceId: '1', linje: 'V', lineageId: '50', parentLineageId: '10', lokal: 1, gennem: 12, kuld: null },
+        { sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 12, gennem: 12, kuld: null },
+      ],
+      A: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: 'I' }],
+      B: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: 'II' }],
+    };
+    const cols = buildBidirectionalColumns(pModel, 'P', [], [], genCoords);
+    const fb = cols.find((c) => c.fallback);
+    expect(fb).toBeDefined();
+    expect(fb!.kind).toBe('ancestor');
   });
 
   test('(d) v1-adfærd: ingen efterkommer-fallback-ring når activeCoord=null, SELVOM et lokal+1-match findes '
@@ -507,26 +585,36 @@ describe('columnLabel', () => {
       .toBe('muligt · 9. slægtled · V-linjen');
   });
 
-  it('bevist ancestor depth≤4 m. slægtled → "kinship · N. slægtled"', () => {
-    expect(columnLabel({ kind: 'ancestor', depth: 1, slaegtled: 12, linje: 'III' })).toBe('Forældre · 12. slægtled');
+  it('bevist ancestor depth≤4 m. slægtled + linje → "kinship · N. slægtled · linje-linjen"', () => {
+    expect(columnLabel({ kind: 'ancestor', depth: 1, slaegtled: 12, linje: 'III' }))
+      .toBe('Forældre · 12. slægtled · III-linjen');
     expect(columnLabel({ kind: 'ancestor', depth: 4, slaegtled: 5, linje: 'III' }))
-      .toBe('Tipoldeforældre · 5. slægtled');
+      .toBe('Tipoldeforældre · 5. slægtled · III-linjen');
+  });
+
+  it('bevist ancestor depth≤4 m. slægtled UDEN linje → "kinship · N. slægtled" (v1-fald-tilbage)', () => {
+    expect(columnLabel({ kind: 'ancestor', depth: 1, slaegtled: 12, linje: null })).toBe('Forældre · 12. slægtled');
   });
 
   it('bevist ancestor depth≤4 uden slægtled → kun kinship', () => {
     expect(columnLabel({ kind: 'ancestor', depth: 1, slaegtled: null, linje: null })).toBe('Forældre');
   });
 
-  it('bevist descendant depth≤4 m. slægtled → "kinship · N. slægtled"', () => {
-    expect(columnLabel({ kind: 'descendant', depth: 1, slaegtled: 13, linje: 'III' })).toBe('Børn · 13. slægtled');
+  it('bevist descendant depth≤4 m. slægtled + linje → "kinship · N. slægtled · linje-linjen"', () => {
+    expect(columnLabel({ kind: 'descendant', depth: 1, slaegtled: 13, linje: 'III' }))
+      .toBe('Børn · 13. slægtled · III-linjen');
   });
 
   it('bevist descendant depth≤4 uden slægtled → kun kinship', () => {
     expect(columnLabel({ kind: 'descendant', depth: 2, slaegtled: null, linje: null })).toBe('Børnebørn');
   });
 
-  it('bevist ancestor depth≥5 m. slægtled → "N. slægtled" (ikke kinship-navn)', () => {
-    expect(columnLabel({ kind: 'ancestor', depth: 5, slaegtled: 3, linje: 'III' })).toBe('3. slægtled');
+  it('bevist ancestor depth≥5 m. slægtled + linje → "N. slægtled · linje-linjen" (ikke kinship-navn)', () => {
+    expect(columnLabel({ kind: 'ancestor', depth: 5, slaegtled: 3, linje: 'III' })).toBe('3. slægtled · III-linjen');
+  });
+
+  it('bevist ancestor depth≥5 m. slægtled UDEN linje → "N. slægtled" (v1-fald-tilbage)', () => {
+    expect(columnLabel({ kind: 'ancestor', depth: 5, slaegtled: 3, linje: null })).toBe('3. slægtled');
   });
 
   it('bevist ancestor depth≥5 uden slægtled → v1-fallback "N× Tipoldeforældre"', () => {
@@ -534,11 +622,45 @@ describe('columnLabel', () => {
     expect(columnLabel({ kind: 'ancestor', depth: 7, slaegtled: null, linje: null })).toBe('4× Tipoldeforældre');
   });
 
-  it('bevist descendant depth≥5 m. slægtled → "N. slægtled" (ikke kinship-navn)', () => {
-    expect(columnLabel({ kind: 'descendant', depth: 6, slaegtled: 20, linje: 'III' })).toBe('20. slægtled');
+  it('bevist descendant depth≥5 m. slægtled + linje → "N. slægtled · linje-linjen" (ikke kinship-navn)', () => {
+    expect(columnLabel({ kind: 'descendant', depth: 6, slaegtled: 20, linje: 'III' })).toBe('20. slægtled · III-linjen');
   });
 
   it('bevist descendant depth≥5 uden slægtled → v1-fallback "N× Tipoldebørn"', () => {
     expect(columnLabel({ kind: 'descendant', depth: 5, slaegtled: null, linje: null })).toBe('2× Tipoldebørn');
+  });
+});
+
+describe('columnGen', () => {
+  const coord = (over: Partial<{ sourceId: string; linje: string; lineageId: string | null; lokal: number | null }> = {}) => ({
+    sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: null, ...over,
+  });
+
+  it('alle personer enige om samme (lokal, linje) → returnerer den ene koordinat', () => {
+    const genCoords = { F: [coord({ lokal: 10 })], M: [coord({ lokal: 10 })] };
+    expect(columnGen(genCoords, [{ id: 'F' } as never, { id: 'M' } as never])).toEqual({ lokal: 10, linje: 'III' });
+  });
+
+  it('ingen genCoords → null', () => {
+    expect(columnGen(undefined, [{ id: 'F' } as never])).toBeNull();
+  });
+
+  it('personer uden koordinat ignoreres (ikke tvetydighed)', () => {
+    const genCoords = { F: [coord({ lokal: 10 })] }; // M mangler helt
+    expect(columnGen(genCoords, [{ id: 'F' } as never, { id: 'M' } as never])).toEqual({ lokal: 10, linje: 'III' });
+  });
+
+  it('blandede/uenige koordinater uden tiebreak → null (kinship-only, ingen gætning)', () => {
+    const genCoords = { F: [coord({ lokal: 10 })], M: [coord({ lokal: 9, linje: 'V' })] };
+    expect(columnGen(genCoords, [{ id: 'F' } as never, { id: 'M' } as never])).toBeNull();
+  });
+
+  it('tvetydig ring + selectedId hvis koordinat matcher → bruges som tiebreak', () => {
+    const genCoords = { F: [coord({ lokal: 10 })], M: [coord({ lokal: 9, linje: 'V' })] };
+    expect(columnGen(genCoords, [{ id: 'F' } as never, { id: 'M' } as never], 'M')).toEqual({ lokal: 9, linje: 'V' });
+  });
+
+  it('tom people-liste → null', () => {
+    expect(columnGen({ F: [coord()] }, [])).toBeNull();
   });
 });

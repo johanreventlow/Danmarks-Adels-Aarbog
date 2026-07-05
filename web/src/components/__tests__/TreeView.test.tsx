@@ -142,7 +142,7 @@ describe('TreeView — fallback-ring (D1: render af C1s genCoords-baserede ubevi
     );
     fireEvent.click(screen.getByText('Kolonner'));
     expect(screen.getByText(/slægtled.*III-linjen/)).toBeTruthy(); // genLabel
-    expect(screen.getByText('slægtled-naboer — ingen bevist som forælder')).toBeTruthy();
+    expect(screen.getByText('Ingen kendt forbindelse mellem slægtsled')).toBeTruthy();
     expect(screen.getByText('Nabo Et')).toBeTruthy();
     expect(screen.getByText('Nabo To')).toBeTruthy();
     expect(screen.getAllByText('muligt slægtled').length).toBe(2);

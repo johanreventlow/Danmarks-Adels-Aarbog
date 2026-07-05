@@ -669,7 +669,7 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
               <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.gold, padding: '0 2px 4px', borderBottom: '1px solid rgba(34,31,26,.1)' }}>{col.fallback ? col.genLabel : col.label}</div>
               {col.fallback && (
                 <div style={{ fontFamily: T.sans, fontSize: 10.5, color: T.muted2, padding: '0 2px', marginTop: -6 }}>
-                  slægtled-naboer — ingen bevist som forælder
+                  Ingen kendt forbindelse mellem slægtsled
                 </div>
               )}
               {col.fallback ? (

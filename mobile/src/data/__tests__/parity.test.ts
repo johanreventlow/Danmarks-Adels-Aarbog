@@ -83,4 +83,8 @@ describe('parity: delt generations-kerne web ↔ mobil', () => {
   it('columnLabel er tegn-for-tegn ens (selectors.ts ↔ tree.ts)', () => {
     expect(extractFn(mobileSelectors, 'columnLabel')).toBe(extractFn(webTree, 'columnLabel'));
   });
+
+  it('columnGen er tegn-for-tegn ens (selectors.ts ↔ tree.ts)', () => {
+    expect(extractFn(mobileSelectors, 'columnGen')).toBe(extractFn(webTree, 'columnGen'));
+  });
 });
