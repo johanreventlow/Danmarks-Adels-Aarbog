@@ -65,8 +65,8 @@ export type FeedCard =
       ownerDots: number; kicker: string }
   | { kind: 'forbundet'; id: string; aName: string; bName: string; aInit: string;
       bInit: string; marBottom: string; kicker: string }
-  | { kind: 'slaegt'; id: string; aName: string; bName: string; rel: string;
-      foot: string; onOpenRoute: string; kicker: string }
+  | { kind: 'slaegt'; id: string; aId: string; bId: string; aName: string; bName: string;
+      rel: string; foot: string; kicker: string }
   | { kind: 'embede'; id: string; personId: string; label: string; name: string;
       period: string; init: string; kicker: string }
   | { kind: 'jubilaeum'; id: string; personId: string; num: number; name: string;
@@ -90,28 +90,49 @@ brugt både som React-key og som seed for rækkefølgen. `personId` findes kun p
 
 ### 3.2 Udledning pr. korttype
 
-Alle kilder findes allerede i `Model`/`Aux` (verificeret i `data/types.ts`):
+Alle kilder er **empirisk verificeret** i `data/types.ts` / `data/load.ts` / `data/relationship.ts`
+(dual-review 20, DS1–DS4). `AppPerson.title` og `.bio` er ikke-nullable `string` (tom = "ingen"),
+så "person med bio" = `p.bio.trim() !== ''`, og `hasTitle = p.title !== ''`.
 
 | kind | Kilde | Regel |
 |---|---|---|
-| `portrait` | `model.persons` med ikke-tom `bio` | navn, `years`, `title`, initialer (1. bogstav i navn), bio (klampes til 5 linjer i UI) |
-| `citat` | `model.persons` med bio | første markante sætning (se §3.3); kilde = personens navn + evt. år |
+| `portrait` | `model.persons` med `bio.trim()!==''`, i portræt-partitionen (§3.3a) | navn, `years`, `title` (nullable→`title||null`), initialer (1. bogstav), bio (UI klamper 5 linjer) |
+| `citat` | `model.persons` med bio, i citat-partitionen (§3.3a) + `firstQuotableSentence!==null` | citat (§3.3b); kilde = personnavn + evt. år |
 | `gods` | `aux.godsListe` | navn, meta (`slags` + ejer-antal), `ownerDots` = `min(ownerCount, 7)` |
-| `forbundet` | `model.indexes.unionById` (unions m. begge ægtefæller) | de to ægtefællenavne + initialer; `marBottom` = evt. vielsestekst/fallback |
-| `slaegt` | `relationship.ts` mellem `meId ?? focusId` og en markant person | to navne + relationstekst; `onOpenRoute` = `/relate` |
+| `forbundet` | `model.indexes.unionById`, kun unions m. `p2!==null` OG begge i `byId` | navne fra `model.byId[p1].name`/`[p2].name` (IKKE `p2_name`/`year` — begge `null` fra loader, dual-review NEW1); `marBottom` = `year? 'gift '+year : 'gift'` |
+| `slaegt` | KUN når `meId` og `focusId` begge sat og distinkte | `aId=meId`, `bId=focusId`; `computeRelationship(model,aId,bId)` → skip hvis `found===false`, ellers `rel=result.label` (dual-review DS4/NEW2) |
 | `embede` | `aux.officesBy` (person → `OfficeRef`) | label, personnavn, periode, initial |
-| `jubilaeum` | personer m. `born`/`died` og runde år vs. `today` | `num` = `today − år` når `num % 50 === 0 && num ≥ 100`; anledning i `sub` |
+| `jubilaeum` | personer m. `born`/`died` og runde år vs. `today` | `num = today − år` når `num % 50 === 0 && num ≥ 100`; anledning i `sub` |
 | `vaaben` | `aux.vaabenListe` | blasonering (fallback-tekst hvis tom), fod-tekst |
 | `samle` | rest-entiteter for tynde til eget kort | tæller + register-pointer |
 
-Kort hvis kilde er tom udelades helt (fx intet `slaegt`-kort uden `meId`/`focusId`; intet
+Kort hvis kilde er tom udelades helt (intet `slaegt`-kort uden `meId`+`focusId`; intet
 `vaaben`-kort hvis `vaabenListe` er tom). Tom model → tom liste (ingen crash).
 
-### 3.3 Citat-uddrag
+**Volumen-loft (dual-review C).** Hver type sorteres stabilt efter `id` og trunkeres til et
+loft FØR interleave, så listen ikke eksploderer på tæt data:
+
+```ts
+const FEED_CAPS = { portrait: 12, citat: 4, gods: Infinity, forbundet: 6,
+                    embede: 6, jubilaeum: 6, vaaben: Infinity, slaegt: 1, samle: 1 };
+```
+
+Udvælgelse = de første N efter stabil id-sort (deterministisk).
+
+### 3.3a Portrait/citat-partition (dual-review B)
+
+Portrait og citat trækker fra samme bio-population, men en person må **aldrig** optræde som
+begge. Bio-personerne partitioneres deterministisk: `isCitatSlot(id) = stableHash(id) % 4 === 0`
+(≈25% citat-kandidater). En person i citat-slot bliver KUN et citat-kort hvis
+`firstQuotableSentence !== null`; ellers falder personen HELT ud (bliver ikke portræt — det ville
+genindføre overlap). Alle øvrige bio-personer bliver portrætter. Partitionerne er dermed disjunkte.
+`stableHash` er en ren, deterministisk streng-hash (fx FNV-1a) — genbruges også til interleave-seed.
+
+### 3.3b Citat-uddrag
 
 Ren hjælper `firstQuotableSentence(bio: string): string | null`: split på sætnings-endelser,
 vælg første sætning der er 40–180 tegn (undgå for korte fragmenter/for lange løb), trim.
-Returnér `null` hvis intet passer → intet citat-kort for den person.
+Returnér `null` hvis intet passer → personen får intet kort (jf. §3.3a).
 
 ### 3.4 Determinisme & rækkefølge
 
@@ -131,6 +152,11 @@ pin/hide/rækkefølge uden at røre udledningen (`buildFeed` anvender `overrides
 - Hver korttype udledes fra minimal fixture.
 - Determinisme: samme input → identisk output (dyb lighed) over to kald.
 - Jubilæum: injiceret `today`, verificér tærskel (99 år → intet; 100/150/200 → kort).
+- **Portrait/citat disjunkt** (§3.3a): ingen person optræder som begge; citat-slot uden
+  brugbar sætning falder helt ud (bliver ikke portræt).
+- **Forbundet**: kun unions m. `p2!==null` og begge personer i `byId`; `marBottom`-fallback = "gift".
+- **Slaegt**: intet kort uden både `meId` og `focusId`; `found===false` → intet kort; kort bærer `aId/bId`.
+- **Caps**: type med >loft-elementer trunkeres til `FEED_CAPS` (§3.2).
 - Tom model/aux → `[]`.
 - `firstQuotableSentence`: korte/lange/tomme input.
 
@@ -164,7 +190,9 @@ ingen nye farver/fonte. Genbrug eksisterende `InitialBadge`, `StripedPlaceholder
 
 Hjem læser `model`, `aux`, `meId`, `focusId` fra store → `buildFeed(model, aux, { meId, focusId,
 today: <indeværende år> })`. `today` hentes ét sted (hjælper der læser årstal; injicerbar i test).
-Tap på kort → `router.push` til person/gods/arms/relate. Gem-tap → `useBookmarks.toggle`.
+Tap på kort → `router.push` til person/gods/arms. **`slaegt`-kort** (dual-review NEW2): `onOpen`
+sætter `setRelA(card.aId)` + `setRelB(card.bId)` i store FØR `router.push('/relate')`, så
+slægtskabs-skærmen læser de rigtige slots. Gem-tap → `useBookmarks.toggle(card.personId)`.
 
 ### 4.4 Test
 
@@ -193,21 +221,33 @@ Bund-tabbaren beholdes uændret; drawer'en er en additiv "udforsk"-flade. Den ga
 
 ## 6. Skive 4 — Bogmærker
 
+**Vigtig kontrakt-forskel (dual-review BM1).** Web-storet er *synkront*: `useState(() =>
+store.list())` sync-init, sync `has()`/`toggle()`. AsyncStorage er async, så porten er IKKE
+"kun en init-effekt" — den kræver et async **lager** + et synkront **hook-state-API** (så
+render kan kalde `has()` sync) + race-sikker mutation. Det designes eksplicit her.
+
 ### 6.1 Lager (`lib/bookmarks.ts`)
 
-Port af `web/src/data/bookmarks.ts`, med `@react-native-async-storage/async-storage` i stedet
-for `localStorage`:
+Async repository over `@react-native-async-storage/async-storage`:
 - Nøgle `daa_bookmarks`; array af **kanoniske person-id'er**, nyeste-først.
-- `createLocalBookmarkStore()`: `list()/has()/toggle()` — nu async (AsyncStorage er async).
-- `canonicalize()` + newest-first-dedup: uændret logik fra web.
+- `createLocalBookmarkStore()`: `list(): Promise<string[]>` og `toggle(id): Promise<string[]>`
+  (ingen `has()` — render læser fra hook-state, ikke lageret).
+- `canonicalize()` + newest-first-dedup: ren logik porteret 1:1 fra web (uændret).
 - Skrivefejl sluges (ikke-kritisk PoC).
 
-### 6.2 Hook (`useBookmarks(canon)`)
+### 6.2 Hook (`useBookmarks(canonicalIdById)`)
 
-Spejler web-hook'en, men initial state loades i en effect (AsyncStorage er async — den ene
-reelle afvigelse fra web's synkrone `useState`-init). Re-normaliserer gennem `canon()` ved
-mount + når `canon`-mappet skifter identitet (recollapse). Eksponerer `{ ids: Set, has, toggle }`.
-`canon` = `store.canonicalId` fra Zustand.
+- **Render-sandhed synkron:** hook'en holder `idsList: string[]` i `useState` og eksponerer
+  `ids: Set` (memoiseret) + `has(id) = ids.has(canon(id))` — sync, som web.
+- **Hydrering:** initial `list()` loades i en `useEffect` (tom ved allerførste render → badge
+  kan gå 0→N ved mount; acceptabelt for PoC).
+- **Dep = mappet, ikke funktionen (dual-review BM2/D):** hook'en tager `canonicalIdById`
+  (`Record<string,string>` fra store) og udleder en memoiseret `canon`. Re-normalisering køres
+  når *mappet* skifter identitet (recollapse). Den stabile Zustand-`canonicalId`-funktion ville
+  ALDRIG signalere recollapse — derfor mappet.
+- **Race-sikker toggle:** `toggle` opdaterer `idsList` optimistisk (funktionel `setState`) og
+  persisterer async; seneste-skrivning-vinder (skrivninger serialiseres, eller stale writes
+  ignoreres via en write-generation-tæller), så hurtige toggles ikke taber/dublerer bogmærker.
 
 ### 6.3 Skærm (`app/bogmaerker.tsx`)
 
@@ -221,7 +261,12 @@ Top-bar-bogmærke-ikonet viser `savedCount` (antal gemte) når > 0.
 ### 6.5 Test (`lib/__tests__/bookmarks.test.ts`)
 
 Port af web's `bookmarks.test.ts` mod en AsyncStorage-mock (jest): toggle, canonicalisering,
-dedup, nyeste-først, tom-tilstand.
+dedup, nyeste-først, tom-tilstand. **PLUS async/race-cases (dual-review NEW3):**
+- forsinket `list()`-read (hydrering) → hook opdaterer state når promise resolver.
+- `canonicalIdById`-map skifter under hydrering → re-normalisering køres.
+- hurtige på-hinanden toggles → ingen tabte/dublerede bogmærker (seneste-vinder).
+- afvist AsyncStorage-skrivning → UI crasher ikke, state forbliver konsistent.
+- unmount under in-flight write → ingen setState-efter-unmount.
 
 ---
 
@@ -240,7 +285,9 @@ about, estates, estate/[id], arms, tree (A/B/C), person/[id], search, relate.
   længde-/sætnings-heuristik (§3.3) + `null`-fallback (intet kort frem for dårligt kort).
 - **Feed-tomhed på tynd data**: hver korttype er valgfri; tom model → tom liste. Hero + footer
   vises altid, så skærmen er aldrig helt blank.
-- **AsyncStorage-async vs. web-sync**: eneste kontrakt-afvigelse; isoleret til hook'ens init-effect.
+- **AsyncStorage-async vs. web-sync** (dual-review BM1): ikke bare en init-effekt — kræver
+  async-lager + synkront hook-state-API (`has()` i render) + race-sikker toggle. Isoleret til
+  `lib/bookmarks.ts` + hook'en; dækket af dedikerede async/race-tests (§6.5).
 - **Drawer + tabbar-overlap**: bevidst — drawer er additiv; ingen dublet-navigation fjernes.
 
 ## 9. Succeskriterier
