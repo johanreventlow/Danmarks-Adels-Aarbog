@@ -40,10 +40,11 @@ export default function HomeScreen() {
     { num: '01', title: 'Stamtræ', sub: 'Naviger op, ned og til siden i slægten', count: `${c.personer} personer`, href: '/tree', ready: true },
     { num: '02', title: 'Om slægten', sub: 'Historisk indledning til stamtavlen', count: '', href: '/about', ready: true },
     { num: '03', title: 'Godser & ejendomme', sub: 'Besiddelser og deres ejere gennem tiden', count: c.godser ? `${c.godser} godser` : '', href: '/estates', ready: true },
-    { num: '04', title: 'Slægtens våben', sub: 'Det autoriserede våben og øvrige gengivelser', count: '', href: '/arms', ready: true },
-    { num: '05', title: 'Er vi i familie?', sub: 'Find slægtskabet mellem to personer', count: '', href: '/relate', ready: true },
-    { num: '06', title: 'Søg', sub: 'Bladr blandt registrerede personer', count: '', href: '/search', ready: true },
-    { num: '07', title: 'Konto', sub: 'Log ind som medlem eller redaktør', count: '', href: '/konto', ready: true },
+    { num: '04', title: 'Slægtens kort', sub: 'Steder knyttet til slægten, på kort', count: '', href: '/kort', ready: true },
+    { num: '05', title: 'Slægtens våben', sub: 'Det autoriserede våben og øvrige gengivelser', count: '', href: '/arms', ready: true },
+    { num: '06', title: 'Er vi i familie?', sub: 'Find slægtskabet mellem to personer', count: '', href: '/relate', ready: true },
+    { num: '07', title: 'Søg', sub: 'Bladr blandt registrerede personer', count: '', href: '/search', ready: true },
+    { num: '08', title: 'Konto', sub: 'Log ind som medlem eller redaktør', count: '', href: '/konto', ready: true },
   ];
 
   return (
