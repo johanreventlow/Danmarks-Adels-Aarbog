@@ -2,6 +2,30 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Følgesvend v3-feed: hybrid auto-generering + person-kun bogmærker (2026-07-05)
+
+**Feed auto-genereret nu, editorial-krog senere (ikke DB-kurateret).** `buildFeed` er en ren
+selector der udleder kort af eksisterende `Model`/`Aux` — ingen ny feed-tabel. Et tomt
+`overrides`-argument reserverer den redaktionelle indgang uden at bygge den. Forkastet:
+DB-kurateret feed (skema + RPC'er + redaktør-UI = stor merudvidelse uden PoC-værdi nu).
+
+**Portrait og citat i disjunkte hash-partitioner.** Begge trækker fra personer-med-bio; uden en
+regel ville samme person kunne optræde to gange. Valgt: `stableHash(id) % 4` allokerer ~25% til
+citat-slot; citat-slot uden brugbar sætning falder HELT ud (bliver ikke portræt) så partitionerne
+forbliver disjunkte. Forkastet: tillad dublet (redaktionelt rodet); rendrer-tids-dedup (skjuler
+ikke-determinisme).
+
+**Bogmærker: person-kun, spejler web.** Selv om v3-feedet viser gem-ikon på flere korttyper,
+lagres kun kanoniske person-id'er (AsyncStorage), 1:1 med web's kontrakt. Gem-ikon vises derfor
+kun på kort med `personId` (portrait/citat/embede/jubilaeum) — de gemmer personen. Forkastet:
+polymorf `{type,id}` (afveg fra web; afledte kort som jubilæum/citat har ingen stabil egen-id).
+
+**Async-lager + synkron hook-state (ikke bare `await`).** Web's bookmark-kontrakt var synkron
+(`useState`-init, sync `has()`/`toggle()`). AsyncStorage-porten holder `ids` i `useState` som
+render-sandhed (sync `has()`), hydrerer i effect, og toggler optimistisk + persisterer async
+(seneste-vinder). Hook'en afhænger af `canonicalIdById`-**mappet**, ikke funktionsreferencen —
+den stabile Zustand-`canonicalId` ville aldrig signalere recollapse (dual-review BM1/BM2).
+
 ## Flere narrativer pr. person: kilde-nøgling + per-subjekt selector (2026-07-03)
 
 **Kilde-nøgling frem for id-liste eller konkatenering.** En persons narrativer nøgles på
