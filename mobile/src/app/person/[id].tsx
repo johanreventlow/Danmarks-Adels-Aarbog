@@ -6,11 +6,13 @@ import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { GeoMap } from '../../components/GeoMap';
 import { Lightbox } from '../../components/Lightbox';
 import { NarrativRenderer } from '../../components/NarrativRenderer';
 import { StripedPlaceholder } from '../../components/StripedPlaceholder';
 import { TopBar } from '../../components/TopBar';
 import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
+import { lifeJourney } from '../../data/geoSelectors';
 import { childrenByMarriage, parentsOf, spousesOf } from '../../data/selectors';
 import { usePersonMedia } from '../../lib/media';
 import { useStore } from '../../store/useStore';
@@ -24,6 +26,7 @@ export default function PersonScreen() {
   const router = useRouter();
   const model = useStore((s) => s.model);
   const aux = useStore((s) => s.aux);
+  const geo = useStore((s) => s.geo);
   const meId = useStore((s) => s.meId);
   const setMe = useStore((s) => s.setMe);
   const setFocus = useStore((s) => s.setFocus);
@@ -71,6 +74,7 @@ export default function PersonScreen() {
           })
           .join(' og ')
       : null;
+  const journey = lifeJourney(geo, person.id);
   const offices = aux?.officesBy[person.id] ?? [];
   const estates = aux?.estatesBy[person.id] ?? [];
   const sources = aux?.sourcesBy[person.id] ?? [];
@@ -146,6 +150,18 @@ export default function PersonScreen() {
                 </BtnLabel>
               </Pressable>
             ) : null}
+          </View>
+        ) : null}
+
+        {/* Livsrejse: kun hvis personen har mindst ét geo-punkt (ingen tom-boks-støj). */}
+        {journey.length > 0 ? (
+          <View style={styles.block}>
+            <Kicker size={9.5} style={{ marginBottom: 8, letterSpacing: 9.5 * 0.14 }}>Livsrejse</Kicker>
+            <GeoMap
+              points={journey}
+              mode="mini"
+              onPointPress={(p) => p.personId && p.personId !== person.id && router.push(`/person/${p.personId}`)}
+            />
           </View>
         ) : null}
 

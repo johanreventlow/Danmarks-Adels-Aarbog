@@ -3,20 +3,23 @@
 // klikbar → person). Data fra aux.estateById + aux.ownersByEstate.
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ScrollView, StyleSheet, View } from 'react-native';
+import { GeoMap } from '../../components/GeoMap';
 import { LoadGate } from '../../components/LoadGate';
 import { TopBar } from '../../components/TopBar';
 import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
 import { useStore } from '../../store/useStore';
-import { Border, Colors, Fonts, Radius } from '../../theme/tokens';
+import { Colors, Fonts, Radius } from '../../theme/tokens';
 
 export default function EstateScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const model = useStore((s) => s.model);
   const aux = useStore((s) => s.aux);
+  const geo = useStore((s) => s.geo);
 
   const estate = id && aux ? aux.estateById[id] : null;
   const owners = id && aux ? aux.ownersByEstate[id] ?? [] : [];
+  const point = id ? geo.byEstate[id] : null;
 
   return (
     <View style={{ flex: 1 }}>
@@ -33,6 +36,12 @@ export default function EstateScreen() {
                   <BtnLabel size={11.5} color={Colors.bordeaux}>{estate.slags}</BtnLabel>
                 </View>
               ) : null}
+
+              {point && (
+                <View style={{ marginTop: 14 }}>
+                  <GeoMap points={[point]} mode="mini" />
+                </View>
+              )}
 
               <View style={styles.soonBox}>
                 <Body size={13} color={Colors.textSecondary2} style={{ lineHeight: 13 * 1.5 }}>
