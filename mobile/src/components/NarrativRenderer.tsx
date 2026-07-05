@@ -70,11 +70,16 @@ export function NarrativRenderer(props: {
 
   const onPickPerson = (id: string) => router.push(`/person/${id}`);
 
-  // Bio-klamp (numberOfLines) bevares KUN for den simple, hyppige sag: ét afsnit, ingen billeder/
-  // overskrifter. RN kan ikke klampe på tværs af flere <Text>-træer, og en narrativ med reel
-  // blok-struktur bør ikke trunkeres vilkårligt midt i et billede eller en overskrift.
-  if (blocks.length <= 1 && (blocks.length === 0 || blocks[0].kind === 'paragraph')) {
-    const segs = blocks.length === 1 && blocks[0].kind === 'paragraph' ? blocks[0].segs : [];
+  // Bio-klamp (numberOfLines) bevares for enhver rent tekstlig narrativ (kun afsnit, uanset antal) —
+  // RN klamper fint på tværs af indlejrede '\n' i ÉT <Text>-træ. Kun billeder/overskrifter kræver
+  // den uklampede multi-blok-visning nedenfor, da RN ikke kan klampe på tværs af flere <Text>-træer.
+  if (blocks.every((b) => b.kind === 'paragraph')) {
+    const segs: Segment[] = [];
+    blocks.forEach((b, i) => {
+      if (b.kind !== 'paragraph') return;
+      if (i > 0) segs.push({ kind: 'text', text: '\n\n' });
+      segs.push(...b.segs);
+    });
     return (
       <Body size={size} color={color} style={style} numberOfLines={numberOfLines}>
         {renderInline(segs, onPickPerson)}
