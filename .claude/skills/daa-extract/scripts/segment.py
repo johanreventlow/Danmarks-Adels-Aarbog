@@ -6,8 +6,8 @@ Output: JSON-array, én record per nummereret post:
   { linje, nr, kuld, slaegtled, aegteskab_kontekst, sider, raw_text }
 
 Struktur i bogen (vigtigt):
-  * Løbenummeret (nr) er GLOBALT — løber sammenhængende gennem hele stamtavlen
-    på tværs af grene. Det er den primære identitet.
+  * Løbenummeret (nr) reset­ter pr. gren (linje I..V starter hver ved 1). Den unikke nøgle
+    er (linje, nr) inden for én kilde — IKKE nr alene.
   * "linje" er gren-labelen (romertal I-V), sat af en gren-header som
     "I" + "DEN HOLSTENSKE LINJE". Et romertal er KUN en linje hvis næste
     betydende linje er en "DEN … LINJE"-header.
@@ -19,6 +19,7 @@ Deterministisk. Edition-følsom: justér regexerne ved en ny udgave. Kvalitets-
 rapporten (stderr) flagger manglende linje-kontekst og huller/dubletter i nr.
 """
 import sys, re, json
+from ordinals import ordinal_to_int
 
 PAGE_RE    = re.compile(r'^###\s*PAGE\s+(\d+)\s*###\s*$')
 # Ægte post-start: valgfrit "?"-præfiks (bogens markør for usikkert/formodet
@@ -31,7 +32,7 @@ ROMAN_RE   = re.compile(r'^\s*([IVX]{1,5})\s*$')
 # "DEN HOLSTENSKE LINJE", "DEN LENSGREVELIGE LINJE AF 1767" OG "LINJEN GALLENTIN".
 # Krav om VERSALER undgår falsk match på små-bogstavs-krydsref "(se I. Den … linje nr. 29)".
 LINJE_NAME = re.compile(r'^[A-ZÆØÅ0-9 .]*\bLINJEN?\b[A-ZÆØÅ0-9 .]*$')
-SLGT_RE    = re.compile(r'^\s*(\w+)\s+slægtled\s*$', re.I)
+SLGT_RE    = re.compile(r'^\s*(\w+)(?:\s*\((\w+)\))?\s+slægtled\s*$', re.I)
 MARR_RE    = re.compile(r'^\s*((?:af [\w ]+ ægteskab )?med .+):[\s\-–—]*$', re.I)
 NOISE_RE   = re.compile(r'^\s*(von\s+R\s*E.*|Ridder\s+.+sønner)\s*$', re.I)
 
@@ -63,6 +64,7 @@ def significant(lines, k):
 def main(path):
     lines = open(path, encoding='utf-8', errors='replace').read().splitlines()
     linje = slaegtled = marr = kuld = page = cur = None
+    slaegtled_lokal = slaegtled_gennem = None
     posts = []
     i = 0
     while i < len(lines):
@@ -81,6 +83,7 @@ def main(path):
         if LINJE_NAME.search(line):          # gren-header uden forudgående romertal
             flush(posts, cur); cur = None
             slaegtled = marr = kuld = None
+            slaegtled_lokal = slaegtled_gennem = None
             i += 1; continue
 
         m = ROMAN_RE.match(line)
@@ -96,6 +99,7 @@ def main(path):
             flush(posts, cur); cur = None
             if is_branch:
                 linje = roman; slaegtled = marr = kuld = None
+                slaegtled_lokal = slaegtled_gennem = None
             else:
                 kuld = roman                  # ændrer IKKE linje
             i += 1; continue
@@ -103,7 +107,10 @@ def main(path):
         m = SLGT_RE.match(line)
         if m:
             flush(posts, cur); cur = None
-            slaegtled = m.group(1); i += 1; continue
+            slaegtled = m.group(1)
+            slaegtled_lokal = ordinal_to_int(m.group(1))
+            slaegtled_gennem = ordinal_to_int(m.group(2)) if m.group(2) else None
+            i += 1; continue
 
         m = MARR_RE.match(line)
         if m:
@@ -115,6 +122,7 @@ def main(path):
             flush(posts, cur)
             cur = {'linje': linje, 'nr': int(m.group(2)), 'nr_label': m.group(2) + m.group(3),
                    'usikker': bool(m.group(1)), 'kuld': kuld, 'slaegtled': slaegtled,
+                   'slaegtled_lokal': slaegtled_lokal, 'slaegtled_gennem': slaegtled_gennem,
                    'aegteskab_kontekst': marr, '_lines': [m.group(4)], '_pages': [page]}
             i += 1; continue
 
