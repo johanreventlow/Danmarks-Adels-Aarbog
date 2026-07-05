@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mapFamilieRows } from '../redaktionRead';
+import { mapFamilieRows, mapPersonMediaRows } from '../redaktionRead';
 import type { Model } from '../types';
 
 // Minimal model-stub: kun byId.{name,years} bruges af mapFamilieRows (navnAf/aarAf).
@@ -42,5 +42,25 @@ describe('mapFamilieRows — år på partnere og børn', () => {
        { family_id: 10, person_id: 99, rolle: 'barn', ordinal: 1, konfidens: null }],
       model);
     expect(fam.somPartner[0].boern[0]).toMatchObject({ personId: '99', navn: '#99', aar: '' });
+  });
+});
+
+describe('mapPersonMediaRows (mediehåndtering Slice 0g)', () => {
+  it('mapper media-rækker til PersonMedia, url fra den signerede Map', () => {
+    const rows = [{ id: 91, slags: 'foto', titel: 'Portræt', storage_path: 'redaktor/a.jpg',
+                    upload_status: 'klar', maa_publiceres: true }];
+    const signed = new Map([['redaktor/a.jpg', 'https://signed/a.jpg']]);
+    expect(mapPersonMediaRows(rows, signed)).toEqual([{
+      id: '91', slags: 'foto', titel: 'Portræt', storagePath: 'redaktor/a.jpg',
+      uploadStatus: 'klar', maaPubliceres: true, url: 'https://signed/a.jpg',
+    }]);
+  });
+  it('manglende status/slags/maa_publiceres → fail-closed fallback (kladde, false); ingen signering → url null', () => {
+    const rows = [{ id: 92, slags: null, titel: null, storage_path: null,
+                    upload_status: null, maa_publiceres: null }];
+    expect(mapPersonMediaRows(rows)).toEqual([{
+      id: '92', slags: '', titel: null, storagePath: null,
+      uploadStatus: 'kladde', maaPubliceres: false, url: null,
+    }]);
   });
 });

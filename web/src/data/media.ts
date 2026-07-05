@@ -33,8 +33,10 @@ const cache = new Map<string, { url: string; exp: number }>();
 supabase.auth.onAuthStateChange(() => cache.clear());
 
 // Mint signed URLs for en batch stier; returnér path→url. Cache-hits springer signering over.
-// Tolerant (fejl → udeladt).
-async function signPaths(paths: string[]): Promise<Map<string, string>> {
+// Tolerant (fejl → udeladt). Eksporteret: redaktionRead.ts's fetchRedPersonMedia genbruger den
+// (redaktørens session ser via redaktion_read/media_obj_redaktion-politikkerne ALLE upload_status,
+// signering går derfor bare på storage_path uanset offentlig-gating).
+export async function signPaths(paths: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   const now = Date.now();
   const need: string[] = [];

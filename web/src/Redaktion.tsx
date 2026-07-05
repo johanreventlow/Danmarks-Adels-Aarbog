@@ -7,17 +7,20 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { signIn, signOut, currentSession, type RedSession } from './data/auth';
 import {
   fetchRedaktionPersoner, fetchPersonEvidence, fetchPersonNarrativer, fetchSources, fetchSletPreview,
-  fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, fetchSammeSomLinks, nudgeOrdinal, type RedPerson, type PersonEvidence,
+  fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, fetchSammeSomLinks, fetchRedPersonMedia, nudgeOrdinal, type RedPerson, type PersonEvidence,
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
-  type PersonNarrativ, type SourceRow,
+  type PersonNarrativ, type SourceRow, type PersonMedia,
 } from './data/redaktionRead';
 import { previewSammeSom } from './data/sammeSomPreflight';
 import { loadModel } from './data/model';
 import type { Model } from './data/types';
 import { submitChange, describeCall, oversaetFejl, type Change } from './data/redaktionWrite';
+import { buildStoragePath } from './data/mediaUpload';
 import { buildBrowse } from './data/browse';
 import { initials } from './data/format';
 import { NarrativRenderer } from './components/NarrativRenderer';
+
+const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 
 // --- Tokens (fra designet) ---
 const T = {
@@ -101,6 +104,12 @@ export default function Redaktion() {
   const [familie, setFamilie] = useState<PersonFamilie | null>(null);
   const [relationer, setRelationer] = useState<PersonRelation[] | null>(null);
   const [sammeSom, setSammeSom] = useState<SammeSomLink[]>([]);
+  // Materiale (mediehåndtering Slice 0g). fetchRedPersonMedia signerer allerede internt (ét sted,
+  // som media.ts's loadMediaItems) — media[].url er klar til brug, ingen separat uri-state/effekt.
+  const [media, setMedia] = useState<PersonMedia[]>([]);
+  const [mediaPick, setMediaPick] = useState<{ file: File; previewUrl: string } | null>(null);
+  const [mediaForm, setMediaForm] = useState<{ slags: string; titel: string; maaPubliceres: boolean }>(
+    { slags: 'foto', titel: '', maaPubliceres: false });
   // Retningsbekræftelse for et nyt samme_som-link: den valgte person + hvem der er kanonisk.
   const [ssConfirm, setSsConfirm] = useState<{ personId: string; navn: string; kanoniskId: string } | null>(null);
   const [picker, setPicker] = useState<{ kind: 'barn' | 'partner' | 'hverv' | 'gods' | 'sammeSom'; familyId?: string } | null>(null);
@@ -148,6 +157,13 @@ export default function Redaktion() {
 
   // Lazy entitets-liste pr. type, kun ÉN gang (ref-dedup → effekten genkører ikke når cachen fyldes).
   const fetchedRef = useRef<Set<string>>(new Set());
+  const mediaInputRef = useRef<HTMLInputElement>(null);
+  // Ryd den midlertidige preview-blob-URL når valget skiftes/annulleres/gemmes (undgår at ophobe
+  // objectURL'er en session igennem).
+  useEffect(() => {
+    if (!mediaPick) return;
+    return () => URL.revokeObjectURL(mediaPick.previewUrl);
+  }, [mediaPick]);
   useEffect(() => {
     if (entity === 'person' || fetchedRef.current.has(entity)) return;
     fetchedRef.current.add(entity);
@@ -155,7 +171,12 @@ export default function Redaktion() {
   }, [entity]);
 
   // Evidens + narrativ når en person vælges.
-  const loadPerson = useCallback((id: string) => {
+  // skipMedia: run()'s post-write reload kalder loadPerson efter ETHVERT gemt ændring (allerede
+  // eksisterende, bredt over-fetchende mønster for evidens/narrativer/familie/relationer/sammeSom
+  // — urørt her). Medielisten er IKKE føjet ind i den samme ubetingede liste: den er to sekventielle
+  // DB-kald (relation→media), så den fetches kun ved persons-valg eller efter en uploadMedia-ændring,
+  // ikke ved fx en narrativ- eller privat-toggle-gem (cost-uden-gevinst, /simplify-fund).
+  const loadPerson = useCallback((id: string, opts?: { skipMedia?: boolean }) => {
     setEvidence(null); setNarrativer([]); setAktivSourceId(null); setNyUdgave(null);
     setNarrativUdkast({ tekst: '', privat: false, side: '' });
     setFamilie(null); setRelationer(null); setEditingAssert(null); setAddingFact(null);
@@ -169,6 +190,10 @@ export default function Redaktion() {
     fetchPersonFamilie(id, model).then(setFamilie).catch(() => setFamilie({ somPartner: [], somBarn: [] }));
     fetchPersonRelationer(id).then(setRelationer).catch(() => setRelationer([]));
     fetchSammeSomLinks(id).then(setSammeSom).catch(() => setSammeSom([]));
+    if (!opts?.skipMedia) {
+      setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', maaPubliceres: false });
+      fetchRedPersonMedia(id).then(setMedia).catch(() => setMedia([]));
+    }
   }, [model]);
 
   // Skift aktiv udgave-fane; nulstil udkast fra den fanes gemte narrativ (ugemte edits kasseres,
@@ -242,7 +267,7 @@ export default function Redaktion() {
         title: dryRun ? 'Dry-run · dette ville blive sendt' : (res.direkte ? 'Sendt til basen' : 'Forslag sendt til staging'),
         lines: [describeCall(res.call)], error: '', done: !dryRun, dryRun, direkte: res.direkte,
       });
-      if (!dryRun && entity === 'person' && recordId) loadPerson(recordId);
+      if (!dryRun && entity === 'person' && recordId) loadPerson(recordId, { skipMedia: change.art !== 'uploadMedia' });
     } catch (e) {
       setWriteView({ title: titel + ' fejlede', lines: [], error: oversaetFejl(String((e as Error)?.message ?? e)), done: false, dryRun, direkte: false });
     }
@@ -542,6 +567,85 @@ export default function Redaktion() {
             <div style={{ flex: 1 }} />
             <div onClick={() => run({ art: 'narrativ', subjektType: 'person', subjektId: p.id, vaerdi: narrativUdkast.tekst, payload: { privat: narrativUdkast.privat, sourceId: aktivSourceId, side: narrativUdkast.side.trim() || null } }, 'Narrativ')} style={{ fontSize: 12, fontWeight: 600, color: T.paper, background: T.green, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' }}>Gem narrativ</div>
           </div>
+        </div>
+
+        {/* Materiale (mediehåndtering Slice 0g) */}
+        <div style={sectionHeader(24)}>Materiale</div>
+        <div style={{ background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: '14px 15px' }}>
+          {media.length ? (
+            <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap', marginBottom: 12 }}>
+              {media.map((m) => (
+                <div key={m.id} style={{ width: 96 }}>
+                  {m.url ? (
+                    <img src={m.url} alt={m.titel ?? m.slags} style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 10, background: T.beige }} />
+                  ) : (
+                    <div style={{ width: 96, height: 96, borderRadius: 10, background: T.beige }} />
+                  )}
+                  <div style={{ fontFamily: T.mono, fontSize: 8, color: T.muted2, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {m.slags}{m.uploadStatus !== 'klar' ? ` · ${m.uploadStatus}` : ''}{m.maaPubliceres ? '' : ' · ej publiceret'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: T.muted3, marginBottom: 10 }}>Intet materiale endnu.</div>
+          )}
+
+          {role === 'redaktion' ? (
+            <>
+              <input ref={mediaInputRef} type="file" accept="image/*" style={{ display: 'none' }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (!file) return;
+                  setMediaPick({ file, previewUrl: URL.createObjectURL(file) });
+                  if (!mediaForm.titel) setMediaForm((f) => ({ ...f, titel: file.name.replace(/\.[^.]+$/, '') }));
+                }} />
+
+              {!mediaPick ? (
+                <div onClick={() => mediaInputRef.current?.click()} style={{ fontSize: 12, fontWeight: 600, color: T.bordeaux, border: '1px solid rgba(136,26,51,.3)', borderRadius: 7, padding: '8px 13px', display: 'inline-block', cursor: 'pointer' }}>
+                  + Vælg billede
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+                  <img src={mediaPick.previewUrl} alt="" style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 10, flex: 'none' }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 8 }}>
+                      {MEDIA_SLAGS.map((s) => (
+                        <span key={s} onClick={() => setMediaForm((f) => ({ ...f, slags: s }))}
+                          style={{ fontFamily: T.mono, fontSize: 10, fontWeight: 600, padding: '4px 8px', borderRadius: 6, cursor: 'pointer', background: mediaForm.slags === s ? T.bordeaux : T.beige, color: mediaForm.slags === s ? T.paperText : T.muted }}>
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                    <input value={mediaForm.titel} onChange={(e) => setMediaForm((f) => ({ ...f, titel: e.target.value }))}
+                      placeholder="Titel" style={inp} />
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: T.muted, marginTop: 8 }}>
+                      <input type="checkbox" checked={mediaForm.maaPubliceres} onChange={(e) => setMediaForm((f) => ({ ...f, maaPubliceres: e.target.checked }))} />
+                      Må publiceres (rettigheder afklaret)
+                    </label>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                      <div onClick={() => {
+                        if (!mediaForm.titel.trim()) return;
+                        run({ art: 'uploadMedia', subjektType: 'person', subjektId: p.id, payload: {
+                          afbildetPersonId: p.id, slags: mediaForm.slags, titel: mediaForm.titel.trim(),
+                          maaPubliceres: mediaForm.maaPubliceres, file: mediaPick.file, mimeType: mediaPick.file.type,
+                          byteSize: mediaPick.file.size, originalFilnavn: mediaPick.file.name,
+                          storagePath: buildStoragePath(mediaPick.file.type),
+                        } }, 'Materiale');
+                        setMediaPick(null);
+                      }} style={btnGreen}>Gem</div>
+                      <div onClick={() => setMediaPick(null)} style={btnGhost}>Annullér</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            // Upload kan ikke degradere til red_suggest (forslags-laget ejer ingen fil-bytes at
+            // pege på) — modsat tekst-redigering vises knappen derfor slet ikke for ikke-redaktion.
+            <div style={{ fontSize: 11.5, color: T.muted3 }}>Kun redaktion kan tilføje materiale.</div>
+          )}
         </div>
       </div>
     );

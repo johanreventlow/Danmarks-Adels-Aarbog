@@ -1,5 +1,38 @@
 # Changelog
 
+## Mediehåndtering — Slice 0g: redaktør-upload porteret til web (2026-07-05)
+
+Samme redaktør-portræt-upload som mobile (se ovenfor), nu også i web-arbejdsbordet
+(`web/src/Redaktion.tsx`) — bruger-anmodet efter at have opdaget web kun havde en generisk
+læse/forslag-"Medier"-fane, intet reelt upload. Browser-nativt: et `<input type="file">`s
+`File`-objekt uploades direkte til `supabase.storage` (intet `expo-file-system`-ækvivalent
+nødvendigt). Ny "Materiale"-sektion i person-editoren, ny `web/src/data/mediaUpload.ts`
+(`buildStoragePath`/`performUpload`), ny `Change`-art `uploadMedia` i `redaktionWrite.ts`,
+ny `fetchRedPersonMedia` i `redaktionRead.ts` (adskilt fra `data/media.ts`s offentlige,
+RLS-begrænsede `fetchPersonMedia` — redaktøren skal se `kladde`/spærrede egne uploads).
+- **Rolle-gating, web-specifikt:** web's skrive-lag har (modsat mobile) en rolle-baseret
+  fallback til `red_suggest` for ikke-redaktion. Upload kan IKKE degradere til et forslag
+  (intet ejerskab af fil-bytes) — gated to steder: UI'en skjuler knappen for ikke-redaktion,
+  OG `submitChange` afviser eksplicit hvis kaldet alligevel ville route til `red_suggest`.
+- **`/simplify` (4 vinkler) anvendt:** (1) reuse — mindre, accepteret duplikering af en
+  5-linjers relations-query-form ift. `data/media.ts`s `fetchMediaByRelation` (sprunget over:
+  ægte genbrug kræver at omstrukturere en delt, allerede-testet offentlig modul for
+  marginal gevinst — samme afvejning som mobile allerede har); (2) simplification — foldede
+  signering ind i `fetchRedPersonMedia` selv (som `media.ts`s eget `loadMediaItems`-mønster)
+  i stedet for en separat `mediaUris`-state + `useEffect` med kun ét kaldested (mobile beholdt
+  sin tilsvarende to-trins-opdeling, fordi `useMediaUris` der er en reelt genbrugt hook på
+  tværs af flere skærme — web havde ingen sådan begrundelse); (3) efficiency — medie-refetch
+  var føjet ind i den allerede eksisterende "genindlæs ALT efter enhver gemt ændring"-liste;
+  nu kun ved en faktisk `uploadMedia`-ændring (ny `loadPerson(id, {skipMedia})`-parameter);
+  (4) altitude — en `uploadMedia`-ændring der (fejlagtigt eller pga. rolle-skift) falder
+  igennem til `red_suggest` ville serialisere et rå `File`-objekt til `'{}'` og rapportere
+  falsk succes; `submitChange` afviser nu eksplicit før det kan ske (bekræftet: DB/RLS er
+  den reelle autoritetsgrænse, UI-gaten er kun UX — statisk-import-valget for
+  `mediaUpload.ts` blev også bekræftet korrekt, ingen native afhængigheder på web modsat mobile).
+  tsc + 152/152 vitest + build alle grønne efter fixene.
+- **Udestår:** samme som mobile — objekt-foto-upload-UI (estate/våben), og reel browser-
+  runtime-verifikation (ingen browser-driver i repo'et, kun tsc/test/build).
+
 ## Mediehåndtering — Slice 0g: redaktør-upload (mobile, 2026-07-05)
 
 Sidste stykke af Slice 0's "0f"-punkt: portræt-upload fra redaktør-person-editoren
