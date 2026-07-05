@@ -118,4 +118,19 @@ describe('buildFeed — assembly', () => {
     const persons = Array.from({ length: 80 }, (_, i) => person('p' + i, { bio: LONG_BIO }));
     expect(kinds(buildFeed(mkModel(persons), EMPTY_AUX, OPTS), 'portrait').length).toBeLessThanOrEqual(12);
   });
+
+  it('samle-kort tæller ikke-viste personer og står sidst', () => {
+    const persons = Array.from({ length: 80 }, (_, i) => person('p' + i, { bio: LONG_BIO }));
+    const cards = buildFeed(mkModel(persons), EMPTY_AUX, OPTS);
+    const samle = cards.filter((c) => c.kind === 'samle') as Array<Extract<FeedCard, { kind: 'samle' }>>;
+    expect(samle).toHaveLength(1);
+    expect(cards[cards.length - 1].kind).toBe('samle');
+    const shown = kinds(cards, 'portrait').length + kinds(cards, 'citat').length;
+    expect(samle[0].count).toBe(80 - shown);
+  });
+
+  it('intet samle-kort når alle personer vises', () => {
+    const cards = buildFeed(mkModel([person('p0', { bio: LONG_BIO })]), EMPTY_AUX, OPTS);
+    expect(cards.some((c) => c.kind === 'samle')).toBe(false);
+  });
 });

@@ -169,16 +169,28 @@ function cap(cards: FeedCard[], kind: FeedCard['kind']): FeedCard[] {
 export function buildFeed(model: Model, aux: Aux, opts: FeedOptions): FeedCard[] {
   if (model.persons.length === 0) return [];
   const { portraits, citater } = buildPortraitAndCitat(model);
+  const portraitCards = cap(portraits, 'portrait');
+  const citatCards = cap(citater, 'citat');
   const groups: FeedCard[][] = [
-    cap(portraits, 'portrait'),
+    portraitCards,
     cap(buildGods(aux), 'gods'),
     cap(buildForbundet(model), 'forbundet'),
-    cap(citater, 'citat'),
+    citatCards,
     cap(buildEmbeder(model, aux), 'embede'),
     cap(buildJubilaeer(model, opts.today), 'jubilaeum'),
     cap(buildVaaben(aux), 'vaaben'),
     cap(buildSlaegt(model, opts.meId, opts.focusId), 'slaegt'),
   ];
+  const cards = interleave(groups);
+  // 'samle'-kort til sidst (terminal): personer der ikke blev vist som eget person-kort.
+  const shownPersons = portraitCards.length + citatCards.length;
+  const remaining = model.persons.length - shownPersons;
+  if (remaining > 0) {
+    cards.push({
+      kind: 'samle', id: 'samle:personer', count: remaining,
+      tail: 'personer i registeret', kicker: 'Registeret',
+    });
+  }
   // opts.overrides er en no-op nu (hybrid-beslutning: editorial-krog til senere).
-  return interleave(groups);
+  return cards;
 }
