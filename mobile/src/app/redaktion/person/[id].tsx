@@ -14,7 +14,7 @@ import { MediaUploadSheet } from '../../../components/redaktion/MediaUploadSheet
 import { MediaGallery } from '../../../components/redaktion/MediaGallery';
 import { Body, BtnLabel, Mono, Serif } from '../../../components/Typography';
 import { insertAt } from '../../../lib/mentions';
-import { useMediaUris } from '../../../lib/media';
+import { useMediaAndThumbUris } from '../../../lib/media';
 import { fetchPersonEvidence, fetchPersonNarrativ, fetchPersonRelationer, fetchPersonFamilie, fetchPersonMedia, fetchSammeSomLinks, nudgeOrdinal, BARN_ROLLER, type PersonEvidence, type PersonRelation, type PersonFamilie, type PersonMedia, type FamilieUnion, type SammeSomLink } from '../../../data/redaktionRead';
 import { previewSammeSom } from '../../../data/sammeSomPreflight';
 import { eraAdvarsel } from '../../../data/eraAdvarsel';
@@ -338,8 +338,10 @@ export default function PersonEditor() {
   const [uploadSheetOpen, setUploadSheetOpen] = useState(false);
   const refreshMedia = () => { if (id) fetchPersonMedia(id).then(setMedia).catch(() => {}); };
   useEffect(refreshMedia, [id]);
-  const mediaUris = useMediaUris(media.map((m) => ({ id: m.id, storage_path: m.storagePath })));
-  const mediaThumbUris = useMediaUris(media.map((m) => ({ id: m.id, storage_path: m.thumbStoragePath })));
+  const { uris: mediaUris, thumbUris: mediaThumbUris } = useMediaAndThumbUris(
+    media.map((m) => ({ id: m.id, storage_path: m.storagePath, thumb_storage_path: m.thumbStoragePath })),
+    (m) => m.thumb_storage_path,
+  );
 
   function onAction(a: FaktaAction) {
     if (a.type === 'gørKonklusion') {

@@ -726,7 +726,7 @@ export default function Redaktion() {
                         setMediaBusy(true);
                         try {
                           const { thumb, medium, large } = await buildVariants(mediaPick.file);
-                          run({ art: 'uploadMedia', subjektType, subjektId, payload: {
+                          await run({ art: 'uploadMedia', subjektType, subjektId, payload: {
                             ...uploadTarget, slags: mediaForm.slags, titel: mediaForm.titel.trim(),
                             maaPubliceres: mediaForm.maaPubliceres, file: large.file, mimeType: large.mimeType,
                             byteSize: large.byteSize, bredde: large.bredde, hoejde: large.hoejde,

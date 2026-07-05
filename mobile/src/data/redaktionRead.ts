@@ -416,10 +416,12 @@ async function mediaFromRelPairs(sb: NonNullable<typeof supabase>, pairs: { medi
   if (!pairs.length) return [];
   const relByMediaId = new Map(pairs.map((p) => [String(p.mediaId), String(p.relationId)]));
   const mediaIds = pairs.map((p) => p.mediaId);
-  const rows = await getAll<RawPersonMediaRow>(() =>
-    sb.from('media').select('id,slags,titel,storage_path,upload_status,maa_publiceres').in('id', mediaIds));
-  const variants = await getAll<{ media_id: number; storage_path: string }>(() =>
-    sb.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb').in('media_id', mediaIds));
+  const [rows, variants] = await Promise.all([
+    getAll<RawPersonMediaRow>(() =>
+      sb.from('media').select('id,slags,titel,storage_path,upload_status,maa_publiceres').in('id', mediaIds)),
+    getAll<{ media_id: number; storage_path: string }>(() =>
+      sb.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb').in('media_id', mediaIds)),
+  ]);
   const thumbPathByMediaId = new Map(variants.map((v) => [String(v.media_id), v.storage_path]));
   return mapPersonMediaRows(rows, relByMediaId, thumbPathByMediaId);
 }

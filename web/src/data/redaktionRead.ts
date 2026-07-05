@@ -7,7 +7,7 @@ import { fmtYears, parseYear } from './fields';
 import { getAll } from './paginate';
 import { FELT_FAKTATYPE } from './redaktionWrite';
 import { resolveOrgEstateNames } from './public';
-import { signPaths } from './media';
+import { signPaths, fetchThumbPathByMediaId } from './media';
 import type { Model } from './types';
 
 // --- Redaktions-person-liste (pagineret, inkl. levende/privat) ---
@@ -428,14 +428,14 @@ async function mediaFromRelPairs(pairs: { mediaId: number; relationId: number }[
   if (!pairs.length) return [];
   const relByMediaId = new Map(pairs.map((p) => [String(p.mediaId), String(p.relationId)]));
   const mediaIds = pairs.map((p) => p.mediaId);
-  const rows = await getAll<RawPersonMediaRow>(() =>
-    supabase.from('media').select('id,slags,titel,storage_path,upload_status,maa_publiceres').in('id', mediaIds));
-  const variants = await getAll<{ media_id: number; storage_path: string }>(() =>
-    supabase.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb').in('media_id', mediaIds));
-  const thumbPathByMediaId = new Map(variants.map((v) => [String(v.media_id), v.storage_path]));
+  const [rows, thumbPathByMediaId] = await Promise.all([
+    getAll<RawPersonMediaRow>(() =>
+      supabase.from('media').select('id,slags,titel,storage_path,upload_status,maa_publiceres').in('id', mediaIds)),
+    fetchThumbPathByMediaId(mediaIds),
+  ]);
   const signed = await signPaths([
     ...rows.map((r) => r.storage_path ?? ''),
-    ...variants.map((v) => v.storage_path),
+    ...thumbPathByMediaId.values(),
   ].filter(Boolean));
   return mapPersonMediaRows(rows, signed, relByMediaId, thumbPathByMediaId);
 }

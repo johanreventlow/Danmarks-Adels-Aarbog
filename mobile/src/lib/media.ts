@@ -46,24 +46,33 @@ export async function signPaths(paths: string[]): Promise<Map<string, string>> {
   return out;
 }
 
-// Delt kerne: resolvér signed URLs for et sæt medie-rækker via en valgfri sti-vælger, så
-// useMediaUris ('large') og den interne thumb-opløsning (usePersonMedia) ikke duplikerer
-// signerings-/cancel-logikken (billedstørrelser 2026-07-05, Slice B3).
-function useSignedUris(media: RawMedia[], pathOf: (m: RawMedia) => string | null | undefined): Record<string, string> {
-  const [map, setMap] = useState<Record<string, string>>({});
-  const paths = media.map((m) => pathOf(m) ?? '').filter(Boolean);
-  const key = [...paths].sort().join('|');
+// Resolvér BÅDE fulde ('large') og thumb-signed URLs for et sæt medie-rækker i ÉT signPaths-kald
+// (billedstørrelser 2026-07-05, Slice B3 — /simplify-fund: to separate hook-kald gav to separate
+// createSignedUrls-runde-ture pr. skærm, og redaktør-skærmene måtte "spoofe" storage_path-feltet
+// for at genbruge en éntydig hook). thumbPathOf er valgfri; udelades den, er thumbUris altid tom
+// (dermed også drop-in-erstatning for den tidligere rene useMediaUris).
+export function useMediaAndThumbUris(
+  media: RawMedia[],
+  thumbPathOf: (m: RawMedia) => string | null | undefined = () => null,
+): { uris: Record<string, string>; thumbUris: Record<string, string> } {
+  const [state, setState] = useState<{ uris: Record<string, string>; thumbUris: Record<string, string> }>({ uris: {}, thumbUris: {} });
+  const fullPaths = media.map((m) => m.storage_path ?? '').filter(Boolean);
+  const thumbPaths = media.map((m) => thumbPathOf(m) ?? '').filter(Boolean);
+  const key = [...fullPaths, ...thumbPaths].sort().join('|');
   useEffect(() => {
     let cancelled = false;
-    signPaths(paths).then((signed) => {
+    signPaths([...fullPaths, ...thumbPaths]).then((signed) => {
       if (cancelled) return;
-      const byId: Record<string, string> = {};
+      const uris: Record<string, string> = {};
+      const thumbUris: Record<string, string> = {};
       for (const m of media) {
-        const p = pathOf(m);
-        const uri = p ? signed.get(p) : undefined;
-        if (uri) byId[String(m.id)] = uri;
+        const full = m.storage_path ? signed.get(m.storage_path) : undefined;
+        if (full) uris[String(m.id)] = full;
+        const tp = thumbPathOf(m);
+        const thumb = tp ? signed.get(tp) : undefined;
+        if (thumb) thumbUris[String(m.id)] = thumb;
       }
-      setMap(byId);
+      setState({ uris, thumbUris });
     });
     return () => {
       cancelled = true;
@@ -71,12 +80,7 @@ function useSignedUris(media: RawMedia[], pathOf: (m: RawMedia) => string | null
     // key dækker path-sættet; media-objekterne selv er stabile pr. path.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
-  return map;
-}
-
-// Hook: resolvér signed URLs for et sæt medie-rækker; returnér media-id → uri.
-export function useMediaUris(media: RawMedia[]): Record<string, string> {
-  return useSignedUris(media, (m) => m.storage_path);
+  return state;
 }
 
 // Vælg hovedbillede (portræt): første portræt-egnede, ellers første medie.
@@ -107,8 +111,7 @@ export function usePersonMedia(media: RawMedia[]): {
   gallery: Array<{ media: RawMedia; uri: string; thumbUri: string }>;
   lightboxItems: PersonMediaItem[];
 } {
-  const uris = useMediaUris(media);
-  const thumbUris = useSignedUris(media, (m) => m.thumb_storage_path);
+  const { uris, thumbUris } = useMediaAndThumbUris(media, (m) => m.thumb_storage_path);
   const signable = media.filter((m) => uris[String(m.id)]);
   const portrait = pickPortrait(signable.length ? signable : media);
   const portraitUri = portrait ? uris[String(portrait.id)] : undefined;

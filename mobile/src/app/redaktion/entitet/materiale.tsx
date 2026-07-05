@@ -10,7 +10,7 @@ import { Mono, Serif } from '../../../components/Typography';
 import { MediaGallery } from '../../../components/redaktion/MediaGallery';
 import { MediaUploadSheet } from '../../../components/redaktion/MediaUploadSheet';
 import { SkrivePreviewSheet } from '../../../components/redaktion/SkrivePreviewSheet';
-import { useMediaUris } from '../../../lib/media';
+import { useMediaAndThumbUris } from '../../../lib/media';
 import { fetchObjectMediaRed, type PersonMedia } from '../../../data/redaktionRead';
 import { type Change } from '../../../data/redaktionWrite';
 import { useStore } from '../../../store/useStore';
@@ -30,8 +30,10 @@ export default function ObjektMateriale() {
   const [pending, setPending] = useState<Change | null>(null);
   const refreshMedia = () => { if (objektType && id) fetchObjectMediaRed(objektType, id).then(setMedia).catch(() => {}); };
   useEffect(refreshMedia, [objektType, id]);
-  const mediaUris = useMediaUris(media.map((m) => ({ id: m.id, storage_path: m.storagePath })));
-  const mediaThumbUris = useMediaUris(media.map((m) => ({ id: m.id, storage_path: m.thumbStoragePath })));
+  const { uris: mediaUris, thumbUris: mediaThumbUris } = useMediaAndThumbUris(
+    media.map((m) => ({ id: m.id, storage_path: m.storagePath, thumb_storage_path: m.thumbStoragePath })),
+    (m) => m.thumb_storage_path,
+  );
 
   const titel = navn ?? '(uden navn)';
 
