@@ -8,12 +8,9 @@ import { Pressable, ScrollView, View } from 'react-native';
 import { TopBar } from '../../../components/TopBar';
 import { CenterMsg } from '../../../components/CenterMsg';
 import { Body, Mono, Serif } from '../../../components/Typography';
-import { fetchLineages, type LineageRow } from '../../../data/redaktionRead';
+import { fetchLineages, SLAEGT_SUBJEKT_ID, type LineageRow } from '../../../data/redaktionRead';
 import { useStore } from '../../../store/useStore';
 import { Border, Colors, Radius } from '../../../theme/tokens';
-
-// Sentinel-konstant (ikke en fremmednøgle) — se NarrativEditor/schema-note i plan-dokumentet.
-const SLAEGT_SUBJEKT_ID = 1;
 
 export default function SlaegtListe() {
   const router = useRouter();

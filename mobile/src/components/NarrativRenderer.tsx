@@ -10,7 +10,7 @@ import React, { useMemo, useState } from 'react';
 import { Image } from 'expo-image';
 import { Pressable, Text, View, StyleSheet, type TextStyle } from 'react-native';
 import { useRouter } from 'expo-router';
-import { parseNarrativ, groupBlocks, type Block, type Segment } from '../lib/mentions';
+import { parseNarrativ, groupBlocks, type Segment } from '../lib/mentions';
 import { useMediaAndThumbUris } from '../lib/media';
 import { useStore } from '../store/useStore';
 import { Colors } from '../theme/tokens';
@@ -56,17 +56,23 @@ export function NarrativRenderer(props: {
     return rows;
   }, [blocks, aux]);
   const { uris: largeUris, thumbUris: mediumUris } = useMediaAndThumbUris(mediaRows, (m) => m.medium_storage_path);
+  const mediaRowById = useMemo(() => new Map(mediaRows.map((r) => [String(r.id), r])), [mediaRows]);
 
   const [lightbox, setLightbox] = useState<number | null>(null);
-  const lightboxItems: LightboxItem[] = [];
-  const lightboxIndexByBlock: (number | null)[] = blocks.map((b) => {
-    if (b.kind !== 'media') return null;
-    const uri = largeUris[String(b.maalId)];
-    if (!uri) return null;
-    const row = mediaRows.find((r) => String(r.id) === String(b.maalId));
-    lightboxItems.push({ id: String(lightboxItems.length), uri, titel: b.label || ((row?.titel as string | undefined) ?? null) });
-    return lightboxItems.length - 1;
-  });
+  // Lightbox-rækkefølgen følger blokkenes rækkefølge i teksten, men SPRINGER uopløselige id'er
+  // over (indekset er blokkens position blandt de OPLØSTE billeder, ikke blandt alle media-blokke).
+  const { lightboxItems, lightboxIndexByBlock } = useMemo(() => {
+    const items: LightboxItem[] = [];
+    const indexByBlock = blocks.map((b) => {
+      if (b.kind !== 'media') return null;
+      const uri = largeUris[String(b.maalId)];
+      if (!uri) return null;
+      const row = mediaRowById.get(String(b.maalId));
+      items.push({ id: String(items.length), uri, titel: b.label || ((row?.titel as string | undefined) ?? null) });
+      return items.length - 1;
+    });
+    return { lightboxItems: items, lightboxIndexByBlock: indexByBlock };
+  }, [blocks, largeUris, mediaRowById]);
 
   const onPickPerson = (id: string) => router.push(`/person/${id}`);
 
@@ -99,7 +105,7 @@ export function NarrativRenderer(props: {
           if (lightboxIndex == null || !mediumUri) {
             return <Body key={i} size={size} color={Colors.textMuted} style={styles.mediaFallback}>{b.label || '[billede]'}</Body>;
           }
-          const row = mediaRows.find((r) => String(r.id) === String(b.maalId));
+          const row = mediaRowById.get(String(b.maalId));
           const cap = b.label || (row?.titel as string | undefined) || '';
           return (
             <View key={i} style={styles.mediaBlock}>

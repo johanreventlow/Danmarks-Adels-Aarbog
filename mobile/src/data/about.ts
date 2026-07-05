@@ -21,7 +21,6 @@ export async function fetchAbout(): Promise<AboutSection[]> {
   if (lin.error) throw new Error(lin.error.message);
   const rows = (narr.data ?? []) as unknown as RawAboutRow[];
   const lineageRows = (lin.data ?? []) as { id: number; navn: string | null; kode: string }[];
-  const lineageNavnById = new Map(lineageRows.map((l) => [l.id, l.navn ?? `Linje ${l.kode}`] as const));
 
   const candsByKey = new Map<string, NarrativeCand[]>();
   for (const r of rows) {
@@ -39,7 +38,7 @@ export async function fetchAbout(): Promise<AboutSection[]> {
   for (const l of lineageRows) {
     const cands = candsByKey.get(`lineage:${l.id}`);
     const best = cands ? pickPreferredBio(cands) : null;
-    if (best?.tekst) sections.push({ lineageNavn: lineageNavnById.get(l.id) ?? null, tekst: best.tekst });
+    if (best?.tekst) sections.push({ lineageNavn: l.navn ?? `Linje ${l.kode}`, tekst: best.tekst });
   }
   return sections;
 }

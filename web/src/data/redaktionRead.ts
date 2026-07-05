@@ -159,6 +159,12 @@ export async function fetchPersonEvidence(personId: string): Promise<PersonEvide
 // Én narrativ pr. (person, source_id). Redaktøren viser en fane pr. udgave; skrive-målet
 // (red_upsert_narrativ) nøgles på source_id, så prefill-kilde == skrive-mål pr. udgave.
 
+// Generel slægtsbeskrivelse (billeder-i-narrativer 2026-07-05, Slice C3): subjekt_type='slaegt' har
+// INGEN bagvedliggende tabel — subjekt_id er en FAST, delt sentinel-konstant (ikke en fremmednøgle
+// til noget), nødvendig fordi narrative.subjekt_id er NOT NULL. Kanonisk ét sted (ikke ét pr.
+// skærm) i dette read-lag, som allerede er fetchNarrativer's naturlige hjem.
+export const SLAEGT_SUBJEKT_ID = 1;
+
 export type PersonNarrativ = { id: number; sourceId: number | null; sourceTitel: string | null; udgave: string | null; side: string | null; tekst: string; privat: boolean };
 
 type RawNarrativRow = { id: number; source_id: number | null; side: string | null; tekst: string | null; privat: boolean | null; source: { titel: string | null; udgave: string | null } | null };

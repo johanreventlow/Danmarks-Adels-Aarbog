@@ -51,14 +51,17 @@ export function NarrativRenderer(props: {
   // Lightbox-rækkefølgen følger blokkenes rækkefølge i teksten, men SPRINGER uopløselige id'er over
   // (samme id kan i teorien optræde to gange — indekset er derfor blokkens position blandt de
   // OPLØSTE billeder, ikke blandt alle media-blokke).
-  const lightboxItems: LightboxItem[] = [];
-  const lightboxIndexByBlock: (number | null)[] = blocks.map((b) => {
-    if (b.kind !== 'media') return null;
-    const m = resolved.get(String(b.maalId));
-    if (!m) return null;
-    lightboxItems.push({ id: String(lightboxItems.length), url: m.largeUrl, titel: b.label || m.titel });
-    return lightboxItems.length - 1;
-  });
+  const { lightboxItems, lightboxIndexByBlock } = useMemo(() => {
+    const items: LightboxItem[] = [];
+    const indexByBlock = blocks.map((b) => {
+      if (b.kind !== 'media') return null;
+      const m = resolved.get(String(b.maalId));
+      if (!m) return null;
+      items.push({ id: String(items.length), url: m.largeUrl, titel: b.label || m.titel });
+      return items.length - 1;
+    });
+    return { lightboxItems: items, lightboxIndexByBlock: indexByBlock };
+  }, [blocks, resolved]);
 
   return (
     <>

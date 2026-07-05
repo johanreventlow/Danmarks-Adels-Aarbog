@@ -10,7 +10,7 @@ import {
   fetchRedaktionPersoner, fetchPersonEvidence, fetchNarrativer, fetchSources, fetchLineages, fetchSletPreview,
   fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, fetchSammeSomLinks, fetchRedPersonMedia, fetchRedObjectMedia, nudgeOrdinal, type RedPerson, type PersonEvidence,
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
-  type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia,
+  type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia, SLAEGT_SUBJEKT_ID,
 } from './data/redaktionRead';
 import { previewSammeSom } from './data/sammeSomPreflight';
 import { loadModel } from './data/model';
@@ -30,12 +30,6 @@ const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 const MEDIA_ARTER = new Set(['uploadMedia', 'fjernMedia', 'sletRelation']);
 // Generiske entiteter med et materiale-galleri (Slice 0h) — spejler mobiles HAR_MATERIALE.
 const HAR_OBJEKT_MATERIALE = new Set(['estate', 'arms']);
-// Generel slægtsbeskrivelse (billeder-i-narrativer 2026-07-05, Slice C3): subjekt_type='slaegt' har
-// INGEN bagvedliggende tabel — subjekt_id er en FAST, delt sentinel-konstant (ikke en fremmednøgle
-// til noget), nødvendig fordi narrative.subjekt_id er NOT NULL. recordId 'generelt' i URL'en
-// mapper til denne konstant; ethvert andet recordId under entity 'slaegt' er et lineage.id.
-const SLAEGT_SUBJEKT_ID = 1;
-
 // --- Tokens (fra designet) ---
 const T = {
   pageBg: '#ece6da', paper: '#fbf8f1', panel: '#f4efe6', beige: '#ece4d6',
@@ -185,7 +179,12 @@ export default function Redaktion() {
   }, []);
   // Kilde-liste (udgave-picker) er person-uafhængig → hentes én gang. opretUdgave refresher selv.
   useEffect(() => { fetchSources().then(setSources).catch(() => setSources([])); }, []);
-  useEffect(() => { fetchLineages().then(setLineages).catch(() => setLineages([])); }, []);
+  // Linje-listen bruges KUN af 'slaegt'-entiteten — dovent hentet ved første besøg der (ikke ved
+  // hver person-visning), refetches ikke når man forlader/genbesøger fanen (lineages.length>0).
+  useEffect(() => {
+    if (entity !== 'slaegt' || lineages.length > 0) return;
+    fetchLineages().then(setLineages).catch(() => setLineages([]));
+  }, [entity, lineages.length]);
 
   // Skift entitets-fane (sidebar-nav) — rydder valgt record + søgefelt, matcher original adfærd.
   const goToEntity = (e: string) => {
@@ -387,6 +386,10 @@ export default function Redaktion() {
       const mediaChanged = MEDIA_ARTER.has(change.art);
       if (!dryRun && entity === 'person' && recordId) loadPerson(recordId, { skipMedia: !mediaChanged });
       if (!dryRun && HAR_OBJEKT_MATERIALE.has(entity) && mediaChanged) refreshObjMedia();
+      // Linje-materiale (Slice C3) — "Generelt" (recordId 'generelt') har ingen billed-samling.
+      if (!dryRun && entity === 'slaegt' && recordId && recordId !== 'generelt' && mediaChanged) {
+        fetchRedObjectMedia('lineage', recordId).then(setMedia).catch(() => setMedia([]));
+      }
     } catch (e) {
       setWriteView({ title: titel + ' fejlede', lines: [], error: oversaetFejl(String((e as Error)?.message ?? e)), done: false, dryRun, direkte: false });
     }

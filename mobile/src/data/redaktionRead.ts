@@ -172,6 +172,11 @@ export async function fetchSletPreview(personId: string): Promise<SletPreview> {
 // udgaver af ethvert subjekt — spejler web's redaktionRead.ts (fetchNarrativer/mapNarrativer),
 // så person-editorens udgave-faner og den nye slægts/linje-editor deler ét read-lag.
 
+// Generel slægtsbeskrivelse: subjekt_type='slaegt' har INGEN bagvedliggende tabel — subjekt_id er
+// en FAST, delt sentinel-konstant (ikke en fremmednøgle til noget), nødvendig fordi
+// narrative.subjekt_id er NOT NULL. Kanonisk ét sted, spejler web's redaktionRead.ts.
+export const SLAEGT_SUBJEKT_ID = 1;
+
 export type PersonNarrativ = { id: number; sourceId: number | null; sourceTitel: string | null; udgave: string | null; side: string | null; tekst: string; privat: boolean };
 
 type RawNarrativRow = { id: number; source_id: number | null; side: string | null; tekst: string | null; privat: boolean | null; source: { titel: string | null; udgave: string | null } | null };
