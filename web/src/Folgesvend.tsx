@@ -10,12 +10,14 @@ import { initials, konfTekst } from './data/format';
 import { computeRelationship, type RelationResult } from './data/relationship';
 import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
 import { pickPortrait, firstSignable } from './data/media';
-import type { Model, ModelPerson } from './data/types';
+import type { Geo, Model, ModelPerson } from './data/types';
+import { estatePoints, lifeJourney } from './data/geoSelectors';
 import { NarrativRenderer } from './components/NarrativRenderer';
 import { buildBrowse } from './data/browse';
 import { useBookmarks, type BookmarkSort } from './data/bookmarks';
 import { BookmarksView } from './components/BookmarksView';
 import { SlaegtPicker } from './components/SlaegtPicker';
+import { GeoMap } from './components/GeoMap';
 import { ViewHeader, Avatar, BookmarkFlag, SidebarMiniRow, MediaThumb } from './components/primitives';
 import { T } from './theme';
 
@@ -438,7 +440,7 @@ export default function Folgesvend() {
         <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
           {mode === 'tree' ? <TreeView model={model} focusId={focusId} onPick={navigateTree} onFocus={driftFocus} hasBookmark={bookmarks.has} onToggleBookmark={bookmarks.toggle} />
             : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={focusOnly} meId={meCanon} onSetMeA={() => { if (meCanon) { setRelA(meCanon); setRelSlot('B'); } }} />
-            : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} onOpen={(id) => { setEstateId(id); navigate(`/estate/${id}`); }} onBack={() => { setEstateId(null); navigate('/estates'); }} onPickOwner={navigateTree} />
+            : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} geo={model?.geo} onOpen={(id) => { setEstateId(id); navigate(`/estate/${id}`); }} onBack={() => { setEstateId(null); navigate('/estates'); }} onPickOwner={navigateTree} />
             : mode === 'arms' ? <ArmsView arms={arms} />
             : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} />
             : mode === 'bookmarks' ? (model ? <BookmarksView model={model} ids={bookmarkIds} sort={bmSort} setSort={setBmSort} onPick={pickBookmark} onRemove={bookmarks.toggle} /> : <div style={{ padding: 40, color: T.muted3 }}>Henter…</div>)
@@ -859,6 +861,14 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
 
         {detail?.bio && <div style={{ marginTop: 14, fontSize: 13.5, lineHeight: 1.55, color: '#3d382f' }}><NarrativRenderer tekst={detail.bio} onPickPerson={onPick} linkColor={T.bordeaux} inactiveColor={T.muted2} /></div>}
 
+        {/* Livskort: kun hvis personen har mindst ét geo-punkt (undgår tom-boks-støj for de fleste). */}
+        {model.geo && lifeJourney(model.geo, focusId).length > 0 && (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2, marginBottom: 6 }}>Livsrejse</div>
+            <GeoMap points={lifeJourney(model.geo, focusId)} mode="mini" onPointPress={(pt) => { if (pt.personId && pt.personId !== focusId) onPick(pt.personId); }} />
+          </div>
+        )}
+
         {spouses.length > 0 && (
           <div style={{ marginTop: 14, fontFamily: T.serif, fontSize: 15, fontStyle: 'italic', color: T.muted, lineHeight: 1.5 }}>⚭ gift med{' '}
             {spouses.map((sp, i) => (
@@ -955,11 +965,13 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
 //  grupperet liste med sticky headers. Se `browse`-memo + venstre panel i Folgesvend().)
 
 // ---- Godser & ejendomme ----
-function EstatesView({ estates, estateId, estate, info, owners, onOpen, onBack, onPickOwner }: {
+function EstatesView({ estates, estateId, estate, info, owners, geo, onOpen, onBack, onPickOwner }: {
   estates: EstateItem[] | null; estateId: string | null; estate: EstateItem | null; info: EstateInfo | null;
-  owners: EstateOwner[]; onOpen: (id: string) => void; onBack: () => void; onPickOwner: (id: string) => void;
+  owners: EstateOwner[]; geo?: Geo; onOpen: (id: string) => void; onBack: () => void; onPickOwner: (id: string) => void;
 }) {
+  const [viewMode, setViewMode] = useState<'liste' | 'kort'>('liste');
   if (estateId && estate) {
+    const point = geo?.byEstate[estate.id];
     return (
       <div style={{ padding: '26px 40px 50px', maxWidth: 620 }}>
         <div onClick={onBack} style={{ fontSize: 12.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', marginBottom: 14 }}>‹ Alle godser</div>
@@ -968,6 +980,9 @@ function EstatesView({ estates, estateId, estate, info, owners, onOpen, onBack, 
           {estate.slags && <span style={{ fontSize: 11.5, fontWeight: 600, color: T.bordeaux, background: '#f4e2e6', border: '1px solid rgba(136,26,51,.16)', padding: '5px 10px', borderRadius: 7 }}>{estate.slags}</span>}
           {info?.sted && <span style={{ fontSize: 11.5, fontWeight: 600, color: T.muted, background: T.beige, border: '1px solid rgba(34,31,26,.1)', padding: '5px 10px', borderRadius: 7 }}>⌖ {info.sted}</span>}
         </div>
+        {point && (
+          <div style={{ marginTop: 14 }}><GeoMap points={[point]} mode="mini" /></div>
+        )}
         {info && info.media.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
             {info.media.filter((m) => m.url).map((m) => (
@@ -1001,11 +1016,28 @@ function EstatesView({ estates, estateId, estate, info, owners, onOpen, onBack, 
       </div>
     );
   }
+  const points = geo ? estatePoints(geo) : [];
   return (
-    <div style={{ padding: '30px 40px 50px' }}>
-      <ViewHeader title="Godser &amp; ejendomme" />
+    <div style={{ padding: '30px 40px 50px', height: viewMode === 'kort' ? 'calc(100vh - 60px)' : undefined, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <ViewHeader title="Godser &amp; ejendomme" />
+        <div style={{ display: 'flex', gap: 2, background: T.beige, borderRadius: 8, padding: 2, flex: 'none' }}>
+          {(['liste', 'kort'] as const).map((m) => (
+            <button key={m} onClick={() => setViewMode(m)} style={{
+              border: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 600, padding: '6px 12px', borderRadius: 6,
+              background: viewMode === m ? T.paper : 'transparent', color: viewMode === m ? T.bordeaux : T.muted,
+            }}>{m === 'liste' ? 'Liste' : 'Kort'}</button>
+          ))}
+        </div>
+      </div>
       <div style={{ fontSize: 13, color: T.muted, marginTop: 4, marginBottom: 20 }}>Besiddelser knyttet til slægten — klik for ejerrækken gennem tiden.</div>
-      {!estates ? <div style={{ color: T.muted3 }}>Henter…</div> : !estates.length ? <div style={{ color: T.muted3 }}>Ingen godser registreret.</div> : (
+      {!estates ? <div style={{ color: T.muted3 }}>Henter…</div> : !estates.length ? <div style={{ color: T.muted3 }}>Ingen godser registreret.</div> : viewMode === 'kort' ? (
+        points.length ? (
+          <div style={{ flex: 1, minHeight: 0 }}>
+            <GeoMap points={points} mode="explorer" onPointPress={(p) => p.estateId && onOpen(p.estateId)} />
+          </div>
+        ) : <div style={{ color: T.muted3 }}>Ingen godser er kortlagt endnu.</div>
+      ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 12 }}>
           {estates.map((e) => (
             <div key={e.id} onClick={() => onOpen(e.id)} style={{ background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 13, padding: 15, cursor: 'pointer', boxShadow: '0 1px 2px rgba(34,31,26,.03)' }}>
