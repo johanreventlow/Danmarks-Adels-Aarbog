@@ -2,7 +2,7 @@
 // Header-nav · venstre person-liste/søg · center-visning. To visninger bygget: Stamtræ
 // (variant A, fokus-centreret) og Slægtskab ("Er vi i familie?", med multi-linje + konfidens
 // + korroboration fra den porterede finder). Søg/Godser/Våben/Om følger.
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { navigate, usePath } from './router';
 import { childrenOf, loadModel, parentsOf } from './data/model';
 import { buildBidirectionalColumns } from './data/tree';
@@ -11,7 +11,7 @@ import { computeRelationship, type RelationResult } from './data/relationship';
 import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
 import { pickPortrait, firstSignable, withUrl } from './data/media';
 import type { Geo, Model, ModelPerson } from './data/types';
-import { estatePoints, lifeJourney } from './data/geoSelectors';
+import { estatePoints, filterByLineage, lifeJourney } from './data/geoSelectors';
 import { NarrativRenderer } from './components/NarrativRenderer';
 import { buildBrowse } from './data/browse';
 import { useBookmarks, type BookmarkSort } from './data/bookmarks';
@@ -28,9 +28,9 @@ const SLAEGTER = [{ id: 'reventlow', navn: 'Reventlow' }];
 // sortér + alfabet-hop + grupperet liste), så center-fladen har tree/estates/arms/about/relate.
 // 'bookmarks' er bevidst UDELADT af NAV (sidebar-only indgang via bmQuick "Se alle", spec §3.3),
 // men indgår i Mode-typen så center-switchen er exhaustive-tjekket af tsc.
-type Mode = 'tree' | 'relate' | 'estates' | 'arms' | 'about' | 'bookmarks';
+type Mode = 'tree' | 'relate' | 'estates' | 'arms' | 'about' | 'bookmarks' | 'kort';
 const NAV: [string, Mode, boolean][] = [
-  ['Stamtræ', 'tree', true], ['Godser', 'estates', true], ['Våben', 'arms', true],
+  ['Stamtræ', 'tree', true], ['Godser', 'estates', true], ['Kort', 'kort', true], ['Våben', 'arms', true],
   ['Om slægten', 'about', true], ['Slægtskab', 'relate', true],
 ];
 function useFonts() {
@@ -52,7 +52,7 @@ function useFonts() {
 // Faste (id-løse) faners sti — delt tabel så retning (mode→sti) og modstående retning
 // (sti→mode, i parseFolgesvendPath) ikke kan komme ud af trit med hinanden (/simplify-fund).
 const MODE_PATH: Record<Exclude<Mode, 'tree'>, string> = {
-  estates: '/estates', relate: '/relate', arms: '/arms', about: '/about', bookmarks: '/bookmarks',
+  estates: '/estates', relate: '/relate', arms: '/arms', about: '/about', bookmarks: '/bookmarks', kort: '/kort',
 };
 const PATH_MODE: Record<string, Mode> = Object.fromEntries(Object.entries(MODE_PATH).map(([m, p]) => [p.slice(1), m as Mode]));
 
@@ -445,6 +445,7 @@ export default function Folgesvend() {
             : mode === 'arms' ? <ArmsView arms={arms} />
             : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} />
             : mode === 'bookmarks' ? (model ? <BookmarksView model={model} ids={bookmarkIds} sort={bmSort} setSort={setBmSort} onPick={pickBookmark} onRemove={bookmarks.toggle} /> : <div style={{ padding: 40, color: T.muted3 }}>Henter…</div>)
+            : mode === 'kort' ? <OverviewMapView model={model} onPickPerson={navigateTree} onPickEstate={(id) => navigate(`/estate/${id}`)} />
             : <Placeholder label={NAV.find((n) => n[1] === mode)?.[0] ?? ''} />}
         </div>
 
@@ -1065,6 +1066,48 @@ function EstatesView({ estates, estateId, estate, info, owners, geo, onOpen, onB
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---- Slægtens kort (overbliks-kort) ----
+// Fuldskærms-kort over ALLE geo-punkter (personhændelser + godser), filtrerbart pr. linje.
+// v1: kun linje-filter (type-filter/år-slider/"nær mig" er senere skiver — se claude.md kort-plan).
+function OverviewMapView({ model, onPickPerson, onPickEstate }: {
+  model: Model | null; onPickPerson: (id: string) => void; onPickEstate: (id: string) => void;
+}) {
+  const [linje, setLinje] = useState<string | null>(null);
+  const allPoints = model?.geo?.points ?? [];
+  const linjeList = model?.lineage?.list ?? [];
+  const points = linje ? filterByLineage(allPoints, model?.lineage?.byPerson ?? {}, linje, { includeNonPerson: true }) : allPoints;
+  const chip = (active: boolean): CSSProperties => ({
+    fontSize: 11.5, fontWeight: 600, padding: '6px 12px', borderRadius: 999, cursor: 'pointer',
+    border: '1px solid ' + (active ? 'rgba(136,26,51,.3)' : 'rgba(34,31,26,.1)'),
+    background: active ? '#f4e2e6' : T.beige, color: active ? T.bordeaux : T.muted,
+  });
+  return (
+    <div style={{ padding: '30px 40px 0', height: 'calc(100vh - 60px)', display: 'flex', flexDirection: 'column' }}>
+      <ViewHeader title="Slægtens kort" />
+      <div style={{ fontSize: 13, color: T.muted, marginTop: 4, marginBottom: 12 }}>
+        {points.length} {points.length === 1 ? 'sted' : 'steder'} kortlagt{linje ? ` for ${linjeList.find((l) => l.linje === linje)?.navn ?? 'linje ' + linje}` : ' — flere følger efterhånden som slægtens steder kortlægges'}.
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+        <button onClick={() => setLinje(null)} style={chip(linje === null)}>Hele slægten</button>
+        {linjeList.map((l) => (
+          <button key={l.linje} onClick={() => setLinje(l.linje)} style={chip(linje === l.linje)}>
+            {l.navn ?? `Linje ${l.linje}`}
+          </button>
+        ))}
+      </div>
+      <div style={{ flex: 1, minHeight: 0, paddingBottom: 24 }}>
+        {points.length ? (
+          <GeoMap
+            points={points}
+            mode="explorer"
+            onPointPress={(p) => { if (p.personId) onPickPerson(p.personId); else if (p.estateId) onPickEstate(p.estateId); }}
+          />
+        ) : <div style={{ color: T.muted3 }}>Ingen steder kortlagt endnu{linje ? ' for denne linje' : ''}.</div>}
+      </div>
     </div>
   );
 }
