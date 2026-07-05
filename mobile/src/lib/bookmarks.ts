@@ -2,7 +2,7 @@
 // render-state-hook. Spejler web/src/data/bookmarks.ts, men async: web-storet var synkront
 // (useState-init + sync toggle); AsyncStorage kræver async-lager + optimistisk hook-state +
 // race-sikker mutation. Alle bogmærke-id'er er kanoniske (samme_som-collapset).
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export const BOOKMARKS_KEY = 'daa_bookmarks';
@@ -43,6 +43,10 @@ export function createLocalBookmarkStore(): BookmarkStore {
   };
 }
 
+// Modul-singleton: lageret er tilstandsløst (rene closures over AsyncStorage), så det behøver
+// ikke pr.-komponent-instans. Undgår ref-adgang under render (react-hooks/refs).
+const defaultStore = createLocalBookmarkStore();
+
 // Nyeste-først dedup til kanoniske id'er (første forekomst vinder — listen er allerede
 // nyeste-først, så "nyeste vinder" holder uden ekstra sortering).
 export function canonicalize(raw: string[], canon: (id: string) => string): string[] {
@@ -71,17 +75,13 @@ export function useBookmarks(canonicalIdById: Record<string, string>): {
   toggle(id: string): void;
   count: number;
 } {
-  const storeRef = useRef<BookmarkStore | null>(null);
-  if (!storeRef.current) storeRef.current = createLocalBookmarkStore();
-  const store = storeRef.current;
-
   const [idsList, setIdsList] = useState<string[]>([]);
   const canon = useMemo(() => (id: string) => canonicalIdById[id] ?? id, [canonicalIdById]);
 
   // Hydrering + re-normalisering: kør når mappet skifter identitet (recollapse).
   useEffect(() => {
     let alive = true;
-    void store.list().then((raw) => {
+    void defaultStore.list().then((raw) => {
       if (!alive) return;
       const norm = canonicalize(raw, canon);
       setIdsList((prev) => (sameOrder(prev, norm) ? prev : norm));
@@ -89,7 +89,7 @@ export function useBookmarks(canonicalIdById: Record<string, string>): {
     return () => {
       alive = false;
     };
-  }, [store, canon]);
+  }, [canon]);
 
   const ids = useMemo(() => new Set(idsList), [idsList]);
 
