@@ -519,6 +519,15 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
   // definition ALDRIG i up/down/anchorId, så det konsumeres altid på den umiddelbart næste
   // `!keep`-kørsel — ref'en ryddes derfor UBETINGET dér (ikke kun ved match) som defensiv oprydning.
   const explicitCoordForRef = useRef<string | null>(null);
+  // Husker om `model` allerede var ikke-null ved forrige kørsel af re-ankrings-effekten nedenfor —
+  // bruges til at opdage deep-link-racet hvor `focusId` sættes SYNKRONT fra URL'en ved mount, mens
+  // `model` stadig loader ASYNKRONT (Folgesvend: `loadModel().then(setModel)`). Uden dette ville
+  // activeCoord blive permanent null for enhver direkte/deep-link-landing: effekten kører først med
+  // model=null (sætter activeCoord=null via `coordFor`), og når modellen dernæst ankommer uden at
+  // focusId ændrer sig, er `keep` allerede true (anchorId===focusId fra den første kørsel) — den
+  // klassiske `!keep`-gren, der ellers seeder activeCoord, rammes derfor ALDRIG igen (T6-review
+  // Critical).
+  const modelWasPresentRef = useRef(false);
   const colsRef = useRef<HTMLDivElement>(null);
   const anchorIdxRef = useRef(0);           // indeks på anker-kolonnen (til centrering)
   const prevUp = useRef(0), prevDown = useRef(0), prevAnchor = useRef<string | null>(null), prevVariant = useRef<'A' | 'B'>('A');
@@ -542,6 +551,9 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
     // en senere, urelateret navigation (advisor-gennemgang).
     const cameFromClick = explicitCoordForRef.current === focusId;
     explicitCoordForRef.current = null;
+    // Deep-link-race: modellen ankom NETOP nu (var null ved sidste kørsel af denne effekt).
+    const modelJustArrived = !!model && !modelWasPresentRef.current;
+    modelWasPresentRef.current = !!model;
     if (!keep) {
       setAnchorId(focusId);
       setUp([]); setDown([]);
@@ -554,8 +566,14 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
       if (!cameFromClick) {
         setActiveCoord(coordFor(model, null, focusId));
       }
+    } else if (modelJustArrived && !cameFromClick) {
+      // `keep` er allerede true (anchorId===focusId), fordi focusId blev sat FØR modellen var klar
+      // (direkte/deep-link-load) — den oprindelige `!keep`-kørsel ramte derfor `coordFor` med
+      // model=null og fik activeCoord=null. Seed nu defaulten, hvor modellen er klar. `prev ?? …`
+      // rører aldrig en activeCoord som et klik allerede har sat eksplicit (T6-review Critical).
+      setActiveCoord((prev) => prev ?? coordFor(model, null, focusId));
     }
-  }, [focusId]); // bevidst kun focusId — up/down/anchorId læses som frontier ved fokus-skift
+  }, [focusId, model]); // model tilføjet: se modelWasPresentRef-kommentaren ovenfor
 
   // Kompensér FØR paint når en ane-kolonne prepend'es, så ankeret ikke "hopper" (spec §5.5, fase 1).
   useLayoutEffect(() => {

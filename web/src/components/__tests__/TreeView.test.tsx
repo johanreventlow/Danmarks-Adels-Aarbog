@@ -30,6 +30,33 @@ const model = buildModel(
 );
 const props = { model, onPick: () => {}, onFocus: () => {}, hasBookmark: () => false, onToggleBookmark: () => {} };
 
+// Anna (fokus) er i III/G11; Xenia er en slægtled-nabo (samme III/G11) der OGSÅ bærer et andet,
+// LAVERE `lokal` i en anden linje (V/G3) — bevidst opsat så en re-ankring til Xenia kun bevarer
+// III-konteksten hvis klik-handleren rent faktisk bærer den aktive linje videre (§2/Codex HIGH-2);
+// en naiv "laveste lokal"-default ville forkert skifte til V/3. Modul-scope så både §T6-suiten og
+// deep-link-race-suiten (T6-review Critical) kan genbruge den.
+const peerModel = buildModel(
+  db(
+    [P('A', 'Anna'), P('F', 'Far'), P('M', 'Mor'), P('C1', 'Bo'), P('C2', 'Cille'), P('X', 'Xenia')],
+    [
+      { child: 'A', parent: 'F', union: 'u1' },
+      { child: 'A', parent: 'M', union: 'u1' },
+      { child: 'C1', parent: 'A', union: 'u2' },
+      { child: 'C2', parent: 'A', union: 'u2' },
+    ],
+  ),
+);
+(peerModel as typeof peerModel & { genCoordsByPerson: unknown }).genCoordsByPerson = {
+  A: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: null }],
+  // Far er Annas EGEN forælder i samme linje (naturligt ét slægtled lavere) — bruges til at teste
+  // at en drill IKKE genskriver ankerets egen label (se testen nedenfor).
+  F: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 10, gennem: 10, kuld: null }],
+  X: [
+    { sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: null },
+    { sourceId: '1', linje: 'V', lineageId: '20', parentLineageId: null, lokal: 3, gennem: 3, kuld: null },
+  ],
+};
+
 describe('TreeView', () => {
   it('viser Fokus-variant som standard (ingen kolonne-labels)', () => {
     render(<TreeView {...props} focusId="A" />);
@@ -136,32 +163,6 @@ describe('TreeView — fallback-ring (D1: render af C1s genCoords-baserede ubevi
 });
 
 describe('TreeView — v2 slægtled-naboer i anker-kolonnen (T6: aktiv-linje-koordinat + peer-render)', () => {
-  // Anna (fokus) er i III/G11; Xenia er en slægtled-nabo (samme III/G11) der OGSÅ bærer et andet,
-  // LAVERE `lokal` i en anden linje (V/G3) — bevidst opsat så en re-ankring til Xenia kun bevarer
-  // III-konteksten hvis klik-handleren rent faktisk bærer den aktive linje videre (§2/Codex HIGH-2);
-  // en naiv "laveste lokal"-default ville forkert skifte til V/3.
-  const peerModel = buildModel(
-    db(
-      [P('A', 'Anna'), P('F', 'Far'), P('M', 'Mor'), P('C1', 'Bo'), P('C2', 'Cille'), P('X', 'Xenia')],
-      [
-        { child: 'A', parent: 'F', union: 'u1' },
-        { child: 'A', parent: 'M', union: 'u1' },
-        { child: 'C1', parent: 'A', union: 'u2' },
-        { child: 'C2', parent: 'A', union: 'u2' },
-      ],
-    ),
-  );
-  (peerModel as typeof peerModel & { genCoordsByPerson: unknown }).genCoordsByPerson = {
-    A: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: null }],
-    // Far er Annas EGEN forælder i samme linje (naturligt ét slægtled lavere) — bruges til at teste
-    // at en drill IKKE genskriver ankerets egen label (se testen nedenfor).
-    F: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 10, gennem: 10, kuld: null }],
-    X: [
-      { sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: null },
-      { sourceId: '1', linje: 'V', lineageId: '20', parentLineageId: null, lokal: 3, gennem: 3, kuld: null },
-    ],
-  };
-
   it('anker viser fokus dominant + slægtled-nabo dæmpet, kombineret label, og klik re-ankrer (ingen skrivning)', () => {
     let focused: string | null = null;
     render(
@@ -206,6 +207,28 @@ describe('TreeView — v2 slægtled-naboer i anker-kolonnen (T6: aktiv-linje-koo
     // ankerets egen label forkert vise "10. slægtled" i stedet for Annas rigtige "11".
     expect(screen.getByText(/^11\. slægtled · III-linjen$/)).toBeTruthy();
     expect(screen.queryByText(/^10\. slægtled · III-linjen$/)).toBeNull();
+  });
+});
+
+describe('TreeView — deep-link-race: model ankommer EFTER focusId (T6-review Critical)', () => {
+  // focusId sættes synkront fra URL'en ved mount i Folgesvend, mens `loadModel().then(setModel)`
+  // stadig loader — reproducerer det ved først at rendere med model=null (som "Henter…"-skærmen),
+  // og dernæst rerendere MED SAMME focusId, når modellen ankommer. Uden [model] i effektens deps
+  // ville activeCoord forblive null for evigt (seedet med model=null i første kørsel, og andet
+  // kørsel ville aldrig komme, da re-ankrings-effekten kun lyttede på focusId).
+  it('activeCoord seedes når model går fra null til populeret for samme focusId — nabo/kombinations-label vises FØRST derefter', () => {
+    const { rerender } = render(
+      <TreeView model={null} focusId="A" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} />,
+    );
+    expect(screen.getByText('Henter…')).toBeTruthy(); // model endnu ikke ankommet
+    rerender(
+      <TreeView model={peerModel} focusId="A" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} />,
+    );
+    fireEvent.click(screen.getByText('Kolonner'));
+    // Kræver activeCoord seedet til Annas III/G11-koordinat: uden fix er activeCoord stadig null →
+    // hverken nabo-kortet (Xenia) eller den kombinerede label vises.
+    expect(screen.getByText('Xenia')).toBeTruthy();
+    expect(screen.getByText(/^11\. slægtled · III-linjen$/)).toBeTruthy();
   });
 });
 
