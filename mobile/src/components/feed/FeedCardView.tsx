@@ -1,10 +1,12 @@
 // Feed-kort-komponent (spec §4.2). Én switch over FeedCard.kind. Markup porteret fra
 // Reventlow-folgesvend-v3.dc.html (sc-if card.isXxx-blokke), styles fra tokens.ts.
-// Gem-ikon rendres iff kortet har personId (portrait/citat/embede/jubilaeum).
+// Gem-ikon rendres iff kortet har personId (via bookmarkPersonId, data-laget).
+import { memo } from 'react';
 import { Pressable, View } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
-import type { FeedCard } from '../../data/buildFeed';
+import { bookmarkPersonId, type FeedCard } from '../../data/buildFeed';
 import { Border, Colors, Fonts, Radius, Shadow } from '../../theme/tokens';
+import { BookmarkIcon } from '../BookmarkIcon';
+import { InitialBadge } from '../InitialBadge';
 import { StripedPlaceholder } from '../StripedPlaceholder';
 import { Body, Kicker, Mono, Serif } from '../Typography';
 
@@ -15,25 +17,6 @@ type Props = {
   bookmarked: boolean;
 };
 
-function hasPerson(card: FeedCard): card is Extract<FeedCard, { personId: string }> {
-  return 'personId' in card;
-}
-
-function SaveIcon({ filled, light, onPress }: { filled: boolean; light?: boolean; onPress: () => void }) {
-  return (
-    <Pressable onPress={onPress} hitSlop={8}>
-      <Svg width={15} height={17} viewBox="0 0 17 19">
-        <Path
-          d="M3 2.2h11a1 1 0 0 1 1 1V16.4a.6.6 0 0 1-.94.5L8.5 13.4l-4.56 3.5A.6.6 0 0 1 3 16.4V3.2a1 1 0 0 1 1-1Z"
-          fill={filled ? Colors.bordeaux : 'none'}
-          stroke={filled ? Colors.bordeaux : light ? '#cabfa9' : '#7a7060'}
-          strokeWidth={1.3}
-        />
-      </Svg>
-    </Pressable>
-  );
-}
-
 const cardBase = {
   backgroundColor: Colors.paperCard,
   borderWidth: 1,
@@ -41,20 +24,35 @@ const cardBase = {
   borderRadius: Radius.card,
   ...Shadow.card,
 } as const;
+const cardBase15 = { ...cardBase, padding: 15 } as const;
 
-export function FeedCardView({ card, onOpen, onSave, bookmarked }: Props) {
-  const save = hasPerson(card) ? (
-    <SaveIcon filled={bookmarked} onPress={() => onSave(card.personId)} />
-  ) : null;
+// Kicker + valgfrit gem-ikon (kort med personId). light = lys stroke til mørke kort.
+function CardHeaderRow({
+  kicker, kickerColor, pid, bookmarked, onSave, light = false,
+}: {
+  kicker: string; kickerColor: string; pid: string | null;
+  bookmarked: boolean; onSave: (id: string) => void; light?: boolean;
+}) {
+  return (
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <Kicker size={8.5} color={kickerColor}>{kicker}</Kicker>
+      {pid ? (
+        <Pressable onPress={() => onSave(pid)} hitSlop={8}>
+          <BookmarkIcon filled={bookmarked} light={light} />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function FeedCardViewImpl({ card, onOpen, onSave, bookmarked }: Props) {
+  const pid = bookmarkPersonId(card);
 
   switch (card.kind) {
     case 'portrait':
       return (
-        <View style={[cardBase, { padding: 15 }]}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <Kicker size={8.5} color={Colors.bordeaux}>{card.kicker}</Kicker>
-            {save}
-          </View>
+        <View style={cardBase15}>
+          <CardHeaderRow kicker={card.kicker} kickerColor={Colors.bordeaux} pid={pid} bookmarked={bookmarked} onSave={onSave} />
           <Serif size={24} style={{ marginTop: 5, lineHeight: 24 }}>{card.name}</Serif>
           <Mono size={10} color={Colors.textMuted2} style={{ marginTop: 4 }}>{card.years}</Mono>
           {card.title ? (
@@ -70,10 +68,7 @@ export function FeedCardView({ card, onOpen, onSave, bookmarked }: Props) {
     case 'citat':
       return (
         <View style={{ backgroundColor: Colors.ink, borderRadius: Radius.card, padding: 20 }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <Kicker size={8} color={Colors.gold}>{card.kicker}</Kicker>
-            {hasPerson(card) ? <SaveIcon filled={bookmarked} light onPress={() => onSave(card.personId)} /> : null}
-          </View>
+          <CardHeaderRow kicker={card.kicker} kickerColor={Colors.gold} pid={pid} bookmarked={bookmarked} onSave={onSave} light />
           <Pressable onPress={() => onOpen(card)}>
             <Serif size={21} italic color={Colors.paperBg} style={{ marginTop: 12, lineHeight: 28, fontFamily: Fonts.serifItalic }}>
               {card.quote}
@@ -85,7 +80,7 @@ export function FeedCardView({ card, onOpen, onSave, bookmarked }: Props) {
 
     case 'gods':
       return (
-        <Pressable onPress={() => onOpen(card)} style={[cardBase, { padding: 15 }]}>
+        <Pressable onPress={() => onOpen(card)} style={cardBase15}>
           <Kicker size={8.5} color={Colors.gold}>{card.kicker}</Kicker>
           <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center', marginTop: 8 }}>
             <View style={{ width: 44, height: 44, borderRadius: 11, backgroundColor: Colors.beige, borderWidth: 1, borderColor: Border.light, alignItems: 'center', justifyContent: 'center' }}>
@@ -112,12 +107,12 @@ export function FeedCardView({ card, onOpen, onSave, bookmarked }: Props) {
           <Kicker size={8.5} color={Colors.gold}>{card.kicker}</Kicker>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14, marginTop: 8 }}>
             <View style={{ flex: 1, alignItems: 'center' }}>
-              <View style={styles.pairAvatar}><Serif size={18} color={Colors.bordeaux}>{card.aInit}</Serif></View>
+              <InitialBadge name={card.aInit} size={48} bg={Colors.paperCard} borderColor={Border.light} />
               <Serif size={15} style={{ marginTop: 6, textAlign: 'center', lineHeight: 16 }}>{card.aName}</Serif>
             </View>
             <Serif size={24} italic color={Colors.bordeaux} style={{ fontFamily: Fonts.serifItalic }}>&amp;</Serif>
             <View style={{ flex: 1, alignItems: 'center' }}>
-              <View style={styles.pairAvatar}><Serif size={18} color={Colors.bordeaux}>{card.bInit}</Serif></View>
+              <InitialBadge name={card.bInit} size={48} bg={Colors.paperCard} borderColor={Border.light} />
               <Serif size={15} style={{ marginTop: 6, textAlign: 'center', lineHeight: 16 }}>{card.bName}</Serif>
             </View>
           </View>
@@ -140,16 +135,11 @@ export function FeedCardView({ card, onOpen, onSave, bookmarked }: Props) {
 
     case 'embede':
       return (
-        <View style={[cardBase, { padding: 15 }]}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <Kicker size={8.5} color={Colors.gold}>{card.kicker}</Kicker>
-            {save}
-          </View>
+        <View style={cardBase15}>
+          <CardHeaderRow kicker={card.kicker} kickerColor={Colors.gold} pid={pid} bookmarked={bookmarked} onSave={onSave} />
           <Serif size={19} italic style={{ marginTop: 7, lineHeight: 25, fontFamily: Fonts.serifItalic }}>{card.label}</Serif>
           <Pressable onPress={() => onOpen(card)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 11 }}>
-            <View style={{ width: 34, height: 34, borderRadius: Radius.round, backgroundColor: Colors.beige, borderWidth: 1, borderColor: Border.light, alignItems: 'center', justifyContent: 'center' }}>
-              <Serif size={14} color={Colors.bordeaux}>{card.init}</Serif>
-            </View>
+            <InitialBadge name={card.init} size={34} bg={Colors.beige} borderColor={Border.light} />
             <View style={{ flex: 1, minWidth: 0 }}>
               <Body size={13} color={Colors.ink} style={{ fontFamily: Fonts.sansSemi }}>{card.name}</Body>
               <Mono size={9.5} color={Colors.textMuted2}>{card.period}</Mono>
@@ -161,7 +151,7 @@ export function FeedCardView({ card, onOpen, onSave, bookmarked }: Props) {
 
     case 'jubilaeum':
       return (
-        <View style={[cardBase, { padding: 15, flexDirection: 'row', gap: 14, alignItems: 'center' }]}>
+        <View style={{ ...cardBase15, flexDirection: 'row', gap: 14, alignItems: 'center' }}>
           <View style={{ width: 58, alignItems: 'center' }}>
             <Serif size={32} color={Colors.bordeaux} style={{ lineHeight: 32 }}>{card.num}</Serif>
             <Mono size={8} color={Colors.textMuted2} style={{ marginTop: 2, textTransform: 'uppercase' }}>år siden</Mono>
@@ -174,13 +164,17 @@ export function FeedCardView({ card, onOpen, onSave, bookmarked }: Props) {
             </Pressable>
             <Body size={12} color={Colors.textSecondary2} style={{ marginTop: 2 }}>{card.sub}</Body>
           </View>
-          {save}
+          {pid ? (
+            <Pressable onPress={() => onSave(pid)} hitSlop={8}>
+              <BookmarkIcon filled={bookmarked} />
+            </Pressable>
+          ) : null}
         </View>
       );
 
     case 'vaaben':
       return (
-        <Pressable onPress={() => onOpen(card)} style={[cardBase, { padding: 15, flexDirection: 'row', gap: 14, alignItems: 'center' }]}>
+        <Pressable onPress={() => onOpen(card)} style={{ ...cardBase15, flexDirection: 'row', gap: 14, alignItems: 'center' }}>
           <StripedPlaceholder width={66} height={82} label="våben" />
           <View style={{ flex: 1, minWidth: 0 }}>
             <Kicker size={8.5} color={Colors.gold}>{card.kicker}</Kicker>
@@ -208,9 +202,6 @@ export function FeedCardView({ card, onOpen, onSave, bookmarked }: Props) {
   }
 }
 
-const styles = {
-  pairAvatar: {
-    width: 48, height: 48, borderRadius: Radius.round, backgroundColor: Colors.paperCard,
-    borderWidth: 1, borderColor: Border.light, alignItems: 'center', justifyContent: 'center',
-  },
-} as const;
+// Memoiseret: lever i en FlatList; re-render kun når card/callbacks/bookmarked ændrer sig
+// (callbacks stabiliseres af useCallback i forsiden).
+export const FeedCardView = memo(FeedCardViewImpl);

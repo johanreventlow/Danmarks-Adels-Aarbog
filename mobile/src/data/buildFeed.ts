@@ -37,6 +37,15 @@ export const FEED_CAPS: Record<FeedCard['kind'], number> = {
 
 const initialsOf = (name: string): string => (name.trim()[0] ?? '?').toUpperCase();
 
+// Stabil id-komparator — genbrugt af alle gruppe-sorteringer (determinisme).
+const byIdStr = (a: { id: string }, b: { id: string }): number => a.id.localeCompare(b.id);
+
+// Bogmærkbarhed bor i data-laget: kort med et personId gemmer den kanoniske person.
+// UI (feed + top-bar) importerer denne frem for at gentage `'personId' in card`-tjek.
+export function bookmarkPersonId(card: FeedCard): string | null {
+  return 'personId' in card ? card.personId : null;
+}
+
 // Første sætning på 40–180 tegn (undgå fragmenter/løb). null hvis intet passer.
 export function firstQuotableSentence(bio: string): string | null {
   const parts = bio.split(/(?<=[.!?])\s+/);
@@ -52,7 +61,7 @@ export function firstQuotableSentence(bio: string): string | null {
 export function buildPortraitAndCitat(model: Model): { portraits: FeedCard[]; citater: FeedCard[] } {
   const bioPersons = model.persons
     .filter((p) => p.bio.trim() !== '')
-    .sort((a, b) => a.id.localeCompare(b.id));
+    .sort(byIdStr);
   const portraits: FeedCard[] = [];
   const citater: FeedCard[] = [];
   for (const p of bioPersons) {
@@ -90,7 +99,7 @@ function buildJubilaeer(model: Model, today: number): FeedCard[] {
       }
     }
   }
-  return out.sort((a, b) => a.id.localeCompare(b.id));
+  return out.sort(byIdStr);
 }
 
 function buildGods(aux: Aux): FeedCard[] {
@@ -100,7 +109,7 @@ function buildGods(aux: Aux): FeedCard[] {
       meta: g.ownerCount > 0 ? `${g.slags || 'Gods'} · ${g.ownerCount} ejere` : (g.slags || 'Gods'),
       ownerDots: Math.min(g.ownerCount, 7), kicker: 'Gods',
     }))
-    .sort((a, b) => a.id.localeCompare(b.id));
+    .sort(byIdStr);
 }
 
 // forbundet: kun unions m. p2!==null OG begge personer i byId. Navne fra byId (IKKE p2_name/year
@@ -118,7 +127,7 @@ function buildForbundet(model: Model): FeedCard[] {
       marBottom: u.year ? `gift ${u.year}` : 'gift', kicker: 'Forbundet',
     });
   }
-  return out.sort((a, b) => a.id.localeCompare(b.id));
+  return out.sort(byIdStr);
 }
 
 function buildEmbeder(model: Model, aux: Aux): FeedCard[] {
@@ -133,7 +142,7 @@ function buildEmbeder(model: Model, aux: Aux): FeedCard[] {
       });
     }
   }
-  return out.sort((a, b) => a.id.localeCompare(b.id));
+  return out.sort(byIdStr);
 }
 
 function buildVaaben(aux: Aux): FeedCard[] {
@@ -144,7 +153,7 @@ function buildVaaben(aux: Aux): FeedCard[] {
         : 'Blasoneringen indlæses fra Aarbogen, når våbenet knyttes.',
       foot: 'Se slægtens våben ›', kicker: 'Våben',
     }))
-    .sort((a, b) => a.id.localeCompare(b.id));
+    .sort(byIdStr);
 }
 
 // slaegt: kun når meId+focusId begge sat og distinkte; skip hvis found:false (dual-review DS4/NEW2).

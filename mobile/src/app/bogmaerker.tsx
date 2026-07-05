@@ -1,5 +1,6 @@
 // Bogmærker-skærm (spec §6.3). Person-rækker fra gemte kanoniske id'er (design isSaved-blok).
 import { useRouter } from 'expo-router';
+import { useMemo } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { InitialBadge } from '../components/InitialBadge';
@@ -16,7 +17,10 @@ export default function BogmaerkerScreen() {
   const canonMap = useStore((s) => s.canonicalIdById);
   const { ids } = useBookmarks(canonMap);
 
-  const people = model ? [...ids].map((id) => model.byId[id]).filter(Boolean) : [];
+  const people = useMemo(
+    () => (model ? [...ids].map((id) => model.byId[id]).filter(Boolean) : []),
+    [ids, model],
+  );
 
   return (
     <LoadGate>

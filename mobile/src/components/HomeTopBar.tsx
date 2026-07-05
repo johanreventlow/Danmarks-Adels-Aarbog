@@ -4,8 +4,9 @@ import { Image } from 'expo-image';
 import { useEffect } from 'react';
 import { Pressable, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
-import Svg, { Path } from 'react-native-svg';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Border, Colors, Fonts } from '../theme/tokens';
+import { BookmarkIcon } from './BookmarkIcon';
 import { Mono, Serif } from './Typography';
 
 export function HomeTopBar({
@@ -13,14 +14,13 @@ export function HomeTopBar({
   onBookmarks,
   savedCount,
   showBrand,
-  topInset,
 }: {
   onMenu: () => void;
   onBookmarks: () => void;
   savedCount: number;
   showBrand: boolean;
-  topInset: number;
 }) {
+  const insets = useSafeAreaInsets();
   const brand = useSharedValue(0);
   useEffect(() => {
     brand.value = withTiming(showBrand ? 1 : 0, { duration: 180 });
@@ -30,8 +30,8 @@ export function HomeTopBar({
   return (
     <View
       style={{
-        paddingTop: topInset,
-        height: 52 + topInset,
+        paddingTop: insets.top,
+        height: 52 + insets.top,
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: 8,
@@ -51,9 +51,7 @@ export function HomeTopBar({
       </Animated.View>
 
       <Pressable onPress={onBookmarks} hitSlop={8} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
-        <Svg width={17} height={19} viewBox="0 0 17 19">
-          <Path d="M3 2.2h11a1 1 0 0 1 1 1V16.4a.6.6 0 0 1-.94.5L8.5 13.4l-4.56 3.5A.6.6 0 0 1 3 16.4V3.2a1 1 0 0 1 1-1Z" stroke="#7a7060" strokeWidth={1.3} fill="none" />
-        </Svg>
+        <BookmarkIcon width={17} height={19} />
         {savedCount > 0 ? (
           <View style={{ position: 'absolute', top: 4, right: 4, minWidth: 14, height: 14, paddingHorizontal: 3, borderRadius: 8, backgroundColor: Colors.bordeaux, alignItems: 'center', justifyContent: 'center' }}>
             <Mono size={8} color={Colors.paperBg}>{savedCount}</Mono>

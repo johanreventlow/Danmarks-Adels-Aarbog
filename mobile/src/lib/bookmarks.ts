@@ -2,10 +2,15 @@
 // render-state-hook. Spejler web/src/data/bookmarks.ts, men async: web-storet var synkront
 // (useState-init + sync toggle); AsyncStorage kræver async-lager + optimistisk hook-state +
 // race-sikker mutation. Alle bogmærke-id'er er kanoniske (samme_som-collapset).
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export const BOOKMARKS_KEY = 'daa_bookmarks';
+
+// Ren toggle: fjern hvis til stede, ellers prepend (nyeste-først). Genbrugt af lager + hook.
+export function nextBookmarks(current: string[], id: string): string[] {
+  return current.includes(id) ? current.filter((x) => x !== id) : [id, ...current];
+}
 
 async function safeRead(): Promise<string[]> {
   try {
@@ -35,8 +40,7 @@ export function createLocalBookmarkStore(): BookmarkStore {
   return {
     list: () => safeRead(),
     toggle: async (id) => {
-      const cur = await safeRead();
-      const next = cur.includes(id) ? cur.filter((x) => x !== id) : [id, ...cur];
+      const next = nextBookmarks(await safeRead(), id);
       await safeWrite(next);
       return next;
     },
@@ -93,16 +97,21 @@ export function useBookmarks(canonicalIdById: Record<string, string>): {
 
   const ids = useMemo(() => new Set(idsList), [idsList]);
 
-  const toggle = (id: string) => {
-    const cid = canon(id);
-    // Optimistisk state-opdatering (funktionel updater → seneste-vinder ved hurtige toggles);
-    // persistér async. Sidste skrivning vinder.
-    setIdsList((prev) => {
-      const next = prev.includes(cid) ? prev.filter((x) => x !== cid) : [cid, ...prev];
-      void safeWrite(next);
-      return next;
-    });
-  };
+  const toggle = useCallback(
+    (id: string) => {
+      const cid = canon(id);
+      // Optimistisk state-opdatering (funktionel updater → seneste-vinder ved hurtige toggles);
+      // persistér async. Sidste skrivning vinder.
+      setIdsList((prev) => {
+        const next = nextBookmarks(prev, cid);
+        void safeWrite(next);
+        return next;
+      });
+    },
+    [canon],
+  );
 
-  return { ids, has: (id) => ids.has(canon(id)), toggle, count: idsList.length };
+  const has = useCallback((id: string) => ids.has(canon(id)), [ids, canon]);
+
+  return { ids, has, toggle, count: idsList.length };
 }

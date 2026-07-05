@@ -21,7 +21,7 @@ ren læsning ovenpå den eksisterende `Model`/`Aux`.
 - **Dual-review (Claude+Codex, `docs/reviews/20`):** 11 fund, alle empirisk verificeret mod koden
   og rettet i spec FØR implementering (bl.a. BM1 async-race, BM2 recollapse-miss, NEW1 forbundet-
   data findes ikke, NEW2 relate-slots). advisor-gate fangede `samle`-dødkode (nu wiret).
-- **Verificeret:** tsc + eslint rene, **342 jest grønne** (322 eksisterende + 20 nye). **iOS-
+- **Verificeret:** tsc + eslint rene, **327 jest grønne** (305 eksisterende + 22 nye). **iOS-
   simulator mod SEED-data (idb):** feed renderer, hamburger→drawer, bogmærke-toggle→badge "1",
   **persistens over app-genstart**, Bogmærker-skærm — alle bekræftet empirisk. Krævede frisk
   native dev-client-build (`expo run:ios`) da den installerede binary var stale (manglede

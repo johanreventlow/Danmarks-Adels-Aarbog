@@ -14,17 +14,20 @@ export function InitialBadge({
   size = 44,
   bg = Colors.beige,
   color = Colors.bordeaux,
+  borderColor,
 }: {
   name: string;
   size?: number;
   bg?: string;
   color?: string;
+  borderColor?: string;
 }) {
   return (
     <View
       style={[
         styles.badge,
         { width: size, height: size, borderRadius: Radius.round, backgroundColor: bg },
+        borderColor ? { borderWidth: 1, borderColor } : null,
       ]}>
       <Serif size={size * 0.42} color={color} style={{ fontFamily: Fonts.serifSemi }}>
         {initial(name)}

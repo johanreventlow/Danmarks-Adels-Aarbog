@@ -2,9 +2,8 @@
 // badge) → kollapsende hero → FlatList af feed-kort. Nav-listen bor nu i MenuDrawer.
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { FlatList, Pressable, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useCallback, useMemo, useState } from 'react';
+import { FlatList, type ListRenderItem, Pressable, View } from 'react-native';
 import { HomeTopBar } from '../../components/HomeTopBar';
 import { LoadGate } from '../../components/LoadGate';
 import { MenuDrawer } from '../../components/MenuDrawer';
@@ -12,7 +11,7 @@ import { Rise } from '../../components/Rise';
 import { SlaegtPicker } from '../../components/SlaegtPicker';
 import { FeedCardView } from '../../components/feed/FeedCardView';
 import { BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
-import { buildFeed, type FeedCard } from '../../data/buildFeed';
+import { bookmarkPersonId, buildFeed, type FeedCard } from '../../data/buildFeed';
 import { counts } from '../../data/selectors';
 import { useBookmarks } from '../../lib/bookmarks';
 import { useStore } from '../../store/useStore';
@@ -21,6 +20,7 @@ import { Border, Colors, Fonts } from '../../theme/tokens';
 const SLAEGT = 'Reventlow';
 // Aktuelt år som eneste ikke-rene input til buildFeed (jubilæums-beregning). Injiceres eksplicit.
 const CURRENT_YEAR = new Date().getFullYear();
+const ROW_STYLE = { paddingHorizontal: 16, paddingTop: 13 } as const;
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -43,36 +43,56 @@ export default function HomeScreen() {
     [model, aux, meId, focusId],
   );
 
-  const openCard = (card: FeedCard) => {
-    switch (card.kind) {
-      case 'portrait':
-      case 'citat':
-      case 'embede':
-      case 'jubilaeum':
-        router.push(`/person/${card.personId}`);
-        break;
-      case 'gods':
-        router.push(`/estate/${card.estateId}`);
-        break;
-      case 'vaaben':
-        router.push('/arms');
-        break;
-      case 'slaegt':
-        setRelA(card.aId);
-        setRelB(card.bId);
-        router.push('/relate');
-        break;
-      case 'forbundet':
-      case 'samle':
-        router.push('/search');
-        break;
-    }
-  };
+  const openCard = useCallback(
+    (card: FeedCard) => {
+      switch (card.kind) {
+        case 'portrait':
+        case 'citat':
+        case 'embede':
+        case 'jubilaeum':
+          router.push(`/person/${card.personId}`);
+          break;
+        case 'gods':
+          router.push(`/estate/${card.estateId}`);
+          break;
+        case 'vaaben':
+          router.push('/arms');
+          break;
+        case 'slaegt':
+          setRelA(card.aId);
+          setRelB(card.bId);
+          router.push('/relate');
+          break;
+        case 'forbundet':
+        case 'samle':
+          router.push('/search');
+          break;
+      }
+    },
+    [router, setRelA, setRelB],
+  );
+
+  const renderItem = useCallback<ListRenderItem<FeedCard>>(
+    ({ item }) => {
+      const pid = bookmarkPersonId(item);
+      return (
+        <View style={ROW_STYLE}>
+          <FeedCardView
+            card={item}
+            bookmarked={pid ? has(pid) : false}
+            onSave={toggle}
+            onOpen={openCard}
+          />
+        </View>
+      );
+    },
+    [has, toggle, openCard],
+  );
 
   return (
     <LoadGate>
       <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
-        <SafeTopBar
+        <HomeTopBar
           onMenu={() => setDrawerOpen(true)}
           onBookmarks={() => router.push('/bogmaerker')}
           savedCount={count}
@@ -85,27 +105,13 @@ export default function HomeScreen() {
           scrollEventThrottle={32}
           ListHeaderComponent={<Hero counts={c} onSkift={() => setSlaegtOpen(true)} />}
           ListFooterComponent={<Footer />}
-          renderItem={({ item }) => (
-            <View style={{ paddingHorizontal: 16, paddingTop: 13 }}>
-              <FeedCardView
-                card={item}
-                bookmarked={'personId' in item ? has(item.personId) : false}
-                onSave={toggle}
-                onOpen={openCard}
-              />
-            </View>
-          )}
+          renderItem={renderItem}
         />
         <MenuDrawer visible={drawerOpen} onClose={() => setDrawerOpen(false)} />
         <SlaegtPicker visible={slaegtOpen} personCount={c.personer} onClose={() => setSlaegtOpen(false)} />
       </View>
     </LoadGate>
   );
-}
-
-function SafeTopBar(props: { onMenu: () => void; onBookmarks: () => void; savedCount: number; showBrand: boolean }) {
-  const insets = useSafeAreaInsets();
-  return <HomeTopBar {...props} topInset={insets.top} />;
 }
 
 function Hero({ counts: c, onSkift }: { counts: ReturnType<typeof counts>; onSkift: () => void }) {
