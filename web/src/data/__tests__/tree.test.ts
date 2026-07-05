@@ -133,6 +133,8 @@ describe('fallback-ring', () => {
     expect(fb).toBeDefined();
     expect(fb!.people.map((p) => p.id).sort()).toEqual(['A', 'B']);
     expect(fb!.genLabel).toContain('slægtled');
+    expect(fb!.kuldGroups?.['I']?.map((p) => p.id)).toEqual(['A']);
+    expect(fb!.kuldGroups?.['II']?.map((p) => p.id)).toEqual(['B']);
   });
 
   it('uden genCoords: ingen fallback-ring (bagudkompatibel 4-arg-kald)', () => {
