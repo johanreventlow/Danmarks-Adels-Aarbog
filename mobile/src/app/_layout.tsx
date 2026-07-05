@@ -47,6 +47,7 @@ export default function RootLayout() {
             <Stack.Screen name="estates" />
             <Stack.Screen name="estate/[id]" />
             <Stack.Screen name="arms" />
+            <Stack.Screen name="bogmaerker" />
           </Stack>
           <TextureOverlay />
         </View>

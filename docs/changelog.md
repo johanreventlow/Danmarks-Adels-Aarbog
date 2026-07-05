@@ -1,5 +1,39 @@
 # Changelog
 
+## Følgesvend v3 — forsidefeed, menu-drawer & bogmærker (mobile, branch feat/folgesvend-v3, 2026-07-05)
+
+Mobil-appen bragt op til v3-designet (`Reventlow-folgesvend-v3.dc.html`). Tre nye elementer +
+afgrænset visuel afstemning (sidstnævnte udestår). **Ingen backend-/model-ændringer** — feedet er
+ren læsning ovenpå den eksisterende `Model`/`Aux`.
+
+- **Forsidefeed (`data/buildFeed.ts`):** ren, deterministisk selector der udleder et redaktionelt
+  `FeedCard[]` (9 korttyper: portrait/citat/gods/forbundet/slaegt/embede/jubilaeum/vaaben/samle).
+  Portrait+citat i **disjunkt** hash-partition (ingen dobbelt-optræden); `today` injiceres
+  (jubilæum = runde ≥100 år); per-kind `FEED_CAPS` før round-robin-`interleave`; `overrides`-krog
+  til senere redaktionel kilde (hybrid-beslutning). 17 unit-tests.
+- **Forside (`app/(tabs)/index.tsx`):** omskrevet til `FlatList`-feed + kollapsende hero +
+  `HomeTopBar` (hamburger, brand-på-scroll, bogmærke-badge). `slaegt`-kort sætter `relA/relB` før
+  `push('/relate')`. Den gamle nummererede 01–08-liste **flyttet ud** af forsiden.
+- **Menu-drawer (`components/MenuDrawer.tsx`):** venstre slide-in (reanimated) m. slægt-header,
+  nav-liste 01–08 (+ Bogmærker) og konto-footer.
+- **Bogmærker (`lib/bookmarks.ts` + `app/bogmaerker.tsx`):** async AsyncStorage-lager + synkron
+  render-state-hook (spejler web's person-kun kontrakt). Gem-ikon iff kort har `personId`.
+- **Dual-review (Claude+Codex, `docs/reviews/20`):** 11 fund, alle empirisk verificeret mod koden
+  og rettet i spec FØR implementering (bl.a. BM1 async-race, BM2 recollapse-miss, NEW1 forbundet-
+  data findes ikke, NEW2 relate-slots). advisor-gate fangede `samle`-dødkode (nu wiret).
+- **Verificeret:** tsc + eslint rene, **327 jest grønne** (305 eksisterende + 22 nye). **iOS-
+  simulator mod SEED-data (idb):** feed renderer, hamburger→drawer, bogmærke-toggle→badge "1",
+  **persistens over app-genstart**, Bogmærker-skærm — alle bekræftet empirisk. Krævede frisk
+  native dev-client-build (`expo run:ios`) da den installerede binary var stale (manglede
+  `react-native-webview` → `RNCWebViewModule`-crash ved boot; pre-eksisterende, ej vores kode).
+- **Skive 5 (visuel afstemning):** iOS-sim-audit af eksisterende sub-skærme (Om slægten, Stamtræ,
+  Slægtens våben, Persondetalje) mod v3-designet fandt dem **allerede pixel-tæt konforme** — de blev
+  bygget til v3 i tidligere sessioner (delt `TopBar` + tokens). **Ingen substantielle ændringer nødvendige.**
+  Godser/søg/slægtskab deler samme komponenter+afstamning (forventet konforme; endelig visuel pass
+  bør ske på fysisk enhed mod live-data).
+- **Udestår:** verifikation mod live-Supabase-data (sim-fetch fejler → SEED-fallback; kræver fysisk
+  enhed, jf. memory `mobil-sim-rn-fetch-1005`) + merge/push. Se `docs/superpowers/{specs,plans}/2026-07-05-folgesvend-v3-*`.
+
 ## Generations-reparation af stamtræet — hul-reparation via slægtled (web+mobile, PROD-LIVE + merget, 2026-07-05)
 
 Ny navigations-vej for de tidligste, ubeviste generationer: når aner-ringen i Kolonner-

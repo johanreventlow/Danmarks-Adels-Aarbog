@@ -8,7 +8,7 @@
 // medium/large-URL'erne går gennem lib/media.ts's eksisterende useMediaAndThumbUris.
 import React, { useMemo, useState } from 'react';
 import { Image } from 'expo-image';
-import { Pressable, Text, View, StyleSheet, type TextStyle } from 'react-native';
+import { Pressable, Text, View, StyleSheet, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 import { useRouter } from 'expo-router';
 import { parseNarrativ, groupBlocks, type Segment } from '../lib/mentions';
 import { useMediaAndThumbUris } from '../lib/media';
@@ -94,7 +94,9 @@ export function NarrativRenderer(props: {
   }
 
   return (
-    <View style={style}>
+    // style-prop'en er typet TextStyle (delt med den inline Body-sag ovenfor); som blok-container
+    // bærer den kun layout-props, så cast til ViewStyle er sikker (fjerner cursor-type-konflikt).
+    <View style={style as StyleProp<ViewStyle>}>
       {blocks.map((b, i) => {
         if (b.kind === 'heading') {
           return <Serif key={i} size={(size ?? 14) + 4} style={styles.heading}>{b.text}</Serif>;
