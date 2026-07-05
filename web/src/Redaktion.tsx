@@ -16,7 +16,7 @@ import { previewSammeSom } from './data/sammeSomPreflight';
 import { loadModel } from './data/model';
 import type { Model } from './data/types';
 import { submitChange, describeCall, oversaetFejl, type Change } from './data/redaktionWrite';
-import { buildStoragePath } from './data/mediaUpload';
+import { buildVariants } from './data/mediaUpload';
 import { withUrl } from './data/media';
 import { buildBrowse } from './data/browse';
 import { initials } from './data/format';
@@ -134,6 +134,7 @@ export default function Redaktion() {
   const [mediaPick, setMediaPick] = useState<{ file: File; previewUrl: string } | null>(null);
   const [mediaForm, setMediaForm] = useState<{ slags: string; titel: string; maaPubliceres: boolean }>(
     { slags: 'foto', titel: '', maaPubliceres: false });
+  const [mediaBusy, setMediaBusy] = useState(false); // Slice B2: klient-genkodning tager et øjeblik
   // Retningsbekræftelse for et nyt samme_som-link: den valgte person + hvem der er kanonisk.
   const [ssConfirm, setSsConfirm] = useState<{ personId: string; navn: string; kanoniskId: string } | null>(null);
   const [picker, setPicker] = useState<{ kind: 'barn' | 'partner' | 'hverv' | 'gods' | 'sammeSom'; familyId?: string } | null>(null);
@@ -720,16 +721,25 @@ export default function Redaktion() {
                       Må publiceres (rettigheder afklaret)
                     </label>
                     <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                      <div onClick={() => {
+                      <div onClick={mediaBusy ? undefined : async () => {
                         if (!mediaForm.titel.trim()) return;
-                        run({ art: 'uploadMedia', subjektType, subjektId, payload: {
-                          ...uploadTarget, slags: mediaForm.slags, titel: mediaForm.titel.trim(),
-                          maaPubliceres: mediaForm.maaPubliceres, file: mediaPick.file, mimeType: mediaPick.file.type,
-                          byteSize: mediaPick.file.size, originalFilnavn: mediaPick.file.name,
-                          storagePath: buildStoragePath(mediaPick.file.type),
-                        } }, 'Materiale');
-                        setMediaPick(null);
-                      }} style={btnGreen}>Gem</div>
+                        setMediaBusy(true);
+                        try {
+                          const { thumb, medium, large } = await buildVariants(mediaPick.file);
+                          run({ art: 'uploadMedia', subjektType, subjektId, payload: {
+                            ...uploadTarget, slags: mediaForm.slags, titel: mediaForm.titel.trim(),
+                            maaPubliceres: mediaForm.maaPubliceres, file: large.file, mimeType: large.mimeType,
+                            byteSize: large.byteSize, bredde: large.bredde, hoejde: large.hoejde,
+                            originalFilnavn: mediaPick.file.name, storagePath: large.storagePath,
+                            varianter: [thumb, medium],
+                          } }, 'Materiale');
+                          setMediaPick(null);
+                        } catch (e) {
+                          setWriteView({ title: 'Materiale fejlede', lines: [], error: oversaetFejl(String((e as Error)?.message ?? e)), done: false, dryRun, direkte: false });
+                        } finally {
+                          setMediaBusy(false);
+                        }
+                      }} style={btnGreen}>{mediaBusy ? 'Behandler…' : 'Gem'}</div>
                       <div onClick={() => setMediaPick(null)} style={btnGhost}>Annullér</div>
                     </div>
                   </div>

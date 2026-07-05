@@ -2,7 +2,7 @@ import { Image } from 'expo-image';
 import { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { BtnLabel, Body, Mono, Serif } from '../Typography';
-import { pickImage, buildStoragePath, type PickedImage } from '../../lib/mediaUpload';
+import { pickImage, buildVariants, type PickedImage } from '../../lib/mediaUpload';
 import { Border, Colors, Radius } from '../../theme/tokens';
 
 const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
@@ -81,19 +81,29 @@ export function MediaUploadSheet({ target, onClose, onGem }: {
               />
             </View>
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
-              <Pressable style={styles.addOpret} onPress={() => {
+              <Pressable style={styles.addOpret} onPress={async () => {
                 if (!titel.trim()) { setFejl('Titel er påkrævet.'); return; }
-                onGem({
-                  ...('afbildetPersonId' in target
-                    ? { afbildetPersonId: target.afbildetPersonId }
-                    : { objektType: target.objektType, objektId: target.objektId }),
-                  slags, titel: titel.trim(), maaPubliceres,
-                  localUri: picked.uri, mimeType: picked.mimeType, byteSize: picked.byteSize,
-                  bredde: picked.width, hoejde: picked.height, originalFilnavn: picked.fileName,
-                  storagePath: buildStoragePath(picked.mimeType),
-                });
-              }}>
-                <BtnLabel color="#fff">Gem</BtnLabel>
+                setFejl(null);
+                setBusy(true);
+                try {
+                  const { thumb, medium, large } = await buildVariants(picked);
+                  onGem({
+                    ...('afbildetPersonId' in target
+                      ? { afbildetPersonId: target.afbildetPersonId }
+                      : { objektType: target.objektType, objektId: target.objektId }),
+                    slags, titel: titel.trim(), maaPubliceres,
+                    localUri: large.uri, mimeType: large.mimeType, byteSize: large.byteSize,
+                    bredde: large.bredde, hoejde: large.hoejde, originalFilnavn: picked.fileName,
+                    storagePath: large.storagePath,
+                    varianter: [thumb, medium],
+                  });
+                } catch {
+                  setFejl('Kunne ikke behandle billedet. Prøv et andet billede.');
+                } finally {
+                  setBusy(false);
+                }
+              }} disabled={busy}>
+                <BtnLabel color="#fff">{busy ? 'Behandler…' : 'Gem'}</BtnLabel>
               </Pressable>
               <Pressable style={styles.addAnnuller} onPress={onClose}>
                 <BtnLabel color={Colors.textMuted}>Annullér</BtnLabel>
