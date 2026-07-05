@@ -153,6 +153,9 @@ describe('TreeView — v2 slægtled-naboer i anker-kolonnen (T6: aktiv-linje-koo
   );
   (peerModel as typeof peerModel & { genCoordsByPerson: unknown }).genCoordsByPerson = {
     A: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: null }],
+    // Far er Annas EGEN forælder i samme linje (naturligt ét slægtled lavere) — bruges til at teste
+    // at en drill IKKE genskriver ankerets egen label (se testen nedenfor).
+    F: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 10, gennem: 10, kuld: null }],
     X: [
       { sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: null },
       { sourceId: '1', linje: 'V', lineageId: '20', parentLineageId: null, lokal: 3, gennem: 3, kuld: null },
@@ -188,6 +191,21 @@ describe('TreeView — v2 slægtled-naboer i anker-kolonnen (T6: aktiv-linje-koo
     // assertion fejle (Codex HIGH-2-regressionstest).
     expect(screen.getByText(/^11\. slægtled · III-linjen$/)).toBeTruthy();
     expect(screen.queryByText(/3\. slægtled · V-linjen/)).toBeNull();
+  });
+
+  it('drill til en bevist forælder ændrer IKKE ankerets egen kombinations-label (activeCoord er bundet til ankeret, ikke det drillede kort — advisor-fund)', () => {
+    render(
+      <TreeView model={peerModel} focusId="A" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} />,
+    );
+    fireEvent.click(screen.getByText('Kolonner'));
+    expect(screen.getByText(/^11\. slægtled · III-linjen$/)).toBeTruthy(); // Annas egen anker-label
+    fireEvent.click(screen.getByText('Far')); // drill op i Forældre-kolonnen — IKKE en re-ankring
+    // Ankeret er STADIG Anna (uændret kort/position). Havde drillet fejlagtigt genskrevet
+    // activeCoord til Fars EGEN koordinat (III/G10, jf. `buildDirection`s fælles
+    // `activeLokal ∓ depth`-formel der bruges til ALLE kolonners labels, ankeret inklusive), ville
+    // ankerets egen label forkert vise "10. slægtled" i stedet for Annas rigtige "11".
+    expect(screen.getByText(/^11\. slægtled · III-linjen$/)).toBeTruthy();
+    expect(screen.queryByText(/^10\. slægtled · III-linjen$/)).toBeNull();
   });
 });
 

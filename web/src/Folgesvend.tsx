@@ -505,11 +505,19 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
   const [up, setUp] = useState<string[]>([]);
   const [down, setDown] = useState<string[]>([]);
   // v2: den aktive linje-koordinat der driver naboer/fallback-retning/labels (design-spec §2).
+  // Sættes KUN ved re-ankring (peer/fallback-klik, `focusWithCoord`) — IKKE ved en almindelig drill
+  // (`selectAncestor`/`selectDescendant`), der bevidst lader ankeret (og dermed activeCoord) stå
+  // urørt: `buildDirection`s labels bruger ÉT `activeLokal` til at udlede ALLE kolonners tal via
+  // `activeLokal ∓ depth`, ankeret ved depth 0 iberegnet — havde en drill genskrevet activeCoord til
+  // det drillede korts EGEN koordinat, ville ankerets EGEN label (stadig samme person) fejlagtigt
+  // vise det drillede korts tal i stedet for ankerets eget (fundet ved advisor-gennemgang under §T6).
   const [activeCoord, setActiveCoord] = useState<ActiveCoord | null>(null);
   const [showAllPeers, setShowAllPeers] = useState(false); // "+N flere i slægtledet" udfoldet
-  // Husker HVILKEN focusId et klik allerede satte activeCoord eksplicit for (peer/proven/fallback-
-  // kort, se `focusWithCoord` nedenfor) — så re-ankrings-effekten nedenfor ikke overskriver den
-  // klik-bevidste linje-kontekst med en generisk laveste-lokal-default (Codex HIGH-2).
+  // Husker HVILKEN focusId et re-ankrings-klik (`focusWithCoord`) allerede satte activeCoord
+  // eksplicit for, så re-ankrings-effekten nedenfor ikke overskriver den klik-bevidste linje-
+  // kontekst med en generisk laveste-lokal-default (Codex HIGH-2). Et re-ankrings-klik-mål er per
+  // definition ALDRIG i up/down/anchorId, så det konsumeres altid på den umiddelbart næste
+  // `!keep`-kørsel — ref'en ryddes derfor UBETINGET dér (ikke kun ved match) som defensiv oprydning.
   const explicitCoordForRef = useRef<string | null>(null);
   const colsRef = useRef<HTMLDivElement>(null);
   const anchorIdxRef = useRef(0);           // indeks på anker-kolonnen (til centrering)
@@ -527,16 +535,23 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
       (up.length === 0 && down.length === 0 && focusId === anchorId) ||
       focusId === up[up.length - 1] ||
       focusId === down[down.length - 1];
+    // `explicitCoordForRef` konsumeres UBETINGET her (ikke kun ved match) som defensiv oprydning:
+    // et re-ankrings-klik-mål er per definition ALDRIG i up/down/anchorId (ellers ville det jo ikke
+    // re-ankre), så det rammer altid denne `!keep`-gren på den umiddelbart næste kørsel — men
+    // ubetinget rydning forhindrer en fremtidig kalder-fejl i at lade en forældet ref overleve ind i
+    // en senere, urelateret navigation (advisor-gennemgang).
+    const cameFromClick = explicitCoordForRef.current === focusId;
+    explicitCoordForRef.current = null;
     if (!keep) {
       setAnchorId(focusId);
       setUp([]); setDown([]);
       setShowAllPeers(false);
-      // Et klik-handler (peer/proven/fallback) satte allerede activeCoord eksplicit for DENNE
-      // focusId → behold den (linje-kontekst fra klikket). Ellers: sand ekstern navigation
-      // (søgning/link/"det er mig") → default til personens laveste-lokal koordinat (§2).
-      if (explicitCoordForRef.current === focusId) {
-        explicitCoordForRef.current = null;
-      } else {
+      // Et re-ankrings-klik (peer/fallback, via `focusWithCoord`) satte allerede activeCoord
+      // eksplicit for DENNE focusId → behold den (linje-kontekst fra klikket). Ellers: sand ekstern
+      // navigation (søgning/link/"det er mig") → default til personens laveste-lokal koordinat (§2).
+      // En almindelig drill (se `selectAncestor`/`selectDescendant`) rører aldrig activeCoord og
+      // holder desuden `keep=true` — den lander derfor aldrig i denne gren.
+      if (!cameFromClick) {
         setActiveCoord(coordFor(model, null, focusId));
       }
     }
@@ -591,8 +606,11 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
   };
   // Drill-valg (variant B). onFocus opdaterer fokus UDEN historik, så detalje-panelet følger valget.
   // Vi udvider up/down KUN med parentsOf/childrenOf-id'er (kanoniske) → frontier-invarianten holder.
-  const selectAncestor = (depth: number, id: string) => { setUp((prev) => prev.slice(0, depth - 1).concat(id)); focusWithCoord(id); };
-  const selectDescendant = (depth: number, id: string) => { setDown((prev) => prev.slice(0, depth - 1).concat(id)); focusWithCoord(id); };
+  // Drill rører BEVIDST ikke activeCoord (kun onFocus) — se activeCoord-state-kommentaren ovenfor:
+  // ankeret (og dermed dets linje-koordinat) ændrer sig ikke ved en drill, kun hvilke dybere
+  // ringe der er valgt.
+  const selectAncestor = (depth: number, id: string) => { setUp((prev) => prev.slice(0, depth - 1).concat(id)); onFocus(id); };
+  const selectDescendant = (depth: number, id: string) => { setDown((prev) => prev.slice(0, depth - 1).concat(id)); onFocus(id); };
   const cols = variant === 'B' && anchorId ? buildBidirectionalColumns(model, anchorId, up, down, model.genCoordsByPerson, activeCoord) : [];
   // "+N flere i slægtledet" udfoldet: erstat den anker-kolonne buildBidirectionalColumns allerede
   // klippede til cap=7, med en uklippet naboliste (genbrug den samme rene `buildAnchorPeers`).
