@@ -1276,10 +1276,12 @@ CREATE OR REPLACE FUNCTION red_bekraeft_media_upload(
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   PERFORM begin_change_set('red_bekraeft_media_upload', format('Bekræftede upload af media %s', p_media_id), 'media', p_media_id);
+  -- upload_status<>'fjernet'-guard (Slice 0h /simplify-fund): et forsinket/gentaget bekræft-kald må
+  -- aldrig genoplive en blødt-slettet række til 'klar' igen.
   UPDATE media SET upload_status='klar',
                    byte_size=coalesce(p_byte_size, byte_size),
                    sha256=coalesce(p_sha256, sha256)
-   WHERE id=p_media_id;
+   WHERE id=p_media_id AND upload_status <> 'fjernet';
 END $$;
 
 -- Kombineret: opret media + afbildet-relation i ÉT change_set. begin_change_set er re-entrant
@@ -1332,6 +1334,18 @@ BEGIN
     FROM (VALUES ('licens', p_licens), ('kildehenvisning', p_kildehenvisning),
                  ('gengivelsestilladelse', p_gengivelsestilladelse)) AS r(felt, val)
     WHERE nullif(btrim(r.val),'') IS NOT NULL;
+END $$;
+
+-- Slice 0h: "slet billede" som blødt fjern — upload_status='fjernet' udelukker mediet fra
+-- media_rettigheder_ok (kræver 'klar') og dermed al anon/auth-synlighed uden ny RLS-politik.
+-- Storage-bytes røres ikke (protect_delete-triggeren kommer aldrig i spil), og media har allerede
+-- trg_log_media — ændringen er gratis fortrydbar via den eksisterende redaktionelle historik.
+CREATE OR REPLACE FUNCTION red_fjern_media(p_media_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_fjern_media', format('Fjernede media %s', p_media_id), 'media', p_media_id);
+  UPDATE media SET upload_status = 'fjernet' WHERE id = p_media_id;
 END $$;
 
 -- =====================================================================

@@ -19,12 +19,14 @@ export type Change = {
      | 'setFamilieOrdinal' | 'flytBarn'
      | 'sammeSom' | 'fjernSammeSom' // redaktionel identitets-sammenkædning (samme_som)
      | 'opretPerson' | 'opretEstate' | 'opretKilde' | 'opretOrganisation' | 'fortryd'
-     | 'uploadMedia'; // mediehåndtering Slice 0g — redaktør-upload (portræt/objekt-foto)
+     | 'uploadMedia' // mediehåndtering Slice 0g — redaktør-upload (portræt/objekt-foto)
+     | 'fjernMedia'; // Slice 0h — blødt fjern (upload_status='fjernet'); unlink går via sletRelation
   subjektType: string;
   subjektId: string;
   assertionId?: string;
   factId?: string;
   relationId?: string;
+  mediaId?: string;
   familyId?: string;
   tilFamilyId?: string;
   personId?: string;
@@ -220,6 +222,13 @@ export function buildRpcCall(c: Change): RpcCall | null {
       args.p_objekt_id = Number(p.objektId);
     }
     return { fn: 'red_upload_media', args };
+  }
+  // Blødt fjern (Slice 0h): sætter upload_status='fjernet', rører aldrig Storage-bytes eller
+  // relationen. At AFKOBLE et billede fra én person (uden at slette det andre steder) er derimod
+  // bare en almindelig 'sletRelation' på den specifikke afbildet-relation (håndteret ovenfor).
+  if (c.art === 'fjernMedia') {
+    if (c.mediaId == null) return null;
+    return { fn: 'red_fjern_media', args: { p_media_id: Number(c.mediaId) } };
   }
   return null;
 }

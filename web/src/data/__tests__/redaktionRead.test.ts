@@ -45,22 +45,28 @@ describe('mapFamilieRows — år på partnere og børn', () => {
   });
 });
 
-describe('mapPersonMediaRows (mediehåndtering Slice 0g)', () => {
-  it('mapper media-rækker til PersonMedia, url fra den signerede Map', () => {
+describe('mapPersonMediaRows (mediehåndtering Slice 0g+0h)', () => {
+  it('mapper media-rækker til PersonMedia, url fra den signerede Map, relationId fra rel-Map', () => {
     const rows = [{ id: 91, slags: 'foto', titel: 'Portræt', storage_path: 'redaktor/a.jpg',
                     upload_status: 'klar', maa_publiceres: true }];
     const signed = new Map([['redaktor/a.jpg', 'https://signed/a.jpg']]);
-    expect(mapPersonMediaRows(rows, signed)).toEqual([{
-      id: '91', slags: 'foto', titel: 'Portræt', storagePath: 'redaktor/a.jpg',
+    const relByMediaId = new Map([['91', '501']]);
+    expect(mapPersonMediaRows(rows, signed, relByMediaId)).toEqual([{
+      id: '91', relationId: '501', slags: 'foto', titel: 'Portræt', storagePath: 'redaktor/a.jpg',
       uploadStatus: 'klar', maaPubliceres: true, url: 'https://signed/a.jpg',
     }]);
   });
-  it('manglende status/slags/maa_publiceres → fail-closed fallback (kladde, false); ingen signering → url null', () => {
+  it('manglende status/slags/maa_publiceres → fail-closed fallback (kladde, false); ingen signering/relation → null/tom', () => {
     const rows = [{ id: 92, slags: null, titel: null, storage_path: null,
                     upload_status: null, maa_publiceres: null }];
     expect(mapPersonMediaRows(rows)).toEqual([{
-      id: '92', slags: '', titel: null, storagePath: null,
+      id: '92', relationId: '', slags: '', titel: null, storagePath: null,
       uploadStatus: 'kladde', maaPubliceres: false, url: null,
     }]);
+  });
+  it('upload_status=fjernet filtreres væk (Slice 0h "slet billede")', () => {
+    const rows = [{ id: 93, slags: 'foto', titel: 'Fjernet', storage_path: 'redaktor/c.jpg',
+                    upload_status: 'fjernet', maa_publiceres: true }];
+    expect(mapPersonMediaRows(rows)).toEqual([]);
   });
 });

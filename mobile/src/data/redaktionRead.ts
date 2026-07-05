@@ -376,42 +376,64 @@ export async function fetchDoedeLinks(): Promise<DoedLink[]> {
   return (data ?? []).map(mapDoedLinkRow);
 }
 
-// --- Medier pr. person (mediehåndtering Slice 0g) ---
+// --- Medier pr. person/objekt (mediehåndtering Slice 0g+0h) ---
 // relation er polymorf uden FK (samme mønster som fakta/relationer ovenfor) — to flade queries:
-// person→media-links (kun til at finde id'erne), så media-rækkerne selv. redaktion_read-RLS viser
-// ALLE upload_status (også 'kladde'), så redaktøren ser egne uploads uanset rettigheds-status.
-// Ingen relationId på PersonMedia (endnu) — intet i UI'en bruger den; tilføjes når en slet/
-// erstat-handling rent faktisk har brug for at pege på selve afbildet-relationen.
+// afbildet-links (til at finde media-id + relation-id), så media-rækkerne selv. redaktion_read-RLS
+// viser ALLE upload_status (også 'kladde'), så redaktøren ser egne uploads uanset rettigheds-status.
+// upload_status='fjernet' (Slice 0h "slet billede") filtreres altid væk her — den ligger stadig i
+// basen (fortrydbar via historik), men skal ikke vises i den almindelige materiale-galleri.
 export type PersonMedia = {
-  id: string; slags: string; titel: string | null; storagePath: string | null;
+  id: string; relationId: string; slags: string; titel: string | null; storagePath: string | null;
   uploadStatus: string; maaPubliceres: boolean;
 };
 type RawPersonMediaRow = { id: number; slags: string | null; titel: string | null;
   storage_path: string | null; upload_status: string | null; maa_publiceres: boolean | null };
 
-export function mapPersonMediaRows(rows: RawPersonMediaRow[]): PersonMedia[] {
-  return rows.map((m) => ({
-    id: String(m.id),
-    slags: m.slags ?? '',
-    titel: m.titel,
-    storagePath: m.storage_path,
-    uploadStatus: m.upload_status ?? 'kladde',
-    maaPubliceres: Boolean(m.maa_publiceres),
-  }));
+export function mapPersonMediaRows(rows: RawPersonMediaRow[], relByMediaId: Map<string, string> = new Map()): PersonMedia[] {
+  return rows
+    .filter((m) => m.upload_status !== 'fjernet')
+    .map((m) => ({
+      id: String(m.id),
+      relationId: relByMediaId.get(String(m.id)) ?? '',
+      slags: m.slags ?? '',
+      titel: m.titel,
+      storagePath: m.storage_path,
+      uploadStatus: m.upload_status ?? 'kladde',
+      maaPubliceres: Boolean(m.maa_publiceres),
+    }));
+}
+
+// Fælles hale: rel-par (media-id + relation-id) → signede/mappede PersonMedia. Retningen af selve
+// relations-forespørgslen (person→media vs. media→objekt) afgøres af kalderne nedenfor.
+async function mediaFromRelPairs(sb: NonNullable<typeof supabase>, pairs: { mediaId: number; relationId: number }[]): Promise<PersonMedia[]> {
+  if (!pairs.length) return [];
+  const relByMediaId = new Map(pairs.map((p) => [String(p.mediaId), String(p.relationId)]));
+  const rows = await getAll<RawPersonMediaRow>(() =>
+    sb.from('media').select('id,slags,titel,storage_path,upload_status,maa_publiceres').in('id', pairs.map((p) => p.mediaId)));
+  return mapPersonMediaRows(rows, relByMediaId);
 }
 
 export async function fetchPersonMedia(id: string): Promise<PersonMedia[]> {
   if (!supabase) return [];
   const sb = supabase;
-  const rels = await getAll<{ objekt_id: number }>(() =>
-    sb.from('relation').select('objekt_id')
+  const rels = await getAll<{ id: number; objekt_id: number }>(() =>
+    sb.from('relation').select('id,objekt_id')
       .eq('subjekt_type', 'person').eq('subjekt_id', Number(id))
       .eq('objekt_type', 'media').eq('rolle', 'afbildet'));
-  if (!rels.length) return [];
-  const mediaIds = rels.map((r) => r.objekt_id);
-  const rows = await getAll<RawPersonMediaRow>(() =>
-    sb.from('media').select('id,slags,titel,storage_path,upload_status,maa_publiceres').in('id', mediaIds));
-  return mapPersonMediaRows(rows);
+  return mediaFromRelPairs(sb, rels.map((r) => ({ mediaId: r.objekt_id, relationId: r.id })));
+}
+
+// Objekt-foto (gods/våben m.fl.): relationen går OMVENDT af person-varianten — media er subjekt,
+// objektet (estate/coat_of_arms) er objekt (jf. red_upload_media's p_objekt_type-gren).
+export async function fetchObjectMediaRed(objektType: string, objektId: string): Promise<PersonMedia[]> {
+  if (!supabase) return [];
+  const sb = supabase;
+  const rels = await getAll<{ id: number; subjekt_id: number }>(() =>
+    sb.from('relation').select('id,subjekt_id')
+      .eq('subjekt_type', 'media')
+      .eq('objekt_type', objektType).eq('objekt_id', Number(objektId))
+      .eq('rolle', 'afbildet'));
+  return mediaFromRelPairs(sb, rels.map((r) => ({ mediaId: r.subjekt_id, relationId: r.id })));
 }
 
 // --- samme_som identitets-links (spec 2026-07-02) ---
