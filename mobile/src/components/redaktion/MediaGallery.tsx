@@ -11,9 +11,13 @@ import { Lightbox } from '../Lightbox';
 // Slet = blødt fjern OVERALT (fjernMedia, upload_status='fjernet'), fortrydbar via historik.
 // Lightbox (Slice A) er selvstændig state her — begge kaldere (person-editor, objekt-materiale)
 // får klik-for-at-forstørre gratis uden selv at holde styr på det.
-export function MediaGallery({ media, mediaUris, onFjern, onSlet }: {
+// mediaThumbUris (billedstørrelser 2026-07-05, Slice B3) er valgfri: kalderen kan udelade den (fx
+// hvis ingen thumb-variant er hentet), hvorved galleriet falder tilbage til den fulde ('large') uri
+// — samme fallback-kontrakt som web's thumbUrl.
+export function MediaGallery({ media, mediaUris, mediaThumbUris = {}, onFjern, onSlet }: {
   media: PersonMedia[];
   mediaUris: Record<string, string>;
+  mediaThumbUris?: Record<string, string>;
   onFjern: (m: PersonMedia) => void;
   onSlet: (m: PersonMedia) => void;
 }) {
@@ -31,7 +35,7 @@ export function MediaGallery({ media, mediaUris, onFjern, onSlet }: {
         <View key={m.id} style={{ width: 96 }}>
           {mediaUris[m.id] ? (
             <Pressable onPress={() => setLightbox(lightboxItems.findIndex((x) => x.id === m.id))}>
-              <Image source={{ uri: mediaUris[m.id] }} style={styles.mediaThumb} contentFit="cover" />
+              <Image source={{ uri: mediaThumbUris[m.id] ?? mediaUris[m.id] }} style={styles.mediaThumb} contentFit="cover" />
             </Pressable>
           ) : (
             <View style={styles.mediaThumb} />

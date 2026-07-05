@@ -12,8 +12,8 @@
 --  Forudsætning: db-migrations.sql + db-rls.sql kørt, og (til Task 12b) en
 --  privat 'media'-bucket oprettet. Alle blokke seeder negative-id testrækker
 --  og rydder selv op i én transaktion.
---  Forvent 3 NOTICE'er: 'OK: media-gating', 'OK: media rettigheds-gating',
---  'OK: storage.objects-politikker' (12b springes over hvis bucket mangler).
+--  Forvent 4 NOTICE'er: 'OK: media-gating', 'OK: media rettigheds-gating',
+--  'OK: storage.objects-politikker' (12b springes over hvis bucket mangler), 'OK: media_variant ...'.
 -- =====================================================================
 
 -- ===== Task 8: media afbildet-gating (anon) =====
@@ -150,4 +150,46 @@ BEGIN
   DELETE FROM storage.objects WHERE bucket_id='media' AND name IN ('test/klar.jpg','test/spaerret.jpg','test/orphan.jpg');
   DELETE FROM media WHERE id IN (-921,-922);
   RAISE NOTICE 'OK: storage.objects-politikker (klar synlig anon+medlem; spærret + forældreløs skjult for begge)';
+END $$;
+
+
+-- ===== Task 13: media_variant — arver forælderens gating + storage-mapping (billedstørrelser/
+-- lightbox 2026-07-05, Slice B1) =====
+-- Verificerer at en variant-række (thumb/medium) ALDRIG er synlig uafhængigt af sin media-forælder:
+--   · forælder 'klar'+maa_publiceres   → variant synlig for anon
+--   · forælder 'fjernet' (blødt slettet) → variant SKJULT, selvom variant-rækken selv er uændret
+-- Plus at media_id_for_object nu resolver BÅDE base-media-stier og variant-stier korrekt.
+DO $$
+DECLARE vis_klar int; vis_fjernet int; map_variant bigint; map_base bigint;
+BEGIN
+  DELETE FROM media_variant WHERE id IN (-931,-932);
+  DELETE FROM media WHERE id IN (-931,-932);
+  INSERT INTO media(id, slags, titel, maa_publiceres, upload_status, bucket, storage_path) VALUES
+    (-931,'foto','med-thumb-klar',   true,'klar',   'media','test/base-klar.jpg'),
+    (-932,'foto','med-thumb-fjernet',true,'fjernet','media','test/base-fjernet.jpg');
+  INSERT INTO media_variant(id, media_id, tier, storage_path) VALUES
+    (-931,-931,'thumb','test/thumb-klar.jpg'),
+    (-932,-932,'thumb','test/thumb-fjernet.jpg');
+
+  SET LOCAL ROLE anon;
+  SELECT count(*) INTO vis_klar    FROM media_variant WHERE id = -931;
+  SELECT count(*) INTO vis_fjernet FROM media_variant WHERE id = -932;
+  RESET ROLE;
+
+  IF NOT (vis_klar = 1 AND vis_fjernet = 0) THEN
+    RAISE EXCEPTION 'media_variant-gating FEJL: klar-forælder=% (vent 1), fjernet-forælder=% (vent 0)',
+      vis_klar, vis_fjernet;
+  END IF;
+
+  -- media_id_for_object: variant-sti → forælderens media_id; base-sti fortsat uændret.
+  SELECT public.media_id_for_object('test/thumb-klar.jpg') INTO map_variant;
+  SELECT public.media_id_for_object('test/base-klar.jpg')  INTO map_base;
+  IF map_variant IS DISTINCT FROM -931 OR map_base IS DISTINCT FROM -931 THEN
+    RAISE EXCEPTION 'media_id_for_object FEJL: variant-sti→% (vent -931), base-sti→% (vent -931)',
+      map_variant, map_base;
+  END IF;
+
+  DELETE FROM media_variant WHERE id IN (-931,-932);
+  DELETE FROM media WHERE id IN (-931,-932);
+  RAISE NOTICE 'OK: media_variant arver forælderens gating (klar synlig, fjernet skjult) + media_id_for_object løser begge stityper';
 END $$;

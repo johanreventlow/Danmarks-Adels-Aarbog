@@ -10,7 +10,8 @@ export type MediaItem = {
   titel: string;
   kunstner: string;
   datering: string;
-  url: string | null; // kortlivet signed URL (null hvis signering fejlede/ikke offentlig)
+  url: string | null; // kortlivet signed URL til FULD størrelse ('large' — media-rækkens egen storage_path)
+  thumbUrl: string | null; // 'thumb'-variant (billedstørrelser 2026-07-05, Slice B3); falder tilbage til url hvis ingen findes
 };
 
 type RawMediaRow = {
@@ -61,21 +62,43 @@ export async function signPaths(paths: string[]): Promise<Map<string, string>> {
   return out;
 }
 
+// Billedstørrelser (2026-07-05, Slice B3): 'thumb'-stien pr. media-id — kun thumb ('medium' bruges
+// endnu ikke af nogen læser, tilføjes når Slice C indlejrer billeder i narrativer). Delt af
+// loadMediaItems herunder og redaktionRead.ts's mediaFromRelPairs (/simplify-fund: de to havde hver
+// deres kopi af samme fetch+map, som allerede var driftet til hhv. number- og string-nøglede Maps).
+export async function fetchThumbPathByMediaId(mediaIds: number[]): Promise<Map<string, string>> {
+  if (!mediaIds.length) return new Map();
+  const variants = await getAll<{ media_id: number; storage_path: string }>(() =>
+    supabase.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb').in('media_id', mediaIds));
+  return new Map(variants.map((v) => [String(v.media_id), v.storage_path]));
+}
+
 // Fælles: hent media-rækker for et sæt id'er, signér, og map til MediaItem (rækkefølge = mediaIds).
+// Rækker fra FØR Slice B har ingen variant-række; thumbUrl falder da tilbage til den fulde url.
 async function loadMediaItems(mediaIds: number[]): Promise<MediaItem[]> {
   if (!mediaIds.length) return [];
-  const rows = await getAll<RawMediaRow>(() =>
-    supabase.from('media').select('id,slags,titel,kunstner,datering,storage_path').in('id', mediaIds));
-  const signed = await signPaths(rows.map((r) => r.storage_path ?? '').filter(Boolean));
+  const [rows, thumbPathByMediaId] = await Promise.all([
+    getAll<RawMediaRow>(() =>
+      supabase.from('media').select('id,slags,titel,kunstner,datering,storage_path').in('id', mediaIds)),
+    fetchThumbPathByMediaId(mediaIds),
+  ]);
+  const signed = await signPaths([
+    ...rows.map((r) => r.storage_path ?? ''),
+    ...thumbPathByMediaId.values(),
+  ].filter(Boolean));
   const byId = new Map(rows.map((r) => [r.id, r]));
   return mediaIds
     .map((id) => byId.get(id))
     .filter((r): r is RawMediaRow => !!r)
-    .map((r) => ({
-      id: String(r.id), slags: r.slags ?? '', titel: r.titel ?? '',
-      kunstner: r.kunstner ?? '', datering: r.datering ?? '',
-      url: r.storage_path ? signed.get(r.storage_path) ?? null : null,
-    }));
+    .map((r) => {
+      const url = r.storage_path ? signed.get(r.storage_path) ?? null : null;
+      const thumbPath = thumbPathByMediaId.get(String(r.id));
+      return {
+        id: String(r.id), slags: r.slags ?? '', titel: r.titel ?? '',
+        kunstner: r.kunstner ?? '', datering: r.datering ?? '',
+        url, thumbUrl: (thumbPath ? signed.get(thumbPath) : null) ?? url,
+      };
+    });
 }
 
 // Én batchet primitiv for BEGGE retninger af 'afbildet' (retningen er en parameter, ikke en forket

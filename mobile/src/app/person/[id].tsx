@@ -91,7 +91,7 @@ export default function PersonScreen() {
         <View style={styles.header}>
           {portraitItem ? (
             <Pressable onPress={() => setLightbox(0)}>
-              <Image source={{ uri: portraitItem.uri }} style={{ width: 96, height: 120, borderRadius: 12 }} contentFit="cover" transition={150} />
+              <Image source={{ uri: portraitItem.thumbUri }} style={{ width: 96, height: 120, borderRadius: 12 }} contentFit="cover" transition={150} />
             </Pressable>
           ) : (
             <StripedPlaceholder width={96} height={120} radius={12} label="portræt" />
@@ -240,10 +240,10 @@ export default function PersonScreen() {
         <Section title="Materiale">
           {gallery.length ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 9 }}>
-              {gallery.map(({ media: m, uri }) => (
+              {gallery.map(({ media: m, thumbUri }) => (
                 <Pressable key={String(m.id)} onPress={() => setLightbox(lightboxItems.findIndex((x) => x.id === String(m.id)))}>
                   <Image
-                    source={{ uri }}
+                    source={{ uri: thumbUri }}
                     style={{ width: 108, height: 108, borderRadius: 10, backgroundColor: Colors.beige2 }}
                     contentFit="cover"
                     transition={150}

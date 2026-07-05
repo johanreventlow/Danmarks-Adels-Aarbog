@@ -134,6 +134,7 @@ export async function loadFromSupabase(opts?: {
     estates,
     orgs,
     media,
+    mediaVariants,
     lineage,
     arms,
     sameAsRel,
@@ -169,6 +170,11 @@ export async function loadFromSupabase(opts?: {
       getAll<RawEstate>(() => sb.from('estate').select('id,navn,slags,sted_id')),
       getAll<RawOrg>(() => sb.from('organisation').select('id,navn,slags')),
       getAll<RawMedia>(() => sb.from('media').select('*')),
+      // Billedstørrelser (2026-07-05, Slice B3): kun 'thumb' — 'medium' bruges endnu ikke af nogen
+      // læser. Tolerant: tabellen kan mangle på en ikke-migreret base (samme mønster som lineage/arms).
+      getAll<{ media_id: number; storage_path: string }>(() =>
+        sb.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb'),
+      ).catch(() => [] as { media_id: number; storage_path: string }[]),
       // Tolerant: lineage-tabellen findes måske ikke endnu (migration ej kørt) → tom = fallback til 'Linje {kode}'.
       getAll<RawLineage>(() => sb.from('lineage').select('id,source_id,kode,navn,parent_lineage_id')).catch(() => [] as RawLineage[]),
       // Tolerant: coat_of_arms-tabellen findes måske ikke endnu.
@@ -286,8 +292,17 @@ export async function loadFromSupabase(opts?: {
   }
   const db = collapsed.db;
 
+  // Billedstørrelser (Slice B3): berig hver media-række med sin thumb-variants sti (hvis nogen) —
+  // downstream (buildAux/lib/media.ts) forbruger dermed bare ét ekstra felt på RawMedia i stedet
+  // for at kende til media_variant-tabellen. Ingen match (rækker fra før Slice B) → felt udelades.
+  const thumbPathByMediaId = new Map((mediaVariants || []).map((v) => [String(v.media_id), v.storage_path]));
+  const mediaEnriched = (media || []).map((m) => {
+    const thumb = thumbPathByMediaId.get(String(m.id));
+    return thumb ? { ...m, thumb_storage_path: thumb } : m;
+  });
+
   const aux = buildAux(
-    { extIds, sources, relations, estates, orgs, media, lineage, arms },
+    { extIds, sources, relations, estates, orgs, media: mediaEnriched, lineage, arms },
     collapsed.canonicalIdById,
   );
 
