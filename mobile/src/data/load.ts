@@ -4,6 +4,7 @@
 import { supabase, supabaseEnabled } from '../lib/supabase';
 import { buildAux } from './buildAux';
 import { buildGeo } from './buildGeo';
+import { buildGenCoords, type GenCoord } from './generations';
 import { collapseSameAs } from './collapseSameAs';
 import { pickPreferredBio, type NarrativeCand } from './pickPreferredBio';
 import { fmtYears, parseYear } from './fields';
@@ -70,6 +71,9 @@ export type LoadResult = {
   mergedFrom: Record<string, Provenance[]>;
   // Geo-lag (kortpunkter) — tomt indtil koordinat-berigelsen (tng_places + geokodning) er kørt.
   geo: Geo;
+  // Generations-koordinater pr. kanonisk person-id (slægtled_lokal/gennem + kuld pr. linje).
+  // Bruges af tree-byggerens hul-reparation (Task C1); spejler web/src/data/model.ts (Task B2).
+  genCoordsByPerson: Record<string, GenCoord[]>;
 };
 
 export function mapAppPersons(
@@ -148,9 +152,13 @@ export async function loadFromSupabase(opts?: {
           .select('id,subjekt_id,subjekt_type,tekst,privat,source_id')
           .eq('subjekt_type', 'person'),
       ),
+      // Linje/nr + slægtled-koordinater pr. person — tolerant: kolonnerne kan mangle på en
+      // ikke-migreret base. Uden .catch ville en manglende kolonne fælde HELE Promise.all'et og
+      // erstatte det levende datasæt med det indlejrede SEED (F1, dual-review 2026-07-05) —
+      // degrader i stedet til "ingen linje/generations-data" som web's model.ts-pendant.
       getAll<RawExtId>(() =>
-        sb.from('person_external_id').select('person_id,source_id,linje,nr'),
-      ),
+        sb.from('person_external_id').select('person_id,source_id,linje,nr,slaegtled_lokal,slaegtled_gennem,kuld'),
+      ).catch((e) => { console.warn('[loadFromSupabase] person_external_id utilgængelig — linjer/generationer degraderet:', e); return [] as RawExtId[]; }),
       getAll<RawSource>(() => sb.from('source').select('id,slags,titel,udgave,aar,ekstern')),
       getAll<RawRelation>(() =>
         sb
@@ -162,7 +170,7 @@ export async function loadFromSupabase(opts?: {
       getAll<RawOrg>(() => sb.from('organisation').select('id,navn,slags')),
       getAll<RawMedia>(() => sb.from('media').select('*')),
       // Tolerant: lineage-tabellen findes måske ikke endnu (migration ej kørt) → tom = fallback til 'Linje {kode}'.
-      getAll<RawLineage>(() => sb.from('lineage').select('source_id,kode,navn')).catch(() => [] as RawLineage[]),
+      getAll<RawLineage>(() => sb.from('lineage').select('id,source_id,kode,navn,parent_lineage_id')).catch(() => [] as RawLineage[]),
       // Tolerant: coat_of_arms-tabellen findes måske ikke endnu.
       getAll<RawArms>(() => sb.from('coat_of_arms').select('id,blasonering,note')).catch(() => [] as RawArms[]),
       // samme_som-relationer (person→person). Kanterne er retningsbestemte: subjekt=alias, objekt=kanonisk.
@@ -290,6 +298,8 @@ export async function loadFromSupabase(opts?: {
     collapsed.canonicalIdById,
   );
 
+  const genCoordsByPerson = buildGenCoords(extIds, lineage, collapsed.canonicalIdById);
+
   // Vælg fornuftige start-id'er (flest børn = midt i træet) — på den COLLAPSED db, så et start-id
   // aldrig peger på et foldet alias.
   const childSet = new Set(db.parentChild.map((e) => e.child));
@@ -318,5 +328,6 @@ export async function loadFromSupabase(opts?: {
     canonicalIdById: collapsed.canonicalIdById,
     mergedFrom: collapsed.mergedFrom,
     geo,
+    genCoordsByPerson,
   };
 }

@@ -111,3 +111,53 @@ describe('buildBidirectionalColumns', () => {
     expect(new Set(keys).size).toBe(keys.length); // ingen dublet-keys (ancestor:1 ≠ descendant:1)
   });
 });
+
+describe('fallback-ring', () => {
+  // Minimal model: anker P (V, lokal 1, founder) uden beviste forældre; to naboer i III lokal 11.
+  // genCoords sendes som EKSPLICIT 5. arg — IKKE på model (jf. post-B3 design-justering: mobils
+  // Model bærer bevidst ikke genCoordsByPerson; byggeren skal være platform-agnostisk).
+  const fbModel = buildModel(db([P('P'), P('A'), P('B')], []));
+
+  it('bygger en founder-hop fallback-ring når aner-ringen er tom', () => {
+    const genCoords = {
+      // Founder P = collapset V-1 + III-58 → bærer BEGGE koordinater (coalescer aldrig).
+      P: [
+        { sourceId: '1', linje: 'V', lineageId: '50', parentLineageId: '10', lokal: 1, gennem: 12, kuld: null },
+        { sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 12, gennem: 12, kuld: null },
+      ],
+      A: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: 'I' }],
+      B: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: 'II' }],
+    };
+    const cols = buildBidirectionalColumns(fbModel, 'P', [], [], genCoords);
+    const fb = cols.find((c) => c.fallback);
+    expect(fb).toBeDefined();
+    expect(fb!.people.map((p) => p.id).sort()).toEqual(['A', 'B']);
+    expect(fb!.genLabel).toContain('slægtled');
+    expect(fb!.kuldGroups?.['I']?.map((p) => p.id)).toEqual(['A']);
+    expect(fb!.kuldGroups?.['II']?.map((p) => p.id)).toEqual(['B']);
+  });
+
+  it('uden genCoords: ingen fallback-ring (bagudkompatibel 4-arg-kald)', () => {
+    const cols = buildBidirectionalColumns(fbModel, 'P', [], []);
+    expect(cols.find((c) => c.fallback)).toBeUndefined();
+  });
+
+  it('scoper ringen til samme kilde (udgave) — samme (linje,lokal) men anden sourceId medtages IKKE (F2, dual-review 2026-07-05)', () => {
+    const fbModel2 = buildModel(db([P('P'), P('A'), P('B'), P('D')], []));
+    const genCoords = {
+      P: [
+        { sourceId: '1', linje: 'V', lineageId: '50', parentLineageId: '10', lokal: 1, gennem: 12, kuld: null },
+        { sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 12, gennem: 12, kuld: null },
+      ],
+      A: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: 'I' }],
+      B: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: 'II' }],
+      // Samme (linje, lokal) som A/B, men en ANDEN udgave (sourceId '2') — en anden trykt DAA-
+      // udgaves "linje III, slægtled 11" må ikke smelte sammen med P's egen udgaves ring.
+      D: [{ sourceId: '2', linje: 'III', lineageId: '99', parentLineageId: null, lokal: 11, gennem: 11, kuld: 'I' }],
+    };
+    const cols = buildBidirectionalColumns(fbModel2, 'P', [], [], genCoords);
+    const fb = cols.find((c) => c.fallback);
+    expect(fb).toBeDefined();
+    expect(fb!.people.map((p) => p.id).sort()).toEqual(['A', 'B']);
+  });
+});
