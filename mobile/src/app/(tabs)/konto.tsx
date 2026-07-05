@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { InitialBadge } from '../../components/InitialBadge';
+import { PersonPicker } from '../../components/PersonPicker';
 import { TopBar } from '../../components/TopBar';
 import { LoginSheet } from '../../components/redaktion/LoginSheet';
 import { Body, BtnLabel, Mono, Serif } from '../../components/Typography';
@@ -15,8 +16,15 @@ export default function Konto() {
   const session = useStore((s) => s.session);
   const rolle = useStore((s) => s.rolle);
   const doSignOut = useStore((s) => s.doSignOut);
+  const model = useStore((s) => s.model);
+  const meId = useStore((s) => s.meId);
+  const setMe = useStore((s) => s.setMe);
+  const canonicalId = useStore((s) => s.canonicalId);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const email = session?.user?.email ?? '';
+  const meCanonical = meId ? canonicalId(meId) : null;
+  const me = meCanonical && model ? model.byId[meCanonical] : null;
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
@@ -45,6 +53,24 @@ export default function Konto() {
           </View>
         )}
 
+        {model ? (
+          <View style={styles.card}>
+            <Serif size={16}>Hvem er du i slægten?</Serif>
+            {me ? (
+              <View style={styles.meRow}>
+                <Body>{me.name}</Body>
+                <Pressable onPress={() => setPickerOpen(true)} hitSlop={8}>
+                  <BtnLabel size={12} color={Colors.bordeaux}>Skift</BtnLabel>
+                </Pressable>
+              </View>
+            ) : (
+              <Pressable style={styles.pickBtn} onPress={() => setPickerOpen(true)}>
+                <BtnLabel color={Colors.ink}>Vælg hvem du er i slægten</BtnLabel>
+              </Pressable>
+            )}
+          </View>
+        ) : null}
+
         {session && rolle === 'redaktion' ? (
           <Pressable style={styles.redaktionBtn} onPress={() => router.push('/redaktion')}>
             <BtnLabel color="#fff">Gå til redaktion</BtnLabel>
@@ -58,6 +84,12 @@ export default function Konto() {
         ) : null}
       </ScrollView>
       <LoginSheet visible={loginOpen} onClose={() => setLoginOpen(false)} />
+      <PersonPicker
+        visible={pickerOpen}
+        title="Vælg hvem du er i slægten"
+        onClose={() => setPickerOpen(false)}
+        onPick={(id) => { setMe(id); setPickerOpen(false); }}
+      />
     </View>
   );
 }
@@ -67,6 +99,9 @@ const styles = StyleSheet.create({
     borderRadius: Radius.card, padding: 16, marginBottom: 12 },
   loginBtn: { backgroundColor: Colors.goldLight, borderRadius: Radius.field, padding: 12,
     alignItems: 'center', marginTop: 12 },
+  meRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
+  pickBtn: { borderWidth: 1.5, borderColor: Border.medium, borderRadius: Radius.field,
+    paddingVertical: 12, alignItems: 'center', marginTop: 8 },
   redaktionBtn: { backgroundColor: Colors.bordeaux, borderRadius: Radius.field, padding: 14,
     alignItems: 'center', marginBottom: 12 },
   logout: { borderWidth: 1, borderColor: 'rgba(138,43,43,0.3)', borderRadius: Radius.field,

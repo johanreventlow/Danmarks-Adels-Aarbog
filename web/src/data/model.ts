@@ -2,13 +2,14 @@
 // → buildModel. Lean udgave af mobile/src/data/load.ts (kun det stamtræ + slægtskabsfinder
 // behøver — ikke Aux/godser/våben). Rolle-vokab: partner = forælder-par, barn = blodslægt.
 import { supabase } from '../supabase';
+import { buildGeo } from './buildGeo';
 import { buildModel } from './buildModel';
 import { collapseSameAs } from './collapseSameAs';
 import { buildLineage } from './lineage';
 import { buildSources } from './sources';
 import { fmtYears, parseYear } from './fields';
 import { getAll } from './paginate';
-import { normalizeKoen, normalizeKonfidens, type AppPerson, type Db, type Model, type ModelPerson, type ParentChild, type RawExtId, type RawLineage, type RawSource, type Union } from './types';
+import { normalizeKoen, normalizeKonfidens, type AppPerson, type Db, type Model, type ModelPerson, type ParentChild, type RawEstate, type RawExtId, type RawFact, type RawLineage, type RawPlace, type RawSource, type Union } from './types';
 
 const PARTNER_ROLLER = ['partner'];
 // KUN blodslægt ('barn') bliver en forælder→barn-kant — matcher mobile/src/data/load.ts og
@@ -58,7 +59,7 @@ export function compareParentOrder(
 // model.byId) stampet på. collapse: default true; redaktion slår FRA (collapse:false) for at slå
 // navne op på de rå DB-poster (et foldet alias ville ellers mangle i model.byId) — spec §8.
 export async function loadModel(opts?: { collapse?: boolean }): Promise<Model> {
-  const [persons, members, extIds, lineageRows, sources, sameAsRel, approvedConc] = await Promise.all([
+  const [persons, members, extIds, lineageRows, sources, sameAsRel, approvedConc, estates, places, facts] = await Promise.all([
     getAll<RawPerson>(() => supabase.from('person').select('id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_titel,koen,privat')),
     getAll<RawMember>(() => supabase.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens')),
     // Linje/nr pr. person (grene) — tolerant: tabellen/kolonnerne kan mangle i ældre baser.
@@ -77,6 +78,12 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<Model> {
     getAll<{ target_id: number | string }>(() =>
       supabase.from('conclusion').select('target_id').eq('target_type', 'relation').eq('status', 'afklaret'),
     ).catch((e) => { console.warn('[loadModel] conclusion utilgængelig — ingen collapse:', e); return [] as { target_id: number | string }[]; }),
+    // Geo-lag: godser m. sted, steder m. koordinater, geo-bærende fakta. Alt tolerant (tomt =
+    // ingen kortpunkter). place.not('lat',...) → 0 rækker/ét round-trip før berigelse; .order('id')
+    // giver stabil paginering når place >1000 rækker (tng_places ~6.788) efter berigelse.
+    getAll<RawEstate>(() => supabase.from('estate').select('id,navn,slags,sted_id')).catch((e) => { console.warn('[loadModel] estate utilgængelig — ingen godskort:', e); return [] as RawEstate[]; }),
+    getAll<RawPlace>(() => supabase.from('place').select('id,navn,lat,lon').not('lat', 'is', null).order('id')).catch((e) => { console.warn('[loadModel] place utilgængelig — intet geo:', e); return [] as RawPlace[]; }),
+    getAll<RawFact>(() => supabase.from('fact').select('subjekt_type,subjekt_id,faktatype,sted_id').not('sted_id', 'is', null).order('id')).catch((e) => { console.warn('[loadModel] fact utilgængelig — intet geo:', e); return [] as RawFact[]; }),
   ]);
 
   const appPersons: AppPerson[] = persons.map((p) => ({
@@ -141,6 +148,11 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<Model> {
     lineage: buildLineage(extIds, lineageRows, collapsed.canonicalIdById),
     sourcesBy: buildSources(extIds, sources, collapsed.canonicalIdById),
     canonicalIdById: collapsed.canonicalIdById,
+    // Geo-lag bygget på den COLLAPSED + (RLS-)privat-filtrerede db.persons — samme mønster som mobile.
+    geo: buildGeo(
+      { facts, estates, places, persons: collapsed.db.persons, unions: collapsed.db.unions },
+      collapsed.canonicalIdById,
+    ),
   };
   // Påfør proveniens på de foldede kanoniske personer (til badge i detalje-panelet).
   for (const [canon, prov] of Object.entries(collapsed.mergedFrom)) {

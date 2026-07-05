@@ -4,6 +4,7 @@
 // staging (red_suggest). Dry-run viser hvad der sendes; live skriver. Pixel-tro mod designet,
 // men struktur er ren React (ikke prototypens DCLogic).
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { navigate, usePath } from './router';
 import { signIn, signOut, currentSession, type RedSession } from './data/auth';
 import {
   fetchRedaktionPersoner, fetchPersonEvidence, fetchPersonNarrativer, fetchSources, fetchSletPreview,
@@ -64,6 +65,17 @@ const kildeAf = (o: Oplysning): string => {
   return [k.sourceTitel, k.side].filter(Boolean).join(', ') || 'ingen kilde';
 };
 
+// URL-grammatik (matcher web/vercel.json's SPA-fallback + allerede etableret navngivning i
+// mobile/src/app/redaktion/): /redaktion → entity 'person', intet recordId · /redaktion/:entity
+// → entity, intet recordId · /redaktion/:entity/:id → entity + recordId.
+function parseRedaktionPath(path: string): { entity: string; recordId: string | null } {
+  const seg = path.split('/').filter(Boolean); // ['redaktion', entity?, id?]
+  return { entity: seg[1] || 'person', recordId: seg[2] || null };
+}
+function redaktionPath(entity: string, recordId: string | null): string {
+  return recordId ? `/redaktion/${entity}/${recordId}` : `/redaktion/${entity}`;
+}
+
 // Indsæt fonte + base-styles én gang (svarer til designets <helmet>).
 function useDesignHead() {
   useEffect(() => {
@@ -80,11 +92,15 @@ function useDesignHead() {
 
 export default function Redaktion() {
   useDesignHead();
+  const path = usePath();
   const [session, setSession] = useState<RedSession | null>(null);
   const [dryRun, setDryRun] = useState(true);
   const [showAnno, setShowAnno] = useState(true);
-  const [entity, setEntity] = useState('person');
-  const [recordId, setRecordId] = useState<string | null>(null);
+  // Initialiseres synkront fra URL'en (deep link, fx /redaktion/person/123) — overlever login-
+  // flowet uændret, jf. recordId-auto-default nedenfor der KUN fylder et tomt felt (cur ?? …).
+  const initialPath = parseRedaktionPath(window.location.pathname);
+  const [entity, setEntity] = useState(() => initialPath.entity);
+  const [recordId, setRecordId] = useState<string | null>(() => initialPath.recordId);
   const [query, setQuery] = useState('');
   // Person-browse (spejler Følgesvend §9.1/§9.2): sortér (navn/fødeår), alfabet-hop, linje-filter.
   const [browseSort, setBrowseSort] = useState<'navn' | 'aar'>('navn');
@@ -146,6 +162,25 @@ export default function Redaktion() {
   }, []);
   // Kilde-liste (udgave-picker) er person-uafhængig → hentes én gang. opretUdgave refresher selv.
   useEffect(() => { fetchSources().then(setSources).catch(() => setSources([])); }, []);
+
+  // Skift entitets-fane (sidebar-nav) — rydder valgt record + søgefelt, matcher original adfærd.
+  const goToEntity = (e: string) => {
+    setEntity(e); setRecordId(null); setQuery('');
+    navigate(redaktionPath(e, null));
+  };
+  // Åbn en bestemt record (record-liste-klik + "Åbn person"-links i familie/relations-visningen).
+  const openRecord = (e: string, id: string) => {
+    setEntity(e); setRecordId(id);
+    navigate(redaktionPath(e, id));
+  };
+  // Synkroniserer entity/recordId med den AKTUELLE URL (usePath() reagerer BÅDE på egne
+  // navigate()-kald OG på browserens back/forward — /simplify-fund: erstatter en hånd-rullet
+  // window.addEventListener('popstate', …) med den delte hook router.ts allerede eksponerer).
+  useEffect(() => {
+    const p = parseRedaktionPath(path);
+    setEntity(p.entity);
+    setRecordId(p.recordId);
+  }, [path]);
 
   // Records for aktuel entitet (person = live person-liste; øvrige = lazy fetch + cache).
   const records: EntityRecord[] = useMemo(() => {
@@ -364,7 +399,7 @@ export default function Redaktion() {
         {ENTITIES.map((e) => {
           const active = e.key === entity;
           return (
-            <div key={e.key} onClick={() => { setEntity(e.key); setRecordId(null); setQuery(''); }} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 10px', borderRadius: 9, cursor: 'pointer', background: active ? T.paper : 'transparent', marginBottom: 2 }}>
+            <div key={e.key} onClick={() => goToEntity(e.key)} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 10px', borderRadius: 9, cursor: 'pointer', background: active ? T.paper : 'transparent', marginBottom: 2 }}>
               <span style={{ width: 24, height: 24, borderRadius: 6, background: active ? T.bordeaux : T.beige, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: active ? T.paperText : '#8a8170' }}>{e.icon}</span>
               <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: active ? T.ink : '#3d382f' }}>{e.label}</span>
               <span style={{ fontFamily: T.mono, fontSize: 9.5, color: active ? T.bordeaux : T.muted3 }}>{e.key === 'person' ? persons.length || '' : (recCache[e.key]?.length ?? '')}</span>
@@ -381,7 +416,7 @@ export default function Redaktion() {
     const b = personBrowse; // non-null ⇔ entity === 'person' (fungerer som person-diskriminator)
     // Fælles liste-række (person + generiske entiteter): round = avatar-form, tail = valgfrit suffiks.
     const listRow = (o: { id: string; badge: string; label: string; sub: string; round: number | string; tail?: ReactNode }) => (
-      <div key={o.id} onClick={() => setRecordId(o.id)} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 9px', borderRadius: 9, cursor: 'pointer', background: o.id === recordId ? '#efe7d7' : 'transparent' }}>
+      <div key={o.id} onClick={() => openRecord(entity, o.id)} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 9px', borderRadius: 9, cursor: 'pointer', background: o.id === recordId ? '#efe7d7' : 'transparent' }}>
         <span style={{ width: 30, height: 30, borderRadius: o.round, background: T.beige, border: '1px solid rgba(34,31,26,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 12, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{o.badge}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontFamily: T.serif, fontSize: 15.5, fontWeight: 600, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.label}</div>
@@ -774,7 +809,7 @@ export default function Redaktion() {
                       {u.type || 'partnerskab'} ·{' '}
                       {u.partnere.length ? u.partnere.map((p, idx) => (
                         <span key={p.personId}>
-                          <span onClick={() => setRecordId(p.personId)} title="Åbn person" style={{ color: T.bordeaux, cursor: 'pointer' }}>{p.navn}</span>
+                          <span onClick={() => openRecord('person', p.personId)} title="Åbn person" style={{ color: T.bordeaux, cursor: 'pointer' }}>{p.navn}</span>
                           {p.aar ? <span style={{ color: T.muted3, fontWeight: 500 }}> ({p.aar})</span> : null}
                           {idx < u.partnere.length - 1 ? ', ' : ''}
                         </span>
@@ -797,7 +832,7 @@ export default function Redaktion() {
                         <span onClick={() => setFlytBarn({ fraFamilyId: u.familyId, personId: b.personId, rolle: b.rolle, navn: b.navn })}
                           style={{ fontFamily: T.mono, fontSize: 9, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>flyt→</span>
                       </>,
-                      () => setRecordId(b.personId));
+                      () => openRecord('person', b.personId));
                   })}
                 </div>
               ))}
@@ -807,7 +842,7 @@ export default function Redaktion() {
                   <span style={{ fontFamily: T.serif, fontSize: 15, fontWeight: 600 }}>
                     {sb.foraeldre.length ? sb.foraeldre.map((f, j) => (
                       <span key={f.personId}>
-                        <span onClick={() => setRecordId(f.personId)} title="Åbn person" style={{ color: T.bordeaux, cursor: 'pointer' }}>{f.navn}</span>
+                        <span onClick={() => openRecord('person', f.personId)} title="Åbn person" style={{ color: T.bordeaux, cursor: 'pointer' }}>{f.navn}</span>
                         {j < sb.foraeldre.length - 1 ? ' & ' : ''}
                       </span>
                     )) : '(ukendt)'}
