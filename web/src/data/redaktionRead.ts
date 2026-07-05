@@ -387,31 +387,39 @@ export async function fetchSammeSomLinks(personId: string): Promise<SammeSomLink
 // den almindelige materiale-galleri.
 export type PersonMedia = {
   id: string; relationId: string; slags: string; titel: string | null; storagePath: string | null;
-  uploadStatus: string; maaPubliceres: boolean; url: string | null;
+  uploadStatus: string; maaPubliceres: boolean; url: string | null; thumbUrl: string | null;
 };
 type RawPersonMediaRow = { id: number; slags: string | null; titel: string | null;
   storage_path: string | null; upload_status: string | null; maa_publiceres: boolean | null };
 
-// signed/relByMediaId er valgfri (default tomme Maps) så testen kan kalde ren, netværksfri — kun
-// fetch-funktionerne nedenfor sender reelt udfyldte Maps (signeret ét sted, ligesom media.ts's
-// loadMediaItems, i stedet for at kalderen holder separat state + effekt).
+// signed/relByMediaId/thumbPathByMediaId er valgfri (default tomme Maps) så testen kan kalde ren,
+// netværksfri — kun fetch-funktionerne nedenfor sender reelt udfyldte Maps (signeret ét sted,
+// ligesom media.ts's loadMediaItems, i stedet for at kalderen holder separat state + effekt).
+// thumbUrl (billedstørrelser 2026-07-05, Slice B3): falder tilbage til url hvis ingen thumb-variant
+// findes (rækker fra før Slice B, eller ren pre-variant-fejl).
 export function mapPersonMediaRows(
   rows: RawPersonMediaRow[],
   signed: Map<string, string> = new Map(),
   relByMediaId: Map<string, string> = new Map(),
+  thumbPathByMediaId: Map<string, string> = new Map(),
 ): PersonMedia[] {
   return rows
     .filter((m) => m.upload_status !== 'fjernet')
-    .map((m) => ({
-      id: String(m.id),
-      relationId: relByMediaId.get(String(m.id)) ?? '',
-      slags: m.slags ?? '',
-      titel: m.titel,
-      storagePath: m.storage_path,
-      uploadStatus: m.upload_status ?? 'kladde',
-      maaPubliceres: Boolean(m.maa_publiceres),
-      url: m.storage_path ? signed.get(m.storage_path) ?? null : null,
-    }));
+    .map((m) => {
+      const url = m.storage_path ? signed.get(m.storage_path) ?? null : null;
+      const thumbPath = thumbPathByMediaId.get(String(m.id));
+      return {
+        id: String(m.id),
+        relationId: relByMediaId.get(String(m.id)) ?? '',
+        slags: m.slags ?? '',
+        titel: m.titel,
+        storagePath: m.storage_path,
+        uploadStatus: m.upload_status ?? 'kladde',
+        maaPubliceres: Boolean(m.maa_publiceres),
+        url,
+        thumbUrl: (thumbPath ? signed.get(thumbPath) : null) ?? url,
+      };
+    });
 }
 
 // Fælles hale: rel-par (media-id + relation-id) → signede/mappede PersonMedia. Retningen af selve
@@ -419,10 +427,17 @@ export function mapPersonMediaRows(
 async function mediaFromRelPairs(pairs: { mediaId: number; relationId: number }[]): Promise<PersonMedia[]> {
   if (!pairs.length) return [];
   const relByMediaId = new Map(pairs.map((p) => [String(p.mediaId), String(p.relationId)]));
+  const mediaIds = pairs.map((p) => p.mediaId);
   const rows = await getAll<RawPersonMediaRow>(() =>
-    supabase.from('media').select('id,slags,titel,storage_path,upload_status,maa_publiceres').in('id', pairs.map((p) => p.mediaId)));
-  const signed = await signPaths(rows.map((r) => r.storage_path ?? '').filter(Boolean));
-  return mapPersonMediaRows(rows, signed, relByMediaId);
+    supabase.from('media').select('id,slags,titel,storage_path,upload_status,maa_publiceres').in('id', mediaIds));
+  const variants = await getAll<{ media_id: number; storage_path: string }>(() =>
+    supabase.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb').in('media_id', mediaIds));
+  const thumbPathByMediaId = new Map(variants.map((v) => [String(v.media_id), v.storage_path]));
+  const signed = await signPaths([
+    ...rows.map((r) => r.storage_path ?? ''),
+    ...variants.map((v) => v.storage_path),
+  ].filter(Boolean));
+  return mapPersonMediaRows(rows, signed, relByMediaId, thumbPathByMediaId);
 }
 
 export async function fetchRedPersonMedia(id: string): Promise<PersonMedia[]> {

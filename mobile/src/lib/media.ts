@@ -46,10 +46,12 @@ export async function signPaths(paths: string[]): Promise<Map<string, string>> {
   return out;
 }
 
-// Hook: resolvér signed URLs for et sæt medie-rækker; returnér media-id → uri.
-export function useMediaUris(media: RawMedia[]): Record<string, string> {
+// Delt kerne: resolvér signed URLs for et sæt medie-rækker via en valgfri sti-vælger, så
+// useMediaUris ('large') og den interne thumb-opløsning (usePersonMedia) ikke duplikerer
+// signerings-/cancel-logikken (billedstørrelser 2026-07-05, Slice B3).
+function useSignedUris(media: RawMedia[], pathOf: (m: RawMedia) => string | null | undefined): Record<string, string> {
   const [map, setMap] = useState<Record<string, string>>({});
-  const paths = media.map((m) => m.storage_path ?? '').filter(Boolean);
+  const paths = media.map((m) => pathOf(m) ?? '').filter(Boolean);
   const key = [...paths].sort().join('|');
   useEffect(() => {
     let cancelled = false;
@@ -57,7 +59,8 @@ export function useMediaUris(media: RawMedia[]): Record<string, string> {
       if (cancelled) return;
       const byId: Record<string, string> = {};
       for (const m of media) {
-        const uri = m.storage_path ? signed.get(m.storage_path) : undefined;
+        const p = pathOf(m);
+        const uri = p ? signed.get(p) : undefined;
         if (uri) byId[String(m.id)] = uri;
       }
       setMap(byId);
@@ -69,6 +72,11 @@ export function useMediaUris(media: RawMedia[]): Record<string, string> {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   return map;
+}
+
+// Hook: resolvér signed URLs for et sæt medie-rækker; returnér media-id → uri.
+export function useMediaUris(media: RawMedia[]): Record<string, string> {
+  return useSignedUris(media, (m) => m.storage_path);
 }
 
 // Vælg hovedbillede (portræt): første portræt-egnede, ellers første medie.
@@ -91,19 +99,28 @@ function toLightboxItem(m: RawMedia, uri: string): PersonMediaItem {
 // et sammensat "portrait && portraitUri"-tjek fra kalderen (/simplify-fund, Slice A).
 // lightboxItems er portræt+galleri som ÉT navigerbart, url-bærende sæt — bygget her (ikke i
 // visningskomponenten), så komponenten forbruger en færdig liste i stedet for selv at kombinere.
+// thumbUri (billedstørrelser 2026-07-05, Slice B3): den lille listevisning (portræt/galleri-
+// thumbnails, begge <=120px) bruger 'thumb'-tieren; lightboxItems bruger fortsat den fulde 'large'-
+// uri (uri) uændret. Falder tilbage til uri hvis rækken mangler en thumb-variant (før Slice B).
 export function usePersonMedia(media: RawMedia[]): {
-  portraitItem: { media: RawMedia; uri: string } | null;
-  gallery: Array<{ media: RawMedia; uri: string }>;
+  portraitItem: { media: RawMedia; uri: string; thumbUri: string } | null;
+  gallery: Array<{ media: RawMedia; uri: string; thumbUri: string }>;
   lightboxItems: PersonMediaItem[];
 } {
   const uris = useMediaUris(media);
+  const thumbUris = useSignedUris(media, (m) => m.thumb_storage_path);
   const signable = media.filter((m) => uris[String(m.id)]);
   const portrait = pickPortrait(signable.length ? signable : media);
   const portraitUri = portrait ? uris[String(portrait.id)] : undefined;
-  const portraitItem = portrait && portraitUri ? { media: portrait, uri: portraitUri } : null;
+  const portraitItem = portrait && portraitUri
+    ? { media: portrait, uri: portraitUri, thumbUri: thumbUris[String(portrait.id)] ?? portraitUri }
+    : null;
   const gallery = signable
     .filter((m) => String(m.id) !== String(portrait?.id))
-    .map((m) => ({ media: m, uri: uris[String(m.id)] }));
+    .map((m) => {
+      const uri = uris[String(m.id)];
+      return { media: m, uri, thumbUri: thumbUris[String(m.id)] ?? uri };
+    });
   const lightboxItems = [
     ...(portraitItem ? [toLightboxItem(portraitItem.media, portraitItem.uri)] : []),
     ...gallery.map((g) => toLightboxItem(g.media, g.uri)),

@@ -94,6 +94,7 @@ export type RawMedia = {
   kunstner?: string | null;
   datering?: string | null;
   storage_path?: string | null;
+  thumb_storage_path?: string | null; // billedstørrelser 2026-07-05, Slice B3 (fra media_variant, tier='thumb')
   [k: string]: unknown;
 };
 export type RawArms = { id: number | string; blasonering: string | null; note: string | null };

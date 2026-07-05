@@ -384,12 +384,18 @@ export async function fetchDoedeLinks(): Promise<DoedLink[]> {
 // basen (fortrydbar via historik), men skal ikke vises i den almindelige materiale-galleri.
 export type PersonMedia = {
   id: string; relationId: string; slags: string; titel: string | null; storagePath: string | null;
-  uploadStatus: string; maaPubliceres: boolean;
+  uploadStatus: string; maaPubliceres: boolean; thumbStoragePath: string | null;
 };
 type RawPersonMediaRow = { id: number; slags: string | null; titel: string | null;
   storage_path: string | null; upload_status: string | null; maa_publiceres: boolean | null };
 
-export function mapPersonMediaRows(rows: RawPersonMediaRow[], relByMediaId: Map<string, string> = new Map()): PersonMedia[] {
+// thumbPathByMediaId (billedstørrelser 2026-07-05, Slice B3) er valgfri (default tom Map) så testen
+// kan kalde ren, netværksfri — kun mediaFromRelPairs nedenfor sender reelt en udfyldt Map.
+export function mapPersonMediaRows(
+  rows: RawPersonMediaRow[],
+  relByMediaId: Map<string, string> = new Map(),
+  thumbPathByMediaId: Map<string, string> = new Map(),
+): PersonMedia[] {
   return rows
     .filter((m) => m.upload_status !== 'fjernet')
     .map((m) => ({
@@ -400,6 +406,7 @@ export function mapPersonMediaRows(rows: RawPersonMediaRow[], relByMediaId: Map<
       storagePath: m.storage_path,
       uploadStatus: m.upload_status ?? 'kladde',
       maaPubliceres: Boolean(m.maa_publiceres),
+      thumbStoragePath: thumbPathByMediaId.get(String(m.id)) ?? null,
     }));
 }
 
@@ -408,9 +415,13 @@ export function mapPersonMediaRows(rows: RawPersonMediaRow[], relByMediaId: Map<
 async function mediaFromRelPairs(sb: NonNullable<typeof supabase>, pairs: { mediaId: number; relationId: number }[]): Promise<PersonMedia[]> {
   if (!pairs.length) return [];
   const relByMediaId = new Map(pairs.map((p) => [String(p.mediaId), String(p.relationId)]));
+  const mediaIds = pairs.map((p) => p.mediaId);
   const rows = await getAll<RawPersonMediaRow>(() =>
-    sb.from('media').select('id,slags,titel,storage_path,upload_status,maa_publiceres').in('id', pairs.map((p) => p.mediaId)));
-  return mapPersonMediaRows(rows, relByMediaId);
+    sb.from('media').select('id,slags,titel,storage_path,upload_status,maa_publiceres').in('id', mediaIds));
+  const variants = await getAll<{ media_id: number; storage_path: string }>(() =>
+    sb.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb').in('media_id', mediaIds));
+  const thumbPathByMediaId = new Map(variants.map((v) => [String(v.media_id), v.storage_path]));
+  return mapPersonMediaRows(rows, relByMediaId, thumbPathByMediaId);
 }
 
 export async function fetchPersonMedia(id: string): Promise<PersonMedia[]> {

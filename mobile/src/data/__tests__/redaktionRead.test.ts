@@ -297,7 +297,7 @@ describe('mapPersonMediaRows (mediehåndtering Slice 0g+0h)', () => {
     const relByMediaId = new Map([['91', '501']]);
     expect(mapPersonMediaRows(rows, relByMediaId)).toEqual([{
       id: '91', relationId: '501', slags: 'foto', titel: 'Portræt', storagePath: 'redaktor/a.jpg',
-      uploadStatus: 'klar', maaPubliceres: true,
+      uploadStatus: 'klar', maaPubliceres: true, thumbStoragePath: null,
     }]);
   });
   it('manglende status/slags/maa_publiceres → fail-closed fallback (kladde, false); ingen relation → tom streng', () => {
@@ -305,7 +305,16 @@ describe('mapPersonMediaRows (mediehåndtering Slice 0g+0h)', () => {
                     upload_status: null, maa_publiceres: null }];
     expect(mapPersonMediaRows(rows)).toEqual([{
       id: '92', relationId: '', slags: '', titel: null, storagePath: null,
-      uploadStatus: 'kladde', maaPubliceres: false,
+      uploadStatus: 'kladde', maaPubliceres: false, thumbStoragePath: null,
+    }]);
+  });
+  it('thumbPathByMediaId med match → thumbStoragePath udfyldt', () => {
+    const rows = [{ id: 94, slags: 'foto', titel: 'Med thumb', storage_path: 'redaktor/d-large.jpg',
+                    upload_status: 'klar', maa_publiceres: true }];
+    const thumbPathByMediaId = new Map([['94', 'redaktor/d-thumb.jpg']]);
+    expect(mapPersonMediaRows(rows, new Map(), thumbPathByMediaId)).toEqual([{
+      id: '94', relationId: '', slags: 'foto', titel: 'Med thumb', storagePath: 'redaktor/d-large.jpg',
+      uploadStatus: 'klar', maaPubliceres: true, thumbStoragePath: 'redaktor/d-thumb.jpg',
     }]);
   });
   it('upload_status=fjernet filtreres væk (Slice 0h "slet billede")', () => {

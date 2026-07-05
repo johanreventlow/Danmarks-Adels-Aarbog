@@ -661,7 +661,7 @@ export default function Redaktion() {
               {media.map((m) => (
                 <div key={m.id} style={{ width: 96 }}>
                   {m.url ? (
-                    <img src={m.url} alt={m.titel ?? m.slags}
+                    <img src={m.thumbUrl ?? m.url} alt={m.titel ?? m.slags}
                       onClick={() => setMediaLightbox(mediaMedLightbox.findIndex((x) => x.id === m.id))}
                       style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 10, background: T.beige, cursor: 'zoom-in' }} />
                   ) : (

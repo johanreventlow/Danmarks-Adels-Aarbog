@@ -31,6 +31,7 @@ export default function ObjektMateriale() {
   const refreshMedia = () => { if (objektType && id) fetchObjectMediaRed(objektType, id).then(setMedia).catch(() => {}); };
   useEffect(refreshMedia, [objektType, id]);
   const mediaUris = useMediaUris(media.map((m) => ({ id: m.id, storage_path: m.storagePath })));
+  const mediaThumbUris = useMediaUris(media.map((m) => ({ id: m.id, storage_path: m.thumbStoragePath })));
 
   const titel = navn ?? '(uden navn)';
 
@@ -46,6 +47,7 @@ export default function ObjektMateriale() {
         <MediaGallery
           media={media}
           mediaUris={mediaUris}
+          mediaThumbUris={mediaThumbUris}
           onFjern={(m) => setPending({ art: 'sletRelation', subjektType: objektType, subjektId: id!, relationId: m.relationId })}
           onSlet={(m) => setPending({ art: 'fjernMedia', subjektType: objektType, subjektId: id!, mediaId: m.id })}
         />

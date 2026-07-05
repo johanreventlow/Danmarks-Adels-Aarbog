@@ -339,6 +339,7 @@ export default function PersonEditor() {
   const refreshMedia = () => { if (id) fetchPersonMedia(id).then(setMedia).catch(() => {}); };
   useEffect(refreshMedia, [id]);
   const mediaUris = useMediaUris(media.map((m) => ({ id: m.id, storage_path: m.storagePath })));
+  const mediaThumbUris = useMediaUris(media.map((m) => ({ id: m.id, storage_path: m.thumbStoragePath })));
 
   function onAction(a: FaktaAction) {
     if (a.type === 'gørKonklusion') {
@@ -591,6 +592,7 @@ export default function PersonEditor() {
           <MediaGallery
             media={media}
             mediaUris={mediaUris}
+            mediaThumbUris={mediaThumbUris}
             onFjern={(m) => setPending({ art: 'sletRelation', subjektType: 'person', subjektId: id!, relationId: m.relationId })}
             onSlet={(m) => setPending({ art: 'fjernMedia', subjektType: 'person', subjektId: id!, mediaId: m.id })}
           />
