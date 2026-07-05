@@ -265,6 +265,35 @@ export function buildBidirectionalColumns(
   return [...ancestors.reverse(), anchorCol, ...descendants];
 }
 
+// v2: naboer i samme slægtled som fokus-personen (dæmpet visning ved siden af ankeret). `people`
+// er ALTID [fokus, ...naboer] (fokus bevares uanset cap); naboerne sorteres alfabetisk og klippes
+// til `cap` — `overflow` fortæller hvor mange der blev skåret væk. `activeCoord == null` (ingen
+// aktiv slægtled-kontekst) giver bevidst kun fokus, ingen naboer — v1-adfærd uændret. Bevaret
+// byte-identisk mellem web/src/data/tree.ts og mobile/src/data/selectors.ts.
+export function buildAnchorPeers(
+  model: Model,
+  genCoords: GenCoords | undefined,
+  anchorId: string,
+  activeCoord: { sourceId: string; lineageId: string | null; lokal: number } | null,
+  cap = 7,
+): { people: ModelPerson[]; overflow: number } {
+  const focus = model.byId[anchorId];
+  if (!focus) return { people: [], overflow: 0 };
+  if (!activeCoord) return { people: [focus], overflow: 0 };
+  const peers = model.persons
+    .filter((p) => {
+      if (p.id === anchorId) return false;
+      const pc = genCoords?.[p.id];
+      return !!pc?.some((c) =>
+        c.sourceId === activeCoord.sourceId
+        && c.lineageId === activeCoord.lineageId
+        && c.lokal === activeCoord.lokal);
+    })
+    .sort((a, b) => compareDanish(a.name, b.name));
+  const overflow = Math.max(0, peers.length - cap);
+  return { people: [focus, ...peers.slice(0, cap)], overflow };
+}
+
 // Variant A "kort-fokus": bedsteforælder, forælder, denne generations søskende, børn & grene.
 export function treeFocusA(model: Model, focusId: string) {
   const focus = model.byId[focusId] ?? null;

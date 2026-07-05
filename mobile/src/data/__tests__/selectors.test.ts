@@ -1,5 +1,5 @@
 import { buildModel } from '../buildModel';
-import { buildBidirectionalColumns, buildSearch, buildSnapPath, columnLabel, routeToMe, searchPool, treeFocusA, wayToMe } from '../selectors';
+import { buildAnchorPeers, buildBidirectionalColumns, buildSearch, buildSnapPath, columnLabel, routeToMe, searchPool, treeFocusA, wayToMe } from '../selectors';
 import type { Db } from '../types';
 import type { SearchItem } from '../selectors';
 
@@ -197,6 +197,71 @@ describe('fallback-ring — spejler web/src/data/tree.ts (Task C2, post-B3 desig
     const fb = cols.find((c) => c.fallback);
     expect(fb).toBeDefined();
     expect(fb!.people.map((p) => p.id).sort()).toEqual(['A', 'B']);
+  });
+});
+
+describe('buildAnchorPeers — spejler web/src/data/tree.ts', () => {
+  const coord = (over: Partial<{ sourceId: string; linje: string; lineageId: string | null; lokal: number }> = {}) => ({
+    sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: null, ...over,
+  });
+  const active = { sourceId: '1', lineageId: '10', lokal: 11 };
+
+  test('naboer inkluderet + fokus altid først', () => {
+    const m = buildModel({ persons: [mk('anker', 'Zebra'), mk('nabo', 'Bertha')], unions: [], parentChild: [] });
+    const genCoords = { anker: [coord()], nabo: [coord()] };
+    const r = buildAnchorPeers(m, genCoords, 'anker', active);
+    expect(r.people.map((p) => p.id)).toEqual(['anker', 'nabo']);
+    expect(r.overflow).toBe(0);
+  });
+
+  test('kun personer med matchende (sourceId,lineageId,lokal) tælles som naboer — resten udelades', () => {
+    const m = buildModel({
+      persons: [mk('anker', 'A'), mk('nabo', 'N'), mk('anden-linje', 'X'), mk('ingen-koord', 'I')],
+      unions: [], parentChild: [],
+    });
+    const genCoords = {
+      anker: [coord()],
+      nabo: [coord()],
+      'anden-linje': [coord({ lokal: 12 })], // samme kilde/linje, andet slægtled → udelades
+    };
+    const r = buildAnchorPeers(m, genCoords, 'anker', active);
+    expect(r.people.map((p) => p.id).sort()).toEqual(['anker', 'nabo']);
+  });
+
+  test('naboer sorteres alfabetisk (dansk collation), fokus forbliver først uanset navn', () => {
+    const m = buildModel({
+      persons: [mk('anker', 'Å-anker'), mk('c', 'Conrad'), mk('a', 'Anne'), mk('b', 'Bertha')],
+      unions: [], parentChild: [],
+    });
+    const genCoords = { anker: [coord()], c: [coord()], a: [coord()], b: [coord()] };
+    const r = buildAnchorPeers(m, genCoords, 'anker', active);
+    expect(r.people.map((p) => p.id)).toEqual(['anker', 'a', 'b', 'c']);
+  });
+
+  test('cap+overflow: 10 naboer, cap 3 → people-længde 4 (fokus+3), overflow 7', () => {
+    const peers = Array.from({ length: 10 }, (_, i) => mk(`p${i}`, `Navn${i}`));
+    const m = buildModel({ persons: [mk('anker', 'Anker'), ...peers], unions: [], parentChild: [] });
+    const genCoords: Record<string, ReturnType<typeof coord>[]> = { anker: [coord()] };
+    for (const p of peers) genCoords[p.id] = [coord()];
+    const r = buildAnchorPeers(m, genCoords, 'anker', active, 3);
+    expect(r.people.length).toBe(4);
+    expect(r.people[0].id).toBe('anker');
+    expect(r.overflow).toBe(7);
+  });
+
+  test('activeCoord == null → kun fokus, ingen naboer (v1-adfærd)', () => {
+    const m = buildModel({ persons: [mk('anker', 'Anker'), mk('nabo', 'Nabo')], unions: [], parentChild: [] });
+    const genCoords = { anker: [coord()], nabo: [coord()] };
+    const r = buildAnchorPeers(m, genCoords, 'anker', null);
+    expect(r.people.map((p) => p.id)).toEqual(['anker']);
+    expect(r.overflow).toBe(0);
+  });
+
+  test('ukendt anker → tom people, overflow 0', () => {
+    const m = buildModel({ persons: [mk('nabo', 'Nabo')], unions: [], parentChild: [] });
+    const r = buildAnchorPeers(m, { nabo: [coord()] }, 'findes-ikke', active);
+    expect(r.people).toEqual([]);
+    expect(r.overflow).toBe(0);
   });
 });
 
