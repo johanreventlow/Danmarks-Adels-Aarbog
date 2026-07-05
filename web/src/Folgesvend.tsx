@@ -8,7 +8,7 @@ import { childrenOf, loadModel, parentsOf } from './data/model';
 import { buildBidirectionalColumns } from './data/tree';
 import { initials, konfTekst } from './data/format';
 import { computeRelationship, type RelationResult } from './data/relationship';
-import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
+import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type AboutSection, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
 import { pickPortrait, firstSignable, withUrl } from './data/media';
 import type { Geo, Model, ModelPerson } from './data/types';
 import { estatePoints, filterByLineage, lifeJourney } from './data/geoSelectors';
@@ -96,7 +96,7 @@ export default function Folgesvend() {
   const [relSlot, setRelSlot] = useState<'A' | 'B'>('A');
   const [estates, setEstates] = useState<EstateItem[] | null>(null);
   const [arms, setArms] = useState<ArmsItem[] | null>(null);
-  const [about, setAbout] = useState<string[] | null>(null);
+  const [about, setAbout] = useState<AboutSection[] | null>(null);
   const [estateId, setEstateId] = useState<string | null>(() => initialPath.estateId);
   const [estateOwners, setEstateOwners] = useState<EstateOwner[]>([]);
   const [estateInfo, setEstateInfo] = useState<EstateInfo | null>(null);
@@ -443,7 +443,7 @@ export default function Folgesvend() {
             : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={focusOnly} meId={meCanon} onSetMeA={() => { if (meCanon) { setRelA(meCanon); setRelSlot('B'); } }} />
             : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} geo={model?.geo} onOpen={(id) => { setEstateId(id); navigate(`/estate/${id}`); }} onBack={() => { setEstateId(null); navigate('/estates'); }} onPickOwner={navigateTree} />
             : mode === 'arms' ? <ArmsView arms={arms} />
-            : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} />
+            : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} onPick={navigateTree} />
             : mode === 'bookmarks' ? (model ? <BookmarksView model={model} ids={bookmarkIds} sort={bmSort} setSort={setBmSort} onPick={pickBookmark} onRemove={bookmarks.toggle} /> : <div style={{ padding: 40, color: T.muted3 }}>Henter…</div>)
             : mode === 'kort' ? <OverviewMapView model={model} onPickPerson={navigateTree} onPickEstate={(id) => navigate(`/estate/${id}`)} />
             : <Placeholder label={NAV.find((n) => n[1] === mode)?.[0] ?? ''} />}
@@ -1007,7 +1007,7 @@ function EstatesView({ estates, estateId, estate, info, owners, geo, onOpen, onB
         )}
         {/* Vis intet under load (info===null); derefter narrativ eller tom-tilstand. */}
         {info && (info.narrativ ? (
-          <div style={{ marginTop: 16, fontFamily: T.serif, fontSize: 15.5, lineHeight: 1.6, color: '#3d382f', whiteSpace: 'pre-wrap' }}><NarrativRenderer tekst={info.narrativ} onPickPerson={onPickOwner} linkColor={T.bordeaux} inactiveColor={T.muted2} /></div>
+          <div style={{ marginTop: 16, fontFamily: T.serif, fontSize: 15.5, lineHeight: 1.6, color: '#3d382f' }}><NarrativRenderer tekst={info.narrativ} onPickPerson={onPickOwner} linkColor={T.bordeaux} inactiveColor={T.muted2} /></div>
         ) : (
           <div style={{ marginTop: 16, border: '1px dashed rgba(34,31,26,.2)', borderRadius: 11, padding: 14, background: T.paper, fontSize: 12.5, color: T.muted3 }}>Ingen godshistorik registreret endnu.</div>
         ))}
@@ -1173,7 +1173,7 @@ function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
 }
 
 // ---- Om slægten ----
-function AboutView({ about, personCount, estateCount }: { about: string[] | null; personCount: number; estateCount: number | null }) {
+function AboutView({ about, personCount, estateCount, onPick }: { about: AboutSection[] | null; personCount: number; estateCount: number | null; onPick: (id: string) => void }) {
   return (
     <div style={{ padding: '30px 40px 50px', maxWidth: 680 }}>
       <div style={{ fontFamily: T.serif, fontSize: 34, fontWeight: 600, lineHeight: 1.02 }}>Slægten Reventlow</div>
@@ -1183,8 +1183,15 @@ function AboutView({ about, personCount, estateCount }: { about: string[] | null
         {estateCount != null && <Counter n={estateCount} label="godser" />}
       </div>
       <div style={{ height: 1, background: 'rgba(34,31,26,.12)', margin: '20px 0' }} />
-      {!about ? <div style={{ color: T.muted3 }}>Henter…</div> : about.length ? about.map((t, i) => (
-        <div key={i} style={{ fontFamily: T.serif, fontSize: 16, lineHeight: 1.6, color: '#3d382f', marginBottom: 16, whiteSpace: 'pre-wrap' }}>{t}</div>
+      {/* NarrativRenderer (Slice C4): samme blok-renderer som person-bio/gods-narrativ — understøtter
+          nu ##-overskrifter/linjeskift/indlejrede billeder i selve prosaen, ikke kun rå pre-wrap-tekst. */}
+      {!about ? <div style={{ color: T.muted3 }}>Henter…</div> : about.length ? about.map((s, i) => (
+        <div key={i} style={{ marginBottom: 24 }}>
+          {s.lineageNavn && <div style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 600, marginBottom: 8, color: T.bordeaux }}>{s.lineageNavn}</div>}
+          <div style={{ fontFamily: T.serif, fontSize: 16, lineHeight: 1.6, color: '#3d382f' }}>
+            <NarrativRenderer tekst={s.tekst} onPickPerson={onPick} linkColor={T.bordeaux} inactiveColor={T.muted2} />
+          </div>
+        </div>
       )) : (
         <div style={{ border: '1px dashed rgba(34,31,26,.2)', borderRadius: 11, padding: 16, background: T.paper, fontSize: 13, lineHeight: 1.5, color: T.muted }}>
           Ingen slægts-narrativ registreret endnu. Indledningen indlæses fra stamtavlen (narrative · subjekt_type slaegt).

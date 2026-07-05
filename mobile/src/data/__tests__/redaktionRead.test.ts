@@ -1,4 +1,4 @@
-import { joinEvidence, mapKonfliktRow, mapNarrativRow, mapRelationRow } from '../redaktionRead';
+import { joinEvidence, mapKonfliktRow, mapNarrativer, mapRelationRow } from '../redaktionRead';
 import { mapRedPerson, mapSammeSomLinks } from '../redaktionRead';
 import * as load from '../load';
 
@@ -103,18 +103,20 @@ test('mapRedPerson: efternavnAfledt afspejler visning_efternavn (udledt-slægtsn
   expect(r.efternavnAfledt).toBe(true);
 });
 
-test('mapNarrativRow: første række uanset privat (skrive-mål == prefill), m. sourceId', () => {
-  // red_upsert_narrativ redigerer FØRSTE narrativ by id — prefill skal læse SAMME + dens source_id.
-  expect(mapNarrativRow([{ tekst: 'Privat bio', privat: true, source_id: 2 }, { tekst: 'Offentlig', privat: false, source_id: 1 }]))
-    .toEqual({ tekst: 'Privat bio', privat: true, sourceId: 2 });
+test('mapNarrativer: rækker med source-join, ordnet efter source_id så id', () => {
+  const rows = [
+    { id: 7, source_id: 2, side: null, tekst: 'B', privat: false, source: { titel: 'DAA 1982', udgave: 'DAA 1982-84' } },
+    { id: 3, source_id: 1, side: '10', tekst: 'A', privat: true, source: { titel: 'DAA 2018', udgave: 'DAA 2018-20' } },
+  ];
+  const out = mapNarrativer(rows as never);
+  expect(out.map((n) => n.id)).toEqual([3, 7]);
+  expect(out[0]).toMatchObject({ sourceId: 1, udgave: 'DAA 2018-20', side: '10', privat: true, tekst: 'A' });
+  expect(out[1]).toMatchObject({ sourceId: 2, udgave: 'DAA 1982-84', side: null, privat: false });
 });
 
-test('mapNarrativRow: tom liste → null', () => {
-  expect(mapNarrativRow([])).toBeNull();
-});
-
-test('mapNarrativRow: null-tekst → tom streng, privat-bool, sourceId null', () => {
-  expect(mapNarrativRow([{ tekst: null, privat: null }])).toEqual({ tekst: '', privat: false, sourceId: null });
+test('mapNarrativer: håndterer manglende source-join (null)', () => {
+  const out = mapNarrativer([{ id: 1, source_id: null, side: null, tekst: 'x', privat: null, source: null }] as never);
+  expect(out[0]).toMatchObject({ sourceId: null, sourceTitel: null, udgave: null, privat: false });
 });
 
 const AUX = { orgListe: [{ id: '1', navn: 'Hæren', slags: '' }], godsListe: [{ id: '5', navn: 'Brahetrolleborg', slags: '', ownerCount: 1 }] } as never;

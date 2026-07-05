@@ -62,15 +62,20 @@ export async function signPaths(paths: string[]): Promise<Map<string, string>> {
   return out;
 }
 
-// Billedstørrelser (2026-07-05, Slice B3): 'thumb'-stien pr. media-id — kun thumb ('medium' bruges
-// endnu ikke af nogen læser, tilføjes når Slice C indlejrer billeder i narrativer). Delt af
-// loadMediaItems herunder og redaktionRead.ts's mediaFromRelPairs (/simplify-fund: de to havde hver
-// deres kopi af samme fetch+map, som allerede var driftet til hhv. number- og string-nøglede Maps).
-export async function fetchThumbPathByMediaId(mediaIds: number[]): Promise<Map<string, string>> {
+// Billedstørrelser (2026-07-05, Slice B3+C): variant-stien pr. media-id for én tier. Delt af
+// loadMediaItems (thumb), redaktionRead.ts's mediaFromRelPairs (thumb) og fetchMediaByIds (medium,
+// Slice C — narrativ-indlejrede billeder) — én forespørgselsform, parametriseret på tier, i stedet
+// for at hver tier får sin egen kopi (/simplify-fund, Slice B3, udvidet her til at dække tier som
+// parameter fremfor kun 'thumb').
+async function fetchVariantPathByMediaId(mediaIds: number[], tier: 'thumb' | 'medium'): Promise<Map<string, string>> {
   if (!mediaIds.length) return new Map();
   const variants = await getAll<{ media_id: number; storage_path: string }>(() =>
-    supabase.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb').in('media_id', mediaIds));
+    supabase.from('media_variant').select('media_id,storage_path').eq('tier', tier).in('media_id', mediaIds));
   return new Map(variants.map((v) => [String(v.media_id), v.storage_path]));
+}
+
+export function fetchThumbPathByMediaId(mediaIds: number[]): Promise<Map<string, string>> {
+  return fetchVariantPathByMediaId(mediaIds, 'thumb');
 }
 
 // Fælles: hent media-rækker for et sæt id'er, signér, og map til MediaItem (rækkefølge = mediaIds).
@@ -169,4 +174,35 @@ export function pickPortrait(media: MediaItem[]): MediaItem | null {
 // og Lightbox — samme formel, ét sted (/simplify-fund, Slice A).
 export function mediaCaption(m: { titel?: string | null; kunstner?: string | null; datering?: string | null }): string {
   return [m.titel, m.kunstner, m.datering].filter(Boolean).join(' · ');
+}
+
+// Billeder indlejret i narrativer (billedstørrelser 2026-07-05, Slice C). Et [[media:ID|...]]-
+// token kan pege på ET VILKÅRLIGT media-id — ikke nødvendigvis en del af den viste subjekts egen
+// portræt/galleri-liste (fx et linje-våben nævnt inde i en persons bio) — derfor et selvstændigt
+// opslag i stedet for at genbruge fetchPersonMedia/fetchObjectMedia (som begge forudsætter en
+// relations-sti til et kendt anker). RLS gør resten: et id der er slettet/skjult kommer bare ikke
+// tilbage fra `media`-selectet og udelades stille (renderer'en viser det som inaktiv gråtekst).
+export type EmbeddedMedia = { titel: string; mediumUrl: string; largeUrl: string };
+
+export async function fetchMediaByIds(mediaIds: number[]): Promise<Map<string, EmbeddedMedia>> {
+  const out = new Map<string, EmbeddedMedia>();
+  if (!mediaIds.length) return out;
+  const [rows, mediumPathByMediaId] = await Promise.all([
+    getAll<{ id: number; titel: string | null; storage_path: string | null }>(() =>
+      supabase.from('media').select('id,titel,storage_path').in('id', mediaIds)),
+    fetchVariantPathByMediaId(mediaIds, 'medium'),
+  ]);
+  const signed = await signPaths([
+    ...rows.map((r) => r.storage_path ?? ''),
+    ...mediumPathByMediaId.values(),
+  ].filter(Boolean));
+  for (const r of rows) {
+    if (!r.storage_path) continue; // uden storage_path er der intet at vise uanset variant
+    const largeUrl = signed.get(r.storage_path);
+    if (!largeUrl) continue; // ikke signerbar (fx storage-fejl) → udelades, renderes som inaktiv
+    const mediumPath = mediumPathByMediaId.get(String(r.id));
+    const mediumUrl = (mediumPath ? signed.get(mediumPath) : null) ?? largeUrl;
+    out.set(String(r.id), { titel: r.titel ?? '', mediumUrl, largeUrl });
+  }
+  return out;
 }

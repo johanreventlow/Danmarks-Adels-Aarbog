@@ -196,6 +196,7 @@ export function buildAux(
     estatesBy,
     officesBy,
     mediaBy,
+    mediaById,
     ownersByEstate,
     estateList,
     estateById,
