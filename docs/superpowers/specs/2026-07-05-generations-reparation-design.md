@@ -177,6 +177,19 @@ bevist som forælder"**, ikke antyde forældreskab.
 2. **Kuld-persistering:** `kuld` **fanges og persisteres i v1** (kolonne på `person_external_id`) og
    bruges til at gruppere fallback-ringen; fuld kuld→forælder-opløsning er v2.
 
+## 12b. Bevidst udskudt til v2 (fra dual-review 2026-07-05)
+
+- **Founder-hop over flere linje-niveauer:** `previousAncestorGen` hopper kun til den UMIDDELBARE
+  moderlinje (`parentLineageId`). Har en gren-stamfar sin næste dokumenterede koordinat to niveauer
+  oppe (bedstemoderlinjen) uden en mellemliggende, skjules det ægte mål fail-closed. Kræver traversal
+  af hele `parent_lineage_id`-kæden + den globale linje-hierarki-map. **Ureachable i nuværende data**
+  (single-source, ≤2 collapsede koordinater); adresseres når data gør det reachable.
+- **Active-line-kontekst for fallback-ringen:** når en person legitimt tilhører flere linjer, vælger
+  `fallbackAncestorRing` p.t. den koordinat med lavest `lokal` (deterministisk, men ikke bundet til den
+  linje brugeren aktivt bladrer). Ringen er altid ærlig ("slægtled-naboer — ingen bevist som forælder")
+  og peger aldrig på en konkret forkert forælder, men v2 bør vælge ringen ud fra den aktive traversal-
+  linje. Se kode-kommentar i `tree.ts`/`selectors.ts`.
+
 ## 13. Codex-review-fund og hvordan de er adresseret
 
 1. **HIGH — Join-nøgle:** `nr` reset­ter pr. gren (I:1–133 … V:1–200; 200 distinkte nr for 591
