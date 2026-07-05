@@ -162,6 +162,90 @@ describe('fallback-ring', () => {
   });
 });
 
+describe('buildBidirectionalColumns · v2 activeCoord (bidirektionel fallback + peers + labels)', () => {
+  const coord = (over: Partial<{ sourceId: string; linje: string; lineageId: string | null; lokal: number; kuld: string | null }> = {}) => ({
+    sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: null, ...over,
+  });
+  const active = { sourceId: '1', lineageId: '10', lokal: 11 };
+
+  it('(d) activeCoord=null → v1-adfærd uændret: ingen peers, ingen efterkommer-fallback, gamle labels', () => {
+    const genCoords = { A: [coord()], F: [coord({ lokal: 10 })], M: [coord({ lokal: 10 })] };
+    const cols = buildBidirectionalColumns(model, 'A', [], [], genCoords, null);
+    expect(cols.map((c) => c.label)).toEqual(['Forældre', 'Fokus', 'Børn']);
+    expect(col(cols, 'anchor:0')!.people.map((p) => p.id)).toEqual(['A']);
+    expect(col(cols, 'anchor:0')!.overflowPeers).toBe(0);
+    expect(cols.find((c) => c.fallback)).toBeUndefined();
+  });
+
+  it('(b) anker-kolonne har focusId + naboer når activeCoord er givet', () => {
+    const genCoords = {
+      A: [coord()], F: [coord({ lokal: 10 })], M: [coord({ lokal: 10 })],
+      C1: [coord({ lokal: 11 })], // deler A's slægtled → nabo
+    };
+    const cols = buildBidirectionalColumns(model, 'A', [], [], genCoords, active);
+    const anchor = col(cols, 'anchor:0')!;
+    expect(anchor.focusId).toBe('A');
+    expect(anchor.people.map((p) => p.id)).toEqual(['A', 'C1']);
+    expect(anchor.overflowPeers).toBe(0);
+  });
+
+  it('(c) bevist ancestor-kolonne får kombineret label "Forældre · N. slægtled" fra activeCoord', () => {
+    const genCoords = { A: [coord()], F: [coord({ lokal: 10 })], M: [coord({ lokal: 10 })] };
+    const cols = buildBidirectionalColumns(model, 'A', [], [], genCoords, active);
+    expect(col(cols, 'ancestor:1')!.label).toBe('Forældre · 10. slægtled');
+    expect(col(cols, 'anchor:0')!.label).toBe('11. slægtled · III-linjen');
+  });
+
+  it('(c) bevist descendant-kolonne får kombineret label "Børn · N. slægtled"', () => {
+    const genCoords = { A: [coord()], C1: [coord({ lokal: 12 })], C2: [coord({ lokal: 12 })] };
+    const cols = buildBidirectionalColumns(model, 'A', [], [], genCoords, active);
+    expect(col(cols, 'descendant:1')!.label).toBe('Børn · 12. slægtled');
+  });
+
+  it('(a) efterkommer-fallback-ring bygges når childrenOf er tom + activeCoord givet (ny person i G+1)', () => {
+    // Egen minimal model: 'leaf' har ingen registrerede børn; 'X' er en fremmed person på G+1.
+    const leafModel = buildModel(db([P('leaf'), P('X')], []));
+    const genCoords = {
+      leaf: [coord({ lokal: 20 })],
+      X: [coord({ lokal: 21, kuld: 'I' })],
+    };
+    const activeAtLeaf = { sourceId: '1', lineageId: '10', lokal: 20 };
+    const cols = buildBidirectionalColumns(leafModel, 'leaf', [], [], genCoords, activeAtLeaf);
+    const fb = cols.find((c) => c.fallback && c.kind === 'descendant');
+    expect(fb).toBeDefined();
+    expect(fb!.people.map((p) => p.id)).toEqual(['X']);
+    expect(fb!.genLabel).toContain('21. slægtled');
+    expect(fb!.label).toBe('muligt · 21. slægtled · III-linjen');
+  });
+
+  it('(a) ærlig dødende: ingen efterkommer-fallback-ring når ingen match findes på lokal+1', () => {
+    const leafModel = buildModel(db([P('leaf')], []));
+    const genCoords = { leaf: [coord({ lokal: 20 })] }; // ingen andre personer på lokal 21
+    const activeAtLeaf = { sourceId: '1', lineageId: '10', lokal: 20 };
+    const cols = buildBidirectionalColumns(leafModel, 'leaf', [], [], genCoords, activeAtLeaf);
+    expect(cols.find((c) => c.fallback)).toBeUndefined();
+  });
+
+  it('v1-regression: source/lineage-scoped ane-fallback + founder-hop uændret (dir=-1 via buildBidirectionalColumns)', () => {
+    const fbModel = buildModel(db([P('P'), P('A'), P('B')], []));
+    const genCoords = {
+      P: [
+        { sourceId: '1', linje: 'V', lineageId: '50', parentLineageId: '10', lokal: 1, gennem: 12, kuld: null },
+        { sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 12, gennem: 12, kuld: null },
+      ],
+      A: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: 'I' }],
+      B: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: 'II' }],
+    };
+    const cols = buildBidirectionalColumns(fbModel, 'P', [], [], genCoords);
+    const fb = cols.find((c) => c.fallback);
+    expect(fb).toBeDefined();
+    expect(fb!.kind).toBe('ancestor');
+    expect(fb!.people.map((p) => p.id).sort()).toEqual(['A', 'B']);
+    expect(fb!.kuldGroups?.['I']?.map((p) => p.id)).toEqual(['A']);
+    expect(fb!.kuldGroups?.['II']?.map((p) => p.id)).toEqual(['B']);
+  });
+});
+
 describe('columnLabel', () => {
   it('anker m. slægtled → "N. slægtled · linje-linjen"', () => {
     expect(columnLabel({ kind: 'anchor', depth: 0, slaegtled: 11, linje: 'III' })).toBe('11. slægtled · III-linjen');

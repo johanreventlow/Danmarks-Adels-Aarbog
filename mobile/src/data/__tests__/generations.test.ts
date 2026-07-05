@@ -1,4 +1,4 @@
-import { buildGenCoords, adjacentGen, previousAncestorGen, type GenCoord } from '../generations';
+import { buildGenCoords, adjacentGen, type GenCoord } from '../generations';
 
 const lineage = [
   { id: '10', source_id: '1', kode: 'III', navn: 'Midterste', parent_lineage_id: null },
@@ -52,18 +52,5 @@ describe('adjacentGen dir=+1 (efterkommer)', () => {
   });
   it('en founder (lokal 1) går frem i egen linje, IKKE tilbage til moderlinjen', () => {
     expect(adjacentGen(coords, '1', '50', 1, 1)).toEqual({ sourceId: '1', lineageId: '50', linje: 'V', lokal: 2 });
-  });
-});
-
-describe('previousAncestorGen (midlertidig wrapper, fjernes i Task 4)', () => {
-  const coords: GenCoord[] = [
-    { sourceId: '1', linje: 'V', lineageId: '50', parentLineageId: '10', lokal: 1, gennem: 12, kuld: null },
-    { sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 12, gennem: 12, kuld: null },
-  ];
-  it('går et lokalt slægtled tilbage i samme linje', () => {
-    expect(previousAncestorGen(coords, 'III', 12)).toEqual({ linje: 'III', lokal: 11 });
-  });
-  it('hopper til moderlinjen ved founder (lokal 1)', () => {
-    expect(previousAncestorGen(coords, 'V', 1)).toEqual({ linje: 'III', lokal: 11 });
   });
 });

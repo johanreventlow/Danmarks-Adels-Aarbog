@@ -66,18 +66,3 @@ export function adjacentGen(
   const t = candidates[0];
   return { sourceId, lineageId: t.lineageId, linje: t.linje, lokal: (t.lokal as number) - 1 };
 }
-
-// Midlertidig bagudkompatibel wrapper til `tree.ts`/`selectors.ts` (opdateres i Task 4 til at
-// kalde `adjacentGen` direkte og medbringe deres egen (sourceId, lineageId)-kontekst). Finder
-// `cur`'s (sourceId, lineageId) ud fra (linje, lokal) og delegerer til `adjacentGen(..., -1)`.
-// Fjernes i Task 4 — introducér ALDRIG ny logik her.
-export function previousAncestorGen(
-  coords: GenCoord[],
-  curLinje: string,
-  curLokal: number,
-): { linje: string; lokal: number } | null {
-  const cur = coords.find((c) => c.linje === curLinje && c.lokal === curLokal);
-  if (!cur) return null;
-  const result = adjacentGen(coords, cur.sourceId, cur.lineageId, curLokal, -1);
-  return result ? { linje: result.linje, lokal: result.lokal } : null;
-}
