@@ -14,7 +14,7 @@ if (host == "" || user == "" || pw == "") stop("Sæt SUPABASE_HOST/USER/PASSWORD
 con <- dbConnect(RPostgres::Postgres(), host = host,
                  port = as.integer(Sys.getenv("SUPABASE_PORT", "5432")),
                  dbname = Sys.getenv("SUPABASE_DB", "postgres"),
-                 user = user, password = pw, sslmode = "require")
+                 user = user, password = pw, sslmode = "require", bigint = "integer")
 on.exit(dbDisconnect(con), add = TRUE)
 q  <- function(sql, p = list()) if (length(p)) dbGetQuery(con, sql, params = p) else dbGetQuery(con, sql)
 
@@ -44,12 +44,16 @@ ok <- tryCatch({
           SET slaegtled_lokal=$1, slaegtled_gennem=$2, kuld=$3
         WHERE source_id=$4 AND linje=$5 AND nr=$6",
       params = list(rows$slaegtled_lokal[i],
-                    if (is.na(rows$slaegtled_gennem[i])) NA else rows$slaegtled_gennem[i],
-                    if (is.na(rows$kuld[i])) NA else rows$kuld[i],
+                    rows$slaegtled_gennem[i],
+                    rows$kuld[i],
                     sid, rows$linje[i], rows$nr[i]))
     matched <- matched + n
   }
   cat(sprintf("[backfill] %d person_external_id-rækker opdateret\n", matched))
+  if (matched < nrow(rows)) {
+    cat(sprintf("[backfill] ADVARSEL: kun %d af %d rækker matchede — tjek source_id-opløsning\n",
+                matched, nrow(rows)))
+  }
   cs
 }, error = function(e) { dbRollback(con); stop(e) })
 dbCommit(con)

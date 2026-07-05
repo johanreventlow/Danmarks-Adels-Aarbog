@@ -6,7 +6,7 @@ Output: JSON-array, én record per nummereret post:
   { linje, nr, kuld, slaegtled, aegteskab_kontekst, sider, raw_text }
 
 Struktur i bogen (vigtigt):
-  * Løbenummeret (nr) reset­ter pr. gren (linje I..V starter hver ved 1). Den unikke nøgle
+  * Løbenummeret (nr) resetter pr. gren (linje I..V starter hver ved 1). Den unikke nøgle
     er (linje, nr) inden for én kilde — IKKE nr alene.
   * "linje" er gren-labelen (romertal I-V), sat af en gren-header som
     "I" + "DEN HOLSTENSKE LINJE". Et romertal er KUN en linje hvis næste
