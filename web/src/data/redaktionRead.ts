@@ -172,10 +172,13 @@ export function mapNarrativer(rows: RawNarrativRow[]): PersonNarrativ[] {
     .sort((a, b) => (a.sourceId ?? Infinity) - (b.sourceId ?? Infinity) || a.id - b.id);
 }
 
-export async function fetchPersonNarrativer(id: string): Promise<PersonNarrativ[]> {
+// Generaliseret fra person-only til ethvert subjekt (billeder-i-narrativer 2026-07-05, Slice C3)
+// — slægts/linje-narrativer bruger samme udgave-fane-mønster som person-narrativer, samme RPC
+// (red_upsert_narrativ), blot en anden (subjekt_type, subjekt_id).
+export async function fetchNarrativer(subjektType: string, subjektId: number): Promise<PersonNarrativ[]> {
   const { data, error } = await supabase
     .from('narrative').select('id,source_id,side,tekst,privat,source:source_id(titel,udgave)')
-    .eq('subjekt_type', 'person').eq('subjekt_id', Number(id))
+    .eq('subjekt_type', subjektType).eq('subjekt_id', subjektId)
     .order('source_id', { ascending: true }).order('id', { ascending: true });
   if (error) throw new Error(error.message);
   return mapNarrativer((data ?? []) as unknown as RawNarrativRow[]);
@@ -189,6 +192,17 @@ export async function fetchSources(): Promise<SourceRow[]> {
     .order('aar', { ascending: false, nullsFirst: false });
   if (error) throw new Error(error.message);
   return (data ?? []) as SourceRow[];
+}
+
+// Rå lineage-rækker med deres RIGTIGE numeriske id (til subjekt_id på 'lineage'-narrativer, Slice
+// C3) — bevidst IKKE genbrugt fra Følgesvend-modellens aux.linjeList (den bærer kun linje-KODEN
+// 'I'/'II'/… som nøgle, ikke lineage.id).
+export type LineageRow = { id: number; kode: string; navn: string | null };
+
+export async function fetchLineages(): Promise<LineageRow[]> {
+  const { data, error } = await supabase.from('lineage').select('id,kode,navn').order('kode', { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as LineageRow[];
 }
 
 // --- Generiske entitets-lister (simple tabeller) til midter-panelet ---

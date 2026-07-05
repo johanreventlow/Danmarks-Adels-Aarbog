@@ -7,10 +7,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { navigate, usePath } from './router';
 import { signIn, signOut, currentSession, type RedSession } from './data/auth';
 import {
-  fetchRedaktionPersoner, fetchPersonEvidence, fetchPersonNarrativer, fetchSources, fetchSletPreview,
+  fetchRedaktionPersoner, fetchPersonEvidence, fetchNarrativer, fetchSources, fetchLineages, fetchSletPreview,
   fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, fetchSammeSomLinks, fetchRedPersonMedia, fetchRedObjectMedia, nudgeOrdinal, type RedPerson, type PersonEvidence,
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
-  type PersonNarrativ, type SourceRow, type PersonMedia,
+  type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia,
 } from './data/redaktionRead';
 import { previewSammeSom } from './data/sammeSomPreflight';
 import { loadModel } from './data/model';
@@ -30,6 +30,11 @@ const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 const MEDIA_ARTER = new Set(['uploadMedia', 'fjernMedia', 'sletRelation']);
 // Generiske entiteter med et materiale-galleri (Slice 0h) — spejler mobiles HAR_MATERIALE.
 const HAR_OBJEKT_MATERIALE = new Set(['estate', 'arms']);
+// Generel slægtsbeskrivelse (billeder-i-narrativer 2026-07-05, Slice C3): subjekt_type='slaegt' har
+// INGEN bagvedliggende tabel — subjekt_id er en FAST, delt sentinel-konstant (ikke en fremmednøgle
+// til noget), nødvendig fordi narrative.subjekt_id er NOT NULL. recordId 'generelt' i URL'en
+// mapper til denne konstant; ethvert andet recordId under entity 'slaegt' er et lineage.id.
+const SLAEGT_SUBJEKT_ID = 1;
 
 // --- Tokens (fra designet) ---
 const T = {
@@ -43,6 +48,7 @@ const T = {
 const ENTITIES = [
   { key: 'person', label: 'Personer', icon: '☗' },
   { key: 'family', label: 'Familier & relationer', icon: '⚭' },
+  { key: 'slaegt', label: 'Slægten', icon: '⚘' },
   { key: 'narrative', label: 'Narrativer', icon: '¶' },
   { key: 'office', label: 'Embeder & hverv', icon: '❦' },
   { key: 'estate', label: 'Godser', icon: '⌂' },
@@ -129,6 +135,7 @@ export default function Redaktion() {
   const narrativSelPos = useRef(0);
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [sources, setSources] = useState<SourceRow[]>([]);
+  const [lineages, setLineages] = useState<LineageRow[]>([]);
   const [nyUdgave, setNyUdgave] = useState<{ titel: string; udgave: string; aar: string } | null>(null);
   const [model, setModel] = useState<Model | null>(null);
   const [familie, setFamilie] = useState<PersonFamilie | null>(null);
@@ -178,6 +185,7 @@ export default function Redaktion() {
   }, []);
   // Kilde-liste (udgave-picker) er person-uafhængig → hentes én gang. opretUdgave refresher selv.
   useEffect(() => { fetchSources().then(setSources).catch(() => setSources([])); }, []);
+  useEffect(() => { fetchLineages().then(setLineages).catch(() => setLineages([])); }, []);
 
   // Skift entitets-fane (sidebar-nav) — rydder valgt record + søgefelt, matcher original adfærd.
   const goToEntity = (e: string) => {
@@ -227,17 +235,24 @@ export default function Redaktion() {
   // — urørt her). Medielisten er IKKE føjet ind i den samme ubetingede liste: den er to sekventielle
   // DB-kald (relation→media), så den fetches kun ved persons-valg eller efter en uploadMedia-ændring,
   // ikke ved fx en narrativ- eller privat-toggle-gem (cost-uden-gevinst, /simplify-fund).
-  const loadPerson = useCallback((id: string, opts?: { skipMedia?: boolean }) => {
-    setEvidence(null); setNarrativer([]); setAktivSourceId(null); setNyUdgave(null);
+  // Generaliseret fra person-only (billeder-i-narrativer 2026-07-05, Slice C3) — genbruges nu også
+  // af slægts/linje-narrativ-editoren, samme udgave-fane-tilstand (narrativer/aktivSourceId/
+  // narrativUdkast/nyUdgave), blot et andet (subjekt_type, subjekt_id).
+  const loadNarrativer = useCallback((subjektType: string, subjektId: number) => {
+    setNarrativer([]); setAktivSourceId(null); setNyUdgave(null);
     setNarrativUdkast({ tekst: '', privat: false, side: '' });
-    setFamilie(null); setRelationer(null); setEditingAssert(null); setAddingFact(null);
-    fetchPersonEvidence(id).then(setEvidence).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
-    fetchPersonNarrativer(id).then((ns) => {
+    fetchNarrativer(subjektType, subjektId).then((ns) => {
       setNarrativer(ns);
       const first = ns[0];
       setAktivSourceId(first?.sourceId ?? 1);
       setNarrativUdkast({ tekst: first?.tekst ?? '', privat: first?.privat ?? false, side: first?.side ?? '' });
     }).catch(() => { setNarrativer([]); setAktivSourceId(1); setNarrativUdkast({ tekst: '', privat: false, side: '' }); });
+  }, []);
+
+  const loadPerson = useCallback((id: string, opts?: { skipMedia?: boolean }) => {
+    setEvidence(null); setFamilie(null); setRelationer(null); setEditingAssert(null); setAddingFact(null);
+    fetchPersonEvidence(id).then(setEvidence).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
+    loadNarrativer('person', Number(id));
     fetchPersonFamilie(id, model).then(setFamilie).catch(() => setFamilie({ somPartner: [], somBarn: [] }));
     fetchPersonRelationer(id).then(setRelationer).catch(() => setRelationer([]));
     fetchSammeSomLinks(id).then(setSammeSom).catch(() => setSammeSom([]));
@@ -245,7 +260,7 @@ export default function Redaktion() {
       setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', maaPubliceres: false });
       fetchRedPersonMedia(id).then(setMedia).catch(() => setMedia([]));
     }
-  }, [model]);
+  }, [model, loadNarrativer]);
 
   // Skift aktiv udgave-fane; nulstil udkast fra den fanes gemte narrativ (ugemte edits kasseres,
   // som ved record-skift). sourceId==null når en ny udgave er valgt men endnu ikke gemt.
@@ -299,6 +314,24 @@ export default function Redaktion() {
 
   const curPerson = persons.find((p) => p.id === recordId) ?? null;
   const curRecord = records.find((r) => r.id === recordId) ?? null;
+
+  // Slægts/linje-narrativ-editor (billeder-i-narrativer 2026-07-05, Slice C3): recordId 'generelt'
+  // → den faste sentinel (SLAEGT_SUBJEKT_ID, ikke en fremmednøgle); ethvert andet recordId → et
+  // lineage.id (fra fetchLineages, valgt i renderList's slaegt-gren).
+  const slaegtSubjekt = useMemo(() => {
+    if (entity !== 'slaegt' || !recordId) return null;
+    if (recordId === 'generelt') return { type: 'slaegt' as const, id: SLAEGT_SUBJEKT_ID, label: 'Generelt' };
+    const l = lineages.find((x) => String(x.id) === recordId);
+    return l ? { type: 'lineage' as const, id: l.id, label: l.navn ?? `Linje ${l.kode}` } : null;
+  }, [entity, recordId, lineages]);
+  useEffect(() => {
+    if (!slaegtSubjekt) return;
+    loadNarrativer(slaegtSubjekt.type, slaegtSubjekt.id);
+    setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', maaPubliceres: false });
+    if (slaegtSubjekt.type === 'lineage') {
+      fetchRedObjectMedia('lineage', String(slaegtSubjekt.id)).then(setMedia).catch(() => setMedia([]));
+    }
+  }, [slaegtSubjekt, loadNarrativer]);
 
   // Objekt-foto (Slice 0h): estate/arms er de eneste generiske entiteter med et materiale-galleri
   // (jf. renderGenericEditor). Genbruger person-editorens media/mediaPick/mediaForm-state — de to
@@ -387,7 +420,7 @@ export default function Redaktion() {
         {renderList()}
         <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: T.paper }}>
           {loadErr && <pre style={{ margin: 18, color: T.red, fontSize: 12, whiteSpace: 'pre-wrap' }}>{loadErr}</pre>}
-          {entity === 'person' ? renderPersonEditor() : renderGenericEditor()}
+          {entity === 'person' ? renderPersonEditor() : entity === 'slaegt' ? renderSlaegtEditor() : renderGenericEditor()}
         </div>
       </div>
       {renderLoginModal()}
@@ -539,6 +572,16 @@ export default function Redaktion() {
               {!b.flat.length && <div style={{ padding: '22px 10px', textAlign: 'center', fontSize: 12.5, color: T.muted3 }}>{persons.length ? 'Ingen træffere' : 'Henter…'}</div>}
             </div>
           </>
+        ) : entity === 'slaegt' ? (
+          // Slægts/linje-narrativ-editor (Slice C3): "Generelt" (fast sentinel) + én række pr.
+          // navngiven linje — IKKE via fetchEntityRecords/records (ingen bagvedliggende tabel for
+          // "Generelt"), egen lille liste af de 5 lineage-rækker + sentinellen.
+          <div style={{ padding: '2px 10px 12px' }}>
+            {[{ id: 'generelt', badge: '⚘', label: 'Generelt', sub: 'hele slægten' },
+              ...lineages.map((l) => ({ id: String(l.id), badge: l.kode, label: l.navn ?? `Linje ${l.kode}`, sub: 'linje' }))]
+              .filter((r) => !query.trim() || r.label.toLowerCase().includes(query.trim().toLowerCase()))
+              .map((r) => listRow({ id: r.id, badge: r.badge, label: r.label, sub: r.sub, round: 7 }))}
+          </div>
         ) : (
           <div style={{ padding: '2px 10px 12px' }}>
             {filtered.map((r) => listRow({ id: r.id, badge: r.badge, label: r.label, sub: r.sub, round: 7 }))}
@@ -590,10 +633,25 @@ export default function Redaktion() {
 
         {renderFamilieRelationer(p.id)}
 
-        {/* Narrativ · biografi — én pr. DAA-udgave (source-nøglet) */}
+        {renderNarrativEditor({ type: 'person', id: p.id })}
+
+        {renderMateriale({ subjektType: 'person', subjektId: p.id, uploadTarget: { afbildetPersonId: p.id } })}
+      </div>
+    );
+  }
+
+  // Narrativ-editor (udgave-faner + tekstfelt + billed-indsættelse + forhåndsvisning) —
+  // generaliseret fra person-only (billeder-i-narrativer 2026-07-05, Slice C3) til ethvert subjekt
+  // ('person' | 'slaegt' | 'lineage'), så person-editoren og den nye slægts/linje-editor genbruger
+  // ÉN implementering i stedet for en parallel kopi. Læser stadig den fælles narrativer/
+  // aktivSourceId/narrativUdkast/nyUdgave-state (sat af loadNarrativer for det aktuelle subjekt).
+  function renderNarrativEditor(subjekt: { type: string; id: number | string }) {
+    const subjektId = String(subjekt.id);
+    return (
+      <>
         <div style={sectionHeader(24)}>Narrativ · biografi</div>
         <div style={{ background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: '14px 15px' }}>
-          {/* Udgave-faner: én pr. kilde personen har en narrativ i, + evt. ny (ugemt) udgave + "+ Ny udgave" */}
+          {/* Udgave-faner: én pr. kilde subjektet har en narrativ i, + evt. ny (ugemt) udgave + "+ Ny udgave" */}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
             {narrativer.map((n) => (
               <div key={n.id} onClick={() => vaelgUdgave(n.sourceId)} style={{ fontSize: 11.5, padding: '4px 10px', borderRadius: 7, cursor: 'pointer',
@@ -610,10 +668,10 @@ export default function Redaktion() {
             <div onClick={() => setNyUdgave({ titel: '', udgave: '', aar: '' })} style={{ fontSize: 11.5, padding: '4px 10px', borderRadius: 7, cursor: 'pointer', border: '1px dashed rgba(34,31,26,.3)', color: T.muted2 }}>+ Ny udgave</div>
           </div>
 
-          {/* Ny udgave: vælg eksisterende kilde personen ikke har endnu, ELLER opret en ny DAA-udgave */}
+          {/* Ny udgave: vælg eksisterende kilde subjektet ikke har endnu, ELLER opret en ny DAA-udgave */}
           {nyUdgave != null && (
             <div style={{ ...annoBox, marginBottom: 10, padding: '10px 11px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ fontSize: 10.5, color: T.muted }}>Vælg en udgave personen ikke har endnu:</div>
+              <div style={{ fontSize: 10.5, color: T.muted }}>Vælg en udgave subjektet ikke har endnu:</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {ledigeSources.map((s) => (
                   <div key={s.id} onClick={() => vaelgUdgave(s.id)} style={{ fontSize: 11.5, padding: '4px 9px', borderRadius: 6, cursor: 'pointer', border: '1px solid rgba(34,31,26,.16)', color: T.muted }}>
@@ -658,11 +716,27 @@ export default function Redaktion() {
               side <input value={narrativUdkast.side} onChange={(e) => setNarrativUdkast((u) => ({ ...u, side: e.target.value }))} placeholder="fx 209-211" style={{ fontSize: 11, padding: '4px 7px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6, background: '#fff', color: '#3d382f', outline: 'none', width: 78 }} />
             </label>
             <div style={{ flex: 1 }} />
-            <div onClick={() => run({ art: 'narrativ', subjektType: 'person', subjektId: p.id, vaerdi: narrativUdkast.tekst, payload: { privat: narrativUdkast.privat, sourceId: aktivSourceId, side: narrativUdkast.side.trim() || null } }, 'Narrativ')} style={{ fontSize: 12, fontWeight: 600, color: T.paper, background: T.green, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' }}>Gem narrativ</div>
+            <div onClick={() => run({ art: 'narrativ', subjektType: subjekt.type, subjektId, vaerdi: narrativUdkast.tekst, payload: { privat: narrativUdkast.privat, sourceId: aktivSourceId, side: narrativUdkast.side.trim() || null } }, 'Narrativ')} style={{ fontSize: 12, fontWeight: 600, color: T.paper, background: T.green, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' }}>Gem narrativ</div>
           </div>
         </div>
+      </>
+    );
+  }
 
-        {renderMateriale({ subjektType: 'person', subjektId: p.id, uploadTarget: { afbildetPersonId: p.id } })}
+  // Slægts/linje-narrativ-editor (billeder-i-narrativer 2026-07-05, Slice C3) — vælger mellem den
+  // faste "Generelt"-beskrivelse og en af de 5 navngivne linjer (venstre liste, renderList's
+  // slaegt-gren), genbruger narrativ-editoren fuldt ud + Materiale for linjer (ikke "Generelt",
+  // der er en sentinel uden egen billed-samling).
+  function renderSlaegtEditor() {
+    if (!slaegtSubjekt) return <div style={{ padding: 30, color: T.muted3 }}>Vælg "Generelt" eller en linje.</div>;
+    return (
+      <div style={{ padding: '24px 30px 60px', maxWidth: 780 }}>
+        <div style={{ fontFamily: T.serif, fontSize: 30, fontWeight: 600, lineHeight: 1, marginBottom: 16 }}>{slaegtSubjekt.label}</div>
+        {renderNarrativEditor(slaegtSubjekt)}
+        {slaegtSubjekt.type === 'lineage' && renderMateriale({
+          subjektType: 'lineage', subjektId: String(slaegtSubjekt.id),
+          uploadTarget: { objektType: 'lineage', objektId: String(slaegtSubjekt.id) },
+        })}
       </div>
     );
   }
