@@ -17,6 +17,7 @@ import { loadModel } from './data/model';
 import type { Model } from './data/types';
 import { submitChange, describeCall, oversaetFejl, type Change } from './data/redaktionWrite';
 import { buildStoragePath } from './data/mediaUpload';
+import { withUrl } from './data/media';
 import { buildBrowse } from './data/browse';
 import { initials } from './data/format';
 import { NarrativRenderer } from './components/NarrativRenderer';
@@ -649,7 +650,7 @@ export default function Redaktion() {
     // Lightbox (Slice A): kun url-bærende rækker er navigerbare (nogle kan mangle url, fx
     // 'kladde' eller mislykket signering) — filtrér FØR indeksering, ellers kan pil-navigation
     // lande på en url-løs post og lukke lightboxen uventet.
-    const mediaMedLightbox = media.filter((m): m is PersonMedia & { url: string } => !!m.url);
+    const mediaMedLightbox = withUrl(media);
     return (
       <>
         <div style={sectionHeader(24)}>Materiale</div>

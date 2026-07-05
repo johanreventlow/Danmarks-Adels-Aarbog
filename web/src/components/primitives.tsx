@@ -4,7 +4,7 @@
 // reimplementerede Avatar/ViewHeader inline i stedet for at importere dem herfra.
 import { T } from '../theme';
 import { initials } from '../data/format';
-import type { MediaItem } from '../data/media';
+import { mediaCaption, type MediaItem } from '../data/media';
 
 export const Kicker = ({ children }: { children: React.ReactNode }) => (
   <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.2em', textTransform: 'uppercase', color: T.gold, marginBottom: 6 }}>{children}</div>
@@ -46,17 +46,17 @@ export const BookmarkFlag = ({ active, onClick }: { active: boolean; onClick: ()
   </span>
 );
 
-// Medie-billede med fallback: intet render hvis signering fejlede (url=null). Klik åbner den
-// fulde (signed) URL i ny fane — RLS har allerede gatet at brugeren må se den. Delt af
-// person-portræt/-galleri + gods/våben-visningerne.
-// onClick (valgfri): åbn i en rigtig lightbox (Slice A) i stedet for en ny fane. Falder tilbage
-// til den gamle window.open-adfærd hvor ingen lightbox er koblet på (graceful, ingen dødt sted).
-export const MediaThumb = ({ m, w, h, radius = 10, onClick }: { m: MediaItem; w: number | string; h: number | string; radius?: number; onClick?: () => void }) => {
+// Medie-billede med fallback: intet render hvis signering fejlede (url=null). Klik åbner en
+// lightbox (Slice A) — RLS har allerede gatet at brugeren må se den. Delt af person-portræt/
+// -galleri + gods/våben-visningerne. onClick er PÅKRÆVET: alle 6 kaldesteder kobler en lightbox
+// på; en valgfri prop med en window.open-fallback ville lade en glemt 7. kaldested falde tavst
+// tilbage til den gamle ny-fane-adfærd i stedet for en type-fejl (/simplify-fund, Slice A).
+export const MediaThumb = ({ m, w, h, radius = 10, onClick }: { m: MediaItem; w: number | string; h: number | string; radius?: number; onClick: () => void }) => {
   if (!m.url) return null;
-  const cap = [m.titel, m.kunstner, m.datering].filter(Boolean).join(' · ');
+  const cap = mediaCaption(m);
   return (
     <img src={m.url} alt={m.titel || m.slags || 'medie'} title={cap || undefined}
-      onClick={onClick ?? (() => window.open(m.url!, '_blank', 'noopener'))}
+      onClick={onClick}
       style={{ width: w, height: h, objectFit: 'cover', borderRadius: radius, border: '1px solid rgba(34,31,26,.1)', cursor: 'zoom-in', display: 'block' }} />
   );
 };

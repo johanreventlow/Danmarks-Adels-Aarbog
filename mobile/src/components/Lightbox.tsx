@@ -5,6 +5,9 @@
 // med web) — samme princip som buildBidirectionalColumns: ét beskrevet interaktionsmønster, to
 // uafhængige implementeringer. Tap hvor som helst (inkl. selve billedet) lukker, matcher hvordan
 // fotovisninger normalt opfører sig på mobil (modsat web, hvor klik på selve billedet er inert).
+// `uri` er i dag den samme fil som thumbnailen (kun én størrelse findes endnu) — Slice B
+// (media_variant, planen §1-2) skifter kaldernes uri til en 'large'-variant; denne komponent
+// rører ikke ved dét, den viser bare den uri den får.
 import { Image } from 'expo-image';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import { Mono, Body } from './Typography';

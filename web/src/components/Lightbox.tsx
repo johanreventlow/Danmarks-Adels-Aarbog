@@ -3,8 +3,12 @@
 // fuld størrelse. Bevidst KUN statisk visning (bruger-afklaring 2026-07-05: intet pinch-zoom).
 // Selvstændig implementering (ikke delt kode) — spejles på mobile, samme princip som
 // buildBidirectionalColumns: ét beskrevet interaktionsmønster, to uafhængige implementeringer.
+// `url` er i dag den samme fil som thumbnailen (kun én størrelse findes endnu) — Slice B
+// (media_variant, planen §1-2) skifter kaldernes url til en 'large'-variant; denne komponent
+// rører ikke ved dét, den viser bare den url den får.
 import { useEffect } from 'react';
 import { T } from '../theme';
+import { mediaCaption } from '../data/media';
 
 export type LightboxItem = { id: string; url: string | null; titel?: string | null; kunstner?: string | null; datering?: string | null };
 
@@ -29,7 +33,7 @@ export function Lightbox({ items, index, onClose, onNavigate }: {
 
   const m = items[index];
   if (!m?.url) return null;
-  const cap = [m.titel, m.kunstner, m.datering].filter(Boolean).join(' · ');
+  const cap = mediaCaption(m);
 
   return (
     <div onClick={onClose} style={{

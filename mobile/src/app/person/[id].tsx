@@ -37,15 +37,9 @@ export default function PersonScreen() {
   const person = personId && model ? model.byId[personId] : null;
 
   // Medier (mediehåndtering Slice 0): model-hook FØR early-return så hook-kaldet er ubetinget.
+  // lightboxItems (portræt+galleri, ÉT navigerbart sæt) bygges af hooken selv (Slice A).
   const media = personId ? aux?.mediaBy[personId] ?? [] : [];
-  const { portrait, portraitUri, gallery } = usePersonMedia(media);
-  // Lightbox (Slice A): portræt + galleri er ÉT navigerbart sæt (portræt først).
-  const lightboxItems = [
-    ...(portrait && portraitUri
-      ? [{ id: String(portrait.id), uri: portraitUri, titel: portrait.titel, kunstner: portrait.kunstner, datering: portrait.datering }]
-      : []),
-    ...gallery.map((g) => ({ id: String(g.media.id), uri: g.uri, titel: g.media.titel, kunstner: g.media.kunstner, datering: g.media.datering })),
-  ];
+  const { portraitItem, gallery, lightboxItems } = usePersonMedia(media);
 
   if (!person || !model) {
     return (
@@ -91,9 +85,9 @@ export default function PersonScreen() {
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 28 }}>
         {/* Header: portræt + navn + badges */}
         <View style={styles.header}>
-          {portraitUri ? (
+          {portraitItem ? (
             <Pressable onPress={() => setLightbox(0)}>
-              <Image source={{ uri: portraitUri }} style={{ width: 96, height: 120, borderRadius: 12 }} contentFit="cover" transition={150} />
+              <Image source={{ uri: portraitItem.uri }} style={{ width: 96, height: 120, borderRadius: 12 }} contentFit="cover" transition={150} />
             </Pressable>
           ) : (
             <StripedPlaceholder width={96} height={120} radius={12} label="portræt" />

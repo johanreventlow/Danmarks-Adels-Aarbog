@@ -9,7 +9,7 @@ import { buildBidirectionalColumns } from './data/tree';
 import { initials, konfTekst } from './data/format';
 import { computeRelationship, type RelationResult } from './data/relationship';
 import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
-import { pickPortrait, firstSignable, type MediaItem } from './data/media';
+import { pickPortrait, firstSignable, withUrl } from './data/media';
 import type { Model, ModelPerson } from './data/types';
 import { NarrativRenderer } from './components/NarrativRenderer';
 import { buildBrowse } from './data/browse';
@@ -778,7 +778,7 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
   const media = detail?.media ?? [];
   const portrait = pickPortrait(media);
   const gallery = media.filter((m) => m.url && m.id !== portrait?.id);
-  const lightboxItems = [portrait, ...gallery].filter((m): m is MediaItem => !!m?.url);
+  const lightboxItems = withUrl([portrait, ...gallery]);
   // Proveniens: er personen foldet af flere DAA-poster (samme_som), vis hvilke linjer/numre.
   const mergedFrom = p.mergedFrom ?? [];
   const proveniens =
@@ -949,7 +949,7 @@ function EstatesView({ estates, estateId, estate, info, owners, onOpen, onBack, 
 }) {
   const [lightbox, setLightbox] = useState<number | null>(null); // Slice A — kun brugt i detalje-grenen nedenfor
   if (estateId && estate) {
-    const lightboxItems = (info?.media ?? []).filter((m): m is MediaItem => !!m.url);
+    const lightboxItems = withUrl(info?.media ?? []);
     return (
       <div style={{ padding: '26px 40px 50px', maxWidth: 620 }}>
         <div onClick={onBack} style={{ fontSize: 12.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', marginBottom: 14 }}>‹ Alle godser</div>
@@ -1021,7 +1021,7 @@ function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
   const mainCrest = main ? firstSignable(main.media) : null; // første signerbare (ikke blindt media[0])
   const variantImgs = rest.map((v) => firstSignable(v.media));
   // Lightbox (Slice A): hoved-våben + alle varianter er ÉT navigerbart sæt.
-  const lightboxItems = [mainCrest, ...variantImgs].filter((m): m is MediaItem => !!m?.url);
+  const lightboxItems = withUrl([mainCrest, ...variantImgs]);
   return (
     <div style={{ padding: '30px 40px 50px', maxWidth: 640 }}>
       <ViewHeader title="Slægtens våben" mb="18px" />
