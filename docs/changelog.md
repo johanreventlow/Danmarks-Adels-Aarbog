@@ -1,5 +1,31 @@
 # Changelog
 
+## Generations-reparation af stamtræet — hul-reparation via slægtled (web+mobile, PROD-LIVE + merget, 2026-07-05)
+
+Ny navigations-vej for de tidligste, ubeviste generationer: når aner-ringen i Kolonner-
+stamtræet er tom (ingen bevist forælder), vises nu generations-naboerne fra samme linjes
+forrige slægtled som **ubeviste kandidater** (stiplet/amber, "muligt slægtled"-tag,
+slægtled-header, kuld-gruppering). Klik re-ankrer — skriver **aldrig** en kant.
+
+- **Datalag (PROD-LIVE):** `segment.py` fanger nu bogens dobbelt-nummererede slægtled
+  ("Første (tolvte)") → `slaegtled_lokal`/`slaegtled_gennem` + `kuld` på `person_external_id`
+  (3 additive kolonner + trigger-hærdning så generation/kuld-UPDATE ikke regenererer
+  `visning_*`). Deterministisk backfill (ingen LLM): `change_set 20` (fortrydbar),
+  **591/591 lokal-dækning**, join på `(source_id, linje, nr)`, fail-closed source-valg,
+  suffix-variant-assert, data-aware idempotens (overlever `--force-reset`), wiret reload-
+  durabelt i `post_load_fixup.R` (subproces-isoleret). Conrad V-1=(1,12)/III-58=(12) valideret
+  som founder-bro. Migration advisor-ren.
+- **App-lag:** ren `buildGenCoords`/`previousAncestorGen` (founder-krydshop via `parent_lineage_id`,
+  fail-closed) → parametriseret `genCoords` i den delte `buildDirection`-bygger (web `tree.ts` +
+  mobil `selectors.ts`, byte-identisk). Source/lineage-scoped kandidat-match.
+- **Proces:** 11 TDD-tasks m. per-task-review, 5× `/simplify`, samlet dual-review (Claude opus +
+  Codex) → ingen Critical, write-invariant bekræftet af begge, 7 fund rettet (F1-F7) + re-review.
+  web 189/189, mobil 304/304. Merget til main efter ren integration med geo-kort-UI-featuren.
+- **v2 (dok. spec §12b):** founder-hop over flere linje-niveauer + active-line-kontekst for ring-valg
+  (begge ureachable i nuværende single-source-data). **Udestår:** empirisk UI-verifikation
+  (web-browser + mobil-enhed) mod live-data. Se `docs/superpowers/{specs,plans}/2026-07-05-generations-reparation*`.
+
+
 ## Mediehåndtering — Slice 0h: runtime-fix + slet/afkobl + objekt-foto (2026-07-05)
 
 Tre ting i forlængelse af Slice 0g, udløst af brugerens egen prod-test af upload-featuren:

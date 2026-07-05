@@ -129,10 +129,15 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
   const down = useStore((s) => s.down);
   const selectAncestor = useStore((s) => s.selectAncestor);
   const selectDescendant = useStore((s) => s.selectDescendant);
+  const setFocus = useStore((s) => s.setFocus);
+  const genCoordsByPerson = useStore((s) => s.genCoordsByPerson);
   const scrollRef = useRef<ScrollView>(null);
   const viewW = useRef(0);
   const prevUp = useRef(0), prevDown = useRef(0), prevAnchor = useRef<string | null>(null);
-  const cols = useMemo(() => (anchorId ? buildBidirectionalColumns(model, anchorId, up, down) : []), [model, anchorId, up, down]);
+  const cols = useMemo(
+    () => (anchorId ? buildBidirectionalColumns(model, anchorId, up, down, genCoordsByPerson) : []),
+    [model, anchorId, up, down, genCoordsByPerson],
+  );
   const anchorIdx = cols.findIndex((c) => c.kind === 'anchor');
 
   // Auto-scroll (spec §5.5): centrér anker ved reset; afslør nyeste kolonne ved drill (ned → højre,
@@ -169,11 +174,37 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
       >
         {cols.map((col) => (
           <View key={col.key} style={{ width: 166 }}>
-            <Mono size={9} color={Colors.gold} style={{ letterSpacing: 9 * 0.1, textTransform: 'uppercase', paddingBottom: 2, marginBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Border.light }}>
-              {col.label}
+            <Mono size={9} color={Colors.gold} style={{ letterSpacing: 9 * 0.1, textTransform: 'uppercase', paddingBottom: 2, marginBottom: col.fallback ? 2 : 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Border.light }}>
+              {col.fallback ? col.genLabel : col.label}
             </Mono>
+            {col.fallback ? (
+              <Mono size={8.5} color={Colors.textMuted2} style={{ marginBottom: 8, lineHeight: 11 }}>
+                slægtled-naboer — ingen bevist som forælder
+              </Mono>
+            ) : null}
             <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: insets.bottom + 90 }}>
-            {col.people.map((p) => {
+            {col.fallback ? (
+              Object.entries(col.kuldGroups ?? {}).map(([kuld, people]) => (
+                <View key={kuld} style={{ gap: 8 }}>
+                  {kuld !== '—' ? (
+                    <Mono size={8} color={Colors.textMuted3} style={{ letterSpacing: 8 * 0.08, textTransform: 'uppercase' }}>Kuld {kuld}</Mono>
+                  ) : null}
+                  {people.map((p) => (
+                    <Pressable key={p.id} onPress={() => setFocus(p.id)} style={styles.bCardFallback}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                        <View style={styles.bAvatar}><Serif size={15} color={Colors.bordeaux}>{initial(p.name)}</Serif></View>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Serif size={16} style={{ lineHeight: 17 }} numberOfLines={2}>{p.name}</Serif>
+                          {p.years ? <Mono size={9} color={Colors.textMuted} style={{ marginTop: 2 }}>{p.years}</Mono> : null}
+                          <Mono size={8} color={Colors.gold} style={{ letterSpacing: 8 * 0.06, textTransform: 'uppercase', marginTop: 2 }}>muligt slægtled</Mono>
+                        </View>
+                        {/* (ingen BookmarkFlag her — mobile-bogmærker er endnu ikke designet, jf. CLAUDE.md §9) */}
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+              ))
+            ) : col.people.map((p) => {
               const sel = p.id === col.selectedId;
               const canAnc = col.kind === 'ancestor' && (model.indexes.parentsByChild[p.id]?.length ?? 0) > 0;
               const canDesc = col.kind === 'descendant' && childrenOf(model, p.id).length > 0;
@@ -474,6 +505,9 @@ const styles = StyleSheet.create({
   bCard: { borderRadius: 12, padding: 12, borderWidth: 1.5 },
   bCardIdle: { backgroundColor: Colors.paperCard, borderColor: Border.light, ...Shadow.card },
   bCardSelected: { backgroundColor: Colors.paperCard, borderColor: Colors.bordeaux, ...Shadow.cardSelected },
+  // Fallback-ring (ubevist generations-nabo): dæmpet gul kant+baggrund, adskiller sig klart fra
+  // bevist parentsOf-kæde (bCardIdle/bCardSelected) — spejler web (Folgesvend.tsx §Kolonner).
+  bCardFallback: { borderRadius: 12, padding: 12, borderWidth: 1.5, borderStyle: 'dashed', borderColor: Colors.gold, backgroundColor: '#faf1dc' },
   bAvatar: { width: 34, height: 34, borderRadius: Radius.round, backgroundColor: '#f4ece0', borderWidth: StyleSheet.hairlineWidth, borderColor: Border.faint, alignItems: 'center', justifyContent: 'center' },
   bOpenBtn: { marginTop: 10, backgroundColor: Colors.bordeaux, borderRadius: 8, paddingVertical: 7, alignItems: 'center' },
   // Variant C

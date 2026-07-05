@@ -7,6 +7,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { GeoMap } from '../../components/GeoMap';
+import { Lightbox } from '../../components/Lightbox';
 import { NarrativRenderer } from '../../components/NarrativRenderer';
 import { StripedPlaceholder } from '../../components/StripedPlaceholder';
 import { TopBar } from '../../components/TopBar';
@@ -31,6 +32,7 @@ export default function PersonScreen() {
   const setFocus = useStore((s) => s.setFocus);
   const canonicalId = useStore((s) => s.canonicalId);
   const [bioExpanded, setBioExpanded] = useState(false);
+  const [lightbox, setLightbox] = useState<number | null>(null); // Slice A
 
   // Resolv rute-id til kanonisk: et link til enten et alias (fx III-58) eller den kanoniske (V-1)
   // lander på den samme, samlede person (samme_som-collapse).
@@ -38,8 +40,9 @@ export default function PersonScreen() {
   const person = personId && model ? model.byId[personId] : null;
 
   // Medier (mediehåndtering Slice 0): model-hook FØR early-return så hook-kaldet er ubetinget.
+  // lightboxItems (portræt+galleri, ÉT navigerbart sæt) bygges af hooken selv (Slice A).
   const media = personId ? aux?.mediaBy[personId] ?? [] : [];
-  const { portraitUri, gallery } = usePersonMedia(media);
+  const { portraitItem, gallery, lightboxItems } = usePersonMedia(media);
 
   if (!person || !model) {
     return (
@@ -86,8 +89,10 @@ export default function PersonScreen() {
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 28 }}>
         {/* Header: portræt + navn + badges */}
         <View style={styles.header}>
-          {portraitUri ? (
-            <Image source={{ uri: portraitUri }} style={{ width: 96, height: 120, borderRadius: 12 }} contentFit="cover" transition={150} />
+          {portraitItem ? (
+            <Pressable onPress={() => setLightbox(0)}>
+              <Image source={{ uri: portraitItem.uri }} style={{ width: 96, height: 120, borderRadius: 12 }} contentFit="cover" transition={150} />
+            </Pressable>
           ) : (
             <StripedPlaceholder width={96} height={120} radius={12} label="portræt" />
           )}
@@ -236,13 +241,14 @@ export default function PersonScreen() {
           {gallery.length ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 9 }}>
               {gallery.map(({ media: m, uri }) => (
-                <Image
-                  key={String(m.id)}
-                  source={{ uri }}
-                  style={{ width: 108, height: 108, borderRadius: 10, backgroundColor: Colors.beige2 }}
-                  contentFit="cover"
-                  transition={150}
-                />
+                <Pressable key={String(m.id)} onPress={() => setLightbox(lightboxItems.findIndex((x) => x.id === String(m.id)))}>
+                  <Image
+                    source={{ uri }}
+                    style={{ width: 108, height: 108, borderRadius: 10, backgroundColor: Colors.beige2 }}
+                    contentFit="cover"
+                    transition={150}
+                  />
+                </Pressable>
               ))}
             </ScrollView>
           ) : (
@@ -294,6 +300,9 @@ export default function PersonScreen() {
           </View>
         ) : null}
       </ScrollView>
+      {lightbox != null ? (
+        <Lightbox items={lightboxItems} index={lightbox} onClose={() => setLightbox(null)} onNavigate={setLightbox} />
+      ) : null}
     </View>
   );
 }

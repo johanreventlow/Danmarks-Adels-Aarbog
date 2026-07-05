@@ -1,27 +1,38 @@
 import { Image } from 'expo-image';
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Mono } from '../Typography';
 import { Colors } from '../../theme/tokens';
 import type { PersonMedia } from '../../data/redaktionRead';
+import { Lightbox } from '../Lightbox';
 
 // Materiale-galleri (mediehåndtering Slice 0g+0h) — delt mellem person-editoren og objekt-foto-
 // skærmen (gods/våben). Fjern = afkobl KUN dette subjekt (sletRelation, media+Storage upåvirket).
 // Slet = blødt fjern OVERALT (fjernMedia, upload_status='fjernet'), fortrydbar via historik.
+// Lightbox (Slice A) er selvstændig state her — begge kaldere (person-editor, objekt-materiale)
+// får klik-for-at-forstørre gratis uden selv at holde styr på det.
 export function MediaGallery({ media, mediaUris, onFjern, onSlet }: {
   media: PersonMedia[];
   mediaUris: Record<string, string>;
   onFjern: (m: PersonMedia) => void;
   onSlet: (m: PersonMedia) => void;
 }) {
+  const [lightbox, setLightbox] = useState<number | null>(null);
   if (!media.length) {
     return <Mono size={9} color={Colors.textMuted2} style={{ marginBottom: 8 }}>— intet materiale endnu</Mono>;
   }
+  const lightboxItems = media
+    .filter((m) => mediaUris[m.id])
+    .map((m) => ({ id: m.id, uri: mediaUris[m.id], titel: m.titel }));
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 9, marginBottom: 10 }}>
+    <>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 9, marginBottom: 10 }}>
       {media.map((m) => (
         <View key={m.id} style={{ width: 96 }}>
           {mediaUris[m.id] ? (
-            <Image source={{ uri: mediaUris[m.id] }} style={styles.mediaThumb} contentFit="cover" />
+            <Pressable onPress={() => setLightbox(lightboxItems.findIndex((x) => x.id === m.id))}>
+              <Image source={{ uri: mediaUris[m.id] }} style={styles.mediaThumb} contentFit="cover" />
+            </Pressable>
           ) : (
             <View style={styles.mediaThumb} />
           )}
@@ -39,7 +50,11 @@ export function MediaGallery({ media, mediaUris, onFjern, onSlet }: {
           </View>
         </View>
       ))}
-    </ScrollView>
+      </ScrollView>
+      {lightbox != null ? (
+        <Lightbox items={lightboxItems} index={lightbox} onClose={() => setLightbox(null)} onNavigate={setLightbox} />
+      ) : null}
+    </>
   );
 }
 

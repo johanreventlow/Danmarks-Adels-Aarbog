@@ -545,3 +545,17 @@ scope-punkt. Rejser ubesvarede spørgsmål (UI-i18n vs. indholds-i18n; hvor
 oversættelse lander i evidenslaget; hvad der sker med `narrative`s ordret-prosa-
 invariant på tværs af sprog) der kræver egen brainstorm, ikke besvaret her. Se
 `docs/tng-reventlow-analyse.md` §8.
+
+## Generation som kolonne, ikke fact; hul-reparation skriver aldrig (2026-07-05)
+
+- **Slægtled = strukturel bog-koordinat pr. udgave** (som `nr`/`linje`), IKKE en omstridt
+  påstand → plain kolonner på `person_external_id`, ikke evidenslag. Følger præcedensen
+  `lineage.slaegtsnavn` (bevidst kolonne-ikke-fact). To tal fordi bogen selv nummererer
+  dobbelt ("Første (tolvte)"): lokalt i linjen + gennemgående gennem moderlinjen.
+- **Fallback-ringen er en ren read-time projektion.** En generations-nabo er en UBEVIST
+  kandidat; at vælge den re-ankrer (navigation), og der oprettes ALDRIG en `relation`-kant.
+  Fail-closed founder-hop (præcis ét moderlinje-mål, ellers ingen ring) frem for at gætte.
+  Dual-review bekræftede invarianten på begge platforme.
+- **Join-nøgle `(source_id, linje, nr)`** — `nr` resetter pr. gren (ikke globalt); NULL-linje
+  karantænes. Backfill fail-closer på tvetydigt source-valg (TNG-source id 2 har 0 Roman-linjer,
+  så DAA-source 1 resolves entydigt).

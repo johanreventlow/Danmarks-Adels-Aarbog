@@ -85,6 +85,36 @@ tryCatch({
   dbCommit(con); message("post_load_fixup: OK")
 }, error = function(e) { dbRollback(con); dbDisconnect(con); stop("fixup fejlede, rullet tilbage: ", conditionMessage(e)) })
 
+# ---- 5) generations-backfill (reload-durabel, SUBPROCES-ISOLERET) ----
+# slægtled+kuld på person_external_id tømmes ved --force-reset (kolonnerne findes, men
+# er NULL). Kør backfill_slaegtled.R som separat proces (egen forbindelse + change_set-
+# transaktion) så en fejl her ALDRIG kan rulle post_load_fixup's egen commit ovenfor
+# tilbage — den samme delte-transaktions-fælde som gjorde standalone-change_set-guarden
+# uegnet (dual-review 2026-07-05, [[flere-foraeldre-datafix]]-mønster). Pre-check på den
+# allerede-åbne forbindelse springer subprocessen over når data allerede er udfyldt.
+tryCatch({
+  already <- one("SELECT count(*) FROM person_external_id WHERE slaegtled_lokal IS NOT NULL")
+  if (!is.na(already) && already > 0) {
+    message(sprintf("  generations-backfill: allerede anvendt (%s rækker) — sprunget over", already))
+  } else {
+    script_dir <- dirname(sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1]))
+    seg_script <- file.path(script_dir, "segment.py")
+    backfill   <- file.path(script_dir, "backfill_slaegtled.R")
+    repo_root  <- normalizePath(file.path(script_dir, "..", "..", "..", ".."), mustWork = FALSE)
+    raw_txt    <- Sys.getenv("DAA_RAW_FULL", unset = file.path(repo_root, "work", "raw_full.txt"))
+    seg_json   <- file.path(tempdir(), "seg-generations.json")
+    if (!file.exists(raw_txt)) {
+      message(sprintf("  generations-backfill SPRUNGET OVER: bogtekst ikke fundet (%s) — sæt DAA_RAW_FULL el. kør backfill_slaegtled.R manuelt", raw_txt))
+    } else {
+      if (system2("python3", c(shQuote(seg_script), shQuote(raw_txt)), stdout = seg_json, stderr = FALSE) != 0 || !file.exists(seg_json))
+        stop("segment.py fejlede")
+      rc <- system2("Rscript", c(shQuote(backfill), shQuote(seg_json)))
+      if (rc != 0) stop(sprintf("backfill_slaegtled.R exit %s", rc))
+      message("  generations-backfill: anvendt")
+    }
+  }
+}, error = function(e) message(sprintf("  generations-backfill fejlede (post_load_fixup uberørt): %s", conditionMessage(e))))
+
 cat("\n=== verifikation ===\n")
 print(dbGetQuery(con, "SELECT count(*) lineage FROM lineage"))
 print(dbGetQuery(con, "SELECT count(*) samme_som_links FROM relation WHERE rolle='samme_som'"))

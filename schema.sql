@@ -120,6 +120,9 @@ CREATE TABLE person_external_id (        -- bogens (linje, nr.) som eksternt ID
   source_id BIGINT REFERENCES source(id),
   linje     TEXT,                        -- 'I','V', ... — rå bog-token (proveniens); join til lineage.kode
   nr        INTEGER,
+  slaegtled_lokal  INTEGER,                -- slægtled lokalt i linjen (1,2,3… fra grenens start)
+  slaegtled_gennem INTEGER,                -- gennemgående slægtled (parentes-tallet i bogen)
+  kuld             TEXT,                    -- børne-gruppe-markør (romertal) inde i grenen; proveniens + gruppering
   PRIMARY KEY (person_id, source_id)
 );
 
@@ -489,7 +492,7 @@ END $$;
 
 DROP TRIGGER IF EXISTS trg_external_id_regen ON person_external_id;
 CREATE TRIGGER trg_external_id_regen
-  AFTER INSERT OR UPDATE OR DELETE ON person_external_id
+  AFTER INSERT OR DELETE OR UPDATE OF person_id, source_id, linje, nr ON person_external_id
   FOR EACH ROW EXECUTE FUNCTION trg_regen_from_external_id();
 
 -- lineage.slaegtsnavn/parent_lineage_id-ændring (ELLER en frisk INSERT — review 19 H1: en fri

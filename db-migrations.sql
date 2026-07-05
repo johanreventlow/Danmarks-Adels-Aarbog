@@ -1758,3 +1758,14 @@ BEGIN
   PERFORM begin_change_set('red_fjern_media', format('Fjernede media %s', p_media_id), 'media', p_media_id);
   UPDATE media SET upload_status = 'fjernet' WHERE id = p_media_id;
 END $$;
+
+-- 2026-07-05: generations-reparation — slægtled + kuld på person_external_id (design-spec 2026-07-05).
+ALTER TABLE person_external_id ADD COLUMN IF NOT EXISTS slaegtled_lokal  INTEGER;
+ALTER TABLE person_external_id ADD COLUMN IF NOT EXISTS slaegtled_gennem INTEGER;
+ALTER TABLE person_external_id ADD COLUMN IF NOT EXISTS kuld             TEXT;
+
+-- Trigger-hærdning: generations-/kuld-UPDATE må IKKE udløse regen_person_visning (påvirker ikke visning_*).
+DROP TRIGGER IF EXISTS trg_external_id_regen ON person_external_id;
+CREATE TRIGGER trg_external_id_regen
+  AFTER INSERT OR DELETE OR UPDATE OF person_id, source_id, linje, nr ON person_external_id
+  FOR EACH ROW EXECUTE FUNCTION trg_regen_from_external_id();
