@@ -1,5 +1,37 @@
 # Changelog
 
+## Konto-bogmærker: dual-review 22 af IMPLEMENTERINGEN + 4 fund rettet (2026-07-06)
+
+Efter skive 1-6 (nedenfor) kørt en ANDEN dual-review-cyklus (Claude+Codex) — denne gang af den
+faktiske KODE, ikke spec'en (spec allerede dual-reviewet, review 21). Fandt og rettede:
+
+- **H1:** mobil `count` var `idsList.length` (ikke session-gated) → viste stale badge-tal efter
+  log-ud selvom `ids`/`has()` korrekt gik tomme. Fix: `count: ids.size`.
+- **N1 (HIGH):** web's `useBookmarks(session ? {userId} : null, ...)` byggede et NYT objekt-
+  literal hver render → ustabil effekt-dependency → gentaget refetch på HVER render. Fix: begge
+  hooks (web+mobil) tager nu `userId: string | null` (primitiv, stabil) i stedet for et
+  session-objekt.
+- **M1:** hurtig dobbelt-toggle af samme id kunne race'e (add+remove krydsende, out-of-order
+  netværkssvar). Fix: `toggle` ignorerer gentaget tryk mens id'et allerede er in-flight.
+- **N3:** web-login manglede busy-guard (dobbelt-klik → overlappende `signIn`-kald) + rejection-
+  handler på `currentSession()`. Begge rettet.
+- **N2 (recalibreret MEDIUM):** ingen bruger-nøglet rydning af bogmærke-listen ved brugerskift.
+  Reconcile-verifikation bekræftede RLS forhindrer reel cross-account data-korruption (skrivninger
+  scopes altid til `auth.uid()` server-side — kun en misvisende UI-glimt, og scenariet er slet
+  ikke nået via appens faktiske UI-flow, som ikke understøtter konto-skift uden log-ud). Mitigeret
+  med ryd-ved-reelt-brugerskift.
+- **Selv-fanget regression under fixet:** den FØRSTE N2-mitigering (ubetinget `setIdsList([])` i
+  effekt-kroppen) genintroducerede en uendelig render-loop identisk med den allerede-hærdede
+  udlogget-gren (fanget af `vitest` der hang/OOM'ede) — rettet med en ref-sporet "kun ved reelt
+  brugerskift"-betingelse.
+- **Bevidst udskudt (H2):** mobil har to uafhængige `useBookmarks`-instanser (Home-skærm +
+  Bogmærker-skærm) uden delt state — fjern et bogmærke på Bogmærker-skærmen opdaterer ikke Home's
+  badge/ikoner før genmontering. Codex' reconcile bekræftede et ægte fix kræver en ny Zustand-
+  bogmærke-slice, ikke en hurtig patch — udskudt til separat brainstorm/plan (jf. projektets
+  konvention for ikke-trivielle arkitektur-ændringer). Se `docs/reviews/22-*.md`.
+- **Verificeret:** web 23/23 filer, 208/208 tests (2 nye); mobil 23/23 filer, 337/337 tests,
+  tsc+eslint rene.
+
 ## Konto-bogmærker — login-eksklusive, cross-device-synkroniserede bogmærker (web+mobile, branch feat/bogmaerker-konto, 2026-07-06)
 
 Bogmærker opgraderet fra lokal PoC (AsyncStorage/localStorage) til et **login-eksklusivt gode**
