@@ -1,5 +1,28 @@
 # Changelog
 
+## Datafix: person 1 fejlagtigt "gift med" eget barnebarn person 104 (2026-07-06)
+
+Bruger opdagede at person 1 (Gottschalk von Reventlow, 1. slægtled, linje I) stod registreret som
+"gift med" person 104 (Hartwich, 3. slægtled — Gottschalks barnebarn via person 82) i familie 74.
+Undersøgt og bekræftet: en loader-fejl fra den oprindelige DAA-indlæsning (familie 74 havde ingen
+`change_event`-historik, dvs. aldrig rørt af redaktør siden) — samme fejlklasse som de tidligere
+"spøgelses-union"-fund, men IKKE en af de allerede oprydede (change_sets 3-7). Bogteksten for
+Hartwich siger "Gift med NN" (ukendt hustru); intet sted nævnes Gottschalk. Iwan (person 44,
+familie 74's barn) kaldes gentagne gange "søn af ridderen Hartwich von Reventlow" — aldrig
+Gottschalk.
+
+**Rettet mod prod** via en manuelt forfattet, fortrydbar `change_set` (id 30): fjernede person 1
+som partner i familie 74 (`DELETE family_member WHERE family_id=74 AND person_id=1 AND
+rolle='partner'`), efterlader Hartwich (104) som eneste partner + Iwan (44) som barn — matcher
+det etablerede enkelt-partner-mønster for ukendt ægtefælle (7 lignende tilfælde findes allerede
+i basen, inkl. Hartwichs egen union med sin far). Verificeret: ingen flere spøgelse-par tilbage
+(bred søgning på partner-par ≥2 slægtled fra hinanden i samme linje — ikke udtømmende, fanger
+ikke tværlinje-tilfælde).
+
+**Opfølgning noteret i `claude.md` §9:** redaktøren har stadig ingen flade til at rette den slags
+fejl selv — denne rettelse krævede direkte SQL. Se også separat bug-rapport: mobilapp crasher ved
+åbning af person i redaktør-delen (urapporteret root cause).
+
 ## Konto-bogmærker: dual-review 22 af IMPLEMENTERINGEN + 4 fund rettet (2026-07-06)
 
 Efter skive 1-6 (nedenfor) kørt en ANDEN dual-review-cyklus (Claude+Codex) — denne gang af den
