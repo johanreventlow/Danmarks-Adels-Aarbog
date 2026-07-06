@@ -334,3 +334,16 @@ To spor — **data (R)** og **app (TS)** — bundet af RLS:
   se plan-dok `docs/superpowers/plans/2026-07-05-billedstoerrelser-artikler-
   lightbox.md` §7.1d) — en udvidelse bør genoverveje samme afvejning (nyt
   bibliotek vs. håndrullet, kollision med `[[type:id|label]]`-syntaksen).
+- **Redaktør: redigér/slet ægteskaber — nyt, ikke designet (2026-07-06).** Redaktøren har i dag
+  ingen flade til at rette eller slette en `family`/`family_member`-relation (ægteskab/union).
+  Konkret motiveret af et fundet data-fejl-tilfælde (person 1 Gottschalk fejlagtigt registreret
+  som "gift med" sit eget barnebarn, person 104 Hartwich, i familie 74 — loader-fejl fra den
+  oprindelige indlæsning, aldrig rørt af nogen redaktør-redigering; se `docs/reviews/` eller
+  spørg Claude om "person 1 gift med 104" for undersøgelsen). Lige nu kan sådanne fejl KUN
+  rettes via en direkte, versioneret SQL-`change_set` (fortrydbar, men manuel/udenfor app-fladen).
+  Kræver design af: slet-hele-familien vs. fjern-én-partner, konfidens-nedgradering som
+  alternativ til hård sletning, og hvordan børnenes forældre-links håndteres når en union slettes.
+- **Mobilapp crasher ved åbning af person i redaktør-delen — BUG, ikke undersøgt endnu
+  (rapporteret 2026-07-06).** Bruger rapporterer at appen crasher HVER GANG man forsøger at åbne
+  en person-detalje i redaktør-fladen (`mobile/src/app/redaktion/person/[id].tsx`). Ingen
+  root-cause-analyse lavet endnu — kræver reproduktion (device/simulator-log) før fix.
