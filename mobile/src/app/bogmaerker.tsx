@@ -17,7 +17,7 @@ export default function BogmaerkerScreen() {
   const model = useStore((s) => s.model);
   const canonMap = useStore((s) => s.canonicalIdById);
   const session = useStore((s) => s.session);
-  const { ids, canSave } = useBookmarks(session, canonMap);
+  const { ids, canSave } = useBookmarks(session?.user?.id ?? null, canonMap);
 
   const people = useMemo(
     () => (model ? [...ids].map((id) => model.byId[id]).filter(Boolean) : []),

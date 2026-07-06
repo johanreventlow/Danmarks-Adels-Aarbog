@@ -2,7 +2,7 @@
 // repository + auth-gated hook. Erstatter den lokale localStorage-PoC (web v3 Slice 1).
 // person_id sendes ALTID som streng til PostgREST (bigint > 2^53 korrumperes af Number() —
 // dual-review 21 N2).
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../supabase';
 import { compareDanish } from '../lib/collation';
 import type { Model, ModelPerson } from './types';
@@ -41,22 +41,38 @@ function sameOrder(a: string[], b: string[]): boolean {
 // Auth-gated hook. Udlogget: tom, canSave=false, toggle no-op (kaldstedet gater FØR toggle —
 // se onRequireLogin-mønstret i Folgesvend.tsx). Logget-ind: hent-ved-mount, optimistisk toggle
 // m. write-generation-guard (H2): et in-flight-refetch klobrer ikke en igangværende skrivning.
+//
+// Tager `userId: string | null` (IKKE et session-objekt) — review 22 N1: et objekt-literal
+// bygget ved kaldstedet (`session ? {userId} : null`) genskabes hver render og gør effekt-
+// dependencyen ustabil → gentaget refetch på hver render. En primitiv streng er referentielt
+// stabil så længe brugeren er den samme.
 export function useBookmarks(
-  session: { userId: string } | null,
+  userId: string | null,
   canon: (id: string) => string,
 ): { ids: Set<string>; has(id: string): boolean; canSave: boolean; toggle(id: string): void } {
   const repoRef = useMemo(() => createRemoteBookmarkRepository(), []);
   const [idsList, setIdsList] = useState<string[]>([]);
   const pendingRef = useMemo(() => new Set<string>(), []); // id'er med in-flight write (H2-guard)
+  const lastUserIdRef = useRef<string | null>(null); // seneste userId effekten faktisk fetchede for
 
   useEffect(() => {
-    if (!session) {
+    if (!userId) {
       // Funktionel updater: returnér SAMME reference når allerede tom, så React bail'er i stedet
       // for at re-rendere — ellers giver en ustabil canon-reference (uden useCallback hos
       // kaldstedet) en uendelig effekt-loop (setIdsList([]) → nyt canon-ref → effekt igen).
       setIdsList((prev) => (prev.length === 0 ? prev : []));
+      lastUserIdRef.current = null;
       return;
     }
+    // Ryd KUN ved et REELT brugerskift (review 22 N2-mitigering), sporet via ref — ikke ved
+    // hvert effekt-genkør (fx pga. en ustabil canon-reference), som ellers ville genskabe
+    // samme uendelig-render-loop-mønster som null-grenen allerede er hærdet mod. RLS scoper
+    // under alle omstændigheder reelle skrivninger til auth.uid() (ingen faktisk data-læk —
+    // kun et misvisende UI-glimt uden denne rydning).
+    if (lastUserIdRef.current !== userId) {
+      setIdsList((prev) => (prev.length === 0 ? prev : []));
+    }
+    lastUserIdRef.current = userId;
     let alive = true;
     void repoRef.list().then((raw) => {
       if (!alive) return;
@@ -69,14 +85,15 @@ export function useBookmarks(
       });
     });
     return () => { alive = false; };
-  }, [session, canon, repoRef, pendingRef]);
+  }, [userId, canon, repoRef, pendingRef]);
 
   const ids = useMemo(() => new Set(idsList), [idsList]);
 
   const toggle = useCallback(
     (id: string) => {
-      if (!session) return; // no-op udlogget — kaldstedet skal gate FØR dette kaldes
+      if (!userId) return; // no-op udlogget — kaldstedet skal gate FØR dette kaldes
       const cid = canon(id);
+      if (pendingRef.has(cid)) return; // review 22 M1: ignorér gentaget tryk mens en skrivning er in-flight
       const wasIn = ids.has(cid);
       pendingRef.add(cid);
       setIdsList((prev) => (wasIn ? prev.filter((x) => x !== cid) : [cid, ...prev]));
@@ -89,10 +106,10 @@ export function useBookmarks(
         },
       );
     },
-    [session, canon, ids, repoRef, pendingRef],
+    [userId, canon, ids, repoRef, pendingRef],
   );
 
-  return { ids, has: (id) => ids.has(canon(id)), canSave: session != null, toggle };
+  return { ids, has: (id) => ids.has(canon(id)), canSave: userId != null, toggle };
 }
 
 export type BookmarkSort = 'linje' | 'navn';

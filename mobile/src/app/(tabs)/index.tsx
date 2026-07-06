@@ -37,7 +37,7 @@ export default function HomeScreen() {
   const [slaegtOpen, setSlaegtOpen] = useState(false);
   const [showBrand, setShowBrand] = useState(false);
 
-  const { has, toggle, canSave, count } = useBookmarks(session, canonMap);
+  const { has, toggle, canSave, count } = useBookmarks(session?.user?.id ?? null, canonMap);
   const saveOrPrompt = useCallback(
     (id: string) => { if (canSave) toggle(id); else router.push('/konto'); },
     [canSave, toggle, router],

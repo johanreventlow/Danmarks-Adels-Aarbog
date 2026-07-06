@@ -2,7 +2,6 @@
 // repository + auth-gated hook. Erstatter AsyncStorage-PoC. person_id sendes ALTID som streng
 // til PostgREST (bigint > 2^53 korrumperes af Number() — dual-review 21 N2).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 
 export interface BookmarkRepository {
@@ -44,8 +43,12 @@ function sameOrder(a: string[], b: string[]): boolean {
 // Auth-gated hook. Udlogget: tom, canSave=false, toggle no-op. Logget-ind: hent-ved-mount,
 // optimistisk toggle m. write-generation-guard (dual-review H2): et in-flight-refetch klobrer
 // ikke en igangværende skrivning. Dep = canonicalIdById-MAPPET (ikke funktionsreference).
+//
+// Tager `userId: string | null` (IKKE et Session-objekt) — review 22 N1/kontrakt-konsistens
+// med web-porten: en primitiv streng er referentielt stabil så længe brugeren er den samme
+// (modsat et objekt-literal bygget ved kaldstedet).
 export function useBookmarks(
-  session: Session | null,
+  userId: string | null,
   canonicalIdById: Record<string, string>,
 ): { ids: Set<string>; has(id: string): boolean; canSave: boolean; toggle(id: string): void; count: number } {
   const repoRef = useMemo(() => createRemoteBookmarkRepository(), []);
@@ -54,14 +57,25 @@ export function useBookmarks(
   // Compiler-lint'en behandler som immutabelt): pendingRef.current's INDHOLD muteres i effekt/
   // callbacks, aldrig selve .current under render (react-hooks/immutability + react-hooks/refs).
   const pendingRef = useRef<Set<string>>(new Set());
+  const lastUserIdRef = useRef<string | null>(null); // seneste userId effekten faktisk fetchede for
   const canon = useMemo(() => (id: string) => canonicalIdById[id] ?? id, [canonicalIdById]);
 
   useEffect(() => {
-    // Ingen setState her: udlogget → ingen fetch, og `ids` beregnes tom nedenfor (afledt af
-    // session, ikke lagret) — undgår react-hooks/set-state-in-effect OG den uendelige render-
-    // loop en ustabil canonicalIdById-reference ellers ville give (fanget under web-portens
-    // egen test-kørsel: OOM).
-    if (!session) return;
+    if (!userId) {
+      // Ingen setState her: `ids` beregnes tom nedenfor (afledt af userId, ikke lagret) —
+      // undgår react-hooks/set-state-in-effect OG den uendelige render-loop en ustabil
+      // canonicalIdById-reference ellers ville give (fanget under web-portens egen test-
+      // kørsel: OOM).
+      lastUserIdRef.current = null;
+      return;
+    }
+    // Ryd KUN ved et REELT brugerskift (review 22 N2-mitigering), sporet via ref — ikke ved
+    // hvert effekt-genkør (fx pga. en ustabil canonicalIdById-reference), som ellers ville
+    // genskabe samme uendelig-render-loop-mønster som udlogget-grenen er hærdet mod.
+    if (lastUserIdRef.current !== userId) {
+      setIdsList((prev) => (prev.length === 0 ? prev : []));
+    }
+    lastUserIdRef.current = userId;
     let alive = true;
     void repoRef.list().then((raw) => {
       if (!alive) return;
@@ -74,16 +88,17 @@ export function useBookmarks(
       });
     });
     return () => { alive = false; };
-  }, [session, canon, repoRef]);
+  }, [userId, canon, repoRef]);
 
   // Afledt (ikke lagret): tom når udlogget, uanset hvad idsList internt måtte indeholde fra en
   // tidligere session — undgår enhver setState-i-effekt for logout-overgangen.
-  const ids = useMemo(() => (session ? new Set(idsList) : new Set<string>()), [session, idsList]);
+  const ids = useMemo(() => (userId ? new Set(idsList) : new Set<string>()), [userId, idsList]);
 
   const toggle = useCallback(
     (id: string) => {
-      if (!session) return;
+      if (!userId) return;
       const cid = canon(id);
+      if (pendingRef.current.has(cid)) return; // review 22 M1: ignorér gentaget tryk mens in-flight
       const wasIn = ids.has(cid);
       pendingRef.current.add(cid);
       setIdsList((prev) => (wasIn ? prev.filter((x) => x !== cid) : [cid, ...prev]));
@@ -96,10 +111,12 @@ export function useBookmarks(
         },
       );
     },
-    [session, canon, ids, repoRef],
+    [userId, canon, ids, repoRef],
   );
 
   const has = useCallback((id: string) => ids.has(canon(id)), [ids, canon]);
 
-  return { ids, has, canSave: session != null, toggle, count: idsList.length };
+  // review 22 H1: count afledt af det session-gatede `ids` (IKKE rå idsList.length, som
+  // forblev ikke-nulstillet efter logout og viste et stale badge-tal).
+  return { ids, has, canSave: userId != null, toggle, count: ids.size };
 }

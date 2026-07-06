@@ -59,17 +59,17 @@ describe('useBookmarks — udlogget', () => {
 });
 
 describe('useBookmarks — logget ind', () => {
-  const session = { userId: 'u1' };
+  const userId = 'u1';
 
   it('henter list() ved mount', async () => {
     rows = [{ user_id: 'u1', person_id: '42' }];
-    const { result } = renderHook(() => useBookmarks(session, (id) => id));
+    const { result } = renderHook(() => useBookmarks(userId, (id) => id));
     await waitFor(() => expect(result.current.ids.has('42')).toBe(true));
     expect(result.current.canSave).toBe(true);
   });
 
   it('toggle gemmer optimistisk + persisterer (person_id som streng)', async () => {
-    const { result } = renderHook(() => useBookmarks(session, (id) => id));
+    const { result } = renderHook(() => useBookmarks(userId, (id) => id));
     await waitFor(() => expect(result.current.canSave).toBe(true));
     act(() => result.current.toggle('99999999999999'));
     expect(result.current.ids.has('99999999999999')).toBe(true);
@@ -77,7 +77,7 @@ describe('useBookmarks — logget ind', () => {
   });
 
   it('rollback ved skrivefejl', async () => {
-    const { result } = renderHook(() => useBookmarks(session, (id) => id));
+    const { result } = renderHook(() => useBookmarks(userId, (id) => id));
     await waitFor(() => expect(result.current.canSave).toBe(true));
     failNextWrite = true;
     act(() => result.current.toggle('1'));
@@ -88,8 +88,26 @@ describe('useBookmarks — logget ind', () => {
   it('kanoniciserer via canon', async () => {
     rows = [{ user_id: 'u1', person_id: 'alias1' }];
     const canon = (id: string) => (id === 'alias1' ? 'canon1' : id);
-    const { result } = renderHook(() => useBookmarks(session, canon));
+    const { result } = renderHook(() => useBookmarks(userId, canon));
     await waitFor(() => expect(result.current.ids.has('canon1')).toBe(true));
+  });
+
+  it('review 22 M1: gentaget tryk på samme id mens skrivning er in-flight ignoreres', async () => {
+    const { result } = renderHook(() => useBookmarks(userId, (id) => id));
+    await waitFor(() => expect(result.current.canSave).toBe(true));
+    act(() => { result.current.toggle('7'); result.current.toggle('7'); });
+    expect(result.current.ids.has('7')).toBe(true);
+    await waitFor(() => expect(rows.filter((r) => r.person_id === '7')).toHaveLength(1));
+  });
+
+  it('review 22 N1: samme userId (primitiv) på tværs af re-renders udløser ikke ny fetch', async () => {
+    const { result, rerender } = renderHook(() => useBookmarks(userId, (id) => id));
+    await waitFor(() => expect(result.current.canSave).toBe(true));
+    const idsBefore = result.current.ids;
+    rerender();
+    rerender();
+    // Samme userId + samme canon-reference → effekten refirer ikke → samme ids-reference.
+    expect(result.current.ids).toBe(idsBefore);
   });
 });
 

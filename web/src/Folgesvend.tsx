@@ -100,9 +100,12 @@ export default function Folgesvend() {
     { email: '', pw: '', err: '', busy: false },
   );
   useEffect(() => {
-    void currentSession().then(setSession);
+    // review 22 N3: currentSession() kan i princippet afvises (netværksfejl) — sluges ikke
+    // tavst, men sætter session til null (allerede default) og logger til konsol.
+    currentSession().then(setSession, (e) => console.warn('[session] kunne ikke genskabes', e));
   }, []);
   const doLogin = async () => {
+    if (login.busy) return; // review 22 N3: forhindr overlappende signIn-kald ved dobbelt-klik
     if (!login.email.trim() || !login.pw) { setLogin((l) => ({ ...l, err: 'Udfyld e-mail og adgangskode' })); return; }
     setLogin((l) => ({ ...l, busy: true, err: '' }));
     try {
@@ -138,7 +141,7 @@ export default function Folgesvend() {
   const meCanon = meId ? canon(meId) : null;
   // Bogmærker (web v3 Slice 1) — localStorage, kanonisk via canon(). bmSort default 'linje'
   // (designets første segment, spec §4). slaegtOpen = slægt-vælger-modal på header-chippen.
-  const bookmarks = useBookmarks(session ? { userId: session.userId } : null, canon);
+  const bookmarks = useBookmarks(session?.userId ?? null, canon);
   const saveOrPrompt = useCallback(
     (id: string) => { if (bookmarks.canSave) bookmarks.toggle(id); else setLoginOpen(true); },
     [bookmarks],
