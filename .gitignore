@@ -48,3 +48,6 @@ web/vite.config.d.ts
 supabase/.temp/
 # MCP-config (indeholder Supabase project-ref — infra-id, lokal pr. maskine)
 .mcp.json
+
+# Brainstorming visual companion (throwaway mockups)
+.superpowers/

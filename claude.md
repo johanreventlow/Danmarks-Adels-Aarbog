@@ -314,3 +314,23 @@ To spor — **data (R)** og **app (TS)** — bundet af RLS:
   empirisk i iOS-simulator mod prod-data. **Fast-follow (ikke gjort):** web
   (`Folgesvend.tsx` `RelateView`) har strukturelt samme "Sæt mig"-overskrivnings-
   bug i sin egen lokale `useState`-udgave — samme rettelses-logik bør porteres.
+- **Billeder i narrativer + slægts/linje-narrativ-editor (Slice C, web+mobile,
+  branch `feat/narrativ-billeder`, 2026-07-05) — IMPLEMENTERET + LIVE-VERIFICERET,
+  afventer merge.** `NarrativRenderer` omskrevet til blok-niveau (overskrift/
+  afsnit/billede) på begge platforme via en delt `groupBlocks`-tokenisering
+  (`mentions.ts`); indsæt-billede-UI i person- og den nye slægts/linje-editor
+  (`subjekt_type='slaegt'` fast sentinel-id 1, eller `'lineage'`); udgave-fane-
+  mønsteret (flere DAA-udgaver pr. narrativ) generaliseret fra person-only til
+  ethvert subjekt på begge platforme; "Om slægten" viser nu linje-navne som
+  overskrifter + rig blok-rendering i stedet for rå tekst. `/simplify`-kørt
+  (4 parallelle reviews). Bruger-verificeret LIVE mod prod (overskrift + rigtigt
+  billede via vilkårligt medie-id + dødt medie-token, alle korrekte på "Om
+  slægten"). **Kendt, bevidst begrænsning (samme regel som person-bio'er):**
+  kun narrativer på en DAA-udgave-kilde (`source.slags='DAA-udgave'`) vises
+  offentligt — en TNG-kilde-narrativ gemmes men vises aldrig (`pickPreferredBio`).
+  **Nyt, udskudt ønske (2026-07-05, ikke hastende):** rigere tekstformattering —
+  flere overskriftniveauer, titler, kursiv, evt. fuldt markdown. Nuværende
+  omfang er bevidst minimalt (kun `##`/`###` + linjeskift, ingen bibliotek,
+  se plan-dok `docs/superpowers/plans/2026-07-05-billedstoerrelser-artikler-
+  lightbox.md` §7.1d) — en udvidelse bør genoverveje samme afvejning (nyt
+  bibliotek vs. håndrullet, kollision med `[[type:id|label]]`-syntaksen).
