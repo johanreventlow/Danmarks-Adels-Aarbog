@@ -1,7 +1,37 @@
 // @vitest-environment jsdom
-import { renderHook, act } from '@testing-library/react';
-import { createLocalBookmarkStore, useBookmarks, buildBookmarkList, BOOKMARKS_KEY } from '../bookmarks';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildBookmarkList, useBookmarks } from '../bookmarks';
 import type { Model, ModelPerson } from '../types';
+
+// In-memory fake af supabase.from('bookmark')-kæden. Delt mutabel tilstand pr. test.
+let rows: { user_id: string; person_id: string }[] = [];
+let failNextWrite = false;
+
+vi.mock('../../supabase', () => ({
+  supabase: {
+    from: (table: string) => {
+      if (table !== 'bookmark') throw new Error('uventet tabel: ' + table);
+      return {
+        select: () => ({
+          order: () => Promise.resolve({ data: rows.map((r) => ({ person_id: r.person_id })), error: null }),
+        }),
+        upsert: (row: { person_id: string }) => {
+          if (failNextWrite) { failNextWrite = false; return Promise.resolve({ error: { message: 'boom' } }); }
+          if (!rows.some((r) => r.person_id === row.person_id)) rows.unshift({ user_id: 'u1', person_id: row.person_id });
+          return Promise.resolve({ error: null });
+        },
+        delete: () => ({
+          eq: (_col: string, id: string) => {
+            if (failNextWrite) { failNextWrite = false; return Promise.resolve({ error: { message: 'boom' } }); }
+            rows = rows.filter((r) => r.person_id !== id);
+            return Promise.resolve({ error: null });
+          },
+        }),
+      };
+    },
+  },
+}));
 
 function person(id: string, name: string, born: number | null = null): ModelPerson {
   return { id, name, born, died: null, years: born ? `* ${born}` : '', title: '', bio: '', privat: false, parentId: null, spouse: '' };
@@ -10,73 +40,56 @@ function person(id: string, name: string, born: number | null = null): ModelPers
 function makeModel(persons: ModelPerson[], lineageByPerson: Record<string, string[]> = {}, lineageNavn: Record<string, string> = {}): Model {
   const byId = Object.fromEntries(persons.map((p) => [p.id, p]));
   return {
-    persons,
-    byId,
+    persons, byId,
     indexes: { spousesBy: {}, childIdx: {}, parentsByChild: {}, childrenByUnion: {}, unionById: {}, konfByEdge: {} },
     lineage: { byPerson: lineageByPerson, list: [], navn: lineageNavn },
   };
 }
 
-describe('createLocalBookmarkStore', () => {
-  beforeEach(() => { window.localStorage.clear(); });
+beforeEach(() => { rows = []; failNextWrite = false; });
 
-  it('toggle tilføjer og fjerner (involutiv)', () => {
-    const store = createLocalBookmarkStore();
-    expect(store.has('42')).toBe(false);
-    store.toggle('42');
-    expect(store.has('42')).toBe(true);
-    store.toggle('42');
-    expect(store.has('42')).toBe(false);
-  });
-
-  it('list() returnerer seneste-tilføjet-først', () => {
-    const store = createLocalBookmarkStore();
-    store.toggle('1');
-    store.toggle('2');
-    store.toggle('3');
-    expect(store.list()).toEqual(['3', '2', '1']);
-  });
-
-  it('persisterer på tværs af nye store-instanser', () => {
-    createLocalBookmarkStore().toggle('7');
-    const store2 = createLocalBookmarkStore();
-    expect(store2.has('7')).toBe(true);
-  });
-
-  it('korrupt localStorage-værdi giver tom liste (ingen throw)', () => {
-    window.localStorage.setItem(BOOKMARKS_KEY, '{not json');
-    const store = createLocalBookmarkStore();
-    expect(store.list()).toEqual([]);
-    expect(() => store.toggle('1')).not.toThrow();
-  });
-
-  it('manglende værdi giver tom liste', () => {
-    const store = createLocalBookmarkStore();
-    expect(store.list()).toEqual([]);
+describe('useBookmarks — udlogget', () => {
+  it('tom liste, canSave=false, toggle er no-op', () => {
+    const { result } = renderHook(() => useBookmarks(null, (id) => id));
+    expect(result.current.ids.size).toBe(0);
+    expect(result.current.canSave).toBe(false);
+    act(() => result.current.toggle('1'));
+    expect(result.current.ids.size).toBe(0);
   });
 });
 
-describe('useBookmarks — kanonisk dedup + re-normalisering', () => {
-  beforeEach(() => { window.localStorage.clear(); });
+describe('useBookmarks — logget ind', () => {
+  const session = { userId: 'u1' };
 
-  it('toggle(alias) → has(canonical) er true', () => {
-    const canon = (id: string) => (id === 'alias1' ? 'canon1' : id);
-    const { result } = renderHook(() => useBookmarks(canon));
-    act(() => result.current.toggle('alias1'));
-    expect(result.current.has('canon1')).toBe(true);
+  it('henter list() ved mount', async () => {
+    rows = [{ user_id: 'u1', person_id: '42' }];
+    const { result } = renderHook(() => useBookmarks(session, (id) => id));
+    await waitFor(() => expect(result.current.ids.has('42')).toBe(true));
+    expect(result.current.canSave).toBe(true);
   });
 
-  it('re-normaliserer gemt liste når canon ændrer identitet, dedup nyeste-vinder', () => {
-    // Simulér en pre-collapse tilstand: alias og kanonisk begge gemt separat.
-    window.localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(['alias1', 'canon1']));
-    const identity = (id: string) => id;
-    const { result, rerender } = renderHook(({ canon }) => useBookmarks(canon), { initialProps: { canon: identity } });
-    expect(result.current.ids.size).toBe(2);
+  it('toggle gemmer optimistisk + persisterer (person_id som streng)', async () => {
+    const { result } = renderHook(() => useBookmarks(session, (id) => id));
+    await waitFor(() => expect(result.current.canSave).toBe(true));
+    act(() => result.current.toggle('99999999999999'));
+    expect(result.current.ids.has('99999999999999')).toBe(true);
+    await waitFor(() => expect(rows.some((r) => r.person_id === '99999999999999')).toBe(true));
+  });
 
-    const collapsed = (id: string) => (id === 'alias1' ? 'canon1' : id);
-    rerender({ canon: collapsed });
-    expect([...result.current.ids]).toEqual(['canon1']);
-    expect(JSON.parse(window.localStorage.getItem(BOOKMARKS_KEY)!)).toEqual(['canon1']);
+  it('rollback ved skrivefejl', async () => {
+    const { result } = renderHook(() => useBookmarks(session, (id) => id));
+    await waitFor(() => expect(result.current.canSave).toBe(true));
+    failNextWrite = true;
+    act(() => result.current.toggle('1'));
+    expect(result.current.ids.has('1')).toBe(true); // optimistisk
+    await waitFor(() => expect(result.current.ids.has('1')).toBe(false)); // rullet tilbage
+  });
+
+  it('kanoniciserer via canon', async () => {
+    rows = [{ user_id: 'u1', person_id: 'alias1' }];
+    const canon = (id: string) => (id === 'alias1' ? 'canon1' : id);
+    const { result } = renderHook(() => useBookmarks(session, canon));
+    await waitFor(() => expect(result.current.ids.has('canon1')).toBe(true));
   });
 });
 
