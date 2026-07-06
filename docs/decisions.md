@@ -2,6 +2,28 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Konto-bogmærker: login-eksklusivt (ikke hybrid), direkte tabel-adgang (ikke RPC) (2026-07-06)
+
+**Login-eksklusivt frem for hybrid lokal/konto.** Bogmærker blev netop shippet som lokal PoC uden
+reelle brugerdata — i stedet for at bygge merge-logik (lokalt→konto ved login) blev de gjort
+**cloud-only**: udlogget = tomt + login-prompt, logget-ind = Supabase. Forkastet: hybrid
+(lokal-når-udlogget, synk-når-logget-ind, flet ved login) — mest UX, men markant mere logik
+(offline-cache, merge-strategi) for et gode brugeren selv bad om som "added benefit", ikke en
+kerneflow. Ingen migration nødvendig (ingen live brugerdata i den lokale version endnu).
+
+**Direkte tabel-adgang (RLS+grants) frem for RPC.** `bookmark`-tabellen er ren bruger-ejet data
+(ingen evidens-lag, ingen redaktionel logik) → RLS-policies + eksplicitte grants er tilstrækkeligt
+og Supabase-idiomatisk. `red_*`-RPC'er forbeholdes evidens-modellens skrivninger (versionering,
+change-sets). Kræver dog **eksplicit** `GRANT`/`REVOKE` — Supabase auto-grant'er default-
+privilegier til anon/authenticated ved tabel-oprettelse, så RLS alene lækker (dual-review 21 N1,
+jf. [[supabase-revoke-from-public-insufficient]]).
+
+**Web fik minimal login-flade; mobil kun wiring.** Mobils Konto-fane understøttede allerede
+medlem-login; web's offentlige Folgesvend-læser havde ingen session (kun localStorage-"mig").
+Web-skiven tilføjede derfor en lille login-modal (genbrug af `data/auth.ts`) — bevidst IKKE en
+fuld kontoflade, og bevidst UDEN at ændre den eksisterende "mig"-lagring (forbliver separat,
+udskudt migration).
+
 ## Følgesvend v3-feed: hybrid auto-generering + person-kun bogmærker (2026-07-05)
 
 **Feed auto-genereret nu, editorial-krog senere (ikke DB-kurateret).** `buildFeed` er en ren

@@ -1805,3 +1805,13 @@ DROP TRIGGER IF EXISTS trg_external_id_regen ON person_external_id;
 CREATE TRIGGER trg_external_id_regen
   AFTER INSERT OR DELETE OR UPDATE OF person_id, source_id, linje, nr ON person_external_id
   FOR EACH ROW EXECUTE FUNCTION trg_regen_from_external_id();
+
+-- 2026-07-06: konto-bogmærker — login-eksklusiv bookmark-tabel (design-spec 2026-07-06).
+CREATE TABLE IF NOT EXISTS bookmark (
+  id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id   UUID NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
+  person_id BIGINT NOT NULL REFERENCES person(id) ON DELETE CASCADE,
+  oprettet  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, person_id)
+);
+ALTER TABLE bookmark ENABLE ROW LEVEL SECURITY;

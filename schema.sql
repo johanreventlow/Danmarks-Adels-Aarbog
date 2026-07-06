@@ -303,6 +303,15 @@ CREATE TABLE suggestion (            -- staging: ikke-redaktion-forslag (manuelt
 ALTER TABLE profiles   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE suggestion ENABLE ROW LEVEL SECURITY;
 
+CREATE TABLE bookmark (              -- login-eksklusive bogmærker (kun personer), spec 2026-07-06
+  id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id   UUID NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
+  person_id BIGINT NOT NULL REFERENCES person(id) ON DELETE CASCADE,
+  oprettet  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, person_id)
+);
+ALTER TABLE bookmark ENABLE ROW LEVEL SECURITY;
+
 CREATE TABLE family (                    -- union/partnerskab
   id   BIGINT PRIMARY KEY,
   type TEXT                              -- 'vielse','partnerskab','ugift union'

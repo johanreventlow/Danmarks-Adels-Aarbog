@@ -1,5 +1,81 @@
 # Changelog
 
+## Konto-bogmærker: dual-review 22 af IMPLEMENTERINGEN + 4 fund rettet (2026-07-06)
+
+Efter skive 1-6 (nedenfor) kørt en ANDEN dual-review-cyklus (Claude+Codex) — denne gang af den
+faktiske KODE, ikke spec'en (spec allerede dual-reviewet, review 21). Fandt og rettede:
+
+- **H1:** mobil `count` var `idsList.length` (ikke session-gated) → viste stale badge-tal efter
+  log-ud selvom `ids`/`has()` korrekt gik tomme. Fix: `count: ids.size`.
+- **N1 (HIGH):** web's `useBookmarks(session ? {userId} : null, ...)` byggede et NYT objekt-
+  literal hver render → ustabil effekt-dependency → gentaget refetch på HVER render. Fix: begge
+  hooks (web+mobil) tager nu `userId: string | null` (primitiv, stabil) i stedet for et
+  session-objekt.
+- **M1:** hurtig dobbelt-toggle af samme id kunne race'e (add+remove krydsende, out-of-order
+  netværkssvar). Fix: `toggle` ignorerer gentaget tryk mens id'et allerede er in-flight.
+- **N3:** web-login manglede busy-guard (dobbelt-klik → overlappende `signIn`-kald) + rejection-
+  handler på `currentSession()`. Begge rettet.
+- **N2 (recalibreret MEDIUM):** ingen bruger-nøglet rydning af bogmærke-listen ved brugerskift.
+  Reconcile-verifikation bekræftede RLS forhindrer reel cross-account data-korruption (skrivninger
+  scopes altid til `auth.uid()` server-side — kun en misvisende UI-glimt, og scenariet er slet
+  ikke nået via appens faktiske UI-flow, som ikke understøtter konto-skift uden log-ud). Mitigeret
+  med ryd-ved-reelt-brugerskift.
+- **Selv-fanget regression under fixet:** den FØRSTE N2-mitigering (ubetinget `setIdsList([])` i
+  effekt-kroppen) genintroducerede en uendelig render-loop identisk med den allerede-hærdede
+  udlogget-gren (fanget af `vitest` der hang/OOM'ede) — rettet med en ref-sporet "kun ved reelt
+  brugerskift"-betingelse.
+- **Bevidst udskudt (H2):** mobil har to uafhængige `useBookmarks`-instanser (Home-skærm +
+  Bogmærker-skærm) uden delt state — fjern et bogmærke på Bogmærker-skærmen opdaterer ikke Home's
+  badge/ikoner før genmontering. Codex' reconcile bekræftede et ægte fix kræver en ny Zustand-
+  bogmærke-slice, ikke en hurtig patch — udskudt til separat brainstorm/plan (jf. projektets
+  konvention for ikke-trivielle arkitektur-ændringer). Se `docs/reviews/22-*.md`.
+- **Verificeret:** web 23/23 filer, 208/208 tests (2 nye); mobil 23/23 filer, 337/337 tests,
+  tsc+eslint rene.
+
+## Konto-bogmærker — login-eksklusive, cross-device-synkroniserede bogmærker (web+mobile, branch feat/bogmaerker-konto, 2026-07-06)
+
+Bogmærker opgraderet fra lokal PoC (AsyncStorage/localStorage) til et **login-eksklusivt gode**
+lagret i Supabase — følger brugeren på tværs af web og mobil. Ingen hybrid/merge-logik, ingen
+offline-cache (bevidst PoC-afgrænsning, jf. spec 2026-07-06).
+
+- **DB-lag:** ny `bookmark`-tabel (`user_id=auth.uid()` default, `person_id` FK ON DELETE CASCADE,
+  unik `(user_id,person_id)`) + RLS (own-row select/insert/delete) + **eksplicit** `GRANT/REVOKE`
+  (dual-review 21 N1 — Supabase auto-grant'er default-privilegier til anon/authenticated, RLS alene
+  er ikke nok). Idempotent DDL (`schema.sql`+`db-migrations.sql`+`db-rls.sql`). Ny `db-verify.sql`
+  Task 14: RLS-isolation, dublet-sikring, cascade, anon-blokering.
+- **Empirisk fund under lokal test (ikke antaget):** anon har INGEN grant overhovedet på
+  `bookmark` — et bart `SELECT` som anon rejser `permission denied`, ikke et tomt resultat (stærkere
+  end RLS-alene-filtrering). Testens assertion rettet til at forvente `insufficient_privilege`.
+- **Repository-lag (web+mobil):** `RemoteRepository` (Supabase-backet, erstatter lokal lagring) +
+  auth-gated `useBookmarks(session, canon)`: udlogget → tom, `canSave:false`, `toggle` no-op;
+  logget-ind → hent-ved-mount, optimistisk toggle m. **race-guard** (dual-review H2: en fokus-
+  refetch klobrer ikke en igangværende skrivning). `person_id` sendes altid som **streng** til
+  PostgREST (N2 — bigint > 2^53 korrumperes af `Number()`).
+- **Web:** minimal login-session + modal tilføjet i den offentlige Folgesvend-læser (genbruger
+  eksisterende `data/auth.ts`); alle bogmærke-gem-steder gates via `saveOrPrompt` (udlogget tap →
+  login-modal, ikke stille no-op). Mobil havde allerede login (Konto-fanen) — kun wiring nødvendig.
+- **Empirisk fund under web-test-kørsel (fanget FØR mobil-porten, undgået der fra start):** den
+  udloggede gren kaldte `setIdsList([])` med en FRISK array-reference hver effekt-kørsel →
+  kombineret med en ustabil `canon`-reference gav det en uendelig render-loop (OOM i test-
+  runneren). Rettet med bail-safe funktionel updater; samme fix indbygget i mobil-porten fra start.
+- **Mobil eslint-fund (React Compiler-lint, kun mobil har denne strenge config):** `pendingRef`
+  skiftet fra `useMemo` til `useRef` (mutation af en useMemo-værdi er ikke tilladt); fjernede
+  synkron `setState` i effekt-krop for udlogget-grenen (afledt i stedet for lagret+ryddet).
+- **Test-scope-justering (empirisk afprøvet, ikke antaget):** `@testing-library/react-native@14`
+  (react-native 0.85/react 19) virker ikke i dette repos jest-opsætning — selv en triviel
+  `useState`-hook giver `renderHook() → { result: undefined }`. Afhængigheden droppet igen;
+  mobil-testen dækker det renderer-uafhængige repository-lag (5 tests); hook-adfærd verificeret
+  empirisk i iOS-simulatoren i stedet (web derimod har fuld `renderHook`-dækning, 10 tests).
+- **Verificeret:** web tsc+vitest (23/23 filer, 206/206 tests) grøn; mobil tsc+eslint+jest (23/23
+  filer, 337/337 tests) grøn; DB Task 14 grøn lokalt (frisk `daa_test`-genopbygning fra
+  `schema.sql`+`db-migrations.sql`+`db-rls.sql`, ingen prod-berøring). iOS-simulator (idb): app
+  booter uden crash, ingen badge udlogget, gem-ikon-tap→`/konto` (login-gate bekræftet), Bogmærker-
+  skærm viser korrekt login-CTA.
+- **Udestår:** DB-migrationen er **ikke anvendt mod prod** (kræver eksplicit bruger-godkendelse,
+  git-gate). Fuld login+cross-device-persistens-verifikation kræver netværk (sim-fetch fejler,
+  kendt begrænsning) — næste skridt er fysisk enhed (mobil) + browser (web) mod rigtig prod-konto.
+  Se `docs/superpowers/{specs,plans}/2026-07-06-konto-bogmaerker*` + `docs/reviews/21-*`.
+
 ## Følgesvend v3 — forsidefeed, menu-drawer & bogmærker (mobile, branch feat/folgesvend-v3, 2026-07-05)
 
 Mobil-appen bragt op til v3-designet (`Reventlow-folgesvend-v3.dc.html`). Tre nye elementer +

@@ -29,6 +29,7 @@ export default function HomeScreen() {
   const meId = useStore((s) => s.meId);
   const focusId = useStore((s) => s.focusId);
   const canonMap = useStore((s) => s.canonicalIdById);
+  const session = useStore((s) => s.session);
   const setRelA = useStore((s) => s.setRelA);
   const setRelB = useStore((s) => s.setRelB);
 
@@ -36,7 +37,11 @@ export default function HomeScreen() {
   const [slaegtOpen, setSlaegtOpen] = useState(false);
   const [showBrand, setShowBrand] = useState(false);
 
-  const { has, toggle, count } = useBookmarks(canonMap);
+  const { has, toggle, canSave, count } = useBookmarks(session?.user?.id ?? null, canonMap);
+  const saveOrPrompt = useCallback(
+    (id: string) => { if (canSave) toggle(id); else router.push('/konto'); },
+    [canSave, toggle, router],
+  );
   const c = counts(model, aux);
   const feed = useMemo(
     () => (model && aux ? buildFeed(model, aux, { meId, focusId, today: CURRENT_YEAR }) : []),
@@ -80,13 +85,13 @@ export default function HomeScreen() {
           <FeedCardView
             card={item}
             bookmarked={pid ? has(pid) : false}
-            onSave={toggle}
+            onSave={saveOrPrompt}
             onOpen={openCard}
           />
         </View>
       );
     },
-    [has, toggle, openCard],
+    [has, saveOrPrompt, openCard],
   );
 
   return (

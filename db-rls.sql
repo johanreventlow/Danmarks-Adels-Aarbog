@@ -411,6 +411,28 @@ alter table public.profiles enable row level security;
 drop policy if exists self_read on public.profiles;
 create policy self_read on public.profiles for select to authenticated using (id = auth.uid());
 
+-- bookmark: login-eksklusive, egen-scoped (dual-review 21 N1 — eksplicit grant, RLS er ikke nok;
+-- Supabase auto-grant'er default-privilegier til anon/authenticated på nye tabeller).
+revoke all on table public.bookmark from anon, public;
+grant select, insert, delete on table public.bookmark to authenticated;
+-- Prod-fund ved anvendelse (2026-07-06): Supabases pg_default_acl for schema public granter
+-- automatisk ALLE tabel-privilegier (inkl. UPDATE/REFERENCES/TRIGGER/TRUNCATE) til authenticated
+-- på enhver ny tabel — GRANT ovenfor er additivt og fjerner ikke dette. Revoke eksplicit ned til
+-- tilsigtet overflade (kun SELECT/INSERT/DELETE — der findes ingen UPDATE-policy, og TRUNCATE
+-- omgår RLS helt). Systemisk på tværs af databasen (bekræftet også på media_variant) — kun
+-- rettet for bookmark her, se docs/reviews/22-*.md for det fulde fund.
+revoke update, references, trigger, truncate on table public.bookmark from authenticated;
+
+drop policy if exists bookmark_select_own on public.bookmark;
+create policy bookmark_select_own on public.bookmark
+  for select to authenticated using (user_id = auth.uid());
+drop policy if exists bookmark_insert_own on public.bookmark;
+create policy bookmark_insert_own on public.bookmark
+  for insert to authenticated with check (user_id = auth.uid());
+drop policy if exists bookmark_delete_own on public.bookmark;
+create policy bookmark_delete_own on public.bookmark
+  for delete to authenticated using (user_id = auth.uid());
+
 -- RPC-grants: alle red_*-funktioner kaldbare af authenticated (rolle-tjek er INDE i dem).
 do $$
 declare fn text;
