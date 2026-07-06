@@ -411,6 +411,21 @@ alter table public.profiles enable row level security;
 drop policy if exists self_read on public.profiles;
 create policy self_read on public.profiles for select to authenticated using (id = auth.uid());
 
+-- bookmark: login-eksklusive, egen-scoped (dual-review 21 N1 — eksplicit grant, RLS er ikke nok;
+-- Supabase auto-grant'er default-privilegier til anon/authenticated på nye tabeller).
+revoke all on table public.bookmark from anon, public;
+grant select, insert, delete on table public.bookmark to authenticated;
+
+drop policy if exists bookmark_select_own on public.bookmark;
+create policy bookmark_select_own on public.bookmark
+  for select to authenticated using (user_id = auth.uid());
+drop policy if exists bookmark_insert_own on public.bookmark;
+create policy bookmark_insert_own on public.bookmark
+  for insert to authenticated with check (user_id = auth.uid());
+drop policy if exists bookmark_delete_own on public.bookmark;
+create policy bookmark_delete_own on public.bookmark
+  for delete to authenticated using (user_id = auth.uid());
+
 -- RPC-grants: alle red_*-funktioner kaldbare af authenticated (rolle-tjek er INDE i dem).
 do $$
 declare fn text;

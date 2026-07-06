@@ -1046,3 +1046,63 @@ BEGIN
     'trg_external_id_regen UPDATE OF-liste mangler linje/nr-kolonner';
   RAISE NOTICE 'OK: trg_external_id_regen er kolonne-scoped (%)', def;
 END $$;
+
+
+-- ===== Task 14: bookmark — RLS-isolation, dublet-sikring, anon-lukket, cascade =====
+DO $$
+DECLARE cnt_a int; cnt_b int; insert_denied boolean := false; anon_denied boolean := false;
+BEGIN
+  INSERT INTO auth.users(id,email) VALUES
+    ('00000000-0000-0000-0000-0000000000a1','a@test'),
+    ('00000000-0000-0000-0000-0000000000a2','b@test')
+  ON CONFLICT (id) DO NOTHING;
+  INSERT INTO person(id) VALUES (-931),(-932) ON CONFLICT (id) DO NOTHING;
+
+  -- Bruger A gemmer -931
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-0000000000a1',true);
+  SET LOCAL ROLE authenticated;
+  INSERT INTO bookmark(person_id) VALUES (-931);
+  SELECT count(*) INTO cnt_a FROM bookmark WHERE person_id=-931;
+  RESET ROLE;
+
+  -- Bruger B ser IKKE A's bogmærke; forsøg på at skrive i A's navn afvises
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-0000000000a2',true);
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO cnt_b FROM bookmark WHERE person_id=-931;
+  BEGIN
+    INSERT INTO bookmark(user_id, person_id) VALUES ('00000000-0000-0000-0000-0000000000a1', -932);
+  EXCEPTION WHEN insufficient_privilege OR check_violation THEN insert_denied := true;
+  END;
+  RESET ROLE;
+
+  -- Anon kan hverken læse eller skrive: INGEN grant overhovedet (stærkere end RLS-filtrering —
+  -- dual-review N1), så selv et bart SELECT rejser permission denied, ikke et tomt resultat.
+  SET LOCAL ROLE anon;
+  BEGIN
+    PERFORM 1 FROM bookmark WHERE person_id=-931;
+  EXCEPTION WHEN insufficient_privilege THEN anon_denied := true;
+  END;
+  RESET ROLE;
+
+  IF cnt_a <> 1 THEN RAISE EXCEPTION 'FEJL: bruger A ser ikke eget bogmærke (fik %)', cnt_a; END IF;
+  IF cnt_b <> 0 THEN RAISE EXCEPTION 'FEJL: RLS-læk — bruger B ser bruger A''s bogmærke'; END IF;
+  IF NOT insert_denied THEN RAISE EXCEPTION 'FEJL: WITH CHECK afviste ikke insert i fremmed navn'; END IF;
+  IF NOT anon_denied THEN RAISE EXCEPTION 'FEJL: anon kunne læse bookmark uden grant (vent permission denied)'; END IF;
+
+  -- Dubletsikring: samme (user,person) igen = no-op
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-0000000000a1',true);
+  SET LOCAL ROLE authenticated;
+  INSERT INTO bookmark(person_id) VALUES (-931) ON CONFLICT (user_id,person_id) DO NOTHING;
+  RESET ROLE;
+
+  -- Cascade: slet person -931 → bogmærket forsvinder
+  DELETE FROM person WHERE id=-931;
+  IF EXISTS (SELECT 1 FROM bookmark WHERE person_id=-931) THEN
+    RAISE EXCEPTION 'FEJL: bookmark overlevede person-sletning (cascade virkede ikke)';
+  END IF;
+
+  DELETE FROM bookmark WHERE person_id IN (-931,-932);
+  DELETE FROM person WHERE id IN (-931,-932);
+  DELETE FROM auth.users WHERE id IN ('00000000-0000-0000-0000-0000000000a1','00000000-0000-0000-0000-0000000000a2');
+  RAISE NOTICE 'OK: bookmark RLS-isolation (egen-læs, fremmed-skriv afvist, anon blokeret) + cascade + dubletsikring';
+END $$;
