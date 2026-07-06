@@ -115,3 +115,29 @@ via `kuld` ville fabrikere falsk relevans.
 ### Læring
 Unit-tests med syntetisk data (parentLineageId sat) MASKEREDE at feature-kernen er inert mod prod
 (parent_lineage_id NULL). Empirisk + dual-review fangede hvad 335 grønne tests ikke gjorde.
+
+---
+
+## PAUSET 2026-07-05 — status + genoptagelses-guide
+
+Brugeren udskød problemet efter empirisk test. **Intet merget; branchen er fuldt revertbar.**
+
+**Konvergeret retning (Claude + Codex, ikke bygget):**
+- **Step 1 (stabilt produkt):** rul træet tilbage til KUN beviste kanter + generations-nummer-labels
+  (læst fra faktisk koordinat, "4. slægtled · III-linjen"). SLET `adjacentGen` founder-hop,
+  `fallbackRing`, `buildAnchorPeers`. Codex: minimalt-korrekt lock-in selv om Step 2 aldrig bygges.
+- **Step 2 (valgfrit, demand-driven):** separat read-only "kilde-register" (side-panel, per-linje,
+  bladr N−1/N/N+1 inden for linjen, kuld-grupperet, proveniens, "forbindelser ikke angivet i kilden").
+  Aldrig aner/efterkommer-ord for register-medlemskab. Cross-linje = eksplicit "også i III →"-chip.
+
+**Rod-årsag (kort):** fallback fyrer på "mangler i DB" ≠ "genuint ukendt i bogen" → forkerte
+kandidater (210 under 208). + parent_lineage_id NULL i prod (founder-hop inert) + patrilinearitet.
+
+**Åbne spørgsmål:** (1) rammer register-listen den oprindelige idé, eller mangler forfatterens
+gruppering? (2) ét slægtled ad gangen vs. flere ved siden af hinanden? (bruger ubesvaret) (3) er
+Step 1 nok?
+
+**NB:** main/prod har stadig v1's aner-fallback live (samme problem, kun aner) — Step 1 rydder også
+det op. Datalaget (slægtled i prod) er korrekt og beholdes.
+
+Fuldt fundament: memory `generations-browser-v2-paused`.
