@@ -1,117 +1,102 @@
-// Bogmærke-lager (spec §6, dual-review 20 BM1/BM2). Async AsyncStorage-repo + synkron
-// render-state-hook. Spejler web/src/data/bookmarks.ts, men async: web-storet var synkront
-// (useState-init + sync toggle); AsyncStorage kræver async-lager + optimistisk hook-state +
-// race-sikker mutation. Alle bogmærke-id'er er kanoniske (samme_som-collapset).
+// Bogmærke-lager (konto-bogmærker, spec 2026-07-06). Login-eksklusivt: Supabase-backet
+// repository + auth-gated hook. Erstatter AsyncStorage-PoC. person_id sendes ALTID som streng
+// til PostgREST (bigint > 2^53 korrumperes af Number() — dual-review 21 N2).
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { Session } from '@supabase/supabase-js';
+import { supabase } from './supabase';
 
-export const BOOKMARKS_KEY = 'daa_bookmarks';
-
-// Ren toggle: fjern hvis til stede, ellers prepend (nyeste-først). Genbrugt af lager + hook.
-export function nextBookmarks(current: string[], id: string): string[] {
-  return current.includes(id) ? current.filter((x) => x !== id) : [id, ...current];
-}
-
-async function safeRead(): Promise<string[]> {
-  try {
-    const raw = await AsyncStorage.getItem(BOOKMARKS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-
-async function safeWrite(ids: string[]): Promise<void> {
-  try {
-    await AsyncStorage.setItem(BOOKMARKS_KEY, JSON.stringify(ids));
-  } catch {
-    // bogmærker er ikke-kritisk PoC-funktion — skrivefejl må ikke crashe UI'et
-  }
-}
-
-export interface BookmarkStore {
+export interface BookmarkRepository {
   list(): Promise<string[]>;
-  toggle(id: string): Promise<string[]>;
+  add(personId: string): Promise<void>;
+  remove(personId: string): Promise<void>;
 }
 
-export function createLocalBookmarkStore(): BookmarkStore {
+// Null-klient (dual-review N4): mobil `supabase` er null uden env (offline-seed). Tom liste,
+// no-op writes — ingen crash.
+export function createRemoteBookmarkRepository(): BookmarkRepository {
   return {
-    list: () => safeRead(),
-    toggle: async (id) => {
-      const next = nextBookmarks(await safeRead(), id);
-      await safeWrite(next);
-      return next;
+    list: async () => {
+      if (!supabase) return [];
+      const { data, error } = await supabase.from('bookmark').select('person_id').order('oprettet', { ascending: false });
+      if (error || !data) return [];
+      return data.map((r: { person_id: string | number }) => String(r.person_id));
+    },
+    add: async (personId) => {
+      if (!supabase) return;
+      const { error } = await supabase.from('bookmark').upsert(
+        { person_id: personId },
+        { onConflict: 'user_id,person_id', ignoreDuplicates: true },
+      );
+      if (error) throw new Error(error.message);
+    },
+    remove: async (personId) => {
+      if (!supabase) return;
+      const { error } = await supabase.from('bookmark').delete().eq('person_id', personId);
+      if (error) throw new Error(error.message);
     },
   };
-}
-
-// Modul-singleton: lageret er tilstandsløst (rene closures over AsyncStorage), så det behøver
-// ikke pr.-komponent-instans. Undgår ref-adgang under render (react-hooks/refs).
-const defaultStore = createLocalBookmarkStore();
-
-// Nyeste-først dedup til kanoniske id'er (første forekomst vinder — listen er allerede
-// nyeste-først, så "nyeste vinder" holder uden ekstra sortering).
-export function canonicalize(raw: string[], canon: (id: string) => string): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const id of raw) {
-    const cid = canon(id);
-    if (!seen.has(cid)) {
-      seen.add(cid);
-      out.push(cid);
-    }
-  }
-  return out;
 }
 
 function sameOrder(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
-// Hook — kilde til sandhed i UI'et. Holder ids i state (synkron render-adgang via has()).
-// Dep = canonicalIdById-MAPPET (ikke en funktionsreference): den stabile Zustand-canonicalId
-// ville aldrig signalere recollapse (dual-review BM2/D).
-export function useBookmarks(canonicalIdById: Record<string, string>): {
-  ids: Set<string>;
-  has(id: string): boolean;
-  toggle(id: string): void;
-  count: number;
-} {
+// Auth-gated hook. Udlogget: tom, canSave=false, toggle no-op. Logget-ind: hent-ved-mount,
+// optimistisk toggle m. write-generation-guard (dual-review H2): et in-flight-refetch klobrer
+// ikke en igangværende skrivning. Dep = canonicalIdById-MAPPET (ikke funktionsreference).
+export function useBookmarks(
+  session: Session | null,
+  canonicalIdById: Record<string, string>,
+): { ids: Set<string>; has(id: string): boolean; canSave: boolean; toggle(id: string): void; count: number } {
+  const repoRef = useMemo(() => createRemoteBookmarkRepository(), []);
   const [idsList, setIdsList] = useState<string[]>([]);
+  const pendingRef = useMemo(() => new Set<string>(), []);
   const canon = useMemo(() => (id: string) => canonicalIdById[id] ?? id, [canonicalIdById]);
 
-  // Hydrering + re-normalisering: kør når mappet skifter identitet (recollapse).
   useEffect(() => {
+    if (!session) {
+      // Funktionel updater: returnér SAMME reference når allerede tom, så React bail'er i stedet
+      // for at re-rendere — ellers giver en ustabil canonicalIdById-reference (fx et inline {}
+      // hos kaldstedet) en uendelig effekt-loop (setIdsList([]) → nyt canon-ref → effekt igen).
+      // Fanget empirisk under web-portens egen test-kørsel (OOM); rettet her fra start.
+      setIdsList((prev) => (prev.length === 0 ? prev : []));
+      return;
+    }
     let alive = true;
-    void defaultStore.list().then((raw) => {
+    void repoRef.list().then((raw) => {
       if (!alive) return;
-      const norm = canonicalize(raw, canon);
-      setIdsList((prev) => (sameOrder(prev, norm) ? prev : norm));
+      const norm = raw.map(canon);
+      setIdsList((prev) => {
+        const merged = norm.filter((id) => !pendingRef.has(id) || prev.includes(id));
+        for (const id of prev) if (pendingRef.has(id) && !merged.includes(id)) merged.unshift(id);
+        return sameOrder(merged, prev) ? prev : merged;
+      });
     });
-    return () => {
-      alive = false;
-    };
-  }, [canon]);
+    return () => { alive = false; };
+  }, [session, canon, repoRef, pendingRef]);
 
   const ids = useMemo(() => new Set(idsList), [idsList]);
 
   const toggle = useCallback(
     (id: string) => {
+      if (!session) return;
       const cid = canon(id);
-      // Optimistisk state-opdatering (funktionel updater → seneste-vinder ved hurtige toggles);
-      // persistér async. Sidste skrivning vinder.
-      setIdsList((prev) => {
-        const next = nextBookmarks(prev, cid);
-        void safeWrite(next);
-        return next;
-      });
+      const wasIn = ids.has(cid);
+      pendingRef.add(cid);
+      setIdsList((prev) => (wasIn ? prev.filter((x) => x !== cid) : [cid, ...prev]));
+      const op = wasIn ? repoRef.remove(cid) : repoRef.add(cid);
+      op.then(
+        () => pendingRef.delete(cid),
+        () => {
+          pendingRef.delete(cid);
+          setIdsList((prev) => (wasIn ? [cid, ...prev] : prev.filter((x) => x !== cid)));
+        },
+      );
     },
-    [canon],
+    [session, canon, ids, repoRef, pendingRef],
   );
 
   const has = useCallback((id: string) => ids.has(canon(id)), [ids, canon]);
 
-  return { ids, has, toggle, count: idsList.length };
+  return { ids, has, canSave: session != null, toggle, count: idsList.length };
 }
