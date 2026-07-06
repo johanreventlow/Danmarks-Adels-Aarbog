@@ -15,6 +15,7 @@ import { estatePoints, filterByLineage, lifeJourney } from './data/geoSelectors'
 import { NarrativRenderer } from './components/NarrativRenderer';
 import { buildBrowse } from './data/browse';
 import { useBookmarks, type BookmarkSort } from './data/bookmarks';
+import { signIn, signOut, currentSession, type RedSession } from './data/auth';
 import { BookmarksView } from './components/BookmarksView';
 import { SlaegtPicker } from './components/SlaegtPicker';
 import { GeoMap } from './components/GeoMap';
@@ -91,6 +92,29 @@ export default function Folgesvend() {
   const [prevFocusId, setPrevFocusId] = useState<string | null>(null);
   // "Mig" i slægten (PoC: localStorage; flyttes til profiles.reventlow_person_id ved login).
   const [meId, setMeId] = useState<string | null>(() => (typeof window !== 'undefined' ? window.localStorage.getItem('daa_me_id') : null));
+  // Konto-bogmærker (spec 2026-07-06): login-eksklusiv session. "Mig" (ovenfor) forbliver
+  // lokal/udskudt migration — denne session bruges KUN til bogmærker her.
+  const [session, setSession] = useState<RedSession | null>(null);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [login, setLogin] = useState<{ email: string; pw: string; err: string; busy: boolean }>(
+    { email: '', pw: '', err: '', busy: false },
+  );
+  useEffect(() => {
+    void currentSession().then(setSession);
+  }, []);
+  const doLogin = async () => {
+    if (!login.email.trim() || !login.pw) { setLogin((l) => ({ ...l, err: 'Udfyld e-mail og adgangskode' })); return; }
+    setLogin((l) => ({ ...l, busy: true, err: '' }));
+    try {
+      const s = await signIn(login.email, login.pw);
+      setSession(s);
+      setLoginOpen(false);
+      setLogin({ email: '', pw: '', err: '', busy: false });
+    } catch (e) {
+      setLogin((l) => ({ ...l, busy: false, err: e instanceof Error ? e.message : 'Login fejlede' }));
+    }
+  };
+  const doLogout = async () => { await signOut(); setSession(null); };
   const [relA, setRelA] = useState<string | null>(null);
   const [relB, setRelB] = useState<string | null>(null);
   const [relSlot, setRelSlot] = useState<'A' | 'B'>('A');
@@ -114,7 +138,11 @@ export default function Folgesvend() {
   const meCanon = meId ? canon(meId) : null;
   // Bogmærker (web v3 Slice 1) — localStorage, kanonisk via canon(). bmSort default 'linje'
   // (designets første segment, spec §4). slaegtOpen = slægt-vælger-modal på header-chippen.
-  const bookmarks = useBookmarks(canon);
+  const bookmarks = useBookmarks(session ? { userId: session.userId } : null, canon);
+  const saveOrPrompt = useCallback(
+    (id: string) => { if (bookmarks.canSave) bookmarks.toggle(id); else setLoginOpen(true); },
+    [bookmarks],
+  );
   const [bmSort, setBmSort] = useState<BookmarkSort>('linje');
   const [slaegtOpen, setSlaegtOpen] = useState(false);
   // Stabil array-reference til BookmarksView — /simplify-fund: [...bookmarks.ids] i JSX'et
@@ -326,6 +354,12 @@ export default function Folgesvend() {
             <span style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.ink }}>Reventlow</span>
             <span style={{ fontSize: 10, color: T.muted2 }}>▾</span>
           </div>
+          {/* Konto-indikator (bogmærke-login) — minimal, ikke en fuld kontoflade (spec §6). */}
+          {session ? (
+            <div onClick={() => { void doLogout(); }} title={session.email} style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.muted, cursor: 'pointer' }}>Log ud</div>
+          ) : (
+            <div onClick={() => setLoginOpen(true)} style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>Log ind</div>
+          )}
           {meCanon && model?.byId[meCanon] && (
             <div onClick={() => navigateTree(meCanon)} title="Din plads i slægten" style={{ width: 38, height: 38, borderRadius: '50%', background: '#f8ecef', border: `1.5px solid ${T.bordeaux}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontFamily: T.serif, fontSize: 15, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{initials(model.byId[meCanon].name)}</div>
           )}
@@ -359,7 +393,7 @@ export default function Folgesvend() {
                   if (!p) return null;
                   return (
                     <SidebarMiniRow key={id} badge={initials(p.name)} label={p.name} sub={p.years || undefined}
-                      onClick={() => pickBookmark(id)} trailing={<BookmarkFlag active onClick={() => bookmarks.toggle(id)} />} />
+                      onClick={() => pickBookmark(id)} trailing={<BookmarkFlag active onClick={() => saveOrPrompt(id)} />} />
                   );
                 })}
               </div>
@@ -439,12 +473,12 @@ export default function Folgesvend() {
 
         {/* Center */}
         <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
-          {mode === 'tree' ? <TreeView model={model} focusId={focusId} onPick={navigateTree} onFocus={driftFocus} hasBookmark={bookmarks.has} onToggleBookmark={bookmarks.toggle} />
+          {mode === 'tree' ? <TreeView model={model} focusId={focusId} onPick={navigateTree} onFocus={driftFocus} hasBookmark={bookmarks.has} onToggleBookmark={saveOrPrompt} />
             : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={focusOnly} meId={meCanon} onSetMeA={() => { if (meCanon) { setRelA(meCanon); setRelSlot('B'); } }} />
             : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} geo={model?.geo} onOpen={(id) => { setEstateId(id); navigate(`/estate/${id}`); }} onBack={() => { setEstateId(null); navigate('/estates'); }} onPickOwner={navigateTree} />
             : mode === 'arms' ? <ArmsView arms={arms} />
             : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} onPick={navigateTree} />
-            : mode === 'bookmarks' ? (model ? <BookmarksView model={model} ids={bookmarkIds} sort={bmSort} setSort={setBmSort} onPick={pickBookmark} onRemove={bookmarks.toggle} /> : <div style={{ padding: 40, color: T.muted3 }}>Henter…</div>)
+            : mode === 'bookmarks' ? (model ? <BookmarksView model={model} ids={bookmarkIds} sort={bmSort} setSort={setBmSort} onPick={pickBookmark} onRemove={saveOrPrompt} loggedIn={bookmarks.canSave} onRequireLogin={() => setLoginOpen(true)} /> : <div style={{ padding: 40, color: T.muted3 }}>Henter…</div>)
             : mode === 'kort' ? <OverviewMapView model={model} onPickPerson={navigateTree} onPickEstate={(id) => navigate(`/estate/${id}`)} />
             : <Placeholder label={NAV.find((n) => n[1] === mode)?.[0] ?? ''} />}
         </div>
@@ -457,12 +491,28 @@ export default function Folgesvend() {
             onFocusTree={() => goToMode('tree')}
             onRelate={() => { setRelA(focusId); setRelB(null); setRelSlot('B'); goToMode('relate'); }}
             isMe={focusId === meCanon} onToggleMe={() => toggleMe(focusId)}
-            isBookmarked={bookmarks.has(focusId)} onToggleBookmark={() => bookmarks.toggle(focusId)}
+            isBookmarked={bookmarks.has(focusId)} onToggleBookmark={() => saveOrPrompt(focusId)}
           />
         )}
       </div>
 
       <SlaegtPicker open={slaegtOpen} slaegter={SLAEGTER} activeId="reventlow" onClose={() => setSlaegtOpen(false)} onPick={() => setSlaegtOpen(false)} />
+
+      {loginOpen && (
+        <div onClick={() => setLoginOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(20,17,13,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: 380, maxWidth: '100%', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: '22px 24px 20px' }}>
+            <div style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600 }}>Log ind</div>
+            <div style={{ fontSize: 12, color: T.muted, marginTop: 3, marginBottom: 15 }}>Log ind for at gemme bogmærker på tværs af dine enheder.</div>
+            <input value={login.email} onChange={(e) => setLogin((l) => ({ ...l, email: e.target.value }))} placeholder="din@email.dk" style={{ width: '100%', fontSize: 13, color: '#221f1a', background: '#fff', border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 10px', outline: 'none' }} />
+            <input value={login.pw} type="password" onChange={(e) => setLogin((l) => ({ ...l, pw: e.target.value }))} style={{ width: '100%', fontSize: 13, color: '#221f1a', background: '#fff', border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 10px', outline: 'none', marginTop: 11 }} />
+            {login.err && <div style={{ fontSize: 11.5, color: T.bordeaux, marginTop: 9 }}>{login.err}</div>}
+            <div style={{ display: 'flex', gap: 9, marginTop: 16, justifyContent: 'flex-end' }}>
+              <div onClick={() => setLoginOpen(false)} style={{ fontSize: 12, fontWeight: 600, color: T.muted, padding: '8px 13px', cursor: 'pointer' }}>Annullér</div>
+              <div onClick={doLogin} style={{ fontSize: 12, fontWeight: 600, color: '#fbf8f1', background: T.bordeaux, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' }}>{login.busy ? 'Logger ind…' : 'Log ind'}</div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
