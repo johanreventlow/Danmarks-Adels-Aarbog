@@ -1,7 +1,7 @@
 // Bogmærke-lager (konto-bogmærker, spec 2026-07-06). Login-eksklusivt: Supabase-backet
 // repository + auth-gated hook. Erstatter AsyncStorage-PoC. person_id sendes ALTID som streng
 // til PostgREST (bigint > 2^53 korrumperes af Number() — dual-review 21 N2).
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 
@@ -50,50 +50,53 @@ export function useBookmarks(
 ): { ids: Set<string>; has(id: string): boolean; canSave: boolean; toggle(id: string): void; count: number } {
   const repoRef = useMemo(() => createRemoteBookmarkRepository(), []);
   const [idsList, setIdsList] = useState<string[]>([]);
-  const pendingRef = useMemo(() => new Set<string>(), []);
+  // Mutérbar side-kanal uden for render/state-cyklussen — useRef (ikke useMemo, som React
+  // Compiler-lint'en behandler som immutabelt): pendingRef.current's INDHOLD muteres i effekt/
+  // callbacks, aldrig selve .current under render (react-hooks/immutability + react-hooks/refs).
+  const pendingRef = useRef<Set<string>>(new Set());
   const canon = useMemo(() => (id: string) => canonicalIdById[id] ?? id, [canonicalIdById]);
 
   useEffect(() => {
-    if (!session) {
-      // Funktionel updater: returnér SAMME reference når allerede tom, så React bail'er i stedet
-      // for at re-rendere — ellers giver en ustabil canonicalIdById-reference (fx et inline {}
-      // hos kaldstedet) en uendelig effekt-loop (setIdsList([]) → nyt canon-ref → effekt igen).
-      // Fanget empirisk under web-portens egen test-kørsel (OOM); rettet her fra start.
-      setIdsList((prev) => (prev.length === 0 ? prev : []));
-      return;
-    }
+    // Ingen setState her: udlogget → ingen fetch, og `ids` beregnes tom nedenfor (afledt af
+    // session, ikke lagret) — undgår react-hooks/set-state-in-effect OG den uendelige render-
+    // loop en ustabil canonicalIdById-reference ellers ville give (fanget under web-portens
+    // egen test-kørsel: OOM).
+    if (!session) return;
     let alive = true;
     void repoRef.list().then((raw) => {
       if (!alive) return;
       const norm = raw.map(canon);
       setIdsList((prev) => {
-        const merged = norm.filter((id) => !pendingRef.has(id) || prev.includes(id));
-        for (const id of prev) if (pendingRef.has(id) && !merged.includes(id)) merged.unshift(id);
+        const pending = pendingRef.current;
+        const merged = norm.filter((id) => !pending.has(id) || prev.includes(id));
+        for (const id of prev) if (pending.has(id) && !merged.includes(id)) merged.unshift(id);
         return sameOrder(merged, prev) ? prev : merged;
       });
     });
     return () => { alive = false; };
-  }, [session, canon, repoRef, pendingRef]);
+  }, [session, canon, repoRef]);
 
-  const ids = useMemo(() => new Set(idsList), [idsList]);
+  // Afledt (ikke lagret): tom når udlogget, uanset hvad idsList internt måtte indeholde fra en
+  // tidligere session — undgår enhver setState-i-effekt for logout-overgangen.
+  const ids = useMemo(() => (session ? new Set(idsList) : new Set<string>()), [session, idsList]);
 
   const toggle = useCallback(
     (id: string) => {
       if (!session) return;
       const cid = canon(id);
       const wasIn = ids.has(cid);
-      pendingRef.add(cid);
+      pendingRef.current.add(cid);
       setIdsList((prev) => (wasIn ? prev.filter((x) => x !== cid) : [cid, ...prev]));
       const op = wasIn ? repoRef.remove(cid) : repoRef.add(cid);
       op.then(
-        () => pendingRef.delete(cid),
+        () => pendingRef.current.delete(cid),
         () => {
-          pendingRef.delete(cid);
+          pendingRef.current.delete(cid);
           setIdsList((prev) => (wasIn ? [cid, ...prev] : prev.filter((x) => x !== cid)));
         },
       );
     },
-    [session, canon, ids, repoRef, pendingRef],
+    [session, canon, ids, repoRef],
   );
 
   const has = useCallback((id: string) => ids.has(canon(id)), [ids, canon]);
