@@ -415,6 +415,13 @@ create policy self_read on public.profiles for select to authenticated using (id
 -- Supabase auto-grant'er default-privilegier til anon/authenticated på nye tabeller).
 revoke all on table public.bookmark from anon, public;
 grant select, insert, delete on table public.bookmark to authenticated;
+-- Prod-fund ved anvendelse (2026-07-06): Supabases pg_default_acl for schema public granter
+-- automatisk ALLE tabel-privilegier (inkl. UPDATE/REFERENCES/TRIGGER/TRUNCATE) til authenticated
+-- på enhver ny tabel — GRANT ovenfor er additivt og fjerner ikke dette. Revoke eksplicit ned til
+-- tilsigtet overflade (kun SELECT/INSERT/DELETE — der findes ingen UPDATE-policy, og TRUNCATE
+-- omgår RLS helt). Systemisk på tværs af databasen (bekræftet også på media_variant) — kun
+-- rettet for bookmark her, se docs/reviews/22-*.md for det fulde fund.
+revoke update, references, trigger, truncate on table public.bookmark from authenticated;
 
 drop policy if exists bookmark_select_own on public.bookmark;
 create policy bookmark_select_own on public.bookmark
