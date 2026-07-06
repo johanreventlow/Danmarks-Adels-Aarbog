@@ -1,7 +1,9 @@
-// Publikums-følgesvend (web) — port af design/project/Reventlow-web-v2.dc.html.
-// Header-nav · venstre person-liste/søg · center-visning. To visninger bygget: Stamtræ
+// Publikums-følgesvend (web) — port af design/project/Reventlow-web-v2.dc.html,
+// layout siden opdateret efter Reventlow-web-v3.dc.html (søg/gennemse som modalt overlay
+// i stedet for en permanent sidebar, så stamtræ + detalje-panel deler hele skærmen).
+// Header-nav · center-visning · detalje-panel. To visninger bygget: Stamtræ
 // (variant A, fokus-centreret) og Slægtskab ("Er vi i familie?", med multi-linje + konfidens
-// + korroboration fra den porterede finder). Søg/Godser/Våben/Om følger.
+// + korroboration fra den porterede finder). Godser/Våben/Om/Kort/Bogmærker følger.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { navigate, usePath } from './router';
 import { childrenOf, loadModel, parentsOf } from './data/model';
@@ -19,6 +21,7 @@ import { signIn, signOut, currentSession, type RedSession } from './data/auth';
 import { BookmarksView } from './components/BookmarksView';
 import { SlaegtPicker } from './components/SlaegtPicker';
 import { GeoMap } from './components/GeoMap';
+import { ExpandableMiniMap } from './components/MapLightbox';
 import { ViewHeader, Avatar, BookmarkFlag, SidebarMiniRow, MediaThumb } from './components/primitives';
 import { Lightbox } from './components/Lightbox';
 import { T } from './theme';
@@ -148,6 +151,9 @@ export default function Folgesvend() {
   );
   const [bmSort, setBmSort] = useState<BookmarkSort>('linje');
   const [slaegtOpen, setSlaegtOpen] = useState(false);
+  // Søg & gennemse (web v3): panelet er nu et modalt overlay frem for en permanent 312px-sidebar
+  // (port af Reventlow-web-v3.dc.html) — giver stamtræ + detalje-panel hele skærmen at dele.
+  const [searchOpen, setSearchOpen] = useState(false);
   // Stabil array-reference til BookmarksView — /simplify-fund: [...bookmarks.ids] i JSX'et
   // nedenfor gav en NY array hvert render, hvilket ville nulstille en useMemo i BookmarksView.
   const bookmarkIds = useMemo(() => [...bookmarks.ids], [bookmarks.ids]);
@@ -210,6 +216,7 @@ export default function Folgesvend() {
     setPrevFocusId(prev);
     setFocusId(cid);
     setMode('tree');
+    setSearchOpen(false); // en "rigtig" navigation lukker søgemodalen (design: focusInTree/deskFocus)
     navigate(`/person/${cid}`, { state: { prevFocusId: prev } });
   };
   // Fokus-skift UDEN navigation — bruges hvor det AKTUELLE mode bevidst skal bevares og ikke
@@ -351,6 +358,11 @@ export default function Folgesvend() {
           ))}
         </div>
         <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 12 }}>
+          {/* Søg-knap — åbner søg/gennemse-modalen (v3: erstatter den permanente sidebar). */}
+          <div onClick={() => setSearchOpen(true)} title="Søg &amp; gennemse personer" style={{ display: 'flex', alignItems: 'center', gap: 8, background: T.panel, border: '1px solid rgba(34,31,26,.12)', borderRadius: 9, padding: '7px 13px', cursor: 'pointer' }}>
+            <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke={T.bordeaux} strokeWidth={2} strokeLinecap="round"><circle cx={11} cy={11} r={7} /><path d="M21 21l-4.3-4.3" /></svg>
+            <span style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: '#3d382f' }}>Søg</span>
+          </div>
           {/* Slægt-chip — åbner slægt-vælger-modal (kosmetisk, kun Reventlow findes — spec §3.3). */}
           <div onClick={() => setSlaegtOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 9, background: T.panel, border: '1px solid rgba(34,31,26,.12)', borderRadius: 9, padding: '6px 12px', cursor: 'pointer' }}>
             <span style={{ width: 26, height: 26, borderRadius: '50%', border: '1px solid rgba(136,26,51,.55)', boxShadow: 'inset 0 0 0 2px #f4efe6, inset 0 0 0 2.5px rgba(136,26,51,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 13, fontWeight: 600, color: T.bordeaux }}>R</span>
@@ -371,108 +383,120 @@ export default function Folgesvend() {
       </div>
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        {/* Venstre: sidebar-browse (port af design — stats · søg · sortér/alfabet/grupperet liste).
-            Udskudt til Fase 2: "linjer"-stat + linje-filter-chips (kræver lineage-datalag). */}
-        <div data-scroll style={{ flex: 'none', width: 312, borderRight: '1px solid rgba(34,31,26,.1)', background: T.panel, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-          {/* ctx — "I fokus" (§3.4): kun tree-mode. */}
-          {ctxItems.length > 0 && (
-            <div style={{ padding: '16px 18px 10px', borderBottom: '1px solid rgba(34,31,26,.08)' }}>
-              <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2, marginBottom: 8 }}>I fokus</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                {ctxItems.map((it) => (
-                  <SidebarMiniRow key={it.key} shape={it.shape} badge={it.badge} kicker={it.kicker} label={it.label} onClick={it.onTap ?? undefined} />
-                ))}
+        {/* Søg & gennemse (v3): modalt overlay i stedet for en permanent sidebar (port af
+            Reventlow-web-v3.dc.html) — stamtræ + detalje-panel deler nu hele skærmens bredde,
+            og browse-listen (stats · søg · sortér/alfabet/grupperet liste) ligger bag "Søg"-knappen. */}
+        {searchOpen && (
+          <div onClick={() => setSearchOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 70, background: 'rgba(20,17,13,.32)', display: 'flex' }}>
+            <div onClick={(e) => e.stopPropagation()} data-scroll style={{ flex: 'none', width: 380, height: '100%', background: T.panel, borderRight: '1px solid rgba(34,31,26,.14)', boxShadow: '16px 0 44px rgba(20,17,13,.24)', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+              <div style={{ padding: '20px 20px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2 }}>Søg &amp; gennemse</div>
+                <div onClick={() => setSearchOpen(false)} title="Luk søgning" style={{ display: 'flex', alignItems: 'center', gap: 5, fontFamily: T.sans, fontSize: 11, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', padding: '3px 8px', borderRadius: 7, background: '#f8ecef' }}>
+                  Luk
+                  <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke={T.bordeaux} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                </div>
               </div>
-            </div>
-          )}
-
-          {/* bmQuick — top 3 bogmærker + "Se alle" (§3.3). Eneste indgang til bookmarks-mode. */}
-          {bookmarkIds.length > 0 && (
-            <div style={{ padding: '14px 18px 10px', borderBottom: '1px solid rgba(34,31,26,.08)' }}>
-              <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2, marginBottom: 8 }}>Bogmærker</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                {bookmarkIds.slice(0, 3).map((id) => {
-                  const p = model?.byId[id];
-                  if (!p) return null;
-                  return (
-                    <SidebarMiniRow key={id} badge={initials(p.name)} label={p.name} sub={p.years || undefined}
-                      onClick={() => pickBookmark(id)} trailing={<BookmarkFlag active onClick={() => saveOrPrompt(id)} />} />
-                  );
-                })}
-              </div>
-              {bookmarkIds.length > 3 && (
-                <div onClick={() => setMode('bookmarks')} style={{ marginTop: 5, fontFamily: T.sans, fontSize: 11.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', padding: '4px 6px' }}>Se alle ({bookmarkIds.length})</div>
+              {/* ctx — "I fokus" (§3.4): kun tree-mode. */}
+              {ctxItems.length > 0 && (
+                <div style={{ padding: '16px 18px 10px', borderBottom: '1px solid rgba(34,31,26,.08)' }}>
+                  <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2, marginBottom: 8 }}>I fokus</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    {ctxItems.map((it) => (
+                      <SidebarMiniRow key={it.key} shape={it.shape} badge={it.badge} kicker={it.kicker} label={it.label} onClick={it.onTap ?? undefined} />
+                    ))}
+                  </div>
+                </div>
               )}
-            </div>
-          )}
 
-          <div style={{ padding: '20px 20px 14px', borderBottom: '1px solid rgba(34,31,26,.08)' }}>
-            <div style={{ display: 'flex', gap: 16, alignItems: 'stretch' }}>
-              <Stat n={persons.length} label="personer" />
-              <div style={{ width: 1, background: 'rgba(34,31,26,.12)' }} />
-              <Stat n={linjeList.length || null} label="linjer" />
-              <div style={{ width: 1, background: 'rgba(34,31,26,.12)' }} />
-              <Stat n={estates?.length ?? null} label="godser" />
+              {/* bmQuick — top 3 bogmærker + "Se alle" (§3.3). Eneste indgang til bookmarks-mode. */}
+              {bookmarkIds.length > 0 && (
+                <div style={{ padding: '14px 18px 10px', borderBottom: '1px solid rgba(34,31,26,.08)' }}>
+                  <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2, marginBottom: 8 }}>Bogmærker</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    {bookmarkIds.slice(0, 3).map((id) => {
+                      const p = model?.byId[id];
+                      if (!p) return null;
+                      return (
+                        <SidebarMiniRow key={id} badge={initials(p.name)} label={p.name} sub={p.years || undefined}
+                          onClick={() => pickBookmark(id)} trailing={<BookmarkFlag active onClick={() => saveOrPrompt(id)} />} />
+                      );
+                    })}
+                  </div>
+                  {bookmarkIds.length > 3 && (
+                    <div onClick={() => { setMode('bookmarks'); setSearchOpen(false); }} style={{ marginTop: 5, fontFamily: T.sans, fontSize: 11.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', padding: '4px 6px' }}>Se alle ({bookmarkIds.length})</div>
+                  )}
+                </div>
+              )}
+
+              <div style={{ padding: '20px 20px 14px', borderBottom: '1px solid rgba(34,31,26,.08)' }}>
+                <div style={{ display: 'flex', gap: 16, alignItems: 'stretch' }}>
+                  <Stat n={persons.length} label="personer" />
+                  <div style={{ width: 1, background: 'rgba(34,31,26,.12)' }} />
+                  <Stat n={linjeList.length || null} label="linjer" />
+                  <div style={{ width: 1, background: 'rgba(34,31,26,.12)' }} />
+                  <Stat n={estates?.length ?? null} label="godser" />
+                </div>
+              </div>
+
+              <div style={{ padding: '14px 18px 10px' }}>
+                <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Søg navn…" style={{ width: '100%', fontFamily: T.sans, fontSize: 14, color: T.ink, background: T.paper, border: '1px solid rgba(34,31,26,.14)', borderRadius: 9, padding: '11px 13px', outline: 'none' }} />
+                {mode === 'relate' && (
+                  <div style={{ marginTop: 9, background: '#f8ecef', border: '1px solid rgba(136,26,51,.25)', borderRadius: 9, padding: '9px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <span style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.bordeaux }}>Vælg person {relSlot} i listen</span>
+                  </div>
+                )}
+                {!model && <div style={{ fontSize: 12, color: T.muted3, marginTop: 8 }}>Henter slægten…</div>}
+              </div>
+
+              {/* Linje-filter (§9.2) — klik hopper fokus til grenens stamfader + filtrerer listen. */}
+              {linjeList.length > 0 && (
+                <div style={{ padding: '0 18px 8px' }}>
+                  <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2, marginBottom: 7 }}>Linjer</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    <LinjeChip label="Hele slægten" active={!activeLinje} onClick={clearLinje} />
+                    {linjeList.map((l) => (
+                      <LinjeChip key={l.linje} label={`Linje ${l.linje}`} title={l.navn ?? undefined} active={activeLinje === l.linje} onClick={() => pickLinje(l.linje, l.headId)} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ padding: '6px 10px 8px', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                <div style={{ padding: '0 8px 7px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>{`${activeLinje ? `Linje ${activeLinje} · ` : ''}${browse.flat.length} ${query ? 'træffere' : 'personer'}`}</span>
+                  <div style={{ display: 'flex', background: '#e6ddcc', borderRadius: 7, padding: 2, gap: 2, flex: 'none' }}>
+                    {(['navn', 'aar'] as const).map((s) => (
+                      <span key={s} onClick={() => setBrowseSort(s)} style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 5, cursor: 'pointer', background: browseSort === s ? T.bordeaux : 'transparent', color: browseSort === s ? T.paper : '#3d382f' }}>{s === 'navn' ? 'A–Å' : 'Født'}</span>
+                    ))}
+                  </div>
+                </div>
+
+                {browse.grouped && browse.letters.length > 1 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, padding: '0 8px 9px' }}>
+                    {[{ key: null as string | null, label: 'Alle' }, ...browse.letters.map((l) => ({ key: l as string | null, label: l }))].map((L) => {
+                      const on = activeLetter === L.key;
+                      return (
+                        <span key={L.label} onClick={() => setActiveLetter(L.key)} style={{ fontFamily: T.mono, fontSize: 10, fontWeight: 500, minWidth: 19, height: 19, padding: '0 3px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 5, cursor: 'pointer', background: on ? T.bordeaux : T.beige, color: on ? T.paper : T.muted }}>{L.label}</span>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div style={{ flex: 1 }}>
+                  {browse.grouped
+                    ? browse.groups.map((g) => (
+                        <div key={g.letter}>
+                          <div style={{ position: 'sticky', top: 0, background: T.panel, padding: '7px 9px 3px', fontFamily: T.serif, fontSize: 15, fontWeight: 600, color: T.gold, zIndex: 2, borderBottom: '1px solid rgba(34,31,26,.07)' }}>{g.letter}</div>
+                          {g.people.map(personRow)}
+                        </div>
+                      ))
+                    : browse.flat.map(personRow)}
+                  {browse.flat.length === 0 && model && <div style={{ padding: '12px 9px', fontFamily: T.sans, fontSize: 12, color: T.muted3 }}>Ingen træffere</div>}
+                </div>
+              </div>
             </div>
           </div>
-
-          <div style={{ padding: '14px 18px 10px' }}>
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Søg navn…" style={{ width: '100%', fontFamily: T.sans, fontSize: 14, color: T.ink, background: T.paper, border: '1px solid rgba(34,31,26,.14)', borderRadius: 9, padding: '11px 13px', outline: 'none' }} />
-            {mode === 'relate' && (
-              <div style={{ marginTop: 9, background: '#f8ecef', border: '1px solid rgba(136,26,51,.25)', borderRadius: 9, padding: '9px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                <span style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.bordeaux }}>Vælg person {relSlot} i listen</span>
-              </div>
-            )}
-            {!model && <div style={{ fontSize: 12, color: T.muted3, marginTop: 8 }}>Henter slægten…</div>}
-          </div>
-
-          {/* Linje-filter (§9.2) — klik hopper fokus til grenens stamfader + filtrerer listen. */}
-          {linjeList.length > 0 && (
-            <div style={{ padding: '0 18px 8px' }}>
-              <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2, marginBottom: 7 }}>Linjer</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                <LinjeChip label="Hele slægten" active={!activeLinje} onClick={clearLinje} />
-                {linjeList.map((l) => (
-                  <LinjeChip key={l.linje} label={`Linje ${l.linje}`} title={l.navn ?? undefined} active={activeLinje === l.linje} onClick={() => pickLinje(l.linje, l.headId)} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div style={{ padding: '6px 10px 8px', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-            <div style={{ padding: '0 8px 7px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <span style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>{`${activeLinje ? `Linje ${activeLinje} · ` : ''}${browse.flat.length} ${query ? 'træffere' : 'personer'}`}</span>
-              <div style={{ display: 'flex', background: '#e6ddcc', borderRadius: 7, padding: 2, gap: 2, flex: 'none' }}>
-                {(['navn', 'aar'] as const).map((s) => (
-                  <span key={s} onClick={() => setBrowseSort(s)} style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 5, cursor: 'pointer', background: browseSort === s ? T.bordeaux : 'transparent', color: browseSort === s ? T.paper : '#3d382f' }}>{s === 'navn' ? 'A–Å' : 'Født'}</span>
-                ))}
-              </div>
-            </div>
-
-            {browse.grouped && browse.letters.length > 1 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, padding: '0 8px 9px' }}>
-                {[{ key: null as string | null, label: 'Alle' }, ...browse.letters.map((l) => ({ key: l as string | null, label: l }))].map((L) => {
-                  const on = activeLetter === L.key;
-                  return (
-                    <span key={L.label} onClick={() => setActiveLetter(L.key)} style={{ fontFamily: T.mono, fontSize: 10, fontWeight: 500, minWidth: 19, height: 19, padding: '0 3px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 5, cursor: 'pointer', background: on ? T.bordeaux : T.beige, color: on ? T.paper : T.muted }}>{L.label}</span>
-                  );
-                })}
-              </div>
-            )}
-
-            <div style={{ flex: 1 }}>
-              {browse.grouped
-                ? browse.groups.map((g) => (
-                    <div key={g.letter}>
-                      <div style={{ position: 'sticky', top: 0, background: T.panel, padding: '7px 9px 3px', fontFamily: T.serif, fontSize: 15, fontWeight: 600, color: T.gold, zIndex: 2, borderBottom: '1px solid rgba(34,31,26,.07)' }}>{g.letter}</div>
-                      {g.people.map(personRow)}
-                    </div>
-                  ))
-                : browse.flat.map(personRow)}
-              {browse.flat.length === 0 && model && <div style={{ padding: '12px 9px', fontFamily: T.sans, fontSize: 12, color: T.muted3 }}>Ingen træffere</div>}
-            </div>
-          </div>
-        </div>
+        )}
 
         {/* Center */}
         <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
@@ -873,7 +897,7 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
       : null;
   return (
     <>
-    <div data-scroll style={{ flex: 'none', width: 392, borderLeft: '1px solid rgba(34,31,26,.1)', background: T.paper, overflowY: 'auto' }}>
+    <div data-scroll style={{ flex: 'none', width: '50%', maxWidth: 760, minWidth: 430, borderLeft: '1px solid rgba(34,31,26,.1)', background: T.paper, overflowY: 'auto' }}>
       <div style={{ padding: '24px 24px 36px' }}>
         {backName && (
           <div onClick={onBack} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', marginBottom: 14 }}>‹ Tilbage til {backName}</div>
@@ -926,7 +950,7 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onFocus
         {model.geo && lifeJourney(model.geo, focusId).length > 0 && (
           <div style={{ marginTop: 14 }}>
             <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2, marginBottom: 6 }}>Livsrejse</div>
-            <GeoMap points={lifeJourney(model.geo, focusId)} mode="mini" onPointPress={(pt) => { if (pt.personId && pt.personId !== focusId) onPick(pt.personId); }} />
+            <ExpandableMiniMap points={lifeJourney(model.geo, focusId)} />
           </div>
         )}
 
@@ -1049,7 +1073,7 @@ function EstatesView({ estates, estateId, estate, info, owners, geo, onOpen, onB
           {info?.sted && <span style={{ fontSize: 11.5, fontWeight: 600, color: T.muted, background: T.beige, border: '1px solid rgba(34,31,26,.1)', padding: '5px 10px', borderRadius: 7 }}>⌖ {info.sted}</span>}
         </div>
         {point && (
-          <div style={{ marginTop: 14 }}><GeoMap points={[point]} mode="mini" /></div>
+          <div style={{ marginTop: 14 }}><ExpandableMiniMap points={[point]} /></div>
         )}
         {info && info.media.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
