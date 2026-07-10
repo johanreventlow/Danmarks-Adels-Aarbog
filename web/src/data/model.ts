@@ -3,7 +3,7 @@
 // behøver — ikke Aux/godser/våben). Rolle-vokab: partner = forælder-par, barn = blodslægt.
 import { supabase } from '../supabase';
 import { buildGeo } from './buildGeo';
-import { buildGenCoords } from './generations';
+import { buildGenCoords, buildParentsUnknown, type ParentsUnknown } from './generations';
 import { buildModel } from './buildModel';
 import { collapseSameAs } from './collapseSameAs';
 import { buildLineage } from './lineage';
@@ -144,6 +144,8 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<Model> {
   const collapsed = collapseSameAs(rawDb, edges, extMap);
   if (collapsed.quarantined.length) console.warn('[samme_som] karantæne (foldes ikke):', collapsed.quarantined);
 
+  const parentsUnknownByPerson = await fetchParentsUnknown(collapsed.canonicalIdById);
+
   const model: Model = {
     ...buildModel(collapsed.db),
     lineage: buildLineage(extIds, lineageRows, collapsed.canonicalIdById),
@@ -155,10 +157,42 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<Model> {
       collapsed.canonicalIdById,
     ),
     genCoordsByPerson: buildGenCoords(extIds, lineageRows, collapsed.canonicalIdById),
+    parentsUnknownByPerson,
   };
   // Påfør proveniens på de foldede kanoniske personer (til badge i detalje-panelet).
   for (const [canon, prov] of Object.entries(collapsed.mergedFrom)) {
     if (model.byId[canon]) model.byId[canon].mergedFrom = prov;
   }
   return model;
+}
+
+// Hent "forældre ukendt"-markeringer (faktatype 'forældre_ukendt') + deres afklarede konklusion,
+// valgte assertions grad + citationens proveniens → kanonisk person-opslag. Marker-gated: kun
+// personer hvor KILDEN faktisk angiver at forbindelsen opad ikke er kendt (docs/reviews/25-*).
+// Kæden er kort-cirkuleret på det (typisk lille) markerings-sæt: første query returnerer tomt
+// når intet er markeret, og de øvrige springes over. Tolerant — en fejl degraderer til "ingen
+// markeringer" (samme mønster som resten af loadModel), aldrig et brud på stamtræet.
+async function fetchParentsUnknown(canonicalIdById: Record<string, string>): Promise<Record<string, ParentsUnknown>> {
+  try {
+    const facts = await getAll<{ id: number | string; subjekt_id: number | string }>(() =>
+      supabase.from('fact').select('id,subjekt_id').eq('subjekt_type', 'person').eq('faktatype', 'forældre_ukendt').order('id'),
+    );
+    if (!facts.length) return {};
+    const factIds = facts.map((f) => f.id);
+    const conclusions = await getAll<{ target_id: number | string; valgt_assertion_id: number | string | null }>(() =>
+      supabase.from('conclusion').select('target_id,valgt_assertion_id').eq('target_type', 'fact').eq('status', 'afklaret').in('target_id', factIds).order('id'),
+    );
+    const assertionIds = conclusions.map((c) => c.valgt_assertion_id).filter((v): v is number | string => v != null);
+    if (!assertionIds.length) return {};
+    const [assertions, citations] = await Promise.all([
+      getAll<{ id: number | string; vaerdi_tekst: string | null }>(() =>
+        supabase.from('assertion').select('id,vaerdi_tekst').in('id', assertionIds).order('id')),
+      getAll<{ assertion_id: number | string; citat_tekst: string | null }>(() =>
+        supabase.from('citation').select('assertion_id,citat_tekst').in('assertion_id', assertionIds).order('id')),
+    ]);
+    return buildParentsUnknown(facts, conclusions, assertions, citations, canonicalIdById);
+  } catch (e) {
+    console.warn('[loadModel] forældre_ukendt-markeringer utilgængelige — ingen kandidat-ringe:', e);
+    return {};
+  }
 }

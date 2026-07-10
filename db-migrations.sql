@@ -1769,3 +1769,18 @@ DROP TRIGGER IF EXISTS trg_external_id_regen ON person_external_id;
 CREATE TRIGGER trg_external_id_regen
   AFTER INSERT OR DELETE OR UPDATE OF person_id, source_id, linje, nr ON person_external_id
   FOR EACH ROW EXECUTE FUNCTION trg_regen_from_external_id();
+
+-- =====================================================================
+-- 2026-07-09: "forældre ukendt"-markering (docs/reviews/25-generationer-ukendt-forbindelse-analyse.md)
+-- INGEN skema-ændring: markeringen er et fact (faktatype 'forældre_ukendt') på personen med
+-- assertion (grad = vaerdi_tekst) + citation (proveniens) + afklaret conclusion — skrives via den
+-- eksisterende red_opret_fakta-RPC. Her seedes kun det kontrollerede vokabular (invariant 9), så
+-- "samme slags"-forespørgsler er pålidelige. Idempotent.
+--   Grad-værdier (vaerdi_tekst på assertionen):
+--     'forælder ukendt'            — en forælder FINDES, men er ukendt for os (vis mulige forældre)
+--     'ingen forbindelse angivet'  — bogen forbinder slet ikke personen opad (vis blot forrige slægtled)
+INSERT INTO vocab (scheme, code, label) VALUES
+  ('faktatype', 'forældre_ukendt', 'Forældre ukendt (kilden angiver ingen forbindelse opad)'),
+  ('forældre_ukendt_grad', 'forælder ukendt', 'Forælder findes, men er ukendt for os'),
+  ('forældre_ukendt_grad', 'ingen forbindelse angivet', 'Bogen forbinder ikke personen opad')
+ON CONFLICT (scheme, code) DO NOTHING;

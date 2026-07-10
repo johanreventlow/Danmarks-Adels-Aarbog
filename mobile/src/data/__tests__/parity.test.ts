@@ -72,6 +72,10 @@ describe('parity: delt generations-kerne web ↔ mobil', () => {
     expect(extractFn(mobileGenerations, 'buildGenCoords')).toBe(extractFn(webGenerations, 'buildGenCoords'));
   });
 
+  it('buildParentsUnknown er tegn-for-tegn ens (generations.ts)', () => {
+    expect(extractFn(mobileGenerations, 'buildParentsUnknown')).toBe(extractFn(webGenerations, 'buildParentsUnknown'));
+  });
+
   it('columnLabel er tegn-for-tegn ens (selectors.ts ↔ tree.ts)', () => {
     expect(extractFn(mobileSelectors, 'columnLabel')).toBe(extractFn(webTree, 'columnLabel'));
   });
