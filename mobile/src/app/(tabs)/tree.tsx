@@ -174,37 +174,11 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
       >
         {cols.map((col) => (
           <View key={col.key} style={{ width: 166 }}>
-            <Mono size={9} color={Colors.gold} style={{ letterSpacing: 9 * 0.1, textTransform: 'uppercase', paddingBottom: 2, marginBottom: col.fallback ? 2 : 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Border.light }}>
-              {col.fallback ? col.genLabel : col.label}
+            <Mono size={9} color={Colors.gold} style={{ letterSpacing: 9 * 0.1, textTransform: 'uppercase', paddingBottom: 2, marginBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Border.light }}>
+              {col.label}
             </Mono>
-            {col.fallback ? (
-              <Mono size={8.5} color={Colors.textMuted2} style={{ marginBottom: 8, lineHeight: 11 }}>
-                Ingen kendt forbindelse mellem slægtsled
-              </Mono>
-            ) : null}
             <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: insets.bottom + 90 }}>
-            {col.fallback ? (
-              Object.entries(col.kuldGroups ?? {}).map(([kuld, people]) => (
-                <View key={kuld} style={{ gap: 8 }}>
-                  {kuld !== '—' ? (
-                    <Mono size={8} color={Colors.textMuted3} style={{ letterSpacing: 8 * 0.08, textTransform: 'uppercase' }}>Kuld {kuld}</Mono>
-                  ) : null}
-                  {people.map((p) => (
-                    <Pressable key={p.id} onPress={() => setFocus(p.id)} style={styles.bCardFallback}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                        <View style={styles.bAvatar}><Serif size={15} color={Colors.bordeaux}>{initial(p.name)}</Serif></View>
-                        <View style={{ flex: 1, minWidth: 0 }}>
-                          <Serif size={16} style={{ lineHeight: 17 }} numberOfLines={2}>{p.name}</Serif>
-                          {p.years ? <Mono size={9} color={Colors.textMuted} style={{ marginTop: 2 }}>{p.years}</Mono> : null}
-                          <Mono size={8} color={Colors.gold} style={{ letterSpacing: 8 * 0.06, textTransform: 'uppercase', marginTop: 2 }}>muligt slægtled</Mono>
-                        </View>
-                        {/* (ingen BookmarkFlag her — mobile-bogmærker er endnu ikke designet, jf. CLAUDE.md §9) */}
-                      </View>
-                    </Pressable>
-                  ))}
-                </View>
-              ))
-            ) : col.people.map((p) => {
+            {col.people.map((p) => {
               const sel = p.id === col.selectedId;
               const canAnc = col.kind === 'ancestor' && (model.indexes.parentsByChild[p.id]?.length ?? 0) > 0;
               const canDesc = col.kind === 'descendant' && childrenOf(model, p.id).length > 0;

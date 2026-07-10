@@ -30,33 +30,6 @@ const model = buildModel(
 );
 const props = { model, onPick: () => {}, onFocus: () => {}, hasBookmark: () => false, onToggleBookmark: () => {} };
 
-// Anna (fokus) er i III/G11; Xenia er en slægtled-nabo (samme III/G11) der OGSÅ bærer et andet,
-// LAVERE `lokal` i en anden linje (V/G3) — bevidst opsat så en re-ankring til Xenia kun bevarer
-// III-konteksten hvis klik-handleren rent faktisk bærer den aktive linje videre (§2/Codex HIGH-2);
-// en naiv "laveste lokal"-default ville forkert skifte til V/3. Modul-scope så både §T6-suiten og
-// deep-link-race-suiten (T6-review Critical) kan genbruge den.
-const peerModel = buildModel(
-  db(
-    [P('A', 'Anna'), P('F', 'Far'), P('M', 'Mor'), P('C1', 'Bo'), P('C2', 'Cille'), P('X', 'Xenia')],
-    [
-      { child: 'A', parent: 'F', union: 'u1' },
-      { child: 'A', parent: 'M', union: 'u1' },
-      { child: 'C1', parent: 'A', union: 'u2' },
-      { child: 'C2', parent: 'A', union: 'u2' },
-    ],
-  ),
-);
-(peerModel as typeof peerModel & { genCoordsByPerson: unknown }).genCoordsByPerson = {
-  A: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: null }],
-  // Far er Annas EGEN forælder i samme linje (naturligt ét slægtled lavere) — bruges til at teste
-  // at en drill IKKE genskriver ankerets egen label (se testen nedenfor).
-  F: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 10, gennem: 10, kuld: null }],
-  X: [
-    { sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: null },
-    { sourceId: '1', linje: 'V', lineageId: '20', parentLineageId: null, lokal: 3, gennem: 3, kuld: null },
-  ],
-};
-
 describe('TreeView', () => {
   it('viser Fokus-variant som standard (ingen kolonne-labels)', () => {
     render(<TreeView {...props} focusId="A" />);
@@ -116,141 +89,16 @@ describe('TreeView', () => {
     expect(screen.getByText('Anna')).toBeTruthy();
     expect(screen.getByText('Ida')).toBeTruthy();       // Bo's barn i frisk Børn-kolonne
   });
-});
 
-describe('TreeView — fallback-ring (D1: render af C1s genCoords-baserede ubeviste ring)', () => {
-  // Founder 'P' uden beviste forældre; 'Nabo1'/'Nabo2' deler forrige slægtled via genCoords
-  // (samme opsætning som src/data/__tests__/tree.test.ts's fallback-ring-suite).
-  const fbModel = buildModel(
-    db([P('P', 'Poul'), P('N1', 'Nabo Et'), P('N2', 'Nabo To')], []),
-  );
-  // P er en collapset founder der bærer BEGGE koordinater (V-1 + III-12) — samme opsætning som
-  // src/data/__tests__/tree.test.ts's fallback-ring-suite; founder-hop'et lander på III lokal 11,
-  // som N1/N2 deler (kuld-adskilt).
-  (fbModel as typeof fbModel & { genCoordsByPerson: unknown }).genCoordsByPerson = {
-    P: [
-      { sourceId: '1', linje: 'V', lineageId: '50', parentLineageId: '10', lokal: 1, gennem: 12, kuld: null },
-      { sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 12, gennem: 12, kuld: null },
-    ],
-    N1: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: 'I' }],
-    N2: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: 'II' }],
-  };
-
-  it('viser genLabel + undertekst + "muligt slægtled"-tags for en fallback-ring', () => {
-    render(
-      <TreeView model={fbModel} focusId="P" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} />,
-    );
+  it('ingen ugated kandidat-kolonne: founder uden beviste forældre + genCoords → INGEN "muligt slægtled" (marker-gating kræves, Phase C)', () => {
+    const fbModel = buildModel(db([P('P', 'Poul'), P('N1', 'Nabo Et')], []));
+    (fbModel as typeof fbModel & { genCoordsByPerson: unknown }).genCoordsByPerson = {
+      P: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 2, gennem: 2, kuld: null }],
+      N1: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 1, gennem: 1, kuld: null }],
+    };
+    render(<TreeView model={fbModel} focusId="P" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} />);
     fireEvent.click(screen.getByText('Kolonner'));
-    expect(screen.getByText(/slægtled.*III-linjen/)).toBeTruthy(); // genLabel
-    expect(screen.getByText('Ingen kendt forbindelse mellem slægtsled')).toBeTruthy();
-    expect(screen.getByText('Nabo Et')).toBeTruthy();
-    expect(screen.getByText('Nabo To')).toBeTruthy();
-    expect(screen.getAllByText('muligt slægtled').length).toBe(2);
-    expect(screen.getByText('Kuld I')).toBeTruthy();
-    expect(screen.getByText('Kuld II')).toBeTruthy();
-  });
-
-  it('klik på fallback-kort kalder onFocus (re-ankrer) — IKKE onPick, ingen skrivning', () => {
-    let picked: string | null = null, focused: string | null = null;
-    render(
-      <TreeView model={fbModel} focusId="P" onPick={(id) => (picked = id)} onFocus={(id) => (focused = id)} hasBookmark={() => false} onToggleBookmark={() => {}} />,
-    );
-    fireEvent.click(screen.getByText('Kolonner'));
-    fireEvent.click(screen.getByText('Nabo Et'));
-    expect(focused).toBe('N1');
-    expect(picked).toBeNull();
-  });
-});
-
-describe('TreeView — v2 slægtled-naboer i anker-kolonnen (T6: aktiv-linje-koordinat + peer-render)', () => {
-  it('anker viser fokus dominant + slægtled-nabo dæmpet, kombineret label, og klik re-ankrer (ingen skrivning)', () => {
-    let focused: string | null = null;
-    render(
-      <TreeView model={peerModel} focusId="A" onPick={() => {}} onFocus={(id) => (focused = id)} hasBookmark={() => false} onToggleBookmark={() => {}} />,
-    );
-    fireEvent.click(screen.getByText('Kolonner'));
-    expect(screen.getByText('Anna')).toBeTruthy();
-    expect(screen.getByText('Xenia')).toBeTruthy(); // dæmpet nabo-kort, jf. buildAnchorPeers
-    expect(screen.getByText(/^11\. slægtled · III-linjen$/)).toBeTruthy(); // §5 kombinations-label
-    fireEvent.click(screen.getByText('Xenia'));
-    expect(focused).toBe('X'); // re-ankrer via onFocus, ikke onPick
-  });
-
-  it('aktiv linje-koordinat bevares ved re-ankring til naboen (vælger IKKE naboens andet, lavere-lokal koordinat)', () => {
-    let focusId = 'A';
-    const onFocus = (id: string) => { focusId = id; };
-    const { rerender } = render(
-      <TreeView model={peerModel} focusId={focusId} onPick={() => {}} onFocus={onFocus} hasBookmark={() => false} onToggleBookmark={() => {}} />,
-    );
-    fireEvent.click(screen.getByText('Kolonner'));
-    fireEvent.click(screen.getByText('Xenia')); // sætter activeCoord til Xenias III/G11-koordinat (matcher Annas linje)
-    rerender(
-      <TreeView model={peerModel} focusId={focusId} onPick={() => {}} onFocus={onFocus} hasBookmark={() => false} onToggleBookmark={() => {}} />,
-    );
-    // Ankeret er nu Xenia; anker-labelen skal STADIG vise III-linjen/11. slægtled — havde re-ankrings-
-    // effekten overskrevet klikkets koordinat med Xenias laveste `lokal` (3, V-linjen), ville denne
-    // assertion fejle (Codex HIGH-2-regressionstest).
-    expect(screen.getByText(/^11\. slægtled · III-linjen$/)).toBeTruthy();
-    expect(screen.queryByText(/3\. slægtled · V-linjen/)).toBeNull();
-  });
-
-  it('drill til en bevist forælder ændrer IKKE ankerets egen kombinations-label (activeCoord er bundet til ankeret, ikke det drillede kort — advisor-fund)', () => {
-    render(
-      <TreeView model={peerModel} focusId="A" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} />,
-    );
-    fireEvent.click(screen.getByText('Kolonner'));
-    expect(screen.getByText(/^11\. slægtled · III-linjen$/)).toBeTruthy(); // Annas egen anker-label
-    fireEvent.click(screen.getByText('Far')); // drill op i Forældre-kolonnen — IKKE en re-ankring
-    // Ankeret er STADIG Anna (uændret kort/position). Havde drillet fejlagtigt genskrevet
-    // activeCoord til Fars EGEN koordinat (III/G10, jf. `buildDirection`s fælles
-    // `activeLokal ∓ depth`-formel der bruges til ALLE kolonners labels, ankeret inklusive), ville
-    // ankerets egen label forkert vise "10. slægtled" i stedet for Annas rigtige "11".
-    expect(screen.getByText(/^11\. slægtled · III-linjen$/)).toBeTruthy();
-    expect(screen.queryByText(/^10\. slægtled · III-linjen$/)).toBeNull();
-  });
-});
-
-describe('TreeView — deep-link-race: model ankommer EFTER focusId (T6-review Critical)', () => {
-  // focusId sættes synkront fra URL'en ved mount i Folgesvend, mens `loadModel().then(setModel)`
-  // stadig loader — reproducerer det ved først at rendere med model=null (som "Henter…"-skærmen),
-  // og dernæst rerendere MED SAMME focusId, når modellen ankommer. Uden [model] i effektens deps
-  // ville activeCoord forblive null for evigt (seedet med model=null i første kørsel, og andet
-  // kørsel ville aldrig komme, da re-ankrings-effekten kun lyttede på focusId).
-  it('activeCoord seedes når model går fra null til populeret for samme focusId — nabo/kombinations-label vises FØRST derefter', () => {
-    const { rerender } = render(
-      <TreeView model={null} focusId="A" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} />,
-    );
-    expect(screen.getByText('Henter…')).toBeTruthy(); // model endnu ikke ankommet
-    rerender(
-      <TreeView model={peerModel} focusId="A" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} />,
-    );
-    fireEvent.click(screen.getByText('Kolonner'));
-    // Kræver activeCoord seedet til Annas III/G11-koordinat: uden fix er activeCoord stadig null →
-    // hverken nabo-kortet (Xenia) eller den kombinerede label vises.
-    expect(screen.getByText('Xenia')).toBeTruthy();
-    expect(screen.getByText(/^11\. slægtled · III-linjen$/)).toBeTruthy();
-  });
-});
-
-describe('TreeView — v2 "+N flere i slægtledet" (cap/udfoldning, §4 Codex MEDIUM-6)', () => {
-  const naboer = Array.from({ length: 9 }, (_, i) => P(`Q${i}`, `Nabo ${i}`));
-  const overflowModel = buildModel(db([P('A', 'Anna'), ...naboer], []));
-  const coord = { sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: null };
-  (overflowModel as typeof overflowModel & { genCoordsByPerson: unknown }).genCoordsByPerson = {
-    A: [coord],
-    ...Object.fromEntries(naboer.map((p) => [p.id, [coord]])),
-  };
-
-  it('capper til 7 naboer + "+2 flere"-kort; klik udfolder resten (ingen skrivning)', () => {
-    render(
-      <TreeView model={overflowModel} focusId="A" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} />,
-    );
-    fireEvent.click(screen.getByText('Kolonner'));
-    expect(screen.getByText(/\+ ?2 flere i slægtledet/)).toBeTruthy();
-    expect(screen.queryByText('Nabo 7')).toBeNull(); // uden for cap
-    expect(screen.queryByText('Nabo 8')).toBeNull();
-    fireEvent.click(screen.getByText(/\+ ?2 flere i slægtledet/));
-    expect(screen.getByText('Nabo 7')).toBeTruthy();
-    expect(screen.getByText('Nabo 8')).toBeTruthy();
+    expect(screen.queryByText('muligt slægtled')).toBeNull();
+    expect(screen.queryByText('Nabo Et')).toBeNull(); // ingen kandidat vist uden markering
   });
 });

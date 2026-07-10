@@ -72,16 +72,8 @@ function extractFn(src: string, name: string): string {
 }
 
 describe('parity: delt generations-kerne web ↔ mobil', () => {
-  it('adjacentGen er tegn-for-tegn ens (generations.ts)', () => {
-    expect(extractFn(webGenerations, 'adjacentGen')).toBe(extractFn(mobileGenerations, 'adjacentGen'));
-  });
-
-  it('fallbackRing er tegn-for-tegn ens (tree.ts ↔ selectors.ts)', () => {
-    expect(extractFn(webTree, 'fallbackRing')).toBe(extractFn(mobileSelectors, 'fallbackRing'));
-  });
-
-  it('buildAnchorPeers er tegn-for-tegn ens (tree.ts ↔ selectors.ts)', () => {
-    expect(extractFn(webTree, 'buildAnchorPeers')).toBe(extractFn(mobileSelectors, 'buildAnchorPeers'));
+  it('buildGenCoords er tegn-for-tegn ens (generations.ts)', () => {
+    expect(extractFn(webGenerations, 'buildGenCoords')).toBe(extractFn(mobileGenerations, 'buildGenCoords'));
   });
 
   it('columnLabel er tegn-for-tegn ens (tree.ts ↔ selectors.ts)', () => {
@@ -90,5 +82,13 @@ describe('parity: delt generations-kerne web ↔ mobil', () => {
 
   it('columnGen er tegn-for-tegn ens (tree.ts ↔ selectors.ts)', () => {
     expect(extractFn(webTree, 'columnGen')).toBe(extractFn(mobileSelectors, 'columnGen'));
+  });
+
+  it('buildDirection er tegn-for-tegn ens (tree.ts ↔ selectors.ts)', () => {
+    expect(extractFn(webTree, 'buildDirection')).toBe(extractFn(mobileSelectors, 'buildDirection'));
+  });
+
+  it('buildBidirectionalColumns er tegn-for-tegn ens (tree.ts ↔ selectors.ts)', () => {
+    expect(extractFn(webTree, 'buildBidirectionalColumns')).toBe(extractFn(mobileSelectors, 'buildBidirectionalColumns'));
   });
 });
