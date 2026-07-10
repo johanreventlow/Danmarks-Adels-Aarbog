@@ -99,4 +99,8 @@ describe('parity: delt generations-kerne web ↔ mobil', () => {
   it('unknownParentRing er tegn-for-tegn ens (tree.ts ↔ selectors.ts)', () => {
     expect(extractFn(webTree, 'unknownParentRing')).toBe(extractFn(mobileSelectors, 'unknownParentRing'));
   });
+
+  it('unknownChildSection er tegn-for-tegn ens (tree.ts ↔ selectors.ts)', () => {
+    expect(extractFn(webTree, 'unknownChildSection')).toBe(extractFn(mobileSelectors, 'unknownChildSection'));
+  });
 });

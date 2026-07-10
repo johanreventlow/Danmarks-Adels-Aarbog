@@ -138,3 +138,38 @@ describe('TreeView — marker-gatet kandidat-kolonne (Phase C)', () => {
     expect(picked).toBeNull();
   });
 });
+
+describe('TreeView — nedad-projektion (uforbundne i næste slægtled)', () => {
+  // Gottschalk (mand) med sikkert barn; Wulf markeret uforbunden i næste slægtled (samme linje).
+  const dModel = buildModel(db(
+    [P('G', 'Gottschalk'), P('A', 'Sikkert Barn'), P('W', 'Wulf')],
+    [{ child: 'A', parent: 'G', union: 'u' }],
+  ));
+  (dModel as typeof dModel & { koenSet?: unknown });
+  dModel.byId['G'].koen = 'mand';
+  (dModel as typeof dModel & { genCoordsByPerson: unknown }).genCoordsByPerson = {
+    G: [{ sourceId: '1', linje: 'I', lineageId: '10', parentLineageId: null, lokal: 1, gennem: 1, kuld: null }],
+    W: [{ sourceId: '1', linje: 'I', lineageId: '10', parentLineageId: null, lokal: 2, gennem: 2, kuld: null }],
+  };
+  (dModel as typeof dModel & { parentsUnknownByPerson: unknown }).parentsUnknownByPerson = {
+    W: { grade: 'ingen forbindelse angivet', kilde: 'DAA 1939 s.6' },
+  };
+
+  it('børne-kolonnen viser de sikre børn OG en "uforbundne i dette slægtled"-sektion med neutral ordlyd', () => {
+    render(<TreeView model={dModel} focusId="G" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} />);
+    fireEvent.click(screen.getByText('Kolonner'));
+    expect(screen.getByText('Sikkert Barn')).toBeTruthy();      // bevist barn urørt
+    expect(screen.getByText('Uforbundne i dette slægtled')).toBeTruthy();
+    expect(screen.getByText('Kilden forbinder dem ikke opad — står i næste slægtled i linjen')).toBeTruthy();
+    expect(screen.getByText('Wulf')).toBeTruthy();
+    expect(screen.getByText('Kilde: DAA 1939 s.6')).toBeTruthy();
+  });
+
+  it('klik på en uforbunden re-ankrer via onFocus (ren navigation)', () => {
+    let focused: string | null = null;
+    render(<TreeView model={dModel} focusId="G" onPick={() => {}} onFocus={(id) => (focused = id)} hasBookmark={() => false} onToggleBookmark={() => {}} />);
+    fireEvent.click(screen.getByText('Kolonner'));
+    fireEvent.click(screen.getByText('Wulf'));
+    expect(focused).toBe('W');
+  });
+});

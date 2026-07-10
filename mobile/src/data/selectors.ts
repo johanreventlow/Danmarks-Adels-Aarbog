@@ -1,7 +1,7 @@
 // Afledte selektorer over model + aux. Rene funktioner (testbare) — skærmene kalder dem
 // frem for at grave i indekser direkte.
 import { compareDanish, initialOf } from '../lib/collation';
-import { GRADE_FORAELDER_UKENDT, type GenCoord, type ParentsUnknown } from './generations';
+import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, type GenCoord, type ParentsUnknown } from './generations';
 import type { Aux, Model, ModelPerson } from './types';
 
 // Forside-tællere: personer / linjer / godser.
@@ -114,10 +114,21 @@ export type TreeColumn = {
   people: ModelPerson[];     // alle registrerede i ringen (ikke antaget = 2 for forældre)
   selectedId: string | null; // valgt kort → driver næste ring i samme retning
   // --- marker-gatet kandidat-kolonne (kun hvor KILDEN angiver "ingen forbindelse opad") ---
-  candidate?: boolean;                         // true = ubeviste kandidater i forrige slægtled
+  candidate?: boolean;                         // true = ubeviste kandidater i forrige slægtled (ANER-retning)
   candidateNote?: string;                      // grad-afhængig ærlig ordlyd (mulige forældre vs. blot naboer)
   kilde?: string | null;                       // proveniens for markeringen (citationens citat_tekst)
   kuldGroups?: Record<string, ModelPerson[]>;  // kuld-gruppering af kandidaterne (hvor kendt)
+  // --- NEDAD-projektion: markerede-uforbundne i NÆSTE slægtled, vist under de beviste børn ---
+  // (EFTERKOMMER-retning, kun under mandlige ankre; proveniens pr. person, grad-splittet gruppe).
+  unconnectedChildren?: UnconnectedChildGroup[];
+};
+
+// Én gruppe pr. grad i nedad-sektionen. `people` bærer proveniens PR. PERSON (modsat aner-ringens
+// ene `kilde`), fordi ét slægtled kan rumme flere markerede med hver sin kilde.
+export type UnconnectedChildGroup = {
+  grade: string;
+  note: string;                                        // grad-splittet ordlyd (aldrig "barn" for neutral grad)
+  people: { person: ModelPerson; kilde: string | null }[];
 };
 
 type Traverse = (model: Model, id: string) => ModelPerson[];
@@ -215,12 +226,32 @@ function buildDirection(
         const ring = unknownParentRing(model, genCoords, cur, parentsUnknown[cur], depth);
         if (ring) cols.push(ring);
       }
+      // Nedad: barnløs (mandlig) anker kan stadig have markerede-uforbundne i næste slægtled →
+      // ren sektion-kolonne (fuld symmetri med aner-ringens dødende).
+      if (kind === 'descendant' && parentsUnknown) {
+        const groups = unknownChildSection(model, genCoords, cur, parentsUnknown);
+        if (groups.length) {
+          cols.push({
+            key: `descendant:${depth}:unconn`, kind: 'descendant', depth,
+            label: columnLabel({ kind, depth, slaegtled: null, linje: null }),
+            people: [], selectedId: null, unconnectedChildren: groups,
+          });
+        }
+      }
       break; // ærlig dødende (evt. med kandidat-kolonne) — vælg re-ankrer i stedet for at drille videre
     }
     const sel = selections[depth - 1] ?? null;
     const g = columnGen(genCoords, people, sel);
     const label = columnLabel({ kind, depth, slaegtled: g?.lokal ?? null, linje: g?.linje ?? null });
-    cols.push({ key: `${kind}:${depth}`, kind, depth, label, people, selectedId: sel });
+    const column: TreeColumn = { key: `${kind}:${depth}`, kind, depth, label, people, selectedId: sel };
+    // Nedad-projektion: på FRONTIER-børne-kolonnen (intet drill-valg endnu) augmenteres de beviste
+    // børn med markerede-uforbundne i samme slægtled (unknownChildSection). Kun frontier, så
+    // sektionen ikke gentages i alle mellemliggende generationer.
+    if (kind === 'descendant' && parentsUnknown && sel === null) {
+      const groups = unknownChildSection(model, genCoords, cur, parentsUnknown);
+      if (groups.length) column.unconnectedChildren = groups;
+    }
+    cols.push(column);
     if (!sel) break; // intet valgt endnu på dette niveau → stop (ingen næste ring)
     visited.add(sel);
     cur = sel;
@@ -272,11 +303,64 @@ export function unknownParentRing(
   };
 }
 
+// Grad-splittet ordlyd for NEDAD-sektionen. 'ingen forbindelse angivet' må ALDRIG læses som barn-
+// claim — den neutrale variant siger kun "står i næste slægtled", ikke "muligt barn".
+function childSectionNote(grade: string): string {
+  return grade === GRADE_FORAELDER_UKENDT
+    ? 'Muligt barn — kilden navngiver ikke forælderen'
+    : 'Kilden forbinder dem ikke opad — står i næste slægtled i linjen';
+}
+
+// NEDAD-projektion: markerede-uforbundne personer i cur's NÆSTE slægtled (lokal+1, samme linje),
+// grupperet pr. grad med proveniens PR. PERSON. Ren projektion af de EKSISTERENDE 'forældre_ukendt'-
+// markeringer (ingen ny authoring). Strukturelt immun mod v1/v2-regression: (1) marker-gate — kun
+// personer med en markering; (2) bevist-forælder-eksklusion — en person med en bevist forælder er et
+// sikkert barn, ikke en kandidat (undgår dublet ved fx bevist mor/ukendt far). Patrilineær køns-gate:
+// kun under mandlige ankre (DAA-linjen føres gennem manden). Bevaret byte-identisk web ↔ mobil.
+export function unknownChildSection(
+  model: Model,
+  genCoords: GenCoords | undefined,
+  curId: string,
+  parentsUnknown: ParentsUnknownMap | undefined,
+): UnconnectedChildGroup[] {
+  if (!parentsUnknown || !genCoords) return [];
+  if (model.byId[curId]?.koen !== 'mand') return []; // patrilineær køns-gate (bruger-beslutning)
+  const coords = (genCoords[curId] ?? []).filter((c) => c.lokal != null);
+  if (!coords.length) return [];
+  const byGrade = new Map<string, { person: ModelPerson; kilde: string | null }[]>();
+  const seen = new Set<string>();
+  for (const c of coords) {
+    const tLokal = (c.lokal as number) + 1;
+    for (const p of model.persons) {
+      if (p.id === curId || seen.has(p.id)) continue;
+      const mk = parentsUnknown[p.id];
+      if (!mk) continue; // marker-gate
+      if ((model.indexes.parentsByChild[p.id]?.length ?? 0) > 0) continue; // bevist forælder → sikkert barn, ikke kandidat
+      const pc = (genCoords[p.id] ?? []).find(
+        (k) => k.sourceId === c.sourceId && k.lineageId === c.lineageId && k.lokal === tLokal,
+      );
+      if (!pc) continue;
+      seen.add(p.id);
+      let arr = byGrade.get(mk.grade);
+      if (!arr) { arr = []; byGrade.set(mk.grade, arr); }
+      arr.push({ person: p, kilde: mk.kilde });
+    }
+  }
+  // Deterministisk grad-orden: 'forælder ukendt' (muligt barn) før 'ingen forbindelse angivet'.
+  const out: UnconnectedChildGroup[] = [];
+  for (const grade of [GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE]) {
+    const arr = byGrade.get(grade);
+    if (arr && arr.length) out.push({ grade, note: childSectionNote(grade), people: arr });
+  }
+  return out;
+}
+
 // Komposer: [...aner omvendt (dybest yderst til venstre), ankerkolonne, ...efterkommere].
 // Slægtled-labels læses fra genCoords (valgfri) via columnGen — ankerets eget tal fra dets egen
 // koordinat (null/"Fokus" hvis founderen bærer flere linje-medlemskaber, dvs. tvetydig).
-// `parentsUnknown` (valgfri) aktiverer den marker-gatede kandidat-kolonne i ANE-retningen, dér
-// hvor en markeret person dødender uden bevist forælder (se buildDirection/unknownParentRing).
+// `parentsUnknown` (valgfri) aktiverer marker-gatede kandidater i BEGGE retninger: ANER
+// (unknownParentRing, ved dødende uden bevist forælder) OG EFTERKOMMERE (unknownChildSection,
+// nedad-projektion under de beviste børn på frontier-kolonnen). Se buildDirection.
 export function buildBidirectionalColumns(
   model: Model,
   anchorId: string,
@@ -288,7 +372,7 @@ export function buildBidirectionalColumns(
   const anchor = model.byId[anchorId];
   if (!anchor) return [];
   const ancestors = buildDirection(model, anchorId, up, parentsOf, 'ancestor', genCoords, parentsUnknown);
-  const descendants = buildDirection(model, anchorId, down, childrenOf, 'descendant', genCoords);
+  const descendants = buildDirection(model, anchorId, down, childrenOf, 'descendant', genCoords, parentsUnknown);
   const ag = columnGen(genCoords, [anchor]);
   const anchorCol: TreeColumn = {
     key: 'anchor:0', kind: 'anchor', depth: 0,

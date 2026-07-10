@@ -639,6 +639,27 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
                   </div>
                 );
               })}
+              {col.unconnectedChildren && col.unconnectedChildren.length > 0 && (
+                <div style={{ marginTop: 4, paddingTop: 8, borderTop: '1px dashed rgba(34,31,26,.16)' }}>
+                  <div style={{ fontFamily: T.mono, fontSize: 8, letterSpacing: '.08em', textTransform: 'uppercase', color: T.muted3, padding: '0 2px 6px' }}>Uforbundne i dette slægtled</div>
+                  {col.unconnectedChildren.map((group) => (
+                    <div key={group.grade} style={{ display: 'flex', flexDirection: 'column', gap: 9, marginBottom: 6 }}>
+                      <div style={{ fontFamily: T.sans, fontSize: 10, color: T.muted2, padding: '0 2px', lineHeight: 1.3 }}>{group.note}</div>
+                      {group.people.map(({ person, kilde }) => (
+                        <div key={person.id} onClick={() => onFocus(person.id)} style={{ background: '#faf1dc', border: `1.5px dashed ${T.gold}`, borderRadius: 12, padding: '9px 11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}>
+                          <Avatar n={person.name} size={30} />
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontFamily: T.serif, fontSize: 15, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{person.name}</div>
+                            {person.years && <div style={{ fontFamily: T.mono, fontSize: 8.5, color: T.muted2, marginTop: 1 }}>{person.years}</div>}
+                            {kilde && <div style={{ fontFamily: T.mono, fontSize: 7.5, color: T.muted3, marginTop: 2 }}>Kilde: {kilde}</div>}
+                          </div>
+                          <BookmarkFlag active={hasBookmark(person.id)} onClick={() => onToggleBookmark(person.id)} />
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>

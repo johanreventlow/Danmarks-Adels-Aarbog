@@ -1,4 +1,4 @@
-import { buildBidirectionalColumns, columnGen, columnLabel, unknownParentRing } from '../tree';
+import { buildBidirectionalColumns, columnGen, columnLabel, unknownParentRing, unknownChildSection } from '../tree';
 import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE } from '../generations';
 import { buildModel } from '../buildModel';
 import type { AppPerson, Db } from '../types';
@@ -336,5 +336,74 @@ describe('unknownParentRing + marker-gatet kandidat-kolonne (Phase C)', () => {
       x: [{ sourceId: '1', linje: 'V', lineageId: '50', parentLineageId: null, lokal: 1, gennem: 1, kuld: null }],
     };
     expect(unknownParentRing(m, gc, 'f', { grade: GRADE_FORAELDER_UKENDT, kilde: null }, 1)).toBeNull();
+  });
+});
+
+describe('unknownChildSection + nedad-projektion (efterkommer-retning)', () => {
+  const build = (gKoen = 'mand') => buildModel(db(
+    [P('G', { koen: gKoen }), P('A'), P('B'), P('W'), P('W2')],
+    [{ child: 'A', parent: 'G', union: 'u' }, { child: 'B', parent: 'G', union: 'u' }],
+  ));
+  const gc = {
+    G: [{ sourceId: '1', linje: 'I', lineageId: '10', parentLineageId: null, lokal: 1, gennem: 1, kuld: null }],
+    W: [{ sourceId: '1', linje: 'I', lineageId: '10', parentLineageId: null, lokal: 2, gennem: 2, kuld: null }],
+    W2: [{ sourceId: '1', linje: 'I', lineageId: '10', parentLineageId: null, lokal: 2, gennem: 2, kuld: null }],
+  };
+
+  it('mandlig anker: børne-kolonnen augmenteres med markeret-uforbunden i næste slægtled (proveniens pr. person)', () => {
+    const cols = buildBidirectionalColumns(build(), 'G', [], [], gc, { W: { grade: GRADE_INGEN_FORBINDELSE, kilde: 'DAA 1939 s.6' } });
+    const kids = cols.find((c) => c.key === 'descendant:1')!;
+    expect(kids.people.map((p) => p.id).sort()).toEqual(['A', 'B']);
+    expect(kids.unconnectedChildren).toHaveLength(1);
+    const g = kids.unconnectedChildren![0];
+    expect(g.grade).toBe(GRADE_INGEN_FORBINDELSE);
+    expect(g.note).toBe('Kilden forbinder dem ikke opad — står i næste slægtled i linjen');
+    expect(g.people.map((x) => x.person.id)).toEqual(['W']);
+    expect(g.people[0].kilde).toBe('DAA 1939 s.6');
+  });
+
+  it('køns-gate: KVINDELIG anker → ingen nedad-sektion (patrilineært)', () => {
+    const cols = buildBidirectionalColumns(build('kvinde'), 'G', [], [], gc, { W: { grade: GRADE_INGEN_FORBINDELSE, kilde: null } });
+    expect(cols.find((c) => c.key === 'descendant:1')!.unconnectedChildren).toBeUndefined();
+  });
+
+  it('bevist-forælder-eksklusion: en markeret person MED bevist forælder (sikkert barn) vises ikke som kandidat', () => {
+    const cols = buildBidirectionalColumns(build(), 'G', [], [], gc, { A: { grade: GRADE_FORAELDER_UKENDT, kilde: null } });
+    expect(cols.find((c) => c.key === 'descendant:1')!.unconnectedChildren).toBeUndefined();
+  });
+
+  it('umarkeret person i næste slægtled → ingen sektion (marker-gate)', () => {
+    const cols = buildBidirectionalColumns(build(), 'G', [], [], gc, {});
+    expect(cols.find((c) => c.key === 'descendant:1')!.unconnectedChildren).toBeUndefined();
+  });
+
+  it('grad-split: to grader → to grupper, "forælder ukendt" (muligt barn) FØRST, korrekt ordlyd', () => {
+    const cols = buildBidirectionalColumns(build(), 'G', [], [], gc, {
+      W: { grade: GRADE_INGEN_FORBINDELSE, kilde: null },
+      W2: { grade: GRADE_FORAELDER_UKENDT, kilde: 'DAA s.7' },
+    });
+    const groups = cols.find((c) => c.key === 'descendant:1')!.unconnectedChildren!;
+    expect(groups.map((g) => g.grade)).toEqual([GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE]);
+    expect(groups[0].note).toBe('Muligt barn — kilden navngiver ikke forælderen');
+    expect(groups[0].people.map((x) => x.person.id)).toEqual(['W2']);
+  });
+
+  it('barnløs mandlig anker + markeret-uforbunden i næste slægtled → ren sektion-kolonne', () => {
+    const leaf = buildModel(db([P('L', { koen: 'mand' }), P('W')], []));
+    const gcLeaf = {
+      L: [{ sourceId: '1', linje: 'I', lineageId: '10', parentLineageId: null, lokal: 3, gennem: 3, kuld: null }],
+      W: [{ sourceId: '1', linje: 'I', lineageId: '10', parentLineageId: null, lokal: 4, gennem: 4, kuld: null }],
+    };
+    const cols = buildBidirectionalColumns(leaf, 'L', [], [], gcLeaf, { W: { grade: GRADE_FORAELDER_UKENDT, kilde: null } });
+    const sec = cols.find((c) => c.key === 'descendant:1:unconn')!;
+    expect(sec).toBeDefined();
+    expect(sec.unconnectedChildren![0].people.map((x) => x.person.id)).toEqual(['W']);
+  });
+
+  it('unknownChildSection direkte: uden parentsUnknown → tom; anden linje matcher ikke', () => {
+    const m = build();
+    expect(unknownChildSection(m, gc, 'G', undefined)).toEqual([]);
+    const gc2 = { ...gc, W: [{ sourceId: '1', linje: 'V', lineageId: '99', parentLineageId: null, lokal: 2, gennem: 2, kuld: null }] };
+    expect(unknownChildSection(m, gc2, 'G', { W: { grade: GRADE_FORAELDER_UKENDT, kilde: null } })).toEqual([]);
   });
 });

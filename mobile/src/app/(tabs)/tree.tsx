@@ -231,6 +231,28 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
                 </Pressable>
               );
             })}
+            {col.unconnectedChildren && col.unconnectedChildren.length > 0 ? (
+              <View style={{ marginTop: 4, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Border.light }}>
+                <Mono size={8} color={Colors.textMuted3} style={{ letterSpacing: 8 * 0.08, textTransform: 'uppercase', marginBottom: 6 }}>Uforbundne i dette slægtled</Mono>
+                {col.unconnectedChildren.map((group) => (
+                  <View key={group.grade} style={{ gap: 8, marginBottom: 6 }}>
+                    <Mono size={9} color={Colors.textMuted2} style={{ lineHeight: 12 }}>{group.note}</Mono>
+                    {group.people.map(({ person, kilde }) => (
+                      <Pressable key={person.id} onPress={() => setFocus(person.id)} style={styles.bCardFallback}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                          <View style={styles.bAvatar}><Serif size={14} color={Colors.bordeaux}>{initial(person.name)}</Serif></View>
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Serif size={15} style={{ lineHeight: 16 }} numberOfLines={2}>{person.name}</Serif>
+                            {person.years ? <Mono size={8.5} color={Colors.textMuted} style={{ marginTop: 1 }}>{person.years}</Mono> : null}
+                            {kilde ? <Mono size={7.5} color={Colors.textMuted3} style={{ marginTop: 2 }}>Kilde: {kilde}</Mono> : null}
+                          </View>
+                        </View>
+                      </Pressable>
+                    ))}
+                  </View>
+                ))}
+              </View>
+            ) : null}
             </ScrollView>
           </View>
         ))}
