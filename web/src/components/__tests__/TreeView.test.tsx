@@ -28,7 +28,15 @@ const model = buildModel(
     ],
   ),
 );
-const props = { model, onPick: () => {}, onFocus: () => {}, hasBookmark: () => false, onToggleBookmark: () => {} };
+// Minimal søge-bundle (§4): showResults:false → TreeSearch viser kun bjælken, træet renderes.
+const search = {
+  query: '', setQuery: () => {}, browse: { grouped: false as const, flat: [], letters: [], groups: [] },
+  sort: 'navn' as const, setSort: () => {}, activeLetter: null, setActiveLetter: () => {},
+  linjeList: [], activeLinje: null, setActiveLinje: () => {},
+  bmOnly: false, setBmOnly: () => {}, hasBookmarks: false,
+  browsing: false, setBrowsing: () => {}, showResults: false, focusToken: 0, onPick: () => {},
+};
+const props = { model, onPick: () => {}, onFocus: () => {}, hasBookmark: () => false, onToggleBookmark: () => {}, search };
 
 describe('TreeView', () => {
   it('viser Fokus-variant som standard (ingen kolonne-labels)', () => {
@@ -55,7 +63,7 @@ describe('TreeView', () => {
 
   it('ane-drill: vælg Far → Bedsteforældre-kolonne + onFocus (ikke onPick)', () => {
     let picked: string | null = null, focused: string | null = null;
-    render(<TreeView model={model} focusId="A" onPick={(id) => (picked = id)} onFocus={(id) => (focused = id)} hasBookmark={() => false} onToggleBookmark={() => {}} />);
+    render(<TreeView model={model} focusId="A" onPick={(id) => (picked = id)} onFocus={(id) => (focused = id)} hasBookmark={() => false} onToggleBookmark={() => {}} search={search} />);
     fireEvent.click(screen.getByText('Kolonner'));
     fireEvent.click(screen.getByText('Far'));
     expect(focused).toBe('F');
@@ -83,7 +91,7 @@ describe('TreeView', () => {
 
     // Ekstern nav til Bo: Bo ER i down, men er IKKE frontier (Ida er) → skal NULSTILLE til Bo.
     // (Et fuldt medlemskabs-tjek ville forkert bevare visningen.)
-    rerender(<TreeView model={model} focusId="C1" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} />);
+    rerender(<TreeView model={model} focusId="C1" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} search={search} />);
     expect(screen.queryByText('Oldebørn')).toBeNull(); // drill foldet
     expect(screen.getByText('Forældre')).toBeTruthy(); // Bo's forældre (Anna)
     expect(screen.getByText('Anna')).toBeTruthy();
@@ -111,7 +119,7 @@ describe('TreeView — fallback-ring (D1: render af C1s genCoords-baserede ubevi
 
   it('viser genLabel + undertekst + "muligt slægtled"-tags for en fallback-ring', () => {
     render(
-      <TreeView model={fbModel} focusId="P" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} />,
+      <TreeView model={fbModel} focusId="P" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} search={search} />,
     );
     fireEvent.click(screen.getByText('Kolonner'));
     expect(screen.getByText(/slægtled.*III-linjen/)).toBeTruthy(); // genLabel
@@ -126,7 +134,7 @@ describe('TreeView — fallback-ring (D1: render af C1s genCoords-baserede ubevi
   it('klik på fallback-kort kalder onFocus (re-ankrer) — IKKE onPick, ingen skrivning', () => {
     let picked: string | null = null, focused: string | null = null;
     render(
-      <TreeView model={fbModel} focusId="P" onPick={(id) => (picked = id)} onFocus={(id) => (focused = id)} hasBookmark={() => false} onToggleBookmark={() => {}} />,
+      <TreeView model={fbModel} focusId="P" onPick={(id) => (picked = id)} onFocus={(id) => (focused = id)} hasBookmark={() => false} onToggleBookmark={() => {}} search={search} />,
     );
     fireEvent.click(screen.getByText('Kolonner'));
     fireEvent.click(screen.getByText('Nabo Et'));

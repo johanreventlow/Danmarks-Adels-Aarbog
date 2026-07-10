@@ -36,7 +36,7 @@ export function Lightbox({ items, index, onClose, onNavigate }: {
   const cap = mediaCaption(m);
 
   return (
-    <div onClick={onClose} style={{
+    <div onClick={onClose} data-overlay style={{
       position: 'fixed', inset: 0, background: 'rgba(10,8,6,.92)', zIndex: 300,
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24,
     }}>

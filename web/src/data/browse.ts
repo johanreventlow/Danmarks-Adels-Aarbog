@@ -54,3 +54,10 @@ export function buildBrowse<P extends BrowsePerson>(
     .map((l) => ({ letter: l, people: byL[l] }));
   return { grouped: true, flat, letters, groups };
 }
+
+// Søgning-i-træet (§4): afgør om resultat-grid'et skal vises i stedet for selve stamtræet.
+// Vises når man aktivt søger (query), filtrerer på bogmærker, eller eksplicit "gennemser hele
+// slægten". Whitespace-only query tæller ikke som en søgning.
+export function showSearchResults(s: { query: string; bmOnly: boolean; browsing: boolean }): boolean {
+  return s.query.trim() !== '' || s.bmOnly || s.browsing;
+}
