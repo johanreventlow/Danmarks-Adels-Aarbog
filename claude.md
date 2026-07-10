@@ -334,3 +334,22 @@ To spor — **data (R)** og **app (TS)** — bundet af RLS:
   se plan-dok `docs/superpowers/plans/2026-07-05-billedstoerrelser-artikler-
   lightbox.md` §7.1d) — en udvidelse bør genoverveje samme afvejning (nyt
   bibliotek vs. håndrullet, kollision med `[[type:id|label]]`-syntaksen).
+- **Redaktør: redigér/slet ægteskaber — nyt, ikke designet (2026-07-06).** Redaktøren har i dag
+  ingen flade til at rette eller slette en `family`/`family_member`-relation (ægteskab/union).
+  Konkret motiveret af et fundet OG RETTET data-fejl-tilfælde: person 1 (Gottschalk, 1.
+  slægtled, linje I) var fejlagtigt registreret som "gift med" sit eget barnebarn person 104
+  (Hartwich, 3. slægtled) i familie 74 — loader-fejl fra den oprindelige indlæsning, aldrig rørt
+  af redaktør-redigering. Bogtekst for Hartwich: "Gift med NN" (ukendt hustru), ingen omtale af
+  Gottschalk. **Rettet mod prod 2026-07-06** via en manuelt forfattet, fortrydbar `change_set`
+  (id 30, `DELETE family_member WHERE family_id=74 AND person_id=1 AND rolle='partner'`) — familie
+  74 har nu kun Hartwich (104) som partner + Iwan (44) som barn, matcher enkelt-partner-mønsteret
+  der allerede findes andre steder i basen (7 lignende ægteskaber m. ukendt ægtefælle). Verificeret
+  ingen flere spøgelse-par tilbage (bred søgning: partner-par ≥2 slægtled fra hinanden i samme
+  linje, ikke udtømmende). **Selve fladen mangler stadig:** lige nu kræver enhver lignende fejl en
+  direkte, manuel SQL-`change_set` — ikke bæredygtigt hvis flere findes. Kræver design af:
+  slet-hele-familien vs. fjern-én-partner, konfidens-nedgradering som alternativ til hård
+  sletning, og hvordan børnenes forældre-links håndteres når en union slettes.
+- **Mobilapp crasher ved åbning af person i redaktør-delen — BUG, ikke undersøgt endnu
+  (rapporteret 2026-07-06).** Bruger rapporterer at appen crasher HVER GANG man forsøger at åbne
+  en person-detalje i redaktør-fladen (`mobile/src/app/redaktion/person/[id].tsx`). Ingen
+  root-cause-analyse lavet endnu — kræver reproduktion (device/simulator-log) før fix.
