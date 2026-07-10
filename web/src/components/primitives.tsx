@@ -61,19 +61,38 @@ export const MediaThumb = ({ m, w, h, radius = 10, onClick }: { m: MediaItem; w:
   );
 };
 
-// Kompakt sidebar-række (24×24 badge + navn + sekundær-linje), delt af ctx-sektionen og
-// bmQuick-sektionen i Folgesvend.tsx (/simplify-fund: var to næsten identiske inline-blokke).
-export const SidebarMiniRow = ({ shape = 'circle', badge, kicker, label, sub, onClick, trailing }: {
-  shape?: 'circle' | 'square'; badge: string; kicker?: string; label: string; sub?: string;
-  onClick?: () => void; trailing?: React.ReactNode;
+// Personkortet — den gennemgående primitiv (brief §8.1): avatar + serif-navn + mono-år +
+// valgfri titel. Bruges af forsidens kuraterede grid nu; tænkt genbrugt af søgeresultater og
+// træet i senere slices (§4/§5), så appen føles som ét system. Tager kun de felter et kort
+// har brug for (ikke hele ModelPerson) så primitiven forbliver løst koblet.
+export const PersonCard = ({ p, onClick, width = 210 }: {
+  p: { name: string; years?: string; title?: string };
+  onClick?: () => void; width?: number | string;
 }) => (
-  <div onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 6px', borderRadius: 8, cursor: onClick ? 'pointer' : 'default' }}>
-    <span style={{ width: 24, height: 24, borderRadius: shape === 'circle' ? '50%' : 6, background: T.beige, border: '1px solid rgba(34,31,26,.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 10.5, fontWeight: 600, color: T.bordeaux }}>{badge}</span>
-    <div style={{ minWidth: 0, flex: 1 }}>
-      {kicker && <div style={{ fontFamily: T.mono, fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>{kicker}</div>}
-      <div style={{ fontFamily: T.serif, fontSize: 14, fontWeight: 600, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
-      {sub && <div style={{ fontFamily: T.mono, fontSize: 8.5, color: T.muted3 }}>{sub}</div>}
-    </div>
-    {trailing}
+  <div onClick={onClick} style={{ width, background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 14, padding: 16, cursor: onClick ? 'pointer' : 'default', boxShadow: '0 1px 2px rgba(34,31,26,.04)' }}>
+    <Avatar n={p.name} size={50} />
+    <div style={{ fontFamily: T.serif, fontSize: 19, lineHeight: 1.05, fontWeight: 600, color: T.ink, marginTop: 11 }}>{p.name}</div>
+    {p.years ? <div style={{ fontFamily: T.mono, fontSize: 9.5, color: T.muted2, marginTop: 4 }}>{p.years}</div> : null}
+    {p.title ? <div style={{ fontFamily: T.sans, fontSize: 11.5, fontWeight: 500, color: T.bordeaux, marginTop: 6, lineHeight: 1.3 }}>{p.title}</div> : null}
   </div>
 );
+
+// Forstørrelsesglas — delt af header-søgeknappen og forsidens søge-hero (/simplify-fund:
+// var to identiske inline-SVG'er der kunne drive fra hinanden).
+export const SearchIcon = ({ size = 17, color = T.bordeaux }: { size?: number; color?: string }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round"><circle cx={11} cy={11} r={7} /><path d="M21 21l-4.3-4.3" /></svg>
+);
+
+// Slægtens våben som let vandmærke-motiv (dobbelt-skjold). Parametriseret farve/opacitet/
+// størrelse + valgfri positionering, så samme motiv kan bruges på lyse (bordeaux) og mørke
+// (guld) flader (/simplify-fund: inline-dupleret i træet og på forsiden).
+export const Crest = ({ stroke = T.bordeaux, inner = T.gold, opacity = 0.12, size = 116, style }: {
+  stroke?: string; inner?: string; opacity?: number; size?: number; style?: React.CSSProperties;
+}) => (
+  <svg viewBox="0 0 100 120" fill="none" style={{ width: size, height: 'auto', opacity, pointerEvents: 'none', ...style }}>
+    <path d="M10,8 H90 V58 C90,90 50,113 50,113 C50,113 10,90 10,58 Z" stroke={stroke} strokeWidth={1.4} />
+    <path d="M19,18 H81 V57 C81,82 50,100 50,100 C50,100 19,82 19,57 Z" stroke={inner} strokeWidth={1} />
+  </svg>
+);
+
+// (SidebarMiniRow fjernet — ctx/bmQuick-sidebaren udgik da søgning flyttede ind i træet, §4.)
