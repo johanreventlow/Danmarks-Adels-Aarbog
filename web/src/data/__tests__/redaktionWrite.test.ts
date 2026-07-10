@@ -56,3 +56,36 @@ describe('buildRpcCall — fjernMedia (mediehåndtering Slice 0h)', () => {
     expect(buildRpcCall({ art: 'fjernMedia', subjektType: 'person', subjektId: '42' } as never)).toBeNull();
   });
 });
+
+describe('buildRpcCall — forældre ukendt-markering (docs/reviews/25)', () => {
+  it('markerForaeldreUkendt → red_upsert_fakta med faktatype forældre_ukendt + grad + kilde', () => {
+    const call = buildRpcCall({
+      art: 'markerForaeldreUkendt', subjektType: 'person', subjektId: '210',
+      vaerdi: 'forælder ukendt', kildeFritekst: 'DAA 1939 s.97',
+    } as never);
+    expect(call).toEqual({ fn: 'red_upsert_fakta', args: {
+      p_subjekt_type: 'person', p_subjekt_id: 210,
+      p_faktatype: 'forældre_ukendt', p_vaerdi: 'forælder ukendt', p_kilde_fritekst: 'DAA 1939 s.97',
+    } });
+  });
+
+  it('markerForaeldreUkendt uden grad (vaerdi) → null (grad er påkrævet)', () => {
+    expect(buildRpcCall({ art: 'markerForaeldreUkendt', subjektType: 'person', subjektId: '210' } as never)).toBeNull();
+  });
+
+  it('markerForaeldreUkendt uden kilde → p_kilde_fritekst null', () => {
+    const call = buildRpcCall({
+      art: 'markerForaeldreUkendt', subjektType: 'person', subjektId: '5', vaerdi: 'ingen forbindelse angivet',
+    } as never);
+    expect(call?.args.p_kilde_fritekst).toBeNull();
+  });
+
+  it('fjernForaeldreUkendt → red_slet_oplysning med assertion-id', () => {
+    const call = buildRpcCall({ art: 'fjernForaeldreUkendt', subjektType: 'person', subjektId: '210', assertionId: '801' } as never);
+    expect(call).toEqual({ fn: 'red_slet_oplysning', args: { p_assertion_id: 801 } });
+  });
+
+  it('fjernForaeldreUkendt uden assertion-id → null', () => {
+    expect(buildRpcCall({ art: 'fjernForaeldreUkendt', subjektType: 'person', subjektId: '210' } as never)).toBeNull();
+  });
+});

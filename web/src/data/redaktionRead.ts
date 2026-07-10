@@ -155,6 +155,31 @@ export async function fetchPersonEvidence(personId: string): Promise<PersonEvide
   });
 }
 
+// --- "Forældre ukendt"-markering (docs/reviews/25): den aktuelle afklarede markering på en person ---
+// Returnerer null hvis personen IKKE er markeret. assertionId bruges til fjern-operationen.
+export type ForaeldreUkendtMarkering = { assertionId: number; grade: string; kilde: string | null };
+
+export async function fetchForaeldreUkendtMarkering(personId: string): Promise<ForaeldreUkendtMarkering | null> {
+  if (!personId) return null;
+  const pid = Number(personId);
+  const { data: facts, error: fErr } = await supabase
+    .from('fact').select('id').eq('subjekt_type', 'person').eq('subjekt_id', pid).eq('faktatype', 'forældre_ukendt');
+  if (fErr) throw fErr;
+  const factIds = (facts ?? []).map((f: { id: number }) => f.id);
+  if (!factIds.length) return null;
+  const { data: conc, error: cErr } = await supabase
+    .from('conclusion').select('valgt_assertion_id').eq('target_type', 'fact').eq('status', 'afklaret')
+    .in('target_id', factIds).limit(1).maybeSingle();
+  if (cErr) throw cErr;
+  const aid = conc?.valgt_assertion_id;
+  if (aid == null) return null;
+  const [{ data: a }, { data: cit }] = await Promise.all([
+    supabase.from('assertion').select('vaerdi_tekst').eq('id', aid).maybeSingle(),
+    supabase.from('citation').select('citat_tekst').eq('assertion_id', aid).limit(1).maybeSingle(),
+  ]);
+  return { assertionId: Number(aid), grade: a?.vaerdi_tekst ?? '', kilde: cit?.citat_tekst ?? null };
+}
+
 // --- Narrativ-læsning: ALLE udgaver pr. person (source-join til byline + ordning) ---
 // Én narrativ pr. (person, source_id). Redaktøren viser en fane pr. udgave; skrive-målet
 // (red_upsert_narrativ) nøgles på source_id, så prefill-kilde == skrive-mål pr. udgave.

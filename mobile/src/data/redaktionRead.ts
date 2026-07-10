@@ -151,6 +151,31 @@ export type SletPreview = {
   relationer: { rolle: string; retning: string; modpartId: number }[];
 };
 
+// "Forældre ukendt"-markering (docs/reviews/25): den aktuelle afklarede markering på en person,
+// eller null hvis umarkeret. assertionId bruges til fjern-operationen. Spejler web/src/data/redaktionRead.ts.
+export type ForaeldreUkendtMarkering = { assertionId: number; grade: string; kilde: string | null };
+
+export async function fetchForaeldreUkendtMarkering(personId: string): Promise<ForaeldreUkendtMarkering | null> {
+  if (!supabase || !personId) return null;
+  const pid = Number(personId);
+  const { data: facts, error: fErr } = await supabase
+    .from('fact').select('id').eq('subjekt_type', 'person').eq('subjekt_id', pid).eq('faktatype', 'forældre_ukendt');
+  if (fErr) throw fErr;
+  const factIds = (facts ?? []).map((f: { id: number }) => f.id);
+  if (!factIds.length) return null;
+  const { data: conc, error: cErr } = await supabase
+    .from('conclusion').select('valgt_assertion_id').eq('target_type', 'fact').eq('status', 'afklaret')
+    .in('target_id', factIds).limit(1).maybeSingle();
+  if (cErr) throw cErr;
+  const aid = conc?.valgt_assertion_id;
+  if (aid == null) return null;
+  const [{ data: a }, { data: cit }] = await Promise.all([
+    supabase.from('assertion').select('vaerdi_tekst').eq('id', aid).maybeSingle(),
+    supabase.from('citation').select('citat_tekst').eq('assertion_id', aid).limit(1).maybeSingle(),
+  ]);
+  return { assertionId: Number(aid), grade: a?.vaerdi_tekst ?? '', kilde: cit?.citat_tekst ?? null };
+}
+
 export async function fetchSletPreview(personId: string): Promise<SletPreview> {
   const tom: SletPreview = { antalRelationer: 0, antalFacts: 0, relationer: [] };
   if (!supabase) return tom;
