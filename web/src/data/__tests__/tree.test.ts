@@ -1,4 +1,5 @@
-import { buildBidirectionalColumns, columnGen, columnLabel } from '../tree';
+import { buildBidirectionalColumns, columnGen, columnLabel, unknownParentRing } from '../tree';
+import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE } from '../generations';
 import { buildModel } from '../buildModel';
 import type { AppPerson, Db } from '../types';
 
@@ -260,5 +261,80 @@ describe('columnGen', () => {
 
   it('tom people-liste → null', () => {
     expect(columnGen({ F: [coord()] }, [])).toBeNull();
+  });
+});
+
+describe('unknownParentRing + marker-gatet kandidat-kolonne (Phase C)', () => {
+  // Founder P (III/12 + V/1, collapset); N1/N2 i III/11 (kuld-adskilt). P har ingen beviste forældre.
+  const pMk = (id: string) => P(id);
+  const fbModel = buildModel(db([pMk('P'), pMk('N1'), pMk('N2'), pMk('U')], []));
+  const genCoords = {
+    P: [
+      { sourceId: '1', linje: 'V', lineageId: '50', parentLineageId: '10', lokal: 1, gennem: 12, kuld: null },
+      { sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 12, gennem: 12, kuld: null },
+    ],
+    N1: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: 'I' }],
+    N2: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: 'II' }],
+    U: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 5, gennem: 5, kuld: null }], // andet slægtled
+  };
+
+  it('markeret person UDEN bevist forælder → kandidat-kolonne med forrige slægtled (founder → moderlinjen III/11)', () => {
+    const pu = { P: { grade: GRADE_FORAELDER_UKENDT, kilde: 'DAA 1939 s.97' } };
+    const cols = buildBidirectionalColumns(fbModel, 'P', [], [], genCoords, pu);
+    const cand = cols.find((c) => c.candidate);
+    expect(cand).toBeDefined();
+    expect(cand!.kind).toBe('ancestor');
+    expect(cand!.people.map((p) => p.id).sort()).toEqual(['N1', 'N2']); // U (lokal 5) medtages IKKE
+    expect(cand!.label).toBe('11. slægtled · III-linjen');
+    expect(cand!.candidateNote).toBe('Mulige forældre — kilden navngiver dem ikke');
+    expect(cand!.kilde).toBe('DAA 1939 s.97');
+    expect(cand!.kuldGroups?.['I']?.map((p) => p.id)).toEqual(['N1']);
+    expect(cand!.kuldGroups?.['II']?.map((p) => p.id)).toEqual(['N2']);
+  });
+
+  it('grad "ingen forbindelse angivet" → neutral ordlyd (ikke "mulige forældre")', () => {
+    const pu = { P: { grade: GRADE_INGEN_FORBINDELSE, kilde: null } };
+    const cols = buildBidirectionalColumns(fbModel, 'P', [], [], genCoords, pu);
+    const cand = cols.find((c) => c.candidate);
+    expect(cand!.candidateNote).toBe('Kilden angiver ingen forbindelse — andre i forrige slægtled');
+    expect(cand!.kilde).toBeNull();
+  });
+
+  it('UMARKERET person (ingen parentsUnknown-entry) → INGEN kandidat-kolonne selv med genCoords', () => {
+    const cols = buildBidirectionalColumns(fbModel, 'P', [], [], genCoords, {});
+    expect(cols.find((c) => c.candidate)).toBeUndefined();
+  });
+
+  it('parentsUnknown ikke sendt (5-arg-kald) → INGEN kandidat-kolonne (bagudkompatibel)', () => {
+    const cols = buildBidirectionalColumns(fbModel, 'P', [], [], genCoords);
+    expect(cols.find((c) => c.candidate)).toBeUndefined();
+  });
+
+  it('markeret person MED bevist forælder → bevist ane-ring, ingen kandidat (dødende nås aldrig)', () => {
+    const m = buildModel(db([P('kid'), P('far'), P('bed')], [
+      { child: 'kid', parent: 'far', union: 'u' },
+    ]));
+    const gc = {
+      kid: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 3, gennem: 3, kuld: null }],
+      bed: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 2, gennem: 2, kuld: null }],
+    };
+    const cols = buildBidirectionalColumns(m, 'kid', [], [], gc, { kid: { grade: GRADE_FORAELDER_UKENDT, kilde: null } });
+    expect(cols.find((c) => c.candidate)).toBeUndefined();
+    expect(cols.find((c) => c.key === 'ancestor:1')!.people.map((p) => p.id)).toEqual(['far']);
+  });
+
+  it('unknownParentRing: markeret men uden forrige-slægtled-medlemmer → null (intet at bladre til)', () => {
+    const m = buildModel(db([P('solo')], []));
+    const gc = { solo: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 3, gennem: 3, kuld: null }] };
+    expect(unknownParentRing(m, gc, 'solo', { grade: GRADE_FORAELDER_UKENDT, kilde: null }, 1)).toBeNull();
+  });
+
+  it('unknownParentRing: founder ved lokal 1 (intet lokal 0) → null', () => {
+    const m = buildModel(db([P('f'), P('x')], []));
+    const gc = {
+      f: [{ sourceId: '1', linje: 'V', lineageId: '50', parentLineageId: null, lokal: 1, gennem: 1, kuld: null }],
+      x: [{ sourceId: '1', linje: 'V', lineageId: '50', parentLineageId: null, lokal: 1, gennem: 1, kuld: null }],
+    };
+    expect(unknownParentRing(m, gc, 'f', { grade: GRADE_FORAELDER_UKENDT, kilde: null }, 1)).toBeNull();
   });
 });

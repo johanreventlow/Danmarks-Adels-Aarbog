@@ -131,12 +131,13 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
   const selectDescendant = useStore((s) => s.selectDescendant);
   const setFocus = useStore((s) => s.setFocus);
   const genCoordsByPerson = useStore((s) => s.genCoordsByPerson);
+  const parentsUnknownByPerson = useStore((s) => s.parentsUnknownByPerson);
   const scrollRef = useRef<ScrollView>(null);
   const viewW = useRef(0);
   const prevUp = useRef(0), prevDown = useRef(0), prevAnchor = useRef<string | null>(null);
   const cols = useMemo(
-    () => (anchorId ? buildBidirectionalColumns(model, anchorId, up, down, genCoordsByPerson) : []),
-    [model, anchorId, up, down, genCoordsByPerson],
+    () => (anchorId ? buildBidirectionalColumns(model, anchorId, up, down, genCoordsByPerson, parentsUnknownByPerson) : []),
+    [model, anchorId, up, down, genCoordsByPerson, parentsUnknownByPerson],
   );
   const anchorIdx = cols.findIndex((c) => c.kind === 'anchor');
 
@@ -174,11 +175,37 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
       >
         {cols.map((col) => (
           <View key={col.key} style={{ width: 166 }}>
-            <Mono size={9} color={Colors.gold} style={{ letterSpacing: 9 * 0.1, textTransform: 'uppercase', paddingBottom: 2, marginBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Border.light }}>
+            <Mono size={9} color={Colors.gold} style={{ letterSpacing: 9 * 0.1, textTransform: 'uppercase', paddingBottom: 2, marginBottom: col.candidate ? 2 : 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Border.light }}>
               {col.label}
             </Mono>
+            {col.candidate && col.candidateNote ? (
+              <Mono size={8.5} color={Colors.textMuted2} style={{ marginBottom: 8, lineHeight: 11 }}>{col.candidateNote}</Mono>
+            ) : null}
             <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: insets.bottom + 90 }}>
-            {col.people.map((p) => {
+            {col.candidate ? (
+              <>
+                {Object.entries(col.kuldGroups ?? {}).map(([kuld, people]) => (
+                  <View key={kuld} style={{ gap: 8 }}>
+                    {kuld !== '—' ? (
+                      <Mono size={8} color={Colors.textMuted3} style={{ letterSpacing: 8 * 0.08, textTransform: 'uppercase' }}>Kuld {kuld}</Mono>
+                    ) : null}
+                    {people.map((p) => (
+                      <Pressable key={p.id} onPress={() => setFocus(p.id)} style={styles.bCardFallback}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                          <View style={styles.bAvatar}><Serif size={15} color={Colors.bordeaux}>{initial(p.name)}</Serif></View>
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Serif size={16} style={{ lineHeight: 17 }} numberOfLines={2}>{p.name}</Serif>
+                            {p.years ? <Mono size={9} color={Colors.textMuted} style={{ marginTop: 2 }}>{p.years}</Mono> : null}
+                            <Mono size={8} color={Colors.gold} style={{ letterSpacing: 8 * 0.06, textTransform: 'uppercase', marginTop: 2 }}>muligt slægtled</Mono>
+                          </View>
+                        </View>
+                      </Pressable>
+                    ))}
+                  </View>
+                ))}
+                {col.kilde ? <Mono size={8} color={Colors.textMuted3} style={{ marginTop: 4, lineHeight: 11 }}>Kilde: {col.kilde}</Mono> : null}
+              </>
+            ) : col.people.map((p) => {
               const sel = p.id === col.selectedId;
               const canAnc = col.kind === 'ancestor' && (model.indexes.parentsByChild[p.id]?.length ?? 0) > 0;
               const canDesc = col.kind === 'descendant' && childrenOf(model, p.id).length > 0;

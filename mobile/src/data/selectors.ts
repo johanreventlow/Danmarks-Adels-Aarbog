@@ -1,7 +1,7 @@
 // Afledte selektorer over model + aux. Rene funktioner (testbare) — skærmene kalder dem
 // frem for at grave i indekser direkte.
 import { compareDanish, initialOf } from '../lib/collation';
-import { type GenCoord } from './generations';
+import { GRADE_FORAELDER_UKENDT, type GenCoord, type ParentsUnknown } from './generations';
 import type { Aux, Model, ModelPerson } from './types';
 
 // Forside-tællere: personer / linjer / godser.
@@ -104,6 +104,7 @@ export type ColumnKind = 'ancestor' | 'anchor' | 'descendant';
 // så bygge-funktionen forbliver platform-agnostisk: web sender model.genCoordsByPerson, mobil
 // sender store/LoadResult-værdien (mobils smalle `Model` bærer bevidst ikke feltet selv).
 export type GenCoords = Record<string, GenCoord[]>;
+export type ParentsUnknownMap = Record<string, ParentsUnknown>;
 
 export type TreeColumn = {
   key: string;               // STABIL identitet `${kind}:${depth}` — ancestor:1 ≠ descendant:1
@@ -112,6 +113,11 @@ export type TreeColumn = {
   label: string;             // relativt slægts-label (+ slægtled/linje når kendt)
   people: ModelPerson[];     // alle registrerede i ringen (ikke antaget = 2 for forældre)
   selectedId: string | null; // valgt kort → driver næste ring i samme retning
+  // --- marker-gatet kandidat-kolonne (kun hvor KILDEN angiver "ingen forbindelse opad") ---
+  candidate?: boolean;                         // true = ubeviste kandidater i forrige slægtled
+  candidateNote?: string;                      // grad-afhængig ærlig ordlyd (mulige forældre vs. blot naboer)
+  kilde?: string | null;                       // proveniens for markeringen (citationens citat_tekst)
+  kuldGroups?: Record<string, ModelPerson[]>;  // kuld-gruppering af kandidaterne (hvor kendt)
 };
 
 type Traverse = (model: Model, id: string) => ModelPerson[];
@@ -185,8 +191,10 @@ export function columnGen(
 // Bygger kolonner der udvider fra ankeret i ÉN retning (ankeret IKKE inkluderet).
 // visited (seedet med ankeret + de valgte) guard'er mod self-forælder/cyklus i defekt data.
 // Slægtled/linje til labels læses fra den faktiske koordinat (columnGen); `null` → rene
-// kinship-labels. Ingen fallback: en tom bevist ring er en ærlig dødende (den marker-gatede
-// kandidat-visning håndteres separat af kalderen — se unknownParentRing).
+// kinship-labels. En tom bevist ane-ring dødender ærligt — MEN hvis den aktuelle person bærer en
+// afklaret "forældre ukendt"-markering (parentsUnknown), vises i stedet en marker-gatet
+// kandidat-kolonne (unknownParentRing) med kildens forrige slægtled. Fyrer ALDRIG på fravær af en
+// kant alene (det var v1/v2-fejlen) — kun på en TILSTEDEVÆRENDE markering. Aner-retning kun.
 function buildDirection(
   model: Model,
   anchorId: string,
@@ -194,6 +202,7 @@ function buildDirection(
   traverse: Traverse,
   kind: 'ancestor' | 'descendant',
   genCoords?: GenCoords,
+  parentsUnknown?: ParentsUnknownMap,
 ): TreeColumn[] {
   const cols: TreeColumn[] = [];
   const visited = new Set<string>([anchorId]);
@@ -201,7 +210,13 @@ function buildDirection(
   let depth = 1;
   while (depth <= MAX_DEPTH) {
     const people = traverse(model, cur).filter((p) => !visited.has(p.id));
-    if (!people.length) break; // ærlig dødende — ingen ugated gætning på et manglende slægtled
+    if (!people.length) {
+      if (kind === 'ancestor' && parentsUnknown) {
+        const ring = unknownParentRing(model, genCoords, cur, parentsUnknown[cur], depth);
+        if (ring) cols.push(ring);
+      }
+      break; // ærlig dødende (evt. med kandidat-kolonne) — vælg re-ankrer i stedet for at drille videre
+    }
     const sel = selections[depth - 1] ?? null;
     const g = columnGen(genCoords, people, sel);
     const label = columnLabel({ kind, depth, slaegtled: g?.lokal ?? null, linje: g?.linje ?? null });
@@ -214,19 +229,65 @@ function buildDirection(
   return cols;
 }
 
+// Marker-gatet kandidat-kolonne: personer i FORRIGE slægtled (lokal-1) i hver af den markerede
+// persons linjer (en founder henter kandidater fra hver moderlinje). Fyrer KUN når `marking`
+// findes (afklaret 'forældre_ukendt') — ikke på en manglende kant. Grad afgør ordlyden: mulige
+// forældre vs. blot "andre i forrige slægtled". kuld-grupperet; proveniens fra markeringen. Ren
+// projektion — skriver aldrig en kant. Bevaret byte-identisk web ↔ mobil (docs/reviews/25-*).
+export function unknownParentRing(
+  model: Model,
+  genCoords: GenCoords | undefined,
+  markedId: string,
+  marking: ParentsUnknown | undefined,
+  depth: number,
+): TreeColumn | null {
+  if (!marking || !genCoords) return null;
+  const coords = (genCoords[markedId] ?? []).filter((c) => c.lokal != null && (c.lokal as number) > 1);
+  if (!coords.length) return null;
+  const members = new Map<string, { kuld: string; linje: string; lokal: number }>();
+  for (const c of coords) {
+    const tLokal = (c.lokal as number) - 1;
+    for (const p of model.persons) {
+      if (p.id === markedId || members.has(p.id)) continue;
+      const pc = (genCoords[p.id] ?? []).find(
+        (k) => k.sourceId === c.sourceId && k.lineageId === c.lineageId && k.lokal === tLokal,
+      );
+      if (pc) members.set(p.id, { kuld: pc.kuld ?? '—', linje: pc.linje, lokal: tLokal });
+    }
+  }
+  const people = [...members.keys()].map((id) => model.byId[id]).filter((p): p is ModelPerson => !!p);
+  if (!people.length) return null; // intet forrige slægtled at bladre til → ingen ring
+  const kuldGroups: Record<string, ModelPerson[]> = {};
+  for (const p of people) (kuldGroups[members.get(p.id)!.kuld] ??= []).push(p);
+  // Vist generation = target-slægtled (deterministisk laveste lokal/linje ved flere linjer).
+  const target = [...members.values()].sort((a, b) => a.lokal - b.lokal || a.linje.localeCompare(b.linje))[0];
+  const candidateNote = marking.grade === GRADE_FORAELDER_UKENDT
+    ? 'Mulige forældre — kilden navngiver dem ikke'
+    : 'Kilden angiver ingen forbindelse — andre i forrige slægtled';
+  return {
+    key: `ancestor:${depth}:cand`, kind: 'ancestor', depth,
+    label: `${target.lokal}. slægtled · ${target.linje}-linjen`,
+    people, selectedId: null,
+    candidate: true, candidateNote, kilde: marking.kilde ?? null, kuldGroups,
+  };
+}
+
 // Komposer: [...aner omvendt (dybest yderst til venstre), ankerkolonne, ...efterkommere].
 // Slægtled-labels læses fra genCoords (valgfri) via columnGen — ankerets eget tal fra dets egen
 // koordinat (null/"Fokus" hvis founderen bærer flere linje-medlemskaber, dvs. tvetydig).
+// `parentsUnknown` (valgfri) aktiverer den marker-gatede kandidat-kolonne i ANE-retningen, dér
+// hvor en markeret person dødender uden bevist forælder (se buildDirection/unknownParentRing).
 export function buildBidirectionalColumns(
   model: Model,
   anchorId: string,
   up: string[],
   down: string[],
   genCoords?: GenCoords,
+  parentsUnknown?: ParentsUnknownMap,
 ): TreeColumn[] {
   const anchor = model.byId[anchorId];
   if (!anchor) return [];
-  const ancestors = buildDirection(model, anchorId, up, parentsOf, 'ancestor', genCoords);
+  const ancestors = buildDirection(model, anchorId, up, parentsOf, 'ancestor', genCoords, parentsUnknown);
   const descendants = buildDirection(model, anchorId, down, childrenOf, 'descendant', genCoords);
   const ag = columnGen(genCoords, [anchor]);
   const anchorCol: TreeColumn = {
