@@ -1,5 +1,41 @@
 # Changelog
 
+## "Forældre ukendt"-markering + inline marker-gatet kandidat-kolonne (web+mobil, branch `feat/generations-browser-v2`, IKKE merget, 2026-07-09)
+
+Løser problemet fra `docs/reviews/25-generationer-ukendt-forbindelse-analyse.md`: stamtræets ene
+signal "ingen `family_member`-kant" dækkede over FIRE virkeligheder (bevist / formodet / kilden
+angiver ingen forbindelse / kant ikke udtrukket endnu). v1/v2's fallback tolkede ALT fravær som
+"ukendt" → forkerte kandidater (person 210 under 208). Den manglende epistemiske primitiv: at KILDEN
+ikke angiver en forbindelse opad er selv en kildepåstand.
+
+**Beslutninger (bruger-interview 2026-07-09):** (a) skeln TO grader ('forælder ukendt' vs 'ingen
+forbindelse angivet'); (b) INLINE distinkt kolonne i træet — IKKE et separat side-panel-register
+(det var netop det spor der gled væk fra ønsket om inline-bladring); (c) markér én reel klynge til
+verifikation.
+
+- **Phase A:** fjernet den ugatede fallback + activeCoord-maskineriet (T6-review-effekten). Kun
+  beviste kanter + slægtled-labels læst fra faktisk koordinat (`columnGen`, løser review 20 H1
+  "-7. slægtled"). Slettet `fallbackRing`/`buildAnchorPeers`/`adjacentGen` founder-hop (inert i prod).
+  **Rydder også v1's aner-fallback der stadig er live på main/prod** ved merge.
+- **Phase B:** INGEN skema-ændring (invariant 2). Markeringen = `fact(faktatype='forældre_ukendt')`
+  + assertion (grad) + citation (proveniens) + afklaret konklusion, skrevet via `red_upsert_fakta`.
+  Ren `buildParentsUnknown`-resolver (byte-identisk web↔mobil) + `fetchParentsUnknownRows`
+  (overlapper hoved-batchen) → `parentsUnknownByPerson` på model/store. Vokabular seedet i
+  `db-migrations.sql`.
+- **Phase C:** `unknownParentRing` — inline marker-gatet kandidat-kolonne (forrige slægtled,
+  kuld-grupperet). Fyrer KUN på en tilstedeværende afklaret markering, aldrig på fravær af en kant.
+  Cross-linje-bladring (founder → moderlinjen) emergerer af samme_som-collapse uden founder-hop.
+  Grad afgør ordlyden. Distinkt render (stiplet/amber, "muligt slægtled"-tag, Kilde-footer); klik
+  re-ankrer (ren navigation). Web `Folgesvend` + mobil `tree.tsx`.
+- **Authoring (redaktion):** markér/opdatér/fjern med grad + kilde via `submitChange`/`setPending`
+  (dry-run/LIVE, fortrydbar change_set). `markerForaeldreUkendt`-art + `sletOplysning` til fjern.
+  Web `ForaeldreUkendtControl` + mobil person-editor-kontrol. `fetchForaeldreUkendtMarkering`-læser.
+- **Kvalitet:** TDD, byte-identisk delt kerne (paritets-test på `buildGenCoords`/`buildParentsUnknown`/
+  `columnLabel`/`columnGen`/`buildDirection`/`buildBidirectionalColumns`/`unknownParentRing`),
+  4-agent `/simplify`-pass (5 fund anvendt). **web 231/231 + mobil 328/328 + tsc + build grønne.**
+- **UDESTÅR:** empirisk verifikation mod prod (markér én reel klynge via §6-query + redaktør-UI, se
+  ringen rendere) — kræver prod-adgang/redaktør-login. Dual-review + merge.
+
 ## Generations-reparation af stamtræet — hul-reparation via slægtled (web+mobile, PROD-LIVE + merget, 2026-07-05)
 
 Ny navigations-vej for de tidligste, ubeviste generationer: når aner-ringen i Kolonner-
