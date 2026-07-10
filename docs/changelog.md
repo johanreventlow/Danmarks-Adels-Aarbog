@@ -27,6 +27,13 @@ verifikation.
   Cross-linje-bladring (founder → moderlinjen) emergerer af samme_som-collapse uden founder-hop.
   Grad afgør ordlyden. Distinkt render (stiplet/amber, "muligt slægtled"-tag, Kilde-footer); klik
   re-ankrer (ren navigation). Web `Folgesvend` + mobil `tree.tsx`.
+- **Nedad-projektion (efterkommer-retning):** `unknownChildSection` — samme markeringer vist NEDAD:
+  når man bladrer fra en (mandlig) stamfader, augmenteres børne-kolonnen med en "Uforbundne i dette
+  slægtled"-sektion (markerede-uforbundne i næste slægtled, samme linje). Ren projektion af de
+  eksisterende markeringer (ingen ny authoring — evidens-hygiejne: kun projektionen har altid et ægte
+  kilde-citat). Marker-gate + bevist-forælder-eksklusion + patrilineær køns-gate (bruger-beslutning).
+  Proveniens pr. person; grad-splittet ordlyd ('ingen forbindelse angivet' aldrig som barn-claim).
+  Fable-agent-eksploreret (4 optioner) → Option 1. Data-fit bekræftet mod prod.
 - **Authoring (redaktion):** markér/opdatér/fjern med grad + kilde via `submitChange`/`setPending`
   (dry-run/LIVE, fortrydbar change_set). `markerForaeldreUkendt`-art + `sletOplysning` til fjern.
   Web `ForaeldreUkendtControl` + mobil person-editor-kontrol. `fetchForaeldreUkendtMarkering`-læser.
