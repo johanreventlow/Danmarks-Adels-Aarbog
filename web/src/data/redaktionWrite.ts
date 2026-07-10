@@ -18,7 +18,7 @@ export type Change = {
      | 'opretUnion' | 'tilfoejBarn' | 'setFamilieKonfidens' | 'sletFamilieLink'
      | 'setFamilieOrdinal' | 'flytBarn'
      | 'sammeSom' | 'fjernSammeSom' // redaktionel identitets-sammenkædning (samme_som)
-     | 'markerForaeldreUkendt' | 'fjernForaeldreUkendt' // "forældre ukendt"-markering (docs/reviews/25)
+     | 'markerForaeldreUkendt' // "forældre ukendt"-markering (docs/reviews/25); fjern = 'sletOplysning'
      | 'opretKilde' // opret ny source (DAA-udgave) — routes gennem submitChange (dry-run/staging)
      | 'uploadMedia' // mediehåndtering Slice 0g — redaktør-upload (portræt/objekt-foto)
      | 'fjernMedia' // Slice 0h — blødt fjern (upload_status='fjernet'); unlink går via sletRelation
@@ -106,18 +106,13 @@ export function buildRpcCall(c: Change): RpcCall | null {
   // "Forældre ukendt"-markering (docs/reviews/25): find-or-create ét fact pr. person via
   // red_upsert_fakta (re-markering opdaterer grad+kilde på samme slot). Grad = c.vaerdi
   // ('forælder ukendt' | 'ingen forbindelse angivet'); kilde = proveniens. Skriver ALDRIG en kant.
+  // FJERN sker via den generiske 'sletOplysning'-art (red_slet_oplysning) — ingen egen art nødvendig.
   if (c.art === 'markerForaeldreUkendt') {
     if (!c.vaerdi) return null;
     return { fn: 'red_upsert_fakta', args: {
       p_subjekt_type: 'person', p_subjekt_id: sid,
       p_faktatype: 'forældre_ukendt', p_vaerdi: c.vaerdi,
       p_kilde_fritekst: c.kildeFritekst ?? null } };
-  }
-  // Fjern markeringen: slet den valgte assertion (red_slet_oplysning dropper konklusionen når det
-  // var den eneste → markeringen bliver inaktiv, fact-slottet efterlades tomt men harmløst).
-  if (c.art === 'fjernForaeldreUkendt') {
-    if (aid == null) return null;
-    return { fn: 'red_slet_oplysning', args: { p_assertion_id: aid } };
   }
   if (c.art === 'narrativ') {
     return { fn: 'red_upsert_narrativ', args: {

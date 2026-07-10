@@ -164,7 +164,7 @@ export function unknownParentRing(
   if (!marking || !genCoords) return null;
   const coords = (genCoords[markedId] ?? []).filter((c) => c.lokal != null && (c.lokal as number) > 1);
   if (!coords.length) return null;
-  const members = new Map<string, { kuld: string; linje: string; lokal: number }>();
+  const members = new Map<string, { person: ModelPerson; kuld: string; linje: string; lokal: number }>();
   for (const c of coords) {
     const tLokal = (c.lokal as number) - 1;
     for (const p of model.persons) {
@@ -172,13 +172,13 @@ export function unknownParentRing(
       const pc = (genCoords[p.id] ?? []).find(
         (k) => k.sourceId === c.sourceId && k.lineageId === c.lineageId && k.lokal === tLokal,
       );
-      if (pc) members.set(p.id, { kuld: pc.kuld ?? '—', linje: pc.linje, lokal: tLokal });
+      if (pc) members.set(p.id, { person: p, kuld: pc.kuld ?? '—', linje: pc.linje, lokal: tLokal });
     }
   }
-  const people = [...members.keys()].map((id) => model.byId[id]).filter((p): p is ModelPerson => !!p);
-  if (!people.length) return null; // intet forrige slægtled at bladre til → ingen ring
+  if (!members.size) return null; // intet forrige slægtled at bladre til → ingen ring
   const kuldGroups: Record<string, ModelPerson[]> = {};
-  for (const p of people) (kuldGroups[members.get(p.id)!.kuld] ??= []).push(p);
+  for (const m of members.values()) (kuldGroups[m.kuld] ??= []).push(m.person);
+  const people = [...members.values()].map((m) => m.person);
   // Vist generation = target-slægtled (deterministisk laveste lokal/linje ved flere linjer).
   const target = [...members.values()].sort((a, b) => a.lokal - b.lokal || a.linje.localeCompare(b.linje))[0];
   const candidateNote = marking.grade === GRADE_FORAELDER_UKENDT

@@ -492,6 +492,12 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
   const anchorIdxRef = useRef(0);           // indeks på anker-kolonnen (til centrering)
   const prevUp = useRef(0), prevDown = useRef(0), prevAnchor = useRef<string | null>(null), prevVariant = useRef<'A' | 'B'>('A');
   const STRIDE = 222;                        // kolonnebredde 208 + gap 14
+  // Memoiseret som mobil (tree.tsx): undgår gen-beregning ved urelaterede parent-re-renders
+  // (browse-tastetryk, bogmærke-toggle) — den delte bygger er byte-identisk, memo er kun call-site.
+  const cols = useMemo(
+    () => (model && variant === 'B' && anchorId ? buildBidirectionalColumns(model, anchorId, up, down, model.genCoordsByPerson, model.parentsUnknownByPerson) : []),
+    [model, variant, anchorId, up, down],
+  );
 
   // Ankeret følger fokus-personen. Nulstil (ryd begge drill-retninger) KUN ved EKSTERN navigation.
   // Frontier-tjek (IKKE fuldt medlemskab, jf. spec §5.3): efter en drill er focusId altid den
@@ -552,7 +558,6 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
   // Vi udvider up/down KUN med parentsOf/childrenOf-id'er (kanoniske) → frontier-invarianten holder.
   const selectAncestor = (depth: number, id: string) => { setUp((prev) => prev.slice(0, depth - 1).concat(id)); onFocus(id); };
   const selectDescendant = (depth: number, id: string) => { setDown((prev) => prev.slice(0, depth - 1).concat(id)); onFocus(id); };
-  const cols = variant === 'B' && anchorId ? buildBidirectionalColumns(model, anchorId, up, down, model.genCoordsByPerson, model.parentsUnknownByPerson) : [];
   const anchorColIdx = cols.findIndex((c) => c.kind === 'anchor');
   anchorIdxRef.current = Math.max(0, anchorColIdx);
 
@@ -611,26 +616,18 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
                     <div style={{ fontFamily: T.mono, fontSize: 8.5, color: T.muted3, padding: '4px 2px 0', lineHeight: 1.35, borderTop: '1px dashed rgba(34,31,26,.12)', marginTop: 2 }}>Kilde: {col.kilde}</div>
                   )}
                 </>
-              ) : col.kind === 'anchor' ? (
-                col.people.map((p) => (
-                  <div key={p.id} style={{ background: '#f8ecef', border: `1.5px solid ${T.bordeaux}`, borderRadius: 12, padding: '11px 13px', boxShadow: '0 4px 14px rgba(136,26,51,.12)', display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <Avatar n={p.name} size={34} />
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontFamily: T.serif, fontSize: 16, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-                      {p.years && <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 2 }}>{p.years}</div>}
-                    </div>
-                    <BookmarkFlag active={hasBookmark(p.id)} onClick={() => onToggleBookmark(p.id)} />
-                  </div>
-                ))
               ) : col.people.map((p) => {
                 const sel = p.id === col.selectedId;
                 // Kort-chevron peger i drill-retningen: aner ‹ (venstre), efterkommere › (højre).
+                // Ankeret (kind==='anchor', altid sel) er ikke-klikbart: onTap undefined + default-cursor,
+                // ingen chevrons (canAnc/canDesc falske) — samme bordeaux-fokus-kort uden en tredje JSX-kopi.
                 const canAnc = col.kind === 'ancestor' && hasParents(p.id);
                 const canDesc = col.kind === 'descendant' && childCount(p.id) > 0;
-                const onTap = col.kind === 'ancestor' ? () => selectAncestor(col.depth, p.id)
+                const onTap = col.kind === 'anchor' ? undefined
+                  : col.kind === 'ancestor' ? () => selectAncestor(col.depth, p.id)
                   : () => selectDescendant(col.depth, p.id);
                 return (
-                  <div key={p.id} onClick={onTap} style={{ background: sel ? '#f8ecef' : T.paper, border: `1.5px solid ${sel ? T.bordeaux : 'rgba(34,31,26,.1)'}`, borderRadius: 12, padding: '11px 13px', cursor: 'pointer', boxShadow: sel ? '0 4px 14px rgba(136,26,51,.12)' : '0 1px 2px rgba(34,31,26,.04)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div key={p.id} onClick={onTap} style={{ background: sel ? '#f8ecef' : T.paper, border: `1.5px solid ${sel ? T.bordeaux : 'rgba(34,31,26,.1)'}`, borderRadius: 12, padding: '11px 13px', cursor: col.kind === 'anchor' ? 'default' : 'pointer', boxShadow: sel ? '0 4px 14px rgba(136,26,51,.12)' : '0 1px 2px rgba(34,31,26,.04)', display: 'flex', alignItems: 'center', gap: 10 }}>
                     {canAnc && <span style={{ color: '#bcae93', fontSize: 16, flex: 'none' }}>‹</span>}
                     <Avatar n={p.name} size={34} />
                     <div style={{ minWidth: 0, flex: 1 }}>

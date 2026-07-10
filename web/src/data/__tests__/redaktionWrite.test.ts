@@ -80,12 +80,10 @@ describe('buildRpcCall — forældre ukendt-markering (docs/reviews/25)', () => 
     expect(call?.args.p_kilde_fritekst).toBeNull();
   });
 
-  it('fjernForaeldreUkendt → red_slet_oplysning med assertion-id', () => {
-    const call = buildRpcCall({ art: 'fjernForaeldreUkendt', subjektType: 'person', subjektId: '210', assertionId: '801' } as never);
+  // FJERN af markeringen genbruger den generiske 'sletOplysning'-art (ingen egen fjern-art) —
+  // dækket af sletOplysning-testen; her verificeres blot at fjern-call-site'et rammer det rigtige RPC.
+  it('fjern via sletOplysning → red_slet_oplysning med assertion-id', () => {
+    const call = buildRpcCall({ art: 'sletOplysning', subjektType: 'person', subjektId: '210', assertionId: '801' } as never);
     expect(call).toEqual({ fn: 'red_slet_oplysning', args: { p_assertion_id: 801 } });
-  });
-
-  it('fjernForaeldreUkendt uden assertion-id → null', () => {
-    expect(buildRpcCall({ art: 'fjernForaeldreUkendt', subjektType: 'person', subjektId: '210' } as never)).toBeNull();
   });
 });

@@ -1216,7 +1216,7 @@ function ForaeldreUkendtControl({ personId, run }: { personId: string; run: (c: 
   };
   const fjern = () => {
     if (!mk) return;
-    run({ art: 'fjernForaeldreUkendt', subjektType: 'person', subjektId: personId, assertionId: String(mk.assertionId) }, 'Fjern forældre-ukendt');
+    run({ art: 'sletOplysning', subjektType: 'person', subjektId: personId, assertionId: String(mk.assertionId) }, 'Fjern forældre-ukendt');
     refetchSoon();
   };
   const gradeLabel = (g: string) => g === GRADE_FORAELDER_UKENDT ? 'Forælder findes, men er ukendt for os' : 'Bogen forbinder ikke personen opad';
