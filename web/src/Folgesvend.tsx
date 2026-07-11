@@ -641,7 +641,7 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
               })}
               {col.unconnectedChildren && col.unconnectedChildren.length > 0 && (
                 <div style={{ marginTop: 4, paddingTop: 8, borderTop: '1px dashed rgba(34,31,26,.16)' }}>
-                  <div style={{ fontFamily: T.mono, fontSize: 8, letterSpacing: '.08em', textTransform: 'uppercase', color: T.muted3, padding: '0 2px 6px' }}>Uforbundne i dette slægtled</div>
+                  <div style={{ fontFamily: T.mono, fontSize: 8, letterSpacing: '.08em', textTransform: 'uppercase', color: T.muted3, padding: '0 2px 6px' }}>Uforbundne — placeret efter slægtled, ikke forældreskab</div>
                   {col.unconnectedChildren.map((group) => (
                     <div key={group.grade} style={{ display: 'flex', flexDirection: 'column', gap: 9, marginBottom: 6 }}>
                       <div style={{ fontFamily: T.sans, fontSize: 10, color: T.muted2, padding: '0 2px', lineHeight: 1.3 }}>{group.note}</div>

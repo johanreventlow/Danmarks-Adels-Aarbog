@@ -233,7 +233,7 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
             })}
             {col.unconnectedChildren && col.unconnectedChildren.length > 0 ? (
               <View style={{ marginTop: 4, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Border.light }}>
-                <Mono size={8} color={Colors.textMuted3} style={{ letterSpacing: 8 * 0.08, textTransform: 'uppercase', marginBottom: 6 }}>Uforbundne i dette slægtled</Mono>
+                <Mono size={8} color={Colors.textMuted3} style={{ letterSpacing: 8 * 0.08, textTransform: 'uppercase', marginBottom: 6 }}>Uforbundne — placeret efter slægtled, ikke forældreskab</Mono>
                 {col.unconnectedChildren.map((group) => (
                   <View key={group.grade} style={{ gap: 8, marginBottom: 6 }}>
                     <Mono size={9} color={Colors.textMuted2} style={{ lineHeight: 12 }}>{group.note}</Mono>

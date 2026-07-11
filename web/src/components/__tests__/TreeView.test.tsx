@@ -159,7 +159,7 @@ describe('TreeView — nedad-projektion (uforbundne i næste slægtled)', () => 
     render(<TreeView model={dModel} focusId="G" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} />);
     fireEvent.click(screen.getByText('Kolonner'));
     expect(screen.getByText('Sikkert Barn')).toBeTruthy();      // bevist barn urørt
-    expect(screen.getByText('Uforbundne i dette slægtled')).toBeTruthy();
+    expect(screen.getByText('Uforbundne — placeret efter slægtled, ikke forældreskab')).toBeTruthy();
     expect(screen.getByText('Kilden forbinder dem ikke opad — står i næste slægtled i linjen')).toBeTruthy();
     expect(screen.getByText('Wulf')).toBeTruthy();
     expect(screen.getByText('Kilde: DAA 1939 s.6')).toBeTruthy();

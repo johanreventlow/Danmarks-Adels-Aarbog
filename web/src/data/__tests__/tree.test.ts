@@ -384,7 +384,7 @@ describe('unknownChildSection + nedad-projektion (efterkommer-retning)', () => {
     });
     const groups = cols.find((c) => c.key === 'descendant:1')!.unconnectedChildren!;
     expect(groups.map((g) => g.grade)).toEqual([GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE]);
-    expect(groups[0].note).toBe('Muligt barn — kilden navngiver ikke forælderen');
+    expect(groups[0].note).toBe('Muligt barn i linjen — forælderen er ikke navngivet');
     expect(groups[0].people.map((x) => x.person.id)).toEqual(['W2']);
   });
 

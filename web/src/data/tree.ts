@@ -223,11 +223,12 @@ export function unknownParentRing(
   };
 }
 
-// Grad-splittet ordlyd for NEDAD-sektionen. 'ingen forbindelse angivet' må ALDRIG læses som barn-
-// claim — den neutrale variant siger kun "står i næste slægtled", ikke "muligt barn".
+// Grad-splittet ordlyd for NEDAD-sektionen. Ingen af varianterne må læses som "barn af DENNE
+// person": grad-1 siger "i linjen" (nedstamning hævdet, forælder unavngiven), neutral siger kun
+// "står i næste slægtled" — begge er slægtled-placering, ikke forældreskab til ankeret (review 26 HIGH 1).
 function childSectionNote(grade: string): string {
   return grade === GRADE_FORAELDER_UKENDT
-    ? 'Muligt barn — kilden navngiver ikke forælderen'
+    ? 'Muligt barn i linjen — forælderen er ikke navngivet'
     : 'Kilden forbinder dem ikke opad — står i næste slægtled i linjen';
 }
 
