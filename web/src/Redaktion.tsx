@@ -1193,9 +1193,9 @@ const sectionHeader = (mt: number): React.CSSProperties => ({ marginTop: mt, fon
 const annoBox: React.CSSProperties = { border: '1px dashed rgba(136,26,51,.4)', borderRadius: 11, padding: '13px 15px', background: '#f8ecef' };
 
 // "Forældre ukendt"-markering (docs/reviews/25): redaktør-kontrol til at markere at KILDEN ikke
-// angiver en forbindelse opad. Skriver via red_upsert_fakta (grad) / red_slet_oplysning (fjern)
-// gennem det almindelige `run`/submitChange-flow (dry-run/LIVE respekteres). Selvstændig fetch af
-// nuværende markering (undgår at tråde state gennem editoren); refetch efter en handling.
+// angiver en forbindelse opad. Skriver via red_upsert_fakta (grad) / red_tilbagetraek_fakta (fjern —
+// retract af konklusionen, review 26 HIGH 2) gennem det almindelige `run`/submitChange-flow (dry-run/
+// LIVE respekteres). Selvstændig fetch af nuværende markering (undgår at tråde state gennem editoren).
 function ForaeldreUkendtControl({ personId, run }: { personId: string; run: (c: Change, label: string) => void }) {
   const [mk, setMk] = useState<ForaeldreUkendtMarkering | null | undefined>(undefined);
   const [grade, setGrade] = useState<string>(GRADE_FORAELDER_UKENDT);
@@ -1216,7 +1216,7 @@ function ForaeldreUkendtControl({ personId, run }: { personId: string; run: (c: 
   };
   const fjern = () => {
     if (!mk) return;
-    run({ art: 'sletOplysning', subjektType: 'person', subjektId: personId, assertionId: String(mk.assertionId) }, 'Fjern forældre-ukendt');
+    run({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: personId, factId: String(mk.factId) }, 'Fjern forældre-ukendt');
     refetchSoon();
   };
   const gradeLabel = (g: string) => g === GRADE_FORAELDER_UKENDT ? 'Forælder findes, men er ukendt for os' : 'Bogen forbinder ikke personen opad';

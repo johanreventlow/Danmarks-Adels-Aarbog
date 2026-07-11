@@ -487,7 +487,7 @@ export default function PersonEditor() {
               <BtnLabel color={Colors.paperCard}>{markering ? 'Opdatér markering' : 'Markér'}</BtnLabel>
             </Pressable>
             {markering ? (
-              <Pressable onPress={() => setPending({ art: 'sletOplysning', subjektType: 'person', subjektId: id!, assertionId: String(markering.assertionId) })}
+              <Pressable onPress={() => setPending({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: id!, factId: String(markering.factId) })}
                 style={{ paddingVertical: 9, paddingHorizontal: 14, borderRadius: Radius.field, borderWidth: 1, borderColor: Colors.danger, alignItems: 'center' }}>
                 <BtnLabel color={Colors.danger}>Fjern</BtnLabel>
               </Pressable>

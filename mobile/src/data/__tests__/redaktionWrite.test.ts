@@ -103,6 +103,23 @@ test('sletOplysning uden assertionId → null', () => {
     .toBeNull();
 });
 
+// FJERN "forældre ukendt"-markering (review 26 HIGH 2): tilbagetræk fakta-slottets konklusion via
+// red_tilbagetraek_fakta — IKKE red_slet_oplysning (som genopliver markeringen efter Markér→Opdatér→Fjern).
+test('tilbagetraekFakta → red_tilbagetraek_fakta m. fact-id', () => {
+  expect(buildRpcCall({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: '210', factId: '55' }))
+    .toEqual({ fn: 'red_tilbagetraek_fakta', args: { p_fact_id: 55 } });
+});
+
+test('tilbagetraekFakta uden factId → null', () => {
+  expect(buildRpcCall({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: '210' }))
+    .toBeNull();
+});
+
+test('tilbagetraekFakta med ugyldigt (tomt/ikke-numerisk) factId → null (NaN-guard, review 27)', () => {
+  expect(buildRpcCall({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: '210', factId: '' })).toBeNull();
+  expect(buildRpcCall({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: '210', factId: 'x' })).toBeNull();
+});
+
 // Operation A: tilføj oplysning til eksisterende fact (fact-målrettet).
 test('tilfoejOplysning → red_tilfoej_oplysning m. fact_id', () => {
   expect(buildRpcCall({ art: 'tilfoejOplysning', subjektType: 'person', subjektId: '1',

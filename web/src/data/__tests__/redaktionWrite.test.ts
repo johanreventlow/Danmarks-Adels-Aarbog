@@ -80,10 +80,20 @@ describe('buildRpcCall — forældre ukendt-markering (docs/reviews/25)', () => 
     expect(call?.args.p_kilde_fritekst).toBeNull();
   });
 
-  // FJERN af markeringen genbruger den generiske 'sletOplysning'-art (ingen egen fjern-art) —
-  // dækket af sletOplysning-testen; her verificeres blot at fjern-call-site'et rammer det rigtige RPC.
-  it('fjern via sletOplysning → red_slet_oplysning med assertion-id', () => {
-    const call = buildRpcCall({ art: 'sletOplysning', subjektType: 'person', subjektId: '210', assertionId: '801' } as never);
-    expect(call).toEqual({ fn: 'red_slet_oplysning', args: { p_assertion_id: 801 } });
+  // FJERN markering (review 26 HIGH 2): tilbagetræk fakta-slottets konklusion via
+  // red_tilbagetraek_fakta — IKKE red_slet_oplysning (som re-peger til ældste påstand og
+  // genopliver markeringen efter Markér→Opdatér→Fjern). Målretter fact-id'et, ikke en assertion.
+  it('tilbagetraekFakta → red_tilbagetraek_fakta med fact-id (fjern markering korrekt)', () => {
+    const call = buildRpcCall({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: '210', factId: '55' } as never);
+    expect(call).toEqual({ fn: 'red_tilbagetraek_fakta', args: { p_fact_id: 55 } });
+  });
+
+  it('tilbagetraekFakta uden fact-id → null', () => {
+    expect(buildRpcCall({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: '210' } as never)).toBeNull();
+  });
+
+  it('tilbagetraekFakta med ugyldigt (ikke-numerisk/tomt) fact-id → null (NaN-guard, review 27)', () => {
+    expect(buildRpcCall({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: '210', factId: '' } as never)).toBeNull();
+    expect(buildRpcCall({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: '210', factId: 'x' } as never)).toBeNull();
   });
 });

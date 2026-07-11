@@ -730,6 +730,30 @@ BEGIN
   DELETE FROM assertion WHERE id = p_assertion_id;
 END $$;
 
+-- Tilbagetræk HELE et fakta-slots konklusion (fx en "forældre ukendt"-markering): sæt status
+-- 'afklaret' → 'tilbagetrukket'. Append-sikkert (påstande røres ikke, invariant #1); læse-gates
+-- kræver status='afklaret', så markeringen holder op med at projicere. Re-markering via
+-- red_upsert_fakta re-aktiverer (ON CONFLICT → status='afklaret', peger på en frisk påstand).
+-- VIGTIGT — hvorfor ikke red_slet_oplysning: den re-peger konklusionen til den ÆLDSTE tilbage-
+-- værende påstand på fact'et. Efter Markér → Opdatér (to påstande) → Fjern ville den derfor
+-- genoplive den oprindelige markering i stedet for at fjerne den. Retract undgår det (og hele
+-- FK-slette-dansen). Fortrydbar (change_set; conclusion er versions-sporet).
+CREATE OR REPLACE FUNCTION red_tilbagetraek_fakta(p_fact_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Fail-closed FØR change_set åbnes: intet at tilbagetrække (forkert/tilbagetrukket/ikke-eksisterende
+  -- fakta, eller p_fact_id NULL/NaN-serialiseret) → ærlig fejl frem for tomt change_set + falsk succes
+  -- (review 27/Codex MEDIUM). Ellers ville et dobbeltklik eller stale id rapportere OK uden effekt.
+  IF NOT EXISTS (SELECT 1 FROM conclusion
+                 WHERE target_type='fact' AND target_id=p_fact_id AND status='afklaret') THEN
+    RAISE EXCEPTION 'Ingen aktiv markering at tilbagetrække på fakta %', p_fact_id;
+  END IF;
+  PERFORM begin_change_set('red_tilbagetraek_fakta', format('Tilbagetrak markering på fakta %s', p_fact_id), NULL, NULL);
+  UPDATE conclusion SET status='tilbagetrukket', blaastemplet_naar=current_date
+    WHERE target_type='fact' AND target_id=p_fact_id AND status='afklaret';
+END $$;
+
 -- ---------- INDEKSER (relations-/evidens-opslag; UI + traversal) ----------
 CREATE INDEX IF NOT EXISTS ix_fammember_person   ON family_member(person_id);
 CREATE INDEX IF NOT EXISTS ix_fammember_family   ON family_member(family_id);

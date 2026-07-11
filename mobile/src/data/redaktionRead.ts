@@ -152,8 +152,8 @@ export type SletPreview = {
 };
 
 // "Forældre ukendt"-markering (docs/reviews/25): den aktuelle afklarede markering på en person,
-// eller null hvis umarkeret. assertionId bruges til fjern-operationen. Spejler web/src/data/redaktionRead.ts.
-export type ForaeldreUkendtMarkering = { assertionId: number; grade: string; kilde: string | null };
+// eller null hvis umarkeret. factId bruges til fjern (tilbagetræk hele fakta-slottet). Spejler web/src/data/redaktionRead.ts.
+export type ForaeldreUkendtMarkering = { factId: number; assertionId: number; grade: string; kilde: string | null };
 
 export async function fetchForaeldreUkendtMarkering(personId: string): Promise<ForaeldreUkendtMarkering | null> {
   if (!supabase || !personId) return null;
@@ -164,16 +164,17 @@ export async function fetchForaeldreUkendtMarkering(personId: string): Promise<F
   const factIds = (facts ?? []).map((f: { id: number }) => f.id);
   if (!factIds.length) return null;
   const { data: conc, error: cErr } = await supabase
-    .from('conclusion').select('valgt_assertion_id').eq('target_type', 'fact').eq('status', 'afklaret')
-    .in('target_id', factIds).limit(1).maybeSingle();
+    .from('conclusion').select('target_id,valgt_assertion_id').eq('target_type', 'fact').eq('status', 'afklaret')
+    .in('target_id', factIds).order('target_id').limit(1).maybeSingle(); // deterministisk (laveste fact-id) — spejler PU-loaderens .order('id')
   if (cErr) throw cErr;
   const aid = conc?.valgt_assertion_id;
-  if (aid == null) return null;
+  const fid = conc?.target_id;
+  if (aid == null || fid == null) return null;
   const [{ data: a }, { data: cit }] = await Promise.all([
     supabase.from('assertion').select('vaerdi_tekst').eq('id', aid).maybeSingle(),
     supabase.from('citation').select('citat_tekst').eq('assertion_id', aid).limit(1).maybeSingle(),
   ]);
-  return { assertionId: Number(aid), grade: a?.vaerdi_tekst ?? '', kilde: cit?.citat_tekst ?? null };
+  return { factId: Number(fid), assertionId: Number(aid), grade: a?.vaerdi_tekst ?? '', kilde: cit?.citat_tekst ?? null };
 }
 
 export async function fetchSletPreview(personId: string): Promise<SletPreview> {
