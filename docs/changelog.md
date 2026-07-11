@@ -1,5 +1,59 @@
 # Changelog
 
+## Review 27 — dual-review af review-26-rettelserne (web+mobil, branch `feat/generations-browser-v2`, 2026-07-11)
+
+Claude+Codex dual-review af selve review-26-rettelserne (`docs/reviews/27-review26-fixes-dual-review.md`).
+Code-analyzer: 0 bugs. **Codex hævede den rigtige robustheds-/scoping-flanke** (alle claims verificeret
+empirisk — ingen laundering):
+
+- **MEDIUM (rettet):** `red_tilbagetraek_fakta` åbnede et change_set FØR den tjekkede om noget blev ramt →
+  forkert/dobbelt-klik gav tomt change_set + falsk succes. Nu fail-closed `IF NOT EXISTS(... afklaret) THEN
+  RAISE` før `begin_change_set` (schema.sql + db-migrations.sql). Rollback-test udvidet: dobbelt-retract
+  rejser nu ærlig fejl. **Kræver prod-re-apply** (idempotent CREATE OR REPLACE).
+- **Determinisme (rettet):** `fetchForaeldreUkendtMarkering` manglede `order` (PU-loaderen har `.order('id')`)
+  → `.order('target_id')` tilføjet (begge platforme).
+- **NaN-guard (rettet):** `buildRpcCall`-guarden afviste kun `null`; `Number('')===0` slap igennem. Nu
+  afvises tom/blank + ikke-endelige eksplicit (begge platforme; tests +2).
+- **Stale kommentar (rettet):** `Redaktion.tsx` sagde stadig `red_slet_oplysning (fjern)`.
+- **HIGH surfacet (pre-eksisterende, IKKE regression):** samme_som-collapse gør Fjern ufuldstændig —
+  editoren opererer på rå `personId`, projektionen er kanonisk; to foldede medlemmer begge markeret →
+  Fjern rammer kun én. Eskalering af review-26 MEDIUM 3. Afventer bruger-beslutning (kaskadér / vis konflikt
+  / PoC-grænse). Sjældent (kræver to samme_som-linkede personer begge hånd-markeret).
+- **Kvalitet:** web 243/243 + mobil 332/332 + tsc rent + lokal rollback-test grøn (inkl. guard-assertion).
+
+## Review 26 (Codex) — rettelser af generationsbrowseren (web+mobil, branch `feat/generations-browser-v2`, 2026-07-11)
+
+Codex-review af `feat/generations-browser-v2` (brief: `docs/reviews/26-foraeldre-ukendt-generationsbrowser-review-brief.md`).
+Fund verificeret mod koden (advisor-gate + `superpowers:receiving-code-review`): HIGH 2 = ægte bug,
+HIGH 1 = reel over-implikation (delvist), MEDIUM 2 = dokumenteret PoC-grænse, MEDIUM 1 + 3 = backlog.
+
+- **HIGH 2 (bug — rettet):** "Fjern markering" kaldte `red_slet_oplysning`, som re-peger konklusionen
+  til den ÆLDSTE tilbageværende påstand. Efter Markér → Opdatér (to påstande) → Fjern genoplivede den
+  derfor den oprindelige markering i stedet for at fjerne den. **Fix:** ny generisk RPC
+  `red_tilbagetraek_fakta(p_fact_id)` sætter fakta-slottets konklusion `'afklaret' → 'tilbagetrukket'`
+  (læse-gates kræver `afklaret`, så markeringen holder op med at projicere; re-Markér reaktiverer via
+  `red_upsert_fakta`s `ON CONFLICT`). Append-sikkert (påstande uforanderlige, invariant 1), fortrydbart
+  (`conclusion` er `version_pk_registry`-sporet). App: ny `tilbagetraekFakta`-art (web+mobil buildRpcCall),
+  `fetchForaeldreUkendtMarkering` returnerer nu `factId`, Fjern-knappen ruter om. Per-oplysnings-🗑
+  uændret (`sletOplysning` er korrekt der). **Verificeret:** lokal rollback-test mod prod-kopien
+  (`daa_test2`) beviste både bug-reproduktion OG fix i én rullet-tilbage transaktion (retract → 0
+  afklarede + 2 bevarede påstande + virkende re-Markér). `schema.sql` + idempotent `db-migrations.sql`.
+- **HIGH 1 (over-implikation — ordlyd skærpet):** nedad-projektionen ligger inde i en mands børne-kolonne
+  og kunne læses som "hans mulige børn". Kandidat-visningen beholdt (bruger-ønske om inline-bladring),
+  men ordlyden skærpet: header "Uforbundne i dette slægtled" → "Uforbundne — placeret efter slægtled,
+  ikke forældreskab"; grad-1-note "Muligt barn — …" → "Muligt barn **i linjen** — forælderen er ikke
+  navngivet". Rene string-ændringer, delt kerne holdt byte-identisk.
+- **Bevidst udskudt:** MEDIUM 2 (kilde gemt som fritekst i `citat_tekst` frem for struktureret
+  `source_id`/side + ordret formulering) — dokumenteret PoC-grænse (`schema.sql` linje 536); det rigtige
+  fix er skema+UI-arbejde, holdt ude af dette changeset for at bevare stramhed. MEDIUM 1 (`usikker` tabes
+  i `backfill_slaegtled.R` — anden akse: usikkert *medlemskab* vs. ingen *forbindelse*, ingen forbruger
+  endnu, YAGNI) + MEDIUM 3 (flere markeringer efter samme_som-collapse: "første vinder", deterministisk,
+  sjælden) = backlog.
+- **Kvalitet:** web 242/242 + mobil 331/331 + tsc rent begge steder. `red_tilbagetraek_fakta`
+  **anvendt mod prod 2026-07-11** (ren additiv `CREATE OR REPLACE`, bekræftet FALSE→TRUE, signatur
+  `p_fact_id bigint`) — Fjern-knappen virker nu i live-appen. **UDESTÅR:** empirisk E2E på device
+  (markér→opdatér→fjern via redaktør-login) + dual-review + merge.
+
 ## "Forældre ukendt"-markering + inline marker-gatet kandidat-kolonne (web+mobil, branch `feat/generations-browser-v2`, IKKE merget, 2026-07-09)
 
 Løser problemet fra `docs/reviews/25-generationer-ukendt-forbindelse-analyse.md`: stamtræets ene

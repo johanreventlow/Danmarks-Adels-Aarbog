@@ -2,6 +2,20 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## "Forældre ukendt"-markering: rå-scope vs. samme_som-kanonisk — accepteret PoC-grænse (2026-07-11)
+
+**Fjern-operationen forbliver rå-`personId`-scoped, selvom den offentlige projektion er kanonisk
+(samme_som-collapset).** Codex-fund i review 27 (`docs/reviews/27-*.md` HIGH a): markér/fjern skriver
+til det rå person-id, mens `buildParentsUnknown` folder facts fra flere rå personer til én kanonisk
+(og vælger "første vinder"). Er to samme_som-linkede medlemmer BEGGE markeret, fjerner Fjern kun den
+ene; den anden projicerer stadig. **Bevidst valgt backlog frem for kaskade/konflikt-visning:** (a) det
+er en pre-eksisterende egenskab ved hele featuren (markér/gammel-fjern/ny-fjern er alle rå-scoped —
+review-26 ændrede kun *hvordan* der fjernes), ikke en regression; (b) det kræver to samme_som-linkede
+personer der *begge* er hånd-markeret forældre_ukendt — meget sjældent i en hånd-kurateret base; (c)
+redaktøren collapser bevidst IKKE (evidens redigeres på rå poster). Determinisme-fixet (`.order('target_id')`
+i `fetchForaeldreUkendtMarkering`) gør adfærden konsistent. Kaskadér-Fjern (RPC/editor loader collapse-
+mappen + itererer flere facts) eller konflikt-visning genbesøges hvis et reelt tilfælde dukker op.
+
 ## Flere narrativer pr. person: kilde-nøgling + per-subjekt selector (2026-07-03)
 
 **Kilde-nøgling frem for id-liste eller konkatenering.** En persons narrativer nøgles på
