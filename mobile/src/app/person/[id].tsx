@@ -15,7 +15,7 @@ import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography
 import { lifeJourney } from '../../data/geoSelectors';
 import { childrenByMarriage, parentsOf, spousesOf } from '../../data/selectors';
 import { usePersonMedia } from '../../lib/media';
-import { useStore } from '../../store/useStore';
+import { selectMeId, useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius } from '../../theme/tokens';
 
 const BIO_CLAMP_CHARS = 320;
@@ -27,7 +27,7 @@ export default function PersonScreen() {
   const model = useStore((s) => s.model);
   const aux = useStore((s) => s.aux);
   const geo = useStore((s) => s.geo);
-  const meId = useStore((s) => s.meId);
+  const meId = useStore(selectMeId);
   const setMe = useStore((s) => s.setMe);
   const setFocus = useStore((s) => s.setFocus);
   const canonicalId = useStore((s) => s.canonicalId);
@@ -55,9 +55,9 @@ export default function PersonScreen() {
     );
   }
 
-  // Kanonisér meId ved sammenligningen: et gemt alias-meId (fra AsyncStorage før collapse-map
-  // er klar) skal stadig matche den kanoniske person — robust uanset hydrate/load-rækkefølge.
-  const isMe = meId != null && canonicalId(meId) === person.id;
+  // meId er allerede kanoniseret ved læsning (selectMeId, review 27 M-K3) — robust uanset
+  // hydrate/load-rækkefølge, så sammenligningen kan ske direkte.
+  const isMe = meId != null && meId === person.id;
   const parents = parentsOf(model, person.id);
   const spouses = spousesOf(model, person.id);
   const marriages = childrenByMarriage(model, person.id).filter((m) => m.children.length);

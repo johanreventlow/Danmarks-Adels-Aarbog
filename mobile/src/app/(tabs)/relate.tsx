@@ -11,7 +11,7 @@ import { computeRelationship } from '../../data/relationship';
 import type { RelationResult } from '../../data/relationship';
 import type { Konfidens } from '../../data/types';
 import { chooseMeSlot } from '../../lib/relateSlot';
-import { useStore } from '../../store/useStore';
+import { selectMeId, useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius, Shadow } from '../../theme/tokens';
 
 // Vis kun de led der reelt er usikre (formodet/omstridt); sikre/sandsynlige/uangivne flages ikke.
@@ -36,7 +36,7 @@ export default function RelateScreen() {
   const relB = useStore((s) => s.relB);
   const setRelA = useStore((s) => s.setRelA);
   const setRelB = useStore((s) => s.setRelB);
-  const meId = useStore((s) => s.meId);
+  const meId = useStore(selectMeId);
   const [picking, setPicking] = useState<'A' | 'B' | null>(null);
 
   const a = relA && model ? model.byId[relA] : null;
