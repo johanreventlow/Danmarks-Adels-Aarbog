@@ -132,7 +132,6 @@ export async function loadFromSupabase(opts?: {
 
   const [
     persons,
-    ,
     members,
     narratives,
     extIds,
@@ -152,7 +151,6 @@ export async function loadFromSupabase(opts?: {
       getAll<RawPerson>(() =>
         sb.from('person').select('id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_titel,koen,privat'),
       ),
-      getAll<{ id: number; type: string }>(() => sb.from('family').select('id,type')),
       getAll<RawMember>(() => sb.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens')),
       getAll<RawNarrative>(() =>
         sb
