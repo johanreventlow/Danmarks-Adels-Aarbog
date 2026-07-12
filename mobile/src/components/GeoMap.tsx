@@ -36,7 +36,8 @@ function buildHtml(points: GeoPoint[], mode: 'mini' | 'explorer'): string {
 <link href="https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css" integrity="${MAPLIBRE_CSS_SRI}" crossorigin="anonymous" rel="stylesheet" />
 <style>html,body,#map{margin:0;padding:0;height:100%;width:100%;background:${Colors.paperBg}}</style>
 </head><body><div id="map"></div><script>
-  const POINTS = ${JSON.stringify(points)};
+  // escape </script>-breakout + linjeseparatorer i WebView-HTML (review 27 S1)
+  const POINTS = ${JSON.stringify(points).replace(/</g, '\\u003c').replace(/ /g, '\\u2028').replace(/ /g, '\\u2029')};
   const map = new maplibregl.Map({
     container: 'map', style: '${DEMO_STYLE}', center: [10, 55.5], zoom: 5,
     interactive: ${interactive}, attributionControl: ${interactive},
