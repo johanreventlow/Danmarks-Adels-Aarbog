@@ -94,6 +94,8 @@ export type RawMedia = {
   kunstner?: string | null;
   datering?: string | null;
   storage_path?: string | null;
+  thumb_storage_path?: string | null; // billedstørrelser 2026-07-05, Slice B3 (fra media_variant, tier='thumb')
+  medium_storage_path?: string | null; // billedstørrelser 2026-07-05, Slice C (fra media_variant, tier='medium')
   [k: string]: unknown;
 };
 export type RawArms = { id: number | string; blasonering: string | null; note: string | null };
@@ -206,6 +208,7 @@ export type Aux = {
   estatesBy: Record<string, EstateRef[]>;
   officesBy: Record<string, OfficeRef[]>;
   mediaBy: Record<string, RawMedia[]>;
+  mediaById: Record<string, RawMedia>; // alle media-rækker, id-nøglet (billeder-i-narrativer 2026-07-05, Slice C)
   ownersByEstate: Record<string, OwnerRef[]>;
   estateList: EstateListEntry[];
   estateById: Record<string, { id: string; navn: string; slags: string }>;

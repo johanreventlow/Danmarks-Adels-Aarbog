@@ -88,6 +88,25 @@ CREATE TABLE media (
 CREATE UNIQUE INDEX IF NOT EXISTS media_storage_path_uidx ON media (bucket, storage_path) WHERE storage_path IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS media_sha256_uidx       ON media (sha256)               WHERE sha256 IS NOT NULL;
 
+-- Klient-genkodede størrelsestrin (billedstørrelser/lightbox 2026-07-05, Slice B). KUN 'thumb' og
+-- 'medium' — 'large' ER media-rækkens egen storage_path/mime_type/bredde/hoejde (ingen separat
+-- original gemmes, jf. beslutning §6.4). Dette holder eksisterende rækker migrationsfri: de er
+-- allerede deres egen 'large'-variant, de mangler blot thumb/medium-rækker (ingen backfill, §6.3).
+-- IKKE i version_pk_registry — afledt cache, ligesom person.visning_* (B8-mønsteret), fortrydes
+-- ikke separat; ON DELETE CASCADE så variant-rækker dør med deres media-forælder.
+CREATE TABLE media_variant (
+  id           BIGINT PRIMARY KEY,
+  media_id     BIGINT NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+  tier         TEXT NOT NULL CHECK (tier IN ('thumb','medium')),
+  storage_path TEXT NOT NULL,
+  mime_type    TEXT,
+  byte_size    BIGINT,
+  bredde       INT,
+  hoejde       INT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS media_variant_media_tier_uidx    ON media_variant (media_id, tier);
+CREATE UNIQUE INDEX IF NOT EXISTS media_variant_storage_path_uidx ON media_variant (storage_path);
+
 CREATE TABLE historical_event (
   id   BIGINT PRIMARY KEY,
   navn TEXT
@@ -283,6 +302,15 @@ CREATE TABLE suggestion (            -- staging: ikke-redaktion-forslag (manuelt
 -- RLS slås til ved oprettelse (deny-all indtil politikker + grants lander i db-rls.sql).
 ALTER TABLE profiles   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE suggestion ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE bookmark (              -- login-eksklusive bogmærker (kun personer), spec 2026-07-06
+  id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id   UUID NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
+  person_id BIGINT NOT NULL REFERENCES person(id) ON DELETE CASCADE,
+  oprettet  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, person_id)
+);
+ALTER TABLE bookmark ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE family (                    -- union/partnerskab
   id   BIGINT PRIMARY KEY,
@@ -1373,6 +1401,33 @@ BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   PERFORM begin_change_set('red_fjern_media', format('Fjernede media %s', p_media_id), 'media', p_media_id);
   UPDATE media SET upload_status = 'fjernet' WHERE id = p_media_id;
+END $$;
+
+-- Registrér en klient-genkodet thumb/medium-variant efter dens bytes er landet i Storage
+-- (samme to-trins-idé som red_bekraeft_media_upload, men uden 'kladde'-mellemtilstand: forælderens
+-- upload_status gater ALT — en variant-række der findes før forælderen er 'klar' lækker intet).
+-- UPSERT på (media_id, tier): et gen-upload (§6.3, ingen backfill — brugeren uploader selv igen)
+-- skal opdatere variant-stien i stedet for at fejle på unique-index. IKKE et begin_change_set-kald:
+-- media_variant er bevidst uden for versionering (se tabel-kommentar) og skal ikke lægge et tomt,
+-- ufortrydbart change_set i redaktørens historik-visning.
+CREATE OR REPLACE FUNCTION red_registrer_media_variant(
+  p_media_id bigint, p_tier text, p_storage_path text,
+  p_mime text DEFAULT NULL, p_byte_size bigint DEFAULT NULL,
+  p_bredde int DEFAULT NULL, p_hoejde int DEFAULT NULL
+) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_id bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_tier NOT IN ('thumb','medium') THEN
+    RAISE EXCEPTION '''%'' er ikke en gyldig variant-tier. ''large'' er media-rækkens egen storage_path, ikke en variant-række.', p_tier;
+  END IF;
+  INSERT INTO media_variant(id, media_id, tier, storage_path, mime_type, byte_size, bredde, hoejde)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM media_variant), p_media_id, p_tier, p_storage_path, p_mime, p_byte_size, p_bredde, p_hoejde)
+    ON CONFLICT (media_id, tier) DO UPDATE
+      SET storage_path = excluded.storage_path, mime_type = excluded.mime_type,
+          byte_size = excluded.byte_size, bredde = excluded.bredde, hoejde = excluded.hoejde
+    RETURNING id INTO v_id;
+  RETURN v_id;
 END $$;
 
 -- =====================================================================

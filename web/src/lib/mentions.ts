@@ -71,3 +71,66 @@ export function insertAt(text: string, pos: number, insert: string): { text: str
   const p = Math.max(0, Math.min(pos, text.length));
   return { text: text.slice(0, p) + insert + text.slice(p), cursor: p + insert.length };
 }
+
+// Blok-gruppering (billeder-i-narrativer 2026-07-05, Slice C) — minimal, håndrullet udvidelse af
+// grammatikken OVEN PÅ parseNarrativ's segmenter (tokeniseret FØRST, aldrig line-splittet på rå
+// tekst — undgår at et token der tilfældigvis indeholder et linjeskift i sin label fejltolkes).
+// Ingen markdown-bibliotek: kun `##`/`###`-linjer som overskrift + linjeskift/blanke-linjer som
+// afsnitsgrænser. `media`-tokens bliver ALTID deres egen blok (kan ikke sidde inline i tekstflowet
+// på mobile — RN tillader ikke <Image> som barn af <Text>); andre mention-typer (fx person) forbliver
+// inline i det løbende afsnit, uændret adfærd.
+export type Block =
+  | { kind: 'heading'; level: 2 | 3; text: string }
+  | { kind: 'paragraph'; segs: Segment[] }
+  | { kind: 'media'; maalId: number; label: string };
+
+// Overskrift SKAL stå alene på sin linje uden foranstillet whitespace (ingen indrykning-tolerance
+// — holder reglen simpel og entydig, jf. "minimal, ikke fuld markdown").
+const HEADING = /^(#{2,3})\s+(.+?)\s*$/;
+
+// Slår en ny tekst-linje sammen med bufferens sidste segment hvis det allerede er tekst (undgår at
+// et flerlinjet afsnit bliver til N separate tekst-segmenter — bevarer i stedet ÉT segment med
+// indlejrede '\n', som renderen viser som linjeskift INDEN i afsnittet).
+function pushText(buf: Segment[], text: string): void {
+  const last = buf[buf.length - 1];
+  if (last && last.kind === 'text') last.text += text;
+  else buf.push({ kind: 'text', text });
+}
+
+export function groupBlocks(segments: Segment[]): Block[] {
+  const blocks: Block[] = [];
+  let buf: Segment[] = [];
+  const flush = () => {
+    // dropper et afsnit der kun består af whitespace (fx to blanke linjer i træk)
+    if (buf.length && !buf.every((s) => s.kind === 'text' && s.text.trim() === '')) {
+      blocks.push({ kind: 'paragraph', segs: buf });
+    }
+    buf = [];
+  };
+  for (const seg of segments) {
+    if (seg.kind === 'link' && seg.maalType === 'media') {
+      flush();
+      blocks.push({ kind: 'media', maalId: seg.maalId, label: seg.label });
+      continue;
+    }
+    if (seg.kind === 'link') {
+      buf.push(seg); // ikke-media mention (fx person) forbliver inline i det løbende afsnit
+      continue;
+    }
+    seg.text.split('\n').forEach((line, i) => {
+      const heading = HEADING.exec(line);
+      if (heading) {
+        flush();
+        blocks.push({ kind: 'heading', level: heading[1].length as 2 | 3, text: heading[2] });
+        return;
+      }
+      if (line.trim() === '') { flush(); return; }
+      // i>0: linjen er en fortsættelse af FORRIGE linje i samme tekst-segment — men kun hvis den
+      // forrige linje reelt landede i det løbende afsnit (buf ikke lige tømt af overskrift/blank).
+      if (i > 0 && buf.length) pushText(buf, '\n');
+      pushText(buf, line);
+    });
+  }
+  flush();
+  return blocks;
+}

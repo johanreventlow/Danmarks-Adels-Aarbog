@@ -6,9 +6,10 @@ import { ViewHeader, Avatar, BookmarkFlag } from './primitives';
 import { buildBookmarkList, type BookmarkSort } from '../data/bookmarks';
 import type { Model } from '../data/types';
 
-export function BookmarksView({ model, ids, sort, setSort, onPick, onRemove }: {
+export function BookmarksView({ model, ids, sort, setSort, onPick, onRemove, loggedIn, onRequireLogin }: {
   model: Model; ids: string[]; sort: BookmarkSort; setSort: (s: BookmarkSort) => void;
   onPick: (id: string) => void; onRemove: (id: string) => void;
+  loggedIn: boolean; onRequireLogin: () => void;
 }) {
   // ids er nu en stabil array-reference fra Folgesvend (useMemo på bookmarks.ids) — memoisér
   // også selve grupperingen her, så et re-render der ikke ændrer bogmærker ikke sorterer igen.
@@ -34,7 +35,14 @@ export function BookmarksView({ model, ids, sort, setSort, onPick, onRemove }: {
 
       {total === 0 ? (
         <div style={{ border: '1px dashed rgba(34,31,26,.2)', borderRadius: 11, padding: 20, background: T.paper, fontSize: 13, color: T.muted3, textAlign: 'center' }}>
-          Ingen bogmærker endnu — tryk flaget på en person for at gemme den her.
+          {loggedIn ? (
+            'Ingen bogmærker endnu — tryk flaget på en person for at gemme den her.'
+          ) : (
+            <>
+              Log ind for at samle dine bogmærker på tværs af dine enheder.
+              <div onClick={onRequireLogin} style={{ marginTop: 10, display: 'inline-block', fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>Log ind ›</div>
+            </>
+          )}
         </div>
       ) : (
         groups.map((g) => (

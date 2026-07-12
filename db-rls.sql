@@ -103,14 +103,19 @@ revoke all on function public.media_rettigheder_ok(bigint) from public;
 grant execute on function public.media_rettigheder_ok(bigint) to anon, authenticated;
 
 -- Kort et storage-objekt tilbage til dets media-række. Stien er autoritativ:
--- storage.objects.name == media.storage_path (unikt pr. (bucket,storage_path)). SECURITY DEFINER
--- så den kan læse media uafhængigt af kalderens RLS. Forældreløst objekt → NULL → fail-closed
--- i storage-politikkerne nedenfor (media_rettigheder_ok(NULL)=false).
+-- storage.objects.name == media.storage_path (unikt pr. (bucket,storage_path)) FOR 'large'-tieren;
+-- for 'thumb'/'medium' (billedstørrelser/lightbox 2026-07-05, Slice B1) ligger stien i stedet i
+-- media_variant.storage_path og slås op på DENS media_id. Begge grene rammer aldrig samtidig
+-- (storage_path er unik i hver tabel for sig), så rækkefølgen her er ligegyldig for korrekthed —
+-- kun for hvilken gren der typisk rammes først. SECURITY DEFINER så den kan læse begge tabeller
+-- uafhængigt af kalderens RLS. Forældreløst objekt → NULL → fail-closed i storage-politikkerne
+-- nedenfor (media_rettigheder_ok(NULL)=false).
 create or replace function public.media_id_for_object(p_name text)
 returns bigint language sql stable security definer set search_path=public as $$
-  select m.id from public.media m
-   where m.bucket = 'media' and m.storage_path = p_name
-   limit 1;
+  select coalesce(
+    (select m.id from public.media m where m.bucket = 'media' and m.storage_path = p_name limit 1),
+    (select v.media_id from public.media_variant v where v.storage_path = p_name limit 1)
+  );
 $$;
 revoke all on function public.media_id_for_object(text) from public;
 grant execute on function public.media_id_for_object(text) to anon, authenticated;
@@ -195,6 +200,23 @@ create policy auth_read on public.media for select to authenticated
 -- redaktion: ser alt (additivt oven på de to ovenfor).
 drop policy if exists redaktion_read on public.media;
 create policy redaktion_read on public.media for select to authenticated
+  using ((select public.current_rolle()) = 'redaktion');
+
+-- media_variant (billedstørrelser/lightbox 2026-07-05, Slice B1): egen tabel, egen RLS — men INGEN
+-- selvstændig synligheds-logik. Delegerer 1:1 til media_synlig_anon/auth via media_id, så en
+-- variant-række ALDRIG kan være synlig når dens forælder ikke er det (og omvendt). Uden disse
+-- policies er tabellen enten helt åben (RLS fra) eller helt usynlig for PostgREST (RLS til, ingen
+-- policy) — begge forkerte.
+grant select on table public.media_variant to anon, authenticated;
+alter table public.media_variant enable row level security;
+drop policy if exists anon_read on public.media_variant;
+create policy anon_read on public.media_variant for select to anon
+  using (public.media_synlig_anon(media_id));
+drop policy if exists auth_read on public.media_variant;
+create policy auth_read on public.media_variant for select to authenticated
+  using (public.media_synlig_auth(media_id));
+drop policy if exists redaktion_read on public.media_variant;
+create policy redaktion_read on public.media_variant for select to authenticated
   using ((select public.current_rolle()) = 'redaktion');
 
 -- ---------- STORAGE-OBJEKTER (mediehåndtering 2026-07-04) ----------
@@ -388,6 +410,28 @@ grant select on table public.profiles to authenticated;
 alter table public.profiles enable row level security;
 drop policy if exists self_read on public.profiles;
 create policy self_read on public.profiles for select to authenticated using (id = auth.uid());
+
+-- bookmark: login-eksklusive, egen-scoped (dual-review 21 N1 — eksplicit grant, RLS er ikke nok;
+-- Supabase auto-grant'er default-privilegier til anon/authenticated på nye tabeller).
+revoke all on table public.bookmark from anon, public;
+grant select, insert, delete on table public.bookmark to authenticated;
+-- Prod-fund ved anvendelse (2026-07-06): Supabases pg_default_acl for schema public granter
+-- automatisk ALLE tabel-privilegier (inkl. UPDATE/REFERENCES/TRIGGER/TRUNCATE) til authenticated
+-- på enhver ny tabel — GRANT ovenfor er additivt og fjerner ikke dette. Revoke eksplicit ned til
+-- tilsigtet overflade (kun SELECT/INSERT/DELETE — der findes ingen UPDATE-policy, og TRUNCATE
+-- omgår RLS helt). Systemisk på tværs af databasen (bekræftet også på media_variant) — kun
+-- rettet for bookmark her, se docs/reviews/22-*.md for det fulde fund.
+revoke update, references, trigger, truncate on table public.bookmark from authenticated;
+
+drop policy if exists bookmark_select_own on public.bookmark;
+create policy bookmark_select_own on public.bookmark
+  for select to authenticated using (user_id = auth.uid());
+drop policy if exists bookmark_insert_own on public.bookmark;
+create policy bookmark_insert_own on public.bookmark
+  for insert to authenticated with check (user_id = auth.uid());
+drop policy if exists bookmark_delete_own on public.bookmark;
+create policy bookmark_delete_own on public.bookmark
+  for delete to authenticated using (user_id = auth.uid());
 
 -- RPC-grants: alle red_*-funktioner kaldbare af authenticated (rolle-tjek er INDE i dem).
 do $$

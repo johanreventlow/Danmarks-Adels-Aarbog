@@ -16,6 +16,52 @@ redaktøren collapser bevidst IKKE (evidens redigeres på rå poster). Determini
 i `fetchForaeldreUkendtMarkering`) gør adfærden konsistent. Kaskadér-Fjern (RPC/editor loader collapse-
 mappen + itererer flere facts) eller konflikt-visning genbesøges hvis et reelt tilfælde dukker op.
 
+## Konto-bogmærker: login-eksklusivt (ikke hybrid), direkte tabel-adgang (ikke RPC) (2026-07-06)
+
+**Login-eksklusivt frem for hybrid lokal/konto.** Bogmærker blev netop shippet som lokal PoC uden
+reelle brugerdata — i stedet for at bygge merge-logik (lokalt→konto ved login) blev de gjort
+**cloud-only**: udlogget = tomt + login-prompt, logget-ind = Supabase. Forkastet: hybrid
+(lokal-når-udlogget, synk-når-logget-ind, flet ved login) — mest UX, men markant mere logik
+(offline-cache, merge-strategi) for et gode brugeren selv bad om som "added benefit", ikke en
+kerneflow. Ingen migration nødvendig (ingen live brugerdata i den lokale version endnu).
+
+**Direkte tabel-adgang (RLS+grants) frem for RPC.** `bookmark`-tabellen er ren bruger-ejet data
+(ingen evidens-lag, ingen redaktionel logik) → RLS-policies + eksplicitte grants er tilstrækkeligt
+og Supabase-idiomatisk. `red_*`-RPC'er forbeholdes evidens-modellens skrivninger (versionering,
+change-sets). Kræver dog **eksplicit** `GRANT`/`REVOKE` — Supabase auto-grant'er default-
+privilegier til anon/authenticated ved tabel-oprettelse, så RLS alene lækker (dual-review 21 N1,
+jf. [[supabase-revoke-from-public-insufficient]]).
+
+**Web fik minimal login-flade; mobil kun wiring.** Mobils Konto-fane understøttede allerede
+medlem-login; web's offentlige Folgesvend-læser havde ingen session (kun localStorage-"mig").
+Web-skiven tilføjede derfor en lille login-modal (genbrug af `data/auth.ts`) — bevidst IKKE en
+fuld kontoflade, og bevidst UDEN at ændre den eksisterende "mig"-lagring (forbliver separat,
+udskudt migration).
+
+## Følgesvend v3-feed: hybrid auto-generering + person-kun bogmærker (2026-07-05)
+
+**Feed auto-genereret nu, editorial-krog senere (ikke DB-kurateret).** `buildFeed` er en ren
+selector der udleder kort af eksisterende `Model`/`Aux` — ingen ny feed-tabel. Et tomt
+`overrides`-argument reserverer den redaktionelle indgang uden at bygge den. Forkastet:
+DB-kurateret feed (skema + RPC'er + redaktør-UI = stor merudvidelse uden PoC-værdi nu).
+
+**Portrait og citat i disjunkte hash-partitioner.** Begge trækker fra personer-med-bio; uden en
+regel ville samme person kunne optræde to gange. Valgt: `stableHash(id) % 4` allokerer ~25% til
+citat-slot; citat-slot uden brugbar sætning falder HELT ud (bliver ikke portræt) så partitionerne
+forbliver disjunkte. Forkastet: tillad dublet (redaktionelt rodet); rendrer-tids-dedup (skjuler
+ikke-determinisme).
+
+**Bogmærker: person-kun, spejler web.** Selv om v3-feedet viser gem-ikon på flere korttyper,
+lagres kun kanoniske person-id'er (AsyncStorage), 1:1 med web's kontrakt. Gem-ikon vises derfor
+kun på kort med `personId` (portrait/citat/embede/jubilaeum) — de gemmer personen. Forkastet:
+polymorf `{type,id}` (afveg fra web; afledte kort som jubilæum/citat har ingen stabil egen-id).
+
+**Async-lager + synkron hook-state (ikke bare `await`).** Web's bookmark-kontrakt var synkron
+(`useState`-init, sync `has()`/`toggle()`). AsyncStorage-porten holder `ids` i `useState` som
+render-sandhed (sync `has()`), hydrerer i effect, og toggler optimistisk + persisterer async
+(seneste-vinder). Hook'en afhænger af `canonicalIdById`-**mappet**, ikke funktionsreferencen —
+den stabile Zustand-`canonicalId` ville aldrig signalere recollapse (dual-review BM1/BM2).
+
 ## Flere narrativer pr. person: kilde-nøgling + per-subjekt selector (2026-07-03)
 
 **Kilde-nøgling frem for id-liste eller konkatenering.** En persons narrativer nøgles på

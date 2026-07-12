@@ -1,99 +1,115 @@
-// Bogmærke-lager (web v3 Slice 1 — spec §3.1/§3.2). localStorage-adapter (PoC), spejler
-// `meId`-mønstret i Folgesvend.tsx. En bruger-scoped, persisteret backend er iboende asynkron
-// (auth-scope, mutation-latency) og designes som egen async repository-kontrakt i Slice 2 —
-// dette modul er grænsen for løftet nu: al localStorage-adgang bag ét sted.
-import { useEffect, useMemo, useRef, useState } from 'react';
+// Bogmærke-lager (konto-bogmærker, spec 2026-07-06). Login-eksklusivt: Supabase-backet
+// repository + auth-gated hook. Erstatter den lokale localStorage-PoC (web v3 Slice 1).
+// person_id sendes ALTID som streng til PostgREST (bigint > 2^53 korrumperes af Number() —
+// dual-review 21 N2).
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { supabase } from '../supabase';
 import { compareDanish } from '../lib/collation';
 import type { Model, ModelPerson } from './types';
 
-export const BOOKMARKS_KEY = 'daa_bookmarks';
-
-export interface BookmarkStore {
-  list(): string[]; // kanoniske person-id'er, seneste-tilføjet-først
-  has(id: string): boolean;
-  toggle(id: string): string[]; // returnerer ny liste
+export interface BookmarkRepository {
+  list(): Promise<string[]>;
+  add(personId: string): Promise<void>;
+  remove(personId: string): Promise<void>;
 }
 
-function safeRead(): string[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = window.localStorage.getItem(BOOKMARKS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-
-function safeWrite(ids: string[]): void {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(ids));
-  } catch {
-    // bogmærker er ikke-kritisk PoC-funktion — fejl ved skrivning skal ikke crashe UI'et
-  }
-}
-
-export function createLocalBookmarkStore(): BookmarkStore {
+export function createRemoteBookmarkRepository(): BookmarkRepository {
   return {
-    list: () => safeRead(),
-    has: (id) => safeRead().includes(id),
-    toggle: (id) => {
-      const current = safeRead();
-      const next = current.includes(id) ? current.filter((x) => x !== id) : [id, ...current];
-      safeWrite(next);
-      return next;
+    list: async () => {
+      const { data, error } = await supabase.from('bookmark').select('person_id').order('oprettet', { ascending: false });
+      if (error || !data) return [];
+      return data.map((r: { person_id: string | number }) => String(r.person_id));
+    },
+    add: async (personId) => {
+      const { error } = await supabase.from('bookmark').upsert(
+        { person_id: personId },
+        { onConflict: 'user_id,person_id', ignoreDuplicates: true },
+      );
+      if (error) throw new Error(error.message);
+    },
+    remove: async (personId) => {
+      const { error } = await supabase.from('bookmark').delete().eq('person_id', personId);
+      if (error) throw new Error(error.message);
     },
   };
 }
 
-// Dedupikér en id-liste (newest-first) til kanoniske id'er. Første forekomst pr. kanonisk id
-// vinder (listen er allerede newest-først), så "nyeste vinder"-reglen holder uden ekstra sortering.
-function canonicalize(raw: string[], canon: (id: string) => string): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const id of raw) {
-    const cid = canon(id);
-    if (!seen.has(cid)) { seen.add(cid); out.push(cid); }
-  }
-  return out;
-}
 function sameOrder(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
-// React-hook — kilde til sandhed i UI'et. Re-normaliserer den gemte liste gennem canon() ved
-// mount og hver gang canon-mappet ændrer identitet (async canon-load / recollapse — spec §3.1).
-export function useBookmarks(canon: (id: string) => string): {
-  ids: Set<string>;
-  has(id: string): boolean;
-  toggle(id: string): void;
-} {
-  const storeRef = useRef<BookmarkStore | null>(null);
-  if (!storeRef.current) storeRef.current = createLocalBookmarkStore();
-  const store = storeRef.current;
-
-  const [idsList, setIdsList] = useState<string[]>(() => store.list());
+// Auth-gated hook. Udlogget: tom, canSave=false, toggle no-op (kaldstedet gater FØR toggle —
+// se onRequireLogin-mønstret i Folgesvend.tsx). Logget-ind: hent-ved-mount, optimistisk toggle
+// m. write-generation-guard (H2): et in-flight-refetch klobrer ikke en igangværende skrivning.
+//
+// Tager `userId: string | null` (IKKE et session-objekt) — review 22 N1: et objekt-literal
+// bygget ved kaldstedet (`session ? {userId} : null`) genskabes hver render og gør effekt-
+// dependencyen ustabil → gentaget refetch på hver render. En primitiv streng er referentielt
+// stabil så længe brugeren er den samme.
+export function useBookmarks(
+  userId: string | null,
+  canon: (id: string) => string,
+): { ids: Set<string>; has(id: string): boolean; canSave: boolean; toggle(id: string): void } {
+  const repoRef = useMemo(() => createRemoteBookmarkRepository(), []);
+  const [idsList, setIdsList] = useState<string[]>([]);
+  const pendingRef = useMemo(() => new Set<string>(), []); // id'er med in-flight write (H2-guard)
+  const lastUserIdRef = useRef<string | null>(null); // seneste userId effekten faktisk fetchede for
 
   useEffect(() => {
-    const raw = store.list();
-    const migrated = canonicalize(raw, canon);
-    if (!sameOrder(migrated, raw)) safeWrite(migrated);
-    setIdsList((prev) => (sameOrder(migrated, prev) ? prev : migrated));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canon]);
+    if (!userId) {
+      // Funktionel updater: returnér SAMME reference når allerede tom, så React bail'er i stedet
+      // for at re-rendere — ellers giver en ustabil canon-reference (uden useCallback hos
+      // kaldstedet) en uendelig effekt-loop (setIdsList([]) → nyt canon-ref → effekt igen).
+      setIdsList((prev) => (prev.length === 0 ? prev : []));
+      lastUserIdRef.current = null;
+      return;
+    }
+    // Ryd KUN ved et REELT brugerskift (review 22 N2-mitigering), sporet via ref — ikke ved
+    // hvert effekt-genkør (fx pga. en ustabil canon-reference), som ellers ville genskabe
+    // samme uendelig-render-loop-mønster som null-grenen allerede er hærdet mod. RLS scoper
+    // under alle omstændigheder reelle skrivninger til auth.uid() (ingen faktisk data-læk —
+    // kun et misvisende UI-glimt uden denne rydning).
+    if (lastUserIdRef.current !== userId) {
+      setIdsList((prev) => (prev.length === 0 ? prev : []));
+    }
+    lastUserIdRef.current = userId;
+    let alive = true;
+    void repoRef.list().then((raw) => {
+      if (!alive) return;
+      const norm = raw.map(canon);
+      // Merge: behold optimistisk tilstand for id'er der har en in-flight write (H2).
+      setIdsList((prev) => {
+        const merged = norm.filter((id) => !pendingRef.has(id) || prev.includes(id));
+        for (const id of prev) if (pendingRef.has(id) && !merged.includes(id)) merged.unshift(id);
+        return sameOrder(merged, prev) ? prev : merged;
+      });
+    });
+    return () => { alive = false; };
+  }, [userId, canon, repoRef, pendingRef]);
 
   const ids = useMemo(() => new Set(idsList), [idsList]);
 
-  return {
-    ids,
-    has: (id) => ids.has(canon(id)),
-    toggle: (id) => {
+  const toggle = useCallback(
+    (id: string) => {
+      if (!userId) return; // no-op udlogget — kaldstedet skal gate FØR dette kaldes
       const cid = canon(id);
-      setIdsList(store.toggle(cid));
+      if (pendingRef.has(cid)) return; // review 22 M1: ignorér gentaget tryk mens en skrivning er in-flight
+      const wasIn = ids.has(cid);
+      pendingRef.add(cid);
+      setIdsList((prev) => (wasIn ? prev.filter((x) => x !== cid) : [cid, ...prev]));
+      const op = wasIn ? repoRef.remove(cid) : repoRef.add(cid);
+      op.then(
+        () => pendingRef.delete(cid),
+        () => {
+          pendingRef.delete(cid);
+          setIdsList((prev) => (wasIn ? [cid, ...prev] : prev.filter((x) => x !== cid))); // rollback
+        },
+      );
     },
-  };
+    [userId, canon, ids, repoRef, pendingRef],
+  );
+
+  return { ids, has: (id) => ids.has(canon(id)), canSave: userId != null, toggle };
 }
 
 export type BookmarkSort = 'linje' | 'navn';

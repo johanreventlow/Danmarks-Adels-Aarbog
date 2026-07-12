@@ -46,21 +46,33 @@ export async function signPaths(paths: string[]): Promise<Map<string, string>> {
   return out;
 }
 
-// Hook: resolvér signed URLs for et sæt medie-rækker; returnér media-id → uri.
-export function useMediaUris(media: RawMedia[]): Record<string, string> {
-  const [map, setMap] = useState<Record<string, string>>({});
-  const paths = media.map((m) => m.storage_path ?? '').filter(Boolean);
-  const key = [...paths].sort().join('|');
+// Resolvér BÅDE fulde ('large') og thumb-signed URLs for et sæt medie-rækker i ÉT signPaths-kald
+// (billedstørrelser 2026-07-05, Slice B3 — /simplify-fund: to separate hook-kald gav to separate
+// createSignedUrls-runde-ture pr. skærm, og redaktør-skærmene måtte "spoofe" storage_path-feltet
+// for at genbruge en éntydig hook). thumbPathOf er valgfri; udelades den, er thumbUris altid tom
+// (dermed også drop-in-erstatning for den tidligere rene useMediaUris).
+export function useMediaAndThumbUris(
+  media: RawMedia[],
+  thumbPathOf: (m: RawMedia) => string | null | undefined = () => null,
+): { uris: Record<string, string>; thumbUris: Record<string, string> } {
+  const [state, setState] = useState<{ uris: Record<string, string>; thumbUris: Record<string, string> }>({ uris: {}, thumbUris: {} });
+  const fullPaths = media.map((m) => m.storage_path ?? '').filter(Boolean);
+  const thumbPaths = media.map((m) => thumbPathOf(m) ?? '').filter(Boolean);
+  const key = [...fullPaths, ...thumbPaths].sort().join('|');
   useEffect(() => {
     let cancelled = false;
-    signPaths(paths).then((signed) => {
+    signPaths([...fullPaths, ...thumbPaths]).then((signed) => {
       if (cancelled) return;
-      const byId: Record<string, string> = {};
+      const uris: Record<string, string> = {};
+      const thumbUris: Record<string, string> = {};
       for (const m of media) {
-        const uri = m.storage_path ? signed.get(m.storage_path) : undefined;
-        if (uri) byId[String(m.id)] = uri;
+        const full = m.storage_path ? signed.get(m.storage_path) : undefined;
+        if (full) uris[String(m.id)] = full;
+        const tp = thumbPathOf(m);
+        const thumb = tp ? signed.get(tp) : undefined;
+        if (thumb) thumbUris[String(m.id)] = thumb;
       }
-      setMap(byId);
+      setState({ uris, thumbUris });
     });
     return () => {
       cancelled = true;
@@ -68,7 +80,7 @@ export function useMediaUris(media: RawMedia[]): Record<string, string> {
     // key dækker path-sættet; media-objekterne selv er stabile pr. path.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
-  return map;
+  return state;
 }
 
 // Vælg hovedbillede (portræt): første portræt-egnede, ellers første medie.
@@ -91,19 +103,27 @@ function toLightboxItem(m: RawMedia, uri: string): PersonMediaItem {
 // et sammensat "portrait && portraitUri"-tjek fra kalderen (/simplify-fund, Slice A).
 // lightboxItems er portræt+galleri som ÉT navigerbart, url-bærende sæt — bygget her (ikke i
 // visningskomponenten), så komponenten forbruger en færdig liste i stedet for selv at kombinere.
+// thumbUri (billedstørrelser 2026-07-05, Slice B3): den lille listevisning (portræt/galleri-
+// thumbnails, begge <=120px) bruger 'thumb'-tieren; lightboxItems bruger fortsat den fulde 'large'-
+// uri (uri) uændret. Falder tilbage til uri hvis rækken mangler en thumb-variant (før Slice B).
 export function usePersonMedia(media: RawMedia[]): {
-  portraitItem: { media: RawMedia; uri: string } | null;
-  gallery: Array<{ media: RawMedia; uri: string }>;
+  portraitItem: { media: RawMedia; uri: string; thumbUri: string } | null;
+  gallery: Array<{ media: RawMedia; uri: string; thumbUri: string }>;
   lightboxItems: PersonMediaItem[];
 } {
-  const uris = useMediaUris(media);
+  const { uris, thumbUris } = useMediaAndThumbUris(media, (m) => m.thumb_storage_path);
   const signable = media.filter((m) => uris[String(m.id)]);
   const portrait = pickPortrait(signable.length ? signable : media);
   const portraitUri = portrait ? uris[String(portrait.id)] : undefined;
-  const portraitItem = portrait && portraitUri ? { media: portrait, uri: portraitUri } : null;
+  const portraitItem = portrait && portraitUri
+    ? { media: portrait, uri: portraitUri, thumbUri: thumbUris[String(portrait.id)] ?? portraitUri }
+    : null;
   const gallery = signable
     .filter((m) => String(m.id) !== String(portrait?.id))
-    .map((m) => ({ media: m, uri: uris[String(m.id)] }));
+    .map((m) => {
+      const uri = uris[String(m.id)];
+      return { media: m, uri, thumbUri: thumbUris[String(m.id)] ?? uri };
+    });
   const lightboxItems = [
     ...(portraitItem ? [toLightboxItem(portraitItem.media, portraitItem.uri)] : []),
     ...gallery.map((g) => toLightboxItem(g.media, g.uri)),

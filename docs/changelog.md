@@ -97,6 +97,139 @@ verifikation.
 - **UDESTÅR:** empirisk verifikation mod prod (markér én reel klynge via §6-query + redaktør-UI, se
   ringen rendere) — kræver prod-adgang/redaktør-login. Dual-review + merge.
 
+## Datafix: person 1 fejlagtigt "gift med" eget barnebarn person 104 (2026-07-06)
+
+Bruger opdagede at person 1 (Gottschalk von Reventlow, 1. slægtled, linje I) stod registreret som
+"gift med" person 104 (Hartwich, 3. slægtled — Gottschalks barnebarn via person 82) i familie 74.
+Undersøgt og bekræftet: en loader-fejl fra den oprindelige DAA-indlæsning (familie 74 havde ingen
+`change_event`-historik, dvs. aldrig rørt af redaktør siden) — samme fejlklasse som de tidligere
+"spøgelses-union"-fund, men IKKE en af de allerede oprydede (change_sets 3-7). Bogteksten for
+Hartwich siger "Gift med NN" (ukendt hustru); intet sted nævnes Gottschalk. Iwan (person 44,
+familie 74's barn) kaldes gentagne gange "søn af ridderen Hartwich von Reventlow" — aldrig
+Gottschalk.
+
+**Rettet mod prod** via en manuelt forfattet, fortrydbar `change_set` (id 30): fjernede person 1
+som partner i familie 74 (`DELETE family_member WHERE family_id=74 AND person_id=1 AND
+rolle='partner'`), efterlader Hartwich (104) som eneste partner + Iwan (44) som barn — matcher
+det etablerede enkelt-partner-mønster for ukendt ægtefælle (7 lignende tilfælde findes allerede
+i basen, inkl. Hartwichs egen union med sin far). Verificeret: ingen flere spøgelse-par tilbage
+(bred søgning på partner-par ≥2 slægtled fra hinanden i samme linje — ikke udtømmende, fanger
+ikke tværlinje-tilfælde).
+
+**Opfølgning noteret i `claude.md` §9:** redaktøren har stadig ingen flade til at rette den slags
+fejl selv — denne rettelse krævede direkte SQL. Se også separat bug-rapport: mobilapp crasher ved
+åbning af person i redaktør-delen (urapporteret root cause).
+
+## Konto-bogmærker: dual-review 22 af IMPLEMENTERINGEN + 4 fund rettet (2026-07-06)
+
+Efter skive 1-6 (nedenfor) kørt en ANDEN dual-review-cyklus (Claude+Codex) — denne gang af den
+faktiske KODE, ikke spec'en (spec allerede dual-reviewet, review 21). Fandt og rettede:
+
+- **H1:** mobil `count` var `idsList.length` (ikke session-gated) → viste stale badge-tal efter
+  log-ud selvom `ids`/`has()` korrekt gik tomme. Fix: `count: ids.size`.
+- **N1 (HIGH):** web's `useBookmarks(session ? {userId} : null, ...)` byggede et NYT objekt-
+  literal hver render → ustabil effekt-dependency → gentaget refetch på HVER render. Fix: begge
+  hooks (web+mobil) tager nu `userId: string | null` (primitiv, stabil) i stedet for et
+  session-objekt.
+- **M1:** hurtig dobbelt-toggle af samme id kunne race'e (add+remove krydsende, out-of-order
+  netværkssvar). Fix: `toggle` ignorerer gentaget tryk mens id'et allerede er in-flight.
+- **N3:** web-login manglede busy-guard (dobbelt-klik → overlappende `signIn`-kald) + rejection-
+  handler på `currentSession()`. Begge rettet.
+- **N2 (recalibreret MEDIUM):** ingen bruger-nøglet rydning af bogmærke-listen ved brugerskift.
+  Reconcile-verifikation bekræftede RLS forhindrer reel cross-account data-korruption (skrivninger
+  scopes altid til `auth.uid()` server-side — kun en misvisende UI-glimt, og scenariet er slet
+  ikke nået via appens faktiske UI-flow, som ikke understøtter konto-skift uden log-ud). Mitigeret
+  med ryd-ved-reelt-brugerskift.
+- **Selv-fanget regression under fixet:** den FØRSTE N2-mitigering (ubetinget `setIdsList([])` i
+  effekt-kroppen) genintroducerede en uendelig render-loop identisk med den allerede-hærdede
+  udlogget-gren (fanget af `vitest` der hang/OOM'ede) — rettet med en ref-sporet "kun ved reelt
+  brugerskift"-betingelse.
+- **Bevidst udskudt (H2):** mobil har to uafhængige `useBookmarks`-instanser (Home-skærm +
+  Bogmærker-skærm) uden delt state — fjern et bogmærke på Bogmærker-skærmen opdaterer ikke Home's
+  badge/ikoner før genmontering. Codex' reconcile bekræftede et ægte fix kræver en ny Zustand-
+  bogmærke-slice, ikke en hurtig patch — udskudt til separat brainstorm/plan (jf. projektets
+  konvention for ikke-trivielle arkitektur-ændringer). Se `docs/reviews/22-*.md`.
+- **Verificeret:** web 23/23 filer, 208/208 tests (2 nye); mobil 23/23 filer, 337/337 tests,
+  tsc+eslint rene.
+
+## Konto-bogmærker — login-eksklusive, cross-device-synkroniserede bogmærker (web+mobile, branch feat/bogmaerker-konto, 2026-07-06)
+
+Bogmærker opgraderet fra lokal PoC (AsyncStorage/localStorage) til et **login-eksklusivt gode**
+lagret i Supabase — følger brugeren på tværs af web og mobil. Ingen hybrid/merge-logik, ingen
+offline-cache (bevidst PoC-afgrænsning, jf. spec 2026-07-06).
+
+- **DB-lag:** ny `bookmark`-tabel (`user_id=auth.uid()` default, `person_id` FK ON DELETE CASCADE,
+  unik `(user_id,person_id)`) + RLS (own-row select/insert/delete) + **eksplicit** `GRANT/REVOKE`
+  (dual-review 21 N1 — Supabase auto-grant'er default-privilegier til anon/authenticated, RLS alene
+  er ikke nok). Idempotent DDL (`schema.sql`+`db-migrations.sql`+`db-rls.sql`). Ny `db-verify.sql`
+  Task 14: RLS-isolation, dublet-sikring, cascade, anon-blokering.
+- **Empirisk fund under lokal test (ikke antaget):** anon har INGEN grant overhovedet på
+  `bookmark` — et bart `SELECT` som anon rejser `permission denied`, ikke et tomt resultat (stærkere
+  end RLS-alene-filtrering). Testens assertion rettet til at forvente `insufficient_privilege`.
+- **Repository-lag (web+mobil):** `RemoteRepository` (Supabase-backet, erstatter lokal lagring) +
+  auth-gated `useBookmarks(session, canon)`: udlogget → tom, `canSave:false`, `toggle` no-op;
+  logget-ind → hent-ved-mount, optimistisk toggle m. **race-guard** (dual-review H2: en fokus-
+  refetch klobrer ikke en igangværende skrivning). `person_id` sendes altid som **streng** til
+  PostgREST (N2 — bigint > 2^53 korrumperes af `Number()`).
+- **Web:** minimal login-session + modal tilføjet i den offentlige Folgesvend-læser (genbruger
+  eksisterende `data/auth.ts`); alle bogmærke-gem-steder gates via `saveOrPrompt` (udlogget tap →
+  login-modal, ikke stille no-op). Mobil havde allerede login (Konto-fanen) — kun wiring nødvendig.
+- **Empirisk fund under web-test-kørsel (fanget FØR mobil-porten, undgået der fra start):** den
+  udloggede gren kaldte `setIdsList([])` med en FRISK array-reference hver effekt-kørsel →
+  kombineret med en ustabil `canon`-reference gav det en uendelig render-loop (OOM i test-
+  runneren). Rettet med bail-safe funktionel updater; samme fix indbygget i mobil-porten fra start.
+- **Mobil eslint-fund (React Compiler-lint, kun mobil har denne strenge config):** `pendingRef`
+  skiftet fra `useMemo` til `useRef` (mutation af en useMemo-værdi er ikke tilladt); fjernede
+  synkron `setState` i effekt-krop for udlogget-grenen (afledt i stedet for lagret+ryddet).
+- **Test-scope-justering (empirisk afprøvet, ikke antaget):** `@testing-library/react-native@14`
+  (react-native 0.85/react 19) virker ikke i dette repos jest-opsætning — selv en triviel
+  `useState`-hook giver `renderHook() → { result: undefined }`. Afhængigheden droppet igen;
+  mobil-testen dækker det renderer-uafhængige repository-lag (5 tests); hook-adfærd verificeret
+  empirisk i iOS-simulatoren i stedet (web derimod har fuld `renderHook`-dækning, 10 tests).
+- **Verificeret:** web tsc+vitest (23/23 filer, 206/206 tests) grøn; mobil tsc+eslint+jest (23/23
+  filer, 337/337 tests) grøn; DB Task 14 grøn lokalt (frisk `daa_test`-genopbygning fra
+  `schema.sql`+`db-migrations.sql`+`db-rls.sql`, ingen prod-berøring). iOS-simulator (idb): app
+  booter uden crash, ingen badge udlogget, gem-ikon-tap→`/konto` (login-gate bekræftet), Bogmærker-
+  skærm viser korrekt login-CTA.
+- **Udestår:** DB-migrationen er **ikke anvendt mod prod** (kræver eksplicit bruger-godkendelse,
+  git-gate). Fuld login+cross-device-persistens-verifikation kræver netværk (sim-fetch fejler,
+  kendt begrænsning) — næste skridt er fysisk enhed (mobil) + browser (web) mod rigtig prod-konto.
+  Se `docs/superpowers/{specs,plans}/2026-07-06-konto-bogmaerker*` + `docs/reviews/21-*`.
+
+## Følgesvend v3 — forsidefeed, menu-drawer & bogmærker (mobile, branch feat/folgesvend-v3, 2026-07-05)
+
+Mobil-appen bragt op til v3-designet (`Reventlow-folgesvend-v3.dc.html`). Tre nye elementer +
+afgrænset visuel afstemning (sidstnævnte udestår). **Ingen backend-/model-ændringer** — feedet er
+ren læsning ovenpå den eksisterende `Model`/`Aux`.
+
+- **Forsidefeed (`data/buildFeed.ts`):** ren, deterministisk selector der udleder et redaktionelt
+  `FeedCard[]` (9 korttyper: portrait/citat/gods/forbundet/slaegt/embede/jubilaeum/vaaben/samle).
+  Portrait+citat i **disjunkt** hash-partition (ingen dobbelt-optræden); `today` injiceres
+  (jubilæum = runde ≥100 år); per-kind `FEED_CAPS` før round-robin-`interleave`; `overrides`-krog
+  til senere redaktionel kilde (hybrid-beslutning). 17 unit-tests.
+- **Forside (`app/(tabs)/index.tsx`):** omskrevet til `FlatList`-feed + kollapsende hero +
+  `HomeTopBar` (hamburger, brand-på-scroll, bogmærke-badge). `slaegt`-kort sætter `relA/relB` før
+  `push('/relate')`. Den gamle nummererede 01–08-liste **flyttet ud** af forsiden.
+- **Menu-drawer (`components/MenuDrawer.tsx`):** venstre slide-in (reanimated) m. slægt-header,
+  nav-liste 01–08 (+ Bogmærker) og konto-footer.
+- **Bogmærker (`lib/bookmarks.ts` + `app/bogmaerker.tsx`):** async AsyncStorage-lager + synkron
+  render-state-hook (spejler web's person-kun kontrakt). Gem-ikon iff kort har `personId`.
+- **Dual-review (Claude+Codex, `docs/reviews/20`):** 11 fund, alle empirisk verificeret mod koden
+  og rettet i spec FØR implementering (bl.a. BM1 async-race, BM2 recollapse-miss, NEW1 forbundet-
+  data findes ikke, NEW2 relate-slots). advisor-gate fangede `samle`-dødkode (nu wiret).
+- **Verificeret:** tsc + eslint rene, **327 jest grønne** (305 eksisterende + 22 nye). **iOS-
+  simulator mod SEED-data (idb):** feed renderer, hamburger→drawer, bogmærke-toggle→badge "1",
+  **persistens over app-genstart**, Bogmærker-skærm — alle bekræftet empirisk. Krævede frisk
+  native dev-client-build (`expo run:ios`) da den installerede binary var stale (manglede
+  `react-native-webview` → `RNCWebViewModule`-crash ved boot; pre-eksisterende, ej vores kode).
+- **Skive 5 (visuel afstemning):** iOS-sim-audit af eksisterende sub-skærme (Om slægten, Stamtræ,
+  Slægtens våben, Persondetalje) mod v3-designet fandt dem **allerede pixel-tæt konforme** — de blev
+  bygget til v3 i tidligere sessioner (delt `TopBar` + tokens). **Ingen substantielle ændringer nødvendige.**
+  Godser/søg/slægtskab deler samme komponenter+afstamning (forventet konforme; endelig visuel pass
+  bør ske på fysisk enhed mod live-data).
+- **Udestår:** verifikation mod live-Supabase-data (sim-fetch fejler → SEED-fallback; kræver fysisk
+  enhed, jf. memory `mobil-sim-rn-fetch-1005`) + merge/push. Se `docs/superpowers/{specs,plans}/2026-07-05-folgesvend-v3-*`.
+
 ## Generations-reparation af stamtræet — hul-reparation via slægtled (web+mobile, PROD-LIVE + merget, 2026-07-05)
 
 Ny navigations-vej for de tidligste, ubeviste generationer: når aner-ringen i Kolonner-

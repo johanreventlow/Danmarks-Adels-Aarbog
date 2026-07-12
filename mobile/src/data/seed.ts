@@ -32,6 +32,7 @@ const aux: Aux = {
   estatesBy: {},
   officesBy: {},
   mediaBy: {},
+  mediaById: {},
   ownersByEstate: {},
   estateList: [],
   estateById: {},

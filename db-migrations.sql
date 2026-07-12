@@ -1759,6 +1759,42 @@ BEGIN
   UPDATE media SET upload_status = 'fjernet' WHERE id = p_media_id;
 END $$;
 
+-- =====================================================================
+-- 2026-07-05: billedstørrelser/lightbox Slice B1 — media_variant (spejl af schema.sql)
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS media_variant (
+  id           BIGINT PRIMARY KEY,
+  media_id     BIGINT NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+  tier         TEXT NOT NULL CHECK (tier IN ('thumb','medium')),
+  storage_path TEXT NOT NULL,
+  mime_type    TEXT,
+  byte_size    BIGINT,
+  bredde       INT,
+  hoejde       INT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS media_variant_media_tier_uidx    ON media_variant (media_id, tier);
+CREATE UNIQUE INDEX IF NOT EXISTS media_variant_storage_path_uidx ON media_variant (storage_path);
+
+CREATE OR REPLACE FUNCTION red_registrer_media_variant(
+  p_media_id bigint, p_tier text, p_storage_path text,
+  p_mime text DEFAULT NULL, p_byte_size bigint DEFAULT NULL,
+  p_bredde int DEFAULT NULL, p_hoejde int DEFAULT NULL
+) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_id bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_tier NOT IN ('thumb','medium') THEN
+    RAISE EXCEPTION '''%'' er ikke en gyldig variant-tier. ''large'' er media-rækkens egen storage_path, ikke en variant-række.', p_tier;
+  END IF;
+  INSERT INTO media_variant(id, media_id, tier, storage_path, mime_type, byte_size, bredde, hoejde)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM media_variant), p_media_id, p_tier, p_storage_path, p_mime, p_byte_size, p_bredde, p_hoejde)
+    ON CONFLICT (media_id, tier) DO UPDATE
+      SET storage_path = excluded.storage_path, mime_type = excluded.mime_type,
+          byte_size = excluded.byte_size, bredde = excluded.bredde, hoejde = excluded.hoejde
+    RETURNING id INTO v_id;
+  RETURN v_id;
+END $$;
+
 -- 2026-07-05: generations-reparation — slægtled + kuld på person_external_id (design-spec 2026-07-05).
 ALTER TABLE person_external_id ADD COLUMN IF NOT EXISTS slaegtled_lokal  INTEGER;
 ALTER TABLE person_external_id ADD COLUMN IF NOT EXISTS slaegtled_gennem INTEGER;
@@ -1805,3 +1841,13 @@ BEGIN
   UPDATE conclusion SET status='tilbagetrukket', blaastemplet_naar=current_date
     WHERE target_type='fact' AND target_id=p_fact_id AND status='afklaret';
 END $$;
+
+-- 2026-07-06: konto-bogmærker — login-eksklusiv bookmark-tabel (design-spec 2026-07-06).
+CREATE TABLE IF NOT EXISTS bookmark (
+  id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id   UUID NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
+  person_id BIGINT NOT NULL REFERENCES person(id) ON DELETE CASCADE,
+  oprettet  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, person_id)
+);
+ALTER TABLE bookmark ENABLE ROW LEVEL SECURITY;

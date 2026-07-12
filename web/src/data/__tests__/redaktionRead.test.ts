@@ -53,7 +53,7 @@ describe('mapPersonMediaRows (mediehåndtering Slice 0g+0h)', () => {
     const relByMediaId = new Map([['91', '501']]);
     expect(mapPersonMediaRows(rows, signed, relByMediaId)).toEqual([{
       id: '91', relationId: '501', slags: 'foto', titel: 'Portræt', storagePath: 'redaktor/a.jpg',
-      uploadStatus: 'klar', maaPubliceres: true, url: 'https://signed/a.jpg',
+      uploadStatus: 'klar', maaPubliceres: true, url: 'https://signed/a.jpg', thumbUrl: 'https://signed/a.jpg',
     }]);
   });
   it('manglende status/slags/maa_publiceres → fail-closed fallback (kladde, false); ingen signering/relation → null/tom', () => {
@@ -61,7 +61,20 @@ describe('mapPersonMediaRows (mediehåndtering Slice 0g+0h)', () => {
                     upload_status: null, maa_publiceres: null }];
     expect(mapPersonMediaRows(rows)).toEqual([{
       id: '92', relationId: '', slags: '', titel: null, storagePath: null,
-      uploadStatus: 'kladde', maaPubliceres: false, url: null,
+      uploadStatus: 'kladde', maaPubliceres: false, url: null, thumbUrl: null,
+    }]);
+  });
+  it('thumbPathByMediaId med matchende signeret sti → thumbUrl bruger thumb, ikke url', () => {
+    const rows = [{ id: 94, slags: 'foto', titel: 'Med thumb', storage_path: 'redaktor/d-large.jpg',
+                    upload_status: 'klar', maa_publiceres: true }];
+    const signed = new Map([
+      ['redaktor/d-large.jpg', 'https://signed/d-large.jpg'],
+      ['redaktor/d-thumb.jpg', 'https://signed/d-thumb.jpg'],
+    ]);
+    const thumbPathByMediaId = new Map([['94', 'redaktor/d-thumb.jpg']]);
+    expect(mapPersonMediaRows(rows, signed, new Map(), thumbPathByMediaId)).toEqual([{
+      id: '94', relationId: '', slags: 'foto', titel: 'Med thumb', storagePath: 'redaktor/d-large.jpg',
+      uploadStatus: 'klar', maaPubliceres: true, url: 'https://signed/d-large.jpg', thumbUrl: 'https://signed/d-thumb.jpg',
     }]);
   });
   it('upload_status=fjernet filtreres væk (Slice 0h "slet billede")', () => {

@@ -7,7 +7,7 @@ import { fmtYears, parseYear } from './fields';
 import { getAll } from './paginate';
 import { FELT_FAKTATYPE } from './redaktionWrite';
 import { resolveOrgEstateNames } from './public';
-import { signPaths } from './media';
+import { signPaths, fetchThumbPathByMediaId } from './media';
 import type { Model } from './types';
 
 // --- Redaktions-person-liste (pagineret, inkl. levende/privat) ---
@@ -185,6 +185,12 @@ export async function fetchForaeldreUkendtMarkering(personId: string): Promise<F
 // Én narrativ pr. (person, source_id). Redaktøren viser en fane pr. udgave; skrive-målet
 // (red_upsert_narrativ) nøgles på source_id, så prefill-kilde == skrive-mål pr. udgave.
 
+// Generel slægtsbeskrivelse (billeder-i-narrativer 2026-07-05, Slice C3): subjekt_type='slaegt' har
+// INGEN bagvedliggende tabel — subjekt_id er en FAST, delt sentinel-konstant (ikke en fremmednøgle
+// til noget), nødvendig fordi narrative.subjekt_id er NOT NULL. Kanonisk ét sted (ikke ét pr.
+// skærm) i dette read-lag, som allerede er fetchNarrativer's naturlige hjem.
+export const SLAEGT_SUBJEKT_ID = 1;
+
 export type PersonNarrativ = { id: number; sourceId: number | null; sourceTitel: string | null; udgave: string | null; side: string | null; tekst: string; privat: boolean };
 
 type RawNarrativRow = { id: number; source_id: number | null; side: string | null; tekst: string | null; privat: boolean | null; source: { titel: string | null; udgave: string | null } | null };
@@ -198,10 +204,13 @@ export function mapNarrativer(rows: RawNarrativRow[]): PersonNarrativ[] {
     .sort((a, b) => (a.sourceId ?? Infinity) - (b.sourceId ?? Infinity) || a.id - b.id);
 }
 
-export async function fetchPersonNarrativer(id: string): Promise<PersonNarrativ[]> {
+// Generaliseret fra person-only til ethvert subjekt (billeder-i-narrativer 2026-07-05, Slice C3)
+// — slægts/linje-narrativer bruger samme udgave-fane-mønster som person-narrativer, samme RPC
+// (red_upsert_narrativ), blot en anden (subjekt_type, subjekt_id).
+export async function fetchNarrativer(subjektType: string, subjektId: number): Promise<PersonNarrativ[]> {
   const { data, error } = await supabase
     .from('narrative').select('id,source_id,side,tekst,privat,source:source_id(titel,udgave)')
-    .eq('subjekt_type', 'person').eq('subjekt_id', Number(id))
+    .eq('subjekt_type', subjektType).eq('subjekt_id', subjektId)
     .order('source_id', { ascending: true }).order('id', { ascending: true });
   if (error) throw new Error(error.message);
   return mapNarrativer((data ?? []) as unknown as RawNarrativRow[]);
@@ -215,6 +224,17 @@ export async function fetchSources(): Promise<SourceRow[]> {
     .order('aar', { ascending: false, nullsFirst: false });
   if (error) throw new Error(error.message);
   return (data ?? []) as SourceRow[];
+}
+
+// Rå lineage-rækker med deres RIGTIGE numeriske id (til subjekt_id på 'lineage'-narrativer, Slice
+// C3) — bevidst IKKE genbrugt fra Følgesvend-modellens aux.linjeList (den bærer kun linje-KODEN
+// 'I'/'II'/… som nøgle, ikke lineage.id).
+export type LineageRow = { id: number; kode: string; navn: string | null };
+
+export async function fetchLineages(): Promise<LineageRow[]> {
+  const { data, error } = await supabase.from('lineage').select('id,kode,navn').order('kode', { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as LineageRow[];
 }
 
 // --- Generiske entitets-lister (simple tabeller) til midter-panelet ---
@@ -413,31 +433,39 @@ export async function fetchSammeSomLinks(personId: string): Promise<SammeSomLink
 // den almindelige materiale-galleri.
 export type PersonMedia = {
   id: string; relationId: string; slags: string; titel: string | null; storagePath: string | null;
-  uploadStatus: string; maaPubliceres: boolean; url: string | null;
+  uploadStatus: string; maaPubliceres: boolean; url: string | null; thumbUrl: string | null;
 };
 type RawPersonMediaRow = { id: number; slags: string | null; titel: string | null;
   storage_path: string | null; upload_status: string | null; maa_publiceres: boolean | null };
 
-// signed/relByMediaId er valgfri (default tomme Maps) så testen kan kalde ren, netværksfri — kun
-// fetch-funktionerne nedenfor sender reelt udfyldte Maps (signeret ét sted, ligesom media.ts's
-// loadMediaItems, i stedet for at kalderen holder separat state + effekt).
+// signed/relByMediaId/thumbPathByMediaId er valgfri (default tomme Maps) så testen kan kalde ren,
+// netværksfri — kun fetch-funktionerne nedenfor sender reelt udfyldte Maps (signeret ét sted,
+// ligesom media.ts's loadMediaItems, i stedet for at kalderen holder separat state + effekt).
+// thumbUrl (billedstørrelser 2026-07-05, Slice B3): falder tilbage til url hvis ingen thumb-variant
+// findes (rækker fra før Slice B, eller ren pre-variant-fejl).
 export function mapPersonMediaRows(
   rows: RawPersonMediaRow[],
   signed: Map<string, string> = new Map(),
   relByMediaId: Map<string, string> = new Map(),
+  thumbPathByMediaId: Map<string, string> = new Map(),
 ): PersonMedia[] {
   return rows
     .filter((m) => m.upload_status !== 'fjernet')
-    .map((m) => ({
-      id: String(m.id),
-      relationId: relByMediaId.get(String(m.id)) ?? '',
-      slags: m.slags ?? '',
-      titel: m.titel,
-      storagePath: m.storage_path,
-      uploadStatus: m.upload_status ?? 'kladde',
-      maaPubliceres: Boolean(m.maa_publiceres),
-      url: m.storage_path ? signed.get(m.storage_path) ?? null : null,
-    }));
+    .map((m) => {
+      const url = m.storage_path ? signed.get(m.storage_path) ?? null : null;
+      const thumbPath = thumbPathByMediaId.get(String(m.id));
+      return {
+        id: String(m.id),
+        relationId: relByMediaId.get(String(m.id)) ?? '',
+        slags: m.slags ?? '',
+        titel: m.titel,
+        storagePath: m.storage_path,
+        uploadStatus: m.upload_status ?? 'kladde',
+        maaPubliceres: Boolean(m.maa_publiceres),
+        url,
+        thumbUrl: (thumbPath ? signed.get(thumbPath) : null) ?? url,
+      };
+    });
 }
 
 // Fælles hale: rel-par (media-id + relation-id) → signede/mappede PersonMedia. Retningen af selve
@@ -445,10 +473,17 @@ export function mapPersonMediaRows(
 async function mediaFromRelPairs(pairs: { mediaId: number; relationId: number }[]): Promise<PersonMedia[]> {
   if (!pairs.length) return [];
   const relByMediaId = new Map(pairs.map((p) => [String(p.mediaId), String(p.relationId)]));
-  const rows = await getAll<RawPersonMediaRow>(() =>
-    supabase.from('media').select('id,slags,titel,storage_path,upload_status,maa_publiceres').in('id', pairs.map((p) => p.mediaId)));
-  const signed = await signPaths(rows.map((r) => r.storage_path ?? '').filter(Boolean));
-  return mapPersonMediaRows(rows, signed, relByMediaId);
+  const mediaIds = pairs.map((p) => p.mediaId);
+  const [rows, thumbPathByMediaId] = await Promise.all([
+    getAll<RawPersonMediaRow>(() =>
+      supabase.from('media').select('id,slags,titel,storage_path,upload_status,maa_publiceres').in('id', mediaIds)),
+    fetchThumbPathByMediaId(mediaIds),
+  ]);
+  const signed = await signPaths([
+    ...rows.map((r) => r.storage_path ?? ''),
+    ...thumbPathByMediaId.values(),
+  ].filter(Boolean));
+  return mapPersonMediaRows(rows, signed, relByMediaId, thumbPathByMediaId);
 }
 
 export async function fetchRedPersonMedia(id: string): Promise<PersonMedia[]> {

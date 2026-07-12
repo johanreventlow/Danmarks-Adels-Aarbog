@@ -266,7 +266,7 @@ export async function submitChange(c: Change, opts: { dryRun: boolean; role?: st
   if (c.art === 'uploadMedia') {
     const p = c.payload || {};
     if (!p.file || !p.storagePath) throw new Error('Mangler fil eller sti til upload');
-    await performUpload(p.file as File, String(p.storagePath));
+    await performUpload(p.file as Blob, String(p.storagePath));
   }
   const { data, error } = await supabase.rpc(call.fn, call.args);
   if (error) throw new Error(error.message);
@@ -275,6 +275,19 @@ export async function submitChange(c: Change, opts: { dryRun: boolean; role?: st
   if (c.art === 'uploadMedia') {
     const { error: bekraeftError } = await supabase.rpc('red_bekraeft_media_upload', { p_media_id: data });
     if (bekraeftError) throw new Error(bekraeftError.message);
+    // Billedstørrelser Slice B2: thumb+medium er selvstændige størrelsestrin (media_variant),
+    // ikke en del af red_upload_media selv — hver uploades og registreres uafhængigt af de andre.
+    const varianter = (c.payload?.varianter ?? []) as Array<{
+      tier: string; file: Blob; storagePath: string; mimeType: string; byteSize: number; bredde: number; hoejde: number;
+    }>;
+    await Promise.all(varianter.map(async (v) => {
+      await performUpload(v.file, v.storagePath);
+      const { error: variantError } = await supabase.rpc('red_registrer_media_variant', {
+        p_media_id: data, p_tier: v.tier, p_storage_path: v.storagePath,
+        p_mime: v.mimeType, p_byte_size: v.byteSize, p_bredde: v.bredde, p_hoejde: v.hoejde,
+      });
+      if (variantError) throw new Error(variantError.message);
+    }));
   }
   return { dryRun: false as const, call, direkte, result: data };
 }

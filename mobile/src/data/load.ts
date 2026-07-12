@@ -141,6 +141,7 @@ export async function loadFromSupabase(opts?: {
     estates,
     orgs,
     media,
+    mediaVariants,
     lineage,
     arms,
     sameAsRel,
@@ -176,6 +177,13 @@ export async function loadFromSupabase(opts?: {
       getAll<RawEstate>(() => sb.from('estate').select('id,navn,slags,sted_id')),
       getAll<RawOrg>(() => sb.from('organisation').select('id,navn,slags')),
       getAll<RawMedia>(() => sb.from('media').select('*')),
+      // Billedstørrelser (2026-07-05, Slice B3 'thumb' + Slice C 'medium' — narrativ-indlejrede
+      // billeder). ÉN query for begge tiers (ikke to separate) — samme rækker filtreres i JS
+      // nedenfor. Tolerant: tabellen kan mangle på en ikke-migreret base (samme mønster som
+      // lineage/arms).
+      getAll<{ media_id: number; tier: string; storage_path: string }>(() =>
+        sb.from('media_variant').select('media_id,tier,storage_path').in('tier', ['thumb', 'medium']),
+      ).catch(() => [] as { media_id: number; tier: string; storage_path: string }[]),
       // Tolerant: lineage-tabellen findes måske ikke endnu (migration ej kørt) → tom = fallback til 'Linje {kode}'.
       getAll<RawLineage>(() => sb.from('lineage').select('id,source_id,kode,navn,parent_lineage_id')).catch(() => [] as RawLineage[]),
       // Tolerant: coat_of_arms-tabellen findes måske ikke endnu.
@@ -293,8 +301,22 @@ export async function loadFromSupabase(opts?: {
   }
   const db = collapsed.db;
 
+  // Billedstørrelser (Slice B3 'thumb' + Slice C 'medium'): berig hver media-række med sine
+  // variant-stier (hvis nogen) — downstream (buildAux/lib/media.ts) forbruger dermed bare to
+  // ekstra felter på RawMedia i stedet for at kende til media_variant-tabellen. Ingen match
+  // (rækker fra før Slice B) → felterne udelades.
+  const thumbPathByMediaId = new Map(
+    (mediaVariants || []).filter((v) => v.tier === 'thumb').map((v) => [String(v.media_id), v.storage_path]));
+  const mediumPathByMediaId = new Map(
+    (mediaVariants || []).filter((v) => v.tier === 'medium').map((v) => [String(v.media_id), v.storage_path]));
+  const mediaEnriched = (media || []).map((m) => {
+    const thumb = thumbPathByMediaId.get(String(m.id));
+    const medium = mediumPathByMediaId.get(String(m.id));
+    return (thumb || medium) ? { ...m, thumb_storage_path: thumb, medium_storage_path: medium } : m;
+  });
+
   const aux = buildAux(
-    { extIds, sources, relations, estates, orgs, media, lineage, arms },
+    { extIds, sources, relations, estates, orgs, media: mediaEnriched, lineage, arms },
     collapsed.canonicalIdById,
   );
 

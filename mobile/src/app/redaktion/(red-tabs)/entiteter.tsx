@@ -21,6 +21,7 @@ export default function Entiteter() {
 
   const celler = [
     { n: model?.persons.length ?? 0, label: 'Personer', rute: '/redaktion/entitet/person' },
+    { n: aux?.linjeList.length ?? 0, label: 'Slægten', rute: '/redaktion/entitet/slaegt' },
     { n: aux?.godsListe.length ?? 0, label: 'Godser', rute: '/redaktion/entitet/gods' },
     { n: aux?.kildeListe.length ?? 0, label: 'Kilder', rute: '/redaktion/entitet/kilde' },
     { n: aux?.orgListe.length ?? 0, label: 'Organisationer', rute: '/redaktion/entitet/organisation' },
