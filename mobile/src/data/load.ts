@@ -4,7 +4,7 @@
 import { supabase, supabaseEnabled } from '../lib/supabase';
 import { buildAux } from './buildAux';
 import { buildGeo } from './buildGeo';
-import { buildGenCoords, type GenCoord } from './generations';
+import { buildGenCoords, buildParentsUnknown, type GenCoord, type ParentsUnknown } from './generations';
 import { collapseSameAs } from './collapseSameAs';
 import { pickPreferredBio, type NarrativeCand } from './pickPreferredBio';
 import { fmtYears, parseYear } from './fields';
@@ -74,6 +74,9 @@ export type LoadResult = {
   // Generations-koordinater pr. kanonisk person-id (slægtled_lokal/gennem + kuld pr. linje).
   // Bruges af tree-byggerens hul-reparation (Task C1); spejler web/src/data/model.ts (Task B2).
   genCoordsByPerson: Record<string, GenCoord[]>;
+  // Marker-gatet "forældre ukendt" pr. kanonisk person-id (grad + proveniens). KUN personer hvor
+  // kilden faktisk angiver at forbindelsen opad ikke er kendt — spejler web/src/data/model.ts.
+  parentsUnknownByPerson: Record<string, ParentsUnknown>;
 };
 
 export function mapAppPersons(
@@ -122,6 +125,10 @@ export async function loadFromSupabase(opts?: {
 }): Promise<LoadResult> {
   if (!supabaseEnabled || !supabase) throw new Error('Supabase ikke konfigureret');
   const sb = supabase;
+
+  // Start "forældre ukendt"-markerings-hentningen NU, så den overlapper hoved-batchen (ingen
+  // data-afhængighed af canonicalIdById — buildParentsUnknown kanoniserer bagefter). Spejler web.
+  const puRowsP = fetchParentsUnknownRows(sb);
 
   const [
     persons,
@@ -321,6 +328,8 @@ export async function loadFromSupabase(opts?: {
   );
 
   const genCoordsByPerson = buildGenCoords(extIds, lineage, collapsed.canonicalIdById);
+  const puRows = await puRowsP;
+  const parentsUnknownByPerson = buildParentsUnknown(puRows.facts, puRows.conclusions, puRows.assertions, puRows.citations, collapsed.canonicalIdById);
 
   // Vælg fornuftige start-id'er (flest børn = midt i træet) — på den COLLAPSED db, så et start-id
   // aldrig peger på et foldet alias.
@@ -351,5 +360,44 @@ export async function loadFromSupabase(opts?: {
     mergedFrom: collapsed.mergedFrom,
     geo,
     genCoordsByPerson,
+    parentsUnknownByPerson,
   };
+}
+
+// Hent de RÅ rækker til "forældre ukendt"-markeringer (faktatype 'forældre_ukendt' + afklaret
+// konklusion + valgt assertions grad + citationens proveniens). Bevidst UDEN canonicalIdById, så
+// den kan startes FØR collapse og overlappe hoved-batchen (buildParentsUnknown kanoniserer bagefter).
+// Kort-cirkuleret på det (typisk lille/tomme) markerings-sæt; tolerant — fejl → tomme rækker.
+// Spejler web/src/data/model.ts's fetchParentsUnknownRows.
+type ParentsUnknownRows = {
+  facts: { id: number | string; subjekt_id: number | string }[];
+  conclusions: { target_id: number | string; valgt_assertion_id: number | string | null }[];
+  assertions: { id: number | string; vaerdi_tekst: string | null }[];
+  citations: { assertion_id: number | string; citat_tekst: string | null }[];
+};
+
+async function fetchParentsUnknownRows(sb: NonNullable<typeof supabase>): Promise<ParentsUnknownRows> {
+  const empty: ParentsUnknownRows = { facts: [], conclusions: [], assertions: [], citations: [] };
+  try {
+    const facts = await getAll<ParentsUnknownRows['facts'][number]>(() =>
+      sb.from('fact').select('id,subjekt_id').eq('subjekt_type', 'person').eq('faktatype', 'forældre_ukendt').order('id'),
+    );
+    if (!facts.length) return empty;
+    const factIds = facts.map((f) => f.id);
+    const conclusions = await getAll<ParentsUnknownRows['conclusions'][number]>(() =>
+      sb.from('conclusion').select('target_id,valgt_assertion_id').eq('target_type', 'fact').eq('status', 'afklaret').in('target_id', factIds).order('id'),
+    );
+    const assertionIds = conclusions.map((c) => c.valgt_assertion_id).filter((v): v is number | string => v != null);
+    if (!assertionIds.length) return { facts, conclusions, assertions: [], citations: [] };
+    const [assertions, citations] = await Promise.all([
+      getAll<ParentsUnknownRows['assertions'][number]>(() =>
+        sb.from('assertion').select('id,vaerdi_tekst').in('id', assertionIds).order('id')),
+      getAll<ParentsUnknownRows['citations'][number]>(() =>
+        sb.from('citation').select('assertion_id,citat_tekst').in('assertion_id', assertionIds).order('id')),
+    ]);
+    return { facts, conclusions, assertions, citations };
+  } catch (e) {
+    console.warn('[loadFromSupabase] forældre_ukendt-markeringer utilgængelige — ingen kandidat-ringe:', e);
+    return empty;
+  }
 }

@@ -1,5 +1,7 @@
-// Rene generations-helpers til hul-reparation. Coalescer ALDRIG generation pr. person:
-// en founder bærer flere linje-koordinater med hver sit tal (design-spec §6-7).
+// Rene generations-helpers. Coalescer ALDRIG generation pr. person: en founder bærer flere
+// linje-koordinater med hver sit tal (en person kan være III/12 OG V/1). Koordinaterne driver
+// slægtled-labels på det beviste træ (columnGen i tree.ts/selectors.ts) OG den marker-gatede
+// kandidat-visning (unknownParentRing) — begge læser den FAKTISKE koordinat, aldrig aritmetik.
 import type { RawExtId, RawLineage } from './types';
 
 export type GenCoord = {
@@ -11,6 +13,46 @@ export type GenCoord = {
   gennem: number | null;
   kuld: string | null;
 };
+
+// Marker-gatet "forældre ukendt": grad = kildens præcise udsagn (assertionens vaerdi_tekst),
+// kilde = proveniens (citationens citat_tekst, fx 'DAA 1939 s.97'). Grad-værdierne er
+// GRADE_FORAELDER_UKENDT ('forælder findes, men ukendt for os') og GRADE_INGEN_FORBINDELSE
+// ('bogen forbinder slet ikke personen opad') — se docs/reviews/25-*.
+export const GRADE_FORAELDER_UKENDT = 'forælder ukendt';
+export const GRADE_INGEN_FORBINDELSE = 'ingen forbindelse angivet';
+
+export type ParentsUnknown = { grade: string; kilde: string | null };
+
+// Ren resolver: fold facts (faktatype='forældre_ukendt') + AFKLAREDE konklusioner + valgt
+// assertion (grad) + citation (proveniens) til ét opslag pr. kanonisk person. En markering tæller
+// KUN når den har en afklaret konklusion (ellers er den en ubesluttet kandidat, ikke en gate).
+export function buildParentsUnknown(
+  facts: { id: string | number; subjekt_id: string | number }[],
+  conclusions: { target_id: string | number; valgt_assertion_id: string | number | null }[],
+  assertions: { id: string | number; vaerdi_tekst: string | null }[],
+  citations: { assertion_id: string | number; citat_tekst: string | null }[],
+  canonicalIdById: Record<string, string>,
+): Record<string, ParentsUnknown> {
+  const chosenByFact = new Map<string, string>();
+  for (const c of conclusions) {
+    if (c.valgt_assertion_id != null) chosenByFact.set(String(c.target_id), String(c.valgt_assertion_id));
+  }
+  const gradeByAssertion = new Map<string, string | null>();
+  for (const a of assertions) gradeByAssertion.set(String(a.id), a.vaerdi_tekst);
+  const kildeByAssertion = new Map<string, string | null>();
+  for (const ct of citations) {
+    if (!kildeByAssertion.has(String(ct.assertion_id))) kildeByAssertion.set(String(ct.assertion_id), ct.citat_tekst);
+  }
+  const out: Record<string, ParentsUnknown> = {};
+  for (const f of facts) {
+    const aid = chosenByFact.get(String(f.id));
+    if (aid == null) continue; // ingen afklaret konklusion → ikke en aktiv markering
+    const canon = canonicalIdById[String(f.subjekt_id)] ?? String(f.subjekt_id);
+    if (out[canon]) continue; // første afklarede markering pr. person vinder (deterministisk)
+    out[canon] = { grade: gradeByAssertion.get(aid) ?? '', kilde: kildeByAssertion.get(aid) ?? null };
+  }
+  return out;
+}
 
 export function buildGenCoords(
   extIds: RawExtId[],
@@ -35,20 +77,4 @@ export function buildGenCoords(
     });
   }
   return out;
-}
-
-export function previousAncestorGen(
-  coords: GenCoord[],
-  curLinje: string,
-  curLokal: number,
-): { linje: string; lokal: number } | null {
-  if (curLokal > 1) return { linje: curLinje, lokal: curLokal - 1 };
-  // Founder (lokal 1): hop til moderlinjen. Find den aktuelle koordinats parentLineageId.
-  const cur = coords.find((c) => c.linje === curLinje && c.lokal === 1);
-  const parentId = cur?.parentLineageId ?? null;
-  const candidates = coords.filter(
-    (c) => c.lineageId != null && c.lineageId === parentId && (c.lokal ?? 0) > 1,
-  );
-  if (candidates.length !== 1) return null; // fail-closed: kun præcis ét mål
-  return { linje: candidates[0].linje, lokal: (candidates[0].lokal as number) - 1 };
 }

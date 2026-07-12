@@ -131,12 +131,13 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
   const selectDescendant = useStore((s) => s.selectDescendant);
   const setFocus = useStore((s) => s.setFocus);
   const genCoordsByPerson = useStore((s) => s.genCoordsByPerson);
+  const parentsUnknownByPerson = useStore((s) => s.parentsUnknownByPerson);
   const scrollRef = useRef<ScrollView>(null);
   const viewW = useRef(0);
   const prevUp = useRef(0), prevDown = useRef(0), prevAnchor = useRef<string | null>(null);
   const cols = useMemo(
-    () => (anchorId ? buildBidirectionalColumns(model, anchorId, up, down, genCoordsByPerson) : []),
-    [model, anchorId, up, down, genCoordsByPerson],
+    () => (anchorId ? buildBidirectionalColumns(model, anchorId, up, down, genCoordsByPerson, parentsUnknownByPerson) : []),
+    [model, anchorId, up, down, genCoordsByPerson, parentsUnknownByPerson],
   );
   const anchorIdx = cols.findIndex((c) => c.kind === 'anchor');
 
@@ -174,36 +175,36 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
       >
         {cols.map((col) => (
           <View key={col.key} style={{ width: 166 }}>
-            <Mono size={9} color={Colors.gold} style={{ letterSpacing: 9 * 0.1, textTransform: 'uppercase', paddingBottom: 2, marginBottom: col.fallback ? 2 : 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Border.light }}>
-              {col.fallback ? col.genLabel : col.label}
+            <Mono size={9} color={Colors.gold} style={{ letterSpacing: 9 * 0.1, textTransform: 'uppercase', paddingBottom: 2, marginBottom: col.candidate ? 2 : 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Border.light }}>
+              {col.label}
             </Mono>
-            {col.fallback ? (
-              <Mono size={8.5} color={Colors.textMuted2} style={{ marginBottom: 8, lineHeight: 11 }}>
-                slægtled-naboer — ingen bevist som forælder
-              </Mono>
+            {col.candidate && col.candidateNote ? (
+              <Mono size={8.5} color={Colors.textMuted2} style={{ marginBottom: 8, lineHeight: 11 }}>{col.candidateNote}</Mono>
             ) : null}
             <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: insets.bottom + 90 }}>
-            {col.fallback ? (
-              Object.entries(col.kuldGroups ?? {}).map(([kuld, people]) => (
-                <View key={kuld} style={{ gap: 8 }}>
-                  {kuld !== '—' ? (
-                    <Mono size={8} color={Colors.textMuted3} style={{ letterSpacing: 8 * 0.08, textTransform: 'uppercase' }}>Kuld {kuld}</Mono>
-                  ) : null}
-                  {people.map((p) => (
-                    <Pressable key={p.id} onPress={() => setFocus(p.id)} style={styles.bCardFallback}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                        <View style={styles.bAvatar}><Serif size={15} color={Colors.bordeaux}>{initial(p.name)}</Serif></View>
-                        <View style={{ flex: 1, minWidth: 0 }}>
-                          <Serif size={16} style={{ lineHeight: 17 }} numberOfLines={2}>{p.name}</Serif>
-                          {p.years ? <Mono size={9} color={Colors.textMuted} style={{ marginTop: 2 }}>{p.years}</Mono> : null}
-                          <Mono size={8} color={Colors.gold} style={{ letterSpacing: 8 * 0.06, textTransform: 'uppercase', marginTop: 2 }}>muligt slægtled</Mono>
+            {col.candidate ? (
+              <>
+                {Object.entries(col.kuldGroups ?? {}).map(([kuld, people]) => (
+                  <View key={kuld} style={{ gap: 8 }}>
+                    {kuld !== '—' ? (
+                      <Mono size={8} color={Colors.textMuted3} style={{ letterSpacing: 8 * 0.08, textTransform: 'uppercase' }}>Kuld {kuld}</Mono>
+                    ) : null}
+                    {people.map((p) => (
+                      <Pressable key={p.id} onPress={() => setFocus(p.id)} style={styles.bCardFallback}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                          <View style={styles.bAvatar}><Serif size={15} color={Colors.bordeaux}>{initial(p.name)}</Serif></View>
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Serif size={16} style={{ lineHeight: 17 }} numberOfLines={2}>{p.name}</Serif>
+                            {p.years ? <Mono size={9} color={Colors.textMuted} style={{ marginTop: 2 }}>{p.years}</Mono> : null}
+                            <Mono size={8} color={Colors.gold} style={{ letterSpacing: 8 * 0.06, textTransform: 'uppercase', marginTop: 2 }}>muligt slægtled</Mono>
+                          </View>
                         </View>
-                        {/* (ingen BookmarkFlag her — mobile-bogmærker er endnu ikke designet, jf. CLAUDE.md §9) */}
-                      </View>
-                    </Pressable>
-                  ))}
-                </View>
-              ))
+                      </Pressable>
+                    ))}
+                  </View>
+                ))}
+                {col.kilde ? <Mono size={8} color={Colors.textMuted3} style={{ marginTop: 4, lineHeight: 11 }}>Kilde: {col.kilde}</Mono> : null}
+              </>
             ) : col.people.map((p) => {
               const sel = p.id === col.selectedId;
               const canAnc = col.kind === 'ancestor' && (model.indexes.parentsByChild[p.id]?.length ?? 0) > 0;
@@ -230,6 +231,28 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
                 </Pressable>
               );
             })}
+            {col.unconnectedChildren && col.unconnectedChildren.length > 0 ? (
+              <View style={{ marginTop: 4, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Border.light }}>
+                <Mono size={8} color={Colors.textMuted3} style={{ letterSpacing: 8 * 0.08, textTransform: 'uppercase', marginBottom: 6 }}>Uforbundne — placeret efter slægtled, ikke forældreskab</Mono>
+                {col.unconnectedChildren.map((group) => (
+                  <View key={group.grade} style={{ gap: 8, marginBottom: 6 }}>
+                    <Mono size={9} color={Colors.textMuted2} style={{ lineHeight: 12 }}>{group.note}</Mono>
+                    {group.people.map(({ person, kilde }) => (
+                      <Pressable key={person.id} onPress={() => setFocus(person.id)} style={styles.bCardFallback}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                          <View style={styles.bAvatar}><Serif size={14} color={Colors.bordeaux}>{initial(person.name)}</Serif></View>
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Serif size={15} style={{ lineHeight: 16 }} numberOfLines={2}>{person.name}</Serif>
+                            {person.years ? <Mono size={8.5} color={Colors.textMuted} style={{ marginTop: 1 }}>{person.years}</Mono> : null}
+                            {kilde ? <Mono size={7.5} color={Colors.textMuted3} style={{ marginTop: 2 }}>Kilde: {kilde}</Mono> : null}
+                          </View>
+                        </View>
+                      </Pressable>
+                    ))}
+                  </View>
+                ))}
+              </View>
+            ) : null}
             </ScrollView>
           </View>
         ))}

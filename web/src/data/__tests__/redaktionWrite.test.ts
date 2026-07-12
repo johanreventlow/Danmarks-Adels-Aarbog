@@ -56,3 +56,44 @@ describe('buildRpcCall — fjernMedia (mediehåndtering Slice 0h)', () => {
     expect(buildRpcCall({ art: 'fjernMedia', subjektType: 'person', subjektId: '42' } as never)).toBeNull();
   });
 });
+
+describe('buildRpcCall — forældre ukendt-markering (docs/reviews/25)', () => {
+  it('markerForaeldreUkendt → red_upsert_fakta med faktatype forældre_ukendt + grad + kilde', () => {
+    const call = buildRpcCall({
+      art: 'markerForaeldreUkendt', subjektType: 'person', subjektId: '210',
+      vaerdi: 'forælder ukendt', kildeFritekst: 'DAA 1939 s.97',
+    } as never);
+    expect(call).toEqual({ fn: 'red_upsert_fakta', args: {
+      p_subjekt_type: 'person', p_subjekt_id: 210,
+      p_faktatype: 'forældre_ukendt', p_vaerdi: 'forælder ukendt', p_kilde_fritekst: 'DAA 1939 s.97',
+    } });
+  });
+
+  it('markerForaeldreUkendt uden grad (vaerdi) → null (grad er påkrævet)', () => {
+    expect(buildRpcCall({ art: 'markerForaeldreUkendt', subjektType: 'person', subjektId: '210' } as never)).toBeNull();
+  });
+
+  it('markerForaeldreUkendt uden kilde → p_kilde_fritekst null', () => {
+    const call = buildRpcCall({
+      art: 'markerForaeldreUkendt', subjektType: 'person', subjektId: '5', vaerdi: 'ingen forbindelse angivet',
+    } as never);
+    expect(call?.args.p_kilde_fritekst).toBeNull();
+  });
+
+  // FJERN markering (review 26 HIGH 2): tilbagetræk fakta-slottets konklusion via
+  // red_tilbagetraek_fakta — IKKE red_slet_oplysning (som re-peger til ældste påstand og
+  // genopliver markeringen efter Markér→Opdatér→Fjern). Målretter fact-id'et, ikke en assertion.
+  it('tilbagetraekFakta → red_tilbagetraek_fakta med fact-id (fjern markering korrekt)', () => {
+    const call = buildRpcCall({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: '210', factId: '55' } as never);
+    expect(call).toEqual({ fn: 'red_tilbagetraek_fakta', args: { p_fact_id: 55 } });
+  });
+
+  it('tilbagetraekFakta uden fact-id → null', () => {
+    expect(buildRpcCall({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: '210' } as never)).toBeNull();
+  });
+
+  it('tilbagetraekFakta med ugyldigt (ikke-numerisk/tomt) fact-id → null (NaN-guard, review 27)', () => {
+    expect(buildRpcCall({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: '210', factId: '' } as never)).toBeNull();
+    expect(buildRpcCall({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: '210', factId: 'x' } as never)).toBeNull();
+  });
+});

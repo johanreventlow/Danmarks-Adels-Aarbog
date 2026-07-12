@@ -18,6 +18,8 @@ export type Change = {
      | 'opretUnion' | 'tilfoejBarn' | 'setFamilieKonfidens' | 'sletFamilieLink'
      | 'setFamilieOrdinal' | 'flytBarn'
      | 'sammeSom' | 'fjernSammeSom' // redaktionel identitets-sammenkædning (samme_som)
+     | 'markerForaeldreUkendt' // "forældre ukendt"-markering (docs/reviews/25); fjern = 'tilbagetraekFakta'
+     | 'tilbagetraekFakta' // tilbagetræk et fakta-slots konklusion (fjern markering korrekt — review 26 HIGH 2)
      | 'opretKilde' // opret ny source (DAA-udgave) — routes gennem submitChange (dry-run/staging)
      | 'uploadMedia' // mediehåndtering Slice 0g — redaktør-upload (portræt/objekt-foto)
      | 'fjernMedia' // Slice 0h — blødt fjern (upload_status='fjernet'); unlink går via sletRelation
@@ -101,6 +103,24 @@ export function buildRpcCall(c: Change): RpcCall | null {
     if (DATE_FELT.has(c.felt)) args.p_date_raw = c.vaerdi;
     if (c.kildeFritekst != null) args.p_kilde_fritekst = c.kildeFritekst;
     return { fn: 'red_upsert_fakta', args };
+  }
+  // "Forældre ukendt"-markering (docs/reviews/25): find-or-create ét fact pr. person via
+  // red_upsert_fakta (re-markering opdaterer grad+kilde på samme slot). Grad = c.vaerdi
+  // ('forælder ukendt' | 'ingen forbindelse angivet'); kilde = proveniens. Skriver ALDRIG en kant.
+  if (c.art === 'markerForaeldreUkendt') {
+    if (!c.vaerdi) return null;
+    return { fn: 'red_upsert_fakta', args: {
+      p_subjekt_type: 'person', p_subjekt_id: sid,
+      p_faktatype: 'forældre_ukendt', p_vaerdi: c.vaerdi,
+      p_kilde_fritekst: c.kildeFritekst ?? null } };
+  }
+  // FJERN markering: tilbagetræk fakta-slottets konklusion (status → 'tilbagetrukket'). IKKE
+  // sletOplysning — den re-peger til ældste påstand og genopliver markeringen efter Opdatér (HIGH 2).
+  if (c.art === 'tilbagetraekFakta') {
+    const raw = (c.factId ?? '').trim();
+    const fid = raw === '' ? NaN : Number(raw); // Number('')===0 → afvis tom/blank eksplicit
+    if (!Number.isFinite(fid)) return null; // afvis "", "x", NaN — ikke kun null
+    return { fn: 'red_tilbagetraek_fakta', args: { p_fact_id: fid } };
   }
   if (c.art === 'narrativ') {
     return { fn: 'red_upsert_narrativ', args: {

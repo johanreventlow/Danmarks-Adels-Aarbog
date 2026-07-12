@@ -1806,6 +1806,42 @@ CREATE TRIGGER trg_external_id_regen
   AFTER INSERT OR DELETE OR UPDATE OF person_id, source_id, linje, nr ON person_external_id
   FOR EACH ROW EXECUTE FUNCTION trg_regen_from_external_id();
 
+-- =====================================================================
+-- 2026-07-09: "forældre ukendt"-markering (docs/reviews/25-generationer-ukendt-forbindelse-analyse.md)
+-- INGEN skema-ændring: markeringen er et fact (faktatype 'forældre_ukendt') på personen med
+-- assertion (grad = vaerdi_tekst) + citation (proveniens) + afklaret conclusion — skrives via den
+-- eksisterende red_opret_fakta-RPC. Her seedes kun det kontrollerede vokabular (invariant 9), så
+-- "samme slags"-forespørgsler er pålidelige. Idempotent.
+--   Grad-værdier (vaerdi_tekst på assertionen):
+--     'forælder ukendt'            — en forælder FINDES, men er ukendt for os (vis mulige forældre)
+--     'ingen forbindelse angivet'  — bogen forbinder slet ikke personen opad (vis blot forrige slægtled)
+INSERT INTO vocab (scheme, code, label) VALUES
+  ('faktatype', 'forældre_ukendt', 'Forældre ukendt (kilden angiver ingen forbindelse opad)'),
+  ('forældre_ukendt_grad', 'forælder ukendt', 'Forælder findes, men er ukendt for os'),
+  ('forældre_ukendt_grad', 'ingen forbindelse angivet', 'Bogen forbinder ikke personen opad')
+ON CONFLICT (scheme, code) DO NOTHING;
+
+-- =====================================================================
+-- 2026-07-11: "Fjern markering" retter fejl (review 26/Codex HIGH 2)
+-- Fjern-knappen kaldte tidligere red_slet_oplysning, som re-peger konklusionen til den ældste
+-- tilbageværende påstand → efter Markér→Opdatér→Fjern genoplivedes den oprindelige markering i
+-- stedet for at forsvinde. Ny retract-RPC sætter konklusionen 'tilbagetrukket' (læse-gates
+-- kræver 'afklaret'). Append-sikkert, fortrydbart. Idempotent (CREATE OR REPLACE).
+CREATE OR REPLACE FUNCTION red_tilbagetraek_fakta(p_fact_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Fail-closed FØR change_set åbnes (review 27/Codex MEDIUM): intet at tilbagetrække → ærlig fejl
+  -- frem for tomt change_set + falsk succes.
+  IF NOT EXISTS (SELECT 1 FROM conclusion
+                 WHERE target_type='fact' AND target_id=p_fact_id AND status='afklaret') THEN
+    RAISE EXCEPTION 'Ingen aktiv markering at tilbagetrække på fakta %', p_fact_id;
+  END IF;
+  PERFORM begin_change_set('red_tilbagetraek_fakta', format('Tilbagetrak markering på fakta %s', p_fact_id), NULL, NULL);
+  UPDATE conclusion SET status='tilbagetrukket', blaastemplet_naar=current_date
+    WHERE target_type='fact' AND target_id=p_fact_id AND status='afklaret';
+END $$;
+
 -- 2026-07-06: konto-bogmærker — login-eksklusiv bookmark-tabel (design-spec 2026-07-06).
 CREATE TABLE IF NOT EXISTS bookmark (
   id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),

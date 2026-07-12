@@ -14,7 +14,8 @@ import { MediaUploadSheet } from '../../../components/redaktion/MediaUploadSheet
 import { MediaGallery } from '../../../components/redaktion/MediaGallery';
 import { Body, BtnLabel, Mono, Serif } from '../../../components/Typography';
 import { useMediaAndThumbUris } from '../../../lib/media';
-import { fetchPersonEvidence, fetchPersonRelationer, fetchPersonFamilie, fetchPersonMedia, fetchSammeSomLinks, nudgeOrdinal, BARN_ROLLER, type PersonEvidence, type PersonRelation, type PersonFamilie, type PersonMedia, type FamilieUnion, type SammeSomLink } from '../../../data/redaktionRead';
+import { fetchPersonEvidence, fetchPersonRelationer, fetchPersonFamilie, fetchPersonMedia, fetchSammeSomLinks, fetchForaeldreUkendtMarkering, nudgeOrdinal, BARN_ROLLER, type PersonEvidence, type PersonRelation, type PersonFamilie, type PersonMedia, type FamilieUnion, type SammeSomLink, type ForaeldreUkendtMarkering } from '../../../data/redaktionRead';
+import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE } from '../../../data/generations';
 import { previewSammeSom } from '../../../data/sammeSomPreflight';
 import { eraAdvarsel } from '../../../data/eraAdvarsel';
 import { type Change } from '../../../data/redaktionWrite';
@@ -261,6 +262,9 @@ export default function PersonEditor() {
   const setDryRun = useStore((s) => s.setDryRun);
   const [ev, setEv] = useState<PersonEvidence | null>(null);
   const [pending, setPending] = useState<Change | null>(null);
+  const [markering, setMarkering] = useState<ForaeldreUkendtMarkering | null>(null);
+  const [markGrade, setMarkGrade] = useState<string>(GRADE_FORAELDER_UKENDT);
+  const [markKilde, setMarkKilde] = useState('');
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const person = id && redaktionModel ? redaktionModel.byId[id] : null;
 
@@ -273,6 +277,12 @@ export default function PersonEditor() {
   const [addScratch, setAddScratch] = useState({ vaerdi: '', kilde: '' });
 
   useEffect(() => { if (id) fetchPersonEvidence(id).then(setEv).catch(() => {}); }, [id]);
+  useEffect(() => {
+    if (!id) return;
+    fetchForaeldreUkendtMarkering(id)
+      .then((m) => { setMarkering(m); if (m) { setMarkGrade(m.grade || GRADE_FORAELDER_UKENDT); setMarkKilde(m.kilde ?? ''); } })
+      .catch(() => {});
+  }, [id]);
 
   const [relationer, setRelationer] = useState<PersonRelation[]>([]);
   const [pickerType, setPickerType] = useState<'organisation' | 'estate' | null>(null);
@@ -431,6 +441,37 @@ export default function PersonEditor() {
           >
             <BtnLabel color={Colors.danger}>{'🗑 '}Slet person</BtnLabel>
           </Pressable>
+        </View>
+
+        {/* "Forældre ukendt"-markering (docs/reviews/25): kilden forbinder ikke opad → kandidat-kolonne. */}
+        <View style={{ marginBottom: 12, borderWidth: 1, borderColor: markering ? Colors.bordeauxFillLight2 : Border.light, borderRadius: Radius.card, padding: 12, backgroundColor: markering ? '#faf1dc' : Colors.paperCard }}>
+          <Mono size={9} color={Colors.gold} style={{ marginBottom: 8, letterSpacing: 9 * 0.12, textTransform: 'uppercase' }}>Forældre ukendt — kilden forbinder ikke opad</Mono>
+          {markering ? (
+            <Body size={12.5} style={{ marginBottom: 8, lineHeight: 17 }}>
+              Markeret: {markering.grade === GRADE_FORAELDER_UKENDT ? 'forælder findes, men ukendt' : 'ingen forbindelse angivet'}{markering.kilde ? ` · kilde: ${markering.kilde}` : ''}.
+            </Body>
+          ) : null}
+          <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8 }}>
+            {[GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE].map((g) => (
+              <Pressable key={g} onPress={() => setMarkGrade(g)} style={{ flex: 1, paddingVertical: 7, borderRadius: Radius.field, borderWidth: 1.5, borderColor: markGrade === g ? Colors.bordeaux : Border.light, backgroundColor: markGrade === g ? Colors.bordeauxFillLight2 : Colors.paperCard, alignItems: 'center' }}>
+                <Mono size={9} color={markGrade === g ? Colors.bordeaux : Colors.textMuted}>{g === GRADE_FORAELDER_UKENDT ? 'FORÆLDER UKENDT' : 'INGEN FORBINDELSE'}</Mono>
+              </Pressable>
+            ))}
+          </View>
+          <TextInput value={markKilde} onChangeText={setMarkKilde} placeholder="Kilde (fx DAA 1939 s.97)" placeholderTextColor={Colors.textMuted2}
+            style={{ fontSize: 13, paddingHorizontal: 10, paddingVertical: 8, borderRadius: Radius.field, borderWidth: 1, borderColor: Border.light, backgroundColor: Colors.paperCard, color: Colors.ink, marginBottom: 8 }} />
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Pressable onPress={() => setPending({ art: 'markerForaeldreUkendt', subjektType: 'person', subjektId: id!, vaerdi: markGrade, kildeFritekst: markKilde.trim() || undefined })}
+              style={{ flex: 1, paddingVertical: 9, borderRadius: Radius.field, backgroundColor: Colors.bordeaux, alignItems: 'center' }}>
+              <BtnLabel color={Colors.paperCard}>{markering ? 'Opdatér markering' : 'Markér'}</BtnLabel>
+            </Pressable>
+            {markering ? (
+              <Pressable onPress={() => setPending({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: id!, factId: String(markering.factId) })}
+                style={{ paddingVertical: 9, paddingHorizontal: 14, borderRadius: Radius.field, borderWidth: 1, borderColor: Colors.danger, alignItems: 'center' }}>
+                <BtnLabel color={Colors.danger}>Fjern</BtnLabel>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
 
         {showAnn ? (
@@ -752,6 +793,7 @@ export default function PersonEditor() {
         onApplied={() => {
           setPending(null);
           if (id) fetchPersonEvidence(id).then(setEv).catch(() => {});
+          if (id) fetchForaeldreUkendtMarkering(id).then(setMarkering).catch(() => {});
           if (id) fetchPersonRelationer(id, redaktionAux).then(setRelationer).catch(() => {});
           if (id) fetchPersonFamilie(id, redaktionModel).then(setFamilie).catch(() => {});
           refreshSammeSom();

@@ -8,10 +8,11 @@ import { navigate, usePath } from './router';
 import { signIn, signOut, currentSession, type RedSession } from './data/auth';
 import {
   fetchRedaktionPersoner, fetchPersonEvidence, fetchNarrativer, fetchSources, fetchLineages, fetchSletPreview,
-  fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, fetchSammeSomLinks, fetchRedPersonMedia, fetchRedObjectMedia, nudgeOrdinal, type RedPerson, type PersonEvidence,
+  fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, fetchSammeSomLinks, fetchRedPersonMedia, fetchRedObjectMedia, nudgeOrdinal, fetchForaeldreUkendtMarkering, type RedPerson, type PersonEvidence,
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
-  type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia, SLAEGT_SUBJEKT_ID,
+  type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia, type ForaeldreUkendtMarkering, SLAEGT_SUBJEKT_ID,
 } from './data/redaktionRead';
+import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE } from './data/generations';
 import { previewSammeSom } from './data/sammeSomPreflight';
 import { loadModel } from './data/model';
 import type { Model } from './data/types';
@@ -622,6 +623,8 @@ export default function Redaktion() {
             </div>
           </div>
         </div>
+
+        <ForaeldreUkendtControl personId={p.id} run={run} />
 
         {showAnno && (
           <div style={{ marginTop: 16, ...annoBox }}>
@@ -1327,3 +1330,61 @@ const iconBtn: React.CSSProperties = { display: 'flex', alignItems: 'center', ju
 const overlay = (z: number): React.CSSProperties => ({ position: 'fixed', inset: 0, background: 'rgba(34,27,22,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: z, padding: 24 });
 const sectionHeader = (mt: number): React.CSSProperties => ({ marginTop: mt, fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.gold, marginBottom: 10 });
 const annoBox: React.CSSProperties = { border: '1px dashed rgba(136,26,51,.4)', borderRadius: 11, padding: '13px 15px', background: '#f8ecef' };
+
+// "Forældre ukendt"-markering (docs/reviews/25): redaktør-kontrol til at markere at KILDEN ikke
+// angiver en forbindelse opad. Skriver via red_upsert_fakta (grad) / red_tilbagetraek_fakta (fjern —
+// retract af konklusionen, review 26 HIGH 2) gennem det almindelige `run`/submitChange-flow (dry-run/
+// LIVE respekteres). Selvstændig fetch af nuværende markering (undgår at tråde state gennem editoren).
+function ForaeldreUkendtControl({ personId, run }: { personId: string; run: (c: Change, label: string) => void }) {
+  const [mk, setMk] = useState<ForaeldreUkendtMarkering | null | undefined>(undefined);
+  const [grade, setGrade] = useState<string>(GRADE_FORAELDER_UKENDT);
+  const [kilde, setKilde] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    setMk(undefined);
+    fetchForaeldreUkendtMarkering(personId)
+      .then((m) => { if (!alive) return; setMk(m); if (m) { setGrade(m.grade || GRADE_FORAELDER_UKENDT); setKilde(m.kilde ?? ''); } })
+      .catch(() => { if (alive) setMk(null); });
+    return () => { alive = false; };
+  }, [personId, reloadKey]);
+  const refetchSoon = () => setTimeout(() => setReloadKey((k) => k + 1), 700);
+  const marker = () => {
+    run({ art: 'markerForaeldreUkendt', subjektType: 'person', subjektId: personId, vaerdi: grade, kildeFritekst: kilde.trim() || undefined }, 'Forældre ukendt');
+    refetchSoon();
+  };
+  const fjern = () => {
+    if (!mk) return;
+    run({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: personId, factId: String(mk.factId) }, 'Fjern forældre-ukendt');
+    refetchSoon();
+  };
+  const gradeLabel = (g: string) => g === GRADE_FORAELDER_UKENDT ? 'Forælder findes, men er ukendt for os' : 'Bogen forbinder ikke personen opad';
+  return (
+    <div style={{ marginTop: 14, border: `1px solid ${mk ? 'rgba(136,26,51,.25)' : 'rgba(34,31,26,.14)'}`, borderRadius: 11, padding: '12px 14px', background: mk ? '#faf1dc' : T.panel }}>
+      <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', color: T.gold, marginBottom: 8 }}>
+        Forældre ukendt — kilden forbinder ikke opad
+      </div>
+      {mk === undefined ? (
+        <div style={{ fontSize: 12, color: T.muted }}>Henter markering…</div>
+      ) : (
+        <>
+          {mk && (
+            <div style={{ fontSize: 12.5, color: '#3d382f', marginBottom: 9, lineHeight: 1.45 }}>
+              Markeret: <b>{gradeLabel(mk.grade)}</b>{mk.kilde ? <> · kilde: <i>{mk.kilde}</i></> : ''}.
+              Personen viser en kandidat-kolonne (forrige slægtled) i stamtræet.
+            </div>
+          )}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            <select value={grade} onChange={(e) => setGrade(e.target.value)} style={{ fontFamily: T.sans, fontSize: 12, padding: '6px 8px', borderRadius: 7, border: '1px solid rgba(34,31,26,.18)', background: T.paper, color: T.ink }}>
+              <option value={GRADE_FORAELDER_UKENDT}>Forælder ukendt (findes, men ukendt)</option>
+              <option value={GRADE_INGEN_FORBINDELSE}>Ingen forbindelse angivet</option>
+            </select>
+            <input value={kilde} onChange={(e) => setKilde(e.target.value)} placeholder="Kilde (fx DAA 1939 s.97)" style={{ flex: 1, minWidth: 160, fontFamily: T.sans, fontSize: 12, padding: '6px 9px', borderRadius: 7, border: '1px solid rgba(34,31,26,.18)', background: T.paper, color: T.ink }} />
+            <div onClick={marker} style={{ fontSize: 12, fontWeight: 600, color: '#fff', background: T.bordeaux, borderRadius: 7, padding: '7px 13px', cursor: 'pointer' }}>{mk ? 'Opdatér' : 'Markér'}</div>
+            {mk && <div onClick={fjern} style={{ fontSize: 12, fontWeight: 600, color: T.red, border: '1px solid rgba(138,43,43,.3)', borderRadius: 7, padding: '6px 12px', cursor: 'pointer' }}>Fjern</div>}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

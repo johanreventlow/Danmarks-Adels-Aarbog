@@ -9,7 +9,7 @@ import { loadFromSupabase } from '../data/load';
 import { buildSnapPath } from '../data/selectors';
 import { SEED } from '../data/seed';
 import { childrenOf } from '../data/selectors';
-import type { GenCoord } from '../data/generations';
+import type { GenCoord, ParentsUnknown } from '../data/generations';
 import type { Aux, Geo, Model } from '../data/types';
 
 const ME_KEY = 'daa_me_id';
@@ -28,6 +28,8 @@ type State = {
   geo: Geo; // kortpunkter (godskort/livskort/overblik/nærhed); EMPTY_GEO indtil load
   // Generations-koordinater pr. kanonisk person-id (Task C1's hul-reparation); {} indtil load/SEED.
   genCoordsByPerson: Record<string, GenCoord[]>;
+  // Marker-gatet "forældre ukendt" pr. kanonisk person-id (grad + proveniens); {} indtil load/SEED.
+  parentsUnknownByPerson: Record<string, ParentsUnknown>;
 
   rootId: string | null;
   focusId: string | null;
@@ -102,6 +104,7 @@ export const useStore = create<State>((set, get) => ({
   aux: null,
   geo: EMPTY_GEO,
   genCoordsByPerson: {},
+  parentsUnknownByPerson: {},
   rootId: null,
   focusId: null,
   variant: 'A',
@@ -147,6 +150,7 @@ export const useStore = create<State>((set, get) => ({
         aux: res.aux,
         geo: res.geo,
         genCoordsByPerson: res.genCoordsByPerson ?? {},
+        parentsUnknownByPerson: res.parentsUnknownByPerson ?? {},
         rootId: res.rootId,
         focusId: res.focusId,
         anchorId: res.focusId,
@@ -170,7 +174,8 @@ export const useStore = create<State>((set, get) => ({
         model,
         aux: SEED.aux,
         geo: SEED.geo,
-        genCoordsByPerson: {}, // SEED bærer ikke generations-koordinater — ingen fallback-ring i offline-tilstand
+        genCoordsByPerson: {}, // SEED bærer ikke generations-koordinater — ingen kandidat-ring i offline-tilstand
+        parentsUnknownByPerson: {}, // SEED bærer ingen forældre_ukendt-markeringer
         rootId: SEED.rootId,
         focusId: SEED.focusId,
         anchorId: SEED.focusId,

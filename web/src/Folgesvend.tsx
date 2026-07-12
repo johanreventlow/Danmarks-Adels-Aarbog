@@ -603,6 +603,12 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
   const anchorIdxRef = useRef(0);           // indeks på anker-kolonnen (til centrering)
   const prevUp = useRef(0), prevDown = useRef(0), prevAnchor = useRef<string | null>(null), prevVariant = useRef<'A' | 'B'>('A');
   const STRIDE = 222;                        // kolonnebredde 208 + gap 14
+  // Memoiseret som mobil (tree.tsx): undgår gen-beregning ved urelaterede parent-re-renders
+  // (browse-tastetryk, bogmærke-toggle) — den delte bygger er byte-identisk, memo er kun call-site.
+  const cols = useMemo(
+    () => (model && variant === 'B' && anchorId ? buildBidirectionalColumns(model, anchorId, up, down, model.genCoordsByPerson, model.parentsUnknownByPerson) : []),
+    [model, variant, anchorId, up, down],
+  );
 
   // Ankeret følger fokus-personen. Nulstil (ryd begge drill-retninger) KUN ved EKSTERN navigation.
   // Frontier-tjek (IKKE fuldt medlemskab, jf. spec §5.3): efter en drill er focusId altid den
@@ -615,8 +621,12 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
       (up.length === 0 && down.length === 0 && focusId === anchorId) ||
       focusId === up[up.length - 1] ||
       focusId === down[down.length - 1];
-    if (!keep) { setAnchorId(focusId); setUp([]); setDown([]); }
-  }, [focusId]); // bevidst kun focusId — up/down/anchorId læses som frontier ved fokus-skift
+    if (!keep) {
+      // Ekstern navigation (søgning/link/"det er mig"/deep-link) → nyt anker, ryd drill-retninger.
+      setAnchorId(focusId);
+      setUp([]); setDown([]);
+    }
+  }, [focusId]);
 
   // Kompensér FØR paint når en ane-kolonne prepend'es, så ankeret ikke "hopper" (spec §5.5, fase 1).
   useLayoutEffect(() => {
@@ -659,8 +669,8 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
   // Vi udvider up/down KUN med parentsOf/childrenOf-id'er (kanoniske) → frontier-invarianten holder.
   const selectAncestor = (depth: number, id: string) => { setUp((prev) => prev.slice(0, depth - 1).concat(id)); onFocus(id); };
   const selectDescendant = (depth: number, id: string) => { setDown((prev) => prev.slice(0, depth - 1).concat(id)); onFocus(id); };
-  const cols = variant === 'B' && anchorId ? buildBidirectionalColumns(model, anchorId, up, down, model.genCoordsByPerson) : [];
-  anchorIdxRef.current = Math.max(0, cols.findIndex((c) => c.kind === 'anchor'));
+  const anchorColIdx = cols.findIndex((c) => c.kind === 'anchor');
+  anchorIdxRef.current = Math.max(0, anchorColIdx);
 
   return (
     <div style={{ padding: '30px 40px 50px', position: 'relative', minHeight: '100%' }}>
@@ -689,41 +699,46 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
         <div ref={colsRef} data-scroll style={{ display: 'flex', gap: 14, overflowX: 'auto', padding: '10px 0 16px', alignItems: 'flex-start' }}>
           {cols.map((col) => (
             <div key={col.key} style={{ flex: 'none', width: 208, display: 'flex', flexDirection: 'column', gap: 9 }}>
-              <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.gold, padding: '0 2px 4px', borderBottom: '1px solid rgba(34,31,26,.1)' }}>{col.fallback ? col.genLabel : col.label}</div>
-              {col.fallback && (
-                <div style={{ fontFamily: T.sans, fontSize: 10.5, color: T.muted2, padding: '0 2px', marginTop: -6 }}>
-                  slægtled-naboer — ingen bevist som forælder
-                </div>
+              <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.gold, padding: '0 2px 4px', borderBottom: '1px solid rgba(34,31,26,.1)' }}>{col.label}</div>
+              {col.candidate && col.candidateNote && (
+                <div style={{ fontFamily: T.sans, fontSize: 10.5, color: T.muted2, padding: '0 2px', marginTop: -4, lineHeight: 1.3 }}>{col.candidateNote}</div>
               )}
-              {col.fallback ? (
-                Object.entries(col.kuldGroups ?? {}).map(([kuld, people]) => (
-                  <div key={kuld} style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-                    {kuld !== '—' && (
-                      <div style={{ fontFamily: T.mono, fontSize: 8.5, letterSpacing: '.08em', textTransform: 'uppercase', color: T.muted3, padding: '2px 2px 0' }}>Kuld {kuld}</div>
-                    )}
-                    {people.map((p) => (
-                      <div key={p.id} onClick={() => onFocus(p.id)} style={{ background: '#faf1dc', border: `1.5px dashed ${T.gold}`, borderRadius: 12, padding: '11px 13px', cursor: 'pointer', boxShadow: '0 1px 2px rgba(34,31,26,.04)', display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <Avatar n={p.name} size={34} />
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                          <div style={{ fontFamily: T.serif, fontSize: 16, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-                          {p.years && <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 2 }}>{p.years}</div>}
-                          <div style={{ fontFamily: T.mono, fontSize: 8, letterSpacing: '.06em', textTransform: 'uppercase', color: T.gold, marginTop: 2 }}>muligt slægtled</div>
+              {col.candidate ? (
+                <>
+                  {Object.entries(col.kuldGroups ?? {}).map(([kuld, people]) => (
+                    <div key={kuld} style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                      {kuld !== '—' && (
+                        <div style={{ fontFamily: T.mono, fontSize: 8.5, letterSpacing: '.08em', textTransform: 'uppercase', color: T.muted3, padding: '2px 2px 0' }}>Kuld {kuld}</div>
+                      )}
+                      {people.map((p) => (
+                        <div key={p.id} onClick={() => onFocus(p.id)} style={{ background: '#faf1dc', border: `1.5px dashed ${T.gold}`, borderRadius: 12, padding: '11px 13px', cursor: 'pointer', boxShadow: '0 1px 2px rgba(34,31,26,.04)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <Avatar n={p.name} size={34} />
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontFamily: T.serif, fontSize: 16, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+                            {p.years && <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 2 }}>{p.years}</div>}
+                            <div style={{ fontFamily: T.mono, fontSize: 8, letterSpacing: '.06em', textTransform: 'uppercase', color: T.gold, marginTop: 2 }}>muligt slægtled</div>
+                          </div>
+                          <BookmarkFlag active={hasBookmark(p.id)} onClick={() => onToggleBookmark(p.id)} />
                         </div>
-                        <BookmarkFlag active={hasBookmark(p.id)} onClick={() => onToggleBookmark(p.id)} />
-                      </div>
-                    ))}
-                  </div>
-                ))
+                      ))}
+                    </div>
+                  ))}
+                  {col.kilde && (
+                    <div style={{ fontFamily: T.mono, fontSize: 8.5, color: T.muted3, padding: '4px 2px 0', lineHeight: 1.35, borderTop: '1px dashed rgba(34,31,26,.12)', marginTop: 2 }}>Kilde: {col.kilde}</div>
+                  )}
+                </>
               ) : col.people.map((p) => {
                 const sel = p.id === col.selectedId;
                 // Kort-chevron peger i drill-retningen: aner ‹ (venstre), efterkommere › (højre).
+                // Ankeret (kind==='anchor', altid sel) er ikke-klikbart: onTap undefined + default-cursor,
+                // ingen chevrons (canAnc/canDesc falske) — samme bordeaux-fokus-kort uden en tredje JSX-kopi.
                 const canAnc = col.kind === 'ancestor' && hasParents(p.id);
                 const canDesc = col.kind === 'descendant' && childCount(p.id) > 0;
-                const onTap = col.kind === 'ancestor' ? () => selectAncestor(col.depth, p.id)
-                  : col.kind === 'descendant' ? () => selectDescendant(col.depth, p.id)
-                  : () => onFocus(p.id);
+                const onTap = col.kind === 'anchor' ? undefined
+                  : col.kind === 'ancestor' ? () => selectAncestor(col.depth, p.id)
+                  : () => selectDescendant(col.depth, p.id);
                 return (
-                  <div key={p.id} onClick={onTap} style={{ background: sel ? '#f8ecef' : T.paper, border: `1.5px solid ${sel ? T.bordeaux : 'rgba(34,31,26,.1)'}`, borderRadius: 12, padding: '11px 13px', cursor: 'pointer', boxShadow: sel ? '0 4px 14px rgba(136,26,51,.12)' : '0 1px 2px rgba(34,31,26,.04)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div key={p.id} onClick={onTap} style={{ background: sel ? '#f8ecef' : T.paper, border: `1.5px solid ${sel ? T.bordeaux : 'rgba(34,31,26,.1)'}`, borderRadius: 12, padding: '11px 13px', cursor: col.kind === 'anchor' ? 'default' : 'pointer', boxShadow: sel ? '0 4px 14px rgba(136,26,51,.12)' : '0 1px 2px rgba(34,31,26,.04)', display: 'flex', alignItems: 'center', gap: 10 }}>
                     {canAnc && <span style={{ color: '#bcae93', fontSize: 16, flex: 'none' }}>‹</span>}
                     <Avatar n={p.name} size={34} />
                     <div style={{ minWidth: 0, flex: 1 }}>
@@ -735,6 +750,27 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
                   </div>
                 );
               })}
+              {col.unconnectedChildren && col.unconnectedChildren.length > 0 && (
+                <div style={{ marginTop: 4, paddingTop: 8, borderTop: '1px dashed rgba(34,31,26,.16)' }}>
+                  <div style={{ fontFamily: T.mono, fontSize: 8, letterSpacing: '.08em', textTransform: 'uppercase', color: T.muted3, padding: '0 2px 6px' }}>Uforbundne — placeret efter slægtled, ikke forældreskab</div>
+                  {col.unconnectedChildren.map((group) => (
+                    <div key={group.grade} style={{ display: 'flex', flexDirection: 'column', gap: 9, marginBottom: 6 }}>
+                      <div style={{ fontFamily: T.sans, fontSize: 10, color: T.muted2, padding: '0 2px', lineHeight: 1.3 }}>{group.note}</div>
+                      {group.people.map(({ person, kilde }) => (
+                        <div key={person.id} onClick={() => onFocus(person.id)} style={{ background: '#faf1dc', border: `1.5px dashed ${T.gold}`, borderRadius: 12, padding: '9px 11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}>
+                          <Avatar n={person.name} size={30} />
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontFamily: T.serif, fontSize: 15, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{person.name}</div>
+                            {person.years && <div style={{ fontFamily: T.mono, fontSize: 8.5, color: T.muted2, marginTop: 1 }}>{person.years}</div>}
+                            {kilde && <div style={{ fontFamily: T.mono, fontSize: 7.5, color: T.muted3, marginTop: 2 }}>Kilde: {kilde}</div>}
+                          </div>
+                          <BookmarkFlag active={hasBookmark(person.id)} onClick={() => onToggleBookmark(person.id)} />
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>

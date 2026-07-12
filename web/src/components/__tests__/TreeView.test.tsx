@@ -97,48 +97,87 @@ describe('TreeView', () => {
     expect(screen.getByText('Anna')).toBeTruthy();
     expect(screen.getByText('Ida')).toBeTruthy();       // Bo's barn i frisk Børn-kolonne
   });
+
+  it('ingen ugated kandidat-kolonne: founder uden beviste forældre + genCoords → INGEN "muligt slægtled" (marker-gating kræves, Phase C)', () => {
+    const fbModel = buildModel(db([P('P', 'Poul'), P('N1', 'Nabo Et')], []));
+    (fbModel as typeof fbModel & { genCoordsByPerson: unknown }).genCoordsByPerson = {
+      P: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 2, gennem: 2, kuld: null }],
+      N1: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 1, gennem: 1, kuld: null }],
+    };
+    render(<TreeView model={fbModel} focusId="P" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} search={search} />);
+    fireEvent.click(screen.getByText('Kolonner'));
+    expect(screen.queryByText('muligt slægtled')).toBeNull();
+    expect(screen.queryByText('Nabo Et')).toBeNull(); // ingen kandidat vist uden markering
+  });
 });
 
-describe('TreeView — fallback-ring (D1: render af C1s genCoords-baserede ubeviste ring)', () => {
-  // Founder 'P' uden beviste forældre; 'Nabo1'/'Nabo2' deler forrige slægtled via genCoords
-  // (samme opsætning som src/data/__tests__/tree.test.ts's fallback-ring-suite).
-  const fbModel = buildModel(
-    db([P('P', 'Poul'), P('N1', 'Nabo Et'), P('N2', 'Nabo To')], []),
-  );
-  // P er en collapset founder der bærer BEGGE koordinater (V-1 + III-12) — samme opsætning som
-  // src/data/__tests__/tree.test.ts's fallback-ring-suite; founder-hop'et lander på III lokal 11,
-  // som N1/N2 deler (kuld-adskilt).
-  (fbModel as typeof fbModel & { genCoordsByPerson: unknown }).genCoordsByPerson = {
-    P: [
-      { sourceId: '1', linje: 'V', lineageId: '50', parentLineageId: '10', lokal: 1, gennem: 12, kuld: null },
-      { sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 12, gennem: 12, kuld: null },
-    ],
+describe('TreeView — marker-gatet kandidat-kolonne (Phase C)', () => {
+  // Poul (markeret 'forælder ukendt') uden beviste forældre; N1/N2 i forrige slægtled (III/11).
+  const mk = (id: string, name: string) => P(id, name);
+  const cModel = buildModel(db([mk('P', 'Poul'), mk('N1', 'Nabo Et'), mk('N2', 'Nabo To')], []));
+  (cModel as typeof cModel & { genCoordsByPerson: unknown }).genCoordsByPerson = {
+    P: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 12, gennem: 12, kuld: null }],
     N1: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: 'I' }],
     N2: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: 'II' }],
   };
+  (cModel as typeof cModel & { parentsUnknownByPerson: unknown }).parentsUnknownByPerson = {
+    P: { grade: 'forælder ukendt', kilde: 'DAA 1939 s.97' },
+  };
 
-  it('viser genLabel + undertekst + "muligt slægtled"-tags for en fallback-ring', () => {
-    render(
-      <TreeView model={fbModel} focusId="P" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} search={search} />,
-    );
+  it('viser kandidat-kolonne med ordlyd, proveniens, kuld-grupper og "muligt slægtled"-tags', () => {
+    render(<TreeView model={cModel} focusId="P" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} search={search} />);
     fireEvent.click(screen.getByText('Kolonner'));
-    expect(screen.getByText(/slægtled.*III-linjen/)).toBeTruthy(); // genLabel
-    expect(screen.getByText('slægtled-naboer — ingen bevist som forælder')).toBeTruthy();
+    expect(screen.getByText(/11\. slægtled · III-linjen/)).toBeTruthy();
+    expect(screen.getByText('Mulige forældre — kilden navngiver dem ikke')).toBeTruthy();
+    expect(screen.getByText('Kilde: DAA 1939 s.97')).toBeTruthy();
     expect(screen.getByText('Nabo Et')).toBeTruthy();
     expect(screen.getByText('Nabo To')).toBeTruthy();
-    expect(screen.getAllByText('muligt slægtled').length).toBe(2);
     expect(screen.getByText('Kuld I')).toBeTruthy();
     expect(screen.getByText('Kuld II')).toBeTruthy();
+    expect(screen.getAllByText('muligt slægtled').length).toBe(2);
   });
 
-  it('klik på fallback-kort kalder onFocus (re-ankrer) — IKKE onPick, ingen skrivning', () => {
+  it('klik på kandidat re-ankrer via onFocus (ren navigation, ingen skrivning)', () => {
     let picked: string | null = null, focused: string | null = null;
-    render(
-      <TreeView model={fbModel} focusId="P" onPick={(id) => (picked = id)} onFocus={(id) => (focused = id)} hasBookmark={() => false} onToggleBookmark={() => {}} search={search} />,
-    );
+    render(<TreeView model={cModel} focusId="P" onPick={(id) => (picked = id)} onFocus={(id) => (focused = id)} hasBookmark={() => false} onToggleBookmark={() => {}} search={search} />);
     fireEvent.click(screen.getByText('Kolonner'));
     fireEvent.click(screen.getByText('Nabo Et'));
     expect(focused).toBe('N1');
     expect(picked).toBeNull();
+  });
+});
+
+describe('TreeView — nedad-projektion (uforbundne i næste slægtled)', () => {
+  // Gottschalk (mand) med sikkert barn; Wulf markeret uforbunden i næste slægtled (samme linje).
+  const dModel = buildModel(db(
+    [P('G', 'Gottschalk'), P('A', 'Sikkert Barn'), P('W', 'Wulf')],
+    [{ child: 'A', parent: 'G', union: 'u' }],
+  ));
+  (dModel as typeof dModel & { koenSet?: unknown });
+  dModel.byId['G'].koen = 'mand';
+  (dModel as typeof dModel & { genCoordsByPerson: unknown }).genCoordsByPerson = {
+    G: [{ sourceId: '1', linje: 'I', lineageId: '10', parentLineageId: null, lokal: 1, gennem: 1, kuld: null }],
+    W: [{ sourceId: '1', linje: 'I', lineageId: '10', parentLineageId: null, lokal: 2, gennem: 2, kuld: null }],
+  };
+  (dModel as typeof dModel & { parentsUnknownByPerson: unknown }).parentsUnknownByPerson = {
+    W: { grade: 'ingen forbindelse angivet', kilde: 'DAA 1939 s.6' },
+  };
+
+  it('børne-kolonnen viser de sikre børn OG en "uforbundne i dette slægtled"-sektion med neutral ordlyd', () => {
+    render(<TreeView model={dModel} focusId="G" onPick={() => {}} onFocus={() => {}} hasBookmark={() => false} onToggleBookmark={() => {}} search={search} />);
+    fireEvent.click(screen.getByText('Kolonner'));
+    expect(screen.getByText('Sikkert Barn')).toBeTruthy();      // bevist barn urørt
+    expect(screen.getByText('Uforbundne — placeret efter slægtled, ikke forældreskab')).toBeTruthy();
+    expect(screen.getByText('Kilden forbinder dem ikke opad — står i næste slægtled i linjen')).toBeTruthy();
+    expect(screen.getByText('Wulf')).toBeTruthy();
+    expect(screen.getByText('Kilde: DAA 1939 s.6')).toBeTruthy();
+  });
+
+  it('klik på en uforbunden re-ankrer via onFocus (ren navigation)', () => {
+    let focused: string | null = null;
+    render(<TreeView model={dModel} focusId="G" onPick={() => {}} onFocus={(id) => (focused = id)} hasBookmark={() => false} onToggleBookmark={() => {}} search={search} />);
+    fireEvent.click(screen.getByText('Kolonner'));
+    fireEvent.click(screen.getByText('Wulf'));
+    expect(focused).toBe('W');
   });
 });

@@ -151,6 +151,32 @@ export type SletPreview = {
   relationer: { rolle: string; retning: string; modpartId: number }[];
 };
 
+// "Forældre ukendt"-markering (docs/reviews/25): den aktuelle afklarede markering på en person,
+// eller null hvis umarkeret. factId bruges til fjern (tilbagetræk hele fakta-slottet). Spejler web/src/data/redaktionRead.ts.
+export type ForaeldreUkendtMarkering = { factId: number; assertionId: number; grade: string; kilde: string | null };
+
+export async function fetchForaeldreUkendtMarkering(personId: string): Promise<ForaeldreUkendtMarkering | null> {
+  if (!supabase || !personId) return null;
+  const pid = Number(personId);
+  const { data: facts, error: fErr } = await supabase
+    .from('fact').select('id').eq('subjekt_type', 'person').eq('subjekt_id', pid).eq('faktatype', 'forældre_ukendt');
+  if (fErr) throw fErr;
+  const factIds = (facts ?? []).map((f: { id: number }) => f.id);
+  if (!factIds.length) return null;
+  const { data: conc, error: cErr } = await supabase
+    .from('conclusion').select('target_id,valgt_assertion_id').eq('target_type', 'fact').eq('status', 'afklaret')
+    .in('target_id', factIds).order('target_id').limit(1).maybeSingle(); // deterministisk (laveste fact-id) — spejler PU-loaderens .order('id')
+  if (cErr) throw cErr;
+  const aid = conc?.valgt_assertion_id;
+  const fid = conc?.target_id;
+  if (aid == null || fid == null) return null;
+  const [{ data: a }, { data: cit }] = await Promise.all([
+    supabase.from('assertion').select('vaerdi_tekst').eq('id', aid).maybeSingle(),
+    supabase.from('citation').select('citat_tekst').eq('assertion_id', aid).limit(1).maybeSingle(),
+  ]);
+  return { factId: Number(fid), assertionId: Number(aid), grade: a?.vaerdi_tekst ?? '', kilde: cit?.citat_tekst ?? null };
+}
+
 export async function fetchSletPreview(personId: string): Promise<SletPreview> {
   const tom: SletPreview = { antalRelationer: 0, antalFacts: 0, relationer: [] };
   if (!supabase) return tom;

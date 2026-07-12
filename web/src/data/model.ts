@@ -3,7 +3,7 @@
 // behøver — ikke Aux/godser/våben). Rolle-vokab: partner = forælder-par, barn = blodslægt.
 import { supabase } from '../supabase';
 import { buildGeo } from './buildGeo';
-import { buildGenCoords } from './generations';
+import { buildGenCoords, buildParentsUnknown } from './generations';
 import { buildModel } from './buildModel';
 import { collapseSameAs } from './collapseSameAs';
 import { buildLineage } from './lineage';
@@ -60,6 +60,9 @@ export function compareParentOrder(
 // model.byId) stampet på. collapse: default true; redaktion slår FRA (collapse:false) for at slå
 // navne op på de rå DB-poster (et foldet alias ville ellers mangle i model.byId) — spec §8.
 export async function loadModel(opts?: { collapse?: boolean }): Promise<Model> {
+  // Start "forældre ukendt"-markerings-hentningen NU, så den overlapper hoved-batchen (dens
+  // facts-probe har ingen data-afhængighed af canonicalIdById — kun buildParentsUnknown til sidst har).
+  const puRowsP = fetchParentsUnknownRows();
   const [persons, members, extIds, lineageRows, sources, sameAsRel, approvedConc, estates, places, facts] = await Promise.all([
     getAll<RawPerson>(() => supabase.from('person').select('id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_titel,koen,privat')),
     getAll<RawMember>(() => supabase.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens')),
@@ -144,6 +147,9 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<Model> {
   const collapsed = collapseSameAs(rawDb, edges, extMap);
   if (collapsed.quarantined.length) console.warn('[samme_som] karantæne (foldes ikke):', collapsed.quarantined);
 
+  const puRows = await puRowsP;
+  const parentsUnknownByPerson = buildParentsUnknown(puRows.facts, puRows.conclusions, puRows.assertions, puRows.citations, collapsed.canonicalIdById);
+
   const model: Model = {
     ...buildModel(collapsed.db),
     lineage: buildLineage(extIds, lineageRows, collapsed.canonicalIdById),
@@ -155,10 +161,49 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<Model> {
       collapsed.canonicalIdById,
     ),
     genCoordsByPerson: buildGenCoords(extIds, lineageRows, collapsed.canonicalIdById),
+    parentsUnknownByPerson,
   };
   // Påfør proveniens på de foldede kanoniske personer (til badge i detalje-panelet).
   for (const [canon, prov] of Object.entries(collapsed.mergedFrom)) {
     if (model.byId[canon]) model.byId[canon].mergedFrom = prov;
   }
   return model;
+}
+
+// Hent de RÅ rækker til "forældre ukendt"-markeringer (faktatype 'forældre_ukendt' + afklaret
+// konklusion + valgt assertions grad + citationens proveniens). Bevidst UDEN canonicalIdById, så
+// den kan startes FØR collapse og overlappe hoved-batchen (buildParentsUnknown kanoniserer bagefter).
+// Kæden er kort-cirkuleret på det (typisk lille/tomme) markerings-sæt. Tolerant — en fejl degraderer
+// til tomme rækker (→ ingen kandidat-ringe), aldrig et brud på stamtræet.
+type ParentsUnknownRows = {
+  facts: { id: number | string; subjekt_id: number | string }[];
+  conclusions: { target_id: number | string; valgt_assertion_id: number | string | null }[];
+  assertions: { id: number | string; vaerdi_tekst: string | null }[];
+  citations: { assertion_id: number | string; citat_tekst: string | null }[];
+};
+
+async function fetchParentsUnknownRows(): Promise<ParentsUnknownRows> {
+  const empty: ParentsUnknownRows = { facts: [], conclusions: [], assertions: [], citations: [] };
+  try {
+    const facts = await getAll<ParentsUnknownRows['facts'][number]>(() =>
+      supabase.from('fact').select('id,subjekt_id').eq('subjekt_type', 'person').eq('faktatype', 'forældre_ukendt').order('id'),
+    );
+    if (!facts.length) return empty;
+    const factIds = facts.map((f) => f.id);
+    const conclusions = await getAll<ParentsUnknownRows['conclusions'][number]>(() =>
+      supabase.from('conclusion').select('target_id,valgt_assertion_id').eq('target_type', 'fact').eq('status', 'afklaret').in('target_id', factIds).order('id'),
+    );
+    const assertionIds = conclusions.map((c) => c.valgt_assertion_id).filter((v): v is number | string => v != null);
+    if (!assertionIds.length) return { facts, conclusions, assertions: [], citations: [] };
+    const [assertions, citations] = await Promise.all([
+      getAll<ParentsUnknownRows['assertions'][number]>(() =>
+        supabase.from('assertion').select('id,vaerdi_tekst').in('id', assertionIds).order('id')),
+      getAll<ParentsUnknownRows['citations'][number]>(() =>
+        supabase.from('citation').select('assertion_id,citat_tekst').in('assertion_id', assertionIds).order('id')),
+    ]);
+    return { facts, conclusions, assertions, citations };
+  } catch (e) {
+    console.warn('[loadModel] forældre_ukendt-markeringer utilgængelige — ingen kandidat-ringe:', e);
+    return empty;
+  }
 }

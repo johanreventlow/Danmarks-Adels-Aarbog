@@ -187,6 +187,11 @@ export type Model = {
   // Generations-koordinater pr. kanonisk person-id (slægtled_lokal/gennem + kuld pr. linje).
   // Valgfrit: udfyldes af loadModel via buildGenCoords (Task B2); bruges af tree-byggeren (C1).
   genCoordsByPerson?: Record<string, import('./generations').GenCoord[]>;
+  // Marker-gatet "forældre ukendt": kanonisk person-id → grad + proveniens. KUN personer hvor
+  // KILDEN faktisk angiver at forbindelsen opad ikke er kendt (redaktionel markering, faktatype
+  // 'forældre_ukendt' + afklaret konklusion) — IKKE personer hvor en kant bare mangler i basen.
+  // Driver den ærlige inline kandidat-visning (unknownParentRing). Se docs/reviews/25-*.
+  parentsUnknownByPerson?: Record<string, import('./generations').ParentsUnknown>;
 };
 
 // --- Geo-lag (kort) ---------------------------------------------------------

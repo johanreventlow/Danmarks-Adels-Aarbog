@@ -1,5 +1,102 @@
 # Changelog
 
+## Review 27 — dual-review af review-26-rettelserne (web+mobil, branch `feat/generations-browser-v2`, 2026-07-11)
+
+Claude+Codex dual-review af selve review-26-rettelserne (`docs/reviews/27-review26-fixes-dual-review.md`).
+Code-analyzer: 0 bugs. **Codex hævede den rigtige robustheds-/scoping-flanke** (alle claims verificeret
+empirisk — ingen laundering):
+
+- **MEDIUM (rettet):** `red_tilbagetraek_fakta` åbnede et change_set FØR den tjekkede om noget blev ramt →
+  forkert/dobbelt-klik gav tomt change_set + falsk succes. Nu fail-closed `IF NOT EXISTS(... afklaret) THEN
+  RAISE` før `begin_change_set` (schema.sql + db-migrations.sql). Rollback-test udvidet: dobbelt-retract
+  rejser nu ærlig fejl. **Kræver prod-re-apply** (idempotent CREATE OR REPLACE).
+- **Determinisme (rettet):** `fetchForaeldreUkendtMarkering` manglede `order` (PU-loaderen har `.order('id')`)
+  → `.order('target_id')` tilføjet (begge platforme).
+- **NaN-guard (rettet):** `buildRpcCall`-guarden afviste kun `null`; `Number('')===0` slap igennem. Nu
+  afvises tom/blank + ikke-endelige eksplicit (begge platforme; tests +2).
+- **Stale kommentar (rettet):** `Redaktion.tsx` sagde stadig `red_slet_oplysning (fjern)`.
+- **HIGH surfacet (pre-eksisterende, IKKE regression):** samme_som-collapse gør Fjern ufuldstændig —
+  editoren opererer på rå `personId`, projektionen er kanonisk; to foldede medlemmer begge markeret →
+  Fjern rammer kun én. Eskalering af review-26 MEDIUM 3. Afventer bruger-beslutning (kaskadér / vis konflikt
+  / PoC-grænse). Sjældent (kræver to samme_som-linkede personer begge hånd-markeret).
+- **Kvalitet:** web 243/243 + mobil 332/332 + tsc rent + lokal rollback-test grøn (inkl. guard-assertion).
+
+## Review 26 (Codex) — rettelser af generationsbrowseren (web+mobil, branch `feat/generations-browser-v2`, 2026-07-11)
+
+Codex-review af `feat/generations-browser-v2` (brief: `docs/reviews/26-foraeldre-ukendt-generationsbrowser-review-brief.md`).
+Fund verificeret mod koden (advisor-gate + `superpowers:receiving-code-review`): HIGH 2 = ægte bug,
+HIGH 1 = reel over-implikation (delvist), MEDIUM 2 = dokumenteret PoC-grænse, MEDIUM 1 + 3 = backlog.
+
+- **HIGH 2 (bug — rettet):** "Fjern markering" kaldte `red_slet_oplysning`, som re-peger konklusionen
+  til den ÆLDSTE tilbageværende påstand. Efter Markér → Opdatér (to påstande) → Fjern genoplivede den
+  derfor den oprindelige markering i stedet for at fjerne den. **Fix:** ny generisk RPC
+  `red_tilbagetraek_fakta(p_fact_id)` sætter fakta-slottets konklusion `'afklaret' → 'tilbagetrukket'`
+  (læse-gates kræver `afklaret`, så markeringen holder op med at projicere; re-Markér reaktiverer via
+  `red_upsert_fakta`s `ON CONFLICT`). Append-sikkert (påstande uforanderlige, invariant 1), fortrydbart
+  (`conclusion` er `version_pk_registry`-sporet). App: ny `tilbagetraekFakta`-art (web+mobil buildRpcCall),
+  `fetchForaeldreUkendtMarkering` returnerer nu `factId`, Fjern-knappen ruter om. Per-oplysnings-🗑
+  uændret (`sletOplysning` er korrekt der). **Verificeret:** lokal rollback-test mod prod-kopien
+  (`daa_test2`) beviste både bug-reproduktion OG fix i én rullet-tilbage transaktion (retract → 0
+  afklarede + 2 bevarede påstande + virkende re-Markér). `schema.sql` + idempotent `db-migrations.sql`.
+- **HIGH 1 (over-implikation — ordlyd skærpet):** nedad-projektionen ligger inde i en mands børne-kolonne
+  og kunne læses som "hans mulige børn". Kandidat-visningen beholdt (bruger-ønske om inline-bladring),
+  men ordlyden skærpet: header "Uforbundne i dette slægtled" → "Uforbundne — placeret efter slægtled,
+  ikke forældreskab"; grad-1-note "Muligt barn — …" → "Muligt barn **i linjen** — forælderen er ikke
+  navngivet". Rene string-ændringer, delt kerne holdt byte-identisk.
+- **Bevidst udskudt:** MEDIUM 2 (kilde gemt som fritekst i `citat_tekst` frem for struktureret
+  `source_id`/side + ordret formulering) — dokumenteret PoC-grænse (`schema.sql` linje 536); det rigtige
+  fix er skema+UI-arbejde, holdt ude af dette changeset for at bevare stramhed. MEDIUM 1 (`usikker` tabes
+  i `backfill_slaegtled.R` — anden akse: usikkert *medlemskab* vs. ingen *forbindelse*, ingen forbruger
+  endnu, YAGNI) + MEDIUM 3 (flere markeringer efter samme_som-collapse: "første vinder", deterministisk,
+  sjælden) = backlog.
+- **Kvalitet:** web 242/242 + mobil 331/331 + tsc rent begge steder. `red_tilbagetraek_fakta`
+  **anvendt mod prod 2026-07-11** (ren additiv `CREATE OR REPLACE`, bekræftet FALSE→TRUE, signatur
+  `p_fact_id bigint`) — Fjern-knappen virker nu i live-appen. **UDESTÅR:** empirisk E2E på device
+  (markér→opdatér→fjern via redaktør-login) + dual-review + merge.
+
+## "Forældre ukendt"-markering + inline marker-gatet kandidat-kolonne (web+mobil, branch `feat/generations-browser-v2`, IKKE merget, 2026-07-09)
+
+Løser problemet fra `docs/reviews/25-generationer-ukendt-forbindelse-analyse.md`: stamtræets ene
+signal "ingen `family_member`-kant" dækkede over FIRE virkeligheder (bevist / formodet / kilden
+angiver ingen forbindelse / kant ikke udtrukket endnu). v1/v2's fallback tolkede ALT fravær som
+"ukendt" → forkerte kandidater (person 210 under 208). Den manglende epistemiske primitiv: at KILDEN
+ikke angiver en forbindelse opad er selv en kildepåstand.
+
+**Beslutninger (bruger-interview 2026-07-09):** (a) skeln TO grader ('forælder ukendt' vs 'ingen
+forbindelse angivet'); (b) INLINE distinkt kolonne i træet — IKKE et separat side-panel-register
+(det var netop det spor der gled væk fra ønsket om inline-bladring); (c) markér én reel klynge til
+verifikation.
+
+- **Phase A:** fjernet den ugatede fallback + activeCoord-maskineriet (T6-review-effekten). Kun
+  beviste kanter + slægtled-labels læst fra faktisk koordinat (`columnGen`, løser review 20 H1
+  "-7. slægtled"). Slettet `fallbackRing`/`buildAnchorPeers`/`adjacentGen` founder-hop (inert i prod).
+  **Rydder også v1's aner-fallback der stadig er live på main/prod** ved merge.
+- **Phase B:** INGEN skema-ændring (invariant 2). Markeringen = `fact(faktatype='forældre_ukendt')`
+  + assertion (grad) + citation (proveniens) + afklaret konklusion, skrevet via `red_upsert_fakta`.
+  Ren `buildParentsUnknown`-resolver (byte-identisk web↔mobil) + `fetchParentsUnknownRows`
+  (overlapper hoved-batchen) → `parentsUnknownByPerson` på model/store. Vokabular seedet i
+  `db-migrations.sql`.
+- **Phase C:** `unknownParentRing` — inline marker-gatet kandidat-kolonne (forrige slægtled,
+  kuld-grupperet). Fyrer KUN på en tilstedeværende afklaret markering, aldrig på fravær af en kant.
+  Cross-linje-bladring (founder → moderlinjen) emergerer af samme_som-collapse uden founder-hop.
+  Grad afgør ordlyden. Distinkt render (stiplet/amber, "muligt slægtled"-tag, Kilde-footer); klik
+  re-ankrer (ren navigation). Web `Folgesvend` + mobil `tree.tsx`.
+- **Nedad-projektion (efterkommer-retning):** `unknownChildSection` — samme markeringer vist NEDAD:
+  når man bladrer fra en (mandlig) stamfader, augmenteres børne-kolonnen med en "Uforbundne i dette
+  slægtled"-sektion (markerede-uforbundne i næste slægtled, samme linje). Ren projektion af de
+  eksisterende markeringer (ingen ny authoring — evidens-hygiejne: kun projektionen har altid et ægte
+  kilde-citat). Marker-gate + bevist-forælder-eksklusion + patrilineær køns-gate (bruger-beslutning).
+  Proveniens pr. person; grad-splittet ordlyd ('ingen forbindelse angivet' aldrig som barn-claim).
+  Fable-agent-eksploreret (4 optioner) → Option 1. Data-fit bekræftet mod prod.
+- **Authoring (redaktion):** markér/opdatér/fjern med grad + kilde via `submitChange`/`setPending`
+  (dry-run/LIVE, fortrydbar change_set). `markerForaeldreUkendt`-art + `sletOplysning` til fjern.
+  Web `ForaeldreUkendtControl` + mobil person-editor-kontrol. `fetchForaeldreUkendtMarkering`-læser.
+- **Kvalitet:** TDD, byte-identisk delt kerne (paritets-test på `buildGenCoords`/`buildParentsUnknown`/
+  `columnLabel`/`columnGen`/`buildDirection`/`buildBidirectionalColumns`/`unknownParentRing`),
+  4-agent `/simplify`-pass (5 fund anvendt). **web 231/231 + mobil 328/328 + tsc + build grønne.**
+- **UDESTÅR:** empirisk verifikation mod prod (markér én reel klynge via §6-query + redaktør-UI, se
+  ringen rendere) — kræver prod-adgang/redaktør-login. Dual-review + merge.
+
 ## Datafix: person 1 fejlagtigt "gift med" eget barnebarn person 104 (2026-07-06)
 
 Bruger opdagede at person 1 (Gottschalk von Reventlow, 1. slægtled, linje I) stod registreret som

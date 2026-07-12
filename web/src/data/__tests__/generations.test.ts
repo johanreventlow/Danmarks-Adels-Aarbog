@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildGenCoords, previousAncestorGen, type GenCoord } from '../generations';
+import { buildGenCoords, buildParentsUnknown, GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE } from '../generations';
 
 const lineage = [
   { id: '10', source_id: '1', kode: 'III', navn: 'Midterste', parent_lineage_id: null },
@@ -16,29 +16,64 @@ describe('buildGenCoords', () => {
     expect(coords['900']).toHaveLength(2);
     expect(coords['900'].map((c) => c.linje).sort()).toEqual(['III', 'V']);
   });
+
+  it('NULL linje karantænes (ingen koordinat)', () => {
+    const ext = [{ person_id: '5', source_id: '1', linje: null, nr: null, slaegtled_lokal: null, slaegtled_gennem: null, kuld: null }];
+    expect(buildGenCoords(ext, lineage, { '5': '5' })['5']).toBeUndefined();
+  });
+
+  it('bærer lokal/gennem/kuld + linje-navn videre pr. koordinat', () => {
+    const ext = [{ person_id: '7', source_id: '1', linje: 'III', nr: 3, slaegtled_lokal: 3, slaegtled_gennem: 3, kuld: 'II' }];
+    const coords = buildGenCoords(ext, lineage, { '7': '7' });
+    expect(coords['7'][0]).toMatchObject({ linje: 'III', lineageId: '10', lokal: 3, gennem: 3, kuld: 'II' });
+  });
 });
 
-describe('previousAncestorGen', () => {
-  const coords: GenCoord[] = [
-    { sourceId: '1', linje: 'V', lineageId: '50', parentLineageId: '10', lokal: 1, gennem: 12, kuld: null },
-    { sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 12, gennem: 12, kuld: null },
-  ];
-  it('går et lokalt slægtled tilbage i samme linje', () => {
-    expect(previousAncestorGen(coords, 'III', 12)).toEqual({ linje: 'III', lokal: 11 });
+describe('buildParentsUnknown (marker-gated resolver)', () => {
+  const idmap = { '10': '10', '11': '11', '99': '10' }; // 99 er alias for kanonisk 10
+
+  it('markering med afklaret konklusion → grad + proveniens pr. kanonisk person', () => {
+    const out = buildParentsUnknown(
+      [{ id: 500, subjekt_id: 10 }],
+      [{ target_id: 500, valgt_assertion_id: 800 }],
+      [{ id: 800, vaerdi_tekst: GRADE_FORAELDER_UKENDT }],
+      [{ assertion_id: 800, citat_tekst: 'DAA 1939 s.97' }],
+      idmap,
+    );
+    expect(out['10']).toEqual({ grade: GRADE_FORAELDER_UKENDT, kilde: 'DAA 1939 s.97' });
   });
-  it('hopper til moderlinjen ved founder (lokal 1)', () => {
-    expect(previousAncestorGen(coords, 'V', 1)).toEqual({ linje: 'III', lokal: 11 });
+
+  it('fact UDEN afklaret konklusion → ikke en aktiv markering (ekskluderet)', () => {
+    const out = buildParentsUnknown(
+      [{ id: 500, subjekt_id: 10 }],
+      [], // ingen afklaret konklusion
+      [{ id: 800, vaerdi_tekst: GRADE_FORAELDER_UKENDT }],
+      [{ assertion_id: 800, citat_tekst: 'x' }],
+      idmap,
+    );
+    expect(out['10']).toBeUndefined();
   });
-  it('stopper fail-closed når ingen entydig moderlinje findes', () => {
-    const only = [coords[0]]; // kun V, lokal 1, ingen gen>1-koordinat
-    expect(previousAncestorGen(only, 'V', 1)).toBeNull();
+
+  it('kanoniserer subjekt_id (alias 99 → kanonisk 10)', () => {
+    const out = buildParentsUnknown(
+      [{ id: 501, subjekt_id: 99 }],
+      [{ target_id: 501, valgt_assertion_id: 801 }],
+      [{ id: 801, vaerdi_tekst: GRADE_INGEN_FORBINDELSE }],
+      [{ assertion_id: 801, citat_tekst: null }],
+      idmap,
+    );
+    expect(out['10']).toEqual({ grade: GRADE_INGEN_FORBINDELSE, kilde: null });
+    expect(out['99']).toBeUndefined();
   });
-  it('stopper fail-closed når flere moderlinje-kandidater findes', () => {
-    const multi: GenCoord[] = [
-      { sourceId: '1', linje: 'V', lineageId: '50', parentLineageId: '10', lokal: 1, gennem: 12, kuld: null },
-      { sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 12, gennem: 12, kuld: null },
-      { sourceId: '1', linje: 'IIIb', lineageId: '10', parentLineageId: null, lokal: 8, gennem: 8, kuld: null },
-    ];
-    expect(previousAncestorGen(multi, 'V', 1)).toBeNull();
+
+  it('to markeringer på samme person → første afklarede vinder (deterministisk)', () => {
+    const out = buildParentsUnknown(
+      [{ id: 502, subjekt_id: 11 }, { id: 503, subjekt_id: 11 }],
+      [{ target_id: 502, valgt_assertion_id: 802 }, { target_id: 503, valgt_assertion_id: 803 }],
+      [{ id: 802, vaerdi_tekst: GRADE_FORAELDER_UKENDT }, { id: 803, vaerdi_tekst: GRADE_INGEN_FORBINDELSE }],
+      [],
+      idmap,
+    );
+    expect(out['11'].grade).toBe(GRADE_FORAELDER_UKENDT);
   });
 });
