@@ -1,5 +1,15 @@
 # Changelog
 
+## Slankning af `claude.md` (2026-07-12)
+
+CLAUDE.md-audit (`/claude-md-improver`): filen gik fra ~382 til ~53 linjer. Fjernet historisk
+handoff-framing, forældet onboarding (§6/§8), og en artefakt-tabel der pegede på 4 filer der ikke
+findes (`diagram-1/2-*.mermaid`, `supabase_load.py`, `import_test.py`). Tilføjet en `## Kommandoer`-tabel
+(web/mobile/R/DB — det største hul). De 9 invarianter bevaret ordret i substans (kondenseret til én linje
+hver), §7-dubletter foldet ind i dem. Ny struktur: kun stabilt/ufravigeligt bor resident; status, historik
+og backlog peger ud i `docs/`. Tidligere kontekst arkiveret ordret i `docs/claude-md-context-archive.md`
+(commit `dc9908f`). Pushet til `origin/main` (`dc9908f` + `bfc7f6c` review-docs 24-27).
+
 ## Review 27 — dual-review af review-26-rettelserne (web+mobil, branch `feat/generations-browser-v2`, 2026-07-11)
 
 Claude+Codex dual-review af selve review-26-rettelserne (`docs/reviews/27-review26-fixes-dual-review.md`).
