@@ -169,9 +169,22 @@ export default function Redaktion() {
   const setSc = (k: string, v: string) => setScratch((s) => ({ ...s, [k]: v }));
 
   // --- Initial load ---
-  useEffect(() => { currentSession().then(setSession).catch(() => {}); }, []);
+  // Fejl her er reelle (currentSession() returnerer null, ikke throw, ved "ikke logget ind") —
+  // en tavs catch lod UI'et hænge uden forklaring; logges + vises via samme loadErr-banner som
+  // fetchRedaktionPersoner nedenfor (review 27 R1).
+  useEffect(() => {
+    currentSession().then(setSession).catch((e) => {
+      console.warn('[redaktion] session-load fejlede:', e);
+      setLoadErr(oversaetFejl(String(e?.message ?? e)));
+    });
+  }, []);
   // Redaktion collapser IKKE: navne slås op på de rå DB-poster (spec §8 — model holdes separat).
-  useEffect(() => { loadModel({ collapse: false }).then(setModel).catch(() => {}); }, []);
+  useEffect(() => {
+    loadModel({ collapse: false }).then(setModel).catch((e) => {
+      console.warn('[redaktion] model-load fejlede:', e);
+      setLoadErr(oversaetFejl(String(e?.message ?? e)));
+    });
+  }, []);
   useEffect(() => {
     fetchRedaktionPersoner().then((ps) => {
       setPersons(ps);

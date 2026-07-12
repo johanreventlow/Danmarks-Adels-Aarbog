@@ -276,19 +276,19 @@ export default function PersonEditor() {
   const [addFelt, setAddFelt] = useState<string | null>(null);
   const [addScratch, setAddScratch] = useState({ vaerdi: '', kilde: '' });
 
-  useEffect(() => { if (id) fetchPersonEvidence(id).then(setEv).catch(() => {}); }, [id]);
+  useEffect(() => { if (id) fetchPersonEvidence(id).then(setEv).catch((e) => console.warn('[redaktion/person] evidens fejlede:', e)); }, [id]);
   useEffect(() => {
     if (!id) return;
     fetchForaeldreUkendtMarkering(id)
       .then((m) => { setMarkering(m); if (m) { setMarkGrade(m.grade || GRADE_FORAELDER_UKENDT); setMarkKilde(m.kilde ?? ''); } })
-      .catch(() => {});
+      .catch((e) => console.warn('[redaktion/person] forældre-ukendt-markering fejlede:', e));
   }, [id]);
 
   const [relationer, setRelationer] = useState<PersonRelation[]>([]);
   const [pickerType, setPickerType] = useState<'organisation' | 'estate' | null>(null);
   const [relScratch, setRelScratch] = useState<{ objektType: string; objektId: string; navn: string; rolle: string; periode: string } | null>(null);
   useEffect(() => {
-    if (id) fetchPersonRelationer(id, redaktionAux).then(setRelationer).catch(() => {});
+    if (id) fetchPersonRelationer(id, redaktionAux).then(setRelationer).catch((e) => console.warn('[redaktion/person] relationer fejlede:', e));
   }, [id, redaktionAux]);
 
   // Samme person (identitets-links, samme_som).
@@ -296,7 +296,7 @@ export default function PersonEditor() {
   const [ssPicker, setSsPicker] = useState(false);
   // scratch: den valgte person + retning (kanoniskId = den der beholdes/foldes ind i).
   const [ssScratch, setSsScratch] = useState<{ personId: string; navn: string; kanoniskId: string } | null>(null);
-  const refreshSammeSom = () => { if (id) fetchSammeSomLinks(id).then(setSammeSom).catch(() => {}); };
+  const refreshSammeSom = () => { if (id) fetchSammeSomLinks(id).then(setSammeSom).catch((e) => console.warn('[redaktion/person] samme-som fejlede:', e)); };
   useEffect(refreshSammeSom, [id]);
   // Rå-db til rådgivende pre-flight (rekonstrueret fra redaktionsmodellen; unions ej nødvendig for
   // karantæne-tjekket — kun personer + forældre-kanter bruges).
@@ -310,7 +310,7 @@ export default function PersonEditor() {
 
   // Familie (2C-2b): redigerbar partner+barn-sektion.
   const [familie, setFamilie] = useState<PersonFamilie>({ somPartner: [], somBarn: [] });
-  useEffect(() => { if (id) fetchPersonFamilie(id, redaktionModel).then(setFamilie).catch(() => {}); }, [id, redaktionModel]);
+  useEffect(() => { if (id) fetchPersonFamilie(id, redaktionModel).then(setFamilie).catch((e) => console.warn('[redaktion/person] familie fejlede:', e)); }, [id, redaktionModel]);
 
   // Add-flow state for familie:
   const [partnerPicker, setPartnerPicker] = useState(false);

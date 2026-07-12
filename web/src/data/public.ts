@@ -19,6 +19,14 @@ async function safe<T>(fn: () => Promise<T>, fallback: T, label: string): Promis
   }
 }
 
+// Pakker et supabase-{data,error}-svar ud: kaster ved .error (fanges af safe() og logges),
+// returnerer ellers data. supabase-js kaster ikke selv, så uden dette bliver en RLS-/grant-fejl
+// tavst til tom-tilstand (review 27 R1).
+export function orThrow<T>(res: { data: T; error: unknown }, label: string): T {
+  if (res.error) throw Object.assign(new Error(`${label}: ${(res.error as { message?: string })?.message ?? 'ukendt fejl'}`), { cause: res.error });
+  return res.data;
+}
+
 // Behold første forekomst pr. nøgle (rækkefølge-bevarende dedup).
 function dedupBy<T>(arr: T[], key: (t: T) => string): T[] {
   const seen = new Set<string>();
@@ -95,11 +103,12 @@ export function fetchEstateInfo(estateId: string): Promise<EstateInfo> {
         .eq('privat', false).order('id', { ascending: true }).limit(1),
       supabase.from('estate').select('sted_id').eq('id', Number(estateId)).maybeSingle(),
     ]);
-    const narrativ = ((narr.data ?? [])[0] as { tekst: string | null } | undefined)?.tekst ?? '';
+    const narrativ = ((orThrow(narr, 'fetchEstateInfo/narrative') ?? [])[0] as { tekst: string | null } | undefined)?.tekst ?? '';
     let sted = '';
-    const stedId = (est.data as { sted_id: number | null } | null)?.sted_id;
+    const stedId = (orThrow(est, 'fetchEstateInfo/estate') as { sted_id: number | null } | null)?.sted_id;
     if (stedId) {
-      const { data: pl } = await supabase.from('place').select('navn').eq('id', stedId).maybeSingle();
+      const plRes = await supabase.from('place').select('navn').eq('id', stedId).maybeSingle();
+      const pl = orThrow(plRes, 'fetchEstateInfo/place');
       sted = (pl as { navn: string | null } | null)?.navn ?? '';
     }
     const media = (await mediaP).get(estateId) ?? [];
@@ -112,12 +121,12 @@ export function fetchEstateInfo(estateId: string): Promise<EstateInfo> {
 // Slå organisation/estate-navne op i ét hug (delt af person-detalje + relations-læsning).
 export async function resolveOrgEstateNames(orgIds: number[], estIds: number[]): Promise<{ org: Map<string, string>; estate: Map<string, string> }> {
   const [orgs, ests] = await Promise.all([
-    orgIds.length ? supabase.from('organisation').select('id,navn').in('id', orgIds) : Promise.resolve({ data: [] as { id: number; navn: string | null }[] }),
-    estIds.length ? supabase.from('estate').select('id,navn').in('id', estIds) : Promise.resolve({ data: [] as { id: number; navn: string | null }[] }),
+    orgIds.length ? supabase.from('organisation').select('id,navn').in('id', orgIds) : Promise.resolve({ data: [] as { id: number; navn: string | null }[], error: null }),
+    estIds.length ? supabase.from('estate').select('id,navn').in('id', estIds) : Promise.resolve({ data: [] as { id: number; navn: string | null }[], error: null }),
   ]);
   return {
-    org: new Map((orgs.data ?? []).map((o) => [String(o.id), o.navn ?? ''])),
-    estate: new Map((ests.data ?? []).map((e) => [String(e.id), e.navn ?? ''])),
+    org: new Map((orThrow(orgs, 'resolveOrgEstateNames/organisation') ?? []).map((o) => [String(o.id), o.navn ?? ''])),
+    estate: new Map((orThrow(ests, 'resolveOrgEstateNames/estate') ?? []).map((e) => [String(e.id), e.navn ?? ''])),
   };
 }
 
@@ -150,7 +159,7 @@ export function fetchPersonDetail(id: string, memberIds?: string[]): Promise<Per
     // frem for en kort kryds-reference-stub fra en alias-post. Per-medlem-valget er nu
     // deterministisk pr. udgave (ikke "første by id"); cross-medlem-concat er uændret.
     const candsByMember = new Map<string, NarrativeCand[]>();
-    for (const n of (narr.data ?? []) as unknown as RawNarr[]) {
+    for (const n of (orThrow(narr, 'fetchPersonDetail/narrative') ?? []) as unknown as RawNarr[]) {
       const k = String(n.subjekt_id);
       const arr = candsByMember.get(k) ?? [];
       arr.push({ narrativeId: n.id, tekst: n.tekst, sourceId: n.source_id, slags: n.source?.slags ?? null, aar: n.source?.aar ?? null, udgave: n.source?.udgave ?? null });
@@ -191,7 +200,7 @@ export function fetchPersonDetail(id: string, memberIds?: string[]): Promise<Per
 // ingen (null) og vises altid FØRST, linjer derefter i lineage.kode-orden.
 export type AboutSection = { lineageNavn: string | null; tekst: string };
 
-type RawAboutRow = { id: number; subjekt_type: string; subjekt_id: number; source_id: number | null; tekst: string | null; privat: boolean | null; source: { slags: string | null; aar: number | null; udgave: string | null } | null };
+type RawAboutRow = { id: number; subjekt_type: string; subjekt_id: number; source_id: number | null; tekst: string | null; source: { slags: string | null; aar: number | null; udgave: string | null } | null };
 
 export function fetchAbout(): Promise<AboutSection[]> {
   return safe(async () => {
@@ -199,17 +208,16 @@ export function fetchAbout(): Promise<AboutSection[]> {
     // (samme mønster som RawNarr ovenfor): Supabases genererede typer for et embedded
     // source_id(...)-join matcher ikke automatisk to-en-kardinalitet.
     const [narr, lin] = await Promise.all([
-      supabase.from('narrative').select('id,subjekt_type,subjekt_id,source_id,tekst,privat,source:source_id(slags,aar,udgave)').in('subjekt_type', ['slaegt', 'lineage']),
+      // privat filtreres i query (matcher fetchPersonDetail/fetchEstateInfo); RLS gater også
+      // privat for anon+auth — empirisk verificeret mod prod 2026-07-12.
+      supabase.from('narrative').select('id,subjekt_type,subjekt_id,source_id,tekst,source:source_id(slags,aar,udgave)').in('subjekt_type', ['slaegt', 'lineage']).eq('privat', false),
       supabase.from('lineage').select('id,navn,kode').order('kode', { ascending: true }),
     ]);
-    if (narr.error) throw narr.error;
-    if (lin.error) throw lin.error;
-    const rows = (narr.data ?? []) as unknown as RawAboutRow[];
-    const lineageRows = (lin.data ?? []) as { id: number; navn: string | null; kode: string }[];
+    const rows = (orThrow(narr, 'fetchAbout/narrative') ?? []) as unknown as RawAboutRow[];
+    const lineageRows = (orThrow(lin, 'fetchAbout/lineage') ?? []) as { id: number; navn: string | null; kode: string }[];
 
     const candsByKey = new Map<string, NarrativeCand[]>();
     for (const r of rows) {
-      if (r.privat) continue;
       const key = `${r.subjekt_type}:${r.subjekt_id}`;
       const cand: NarrativeCand = { narrativeId: r.id, tekst: r.tekst, sourceId: r.source_id, slags: r.source?.slags ?? null, aar: r.source?.aar ?? null, udgave: r.source?.udgave ?? null };
       const list = candsByKey.get(key);
