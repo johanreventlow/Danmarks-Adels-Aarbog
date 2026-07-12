@@ -1,0 +1,57 @@
+name: CI
+
+# Håndhæver web- (vitest) og mobil- (jest) testsuiterne på PR + push til main.
+# Tidligere gate var kun Vercels tsc+build → 565 tests kørte, men blokerede intet
+# (review 27, T1). Testene er hermetiske: web mocker supabase (dummy-env er nok til
+# modul-load-guarden), mobil degraderer til offline-seed uden env.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Nyeste push på en ref annullerer igangværende kørsler på samme ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: web · vitest + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      # Dummy non-tomme creds så supabase.ts's modul-load-guard ikke kaster.
+      # Testene rører aldrig nettet (supabase mockes), så værdierne er ligegyldige.
+      - name: Skriv dummy Supabase-env
+        run: printf 'VITE_SUPABASE_URL=http://localhost:54321\nVITE_SUPABASE_ANON_KEY=dummy-anon-key-for-ci\n' > .env.local
+      - run: npm run test
+      - run: npm run build
+
+  mobile:
+    name: mobil · jest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: npm test
