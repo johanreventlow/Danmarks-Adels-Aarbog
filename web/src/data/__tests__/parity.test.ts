@@ -104,3 +104,58 @@ describe('parity: delt generations-kerne web ↔ mobil', () => {
     expect(extractFn(webTree, 'unknownChildSection')).toBe(extractFn(mobileSelectors, 'unknownChildSection'));
   });
 });
+
+// --- Modul-niveau paritet (review 27 §2 / T2) --------------------------------------------------
+// Ovenstående dækker udvalgte funktioner i generations/tree. Nedenstående dækker HELE filer for
+// et bredere sæt "spejlede" moduler — ren logik der er identisk kopieret ind i både web/src/data
+// og mobile/src/data, fordi der endnu ikke findes en delt npm-pakke (monorepo-ekstraktion er en
+// follow-up). Formålet er at fange TAVS DRIFT: hvis nogen retter en bug eller ændrer adfærd i den
+// ene kopi og glemmer den anden, skal DENNE test fejle rødt med et præcist modulnavn — ikke først
+// opdages måneder senere ved manuel `diff`.
+const MIRRORED_MODULES = [
+  'collapseSameAs', 'relationship', 'generations', 'sammeSomPreflight', 'buildModel', 'pickPreferredBio', 'fields',
+];
+
+// Nogle af filerne bærer en selv-refererende "porteret fra .../hold i sync"-kommentar, der pr.
+// definition peger på den ANDEN fils sti og derfor altid vil divergere uden at det er reel
+// logik-drift. Den luges ud før sammenligning. Noten kan strække sig over flere linjer (fx
+// fields.ts) — hvis triggerlinjen ikke selv afslutter sætningen (ender på '.' eller ').'),
+// fjernes også de(n) efterfølgende fortsættelseslinje(r) frem til sætningen slutter.
+const POINTER_COMMENT_RE = /spejlet i |PORTERET fra /;
+const SENTENCE_END_RE = /[.)]\s*$/;
+
+function stripPointerComments(src: string): string {
+  const out: string[] = [];
+  let consuming = false;
+  for (const line of src.split('\n')) {
+    if (consuming) {
+      if (SENTENCE_END_RE.test(line.trimEnd())) consuming = false;
+      continue;
+    }
+    if (POINTER_COMMENT_RE.test(line)) {
+      if (!SENTENCE_END_RE.test(line.trimEnd())) consuming = true;
+      continue;
+    }
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
+function readMirroredModule(pkg: 'web' | 'mobile', name: string): string {
+  const path = join(__dirname, '../../../..', pkg, 'src/data', `${name}.ts`);
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    throw new Error(`parity: modulet "${name}" findes ikke i ${pkg}/src/data/ (forventet: ${path})`);
+  }
+}
+
+describe('parity: spejlede data-moduler web ↔ mobil (fil-niveau)', () => {
+  for (const name of MIRRORED_MODULES) {
+    it(`${name} divergerer web↔mobil`, () => {
+      const web = stripPointerComments(readMirroredModule('web', name));
+      const mobile = stripPointerComments(readMirroredModule('mobile', name));
+      expect(web).toBe(mobile);
+    });
+  }
+});
