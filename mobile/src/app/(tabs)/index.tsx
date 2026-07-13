@@ -14,7 +14,7 @@ import { BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
 import { bookmarkPersonId, buildFeed, type FeedCard } from '../../data/buildFeed';
 import { counts } from '../../data/selectors';
 import { useBookmarks } from '../../lib/bookmarks';
-import { useStore } from '../../store/useStore';
+import { selectMeId, useStore } from '../../store/useStore';
 import { Border, Colors, Fonts } from '../../theme/tokens';
 
 const SLAEGT = 'Reventlow';
@@ -26,7 +26,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const model = useStore((s) => s.model);
   const aux = useStore((s) => s.aux);
-  const meId = useStore((s) => s.meId);
+  const meId = useStore(selectMeId);
   const focusId = useStore((s) => s.focusId);
   const canonMap = useStore((s) => s.canonicalIdById);
   const session = useStore((s) => s.session);

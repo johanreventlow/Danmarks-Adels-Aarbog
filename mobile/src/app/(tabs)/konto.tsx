@@ -8,7 +8,7 @@ import { PersonPicker } from '../../components/PersonPicker';
 import { TopBar } from '../../components/TopBar';
 import { LoginSheet } from '../../components/redaktion/LoginSheet';
 import { Body, BtnLabel, Mono, Serif } from '../../components/Typography';
-import { useStore } from '../../store/useStore';
+import { selectMeId, useStore } from '../../store/useStore';
 import { Border, Colors, Radius } from '../../theme/tokens';
 
 export default function Konto() {
@@ -17,14 +17,12 @@ export default function Konto() {
   const rolle = useStore((s) => s.rolle);
   const doSignOut = useStore((s) => s.doSignOut);
   const model = useStore((s) => s.model);
-  const meId = useStore((s) => s.meId);
+  const meId = useStore(selectMeId);
   const setMe = useStore((s) => s.setMe);
-  const canonicalId = useStore((s) => s.canonicalId);
   const [loginOpen, setLoginOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const email = session?.user?.email ?? '';
-  const meCanonical = meId ? canonicalId(meId) : null;
-  const me = meCanonical && model ? model.byId[meCanonical] : null;
+  const me = meId && model ? model.byId[meId] : null;
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>

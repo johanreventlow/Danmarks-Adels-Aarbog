@@ -12,7 +12,7 @@ import { LoadGate } from '../../components/LoadGate';
 import { BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
 import { buildBidirectionalColumns, childrenOf, routeToMe, treeFocusA, wayToMe, type WayStep } from '../../data/selectors';
 import type { Model, ModelPerson } from '../../data/types';
-import { useStore } from '../../store/useStore';
+import { selectMeId, useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius, Shadow } from '../../theme/tokens';
 
 export default function TreeScreen() {
@@ -275,7 +275,7 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
   const router = useRouter();
   const snapPath = useStore((s) => s.snapPath);
   const snapDepth = useStore((s) => s.snapDepth);
-  const meId = useStore((s) => s.meId);
+  const meId = useStore(selectMeId);
   const way = useMemo(
     () => (meId ? wayToMe(model, snapPath, snapDepth, meId) : undefined),
     [meId, model, snapPath, snapDepth],

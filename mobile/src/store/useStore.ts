@@ -19,7 +19,7 @@ export type DataSource = 'live' | 'seed' | null;
 export type TreeVariant = 'A' | 'B' | 'C';
 export type BrowseSort = 'alpha' | 'born';
 
-type State = {
+export type State = {
   status: LoadStatus;
   source: DataSource;
   error: string | null;
@@ -335,3 +335,11 @@ export const useStore = create<State>((set, get) => ({
   setDryRun: (v) => set({ dryRun: v }),
   setShowAnnotations: (v) => set({ showAnnotations: v }),
 }));
+
+// Read-time meId-kanonisering (review 27 M-K3): hydrateMe() og load() kører PARALLELT i
+// _layout.tsx og sætter/kanoniserer meId i vilkårlig indbyrdes rækkefølge — en skrive-tids
+// kanonisering i den ene kan derfor blive overskrevet af den anden med et rå alias-id.
+// Kanonisering ved LÆSNING gør resultatet rækkefølge-uafhængigt uanset hvornår racen afgøres.
+// Returnerer en primitiv, så `useStore(selectMeId)` ikke behøver shallow-compare.
+export const selectMeId = (s: State): string | null =>
+  s.meId ? (s.canonicalIdById[s.meId] ?? s.meId) : null;

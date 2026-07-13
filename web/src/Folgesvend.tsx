@@ -4,7 +4,7 @@
 // Header-nav · center-visning · detalje-panel. To visninger bygget: Stamtræ
 // (variant A, fokus-centreret) og Slægtskab ("Er vi i familie?", med multi-linje + konfidens
 // + korroboration fra den porterede finder). Godser/Våben/Om/Kort/Bogmærker følger.
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { navigate, usePath } from './router';
 import { childrenOf, loadModel, parentsOf } from './data/model';
 import { buildBidirectionalColumns } from './data/tree';
@@ -22,11 +22,17 @@ import { BookmarksView } from './components/BookmarksView';
 import { SlaegtPicker } from './components/SlaegtPicker';
 import { HomeView } from './components/HomeView';
 import { THEMES, themeOfMode, labelOfMode, parseFolgesvendPath, pathForMode, detailOpenFor, type Mode } from './data/nav';
-import { GeoMap } from './components/GeoMap';
-import { ExpandableMiniMap } from './components/MapLightbox';
 import { ViewHeader, Avatar, BookmarkFlag, MediaThumb, SearchIcon, Crest, PersonCard } from './components/primitives';
 import { Lightbox } from './components/Lightbox';
 import { T } from './theme';
+
+// P1 (review 27): maplibre-gl (~276 KB gzip) skal IKKE i initial-bundlen — lazy-load kort-komponenterne,
+// så de først trækkes ind når en visning der reelt bruger kort (Godser-kort, Slægtens kort, livsrejse-minikort) rammes.
+const GeoMap = lazy(() => import('./components/GeoMap').then((m) => ({ default: m.GeoMap })));
+const ExpandableMiniMap = lazy(() => import('./components/MapLightbox').then((m) => ({ default: m.ExpandableMiniMap })));
+const MapFallback = ({ height }: { height?: number | string }) => (
+  <div style={{ height: height ?? 160, width: '100%', borderRadius: 14, border: '1px solid rgba(34,31,26,.1)', background: T.panel, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: T.muted2 }}>Indlæser kort…</div>
+);
 
 // Kun Reventlow findes i dag; vælgeren er 1-punkt + "flere kommer"-note (spec §2 ikke-mål).
 const SLAEGTER = [{ id: 'reventlow', navn: 'Reventlow' }];
@@ -109,9 +115,14 @@ export default function Folgesvend() {
   const [estateInfo, setEstateInfo] = useState<EstateInfo | null>(null);
   const [detail, setDetail] = useState<PersonDetailData | null>(null);
 
-  useEffect(() => {
+  // review 27 R2: udtrukket til en genkaldelig funktion, så fejlskærmens "Prøv igen"-knap
+  // kan forsøge indlæsningen igen uden hard-reload (Supabase free-tier pauser efter 7 dages
+  // inaktivitet — første kald efter en pause kan derfor fejle og lykkes ved forsøg nr. 2).
+  const loadData = useCallback(() => {
+    setErr(null);
     loadModel().then(setModel).catch((e) => setErr(describeErr(e)));
   }, []);
+  useEffect(() => { loadData(); }, [loadData]);
 
   // Resolv et (evt. alias-)id til dets kanoniske (samme_som-collapse). canonicalIdById bor på
   // modellen; alle indgående id'er (fokus, rel, mig) resolves gennem det. Memoized på
@@ -310,7 +321,25 @@ export default function Folgesvend() {
     }
   };
 
-  if (err) return <div style={{ fontFamily: T.sans, padding: 40, color: T.bordeaux, whiteSpace: 'pre-wrap' }}>{err}</div>;
+  if (err) {
+    return (
+      <div style={{ minHeight: '100vh', background: T.pageBg, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, fontFamily: T.sans }}>
+        <div style={{ maxWidth: 420, background: T.paper, borderRadius: 16, border: `1px solid ${T.cream}`, padding: '32px 28px', textAlign: 'center' }}>
+          <div style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600, color: T.bordeaux, marginBottom: 12 }}>Kunne ikke hente data</div>
+          <div style={{ color: T.ink, whiteSpace: 'pre-wrap', fontSize: 14, marginBottom: 14 }}>{err}</div>
+          <div style={{ color: T.muted, fontSize: 13, marginBottom: 20 }}>
+            Databasen kan være gået i dvale efter en periode uden aktivitet. Vent et øjeblik og prøv igen.
+          </div>
+          <button
+            onClick={loadData}
+            style={{ background: T.bordeaux, color: T.paper, border: 'none', borderRadius: 10, padding: '10px 22px', fontFamily: T.sans, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+          >
+            Prøv igen
+          </button>
+        </div>
+      </div>
+    );
+  }
   const activeTheme = themeOfMode(mode); // aktivt tema for den kollapsede bjælke — beregnes én gang
 
   // Søgning-i-træet (§4): bundtet der driver TreeSearch. showResults afgør resultat-grid vs. træ;
@@ -568,7 +597,10 @@ function TreeSearch(s: TreeSearchBundle) {
           {/* Resultat-grid som personkort (§8.1 én korttype) */}
           {s.browse.grouped
             ? s.browse.groups.map((g) => (
-                <div key={g.letter}>
+                // content-visibility: 'auto' (review 27 P2) skipper layout/paint for bogstav-grupper der er
+                // ude af viewport — ved ~920 personkort giver hvert tastetryk ellers jank. containIntrinsicSize
+                // er et groft højde-estimat (undgår scroll-hop når browseren måler første gang).
+                <div key={g.letter} style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 700px' } as CSSProperties}>
                   <div style={{ fontFamily: T.serif, fontSize: 19, fontWeight: 600, color: T.gold, margin: '6px 0 10px', paddingBottom: 5, borderBottom: '1px solid rgba(34,31,26,.08)' }}>{g.letter}</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
                     {g.people.map((p) => <PersonCard key={p.id} p={p} width={186} onClick={() => s.onPick(p.id)} />)}
@@ -1037,7 +1069,9 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onClose
         {model.geo && lifeJourney(model.geo, focusId).length > 0 && (
           <div style={{ marginTop: 14 }}>
             <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2, marginBottom: 6 }}>Livsrejse</div>
-            <ExpandableMiniMap points={lifeJourney(model.geo, focusId)} />
+            <Suspense fallback={<MapFallback />}>
+              <ExpandableMiniMap points={lifeJourney(model.geo, focusId)} />
+            </Suspense>
           </div>
         )}
 
@@ -1160,7 +1194,11 @@ function EstatesView({ estates, estateId, estate, info, owners, geo, onOpen, onB
           {info?.sted && <span style={{ fontSize: 11.5, fontWeight: 600, color: T.muted, background: T.beige, border: '1px solid rgba(34,31,26,.1)', padding: '5px 10px', borderRadius: 7 }}>⌖ {info.sted}</span>}
         </div>
         {point && (
-          <div style={{ marginTop: 14 }}><ExpandableMiniMap points={[point]} /></div>
+          <div style={{ marginTop: 14 }}>
+            <Suspense fallback={<MapFallback />}>
+              <ExpandableMiniMap points={[point]} />
+            </Suspense>
+          </div>
         )}
         {info && info.media.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
@@ -1216,7 +1254,9 @@ function EstatesView({ estates, estateId, estate, info, owners, geo, onOpen, onB
       {!estates ? <div style={{ color: T.muted3 }}>Henter…</div> : !estates.length ? <div style={{ color: T.muted3 }}>Ingen godser registreret.</div> : viewMode === 'kort' ? (
         points.length ? (
           <div style={{ flex: 1, minHeight: 0 }}>
-            <GeoMap points={points} mode="explorer" onPointPress={(p) => p.estateId && onOpen(p.estateId)} />
+            <Suspense fallback={<MapFallback height="100%" />}>
+              <GeoMap points={points} mode="explorer" onPointPress={(p) => p.estateId && onOpen(p.estateId)} />
+            </Suspense>
           </div>
         ) : <div style={{ color: T.muted3 }}>Ingen godser er kortlagt endnu.</div>
       ) : (
@@ -1265,11 +1305,13 @@ function OverviewMapView({ model, onPickPerson, onPickEstate }: {
       </div>
       <div style={{ flex: 1, minHeight: 0, paddingBottom: 24 }}>
         {points.length ? (
-          <GeoMap
-            points={points}
-            mode="explorer"
-            onPointPress={(p) => { if (p.personId) onPickPerson(p.personId); else if (p.estateId) onPickEstate(p.estateId); }}
-          />
+          <Suspense fallback={<MapFallback height="100%" />}>
+            <GeoMap
+              points={points}
+              mode="explorer"
+              onPointPress={(p) => { if (p.personId) onPickPerson(p.personId); else if (p.estateId) onPickEstate(p.estateId); }}
+            />
+          </Suspense>
         ) : <div style={{ color: T.muted3 }}>Ingen steder kortlagt endnu{linje ? ' for denne linje' : ''}.</div>}
       </div>
     </div>

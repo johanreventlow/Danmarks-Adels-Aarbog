@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import Folgesvend from "./Folgesvend";
 import Redaktion from "./Redaktion";
 import { navigate, usePath } from "./router";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
 // Path-route: alt under /redaktion er redaktørbordet; ellers publikums-følgesvenden.
 function Root() {
@@ -18,6 +19,8 @@ function Root() {
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <Root />
+    <ErrorBoundary>
+      <Root />
+    </ErrorBoundary>
   </React.StrictMode>,
 );
