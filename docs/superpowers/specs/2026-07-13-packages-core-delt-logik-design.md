@@ -82,13 +82,17 @@ transpilerer rå `.ts` direkte; ingen `dist/`, ingen watch-loop.
 
 ## 4. Spike-checkpoints (fase 1 — bevis før flytning)
 
-> **Revideret efter dual-review (Codex, 2026-07-13):** spiken flyttede oprindeligt
-> kun `collation.ts`, men den har nul interne deps og importeres ikke af mobil-jest —
-> den ville bevise for lidt. Spiken flytter i stedet en fil **med både `./types`-dep
-> og faktisk mobil-jest-forbrug**.
+> **Revideret efter dual-review (Codex, 2026-07-13) + fil-verifikation:** spiken flyttede
+> oprindeligt kun `collation.ts` (nul deps, ikke jest-forbrugt) — beviste for lidt.
+> `pickPreferredBio` er ligeledes selvstændig (egen inline-type, ingen `./types`). Den
+> valgte spike-fil er **`generations.ts`**: importerer `./types` (`RawExtId`, `RawLineage`
+> — code-identiske, ingen konflikt), er parity-guarded, har egen jest-test, og importeres
+> af mobil `load.ts`/`selectors.ts`/`useStore.ts` → rammer jest-transform-stien. Den beviser
+> alt (Metro, jest, cross-workspace type-resolvering) **uden** at tvinge `linjeByPerson`-
+> konflikten (som bor i `Model`/`Aux`, ikke i de to Raw-typer).
 
-Spiken flytter **`pickPreferredBio.ts` + det minimale delte type-udsnit den kræver**
-(fra §5) til `packages/core`, wirer workspace-skelettet, og verificerer i rækkefølge:
+Spiken flytter **`generations.ts` + det minimale delte type-udsnit den kræver**
+(`RawExtId`, `RawLineage`) til `packages/core`, wirer workspace-skelettet, og verificerer i rækkefølge:
 
 1. **mobil (Metro):** Expo/Metro starter + bundler `@daa/core`-import på device/simulator.
    *NB: mobil har ingen `babel.config.js` — bekræft eksplicit at babel-preset-expo
@@ -101,8 +105,8 @@ Spiken flytter **`pickPreferredBio.ts` + det minimale delte type-udsnit den kræ
    workspace-deps via esbuild — laveste risiko).
 4. **Vercel (deep-link, ikke kun build):** preview-deploy hvor en **dyb URL** (fx
    `/slaegt/<id>`) faktisk loader — se §7 for topologi-valget der ligger til grund.
-5. **type-resolvering:** `pickPreferredBio`'s `./types`-dep resolver på tværs af workspace
-   i begge apps' `tsc` (beviser at den delte-type-grænse fra §5 virker mekanisk).
+5. **type-resolvering:** `generations.ts`'s `./types`-dep (`RawExtId`, `RawLineage`) resolver
+   på tværs af workspace i begge apps' `tsc` (beviser at den delte-type-grænse fra §5 virker mekanisk).
 
 **Exit-kriterium:** alle fem grønne → fortsæt til §5. Ét fejler → stop, rapportér årsag,
 fald tilbage til B (udvid `parity.test.ts` til alle rene filer i stedet).
@@ -213,7 +217,7 @@ denne reconcile — ingen peer-review-laundering.
 |---|---|---|---|---|
 | types.ts ikke web-superset; bidirektionel + `linjeByPerson`-type-konflikt | HIGH | semantic | `web:244 Record<string,string>` vs `mobil:215 Record<string,string[]>`; unikke felter i begge retninger | §5.1 omskrevet til snæver type-grænse |
 | parity guarder 6 ægte funktioner; `buildAnchorPeers` fiktiv | HIGH | false-confidence | `parity.test.ts:83-105` | §6.1 tilføjet; guard-fjernelse gated på faktisk flytning |
-| spike beviste for lidt (collation: ingen deps/jest) | MEDIUM | process | matcher egen F1 | §4 spiker nu `pickPreferredBio` + mobil-jest-import |
+| spike beviste for lidt (collation: ingen deps/jest) | MEDIUM | process | matcher egen F1 | §4 spiker nu `generations.ts` (types-dep + jest-forbrugt) + mobil-jest-import |
 | `getAll` misklassificeret som platform-specifik | MEDIUM | cleanup/scope | identisk `paginate.ts:6` + `load.ts:42`, ingen platform-import | §6 flytter `getAll` til core |
 | Vercel-topologi + deep-links underspecificeret | MEDIUM | false-confidence | `web/vercel.json` SPA-rewrite findes | §7 konkret topologi-valg + deep-link-validering |
 
