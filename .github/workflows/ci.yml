@@ -41,7 +41,7 @@ jobs:
       - run: npm run build
 
   mobile:
-    name: mobil · jest
+    name: mobil · tsc + jest
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -54,4 +54,7 @@ jobs:
           cache: npm
           cache-dependency-path: mobile/package-lock.json
       - run: npm ci
+      # jest parser ikke alle filer (fx WebView-komponenter uden tests), så en ren
+      # jest-kørsel fanger ikke syntaks-/type-fejl i dem — kør tsc eksplicit.
+      - run: npx tsc --noEmit
       - run: npm test

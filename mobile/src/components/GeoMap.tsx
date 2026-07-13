@@ -37,7 +37,7 @@ function buildHtml(points: GeoPoint[], mode: 'mini' | 'explorer'): string {
 <style>html,body,#map{margin:0;padding:0;height:100%;width:100%;background:${Colors.paperBg}}</style>
 </head><body><div id="map"></div><script>
   // escape </script>-breakout + linjeseparatorer i WebView-HTML (review 27 S1)
-  const POINTS = ${JSON.stringify(points).replace(/</g, '\\u003c').replace(/ /g, '\\u2028').replace(/ /g, '\\u2029')};
+  const POINTS = ${JSON.stringify(points).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')};
   const map = new maplibregl.Map({
     container: 'map', style: '${DEMO_STYLE}', center: [10, 55.5], zoom: 5,
     interactive: ${interactive}, attributionControl: ${interactive},
