@@ -9,6 +9,7 @@ const mk = (id: string, name: string) => ({
   years: '',
   title: '',
   bio: '',
+  privat: false,
 });
 
 describe('buildModel — udleder parentId, spouse og indekser', () => {
@@ -91,7 +92,7 @@ describe('buildModel — nameOf-opslag (O(1)-map, review 12)', () => {
 });
 
 describe('buildModel — sanity-guard mod umulige forælder→barn-kanter', () => {
-  const mkY = (id: string, name: string, born: number | null, died: number | null = null) => ({ id, name, born, died, years: '', title: '', bio: '' });
+  const mkY = (id: string, name: string, born: number | null, died: number | null = null) => ({ id, name, born, died, years: '', title: '', bio: '', privat: false });
   const db: Db = {
     persons: [
       mkY('p', 'Forælder', 1850, 1900),

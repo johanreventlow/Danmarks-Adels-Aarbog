@@ -2,7 +2,7 @@ import { buildModel } from '../buildModel';
 import { computeRelationship, multiplicitetForled, relationshipLabel } from '../relationship';
 import type { Db } from '../types';
 
-const mk = (id: string, name: string) => ({ id, name, born: null, died: null, years: '', title: '', bio: '' });
+const mk = (id: string, name: string) => ({ id, name, born: null, died: null, years: '', title: '', bio: '', privat: false });
 
 // Træ:  G ─┬─ P1 ─┬─ A
 //          │      └─ A2
@@ -79,7 +79,7 @@ describe('computeRelationship — over et konkret træ', () => {
 //
 // Hvert barn har TO forælder-knuder; den primære (p1/far) deler ingen ane — kun mødrene gør.
 describe('bilineal — slægtskab via mor-linjen', () => {
-  const mk2 = (id: string) => ({ id, name: id, born: null, died: null, years: '', title: '', bio: '' });
+  const mk2 = (id: string) => ({ id, name: id, born: null, died: null, years: '', title: '', bio: '', privat: false });
   const db2: Db = {
     persons: ['Ff', 'Mf', 'M1', 'Mor_C1', 'Mor_C2', 'Far_C2', 'C1', 'C2'].map(mk2),
     unions: [
@@ -126,7 +126,7 @@ describe('bilineal — slægtskab via mor-linjen', () => {
 //      └─ R ── D       (D barn af R, R barn af G)  ⇒ S & D via G: onkel/niece
 //   men D har OGSÅ S som forælder gennem en anden union ⇒ nærmere ane vinder.
 describe('MRCA vælger nærmeste fælles ane', () => {
-  const mk3 = (id: string) => ({ id, name: id, born: null, died: null, years: '', title: '', bio: '' });
+  const mk3 = (id: string) => ({ id, name: id, born: null, died: null, years: '', title: '', bio: '', privat: false });
   const db3: Db = {
     persons: ['G', 'S', 'R', 'D'].map(mk3),
     unions: [
@@ -155,7 +155,7 @@ describe('MRCA vælger nærmeste fælles ane', () => {
 // ikke to identiske linjer. Halvsøskende deler kun den ene forælder (begge andre kendt).
 describe('anepar-collapse + halv-relationer', () => {
   const mk4 = (id: string, koen?: 'mand' | 'kvinde') =>
-    ({ id, name: id, born: null, died: null, years: '', title: '', bio: '', koen: koen ?? null });
+    ({ id, name: id, born: null, died: null, years: '', title: '', bio: '', privat: false, koen: koen ?? null });
   // Far + Mor → S1, S2 (helsøskende).  Far + Mor2 → H (halvsøskende til S1/S2).
   const db4: Db = {
     persons: [mk4('Far', 'mand'), mk4('Mor', 'kvinde'), mk4('Mor2', 'kvinde'), mk4('S1', 'mand'), mk4('S2', 'kvinde'), mk4('H', 'mand')],
@@ -195,7 +195,7 @@ describe('anepar-collapse + halv-relationer', () => {
 // A & B er beslægtet ad TO uafhængige anepar-linjer samtidig (far-siden + mor-siden).
 // Begge linjer skal med, hver som ÉT anepar (ikke fire enkelt-aner).
 describe('multi-linje — dobbelt fætterskab', () => {
-  const mk5 = (id: string) => ({ id, name: id, born: null, died: null, years: '', title: '', bio: '', koen: null });
+  const mk5 = (id: string) => ({ id, name: id, born: null, died: null, years: '', title: '', bio: '', privat: false, koen: null });
   // Far-par Ffa+Ffk → fa, fb (brødre).  Mor-par Mfa+Mfk → ma, mb (søstre).
   // fa+ma → A ; fb+mb → B   ⇒ A,B = dobbelt 1. grads fætre.
   const db5: Db = {
@@ -265,7 +265,7 @@ describe('multiplicitetForled', () => {
 // Konfidens på stien: svageste led flager usikkerhed (invariant #7) uden at lade
 // uangivne led larme. Konfidens sidder på barnets link (parentChild.konfidens).
 describe('konfidens på stien — svageste led', () => {
-  const mk6 = (id: string) => ({ id, name: id, born: null, died: null, years: '', title: '', bio: '', koen: null });
+  const mk6 = (id: string) => ({ id, name: id, born: null, died: null, years: '', title: '', bio: '', privat: false, koen: null });
   //  G ─┬─ P1 ── A
   //     └─ P2 ── B     (A,B fætre via G)
   const tree = (bLink: 'sikker' | 'sandsynlig' | 'formodet' | 'omstridt' | undefined, extra: Partial<Db> = {}): Db => ({
@@ -381,7 +381,7 @@ describe('relationshipLabel — grandonkel & halv-suffiks', () => {
 // NB: et barns to forældre SKAL dele union (buildModel tager kun forældre fra første
 // union), så A og B har hver ÉT forælder-par-union (uA/uB).
 describe('alternativSolidLinje — fjernere solid linje bekræfter', () => {
-  const mk7 = (id: string) => ({ id, name: id, born: null, died: null, years: '', title: '', bio: '', koen: null });
+  const mk7 = (id: string) => ({ id, name: id, born: null, died: null, years: '', title: '', bio: '', privat: false, koen: null });
   const single = (id: string) => ({ id, p1: id, p2: null, p2_name: null, year: null });
   const db7: Db = {
     persons: ['A', 'B', 'Pa', 'Pb', 'Qa', 'Qb', 'Ra', 'Rb', 'G', 'K'].map(mk7),
@@ -419,7 +419,7 @@ describe('alternativSolidLinje — fjernere solid linje bekræfter', () => {
 //   A's eneste forælder N nedstammer fra to IKKE-gifte aner G1, G2 (via N's forælder-par
 //   P1 & P2). B nedstammer fra både G1 og G2 ad hver sin gren. Begge linjer går gennem N.
 describe('korroboration — delt mellem-knude tæller ikke som uafhængig', () => {
-  const mk8 = (id: string) => ({ id, name: id, born: null, died: null, years: '', title: '', bio: '', koen: null });
+  const mk8 = (id: string) => ({ id, name: id, born: null, died: null, years: '', title: '', bio: '', privat: false, koen: null });
   const single = (id: string) => ({ id, p1: id, p2: null, p2_name: null, year: null });
   const db8: Db = {
     persons: ['A', 'B', 'N', 'P1', 'P2', 'Q1', 'Q2', 'G1', 'G2'].map(mk8),
