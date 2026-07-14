@@ -96,3 +96,17 @@ export const Crest = ({ stroke = T.bordeaux, inner = T.gold, opacity = 0.12, siz
 );
 
 // (SidebarMiniRow fjernet — ctx/bmQuick-sidebaren udgik da søgning flyttede ind i træet, §4.)
+
+// ---- Små byggeklodser (udtrukket fra Folgesvend.tsx ved W-K1-splittet, review 27) ----
+// Sidebar-/tæller-celle (tal over label). Bruges af AboutView.
+export const Counter = ({ n, label }: { n: number; label: string }) => (
+  <div><span style={{ fontFamily: T.serif, fontSize: 28, fontWeight: 600, color: T.bordeaux }}>{n.toLocaleString('da')}</span> <span style={{ fontSize: 12.5, color: T.muted }}>{label}</span></div>
+);
+// Gren-filter-chip (§9.2). Aktiv = bordeaux fyld. Bruges af TreeSearch.
+export const LinjeChip = ({ label, active, onClick, title }: { label: string; active: boolean; onClick: () => void; title?: string }) => (
+  <div onClick={onClick} title={title} style={{ padding: '5px 11px', borderRadius: 15, fontFamily: T.sans, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', background: active ? T.bordeaux : 'transparent', color: active ? T.paper : T.muted, border: `1px solid ${active ? T.bordeaux : 'rgba(34,31,26,.18)'}` }}>{label}</div>
+);
+// Sektionslabel (mono, kapitæler). Bruges af TreeView/DetailPanel/EstatesView/ArmsView.
+export const Label = ({ children }: { children: React.ReactNode }) => <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted3, margin: '6px 0 12px' }}>{children}</div>;
+// Lodret forbindelses-streg mellem generationer. Bruges af TreeView (variant A).
+export const Stem = ({ h, mt = 0 }: { h: number; mt?: number }) => <div style={{ width: 1, height: h, background: 'rgba(34,31,26,.22)', marginTop: mt }} />;
