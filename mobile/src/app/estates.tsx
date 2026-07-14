@@ -4,13 +4,14 @@
 // Liste/Kort-toggle (spejler web/src/Folgesvend.tsx's EstatesView): kort-tilstand bruger
 // geo.byEstate (estate.sted_id → place) — kun godser med koordinater vises som nåle.
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { GeoMap } from '../components/GeoMap';
 import { LoadGate } from '../components/LoadGate';
 import { TopBar } from '../components/TopBar';
 import { Body, BtnLabel, Serif } from '../components/Typography';
 import { estatePoints } from '@daa/core';
+import { useGeoOnMount } from '../hooks/useGeoOnMount';
 import { useStore } from '../store/useStore';
 import { Border, Colors, Shadow } from '../theme/tokens';
 
@@ -19,7 +20,6 @@ export default function EstatesScreen() {
   const aux = useStore((s) => s.aux);
   const geo = useStore((s) => s.geo);
   const geoLoading = useStore((s) => s.geoLoading);
-  const status = useStore((s) => s.status);
   const estateList = aux?.estateList ?? [];
   const [viewMode, setViewMode] = useState<'liste' | 'kort'>('liste');
   const points = estatePoints(geo);
@@ -27,10 +27,7 @@ export default function EstatesScreen() {
   // Lazy geo-kæde (review 27 P3): Godser-fladen bruger geo (kort-toggle + gods-minikort på
   // detalje) — udløs hentningen ved mount af hele fladen, ikke kun når kort-toggle vælges
   // (mirror af web's Folgesvend.tsx, hvor 'estates'-mode dækker begge under-visninger).
-  // Gates + re-kører på status (ikke tomme deps): se kort.tsx for racen dette undgår.
-  useEffect(() => {
-    if (status === 'ready') useStore.getState().loadGeo();
-  }, [status]);
+  useGeoOnMount();
 
   return (
     <View style={{ flex: 1 }}>

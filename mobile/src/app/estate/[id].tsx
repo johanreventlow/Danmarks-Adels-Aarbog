@@ -2,12 +2,12 @@
 // "Kommer snart"-boks til godshistorik, og ægte ejer-tidslinje (prik-og-streg, periode + navn,
 // klikbar → person). Data fra aux.estateById + aux.ownersByEstate.
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { GeoMap } from '../../components/GeoMap';
 import { LoadGate } from '../../components/LoadGate';
 import { TopBar } from '../../components/TopBar';
 import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
+import { useGeoOnMount } from '../../hooks/useGeoOnMount';
 import { useStore } from '../../store/useStore';
 import { Colors, Fonts, Radius } from '../../theme/tokens';
 
@@ -18,18 +18,14 @@ export default function EstateScreen() {
   const aux = useStore((s) => s.aux);
   const geo = useStore((s) => s.geo);
   const geoLoading = useStore((s) => s.geoLoading);
-  const status = useStore((s) => s.status);
 
   const estate = id && aux ? aux.estateById[id] : null;
   const owners = id && aux ? aux.ownersByEstate[id] ?? [] : [];
   const point = id ? geo.byEstate[id] : null;
 
   // Lazy geo-kæde (review 27 P3): gods-detaljen viser et minikort for godsets sted — udløs
-  // hentningen ved mount. Gates + re-kører på status (ikke tomme deps): se kort.tsx for racen
-  // dette undgår (_layout.tsx monterer routes uafhængigt af load()-status).
-  useEffect(() => {
-    if (status === 'ready') useStore.getState().loadGeo();
-  }, [status]);
+  // hentningen ved mount.
+  useGeoOnMount();
 
   return (
     <View style={{ flex: 1 }}>
