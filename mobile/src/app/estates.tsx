@@ -10,7 +10,7 @@ import { GeoMap } from '../components/GeoMap';
 import { LoadGate } from '../components/LoadGate';
 import { TopBar } from '../components/TopBar';
 import { Body, BtnLabel, Serif } from '../components/Typography';
-import { estatePoints } from '../data/geoSelectors';
+import { estatePoints } from '@daa/core';
 import { useStore } from '../store/useStore';
 import { Border, Colors, Shadow } from '../theme/tokens';
 

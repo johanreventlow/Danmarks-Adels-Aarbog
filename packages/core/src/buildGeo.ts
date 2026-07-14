@@ -1,6 +1,6 @@
-// Delt geo-datalag (kort). Samme mønster som buildAux: én ren funktion der bygger
-// generiske kortpunkter, som de fire kort-flader (godskort, livskort, overblik, nærhed)
-// blot filtrerer over. Platform-agnostisk → spejles i web/src/data/.
+// Delt geo-datalag (kort), i @daa/core. Samme mønster som buildAux: én ren funktion der
+// bygger generiske kortpunkter, som de fire kort-flader (godskort, livskort, overblik,
+// nærhed) blot filtrerer over.
 //
 // Datakilder:
 //   * estate.sted_id → place    ⇒ gods-punkt (offentligt)

@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
-import { boundsOf } from '../data/geoSelectors';
+import { boundsOf } from '@daa/core';
 import { Colors, Radius } from '../theme/tokens';
 import type { GeoPoint } from '../data/types';
 

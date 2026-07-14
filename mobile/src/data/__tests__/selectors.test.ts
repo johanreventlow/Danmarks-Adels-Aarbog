@@ -1,4 +1,4 @@
-import { buildModel } from '../buildModel';
+import { buildModel } from '@daa/core';
 import { buildBidirectionalColumns, buildSearch, buildSnapPath, columnGen, columnLabel, routeToMe, searchPool, treeFocusA, wayToMe } from '../selectors';
 import type { Db } from '../types';
 import type { SearchItem } from '../selectors';

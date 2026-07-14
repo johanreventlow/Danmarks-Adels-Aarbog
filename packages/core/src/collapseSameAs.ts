@@ -2,7 +2,7 @@
 // (linket via afklarede samme_som-relationer) til ÉN kanonisk post FØR buildModel, så
 // slægtskabs-motoren forbliver urørt. Reversibel (returnerer alias-map + proveniens) og
 // valideret (konflikter karantæneres, foldes ikke). Se spec 2026-07-02-samme-som-collapse-design.md.
-import { fmtYears } from '@daa/core';
+import { fmtYears } from './fields';
 import { KONFIDENS_RANK } from './types';
 import type {
   SameAsEdge,

@@ -3,12 +3,10 @@
 // SEPARAT bagefter (i storen) for at udlede parentId/spouse + indekser.
 import { supabase, supabaseEnabled } from '../lib/supabase';
 import { buildAux } from './buildAux';
-import { buildGeo } from './buildGeo';
 import {
-  buildGenCoords, buildParentsUnknown, pickPreferredBio, fmtYears, parseYear,
+  buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, pickPreferredBio, fmtYears, parseYear,
   type GenCoord, type ParentsUnknown, type NarrativeCand,
 } from '@daa/core';
-import { collapseSameAs } from './collapseSameAs';
 import { normalizeKoen, normalizeKonfidens } from './types';
 import type {
   AppPerson,

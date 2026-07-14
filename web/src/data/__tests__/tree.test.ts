@@ -1,6 +1,5 @@
 import { buildBidirectionalColumns, columnGen, columnLabel, unknownParentRing, unknownChildSection } from '../tree';
-import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE } from '@daa/core';
-import { buildModel } from '../buildModel';
+import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, buildModel } from '@daa/core';
 import type { AppPerson, Db } from '../types';
 
 const P = (id: string, o: Partial<AppPerson> = {}): AppPerson => ({

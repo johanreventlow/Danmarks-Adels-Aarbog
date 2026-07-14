@@ -1,6 +1,5 @@
-// Rene selektorer over Geo (kort). Samme kontrakt som selectors.ts: rene, testbare funktioner
-// som kort-fladerne kalder frem for at grave i geo-indekserne direkte. Platform-agnostisk →
-// spejles i web/src/data/geoSelectors.ts.
+// Rene selektorer over Geo (kort), i @daa/core. Samme kontrakt som selectors.ts: rene,
+// testbare funktioner som kort-fladerne kalder frem for at grave i geo-indekserne direkte.
 import type { Geo, GeoKind, GeoPoint } from './types';
 
 // Rækkefølge for et livskort: fakta ordnes kronologisk-tematisk (fødsel → … → begravelse).

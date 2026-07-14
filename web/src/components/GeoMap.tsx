@@ -5,7 +5,7 @@
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useRef } from 'react';
-import { boundsOf } from '../data/geoSelectors';
+import { boundsOf } from '@daa/core';
 import type { GeoPoint } from '../data/types';
 import { T } from '../theme';
 
