@@ -1,7 +1,6 @@
 // Port af buildAux() fra design-HTML (linje 808-868). Bygger hjælpe-indekser pr. person:
 // kilder (bogreference), embeder/godser (relation), linjer (grene I–V), medier.
-import { compareDanish } from '../lib/collation';
-import { parseYear, stripParen } from './fields';
+import { compareDanish, parseYear, stripParen } from '@daa/core';
 import type {
   Aux,
   RawArms,

@@ -1,4 +1,5 @@
 {
+  "installCommand": "npm install --prefix ..",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]

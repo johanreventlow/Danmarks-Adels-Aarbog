@@ -7,13 +7,11 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { navigate, usePath } from './router';
 import { childrenOf, loadModel, parentsOf } from './data/model';
-import { buildBidirectionalColumns } from './data/tree';
 import { initials, konfTekst } from './data/format';
-import { computeRelationship, type RelationResult } from './data/relationship';
 import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type AboutSection, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
 import { pickPortrait, firstSignable, withUrl } from './data/media';
 import type { Geo, LinjeEntry, Model } from './data/types';
-import { estatePoints, filterByLineage, lifeJourney } from './data/geoSelectors';
+import { buildBidirectionalColumns, computeRelationship, estatePoints, filterByLineage, lifeJourney, type RelationResult } from '@daa/core';
 import { NarrativRenderer } from './components/NarrativRenderer';
 import { buildBrowse, showSearchResults, type BrowseResult } from './data/browse';
 import { useBookmarks, type BookmarkSort } from './data/bookmarks';
@@ -638,7 +636,7 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
   // Memoiseret som mobil (tree.tsx): undgår gen-beregning ved urelaterede parent-re-renders
   // (browse-tastetryk, bogmærke-toggle) — den delte bygger er byte-identisk, memo er kun call-site.
   const cols = useMemo(
-    () => (model && variant === 'B' && anchorId ? buildBidirectionalColumns(model, anchorId, up, down, model.genCoordsByPerson, model.parentsUnknownByPerson) : []),
+    () => (model && variant === 'B' && anchorId ? buildBidirectionalColumns(model, anchorId, up, down, childrenOf, parentsOf, model.genCoordsByPerson, model.parentsUnknownByPerson) : []),
     [model, variant, anchorId, up, down],
   );
 

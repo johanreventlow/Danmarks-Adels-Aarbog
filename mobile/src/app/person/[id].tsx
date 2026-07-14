@@ -12,7 +12,7 @@ import { NarrativRenderer } from '../../components/NarrativRenderer';
 import { StripedPlaceholder } from '../../components/StripedPlaceholder';
 import { TopBar } from '../../components/TopBar';
 import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
-import { lifeJourney } from '../../data/geoSelectors';
+import { lifeJourney } from '@daa/core';
 import { childrenByMarriage, parentsOf, spousesOf } from '../../data/selectors';
 import { usePersonMedia } from '../../lib/media';
 import { selectMeId, useStore } from '../../store/useStore';

@@ -1,4 +1,3 @@
-// PORTERET fra mobile/src/lib/__tests__/groupBlocks.test.ts — hold i sync.
 import { parseNarrativ, groupBlocks } from '../mentions';
 
 const blocks = (tekst: string) => groupBlocks(parseNarrativ(tekst));

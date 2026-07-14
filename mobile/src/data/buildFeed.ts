@@ -1,7 +1,7 @@
 // Ren feed-generator (spec §3, dual-review 20). Udleder et redaktionelt FeedCard[] af den
 // eksisterende Model/Aux. Ingen backend, ingen Math.random/Date.now — today injiceres.
 // Kilder empirisk verificeret i types.ts/load.ts/relationship.ts (dual-review DS1–DS4).
-import { computeRelationship } from './relationship';
+import { computeRelationship } from '@daa/core';
 import { interleave, stableHash } from './feedHash';
 import type { Aux, Model } from './types';
 

@@ -9,7 +9,7 @@ import { GeoMap } from '../components/GeoMap';
 import { LoadGate } from '../components/LoadGate';
 import { TopBar } from '../components/TopBar';
 import { Body, BtnLabel } from '../components/Typography';
-import { filterByLineage } from '../data/geoSelectors';
+import { filterByLineage } from '@daa/core';
 import { useStore } from '../store/useStore';
 import { Border, Colors } from '../theme/tokens';
 

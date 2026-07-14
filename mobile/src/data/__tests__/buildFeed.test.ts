@@ -1,5 +1,5 @@
 import { buildAux } from '../buildAux';
-import { buildModel } from '../buildModel';
+import { buildModel } from '@daa/core';
 import { buildFeed, firstQuotableSentence, type FeedCard } from '../buildFeed';
 import { interleave, stableHash } from '../feedHash';
 import type { AppPerson, Aux, Db, Model } from '../types';

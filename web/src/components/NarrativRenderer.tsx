@@ -5,7 +5,7 @@
 // bliver egne billed-blokke (klikbare til en lokal lightbox, planens §7.1e — navigerer KUN blandt
 // DENNE narrativs egne billeder, ikke subjektets fulde galleri); øvrige typer inaktiv tekst.
 import { useEffect, useMemo, useState } from 'react';
-import { parseNarrativ, groupBlocks, type Block, type Segment } from '../lib/mentions';
+import { parseNarrativ, groupBlocks, type Block, type Segment } from '@daa/core';
 import { fetchMediaByIds, mediaCaption, type EmbeddedMedia } from '../data/media';
 import { Lightbox, type LightboxItem } from './Lightbox';
 

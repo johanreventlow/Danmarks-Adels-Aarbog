@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent } from '@testing-library/react';
 import { TreeView } from '../../Folgesvend';
-import { buildModel } from '../../data/buildModel';
+import { buildModel } from '@daa/core';
 import type { AppPerson, Db } from '../../data/types';
 
 const P = (id: string, name: string): AppPerson => ({

@@ -1,6 +1,14 @@
 import { joinEvidence, mapKonfliktRow, mapNarrativer, mapRelationRow } from '../redaktionRead';
 import { mapRedPerson, mapSammeSomLinks } from '../redaktionRead';
-import * as load from '../load';
+import { getAll } from '@daa/core';
+
+// getAll flyttet til @daa/core (single source, se packages/core/src/getAll.ts) — mockes her via
+// jest.mock (ikke jest.spyOn) fordi re-exports/wildcard-exports kompileres til non-configurable
+// getters, som jest.spyOn ikke kan redefinere.
+jest.mock('@daa/core', () => ({
+  ...jest.requireActual('@daa/core'),
+  getAll: jest.fn(),
+}));
 
 describe('mapSammeSomLinks — klassificér retning', () => {
   it('personen som subjekt = alias, som objekt = kanonisk', () => {
@@ -243,11 +251,11 @@ test('mapFamilieRows: fokus-person ekskluderet fra egen unions boern (data-fejl-
 test('fetchRedaktionPersoner samler alle sider (ingen trunkering)', async () => {
   const page1 = Array.from({ length: 1000 }, (_, i) => ({ id: i + 1, visning_navn: `P${i}`, visning_foedt: '1700', visning_doed: null, levende: false, privat: false }));
   const page2 = [{ id: 1001, visning_navn: 'Sidste', visning_foedt: '1800', visning_doed: null, levende: false, privat: false }];
-  const spy = jest.spyOn(load, 'getAll').mockResolvedValue([...page1, ...page2] as never);
+  (getAll as jest.Mock).mockResolvedValue([...page1, ...page2]);
   const res = await fetchRedaktionPersoner();
   expect(res).toHaveLength(1001);
   expect(res[1000].navn).toBe('Sidste');
-  spy.mockRestore();
+  (getAll as jest.Mock).mockReset();
 });
 
 import { mapHistRow } from '../redaktionRead';

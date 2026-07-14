@@ -1,0 +1,5 @@
+{
+  "name": "danmarksadelsaarbog-monorepo",
+  "private": true,
+  "workspaces": ["packages/*", "web", "mobile"]
+}

@@ -1,5 +1,31 @@
 # Changelog
 
+## `packages/core` — delt web↔mobil-logik (review 27 Bølge 3 #13, 2026-07-14)
+
+**Den rene, DOM/RN/netværks-frie domænekerne er samlet i ÉN npm-workspace-pakke `@daa/core`**, som
+både web (Vite) og mobil (Metro/Expo SDK 56) importerer source-only (rå `.ts`, ingen build). Lukker
+rodårsag #2 fra review 27: ~15 spejlede moduler uden delingsmekanisme, hvor drift allerede var begyndt.
+Repoet er nu et npm-workspace (root `package.json`, konsolideret lockfile).
+
+Flyttet til core (kanonisk én kopi): `collapseSameAs`, `relationship`, `generations`, `buildModel`,
+`sammeSomPreflight`, `buildGeo`, `geoSelectors`, `fields`, `pickPreferredBio`, `collation`, `mentions`,
+`getAll` (paginering — fik sin første test), samt tree-kernen (`columnLabel`, `columnGen`, `buildDirection`,
+`unknownParentRing`, `unknownChildSection`, `buildBidirectionalColumns`). Den snævre delte type-grænse
+(`Model`-superset m.m.) bor i `packages/core/src/types.ts`; begge apps re-eksporterer den + beholder app-
+specifikke typer lokalt. **Bliver bevidst i apps** (ægte platform-forskelle): fetch-orkestrering
+(`model.ts`/`load.ts`), redaktør-skrivelaget, bogmærker, og graf-traverseringerne `childrenOf`/`parentsOf`
+(web `childIdx` vs mobil `childrenByUnion`). `buildBidirectionalColumns` parameteriseret over de to
+traverseringer, så den kunne deles trods app-specifik graf-adgang.
+
+Alle `parity.test.ts`-vagter pensioneret (funktionerne er nu single-source). Tests dedupликeret: ~669 →
+538 (211 core + 146 web + 181 mobil), ingen dækning tabt — de delte tests kører nu én gang. Begge apps
+`tsc` rene; Vercel-deploy verificeret (installCommand kører fra repo-rod så workspace-symlinket resolves).
+
+Eksekveret spike-first (ét modul + 5 tooling-checkpoints før fuld flytning), dual-reviewet spec (Codex:
+5 fund indarbejdet — bl.a. at `linjeByPerson`-konflikten sidesteppes ved at holde `Aux` app-specifik frem
+for at forsone den), og subagent-drevet per-task-review. Spec: `docs/superpowers/specs/2026-07-13-*`,
+plan: `docs/superpowers/plans/2026-07-13-*`.
+
 ## Slankning af `claude.md` (2026-07-12)
 
 CLAUDE.md-audit (`/claude-md-improver`): filen gik fra ~382 til ~53 linjer. Fjernet historisk

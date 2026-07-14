@@ -2,7 +2,7 @@
 // DB-uafhængigt (prod-basen kan være tom/reset). Filtrér på query, sortér (navn dansk / fødeår),
 // og — kun ved navne-sort uden søgning — gruppér på efternavns-initial med alfabet-hop + sticky
 // bogstav-headers. activeLetter filtrerer til ét bogstav (null = Alle).
-import { compareDanish, initialOf, sortLetters } from '../lib/collation';
+import { compareDanish, initialOf, sortLetters } from '@daa/core';
 import type { ModelPerson } from './types';
 
 // buildBrowse bruger kun id/name/born — struktureres derfor over et minimalt person-shape, så

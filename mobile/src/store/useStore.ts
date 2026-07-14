@@ -3,13 +3,11 @@
 // søge-/bladre-tilstand. buildModel kaldes eksplicit her efter load (advisor 2026-06-23).
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
-import { buildModel } from '../data/buildModel';
-import { EMPTY_GEO } from '../data/buildGeo';
 import { loadFromSupabase } from '../data/load';
 import { buildSnapPath } from '../data/selectors';
 import { SEED } from '../data/seed';
 import { childrenOf } from '../data/selectors';
-import type { GenCoord, ParentsUnknown } from '../data/generations';
+import { buildModel, EMPTY_GEO, type GenCoord, type ParentsUnknown } from '@daa/core';
 import type { Aux, Geo, Model } from '../data/types';
 
 const ME_KEY = 'daa_me_id';

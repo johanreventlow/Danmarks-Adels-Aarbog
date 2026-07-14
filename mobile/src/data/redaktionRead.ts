@@ -2,8 +2,7 @@
 // fact via target_type/target_id UDEN rigtig FK), så vi henter N flade queries og joiner i
 // klienten. citation→source HAR FK og nestes (spec §3). Ren joinEvidence er testbar uden net.
 import { supabase } from '../lib/supabase';
-import { getAll } from './load';
-import { parseYear, fmtYears } from './fields';
+import { parseYear, fmtYears, getAll } from '@daa/core';
 import { FELT_FAKTATYPE } from './redaktionWrite';
 
 // --- Redaktions-person-liste (pagineret, inkl. levende/privat) ---

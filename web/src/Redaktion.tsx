@@ -12,8 +12,7 @@ import {
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
   type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia, type ForaeldreUkendtMarkering, SLAEGT_SUBJEKT_ID,
 } from './data/redaktionRead';
-import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE } from './data/generations';
-import { previewSammeSom } from './data/sammeSomPreflight';
+import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, insertAt, makeToken, previewSammeSom } from '@daa/core';
 import { loadModel } from './data/model';
 import type { Model } from './data/types';
 import { submitChange, describeCall, oversaetFejl, type Change } from './data/redaktionWrite';
@@ -23,7 +22,6 @@ import { buildBrowse } from './data/browse';
 import { initials } from './data/format';
 import { NarrativRenderer } from './components/NarrativRenderer';
 import { Lightbox } from './components/Lightbox';
-import { insertAt, makeToken } from './lib/mentions';
 
 const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 // Change-arter der kan ændre et materiale-galleri (Slice 0h) — bruges til at afgøre om

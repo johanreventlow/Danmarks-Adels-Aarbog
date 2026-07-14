@@ -10,7 +10,8 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadGate } from '../../components/LoadGate';
 import { BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
-import { buildBidirectionalColumns, childrenOf, routeToMe, treeFocusA, wayToMe, type WayStep } from '../../data/selectors';
+import { buildBidirectionalColumns } from '@daa/core';
+import { childrenOf, parentsOf, routeToMe, treeFocusA, wayToMe, type WayStep } from '../../data/selectors';
 import type { Model, ModelPerson } from '../../data/types';
 import { selectMeId, useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius, Shadow } from '../../theme/tokens';
@@ -136,7 +137,7 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
   const viewW = useRef(0);
   const prevUp = useRef(0), prevDown = useRef(0), prevAnchor = useRef<string | null>(null);
   const cols = useMemo(
-    () => (anchorId ? buildBidirectionalColumns(model, anchorId, up, down, genCoordsByPerson, parentsUnknownByPerson) : []),
+    () => (anchorId ? buildBidirectionalColumns(model, anchorId, up, down, childrenOf, parentsOf, genCoordsByPerson, parentsUnknownByPerson) : []),
     [model, anchorId, up, down, genCoordsByPerson, parentsUnknownByPerson],
   );
   const anchorIdx = cols.findIndex((c) => c.kind === 'anchor');
