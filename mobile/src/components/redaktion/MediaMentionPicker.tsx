@@ -5,7 +5,7 @@
 import { Image } from 'expo-image';
 import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import type { PersonMedia } from '../../data/redaktionRead';
-import { makeToken } from '../../lib/mentions';
+import { makeToken } from '@daa/core';
 import { Colors } from '../../theme/tokens';
 import { Body, Serif } from '../Typography';
 import { pickerSheetStyles } from './pickerSheetStyles';

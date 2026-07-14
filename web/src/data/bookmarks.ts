@@ -4,7 +4,7 @@
 // dual-review 21 N2).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../supabase';
-import { compareDanish } from '../lib/collation';
+import { compareDanish } from '@daa/core';
 import type { Model, ModelPerson } from './types';
 
 export interface BookmarkRepository {

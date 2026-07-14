@@ -13,7 +13,7 @@ import { MentionPicker } from './MentionPicker';
 import { SkrivePreviewSheet } from './SkrivePreviewSheet';
 import { Body, BtnLabel, Mono } from '../Typography';
 import { Border, Colors, Radius } from '../../theme/tokens';
-import { insertAt } from '../../lib/mentions';
+import { insertAt } from '@daa/core';
 import { fetchNarrativer, fetchSources, type PersonNarrativ, type SourceRow, type PersonMedia } from '../../data/redaktionRead';
 import { type Change } from '../../data/redaktionWrite';
 

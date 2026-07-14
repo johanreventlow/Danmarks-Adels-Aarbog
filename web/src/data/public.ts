@@ -4,7 +4,7 @@
 import { supabase } from '../supabase';
 import { getAll } from './paginate';
 import type { Model } from './types';
-import { pickPreferredBio, type NarrativeCand } from './pickPreferredBio';
+import { pickPreferredBio, type NarrativeCand } from '@daa/core';
 import { fetchPersonMedia, fetchObjectMedia, type MediaItem } from './media';
 
 // Rå narrativ-række med source-join (PostgREST embedded resource).

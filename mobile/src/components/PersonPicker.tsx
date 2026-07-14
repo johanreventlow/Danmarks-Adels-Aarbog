@@ -2,7 +2,7 @@
 // vælg en person til slægtskabs-felt A eller B. Port af v2-markup (linje 618-639).
 import { useEffect, useMemo, useState } from 'react';
 import { FlatList, Modal, Pressable, StyleSheet, TextInput, View } from 'react-native';
-import { compareDanish } from '../lib/collation';
+import { compareDanish } from '@daa/core';
 import { useStore } from '../store/useStore';
 import { Border, Colors, Fonts, Radius } from '../theme/tokens';
 import { BtnLabel, Mono, Serif } from './Typography';

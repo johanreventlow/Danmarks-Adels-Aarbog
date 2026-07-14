@@ -6,7 +6,7 @@ import { Modal, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { fetchRedaktionPersoner, type RedPerson } from '../../data/redaktionRead';
 import { oversaetFejl } from '../../data/redaktionWrite';
 import { searchPool } from '../../data/selectors';
-import { makeToken } from '../../lib/mentions';
+import { makeToken } from '@daa/core';
 import { Colors } from '../../theme/tokens';
 import { Body, BtnLabel, Mono, Serif } from '../Typography';
 import { pickerSheetStyles } from './pickerSheetStyles';

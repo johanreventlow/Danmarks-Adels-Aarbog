@@ -4,10 +4,11 @@
 import { supabase, supabaseEnabled } from '../lib/supabase';
 import { buildAux } from './buildAux';
 import { buildGeo } from './buildGeo';
-import { buildGenCoords, buildParentsUnknown, type GenCoord, type ParentsUnknown } from '@daa/core';
+import {
+  buildGenCoords, buildParentsUnknown, pickPreferredBio, fmtYears, parseYear,
+  type GenCoord, type ParentsUnknown, type NarrativeCand,
+} from '@daa/core';
 import { collapseSameAs } from './collapseSameAs';
-import { pickPreferredBio, type NarrativeCand } from './pickPreferredBio';
-import { fmtYears, parseYear } from './fields';
 import { normalizeKoen, normalizeKonfidens } from './types';
 import type {
   AppPerson,

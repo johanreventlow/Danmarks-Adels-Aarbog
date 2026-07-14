@@ -10,7 +10,7 @@ import React, { useMemo, useState } from 'react';
 import { Image } from 'expo-image';
 import { Pressable, Text, View, StyleSheet, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 import { useRouter } from 'expo-router';
-import { parseNarrativ, groupBlocks, type Segment } from '../lib/mentions';
+import { parseNarrativ, groupBlocks, type Segment } from '@daa/core';
 import { useMediaAndThumbUris } from '../lib/media';
 import { useStore } from '../store/useStore';
 import { Colors } from '../theme/tokens';

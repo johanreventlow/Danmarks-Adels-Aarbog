@@ -1,5 +1,4 @@
-// Delt selector (spejlet i mobile/src/data/pickPreferredBio.ts — hold i sync).
-// Vælger den foretrukne offentlige biografi for ÉT subjekt blandt dets narrativer.
+// Delt selector — vælger den foretrukne offentlige biografi for ÉT subjekt blandt dets narrativer.
 // Kalderen har allerede filtreret private rækker fra (RLS + query).
 
 export type NarrativeCand = {

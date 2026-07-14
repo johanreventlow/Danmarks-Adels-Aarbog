@@ -3,7 +3,7 @@
 // pladsholder) — porteret fra web/src/data/public.ts's fetchAbout, samme selector
 // (pickPreferredBio) og samme sentinel/lineage-navngivning som Slice C3's redigerings-side.
 import { supabase } from '../lib/supabase';
-import { pickPreferredBio, type NarrativeCand } from './pickPreferredBio';
+import { pickPreferredBio, type NarrativeCand } from '@daa/core';
 
 export type AboutSection = { lineageNavn: string | null; tekst: string };
 

@@ -103,7 +103,7 @@ describe('parity: delt generations-kerne web ↔ mobil', () => {
 // ene kopi og glemmer den anden, skal DENNE test fejle rødt med et præcist modulnavn — ikke først
 // opdages måneder senere ved manuel `diff`.
 const MIRRORED_MODULES = [
-  'collapseSameAs', 'relationship', 'sammeSomPreflight', 'buildModel', 'pickPreferredBio', 'fields',
+  'collapseSameAs', 'relationship', 'sammeSomPreflight', 'buildModel',
 ];
 
 // Nogle af filerne bærer en selv-refererende "porteret fra .../hold i sync"-kommentar, der pr.
