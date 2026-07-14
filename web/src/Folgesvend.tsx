@@ -9,7 +9,7 @@ import { navigate, usePath } from './router';
 import { loadModel } from './data/model';
 import { initials } from './data/format';
 import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type AboutSection, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
-import type { Model } from './data/types';
+import type { AppModel, Model } from './data/types';
 import { computeRelationship } from '@daa/core';
 import { buildBrowse, showSearchResults } from './data/browse';
 import { useBookmarks, type BookmarkSort } from './data/bookmarks';
@@ -47,7 +47,7 @@ function useFonts() {
 export default function Folgesvend() {
   useFonts();
   const path = usePath();
-  const [model, setModel] = useState<Model | null>(null);
+  const [model, setModel] = useState<AppModel | null>(null);
   const [err, setErr] = useState<string | null>(null);
   // mode/focusId/estateId initialiseres SYNKRONT fra URL'en ved mount (parseFolgesvendPath er
   // ren streng-parsing, kræver ikke modellen) — undgår et synligt "flash" af startFokus's default
@@ -289,6 +289,25 @@ export default function Folgesvend() {
     return () => window.removeEventListener('keydown', onKey);
   }, [detailOpen, mode]);
 
+  // Lazy geo-kæde (review 27 P3): place+fact hentes IKKE ved cold-start (se loadModel) —
+  // kun de tre kort-bærende flader udløser hentningen, og kun ÉN gang (geoRequestedRef er en
+  // ref, ikke state, så gentagne mode-skift ikke refetcher selvom resultatet reelt blev tomt).
+  // 'estates'/'kort' er selvforklarende kort-visninger; detailOpen dækker minikortet i
+  // detalje-panelet (der kan åbne fra BÅDE 'tree' og 'relate' — vi kender ikke points.length
+  // for den fokuserede person før geo er hentet, så vi henter så snart panelet er åbent).
+  const geoRequestedRef = useRef(false);
+  const [geoLoading, setGeoLoading] = useState(false);
+  useEffect(() => {
+    const needsGeo = mode === 'estates' || mode === 'kort' || detailOpen;
+    if (!needsGeo || !model || geoRequestedRef.current) return;
+    geoRequestedRef.current = true;
+    setGeoLoading(true);
+    model.loadGeo()
+      .then((geo) => setModel((m) => (m ? { ...m, geo } : m)))
+      .catch((e) => console.warn('[Folgesvend] geo-hentning fejlede — intet kort:', e))
+      .finally(() => setGeoLoading(false));
+  }, [mode, detailOpen, model]);
+
   // "Det er mig"-markering (localStorage) — samme person igen = fjern markering. Gemmer kanonisk id,
   // og sammenligner kanonisk (et gemt alias-meId matcher stadig den kanoniske person).
   const toggleMe = (id: string) => {
@@ -450,11 +469,11 @@ export default function Folgesvend() {
           {mode === 'home' ? <HomeView model={model} personCount={persons.length} estates={estates} onPickPerson={navigateTree} onOpenSearch={() => { goToMode('tree'); bumpSearchFocus(); }} onBrowseAll={() => { goToMode('tree'); setBrowsing(true); }} onOpenEstate={(id) => { setEstateId(id); navigate(`/estate/${id}`); }} onGoTree={() => goToMode('tree')} />
             : mode === 'tree' ? <TreeView model={model} focusId={focusId} onPick={treePick} onFocus={driftFocus} hasBookmark={bookmarks.has} onToggleBookmark={saveOrPrompt} search={treeSearch} />
             : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={focusOnly} meId={meCanon} onSetMeA={() => { if (meCanon) { setRelA(meCanon); setRelSlot('B'); } }} search={treeSearch} />
-            : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} geo={model?.geo} onOpen={(id) => { setEstateId(id); navigate(`/estate/${id}`); }} onBack={() => { setEstateId(null); navigate('/estates'); }} onPickOwner={navigateTree} />
+            : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} geo={model?.geo} geoLoading={geoLoading} onOpen={(id) => { setEstateId(id); navigate(`/estate/${id}`); }} onBack={() => { setEstateId(null); navigate('/estates'); }} onPickOwner={navigateTree} />
             : mode === 'arms' ? <ArmsView arms={arms} />
             : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} onPick={navigateTree} />
             : mode === 'bookmarks' ? (model ? <BookmarksView model={model} ids={bookmarkIds} sort={bmSort} setSort={setBmSort} onPick={pickBookmark} onRemove={saveOrPrompt} loggedIn={bookmarks.canSave} onRequireLogin={() => setLoginOpen(true)} /> : <div style={{ padding: 40, color: T.muted3 }}>Henter…</div>)
-            : mode === 'kort' ? <OverviewMapView model={model} onPickPerson={navigateTree} onPickEstate={(id) => navigate(`/estate/${id}`)} />
+            : mode === 'kort' ? <OverviewMapView model={model} geoLoading={geoLoading} onPickPerson={navigateTree} onPickEstate={(id) => navigate(`/estate/${id}`)} />
             : <Placeholder label={labelOfMode(mode)} />}
         </div>
 
@@ -467,6 +486,7 @@ export default function Folgesvend() {
             onRelate={() => { setRelA(focusId); setRelB(null); setRelSlot('B'); goToMode('relate'); }}
             isMe={focusId === meCanon} onToggleMe={() => toggleMe(focusId)}
             isBookmarked={bookmarks.has(focusId)} onToggleBookmark={() => saveOrPrompt(focusId)}
+            geoLoading={geoLoading}
           />
         )}
       </div>

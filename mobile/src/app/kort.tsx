@@ -10,6 +10,7 @@ import { LoadGate } from '../components/LoadGate';
 import { TopBar } from '../components/TopBar';
 import { Body, BtnLabel } from '../components/Typography';
 import { filterByLineage } from '@daa/core';
+import { useGeoOnMount } from '../hooks/useGeoOnMount';
 import { useStore } from '../store/useStore';
 import { Border, Colors } from '../theme/tokens';
 
@@ -17,7 +18,11 @@ export default function KortScreen() {
   const router = useRouter();
   const aux = useStore((s) => s.aux);
   const geo = useStore((s) => s.geo);
+  const geoLoading = useStore((s) => s.geoLoading);
   const [linje, setLinje] = useState<string | null>(null);
+
+  // Lazy geo-kæde (review 27 P3): dette ER kort-fladen — udløs geo-hentningen ved mount.
+  useGeoOnMount();
   const linjeList = aux?.linjeList ?? [];
   const points = linje ? filterByLineage(geo.points, aux?.linjeByPerson ?? {}, linje, { includeNonPerson: true }) : geo.points;
   const linjeNavn = linjeList.find((l) => l.linje === linje)?.navn;
@@ -38,9 +43,13 @@ export default function KortScreen() {
             ))}
           </View>
           <Body size={12.5} color={Colors.textMuted} style={{ paddingHorizontal: 18, marginBottom: 8 }}>
-            {points.length} {points.length === 1 ? 'sted' : 'steder'} kortlagt{linjeNavn ? ` for ${linjeNavn}` : ''}.
+            {geoLoading ? 'Indlæser kortlagte steder…' : `${points.length} ${points.length === 1 ? 'sted' : 'steder'} kortlagt${linjeNavn ? ` for ${linjeNavn}` : ''}.`}
           </Body>
-          {points.length ? (
+          {geoLoading ? (
+            <View style={{ padding: 22 }}>
+              <Body size={13} color={Colors.textMuted}>Indlæser kort…</Body>
+            </View>
+          ) : points.length ? (
             <GeoMap
               points={points}
               mode="explorer"

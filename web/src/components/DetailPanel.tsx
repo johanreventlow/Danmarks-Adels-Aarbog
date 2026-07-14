@@ -13,10 +13,11 @@ import { Lightbox } from './Lightbox';
 import { MediaThumb, BookmarkFlag, Label } from './primitives';
 import { ExpandableMiniMap, MapFallback } from './lazyMaps';
 
-export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onClose, onFocusTree, onRelate, isMe, onToggleMe, isBookmarked, onToggleBookmark }: {
+export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onClose, onFocusTree, onRelate, isMe, onToggleMe, isBookmarked, onToggleBookmark, geoLoading }: {
   model: Model; focusId: string; detail: PersonDetailData | null; onPick: (id: string) => void;
   backName: string | null; onBack: () => void; onClose?: () => void; onFocusTree: () => void; onRelate: () => void;
   isMe: boolean; onToggleMe: () => void; isBookmarked: boolean; onToggleBookmark: () => void;
+  geoLoading: boolean;
 }) {
   // Lightbox (Slice A): useState skal stå FØR den betingede return nedenfor (Rules of Hooks) —
   // portræt + galleri bliver ÉT navigerbart sæt (portræt først), så pil-tasterne bladrer gennem
@@ -109,7 +110,12 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
         {detail?.bio && <div style={{ marginTop: 14, fontSize: 13.5, lineHeight: 1.55, color: '#3d382f' }}><NarrativRenderer tekst={detail.bio} onPickPerson={onPick} linkColor={T.bordeaux} inactiveColor={T.muted2} /></div>}
 
         {/* Livskort: kun hvis personen har mindst ét geo-punkt (undgår tom-boks-støj for de fleste). */}
-        {model.geo && lifeJourney(model.geo, focusId).length > 0 && (
+        {/* geo er tomt indtil loadGeo() er kaldt (review 27 P3, "lazy geo-kæde") — de FLESTE
+            personer ender uden geo-punkter, så vi viser IKKE en midlertidig boks mens den henter
+            (ville ellers dukke op og forsvinde igen for langt de fleste — "skal ikke flimre").
+            Godser-kort/Slægtens kort er eksplicitte kort-flader med egen "Indlæser kort…"-plads;
+            minikortet her er blot spekulativt. */}
+        {!geoLoading && model.geo && lifeJourney(model.geo, focusId).length > 0 && (
           <div style={{ marginTop: 14 }}>
             <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2, marginBottom: 6 }}>Livsrejse</div>
             <Suspense fallback={<MapFallback />}>

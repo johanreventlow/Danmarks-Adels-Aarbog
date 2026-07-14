@@ -4,7 +4,7 @@
 import { supabase, supabaseEnabled } from '../lib/supabase';
 import { buildAux } from './buildAux';
 import {
-  buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, pickPreferredBio, fmtYears, parseYear, getAll,
+  buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, pickPreferredBio, fmtYears, parseYear, getAll, EMPTY_GEO,
   type GenCoord, type ParentsUnknown, type NarrativeCand,
 } from '@daa/core';
 import { normalizeKoen, normalizeKonfidens } from './types';
@@ -45,8 +45,11 @@ export type LoadResult = {
   // samme_som-collapse: ethvert medlems-id → kanonisk id + proveniens pr. kanonisk (til badge).
   canonicalIdById: Record<string, string>;
   mergedFrom: Record<string, Provenance[]>;
-  // Geo-lag (kortpunkter) — tomt indtil koordinat-berigelsen (tng_places + geokodning) er kørt.
+  // Geo-lag (kortpunkter) — starter TOMT (review 27 P3, "lazy geo-kæde"): place+fact hentes ikke
+  // ved cold-start. loadGeo() henter dem + bygger den rigtige Geo, kaldt af storen ved første
+  // kort-brug (Slægtens kort, Godser-kort, livsrejse-minikort). Spejler web/src/data/model.ts.
   geo: Geo;
+  loadGeo: () => Promise<Geo>;
   // Generations-koordinater pr. kanonisk person-id (slægtled_lokal/gennem + kuld pr. linje).
   // Bruges af tree-byggerens hul-reparation (Task C1); spejler web/src/data/model.ts (Task B2).
   genCoordsByPerson: Record<string, GenCoord[]>;
@@ -121,8 +124,6 @@ export async function loadFromSupabase(opts?: {
     arms,
     sameAsRel,
     approvedConc,
-    places,
-    facts,
   ] = await Promise.all([
       getAll<RawPerson>(() =>
         sb.from('person').select('id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_titel,koen,privat'),
@@ -176,18 +177,9 @@ export async function loadFromSupabase(opts?: {
       getAll<{ target_id: number | string }>(() =>
         sb.from('conclusion').select('target_id').eq('target_type', 'relation').eq('status', 'afklaret'),
       ).catch(() => [] as { target_id: number | string }[]),
-      // Steder m. koordinater (tolerant: tabellen kan mangle i ældre env).
-      // .not('lat','is',null): buildGeo bruger kun steder MED koordinater, så vi henter kun dem.
-      //   Før berigelsen er lat/lon tomme overalt → 0 rækker i ét enkelt round-trip (ingen dead weight).
-      // .order('id'): place kan være >1000 rækker (tng_places ~6.788) efter berigelse → stabil rækkefølge
-      //   på tværs af getAll's paginerede .range()-kald, så grænse-rækker hverken duplikeres eller tabes.
-      getAll<RawPlace>(() =>
-        sb.from('place').select('id,navn,lat,lon').not('lat', 'is', null).order('id'),
-      ).catch(() => [] as RawPlace[]),
-      // Geo-bærende fakta: kun rækker med et sted (reducerer payload). Tolerant hvis RLS/tabel afviger.
-      getAll<RawFact>(() =>
-        sb.from('fact').select('subjekt_type,subjekt_id,faktatype,sted_id').not('sted_id', 'is', null).order('id'),
-      ).catch(() => [] as RawFact[]),
+      // place+fact (den tunge geo-kæde) er UDSKUDT (review 27 P3): de hentes først af loadGeo()
+      // nedenfor, ved første kort-brug, ikke ved cold-start. Se loadGeo-closuren for de faktiske
+      // queries (uændrede) + degradering.
     ]);
 
   // Biografi pr. person — foretrukne offentlige narrativ (nyeste DAA-udgave) via pickPreferredBio.
@@ -294,12 +286,28 @@ export async function loadFromSupabase(opts?: {
     collapsed.canonicalIdById,
   );
 
-  // Geo-lag: bygges på den COLLAPSED + privat-filtrerede db.persons (RLS-gate). Tomt indtil
-  // koordinat-berigelsen udfylder place.lat/lon.
-  const geo = buildGeo(
-    { facts, estates, places, persons: db.persons, unions: db.unions },
-    collapsed.canonicalIdById,
-  );
+  // Geo-lag: starter TOMT (review 27 P3, "lazy geo-kæde") — place+fact hentes ikke ved cold-start.
+  // loadGeo() nedenfor henter dem + bygger den rigtige Geo, kaldt af storen ved første kort-brug.
+  const geo = EMPTY_GEO;
+  const loadGeo = async (): Promise<Geo> => {
+    // Geo-lag: godser m. sted (allerede hentet ovenfor), steder m. koordinater, geo-bærende
+    // fakta. Alt tolerant (tomt = ingen kortpunkter). place.not('lat',...) → 0 rækker/ét
+    // round-trip før berigelse; .order('id') giver stabil paginering når place >1000 rækker
+    // (tng_places ~6.788) efter berigelse.
+    const [places, facts] = await Promise.all([
+      getAll<RawPlace>(() =>
+        sb.from('place').select('id,navn,lat,lon').not('lat', 'is', null).order('id'),
+      ).catch((e) => { console.warn('[loadFromSupabase] place utilgængelig — intet geo:', e); return [] as RawPlace[]; }),
+      getAll<RawFact>(() =>
+        sb.from('fact').select('subjekt_type,subjekt_id,faktatype,sted_id').not('sted_id', 'is', null).order('id'),
+      ).catch((e) => { console.warn('[loadFromSupabase] fact utilgængelig — intet geo:', e); return [] as RawFact[]; }),
+    ]);
+    // Geo-lag bygget på den COLLAPSED + (RLS-)privat-filtrerede db.persons — samme mønster som web.
+    return buildGeo(
+      { facts, estates, places, persons: db.persons, unions: db.unions },
+      collapsed.canonicalIdById,
+    );
+  };
 
   const genCoordsByPerson = buildGenCoords(extIds, lineage, collapsed.canonicalIdById);
   const puRows = await puRowsP;
@@ -333,6 +341,7 @@ export async function loadFromSupabase(opts?: {
     canonicalIdById: collapsed.canonicalIdById,
     mergedFrom: collapsed.mergedFrom,
     geo,
+    loadGeo,
     genCoordsByPerson,
     parentsUnknownByPerson,
   };

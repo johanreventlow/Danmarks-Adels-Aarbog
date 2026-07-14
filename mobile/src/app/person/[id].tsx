@@ -4,7 +4,7 @@
 // kilder m. §-tegn + "trykt værk", handlinger.
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { GeoMap } from '../../components/GeoMap';
 import { Lightbox } from '../../components/Lightbox';
@@ -31,8 +31,20 @@ export default function PersonScreen() {
   const setMe = useStore((s) => s.setMe);
   const setFocus = useStore((s) => s.setFocus);
   const canonicalId = useStore((s) => s.canonicalId);
+  const status = useStore((s) => s.status);
   const [bioExpanded, setBioExpanded] = useState(false);
   const [lightbox, setLightbox] = useState<number | null>(null); // Slice A
+
+  // Lazy geo-kæde (review 27 P3): persondetaljen viser et livsrejse-minikort hvis personen har
+  // geo-punkter — udløs hentningen ved mount (mirror af web's Folgesvend.tsx detailOpen-trigger).
+  // Gates + re-kører på status (ikke tomme deps): _layout.tsx monterer person/[id] uafhængigt
+  // af load()-status (fx direkte deep-link), så et for-tidligt kald ellers aldrig ville
+  // genforsøges når data ankommer (dual-review-fund, se kort.tsx). Ingen loading-placeholder
+  // her (bevidst, spejler web): de FLESTE personer ender uden geo-punkter, så en midlertidig
+  // boks ville flimre op og forsvinde for langt de fleste besøg.
+  useEffect(() => {
+    if (status === 'ready') useStore.getState().loadGeo();
+  }, [status]);
 
   // Resolv rute-id til kanonisk: et link til enten et alias (fx III-58) eller den kanoniske (V-1)
   // lander på den samme, samlede person (samme_som-collapse).

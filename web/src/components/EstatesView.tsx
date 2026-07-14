@@ -11,9 +11,9 @@ import { Lightbox } from './Lightbox';
 import { ViewHeader, Label, MediaThumb } from './primitives';
 import { GeoMap, ExpandableMiniMap, MapFallback } from './lazyMaps';
 
-export function EstatesView({ estates, estateId, estate, info, owners, geo, onOpen, onBack, onPickOwner }: {
+export function EstatesView({ estates, estateId, estate, info, owners, geo, geoLoading, onOpen, onBack, onPickOwner }: {
   estates: EstateItem[] | null; estateId: string | null; estate: EstateItem | null; info: EstateInfo | null;
-  owners: EstateOwner[]; geo?: Geo; onOpen: (id: string) => void; onBack: () => void; onPickOwner: (id: string) => void;
+  owners: EstateOwner[]; geo?: Geo; geoLoading: boolean; onOpen: (id: string) => void; onBack: () => void; onPickOwner: (id: string) => void;
 }) {
   const [lightbox, setLightbox] = useState<number | null>(null); // Slice A — kun brugt i detalje-grenen nedenfor
   const [viewMode, setViewMode] = useState<'liste' | 'kort'>('liste');
@@ -28,7 +28,9 @@ export function EstatesView({ estates, estateId, estate, info, owners, geo, onOp
           {estate.slags && <span style={{ fontSize: 11.5, fontWeight: 600, color: T.bordeaux, background: '#f4e2e6', border: '1px solid rgba(136,26,51,.16)', padding: '5px 10px', borderRadius: 7 }}>{estate.slags}</span>}
           {info?.sted && <span style={{ fontSize: 11.5, fontWeight: 600, color: T.muted, background: T.beige, border: '1px solid rgba(34,31,26,.1)', padding: '5px 10px', borderRadius: 7 }}>⌖ {info.sted}</span>}
         </div>
-        {point && (
+        {geoLoading ? (
+          <div style={{ marginTop: 14 }}><MapFallback height={140} /></div>
+        ) : point && (
           <div style={{ marginTop: 14 }}>
             <Suspense fallback={<MapFallback />}>
               <ExpandableMiniMap points={[point]} />
@@ -87,7 +89,9 @@ export function EstatesView({ estates, estateId, estate, info, owners, geo, onOp
       </div>
       <div style={{ fontSize: 13, color: T.muted, marginTop: 4, marginBottom: 20 }}>Besiddelser knyttet til slægten — klik for ejerrækken gennem tiden.</div>
       {!estates ? <div style={{ color: T.muted3 }}>Henter…</div> : !estates.length ? <div style={{ color: T.muted3 }}>Ingen godser registreret.</div> : viewMode === 'kort' ? (
-        points.length ? (
+        geoLoading ? (
+          <div style={{ flex: 1, minHeight: 0 }}><MapFallback height="100%" /></div>
+        ) : points.length ? (
           <div style={{ flex: 1, minHeight: 0 }}>
             <Suspense fallback={<MapFallback height="100%" />}>
               <GeoMap points={points} mode="explorer" onPointPress={(p) => p.estateId && onOpen(p.estateId)} />

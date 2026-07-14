@@ -7,6 +7,7 @@ import { GeoMap } from '../../components/GeoMap';
 import { LoadGate } from '../../components/LoadGate';
 import { TopBar } from '../../components/TopBar';
 import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
+import { useGeoOnMount } from '../../hooks/useGeoOnMount';
 import { useStore } from '../../store/useStore';
 import { Colors, Fonts, Radius } from '../../theme/tokens';
 
@@ -16,10 +17,15 @@ export default function EstateScreen() {
   const model = useStore((s) => s.model);
   const aux = useStore((s) => s.aux);
   const geo = useStore((s) => s.geo);
+  const geoLoading = useStore((s) => s.geoLoading);
 
   const estate = id && aux ? aux.estateById[id] : null;
   const owners = id && aux ? aux.ownersByEstate[id] ?? [] : [];
   const point = id ? geo.byEstate[id] : null;
+
+  // Lazy geo-kæde (review 27 P3): gods-detaljen viser et minikort for godsets sted — udløs
+  // hentningen ved mount.
+  useGeoOnMount();
 
   return (
     <View style={{ flex: 1 }}>
@@ -37,7 +43,11 @@ export default function EstateScreen() {
                 </View>
               ) : null}
 
-              {point && (
+              {geoLoading ? (
+                <View style={{ marginTop: 14 }}>
+                  <Body size={12.5} color={Colors.textMuted}>Indlæser kort…</Body>
+                </View>
+              ) : point && (
                 <View style={{ marginTop: 14 }}>
                   <GeoMap points={[point]} mode="mini" />
                 </View>

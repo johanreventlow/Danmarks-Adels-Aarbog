@@ -11,6 +11,7 @@ import { LoadGate } from '../components/LoadGate';
 import { TopBar } from '../components/TopBar';
 import { Body, BtnLabel, Serif } from '../components/Typography';
 import { estatePoints } from '@daa/core';
+import { useGeoOnMount } from '../hooks/useGeoOnMount';
 import { useStore } from '../store/useStore';
 import { Border, Colors, Shadow } from '../theme/tokens';
 
@@ -18,9 +19,15 @@ export default function EstatesScreen() {
   const router = useRouter();
   const aux = useStore((s) => s.aux);
   const geo = useStore((s) => s.geo);
+  const geoLoading = useStore((s) => s.geoLoading);
   const estateList = aux?.estateList ?? [];
   const [viewMode, setViewMode] = useState<'liste' | 'kort'>('liste');
   const points = estatePoints(geo);
+
+  // Lazy geo-kæde (review 27 P3): Godser-fladen bruger geo (kort-toggle + gods-minikort på
+  // detalje) — udløs hentningen ved mount af hele fladen, ikke kun når kort-toggle vælges
+  // (mirror af web's Folgesvend.tsx, hvor 'estates'-mode dækker begge under-visninger).
+  useGeoOnMount();
 
   return (
     <View style={{ flex: 1 }}>
@@ -36,7 +43,11 @@ export default function EstatesScreen() {
       </View>
       <LoadGate>
         {viewMode === 'kort' ? (
-          points.length ? (
+          geoLoading ? (
+            <View style={{ padding: 22 }}>
+              <Body size={13} color={Colors.textMuted}>Indlæser kort…</Body>
+            </View>
+          ) : points.length ? (
             <GeoMap
               points={points}
               mode="explorer"

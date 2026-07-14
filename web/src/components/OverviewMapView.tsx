@@ -9,8 +9,8 @@ import { filterByLineage } from '@daa/core';
 import { ViewHeader } from './primitives';
 import { GeoMap, MapFallback } from './lazyMaps';
 
-export function OverviewMapView({ model, onPickPerson, onPickEstate }: {
-  model: Model | null; onPickPerson: (id: string) => void; onPickEstate: (id: string) => void;
+export function OverviewMapView({ model, geoLoading, onPickPerson, onPickEstate }: {
+  model: Model | null; geoLoading: boolean; onPickPerson: (id: string) => void; onPickEstate: (id: string) => void;
 }) {
   const [linje, setLinje] = useState<string | null>(null);
   const allPoints = model?.geo?.points ?? [];
@@ -25,7 +25,7 @@ export function OverviewMapView({ model, onPickPerson, onPickEstate }: {
     <div style={{ padding: '30px 40px 0', height: 'calc(100vh - 60px)', display: 'flex', flexDirection: 'column' }}>
       <ViewHeader title="Slægtens kort" />
       <div style={{ fontSize: 13, color: T.muted, marginTop: 4, marginBottom: 12 }}>
-        {points.length} {points.length === 1 ? 'sted' : 'steder'} kortlagt{linje ? ` for ${linjeList.find((l) => l.linje === linje)?.navn ?? 'linje ' + linje}` : ' — flere følger efterhånden som slægtens steder kortlægges'}.
+        {geoLoading ? 'Indlæser kortlagte steder…' : `${points.length} ${points.length === 1 ? 'sted' : 'steder'} kortlagt${linje ? ` for ${linjeList.find((l) => l.linje === linje)?.navn ?? 'linje ' + linje}` : ' — flere følger efterhånden som slægtens steder kortlægges'}.`}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
         <button onClick={() => setLinje(null)} style={chip(linje === null)}>Hele slægten</button>
@@ -36,7 +36,9 @@ export function OverviewMapView({ model, onPickPerson, onPickEstate }: {
         ))}
       </div>
       <div style={{ flex: 1, minHeight: 0, paddingBottom: 24 }}>
-        {points.length ? (
+        {geoLoading ? (
+          <MapFallback height="100%" />
+        ) : points.length ? (
           <Suspense fallback={<MapFallback height="100%" />}>
             <GeoMap
               points={points}
