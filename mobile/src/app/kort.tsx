@@ -3,7 +3,7 @@
 // (type-filter/år-slider/"nær mig" er senere skiver). Lokal filter-tilstand — påvirker
 // BEVIDST ikke den globale activeLinje (stamtræets linje-filter), da dette er en separat visning.
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { GeoMap } from '../components/GeoMap';
 import { LoadGate } from '../components/LoadGate';
@@ -17,7 +17,18 @@ export default function KortScreen() {
   const router = useRouter();
   const aux = useStore((s) => s.aux);
   const geo = useStore((s) => s.geo);
+  const geoLoading = useStore((s) => s.geoLoading);
+  const status = useStore((s) => s.status);
   const [linje, setLinje] = useState<string | null>(null);
+
+  // Lazy geo-kæde (review 27 P3): dette ER kort-fladen — udløs geo-hentningen ved mount.
+  // Gates + re-kører på status (ikke tomme deps): _layout.tsx monterer routes uafhængigt af
+  // load()-status, så et direkte hop til /kort kan mounte mens status stadig er 'loading' —
+  // uden dette ville loadGeo() kaldes for tidligt (stashedLoadGeo endnu null) og aldrig
+  // genforsøges når data rent faktisk ankommer (dual-review-fund).
+  useEffect(() => {
+    if (status === 'ready') useStore.getState().loadGeo();
+  }, [status]);
   const linjeList = aux?.linjeList ?? [];
   const points = linje ? filterByLineage(geo.points, aux?.linjeByPerson ?? {}, linje, { includeNonPerson: true }) : geo.points;
   const linjeNavn = linjeList.find((l) => l.linje === linje)?.navn;
@@ -38,9 +49,13 @@ export default function KortScreen() {
             ))}
           </View>
           <Body size={12.5} color={Colors.textMuted} style={{ paddingHorizontal: 18, marginBottom: 8 }}>
-            {points.length} {points.length === 1 ? 'sted' : 'steder'} kortlagt{linjeNavn ? ` for ${linjeNavn}` : ''}.
+            {geoLoading ? 'Indlæser kortlagte steder…' : `${points.length} ${points.length === 1 ? 'sted' : 'steder'} kortlagt${linjeNavn ? ` for ${linjeNavn}` : ''}.`}
           </Body>
-          {points.length ? (
+          {geoLoading ? (
+            <View style={{ padding: 22 }}>
+              <Body size={13} color={Colors.textMuted}>Indlæser kort…</Body>
+            </View>
+          ) : points.length ? (
             <GeoMap
               points={points}
               mode="explorer"

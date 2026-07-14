@@ -12,6 +12,13 @@ import type { Aux, Geo, Model } from '../data/types';
 
 const ME_KEY = 'daa_me_id';
 
+// Lazy geo-kæde (review 27 P3): loadFromSupabase() vedhæfter en loadGeo-closure (kapslet
+// facts/estates/places/persons/unions/canonicalIdById) i stedet for at bygge Geo eagerly.
+// Stashet i en modul-ref (ikke i store-state) — den er ikke render-relevant og skal blot
+// overleve mellem load() og et senere loadGeo()-kald. null i seed-fald (SEED.geo er allerede
+// fuldt bygget, ingen closure at kalde).
+let stashedLoadGeo: (() => Promise<Geo>) | null = null;
+
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'error';
 export type DataSource = 'live' | 'seed' | null;
 export type TreeVariant = 'A' | 'B' | 'C';
@@ -23,7 +30,13 @@ export type State = {
   error: string | null;
   model: Model | null;
   aux: Aux | null;
-  geo: Geo; // kortpunkter (godskort/livskort/overblik/nærhed); EMPTY_GEO indtil load
+  geo: Geo; // kortpunkter (godskort/livskort/overblik/nærhed); EMPTY_GEO indtil load ELLER loadGeo()
+  // Lazy geo-kæde (review 27 P3, mobil-pendant til web's Folgesvend.tsx): place+fact hentes ikke
+  // ved cold-start (se data/load.ts's loadGeo). geoLoading er kort-fladernes loading-affordance;
+  // geoLoaded er once-guarden (spejler web's geoRequestedRef — en ref, ikke indhold, så et reelt
+  // tomt resultat ikke udløser genforsøg ved hver mount).
+  geoLoading: boolean;
+  geoLoaded: boolean;
   // Generations-koordinater pr. kanonisk person-id (Task C1's hul-reparation); {} indtil load/SEED.
   genCoordsByPerson: Record<string, GenCoord[]>;
   // Marker-gatet "forældre ukendt" pr. kanonisk person-id (grad + proveniens); {} indtil load/SEED.
@@ -62,6 +75,7 @@ export type State = {
 
   // actions
   load: () => Promise<void>;
+  loadGeo: () => Promise<void>;
   canonicalId: (id: string) => string; // resolv et (evt. alias-)id til dets kanoniske
   hydrateMe: () => Promise<void>;
   setMe: (id: string | null) => Promise<void>;
@@ -101,6 +115,8 @@ export const useStore = create<State>((set, get) => ({
   model: null,
   aux: null,
   geo: EMPTY_GEO,
+  geoLoading: false,
+  geoLoaded: false,
   genCoordsByPerson: {},
   parentsUnknownByPerson: {},
   rootId: null,
@@ -141,12 +157,17 @@ export const useStore = create<State>((set, get) => ({
       const snap = buildSnapPath(model, res.focusId, res.rootId);
       // Resolv et gemt (evt. alias-)meId til den kanoniske, så "mig" peger på den samlede person.
       const me = get().meId;
+      // Lazy geo-kæde: res.geo er EMPTY_GEO her (loadFromSupabase henter ikke place+fact ved
+      // cold-start) — closuren stashes til et senere loadGeo()-kald ved første kort-brug.
+      stashedLoadGeo = res.loadGeo;
       set({
         status: 'ready',
         source: 'live',
         model,
         aux: res.aux,
         geo: res.geo,
+        geoLoading: false,
+        geoLoaded: false,
         genCoordsByPerson: res.genCoordsByPerson ?? {},
         parentsUnknownByPerson: res.parentsUnknownByPerson ?? {},
         rootId: res.rootId,
@@ -165,6 +186,9 @@ export const useStore = create<State>((set, get) => ({
       // Offline-fallback: indlejret Reventlow-seed, så appen ikke står blank.
       const model = buildModel(SEED.db);
       const snap = buildSnapPath(model, SEED.focusId, SEED.rootId);
+      // SEED.geo er allerede fuldt bygget (intet loadGeo() at kalde) — geoLoaded:true gør
+      // loadGeo()-actionen til en no-op i offline-tilstand.
+      stashedLoadGeo = null;
       set({
         status: 'ready',
         source: 'seed',
@@ -172,6 +196,8 @@ export const useStore = create<State>((set, get) => ({
         model,
         aux: SEED.aux,
         geo: SEED.geo,
+        geoLoading: false,
+        geoLoaded: true,
         genCoordsByPerson: {}, // SEED bærer ikke generations-koordinater — ingen kandidat-ring i offline-tilstand
         parentsUnknownByPerson: {}, // SEED bærer ingen forældre_ukendt-markeringer
         rootId: SEED.rootId,
@@ -185,6 +211,31 @@ export const useStore = create<State>((set, get) => ({
         relB: SEED.relBId,
         canonicalIdById: {}, // seed har ingen samme_som
       });
+    }
+  },
+
+  // Lazy geo-kæde (review 27 P3): kaldt af kort-/livsrejse-flader ved mount. Once-guard på
+  // geoLoaded (ikke på geo.points.length — et reelt tomt resultat må ikke udløse genforsøg).
+  // Fejl degraderer til fortsat tomt geo (aldrig et crash) — matcher web's Folgesvend.tsx.
+  loadGeo: async () => {
+    if (get().geoLoaded || get().geoLoading) return;
+    const fn = stashedLoadGeo;
+    if (!fn) {
+      // Intet at hente ENDNU (kaldt før load() nåede at stashe closuren — Stack/_layout
+      // monterer skærme uafhængigt af status, så en kort-flade kan mounte mens status stadig
+      // er 'loading'). IKKE en permanent "færdig"-tilstand (dual-review-fund): sætter vi
+      // geoLoaded her, ville den siden blive nulstillet af load(), men skærmens
+      // status-gatede useEffect (se kort.tsx m.fl.) er den eneste der genforsøger — et
+      // no-op-return lader netop det ske uden at latch'e en forkert "tomt kort for evigt".
+      return;
+    }
+    set({ geoLoading: true });
+    try {
+      const geo = await fn();
+      set({ geo, geoLoading: false, geoLoaded: true });
+    } catch (e) {
+      console.warn('[useStore] geo-hentning fejlede — intet kort:', e);
+      set({ geoLoading: false, geoLoaded: true });
     }
   },
 
