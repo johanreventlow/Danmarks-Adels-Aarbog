@@ -128,7 +128,7 @@ export function columnGen(
 // afklaret "forældre ukendt"-markering (parentsUnknown), vises i stedet en marker-gatet
 // kandidat-kolonne (unknownParentRing) med kildens forrige slægtled. Fyrer ALDRIG på fravær af en
 // kant alene (det var v1/v2-fejlen) — kun på en TILSTEDEVÆRENDE markering. Aner-retning kun.
-export function buildDirection(
+function buildDirection(
   model: Model,
   anchorId: string,
   selections: string[],
