@@ -2,6 +2,28 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## `packages/core`: npm-workspace + source-only, snæver type-grænse (2026-07-14)
+
+**Delt web↔mobil-logik samles i ét npm-workspace (`@daa/core`), ikke via paritetstest-spejling.**
+Review 27 tilbød to niveauer: (A) fuld workspace-pakke, eller (B) minimalt "værn" (en test der asserter
+at spejlede filer er byte-identiske). Oprindelig hældning var C (B nu + udskyd A), fordi A ville røre en
+antaget prod-mobilbuild. **Da mobil viste sig kun at køre dev (ikke prod), faldt A's tungeste con væk**,
+og Expo SDK 56's stærke monorepo-støtte gør Metro-friktionen lav → A valgt. Eksekveret **spike-first**:
+ét modul + 5 tooling-checkpoints (Metro, jest-transform, Vite, cross-workspace-typer, Vercel deep-link)
+BEVIST før fuld flytning, med fallback til B hvis et checkpoint fejlede. Alle grønne.
+
+**Source-only pakke (rå `.ts`, ingen build-step).** Begge bundlere transpilerer kilden direkte — undgår
+en dist-watch-loop og en separat build-pipeline for en intern pakke. Vercel krævede `installCommand: npm
+install --prefix ..` så workspace-symlinket oprettes fra repo-roden (Root Directory=web installerer ellers
+kun web's egne deps).
+
+**Snæver type-grænse, ikke hele `types.ts`.** Kun de typer de delte moduler faktisk importerer flytter til
+core (`Model` som additivt superset m.m.); app-specifikke typer bliver lokale. **`linjeByPerson`-konflikten
+(web `Record<string,string>` vs mobil `Record<string,string[]>`) sidesteppes** ved at holde dens ejer-type
+`Aux` app-specifik — ingen delt modul bruger `Aux`, så konflikten krydser aldrig ind i core (Codex-dual-
+review-fund forfinet til en enklere, sikrere løsning end at forsone den). Grænsen mellem delt og app-
+specifikt følger konsekvent: *flyt kun det forbrugerne kræver; divergens uden for det delte snit løses ikke.*
+
 ## "Forældre ukendt"-markering: rå-scope vs. samme_som-kanonisk — accepteret PoC-grænse (2026-07-11)
 
 **Fjern-operationen forbliver rå-`personId`-scoped, selvom den offentlige projektion er kanonisk
