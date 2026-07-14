@@ -12,7 +12,7 @@ import {
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
   type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia, type ForaeldreUkendtMarkering, SLAEGT_SUBJEKT_ID,
 } from './data/redaktionRead';
-import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE } from './data/generations';
+import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE } from '@daa/core';
 import { previewSammeSom } from './data/sammeSomPreflight';
 import { loadModel } from './data/model';
 import type { Model } from './data/types';

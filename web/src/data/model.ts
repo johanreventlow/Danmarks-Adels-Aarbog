@@ -3,7 +3,7 @@
 // behøver — ikke Aux/godser/våben). Rolle-vokab: partner = forælder-par, barn = blodslægt.
 import { supabase } from '../supabase';
 import { buildGeo } from './buildGeo';
-import { buildGenCoords, buildParentsUnknown } from './generations';
+import { buildGenCoords, buildParentsUnknown } from '@daa/core';
 import { buildModel } from './buildModel';
 import { collapseSameAs } from './collapseSameAs';
 import { buildLineage } from './lineage';

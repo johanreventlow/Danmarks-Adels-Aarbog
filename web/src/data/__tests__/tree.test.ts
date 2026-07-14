@@ -1,5 +1,5 @@
 import { buildBidirectionalColumns, columnGen, columnLabel, unknownParentRing, unknownChildSection } from '../tree';
-import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE } from '../generations';
+import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE } from '@daa/core';
 import { buildModel } from '../buildModel';
 import type { AppPerson, Db } from '../types';
 

@@ -9,7 +9,7 @@ import { loadFromSupabase } from '../data/load';
 import { buildSnapPath } from '../data/selectors';
 import { SEED } from '../data/seed';
 import { childrenOf } from '../data/selectors';
-import type { GenCoord, ParentsUnknown } from '../data/generations';
+import type { GenCoord, ParentsUnknown } from '@daa/core';
 import type { Aux, Geo, Model } from '../data/types';
 
 const ME_KEY = 'daa_me_id';

@@ -4,7 +4,7 @@
 import { supabase, supabaseEnabled } from '../lib/supabase';
 import { buildAux } from './buildAux';
 import { buildGeo } from './buildGeo';
-import { buildGenCoords, buildParentsUnknown, type GenCoord, type ParentsUnknown } from './generations';
+import { buildGenCoords, buildParentsUnknown, type GenCoord, type ParentsUnknown } from '@daa/core';
 import { collapseSameAs } from './collapseSameAs';
 import { pickPreferredBio, type NarrativeCand } from './pickPreferredBio';
 import { fmtYears, parseYear } from './fields';

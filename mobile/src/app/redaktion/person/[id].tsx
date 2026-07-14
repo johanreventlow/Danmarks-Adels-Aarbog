@@ -15,7 +15,7 @@ import { MediaGallery } from '../../../components/redaktion/MediaGallery';
 import { Body, BtnLabel, Mono, Serif } from '../../../components/Typography';
 import { useMediaAndThumbUris } from '../../../lib/media';
 import { fetchPersonEvidence, fetchPersonRelationer, fetchPersonFamilie, fetchPersonMedia, fetchSammeSomLinks, fetchForaeldreUkendtMarkering, nudgeOrdinal, BARN_ROLLER, type PersonEvidence, type PersonRelation, type PersonFamilie, type PersonMedia, type FamilieUnion, type SammeSomLink, type ForaeldreUkendtMarkering } from '../../../data/redaktionRead';
-import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE } from '../../../data/generations';
+import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE } from '@daa/core';
 import { previewSammeSom } from '../../../data/sammeSomPreflight';
 import { eraAdvarsel } from '../../../data/eraAdvarsel';
 import { type Change } from '../../../data/redaktionWrite';

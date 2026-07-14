@@ -5,11 +5,6 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const webGenerations = readFileSync(join(__dirname, '../generations.ts'), 'utf8');
-const mobileGenerations = readFileSync(
-  join(__dirname, '../../../../mobile/src/data/generations.ts'),
-  'utf8',
-);
 const webTree = readFileSync(join(__dirname, '../tree.ts'), 'utf8');
 const mobileSelectors = readFileSync(
   join(__dirname, '../../../../mobile/src/data/selectors.ts'),
@@ -71,15 +66,10 @@ function extractFn(src: string, name: string): string {
   return src.slice(start, braceEnd + 1);
 }
 
+// generations.ts er ekstraheret til @daa/core (spike-task 1) — findes nu ét sted, så
+// buildGenCoords/buildParentsUnknown kan ikke længere drifte mellem to kopier. Tree.ts/
+// selectors.ts er ikke ekstraheret endnu (senere task) og paritetstjekkes stadig herunder.
 describe('parity: delt generations-kerne web ↔ mobil', () => {
-  it('buildGenCoords er tegn-for-tegn ens (generations.ts)', () => {
-    expect(extractFn(webGenerations, 'buildGenCoords')).toBe(extractFn(mobileGenerations, 'buildGenCoords'));
-  });
-
-  it('buildParentsUnknown er tegn-for-tegn ens (generations.ts)', () => {
-    expect(extractFn(webGenerations, 'buildParentsUnknown')).toBe(extractFn(mobileGenerations, 'buildParentsUnknown'));
-  });
-
   it('columnLabel er tegn-for-tegn ens (tree.ts ↔ selectors.ts)', () => {
     expect(extractFn(webTree, 'columnLabel')).toBe(extractFn(mobileSelectors, 'columnLabel'));
   });
@@ -113,7 +103,7 @@ describe('parity: delt generations-kerne web ↔ mobil', () => {
 // ene kopi og glemmer den anden, skal DENNE test fejle rødt med et præcist modulnavn — ikke først
 // opdages måneder senere ved manuel `diff`.
 const MIRRORED_MODULES = [
-  'collapseSameAs', 'relationship', 'generations', 'sammeSomPreflight', 'buildModel', 'pickPreferredBio', 'fields',
+  'collapseSameAs', 'relationship', 'sammeSomPreflight', 'buildModel', 'pickPreferredBio', 'fields',
 ];
 
 // Nogle af filerne bærer en selv-refererende "porteret fra .../hold i sync"-kommentar, der pr.

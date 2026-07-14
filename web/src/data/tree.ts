@@ -15,7 +15,7 @@
 // på fravær af en kant. Slægtled-tal/-linje til labels læses fra den faktiske koordinat (columnGen),
 // aldrig ved aritmetik fra ankeret (review 20 H1: gav "-7. slægtled" for founder-aner).
 import { childrenOf, parentsOf } from './model';
-import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, type GenCoord, type ParentsUnknown } from './generations';
+import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, type GenCoord, type ParentsUnknown } from '@daa/core';
 import type { Model, ModelPerson } from './types';
 
 export type ColumnKind = 'ancestor' | 'anchor' | 'descendant';

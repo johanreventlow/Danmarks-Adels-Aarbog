@@ -4,11 +4,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const mobileGenerations = readFileSync(join(__dirname, '../generations.ts'), 'utf8');
-const webGenerations = readFileSync(
-  join(__dirname, '../../../../web/src/data/generations.ts'),
-  'utf8',
-);
 const mobileSelectors = readFileSync(join(__dirname, '../selectors.ts'), 'utf8');
 const webTree = readFileSync(join(__dirname, '../../../../web/src/data/tree.ts'), 'utf8');
 
@@ -67,15 +62,10 @@ function extractFn(src: string, name: string): string {
   return src.slice(start, braceEnd + 1);
 }
 
+// generations.ts er ekstraheret til @daa/core (spike-task 1) — findes nu ét sted, så
+// buildGenCoords/buildParentsUnknown kan ikke længere drifte mellem to kopier. Tree.ts/
+// selectors.ts er ikke ekstraheret endnu (senere task) og paritetstjekkes stadig herunder.
 describe('parity: delt generations-kerne web ↔ mobil', () => {
-  it('buildGenCoords er tegn-for-tegn ens (generations.ts)', () => {
-    expect(extractFn(mobileGenerations, 'buildGenCoords')).toBe(extractFn(webGenerations, 'buildGenCoords'));
-  });
-
-  it('buildParentsUnknown er tegn-for-tegn ens (generations.ts)', () => {
-    expect(extractFn(mobileGenerations, 'buildParentsUnknown')).toBe(extractFn(webGenerations, 'buildParentsUnknown'));
-  });
-
   it('columnLabel er tegn-for-tegn ens (selectors.ts ↔ tree.ts)', () => {
     expect(extractFn(mobileSelectors, 'columnLabel')).toBe(extractFn(webTree, 'columnLabel'));
   });

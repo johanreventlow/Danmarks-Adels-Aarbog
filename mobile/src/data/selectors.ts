@@ -1,7 +1,7 @@
 // Afledte selektorer over model + aux. Rene funktioner (testbare) — skærmene kalder dem
 // frem for at grave i indekser direkte.
 import { compareDanish, initialOf } from '../lib/collation';
-import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, type GenCoord, type ParentsUnknown } from './generations';
+import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, type GenCoord, type ParentsUnknown } from '@daa/core';
 import type { Aux, Model, ModelPerson } from './types';
 
 // Forside-tællere: personer / linjer / godser.
