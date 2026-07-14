@@ -10,7 +10,7 @@ import { childrenOf, loadModel, parentsOf } from './data/model';
 import { initials, konfTekst } from './data/format';
 import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type AboutSection, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
 import { pickPortrait, firstSignable, withUrl } from './data/media';
-import type { Geo, LinjeEntry, Model } from './data/types';
+import type { AppModel, Geo, LinjeEntry, Model } from './data/types';
 import { buildBidirectionalColumns, computeRelationship, estatePoints, filterByLineage, lifeJourney, type RelationResult } from '@daa/core';
 import { NarrativRenderer } from './components/NarrativRenderer';
 import { buildBrowse, showSearchResults, type BrowseResult } from './data/browse';
@@ -50,7 +50,7 @@ function useFonts() {
 export default function Folgesvend() {
   useFonts();
   const path = usePath();
-  const [model, setModel] = useState<Model | null>(null);
+  const [model, setModel] = useState<AppModel | null>(null);
   const [err, setErr] = useState<string | null>(null);
   // mode/focusId/estateId initialiseres SYNKRONT fra URL'en ved mount (parseFolgesvendPath er
   // ren streng-parsing, kræver ikke modellen) — undgår et synligt "flash" af startFokus's default
@@ -292,6 +292,25 @@ export default function Folgesvend() {
     return () => window.removeEventListener('keydown', onKey);
   }, [detailOpen, mode]);
 
+  // Lazy geo-kæde (review 27 P3): place+fact hentes IKKE ved cold-start (se loadModel) —
+  // kun de tre kort-bærende flader udløser hentningen, og kun ÉN gang (geoRequestedRef er en
+  // ref, ikke state, så gentagne mode-skift ikke refetcher selvom resultatet reelt blev tomt).
+  // 'estates'/'kort' er selvforklarende kort-visninger; detailOpen dækker minikortet i
+  // detalje-panelet (der kan åbne fra BÅDE 'tree' og 'relate' — vi kender ikke points.length
+  // for den fokuserede person før geo er hentet, så vi henter så snart panelet er åbent).
+  const geoRequestedRef = useRef(false);
+  const [geoLoading, setGeoLoading] = useState(false);
+  useEffect(() => {
+    const needsGeo = mode === 'estates' || mode === 'kort' || detailOpen;
+    if (!needsGeo || !model || geoRequestedRef.current) return;
+    geoRequestedRef.current = true;
+    setGeoLoading(true);
+    model.loadGeo()
+      .then((geo) => setModel((m) => (m ? { ...m, geo } : m)))
+      .catch((e) => console.warn('[Folgesvend] geo-hentning fejlede — intet kort:', e))
+      .finally(() => setGeoLoading(false));
+  }, [mode, detailOpen, model]);
+
   // "Det er mig"-markering (localStorage) — samme person igen = fjern markering. Gemmer kanonisk id,
   // og sammenligner kanonisk (et gemt alias-meId matcher stadig den kanoniske person).
   const toggleMe = (id: string) => {
@@ -453,11 +472,11 @@ export default function Folgesvend() {
           {mode === 'home' ? <HomeView model={model} personCount={persons.length} estates={estates} onPickPerson={navigateTree} onOpenSearch={() => { goToMode('tree'); bumpSearchFocus(); }} onBrowseAll={() => { goToMode('tree'); setBrowsing(true); }} onOpenEstate={(id) => { setEstateId(id); navigate(`/estate/${id}`); }} onGoTree={() => goToMode('tree')} />
             : mode === 'tree' ? <TreeView model={model} focusId={focusId} onPick={treePick} onFocus={driftFocus} hasBookmark={bookmarks.has} onToggleBookmark={saveOrPrompt} search={treeSearch} />
             : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={focusOnly} meId={meCanon} onSetMeA={() => { if (meCanon) { setRelA(meCanon); setRelSlot('B'); } }} search={treeSearch} />
-            : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} geo={model?.geo} onOpen={(id) => { setEstateId(id); navigate(`/estate/${id}`); }} onBack={() => { setEstateId(null); navigate('/estates'); }} onPickOwner={navigateTree} />
+            : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} geo={model?.geo} geoLoading={geoLoading} onOpen={(id) => { setEstateId(id); navigate(`/estate/${id}`); }} onBack={() => { setEstateId(null); navigate('/estates'); }} onPickOwner={navigateTree} />
             : mode === 'arms' ? <ArmsView arms={arms} />
             : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} onPick={navigateTree} />
             : mode === 'bookmarks' ? (model ? <BookmarksView model={model} ids={bookmarkIds} sort={bmSort} setSort={setBmSort} onPick={pickBookmark} onRemove={saveOrPrompt} loggedIn={bookmarks.canSave} onRequireLogin={() => setLoginOpen(true)} /> : <div style={{ padding: 40, color: T.muted3 }}>Henter…</div>)
-            : mode === 'kort' ? <OverviewMapView model={model} onPickPerson={navigateTree} onPickEstate={(id) => navigate(`/estate/${id}`)} />
+            : mode === 'kort' ? <OverviewMapView model={model} geoLoading={geoLoading} onPickPerson={navigateTree} onPickEstate={(id) => navigate(`/estate/${id}`)} />
             : <Placeholder label={labelOfMode(mode)} />}
         </div>
 
@@ -470,6 +489,7 @@ export default function Folgesvend() {
             onRelate={() => { setRelA(focusId); setRelB(null); setRelSlot('B'); goToMode('relate'); }}
             isMe={focusId === meCanon} onToggleMe={() => toggleMe(focusId)}
             isBookmarked={bookmarks.has(focusId)} onToggleBookmark={() => saveOrPrompt(focusId)}
+            geoLoading={geoLoading}
           />
         )}
       </div>
@@ -968,10 +988,11 @@ function RelateView({ model, rel, relA, relB, slot, setSlot, onPickStep, meId, o
 }
 
 // ---- Person-detalje (højre panel) ----
-function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onClose, onFocusTree, onRelate, isMe, onToggleMe, isBookmarked, onToggleBookmark }: {
+function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onClose, onFocusTree, onRelate, isMe, onToggleMe, isBookmarked, onToggleBookmark, geoLoading }: {
   model: Model; focusId: string; detail: PersonDetailData | null; onPick: (id: string) => void;
   backName: string | null; onBack: () => void; onClose?: () => void; onFocusTree: () => void; onRelate: () => void;
   isMe: boolean; onToggleMe: () => void; isBookmarked: boolean; onToggleBookmark: () => void;
+  geoLoading: boolean;
 }) {
   // Lightbox (Slice A): useState skal stå FØR den betingede return nedenfor (Rules of Hooks) —
   // portræt + galleri bliver ÉT navigerbart sæt (portræt først), så pil-tasterne bladrer gennem
@@ -1063,8 +1084,13 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onClose
 
         {detail?.bio && <div style={{ marginTop: 14, fontSize: 13.5, lineHeight: 1.55, color: '#3d382f' }}><NarrativRenderer tekst={detail.bio} onPickPerson={onPick} linkColor={T.bordeaux} inactiveColor={T.muted2} /></div>}
 
-        {/* Livskort: kun hvis personen har mindst ét geo-punkt (undgår tom-boks-støj for de fleste). */}
-        {model.geo && lifeJourney(model.geo, focusId).length > 0 && (
+        {/* Livskort: kun hvis personen har mindst ét geo-punkt (undgår tom-boks-støj for de fleste).
+            geo er tomt indtil loadGeo() er kaldt (review 27 P3, "lazy geo-kæde") — de FLESTE
+            personer ender uden geo-punkter, så vi viser IKKE en midlertidig boks mens den henter
+            (ville ellers dukke op og forsvinde igen for langt de fleste — "skal ikke flimre").
+            Godser-kort/Slægtens kort er eksplicitte kort-flader og har deres egen "Indlæser
+            kort…"-plads-holder; minikortet her er blot spekulativt. */}
+        {!geoLoading && model.geo && lifeJourney(model.geo, focusId).length > 0 && (
           <div style={{ marginTop: 14 }}>
             <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2, marginBottom: 6 }}>Livsrejse</div>
             <Suspense fallback={<MapFallback />}>
@@ -1174,9 +1200,9 @@ function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onClose
 //  + grupperet personkort-resultat. Se `TreeSearch` + `browse`-memo i Folgesvend().)
 
 // ---- Godser & ejendomme ----
-function EstatesView({ estates, estateId, estate, info, owners, geo, onOpen, onBack, onPickOwner }: {
+function EstatesView({ estates, estateId, estate, info, owners, geo, geoLoading, onOpen, onBack, onPickOwner }: {
   estates: EstateItem[] | null; estateId: string | null; estate: EstateItem | null; info: EstateInfo | null;
-  owners: EstateOwner[]; geo?: Geo; onOpen: (id: string) => void; onBack: () => void; onPickOwner: (id: string) => void;
+  owners: EstateOwner[]; geo?: Geo; geoLoading: boolean; onOpen: (id: string) => void; onBack: () => void; onPickOwner: (id: string) => void;
 }) {
   const [lightbox, setLightbox] = useState<number | null>(null); // Slice A — kun brugt i detalje-grenen nedenfor
   const [viewMode, setViewMode] = useState<'liste' | 'kort'>('liste');
@@ -1191,7 +1217,9 @@ function EstatesView({ estates, estateId, estate, info, owners, geo, onOpen, onB
           {estate.slags && <span style={{ fontSize: 11.5, fontWeight: 600, color: T.bordeaux, background: '#f4e2e6', border: '1px solid rgba(136,26,51,.16)', padding: '5px 10px', borderRadius: 7 }}>{estate.slags}</span>}
           {info?.sted && <span style={{ fontSize: 11.5, fontWeight: 600, color: T.muted, background: T.beige, border: '1px solid rgba(34,31,26,.1)', padding: '5px 10px', borderRadius: 7 }}>⌖ {info.sted}</span>}
         </div>
-        {point && (
+        {geoLoading ? (
+          <div style={{ marginTop: 14 }}><MapFallback height={140} /></div>
+        ) : point && (
           <div style={{ marginTop: 14 }}>
             <Suspense fallback={<MapFallback />}>
               <ExpandableMiniMap points={[point]} />
@@ -1250,7 +1278,9 @@ function EstatesView({ estates, estateId, estate, info, owners, geo, onOpen, onB
       </div>
       <div style={{ fontSize: 13, color: T.muted, marginTop: 4, marginBottom: 20 }}>Besiddelser knyttet til slægten — klik for ejerrækken gennem tiden.</div>
       {!estates ? <div style={{ color: T.muted3 }}>Henter…</div> : !estates.length ? <div style={{ color: T.muted3 }}>Ingen godser registreret.</div> : viewMode === 'kort' ? (
-        points.length ? (
+        geoLoading ? (
+          <div style={{ flex: 1, minHeight: 0 }}><MapFallback height="100%" /></div>
+        ) : points.length ? (
           <div style={{ flex: 1, minHeight: 0 }}>
             <Suspense fallback={<MapFallback height="100%" />}>
               <GeoMap points={points} mode="explorer" onPointPress={(p) => p.estateId && onOpen(p.estateId)} />
@@ -1275,8 +1305,8 @@ function EstatesView({ estates, estateId, estate, info, owners, geo, onOpen, onB
 // ---- Slægtens kort (overbliks-kort) ----
 // Fuldskærms-kort over ALLE geo-punkter (personhændelser + godser), filtrerbart pr. linje.
 // v1: kun linje-filter (type-filter/år-slider/"nær mig" er senere skiver — se claude.md kort-plan).
-function OverviewMapView({ model, onPickPerson, onPickEstate }: {
-  model: Model | null; onPickPerson: (id: string) => void; onPickEstate: (id: string) => void;
+function OverviewMapView({ model, geoLoading, onPickPerson, onPickEstate }: {
+  model: Model | null; geoLoading: boolean; onPickPerson: (id: string) => void; onPickEstate: (id: string) => void;
 }) {
   const [linje, setLinje] = useState<string | null>(null);
   const allPoints = model?.geo?.points ?? [];
@@ -1291,7 +1321,7 @@ function OverviewMapView({ model, onPickPerson, onPickEstate }: {
     <div style={{ padding: '30px 40px 0', height: 'calc(100vh - 60px)', display: 'flex', flexDirection: 'column' }}>
       <ViewHeader title="Slægtens kort" />
       <div style={{ fontSize: 13, color: T.muted, marginTop: 4, marginBottom: 12 }}>
-        {points.length} {points.length === 1 ? 'sted' : 'steder'} kortlagt{linje ? ` for ${linjeList.find((l) => l.linje === linje)?.navn ?? 'linje ' + linje}` : ' — flere følger efterhånden som slægtens steder kortlægges'}.
+        {geoLoading ? 'Indlæser kortlagte steder…' : `${points.length} ${points.length === 1 ? 'sted' : 'steder'} kortlagt${linje ? ` for ${linjeList.find((l) => l.linje === linje)?.navn ?? 'linje ' + linje}` : ' — flere følger efterhånden som slægtens steder kortlægges'}.`}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
         <button onClick={() => setLinje(null)} style={chip(linje === null)}>Hele slægten</button>
@@ -1302,7 +1332,9 @@ function OverviewMapView({ model, onPickPerson, onPickEstate }: {
         ))}
       </div>
       <div style={{ flex: 1, minHeight: 0, paddingBottom: 24 }}>
-        {points.length ? (
+        {geoLoading ? (
+          <MapFallback height="100%" />
+        ) : points.length ? (
           <Suspense fallback={<MapFallback height="100%" />}>
             <GeoMap
               points={points}

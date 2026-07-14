@@ -2,10 +2,10 @@
 // → buildModel. Lean udgave af mobile/src/data/load.ts (kun det stamtræ + slægtskabsfinder
 // behøver — ikke Aux/godser/våben). Rolle-vokab: partner = forælder-par, barn = blodslægt.
 import { supabase } from '../supabase';
-import { buildGenCoords, buildParentsUnknown, buildGeo, buildModel, collapseSameAs, fmtYears, parseYear, getAll } from '@daa/core';
+import { buildGenCoords, buildParentsUnknown, buildGeo, buildModel, collapseSameAs, fmtYears, parseYear, getAll, EMPTY_GEO } from '@daa/core';
 import { buildLineage } from './lineage';
 import { buildSources } from './sources';
-import { normalizeKoen, normalizeKonfidens, type AppPerson, type Db, type Model, type ModelPerson, type ParentChild, type RawEstate, type RawExtId, type RawFact, type RawLineage, type RawPlace, type RawSource, type Union } from './types';
+import { normalizeKoen, normalizeKonfidens, type AppModel, type AppPerson, type Db, type Geo, type Model, type ModelPerson, type ParentChild, type RawEstate, type RawExtId, type RawFact, type RawLineage, type RawPlace, type RawSource, type Union } from './types';
 
 const PARTNER_ROLLER = ['partner'];
 // KUN blodslægt ('barn') bliver en forælder→barn-kant — matcher mobile/src/data/load.ts og
@@ -54,11 +54,11 @@ export function compareParentOrder(
 // Returnerer Model med samme_som-alias-map (canonicalIdById) + proveniens (mergedFrom på
 // model.byId) stampet på. collapse: default true; redaktion slår FRA (collapse:false) for at slå
 // navne op på de rå DB-poster (et foldet alias ville ellers mangle i model.byId) — spec §8.
-export async function loadModel(opts?: { collapse?: boolean }): Promise<Model> {
+export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel> {
   // Start "forældre ukendt"-markerings-hentningen NU, så den overlapper hoved-batchen (dens
   // facts-probe har ingen data-afhængighed af canonicalIdById — kun buildParentsUnknown til sidst har).
   const puRowsP = fetchParentsUnknownRows();
-  const [persons, members, extIds, lineageRows, sources, sameAsRel, approvedConc, estates, places, facts] = await Promise.all([
+  const [persons, members, extIds, lineageRows, sources, sameAsRel, approvedConc, estates] = await Promise.all([
     getAll<RawPerson>(() => supabase.from('person').select('id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_titel,koen,privat')),
     getAll<RawMember>(() => supabase.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens')),
     // Linje/nr pr. person (grene) — tolerant: tabellen/kolonnerne kan mangle i ældre baser.
@@ -77,12 +77,10 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<Model> {
     getAll<{ target_id: number | string }>(() =>
       supabase.from('conclusion').select('target_id').eq('target_type', 'relation').eq('status', 'afklaret'),
     ).catch((e) => { console.warn('[loadModel] conclusion utilgængelig — ingen collapse:', e); return [] as { target_id: number | string }[]; }),
-    // Geo-lag: godser m. sted, steder m. koordinater, geo-bærende fakta. Alt tolerant (tomt =
-    // ingen kortpunkter). place.not('lat',...) → 0 rækker/ét round-trip før berigelse; .order('id')
-    // giver stabil paginering når place >1000 rækker (tng_places ~6.788) efter berigelse.
+    // estate (godser m. sted) er lille og bruges også af den ikke-geo gods-liste/tæller —
+    // hentes eager. place+fact (den tunge geo-kæde, ~6.788 place-rækker) er UDSKUDT (review 27
+    // P3): de hentes først af loadGeo() nedenfor, ved første kort-brug, ikke ved cold-start.
     getAll<RawEstate>(() => supabase.from('estate').select('id,navn,slags,sted_id')).catch((e) => { console.warn('[loadModel] estate utilgængelig — ingen godskort:', e); return [] as RawEstate[]; }),
-    getAll<RawPlace>(() => supabase.from('place').select('id,navn,lat,lon').not('lat', 'is', null).order('id')).catch((e) => { console.warn('[loadModel] place utilgængelig — intet geo:', e); return [] as RawPlace[]; }),
-    getAll<RawFact>(() => supabase.from('fact').select('subjekt_type,subjekt_id,faktatype,sted_id').not('sted_id', 'is', null).order('id')).catch((e) => { console.warn('[loadModel] fact utilgængelig — intet geo:', e); return [] as RawFact[]; }),
   ]);
 
   const appPersons: AppPerson[] = persons.map((p) => ({
@@ -145,18 +143,32 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<Model> {
   const puRows = await puRowsP;
   const parentsUnknownByPerson = buildParentsUnknown(puRows.facts, puRows.conclusions, puRows.assertions, puRows.citations, collapsed.canonicalIdById);
 
-  const model: Model = {
+  const model: AppModel = {
     ...buildModel(collapsed.db),
     lineage: buildLineage(extIds, lineageRows, collapsed.canonicalIdById),
     sourcesBy: buildSources(extIds, sources, collapsed.canonicalIdById),
     canonicalIdById: collapsed.canonicalIdById,
-    // Geo-lag bygget på den COLLAPSED + (RLS-)privat-filtrerede db.persons — samme mønster som mobile.
-    geo: buildGeo(
-      { facts, estates, places, persons: collapsed.db.persons, unions: collapsed.db.unions },
-      collapsed.canonicalIdById,
-    ),
+    // Geo-lag: starter TOMT (review 27 P3, "lazy geo-kæde") — place+fact hentes ikke ved
+    // cold-start. loadGeo() henter dem + bygger den rigtige Geo, kaldt af web-laget ved
+    // første kort-brug (Godser-kort, Slægtens kort, livsrejse-minikort).
+    geo: EMPTY_GEO,
     genCoordsByPerson: buildGenCoords(extIds, lineageRows, collapsed.canonicalIdById),
     parentsUnknownByPerson,
+    loadGeo: async (): Promise<Geo> => {
+      // Geo-lag: godser m. sted (allerede hentet ovenfor), steder m. koordinater, geo-bærende
+      // fakta. Alt tolerant (tomt = ingen kortpunkter). place.not('lat',...) → 0 rækker/ét
+      // round-trip før berigelse; .order('id') giver stabil paginering når place >1000 rækker
+      // (tng_places ~6.788) efter berigelse.
+      const [places, facts] = await Promise.all([
+        getAll<RawPlace>(() => supabase.from('place').select('id,navn,lat,lon').not('lat', 'is', null).order('id')).catch((e) => { console.warn('[loadModel] place utilgængelig — intet geo:', e); return [] as RawPlace[]; }),
+        getAll<RawFact>(() => supabase.from('fact').select('subjekt_type,subjekt_id,faktatype,sted_id').not('sted_id', 'is', null).order('id')).catch((e) => { console.warn('[loadModel] fact utilgængelig — intet geo:', e); return [] as RawFact[]; }),
+      ]);
+      // Geo-lag bygget på den COLLAPSED + (RLS-)privat-filtrerede db.persons — samme mønster som mobile.
+      return buildGeo(
+        { facts, estates, places, persons: collapsed.db.persons, unions: collapsed.db.unions },
+        collapsed.canonicalIdById,
+      );
+    },
   };
   // Påfør proveniens på de foldede kanoniske personer (til badge i detalje-panelet).
   for (const [canon, prov] of Object.entries(collapsed.mergedFrom)) {

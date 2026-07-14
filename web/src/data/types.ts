@@ -5,7 +5,7 @@
 // herfra, så eksisterende imports fra './types' virker uændret. Kun web-specifikke
 // typer (Aux, Raw-rækker loaderen alene bruger, normaliserings-helpers) defineres lokalt.
 import { KONFIDENS_VALUES } from '@daa/core';
-import type { Koen, Konfidens, SourceRef, LinjeEntry } from '@daa/core';
+import type { Geo, Koen, Konfidens, Model, SourceRef, LinjeEntry } from '@daa/core';
 
 export { KONFIDENS_VALUES, KONFIDENS_RANK } from '@daa/core';
 export type {
@@ -34,6 +34,12 @@ export type {
   GeoPoint,
   Geo,
 } from '@daa/core';
+
+// Web-specifik udvidelse af den delte Model (review 27 P3, "lazy geo-kæde"): loadModel()
+// starter geo tom (EMPTY_GEO) og vedhæfter denne closure, så place+fact først hentes ved
+// første kort-brug. Core-typen (app-agnostisk) kender ikke loadGeo — kontrakten hører hjemme
+// her, ikke i @daa/core.
+export type AppModel = Model & { loadGeo: () => Promise<Geo> };
 
 // Rå rækker fra Supabase (kun de felter loaderen selecter) — web-specifikke.
 export type RawPerson = {
