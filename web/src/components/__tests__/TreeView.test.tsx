@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent } from '@testing-library/react';
-import { TreeView } from '../../Folgesvend';
+import { TreeView } from '../TreeView';
 import { buildModel } from '@daa/core';
 import type { AppPerson, Db } from '../../data/types';
 
