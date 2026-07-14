@@ -18,6 +18,10 @@ const ME_KEY = 'daa_me_id';
 // overleve mellem load() og et senere loadGeo()-kald. null i seed-fald (SEED.geo er allerede
 // fuldt bygget, ingen closure at kalde).
 let stashedLoadGeo: (() => Promise<Geo>) | null = null;
+// Generations-tæller (dual-review-fund, Codex 2026-07-14): hver load() bumper den. loadGeo()
+// fanger sin generation og dropper sit resultat hvis en reload har skiftet den imens — ellers
+// kan en gammel (stadig-pending) geo-hentning lande sidst og overskrive den NYE models geo.
+let geoGeneration = 0;
 
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'error';
 export type DataSource = 'live' | 'seed' | null;
@@ -160,6 +164,7 @@ export const useStore = create<State>((set, get) => ({
       // Lazy geo-kæde: res.geo er EMPTY_GEO her (loadFromSupabase henter ikke place+fact ved
       // cold-start) — closuren stashes til et senere loadGeo()-kald ved første kort-brug.
       stashedLoadGeo = res.loadGeo;
+      geoGeneration++;
       set({
         status: 'ready',
         source: 'live',
@@ -189,6 +194,7 @@ export const useStore = create<State>((set, get) => ({
       // SEED.geo er allerede fuldt bygget (intet loadGeo() at kalde) — geoLoaded:true gør
       // loadGeo()-actionen til en no-op i offline-tilstand.
       stashedLoadGeo = null;
+      geoGeneration++;
       set({
         status: 'ready',
         source: 'seed',
@@ -220,6 +226,7 @@ export const useStore = create<State>((set, get) => ({
   loadGeo: async () => {
     if (get().geoLoaded || get().geoLoading) return;
     const fn = stashedLoadGeo;
+    const gen = geoGeneration; // bind til DENNE models generation (se geoGeneration-kommentar)
     if (!fn) {
       // Intet at hente ENDNU (kaldt før load() nåede at stashe closuren — Stack/_layout
       // monterer skærme uafhængigt af status, så en kort-flade kan mounte mens status stadig
@@ -232,8 +239,10 @@ export const useStore = create<State>((set, get) => ({
     set({ geoLoading: true });
     try {
       const geo = await fn();
+      if (gen !== geoGeneration) return; // en reload skiftede model imens — drop stale geo (ingen overskrivning)
       set({ geo, geoLoading: false, geoLoaded: true });
     } catch (e) {
+      if (gen !== geoGeneration) return; // stale generation — rør ikke den nye models geo-state
       console.warn('[useStore] geo-hentning fejlede — intet kort:', e);
       set({ geoLoading: false, geoLoaded: true });
     }
