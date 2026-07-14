@@ -1,5 +1,5 @@
-import { buildModel } from '@daa/core';
-import { buildBidirectionalColumns, buildSearch, buildSnapPath, columnGen, columnLabel, routeToMe, searchPool, treeFocusA, wayToMe } from '../selectors';
+import { buildBidirectionalColumns, buildModel } from '@daa/core';
+import { buildSearch, buildSnapPath, childrenOf, parentsOf, routeToMe, searchPool, treeFocusA, wayToMe } from '../selectors';
 import type { Db } from '../types';
 import type { SearchItem } from '../selectors';
 
@@ -122,27 +122,30 @@ describe('buildSnapPath — variant C lodret linje', () => {
   });
 });
 
-describe('buildBidirectionalColumns — variant B (bidirektionel)', () => {
+// Kernen (buildBidirectionalColumns) bor i @daa/core; her testes MOBILENS traverse-injektion
+// (childrenOf via childrenByUnion, parentsOf via parentsByChild) — de rene kerne-scenarier
+// dækkes af packages/core/src/__tests__/tree.test.ts.
+describe('buildBidirectionalColumns — variant B med mobilens childrenOf/parentsOf', () => {
   test('anker med børn, ingen forældre: [Fokus, Børn]', () => {
-    const cols = buildBidirectionalColumns(model, '1', [], []);
+    const cols = buildBidirectionalColumns(model, '1', [], [], childrenOf, parentsOf);
     expect(cols.map((c) => c.key)).toEqual(['anchor:0', 'descendant:1']);
     expect(cols[1].label).toBe('Børn');
     expect(cols[1].people.map((p) => p.id).sort()).toEqual(['3', '4']);
     expect(cols[1].selectedId).toBeNull();
   });
   test('anker med forælder, ingen børn: [Forældre, Fokus]', () => {
-    const cols = buildBidirectionalColumns(model, '3', [], []);
+    const cols = buildBidirectionalColumns(model, '3', [], [], childrenOf, parentsOf);
     expect(cols.map((c) => c.key)).toEqual(['ancestor:1', 'anchor:0']);
     expect(cols[0].label).toBe('Forældre');
     expect(cols[0].people.map((p) => p.id)).toEqual(['1']);
   });
   test('efterkommer-drill markerer selected + stopper ved barnløs', () => {
-    const cols = buildBidirectionalColumns(model, '1', [], ['3']);
+    const cols = buildBidirectionalColumns(model, '1', [], ['3'], childrenOf, parentsOf);
     expect(cols.find((c) => c.key === 'descendant:1')!.selectedId).toBe('3');
     expect(cols.some((c) => c.key === 'descendant:2')).toBe(false); // 3 er barnløs
   });
   test('kolonne-keys er kollisionsfri', () => {
-    const cols = buildBidirectionalColumns(model, '1', [], ['3']);
+    const cols = buildBidirectionalColumns(model, '1', [], ['3'], childrenOf, parentsOf);
     const keys = cols.map((c) => c.key);
     expect(new Set(keys).size).toBe(keys.length);
   });
@@ -254,94 +257,5 @@ describe('routeToMe — hele rute-planen til mig (rute-tegning)', () => {
     // snapPath = mig's egen linje [1,3,5]; fokus=1 (depth0); mig=5 ligger på stien i dybde 2.
     // (3 er IKKE 1's førstefødte — gammel logik lagde fejlagtigt et søskendeskift ind.)
     expect(routeToMe(wayModel, ['1', '3', '5'], 0, '5')).toEqual(['down', 'down']);
-  });
-});
-
-describe('columnLabel', () => {
-  it('anker m. slægtled → "N. slægtled · linje-linjen"', () => {
-    expect(columnLabel({ kind: 'anchor', depth: 0, slaegtled: 11, linje: 'III' })).toBe('11. slægtled · III-linjen');
-  });
-
-  it('anker uden slægtled → "Fokus"', () => {
-    expect(columnLabel({ kind: 'anchor', depth: 0, slaegtled: null, linje: null })).toBe('Fokus');
-  });
-
-  it('bevist ancestor depth≤4 m. slægtled + linje → "kinship · N. slægtled · linje-linjen"', () => {
-    expect(columnLabel({ kind: 'ancestor', depth: 1, slaegtled: 12, linje: 'III' }))
-      .toBe('Forældre · 12. slægtled · III-linjen');
-    expect(columnLabel({ kind: 'ancestor', depth: 4, slaegtled: 5, linje: 'III' }))
-      .toBe('Tipoldeforældre · 5. slægtled · III-linjen');
-  });
-
-  it('bevist ancestor depth≤4 m. slægtled UDEN linje → "kinship · N. slægtled" (v1-fald-tilbage)', () => {
-    expect(columnLabel({ kind: 'ancestor', depth: 1, slaegtled: 12, linje: null })).toBe('Forældre · 12. slægtled');
-  });
-
-  it('bevist ancestor depth≤4 uden slægtled → kun kinship', () => {
-    expect(columnLabel({ kind: 'ancestor', depth: 1, slaegtled: null, linje: null })).toBe('Forældre');
-  });
-
-  it('bevist descendant depth≤4 m. slægtled + linje → "kinship · N. slægtled · linje-linjen"', () => {
-    expect(columnLabel({ kind: 'descendant', depth: 1, slaegtled: 13, linje: 'III' }))
-      .toBe('Børn · 13. slægtled · III-linjen');
-  });
-
-  it('bevist descendant depth≤4 uden slægtled → kun kinship', () => {
-    expect(columnLabel({ kind: 'descendant', depth: 2, slaegtled: null, linje: null })).toBe('Børnebørn');
-  });
-
-  it('bevist ancestor depth≥5 m. slægtled + linje → "N. slægtled · linje-linjen" (ikke kinship-navn)', () => {
-    expect(columnLabel({ kind: 'ancestor', depth: 5, slaegtled: 3, linje: 'III' })).toBe('3. slægtled · III-linjen');
-  });
-
-  it('bevist ancestor depth≥5 m. slægtled UDEN linje → "N. slægtled" (v1-fald-tilbage)', () => {
-    expect(columnLabel({ kind: 'ancestor', depth: 5, slaegtled: 3, linje: null })).toBe('3. slægtled');
-  });
-
-  it('bevist ancestor depth≥5 uden slægtled → v1-fallback "N× Tipoldeforældre"', () => {
-    expect(columnLabel({ kind: 'ancestor', depth: 5, slaegtled: null, linje: null })).toBe('2× Tipoldeforældre');
-    expect(columnLabel({ kind: 'ancestor', depth: 7, slaegtled: null, linje: null })).toBe('4× Tipoldeforældre');
-  });
-
-  it('bevist descendant depth≥5 m. slægtled + linje → "N. slægtled · linje-linjen" (ikke kinship-navn)', () => {
-    expect(columnLabel({ kind: 'descendant', depth: 6, slaegtled: 20, linje: 'III' })).toBe('20. slægtled · III-linjen');
-  });
-
-  it('bevist descendant depth≥5 uden slægtled → v1-fallback "N× Tipoldebørn"', () => {
-    expect(columnLabel({ kind: 'descendant', depth: 5, slaegtled: null, linje: null })).toBe('2× Tipoldebørn');
-  });
-});
-
-describe('columnGen', () => {
-  const coord = (over: Partial<{ sourceId: string; linje: string; lineageId: string | null; lokal: number | null }> = {}) => ({
-    sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 11, gennem: 11, kuld: null, ...over,
-  });
-
-  it('alle personer enige om samme (lokal, linje) → returnerer den ene koordinat', () => {
-    const genCoords = { F: [coord({ lokal: 10 })], M: [coord({ lokal: 10 })] };
-    expect(columnGen(genCoords, [{ id: 'F' } as never, { id: 'M' } as never])).toEqual({ lokal: 10, linje: 'III' });
-  });
-
-  it('ingen genCoords → null', () => {
-    expect(columnGen(undefined, [{ id: 'F' } as never])).toBeNull();
-  });
-
-  it('personer uden koordinat ignoreres (ikke tvetydighed)', () => {
-    const genCoords = { F: [coord({ lokal: 10 })] }; // M mangler helt
-    expect(columnGen(genCoords, [{ id: 'F' } as never, { id: 'M' } as never])).toEqual({ lokal: 10, linje: 'III' });
-  });
-
-  it('blandede/uenige koordinater uden tiebreak → null (kinship-only, ingen gætning)', () => {
-    const genCoords = { F: [coord({ lokal: 10 })], M: [coord({ lokal: 9, linje: 'V' })] };
-    expect(columnGen(genCoords, [{ id: 'F' } as never, { id: 'M' } as never])).toBeNull();
-  });
-
-  it('tvetydig ring + selectedId hvis koordinat matcher → bruges som tiebreak', () => {
-    const genCoords = { F: [coord({ lokal: 10 })], M: [coord({ lokal: 9, linje: 'V' })] };
-    expect(columnGen(genCoords, [{ id: 'F' } as never, { id: 'M' } as never], 'M')).toEqual({ lokal: 9, linje: 'V' });
-  });
-
-  it('tom people-liste → null', () => {
-    expect(columnGen({ F: [coord()] }, [])).toBeNull();
   });
 });

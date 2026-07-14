@@ -1,6 +1,30 @@
-import { buildBidirectionalColumns, columnGen, columnLabel, unknownParentRing, unknownChildSection } from '../tree';
-import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, buildModel } from '@daa/core';
-import type { AppPerson, Db } from '../types';
+import { describe, it, expect } from 'vitest';
+import { buildBidirectionalColumns, columnGen, columnLabel, unknownParentRing, unknownChildSection, type GenCoords, type ParentsUnknownMap, type Traverse } from '../tree';
+import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE } from '../generations';
+import { buildModel } from '../buildModel';
+import type { AppPerson, Db, Model, ModelPerson } from '../types';
+
+// Traversering er app-specifik og injiceres (webs childIdx-form bruges her som test-traverse —
+// mobilens childrenByUnion-form dækkes af mobile/src/data/__tests__/selectors.test.ts).
+const childrenOf: Traverse = (m, id) =>
+  [...(m.indexes.childIdx[id] ?? new Set<string>())]
+    .map((cid) => m.byId[cid])
+    .filter(Boolean) as ModelPerson[];
+const parentsOf: Traverse = (m, id) =>
+  (m.indexes.parentsByChild[id] ?? [])
+    .map((pid) => m.byId[pid])
+    .filter(Boolean) as ModelPerson[];
+
+// Binder traverse-injektionen én gang, så scenarierne kalder med samme form som før
+// parameteriseringen af buildBidirectionalColumns.
+const buildCols = (
+  m: Model,
+  anchorId: string,
+  up: string[],
+  down: string[],
+  genCoords?: GenCoords,
+  parentsUnknown?: ParentsUnknownMap,
+) => buildBidirectionalColumns(m, anchorId, up, down, childrenOf, parentsOf, genCoords, parentsUnknown);
 
 const P = (id: string, o: Partial<AppPerson> = {}): AppPerson => ({
   id, name: id, born: null, died: null, years: '', title: '', bio: '', privat: false, ...o,
@@ -28,11 +52,11 @@ const col = (cols: ReturnType<typeof buildBidirectionalColumns>, key: string) =>
 
 describe('buildBidirectionalColumns', () => {
   it('ukendt anker → ingen kolonner', () => {
-    expect(buildBidirectionalColumns(model, 'findes-ikke', [], [])).toEqual([]);
+    expect(buildCols(model, 'findes-ikke', [], [])).toEqual([]);
   });
 
   it('default (ingen valg): [Forældre, Fokus, Børn] i rækkefølge, korrekte labels', () => {
-    const cols = buildBidirectionalColumns(model, 'A', [], []);
+    const cols = buildCols(model, 'A', [], []);
     expect(cols.map((c) => c.key)).toEqual(['ancestor:1', 'anchor:0', 'descendant:1']);
     expect(cols.map((c) => c.label)).toEqual(['Forældre', 'Fokus', 'Børn']);
     expect(ids(col(cols, 'ancestor:1')!.people).sort()).toEqual(['F', 'M']);
@@ -44,7 +68,7 @@ describe('buildBidirectionalColumns', () => {
   });
 
   it('ane-drill: vælg forælder F → Bedsteforældre-kolonne (F’s forældre) dukker op til venstre', () => {
-    const cols = buildBidirectionalColumns(model, 'A', ['F'], []);
+    const cols = buildCols(model, 'A', ['F'], []);
     expect(cols.map((c) => c.key)).toEqual(['ancestor:2', 'ancestor:1', 'anchor:0', 'descendant:1']);
     expect(col(cols, 'ancestor:1')!.selectedId).toBe('F');
     expect(col(cols, 'ancestor:2')!.label).toBe('Bedsteforældre');
@@ -52,7 +76,7 @@ describe('buildBidirectionalColumns', () => {
   });
 
   it('efterkommer-drill (regression): vælg barn C1 → Børnebørn-kolonne til højre', () => {
-    const cols = buildBidirectionalColumns(model, 'A', [], ['C1']);
+    const cols = buildCols(model, 'A', [], ['C1']);
     expect(cols.map((c) => c.key)).toEqual(['ancestor:1', 'anchor:0', 'descendant:1', 'descendant:2']);
     expect(col(cols, 'descendant:1')!.selectedId).toBe('C1');
     expect(col(cols, 'descendant:2')!.label).toBe('Børnebørn');
@@ -60,18 +84,18 @@ describe('buildBidirectionalColumns', () => {
   });
 
   it('begge retninger samtidig: aner OG efterkommere udfoldet', () => {
-    const cols = buildBidirectionalColumns(model, 'A', ['F'], ['C1']);
+    const cols = buildCols(model, 'A', ['F'], ['C1']);
     expect(cols.map((c) => c.key)).toEqual(['ancestor:2', 'ancestor:1', 'anchor:0', 'descendant:1', 'descendant:2']);
   });
 
   it('retning uden data udelades (anker uden forældre → ingen ane-kolonne)', () => {
-    const cols = buildBidirectionalColumns(model, 'GF', [], []);
+    const cols = buildCols(model, 'GF', [], []);
     expect(cols.map((c) => c.kind)).not.toContain('ancestor'); // GF har ingen registrerede forældre
     expect(cols[0].kind).toBe('anchor');
   });
 
   it('blad-person begge veje (G1: har forælder, ingen børn) → kun Forældre + Fokus', () => {
-    const cols = buildBidirectionalColumns(model, 'G1', [], []);
+    const cols = buildCols(model, 'G1', [], []);
     expect(cols.map((c) => c.key)).toEqual(['ancestor:1', 'anchor:0']);
   });
 
@@ -82,7 +106,7 @@ describe('buildBidirectionalColumns', () => {
       GF: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 2, gennem: 2, kuld: null }],
       GM: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 1, gennem: 1, kuld: null }],
     };
-    const cols = buildBidirectionalColumns(model, 'GF', [], [], genCoords);
+    const cols = buildCols(model, 'GF', [], [], genCoords);
     expect(cols.map((c) => c.kind)).not.toContain('ancestor');
   });
 
@@ -100,16 +124,16 @@ describe('buildBidirectionalColumns', () => {
         ],
       ),
     );
-    const down = buildBidirectionalColumns(chain, 'p0', [], ['p1', 'p2', 'p3', 'p4']);
+    const down = buildCols(chain, 'p0', [], ['p1', 'p2', 'p3', 'p4']);
     expect(col(down, 'descendant:4')!.label).toBe('Tipoldebørn'); // dybde 4 navngives stadig
     expect(col(down, 'descendant:5')!.label).toBe('2× Tipoldebørn');
-    const up = buildBidirectionalColumns(chain, 'p5', ['p4', 'p3', 'p2', 'p1'], []);
+    const up = buildCols(chain, 'p5', ['p4', 'p3', 'p2', 'p1'], []);
     expect(col(up, 'ancestor:5')!.label).toBe('2× Tipoldeforældre');
   });
 
   it('cyklus-guard: self-forælder terminerer uden gentagelse', () => {
     const loop = buildModel(db([P('X')], [{ child: 'X', parent: 'X', union: 'c' }]));
-    const cols = buildBidirectionalColumns(loop, 'X', [], []);
+    const cols = buildCols(loop, 'X', [], []);
     // X er sin egen forælder: visited (seedet med ankeret X) filtrerer X ud → ingen ane-kolonne, terminerer.
     expect(cols.map((c) => c.kind)).not.toContain('ancestor');
     expect(cols.map((c) => c.kind)).not.toContain('descendant');
@@ -117,7 +141,7 @@ describe('buildBidirectionalColumns', () => {
   });
 
   it('kolonne-keys er stabile og kollisionsfri på tværs af retninger', () => {
-    const cols = buildBidirectionalColumns(model, 'A', ['F'], ['C1']);
+    const cols = buildCols(model, 'A', ['F'], ['C1']);
     const keys = cols.map((c) => c.key);
     expect(new Set(keys).size).toBe(keys.length); // ingen dublet-keys (ancestor:1 ≠ descendant:1)
   });
@@ -129,13 +153,13 @@ describe('slægtled-labels fra faktisk koordinat (genCoords, valgfri)', () => {
   });
 
   it('uden genCoords → rene kinship-labels (ingen slægtled-tal)', () => {
-    const cols = buildBidirectionalColumns(model, 'A', [], []);
+    const cols = buildCols(model, 'A', [], []);
     expect(cols.map((c) => c.label)).toEqual(['Forældre', 'Fokus', 'Børn']);
   });
 
   it('bevist ancestor-kolonne + anker får kombineret label fra genCoords', () => {
     const genCoords = { A: [coord()], F: [coord({ lokal: 10 })], M: [coord({ lokal: 10 })] };
-    const cols = buildBidirectionalColumns(model, 'A', [], [], genCoords);
+    const cols = buildCols(model, 'A', [], [], genCoords);
     expect(col(cols, 'ancestor:1')!.label).toBe('Forældre · 10. slægtled · III-linjen');
     expect(col(cols, 'anchor:0')!.label).toBe('11. slægtled · III-linjen');
     expect(col(cols, 'descendant:1')!.label).toBe('Børn'); // C1/C2 uden koordinat → kinship-only
@@ -143,7 +167,7 @@ describe('slægtled-labels fra faktisk koordinat (genCoords, valgfri)', () => {
 
   it('bevist descendant-kolonne får kombineret label fra genCoords', () => {
     const genCoords = { A: [coord()], C1: [coord({ lokal: 12 })], C2: [coord({ lokal: 12 })] };
-    const cols = buildBidirectionalColumns(model, 'A', [], [], genCoords);
+    const cols = buildCols(model, 'A', [], [], genCoords);
     expect(col(cols, 'descendant:1')!.label).toBe('Børn · 12. slægtled · III-linjen');
   });
 
@@ -154,7 +178,7 @@ describe('slægtled-labels fra faktisk koordinat (genCoords, valgfri)', () => {
       P: [{ sourceId: '1', linje: 'V', lineageId: '50', parentLineageId: null, lokal: 1, gennem: 12, kuld: null }],
       X: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 4, gennem: 4, kuld: null }],
     };
-    const cols = buildBidirectionalColumns(founderModel, 'P', [], [], genCoords);
+    const cols = buildCols(founderModel, 'P', [], [], genCoords);
     expect(col(cols, 'ancestor:1')!.label).toContain('4. slægtled');
     expect(col(cols, 'ancestor:1')!.label).toContain('III');
     expect(col(cols, 'ancestor:1')!.label).not.toContain('0. slægtled');
@@ -169,7 +193,7 @@ describe('slægtled-labels fra faktisk koordinat (genCoords, valgfri)', () => {
         { sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 12, gennem: 12, kuld: null },
       ],
     };
-    const cols = buildBidirectionalColumns(founderModel, 'P', [], [], genCoords);
+    const cols = buildCols(founderModel, 'P', [], [], genCoords);
     expect(col(cols, 'anchor:0')!.label).toBe('Fokus');
   });
 });
@@ -279,7 +303,7 @@ describe('unknownParentRing + marker-gatet kandidat-kolonne (Phase C)', () => {
 
   it('markeret person UDEN bevist forælder → kandidat-kolonne med forrige slægtled (founder → moderlinjen III/11)', () => {
     const pu = { P: { grade: GRADE_FORAELDER_UKENDT, kilde: 'DAA 1939 s.97' } };
-    const cols = buildBidirectionalColumns(fbModel, 'P', [], [], genCoords, pu);
+    const cols = buildCols(fbModel, 'P', [], [], genCoords, pu);
     const cand = cols.find((c) => c.candidate);
     expect(cand).toBeDefined();
     expect(cand!.kind).toBe('ancestor');
@@ -293,19 +317,19 @@ describe('unknownParentRing + marker-gatet kandidat-kolonne (Phase C)', () => {
 
   it('grad "ingen forbindelse angivet" → neutral ordlyd (ikke "mulige forældre")', () => {
     const pu = { P: { grade: GRADE_INGEN_FORBINDELSE, kilde: null } };
-    const cols = buildBidirectionalColumns(fbModel, 'P', [], [], genCoords, pu);
+    const cols = buildCols(fbModel, 'P', [], [], genCoords, pu);
     const cand = cols.find((c) => c.candidate);
     expect(cand!.candidateNote).toBe('Kilden angiver ingen forbindelse — andre i forrige slægtled');
     expect(cand!.kilde).toBeNull();
   });
 
   it('UMARKERET person (ingen parentsUnknown-entry) → INGEN kandidat-kolonne selv med genCoords', () => {
-    const cols = buildBidirectionalColumns(fbModel, 'P', [], [], genCoords, {});
+    const cols = buildCols(fbModel, 'P', [], [], genCoords, {});
     expect(cols.find((c) => c.candidate)).toBeUndefined();
   });
 
   it('parentsUnknown ikke sendt (5-arg-kald) → INGEN kandidat-kolonne (bagudkompatibel)', () => {
-    const cols = buildBidirectionalColumns(fbModel, 'P', [], [], genCoords);
+    const cols = buildCols(fbModel, 'P', [], [], genCoords);
     expect(cols.find((c) => c.candidate)).toBeUndefined();
   });
 
@@ -317,7 +341,7 @@ describe('unknownParentRing + marker-gatet kandidat-kolonne (Phase C)', () => {
       kid: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 3, gennem: 3, kuld: null }],
       bed: [{ sourceId: '1', linje: 'III', lineageId: '10', parentLineageId: null, lokal: 2, gennem: 2, kuld: null }],
     };
-    const cols = buildBidirectionalColumns(m, 'kid', [], [], gc, { kid: { grade: GRADE_FORAELDER_UKENDT, kilde: null } });
+    const cols = buildCols(m, 'kid', [], [], gc, { kid: { grade: GRADE_FORAELDER_UKENDT, kilde: null } });
     expect(cols.find((c) => c.candidate)).toBeUndefined();
     expect(cols.find((c) => c.key === 'ancestor:1')!.people.map((p) => p.id)).toEqual(['far']);
   });
@@ -350,7 +374,7 @@ describe('unknownChildSection + nedad-projektion (efterkommer-retning)', () => {
   };
 
   it('mandlig anker: børne-kolonnen augmenteres med markeret-uforbunden i næste slægtled (proveniens pr. person)', () => {
-    const cols = buildBidirectionalColumns(build(), 'G', [], [], gc, { W: { grade: GRADE_INGEN_FORBINDELSE, kilde: 'DAA 1939 s.6' } });
+    const cols = buildCols(build(), 'G', [], [], gc, { W: { grade: GRADE_INGEN_FORBINDELSE, kilde: 'DAA 1939 s.6' } });
     const kids = cols.find((c) => c.key === 'descendant:1')!;
     expect(kids.people.map((p) => p.id).sort()).toEqual(['A', 'B']);
     expect(kids.unconnectedChildren).toHaveLength(1);
@@ -362,22 +386,22 @@ describe('unknownChildSection + nedad-projektion (efterkommer-retning)', () => {
   });
 
   it('køns-gate: KVINDELIG anker → ingen nedad-sektion (patrilineært)', () => {
-    const cols = buildBidirectionalColumns(build('kvinde'), 'G', [], [], gc, { W: { grade: GRADE_INGEN_FORBINDELSE, kilde: null } });
+    const cols = buildCols(build('kvinde'), 'G', [], [], gc, { W: { grade: GRADE_INGEN_FORBINDELSE, kilde: null } });
     expect(cols.find((c) => c.key === 'descendant:1')!.unconnectedChildren).toBeUndefined();
   });
 
   it('bevist-forælder-eksklusion: en markeret person MED bevist forælder (sikkert barn) vises ikke som kandidat', () => {
-    const cols = buildBidirectionalColumns(build(), 'G', [], [], gc, { A: { grade: GRADE_FORAELDER_UKENDT, kilde: null } });
+    const cols = buildCols(build(), 'G', [], [], gc, { A: { grade: GRADE_FORAELDER_UKENDT, kilde: null } });
     expect(cols.find((c) => c.key === 'descendant:1')!.unconnectedChildren).toBeUndefined();
   });
 
   it('umarkeret person i næste slægtled → ingen sektion (marker-gate)', () => {
-    const cols = buildBidirectionalColumns(build(), 'G', [], [], gc, {});
+    const cols = buildCols(build(), 'G', [], [], gc, {});
     expect(cols.find((c) => c.key === 'descendant:1')!.unconnectedChildren).toBeUndefined();
   });
 
   it('grad-split: to grader → to grupper, "forælder ukendt" (muligt barn) FØRST, korrekt ordlyd', () => {
-    const cols = buildBidirectionalColumns(build(), 'G', [], [], gc, {
+    const cols = buildCols(build(), 'G', [], [], gc, {
       W: { grade: GRADE_INGEN_FORBINDELSE, kilde: null },
       W2: { grade: GRADE_FORAELDER_UKENDT, kilde: 'DAA s.7' },
     });
@@ -393,7 +417,7 @@ describe('unknownChildSection + nedad-projektion (efterkommer-retning)', () => {
       L: [{ sourceId: '1', linje: 'I', lineageId: '10', parentLineageId: null, lokal: 3, gennem: 3, kuld: null }],
       W: [{ sourceId: '1', linje: 'I', lineageId: '10', parentLineageId: null, lokal: 4, gennem: 4, kuld: null }],
     };
-    const cols = buildBidirectionalColumns(leaf, 'L', [], [], gcLeaf, { W: { grade: GRADE_FORAELDER_UKENDT, kilde: null } });
+    const cols = buildCols(leaf, 'L', [], [], gcLeaf, { W: { grade: GRADE_FORAELDER_UKENDT, kilde: null } });
     const sec = cols.find((c) => c.key === 'descendant:1:unconn')!;
     expect(sec).toBeDefined();
     expect(sec.unconnectedChildren![0].people.map((x) => x.person.id)).toEqual(['W']);

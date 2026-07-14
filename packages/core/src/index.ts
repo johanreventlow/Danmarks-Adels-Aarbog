@@ -10,6 +10,7 @@ export * from './sammeSomPreflight';
 export * from './buildGeo';
 export * from './geoSelectors';
 export * from './buildModel';
+export * from './tree';
 export { KONFIDENS_VALUES, KONFIDENS_RANK } from './types';
 export type {
   RawExtId,

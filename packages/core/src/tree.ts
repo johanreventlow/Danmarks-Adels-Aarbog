@@ -14,8 +14,10 @@
 // bygges separat i unknownParentRing (Phase C) — den fyrer på en TILSTEDEVÆRENDE markering, aldrig
 // på fravær af en kant. Slægtled-tal/-linje til labels læses fra den faktiske koordinat (columnGen),
 // aldrig ved aritmetik fra ankeret (review 20 H1: gav "-7. slægtled" for founder-aner).
-import { childrenOf, parentsOf } from './model';
-import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, type GenCoord, type ParentsUnknown } from '@daa/core';
+// Traversering (childrenOf/parentsOf) er APP-SPECIFIK — web læser model.indexes.childIdx,
+// mobil model.indexes.childrenByUnion — og injiceres derfor som Traverse-parametre i
+// buildBidirectionalColumns (buildDirection tog dem allerede som parameter).
+import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, type GenCoord, type ParentsUnknown } from './generations';
 import type { Model, ModelPerson } from './types';
 
 export type ColumnKind = 'ancestor' | 'anchor' | 'descendant';
@@ -51,7 +53,7 @@ export type UnconnectedChildGroup = {
   people: { person: ModelPerson; kilde: string | null }[];
 };
 
-type Traverse = (model: Model, id: string) => ModelPerson[];
+export type Traverse = (model: Model, id: string) => ModelPerson[];
 
 const MAX_DEPTH = 40; // øvre loft (visited-Set nedenfor er den egentlige cyklus-guard)
 const ANCESTOR_LABELS = ['Forældre', 'Bedsteforældre', 'Oldeforældre', 'Tipoldeforældre'];
@@ -61,8 +63,8 @@ const DESCENDANT_LABELS = ['Børn', 'Børnebørn', 'Oldebørn', 'Tipoldebørn'];
 // slægtled-tal (genCoord.lokal) + linje-navn, når kendt. Ren formattering — ingen I/O, intet
 // TreeColumn-behov; kaldes med de rå felter så den er testbar uafhængigt af
 // buildBidirectionalColumns. `slaegtled == null` → falder tilbage til rene kinship-labels (ingen
-// regression for personer uden slægtled-data). Bevaret byte-identisk mellem
-// web/src/data/tree.ts og mobile/src/data/selectors.ts.
+// regression for personer uden slægtled-data). Ekstraheret til @daa/core
+// (single source — tidligere byte-identisk spejlet web ↔ mobil).
 export function columnLabel(a: {
   kind: ColumnKind;
   depth: number;
@@ -94,7 +96,7 @@ export function columnLabel(a: {
 // (lokal, linje)-par (konsensus), returneres det — ellers `null` (blandet/ukendt → ren kinship-
 // label, ingen gætning, jf. Codex-recalibrering i review 20). `selectedId`s koordinat bruges som
 // tiebreak hvis ringen ellers er tvetydig (fx en founder i ringen der selv bærer flere linje-
-// medlemskaber). Bevaret byte-identisk mellem web/src/data/tree.ts og mobile/src/data/selectors.ts.
+// medlemskaber). Ekstraheret til @daa/core (single source — tidligere spejlet web ↔ mobil).
 export function columnGen(
   genCoords: GenCoords | undefined,
   people: ModelPerson[],
@@ -126,7 +128,7 @@ export function columnGen(
 // afklaret "forældre ukendt"-markering (parentsUnknown), vises i stedet en marker-gatet
 // kandidat-kolonne (unknownParentRing) med kildens forrige slægtled. Fyrer ALDRIG på fravær af en
 // kant alene (det var v1/v2-fejlen) — kun på en TILSTEDEVÆRENDE markering. Aner-retning kun.
-function buildDirection(
+export function buildDirection(
   model: Model,
   anchorId: string,
   selections: string[],
@@ -184,7 +186,7 @@ function buildDirection(
 // persons linjer (en founder henter kandidater fra hver moderlinje). Fyrer KUN når `marking`
 // findes (afklaret 'forældre_ukendt') — ikke på en manglende kant. Grad afgør ordlyden: mulige
 // forældre vs. blot "andre i forrige slægtled". kuld-grupperet; proveniens fra markeringen. Ren
-// projektion — skriver aldrig en kant. Bevaret byte-identisk web ↔ mobil (docs/reviews/25-*).
+// projektion — skriver aldrig en kant. Ekstraheret til @daa/core (docs/reviews/25-*).
 export function unknownParentRing(
   model: Model,
   genCoords: GenCoords | undefined,
@@ -237,7 +239,7 @@ function childSectionNote(grade: string): string {
 // markeringer (ingen ny authoring). Strukturelt immun mod v1/v2-regression: (1) marker-gate — kun
 // personer med en markering; (2) bevist-forælder-eksklusion — en person med en bevist forælder er et
 // sikkert barn, ikke en kandidat (undgår dublet ved fx bevist mor/ukendt far). Patrilineær køns-gate:
-// kun under mandlige ankre (DAA-linjen føres gennem manden). Bevaret byte-identisk web ↔ mobil.
+// kun under mandlige ankre (DAA-linjen føres gennem manden). Ekstraheret til @daa/core.
 export function unknownChildSection(
   model: Model,
   genCoords: GenCoords | undefined,
@@ -282,11 +284,15 @@ export function unknownChildSection(
 // `parentsUnknown` (valgfri) aktiverer marker-gatede kandidater i BEGGE retninger: ANER
 // (unknownParentRing, ved dødende uden bevist forælder) OG EFTERKOMMERE (unknownChildSection,
 // nedad-projektion under de beviste børn på frontier-kolonnen). Se buildDirection.
+// `childrenOf`/`parentsOf` injiceres af kalderen (web: data/model, mobil: data/selectors) —
+// de står SIDST blandt de påkrævede parametre (TS tillader ikke påkrævede efter valgfrie).
 export function buildBidirectionalColumns(
   model: Model,
   anchorId: string,
   up: string[],
   down: string[],
+  childrenOf: Traverse,
+  parentsOf: Traverse,
   genCoords?: GenCoords,
   parentsUnknown?: ParentsUnknownMap,
 ): TreeColumn[] {
