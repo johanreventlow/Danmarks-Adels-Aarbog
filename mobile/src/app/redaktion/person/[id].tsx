@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { InitialBadge } from '../../../components/InitialBadge';
 import { TopBar } from '../../../components/TopBar';
 import { CenterMsg } from '../../../components/CenterMsg';
@@ -12,9 +12,17 @@ import { PersonPicker } from '../../../components/redaktion/PersonPicker';
 import { NarrativEditor } from '../../../components/redaktion/NarrativEditor';
 import { MediaUploadSheet } from '../../../components/redaktion/MediaUploadSheet';
 import { MediaGallery } from '../../../components/redaktion/MediaGallery';
+import { KonfidensVaelger } from '../../../components/redaktion/KonfidensVaelger';
+import { FamilieEditRad } from '../../../components/redaktion/FamilieEditRad';
+import { FlytBarnSheet } from '../../../components/redaktion/FlytBarnSheet';
+import { UnionTypeSheet } from '../../../components/redaktion/UnionTypeSheet';
+import { BarnSheet } from '../../../components/redaktion/BarnSheet';
+import { SammeSomSheet } from '../../../components/redaktion/SammeSomSheet';
+import { RelTilfoejSheet } from '../../../components/redaktion/RelTilfoejSheet';
+import { personEditorSheetStyles } from '../../../components/redaktion/personEditorSheetStyles';
 import { Body, BtnLabel, Mono, Serif } from '../../../components/Typography';
 import { useMediaAndThumbUris } from '../../../lib/media';
-import { fetchPersonEvidence, fetchPersonRelationer, fetchPersonFamilie, fetchPersonMedia, fetchSammeSomLinks, fetchForaeldreUkendtMarkering, nudgeOrdinal, BARN_ROLLER, type PersonEvidence, type PersonRelation, type PersonFamilie, type PersonMedia, type FamilieUnion, type SammeSomLink, type ForaeldreUkendtMarkering } from '../../../data/redaktionRead';
+import { fetchPersonEvidence, fetchPersonRelationer, fetchPersonFamilie, fetchPersonMedia, fetchSammeSomLinks, fetchForaeldreUkendtMarkering, nudgeOrdinal, type PersonEvidence, type PersonRelation, type PersonFamilie, type PersonMedia, type SammeSomLink, type ForaeldreUkendtMarkering } from '../../../data/redaktionRead';
 import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, previewSammeSom } from '@daa/core';
 import { eraAdvarsel } from '../../../data/eraAdvarsel';
 import { type Change } from '../../../data/redaktionWrite';
@@ -23,232 +31,6 @@ import { Border, Colors, Radius } from '../../../theme/tokens';
 
 const FELTER = ['navn', 'foedt', 'doed', 'titel']; // koen håndteres separat (ikke et fact)
 const FELT_LABEL: Record<string, string> = { navn: 'navn', foedt: 'født', doed: 'død', titel: 'titel' };
-
-const KONFIDENS_VAERDIER = ['sikker', 'sandsynlig', 'formodet', 'omstridt'] as const;
-const UNION_TYPER = ['vielse', 'partnerskab', 'ugift union'] as const;
-
-function KonfidensVaelger({ vaerdi, onVael }: { vaerdi: string | null; onVael: (k: string | null) => void }) {
-  return (
-    <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap' }}>
-      {KONFIDENS_VAERDIER.map((k) => (
-        <Pressable key={k}
-          style={[editorStyles.koenPille, vaerdi === k && editorStyles.koenPilleAktiv]}
-          onPress={() => onVael(k)}>
-          <BtnLabel size={10} color={vaerdi === k ? '#fff' : Colors.textSecondary2}>{k}</BtnLabel>
-        </Pressable>
-      ))}
-      <Pressable style={editorStyles.koenPille} onPress={() => onVael(null)}>
-        <BtnLabel size={10} color={Colors.textMuted}>ryd</BtnLabel>
-      </Pressable>
-    </View>
-  );
-}
-
-function FamilieEditRad({ label, aar, konfidens, onKonfidens, onSlet, onOp, onNed, onFlyt, onOpen }: {
-  label: string; aar?: string; konfidens: string | null; onKonfidens: (k: string | null) => void; onSlet: () => void;
-  // Kun relevant for børn (søskende-rækkefølge + flyt mellem forhold, brugerfund 2026-07-02) —
-  // udeladt for partner-rækker.
-  onOp?: () => void; onNed?: () => void; onFlyt?: () => void;
-  // onOpen (valgfri): gør navnet klikbart → naviger til den person (router.push, ny editor-skærm).
-  onOpen?: () => void;
-}) {
-  return (
-    <View style={editorStyles.relEditRad}>
-      <View style={{ flex: 1 }}>
-        {onOpen
-          ? <Pressable onPress={onOpen}><Body size={13} color={Colors.bordeaux}>{label} ↗</Body></Pressable>
-          : <Body size={13}>{label}</Body>}
-        {aar ? <Mono size={9} color={Colors.textMuted2}>{aar}</Mono> : null}
-      </View>
-      {onOp || onNed ? (
-        <View style={{ flexDirection: 'row' }}>
-          <Pressable disabled={!onOp} onPress={onOp}><Mono size={11} color={onOp ? Colors.textSecondary2 : Colors.textMuted3}>↑</Mono></Pressable>
-          <Pressable disabled={!onNed} onPress={onNed} style={{ marginLeft: 4 }}><Mono size={11} color={onNed ? Colors.textSecondary2 : Colors.textMuted3}>↓</Mono></Pressable>
-        </View>
-      ) : null}
-      <KonfidensVaelger vaerdi={konfidens} onVael={onKonfidens} />
-      {onFlyt ? (
-        <Pressable onPress={onFlyt} style={{ marginLeft: 4 }}><Mono size={9} color={Colors.bordeaux}>flyt→</Mono></Pressable>
-      ) : null}
-      <Pressable onPress={onSlet}><Mono size={9} color={Colors.danger}>🗑</Mono></Pressable>
-    </View>
-  );
-}
-
-function FlytBarnSheet({ barnNavn, andreUnioner, onClose, onVael }: {
-  barnNavn: string;
-  andreUnioner: FamilieUnion[];
-  onClose: () => void;
-  onVael: (tilFamilyId: string) => void;
-}) {
-  return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={editorStyles.modalBackdrop} onPress={onClose} />
-      <View style={editorStyles.modalSheet}>
-        <Serif size={20} style={{ marginBottom: 10 }}>Flyt {barnNavn} til…</Serif>
-        {andreUnioner.length === 0 ? (
-          <Body size={13} color={Colors.textMuted}>Personen har ingen andre registrerede forhold at flytte til.</Body>
-        ) : andreUnioner.map((u) => (
-          <Pressable key={u.familyId} style={editorStyles.relRad} onPress={() => onVael(u.familyId)}>
-            <Body size={14}>{u.partnere.map((p) => p.navn).join(' & ') || '(ukendt partner)'} · {u.type}</Body>
-          </Pressable>
-        ))}
-      </View>
-    </Modal>
-  );
-}
-
-function SheetButtons({ marginTop, onGem, onClose, gemLabel }: { marginTop?: number; onGem: () => void; onClose: () => void; gemLabel?: string }) {
-  return (
-    <View style={{ flexDirection: 'row', gap: 8, marginTop: marginTop ?? 12 }}>
-      <Pressable style={editorStyles.addOpret} onPress={onGem}><BtnLabel color="#fff">{gemLabel ?? 'Gem'}</BtnLabel></Pressable>
-      <Pressable style={editorStyles.addAnnuller} onPress={onClose}><BtnLabel color={Colors.textMuted}>Annullér</BtnLabel></Pressable>
-    </View>
-  );
-}
-
-function UnionTypeSheet({ partner, onClose, onGem }: {
-  partner: { personId: string; navn: string };
-  onClose: () => void;
-  onGem: (type: string, ordinal: number | null) => void;
-}) {
-  const [valgtType, setValgtType] = useState<string>('vielse');
-  const [ordinalTekst, setOrdinalTekst] = useState('');
-  return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={editorStyles.modalBackdrop} onPress={onClose} />
-      <View style={editorStyles.modalSheet}>
-        <Serif size={20} style={{ marginBottom: 10 }}>Ny union</Serif>
-        <Body size={14} style={{ marginBottom: 12 }}>Partner: {partner.navn}</Body>
-        <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
-          {UNION_TYPER.map((t) => (
-            <Pressable key={t}
-              style={[editorStyles.koenPille, valgtType === t && editorStyles.koenPilleAktiv]}
-              onPress={() => setValgtType(t)}>
-              <BtnLabel size={11} color={valgtType === t ? '#fff' : Colors.textSecondary2}>{t}</BtnLabel>
-            </Pressable>
-          ))}
-        </View>
-        <TextInput
-          style={editorStyles.addInput}
-          placeholder="Ordinal (valgfri, fx 1)"
-          placeholderTextColor={Colors.textMuted2}
-          value={ordinalTekst}
-          onChangeText={setOrdinalTekst}
-          keyboardType="numeric"
-        />
-        <SheetButtons onGem={() => {
-            const ordinal = ordinalTekst.trim() ? Number(ordinalTekst.trim()) : null;
-            onGem(valgtType, ordinal);
-          }} onClose={onClose} />
-      </View>
-    </Modal>
-  );
-}
-
-function BarnSheet({ scratch, advarsel, onClose, onGem }: {
-  scratch: { familyId: string; personId: string; navn: string };
-  advarsel: string | null;
-  onClose: () => void;
-  onGem: (rolle: string, konfidens: string | null) => void;
-}) {
-  const [rolle, setRolle] = useState<string>('barn');
-  const [konfidens, setKonfidens] = useState<string | null>(null);
-  return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={editorStyles.modalBackdrop} onPress={onClose} />
-      <View style={editorStyles.modalSheet}>
-        <Serif size={20} style={{ marginBottom: 10 }}>Tilføj barn</Serif>
-        <Body size={14} style={{ marginBottom: 12 }}>{scratch.navn}</Body>
-        {advarsel ? (
-          <Mono size={10} color={Colors.bordeaux} style={{ marginBottom: 10 }}>{advarsel}</Mono>
-        ) : null}
-        <Mono size={9} color={Colors.gold} style={{ marginBottom: 6 }}>ROLLE</Mono>
-        <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-          {BARN_ROLLER.map((r) => (
-            <Pressable key={r}
-              style={[editorStyles.koenPille, rolle === r && editorStyles.koenPilleAktiv]}
-              onPress={() => setRolle(r)}>
-              <BtnLabel size={11} color={rolle === r ? '#fff' : Colors.textSecondary2}>{r}</BtnLabel>
-            </Pressable>
-          ))}
-        </View>
-        <Mono size={9} color={Colors.gold} style={{ marginBottom: 6 }}>KONFIDENS</Mono>
-        <KonfidensVaelger vaerdi={konfidens} onVael={setKonfidens} />
-        <SheetButtons marginTop={14} onGem={() => onGem(rolle, konfidens)} onClose={onClose} />
-      </View>
-    </Modal>
-  );
-}
-
-// Retningsvælger + rådgivende pre-flight for et samme_som-identitets-link.
-function SammeSomSheet({ redigeret, valgt, kanoniskId, onByt, preview, onClose, onGem }: {
-  redigeret: { id: string; navn: string };
-  valgt: { id: string; navn: string };
-  kanoniskId: string;
-  onByt: () => void;
-  preview: { folder: boolean; grund: string | null };
-  onClose: () => void;
-  onGem: () => void;
-}) {
-  const kanonisk = kanoniskId === redigeret.id ? redigeret : valgt;
-  const alias = kanoniskId === redigeret.id ? valgt : redigeret;
-  return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={editorStyles.modalBackdrop} onPress={onClose} />
-      <View style={editorStyles.modalSheet}>
-        <Serif size={20} style={{ marginBottom: 12 }}>Samme person</Serif>
-        <Mono size={9} color={Colors.gold} style={{ marginBottom: 4 }}>KANONISK (beholdes)</Mono>
-        <Body size={15} style={{ marginBottom: 10 }}>{kanonisk.navn}</Body>
-        <Mono size={9} color={Colors.gold} style={{ marginBottom: 4 }}>FOLDES IND I OVENSTÅENDE</Mono>
-        <Body size={15} style={{ marginBottom: 12 }}>{alias.navn}</Body>
-        <Pressable style={{ paddingVertical: 6, marginBottom: 8 }} onPress={onByt}>
-          <Mono size={10} color={Colors.bordeaux}>⇅ Byt retning</Mono>
-        </Pressable>
-        {!preview.folder ? (
-          <Mono size={10} color={Colors.bordeaux} style={{ marginBottom: 10, lineHeight: 14 }}>
-            ⚠ Foldes ikke endnu — {preview.grund}. Linket oprettes, men personerne vises separat til
-            konflikten er løst. (redaktionel projektion — offentlig visning kan afvige)
-          </Mono>
-        ) : null}
-        <SheetButtons marginTop={6} onGem={onGem} onClose={onClose} />
-      </View>
-    </Modal>
-  );
-}
-
-function RelTilfoejSheet({ scratch, onClose, onGem }: {
-  scratch: { objektType: string; objektId: string; navn: string; rolle: string; periode: string };
-  onClose: () => void;
-  onGem: (rolle: string, periode: string) => void;
-}) {
-  const [rolle, setRolle] = useState(scratch.rolle);
-  const [periode, setPeriode] = useState(scratch.periode);
-  return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={editorStyles.modalBackdrop} onPress={onClose} />
-      <View style={editorStyles.modalSheet}>
-        <Serif size={20} style={{ marginBottom: 10 }}>Tilføj relation</Serif>
-        <Body size={14} style={{ marginBottom: 12 }}>{scratch.navn}</Body>
-        <TextInput
-          style={editorStyles.addInput}
-          placeholder="Rolle (valgfri)"
-          placeholderTextColor={Colors.textMuted2}
-          value={rolle}
-          onChangeText={setRolle}
-        />
-        <TextInput
-          style={[editorStyles.addInput, { marginTop: 8 }]}
-          placeholder="Periode (valgfri)"
-          placeholderTextColor={Colors.textMuted2}
-          value={periode}
-          onChangeText={setPeriode}
-        />
-        <SheetButtons onGem={() => onGem(rolle, periode)} onClose={onClose} />
-      </View>
-    </Modal>
-  );
-}
 
 export default function PersonEditor() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -496,7 +278,7 @@ export default function PersonEditor() {
               {addFelt === felt ? (
                 <View style={editorStyles.addForm}>
                   <TextInput
-                    style={editorStyles.addInput}
+                    style={personEditorSheetStyles.addInput}
                     placeholder={`Ny ${FELT_LABEL[felt] ?? felt}…`}
                     placeholderTextColor={Colors.textMuted2}
                     value={addScratch.vaerdi}
@@ -504,7 +286,7 @@ export default function PersonEditor() {
                     autoFocus
                   />
                   <TextInput
-                    style={editorStyles.addInput}
+                    style={personEditorSheetStyles.addInput}
                     placeholder="Kilde (valgfri)"
                     placeholderTextColor={Colors.textMuted2}
                     value={addScratch.kilde}
@@ -512,7 +294,7 @@ export default function PersonEditor() {
                   />
                   <View style={{ flexDirection: 'row', gap: 8 }}>
                     <Pressable
-                      style={editorStyles.addOpret}
+                      style={personEditorSheetStyles.addOpret}
                       onPress={() => {
                         if (!addScratch.vaerdi.trim()) return;
                         opretFakta(felt, addScratch.vaerdi.trim(), addScratch.kilde.trim());
@@ -522,7 +304,7 @@ export default function PersonEditor() {
                     >
                       <BtnLabel color="#fff">Opret</BtnLabel>
                     </Pressable>
-                    <Pressable style={editorStyles.addAnnuller} onPress={() => setAddFelt(null)}>
+                    <Pressable style={personEditorSheetStyles.addAnnuller} onPress={() => setAddFelt(null)}>
                       <BtnLabel color={Colors.textMuted}>Annullér</BtnLabel>
                     </Pressable>
                   </View>
@@ -547,7 +329,7 @@ export default function PersonEditor() {
               const aktiv = (ev?.koen ?? 'ukendt') === k;
               return (
                 <Pressable key={k}
-                  style={[editorStyles.koenPille, aktiv && editorStyles.koenPilleAktiv]}
+                  style={[personEditorSheetStyles.koenPille, aktiv && personEditorSheetStyles.koenPilleAktiv]}
                   onPress={() => setPending({ art: 'fakta', subjektType: 'person', subjektId: id!, felt: 'koen', vaerdi: k })}>
                   <BtnLabel size={12} color={aktiv ? '#fff' : Colors.textSecondary2}>{k}</BtnLabel>
                 </Pressable>
@@ -577,7 +359,7 @@ export default function PersonEditor() {
         {redaktionModel ? (() => {
           const kld = redaktionAux?.sourcesBy[id!] ?? [];
           const PersonRad = ({ pid, navn }: { pid: string | null; navn: string }) => (
-            <Pressable style={editorStyles.relRad} disabled={!pid}
+            <Pressable style={personEditorSheetStyles.relRad} disabled={!pid}
               onPress={() => pid && router.push(`/redaktion/person/${pid}` as never)}>
               <InitialBadge name={navn} size={28} />
               <Body size={14} style={{ marginLeft: 8 }}>{navn}</Body>
@@ -623,7 +405,7 @@ export default function PersonEditor() {
                 <View key={sb.familyId}>
                   <Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>FORÆLDRE{sb.rolle !== 'barn' ? ` · ${sb.rolle}` : ''}</Mono>
                   {sb.foraeldre.map((f) => <PersonRad key={f.personId} pid={f.personId} navn={f.navn} />)}
-                  <View style={editorStyles.relEditRad}>
+                  <View style={personEditorSheetStyles.relEditRad}>
                     <KonfidensVaelger vaerdi={sb.konfidens}
                       onVael={(k) => setPending({ art: 'setFamilieKonfidens', subjektType: 'person', subjektId: id!, familyId: sb.familyId, personId: id!, rolle: sb.rolle, konfidens: k })} />
                     {/* Fjerner barnets membership i HELE forældre-familien (begge forældre afkobles —
@@ -639,7 +421,7 @@ export default function PersonEditor() {
               {/* HVERV (redigerbart) */}
               <Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>HVERV</Mono>
               {relationer.filter((r) => r.art === 'hverv' || r.art === 'event').map((r) => (
-                <View key={r.relationId} style={editorStyles.relEditRad}>
+                <View key={r.relationId} style={personEditorSheetStyles.relEditRad}>
                   <View style={{ flex: 1 }}>
                     <Body size={13}>{r.navn}{r.rolle ? ` · ${r.rolle}` : ''}</Body>
                     {r.periode ? <Mono size={9} color={Colors.textMuted}>{r.periode}</Mono> : null}
@@ -660,7 +442,7 @@ export default function PersonEditor() {
               {/* GODSER (redigerbart) */}
               <Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>GODSER</Mono>
               {relationer.filter((r) => r.art === 'gods').map((r) => (
-                <View key={r.relationId} style={editorStyles.relEditRad}>
+                <View key={r.relationId} style={personEditorSheetStyles.relEditRad}>
                   <View style={{ flex: 1 }}>
                     <Body size={13}>{r.navn}{r.rolle ? ` · ${r.rolle}` : ''}</Body>
                     {r.periode ? <Mono size={9} color={Colors.textMuted}>{r.periode}</Mono> : null}
@@ -677,7 +459,7 @@ export default function PersonEditor() {
               {/* SAMME PERSON (identitets-links) */}
               <Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>SAMME PERSON</Mono>
               {sammeSom.map((l) => (
-                <View key={l.relationId} style={editorStyles.relEditRad}>
+                <View key={l.relationId} style={personEditorSheetStyles.relEditRad}>
                   <View style={{ flex: 1 }}>
                     <Body size={13}>{redaktionModel?.byId?.[l.modpartId]?.name ?? `#${l.modpartId}`}</Body>
                     <Mono size={9} color={Colors.textMuted}>{l.retning === 'alias' ? 'denne foldes ind i' : 'foldes ind i denne'}</Mono>
@@ -847,30 +629,6 @@ const editorStyles = StyleSheet.create({
     marginBottom: 8,
     gap: 8,
   },
-  addInput: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: Border.medium,
-    borderRadius: Radius.field,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontFamily: 'HankenGrotesk_400Regular',
-    fontSize: 13,
-    color: Colors.ink,
-  },
-  addOpret: {
-    backgroundColor: Colors.konklusionGroen,
-    borderRadius: Radius.field,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  addAnnuller: {
-    borderWidth: 1,
-    borderColor: Border.medium,
-    borderRadius: Radius.field,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
   skrivemode: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -888,17 +646,6 @@ const editorStyles = StyleSheet.create({
     backgroundColor: Colors.konfliktFlade,
     borderColor: Colors.liveRoed,
   },
-  koenPille: {
-    borderWidth: 1,
-    borderColor: Border.medium,
-    borderRadius: Radius.chip,
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-  },
-  koenPilleAktiv: {
-    backgroundColor: Colors.bordeaux,
-    borderColor: Colors.bordeaux,
-  },
   relSektion: {
     marginTop: 16,
     paddingTop: 14,
@@ -908,29 +655,6 @@ const editorStyles = StyleSheet.create({
   relLabel: {
     marginTop: 10,
     marginBottom: 4,
-  },
-  relEditRad: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 5,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(34,31,26,0.4)',
-  },
-  modalSheet: {
-    backgroundColor: Colors.paperBg,
-    borderTopLeftRadius: Radius.sheet,
-    borderTopRightRadius: Radius.sheet,
-    padding: 20,
-    paddingBottom: 36,
-    borderTopWidth: 1,
-    borderColor: Border.light,
-  },
-  relRad: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 5,
   },
   sekRad: {
     paddingVertical: 4,
