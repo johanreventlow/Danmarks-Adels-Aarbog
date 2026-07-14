@@ -2,9 +2,8 @@
 // Fejl-tolerant via safe(): logger og returnerer tomt ved manglende tabel/RLS, så visningen
 // viser en tom-tilstand frem for at vælte siden — men breakage er ikke HELT tavst (console).
 import { supabase } from '../supabase';
-import { getAll } from './paginate';
 import type { Model } from './types';
-import { pickPreferredBio, type NarrativeCand } from '@daa/core';
+import { pickPreferredBio, getAll, type NarrativeCand } from '@daa/core';
 import { fetchPersonMedia, fetchObjectMedia, type MediaItem } from './media';
 
 // Rå narrativ-række med source-join (PostgREST embedded resource).

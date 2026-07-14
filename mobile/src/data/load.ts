@@ -4,7 +4,7 @@
 import { supabase, supabaseEnabled } from '../lib/supabase';
 import { buildAux } from './buildAux';
 import {
-  buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, pickPreferredBio, fmtYears, parseYear,
+  buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, pickPreferredBio, fmtYears, parseYear, getAll,
   type GenCoord, type ParentsUnknown, type NarrativeCand,
 } from '@daa/core';
 import { normalizeKoen, normalizeKonfidens } from './types';
@@ -33,29 +33,6 @@ import type {
 
 const PR = ['partner']; // parentRoles — README §8
 const CR = ['barn']; //     childRoles (kun 'barn' er blodslægtskab)
-const PAGE = 1000; // PostgREST cap pr. svar
-
-// PostgREST returnerer max 1000 rækker pr. svar uanset limit — så vi sideinddeler med .range().
-// VIGTIGT: gentag indtil et chunk er mindre end PAGE; stol ALDRIG på én bred .range(0, stort tal),
-// for serveren capper alligevel ved 1000 og resten tabes lydløst (advisor 2026-06-23).
-export async function getAll<T>(
-  makeQuery: () => {
-    range: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>;
-  },
-): Promise<T[]> {
-  const all: T[] = [];
-  let from = 0;
-  for (let i = 0; i < 400; i++) {
-    const { data, error } = await makeQuery().range(from, from + PAGE - 1);
-    if (error) throw error;
-    const chunk = data ?? [];
-    if (!chunk.length) break;
-    all.push(...chunk);
-    if (chunk.length < PAGE) break;
-    from += PAGE;
-  }
-  return all;
-}
 
 export type LoadResult = {
   db: Db;

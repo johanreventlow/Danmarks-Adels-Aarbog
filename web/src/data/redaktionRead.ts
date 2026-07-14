@@ -3,8 +3,7 @@
 // FK), så vi henter N flade queries og joiner i klienten. citation→source HAR FK og nestes.
 // joinEvidence er ren/testbar uden net.
 import { supabase } from '../supabase';
-import { fmtYears, parseYear } from '@daa/core';
-import { getAll } from './paginate';
+import { fmtYears, parseYear, getAll } from '@daa/core';
 import { FELT_FAKTATYPE } from './redaktionWrite';
 import { resolveOrgEstateNames } from './public';
 import { signPaths, fetchThumbPathByMediaId } from './media';

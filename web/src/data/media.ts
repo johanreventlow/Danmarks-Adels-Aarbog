@@ -2,7 +2,7 @@
 // (gods/våben). RLS på 'media' + storage.objects skjuler ikke-offentlige rækker/objekter, så en
 // almindelig select/signering returnerer kun det den aktuelle rolle må se (fail-closed i basen).
 import { supabase } from '../supabase';
-import { getAll } from './paginate';
+import { getAll } from '@daa/core';
 
 export type MediaItem = {
   id: string;

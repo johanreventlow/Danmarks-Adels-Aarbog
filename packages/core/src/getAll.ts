@@ -1,4 +1,4 @@
-// getAll PORTERET fra mobile/src/data/load.ts — hold i sync (delt-pakke-ekstraktion er follow-up).
+// getAll — fælles paginerings-helper for web+mobile (@daa/core, eneste kilde).
 // PostgREST capper lydløst ved 1000 rækker — getAll gentager .range indtil en kort/tom side.
 // Kaster videre ved Supabase-error (ingen tom-som-clean: en RLS/grant-fejl skal ikke ligne 0 rækker).
 const PAGE = 1000;

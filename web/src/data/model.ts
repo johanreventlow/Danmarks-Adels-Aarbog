@@ -2,10 +2,9 @@
 // → buildModel. Lean udgave af mobile/src/data/load.ts (kun det stamtræ + slægtskabsfinder
 // behøver — ikke Aux/godser/våben). Rolle-vokab: partner = forælder-par, barn = blodslægt.
 import { supabase } from '../supabase';
-import { buildGenCoords, buildParentsUnknown, buildGeo, buildModel, collapseSameAs, fmtYears, parseYear } from '@daa/core';
+import { buildGenCoords, buildParentsUnknown, buildGeo, buildModel, collapseSameAs, fmtYears, parseYear, getAll } from '@daa/core';
 import { buildLineage } from './lineage';
 import { buildSources } from './sources';
-import { getAll } from './paginate';
 import { normalizeKoen, normalizeKonfidens, type AppPerson, type Db, type Model, type ModelPerson, type ParentChild, type RawEstate, type RawExtId, type RawFact, type RawLineage, type RawPlace, type RawSource, type Union } from './types';
 
 const PARTNER_ROLLER = ['partner'];

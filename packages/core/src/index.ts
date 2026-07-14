@@ -1,4 +1,5 @@
 export * from './generations';
+export * from './getAll';
 export * from './collation';
 export * from './mentions';
 export * from './fields';
