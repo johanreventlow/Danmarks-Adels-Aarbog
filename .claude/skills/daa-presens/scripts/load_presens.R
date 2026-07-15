@@ -22,6 +22,24 @@ path   <- argv[1]
 udgave <- if (length(argv) >= 2 && !startsWith(argv[2], "--")) argv[2] else "DAA 2012-2014"
 RESET  <- "--reset" %in% argv
 
+# source.aar = tidsserie-aksen (schema.sql:37 — udgave-fritekst er upålidelig til sortering).
+# Konvention: SIDSTE dækkede år. Fail-closed: uparsebar udgave-streng stopper FØR DB-kontakt,
+# så udgave 2 aldrig loades uden as-of-akse (præsens-tidsserie-spec Problem 1 §3.2 hul #1).
+parse_aar <- function(u) {
+  # Abbrevieret span "YYYY-YY" (fx 'DAA 2018-20' -> 2020); lookahead undgår at ramme
+  # 'YYYY-YYYY' (2012-2014) hvor halen er 4-cifret.
+  m <- regmatches(u, regexec("([0-9]{4})\\s*-\\s*([0-9]{2})(?![0-9])", u, perl = TRUE))[[1]]
+  if (length(m) == 3) {
+    base4 <- as.integer(m[2]); aar <- (base4 %/% 100L) * 100L + as.integer(m[3])
+    if (aar < base4) aar <- aar + 100L            # århundredeskifte-guard
+    return(aar)
+  }
+  yrs <- as.integer(unlist(regmatches(u, gregexpr("\\b[0-9]{4}\\b", u))))  # 'YYYY-YYYY' / 'YYYY'
+  if (!length(yrs)) stop(sprintf("Kan ikke udlede årstal af udgave='%s' — sæt en parsebar udgave (fail-closed).", u))
+  max(yrs)
+}
+aar <- parse_aar(udgave)
+
 clean <- fromJSON(path, simplifyVector = FALSE)
 if (!length(clean)) stop("clean.json er tom.")
 
@@ -103,8 +121,8 @@ tryCatch({
   seed_seq()
 
   src <- nid("source")
-  ex("INSERT INTO source (id, slags, titel, udgave, ekstern) VALUES ($1,'præsensliste',$2,$3,FALSE)",
-     list(src, paste("Dansk Adels Aarbog (præsensliste) –", udgave), udgave))
+  ex("INSERT INTO source (id, slags, titel, udgave, aar, ekstern) VALUES ($1,'præsensliste',$2,$3,$4,FALSE)",
+     list(src, paste("Dansk Adels Aarbog (præsensliste) –", udgave), udgave, aar))
 
   total <- 0
   for (blk in clean) {
@@ -134,6 +152,9 @@ tryCatch({
         fam <- add_family(); add_member(fam, pid, "partner", ordinal = g(a, "ordinal"))
         if (!is.null(a$partner_navn) && !is.na(a$partner_navn)) {
           sp <- add_person(); fact_value(sp, "navn", vaerdi = a$partner_navn, sid = src)
+          # kilde-medlemskabs-spor også for partner-stubs (Problem 1 §3.2 hul #2): uden det
+          # mangler de external-id-sporet tværudgave-matcherens populationsmodel bruger.
+          add_extid(sp, src, blk$linje)
           add_member(fam, sp, "partner", ordinal = g(a, "ordinal"))
         }
         if (!is.null(a$dato_raw) || !is.null(a[["sted"]]))

@@ -1851,3 +1851,11 @@ CREATE TABLE IF NOT EXISTS bookmark (
   UNIQUE (user_id, person_id)
 );
 ALTER TABLE bookmark ENABLE ROW LEVEL SECURITY;
+
+-- 2026-07-16: source.aar-konvention harmoniseret til SIDSTE dækkede år (flere-daa-udgaver,
+-- Problem 1 §3.2). Den tidligere backfill (ovf.: 'aar=2018 WHERE id=1') satte DAA 2018-20 til
+-- FØRSTE år; tidsserie-diff ("forrige udgave" via source.aar) kræver ensartet konvention på
+-- tværs af udgaver. Loaderne (load_presens.R/load_daa.R parse_aar) bruger sidste dækkede år
+-- fremadrettet (2012-2014→2014, 2018-20→2020, 1939→1939). Idempotent korrektion af den ene
+-- allerede-loadede prod-source (rører kun rækken hvis den stadig står på det gamle 2018):
+UPDATE source SET aar = 2020 WHERE udgave = 'DAA 2018-20' AND aar = 2018;
