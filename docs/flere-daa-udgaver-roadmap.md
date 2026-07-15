@@ -1,7 +1,9 @@
 # Roadmap: Flere DAA-udgaver — præsenslister over tid, modstridende relationer, tværudgave-identifikation
 
-> Status: **idé / roadmap** (2026-07-15). Ingen kode endnu. Afventer en konkret
-> PDF af en anden DAA-udgave (typisk en præsensliste) at arbejde ud fra.
+> Status: **specificeret, ikke implementeret** (2026-07-15). Alle tre problemer er nu
+> udfoldet i grundige design-specs (skrevet af Fable, se links i hvert afsnit nedenfor).
+> Ingen kode endnu — afventer en konkret PDF af en anden DAA-udgave (typisk en
+> præsensliste) at implementere og kalibrere mod.
 
 ## Baggrund
 
@@ -15,6 +17,8 @@ en forudsætning for #1 og #2 (man skal vide at det er "samme person" før
 man kan diffe snapshots eller hæfte modstridende relationer på vedkommende).
 
 ## Problem 1 — Præsensliste som tidsserie, ikke isoleret kilde
+
+> **Design-spec:** [`docs/superpowers/specs/2026-07-15-praesensliste-tidsserie-design.md`](superpowers/specs/2026-07-15-praesensliste-tidsserie-design.md)
 
 **Nu:** `daa-presens` genbruger `person`/`fact`/`family`/`family_member` og
 opretter en ny `source`-række pr. udgave, med append-only ID-allokering
@@ -45,6 +49,8 @@ proces (se Problem 3) der forbinder personen på tværs af udgaver, så en
 diff bliver mulig.
 
 ## Problem 2 — Modstridende slægtskabspåstande mellem udgaver
+
+> **Design-spec:** [`docs/superpowers/specs/2026-07-15-family-member-konkurrerende-relationer-design.md`](superpowers/specs/2026-07-15-family-member-konkurrerende-relationer-design.md)
 
 **Nu, delvist understøttet:** `fact` og den generiske `relation`-tabel har
 fuld evidens-infrastruktur: `assertion` (schema.sql:361-371, én kildes
@@ -83,6 +89,8 @@ sandsynlige) udgave som valgt `conclusion` — uden at den ældre påstand
 overskrives eller kasseres.
 
 ## Problem 3 — Tværudgave-personidentifikation (stavevarianter, latinisering)
+
+> **Design-spec:** [`docs/superpowers/specs/2026-07-15-tvaers-udgave-identifikation-design.md`](superpowers/specs/2026-07-15-tvaers-udgave-identifikation-design.md) (foundational — de to andre specs bygger på denne)
 
 **Nu, `red_samme_som`: rent manuel, ingen scoring.** RPC'en
 (schema.sql:977-1015) indsætter blot en relationsrække; invarianter
