@@ -2,7 +2,7 @@
 
 **Dato:** 2026-07-15
 **Formål:** Kortlægge de konkrete "afvigende sandheder" mellem den ældre Reventlow-stamtavle
-(DAA 1939, Louis Bobé) og den nyere (DAA 2018-20, indlæst i modellen) — som testkorpus for
+(DAA 1939, Louis Bobé) og den nyere (DAA 2018-20, Poul Holstein — indlæst i modellen) — som testkorpus for
 **Problem 2** (konkurrerende slægtskabspåstande på `family_member`,
 `docs/superpowers/specs/2026-07-15-family-member-konkurrerende-relationer-design.md`) og som
 ekstra kalibreringsdata for **Problem 3** (tværudgave-matching, navnefoldning).
@@ -40,7 +40,7 @@ Altså: en **hypotetisk fælles fader Hartvig**, der gør Gotskalk (stamfar, hol
 Ditlev (stamfar, meklenborgske Linje II) til brødre — en spekulativ sammenknytning af de to
 hovedlinjers udspring, hedget med "sandsynligt".
 
-### 2018-20's påstand (Hau), særudgave-linje 280 ff.
+### 2018-20's påstand (Poul Holstein), særudgave-linje 280 ff.
 > "Den første i kilderne **efterviselige** Reventlow i Holsten er ridderen **Gottschalk von
 > Reventlow (-1223-1247-) (I, 1)** …"
 
@@ -70,7 +70,7 @@ på Søbo/Als; fører Reventlow-murtinden men et *andet* hjelmtegn). Bobé er do
 > "… vides de at have regnet sig som hørende til Slægten Reventlow, men **om den fyenske Linjes
 > Samhørighed** med de holstenske og meklenborgske Reventlower **kan intet oplyses**."
 
-### 2018-20's påstand (Hau-forskning), særudgave-linje 15596 ff.
+### 2018-20's påstand (Poul Holstein, m. henvisning til Christian Hau-forskning), særudgave-linje 15596 ff.
 > "I stamtavlen … DAA 1939 har **Louis Bobé** ladet den såkaldte Fynske linje være en del af den
 > tyske slægt. **Christian Hau har påvist** … at denne fåtallige nordjyske lavadelsslægt, hvis
 > stamfar er **Henrik Jensen (-1358-), IKKE hører til** den tyske slægt von Reventlow. … Denne
@@ -78,7 +78,7 @@ på Søbo/Als; fører Reventlow-murtinden men et *andet* hjelmtegn). Bobé er do
 > Bobé til at medtage denne slægt … er **uforståeligt**. Allerede **Anders Thiset** antog i sin
 > Reventlow-tavle i **DAA 1893** … at der er tale om to forskellige slægter."
 
-Altså: **fuld udeladelse i 2018-20**, begrundet med ny forskning (Hau 2016) — de fynske er en
+Altså: **fuld udeladelse i 2018-20** (Poul Holstein), begrundet med ny forskning (Christian Hau 2016) — de fynske er en
 selvstændig nordjysk lavadelsslægt, der kun lånte Reventlow-navnet pga. våbenlighed; uddøde med
 Knud Andersen († 1560).
 
@@ -90,7 +90,7 @@ Knud Andersen († 1560).
   `ikke_samme_som`/eksklusions-scenarie snarere end konkurrerende `family_member`. **Flag til
   Problem 2-spec-revision.**
 - Dette er også en **tri-udgave-konvergens**: DAA 1893 (Thiset, afvist) → 1939 (Bobé, medtaget) →
-  2018-20 (Hau, afvist) — udgaver retter både frem OG tilbage (jf. Problem 2 §6: "nyeste vinder"
+  2018-20 (Holstein, afvist) — udgaver retter både frem OG tilbage (jf. Problem 2 §6: "nyeste vinder"
   er fravalgt netop derfor).
 
 ---
