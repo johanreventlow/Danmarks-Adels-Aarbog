@@ -29,6 +29,9 @@ data/geo-geocode-cache.csv
 # DAA-udtræk arbejdsmappe (kan indeholde levende-persondata)
 work/
 work_presens/
+work_presens_1939/
+work_1939_stamtavle/
+work_2018_saerudgave/
 
 # Kilde-PDF'er (store, ophavsret) — ikke i repo
 *.pdf
