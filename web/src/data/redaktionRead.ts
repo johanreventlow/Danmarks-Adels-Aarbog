@@ -181,6 +181,84 @@ export async function fetchForaeldreUkendtMarkering(personId: string): Promise<F
   return { factId: Number(fid), assertionId: Number(aid), grade: a?.vaerdi_tekst ?? '', kilde: cit?.citat_tekst ?? null };
 }
 
+// --- Forældrefamilie-slot (Problem 2): konkurrerende forældre-påstande pr. barn ---
+// Redaktion-only sti VED SIDEN AF den offentlige familie-læsning (model.ts rører IKKE slottet —
+// blast-radius-vagt, spec §2/§8). Ren buildForaeldreSlot samler de flade queries (polymorf model).
+export type ForaeldreForaelder = { personId: number; navn: string };
+export type ForaeldrePaastand = {
+  assertionId: number; familyId: number; foraeldre: ForaeldreForaelder[];
+  udgave: string | null; side: string | null; citat: string | null; valgt: boolean;
+};
+export type ForaeldreSlot = { factId: number; status: string | null; paastande: ForaeldrePaastand[] };
+
+type RawSlotAssert = { id: number; objekt_id: number | null };
+type RawSlotCit = { assertion_id: number; side: string | null; citat_tekst: string | null;
+  source: { udgave: string | null; titel: string | null } | null };
+type RawSlotConc = { valgt_assertion_id: number | null; status: string | null };
+type RawFamPartner = { family_id: number; person_id: number; visning_navn: string | null };
+
+export function buildForaeldreSlot(
+  factId: number, assertions: RawSlotAssert[], citations: RawSlotCit[],
+  conclusion: RawSlotConc | null, partners: RawFamPartner[],
+): ForaeldreSlot {
+  const citByAssert = new Map<number, RawSlotCit>();
+  for (const c of citations) if (!citByAssert.has(c.assertion_id)) citByAssert.set(c.assertion_id, c);
+  const partnersByFam = new Map<number, ForaeldreForaelder[]>();
+  for (const p of partners) {
+    const arr = partnersByFam.get(p.family_id) ?? [];
+    arr.push({ personId: p.person_id, navn: p.visning_navn ?? '(ukendt)' });
+    partnersByFam.set(p.family_id, arr);
+  }
+  const valgt = conclusion?.valgt_assertion_id ?? null;
+  const paastande = assertions
+    .filter((a) => a.objekt_id != null)
+    .map((a) => {
+      const cit = citByAssert.get(a.id);
+      return {
+        assertionId: a.id, familyId: a.objekt_id as number,
+        foraeldre: partnersByFam.get(a.objekt_id as number) ?? [],
+        udgave: cit?.source?.udgave ?? cit?.source?.titel ?? null,
+        side: cit?.side ?? null, citat: cit?.citat_tekst ?? null,
+        valgt: a.id === valgt,
+      };
+    });
+  return { factId, status: conclusion?.status ?? null, paastande };
+}
+
+export async function fetchForaeldreSlot(personId: string): Promise<ForaeldreSlot | null> {
+  if (!personId) return null;
+  const pid = Number(personId);
+  const { data: facts } = await supabase.from('fact').select('id')
+    .eq('subjekt_type', 'person').eq('subjekt_id', pid).eq('faktatype', 'forældrefamilie');
+  const factId = (facts ?? [])[0]?.id;
+  if (factId == null) return null;
+  const { data: assertions } = await supabase.from('assertion').select('id,objekt_id')
+    .eq('target_type', 'fact').eq('target_id', factId).eq('objekt_type', 'family');
+  const aList = (assertions ?? []) as RawSlotAssert[];
+  const aids = aList.map((a) => a.id);
+  const famIds = aList.map((a) => a.objekt_id).filter((x): x is number => x != null);
+  const [citRes, concRes, partRes] = await Promise.all([
+    aids.length ? supabase.from('citation').select('assertion_id,side,citat_tekst,source(udgave,titel)').in('assertion_id', aids) : Promise.resolve({ data: [] as unknown[] }),
+    supabase.from('conclusion').select('valgt_assertion_id,status').eq('target_type', 'fact').eq('target_id', factId).maybeSingle(),
+    famIds.length ? supabase.from('family_member').select('family_id,person_id,person(visning_navn)').in('family_id', famIds).eq('rolle', 'partner') : Promise.resolve({ data: [] as unknown[] }),
+  ]);
+  const flatPartners: RawFamPartner[] = ((partRes.data ?? []) as { family_id: number; person_id: number; person: { visning_navn: string | null } | null }[])
+    .map((p) => ({ family_id: p.family_id, person_id: p.person_id, visning_navn: p.person?.visning_navn ?? null }));
+  return buildForaeldreSlot(Number(factId), aList, (citRes.data ?? []) as RawSlotCit[], (concRes.data ?? null) as RawSlotConc | null, flatPartners);
+}
+
+export type ForaeldreKonflikt = { personId: number; factId: number; antalFamilier: number; antalPaastande: number; status: string | null; navn: string | null };
+
+export async function fetchForaeldreKonflikter(): Promise<ForaeldreKonflikt[]> {
+  const { data } = await supabase.from('red_foraeldre_konflikt').select('person_id,fact_id,antal_familier,antal_paastande,status');
+  const rows = (data ?? []) as { person_id: number; fact_id: number; antal_familier: number; antal_paastande: number; status: string | null }[];
+  if (!rows.length) return [];
+  const { data: persons } = await supabase.from('person').select('id,visning_navn').in('id', rows.map((r) => r.person_id));
+  const navnById = new Map(((persons ?? []) as { id: number; visning_navn: string | null }[]).map((p) => [p.id, p.visning_navn]));
+  return rows.map((r) => ({ personId: r.person_id, factId: r.fact_id, antalFamilier: r.antal_familier,
+    antalPaastande: r.antal_paastande, status: r.status, navn: navnById.get(r.person_id) ?? null }));
+}
+
 // --- Narrativ-læsning: ALLE udgaver pr. person (source-join til byline + ordning) ---
 // Én narrativ pr. (person, source_id). Redaktøren viser en fane pr. udgave; skrive-målet
 // (red_upsert_narrativ) nøgles på source_id, så prefill-kilde == skrive-mål pr. udgave.
