@@ -41,8 +41,8 @@ const RAW_CLASSES: string[][] = [
 const VARIANT_MAP: Record<string, string> = {};
 for (const cls of RAW_CLASSES) {
   const repr = lag1(cls[0]);
+  // repr === lag1(cls[0]) sættes af loopet nedenfor → VARIANT_MAP[repr]=repr gratis (idempotens).
   for (const m of cls) VARIANT_MAP[lag1(m)] = repr;
-  VARIANT_MAP[repr] = repr; // repr → sig selv (idempotens-garanti)
 }
 
 /** Fold ét navne-token til dets match-repræsentant (lag 1 grafem-regler → lag 2 variant-tabel). */

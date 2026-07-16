@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'vitest';
-import { buildMatchPersoner, parseIkkeSammeSomPar } from '../redaktionRead';
+import { buildMatchPersoner, parseIkkeSammeSomPar } from '../matchUdgaver';
 
-describe('buildMatchPersoner — MatchFrame-input fra DB (§11)', () => {
+describe('buildMatchPersoner — DB-rækker → MatchFrame-input (§11)', () => {
   const persons = [
     { id: 1, visning_navn: 'Ludvig Alexander Eduard', koen: 'mand' },
     { id: 2, visning_navn: 'Uden datoer', koen: 'kvinde' },
@@ -28,16 +28,13 @@ describe('buildMatchPersoner — MatchFrame-input fra DB (§11)', () => {
   ];
 
   test('fødsel/død fra VALGT assertions date_min/date_max', () => {
-    const r = buildMatchPersoner(persons, facts, concs, assertions, extIds);
-    const p1 = r.find((x) => x.id === '1')!;
+    const p1 = buildMatchPersoner(persons, facts, concs, assertions, extIds).find((x) => x.id === '1')!;
     expect(p1.foedsel).toEqual({ date_min: '1848-11-05', date_max: '1848-11-05' });
     expect(p1.doed).toEqual({ date_min: '1916-06-19', date_max: '1916-06-19' });
   });
 
   test('erhverv-fakta ignoreres; ikke-valgt assertion bruges aldrig', () => {
-    const r = buildMatchPersoner(persons, facts, concs, assertions, extIds);
-    const p1 = r.find((x) => x.id === '1')!;
-    // 1700-assertion (id 999) er ikke valgt → må ikke lække ind
+    const p1 = buildMatchPersoner(persons, facts, concs, assertions, extIds).find((x) => x.id === '1')!;
     expect(p1.foedsel?.date_min).not.toBe('1700-01-01');
   });
 
@@ -48,9 +45,8 @@ describe('buildMatchPersoner — MatchFrame-input fra DB (§11)', () => {
   });
 
   test('person uden konkluderet dato → null-intervaller', () => {
-    const r = buildMatchPersoner(persons, facts, concs, assertions, extIds);
-    const p2 = r.find((x) => x.id === '2')!;
-    expect(p2.foedsel).toBe(null); // conclusion havde valgt_assertion_id=null
+    const p2 = buildMatchPersoner(persons, facts, concs, assertions, extIds).find((x) => x.id === '2')!;
+    expect(p2.foedsel).toBe(null);
     expect(p2.doed).toBe(null);
   });
 });

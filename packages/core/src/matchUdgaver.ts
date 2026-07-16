@@ -3,6 +3,7 @@
 // oven på foldnings-kernen (navnevarianter.ts). Ren funktion, klient-side, RÅDGIVENDE:
 // intet tier udløser en skrivning — hvert samme_som-link kræver et redaktør-klik (spec §3.4).
 import { matchKey } from './navnevarianter';
+import { parseYear } from './fields';
 
 export type Sex = 'mand' | 'kvinde' | 'ukendt';
 export type Id = string | number;
@@ -139,8 +140,16 @@ export function buildScored(a: MatchFrame[], b: MatchFrame[], cfg: MatchCfg = de
     }
     if (!cand.length) continue;
 
+    // Beregn name_sim + overlap-evidens + køn-lighed ÉN gang pr. kandidat (genbruges i
+    // både top-K-sorteringen og den endelige push — undgår dobbelt-beregning).
     let scored = cand
-      .map((c) => ({ c, sim: jaroWinkler(af.nameKey, c.nameKey) }))
+      .map((c) => ({
+        c,
+        sim: jaroWinkler(af.nameKey, c.nameKey),
+        birthOverlap: overlapEvidence(af.birthMin, af.birthMax, c.birthMin, c.birthMax),
+        deathOverlap: overlapEvidence(af.deathMin, af.deathMax, c.deathMin, c.deathMax),
+        sexEq: af.sex === c.sex && af.sex !== 'ukendt',
+      }))
       .filter((x) => x.sim >= nameFloor);
     if (!scored.length) continue;
     const nPlausible = scored.length; // ægte unikhed FØR top-K-cap
@@ -148,28 +157,14 @@ export function buildScored(a: MatchFrame[], b: MatchFrame[], cfg: MatchCfg = de
     // top-K på FAKTISK score (ligenavngivne skelnes af dato-overlap, ikke name_sim alene).
     if (nPlausible > cfg.topK) {
       scored = scored
-        .map((x) => ({
-          ...x,
-          sc: scorePair(
-            x.sim,
-            overlapEvidence(af.birthMin, af.birthMax, x.c.birthMin, x.c.birthMax),
-            overlapEvidence(af.deathMin, af.deathMax, x.c.deathMin, x.c.deathMax),
-            af.sex === x.c.sex && af.sex !== 'ukendt',
-            cfg,
-          ),
-        }))
+        .map((x) => ({ x, sc: scorePair(x.sim, x.birthOverlap, x.deathOverlap, x.sexEq, cfg) }))
         .sort((p, q) => q.sc - p.sc)
-        .slice(0, cfg.topK);
+        .slice(0, cfg.topK)
+        .map((w) => w.x);
     }
 
-    for (const { c, sim } of scored) {
-      out.push({
-        aId: af.id, bId: c.id, nameSim: sim,
-        birthOverlap: overlapEvidence(af.birthMin, af.birthMax, c.birthMin, c.birthMax),
-        deathOverlap: overlapEvidence(af.deathMin, af.deathMax, c.deathMin, c.deathMax),
-        sexEq: af.sex === c.sex && af.sex !== 'ukendt',
-        uniqueBlock: nPlausible === 1,
-      });
+    for (const { c, sim, birthOverlap, deathOverlap, sexEq } of scored) {
+      out.push({ aId: af.id, bId: c.id, nameSim: sim, birthOverlap, deathOverlap, sexEq, uniqueBlock: nPlausible === 1 });
     }
   }
   return out;
@@ -228,12 +223,6 @@ export interface FramePerson {
 
 const UNMATCHABLE_RE = /^(n\.?\s*n\.?|nn|ukendt|ubekendt|\?+)$/i;
 
-function yearOf(d?: string | null): number | null {
-  if (!d) return null;
-  const m = /^(\d{4})/.exec(d);
-  return m ? parseInt(m[1], 10) : null;
-}
-
 function normSex(x?: string | null): Sex {
   const s = (x ?? '').toLowerCase().trim();
   if (s === 'm' || s === 'mand' || s === 'male') return 'mand';
@@ -274,10 +263,70 @@ export function buildMatchFrame(p: FramePerson): MatchFrame {
   return {
     id: p.id,
     nameKey: UNMATCHABLE_RE.test(navn) ? '' : matchKey(navn),
-    birthMin: yearOf(p.foedsel?.date_min ?? null),
-    birthMax: yearOf(p.foedsel?.date_max ?? null),
-    deathMin: yearOf(p.doed?.date_min ?? null),
-    deathMax: yearOf(p.doed?.date_max ?? null),
+    birthMin: parseYear(p.foedsel?.date_min),
+    birthMax: parseYear(p.foedsel?.date_max),
+    deathMin: parseYear(p.doed?.date_min),
+    deathMax: parseYear(p.doed?.date_max),
     sex: normSex(p.koen),
   };
+}
+
+// ---- DB→MatchFrame-input-mappere (rene; delt web+mobil via @daa/core, §11) ----
+// Bygger MatchFrame-input af flade DB-rækker: konkluderede fødsels-/døds-intervaller +
+// kilde-medlemskab. App-laget leverer kun de tynde supabase-fetches (redaktionRead).
+
+export type RedMatchPerson = {
+  id: string;
+  navn: string;
+  koen: string | null;
+  foedsel: { date_min: string | null; date_max: string | null } | null;
+  doed: { date_min: string | null; date_max: string | null } | null;
+  sourceIds: number[]; // kilde-medlemskab (person_external_id) → disjunkt-kilde-afgrænsning
+};
+
+export type MatchPersonRow = { id: number; visning_navn: string | null; koen: string | null };
+export type MatchFactRow = { id: number; subjekt_id: number; faktatype: string };
+export type MatchConcRow = { target_id: number; valgt_assertion_id: number | null };
+export type MatchAssertRow = { id: number; date_min: string | null; date_max: string | null };
+export type MatchExtIdRow = { person_id: number; source_id: number };
+
+/** Ren samling: personer + konkluderede fødsels-/døds-intervaller + kilde-medlemskab →
+ *  MatchFrame-input. Fødsel/død fra den VALGTE assertions date_min/date_max (as-of-korrekt). */
+export function buildMatchPersoner(
+  persons: MatchPersonRow[],
+  facts: MatchFactRow[],
+  concs: MatchConcRow[],
+  assertions: MatchAssertRow[],
+  extIds: MatchExtIdRow[],
+): RedMatchPerson[] {
+  const assertById = new Map(assertions.map((a) => [a.id, a]));
+  const chosenByFact = new Map(concs.map((c) => [c.target_id, c.valgt_assertion_id]));
+  const birth = new Map<number, { date_min: string | null; date_max: string | null }>();
+  const death = new Map<number, { date_min: string | null; date_max: string | null }>();
+  for (const f of facts) {
+    if (f.faktatype !== 'fødsel' && f.faktatype !== 'død') continue;
+    const aid = chosenByFact.get(f.id);
+    if (aid == null) continue;
+    const a = assertById.get(aid);
+    if (!a) continue;
+    (f.faktatype === 'fødsel' ? birth : death).set(f.subjekt_id, { date_min: a.date_min, date_max: a.date_max });
+  }
+  const srcByPerson = new Map<number, number[]>();
+  for (const e of extIds) {
+    const arr = srcByPerson.get(e.person_id);
+    if (arr) arr.push(e.source_id); else srcByPerson.set(e.person_id, [e.source_id]);
+  }
+  return persons.map((p) => ({
+    id: String(p.id),
+    navn: p.visning_navn ?? '',
+    koen: p.koen,
+    foedsel: birth.get(p.id) ?? null,
+    doed: death.get(p.id) ?? null,
+    sourceIds: srcByPerson.get(p.id) ?? [],
+  }));
+}
+
+/** Ren: relation-rækker (rolle='ikke_samme_som') → persistente afvisnings-par. */
+export function parseIkkeSammeSomPar(rows: { subjekt_id: number; objekt_id: number }[]): { aId: string; bId: string }[] {
+  return rows.map((r) => ({ aId: String(r.subjekt_id), bId: String(r.objekt_id) }));
 }
