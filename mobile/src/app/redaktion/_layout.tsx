@@ -18,6 +18,7 @@ export default function RedaktionLayout() {
       <Stack.Screen name="person/[id]" />
       <Stack.Screen name="entitet/person" />
       <Stack.Screen name="entitet/[type]" />
+      <Stack.Screen name="sammenlign" />
     </Stack>
   );
 }
