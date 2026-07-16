@@ -12,6 +12,7 @@ import {
   fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, fetchSammeSomLinks, fetchRedPersonMedia, fetchRedObjectMedia, nudgeOrdinal, fetchForaeldreUkendtMarkering, type RedPerson, type PersonEvidence,
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
   type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia, type ForaeldreUkendtMarkering, SLAEGT_SUBJEKT_ID,
+  fetchForaeldreSlot, fetchForaeldreKonflikter, type ForaeldreSlot, type ForaeldreKonflikt,
 } from './data/redaktionRead';
 import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, insertAt, makeToken, previewSammeSom } from '@daa/core';
 import { loadModel } from './data/model';
@@ -52,6 +53,7 @@ const ENTITIES = [
   { key: 'arms', label: 'Våben', icon: '⛨' },
   { key: 'media', label: 'Medier', icon: '▦' },
   { key: 'sammenlign', label: 'Sammenlign udgaver', icon: '⇄' },
+  { key: 'foraeldre-konflikter', label: 'Forældre-konflikter', icon: '⚠' },
 ];
 const FELT_DEFS: [string, string][] = [['navn', 'Navn'], ['foedt', 'Født'], ['doed', 'Død'], ['titel', 'Titel/rang']];
 // UI-entitetsnøgle → DB subjekt_type + primær-felt (til forslag via red_suggest). Eksplicit
@@ -434,9 +436,11 @@ export default function Redaktion() {
       {renderTopBar()}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {renderSidebar()}
-        {entity === 'sammenlign' ? (
+        {entity === 'sammenlign' || entity === 'foraeldre-konflikter' ? (
           <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: T.paper }}>
-            <SammenlignUdgaver role={role} />
+            {entity === 'sammenlign'
+              ? <SammenlignUdgaver role={role} />
+              : <ForaeldreKonflikterListe onOpen={(id) => openRecord('person', id)} />}
           </div>
         ) : (
           <>
@@ -646,6 +650,7 @@ export default function Redaktion() {
         </div>
 
         <ForaeldreUkendtControl personId={p.id} run={run} />
+        <ForaeldrePaastandeControl personId={p.id} run={run} />
 
         {showAnno && (
           <div style={{ marginTop: 16, ...annoBox }}>
@@ -1405,6 +1410,89 @@ function ForaeldreUkendtControl({ personId, run }: { personId: string; run: (c: 
             {mk && <div onClick={fjern} style={{ fontSize: 12, fontWeight: 600, color: T.red, border: '1px solid rgba(138,43,43,.3)', borderRadius: 7, padding: '6px 12px', cursor: 'pointer' }}>Fjern</div>}
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+// Forældrefamilie-slot (Problem 2): konkurrerende forældre-påstande for DENNE person. Renderes kun
+// når der findes påstande (typisk efter en tværudgave-konflikt); mirrorer fact-card-oplysnings-listen
+// (kilde-badge + valgt-markering + "vælg denne"). Adjudikation = red_vaelg_foraeldre via run().
+function ForaeldrePaastandeControl({ personId, run }: { personId: string; run: (c: Change, label: string) => void }) {
+  const [slot, setSlot] = useState<ForaeldreSlot | null | undefined>(undefined);
+  const [konfidens, setKonfidens] = useState('sikker');
+  const [reloadKey, setReloadKey] = useState(0);
+  useEffect(() => {
+    let alive = true; setSlot(undefined);
+    fetchForaeldreSlot(personId).then((s) => { if (alive) setSlot(s); }).catch(() => { if (alive) setSlot(null); });
+    return () => { alive = false; };
+  }, [personId, reloadKey]);
+  if (!slot || slot.paastande.length === 0) return null; // intet at adjudicere → ingen støj
+  const vaelg = (assertionId: number) => {
+    run({ art: 'vaelgForaeldre', subjektType: 'person', subjektId: personId, payload: { assertionId, konfidens } }, 'Vælg forældrefamilie');
+    setTimeout(() => setReloadKey((k) => k + 1), 700);
+  };
+  const omstridt = slot.status === 'omstridt' || slot.paastande.length > 1;
+  return (
+    <div style={{ marginTop: 14, border: `1px solid ${omstridt ? 'rgba(136,26,51,.35)' : 'rgba(34,31,26,.14)'}`, borderRadius: 11, padding: '12px 14px', background: omstridt ? '#faf1dc' : T.panel }}>
+      <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', color: omstridt ? T.bordeaux : T.gold, marginBottom: 8 }}>
+        Forældrefamilie{omstridt ? ' · konkurrerende påstande' : ''}
+      </div>
+      {slot.paastande.map((pp) => (
+        <div key={pp.assertionId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderTop: '1px dashed rgba(34,31,26,.1)' }}>
+          <span style={{ fontFamily: T.mono, fontSize: 9, color: T.muted, background: T.beige, borderRadius: 5, padding: '3px 7px', whiteSpace: 'nowrap' }}>{pp.udgave ?? 'redaktionel'}</span>
+          <div style={{ flex: 1, fontSize: 12.5, color: '#3d382f' }}>
+            {pp.foraeldre.map((f) => f.navn).join(' & ') || '(ukendt familie)'}
+            {pp.side ? <span style={{ color: T.muted2 }}> · {pp.side}</span> : null}
+            {pp.valgt ? <span style={{ color: T.bordeaux, fontWeight: 600 }}> · ✓ valgt</span> : null}
+          </div>
+          {pp.valgt ? null : (
+            <div onClick={() => vaelg(pp.assertionId)} style={{ fontSize: 12, fontWeight: 600, color: '#fff', background: T.bordeaux, borderRadius: 7, padding: '6px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Vælg denne</div>
+          )}
+        </div>
+      ))}
+      {omstridt && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 9 }}>
+          <span style={{ fontSize: 11.5, color: T.muted }}>Tillid ved valg:</span>
+          <select value={konfidens} onChange={(e) => setKonfidens(e.target.value)} style={{ fontFamily: T.sans, fontSize: 12, padding: '5px 8px', borderRadius: 7, border: '1px solid rgba(34,31,26,.18)', background: T.paper, color: T.ink }}>
+            {['sikker', 'sandsynlig', 'formodet', 'omstridt'].map((k) => <option key={k} value={k}>{k}</option>)}
+          </select>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Dashboard-worklist (Problem 2 §6): personer m. konkurrerende forældre-påstande (red_foraeldre_konflikt).
+// Klik → åbn personen i editoren, hvor ForaeldrePaastandeControl adjudicerer.
+function ForaeldreKonflikterListe({ onOpen }: { onOpen: (personId: string) => void }) {
+  const [rows, setRows] = useState<ForaeldreKonflikt[] | undefined>(undefined);
+  useEffect(() => {
+    let alive = true;
+    fetchForaeldreKonflikter().then((r) => { if (alive) setRows(r); }).catch(() => { if (alive) setRows([]); });
+    return () => { alive = false; };
+  }, []);
+  return (
+    <div style={{ padding: '18px 22px', maxWidth: 720 }}>
+      <div style={{ fontFamily: T.serif, fontSize: 22, color: T.ink, marginBottom: 6 }}>Forældre-konflikter</div>
+      <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 16, lineHeight: 1.5 }}>
+        Personer hvor to udgaver påstår forskellige forældrefamilier. Åbn personen for at se påstandene side om side og vælge den kanoniske (bevarer begge, kildebundet).
+      </div>
+      {rows === undefined ? (
+        <div style={{ fontSize: 12.5, color: T.muted }}>Henter…</div>
+      ) : rows.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: T.muted }}>Ingen forældre-konflikter — alle personer har én afklaret forældrefamilie.</div>
+      ) : (
+        rows.map((r) => (
+          <div key={r.factId} onClick={() => onOpen(String(r.personId))}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', marginBottom: 8, cursor: 'pointer',
+              border: '1px solid rgba(136,26,51,.25)', borderRadius: 10, background: '#faf1dc' }}>
+            <span style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux }}>{r.status ?? 'omstridt'}</span>
+            <div style={{ flex: 1, fontSize: 13.5, color: '#3d382f', fontWeight: 600 }}>{r.navn ?? `Person ${r.personId}`}</div>
+            <span style={{ fontSize: 11.5, color: T.muted }}>{r.antalFamilier} familier · {r.antalPaastande} påstande</span>
+            <span style={{ color: T.bordeaux, fontSize: 15 }}>→</span>
+          </div>
+        ))
       )}
     </div>
   );
