@@ -899,6 +899,7 @@ DECLARE v_id bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   IF p_rolle = 'samme_som' THEN RAISE EXCEPTION 'Brug red_samme_som til identitets-links'; END IF;
+  IF p_rolle = 'ikke_samme_som' THEN RAISE EXCEPTION 'Brug red_ikke_samme_som til identitets-afvisning'; END IF;
   -- GDPR-invariant ved fødslen (ikke kun i red_upload_media): en 'afbildet'-relation skal gå
   -- person→media, fordi media_afbilder_skjult/privat KUN scanner (subjekt=person, objekt=media).
   -- En person på objekt-siden ville være usynlig for gatingen → fail-open. Luk det for ALLE kaldere.
@@ -986,6 +987,12 @@ BEGIN
   SELECT id INTO v_rel FROM relation WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'
     AND subjekt_id=p_alias_id AND objekt_id=p_objekt_id LIMIT 1;
   IF v_rel IS NOT NULL THEN RETURN v_rel; END IF;
+  -- Kontradiktions-guard (tværudgave-spec §4): parret må ikke samtidig være markeret
+  -- ikke_samme_som. At skifte mening er to versionerede trin (fjern afvisningen først).
+  IF EXISTS (SELECT 1 FROM relation WHERE rolle='ikke_samme_som' AND subjekt_type='person' AND objekt_type='person'
+             AND subjekt_id=least(p_alias_id,p_objekt_id) AND objekt_id=greatest(p_alias_id,p_objekt_id)) THEN
+    RAISE EXCEPTION 'samme_som: parret (%,%) er markeret ikke_samme_som — fjern afvisningen først', p_alias_id, p_objekt_id;
+  END IF;
   PERFORM begin_change_set('red_samme_som',
     format('Markerede person %s som samme som %s', p_alias_id, p_objekt_id), 'person', p_objekt_id);
   -- Triggeren validerer G0/G3/G4/G5 på denne INSERT.
@@ -1014,6 +1021,61 @@ BEGIN
   END IF;
   PERFORM begin_change_set('red_fjern_samme_som', format('Fjernede samme_som-link %s', p_relation_id), NULL, NULL);
   PERFORM _delete_relation_evidence(p_relation_id); -- delt FK-ordnet slet (samme som red_slet_relation)
+END $$;
+
+-- ============================================================================
+-- Redaktionel identitets-AFVISNING (ikke_samme_som) — tværudgave-spec 2026-07-15 §4.
+-- Persisteret "bekræftet FORSKELLIGE personer" så tværudgave-arbejdslisten konvergerer
+-- (afviste kandidater dukker ellers op igen ved hver genberegning). Symmetrisk relation,
+-- normaliseret som LEAST(id)→GREATEST(id) — ét kanonisk opslag. INGEN citation (manuel
+-- redaktionel beslutning; provenans = change_set + blaastemplet_af). Kontradiktions-guarden
+-- ligger i RPC-laget, IKKE i en trigger: ingen delt forbruger læser ikke_samme_som (collapse
+-- filtrerer på rolle='samme_som'), så et modstridende par degraderer til støj i arbejdslisten,
+-- ikke datakorruption. En db-verify-assert fanger drift maskinelt.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION red_ikke_samme_som(p_a bigint, p_b bigint)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_lo bigint; v_hi bigint; v_rel bigint; v_ass bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_a = p_b THEN RAISE EXCEPTION 'ikke_samme_som: kan ikke afvise en person mod sig selv'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_a) THEN RAISE EXCEPTION 'Person % findes ikke', p_a; END IF;
+  IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_b) THEN RAISE EXCEPTION 'Person % findes ikke', p_b; END IF;
+  v_lo := least(p_a, p_b); v_hi := greatest(p_a, p_b);
+  -- Idempotens FØR change_set (ingen tom audit ved gentagelse; begge kald-retninger normaliseres).
+  SELECT id INTO v_rel FROM relation WHERE rolle='ikke_samme_som' AND subjekt_type='person' AND objekt_type='person'
+    AND subjekt_id=v_lo AND objekt_id=v_hi LIMIT 1;
+  IF v_rel IS NOT NULL THEN RETURN v_rel; END IF;
+  -- Kontradiktions-guard: findes et samme_som-link mellem parret (begge retninger) → afvis.
+  IF EXISTS (SELECT 1 FROM relation WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'
+             AND ((subjekt_id=p_a AND objekt_id=p_b) OR (subjekt_id=p_b AND objekt_id=p_a))) THEN
+    RAISE EXCEPTION 'ikke_samme_som: parret (%,%) er allerede linket som samme_som — fjern linket først', p_a, p_b;
+  END IF;
+  PERFORM begin_change_set('red_ikke_samme_som',
+    format('Markerede person %s og %s som forskellige', v_lo, v_hi), 'person', v_lo);
+  INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM relation), 'person', v_lo, 'person', v_hi, 'ikke_samme_som')
+    RETURNING id INTO v_rel;
+  INSERT INTO assertion(id, target_type, target_id, vaerdi_tekst)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM assertion), 'relation', v_rel, 'ikke_samme_som')
+    RETURNING id INTO v_ass;
+  INSERT INTO conclusion(id, target_type, target_id, valgt_assertion_id, status, blaastemplet_af)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM conclusion), 'relation', v_rel, v_ass, 'afklaret',
+            'redaktionel identitets-afvisning');
+  RETURN v_rel;
+END $$;
+
+-- Fjern en identitets-afvisning. Egen change_set; genbruger den FK-ordnede evidens-sletning.
+CREATE OR REPLACE FUNCTION red_fjern_ikke_samme_som(p_relation_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM relation WHERE id=p_relation_id AND rolle='ikke_samme_som'
+                AND subjekt_type='person' AND objekt_type='person') THEN
+    RAISE EXCEPTION 'Relation % er ikke et person→person ikke_samme_som-spor', p_relation_id;
+  END IF;
+  PERFORM begin_change_set('red_fjern_ikke_samme_som', format('Fjernede ikke_samme_som-spor %s', p_relation_id), NULL, NULL);
+  PERFORM _delete_relation_evidence(p_relation_id);
 END $$;
 
 -- Valideret + idempotent tilføj af person↔org/estate-relation (erstatter rå red_relation for UI).

@@ -59,8 +59,10 @@ tryCatch({
       VALUES ('ba4ce28d-42a0-48af-a47c-773c26934236','redaktion','johan@reventlow.dk')
       ON CONFLICT (id) DO UPDATE SET rolle='redaktion', email=EXCLUDED.email")
 
-  # ---- 3) 'samme_som'-rolle i vokabular (idempotent) ----
+  # ---- 3) 'samme_som'/'ikke_samme_som'-roller i vokabular (idempotent) ----
   ex("INSERT INTO vocab (scheme, code, label) VALUES ('rolle','samme_som','samme person som')
+      ON CONFLICT (scheme, code) DO NOTHING")
+  ex("INSERT INTO vocab (scheme, code, label) VALUES ('rolle','ikke_samme_som','bekræftet forskellig person fra')
       ON CONFLICT (scheme, code) DO NOTHING")
 
   # ---- 4) grundlægger-identitets-links (evidenslag, idempotent) ----

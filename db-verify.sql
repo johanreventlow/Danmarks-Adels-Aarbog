@@ -1106,3 +1106,61 @@ BEGIN
   DELETE FROM auth.users WHERE id IN ('00000000-0000-0000-0000-0000000000a1','00000000-0000-0000-0000-0000000000a2');
   RAISE NOTICE 'OK: bookmark RLS-isolation (egen-læs, fremmed-skriv afvist, anon blokeret) + cascade + dubletsikring';
 END $$;
+
+-- ===== ikke_samme_som — persisteret identitets-afvisning (tværudgave-spec §4) =====
+-- Kræver redaktion-kontekst (auth.uid() → redaktion-profil). Lokalt: sæt
+-- request.jwt.claim.sub; i Supabase SQL Editor kør som funktionsejer (jf. Task 4-note).
+SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001', false);
+DO $$
+DECLARE r_ikke bigint; r_samme bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN
+    RAISE NOTICE 'SPRINGER OVER ikke_samme_som-verify: ikke redaktion-kontekst'; RETURN; END IF;
+  INSERT INTO person(id, levende, koen) VALUES (-1001,false,'mand'),(-1002,false,'kvinde') ON CONFLICT (id) DO NOTHING;
+
+  -- evidens-triple + normalisering + INGEN citation
+  r_ikke := red_ikke_samme_som(-1001,-1002);
+  IF NOT EXISTS(SELECT 1 FROM relation WHERE id=r_ikke AND rolle='ikke_samme_som'
+      AND subjekt_id=least(-1001,-1002) AND objekt_id=greatest(-1001,-1002))
+     OR NOT EXISTS(SELECT 1 FROM assertion WHERE target_type='relation' AND target_id=r_ikke)
+     OR NOT EXISTS(SELECT 1 FROM conclusion WHERE target_type='relation' AND target_id=r_ikke AND status='afklaret')
+     OR EXISTS(SELECT 1 FROM citation WHERE assertion_id IN (SELECT id FROM assertion WHERE target_type='relation' AND target_id=r_ikke))
+  THEN RAISE EXCEPTION 'ikke_samme_som: evidens-triple/normalisering/citation-fri fejlede'; END IF;
+
+  -- idempotens begge retninger
+  IF red_ikke_samme_som(-1002,-1001) <> r_ikke THEN RAISE EXCEPTION 'ikke_samme_som: idempotens fejlede'; END IF;
+
+  -- self afvist
+  BEGIN PERFORM red_ikke_samme_som(-1001,-1001); RAISE EXCEPTION 'self ikke afvist';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%sig selv%' THEN RAISE; END IF; END;
+
+  -- kontradiktion begge veje
+  PERFORM red_fjern_ikke_samme_som(r_ikke);
+  r_samme := red_samme_som(-1001,-1002);
+  BEGIN PERFORM red_ikke_samme_som(-1001,-1002); RAISE EXCEPTION 'samme_som→ikke ikke fanget';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%allerede linket som samme_som%' THEN RAISE; END IF; END;
+  PERFORM red_fjern_samme_som(r_samme);
+  r_ikke := red_ikke_samme_som(-1001,-1002);
+  BEGIN PERFORM red_samme_som(-1001,-1002); RAISE EXCEPTION 'ikke→samme ikke fanget';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%markeret ikke_samme_som%' THEN RAISE; END IF; END;
+
+  -- red_relation-guard + fjern sletter evidens
+  BEGIN PERFORM red_relation('person',-1001,'person',-1002,'ikke_samme_som'); RAISE EXCEPTION 'red_relation tillod ikke_samme_som';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%red_ikke_samme_som%' THEN RAISE; END IF; END;
+  PERFORM red_fjern_ikke_samme_som(r_ikke);
+  IF EXISTS(SELECT 1 FROM relation WHERE id=r_ikke) THEN RAISE EXCEPTION 'fjern slettede ikke relationen'; END IF;
+
+  DELETE FROM person WHERE id IN (-1001,-1002);
+  RAISE NOTICE 'OK: ikke_samme_som (evidens-triple, idempotens, self, kontradiktion begge veje, red_relation-guard, fjern)';
+END $$;
+
+-- drift-assert: intet person-par har BÅDE samme_som og ikke_samme_som
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM relation s JOIN relation i
+      ON i.rolle='ikke_samme_som' AND s.rolle='samme_som'
+     AND least(s.subjekt_id,s.objekt_id)=i.subjekt_id AND greatest(s.subjekt_id,s.objekt_id)=i.objekt_id
+    WHERE s.subjekt_type='person' AND s.objekt_type='person')
+  THEN RAISE EXCEPTION 'DRIFT: par med både samme_som og ikke_samme_som'; END IF;
+  RAISE NOTICE 'OK: ingen samme_som/ikke_samme_som-drift';
+END $$;
+SELECT set_config('request.jwt.claim.sub','', false);
