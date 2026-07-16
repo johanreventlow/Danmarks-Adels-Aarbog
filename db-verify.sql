@@ -1430,3 +1430,24 @@ BEGIN
   RAISE NOTICE 'OK: forældre-backfill-komplethed + P1-drift (alle barn-rækker slot-dækket, projektion konsistent; % åbne konflikter i red_foraeldre_konflikt)', v_multi;
 END $$;
 SELECT set_config('request.jwt.claim.sub','', false);
+
+-- ===== Sikkerheds-hærdning: interne _-helpers ikke anon-kaldbare (review 30/fable) =====
+DO $$
+DECLARE fn text; v_bad text := '';
+BEGIN
+  FOREACH fn IN ARRAY ARRAY[
+    '_delete_relation_evidence(bigint)','_version_upsert_row(text, jsonb)','_version_delete_row(text, jsonb)',
+    '_row_pk(text, jsonb)','_version_pk_where(text, jsonb)','_version_current_row(text, jsonb)']
+  LOOP
+    IF has_function_privilege('anon', fn, 'EXECUTE') OR has_function_privilege('authenticated', fn, 'EXECUTE') THEN
+      v_bad := v_bad || fn || ' ';
+    END IF;
+  END LOOP;
+  IF v_bad <> '' THEN RAISE EXCEPTION 'Sikkerhed: anon/authenticated har EXECUTE på interne helper(e): %', v_bad; END IF;
+  -- _delete_relation_evidence har DESUDEN en rolle-guard (belt-and-suspenders)
+  BEGIN PERFORM set_config('request.jwt.claim.sub','',true); PERFORM _delete_relation_evidence(-999999);
+    RAISE EXCEPTION 'Sikkerhed: _delete_relation_evidence-guard fyrede ikke';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%relations-slet-helper%' THEN RAISE; END IF; END;
+  -- _regen_mentions_for er BEVIDST ikke revoked (SECURITY INVOKER-trigger kalder den som skriveren)
+  RAISE NOTICE 'OK: interne _-helpers ikke anon-kaldbare (REVOKE + guard); _regen_mentions_for bevidst undtaget';
+END $$;

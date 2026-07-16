@@ -547,6 +547,22 @@ REVOKE EXECUTE ON FUNCTION _subjekt_synlighed(text, bigint),
                            begin_change_set(text, text, text, bigint)
   FROM PUBLIC, anon, authenticated;
 
+-- 2026-07-16 (sikkerheds-hærdning, review 30/fable-fund): resten af de interne _-helpers er IKKE
+-- API-endpoints. Supabase-default-grants eksponerer ALLE public-funktioner for anon/authenticated via
+-- PostgREST → uatoriseret kald af muterende helpers (fx _delete_relation_evidence sletter relations-
+-- evidens som EJER, omgår RLS). Kaldes kun fra gatede SECURITY DEFINER red_*-funktioner / red_fortryd
+-- (kører som ejer → beholder EXECUTE). _delete_relation_evidence har DESUDEN en current_rolle()-guard
+-- (belt-and-suspenders). UNDTAGET _regen_mentions_for: kaldes af en SECURITY INVOKER-trigger som
+-- SKRIVEREN → REVOKE ville bryde authenticated-redaktørers narrative/note-skrivninger.
+REVOKE EXECUTE ON FUNCTION
+  _delete_relation_evidence(bigint),
+  _row_pk(text, jsonb),
+  _version_pk_where(text, jsonb),
+  _version_current_row(text, jsonb),
+  _version_upsert_row(text, jsonb),
+  _version_delete_row(text, jsonb)
+  FROM PUBLIC, anon, authenticated;
+
 -- 2026-07-03: udledt slægtsnavn — slaegtsnavn_karantaene er en ren intern log skrevet af
 -- regen_person_visning() (ejeren bypasser RLS ved interne kald); ingen redaktør-UI læser den
 -- endnu (spec §6, bevidst udskudt) → deny-all, samme mønster som version_pk_registry.
