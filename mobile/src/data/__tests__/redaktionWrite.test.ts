@@ -308,3 +308,22 @@ test('erFortrydKonflikt: matcher en statisk kopi af DB-RAISE-teksten (red_fortry
   expect(erFortrydKonflikt("FEJL: nyere ændring rører fact/{\"id\":1} — afvist (brug force)")).toBe(true);
   expect(erFortrydKonflikt('FEJL: change_set 12 er allerede fortrudt')).toBe(false);
 });
+
+describe('buildRpcCall — forældrefamilie (Problem 2)', () => {
+  it('foraeldrePaastand → red_tilfoej_foraeldre_paastand med alle valgfrie args', () => {
+    expect(buildRpcCall({ art: 'foraeldrePaastand', subjektType: 'person', subjektId: '50',
+      payload: { barnId: 50, familyId: 12, sourceId: 3, side: 's.490', citat: 'udg. citat' } })).toEqual({
+      fn: 'red_tilfoej_foraeldre_paastand', args: { p_barn_id: 50, p_family_id: 12, p_source_id: 3, p_side: 's.490', p_citat: 'udg. citat' } });
+  });
+  it('foraeldrePaastand minimal → kun p_barn_id/p_family_id', () => {
+    expect(buildRpcCall({ art: 'foraeldrePaastand', subjektType: 'person', subjektId: '50',
+      payload: { barnId: 50, familyId: 12 } })).toEqual({ fn: 'red_tilfoej_foraeldre_paastand', args: { p_barn_id: 50, p_family_id: 12 } });
+  });
+  it('vaelgForaeldre → red_vaelg_foraeldre(p_assertion_id, p_konfidens)', () => {
+    expect(buildRpcCall({ art: 'vaelgForaeldre', subjektType: 'person', subjektId: '50',
+      payload: { assertionId: 88, konfidens: 'sikker' } })).toEqual({ fn: 'red_vaelg_foraeldre', args: { p_assertion_id: 88, p_konfidens: 'sikker' } });
+  });
+  it('vaelgForaeldre uden assertion → null', () => {
+    expect(buildRpcCall({ art: 'vaelgForaeldre', subjektType: 'person', subjektId: '50', payload: {} } as never)).toBeNull();
+  });
+});

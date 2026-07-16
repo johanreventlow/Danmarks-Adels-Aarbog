@@ -2382,3 +2382,135 @@ BEGIN
   WHERE f.subjekt_type='person' AND f.faktatype='forældrefamilie'
     AND NOT EXISTS (SELECT 1 FROM conclusion c WHERE c.target_type='fact' AND c.target_id=f.id);
 END $$;
+
+-- =====================================================================
+-- 2026-07-16: review 30 (dual-review Problem 2) — slot-vedligehold på ALLE strukturelle
+-- family_member-skrive-veje (B1+B2). De tre mutatorer var opdateret asymmetrisk: kun
+-- red_flyt_barn vedligeholdt forældrefamilie-slottet. red_tilfoej_barn (nyt barn) efterlod en
+-- slotløs barn-række (backfill-komplethed-brud); red_slet_familie_link (fjern barn) efterlod et
+-- forældreløst afklaret slot (P1-drift). Delt helper _ensure_foraeldrefamilie_redaktionel + retraktion.
+-- =====================================================================
+
+-- Helper: sikr at barnets forældrefamilie-slot findes og peger afklaret på p_family (via en
+-- find-or-created redaktionel assertion). Idempotent. Intern (kaldes kun fra gated red_*-funktioner).
+CREATE OR REPLACE FUNCTION _ensure_foraeldrefamilie_redaktionel(p_barn bigint, p_family bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_slot bigint; v_assert bigint;
+BEGIN
+  SELECT id INTO v_slot FROM fact
+    WHERE subjekt_type='person' AND subjekt_id=p_barn AND faktatype='forældrefamilie' LIMIT 1;
+  IF v_slot IS NULL THEN
+    INSERT INTO fact(id, subjekt_type, subjekt_id, faktatype)
+      VALUES ((SELECT coalesce(max(id),0)+1 FROM fact), 'person', p_barn, 'forældrefamilie') RETURNING id INTO v_slot;
+  END IF;
+  -- Find KUN en redaktionel (source-løs) assertion for familien — kapr aldrig en source-bunden
+  -- rival-/adjudikeret påstand (review 30/Codex #5). Ordnet for determinisme.
+  SELECT a.id INTO v_assert FROM assertion a
+    WHERE a.target_type='fact' AND a.target_id=v_slot AND a.objekt_type='family' AND a.objekt_id=p_family
+      AND NOT EXISTS(SELECT 1 FROM citation c WHERE c.assertion_id=a.id AND c.source_id IS NOT NULL)
+    ORDER BY a.id LIMIT 1;
+  IF v_assert IS NULL THEN
+    INSERT INTO assertion(id, target_type, target_id, vaerdi_tekst, objekt_type, objekt_id, uforanderlig)
+      VALUES ((SELECT coalesce(max(id),0)+1 FROM assertion), 'fact', v_slot, 'barn', 'family', p_family, true) RETURNING id INTO v_assert;
+    INSERT INTO citation(id, assertion_id, source_id, citat_tekst, kvalitet)
+      VALUES ((SELECT coalesce(max(id),0)+1 FROM citation), v_assert, NULL, '(kilde mangler: strukturel projektion)', 'sekundær');
+  END IF;
+  INSERT INTO conclusion(id, target_type, target_id, valgt_assertion_id, status, blaastemplet_af, blaastemplet_naar)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM conclusion), 'fact', v_slot, v_assert, 'afklaret', 'Redaktør (strukturel)', current_date)
+    ON CONFLICT (target_type, target_id)
+    DO UPDATE SET valgt_assertion_id=excluded.valgt_assertion_id, status='afklaret', blaastemplet_naar=current_date;
+END $$;
+
+-- red_slet_familie_link: retraktér slottet når en 'barn'-række fjernes (B1). Kun hvis det afklarede
+-- slot faktisk peger på DEN fjernede familie → red_flyt_barns interne slet (slot peger allerede på
+-- til efter red_vaelg_foraeldres re-peg) rører den ikke.
+CREATE OR REPLACE FUNCTION red_slet_familie_link(p_family_id bigint, p_person_id bigint, p_rolle text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_slet_familie_link', format('Slettede familie-link %s/%s/%s', p_family_id, p_person_id, p_rolle), 'person', p_person_id);
+  DELETE FROM family_member WHERE family_id=p_family_id AND person_id=p_person_id AND rolle=p_rolle;
+  IF p_rolle = 'barn' THEN
+    UPDATE conclusion c SET status='tilbagetrukket', blaastemplet_naar=current_date
+    FROM fact f, assertion a
+    WHERE f.subjekt_type='person' AND f.subjekt_id=p_person_id AND f.faktatype='forældrefamilie'
+      AND c.target_type='fact' AND c.target_id=f.id AND c.status='afklaret'
+      AND a.id=c.valgt_assertion_id AND a.objekt_id=p_family_id;
+  END IF;
+END $$;
+
+-- red_tilfoej_barn: find-or-create slot når et GENUINT nyt barn tilføjes (B2). Kun når personen
+-- ikke allerede har et slot (red_flyt_barn/red_vaelg_foraeldre håndterer slottet selv → skip).
+CREATE OR REPLACE FUNCTION red_tilfoej_barn(p_family_id bigint, p_barn_id bigint, p_rolle text DEFAULT 'barn', p_konfidens text DEFAULT NULL)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_cyklus boolean;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_tilfoej_barn', format('Tilføjede barn %s til familie %s', p_barn_id, p_family_id), 'person', p_barn_id);
+  IF NOT EXISTS(SELECT 1 FROM family WHERE id=p_family_id) THEN RAISE EXCEPTION 'Familie % findes ikke', p_family_id; END IF;
+  IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_barn_id) THEN RAISE EXCEPTION 'Person % findes ikke', p_barn_id; END IF;
+  IF p_rolle NOT IN ('barn','adopteret_barn','plejebarn','stedbarn') THEN RAISE EXCEPTION 'Ugyldig barn-rolle %', p_rolle; END IF;
+  IF p_konfidens IS NOT NULL AND p_konfidens NOT IN ('sikker','sandsynlig','formodet','omstridt')
+    THEN RAISE EXCEPTION 'Ugyldig konfidens %', p_konfidens; END IF;
+  IF EXISTS(SELECT 1 FROM family_member WHERE family_id=p_family_id AND person_id=p_barn_id AND rolle='partner')
+    THEN RAISE EXCEPTION 'Person % er partner i familie % — kan ikke også være barn', p_barn_id, p_family_id; END IF;
+  IF p_rolle = 'barn' AND EXISTS(SELECT 1 FROM family_member
+       WHERE person_id=p_barn_id AND rolle='barn' AND family_id <> p_family_id) THEN
+    RAISE EXCEPTION 'Person % har allerede en fødselsfamilie — brug red_flyt_barn eller forældre-påstands-flowet', p_barn_id;
+  END IF;
+  WITH RECURSIVE efterkommere(pid) AS (
+    SELECT p_barn_id
+    UNION
+    SELECT b.person_id FROM efterkommere e
+      JOIN family_member par ON par.person_id = e.pid AND par.rolle = 'partner'
+      JOIN family_member b   ON b.family_id = par.family_id
+        AND b.rolle IN ('barn','adopteret_barn','plejebarn','stedbarn')
+  )
+  SELECT EXISTS(
+    SELECT 1 FROM family_member fp
+    WHERE fp.family_id = p_family_id AND fp.rolle='partner' AND fp.person_id IN (SELECT pid FROM efterkommere)
+  ) INTO v_cyklus;
+  IF v_cyklus THEN RAISE EXCEPTION 'Cyklus: barn % er ane til en partner i familie %', p_barn_id, p_family_id; END IF;
+  IF EXISTS(SELECT 1 FROM family_member WHERE family_id=p_family_id AND person_id=p_barn_id AND rolle=p_rolle) THEN RETURN; END IF;
+  INSERT INTO family_member(family_id, person_id, rolle, ordinal, konfidens)
+    VALUES (p_family_id, p_barn_id, p_rolle, NULL, p_konfidens);
+  -- Slot-komplethed (review 30/Codex #1): sikr et AFKLARET slot mod p_family. Dækker nyt barn (intet
+  -- slot), delete→re-add (retrakteret slot) og slot der peger forkert. No-op når red_vaelg/red_flyt
+  -- allerede pegede slottet på p_family (bevar deres valgte, source-bundne assertion).
+  IF p_rolle = 'barn' AND NOT EXISTS(
+       SELECT 1 FROM fact f
+       JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id AND c.status='afklaret'
+       JOIN assertion a ON a.id=c.valgt_assertion_id
+       WHERE f.subjekt_type='person' AND f.subjekt_id=p_barn_id AND f.faktatype='forældrefamilie'
+         AND a.objekt_id=p_family_id) THEN
+    PERFORM _ensure_foraeldrefamilie_redaktionel(p_barn_id, p_family_id);
+  END IF;
+END $$;
+
+-- red_flyt_barn: slot-vedligehold gennem den delte helper. Re-etablér slottet til til-familien
+-- MEDMINDRE det allerede peger dertil (red_vaelg_foraeldre re-pegede FØR flyt → bevar dens valgte,
+-- source-bundne assertion). Håndterer også retraktion fra det interne red_slet_familie_link + omstridt.
+CREATE OR REPLACE FUNCTION red_flyt_barn(p_fra_family_id bigint, p_til_family_id bigint, p_barn_id bigint, p_rolle text DEFAULT 'barn')
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_konfidens text; v_slot_fact bigint; v_slot_family bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_flyt_barn', format('Flyttede barn %s fra familie %s til familie %s', p_barn_id, p_fra_family_id, p_til_family_id), 'person', p_barn_id);
+  IF p_fra_family_id = p_til_family_id THEN RAISE EXCEPTION 'Fra- og til-familie er ens'; END IF;
+  SELECT konfidens INTO v_konfidens FROM family_member
+    WHERE family_id=p_fra_family_id AND person_id=p_barn_id AND rolle=p_rolle;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Barn-link findes ikke (family %, person %, rolle %)', p_fra_family_id, p_barn_id, p_rolle; END IF;
+  PERFORM red_slet_familie_link(p_fra_family_id, p_barn_id, p_rolle);
+  PERFORM red_tilfoej_barn(p_til_family_id, p_barn_id, p_rolle, v_konfidens);
+  IF p_rolle = 'barn' THEN
+    SELECT f.id INTO v_slot_fact FROM fact f
+      WHERE f.subjekt_type='person' AND f.subjekt_id=p_barn_id AND f.faktatype='forældrefamilie' LIMIT 1;
+    IF v_slot_fact IS NOT NULL THEN
+      SELECT a.objekt_id INTO v_slot_family FROM conclusion c JOIN assertion a ON a.id=c.valgt_assertion_id
+        WHERE c.target_type='fact' AND c.target_id=v_slot_fact AND c.status='afklaret';
+      IF v_slot_family IS DISTINCT FROM p_til_family_id THEN  -- peger ikke (længere) på til → re-etablér redaktionelt
+        PERFORM _ensure_foraeldrefamilie_redaktionel(p_barn_id, p_til_family_id);
+      END IF;
+    END IF;
+  END IF;
+END $$;

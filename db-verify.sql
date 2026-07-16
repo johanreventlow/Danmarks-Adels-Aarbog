@@ -1342,6 +1342,61 @@ BEGIN
   RAISE NOTICE 'OK: forældre-undo (fortryd genoprettede barn-række + conclusion, ingen EXCLUDE-brud under replay)';
 END $$;
 
+-- ===== Problem 2 — slot-vedligehold på ALLE strukturelle mutatorer (review 30, B1+B2) =====
+-- red_tilfoej_barn (nyt barn) opretter slot; red_slet_familie_link (fjern barn) retrakterer;
+-- red_flyt_barn følger slottet — så P1/komplethed holder for alle skrive-veje (§2 "ALLE skrive-veje").
+DO $$
+DECLARE v_fam bigint; v_slot bigint; v_status text;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE NOTICE 'SPRINGER OVER mutator-slot-vedligehold: ikke redaktion'; RETURN; END IF;
+  DELETE FROM conclusion WHERE target_type='fact' AND target_id IN (SELECT id FROM fact WHERE subjekt_type='person' AND subjekt_id IN (-6001,-6002));
+  DELETE FROM citation WHERE assertion_id IN (SELECT id FROM assertion WHERE target_type='fact' AND target_id IN (SELECT id FROM fact WHERE subjekt_type='person' AND subjekt_id IN (-6001,-6002)));
+  DELETE FROM assertion WHERE target_type='fact' AND target_id IN (SELECT id FROM fact WHERE subjekt_type='person' AND subjekt_id IN (-6001,-6002));
+  DELETE FROM fact WHERE subjekt_type='person' AND subjekt_id IN (-6001,-6002);
+  DELETE FROM family_member WHERE person_id IN (-6001,-6002,-6003,-6004,-6005,-6006) OR family_id IN (-6101,-6102);
+  DELETE FROM family WHERE id IN (-6101,-6102); DELETE FROM person WHERE id IN (-6001,-6002,-6003,-6004,-6005,-6006);
+  INSERT INTO person(id,levende) VALUES (-6001,false),(-6002,false),(-6003,false),(-6004,false),(-6005,false),(-6006,false);
+  INSERT INTO family(id,type) VALUES (-6101,'vielse'),(-6102,'vielse');
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES (-6101,-6003,'partner'),(-6101,-6004,'partner'),(-6102,-6005,'partner'),(-6102,-6006,'partner');
+
+  -- (B2) genuint nyt barn via red_tilfoej_barn → slot oprettet afklaret→familien
+  PERFORM red_tilfoej_barn(-6101,-6001);
+  SELECT f.id INTO v_slot FROM fact f WHERE f.subjekt_type='person' AND f.subjekt_id=-6001 AND f.faktatype='forældrefamilie';
+  IF v_slot IS NULL THEN RAISE EXCEPTION 'B2: nyt barn fik intet slot'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM conclusion c JOIN assertion a ON a.id=c.valgt_assertion_id
+    WHERE c.target_type='fact' AND c.target_id=v_slot AND c.status='afklaret' AND a.objekt_id=-6101)
+  THEN RAISE EXCEPTION 'B2: slot ikke afklaret→rette familie'; END IF;
+
+  -- (flyt) strukturel red_flyt_barn → slot følger til -6102
+  PERFORM red_flyt_barn(-6101,-6102,-6001);
+  SELECT a.objekt_id INTO v_fam FROM conclusion c JOIN assertion a ON a.id=c.valgt_assertion_id
+    WHERE c.target_type='fact' AND c.target_id=v_slot AND c.status='afklaret';
+  IF v_fam <> -6102 THEN RAISE EXCEPTION 'flyt: slot fulgte ikke til til-familien (fik %)', v_fam; END IF;
+  IF (SELECT family_id FROM family_member WHERE person_id=-6001 AND rolle='barn') <> -6102 THEN RAISE EXCEPTION 'flyt: barn-række ikke flyttet'; END IF;
+
+  -- (B1) fjern barn-række via red_slet_familie_link → slot retrakteret (ikke forældreløst afklaret)
+  PERFORM red_slet_familie_link(-6102,-6001,'barn');
+  SELECT status INTO v_status FROM conclusion WHERE target_type='fact' AND target_id=v_slot;
+  IF v_status <> 'tilbagetrukket' THEN RAISE EXCEPTION 'B1: slot ikke retrakteret efter barn-slet (status=%)', v_status; END IF;
+
+  -- (Codex #1) delete→re-add: retrakteret slot genoprettes til afklaret (ikke slotløs)
+  PERFORM red_tilfoej_barn(-6102,-6001);
+  SELECT status INTO v_status FROM conclusion WHERE target_type='fact' AND target_id=v_slot;
+  IF v_status <> 'afklaret' THEN RAISE EXCEPTION 'Codex #1: slot ikke genoprettet afklaret ved re-add (status=%)', v_status; END IF;
+  IF EXISTS(SELECT 1 FROM family_member fm WHERE fm.rolle='barn' AND fm.person_id=-6001
+    AND NOT EXISTS(SELECT 1 FROM fact f JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id AND c.status IN ('afklaret','omstridt')
+                   WHERE f.subjekt_type='person' AND f.subjekt_id=fm.person_id AND f.faktatype='forældrefamilie'))
+  THEN RAISE EXCEPTION 'Codex #1: slotløs barn-række efter re-add'; END IF;
+
+  DELETE FROM conclusion WHERE target_type='fact' AND target_id IN (SELECT id FROM fact WHERE subjekt_type='person' AND subjekt_id IN (-6001,-6002));
+  DELETE FROM citation WHERE assertion_id IN (SELECT id FROM assertion WHERE target_type='fact' AND target_id IN (SELECT id FROM fact WHERE subjekt_type='person' AND subjekt_id IN (-6001,-6002)));
+  DELETE FROM assertion WHERE target_type='fact' AND target_id IN (SELECT id FROM fact WHERE subjekt_type='person' AND subjekt_id IN (-6001,-6002));
+  DELETE FROM fact WHERE subjekt_type='person' AND subjekt_id IN (-6001,-6002);
+  DELETE FROM family_member WHERE person_id IN (-6001,-6002,-6003,-6004,-6005,-6006) OR family_id IN (-6101,-6102);
+  DELETE FROM family WHERE id IN (-6101,-6102); DELETE FROM person WHERE id IN (-6001,-6002,-6003,-6004,-6005,-6006);
+  RAISE NOTICE 'OK: mutator-slot-vedligehold (B2 tilføj→opret, flyt→følg, B1 slet→retrakter, delete→re-add→afklaret)';
+END $$;
+
 -- ===== Problem 2 — global backfill-komplethed + P1-drift-fanger =====
 -- Gated: kun meningsfuld på en base hvor forældre-backfillen ER kørt (≥1 slot). På en ikke-backfyldt
 -- base (fx frisk daa_test2) springes den over. Bemærk: dette verificerer STRUKTUR (slot+valgt+projektion);

@@ -19,6 +19,7 @@ export type Change = {
      | 'setFamilieOrdinal' | 'flytBarn'
      | 'sammeSom' | 'fjernSammeSom' // redaktionel identitets-sammenkædning (samme_som)
      | 'ikkeSammeSom' | 'fjernIkkeSammeSom' // persisteret identitets-afvisning (tværudgave §4)
+     | 'foraeldrePaastand' | 'vaelgForaeldre' // konkurrerende forældrefamilie-påstande (Problem 2)
      | 'markerForaeldreUkendt' // "forældre ukendt"-markering (docs/reviews/25); fjern = 'tilbagetraekFakta'
      | 'tilbagetraekFakta' // tilbagetræk et fakta-slots konklusion (fjern markering korrekt — review 26 HIGH 2)
      | 'opretKilde' // opret ny source (DAA-udgave) — routes gennem submitChange (dry-run/staging)
@@ -194,6 +195,23 @@ export function buildRpcCall(c: Change): RpcCall | null {
   if (c.art === 'fjernIkkeSammeSom') {
     if (c.relationId == null) return null;
     return { fn: 'red_fjern_ikke_samme_som', args: { p_relation_id: Number(c.relationId) } };
+  }
+  if (c.art === 'foraeldrePaastand') { // registrér en udgaves forældrefamilie-påstand (Problem 2)
+    const p = c.payload || {};
+    if (p.barnId == null || p.familyId == null) return null;
+    const args: Record<string, unknown> = { p_barn_id: Number(p.barnId), p_family_id: Number(p.familyId) };
+    if (p.sourceId != null) args.p_source_id = Number(p.sourceId);
+    if (p.side != null) args.p_side = String(p.side);
+    if (p.citat != null) args.p_citat = String(p.citat);
+    if (p.kildeFritekst != null) args.p_kilde_fritekst = String(p.kildeFritekst);
+    return { fn: 'red_tilfoej_foraeldre_paastand', args };
+  }
+  if (c.art === 'vaelgForaeldre') { // adjudikér den kanoniske forældrefamilie (Problem 2)
+    const p = c.payload || {};
+    if (p.assertionId == null) return null;
+    const args: Record<string, unknown> = { p_assertion_id: Number(p.assertionId) };
+    if (p.konfidens != null) args.p_konfidens = String(p.konfidens);
+    return { fn: 'red_vaelg_foraeldre', args };
   }
   if (c.art === 'flytBarn') {
     if (c.familyId == null || c.tilFamilyId == null || c.personId == null || !c.rolle) return null;

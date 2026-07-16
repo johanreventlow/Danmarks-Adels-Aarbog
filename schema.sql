@@ -1170,12 +1170,52 @@ END $$;
 -- Slet ÉT familie-link. INGEN family-entitets-sletning (Codex H1): family bærer facts/notes uden FK.
 -- Idempotent: no-op (ingen RAISE) hvis triplen ikke findes — tilsigtet, matcher red_slet_relation/red_slet_person
 --   (UI sender altid friskt-hentede triples; cycle 07 H4).
+-- Helper (Problem 2, review 30): sikr at barnets forældrefamilie-slot findes og peger afklaret på
+-- p_family (via en find-or-created redaktionel assertion). Idempotent; intern (kaldes kun fra gated red_*).
+CREATE OR REPLACE FUNCTION _ensure_foraeldrefamilie_redaktionel(p_barn bigint, p_family bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_slot bigint; v_assert bigint;
+BEGIN
+  SELECT id INTO v_slot FROM fact
+    WHERE subjekt_type='person' AND subjekt_id=p_barn AND faktatype='forældrefamilie' LIMIT 1;
+  IF v_slot IS NULL THEN
+    INSERT INTO fact(id, subjekt_type, subjekt_id, faktatype)
+      VALUES ((SELECT coalesce(max(id),0)+1 FROM fact), 'person', p_barn, 'forældrefamilie') RETURNING id INTO v_slot;
+  END IF;
+  -- Find KUN en redaktionel (source-løs) assertion for familien — kapr aldrig en source-bunden
+  -- rival-/adjudikeret påstand (review 30/Codex #5). Ordnet for determinisme.
+  SELECT a.id INTO v_assert FROM assertion a
+    WHERE a.target_type='fact' AND a.target_id=v_slot AND a.objekt_type='family' AND a.objekt_id=p_family
+      AND NOT EXISTS(SELECT 1 FROM citation c WHERE c.assertion_id=a.id AND c.source_id IS NOT NULL)
+    ORDER BY a.id LIMIT 1;
+  IF v_assert IS NULL THEN
+    INSERT INTO assertion(id, target_type, target_id, vaerdi_tekst, objekt_type, objekt_id, uforanderlig)
+      VALUES ((SELECT coalesce(max(id),0)+1 FROM assertion), 'fact', v_slot, 'barn', 'family', p_family, true) RETURNING id INTO v_assert;
+    INSERT INTO citation(id, assertion_id, source_id, citat_tekst, kvalitet)
+      VALUES ((SELECT coalesce(max(id),0)+1 FROM citation), v_assert, NULL, '(kilde mangler: strukturel projektion)', 'sekundær');
+  END IF;
+  INSERT INTO conclusion(id, target_type, target_id, valgt_assertion_id, status, blaastemplet_af, blaastemplet_naar)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM conclusion), 'fact', v_slot, v_assert, 'afklaret', 'Redaktør (strukturel)', current_date)
+    ON CONFLICT (target_type, target_id)
+    DO UPDATE SET valgt_assertion_id=excluded.valgt_assertion_id, status='afklaret', blaastemplet_naar=current_date;
+END $$;
+
 CREATE OR REPLACE FUNCTION red_slet_familie_link(p_family_id bigint, p_person_id bigint, p_rolle text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   PERFORM begin_change_set('red_slet_familie_link', format('Slettede familie-link %s/%s/%s', p_family_id, p_person_id, p_rolle), 'person', p_person_id);
   DELETE FROM family_member WHERE family_id=p_family_id AND person_id=p_person_id AND rolle=p_rolle;
+  -- Slot-retraktion (Problem 2, review 30 B1): en fjernet 'barn'-række må ikke efterlade et
+  -- forældreløst afklaret slot. Kun hvis slottet faktisk peger på DEN fjernede familie (red_flyt_barns
+  -- interne slet rører intet, da slottet dér allerede peger på til efter red_vaelg_foraeldres re-peg).
+  IF p_rolle = 'barn' THEN
+    UPDATE conclusion c SET status='tilbagetrukket', blaastemplet_naar=current_date
+    FROM fact f, assertion a
+    WHERE f.subjekt_type='person' AND f.subjekt_id=p_person_id AND f.faktatype='forældrefamilie'
+      AND c.target_type='fact' AND c.target_id=f.id AND c.status='afklaret'
+      AND a.id=c.valgt_assertion_id AND a.objekt_id=p_family_id;
+  END IF;
 END $$;
 
 -- Tilføj barn til en union. Struktur-guards (Codex H3): barn ≠ partner i samme family;
@@ -1220,6 +1260,17 @@ BEGIN
   IF EXISTS(SELECT 1 FROM family_member WHERE family_id=p_family_id AND person_id=p_barn_id AND rolle=p_rolle) THEN RETURN; END IF;
   INSERT INTO family_member(family_id, person_id, rolle, ordinal, konfidens)
     VALUES (p_family_id, p_barn_id, p_rolle, NULL, p_konfidens);
+  -- Slot-komplethed (review 30/Codex #1): sikr et AFKLARET slot mod p_family. Dækker nyt barn (intet
+  -- slot), delete→re-add (retrakteret slot) og slot der peger forkert. No-op når red_vaelg/red_flyt
+  -- allerede pegede slottet på p_family (bevar deres valgte, source-bundne assertion).
+  IF p_rolle = 'barn' AND NOT EXISTS(
+       SELECT 1 FROM fact f
+       JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id AND c.status='afklaret'
+       JOIN assertion a ON a.id=c.valgt_assertion_id
+       WHERE f.subjekt_type='person' AND f.subjekt_id=p_barn_id AND f.faktatype='forældrefamilie'
+         AND a.objekt_id=p_family_id) THEN
+    PERFORM _ensure_foraeldrefamilie_redaktionel(p_barn_id, p_family_id);
+  END IF;
 END $$;
 
 -- Ret ordinal (rækkefølge) på et familie-link. Bruges bl.a. til søskende-visningsrækkefølge
@@ -1248,7 +1299,7 @@ END $$;
 -- nulstilles bevidst ved flytning (søskende-rækkefølge er unions-specifik); konfidens bevares.
 CREATE OR REPLACE FUNCTION red_flyt_barn(p_fra_family_id bigint, p_til_family_id bigint, p_barn_id bigint, p_rolle text DEFAULT 'barn')
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
-DECLARE v_konfidens text; v_slot_fact bigint; v_slot_family bigint; v_new_assert bigint;
+DECLARE v_konfidens text; v_slot_fact bigint; v_slot_family bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   PERFORM begin_change_set('red_flyt_barn', format('Flyttede barn %s fra familie %s til familie %s', p_barn_id, p_fra_family_id, p_til_family_id), 'person', p_barn_id);
@@ -1259,24 +1310,17 @@ BEGIN
   -- delete-før-insert (Problem 2): red_tilfoej_barns fødselsfamilie-prætjek + EXCLUDE ser én 'barn'-række.
   PERFORM red_slet_familie_link(p_fra_family_id, p_barn_id, p_rolle);
   PERFORM red_tilfoej_barn(p_til_family_id, p_barn_id, p_rolle, v_konfidens);
-  -- Slot-vedligehold (invariant P1): direkte strukturel flytning der ikke kom via red_vaelg_foraeldre —
-  -- har barnet et afklaret forældrefamilie-slot der STADIG peger på fra-familien, nedskriv en
-  -- redaktionel påstand (objekt=til) + re-peg, så slot og projektion ikke divergerer.
+  -- Slot-vedligehold (invariant P1, review 30): re-etablér slottet til til-familien MEDMINDRE det
+  -- allerede peger dertil (red_vaelg_foraeldre re-pegede FØR flyt → bevar dens valgte source-bundne
+  -- assertion). Håndterer også retraktion fra det interne red_slet_familie_link + omstridt slot.
   IF p_rolle = 'barn' THEN
     SELECT f.id INTO v_slot_fact FROM fact f
       WHERE f.subjekt_type='person' AND f.subjekt_id=p_barn_id AND f.faktatype='forældrefamilie' LIMIT 1;
     IF v_slot_fact IS NOT NULL THEN
       SELECT a.objekt_id INTO v_slot_family FROM conclusion c JOIN assertion a ON a.id=c.valgt_assertion_id
         WHERE c.target_type='fact' AND c.target_id=v_slot_fact AND c.status='afklaret';
-      IF v_slot_family = p_fra_family_id THEN
-        INSERT INTO assertion(id, target_type, target_id, vaerdi_tekst, objekt_type, objekt_id, uforanderlig)
-          VALUES ((SELECT coalesce(max(id),0)+1 FROM assertion), 'fact', v_slot_fact, 'barn', 'family', p_til_family_id, true)
-          RETURNING id INTO v_new_assert;
-        INSERT INTO citation(id, assertion_id, source_id, citat_tekst, kvalitet)
-          VALUES ((SELECT coalesce(max(id),0)+1 FROM citation), v_new_assert, NULL,
-                  '(kilde mangler: strukturel flytning via red_flyt_barn)', 'sekundær');
-        UPDATE conclusion SET valgt_assertion_id=v_new_assert, blaastemplet_naar=current_date
-          WHERE target_type='fact' AND target_id=v_slot_fact;
+      IF v_slot_family IS DISTINCT FROM p_til_family_id THEN
+        PERFORM _ensure_foraeldrefamilie_redaktionel(p_barn_id, p_til_family_id);
       END IF;
     END IF;
   END IF;

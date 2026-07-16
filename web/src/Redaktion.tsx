@@ -12,6 +12,7 @@ import {
   fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, fetchSammeSomLinks, fetchRedPersonMedia, fetchRedObjectMedia, nudgeOrdinal, fetchForaeldreUkendtMarkering, type RedPerson, type PersonEvidence,
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
   type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia, type ForaeldreUkendtMarkering, SLAEGT_SUBJEKT_ID,
+  fetchForaeldreSlot, fetchForaeldreKonflikter, fetchBarnFamilie, type ForaeldreSlot, type ForaeldreKonflikt, type BarnFamilie,
 } from './data/redaktionRead';
 import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, insertAt, makeToken, previewSammeSom } from '@daa/core';
 import { loadModel } from './data/model';
@@ -52,6 +53,7 @@ const ENTITIES = [
   { key: 'arms', label: 'Våben', icon: '⛨' },
   { key: 'media', label: 'Medier', icon: '▦' },
   { key: 'sammenlign', label: 'Sammenlign udgaver', icon: '⇄' },
+  { key: 'foraeldre-konflikter', label: 'Forældre-konflikter', icon: '⚠' },
 ];
 const FELT_DEFS: [string, string][] = [['navn', 'Navn'], ['foedt', 'Født'], ['doed', 'Død'], ['titel', 'Titel/rang']];
 // UI-entitetsnøgle → DB subjekt_type + primær-felt (til forslag via red_suggest). Eksplicit
@@ -434,9 +436,11 @@ export default function Redaktion() {
       {renderTopBar()}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {renderSidebar()}
-        {entity === 'sammenlign' ? (
+        {entity === 'sammenlign' || entity === 'foraeldre-konflikter' ? (
           <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: T.paper }}>
-            <SammenlignUdgaver role={role} />
+            {entity === 'sammenlign'
+              ? <SammenlignUdgaver role={role} />
+              : <ForaeldreKonflikterListe onOpen={(id) => openRecord('person', id)} />}
           </div>
         ) : (
           <>
@@ -646,6 +650,7 @@ export default function Redaktion() {
         </div>
 
         <ForaeldreUkendtControl personId={p.id} run={run} />
+        <ForaeldrePaastandeControl personId={p.id} run={run} sammeSom={sammeSom} />
 
         {showAnno && (
           <div style={{ marginTop: 16, ...annoBox }}>
@@ -1405,6 +1410,119 @@ function ForaeldreUkendtControl({ personId, run }: { personId: string; run: (c: 
             {mk && <div onClick={fjern} style={{ fontSize: 12, fontWeight: 600, color: T.red, border: '1px solid rgba(138,43,43,.3)', borderRadius: 7, padding: '6px 12px', cursor: 'pointer' }}>Fjern</div>}
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+// Forældrefamilie-slot (Problem 2): konkurrerende forældre-påstande for DENNE person. Renderes kun
+// når der findes påstande (typisk efter en tværudgave-konflikt); mirrorer fact-card-oplysnings-listen
+// (kilde-badge + valgt-markering + "vælg denne"). Adjudikation = red_vaelg_foraeldre via run().
+function ForaeldrePaastandeControl({ personId, run, sammeSom }: { personId: string; run: (c: Change, label: string) => void; sammeSom: SammeSomLink[] }) {
+  const [slot, setSlot] = useState<ForaeldreSlot | null | undefined>(undefined);
+  const [egen, setEgen] = useState<BarnFamilie | null>(null); // personens EGEN fødselsfamilie + udgave
+  const [rivaler, setRivaler] = useState<{ fraId: string; fam: BarnFamilie }[]>([]);
+  const [konfidens, setKonfidens] = useState('sikker');
+  const [reloadKey, setReloadKey] = useState(0);
+  useEffect(() => {
+    let alive = true; setSlot(undefined); setRivaler([]); setEgen(null);
+    fetchForaeldreSlot(personId).then((s) => { if (alive) setSlot(s); }).catch(() => { if (alive) setSlot(null); });
+    fetchBarnFamilie(personId).then((f) => { if (alive) setEgen(f); }).catch(() => {});
+    // §6 trin (a): hent samme_som-linkede personers fødselsfamilier (rival-udgavers forældre).
+    // Ekskludér reflexive self-links (samme_som bruges også til within-udgave-dubletter).
+    Promise.all(sammeSom.filter((l) => l.modpartId !== personId).map((l) => fetchBarnFamilie(l.modpartId).then((f) => f ? { fraId: l.modpartId, fam: f } : null)))
+      .then((rs) => { if (alive) setRivaler(rs.filter((r): r is { fraId: string; fam: BarnFamilie } => r != null)); }).catch(() => {});
+    return () => { alive = false; };
+  }, [personId, reloadKey, sammeSom]);
+  const refetchSoon = () => setTimeout(() => setReloadKey((k) => k + 1), 700);
+  const vaelg = (assertionId: number) => {
+    run({ art: 'vaelgForaeldre', subjektType: 'person', subjektId: personId, payload: { assertionId, konfidens } }, 'Vælg forældrefamilie');
+    refetchSoon();
+  };
+  const importer = (fam: BarnFamilie) => {
+    run({ art: 'foraeldrePaastand', subjektType: 'person', subjektId: personId,
+      payload: { barnId: personId, familyId: fam.familyId, sourceId: fam.sourceId ?? undefined, citat: fam.udgave ? `Importeret fra ${fam.udgave} (samme_som)` : undefined } }, 'Importér forældre-påstand');
+    refetchSoon();
+  };
+  const kendteFams = new Set((slot?.paastande ?? []).map((p) => p.familyId));
+  // Kun ægte tværudgave-rivaler: anden familie end personens egen, ikke allerede på slottet, OG en
+  // anden KILDE (samme_som dækker også within-udgave-dubletter → ellers evidens-teater). Kræver at
+  // personens egen fødselsfamilie er kendt (ellers kan tværudgave ikke verificeres → intet tilbydes).
+  const importable = (egen && egen.sourceId != null) ? rivaler.filter((r) =>
+    r.fam.familyId !== egen.familyId && !kendteFams.has(r.fam.familyId) && r.fam.sourceId != null && r.fam.sourceId !== egen.sourceId) : [];
+  if ((!slot || slot.paastande.length === 0) && importable.length === 0) return null; // intet at vise
+  const omstridt = slot?.status === 'omstridt' || (slot?.paastande.length ?? 0) > 1;
+  return (
+    <div style={{ marginTop: 14, border: `1px solid ${omstridt ? 'rgba(136,26,51,.35)' : 'rgba(34,31,26,.14)'}`, borderRadius: 11, padding: '12px 14px', background: omstridt ? '#faf1dc' : T.panel }}>
+      <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', color: omstridt ? T.bordeaux : T.gold, marginBottom: 8 }}>
+        Forældrefamilie{omstridt ? ' · konkurrerende påstande' : ''}
+      </div>
+      {(slot?.paastande ?? []).map((pp) => (
+        <div key={pp.assertionId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderTop: '1px dashed rgba(34,31,26,.1)' }}>
+          <span style={{ fontFamily: T.mono, fontSize: 9, color: T.muted, background: T.beige, borderRadius: 5, padding: '3px 7px', whiteSpace: 'nowrap' }}>{pp.udgave ?? 'redaktionel'}</span>
+          <div style={{ flex: 1, fontSize: 12.5, color: '#3d382f' }}>
+            {pp.foraeldre.map((f) => f.navn).join(' & ') || '(ukendt familie)'}
+            {pp.side ? <span style={{ color: T.muted2 }}> · {pp.side}</span> : null}
+            {pp.valgt ? <span style={{ color: T.bordeaux, fontWeight: 600 }}> · ✓ valgt</span> : null}
+          </div>
+          {pp.valgt ? null : (
+            <div onClick={() => vaelg(pp.assertionId)} style={{ fontSize: 12, fontWeight: 600, color: '#fff', background: T.bordeaux, borderRadius: 7, padding: '6px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Vælg denne</div>
+          )}
+        </div>
+      ))}
+      {/* §6 trin (a): importér en samme_som-linket persons (anden udgaves) forældre som rival-påstand */}
+      {importable.map((r) => (
+        <div key={r.fraId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderTop: '1px dashed rgba(34,31,26,.1)' }}>
+          <span style={{ fontFamily: T.mono, fontSize: 9, color: T.gold, background: T.beige, borderRadius: 5, padding: '3px 7px', whiteSpace: 'nowrap' }}>{r.fam.udgave ?? 'anden udgave'}</span>
+          <div style={{ flex: 1, fontSize: 12.5, color: T.muted }}>{r.fam.foraeldre.map((f) => f.navn).join(' & ') || '(ukendt familie)'}</div>
+          <div onClick={() => importer(r.fam)} style={{ fontSize: 12, fontWeight: 600, color: T.bordeaux, border: '1px solid rgba(136,26,51,.3)', borderRadius: 7, padding: '6px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Importér som påstand</div>
+        </div>
+      ))}
+      {omstridt && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 9 }}>
+          <span style={{ fontSize: 11.5, color: T.muted }}>Tillid ved valg:</span>
+          <select value={konfidens} onChange={(e) => setKonfidens(e.target.value)} style={{ fontFamily: T.sans, fontSize: 12, padding: '5px 8px', borderRadius: 7, border: '1px solid rgba(34,31,26,.18)', background: T.paper, color: T.ink }}>
+            {['sikker', 'sandsynlig', 'formodet', 'omstridt'].map((k) => <option key={k} value={k}>{k}</option>)}
+          </select>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Dashboard-worklist (Problem 2 §6): personer m. konkurrerende forældre-påstande (red_foraeldre_konflikt).
+// Klik → åbn personen i editoren, hvor ForaeldrePaastandeControl adjudicerer.
+function ForaeldreKonflikterListe({ onOpen }: { onOpen: (personId: string) => void }) {
+  const [rows, setRows] = useState<ForaeldreKonflikt[] | undefined>(undefined);
+  const [fejl, setFejl] = useState<string | null>(null); // review 30/Codex #2: fejl må ikke maskeres som "ingen konflikter"
+  useEffect(() => {
+    let alive = true;
+    fetchForaeldreKonflikter().then((r) => { if (alive) setRows(r); }).catch((e) => { if (alive) setFejl(String((e as { message?: string })?.message ?? e)); });
+    return () => { alive = false; };
+  }, []);
+  return (
+    <div style={{ padding: '18px 22px', maxWidth: 720 }}>
+      <div style={{ fontFamily: T.serif, fontSize: 22, color: T.ink, marginBottom: 6 }}>Forældre-konflikter</div>
+      <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 16, lineHeight: 1.5 }}>
+        Personer hvor to udgaver påstår forskellige forældrefamilier. Åbn personen for at se påstandene side om side og vælge den kanoniske (bevarer begge, kildebundet).
+      </div>
+      {fejl ? (
+        <div style={{ fontSize: 12.5, color: T.red, background: '#faf1dc', border: '1px solid rgba(136,26,51,.3)', borderRadius: 8, padding: '10px 13px' }}>Kunne ikke hente konflikt-listen: {fejl}. (Konflikter kan ikke vises — ikke nødvendigvis fordi der ingen er.)</div>
+      ) : rows === undefined ? (
+        <div style={{ fontSize: 12.5, color: T.muted }}>Henter…</div>
+      ) : rows.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: T.muted }}>Ingen forældre-konflikter — alle personer har én afklaret forældrefamilie.</div>
+      ) : (
+        rows.map((r) => (
+          <div key={r.factId} onClick={() => onOpen(String(r.personId))}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', marginBottom: 8, cursor: 'pointer',
+              border: '1px solid rgba(136,26,51,.25)', borderRadius: 10, background: '#faf1dc' }}>
+            <span style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux }}>{r.status ?? 'omstridt'}</span>
+            <div style={{ flex: 1, fontSize: 13.5, color: '#3d382f', fontWeight: 600 }}>{r.navn ?? `Person ${r.personId}`}</div>
+            <span style={{ fontSize: 11.5, color: T.muted }}>{r.antalFamilier} familier · {r.antalPaastande} påstande</span>
+            <span style={{ color: T.bordeaux, fontSize: 15 }}>→</span>
+          </div>
+        ))
       )}
     </div>
   );

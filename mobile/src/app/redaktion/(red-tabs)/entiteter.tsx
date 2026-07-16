@@ -45,6 +45,10 @@ export default function Entiteter() {
           <Serif size={16} color={Colors.bordeaux}>⇄  Sammenlign udgaver</Serif>
           <Body size={13} color={Colors.textMuted}>Find samme person på tværs af DAA-udgaver</Body>
         </Pressable>
+        <Pressable style={s.handling} onPress={() => router.navigate('/redaktion/foraeldre-konflikter' as never)}>
+          <Serif size={16} color={Colors.bordeaux}>⚠  Forældre-konflikter</Serif>
+          <Body size={13} color={Colors.textMuted}>Personer m. konkurrerende forældrefamilier på tværs af udgaver</Body>
+        </Pressable>
       </ScrollView>
     </View>
   );

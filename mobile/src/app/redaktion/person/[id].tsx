@@ -14,6 +14,7 @@ import { MediaUploadSheet } from '../../../components/redaktion/MediaUploadSheet
 import { MediaGallery } from '../../../components/redaktion/MediaGallery';
 import { KonfidensVaelger } from '../../../components/redaktion/KonfidensVaelger';
 import { FamilieEditRad } from '../../../components/redaktion/FamilieEditRad';
+import { ForaeldrePaastandePanel } from '../../../components/redaktion/ForaeldrePaastandePanel';
 import { FlytBarnSheet } from '../../../components/redaktion/FlytBarnSheet';
 import { UnionTypeSheet } from '../../../components/redaktion/UnionTypeSheet';
 import { BarnSheet } from '../../../components/redaktion/BarnSheet';
@@ -44,6 +45,7 @@ export default function PersonEditor() {
   const [ev, setEv] = useState<PersonEvidence | null>(null);
   const [pending, setPending] = useState<Change | null>(null);
   const [markering, setMarkering] = useState<ForaeldreUkendtMarkering | null>(null);
+  const [foraeldreReload, setForaeldreReload] = useState(0); // refetch forældre-slot efter vaelgForaeldre
   const [markGrade, setMarkGrade] = useState<string>(GRADE_FORAELDER_UKENDT);
   const [markKilde, setMarkKilde] = useState('');
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -254,6 +256,8 @@ export default function PersonEditor() {
             ) : null}
           </View>
         </View>
+
+        {id ? <ForaeldrePaastandePanel personId={id} onChange={setPending} sammeSom={sammeSom} reloadKey={foraeldreReload} /> : null}
 
         {showAnn ? (
           <Mono size={10} color={Colors.bordeaux} style={{ marginBottom: 12 }}>
@@ -575,6 +579,7 @@ export default function PersonEditor() {
           setPending(null);
           if (id) fetchPersonEvidence(id).then(setEv).catch(() => {});
           if (id) fetchForaeldreUkendtMarkering(id).then(setMarkering).catch(() => {});
+          setForaeldreReload((k) => k + 1);
           if (id) fetchPersonRelationer(id, redaktionAux).then(setRelationer).catch(() => {});
           if (id) fetchPersonFamilie(id, redaktionModel).then(setFamilie).catch(() => {});
           refreshSammeSom();
