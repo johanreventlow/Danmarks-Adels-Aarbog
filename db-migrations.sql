@@ -2331,57 +2331,11 @@ WHERE f.subjekt_type='person' AND f.faktatype='forældrefamilie'
 GROUP BY f.subjekt_id, f.id
 HAVING count(DISTINCT a.objekt_id) > 1;
 
--- 5. Backfill: gør de eksisterende 'barn'-rækker (DAA 2018-20-loadet) evidens-eksplicitte —
--- ét slot + assertion (objekt=familie) + citation (source=DAA 2018-20) + afklaret conclusion pr.
--- barn-række uden slot. Set-baseret, idempotent (NOT EXISTS), fail-closed STRICT-kildeopslag
--- (IKKE hårdkodet id — læringen fra (linje,nr)-kollisionsbuggen). Uden change_set (data-komplettering
--- af et load, ikke en redaktionel handling; dokumenteret i changelog). Citatet siger EKSPLICIT at
--- rækken er bagudkonverteret (foregiver ikke et ordret kildeuddrag). side=NULL (per-række-sidetal
--- blev ikke bevaret ved load; narrativen bærer siderne). Partner-rækker backfylles IKKE (uden for slot-scope).
--- KRITISK forudsætning: kør KUN mod en base hvor ALLE 'barn'-rækker stammer fra DAA 2018-20 (prod;
--- ren single-edition-kopi). Mod en multi-edition base (fx lokal daa_test2 m. 1939-stamtavle) ville
--- den fejlagtigt citere andre udgavers rækker til DAA 2018-20. Se docs/reviews/29.
-DO $$
-DECLARE v_src bigint;
-BEGIN
-  SELECT id INTO STRICT v_src FROM source WHERE udgave = 'DAA 2018-20';  -- 0 el. 2+ → abort (fail-closed)
-
-  -- 1) slots for barn-rækker uden slot
-  INSERT INTO fact(id, subjekt_type, subjekt_id, faktatype)
-  SELECT (SELECT coalesce(max(id),0) FROM fact) + row_number() OVER (ORDER BY d.person_id),
-         'person', d.person_id, 'forældrefamilie'
-  FROM (SELECT DISTINCT person_id FROM family_member WHERE rolle='barn') d
-  WHERE NOT EXISTS (SELECT 1 FROM fact f
-    WHERE f.subjekt_type='person' AND f.subjekt_id=d.person_id AND f.faktatype='forældrefamilie');
-
-  -- 2) én assertion pr. slot (objekt = barn-rækkens family_id)
-  INSERT INTO assertion(id, target_type, target_id, vaerdi_tekst, objekt_type, objekt_id, uforanderlig)
-  SELECT (SELECT coalesce(max(id),0) FROM assertion) + row_number() OVER (ORDER BY f.id),
-         'fact', f.id, 'barn', 'family', fm.family_id, true
-  FROM fact f
-  JOIN family_member fm ON fm.person_id=f.subjekt_id AND fm.rolle='barn'
-  WHERE f.subjekt_type='person' AND f.faktatype='forældrefamilie'
-    AND NOT EXISTS (SELECT 1 FROM assertion a WHERE a.target_type='fact' AND a.target_id=f.id);
-
-  -- 3) citation (source=DAA 2018-20) pr. slot-assertion uden citation
-  INSERT INTO citation(id, assertion_id, source_id, side, citat_tekst, kvalitet)
-  SELECT (SELECT coalesce(max(id),0) FROM citation) + row_number() OVER (ORDER BY a.id),
-         a.id, v_src, NULL,
-         '(bagudkonverteret: slægtskab loadet fra DAA 2018-20 uden per-række-citat)', 'primær'
-  FROM assertion a
-  JOIN fact f ON f.id=a.target_id AND a.target_type='fact'
-  WHERE f.subjekt_type='person' AND f.faktatype='forældrefamilie' AND a.objekt_type='family'
-    AND NOT EXISTS (SELECT 1 FROM citation c WHERE c.assertion_id=a.id);
-
-  -- 4) afklaret conclusion pr. slot uden conclusion (valgt = slot-assertionen)
-  INSERT INTO conclusion(id, target_type, target_id, valgt_assertion_id, status, blaastemplet_af, blaastemplet_naar)
-  SELECT (SELECT coalesce(max(id),0) FROM conclusion) + row_number() OVER (ORDER BY f.id),
-         'fact', f.id, a.id, 'afklaret', 'DAA 2018-20 (backfill af forældre-evidens)', current_date
-  FROM fact f
-  JOIN assertion a ON a.target_type='fact' AND a.target_id=f.id AND a.objekt_type='family'
-  WHERE f.subjekt_type='person' AND f.faktatype='forældrefamilie'
-    AND NOT EXISTS (SELECT 1 FROM conclusion c WHERE c.target_type='fact' AND c.target_id=f.id);
-END $$;
+-- 5. Backfill af forældre-evidens: FLYTTET til db-backfill-foraeldrefamilie.sql (review 30/Fase 4).
+-- Backfillen er en DELIBERAT engangs-datahandling med fail-open-risiko mod multi-edition-baser og
+-- hører derfor IKKE i den idempotente skema-afstemning (der ellers auto-kørte den ved hver anvendelse).
+-- Kør db-backfill-foraeldrefamilie.sql separat EFTER denne migration + EFTER single-edition er bekræftet
+-- (filen har nu en external_id-baseret multi-edition-abort ud over STRICT-kildeopslaget). Se docs/fase4-runbook.md.
 
 -- =====================================================================
 -- 2026-07-16: review 30 (dual-review Problem 2) — slot-vedligehold på ALLE strukturelle
