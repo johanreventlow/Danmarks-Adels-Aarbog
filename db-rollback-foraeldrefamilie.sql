@@ -9,6 +9,11 @@
 -- kun under skrive-frys). ØVES OBLIGATORISK mod den test-restorede dump-kopi før prod-cutover.
 -- Kør som ejer/service_role. Atomisk (én transaktion).
 --
+-- UDLØB: de tre embeddede funktions-definitioner er et FROSSET snapshot af git 64cfdfa (pre-Problem-2).
+-- Gælder KUN denne cutover. Hvis red_slet_familie_link/red_tilfoej_barn/red_flyt_barn ændres i
+-- schema.sql af urelaterede grunde før cutover, ville dette script tavst restore en forældet version —
+-- regenerér da de tre defs fra den da-gældende pre-Problem-2-baseline.
+--
 -- Efterlader bevidst: guard-tilføjelserne i red_upsert_fakta/red_opret_fakta/red_tilfoej_oplysning/
 -- red_set_konklusion/red_edit_oplysning/red_slet_oplysning (de tjekker kun faktatype-strengen
 -- 'forældrefamilie', refererer ingen droppede kolonner → harmløs død kode uden slot-data/-vocab).
@@ -89,8 +94,7 @@ DROP FUNCTION IF EXISTS _ensure_foraeldrefamilie_redaktionel(bigint, bigint);
 -- 5) drop EXCLUDE-constraint
 ALTER TABLE family_member DROP CONSTRAINT IF EXISTS family_member_en_foedselsfamilie;
 
--- 6) drop objekt-kolonner + indeks
-DROP INDEX IF EXISTS ix_assertion_objekt;
+-- 6) drop objekt-kolonner (DROP COLUMN auto-dropper det partielle indeks ix_assertion_objekt)
 ALTER TABLE assertion DROP COLUMN IF EXISTS objekt_type;
 ALTER TABLE assertion DROP COLUMN IF EXISTS objekt_id;
 
