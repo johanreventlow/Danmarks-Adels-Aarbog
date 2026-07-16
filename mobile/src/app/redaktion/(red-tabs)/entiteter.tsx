@@ -41,6 +41,10 @@ export default function Entiteter() {
             </Pressable>
           ))}
         </View>
+        <Pressable style={s.handling} onPress={() => router.navigate('/redaktion/sammenlign' as never)}>
+          <Serif size={16} color={Colors.bordeaux}>⇄  Sammenlign udgaver</Serif>
+          <Body size={13} color={Colors.textMuted}>Find samme person på tværs af DAA-udgaver</Body>
+        </Pressable>
       </ScrollView>
     </View>
   );
@@ -51,4 +55,6 @@ const s = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
   cell: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light,
     borderRadius: 13, padding: 14, minWidth: '47%' },
+  handling: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light,
+    borderRadius: 13, padding: 16, marginTop: 12, gap: 3 },
 });

@@ -18,6 +18,7 @@ export type Change = {
      | 'opretUnion' | 'tilfoejBarn' | 'setFamilieKonfidens' | 'sletFamilieLink'
      | 'setFamilieOrdinal' | 'flytBarn'
      | 'sammeSom' | 'fjernSammeSom' // redaktionel identitets-sammenkædning (samme_som)
+     | 'ikkeSammeSom' | 'fjernIkkeSammeSom' // persisteret identitets-afvisning (tværudgave §4)
      | 'markerForaeldreUkendt' // "forældre ukendt"-markering (docs/reviews/25); fjern = 'tilbagetraekFakta'
      | 'tilbagetraekFakta' // tilbagetræk et fakta-slots konklusion (fjern markering korrekt — review 26 HIGH 2)
      | 'opretPerson' | 'opretEstate' | 'opretKilde' | 'opretOrganisation' | 'fortryd'
@@ -182,6 +183,15 @@ export function buildRpcCall(c: Change): RpcCall | null {
   if (c.art === 'fjernSammeSom') {
     if (c.relationId == null) return null;
     return { fn: 'red_fjern_samme_som', args: { p_relation_id: Number(c.relationId) } };
+  }
+  if (c.art === 'ikkeSammeSom') {
+    const p = c.payload || {};
+    if (p.aId == null || p.bId == null) return null;
+    return { fn: 'red_ikke_samme_som', args: { p_a: Number(p.aId), p_b: Number(p.bId) } };
+  }
+  if (c.art === 'fjernIkkeSammeSom') {
+    if (c.relationId == null) return null;
+    return { fn: 'red_fjern_ikke_samme_som', args: { p_relation_id: Number(c.relationId) } };
   }
   if (c.art === 'flytBarn') {
     if (c.familyId == null || c.tilFamilyId == null || c.personId == null || !c.rolle) return null;
