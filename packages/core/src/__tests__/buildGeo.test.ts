@@ -1,3 +1,4 @@
+import { test, expect } from 'vitest';
 import { buildGeo, EMPTY_GEO } from '../buildGeo';
 import type { AppPerson, RawEstate, RawFact, RawPlace, Union } from '../types';
 

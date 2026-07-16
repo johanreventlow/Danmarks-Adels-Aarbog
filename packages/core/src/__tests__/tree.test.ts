@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { buildBidirectionalColumns, columnGen, columnLabel, unknownParentRing, unknownChildSection, type GenCoords, type ParentsUnknownMap, type Traverse } from '../tree';
 import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE } from '../generations';
 import { buildModel } from '../buildModel';
-import type { AppPerson, Db, Model, ModelPerson } from '../types';
+import type { AppPerson, Db, Koen, Model, ModelPerson } from '../types';
 
 // Traversering er app-specifik og injiceres (webs childIdx-form bruges her som test-traverse —
 // mobilens childrenByUnion-form dækkes af mobile/src/data/__tests__/selectors.test.ts).
@@ -363,7 +363,7 @@ describe('unknownParentRing + marker-gatet kandidat-kolonne (Phase C)', () => {
 });
 
 describe('unknownChildSection + nedad-projektion (efterkommer-retning)', () => {
-  const build = (gKoen = 'mand') => buildModel(db(
+  const build = (gKoen: Koen = 'mand') => buildModel(db(
     [P('G', { koen: gKoen }), P('A'), P('B'), P('W'), P('W2')],
     [{ child: 'A', parent: 'G', union: 'u' }, { child: 'B', parent: 'G', union: 'u' }],
   ));

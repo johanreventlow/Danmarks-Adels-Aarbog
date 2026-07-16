@@ -36,6 +36,23 @@ jobs:
           cache-dependency-path: package-lock.json
       - run: npm ci
       - run: npm run test -w @daa/core
+      # Gater @daa/core's typecheck-script (fandtes, men CI kørte det ikke → en
+      # tsc-fejl (Koen-type i tree.test.ts) akkumulerede ufanget. Codex-fund F-16).
+      - run: npm run typecheck -w @daa/core
+
+  r:
+    name: r · testthat
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      # Test-træet er DB-service-frit (duckdb embedded, ingen Postgres) — loaderne
+      # bruger RPostgres, men testene sourcer dem ikke. Kun disse CRAN-binære kræves.
+      - name: Installér R-testpakker
+        run: Rscript -e 'install.packages(c("testthat","jsonlite","DBI","duckdb","stringdist","stringi","withr"))'
+      - run: Rscript run-tests.R
 
   web:
     name: web · vitest + build
