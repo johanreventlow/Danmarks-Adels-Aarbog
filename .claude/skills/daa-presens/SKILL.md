@@ -90,6 +90,11 @@ sameksisterer med stamtavle-data; id'er allokeres fra `MAX(id)`. `--reset` kun
 hvis du vil starte forfra. Loader personer (`levende=TRUE`) + fakta + forælder-
 barn/ægtefælle-familier + kollateral-relation til gren-hoved.
 
+**Forældrefamilie-slot (Problem 2):** hver 'barn'-række ledsages af `member_evidence()`
+(slot-`fact('forældrefamilie')` + `assertion(objekt=familien)` + citation + afklaret
+conclusion), så slægtskabet er evidens-komplet på tværs af udgaver. **Kræver migreret DB**
+(`assertion.objekt_type/objekt_id` + `family_member`-EXCLUDE) — se daa-extract SKILL §⑤.
+
 ## Principper
 
 - Præsensliste = én `source` (`slags='præsensliste'`); forenes med stamtavler

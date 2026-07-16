@@ -160,6 +160,13 @@ Loader hver post som: `narrative` (fuld prosa, source = DAA-udgaven) +
 Login fra `~/.Renviron` (samme som `supabase_load.R`). Regenererer til sidst
 `person.visning_*`-cachen fra konklusionerne.
 
+**Forældrefamilie-slot (Problem 2):** hver 'barn'-`family_member`-række ledsages af
+`member_evidence()` — et `fact('forældrefamilie')` + `assertion(objekt=familien)` +
+citation (udgaven) + afklaret conclusion — så slægtskabet er evidens-komplet og
+konkurrerende forældre-påstande fra andre udgaver kan hænges på samme slot. **Kræver
+at DB'en er migreret** (`db-migrations.sql`: `assertion.objekt_type/objekt_id`,
+`family_member`-EXCLUDE-constraint) — loaderen fejler ellers på objekt-kolonnerne.
+
 **Erstatter** det håndtransskriberede udsnit i `supabase_load.R` — det var kun
 en opstart. `load_daa.R` er den fremadrettede loader.
 

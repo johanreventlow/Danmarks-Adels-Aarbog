@@ -115,8 +115,11 @@ add_person <- function(koen = NA) { id <- nid("person"); push("person", list(id=
 add_extid <- function(pid, sid, linje, nr) push("person_external_id", list(person_id=pid, source_id=sid, linje=linje, nr=nr))
 add_narr <- function(pid, sid, side, tekst) push("narrative", list(id=nid("narrative"), subjekt_type="person", subjekt_id=pid, source_id=sid, side=side, tekst=tekst))
 add_fact <- function(sid_, ft, sted_id=NA, st="person") { id <- nid("fact"); push("fact", list(id=id, subjekt_type=st, subjekt_id=sid_, faktatype=ft, sted_id=sted_id)); id }
-add_assertion <- function(tt, tid, vaerdi=NA, dmin=NA, dmax=NA, qual=NA, raw=NA) { id <- nid("assertion")
-  push("assertion", list(id=id, target_type=tt, target_id=tid, vaerdi_tekst=vaerdi, date_min=dmin, date_max=dmax, date_qualifier=qual, date_raw=raw)); id }
+# objekt_type/objekt_id (Problem 2): en påstands VÆRDI kan være en entitet (forældrefamilie-slot).
+# ALTID med i list()'en (NA-default) — rows_to_df bygger kolonner fra første række, så objekt-data
+# på en senere slot-assertion ville ellers tabes.
+add_assertion <- function(tt, tid, vaerdi=NA, dmin=NA, dmax=NA, qual=NA, raw=NA, objekt_type=NA, objekt_id=NA) { id <- nid("assertion")
+  push("assertion", list(id=id, target_type=tt, target_id=tid, vaerdi_tekst=vaerdi, date_min=dmin, date_max=dmax, date_qualifier=qual, date_raw=raw, objekt_type=objekt_type, objekt_id=objekt_id)); id }
 add_citation <- function(aid, sid, side=NA, kval="primær", citat=NA) push("citation", list(id=nid("citation"), assertion_id=aid, source_id=sid, side=side, citat_tekst=citat, kvalitet=kval))
 add_conclusion <- function(tt, tid, chosen, status="afklaret", by=current_by) push("conclusion", list(id=nid("conclusion"), target_type=tt, target_id=tid, valgt_assertion_id=chosen, status=status, blaastemplet_af=by))
 add_note <- function(tt, tid, indhold) {
@@ -171,6 +174,15 @@ sp_date <- function(sp, ft, val, sid, side) {
 add_family <- function(type="union") { id <- nid("family"); push("family", list(id=id, type=type)); id }
 add_member <- function(fid, pid, rolle, ordinal=NA, konfidens=NA)
   push("family_member", list(family_id=fid, person_id=pid, rolle=rolle, ordinal=ordinal, konfidens=konfidens))
+# Slot-tripel for en 'barn'-family_member-række (Problem 2, spec §5): forældrefamilie-fact +
+# assertion (objekt=familien) + citation (udgaven som primærkilde, forælder-postens side) +
+# afklaret conclusion. Gør hver loadet barn-række evidens-komplet, så en fremtidig udgave lander
+# born-evidens-komplet og aldrig genindfører to-regime-tilstanden (barn-række uden slot).
+# Kræver at DB'en har migreret assertion.objekt_type/objekt_id + faktatype 'forældrefamilie'.
+member_evidence <- function(fid, pid, sid, side=NA) {
+  slot <- add_fact(pid, "forældrefamilie")
+  aid  <- add_assertion("fact", slot, vaerdi="barn", objekt_type="family", objekt_id=fid)
+  add_citation(aid, sid, side); add_conclusion("fact", slot, aid); invisible(slot) }
 # relation MED evidenslag (invariant #4: gælder også relationer)
 rel_value <- function(st, sid_, ot, oid_, rolle, raw=NA, em=NA, sid) {
   rid <- add_relation(st, sid_, ot, oid_, rolle, raw, em)
@@ -372,7 +384,9 @@ tryCatch({
             }
           }
           konf <- if (isTRUE(get0(ck, envir = umap, inherits = FALSE))) "formodet" else NA
-          add_member(fam, get(ck, envir = pmap), "barn", konfidens = konf)
+          barn_pid <- get(ck, envir = pmap)
+          add_member(fam, barn_pid, "barn", konfidens = konf)
+          member_evidence(fam, barn_pid, src, side)  # evidens-komplet barn-række (Problem 2)
         }
       }
     }
