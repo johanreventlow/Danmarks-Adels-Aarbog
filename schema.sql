@@ -324,7 +324,15 @@ CREATE TABLE family_member (             -- FAMC/FAMS: person i familie med roll
                                          --   (barn-subtyper afgør blodslægtskab: kun 'barn' tæller genetisk i finderen; jf. TNG frel/mrel)
   ordinal   INTEGER,                     -- ægteskab 1°/2° for partner
   konfidens TEXT,                        -- 'sikker'|'sandsynlig'|'formodet'|'omstridt' (NULL = uangivet). Omstridte hypoteser med kilder ligger i evidenslaget.
-  PRIMARY KEY (family_id, person_id, rolle)
+  PRIMARY KEY (family_id, person_id, rolle),
+  -- Grafinvariant (Problem 2): højst ÉN fødselsfamilie ('barn'-række) pr. person — lukker "to
+  -- modstridende fædre" for ALLE skrive-veje. DEFERRABLE er nødvendig for undo/restore-replay:
+  -- red_fortryd_change_set genafspiller versions-events i én transaktion, hvor rækkefølgen kan
+  -- have en midlertidig dublet før commit (red_flyt_barn selv er delete-før-insert og rammer det
+  -- ikke, men behold DEFERRABLE — ellers knækker restore). NB: ON CONFLICT kan ikke bruge en
+  -- deferrable constraint som arbiter → INSERT INTO family_member skal være plain (loaderne er det).
+  CONSTRAINT family_member_en_foedselsfamilie
+    EXCLUDE USING btree (person_id WITH =) WHERE (rolle = 'barn') DEFERRABLE INITIALLY DEFERRED
 );
 
 -- ---------- FAKTA (events/attributter) ----------
@@ -363,6 +371,8 @@ CREATE TABLE assertion (                 -- én kildes udsagn om et FACT ELLER e
   target_type    TEXT NOT NULL,          -- 'fact' | 'relation'
   target_id      BIGINT NOT NULL,
   vaerdi_tekst   TEXT,                   -- navn, erhverv, titel, stednavn ...
+  objekt_type    TEXT,                   -- en påstands VÆRDI kan være en entitet (fx forældrefamilie); polymorf, NULL for tekst-/dato-påstande
+  objekt_id      BIGINT,                 -- den påståede entitets id (v1: en family). Ingen hård FK (polymorf-konvention); valideres i RPC
   date_min DATE, date_max DATE,          -- hvis dato-værdi (fuzzy)
   date_qualifier TEXT,                   -- 'exact','before','after','between','floruit','about'
   date_raw       TEXT,                   -- oprindelig tekst, fx '† før 1261 (22. aug.)'
@@ -576,6 +586,9 @@ BEGIN
   IF current_rolle() <> 'redaktion' THEN
     RAISE EXCEPTION 'Kun redaktion må skrive fakta (din rolle: %)', current_rolle();
   END IF;
+  IF p_faktatype = 'forældrefamilie' THEN
+    RAISE EXCEPTION 'Brug red_tilfoej_foraeldre_paastand / red_vaelg_foraeldre til forældrefamilie';
+  END IF;
   PERFORM begin_change_set('red_upsert_fakta', format('Opdaterede %s på %s/%s', p_faktatype, p_subjekt_type, p_subjekt_id), p_subjekt_type, p_subjekt_id);
 
   SELECT id INTO v_fact FROM fact
@@ -622,6 +635,9 @@ CREATE OR REPLACE FUNCTION red_tilfoej_oplysning(
 DECLARE v_assert bigint; v_cit bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF (SELECT faktatype FROM fact WHERE id=p_fact_id) = 'forældrefamilie' THEN
+    RAISE EXCEPTION 'Brug red_tilfoej_foraeldre_paastand til forældrefamilie-slottet';
+  END IF;
   PERFORM begin_change_set('red_tilfoej_oplysning', format('Tilføjede oplysning til fakta %s', p_fact_id), NULL, NULL);
   IF NOT EXISTS (SELECT 1 FROM fact WHERE id = p_fact_id) THEN
     RAISE EXCEPTION 'Fact % findes ikke', p_fact_id;
@@ -649,6 +665,9 @@ CREATE OR REPLACE FUNCTION red_opret_fakta(
 DECLARE v_fact bigint; v_assert bigint; v_cit bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_faktatype = 'forældrefamilie' THEN
+    RAISE EXCEPTION 'Brug red_tilfoej_foraeldre_paastand / red_vaelg_foraeldre til forældrefamilie';
+  END IF;
   PERFORM begin_change_set('red_opret_fakta', format('Oprettede %s på %s/%s', p_faktatype, p_subjekt_type, p_subjekt_id), p_subjekt_type, p_subjekt_id);
   INSERT INTO fact(id, subjekt_type, subjekt_id, faktatype)
     VALUES ((SELECT coalesce(max(id),0)+1 FROM fact), p_subjekt_type, p_subjekt_id, p_faktatype)
@@ -674,6 +693,9 @@ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_target_type text; v_target_id bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF (SELECT f.faktatype FROM assertion a JOIN fact f ON f.id=a.target_id AND a.target_type='fact' WHERE a.id=p_assertion_id) = 'forældrefamilie' THEN
+    RAISE EXCEPTION 'Forældrefamilie-slottets konklusion vælges kun via red_vaelg_foraeldre (bevarer projektion/invariant P1)';
+  END IF;
   PERFORM begin_change_set('red_set_konklusion', format('Satte konklusion til oplysning %s', p_assertion_id), NULL, NULL);
   SELECT target_type, target_id INTO v_target_type, v_target_id
     FROM assertion WHERE id = p_assertion_id;
@@ -697,6 +719,9 @@ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_old assertion; v_new bigint; v_cit bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF (SELECT f.faktatype FROM assertion a JOIN fact f ON f.id=a.target_id AND a.target_type='fact' WHERE a.id=p_assertion_id) = 'forældrefamilie' THEN
+    RAISE EXCEPTION 'Forældrefamilie-slottets påstande redigeres ikke (uforanderlige) — brug red_tilfoej_foraeldre_paastand';
+  END IF;
   PERFORM begin_change_set('red_edit_oplysning', format('Rettede oplysning %s', p_assertion_id), NULL, NULL);
   SELECT * INTO v_old FROM assertion WHERE id=p_assertion_id;
   IF v_old.id IS NULL THEN RAISE EXCEPTION 'Ukendt assertion %', p_assertion_id; END IF;
@@ -734,6 +759,9 @@ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_target_type text; v_target_id bigint; v_was_chosen boolean; v_next bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF (SELECT f.faktatype FROM assertion a JOIN fact f ON f.id=a.target_id AND a.target_type='fact' WHERE a.id=p_assertion_id) = 'forældrefamilie' THEN
+    RAISE EXCEPTION 'Forældrefamilie-slottets påstande slettes ikke (uforanderlige) — skift kanonisk valg med red_vaelg_foraeldre';
+  END IF;
   PERFORM begin_change_set('red_slet_oplysning', format('Slettede oplysning %s', p_assertion_id), NULL, NULL);
   SELECT target_type, target_id INTO v_target_type, v_target_id
     FROM assertion WHERE id = p_assertion_id;
@@ -794,6 +822,7 @@ CREATE INDEX IF NOT EXISTS ix_conclusion_target  ON conclusion(target_type, targ
 CREATE INDEX IF NOT EXISTS ix_citation_assertion ON citation(assertion_id);
 CREATE INDEX IF NOT EXISTS ix_relation_subjekt   ON relation(subjekt_type, subjekt_id);
 CREATE INDEX IF NOT EXISTS ix_relation_objekt    ON relation(objekt_type, objekt_id);
+CREATE INDEX IF NOT EXISTS ix_assertion_objekt   ON assertion(objekt_type, objekt_id) WHERE objekt_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ix_narrative_subjekt  ON narrative(subjekt_type, subjekt_id);
 CREATE INDEX IF NOT EXISTS ix_person_visningnavn ON person(visning_navn);
 
@@ -1167,6 +1196,12 @@ BEGIN
     THEN RAISE EXCEPTION 'Ugyldig konfidens %', p_konfidens; END IF;
   IF EXISTS(SELECT 1 FROM family_member WHERE family_id=p_family_id AND person_id=p_barn_id AND rolle='partner')
     THEN RAISE EXCEPTION 'Person % er partner i familie % — kan ikke også være barn', p_barn_id, p_family_id; END IF;
+  -- Fødselsfamilie-prætjek (invariant P1/EXCLUDE): kun én 'barn'-række pr. person. Venlig fejl frem
+  -- for rå exclusion_violation. red_flyt_barn er delete-før-insert, så den passerer her (gammel række væk).
+  IF p_rolle = 'barn' AND EXISTS(SELECT 1 FROM family_member
+       WHERE person_id=p_barn_id AND rolle='barn' AND family_id <> p_family_id) THEN
+    RAISE EXCEPTION 'Person % har allerede en fødselsfamilie — brug red_flyt_barn eller forældre-påstands-flowet', p_barn_id;
+  END IF;
   -- Cyklus: er en partner i family en efterkommer af barnet?
   WITH RECURSIVE efterkommere(pid) AS (
     SELECT p_barn_id
@@ -1213,7 +1248,7 @@ END $$;
 -- nulstilles bevidst ved flytning (søskende-rækkefølge er unions-specifik); konfidens bevares.
 CREATE OR REPLACE FUNCTION red_flyt_barn(p_fra_family_id bigint, p_til_family_id bigint, p_barn_id bigint, p_rolle text DEFAULT 'barn')
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
-DECLARE v_konfidens text;
+DECLARE v_konfidens text; v_slot_fact bigint; v_slot_family bigint; v_new_assert bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   PERFORM begin_change_set('red_flyt_barn', format('Flyttede barn %s fra familie %s til familie %s', p_barn_id, p_fra_family_id, p_til_family_id), 'person', p_barn_id);
@@ -1221,9 +1256,164 @@ BEGIN
   SELECT konfidens INTO v_konfidens FROM family_member
     WHERE family_id=p_fra_family_id AND person_id=p_barn_id AND rolle=p_rolle;
   IF NOT FOUND THEN RAISE EXCEPTION 'Barn-link findes ikke (family %, person %, rolle %)', p_fra_family_id, p_barn_id, p_rolle; END IF;
-  PERFORM red_tilfoej_barn(p_til_family_id, p_barn_id, p_rolle, v_konfidens);
+  -- delete-før-insert (Problem 2): red_tilfoej_barns fødselsfamilie-prætjek + EXCLUDE ser én 'barn'-række.
   PERFORM red_slet_familie_link(p_fra_family_id, p_barn_id, p_rolle);
+  PERFORM red_tilfoej_barn(p_til_family_id, p_barn_id, p_rolle, v_konfidens);
+  -- Slot-vedligehold (invariant P1): direkte strukturel flytning der ikke kom via red_vaelg_foraeldre —
+  -- har barnet et afklaret forældrefamilie-slot der STADIG peger på fra-familien, nedskriv en
+  -- redaktionel påstand (objekt=til) + re-peg, så slot og projektion ikke divergerer.
+  IF p_rolle = 'barn' THEN
+    SELECT f.id INTO v_slot_fact FROM fact f
+      WHERE f.subjekt_type='person' AND f.subjekt_id=p_barn_id AND f.faktatype='forældrefamilie' LIMIT 1;
+    IF v_slot_fact IS NOT NULL THEN
+      SELECT a.objekt_id INTO v_slot_family FROM conclusion c JOIN assertion a ON a.id=c.valgt_assertion_id
+        WHERE c.target_type='fact' AND c.target_id=v_slot_fact AND c.status='afklaret';
+      IF v_slot_family = p_fra_family_id THEN
+        INSERT INTO assertion(id, target_type, target_id, vaerdi_tekst, objekt_type, objekt_id, uforanderlig)
+          VALUES ((SELECT coalesce(max(id),0)+1 FROM assertion), 'fact', v_slot_fact, 'barn', 'family', p_til_family_id, true)
+          RETURNING id INTO v_new_assert;
+        INSERT INTO citation(id, assertion_id, source_id, citat_tekst, kvalitet)
+          VALUES ((SELECT coalesce(max(id),0)+1 FROM citation), v_new_assert, NULL,
+                  '(kilde mangler: strukturel flytning via red_flyt_barn)', 'sekundær');
+        UPDATE conclusion SET valgt_assertion_id=v_new_assert, blaastemplet_naar=current_date
+          WHERE target_type='fact' AND target_id=v_slot_fact;
+      END IF;
+    END IF;
+  END IF;
 END $$;
+
+-- ---------- FORÆLDREFAMILIE-SLOT: konkurrerende slægtskabspåstande (Problem 2) ----------
+-- Giver 'barn'-slægtskabet det evidenslag fact/relation har: hver udgaves forældre-påstand bevares
+-- som assertion (objekt=familie), redaktøren vælger den kanoniske via conclusion, family_member
+-- forbliver den kanoniske projektion (nul ændring i læse-laget). Se
+-- docs/superpowers/specs/2026-07-15-family-member-konkurrerende-relationer-design.md.
+
+-- Registrér en kildes forældrefamilie-påstand UDEN at ændre det kanoniske valg (Operation A-analog).
+CREATE OR REPLACE FUNCTION red_tilfoej_foraeldre_paastand(
+  p_barn_id bigint, p_family_id bigint,
+  p_source_id bigint DEFAULT NULL, p_side text DEFAULT NULL,
+  p_citat text DEFAULT NULL, p_kilde_fritekst text DEFAULT NULL
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE
+  v_fact bigint; v_assert bigint; v_cit bigint;
+  v_valgt_family bigint; v_barn_family bigint; v_konflikt boolean := false; v_concl_exists boolean;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion må skrive forældre-påstande (din rolle: %)', current_rolle(); END IF;
+  IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_barn_id) THEN RAISE EXCEPTION 'Person % findes ikke', p_barn_id; END IF;
+  IF NOT EXISTS(SELECT 1 FROM family WHERE id=p_family_id) THEN RAISE EXCEPTION 'Familie % findes ikke', p_family_id; END IF;
+  IF NOT EXISTS(SELECT 1 FROM family_member WHERE family_id=p_family_id AND rolle='partner') THEN
+    RAISE EXCEPTION 'Familie % har ingen forælder (partner-medlem) — kan ikke være forældrefamilie', p_family_id; END IF;
+
+  -- Idempotens FØR change_set: samme slot + samme objekt_id + samme citation-source → returnér eksisterende.
+  SELECT f.id, a.id, c.id INTO v_fact, v_assert, v_cit
+    FROM fact f
+    JOIN assertion a ON a.target_type='fact' AND a.target_id=f.id AND a.objekt_type='family' AND a.objekt_id=p_family_id
+    JOIN citation c ON c.assertion_id=a.id AND c.source_id IS NOT DISTINCT FROM p_source_id
+    WHERE f.subjekt_type='person' AND f.subjekt_id=p_barn_id AND f.faktatype='forældrefamilie'
+    LIMIT 1;
+  IF v_assert IS NOT NULL THEN
+    RETURN jsonb_build_object('fact_id',v_fact,'assertion_id',v_assert,'citation_id',v_cit,'konflikt',false,'idempotent',true);
+  END IF;
+
+  PERFORM begin_change_set('red_tilfoej_foraeldre_paastand',
+    format('Forældrefamilie-påstand: barn %s → familie %s', p_barn_id, p_family_id), 'person', p_barn_id);
+
+  SELECT id INTO v_fact FROM fact
+    WHERE subjekt_type='person' AND subjekt_id=p_barn_id AND faktatype='forældrefamilie' LIMIT 1;
+  IF v_fact IS NULL THEN
+    INSERT INTO fact(id, subjekt_type, subjekt_id, faktatype)
+      VALUES ((SELECT coalesce(max(id),0)+1 FROM fact), 'person', p_barn_id, 'forældrefamilie')
+      RETURNING id INTO v_fact;
+  END IF;
+
+  INSERT INTO assertion(id, target_type, target_id, vaerdi_tekst, objekt_type, objekt_id, uforanderlig)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM assertion), 'fact', v_fact, 'barn', 'family', p_family_id, true)
+    RETURNING id INTO v_assert;
+  INSERT INTO citation(id, assertion_id, source_id, side, citat_tekst, kvalitet)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM citation), v_assert, p_source_id, p_side,
+            coalesce(p_citat, p_kilde_fritekst, '(kilde mangler)'),
+            CASE WHEN p_source_id IS NOT NULL THEN 'primær' ELSE 'sekundær' END)  -- kildeløs redaktionel påstand er ikke primærkilde
+    RETURNING id INTO v_cit;
+
+  SELECT a.objekt_id INTO v_valgt_family
+    FROM conclusion c JOIN assertion a ON a.id=c.valgt_assertion_id
+    WHERE c.target_type='fact' AND c.target_id=v_fact;
+  v_concl_exists := EXISTS(SELECT 1 FROM conclusion WHERE target_type='fact' AND target_id=v_fact);
+  SELECT family_id INTO v_barn_family FROM family_member WHERE person_id=p_barn_id AND rolle='barn' LIMIT 1;
+
+  IF v_concl_exists THEN
+    IF v_valgt_family IS DISTINCT FROM p_family_id THEN
+      -- Konflikt: valgt_assertion_id URØRT (TNG-præcedens); markér omstridt + eskalér konfidens (invariant 7).
+      v_konflikt := true;
+      UPDATE conclusion SET status='omstridt', blaastemplet_naar=current_date
+        WHERE target_type='fact' AND target_id=v_fact;
+      -- EXCLUDE garanterer højst én 'barn'-række pr. person → intet familie-prædikat/NULL-guard nødvendigt.
+      UPDATE family_member SET konfidens='omstridt'
+        WHERE person_id=p_barn_id AND rolle='barn';
+    END IF;
+  ELSE
+    IF v_barn_family IS NOT DISTINCT FROM p_family_id THEN
+      INSERT INTO conclusion(id, target_type, target_id, valgt_assertion_id, status, blaastemplet_af, blaastemplet_naar)
+        VALUES ((SELECT coalesce(max(id),0)+1 FROM conclusion), 'fact', v_fact, v_assert, 'afklaret',
+                'Redaktør (korroboration)', current_date);
+    END IF;
+  END IF;
+
+  RETURN jsonb_build_object('fact_id',v_fact,'assertion_id',v_assert,'citation_id',v_cit,'konflikt',v_konflikt);
+END $$;
+
+-- Adjudikationen — ét bevidst valg + synkron projektion, i ÉT change_set.
+CREATE OR REPLACE FUNCTION red_vaelg_foraeldre(p_assertion_id bigint, p_konfidens text DEFAULT NULL)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_fact bigint; v_barn bigint; v_faktatype text; v_objekt_type text; v_til_family bigint; v_old_family bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_konfidens IS NOT NULL AND p_konfidens NOT IN ('sikker','sandsynlig','formodet','omstridt')
+    THEN RAISE EXCEPTION 'Ugyldig konfidens %', p_konfidens; END IF;
+  SELECT a.target_id, a.objekt_type, a.objekt_id, f.subjekt_id, f.faktatype
+    INTO v_fact, v_objekt_type, v_til_family, v_barn, v_faktatype
+    FROM assertion a JOIN fact f ON f.id=a.target_id AND a.target_type='fact'
+    WHERE a.id=p_assertion_id;
+  IF v_fact IS NULL THEN RAISE EXCEPTION 'Assertion % findes ikke el. targeter ikke et fact', p_assertion_id; END IF;
+  IF v_faktatype <> 'forældrefamilie' OR v_objekt_type IS DISTINCT FROM 'family' THEN
+    RAISE EXCEPTION 'Assertion % er ikke en forældrefamilie-påstand', p_assertion_id; END IF;
+  IF EXISTS(SELECT 1 FROM fact ff JOIN conclusion cc ON cc.target_type='fact' AND cc.target_id=ff.id AND cc.status='afklaret'
+            WHERE ff.subjekt_type='person' AND ff.subjekt_id=v_barn AND ff.faktatype='forældre_ukendt') THEN
+    RAISE EXCEPTION 'Barn % er markeret forældre_ukendt — tilbagetræk markeringen først (red_tilbagetraek_fakta)', v_barn; END IF;
+
+  PERFORM begin_change_set('red_vaelg_foraeldre',
+    format('Valgte forældrefamilie %s for barn %s', v_til_family, v_barn), 'person', v_barn);
+
+  -- Re-peg conclusion FØR projektionen (så red_flyt_barns slot-vedligehold ikke dobbelt-nedskriver).
+  INSERT INTO conclusion(id, target_type, target_id, valgt_assertion_id, status, blaastemplet_af, blaastemplet_naar)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM conclusion), 'fact', v_fact, p_assertion_id, 'afklaret', 'Redaktør', current_date)
+    ON CONFLICT (target_type, target_id)
+    DO UPDATE SET valgt_assertion_id=excluded.valgt_assertion_id, status='afklaret', blaastemplet_naar=current_date;
+
+  SELECT family_id INTO v_old_family FROM family_member WHERE person_id=v_barn AND rolle='barn' LIMIT 1;
+  IF v_old_family IS NULL THEN
+    PERFORM red_tilfoej_barn(v_til_family, v_barn);
+  ELSIF v_old_family <> v_til_family THEN
+    PERFORM red_flyt_barn(v_old_family, v_til_family, v_barn);
+  END IF;
+
+  IF p_konfidens IS NOT NULL THEN
+    PERFORM red_set_familie_konfidens(v_til_family, v_barn, 'barn', p_konfidens);
+  END IF;
+END $$;
+
+-- Konflikt-view til redaktions-dashboardet (security_invoker som red_konflikt).
+CREATE OR REPLACE VIEW red_foraeldre_konflikt WITH (security_invoker = true) AS
+SELECT f.subjekt_id AS person_id, f.id AS fact_id,
+       count(DISTINCT a.objekt_id) AS antal_familier,
+       count(*)                    AS antal_paastande,
+       max(c.status)               AS status
+FROM fact f
+JOIN assertion a ON a.target_type='fact' AND a.target_id=f.id AND a.objekt_type='family'
+LEFT JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id
+WHERE f.subjekt_type='person' AND f.faktatype='forældrefamilie'
+GROUP BY f.subjekt_id, f.id
+HAVING count(DISTINCT a.objekt_id) > 1;
 
 -- Medlem-forslag til staging (all authenticated)
 CREATE OR REPLACE FUNCTION red_suggest(

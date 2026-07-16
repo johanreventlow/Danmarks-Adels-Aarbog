@@ -1163,4 +1163,215 @@ DO $$ BEGIN
   THEN RAISE EXCEPTION 'DRIFT: par med både samme_som og ikke_samme_som'; END IF;
   RAISE NOTICE 'OK: ingen samme_som/ikke_samme_som-drift';
 END $$;
+
+-- ===== Problem 2 — konkurrerende forældrefamilie-påstande (spec §10, RPC/constraint/guard) =====
+-- Syntetiske negativ-id-fixtures (rører ikke rigtige data). Backfill-komplethed + global P1-drift
+-- verificeres separat mod ren single-edition-bed (multi-edition daa_test2 ville falsk-bestå, se docs/reviews/29).
+DO $$
+DECLARE
+  v jsonb; a1 bigint; a2 bigint; v_fam bigint; v_status text; v_konf text; v_valgt bigint; v_slotfact bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN
+    RAISE NOTICE 'SPRINGER OVER forældre-konflikt-verify: ikke redaktion-kontekst'; RETURN; END IF;
+
+  -- Defensiv oprydning FØR (så re-runs efter en halv-fejlet kørsel er sikre — og family_member
+  -- kan indsættes plain: den DEFERRABLE EXCLUDE kan ikke bruges som ON CONFLICT-arbiter).
+  DELETE FROM conclusion WHERE target_type='fact' AND target_id IN (SELECT id FROM fact WHERE subjekt_type='person' AND subjekt_id=-2001);
+  DELETE FROM citation WHERE assertion_id IN (SELECT id FROM assertion WHERE target_type='fact' AND target_id IN (SELECT id FROM fact WHERE subjekt_type='person' AND subjekt_id=-2001));
+  DELETE FROM assertion WHERE target_type='fact' AND target_id IN (SELECT id FROM fact WHERE subjekt_type='person' AND subjekt_id=-2001);
+  DELETE FROM fact WHERE subjekt_type='person' AND subjekt_id=-2001;
+  DELETE FROM family_member WHERE person_id IN (-2001,-2002,-2003,-2004,-2005) OR family_id IN (-3001,-3002,-3099);
+  DELETE FROM family WHERE id IN (-3001,-3002,-3099);
+  DELETE FROM person WHERE id IN (-2001,-2002,-2003,-2004,-2005);
+  DELETE FROM source WHERE id IN (-9001,-9002);
+
+  -- fixtures: barn -2001; udgave-1-familie -3001 (partnere -2002/-2003); udgave-2-familie -3002 (-2004/-2005);
+  -- -3099 = tom familie til rå-EXCLUDE-test. Barn starter projiceret i -3001 (udgave 1's graf).
+  INSERT INTO person(id, levende, koen) VALUES
+    (-2001,false,'mand'),(-2002,false,'mand'),(-2003,false,'kvinde'),(-2004,false,'mand'),(-2005,false,'kvinde');
+  INSERT INTO family(id, type) VALUES (-3001,'vielse'),(-3002,'vielse'),(-3099,'vielse');
+  INSERT INTO family_member(family_id, person_id, rolle) VALUES
+    (-3001,-2002,'partner'),(-3001,-2003,'partner'),(-3002,-2004,'partner'),(-3002,-2005,'partner'),(-3001,-2001,'barn');
+  INSERT INTO source(id, udgave) VALUES (-9001,'TEST udgave 1'),(-9002,'TEST udgave 2');
+
+  -- (a) selv-helende korroboration: påstand matcher barnets projicerede række → afklaret, ingen konflikt.
+  v := red_tilfoej_foraeldre_paastand(-2001, -3001, -9001, 's.1', 'udg1 citat');
+  a1 := (v->>'assertion_id')::bigint;
+  v_slotfact := (v->>'fact_id')::bigint;
+  IF (v->>'konflikt')::boolean THEN RAISE EXCEPTION 'a: selv-helende gav konflikt'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM assertion WHERE id=a1 AND objekt_type='family' AND objekt_id=-3001 AND vaerdi_tekst='barn')
+     OR NOT EXISTS(SELECT 1 FROM citation WHERE assertion_id=a1 AND source_id=-9001)
+     OR NOT EXISTS(SELECT 1 FROM conclusion WHERE target_type='fact' AND target_id=v_slotfact AND valgt_assertion_id=a1 AND status='afklaret')
+  THEN RAISE EXCEPTION 'a: evidens-tripel/afklaret-konklusion fejlede'; END IF;
+
+  -- (b) idempotens: samme familie + samme kilde → samme id'er, intet nyt.
+  v := red_tilfoej_foraeldre_paastand(-2001, -3001, -9001);
+  IF (v->>'assertion_id')::bigint <> a1 OR NOT (v->>'idempotent')::boolean THEN RAISE EXCEPTION 'b: idempotens fejlede'; END IF;
+
+  -- (c) korroboration fra ANDEN kilde (samme familie) → ekstra påstand, stadig afklaret, ingen konflikt.
+  v := red_tilfoej_foraeldre_paastand(-2001, -3001, -9002, 's.5', 'udg2 enig');
+  IF (v->>'konflikt')::boolean THEN RAISE EXCEPTION 'c: korroboration gav konflikt'; END IF;
+  IF (SELECT status FROM conclusion WHERE target_type='fact' AND target_id=v_slotfact) <> 'afklaret'
+  THEN RAISE EXCEPTION 'c: status ikke afklaret efter korroboration'; END IF;
+
+  -- (d) konflikt: rival peger på anden familie → omstridt + konfidens-eskalering, valgt URØRT.
+  v := red_tilfoej_foraeldre_paastand(-2001, -3002, -9002, 's.9', 'udg2 anden far');
+  a2 := (v->>'assertion_id')::bigint;
+  IF NOT (v->>'konflikt')::boolean THEN RAISE EXCEPTION 'd: konflikt ikke detekteret'; END IF;
+  SELECT status, valgt_assertion_id INTO v_status, v_valgt FROM conclusion WHERE target_type='fact' AND target_id=v_slotfact;
+  IF v_status <> 'omstridt' THEN RAISE EXCEPTION 'd: status ikke omstridt'; END IF;
+  IF v_valgt <> a1 THEN RAISE EXCEPTION 'd: valgt_assertion_id blev rørt (skal pege på udgave 1)'; END IF;
+  IF (SELECT konfidens FROM family_member WHERE person_id=-2001 AND rolle='barn' AND family_id=-3001) <> 'omstridt'
+  THEN RAISE EXCEPTION 'd: barn-rækkens konfidens ikke eskaleret til omstridt'; END IF;
+
+  -- (e) konflikt-view rapporterer to distinkte familier.
+  IF NOT EXISTS(SELECT 1 FROM red_foraeldre_konflikt WHERE person_id=-2001 AND antal_familier=2 AND status='omstridt')
+  THEN RAISE EXCEPTION 'e: red_foraeldre_konflikt viste ikke konflikten'; END IF;
+
+  -- (f) adjudikér udgave 2: re-peg + flyt projektion + konfidens sat, i ét kald. P1 holder.
+  PERFORM red_vaelg_foraeldre(a2, 'sikker');
+  SELECT valgt_assertion_id, status INTO v_valgt, v_status FROM conclusion WHERE target_type='fact' AND target_id=v_slotfact;
+  IF v_valgt <> a2 OR v_status <> 'afklaret' THEN RAISE EXCEPTION 'f: konklusion ikke re-pegget/afklaret'; END IF;
+  SELECT family_id INTO v_fam FROM family_member WHERE person_id=-2001 AND rolle='barn';
+  IF v_fam <> -3002 THEN RAISE EXCEPTION 'f: barn ikke flyttet til udgave-2-familie (P1)'; END IF;
+  IF (SELECT konfidens FROM family_member WHERE person_id=-2001 AND rolle='barn') <> 'sikker'
+  THEN RAISE EXCEPTION 'f: konfidens ikke sat'; END IF;
+
+  -- (g) skift tilbage til udgave 1: flytter projektion tilbage (begge påstande stadig bevaret).
+  PERFORM red_vaelg_foraeldre(a1);
+  SELECT family_id INTO v_fam FROM family_member WHERE person_id=-2001 AND rolle='barn';
+  IF v_fam <> -3001 THEN RAISE EXCEPTION 'g: barn ikke flyttet tilbage til udgave 1'; END IF;
+  IF (SELECT count(*) FROM assertion WHERE target_type='fact' AND target_id=v_slotfact AND objekt_type='family') < 2
+  THEN RAISE EXCEPTION 'g: en påstand gik tabt ved adjudikation'; END IF;
+
+  -- (h) forældre_ukendt-kontradiktion: markér, forsøg vælg → RAISE; tilbagetræk, retry virker.
+  v := red_upsert_fakta('person',-2001,'forældre_ukendt','ukendt');
+  BEGIN PERFORM red_vaelg_foraeldre(a2); RAISE EXCEPTION 'h: forældre_ukendt-guard fyrede ikke';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%forældre_ukendt%' THEN RAISE; END IF; END;
+  PERFORM red_tilbagetraek_fakta((v->>'fact_id')::bigint);
+  PERFORM red_vaelg_foraeldre(a1);  -- virker igen
+
+  -- (i) guards: de tre fakta-RPC'er afviser 'forældrefamilie'.
+  BEGIN PERFORM red_upsert_fakta('person',-2001,'forældrefamilie','x'); RAISE EXCEPTION 'i: red_upsert_fakta tillod forældrefamilie';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%red_tilfoej_foraeldre_paastand%' THEN RAISE; END IF; END;
+  BEGIN PERFORM red_opret_fakta('person',-2001,'forældrefamilie','x'); RAISE EXCEPTION 'i: red_opret_fakta tillod forældrefamilie';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%red_tilfoej_foraeldre_paastand%' THEN RAISE; END IF; END;
+  BEGIN PERFORM red_tilfoej_oplysning(v_slotfact,'x'); RAISE EXCEPTION 'i: red_tilfoej_oplysning tillod forældrefamilie-slot';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%red_tilfoej_foraeldre_paastand%' THEN RAISE; END IF; END;
+
+  -- (i2) konklusions-dørene afviser forældrefamilie-slottet (lukker P1-hullet: re-peg uden projektion).
+  BEGIN PERFORM red_set_konklusion(a1); RAISE EXCEPTION 'i2: red_set_konklusion tillod forældrefamilie-slot';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%red_vaelg_foraeldre%' THEN RAISE; END IF; END;
+  BEGIN PERFORM red_edit_oplysning(a1,'x'); RAISE EXCEPTION 'i2: red_edit_oplysning tillod forældrefamilie-slot';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%uforanderlige%' THEN RAISE; END IF; END;
+  BEGIN PERFORM red_slet_oplysning(a1); RAISE EXCEPTION 'i2: red_slet_oplysning tillod forældrefamilie-slot';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%uforanderlige%' THEN RAISE; END IF; END;
+
+  -- (j) red_tilfoej_barn venligt prætjek: barn har allerede fødselsfamilie (-3001) → venlig fejl.
+  BEGIN PERFORM red_tilfoej_barn(-3002, -2001); RAISE EXCEPTION 'j: red_tilfoej_barn tillod anden fødselsfamilie';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%allerede en fødselsfamilie%' THEN RAISE; END IF; END;
+
+  -- (k) rå EXCLUDE-værn: direkte INSERT af en anden 'barn'-række afvises (deferred → tving med SET CONSTRAINTS).
+  BEGIN
+    INSERT INTO family_member(family_id, person_id, rolle) VALUES (-3099, -2001, 'barn');
+    SET CONSTRAINTS family_member_en_foedselsfamilie IMMEDIATE;
+    RAISE EXCEPTION 'k: EXCLUDE tillod to fødselsfamilier';
+  EXCEPTION WHEN exclusion_violation THEN NULL; END;
+
+  -- P1 lokal-invariant: afklaret slot ⇒ valgt assertions objekt_id = barn-rækkens family_id.
+  IF EXISTS(
+    SELECT 1 FROM conclusion c JOIN assertion aa ON aa.id=c.valgt_assertion_id
+    WHERE c.target_type='fact' AND c.target_id=v_slotfact AND c.status='afklaret'
+      AND aa.objekt_id <> (SELECT family_id FROM family_member WHERE person_id=-2001 AND rolle='barn'))
+  THEN RAISE EXCEPTION 'P1: valgt slot-familie ≠ projiceret barn-række'; END IF;
+
+  -- cleanup (FK-ordnet)
+  DELETE FROM conclusion WHERE target_type='fact' AND target_id IN (SELECT id FROM fact WHERE subjekt_type='person' AND subjekt_id=-2001);
+  DELETE FROM citation WHERE assertion_id IN (SELECT id FROM assertion WHERE target_type='fact' AND target_id IN (SELECT id FROM fact WHERE subjekt_type='person' AND subjekt_id=-2001));
+  DELETE FROM assertion WHERE target_type='fact' AND target_id IN (SELECT id FROM fact WHERE subjekt_type='person' AND subjekt_id=-2001);
+  DELETE FROM fact WHERE subjekt_type='person' AND subjekt_id=-2001;
+  DELETE FROM family_member WHERE person_id IN (-2001,-2002,-2003,-2004,-2005) OR family_id IN (-3001,-3002,-3099);
+  DELETE FROM family WHERE id IN (-3001,-3002,-3099);
+  DELETE FROM person WHERE id IN (-2001,-2002,-2003,-2004,-2005);
+  DELETE FROM source WHERE id IN (-9001,-9002);
+  RAISE NOTICE 'OK: forældre-konflikt (selv-helende, idempotens, korroboration, konflikt→omstridt+konfidens, view, vælg+flyt+P1, skift-tilbage, forældre_ukendt-guard, 3 fakta-guards, 3 konklusions-dør-guards, tilfoej_barn-prætjek, rå EXCLUDE)';
+END $$;
+
+-- ===== Problem 2 — undo af adjudikation (fortryd genopretter BÅDE conclusion og barn-række) =====
+-- Beviser at family_member ER versions-sporet (red_flyt_barn's flytning er undo-bar) og at fortryd-
+-- replay ikke tripper EXCLUDE. Eget change_set pr. trin via app.change_set_id-reset (som Task 8).
+DO $$
+DECLARE v jsonb; a1 bigint; a2 bigint; v_slot bigint; cs bigint; v_fam bigint; v_valgt bigint; v_status text;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE NOTICE 'SPRINGER OVER forældre-undo: ikke redaktion'; RETURN; END IF;
+  DELETE FROM conclusion WHERE target_type='fact' AND target_id IN (SELECT id FROM fact WHERE subjekt_type='person' AND subjekt_id=-2011);
+  DELETE FROM citation WHERE assertion_id IN (SELECT id FROM assertion WHERE target_type='fact' AND target_id IN (SELECT id FROM fact WHERE subjekt_type='person' AND subjekt_id=-2011));
+  DELETE FROM assertion WHERE target_type='fact' AND target_id IN (SELECT id FROM fact WHERE subjekt_type='person' AND subjekt_id=-2011);
+  DELETE FROM fact WHERE subjekt_type='person' AND subjekt_id=-2011;
+  DELETE FROM family_member WHERE person_id IN (-2011,-2012,-2013,-2014,-2015) OR family_id IN (-3011,-3012);
+  DELETE FROM family WHERE id IN (-3011,-3012); DELETE FROM person WHERE id IN (-2011,-2012,-2013,-2014,-2015);
+
+  INSERT INTO person(id, levende, koen) VALUES (-2011,false,'mand'),(-2012,false,'mand'),(-2013,false,'kvinde'),(-2014,false,'mand'),(-2015,false,'kvinde');
+  INSERT INTO family(id, type) VALUES (-3011,'vielse'),(-3012,'vielse');
+  INSERT INTO family_member(family_id, person_id, rolle) VALUES
+    (-3011,-2012,'partner'),(-3011,-2013,'partner'),(-3012,-2014,'partner'),(-3012,-2015,'partner'),(-3011,-2011,'barn');
+
+  v := red_tilfoej_foraeldre_paastand(-2011,-3011); a1 := (v->>'assertion_id')::bigint; v_slot := (v->>'fact_id')::bigint;
+  v := red_tilfoej_foraeldre_paastand(-2011,-3012); a2 := (v->>'assertion_id')::bigint;  -- konflikt
+
+  -- adjudikér udgave 2 i EGET change_set → flytter barn -3011→-3012 + re-peg conclusion
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_vaelg_foraeldre(a2, 'sikker');
+  SELECT max(id) INTO cs FROM change_set;
+  IF (SELECT family_id FROM family_member WHERE person_id=-2011 AND rolle='barn') <> -3012 THEN RAISE EXCEPTION 'undo-setup: barn ikke flyttet'; END IF;
+
+  -- fortryd → barn tilbage i -3011, conclusion tilbage til udgave 1 (a1), INGEN exclusion_violation under replay
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_fortryd_change_set(cs, false);
+  SELECT family_id INTO v_fam FROM family_member WHERE person_id=-2011 AND rolle='barn';
+  IF v_fam <> -3011 THEN RAISE EXCEPTION 'undo: barn-række ikke genoprettet til -3011 (fik %)', v_fam; END IF;
+  SELECT valgt_assertion_id, status INTO v_valgt, v_status FROM conclusion WHERE target_type='fact' AND target_id=v_slot;
+  IF v_valgt <> a1 THEN RAISE EXCEPTION 'undo: conclusion ikke genoprettet til udgave 1 (valgt=%)', v_valgt; END IF;
+
+  DELETE FROM conclusion WHERE target_type='fact' AND target_id=v_slot;
+  DELETE FROM citation WHERE assertion_id IN (SELECT id FROM assertion WHERE target_type='fact' AND target_id=v_slot);
+  DELETE FROM assertion WHERE target_type='fact' AND target_id=v_slot;
+  DELETE FROM fact WHERE id=v_slot;
+  DELETE FROM family_member WHERE person_id IN (-2011,-2012,-2013,-2014,-2015) OR family_id IN (-3011,-3012);
+  DELETE FROM family WHERE id IN (-3011,-3012); DELETE FROM person WHERE id IN (-2011,-2012,-2013,-2014,-2015);
+  RAISE NOTICE 'OK: forældre-undo (fortryd genoprettede barn-række + conclusion, ingen EXCLUDE-brud under replay)';
+END $$;
+
+-- ===== Problem 2 — global backfill-komplethed + P1-drift-fanger =====
+-- Gated: kun meningsfuld på en base hvor forældre-backfillen ER kørt (≥1 slot). På en ikke-backfyldt
+-- base (fx frisk daa_test2) springes den over. Bemærk: dette verificerer STRUKTUR (slot+valgt+projektion);
+-- citation-KILDE-korrekthed garanteres ved konstruktion af den rene single-edition-bed (§5), ikke her.
+DO $$
+DECLARE v_uden int; v_p1 int; v_multi int;
+BEGIN
+  IF NOT EXISTS(SELECT 1 FROM fact WHERE subjekt_type='person' AND faktatype='forældrefamilie') THEN
+    RAISE NOTICE 'SPRINGER OVER forældre-backfill-komplethed: ingen forældrefamilie-slots (backfill ikke kørt på denne base)';
+    RETURN;
+  END IF;
+  -- (1) hver 'barn'-række har et slot med afklaret ELLER omstridt conclusion
+  SELECT count(*) INTO v_uden FROM family_member fm WHERE fm.rolle='barn'
+    AND NOT EXISTS(SELECT 1 FROM fact f JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id
+                   WHERE f.subjekt_type='person' AND f.subjekt_id=fm.person_id AND f.faktatype='forældrefamilie'
+                     AND c.status IN ('afklaret','omstridt'));
+  IF v_uden > 0 THEN RAISE EXCEPTION 'backfill-komplethed: % barn-række(r) uden afklaret/omstridt forældrefamilie-slot', v_uden; END IF;
+  -- (2) P1: afklaret slot ⇒ valgt assertions objekt_id = personens 'barn'-rækkes family_id
+  SELECT count(*) INTO v_p1 FROM conclusion c
+    JOIN assertion a ON a.id=c.valgt_assertion_id
+    JOIN fact f ON f.id=c.target_id AND c.target_type='fact' AND f.subjekt_type='person' AND f.faktatype='forældrefamilie'
+    WHERE c.status='afklaret'
+      AND a.objekt_id IS DISTINCT FROM (SELECT family_id FROM family_member WHERE person_id=f.subjekt_id AND rolle='barn');
+  IF v_p1 > 0 THEN RAISE EXCEPTION 'P1-drift: % afklaret slot(s) hvor valgt familie ≠ projiceret barn-række', v_p1; END IF;
+  -- (3) hver slot-assertion har objekt_type='family' + eksisterende familie
+  IF EXISTS(SELECT 1 FROM assertion a JOIN fact f ON f.id=a.target_id AND a.target_type='fact'
+            WHERE f.faktatype='forældrefamilie' AND (a.objekt_type IS DISTINCT FROM 'family'
+              OR NOT EXISTS(SELECT 1 FROM family fa WHERE fa.id=a.objekt_id)))
+  THEN RAISE EXCEPTION 'backfill: slot-assertion m. ugyldig/manglende familie-reference'; END IF;
+  SELECT count(*) INTO v_multi FROM red_foraeldre_konflikt;
+  RAISE NOTICE 'OK: forældre-backfill-komplethed + P1-drift (alle barn-rækker slot-dækket, projektion konsistent; % åbne konflikter i red_foraeldre_konflikt)', v_multi;
+END $$;
 SELECT set_config('request.jwt.claim.sub','', false);

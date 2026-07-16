@@ -101,6 +101,15 @@ fact_value <- function(pid, ft, vaerdi=NA, dmin=NA, dmax=NA, raw=NA, sid, sted=N
 add_family <- function() { fid <- nid("family"); ex("INSERT INTO family (id,type) VALUES ($1,'vielse')", list(fid)); fid }
 add_member <- function(fid, pid, rolle, ordinal=NA) ex(
   "INSERT INTO family_member (family_id,person_id,rolle,ordinal) VALUES ($1,$2,$3,$4)", list(fid, pid, rolle, ordinal))
+# Slot-tripel for en 'barn'-family_member-række (Problem 2, spec §5): forældrefamilie-fact +
+# assertion (objekt=familien) + citation (udgaven) + afklaret conclusion. Gør hver barn-række
+# evidens-komplet, så fremtidige udgave-loads aldrig genindfører to-regime-tilstanden (barn uden slot).
+# Kræver migreret assertion.objekt_type/objekt_id + faktatype 'forældrefamilie'. Se load_daa.R.
+member_evidence <- function(fid, pid, sid) {
+  slot <- add_fact(pid, "forældrefamilie"); aid <- nid("assertion")
+  ex(paste("INSERT INTO assertion (id,target_type,target_id,vaerdi_tekst,objekt_type,objekt_id)",
+           "VALUES ($1,'fact',$2,'barn','family',$3)"), list(aid, slot, fid))
+  add_citation(aid, sid); add_conclusion("fact", slot, aid); invisible(slot) }
 add_relation <- function(sid_, oid_, rolle) { rid <- nid("relation")
   ex(paste("INSERT INTO relation (id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)",
            "VALUES ($1,'person',$2,'person',$3,$4)"), list(rid, sid_, oid_, rolle)); rid }
@@ -175,7 +184,7 @@ tryCatch({
     }
     for (par in ls(kids)) {
       fam <- add_family(); add_member(fam, get(par, envir = lmap), "partner")
-      for (cpid in get(par, envir = kids)) add_member(fam, cpid, "barn")
+      for (cpid in get(par, envir = kids)) { add_member(fam, cpid, "barn"); member_evidence(fam, cpid, src) }  # evidens-komplet (Problem 2)
     }
   }
 
