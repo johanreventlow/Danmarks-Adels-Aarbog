@@ -5,6 +5,7 @@
 // men struktur er ren React (ikke prototypens DCLogic).
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { navigate, usePath } from './router';
+import { SammenlignUdgaver } from './components/SammenlignUdgaver';
 import { signIn, signOut, currentSession, type RedSession } from './data/auth';
 import {
   fetchRedaktionPersoner, fetchPersonEvidence, fetchNarrativer, fetchSources, fetchLineages, fetchSletPreview,
@@ -50,6 +51,7 @@ const ENTITIES = [
   { key: 'source', label: 'Kilder', icon: '§' },
   { key: 'arms', label: 'Våben', icon: '⛨' },
   { key: 'media', label: 'Medier', icon: '▦' },
+  { key: 'sammenlign', label: 'Sammenlign udgaver', icon: '⇄' },
 ];
 const FELT_DEFS: [string, string][] = [['navn', 'Navn'], ['foedt', 'Født'], ['doed', 'Død'], ['titel', 'Titel/rang']];
 // UI-entitetsnøgle → DB subjekt_type + primær-felt (til forslag via red_suggest). Eksplicit
@@ -432,11 +434,19 @@ export default function Redaktion() {
       {renderTopBar()}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {renderSidebar()}
-        {renderList()}
-        <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: T.paper }}>
-          {loadErr && <pre style={{ margin: 18, color: T.red, fontSize: 12, whiteSpace: 'pre-wrap' }}>{loadErr}</pre>}
-          {entity === 'person' ? renderPersonEditor() : entity === 'slaegt' ? renderSlaegtEditor() : renderGenericEditor()}
-        </div>
+        {entity === 'sammenlign' ? (
+          <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: T.paper }}>
+            <SammenlignUdgaver role={role} />
+          </div>
+        ) : (
+          <>
+            {renderList()}
+            <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: T.paper }}>
+              {loadErr && <pre style={{ margin: 18, color: T.red, fontSize: 12, whiteSpace: 'pre-wrap' }}>{loadErr}</pre>}
+              {entity === 'person' ? renderPersonEditor() : entity === 'slaegt' ? renderSlaegtEditor() : renderGenericEditor()}
+            </div>
+          </>
+        )}
       </div>
       {renderLoginModal()}
       {renderConfirmModal()}
