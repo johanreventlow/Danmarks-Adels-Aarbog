@@ -193,10 +193,13 @@ alter table public.media enable row level security;
 drop policy if exists anon_read on public.media;
 create policy anon_read on public.media for select to anon
   using (public.media_synlig_anon(media.id));
--- authenticated (medlem): levende tilladt, men manuelt privat skjules; rettigheder gælder stadig.
+-- authenticated (medlem): fail-close som anon (Codex-fund F-02). media_synlig_auth tillod levende
+-- (afbilder_privat gater kun privat), så medlem-tier så fotos af levende personer uden samtykke —
+-- samme læk som person-laget. Bruger nu media_synlig_anon (skjuler levende via afbilder_skjult).
+-- media_synlig_auth/media_afbilder_privat bevares til den fremtidige samtykke-model, men er pt. ubrugt.
 drop policy if exists auth_read on public.media;
 create policy auth_read on public.media for select to authenticated
-  using (public.media_synlig_auth(media.id));
+  using (public.media_synlig_anon(media.id));
 -- redaktion: ser alt (additivt oven på de to ovenfor).
 drop policy if exists redaktion_read on public.media;
 create policy redaktion_read on public.media for select to authenticated
@@ -214,7 +217,7 @@ create policy anon_read on public.media_variant for select to anon
   using (public.media_synlig_anon(media_id));
 drop policy if exists auth_read on public.media_variant;
 create policy auth_read on public.media_variant for select to authenticated
-  using (public.media_synlig_auth(media_id));
+  using (public.media_synlig_anon(media_id));  -- fail-close (F-02), spejler forælder-media
 drop policy if exists redaktion_read on public.media_variant;
 create policy redaktion_read on public.media_variant for select to authenticated
   using ((select public.current_rolle()) = 'redaktion');
@@ -237,7 +240,7 @@ do $$ begin
       bucket_id = 'media' and public.media_synlig_anon(public.media_id_for_object(name)));
     drop policy if exists media_obj_auth on storage.objects;
     create policy media_obj_auth on storage.objects for select to authenticated using (
-      bucket_id = 'media' and public.media_synlig_auth(public.media_id_for_object(name)));
+      bucket_id = 'media' and public.media_synlig_anon(public.media_id_for_object(name)));  -- fail-close (F-02)
     drop policy if exists media_obj_redaktion on storage.objects;
     create policy media_obj_redaktion on storage.objects for select to authenticated using (
       bucket_id = 'media' and (select public.current_rolle()) = 'redaktion');

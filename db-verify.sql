@@ -212,25 +212,38 @@ END $$;
 -- så redaktion_read-laget fyrer IKKE og auth_read styrer alene (medlem-tier).
 -- Invariant #8 (CLAUDE.md §3): LEVENDE kræver samtykke — indtil samtykke/scope findes skal
 -- medlem-tier fail-close til samme regel som anon (afdøde synlige, levende skjult). Codex-fund F-02.
+-- Dækker BÅDE person-laget OG media-laget (media_synlig_auth tillod ellers fotos af levende).
 DO $$
-DECLARE vis_live int; vis_dead int;
+DECLARE vis_live int; vis_dead int; media_live int; media_dead int;
 BEGIN
-  DELETE FROM person WHERE id IN (-950,-951);
+  DELETE FROM relation WHERE id IN (-950,-951);
+  DELETE FROM media    WHERE id IN (-950,-951);
+  DELETE FROM person   WHERE id IN (-950,-951);
   INSERT INTO person(id, levende, privat) VALUES (-950, true, false), (-951, false, false);
+  -- media der afbilder hhv. den levende og den afdøde person (rettigheder=klar, så kun GDPR-gating måles)
+  INSERT INTO media(id, slags, titel, maa_publiceres, upload_status) VALUES
+    (-950,'foto','portræt-levende', true,'klar'), (-951,'foto','portræt-afdød', true,'klar');
+  INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle) VALUES
+    (-950,'person',-950,'media',-950,'afbildet'), (-951,'person',-951,'media',-951,'afbildet');
 
   PERFORM set_config('request.jwt.claim.sub','', true);  -- ingen bruger → ikke-redaktion
   SET LOCAL ROLE authenticated;
-  SELECT count(*) INTO vis_live FROM person WHERE id = -950;
-  SELECT count(*) INTO vis_dead FROM person WHERE id = -951;
+  SELECT count(*) INTO vis_live   FROM person WHERE id = -950;
+  SELECT count(*) INTO vis_dead   FROM person WHERE id = -951;
+  SELECT count(*) INTO media_live FROM media  WHERE id = -950;
+  SELECT count(*) INTO media_dead FROM media  WHERE id = -951;
   RESET ROLE;
 
-  IF vis_live = 0 AND vis_dead = 1 THEN
-    RAISE NOTICE 'OK: authenticated fail-close (levende skjult, afdød synlig)';
+  IF vis_live = 0 AND vis_dead = 1 AND media_live = 0 AND media_dead = 1 THEN
+    RAISE NOTICE 'OK: authenticated fail-close (levende person+foto skjult, afdød synlig)';
   ELSE
-    RAISE EXCEPTION 'F-02 FEJL: authenticated ser levende=% (vent 0), afdød=% (vent 1)', vis_live, vis_dead;
+    RAISE EXCEPTION 'F-02 FEJL: authenticated person levende=%/afdød=% (vent 0/1), media levende=%/afdød=% (vent 0/1)',
+      vis_live, vis_dead, media_live, media_dead;
   END IF;
 
-  DELETE FROM person WHERE id IN (-950,-951);
+  DELETE FROM relation WHERE id IN (-950,-951);
+  DELETE FROM media    WHERE id IN (-950,-951);
+  DELETE FROM person   WHERE id IN (-950,-951);
 END $$;
 
 
