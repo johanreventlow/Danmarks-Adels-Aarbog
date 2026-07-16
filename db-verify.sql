@@ -1259,6 +1259,14 @@ BEGIN
   BEGIN PERFORM red_tilfoej_oplysning(v_slotfact,'x'); RAISE EXCEPTION 'i: red_tilfoej_oplysning tillod forældrefamilie-slot';
   EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%red_tilfoej_foraeldre_paastand%' THEN RAISE; END IF; END;
 
+  -- (i2) konklusions-dørene afviser forældrefamilie-slottet (lukker P1-hullet: re-peg uden projektion).
+  BEGIN PERFORM red_set_konklusion(a1); RAISE EXCEPTION 'i2: red_set_konklusion tillod forældrefamilie-slot';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%red_vaelg_foraeldre%' THEN RAISE; END IF; END;
+  BEGIN PERFORM red_edit_oplysning(a1,'x'); RAISE EXCEPTION 'i2: red_edit_oplysning tillod forældrefamilie-slot';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%uforanderlige%' THEN RAISE; END IF; END;
+  BEGIN PERFORM red_slet_oplysning(a1); RAISE EXCEPTION 'i2: red_slet_oplysning tillod forældrefamilie-slot';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%uforanderlige%' THEN RAISE; END IF; END;
+
   -- (j) red_tilfoej_barn venligt prætjek: barn har allerede fødselsfamilie (-3001) → venlig fejl.
   BEGIN PERFORM red_tilfoej_barn(-3002, -2001); RAISE EXCEPTION 'j: red_tilfoej_barn tillod anden fødselsfamilie';
   EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%allerede en fødselsfamilie%' THEN RAISE; END IF; END;
@@ -1286,7 +1294,7 @@ BEGIN
   DELETE FROM family WHERE id IN (-3001,-3002,-3099);
   DELETE FROM person WHERE id IN (-2001,-2002,-2003,-2004,-2005);
   DELETE FROM source WHERE id IN (-9001,-9002);
-  RAISE NOTICE 'OK: forældre-konflikt (selv-helende, idempotens, korroboration, konflikt→omstridt+konfidens, view, vælg+flyt+P1, skift-tilbage, forældre_ukendt-guard, 3 fakta-guards, tilfoej_barn-prætjek, rå EXCLUDE)';
+  RAISE NOTICE 'OK: forældre-konflikt (selv-helende, idempotens, korroboration, konflikt→omstridt+konfidens, view, vælg+flyt+P1, skift-tilbage, forældre_ukendt-guard, 3 fakta-guards, 3 konklusions-dør-guards, tilfoej_barn-prætjek, rå EXCLUDE)';
 END $$;
 
 -- ===== Problem 2 — undo af adjudikation (fortryd genopretter BÅDE conclusion og barn-række) =====

@@ -326,9 +326,11 @@ CREATE TABLE family_member (             -- FAMC/FAMS: person i familie med roll
   konfidens TEXT,                        -- 'sikker'|'sandsynlig'|'formodet'|'omstridt' (NULL = uangivet). Omstridte hypoteser med kilder ligger i evidenslaget.
   PRIMARY KEY (family_id, person_id, rolle),
   -- Grafinvariant (Problem 2): højst ÉN fødselsfamilie ('barn'-række) pr. person — lukker "to
-  -- modstridende fædre" for ALLE skrive-veje. DEFERRABLE så red_flyt_barn's to-trins-flytning
-  -- består ved commit. NB: ON CONFLICT kan ikke bruge en deferrable constraint som arbiter →
-  -- INSERT INTO family_member skal være plain (loaderne er det allerede).
+  -- modstridende fædre" for ALLE skrive-veje. DEFERRABLE er nødvendig for undo/restore-replay:
+  -- red_fortryd_change_set genafspiller versions-events i én transaktion, hvor rækkefølgen kan
+  -- have en midlertidig dublet før commit (red_flyt_barn selv er delete-før-insert og rammer det
+  -- ikke, men behold DEFERRABLE — ellers knækker restore). NB: ON CONFLICT kan ikke bruge en
+  -- deferrable constraint som arbiter → INSERT INTO family_member skal være plain (loaderne er det).
   CONSTRAINT family_member_en_foedselsfamilie
     EXCLUDE USING btree (person_id WITH =) WHERE (rolle = 'barn') DEFERRABLE INITIALLY DEFERRED
 );
@@ -691,6 +693,9 @@ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_target_type text; v_target_id bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF (SELECT f.faktatype FROM assertion a JOIN fact f ON f.id=a.target_id AND a.target_type='fact' WHERE a.id=p_assertion_id) = 'forældrefamilie' THEN
+    RAISE EXCEPTION 'Forældrefamilie-slottets konklusion vælges kun via red_vaelg_foraeldre (bevarer projektion/invariant P1)';
+  END IF;
   PERFORM begin_change_set('red_set_konklusion', format('Satte konklusion til oplysning %s', p_assertion_id), NULL, NULL);
   SELECT target_type, target_id INTO v_target_type, v_target_id
     FROM assertion WHERE id = p_assertion_id;
@@ -714,6 +719,9 @@ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_old assertion; v_new bigint; v_cit bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF (SELECT f.faktatype FROM assertion a JOIN fact f ON f.id=a.target_id AND a.target_type='fact' WHERE a.id=p_assertion_id) = 'forældrefamilie' THEN
+    RAISE EXCEPTION 'Forældrefamilie-slottets påstande redigeres ikke (uforanderlige) — brug red_tilfoej_foraeldre_paastand';
+  END IF;
   PERFORM begin_change_set('red_edit_oplysning', format('Rettede oplysning %s', p_assertion_id), NULL, NULL);
   SELECT * INTO v_old FROM assertion WHERE id=p_assertion_id;
   IF v_old.id IS NULL THEN RAISE EXCEPTION 'Ukendt assertion %', p_assertion_id; END IF;
@@ -751,6 +759,9 @@ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_target_type text; v_target_id bigint; v_was_chosen boolean; v_next bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF (SELECT f.faktatype FROM assertion a JOIN fact f ON f.id=a.target_id AND a.target_type='fact' WHERE a.id=p_assertion_id) = 'forældrefamilie' THEN
+    RAISE EXCEPTION 'Forældrefamilie-slottets påstande slettes ikke (uforanderlige) — skift kanonisk valg med red_vaelg_foraeldre';
+  END IF;
   PERFORM begin_change_set('red_slet_oplysning', format('Slettede oplysning %s', p_assertion_id), NULL, NULL);
   SELECT target_type, target_id INTO v_target_type, v_target_id
     FROM assertion WHERE id = p_assertion_id;
@@ -1320,7 +1331,8 @@ BEGIN
     RETURNING id INTO v_assert;
   INSERT INTO citation(id, assertion_id, source_id, side, citat_tekst, kvalitet)
     VALUES ((SELECT coalesce(max(id),0)+1 FROM citation), v_assert, p_source_id, p_side,
-            coalesce(p_citat, p_kilde_fritekst, '(kilde mangler)'), 'primær')
+            coalesce(p_citat, p_kilde_fritekst, '(kilde mangler)'),
+            CASE WHEN p_source_id IS NOT NULL THEN 'primær' ELSE 'sekundær' END)  -- kildeløs redaktionel påstand er ikke primærkilde
     RETURNING id INTO v_cit;
 
   SELECT a.objekt_id INTO v_valgt_family
@@ -1335,10 +1347,9 @@ BEGIN
       v_konflikt := true;
       UPDATE conclusion SET status='omstridt', blaastemplet_naar=current_date
         WHERE target_type='fact' AND target_id=v_fact;
-      IF v_barn_family IS NOT NULL THEN
-        UPDATE family_member SET konfidens='omstridt'
-          WHERE person_id=p_barn_id AND rolle='barn' AND family_id=v_barn_family;
-      END IF;
+      -- EXCLUDE garanterer højst én 'barn'-række pr. person → intet familie-prædikat/NULL-guard nødvendigt.
+      UPDATE family_member SET konfidens='omstridt'
+        WHERE person_id=p_barn_id AND rolle='barn';
     END IF;
   ELSE
     IF v_barn_family IS NOT DISTINCT FROM p_family_id THEN
