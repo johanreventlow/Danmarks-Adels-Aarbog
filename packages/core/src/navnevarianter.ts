@@ -34,6 +34,7 @@ const RAW_CLASSES: string[][] = [
   ['margrethe', 'margarethe', 'margaretha'],
   ['dorothea', 'dorthe'],
   ['cai', 'kaj', 'kay'],
+  ['christian', 'kristian'],                                                // 'ch' foldes ikke af c→k → ellers c-blok vs k-blok
   ['gotskalk', 'gottschalk', 'godskalk'],                                   // facit 1939↔2018-20
   ['cathrina', 'catharina', 'katharina', 'cathrine', 'catharine', 'katharine'], // flagship §9
 ];

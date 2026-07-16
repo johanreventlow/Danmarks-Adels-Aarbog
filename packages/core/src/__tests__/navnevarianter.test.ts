@@ -55,6 +55,14 @@ describe('foldToken — lag 2 variant-tabel (§3.2)', () => {
     expect(foldToken('henrik')).toBe(foldToken('heinrich'));
     expect(foldToken('henrik')).toBe(foldToken('hinrich'));
   });
+
+  test('Christian↔Kristian samme nøgle + samme blok (ellers c-blok vs k-blok)', () => {
+    expect(foldToken('kristian')).toBe(foldToken('christian'));
+    // begge skal have samme initial så blocking sammenligner dem
+    expect(matchKey('Kristian')[0]).toBe(matchKey('Christian')[0]);
+    // Christian-nøglen er uændret (facit-invariant)
+    expect(foldToken('christian')).toBe('christian');
+  });
 });
 
 describe('matchKey — flagship + facit (§9)', () => {

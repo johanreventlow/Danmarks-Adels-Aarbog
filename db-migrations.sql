@@ -1928,6 +1928,9 @@ RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_lo bigint; v_hi bigint; v_rel bigint; v_ass bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Samme advisory-lock som red_samme_som: serialisér de to kontradiktions-guards mod hinanden
+  -- (uden den kan concurrent red_samme_som(a,b)+red_ikke_samme_som(a,b) begge passere → dobbelt-rolle).
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
   IF p_a = p_b THEN RAISE EXCEPTION 'ikke_samme_som: kan ikke afvise en person mod sig selv'; END IF;
   IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_a) THEN RAISE EXCEPTION 'Person % findes ikke', p_a; END IF;
   IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_b) THEN RAISE EXCEPTION 'Person % findes ikke', p_b; END IF;
