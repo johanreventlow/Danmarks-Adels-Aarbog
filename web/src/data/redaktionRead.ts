@@ -533,3 +533,11 @@ export async function fetchIkkeSammeSomPar(): Promise<{ aId: string; bId: string
       .eq('rolle', 'ikke_samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person'));
   return parseIkkeSammeSomPar(rows);
 }
+
+/** Hent alle samme_som-links (person→person) — til arbejdslistens "afklaret"-markering. */
+export async function fetchSammeSomPar(): Promise<{ aId: string; bId: string }[]> {
+  const rows = await getAll<{ subjekt_id: number; objekt_id: number }>(() =>
+    supabase.from('relation').select('subjekt_id,objekt_id')
+      .eq('rolle', 'samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person'));
+  return parseIkkeSammeSomPar(rows); // samme (subjekt,objekt)→(aId,bId)-form
+}
