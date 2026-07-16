@@ -347,8 +347,12 @@ create policy anon_read on public.citation for select to anon
   using (exists (select 1 from public.assertion a where a.id = assertion_id));
 
 -- =========================================================
--- 5) AUTHENTICATED-LAG (medlem/redaktion): logget-ind ser OGSÅ levende.
---    Samtykke-granularitet pr. levende person udskudt (se FREMTID).
+-- 5) AUTHENTICATED-LAG (medlem): fail-close til SAMME regel som anon (afdøde synlige,
+--    levende skjult). Codex-fund F-02 (2026-07-16): den tidligere auth_read filtrerede kun
+--    'privat' → enhver logget-ind bruger så alle ikke-private LEVENDE personer uden samtykke,
+--    i strid med invariant #8 (levende kræver samtykke). Medlem-tier må ikke se mere end anon
+--    før en egentlig samtykke-/slægts-scope-model findes (se FREMTID nederst + Codex-fund F-05).
+--    Redaktion beholder fuld adgang via det additive redaktion_read-lag længere nede.
 -- =========================================================
 do $$
 declare t text;
@@ -362,35 +366,34 @@ begin
   end loop;
 end $$;
 
--- person: alt undtagen manuelt privat.
+-- person: fail-closed på levende (spejler anon_read; NULL levende skjules).
 create policy auth_read on public.person for select to authenticated
-  using (coalesce(privat,false) = false);
--- personbundne: synlige hvis personen ikke er privat (levende tilladt for login).
+  using (levende = false and coalesce(privat, false) = false);
+-- personbundne: synlige kun hvis personen er offentlig (afdød + ikke-privat).
 create policy auth_read on public.person_external_id for select to authenticated
-  using (exists (select 1 from person p where p.id=person_id and coalesce(p.privat,false)=false));
+  using (public.person_offentlig(person_id));
 create policy auth_read on public.family_member for select to authenticated
-  using (exists (select 1 from person p where p.id=person_id and coalesce(p.privat,false)=false));
+  using (public.person_offentlig(person_id));
 create policy auth_read on public.fact for select to authenticated
-  using (subjekt_type <> 'person'
-         or exists (select 1 from person p where p.id=subjekt_id and coalesce(p.privat,false)=false));
--- relation: gates på BÅDE person-endpoints (ikke-privat). Cycle 02 H3 — using(true) lækkede
+  using (subjekt_type <> 'person' or public.person_offentlig(subjekt_id));
+-- relation: gates på BÅDE person-endpoints (offentlig). Cycle 02 H3 — using(true) lækkede
 -- private personers relationer (ejerskab/hverv/kanter) til logget-ind medlemmer.
 create policy auth_read on public.relation for select to authenticated
   using (
-    (subjekt_type <> 'person' or exists (select 1 from person p where p.id=subjekt_id and coalesce(p.privat,false)=false))
-    and (objekt_type <> 'person' or exists (select 1 from person p where p.id=objekt_id and coalesce(p.privat,false)=false))
+    (subjekt_type <> 'person' or public.person_offentlig(subjekt_id))
+    and (objekt_type <> 'person' or public.person_offentlig(objekt_id))
   );
--- narrative/note: eget privat-flag OG (ikke-person ELLER refereret person ikke-privat).
+-- narrative/note: eget privat-flag OG (ikke-person ELLER refereret person offentlig).
 -- Cycle 02 H3 — manglede person-gating (ikke-flagget bio/note om privat person lækkede).
 create policy auth_read on public.narrative for select to authenticated
   using (
     coalesce(privat,false)=false
-    and (subjekt_type <> 'person' or exists (select 1 from person p where p.id=subjekt_id and coalesce(p.privat,false)=false))
+    and (subjekt_type <> 'person' or public.person_offentlig(subjekt_id))
   );
 create policy auth_read on public.note for select to authenticated
   using (
     coalesce(privat,false)=false
-    and (target_type <> 'person' or exists (select 1 from person p where p.id=target_id and coalesce(p.privat,false)=false))
+    and (target_type <> 'person' or public.person_offentlig(target_id))
   );
 create policy auth_read on public.assertion for select to authenticated
   using (
