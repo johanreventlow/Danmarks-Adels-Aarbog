@@ -7,6 +7,8 @@ import {
   matchUdgaver,
   buildMatchFrame,
   defaultCfg,
+  evalPrecisionRecall,
+  pairsToCsv,
   type MatchFrame,
   type ScoredPair,
 } from '../matchUdgaver';
@@ -150,5 +152,41 @@ describe('matchUdgaver — facit-genfinding + populationsafgrænsning', () => {
     const withNN = [...kildeA, buildMatchFrame({ id: 'A-nn', navn: 'NN', koen: 'ukendt' })];
     const pairs = matchUdgaver(withNN, kildeB);
     expect(pairs.some((p) => p.aId === 'A-nn' && p.tier !== 'none')).toBe(false);
+  });
+});
+
+describe('kalibrerings-harness (§3.5)', () => {
+  test('evalPrecisionRecall: precision = korrekte/crosswalk, recall = korrekte/facit', () => {
+    const crosswalk = [
+      { aId: 'a1', bId: 'b1' }, // korrekt
+      { aId: 'a2', bId: 'bX' }, // forkert (facit siger b2)
+    ];
+    const truth = [
+      { aId: 'a1', bId: 'b1' },
+      { aId: 'a2', bId: 'b2' },
+      { aId: 'a3', bId: 'b3' }, // ikke i crosswalk (tabt recall)
+    ];
+    const r = evalPrecisionRecall(crosswalk, truth);
+    expect(r.correct).toBe(1);
+    expect(r.precision).toBe(1 / 2);
+    expect(r.recall).toBe(1 / 3);
+  });
+
+  test('evalPrecisionRecall: tomt crosswalk → precision 0, recall 0 (ingen division-fejl)', () => {
+    const r = evalPrecisionRecall([], [{ aId: 'a1', bId: 'b1' }]);
+    expect(r.precision).toBe(0);
+    expect(r.recall).toBe(0);
+  });
+
+  test('pairsToCsv: header + én række pr. par, tier/score med', () => {
+    const pairs: ScoredPair[] = [
+      { aId: 'a1', bId: 'b1', nameSim: 1, birthOverlap: true, deathOverlap: false, sexEq: true, uniqueBlock: true, score: 0.9, tier: 'auto' },
+    ];
+    const csv = pairsToCsv(pairs);
+    const lines = csv.trim().split('\n');
+    expect(lines[0]).toBe('aId,bId,nameSim,birthOverlap,deathOverlap,sexEq,uniqueBlock,score,tier');
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toContain('a1,b1,');
+    expect(lines[1]).toContain('auto');
   });
 });

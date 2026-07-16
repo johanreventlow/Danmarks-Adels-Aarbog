@@ -241,6 +241,34 @@ function normSex(x?: string | null): Sex {
   return 'ukendt';
 }
 
+// ---- Kalibrerings-harness (§3.5) ----
+export interface CrosswalkPair { aId: Id; bId: Id }
+
+/** Precision/recall af et crosswalk mod et håndlabelt facit (port af eval_precision_recall).
+ *  precision = korrekte/|crosswalk|; recall = korrekte/|facit|. */
+export function evalPrecisionRecall(
+  crosswalk: CrosswalkPair[], truth: CrosswalkPair[],
+): { correct: number; precision: number; recall: number } {
+  const truthMap = new Map<Id, Id>();
+  for (const t of truth) truthMap.set(t.aId, t.bId);
+  let correct = 0;
+  for (const c of crosswalk) if (truthMap.get(c.aId) === c.bId) correct++;
+  return {
+    correct,
+    precision: crosswalk.length ? correct / crosswalk.length : 0,
+    recall: truth.length ? correct / truth.length : 0,
+  };
+}
+
+/** Eksportér alle scorede par som CSV til offline cutoff-sweeps (spec §3.5). */
+export function pairsToCsv(pairs: ScoredPair[]): string {
+  const header = 'aId,bId,nameSim,birthOverlap,deathOverlap,sexEq,uniqueBlock,score,tier';
+  const rows = pairs.map((p) =>
+    [p.aId, p.bId, p.nameSim, p.birthOverlap, p.deathOverlap, p.sexEq, p.uniqueBlock, p.score ?? '', p.tier ?? ''].join(','),
+  );
+  return [header, ...rows].join('\n') + '\n';
+}
+
 export function buildMatchFrame(p: FramePerson): MatchFrame {
   const navn = (p.navn ?? '').trim();
   return {
