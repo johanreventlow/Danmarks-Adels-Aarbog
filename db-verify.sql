@@ -1288,4 +1288,37 @@ BEGIN
   DELETE FROM source WHERE id IN (-9001,-9002);
   RAISE NOTICE 'OK: forældre-konflikt (selv-helende, idempotens, korroboration, konflikt→omstridt+konfidens, view, vælg+flyt+P1, skift-tilbage, forældre_ukendt-guard, 3 fakta-guards, tilfoej_barn-prætjek, rå EXCLUDE)';
 END $$;
+
+-- ===== Problem 2 — global backfill-komplethed + P1-drift-fanger =====
+-- Gated: kun meningsfuld på en base hvor forældre-backfillen ER kørt (≥1 slot). På en ikke-backfyldt
+-- base (fx frisk daa_test2) springes den over. Bemærk: dette verificerer STRUKTUR (slot+valgt+projektion);
+-- citation-KILDE-korrekthed garanteres ved konstruktion af den rene single-edition-bed (§5), ikke her.
+DO $$
+DECLARE v_uden int; v_p1 int; v_multi int;
+BEGIN
+  IF NOT EXISTS(SELECT 1 FROM fact WHERE subjekt_type='person' AND faktatype='forældrefamilie') THEN
+    RAISE NOTICE 'SPRINGER OVER forældre-backfill-komplethed: ingen forældrefamilie-slots (backfill ikke kørt på denne base)';
+    RETURN;
+  END IF;
+  -- (1) hver 'barn'-række har et slot med afklaret ELLER omstridt conclusion
+  SELECT count(*) INTO v_uden FROM family_member fm WHERE fm.rolle='barn'
+    AND NOT EXISTS(SELECT 1 FROM fact f JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id
+                   WHERE f.subjekt_type='person' AND f.subjekt_id=fm.person_id AND f.faktatype='forældrefamilie'
+                     AND c.status IN ('afklaret','omstridt'));
+  IF v_uden > 0 THEN RAISE EXCEPTION 'backfill-komplethed: % barn-række(r) uden afklaret/omstridt forældrefamilie-slot', v_uden; END IF;
+  -- (2) P1: afklaret slot ⇒ valgt assertions objekt_id = personens 'barn'-rækkes family_id
+  SELECT count(*) INTO v_p1 FROM conclusion c
+    JOIN assertion a ON a.id=c.valgt_assertion_id
+    JOIN fact f ON f.id=c.target_id AND c.target_type='fact' AND f.subjekt_type='person' AND f.faktatype='forældrefamilie'
+    WHERE c.status='afklaret'
+      AND a.objekt_id IS DISTINCT FROM (SELECT family_id FROM family_member WHERE person_id=f.subjekt_id AND rolle='barn');
+  IF v_p1 > 0 THEN RAISE EXCEPTION 'P1-drift: % afklaret slot(s) hvor valgt familie ≠ projiceret barn-række', v_p1; END IF;
+  -- (3) hver slot-assertion har objekt_type='family' + eksisterende familie
+  IF EXISTS(SELECT 1 FROM assertion a JOIN fact f ON f.id=a.target_id AND a.target_type='fact'
+            WHERE f.faktatype='forældrefamilie' AND (a.objekt_type IS DISTINCT FROM 'family'
+              OR NOT EXISTS(SELECT 1 FROM family fa WHERE fa.id=a.objekt_id)))
+  THEN RAISE EXCEPTION 'backfill: slot-assertion m. ugyldig/manglende familie-reference'; END IF;
+  SELECT count(*) INTO v_multi FROM red_foraeldre_konflikt;
+  RAISE NOTICE 'OK: forældre-backfill-komplethed + P1-drift (alle barn-rækker slot-dækket, projektion konsistent; % åbne konflikter i red_foraeldre_konflikt)', v_multi;
+END $$;
 SELECT set_config('request.jwt.claim.sub','', false);
