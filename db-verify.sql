@@ -206,6 +206,34 @@ BEGIN
 END $$;
 
 
+-- ===== Task 8b: F-02 authenticated (medlem) fail-close på levende =====
+-- Forvent: NOTICE "OK: authenticated fail-close ...". Seeder negative-id rækker, rydder selv op.
+-- Kører som rolle 'authenticated' UDEN jwt-sub → auth.uid()=NULL → current_rolle() ≠ 'redaktion',
+-- så redaktion_read-laget fyrer IKKE og auth_read styrer alene (medlem-tier).
+-- Invariant #8 (CLAUDE.md §3): LEVENDE kræver samtykke — indtil samtykke/scope findes skal
+-- medlem-tier fail-close til samme regel som anon (afdøde synlige, levende skjult). Codex-fund F-02.
+DO $$
+DECLARE vis_live int; vis_dead int;
+BEGIN
+  DELETE FROM person WHERE id IN (-950,-951);
+  INSERT INTO person(id, levende, privat) VALUES (-950, true, false), (-951, false, false);
+
+  PERFORM set_config('request.jwt.claim.sub','', true);  -- ingen bruger → ikke-redaktion
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO vis_live FROM person WHERE id = -950;
+  SELECT count(*) INTO vis_dead FROM person WHERE id = -951;
+  RESET ROLE;
+
+  IF vis_live = 0 AND vis_dead = 1 THEN
+    RAISE NOTICE 'OK: authenticated fail-close (levende skjult, afdød synlig)';
+  ELSE
+    RAISE EXCEPTION 'F-02 FEJL: authenticated ser levende=% (vent 0), afdød=% (vent 1)', vis_live, vis_dead;
+  END IF;
+
+  DELETE FROM person WHERE id IN (-950,-951);
+END $$;
+
+
 -- ===== Task 9: lineage trin (b) — forgrening + status =====
 -- Forvent: kolonnerne findes, og en selv-refererende gren (parent_lineage_id) + en
 -- 'gren_af'-relation kan oprettes og resolveres. Seeder negative-id rækker, rydder op.

@@ -23,8 +23,9 @@ dump og evt. rollback tabes. Kommunikér kort nedetid.
 
 Uden backup er en utestet restore ikke en rollback. FØR prod røres:
 1. Tag prod-dumpet (Trin 0 nedenfor) og `pg_restore` det til en **lokal engangs-DB**.
-2. Kør Trin 1-3 mod kopien → bekræft grønt (lokalt kan redaktion-profilen seedes, så OGSÅ de
-   rolle-gatede verify-blokke bliver grønne — se Trin 3).
+2. Kør Trin 1-1b-2-3 mod kopien → bekræft grønt (lokalt kan redaktion-profilen seedes, så OGSÅ de
+   rolle-gatede verify-blokke bliver grønne — se Trin 3). Trin 1b (db-rls.sql) skal med, så F-01/F-02
+   også rehearses.
 3. **Øv rollbacken** mod kopien: kør `db-rollback-foraeldrefamilie.sql`, bekræft alle Problem 2-objekter
    væk + funktioner revertet. (Denne øvelse er allerede kørt lokalt 2026-07-16 mod syntetisk bed — gentag mod prod-dump-kopien.)
 
@@ -67,6 +68,19 @@ LC_ALL=C psql -h <host> -p 5432 -U <user> -d <db> --single-transaction -v ON_ERR
   prætjek), alle red_*-RPC'er + guardet helper + view. **Ingen backfill.** EXCLUDE-prætjek aborter ved (b)≠0.
 - `LC_ALL=C` → fejl printes `ERROR:` (ikke dansk `FEJL:`), så fejl ikke overses.
 
+## Trin 1b — RLS/grants (db-rls.sql) — deployer F-01 + F-02
+
+```bash
+LC_ALL=C psql -h <host> -p 5432 -U <user> -d <db> --single-transaction -v ON_ERROR_STOP=1 -f db-rls.sql
+```
+- **KRITISK:** db-rls.sql gen-anvendes IKKE af Trin 1 (migrations), men er hjem for to sikkerhedsfixes
+  der ellers ikke når prod: **F-01** (REVOKE af anon-EXECUTE på interne `_`-helpers, PR #42) og **F-02**
+  (auth_read fail-close på levende — medlem-tier ser ikke længere levende uden samtykke, Codex-fund).
+- Idempotent (alle policies `drop … if exists` + `create`; grants/revokes deklarative). Rører kun
+  eksisterende tabeller/funktioner → kan køre før ELLER efter Trin 1; her efter for én sammenhængende deploy.
+- **Produkt-konsekvens (F-02):** logget-ind bogmærke-brugere ser herefter samme som anon (kun afdøde).
+  Bevidst indtil samtykke-/slægts-scope bygges (Codex-fund F-05). Bekræft at dette er ønsket før cutover.
+
 ## Trin 2 — Backfill (DELIBERAT, kun efter (a)+(d)+(e) bekræftet). Køres ÉN gang, straks efter Trin 1.
 
 ```bash
@@ -84,7 +98,9 @@ LC_ALL=C psql -h <host> -p 5432 -U <user> -d <db> -f db-verify.sql 2>&1 | grep -
   `…0001` (FK til `auth.users`), som IKKE findes på prod → de printer **SPRINGER OVER**, og H2-bookmark-
   blokken kaster en kendt ERROR. Det er FORVENTET på prod — beviset for de blokke ligger i GATE 0-rehearsal.
 - **PÅ PROD forventes grønt KUN for de ugatede asserts:** `forældre-backfill-komplethed + P1-drift`
-  (nu IKKE skippet, da slots findes). Ingen UVENTEDE ERROR/FEJL.
+  (nu IKKE skippet, da slots findes), samt **Task 8b (F-02 authenticated fail-close)** — den bruger
+  kun rollerne anon/authenticated (findes på Supabase) + tom jwt-sub, INGEN redaktion-profil, så den
+  kører OGSÅ på prod og beviser F-02-fixet dér. Ingen UVENTEDE ERROR/FEJL.
 - NB: db-verify seeder/rydder negativ-id-fixtures + skriver/sletter test-rækker i `auth.users`/`bookmark`
   (db-verify.sql:~1106) — sikkert, men kør bevidst. Alternativ: kør FULD verify kun mod GATE 0-kopien,
   og kun de ugatede asserts mod prod.
