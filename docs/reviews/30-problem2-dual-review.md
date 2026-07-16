@@ -102,3 +102,23 @@ huller Claude-siden missede — reconcile per empirical-reproduction-rule (hver 
 
 **Verifikation efter Codex-fix:** delete→re-add → afklaret + source-løs valgt; alle Problem 2 db-verify-blokke
 grønne (vælg+flyt+P1 bevarer a2 uændret); web tsc rent + data 76/76; mobil tsc 0 + jest 190/190.
+
+## Fase 4-prep fable-review (2026-07-16)
+
+To fable-agenter reviewede Fase 4-forberedelsen (prod-parathed). Begge "IKKE-KLAR" med reelle fund:
+
+- **[HIGH sikkerhed] `_ensure_foraeldrefamilie_redaktionel` var en åben anon-skrivevej — FIXED.**
+  SECURITY DEFINER UDEN `current_rolle()`-guard; Supabases default-grants ville eksponere den via
+  PostgREST → anon kunne re-pege et barns afklarede slot til vilkårlig familie (forfalsket evidens,
+  ulogget). **Fix:** `current_rolle()='redaktion'`-guard i helperen (gratis — kalderne er allerede
+  redaktion). Verificeret: intern kald OK, direkte non-redaktion afvist.
+- **[runbook] Rollback var brudt (forkert pg_restore-syntaks + ufuldstændig `--clean`) — FIXED.** Nyt
+  `db-rollback-foraeldrefamilie.sql` (kirurgisk down-script: sletter data, reverterer de 3 objekt-
+  refererende funktioner til pre-Problem-2 fra git, dropper additions). Rehearset: alt væk, funktioner revertet.
+- **[runbook] Trin 3-forventning umulig på prod (rolle-gatede verify-blokke SPRINGER OVER pga.
+  auth.users-FK) — FIXED** (runbook nedjusteret til ugatede asserts; fixture-blokke bevises i GATE 0).
+- **Runbook-hærdning:** session-pooler-krav, obligatorisk test-restore + rollback-øvelse (GATE 0),
+  skrive-frys (max(id)+1-race), `--single-transaction`, `LC_ALL=C` (dansk `FEJL:` vs `ERROR:`-grep-fælde),
+  GDPR (chmod/kryptér/slet-frist, PGPASSWORD), multi-edition-abortens external_id-falsk-negativ (precheck e),
+  loader-`~/.Renviron`-note, post-cutover-doc, free-tier-varme.
+- **RLS verificeret OK** (fable): slot-fact person-gatet, konflikt-view security_invoker → ingen anon-lækage.
