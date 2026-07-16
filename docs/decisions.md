@@ -2,6 +2,21 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## ETL-sprog: R til DB-load, TypeScript til delt/runtime-logik (2026-07-16)
+
+**Datavejen forbliver polyglot med et bevidst snit: R til batch-DB-load, TS til alt klienten også bruger.**
+Ved opstart af flere-DAA-udgaver-arbejdet blev det taget op om R er rette sprog. Beslutning: **behold R** til
+de fungerende loaders (`load_daa.R`/`load_presens.R`/`post_load_fixup.R`) — omskrivning er høj risiko, lav
+værdi, og R er vedligeholderens kernekompetence. **Delt/runtime-logik (navnefoldning, dato-parsing, matching)
+hører i `packages/core` (TS)**, ikke R — jf. Problem 3 §3.1 (`matchUdgaver` er TS; R-TNG-QA er kalibrerings-
+reference). Disciplin: delt normalisering har ÉT hjem (TS); R kalibrerer mod TS-output, ikke sin egen kopi.
+Extraction forbliver Python (tekst/LLM). Ingen R→TS-omskrivning af DB-loadet.
+
+**`source.aar`-konvention: SIDSTE dækkede år.** Tidsserie-aksen (Problem 1) bruger sidste år i udgave-spannet
+(DAA 2012-2014→2014, 2018-20→2020, 1939→1939), fail-closed parse i loaderne (`parse_aar`). En tidligere
+backfill satte 2018-20→2018 (første år); harmoniseret til 2020 for ensartet "forrige udgave"-derivation
+(db-migrations.sql, idempotent korrektion — anvendes først ved prod-cutover).
+
 ## `packages/core`: npm-workspace + source-only, snæver type-grænse (2026-07-14)
 
 **Delt web↔mobil-logik samles i ét npm-workspace (`@daa/core`), ikke via paritetstest-spejling.**

@@ -11,6 +11,8 @@ export * from './buildGeo';
 export * from './geoSelectors';
 export * from './buildModel';
 export * from './tree';
+export * from './navnevarianter';
+export * from './matchUdgaver';
 export { KONFIDENS_VALUES, KONFIDENS_RANK } from './types';
 export type {
   RawExtId,

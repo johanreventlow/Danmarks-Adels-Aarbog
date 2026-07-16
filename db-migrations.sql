@@ -1851,3 +1851,121 @@ CREATE TABLE IF NOT EXISTS bookmark (
   UNIQUE (user_id, person_id)
 );
 ALTER TABLE bookmark ENABLE ROW LEVEL SECURITY;
+
+-- 2026-07-16: source.aar-konvention harmoniseret til SIDSTE dækkede år (flere-daa-udgaver,
+-- Problem 1 §3.2). Den tidligere backfill (ovf.: 'aar=2018 WHERE id=1') satte DAA 2018-20 til
+-- FØRSTE år; tidsserie-diff ("forrige udgave" via source.aar) kræver ensartet konvention på
+-- tværs af udgaver. Loaderne (load_presens.R/load_daa.R parse_aar) bruger sidste dækkede år
+-- fremadrettet (2012-2014→2014, 2018-20→2020, 1939→1939). Idempotent korrektion af den ene
+-- allerede-loadede prod-source (rører kun rækken hvis den stadig står på det gamle 2018):
+UPDATE source SET aar = 2020 WHERE udgave = 'DAA 2018-20' AND aar = 2018;
+
+-- 2026-07-16: ikke_samme_som — persisteret identitets-afvisning (tværudgave-spec §4).
+-- Ny rolle + red_ikke_samme_som/red_fjern_ikke_samme_som; kontradiktions-guard tilføjet i
+-- red_samme_som; red_relation afviser rolle='ikke_samme_som'. Alt idempotent (CREATE OR
+-- REPLACE / ON CONFLICT). Integrationstestet mod lokal prod-kopi (daa_test2).
+-- ikke_samme_som-migration (tværudgave-spec §4) — idempotent
+INSERT INTO vocab (scheme, code, label) VALUES ('rolle','ikke_samme_som','bekræftet forskellig person fra') ON CONFLICT (scheme, code) DO NOTHING;
+
+CREATE OR REPLACE FUNCTION red_relation(
+  p_subjekt_type text, p_subjekt_id bigint, p_objekt_type text, p_objekt_id bigint,
+  p_rolle text, p_periode_raw text DEFAULT NULL)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_id bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_rolle = 'samme_som' THEN RAISE EXCEPTION 'Brug red_samme_som til identitets-links'; END IF;
+  IF p_rolle = 'ikke_samme_som' THEN RAISE EXCEPTION 'Brug red_ikke_samme_som til identitets-afvisning'; END IF;
+  -- GDPR-invariant ved fødslen (ikke kun i red_upload_media): en 'afbildet'-relation skal gå
+  -- person→media, fordi media_afbilder_skjult/privat KUN scanner (subjekt=person, objekt=media).
+  -- En person på objekt-siden ville være usynlig for gatingen → fail-open. Luk det for ALLE kaldere.
+  IF p_rolle = 'afbildet' AND p_objekt_type = 'person' THEN
+    RAISE EXCEPTION 'afbildet skal gå person→media (person kan ikke stå på objekt-siden — GDPR-gating)';
+  END IF;
+  PERFORM begin_change_set('red_relation', format('Relation %s: %s/%s → %s/%s', p_rolle, p_subjekt_type, p_subjekt_id, p_objekt_type, p_objekt_id), p_subjekt_type, p_subjekt_id);
+  INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle, periode_raw)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM relation),
+            p_subjekt_type, p_subjekt_id, p_objekt_type, p_objekt_id, p_rolle, p_periode_raw)
+    RETURNING id INTO v_id;
+  RETURN v_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION red_samme_som(p_alias_id bigint, p_objekt_id bigint)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_rel bigint; v_ass bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_alias_id) THEN RAISE EXCEPTION 'Person % findes ikke', p_alias_id; END IF;
+  IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_objekt_id) THEN RAISE EXCEPTION 'Person % findes ikke', p_objekt_id; END IF;
+  -- G2 idempotens (præcis retning) FØR begin_change_set.
+  SELECT id INTO v_rel FROM relation WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'
+    AND subjekt_id=p_alias_id AND objekt_id=p_objekt_id LIMIT 1;
+  IF v_rel IS NOT NULL THEN RETURN v_rel; END IF;
+  -- Kontradiktions-guard (tværudgave-spec §4): parret må ikke samtidig være markeret
+  -- ikke_samme_som. At skifte mening er to versionerede trin (fjern afvisningen først).
+  IF EXISTS (SELECT 1 FROM relation WHERE rolle='ikke_samme_som' AND subjekt_type='person' AND objekt_type='person'
+             AND subjekt_id=least(p_alias_id,p_objekt_id) AND objekt_id=greatest(p_alias_id,p_objekt_id)) THEN
+    RAISE EXCEPTION 'samme_som: parret (%,%) er markeret ikke_samme_som — fjern afvisningen først', p_alias_id, p_objekt_id;
+  END IF;
+  PERFORM begin_change_set('red_samme_som',
+    format('Markerede person %s som samme som %s', p_alias_id, p_objekt_id), 'person', p_objekt_id);
+  -- Triggeren validerer G0/G3/G4/G5 på denne INSERT.
+  INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM relation), 'person', p_alias_id, 'person', p_objekt_id, 'samme_som')
+    RETURNING id INTO v_rel;
+  INSERT INTO assertion(id, target_type, target_id, vaerdi_tekst)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM assertion), 'relation', v_rel, 'samme_som')
+    RETURNING id INTO v_ass;
+  INSERT INTO conclusion(id, target_type, target_id, valgt_assertion_id, status, blaastemplet_af)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM conclusion), 'relation', v_rel, v_ass, 'afklaret',
+            'redaktionel identitetssammenkædning');
+  RETURN v_rel;
+END $$;
+
+CREATE OR REPLACE FUNCTION red_ikke_samme_som(p_a bigint, p_b bigint)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_lo bigint; v_hi bigint; v_rel bigint; v_ass bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Samme advisory-lock som red_samme_som: serialisér de to kontradiktions-guards mod hinanden
+  -- (uden den kan concurrent red_samme_som(a,b)+red_ikke_samme_som(a,b) begge passere → dobbelt-rolle).
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  IF p_a = p_b THEN RAISE EXCEPTION 'ikke_samme_som: kan ikke afvise en person mod sig selv'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_a) THEN RAISE EXCEPTION 'Person % findes ikke', p_a; END IF;
+  IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_b) THEN RAISE EXCEPTION 'Person % findes ikke', p_b; END IF;
+  v_lo := least(p_a, p_b); v_hi := greatest(p_a, p_b);
+  -- Idempotens FØR change_set (ingen tom audit ved gentagelse; begge kald-retninger normaliseres).
+  SELECT id INTO v_rel FROM relation WHERE rolle='ikke_samme_som' AND subjekt_type='person' AND objekt_type='person'
+    AND subjekt_id=v_lo AND objekt_id=v_hi LIMIT 1;
+  IF v_rel IS NOT NULL THEN RETURN v_rel; END IF;
+  -- Kontradiktions-guard: findes et samme_som-link mellem parret (begge retninger) → afvis.
+  IF EXISTS (SELECT 1 FROM relation WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'
+             AND ((subjekt_id=p_a AND objekt_id=p_b) OR (subjekt_id=p_b AND objekt_id=p_a))) THEN
+    RAISE EXCEPTION 'ikke_samme_som: parret (%,%) er allerede linket som samme_som — fjern linket først', p_a, p_b;
+  END IF;
+  PERFORM begin_change_set('red_ikke_samme_som',
+    format('Markerede person %s og %s som forskellige', v_lo, v_hi), 'person', v_lo);
+  INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM relation), 'person', v_lo, 'person', v_hi, 'ikke_samme_som')
+    RETURNING id INTO v_rel;
+  INSERT INTO assertion(id, target_type, target_id, vaerdi_tekst)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM assertion), 'relation', v_rel, 'ikke_samme_som')
+    RETURNING id INTO v_ass;
+  INSERT INTO conclusion(id, target_type, target_id, valgt_assertion_id, status, blaastemplet_af)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM conclusion), 'relation', v_rel, v_ass, 'afklaret',
+            'redaktionel identitets-afvisning');
+  RETURN v_rel;
+END $$;
+
+CREATE OR REPLACE FUNCTION red_fjern_ikke_samme_som(p_relation_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM relation WHERE id=p_relation_id AND rolle='ikke_samme_som'
+                AND subjekt_type='person' AND objekt_type='person') THEN
+    RAISE EXCEPTION 'Relation % er ikke et person→person ikke_samme_som-spor', p_relation_id;
+  END IF;
+  PERFORM begin_change_set('red_fjern_ikke_samme_som', format('Fjernede ikke_samme_som-spor %s', p_relation_id), NULL, NULL);
+  PERFORM _delete_relation_evidence(p_relation_id);
+END $$;

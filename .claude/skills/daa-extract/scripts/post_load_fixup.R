@@ -28,8 +28,17 @@ ex <- function(sql, p = list()) if (length(p)) dbExecute(con, sql, params = p) e
 one <- function(sql, p = list()) { r <- if (length(p)) dbGetQuery(con, sql, params = p) else dbGetQuery(con, sql); if (nrow(r)) r[[1]][1] else NA }
 nid <- function(t) as.integer(one(sprintf("SELECT COALESCE(MAX(id),0)+1 FROM %s", t)))
 
-src <- one("SELECT id FROM source ORDER BY id LIMIT 1")
-if (is.na(src)) stop("Ingen source — kør load_daa.R først.")
+# Fail-closed source-resolution (Leverance 0, tværudgave-spec §7): ved 2+ DAA-udgaver må
+# (linje,nr)-opslag og grundlægger-links IKKE ramme forkert udgaves person. Resolvér den
+# specifikke udgave EKSPLICIT og STOP ved 0 eller 2+ kandidater (i stedet for ORDER BY id
+# LIMIT 1, som stille valgte en vilkårlig udgave). Udgave kan overstyres som 1. argument.
+udgave_arg <- commandArgs(TRUE)
+udgave <- if (length(udgave_arg) >= 1 && !startsWith(udgave_arg[1], "--")) udgave_arg[1] else "DAA 2018-20"
+src_rows <- dbGetQuery(con, "SELECT id FROM source WHERE udgave = $1", params = list(udgave))
+if (nrow(src_rows) == 0) stop(sprintf("Ingen source med udgave='%s' — kør load_daa.R først.", udgave))
+if (nrow(src_rows) > 1) stop(sprintf("Flere sources (%d) med udgave='%s' — tvetydigt, afbryder (fail-closed).", nrow(src_rows), udgave))
+src <- as.integer(src_rows$id[1])
+message(sprintf("post_load_fixup: source '%s' (id %s)", udgave, src))
 
 dbBegin(con)
 tryCatch({
@@ -50,15 +59,19 @@ tryCatch({
       VALUES ('ba4ce28d-42a0-48af-a47c-773c26934236','redaktion','johan@reventlow.dk')
       ON CONFLICT (id) DO UPDATE SET rolle='redaktion', email=EXCLUDED.email")
 
-  # ---- 3) 'samme_som'-rolle i vokabular (idempotent) ----
+  # ---- 3) 'samme_som'/'ikke_samme_som'-roller i vokabular (idempotent) ----
   ex("INSERT INTO vocab (scheme, code, label) VALUES ('rolle','samme_som','samme person som')
+      ON CONFLICT (scheme, code) DO NOTHING")
+  ex("INSERT INTO vocab (scheme, code, label) VALUES ('rolle','ikke_samme_som','bekræftet forskellig person fra')
       ON CONFLICT (scheme, code) DO NOTHING")
 
   # ---- 4) grundlægger-identitets-links (evidenslag, idempotent) ----
   # Par: (oprindelse i linje III, grundlægger som rod af ny linje). Opslag på
   # (linje, nr) -> aktuelt person-id. Bekræftet via TNG-crosswalk (samme tng_id).
+  # source-filtreret (Leverance 0): ved 2+ udgaver kan (linje,nr) matche forkert udgaves
+  # person — bind opslaget til den resolverede udgaves source_id.
   pid_of <- function(linje, nr) one(
-    "SELECT person_id FROM person_external_id WHERE linje=$1 AND nr=$2", list(linje, nr))
+    "SELECT person_id FROM person_external_id WHERE linje=$1 AND nr=$2 AND source_id=$3", list(linje, nr, src))
   link_samme_som <- function(a_linje, a_nr, b_linje, b_nr, hvem) {
     a <- pid_of(a_linje, a_nr); b <- pid_of(b_linje, b_nr)
     if (is.na(a) || is.na(b)) { message(sprintf("  SPRING OVER %s: mangler %s-%s el. %s-%s", hvem, a_linje, a_nr, b_linje, b_nr)); return(invisible()) }

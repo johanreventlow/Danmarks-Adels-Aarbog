@@ -40,6 +40,22 @@ RESET       <- "--reset" %in% argv
 FORCE_RESET <- "--force-reset" %in% argv   # tilsidesæt RESET-guarden bevidst (sletter change_set-arbejde)
 DRY_RUN <- "--dry-run" %in% argv
 
+# source.aar = tidsserie-aksen (schema.sql:37). Konvention: SIDSTE dækkede år; fail-closed ved
+# uparsebar udgave (præsens-tidsserie-spec Problem 1 §3.2). Samme lille helper som load_presens.R
+# (bevidst duplikeret — de to loadere er uafhængige skill-scripts uden delt lib).
+parse_aar <- function(u) {
+  m <- regmatches(u, regexec("([0-9]{4})\\s*-\\s*([0-9]{2})(?![0-9])", u, perl = TRUE))[[1]]
+  if (length(m) == 3) {
+    base4 <- as.integer(m[2]); aar <- (base4 %/% 100L) * 100L + as.integer(m[3])
+    if (aar < base4) aar <- aar + 100L
+    return(aar)
+  }
+  yrs <- as.integer(unlist(regmatches(u, gregexpr("\\b[0-9]{4}\\b", u))))
+  if (!length(yrs)) stop(sprintf("Kan ikke udlede årstal af udgave='%s' — sæt en parsebar udgave (fail-closed).", u))
+  max(yrs)
+}
+aar <- parse_aar(udgave)
+
 clean <- fromJSON(path, simplifyVector = FALSE)
 if (!length(clean)) stop("clean.json er tom — intet at loade.")
 
@@ -233,8 +249,8 @@ tryCatch({
   seed_vocab()
 
   src <- nid("source")
-  ex("INSERT INTO source (id, slags, titel, udgave, ekstern) VALUES ($1,'DAA-udgave',$2,$3,FALSE)",
-     list(src, paste("Dansk Adels Aarbog –", udgave), udgave))
+  ex("INSERT INTO source (id, slags, titel, udgave, aar, ekstern) VALUES ($1,'DAA-udgave',$2,$3,$4,FALSE)",
+     list(src, paste("Dansk Adels Aarbog –", udgave), udgave, aar))
 
   pmap <- new.env(parent = emptyenv())          # (linje-nr_label) -> person_id
   umap <- new.env(parent = emptyenv())          # (linje-nr_label) -> usikker (TRUE/FALSE)

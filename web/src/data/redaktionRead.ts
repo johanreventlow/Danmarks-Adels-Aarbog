@@ -3,7 +3,8 @@
 // FK), så vi henter N flade queries og joiner i klienten. citation→source HAR FK og nestes.
 // joinEvidence er ren/testbar uden net.
 import { supabase } from '../supabase';
-import { fmtYears, parseYear, getAll } from '@daa/core';
+import { fmtYears, parseYear, getAll, buildMatchPersoner, parseIkkeSammeSomPar } from '@daa/core';
+import type { RedMatchPerson, MatchPersonRow, MatchFactRow, MatchConcRow, MatchAssertRow, MatchExtIdRow } from '@daa/core';
 import { FELT_FAKTATYPE } from './redaktionWrite';
 import { resolveOrgEstateNames } from './public';
 import { signPaths, fetchThumbPathByMediaId } from './media';
@@ -502,4 +503,33 @@ export async function fetchRedObjectMedia(objektType: string, objektId: string):
       .eq('objekt_type', objektType).eq('objekt_id', Number(objektId))
       .eq('rolle', 'afbildet'));
   return mediaFromRelPairs(rels.map((r) => ({ mediaId: r.subjekt_id, relationId: r.id })));
+}
+
+// ---- Tværudgave-matching: MatchFrame-input fra DB (Problem 3 §11) ----
+// Tynde supabase-fetches; de rene mappere (buildMatchPersoner/parseIkkeSammeSomPar) bor i
+// @daa/core (samme delt-logik-split som matcher-kernen). Re-eksportér RedMatchPerson for forbrugere.
+export type { RedMatchPerson };
+
+/** Hent MatchFrame-input for hele redaktions-datasættet (tynd; @daa/core-mappere gør arbejdet).
+ *  NB (skala): conclusion/assertion hentes for ALLE fact-typer og filtreres klient-side til
+ *  fødsel/død, fordi et batch-`.in('target_id', factIds)`-filter sprænger PostgREST's URL-længde
+ *  ved ~900 personer. Rigtig fix ved skala: et server-side view (fact→conclusion→assertion → ét
+ *  fødsels-/døds-interval pr. person). Udskudt — PoC-volumen er håndterbar. */
+export async function fetchMatchPersoner(): Promise<RedMatchPerson[]> {
+  const [persons, facts, concs, assertions, extIds] = await Promise.all([
+    getAll<MatchPersonRow>(() => supabase.from('person').select('id,visning_navn,koen')),
+    getAll<MatchFactRow>(() => supabase.from('fact').select('id,subjekt_id,faktatype').eq('subjekt_type', 'person').in('faktatype', ['fødsel', 'død'])),
+    getAll<MatchConcRow>(() => supabase.from('conclusion').select('target_id,valgt_assertion_id').eq('target_type', 'fact').eq('status', 'afklaret')),
+    getAll<MatchAssertRow>(() => supabase.from('assertion').select('id,date_min,date_max').eq('target_type', 'fact')),
+    getAll<MatchExtIdRow>(() => supabase.from('person_external_id').select('person_id,source_id')),
+  ]);
+  return buildMatchPersoner(persons, facts, concs, assertions, extIds);
+}
+
+/** Hent eksisterende ikke_samme_som-afvisninger (person→person). */
+export async function fetchIkkeSammeSomPar(): Promise<{ aId: string; bId: string }[]> {
+  const rows = await getAll<{ subjekt_id: number; objekt_id: number }>(() =>
+    supabase.from('relation').select('subjekt_id,objekt_id')
+      .eq('rolle', 'ikke_samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person'));
+  return parseIkkeSammeSomPar(rows);
 }
