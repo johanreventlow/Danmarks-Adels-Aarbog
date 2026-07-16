@@ -97,3 +97,32 @@ describe('buildRpcCall — forældre ukendt-markering (docs/reviews/25)', () => 
     expect(buildRpcCall({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: '210', factId: 'x' } as never)).toBeNull();
   });
 });
+
+describe('buildRpcCall — forældrefamilie (Problem 2)', () => {
+  it('foraeldrePaastand → red_tilfoej_foraeldre_paastand med alle valgfrie args', () => {
+    const call = buildRpcCall({ art: 'foraeldrePaastand', subjektType: 'person', subjektId: '50',
+      payload: { barnId: 50, familyId: 12, sourceId: 3, side: 's.490', citat: 'udg. citat' } });
+    expect(call).toEqual({ fn: 'red_tilfoej_foraeldre_paastand', args: {
+      p_barn_id: 50, p_family_id: 12, p_source_id: 3, p_side: 's.490', p_citat: 'udg. citat' } });
+  });
+  it('foraeldrePaastand minimal (kun barn+familie) → kun p_barn_id/p_family_id', () => {
+    const call = buildRpcCall({ art: 'foraeldrePaastand', subjektType: 'person', subjektId: '50',
+      payload: { barnId: 50, familyId: 12 } });
+    expect(call).toEqual({ fn: 'red_tilfoej_foraeldre_paastand', args: { p_barn_id: 50, p_family_id: 12 } });
+  });
+  it('foraeldrePaastand uden barn/familie → null', () => {
+    expect(buildRpcCall({ art: 'foraeldrePaastand', subjektType: 'person', subjektId: '50', payload: { barnId: 50 } } as never)).toBeNull();
+  });
+  it('vaelgForaeldre → red_vaelg_foraeldre(p_assertion_id, p_konfidens)', () => {
+    expect(buildRpcCall({ art: 'vaelgForaeldre', subjektType: 'person', subjektId: '50',
+      payload: { assertionId: 88, konfidens: 'sikker' } })).toEqual({
+      fn: 'red_vaelg_foraeldre', args: { p_assertion_id: 88, p_konfidens: 'sikker' } });
+  });
+  it('vaelgForaeldre uden konfidens → kun p_assertion_id', () => {
+    expect(buildRpcCall({ art: 'vaelgForaeldre', subjektType: 'person', subjektId: '50',
+      payload: { assertionId: 88 } })).toEqual({ fn: 'red_vaelg_foraeldre', args: { p_assertion_id: 88 } });
+  });
+  it('vaelgForaeldre uden assertion → null', () => {
+    expect(buildRpcCall({ art: 'vaelgForaeldre', subjektType: 'person', subjektId: '50', payload: {} } as never)).toBeNull();
+  });
+});
