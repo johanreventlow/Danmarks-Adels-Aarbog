@@ -950,6 +950,10 @@ END $$;
 CREATE OR REPLACE FUNCTION _delete_relation_evidence(p_relation_id bigint)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
+  -- Gate (sikkerheds-hærdning): SECURITY DEFINER-helper kaldes kun fra gatede red_*-funktioner, men
+  -- Supabases default-grants ville ellers eksponere den for anon via PostgREST → uatoriseret sletning
+  -- af relations-evidens (kører som ejer, omgår RLS). Gratis her (kalderne er allerede redaktion).
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion (intern relations-slet-helper)'; END IF;
   DELETE FROM citation WHERE assertion_id IN
     (SELECT id FROM assertion WHERE target_type='relation' AND target_id=p_relation_id);
   DELETE FROM conclusion WHERE target_type='relation' AND target_id=p_relation_id;
