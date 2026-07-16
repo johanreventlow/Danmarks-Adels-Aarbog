@@ -259,7 +259,7 @@ export async function fetchBarnFamilie(personId: string): Promise<BarnFamilie | 
   if (familyId == null) return null;
   const [partRes, extRes] = await Promise.all([
     supabase.from('family_member').select('person_id,person(visning_navn)').eq('family_id', familyId).eq('rolle', 'partner'),
-    supabase.from('person_external_id').select('source_id,source(udgave)').eq('person_id', pid).limit(1).maybeSingle(),
+    supabase.from('person_external_id').select('source_id,source(udgave)').eq('person_id', pid).order('source_id').limit(1).maybeSingle(),
   ]);
   const foraeldre: ForaeldreForaelder[] = ((partRes.data ?? []) as unknown as { person_id: number; person: { visning_navn: string | null } | null }[])
     .map((p) => ({ personId: p.person_id, navn: p.person?.visning_navn ?? '(ukendt)' }));

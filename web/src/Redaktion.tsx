@@ -1420,14 +1420,17 @@ function ForaeldreUkendtControl({ personId, run }: { personId: string; run: (c: 
 // (kilde-badge + valgt-markering + "vælg denne"). Adjudikation = red_vaelg_foraeldre via run().
 function ForaeldrePaastandeControl({ personId, run, sammeSom }: { personId: string; run: (c: Change, label: string) => void; sammeSom: SammeSomLink[] }) {
   const [slot, setSlot] = useState<ForaeldreSlot | null | undefined>(undefined);
+  const [egen, setEgen] = useState<BarnFamilie | null>(null); // personens EGEN fødselsfamilie + udgave
   const [rivaler, setRivaler] = useState<{ fraId: string; fam: BarnFamilie }[]>([]);
   const [konfidens, setKonfidens] = useState('sikker');
   const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
-    let alive = true; setSlot(undefined); setRivaler([]);
+    let alive = true; setSlot(undefined); setRivaler([]); setEgen(null);
     fetchForaeldreSlot(personId).then((s) => { if (alive) setSlot(s); }).catch(() => { if (alive) setSlot(null); });
-    // §6 trin (a): hent samme_som-linkede personers fødselsfamilier (rival-udgavers forældre)
-    Promise.all(sammeSom.map((l) => fetchBarnFamilie(l.modpartId).then((f) => f ? { fraId: l.modpartId, fam: f } : null)))
+    fetchBarnFamilie(personId).then((f) => { if (alive) setEgen(f); }).catch(() => {});
+    // §6 trin (a): hent samme_som-linkede personers fødselsfamilier (rival-udgavers forældre).
+    // Ekskludér reflexive self-links (samme_som bruges også til within-udgave-dubletter).
+    Promise.all(sammeSom.filter((l) => l.modpartId !== personId).map((l) => fetchBarnFamilie(l.modpartId).then((f) => f ? { fraId: l.modpartId, fam: f } : null)))
       .then((rs) => { if (alive) setRivaler(rs.filter((r): r is { fraId: string; fam: BarnFamilie } => r != null)); }).catch(() => {});
     return () => { alive = false; };
   }, [personId, reloadKey, sammeSom]);
@@ -1442,7 +1445,10 @@ function ForaeldrePaastandeControl({ personId, run, sammeSom }: { personId: stri
     refetchSoon();
   };
   const kendteFams = new Set((slot?.paastande ?? []).map((p) => p.familyId));
-  const importable = rivaler.filter((r) => !kendteFams.has(r.fam.familyId));
+  // Kun ægte tværudgave-rivaler: anden familie end personens egen, ikke allerede på slottet,
+  // OG en anden udgave (samme_som dækker også within-udgave-dubletter → ellers evidens-teater).
+  const importable = rivaler.filter((r) =>
+    r.fam.familyId !== egen?.familyId && !kendteFams.has(r.fam.familyId) && r.fam.udgave !== egen?.udgave);
   if ((!slot || slot.paastande.length === 0) && importable.length === 0) return null; // intet at vise
   const omstridt = slot?.status === 'omstridt' || (slot?.paastande.length ?? 0) > 1;
   return (

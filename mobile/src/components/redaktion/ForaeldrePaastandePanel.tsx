@@ -5,28 +5,32 @@
 import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Body, BtnLabel, Mono } from '../Typography';
+import { KonfidensVaelger } from './KonfidensVaelger';
 import { fetchForaeldreSlot, fetchBarnFamilie, type ForaeldreSlot, type BarnFamilie, type SammeSomLink } from '../../data/redaktionRead';
 import { type Change } from '../../data/redaktionWrite';
 import { Border, Colors, Radius } from '../../theme/tokens';
-
-const KONF = ['sikker', 'sandsynlig', 'formodet', 'omstridt'];
 
 export function ForaeldrePaastandePanel({ personId, onChange, sammeSom, reloadKey }: {
   personId: string; onChange: (c: Change) => void; sammeSom: SammeSomLink[]; reloadKey?: number;
 }) {
   const [slot, setSlot] = useState<ForaeldreSlot | null | undefined>(undefined);
+  const [egen, setEgen] = useState<BarnFamilie | null>(null); // personens EGEN fødselsfamilie + udgave
   const [rivaler, setRivaler] = useState<{ fraId: string; fam: BarnFamilie }[]>([]);
-  const [konfidens, setKonfidens] = useState('sikker');
+  const [konfidens, setKonfidens] = useState<string | null>('sikker');
   useEffect(() => {
-    let alive = true; setSlot(undefined); setRivaler([]);
+    let alive = true; setSlot(undefined); setRivaler([]); setEgen(null);
     fetchForaeldreSlot(personId).then((s) => { if (alive) setSlot(s); }).catch(() => { if (alive) setSlot(null); });
-    Promise.all(sammeSom.map((l) => fetchBarnFamilie(l.modpartId).then((f) => f ? { fraId: l.modpartId, fam: f } : null)))
+    fetchBarnFamilie(personId).then((f) => { if (alive) setEgen(f); }).catch(() => {});
+    // ekskludér reflexive self-links (samme_som dækker også within-udgave-dubletter)
+    Promise.all(sammeSom.filter((l) => l.modpartId !== personId).map((l) => fetchBarnFamilie(l.modpartId).then((f) => f ? { fraId: l.modpartId, fam: f } : null)))
       .then((rs) => { if (alive) setRivaler(rs.filter((r): r is { fraId: string; fam: BarnFamilie } => r != null)); }).catch(() => {});
     return () => { alive = false; };
   }, [personId, reloadKey, sammeSom]);
 
   const kendteFams = new Set((slot?.paastande ?? []).map((p) => p.familyId));
-  const importable = rivaler.filter((r) => !kendteFams.has(r.fam.familyId));
+  // Kun ægte tværudgave-rivaler (anden familie + anden udgave, ikke allerede på slottet).
+  const importable = rivaler.filter((r) =>
+    r.fam.familyId !== egen?.familyId && !kendteFams.has(r.fam.familyId) && r.fam.udgave !== egen?.udgave);
   if ((!slot || slot.paastande.length === 0) && importable.length === 0) return null;
   const omstridt = slot?.status === 'omstridt' || (slot?.paastande.length ?? 0) > 1;
   const vaelg = (assertionId: number) =>
@@ -74,15 +78,7 @@ export function ForaeldrePaastandePanel({ personId, onChange, sammeSom, reloadKe
       {omstridt ? (
         <View style={{ marginTop: 10 }}>
           <Mono size={9} color={Colors.textMuted} style={{ marginBottom: 5 }}>TILLID VED VALG</Mono>
-          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-            {KONF.map((k) => (
-              <Pressable key={k} onPress={() => setKonfidens(k)}
-                style={{ paddingVertical: 5, paddingHorizontal: 10, borderRadius: Radius.chip, borderWidth: 1,
-                  borderColor: konfidens === k ? Colors.bordeaux : Border.light, backgroundColor: konfidens === k ? Colors.bordeaux : Colors.paperCard }}>
-                <Mono size={10} color={konfidens === k ? '#fff' : Colors.textSecondary}>{k}</Mono>
-              </Pressable>
-            ))}
-          </View>
+          <KonfidensVaelger vaerdi={konfidens} onVael={setKonfidens} />
         </View>
       ) : null}
     </View>
