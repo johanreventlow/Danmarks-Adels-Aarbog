@@ -76,6 +76,29 @@ titel-fallback (display-konsistens m. buildForaeldreSlot); slot-citation-query f
 - **App:** web tsc rent + data 76/76; mobil tsc 0 + jest 190/190; blast-radius (public read-path) uændret.
 - **schema.sql↔db-migrations.sql:** de 4 hånd-editerede funktioner parser rent (ekstraheret + anvendt).
 
-## Codex adversarial-review (Phase 3)
+## Codex adversarial-review (Phase 3+4)
 
-(Udfyldes efter kørsel — trigger=YES: executable PL/pgSQL + empiriske claims.)
+Kørt (job review-mrnw7lw6, Codex-session 019f6c5e). Verdict: needs-attention. Codex fandt reelle
+huller Claude-siden missede — reconcile per empirical-reproduction-rule (hver claim reproduceret/verificeret):
+
+- **[HIGH] B2 delete→re-add — VERIFIED (empirisk reproduceret) → FIXED.** Efter B1 retrakterer slottet,
+  kaldte re-add'ens `red_tilfoej_barn` kun helper når *fact* manglede — det retrakterede fact fandtes →
+  slot forblev 'tilbagetrukket' → slotløs completeness-brud. **Repro:** delete→re-add gav status=tilbagetrukket,
+  1 slotløs. **Fix:** guarden tjekker nu "ingen AFKLARET conclusion mod p_family" (dækker intet slot,
+  retrakteret slot, forkert-pegende slot; no-op når red_vaelg/red_flyt allerede pegede rigtigt). Ny fixture-gren.
+- **[MEDIUM] Dashboard-fejlmaskering — VERIFIED → FIXED.** Mit throw-fix var besejret: kalderne
+  (`.catch(()=>setRows([]))`) konverterede fejlen tilbage til [] → "ingen konflikter". **Fix:** separat
+  fejl-state + blokerende fejlbesked i web ForaeldreKonflikterListe + mobil foraeldre-konflikter-skærm.
+- **[MEDIUM] Import-dedup ukendt proveniens — VERIFIED → FIXED.** `sourceId !==` når én er null →
+  `null!==tal`=true → tilbudt. **Fix:** kræv BEGGE sourceId non-null før sammenligning (web+mobil).
+  Dybere fix (afled rival-kilde fra slot-citation frem for personens 1. external_id) holdt som noteret opfølgning.
+- **[MEDIUM] Helper LIMIT 1 kaprede source-bunden assertion — VERIFIED → FIXED.** Ved re-etablering m.
+  flere destinations-assertions kunne helperen vælge en vilkårlig (evt. source-bunden rival) som konklusion.
+  **Fix:** helperen matcher nu KUN en source-LØS (redaktionel) assertion (`NOT EXISTS citation m. source_id`),
+  ordnet; kaprer aldrig en source-bunden påstand. **Repro:** valgt-citation-source=NULL efter re-etablering.
+- **[MEDIUM] Helper max(id)+1 concurrency — INHERITED, ikke fikset.** Codebase-bred accepteret single-writer-
+  PoC-begrænsning (alle red_*-funktioner + spec §3 ID-allokering); ikke en review-30-regression. Migration til
+  sequences er et separat codebase-bredt spor. ON CONFLICT (target_type,target_id) er korrekt for conclusion.
+
+**Verifikation efter Codex-fix:** delete→re-add → afklaret + source-løs valgt; alle Problem 2 db-verify-blokke
+grønne (vælg+flyt+P1 bevarer a2 uændret); web tsc rent + data 76/76; mobil tsc 0 + jest 190/190.

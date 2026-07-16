@@ -1182,8 +1182,12 @@ BEGIN
     INSERT INTO fact(id, subjekt_type, subjekt_id, faktatype)
       VALUES ((SELECT coalesce(max(id),0)+1 FROM fact), 'person', p_barn, 'forældrefamilie') RETURNING id INTO v_slot;
   END IF;
-  SELECT id INTO v_assert FROM assertion
-    WHERE target_type='fact' AND target_id=v_slot AND objekt_type='family' AND objekt_id=p_family LIMIT 1;
+  -- Find KUN en redaktionel (source-løs) assertion for familien — kapr aldrig en source-bunden
+  -- rival-/adjudikeret påstand (review 30/Codex #5). Ordnet for determinisme.
+  SELECT a.id INTO v_assert FROM assertion a
+    WHERE a.target_type='fact' AND a.target_id=v_slot AND a.objekt_type='family' AND a.objekt_id=p_family
+      AND NOT EXISTS(SELECT 1 FROM citation c WHERE c.assertion_id=a.id AND c.source_id IS NOT NULL)
+    ORDER BY a.id LIMIT 1;
   IF v_assert IS NULL THEN
     INSERT INTO assertion(id, target_type, target_id, vaerdi_tekst, objekt_type, objekt_id, uforanderlig)
       VALUES ((SELECT coalesce(max(id),0)+1 FROM assertion), 'fact', v_slot, 'barn', 'family', p_family, true) RETURNING id INTO v_assert;
@@ -1256,10 +1260,15 @@ BEGIN
   IF EXISTS(SELECT 1 FROM family_member WHERE family_id=p_family_id AND person_id=p_barn_id AND rolle=p_rolle) THEN RETURN; END IF;
   INSERT INTO family_member(family_id, person_id, rolle, ordinal, konfidens)
     VALUES (p_family_id, p_barn_id, p_rolle, NULL, p_konfidens);
-  -- Slot-komplethed (Problem 2, review 30 B2): genuint nyt barn uden slot → opret redaktionelt slot.
-  -- No-op når slottet allerede findes (red_flyt_barn/red_vaelg_foraeldre håndterer det selv).
-  IF p_rolle = 'barn' AND NOT EXISTS(SELECT 1 FROM fact
-       WHERE subjekt_type='person' AND subjekt_id=p_barn_id AND faktatype='forældrefamilie') THEN
+  -- Slot-komplethed (review 30/Codex #1): sikr et AFKLARET slot mod p_family. Dækker nyt barn (intet
+  -- slot), delete→re-add (retrakteret slot) og slot der peger forkert. No-op når red_vaelg/red_flyt
+  -- allerede pegede slottet på p_family (bevar deres valgte, source-bundne assertion).
+  IF p_rolle = 'barn' AND NOT EXISTS(
+       SELECT 1 FROM fact f
+       JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id AND c.status='afklaret'
+       JOIN assertion a ON a.id=c.valgt_assertion_id
+       WHERE f.subjekt_type='person' AND f.subjekt_id=p_barn_id AND f.faktatype='forældrefamilie'
+         AND a.objekt_id=p_family_id) THEN
     PERFORM _ensure_foraeldrefamilie_redaktionel(p_barn_id, p_family_id);
   END IF;
 END $$;

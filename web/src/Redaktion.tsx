@@ -1448,8 +1448,8 @@ function ForaeldrePaastandeControl({ personId, run, sammeSom }: { personId: stri
   // Kun ægte tværudgave-rivaler: anden familie end personens egen, ikke allerede på slottet, OG en
   // anden KILDE (samme_som dækker også within-udgave-dubletter → ellers evidens-teater). Kræver at
   // personens egen fødselsfamilie er kendt (ellers kan tværudgave ikke verificeres → intet tilbydes).
-  const importable = egen ? rivaler.filter((r) =>
-    r.fam.familyId !== egen.familyId && !kendteFams.has(r.fam.familyId) && r.fam.sourceId !== egen.sourceId) : [];
+  const importable = (egen && egen.sourceId != null) ? rivaler.filter((r) =>
+    r.fam.familyId !== egen.familyId && !kendteFams.has(r.fam.familyId) && r.fam.sourceId != null && r.fam.sourceId !== egen.sourceId) : [];
   if ((!slot || slot.paastande.length === 0) && importable.length === 0) return null; // intet at vise
   const omstridt = slot?.status === 'omstridt' || (slot?.paastande.length ?? 0) > 1;
   return (
@@ -1494,9 +1494,10 @@ function ForaeldrePaastandeControl({ personId, run, sammeSom }: { personId: stri
 // Klik → åbn personen i editoren, hvor ForaeldrePaastandeControl adjudicerer.
 function ForaeldreKonflikterListe({ onOpen }: { onOpen: (personId: string) => void }) {
   const [rows, setRows] = useState<ForaeldreKonflikt[] | undefined>(undefined);
+  const [fejl, setFejl] = useState<string | null>(null); // review 30/Codex #2: fejl må ikke maskeres som "ingen konflikter"
   useEffect(() => {
     let alive = true;
-    fetchForaeldreKonflikter().then((r) => { if (alive) setRows(r); }).catch(() => { if (alive) setRows([]); });
+    fetchForaeldreKonflikter().then((r) => { if (alive) setRows(r); }).catch((e) => { if (alive) setFejl(String((e as { message?: string })?.message ?? e)); });
     return () => { alive = false; };
   }, []);
   return (
@@ -1505,7 +1506,9 @@ function ForaeldreKonflikterListe({ onOpen }: { onOpen: (personId: string) => vo
       <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 16, lineHeight: 1.5 }}>
         Personer hvor to udgaver påstår forskellige forældrefamilier. Åbn personen for at se påstandene side om side og vælge den kanoniske (bevarer begge, kildebundet).
       </div>
-      {rows === undefined ? (
+      {fejl ? (
+        <div style={{ fontSize: 12.5, color: T.red, background: '#faf1dc', border: '1px solid rgba(136,26,51,.3)', borderRadius: 8, padding: '10px 13px' }}>Kunne ikke hente konflikt-listen: {fejl}. (Konflikter kan ikke vises — ikke nødvendigvis fordi der ingen er.)</div>
+      ) : rows === undefined ? (
         <div style={{ fontSize: 12.5, color: T.muted }}>Henter…</div>
       ) : rows.length === 0 ? (
         <div style={{ fontSize: 12.5, color: T.muted }}>Ingen forældre-konflikter — alle personer har én afklaret forældrefamilie.</div>

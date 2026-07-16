@@ -14,9 +14,10 @@ export default function ForaeldreKonflikter() {
   const rolle = useStore((s) => s.rolle);
   const router = useRouter();
   const [rows, setRows] = useState<ForaeldreKonflikt[] | undefined>(undefined);
+  const [fejl, setFejl] = useState<string | null>(null); // review 30/Codex #2: fejl må ikke maskeres som "ingen konflikter"
   useEffect(() => {
     let alive = true;
-    fetchForaeldreKonflikter().then((r) => { if (alive) setRows(r); }).catch(() => { if (alive) setRows([]); });
+    fetchForaeldreKonflikter().then((r) => { if (alive) setRows(r); }).catch((e) => { if (alive) setFejl(String((e as { message?: string })?.message ?? e)); });
     return () => { alive = false; };
   }, []);
 
@@ -29,8 +30,11 @@ export default function ForaeldreKonflikter() {
         <Body size={13} color={Colors.textMuted} style={{ marginBottom: 14 }}>
           Personer hvor to udgaver påstår forskellige forældrefamilier. Åbn personen for at se påstandene og vælge den kanoniske (begge bevares, kildebundet).
         </Body>
-        {rows === undefined ? <ActivityIndicator style={{ marginTop: 24 }} /> : null}
-        {rows && rows.length === 0 ? (
+        {fejl ? (
+          <View style={{ borderWidth: 1, borderColor: Colors.bordeaux, borderRadius: Radius.card, backgroundColor: Colors.bordeauxFillLight, padding: 12 }}>
+            <Body size={13} color={Colors.danger}>Kunne ikke hente konflikt-listen: {fejl}. (Konflikter kan ikke vises — ikke nødvendigvis fordi der ingen er.)</Body>
+          </View>
+        ) : rows === undefined ? <ActivityIndicator style={{ marginTop: 24 }} /> : rows.length === 0 ? (
           <Body color={Colors.textMuted}>Ingen forældre-konflikter — alle personer har én afklaret forældrefamilie.</Body>
         ) : null}
         {(rows ?? []).map((r) => (
