@@ -1176,6 +1176,10 @@ CREATE OR REPLACE FUNCTION _ensure_foraeldrefamilie_redaktionel(p_barn bigint, p
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_slot bigint; v_assert bigint;
 BEGIN
+  -- Gate (review 30/fable): SECURITY DEFINER-helper kaldes kun fra gated red_*-funktioner, men
+  -- Supabases default-grants ville ellers eksponere den for anon via PostgREST (uatoriseret
+  -- slot-re-peg). Guarden er gratis her (kalderen er allerede redaktion).
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion (intern forældrefamilie-helper)'; END IF;
   SELECT id INTO v_slot FROM fact
     WHERE subjekt_type='person' AND subjekt_id=p_barn AND faktatype='forældrefamilie' LIMIT 1;
   IF v_slot IS NULL THEN
