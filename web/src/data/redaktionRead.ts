@@ -503,3 +503,84 @@ export async function fetchRedObjectMedia(objektType: string, objektId: string):
       .eq('rolle', 'afbildet'));
   return mediaFromRelPairs(rels.map((r) => ({ mediaId: r.subjekt_id, relationId: r.id })));
 }
+
+// ---- Tværudgave-matching: MatchFrame-input fra DB (Problem 3 §11) ----
+// Eksponér år-intervaller (ikke visningsstrenge), kilde-medlemskab og eksisterende
+// ikke_samme_som-par så matcher-kernen (@daa/core buildMatchFrame/matchUdgaver) kan køre på
+// redaktions-datasættet. Rene mappere er unit-testbare; fetch-laget er tyndt.
+
+export type RedMatchPerson = {
+  id: string;
+  navn: string;
+  koen: string | null;
+  foedsel: { date_min: string | null; date_max: string | null } | null;
+  doed: { date_min: string | null; date_max: string | null } | null;
+  sourceIds: number[]; // kilde-medlemskab (person_external_id) → disjunkt-kilde-afgrænsning
+};
+
+type MatchPersonRow = { id: number; visning_navn: string | null; koen: string | null };
+type MatchFactRow = { id: number; subjekt_id: number; faktatype: string };
+type MatchConcRow = { target_id: number; valgt_assertion_id: number | null };
+type MatchAssertRow = { id: number; date_min: string | null; date_max: string | null };
+type MatchExtIdRow = { person_id: number; source_id: number };
+
+/** Ren samling: personer + konkluderede fødsels-/døds-intervaller + kilde-medlemskab →
+ *  MatchFrame-input. Fødsel/død fra den VALGTE assertions date_min/date_max (as-of-korrekt). */
+export function buildMatchPersoner(
+  persons: MatchPersonRow[],
+  facts: MatchFactRow[],
+  concs: MatchConcRow[],
+  assertions: MatchAssertRow[],
+  extIds: MatchExtIdRow[],
+): RedMatchPerson[] {
+  const assertById = new Map(assertions.map((a) => [a.id, a]));
+  const chosenByFact = new Map(concs.map((c) => [c.target_id, c.valgt_assertion_id]));
+  const birth = new Map<number, { date_min: string | null; date_max: string | null }>();
+  const death = new Map<number, { date_min: string | null; date_max: string | null }>();
+  for (const f of facts) {
+    if (f.faktatype !== 'fødsel' && f.faktatype !== 'død') continue;
+    const aid = chosenByFact.get(f.id);
+    if (aid == null) continue;
+    const a = assertById.get(aid);
+    if (!a) continue;
+    (f.faktatype === 'fødsel' ? birth : death).set(f.subjekt_id, { date_min: a.date_min, date_max: a.date_max });
+  }
+  const srcByPerson = new Map<number, number[]>();
+  for (const e of extIds) {
+    const arr = srcByPerson.get(e.person_id);
+    if (arr) arr.push(e.source_id); else srcByPerson.set(e.person_id, [e.source_id]);
+  }
+  return persons.map((p) => ({
+    id: String(p.id),
+    navn: p.visning_navn ?? '',
+    koen: p.koen,
+    foedsel: birth.get(p.id) ?? null,
+    doed: death.get(p.id) ?? null,
+    sourceIds: srcByPerson.get(p.id) ?? [],
+  }));
+}
+
+/** Ren: relation-rækker (rolle='ikke_samme_som') → persistente afvisnings-par. */
+export function parseIkkeSammeSomPar(rows: { subjekt_id: number; objekt_id: number }[]): { aId: string; bId: string }[] {
+  return rows.map((r) => ({ aId: String(r.subjekt_id), bId: String(r.objekt_id) }));
+}
+
+/** Hent MatchFrame-input for hele redaktions-datasættet (tynd; rene mappere gør arbejdet). */
+export async function fetchMatchPersoner(): Promise<RedMatchPerson[]> {
+  const [persons, facts, concs, assertions, extIds] = await Promise.all([
+    getAll<MatchPersonRow>(() => supabase.from('person').select('id,visning_navn,koen')),
+    getAll<MatchFactRow>(() => supabase.from('fact').select('id,subjekt_id,faktatype').eq('subjekt_type', 'person').in('faktatype', ['fødsel', 'død'])),
+    getAll<MatchConcRow>(() => supabase.from('conclusion').select('target_id,valgt_assertion_id').eq('target_type', 'fact').eq('status', 'afklaret')),
+    getAll<MatchAssertRow>(() => supabase.from('assertion').select('id,date_min,date_max').eq('target_type', 'fact')),
+    getAll<MatchExtIdRow>(() => supabase.from('person_external_id').select('person_id,source_id')),
+  ]);
+  return buildMatchPersoner(persons, facts, concs, assertions, extIds);
+}
+
+/** Hent eksisterende ikke_samme_som-afvisninger (person→person). */
+export async function fetchIkkeSammeSomPar(): Promise<{ aId: string; bId: string }[]> {
+  const rows = await getAll<{ subjekt_id: number; objekt_id: number }>(() =>
+    supabase.from('relation').select('subjekt_id,objekt_id')
+      .eq('rolle', 'ikke_samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person'));
+  return parseIkkeSammeSomPar(rows);
+}
