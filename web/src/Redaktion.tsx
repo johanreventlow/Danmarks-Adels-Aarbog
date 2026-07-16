@@ -1445,10 +1445,11 @@ function ForaeldrePaastandeControl({ personId, run, sammeSom }: { personId: stri
     refetchSoon();
   };
   const kendteFams = new Set((slot?.paastande ?? []).map((p) => p.familyId));
-  // Kun ægte tværudgave-rivaler: anden familie end personens egen, ikke allerede på slottet,
-  // OG en anden udgave (samme_som dækker også within-udgave-dubletter → ellers evidens-teater).
-  const importable = rivaler.filter((r) =>
-    r.fam.familyId !== egen?.familyId && !kendteFams.has(r.fam.familyId) && r.fam.udgave !== egen?.udgave);
+  // Kun ægte tværudgave-rivaler: anden familie end personens egen, ikke allerede på slottet, OG en
+  // anden KILDE (samme_som dækker også within-udgave-dubletter → ellers evidens-teater). Kræver at
+  // personens egen fødselsfamilie er kendt (ellers kan tværudgave ikke verificeres → intet tilbydes).
+  const importable = egen ? rivaler.filter((r) =>
+    r.fam.familyId !== egen.familyId && !kendteFams.has(r.fam.familyId) && r.fam.sourceId !== egen.sourceId) : [];
   if ((!slot || slot.paastande.length === 0) && importable.length === 0) return null; // intet at vise
   const omstridt = slot?.status === 'omstridt' || (slot?.paastande.length ?? 0) > 1;
   return (

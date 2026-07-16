@@ -235,7 +235,7 @@ export async function fetchForaeldreSlot(personId: string): Promise<ForaeldreSlo
   const aids = aList.map((a) => a.id);
   const famIds = aList.map((a) => a.objekt_id).filter((x): x is number => x != null);
   const [citRes, concRes, partRes] = await Promise.all([
-    aids.length ? sb.from('citation').select('assertion_id,side,citat_tekst,source(udgave,titel)').in('assertion_id', aids) : Promise.resolve({ data: [] as unknown[] }),
+    aids.length ? sb.from('citation').select('assertion_id,side,citat_tekst,source(udgave,titel)').in('assertion_id', aids).order('id') : Promise.resolve({ data: [] as unknown[] }),
     sb.from('conclusion').select('valgt_assertion_id,status').eq('target_type', 'fact').eq('target_id', factId).maybeSingle(),
     famIds.length ? sb.from('family_member').select('family_id,person_id,person(visning_navn)').in('family_id', famIds).eq('rolle', 'partner') : Promise.resolve({ data: [] as unknown[] }),
   ]);
@@ -257,12 +257,12 @@ export async function fetchBarnFamilie(personId: string): Promise<BarnFamilie | 
   if (familyId == null) return null;
   const [partRes, extRes] = await Promise.all([
     sb.from('family_member').select('person_id,person(visning_navn)').eq('family_id', familyId).eq('rolle', 'partner'),
-    sb.from('person_external_id').select('source_id,source(udgave)').eq('person_id', pid).order('source_id').limit(1).maybeSingle(),
+    sb.from('person_external_id').select('source_id,source(udgave,titel)').eq('person_id', pid).order('source_id').limit(1).maybeSingle(),
   ]);
   const foraeldre: ForaeldreForaelder[] = ((partRes.data ?? []) as unknown as { person_id: number; person: { visning_navn: string | null } | null }[])
     .map((p) => ({ personId: p.person_id, navn: p.person?.visning_navn ?? '(ukendt)' }));
-  const ext = extRes.data as unknown as { source_id: number | null; source: { udgave: string | null } | null } | null;
-  return { familyId, foraeldre, sourceId: ext?.source_id ?? null, udgave: ext?.source?.udgave ?? null };
+  const ext = extRes.data as unknown as { source_id: number | null; source: { udgave: string | null; titel: string | null } | null } | null;
+  return { familyId, foraeldre, sourceId: ext?.source_id ?? null, udgave: ext?.source?.udgave ?? ext?.source?.titel ?? null };
 }
 
 export type ForaeldreKonflikt = { personId: number; factId: number; antalFamilier: number; antalPaastande: number; status: string | null; navn: string | null };
@@ -270,7 +270,9 @@ export type ForaeldreKonflikt = { personId: number; factId: number; antalFamilie
 export async function fetchForaeldreKonflikter(): Promise<ForaeldreKonflikt[]> {
   const sb = supabase;
   if (!sb) return [];
-  const { data } = await sb.from('red_foraeldre_konflikt').select('person_id,fact_id,antal_familier,antal_paastande,status');
+  // Kast fejl frem for tavst [] (review 30): discovery-fladen må ikke maskere en brudt view/RLS.
+  const { data, error } = await sb.from('red_foraeldre_konflikt').select('person_id,fact_id,antal_familier,antal_paastande,status');
+  if (error) throw error;
   const rows = (data ?? []) as { person_id: number; fact_id: number; antal_familier: number; antal_paastande: number; status: string | null }[];
   if (!rows.length) return [];
   const { data: persons } = await sb.from('person').select('id,visning_navn').in('id', rows.map((r) => r.person_id));
