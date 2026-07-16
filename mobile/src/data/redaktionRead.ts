@@ -244,6 +244,27 @@ export async function fetchForaeldreSlot(personId: string): Promise<ForaeldreSlo
   return buildForaeldreSlot(Number(factId), aList, (citRes.data ?? []) as RawSlotCit[], (concRes.data ?? null) as RawSlotConc | null, flatPartners);
 }
 
+// En persons EGEN fødselsfamilie + kildeudgave — bruges til §6 trin (a): importér en samme_som-
+// linket persons (anden udgaves) forældre som en rival-påstand på den kanoniske person.
+export type BarnFamilie = { familyId: number; foraeldre: ForaeldreForaelder[]; sourceId: number | null; udgave: string | null };
+
+export async function fetchBarnFamilie(personId: string): Promise<BarnFamilie | null> {
+  const sb = supabase;
+  if (!sb || !personId) return null;
+  const pid = Number(personId);
+  const { data: bm } = await sb.from('family_member').select('family_id').eq('person_id', pid).eq('rolle', 'barn').maybeSingle();
+  const familyId = (bm as { family_id: number } | null)?.family_id;
+  if (familyId == null) return null;
+  const [partRes, extRes] = await Promise.all([
+    sb.from('family_member').select('person_id,person(visning_navn)').eq('family_id', familyId).eq('rolle', 'partner'),
+    sb.from('person_external_id').select('source_id,source(udgave)').eq('person_id', pid).limit(1).maybeSingle(),
+  ]);
+  const foraeldre: ForaeldreForaelder[] = ((partRes.data ?? []) as unknown as { person_id: number; person: { visning_navn: string | null } | null }[])
+    .map((p) => ({ personId: p.person_id, navn: p.person?.visning_navn ?? '(ukendt)' }));
+  const ext = extRes.data as unknown as { source_id: number | null; source: { udgave: string | null } | null } | null;
+  return { familyId, foraeldre, sourceId: ext?.source_id ?? null, udgave: ext?.source?.udgave ?? null };
+}
+
 export type ForaeldreKonflikt = { personId: number; factId: number; antalFamilier: number; antalPaastande: number; status: string | null; navn: string | null };
 
 export async function fetchForaeldreKonflikter(): Promise<ForaeldreKonflikt[]> {

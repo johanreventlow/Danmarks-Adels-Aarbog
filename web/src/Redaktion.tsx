@@ -12,7 +12,7 @@ import {
   fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, fetchSammeSomLinks, fetchRedPersonMedia, fetchRedObjectMedia, nudgeOrdinal, fetchForaeldreUkendtMarkering, type RedPerson, type PersonEvidence,
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
   type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia, type ForaeldreUkendtMarkering, SLAEGT_SUBJEKT_ID,
-  fetchForaeldreSlot, fetchForaeldreKonflikter, type ForaeldreSlot, type ForaeldreKonflikt,
+  fetchForaeldreSlot, fetchForaeldreKonflikter, fetchBarnFamilie, type ForaeldreSlot, type ForaeldreKonflikt, type BarnFamilie,
 } from './data/redaktionRead';
 import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, insertAt, makeToken, previewSammeSom } from '@daa/core';
 import { loadModel } from './data/model';
@@ -650,7 +650,7 @@ export default function Redaktion() {
         </div>
 
         <ForaeldreUkendtControl personId={p.id} run={run} />
-        <ForaeldrePaastandeControl personId={p.id} run={run} />
+        <ForaeldrePaastandeControl personId={p.id} run={run} sammeSom={sammeSom} />
 
         {showAnno && (
           <div style={{ marginTop: 16, ...annoBox }}>
@@ -1418,27 +1418,39 @@ function ForaeldreUkendtControl({ personId, run }: { personId: string; run: (c: 
 // Forældrefamilie-slot (Problem 2): konkurrerende forældre-påstande for DENNE person. Renderes kun
 // når der findes påstande (typisk efter en tværudgave-konflikt); mirrorer fact-card-oplysnings-listen
 // (kilde-badge + valgt-markering + "vælg denne"). Adjudikation = red_vaelg_foraeldre via run().
-function ForaeldrePaastandeControl({ personId, run }: { personId: string; run: (c: Change, label: string) => void }) {
+function ForaeldrePaastandeControl({ personId, run, sammeSom }: { personId: string; run: (c: Change, label: string) => void; sammeSom: SammeSomLink[] }) {
   const [slot, setSlot] = useState<ForaeldreSlot | null | undefined>(undefined);
+  const [rivaler, setRivaler] = useState<{ fraId: string; fam: BarnFamilie }[]>([]);
   const [konfidens, setKonfidens] = useState('sikker');
   const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
-    let alive = true; setSlot(undefined);
+    let alive = true; setSlot(undefined); setRivaler([]);
     fetchForaeldreSlot(personId).then((s) => { if (alive) setSlot(s); }).catch(() => { if (alive) setSlot(null); });
+    // §6 trin (a): hent samme_som-linkede personers fødselsfamilier (rival-udgavers forældre)
+    Promise.all(sammeSom.map((l) => fetchBarnFamilie(l.modpartId).then((f) => f ? { fraId: l.modpartId, fam: f } : null)))
+      .then((rs) => { if (alive) setRivaler(rs.filter((r): r is { fraId: string; fam: BarnFamilie } => r != null)); }).catch(() => {});
     return () => { alive = false; };
-  }, [personId, reloadKey]);
-  if (!slot || slot.paastande.length === 0) return null; // intet at adjudicere → ingen støj
+  }, [personId, reloadKey, sammeSom]);
+  const refetchSoon = () => setTimeout(() => setReloadKey((k) => k + 1), 700);
   const vaelg = (assertionId: number) => {
     run({ art: 'vaelgForaeldre', subjektType: 'person', subjektId: personId, payload: { assertionId, konfidens } }, 'Vælg forældrefamilie');
-    setTimeout(() => setReloadKey((k) => k + 1), 700);
+    refetchSoon();
   };
-  const omstridt = slot.status === 'omstridt' || slot.paastande.length > 1;
+  const importer = (fam: BarnFamilie) => {
+    run({ art: 'foraeldrePaastand', subjektType: 'person', subjektId: personId,
+      payload: { barnId: personId, familyId: fam.familyId, sourceId: fam.sourceId ?? undefined, citat: fam.udgave ? `Importeret fra ${fam.udgave} (samme_som)` : undefined } }, 'Importér forældre-påstand');
+    refetchSoon();
+  };
+  const kendteFams = new Set((slot?.paastande ?? []).map((p) => p.familyId));
+  const importable = rivaler.filter((r) => !kendteFams.has(r.fam.familyId));
+  if ((!slot || slot.paastande.length === 0) && importable.length === 0) return null; // intet at vise
+  const omstridt = slot?.status === 'omstridt' || (slot?.paastande.length ?? 0) > 1;
   return (
     <div style={{ marginTop: 14, border: `1px solid ${omstridt ? 'rgba(136,26,51,.35)' : 'rgba(34,31,26,.14)'}`, borderRadius: 11, padding: '12px 14px', background: omstridt ? '#faf1dc' : T.panel }}>
       <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', color: omstridt ? T.bordeaux : T.gold, marginBottom: 8 }}>
         Forældrefamilie{omstridt ? ' · konkurrerende påstande' : ''}
       </div>
-      {slot.paastande.map((pp) => (
+      {(slot?.paastande ?? []).map((pp) => (
         <div key={pp.assertionId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderTop: '1px dashed rgba(34,31,26,.1)' }}>
           <span style={{ fontFamily: T.mono, fontSize: 9, color: T.muted, background: T.beige, borderRadius: 5, padding: '3px 7px', whiteSpace: 'nowrap' }}>{pp.udgave ?? 'redaktionel'}</span>
           <div style={{ flex: 1, fontSize: 12.5, color: '#3d382f' }}>
@@ -1449,6 +1461,14 @@ function ForaeldrePaastandeControl({ personId, run }: { personId: string; run: (
           {pp.valgt ? null : (
             <div onClick={() => vaelg(pp.assertionId)} style={{ fontSize: 12, fontWeight: 600, color: '#fff', background: T.bordeaux, borderRadius: 7, padding: '6px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Vælg denne</div>
           )}
+        </div>
+      ))}
+      {/* §6 trin (a): importér en samme_som-linket persons (anden udgaves) forældre som rival-påstand */}
+      {importable.map((r) => (
+        <div key={r.fraId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderTop: '1px dashed rgba(34,31,26,.1)' }}>
+          <span style={{ fontFamily: T.mono, fontSize: 9, color: T.gold, background: T.beige, borderRadius: 5, padding: '3px 7px', whiteSpace: 'nowrap' }}>{r.fam.udgave ?? 'anden udgave'}</span>
+          <div style={{ flex: 1, fontSize: 12.5, color: T.muted }}>{r.fam.foraeldre.map((f) => f.navn).join(' & ') || '(ukendt familie)'}</div>
+          <div onClick={() => importer(r.fam)} style={{ fontSize: 12, fontWeight: 600, color: T.bordeaux, border: '1px solid rgba(136,26,51,.3)', borderRadius: 7, padding: '6px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Importér som påstand</div>
         </div>
       ))}
       {omstridt && (

@@ -257,7 +257,7 @@ export default function PersonEditor() {
           </View>
         </View>
 
-        {id ? <ForaeldrePaastandePanel personId={id} onChange={setPending} reloadKey={foraeldreReload} /> : null}
+        {id ? <ForaeldrePaastandePanel personId={id} onChange={setPending} sammeSom={sammeSom} reloadKey={foraeldreReload} /> : null}
 
         {showAnn ? (
           <Mono size={10} color={Colors.bordeaux} style={{ marginBottom: 12 }}>
