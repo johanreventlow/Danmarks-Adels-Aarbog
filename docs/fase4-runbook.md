@@ -163,16 +163,12 @@ Mister skrivninger foretaget efter Trin 0-dumpet (derfor skrive-frys).
 Selvstændig bruger-godkendt handling EFTER cutoveren er grøn (levende-PII, gitignoreret). IKKE del af
 skema-cutoveren.
 
-⚠️ **FORUDSÆTNING FØR FASE 2 (verificeret 2026-07-17):** artefaktet `clean_1939.json` på disk er
-genereret af konverter **v1.1.0** (539 poster, 364 forælder-links/67%), men konverter-koden er nu
-**v1.3.0** (fail-closed linje-scope). **A4 SKAL gentages mod et regenereret v1.3.0-artefakt** før load —
-v1.2.0's strammere scope faldt til ~180 links i preview, så v1.3.0's reelle link-tal + facit er ukendt
-indtil regenereret. Kør: (a) `convert_1939_stamtavle.py` → nyt `clean_1939.json`; (b) A4 dry-run
-(load mod isoleret DB + facit-validering: narrative NOT NULL, slots, GDPR-sweep); (c) bekræft
-accept-tærskel for det (formentlig lavere) link-tal — v1.3.0 vælger færre men fail-closede links (ingen
-falske cross-gren-forældre) frem for v1.1.0's bredere dækning med kendt falsk-match-risiko.
+✅ **FORUDSÆTNING 1 (A4-gentagelse) — GJORT 2026-07-17:** artefaktet regenereret til konverter **v1.3.0**
+(539 poster, **355 links**, 0 falske/0 modsigelser/0 re-pegede) og A4 dry-run kørt grønt mod isoleret tom
+base (`daa_a4v13`, A1+K2 til stede): 355 barn-links = 355 slot-assertions (P1 holder), 948 assertions m.
+date_min/max (matcher-input sikret), 539 narrative 0-null, GDPR-sweep 7 levende. Se plan-1939 §A4.
 
-Rækkefølge (efter A4-gentagelse er grøn):
+Rækkefølge (Fase 2 / Konvergens):
 
 1. **Rehearsal-load mod prod-KOPI (K1, OBLIGATORISK):** load 1939 mod GATE 0-kopien (ikke prod), og test
    end-to-end at RLS + matcheren (`matchUdgaver.ts`) + collapse + offentlig UI virker sammen med de
