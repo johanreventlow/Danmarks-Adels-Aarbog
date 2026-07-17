@@ -119,16 +119,11 @@ certainty/calendar). Noteret som opfølgning (alle fail-closed/mitigeret, empiri
 er ikke linje/gren-scopet (samme-navns forælder i anden gren kunne fejlmatches — kræver pålidelig `_ctx.linje`-
 normalisering før fix); **#2** selvreference-vagt dropper hele børne-sæt hvis forælder-nr falder i barn-blok
 (fail-closed, sjælden); **#3** struktureret kryds_ref når ikke DB (PoC-grænse, bevaret i narrative-prosa).
-- [ ] **A3c-review — 18 review.json-poster:** forbliver karantæne (16 ufuldstændig + 5 mangler navn). Dokumenteret.
-- [ ] **A3d — Bibliografisk source-oprydning (før import).** Afklar identiteterne + opret separate `source`-poster:
-      Holstein (repo kalder den "DAA 2018-20"; dato-analysen siger 2024 — afklar) · 1893 (Ludwig zu Reventlow
-      vs. Anders Thiset, jf. `docs/reviews/2026-07-15-...divergens-rapport.md`) · 1939 (Bobé).
-      Holstein må **ikke** automatisk "vinde" — rettelser går begge veje.
-- [ ] **A3c — Luk/karantænér de 18 `review.json`-poster** eksplicit med dokumenteret resolution.
-- [ ] **A3d — Bibliografisk source-oprydning (før import).** Afklar identiteterne + opret separate `source`-poster:
-      Holstein (repo kalder den "DAA 2018-20"; dato-analysen siger 2024 — afklar) · 1893 (Ludwig zu Reventlow
-      vs. Anders Thiset, jf. `docs/reviews/2026-07-15-...divergens-rapport.md`) · 1939 (Bobé).
-      Holstein må **ikke** automatisk "vinde" — rettelser går begge veje.
+- [x] **18 review.json-poster:** forbliver karantæne (16 ufuldstændig + 5 mangler navn) — fail-closed udeladt af
+      konverteren (disjunkte _id, ikke i clean_1939.json). Dokumenteret; manuel efterbehandling hvis ønsket.
+- [x] **A3d — Bibliografisk source-identiteter** ✅ DONE (decisions.md): 1939=Bobé (aar=1939), 2018-20=Holstein
+      (aar=2020; "2024" = trykke-år, ikke dæknings-benævnelse — bekræft mod titelblad), 1893=Thiset (uafklaret).
+      Forfatter bæres i `titel` (source har ingen forfatter-kolonne). Holstein "vinder" ikke auto — kanonisk = redaktionel.
 
 ### A4. Dry-run + facit-validering ✅ DONE (2026-07-17, mod frisk isoleret DB, prod-frit)
 `load_daa.R` kørt mod `clean_1939.json` på en frisk DB (schema-kopi af daa_test2 + A1-migration, socket via
