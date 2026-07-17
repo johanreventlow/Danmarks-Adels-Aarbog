@@ -138,6 +138,9 @@ def convert_aegteskab(a):
         "dato_raw": dato_raw,
         "date_min": info["date_min"],
         "date_max": info["date_max"],
+        "date_qualifier": info["qualifier"],   # bevar A2-semantik (konsistent m. build_date_fact)
+        "date_certainty": info["certainty"],
+        "calendar": info["calendar"],
         "sted": _s(a.get("sted")),
         "skilt": bool(a.get("skilt")),
         "partner_foraeldre": _s(a.get("partner_foraeldre")),

@@ -105,12 +105,20 @@ Hybrid: konverter + billig segmenter, INGEN ændring af delt `load_daa.R`.
       gruppe-lokale, 22 distinkte → ville kollidere; original i passthrough). facts via A2; godser/aegteskaber
       mappet. Struktur-facit: 539 poster, 0 nøgle-dubletter, dato-parse 92%, GDPR-flag 7 (født ≥1926 u. død).
       165 python-tests. Åbent: struktureret kryds_ref når ikke DB (bevares i narrative-prosa via A3b).
-- [ ] **A3b — Billig narrative-segmenter** (over-inklusiv, aldrig manuel): anker-snit hvor dato/partner-ankre er
-      rene (majoriteten); svage/ankerløse → **gruppe-niveau prosa-blok fallback** (automatisk, aldrig fejlende;
-      gør R1/R6 mere sandsynlig). Log fallback-poster. Narrative er fidelity-felt (søgning), ikke load-bearing.
-- [ ] **A3c — Forældre-graf (fail-closed, i konverteren):** opløs `_foraelder_id` (61 rene) + `boern_ref` (117) +
-      `foraeldre_note`-navnematch → tildel børns `nr_range` i forælderens post. Uopløste PARKERES (loaderen gør
-      det allerede) + eksplicit restliste. Cross-generation navnematch = den skrøbelige del, valideres mod `_foraelder_id`.
+- [x] **A3b — Billig narrative-segmenter** ✅ DONE (commit c88f526): `segment_1939.py` — anker-snit 81,6%,
+      gruppe/vindue-fallback (aldrig manuel, aldrig tom), ordret prosa. R1-proxy 92%. Integreret i konverter
+      (narrative flettet pr. _id → alle 539 poster har narrative, NOT NULL opfyldt).
+- [x] **A3c — Forældre-graf (fail-closed)** ✅ DONE (commit c88f526, v1.1.0): gruppe-for-gruppe nummerering
+      (kontinuert nr-blok by construction) + tiered opløsning (Tier1 `_foraelder_id` 17 grupper + Tier2
+      `foraeldre_note`-navnematch, fail-closed, ægtefælle-disambiguering). **364/539 (67,5%) strukturelt linket
+      rent** (op fra 61); 155 uopløste (parkeret). Uafhængigt verificeret: 0 falske børn, 0 modsigelser, 0
+      implausible fødselsår-links, multi-gruppe (2-ægteskabs-tilfælde) korrekt.
+
+**CODE-REVIEW (2026-07-17, high effort — 4 fund):** #4 **fikset** (aegteskab-datoer bevarer nu qualifier/
+certainty/calendar). Noteret som opfølgning (alle fail-closed/mitigeret, empirisk 0 fejl): **#1** Tier2-navnematch
+er ikke linje/gren-scopet (samme-navns forælder i anden gren kunne fejlmatches — kræver pålidelig `_ctx.linje`-
+normalisering før fix); **#2** selvreference-vagt dropper hele børne-sæt hvis forælder-nr falder i barn-blok
+(fail-closed, sjælden); **#3** struktureret kryds_ref når ikke DB (PoC-grænse, bevaret i narrative-prosa).
 - [ ] **A3c-review — 18 review.json-poster:** forbliver karantæne (16 ufuldstændig + 5 mangler navn). Dokumenteret.
 - [ ] **A3d — Bibliografisk source-oprydning (før import).** Afklar identiteterne + opret separate `source`-poster:
       Holstein (repo kalder den "DAA 2018-20"; dato-analysen siger 2024 — afklar) · 1893 (Ludwig zu Reventlow
