@@ -2511,3 +2511,40 @@ INSERT INTO vocab (scheme, code, label) VALUES
   ('faktatype','naturalisering','Naturalisation'),
   ('faktatype','introduktion_ridderhus','Introduktion på ridderhus')
   ON CONFLICT (scheme, code) DO NOTHING;
+
+-- =====================================================================
+-- 2026-07-17: K2 — staging-gate for ny-udgave-import (plan Konvergens/K2)
+-- Problem: en ny udgaves poster (fx 1939) er anon-synlige STRAKS ved load —
+-- før en redaktør har matchet dem mod eksisterende udgaver (samme_som) — så
+-- dublette Conrad'er (1939 + 2018-20) er begge offentlige indtil matchet.
+-- Løsning: person.staged (KURATERING, uafhængig af GDPR-levende/privat). Loaderen
+-- sætter TRUE ved --staged; person_offentlig (db-rls.sql) skjuler staged → cascader
+-- til fact/relation/narrative via entitet_offentlig. red_publicer_udgave rydder
+-- samlet når match-gennemgangen er færdig. Additiv, bagud-kompatibel (default FALSE).
+-- NB: RLS-ændringen bor i db-rls.sql (gen-anvendes af cutover Trin 1b).
+-- =====================================================================
+ALTER TABLE person ADD COLUMN IF NOT EXISTS staged BOOLEAN DEFAULT FALSE;
+
+-- Publicér en udgave: ryd staged for dens egne poster (person_external_id→source)
+-- + dens partner-stubs (staged personer i en familie m. et source-scopet medlem;
+-- stubs har ingen external_id). Redaktion-gated, revisions-tal returneres.
+CREATE OR REPLACE FUNCTION red_publicer_udgave(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_n integer;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN
+    RAISE EXCEPTION 'Kun redaktion må publicere en udgave (din rolle: %)', current_rolle();
+  END IF;
+  UPDATE person p SET staged = false
+  WHERE p.staged = true
+    AND (EXISTS (SELECT 1 FROM person_external_id pei
+                 WHERE pei.person_id = p.id AND pei.source_id = p_source_id)
+      OR EXISTS (SELECT 1 FROM family_member fm1
+                 JOIN family_member fm2 ON fm2.family_id = fm1.family_id
+                 JOIN person_external_id pei ON pei.person_id = fm2.person_id
+                   AND pei.source_id = p_source_id
+                 WHERE fm1.person_id = p.id));
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  RETURN jsonb_build_object('publiceret_source', p_source_id, 'personer_afstaget', v_n);
+END $$;
+REVOKE ALL ON FUNCTION red_publicer_udgave(bigint) FROM PUBLIC, anon, authenticated;

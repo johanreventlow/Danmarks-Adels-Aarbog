@@ -123,6 +123,7 @@ CREATE TABLE person (
   id            BIGINT PRIMARY KEY,
   levende       BOOLEAN DEFAULT FALSE,   -- GDPR: AFLEDT synlighed (levende vs. afdød)
   privat        BOOLEAN DEFAULT FALSE,   -- GDPR: MANUEL skjulning, uafhængig af levende (TNG: living vs. private)
+  staged        BOOLEAN DEFAULT FALSE,   -- KURATERING (K2): ny udgaves poster skjult for anon indtil redaktør har matchet dem mod eksisterende udgaver (undgår dublette Conrad'er). Uafhængig af levende/privat. Loaderen sætter TRUE ved --staged; red_publicer_udgave rydder.
   status        TEXT,                    -- fx 'kendt hul / ikke undersøgt'
   koen          TEXT CHECK (koen IN ('mand','kvinde','ukendt')),  -- vocab 'koen'; NULL = ikke registreret. Arbejdsværdi; afledes af konklusion hvis omstridt.
   -- afledt visnings-cache (envejs-projektion af konklusioner; redigeres ALDRIG direkte):

@@ -1584,3 +1584,22 @@ BEGIN
   DELETE FROM assertion WHERE id BETWEEN -987654326 AND -987654321;  -- oprydning
   RAISE NOTICE 'OK: dato-hærdning A1 (date_certainty-kolonne+CHECK, calendar-default, faktavokabular)';
 END $$;
+
+-- ===== K2: staging-gate skjuler ny-udgave-poster for anon (plan Konvergens/K2, 2026-07-17) =====
+DO $$
+BEGIN
+  DELETE FROM person WHERE id BETWEEN -987655003 AND -987655001;  -- ryd residual
+  -- afdød (levende=FALSE), ikke-privat: STAGED skal skjule, IKKE-staged skal vise
+  INSERT INTO person (id, levende, privat, staged) VALUES
+    (-987655001, false, false, true),    -- staged  → skjult
+    (-987655002, false, false, false),   -- ikke-staged → synlig
+    (-987655003, false, false, NULL);    -- NULL staged → synlig (fail-open-sikkert: kun loader sætter TRUE)
+  IF person_offentlig(-987655001) THEN
+    RAISE EXCEPTION 'K2: staged person er offentlig (skulle være skjult)'; END IF;
+  IF NOT person_offentlig(-987655002) THEN
+    RAISE EXCEPTION 'K2: ikke-staged afdød person er skjult (skulle være synlig)'; END IF;
+  IF NOT person_offentlig(-987655003) THEN
+    RAISE EXCEPTION 'K2: NULL-staged person er skjult (skulle være synlig — default)'; END IF;
+  DELETE FROM person WHERE id BETWEEN -987655003 AND -987655001;
+  RAISE NOTICE 'OK: K2 staging-gate (staged skjult, ikke-staged/NULL synlig i person_offentlig)';
+END $$;
