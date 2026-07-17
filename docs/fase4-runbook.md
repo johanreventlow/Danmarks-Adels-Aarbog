@@ -192,4 +192,5 @@ A1+K2 tilføjet korrekt (`date_certainty`, `person.staged`, `red_publicer_udgave
 staged-klausul). Trin 3 db-verify: **26 asserts grønne** inkl. A1, K2, F-02, F-02c, media, helpers; 5
 skippet + 21 fejl var ALLE miljø/data-afhængige (10× auth.users-FK, 3× storage.buckets, 8× tom-DB-data) —
 ingen kode-bugs. Bekræfter cutover-kæden er kohærent efter K2.
-- **UDESTÅR:** real-scale prod-dump-rehearsal (GATE 0) — kræver prod-adgang + bruger-godkendelse.
+**✅ CUTOVER UDFØRT 2026-07-17 mod prod `xjnvdhajfyrcytatnzos`:** GATE 0 grøn (49 asserts mod tro prod-kopi + rollback-øvelse); Trin 0 krypteret backup; Trin 1-4 committed + verificeret på prod (Problem 2 + A1 + K2; 566 forældrefamilie-slots; P1 holder; GDPR intakt; search_path/RLS ✓). Data uændret (923 pers, 566 barn-links, 0 staged). **Fase 2 (1939-load) udestår — separat godkendelse.**
+- ~~**UDESTÅR:** real-scale prod-dump-rehearsal (GATE 0) — kræver prod-adgang + bruger-godkendelse.
