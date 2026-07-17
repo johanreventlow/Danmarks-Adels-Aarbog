@@ -593,6 +593,297 @@ class TestNormalizeRecordDateOverride(unittest.TestCase):
         self.assertEqual(rec["facts"][0]["date_max"], "1272-12-31")
 
 
+class TestComputus(unittest.TestCase):
+    """Påske-beregning (computus). Gregoriansk: Meeus/Jones/Butcher-algoritmen;
+    juliansk: Meeus' julianske algoritme. Begge verificeres mod uafhængigt
+    kendte datoer + intern søndags-konsistens."""
+
+    def test_gregoriansk_paaske_kendte_aar(self):
+        # Kendte vestlige påskedage (verificerbare i enhver påsketabel)
+        self.assertEqual(validate.paaskedag(2000), (4, 23))
+        self.assertEqual(validate.paaskedag(2024), (3, 31))
+        self.assertEqual(validate.paaskedag(2025), (4, 20))
+        self.assertEqual(validate.paaskedag(1961), (4, 2))
+        self.assertEqual(validate.paaskedag(2038), (4, 25))
+
+    def test_juliansk_paaske_kendte_aar(self):
+        # Autoritativ kilde: ortodokse Pascha-tabeller (gammel stil / O.S.).
+        # Ortodoks påske er juliansk computus; N.S.-dato minus juliansk-
+        # gregoriansk offset (13 dage 1900-2099) giver den julianske dato:
+        #   1900: 22. april N.S. = 9. april O.S.
+        #   1918: 5. maj N.S.    = 22. april O.S.
+        #   2000: 30. april N.S. = 17. april O.S.
+        self.assertEqual(validate.paaskedag(1900, juliansk=True), (4, 9))
+        self.assertEqual(validate.paaskedag(1918, juliansk=True), (4, 22))
+        self.assertEqual(validate.paaskedag(2000, juliansk=True), (4, 17))
+
+    def test_gregoriansk_paaske_altid_soendag(self):
+        import datetime
+        for y in range(1700, 1760):
+            m, d = validate.paaskedag(y)
+            self.assertEqual(datetime.date(y, m, d).weekday(), 6,
+                             f"gregoriansk påske {y}-{m:02d}-{d:02d} er ikke søndag")
+
+    def test_juliansk_paaske_altid_soendag(self):
+        # Ugedag for julianske datoer via JDN: JDN mod 7 == 6 er søndag
+        # (kalibrering: JDN 2451545 = 1. jan 2000 gregoriansk = lørdag = 5).
+        for y in range(1500, 1560):
+            m, d = validate.paaskedag(y, juliansk=True)
+            a = (14 - m) // 12
+            yy = y + 4800 - a
+            mm = m + 12 * a - 3
+            jdn = d + (153 * mm + 2) // 5 + 365 * yy + yy // 4 - 32083
+            self.assertEqual(jdn % 7, 6,
+                             f"juliansk påske {y}-{m:02d}-{d:02d} er ikke søndag")
+
+
+class TestKirkedagFaste(unittest.TestCase):
+    """Faste kirkelige mærkedage: lookup-tabel, kræver årstal i date_raw.
+    År < 1700 → calendar='juliansk' (Danmark skiftede 18. feb 1700);
+    år >= 1700 → calendar='gregoriansk'. Datoen gemmes SOM SKREVET i kildens
+    egen kalender — aldrig proleptisk-gregoriansk omregning."""
+
+    def test_mikkelsdag_gregoriansk(self):
+        info = validate.derive_date_info("Mikkelsdag 1712")
+        self.assertEqual((info["date_min"], info["date_max"]),
+                         ("1712-09-29", "1712-09-29"))
+        self.assertEqual(info["calendar"], "gregoriansk")
+
+    def test_michaelisdag_juliansk_foer_1700(self):
+        info = validate.derive_date_info("Michaelisdag 1650")
+        self.assertEqual((info["date_min"], info["date_max"]),
+                         ("1650-09-29", "1650-09-29"))
+        self.assertEqual(info["calendar"], "juliansk")
+
+    def test_mikaelsdag_variant(self):
+        info = validate.derive_date_info("Mikaelsdag 1750")
+        self.assertEqual(info["date_min"], "1750-09-29")
+
+    def test_mortensaften_foer_mortensdag(self):
+        # 'mortensaften' må ikke fejlmatche som 'mortensdag'
+        self.assertEqual(validate.derive_date_info("Mortensaften 1712")["date_min"],
+                         "1712-11-10")
+        self.assertEqual(validate.derive_date_info("Mortensdag 1712")["date_min"],
+                         "1712-11-11")
+
+    def test_kyndelmisse(self):
+        self.assertEqual(validate.derive_date_info("Kyndelmisse 1800")["date_min"],
+                         "1800-02-02")
+
+    def test_sankt_hans_varianter(self):
+        self.assertEqual(validate.derive_date_info("Sankt Hans 1750")["date_min"],
+                         "1750-06-24")
+        self.assertEqual(validate.derive_date_info("Sankthansdag 1750")["date_min"],
+                         "1750-06-24")
+
+    def test_allehelgen(self):
+        info = validate.derive_date_info("Allehelgensdag 1600")
+        self.assertEqual(info["date_min"], "1600-11-01")
+        self.assertEqual(info["calendar"], "juliansk")
+        self.assertEqual(validate.derive_date_info("Allehelgen 1750")["date_min"],
+                         "1750-11-01")
+
+    def test_helligtrekonger(self):
+        self.assertEqual(validate.derive_date_info("Helligtrekongersdag 1712")["date_min"],
+                         "1712-01-06")
+
+    def test_valborg(self):
+        self.assertEqual(validate.derive_date_info("Valborgsdag 1800")["date_min"],
+                         "1800-05-01")
+
+    def test_bar_vor_frue_er_tvetydig_mapper_ikke(self):
+        # 'Vor Frue' kan være 2/2, 25/3, 2/7, 15/8 eller 8/9 — gæt ALDRIG.
+        # Fallback = hele-år, intet calendar-flag.
+        info = validate.derive_date_info("Vor Frue dag 1500")
+        self.assertEqual((info["date_min"], info["date_max"]),
+                         ("1500-01-01", "1500-12-31"))
+        self.assertIsNone(info["calendar"])
+
+    def test_vor_frue_bebudelse_specifik_fest_mapper(self):
+        info = validate.derive_date_info("Vor Frue Bebudelse 1500")
+        self.assertEqual((info["date_min"], info["date_max"]),
+                         ("1500-03-25", "1500-03-25"))
+        self.assertEqual(info["calendar"], "juliansk")
+
+    def test_maerkedag_uden_aarstal_uparsebar(self):
+        info = validate.derive_date_info("Mikkelsdag")
+        self.assertEqual((info["date_min"], info["date_max"]), (None, None))
+        self.assertIsNone(info["calendar"])
+
+    def test_ukendt_fest_falder_til_hele_aar(self):
+        info = validate.derive_date_info("Sankt Gertruds dag 1500")
+        self.assertEqual((info["date_min"], info["date_max"]),
+                         ("1500-01-01", "1500-12-31"))
+        self.assertIsNone(info["calendar"])
+
+    def test_almindelig_dato_har_intet_calendar_flag(self):
+        # calendar sættes KUN ved mærkedags-konvertering (provenance-only)
+        self.assertIsNone(validate.derive_date_info("26. juli 1975")["calendar"])
+        self.assertIsNone(validate.derive_date_info("1698")["calendar"])
+
+
+class TestKirkedagBevaegelige(unittest.TestCase):
+    """Påske-relative fester via computus. År < 1700 → juliansk computus +
+    calendar='juliansk'; år >= 1700 → gregoriansk."""
+
+    def test_paaske_gregoriansk(self):
+        info = validate.derive_date_info("Paaske 2000")
+        self.assertEqual((info["date_min"], info["date_max"]),
+                         ("2000-04-23", "2000-04-23"))
+        self.assertEqual(info["calendar"], "gregoriansk")
+
+    def test_paaske_juliansk_foer_1700(self):
+        # Juliansk påske 1650 = 14. april (Meeus juliansk, søndags-verificeret)
+        info = validate.derive_date_info("Paaske 1650")
+        self.assertEqual((info["date_min"], info["date_max"]),
+                         ("1650-04-14", "1650-04-14"))
+        self.assertEqual(info["calendar"], "juliansk")
+
+    def test_skaertorsdag_juliansk(self):
+        info = validate.derive_date_info("Skærtorsdag 1650")
+        self.assertEqual(info["date_min"], "1650-04-11")
+        self.assertEqual(info["calendar"], "juliansk")
+
+    def test_langfredag(self):
+        self.assertEqual(validate.derive_date_info("Langfredag 2038")["date_min"],
+                         "2038-04-23")
+
+    def test_palmesoendag(self):
+        self.assertEqual(validate.derive_date_info("Palmesøndag 2025")["date_min"],
+                         "2025-04-13")
+
+    def test_anden_paaskedag(self):
+        self.assertEqual(validate.derive_date_info("2. Paaskedag 2000")["date_min"],
+                         "2000-04-24")
+
+    def test_fastelavn(self):
+        self.assertEqual(validate.derive_date_info("Fastelavn 2025")["date_min"],
+                         "2025-03-02")
+
+    def test_store_bededag(self):
+        # 4. fredag efter påske = påskedag + 26 (påske 1961 = 2. april)
+        self.assertEqual(validate.derive_date_info("Store Bededag 1961")["date_min"],
+                         "1961-04-28")
+
+    def test_kristi_himmelfart(self):
+        # Kristi Himmelfart 2024 = 9. maj (påske 31. marts + 39)
+        self.assertEqual(validate.derive_date_info("Kristi Himmelfartsdag 2024")["date_min"],
+                         "2024-05-09")
+
+    def test_pinse_og_anden_pinsedag(self):
+        # Pinse 2000 = 11. juni (påske 23. april + 49)
+        self.assertEqual(validate.derive_date_info("Pinsedag 2000")["date_min"],
+                         "2000-06-11")
+        self.assertEqual(validate.derive_date_info("2. Pinsedag 2000")["date_min"],
+                         "2000-06-12")
+
+    def test_trinitatis(self):
+        self.assertEqual(validate.derive_date_info("Trinitatis 2000")["date_min"],
+                         "2000-06-18")
+
+    def test_n_soendag_efter_trinitatis(self):
+        # 14. søndag efter Trinitatis 1712: påske 27. marts + 56 + 98 = 28. aug
+        info = validate.derive_date_info("14. søndag efter Trinitatis 1712")
+        self.assertEqual((info["date_min"], info["date_max"]),
+                         ("1712-08-28", "1712-08-28"))
+        self.assertEqual(info["calendar"], "gregoriansk")
+        # 'efter' i festnavnet må IKKE fejltolkes som after-qualifier
+        self.assertIsNone(info["qualifier"])
+
+    def test_n_soendag_efter_paaske(self):
+        self.assertEqual(validate.derive_date_info("2. søndag efter Paaske 2000")["date_min"],
+                         "2000-05-07")
+
+    def test_ord_ordinal_soendag_efter_trinitatis(self):
+        self.assertEqual(
+            validate.derive_date_info("anden søndag efter Trinitatis 2000")["date_min"],
+            "2000-07-02")
+
+    def test_soendag_efter_helligtrekonger(self):
+        # Helligtrekonger 6. jan 2024 var en lørdag → 1. søndag efter = 7. jan
+        self.assertEqual(
+            validate.derive_date_info("1. søndag efter Helligtrekonger 2024")["date_min"],
+            "2024-01-07")
+
+    def test_soendag_efter_helligtrekonger_naar_6_jan_er_soendag(self):
+        # 6. jan 1650 (juliansk) var selv en søndag → 1. søndag EFTER = 13. jan
+        info = validate.derive_date_info("1. søndag efter Helligtrekonger 1650")
+        self.assertEqual(info["date_min"], "1650-01-13")
+        self.assertEqual(info["calendar"], "juliansk")
+
+    def test_uoploeselig_soendag_efter_falder_til_hele_aar(self):
+        # Ordinal uden for ord-tabellen → må IKKE fejlmappe til selve Trinitatis
+        info = validate.derive_date_info("enogtyvende søndag efter Trinitatis 1712")
+        self.assertEqual((info["date_min"], info["date_max"]),
+                         ("1712-01-01", "1712-12-31"))
+        self.assertIsNone(info["calendar"])
+
+    def test_foer_paaske_kombinerer_qualifier_og_computus(self):
+        info = validate.derive_date_info("før Paaske 1650")
+        self.assertIsNone(info["date_min"])
+        self.assertEqual(info["date_max"], "1650-04-14")
+        self.assertEqual(info["qualifier"], "before")
+        self.assertEqual(info["calendar"], "juliansk")
+
+    def test_ca_maerkedag_forbliver_hele_aar_uden_calendar(self):
+        # 'ca.' → about-branch bruger hele-år; ingen specifik dag → intet flag
+        info = validate.derive_date_info("ca. Mikkelsdag 1712")
+        self.assertEqual((info["date_min"], info["date_max"]),
+                         ("1712-01-01", "1712-12-31"))
+        self.assertEqual(info["qualifier"], "about")
+        self.assertIsNone(info["calendar"])
+
+
+class TestNormalizeRecordKirkedag(unittest.TestCase):
+    """normalize_record skriver f['calendar'] når parseren konverterede en
+    mærkedag OG bounds blev skrevet (fill/refine). LLM's bounds forbliver
+    PRIMÆRE — konverteringen forringer aldrig."""
+
+    def test_fill_tomme_bounds_og_calendar(self):
+        rec = {"linje": "I", "nr": 1,
+               "facts": [{"faktatype": "død", "date_raw": "Mikkelsdag 1712"}]}
+        src = {"raw_text": "N.N. død Mikkelsdag 1712."}
+        validate.normalize_record(rec, src)
+        f = rec["facts"][0]
+        self.assertEqual((f["date_min"], f["date_max"]),
+                         ("1712-09-29", "1712-09-29"))
+        self.assertEqual(f.get("calendar"), "gregoriansk")
+
+    def test_forfiner_aars_placeholder_med_kirkedag(self):
+        rec = {"linje": "I", "nr": 1,
+               "facts": [{"faktatype": "død", "date_raw": "Mikkelsdag 1712",
+                          "date_min": "1712-01-01", "date_max": "1712-12-31"}]}
+        src = {"raw_text": "N.N. død Mikkelsdag 1712."}
+        validate.normalize_record(rec, src)
+        f = rec["facts"][0]
+        self.assertEqual((f["date_min"], f["date_max"]),
+                         ("1712-09-29", "1712-09-29"))
+        self.assertEqual(f.get("calendar"), "gregoriansk")
+
+    def test_llm_praecise_bounds_vinder_over_kirkedag(self):
+        # LLM satte en anden præcis dag (kontekst parseren ikke ser) → bevares,
+        # og calendar skrives IKKE (konverteringen blev ikke anvendt)
+        rec = {"linje": "I", "nr": 1,
+               "facts": [{"faktatype": "død", "date_raw": "Mikkelsdag 1712",
+                          "date_min": "1712-10-03", "date_max": "1712-10-03"}]}
+        src = {"raw_text": "N.N. død Mikkelsdag 1712 (rettelse: 3. okt.)."}
+        validate.normalize_record(rec, src)
+        f = rec["facts"][0]
+        self.assertEqual((f["date_min"], f["date_max"]),
+                         ("1712-10-03", "1712-10-03"))
+        self.assertIsNone(f.get("calendar"))
+
+    def test_juliansk_flag_foer_1700(self):
+        rec = {"linje": "I", "nr": 1,
+               "facts": [{"faktatype": "død", "date_raw": "Paaske 1650"}]}
+        src = {"raw_text": "N.N. død Paaske 1650."}
+        validate.normalize_record(rec, src)
+        f = rec["facts"][0]
+        self.assertEqual((f["date_min"], f["date_max"]),
+                         ("1650-04-14", "1650-04-14"))
+        self.assertEqual(f.get("calendar"), "juliansk")
+
+
 class TestKontekstMerge(unittest.TestCase):
     def test_merge_kuld_og_kontekst(self):
         rec = {"linje": "I", "nr": 66, "nr_label": "66", "navn": "X"}
