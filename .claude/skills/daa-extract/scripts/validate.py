@@ -192,31 +192,174 @@ def derive_aegteskaber(raw_text):
     return [seen[k] for k in sorted(seen)]
 
 
-_MDR = {'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'maj': 5, 'jun': 6,
-        'jul': 7, 'aug': 8, 'sep': 9, 'okt': 10, 'nov': 11, 'dec': 12}
+# Månedsnavne matches på 3-tegns-prefix (lowercased). Dækker dansk
+# (jan./januar/marts), ældre dansk/latiniseret (Octbr., Sept.) og tysk
+# (Mai, März/Maerz, Jänner, Dezember).
+_MDR = {'jan': 1, 'jän': 1, 'jaen': 1,
+        'feb': 2,
+        'mar': 3, 'mär': 3, 'maer': 3,
+        'apr': 4,
+        'maj': 5, 'mai': 5,
+        'jun': 6, 'jul': 7, 'aug': 8,
+        'sep': 9,
+        'okt': 10, 'oct': 10,
+        'nov': 11,
+        'dec': 12, 'dez': 12}
+
+
+def _month_from_name(name):
+    """Slå måned op via prefix (4-tegns 'jaen'/'maer'-transskription først)."""
+    for k in (name[:4], name[:3]):
+        if k in _MDR:
+            return _MDR[k]
+    return None
+
+# Romertals-årstal ("anno dni MCCCCXCIIII" = 1494). Form-regex tillader BÅDE
+# subtraktiv (CM/XC/IV) og additiv middelalder-notation (CCCC, IIII), og
+# afviser ikke-romerske ord af romertals-bogstaver ('mild', 'civil').
+# Kun tokens ≥4 tegn prøves (undgår gren-tællere III/VI); plausibelt
+# års-interval 1000-2100 håndhæves.
+_ROMAN_VALS = {'m': 1000, 'd': 500, 'c': 100, 'l': 50, 'x': 10, 'v': 5, 'i': 1}
+_ROMAN_SHAPE_RE = re.compile(
+    r'^m{0,4}(?:cm|cd|d?c{0,4})(?:xc|xl|l?x{0,4})(?:ix|iv|v?i{0,4})$')
+_ROMAN_TOKEN_RE = re.compile(r'\b[mdclxvi]{4,}\b')
+
+
+def _roman_year(tok):
+    """Parse ét romertals-token til år, eller None hvis ugyldigt/implausibelt."""
+    if not _ROMAN_SHAPE_RE.match(tok):
+        return None
+    total = 0
+    for idx, ch in enumerate(tok):
+        v = _ROMAN_VALS[ch]
+        if idx + 1 < len(tok) and v < _ROMAN_VALS[tok[idx + 1]]:
+            total -= v
+        else:
+            total += v
+    return total if 1000 <= total <= 2100 else None
+
+
+# Qualifier-markører (dansk, ældre dansk, tysk). 'senest' = terminus ante quem
+# → behandles som 'before'. 'o.' kræver punktum (bart 'o' er for tvetydigt).
+_Q_BEFORE_RE = re.compile(r'\b(?:før|inden|senest)\b')
+_Q_AFTER_RE = re.compile(r'\befter\b')
+_Q_ABOUT_RE = re.compile(r'\b(?:ca|circa|omkr|omkring|um)\b|\bo\.')
+_Q_BETWEEN_RE = re.compile(r'\bmellem\b')
+# Bindestreg-flankeret nævnt-form '(-1223-1247-)' / '-1223-' = floruit
+# (dokumenteret-aktiv span, invariant #5) — IKKE levetid.
+_FLORUIT_FLANK_RE = re.compile(
+    r'[-–]\s*\d{3,4}(?:\s*[-–]\s*\d{3,4})?\s*[-–](?!\s*\d)')
+
+
+def derive_date_info(date_raw):
+    """Udled {date_min, date_max, qualifier, certainty} deterministisk fra rå dato.
+
+    Grundregler (invariant #5 — fuzzy datoer): kun år -> hele året;
+    dag-måned-år -> punkt; to årstal -> span. Uparsebart -> alle None;
+    date_raw bevares altid andetsteds. LLM'en skal IKKE selv syntetisere disse.
+
+    ÅR-GRÆNSE-KONVENTION for åbne grænser (dokumenteret valg):
+    Grænsen er det KONSERVATIVE ydre hylster INKLUSIVE det nævnte år —
+    qualifieren bærer den strikte semantik:
+      'før 1261'   -> date_min=None,        date_max='1261-12-31', qualifier='before'
+      'efter 1575' -> date_min='1575-01-01', date_max=None,        qualifier='after'
+      'mellem N og M' -> N-01-01 .. M-12-31, qualifier='between'
+      'ca./o./um N' -> hele året N,          qualifier='about'
+    Ved fuld dato ('før 26. juli 1261') bruges dagpunktet som grænse.
+
+    TODO(runde 2): kirkelige mærkedage ('Paaske', 'Michaelisdag' m.fl.) kræver
+    computus — falder indtil da tilbage til hele-år/None (forringer ikke).
+    TODO(runde 2): calendar (juliansk/gregoriansk) sættes først ved
+    mærkedags-konvertering.
+    TODO(runde 2): s.å./s.m./s.d.-ankeropløsning kræver kontekst fra
+    foregående fakta (arkitektur-ændring); LLM opløser de fleste allerede.
+    """
+    info = {'date_min': None, 'date_max': None, 'qualifier': None, 'certainty': None}
+    if not date_raw:
+        return info
+    t = date_raw.strip().lower()
+
+    # --- Usikre cifre (kildens egen tvivl) → bedste læsning + 'uncertain' ---
+    # '147(5?)' -> 1475: parentes-ciffer med '?' er kildens foreslåede læsning.
+    t, n_paren = re.subn(r'\((\d{1,2})\s*\?\)', r'\1', t)
+    # '1475?' -> 1475: spørgsmålstegn efter helt årstal.
+    t, n_tail = re.subn(r'(\d{4})\s*\?', r'\1', t)
+    if n_paren or n_tail:
+        info['certainty'] = 'uncertain'
+    # '14?8': ulæseligt ciffer → ydre hylster over alle læsninger (?=0..9).
+    wm = re.search(r'(?<![\d?])(\d{1,3})\?(\d{0,2})(?![\d?])', t)
+    if wm and len(wm.group(1)) + 1 + len(wm.group(2)) == 4:
+        y_lo = wm.group(1) + '0' + wm.group(2)
+        y_hi = wm.group(1) + '9' + wm.group(2)
+        info['date_min'] = f"{y_lo}-01-01"
+        info['date_max'] = f"{y_hi}-12-31"
+        info['certainty'] = 'uncertain'
+        return info
+
+    years = re.findall(r'\d{4}', t)
+    if not years:
+        # Fallback: romertals-årstal (kun når intet arabisk årstal findes)
+        roman = [y for y in (_roman_year(tok) for tok in _ROMAN_TOKEN_RE.findall(t))
+                 if y is not None]
+        if len(roman) == 1:
+            years = [str(roman[0])]
+    if not years or len(years) > 2:
+        return info
+
+    q_between = bool(_Q_BETWEEN_RE.search(t))
+    q_before = bool(_Q_BEFORE_RE.search(t))
+    q_after = bool(_Q_AFTER_RE.search(t))
+    q_about = bool(_Q_ABOUT_RE.search(t))
+    q_floruit = bool(_FLORUIT_FLANK_RE.search(t))
+
+    if len(years) == 2:                       # span: bevar begge grænser
+        info['date_min'] = f"{min(years)}-01-01"
+        info['date_max'] = f"{max(years)}-12-31"
+        if q_between or (q_before and q_after):   # "mellem N og M" / "efter N, før M"
+            info['qualifier'] = 'between'
+        elif q_floruit:                           # '(-1223-1247-)' ≠ levetid
+            info['qualifier'] = 'floruit'
+        elif q_about:                             # 'ca. 1484-1569' — omtrentligt interval
+            info['qualifier'] = 'about'
+        # NB: et bart span '1712-1783' (levetid) får bevidst INGEN qualifier.
+        return info
+
+    y = years[0]
+    dm = re.search(r'(\d{1,2})\.\s*([a-zæøåäöü]+)', t)
+    iso_point = None
+    if dm:
+        mo = _month_from_name(dm.group(2))
+        da = int(dm.group(1))
+        if mo and 1 <= da <= 31:
+            iso_point = f"{y}-{mo:02d}-{da:02d}"
+
+    if q_floruit:                             # enkelt-års floruit '-1223-'
+        info['date_min'] = f"{y}-01-01"
+        info['date_max'] = f"{y}-12-31"
+        info['qualifier'] = 'floruit'
+    elif q_before:
+        info['date_max'] = iso_point or f"{y}-12-31"
+        info['qualifier'] = 'before'
+    elif q_after:
+        info['date_min'] = iso_point or f"{y}-01-01"
+        info['qualifier'] = 'after'
+    elif q_about:
+        # Approksimation: ét år -> hele års-spannet, uanset evt. dag-angivelse
+        info['date_min'] = f"{y}-01-01"
+        info['date_max'] = f"{y}-12-31"
+        info['qualifier'] = 'about'
+    elif iso_point:
+        info['date_min'] = info['date_max'] = iso_point
+    else:
+        info['date_min'] = f"{y}-01-01"
+        info['date_max'] = f"{y}-12-31"
+    return info
 
 
 def derive_date_bounds(date_raw):
-    """Udled (date_min, date_max) ISO deterministisk fra rå dato. Kun år -> hele
-    året; dag-måned-år -> punkt; to årstal -> span (floruit "1257-1272",
-    invariant #5). Uparsebart (0 eller >2 årstal) -> (None, None); date_raw
-    bevares altid andetsteds. LLM'en skal IKKE selv syntetisere disse."""
-    if not date_raw:
-        return (None, None)
-    t = date_raw.strip().lower()
-    years = re.findall(r'\d{4}', t)
-    if not years or len(years) > 2:
-        return (None, None)
-    if len(years) == 2:                       # span: bevar begge grænser
-        return (f"{min(years)}-01-01", f"{max(years)}-12-31")
-    y = years[0]
-    dm = re.search(r'(\d{1,2})\.\s*([a-zæøå]+)', t)
-    if dm and dm.group(2)[:3] in _MDR:
-        mo = _MDR[dm.group(2)[:3]]
-        da = int(dm.group(1))
-        iso = f"{y}-{mo:02d}-{da:02d}"
-        return (iso, iso)
-    return (f"{y}-01-01", f"{y}-12-31")
+    """Bagudkompatibel wrapper: kun (date_min, date_max) fra derive_date_info."""
+    info = derive_date_info(date_raw)
+    return (info['date_min'], info['date_max'])
 
 
 def escalation_entry(rec, issues, advisory):
@@ -231,6 +374,14 @@ def escalation_entry(rec, issues, advisory):
             'grunde': list(issues or []) + r8,
         }
     return None
+
+
+# OCR-tolerance (Bobé 1939): † fejllæses som lille 't'. Kun i dødssignal-
+# lignende kontekst: klausul-start (tekststart eller efter ,.;:) + dato
+# umiddelbart efter ('t 1712' / 't. 30. marts 1712'). BEVIDST case-sensitiv
+# (eget regex uden re.I): stort 'T' er navne-initial, ikke en †-fejllæsning,
+# og 't' i almindelige ord ('skiftet', 'til') matcher ikke mønsteret.
+_OCR_DOED_T_RE = re.compile(r'(?:^|[,.;:])\s*t\.?\s+(?=\d{1,2}\.|\d{4})')
 
 
 def expected_signals(raw_text):
@@ -251,7 +402,8 @@ def expected_signals(raw_text):
         'venter_aegteskab': bool(derive_aegteskaber(udenfor)),
         # venter_boern bruges ikke i R8 — børn håndteres deterministisk i main().
         'venter_boern': BOERN_RE.search(txt) is not None,
-        'venter_doed': bool(re.search(r'[†☩]|\bdøde?\b|\bd\.\s*\d', udenfor, re.I)),
+        'venter_doed': bool(re.search(r'[†☩]|\bdøde?\b|\bd\.\s*\d', udenfor, re.I)
+                            or _OCR_DOED_T_RE.search(udenfor)),
     }
 
 
@@ -382,13 +534,29 @@ def normalize_record(rec, src):
             rec['boern'] = derived
         elif rec.get('boern') is not None:
             rec['boern'] = None   # LLM-hallucineret boern uden tekst-belæg
-    # Deterministisk dato-udledning: date_min/date_max overskrives ALTID fra
-    # date_raw. LLM'en må ikke selv syntetisere disse (fri ISO-syntese var
-    # kilden til fejl-attribuering).
+    # Deterministisk dato-udledning: date_min/date_max sættes fra date_raw.
+    # LLM'en må ikke selv syntetisere disse (fri ISO-syntese var kilden til
+    # fejl-attribuering). MEN: derive må FORBEDRE, aldrig forringe — kan den
+    # ikke parse date_raw (begge bounds None), bevares en evt. eksisterende
+    # værdi frem for at nulstille den (fx kirkelige mærkedage, runde 2-TODO).
     for f in rec.get('facts') or []:
         if f.get('date_raw'):
-            lo, hi = derive_date_bounds(f['date_raw'])
-            f['date_min'], f['date_max'] = lo, hi
+            info = derive_date_info(f['date_raw'])
+            if info['date_min'] is not None or info['date_max'] is not None:
+                f['date_min'], f['date_max'] = info['date_min'], info['date_max']
+            else:
+                f.setdefault('date_min', None)
+                f.setdefault('date_max', None)
+            # date_qualifier: udledt qualifier skrives på fact'et — MEN et
+            # eksisterende 'floruit' (LLM-sat, dokumenteret-aktiv ≠ levetid,
+            # invariant #5) må aldrig overskrives/ødelægges. Finder derive
+            # intet, bevares eksisterende qualifier.
+            if info['qualifier'] and f.get('date_qualifier') != 'floruit':
+                f['date_qualifier'] = info['qualifier']
+            # date_certainty: kun opgradér None → 'uncertain'; en LLM-sat
+            # certainty ('ambiguous'/'uncertain') bevares.
+            if info['certainty'] and not f.get('date_certainty'):
+                f['date_certainty'] = info['certainty']
     return rec
 
 
