@@ -108,26 +108,27 @@ Hybrid: konverter + billig segmenter, INGEN ændring af delt `load_daa.R`.
 - [x] **A3b — Billig narrative-segmenter** ✅ DONE (commit c88f526): `segment_1939.py` — anker-snit 81,6%,
       gruppe/vindue-fallback (aldrig manuel, aldrig tom), ordret prosa. R1-proxy 92%. Integreret i konverter
       (narrative flettet pr. _id → alle 539 poster har narrative, NOT NULL opfyldt).
-- [x] **A3c — Forældre-graf (fail-closed)** ✅ DONE (commit c88f526, v1.1.0): gruppe-for-gruppe nummerering
+- [x] **A3c — Forældre-graf (fail-closed)** ✅ CODE DONE (v1.2.0): gruppe-for-gruppe nummerering
       (kontinuert nr-blok by construction) + tiered opløsning (Tier1 `_foraelder_id` 17 grupper + Tier2
-      `foraeldre_note`-navnematch, fail-closed, ægtefælle-disambiguering). **364/539 (67,5%) strukturelt linket
-      rent** (op fra 61); 155 uopløste (parkeret). Uafhængigt verificeret: 0 falske børn, 0 modsigelser, 0
-      implausible fødselsår-links, multi-gruppe (2-ægteskabs-tilfælde) korrekt.
+      `foraeldre_note`-navnematch, ægtefælle-disambiguering). Tier2 kræver nu samme konservativt
+      normaliserede `_ctx.linje`; ukendt/modstridende linje parkeres. Det lukker cross-gren-falsk-matchen,
+      men invaliderer det gamle 364-link-facit: kode-preview giver **180/539 linkede**, 346 uopløste.
+      `clean_1939.json` skal regenereres og A4 gentages før prod-vurdering.
 
-**CODE-REVIEW (2026-07-17, high effort — 4 fund):** #4 **fikset** (aegteskab-datoer bevarer nu qualifier/
-certainty/calendar). Noteret som opfølgning (alle fail-closed/mitigeret, empirisk 0 fejl): **#1** Tier2-navnematch
-er ikke linje/gren-scopet (samme-navns forælder i anden gren kunne fejlmatches — kræver pålidelig `_ctx.linje`-
-normalisering før fix); **#2** selvreference-vagt dropper hele børne-sæt hvis forælder-nr falder i barn-blok
-(fail-closed, sjælden); **#3** struktureret kryds_ref når ikke DB (PoC-grænse, bevaret i narrative-prosa).
+**CODE-REVIEW (2026-07-17):** #4 **fikset** (ægteskab-datoer bevarer qualifier/certainty/calendar).
+**#1 cross-gren Tier2 er nu fikset fail-closed i v1.2.0** (samme normaliserede linje påkrævet; ukendt
+linje parkeres). #2 selvreference-vagten er efterfølgende afkræftet som defensiv dead code. #3 struktureret
+`kryds_ref` når fortsat ikke DB (PoC-grænse, bevaret i narrative-prosa).
 - [x] **18 review.json-poster:** forbliver karantæne (16 ufuldstændig + 5 mangler navn) — fail-closed udeladt af
       konverteren (disjunkte _id, ikke i clean_1939.json). Dokumenteret; manuel efterbehandling hvis ønsket.
 - [x] **A3d — Bibliografisk source-identiteter** ✅ DONE (decisions.md): 1939=Bobé (aar=1939), 2018-20=Holstein
       (aar=2020; "2024" = trykke-år, ikke dæknings-benævnelse — bekræft mod titelblad), 1893=Thiset (uafklaret).
       Forfatter bæres i `titel` (source har ingen forfatter-kolonne). Holstein "vinder" ikke auto — kanonisk = redaktionel.
 
-### A4. Dry-run + facit-validering ✅ DONE (2026-07-17, mod frisk isoleret DB, prod-frit)
+### A4. Dry-run + facit-validering ⚠️ SKAL GENTAGES efter v1.2.0
 `load_daa.R` kørt mod `clean_1939.json` på en frisk DB (schema-kopi af daa_test2 + A1-migration, socket via
-`R_ENVIRON_USER`-override). **Artefaktet loader korrekt.**
+`R_ENVIRON_USER`-override). Det beviste det tidligere v1.1.0-artefakt, men v1.2.0's strengere
+linje-scope ændrer forældregrafen; regenerér artefaktet og gentag samme acceptance-test.
 - [x] **A4a — Facit fra faktisk load:** 835 personer (539 hoved + 296 partner-stubs); **539 narrative, 0 NULL/tom**
       (NOT NULL opfyldt); **364 family_member barn-links** (matcher konverter-facit eksakt); 612 partner-links;
       471 rødder (inkl. partner-stubs). 73 uopløste barn-opslag = alle `union_tom_kontekst`.
@@ -164,9 +165,10 @@ Følger `docs/fase4-runbook.md`.
 - [ ] **K1 — Rehearsal-load af re-ekstraheret 1939 mod prod-KOPI.** Test RLS, matcher, kollaps, offentlig UI.
       Verificér at matcheren nu faktisk får `date_min`/`date_max` (den læser kun dem — `matchUdgaver.ts:304`;
       uden normaliserede datoer reduceres tværudgave-matching til navn+køn).
-- [ ] **K2 — Beslut staging-/publiceringsstrategi** så umatchede 1939-dubletter IKKE offentliggøres ved commit.
-      `source` har intet kladde/publiceret-felt (`schema.sql:32`); `person.privat` default FALSE (`schema.sql:122`).
-      **Åben beslutning** (se nederst). Relevant *før medlemmer inviteres*, ikke akut nu (pre-launch).
+- [x] **K2 — Staging-/publiceringsstrategi implementeret i kode:** loader `--staged` sætter
+      `person.staged=TRUE`; `person_offentlig` og de direkte anon/authenticated-personpolitikker skjuler staged;
+      `red_publicer_udgave(source_id)` rydder samlet efter match-gennemgang. **Ikke deployet til prod** — indgår
+      i B3/B4 + GATE 0.
 - [ ] **K3 — Rigtig 1939-load mod prod** (efter separat bruger-godkendelse) + verificér slots/P1/RLS/UI.
 
 ---
@@ -192,8 +194,8 @@ Fra Codex-fundament-review, triageret:
 1. **`date_precision` egen kolonne eller udledt?** Delvist afledeligt af min/max-spænd (min=max=dag →
    dagspræcision; hele-år-span → årspræcision). `date_certainty` er den ægte manglende dimension.
    → afgør i A1b, måske kun `date_certainty` bliver ny kolonne.
-2. **Staging-strategi (K2):** source-niveau `draft/published`-felt vs. midlertidig `privat=TRUE` på nye
-   1939-poster indtil matchet/gennemgået vs. andet. Afgør før rigtig load.
+2. ~~**Staging-strategi (K2)**~~ **Afgjort:** separat `person.staged`, loader-flag `--staged`, central
+   RLS-gate og samlet `red_publicer_udgave(source_id)`. Afventer deploy/rehearsal.
 3. **Bibliografiske identiteter (A3d):** Holstein 2018-20 vs. 2024; 1893 Ludwig vs. Thiset.
    Afklar mod primærkilder før source-poster oprettes.
 
@@ -212,4 +214,4 @@ Fra Codex-fundament-review, triageret:
 | 7. Fase 4 GATE 0 mod prod-dump + rollback | B1 |
 | 8. Deploy migration/RLS/backfill + verificér slots/P1 | B3–B6 |
 | 9. Rehearsal-load 1939 mod prod-kopi | K1 |
-| 10. Staging-strategi så dubletter ikke offentliggøres | K2 |
+| 10. Staging-strategi så dubletter ikke offentliggøres | ✅ K2 kode; deployes i B3/B4 |

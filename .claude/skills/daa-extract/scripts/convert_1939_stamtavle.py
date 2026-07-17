@@ -42,7 +42,9 @@
 #   2) gruppe -> forælder-post opløses FAIL-CLOSED i to tiers:
 #      Tier 1: medlemmernes _foraelder_id (ground truth).
 #      Tier 2: strukturel navnematch af foraeldre_note mod poster i
-#      FORRIGE slægtled; link KUN ved præcis ét entydigt kandidat-match
+#      SAMME normaliserede linje og FORRIGE slægtled; link KUN ved
+#      præcis ét entydigt kandidat-match. Manglende/modstridende linje
+#      = uopløst (fail-closed, aldrig cross-gren-gæt).
 #      (ægtefælle-navn fra noten bruges som deterministisk
 #      disambiguator ved flere navne-kandidater). Alt andet = UOPLØST.
 #      Hvor begge tiers gælder, SKAL de være enige — modsigelse =>
@@ -60,7 +62,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from validate import derive_date_info  # noqa: E402  (A2-parseren — genbrug, omskriv ikke)
 
-CONVERTER_VERSION = "1.1.0"
+CONVERTER_VERSION = "1.2.0"
 LINJE = "1939"
 SLAEGTSNAVN = "reventlow"  # 1939-stamtavlen er Reventlow; slægtsnavnet droppes ved navne-match
 
@@ -328,6 +330,18 @@ def names_match(a, b):
     return _is_subseq(a, b) if len(a) <= len(b) else _is_subseq(b, a)
 
 
+def normalize_linje(value):
+    """Konservativ linje-nøgle til Tier2-scope.
+
+    Kun case, whitespace og tegnsætning normaliseres. Vi forsøger bevidst
+    ikke at fortolke romertal eller fritekst: ukendt/afvigende linje skal
+    koste recall, ikke skabe et muligt cross-gren-link.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return " ".join(re.findall(r"[0-9a-zæøå]+", value.lower())) or None
+
+
 _BOERN_KEYWORD_RE = re.compile(r"\b(Børn|Barn|Sønner|Søn|Døtre|Datter)\b")
 # Noter der beskriver ekstraktions-usikkerhed frem for at navngive en
 # forælder -> uparsebare (fail-closed, gæt aldrig).
@@ -417,19 +431,25 @@ def _spouse_ok(rec, spouse_segs):
 
 def _tier2_resolve(unit, note, records, gen_af_id):
     """Strukturel navnematch: gruppens foraeldre_note mod poster i FORRIGE
-    slægtled. Returnerer (_id | None, årsag). FAIL-CLOSED: kun præcis ét
-    entydigt match linker; ægtefælle-navnet fra noten er eneste tilladte
-    disambiguator (deterministisk bog-evidens, ikke gæt)."""
+    slægtled OG samme normaliserede linje. Returnerer (_id | None, årsag).
+    FAIL-CLOSED: kun præcis ét entydigt match linker; ægtefælle-navnet fra
+    noten er eneste tilladte disambiguator (deterministisk bog-evidens,
+    ikke gæt)."""
     gens = {gen_af_id[r["_id"]] for r in unit if gen_af_id[r["_id"]] is not None}
     if len(gens) != 1:
         return None, "slaegtled_ukendt"
     g = next(iter(gens))
+    linjer = {normalize_linje((r.get("_ctx") or {}).get("linje")) for r in unit}
+    if None in linjer or len(linjer) != 1:
+        return None, "linje_ukendt"
+    linje = next(iter(linjer))
     ptoks = extract_parent_tokens(note)
     if not ptoks:
         return None, "note_uparsebar"
     medlem_ids = {r["_id"] for r in unit}
     cands = [r for r in records
              if gen_af_id[r["_id"]] == g - 1 and r["_id"] not in medlem_ids
+             and normalize_linje((r.get("_ctx") or {}).get("linje")) == linje
              and names_match(ptoks, name_tokens(r["navn"]))]
     if len(cands) == 1:
         return cands[0]["_id"], "ok_navn"

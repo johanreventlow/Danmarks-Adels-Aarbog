@@ -300,13 +300,13 @@ do $$ begin
 end $$;
 
 -- =========================================================
--- 2) PERSON: kun afdøde, ikke-private.
+-- 2) PERSON: central person_offentlig-gate (afdød, ikke-privat, ikke-staged).
 -- =========================================================
 grant select on table public.person to anon;
 alter table public.person enable row level security;
 drop policy if exists anon_read on public.person;
 create policy anon_read on public.person for select to anon
-  using (levende = false and coalesce(privat, false) = false);  -- fail-closed: NULL levende skjules
+  using (public.person_offentlig(id));
 
 -- =========================================================
 -- 3) PERSONBUNDNE TABELLER: synlige kun hvis den refererede person er offentlig.
@@ -416,9 +416,10 @@ begin
   end loop;
 end $$;
 
--- person: fail-closed på levende (spejler anon_read; NULL levende skjules).
+-- person: samme centrale gate som anon (inkl. K2 staged); redaktion_read nedenfor
+-- giver fortsat redaktører adgang til staged/private/levende rækker.
 create policy auth_read on public.person for select to authenticated
-  using (levende = false and coalesce(privat, false) = false);
+  using (public.person_offentlig(id));
 -- personbundne: synlige kun hvis personen er offentlig (afdød + ikke-privat).
 create policy auth_read on public.person_external_id for select to authenticated
   using (public.person_offentlig(person_id));

@@ -136,3 +136,14 @@ Alle uløste tråde efter A3, grupperet efter gate. Codex-fund foldes ind efter 
 | **D2** | Bibliografi: Holstein "2024" vs "2018-20", 1893 Thiset uafklaret. | Bekræft mod primærkildens titelblad før 1893 evt. importeres. |
 
 _(Codex-fund tilføjes her efter reconcile.)_
+
+## Integrations-addendum (2026-07-17)
+
+- **H1 lukket i konverter v1.2.0:** Tier2-kandidater skal være i samme konservativt normaliserede
+  `_ctx.linje`; manglende/modstridende linje parkeres. En syntetisk cross-gren-navnebror-test beviser,
+  at et ellers unikt forkert match ikke længere linker.
+- **Konsekvens:** det gamle v1.1.0-facit på 364/539 links er ikke længere acceptance-facit. Et tællings-only
+  preview mod `linked_clean.json` giver 180 linkede og 346 uopløste; artefakt + A4 skal regenereres.
+- **K2 lukket i kode:** `person.staged`, loader `--staged`, `person_offentlig`, direkte person-RLS og
+  `red_publicer_udgave`. `db-verify.sql` tester nu en faktisk anon-SELECT, ikke kun hjælperfunktionen.
+  Prod-deploy og GATE 0 er fortsat separate, eksplicit godkendelseskrævende trin.

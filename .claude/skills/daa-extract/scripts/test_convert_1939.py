@@ -175,12 +175,12 @@ def test_noter_og_kryds_ref_samles_i_note():
 # =====================================================================
 
 def gsynth(_id, gruppe="gA", note=None, slaegtled="II", window="w00",
-           navn="Alfa Beta", **over):
+           navn="Alfa Beta", linje="linje A", **over):
     """Syntetisk post med kontrollérbar gruppe-kontekst."""
     rec = {
         "_id": _id,
         "_window": window,
-        "_ctx": {"linje": None, "slaegtled": slaegtled, "gruppe": gruppe,
+        "_ctx": {"linje": linje, "slaegtled": slaegtled, "gruppe": gruppe,
                  "foraeldre_note": note},
         "lokal_id": f"9.{_id}",
         "nr": None,
@@ -342,6 +342,29 @@ def test_tier2_intet_match_fail_closed():
     out = convert_all(recs, rapport=rapport)
     assert all("boern" not in p for p in out)
     assert rapport["uoploeste_grupper"] == 1
+
+
+def test_tier2_cross_gren_unikt_navnematch_fail_closed():
+    # Den korrekte linje-A-forælder mangler. En navnebror i linje B må
+    # ikke blive et "entydigt" men genealogisk forkert match.
+    recs = [far(100, navn="Anders Testholm", linje="linje B"),
+            gsynth(101, gruppe="gA", slaegtled="II", linje="linje A",
+                   note="Anders Testholms Børn m. Berta von Gamma")]
+    rapport = {}
+    out = convert_all(recs, rapport=rapport)
+    assert all("boern" not in p for p in out)
+    assert rapport["uoploeste_grupper"] == 1
+    assert rapport["uoploest_pr_aarsag"] == {"ingen_match": 1}
+
+
+def test_tier2_ukendt_eller_modstridende_linje_fail_closed():
+    recs = [far(100, navn="Anders Testholm", linje="linje A"),
+            gsynth(101, gruppe="gA", slaegtled="II", linje=None,
+                   note="Anders Testholms Børn m. Berta")]
+    rapport = {}
+    out = convert_all(recs, rapport=rapport)
+    assert all("boern" not in p for p in out)
+    assert rapport["uoploest_pr_aarsag"] == {"linje_ukendt": 1}
 
 
 def test_tier2_kun_forrige_slaegtled():

@@ -1587,6 +1587,7 @@ END $$;
 
 -- ===== K2: staging-gate skjuler ny-udgave-poster for anon (plan Konvergens/K2, 2026-07-17) =====
 DO $$
+DECLARE vis_staged int; vis_ikke_staged int; vis_null_staged int;
 BEGIN
   DELETE FROM person WHERE id BETWEEN -987655003 AND -987655001;  -- ryd residual
   -- afdød (levende=FALSE), ikke-privat: STAGED skal skjule, IKKE-staged skal vise
@@ -1600,6 +1601,17 @@ BEGIN
     RAISE EXCEPTION 'K2: ikke-staged afdød person er skjult (skulle være synlig)'; END IF;
   IF NOT person_offentlig(-987655003) THEN
     RAISE EXCEPTION 'K2: NULL-staged person er skjult (skulle være synlig — default)'; END IF;
+  -- Test den FAKTISKE tabel-policy som anon, ikke kun hjælperen. Det fanger drift
+  -- hvor person_offentlig er korrekt, men person.anon_read glemmer staged.
+  SET LOCAL ROLE anon;
+  SELECT count(*) INTO vis_staged FROM person WHERE id=-987655001;
+  SELECT count(*) INTO vis_ikke_staged FROM person WHERE id=-987655002;
+  SELECT count(*) INTO vis_null_staged FROM person WHERE id=-987655003;
+  RESET ROLE;
+  IF NOT (vis_staged=0 AND vis_ikke_staged=1 AND vis_null_staged=1) THEN
+    RAISE EXCEPTION 'K2 person-RLS FEJL: staged=% (vent 0), ikke-staged=% (vent 1), NULL=% (vent 1)',
+      vis_staged, vis_ikke_staged, vis_null_staged;
+  END IF;
   DELETE FROM person WHERE id BETWEEN -987655003 AND -987655001;
-  RAISE NOTICE 'OK: K2 staging-gate (staged skjult, ikke-staged/NULL synlig i person_offentlig)';
+  RAISE NOTICE 'OK: K2 staging-gate (hjælper + faktisk anon person-RLS)';
 END $$;
