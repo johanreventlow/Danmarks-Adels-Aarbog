@@ -38,9 +38,14 @@ set search_path = public
 as $$
   -- FAIL-CLOSED på levende: 'levende = false' udelukker også NULL (NULL = false → NULL → ej true),
   -- så en person hvor levende aldrig blev sat ikke lækker. privat: NULL behandles som ikke-privat.
+  -- staged (K2-kuratering): en ny udgaves poster skjules indtil redaktør har matchet dem; NULL =
+  -- ikke-staget = synlig (kun loaderen sætter TRUE, så NULL-default er sikkert her). Cascader til
+  -- fact/relation/narrative via entitet_offentlig (F-02c) — ét ændringspunkt for hele PII-fladen.
   select exists (
     select 1 from public.person p
-    where p.id = pid and p.levende = false and coalesce(p.privat, false) = false
+    where p.id = pid and p.levende = false
+      and coalesce(p.privat, false) = false
+      and coalesce(p.staged, false) = false
   );
 $$;
 
