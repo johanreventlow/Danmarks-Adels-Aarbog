@@ -130,13 +130,20 @@ normalisering før fix); **#2** selvreference-vagt dropper hele børne-sæt hvis
       vs. Anders Thiset, jf. `docs/reviews/2026-07-15-...divergens-rapport.md`) · 1939 (Bobé).
       Holstein må **ikke** automatisk "vinde" — rettelser går begge veje.
 
-### A4. Facit-validering (acceptance-test for re-ekstraktionen)
-- [ ] **A4a — Definér forventet facit** (Codex min-krav #6): antal poster, familier, barn-links, roots,
-      uopløste referencer. Uden facit ved vi ikke hvornår artefaktet er godt nok.
-- [ ] **A4b — Bekræft levende-tærskel.** `load_daa.R:435-445` HAR allerede GDPR-sikker alders-sweep
-      (født <100 år siden uden død/begravelse/dødsårsag → `levende=TRUE`; fail-closed for ukendt fødselsår).
-      Re-ekstraktion til `load_daa.R`-format aktiverer den automatisk. **Ingen ny heuristik nødvendig** —
-      bekræft blot at 100-års-tærsklen fanger de ~7 personer født 1926-1936 uden registreret død.
+### A4. Dry-run + facit-validering ✅ DONE (2026-07-17, mod frisk isoleret DB, prod-frit)
+`load_daa.R` kørt mod `clean_1939.json` på en frisk DB (schema-kopi af daa_test2 + A1-migration, socket via
+`R_ENVIRON_USER`-override). **Artefaktet loader korrekt.**
+- [x] **A4a — Facit fra faktisk load:** 835 personer (539 hoved + 296 partner-stubs); **539 narrative, 0 NULL/tom**
+      (NOT NULL opfyldt); **364 family_member barn-links** (matcher konverter-facit eksakt); 612 partner-links;
+      471 rødder (inkl. partner-stubs). 73 uopløste barn-opslag = alle `union_tom_kontekst`.
+- [x] **A4b — GDPR/levende bekræftet EMPIRISK:** loaderens sweep satte `levende=TRUE` på **præcis de 7 født ≥1926
+      uden dødsfakta** (korrekt skjult for anon); 828 afdøde offentlige. Tærsklen virker som forudsagt.
+- [x] **Bagud-kompatibilitet:** gammelt-format clean.json (uden calendar/date_certainty) loader uændret (835
+      personer, alle assertions `calendar='gregoriansk'` via DB-default) → A1's `load_daa.R`-ændring er sikker.
+
+**KENDT BEGRÆNSNING (noteret):** de 73 `union_tom_kontekst` er børn af forældre med 2+ ægteskaber placeret i
+FØRSTE union (konverteren udleder ikke `aegteskab_kontekst` pr. barn). **Forbedring:** gruppe-noterne HAR "af
+første/andet Ægteskab" → kan udledes til korrekt union-placering (A3c-udvidelse, ikke load-blokerende — fail-closed logget).
 
 ---
 
