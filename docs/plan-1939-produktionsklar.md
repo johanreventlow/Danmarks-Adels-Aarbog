@@ -100,11 +100,11 @@ Hybrid: konverter + billig segmenter, INGEN ændring af delt `load_daa.R`.
 - **Måling 1:** A2-parseren håndterer 92% af 1939's OCR-datoer (~100% af fødsler — alle har årstal) → **ingen A2 runde 3**; rut datoer gennem A2, omskriv ikke dato-logik i konverteren. GDPR-datagrundlag solidt.
 - **Måling 2:** `boern.linje` er udfyldt+inkonsistent i eksisterende korpus (63/82 ≠ rec.linje, værdier som "IV, nr. 118") → advisor's foreslåede loader-ændring er **FARLIG**, forkastet. **Rør ikke `load_daa.R`.**
 
-- [ ] **A3a — Versioneret deterministisk konverter** `linked_clean.json → load_daa.R-format clean.json`:
-      **ÉT syntetisk linjerum ("1939") + globalt unikke løbenumre** (så forældre-barn = `boern.nr_range` i samme
-      linje, som loaderen håndterer UÆNDRET). `nr` int (INTEGER-kolonne), string→`nr_label`, null→syntetisk nr.
-      `facts[]` fra foedsel/doed/begravelse/titel via **A2 `derive_date_info`** (ISO+qualifier+certainty+calendar).
-      godser strings→`{navn}`; aegteskaber-mapping; kryds_ref/noter bevaret. TDD.
+- [x] **A3a — Versioneret deterministisk konverter** ✅ DONE (commit f903f1c): `convert_1939_stamtavle.py`
+      (v1.0.0). ÉT syntetisk linje="1939" + globale nr 1..539; `nr_label=str(nr)` (originale løbenumre er
+      gruppe-lokale, 22 distinkte → ville kollidere; original i passthrough). facts via A2; godser/aegteskaber
+      mappet. Struktur-facit: 539 poster, 0 nøgle-dubletter, dato-parse 92%, GDPR-flag 7 (født ≥1926 u. død).
+      165 python-tests. Åbent: struktureret kryds_ref når ikke DB (bevares i narrative-prosa via A3b).
 - [ ] **A3b — Billig narrative-segmenter** (over-inklusiv, aldrig manuel): anker-snit hvor dato/partner-ankre er
       rene (majoriteten); svage/ankerløse → **gruppe-niveau prosa-blok fallback** (automatisk, aldrig fejlende;
       gør R1/R6 mere sandsynlig). Log fallback-poster. Narrative er fidelity-felt (søgning), ikke load-bearing.
