@@ -15,6 +15,8 @@ from convert_1939_stamtavle import (
     extract_spouse_tokens,
     group_key,
     build_units,
+    canonical_linje,
+    build_linje_scopes,
 )
 
 
@@ -365,6 +367,55 @@ def test_tier2_ukendt_eller_modstridende_linje_fail_closed():
     out = convert_all(recs, rapport=rapport)
     assert all("boern" not in p for p in out)
     assert rapport["uoploest_pr_aarsag"] == {"linje_ukendt": 1}
+
+
+def test_linjevarianter_kanoniseres_uden_at_sammenblande_grene():
+    assert canonical_linje("II. Linjen Gallentin") == "ii_gallentin"
+    assert canonical_linje("II (udledt)") == "ii_gallentin"
+    assert canonical_linje("III. Den ældre meklenborgske Linje af Ziesendorf") == \
+        "iii_aeldre_meklenborgske_ziesendorf"
+    assert canonical_linje("B. Den ældre meklenborgske Linje") == \
+        "b_aeldre_meklenborgske"
+    assert canonical_linje("C. Den yngre meklenborgske Linje af Gallentin") == \
+        "c_yngre_meklenborgske_gallentin"
+    assert canonical_linje("Uplacerede") is None
+
+
+def test_sikker_sideprojektion_har_provenance_og_stopmarkoer():
+    recs = [gsynth(1, linje=None), gsynth(2, linje="Uplacerede"),
+            gsynth(3, linje="linje A"), gsynth(4, linje=None),
+            gsynth(5, linje=None)]
+    nmap = {"1": {"side": 550}, "2": {"side": 592}, "3": {"side": 582},
+            "4": {"side": 526}, "5": {"side": 592}}
+    scopes = build_linje_scopes(recs, nmap)
+    assert scopes[1]["key"] == "iv_danske_grevelige_1673"
+    assert scopes[1]["provenance"] == "side_interval"
+    assert scopes[2]["key"] is None                    # stop: uplaceret
+    assert scopes[2]["provenance"] == "unknown"
+    assert scopes[3]["key"] == "linje a"             # eksplicit vinder
+    assert scopes[3]["conflict"] is True
+    assert scopes[4]["key"] is None                    # blandet II/III-side
+    assert scopes[5]["key"] is None                    # blandet VI/Uplacerede-side
+
+
+def test_tier2_sideprojektion_linker_kun_inden_for_samme_sikre_sektion():
+    recs = [far(100, navn="Anders Testholm", linje=None),
+            gsynth(101, gruppe="gA", slaegtled="II", linje=None,
+                   note="Anders Testholms Børn m. Berta")]
+    nmap = {"100": {"side": 542}, "101": {"side": 550}}
+    rapport = {}
+    out = convert_all(recs, rapport=rapport, narrative_map=nmap)
+    posts = {p["_id"]: p for p in out}
+    assert posts[100]["boern"]["nr_range"] == [posts[101]["nr"], posts[101]["nr"]]
+    assert posts[101]["_linje_scope"]["provenance"] == "side_interval"
+    assert rapport["linje_scope_side_interval"] == 2
+
+    # Samme navn/slægtled, men IV-forælder og V-barn: intet cross-gren-link.
+    nmap["101"]["side"] = 582
+    rapport = {}
+    out = convert_all(recs, rapport=rapport, narrative_map=nmap)
+    assert all("boern" not in p for p in out)
+    assert rapport["uoploest_pr_aarsag"] == {"ingen_match": 1}
 
 
 def test_tier2_kun_forrige_slaegtled():
