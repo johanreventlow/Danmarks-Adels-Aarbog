@@ -42,6 +42,7 @@ i historiske planer og afsluttede reviews.
 
 | Dokument | Hvad |
 |---|---|
+| [`plan-1939-produktionsklar.md`](plan-1939-produktionsklar.md) | **🔴 Aktiv styringsplan:** 1939-load + dato-hærdning + Fase 4-cutover. Prioriteret efter prod-gate (Spor A ubblokeret nu · Spor B gated · Konvergens). |
 | [`moed-en-slaegtning-roadmap.md`](moed-en-slaegtning-roadmap.md) | Telefon-til-telefon slægtskab ved fysisk møde (QR → BLE → UWB). |
 | [`flere-daa-udgaver-roadmap.md`](flere-daa-udgaver-roadmap.md) | Præsenslister over tid, modstridende relationer mellem udgaver, tværudgave-personidentifikation. |
 
