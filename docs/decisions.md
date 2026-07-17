@@ -2,6 +2,41 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## RLS-synlighed: fail-closed `entitet_offentlig`-helper, ikke `type <> 'person'` (2026-07-17)
+
+**Besluttet:** al polymorf RLS-gating (fact/relation/narrative/note/text_mention) afgør synlighed via
+`entitet_offentlig(type, id)` (SECURITY DEFINER) med et eksplicit `CASE`: `person`→`person_offentlig`,
+`family`→`family_offentlig`, det faste ikke-PII-entitetssæt→`true`, **ELSE `false`**. `family_offentlig(fid)`
+er offentlig kun hvis intet medlem er ikke-offentligt.
+
+**Hvorfor:** det tidligere mønster `subjekt_type <> 'person' OR person_offentlig(...)` var **fail-open** på to
+måder (Codex-fundament-review): (1) `family` er en polymorf target-type der bærer person-PII gennem sine
+medlemmer, men `<> 'person'` behandlede den som offentlig → levende families vielse-fakta/noter lækkede til
+anon+authenticated; (2) type-kolonnerne er fritekst uden CHECK, så en fejlstavet discriminator (`'Person'`)
+slap forbi. En fail-closed helper dræber hele klassen (media-gatingen var den første instans af samme fejl).
+
+**Kritisk:** helperne SKAL være SECURITY DEFINER — ellers re-filtrerer `family_member`-RLS det levende medlem
+væk fra helperens egen subquery, så den ser en "ren" familie → fail-OPEN. `fact`/`relation`-mål (kun
+note/text_mention) gates IKKE af helperen men cascader gennem targetets EGEN RLS (EXISTS i policyen).
+
+**Alternativer forkastet:** (a) tilføje `family` som endnu et special-case i hver policy — ville efterlade
+ukendt-type-hullet og gentage mønstret ved næste entitet; (b) CHECK-constraints på type-kolonnerne alene —
+løser fejlstavning men ikke family-target-lækken; (c) fail-open ELSE — ville genintroducere Finding 2.
+
+## Authenticated-tier fail-closer til anon-niveau indtil samtykke-/slægts-scope findes (2026-07-17)
+
+**Besluttet:** en logget-ind bruger uden redaktør-rolle (medlem-tier, fx bogmærke-brugere) ser nu **præcis det
+samme som anon** — kun afdøde, ikke-private personer. Levende er skjult for alle uden redaktør-rolle.
+
+**Hvorfor:** den tidligere `auth_read` lod enhver authenticated bruger se alle ikke-private levende personer
+(en bevidst udskudt beslutning), i strid med invariant #8 (levende kræver samtykke) — en GDPR-fail-open.
+Indtil en egentlig samtykke-/slægts-scope-model er bygget (Codex-fund F-05), er fail-close til anon-reglen den
+sikre standard. Redaktion beholder fuld adgang via det additive `redaktion_read`-lag.
+
+**Konsekvens:** logged-in bogmærke-brugere mister synlighed af levende personer — et bevidst produkt-tab, ikke
+en regression, indtil samtykke-modellen findes. **Alternativ forkastet:** beholde levende-for-medlem med et
+`samtykke_offentlig`-flag nu — udskudt, da flag-modellen kræver egen design (medlem vs. forsker-tier, §F-05).
+
 ## ETL-sprog: R til DB-load, TypeScript til delt/runtime-logik (2026-07-16)
 
 **Datavejen forbliver polyglot med et bevidst snit: R til batch-DB-load, TS til alt klienten også bruger.**

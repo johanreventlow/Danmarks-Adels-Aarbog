@@ -1,5 +1,38 @@
 # Changelog
 
+## Sikkerhedshærdning fra Codex-fundament-review (2026-07-17)
+
+Et helrepo-"fundament-review" (Codex, 21 fund F-01..F-21) blev triageret ind i waves med fokus på: dels at
+få 1939-stamtavlen indlæst til prod, dels at lukke de fund der bør løses. **1939-loadet er nedstrøms Fase
+4-cutoveren**, så alt der skal på prod-skemaet samles i én gated deploy; resten er app/loader/CI uden prod.
+
+**Wave 0 (pre-cutover, ingen prod-berøring) — merged til main:**
+- **F-01 (#42):** `_delete_relation_evidence` (SECURITY DEFINER, muterende) var anon-kaldbar via PostgREST →
+  anon kunne slette relations-evidens som ejer (omgår RLS). REVOKE + `current_rolle()`-guard. Præcis analyse:
+  kun denne var et reelt hul; version-helperne (SECURITY INVOKER) fik REVOKE som defense; `_regen_mentions_for`
+  bevidst urørt (trigger kalder den som skriveren → REVOKE ville bryde narrative/note-writes).
+- **F-02 (#43 person + #45 media):** authenticated-tier (enhver logget-ind bruger) kunne læse alle ikke-private
+  LEVENDE personer + deres fakta/relationer/narrativer/evidens **og fotos** uden samtykke (brød invariant #8).
+  `auth_read` filtrerede kun `privat`, ikke `levende`. Fail-close: spejler nu anon via `person_offentlig`;
+  media/media_variant/storage via `media_synlig_anon`. Redaktion beholder fuld adgang (additivt `redaktion_read`).
+- **F-02c (PR #46, draft):** Codex-genkørsel (med reel fil-adgang) fandt at `<> 'person'`-mønstret er en HEL
+  KLASSE af fail-open — media var #1, `family`/ukendt-type #2: en levende families vielse-/skilsmisse-fakta +
+  noter var synlige for anon OG authenticated (family_member skjult, men family-fact ikke). Nye SECURITY
+  DEFINER-helpers `entitet_offentlig(type,id)` + `family_offentlig(fid)` erstatter alle 8+ `<> 'person'`-
+  klausuler i fact/relation/narrative/note/text_mention; fact/relation-mål cascader gennem targetets RLS;
+  fail-closed på ukendt type. db-verify Task 8b+8c tester begge retninger (læk skjult + ingen over-hiding).
+- **F-16 (#44):** CI gatede ikke `@daa/core`-typecheck eller R-testene → en tsc-fejl (`Koen`-type i
+  tree.test.ts) akkumulerede ufanget. Fix + eksplicit vitest-import i buildGeo.test.ts + nye CI-jobs
+  (core-typecheck + R/testthat via duckdb, DB-service-frit). Alle 4 CI-jobs grønne.
+
+**Fase 4 cutover forberedt (ikke udført — gated på prod-godkendelse):** `docs/fase4-runbook.md` fik **Trin 1b**
+(gen-anvend `db-rls.sql`) — kritisk fordi `db-migrations.sql` ikke gen-anvender RLS-laget, så F-01/F-02/F-02c
+ellers aldrig ville nå prod. Plus GATE-0 blast-radius-query (f) for F-02c's over-hiding af død-familie-fakta.
+
+**Metode:** TDD mod lokal `daa_test2` (RED→GREEN + regression begge retninger); dual-review (Codex adversarial
++ selv-audit); advisor-konsultation før den polymorfe RLS-omskrivning. Prod aldrig rørt — klassifikatoren
+kræver at brugeren eksplicit navngiver prod-målet.
+
 ## `packages/core` — delt web↔mobil-logik (review 27 Bølge 3 #13, 2026-07-14)
 
 **Den rene, DOM/RN/netværks-frie domænekerne er samlet i ÉN npm-workspace-pakke `@daa/core`**, som
