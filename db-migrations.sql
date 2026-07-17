@@ -2476,3 +2476,38 @@ BEGIN
     END IF;
   END IF;
 END $$;
+
+-- =====================================================================
+-- 2026-07-17: Dato-hærdning A1 — additive felter til qualifier-aware parsing
+-- Plan: docs/plan-1939-produktionsklar.md (Spor A). Understøtter A2-parseren
+-- (validate.py) der fremadrettet emit'er læse-sikkerhed + konverteret kalender.
+-- Modellen var allerede rig (date_raw/min/max/qualifier/calendar); dette tilføjer
+-- KUN den ægte manglende ortogonale dimension (date_certainty) + kontrollerer
+-- faktavokabularet. date_precision UDLEDES af date_min/date_max ved læsning (ikke
+-- persisteret — plan A1b). Alt idempotent, additivt, ingen backfill/data-mutation.
+-- =====================================================================
+
+-- A1b: date_certainty — LÆSE-sikkerhed, ortogonal til date_qualifier (RELATION).
+-- Ny kolonne → CHECK er sikker (alle eksisterende påstande får NULL = 'ikke vurderet').
+ALTER TABLE assertion ADD COLUMN IF NOT EXISTS date_certainty TEXT;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'assertion_date_certainty_chk') THEN
+    ALTER TABLE assertion ADD CONSTRAINT assertion_date_certainty_chk
+      CHECK (date_certainty IN ('certain','uncertain','ambiguous'));
+  END IF;
+END $$;
+
+-- A1a/A1c: faktavokabular. faktatype er fri TEXT (ingen FK), men vocab er den
+-- autoritative reference for 'samme slags'-forespørgsler (invariant #9). Seed de
+-- kerne-dato-/event-typer der de facto bruges som literaler + de nye event-typer.
+-- 'begravelse' er kanonisk (bisættelse normaliseres hertil i parseren). Idempotent.
+INSERT INTO vocab (scheme, code, label) VALUES
+  ('faktatype','fødsel','Fødsel'),
+  ('faktatype','dåb','Dåb'),
+  ('faktatype','død','Død'),
+  ('faktatype','begravelse','Begravelse (kanonisk — bisættelse normaliseres hertil)'),
+  ('faktatype','floruit','Floruit (dokumenteret-aktiv span; ≠ levetid)'),
+  ('faktatype','adling','Adling/standsophøjelse'),
+  ('faktatype','naturalisering','Naturalisation'),
+  ('faktatype','introduktion_ridderhus','Introduktion på ridderhus')
+  ON CONFLICT (scheme, code) DO NOTHING;

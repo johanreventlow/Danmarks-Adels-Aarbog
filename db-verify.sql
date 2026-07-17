@@ -1552,3 +1552,35 @@ BEGIN
   -- _regen_mentions_for er BEVIDST ikke revoked (SECURITY INVOKER-trigger kalder den som skriveren)
   RAISE NOTICE 'OK: interne _-helpers ikke anon-kaldbare (REVOKE + guard); _regen_mentions_for bevidst undtaget';
 END $$;
+
+-- ===== Dato-hærdning A1: additive felter (plan Spor A, 2026-07-17) =====
+DO $$
+DECLARE v_mangler text;
+BEGIN
+  DELETE FROM assertion WHERE id BETWEEN -987654326 AND -987654321;  -- ryd evt. residual fra fejlet kørsel
+  -- (1) date_certainty-kolonne findes
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_name='assertion' AND column_name='date_certainty') THEN
+    RAISE EXCEPTION 'A1: assertion.date_certainty-kolonne mangler'; END IF;
+  -- (2) CHECK afviser ugyldig værdi
+  BEGIN
+    INSERT INTO assertion (id,target_type,target_id,date_certainty) VALUES (-987654321,'fact',-1,'sikker-forkert');
+    RAISE EXCEPTION 'A1: date_certainty-CHECK fyrede ikke på ugyldig værdi';
+  EXCEPTION WHEN check_violation THEN NULL;  -- forventet
+  END;
+  -- (3) gyldige værdier + NULL tillades
+  INSERT INTO assertion (id,target_type,target_id,date_certainty) VALUES
+    (-987654322,'fact',-1,'certain'),(-987654323,'fact',-1,'uncertain'),
+    (-987654324,'fact',-1,'ambiguous'),(-987654325,'fact',-1,NULL);
+  -- (4) calendar-DEFAULT anvendes når kolonnen udelades
+  INSERT INTO assertion (id,target_type,target_id) VALUES (-987654326,'fact',-1);
+  IF (SELECT calendar FROM assertion WHERE id=-987654326) IS DISTINCT FROM 'gregoriansk' THEN
+    RAISE EXCEPTION 'A1: calendar-DEFAULT er ikke gregoriansk'; END IF;
+  -- (5) faktavokabular seedet (kerne-dato-/event-typer)
+  SELECT string_agg(w.code,' ') INTO v_mangler FROM (VALUES
+    ('fødsel'),('dåb'),('død'),('begravelse'),('floruit'),('naturalisering'),('introduktion_ridderhus'))
+    AS w(code) WHERE NOT EXISTS (SELECT 1 FROM vocab WHERE scheme='faktatype' AND vocab.code=w.code);
+  IF v_mangler IS NOT NULL THEN RAISE EXCEPTION 'A1: faktatype-vokabular mangler: %', v_mangler; END IF;
+  DELETE FROM assertion WHERE id BETWEEN -987654326 AND -987654321;  -- oprydning
+  RAISE NOTICE 'OK: dato-hærdning A1 (date_certainty-kolonne+CHECK, calendar-default, faktavokabular)';
+END $$;
