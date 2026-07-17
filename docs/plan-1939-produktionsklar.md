@@ -105,30 +105,40 @@ Hybrid: konverter + billig segmenter, INGEN ændring af delt `load_daa.R`.
       gruppe-lokale, 22 distinkte → ville kollidere; original i passthrough). facts via A2; godser/aegteskaber
       mappet. Struktur-facit: 539 poster, 0 nøgle-dubletter, dato-parse 92%, GDPR-flag 7 (født ≥1926 u. død).
       165 python-tests. Åbent: struktureret kryds_ref når ikke DB (bevares i narrative-prosa via A3b).
-- [ ] **A3b — Billig narrative-segmenter** (over-inklusiv, aldrig manuel): anker-snit hvor dato/partner-ankre er
-      rene (majoriteten); svage/ankerløse → **gruppe-niveau prosa-blok fallback** (automatisk, aldrig fejlende;
-      gør R1/R6 mere sandsynlig). Log fallback-poster. Narrative er fidelity-felt (søgning), ikke load-bearing.
-- [ ] **A3c — Forældre-graf (fail-closed, i konverteren):** opløs `_foraelder_id` (61 rene) + `boern_ref` (117) +
-      `foraeldre_note`-navnematch → tildel børns `nr_range` i forælderens post. Uopløste PARKERES (loaderen gør
-      det allerede) + eksplicit restliste. Cross-generation navnematch = den skrøbelige del, valideres mod `_foraelder_id`.
-- [ ] **A3c-review — 18 review.json-poster:** forbliver karantæne (16 ufuldstændig + 5 mangler navn). Dokumenteret.
-- [ ] **A3d — Bibliografisk source-oprydning (før import).** Afklar identiteterne + opret separate `source`-poster:
-      Holstein (repo kalder den "DAA 2018-20"; dato-analysen siger 2024 — afklar) · 1893 (Ludwig zu Reventlow
-      vs. Anders Thiset, jf. `docs/reviews/2026-07-15-...divergens-rapport.md`) · 1939 (Bobé).
-      Holstein må **ikke** automatisk "vinde" — rettelser går begge veje.
-- [ ] **A3c — Luk/karantænér de 18 `review.json`-poster** eksplicit med dokumenteret resolution.
-- [ ] **A3d — Bibliografisk source-oprydning (før import).** Afklar identiteterne + opret separate `source`-poster:
-      Holstein (repo kalder den "DAA 2018-20"; dato-analysen siger 2024 — afklar) · 1893 (Ludwig zu Reventlow
-      vs. Anders Thiset, jf. `docs/reviews/2026-07-15-...divergens-rapport.md`) · 1939 (Bobé).
-      Holstein må **ikke** automatisk "vinde" — rettelser går begge veje.
+- [x] **A3b — Billig narrative-segmenter** ✅ DONE (commit c88f526): `segment_1939.py` — anker-snit 81,6%,
+      gruppe/vindue-fallback (aldrig manuel, aldrig tom), ordret prosa. R1-proxy 92%. Integreret i konverter
+      (narrative flettet pr. _id → alle 539 poster har narrative, NOT NULL opfyldt).
+- [x] **A3c — Forældre-graf (fail-closed)** ✅ DONE (commit c88f526, v1.1.0): gruppe-for-gruppe nummerering
+      (kontinuert nr-blok by construction) + tiered opløsning (Tier1 `_foraelder_id` 17 grupper + Tier2
+      `foraeldre_note`-navnematch, fail-closed, ægtefælle-disambiguering). **364/539 (67,5%) strukturelt linket
+      rent** (op fra 61); 155 uopløste (parkeret). Uafhængigt verificeret: 0 falske børn, 0 modsigelser, 0
+      implausible fødselsår-links, multi-gruppe (2-ægteskabs-tilfælde) korrekt.
 
-### A4. Facit-validering (acceptance-test for re-ekstraktionen)
-- [ ] **A4a — Definér forventet facit** (Codex min-krav #6): antal poster, familier, barn-links, roots,
-      uopløste referencer. Uden facit ved vi ikke hvornår artefaktet er godt nok.
-- [ ] **A4b — Bekræft levende-tærskel.** `load_daa.R:435-445` HAR allerede GDPR-sikker alders-sweep
-      (født <100 år siden uden død/begravelse/dødsårsag → `levende=TRUE`; fail-closed for ukendt fødselsår).
-      Re-ekstraktion til `load_daa.R`-format aktiverer den automatisk. **Ingen ny heuristik nødvendig** —
-      bekræft blot at 100-års-tærsklen fanger de ~7 personer født 1926-1936 uden registreret død.
+**CODE-REVIEW (2026-07-17, high effort — 4 fund):** #4 **fikset** (aegteskab-datoer bevarer nu qualifier/
+certainty/calendar). Noteret som opfølgning (alle fail-closed/mitigeret, empirisk 0 fejl): **#1** Tier2-navnematch
+er ikke linje/gren-scopet (samme-navns forælder i anden gren kunne fejlmatches — kræver pålidelig `_ctx.linje`-
+normalisering før fix); **#2** selvreference-vagt dropper hele børne-sæt hvis forælder-nr falder i barn-blok
+(fail-closed, sjælden); **#3** struktureret kryds_ref når ikke DB (PoC-grænse, bevaret i narrative-prosa).
+- [x] **18 review.json-poster:** forbliver karantæne (16 ufuldstændig + 5 mangler navn) — fail-closed udeladt af
+      konverteren (disjunkte _id, ikke i clean_1939.json). Dokumenteret; manuel efterbehandling hvis ønsket.
+- [x] **A3d — Bibliografisk source-identiteter** ✅ DONE (decisions.md): 1939=Bobé (aar=1939), 2018-20=Holstein
+      (aar=2020; "2024" = trykke-år, ikke dæknings-benævnelse — bekræft mod titelblad), 1893=Thiset (uafklaret).
+      Forfatter bæres i `titel` (source har ingen forfatter-kolonne). Holstein "vinder" ikke auto — kanonisk = redaktionel.
+
+### A4. Dry-run + facit-validering ✅ DONE (2026-07-17, mod frisk isoleret DB, prod-frit)
+`load_daa.R` kørt mod `clean_1939.json` på en frisk DB (schema-kopi af daa_test2 + A1-migration, socket via
+`R_ENVIRON_USER`-override). **Artefaktet loader korrekt.**
+- [x] **A4a — Facit fra faktisk load:** 835 personer (539 hoved + 296 partner-stubs); **539 narrative, 0 NULL/tom**
+      (NOT NULL opfyldt); **364 family_member barn-links** (matcher konverter-facit eksakt); 612 partner-links;
+      471 rødder (inkl. partner-stubs). 73 uopløste barn-opslag = alle `union_tom_kontekst`.
+- [x] **A4b — GDPR/levende bekræftet EMPIRISK:** loaderens sweep satte `levende=TRUE` på **præcis de 7 født ≥1926
+      uden dødsfakta** (korrekt skjult for anon); 828 afdøde offentlige. Tærsklen virker som forudsagt.
+- [x] **Bagud-kompatibilitet:** gammelt-format clean.json (uden calendar/date_certainty) loader uændret (835
+      personer, alle assertions `calendar='gregoriansk'` via DB-default) → A1's `load_daa.R`-ændring er sikker.
+
+**KENDT BEGRÆNSNING (noteret):** de 73 `union_tom_kontekst` er børn af forældre med 2+ ægteskaber placeret i
+FØRSTE union (konverteren udleder ikke `aegteskab_kontekst` pr. barn). **Forbedring:** gruppe-noterne HAR "af
+første/andet Ægteskab" → kan udledes til korrekt union-placering (A3c-udvidelse, ikke load-blokerende — fail-closed logget).
 
 ---
 

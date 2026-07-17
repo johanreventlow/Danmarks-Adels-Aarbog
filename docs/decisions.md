@@ -52,6 +52,20 @@ Extraction forbliver Python (tekst/LLM). Ingen R→TS-omskrivning af DB-loadet.
 backfill satte 2018-20→2018 (første år); harmoniseret til 2020 for ensartet "forrige udgave"-derivation
 (db-migrations.sql, idempotent korrektion — anvendes først ved prod-cutover).
 
+**Bibliografiske source-identiteter (A3d, 2026-07-17 — afklar mod primærkilde før prod-import).** Hver DAA-udgave
+er en selvstændig `source` (invariant §"Hver trykt DAA-udgave"); `source` har INGEN forfatter-kolonne → forfatter
+bæres i `titel` (fx `"Dansk Adels Aarbog – DAA 1939 (Louis Bobé)"`). Kendt/antaget:
+- **DAA 1939** — Reventlow-stamtavlen af **Louis Bobé**. `udgave="DAA 1939"`, `aar=1939`. *(loaderen opretter den
+  korrekt — verificeret i A4-dry-run.)*
+- **DAA 2018-20** — Reventlow-artiklen af **Poul Holstein** (IKKE Christian Hau — han er en *citeret forsker*).
+  `udgave="DAA 2018-20"`, `aar=2020` (sidste dækkede år). **NB:** dato-analysen kaldte den "2024" — det er
+  sandsynligvis **trykke-/udgivelsesåret**, ikke dæknings-benævnelsen; ikke en modstrid (bind udgives typisk år
+  efter dækningsperioden). Bekræft det trykte binds titelblad før import.
+- **DAA 1893** — antaget **Anders Thiset**-tavle (jf. divergens-rapport); planen nævnte også "Ludwig zu Reventlow".
+  **Uafklaret** — verificér forfatter mod primærkilde før 1893 evt. importeres.
+- **Holstein må IKKE automatisk "vinde"** ved udgave-konflikt — rettelser går begge veje (det lokale treudgave-
+  eksempel viser frem-og-tilbage-korrektioner). Kanonisk valg er redaktionelt (conclusion), ikke udgave-rang.
+
 ## `packages/core`: npm-workspace + source-only, snæver type-grænse (2026-07-14)
 
 **Delt web↔mobil-logik samles i ét npm-workspace (`@daa/core`), ikke via paritetstest-spejling.**

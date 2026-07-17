@@ -62,7 +62,7 @@ def facit(posts):
                 if "begravelse" not in typer:
                     gdpr_inkl_begravelse += 1
     r["gdpr_flag_foedt_1926plus_uden_doed"] = gdpr
-    r["  heraf_ogsaa_uden_begravelse"] = gdpr_inkl_begravelse
+    r["gdpr_heraf_ogsaa_uden_begravelse"] = gdpr_inkl_begravelse
 
     # dækning
     r["med_aegteskaber"] = sum(1 for p in posts if p.get("aegteskaber"))
@@ -78,6 +78,47 @@ def facit(posts):
     r["med_note"] = sum(1 for p in posts if p.get("note"))
     r["narrative_ikke_none"] = sum(1 for p in posts if p.get("narrative") is not None)
     r["med_boern_felt"] = sum(1 for p in posts if "boern" in p)
+
+    # ---- A3c: strukturelle forældre-barn-links (uafhængig efterprøvning
+    # af konverterens output — falske børn i et range SKAL være 0, ellers
+    # ville loaderen skabe datakorruption) ----
+    nr2post = {p["nr"]: p for p in posts}
+    linkede = [p for p in posts if p.get("_link_foraelder_nr") is not None]
+    r["boern_strukturelt_linket"] = len(linkede)
+    r["boern_strukturelt_linket_pct"] = round(100.0 * len(linkede) / len(posts), 1) if posts else None
+    r["foraeldre_med_nr_range"] = sum(1 for p in posts if isinstance(p.get("boern"), dict))
+
+    falske = range_fejl = 0
+    for p in posts:
+        b = p.get("boern")
+        if not isinstance(b, dict) or not b.get("nr_range"):
+            continue
+        lo, hi = b["nr_range"]
+        if lo > hi or lo < 1:
+            range_fejl += 1
+            continue
+        for n in range(lo, hi + 1):
+            q = nr2post.get(n)
+            if q is None or q.get("_link_foraelder_nr") != p["nr"]:
+                falske += 1
+    r["nr_range_falske_boern"] = falske          # SKAL være 0
+    r["nr_range_ugyldige"] = range_fejl          # SKAL være 0
+
+    grupper = {}
+    for p in posts:
+        g = p.get("_gruppe_nr")
+        if g is not None:
+            grupper.setdefault(g, []).append(p)
+    r["grupper"] = len(grupper)
+    r["grupper_ikke_kontinuert_nr"] = sum(       # SKAL være 0 (by construction)
+        1 for ms in grupper.values()
+        if max(x["nr"] for x in ms) - min(x["nr"] for x in ms) + 1 != len(ms))
+    uden_link = [ms for ms in grupper.values()
+                 if not any(x.get("_link_foraelder_nr") is not None for x in ms)]
+    r["grupper_uden_foraelder_link"] = len(uden_link)
+    r["boern_i_grupper_uden_link"] = sum(len(ms) for ms in uden_link)
+    r["roedder_uden_foraelder_link"] = sum(
+        1 for p in posts if p.get("_link_foraelder_nr") is None)
     return r
 
 

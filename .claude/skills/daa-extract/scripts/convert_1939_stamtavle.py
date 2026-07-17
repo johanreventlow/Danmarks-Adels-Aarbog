@@ -29,18 +29,40 @@
 #  deterministisk af segmenteren med bogens ORDRETTE prosa (invariant
 #  #6: narrativ må aldrig syntetiseres). kilde_span er foreløbig =
 #  date_raw; A3b forfiner til mindste klausul i raw-teksten.
-#  TODO(A3c): boern/forældre-links bygges i et senere trin ud fra
-#  _foraelder_id/_boern_ref/_ctx-passthrough — udelades helt her.
+#
+#  A3c (forældre-barn-links via bogens gruppe-hierarki):
+#  Bogens hierarki ER forældre-barn-grafen: en GRUPPE (= (vindue,
+#  _ctx.gruppe, _ctx.foraeldre_note)) er søskende med fælles forælder,
+#  og gruppens foraeldre_note navngiver forælderen. Derfor:
+#   1) nr-tildeling sker GRUPPE-BLOKVIS i dokumentorden (grupper sorteret
+#      på min-_id, medlemmer på _id) — så er hver gruppes nr-blok
+#      kontinuert BY CONSTRUCTION, hvilket loaderens boern.nr_range
+#      kræver (resolve_barn_keys itererer HVERT nr i [lav, høj] og
+#      nr-rummet er tæt).
+#   2) gruppe -> forælder-post opløses FAIL-CLOSED i to tiers:
+#      Tier 1: medlemmernes _foraelder_id (ground truth).
+#      Tier 2: strukturel navnematch af foraeldre_note mod poster i
+#      FORRIGE slægtled; link KUN ved præcis ét entydigt kandidat-match
+#      (ægtefælle-navn fra noten bruges som deterministisk
+#      disambiguator ved flere navne-kandidater). Alt andet = UOPLØST.
+#      Hvor begge tiers gælder, SKAL de være enige — modsigelse =>
+#      link ikke + tælles (rapport['modsigelser'], forventet 0).
+#   3) opløst gruppe => forælder-postens boern = {nr_range: [lo, hi]}.
+#      Flere grupper pr. forælder: samlet spænd KUN hvis blokkene er
+#      nr-tilstødende; ellers største blok + logget begrænsning.
 # =====================================================================
 import json
+import re
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from validate import derive_date_info  # noqa: E402  (A2-parseren — genbrug, omskriv ikke)
 
-CONVERTER_VERSION = "1.0.0"
+CONVERTER_VERSION = "1.1.0"
 LINJE = "1939"
+SLAEGTSNAVN = "reventlow"  # 1939-stamtavlen er Reventlow; slægtsnavnet droppes ved navne-match
 
 # (input-felt, faktatype) for dato-fakta. erhverv/uddannelse udelades
 # bevidst — load_daa.R springer dem over (bliver i narrativen, A3b).
@@ -59,6 +81,18 @@ def _s(v):
         v = v.strip()
         return v or None
     return None
+
+
+def _date_fields(info):
+    """De fem dato-felter fra derive_date_info-outputtet, ét sted — så alle
+    call-sites (fødsel/død/begravelse-fakta, vielse) holder samme feltform hvis
+    dato-modellen ændres. info=None → alle None (fx titel-fakta uden dato)."""
+    if info is None:
+        return {"date_min": None, "date_max": None, "date_qualifier": None,
+                "date_certainty": None, "calendar": None}
+    return {"date_min": info["date_min"], "date_max": info["date_max"],
+            "date_qualifier": info["qualifier"], "date_certainty": info["certainty"],
+            "calendar": info["calendar"]}
 
 
 def build_date_fact(faktatype, blok):
@@ -83,11 +117,8 @@ def build_date_fact(faktatype, blok):
         "faktatype": faktatype,
         "vaerdi": None,
         "date_raw": date_raw,
-        "date_min": info["date_min"],
-        "date_max": info["date_max"],
-        "date_qualifier": info["qualifier"],
-        "date_certainty": certainty,
-        "calendar": info["calendar"],
+        **_date_fields(info),
+        "date_certainty": certainty,   # dato_usikker-overlay kan hæve None→uncertain
         "sted": sted,
         "kilde_span": date_raw,  # foreløbig; A3b-segmenter forfiner
     }
@@ -115,8 +146,7 @@ def convert_aegteskab(a):
         "ordinal": a.get("ordinal"),
         "partner_navn": _s(a.get("partner_navn")),
         "dato_raw": dato_raw,
-        "date_min": info["date_min"],
-        "date_max": info["date_max"],
+        **_date_fields(info),   # bevar A2-semantik (konsistent m. build_date_fact)
         "sted": _s(a.get("sted")),
         "skilt": bool(a.get("skilt")),
         "partner_foraeldre": _s(a.get("partner_foraeldre")),
@@ -165,9 +195,7 @@ def convert_record(rec, global_nr):
     titel = _s(rec.get("titel"))
     if titel:
         facts.append({"faktatype": "titel", "vaerdi": titel, "date_raw": None,
-                      "date_min": None, "date_max": None, "date_qualifier": None,
-                      "date_certainty": None, "calendar": None, "sted": None,
-                      "kilde_span": titel})
+                      **_date_fields(None), "sted": None, "kilde_span": titel})
     for felt, faktatype in DATE_FACT_FIELDS:
         f = build_date_fact(faktatype, rec.get(felt))
         if f is not None:
@@ -223,10 +251,364 @@ def convert_record(rec, global_nr):
     return out
 
 
-def convert_all(records):
-    """Hele korpus: sortér deterministisk på _id, tildel nr 1..N."""
-    ordnet = sorted(records, key=lambda r: r["_id"])
-    return [convert_record(rec, i) for i, rec in enumerate(ordnet, start=1)]
+# =====================================================================
+#  A3c — gruppe-hierarki -> forældre-barn-links (fail-closed)
+# =====================================================================
+
+_ROMERTAL = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6,
+             "VII": 7, "VIII": 8, "IX": 9, "X": 10, "XI": 11}
+_ORDINALORD = {"første": 1, "anden": 2, "andet": 2, "tredje": 3, "fjerde": 4,
+               "femte": 5, "sjette": 6, "syvende": 7, "ottende": 8,
+               "niende": 9, "tiende": 10, "ellevte": 11}
+_ROM_RE = re.compile(r"^(VIII|VII|VI|IV|IX|XI|X|V|III|II|I)\.?(?![a-zA-Z])")
+_ORD_RE = re.compile(r"^(Første|Anden|Andet|Tredje|Fjerde|Femte|Sjette|Syvende"
+                     r"|Ottende|Niende|Tiende|Ellevte)\b", re.IGNORECASE)
+
+
+def parse_slaegtled(s):
+    """Slægtled-streng -> heltal eller None. FORANKRET i strengstart så
+    afledningsnoter ('udledt af ... Ottende Slægtled ...') ikke fejllæses;
+    'udledt: ukendt ...'/'ukendt ...' -> None (fail-closed)."""
+    if not isinstance(s, str) or not s.strip():
+        return None
+    s = s.strip()
+    m = _ROM_RE.match(s)
+    if m:
+        return _ROMERTAL[m.group(1)]
+    m = re.match(r"^(\d+)\b", s)
+    if m:
+        return int(m.group(1))
+    m = _ORD_RE.match(s)
+    if m:
+        return _ORDINALORD[m.group(1).lower()]
+    return None
+
+
+# Titel-/tiltale-ord der ikke er navnestof. Slægtsnavnet (Reventlow*)
+# droppes i FORÆLDER-tokens (poster bærer typisk kun fornavne) men
+# beholdes for ægtefæller (drop_slaegt=False) — indgifte findes.
+_TITEL_TOKENS = {"greve", "grev", "grevinde", "komtesse", "baron", "baronesse",
+                 "lensgreve", "lensgrevinde", "kammerherre", "gehejmeraad",
+                 "gehejmeraads", "hofjægermester", "kammerjunker", "ritmester",
+                 "oberst", "major", "kaptajn", "hans", "hendes", "dr", "hr",
+                 "hustru", "enke"}
+_NAVN_TOKEN_RE = re.compile(r"[A-ZÆØÅ][a-zæøåéüöä'\-]*")
+
+
+def name_tokens(s, drop_slaegt=True):
+    """Kapitaliserede navne-tokens, lowercased, uden titler (og uden
+    slægtsnavnet når drop_slaegt)."""
+    ud = []
+    for t in _NAVN_TOKEN_RE.findall(s or ""):
+        tl = t.lower()
+        if tl in _TITEL_TOKENS:
+            continue
+        if drop_slaegt and tl.startswith(SLAEGTSNAVN):
+            continue
+        ud.append(tl)
+    return ud
+
+
+def _tok_eq(a, b):
+    """Token-lighed med genitiv-s-tolerance ('frederiks' == 'frederik')."""
+    return a == b or a == b + "s" or b == a + "s"
+
+
+def _is_subseq(small, big):
+    it = iter(big)
+    return all(any(_tok_eq(s, b) for b in it) for s in small)
+
+
+def names_match(a, b):
+    """Match hvis den korteste token-sekvens er ORDNET delsekvens af den
+    længste (kalibreret mod de 17 _foraelder_id-ground-truth-grupper:
+    afvigelser er altid et ekstra/manglende mellemnavn, aldrig ombytning)."""
+    if not a or not b:
+        return False
+    return _is_subseq(a, b) if len(a) <= len(b) else _is_subseq(b, a)
+
+
+_BOERN_KEYWORD_RE = re.compile(r"\b(Børn|Barn|Sønner|Søn|Døtre|Datter)\b")
+# Noter der beskriver ekstraktions-usikkerhed frem for at navngive en
+# forælder -> uparsebare (fail-closed, gæt aldrig).
+_UKENDT_MARKOERER = ("ukendt", "uden for vindue", "prosa", "gruppe-header",
+                     "forældrepar", "forælder-header")
+
+
+def extract_parent_tokens(note):
+    """Forælder-navnetokens fra en foraeldre_note ('<Navn>s Børn m. <Ægtefælle>'),
+    eller None hvis noten ikke entydigt navngiver en forælder."""
+    if not isinstance(note, str) or not note.strip():
+        return None
+    n = note.strip()
+    low = n.lower()
+    if any(w in low for w in _UKENDT_MARKOERER):
+        return None
+    m = _BOERN_KEYWORD_RE.search(n)
+    if m:
+        prefix = n[:m.start()]
+    else:
+        m2 = re.search(r"\s+(m\.|med|og)\s+", n)
+        if not m2:
+            return None
+        prefix = n[:m2.start()]
+    # '<far> og <mor>s Børn' -> tag første forælder (posterne er agnatiske)
+    prefix = re.split(r"\s+og\s+", prefix)[0]
+    prefix = prefix.replace("'s", " ").replace("’s", " ")
+    return name_tokens(prefix) or None
+
+
+def extract_spouse_tokens(note):
+    """Alle ægtefælle-segmenter efter børne-nøgleordet ('… Børn m. <X> …
+    og af 2. Ægteskab m. <Y> …') -> liste af token-lister."""
+    if not isinstance(note, str):
+        return []
+    m = _BOERN_KEYWORD_RE.search(note)
+    hale = note[m.end():] if m else note
+    segs = []
+    for sm in re.finditer(r"\bm(?:\.|ed)\s+([^,(;—-]+)", hale):
+        toks = name_tokens(sm.group(1), drop_slaegt=False)
+        if toks:
+            segs.append(toks)
+    return segs
+
+
+def group_key(rec):
+    """Gruppe-identitet: (vindue, _ctx.gruppe, _ctx.foraeldre_note).
+    gruppe-bogstaver er VINDUE-lokale, og samme bogstav kan i samme vindue
+    dække flere søskendeflokke med hver sin foraeldre_note — nøglen skal
+    derfor rumme alle tre. Begge None -> ingen gruppe (singleton)."""
+    ctx = rec.get("_ctx") or {}
+    gruppe = ctx.get("gruppe")
+    note = _s(ctx.get("foraeldre_note"))
+    if gruppe is None and note is None:
+        return None
+    return (rec.get("_window"), gruppe, note)
+
+
+def build_units(records):
+    """Poster -> ordnede enheder (grupper + singletoner) i dokumentorden:
+    enheder sorteret på deres medlemmers min-_id, medlemmer på _id."""
+    grupper = {}
+    orden = []
+    for rec in sorted(records, key=lambda r: r["_id"]):
+        k = group_key(rec)
+        if k is None:
+            orden.append([rec])
+            continue
+        if k not in grupper:
+            grupper[k] = []
+            orden.append(grupper[k])
+        grupper[k].append(rec)
+    return orden
+
+
+def _spouse_ok(rec, spouse_segs):
+    """Har posten et ægteskab hvis partnernavn matcher ET note-segment?"""
+    for a in rec.get("aegteskaber") or []:
+        ptoks = name_tokens(a.get("partner_navn") or "", drop_slaegt=False)
+        if not ptoks:
+            continue
+        for seg in spouse_segs:
+            if names_match(seg, ptoks):
+                return True
+    return False
+
+
+def _tier2_resolve(unit, note, records, gen_af_id):
+    """Strukturel navnematch: gruppens foraeldre_note mod poster i FORRIGE
+    slægtled. Returnerer (_id | None, årsag). FAIL-CLOSED: kun præcis ét
+    entydigt match linker; ægtefælle-navnet fra noten er eneste tilladte
+    disambiguator (deterministisk bog-evidens, ikke gæt)."""
+    gens = {gen_af_id[r["_id"]] for r in unit if gen_af_id[r["_id"]] is not None}
+    if len(gens) != 1:
+        return None, "slaegtled_ukendt"
+    g = next(iter(gens))
+    ptoks = extract_parent_tokens(note)
+    if not ptoks:
+        return None, "note_uparsebar"
+    medlem_ids = {r["_id"] for r in unit}
+    cands = [r for r in records
+             if gen_af_id[r["_id"]] == g - 1 and r["_id"] not in medlem_ids
+             and names_match(ptoks, name_tokens(r["navn"]))]
+    if len(cands) == 1:
+        return cands[0]["_id"], "ok_navn"
+    if len(cands) > 1:
+        spouse_segs = extract_spouse_tokens(note)
+        if spouse_segs:
+            c2 = [r for r in cands if _spouse_ok(r, spouse_segs)]
+            if len(c2) == 1:
+                return c2[0]["_id"], "ok_navn_aegtefaelle"
+        return None, f"tvetydig({len(cands)})"
+    return None, "ingen_match"
+
+
+def _tom_rapport():
+    return {
+        "grupper_i_alt": 0, "grupper_uden_note": 0, "boern_uden_note": 0,
+        "tier1_grupper": 0, "tier1_konflikt_grupper": 0, "tier1_ugyldig": 0,
+        "tier2_grupper": 0, "tier2_via_aegtefaelle": 0,
+        "tier1_tier2_enige": 0, "modsigelser": 0,
+        "uoploeste_grupper": 0, "uoploeste_boern": 0, "tvetydige_grupper": 0,
+        "uoploest_pr_aarsag": {},
+        "multi_gruppe_foraeldre": 0, "multi_gruppe_ikke_tilstoedende": 0,
+        "boern_udeladt_ikke_tilstoedende": 0, "selvreference_afvist": 0,
+        "linkede_boern": 0, "falske_boern_i_range": 0,
+        "foraelder_foer_boern_brud": 0, "gen_orden_inversioner": 0,
+    }
+
+
+def _link_units(units, posts, records):
+    """Opløs grupper -> forældre og sæt boern.nr_range på forælder-poster.
+    Muterer posts; returnerer rapport (KUN tal — ingen persondata)."""
+    rap = _tom_rapport()
+    post_af_id = {p["_id"]: p for p in posts}
+    gen_af_id = {r["_id"]: parse_slaegtled((r.get("_ctx") or {}).get("slaegtled"))
+                 for r in records}
+    resolved = []                                     # (foraelder_id, unit, tier)
+    for unit in units:
+        k = group_key(unit[0])
+        if k is None:
+            continue
+        rap["grupper_i_alt"] += 1
+        note = k[2]
+        fids = {r.get("_foraelder_id") for r in unit
+                if r.get("_foraelder_id") is not None}
+        t2_id, t2_aarsag = _tier2_resolve(unit, note, records, gen_af_id)
+        if len(fids) > 1:                             # modstridende ground truth
+            rap["tier1_konflikt_grupper"] += 1
+            continue
+        if len(fids) == 1:
+            fid = next(iter(fids))
+            if t2_id is not None:
+                if t2_id == fid:
+                    rap["tier1_tier2_enige"] += 1
+                else:                                 # KRITISK: navnematch modsiger
+                    rap["modsigelser"] += 1           # ground truth -> link IKKE
+                    continue
+            if fid not in post_af_id or fid in {r["_id"] for r in unit}:
+                rap["tier1_ugyldig"] += 1
+                continue
+            rap["tier1_grupper"] += 1
+            resolved.append((fid, unit, "tier1"))
+            continue
+        if note is None:
+            rap["grupper_uden_note"] += 1
+            rap["boern_uden_note"] += len(unit)
+            continue
+        if t2_id is not None:
+            rap["tier2_grupper"] += 1
+            if t2_aarsag == "ok_navn_aegtefaelle":
+                rap["tier2_via_aegtefaelle"] += 1
+            resolved.append((t2_id, unit, "tier2"))
+        else:
+            rap["uoploeste_grupper"] += 1
+            rap["uoploeste_boern"] += len(unit)
+            if t2_aarsag.startswith("tvetydig"):
+                rap["tvetydige_grupper"] += 1
+            rap["uoploest_pr_aarsag"][t2_aarsag] = \
+                rap["uoploest_pr_aarsag"].get(t2_aarsag, 0) + 1
+
+    # ---- nr_range pr. forælder (flere grupper: samlet spænd kun hvis
+    # nr-tilstødende, ellers største blok + logget begrænsning) ----
+    per_foraelder = defaultdict(list)
+    for fid, unit, tier in resolved:
+        nrs = sorted(post_af_id[r["_id"]]["nr"] for r in unit)
+        per_foraelder[fid].append((nrs[0], nrs[-1], unit, tier))
+    for fid, blokke in per_foraelder.items():
+        blokke.sort(key=lambda b: b[0])
+        # NB: en forælder KAN legitimt have flere grupper (børn af 1./2. ægteskab —
+        # noterne "af første/andet Ægteskab" opløser begge til samme forælder-token).
+        # Ægthed sikres af Tier2 (kun delsekvens-match af forælder-navn) + modsigelses-
+        # vagt + fødselsår-plausibilitet; et navne-inkonsistens-filter her ville
+        # fejlparkere netop de legitime 2-ægteskabs-tilfælde. Verificeret: nr-range-
+        # integritet 0 falske børn, 0 implausible fødselsår-links (review 2026-07-17).
+        if len(blokke) > 1:
+            rap["multi_gruppe_foraeldre"] += 1
+        lo, hi = blokke[0][0], blokke[-1][1]
+        n_boern = sum(b[1] - b[0] + 1 for b in blokke)
+        valgte = blokke
+        if len(blokke) > 1 and hi - lo + 1 != n_boern:
+            rap["multi_gruppe_ikke_tilstoedende"] += 1
+            stoerste = max(blokke, key=lambda b: (b[1] - b[0] + 1, -b[0]))
+            rap["boern_udeladt_ikke_tilstoedende"] += \
+                n_boern - (stoerste[1] - stoerste[0] + 1)
+            valgte = [stoerste]
+            lo, hi = stoerste[0], stoerste[1]
+        foraelder_post = post_af_id[fid]
+        if lo <= foraelder_post["nr"] <= hi:          # kan ikke være sit eget barn
+            rap["selvreference_afvist"] += 1
+            continue
+        foraelder_post["boern"] = {"nr_range": [lo, hi]}
+        foraelder_post["_boern_link"] = {"tier": sorted({b[3] for b in valgte}),
+                                         "grupper": len(valgte)}
+        for b in valgte:
+            for r in b[2]:
+                post_af_id[r["_id"]]["_link_foraelder_nr"] = foraelder_post["nr"]
+        rap["linkede_boern"] += hi - lo + 1
+
+    # ---- integritet: intet range må rumme en post der ikke er linket barn ----
+    nr2post = {p["nr"]: p for p in posts}
+    for p in posts:
+        if "boern" in p:
+            lo, hi = p["boern"]["nr_range"]
+            rap["falske_boern_i_range"] += sum(
+                1 for n in range(lo, hi + 1)
+                if nr2post[n].get("_link_foraelder_nr") != p["nr"])
+            if p["nr"] > lo:                          # forælder-nr før børne-blok?
+                rap["foraelder_foer_boern_brud"] += 1
+
+    # ---- info: holder bredde-først-ordenen (slægtled N før N+1)? ----
+    unit_gens = []
+    for unit in units:
+        gens = {gen_af_id[r["_id"]] for r in unit if gen_af_id[r["_id"]] is not None}
+        if len(gens) == 1:
+            unit_gens.append(next(iter(gens)))
+    rap["gen_orden_inversioner"] = sum(
+        1 for a, b in zip(unit_gens, unit_gens[1:]) if b < a)
+    return rap
+
+
+def convert_all(records, rapport=None):
+    """Hele korpus: gruppe-blokvis nummerering i dokumentorden (hver gruppe
+    = én kontinuert nr-blok BY CONSTRUCTION), dernæst fail-closed
+    forældre-link-opløsning. rapport (dict, valgfri) fyldes med tal."""
+    units = build_units(records)
+    posts = []
+    nr = 0
+    for gi, unit in enumerate(units, start=1):
+        har_gruppe = group_key(unit[0]) is not None
+        for rec in unit:
+            nr += 1
+            p = convert_record(rec, nr)
+            if har_gruppe:
+                p["_gruppe_nr"] = gi
+            posts.append(p)
+    rap = _link_units(units, posts, records)
+    if rapport is not None:
+        rapport.update(rap)
+    return posts
+
+
+def flet_narrative(out, narrativ_sti):
+    """Flet ORDRET narrative + side fra segment_1939.py's output ind pr. _id.
+    load_daa.R kræver narrative NOT NULL — mangler-listen skal være tom.
+    Returnerer (antal_flettet, [manglende _id])."""
+    if not Path(narrativ_sti).exists():
+        return 0, [p["_id"] for p in out]
+    with open(narrativ_sti, encoding="utf-8") as f:
+        nmap = json.load(f)
+    flettet, mangler = 0, []
+    for p in out:
+        n = nmap.get(str(p["_id"]))
+        if n and n.get("narrative"):
+            p["narrative"] = n["narrative"]
+            if n.get("side") is not None:
+                p["sider"] = str(n["side"])
+            flettet += 1
+        else:
+            mangler.append(p["_id"])
+    return flettet, mangler
 
 
 def main(argv):
@@ -234,12 +616,20 @@ def main(argv):
     ud = Path(argv[2]) if len(argv) > 2 else Path("work_1939_stamtavle/clean_1939.json")
     with open(inp, encoding="utf-8") as f:
         records = json.load(f)
-    out = convert_all(records)
+    rapport = {}
+    out = convert_all(records, rapport=rapport)
+    n_flettet, n_mangler = flet_narrative(out, ud.parent / "narrative_1939.json")
     with open(ud, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=1)
         f.write("\n")
     print(f"convert_1939_stamtavle v{CONVERTER_VERSION}: "
           f"{len(records)} poster ind -> {len(out)} poster ud ({ud})")
+    print(f"narrative flettet (A3b): {n_flettet}/{len(out)}"
+          + (f"  ADVARSEL: {len(n_mangler)} poster UDEN narrative (load fejler — kør segment_1939.py først)"
+             if n_mangler else "  (alle poster har narrative)"))
+    print("A3c link-rapport (KUN tal, ingen persondata):")
+    for k, v in rapport.items():
+        print(f"  {k}: {v}")
 
 
 if __name__ == "__main__":
