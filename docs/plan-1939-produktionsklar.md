@@ -78,10 +78,19 @@ Fable-subagent + orkestrator-review; TDD, 62→108 python-tests grønne (verific
 - [x] **A2c — OCR lille `t` for `†`** (case-sensitiv + kontekst-gated i dødssignalet).
 - [x] **A2d — TDD** (rød→grøn pr. punkt; regression-frihed bevist).
 
-**A2 RUNDE 2 (udestår — noteret som TODO i `derive_date_info`):** kirkelige mærkedage → dato via computus
-(bevægelige helligdage: Paaske, Michaelis) + `calendar`-sætning ved konvertering; `s.å./s.m./s.d./s.st.`-
-ankeropløsning (kræver kontekst-arkitektur — parseren modtager i dag kun isoleret `date_raw`; LLM opløser dog
-de fleste allerede, 183/186 i eksisterende korpus). Falder indtil da tilbage til hele-år/None uden at forringe.
+### A2. Qualifier-aware parser — RUNDE 2 ✅ DONE (commit 24c0a35, 2026-07-17)
+Fable-subagent + orkestrator-review; computus UAFHÆNGIGT bevist (0 mismatches vs egen Meeus-impl over 700 år). 111→152 python-tests, korpus-diff DEGRADATION 0.
+- [x] **Kirkelige mærkedage → dato via computus:** faste (lookup: Michaeli/Mortens/Kyndelmisse/Sankt Hans/
+      Allehelgen/Helligtrekonger/Valborg) + bevægelige (påske-relative: fastelavn..trinitatis + "N. søndag
+      efter X"). "Vor Frue" kun m. specifikt festnavn (bar form tvetydig → hele-år). Ukendt fest → hele-år.
+- [x] **`calendar`-sætning:** år<1700 → juliansk computus + `calendar='juliansk'` (dato gemt som-skrevet,
+      aldrig proleptisk omregnet); ≥1700 → gregoriansk. Provenance-only (ingen læser i app/core).
+- [~] **`s.å./s.m./s.d.`-ankeropløsning: BEVIDST SKIPPET** — empirisk: LLM opløser 185/188 i korpuset; de 3
+      tomme er sted-/dag-refs (ikke år-cases), strukturelt uopløselige; mekanisk år-tracking ville risikere
+      FORKERTE opløsninger og bryde never-degrade. Dokumenteret som TODO-begrundelse i `derive_date_info`.
+
+**Kendt forenkling (noteret):** 1700-kalendergrænsen er skarp (tysk-dansk kalenderskift var reelt rodet i
+Slesvig-Holsten-området) — provenance-only, nul matcher-impact; kan forfines hvis en konsument opstår.
 
 ### A3. Versioneret 1939-konverter + re-ekstraktion
 - [ ] **A3a — Byg en versioneret, deterministisk 1939→`load_daa.R`-konverter.** Erstatter den ad-hoc
