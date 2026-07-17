@@ -247,6 +247,66 @@ BEGIN
 END $$;
 
 
+-- ===== Task 8c: F-02c polymorf entitets-gating (family + ukendt type fail-close) =====
+-- Forvent: NOTICE "OK: F-02c ...". Codex dual-review-fund: "<>'person'"-mønstret var fail-OPEN for
+-- (1) family-mål (levende families vielse-fakta/noter synlige for anon+auth) og (2) ukendte/fejlstavede
+-- typer. Nu erstattet af entitet_offentlig() (+ family_offentlig()). Tester BEGGE retninger:
+-- læk-siden (family/unknown skjult) OG over-hiding-siden (public entitets-data STADIG synligt).
+DO $$
+DECLARE
+  fo_dead boolean; fo_live boolean;
+  leak_fam_anon int; leak_fam_auth int; leak_note_auth int; leak_mis int; leak_assert int;
+  ok_deadfam int; ok_estate int; ok_org_rel int; ok_narr int;
+BEGIN
+  DELETE FROM citation WHERE id=-981; DELETE FROM assertion WHERE id=-981;
+  DELETE FROM note WHERE id IN (-980,-981); DELETE FROM narrative WHERE id=-980;
+  DELETE FROM relation WHERE id IN (-980,-981); DELETE FROM fact WHERE id IN (-980,-981,-982,-983);
+  DELETE FROM family_member WHERE family_id IN (-980,-981); DELETE FROM family WHERE id IN (-980,-981);
+  DELETE FROM organisation WHERE id=-999; DELETE FROM estate WHERE id=-999;
+  DELETE FROM person WHERE id IN (-980,-981);
+
+  INSERT INTO person(id,levende,privat) VALUES(-980,false,false),(-981,true,false);
+  INSERT INTO organisation(id,navn) VALUES(-999,'testorg');  INSERT INTO estate(id,navn) VALUES(-999,'testgods');
+  INSERT INTO family(id,type) VALUES(-980,'ægteskab'),(-981,'ægteskab');
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES(-980,-980,'partner'),(-981,-981,'partner');
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES
+    (-980,'family',-980,'vielse'),(-981,'family',-981,'vielse'),
+    (-982,'Person',-981,'fødsel'),(-983,'estate',-999,'opførelse');
+  INSERT INTO assertion(id,target_type,target_id) VALUES(-981,'fact',-981);  -- evidens på levende-fam-fact
+  INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES
+    (-980,'person',-980,'organisation',-999,'medlem'),(-981,'person',-981,'organisation',-999,'medlem');
+  INSERT INTO narrative(id,subjekt_type,subjekt_id,tekst) VALUES(-980,'person',-980,'død bio');
+  INSERT INTO note(id,target_type,target_id) VALUES(-980,'family',-980),(-981,'family',-981);
+
+  SET LOCAL ROLE anon;
+  SELECT public.family_offentlig(-980), public.family_offentlig(-981) INTO fo_dead, fo_live;  -- DEFINER-check
+  SELECT count(*) INTO leak_fam_anon FROM fact WHERE id=-981;
+  SELECT count(*) INTO ok_deadfam FROM fact WHERE id=-980;   SELECT count(*) INTO ok_estate FROM fact WHERE id=-983;
+  SELECT count(*) INTO ok_org_rel FROM relation WHERE id=-980; SELECT count(*) INTO ok_narr FROM narrative WHERE id=-980;
+  RESET ROLE;
+  PERFORM set_config('request.jwt.claim.sub','',true); SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO leak_fam_auth FROM fact WHERE id=-981;  SELECT count(*) INTO leak_note_auth FROM note WHERE id=-981;
+  SELECT count(*) INTO leak_mis FROM fact WHERE id=-982;       SELECT count(*) INTO leak_assert FROM assertion WHERE id=-981;
+  RESET ROLE;
+
+  IF fo_dead AND NOT fo_live
+     AND leak_fam_anon=0 AND leak_fam_auth=0 AND leak_note_auth=0 AND leak_mis=0 AND leak_assert=0
+     AND ok_deadfam=1 AND ok_estate=1 AND ok_org_rel=1 AND ok_narr=1 THEN
+    RAISE NOTICE 'OK: F-02c — family/unknown+evidens fail-closed OG public entitets-data stadig synligt';
+  ELSE
+    RAISE EXCEPTION 'F-02c FEJL: DEFINER død/lev=%/% | læk fam(a/au)=%/% note=% mis=% assert=% | over-hide dødfam=% estate=% rel=% narr=%',
+      fo_dead,fo_live,leak_fam_anon,leak_fam_auth,leak_note_auth,leak_mis,leak_assert,ok_deadfam,ok_estate,ok_org_rel,ok_narr;
+  END IF;
+
+  DELETE FROM citation WHERE id=-981; DELETE FROM assertion WHERE id=-981;
+  DELETE FROM note WHERE id IN (-980,-981); DELETE FROM narrative WHERE id=-980;
+  DELETE FROM relation WHERE id IN (-980,-981); DELETE FROM fact WHERE id IN (-980,-981,-982,-983);
+  DELETE FROM family_member WHERE family_id IN (-980,-981); DELETE FROM family WHERE id IN (-980,-981);
+  DELETE FROM organisation WHERE id=-999; DELETE FROM estate WHERE id=-999;
+  DELETE FROM person WHERE id IN (-980,-981);
+END $$;
+
+
 -- ===== Task 9: lineage trin (b) — forgrening + status =====
 -- Forvent: kolonnerne findes, og en selv-refererende gren (parent_lineage_id) + en
 -- 'gren_af'-relation kan oprettes og resolveres. Seeder negative-id rækker, rydder op.

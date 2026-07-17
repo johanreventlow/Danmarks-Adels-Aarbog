@@ -45,6 +45,16 @@ SELECT count(*) FROM family_member fm JOIN person_external_id pe ON pe.person_id
 -- (e) barn-rækker UDEN external_id (multi-edition-abortens falsk-negativ; eyeball proveniens før Trin 2)
 SELECT count(*) FROM family_member fm WHERE fm.rolle='barn'
   AND NOT EXISTS (SELECT 1 FROM person_external_id pe WHERE pe.person_id=fm.person_id);
+-- (f) F-02c BLAST-RADIUS (mål FØR Trin 1b): antal family-scoped fakta/noter der bliver SKJULT fordi
+--     familien har mindst ét levende medlem (bevidst GDPR-fail-close; en historisk vielse mellem to
+--     afdøde skjules hvis et levende barn er i samme family). Kør på GATE 0-kopien for at kende tabet.
+SELECT
+  (SELECT count(*) FROM fact f WHERE f.subjekt_type='family'
+     AND EXISTS (SELECT 1 FROM family_member m JOIN person p ON p.id=m.person_id
+                 WHERE m.family_id=f.subjekt_id AND coalesce(p.levende,true)=true)) AS skjulte_family_fakta,
+  (SELECT count(*) FROM note n WHERE n.target_type='family'
+     AND EXISTS (SELECT 1 FROM family_member m JOIN person p ON p.id=m.person_id
+                 WHERE m.family_id=n.target_id AND coalesce(p.levende,true)=true)) AS skjulte_family_noter;
 ```
 
 ## Trin 0 — BACKUP (obligatorisk, eneste rollback-kilde)

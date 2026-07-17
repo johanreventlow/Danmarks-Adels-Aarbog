@@ -78,3 +78,34 @@ tjekke separat.
 **Læring:** Codex code-mode-host var brudt → "No material findings" var et falsk-grønt. Verificér ALTID at
 Codex faktisk kunne læse koden (dens egen caveat afslørede det) før accept — ellers er det peer-review-laundering.
 Substituér rigorøs selv-audit mod den faktiske fil når peer-revieweren er blind. [[codex-flip-patterns]]
+
+## Codex-GENKØRSEL med reel fil-adgang (2026-07-17) — 2 CONFIRMED fund → F-02c
+
+Bruger geninstallerede Codex CLI (host-symlink pegede på en manglende `Codex.app`; nu standalone-CLI).
+Genkørt adversarial-review MED fil-adgang → verdict **needs-attention/NO-SHIP**, 2 empirisk reproducerede fund:
+
+- **[HIGH] Levende families fakta/evidens/noter læsbare (db-rls.sql fact/relation/note-policies).** `fact` tillod
+  ubetinget alt `subjekt_type <> 'person'`, `note` alt `target_type <> 'person'` → en `family`-fact (vielse/
+  skilsmisse) eller family-note om en LEVENDE familie var synlig for **anon OG authenticated**, selvom
+  `family_member`-rækkerne var skjult. Præsens-loaderen skriver præcis den slags. Reproduceret: family-fact
+  anon=1/auth=1, family-note auth=1.
+- **[MEDIUM] Ukendte polymorfe typer fejler åbent.** `<> 'person'` → enhver fejlstavet/ukendt discriminator
+  (`Person`, `people`) behandledes som offentlig; type-kolonnerne er fritekst uden CHECK. Reproduceret:
+  fact med `subjekt_type='Person'` på levende person → auth=1.
+
+**Root cause: `<> 'person'`-mønstret er en HEL KLASSE af fail-open** (media var den første; family/unknown den
+anden). Fix (F-02c, denne review's PR): `entitet_offentlig(type, id)` + `family_offentlig(id)`, begge SECURITY
+DEFINER, erstatter alle 8+ `<> 'person'`-klausuler i fact/relation/narrative/note/text_mention (anon OG auth).
+fact/relation-mål (note/text_mention) håndteres via cascade (EXISTS på RLS-gatet target), ikke entitets-gate.
+FAIL-CLOSED på ukendt type.
+
+**Empirisk (daa_test2, begge retninger — Task 8c):**
+- DEFINER-check: `family_offentlig(-981)` kaldt DIREKTE som anon → false (ser det skjulte levende medlem; INVOKER
+  ville fejle åbent). `family_offentlig(-980)` (kun død) → true.
+- Læk skjult: levende-fam-fact anon=0/auth=0, levende-fam-note auth=0, fejlstavet 'Person'-fact=0, evidens på
+  levende-fam-fact (assertion) auth=0.
+- INGEN over-hiding: død-familie-fact=1, estate-fact=1, død-person→org-relation=1, død-narrativ=1.
+
+**Læring:** når peer-revieweren FÅR fil-adgang fanger den den klasse en blind selv-audit missede — min selv-audit
+(ovenfor) verificerede de direkte person-targets men overså at `family` er en polymorf target-type der bærer
+person-PII. Kør ALTID Codex med reel kode-adgang; falsk-grøn "No findings" ≠ en ren review. [[codex-flip-patterns]]

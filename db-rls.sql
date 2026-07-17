@@ -47,6 +47,42 @@ $$;
 revoke all on function public.person_offentlig(bigint) from public;
 grant execute on function public.person_offentlig(bigint) to anon, authenticated;
 
+-- family_offentlig: en familie er offentlig KUN hvis INTET medlem er ikke-offentligt (levende/privat).
+-- Fail-closed: ét levende/privat medlem → hele familien (og dens fakta/noter/narrativer) skjules.
+-- SECURITY DEFINER (som person_offentlig): skal se ALLE family_member-rækker uden at blive re-
+-- filtreret af family_member-RLS — ellers ville netop det skjulte levende medlem være usynligt for
+-- subqueryen → fail-OPEN. Codex-fund F-02c (2026-07-17).
+create or replace function public.family_offentlig(fid bigint)
+returns boolean language sql stable security definer set search_path = public as $$
+  select not exists (
+    select 1 from public.family_member fm
+    where fm.family_id = fid and not public.person_offentlig(fm.person_id)
+  );
+$$;
+revoke all on function public.family_offentlig(bigint) from public;
+grant execute on function public.family_offentlig(bigint) to anon, authenticated;
+
+-- entitet_offentlig: fælles polymorf synligheds-regel for et (type,id)-mål. Erstatter det gentagne
+-- "type <> 'person'"-mønster, der var FAIL-OPEN på to måder (Codex-fund F-02c): (1) family-mål blev
+-- behandlet som offentligt → levende families vielse-/skilsmisse-fakta + noter lækkede til anon OG
+-- authenticated; (2) enhver ukendt/fejlstavet discriminator (type-kolonnerne er fritekst uden CHECK)
+-- blev behandlet som offentlig. FAIL-CLOSED ELSE. NB: fact/relation-mål (kun note/text_mention kan
+-- pege der) håndteres IKKE her — de skal cascade gennem targetets EGEN RLS (se note/text_mention-
+-- policyerne), ikke entitets-gates. SECURITY DEFINER pga. family_offentlig.
+create or replace function public.entitet_offentlig(p_type text, p_id bigint)
+returns boolean language sql stable security definer set search_path = public as $$
+  select case
+    when p_type = 'person' then public.person_offentlig(p_id)
+    when p_type = 'family' then public.family_offentlig(p_id)
+    -- det faste ikke-PII-entitetssæt (sted/gods/våben/linje/organisation/begivenhed/kilde/media/arkiv)
+    when p_type in ('place','estate','coat_of_arms','lineage','organisation',
+                    'historical_event','source','media','repository') then true
+    else false  -- ukendt/fejlstavet type → fail-closed
+  end;
+$$;
+revoke all on function public.entitet_offentlig(text, bigint) from public;
+grant execute on function public.entitet_offentlig(text, bigint) to anon, authenticated;
+
 -- media-gating-helpere. SECURITY DEFINER så de ser ALLE afbildet-relationer uden at blive
 -- re-filtreret af relation-RLS: et afbildet-link til en LEVENDE person er selv skjult for
 -- anon af relation-politikken, så en almindelig EXISTS-subquery i media-politikken ville
@@ -287,7 +323,7 @@ grant select on table public.fact to anon;
 alter table public.fact enable row level security;
 drop policy if exists anon_read on public.fact;
 create policy anon_read on public.fact for select to anon
-  using (subjekt_type <> 'person' or public.person_offentlig(subjekt_id));
+  using (public.entitet_offentlig(subjekt_type, subjekt_id));
 
 -- relation: gates på BÅDE subjekt og objekt når de er personer.
 grant select on table public.relation to anon;
@@ -295,8 +331,8 @@ alter table public.relation enable row level security;
 drop policy if exists anon_read on public.relation;
 create policy anon_read on public.relation for select to anon
   using (
-    (subjekt_type <> 'person' or public.person_offentlig(subjekt_id))
-    and (objekt_type <> 'person' or public.person_offentlig(objekt_id))
+    public.entitet_offentlig(subjekt_type, subjekt_id)
+    and public.entitet_offentlig(objekt_type, objekt_id)
   );
 
 -- narrative: ikke-privat OG (ikke-person ELLER person offentlig).
@@ -306,7 +342,7 @@ drop policy if exists anon_read on public.narrative;
 create policy anon_read on public.narrative for select to anon
   using (
     coalesce(privat, false) = false
-    and (subjekt_type <> 'person' or public.person_offentlig(subjekt_id))
+    and public.entitet_offentlig(subjekt_type, subjekt_id)
   );
 
 -- note: ikke-privat OG (ikke-person ELLER person offentlig).
@@ -316,7 +352,13 @@ drop policy if exists anon_read on public.note;
 create policy anon_read on public.note for select to anon
   using (
     coalesce(privat, false) = false
-    and (target_type <> 'person' or public.person_offentlig(target_id))
+    and case
+      -- note på et faktum/relation arver targetets synlighed (cascade gennem dets RLS)
+      when target_type = 'fact'     then exists (select 1 from public.fact f     where f.id = target_id)
+      when target_type = 'relation' then exists (select 1 from public.relation r where r.id = target_id)
+      -- note på en entitet (person/family/sted/…): entitets-reglen, fail-closed på ukendt
+      else public.entitet_offentlig(target_type, target_id)
+    end
   );
 
 -- =========================================================
@@ -378,25 +420,29 @@ create policy auth_read on public.person_external_id for select to authenticated
 create policy auth_read on public.family_member for select to authenticated
   using (public.person_offentlig(person_id));
 create policy auth_read on public.fact for select to authenticated
-  using (subjekt_type <> 'person' or public.person_offentlig(subjekt_id));
+  using (public.entitet_offentlig(subjekt_type, subjekt_id));
 -- relation: gates på BÅDE person-endpoints (offentlig). Cycle 02 H3 — using(true) lækkede
 -- private personers relationer (ejerskab/hverv/kanter) til logget-ind medlemmer.
 create policy auth_read on public.relation for select to authenticated
   using (
-    (subjekt_type <> 'person' or public.person_offentlig(subjekt_id))
-    and (objekt_type <> 'person' or public.person_offentlig(objekt_id))
+    public.entitet_offentlig(subjekt_type, subjekt_id)
+    and public.entitet_offentlig(objekt_type, objekt_id)
   );
 -- narrative/note: eget privat-flag OG (ikke-person ELLER refereret person offentlig).
 -- Cycle 02 H3 — manglede person-gating (ikke-flagget bio/note om privat person lækkede).
 create policy auth_read on public.narrative for select to authenticated
   using (
     coalesce(privat,false)=false
-    and (subjekt_type <> 'person' or public.person_offentlig(subjekt_id))
+    and public.entitet_offentlig(subjekt_type, subjekt_id)
   );
 create policy auth_read on public.note for select to authenticated
   using (
     coalesce(privat,false)=false
-    and (target_type <> 'person' or public.person_offentlig(target_id))
+    and case
+      when target_type = 'fact'     then exists (select 1 from public.fact f     where f.id = target_id)
+      when target_type = 'relation' then exists (select 1 from public.relation r where r.id = target_id)
+      else public.entitet_offentlig(target_type, target_id)
+    end
   );
 create policy auth_read on public.assertion for select to authenticated
   using (
@@ -580,16 +626,21 @@ ALTER TABLE text_mention ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tm_read ON text_mention;
 CREATE POLICY tm_read ON text_mention FOR SELECT TO anon, authenticated
 USING (
-  -- kilde-tekst synlig (person-bundet narrativ/note → personens synlighed; ikke-privat)
+  -- kilde-tekst synlig (person-bundet narrativ/note → entitetens synlighed; ikke-privat).
+  -- F-02c: entitet_offentlig i stedet for "<>'person'" (family-kilder + ukendte typer fail-closer nu).
   CASE kilde_type
     WHEN 'narrative' THEN EXISTS (SELECT 1 FROM narrative n WHERE n.id=kilde_id
        AND coalesce(n.privat,false)=false
-       AND (n.subjekt_type<>'person' OR person_offentlig(n.subjekt_id)))
+       AND public.entitet_offentlig(n.subjekt_type, n.subjekt_id))
     WHEN 'note' THEN EXISTS (SELECT 1 FROM note nt WHERE nt.id=kilde_id
        AND coalesce(nt.privat,false)=false
-       AND (nt.target_type<>'person' OR person_offentlig(nt.target_id)))
+       AND CASE
+         WHEN nt.target_type='fact'     THEN EXISTS (SELECT 1 FROM public.fact f     WHERE f.id=nt.target_id)
+         WHEN nt.target_type='relation' THEN EXISTS (SELECT 1 FROM public.relation r WHERE r.id=nt.target_id)
+         ELSE public.entitet_offentlig(nt.target_type, nt.target_id)
+       END)
     ELSE false END
   AND
-  -- mål synlig (person → person_offentlig; øvrige entiteter offentlige i PoC)
-  (maal_type<>'person' OR person_offentlig(maal_id))
+  -- mål synlig (F-02c: entitet_offentlig — family-mål + ukendte typer fail-closer nu)
+  public.entitet_offentlig(maal_type, maal_id)
 );
