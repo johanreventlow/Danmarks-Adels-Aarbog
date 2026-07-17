@@ -33,12 +33,16 @@ suppressMessages({library(DBI); library(jsonlite)})
 source(".claude/skills/daa-extract/scripts/load_helpers.R")
 
 argv    <- commandArgs(trailingOnly = TRUE)
-if (length(argv) < 1) stop("brug: load_daa.R clean.json [udgave] [--reset] [--force-reset] [--dry-run]")
+if (length(argv) < 1) stop("brug: load_daa.R clean.json [udgave] [--reset] [--force-reset] [--dry-run] [--staged]")
 path    <- argv[1]
 udgave  <- if (length(argv) >= 2 && !startsWith(argv[2], "--")) argv[2] else "DAA 2018-20"
 RESET       <- "--reset" %in% argv
 FORCE_RESET <- "--force-reset" %in% argv   # tilsidesæt RESET-guarden bevidst (sletter change_set-arbejde)
 DRY_RUN <- "--dry-run" %in% argv
+# --staged (K2-kuratering): markér ALLE personer denne kørsel opretter som staged=TRUE →
+# skjult for anon (person_offentlig) indtil redaktør har matchet dem mod eksisterende udgaver.
+# Ryddes samlet med red_publicer_udgave(source_id) når match-gennemgangen er færdig.
+STAGED <- "--staged" %in% argv
 
 # source.aar = tidsserie-aksen (schema.sql:37). Konvention: SIDSTE dækkede år; fail-closed ved
 # uparsebar udgave (præsens-tidsserie-spec Problem 1 §3.2). Samme lille helper som load_presens.R
@@ -111,7 +115,7 @@ flush_all <- function() {
   for (tbl in ord) { rows <- .buf[[tbl]]; if (length(rows)) dbAppendTable(con, tbl, rows_to_df(rows)) }
 }
 
-add_person <- function(koen = NA) { id <- nid("person"); push("person", list(id=id, levende=FALSE, koen=koen)); id }
+add_person <- function(koen = NA) { id <- nid("person"); push("person", list(id=id, levende=FALSE, staged=STAGED, koen=koen)); id }
 add_extid <- function(pid, sid, linje, nr) push("person_external_id", list(person_id=pid, source_id=sid, linje=linje, nr=nr))
 add_narr <- function(pid, sid, side, tekst) push("narrative", list(id=nid("narrative"), subjekt_type="person", subjekt_id=pid, source_id=sid, side=side, tekst=tekst))
 add_fact <- function(sid_, ft, sted_id=NA, st="person") { id <- nid("fact"); push("fact", list(id=id, subjekt_type=st, subjekt_id=sid_, faktatype=ft, sted_id=sted_id)); id }
