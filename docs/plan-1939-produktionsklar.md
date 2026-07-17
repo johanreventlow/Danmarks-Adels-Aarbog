@@ -58,35 +58,39 @@ til `load_daa.R`-kontrakten. Parser-hærdning er en *forudsætning*, ikke hovedo
 
 Sekvens er bevidst: **model + parser hærdes FØR re-ekstraktion**, ellers bages fejlene ind i stor skala.
 
-### A1. Additive modelændringer (lille, additiv — ingen breaking change)
-- [ ] **A1a — Kobl `calendar` til import.** Feltet findes (`schema.sql:379`, default `'gregoriansk'`),
-      men `load_daa.R add_assertion()` skriver det aldrig (`load_daa.R:121`) og ekstraktionsskemaet har intet
-      kalenderfelt. Tilføj `calendar` til extraction-schema + loader, så julianske/kirkelige datoer kan
-      markeres revisionssikkert. *Hvorfor:* uden det kan mærkedags-konverteringer ikke spores.
-- [ ] **A1b — `date_certainty` (ny kolonne).** Ægte manglende ortogonal dimension: `certain/uncertain/ambiguous`.
-      `date_qualifier` (exact/about/before/after/between/floruit) beskriver *relationen* til datoen, ikke
-      *sikkerheden på læsningen* (fx `147(5?)` = årspræcision men usikker). **Åben beslutning** (se nederst):
-      `date_precision` (day/month/year) er delvist afledeligt af min/max-spændet — afgør om den skal være
-      egen kolonne eller udledes.
-- [ ] **A1c — Udvid faktavokabular (data, ikke ny tabel).** Tilføj kontrollerede faktatyper:
-      `naturalisering`, `introduktion_ridderhus`, og **én kanonisk** type for begravelse/bisættelse
-      (normalisér synonymer). Overvej at seede `fødsel`/`død`/`floruit` i `vocab` (i dag fri tekst-literaler).
-- [ ] **A1d — Constrain `date_qualifier` + normalisér synonymer.** Korpus har `about`/`circa`/`approx`,
-      men extraction-schema tillader kun `about` (`extraction-schema.json:23`); DB-kolonnen er fri tekst
-      uden CHECK. Vælg kanoniske værdier + tilføj CHECK eller vocab-binding.
+### A1. Additive modelændringer ✅ DONE (commit 1f7726b, 2026-07-17)
+Verificeret mod frisk isoleret DB (kopi af daa_test2-struktur, prod-frit): ADD COLUMN-sti + idempotens 2× + db-verify-asserts grønne.
+- [x] **A1a — Kobl `calendar` til import.** `add_assertion`/`fact_value` bærer nu `cal` (default `'gregoriansk'`
+      så DB-default aldrig nulles) + `certainty` gennem R-kæden; `calendar` tilføjet til extraction-schema.
+- [x] **A1b — `date_certainty` (ny kolonne, CHECK certain/uncertain/ambiguous).** **Beslutning truffet:**
+      `date_precision` UDLEDES af min/max ved læsning (ikke persisteret) — kun `date_certainty` blev ny kolonne.
+- [x] **A1c — Faktavokabular seedet:** `fødsel/dåb/død/begravelse`(kanonisk)/`floruit/adling/naturalisering/introduktion_ridderhus` (idempotent).
+- [~] **A1d — qualifier-synonymer:** normaliseret fremadrettet i parser + extraction-schema-guidance (`about`, ikke
+      `circa`/`approx`). **Bevidst INGEN hård DB-CHECK** — ville afvise de 3+3 eksisterende `circa`/`approx`
+      (`assertion.uforanderlig=TRUE`, invariant #1 påstande overskrives aldrig). Synonym-mapping ved skrivetid.
 
-### A2. Omskriv dato-normaliseringen som qualifier-aware parser
-- [ ] **A2a — Stop ubetinget overskrivning.** `validate.py:385` overskriver altid `date_min`/`date_max`
-      fra `date_raw`. Gør den qualifier-aware, så åbne grænser bevares (`før 1261` → `date_min=NULL`,
-      `date_max=1261-...`; `efter 1575` → `date_min=1575-...`, `date_max=NULL`). **Regressionstest:**
-      genkørsel må aldrig forringe en korrekt eksisterende grænse.
-- [ ] **A2b — Særskilte regler for:** danske/ældre-danske/tyske månedsnavne · `ca./o./um` · før/efter/mellem ·
-      floruit-notation (`(-ÅÅÅÅ-ÅÅÅÅ-)` ≠ levetid) · `s.å./s.m./s.d./s.st.` (kræver **ankerværdi** —
-      parseren modtager i dag kun isoleret `date_raw`; giv den kontekst, jf. `datamodel-oversigt.md:132`) ·
-      usikre cifre (`147(5?)`) · romertal (`MCCCCXCIIII`) · kirkelige mærkedage + kalender (Paaske, Michaelis).
-- [ ] **A2c — OCR: fang lille `t` for `†`.** Dødssignalet (`validate.py:238`) genkender `†/☩/død/d.`
-      men ikke OCR-fejllæst `t`. Relevant for Bobé 1939 (trykt kors kan læses som `t`).
-- [ ] **A2d — Tests først (TDD).** Skriv fejlende tests for hvert eksempel i verifikationen, dernæst parser.
+### A2. Qualifier-aware parser — RUNDE 1 ✅ DONE (commit cbe65a7, 2026-07-17)
+Fable-subagent + orkestrator-review; TDD, 62→108 python-tests grønne (verificeret uafhængigt).
+- [x] **A2a — Stop ubetinget overskrivning.** `derive_date_bounds`→`derive_date_info` (qualifier-aware): åbne
+      grænser bevaret; `normalize_record` nuller ALDRIG en eksisterende bound når parseren intet kan udlede.
+- [x] **A2b (runde 1-del) — regler for:** da/ældre-da/tyske månedsnavne · `ca./o./um`→about (også på spans) ·
+      før/efter/mellem · floruit-notation (`(-ÅÅÅÅ-ÅÅÅÅ-)` ≠ levetid) · usikre cifre (`147(5?)`)→certainty · romertal.
+- [x] **A2c — OCR lille `t` for `†`** (case-sensitiv + kontekst-gated i dødssignalet).
+- [x] **A2d — TDD** (rød→grøn pr. punkt; regression-frihed bevist).
+
+### A2. Qualifier-aware parser — RUNDE 2 ✅ DONE (commit 24c0a35, 2026-07-17)
+Fable-subagent + orkestrator-review; computus UAFHÆNGIGT bevist (0 mismatches vs egen Meeus-impl over 700 år). 111→152 python-tests, korpus-diff DEGRADATION 0.
+- [x] **Kirkelige mærkedage → dato via computus:** faste (lookup: Michaeli/Mortens/Kyndelmisse/Sankt Hans/
+      Allehelgen/Helligtrekonger/Valborg) + bevægelige (påske-relative: fastelavn..trinitatis + "N. søndag
+      efter X"). "Vor Frue" kun m. specifikt festnavn (bar form tvetydig → hele-år). Ukendt fest → hele-år.
+- [x] **`calendar`-sætning:** år<1700 → juliansk computus + `calendar='juliansk'` (dato gemt som-skrevet,
+      aldrig proleptisk omregnet); ≥1700 → gregoriansk. Provenance-only (ingen læser i app/core).
+- [~] **`s.å./s.m./s.d.`-ankeropløsning: BEVIDST SKIPPET** — empirisk: LLM opløser 185/188 i korpuset; de 3
+      tomme er sted-/dag-refs (ikke år-cases), strukturelt uopløselige; mekanisk år-tracking ville risikere
+      FORKERTE opløsninger og bryde never-degrade. Dokumenteret som TODO-begrundelse i `derive_date_info`.
+
+**Kendt forenkling (noteret):** 1700-kalendergrænsen er skarp (tysk-dansk kalenderskift var reelt rodet i
+Slesvig-Holsten-området) — provenance-only, nul matcher-impact; kan forfines hvis en konsument opstår.
 
 ### A3. Versioneret 1939-konverter + re-ekstraktion
 - [ ] **A3a — Byg en versioneret, deterministisk 1939→`load_daa.R`-konverter.** Erstatter den ad-hoc

@@ -373,10 +373,11 @@ CREATE TABLE assertion (                 -- én kildes udsagn om et FACT ELLER e
   vaerdi_tekst   TEXT,                   -- navn, erhverv, titel, stednavn ...
   objekt_type    TEXT,                   -- en påstands VÆRDI kan være en entitet (fx forældrefamilie); polymorf, NULL for tekst-/dato-påstande
   objekt_id      BIGINT,                 -- den påståede entitets id (v1: en family). Ingen hård FK (polymorf-konvention); valideres i RPC
-  date_min DATE, date_max DATE,          -- hvis dato-værdi (fuzzy)
-  date_qualifier TEXT,                   -- 'exact','before','after','between','floruit','about'
+  date_min DATE, date_max DATE,          -- hvis dato-værdi (fuzzy); date_min NULL = åben mod fortiden ('før'), date_max NULL = åben mod fremtiden ('efter')
+  date_qualifier TEXT,                   -- RELATION dato↔begivenhed: 'exact','before','after','between','about','floruit','until_event','open_end','ongoing'
+  date_certainty TEXT CONSTRAINT assertion_date_certainty_chk CHECK (date_certainty IN ('certain','uncertain','ambiguous')),  -- LÆSE-sikkerhed (ortogonal til qualifier): 'uncertain'=kilden tvivler selv ('147(5?)'), 'ambiguous'=flere lige gyldige tolkninger; NULL=ikke vurderet (≈certain). Navn matcher db-migrations.sql så frisk-build + migration ikke giver duplikat-constraint
   date_raw       TEXT,                   -- oprindelig tekst, fx '† før 1261 (22. aug.)'
-  calendar       TEXT DEFAULT 'gregoriansk',
+  calendar       TEXT DEFAULT 'gregoriansk',  -- 'gregoriansk'|'juliansk'; sat af parseren når en kirkelig mærkedag/juliansk dato er konverteret (revisionssikkerhed)
   uforanderlig   BOOLEAN DEFAULT TRUE
 );
 

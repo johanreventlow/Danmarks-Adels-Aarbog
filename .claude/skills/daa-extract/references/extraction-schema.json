@@ -20,12 +20,14 @@
         "required": ["faktatype"],
         "additionalProperties": false,
         "properties": {
-          "faktatype": {"type": "string", "description": "navn|fødsel|død|floruit|dåb|begravelse|titel|adling|dekoration|dødsårsag|..."},
+          "faktatype": {"type": "string", "description": "navn|fødsel|død|floruit|dåb|begravelse|titel|adling|naturalisering|introduktion_ridderhus|dekoration|dødsårsag|... — brug ALTID 'begravelse' som kanonisk type (også for bisættelse/bis.)"},
           "vaerdi": {"type": ["string", "null"]},
           "date_raw": {"type": ["string", "null"], "description": "ordret som i bogen — SKAL findes i narrative. For ALLE dato-fakta (fødsel/død/floruit/dåb/begravelse) er date_raw OBLIGATORISK og kopieres verbatim; syntetisér ALDRIG en normaliseret span i vaerdi i stedet (floruit-spanet hører i date_min/date_max + verbatim i date_raw)."},
           "date_min": {"type": ["string", "null"], "description": "ISO YYYY-MM-DD el. null"},
           "date_max": {"type": ["string", "null"]},
-          "date_qualifier": {"type": ["string", "null"], "enum": ["exact", "before", "after", "about", "between", "floruit", "until_event", "open_end", "ongoing", null]},
+          "date_qualifier": {"type": ["string", "null"], "enum": ["exact", "before", "after", "about", "between", "floruit", "until_event", "open_end", "ongoing", null], "description": "RELATION mellem dato og begivenhed. Brug 'about' for ca./o./um (IKKE 'circa'/'approx'). 'before'→date_min null; 'after'→date_max null."},
+          "date_certainty": {"type": ["string", "null"], "enum": ["certain", "uncertain", "ambiguous", null], "description": "LÆSE-sikkerhed, ortogonal til date_qualifier: 'uncertain' hvis kilden selv tvivler (fx '147(5?)', OCR-tvivl), 'ambiguous' ved flere lige gyldige tolkninger. Udelad/null hvis læsningen er sikker."},
+          "calendar": {"type": ["string", "null"], "enum": ["gregoriansk", "juliansk", null], "description": "Sæt kun 'juliansk' hvis kilden eksplicit angiver juliansk/gl. stil. Kirkelige mærkedage → dato konverteres deterministisk af validate.py (som sætter calendar). Ellers udelad (DB-default gregoriansk)."},
           "sted": {"type": ["string", "null"]},
           "kilde_span": {"type": ["string", "null"], "description": "mindste klausul i raw_text der indeholder dette faktas anker (dato/værdi). SKAL være substring af raw_text. Bruges til felt-proveniens (citation.citat_tekst)."}
         }

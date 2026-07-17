@@ -118,8 +118,11 @@ add_fact <- function(sid_, ft, sted_id=NA, st="person") { id <- nid("fact"); pus
 # objekt_type/objekt_id (Problem 2): en påstands VÆRDI kan være en entitet (forældrefamilie-slot).
 # ALTID med i list()'en (NA-default) — rows_to_df bygger kolonner fra første række, så objekt-data
 # på en senere slot-assertion ville ellers tabes.
-add_assertion <- function(tt, tid, vaerdi=NA, dmin=NA, dmax=NA, qual=NA, raw=NA, objekt_type=NA, objekt_id=NA) { id <- nid("assertion")
-  push("assertion", list(id=id, target_type=tt, target_id=tid, vaerdi_tekst=vaerdi, date_min=dmin, date_max=dmax, date_qualifier=qual, date_raw=raw, objekt_type=objekt_type, objekt_id=objekt_id)); id }
+# cal defaulter til 'gregoriansk' (= DB-DEFAULT) så vi ALDRIG skriver NULL og dermed nuller
+# kalender-default'en; parseren sender 'juliansk' for konverterede kirkelige mærkedage.
+# certainty (læse-sikkerhed) er NA→NULL default = 'ikke vurderet' (≈certain).
+add_assertion <- function(tt, tid, vaerdi=NA, dmin=NA, dmax=NA, qual=NA, raw=NA, objekt_type=NA, objekt_id=NA, cal="gregoriansk", certainty=NA) { id <- nid("assertion")
+  push("assertion", list(id=id, target_type=tt, target_id=tid, vaerdi_tekst=vaerdi, date_min=dmin, date_max=dmax, date_qualifier=qual, date_raw=raw, objekt_type=objekt_type, objekt_id=objekt_id, calendar=cal, date_certainty=certainty)); id }
 add_citation <- function(aid, sid, side=NA, kval="primær", citat=NA) push("citation", list(id=nid("citation"), assertion_id=aid, source_id=sid, side=side, citat_tekst=citat, kvalitet=kval))
 add_conclusion <- function(tt, tid, chosen, status="afklaret", by=current_by) push("conclusion", list(id=nid("conclusion"), target_type=tt, target_id=tid, valgt_assertion_id=chosen, status=status, blaastemplet_af=by))
 add_note <- function(tt, tid, indhold) {
@@ -157,9 +160,9 @@ add_org    <- function(navn) get_or_create("organisation", navn)
 add_event  <- function(navn) get_or_create("historical_event", navn)
 add_relation <- function(st, sid_, ot, oid_, rolle, raw=NA, em=NA) { id <- nid("relation")
   push("relation", list(id=id, subjekt_type=st, subjekt_id=sid_, objekt_type=ot, objekt_id=oid_, rolle=rolle, erhvervelsesmaade=em, periode_raw=raw)); id }
-fact_value <- function(pid, ft, vaerdi=NA, dmin=NA, dmax=NA, qual=NA, raw=NA, sid, side, sted=NA, st="person", span=NA) {
+fact_value <- function(pid, ft, vaerdi=NA, dmin=NA, dmax=NA, qual=NA, raw=NA, sid, side, sted=NA, st="person", span=NA, cal="gregoriansk", certainty=NA) {
   fid <- add_fact(pid, ft, get_place(sted), st)
-  aid <- add_assertion("fact", fid, vaerdi, iso(dmin), iso(dmax), qual, raw)
+  aid <- add_assertion("fact", fid, vaerdi, iso(dmin), iso(dmax), qual, raw, cal=cal, certainty=certainty)
   add_citation(aid, sid, side, citat=span); add_conclusion("fact", fid, aid); invisible(fid) }
 # Ægtefælle-dato kan komme STRUKTURERET (list m. date_min/max/raw/sted) ELLER
 # som rå STRING ("* 26. sept. 1687") — udtrækket er inkonsistent. Begge -> fakta;
@@ -291,7 +294,8 @@ tryCatch({
       if (f$faktatype %in% c("erhverv", "uddannelse")) next   # foreløbig IKKE rygrad — bliver i narrativen
       fact_value(pid, f$faktatype, vaerdi = g(f,"vaerdi"), dmin = g(f,"date_min"),
                  dmax = g(f,"date_max"), qual = g(f,"date_qualifier"), raw = g(f,"date_raw"),
-                 sid = src, side = side, sted = g(f,"sted"), span = g(f,"kilde_span"))
+                 sid = src, side = side, sted = g(f,"sted"), span = g(f,"kilde_span"),
+                 cal = g(f,"calendar","gregoriansk"), certainty = g(f,"date_certainty"))
     }
   }
 

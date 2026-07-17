@@ -192,31 +192,430 @@ def derive_aegteskaber(raw_text):
     return [seen[k] for k in sorted(seen)]
 
 
-_MDR = {'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'maj': 5, 'jun': 6,
-        'jul': 7, 'aug': 8, 'sep': 9, 'okt': 10, 'nov': 11, 'dec': 12}
+# Månedsnavne matches på 3-tegns-prefix (lowercased). Dækker dansk
+# (jan./januar/marts), ældre dansk/latiniseret (Octbr., Sept.) og tysk
+# (Mai, März/Maerz, Jänner, Dezember).
+_MDR = {'jan': 1, 'jän': 1, 'jaen': 1,
+        'feb': 2,
+        'mar': 3, 'mär': 3, 'maer': 3,
+        'apr': 4,
+        'maj': 5, 'mai': 5,
+        'jun': 6, 'jul': 7, 'aug': 8,
+        'sep': 9,
+        'okt': 10, 'oct': 10,
+        'nov': 11,
+        'dec': 12, 'dez': 12}
+
+
+def _month_from_name(name):
+    """Slå måned op via prefix (4-tegns 'jaen'/'maer'-transskription først)."""
+    for k in (name[:4], name[:3]):
+        if k in _MDR:
+            return _MDR[k]
+    return None
+
+# Romertals-årstal ("anno dni MCCCCXCIIII" = 1494). Form-regex tillader BÅDE
+# subtraktiv (CM/XC/IV) og additiv middelalder-notation (CCCC, IIII), og
+# afviser ikke-romerske ord af romertals-bogstaver ('mild', 'civil').
+# Kun tokens ≥4 tegn prøves (undgår gren-tællere III/VI); plausibelt
+# års-interval 1000-2100 håndhæves.
+_ROMAN_VALS = {'m': 1000, 'd': 500, 'c': 100, 'l': 50, 'x': 10, 'v': 5, 'i': 1}
+_ROMAN_SHAPE_RE = re.compile(
+    r'^m{0,4}(?:cm|cd|d?c{0,4})(?:xc|xl|l?x{0,4})(?:ix|iv|v?i{0,4})$')
+_ROMAN_TOKEN_RE = re.compile(r'\b[mdclxvi]{4,}\b')
+
+
+def _roman_year(tok):
+    """Parse ét romertals-token til år, eller None hvis ugyldigt/implausibelt."""
+    if not _ROMAN_SHAPE_RE.match(tok):
+        return None
+    total = 0
+    for idx, ch in enumerate(tok):
+        v = _ROMAN_VALS[ch]
+        if idx + 1 < len(tok) and v < _ROMAN_VALS[tok[idx + 1]]:
+            total -= v
+        else:
+            total += v
+    return total if 1000 <= total <= 2100 else None
+
+
+# ---------------------------------------------------------------------------
+# Kirkelige mærkedage (dato-hærdning runde 2). EMPIRISK sjældne i korpuset
+# (~7 i 1939-udtrækket; ~0 i det eksisterende — resten var kirkeNAVNE), så
+# dette er ROI-afgrænset backup: faste mærkedage (lookup) + de almindeligste
+# påske-relative fester (computus). Ukendt/unavngiven fest → fallback til
+# hele-år (forringer aldrig — invariant fra normalize_record).
+#
+# KALENDER: Danmark skiftede juliansk→gregoriansk 18. feb 1700 (→ 1. mar 1700).
+# Regel (spec'et år-baseret): år < 1700 → juliansk computus + calendar=
+# 'juliansk'; år >= 1700 → gregoriansk + calendar='gregoriansk'. Datoen gemmes
+# SOM SKREVET i kildens egen kalender — ALDRIG proleptisk-gregoriansk
+# omregning (forenkling: jan-feb 1700 var reelt stadig julianske, men korpuset
+# rammer ikke det hjørne). calendar er PROVENANCE-ONLY: intet i app/core
+# læser den endnu; den sættes kun når en mærkedag faktisk blev konverteret.
+
+# Kalenderaritmetik via Julian Day Number (JDN) — håndterer begge kalendre
+# og ugedage ensartet (JDN mod 7 == 6 er søndag; kalibreret mod
+# JDN 2451545 = 1. jan 2000 gregoriansk = lørdag = 5).
+
+def _jdn_fra_juliansk(y, m, d):
+    a = (14 - m) // 12
+    yy = y + 4800 - a
+    mm = m + 12 * a - 3
+    return d + (153 * mm + 2) // 5 + 365 * yy + yy // 4 - 32083
+
+
+def _jdn_fra_gregoriansk(y, m, d):
+    a = (14 - m) // 12
+    yy = y + 4800 - a
+    mm = m + 12 * a - 3
+    return d + (153 * mm + 2) // 5 + 365 * yy + yy // 4 - yy // 100 + yy // 400 - 32045
+
+
+def _juliansk_fra_jdn(jdn):
+    c = jdn + 32082
+    d2 = (4 * c + 3) // 1461
+    e = c - 1461 * d2 // 4
+    m2 = (5 * e + 2) // 153
+    day = e - (153 * m2 + 2) // 5 + 1
+    month = m2 + 3 - 12 * (m2 // 10)
+    year = d2 - 4800 + m2 // 10
+    return year, month, day
+
+
+def _gregoriansk_fra_jdn(jdn):
+    a = jdn + 32044
+    b = (4 * a + 3) // 146097
+    c = a - 146097 * b // 4
+    d2 = (4 * c + 3) // 1461
+    e = c - 1461 * d2 // 4
+    m2 = (5 * e + 2) // 153
+    day = e - (153 * m2 + 2) // 5 + 1
+    month = m2 + 3 - 12 * (m2 // 10)
+    year = 100 * b + d2 - 4800 + m2 // 10
+    return year, month, day
+
+
+def paaskedag(year, juliansk=False):
+    """(måned, dag) for påskedag i årets EGEN kalender.
+
+    Gregoriansk: Meeus/Jones/Butcher-algoritmen (verificeret mod kendte
+    påskedage 1961/2000/2024/2025/2038). Juliansk: Meeus' julianske algoritme
+    (verificeret mod ortodokse Pascha-tabeller O.S. 1900/1918/2000) — resultatet
+    er den JULIANSKE kalenderdato, ikke en gregoriansk omregning."""
+    if juliansk:
+        a = year % 4
+        b = year % 7
+        c = year % 19
+        d = (19 * c + 15) % 30
+        e = (2 * a + 4 * b - d + 34) % 7
+        month = (d + e + 114) // 31
+        day = (d + e + 114) % 31 + 1
+        return month, day
+    a = year % 19
+    b = year // 100
+    c = year % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month = (h + l - 7 * m + 114) // 31
+    day = (h + l - 7 * m + 114) % 31 + 1
+    return month, day
+
+
+# Faste mærkedage: kun ægte dansk-kirkelige mærkedage med utvetydig
+# kalenderdato. 'Vor Frue' er TVETYDIG (Kyndelmisse 2/2, Bebudelse 25/3,
+# Besøgelse 2/7, Himmelfart 15/8, Fødsel 8/9) — bar 'vor frue' mappes ALDRIG;
+# kun den specifikt navngivne fest. Rækkefølge betyder noget (mortensaften
+# før mortensdag; mariæ himmelfart er FAST og må ikke forveksles med den
+# bevægelige Kristi Himmelfart, som kræver 'kristi'-prefix).
+_KIRKEDAG_FASTE = [
+    (re.compile(r'kyndelmisse'), (2, 2)),
+    (re.compile(r'san[ck]t\s*hans'), (6, 24)),
+    (re.compile(r'(?:mikkels|mikaels|michaelis)dag'), (9, 29)),
+    (re.compile(r'mortensaften'), (11, 10)),
+    (re.compile(r'mortensdag'), (11, 11)),
+    (re.compile(r'allehelgen'), (11, 1)),
+    (re.compile(r'hellig\s*tre\s*konger\w*'), (1, 6)),
+    (re.compile(r'valborg'), (5, 1)),
+    (re.compile(r'(?:vor\s*frue|mari[æe]s?)\s*bebudelse|bebudelse'), (3, 25)),
+    (re.compile(r'(?:vor\s*frue|mari[æe]s?)\s*besøgelse|besøgelse'), (7, 2)),
+    (re.compile(r'(?:vor\s*frue|mari[æe]s?)\s*himmelfart'), (8, 15)),
+    (re.compile(r'(?:vor\s*frue|mari[æe]s?)\s*fødsel'), (9, 8)),
+]
+
+# Bevægelige (påske-relative) fester: offset i dage fra påskedag.
+# Rækkefølge: '2. påskedag'/'2. pinsedag' skal matches før den bare form.
+_KIRKEDAG_BEVAEGELIGE = [
+    (re.compile(r'fastelavn'), -49),
+    (re.compile(r'palmes[øo]ndag'), -7),
+    (re.compile(r'skj?ærtorsdag'), -3),
+    (re.compile(r'langfredag'), -2),
+    (re.compile(r'(?:2\.?|anden)\s*p(?:aa|å)skedag'), 1),
+    (re.compile(r'p(?:aa|å)ske'), 0),
+    (re.compile(r'(?:store\s*)?bededag'), 26),         # 4. fredag efter påske
+    (re.compile(r'kristi\s*himmelfart'), 39),
+    (re.compile(r'(?:2\.?|anden)\s*pinsedag'), 50),
+    (re.compile(r'pinse'), 49),
+    (re.compile(r'trinitatis'), 56),
+]
+
+_ORDINAL_ORD = {
+    'første': 1, 'anden': 2, 'tredje': 3, 'tredie': 3, 'fjerde': 4, 'femte': 5,
+    'sjette': 6, 'syvende': 7, 'ottende': 8, 'niende': 9, 'tiende': 10,
+    'ellevte': 11, 'tolvte': 12, 'trettende': 13, 'fjortende': 14,
+    'femtende': 15, 'sekstende': 16, 'syttende': 17, 'attende': 18,
+    'nittende': 19, 'tyvende': 20,
+}
+# "N. søndag efter X" — N som tal ('14.') eller ord ('anden'). \b/lookbehind
+# sikrer helt ord/tal ('enogtyvende' må ikke matche som 'tyvende').
+_SOENDAG_EFTER_RE = re.compile(
+    r'(?:(?<!\d)(\d{1,2})\.?|\b(' + '|'.join(_ORDINAL_ORD) + r'))\s+s[øo]ndag\s+efter\s+'
+    r'(trinitatis|p(?:aa|å)ske|hellig\s*tre\s*konger\w*)')
+_SOENDAG_EFTER_LOOSE_RE = re.compile(r's[øo]ndag\s+efter')
+
+
+def _kirkedag_dato(t, year):
+    """Konvertér en genkendt kirkelig mærkedag i t (lowercased) til
+    ('YYYY-MM-DD', kalender, (match_start, match_end)) — eller None.
+
+    Match-spannet returneres så kalderen kan maskere festnavnet før
+    qualifier-detektion ('efter' i '14. søndag efter Trinitatis' er en del af
+    festnavnet, ikke en after-qualifier)."""
+    jul = year < 1700
+    cal = 'juliansk' if jul else 'gregoriansk'
+    til_jdn = _jdn_fra_juliansk if jul else _jdn_fra_gregoriansk
+    fra_jdn = _juliansk_fra_jdn if jul else _gregoriansk_fra_jdn
+
+    # Returformat: (iso|None, kalender|None, span). iso=None m. span betyder
+    # "genkendt men uopløselig fest-frase — maskér den, brug hele-år-fallback".
+    def _iso(jdn):
+        yy, mm, dd = fra_jdn(jdn)
+        return f"{yy:04d}-{mm:02d}-{dd:02d}"
+
+    em, ed = paaskedag(year, juliansk=jul)
+    paaske_jdn = til_jdn(year, em, ed)
+
+    m = _SOENDAG_EFTER_RE.search(t)
+    if m:
+        n = int(m.group(1)) if m.group(1) else _ORDINAL_ORD[m.group(2)]
+        base = m.group(3)
+        if base.startswith('hellig'):
+            # N. søndag efter Helligtrekonger = N'te søndag STRENGT efter 6. jan
+            h3k = til_jdn(year, 1, 6)
+            foerste = h3k + ((6 - h3k % 7) % 7 or 7)
+            jdn = foerste + 7 * (n - 1)
+        elif base.startswith('trinitatis'):
+            jdn = paaske_jdn + 56 + 7 * n
+        else:                                  # påske
+            jdn = paaske_jdn + 7 * n
+        return _iso(jdn), cal, m.span()
+    lm = _SOENDAG_EFTER_LOOSE_RE.search(t)
+    if lm:
+        # 'søndag efter' til stede men uopløselig (ordinal uden for tabellen,
+        # ukendt basisfest) → mærkedags-match må IKKE fyre på basisfesten
+        # alene ('enogtyvende søndag efter trinitatis' ≠ Trinitatis-dag).
+        # Returnér dato=None men MED span, så kalderen maskerer 'søndag efter'
+        # væk fra qualifier-detektionen ('efter' er festnavn, ikke qualifier)
+        # og falder tilbage til hele-år.
+        return None, None, lm.span()
+    for pat, off in _KIRKEDAG_BEVAEGELIGE:
+        m = pat.search(t)
+        if m:
+            return _iso(paaske_jdn + off), cal, m.span()
+    for pat, (mm, dd) in _KIRKEDAG_FASTE:
+        m = pat.search(t)
+        if m:
+            return f"{year:04d}-{mm:02d}-{dd:02d}", cal, m.span()
+    return None
+
+
+# Qualifier-markører (dansk, ældre dansk, tysk). 'senest' = terminus ante quem
+# → behandles som 'before'. 'o.' kræver punktum (bart 'o' er for tvetydigt).
+_Q_BEFORE_RE = re.compile(r'\b(?:før|inden|senest)\b')
+_Q_AFTER_RE = re.compile(r'\befter\b')
+_Q_ABOUT_RE = re.compile(r'\b(?:ca|circa|omkr|omkring|um)\b|\bo\.')
+_Q_BETWEEN_RE = re.compile(r'\bmellem\b')
+# Bindestreg-flankeret nævnt-form '(-1223-1247-)' / '-1223-' = floruit
+# (dokumenteret-aktiv span, invariant #5) — IKKE levetid.
+_FLORUIT_FLANK_RE = re.compile(
+    r'[-–]\s*\d{3,4}(?:\s*[-–]\s*\d{3,4})?\s*[-–](?!\s*\d)')
+
+
+def derive_date_info(date_raw):
+    """Udled {date_min, date_max, qualifier, certainty, calendar} deterministisk fra rå dato.
+
+    Grundregler (invariant #5 — fuzzy datoer): kun år -> hele året;
+    dag-måned-år -> punkt; to årstal -> span. Uparsebart -> alle None;
+    date_raw bevares altid andetsteds. LLM'en skal IKKE selv syntetisere disse.
+
+    ÅR-GRÆNSE-KONVENTION for åbne grænser (dokumenteret valg):
+    Grænsen er det KONSERVATIVE ydre hylster INKLUSIVE det nævnte år —
+    qualifieren bærer den strikte semantik:
+      'før 1261'   -> date_min=None,        date_max='1261-12-31', qualifier='before'
+      'efter 1575' -> date_min='1575-01-01', date_max=None,        qualifier='after'
+      'mellem N og M' -> N-01-01 .. M-12-31, qualifier='between'
+      'ca./o./um N' -> hele året N,          qualifier='about'
+    Ved fuld dato ('før 26. juli 1261') bruges dagpunktet som grænse.
+
+    KIRKELIGE MÆRKEDAGE (runde 2): 'Mikkelsdag 1712', 'Paaske 1650',
+    '14. søndag efter Trinitatis 1712' m.fl. konverteres til præcis dag når
+    date_raw indeholder genkendt fest + årstal — se _kirkedag_dato. calendar
+    sættes KUN når konverteringen faktisk landede i bounds ('juliansk' <1700,
+    'gregoriansk' ellers); alle andre stier giver calendar=None.
+
+    BEVIDST UDELADT — s.å./s.m./s.d./s.st.-ankeropløsning: LLM'en opløser
+    185/188 i korpuset; de 3 uopløste er sted-/dag-/måned-refs (ikke år-cases)
+    og strukturelt uopløselige uden anker-faktum. Mekanisk år-tracking på
+    tværs af facts ville risikere FORKERTE opløsninger og bryde "never
+    degrade"-invarianten i normalize_record — bevidst fravalgt frem for
+    halvfærdigt. (TODO kun hvis korpus-empirien ændrer sig.)
+    """
+    info = {'date_min': None, 'date_max': None, 'qualifier': None,
+            'certainty': None, 'calendar': None}
+    if not date_raw:
+        return info
+    t = date_raw.strip().lower()
+
+    # --- Usikre cifre (kildens egen tvivl) → bedste læsning + 'uncertain' ---
+    # '147(5?)' -> 1475: parentes-ciffer med '?' er kildens foreslåede læsning.
+    t, n_paren = re.subn(r'\((\d{1,2})\s*\?\)', r'\1', t)
+    # '1475?' -> 1475: spørgsmålstegn efter helt årstal.
+    t, n_tail = re.subn(r'(\d{4})\s*\?', r'\1', t)
+    if n_paren or n_tail:
+        info['certainty'] = 'uncertain'
+    # '14?8': ulæseligt ciffer → ydre hylster over alle læsninger (?=0..9).
+    wm = re.search(r'(?<![\d?])(\d{1,3})\?(\d{0,2})(?![\d?])', t)
+    if wm and len(wm.group(1)) + 1 + len(wm.group(2)) == 4:
+        y_lo = wm.group(1) + '0' + wm.group(2)
+        y_hi = wm.group(1) + '9' + wm.group(2)
+        info['date_min'] = f"{y_lo}-01-01"
+        info['date_max'] = f"{y_hi}-12-31"
+        info['certainty'] = 'uncertain'
+        return info
+
+    years = re.findall(r'\d{4}', t)
+    if not years:
+        # Fallback: romertals-årstal (kun når intet arabisk årstal findes)
+        roman = [y for y in (_roman_year(tok) for tok in _ROMAN_TOKEN_RE.findall(t))
+                 if y is not None]
+        if len(roman) == 1:
+            years = [str(roman[0])]
+    if not years or len(years) > 2:
+        return info
+
+    # Kirkelig mærkedag (kun enkelt-år). Festnavnets span maskeres i t FØR
+    # qualifier-detektion — 'efter' i '14. søndag efter Trinitatis' er en del
+    # af festnavnet, ikke en after-qualifier. Masken er længde-bevarende, så
+    # positions-logikken (t.find(y) vs. qualifier-position) forbliver gyldig.
+    kirkedag = _kirkedag_dato(t, int(years[0])) if len(years) == 1 else None
+    if kirkedag:
+        ks, ke = kirkedag[2]
+        t = t[:ks] + ' ' * (ke - ks) + t[ke:]
+
+    q_between = bool(_Q_BETWEEN_RE.search(t))
+    q_before = bool(_Q_BEFORE_RE.search(t))
+    q_after = bool(_Q_AFTER_RE.search(t))
+    q_about = bool(_Q_ABOUT_RE.search(t))
+    q_floruit = bool(_FLORUIT_FLANK_RE.search(t))
+
+    if len(years) == 2:                       # span: bevar begge grænser
+        info['date_min'] = f"{min(years)}-01-01"
+        info['date_max'] = f"{max(years)}-12-31"
+        if q_between or (q_before and q_after):   # "mellem N og M" / "efter N, før M"
+            info['qualifier'] = 'between'
+        elif q_floruit:                           # '(-1223-1247-)' ≠ levetid
+            info['qualifier'] = 'floruit'
+        elif q_about:                             # 'ca. 1484-1569' — omtrentligt interval
+            info['qualifier'] = 'about'
+        # NB: et bart span '1712-1783' (levetid) får bevidst INGEN qualifier.
+        return info
+
+    y = years[0]
+    dm = re.search(r'(\d{1,2})\.\s*([a-zæøåäöü]+)', t)
+    iso_point = None
+    iso_cal = None
+    if dm:
+        mo = _month_from_name(dm.group(2))
+        da = int(dm.group(1))
+        if mo and 1 <= da <= 31:
+            iso_point = f"{y}-{mo:02d}-{da:02d}"
+    if iso_point is None and kirkedag and kirkedag[0]:
+        iso_point, iso_cal = kirkedag[0], kirkedag[1]
+
+    if q_floruit:                             # enkelt-års floruit '-1223-'
+        info['date_min'] = f"{y}-01-01"
+        info['date_max'] = f"{y}-12-31"
+        info['qualifier'] = 'floruit'
+    elif q_before:
+        # Skel på årets POSITION ift. 'før'-ordet:
+        #   'før 1261' / 'før 26. juli 1261' → året ER grænsen → min åben (None).
+        #   '1496, før 10. okt.' → året er kendt begivenheds-år, kun dagen er
+        #     'før' → min=år-start (mister ellers den kendte nedre grænse).
+        m = _Q_BEFORE_RE.search(t)
+        if m and t.find(y) < m.start():
+            info['date_min'] = f"{y}-01-01"
+        info['date_max'] = iso_point or f"{y}-12-31"
+        info['qualifier'] = 'before'
+    elif q_after:
+        m = _Q_AFTER_RE.search(t)
+        if m and t.find(y) < m.start():   # '1496, efter 10. okt.' → år kendt → max=år-slut
+            info['date_max'] = f"{y}-12-31"
+        info['date_min'] = iso_point or f"{y}-01-01"
+        info['qualifier'] = 'after'
+    elif q_about:
+        # Approksimation: ét år -> hele års-spannet, uanset evt. dag-angivelse
+        info['date_min'] = f"{y}-01-01"
+        info['date_max'] = f"{y}-12-31"
+        info['qualifier'] = 'about'
+    elif iso_point:
+        info['date_min'] = info['date_max'] = iso_point
+    else:
+        info['date_min'] = f"{y}-01-01"
+        info['date_max'] = f"{y}-12-31"
+    # calendar er provenance-only og sættes kun når mærkedags-konverteringen
+    # faktisk landede i en grænse (about/floruit-grenene bruger hele-år → None).
+    if iso_cal and iso_point in (info['date_min'], info['date_max']):
+        info['calendar'] = iso_cal
+    return info
 
 
 def derive_date_bounds(date_raw):
-    """Udled (date_min, date_max) ISO deterministisk fra rå dato. Kun år -> hele
-    året; dag-måned-år -> punkt; to årstal -> span (floruit "1257-1272",
-    invariant #5). Uparsebart (0 eller >2 årstal) -> (None, None); date_raw
-    bevares altid andetsteds. LLM'en skal IKKE selv syntetisere disse."""
-    if not date_raw:
-        return (None, None)
-    t = date_raw.strip().lower()
-    years = re.findall(r'\d{4}', t)
-    if not years or len(years) > 2:
-        return (None, None)
-    if len(years) == 2:                       # span: bevar begge grænser
-        return (f"{min(years)}-01-01", f"{max(years)}-12-31")
-    y = years[0]
-    dm = re.search(r'(\d{1,2})\.\s*([a-zæøå]+)', t)
-    if dm and dm.group(2)[:3] in _MDR:
-        mo = _MDR[dm.group(2)[:3]]
-        da = int(dm.group(1))
-        iso = f"{y}-{mo:02d}-{da:02d}"
-        return (iso, iso)
-    return (f"{y}-01-01", f"{y}-12-31")
+    """Bagudkompatibel wrapper: kun (date_min, date_max) fra derive_date_info."""
+    info = derive_date_info(date_raw)
+    return (info['date_min'], info['date_max'])
+
+
+# ISO-sammenligning der tolererer år-kun-strenge ('1363' ~ '1363-01-01'/'1363-12-31').
+def _cmp_min(d):
+    return None if d is None else (d if len(d) > 4 else d + '-01-01')
+
+
+def _cmp_max(d):
+    return None if d is None else (d if len(d) > 4 else d + '-12-31')
+
+
+def _is_year_placeholder(mn, mx):
+    """True hvis LLM'en kun kendte året/årene: et rent hele-års-span
+    YYYY-01-01..YYYY-12-31 (evt. år-kun-strenge). Kun et SÅDANT placeholder må
+    derive forfine til en præcis dag fra date_raw (fx III-124: date_raw har
+    '12. nov.' men LLM satte år-kun bounds). Et span med præcise endepunkter
+    ('1223-05-31'..'1247-02-22' floruit, eller '01-12'..'01-13' approx) er IKKE
+    et placeholder — LLM satte det fra kontekst parseren ikke ser, så det bevares.
+    """
+    if mn is None or mx is None:
+        return False
+    # ÉT år: start-år == slut-år. Et MULTI-års-span (1924-01-01..1939-12-31, fx
+    # '1924/39' = 'enten 1924 eller 1939') er IKKE et placeholder — at forfine det
+    # til ét år ville tabe den anden mulighed.
+    return (mn[:4] == mx[:4]
+            and _cmp_min(mn).endswith('-01-01') and _cmp_max(mx).endswith('-12-31'))
 
 
 def escalation_entry(rec, issues, advisory):
@@ -231,6 +630,14 @@ def escalation_entry(rec, issues, advisory):
             'grunde': list(issues or []) + r8,
         }
     return None
+
+
+# OCR-tolerance (Bobé 1939): † fejllæses som lille 't'. Kun i dødssignal-
+# lignende kontekst: klausul-start (tekststart eller efter ,.;:) + dato
+# umiddelbart efter ('t 1712' / 't. 30. marts 1712'). BEVIDST case-sensitiv
+# (eget regex uden re.I): stort 'T' er navne-initial, ikke en †-fejllæsning,
+# og 't' i almindelige ord ('skiftet', 'til') matcher ikke mønsteret.
+_OCR_DOED_T_RE = re.compile(r'(?:^|[,.;:])\s*t\.?\s+(?=\d{1,2}\.|\d{4})')
 
 
 def expected_signals(raw_text):
@@ -251,7 +658,8 @@ def expected_signals(raw_text):
         'venter_aegteskab': bool(derive_aegteskaber(udenfor)),
         # venter_boern bruges ikke i R8 — børn håndteres deterministisk i main().
         'venter_boern': BOERN_RE.search(txt) is not None,
-        'venter_doed': bool(re.search(r'[†☩]|\bdøde?\b|\bd\.\s*\d', udenfor, re.I)),
+        'venter_doed': bool(re.search(r'[†☩]|\bdøde?\b|\bd\.\s*\d', udenfor, re.I)
+                            or _OCR_DOED_T_RE.search(udenfor)),
     }
 
 
@@ -382,13 +790,43 @@ def normalize_record(rec, src):
             rec['boern'] = derived
         elif rec.get('boern') is not None:
             rec['boern'] = None   # LLM-hallucineret boern uden tekst-belæg
-    # Deterministisk dato-udledning: date_min/date_max overskrives ALTID fra
-    # date_raw. LLM'en må ikke selv syntetisere disse (fri ISO-syntese var
-    # kilden til fejl-attribuering).
+    # Deterministisk dato-udledning fra date_raw. EMPIRISK (korpus-diff 2026-07-17):
+    # LLM'ens bounds er som regel bedre end en isoleret date_raw-parser, fordi LLM'en
+    # har kontekst parseren mangler — prosa uden for date_raw, opløst s.å.-anker,
+    # adskillelse af fødsels- og dødsår i samme streng ('* 1607 ... † 1670'). Derfor:
+    #   (a) LLM efterlod bounds tomme (begge None) → udfyld deterministisk. Det fanger
+    #       de ægte huller (147(5?), romertal, åbne før/efter-grænser) UDEN at røre
+    #       LLM'ens arbejde.
+    #   (b) LLM satte bounds → overskriv KUN hvis derive forfiner inden for intervallet
+    #       (fx år→dag samme år). Ellers bevares LLM'ens bounds — parseren må aldrig
+    #       udvide/åbne/lukke og dermed forringe (fx (1670-02-02) → (1607..1670)-span).
     for f in rec.get('facts') or []:
-        if f.get('date_raw'):
-            lo, hi = derive_date_bounds(f['date_raw'])
-            f['date_min'], f['date_max'] = lo, hi
+        if not f.get('date_raw'):
+            continue
+        info = derive_date_info(f['date_raw'])
+        om, ox = f.get('date_min'), f.get('date_max')
+        if om is None and ox is None:
+            f['date_min'], f['date_max'] = info['date_min'], info['date_max']
+            # qualifier skrives sammen med de nyudfyldte bounds — dog aldrig over et
+            # eksisterende 'floruit' (LLM-sat, dokumenteret-aktiv ≠ levetid, invariant #5).
+            if info['qualifier'] and f.get('date_qualifier') != 'floruit':
+                f['date_qualifier'] = info['qualifier']
+            # calendar (provenance-only): kun sat når parseren konverterede en
+            # kirkelig mærkedag — og kun skrevet når dens bounds faktisk blev brugt.
+            if info['calendar'] and not f.get('calendar'):
+                f['calendar'] = info['calendar']
+        elif info['date_min'] is not None and info['date_max'] is not None \
+                and _is_year_placeholder(om, ox) \
+                and om[:4] <= info['date_min'][:4] and info['date_max'][:4] <= ox[:4]:
+            # LLM havde kun år-placeholder; derive forfiner til dag INDEN FOR de
+            # samme år (fanger LLM-under-udtræk uden at flytte en år-grænse).
+            f['date_min'], f['date_max'] = info['date_min'], info['date_max']
+            if info['calendar'] and not f.get('calendar'):
+                f['calendar'] = info['calendar']
+        # date_certainty: opgradér altid None → 'uncertain' (ortogonal læse-sikkerhed,
+        # pålideligt afledt af parentes/?-mønstre, uafhængig af bounds-beslutningen).
+        if info['certainty'] and not f.get('date_certainty'):
+            f['date_certainty'] = info['certainty']
     return rec
 
 
