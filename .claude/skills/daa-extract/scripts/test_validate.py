@@ -521,15 +521,49 @@ class TestDateInfoFloruit(unittest.TestCase):
 
 
 class TestNormalizeRecordDateOverride(unittest.TestCase):
-    """normalize_record overskriver date_min/date_max deterministisk fra date_raw."""
+    """normalize_record: LLM'ens bounds er PRIMÆRE (den har kontekst — prosa uden
+    for date_raw, s.å.-anker, fødsel/død-adskillelse — som den isolerede parser
+    mangler). Derive UDFYLDER kun tomme bounds og FORFINER kun et rent enkelt-års-
+    placeholder til dag; den forringer aldrig et span/præcis range LLM satte.
+    Empirisk grundlag: korpus-diff 2026-07-17 (nul forringelser på 998 date-fakta)."""
 
-    def test_overskriver_llm_dato(self):
+    def test_respekterer_llm_bounds(self):
+        # LLM satte præcise bounds → parseren rører dem ikke (ingen 'overskriv altid')
         rec = {"linje": "I", "nr": 1,
-               "facts": [{"faktatype": "død", "date_raw": "1750", "date_min": "1999-01-01", "date_max": "1999-12-31"}]}
-        src = {"raw_text": "N.N. død 1750."}
-        validate.normalize_record(rec, src)
-        self.assertEqual(rec["facts"][0]["date_min"], "1750-01-01")
-        self.assertEqual(rec["facts"][0]["date_max"], "1750-12-31")
+               "facts": [{"faktatype": "død", "date_raw": "1750",
+                          "date_min": "1750-03-04", "date_max": "1750-03-04"}]}
+        validate.normalize_record(rec, {"raw_text": "N.N. død 4. marts 1750."})
+        self.assertEqual((rec["facts"][0]["date_min"], rec["facts"][0]["date_max"]),
+                         ("1750-03-04", "1750-03-04"))
+
+    def test_forfiner_aar_placeholder_til_dag(self):
+        # LLM kendte kun året (hele-års-span), date_raw har dagen → forfin (korpus III-124)
+        rec = {"linje": "I", "nr": 1,
+               "facts": [{"faktatype": "fødsel", "date_raw": "* 12. nov. 1709",
+                          "date_min": "1709-01-01", "date_max": "1709-12-31"}]}
+        validate.normalize_record(rec, {"raw_text": "N.N. * 12. nov. 1709."})
+        self.assertEqual((rec["facts"][0]["date_min"], rec["facts"][0]["date_max"]),
+                         ("1709-11-12", "1709-11-12"))
+
+    def test_multi_aar_span_bevares(self):
+        # '1924/39' = enten 1924 eller 1939; må ikke indsnævres til ét år (korpus IV-47)
+        rec = {"linje": "I", "nr": 1,
+               "facts": [{"faktatype": "død", "date_raw": "† 1924/39",
+                          "date_min": "1924-01-01", "date_max": "1939-12-31"}]}
+        validate.normalize_record(rec, {"raw_text": "N.N. † 1924/39."})
+        self.assertEqual((rec["facts"][0]["date_min"], rec["facts"][0]["date_max"]),
+                         ("1924-01-01", "1939-12-31"))
+
+    def test_floruit_span_fra_kontekst_bevares(self):
+        # date_raw viser kun startåret; LLM satte hele floruit-spannet fra kontekst
+        # → parseren må ikke indsnævre til startpunktet (korpus I-1)
+        rec = {"linje": "I", "nr": 1,
+               "facts": [{"faktatype": "floruit", "date_raw": "1223 (31. maj)",
+                          "date_qualifier": "floruit",
+                          "date_min": "1223-05-31", "date_max": "1247-02-22"}]}
+        validate.normalize_record(rec, {"raw_text": "N.N. nævnt 1223 (31. maj) ... 1247."})
+        self.assertEqual((rec["facts"][0]["date_min"], rec["facts"][0]["date_max"]),
+                         ("1223-05-31", "1247-02-22"))
 
     def test_uparsebar_dato_forringer_ikke_eksisterende_bounds(self):
         """Punkt 2: derive må FORBEDRE, aldrig forringe. Uparsebar date_raw

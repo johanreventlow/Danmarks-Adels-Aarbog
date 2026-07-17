@@ -338,9 +338,19 @@ def derive_date_info(date_raw):
         info['date_max'] = f"{y}-12-31"
         info['qualifier'] = 'floruit'
     elif q_before:
+        # Skel på årets POSITION ift. 'før'-ordet:
+        #   'før 1261' / 'før 26. juli 1261' → året ER grænsen → min åben (None).
+        #   '1496, før 10. okt.' → året er kendt begivenheds-år, kun dagen er
+        #     'før' → min=år-start (mister ellers den kendte nedre grænse).
+        m = _Q_BEFORE_RE.search(t)
+        if m and t.find(y) < m.start():
+            info['date_min'] = f"{y}-01-01"
         info['date_max'] = iso_point or f"{y}-12-31"
         info['qualifier'] = 'before'
     elif q_after:
+        m = _Q_AFTER_RE.search(t)
+        if m and t.find(y) < m.start():   # '1496, efter 10. okt.' → år kendt → max=år-slut
+            info['date_max'] = f"{y}-12-31"
         info['date_min'] = iso_point or f"{y}-01-01"
         info['qualifier'] = 'after'
     elif q_about:
@@ -360,6 +370,32 @@ def derive_date_bounds(date_raw):
     """Bagudkompatibel wrapper: kun (date_min, date_max) fra derive_date_info."""
     info = derive_date_info(date_raw)
     return (info['date_min'], info['date_max'])
+
+
+# ISO-sammenligning der tolererer år-kun-strenge ('1363' ~ '1363-01-01'/'1363-12-31').
+def _cmp_min(d):
+    return None if d is None else (d if len(d) > 4 else d + '-01-01')
+
+
+def _cmp_max(d):
+    return None if d is None else (d if len(d) > 4 else d + '-12-31')
+
+
+def _is_year_placeholder(mn, mx):
+    """True hvis LLM'en kun kendte året/årene: et rent hele-års-span
+    YYYY-01-01..YYYY-12-31 (evt. år-kun-strenge). Kun et SÅDANT placeholder må
+    derive forfine til en præcis dag fra date_raw (fx III-124: date_raw har
+    '12. nov.' men LLM satte år-kun bounds). Et span med præcise endepunkter
+    ('1223-05-31'..'1247-02-22' floruit, eller '01-12'..'01-13' approx) er IKKE
+    et placeholder — LLM satte det fra kontekst parseren ikke ser, så det bevares.
+    """
+    if mn is None or mx is None:
+        return False
+    # ÉT år: start-år == slut-år. Et MULTI-års-span (1924-01-01..1939-12-31, fx
+    # '1924/39' = 'enten 1924 eller 1939') er IKKE et placeholder — at forfine det
+    # til ét år ville tabe den anden mulighed.
+    return (mn[:4] == mx[:4]
+            and _cmp_min(mn).endswith('-01-01') and _cmp_max(mx).endswith('-12-31'))
 
 
 def escalation_entry(rec, issues, advisory):
@@ -534,29 +570,37 @@ def normalize_record(rec, src):
             rec['boern'] = derived
         elif rec.get('boern') is not None:
             rec['boern'] = None   # LLM-hallucineret boern uden tekst-belæg
-    # Deterministisk dato-udledning: date_min/date_max sættes fra date_raw.
-    # LLM'en må ikke selv syntetisere disse (fri ISO-syntese var kilden til
-    # fejl-attribuering). MEN: derive må FORBEDRE, aldrig forringe — kan den
-    # ikke parse date_raw (begge bounds None), bevares en evt. eksisterende
-    # værdi frem for at nulstille den (fx kirkelige mærkedage, runde 2-TODO).
+    # Deterministisk dato-udledning fra date_raw. EMPIRISK (korpus-diff 2026-07-17):
+    # LLM'ens bounds er som regel bedre end en isoleret date_raw-parser, fordi LLM'en
+    # har kontekst parseren mangler — prosa uden for date_raw, opløst s.å.-anker,
+    # adskillelse af fødsels- og dødsår i samme streng ('* 1607 ... † 1670'). Derfor:
+    #   (a) LLM efterlod bounds tomme (begge None) → udfyld deterministisk. Det fanger
+    #       de ægte huller (147(5?), romertal, åbne før/efter-grænser) UDEN at røre
+    #       LLM'ens arbejde.
+    #   (b) LLM satte bounds → overskriv KUN hvis derive forfiner inden for intervallet
+    #       (fx år→dag samme år). Ellers bevares LLM'ens bounds — parseren må aldrig
+    #       udvide/åbne/lukke og dermed forringe (fx (1670-02-02) → (1607..1670)-span).
     for f in rec.get('facts') or []:
-        if f.get('date_raw'):
-            info = derive_date_info(f['date_raw'])
-            if info['date_min'] is not None or info['date_max'] is not None:
-                f['date_min'], f['date_max'] = info['date_min'], info['date_max']
-            else:
-                f.setdefault('date_min', None)
-                f.setdefault('date_max', None)
-            # date_qualifier: udledt qualifier skrives på fact'et — MEN et
-            # eksisterende 'floruit' (LLM-sat, dokumenteret-aktiv ≠ levetid,
-            # invariant #5) må aldrig overskrives/ødelægges. Finder derive
-            # intet, bevares eksisterende qualifier.
+        if not f.get('date_raw'):
+            continue
+        info = derive_date_info(f['date_raw'])
+        om, ox = f.get('date_min'), f.get('date_max')
+        if om is None and ox is None:
+            f['date_min'], f['date_max'] = info['date_min'], info['date_max']
+            # qualifier skrives sammen med de nyudfyldte bounds — dog aldrig over et
+            # eksisterende 'floruit' (LLM-sat, dokumenteret-aktiv ≠ levetid, invariant #5).
             if info['qualifier'] and f.get('date_qualifier') != 'floruit':
                 f['date_qualifier'] = info['qualifier']
-            # date_certainty: kun opgradér None → 'uncertain'; en LLM-sat
-            # certainty ('ambiguous'/'uncertain') bevares.
-            if info['certainty'] and not f.get('date_certainty'):
-                f['date_certainty'] = info['certainty']
+        elif info['date_min'] is not None and info['date_max'] is not None \
+                and _is_year_placeholder(om, ox) \
+                and om[:4] <= info['date_min'][:4] and info['date_max'][:4] <= ox[:4]:
+            # LLM havde kun år-placeholder; derive forfiner til dag INDEN FOR de
+            # samme år (fanger LLM-under-udtræk uden at flytte en år-grænse).
+            f['date_min'], f['date_max'] = info['date_min'], info['date_max']
+        # date_certainty: opgradér altid None → 'uncertain' (ortogonal læse-sikkerhed,
+        # pålideligt afledt af parentes/?-mønstre, uafhængig af bounds-beslutningen).
+        if info['certainty'] and not f.get('date_certainty'):
+            f['date_certainty'] = info['certainty']
     return rec
 
 
