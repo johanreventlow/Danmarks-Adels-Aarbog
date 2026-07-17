@@ -93,13 +93,29 @@ Fable-subagent + orkestrator-review; computus UAFHÆNGIGT bevist (0 mismatches v
 Slesvig-Holsten-området) — provenance-only, nul matcher-impact; kan forfines hvis en konsument opstår.
 
 ### A3. Versioneret 1939-konverter + re-ekstraktion
-- [ ] **A3a — Byg en versioneret, deterministisk 1939→`load_daa.R`-konverter.** Erstatter den ad-hoc
-      vinduesproces uden checked-in generator. Kør den kanoniske pipeline
-      (`segment.py → posts.json → validate.py → clean.json → load_daa.R`), IKKE præsens-loaderen.
-      *Hvorfor ikke presens-loaderen:* den sætter source=`'præsensliste'`, hardcoder `levende=TRUE` for alle,
-      og dropper narrativer/begravelser/godser (`load_presens.R:82,132`).
-- [ ] **A3b — Bevar ordret:** narrativ (prosa), side, linje, nummer, slægtled, børnehenvisninger, godser,
-      begravelser, krydsreferencer. (`linked_clean.json` HAR disse — de tabes kun i den forkerte slutfil.)
+**A3-ARKITEKTUR (fastlagt 2026-07-17 efter gap-analyse + advisor + 2 målinger):** Genbrug den eksisterende
+ekstraktion (`work_1939_stamtavle/linked_clean.json`, 539 poster) — **INGEN re-ekstraktion** (re-ekstraktion løser
+ikke narrative; skemaet forbyder LLM-genereret narrative — det kommer altid fra en deterministisk segmenter).
+Hybrid: konverter + billig segmenter, INGEN ændring af delt `load_daa.R`.
+- **Måling 1:** A2-parseren håndterer 92% af 1939's OCR-datoer (~100% af fødsler — alle har årstal) → **ingen A2 runde 3**; rut datoer gennem A2, omskriv ikke dato-logik i konverteren. GDPR-datagrundlag solidt.
+- **Måling 2:** `boern.linje` er udfyldt+inkonsistent i eksisterende korpus (63/82 ≠ rec.linje, værdier som "IV, nr. 118") → advisor's foreslåede loader-ændring er **FARLIG**, forkastet. **Rør ikke `load_daa.R`.**
+
+- [ ] **A3a — Versioneret deterministisk konverter** `linked_clean.json → load_daa.R-format clean.json`:
+      **ÉT syntetisk linjerum ("1939") + globalt unikke løbenumre** (så forældre-barn = `boern.nr_range` i samme
+      linje, som loaderen håndterer UÆNDRET). `nr` int (INTEGER-kolonne), string→`nr_label`, null→syntetisk nr.
+      `facts[]` fra foedsel/doed/begravelse/titel via **A2 `derive_date_info`** (ISO+qualifier+certainty+calendar).
+      godser strings→`{navn}`; aegteskaber-mapping; kryds_ref/noter bevaret. TDD.
+- [ ] **A3b — Billig narrative-segmenter** (over-inklusiv, aldrig manuel): anker-snit hvor dato/partner-ankre er
+      rene (majoriteten); svage/ankerløse → **gruppe-niveau prosa-blok fallback** (automatisk, aldrig fejlende;
+      gør R1/R6 mere sandsynlig). Log fallback-poster. Narrative er fidelity-felt (søgning), ikke load-bearing.
+- [ ] **A3c — Forældre-graf (fail-closed, i konverteren):** opløs `_foraelder_id` (61 rene) + `boern_ref` (117) +
+      `foraeldre_note`-navnematch → tildel børns `nr_range` i forælderens post. Uopløste PARKERES (loaderen gør
+      det allerede) + eksplicit restliste. Cross-generation navnematch = den skrøbelige del, valideres mod `_foraelder_id`.
+- [ ] **A3c-review — 18 review.json-poster:** forbliver karantæne (16 ufuldstændig + 5 mangler navn). Dokumenteret.
+- [ ] **A3d — Bibliografisk source-oprydning (før import).** Afklar identiteterne + opret separate `source`-poster:
+      Holstein (repo kalder den "DAA 2018-20"; dato-analysen siger 2024 — afklar) · 1893 (Ludwig zu Reventlow
+      vs. Anders Thiset, jf. `docs/reviews/2026-07-15-...divergens-rapport.md`) · 1939 (Bobé).
+      Holstein må **ikke** automatisk "vinde" — rettelser går begge veje.
 - [ ] **A3c — Luk/karantænér de 18 `review.json`-poster** eksplicit med dokumenteret resolution.
 - [ ] **A3d — Bibliografisk source-oprydning (før import).** Afklar identiteterne + opret separate `source`-poster:
       Holstein (repo kalder den "DAA 2018-20"; dato-analysen siger 2024 — afklar) · 1893 (Ludwig zu Reventlow
