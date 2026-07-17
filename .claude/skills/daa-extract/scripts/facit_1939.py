@@ -62,7 +62,7 @@ def facit(posts):
                 if "begravelse" not in typer:
                     gdpr_inkl_begravelse += 1
     r["gdpr_flag_foedt_1926plus_uden_doed"] = gdpr
-    r["  heraf_ogsaa_uden_begravelse"] = gdpr_inkl_begravelse
+    r["gdpr_heraf_ogsaa_uden_begravelse"] = gdpr_inkl_begravelse
 
     # dækning
     r["med_aegteskaber"] = sum(1 for p in posts if p.get("aegteskaber"))

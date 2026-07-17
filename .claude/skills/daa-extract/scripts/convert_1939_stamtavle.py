@@ -62,6 +62,7 @@ from validate import derive_date_info  # noqa: E402  (A2-parseren — genbrug, o
 
 CONVERTER_VERSION = "1.1.0"
 LINJE = "1939"
+SLAEGTSNAVN = "reventlow"  # 1939-stamtavlen er Reventlow; slægtsnavnet droppes ved navne-match
 
 # (input-felt, faktatype) for dato-fakta. erhverv/uddannelse udelades
 # bevidst — load_daa.R springer dem over (bliver i narrativen, A3b).
@@ -80,6 +81,18 @@ def _s(v):
         v = v.strip()
         return v or None
     return None
+
+
+def _date_fields(info):
+    """De fem dato-felter fra derive_date_info-outputtet, ét sted — så alle
+    call-sites (fødsel/død/begravelse-fakta, vielse) holder samme feltform hvis
+    dato-modellen ændres. info=None → alle None (fx titel-fakta uden dato)."""
+    if info is None:
+        return {"date_min": None, "date_max": None, "date_qualifier": None,
+                "date_certainty": None, "calendar": None}
+    return {"date_min": info["date_min"], "date_max": info["date_max"],
+            "date_qualifier": info["qualifier"], "date_certainty": info["certainty"],
+            "calendar": info["calendar"]}
 
 
 def build_date_fact(faktatype, blok):
@@ -104,11 +117,8 @@ def build_date_fact(faktatype, blok):
         "faktatype": faktatype,
         "vaerdi": None,
         "date_raw": date_raw,
-        "date_min": info["date_min"],
-        "date_max": info["date_max"],
-        "date_qualifier": info["qualifier"],
-        "date_certainty": certainty,
-        "calendar": info["calendar"],
+        **_date_fields(info),
+        "date_certainty": certainty,   # dato_usikker-overlay kan hæve None→uncertain
         "sted": sted,
         "kilde_span": date_raw,  # foreløbig; A3b-segmenter forfiner
     }
@@ -136,11 +146,7 @@ def convert_aegteskab(a):
         "ordinal": a.get("ordinal"),
         "partner_navn": _s(a.get("partner_navn")),
         "dato_raw": dato_raw,
-        "date_min": info["date_min"],
-        "date_max": info["date_max"],
-        "date_qualifier": info["qualifier"],   # bevar A2-semantik (konsistent m. build_date_fact)
-        "date_certainty": info["certainty"],
-        "calendar": info["calendar"],
+        **_date_fields(info),   # bevar A2-semantik (konsistent m. build_date_fact)
         "sted": _s(a.get("sted")),
         "skilt": bool(a.get("skilt")),
         "partner_foraeldre": _s(a.get("partner_foraeldre")),
@@ -189,9 +195,7 @@ def convert_record(rec, global_nr):
     titel = _s(rec.get("titel"))
     if titel:
         facts.append({"faktatype": "titel", "vaerdi": titel, "date_raw": None,
-                      "date_min": None, "date_max": None, "date_qualifier": None,
-                      "date_certainty": None, "calendar": None, "sted": None,
-                      "kilde_span": titel})
+                      **_date_fields(None), "sted": None, "kilde_span": titel})
     for felt, faktatype in DATE_FACT_FIELDS:
         f = build_date_fact(faktatype, rec.get(felt))
         if f is not None:
@@ -299,7 +303,7 @@ def name_tokens(s, drop_slaegt=True):
         tl = t.lower()
         if tl in _TITEL_TOKENS:
             continue
-        if drop_slaegt and tl.startswith("reventlow"):
+        if drop_slaegt and tl.startswith(SLAEGTSNAVN):
             continue
         ud.append(tl)
     return ud

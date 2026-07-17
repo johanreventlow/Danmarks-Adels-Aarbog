@@ -37,6 +37,7 @@ PAGE_RE = re.compile(r"### PAGE (\d+) ###")
 WINDOW_FILE_RE = re.compile(r"(window-\d+)_p(\d+)-(\d+)\.txt$")
 MIN_ANCHOR_LEN = 3  # normaliserede tegn; uniqueness-krav er den reelle vagt
 MIN_NARRATIVE_LEN = 20  # kortere anker-snit = naesten sikkert daarligt snit
+WINDOW_SIZED_FRAC = 0.9  # narrative >= denne andel af vindue-regionen = "vinduesstor" (fallback-diagnostik)
 
 WORK_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
@@ -245,10 +246,10 @@ def compute_stats(posts, result, winmap, raw):
     lengths = []
     short = []
     window_sized = []
-    region_len = {
-        wid: (lambda r: r[1] - r[0])(page_region(pages, len(raw), lo, hi))
-        for wid, (lo, hi) in winmap.items()
-    }
+    region_len = {}
+    for wid, (lo, hi) in winmap.items():
+        a, b = page_region(pages, len(raw), lo, hi)
+        region_len[wid] = b - a
     for post in posts:
         pid = str(post["_id"])
         rec = result[pid]
@@ -266,9 +267,9 @@ def compute_stats(posts, result, winmap, raw):
             if nv and nv in nnorm:
                 r_hit += 1
         lengths.append(len(n))
-        if len(n) < 20:
+        if len(n) < MIN_NARRATIVE_LEN:
             short.append(pid)
-        if len(n) >= 0.9 * region_len[post["_window"]]:
+        if len(n) >= WINDOW_SIZED_FRAC * region_len[post["_window"]]:
             window_sized.append(pid)
     return {
         "metode": by_metode,
