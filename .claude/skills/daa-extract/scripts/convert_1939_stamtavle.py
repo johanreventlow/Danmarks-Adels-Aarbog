@@ -62,7 +62,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from validate import derive_date_info  # noqa: E402  (A2-parseren — genbrug, omskriv ikke)
 
-CONVERTER_VERSION = "1.2.0"
+CONVERTER_VERSION = "1.3.0"
 LINJE = "1939"
 SLAEGTSNAVN = "reventlow"  # 1939-stamtavlen er Reventlow; slægtsnavnet droppes ved navne-match
 
@@ -342,6 +342,98 @@ def normalize_linje(value):
     return " ".join(re.findall(r"[0-9a-zæøå]+", value.lower())) or None
 
 
+# Sidespændene er afgrænset af de eksplicitte linjeoverskrifter i 1939-
+# stamtavlen. Kun de ubrudte sektioner II-VI projekteres. De tidligere sider
+# 490-523 rummer flere, delvist overlappende A/B/C-sektioner og udfyldes derfor
+# aldrig ud fra side alene. "Uplacerede" blokerer ligeledes projektion.
+_SIDE_LINJE_SCOPE = (
+    # S. 526 indeholder eksplicit både II og III; ingen sideprojektion dér.
+    (524, 525, "ii_gallentin"),
+    (528, 540, "iii_aeldre_meklenborgske_ziesendorf"),
+    (541, 580, "iv_danske_grevelige_1673"),
+    (581, 591, "v_grevelige_1767"),
+    # S. 592 indeholder både VI, ukendt og Uplacerede; start først på 594.
+    (594, 596, "vi_fyenske"),
+)
+
+
+def canonical_linje(value):
+    """Kanonisk 1939-linjenøgle for eksplicit kontekst.
+
+    Kendte tekstvarianter (fx sidehenvisninger og ``udledt``-markører) samles,
+    mens generiske/syntetiske linjenavne stadig normaliseres konservativt.
+    Usikker eller uplaceret kontekst giver None og kan ikke bruges til match.
+    """
+    raw = _s(value)
+    if raw is None:
+        return None
+    low = raw.lower()
+    if "uplacerede" in low or "usikker" in low or "formentlig" in low:
+        return None
+    if "ukendt" in low or "uden for vindue" in low or "uden for vinduet" in low:
+        return None
+    if "yngre meklenborgske" in low and "gallentin" in low:
+        return "c_yngre_meklenborgske_gallentin"
+    if "gallentin" in low or re.match(r"^ii(?:\.|\s|$)", low):
+        return "ii_gallentin"
+    if "ældre meklenborgske" in low:
+        if "ziesendorf" in low or re.match(r"^iii(?:\.|\s|$)", low):
+            return "iii_aeldre_meklenborgske_ziesendorf"
+        return "b_aeldre_meklenborgske"
+    if "danske grevelige" in low and "1673" in low:
+        return "iv_danske_grevelige_1673"
+    if "grevelige" in low and "1767" in low:
+        return "v_grevelige_1767"
+    if "fyenske" in low:
+        return "vi_fyenske"
+    if "yngre holstenske" in low:
+        return "yngre_holstenske"
+    if "holstenske" in low:
+        return "a_holstenske"
+    return normalize_linje(raw)
+
+
+def _side_scope(side):
+    if not isinstance(side, int):
+        return None
+    return next((key for lo, hi, key in _SIDE_LINJE_SCOPE if lo <= side <= hi), None)
+
+
+def build_linje_scopes(records, narrative_map=None):
+    """Returnér ``_id -> {key, provenance, side, conflict}``.
+
+    Prioritet: eksplicit linje > sikker sideprojektion > ukendt. En eksplicit
+    linje overskrives aldrig af siden. Hvis de to kilder er uenige, bevares den
+    eksplicitte værdi og konflikten tælles til QA. ``Uplacerede`` er en bevidst
+    stopmarkør og må ikke sideprojekteres.
+    """
+    narrative_map = narrative_map or {}
+    scopes = {}
+    for rec in records:
+        raw = (rec.get("_ctx") or {}).get("linje")
+        explicit = canonical_linje(raw)
+        n = narrative_map.get(str(rec["_id"])) or {}
+        side = n.get("side")
+        page_key = _side_scope(side)
+        block_page = isinstance(raw, str) and "uplacerede" in raw.lower()
+        if explicit is not None:
+            scopes[rec["_id"]] = {
+                "key": explicit, "provenance": "explicit", "side": side,
+                "conflict": page_key is not None and page_key != explicit,
+            }
+        elif page_key is not None and not block_page:
+            scopes[rec["_id"]] = {
+                "key": page_key, "provenance": "side_interval", "side": side,
+                "conflict": False,
+            }
+        else:
+            scopes[rec["_id"]] = {
+                "key": None, "provenance": "unknown", "side": side,
+                "conflict": False,
+            }
+    return scopes
+
+
 _BOERN_KEYWORD_RE = re.compile(r"\b(Børn|Barn|Sønner|Søn|Døtre|Datter)\b")
 # Noter der beskriver ekstraktions-usikkerhed frem for at navngive en
 # forælder -> uparsebare (fail-closed, gæt aldrig).
@@ -429,7 +521,7 @@ def _spouse_ok(rec, spouse_segs):
     return False
 
 
-def _tier2_resolve(unit, note, records, gen_af_id):
+def _tier2_resolve(unit, note, records, gen_af_id, linje_af_id):
     """Strukturel navnematch: gruppens foraeldre_note mod poster i FORRIGE
     slægtled OG samme normaliserede linje. Returnerer (_id | None, årsag).
     FAIL-CLOSED: kun præcis ét entydigt match linker; ægtefælle-navnet fra
@@ -439,7 +531,7 @@ def _tier2_resolve(unit, note, records, gen_af_id):
     if len(gens) != 1:
         return None, "slaegtled_ukendt"
     g = next(iter(gens))
-    linjer = {normalize_linje((r.get("_ctx") or {}).get("linje")) for r in unit}
+    linjer = {linje_af_id[r["_id"]]["key"] for r in unit}
     if None in linjer or len(linjer) != 1:
         return None, "linje_ukendt"
     linje = next(iter(linjer))
@@ -449,7 +541,7 @@ def _tier2_resolve(unit, note, records, gen_af_id):
     medlem_ids = {r["_id"] for r in unit}
     cands = [r for r in records
              if gen_af_id[r["_id"]] == g - 1 and r["_id"] not in medlem_ids
-             and normalize_linje((r.get("_ctx") or {}).get("linje")) == linje
+             and linje_af_id[r["_id"]]["key"] == linje
              and names_match(ptoks, name_tokens(r["navn"]))]
     if len(cands) == 1:
         return cands[0]["_id"], "ok_navn"
@@ -478,7 +570,7 @@ def _tom_rapport():
     }
 
 
-def _link_units(units, posts, records):
+def _link_units(units, posts, records, linje_af_id):
     """Opløs grupper -> forældre og sæt boern.nr_range på forælder-poster.
     Muterer posts; returnerer rapport (KUN tal — ingen persondata)."""
     rap = _tom_rapport()
@@ -494,7 +586,8 @@ def _link_units(units, posts, records):
         note = k[2]
         fids = {r.get("_foraelder_id") for r in unit
                 if r.get("_foraelder_id") is not None}
-        t2_id, t2_aarsag = _tier2_resolve(unit, note, records, gen_af_id)
+        t2_id, t2_aarsag = _tier2_resolve(
+            unit, note, records, gen_af_id, linje_af_id)
         if len(fids) > 1:                             # modstridende ground truth
             rap["tier1_konflikt_grupper"] += 1
             continue
@@ -589,11 +682,12 @@ def _link_units(units, posts, records):
     return rap
 
 
-def convert_all(records, rapport=None):
+def convert_all(records, rapport=None, narrative_map=None):
     """Hele korpus: gruppe-blokvis nummerering i dokumentorden (hver gruppe
     = én kontinuert nr-blok BY CONSTRUCTION), dernæst fail-closed
     forældre-link-opløsning. rapport (dict, valgfri) fyldes med tal."""
     units = build_units(records)
+    linje_af_id = build_linje_scopes(records, narrative_map=narrative_map)
     posts = []
     nr = 0
     for gi, unit in enumerate(units, start=1):
@@ -601,26 +695,37 @@ def convert_all(records, rapport=None):
         for rec in unit:
             nr += 1
             p = convert_record(rec, nr)
+            scope = linje_af_id[rec["_id"]]
+            p["_linje_scope"] = {
+                "key": scope["key"], "provenance": scope["provenance"],
+                "side": scope["side"], "conflict": scope["conflict"],
+            }
             if har_gruppe:
                 p["_gruppe_nr"] = gi
             posts.append(p)
-    rap = _link_units(units, posts, records)
+    rap = _link_units(units, posts, records, linje_af_id)
+    for provenance in ("explicit", "side_interval", "unknown"):
+        rap[f"linje_scope_{provenance}"] = sum(
+            s["provenance"] == provenance for s in linje_af_id.values())
+    rap["linje_scope_conflicts"] = sum(
+        s["conflict"] for s in linje_af_id.values())
     if rapport is not None:
         rapport.update(rap)
     return posts
 
 
-def flet_narrative(out, narrativ_sti):
+def flet_narrative(out, narrativ_sti, narrative_map=None):
     """Flet ORDRET narrative + side fra segment_1939.py's output ind pr. _id.
     load_daa.R kræver narrative NOT NULL — mangler-listen skal være tom.
     Returnerer (antal_flettet, [manglende _id])."""
-    if not Path(narrativ_sti).exists():
+    if narrative_map is None and not Path(narrativ_sti).exists():
         return 0, [p["_id"] for p in out]
-    with open(narrativ_sti, encoding="utf-8") as f:
-        nmap = json.load(f)
+    if narrative_map is None:
+        with open(narrativ_sti, encoding="utf-8") as f:
+            narrative_map = json.load(f)
     flettet, mangler = 0, []
     for p in out:
-        n = nmap.get(str(p["_id"]))
+        n = narrative_map.get(str(p["_id"]))
         if n and n.get("narrative"):
             p["narrative"] = n["narrative"]
             if n.get("side") is not None:
@@ -636,9 +741,16 @@ def main(argv):
     ud = Path(argv[2]) if len(argv) > 2 else Path("work_1939_stamtavle/clean_1939.json")
     with open(inp, encoding="utf-8") as f:
         records = json.load(f)
+    narrativ_sti = ud.parent / "narrative_1939.json"
+    if narrativ_sti.exists():
+        with open(narrativ_sti, encoding="utf-8") as f:
+            narrative_map = json.load(f)
+    else:
+        narrative_map = {}
     rapport = {}
-    out = convert_all(records, rapport=rapport)
-    n_flettet, n_mangler = flet_narrative(out, ud.parent / "narrative_1939.json")
+    out = convert_all(records, rapport=rapport, narrative_map=narrative_map)
+    n_flettet, n_mangler = flet_narrative(
+        out, narrativ_sti, narrative_map=narrative_map)
     with open(ud, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=1)
         f.write("\n")
