@@ -161,7 +161,18 @@ Mister skrivninger foretaget efter Trin 0-dumpet (derfor skrive-frys).
 ## Fase 2 — 1939-stamtavle-load til prod (SEPARAT, senere gate)
 
 Selvstændig bruger-godkendt handling EFTER cutoveren er grøn (levende-PII, gitignoreret). IKKE del af
-skema-cutoveren. Konverter-artefaktet er A4-verificeret (loader korrekt, GDPR-sikkert). Rækkefølge:
+skema-cutoveren.
+
+⚠️ **FORUDSÆTNING FØR FASE 2 (verificeret 2026-07-17):** artefaktet `clean_1939.json` på disk er
+genereret af konverter **v1.1.0** (539 poster, 364 forælder-links/67%), men konverter-koden er nu
+**v1.3.0** (fail-closed linje-scope). **A4 SKAL gentages mod et regenereret v1.3.0-artefakt** før load —
+v1.2.0's strammere scope faldt til ~180 links i preview, så v1.3.0's reelle link-tal + facit er ukendt
+indtil regenereret. Kør: (a) `convert_1939_stamtavle.py` → nyt `clean_1939.json`; (b) A4 dry-run
+(load mod isoleret DB + facit-validering: narrative NOT NULL, slots, GDPR-sweep); (c) bekræft
+accept-tærskel for det (formentlig lavere) link-tal — v1.3.0 vælger færre men fail-closede links (ingen
+falske cross-gren-forældre) frem for v1.1.0's bredere dækning med kendt falsk-match-risiko.
+
+Rækkefølge (efter A4-gentagelse er grøn):
 
 1. **Rehearsal-load mod prod-KOPI (K1, OBLIGATORISK):** load 1939 mod GATE 0-kopien (ikke prod), og test
    end-to-end at RLS + matcheren (`matchUdgaver.ts`) + collapse + offentlig UI virker sammen med de
@@ -175,8 +186,10 @@ skema-cutoveren. Konverter-artefaktet er A4-verificeret (loader korrekt, GDPR-si
    for udgavens poster + partner-stubs → 1939 bliver offentlig. (target: pr-person-afstaging ved review
    når matcher-UI wires; RPC'en er PoC-default = hele udgaven samlet.)
 
-**Facit før publicering (fra `facit_1939.py`, ingen PII):** 539 poster, 355 forældre-links (fail-closed),
-GDPR-flag 7 (født ≥1926 u. død → `levende=TRUE`, skjult uafhængigt af staging). Uopløste barn-links parkeres.
+**Facit før publicering (fra `facit_1939.py`, ingen PII):** 539 poster; forælder-link-tal = **det
+regenererede v1.3.0-artefakts** (v1.1.0-referencen var 364/67%, v1.3.0 forventes lavere pga. fail-closed
+scope — bekræft ved A4-gentagelsen); GDPR-flag 7 (født ≥1926 u. død → `levende=TRUE`, skjult uafhængigt
+af staging). Uopløste barn-links parkeres (staged, ikke publiceret).
 
 ## Rehearsal-log (lokalt, 2026-07-16)
 
