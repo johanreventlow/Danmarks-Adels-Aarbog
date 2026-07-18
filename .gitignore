@@ -8,6 +8,10 @@
 node_modules/
 dist/
 *.tsbuildinfo
+
+# Playwright e2e-kørselsartefakter (web/)
+web/test-results/
+web/playwright-report/
 .env
 .env.local
 .env.*.local

@@ -1,8 +1,9 @@
 // Feed-strøm — web-udgaven (fase1-design.md §7). Monteres under forsidens hero/kuraterede
 // sektion (HomeView.tsx). Bygger sin egen FeedAux af estates/arms (allerede hentet af
-// Folgesvend.tsx), henter bio + livsdato asynkront ved mount, og doserer via en
-// IntersectionObserver-sentinel i bunden. Én kolonne, centreret, ~680px — redaktionel ro,
-// ikke et masonry-dashboard.
+// Folgesvend.tsx), henter bio + livsdato asynkront ved mount, og doserer via en sentinel i
+// bunden (scroll-lytter på den rigtige scroll-container, se §-note nedenfor — ikke
+// IntersectionObserver, jf. §7.4's forslag; se begrundelse ved sentinel-opsætningen). Én
+// kolonne, centreret, ~680px — redaktionel ro, ikke et masonry-dashboard.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   bookmarkPersonId, createFeedStream, resumeStream,
@@ -73,6 +74,11 @@ export function FeedStreamView({
   const streamRef = useRef<FeedStream | null>(null);
   const [done, setDone] = useState(false);
 
+  // Bumpes ved hver (gen)opbygning af streamRef.current (ren ref-mutation, ingen re-render i
+  // sig selv) — bruges KUN som et signal til fill-effekten nedenfor om at genvurdere, uden at
+  // gøre streamRef selv til reaktiv state.
+  const [streamGeneration, setStreamGeneration] = useState(0);
+
   useEffect(() => {
     if (seenWeights === null) return; // vent på hydrering — undgår at bygge to gange
     const enrichedModel = bios ? withFeedBios(model, bios) : model;
@@ -87,6 +93,7 @@ export function FeedStreamView({
       streamRef.current = resumeStream(built, new Set(shownRef.current.map((c) => c.id)));
     }
     setDone(streamRef.current.done());
+    setStreamGeneration((g) => g + 1);
     // bookmarkedIds er BEVIDST ikke i dependency-listen (§4.1): en stream må ikke genopbygges/
     // nulstilles bare fordi brugeren toggler et bogmærke midt i scroll — det ville nulstille de
     // allerede viste kort. shownRef læses via ref, ikke som reaktiv dependency, af samme grund.
@@ -113,17 +120,43 @@ export function FeedStreamView({
     appendingRef.current = false;
   }, [markShownAsSeen]);
 
+  // VIGTIGT: siden scroller IKKE i window/body (Folgesvend.tsx's rodlayout er
+  // `height:100vh; overflow:hidden`, med den faktiske scroll i en indre
+  // `<div data-scroll>`-container). Dosering er derfor bundet til DENNE container, ikke
+  // vinduet. To komplementære udløsere holder sentinellen dækket:
+  // 1) et 'scroll'-lytter-tjek på selve containeren (synkront, ingen browser-batching) —
+  //    dækker ægte brugerscroll.
+  // 2) en efterkontrol når `shown`/streamGeneration ændrer sig (§-note nedenfor) — dækker
+  //    "kort indhold fylder ikke skærmen" og "en strøm-rebuild uden scroll".
   const sentinelRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
+
+  const checkAndFill = useCallback(() => {
     const el = sentinelRef.current;
     if (!el) return;
-    const observer = new IntersectionObserver(
-      (entries) => { if (entries[0]?.isIntersecting) handleEndReached(); },
-      { rootMargin: '400px' },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
+    const scrollEl = el.closest('[data-scroll]');
+    const viewportRect = scrollEl ? scrollEl.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+    const rect = el.getBoundingClientRect();
+    // 400px margin (spec §7.4): begynd at hente FØR sentinellen er bogstaveligt synlig.
+    const inView = rect.top < viewportRect.bottom + 400 && rect.bottom > viewportRect.top - 400;
+    if (inView) handleEndReached();
   }, [handleEndReached]);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    const scrollEl = el?.closest('[data-scroll]');
+    if (!scrollEl) return;
+    scrollEl.addEventListener('scroll', checkAndFill, { passive: true });
+    return () => scrollEl.removeEventListener('scroll', checkAndFill);
+  }, [checkAndFill]);
+
+  // "Fyld skærmen"-efterkontrol: kører efter hver commit hvor `shown` eller streamGeneration
+  // ændrer sig — inkl. efter handleEndReached's egen setShown, hvilket giver en selv-
+  // terminerende "fyld indtil enten skærmen er fuld eller strømmen er tom"-løkke ved
+  // mount/rebuild, uden at afhænge af at brugeren rent faktisk scroller (fx efter bios
+  // ankommer, hvor sentinellen kan stå ubevæget men strømmen nu har mere at give).
+  useEffect(() => {
+    checkAndFill();
+  }, [shown, streamGeneration, checkAndFill]);
 
   const openCard = useCallback((card: FeedCard) => {
     switch (card.kind) {
