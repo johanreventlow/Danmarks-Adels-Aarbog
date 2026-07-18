@@ -3,8 +3,8 @@
 // FK), så vi henter N flade queries og joiner i klienten. citation→source HAR FK og nestes.
 // joinEvidence er ren/testbar uden net.
 import { supabase } from '../supabase';
-import { fmtYears, parseYear, getAll, buildMatchPersoner, parseIkkeSammeSomPar } from '@daa/core';
-import type { RedMatchPerson, MatchPersonRow, MatchFactRow, MatchConcRow, MatchAssertRow, MatchExtIdRow } from '@daa/core';
+import { fmtYears, parseYear, getAll, buildMatchPersoner, parseIkkeSammeSomPar, buildFamilyGraph } from '@daa/core';
+import type { RedMatchPerson, MatchPersonRow, MatchFactRow, MatchConcRow, MatchAssertRow, MatchExtIdRow, RawFamilyMember, Union, ParentChild } from '@daa/core';
 import { FELT_FAKTATYPE } from './redaktionWrite';
 import { resolveOrgEstateNames } from './public';
 import { signPaths, fetchThumbPathByMediaId } from './media';
@@ -720,4 +720,14 @@ export async function fetchSammeSomPar(): Promise<{ aId: string; bId: string }[]
     supabase.from('relation').select('subjekt_id,objekt_id')
       .eq('rolle', 'samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person'));
   return parseIkkeSammeSomPar(rows); // samme (subjekt,objekt)→(aId,bId)-form
+}
+
+/** Hent hele familie-grafen (union + forælder→barn) til den rådgivende samme_som-fold-preview
+ *  (§7.18) — bruges sammen med fetchMatchPersoner til at bygge et Db der kan køres gennem
+ *  collapseSameAs/previewSammeSom i redaktionen. Bevidst UDEN far-før-mor-ordinal-sortering
+ *  (buildFamilyGraph, kommentar deri) — rækkefølgen er uden betydning for karantæne-tjek. */
+export async function fetchFamilyGraph(): Promise<{ unions: Union[]; parentChild: ParentChild[] }> {
+  const members = await getAll<RawFamilyMember>(() =>
+    supabase.from('family_member').select('family_id,person_id,rolle'));
+  return buildFamilyGraph(members);
 }

@@ -3,12 +3,21 @@
 // submitChange (samme dry-run/LIVE-flow som resten af redaktionen). Retning (§5.4):
 // eksisterende base = kanonisk (objekt/sink), ny udgaves person = alias (subjekt).
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { matchUdgaver, buildMatchFrame, type MatchFrame, type RedMatchPerson } from '@daa/core';
 import {
-  fetchSources, fetchMatchPersoner, fetchIkkeSammeSomPar, fetchSammeSomPar, type SourceRow,
+  matchUdgaver, buildMatchFrame, collapseSameAs, previewSammeSom, parseYear,
+  type MatchFrame, type RedMatchPerson, type Db, type SameAsEdge, type Union, type ParentChild,
+} from '@daa/core';
+import {
+  fetchSources, fetchMatchPersoner, fetchIkkeSammeSomPar, fetchSammeSomPar, fetchFamilyGraph, type SourceRow,
 } from '../data/redaktionRead';
 import { submitChange, type Change } from '../data/redaktionWrite';
 import { buildArbejdsliste, pairKey, type Kandidat } from '../data/sammenlign';
+
+// Rå person → Koen (samme normalisering som web/src/data/model.ts, men uden 'ukendt'→null-skridtet
+// dupliceret via en type-import — feltet er lille nok til at holde lokalt her).
+function toKoen(k: string | null): 'mand' | 'kvinde' | null {
+  return k === 'mand' || k === 'kvinde' ? k : null;
+}
 
 function visning(p?: RedMatchPerson): string {
   if (!p) return '(ukendt)';
@@ -23,6 +32,7 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
   const [personer, setPersoner] = useState<RedMatchPerson[]>([]);
   const [afviste, setAfviste] = useState<{ aId: string; bId: string }[]>([]);
   const [linkede, setLinkede] = useState<{ aId: string; bId: string }[]>([]);
+  const [familieGraf, setFamilieGraf] = useState<{ unions: Union[]; parentChild: ParentChild[] }>({ unions: [], parentChild: [] });
   const [nyKildeId, setNyKildeId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [fejl, setFejl] = useState<string | null>(null);
@@ -32,10 +42,10 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
   useEffect(() => {
     let alive = true;
     setLoading(true); setFejl(null);
-    Promise.all([fetchSources(), fetchMatchPersoner(), fetchIkkeSammeSomPar(), fetchSammeSomPar()])
-      .then(([s, p, afv, lnk]) => {
+    Promise.all([fetchSources(), fetchMatchPersoner(), fetchIkkeSammeSomPar(), fetchSammeSomPar(), fetchFamilyGraph()])
+      .then(([s, p, afv, lnk, fam]) => {
         if (!alive) return;
-        setSources(s); setPersoner(p); setAfviste(afv); setLinkede(lnk);
+        setSources(s); setPersoner(p); setAfviste(afv); setLinkede(lnk); setFamilieGraf(fam);
         setNyKildeId((prev) => prev ?? (
           [...s].filter((x) => x.aar != null).sort((a, b) => (b.aar as number) - (a.aar as number))[0]?.id ?? s[0]?.id ?? null));
       })
@@ -45,6 +55,38 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
   }, [refresh]);
 
   const byId = useMemo(() => new Map(personer.map((p) => [String(p.id), p])), [personer]);
+
+  // Db til den rådgivende fold-preview (§7.18): rå personer (born/died fra den VALGTE
+  // fødsel/død-assertion, samme kilde som matcheren bruger) + hele familie-grafen. IKKE den
+  // offentlige, RLS-filtrerede model — dette er redaktionens fulde datasæt, til at forudsige
+  // om et bekræftet link ville folde offentligt (rådgivende, kan afvige pga. RLS/completeness).
+  const rawDb: Db = useMemo(() => ({
+    persons: personer.map((p) => ({
+      id: p.id, name: p.navn,
+      born: parseYear(p.foedsel?.date_min ?? p.foedsel?.date_max ?? null),
+      died: parseYear(p.doed?.date_min ?? p.doed?.date_max ?? null),
+      years: '', title: '', bio: '', privat: false, koen: toKoen(p.koen),
+    })),
+    unions: familieGraf.unions,
+    parentChild: familieGraf.parentChild,
+  }), [personer, familieGraf]);
+
+  // Eksisterende afklarede samme_som-kanter i SameAsEdge-form (alias=subjekt, kanonisk=objekt —
+  // §5.4-retningen; matcher red_samme_som). `linkede` er allerede netop dette par-sæt.
+  const existingEdges: SameAsEdge[] = useMemo(
+    () => linkede.map((l) => ({ alias: l.aId, canonical: l.bId })),
+    [linkede],
+  );
+
+  // ÉN collapseSameAs-kørsel over ALLE bekræftede links → grundlaget for BÅDE karantæne-
+  // oversigten og "✓ bekræftet"-badgets fold-status nedenfor (ingen grund til at gentage
+  // union-find + validering pr. bekræftet kandidat).
+  const foldPreview = useMemo(() => collapseSameAs(rawDb, existingEdges, new Map()), [rawDb, existingEdges]);
+  const karantaeneByPersonId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const q of foldPreview.quarantined) for (const id of q.members) m.set(id, q.reason);
+    return m;
+  }, [foldPreview]);
 
   const arbejdsliste = useMemo(() => {
     if (nyKildeId == null) return null;
@@ -80,6 +122,18 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
     kand.filter((k) => !k.afvist && !k.linket).forEach((k) => afvis(String(k.aId), String(k.bId)));
   };
 
+  // Fold-hint pr. par: for et allerede bekræftet link, slå op om DET par er en af de karantænerede
+  // grupper (fra den ÉN kørsel over alle bekræftede kanter ovenfor); for et endnu ubekræftet par,
+  // kør previewSammeSom med den hypotetiske kant. RÅDGIVENDE (offentlig visning kan afvige pga.
+  // RLS/completeness) — se sammeSomPreflight.ts-header.
+  const foldHint = (aId: string, bId: string, linket: boolean): { folder: boolean; grund: string | null } => {
+    if (linket) {
+      const grund = karantaeneByPersonId.get(aId) ?? karantaeneByPersonId.get(bId) ?? null;
+      return { folder: grund == null, grund };
+    }
+    return previewSammeSom(rawDb, existingEdges, { alias: aId, canonical: bId });
+  };
+
   if (loading) return <div className="sammenlign">Indlæser redaktions-datasæt…</div>;
 
   const f = arbejdsliste?.fremdrift;
@@ -107,6 +161,21 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
         </p>
       )}
 
+      {/* Karantæne-oversigt (§7.18): bekræftede samme_som-links der endnu ikke folder offentligt
+          — typisk fordi forældrene i de to udgaver ikke selv er matchet endnu. Rådgivende. */}
+      {foldPreview.quarantined.length > 0 && (
+        <details open style={{ marginTop: '.75rem', border: '1px solid rgba(136,26,51,.25)', borderRadius: 6, padding: '.5rem .8rem', background: '#fdf3f5' }}>
+          <summary style={{ color: '#881A33', fontWeight: 600, cursor: 'pointer' }}>
+            {foldPreview.quarantined.length} bekræftet link{foldPreview.quarantined.length === 1 ? '' : 's'} folder endnu ikke offentligt
+          </summary>
+          <ul style={{ fontSize: '.85em', marginTop: '.4rem', marginBottom: 0 }}>
+            {foldPreview.quarantined.map((q, i) => (
+              <li key={i}>{q.members.map((id) => visning(byId.get(id))).join(' = ')} — <em>{q.reason}</em></li>
+            ))}
+          </ul>
+        </details>
+      )}
+
       {aabne.map((person) => {
         const a = byId.get(person.aId);
         return (
@@ -131,6 +200,16 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
                     {' '}
                     <button disabled={!!busy} onClick={() => afvis(person.aId, String(k.bId))}>Afvis</button>
                   </div>
+                  {(() => {
+                    const hint = foldHint(person.aId, String(k.bId), k.linket);
+                    return (
+                      <div style={{ fontSize: '.8em', marginTop: '.25rem', color: hint.folder ? '#3d7a3d' : '#881A33' }}>
+                        {k.linket
+                          ? (hint.folder ? '✓ foldes offentligt til én person' : `✓ bekræftet — foldes IKKE endnu offentligt: ${hint.grund}`)
+                          : (hint.folder ? '→ vil folde offentligt til én person' : `→ vil IKKE folde: ${hint.grund}`)}
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}

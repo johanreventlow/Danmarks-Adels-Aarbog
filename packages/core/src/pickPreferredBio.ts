@@ -12,7 +12,8 @@ export type NarrativeCand = {
 
 // Godkendte source-slags der må levere en offentlig standardbio. Kun DAA-udgaver nu;
 // udvid bevidst (ikke vilkårlig fallback — en TNG-stub må ikke blive autoritativ bio).
-const BIO_SLAGS = new Set(['DAA-udgave']);
+// Eksporteret så bioVersions.ts (udgave-versionsvælgeren) bruger PRÆCIS samme gate.
+export const BIO_SLAGS = new Set(['DAA-udgave']);
 
 // Fuld deterministisk orden: aar DESC NULLS LAST, sourceId DESC, narrativeId DESC.
 // Sidste tie-break på narrativeId er nødvendig fordi DB-unikhed pr. (subjekt,source) er udskudt.
