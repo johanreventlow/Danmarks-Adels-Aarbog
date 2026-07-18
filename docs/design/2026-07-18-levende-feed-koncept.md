@@ -7,6 +7,8 @@ stod åben i web-konceptets §9.f — dette dokument lukker den beslutning).
 **Bygger på:** feed v3-spec (`docs/superpowers/specs/2026-07-05-folgesvend-v3-feed-drawer-bogmaerker-design.md`),
 web-nav-konceptet (`docs/design/2026-07-08-web-navigation-soegning-stamtrae-koncept.md`),
 datamodellens invarianter (`claude.md` §invarianter, `datamodel-oversigt.md` §4 + §6).
+**Se også:** [`2026-07-18-formidlingskatalog.md`](2026-07-18-formidlingskatalog.md) —
+idékatalog over yderligere formidlingsformater der genbruger formidlingslaget herfra.
 
 ---
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## Idékatalog: formidling oven på kildematerialet (2026-07-18)
+
+Brainstorm-runde i forlængelse af feed-konceptet, dokumenteret til senere bearbejdning:
+**`docs/design/2026-07-18-formidlingskatalog.md`** — 19 idéer i 7 klynger (evidens-formidling som
+attraktion, serier/udstillinger, kort & sted, personalisering, objekter, distribution ud af appen, leg),
+hver med databasegrundlag, afhængigheder og indsats, plus et vejledende prioriteringsbillede (mest
+særegne: kildeuenigheds-serien, årbogens egen udvikling, efterlysninger; billigst: føljetoner,
+våben-forklaringer, delekort). Intet besluttet — hver idé løftes til eget koncept når den vælges.
+Krydsrefereret fra feed-konceptet og indekseret i `docs/README.md`.
+
 ## Koncept: Det levende feed (2026-07-18)
 
 Idéudviklings-runde (ingen kode) der samler feed-videreudviklingen i ét styringsdokument:

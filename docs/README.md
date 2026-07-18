@@ -51,6 +51,7 @@ i historiske planer og afsluttede reviews.
 | Dokument | Hvad |
 |---|---|
 | [`design/2026-07-18-levende-feed-koncept.md`](design/2026-07-18-levende-feed-koncept.md) | **Det levende feed:** dynamik (seeded sampling), ægte uendelig scroll, hændelses-skelet + minihistorier (formidlingslag), redaktionel kuratering, LLM-assist. 4 faser; afløser feed v3-spec'ens statiske model. |
+| [`design/2026-07-18-formidlingskatalog.md`](design/2026-07-18-formidlingskatalog.md) | **Idékatalog** (ikke besluttet): 19 formidlingsidéer oven på kildematerialet — evidens-formidling, serier/udstillinger, kort/sted, personalisering, objekter, distribution, leg. Med grundlag/afhængigheder/indsats pr. idé + prioriteringsbillede. |
 | [`design/2026-07-08-web-navigation-soegning-stamtrae-koncept.md`](design/2026-07-08-web-navigation-soegning-stamtrae-koncept.md) | Web: mega-menu-navigation, søgning i stamtræet, split-skærm flade+detalje. (§9.f forsidens form er lukket af feed-konceptet ovenfor.) |
 
 ---
