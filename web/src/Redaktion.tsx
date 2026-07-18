@@ -8,10 +8,10 @@ import { navigate, usePath } from './router';
 import { SammenlignUdgaver } from './components/SammenlignUdgaver';
 import { signIn, signOut, currentSession, type RedSession } from './data/auth';
 import {
-  fetchRedaktionPersoner, fetchPersonEvidence, fetchNarrativer, fetchSources, fetchLineages, fetchSletPreview,
+  buildTidslinje, fetchHaendelserForPerson, fetchRedaktionPersoner, fetchPersonEvidence, fetchNarrativer, fetchSources, fetchLineages, fetchSletPreview,
   fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, fetchSammeSomLinks, fetchRedPersonMedia, fetchRedObjectMedia, nudgeOrdinal, fetchForaeldreUkendtMarkering, type RedPerson, type PersonEvidence,
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
-  type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia, type ForaeldreUkendtMarkering, SLAEGT_SUBJEKT_ID,
+  type HaendelsePost, type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia, type ForaeldreUkendtMarkering, SLAEGT_SUBJEKT_ID,
   fetchForaeldreSlot, fetchForaeldreKonflikter, fetchBarnFamilie, type ForaeldreSlot, type ForaeldreKonflikt, type BarnFamilie,
 } from './data/redaktionRead';
 import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, insertAt, makeToken, previewSammeSom } from '@daa/core';
@@ -121,6 +121,8 @@ export default function Redaktion() {
   const [persons, setPersons] = useState<RedPerson[]>([]);
   const [recCache, setRecCache] = useState<Record<string, EntityRecord[]>>({});
   const [evidence, setEvidence] = useState<PersonEvidence | null>(null);
+  const [haendelser, setHaendelser] = useState<HaendelsePost[]>([]);
+  const [haendelseNotice, setHaendelseNotice] = useState('');
   // Narrativ pr. udgave: liste (faner) + aktiv kilde + redigerbart udkast for den aktive fane.
   const [narrativer, setNarrativer] = useState<PersonNarrativ[]>([]);
   const [aktivSourceId, setAktivSourceId] = useState<number | null>(null);
@@ -265,8 +267,9 @@ export default function Redaktion() {
   }, []);
 
   const loadPerson = useCallback((id: string, opts?: { skipMedia?: boolean }) => {
-    setEvidence(null); setFamilie(null); setRelationer(null); setEditingAssert(null); setAddingFact(null);
+    setEvidence(null); setHaendelser([]); setHaendelseNotice(''); setFamilie(null); setRelationer(null); setEditingAssert(null); setAddingFact(null);
     fetchPersonEvidence(id).then(setEvidence).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
+    fetchHaendelserForPerson(id).then(setHaendelser).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
     loadNarrativer('person', Number(id));
     fetchPersonFamilie(id, model).then(setFamilie).catch(() => setFamilie({ somPartner: [], somBarn: [] }));
     fetchPersonRelationer(id).then(setRelationer).catch(() => setRelationer([]));
@@ -388,6 +391,32 @@ export default function Redaktion() {
     () => sources.filter((s) => !narrativer.some((n) => n.sourceId === s.id)),
     [sources, narrativer],
   );
+  const tidslinje = useMemo(
+    () => buildTidslinje(haendelser, evidence ?? { felter: {}, koen: null }),
+    [haendelser, evidence],
+  );
+
+  const hopTilHaendelse = useCallback((post: (typeof tidslinje)[number]) => {
+    if (post.narrativeId == null) return;
+    const n = narrativer.find((x) => x.id === post.narrativeId);
+    if (!n) { setHaendelseNotice('Kildenarrativet er ikke længere tilgængeligt.'); return; }
+    const tekst = n.sourceId === aktivSourceId ? narrativUdkast.tekst : n.tekst;
+    let start = post.spanStart ?? -1;
+    const length = post.spanLaengde ?? post.klausul.length;
+    if (start < 0 || tekst.slice(start, start + length) !== post.klausul) start = tekst.indexOf(post.klausul);
+    if (start < 0) {
+      setHaendelseNotice('Klausul ikke længere i narrativet — gen-kør hændelses-passet.');
+      return;
+    }
+    setHaendelseNotice(''); setAktivSourceId(n.sourceId); setNyUdgave(null);
+    setNarrativUdkast({ tekst, privat: n.privat, side: n.side ?? '' });
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const el = narrativTextareaRef.current;
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.focus(); el.setSelectionRange(start, start + post.klausul.length);
+    }));
+  }, [tidslinje, narrativer, aktivSourceId, narrativUdkast.tekst]);
 
   // --- Skrivning ---
   const run = useCallback(async (change: Change, titel: string) => {
@@ -662,6 +691,33 @@ export default function Redaktion() {
         <div style={sectionHeader(22)}>Kerne-fakta · konklusion ← oplysninger</div>
         {!evidence && <div style={{ color: T.muted3, fontSize: 12.5 }}>Henter evidens…</div>}
         {evidence && FELT_DEFS.flatMap(([felt, label]) => (evidence.felter[felt] ?? [{ felt, faktatype: felt, factId: -1, konklusionAssertionId: null, oplysninger: [], uenig: false } as FeltEvidens]).map((f) => renderFactCard(p.id, label, f)))}
+
+        <div style={sectionHeader(22)}>Hændelser · tidslinje fra prosaen</div>
+        {haendelseNotice && <div style={{ ...annoBox, color: T.bordeaux, fontSize: 11.5, marginBottom: 8 }}>{haendelseNotice}</div>}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+          {tidslinje.map((post) => {
+            const dato = post.dato.raw ?? (post.dato.min && post.dato.max && post.dato.min !== post.dato.max
+              ? `${post.dato.min} – ${post.dato.max}` : post.dato.min ?? post.dato.max ?? 'udateret');
+            const statusser = ['kandidat','interessant','skjult'] as const;
+            return <div key={post.id} style={{ background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 10, padding: '10px 12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                <span style={{ fontFamily: T.mono, fontSize: 9, color: T.bordeaux }}>{dato}</span>
+                <span style={{ fontFamily: T.mono, fontSize: 8, color: T.muted, background: T.beige, borderRadius: 5, padding: '2px 5px' }}>{post.art === 'rygrad' ? 'RYGRAD' : (post.kategori ?? 'ANDET').toUpperCase()}</span>
+                <span style={{ flex: 1 }} />
+                {post.art === 'haendelse' && post.haendelseId != null && <span style={{ display: 'flex', gap: 3 }}>
+                  {statusser.map((status) => <span key={status}
+                    onClick={() => run({ art: 'haendelseStatus', subjektType: 'person', subjektId: p.id, haendelseId: post.haendelseId, status }, 'Feed-status')}
+                    style={{ fontFamily: T.mono, fontSize: 8, fontWeight: 600, padding: '3px 6px', borderRadius: 5, cursor: 'pointer', background: post.feedStatus === status ? T.bordeaux : T.beige, color: post.feedStatus === status ? T.paperText : T.muted }}>
+                    {status}
+                  </span>)}
+                </span>}
+              </div>
+              <div onClick={() => hopTilHaendelse(post)} style={{ fontFamily: T.serif, fontSize: 16, fontStyle: 'italic', lineHeight: 1.35, cursor: post.narrativeId != null ? 'pointer' : 'default' }}>“{post.klausul}”</div>
+              <div style={{ fontFamily: T.mono, fontSize: 8.5, color: T.muted2, marginTop: 4 }}>{[post.sourceTitel, post.side ? `s. ${post.side}` : null].filter(Boolean).join(', ') || 'kilde mangler'}</div>
+            </div>;
+          })}
+          {!tidslinje.length && <div style={{ color: T.muted3, fontSize: 12 }}>Ingen daterede poster endnu.</div>}
+        </div>
 
         {renderFamilieRelationer(p.id)}
 

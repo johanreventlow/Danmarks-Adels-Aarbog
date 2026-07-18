@@ -263,6 +263,9 @@ export function describeCall(call: RpcCall): string {
 // Forslag → staging (red_suggest). Routing-fallback: ikke-redaktion, eller redaktion på en
 // art uden direkte RPC (fx generisk entitets-feltredigering). Bygger ALTID et gyldigt kald.
 export function buildSuggestCall(c: Change): RpcCall {
+  const fallbackPayload = c.art === 'haendelseStatus'
+    ? { haendelseId: c.haendelseId, status: c.status }
+    : {};
   return { fn: 'red_suggest', args: {
     p_art: c.art,
     p_subjekt_type: c.subjektType,
@@ -270,7 +273,7 @@ export function buildSuggestCall(c: Change): RpcCall {
     p_felt: c.felt ?? null,
     p_vaerdi: c.vaerdi ?? null,
     p_kilde_fritekst: c.kildeFritekst ?? null,
-    p_payload: c.payload ?? {},
+    p_payload: c.payload ?? fallbackPayload,
     p_note: null,
   } };
 }

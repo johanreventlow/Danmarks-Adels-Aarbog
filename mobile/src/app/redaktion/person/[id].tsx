@@ -5,6 +5,7 @@ import { InitialBadge } from '../../../components/InitialBadge';
 import { TopBar } from '../../../components/TopBar';
 import { CenterMsg } from '../../../components/CenterMsg';
 import { FaktaKort, type FaktaAction } from '../../../components/redaktion/FaktaKort';
+import { HaendelseTidslinje } from '../../../components/redaktion/HaendelseTidslinje';
 import { SletBekraeftSheet } from '../../../components/redaktion/SletBekraeftSheet';
 import { SkrivePreviewSheet } from '../../../components/redaktion/SkrivePreviewSheet';
 import { EntitetPicker } from '../../../components/redaktion/EntitetPicker';
@@ -23,7 +24,7 @@ import { RelTilfoejSheet } from '../../../components/redaktion/RelTilfoejSheet';
 import { personEditorSheetStyles } from '../../../components/redaktion/personEditorSheetStyles';
 import { Body, BtnLabel, Mono, Serif } from '../../../components/Typography';
 import { useMediaAndThumbUris } from '../../../lib/media';
-import { fetchPersonEvidence, fetchPersonRelationer, fetchPersonFamilie, fetchPersonMedia, fetchSammeSomLinks, fetchForaeldreUkendtMarkering, nudgeOrdinal, type PersonEvidence, type PersonRelation, type PersonFamilie, type PersonMedia, type SammeSomLink, type ForaeldreUkendtMarkering } from '../../../data/redaktionRead';
+import { buildTidslinje, fetchHaendelserForPerson, fetchPersonEvidence, fetchPersonRelationer, fetchPersonFamilie, fetchPersonMedia, fetchSammeSomLinks, fetchForaeldreUkendtMarkering, nudgeOrdinal, type HaendelsePost, type PersonEvidence, type PersonRelation, type PersonFamilie, type PersonMedia, type SammeSomLink, type ForaeldreUkendtMarkering } from '../../../data/redaktionRead';
 import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, previewSammeSom } from '@daa/core';
 import { eraAdvarsel } from '../../../data/eraAdvarsel';
 import { type Change } from '../../../data/redaktionWrite';
@@ -43,6 +44,7 @@ export default function PersonEditor() {
   const dryRun = useStore((s) => s.dryRun);
   const setDryRun = useStore((s) => s.setDryRun);
   const [ev, setEv] = useState<PersonEvidence | null>(null);
+  const [haendelser, setHaendelser] = useState<HaendelsePost[]>([]);
   const [pending, setPending] = useState<Change | null>(null);
   const [markering, setMarkering] = useState<ForaeldreUkendtMarkering | null>(null);
   const [foraeldreReload, setForaeldreReload] = useState(0); // refetch forældre-slot efter vaelgForaeldre
@@ -60,6 +62,9 @@ export default function PersonEditor() {
   const [addScratch, setAddScratch] = useState({ vaerdi: '', kilde: '' });
 
   useEffect(() => { if (id) fetchPersonEvidence(id).then(setEv).catch((e) => console.warn('[redaktion/person] evidens fejlede:', e)); }, [id]);
+  const refreshHaendelser = () => { if (id) fetchHaendelserForPerson(id).then(setHaendelser).catch((e) => console.warn('[redaktion/person] hændelser fejlede:', e)); };
+  useEffect(refreshHaendelser, [id]);
+  const tidslinje = useMemo(() => buildTidslinje(haendelser, ev ?? { felter: {}, koen: null }), [haendelser, ev]);
   useEffect(() => {
     if (!id) return;
     fetchForaeldreUkendtMarkering(id)
@@ -342,6 +347,11 @@ export default function PersonEditor() {
           </View>
         </View>
 
+        <HaendelseTidslinje poster={tidslinje}
+          onSetStatus={(haendelseId, status) => setPending({
+            art: 'haendelseStatus', subjektType: 'person', subjektId: id!, haendelseId, status,
+          })} />
+
         <NarrativEditor subjektType="person" subjektId={id!} media={media} mediaThumbUris={mediaThumbUris} />
 
         {/* Materiale (mediehåndtering Slice 0g+0h) */}
@@ -578,6 +588,7 @@ export default function PersonEditor() {
         onApplied={() => {
           setPending(null);
           if (id) fetchPersonEvidence(id).then(setEv).catch(() => {});
+          refreshHaendelser();
           if (id) fetchForaeldreUkendtMarkering(id).then(setMarkering).catch(() => {});
           setForaeldreReload((k) => k + 1);
           if (id) fetchPersonRelationer(id, redaktionAux).then(setRelationer).catch(() => {});
