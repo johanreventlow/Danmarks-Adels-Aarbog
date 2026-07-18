@@ -375,6 +375,8 @@ Redaktørens arbejde er dermed **kuraterende** (markér + redigér), ikke afskri
 ## 10. Faser (styrer implementeringen — én spec + plan pr. fase)
 
 ### Fase 1 — Dynamik & uendelig scroll (ren klient, ingen backend-ændringer)
+*Spec: [`../superpowers/specs/2026-07-18-levende-feed-fase1-design.md`](../superpowers/specs/2026-07-18-levende-feed-fase1-design.md)
+(lukker samtidig ○a: ny pakke `@daa/feed`).*
 Feed-motoren omskrives til pool → score → seeded sampling → rytme + strøm-API
 (§4.1–4.3, 4.5–4.6) i en delt pakke; mobil-UI kobles på ægte paginering; web får
 feed-MVP under den eksisterende hero (§6); set-hukommelse; "på denne dag"/udvidede

@@ -1,5 +1,18 @@
 # Changelog
 
+## Spec: levende feed fase 1 — dynamik & uendelig scroll (2026-07-18)
+
+Design-spec for feed-konceptets fase 1: **`docs/superpowers/specs/2026-07-18-levende-feed-fase1-design.md`**.
+6 skiver: (1) ny delt pakke `@daa/feed` (lukker konceptets ○a) med motor-kernen pool → score → seeded
+sampling (mulberry32) → rytme-regler, caps/interleave udgår; (2) strøm-API `createFeedStream` med
+`next(n)`-stabilitet og ærligt terminalkort; (3) mobil: ægte dosering via `onEndReached`, pull-to-refresh
+= nyt seed, set-hukommelse i AsyncStorage (LRU 300, decay-vægte); (4) tidslige kort — `paadennedag` +
+`dagensperson` + dag-præcise jubilæer via tolerant klient-load af konklusionsdatoer (fact→conclusion→
+assertion.date_min; `visning_foedt/doed` er rå datotekst og kan ikke bære dag-præcision); (5) web-feed-MVP
+under forsidens hero (aux-adapter, embede-kort bevidst udeladt, bio-strategi med målt payload + chunket
+fallback); (6) oprydning + afløsnings-note i v3-spec'en. Ingen backend-ændringer — kun nye læsninger af
+eksisterende tabeller under eksisterende RLS.
+
 ## Idékatalog: formidling oven på kildematerialet (2026-07-18)
 
 Brainstorm-runde i forlængelse af feed-konceptet, dokumenteret til senere bearbejdning:
