@@ -149,7 +149,10 @@ export default function Folgesvend() {
       navigate('/estates', { replace: true });
     }
   }, [estates, estateId]);
-  useEffect(() => { if (mode === 'arms' && !arms) fetchArms().then(setArms).catch(() => setArms([])); }, [mode, arms]);
+  // 'home' udløser samme hentning som 'arms' (ikke kun mode==='arms'): forsidens feed
+  // (fase1-design.md §7) viser våben-kort og skal have data uden at brugeren først har
+  // besøgt Våben-siden.
+  useEffect(() => { if ((mode === 'arms' || mode === 'home') && !arms) fetchArms().then(setArms).catch(() => setArms([])); }, [mode, arms]);
   useEffect(() => { if (mode === 'about' && !about) fetchAbout().then(setAbout).catch(() => setAbout([])); }, [mode, about]);
   // Gods-detalje-fetches (review 15 M3): cancelled-guard så en sen resolver for gods A ikke
   // permanent overskriver gods B's data, når man skifter gods hurtigt.
@@ -466,7 +469,9 @@ export default function Folgesvend() {
 
         {/* Center */}
         <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
-          {mode === 'home' ? <HomeView model={model} personCount={persons.length} estates={estates} onPickPerson={navigateTree} onOpenSearch={() => { goToMode('tree'); bumpSearchFocus(); }} onBrowseAll={() => { goToMode('tree'); setBrowsing(true); }} onOpenEstate={(id) => { setEstateId(id); navigate(`/estate/${id}`); }} onGoTree={() => goToMode('tree')} />
+          {mode === 'home' ? <HomeView model={model} personCount={persons.length} estates={estates} onPickPerson={navigateTree} onOpenSearch={() => { goToMode('tree'); bumpSearchFocus(); }} onBrowseAll={() => { goToMode('tree'); setBrowsing(true); }} onOpenEstate={(id) => { setEstateId(id); navigate(`/estate/${id}`); }} onGoTree={() => goToMode('tree')}
+              arms={arms} meId={meCanon} focusId={focusId} bookmarkedIds={bookmarkIds} hasBookmark={bookmarks.has} onSaveBookmark={saveOrPrompt} onOpenArms={() => goToMode('arms')}
+              onOpenSlaegt={(aId, bId) => { setRelA(aId); setRelB(bId); setRelSlot('B'); goToMode('relate'); }} />
             : mode === 'tree' ? <TreeView model={model} focusId={focusId} onPick={treePick} onFocus={driftFocus} hasBookmark={bookmarks.has} onToggleBookmark={saveOrPrompt} search={treeSearch} />
             : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={focusOnly} meId={meCanon} onSetMeA={() => { if (meCanon) { setRelA(meCanon); setRelSlot('B'); } }} search={treeSearch} />
             : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} geo={model?.geo} geoLoading={geoLoading} onOpen={(id) => { setEstateId(id); navigate(`/estate/${id}`); }} onBack={() => { setEstateId(null); navigate('/estates'); }} onPickOwner={navigateTree} />
