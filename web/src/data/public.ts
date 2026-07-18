@@ -3,7 +3,7 @@
 // viser en tom-tilstand frem for at vælte siden — men breakage er ikke HELT tavst (console).
 import { supabase } from '../supabase';
 import type { Model } from './types';
-import { pickPreferredBio, getAll, type NarrativeCand } from '@daa/core';
+import { pickPreferredBio, buildBioVersions, getAll, type NarrativeCand, type BioVersion } from '@daa/core';
 import { fetchPersonMedia, fetchObjectMedia, type MediaItem } from './media';
 
 // Rå narrativ-række med source-join (PostgREST embedded resource).
@@ -131,14 +131,17 @@ export async function resolveOrgEstateNames(orgIds: number[], estIds: number[]):
 
 export type PersonOffice = { label: string; period: string };
 export type PersonEstate = { id: string; navn: string };
-export type PersonDetailData = { bio: string; offices: PersonOffice[]; estates: PersonEstate[]; media: MediaItem[] };
+// bioVersions: alle offentlige DAA-udgave-versioner af biografien, nyeste først (§7.18
+// versionsvælger). bio er altid = bioVersions[0]?.tekst (bagudkompatibel — mobile og øvrige
+// kaldere der kun læser .bio er upåvirkede).
+export type PersonDetailData = { bio: string; bioVersions: BioVersion[]; offices: PersonOffice[]; estates: PersonEstate[]; media: MediaItem[] };
 
 type RawPersonRel = { objekt_type: string; objekt_id: number; rolle: string | null; periode_raw: string | null };
 
 // memberIds: for en samme_som-foldet person, alle medlems-id'er i gruppen — narrativ + relationer
 // unioneres over dem (spec §8). Uden memberIds (ikke-foldet) = kun personens eget id.
 export function fetchPersonDetail(id: string, memberIds?: string[]): Promise<PersonDetailData> {
-  const empty: PersonDetailData = { bio: '', offices: [], estates: [], media: [] };
+  const empty: PersonDetailData = { bio: '', bioVersions: [], offices: [], estates: [], media: [] };
   const ids = memberIds && memberIds.length ? memberIds : [id];
   const numIds = ids.map(Number).filter((n) => !Number.isNaN(n));
   return safe(async () => {
@@ -153,10 +156,9 @@ export function fetchPersonDetail(id: string, memberIds?: string[]): Promise<Per
       // Portræt/materiale: union over foldede medlems-id'er (afbildet person→media). RLS-gatet.
       fetchPersonMedia(numIds),
     ]);
-    // Narrativ = union: foretrukne offentlige narrativ PR. medlem (nyeste DAA-udgave via
-    // pickPreferredBio), sammenføjet. Kanonisk (id) FØRST, så den fulde founder-bio leder
-    // frem for en kort kryds-reference-stub fra en alias-post. Per-medlem-valget er nu
-    // deterministisk pr. udgave (ikke "første by id"); cross-medlem-concat er uændret.
+    // Udgave-versioner (§7.18): ÉN version pr. DAA-udgave, nyeste først. Kandidater ordnet
+    // kanonisk (id) FØRST, så en samme_som-foldet person med narrativ i samme udgave fra
+    // flere medlemmer sammenføjer den fulde founder-bio før en kort kryds-reference-stub.
     const candsByMember = new Map<string, NarrativeCand[]>();
     for (const n of (orThrow(narr, 'fetchPersonDetail/narrative') ?? []) as unknown as RawNarr[]) {
       const k = String(n.subjekt_id);
@@ -164,13 +166,10 @@ export function fetchPersonDetail(id: string, memberIds?: string[]): Promise<Per
       arr.push({ narrativeId: n.id, tekst: n.tekst, sourceId: n.source_id, slags: n.source?.slags ?? null, aar: n.source?.aar ?? null, udgave: n.source?.udgave ?? null });
       candsByMember.set(k, arr);
     }
-    const firstByMember = new Map<string, string>();
-    for (const [k, cands] of candsByMember) {
-      const best = pickPreferredBio(cands);
-      if (best?.tekst) firstByMember.set(k, best.tekst);
-    }
     const orderedIds = [id, ...ids.filter((m) => m !== id)];
-    const bio = [...new Set(orderedIds.map((mid) => firstByMember.get(mid)).filter(Boolean) as string[])].join('\n\n');
+    const allCands = orderedIds.flatMap((mid) => candsByMember.get(mid) ?? []);
+    const bioVersions = buildBioVersions(allCands);
+    const bio = bioVersions[0]?.tekst ?? '';
     const orgIds = rels.filter((r) => r.objekt_type === 'organisation').map((r) => r.objekt_id);
     const estIds = rels.filter((r) => r.objekt_type === 'estate').map((r) => r.objekt_id);
     const { org: orgNavn, estate: estNavn } = await resolveOrgEstateNames(orgIds, estIds);
@@ -188,7 +187,7 @@ export function fetchPersonDetail(id: string, memberIds?: string[]): Promise<Per
       })),
       (e) => e.id,
     );
-    return { bio, offices, estates, media };
+    return { bio, bioVersions, offices, estates, media };
   }, empty, 'fetchPersonDetail');
 }
 

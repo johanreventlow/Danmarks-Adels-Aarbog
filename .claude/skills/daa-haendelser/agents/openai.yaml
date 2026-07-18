@@ -1,0 +1,4 @@
+interface:
+  display_name: "DAA hændelser"
+  short_description: "Udtræk daterede hændelser fra DAA-prosa"
+  default_prompt: "Brug $daa-haendelser til at eksportere, validere og merge hændelser fra DAA-narrativer."

@@ -3,8 +3,8 @@
 // FK), så vi henter N flade queries og joiner i klienten. citation→source HAR FK og nestes.
 // joinEvidence er ren/testbar uden net.
 import { supabase } from '../supabase';
-import { fmtYears, parseYear, getAll, buildMatchPersoner, parseIkkeSammeSomPar } from '@daa/core';
-import type { RedMatchPerson, MatchPersonRow, MatchFactRow, MatchConcRow, MatchAssertRow, MatchExtIdRow } from '@daa/core';
+import { fmtYears, parseYear, getAll, buildMatchPersoner, parseIkkeSammeSomPar, buildFamilyGraph } from '@daa/core';
+import type { RedMatchPerson, MatchPersonRow, MatchFactRow, MatchConcRow, MatchAssertRow, MatchExtIdRow, RawFamilyMember, Union, ParentChild } from '@daa/core';
 import { FELT_FAKTATYPE } from './redaktionWrite';
 import { resolveOrgEstateNames } from './public';
 import { signPaths, fetchThumbPathByMediaId } from './media';
@@ -315,6 +315,85 @@ export async function fetchNarrativer(subjektType: string, subjektId: number): P
     .order('source_id', { ascending: true }).order('id', { ascending: true });
   if (error) throw new Error(error.message);
   return mapNarrativer((data ?? []) as unknown as RawNarrativRow[]);
+}
+
+// --- Hændelses-tidslinje (levende feed fase 2) ---
+export type HaendelsePost = {
+  id: number; klausul: string; kategori: string | null;
+  dato: { min: string | null; max: string | null; qualifier: string | null; raw: string | null };
+  feedStatus: 'kandidat' | 'interessant' | 'skjult';
+  narrativeId: number; spanStart: number | null; spanLaengde: number | null;
+  sourceTitel?: string; side?: string;
+  factId: number | null; relationId: number | null;
+};
+type RawHaendelseRow = {
+  id: number; klausul: string; kategori: string | null;
+  date_min: string | null; date_max: string | null; date_qualifier: string | null; date_raw: string | null;
+  feed_status: 'kandidat' | 'interessant' | 'skjult'; narrative_id: number;
+  span_start: number | null; span_laengde: number | null; fact_id: number | null; relation_id: number | null;
+  narrative: { side: string | null; source: { titel: string | null; udgave: string | null } | null } | null;
+};
+
+export function mapHaendelser(rows: RawHaendelseRow[]): HaendelsePost[] {
+  return rows.map((r) => ({
+    id: Number(r.id), klausul: r.klausul, kategori: r.kategori,
+    dato: { min: r.date_min, max: r.date_max, qualifier: r.date_qualifier, raw: r.date_raw },
+    feedStatus: r.feed_status, narrativeId: Number(r.narrative_id),
+    spanStart: r.span_start, spanLaengde: r.span_laengde,
+    sourceTitel: r.narrative?.source?.titel ?? r.narrative?.source?.udgave ?? undefined,
+    side: r.narrative?.side ?? undefined,
+    factId: r.fact_id == null ? null : Number(r.fact_id),
+    relationId: r.relation_id == null ? null : Number(r.relation_id),
+  }));
+}
+
+export async function fetchHaendelserForPerson(personId: string): Promise<HaendelsePost[]> {
+  if (!personId) return [];
+  const { data, error } = await supabase.from('haendelse')
+    .select('id,klausul,kategori,date_min,date_max,date_qualifier,date_raw,feed_status,narrative_id,span_start,span_laengde,fact_id,relation_id,narrative:narrative_id(side,source:source_id(titel,udgave))')
+    .eq('subjekt_type', 'person').eq('subjekt_id', Number(personId)).order('id');
+  if (error) throw new Error(error.message);
+  return mapHaendelser((data ?? []) as unknown as RawHaendelseRow[]);
+}
+
+export type TidslinjePost = {
+  art: 'haendelse' | 'rygrad'; id: string;
+  dato: HaendelsePost['dato']; klausul: string; kategori: string | null;
+  sourceTitel?: string; side?: string; narrativeId?: number;
+  spanStart?: number | null; spanLaengde?: number | null;
+  haendelseId?: number; feedStatus?: HaendelsePost['feedStatus']; factId?: number;
+};
+
+export function buildTidslinje(haendelser: HaendelsePost[], evidens: PersonEvidence): TidslinjePost[] {
+  const poster: TidslinjePost[] = [];
+  const linked = new Set<number>();
+  for (const feltFacts of Object.values(evidens.felter)) for (const fact of feltFacts) {
+    const valgt = fact.oplysninger.find((o) => o.erKonklusion && o.dato);
+    if (!valgt?.dato) continue;
+    const h = haendelser.find((x) => x.factId === fact.factId);
+    if (h) linked.add(h.id);
+    const kilde = valgt.kilder[0];
+    poster.push({
+      art: 'rygrad', id: `f:${fact.factId}`, factId: fact.factId, dato: valgt.dato,
+      klausul: h?.klausul ?? valgt.vaerdi, kategori: h?.kategori ?? fact.faktatype,
+      sourceTitel: h?.sourceTitel ?? kilde?.sourceTitel, side: h?.side ?? kilde?.side,
+      narrativeId: h?.narrativeId, spanStart: h?.spanStart, spanLaengde: h?.spanLaengde,
+    });
+  }
+  for (const h of haendelser) if (!linked.has(h.id)) poster.push({
+    art: 'haendelse', id: `h:${h.id}`, haendelseId: h.id, dato: h.dato,
+    klausul: h.klausul, kategori: h.kategori, sourceTitel: h.sourceTitel, side: h.side,
+    narrativeId: h.narrativeId, spanStart: h.spanStart, spanLaengde: h.spanLaengde,
+    feedStatus: h.feedStatus, factId: h.factId ?? undefined,
+  });
+  return poster.sort((a, b) => {
+    const ad = a.dato.min; const bd = b.dato.min;
+    if (ad == null && bd != null) return 1;
+    if (ad != null && bd == null) return -1;
+    if (ad != null && bd != null && ad !== bd) return ad.localeCompare(bd);
+    const ai = Number(a.id.slice(2)); const bi = Number(b.id.slice(2));
+    return ai - bi || a.art.localeCompare(b.art);
+  });
 }
 
 export type SourceRow = { id: number; titel: string | null; udgave: string | null; slags: string | null; aar: number | null };
@@ -641,4 +720,14 @@ export async function fetchSammeSomPar(): Promise<{ aId: string; bId: string }[]
     supabase.from('relation').select('subjekt_id,objekt_id')
       .eq('rolle', 'samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person'));
   return parseIkkeSammeSomPar(rows); // samme (subjekt,objekt)→(aId,bId)-form
+}
+
+/** Hent hele familie-grafen (union + forælder→barn) til den rådgivende samme_som-fold-preview
+ *  (§7.18) — bruges sammen med fetchMatchPersoner til at bygge et Db der kan køres gennem
+ *  collapseSameAs/previewSammeSom i redaktionen. Bevidst UDEN far-før-mor-ordinal-sortering
+ *  (buildFamilyGraph, kommentar deri) — rækkefølgen er uden betydning for karantæne-tjek. */
+export async function fetchFamilyGraph(): Promise<{ unions: Union[]; parentChild: ParentChild[] }> {
+  const members = await getAll<RawFamilyMember>(() =>
+    supabase.from('family_member').select('family_id,person_id,rolle'));
+  return buildFamilyGraph(members);
 }

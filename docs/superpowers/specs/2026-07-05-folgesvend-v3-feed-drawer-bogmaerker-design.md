@@ -1,5 +1,13 @@
 # Følgesvend v3 — forsidefeed, menu-drawer & bogmærker
 
+> **Status (2026-07-18):** §3 (feed-datamodellen: `buildFeed`, `FEED_CAPS`, fast
+> `interleave`-rytme, `{meId,focusId,today}`-signaturen) er **afløst** af
+> `docs/superpowers/specs/2026-07-18-levende-feed-fase1-design.md` (seeded pool → score →
+> rytme-motor i `@daa/feed`, ægte uendelig scroll, web-feed). `mobile/src/data/buildFeed.ts`/
+> `feedHash.ts` er slettet. §4 (forside-UI-struktur: top-bar, hero, `FlatList`), §5
+> (menu-drawer) og §6 (bogmærker) er fortsat gældende historik/kontekst for det der findes i
+> koden i dag.
+
 **Dato:** 2026-07-05
 **Design-kilde:** `Reventlow-folgesvend-v3.dc.html` (Claude Design-projekt `0d84324f…`)
 **Mål:** mobil-appen (`mobile/`, RN/Expo) bringes op til v3-designet. Fokus er de tre reelt

@@ -27,6 +27,7 @@ export type Change = {
      | 'markerForaeldreUkendt' // "forældre ukendt"-markering (docs/reviews/25); fjern = 'tilbagetraekFakta'
      | 'tilbagetraekFakta' // tilbagetræk et fakta-slots konklusion (fjern markering korrekt — review 26 HIGH 2)
      | 'opretKilde' // opret ny source (DAA-udgave) — routes gennem submitChange (dry-run/staging)
+     | 'haendelseStatus'
      | 'uploadMedia' // mediehåndtering Slice 0g — redaktør-upload (portræt/objekt-foto)
      | 'fjernMedia' // Slice 0h — blødt fjern (upload_status='fjernet'); unlink går via sletRelation
      | 'forslag'; // generisk entitets-feltredigering uden direkte RPC → red_suggest
@@ -36,6 +37,8 @@ export type Change = {
   factId?: string;
   relationId?: string;
   mediaId?: string;
+  haendelseId?: number;
+  status?: 'kandidat' | 'interessant' | 'skjult';
   familyId?: string;
   tilFamilyId?: string;
   personId?: string;
@@ -58,6 +61,10 @@ function famLinkBase(c: Change): { p_family_id: number; p_person_id: number; p_r
 export function buildRpcCall(c: Change): RpcCall | null {
   const sid = Number(c.subjektId);
   const aid = c.assertionId != null ? Number(c.assertionId) : null;
+  if (c.art === 'haendelseStatus') {
+    if (c.haendelseId == null || !Number.isFinite(c.haendelseId) || !c.status || !['kandidat','interessant','skjult'].includes(c.status)) return null;
+    return { fn: 'red_set_haendelse_status', args: { p_haendelse_id: c.haendelseId, p_status: c.status } };
+  }
   if (c.art === 'setKonklusion') {
     if (aid == null) return null;
     return { fn: 'red_set_konklusion', args: { p_assertion_id: aid } };
@@ -260,6 +267,9 @@ export function describeCall(call: RpcCall): string {
 // Forslag → staging (red_suggest). Routing-fallback: ikke-redaktion, eller redaktion på en
 // art uden direkte RPC (fx generisk entitets-feltredigering). Bygger ALTID et gyldigt kald.
 export function buildSuggestCall(c: Change): RpcCall {
+  const fallbackPayload = c.art === 'haendelseStatus'
+    ? { haendelseId: c.haendelseId, status: c.status }
+    : {};
   return { fn: 'red_suggest', args: {
     p_art: c.art,
     p_subjekt_type: c.subjektType,
@@ -267,7 +277,7 @@ export function buildSuggestCall(c: Change): RpcCall {
     p_felt: c.felt ?? null,
     p_vaerdi: c.vaerdi ?? null,
     p_kilde_fritekst: c.kildeFritekst ?? null,
-    p_payload: c.payload ?? {},
+    p_payload: c.payload ?? fallbackPayload,
     p_note: null,
   } };
 }

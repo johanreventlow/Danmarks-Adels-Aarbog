@@ -1,5 +1,157 @@
 # Changelog
 
+## Levende feed fase 2 — implementeret i kode (2026-07-18)
+
+Fase 2 er gennemført efter `docs/superpowers/plans/2026-07-18-levende-feed-fase2.md`:
+additiv `haendelse`-projektion med RLS, kontrolleret status-RPC og versionering; hændelses-load
+i begge klienter; hændelsesdrevne `arkiv`-, `citat`- og `paadennedag`-kort; den nye
+`.claude/skills/daa-haendelser`-pipeline; samt redaktionens kronologiske hændelsestidslinje
+og statusmarkering på web og mobil. Fase 1-reviewfund er samtidig indarbejdet.
+
+**Verificeret automatisk/lokalt:** frisk schema-installation og migrationsstien (migrationen
+kørt to gange) mod lokale PostgreSQL-databaser; fase 2's målrettede CHECK/RLS/RPC/versionerings-
+asserts; GDPR-eksportens optælling mod den samme lokale kopi (544 eksporterede, 47 ikke-
+offentlige kandidater udeladt); H1–H8-validatorens og den fail-closed Opus-promotions
+Python-tests; R-loaderens merge-tests;
+loader-`--dry-run` med rollback; samt genkørsel oven på en markeret hændelse, hvor både id og
+`feed_status='interessant'` blev bevaret. Klient-, core-, feed-, R- og pipeline-suiterne samt
+web-build er kørt lokalt; CI har fået et særskilt `pipeline · unittest`-job.
+
+**Ikke manuelt verificeret:** den samlede redaktør-UI mod en autentificeret PostgREST-session
+i browser/simulator. UI'ens data-, status-, staging- og tidslinjelogik er dækket af tests og
+typecheck/build. Det komplette historiske `db-verify.sql` når fase 2-blokken, men stopper senere
+i en allerede eksisterende rolle-gating-test for `red_slet_oplysning`; fase 2's målrettede
+DB-verifikation er grøn.
+
+**Prod-status:** Ingen prod-migration og intet prod-pipeline-load er udført. Det er fortsat
+separate, eksplicit godkendte deploytrin; `docs/database-current-state.md` er derfor uændret.
+
+## Levende feed fase 2 — implementeringsplan skrevet (2026-07-18)
+
+`docs/superpowers/plans/2026-07-18-levende-feed-fase2.md` (13 tasks, TDD task-for-task efter
+fase 1-planens skabelon) omsætter design-specen til konkrete skridt: skive 1 (DB) → task 1,
+skive 3 (klient-load) → task 2-4, skive 4 (motor: arkiv/paadennedag/citat/kort-views) → task
+5-7, skive 2 (offline pipeline `daa-haendelser`) → task 8-10, skive 5 (redaktions-tidslinje)
+→ task 11-12, skive 6 (CI+afstemning) → task 13. Skrevet af en Fable-subagent, der undersøgte
+den faktiske kodebase (ikke kun specen) for præcise filstier/linjenumre/funktionssignaturer —
+egen efterfølgende verifikation fandt og rettede én reel fejl: agentens påstand om at
+versionerings-infrastrukturen (`version_pk_registry` + trigger-loop) kun findes i
+`db-migrations.sql` var forkert (den findes i BÅDE `schema.sql` og `db-migrations.sql`, med
+forskellig håndtering nødvendig i hver — se planens Self-review-noter); uden rettelsen ville
+en frisk clean-slate-deploy mangle `trg_log_haendelse`. Øvrige åbne verifikationspunkter
+(fx om PostgREST tillader dobbelt-nestede selects) er ærligt flagget i planen som
+implementer-verifikation, ikke påstået som fakta. Ingen kode er ændret; implementeringen
+starter ikke før eksplicit anmodning.
+
+## Levende feed fase 2 — design-spec skrevet (2026-07-18)
+
+`docs/superpowers/specs/2026-07-18-levende-feed-fase2-design.md` (6 skiver) beskriver
+hændelses-skelettet: ny tabel `haendelse` (regenerérbar projektion oven på fact/
+assertion/conclusion — aldrig ny evidens), offline LLM-ekstraktionspipeline
+(`.claude/skills/daa-haendelser/`, samme eksport→LLM→valider (H1–H8)→load-mønster
+som daa-extract) med bevarelses-mergende genkørsel via en stabil nøgle (normaliseret
+klausul + #N-suffiks ved dubletter), RLS via `entitet_offentlig`-kaskade, ny RPC
+`red_set_haendelse_status`, `arkiv`-korttype + udvidet `paadennedag` + klausul-baseret
+`citat` i `@daa/feed`, og redaktionens hændelses-tidslinje (begge apps). Skrevet af en
+Fable-subagent efter eksplicit anmodning; ni DB-mekanismer verificeret uafhængigt mod
+`schema.sql`/`db-migrations.sql`/`db-rls.sql` (funktion-signaturer, `vocab`-PK-form,
+`staged`-kolonnen, `entitet_offentlig`-brug) — alle stemmer. Endnu ikke implementeret;
+ingen plan skrevet.
+
+## Levende feed fase 1 — implementeret (2026-07-18)
+
+Fase 1 (dynamik & uendelig scroll) af `docs/design/2026-07-18-levende-feed-koncept.md` er
+gennemført task-for-task efter `docs/superpowers/plans/2026-07-18-levende-feed-fase1.md`.
+12 tasks, alle grønne (`@daa/core` 254 tests · `@daa/feed` 59 tests · mobil tsc+jest 196
+tests · web tsc+vitest 188 tests + build + 3× stabil Playwright-e2e).
+
+**Ny pakke `@daa/feed`** (`packages/feed/`, eget CI-job): kandidat-pool (builders porteret
+fra mobilens v3-`buildFeed`, caps fjernet) → forklarlig scoring (BASE-vægte pr. kind,
+timeliness/personal/seen-faktorer) → seedet vægtet trækning uden tilbagelægning
+(mulberry32) med rytme-regler (R1 ikke-samme-kind, R2 person-afstand, R3 mindst ét
+portræt pr. 6) og eskalerende relaksering når kind-diversitet løber tør → positionslåse
+(dagensperson, slaegt) via byt (ikke fjern+genindsæt — undgår at sammenføje naboer) →
+strøm-API (`createFeedStream`/`resumeStream`) med bevist `next(a)+next(b) ≡ next(a+b)`.
+To nye korttyper: `paadennedag` (dag-præcis, med måneds-fallback) og `dagensperson`
+(dagligt roterende, disjunkt fra portræt/citat). Livsdato-join (fact→conclusion→assertion)
+er delt logik; hver app henter selv (mobil: parallelt med hoved-batchen i `load.ts`; web:
+ved feed-mount i `feedAux.ts`/`livsdato.ts`) — `visning_foedt/doed` er rå datotekst og kan
+ikke bære dag-præcision.
+
+**Mobil:** forsiden doserer nu via `createFeedStream` (seed = dagsdato + tilfældig nonce,
+det eneste sted `Math.random` optræder), ægte `onEndReached`-append, pull-to-refresh =
+nyt seed, footer med tre reelle tilstande. Set-hukommelse i AsyncStorage (LRU 300,
+decay-vægte 0.25/0.5/0.75). Gamle `buildFeed.ts`/`feedHash.ts` + deres testsuite slettet
+(ingen forbrugere tilbage — alle imports peger nu på `@daa/feed`).
+
+**Web:** ny `FeedStreamView` monteret under forsidens hero/kuraterede sektion (samme motor
+og kort-katalog som mobil, egne kort-views i webbens idiom). Bio hentes og stemples ind i
+en model-kopi ved feed-mount (`fetchFeedBios`/`withFeedBios`); ved ankomst genopbygges
+strømmen med samme seed og genoptages via `resumeStream`, uden at nulstille allerede viste
+kort. **Reel bug fanget af den nybyggede e2e-test (Playwright, bootstrappet fra bunden —
+ingen opsætning fandtes forud):** uendelig-scroll-sentinellen brugte en
+`IntersectionObserver` med standard-root (viewporten), men Følgesvendens rodlayout scroller
+i en indre `[data-scroll]`-container (`height:100vh; overflow:hidden` på roden) — observeren
+så derfor aldrig sentinellen krydse ind/ud og fejlede helt stille. Erstattet med en
+`scroll`-lytter direkte på `[data-scroll]` + en synkron "fyld skærmen"-efterkontrol (dækker
+både ægte scroll og "indhold ankommer uden at brugeren scroller", fx bios der forlænger en
+kort forside). 18/18 e2e-kørsler grønne efter fixet.
+
+**Oprydning:** `interleave` (ubrugt — rytmen er vægtet trækning, ikke round-robin) fjernet
+fra `@daa/feed`s offentlige API. v3-spec'en (2026-07-05) har fået en status-note: §3
+(feed-datamodellen) er afløst; §4-6 (UI/drawer/bogmærker) er fortsat gældende. Ingen
+backend-/skemaændringer i hele fasen.
+
+## Plan: levende feed fase 1 — klar til implementering (2026-07-18)
+
+Implementeringsplan for fase 1-spec'en: **`docs/superpowers/plans/2026-07-18-levende-feed-fase1.md`**
+— 12 tasks i TDD-stil (fejlende test → implementér → grøn → commit) i eksekverbar rækkefølge:
+pakke-skelet+prng → typer+pool → tidslige kort → scoring+ordning → strøm → mobil livsdato/seen/dosering
+→ web datalag/views/e2e → oprydning. Pakke-invariant fastlagt: `@daa/feed` er netværksfri (rene
+join-/decay-helpers i pakken, fetch i app-lagene); `resumeStream` definerer den append-sikre
+genoptagelse ved webs bio-ankomst. Punkter implementer skal slå efter frem for at gætte er markeret
+eksplicit (core-exportmekanisme, Aux-feltformer, pickPreferredBio-signatur, web-nav-handlers,
+Playwright-placering). Dokumentationssporet (koncept → spec → plan) er hermed komplet — implementering
+kan køres af en eksekverende session/model uden yderligere designbeslutninger.
+
+## Spec: levende feed fase 1 — dynamik & uendelig scroll (2026-07-18)
+
+Design-spec for feed-konceptets fase 1: **`docs/superpowers/specs/2026-07-18-levende-feed-fase1-design.md`**.
+6 skiver: (1) ny delt pakke `@daa/feed` (lukker konceptets ○a) med motor-kernen pool → score → seeded
+sampling (mulberry32) → rytme-regler, caps/interleave udgår; (2) strøm-API `createFeedStream` med
+`next(n)`-stabilitet og ærligt terminalkort; (3) mobil: ægte dosering via `onEndReached`, pull-to-refresh
+= nyt seed, set-hukommelse i AsyncStorage (LRU 300, decay-vægte); (4) tidslige kort — `paadennedag` +
+`dagensperson` + dag-præcise jubilæer via tolerant klient-load af konklusionsdatoer (fact→conclusion→
+assertion.date_min; `visning_foedt/doed` er rå datotekst og kan ikke bære dag-præcision); (5) web-feed-MVP
+under forsidens hero (aux-adapter, embede-kort bevidst udeladt, bio-strategi med målt payload + chunket
+fallback); (6) oprydning + afløsnings-note i v3-spec'en. Ingen backend-ændringer — kun nye læsninger af
+eksisterende tabeller under eksisterende RLS.
+
+## Idékatalog: formidling oven på kildematerialet (2026-07-18)
+
+Brainstorm-runde i forlængelse af feed-konceptet, dokumenteret til senere bearbejdning:
+**`docs/design/2026-07-18-formidlingskatalog.md`** — 19 idéer i 7 klynger (evidens-formidling som
+attraktion, serier/udstillinger, kort & sted, personalisering, objekter, distribution ud af appen, leg),
+hver med databasegrundlag, afhængigheder og indsats, plus et vejledende prioriteringsbillede (mest
+særegne: kildeuenigheds-serien, årbogens egen udvikling, efterlysninger; billigst: føljetoner,
+våben-forklaringer, delekort). Intet besluttet — hver idé løftes til eget koncept når den vælges.
+Krydsrefereret fra feed-konceptet og indekseret i `docs/README.md`.
+
+## Koncept: Det levende feed (2026-07-18)
+
+Idéudviklings-runde (ingen kode) der samler feed-videreudviklingen i ét styringsdokument:
+**`docs/design/2026-07-18-levende-feed-koncept.md`**. Baseret på kodebase-analyse af mobil-feed'en
+(`buildFeed` — deterministisk, ingen paginering, `FeedOverride` no-op), web-forsiden (statisk PoC uden
+highlights-tabel) og narrativ/fakta-laget (intet beskrivelsesfelt på `fact`; daterede gerninger bevidst
+kun i prosaen). Hovedgreb: (1) feed-motor 2.0 — kandidat-pool + scoring + seeded sampling + rytme-regler
++ lazy strøm-API (ægte uendelig scroll), delt web↔mobil-pakke; (2) nyt **formidlingslag** oven på uændret
+evidensmodel: `haendelse` (narrativ-afledt dateret hændelses-skelet, offline LLM-pass) + `story`
+(redaktionelle minihistorier m. kildefod) + `feed_pin`; (3) redaktionelt historieværksted
+(hændelses-tidslinje, markér interessant, skriv/godkend) med "Foreslå historie"-knap via auth-gated Edge
+Function — LLM-kladder publiceres aldrig uden redaktørgodkendelse, kun afdøde. 4 faser; lukker samtidig
+web-konceptets åbne §9.f (forside = faste indgange + feed). Indekseret i `docs/README.md` (ny sektion
+"Design & koncepter").
+
 ## Sikkerhedshærdning fra Codex-fundament-review (2026-07-17)
 
 Et helrepo-"fundament-review" (Codex, 21 fund F-01..F-21) blev triageret ind i waves med fokus på: dels at

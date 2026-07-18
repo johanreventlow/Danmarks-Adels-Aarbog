@@ -1,4 +1,4 @@
-import { buildRpcCall, FELT_FAKTATYPE } from '../redaktionWrite';
+import { buildRpcCall, FELT_FAKTATYPE, planCall } from '../redaktionWrite';
 
 describe('buildRpcCall — udvidede rygrad-felter (dåb/begravelse/floruit/naturalisering)', () => {
   it.each([
@@ -14,6 +14,18 @@ describe('buildRpcCall — udvidede rygrad-felter (dåb/begravelse/floruit/natur
     expect(FELT_FAKTATYPE).toMatchObject({
       daab: 'dåb', begravelse: 'begravelse', floruit: 'floruit', naturalisering: 'naturalisering',
     });
+  });
+});
+
+describe('buildRpcCall — haendelseStatus', () => {
+  it('bygger status-RPC og afviser manglende id', () => {
+    expect(buildRpcCall({ art: 'haendelseStatus', subjektType: 'person', subjektId: '7',
+      haendelseId: 91, status: 'skjult' })).toEqual({
+        fn: 'red_set_haendelse_status', args: { p_haendelse_id: 91, p_status: 'skjult' },
+      });
+    expect(buildRpcCall({ art: 'haendelseStatus', subjektType: 'person', subjektId: '7', status: 'kandidat' })).toBeNull();
+    expect(planCall({ art: 'haendelseStatus', subjektType: 'person', subjektId: '7', haendelseId: 91, status: 'skjult' }, 'medlem'))
+      .toMatchObject({ fn: 'red_suggest', args: { p_payload: { haendelseId: 91, status: 'skjult' } } });
   });
 });
 

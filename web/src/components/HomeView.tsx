@@ -7,8 +7,9 @@ import { useMemo } from 'react';
 import { T } from '../theme';
 import { PersonCard, SearchIcon, Crest } from './primitives';
 import { curatedFounders, pickMaanedensGods } from '../data/home';
+import { FeedStreamView } from './feed/FeedStreamView';
 import type { Model } from '../data/types';
-import type { EstateItem } from '../data/public';
+import type { ArmsItem, EstateItem } from '../data/public';
 
 // Kort i "Nyt i arkivet"-kolonnen — samme skabelon, kun tekst/handling varierer.
 function NytCard({ kicker, title, sub, onClick }: { kicker: string; title: string; sub: string; onClick?: () => void }) {
@@ -21,7 +22,11 @@ function NytCard({ kicker, title, sub, onClick }: { kicker: string; title: strin
   );
 }
 
-export function HomeView({ model, personCount, estates, onPickPerson, onOpenSearch, onBrowseAll, onOpenEstate, onGoTree }: {
+export function HomeView({
+  model, personCount, estates, onPickPerson, onOpenSearch, onBrowseAll, onOpenEstate, onGoTree,
+  arms, meId, focusId, bookmarkedIds, bookmarksReady, bookmarkHydrationVersion, bookmarkOwnerId,
+  hasBookmark, onSaveBookmark, onOpenArms, onOpenSlaegt,
+}: {
   model: Model | null;
   personCount: number;
   estates: EstateItem[] | null;
@@ -30,6 +35,18 @@ export function HomeView({ model, personCount, estates, onPickPerson, onOpenSear
   onBrowseAll: () => void;
   onOpenEstate: (id: string) => void;
   onGoTree: () => void;
+  // Det levende feed (fase1-design.md §7) — samme motor/kort-katalog som mobil.
+  arms: ArmsItem[] | null;
+  meId: string | null;
+  focusId: string | null;
+  bookmarkedIds: string[];
+  bookmarksReady: boolean;
+  bookmarkHydrationVersion: number;
+  bookmarkOwnerId: string | null;
+  hasBookmark: (id: string) => boolean;
+  onSaveBookmark: (id: string) => void;
+  onOpenArms: () => void;
+  onOpenSlaegt: (aId: string, bId: string) => void;
 }) {
   const curated = useMemo(() => (model ? curatedFounders(model, 4) : []), [model]);
   const gods = useMemo(() => pickMaanedensGods(estates), [estates]);
@@ -78,6 +95,31 @@ export function HomeView({ model, personCount, estates, onPickPerson, onOpenSear
           <NytCard kicker="Udforsk" title="Åbn stamtræet" sub="Fokus- og kolonne-visning af hele slægten" onClick={onGoTree} />
           <NytCard kicker="Gennemse" title={`Alle ${personCount} personer`} sub="Søg, sortér og hop gennem alfabetet" onClick={onBrowseAll} />
         </div>
+      </div>
+
+      {/* Det levende feed (fase1-design.md §7) — samme motor/kort-katalog som mobil. */}
+      <div style={{ marginTop: 40, fontFamily: T.mono, fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: T.gold, textAlign: 'center' }}>
+        Feed
+      </div>
+      <div style={{ marginTop: 16 }}>
+        <FeedStreamView
+          model={model}
+          estates={estates}
+          arms={arms}
+          meId={meId}
+          focusId={focusId}
+          bookmarkedIds={bookmarkedIds}
+          bookmarksReady={bookmarksReady}
+          bookmarkHydrationVersion={bookmarkHydrationVersion}
+          bookmarkOwnerId={bookmarkOwnerId}
+          hasBookmark={hasBookmark}
+          onSaveBookmark={onSaveBookmark}
+          onOpenPerson={onPickPerson}
+          onOpenEstate={onOpenEstate}
+          onOpenArms={onOpenArms}
+          onOpenSlaegt={onOpenSlaegt}
+          onBrowseAll={onBrowseAll}
+        />
       </div>
     </div>
   );

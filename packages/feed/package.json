@@ -1,0 +1,10 @@
+{
+  "name": "@daa/feed",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "test": "vitest run", "typecheck": "tsc --noEmit" },
+  "dependencies": { "@daa/core": "*" },
+  "devDependencies": { "vitest": "^3.0.0", "typescript": "^5.5.3" }
+}

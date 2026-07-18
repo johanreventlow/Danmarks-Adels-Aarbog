@@ -31,6 +31,7 @@ import { T } from './theme';
 
 // Kun Reventlow findes i dag; vælgeren er 1-punkt + "flere kommer"-note (spec §2 ikke-mål).
 const SLAEGTER = [{ id: 'reventlow', navn: 'Reventlow' }];
+const EMPTY_CANONICAL_IDS: Record<string, string> = {};
 // Mode/THEMES/routing bor i ./data/nav (ren + unit-testet).
 function useFonts() {
   useEffect(() => {
@@ -127,7 +128,7 @@ export default function Folgesvend() {
   const meCanon = meId ? canon(meId) : null;
   // Bogmærker (web v3 Slice 1) — localStorage, kanonisk via canon(). bmSort default 'linje'
   // (designets første segment, spec §4). slaegtOpen = slægt-vælger-modal på header-chippen.
-  const bookmarks = useBookmarks(session?.userId ?? null, canon);
+  const bookmarks = useBookmarks(session?.userId ?? null, model?.canonicalIdById ?? EMPTY_CANONICAL_IDS);
   const saveOrPrompt = useCallback(
     (id: string) => { if (bookmarks.canSave) bookmarks.toggle(id); else setLoginOpen(true); },
     [bookmarks],
@@ -149,7 +150,10 @@ export default function Folgesvend() {
       navigate('/estates', { replace: true });
     }
   }, [estates, estateId]);
-  useEffect(() => { if (mode === 'arms' && !arms) fetchArms().then(setArms).catch(() => setArms([])); }, [mode, arms]);
+  // 'home' udløser samme hentning som 'arms' (ikke kun mode==='arms'): forsidens feed
+  // (fase1-design.md §7) viser våben-kort og skal have data uden at brugeren først har
+  // besøgt Våben-siden.
+  useEffect(() => { if ((mode === 'arms' || mode === 'home') && !arms) fetchArms().then(setArms).catch(() => setArms([])); }, [mode, arms]);
   useEffect(() => { if (mode === 'about' && !about) fetchAbout().then(setAbout).catch(() => setAbout([])); }, [mode, about]);
   // Gods-detalje-fetches (review 15 M3): cancelled-guard så en sen resolver for gods A ikke
   // permanent overskriver gods B's data, når man skifter gods hurtigt.
@@ -173,7 +177,7 @@ export default function Folgesvend() {
     setDetail(null);
     // Foldet person: hent detalje for ALLE medlems-id'er (narrativ/relationer unioneres — spec §8).
     const members = model?.byId[focusId]?.mergedFrom?.map((m) => m.personId);
-    fetchPersonDetail(focusId, members).then(setDetail).catch(() => setDetail({ bio: '', offices: [], estates: [], media: [] }));
+    fetchPersonDetail(focusId, members).then(setDetail).catch(() => setDetail({ bio: '', bioVersions: [], offices: [], estates: [], media: [] }));
   }, [focusId, model]);
 
   const persons = model?.persons ?? [];
@@ -466,7 +470,12 @@ export default function Folgesvend() {
 
         {/* Center */}
         <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
-          {mode === 'home' ? <HomeView model={model} personCount={persons.length} estates={estates} onPickPerson={navigateTree} onOpenSearch={() => { goToMode('tree'); bumpSearchFocus(); }} onBrowseAll={() => { goToMode('tree'); setBrowsing(true); }} onOpenEstate={(id) => { setEstateId(id); navigate(`/estate/${id}`); }} onGoTree={() => goToMode('tree')} />
+          {mode === 'home' ? <HomeView model={model} personCount={persons.length} estates={estates} onPickPerson={navigateTree} onOpenSearch={() => { goToMode('tree'); bumpSearchFocus(); }} onBrowseAll={() => { goToMode('tree'); setBrowsing(true); }} onOpenEstate={(id) => { setEstateId(id); navigate(`/estate/${id}`); }} onGoTree={() => goToMode('tree')}
+              arms={arms} meId={meCanon} focusId={focusId} bookmarkedIds={bookmarkIds}
+              bookmarksReady={bookmarks.ready} bookmarkHydrationVersion={bookmarks.hydrationVersion}
+              bookmarkOwnerId={session?.userId ?? null}
+              hasBookmark={bookmarks.has} onSaveBookmark={saveOrPrompt} onOpenArms={() => goToMode('arms')}
+              onOpenSlaegt={(aId, bId) => { setRelA(aId); setRelB(bId); setRelSlot('B'); goToMode('relate'); }} />
             : mode === 'tree' ? <TreeView model={model} focusId={focusId} onPick={treePick} onFocus={driftFocus} hasBookmark={bookmarks.has} onToggleBookmark={saveOrPrompt} search={treeSearch} />
             : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={focusOnly} meId={meCanon} onSetMeA={() => { if (meCanon) { setRelA(meCanon); setRelSlot('B'); } }} search={treeSearch} />
             : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} geo={model?.geo} geoLoading={geoLoading} onOpen={(id) => { setEstateId(id); navigate(`/estate/${id}`); }} onBack={() => { setEstateId(null); navigate('/estates'); }} onPickOwner={navigateTree} />

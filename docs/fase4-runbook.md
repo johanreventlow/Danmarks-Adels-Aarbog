@@ -76,6 +76,8 @@ LC_ALL=C psql -h <host> -p 5432 -U <user> -d <db> --single-transaction -v ON_ERR
 - `--single-transaction` (husets deploy-procedure, database-current-state §4) → alt-eller-intet.
 - Idempotent additiv: assertion.objekt-kolonner+indeks, vocab 'forældrefamilie', EXCLUDE (fail-closed
   prætjek), alle red_*-RPC'er + guardet helper + view. **Ingen backfill.** EXCLUDE-prætjek aborter ved (b)≠0.
+- **Inkluderer nu OGSÅ (samme fil, additivt):** A1 dato-hærdning (`assertion.date_certainty`-kolonne + CHECK,
+  faktavokabular) og **K2 staging-gate** (`person.staged`-kolonne + `red_publicer_udgave(source_id)`-RPC).
 - `LC_ALL=C` → fejl printes `ERROR:` (ikke dansk `FEJL:`), så fejl ikke overses.
 
 ## Trin 1b — RLS/grants (db-rls.sql) — deployer F-01 + F-02
@@ -83,9 +85,11 @@ LC_ALL=C psql -h <host> -p 5432 -U <user> -d <db> --single-transaction -v ON_ERR
 ```bash
 LC_ALL=C psql -h <host> -p 5432 -U <user> -d <db> --single-transaction -v ON_ERROR_STOP=1 -f db-rls.sql
 ```
-- **KRITISK:** db-rls.sql gen-anvendes IKKE af Trin 1 (migrations), men er hjem for to sikkerhedsfixes
-  der ellers ikke når prod: **F-01** (REVOKE af anon-EXECUTE på interne `_`-helpers, PR #42) og **F-02**
-  (auth_read fail-close på levende — medlem-tier ser ikke længere levende uden samtykke, Codex-fund).
+- **KRITISK:** db-rls.sql gen-anvendes IKKE af Trin 1 (migrations), men er hjem for sikkerhedsfixene
+  der ellers ikke når prod: **F-01** (REVOKE af anon-EXECUTE på interne `_`-helpers, PR #42), **F-02**
+  (auth_read fail-close på levende), **F-02c** (polymorf family/unknown fail-close) og **K2 staging-gate**
+  (`person_offentlig` udvidet med `coalesce(staged,false)=false` → skjuler ny-udgave-poster; cascader til
+  fact/relation/narrative via `entitet_offentlig`).
 - Idempotent (alle policies `drop … if exists` + `create`; grants/revokes deklarative). Rører kun
   eksisterende tabeller/funktioner → kan køre før ELLER efter Trin 1; her efter for én sammenhængende deploy.
 - **Produkt-konsekvens (F-02):** logget-ind bogmærke-brugere ser herefter samme som anon (kun afdøde).
@@ -108,9 +112,11 @@ LC_ALL=C psql -h <host> -p 5432 -U <user> -d <db> -f db-verify.sql 2>&1 | grep -
   `…0001` (FK til `auth.users`), som IKKE findes på prod → de printer **SPRINGER OVER**, og H2-bookmark-
   blokken kaster en kendt ERROR. Det er FORVENTET på prod — beviset for de blokke ligger i GATE 0-rehearsal.
 - **PÅ PROD forventes grønt KUN for de ugatede asserts:** `forældre-backfill-komplethed + P1-drift`
-  (nu IKKE skippet, da slots findes), samt **Task 8b (F-02 authenticated fail-close)** — den bruger
-  kun rollerne anon/authenticated (findes på Supabase) + tom jwt-sub, INGEN redaktion-profil, så den
-  kører OGSÅ på prod og beviser F-02-fixet dér. Ingen UVENTEDE ERROR/FEJL.
+  (nu IKKE skippet, da slots findes), **Task 8b (F-02 authenticated fail-close)**, **A1 dato-hærdning**
+  (`OK: dato-hærdning A1 …`) og **K2 staging-gate** (`OK: K2 staging-gate …`) — de sidste to bruger kun
+  negativ-id-fixtures + anon-RLS (INGEN redaktion-profil), så de kører OGSÅ på prod. Ingen UVENTEDE ERROR/FEJL.
+  *Lokal rehearsal 2026-07-17 (frisk DB u. auth-shim/data): 26 asserts grønne inkl. A1+K2+F-02/F-02c; de 21
+  ikke-grønne var alle miljø/data-afhængige (auth.users-FK, storage.buckets, tom-DB-data) — bekræftet i GATE 0.*
 - NB: db-verify seeder/rydder negativ-id-fixtures + skriver/sletter test-rækker i `auth.users`/`bookmark`
   (db-verify.sql:~1106) — sikkert, men kør bevidst. Alternativ: kør FULD verify kun mod GATE 0-kopien,
   og kun de ugatede asserts mod prod.
@@ -152,10 +158,34 @@ pg_restore -d "host=<host> port=5432 user=<user> dbname=<db>" --clean --if-exist
 ```
 Mister skrivninger foretaget efter Trin 0-dumpet (derfor skrive-frys).
 
-## Efter cutover (SEPARAT, senere gate)
+## Fase 2 — 1939-stamtavle-load til prod (SEPARAT, senere gate)
 
-Load af divergerende **1939-stamtavle** til prod (Problem 2's egentlige mål) — selvstændig bruger-
-godkendt handling (levende-PII, gitignoreret). IKKE del af denne cutover.
+Selvstændig bruger-godkendt handling EFTER cutoveren er grøn (levende-PII, gitignoreret). IKKE del af
+skema-cutoveren.
+
+✅ **FORUDSÆTNING 1 (A4-gentagelse) — GJORT 2026-07-17:** artefaktet regenereret til konverter **v1.3.0**
+(539 poster, **355 links**, 0 falske/0 modsigelser/0 re-pegede) og A4 dry-run kørt grønt mod isoleret tom
+base (`daa_a4v13`, A1+K2 til stede): 355 barn-links = 355 slot-assertions (P1 holder), 948 assertions m.
+date_min/max (matcher-input sikret), 539 narrative 0-null, GDPR-sweep 7 levende. Se plan-1939 §A4.
+
+Rækkefølge (Fase 2 / Konvergens):
+
+1. **Rehearsal-load mod prod-KOPI (K1, OBLIGATORISK):** load 1939 mod GATE 0-kopien (ikke prod), og test
+   end-to-end at RLS + matcheren (`matchUdgaver.ts`) + collapse + offentlig UI virker sammen med de
+   rigtige 2018-20-data. Bekræft at matcheren faktisk får `date_min/date_max` fra 1939-datoerne.
+2. **Rigtig load MED `--staged` (K3):** `R_ENVIRON_USER=<prod-Renviron> Rscript load_daa.R \
+   work_1939_stamtavle/clean_1939.json "DAA 1939" --staged` (aar=1939). `--staged` = alle 1939-poster
+   skjult for anon indtil matchet (K2). Append-mode, ALDRIG `--reset`.
+3. **Match-gennemgang (redaktør):** kør matcheren i redaktør-fladen → markér samme_som / ikke_samme_som
+   for kandidat-parrene. Umatchede dubletter forbliver skjult (staged) — ingen dublette Conrad'er offentligt.
+4. **Publicér:** når gennemgangen er færdig, kald `red_publicer_udgave(<1939-source-id>)` → rydder `staged`
+   for udgavens poster + partner-stubs → 1939 bliver offentlig. (target: pr-person-afstaging ved review
+   når matcher-UI wires; RPC'en er PoC-default = hele udgaven samlet.)
+
+**Facit før publicering (fra `facit_1939.py`, ingen PII):** 539 poster; forælder-link-tal = **det
+regenererede v1.3.0-artefakts** (v1.1.0-referencen var 364/67%, v1.3.0 forventes lavere pga. fail-closed
+scope — bekræft ved A4-gentagelsen); GDPR-flag 7 (født ≥1926 u. død → `levende=TRUE`, skjult uafhængigt
+af staging). Uopløste barn-links parkeres (staged, ikke publiceret).
 
 ## Rehearsal-log (lokalt, 2026-07-16)
 
@@ -164,4 +194,12 @@ godkendt handling (levende-PII, gitignoreret). IKKE del af denne cutover.
 - Rollback-øvelse: migreret+backfyldt → down-script → alt væk, funktioner revertet.
 - Helper-guard: intern kald (via gated funktioner) OK; direkte non-redaktion afvist.
 - Alle Problem 2 db-verify-blokke grønne mod daa_test2 (m. seedet redaktion-profil).
-- **UDESTÅR:** real-scale prod-dump-rehearsal (GATE 0) — kræver prod-adgang + bruger-godkendelse.
+
+**Rehearsal 2026-07-17 (efter A1+K2+linjenorm merget til main):** fuld cutover-kæde mod frisk DB (base =
+daa_test2-skema u. A1+K2). Trin 1 (migrations, idempotent 2×) + 1b (rls) + 2 (backfill) kørte rent →
+A1+K2 tilføjet korrekt (`date_certainty`, `person.staged`, `red_publicer_udgave`, `person_offentlig`
+staged-klausul). Trin 3 db-verify: **26 asserts grønne** inkl. A1, K2, F-02, F-02c, media, helpers; 5
+skippet + 21 fejl var ALLE miljø/data-afhængige (10× auth.users-FK, 3× storage.buckets, 8× tom-DB-data) —
+ingen kode-bugs. Bekræfter cutover-kæden er kohærent efter K2.
+**✅ CUTOVER UDFØRT 2026-07-17 mod prod `xjnvdhajfyrcytatnzos`:** GATE 0 grøn (49 asserts mod tro prod-kopi + rollback-øvelse); Trin 0 krypteret backup; Trin 1-4 committed + verificeret på prod (Problem 2 + A1 + K2; 566 forældrefamilie-slots; P1 holder; GDPR intakt; search_path/RLS ✓). Data uændret (923 pers, 566 barn-links, 0 staged). **Fase 2 (1939-load) udestår — separat godkendelse.**
+- ~~**UDESTÅR:** real-scale prod-dump-rehearsal (GATE 0) — kræver prod-adgang + bruger-godkendelse.

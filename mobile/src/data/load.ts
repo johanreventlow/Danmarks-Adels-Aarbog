@@ -7,6 +7,9 @@ import {
   buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, pickPreferredBio, fmtYears, parseYear, getAll, EMPTY_GEO,
   type GenCoord, type ParentsUnknown, type NarrativeCand,
 } from '@daa/core';
+import { buildHaendelserBy, buildLivsdatoBy, type HaendelserBy, type LivsdatoBy } from '@daa/feed';
+import { fetchHaendelseRows } from './haendelser';
+import { fetchLivsdatoRows } from './livsdato';
 import { normalizeKoen, normalizeKonfidens } from './types';
 import type {
   AppPerson,
@@ -56,6 +59,12 @@ export type LoadResult = {
   // Marker-gatet "forældre ukendt" pr. kanonisk person-id (grad + proveniens). KUN personer hvor
   // kilden faktisk angiver at forbindelsen opad ikke er kendt — spejler web/src/data/model.ts.
   parentsUnknownByPerson: Record<string, ParentsUnknown>;
+  // Strukturerede fødsels-/dødsdatoer pr. kanonisk person-id (fase1-design.md §6.1) — til
+  // dag-præcise feed-kort ('på denne dag', jubilæer). {} hvis livsdato-hentningen degraderer.
+  livsdatoBy: LivsdatoBy;
+  // Regenererbare narrativ-hændelser pr. kanonisk person-id (fase2-design.md §5.2).
+  // {} hvis tabellen endnu ikke er migreret eller hentningen ellers degraderer.
+  haendelserBy: HaendelserBy;
 };
 
 export function mapAppPersons(
@@ -108,6 +117,11 @@ export async function loadFromSupabase(opts?: {
   // Start "forældre ukendt"-markerings-hentningen NU, så den overlapper hoved-batchen (ingen
   // data-afhængighed af canonicalIdById — buildParentsUnknown kanoniserer bagefter). Spejler web.
   const puRowsP = fetchParentsUnknownRows(sb);
+  // Samme mønster for livsdato (fase1-design.md §6.1): starter parallelt med hoved-batchen,
+  // kanoniseres først når collapsed.canonicalIdById findes.
+  const livsdatoRowsP = fetchLivsdatoRows(sb);
+  // Hændelsesprojektionen følger samme tolerante parallel-load og kanoniseres efter collapse.
+  const haendelseRowsP = fetchHaendelseRows(sb);
 
   const [
     persons,
@@ -312,6 +326,13 @@ export async function loadFromSupabase(opts?: {
   const genCoordsByPerson = buildGenCoords(extIds, lineage, collapsed.canonicalIdById);
   const puRows = await puRowsP;
   const parentsUnknownByPerson = buildParentsUnknown(puRows.facts, puRows.conclusions, puRows.assertions, puRows.citations, collapsed.canonicalIdById);
+  const livsdatoRows = await livsdatoRowsP;
+  const livsdatoBy = buildLivsdatoBy(livsdatoRows.facts, livsdatoRows.conclusions, livsdatoRows.assertions, collapsed.canonicalIdById);
+  const haendelseRows = await haendelseRowsP;
+  const haendelserBy = buildHaendelserBy(
+    haendelseRows.rows, haendelseRows.narrativer, haendelseRows.sources,
+    collapsed.canonicalIdById,
+  );
 
   // Vælg fornuftige start-id'er (flest børn = midt i træet) — på den COLLAPSED db, så et start-id
   // aldrig peger på et foldet alias.
@@ -344,6 +365,8 @@ export async function loadFromSupabase(opts?: {
     loadGeo,
     genCoordsByPerson,
     parentsUnknownByPerson,
+    livsdatoBy,
+    haendelserBy,
   };
 }
 

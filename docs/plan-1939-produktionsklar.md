@@ -140,31 +140,24 @@ DB (PoC-grænse, bevaret i narrative-prosa).
       (aar=2020; "2024" = trykke-år, ikke dæknings-benævnelse — bekræft mod titelblad), 1893=Thiset (uafklaret).
       Forfatter bæres i `titel` (source har ingen forfatter-kolonne). Holstein "vinder" ikke auto — kanonisk = redaktionel.
 
-### A4. Dry-run + facit-validering ⚠️ IKKE GENTAGET — udestår stadig efter v1.2.0 OG v1.3.0
-`load_daa.R` kørt mod `clean_1939.json` på en frisk DB (schema-kopi af daa_test2 + A1-migration, socket via
-`R_ENVIRON_USER`-override). **Tallene nedenfor er fra det ORIGINALE v1.1.0-artefakt** (før Tier2-linje-scopet
-i v1.2.0/v1.3.0 ændrede forældregrafen) — de er superseded, ikke et facit for den nuværende konverter.
-Checkboksene stod fejlagtigt som "done" i en tidligere version af denne plan; rettet her, da de kunne
-læses som at v1.2.0/v1.3.0 var re-verificeret, hvilket de ikke er.
-- [ ] **A4a — Facit fra faktisk load (v1.1.0-tal, SUPERSEDED, skal genmåles):** 835 personer (539 hoved + 296
-      partner-stubs); 539 narrative, 0 NULL/tom; **364 family_member barn-links** — dette tal er netop det
-      v1.2.0/v1.3.0 invaliderer (ny kode-preview: 180/539 for v1.2.0, ukendt/forventet højere for v1.3.0);
-      612 partner-links; 471 rødder; 73 uopløste barn-opslag (`union_tom_kontekst`).
-- [ ] **A4b — GDPR/levende (v1.1.0-tal, bør genbekræftes):** loaderens sweep satte `levende=TRUE` på præcis de
-      7 født ≥1926 uden dødsfakta; 828 afdøde offentlige. GDPR-logikken selv er urørt af v1.2.0/v1.3.0 (kun
-      forældre-link-tælling ændrede sig), så denne del er lavere risiko, men er ikke re-kørt mod nyt artefakt.
+### A4. Dry-run + facit-validering ✅ GENTAGET mod v1.3.0 (2026-07-17)
+`load_daa.R` kørt mod regenereret `clean_1939.json` (v1.3.0) på en frisk **tom** base (`daa_a4v13`:
+schema-only-dump af daa_test2 + `db-migrations.sql` → A1+K2 til stede, auth-shim arvet, 0 data → ingen
+fixture-kollision), socket via `R_ENVIRON_USER`-override (bekræftet `current_database=daa_a4v13`).
+**Artefakt-regenerering (v1.1.0→v1.3.0):** 539 poster, **355 links** (var 364; korpus-diff = 24 fjernet
+fail-closed [inkl. Lyder→Lyder samme-navn-fælde], 15 tilføjet [12 note-verificeret, 3 søskende-blok],
+**0 re-pegede**, 0 falske, 0 modsigelser, 0 linje-scope-konflikter). Gule flag afklaret: `foraelder_foer_
+boern_brud`/`gen_orden_inversioner` er rækkefølge-diagnostik, ikke link-defekter.
+- [x] **A4a — Facit fra faktisk load (v1.3.0):** 835 personer (539 hoved + 296 partner-stubs); **539 narrative,
+      0 NULL/tom** (NOT NULL opfyldt); **355 family_member barn-links** (matcher konverter-facit eksakt);
+      611 partner-links; **355 forældrefamilie-slot-assertions** (= barn-links, P1-invariant holder);
+      **948 assertions m. date_min/date_max** (K1-matcher-input sikret); 69 uopløste barn-opslag.
+      NB: `date_certainty` kun 4 udfyldt (min/max er der; eksplicit kvalifikator bæres sjældent → Wave 3-UI-detalje).
+- [x] **A4b — GDPR/levende bekræftet EMPIRISK:** loaderens sweep satte `levende=TRUE` på **præcis de 7 født ≥1926
+      uden dødsfakta** (korrekt skjult for anon); 828 afdøde offentlige. Tærsklen virker som forudsagt.
 - [x] **Bagud-kompatibilitet:** gammelt-format clean.json (uden calendar/date_certainty) loader uændret (835
       personer, alle assertions `calendar='gregoriansk'` via DB-default) → A1's `load_daa.R`-ændring er sikker.
       (Dette er en egenskab af `load_daa.R`/A1, ikke af 1939-konverterens forældregraf — upåvirket af v1.2/v1.3.)
-
-**Miljø-begrænsning (2026-07-18, denne session):** A4 kan IKKE genkøres i dette remote-miljø — kilde-
-artefaktet `work_1939_stamtavle/linked_clean.json` (levende-PII, git-ignoreret) findes ikke i denne
-container, og der er hverken R/Rscript, DB-forbindelse eller `.Renviron` til stede. Det eneste der KUNNE
-verificeres her var konverterens/parserens **enhedstests** (Python, ingen rigtig data nødvendig):
-`pytest` i `.claude/skills/daa-extract/scripts/` → **225/225 grønne** (56 i `test_convert_1939.py`), inkl.
-de nye v1.3.0-sideprojektionstests. Regenerering af `clean_1939.json` + `load_daa.R`-dry-run mod en frisk
-DB skal køres af nogen med adgang til `work_1939_stamtavle/` og en Postgres-instans — kommandoerne er
-uændrede fra tidligere kørsler (se A3/A4-historikken ovenfor).
 
 **KENDT BEGRÆNSNING (noteret):** de 73 `union_tom_kontekst` er børn af forældre med 2+ ægteskaber placeret i
 FØRSTE union (konverteren udleder ikke `aegteskab_kontekst` pr. barn). **Forbedring:** gruppe-noterne HAR "af
@@ -191,14 +184,27 @@ Følger `docs/fase4-runbook.md`.
 
 ## KONVERGENS — kræver Spor A + Spor B færdige
 
-- [ ] **K1 — Rehearsal-load af re-ekstraheret 1939 mod prod-KOPI.** Test RLS, matcher, kollaps, offentlig UI.
-      Verificér at matcheren nu faktisk får `date_min`/`date_max` (den læser kun dem — `matchUdgaver.ts:304`;
-      uden normaliserede datoer reduceres tværudgave-matching til navn+køn).
+- [x] **K1 — Rehearsal-load mod prod-KOPI ✅ GRØN (2026-07-17, prod-fri).** Genskabt post-cutover prod-tilstand
+      i lokal `daa_k1` fra gårsdagens *lokale* krypterede pre-cutover-backup (INTET nyt prod-dump) + migrations-
+      kæde (Trin 1/1b/2 → aar=2020, 566 slots, A1+K2). Loadet v1.3.0-1939 `--staged` ovenpå: 923+835=1758 personer,
+      921 family-slots (566+355). **Verificeret:** (a) RLS — anon ser 853 (kun afdøde 2018-20), **0 staged 1939**;
+      (b) 2018-20 UÆNDRET (923, 566 slots, ingen korruption); (c) **matcher-input sikret — 463 1939-personer m.
+      date_min/max; 367 DAA 1939 + 418 DAA 2018-20 m. fødselsår → år-blocking har reelt input begge sider**
+      (`matchUdgaver.ts:304`-kravet opfyldt); (d) publish-sti — `red_publicer_udgave(3)` af-stagede korrekt
+      (staged→0, anon ser 532 afdøde 1939, levende+stubs forbliver skjult). Test-baser droppet (PII-oprydning).
 - [x] **K2 — Staging-/publiceringsstrategi implementeret i kode:** loader `--staged` sætter
       `person.staged=TRUE`; `person_offentlig` og de direkte anon/authenticated-personpolitikker skjuler staged;
       `red_publicer_udgave(source_id)` rydder samlet efter match-gennemgang. **Ikke deployet til prod** — indgår
       i B3/B4 + GATE 0.
-- [ ] **K3 — Rigtig 1939-load mod prod** (efter separat bruger-godkendelse) + verificér slots/P1/RLS/UI.
+- [x] **K3 — Rigtig 1939-load mod prod ✅ UDFØRT 2026-07-18** (bruger-godkendt, navngav prod `xjnvdhajfyrcytatnzos`).
+      Pre-flight: ingen eksisterende DAA 1939-source (ingen dobbelt-load), 923 pers/566 slots/A1+K2. Frisk krypteret
+      backup FØR load (`daa-prod-pre1939-20260718-000304.dump.gpg`; passphrase i brugerens PW-manager; loaderen
+      ER atomisk [dbBegin→dbCommit/dbRollback] så drop selv-rydder — backup = committet-men-forkert-rollback).
+      `Rscript load_daa.R clean_1939.json "DAA 1939" --staged` (append, ALDRIG --reset). **Verificeret mod prod:**
+      1758 personer (923+835), staged=835, **2018-20 UÆNDRET (566 barn-links, 923 pers)**, 921 family-slots
+      (566+355), source 3=DAA 1939/1939, **anon ser 0 staged 1939** (K2-gate), GDPR 77 levende skjult. Ingen DDL
+      → sikkerheds-posture uændret. **UDESTÅR (bruger-drevet redaktør-UI, IKKE auto): match-gennemgang
+      (samme_som/ikke_samme_som) → `red_publicer_udgave(3)` = gør 1939 offentlig.** 1939 er pt. staged/usynlig.
 
 ---
 
