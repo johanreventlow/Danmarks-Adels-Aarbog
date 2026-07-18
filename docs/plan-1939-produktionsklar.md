@@ -180,7 +180,15 @@ Følger `docs/fase4-runbook.md`.
       `person.staged=TRUE`; `person_offentlig` og de direkte anon/authenticated-personpolitikker skjuler staged;
       `red_publicer_udgave(source_id)` rydder samlet efter match-gennemgang. **Ikke deployet til prod** — indgår
       i B3/B4 + GATE 0.
-- [ ] **K3 — Rigtig 1939-load mod prod** (efter separat bruger-godkendelse) + verificér slots/P1/RLS/UI.
+- [x] **K3 — Rigtig 1939-load mod prod ✅ UDFØRT 2026-07-18** (bruger-godkendt, navngav prod `xjnvdhajfyrcytatnzos`).
+      Pre-flight: ingen eksisterende DAA 1939-source (ingen dobbelt-load), 923 pers/566 slots/A1+K2. Frisk krypteret
+      backup FØR load (`daa-prod-pre1939-20260718-000304.dump.gpg`; passphrase i brugerens PW-manager; loaderen
+      ER atomisk [dbBegin→dbCommit/dbRollback] så drop selv-rydder — backup = committet-men-forkert-rollback).
+      `Rscript load_daa.R clean_1939.json "DAA 1939" --staged` (append, ALDRIG --reset). **Verificeret mod prod:**
+      1758 personer (923+835), staged=835, **2018-20 UÆNDRET (566 barn-links, 923 pers)**, 921 family-slots
+      (566+355), source 3=DAA 1939/1939, **anon ser 0 staged 1939** (K2-gate), GDPR 77 levende skjult. Ingen DDL
+      → sikkerheds-posture uændret. **UDESTÅR (bruger-drevet redaktør-UI, IKKE auto): match-gennemgang
+      (samme_som/ikke_samme_som) → `red_publicer_udgave(3)` = gør 1939 offentlig.** 1939 er pt. staged/usynlig.
 
 ---
 
