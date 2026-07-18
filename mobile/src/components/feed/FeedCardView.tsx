@@ -1,9 +1,9 @@
-// Feed-kort-komponent (spec §4.2). Én switch over FeedCard.kind. Markup porteret fra
-// Reventlow-folgesvend-v3.dc.html (sc-if card.isXxx-blokke), styles fra tokens.ts.
-// Gem-ikon rendres iff kortet har personId (via bookmarkPersonId, data-laget).
+// Feed-kort-komponent (spec §4.2, fase1-design.md). Én switch over FeedCard.kind. Markup
+// porteret fra Reventlow-folgesvend-v3.dc.html (sc-if card.isXxx-blokke), styles fra
+// tokens.ts. Gem-ikon rendres iff kortet har personId (via bookmarkPersonId, @daa/feed).
 import { memo } from 'react';
 import { Pressable, View } from 'react-native';
-import { bookmarkPersonId, type FeedCard } from '../../data/buildFeed';
+import { bookmarkPersonId, type FeedCard } from '@daa/feed';
 import { Border, Colors, Fonts, Radius, Shadow } from '../../theme/tokens';
 import { BookmarkIcon } from '../BookmarkIcon';
 import { InitialBadge } from '../InitialBadge';
@@ -50,6 +50,7 @@ function FeedCardViewImpl({ card, onOpen, onSave, bookmarked }: Props) {
 
   switch (card.kind) {
     case 'portrait':
+    case 'dagensperson': // identisk feltform med portrait; kicker ('Dagens person') skelner
       return (
         <View style={cardBase15}>
           <CardHeaderRow kicker={card.kicker} kickerColor={Colors.bordeaux} pid={pid} bookmarked={bookmarked} onSave={onSave} />
@@ -143,6 +144,25 @@ function FeedCardViewImpl({ card, onOpen, onSave, bookmarked }: Props) {
             <View style={{ flex: 1, minWidth: 0 }}>
               <Body size={13} color={Colors.ink} style={{ fontFamily: Fonts.sansSemi }}>{card.name}</Body>
               <Mono size={9.5} color={Colors.textMuted2}>{card.period}</Mono>
+            </View>
+            <Serif size={16} color={Colors.bordeaux}>›</Serif>
+          </Pressable>
+        </View>
+      );
+
+    case 'paadennedag':
+      return (
+        <View style={cardBase15}>
+          <CardHeaderRow kicker={card.kicker} kickerColor={Colors.gold} pid={pid} bookmarked={bookmarked} onSave={onSave} />
+          <Pressable onPress={() => onOpen(card)} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 9 }}>
+            <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.beige, alignItems: 'center', justifyContent: 'center' }}>
+              <Mono size={12} color={Colors.bordeaux}>{card.aarstal}</Mono>
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Serif size={19} style={{ lineHeight: 22 }}>{card.name}</Serif>
+              <Body size={12} color={Colors.textSecondary2} style={{ marginTop: 2 }}>
+                {card.hvad === 'født' ? 'Født' : 'Død'} {card.aarstal}
+              </Body>
             </View>
             <Serif size={16} color={Colors.bordeaux}>›</Serif>
           </Pressable>
