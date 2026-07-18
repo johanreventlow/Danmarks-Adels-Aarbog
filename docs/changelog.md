@@ -1,5 +1,30 @@
 # Changelog
 
+## Levende feed fase 2 — implementeret i kode (2026-07-18)
+
+Fase 2 er gennemført efter `docs/superpowers/plans/2026-07-18-levende-feed-fase2.md`:
+additiv `haendelse`-projektion med RLS, kontrolleret status-RPC og versionering; hændelses-load
+i begge klienter; hændelsesdrevne `arkiv`-, `citat`- og `paadennedag`-kort; den nye
+`.claude/skills/daa-haendelser`-pipeline; samt redaktionens kronologiske hændelsestidslinje
+og statusmarkering på web og mobil. Fase 1-reviewfund er samtidig indarbejdet.
+
+**Verificeret automatisk/lokalt:** frisk schema-installation og migrationsstien (migrationen
+kørt to gange) mod lokale PostgreSQL-databaser; fase 2's målrettede CHECK/RLS/RPC/versionerings-
+asserts; GDPR-eksportens optælling mod den samme lokale kopi (544 eksporterede, 47 ikke-
+offentlige kandidater udeladt); H1–H8-validatorens Python-tests; R-loaderens merge-tests;
+loader-`--dry-run` med rollback; samt genkørsel oven på en markeret hændelse, hvor både id og
+`feed_status='interessant'` blev bevaret. Klient-, core-, feed-, R- og pipeline-suiterne samt
+web-build er kørt lokalt; CI har fået et særskilt `pipeline · unittest`-job.
+
+**Ikke manuelt verificeret:** den samlede redaktør-UI mod en autentificeret PostgREST-session
+i browser/simulator. UI'ens data-, status-, staging- og tidslinjelogik er dækket af tests og
+typecheck/build. Det komplette historiske `db-verify.sql` når fase 2-blokken, men stopper senere
+i en allerede eksisterende rolle-gating-test for `red_slet_oplysning`; fase 2's målrettede
+DB-verifikation er grøn.
+
+**Prod-status:** Ingen prod-migration og intet prod-pipeline-load er udført. Det er fortsat
+separate, eksplicit godkendte deploytrin; `docs/database-current-state.md` er derfor uændret.
+
 ## Levende feed fase 2 — implementeringsplan skrevet (2026-07-18)
 
 `docs/superpowers/plans/2026-07-18-levende-feed-fase2.md` (13 tasks, TDD task-for-task efter

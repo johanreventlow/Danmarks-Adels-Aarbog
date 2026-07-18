@@ -384,6 +384,9 @@ jubilæer i det omfang datoer allerede er i klienten (dagens person + rygradsdat
 load-udvidelse med konklusionsdatoer hører også her).
 *Leverer løfte 1 + 2 straks, med eksisterende indhold.*
 
+**Status 2026-07-18:** Implementeret og regressionsdækket; efterfølgende fase 1-reviewfund
+er rettet på fase 2-grenen.
+
 ### Fase 2 — Hændelses-skelettet & arkivkort (backend additivt + offline pass)
 *Spec: [`../superpowers/specs/2026-07-18-levende-feed-fase2-design.md`](../superpowers/specs/2026-07-18-levende-feed-fase2-design.md).*
 `haendelse`-tabellen + offline LLM-pass over narrativerne (pipeline-mønster
@@ -391,6 +394,10 @@ genbruges) + RLS + load ind i klienten; `arkiv`- og forbedrede `paadenne dag`-ko
 citat-kortet skifter kilde til klausuler. Redaktionens hændelses-tidslinje (læse +
 markér `feed_status`).
 *Feed'en bliver hændelses-drevet og langt rigere — stadig uden krav om redaktionel skrivning.*
+
+**Status 2026-07-18:** Implementeret i kode og valideret mod lokale kopi-databaser.
+Prod-migrationen og den første prod-pipelinekørsel er ikke udført og kræver fortsat den
+gatede deployprocedure.
 
 ### Fase 3 — Minihistorier & redaktionel styring
 `story`/`story_kilde`/`feed_pin`-tabellerne + story-editor + pin/skjul-UI +

@@ -68,6 +68,13 @@ jobs:
         run: Rscript -e 'install.packages(c("testthat","jsonlite","DBI","duckdb","stringdist","stringi","withr"))'
       - run: Rscript run-tests.R
 
+  pipeline:
+    name: pipeline · unittest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s .claude/skills/daa-haendelser/scripts -p 'test_*.py'
+
   web:
     name: web · vitest + build
     runs-on: ubuntu-latest
