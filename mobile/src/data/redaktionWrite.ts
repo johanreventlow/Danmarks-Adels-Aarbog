@@ -6,10 +6,14 @@
 import { supabase } from '../lib/supabase';
 
 // felt → fact.faktatype. koen er BEVIDST udeladt: arbejdsværdi på person, ikke et fact.
+// daab/begravelse/floruit/naturalisering er del af rygraden og lå allerede i DB (loaderen
+// skriver dem fra extraction — se load_daa.R:298-299), men var utilgængelige i redaktions-UI
+// før denne udvidelse (dato-analyse fund #5, docs/plan-1939-produktionsklar.md Wave 3).
 export const FELT_FAKTATYPE: Record<string, string> = {
   navn: 'navn', foedt: 'fødsel', doed: 'død', titel: 'titel',
+  daab: 'dåb', begravelse: 'begravelse', floruit: 'floruit', naturalisering: 'naturalisering',
 };
-const DATE_FELT = new Set(['foedt', 'doed']);
+const DATE_FELT = new Set(['foedt', 'doed', 'daab', 'begravelse', 'floruit', 'naturalisering']);
 
 export type Change = {
   art: 'fakta' | 'narrativ' | 'relation' | 'gods' | 'hverv'

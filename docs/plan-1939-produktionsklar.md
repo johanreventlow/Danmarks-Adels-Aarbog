@@ -1,6 +1,7 @@
 # Plan: 1939-stamtavlen produktionsklar + dato-hærdning + cutover
 
-**Status:** Aktiv styringsplan. **Oprettet:** 2026-07-17.
+**Status:** Aktiv styringsplan. **Oprettet:** 2026-07-17. **Sidst afstemt mod kode:** 2026-07-18
+(v1.3.0-sideprojektion tilføjet siden sidste opdatering; A4-status rettet, se A3c/A4 nedenfor).
 **Formål:** Samle alle udestående tråde (Fase 4-cutover, 1939-load, dato-hærdning, Wave 3-backlog)
 i ét prioriteret overblik, så intet tabes undervejs.
 
@@ -114,11 +115,25 @@ Hybrid: konverter + billig segmenter, INGEN ændring af delt `load_daa.R`.
       normaliserede `_ctx.linje`; ukendt/modstridende linje parkeres. Det lukker cross-gren-falsk-matchen,
       men invaliderer det gamle 364-link-facit: kode-preview giver **180/539 linkede**, 346 uopløste.
       `clean_1939.json` skal regenereres og A4 gentages før prod-vurdering.
+- [x] **A3c — v1.3.0-opfølgning: sikker sideprojektion** ✅ CODE DONE (commit `d1351c3`/`0d7105b`,
+      2026-07-17): v1.2.0's linje-krav fail-closed *parkerede* poster hvor `_ctx.linje` var
+      fraværende/tvetydig, selvom siden entydigt lå i én ubrudt linje-sektion (`_SIDE_LINJE_SCOPE`,
+      kun de ikke-overlappende sideintervaller II–VI — 490-523 og 592 er bevidst udeladt fra
+      side-projektion pga. flere/overlappende sektioner). `canonical_linje()`/`build_linje_scopes()`
+      giver hver post en `{key, provenance, side, conflict}`: eksplicit linje vinder ALTID over
+      sideprojektion; kun ved fravær bruges siden; `Uplacerede`/usikker/ukendt blokerer projektion
+      helt. `_tier2_resolve` bruger nu denne scope i stedet for rå `normalize_linje` på `_ctx.linje`.
+      165→225 python-tests (56 i `test_convert_1939.py` alene), alle grønne (verificeret i denne
+      session). **CONVERTER_VERSION nu 1.3.0.** Forventet effekt: flere af de 346 v1.2.0-uopløste
+      poster genvinder et Tier2-link via sideprojektion, uden at genåbne H1s cross-gren-risiko — men
+      det er en *forventning fra kodelæsning*, ikke et målt tal: **ingen opdateret facit findes endnu**
+      (kræver kørsel mod den rigtige `linked_clean.json`, se A4-status nedenfor).
 
 **CODE-REVIEW (2026-07-17):** #4 **fikset** (ægteskab-datoer bevarer qualifier/certainty/calendar).
-**#1 cross-gren Tier2 er nu fikset fail-closed i v1.2.0** (samme normaliserede linje påkrævet; ukendt
-linje parkeres). #2 selvreference-vagten er efterfølgende afkræftet som defensiv dead code. #3 struktureret
-`kryds_ref` når fortsat ikke DB (PoC-grænse, bevaret i narrative-prosa).
+**#1 cross-gren Tier2 er nu fikset fail-closed i v1.2.0, udvidet i v1.3.0** (samme normaliserede linje
+påkrævet — enten eksplicit eller via sikker sideprojektion; ukendt linje parkeres). #2 selvreference-
+vagten er efterfølgende afkræftet som defensiv dead code. #3 struktureret `kryds_ref` når fortsat ikke
+DB (PoC-grænse, bevaret i narrative-prosa).
 - [x] **18 review.json-poster:** forbliver karantæne (16 ufuldstændig + 5 mangler navn) — fail-closed udeladt af
       konverteren (disjunkte _id, ikke i clean_1939.json). Dokumenteret; manuel efterbehandling hvis ønsket.
 - [x] **A3d — Bibliografisk source-identiteter** ✅ DONE (decisions.md): 1939=Bobé (aar=1939), 2018-20=Holstein
@@ -142,6 +157,7 @@ boern_brud`/`gen_orden_inversioner` er rækkefølge-diagnostik, ikke link-defekt
       uden dødsfakta** (korrekt skjult for anon); 828 afdøde offentlige. Tærsklen virker som forudsagt.
 - [x] **Bagud-kompatibilitet:** gammelt-format clean.json (uden calendar/date_certainty) loader uændret (835
       personer, alle assertions `calendar='gregoriansk'` via DB-default) → A1's `load_daa.R`-ændring er sikker.
+      (Dette er en egenskab af `load_daa.R`/A1, ikke af 1939-konverterens forældregraf — upåvirket af v1.2/v1.3.)
 
 **KENDT BEGRÆNSNING (noteret):** de 73 `union_tom_kontekst` er børn af forældre med 2+ ægteskaber placeret i
 FØRSTE union (konverteren udleder ikke `aegteskab_kontekst` pr. barn). **Forbedring:** gruppe-noterne HAR "af

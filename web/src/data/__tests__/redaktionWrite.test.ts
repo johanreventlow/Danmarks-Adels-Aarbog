@@ -1,4 +1,21 @@
-import { buildRpcCall, planCall } from '../redaktionWrite';
+import { buildRpcCall, FELT_FAKTATYPE, planCall } from '../redaktionWrite';
+
+describe('buildRpcCall — udvidede rygrad-felter (dåb/begravelse/floruit/naturalisering)', () => {
+  it.each([
+    ['daab', 'dåb'], ['begravelse', 'begravelse'], ['floruit', 'floruit'], ['naturalisering', 'naturalisering'],
+  ])('%s → red_upsert_fakta m. faktatype %s + p_date_raw', (felt, faktatype) => {
+    const c = { art: 'fakta', subjektType: 'person', subjektId: '7', felt, vaerdi: '1680' } as const;
+    expect(buildRpcCall(c)).toEqual({
+      fn: 'red_upsert_fakta',
+      args: { p_subjekt_type: 'person', p_subjekt_id: 7, p_faktatype: faktatype, p_vaerdi: '1680', p_date_raw: '1680' },
+    });
+  });
+  it('FELT_FAKTATYPE dækker de fire nye felter', () => {
+    expect(FELT_FAKTATYPE).toMatchObject({
+      daab: 'dåb', begravelse: 'begravelse', floruit: 'floruit', naturalisering: 'naturalisering',
+    });
+  });
+});
 
 describe('buildRpcCall — haendelseStatus', () => {
   it('bygger status-RPC og afviser manglende id', () => {
