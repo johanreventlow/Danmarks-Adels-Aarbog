@@ -1,5 +1,20 @@
 # Changelog
 
+## Levende feed fase 2 — design-spec skrevet (2026-07-18)
+
+`docs/superpowers/specs/2026-07-18-levende-feed-fase2-design.md` (6 skiver) beskriver
+hændelses-skelettet: ny tabel `haendelse` (regenerérbar projektion oven på fact/
+assertion/conclusion — aldrig ny evidens), offline LLM-ekstraktionspipeline
+(`.claude/skills/daa-haendelser/`, samme eksport→LLM→valider (H1–H8)→load-mønster
+som daa-extract) med bevarelses-mergende genkørsel via en stabil nøgle (normaliseret
+klausul + #N-suffiks ved dubletter), RLS via `entitet_offentlig`-kaskade, ny RPC
+`red_set_haendelse_status`, `arkiv`-korttype + udvidet `paadennedag` + klausul-baseret
+`citat` i `@daa/feed`, og redaktionens hændelses-tidslinje (begge apps). Skrevet af en
+Fable-subagent efter eksplicit anmodning; ni DB-mekanismer verificeret uafhængigt mod
+`schema.sql`/`db-migrations.sql`/`db-rls.sql` (funktion-signaturer, `vocab`-PK-form,
+`staged`-kolonnen, `entitet_offentlig`-brug) — alle stemmer. Endnu ikke implementeret;
+ingen plan skrevet.
+
 ## Levende feed fase 1 — implementeret (2026-07-18)
 
 Fase 1 (dynamik & uendelig scroll) af `docs/design/2026-07-18-levende-feed-koncept.md` er

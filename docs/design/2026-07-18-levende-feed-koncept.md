@@ -385,6 +385,7 @@ load-udvidelse med konklusionsdatoer hører også her).
 *Leverer løfte 1 + 2 straks, med eksisterende indhold.*
 
 ### Fase 2 — Hændelses-skelettet & arkivkort (backend additivt + offline pass)
+*Spec: [`../superpowers/specs/2026-07-18-levende-feed-fase2-design.md`](../superpowers/specs/2026-07-18-levende-feed-fase2-design.md).*
 `haendelse`-tabellen + offline LLM-pass over narrativerne (pipeline-mønster
 genbruges) + RLS + load ind i klienten; `arkiv`- og forbedrede `paadenne dag`-kort;
 citat-kortet skifter kilde til klausuler. Redaktionens hændelses-tidslinje (læse +
