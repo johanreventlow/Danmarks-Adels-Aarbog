@@ -1,6 +1,23 @@
 import { describe, it, expect } from 'vitest';
-import { mapFamilieRows, mapPersonMediaRows } from '../redaktionRead';
+import { buildTidslinje, mapFamilieRows, mapHaendelser, mapPersonMediaRows } from '../redaktionRead';
 import type { Model } from '../types';
+
+describe('hændelses-tidslinje', () => {
+  it('mapper også skjulte og fletter fact-kobling uden dublet, NULL sidst', () => {
+    const hs = mapHaendelser([
+      { id: 1, klausul: 'Tidlig', kategori: 'rejse', date_min: '1500-01-01', date_max: '1500-12-31', date_qualifier: null, date_raw: '1500', feed_status: 'skjult', narrative_id: 1, span_start: 0, span_laengde: 6, fact_id: null, relation_id: null, narrative: { side: '2', source: { titel: 'DAA', udgave: null } } },
+      { id: 2, klausul: 'Født her', kategori: 'familie', date_min: '1600-01-01', date_max: '1600-12-31', date_qualifier: null, date_raw: '1600', feed_status: 'interessant', narrative_id: 1, span_start: 8, span_laengde: 8, fact_id: 7, relation_id: null, narrative: null },
+      { id: 3, klausul: 'Udateret', kategori: null, date_min: null, date_max: null, date_qualifier: null, date_raw: null, feed_status: 'kandidat', narrative_id: 1, span_start: null, span_laengde: null, fact_id: null, relation_id: null, narrative: null },
+    ] as never);
+    expect(hs[0]).toMatchObject({ feedStatus: 'skjult', sourceTitel: 'DAA', side: '2' });
+    const evidence = { koen: null, felter: { foedt: [{ felt: 'foedt', faktatype: 'fødsel', factId: 7,
+      konklusionAssertionId: 70, uenig: false, oplysninger: [{ assertionId: 70, vaerdi: '1600', erKonklusion: true,
+        dato: { min: '1600-01-01', max: '1600-12-31', qualifier: null, raw: '1600' }, kilder: [] }] }] } };
+    const out = buildTidslinje(hs, evidence);
+    expect(out.map((p) => p.id)).toEqual(['h:1', 'f:7', 'h:3']);
+    expect(out[1]).toMatchObject({ art: 'rygrad', klausul: 'Født her', factId: 7 });
+  });
+});
 
 // Minimal model-stub: kun byId.{name,years} bruges af mapFamilieRows (navnAf/aarAf).
 const model = {

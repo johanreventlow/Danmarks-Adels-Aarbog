@@ -1,5 +1,13 @@
 import { buildRpcCall, describeCall, oversaetFejl, erFortrydKonflikt, FELT_FAKTATYPE } from '../redaktionWrite';
 
+test('buildRpcCall — haendelseStatus', () => {
+  expect(buildRpcCall({ art: 'haendelseStatus', subjektType: 'person', subjektId: '7',
+    haendelseId: 91, status: 'interessant' })).toEqual({
+      fn: 'red_set_haendelse_status', args: { p_haendelse_id: 91, p_status: 'interessant' },
+    });
+  expect(buildRpcCall({ art: 'haendelseStatus', subjektType: 'person', subjektId: '7', status: 'skjult' })).toBeNull();
+});
+
 describe('buildRpcCall — samme_som (identitets-links)', () => {
   it('sammeSom → red_samme_som(p_alias_id,p_objekt_id)', () => {
     const call = buildRpcCall({ art: 'sammeSom', subjektType: 'person', subjektId: '255',

@@ -1,4 +1,4 @@
-import { joinEvidence, mapKonfliktRow, mapNarrativer, mapRelationRow } from '../redaktionRead';
+import { buildTidslinje, joinEvidence, mapHaendelser, mapKonfliktRow, mapNarrativer, mapRelationRow } from '../redaktionRead';
 import { mapRedPerson, mapSammeSomLinks } from '../redaktionRead';
 import { getAll } from '@daa/core';
 
@@ -125,6 +125,31 @@ test('mapNarrativer: rækker med source-join, ordnet efter source_id så id', ()
 test('mapNarrativer: håndterer manglende source-join (null)', () => {
   const out = mapNarrativer([{ id: 1, source_id: null, side: null, tekst: 'x', privat: null, source: null }] as never);
   expect(out[0]).toMatchObject({ sourceId: null, sourceTitel: null, udgave: null, privat: false });
+});
+
+test('mapHaendelser medtager skjulte og mapper null/source-felter', () => {
+  const out = mapHaendelser([{ id: 9, klausul: 'I 1580 rejste han.', kategori: null,
+    date_min: '1580-01-01', date_max: '1580-12-31', date_qualifier: 'about', date_raw: 'ca. 1580',
+    feed_status: 'skjult', narrative_id: 4, span_start: null, span_laengde: null,
+    fact_id: null, relation_id: 8, narrative: { side: '12', source: { titel: null, udgave: 'DAA 1939' } } }] as never);
+  expect(out[0]).toMatchObject({ id: 9, feedStatus: 'skjult', narrativeId: 4,
+    sourceTitel: 'DAA 1939', side: '12', factId: null, relationId: 8,
+    dato: { min: '1580-01-01', raw: 'ca. 1580' } });
+});
+
+test('buildTidslinje fletter fact-kobling, sorterer NULL sidst og undgår dublet', () => {
+  const hs = mapHaendelser([
+    { id: 1, klausul: 'Tidlig', kategori: 'rejse', date_min: '1500-01-01', date_max: '1500-12-31', date_qualifier: null, date_raw: '1500', feed_status: 'kandidat', narrative_id: 1, span_start: 0, span_laengde: 6, fact_id: null, relation_id: null, narrative: null },
+    { id: 2, klausul: 'Født her', kategori: 'familie', date_min: '1600-01-01', date_max: '1600-12-31', date_qualifier: null, date_raw: '1600', feed_status: 'interessant', narrative_id: 1, span_start: 8, span_laengde: 8, fact_id: 7, relation_id: null, narrative: null },
+    { id: 3, klausul: 'Udateret', kategori: null, date_min: null, date_max: null, date_qualifier: null, date_raw: null, feed_status: 'kandidat', narrative_id: 1, span_start: null, span_laengde: null, fact_id: null, relation_id: null, narrative: null },
+  ] as never);
+  const evidence = { koen: null, felter: { foedt: [{ felt: 'foedt', faktatype: 'fødsel', factId: 7,
+    konklusionAssertionId: 70, uenig: false, oplysninger: [{ assertionId: 70, vaerdi: '1600', erKonklusion: true,
+      dato: { min: '1600-01-01', max: '1600-12-31', qualifier: null, raw: '1600' }, kilder: [] }] }] } };
+  const out = buildTidslinje(hs, evidence);
+  expect(out.map((p) => p.id)).toEqual(['h:1', 'f:7', 'h:3']);
+  expect(out[1]).toMatchObject({ art: 'rygrad', klausul: 'Født her', factId: 7 });
+  expect(out.filter((p) => p.id === 'h:2')).toHaveLength(0);
 });
 
 const AUX = { orgListe: [{ id: '1', navn: 'Hæren', slags: '' }], godsListe: [{ id: '5', navn: 'Brahetrolleborg', slags: '', ownerCount: 1 }] } as never;
