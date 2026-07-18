@@ -1,6 +1,6 @@
 // ---- Person-detalje (højre panel) ----
 // Udtrukket fra Folgesvend.tsx (review 27 W-K1) — samme komponent, blot flyttet fil.
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { T } from '../theme';
 import { initials } from '../data/format';
 import { childrenOf, parentsOf } from '../data/model';
@@ -23,6 +23,10 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
   // portræt + galleri bliver ÉT navigerbart sæt (portræt først), så pil-tasterne bladrer gennem
   // alle personens billeder uanset hvilket der blev klikket på.
   const [lightbox, setLightbox] = useState<number | null>(null);
+  // Udgave-versionsvælger (§7.18): index i detail.bioVersions, nulstillet når man skifter person
+  // (ny focusId) — ellers ville et tidligere valgt ældre-udgave-valg lække over på næste person.
+  const [bioVersionIdx, setBioVersionIdx] = useState(0);
+  useEffect(() => { setBioVersionIdx(0); }, [focusId]);
   const p = model.byId[focusId];
   if (!p) return null;
   const parents = parentsOf(model, focusId);
@@ -107,7 +111,38 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
           </div>
         )}
 
-        {detail?.bio && <div style={{ marginTop: 14, fontSize: 13.5, lineHeight: 1.55, color: '#3d382f' }}><NarrativRenderer tekst={detail.bio} onPickPerson={onPick} linkColor={T.bordeaux} inactiveColor={T.muted2} /></div>}
+        {/* Udgave-versionsvælger (§7.18): kun vist når personen har mere end én offentlig
+            DAA-udgave-bio (fx foldet 1939 + 2018-20-post) — ellers uændret enkelt-visning. */}
+        {(() => {
+          const versions = detail?.bioVersions ?? [];
+          const active = versions[bioVersionIdx] ?? versions[0];
+          const bioText = active?.tekst ?? detail?.bio ?? '';
+          if (!bioText) return null;
+          return (
+            <div style={{ marginTop: 14 }}>
+              {versions.length > 1 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 9 }}>
+                  {versions.map((v, i) => (
+                    <div key={v.sourceId ?? i} onClick={() => setBioVersionIdx(i)} style={{
+                      fontFamily: T.mono, fontSize: 9.5, fontWeight: 600, cursor: 'pointer',
+                      color: i === bioVersionIdx ? T.paper : T.muted,
+                      background: i === bioVersionIdx ? T.bordeaux : T.beige,
+                      border: '1px solid rgba(34,31,26,.12)', padding: '4px 9px', borderRadius: 6,
+                    }}>
+                      {v.udgave || (v.aar != null ? String(v.aar) : 'udgave')}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {versions.length > 1 && bioVersionIdx > 0 && (
+                <div style={{ fontFamily: T.sans, fontSize: 10.5, color: T.muted2, marginBottom: 5 }}>Tidligere udgave</div>
+              )}
+              <div style={{ fontSize: 13.5, lineHeight: 1.55, color: '#3d382f' }}>
+                <NarrativRenderer tekst={bioText} onPickPerson={onPick} linkColor={T.bordeaux} inactiveColor={T.muted2} />
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Livskort: kun hvis personen har mindst ét geo-punkt (undgår tom-boks-støj for de fleste). */}
         {/* geo er tomt indtil loadGeo() er kaldt (review 27 P3, "lazy geo-kæde") — de FLESTE

@@ -173,7 +173,7 @@ export default function Folgesvend() {
     setDetail(null);
     // Foldet person: hent detalje for ALLE medlems-id'er (narrativ/relationer unioneres — spec §8).
     const members = model?.byId[focusId]?.mergedFrom?.map((m) => m.personId);
-    fetchPersonDetail(focusId, members).then(setDetail).catch(() => setDetail({ bio: '', offices: [], estates: [], media: [] }));
+    fetchPersonDetail(focusId, members).then(setDetail).catch(() => setDetail({ bio: '', bioVersions: [], offices: [], estates: [], media: [] }));
   }, [focusId, model]);
 
   const persons = model?.persons ?? [];

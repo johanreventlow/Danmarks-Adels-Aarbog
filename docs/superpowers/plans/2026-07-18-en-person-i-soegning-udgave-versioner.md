@@ -4,7 +4,7 @@
 
 **Goal:** Efter 1939-genindlæsningen optræder samme fysiske person som to søgeresultater (1939- og 2018-20-posten), selv efter redaktøren har bekræftet matchet i "Sammenlign udgaver". (A) Redaktøren skal have synlig feedback om hvorfor et bekræftet link ikke folder offentligt (karantæne), og (B) personprofilen skal vise den nyeste DAA-udgaves biografi som standard med en versionsvælger til ældre udgaver — i stedet for dagens sammenkædning.
 
-**Status:** Planlagt (endnu ikke påbegyndt). Noteret 2026-07-18 efter analyse i session.
+**Status:** Del A og B implementeret 2026-07-18 (denne session); Del C udeladt (se derunder). Ikke endnu manuelt verificeret mod en rigtig Supabase-instans (intet DB-adgang i sessionen) — se Verifikation-afsnittet.
 
 ## Analyse (verificeret i koden 2026-07-18)
 
@@ -35,27 +35,33 @@ Fold-infrastrukturen findes allerede og virker:
 | `web/src/data/public.ts` (mod) | `fetchPersonDetail`: byg `bioVersions`; `bio` = nyeste |
 | `web/src/components/DetailPanel.tsx` (mod) | Versionsvælger-chips over biografien (kun ved >1 version) |
 | `web/src/components/SammenlignUdgaver.tsx` (mod) | Preflight-hint ved Bekræft + karantæne-oversigt |
-| `web/src/data/model.ts` (evt. mod) | Udtræk delt henter af afklarede samme_som-kanter (genbrug af l. 74-79-mønstret) |
+| `packages/core/src/buildFamilyGraph.ts` (ny, ikke oprindeligt planlagt) | Ren aggregering `family_member`-rækker → unions+parentChild, delt af den nye redaktions-fetch |
+| `packages/core/src/__tests__/buildFamilyGraph.test.ts` (ny) | Vitest af aggregeringen |
+| `web/src/data/redaktionRead.ts` (mod, ikke oprindeligt planlagt) | Ny `fetchFamilyGraph()` — leverer parentChild/unions til preflight-Db'en |
+| `web/src/Folgesvend.tsx` (mod, mekanisk) | `PersonDetailData`-fallback i catch-grenen udvidet med `bioVersions: []` |
 
-## Del A — Synlig karantæne-feedback i redaktionen
+## Del A — Synlig karantæne-feedback i redaktionen ✅ implementeret
 
-- [ ] **A1. Delt kant-henter:** udtræk hentningen af afklarede `samme_som`-kanter (relation `rolle='samme_som'` person→person + `conclusion(status='afklaret', target_type='relation')`, matchet i JS) fra `web/src/data/model.ts:74-79,132-138` til en genbrugelig hjælper i `web/src/data/`, så Sammenlign udgaver kan hente samme kantsæt.
-- [ ] **A2. Preflight-hint ved Bekræft:** i `SammenlignUdgaver.tsx`, kald `previewSammeSom(rawDb, existingEdges, {alias, canonical})` når et match bekræftes (rawDb bygges af redaktions-modellen, `collapse:false`). Vis inline: "✓ bekræftet — foldes offentligt" eller "✓ bekræftet — foldes IKKE endnu: {grund}" + handlingsanvisning ("Match forældrene i de to udgaver, så foldes denne automatisk."). Markér at hintet er rådgivende.
-- [ ] **A3. Karantæne-oversigt:** panel øverst i fanen der kører `collapseSameAs` på redaktions-datasættet med ALLE afklarede kanter og lister `result.quarantined` (medlemmer med navne fra den ukollapsede model + grund) — arbejdslisten "disse bekræftede links venter på X".
+- [x] **A1. Delt kant-henter — realiseret anderledes end planlagt:** i stedet for at udtrække `model.ts`s relation+conclusion-join, genbruges `linkede`-state'en som `SammenlignUdgaver.tsx` allerede hentede via `fetchSammeSomPar` (kun `relation.rolle='samme_som'`, uden conclusion-join). Dette er funktionelt identisk: `red_samme_som`-RPC'en (schema.sql:1013) indsætter ALTID relation+conclusion(afklaret) atomisk i samme transaktion — der findes ingen skrive-vej der opretter et samme_som-link uden en afklaret konklusion. At bygge en ny query ville have dupliceret data model.ts allerede validerer. `model.ts` er IKKE rørt (motor-invarianten holdt).
+  Til selve `Db`-graf-tjekket (konkurrerende forældre kræver parentChild) var der intet eksisterende sted der leverede hele familie-grafen til redaktionen uden for `loadModel`. Løst med en ny delt, ren funktion `buildFamilyGraph` i `@daa/core` (aggregerer `family_member` → unions+parentChild, uden far-før-mor-sortering — ordenen er uden betydning for karantæne-tjek) + `fetchFamilyGraph()` i `redaktionRead.ts`. `rawDb.persons` bygges af den allerede-hentede `personer` (`RedMatchPerson[]` fra `fetchMatchPersoner`).
+- [x] **A2. Preflight-hint pr. kandidat** (udvidet ift. planen: vises for BÅDE ubekræftede kandidater og allerede-bekræftede links, ikke kun "ved klik"): `foldHint(aId, bId, linket)` — for et bekræftet par slås karantæne-status op i `karantaeneByPersonId` (afledt af én samlet `collapseSameAs`-kørsel, se A3); for et ubekræftet par køres `previewSammeSom(rawDb, existingEdges, {alias, canonical})` direkte, så redaktøren ser konsekvensen FØR de klikker Bekræft. Tekst: "→ vil folde offentligt" / "→ vil IKKE folde: {grund}" (ubekræftet) og "✓ foldes offentligt til én person" / "✓ bekræftet — foldes IKKE endnu offentligt: {grund}" (bekræftet).
+- [x] **A3. Karantæne-oversigt:** `<details>`-panel over arbejdslisten, viser `foldPreview.quarantined` (fra ÉN `collapseSameAs`-kørsel over ALLE bekræftede kanter — samme kørsel som A2 slår op i, ingen dobbelt-beregning) med personnavne via `visning(byId.get(id))` og karantæne-grunden.
 
-## Del B — Profil: nyeste udgave + versionsvælger
+## Del B — Profil: nyeste udgave + versionsvælger ✅ implementeret
 
-- [ ] **B1. Core-selector:** `buildBioVersions(cands: NarrativeCand[]): BioVersion[]` med `BioVersion = { sourceId, aar, udgave, tekst }`. Filtrér på eksporteret `BIO_SLAGS` + ikke-tom tekst; gruppér pr. `sourceId` (flere medlemmer i samme udgave → dedup'et sammenføjning, kanonisk medlem først — kalderen leverer rækkefølgen); sortér `aar DESC NULLS LAST, sourceId DESC`. Tests: gruppering, sortering, gate, multi-medlem-samme-udgave, tom input.
-- [ ] **B2. Data-lag:** `fetchPersonDetail` samler alle `NarrativeCand` på tværs af `memberIds` (data hentes allerede i dag), kalder `buildBioVersions` og udvider `PersonDetailData` med `bioVersions: BioVersion[]`; `bio` sættes til `bioVersions[0]?.tekst ?? ''`.
-- [ ] **B3. UI:** i `DetailPanel.tsx:110`: ved `bioVersions.length <= 1` uændret visning; ved `>1` chip-række over biografien med udgave-labels (`udgave` eller `aar`), nyeste valgt som standard, lokal `useState` skifter vist tekst gennem `NarrativRenderer`. Genbrug linje-badge-stilen (`DetailPanel.tsx:84-86`). Diskret markering "tidligere udgave" når en ældre version er valgt.
+- [x] **B1. Core-selector:** `buildBioVersions` i `packages/core/src/bioVersions.ts`, `BIO_SLAGS` eksporteret fra `pickPreferredBio.ts` og genbrugt (ikke duplikeret). 5 vitest-cases: sortering, `version[0]` matcher `pickPreferredBio`s valg, gate-filtrering, multi-medlem-samme-udgave-dedup, tom input.
+- [x] **B2. Data-lag:** `fetchPersonDetail` (`web/src/data/public.ts`) bygger nu ÉT flat `NarrativeCand[]` (kanonisk medlem først) over alle `memberIds` og kalder `buildBioVersions`; `PersonDetailData.bioVersions` tilføjet, `bio = bioVersions[0]?.tekst ?? ''`.
+- [x] **B3. UI:** `DetailPanel.tsx` — chip-række (samme visuelle stil som linje-badges) vises kun når `bioVersions.length > 1`; lokal `useState(bioVersionIdx)` nulstillet via `useEffect` på `focusId`-skift (ellers lækker et ældre-udgave-valg over på næste person); "Tidligere udgave"-label når et ikke-nyeste chip er valgt.
 
-## Del C (valgfri, lille)
+## Del C (valgfri, lille) — udeladt
 
-- [ ] **C1.** Badge "⇒ samme som #id" i redaktionens personliste for personer der er alias i et afklaret link — kun hvis billigt; ellers udelades.
+- [ ] **C1.** Badge "⇒ samme som #id" i redaktionens personliste — udeladt denne runde (ikke kritisk for brugerens oplevede problem; kan tages senere som selvstændig lille opgave).
 
 ## Verifikation
 
-1. `packages/core`: `npm test` — nye bioVersions-tests + eksisterende `collapseSameAs.test.ts` uændret grønne.
-2. Web: typecheck/build + eksisterende vitest.
-3. Manuel (kræver Supabase-adgang): (a) bekræft et match hvis forældre IKKE er matchet → se "foldes IKKE endnu: konkurrerende forældre"; match forældrene → karantæne-oversigten tømmes og offentlig søgning viser ÉN person; (b) profilen viser 2018-20-biografien med chip til 1939-versionen.
-4. Uden DB-adgang: dæk preflight-integrationen og versionsvælgeren med unit-/komponenttests; dokumentér den manuelle test i PR-beskrivelsen.
+1. **Kørt i sessionen:** `packages/core`: `npm test` → 19 filer/264 tests grønne (inkl. 5 nye bioVersions- + 5 nye buildFamilyGraph-tests). `web`: `npx tsc -b` ren; `npm test` (med en lokal, ikke-committet `.env.local` — påkrævet af `supabase.ts` for at modulet kan loade i test) → 21 filer/161 tests grønne, ingen regressioner.
+2. **IKKE kørt (intet Supabase-adgang i sessionen) — mangler manuel verifikation:**
+   (a) i "Sammenlign udgaver": bekræft et match hvor forældrene i de to udgaver IKKE selv er matchet → forvent "→ vil IKKE folde: konkurrerende forældre (…)" / "✓ bekræftet — foldes IKKE endnu offentligt: …" og en linje i karantæne-oversigten; match forældrene → hint og oversigt opdateres ved næste `refresh` og bliver "folder offentligt";
+   (b) offentlig søgning viser herefter ÉN bedstefar, ikke to;
+   (c) profilen viser 2018-20-biografien som standard med et "1939"-chip der skifter til 1939-teksten.
+3. Kendt afgrænsning: mobile (`mobile/src/`) er urørt — `bioVersions` findes kun i web's `PersonDetailData`; mobilens person-bio bæres stadig via `collapseSameAs`-narrativ-unionen som i dag.
