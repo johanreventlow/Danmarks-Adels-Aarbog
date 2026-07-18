@@ -40,6 +40,20 @@ jobs:
       # tsc-fejl (Koen-type i tree.test.ts) akkumulerede ufanget. Codex-fund F-16).
       - run: npm run typecheck -w @daa/core
 
+  feed:
+    name: feed · vitest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run test -w @daa/feed
+      - run: npm run typecheck -w @daa/feed
+
   r:
     name: r · testthat
     runs-on: ubuntu-latest
