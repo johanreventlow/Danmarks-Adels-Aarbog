@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { interleave, mulberry32, stableHash } from '../prng';
+import { mulberry32, stableHash } from '../prng';
 
 describe('mulberry32', () => {
   it('er deterministisk pr. seed', () => {
@@ -30,16 +30,5 @@ describe('stableHash', () => {
     expect(stableHash('p1')).toBe(stableHash('p1'));
     expect(stableHash('p1')).toBeGreaterThanOrEqual(0);
     expect(stableHash('p1')).not.toBe(stableHash('p2'));
-  });
-});
-
-describe('interleave', () => {
-  it('fletter grupper round-robin og springer tomme over', () => {
-    expect(interleave([['a1', 'a2', 'a3'], ['b1'], [], ['c1', 'c2']]))
-      .toEqual(['a1', 'b1', 'c1', 'a2', 'c2', 'a3']);
-  });
-  it('tom input → tom liste', () => {
-    expect(interleave([])).toEqual([]);
-    expect(interleave([[], []])).toEqual([]);
   });
 });

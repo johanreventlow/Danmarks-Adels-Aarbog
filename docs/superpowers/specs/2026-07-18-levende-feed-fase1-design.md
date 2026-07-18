@@ -289,9 +289,20 @@ queries).
 web-koncept §6). Derunder monteres `FeedStreamView` (ny, `web/src/components/feed/`):
 én kolonne, maks-bredde ~680 px, centreret; kort-views i webbens idiom
 (`theme.ts`-tokens, `primitives.tsx` — **ingen nye farver/fonte**). Uendelig
-scroll via én `IntersectionObserver`-sentinel nederst → `next(12)`. Slut-tilstand
+scroll via én sentinel nederst → `next(12)`. Slut-tilstand
 som mobil (§5.1). Bogmærke-toggle på person-kort genbruger `data/bookmarks.ts`
 (localStorage, person-kun — kontrakten matcher allerede `bookmarkPersonId`).
+
+> **Implementeringsnote (2026-07-18, fundet under task 11's e2e-test):** sentinellen bruger
+> IKKE en `IntersectionObserver` som først forsøgt/foreslået her, men en `scroll`-lytter
+> direkte på Folgesvend.tsx's `[data-scroll]`-container (+ en synkron "fyld skærmen"-
+> efterkontrol der kører når `shown`/strømmen ændrer sig, uafhængigt af scroll). Årsag:
+> Følgesvendens rodlayout er `height:100vh; overflow:hidden` — den egentlige scroll sker i en
+> INDRE container, ikke i `window`/`body`. En `IntersectionObserver` med standard-root
+> (viewporten) ser derfor aldrig sentinellen krydse ind/ud, fordi dens position relativt til
+> selve browser-vinduet ikke ændrer sig når den indre container scroller — den fejler stille
+> (ingen fejl, bare ingen kort efter den første side). Fanget af e2e-testen, ikke af
+> enhedstests eller typecheck. Se `web/src/components/feed/FeedStreamView.tsx` for detaljen.
 
 ### 7.2 Web-aux-adapter (`web/src/data/feedAux.ts`)
 

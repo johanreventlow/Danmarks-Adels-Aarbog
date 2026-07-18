@@ -23,16 +23,3 @@ export function stableHash(s: string): number {
   }
   return h >>> 0;
 }
-
-// Round-robin-fletning af grupper: element 0 fra hver ikke-tom gruppe, så element 1, osv.
-// Bevarer intern gruppe-rækkefølge; springer tomme grupper over. Flyttet uændret.
-export function interleave<T>(groups: T[][]): T[] {
-  const out: T[] = [];
-  const max = groups.reduce((m, g) => Math.max(m, g.length), 0);
-  for (let i = 0; i < max; i++) {
-    for (const g of groups) {
-      if (i < g.length) out.push(g[i]);
-    }
-  }
-  return out;
-}

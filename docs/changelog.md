@@ -1,5 +1,49 @@
 # Changelog
 
+## Levende feed fase 1 — implementeret (2026-07-18)
+
+Fase 1 (dynamik & uendelig scroll) af `docs/design/2026-07-18-levende-feed-koncept.md` er
+gennemført task-for-task efter `docs/superpowers/plans/2026-07-18-levende-feed-fase1.md`.
+12 tasks, alle grønne (`@daa/core` 254 tests · `@daa/feed` 59 tests · mobil tsc+jest 196
+tests · web tsc+vitest 188 tests + build + 3× stabil Playwright-e2e).
+
+**Ny pakke `@daa/feed`** (`packages/feed/`, eget CI-job): kandidat-pool (builders porteret
+fra mobilens v3-`buildFeed`, caps fjernet) → forklarlig scoring (BASE-vægte pr. kind,
+timeliness/personal/seen-faktorer) → seedet vægtet trækning uden tilbagelægning
+(mulberry32) med rytme-regler (R1 ikke-samme-kind, R2 person-afstand, R3 mindst ét
+portræt pr. 6) og eskalerende relaksering når kind-diversitet løber tør → positionslåse
+(dagensperson, slaegt) via byt (ikke fjern+genindsæt — undgår at sammenføje naboer) →
+strøm-API (`createFeedStream`/`resumeStream`) med bevist `next(a)+next(b) ≡ next(a+b)`.
+To nye korttyper: `paadennedag` (dag-præcis, med måneds-fallback) og `dagensperson`
+(dagligt roterende, disjunkt fra portræt/citat). Livsdato-join (fact→conclusion→assertion)
+er delt logik; hver app henter selv (mobil: parallelt med hoved-batchen i `load.ts`; web:
+ved feed-mount i `feedAux.ts`/`livsdato.ts`) — `visning_foedt/doed` er rå datotekst og kan
+ikke bære dag-præcision.
+
+**Mobil:** forsiden doserer nu via `createFeedStream` (seed = dagsdato + tilfældig nonce,
+det eneste sted `Math.random` optræder), ægte `onEndReached`-append, pull-to-refresh =
+nyt seed, footer med tre reelle tilstande. Set-hukommelse i AsyncStorage (LRU 300,
+decay-vægte 0.25/0.5/0.75). Gamle `buildFeed.ts`/`feedHash.ts` + deres testsuite slettet
+(ingen forbrugere tilbage — alle imports peger nu på `@daa/feed`).
+
+**Web:** ny `FeedStreamView` monteret under forsidens hero/kuraterede sektion (samme motor
+og kort-katalog som mobil, egne kort-views i webbens idiom). Bio hentes og stemples ind i
+en model-kopi ved feed-mount (`fetchFeedBios`/`withFeedBios`); ved ankomst genopbygges
+strømmen med samme seed og genoptages via `resumeStream`, uden at nulstille allerede viste
+kort. **Reel bug fanget af den nybyggede e2e-test (Playwright, bootstrappet fra bunden —
+ingen opsætning fandtes forud):** uendelig-scroll-sentinellen brugte en
+`IntersectionObserver` med standard-root (viewporten), men Følgesvendens rodlayout scroller
+i en indre `[data-scroll]`-container (`height:100vh; overflow:hidden` på roden) — observeren
+så derfor aldrig sentinellen krydse ind/ud og fejlede helt stille. Erstattet med en
+`scroll`-lytter direkte på `[data-scroll]` + en synkron "fyld skærmen"-efterkontrol (dækker
+både ægte scroll og "indhold ankommer uden at brugeren scroller", fx bios der forlænger en
+kort forside). 18/18 e2e-kørsler grønne efter fixet.
+
+**Oprydning:** `interleave` (ubrugt — rytmen er vægtet trækning, ikke round-robin) fjernet
+fra `@daa/feed`s offentlige API. v3-spec'en (2026-07-05) har fået en status-note: §3
+(feed-datamodellen) er afløst; §4-6 (UI/drawer/bogmærker) er fortsat gældende. Ingen
+backend-/skemaændringer i hele fasen.
+
 ## Plan: levende feed fase 1 — klar til implementering (2026-07-18)
 
 Implementeringsplan for fase 1-spec'en: **`docs/superpowers/plans/2026-07-18-levende-feed-fase1.md`**
