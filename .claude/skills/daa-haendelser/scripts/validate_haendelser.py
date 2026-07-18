@@ -186,10 +186,13 @@ def _read_extracted(directory: Path) -> tuple[dict[int, dict[str, Any]], dict[in
 
 def validate_all(
     sources: list[dict[str, Any]], extracted_by_id: dict[int, dict[str, Any]]
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[
+    list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]
+]:
     clean: list[dict[str, Any]] = []
     review: list[dict[str, Any]] = []
     escalation: list[dict[str, Any]] = []
+    advisories: list[dict[str, Any]] = []
     for source in sources:
         narrative_id = source.get("narrative_id")
         enriched, issues, advisory, reasons = validate_narrative(
@@ -204,9 +207,11 @@ def validate_all(
             })
         elif enriched is not None:
             clean.append(enriched)
+        if advisory:
+            advisories.append({"narrative_id": narrative_id, "advisory": advisory})
         if reasons:
             escalation.append({"narrative_id": narrative_id, "grunde": reasons})
-    return clean, review, escalation
+    return clean, review, escalation, advisories
 
 
 def _write_json(path: str, value: Any) -> None:
@@ -228,7 +233,7 @@ def main() -> None:
     if not isinstance(sources, list):
         raise SystemExit("narrativer.json skal være en liste")
     extracted, duplicates = _read_extracted(Path(args.extracted_dir))
-    clean, review, escalation = validate_all(sources, extracted)
+    clean, review, escalation, advisories = validate_all(sources, extracted)
     for narrative_id, files in duplicates.items():
         clean = [r for r in clean if r["narrative_id"] != narrative_id]
         reason = f"H3: flere udtræksfiler for narrative_id {narrative_id}: {', '.join(files)}"
@@ -238,10 +243,16 @@ def main() -> None:
     _write_json(args.clean, clean)
     _write_json(args.review, review)
     _write_json(args.escalate, escalation)
-    advisory_count = sum(len(r.get("advisory", [])) for r in review)
+    advisory_count = sum(len(r["advisory"]) for r in advisories)
+    for entry in advisories:
+        for advisory in entry["advisory"]:
+            print(
+                f'[validate-haendelser] ~ narrative {entry["narrative_id"]}: {advisory}',
+                file=sys.stderr,
+            )
     print(
         f"[validate-haendelser] {len(clean)} rene, {len(review)} i review, "
-        f"{len(escalation)} til eskalering, {advisory_count} review-advisory",
+        f"{len(escalation)} til eskalering, {advisory_count} advisory",
         file=sys.stderr,
     )
 

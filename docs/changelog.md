@@ -11,7 +11,8 @@ og statusmarkering på web og mobil. Fase 1-reviewfund er samtidig indarbejdet.
 **Verificeret automatisk/lokalt:** frisk schema-installation og migrationsstien (migrationen
 kørt to gange) mod lokale PostgreSQL-databaser; fase 2's målrettede CHECK/RLS/RPC/versionerings-
 asserts; GDPR-eksportens optælling mod den samme lokale kopi (544 eksporterede, 47 ikke-
-offentlige kandidater udeladt); H1–H8-validatorens Python-tests; R-loaderens merge-tests;
+offentlige kandidater udeladt); H1–H8-validatorens og den fail-closed Opus-promotions
+Python-tests; R-loaderens merge-tests;
 loader-`--dry-run` med rollback; samt genkørsel oven på en markeret hændelse, hvor både id og
 `feed_status='interessant'` blev bevaret. Klient-, core-, feed-, R- og pipeline-suiterne samt
 web-build er kørt lokalt; CI har fået et særskilt `pipeline · unittest`-job.

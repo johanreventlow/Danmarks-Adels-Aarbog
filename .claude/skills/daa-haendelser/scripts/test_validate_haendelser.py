@@ -81,10 +81,21 @@ class ValidateHaendelserTest(unittest.TestCase):
     def test_one_blocker_moves_whole_narrative_to_review(self):
         good = {"klausul": "I 1580 blev han lensmand."}
         bad = {"klausul": "I 1590 rejste han."}
-        clean, review, escalation = vh.validate_all([source()], {1: extraction([good, bad])})
+        clean, review, escalation, advisories = vh.validate_all([source()], {1: extraction([good, bad])})
         self.assertEqual([], clean)
         self.assertEqual(1, len(review))
         self.assertEqual(1, len(escalation))
+        self.assertEqual([], advisories)
+
+    def test_h7_advisory_survives_batch_validation(self):
+        event = {"klausul": "I 1580 blev han lensmand.", "kategori": "magi"}
+        clean, review, escalation, advisories = vh.validate_all(
+            [source()], {1: extraction([event])}
+        )
+        self.assertEqual(1, len(clean))
+        self.assertEqual([], review)
+        self.assertEqual([], escalation)
+        self.assertTrue(advisories[0]["advisory"][0].startswith("H7"))
 
 
 if __name__ == "__main__":

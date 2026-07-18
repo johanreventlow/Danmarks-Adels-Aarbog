@@ -66,10 +66,23 @@ python3 .claude/skills/daa-haendelser/scripts/validate_haendelser.py \
 
 H1-H3 er blokerende for hele narrativet. H4-H6 beregnes deterministisk.
 H7 normaliserer ukendt kategori til `andet`; H8 sender år-rig prosa uden fund
-til eskalering. Opus må kun bruges én gang på de flaggede narrativer, og output
-skal altid gennem samme validator igen. Den eksisterende `daa-extract`-
-eskaleringskode er postspecifik; genbrug derfor driftsprincippet, ikke dens
-`decide()` direkte.
+til eskalering. Validatoren printer alle advisory-beskeder, også for rene poster,
+så vokabulardrift ikke forsvinder i `clean.json`.
+
+Opus må kun bruges én gang på de flaggede narrativer. Gem først det oprindelige
+Sonnet-output som `<narrative_id>.sonnet.json`, og gem Opus-genudtrækket i en
+separat mappe. Promovér derefter fail-closed med:
+
+```bash
+python3 .claude/skills/daa-haendelser/scripts/escalate_haendelser.py \
+  work/haendelser/narrativer.json work/haendelser/reextracted work/haendelser/snapshots \
+  work/haendelser/escalation.json work/haendelser/clean.json work/haendelser/review.json \
+  --diff work/haendelser/escalation-diff.json
+```
+
+Helperen kræver et snapshot og kører altid samme H1-H8-validator igen. Kun et
+blokkeringsfrit output uden nye H8-advisory-typer kan erstatte `clean.json`;
+resten fjernes fail-closed fra clean og bliver i review.
 
 ### ④ Merge-load
 
