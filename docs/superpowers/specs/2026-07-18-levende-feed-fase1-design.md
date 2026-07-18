@@ -2,6 +2,7 @@
 
 **Dato:** 2026-07-18
 **Styringsgrundlag:** `docs/design/2026-07-18-levende-feed-koncept.md` §4 + §10 (fase 1).
+**Implementeringsplan:** `docs/superpowers/plans/2026-07-18-levende-feed-fase1.md` (task-for-task, TDD).
 **Mål:** feed'en møder brugeren med en ny sammensætning ved hvert besøg, kan scrolles
 "uendeligt" med ægte dosering, og kører på **én delt motor** for mobil og web — alt
 uden backend-ændringer (ingen skemaændringer, ingen nye RPC'er; kun nye *læsninger*

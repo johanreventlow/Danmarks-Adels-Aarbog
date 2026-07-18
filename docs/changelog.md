@@ -1,5 +1,17 @@
 # Changelog
 
+## Plan: levende feed fase 1 — klar til implementering (2026-07-18)
+
+Implementeringsplan for fase 1-spec'en: **`docs/superpowers/plans/2026-07-18-levende-feed-fase1.md`**
+— 12 tasks i TDD-stil (fejlende test → implementér → grøn → commit) i eksekverbar rækkefølge:
+pakke-skelet+prng → typer+pool → tidslige kort → scoring+ordning → strøm → mobil livsdato/seen/dosering
+→ web datalag/views/e2e → oprydning. Pakke-invariant fastlagt: `@daa/feed` er netværksfri (rene
+join-/decay-helpers i pakken, fetch i app-lagene); `resumeStream` definerer den append-sikre
+genoptagelse ved webs bio-ankomst. Punkter implementer skal slå efter frem for at gætte er markeret
+eksplicit (core-exportmekanisme, Aux-feltformer, pickPreferredBio-signatur, web-nav-handlers,
+Playwright-placering). Dokumentationssporet (koncept → spec → plan) er hermed komplet — implementering
+kan køres af en eksekverende session/model uden yderligere designbeslutninger.
+
 ## Spec: levende feed fase 1 — dynamik & uendelig scroll (2026-07-18)
 
 Design-spec for feed-konceptets fase 1: **`docs/superpowers/specs/2026-07-18-levende-feed-fase1-design.md`**.
