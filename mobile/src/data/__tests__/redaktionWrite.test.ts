@@ -51,6 +51,15 @@ describe('buildRpcCall', () => {
   it('FELT_FAKTATYPE har ikke koen (special-case)', () => {
     expect(FELT_FAKTATYPE.koen).toBeUndefined();
   });
+  it.each([
+    ['daab', 'dåb'], ['begravelse', 'begravelse'], ['floruit', 'floruit'], ['naturalisering', 'naturalisering'],
+  ])('%s → red_upsert_fakta m. faktatype %s + p_date_raw', (felt, faktatype) => {
+    const c = { art: 'fakta', subjektType: 'person', subjektId: '7', felt, vaerdi: '1680' } as const;
+    expect(buildRpcCall(c)).toEqual({
+      fn: 'red_upsert_fakta',
+      args: { p_subjekt_type: 'person', p_subjekt_id: 7, p_faktatype: faktatype, p_vaerdi: '1680', p_date_raw: '1680' },
+    });
+  });
 });
 
 describe('describeCall', () => {

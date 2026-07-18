@@ -30,8 +30,11 @@ import { type Change } from '../../../data/redaktionWrite';
 import { useStore } from '../../../store/useStore';
 import { Border, Colors, Radius } from '../../../theme/tokens';
 
-const FELTER = ['navn', 'foedt', 'doed', 'titel']; // koen håndteres separat (ikke et fact)
-const FELT_LABEL: Record<string, string> = { navn: 'navn', foedt: 'født', doed: 'død', titel: 'titel' };
+const FELTER = ['navn', 'foedt', 'doed', 'titel', 'daab', 'begravelse', 'floruit', 'naturalisering']; // koen håndteres separat (ikke et fact)
+const FELT_LABEL: Record<string, string> = {
+  navn: 'navn', foedt: 'født', doed: 'død', titel: 'titel',
+  daab: 'dåb', begravelse: 'begravelse', floruit: 'floruit', naturalisering: 'naturalisation',
+};
 
 export default function PersonEditor() {
   const { id } = useLocalSearchParams<{ id: string }>();

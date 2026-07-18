@@ -147,3 +147,19 @@ _(Codex-fund tilføjes her efter reconcile.)_
 - **K2 lukket i kode:** `person.staged`, loader `--staged`, `person_offentlig`, direkte person-RLS og
   `red_publicer_udgave`. `db-verify.sql` tester nu en faktisk anon-SELECT, ikke kun hjælperfunktionen.
   Prod-deploy og GATE 0 er fortsat separate, eksplicit godkendelseskrævende trin.
+
+## Addendum (2026-07-18) — v1.3.0 sikker sideprojektion
+
+**H1-opfølgning:** v1.2.0 lukkede cross-gren-falsk-matchen ved at kræve at Tier2-kandidater deler
+samme normaliserede `_ctx.linje` — men det parkerede samtidig alle poster hvor linjen ikke stod
+eksplicit i teksten, selvom siden entydigt lå inden for én ubrudt linje-sektion. v1.3.0 (commit
+`d1351c3`/`0d7105b`) tilføjer `_SIDE_LINJE_SCOPE` — kun de sider hvor bogens linje-overskrifter er
+ubrudte og ikke-overlappende (II–VI); de kendte flertydige side-intervaller (490-523, 592) er
+eksplicit UDELUKKET fra projektion. `canonical_linje()` normaliserer eksplicit kontekst til de samme
+nøgler; `build_linje_scopes()` giver hver post `{key, provenance, side, conflict}` med eksplicit linje
+som altid-vindende kilde. 165→225 python-tests, alle grønne (verificeret 2026-07-18).
+
+**Status på det konsoliderede facit-tal (180/539 linkede):** dette tal var v1.2.0-specifikt og er
+IKKE genmålt for v1.3.0 — hverken i denne session (intet DB/data-adgang i det remote-miljø der lavede
+denne opdatering) eller andetsteds i repoet. Regn ikke 180/539 som gældende for den nuværende kode;
+det kræver en ny kørsel af konverteren mod `linked_clean.json` + `facit_1939.py`.
