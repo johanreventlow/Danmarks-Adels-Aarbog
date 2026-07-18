@@ -160,7 +160,7 @@ export function FeedStreamView({
 
   const openCard = useCallback((card: FeedCard) => {
     switch (card.kind) {
-      case 'portrait': case 'citat': case 'embede': case 'jubilaeum': case 'paadennedag': case 'dagensperson':
+      case 'portrait': case 'citat': case 'arkiv': case 'embede': case 'jubilaeum': case 'paadennedag': case 'dagensperson':
         onOpenPerson(card.personId); break;
       case 'gods': onOpenEstate(card.estateId); break;
       case 'vaaben': onOpenArms(); break;

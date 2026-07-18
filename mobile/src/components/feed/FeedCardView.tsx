@@ -79,6 +79,27 @@ function FeedCardViewImpl({ card, onOpen, onSave, bookmarked }: Props) {
         </View>
       );
 
+    case 'arkiv':
+      return (
+        <View style={{ ...cardBase15, backgroundColor: Colors.beige }}>
+          <CardHeaderRow kicker={card.kicker} kickerColor={Colors.gold} pid={pid} bookmarked={bookmarked} onSave={onSave} />
+          <Pressable onPress={() => onOpen(card)}>
+            {(card.aarLabel || card.kategori) ? (
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 9, alignItems: 'center', flexWrap: 'wrap' }}>
+                {card.aarLabel ? <Mono size={9.5} color={Colors.bordeaux}>{card.aarLabel}</Mono> : null}
+                {card.kategori ? <Mono size={8.5} color={Colors.textMuted2}>{card.kategori}</Mono> : null}
+              </View>
+            ) : null}
+            <Serif size={20} italic style={{ marginTop: 9, lineHeight: 27, fontFamily: Fonts.serifItalic }}>
+              {card.klausul}
+            </Serif>
+            {card.kilde ? (
+              <Body size={10.5} color={Colors.textMuted2} style={{ marginTop: 12 }}>efter {card.kilde}</Body>
+            ) : null}
+          </Pressable>
+        </View>
+      );
+
     case 'gods':
       return (
         <Pressable onPress={() => onOpen(card)} style={cardBase15}>
@@ -161,7 +182,9 @@ function FeedCardViewImpl({ card, onOpen, onSave, bookmarked }: Props) {
             <View style={{ flex: 1, minWidth: 0 }}>
               <Serif size={19} style={{ lineHeight: 22 }}>{card.name}</Serif>
               <Body size={12} color={Colors.textSecondary2} style={{ marginTop: 2 }}>
-                {card.hvad === 'født' ? 'Født' : 'Død'} {card.aarstal}
+                {card.hvad === 'hændelse'
+                  ? card.klausul
+                  : `${card.hvad === 'født' ? 'Født' : 'Død'} ${card.aarstal}`}
               </Body>
             </View>
             <Serif size={16} color={Colors.bordeaux}>›</Serif>

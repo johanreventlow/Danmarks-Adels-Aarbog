@@ -8,7 +8,7 @@ import { buildSnapPath } from '../data/selectors';
 import { SEED } from '../data/seed';
 import { childrenOf } from '../data/selectors';
 import { buildModel, EMPTY_GEO, type GenCoord, type ParentsUnknown } from '@daa/core';
-import type { LivsdatoBy } from '@daa/feed';
+import type { HaendelserBy, LivsdatoBy } from '@daa/feed';
 import type { Aux, Geo, Model } from '../data/types';
 
 const ME_KEY = 'daa_me_id';
@@ -49,6 +49,8 @@ export type State = {
   // Strukturerede fødsels-/dødsdatoer pr. kanonisk person-id, til dag-præcise feed-kort
   // (fase1-design.md §6.1); {} indtil load/SEED (SEED bærer ingen livsdatoer).
   livsdatoBy: LivsdatoBy;
+  // Narrativ-hændelser til arkiv-/hændelseskort; {} indtil load/SEED.
+  haendelserBy: HaendelserBy;
 
   rootId: string | null;
   focusId: string | null;
@@ -128,6 +130,7 @@ export const useStore = create<State>((set, get) => ({
   genCoordsByPerson: {},
   parentsUnknownByPerson: {},
   livsdatoBy: {},
+  haendelserBy: {},
   rootId: null,
   focusId: null,
   variant: 'A',
@@ -181,6 +184,7 @@ export const useStore = create<State>((set, get) => ({
         genCoordsByPerson: res.genCoordsByPerson ?? {},
         parentsUnknownByPerson: res.parentsUnknownByPerson ?? {},
         livsdatoBy: res.livsdatoBy ?? {},
+        haendelserBy: res.haendelserBy ?? {},
         rootId: res.rootId,
         focusId: res.focusId,
         anchorId: res.focusId,
@@ -213,6 +217,7 @@ export const useStore = create<State>((set, get) => ({
         genCoordsByPerson: {}, // SEED bærer ikke generations-koordinater — ingen kandidat-ring i offline-tilstand
         parentsUnknownByPerson: {}, // SEED bærer ingen forældre_ukendt-markeringer
         livsdatoBy: {}, // SEED bærer ingen livsdatoer — tidslige feed-kort degraderer til års-niveau
+        haendelserBy: {}, // SEED bærer ingen hændelser — arkiv-/hændelseskort udelades
         rootId: SEED.rootId,
         focusId: SEED.focusId,
         anchorId: SEED.focusId,
