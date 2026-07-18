@@ -1,5 +1,20 @@
 # Changelog
 
+## Koncept: Det levende feed (2026-07-18)
+
+Idéudviklings-runde (ingen kode) der samler feed-videreudviklingen i ét styringsdokument:
+**`docs/design/2026-07-18-levende-feed-koncept.md`**. Baseret på kodebase-analyse af mobil-feed'en
+(`buildFeed` — deterministisk, ingen paginering, `FeedOverride` no-op), web-forsiden (statisk PoC uden
+highlights-tabel) og narrativ/fakta-laget (intet beskrivelsesfelt på `fact`; daterede gerninger bevidst
+kun i prosaen). Hovedgreb: (1) feed-motor 2.0 — kandidat-pool + scoring + seeded sampling + rytme-regler
++ lazy strøm-API (ægte uendelig scroll), delt web↔mobil-pakke; (2) nyt **formidlingslag** oven på uændret
+evidensmodel: `haendelse` (narrativ-afledt dateret hændelses-skelet, offline LLM-pass) + `story`
+(redaktionelle minihistorier m. kildefod) + `feed_pin`; (3) redaktionelt historieværksted
+(hændelses-tidslinje, markér interessant, skriv/godkend) med "Foreslå historie"-knap via auth-gated Edge
+Function — LLM-kladder publiceres aldrig uden redaktørgodkendelse, kun afdøde. 4 faser; lukker samtidig
+web-konceptets åbne §9.f (forside = faste indgange + feed). Indekseret i `docs/README.md` (ny sektion
+"Design & koncepter").
+
 ## Sikkerhedshærdning fra Codex-fundament-review (2026-07-17)
 
 Et helrepo-"fundament-review" (Codex, 21 fund F-01..F-21) blev triageret ind i waves med fokus på: dels at

@@ -46,6 +46,13 @@ i historiske planer og afsluttede reviews.
 | [`moed-en-slaegtning-roadmap.md`](moed-en-slaegtning-roadmap.md) | Telefon-til-telefon slægtskab ved fysisk møde (QR → BLE → UWB). |
 | [`flere-daa-udgaver-roadmap.md`](flere-daa-udgaver-roadmap.md) | Præsenslister over tid, modstridende relationer mellem udgaver, tværudgave-personidentifikation. |
 
+## 🎨 Design & koncepter (levende — styrer kommende udvikling)
+
+| Dokument | Hvad |
+|---|---|
+| [`design/2026-07-18-levende-feed-koncept.md`](design/2026-07-18-levende-feed-koncept.md) | **Det levende feed:** dynamik (seeded sampling), ægte uendelig scroll, hændelses-skelet + minihistorier (formidlingslag), redaktionel kuratering, LLM-assist. 4 faser; afløser feed v3-spec'ens statiske model. |
+| [`design/2026-07-08-web-navigation-soegning-stamtrae-koncept.md`](design/2026-07-08-web-navigation-soegning-stamtrae-koncept.md) | Web: mega-menu-navigation, søgning i stamtræet, split-skærm flade+detalje. (§9.f forsidens form er lukket af feed-konceptet ovenfor.) |
+
 ---
 
 ## 🗂️ Historiske artefakter (kontekst, ikke gældende sandhed)
