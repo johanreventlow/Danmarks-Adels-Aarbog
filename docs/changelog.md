@@ -1,5 +1,22 @@
 # Changelog
 
+## Levende feed fase 2 — implementeringsplan skrevet (2026-07-18)
+
+`docs/superpowers/plans/2026-07-18-levende-feed-fase2.md` (13 tasks, TDD task-for-task efter
+fase 1-planens skabelon) omsætter design-specen til konkrete skridt: skive 1 (DB) → task 1,
+skive 3 (klient-load) → task 2-4, skive 4 (motor: arkiv/paadennedag/citat/kort-views) → task
+5-7, skive 2 (offline pipeline `daa-haendelser`) → task 8-10, skive 5 (redaktions-tidslinje)
+→ task 11-12, skive 6 (CI+afstemning) → task 13. Skrevet af en Fable-subagent, der undersøgte
+den faktiske kodebase (ikke kun specen) for præcise filstier/linjenumre/funktionssignaturer —
+egen efterfølgende verifikation fandt og rettede én reel fejl: agentens påstand om at
+versionerings-infrastrukturen (`version_pk_registry` + trigger-loop) kun findes i
+`db-migrations.sql` var forkert (den findes i BÅDE `schema.sql` og `db-migrations.sql`, med
+forskellig håndtering nødvendig i hver — se planens Self-review-noter); uden rettelsen ville
+en frisk clean-slate-deploy mangle `trg_log_haendelse`. Øvrige åbne verifikationspunkter
+(fx om PostgREST tillader dobbelt-nestede selects) er ærligt flagget i planen som
+implementer-verifikation, ikke påstået som fakta. Ingen kode er ændret; implementeringen
+starter ikke før eksplicit anmodning.
+
 ## Levende feed fase 2 — design-spec skrevet (2026-07-18)
 
 `docs/superpowers/specs/2026-07-18-levende-feed-fase2-design.md` (6 skiver) beskriver
