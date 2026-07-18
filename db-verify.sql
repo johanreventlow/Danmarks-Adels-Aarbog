@@ -40,7 +40,6 @@ DO $$ BEGIN
   END;
 END $$;
 
-
 -- ===== Task 2: Cache-regenerering — regen_person_visning + trigger =====
 -- Vælg en person med navne-fakta; nulstil cache; kald regen; bekræft den genskabes.
 -- Forvent: NOTICE "OK: visning_navn regenereret".
@@ -1614,4 +1613,104 @@ BEGIN
   END IF;
   DELETE FROM person WHERE id BETWEEN -987655003 AND -987655001;
   RAISE NOTICE 'OK: K2 staging-gate (hjælper + faktisk anon person-RLS)';
+END $$;
+
+-- ===== Levende feed fase 2: haendelse-skema, RLS, RPC og fortryd =====
+DO $$
+DECLARE
+  v_live int; v_hidden int; v_private int; v_public int; v_auth_hidden int;
+  v_uid uuid := '00000000-0000-0000-0000-0000000000f2';
+  v_cs bigint; v_undo bigint; v_before jsonb; v_after jsonb; v_result jsonb;
+BEGIN
+  IF to_regclass('public.haendelse') IS NULL THEN
+    RAISE EXCEPTION 'Fase2: haendelse-tabellen mangler';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM version_pk_registry WHERE tabel='haendelse') THEN
+    RAISE EXCEPTION 'Fase2: haendelse mangler i version_pk_registry';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger
+                 WHERE tgrelid='public.haendelse'::regclass AND tgname='trg_log_haendelse'
+                   AND NOT tgisinternal) THEN
+    RAISE EXCEPTION 'Fase2: trg_log_haendelse mangler';
+  END IF;
+
+  DELETE FROM haendelse WHERE id BETWEEN -987656029 AND -987656020;
+  DELETE FROM narrative WHERE id BETWEEN -987656019 AND -987656010;
+  DELETE FROM person WHERE id IN (-987656001,-987656002);
+  INSERT INTO person(id,levende,privat,staged) VALUES
+    (-987656001,true,false,false),(-987656002,false,false,false);
+  INSERT INTO narrative(id,subjekt_type,subjekt_id,tekst,privat) VALUES
+    (-987656011,'person',-987656001,'Levende testnarrativ',false),
+    (-987656012,'person',-987656002,'Offentligt testnarrativ',false),
+    (-987656013,'person',-987656002,'Privat testnarrativ',true);
+  INSERT INTO haendelse(id,subjekt_type,subjekt_id,narrative_id,noegle,klausul,feed_status) VALUES
+    (-987656021,'person',-987656001,-987656011,'live','Levende hændelse','kandidat'),
+    (-987656022,'person',-987656002,-987656012,'hidden','Skjult hændelse','skjult'),
+    (-987656023,'person',-987656002,-987656013,'private','Privat hændelse','kandidat'),
+    (-987656024,'person',-987656002,-987656012,'public','Offentlig hændelse','kandidat');
+  BEGIN
+    INSERT INTO haendelse(id,subjekt_type,subjekt_id,narrative_id,noegle,klausul,feed_status)
+      VALUES (-987656025,'person',-987656002,-987656012,'invalid','Ugyldig','ingen');
+    RAISE EXCEPTION 'Fase2: feed_status-CHECK fyrede ikke';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+
+  SET LOCAL ROLE anon;
+  SELECT count(*) INTO v_live FROM haendelse WHERE id=-987656021;
+  SELECT count(*) INTO v_hidden FROM haendelse WHERE id=-987656022;
+  SELECT count(*) INTO v_private FROM haendelse WHERE id=-987656023;
+  SELECT count(*) INTO v_public FROM haendelse WHERE id=-987656024;
+  RESET ROLE;
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO v_auth_hidden FROM haendelse WHERE id=-987656022;
+  RESET ROLE;
+  IF v_live<>0 OR v_hidden<>0 OR v_private<>0 OR v_public<>1 OR v_auth_hidden<>0 THEN
+    RAISE EXCEPTION 'Fase2 RLS FEJL live=% hidden=% private=% public=% auth_hidden=%',
+      v_live,v_hidden,v_private,v_public,v_auth_hidden;
+  END IF;
+
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  BEGIN
+    PERFORM red_set_haendelse_status(-987656024,'interessant');
+    RAISE EXCEPTION 'Fase2: ikke-redaktør blev ikke afvist';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE 'Kun redaktion%' THEN RAISE; END IF;
+  END;
+
+  INSERT INTO auth.users(id,email) VALUES (v_uid,'fase2@test.invalid') ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES (v_uid,'redaktion','fase2@test.invalid')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('request.jwt.claim.sub',v_uid::text,true);
+  BEGIN
+    PERFORM red_set_haendelse_status(-987656024,'ingen');
+    RAISE EXCEPTION 'Fase2: ugyldig RPC-status blev ikke afvist';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%ikke en gyldig feed-status%' THEN RAISE; END IF;
+  END;
+
+  SELECT to_jsonb(h)-'feed_status' INTO v_before FROM haendelse h WHERE id=-987656024;
+  PERFORM red_set_haendelse_status(-987656024,'interessant');
+  v_cs := current_setting('app.change_set_id')::bigint;
+  IF (SELECT feed_status FROM haendelse WHERE id=-987656024) <> 'interessant' THEN
+    RAISE EXCEPTION 'Fase2: RPC satte ikke interessant';
+  END IF;
+  PERFORM set_config('app.change_set_id','',true);
+  v_result := red_fortryd_change_set(v_cs,false);
+  v_undo := (v_result->>'reversal_change_set')::bigint;
+  SELECT to_jsonb(h)-'feed_status' INTO v_after FROM haendelse h WHERE id=-987656024;
+  IF (SELECT feed_status FROM haendelse WHERE id=-987656024) <> 'kandidat' OR v_after IS DISTINCT FROM v_before THEN
+    RAISE EXCEPTION 'Fase2: fortryd genskabte ikke status/projektionskolonner';
+  END IF;
+
+  PERFORM set_config('app.change_set_id','',true);
+  DELETE FROM haendelse WHERE id BETWEEN -987656029 AND -987656020;
+  DELETE FROM narrative WHERE id BETWEEN -987656019 AND -987656010;
+  DELETE FROM person WHERE id IN (-987656001,-987656002);
+  DELETE FROM change_event WHERE change_set_id IN (v_cs,v_undo);
+  DELETE FROM change_set WHERE id=v_undo;
+  DELETE FROM change_set WHERE id=v_cs;
+  DELETE FROM profiles WHERE id=v_uid;
+  DELETE FROM auth.users WHERE id=v_uid;
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  RAISE NOTICE 'OK: levende feed fase 2 (haendelse CHECK/RLS/RPC/versionering/fortryd)';
 END $$;

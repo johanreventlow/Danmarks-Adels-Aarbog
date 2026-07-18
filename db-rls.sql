@@ -350,6 +350,18 @@ create policy anon_read on public.narrative for select to anon
     and public.entitet_offentlig(subjekt_type, subjekt_id)
   );
 
+-- haendelse: kun ikke-skjulte projektioner hvis både subjekt og substrat er offentlige.
+revoke all on table public.haendelse from public, anon, authenticated;
+grant select on table public.haendelse to anon, authenticated;
+alter table public.haendelse enable row level security;
+drop policy if exists anon_read on public.haendelse;
+create policy anon_read on public.haendelse for select to anon
+  using (
+    feed_status <> 'skjult'
+    and public.entitet_offentlig(subjekt_type, subjekt_id)
+    and exists (select 1 from public.narrative n where n.id=narrative_id)
+  );
+
 -- note: ikke-privat OG (ikke-person ELLER person offentlig).
 grant select on table public.note to anon;
 alter table public.note enable row level security;
@@ -408,7 +420,7 @@ do $$
 declare t text;
 begin
   foreach t in array array[
-    'person','person_external_id','family_member','fact','relation','narrative','note',
+    'person','person_external_id','family_member','fact','relation','narrative','haendelse','note',
     'assertion','conclusion','citation'
   ] loop
     execute format('grant select on table public.%I to authenticated;', t);
@@ -440,6 +452,12 @@ create policy auth_read on public.narrative for select to authenticated
   using (
     coalesce(privat,false)=false
     and public.entitet_offentlig(subjekt_type, subjekt_id)
+  );
+create policy auth_read on public.haendelse for select to authenticated
+  using (
+    feed_status <> 'skjult'
+    and public.entitet_offentlig(subjekt_type, subjekt_id)
+    and exists (select 1 from public.narrative n where n.id=narrative_id)
   );
 create policy auth_read on public.note for select to authenticated
   using (
@@ -519,7 +537,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['person','person_external_id','family_member','fact',
-                           'relation','narrative','note','assertion','conclusion','citation']
+                           'relation','narrative','haendelse','note','assertion','conclusion','citation']
   loop
     execute format('drop policy if exists redaktion_read on public.%I;', t);
     execute format(

@@ -422,6 +422,49 @@ CREATE TABLE narrative (          -- bevaret biografisk prosa (substrat); fakta 
   privat       BOOLEAN DEFAULT FALSE   -- GDPR: skjult narrativ (levende-biografi); jf. TNG secret-flag
 );
 
+-- FORMIDLINGSLAG (levende-feed fase 2): dateret hændelse fundet i et narrativ.
+-- Regenererbar envejs-projektion af prosaen; bærer ingen assertion/conclusion.
+-- Kun feed_status er en varig redaktionel dom og bevares ved regenerering.
+CREATE TABLE haendelse (
+  id             BIGINT PRIMARY KEY,
+  subjekt_type   TEXT NOT NULL,
+  subjekt_id     BIGINT NOT NULL,
+  narrative_id   BIGINT NOT NULL REFERENCES narrative(id) ON DELETE CASCADE,
+  noegle         TEXT NOT NULL,
+  span_start     INTEGER,
+  span_laengde   INTEGER,
+  klausul        TEXT NOT NULL,
+  kategori       TEXT,
+  date_min       DATE,
+  date_max       DATE,
+  date_qualifier TEXT,
+  date_raw       TEXT,
+  feed_status    TEXT NOT NULL DEFAULT 'kandidat'
+                   CHECK (feed_status IN ('kandidat','interessant','skjult')),
+  fact_id        BIGINT REFERENCES fact(id),
+  relation_id    BIGINT REFERENCES relation(id),
+  pass_version   TEXT,
+  UNIQUE (narrative_id, noegle)
+);
+CREATE INDEX ix_haendelse_subjekt   ON haendelse(subjekt_type, subjekt_id);
+CREATE INDEX ix_haendelse_narrative ON haendelse(narrative_id);
+
+INSERT INTO vocab (scheme, code, label) VALUES
+  ('haendelse_feed_status','kandidat',   'Umarkeret — må vises som arkiv-kort'),
+  ('haendelse_feed_status','interessant','Redaktørens dom: godt feed-stof (boostes)'),
+  ('haendelse_feed_status','skjult',     'Aldrig i feed'),
+  ('haendelse_kategori','embede',       'Embede/udnævnelse'),
+  ('haendelse_kategori','uddannelse',   'Uddannelse/immatrikulation'),
+  ('haendelse_kategori','rejse',        'Rejse/udlandsophold'),
+  ('haendelse_kategori','krig',         'Krig/militær tjeneste'),
+  ('haendelse_kategori','ejendom',      'Ejendom/køb/salg/arv'),
+  ('haendelse_kategori','kirke',        'Kirke/kloster/gejstligt'),
+  ('haendelse_kategori','hof',          'Hof/ceremoni/hyldning'),
+  ('haendelse_kategori','familie',      'Familiebegivenhed'),
+  ('haendelse_kategori','personligt',   'Personligt/øvrigt dateret'),
+  ('haendelse_kategori','andet',        'Andet')
+ON CONFLICT (scheme, code) DO NOTHING;
+
 -- ---------- CACHE-REGENERERING & TRIGGERS ----------
 -- Recompute cache-felter fra personens konklusioner. Læser den VALGTE assertions værdi
 -- pr. faktatype. Dato-fakta (fødsel/død) bruger coalesce(date_raw, vaerdi_tekst).
@@ -851,6 +894,22 @@ BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   PERFORM begin_change_set('red_set_privat', format('Satte privat-flag på person %s', p_person_id), 'person', p_person_id);
   UPDATE person SET privat = p_privat WHERE id = p_person_id;
+END $$;
+
+-- Eneste klient-skrivevej til hændelsesprojektionen: redaktørens feed-dom.
+CREATE OR REPLACE FUNCTION red_set_haendelse_status(p_haendelse_id bigint, p_status text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_stype text; v_sid bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_status NOT IN ('kandidat','interessant','skjult') THEN
+    RAISE EXCEPTION '''%'' er ikke en gyldig feed-status (kandidat|interessant|skjult)', p_status;
+  END IF;
+  SELECT subjekt_type, subjekt_id INTO v_stype, v_sid FROM haendelse WHERE id=p_haendelse_id;
+  IF v_stype IS NULL THEN RAISE EXCEPTION 'Hændelse % findes ikke', p_haendelse_id; END IF;
+  PERFORM begin_change_set('red_set_haendelse_status',
+    format('Satte feed-status %s på hændelse %s', p_status, p_haendelse_id), v_stype, v_sid);
+  UPDATE haendelse SET feed_status=p_status WHERE id=p_haendelse_id;
 END $$;
 
 -- Direkte person-sletning (og familje-relationer)
@@ -1765,6 +1824,7 @@ INSERT INTO version_pk_registry (tabel, pk_cols, skip_cols) VALUES
   ('conclusion',         ARRAY['id'], '{}'),
   ('citation',           ARRAY['id'], '{}'),
   ('narrative',          ARRAY['id'], '{}'),
+  ('haendelse',          ARRAY['id'], ARRAY['subjekt_type','subjekt_id','narrative_id','noegle','span_start','span_laengde','klausul','kategori','date_min','date_max','date_qualifier','date_raw','fact_id','relation_id','pass_version']),
   ('note',               ARRAY['id'], '{}'),
   ('source',             ARRAY['id'], '{}'),
   ('repository',         ARRAY['id'], '{}'),
@@ -1916,10 +1976,11 @@ BEGIN
   RETURN v_row - v_skip;  -- samme projektion som log_change (NULL - skip = NULL)
 END $$;
 
--- Upsert til nøjagtig snapshot-tilstand. Manglende (skip-)kolonner → NULL (cache regenereres efter).
+-- Genskab snapshot-tilstand: opdatér eksisterende række uden at røre skip-kolonner;
+-- ved en slettet række bruges INSERT, hvor manglende kolonner får deres DEFAULT.
 CREATE OR REPLACE FUNCTION _version_upsert_row(p_tabel text, p_row jsonb)
 RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
-DECLARE v_pk_cols text; v_set text; v_cols text;
+DECLARE v_pk_cols text; v_set text; v_cols text; v_exists boolean;
 BEGIN
   SELECT string_agg(quote_ident(k),',') INTO v_pk_cols
     FROM version_pk_registry r, unnest(r.pk_cols) k WHERE r.tabel=p_tabel;
@@ -1938,6 +1999,17 @@ BEGIN
       WHERE c.relnamespace = 'public'::regnamespace AND c.relname = p_tabel
         AND a.attname = key AND a.attgenerated = 's'
     );
+  -- En UPDATE-fortrydelse har stadig målrækken. Gå direkte til UPDATE, så Postgres ikke
+  -- validerer en kunstig, ufuldstændig INSERT-række mod NOT NULL før ON CONFLICT (haendelse
+  -- logger bevidst kun id+feed_status; alle regenererbare kolonner er skip_cols).
+  EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I WHERE %s)',
+                 p_tabel, _version_pk_where(p_tabel, _row_pk(p_tabel, p_row))) INTO v_exists;
+  IF v_exists THEN
+    EXECUTE format(
+      'UPDATE %1$I SET (%2$s) = (SELECT %2$s FROM jsonb_populate_record(null::%1$I, $1)) WHERE %3$s',
+      p_tabel, v_cols, _version_pk_where(p_tabel, _row_pk(p_tabel, p_row))) USING p_row;
+    RETURN;
+  END IF;
   EXECUTE format(
     'INSERT INTO %1$I (%2$s) SELECT %2$s FROM jsonb_populate_record(null::%1$I, $1) ON CONFLICT (%3$s) DO UPDATE SET %4$s',
     p_tabel, v_cols, v_pk_cols, v_set) USING p_row;
