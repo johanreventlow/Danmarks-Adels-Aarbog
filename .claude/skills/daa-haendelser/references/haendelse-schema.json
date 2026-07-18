@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["narrative_id", "haendelser"],
+  "properties": {
+    "narrative_id": {"type": "integer"},
+    "haendelser": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["klausul"],
+        "properties": {
+          "klausul": {"type": "string"},
+          "date_raw": {"type": ["string", "null"]},
+          "date_min": {"type": ["string", "null"]},
+          "date_max": {"type": ["string", "null"]},
+          "date_qualifier": {
+            "type": ["string", "null"],
+            "enum": ["exact", "before", "after", "about", "between", "floruit", "until_event", "open_end", "ongoing", null]
+          },
+          "kategori": {"type": ["string", "null"]}
+        }
+      }
+    }
+  }
+}
