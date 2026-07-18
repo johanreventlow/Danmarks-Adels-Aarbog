@@ -7,11 +7,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   bookmarkPersonId, createFeedStream, resumeStream,
-  type FeedCard, type FeedStream, type LivsdatoBy,
+  type FeedCard, type FeedStream, type HaendelserBy, type LivsdatoBy,
 } from '@daa/feed';
 import { buildWebFeedAux, fetchFeedBios, withFeedBios } from '../../data/feedAux';
 import { epochDay, newSeed, todayISO } from '../../data/feedSession';
 import { loadLivsdatoBy } from '../../data/livsdato';
+import { loadHaendelserBy } from '../../data/haendelser';
 import { createSeenStore, toSeenWeights } from '../../data/seenCards';
 import { T } from '../../theme';
 import type { ArmsItem, EstateItem } from '../../data/public';
@@ -44,15 +45,17 @@ export function FeedStreamView({
   const today = useMemo(() => todayISO(), []);
   const [seed] = useState(() => newSeed(today));
 
-  // Bio + livsdato hentes ÉN gang ved mount (§7.3) — webbens publikums-model indlæser
-  // ikke bio ved cold-start, og livsdato er altid en klient-side ekstra-hentning.
+  // Bio + livsdato + hændelser hentes ved mount (§7.3). Alle sene ankomster genopbygger
+  // med samme seed og resume-kontrakten nedenfor — viste kort nulstilles aldrig.
   const [bios, setBios] = useState<Record<string, string> | null>(null);
   const [livsdatoBy, setLivsdatoBy] = useState<LivsdatoBy>({});
+  const [haendelserBy, setHaendelserBy] = useState<HaendelserBy>({});
   useEffect(() => {
     let alive = true;
     const canon = model.canonicalIdById ?? {};
     void fetchFeedBios(canon).then((b) => { if (alive) setBios(b); });
     void loadLivsdatoBy(canon).then((ld) => { if (alive) setLivsdatoBy(ld); });
+    void loadHaendelserBy(canon).then((hs) => { if (alive) setHaendelserBy(hs); });
     return () => { alive = false; };
   }, [model]);
 
@@ -70,7 +73,7 @@ export function FeedStreamView({
   useEffect(() => { shownRef.current = shown; }, [shown]);
   const markedIdsRef = useRef<Set<string>>(new Set());
   // streamRef holder DEN STRØM der aktuelt doseres fra — genopbygget (via resumeStream, se
-  // nedenfor) hver gang bio/livsdato ankommer, uden at nulstille allerede viste kort.
+  // nedenfor) hver gang bio/livsdato/hændelser ankommer, uden at nulstille viste kort.
   const streamRef = useRef<FeedStream | null>(null);
   const [done, setDone] = useState(false);
 
@@ -83,13 +86,14 @@ export function FeedStreamView({
     if (seenWeights === null) return; // vent på hydrering — undgår at bygge to gange
     const enrichedModel = bios ? withFeedBios(model, bios) : model;
     const built = createFeedStream(enrichedModel, aux, {
-      seed, todayISO: today, meId, focusId, bookmarkedIds, seenWeights, livsdatoBy,
+      seed, todayISO: today, meId, focusId, bookmarkedIds, seenWeights,
+      livsdatoBy, haendelserBy,
     });
     if (streamRef.current === null) {
       streamRef.current = built;
       setShown(built.next(PAGE_SIZE));
     } else {
-      // Rebuild pga. bio/livsdato-ankomst (SAMME seed) — resume, ALDRIG nulstil viste kort.
+      // Rebuild pga. sen data (SAMME seed) — resume, ALDRIG nulstil viste kort.
       streamRef.current = resumeStream(built, new Set(shownRef.current.map((c) => c.id)));
     }
     setDone(streamRef.current.done());
@@ -97,7 +101,7 @@ export function FeedStreamView({
     // bookmarkedIds er BEVIDST ikke i dependency-listen (§4.1): en stream må ikke genopbygges/
     // nulstilles bare fordi brugeren toggler et bogmærke midt i scroll — det ville nulstille de
     // allerede viste kort. shownRef læses via ref, ikke som reaktiv dependency, af samme grund.
-  }, [model, bios, aux, seed, today, meId, focusId, seenWeights, livsdatoBy]);
+  }, [model, bios, aux, seed, today, meId, focusId, seenWeights, livsdatoBy, haendelserBy]);
 
   const markShownAsSeen = useCallback(() => {
     const ids = shownRef.current
