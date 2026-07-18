@@ -1,5 +1,6 @@
 export * from './prng';
 export * from './types';
+export * from './haendelser';
 export * from './pool';
 export * from './temporal';
 export * from './score';
