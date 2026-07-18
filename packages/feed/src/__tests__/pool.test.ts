@@ -81,6 +81,25 @@ describe('buildJubilaeer', () => {
     expect(ids).toContain('j1');
     expect(ids).not.toContain('j2');
   });
+  it('uden livsdatoBy/todayISO: uændret adfærd, aldrig paaDagen', () => {
+    const persons = [person('j1', { born: 1926 })];
+    const jub = kinds(buildJubilaeer(mkModel(persons), 2026), 'jubilaeum') as Array<{ paaDagen?: boolean; sub: string }>;
+    expect(jub[0].paaDagen).toBeUndefined();
+    expect(jub[0].sub).toBe('100 år siden Person j1 blev født');
+  });
+  it('eksakt dato der matcher dagens MM-DD → paaDagen + opgraderet sub', () => {
+    const persons = [person('j1', { born: 1926 })];
+    const livsdatoBy = { j1: { foedt: { min: '1926-07-18', max: '1926-07-18', qualifier: 'exact' } } };
+    const jub = kinds(buildJubilaeer(mkModel(persons), 2026, livsdatoBy, '2026-07-18'), 'jubilaeum') as Array<{ paaDagen?: boolean; sub: string }>;
+    expect(jub[0].paaDagen).toBe(true);
+    expect(jub[0].sub).toContain('på dagen');
+  });
+  it('eksakt dato der IKKE matcher dagens MM-DD → ingen paaDagen', () => {
+    const persons = [person('j1', { born: 1926 })];
+    const livsdatoBy = { j1: { foedt: { min: '1926-01-01', max: '1926-01-01', qualifier: 'exact' } } };
+    const jub = kinds(buildJubilaeer(mkModel(persons), 2026, livsdatoBy, '2026-07-18'), 'jubilaeum') as Array<{ paaDagen?: boolean }>;
+    expect(jub[0].paaDagen).toBeUndefined();
+  });
 });
 
 describe('buildSlaegt', () => {

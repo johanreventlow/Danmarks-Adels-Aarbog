@@ -4,9 +4,9 @@
 // ikke af nogen app-specifik type.
 import { computeRelationship } from '@daa/core';
 import { stableHash } from './prng';
-import type { FeedAux, FeedCard, Model } from './types';
+import type { FeedAux, FeedCard, LivsdatoBy, Model } from './types';
 
-const initialsOf = (name: string): string => (name.trim()[0] ?? '?').toUpperCase();
+export const initialsOf = (name: string): string => (name.trim()[0] ?? '?').toUpperCase();
 
 // Stabil id-komparator — genbrugt af alle gruppe-sorteringer (determinisme).
 export const byIdStr = (a: { id: string }, b: { id: string }): number => a.id.localeCompare(b.id);
@@ -55,17 +55,35 @@ export function buildPortraitAndCitat(
 }
 
 // Runde jubilæer: num delelig med 50 og ≥100 (100/150/200…). Både fødsel og død.
-// (Udvides i task 3 med dag-præcis 'på dagen'-markering — se temporal.ts.)
-export function buildJubilaeer(model: Model, today: number): FeedCard[] {
+// Dag-præcis opgradering (spec §6.3): når livsdatoBy har en eksakt dato for personen der
+// matcher dagens MM-DD (todayISO), opgraderes teksten ("… — på dagen") og paaDagen sættes —
+// scoringen (task 4) bruger paaDagen til et timeliness-boost. livsdatoBy/todayISO er valgfrie
+// (bagudkompatibelt: uden dem er adfærden identisk med den oprindelige års-regel).
+export function buildJubilaeer(
+  model: Model,
+  today: number,
+  livsdatoBy: LivsdatoBy = {},
+  todayISO?: string,
+): FeedCard[] {
+  const todayMMDD = todayISO ? todayISO.slice(5, 10) : null;
   const out: FeedCard[] = [];
   for (const p of model.persons) {
     for (const [year, hvad] of [[p.born, 'født'], [p.died, 'død']] as const) {
       if (year == null) continue;
       const num = today - year;
       if (num >= 100 && num % 50 === 0) {
+        const dato = hvad === 'født' ? livsdatoBy[p.id]?.foedt : livsdatoBy[p.id]?.doed;
+        const paaDagen = Boolean(
+          todayMMDD && dato?.qualifier === 'exact' && dato.min && dato.min.slice(5, 10) === todayMMDD,
+        );
         out.push({
           kind: 'jubilaeum', id: `jubilaeum:${p.id}:${hvad}:${num}`, personId: p.id, num,
-          name: p.name, sub: `${num} år siden ${p.name} blev ${hvad}`, kicker: 'Jubilæum',
+          name: p.name,
+          sub: paaDagen
+            ? `${num} år siden ${p.name} blev ${hvad} — på dagen`
+            : `${num} år siden ${p.name} blev ${hvad}`,
+          kicker: 'Jubilæum',
+          ...(paaDagen ? { paaDagen: true as const } : {}),
         });
       }
     }
