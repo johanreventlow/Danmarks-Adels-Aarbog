@@ -7,6 +7,8 @@ import { defineConfig, devices } from '@playwright/test';
 // `npx playwright install` kørt), falder vi tilbage til Playwrights egen browser-resolution.
 const SANDBOX_CHROMIUM = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const executablePath = existsSync(SANDBOX_CHROMIUM) ? SANDBOX_CHROMIUM : undefined;
+const port = Number(process.env.PLAYWRIGHT_PORT ?? 5173);
+const baseURL = `http://localhost:${port}`;
 
 // Minimal e2e-opsætning (fase1-design.md §7, task 11) — bootstrappet her, da der ikke
 // fandtes en eksisterende Playwright-konfiguration i repoet forud for denne spec (kun
@@ -19,12 +21,12 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: 'list',
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL,
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: 'npm run dev -- --port 5173 --strictPort',
-    url: 'http://localhost:5173',
+    command: `npm run dev -- --port ${port} --strictPort`,
+    url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
   },

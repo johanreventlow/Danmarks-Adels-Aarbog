@@ -163,6 +163,17 @@ function rigModel(n: number): Model {
   const persons = Array.from({ length: n }, (_, i) => person('p' + i, { bio: LONG_BIO }));
   return mkModel(persons);
 }
+function rigRelatedModel(n: number): Model {
+  const persons = Array.from({ length: n }, (_, i) => person('p' + i, { bio: LONG_BIO }));
+  return buildModel({
+    persons,
+    unions: [{ id: 'u1', p1: 'p2', p2: null, p2_name: null, year: null }],
+    parentChild: [
+      { child: 'p0', parent: 'p2', union: 'u1', konfidens: 'sikker' },
+      { child: 'p1', parent: 'p2', union: 'u1', konfidens: 'sikker' },
+    ],
+  }) as unknown as Model;
+}
 function rigAux(n: number): FeedAux {
   return {
     godsListe: Array.from({ length: n }, (_, i) => ({ id: 'e' + i, navn: 'Gods ' + i, slags: 'Gods', ownerCount: 1 })),
@@ -196,6 +207,44 @@ describe('buildFeedOrder — rytme R1/R3 på rig, kind-varieret fixture', () => 
       const window = cards.slice(i, i + 6);
       if (!window.some((c) => c.kind === 'portrait' || c.kind === 'dagensperson')) {
         expect(i).toBeGreaterThan(lastPortraitPos);
+      }
+    }
+  });
+
+  it('R3 overlever positionslåsen på tværs af mange seeds', () => {
+    const model = rigModel(80);
+    const aux = rigAux(40);
+    for (let seed = 0; seed < 250; seed++) {
+      const cards = buildFeedOrder(model, aux, baseInputs({ seed }));
+      let lastPortraitPos = -1;
+      cards.forEach((c, i) => {
+        if (c.kind === 'portrait' || c.kind === 'dagensperson') lastPortraitPos = i;
+      });
+      for (let i = 0; i + 6 <= cards.length && i <= lastPortraitPos; i++) {
+        expect(
+          cards.slice(i, i + 6).some((c) => c.kind === 'portrait' || c.kind === 'dagensperson'),
+          `seed=${seed}, window=${i}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it('R3 overlever også et låst slægtskort på tværs af mange seeds', () => {
+    const model = rigRelatedModel(80);
+    const aux = rigAux(40);
+    for (let seed = 0; seed < 250; seed++) {
+      const cards = buildFeedOrder(model, aux, baseInputs({ seed, meId: 'p0', focusId: 'p1' }));
+      expect(cards.findIndex((c) => c.kind === 'slaegt'), `seed=${seed}`).toBeGreaterThanOrEqual(3);
+      expect(cards.findIndex((c) => c.kind === 'slaegt'), `seed=${seed}`).toBeLessThanOrEqual(9);
+      let lastPortraitPos = -1;
+      cards.forEach((c, i) => {
+        if (c.kind === 'portrait' || c.kind === 'dagensperson') lastPortraitPos = i;
+      });
+      for (let i = 0; i + 6 <= cards.length && i <= lastPortraitPos; i++) {
+        expect(
+          cards.slice(i, i + 6).some((c) => c.kind === 'portrait' || c.kind === 'dagensperson'),
+          `seed=${seed}, window=${i}`,
+        ).toBe(true);
       }
     }
   });

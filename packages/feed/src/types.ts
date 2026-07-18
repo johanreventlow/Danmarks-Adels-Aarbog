@@ -12,6 +12,15 @@ export interface FeedAux {
 export type FuzzyDato = { min: string | null; max: string | null; qualifier: string | null };
 export type LivsdatoBy = Record<string, { foedt?: FuzzyDato; doed?: FuzzyDato }>;
 
+// En præcis dag er altid et punktinterval (min=max). Punktet kan være markeret
+// eksplicit som `exact` (ældre ekstrakter) eller være ukvalificeret (den
+// deterministiske 1939-konverter). Et helt år har min!=max og bliver derfor aldrig
+// fejllæst som en dag, heller ikke hvis ældre data fejlagtigt kalder intervallet exact.
+export function isExactDay(dato: FuzzyDato | undefined): boolean {
+  if (!dato?.min || dato.max !== dato.min) return false;
+  return dato.qualifier === 'exact' || dato.qualifier == null;
+}
+
 export interface HaendelseItem {
   id: string;
   klausul: string;

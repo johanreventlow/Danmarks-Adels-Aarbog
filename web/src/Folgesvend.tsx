@@ -31,6 +31,7 @@ import { T } from './theme';
 
 // Kun Reventlow findes i dag; vælgeren er 1-punkt + "flere kommer"-note (spec §2 ikke-mål).
 const SLAEGTER = [{ id: 'reventlow', navn: 'Reventlow' }];
+const EMPTY_CANONICAL_IDS: Record<string, string> = {};
 // Mode/THEMES/routing bor i ./data/nav (ren + unit-testet).
 function useFonts() {
   useEffect(() => {
@@ -127,7 +128,7 @@ export default function Folgesvend() {
   const meCanon = meId ? canon(meId) : null;
   // Bogmærker (web v3 Slice 1) — localStorage, kanonisk via canon(). bmSort default 'linje'
   // (designets første segment, spec §4). slaegtOpen = slægt-vælger-modal på header-chippen.
-  const bookmarks = useBookmarks(session?.userId ?? null, canon);
+  const bookmarks = useBookmarks(session?.userId ?? null, model?.canonicalIdById ?? EMPTY_CANONICAL_IDS);
   const saveOrPrompt = useCallback(
     (id: string) => { if (bookmarks.canSave) bookmarks.toggle(id); else setLoginOpen(true); },
     [bookmarks],
@@ -470,7 +471,10 @@ export default function Folgesvend() {
         {/* Center */}
         <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
           {mode === 'home' ? <HomeView model={model} personCount={persons.length} estates={estates} onPickPerson={navigateTree} onOpenSearch={() => { goToMode('tree'); bumpSearchFocus(); }} onBrowseAll={() => { goToMode('tree'); setBrowsing(true); }} onOpenEstate={(id) => { setEstateId(id); navigate(`/estate/${id}`); }} onGoTree={() => goToMode('tree')}
-              arms={arms} meId={meCanon} focusId={focusId} bookmarkedIds={bookmarkIds} hasBookmark={bookmarks.has} onSaveBookmark={saveOrPrompt} onOpenArms={() => goToMode('arms')}
+              arms={arms} meId={meCanon} focusId={focusId} bookmarkedIds={bookmarkIds}
+              bookmarksReady={bookmarks.ready} bookmarkHydrationVersion={bookmarks.hydrationVersion}
+              bookmarkOwnerId={session?.userId ?? null}
+              hasBookmark={bookmarks.has} onSaveBookmark={saveOrPrompt} onOpenArms={() => goToMode('arms')}
               onOpenSlaegt={(aId, bId) => { setRelA(aId); setRelB(bId); setRelSlot('B'); goToMode('relate'); }} />
             : mode === 'tree' ? <TreeView model={model} focusId={focusId} onPick={treePick} onFocus={driftFocus} hasBookmark={bookmarks.has} onToggleBookmark={saveOrPrompt} search={treeSearch} />
             : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={focusOnly} meId={meCanon} onSetMeA={() => { if (meCanon) { setRelA(meCanon); setRelSlot('B'); } }} search={treeSearch} />

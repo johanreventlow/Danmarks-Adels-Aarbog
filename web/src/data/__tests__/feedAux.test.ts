@@ -5,6 +5,7 @@ import type { ArmsItem, EstateItem } from '../public';
 import type { Model } from '../types';
 
 let byTable: Record<string, unknown[]> = {};
+let inCalls: { table: string; column: string; values: unknown[] }[] = [];
 function makeResult<T>(data: T[] | null, error: unknown = null) {
   return {
     range: async () => ({ data, error }),
@@ -17,6 +18,10 @@ vi.mock('../../supabase', () => ({
       const b: Record<string, unknown> = {
         select: () => b,
         eq: () => b,
+        in: (column: string, values: unknown[]) => {
+          inCalls.push({ table, column, values });
+          return b;
+        },
         order: () => makeResult(byTable[table] ?? []),
         // getAll kalder .range() direkte på hvad end kæden ender med — matcher den rigtige
         // klient hvor .range() er tilgængelig for enden af enhver kæde, ikke kun efter .order().
@@ -27,9 +32,9 @@ vi.mock('../../supabase', () => ({
   },
 }));
 
-const { buildWebFeedAux, fetchFeedBios, withFeedBios } = await import('../feedAux');
+const { buildFeedBioSubjectIds, buildWebFeedAux, fetchFeedBios, withFeedBios } = await import('../feedAux');
 
-beforeEach(() => { byTable = {}; });
+beforeEach(() => { byTable = {}; inCalls = []; });
 
 describe('buildWebFeedAux', () => {
   it('mapper estates/arms til FeedAux-felterne', () => {
@@ -48,6 +53,20 @@ describe('buildWebFeedAux', () => {
 });
 
 describe('fetchFeedBios', () => {
+  it('afgrænser model+alias-id server-side i chunks', async () => {
+    byTable = { narrative: [], source: [] };
+    const modelIds = Array.from({ length: 401 }, (_, i) => String(i + 1));
+    await fetchFeedBios({ alias1: '1', irrelevantAlias: '9999' }, modelIds);
+    const narrativeCalls = inCalls.filter((c) => c.table === 'narrative' && c.column === 'subjekt_id');
+    expect(narrativeCalls.map((c) => c.values.length)).toEqual([200, 200, 2]);
+    expect(narrativeCalls.flatMap((c) => c.values)).toContain('alias1');
+    expect(narrativeCalls.flatMap((c) => c.values)).not.toContain('irrelevantAlias');
+  });
+
+  it('bygger stabilt subject-id-sæt med relevante aliases', () => {
+    expect(buildFeedBioSubjectIds({ a: '1', b: '9' }, ['2', '1'])).toEqual(['1', '2', 'a']);
+  });
+
   it('vælger foretrukken bio pr. person på tværs af flere udgaver (nyeste år vinder)', async () => {
     byTable = {
       narrative: [

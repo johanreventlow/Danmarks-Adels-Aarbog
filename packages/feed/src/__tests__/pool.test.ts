@@ -186,6 +186,18 @@ describe('buildJubilaeer', () => {
     const jub = kinds(buildJubilaeer(mkModel(persons), 2026, livsdatoBy, '2026-07-18'), 'jubilaeum') as Array<{ paaDagen?: boolean }>;
     expect(jub[0].paaDagen).toBeUndefined();
   });
+  it('ukvalificeret punktinterval fra 1939-konverteren giver paaDagen', () => {
+    const persons = [person('j1', { born: 1926 })];
+    const livsdatoBy = { j1: { foedt: { min: '1926-07-18', max: '1926-07-18', qualifier: null } } };
+    const jub = kinds(buildJubilaeer(mkModel(persons), 2026, livsdatoBy, '2026-07-18'), 'jubilaeum') as Array<{ paaDagen?: boolean }>;
+    expect(jub[0].paaDagen).toBe(true);
+  });
+  it('exact-mærket helårsinterval giver ikke et falsk 1. januar-jubilæum', () => {
+    const persons = [person('j1', { born: 1926 })];
+    const livsdatoBy = { j1: { foedt: { min: '1926-01-01', max: '1926-12-31', qualifier: 'exact' } } };
+    const jub = kinds(buildJubilaeer(mkModel(persons), 2026, livsdatoBy, '2026-01-01'), 'jubilaeum') as Array<{ paaDagen?: boolean }>;
+    expect(jub[0].paaDagen).toBeUndefined();
+  });
 });
 
 describe('buildSlaegt', () => {

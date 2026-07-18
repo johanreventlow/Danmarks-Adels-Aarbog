@@ -2,6 +2,7 @@
 // (mobile/src/data/livsdato.ts, web/src/data/feedAux.ts); denne fil joiner/udleder kun.
 import { byIdStr, initialsOf } from './pool';
 import { stableHash } from './prng';
+import { isExactDay } from './types';
 import type { FeedCard, FuzzyDato, HaendelserBy, LivsdatoBy, Model } from './types';
 
 // Rå rækker (PostgREST-form) til buildLivsdatoBy — date_min/max er DATE-kolonner
@@ -52,8 +53,8 @@ export function buildLivsdatoBy(
 const mmdd = (dateStr: string): string => dateStr.slice(5, 10);
 const mm = (dateStr: string): string => dateStr.slice(5, 7);
 
-// 'På denne dag'-kort (spec §6.2). Kun qualifier==='exact' tæller (aldrig fabrikeret
-// præcision). Global fallback: hvis INGEN person har et dag-træf i dag, vises i stedet
+// 'På denne dag'-kort (spec §6.2). Kun punktintervaller med dag-præcision tæller
+// (aldrig fabrikeret præcision). Global fallback: hvis INGEN person har et dag-træf, vises
 // måneds-træf ('I denne måned') — så feed'en sjældent er helt uden tidsligt indhold,
 // uden nogensinde at hævde en præcision datoen ikke bærer.
 export function buildPaaDenneDag(
@@ -71,7 +72,7 @@ export function buildPaaDenneDag(
     if (ld) {
       for (const [key, hvad] of [['foedt', 'født'], ['doed', 'død']] as const) {
         const dato = ld[key];
-        if (!dato || dato.qualifier !== 'exact' || !dato.min) continue;
+        if (!isExactDay(dato) || !dato?.min) continue;
         const aarstal = Number(dato.min.slice(0, 4));
         if (!Number.isFinite(aarstal)) continue;
         const id = `paadennedag:${p.id}:${hvad}:${aarstal}`;
@@ -91,7 +92,7 @@ export function buildPaaDenneDag(
 
     for (const item of haendelserBy[p.id] ?? []) {
       const dato = item.dato;
-      if (item.rygrad || dato.qualifier !== 'exact' || !dato.min) continue;
+      if (item.rygrad || !isExactDay(dato) || !dato.min) continue;
       const aarstal = Number(dato.min.slice(0, 4));
       if (!Number.isFinite(aarstal)) continue;
       const card = {

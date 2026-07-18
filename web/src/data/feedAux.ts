@@ -21,19 +21,56 @@ export function buildWebFeedAux(estates: EstateItem[] | null, arms: ArmsItem[] |
 
 type RawNarrativeRow = { id: number; subjekt_id: number | string; tekst: string | null; source_id: number | null; privat: boolean | null };
 type RawSourceRow = { id: number; slags: string | null; udgave: string | null; aar: number | null };
+export const FEED_BIO_IN_CHUNK = 200;
 
-// Hent den foretrukne offentlige bio pr. (kanonisk) person, ét pagineret tolerant kald.
+function chunks<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+// Modellen indeholder kun kanoniske personer, mens narrativer også kan ligge på alias-rækker.
+// Medtag derfor både model-id'erne og de alias-id'er der foldes ind i dem.
+export function buildFeedBioSubjectIds(
+  canonicalIdById: Record<string, string>,
+  modelPersonIds: readonly string[],
+): string[] {
+  const canonicalPersons = new Set(modelPersonIds);
+  return [...new Set([
+    ...modelPersonIds,
+    ...Object.entries(canonicalIdById)
+      .filter(([, canonical]) => canonicalPersons.has(canonical))
+      .map(([alias]) => alias),
+  ])].sort();
+}
+
+// Hent den foretrukne offentlige bio pr. (kanonisk) person i afgrænsede, paginerede chunks.
 // Samme udvælgelsesregel som mobile/web's model-load (pickPreferredBio: nyeste udgave
 // vinder) — genbruges her fordi webbens PUBLIKUMS-model bevidst IKKE indlæser bio ved
 // cold-start (§7.3).
-export async function fetchFeedBios(canonicalIdById: Record<string, string>): Promise<Record<string, string>> {
+export async function fetchFeedBios(
+  canonicalIdById: Record<string, string>,
+  modelPersonIds?: readonly string[],
+): Promise<Record<string, string>> {
   try {
-    const [narratives, sources] = await Promise.all([
-      getAll<RawNarrativeRow>(() =>
-        supabase.from('narrative').select('id,subjekt_id,tekst,source_id,privat').eq('subjekt_type', 'person'),
-      ),
-      getAll<RawSourceRow>(() => supabase.from('source').select('id,slags,udgave,aar')),
-    ]);
+    const subjectIds = modelPersonIds
+      ? buildFeedBioSubjectIds(canonicalIdById, modelPersonIds)
+      : null;
+    const narratives = subjectIds == null
+      ? await getAll<RawNarrativeRow>(() =>
+          supabase.from('narrative').select('id,subjekt_id,tekst,source_id,privat').eq('subjekt_type', 'person'))
+      : (await Promise.all(chunks(subjectIds, FEED_BIO_IN_CHUNK).map((ids) =>
+          getAll<RawNarrativeRow>(() =>
+            supabase.from('narrative').select('id,subjekt_id,tekst,source_id,privat')
+              .eq('subjekt_type', 'person').in('subjekt_id', ids)),
+        ))).flat();
+    const sourceIds = [...new Set(
+      narratives.map((n) => n.source_id).filter((id): id is number => id != null),
+    )];
+    const sources = (await Promise.all(chunks(sourceIds, FEED_BIO_IN_CHUNK).map((ids) =>
+      getAll<RawSourceRow>(() =>
+        supabase.from('source').select('id,slags,udgave,aar').in('id', ids)),
+    ))).flat();
     const srcById = new Map(sources.map((s) => [s.id, s]));
     const candsBy: Record<string, NarrativeCand[]> = {};
     for (const n of narratives) {

@@ -24,7 +24,8 @@ function NytCard({ kicker, title, sub, onClick }: { kicker: string; title: strin
 
 export function HomeView({
   model, personCount, estates, onPickPerson, onOpenSearch, onBrowseAll, onOpenEstate, onGoTree,
-  arms, meId, focusId, bookmarkedIds, hasBookmark, onSaveBookmark, onOpenArms, onOpenSlaegt,
+  arms, meId, focusId, bookmarkedIds, bookmarksReady, bookmarkHydrationVersion, bookmarkOwnerId,
+  hasBookmark, onSaveBookmark, onOpenArms, onOpenSlaegt,
 }: {
   model: Model | null;
   personCount: number;
@@ -39,6 +40,9 @@ export function HomeView({
   meId: string | null;
   focusId: string | null;
   bookmarkedIds: string[];
+  bookmarksReady: boolean;
+  bookmarkHydrationVersion: number;
+  bookmarkOwnerId: string | null;
   hasBookmark: (id: string) => boolean;
   onSaveBookmark: (id: string) => void;
   onOpenArms: () => void;
@@ -105,6 +109,9 @@ export function HomeView({
           meId={meId}
           focusId={focusId}
           bookmarkedIds={bookmarkedIds}
+          bookmarksReady={bookmarksReady}
+          bookmarkHydrationVersion={bookmarkHydrationVersion}
+          bookmarkOwnerId={bookmarkOwnerId}
           hasBookmark={hasBookmark}
           onSaveBookmark={onSaveBookmark}
           onOpenPerson={onPickPerson}

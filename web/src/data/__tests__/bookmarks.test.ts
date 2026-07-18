@@ -7,6 +7,7 @@ import type { Model, ModelPerson } from '../types';
 // In-memory fake af supabase.from('bookmark')-kæden. Delt mutabel tilstand pr. test.
 let rows: { user_id: string; person_id: string }[] = [];
 let failNextWrite = false;
+const IDENTITY_CANON: Record<string, string> = {};
 
 vi.mock('../../supabase', () => ({
   supabase: {
@@ -50,9 +51,10 @@ beforeEach(() => { rows = []; failNextWrite = false; });
 
 describe('useBookmarks — udlogget', () => {
   it('tom liste, canSave=false, toggle er no-op', () => {
-    const { result } = renderHook(() => useBookmarks(null, (id) => id));
+    const { result } = renderHook(() => useBookmarks(null, IDENTITY_CANON));
     expect(result.current.ids.size).toBe(0);
     expect(result.current.canSave).toBe(false);
+    expect(result.current.ready).toBe(true);
     act(() => result.current.toggle('1'));
     expect(result.current.ids.size).toBe(0);
   });
@@ -63,13 +65,15 @@ describe('useBookmarks — logget ind', () => {
 
   it('henter list() ved mount', async () => {
     rows = [{ user_id: 'u1', person_id: '42' }];
-    const { result } = renderHook(() => useBookmarks(userId, (id) => id));
+    const { result } = renderHook(() => useBookmarks(userId, IDENTITY_CANON));
+    expect(result.current.ready).toBe(false);
     await waitFor(() => expect(result.current.ids.has('42')).toBe(true));
+    expect(result.current.ready).toBe(true);
     expect(result.current.canSave).toBe(true);
   });
 
   it('toggle gemmer optimistisk + persisterer (person_id som streng)', async () => {
-    const { result } = renderHook(() => useBookmarks(userId, (id) => id));
+    const { result } = renderHook(() => useBookmarks(userId, IDENTITY_CANON));
     await waitFor(() => expect(result.current.canSave).toBe(true));
     act(() => result.current.toggle('99999999999999'));
     expect(result.current.ids.has('99999999999999')).toBe(true);
@@ -77,7 +81,7 @@ describe('useBookmarks — logget ind', () => {
   });
 
   it('rollback ved skrivefejl', async () => {
-    const { result } = renderHook(() => useBookmarks(userId, (id) => id));
+    const { result } = renderHook(() => useBookmarks(userId, IDENTITY_CANON));
     await waitFor(() => expect(result.current.canSave).toBe(true));
     failNextWrite = true;
     act(() => result.current.toggle('1'));
@@ -87,13 +91,13 @@ describe('useBookmarks — logget ind', () => {
 
   it('kanoniciserer via canon', async () => {
     rows = [{ user_id: 'u1', person_id: 'alias1' }];
-    const canon = (id: string) => (id === 'alias1' ? 'canon1' : id);
-    const { result } = renderHook(() => useBookmarks(userId, canon));
+    const canonicalIds = { alias1: 'canon1' };
+    const { result } = renderHook(() => useBookmarks(userId, canonicalIds));
     await waitFor(() => expect(result.current.ids.has('canon1')).toBe(true));
   });
 
   it('review 22 M1: gentaget tryk på samme id mens skrivning er in-flight ignoreres', async () => {
-    const { result } = renderHook(() => useBookmarks(userId, (id) => id));
+    const { result } = renderHook(() => useBookmarks(userId, IDENTITY_CANON));
     await waitFor(() => expect(result.current.canSave).toBe(true));
     act(() => { result.current.toggle('7'); result.current.toggle('7'); });
     expect(result.current.ids.has('7')).toBe(true);
@@ -101,13 +105,51 @@ describe('useBookmarks — logget ind', () => {
   });
 
   it('review 22 N1: samme userId (primitiv) på tværs af re-renders udløser ikke ny fetch', async () => {
-    const { result, rerender } = renderHook(() => useBookmarks(userId, (id) => id));
+    const { result, rerender } = renderHook(() => useBookmarks(userId, IDENTITY_CANON));
     await waitFor(() => expect(result.current.canSave).toBe(true));
     const idsBefore = result.current.ids;
     rerender();
     rerender();
     // Samme userId + samme canon-reference → effekten refirer ikke → samme ids-reference.
     expect(result.current.ids).toBe(idsBefore);
+  });
+
+  it('skjuler gammel brugers ids og er ikke ready under et brugerskift', async () => {
+    rows = [{ user_id: 'u1', person_id: '42' }];
+    const { result, rerender } = renderHook(
+      ({ uid }: { uid: string }) => useBookmarks(uid, IDENTITY_CANON),
+      { initialProps: { uid: 'u1' } },
+    );
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.ids.has('42')).toBe(true);
+
+    rows = [{ user_id: 'u2', person_id: '84' }];
+    rerender({ uid: 'u2' });
+    expect(result.current.ready).toBe(false);
+    expect(result.current.ids.size).toBe(0);
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.ids.has('84')).toBe(true);
+    expect(result.current.ids.has('42')).toBe(false);
+  });
+
+  it('rehydrerer og bumper version når kanoniseringsmappet skifter', async () => {
+    rows = [{ user_id: 'u1', person_id: 'alias1' }];
+    const rawMap: Record<string, string> = {};
+    const canonicalMap = { alias1: 'canon1' };
+    const { result, rerender } = renderHook(
+      ({ map }: { map: Record<string, string> }) => useBookmarks(userId, map),
+      { initialProps: { map: rawMap } },
+    );
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    const firstVersion = result.current.hydrationVersion;
+    expect(result.current.ids.has('alias1')).toBe(true);
+
+    rerender({ map: canonicalMap });
+    expect(result.current.ready).toBe(false);
+    expect(result.current.ids.size).toBe(0);
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.hydrationVersion).toBeGreaterThan(firstVersion);
+    expect(result.current.ids.has('canon1')).toBe(true);
   });
 });
 

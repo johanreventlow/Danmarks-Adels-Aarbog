@@ -42,18 +42,23 @@ function sameOrder(a: string[], b: string[]): boolean {
 // se onRequireLogin-mønstret i Folgesvend.tsx). Logget-ind: hent-ved-mount, optimistisk toggle
 // m. write-generation-guard (H2): et in-flight-refetch klobrer ikke en igangværende skrivning.
 //
-// Tager `userId: string | null` (IKKE et session-objekt) — review 22 N1: et objekt-literal
-// bygget ved kaldstedet (`session ? {userId} : null`) genskabes hver render og gør effekt-
-// dependencyen ustabil → gentaget refetch på hver render. En primitiv streng er referentielt
-// stabil så længe brugeren er den samme.
+// Tager `userId: string | null` (IKKE et session-objekt) og det stabile kanon-map fra modellen.
+// Hydreringsversionen bumpes kun efter en afsluttet repository-læsning; UI'et kan dermed fryse
+// et snapshot, som opdateres ved bruger-/modelskift, men ikke ved live toggles.
 export function useBookmarks(
   userId: string | null,
-  canon: (id: string) => string,
-): { ids: Set<string>; has(id: string): boolean; canSave: boolean; toggle(id: string): void } {
+  canonicalIdById: Record<string, string>,
+): { ids: Set<string>; has(id: string): boolean; canSave: boolean; ready: boolean; hydrationVersion: number; toggle(id: string): void } {
   const repoRef = useMemo(() => createRemoteBookmarkRepository(), []);
   const [idsList, setIdsList] = useState<string[]>([]);
   const pendingRef = useMemo(() => new Set<string>(), []); // id'er med in-flight write (H2-guard)
   const lastUserIdRef = useRef<string | null>(null); // seneste userId effekten faktisk fetchede for
+  const [loadedFor, setLoadedFor] = useState<{
+    userId: string;
+    canonicalIdById: Record<string, string>;
+  } | null>(null);
+  const [hydrationVersion, setHydrationVersion] = useState(0);
+  const canon = useMemo(() => (id: string) => canonicalIdById[id] ?? id, [canonicalIdById]);
 
   useEffect(() => {
     if (!userId) {
@@ -62,6 +67,7 @@ export function useBookmarks(
       // kaldstedet) en uendelig effekt-loop (setIdsList([]) → nyt canon-ref → effekt igen).
       setIdsList((prev) => (prev.length === 0 ? prev : []));
       lastUserIdRef.current = null;
+      setLoadedFor(null);
       return;
     }
     // Ryd KUN ved et REELT brugerskift (review 22 N2-mitigering), sporet via ref — ikke ved
@@ -83,11 +89,19 @@ export function useBookmarks(
         for (const id of prev) if (pendingRef.has(id) && !merged.includes(id)) merged.unshift(id);
         return sameOrder(merged, prev) ? prev : merged;
       });
+      setLoadedFor({ userId, canonicalIdById });
+      setHydrationVersion((version) => version + 1);
     });
     return () => { alive = false; };
-  }, [userId, canon, repoRef, pendingRef]);
+  }, [userId, canon, canonicalIdById, repoRef, pendingRef]);
 
-  const ids = useMemo(() => new Set(idsList), [idsList]);
+  const ready = userId == null || (
+    loadedFor?.userId === userId && loadedFor.canonicalIdById === canonicalIdById
+  );
+  const ids = useMemo(
+    () => (userId && ready ? new Set(idsList) : new Set<string>()),
+    [userId, ready, idsList],
+  );
 
   const toggle = useCallback(
     (id: string) => {
@@ -109,7 +123,10 @@ export function useBookmarks(
     [userId, canon, ids, repoRef, pendingRef],
   );
 
-  return { ids, has: (id) => ids.has(canon(id)), canSave: userId != null, toggle };
+  return {
+    ids, has: (id) => ids.has(canon(id)), canSave: userId != null,
+    ready, hydrationVersion, toggle,
+  };
 }
 
 export type BookmarkSort = 'linje' | 'navn';
