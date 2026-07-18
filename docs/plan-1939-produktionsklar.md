@@ -125,13 +125,19 @@ linje parkeres). #2 selvreference-vagten er efterfølgende afkræftet som defens
       (aar=2020; "2024" = trykke-år, ikke dæknings-benævnelse — bekræft mod titelblad), 1893=Thiset (uafklaret).
       Forfatter bæres i `titel` (source har ingen forfatter-kolonne). Holstein "vinder" ikke auto — kanonisk = redaktionel.
 
-### A4. Dry-run + facit-validering ⚠️ SKAL GENTAGES efter v1.2.0
-`load_daa.R` kørt mod `clean_1939.json` på en frisk DB (schema-kopi af daa_test2 + A1-migration, socket via
-`R_ENVIRON_USER`-override). Det beviste det tidligere v1.1.0-artefakt, men v1.2.0's strengere
-linje-scope ændrer forældregrafen; regenerér artefaktet og gentag samme acceptance-test.
-- [x] **A4a — Facit fra faktisk load:** 835 personer (539 hoved + 296 partner-stubs); **539 narrative, 0 NULL/tom**
-      (NOT NULL opfyldt); **364 family_member barn-links** (matcher konverter-facit eksakt); 612 partner-links;
-      471 rødder (inkl. partner-stubs). 73 uopløste barn-opslag = alle `union_tom_kontekst`.
+### A4. Dry-run + facit-validering ✅ GENTAGET mod v1.3.0 (2026-07-17)
+`load_daa.R` kørt mod regenereret `clean_1939.json` (v1.3.0) på en frisk **tom** base (`daa_a4v13`:
+schema-only-dump af daa_test2 + `db-migrations.sql` → A1+K2 til stede, auth-shim arvet, 0 data → ingen
+fixture-kollision), socket via `R_ENVIRON_USER`-override (bekræftet `current_database=daa_a4v13`).
+**Artefakt-regenerering (v1.1.0→v1.3.0):** 539 poster, **355 links** (var 364; korpus-diff = 24 fjernet
+fail-closed [inkl. Lyder→Lyder samme-navn-fælde], 15 tilføjet [12 note-verificeret, 3 søskende-blok],
+**0 re-pegede**, 0 falske, 0 modsigelser, 0 linje-scope-konflikter). Gule flag afklaret: `foraelder_foer_
+boern_brud`/`gen_orden_inversioner` er rækkefølge-diagnostik, ikke link-defekter.
+- [x] **A4a — Facit fra faktisk load (v1.3.0):** 835 personer (539 hoved + 296 partner-stubs); **539 narrative,
+      0 NULL/tom** (NOT NULL opfyldt); **355 family_member barn-links** (matcher konverter-facit eksakt);
+      611 partner-links; **355 forældrefamilie-slot-assertions** (= barn-links, P1-invariant holder);
+      **948 assertions m. date_min/date_max** (K1-matcher-input sikret); 69 uopløste barn-opslag.
+      NB: `date_certainty` kun 4 udfyldt (min/max er der; eksplicit kvalifikator bæres sjældent → Wave 3-UI-detalje).
 - [x] **A4b — GDPR/levende bekræftet EMPIRISK:** loaderens sweep satte `levende=TRUE` på **præcis de 7 født ≥1926
       uden dødsfakta** (korrekt skjult for anon); 828 afdøde offentlige. Tærsklen virker som forudsagt.
 - [x] **Bagud-kompatibilitet:** gammelt-format clean.json (uden calendar/date_certainty) loader uændret (835
@@ -162,9 +168,14 @@ Følger `docs/fase4-runbook.md`.
 
 ## KONVERGENS — kræver Spor A + Spor B færdige
 
-- [ ] **K1 — Rehearsal-load af re-ekstraheret 1939 mod prod-KOPI.** Test RLS, matcher, kollaps, offentlig UI.
-      Verificér at matcheren nu faktisk får `date_min`/`date_max` (den læser kun dem — `matchUdgaver.ts:304`;
-      uden normaliserede datoer reduceres tværudgave-matching til navn+køn).
+- [x] **K1 — Rehearsal-load mod prod-KOPI ✅ GRØN (2026-07-17, prod-fri).** Genskabt post-cutover prod-tilstand
+      i lokal `daa_k1` fra gårsdagens *lokale* krypterede pre-cutover-backup (INTET nyt prod-dump) + migrations-
+      kæde (Trin 1/1b/2 → aar=2020, 566 slots, A1+K2). Loadet v1.3.0-1939 `--staged` ovenpå: 923+835=1758 personer,
+      921 family-slots (566+355). **Verificeret:** (a) RLS — anon ser 853 (kun afdøde 2018-20), **0 staged 1939**;
+      (b) 2018-20 UÆNDRET (923, 566 slots, ingen korruption); (c) **matcher-input sikret — 463 1939-personer m.
+      date_min/max; 367 DAA 1939 + 418 DAA 2018-20 m. fødselsår → år-blocking har reelt input begge sider**
+      (`matchUdgaver.ts:304`-kravet opfyldt); (d) publish-sti — `red_publicer_udgave(3)` af-stagede korrekt
+      (staged→0, anon ser 532 afdøde 1939, levende+stubs forbliver skjult). Test-baser droppet (PII-oprydning).
 - [x] **K2 — Staging-/publiceringsstrategi implementeret i kode:** loader `--staged` sætter
       `person.staged=TRUE`; `person_offentlig` og de direkte anon/authenticated-personpolitikker skjuler staged;
       `red_publicer_udgave(source_id)` rydder samlet efter match-gennemgang. **Ikke deployet til prod** — indgår

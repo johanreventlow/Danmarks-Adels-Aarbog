@@ -639,6 +639,13 @@ REVOKE EXECUTE ON FUNCTION
   _version_delete_row(text, jsonb)
   FROM PUBLIC, anon, authenticated;
 
+-- 2026-07-17 (post-cutover advisor-lint): _ensure_foraeldrefamilie_redaktionel er en intern
+-- Problem 2-helper tilføjet EFTER F-01 REVOKE-sweepet ovenfor, så den manglede samme REVOKE.
+-- Den HAR allerede current_rolle()-guarden (belt-and-suspenders, ikke exploiterbar) — dette er
+-- ren konsistens: intern _-helper, ikke API-endpoint. Kaldes kun fra gatede red_*-funktioner.
+REVOKE EXECUTE ON FUNCTION _ensure_foraeldrefamilie_redaktionel(bigint, bigint)
+  FROM PUBLIC, anon, authenticated;
+
 -- 2026-07-03: udledt slægtsnavn — slaegtsnavn_karantaene er en ren intern log skrevet af
 -- regen_person_visning() (ejeren bypasser RLS ved interne kald); ingen redaktør-UI læser den
 -- endnu (spec §6, bevidst udskudt) → deny-all, samme mønster som version_pk_registry.
