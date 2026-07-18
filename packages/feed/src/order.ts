@@ -26,6 +26,10 @@ interface ScoredCard {
   score: number;
 }
 
+interface RankedCard extends ScoredCard {
+  priority: number;
+}
+
 // Vægtet trækning UDEN tilbagelægning: kumulativ-sum-scan over den overleverede pool.
 // -1 hvis poolen er tom eller al vægt er 0 (kalder skal filtrere score<=0 forinden —
 // se buildFeedOrder — men funktionen er defensiv, så den kan unit-testes isoleret).
@@ -67,6 +71,27 @@ export function chooseNext(
   return -1;
 }
 
+// En eksponentialnøgle giver en vægtet permutation uden tilbagelægning: den mindste
+// -log(1-U)/weight vinder. Hele rækkefølgen kan derfor seedes/sorteres én gang i O(n log n)
+// i stedet for at genberegne en O(n)-vægtsum for hvert af n træk. Rytmereglerne vælger den
+// første tilladte kandidat blandt de næste MAX_ATTEMPTS i den vægtede permutation.
+function chooseRankedIndex(
+  pool: RankedCard[],
+  prevKind: FeedCard['kind'] | null,
+  recentPersonIds: string[],
+  opts: ChooseOpts = {},
+): number {
+  const attempts = Math.min(MAX_ATTEMPTS, pool.length);
+  for (let idx = 0; idx < attempts; idx++) {
+    const card = pool[idx].card;
+    const passR1 = opts.relaxR1 === true || prevKind == null || card.kind !== prevKind;
+    const pid = bookmarkPersonId(card);
+    const passR2 = opts.relaxR2 === true || pid == null || !recentPersonIds.includes(pid);
+    if (passR1 && passR2) return idx;
+  }
+  return -1;
+}
+
 export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): FeedCard[] {
   const rng = mulberry32(inputs.seed);
   const livsdatoBy = inputs.livsdatoBy ?? {};
@@ -92,12 +117,63 @@ export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): 
 
   const ctx = toScoreContext(inputs);
   // Score <= 0 (typisk seenWeights=0) udelukker kortet HELT — det trækkes aldrig.
-  const pool: ScoredCard[] = candidateCards
+  const scoredPool: ScoredCard[] = candidateCards
     .map((card) => ({ card, score: score(card, ctx) }))
     .filter((c) => c.score > 0);
 
+  // Positionslåse er en del af selve ordningen. Den tidligere efterfølgende swap kunne
+  // flytte et portræt ud af et ellers gyldigt 6-korts-vindue og dermed bryde R3. Tag de
+  // låste kort ud af poolen og udled deres positioner før sampling, så alle senere
+  // rytmebeslutninger ser den faktiske rækkefølge.
+  const takeLocked = (predicate: (card: FeedCard) => boolean): ScoredCard | null => {
+    const idx = scoredPool.findIndex((c) => predicate(c.card));
+    return idx < 0 ? null : scoredPool.splice(idx, 1)[0];
+  };
+  const lockedDagensPerson = dagensPersonCard
+    ? takeLocked((card) => card.id === dagensPersonCard.id)
+    : null;
+  const lockedSlaegt = takeLocked((card) => card.kind === 'slaegt');
+  const totalBeforeTerminal = scoredPool.length
+    + (lockedDagensPerson ? 1 : 0)
+    + (lockedSlaegt ? 1 : 0);
+  const dagensPosition = lockedDagensPerson
+    ? Math.min(Math.floor(rng() * 3), Math.max(0, totalBeforeTerminal - 1))
+    : -1;
+  let slaegtPosition = lockedSlaegt
+    ? Math.min(3 + Math.floor(rng() * 7), Math.max(0, totalBeforeTerminal - 1))
+    : -1;
+  // Kun relevant for syntetiske ultrakorte feeds, hvor [0..2] og [3..9] ikke begge kan
+  // opfyldes. Bevar dagens person først og brug den sidste ledige plads til slægtskortet.
+  if (slaegtPosition === dagensPosition) {
+    slaegtPosition = Math.max(0, totalBeforeTerminal - 1);
+  }
+
+  const pool: RankedCard[] = scoredPool
+    .map((candidate) => ({
+      ...candidate,
+      priority: -Math.log(1 - rng()) / candidate.score,
+    }))
+    .sort((a, b) => a.priority - b.priority || a.card.id.localeCompare(b.card.id));
+
   const ordered: FeedCard[] = [];
-  while (pool.length > 0) {
+  let dagensPending = lockedDagensPerson;
+  let slaegtPending = lockedSlaegt;
+  while (pool.length > 0 || dagensPending || slaegtPending) {
+    if (dagensPending && ordered.length === dagensPosition) {
+      ordered.push(dagensPending.card);
+      dagensPending = null;
+      continue;
+    }
+    if (slaegtPending && ordered.length === slaegtPosition) {
+      ordered.push(slaegtPending.card);
+      slaegtPending = null;
+      continue;
+    }
+    if (pool.length === 0) {
+      if (dagensPending) { ordered.push(dagensPending.card); dagensPending = null; }
+      else if (slaegtPending) { ordered.push(slaegtPending.card); slaegtPending = null; }
+      continue;
+    }
     const prevKind = ordered.length > 0 ? ordered[ordered.length - 1].kind : null;
     const recentPersonIds = ordered
       .slice(-R2_WINDOW)
@@ -109,36 +185,40 @@ export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): 
     const recentHasPortrait = ordered
       .slice(-R3_LOOKBACK)
       .some((c) => c.kind === 'portrait' || c.kind === 'dagensperson');
-    const portraitCandidates = pool.filter((c) => c.card.kind === 'portrait');
-    const effectivePool = !recentHasPortrait && portraitCandidates.length > 0 ? portraitCandidates : pool;
+    const nextSlotIsLockedSlaegt = Boolean(
+      slaegtPending && ordered.length + 1 === slaegtPosition,
+    );
+    const recentFourHavePortrait = ordered
+      .slice(-(R3_LOOKBACK - 1))
+      .some((c) => c.kind === 'portrait' || c.kind === 'dagensperson');
+    let effectivePool = pool;
+    // Se ét slot frem når det næste kort er det låste (ikke-portræt) slægtskort. Ellers
+    // kan fem portrætløse kort + låsen danne et ugyldigt 6-vindue, før den normale R3-
+    // forcing når at reagere på det efterfølgende slot.
+    if (!recentHasPortrait || (nextSlotIsLockedSlaegt && !recentFourHavePortrait)) {
+      const portraitCandidates = pool.filter((c) => c.card.kind === 'portrait');
+      if (portraitCandidates.length > 0) effectivePool = portraitCandidates;
+    }
+
+    // Hvis dagens person endnu ikke er placeret (kun position 0-2), må samme persons
+    // øvrige kort ikke snige sig ind umiddelbart før låsen og bryde R2.
+    if (dagensPending && dagensPersonId) {
+      const withoutDagensPerson = effectivePool.filter(
+        (c) => bookmarkPersonId(c.card) !== dagensPersonId,
+      );
+      if (withoutDagensPerson.length > 0) effectivePool = withoutDagensPerson;
+    }
 
     // Eskalerende relaksering: normal → R2 relakseret → R1+R2 relakseret (garanteret
     // at finde noget, da effectivePool er ikke-tom og fuld relaksering altid består).
-    let idx = chooseNext(effectivePool, rng, prevKind, recentPersonIds);
-    if (idx < 0) idx = chooseNext(effectivePool, rng, prevKind, recentPersonIds, { relaxR2: true });
-    if (idx < 0) idx = chooseNext(effectivePool, rng, prevKind, recentPersonIds, { relaxR1: true, relaxR2: true });
+    let idx = chooseRankedIndex(effectivePool, prevKind, recentPersonIds);
+    if (idx < 0) idx = chooseRankedIndex(effectivePool, prevKind, recentPersonIds, { relaxR2: true });
+    if (idx < 0) idx = chooseRankedIndex(effectivePool, prevKind, recentPersonIds, { relaxR1: true, relaxR2: true });
 
     const chosen = effectivePool[idx];
     ordered.push(chosen.card);
-    pool.splice(pool.indexOf(chosen), 1);
+    pool.splice(effectivePool === pool ? idx : pool.indexOf(chosen), 1);
   }
-
-  // Positionslåse (spec §3.5 step 3), seed-drevet: flyt kortet til en låst position.
-  // Implementeret som BYT (swap), ikke fjern+genindsæt — en ren fjernelse fra midten ville
-  // sammenføje kortets tidligere naboer, som ellers kun var adskilt AF det fjernede kort,
-  // og kunne dermed skabe en helt ny (og usynlig for kalderen) R1/R3-krænkelse et andet sted
-  // i listen. Et byt er en lokalt afgrænset perturbation ved præcis de to berørte positioner.
-  const swapTo = (fromIdx: number, toIdx: number): void => {
-    const clamped = Math.min(toIdx, ordered.length - 1);
-    if (clamped === fromIdx) return;
-    [ordered[fromIdx], ordered[clamped]] = [ordered[clamped], ordered[fromIdx]];
-  };
-  if (dagensPersonCard) {
-    const idx = ordered.findIndex((c) => c.id === dagensPersonCard.id);
-    if (idx >= 0) swapTo(idx, Math.floor(rng() * 3));
-  }
-  const slaegtIdx = ordered.findIndex((c) => c.kind === 'slaegt');
-  if (slaegtIdx >= 0) swapTo(slaegtIdx, 3 + Math.floor(rng() * 7));
 
   // Terminal 'samle'-kort (uændret semantik fra v3): kun når nogen personer slet ikke
   // fik et eget person-kort (portræt/citat/dagensperson). Lægges altid sidst.

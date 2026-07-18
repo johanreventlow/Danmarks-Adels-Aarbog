@@ -4,6 +4,7 @@
 // ikke af nogen app-specifik type.
 import { computeRelationship } from '@daa/core';
 import { stableHash } from './prng';
+import { isExactDay } from './types';
 import type { FeedAux, FeedCard, LivsdatoBy, Model } from './types';
 
 export const initialsOf = (name: string): string => (name.trim()[0] ?? '?').toUpperCase();
@@ -74,7 +75,7 @@ export function buildJubilaeer(
       if (num >= 100 && num % 50 === 0) {
         const dato = hvad === 'født' ? livsdatoBy[p.id]?.foedt : livsdatoBy[p.id]?.doed;
         const paaDagen = Boolean(
-          todayMMDD && dato?.qualifier === 'exact' && dato.min && dato.min.slice(5, 10) === todayMMDD,
+          todayMMDD && isExactDay(dato) && dato?.min && dato.min.slice(5, 10) === todayMMDD,
         );
         out.push({
           kind: 'jubilaeum', id: `jubilaeum:${p.id}:${hvad}:${num}`, personId: p.id, num,

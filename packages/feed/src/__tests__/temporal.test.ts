@@ -84,6 +84,32 @@ describe('buildPaaDenneDag', () => {
     expect(buildPaaDenneDag(m, livsdatoBy, '2026-07-18')).toHaveLength(0);
   });
 
+  it('ukvalificeret punktinterval fra 1939-konverteren tæller som eksakt dag', () => {
+    const m = mkModel([person('a')]);
+    const livsdatoBy: LivsdatoBy = {
+      a: { foedt: { min: '1700-07-18', max: '1700-07-18', qualifier: null } },
+    };
+    expect(buildPaaDenneDag(m, livsdatoBy, '2026-07-18')).toMatchObject([
+      { personId: 'a', praecision: 'dag' },
+    ]);
+  });
+
+  it('ukvalificeret helårsinterval fabrikerer ikke dag-præcision', () => {
+    const m = mkModel([person('a')]);
+    const livsdatoBy: LivsdatoBy = {
+      a: { foedt: { min: '1700-01-01', max: '1700-12-31', qualifier: null } },
+    };
+    expect(buildPaaDenneDag(m, livsdatoBy, '2026-01-01')).toEqual([]);
+  });
+
+  it('exact-mærket helårsinterval fra ældre ekstrakter fabrikerer ikke 1. januar', () => {
+    const m = mkModel([person('a')]);
+    const livsdatoBy: LivsdatoBy = {
+      a: { foedt: { min: '1700-01-01', max: '1700-12-31', qualifier: 'exact' } },
+    };
+    expect(buildPaaDenneDag(m, livsdatoBy, '2026-01-01')).toEqual([]);
+  });
+
   it('tom livsdatoBy → ingen kort, ingen crash', () => {
     const m = mkModel([person('a')]);
     expect(buildPaaDenneDag(m, {}, '2026-07-18')).toHaveLength(0);

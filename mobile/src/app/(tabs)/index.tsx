@@ -47,7 +47,11 @@ export default function HomeScreen() {
   const [slaegtOpen, setSlaegtOpen] = useState(false);
   const [showBrand, setShowBrand] = useState(false);
 
-  const { has, toggle, canSave, count, ids: bookmarkedIdSet } = useBookmarks(session?.user?.id ?? null, canonMap);
+  const bookmarkOwnerId = session?.user?.id ?? null;
+  const {
+    has, toggle, canSave, count, ready: bookmarksReady,
+    hydrationVersion: bookmarkHydrationVersion, ids: bookmarkedIdSet,
+  } = useBookmarks(bookmarkOwnerId, canonMap);
   const saveOrPrompt = useCallback(
     (id: string) => { if (canSave) toggle(id); else router.push('/konto'); },
     [canSave, toggle, router],
@@ -57,8 +61,29 @@ export default function HomeScreen() {
   // Bogmærke-id'er indgår som et FASTFROSSET SNAPSHOT (§4.1's "personal"-vægt), ikke en
   // live-reaktiv værdi: en stream må ALDRIG genopbygges bare fordi brugeren toggler et
   // bogmærke midt i scroll — det ville nulstille de allerede viste kort. Snapshottet
-  // opdateres kun når et NYT seed vælges (mount + pull-to-refresh, se handleRefresh).
-  const [bookmarkedSnapshot, setBookmarkedSnapshot] = useState<string[]>(() => [...bookmarkedIdSet]);
+  // opdateres kun ved afsluttet repository-/kanon-map-hydrering eller når et NYT seed
+  // vælges eksplicit (pull-to-refresh, se handleRefresh).
+  const [bookmarkedSnapshot, setBookmarkedSnapshot] = useState<{
+    ownerId: string | null;
+    hydrationVersion: number;
+    ids: string[];
+  } | null>(null);
+  const bookmarkSnapshotReady = bookmarksReady
+    && bookmarkedSnapshot?.ownerId === bookmarkOwnerId
+    && bookmarkedSnapshot.hydrationVersion === bookmarkHydrationVersion;
+  useEffect(() => {
+    if (!bookmarksReady) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- frys ét hydreret snapshot pr. bruger
+    setBookmarkedSnapshot((prev) => (
+      prev?.ownerId === bookmarkOwnerId && prev.hydrationVersion === bookmarkHydrationVersion
+        ? prev
+        : {
+            ownerId: bookmarkOwnerId,
+            hydrationVersion: bookmarkHydrationVersion,
+            ids: [...bookmarkedIdSet],
+          }
+    ));
+  }, [bookmarksReady, bookmarkOwnerId, bookmarkHydrationVersion, bookmarkedIdSet]);
 
   // Set-hukommelse: hentes ÉN gang ved mount og fryses for hele skærmens levetid (spec
   // §5.3) — også på tværs af senere reseeds (pull-to-refresh). null = endnu ikke hydreret.
@@ -79,14 +104,14 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const stream = useMemo<FeedStream | null>(() => {
-    if (!model || !aux || seenWeights === null) return null;
+    if (!model || !aux || seenWeights === null || !bookmarkSnapshotReady || !bookmarkedSnapshot) return null;
     return createFeedStream(model, aux, {
       seed, todayISO: today, meId, focusId,
-      bookmarkedIds: bookmarkedSnapshot,
+      bookmarkedIds: bookmarkedSnapshot.ids,
       seenWeights,
       livsdatoBy,
     });
-  }, [model, aux, seed, today, meId, focusId, bookmarkedSnapshot, seenWeights, livsdatoBy]);
+  }, [model, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkedSnapshot, seenWeights, livsdatoBy]);
 
   const [shown, setShown] = useState<FeedCard[]>([]);
   const appendingRef = useRef(false);
@@ -117,9 +142,13 @@ export default function HomeScreen() {
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
-    setBookmarkedSnapshot([...bookmarkedIdSet]);
+    setBookmarkedSnapshot({
+      ownerId: bookmarkOwnerId,
+      hydrationVersion: bookmarkHydrationVersion,
+      ids: [...bookmarkedIdSet],
+    });
     setSeed(newSeed(today));
-  }, [today, bookmarkedIdSet]);
+  }, [today, bookmarkOwnerId, bookmarkHydrationVersion, bookmarkedIdSet]);
 
   const openCard = useCallback(
     (card: FeedCard) => {

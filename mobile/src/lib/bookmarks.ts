@@ -50,7 +50,7 @@ function sameOrder(a: string[], b: string[]): boolean {
 export function useBookmarks(
   userId: string | null,
   canonicalIdById: Record<string, string>,
-): { ids: Set<string>; has(id: string): boolean; canSave: boolean; toggle(id: string): void; count: number } {
+): { ids: Set<string>; has(id: string): boolean; canSave: boolean; ready: boolean; hydrationVersion: number; toggle(id: string): void; count: number } {
   const repoRef = useMemo(() => createRemoteBookmarkRepository(), []);
   const [idsList, setIdsList] = useState<string[]>([]);
   // Mutérbar side-kanal uden for render/state-cyklussen — useRef (ikke useMemo, som React
@@ -58,15 +58,20 @@ export function useBookmarks(
   // callbacks, aldrig selve .current under render (react-hooks/immutability + react-hooks/refs).
   const pendingRef = useRef<Set<string>>(new Set());
   const lastUserIdRef = useRef<string | null>(null); // seneste userId effekten faktisk fetchede for
+  const [loadedFor, setLoadedFor] = useState<{
+    userId: string;
+    canonicalIdById: Record<string, string>;
+  } | null>(null);
+  const [hydrationVersion, setHydrationVersion] = useState(0);
   const canon = useMemo(() => (id: string) => canonicalIdById[id] ?? id, [canonicalIdById]);
 
   useEffect(() => {
     if (!userId) {
-      // Ingen setState her: `ids` beregnes tom nedenfor (afledt af userId, ikke lagret) —
-      // undgår react-hooks/set-state-in-effect OG den uendelige render-loop en ustabil
-      // canonicalIdById-reference ellers ville give (fanget under web-portens egen test-
-      // kørsel: OOM).
+      // `ids` beregnes tom nedenfor. Hydreringsmarkøren skal dog nulstilles, så et senere
+      // login som samme bruger ikke kan genbruge den afsluttede forrige session.
       lastUserIdRef.current = null;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sessionsikker reset ved logout
+      setLoadedFor(null);
       return;
     }
     // Ryd KUN ved et REELT brugerskift (review 22 N2-mitigering), sporet via ref — ikke ved
@@ -86,13 +91,21 @@ export function useBookmarks(
         for (const id of prev) if (pending.has(id) && !merged.includes(id)) merged.unshift(id);
         return sameOrder(merged, prev) ? prev : merged;
       });
+      setLoadedFor({ userId, canonicalIdById });
+      setHydrationVersion((version) => version + 1);
     });
     return () => { alive = false; };
-  }, [userId, canon, repoRef]);
+  }, [userId, canon, canonicalIdById, repoRef]);
 
   // Afledt (ikke lagret): tom når udlogget, uanset hvad idsList internt måtte indeholde fra en
   // tidligere session — undgår enhver setState-i-effekt for logout-overgangen.
-  const ids = useMemo(() => (userId ? new Set(idsList) : new Set<string>()), [userId, idsList]);
+  const ready = userId == null || (
+    loadedFor?.userId === userId && loadedFor.canonicalIdById === canonicalIdById
+  );
+  const ids = useMemo(
+    () => (userId && ready ? new Set(idsList) : new Set<string>()),
+    [userId, ready, idsList],
+  );
 
   const toggle = useCallback(
     (id: string) => {
@@ -118,5 +131,7 @@ export function useBookmarks(
 
   // review 22 H1: count afledt af det session-gatede `ids` (IKKE rå idsList.length, som
   // forblev ikke-nulstillet efter logout og viste et stale badge-tal).
-  return { ids, has, canSave: userId != null, toggle, count: ids.size };
+  return {
+    ids, has, canSave: userId != null, ready, hydrationVersion, toggle, count: ids.size,
+  };
 }

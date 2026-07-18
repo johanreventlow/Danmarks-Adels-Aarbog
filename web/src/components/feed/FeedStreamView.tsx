@@ -12,6 +12,7 @@ import {
 import { buildWebFeedAux, fetchFeedBios, withFeedBios } from '../../data/feedAux';
 import { epochDay, newSeed, todayISO } from '../../data/feedSession';
 import { loadLivsdatoBy } from '../../data/livsdato';
+import { preserveShownForResume } from '../../data/feedResume';
 import { createSeenStore, toSeenWeights } from '../../data/seenCards';
 import { T } from '../../theme';
 import type { ArmsItem, EstateItem } from '../../data/public';
@@ -23,6 +24,7 @@ const SEEN_EXCLUDED_KINDS = new Set<FeedCard['kind']>(['slaegt', 'dagensperson',
 
 export function FeedStreamView({
   model, estates, arms, meId, focusId, bookmarkedIds,
+  bookmarksReady, bookmarkHydrationVersion, bookmarkOwnerId,
   hasBookmark, onSaveBookmark,
   onOpenPerson, onOpenEstate, onOpenArms, onOpenSlaegt, onBrowseAll,
 }: {
@@ -32,6 +34,9 @@ export function FeedStreamView({
   meId: string | null;
   focusId: string | null;
   bookmarkedIds: string[];
+  bookmarksReady: boolean;
+  bookmarkHydrationVersion: number;
+  bookmarkOwnerId: string | null;
   hasBookmark: (id: string) => boolean;
   onSaveBookmark: (id: string) => void;
   onOpenPerson: (id: string) => void;
@@ -44,6 +49,30 @@ export function FeedStreamView({
   const today = useMemo(() => todayISO(), []);
   const [seed] = useState(() => newSeed(today));
 
+  // Frys bogmærker EFTER repository-hydrering. En live toggle må ikke omordne en igangværende
+  // strøm, men et bruger-/login-skift skal have sit eget snapshot og må aldrig genbruge den
+  // forrige brugers personalisering.
+  const [bookmarkSnapshot, setBookmarkSnapshot] = useState<{
+    ownerId: string | null;
+    hydrationVersion: number;
+    ids: string[];
+  } | null>(null);
+  const bookmarkSnapshotReady = bookmarksReady
+    && bookmarkSnapshot?.ownerId === bookmarkOwnerId
+    && bookmarkSnapshot.hydrationVersion === bookmarkHydrationVersion;
+  useEffect(() => {
+    if (!bookmarksReady) return;
+    setBookmarkSnapshot((prev) => (
+      prev?.ownerId === bookmarkOwnerId && prev.hydrationVersion === bookmarkHydrationVersion
+        ? prev
+        : {
+            ownerId: bookmarkOwnerId,
+            hydrationVersion: bookmarkHydrationVersion,
+            ids: [...bookmarkedIds],
+          }
+    ));
+  }, [bookmarksReady, bookmarkOwnerId, bookmarkHydrationVersion, bookmarkedIds]);
+
   // Bio + livsdato hentes ÉN gang ved mount (§7.3) — webbens publikums-model indlæser
   // ikke bio ved cold-start, og livsdato er altid en klient-side ekstra-hentning.
   const [bios, setBios] = useState<Record<string, string> | null>(null);
@@ -51,7 +80,7 @@ export function FeedStreamView({
   useEffect(() => {
     let alive = true;
     const canon = model.canonicalIdById ?? {};
-    void fetchFeedBios(canon).then((b) => { if (alive) setBios(b); });
+    void fetchFeedBios(canon, model.persons.map((p) => p.id)).then((b) => { if (alive) setBios(b); });
     void loadLivsdatoBy(canon).then((ld) => { if (alive) setLivsdatoBy(ld); });
     return () => { alive = false; };
   }, [model]);
@@ -72,6 +101,7 @@ export function FeedStreamView({
   // streamRef holder DEN STRØM der aktuelt doseres fra — genopbygget (via resumeStream, se
   // nedenfor) hver gang bio/livsdato ankommer, uden at nulstille allerede viste kort.
   const streamRef = useRef<FeedStream | null>(null);
+  const streamOwnerRef = useRef<string | null | undefined>(undefined);
   const [done, setDone] = useState(false);
 
   // Bumpes ved hver (gen)opbygning af streamRef.current (ren ref-mutation, ingen re-render i
@@ -80,24 +110,34 @@ export function FeedStreamView({
   const [streamGeneration, setStreamGeneration] = useState(0);
 
   useEffect(() => {
-    if (seenWeights === null) return; // vent på hydrering — undgår at bygge to gange
+    if (seenWeights === null || !bookmarkSnapshotReady || !bookmarkSnapshot) return;
     const enrichedModel = bios ? withFeedBios(model, bios) : model;
     const built = createFeedStream(enrichedModel, aux, {
-      seed, todayISO: today, meId, focusId, bookmarkedIds, seenWeights, livsdatoBy,
+      seed, todayISO: today, meId, focusId,
+      bookmarkedIds: bookmarkSnapshot.ids,
+      seenWeights, livsdatoBy,
     });
-    if (streamRef.current === null) {
+    if (streamRef.current === null || streamOwnerRef.current !== bookmarkSnapshot.ownerId) {
       streamRef.current = built;
-      setShown(built.next(PAGE_SIZE));
+      streamOwnerRef.current = bookmarkSnapshot.ownerId;
+      const first = built.next(PAGE_SIZE);
+      shownRef.current = first;
+      markedIdsRef.current.clear();
+      setShown(first);
     } else {
       // Rebuild pga. bio/livsdato-ankomst (SAMME seed) — resume, ALDRIG nulstil viste kort.
-      streamRef.current = resumeStream(built, new Set(shownRef.current.map((c) => c.id)));
+      const preserved = preserveShownForResume(shownRef.current);
+      if (preserved.length !== shownRef.current.length) {
+        shownRef.current = preserved;
+        setShown(preserved);
+      }
+      streamRef.current = resumeStream(built, new Set(preserved.map((c) => c.id)));
     }
     setDone(streamRef.current.done());
     setStreamGeneration((g) => g + 1);
-    // bookmarkedIds er BEVIDST ikke i dependency-listen (§4.1): en stream må ikke genopbygges/
-    // nulstilles bare fordi brugeren toggler et bogmærke midt i scroll — det ville nulstille de
-    // allerede viste kort. shownRef læses via ref, ikke som reaktiv dependency, af samme grund.
-  }, [model, bios, aux, seed, today, meId, focusId, seenWeights, livsdatoBy]);
+    // Live bookmarkedIds er bevidst ikke input her: bookmarkSnapshot fryses efter hydrering,
+    // så et toggle midt i scroll ikke omordner strømmen. shownRef læses tilsvarende via ref.
+  }, [model, bios, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkSnapshot, seenWeights, livsdatoBy]);
 
   const markShownAsSeen = useCallback(() => {
     const ids = shownRef.current

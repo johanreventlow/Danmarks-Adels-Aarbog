@@ -2,6 +2,7 @@
 // (mobile/src/data/livsdato.ts, web/src/data/feedAux.ts); denne fil joiner/udleder kun.
 import { byIdStr, initialsOf } from './pool';
 import { stableHash } from './prng';
+import { isExactDay } from './types';
 import type { FeedCard, FuzzyDato, LivsdatoBy, Model } from './types';
 
 // Rå rækker (PostgREST-form) til buildLivsdatoBy — date_min/max er DATE-kolonner
@@ -66,7 +67,7 @@ export function buildPaaDenneDag(model: Model, livsdatoBy: LivsdatoBy, todayISO:
     if (!ld) continue;
     for (const [key, hvad] of [['foedt', 'født'], ['doed', 'død']] as const) {
       const dato = ld[key];
-      if (!dato || dato.qualifier !== 'exact' || !dato.min) continue;
+      if (!isExactDay(dato) || !dato?.min) continue;
       const aarstal = Number(dato.min.slice(0, 4));
       if (!Number.isFinite(aarstal)) continue;
       const id = `paadennedag:${p.id}:${hvad}:${aarstal}`;
