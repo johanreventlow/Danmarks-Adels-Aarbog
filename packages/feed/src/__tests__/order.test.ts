@@ -1,7 +1,9 @@
 import { buildModel } from '@daa/core';
 import { describe, expect, it } from 'vitest';
 import { chooseNext, weightedDrawIndex, buildFeedOrder } from '../order';
-import type { FeedAux, FeedCard, FeedInputs, Model } from '../types';
+import { stableHash } from '../prng';
+import { pickDagensPerson } from '../temporal';
+import type { FeedAux, FeedCard, FeedInputs, HaendelseItem, HaendelserBy, Model } from '../types';
 
 function person(id: string, over: Partial<{
   name: string; born: number | null; died: number | null; years: string;
@@ -22,6 +24,14 @@ const LONG_BIO = 'Dette er en tilstrækkelig lang og velformet sætning om perso
 
 function baseInputs(over: Partial<FeedInputs> = {}): FeedInputs {
   return { seed: 1, todayISO: '2026-07-18', meId: null, focusId: null, ...over };
+}
+
+function haendelse(id: string, over: Partial<HaendelseItem> = {}): HaendelseItem {
+  return {
+    id, klausul: 'En tilstrækkelig lang klausul om personens historiske liv og virke.',
+    kategori: null, dato: { min: null, max: null, qualifier: null }, dateRaw: null,
+    interessant: false, rygrad: false, kilde: null, ...over,
+  };
 }
 
 // --- weightedDrawIndex -------------------------------------------------------
@@ -108,6 +118,43 @@ describe('buildFeedOrder — determinisme', () => {
     const persons = [person('a', { bio: LONG_BIO })];
     const cards = buildFeedOrder(mkModel(persons), EMPTY_AUX, baseInputs());
     expect(cards.some((c) => c.kind === 'gods' || c.kind === 'vaaben' || c.kind === 'embede')).toBe(false);
+  });
+
+  it('udeladt og eksplicit tomt haendelserBy er dybt identisk med fase 1', () => {
+    const m = mkModel(Array.from({ length: 20 }, (_, i) => person('p' + i, { bio: LONG_BIO })));
+    expect(buildFeedOrder(m, EMPTY_AUX, baseInputs())).toEqual(
+      buildFeedOrder(m, EMPTY_AUX, baseInputs({ haendelserBy: {} })),
+    );
+  });
+
+  it('hændelses-input er deterministisk; seeds ændrer rækkefølge men ikke kortmængde', () => {
+    const persons = Array.from({ length: 20 }, (_, i) => person('p' + i, { bio: LONG_BIO }));
+    const m = mkModel(persons);
+    const hs: HaendelserBy = Object.fromEntries(
+      persons.map((p, i) => [p.id, [haendelse('h' + i, { dateRaw: String(1700 + i) })]]),
+    );
+    const a = buildFeedOrder(m, EMPTY_AUX, baseInputs({ seed: 1, haendelserBy: hs }));
+    const a2 = buildFeedOrder(m, EMPTY_AUX, baseInputs({ seed: 1, haendelserBy: hs }));
+    const b = buildFeedOrder(m, EMPTY_AUX, baseInputs({ seed: 2, haendelserBy: hs }));
+    expect(a).toEqual(a2);
+    expect(a.map((c) => c.id).sort()).toEqual(b.map((c) => c.id).sort());
+    expect(a.map((c) => c.id)).not.toEqual(b.map((c) => c.id));
+  });
+
+  it('valgt citat-klausul optræder aldrig også som arkiv-kort', () => {
+    const persons = Array.from({ length: 24 }, (_, i) => person('p' + i, { bio: LONG_BIO }));
+    const m = mkModel(persons);
+    const dagens = pickDagensPerson(m, '2026-07-18');
+    const citatPerson = persons.find((p) => stableHash(p.id) % 4 === 0 && p.id !== dagens);
+    expect(citatPerson).toBeDefined();
+    const hs: HaendelserBy = {
+      [citatPerson!.id]: [haendelse('valgt-citat')],
+    };
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const cards = buildFeedOrder(m, EMPTY_AUX, baseInputs({ seed, haendelserBy: hs }));
+      expect(cards.some((c) => c.id === 'citat:' + citatPerson!.id)).toBe(true);
+      expect(cards.some((c) => c.id === 'arkiv:valgt-citat')).toBe(false);
+    }
   });
 });
 
@@ -225,6 +272,30 @@ describe('buildFeedOrder — vægt-effekt', () => {
       plainTotal += plainIdx;
     }
     expect(bookmarkedTotal / seeds.length).toBeLessThan(plainTotal / seeds.length);
+  });
+
+  it('interessant arkiv-kort rykker i gennemsnit tidligere frem over faste seeds', () => {
+    const persons = Array.from({ length: 24 }, (_, i) => person('p' + i, { bio: LONG_BIO }));
+    const m = mkModel(persons);
+    const dagens = pickDagensPerson(m, '2026-07-18');
+    const target = persons.find((p) => stableHash(p.id) % 4 !== 0 && p.id !== dagens)!;
+    const plain: HaendelserBy = Object.fromEntries(
+      persons.map((p, i) => [p.id, [haendelse('h' + i)]]),
+    );
+    const boosted: HaendelserBy = Object.fromEntries(
+      Object.entries(plain).map(([pid, items]) => [
+        pid, items.map((item) => item.id === plain[target.id][0].id
+          ? { ...item, interessant: true }
+          : item),
+      ]),
+    );
+    const targetId = 'arkiv:' + plain[target.id][0].id;
+    const seeds = Array.from({ length: 30 }, (_, i) => i + 1);
+    const meanIndex = (hs: HaendelserBy): number => seeds.reduce((sum, seed) => {
+      const cards = buildFeedOrder(m, EMPTY_AUX, baseInputs({ seed, haendelserBy: hs }));
+      return sum + cards.findIndex((c) => c.id === targetId);
+    }, 0) / seeds.length;
+    expect(meanIndex(boosted)).toBeLessThan(meanIndex(plain));
   });
 });
 

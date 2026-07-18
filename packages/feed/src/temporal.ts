@@ -2,7 +2,7 @@
 // (mobile/src/data/livsdato.ts, web/src/data/feedAux.ts); denne fil joiner/udleder kun.
 import { byIdStr, initialsOf } from './pool';
 import { stableHash } from './prng';
-import type { FeedCard, FuzzyDato, LivsdatoBy, Model } from './types';
+import type { FeedCard, FuzzyDato, HaendelserBy, LivsdatoBy, Model } from './types';
 
 // Rå rækker (PostgREST-form) til buildLivsdatoBy — date_min/max er DATE-kolonner
 // (schema.sql), så PostgREST returnerer dem som 'YYYY-MM-DD'-strenge.
@@ -56,30 +56,58 @@ const mm = (dateStr: string): string => dateStr.slice(5, 7);
 // præcision). Global fallback: hvis INGEN person har et dag-træf i dag, vises i stedet
 // måneds-træf ('I denne måned') — så feed'en sjældent er helt uden tidsligt indhold,
 // uden nogensinde at hævde en præcision datoen ikke bærer.
-export function buildPaaDenneDag(model: Model, livsdatoBy: LivsdatoBy, todayISO: string): FeedCard[] {
+export function buildPaaDenneDag(
+  model: Model,
+  livsdatoBy: LivsdatoBy,
+  todayISO: string,
+  haendelserBy: HaendelserBy = {},
+): FeedCard[] {
   const todayMMDD = mmdd(todayISO);
   const todayMM = mm(todayISO);
   const dayMatches: FeedCard[] = [];
   const monthMatches: FeedCard[] = [];
   for (const p of model.persons) {
     const ld = livsdatoBy[p.id];
-    if (!ld) continue;
-    for (const [key, hvad] of [['foedt', 'født'], ['doed', 'død']] as const) {
-      const dato = ld[key];
-      if (!dato || dato.qualifier !== 'exact' || !dato.min) continue;
+    if (ld) {
+      for (const [key, hvad] of [['foedt', 'født'], ['doed', 'død']] as const) {
+        const dato = ld[key];
+        if (!dato || dato.qualifier !== 'exact' || !dato.min) continue;
+        const aarstal = Number(dato.min.slice(0, 4));
+        if (!Number.isFinite(aarstal)) continue;
+        const id = `paadennedag:${p.id}:${hvad}:${aarstal}`;
+        if (mmdd(dato.min) === todayMMDD) {
+          dayMatches.push({
+            kind: 'paadennedag', id, personId: p.id, name: p.name, years: p.years,
+            aarstal, hvad, praecision: 'dag', kicker: 'På denne dag',
+          });
+        } else if (mm(dato.min) === todayMM) {
+          monthMatches.push({
+            kind: 'paadennedag', id, personId: p.id, name: p.name, years: p.years,
+            aarstal, hvad, praecision: 'maaned', kicker: 'I denne måned',
+          });
+        }
+      }
+    }
+
+    for (const item of haendelserBy[p.id] ?? []) {
+      const dato = item.dato;
+      if (item.rygrad || dato.qualifier !== 'exact' || !dato.min) continue;
       const aarstal = Number(dato.min.slice(0, 4));
       if (!Number.isFinite(aarstal)) continue;
-      const id = `paadennedag:${p.id}:${hvad}:${aarstal}`;
+      const card = {
+        kind: 'paadennedag' as const,
+        id: 'paadennedag:h:' + item.id,
+        personId: p.id,
+        name: p.name,
+        years: p.years,
+        aarstal,
+        hvad: 'hændelse' as const,
+        klausul: item.klausul,
+      };
       if (mmdd(dato.min) === todayMMDD) {
-        dayMatches.push({
-          kind: 'paadennedag', id, personId: p.id, name: p.name, years: p.years,
-          aarstal, hvad, praecision: 'dag', kicker: 'På denne dag',
-        });
+        dayMatches.push({ ...card, praecision: 'dag', kicker: 'På denne dag' });
       } else if (mm(dato.min) === todayMM) {
-        monthMatches.push({
-          kind: 'paadennedag', id, personId: p.id, name: p.name, years: p.years,
-          aarstal, hvad, praecision: 'maaned', kicker: 'I denne måned',
-        });
+        monthMatches.push({ ...card, praecision: 'maaned', kicker: 'I denne måned' });
       }
     }
   }

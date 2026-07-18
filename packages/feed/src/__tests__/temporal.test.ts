@@ -6,7 +6,7 @@ import {
   buildPaaDenneDag,
   pickDagensPerson,
 } from '../temporal';
-import type { FuzzyDato, LivsdatoBy, Model } from '../types';
+import type { FuzzyDato, HaendelseItem, HaendelserBy, LivsdatoBy, Model } from '../types';
 
 function person(id: string, over: Partial<{
   name: string; born: number | null; died: number | null; years: string;
@@ -24,6 +24,10 @@ function mkModel(persons: ReturnType<typeof person>[]): Model {
 
 const exact = (min: string): FuzzyDato => ({ min, max: min, qualifier: 'exact' });
 const about = (min: string): FuzzyDato => ({ min, max: min, qualifier: 'about' });
+const haendelse = (id: string, min: string, over: Partial<HaendelseItem> = {}): HaendelseItem => ({
+  id, klausul: 'En historisk hændelse i personens liv.', kategori: null,
+  dato: exact(min), dateRaw: min, interessant: false, rygrad: false, kilde: null, ...over,
+});
 
 describe('buildLivsdatoBy', () => {
   it('joiner fact→conclusion→assertion og kanoniserer id', () => {
@@ -87,6 +91,36 @@ describe('buildPaaDenneDag', () => {
   it('tom livsdatoBy → ingen kort, ingen crash', () => {
     const m = mkModel([person('a')]);
     expect(buildPaaDenneDag(m, {}, '2026-07-18')).toHaveLength(0);
+  });
+
+  it('hændelses-dagtræf bliver paadennedag med klausul', () => {
+    const m = mkModel([person('a', { name: 'A', years: '1700–1780' })]);
+    const hs: HaendelserBy = { a: [haendelse('h1', '1723-07-18')] };
+    expect(buildPaaDenneDag(m, {}, '2026-07-18', hs)).toEqual([
+      expect.objectContaining({ id: 'paadennedag:h:h1', personId: 'a', hvad: 'hændelse',
+        klausul: hs.a[0].klausul, praecision: 'dag', aarstal: 1723 }),
+    ]);
+  });
+
+  it('hændelses-dagtræf undertrykker livsdato-månedsfallback globalt', () => {
+    const m = mkModel([person('a'), person('b')]);
+    const livsdatoBy: LivsdatoBy = { a: { foedt: exact('1700-07-05') } };
+    const hs: HaendelserBy = { b: [haendelse('h1', '1723-07-18')] };
+    const cards = buildPaaDenneDag(m, livsdatoBy, '2026-07-18', hs);
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({ id: 'paadennedag:h:h1', praecision: 'dag' });
+  });
+
+  it('udelader ikke-eksakt, rygrad og ukendt person-id', () => {
+    const m = mkModel([person('a')]);
+    const hs: HaendelserBy = {
+      a: [
+        haendelse('about', '1723-07-18', { dato: about('1723-07-18') }),
+        haendelse('rygrad', '1723-07-18', { rygrad: true }),
+      ],
+      ukendt: [haendelse('ukendt', '1723-07-18')],
+    };
+    expect(buildPaaDenneDag(m, {}, '2026-07-18', hs)).toEqual([]);
   });
 });
 

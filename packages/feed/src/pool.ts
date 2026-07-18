@@ -4,7 +4,7 @@
 // ikke af nogen app-specifik type.
 import { computeRelationship } from '@daa/core';
 import { stableHash } from './prng';
-import type { FeedAux, FeedCard, LivsdatoBy, Model } from './types';
+import type { FeedAux, FeedCard, HaendelserBy, LivsdatoBy, Model } from './types';
 
 export const initialsOf = (name: string): string => (name.trim()[0] ?? '?').toUpperCase();
 
@@ -28,20 +28,30 @@ export function firstQuotableSentence(bio: string): string | null {
 export function buildPortraitAndCitat(
   model: Model,
   excludeId: string | null = null,
-): { portraits: FeedCard[]; citater: FeedCard[] } {
+  haendelserBy: HaendelserBy = {},
+): { portraits: FeedCard[]; citater: FeedCard[]; usedCitatHaendelseIds: Set<string> } {
   const bioPersons = model.persons
     .filter((p) => p.bio.trim() !== '' && p.id !== excludeId)
     .sort(byIdStr);
   const portraits: FeedCard[] = [];
   const citater: FeedCard[] = [];
+  const usedCitatHaendelseIds = new Set<string>();
   for (const p of bioPersons) {
     const isCitatSlot = stableHash(p.id) % 4 === 0;
     if (isCitatSlot) {
-      const quote = firstQuotableSentence(p.bio);
+      const kandidater = (haendelserBy[p.id] ?? []).filter(
+        (item) => !item.rygrad && item.klausul.length >= 40 && item.klausul.length <= 180,
+      );
+      const valgt = kandidater.length > 0
+        ? kandidater[stableHash(p.id) % kandidater.length]
+        : null;
+      const quote = valgt?.klausul ?? firstQuotableSentence(p.bio);
       if (quote == null) continue; // ingen portræt-fallback → partitionerne forbliver disjunkte
+      if (valgt) usedCitatHaendelseIds.add(valgt.id);
       citater.push({
         kind: 'citat', id: 'citat:' + p.id, personId: p.id, quote,
-        source: p.years ? `${p.name}, ${p.years}` : p.name, kicker: 'Fra Aarbogen',
+        source: valgt?.kilde ?? (p.years ? `${p.name}, ${p.years}` : p.name),
+        kicker: 'Fra Aarbogen',
       });
     } else {
       portraits.push({
@@ -51,7 +61,34 @@ export function buildPortraitAndCitat(
       });
     }
   }
-  return { portraits, citater };
+  return { portraits, citater, usedCitatHaendelseIds };
+}
+
+// Hændelser uden rygrads-kobling er feed-kandidater. En klausul, der allerede er valgt
+// som citat, udelades for at samme kildeuddrag ikke optræder i to kort-flavours.
+export function buildArkivKort(
+  model: Model,
+  haendelserBy: HaendelserBy,
+  usedCitatHaendelseIds: ReadonlySet<string>,
+): FeedCard[] {
+  const out: FeedCard[] = [];
+  for (const [personId, items] of Object.entries(haendelserBy)) {
+    const p = model.byId[personId];
+    if (!p) continue;
+    for (const item of items) {
+      if (item.rygrad || usedCitatHaendelseIds.has(item.id)) continue;
+      const aarLabel = item.dateRaw != null && item.dateRaw !== ''
+        ? item.dateRaw
+        : item.dato.min?.slice(0, 4) ?? null;
+      out.push({
+        kind: 'arkiv', id: 'arkiv:' + item.id, personId, name: p.name,
+        klausul: item.klausul, aarLabel, kategori: item.kategori, kilde: item.kilde,
+        ...(item.interessant ? { interessant: true as const } : {}),
+        kicker: 'Årbogen skriver',
+      });
+    }
+  }
+  return out.sort(byIdStr);
 }
 
 // Runde jubilæer: num delelig med 50 og ≥100 (100/150/200…). Både fødsel og død.

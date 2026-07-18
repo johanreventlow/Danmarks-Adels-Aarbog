@@ -3,6 +3,7 @@
 // implementeringsvalg — spec §3.5) — "uendelig scroll" er dosering af denne færdige
 // ordning (strøm-API, task 5), ikke løbende genberegning.
 import {
+  buildArkivKort,
   buildEmbeder,
   buildForbundet,
   buildGods,
@@ -70,23 +71,27 @@ export function chooseNext(
 export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): FeedCard[] {
   const rng = mulberry32(inputs.seed);
   const livsdatoBy = inputs.livsdatoBy ?? {};
+  const haendelserBy = inputs.haendelserBy ?? {};
   const todayYear = Number(inputs.todayISO.slice(0, 4));
 
   // dagens person udelades af portræt/citat-poolen (disjunkthed) og vises som sit eget kort.
   const dagensPersonId = pickDagensPerson(model, inputs.todayISO);
-  const { portraits, citater } = buildPortraitAndCitat(model, dagensPersonId);
+  const { portraits, citater, usedCitatHaendelseIds } = buildPortraitAndCitat(
+    model, dagensPersonId, haendelserBy,
+  );
   const dagensPersonCard = dagensPersonId ? buildDagensPersonCard(model, dagensPersonId) : null;
 
   const candidateCards: FeedCard[] = [
     ...portraits,
     ...citater,
+    ...buildArkivKort(model, haendelserBy, usedCitatHaendelseIds),
     ...buildGods(aux),
     ...buildForbundet(model),
     ...buildEmbeder(model, aux),
     ...buildJubilaeer(model, todayYear, livsdatoBy, inputs.todayISO),
     ...buildVaaben(aux),
     ...buildSlaegt(model, inputs.meId, inputs.focusId),
-    ...buildPaaDenneDag(model, livsdatoBy, inputs.todayISO),
+    ...buildPaaDenneDag(model, livsdatoBy, inputs.todayISO, haendelserBy),
     ...(dagensPersonCard ? [dagensPersonCard] : []),
   ];
 
@@ -109,8 +114,13 @@ export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): 
     const recentHasPortrait = ordered
       .slice(-R3_LOOKBACK)
       .some((c) => c.kind === 'portrait' || c.kind === 'dagensperson');
-    const portraitCandidates = pool.filter((c) => c.card.kind === 'portrait');
-    const effectivePool = !recentHasPortrait && portraitCandidates.length > 0 ? portraitCandidates : pool;
+    let effectivePool = pool;
+    // Undgå et fuldt pool-scan ved hvert træk. Portræt-delpoolen er kun relevant,
+    // når R3 faktisk skal overveje forcing; RNG-forløb og valgsemantik er uændret.
+    if (!recentHasPortrait) {
+      const portraitCandidates = pool.filter((c) => c.card.kind === 'portrait');
+      if (portraitCandidates.length > 0) effectivePool = portraitCandidates;
+    }
 
     // Eskalerende relaksering: normal → R2 relakseret → R1+R2 relakseret (garanteret
     // at finde noget, da effectivePool er ikke-tom og fuld relaksering altid består).

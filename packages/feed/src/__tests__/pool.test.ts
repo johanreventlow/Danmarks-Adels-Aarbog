@@ -2,6 +2,7 @@ import { buildModel } from '@daa/core';
 import { describe, expect, it } from 'vitest';
 import {
   buildEmbeder,
+  buildArkivKort,
   buildForbundet,
   buildGods,
   buildJubilaeer,
@@ -10,7 +11,8 @@ import {
   buildVaaben,
   firstQuotableSentence,
 } from '../pool';
-import type { FeedAux, FeedCard, Model } from '../types';
+import { stableHash } from '../prng';
+import type { FeedAux, FeedCard, HaendelseItem, HaendelserBy, Model } from '../types';
 
 const LONG_BIO =
   'Dette er en tilstrækkelig lang og velformet sætning om personens liv og virke her.';
@@ -30,6 +32,22 @@ function mkModel(persons: ReturnType<typeof person>[], unions: { p1: string; p2:
 }
 
 const EMPTY_AUX: FeedAux = { godsListe: [], vaabenListe: [], officesBy: {} };
+
+function haendelse(id: string, over: Partial<HaendelseItem> = {}): HaendelseItem {
+  return {
+    id, klausul: 'En tilstrækkelig lang klausul om personens historiske liv og virke.',
+    kategori: null, dato: { min: null, max: null, qualifier: null }, dateRaw: null,
+    interessant: false, rygrad: false, kilde: null, ...over,
+  };
+}
+
+function citatSlotId(): string {
+  for (let i = 0; i < 100; i++) {
+    const id = 'citatperson' + i;
+    if (stableHash(id) % 4 === 0) return id;
+  }
+  throw new Error('test-fixture fandt ingen citat-slot');
+}
 
 const kinds = (cards: FeedCard[], k: FeedCard['kind']) => cards.filter((c) => c.kind === k);
 
@@ -70,6 +88,74 @@ describe('buildPortraitAndCitat', () => {
     const { portraits, citater } = buildPortraitAndCitat(mkModel(persons), 'p0');
     const allIds = [...portraits, ...citater].map((c) => (c as { personId: string }).personId);
     expect(allIds).not.toContain('p0');
+  });
+
+  it('vælger en brugbar klausul deterministisk og registrerer præcis dens hændelses-id', () => {
+    const id = citatSlotId();
+    const m = mkModel([person(id, { bio: LONG_BIO })]);
+    const hs: HaendelserBy = { [id]: [
+      haendelse('h1', { klausul: 'Denne første historiske klausul er lang nok til at fungere som et citat.' }),
+      haendelse('h2', { klausul: 'Denne anden historiske klausul er også lang nok til at fungere som citat.', kilde: 'DAA 1939, s. 12' }),
+      haendelse('rygrad', { rygrad: true, klausul: 'Denne rygradsklausul er lang nok, men må aldrig blive valgt som citat.' }),
+    ] };
+    const a = buildPortraitAndCitat(m, null, hs);
+    const b = buildPortraitAndCitat(m, null, hs);
+    expect(a.citater).toEqual(b.citater);
+    expect(a.usedCitatHaendelseIds).toEqual(b.usedCitatHaendelseIds);
+    expect(a.citater).toHaveLength(1);
+    const valgt = a.citater[0] as Extract<FeedCard, { kind: 'citat' }>;
+    const valgtId = valgt.quote === hs[id][0].klausul ? 'h1' : 'h2';
+    expect(a.usedCitatHaendelseIds).toEqual(new Set([valgtId]));
+    expect(valgt.quote).not.toBe(hs[id][2].klausul);
+  });
+
+  it('falder tilbage til bio og markerer ingen hændelse når klausulen ikke består længdegaten', () => {
+    const id = citatSlotId();
+    const out = buildPortraitAndCitat(
+      mkModel([person(id, { bio: LONG_BIO })]), null,
+      { [id]: [haendelse('kort', { klausul: 'For kort.' })] },
+    );
+    expect((out.citater[0] as Extract<FeedCard, { kind: 'citat' }>).quote).toBe(LONG_BIO);
+    expect(out.usedCitatHaendelseIds.size).toBe(0);
+  });
+
+  it('lader citat-slot falde ud når hverken klausul eller bio kan citeres', () => {
+    const id = citatSlotId();
+    const out = buildPortraitAndCitat(
+      mkModel([person(id, { bio: 'Kort.' })]), null,
+      { [id]: [haendelse('kort', { klausul: 'For kort.' })] },
+    );
+    expect(out.portraits).toEqual([]);
+    expect(out.citater).toEqual([]);
+    expect(out.usedCitatHaendelseIds.size).toBe(0);
+  });
+
+  it('uden hændelsesargument er output identisk med eksplicit tomt hændelses-map', () => {
+    const m = mkModel(Array.from({ length: 12 }, (_, i) => person('r' + i, { bio: LONG_BIO })));
+    expect(buildPortraitAndCitat(m)).toEqual(buildPortraitAndCitat(m, null, {}));
+  });
+});
+
+describe('buildArkivKort', () => {
+  it('filtrerer rygrad/brugte citater og prioriterer dateRaw → år → null', () => {
+    const m = mkModel([person('p1', { name: 'Navn P1' })]);
+    const hs: HaendelserBy = { p1: [
+      haendelse('h3', { dateRaw: 'ca. 1580', dato: { min: '1580-01-01', max: '1580-12-31', qualifier: 'about' } }),
+      haendelse('h1', { dato: { min: '1602-04-03', max: '1602-04-03', qualifier: 'exact' }, interessant: true }),
+      haendelse('h2'),
+      haendelse('rygrad', { rygrad: true }),
+      haendelse('brugt'),
+    ] };
+    const cards = buildArkivKort(m, hs, new Set(['brugt'])) as Array<Extract<FeedCard, { kind: 'arkiv' }>>;
+    expect(cards.map((c) => c.id)).toEqual(['arkiv:h1', 'arkiv:h2', 'arkiv:h3']);
+    expect(cards.map((c) => c.aarLabel)).toEqual(['1602', null, 'ca. 1580']);
+    expect(cards[0]).toMatchObject({ personId: 'p1', name: 'Navn P1', interessant: true });
+  });
+
+  it('udelader ukendte person-id’er og håndterer tomt map', () => {
+    const m = mkModel([person('kendt')]);
+    expect(buildArkivKort(m, { ukendt: [haendelse('h1')] }, new Set())).toEqual([]);
+    expect(buildArkivKort(m, {}, new Set())).toEqual([]);
   });
 });
 
