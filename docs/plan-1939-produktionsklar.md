@@ -1,7 +1,7 @@
 # Plan: 1939-stamtavlen produktionsklar + dato-hærdning + cutover
 
-**Status:** Aktiv styringsplan. **Oprettet:** 2026-07-17. **Sidst afstemt mod kode:** 2026-07-18
-(v1.3.0-sideprojektion tilføjet siden sidste opdatering; A4-status rettet, se A3c/A4 nedenfor).
+**Status:** Aktiv styringsplan. **Oprettet:** 2026-07-17. **Sidst afstemt mod kode:** 2026-07-19
+(A3b-narrativkvalitet genåbnet og rettet; se A3b og kvalitetsrapporten nedenfor).
 **Formål:** Samle alle udestående tråde (Fase 4-cutover, 1939-load, dato-hærdning, Wave 3-backlog)
 i ét prioriteret overblik, så intet tabes undervejs.
 
@@ -106,9 +106,15 @@ Hybrid: konverter + billig segmenter, INGEN ændring af delt `load_daa.R`.
       gruppe-lokale, 22 distinkte → ville kollidere; original i passthrough). facts via A2; godser/aegteskaber
       mappet. Struktur-facit: 539 poster, 0 nøgle-dubletter, dato-parse 92%, GDPR-flag 7 (født ≥1926 u. død).
       165 python-tests. Åbent: struktureret kryds_ref når ikke DB (bevares i narrative-prosa via A3b).
-- [x] **A3b — Billig narrative-segmenter** ✅ DONE (commit c88f526): `segment_1939.py` — anker-snit 81,6%,
-      gruppe/vindue-fallback (aldrig manuel, aldrig tom), ordret prosa. R1-proxy 92%. Integreret i konverter
-      (narrative flettet pr. _id → alle 539 poster har narrative, NOT NULL opfyldt).
+- [x] **A3b — Deterministisk narrative-segmenter** ✅ KVALITETSRETTET 2026-07-19:
+      den oprindelige godkendelse på anker-rate/R1-proxy overså massiv overinklusion. Den hærdede
+      `segment_1939.py` fjerner 1939-sidehovedet, samler sikre bogstavspredte sekvenser, bruger navn/
+      bognummer/struktur som ekstra ankre og afgrænser grupper på vindue+linje+forældrenote.
+      Facit mod de 539 lokale poster: anker 440→500, vinduesstore narrativer 42→0, maks-længde
+      80.192→4.377, poster i eksakte duplikatklynger 98→25, sidehoved 625→0 forekomster og
+      narrativer med bogstavspredning 486→0. R1-proxy er næsten uændret (684/750→683/750) og
+      dokumenteres nu eksplicit som utilstrækkelig kvalitetsgate. Se
+      `docs/reviews/2026-07-19-1939-narrativ-kvalitet.md` for metode, restbegrænsninger og reload-plan.
 - [x] **A3c — Forældre-graf (fail-closed)** ✅ CODE DONE (v1.2.0): gruppe-for-gruppe nummerering
       (kontinuert nr-blok by construction) + tiered opløsning (Tier1 `_foraelder_id` 17 grupper + Tier2
       `foraeldre_note`-navnematch, ægtefælle-disambiguering). Tier2 kræver nu samme konservativt
@@ -205,6 +211,10 @@ Følger `docs/fase4-runbook.md`.
       (566+355), source 3=DAA 1939/1939, **anon ser 0 staged 1939** (K2-gate), GDPR 77 levende skjult. Ingen DDL
       → sikkerheds-posture uændret. **UDESTÅR (bruger-drevet redaktør-UI, IKKE auto): match-gennemgang
       (samme_som/ikke_samme_som) → `red_publicer_udgave(3)` = gør 1939 offentlig.** 1939 er pt. staged/usynlig.
+      **Narrativ-opfølgning 2026-07-19:** korrigeret lokalt `clean_1939.json` giver 360 links, fordi de rettede
+      startsider flytter gruppen 313-317 til korrekt fælles linje IV og opløser forælder 299. En foreslået
+      narrative-only prod-opdatering skal fortsat lade de loadede 355 links urørte; de fem ekstra links er et
+      separat, eksplicit grafvalg. Se kvalitetsrapporten.
 
 ---
 

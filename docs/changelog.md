@@ -1,5 +1,22 @@
 # Changelog
 
+## 1939-narrativer — deterministisk kvalitetsrettelse (2026-07-19)
+
+1939-segmenteringen er hærdet efter empirisk fund af gruppe-/vinduesduplikering,
+grænse-bleed, kørende sidehoveder og bogstavspredning. `segment_1939.py` bruger nu
+flere kildefaste ankre og bogens egne post-/sektionsmarkører, lokale og eksplicit
+navngivne fallback-metoder samt 1939-specifik tekstrensning; `extract_text.sh`
+filtrerer også 1939-sidehovedet ved fremtidige udtræk. QA-loggen måler nu bl.a.
+duplikatklynger, flerpost-narrativer, sidehoveder, bogstavspredning, fremmede unikke
+datoer og længdehale.
+
+Lokalt facit for 539 poster: vinduesstore narrativer 42→0, maks-længde
+80.192→4.377, eksakt duplikerede poster 98→25, flerpost-narrativer 208→13,
+sidehovedforekomster 625→0 og narrativer med bogstavspredning 486→0. Ingen
+prod-opdatering er udført; rettet staged data kræver separat backup, rehearsal og
+eksplicit godkendt 1939-only opdatering. Se
+`docs/reviews/2026-07-19-1939-narrativ-kvalitet.md`.
+
 ## Levende feed fase 2 — implementeret i kode (2026-07-18)
 
 Fase 2 er gennemført efter `docs/superpowers/plans/2026-07-18-levende-feed-fase2.md`:
