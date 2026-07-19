@@ -27,7 +27,7 @@ i historiske planer og afsluttede reviews.
 |---|---|
 | [`../schema.sql`](../schema.sql) | Source of truth for hele skemaet. |
 | [`../db-migrations.sql`](../db-migrations.sql) | Idempotente additive migrationer oven på en deployet base. |
-| [`../db-rls.sql`](../db-rls.sql) | RLS-lag (anon-tier live; se `database-current-state.md`). |
+| [`../db-rls.sql`](../db-rls.sql) | RLS-lag (anon + almindelig authenticated fail-closed; se `database-current-state.md`). |
 | [`../db-verify.sql`](../db-verify.sql) | Adfærds-verifikation (asserts efter deploy). |
 
 ## 🔧 Data-pipelines
@@ -43,7 +43,7 @@ i historiske planer og afsluttede reviews.
 
 | Dokument | Hvad |
 |---|---|
-| [`plan-1939-produktionsklar.md`](plan-1939-produktionsklar.md) | **🔴 Aktiv styringsplan:** 1939-load + dato-hærdning + Fase 4-cutover. Prioriteret efter prod-gate (Spor A ubblokeret nu · Spor B gated · Konvergens). |
+| [`plan-1939-produktionsklar.md`](plan-1939-produktionsklar.md) | Historik og tidligere styringsplan for cutover/1939-load. **1939-publicering er pauset**, indtil PDF'en er OCR-udtrukket igen og artefakt-/komplethedsgaten er gentaget; aktuel prod-status står i `database-current-state.md`. |
 | [`moed-en-slaegtning-roadmap.md`](moed-en-slaegtning-roadmap.md) | Telefon-til-telefon slægtskab ved fysisk møde (QR → BLE → UWB). |
 | [`flere-daa-udgaver-roadmap.md`](flere-daa-udgaver-roadmap.md) | Præsenslister over tid, modstridende relationer mellem udgaver, tværudgave-personidentifikation. |
 
@@ -51,7 +51,7 @@ i historiske planer og afsluttede reviews.
 
 | Dokument | Hvad |
 |---|---|
-| [`design/2026-07-19-mediehaandtering-robust-koncept.md`](design/2026-07-19-mediehaandtering-robust-koncept.md) | **Robust mediehåndtering** (koncept, ingen kode): Wikimedia-inspireret medieforvaltning for redaktionen — filside pr. medie, mediebibliotek med arbejdskøer, livscyklus (genopret/udrens), rettigheds-workflow-UI, erstat-fil, dedup-aktivering. 11 mangler (M1–M11), 4 faser; bygger videre på medieplanen 2026-07-04 (Slice 0–5). |
+| [`design/2026-07-19-mediehaandtering-robust-koncept.md`](design/2026-07-19-mediehaandtering-robust-koncept.md) | **Robust mediehåndtering:** fase 1–2 er implementeret og lokalt/CI-verificeret, men ikke prod-deployeret; fase 3–5 dækker hygiejne/dedup, identitet/udrensning og dokumenttransskription. |
 | [`design/2026-07-18-levende-feed-koncept.md`](design/2026-07-18-levende-feed-koncept.md) | **Det levende feed:** dynamik (seeded sampling), ægte uendelig scroll, hændelses-skelet + minihistorier (formidlingslag), redaktionel kuratering, LLM-assist. 4 faser; afløser feed v3-spec'ens statiske model. **Fase 1–3 er implementeret og lokalt verificeret** ✅. Fase 2/3's Supabase-/prod-trin er fortsat gatede. |
 | [`superpowers/specs/2026-07-19-levende-feed-fase3-design.md`](superpowers/specs/2026-07-19-levende-feed-fase3-design.md) | **Fase 3-spec:** minihistorier, `story_kilde`, feed-pins, redaktionel styring og web-startpersoner. Implementeret efter [fase 3-planen](superpowers/plans/2026-07-19-levende-feed-fase3.md); automatisk og lokal PostgreSQL-verifikation er grøn, mens rigtig Supabase/PostgREST og prod-migration fortsat er deploy-gates. |
 | [`design/2026-07-18-formidlingskatalog.md`](design/2026-07-18-formidlingskatalog.md) | **Idékatalog** (ikke besluttet): 19 formidlingsidéer oven på kildematerialet — evidens-formidling, serier/udstillinger, kort/sted, personalisering, objekter, distribution, leg. Med grundlag/afhængigheder/indsats pr. idé + prioriteringsbillede. |

@@ -1,5 +1,25 @@
 # Changelog
 
+## Operatørguide afstemt mod read-only prod-facit (2026-07-20)
+
+`docs/database-current-state.md` er omskrevet fra det forældede 1. juli-snapshot til
+en aktuel skelnen mellem repo, app og prod. Read-only katalog-/aggregatqueries mod
+prod `xjnvdhajfyrcytatnzos` bekræftede: 1.758 personer, 835 staged, 77 levende;
+`anon` og almindelig `authenticated` ser begge 853 personer og 0 levende/staged;
+921 forældrefamilie-facts; 22 versionerede tabeller; 6 media-rækker (2 klare, 4
+fjernede); samt at `_delete_relation_evidence` ikke er API-eksekverbar for anon/auth.
+
+Problem 2/A1/K2 og media Slice 0 er live. Levende feed fase 2/3-tabellerne
+(`haendelse`, `story`, `story_kilde`, `feed_pin`) og mediefase 1-RPC'erne
+(`red_opdater_media`, `red_genopret_media`) findes ikke i prod. Mediefase 1–2 er
+derfor fortsat kodeklar, ikke live.
+
+1939-source 3 forbliver staged og usynlig. Gældende beslutning er **ingen
+publicering** før nyt OCR-udtræk og gentaget artefakt-/komplethedsgate. Den ældre
+1939-plan er bevaret som fasehistorik, ikke som aktuel publiceringsordre. README og
+mediekonceptets statuslinje er afstemt tilsvarende. Ingen prod-skrivning eller
+schemaændring blev udført i denne dokumentationsrunde.
+
 ## Mediehåndtering fase 2 — biblioteket implementeret lokalt (2026-07-19)
 
 Web og mobil har nu et samlet mediebibliotek med søgning, køerne Rettigheder/Løse/
