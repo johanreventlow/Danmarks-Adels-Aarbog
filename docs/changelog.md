@@ -1,5 +1,18 @@
 # Changelog
 
+## Mediehåndtering fase 1 — implementeringsplan (2026-07-19)
+
+Plan skrevet (ingen kode): `docs/superpowers/plans/2026-07-19-mediehaandtering-fase1-filside.md`
+— 9 tasks med TDD-tjekbokse oven på fase 1-spec'en. Ikke-oplagte valg: RPC-asserts
+lægges i `db-verify.sql` efter det ETABLEREDE impersonerings-mønster (Task 5/5b:
+`request.jwt.claim.sub` + profiles-seed + ROLLBACK_TEST_OK) — ikke i
+`db-verify-media.sql`, hvis kontrakt er RLS-only uden redaktør-kontekst (den får kun
+en anon-gating-assert for fjern→genopret-cyklussen via direkte UPDATE). Migrationens
+DROP af gamle `red_upload_media` skal afskrives eksplicit fra git-historikken
+(14-parameter-signaturen). Task 5/6 (læse-lag viser `'fjernet'`) og Task 7/8 (UI-
+filtrene) er markeret som sammenhørende — mellemtilstanden kan vise fjernede thumbs.
+Prod-deploy er eksplicit UDEN FOR planen (controller-gated runbook-trin i Task 9).
+
 ## Mediehåndtering fase 1 — design-spec for filsiden (2026-07-19)
 
 Spec skrevet (ingen kode): `docs/superpowers/specs/2026-07-19-mediehaandtering-fase1-filside-design.md`
