@@ -27,6 +27,21 @@ function visning(p?: RedMatchPerson): string {
   return `${p.navn}${span}`;
 }
 
+// Menneskevenlig næste-skridt pr. karantæne-grund (collapseSameAs.ts's groupSameAs/validateGroups
+// producerer de rå, tekniske grund-strenge nedenfor — matchet på deres faste præfiks, uanset den
+// dynamiske del efter parentesen). Ren UI-tekst, ingen domænelogik — derfor her, ikke i @daa/core.
+function foldAdvice(grund: string): string | null {
+  if (grund.startsWith('konkurrerende forældre')) return 'Match forældrene i de to udgaver, så foldes denne automatisk.';
+  if (grund.startsWith('kendt-forskelligt køn')) return 'Tjek køns-angivelsen i de to udgaver — en fejlregistrering forhindrer foldning.';
+  if (grund.startsWith('ikke-overlappende levetider') || grund.startsWith('fødsler for langt fra hinanden'))
+    return 'Tjek fødsels-/dødsår i de to udgaver — datoerne passer ikke sammen som samme person.';
+  if (grund.startsWith('ingen unik sink')) return 'Der findes modstridende samme_som-links for denne person — ret retningen (fjern og genopret).';
+  if (grund.startsWith('ufuldstændig komponent')) return 'En del af gruppen er ikke synlig i det hentede datasæt — prøv at genindlæse.';
+  if (grund.startsWith('selv-forælder') || grund.startsWith('selv-ægtefælle') || grund.startsWith('cyklus'))
+    return 'Linket skaber en modstridende slægtskabs-kæde — gennemgå forældre/ægtefælle for de involverede personer.';
+  return null;
+}
+
 export function SammenlignUdgaver({ role }: { role?: string }) {
   const [sources, setSources] = useState<SourceRow[]>([]);
   const [personer, setPersoner] = useState<RedMatchPerson[]>([]);
@@ -169,9 +184,15 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
             {foldPreview.quarantined.length} bekræftet link{foldPreview.quarantined.length === 1 ? '' : 's'} folder endnu ikke offentligt
           </summary>
           <ul style={{ fontSize: '.85em', marginTop: '.4rem', marginBottom: 0 }}>
-            {foldPreview.quarantined.map((q, i) => (
-              <li key={i}>{q.members.map((id) => visning(byId.get(id))).join(' = ')} — <em>{q.reason}</em></li>
-            ))}
+            {foldPreview.quarantined.map((q, i) => {
+              const advice = foldAdvice(q.reason);
+              return (
+                <li key={i}>
+                  {q.members.map((id) => visning(byId.get(id))).join(' = ')} — <em>{q.reason}</em>
+                  {advice && <div style={{ color: '#6f675b' }}>{advice}</div>}
+                </li>
+              );
+            })}
           </ul>
         </details>
       )}
@@ -202,11 +223,13 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
                   </div>
                   {(() => {
                     const hint = foldHint(person.aId, String(k.bId), k.linket);
+                    const advice = hint.grund ? foldAdvice(hint.grund) : null;
                     return (
                       <div style={{ fontSize: '.8em', marginTop: '.25rem', color: hint.folder ? '#3d7a3d' : '#881A33' }}>
                         {k.linket
                           ? (hint.folder ? '✓ foldes offentligt til én person' : `✓ bekræftet — foldes IKKE endnu offentligt: ${hint.grund}`)
                           : (hint.folder ? '→ vil folde offentligt til én person' : `→ vil IKKE folde: ${hint.grund}`)}
+                        {!hint.folder && advice && <div style={{ color: '#6f675b', marginTop: '.15rem' }}>{advice}</div>}
                       </div>
                     );
                   })()}
