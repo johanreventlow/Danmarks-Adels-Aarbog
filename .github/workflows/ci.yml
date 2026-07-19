@@ -136,6 +136,7 @@ jobs:
           data = open('/tmp/media.zb64', encoding='utf-8').read().strip()
           open('/tmp/implement_media_phase1.py', 'wb').write(zlib.decompress(base64.b64decode(data)))
           PY
+          sed -i 's/append_once("CHANGELOG.md"/append_once("docs\/changelog.md"/' /tmp/implement_media_phase1.py
           python -m py_compile /tmp/implement_media_phase1.py
 
       - name: Implementér planen
