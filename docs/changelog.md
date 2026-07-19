@@ -143,10 +143,11 @@ databaseassert blev først kørt rød mod den uhærdede funktion og derefter gr�
 clean-slate- og migrationsstien. Web-feedstyringen genbruger nu de eksisterende theme tokens
 i stedet for at indføre lokale farve- og fontkopier.
 
-**Verificeret automatisk/lokalt:** `@daa/feed` 107/107 tests + typecheck, `@daa/core`
-264/264 tests, mobil 221/221 tests + typecheck og web 231/231 tests + produktions-build.
-Alle nye tests ligger i de eksisterende `feed`, `web` og `mobile`-jobs i
-`.github/workflows/ci.yml`; der er ikke tilføjet fase 3-jobs, og R-jobbet er urørt.
+**Verificeret automatisk/lokalt og i CI:** `@daa/feed` 107/107 tests + typecheck,
+`@daa/core` 264/264 tests, mobil 224/224 tests + typecheck og web 235/235 tests +
+produktions-build. Alle nye tests ligger i de eksisterende `feed`, `web` og `mobile`-jobs i
+`.github/workflows/ci.yml`; der er ikke tilføjet fase 3-jobs, og R-jobbet er urørt. CI-kørsel
+`29705889967` på commit `4b9a1d2` er grøn for feed, core, mobil, web, R og pipeline.
 
 **Verificeret i lokal PostgreSQL:** både frisk `schema.sql` og migrationsstien fra fase 2
 (`db-migrations.sql` kørt to gange, derefter `db-rls.sql`) er kørt. Den afgrænsede fase
@@ -155,7 +156,15 @@ Alle nye tests ligger i de eksisterende `feed`, `web` og `mobile`-jobs i
 kontrol af migrationsdatabasen bekræftede de tre tabeller, RLS/policies, story-RPC'erne og
 `trg_log_story`/`trg_log_feed_pin`. Det komplette historiske `db-verify.sql` stopper fortsat
 tidligere på en ældre fixture-afhængig cache-test i den tomme lokale base; fase 3-blokken er
-kørt selvstændigt.
+kørt selvstændigt. Task 13-gaten blev gentaget 2026-07-20 mod den verificerede prod-backup:
+3 tabeller, 7 RPC'er, 8 policies, 2 versioneringstriggers, RLS på alle tre og 0 ugyldige
+constraints; anon kunne kalde 0/7 RPC'er, mens authenticated kunne kalde 7/7.
+
+**Rollback-beredskab:** Den separate `db-rollback-fase3.sql` er lokalt rehearsed. Den kører i
+én transaktion og afbryder ved fase 3-data eller -historik, så den kun kan fjerne det tomme
+additive lag efter en fuld backup. Task 13-gaten kørte rollbacken to gange og bekræftede
+idempotens, 0 resterende fase 3-objekter og bevaret fase 2-`haendelse`; det er ikke en
+prod-migrering eller et prod-bevis.
 
 **Manuel UI-status og resterende deploy-gates:** Et lokalt browser-smoke dækkede kort-views,
 editor-/feedstyringsflader og staging-preview, men Task 8/10/11's komplette LIVE-forløb
