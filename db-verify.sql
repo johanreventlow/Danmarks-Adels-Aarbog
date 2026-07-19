@@ -1717,7 +1717,7 @@ END $$;
 
 -- ===== Mediehåndtering fase 1: metadata, genopret, upload-signatur og undo =====
 DO $$
-DECLARE v_id bigint; v_upload bigint; v_cs bigint;
+DECLARE v_id bigint; v_upload bigint; v_cs bigint; v_cs_foer int; v_cs_efter int;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
@@ -1728,11 +1728,30 @@ BEGIN
   INSERT INTO media(id,slags,titel,kunstner,datering,upload_status,maa_publiceres)
     VALUES (v_id,'foto','Gammel titel','Gammel kunstner','1699','klar',false);
 
+  SELECT count(*) INTO v_cs_foer FROM change_set;
   PERFORM red_opdater_media(v_id, 'Ny titel', NULL, '', 'ca. 1700');
   IF NOT EXISTS (SELECT 1 FROM media WHERE id=v_id AND titel='Ny titel' AND slags='foto'
                  AND kunstner IS NULL AND datering='ca. 1700') THEN
     RAISE EXCEPTION 'FEJL: red_opdater_media overholdt ikke NULL/tom-streng-kontrakten';
   END IF;
+  SELECT count(*) INTO v_cs_efter FROM change_set;
+  IF v_cs_efter <> v_cs_foer + 1 THEN
+    RAISE EXCEPTION 'FEJL: red_opdater_media oprettede % change_set (vent 1)', v_cs_efter-v_cs_foer;
+  END IF;
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_opdater_media(v_id, NULL, '', NULL, NULL);
+    RAISE EXCEPTION 'FEJL: tom slags blev accepteret';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Slags kan ikke ryddes%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_opdater_media(-999999999, 'Ukendt', NULL, NULL, NULL);
+    RAISE EXCEPTION 'FEJL: ukendt media-id blev accepteret';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Media % findes ikke%' THEN RAISE; END IF;
+  END;
   SELECT max(id) INTO v_cs FROM change_set;
   PERFORM set_config('app.change_set_id','',true);
   PERFORM red_fortryd_change_set(v_cs, false);

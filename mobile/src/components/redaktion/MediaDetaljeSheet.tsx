@@ -32,6 +32,7 @@ export function MediaDetaljeSheet({ media, uri, onClose, onGemMetadata, onGemRet
   if (meta.slags !== media.slags) metadataPayload.slags = meta.slags;
   if (meta.kunstner !== (media.kunstner ?? '')) metadataPayload.kunstner = meta.kunstner.trim();
   if (meta.datering !== (media.datering ?? '')) metadataPayload.datering = meta.datering.trim();
+  const mediaSlags = Array.from(new Set<string>([...MEDIA_SLAGS, meta.slags].filter(Boolean)));
   const warning = ret.maaPubliceres && (ret.status === 'spaerret' || ret.status === 'begraenset');
   const filinfo = [media.mimeType, media.bredde && media.hoejde ? `${media.bredde}×${media.hoejde}` : null,
     media.byteSize != null ? `${Math.round(media.byteSize / 1024)} KB` : null, media.originalFilnavn].filter(Boolean).join(' · ');
@@ -53,7 +54,7 @@ export function MediaDetaljeSheet({ media, uri, onClose, onGemMetadata, onGemRet
           <Mono size={8.5} color={Colors.textMuted2} style={{ marginTop: 5 }}>{media.uploadStatus} · {filinfo || 'ingen filmetadata'}</Mono>
 
           <Mono size={9} color={Colors.gold} style={styles.heading}>METADATA</Mono>
-          <View style={styles.chips}>{MEDIA_SLAGS.map((s) => (
+          <View style={styles.chips}>{mediaSlags.map((s) => (
             <Pressable key={s} style={[styles.chip, meta.slags === s && styles.chipAktiv]} onPress={() => setMeta((m) => ({ ...m, slags: s }))}>
               <BtnLabel size={10.5} color={meta.slags === s ? '#fff' : Colors.textSecondary2}>{s}</BtnLabel>
             </Pressable>

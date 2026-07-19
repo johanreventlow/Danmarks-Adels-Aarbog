@@ -858,11 +858,19 @@ export default function Redaktion() {
                 <div key={m.id} style={{ width: 96 }}>
                   {m.url ? (
                     <img src={m.thumbUrl ?? m.url} alt={m.titel ?? m.slags}
-                      onClick={() => setMediaDetalje({ id: m.id, subjektType, subjektId })}
-                      style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 10, background: T.beige, cursor: 'pointer', opacity: m.uploadStatus === 'fjernet' ? .45 : 1 }} />
+                      onClick={() => {
+                        if (mayUpload) setMediaDetalje({ id: m.id, subjektType, subjektId });
+                        else {
+                          const i = mediaMedLightbox.findIndex((x) => x.id === m.id);
+                          if (i >= 0) setMediaLightbox(i);
+                        }
+                      }}
+                      style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 10, background: T.beige,
+                        cursor: mayUpload ? 'pointer' : 'zoom-in', opacity: m.uploadStatus === 'fjernet' ? .45 : 1 }} />
                   ) : (
-                    <div onClick={() => setMediaDetalje({ id: m.id, subjektType, subjektId })}
-                      style={{ width: 96, height: 96, borderRadius: 10, background: T.beige, cursor: 'pointer', opacity: m.uploadStatus === 'fjernet' ? .45 : 1 }} />
+                    <div onClick={() => { if (mayUpload) setMediaDetalje({ id: m.id, subjektType, subjektId }); }}
+                      style={{ width: 96, height: 96, borderRadius: 10, background: T.beige,
+                        cursor: mayUpload ? 'pointer' : 'default', opacity: m.uploadStatus === 'fjernet' ? .45 : 1 }} />
                   )}
                   <div style={{ fontFamily: T.mono, fontSize: 8, color: T.muted2, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {m.slags}{m.uploadStatus !== 'klar' ? ` · ${m.uploadStatus}` : ''}{m.maaPubliceres ? '' : ' · ej publiceret'}
@@ -975,7 +983,7 @@ export default function Redaktion() {
 
 
   function renderMediaDetalje() {
-    if (!mediaDetalje) return null;
+    if (!mediaDetalje || role !== 'redaktion') return null;
     const m = media.find((x) => x.id === mediaDetalje.id);
     if (!m) return null;
     const lightboxItems = withUrl(media.filter((x) => x.uploadStatus === 'klar'));

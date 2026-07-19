@@ -33,6 +33,7 @@ export function MediaDetaljeOverlay({ media, onClose, onPreview, onGemMetadata, 
   if (meta.slags !== media.slags) metadataPayload.slags = meta.slags;
   if (meta.kunstner !== (media.kunstner ?? '')) metadataPayload.kunstner = meta.kunstner.trim();
   if (meta.datering !== (media.datering ?? '')) metadataPayload.datering = meta.datering.trim();
+  const mediaSlags = Array.from(new Set<string>([...MEDIA_SLAGS, meta.slags].filter(Boolean)));
   const warning = ret.maaPubliceres && (ret.status === 'spaerret' || ret.status === 'begraenset');
   const statusLine = [media.slags, media.uploadStatus,
     media.bredde && media.hoejde ? `${media.bredde}×${media.hoejde}` : null,
@@ -56,7 +57,7 @@ export function MediaDetaljeOverlay({ media, onClose, onPreview, onGemMetadata, 
           <div style={{ fontWeight: 700, fontSize: 13 }}>Metadata</div>
           <div style={label}>Slags</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {MEDIA_SLAGS.map((s) => <button type="button" key={s} onClick={() => setMeta((m) => ({ ...m, slags: s }))}
+            {mediaSlags.map((s) => <button type="button" key={s} onClick={() => setMeta((m) => ({ ...m, slags: s }))}
               style={{ border: 0, borderRadius: 6, padding: '5px 9px', cursor: 'pointer', background: meta.slags === s ? C.bordeaux : C.beige, color: meta.slags === s ? '#fff' : C.muted }}>{s}</button>)}
           </div>
           <div style={label}>Titel</div><input value={meta.titel} onChange={(e) => setMeta((m) => ({ ...m, titel: e.target.value }))} style={input} />
