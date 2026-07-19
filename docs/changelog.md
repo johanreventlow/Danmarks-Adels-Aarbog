@@ -1,5 +1,18 @@
 # Changelog
 
+## Mediehåndtering — koncept for robust medieforvaltning (2026-07-19)
+
+Nyt konceptdokument `docs/design/2026-07-19-mediehaandtering-robust-koncept.md`
+(ingen kode): analyse af redaktørens nuværende medie-muligheder (empirisk kortlægning
+af web+mobile+DB) og et Wikimedia-inspireret målbillede — filside pr. medie,
+mediebibliotek med arbejdskøer, komplet livscyklus (genopret/udrens), rettigheds-
+workflow-UI oven på det eksisterende `red_set_media_rettigheder`, erstat-fil med
+stabil identitet, samt aktivering af den i praksis inaktive sha256-dedup (klienten
+hasher aldrig — DB-guarden fødes ikke). 11 konkrete mangler (M1–M11) prioriteret,
+4 faser, ingen nye tabeller — kun 4–5 nye `red_*`-RPC'er efter etableret konvention.
+Lukker de kendte udeståender "løse billeder"-oversigt + rettigheds-UI (Slice 0h-
+changelog) som del af én sammenhængende plan i stedet for spredte features.
+
 ## 1939-narrativer — deterministisk kvalitetsrettelse (2026-07-19)
 
 1939-segmenteringen er hærdet efter empirisk fund af gruppe-/vinduesduplikering,
