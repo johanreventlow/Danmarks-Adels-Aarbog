@@ -170,6 +170,12 @@ findes allerede):
   status-badges (`uploadStatus`≠klar, "ej publiceret"), `antalAfbildet + antalMentions`
   som diskret "bruges 3 steder"-tekst. Eksisterende søgefelt filtrerer på
   titel/kunstner/original_filnavn.
+- **Format-defensiv rendering (koncept §4.8, tilføjet 2026-07-19):** biblioteket og
+  filsiden må ikke ANTAGE billede-mime. Et medie uden brugbar thumb — eller med
+  `mime_type` uden for `image/*` (fremtidige PDF'er/dokumenter, koncept-fase 5) —
+  renderes med et dokument-ikon-felt (samme dimensioner som thumb, `slags`-tekst i
+  feltet) i stedet for tom/knækket thumbnail, og udelades af Lightbox. Gælder også
+  mobile (§7). Ingen scope-udvidelse — kun en fallback-gren i thumb-renderingen.
 - **Klik på række** → `MediaDetaljeOverlay` (samme instans som fase 1; biblioteket sender
   `media` uden `relationId` → "Fjern tilknytning" er allerede disabled by design).
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## Mediehåndtering — dokumenter/transskription besluttet som fase 5 (2026-07-19)
+
+Bruger-rejst behov (PDF/indscannede kilder + rå tekst-version af fx artikler; teoretisk
+lyd/video) er designafklaret og skrevet ind: koncept-§4.8 + fasetabel-fase 5,
+beslutningsnotat i `docs/decisions.md`. Kerne: samme media-system (tabellen er allerede
+format-agnostisk; kun klient-laget er billede-specifikt), transskription som
+narrativ-på-media (polymorf `narrative`, fts-søgbar — kræver egen GDPR-designrunde),
+lyd/video kun som åben dør. Eneste fase 2-konsekvens indskrevet i spec-§6.1: defensiv
+thumb-rendering (ikke-billede-mime → dokument-ikon, udeladt af Lightbox) — additiv
+regel, ingen scope-udvidelse.
+
 ## Mediehåndtering fase 2 — design-spec for biblioteket (2026-07-19)
 
 Spec skrevet (ingen kode), efter fase 1 er merget til main (PR #59):
