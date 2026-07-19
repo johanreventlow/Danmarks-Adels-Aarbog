@@ -3,11 +3,13 @@
 // kuraterede startpersoner (så en førstegangsbruger har et meningsfuldt sted at begynde) +
 // et roligt "Nyt i arkivet". Port af Reventlow-web-v4.dc.html's isHome-blok, drevet af ægte
 // data. Ingen fabrikerede opdaterings-datoer (der findes ingen timestamp-metadata; brief §8.4).
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { T } from '../theme';
 import { PersonCard, SearchIcon, Crest } from './primitives';
-import { curatedFounders, pickMaanedensGods } from '../data/home';
+import { forsideStartpersoner, pickMaanedensGods } from '../data/home';
 import { FeedStreamView } from './feed/FeedStreamView';
+import { fetchFeedPins } from '../data/feedPins';
+import type { FeedPinInput } from '@daa/feed';
 import type { Model } from '../data/types';
 import type { ArmsItem, EstateItem } from '../data/public';
 
@@ -48,8 +50,15 @@ export function HomeView({
   onOpenArms: () => void;
   onOpenSlaegt: (aId: string, bId: string) => void;
 }) {
-  const curated = useMemo(() => (model ? curatedFounders(model, 4) : []), [model]);
+  // Ét delt pin-load for feed-strømmen og forsidens startpersoner (Task 12).
+  const [feedPins, setFeedPins] = useState<FeedPinInput[]>([]);
+  const curated = useMemo(() => (model ? forsideStartpersoner(model, feedPins, 4) : []), [model, feedPins]);
   const gods = useMemo(() => pickMaanedensGods(estates), [estates]);
+  useEffect(() => {
+    let alive = true;
+    void fetchFeedPins().then((pins) => { if (alive) setFeedPins(pins); });
+    return () => { alive = false; };
+  }, []);
   if (!model) return <div style={{ padding: 40, fontFamily: T.sans, color: T.muted3 }}>Henter slægten…</div>;
 
   return (
@@ -108,6 +117,7 @@ export function HomeView({
           arms={arms}
           meId={meId}
           focusId={focusId}
+          feedPins={feedPins}
           bookmarkedIds={bookmarkedIds}
           bookmarksReady={bookmarksReady}
           bookmarkHydrationVersion={bookmarkHydrationVersion}

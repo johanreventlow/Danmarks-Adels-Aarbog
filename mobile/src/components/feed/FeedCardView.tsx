@@ -100,6 +100,33 @@ function FeedCardViewImpl({ card, onOpen, onSave, bookmarked }: Props) {
         </View>
       );
 
+    case 'historie':
+      return (
+        <View style={cardBase15}>
+          <CardHeaderRow kicker={card.kicker} kickerColor={Colors.gold} pid={pid} bookmarked={bookmarked} onSave={onSave} />
+          <Pressable onPress={() => onOpen(card)}>
+            {(card.aarLabel || card.kategori || card.nyPubliceret) ? (
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 9, alignItems: 'center', flexWrap: 'wrap' }}>
+                {card.aarLabel ? <Mono size={9.5} color={Colors.bordeaux}>{card.aarLabel}</Mono> : null}
+                {card.kategori ? <Mono size={8.5} color={Colors.textMuted2}>{card.kategori}</Mono> : null}
+                {card.nyPubliceret ? <Mono size={8.5} color={Colors.gold}>Nyt i arkivet</Mono> : null}
+              </View>
+            ) : null}
+            {card.titel ? (
+              <Serif size={22} style={{ marginTop: 8, lineHeight: 25, fontFamily: Fonts.serifSemi }}>
+                {card.titel}
+              </Serif>
+            ) : null}
+            <Body size={13.5} color={Colors.ink} style={{ marginTop: 8, lineHeight: 21 }}>
+              {card.tekst}
+            </Body>
+            {card.kilde ? (
+              <Body size={10.5} color={Colors.textMuted2} style={{ marginTop: 12 }}>efter {card.kilde}</Body>
+            ) : null}
+          </Pressable>
+        </View>
+      );
+
     case 'gods':
       return (
         <Pressable onPress={() => onOpen(card)} style={cardBase15}>

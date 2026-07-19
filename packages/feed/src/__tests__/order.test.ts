@@ -2,8 +2,11 @@ import { buildModel } from '@daa/core';
 import { describe, expect, it } from 'vitest';
 import { chooseNext, weightedDrawIndex, buildFeedOrder } from '../order';
 import { stableHash } from '../prng';
+import { createFeedStream } from '../stream';
 import { pickDagensPerson } from '../temporal';
-import type { FeedAux, FeedCard, FeedInputs, HaendelseItem, HaendelserBy, Model } from '../types';
+import type {
+  FeedAux, FeedCard, FeedInputs, HaendelseItem, HaendelserBy, Model, StorieBy, StoryItem,
+} from '../types';
 
 function person(id: string, over: Partial<{
   name: string; born: number | null; died: number | null; years: string;
@@ -31,6 +34,14 @@ function haendelse(id: string, over: Partial<HaendelseItem> = {}): HaendelseItem
     id, klausul: 'En tilstrækkelig lang klausul om personens historiske liv og virke.',
     kategori: null, dato: { min: null, max: null, qualifier: null }, dateRaw: null,
     interessant: false, rygrad: false, kilde: null, ...over,
+  };
+}
+
+function storie(id: string, over: Partial<StoryItem> = {}): StoryItem {
+  return {
+    id, titel: null, tekst: 'En kort redaktionel minihistorie om personens liv og virke.',
+    dato: { min: null, max: null, qualifier: null }, dateRaw: null,
+    haendelseId: null, publiceretDato: null, kilde: null, ...over,
   };
 }
 
@@ -345,6 +356,106 @@ describe('buildFeedOrder — vægt-effekt', () => {
       return sum + cards.findIndex((c) => c.id === targetId);
     }, 0) / seeds.length;
     expect(meanIndex(boosted)).toBeLessThan(meanIndex(plain));
+  });
+});
+
+// --- fase 3: regressions-invariant + pins/skjul -------------------------------
+describe('buildFeedOrder — fase 3', () => {
+  it('uden stories og pins er ordningen dybt identisk med fase 2', () => {
+    const model = rigModel(40);
+    const aux = rigAux(12);
+    for (let seed = 0; seed < 50; seed++) {
+      const fase2 = buildFeedOrder(model, aux, baseInputs({ seed }));
+      expect(buildFeedOrder(model, aux, baseInputs({ seed, storieBy: {}, pins: [] }))).toEqual(fase2);
+    }
+    const hs: HaendelserBy = Object.fromEntries(
+      Array.from({ length: 20 }, (_, i) => ['p' + i, [haendelse('h' + i)]]),
+    );
+    const fase2 = buildFeedOrder(model, aux, baseInputs({ seed: 7, haendelserBy: hs }));
+    expect(buildFeedOrder(model, aux, baseInputs({
+      seed: 7, haendelserBy: hs, storieBy: {}, pins: [],
+    }))).toEqual(fase2);
+  });
+
+  it('pin-blok står først og bevarer input-orden', () => {
+    const model = rigModel(20);
+    const pins = [
+      { kortNoegle: 'portrait:p2', handling: 'pin' as const },
+      { kortNoegle: 'portrait:p1', handling: 'pin' as const },
+    ];
+    for (const seed of [1, 2, 3]) {
+      const cards = buildFeedOrder(model, EMPTY_AUX, baseInputs({ seed, pins }));
+      expect(cards[0].id).toBe('portrait:p2');
+      expect(cards[1].id).toBe('portrait:p1');
+    }
+  });
+
+  it('forskubber dagensperson-låsen med pin-blokkens længde', () => {
+    const model = mkModel(Array.from({ length: 15 }, (_, i) => person('p' + i, { bio: LONG_BIO })));
+    const pins = [
+      { kortNoegle: 'portrait:p1', handling: 'pin' as const },
+      { kortNoegle: 'portrait:p2', handling: 'pin' as const },
+    ];
+    const cards = buildFeedOrder(model, EMPTY_AUX, baseInputs({ seed: 5, pins }));
+    const index = cards.findIndex((card) => card.kind === 'dagensperson');
+    expect(index).toBeGreaterThanOrEqual(2);
+    expect(index).toBeLessThanOrEqual(4);
+  });
+
+  it('pin vinder over seenWeights=0, mens skjul fjerner kortet', () => {
+    const model = mkModel([person('a', { bio: LONG_BIO }), person('b', { bio: LONG_BIO })]);
+    const pinned = buildFeedOrder(model, EMPTY_AUX, baseInputs({
+      seenWeights: { 'citat:a': 0 },
+      pins: [{ kortNoegle: 'citat:a', handling: 'pin' }],
+    }));
+    expect(pinned[0]?.id).toBe('citat:a');
+    const hidden = buildFeedOrder(model, EMPTY_AUX, baseInputs({
+      pins: [{ kortNoegle: 'citat:a', handling: 'skjul' }],
+    }));
+    expect(hidden.some((card) => card.id === 'citat:a')).toBe(false);
+  });
+
+  it('dinglende kurering er ufarlig', () => {
+    const model = rigModel(20);
+    const without = buildFeedOrder(model, EMPTY_AUX, baseInputs({ seed: 3 }));
+    const withDangling = buildFeedOrder(model, EMPTY_AUX, baseInputs({ seed: 3, pins: [
+      { kortNoegle: 'story:404', handling: 'pin' },
+      { kortNoegle: 'arkiv:404', handling: 'skjul' },
+    ] }));
+    expect(withDangling).toEqual(without);
+  });
+
+  it('korrupt pin+skjul på samme nøgle degraderer til skjul', () => {
+    const model = mkModel([person('a', { bio: LONG_BIO }), person('b', { bio: LONG_BIO })]);
+    const cards = buildFeedOrder(model, EMPTY_AUX, baseInputs({ pins: [
+      { kortNoegle: 'portrait:a', handling: 'skjul' },
+      { kortNoegle: 'portrait:a', handling: 'pin' },
+    ] }));
+    expect(cards.some((card) => card.id === 'portrait:a')).toBe(false);
+  });
+
+  it('historie-kort deduplikerer ankeret end-to-end', () => {
+    const persons = Array.from({ length: 24 }, (_, i) => person('p' + i, { bio: LONG_BIO }));
+    const model = mkModel(persons);
+    const hs: HaendelserBy = Object.fromEntries(persons.map((p, i) => [p.id, [haendelse('h' + i)]]));
+    const target = persons[5];
+    const sb: StorieBy = { [target.id]: [storie('s1', { haendelseId: hs[target.id][0].id })] };
+    for (let seed = 1; seed <= 10; seed++) {
+      const cards = buildFeedOrder(model, EMPTY_AUX, baseInputs({ seed, haendelserBy: hs, storieBy: sb }));
+      expect(cards.some((card) => card.id === 'story:s1')).toBe(true);
+      expect(cards.some((card) => card.id === 'arkiv:' + hs[target.id][0].id)).toBe(false);
+      expect(cards.some((card) => card.kind === 'citat' && card.personId === target.id
+        && card.quote === hs[target.id][0].klausul)).toBe(false);
+    }
+  });
+
+  it('er deterministisk og leverer pin-blokken i første stream-side', () => {
+    const model = rigModel(20);
+    const inputs = baseInputs({ seed: 4,
+      storieBy: { p1: [storie('s1')] },
+      pins: [{ kortNoegle: 'story:s1', handling: 'pin' }] });
+    expect(buildFeedOrder(model, EMPTY_AUX, inputs)).toEqual(buildFeedOrder(model, EMPTY_AUX, inputs));
+    expect(createFeedStream(model, EMPTY_AUX, inputs).next(12)[0].id).toBe('story:s1');
   });
 });
 

@@ -6,18 +6,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { navigate, usePath } from './router';
 import { SammenlignUdgaver } from './components/SammenlignUdgaver';
+import { FeedStyring } from './components/FeedStyring';
 import { signIn, signOut, currentSession, type RedSession } from './data/auth';
 import {
-  buildTidslinje, fetchHaendelserForPerson, fetchRedaktionPersoner, fetchPersonEvidence, fetchNarrativer, fetchSources, fetchLineages, fetchSletPreview,
+  buildTidslinje, fetchHaendelserForPerson, fetchStoriesForPerson, storyPrefillFraPost, fetchRedaktionPersoner, fetchPersonEvidence, fetchNarrativer, fetchSources, fetchLineages, fetchSletPreview,
   fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, fetchSammeSomLinks, fetchRedPersonMedia, fetchRedObjectMedia, nudgeOrdinal, fetchForaeldreUkendtMarkering, type RedPerson, type PersonEvidence,
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
-  type HaendelsePost, type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia, type ForaeldreUkendtMarkering, SLAEGT_SUBJEKT_ID,
+  type HaendelsePost, type StoryPost, type TidslinjePost, type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia, type ForaeldreUkendtMarkering, SLAEGT_SUBJEKT_ID,
   fetchForaeldreSlot, fetchForaeldreKonflikter, fetchBarnFamilie, type ForaeldreSlot, type ForaeldreKonflikt, type BarnFamilie,
 } from './data/redaktionRead';
 import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, insertAt, makeToken, previewSammeSom } from '@daa/core';
 import { loadModel } from './data/model';
 import type { Model } from './data/types';
 import { submitChange, describeCall, oversaetFejl, type Change } from './data/redaktionWrite';
+import { createStorySaveGuard, saveStoryWithSources, storySaveClosesEditor } from './data/storySave';
 import { buildVariants } from './data/mediaUpload';
 import { withUrl } from './data/media';
 import { buildBrowse } from './data/browse';
@@ -28,6 +30,12 @@ import { MediaDetaljeOverlay } from './components/MediaDetaljeOverlay';
 
 const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 const MEDIA_RETTIGHED_STATUS = ['ukendt', 'public_domain', 'licenseret', 'tilladelse_givet', 'begraenset', 'spaerret'] as const;
+type StoryDraft = {
+  storyId: number | null; titel: string; tekst: string; privat: boolean;
+  haendelseId: number | null; dateMin: string; dateMax: string;
+  dateQualifier: string; dateRaw: string;
+  kilder: { sourceId: number; side: string }[];
+};
 // Change-arter der kan ændre et materiale-galleri (Slice 0h) — bruges til at afgøre om
 // person-editorens/objekt-editorens medieliste skal genhentes efter et gemt kald.
 const MEDIA_ARTER = new Set(['uploadMedia', 'opdaterMedia', 'genopretMedia', 'mediaRettigheder', 'fjernMedia', 'sletRelation']);
@@ -54,6 +62,7 @@ const ENTITIES = [
   { key: 'source', label: 'Kilder', icon: '§' },
   { key: 'arms', label: 'Våben', icon: '⛨' },
   { key: 'media', label: 'Medier', icon: '▦' },
+  { key: 'feed', label: 'Feed-styring', icon: '⚑' },
   { key: 'sammenlign', label: 'Sammenlign udgaver', icon: '⇄' },
   { key: 'foraeldre-konflikter', label: 'Forældre-konflikter', icon: '⚠' },
 ];
@@ -127,6 +136,10 @@ export default function Redaktion() {
   const [recCache, setRecCache] = useState<Record<string, EntityRecord[]>>({});
   const [evidence, setEvidence] = useState<PersonEvidence | null>(null);
   const [haendelser, setHaendelser] = useState<HaendelsePost[]>([]);
+  const [stories, setStories] = useState<StoryPost[]>([]);
+  const [storyEditor, setStoryEditor] = useState<StoryDraft | null>(null);
+  const [storySaving, setStorySaving] = useState(false);
+  const storySaveGuardRef = useRef(createStorySaveGuard());
   const [haendelseNotice, setHaendelseNotice] = useState('');
   // Narrativ pr. udgave: liste (faner) + aktiv kilde + redigerbart udkast for den aktive fane.
   const [narrativer, setNarrativer] = useState<PersonNarrativ[]>([]);
@@ -228,6 +241,9 @@ export default function Redaktion() {
     setEntity(p.entity);
     setRecordId(p.recordId);
   }, [path]);
+  // Navigation kan ikke annullere et allerede sendt RPC-kald, men invaliderer dets UI-resultat,
+  // så en sen completion aldrig lukker eller overskriver editoren for en anden person.
+  useEffect(() => { storySaveGuardRef.current.invalidate(); }, [entity, recordId]);
 
   // Records for aktuel entitet (person = live person-liste; øvrige = lazy fetch + cache).
   const records: EntityRecord[] = useMemo(() => {
@@ -273,9 +289,11 @@ export default function Redaktion() {
   }, []);
 
   const loadPerson = useCallback((id: string, opts?: { skipMedia?: boolean }) => {
-    setEvidence(null); setHaendelser([]); setHaendelseNotice(''); setFamilie(null); setRelationer(null); setEditingAssert(null); setAddingFact(null);
+    storySaveGuardRef.current.invalidate();
+    setEvidence(null); setHaendelser([]); setStories([]); setStoryEditor(null); setHaendelseNotice(''); setFamilie(null); setRelationer(null); setEditingAssert(null); setAddingFact(null);
     fetchPersonEvidence(id).then(setEvidence).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
     fetchHaendelserForPerson(id).then(setHaendelser).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
+    fetchStoriesForPerson(id).then(setStories).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
     loadNarrativer('person', Number(id));
     fetchPersonFamilie(id, model).then(setFamilie).catch(() => setFamilie({ somPartner: [], somBarn: [] }));
     fetchPersonRelationer(id).then(setRelationer).catch(() => setRelationer([]));
@@ -425,7 +443,7 @@ export default function Redaktion() {
   }, [tidslinje, narrativer, aktivSourceId, narrativUdkast.tekst]);
 
   // --- Skrivning ---
-  const run = useCallback(async (change: Change, titel: string) => {
+  const run = useCallback(async (change: Change, titel: string, options?: { refresh?: boolean }) => {
     try {
       const res = await submitChange(change, { dryRun, role });
       setWriteView({
@@ -435,16 +453,81 @@ export default function Redaktion() {
       // sletRelation dækker også ikke-media unlinks (hverv/gods) — en ekstra, harmløs medie-refetch
       // for dem er billigere end at holde to separate art-lister i sync (/simplify-fund).
       const mediaChanged = MEDIA_ARTER.has(change.art);
-      if (!dryRun && entity === 'person' && recordId) loadPerson(recordId, { skipMedia: !mediaChanged });
+      if (!dryRun && options?.refresh !== false && entity === 'person' && recordId) loadPerson(recordId, { skipMedia: !mediaChanged });
       if (!dryRun && HAR_OBJEKT_MATERIALE.has(entity) && mediaChanged) refreshObjMedia();
       // Linje-materiale (Slice C3) — "Generelt" (recordId 'generelt') har ingen billed-samling.
       if (!dryRun && entity === 'slaegt' && recordId && recordId !== 'generelt' && mediaChanged) {
         fetchRedObjectMedia('lineage', recordId).then(setMedia).catch(() => setMedia([]));
       }
+      return res;
     } catch (e) {
       setWriteView({ title: titel + ' fejlede', lines: [], error: oversaetFejl(String((e as Error)?.message ?? e)), done: false, dryRun, direkte: false });
+      return undefined;
     }
   }, [dryRun, role, entity, recordId, loadPerson, refreshObjMedia]);
+
+  const nyStoryFraPost = useCallback((post: TidslinjePost) => {
+    if (storySaveGuardRef.current.busy) return;
+    storySaveGuardRef.current.invalidate();
+    const p = storyPrefillFraPost(post);
+    setStoryEditor({
+      storyId: null, titel: '', tekst: p.tekst, privat: false,
+      haendelseId: p.haendelseId, dateMin: p.dateMin ?? '', dateMax: p.dateMax ?? '',
+      dateQualifier: p.dateQualifier ?? '', dateRaw: p.dateRaw ?? '',
+      kilder: p.kilder.map((k) => ({ sourceId: k.sourceId, side: k.side ?? '' })),
+    });
+  }, []);
+
+  const redigerStory = useCallback((story: StoryPost) => {
+    if (storySaveGuardRef.current.busy) return;
+    storySaveGuardRef.current.invalidate();
+    setStoryEditor({
+      storyId: story.id, titel: story.titel ?? '', tekst: story.tekst, privat: story.privat,
+      haendelseId: story.haendelseId, dateMin: story.dato.min ?? '', dateMax: story.dato.max ?? '',
+      dateQualifier: story.dato.qualifier ?? '', dateRaw: story.dato.raw ?? '',
+      kilder: story.kilder.map((k) => ({ sourceId: k.sourceId, side: k.side ?? '' })),
+    });
+  }, []);
+
+  const gemStory = useCallback(async (personId: string) => {
+    if (!storyEditor?.tekst.trim()) return;
+    const saveToken = storySaveGuardRef.current.start();
+    if (saveToken == null) return;
+    setStorySaving(true);
+    const payload = {
+      titel: storyEditor.titel.trim() || null, tekst: storyEditor.tekst.trim(),
+      haendelseId: storyEditor.haendelseId, dateMin: storyEditor.dateMin || null,
+      dateMax: storyEditor.dateMax || null, dateQualifier: storyEditor.dateQualifier || null,
+      dateRaw: storyEditor.dateRaw || null, privat: storyEditor.privat,
+    };
+    const kilder = storyEditor.kilder.map((k) => ({
+      sourceId: k.sourceId, ...(k.side.trim() ? { side: k.side.trim() } : {}),
+    }));
+    const change: Change = storyEditor.storyId == null
+      ? { art: 'opretStory', subjektType: 'person', subjektId: personId, payload, kilder }
+      : { art: 'redigerStory', subjektType: 'person', subjektId: personId,
+          storyId: storyEditor.storyId, payload, kilder };
+    try {
+      const outcome = await saveStoryWithSources(change, kilder, run);
+      if (!storySaveGuardRef.current.isCurrent(saveToken)) return;
+      if (outcome.status === 'sources-failed') {
+        setStoryEditor((draft) => draft ? { ...draft, storyId: outcome.storyId } : draft);
+        return;
+      }
+      if (outcome.status === 'invalid-story-id') {
+        setWriteView({ title: 'Opret historie fejlede', lines: [],
+          error: 'Basen returnerede ikke et gyldigt historie-id.', done: false, dryRun, direkte: false });
+        return;
+      }
+      if (storySaveClosesEditor(outcome)) {
+        if (outcome.status === 'saved') loadPerson(personId);
+        setStoryEditor(null);
+      }
+    } finally {
+      storySaveGuardRef.current.finish(saveToken);
+      setStorySaving(false);
+    }
+  }, [storyEditor, run, dryRun, loadPerson]);
 
   const doLogin = async () => {
     if (!login.email.trim() || !login.pw) { setLogin((l) => ({ ...l, err: 'Udfyld e-mail og adgangskode' })); return; }
@@ -471,9 +554,11 @@ export default function Redaktion() {
       {renderTopBar()}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {renderSidebar()}
-        {entity === 'sammenlign' || entity === 'foraeldre-konflikter' ? (
+        {entity === 'feed' || entity === 'sammenlign' || entity === 'foraeldre-konflikter' ? (
           <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: T.paper }}>
-            {entity === 'sammenlign'
+            {entity === 'feed'
+              ? <FeedStyring role={role} model={model} run={run} />
+              : entity === 'sammenlign'
               ? <SammenlignUdgaver role={role} />
               : <ForaeldreKonflikterListe onOpen={(id) => openRecord('person', id)} />}
           </div>
@@ -711,6 +796,10 @@ export default function Redaktion() {
                 <span style={{ fontFamily: T.mono, fontSize: 9, color: T.bordeaux }}>{dato}</span>
                 <span style={{ fontFamily: T.mono, fontSize: 8, color: T.muted, background: T.beige, borderRadius: 5, padding: '2px 5px' }}>{post.art === 'rygrad' ? 'RYGRAD' : (post.kategori ?? 'ANDET').toUpperCase()}</span>
                 <span style={{ flex: 1 }} />
+                <button type="button" disabled={storySaving} onClick={() => nyStoryFraPost(post)}
+                  style={{ border: '1px solid rgba(136,26,51,.28)', background: T.paper, color: T.bordeaux, borderRadius: 6, padding: '3px 7px', fontFamily: T.mono, fontSize: 8, cursor: storySaving ? 'default' : 'pointer' }}>
+                  + Historie
+                </button>
                 {post.art === 'haendelse' && post.haendelseId != null && <span style={{ display: 'flex', gap: 3 }}>
                   {statusser.map((status) => <span key={status}
                     onClick={() => run({ art: 'haendelseStatus', subjektType: 'person', subjektId: p.id, haendelseId: post.haendelseId, status }, 'Feed-status')}
@@ -725,6 +814,96 @@ export default function Redaktion() {
           })}
           {!tidslinje.length && <div style={{ color: T.muted3, fontSize: 12 }}>Ingen daterede poster endnu.</div>}
         </div>
+
+        <div style={sectionHeader(18)}>Minihistorier · alle statusser</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+          {stories.map((story) => (
+            <div key={story.id} style={{ background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 10, padding: '10px 12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ fontFamily: T.serif, fontWeight: 600, fontSize: 16 }}>{story.titel || 'Historie uden titel'}</span>
+                <span style={{ flex: 1 }} />
+                {(['kladde', 'klar', 'publiceret', 'arkiveret'] as const).map((status) => (
+                  <button key={status} type="button"
+                    onClick={() => run({ art: 'setStoryStatus', subjektType: 'person', subjektId: p.id,
+                      storyId: story.id, storyStatus: status }, 'Story-status')}
+                    style={{ border: 0, borderRadius: 5, padding: '3px 6px', cursor: 'pointer', fontFamily: T.mono,
+                      fontSize: 8, fontWeight: 600, background: story.status === status ? T.bordeaux : T.beige,
+                      color: story.status === status ? T.paperText : T.muted }}>
+                    {status}
+                  </button>
+                ))}
+                <button type="button" disabled={storySaving} onClick={() => redigerStory(story)}
+                  style={{ border: '1px solid rgba(34,31,26,.15)', background: T.panel, color: T.ink,
+                    borderRadius: 6, padding: '3px 7px', fontFamily: T.mono, fontSize: 8, cursor: storySaving ? 'default' : 'pointer' }}>
+                  Redigér
+                </button>
+              </div>
+              <div style={{ marginTop: 5, fontSize: 12.5, lineHeight: 1.45, color: T.muted }}>{story.tekst}</div>
+              <div style={{ marginTop: 5, fontFamily: T.mono, fontSize: 8.5, color: T.muted2 }}>
+                {story.dato.raw || story.dato.min || 'udateret'} · {story.kilder.map((k) => [k.sourceTitel, k.side ? `s. ${k.side}` : null].filter(Boolean).join(', ')).filter(Boolean).join(' · ') || 'kilde mangler'}
+              </div>
+            </div>
+          ))}
+          {!stories.length && <div style={{ color: T.muted3, fontSize: 12 }}>Ingen historier endnu.</div>}
+        </div>
+
+        {storyEditor && (
+          <div aria-busy={storySaving} style={{ marginTop: 10, background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: '14px 15px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
+              <span style={{ fontFamily: T.serif, fontSize: 19, fontWeight: 600 }}>{storyEditor.storyId == null ? 'Ny minihistorie' : `Redigér historie #${storyEditor.storyId}`}</span>
+              <span style={{ flex: 1 }} />
+              <button type="button" disabled={storySaving} onClick={() => {
+                if (storySaveGuardRef.current.busy) return;
+                storySaveGuardRef.current.invalidate();
+                setStoryEditor(null);
+              }} style={{ border: 0, background: 'transparent', color: T.muted, cursor: storySaving ? 'default' : 'pointer' }}>Luk</button>
+            </div>
+            <fieldset disabled={storySaving} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+            <input value={storyEditor.titel} placeholder="Titel (valgfri)"
+              onChange={(e) => setStoryEditor((s) => s && ({ ...s, titel: e.target.value }))}
+              style={{ width: '100%', border: '1px solid rgba(34,31,26,.16)', borderRadius: 7, padding: '8px 9px', background: T.paper, color: T.ink }} />
+            <textarea value={storyEditor.tekst} rows={5} placeholder="Omskriv til en minihistorie på cirka 40–90 ord"
+              onChange={(e) => setStoryEditor((s) => s && ({ ...s, tekst: e.target.value }))}
+              style={{ width: '100%', marginTop: 8, resize: 'vertical', border: '1px solid rgba(34,31,26,.16)', borderRadius: 7, padding: '8px 9px', background: T.paper, color: T.ink, lineHeight: 1.5 }} />
+            <div style={{ marginTop: 3, fontFamily: T.mono, fontSize: 8.5, color: T.muted2 }}>
+              {storyEditor.tekst.trim() ? storyEditor.tekst.trim().split(/\s+/).length : 0} ord · vejledende norm 40–90
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 7, marginTop: 9 }}>
+              {([['dateMin', 'Dato min'], ['dateMax', 'Dato max'], ['dateQualifier', 'Kvalifikator'], ['dateRaw', 'Dato som skrevet']] as const).map(([key, label]) => (
+                <input key={key} value={storyEditor[key]} placeholder={label}
+                  onChange={(e) => setStoryEditor((s) => s && ({ ...s, [key]: e.target.value }))}
+                  style={{ minWidth: 0, border: '1px solid rgba(34,31,26,.16)', borderRadius: 7, padding: '7px 8px', background: T.paper, color: T.ink }} />
+              ))}
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 11.5, color: T.muted }}>
+              <input type="checkbox" checked={storyEditor.privat}
+                onChange={(e) => setStoryEditor((s) => s && ({ ...s, privat: e.target.checked }))} /> Privat
+            </label>
+            <div style={{ marginTop: 10, fontFamily: T.mono, fontSize: 9, color: T.gold }}>KILDER</div>
+            {storyEditor.kilder.map((k, i) => (
+              <div key={`${k.sourceId}-${i}`} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 7, marginTop: 6 }}>
+                <select value={k.sourceId} onChange={(e) => setStoryEditor((s) => s && ({ ...s,
+                  kilder: s.kilder.map((x, j) => j === i ? { ...x, sourceId: Number(e.target.value) } : x) }))}
+                  style={{ border: '1px solid rgba(34,31,26,.16)', borderRadius: 7, padding: '7px 8px', background: T.paper, color: T.ink }}>
+                  {sources.map((source) => <option key={source.id} value={source.id}>{source.titel ?? source.udgave ?? `Kilde #${source.id}`}</option>)}
+                </select>
+                <input value={k.side} placeholder="Side" onChange={(e) => setStoryEditor((s) => s && ({ ...s,
+                  kilder: s.kilder.map((x, j) => j === i ? { ...x, side: e.target.value } : x) }))}
+                  style={{ border: '1px solid rgba(34,31,26,.16)', borderRadius: 7, padding: '7px 8px', background: T.paper, color: T.ink }} />
+                <button type="button" onClick={() => setStoryEditor((s) => s && ({ ...s, kilder: s.kilder.filter((_, j) => j !== i) }))}
+                  style={{ border: 0, background: T.beige, color: T.bordeaux, borderRadius: 6, cursor: 'pointer' }}>Fjern</button>
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 8, marginTop: 9 }}>
+              <button type="button" disabled={!sources.length}
+                onClick={() => setStoryEditor((s) => s && ({ ...s, kilder: [...s.kilder, { sourceId: sources[0].id, side: '' }] }))}
+                style={{ border: '1px solid rgba(34,31,26,.15)', background: T.paper, color: T.ink, borderRadius: 7, padding: '7px 10px', cursor: sources.length ? 'pointer' : 'default' }}>+ Kilde</button>
+              <button type="button" disabled={!storyEditor.tekst.trim()} onClick={() => gemStory(p.id)}
+                style={{ border: 0, background: T.bordeaux, color: T.paperText, borderRadius: 7, padding: '8px 13px', cursor: storyEditor.tekst.trim() ? 'pointer' : 'default' }}>Gem historie</button>
+            </div>
+            </fieldset>
+          </div>
+        )}
 
         {renderFamilieRelationer(p.id)}
 

@@ -33,6 +33,19 @@ export interface HaendelseItem {
 }
 export type HaendelserBy = Record<string, HaendelseItem[]>;
 
+export interface StoryItem {
+  id: string;
+  titel: string | null;
+  tekst: string;
+  dato: FuzzyDato;
+  dateRaw: string | null;
+  haendelseId: string | null;
+  publiceretDato: string | null;
+  kilde: string | null;
+}
+export type StorieBy = Record<string, StoryItem[]>;
+export type FeedPinInput = { kortNoegle: string; handling: 'pin' | 'skjul' };
+
 export type FeedCard =
   | { kind: 'portrait'; id: string; personId: string; name: string; years: string;
       initials: string; title: string | null; bio: string; kicker: string }
@@ -40,6 +53,9 @@ export type FeedCard =
   | { kind: 'arkiv'; id: string; personId: string; name: string; klausul: string;
       aarLabel: string | null; kategori: string | null; kilde: string | null;
       interessant?: boolean; kicker: string }
+  | { kind: 'historie'; id: string; personId: string; titel: string | null; tekst: string;
+      aarLabel: string | null; kategori: string | null; kilde: string | null;
+      nyPubliceret?: boolean; kicker: string }
   | { kind: 'gods'; id: string; estateId: string; navn: string; meta: string;
       ownerDots: number; kicker: string }
   | { kind: 'forbundet'; id: string; aName: string; bName: string; aInit: string;
@@ -58,8 +74,6 @@ export type FeedCard =
   | { kind: 'dagensperson'; id: string; personId: string; name: string; years: string;
       initials: string; title: string | null; bio: string; kicker: string };
 
-export type FeedOverride = { pin?: string[]; hide?: string[] };
-
 export interface FeedInputs {
   seed: number;
   todayISO: string;
@@ -69,7 +83,8 @@ export interface FeedInputs {
   seenWeights?: Record<string, number>;
   livsdatoBy?: LivsdatoBy;
   haendelserBy?: HaendelserBy;
-  overrides?: FeedOverride[];
+  storieBy?: StorieBy;
+  pins?: FeedPinInput[];
 }
 
 export function bookmarkPersonId(card: FeedCard): string | null {

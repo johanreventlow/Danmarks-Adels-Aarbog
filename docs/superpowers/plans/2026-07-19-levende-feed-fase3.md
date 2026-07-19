@@ -381,6 +381,10 @@ BEGIN
   END IF;
   SELECT subjekt_type, subjekt_id INTO v_stype, v_sid FROM story WHERE id = p_story_id;
   IF v_stype IS NULL THEN RAISE EXCEPTION 'Story % findes ikke', p_story_id; END IF;
+  IF p_status = 'publiceret'
+     AND NOT EXISTS (SELECT 1 FROM story_kilde WHERE story_id = p_story_id) THEN
+    RAISE EXCEPTION 'Story % kan ikke publiceres uden mindst én kilde', p_story_id;
+  END IF;
   PERFORM begin_change_set('red_set_story_status',
     format('Satte status %s på story %s', p_status, p_story_id), v_stype, v_sid);
   -- Hver overgang TIL 'publiceret' sætter publiceret_dato; overgange VÆK rører den ikke
@@ -1850,7 +1854,6 @@ export function forsideStartpersoner(
 - **Kendt afvigelse fra spec'ens skive-tabel:** `BASE.historie` tilføjes allerede i task 2
   (tsc-tvang fra `Record<FeedCard['kind'], number>`) — fuld scoring testes i task 4; samme
   manøvre som fase 2-planens `arkiv: 0.5`.
-
 
 
 

@@ -2,6 +2,7 @@
 import type { FeedCard, FeedInputs } from './types';
 
 export const BASE: Record<FeedCard['kind'], number> = {
+  historie: 1.2,
   portrait: 1.0,
   paadennedag: 1.0,
   dagensperson: 1.0,
@@ -34,6 +35,7 @@ export function score(card: FeedCard, ctx: ScoreContext): number {
   if (card.kind === 'paadennedag' && card.praecision === 'dag') s *= 4;
   if (card.kind === 'jubilaeum' && card.paaDagen) s *= 4;
   if (card.kind === 'arkiv' && card.interessant) s *= 2;
+  if (card.kind === 'historie' && card.nyPubliceret) s *= 2;
 
   const personId = 'personId' in card ? card.personId : null;
   if (personId != null && ctx.bookmarkedIds.has(personId)) s *= 1.5;

@@ -7,12 +7,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   bookmarkPersonId, createFeedStream, resumeStream,
-  type FeedCard, type FeedStream, type HaendelserBy, type LivsdatoBy,
+  type FeedCard, type FeedPinInput, type FeedStream, type HaendelserBy, type LivsdatoBy,
+  type StorieBy,
 } from '@daa/feed';
 import { buildWebFeedAux, fetchFeedBios, withFeedBios } from '../../data/feedAux';
 import { epochDay, newSeed, todayISO } from '../../data/feedSession';
 import { loadLivsdatoBy } from '../../data/livsdato';
 import { loadHaendelserBy } from '../../data/haendelser';
+import { loadStorieBy } from '../../data/story';
 import { preserveShownForResume } from '../../data/feedResume';
 import { createSeenStore, toSeenWeights } from '../../data/seenCards';
 import { T } from '../../theme';
@@ -24,7 +26,7 @@ const PAGE_SIZE = 12;
 const SEEN_EXCLUDED_KINDS = new Set<FeedCard['kind']>(['slaegt', 'dagensperson', 'samle']);
 
 export function FeedStreamView({
-  model, estates, arms, meId, focusId, bookmarkedIds,
+  model, estates, arms, meId, focusId, feedPins, bookmarkedIds,
   bookmarksReady, bookmarkHydrationVersion, bookmarkOwnerId,
   hasBookmark, onSaveBookmark,
   onOpenPerson, onOpenEstate, onOpenArms, onOpenSlaegt, onBrowseAll,
@@ -34,6 +36,7 @@ export function FeedStreamView({
   arms: ArmsItem[] | null;
   meId: string | null;
   focusId: string | null;
+  feedPins: FeedPinInput[];
   bookmarkedIds: string[];
   bookmarksReady: boolean;
   bookmarkHydrationVersion: number;
@@ -74,17 +77,19 @@ export function FeedStreamView({
     ));
   }, [bookmarksReady, bookmarkOwnerId, bookmarkHydrationVersion, bookmarkedIds]);
 
-  // Bio + livsdato + hændelser hentes ved mount (§7.3). Alle sene ankomster genopbygger
+  // Bio + livsdato + hændelser + stories hentes ved mount (§7.3). Alle sene ankomster genopbygger
   // med samme seed og resume-kontrakten nedenfor — viste kort nulstilles aldrig.
   const [bios, setBios] = useState<Record<string, string> | null>(null);
   const [livsdatoBy, setLivsdatoBy] = useState<LivsdatoBy>({});
   const [haendelserBy, setHaendelserBy] = useState<HaendelserBy>({});
+  const [storieBy, setStorieBy] = useState<StorieBy>({});
   useEffect(() => {
     let alive = true;
     const canon = model.canonicalIdById ?? {};
     void fetchFeedBios(canon, model.persons.map((p) => p.id)).then((b) => { if (alive) setBios(b); });
     void loadLivsdatoBy(canon).then((ld) => { if (alive) setLivsdatoBy(ld); });
     void loadHaendelserBy(canon).then((hs) => { if (alive) setHaendelserBy(hs); });
+    void loadStorieBy(canon).then((stories) => { if (alive) setStorieBy(stories); });
     return () => { alive = false; };
   }, [model]);
 
@@ -118,7 +123,7 @@ export function FeedStreamView({
     const built = createFeedStream(enrichedModel, aux, {
       seed, todayISO: today, meId, focusId,
       bookmarkedIds: bookmarkSnapshot.ids,
-      seenWeights, livsdatoBy, haendelserBy,
+      seenWeights, livsdatoBy, haendelserBy, storieBy, pins: feedPins,
     });
     if (streamRef.current === null || streamOwnerRef.current !== bookmarkSnapshot.ownerId) {
       streamRef.current = built;
@@ -140,7 +145,7 @@ export function FeedStreamView({
     setStreamGeneration((g) => g + 1);
     // Live bookmarkedIds er bevidst ikke input her: bookmarkSnapshot fryses efter hydrering,
     // så et toggle midt i scroll ikke omordner strømmen. shownRef læses tilsvarende via ref.
-  }, [model, bios, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkSnapshot, seenWeights, livsdatoBy, haendelserBy]);
+  }, [model, bios, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkSnapshot, seenWeights, livsdatoBy, haendelserBy, storieBy, feedPins]);
 
   const markShownAsSeen = useCallback(() => {
     const ids = shownRef.current
@@ -203,7 +208,7 @@ export function FeedStreamView({
 
   const openCard = useCallback((card: FeedCard) => {
     switch (card.kind) {
-      case 'portrait': case 'citat': case 'arkiv': case 'embede': case 'jubilaeum': case 'paadennedag': case 'dagensperson':
+      case 'portrait': case 'citat': case 'arkiv': case 'historie': case 'embede': case 'jubilaeum': case 'paadennedag': case 'dagensperson':
         onOpenPerson(card.personId); break;
       case 'gods': onOpenEstate(card.estateId); break;
       case 'vaaben': onOpenArms(); break;

@@ -546,6 +546,48 @@ begin
   end loop;
 end $$;
 
+-- Levende feed fase 3: stories fail-closer som hændelser/personer. Kladder, private
+-- stories og stories om ikke-offentlige subjekter når aldrig publikum.
+grant select on table public.story to anon, authenticated;
+revoke insert, update, delete, references, trigger, truncate on table public.story from anon, authenticated;
+alter table public.story enable row level security;
+drop policy if exists anon_read on public.story;
+create policy anon_read on public.story for select to anon
+  using (status = 'publiceret'
+     and coalesce(privat, false) = false
+     and public.entitet_offentlig(subjekt_type, subjekt_id));
+drop policy if exists auth_read on public.story;
+create policy auth_read on public.story for select to authenticated
+  using (status = 'publiceret'
+     and coalesce(privat, false) = false
+     and public.entitet_offentlig(subjekt_type, subjekt_id));
+drop policy if exists redaktion_read on public.story;
+create policy redaktion_read on public.story for select to authenticated
+  using ((select public.current_rolle()) = 'redaktion');
+
+-- story_kilde arver parent-storyens synlighed (EXISTS-cascade).
+grant select on table public.story_kilde to anon, authenticated;
+revoke insert, update, delete, references, trigger, truncate on table public.story_kilde from anon, authenticated;
+alter table public.story_kilde enable row level security;
+drop policy if exists anon_read on public.story_kilde;
+create policy anon_read on public.story_kilde for select to anon
+  using (exists (select 1 from public.story s where s.id = story_id));
+drop policy if exists auth_read on public.story_kilde;
+create policy auth_read on public.story_kilde for select to authenticated
+  using (exists (select 1 from public.story s where s.id = story_id));
+drop policy if exists redaktion_read on public.story_kilde;
+create policy redaktion_read on public.story_kilde for select to authenticated
+  using ((select public.current_rolle()) = 'redaktion');
+
+-- feed_pin er ren kurering uden PII og skal kunne indlæses af hele klientmotoren.
+grant select on table public.feed_pin to anon, authenticated;
+revoke insert, update, delete, references, trigger, truncate on table public.feed_pin from anon, authenticated;
+alter table public.feed_pin enable row level security;
+drop policy if exists anon_read on public.feed_pin;
+create policy anon_read on public.feed_pin for select to anon using (true);
+drop policy if exists auth_read on public.feed_pin;
+create policy auth_read on public.feed_pin for select to authenticated using (true);
+
 -- Konflikt-view: læsbar for authenticated (RLS håndhæves af security_invoker på basistabeller).
 grant select on public.red_konflikt to authenticated;
 grant select on public.red_konflikt to anon;

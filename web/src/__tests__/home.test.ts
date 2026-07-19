@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { curatedFounders, pickMaanedensGods } from '../data/home';
+import { curatedFounders, forsideStartpersoner, pickMaanedensGods } from '../data/home';
 import type { Model, ModelPerson } from '../data/types';
 import type { EstateItem } from '../data/public';
 
@@ -45,6 +45,38 @@ describe('curatedFounders', () => {
     const childIdx = { a: new Set(['x']), b: new Set(['y']) };
     const m = buildModel(ps, childIdx, []); // ingen stamfædre → ren centralitets-fill
     expect(curatedFounders(m, 2).map((p) => p.id)).toEqual(['a', 'b']);
+  });
+});
+
+describe('forsideStartpersoner', () => {
+  const ps = [person('a', 'A'), person('b', 'B'), person('c', 'C'), person('d', 'D')];
+  const model = buildModel(ps, { c: new Set(['x']), d: new Set(['x', 'y']) }, ['a', 'b']);
+
+  it('sætter gyldige portrait-pins først og bevarer pin-rækkefølgen', () => {
+    const pins = [
+      { kortNoegle: 'portrait:d', handling: 'pin' as const },
+      { kortNoegle: 'portrait:c', handling: 'pin' as const },
+    ];
+    expect(forsideStartpersoner(model, pins, 3).map((p) => p.id)).toEqual(['d', 'c', 'a']);
+  });
+
+  it('ignorerer dinglende, story/arkiv og skjul', () => {
+    const pins = [
+      { kortNoegle: 'portrait:zzz', handling: 'pin' as const },
+      { kortNoegle: 'story:7', handling: 'pin' as const },
+      { kortNoegle: 'arkiv:8', handling: 'pin' as const },
+      { kortNoegle: 'portrait:d', handling: 'skjul' as const },
+    ];
+    expect(forsideStartpersoner(model, pins, 2).map((p) => p.id)).toEqual(['a', 'b']);
+  });
+
+  it('fallback udfylder uden dubletter', () => {
+    expect(forsideStartpersoner(model, [{ kortNoegle: 'portrait:a', handling: 'pin' }], 3)
+      .map((p) => p.id)).toEqual(['a', 'b', 'd']);
+  });
+
+  it('tom pin-liste er identisk med curatedFounders', () => {
+    expect(forsideStartpersoner(model, [], 4)).toEqual(curatedFounders(model, 4));
   });
 });
 

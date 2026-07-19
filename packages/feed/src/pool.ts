@@ -30,6 +30,7 @@ export function buildPortraitAndCitat(
   model: Model,
   excludeId: string | null = null,
   haendelserBy: HaendelserBy = {},
+  usedStorieHaendelseIds: ReadonlySet<string> = new Set(),
 ): { portraits: FeedCard[]; citater: FeedCard[]; usedCitatHaendelseIds: Set<string> } {
   const bioPersons = model.persons
     .filter((p) => p.bio.trim() !== '' && p.id !== excludeId)
@@ -41,7 +42,8 @@ export function buildPortraitAndCitat(
     const isCitatSlot = stableHash(p.id) % 4 === 0;
     if (isCitatSlot) {
       const kandidater = (haendelserBy[p.id] ?? []).filter(
-        (item) => !item.rygrad && item.klausul.length >= 40 && item.klausul.length <= 180,
+        (item) => !item.rygrad && !usedStorieHaendelseIds.has(item.id)
+          && item.klausul.length >= 40 && item.klausul.length <= 180,
       );
       const valgt = kandidater.length > 0
         ? kandidater[stableHash(p.id) % kandidater.length]

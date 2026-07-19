@@ -43,6 +43,8 @@ export default function HomeScreen() {
   const setRelB = useStore((s) => s.setRelB);
   const livsdatoBy = useStore((s) => s.livsdatoBy);
   const haendelserBy = useStore((s) => s.haendelserBy);
+  const storieBy = useStore((s) => s.storieBy);
+  const feedPins = useStore((s) => s.feedPins);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [slaegtOpen, setSlaegtOpen] = useState(false);
@@ -112,8 +114,10 @@ export default function HomeScreen() {
       seenWeights,
       livsdatoBy,
       haendelserBy,
+      storieBy,
+      pins: feedPins,
     });
-  }, [model, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkedSnapshot, seenWeights, livsdatoBy, haendelserBy]);
+  }, [model, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkedSnapshot, seenWeights, livsdatoBy, haendelserBy, storieBy, feedPins]);
 
   const [shown, setShown] = useState<FeedCard[]>([]);
   const appendingRef = useRef(false);
@@ -158,6 +162,7 @@ export default function HomeScreen() {
         case 'portrait':
         case 'citat':
         case 'arkiv':
+        case 'historie':
         case 'embede':
         case 'jubilaeum':
         case 'paadennedag':

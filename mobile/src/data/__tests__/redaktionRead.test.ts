@@ -1,4 +1,4 @@
-import { buildTidslinje, joinEvidence, mapHaendelser, mapKonfliktRow, mapNarrativer, mapRelationRow } from '../redaktionRead';
+import { buildTidslinje, joinEvidence, mapHaendelser, mapKonfliktRow, mapNarrativer, mapRelationRow, mapStories, storyPrefillFraPost } from '../redaktionRead';
 import { mapRedPerson, mapSammeSomLinks } from '../redaktionRead';
 import { getAll } from '@daa/core';
 
@@ -131,10 +131,52 @@ test('mapHaendelser medtager skjulte og mapper null/source-felter', () => {
   const out = mapHaendelser([{ id: 9, klausul: 'I 1580 rejste han.', kategori: null,
     date_min: '1580-01-01', date_max: '1580-12-31', date_qualifier: 'about', date_raw: 'ca. 1580',
     feed_status: 'skjult', narrative_id: 4, span_start: null, span_laengde: null,
-    fact_id: null, relation_id: 8, narrative: { side: '12', source: { titel: null, udgave: 'DAA 1939' } } }] as never);
+    fact_id: null, relation_id: 8, narrative: { side: '12', source: { id: 5, titel: null, udgave: 'DAA 1939' } } }] as never);
   expect(out[0]).toMatchObject({ id: 9, feedStatus: 'skjult', narrativeId: 4,
-    sourceTitel: 'DAA 1939', side: '12', factId: null, relationId: 8,
+    sourceId: 5, sourceTitel: 'DAA 1939', side: '12', factId: null, relationId: 8,
     dato: { min: '1580-01-01', raw: 'ca. 1580' } });
+});
+
+describe('stories i redaktionen (fase 3)', () => {
+  it('mapStories medtager alle statusser, NULL-felter og sorterer kilder på link-id', () => {
+    const rows = [
+      { id: 9, titel: 'Klar', tekst: 'Tekst', date_min: '1671-01-01', date_max: '1671-12-31',
+        date_qualifier: 'about', date_raw: 'ca. 1671', status: 'klar', publiceret_dato: null,
+        privat: false, haendelse_id: 12, fact_id: null, relation_id: null, historical_event_id: null,
+        story_kilde: [
+          { id: 7, source_id: 5, side: null, source: { titel: null, udgave: 'DAA 1939' } },
+          { id: 3, source_id: 2, side: '112', source: { titel: 'DAA', udgave: null } },
+        ] },
+      { id: 10, titel: null, tekst: 'Arkiveret', date_min: null, date_max: null,
+        date_qualifier: null, date_raw: null, status: 'arkiveret', publiceret_dato: null,
+        privat: null, haendelse_id: null, fact_id: null, relation_id: null,
+        historical_event_id: null, story_kilde: null },
+    ];
+    const out = mapStories(rows as never);
+    expect(out.map((s) => s.status)).toEqual(['klar', 'arkiveret']);
+    expect(out[0]).toMatchObject({ id: 9, haendelseId: 12,
+      dato: { min: '1671-01-01', raw: 'ca. 1671' },
+      kilder: [{ sourceId: 2, side: '112', sourceTitel: 'DAA' },
+        { sourceId: 5, side: null, sourceTitel: 'DAA 1939' }] });
+    expect(out[1]).toMatchObject({ titel: null, privat: false, haendelseId: null, kilder: [] });
+  });
+
+  it('storyPrefillFraPost kopierer klausul, dato, hændelsesanker og kilde med side', () => {
+    expect(storyPrefillFraPost({ art: 'haendelse', id: 'h:12', haendelseId: 12,
+      klausul: 'Han drog til Norge.', kategori: 'rejse',
+      dato: { min: '1671-01-01', max: '1671-12-31', qualifier: 'about', raw: 'ca. 1671' },
+      sourceId: 2, side: '112' })).toEqual({
+        tekst: 'Han drog til Norge.', haendelseId: 12,
+        dateMin: '1671-01-01', dateMax: '1671-12-31',
+        dateQualifier: 'about', dateRaw: 'ca. 1671', kilder: [{ sourceId: 2, side: '112' }],
+      });
+  });
+
+  it('storyPrefillFraPost uden sourceId giver tom kildeliste', () => {
+    expect(storyPrefillFraPost({ art: 'rygrad', id: 'f:3', factId: 3,
+      klausul: 'Født 1671', kategori: 'fødsel',
+      dato: { min: null, max: null, qualifier: null, raw: '1671' } }).kilder).toEqual([]);
+  });
 });
 
 test('buildTidslinje fletter fact-kobling, sorterer NULL sidst og undgår dublet', () => {

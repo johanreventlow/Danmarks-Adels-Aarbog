@@ -14,6 +14,7 @@ import {
 } from './pool';
 import { mulberry32 } from './prng';
 import { score, toScoreContext } from './score';
+import { buildStorieKort } from './story';
 import { buildDagensPersonCard, buildPaaDenneDag, pickDagensPerson } from './temporal';
 import { bookmarkPersonId } from './types';
 import type { FeedAux, FeedCard, FeedInputs, Model } from './types';
@@ -97,19 +98,32 @@ export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): 
   const rng = mulberry32(inputs.seed);
   const livsdatoBy = inputs.livsdatoBy ?? {};
   const haendelserBy = inputs.haendelserBy ?? {};
+  const storieBy = inputs.storieBy ?? {};
+  const pins = inputs.pins ?? [];
+  // Hændelsens feed_status er en indholds-dom pr. hændelse; feed_pin er derimod
+  // kurering pr. konkret kort-id. De to skjul-stier er bevidst ortogonale.
+  const hideSet = new Set(
+    pins.filter((pin) => pin.handling === 'skjul').map((pin) => pin.kortNoegle),
+  );
+  const pinKeys = pins.filter((pin) => pin.handling === 'pin').map((pin) => pin.kortNoegle);
   const todayYear = Number(inputs.todayISO.slice(0, 4));
 
   // dagens person udelades af portræt/citat-poolen (disjunkthed) og vises som sit eget kort.
   const dagensPersonId = pickDagensPerson(model, inputs.todayISO);
-  const { portraits, citater, usedCitatHaendelseIds } = buildPortraitAndCitat(
-    model, dagensPersonId, haendelserBy,
+  const { cards: storieKort, usedHaendelseIds } = buildStorieKort(
+    model, storieBy, haendelserBy, inputs.todayISO,
   );
+  const { portraits, citater, usedCitatHaendelseIds } = buildPortraitAndCitat(
+    model, dagensPersonId, haendelserBy, usedHaendelseIds,
+  );
+  const arkivEksklusion = new Set([...usedHaendelseIds, ...usedCitatHaendelseIds]);
   const dagensPersonCard = dagensPersonId ? buildDagensPersonCard(model, dagensPersonId) : null;
 
   const candidateCards: FeedCard[] = [
     ...portraits,
     ...citater,
-    ...buildArkivKort(model, haendelserBy, usedCitatHaendelseIds),
+    ...storieKort,
+    ...buildArkivKort(model, haendelserBy, arkivEksklusion),
     ...buildGods(aux),
     ...buildForbundet(model),
     ...buildEmbeder(model, aux),
@@ -120,9 +134,26 @@ export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): 
     ...(dagensPersonCard ? [dagensPersonCard] : []),
   ];
 
+  const visibleCards = hideSet.size > 0
+    ? candidateCards.filter((card) => !hideSet.has(card.id))
+    : candidateCards;
+  // Pin-blokken udtrækkes før score>0-filteret: redaktørens eksplicitte pin vinder
+  // over seenWeights=0. Inputordenen bevares, og der forbruges ingen ekstra rng-kald.
+  const cardById = new Map(visibleCards.map((card) => [card.id, card]));
+  const pinnedBlock: FeedCard[] = [];
+  const pinnedIds = new Set<string>();
+  for (const key of pinKeys) {
+    const card = cardById.get(key);
+    if (card && !pinnedIds.has(card.id)) {
+      pinnedBlock.push(card);
+      pinnedIds.add(card.id);
+    }
+  }
+
   const ctx = toScoreContext(inputs);
   // Score <= 0 (typisk seenWeights=0) udelukker kortet HELT — det trækkes aldrig.
-  const scoredPool: ScoredCard[] = candidateCards
+  const scoredPool: ScoredCard[] = visibleCards
+    .filter((card) => !pinnedIds.has(card.id))
     .map((card) => ({ card, score: score(card, ctx) }))
     .filter((c) => c.score > 0);
 
@@ -138,19 +169,20 @@ export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): 
     ? takeLocked((card) => card.id === dagensPersonCard.id)
     : null;
   const lockedSlaegt = takeLocked((card) => card.kind === 'slaegt');
-  const totalBeforeTerminal = scoredPool.length
+  const P = pinnedBlock.length;
+  const totalBeforeTerminal = P + scoredPool.length
     + (lockedDagensPerson ? 1 : 0)
     + (lockedSlaegt ? 1 : 0);
   const dagensPosition = lockedDagensPerson
-    ? Math.min(Math.floor(rng() * 3), Math.max(0, totalBeforeTerminal - 1))
+    ? Math.min(P + Math.floor(rng() * 3), Math.max(P, totalBeforeTerminal - 1))
     : -1;
   let slaegtPosition = lockedSlaegt
-    ? Math.min(3 + Math.floor(rng() * 7), Math.max(0, totalBeforeTerminal - 1))
+    ? Math.min(P + 3 + Math.floor(rng() * 7), Math.max(P, totalBeforeTerminal - 1))
     : -1;
   // Kun relevant for syntetiske ultrakorte feeds, hvor [0..2] og [3..9] ikke begge kan
   // opfyldes. Bevar dagens person først og brug den sidste ledige plads til slægtskortet.
   if (slaegtPosition === dagensPosition) {
-    slaegtPosition = Math.max(0, totalBeforeTerminal - 1);
+    slaegtPosition = Math.max(P, totalBeforeTerminal - 1);
   }
 
   const pool: RankedCard[] = scoredPool
@@ -160,7 +192,7 @@ export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): 
     }))
     .sort((a, b) => a.priority - b.priority || a.card.id.localeCompare(b.card.id));
 
-  const ordered: FeedCard[] = [];
+  const ordered: FeedCard[] = [...pinnedBlock];
   let dagensPending = lockedDagensPerson;
   let slaegtPending = lockedSlaegt;
   while (pool.length > 0 || dagensPending || slaegtPending) {
