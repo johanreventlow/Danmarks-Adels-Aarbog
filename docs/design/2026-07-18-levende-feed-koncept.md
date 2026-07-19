@@ -410,7 +410,9 @@ realiseres endelig (pins/hides føder motoren).
 **Status 2026-07-19:** Implementeret i kode, regressionsdækket og valideret mod lokale
 PostgreSQL-databaser. Et ekstra review har rettet komplette `red_suggest`-payloads for
 stories og gjort web-editorens to-trins-gemning retry-sikker. Rigtig Supabase/PostgREST,
-authenticated LIVE-UI og prod-migration er fortsat gatede deploytrin.
+authenticated LIVE-UI og prod-migration er fortsat gatede deploytrin. Den separate
+[`db-rollback-fase3.sql`](../../db-rollback-fase3.sql) er lokalt rehearsed, men må kun køre
+efter fuld backup og afbryder ved fase 3-data/-historik; den erstatter ikke et prod-bevis.
 
 ### Fase 4 — LLM-assist
 Edge Function + "Foreslå historie"-knap + proveniens + evt. batch-kladder +

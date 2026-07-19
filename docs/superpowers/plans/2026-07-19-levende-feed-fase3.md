@@ -1788,20 +1788,20 @@ export function forsideStartpersoner(
 **Files:**
 - Modify: `docs/changelog.md`, `docs/README.md`, `docs/design/2026-07-18-levende-feed-koncept.md`.
 
-- [ ] **Step 1: Ingen nye CI-jobs (spec §8)** — verificér blot at alle nye tests lander i
+- [x] **Step 1: Ingen nye CI-jobs (spec §8)** — verificér blot at alle nye tests lander i
   suiter der allerede kører i `.github/workflows/ci.yml` (`feed` vitest, `web` vitest+build,
   `mobile` tsc+jest; `r`-jobbet er urørt — fase 3 har ingen R-flade). `db-verify.sql` køres
   manuelt mod kopi-basen (ingen base-service i CI, samme vilkår som fase 2).
-- [ ] **Step 2: Fuld verifikation som slut-gate:** `packages/feed` `npx vitest run` +
+- [x] **Step 2: Fuld verifikation som slut-gate:** `packages/feed` `npx vitest run` +
   `npx tsc --noEmit`; `packages/core` `npx vitest run`; mobil `npx tsc --noEmit && npm test`;
   web `npm run test && npm run build` — alt grønt lokalt og i CI.
-- [ ] **Step 3: Afstemning:** `docs/changelog.md`-implementeringspost (hvad er automatisk
+- [x] **Step 3: Afstemning:** `docs/changelog.md`-implementeringspost (hvad er automatisk
   testet vs. manuelt verificeret — inkl. db-verify-asserts, fortryd-beviset og de manuelle
   UI-gennemløb fra task 8/10/11); `docs/README.md` indekserer fase 3-spec'en + statuslinje i
   design-sektionen; feed-konceptets §10 opdateres med fase 3-status og spec-link (som
   fase 1/2-linkene). `docs/database-current-state.md` røres IKKE — den opdateres først ved den
   gatede prod-migrering (Global Constraints).
-- [ ] **Step 4: Commit** — `chore(feed): fase 3-afstemning — changelog, README, koncept-status (skive 6)`.
+- [x] **Step 4: Commit** — `chore(feed): fase 3-afstemning — changelog, README, koncept-status (skive 6)`.
 
 ---
 
@@ -1816,13 +1816,13 @@ export function forsideStartpersoner(
   hændelse (forudfyldt tekst/dato/kilder), publicere den og se den som `historie`-kort med
   kildefod; afpublicere fra styringssiden; pinne et kort til toppen og skjule et andet — og
   alle tre effekter slår igennem i klient-feed'en efter genindlæsning.
-- [ ] Motor-beviserne (vitest): pin-blok først i input-orden, skjulte kort-id'er aldrig i
+- [x] Motor-beviserne (vitest): pin-blok først i input-orden, skjulte kort-id'er aldrig i
   output, historie dominerer statistisk (BASE 1,2 + nyPubliceret ×2), historie/arkiv/citat-
   dedup pr. hændelse, dinglende pins ufarlige — og **uden stories og pins er ordningen dybt
   identisk med fase 2** over de eksisterende fixtures.
-- [ ] Web-forsidens startpersoner følger portræt-pins med `curatedFounders` som verificeret
+- [x] Web-forsidens startpersoner følger portræt-pins med `curatedFounders` som verificeret
   fallback (tom pin-liste ⇒ uændret forside).
-- [ ] `tsc` + alle suiter grønne uden nye CI-jobs; ingen ændringer i evidens- eller
+- [x] `tsc` + alle suiter grønne uden nye CI-jobs; ingen ændringer i evidens- eller
   hændelseslaget (diffen rører ingen eksisterende tabel-DDL — kun additivt skema + nye
   læsninger/skrivninger i det nye lag).
 
@@ -1854,7 +1854,4 @@ export function forsideStartpersoner(
 - **Kendt afvigelse fra spec'ens skive-tabel:** `BASE.historie` tilføjes allerede i task 2
   (tsc-tvang fra `Record<FeedCard['kind'], number>`) — fuld scoring testes i task 4; samme
   manøvre som fase 2-planens `arkiv: 0.5`.
-
-
-
 
