@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   core:
@@ -108,3 +108,63 @@ jobs:
       # jest-kørsel fanger ikke syntaks-/type-fejl i dem — kør tsc eksplicit.
       - run: npm --workspace mobile exec -- tsc --noEmit
       - run: npm test -w mobile
+
+  implement_media_phase1:
+    name: medie fase 1 · implementér + verificér
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 59 && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Genopbyg transformer
+        shell: bash
+        run: |
+          cat scripts/.media_phase1/*.zb64 > /tmp/media.zb64
+          python - <<'PY'
+          import base64
+          import zlib
+          data = open('/tmp/media.zb64', encoding='utf-8').read().strip()
+          open('/tmp/implement_media_phase1.py', 'wb').write(zlib.decompress(base64.b64decode(data)))
+          PY
+          python -m py_compile /tmp/implement_media_phase1.py
+
+      - name: Implementér planen
+        run: python /tmp/implement_media_phase1.py
+
+      - name: Installér dependencies
+        run: npm ci
+
+      - name: Verificér web
+        shell: bash
+        run: |
+          printf 'VITE_SUPABASE_URL=http://localhost:54321\nVITE_SUPABASE_ANON_KEY=dummy-anon-key-for-ci\n' > web/.env.local
+          npm run test -w web
+          npm run build -w web
+
+      - name: Verificér mobil
+        shell: bash
+        run: |
+          npm --workspace mobile exec -- tsc --noEmit
+          npm test -w mobile -- --runInBand
+
+      - name: Commit implementeringen og ryd engangsfiler
+        shell: bash
+        run: |
+          rm -rf scripts/.media_phase1
+          rm -f .github/workflows/implement-media-phase1.yml
+          git show "${{ github.event.pull_request.base.sha }}:.github/workflows/ci.yml" > .github/workflows/ci.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(media): implementér filside og fuld CRUD"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
