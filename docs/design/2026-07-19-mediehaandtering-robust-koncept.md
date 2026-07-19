@@ -245,6 +245,43 @@ jsonb` med `{"primaer": true}`), sat via lille RPC der nulstiller søskende-flag
 region-tagging forbliver udskudt — kvalifikator-kolonnen er blot dens forløber og
 deles med den.)
 
+### 4.8 Dokumenter & transskription — samme fundament, egen fase (tilføjet 2026-07-19)
+
+Behovet er rejst af brugeren: indscannede kilder (PDF/scanning af fx en avisartikel
+om en person) — og gerne artiklens **rå tekst-version** ved siden af scanningen, til
+læsbar visning og søgning. I sjældne tilfælde måske lyd-/videoklip (foreløbig kun
+teoretisk).
+
+**Beslutning: samme system, ikke et separat.** `media`-tabellen er allerede
+format-agnostisk (`mime_type`, `byte_size`, `slags` — vokabularet rummer allerede
+`'scanning'`; `bredde`/`hoejde` er nullable og udelades bare for dokumenter), og alt
+det tunge apparat er format-neutralt: rettigheds-workflow (avisartikler HAR copyright),
+publikations-gating, GDPR-afbildet-gating, blødt slet/genopret, versionering, filside,
+bibliotek og køer. Et separat dokument-system ville duplikere alt dét. Det reelt
+billede-specifikke er kun klient-laget: variant-pipelinen (`buildVariants`),
+Lightbox/preview og `accept="image/*"`-filteret.
+
+**Dokument-fasen leverer** (egen spec, efter fase 2 — kan gå før/parallelt med 3–4):
+- Upload af PDF/dokument uden variant-pipeline (rå bytes; evt. side-1-thumb senere).
+- Dokument-preview på filsiden (ikon + download/åbn via signed URL; ingen indlejret
+  PDF-viewer i første omgang).
+- Nye `slags`-værdier (fx `'dokument'`, `'avisudklip'`) — vocab-data, ikke skema.
+- **Transskription som narrativ-på-media:** `narrative` er allerede polymorf
+  (`subjekt_type/subjekt_id`), så artiklens rå tekst bliver et narrativ med
+  `subjekt_type='media'` — fuldtekstsøgbar via eksisterende fts, redigerbar i det
+  eksisterende narrativ-apparat, koblet 1:1 til sin scanning (Wikisource-mønsteret:
+  scanning + læsetekst side om side). ⚠ Kræver egen GDPR-designrunde: teksten *om*
+  en (potentielt levende) person skal arve mediets afbildet-gating — narrativ-RLS'ens
+  `entitet_offentlig('media', …)`-vej skal verificeres fail-closed før noget shippes.
+- **Lyd/video: kun døren åben.** `mime_type` bærer dem allerede; afspiller-UI og
+  varianter bygges først når et konkret behov opstår. Ingen forberedelse nødvendig —
+  netop fordi modellen er format-agnostisk.
+
+**Konsekvens for fase 2 (biblioteket):** én defensiv regel — biblioteket og filsiden
+må ikke *antage* billede-mime; medier uden brugbar thumb (fx fremtidige PDF'er)
+renderes med dokument-ikon i stedet for tom/knækket thumbnail. Indskrevet i
+fase 2-spec'en; ingen scope-udvidelse.
+
 ---
 
 ## 5. Datamodel-konsekvenser (bevidst små)
@@ -290,6 +327,8 @@ media-grenen; `db-verify-media.sql` udvides med genopret/udrens/erstat-gating-as
   sha-stier og janitor er designet så bulk-importen kan genbruge dem 1:1.
 - **Ingen ny moderations-/godkendelsesmodel** — redaktionen er betroet; det
   eksisterende change_set-spor er revisionen.
+- **Ingen lyd-/video-afspilning** — modellen bærer formaterne (mime_type), men
+  afspiller-UI venter på et konkret behov (§4.8).
 
 ---
 
@@ -323,12 +362,15 @@ mv."), ikke efter teknisk sværhedsgrad:
 | Fase | Indhold | Løser | Kerne-leverancer |
 |---|---|---|---|
 | **1 — Filsiden & fuld CRUD** | Medie-detaljeside (web+mobile) med metadata-redigering, rettigheds-panel, genopret | M1, M2, M3 | `red_opdater_media`, `red_genopret_media`, UI-panel, upload-ark udvidet med kunstner/datering. **Spec skrevet:** [`../superpowers/specs/2026-07-19-mediehaandtering-fase1-filside-design.md`](../superpowers/specs/2026-07-19-mediehaandtering-fase1-filside-design.md) |
-| **2 — Biblioteket** | "Medier"-fanen som rigtigt bibliotek: søgning, køer 1–4, "bruges på", advarsel ved fjern/slet | M6, M7, M9 (synlighed) | kø-queries, `red_doede_links`+media, tilknyt-eksisterende-picker (M5) |
+| **2 — Biblioteket** | "Medier"-fanen som rigtigt bibliotek: søgning, køer 1–4, "bruges på", advarsel ved fjern/slet | M6, M7, M9 (synlighed) | kø-queries, `red_doede_links`+media, tilknyt-eksisterende-picker (M5). **Spec skrevet:** [`../superpowers/specs/2026-07-19-mediehaandtering-fase2-bibliotek-design.md`](../superpowers/specs/2026-07-19-mediehaandtering-fase2-bibliotek-design.md) |
 | **3 — Hygiejne** | sha256 ved upload, sha-stier, dedup-UX, janitor-script | M8, M9 (oprydning) | klient-hash, `import/janitor`-R-script, verify-asserts |
 | **4 — Identitet & endeligt farvel** | Erstat fil, udrensning m. preview, portræt-flag | M4, M11, M10 | `red_erstat_media_fil`, `red_udrens_media`(+preview), `red_saet_portraet`, `relation.kvalifikator` |
+| **5 — Dokumenter & transskription** (§4.8, tilføjet 2026-07-19) | PDF/scanning-upload uden variant-pipeline, dokument-preview, transskription som narrativ-på-media (fts-søgbar), nye `slags`-værdier | (nyt behov, ikke M-nummereret) | upload-gren for ikke-billeder, filside-preview, narrativ-på-media inkl. GDPR-arv (egen designrunde), vocab |
 
 Fase 1+2 giver ~80 % af den oplevede forbedring og kræver nul nye arkitektur-
 beslutninger. Fase 4 rummer de to beslutningstunge punkter (§10) og tages sidst.
+Fase 5 er uafhængig af 3–4 og kan tages før/parallelt, men dens
+transskriptions-GDPR-spørgsmål (§4.8) må ikke hastes.
 
 ---
 

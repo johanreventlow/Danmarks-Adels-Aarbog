@@ -705,3 +705,25 @@ invariant på tværs af sprog) der kræver egen brainstorm, ikke besvaret her. S
 - **Join-nøgle `(source_id, linje, nr)`** — `nr` resetter pr. gren (ikke globalt); NULL-linje
   karantænes. Backfill fail-closer på tvetydigt source-valg (TNG-source id 2 har 0 Roman-linjer,
   så DAA-source 1 resolves entydigt).
+
+## Mediehåndtering: dokumenter/PDF/tekst-transskription — samme fundament, egen fase (2026-07-19)
+
+Bruger-rejst behov: indscannede kilder (PDF/scanning, fx avisartikel om en person) +
+artiklens rå tekst til læsbar visning/søgning; teoretisk også lyd/video.
+
+- **Besluttet: samme media-system, IKKE et separat dokument-system.** `media` er
+  allerede format-agnostisk (`mime_type`/`byte_size`/`slags`; vocab har `'scanning'`;
+  `bredde`/`hoejde` nullable), og hele forvaltningsapparatet (rettigheds-workflow,
+  gating, blødt slet/genopret, versionering, filside, bibliotek/køer) er
+  format-neutralt — et separat system ville duplikere det hele. Kun klient-laget er
+  billede-specifikt (variant-pipeline, Lightbox, `accept="image/*"`).
+- **Transskription = narrativ-på-media** (`narrative` er allerede polymorf) —
+  Wikisource-mønsteret: scanning + fts-søgbar læsetekst koblet 1:1. ⚠ Egen
+  GDPR-designrunde påkrævet før implementering: tekst om (potentielt levende) person
+  skal arve mediets afbildet-gating fail-closed.
+- **Tilføjet som fase 5** i mediekonceptet (`docs/design/2026-07-19-mediehaandtering-robust-koncept.md`
+  §4.8 + §9); uafhængig af fase 3–4. Lyd/video: kun "døren åben" (mime_type bærer
+  dem), intet bygges før konkret behov.
+- **Eneste konsekvens for fase 2 (biblioteket), indskrevet i spec'en:** defensiv
+  rendering — ikke-billede-mime/manglende thumb → dokument-ikon, aldrig knækket
+  thumbnail; udeladt af Lightbox.
