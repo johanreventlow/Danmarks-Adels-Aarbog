@@ -3,28 +3,37 @@ import { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { Body, BtnLabel, Mono, Serif } from '../Typography';
 import { Lightbox } from '../Lightbox';
-import type { PersonMedia } from '../../data/redaktionRead';
+import type { MediaAnvendelse, PersonMedia } from '../../data/redaktionRead';
 import { Border, Colors, Radius } from '../../theme/tokens';
 
 const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 const RETTIGHED_STATUS = ['ukendt', 'public_domain', 'licenseret', 'tilladelse_givet', 'begraenset', 'spaerret'] as const;
 
-export function MediaDetaljeSheet({ media, uri, onClose, onGemMetadata, onGemRettigheder, onFjern, onSlet, onGenopret }: {
-  media: PersonMedia;
+type DetaljeMedia = Omit<PersonMedia, 'relationId'> & { relationId?: string };
+
+export function MediaDetaljeSheet({ media, uri, thumbUri, anvendelse, anvendelseFejl, onClose, onGemMetadata, onGemRettigheder, onFjern, onFjernTilknytning, onTilknyt, onSlet, onGenopret }: {
+  media: DetaljeMedia;
   uri?: string;
+  thumbUri?: string;
+  anvendelse?: MediaAnvendelse;
+  anvendelseFejl?: string;
   onClose: () => void;
   onGemMetadata: (payload: Record<string, unknown>) => void;
   onGemRettigheder: (payload: Record<string, unknown>) => void;
   onFjern: () => void;
+  onFjernTilknytning?: (relationId: string) => void;
+  onTilknyt?: () => void;
   onSlet: () => void;
   onGenopret: () => void;
 }) {
   const [meta, setMeta] = useState({ titel: '', slags: 'foto', kunstner: '', datering: '' });
   const [ret, setRet] = useState({ status: 'ukendt', maaPubliceres: false, licens: '', kildehenvisning: '', gengivelsestilladelse: '', kildeFritekst: '' });
   const [lightbox, setLightbox] = useState(false);
+  const [bekraeftSlet, setBekraeftSlet] = useState(false);
   useEffect(() => {
     setMeta({ titel: media.titel ?? '', slags: media.slags || 'foto', kunstner: media.kunstner ?? '', datering: media.datering ?? '' });
     setRet({ status: media.rettighederStatus || 'ukendt', maaPubliceres: media.maaPubliceres, licens: '', kildehenvisning: '', gengivelsestilladelse: '', kildeFritekst: '' });
+    setBekraeftSlet(false);
   }, [media.id, media.titel, media.slags, media.kunstner, media.datering, media.rettighederStatus, media.maaPubliceres]);
 
   const metadataPayload: Record<string, unknown> = {};
@@ -36,6 +45,11 @@ export function MediaDetaljeSheet({ media, uri, onClose, onGemMetadata, onGemRet
   const warning = ret.maaPubliceres && (ret.status === 'spaerret' || ret.status === 'begraenset');
   const filinfo = [media.mimeType, media.bredde && media.hoejde ? `${media.bredde}×${media.hoejde}` : null,
     media.byteSize != null ? `${Math.round(media.byteSize / 1024)} KB` : null, media.originalFilnavn].filter(Boolean).join(' · ');
+  const erBillede = media.mimeType?.startsWith('image/') === true && !!thumbUri && !!uri;
+  const antalAfbildet = anvendelse?.afbildet.length ?? 0;
+  const antalMentions = anvendelse?.mentions.length ?? 0;
+  const erIBrug = antalAfbildet + antalMentions > 0;
+  const sletAdvarsel = `Bruges på ${antalAfbildet} ${antalAfbildet === 1 ? 'tilknytning' : 'tilknytninger'} og i ${antalMentions} ${antalMentions === 1 ? 'narrativ' : 'narrativer'} — slet alligevel? Mentions bliver stående som inaktive tokens.`;
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
@@ -46,11 +60,13 @@ export function MediaDetaljeSheet({ media, uri, onClose, onGemMetadata, onGemRet
             <Serif size={22} style={{ flex: 1 }}>{media.titel || 'Medie'}</Serif>
             <Pressable onPress={onClose}><Serif size={24} color={Colors.textMuted}>×</Serif></Pressable>
           </View>
-          {uri ? (
+          {erBillede ? (
             <Pressable disabled={media.uploadStatus !== 'klar'} onPress={() => setLightbox(true)}>
-              <Image source={{ uri }} style={[styles.preview, media.uploadStatus === 'fjernet' && { opacity: .5 }]} contentFit="contain" />
+              <Image source={{ uri: uri! }} style={[styles.preview, media.uploadStatus === 'fjernet' && { opacity: .5 }]} contentFit="contain" />
             </Pressable>
-          ) : <View style={styles.preview} />}
+          ) : <View style={[styles.preview, styles.dokument, media.uploadStatus === 'fjernet' && { opacity: .5 }]}>
+            <Serif size={32} color={Colors.textMuted}>▤</Serif><Body size={12} color={Colors.textMuted}>{media.slags || 'dokument'}</Body>
+          </View>}
           <Mono size={8.5} color={Colors.textMuted2} style={{ marginTop: 5 }}>{media.uploadStatus} · {filinfo || 'ingen filmetadata'}</Mono>
 
           <Mono size={9} color={Colors.gold} style={styles.heading}>METADATA</Mono>
@@ -85,17 +101,36 @@ export function MediaDetaljeSheet({ media, uri, onClose, onGemMetadata, onGemRet
           <TextInput style={styles.input} placeholder="Kildenote" placeholderTextColor={Colors.textMuted2} value={ret.kildeFritekst} onChangeText={(v) => setRet((r) => ({ ...r, kildeFritekst: v }))} />
           <Pressable style={styles.gem} onPress={() => onGemRettigheder(ret)}><BtnLabel color="#fff">Gem rettigheder</BtnLabel></Pressable>
 
+          <View style={styles.anvendelseHeader}>
+            <Mono size={9} color={Colors.gold}>BRUGES PÅ</Mono>
+            {onTilknyt ? <Pressable disabled={!anvendelse} style={[styles.neutral, !anvendelse && { opacity: .45 }]} onPress={onTilknyt}><BtnLabel size={10} color={Colors.bordeaux}>Tilknyt til…</BtnLabel></Pressable> : null}
+          </View>
+          {!anvendelse ? <Body size={12} color={anvendelseFejl ? Colors.danger : Colors.textMuted}>{anvendelseFejl || 'Henter anvendelser…'}</Body> : <View style={{ gap: 7 }}>
+            {anvendelse.afbildet.map((a) => <View key={a.relationId} style={styles.anvendelseRad}>
+              <Body size={12.5} style={{ flex: 1 }}>{a.navn} · {a.type}</Body>
+              {onFjernTilknytning ? <Pressable onPress={() => onFjernTilknytning(a.relationId)}><BtnLabel size={10} color={Colors.danger}>Fjern</BtnLabel></Pressable> : null}
+            </View>)}
+            {anvendelse.mentions.map((m) => <View key={`${m.kildeType}:${m.kildeId}`} style={styles.anvendelseRad}>
+              <Body size={12.5}>{m.kildeType === 'narrative' ? 'Narrativ' : m.kildeType} på {m.subjektNavn}</Body>
+            </View>)}
+            {!erIBrug ? <Body size={12} color={Colors.textMuted}>Mediet bruges ikke endnu.</Body> : null}
+          </View>}
+
           <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 22 }}>
             {media.uploadStatus === 'fjernet' ? (
               <Pressable style={styles.gem} onPress={onGenopret}><BtnLabel color="#fff">Genopret</BtnLabel></Pressable>
             ) : <>
               <Pressable disabled={!media.relationId} style={styles.neutral} onPress={onFjern}><BtnLabel color={Colors.textMuted}>Fjern tilknytning</BtnLabel></Pressable>
-              <Pressable style={styles.slet} onPress={onSlet}><BtnLabel color="#fff">Slet billede</BtnLabel></Pressable>
+              <Pressable disabled={!anvendelse} style={[styles.slet, !anvendelse && { opacity: .45 }]} onPress={() => {
+                if (!anvendelse) return;
+                if (erIBrug && !bekraeftSlet) { setBekraeftSlet(true); return; }
+                onSlet();
+              }}><BtnLabel size={bekraeftSlet ? 9 : undefined} color="#fff">{bekraeftSlet ? sletAdvarsel : anvendelse ? 'Slet billede' : 'Kontrollerer…'}</BtnLabel></Pressable>
             </>}
           </View>
         </ScrollView>
       </View>
-      {lightbox && uri && media.uploadStatus === 'klar' ? (
+      {lightbox && erBillede && uri && media.uploadStatus === 'klar' ? (
         <Lightbox items={[{ id: media.id, uri, titel: media.titel }]} index={0} onClose={() => setLightbox(false)} onNavigate={() => {}} />
       ) : null}
     </Modal>
@@ -106,6 +141,7 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(34,31,26,.45)' },
   sheet: { maxHeight: '92%', backgroundColor: Colors.paperBg, borderTopLeftRadius: Radius.sheet, borderTopRightRadius: Radius.sheet, borderTopWidth: 1, borderColor: Border.light },
   preview: { width: '100%', height: 260, borderRadius: 10, backgroundColor: Colors.beige2 },
+  dokument: { alignItems: 'center', justifyContent: 'center', gap: 7 },
   heading: { marginTop: 20, marginBottom: 7 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: { borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.chip, paddingHorizontal: 10, paddingVertical: 5 },
@@ -114,4 +150,6 @@ const styles = StyleSheet.create({
   gem: { backgroundColor: Colors.konklusionGroen, borderRadius: Radius.field, paddingHorizontal: 14, paddingVertical: 9, alignSelf: 'flex-start', marginTop: 10 },
   neutral: { borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.field, paddingHorizontal: 12, paddingVertical: 9 },
   slet: { backgroundColor: Colors.danger, borderRadius: Radius.field, paddingHorizontal: 12, paddingVertical: 9 },
+  anvendelseHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, marginBottom: 7 },
+  anvendelseRad: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.beige2, borderRadius: Radius.field, paddingHorizontal: 10, paddingVertical: 8 },
 });

@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { buildTidslinje, mapFamilieRows, mapHaendelser, mapPersonMediaRows } from '../redaktionRead';
+import {
+  buildTidslinje,
+  klassificerMedie,
+  mapFamilieRows,
+  mapHaendelser,
+  mapMediaAnvendelse,
+  mapMediaBibliotekRows,
+  mapPersonMediaRows,
+} from '../redaktionRead';
 import type { Model } from '../types';
 
 describe('hændelses-tidslinje', () => {
@@ -96,5 +104,105 @@ describe('mapPersonMediaRows (mediehåndtering fase 1)', () => {
     const signed = new Map([['large.jpg', 'large-url'], ['thumb.jpg', 'thumb-url']]);
     const out = mapPersonMediaRows(rows, signed, new Map(), new Map([['93', 'thumb.jpg']]));
     expect(out[0]).toMatchObject({ id: '93', uploadStatus: 'fjernet', url: 'large-url', thumbUrl: 'thumb-url' });
+  });
+});
+
+describe('klassificerMedie (mediehåndtering fase 2)', () => {
+  const uploadStatuses = ['klar', 'kladde', 'fejlet', 'fjernet'] as const;
+  const rettighederStatuses = ['ukendt', 'licenseret'] as const;
+
+  for (const uploadStatus of uploadStatuses) {
+    for (const rettighederStatus of rettighederStatuses) {
+      for (const maaPubliceres of [false, true]) {
+        for (const antalAfbildet of [0, 1]) {
+          for (const antalMentions of [0, 1]) {
+            it(`${uploadStatus}/${rettighederStatus}/public=${maaPubliceres}/afbildet=${antalAfbildet}/mentions=${antalMentions}`, () => {
+              const expected = [];
+              if (uploadStatus === 'klar' && (rettighederStatus === 'ukendt' || !maaPubliceres)) expected.push('rettigheder');
+              if (uploadStatus === 'klar' && antalAfbildet === 0 && antalMentions === 0) expected.push('loese');
+              if (uploadStatus === 'kladde' || uploadStatus === 'fejlet') expected.push('strandede');
+              if (uploadStatus === 'fjernet') expected.push('papirkurv');
+              expect(klassificerMedie({ uploadStatus, rettighederStatus, maaPubliceres }, antalAfbildet, antalMentions))
+                .toEqual(expected);
+            });
+          }
+        }
+      }
+    }
+  }
+
+  it('tillader flere køer samtidig', () => {
+    expect(klassificerMedie({ uploadStatus: 'klar', rettighederStatus: 'ukendt', maaPubliceres: false }, 0, 0))
+      .toEqual(['rettigheder', 'loese']);
+  });
+});
+
+describe('mapMediaBibliotekRows', () => {
+  const media = [
+    { id: 91, slags: 'foto', titel: 'Portræt', kunstner: 'Jens Juel', datering: '1780',
+      storage_path: 'large-91.jpg', upload_status: 'klar', maa_publiceres: false,
+      rettigheder_status: 'ukendt', mime_type: 'image/jpeg', byte_size: 100, bredde: 80,
+      hoejde: 100, original_filnavn: 'portraet.jpg' },
+    { id: 92, slags: 'scanning', titel: 'Løs scanning', kunstner: null, datering: null,
+      storage_path: null, upload_status: 'klar', maa_publiceres: true,
+      rettigheder_status: 'public_domain', mime_type: null, byte_size: null, bredde: null,
+      hoejde: null, original_filnavn: null },
+  ];
+
+  it('joiner begge relationsretninger og tæller unikke mål samt mentions', () => {
+    const out = mapMediaBibliotekRows(
+      media,
+      [
+        { subjekt_id: 501, objekt_id: 91 },
+        { subjekt_id: 501, objekt_id: 91 },
+      ],
+      [{ subjekt_id: 91, objekt_type: 'estate', objekt_id: 601 }],
+      [{ maal_id: 91 }, { maal_id: 92 }, { maal_id: 91 }],
+      new Map([['large-91.jpg', 'large-url'], ['thumb-91.jpg', 'thumb-url']]),
+      new Map([['91', 'thumb-91.jpg']]),
+    );
+    expect(out[0]).toMatchObject({
+      id: '91', antalAfbildet: 2, antalMentions: 2, koeer: ['rettigheder'],
+      url: 'large-url', thumbUrl: 'thumb-url',
+    });
+    expect(out[0]).not.toHaveProperty('relationId');
+    expect(out[1]).toMatchObject({ id: '92', antalAfbildet: 0, antalMentions: 1, koeer: [] });
+  });
+
+  it('giver media uden relationer eller mentions 0/0 og klassificerer dem som løse', () => {
+    const out = mapMediaBibliotekRows([media[1]], [], [], []);
+    expect(out[0]).toMatchObject({ antalAfbildet: 0, antalMentions: 0, koeer: ['loese'] });
+  });
+});
+
+describe('mapMediaAnvendelse', () => {
+  it('mapper begge relationsretninger og opløser mention via narrativets subjekt', () => {
+    const out = mapMediaAnvendelse({
+      personRelationer: [{ id: 501, subjekt_id: 42 }],
+      objektRelationer: [{ id: 502, objekt_type: 'estate', objekt_id: 7 }],
+      mentions: [{ kilde_type: 'narrative', kilde_id: 301 }],
+      narrativer: [{ id: 301, subjekt_type: 'person', subjekt_id: 42 }],
+      navneBySubjekt: new Map([['person:42', 'Conrad Reventlow'], ['estate:7', 'Brahetrolleborg']]),
+    });
+    expect(out).toEqual({
+      afbildet: [
+        { type: 'person', id: '42', navn: 'Conrad Reventlow', relationId: '501' },
+        { type: 'estate', id: '7', navn: 'Brahetrolleborg', relationId: '502' },
+      ],
+      mentions: [{ kildeType: 'narrative', kildeId: '301', subjektNavn: 'Conrad Reventlow' }],
+    });
+  });
+
+  it('falder lukket tilbage ved ukendt mention-kilde eller subjekt', () => {
+    const out = mapMediaAnvendelse({
+      personRelationer: [], objektRelationer: [],
+      mentions: [{ kilde_type: 'note', kilde_id: 99 }, { kilde_type: 'narrative', kilde_id: 302 }],
+      narrativer: [{ id: 302, subjekt_type: 'lineage', subjekt_id: 8 }],
+      navneBySubjekt: new Map(),
+    });
+    expect(out.mentions).toEqual([
+      { kildeType: 'note', kildeId: '99', subjektNavn: '(ukendt subjekt)' },
+      { kildeType: 'narrative', kildeId: '302', subjektNavn: 'lineage #8' },
+    ]);
   });
 });

@@ -6,13 +6,12 @@ import type { PersonMedia } from '../../data/redaktionRead';
 
 // Kompakt galleri. Tryk åbner filsiden; kun filsiden åbner lightbox, så fjernede medier
 // aldrig kan lække ind i preview-navigationen.
-export function MediaGallery({ media, mediaUris, mediaThumbUris = {}, onVaelg, onFjern, onSlet, onGenopret }: {
+export function MediaGallery({ media, mediaUris, mediaThumbUris = {}, onVaelg, onFjern, onGenopret }: {
   media: PersonMedia[];
   mediaUris: Record<string, string>;
   mediaThumbUris?: Record<string, string>;
   onVaelg: (m: PersonMedia) => void;
   onFjern: (m: PersonMedia) => void;
-  onSlet: (m: PersonMedia) => void;
   onGenopret: (m: PersonMedia) => void;
 }) {
   if (!media.length) {
@@ -20,14 +19,17 @@ export function MediaGallery({ media, mediaUris, mediaThumbUris = {}, onVaelg, o
   }
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 9, marginBottom: 10 }}>
-      {media.map((m) => (
-        <View key={m.id} style={{ width: 96 }}>
+      {media.map((m) => {
+        const erBillede = m.mimeType?.startsWith('image/') === true && !!mediaThumbUris[m.id] && !!mediaUris[m.id];
+        return <View key={m.id} style={{ width: 96 }}>
           <Pressable onPress={() => onVaelg(m)}>
-            {mediaUris[m.id] ? (
-              <Image source={{ uri: mediaThumbUris[m.id] ?? mediaUris[m.id] }}
+            {erBillede ? (
+              <Image source={{ uri: mediaThumbUris[m.id] }}
                 style={[styles.mediaThumb, m.uploadStatus === 'fjernet' && styles.fjernet]} contentFit="cover" />
             ) : (
-              <View style={[styles.mediaThumb, m.uploadStatus === 'fjernet' && styles.fjernet]} />
+              <View style={[styles.mediaThumb, styles.dokument, m.uploadStatus === 'fjernet' && styles.fjernet]}>
+                <Mono size={22} color={Colors.textMuted}>▤</Mono><Mono size={8} color={Colors.textMuted}>{m.slags || 'dokument'}</Mono>
+              </View>
             )}
           </Pressable>
           <Mono size={8} color={Colors.textMuted} numberOfLines={1} style={{ marginTop: 3 }}>
@@ -41,16 +43,16 @@ export function MediaGallery({ media, mediaUris, mediaThumbUris = {}, onVaelg, o
               <Pressable disabled={!m.relationId} onPress={() => onFjern(m)}>
                 <Mono size={8} color={m.relationId ? Colors.textSecondary2 : Colors.textMuted3}>Fjern</Mono>
               </Pressable>
-              <Pressable onPress={() => onSlet(m)}><Mono size={8} color={Colors.danger}>Slet</Mono></Pressable>
             </>}
           </View>
-        </View>
-      ))}
+        </View>;
+      })}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   mediaThumb: { width: 96, height: 96, borderRadius: 10, backgroundColor: Colors.beige2 },
+  dokument: { alignItems: 'center', justifyContent: 'center', gap: 3 },
   fjernet: { opacity: 0.45 },
 });

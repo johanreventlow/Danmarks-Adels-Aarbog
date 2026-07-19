@@ -1,5 +1,25 @@
 # Changelog
 
+## Mediehåndtering fase 2 — biblioteket implementeret lokalt (2026-07-19)
+
+Web og mobil har nu et samlet mediebibliotek med søgning, køerne Rettigheder/Løse/
+Strandede/Papirkurv, format-defensive thumbnails og en filside med “bruges på”.
+Eksisterende medier kan tilknyttes personer, godser, våben og linjer gennem den
+eksisterende GDPR-gatede `red_relation`; sletning er fail-closed, indtil anvendelser
+er hentet, og relationer kan fjernes enkeltvis. Indsættelsespickere og Lightbox viser
+fortsat kun klare billedmedier.
+
+Databasekoden udvider `red_doede_links` med media-mål, mens RLS skelner mellem
+redaktionens fulde mention-overblik og anon/medlems synlighed. Implementeringen og
+dens migration er verificeret lokalt; intet er deployet til prod. Prod-trinnet er
+fortsat gated og skal samle fase 1 + fase 2, `db-rls.sql`, verify-filer og app-deploy
+efter read-only backup og eksplicit brugeraccept.
+
+Kendt follow-up: pickerene skjuler allerede tilknyttede mål, og bibliotekstællinger
+deduplikerer mål, men `relation` har endnu ingen databaseunikhed for identiske
+`afbildet`-relationer. Direkte eller samtidige RPC-kald kan derfor stadig skabe en
+dublet, som skal afkobles række for række.
+
 ## Mediehåndtering fase 2 — implementeringsplan (2026-07-19)
 
 Plan skrevet (ingen kode): `docs/superpowers/plans/2026-07-19-mediehaandtering-fase2-bibliotek.md`

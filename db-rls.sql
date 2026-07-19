@@ -537,7 +537,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['person','person_external_id','family_member','fact',
-                           'relation','narrative','haendelse','note','assertion','conclusion','citation']
+                           'relation','narrative','haendelse','note','assertion','conclusion','citation','text_mention']
   loop
     execute format('drop policy if exists redaktion_read on public.%I;', t);
     execute format(
@@ -654,6 +654,7 @@ REVOKE ALL ON slaegtsnavn_karantaene FROM anon, authenticated;
 
 -- text_mention: dobbelt-gating (M4) — kilde-tekst OG mål synlig.
 ALTER TABLE text_mention ENABLE ROW LEVEL SECURITY;
+GRANT SELECT ON public.text_mention TO anon, authenticated;
 DROP POLICY IF EXISTS tm_read ON text_mention;
 CREATE POLICY tm_read ON text_mention FOR SELECT TO anon, authenticated
 USING (
@@ -673,5 +674,8 @@ USING (
     ELSE false END
   AND
   -- mål synlig (F-02c: entitet_offentlig — family-mål + ukendte typer fail-closer nu)
-  public.entitet_offentlig(maal_type, maal_id)
+  CASE WHEN maal_type='media'
+    THEN public.media_synlig_anon(maal_id)
+    ELSE public.entitet_offentlig(maal_type, maal_id)
+  END
 );

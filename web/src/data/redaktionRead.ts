@@ -694,6 +694,215 @@ export async function fetchRedObjectMedia(objektType: string, objektId: string):
   return mediaFromRelPairs(rels.map((r) => ({ mediaId: r.subjekt_id, relationId: r.id })));
 }
 
+// --- Tværgående mediebibliotek + "bruges på" (mediehåndtering fase 2) ---
+
+export type MedieKoe = 'rettigheder' | 'loese' | 'strandede' | 'papirkurv';
+
+export function klassificerMedie(
+  m: { uploadStatus: string; rettighederStatus: string; maaPubliceres: boolean },
+  antalAfbildet: number,
+  antalMentions: number,
+): MedieKoe[] {
+  const koeer: MedieKoe[] = [];
+  if (m.uploadStatus === 'klar' && (m.rettighederStatus === 'ukendt' || !m.maaPubliceres)) {
+    koeer.push('rettigheder');
+  }
+  if (m.uploadStatus === 'klar' && antalAfbildet === 0 && antalMentions === 0) {
+    koeer.push('loese');
+  }
+  if (m.uploadStatus === 'kladde' || m.uploadStatus === 'fejlet') koeer.push('strandede');
+  if (m.uploadStatus === 'fjernet') koeer.push('papirkurv');
+  return koeer;
+}
+
+export type MediaBibliotekPost = Omit<PersonMedia, 'relationId'> & {
+  antalAfbildet: number;
+  antalMentions: number;
+  koeer: MedieKoe[];
+};
+
+type RawPersonMediaRelation = { subjekt_id: number; objekt_id: number };
+type RawObjectMediaRelation = { subjekt_id: number; objekt_type: string; objekt_id: number };
+type RawMediaMentionCount = { maal_id: number };
+
+function countById(rows: number[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const id of rows) {
+    const key = String(id);
+    out.set(key, (out.get(key) ?? 0) + 1);
+  }
+  return out;
+}
+
+export function mapMediaBibliotekRows(
+  mediaRows: RawPersonMediaRow[],
+  personRelationer: RawPersonMediaRelation[],
+  objektRelationer: RawObjectMediaRelation[],
+  mentions: RawMediaMentionCount[],
+  signed: Map<string, string> = new Map(),
+  thumbPathByMediaId: Map<string, string> = new Map(),
+): MediaBibliotekPost[] {
+  const afbildetByMediaId = new Map<string, Set<string>>();
+  const tilfoej = (mediaId: number, target: string) => {
+    const targets = afbildetByMediaId.get(String(mediaId)) ?? new Set<string>();
+    targets.add(target); afbildetByMediaId.set(String(mediaId), targets);
+  };
+  personRelationer.forEach((r) => tilfoej(r.objekt_id, `person:${r.subjekt_id}`));
+  objektRelationer.forEach((r) => tilfoej(r.subjekt_id, `${r.objekt_type}:${r.objekt_id}`));
+  const mentionCount = countById(mentions.map((m) => m.maal_id));
+
+  return mapPersonMediaRows(mediaRows, signed, new Map(), thumbPathByMediaId).map(({ relationId: _relationId, ...media }) => {
+    const antalAfbildet = afbildetByMediaId.get(media.id)?.size ?? 0;
+    const antalMentions = mentionCount.get(media.id) ?? 0;
+    return {
+      ...media,
+      antalAfbildet,
+      antalMentions,
+      koeer: klassificerMedie(media, antalAfbildet, antalMentions),
+    };
+  });
+}
+
+export async function fetchMediaBibliotek(): Promise<MediaBibliotekPost[]> {
+  // Ingen upload_status-filter her: kladder, fejl og fjernede rækker er selve grundlaget for
+  // bibliotekets strandede-/papirkurvskøer. RLS afgør fortsat, hvem der må se dem.
+  const [mediaRows, personRelationer, objektRelationer, mentions] = await Promise.all([
+    getAll<RawPersonMediaRow>(() =>
+      supabase.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn')),
+    getAll<RawPersonMediaRelation>(() =>
+      supabase.from('relation').select('subjekt_id,objekt_id').eq('subjekt_type', 'person').eq('objekt_type', 'media').eq('rolle', 'afbildet')),
+    getAll<RawObjectMediaRelation>(() =>
+      supabase.from('relation').select('subjekt_id,objekt_type,objekt_id').eq('subjekt_type', 'media').in('objekt_type', ['estate','coat_of_arms','lineage']).eq('rolle', 'afbildet')),
+    getAll<RawMediaMentionCount>(() =>
+      supabase.from('text_mention').select('maal_id').eq('maal_type', 'media')),
+  ]);
+  const mediaIds = mediaRows.map((m) => m.id);
+  const thumbPathByMediaId = await fetchThumbPathByMediaId(mediaIds);
+  const signed = await signPaths([
+    ...mediaRows.map((m) => m.storage_path ?? ''),
+    ...thumbPathByMediaId.values(),
+  ].filter(Boolean));
+  return mapMediaBibliotekRows(mediaRows, personRelationer, objektRelationer, mentions, signed, thumbPathByMediaId);
+}
+
+export type MediaAnvendelse = {
+  afbildet: { type: string; id: string; navn: string; relationId: string }[];
+  mentions: { kildeType: string; kildeId: string; subjektNavn: string }[];
+};
+
+type RawMediaPersonAnvendelse = { id: number; subjekt_id: number };
+type RawMediaObjektAnvendelse = { id: number; objekt_type: string; objekt_id: number };
+type RawMediaMention = { kilde_type: string; kilde_id: number };
+type RawNarrativeSubject = { id: number; subjekt_type: string; subjekt_id: number };
+
+const subjectKey = (type: string, id: number | string) => `${type}:${id}`;
+const fallbackSubjectName = (type: string, id: number | string) => `${type} #${id}`;
+
+export function mapMediaAnvendelse(rows: {
+  personRelationer: RawMediaPersonAnvendelse[];
+  objektRelationer: RawMediaObjektAnvendelse[];
+  mentions: RawMediaMention[];
+  narrativer: RawNarrativeSubject[];
+  navneBySubjekt: Map<string, string>;
+}): MediaAnvendelse {
+  const narrativById = new Map(rows.narrativer.map((n) => [String(n.id), n]));
+  return {
+    afbildet: [
+      ...rows.personRelationer.map((r) => ({
+        type: 'person',
+        id: String(r.subjekt_id),
+        navn: rows.navneBySubjekt.get(subjectKey('person', r.subjekt_id)) ?? fallbackSubjectName('person', r.subjekt_id),
+        relationId: String(r.id),
+      })),
+      ...rows.objektRelationer.map((r) => ({
+        type: r.objekt_type,
+        id: String(r.objekt_id),
+        navn: rows.navneBySubjekt.get(subjectKey(r.objekt_type, r.objekt_id)) ?? fallbackSubjectName(r.objekt_type, r.objekt_id),
+        relationId: String(r.id),
+      })),
+    ],
+    mentions: rows.mentions.map((m) => {
+      const narrativ = m.kilde_type === 'narrative' ? narrativById.get(String(m.kilde_id)) : undefined;
+      return {
+        kildeType: m.kilde_type,
+        kildeId: String(m.kilde_id),
+        subjektNavn: narrativ
+          ? rows.navneBySubjekt.get(subjectKey(narrativ.subjekt_type, narrativ.subjekt_id))
+            ?? fallbackSubjectName(narrativ.subjekt_type, narrativ.subjekt_id)
+          : '(ukendt subjekt)',
+      };
+    }),
+  };
+}
+
+function parseDatabaseId(value: string): number | string | null {
+  const trimmed = value.trim();
+  if (!/^[1-9][0-9]*$/.test(trimmed) || trimmed.length > 19 || (trimmed.length === 19 && trimmed > '9223372036854775807')) return null;
+  const id = Number(trimmed);
+  return Number.isSafeInteger(id) ? id : trimmed;
+}
+
+async function fetchMediaSubjectNames(subjects: { type: string; id: number }[]): Promise<Map<string, string>> {
+  const idsByType = new Map<string, Set<number>>();
+  for (const subject of subjects) {
+    const ids = idsByType.get(subject.type) ?? new Set<number>();
+    ids.add(subject.id);
+    idsByType.set(subject.type, ids);
+  }
+  const out = new Map<string, string>();
+  await Promise.all([...idsByType].map(async ([type, idSet]) => {
+    const ids = [...idSet];
+    if (!ids.length) return;
+    if (type === 'person') {
+      const rows = await getAll<{ id: number; visning_navn: string | null }>(() =>
+        supabase.from('person').select('id,visning_navn').in('id', ids));
+      rows.forEach((r) => out.set(subjectKey(type, r.id), r.visning_navn ?? fallbackSubjectName(type, r.id)));
+    } else if (type === 'estate') {
+      const rows = await getAll<{ id: number; navn: string | null }>(() =>
+        supabase.from('estate').select('id,navn').in('id', ids));
+      rows.forEach((r) => out.set(subjectKey(type, r.id), r.navn ?? fallbackSubjectName(type, r.id)));
+    } else if (type === 'coat_of_arms') {
+      const rows = await getAll<{ id: number; blasonering: string | null }>(() =>
+        supabase.from('coat_of_arms').select('id,blasonering').in('id', ids));
+      rows.forEach((r) => out.set(subjectKey(type, r.id), r.blasonering ?? fallbackSubjectName(type, r.id)));
+    } else if (type === 'lineage') {
+      const rows = await getAll<{ id: number; navn: string | null }>(() =>
+        supabase.from('lineage').select('id,navn').in('id', ids));
+      rows.forEach((r) => out.set(subjectKey(type, r.id), r.navn ?? fallbackSubjectName(type, r.id)));
+    } else if (type === 'slaegt') {
+      ids.forEach((id) => out.set(subjectKey(type, id), 'Slægten (generelt)'));
+    }
+  }));
+  return out;
+}
+
+export async function fetchMediaAnvendelse(mediaId: string): Promise<MediaAnvendelse> {
+  const id = parseDatabaseId(mediaId);
+  if (id == null) return { afbildet: [], mentions: [] };
+  const [personRelationer, objektRelationer, mentions] = await Promise.all([
+    getAll<RawMediaPersonAnvendelse>(() =>
+      supabase.from('relation').select('id,subjekt_id')
+        .eq('subjekt_type', 'person').eq('objekt_type', 'media').eq('objekt_id', id).eq('rolle', 'afbildet').order('id')),
+    getAll<RawMediaObjektAnvendelse>(() =>
+      supabase.from('relation').select('id,objekt_type,objekt_id')
+        .eq('subjekt_type', 'media').eq('subjekt_id', id).eq('rolle', 'afbildet').order('id')),
+    getAll<RawMediaMention>(() =>
+      supabase.from('text_mention').select('kilde_type,kilde_id')
+        .eq('maal_type', 'media').eq('maal_id', id).order('kilde_type').order('kilde_id')),
+  ]);
+  const narrativIds = [...new Set(mentions.filter((m) => m.kilde_type === 'narrative').map((m) => m.kilde_id))];
+  const narrativer = narrativIds.length
+    ? await getAll<RawNarrativeSubject>(() =>
+      supabase.from('narrative').select('id,subjekt_type,subjekt_id').in('id', narrativIds))
+    : [];
+  const navneBySubjekt = await fetchMediaSubjectNames([
+    ...personRelationer.map((r) => ({ type: 'person', id: r.subjekt_id })),
+    ...objektRelationer.map((r) => ({ type: r.objekt_type, id: r.objekt_id })),
+    ...narrativer.map((n) => ({ type: n.subjekt_type, id: n.subjekt_id })),
+  ]);
+  return mapMediaAnvendelse({ personRelationer, objektRelationer, mentions, narrativer, navneBySubjekt });
+}
+
 // ---- Tværudgave-matching: MatchFrame-input fra DB (Problem 3 §11) ----
 // Tynde supabase-fetches; de rene mappere (buildMatchPersoner/parseIkkeSammeSomPar) bor i
 // @daa/core (samme delt-logik-split som matcher-kernen). Re-eksportér RedMatchPerson for forbrugere.

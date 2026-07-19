@@ -13,6 +13,7 @@ import {
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
   type HaendelsePost, type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia, type ForaeldreUkendtMarkering, SLAEGT_SUBJEKT_ID,
   fetchForaeldreSlot, fetchForaeldreKonflikter, fetchBarnFamilie, type ForaeldreSlot, type ForaeldreKonflikt, type BarnFamilie,
+  fetchMediaBibliotek, fetchMediaAnvendelse, type MediaBibliotekPost, type MediaAnvendelse, type MedieKoe,
 } from './data/redaktionRead';
 import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, insertAt, makeToken, previewSammeSom } from '@daa/core';
 import { loadModel } from './data/model';
@@ -30,7 +31,7 @@ const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 const MEDIA_RETTIGHED_STATUS = ['ukendt', 'public_domain', 'licenseret', 'tilladelse_givet', 'begraenset', 'spaerret'] as const;
 // Change-arter der kan ændre et materiale-galleri (Slice 0h) — bruges til at afgøre om
 // person-editorens/objekt-editorens medieliste skal genhentes efter et gemt kald.
-const MEDIA_ARTER = new Set(['uploadMedia', 'opdaterMedia', 'genopretMedia', 'mediaRettigheder', 'fjernMedia', 'sletRelation']);
+const MEDIA_ARTER = new Set(['uploadMedia', 'opdaterMedia', 'genopretMedia', 'mediaRettigheder', 'fjernMedia', 'sletRelation', 'tilknytMedia']);
 // Generiske entiteter med et materiale-galleri (Slice 0h) — spejler mobiles HAR_MATERIALE.
 const HAR_OBJEKT_MATERIALE = new Set(['estate', 'arms']);
 // --- Tokens (fra designet) ---
@@ -148,8 +149,15 @@ export default function Redaktion() {
   // Materiale (mediehåndtering Slice 0g). fetchRedPersonMedia signerer allerede internt (ét sted,
   // som media.ts's loadMediaItems) — media[].url er klar til brug, ingen separat uri-state/effekt.
   const [media, setMedia] = useState<PersonMedia[]>([]);
+  const [mediaBibliotek, setMediaBibliotek] = useState<MediaBibliotekPost[]>([]);
+  const [mediaKoe, setMediaKoe] = useState<MedieKoe | 'alle'>('alle');
+  const [mediaAnvendelse, setMediaAnvendelse] = useState<MediaAnvendelse | undefined>();
+  const [mediaAnvendelseFejl, setMediaAnvendelseFejl] = useState('');
   const [mediaLightbox, setMediaLightbox] = useState<number | null>(null); // Slice A
   const [mediaDetalje, setMediaDetalje] = useState<{ id: string; subjektType: string; subjektId: string } | null>(null);
+  const mediaDetaljeRef = useRef(mediaDetalje);
+  const [mediaTilknytPicker, setMediaTilknytPicker] = useState<{ mediaId: string; maalType: 'person' | 'estate' | 'coat_of_arms' | 'lineage' } | null>(null);
+  const [mediaTilknytQuery, setMediaTilknytQuery] = useState('');
   const [mediaPick, setMediaPick] = useState<{ file: File; previewUrl: string } | null>(null);
   const [mediaForm, setMediaForm] = useState<{ slags: string; titel: string; kunstner: string; datering: string; rettighederStatus: string; maaPubliceres: boolean }>(
     { slags: 'foto', titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false });
@@ -177,6 +185,9 @@ export default function Redaktion() {
   const role = session?.role;
   const sc = (k: string, fb = '') => (scratch[k] !== undefined ? scratch[k] : fb);
   const setSc = (k: string, v: string) => setScratch((s) => ({ ...s, [k]: v }));
+  const refreshMediaBibliotek = useCallback(() => {
+    fetchMediaBibliotek().then(setMediaBibliotek).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
+  }, []);
 
   // --- Initial load ---
   // Fejl her er reelle (currentSession() returnerer null, ikke throw, ved "ikke logget ind") —
@@ -247,10 +258,29 @@ export default function Redaktion() {
     return () => URL.revokeObjectURL(mediaPick.previewUrl);
   }, [mediaPick]);
   useEffect(() => {
+    if (entity === 'media') { refreshMediaBibliotek(); return; }
     if (entity === 'person' || fetchedRef.current.has(entity)) return;
     fetchedRef.current.add(entity);
     fetchEntityRecords(entity).then((rs) => setRecCache((c) => ({ ...c, [entity]: rs }))).catch(() => fetchedRef.current.delete(entity));
-  }, [entity]);
+  }, [entity, refreshMediaBibliotek]);
+
+  useEffect(() => {
+    mediaDetaljeRef.current = mediaDetalje;
+    if (!mediaDetalje) { setMediaAnvendelse(undefined); setMediaAnvendelseFejl(''); return; }
+    let aktiv = true;
+    setMediaAnvendelse(undefined);
+    setMediaAnvendelseFejl('');
+    fetchMediaAnvendelse(mediaDetalje.id)
+      .then((a) => { if (aktiv) setMediaAnvendelse(a); })
+      .catch(() => { if (aktiv) setMediaAnvendelseFejl('Kunne ikke kontrollere anvendelser. Sletning er derfor blokeret.'); });
+    return () => { aktiv = false; };
+  }, [mediaDetalje?.id]);
+  useEffect(() => {
+    if (entity !== 'media') return;
+    if (!recordId) { setMediaDetalje(null); return; }
+    if (!mediaBibliotek.some((m) => m.id === recordId)) return;
+    setMediaDetalje({ id: recordId, subjektType: 'media', subjektId: recordId });
+  }, [entity, recordId, mediaBibliotek]);
 
   // Evidens + narrativ når en person vælges.
   // skipMedia: run()'s post-write reload kalder loadPerson efter ETHVERT gemt ændring (allerede
@@ -335,6 +365,13 @@ export default function Redaktion() {
     const ent = picker?.kind === 'hverv' ? 'org' : picker?.kind === 'gods' ? 'estate' : null;
     if (ent && !recCache[ent]) fetchEntityRecords(ent).then((rs) => setRecCache((c) => ({ ...c, [ent]: rs }))).catch(() => {});
   }, [picker, recCache]);
+  useEffect(() => {
+    if (!mediaTilknytPicker) return;
+    const ent = mediaTilknytPicker.maalType === 'estate' ? 'estate'
+      : mediaTilknytPicker.maalType === 'coat_of_arms' ? 'arms' : null;
+    if (ent && !recCache[ent]) fetchEntityRecords(ent).then((rs) => setRecCache((c) => ({ ...c, [ent]: rs }))).catch(() => {});
+    if (mediaTilknytPicker.maalType === 'lineage' && lineages.length === 0) fetchLineages().then(setLineages).catch(() => setLineages([]));
+  }, [mediaTilknytPicker, recCache, lineages.length]);
 
   const curPerson = persons.find((p) => p.id === recordId) ?? null;
   const curRecord = records.find((r) => r.id === recordId) ?? null;
@@ -441,10 +478,22 @@ export default function Redaktion() {
       if (!dryRun && entity === 'slaegt' && recordId && recordId !== 'generelt' && mediaChanged) {
         fetchRedObjectMedia('lineage', recordId).then(setMedia).catch(() => setMedia([]));
       }
+      if (!dryRun && mediaChanged && entity === 'media') refreshMediaBibliotek();
+      if (!dryRun && mediaChanged && mediaDetalje) {
+        const detaljeId = mediaDetalje.id;
+        if (mediaDetaljeRef.current?.id === detaljeId) {
+          setMediaAnvendelse(undefined); setMediaAnvendelseFejl('');
+          fetchMediaAnvendelse(detaljeId).then((a) => {
+            if (mediaDetaljeRef.current?.id === detaljeId) setMediaAnvendelse(a);
+          }).catch(() => {
+            if (mediaDetaljeRef.current?.id === detaljeId) setMediaAnvendelseFejl('Kunne ikke kontrollere anvendelser. Sletning er derfor blokeret.');
+          });
+        }
+      }
     } catch (e) {
       setWriteView({ title: titel + ' fejlede', lines: [], error: oversaetFejl(String((e as Error)?.message ?? e)), done: false, dryRun, direkte: false });
     }
-  }, [dryRun, role, entity, recordId, loadPerson, refreshObjMedia]);
+  }, [dryRun, role, entity, recordId, loadPerson, refreshObjMedia, refreshMediaBibliotek, mediaDetalje]);
 
   const doLogin = async () => {
     if (!login.email.trim() || !login.pw) { setLogin((l) => ({ ...l, err: 'Udfyld e-mail og adgangskode' })); return; }
@@ -482,7 +531,7 @@ export default function Redaktion() {
             {renderList()}
             <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: T.paper }}>
               {loadErr && <pre style={{ margin: 18, color: T.red, fontSize: 12, whiteSpace: 'pre-wrap' }}>{loadErr}</pre>}
-              {entity === 'person' ? renderPersonEditor() : entity === 'slaegt' ? renderSlaegtEditor() : renderGenericEditor()}
+              {entity === 'person' ? renderPersonEditor() : entity === 'slaegt' ? renderSlaegtEditor() : entity === 'media' ? renderMediaBibliotekEditor() : renderGenericEditor()}
             </div>
           </>
         )}
@@ -494,6 +543,7 @@ export default function Redaktion() {
       {renderSammeSomConfirm()}
       {renderFlytBarnPicker()}
       {renderMediaPicker()}
+      {renderMediaTilknytPicker()}
       {renderMediaDetalje()}
     </div>
   );
@@ -564,6 +614,16 @@ export default function Redaktion() {
   function renderList() {
     const title = ENTITIES.find((e) => e.key === entity)?.label ?? '';
     const b = personBrowse; // non-null ⇔ entity === 'person' (fungerer som person-diskriminator)
+    const mediaQuery = query.trim().toLowerCase();
+    const mediaFiltered = mediaBibliotek.filter((m) => {
+      if (mediaKoe !== 'alle' && !m.koeer.includes(mediaKoe)) return false;
+      return !mediaQuery || [m.titel, m.kunstner, m.originalFilnavn].filter(Boolean).join(' ').toLowerCase().includes(mediaQuery);
+    });
+    const mediaKoer: { key: MedieKoe | 'alle'; label: string }[] = [
+      { key: 'alle', label: 'Alle' }, { key: 'rettigheder', label: 'Rettigheder' },
+      { key: 'loese', label: 'Løse' }, { key: 'strandede', label: 'Strandede' },
+      { key: 'papirkurv', label: 'Papirkurv' },
+    ];
     // Fælles liste-række (person + generiske entiteter): round = avatar-form, tail = valgfrit suffiks.
     const listRow = (o: { id: string; badge: string; label: string; sub: string; round: number | string; tail?: ReactNode }) => (
       <div key={o.id} onClick={() => openRecord(entity, o.id)} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 9px', borderRadius: 9, cursor: 'pointer', background: o.id === recordId ? '#efe7d7' : 'transparent' }}>
@@ -588,7 +648,41 @@ export default function Redaktion() {
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Søg…" style={{ width: '100%', fontSize: 13, color: T.ink, background: T.paper, border: '1px solid rgba(34,31,26,.14)', borderRadius: 8, padding: '9px 11px', outline: 'none' }} />
         </div>
 
-        {b ? (
+        {entity === 'media' ? (
+          <>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, padding: '0 14px 10px' }}>
+              {mediaKoer.map((k) => {
+                const aktiv = mediaKoe === k.key;
+                const antal = k.key === 'alle' ? mediaBibliotek.length : mediaBibliotek.filter((m) => m.koeer.includes(k.key as MedieKoe)).length;
+                return <button type="button" key={k.key} onClick={() => setMediaKoe(k.key)}
+                  style={{ border: 0, borderRadius: 6, padding: '5px 8px', cursor: 'pointer', background: aktiv ? T.bordeaux : T.beige, color: aktiv ? T.paperText : T.muted, fontFamily: T.mono, fontSize: 8.5 }}>
+                  {k.label} ({antal})
+                </button>;
+              })}
+            </div>
+            <div style={{ padding: '2px 10px 12px' }}>
+              {mediaFiltered.map((m) => {
+                const erBillede = m.mimeType?.startsWith('image/') === true && !!m.thumbUrl;
+                const antalBrug = m.antalAfbildet + m.antalMentions;
+                return (
+                  <div key={m.id} onClick={() => { openRecord('media', m.id); setMediaDetalje({ id: m.id, subjektType: 'media', subjektId: m.id }); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px', borderRadius: 9, cursor: 'pointer', background: m.id === recordId ? '#efe7d7' : 'transparent', opacity: m.uploadStatus === 'fjernet' ? .55 : 1 }}>
+                    {erBillede ? <img src={m.thumbUrl!} alt={m.titel ?? m.slags} style={{ width: 42, height: 42, borderRadius: 7, objectFit: 'cover', background: T.beige, flex: 'none' }} />
+                      : <span style={{ width: 42, height: 42, borderRadius: 7, background: T.beige, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: T.muted, flex: 'none', fontSize: 16 }}>▤<small style={{ fontSize: 7 }}>{m.slags}</small></span>}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontFamily: T.serif, fontSize: 14.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.titel || '(uden titel)'}</div>
+                      <div style={{ fontFamily: T.mono, fontSize: 8, color: T.muted2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {m.slags}{m.uploadStatus !== 'klar' ? ` · ${m.uploadStatus}` : ''}{m.maaPubliceres ? '' : ' · ej publiceret'}
+                      </div>
+                      <div style={{ fontSize: 9.5, color: T.muted, marginTop: 2 }}>bruges {antalBrug} {antalBrug === 1 ? 'sted' : 'steder'}</div>
+                    </div>
+                  </div>
+                );
+              })}
+              {!mediaFiltered.length && <div style={{ padding: '22px 10px', textAlign: 'center', fontSize: 12.5, color: T.muted3 }}>{mediaBibliotek.length ? 'Ingen træffere' : 'Henter medier…'}</div>}
+            </div>
+          </>
+        ) : b ? (
           <>
             {/* Linje-filter (§9.2) — filtrerer kun listen; redaktør har intet stamtræ at hoppe fokus i. */}
             {linjeList.length > 0 && (
@@ -653,6 +747,27 @@ export default function Redaktion() {
             {!filtered.length && <div style={{ padding: '22px 10px', textAlign: 'center', fontSize: 12.5, color: T.muted3 }}>{query ? 'Ingen træffere' : 'Ingen liste-kilde endnu'}</div>}
           </div>
         )}
+      </div>
+    );
+  }
+
+  function renderMediaBibliotekEditor() {
+    const valgt = mediaBibliotek.find((m) => m.id === recordId);
+    return (
+      <div style={{ padding: '28px 30px', maxWidth: 760 }}>
+        <div style={{ fontFamily: T.serif, fontSize: 29, fontWeight: 600 }}>Mediebibliotek</div>
+        <div style={{ marginTop: 8, color: T.muted, fontSize: 13, lineHeight: 1.5 }}>
+          {valgt ? <>Valgt: <b>{valgt.titel || '(uden titel)'}</b>. Klik på rækken igen for at åbne filsiden.</>
+            : 'Vælg et medie i listen for at åbne filsiden, redigere metadata og se hvor det bruges.'}
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 18 }}>
+          {([['rettigheder', 'Rettigheder'], ['loese', 'Løse'], ['strandede', 'Strandede'], ['papirkurv', 'Papirkurv']] as const).map(([key, label]) => (
+            <div key={key} style={{ background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 10, padding: '12px 15px', minWidth: 120 }}>
+              <div style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600 }}>{mediaBibliotek.filter((m) => m.koeer.includes(key)).length}</div>
+              <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2 }}>{label}</div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -847,17 +962,18 @@ export default function Redaktion() {
     // Lightbox (Slice A): kun url-bærende rækker er navigerbare (nogle kan mangle url, fx
     // 'kladde' eller mislykket signering) — filtrér FØR indeksering, ellers kan pil-navigation
     // lande på en url-løs post og lukke lightboxen uventet.
-    const mediaMedLightbox = withUrl(media.filter((m) => m.uploadStatus === 'klar'));
+    const mediaMedLightbox = withUrl(media.filter((m) => m.uploadStatus === 'klar' && m.mimeType?.startsWith('image/') === true && !!m.thumbUrl));
     return (
       <>
         <div style={sectionHeader(24)}>Materiale</div>
         <div style={{ background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: '14px 15px' }}>
           {media.length ? (
             <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap', marginBottom: 12 }}>
-              {media.map((m) => (
-                <div key={m.id} style={{ width: 96 }}>
-                  {m.url ? (
-                    <img src={m.thumbUrl ?? m.url} alt={m.titel ?? m.slags}
+              {media.map((m) => {
+                const erBillede = m.mimeType?.startsWith('image/') === true && !!m.thumbUrl && !!m.url;
+                return <div key={m.id} style={{ width: 96 }}>
+                  {erBillede ? (
+                    <img src={m.thumbUrl!} alt={m.titel ?? m.slags}
                       onClick={() => {
                         if (mayUpload) setMediaDetalje({ id: m.id, subjektType, subjektId });
                         else {
@@ -870,7 +986,10 @@ export default function Redaktion() {
                   ) : (
                     <div onClick={() => { if (mayUpload) setMediaDetalje({ id: m.id, subjektType, subjektId }); }}
                       style={{ width: 96, height: 96, borderRadius: 10, background: T.beige,
-                        cursor: mayUpload ? 'pointer' : 'default', opacity: m.uploadStatus === 'fjernet' ? .45 : 1 }} />
+                        cursor: mayUpload ? 'pointer' : 'default', opacity: m.uploadStatus === 'fjernet' ? .45 : 1,
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: T.muted }}>
+                      <span style={{ fontSize: 28 }}>▤</span><span style={{ fontSize: 9 }}>{m.slags || 'dokument'}</span>
+                    </div>
                   )}
                   <div style={{ fontFamily: T.mono, fontSize: 8, color: T.muted2, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {m.slags}{m.uploadStatus !== 'klar' ? ` · ${m.uploadStatus}` : ''}{m.maaPubliceres ? '' : ' · ej publiceret'}
@@ -883,13 +1002,11 @@ export default function Redaktion() {
                       ) : <>
                         <span onClick={() => m.relationId && run({ art: 'sletRelation', subjektType, subjektId, relationId: m.relationId }, 'Fjern billede')}
                           style={{ fontFamily: T.mono, fontSize: 9, color: m.relationId ? T.muted : T.muted3, cursor: m.relationId ? 'pointer' : 'default' }}>Fjern</span>
-                        <span onClick={() => run({ art: 'fjernMedia', subjektType, subjektId, mediaId: m.id }, 'Slet billede')}
-                          style={{ fontFamily: T.mono, fontSize: 9, color: T.red, cursor: 'pointer' }}>Slet</span>
                       </>}
                     </div>
                   ) : null}
-                </div>
-              ))}
+                </div>;
+              })}
             </div>
           ) : (
             <div style={{ fontSize: 12, color: T.muted3, marginBottom: 10 }}>Intet materiale endnu.</div>
@@ -984,27 +1101,41 @@ export default function Redaktion() {
 
   function renderMediaDetalje() {
     if (!mediaDetalje || role !== 'redaktion') return null;
-    const m = media.find((x) => x.id === mediaDetalje.id);
+    const m = entity === 'media'
+      ? mediaBibliotek.find((x) => x.id === mediaDetalje.id)
+      : media.find((x) => x.id === mediaDetalje.id);
     if (!m) return null;
-    const lightboxItems = withUrl(media.filter((x) => x.uploadStatus === 'klar'));
-    return <MediaDetaljeOverlay
-      media={m}
-      onClose={() => setMediaDetalje(null)}
-      onPreview={() => {
-        const i = lightboxItems.findIndex((x) => x.id === m.id);
-        if (i >= 0) setMediaLightbox(i);
-      }}
-      onGemMetadata={(payload) => run({ art: 'opdaterMedia', subjektType: mediaDetalje.subjektType,
-        subjektId: mediaDetalje.subjektId, mediaId: m.id, payload }, 'Opdater medie')}
-      onGemRettigheder={(payload) => run({ art: 'mediaRettigheder', subjektType: mediaDetalje.subjektType,
-        subjektId: mediaDetalje.subjektId, mediaId: m.id, payload }, 'Gem rettigheder')}
-      onFjern={() => m.relationId && run({ art: 'sletRelation', subjektType: mediaDetalje.subjektType,
-        subjektId: mediaDetalje.subjektId, relationId: m.relationId }, 'Fjern billede')}
-      onSlet={() => run({ art: 'fjernMedia', subjektType: mediaDetalje.subjektType,
-        subjektId: mediaDetalje.subjektId, mediaId: m.id }, 'Slet billede')}
-      onGenopret={() => run({ art: 'genopretMedia', subjektType: mediaDetalje.subjektType,
-        subjektId: mediaDetalje.subjektId, mediaId: m.id }, 'Genopret billede')}
-    />;
+    const base = entity === 'media' ? mediaBibliotek : media;
+    const lightboxItems = withUrl(base.filter((x) => x.uploadStatus === 'klar' && x.mimeType?.startsWith('image/') === true && !!x.thumbUrl));
+    const relationId = 'relationId' in m ? m.relationId : undefined;
+    return <>
+      <MediaDetaljeOverlay
+        media={m}
+        anvendelse={mediaAnvendelse}
+        anvendelseFejl={mediaAnvendelseFejl}
+        onClose={() => {
+          setMediaDetalje(null); setMediaLightbox(null);
+          if (entity === 'media') { setRecordId(null); navigate(redaktionPath('media', null)); }
+        }}
+        onPreview={() => {
+          const i = lightboxItems.findIndex((x) => x.id === m.id);
+          if (i >= 0) setMediaLightbox(i);
+        }}
+        onGemMetadata={(payload) => run({ art: 'opdaterMedia', subjektType: mediaDetalje.subjektType,
+          subjektId: mediaDetalje.subjektId, mediaId: m.id, payload }, 'Opdater medie')}
+        onGemRettigheder={(payload) => run({ art: 'mediaRettigheder', subjektType: mediaDetalje.subjektType,
+          subjektId: mediaDetalje.subjektId, mediaId: m.id, payload }, 'Gem rettigheder')}
+        onFjern={() => relationId && run({ art: 'sletRelation', subjektType: mediaDetalje.subjektType,
+          subjektId: mediaDetalje.subjektId, relationId }, 'Fjern billede')}
+        onFjernTilknytning={(id) => run({ art: 'sletRelation', subjektType: 'media', subjektId: m.id, relationId: id }, 'Fjern tilknytning')}
+        onTilknyt={() => setMediaTilknytPicker({ mediaId: m.id, maalType: 'person' })}
+        onSlet={() => run({ art: 'fjernMedia', subjektType: mediaDetalje.subjektType,
+          subjektId: mediaDetalje.subjektId, mediaId: m.id }, 'Slet billede')}
+        onGenopret={() => run({ art: 'genopretMedia', subjektType: mediaDetalje.subjektType,
+          subjektId: mediaDetalje.subjektId, mediaId: m.id }, 'Genopret billede')}
+      />
+      {entity === 'media' && mediaLightbox != null ? <Lightbox items={lightboxItems} index={mediaLightbox} onClose={() => setMediaLightbox(null)} onNavigate={setMediaLightbox} /> : null}
+    </>;
   }
 
   function renderFactCard(pid: string, label: string, f: FeltEvidens) {
@@ -1246,12 +1377,56 @@ export default function Redaktion() {
     );
   }
 
+  function renderMediaTilknytPicker() {
+    if (!mediaTilknytPicker) return null;
+    const q = mediaTilknytQuery.trim().toLowerCase();
+    const maalType = mediaTilknytPicker.maalType;
+    const typer: { key: typeof maalType; label: string }[] = [
+      { key: 'person', label: 'Person' }, { key: 'estate', label: 'Gods' },
+      { key: 'coat_of_arms', label: 'Våben' }, { key: 'lineage', label: 'Linje' },
+    ];
+    const items: { id: string; label: string; sub: string }[] = maalType === 'person'
+      ? persons.map((p) => ({ id: p.id, label: p.navn, sub: p.aar || '—' }))
+      : maalType === 'lineage'
+        ? lineages.map((l) => ({ id: String(l.id), label: l.navn ?? `Linje ${l.kode}`, sub: `Linje ${l.kode}` }))
+        : (recCache[maalType === 'estate' ? 'estate' : 'arms'] ?? []).map((r) => ({ id: r.id, label: r.label, sub: r.sub }));
+    const tilknyttede = new Set((mediaAnvendelse?.afbildet ?? []).map((a) => `${a.type}:${a.id}`));
+    const synlige = items
+      .filter((it) => !tilknyttede.has(`${maalType}:${it.id}`))
+      .filter((it) => !q || `${it.label} ${it.sub}`.toLowerCase().includes(q)).slice(0, 50);
+    const luk = () => { setMediaTilknytPicker(null); setMediaTilknytQuery(''); };
+    return (
+      <div onClick={luk} style={overlay(130)}>
+        <div onClick={(e) => e.stopPropagation()} style={{ width: 460, maxWidth: '100%', maxHeight: '75vh', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ padding: '16px 18px 12px' }}>
+            <div style={{ fontFamily: T.serif, fontSize: 19, fontWeight: 600, marginBottom: 9 }}>Tilknyt medie</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+              {typer.map((t) => <button type="button" key={t.key} onClick={() => setMediaTilknytPicker((p) => p && ({ ...p, maalType: t.key }))}
+                style={{ border: 0, borderRadius: 6, padding: '5px 9px', cursor: 'pointer', background: maalType === t.key ? T.bordeaux : T.beige, color: maalType === t.key ? T.paperText : T.muted }}>{t.label}</button>)}
+            </div>
+            <input autoFocus value={mediaTilknytQuery} onChange={(e) => setMediaTilknytQuery(e.target.value)} placeholder="Søg…" style={{ ...inp, background: '#fff' }} />
+          </div>
+          <div data-scroll style={{ flex: 1, overflowY: 'auto', padding: '0 10px 12px' }}>
+            {synlige.map((it) => <div key={it.id} onClick={() => {
+              run({ art: 'tilknytMedia', subjektType: 'media', subjektId: mediaTilknytPicker.mediaId, mediaId: mediaTilknytPicker.mediaId, payload: { maalType, maalId: it.id } }, 'Tilknyt medie');
+              luk();
+            }} style={{ padding: '9px 10px', borderRadius: 8, cursor: 'pointer' }}>
+              <div style={{ fontFamily: T.serif, fontSize: 15, fontWeight: 600 }}>{it.label}</div>
+              <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2 }}>{it.sub}</div>
+            </div>)}
+            {!synlige.length && <div style={{ padding: '18px 10px', textAlign: 'center', fontSize: 12.5, color: T.muted3 }}>Ingen træffere.</div>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Billed-vælger til narrativ-indsættelse (billeder-i-narrativer 2026-07-05, Slice C2). Viser
   // DENNE subjekts allerede indlæste egne uploadede billeder (samme `media`-state som Materiale-
   // galleriet nedenfor allerede henter — intet nyt fetch-kald).
   function renderMediaPicker() {
     if (!mediaPickerOpen) return null;
-    const brugbar = media.filter((m) => m.uploadStatus === 'klar' && m.thumbUrl);
+    const brugbar = media.filter((m) => m.uploadStatus === 'klar' && m.mimeType?.startsWith('image/') === true && m.thumbUrl);
     return (
       <div onClick={() => setMediaPickerOpen(false)} style={overlay(96)}>
         <div onClick={(e) => e.stopPropagation()} style={{ width: 460, maxWidth: '100%', maxHeight: '70vh', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>

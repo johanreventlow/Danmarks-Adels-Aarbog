@@ -662,6 +662,225 @@ export function mapPersonMediaRows(
     }));
 }
 
+export type MedieKoe = 'rettigheder' | 'loese' | 'strandede' | 'papirkurv';
+
+export function klassificerMedie(
+  m: { uploadStatus: string; rettighederStatus: string; maaPubliceres: boolean },
+  antalAfbildet: number,
+  antalMentions: number,
+): MedieKoe[] {
+  const koeer: MedieKoe[] = [];
+  if (m.uploadStatus === 'klar' && (m.rettighederStatus === 'ukendt' || !m.maaPubliceres)) {
+    koeer.push('rettigheder');
+  }
+  if (m.uploadStatus === 'klar' && antalAfbildet === 0 && antalMentions === 0) {
+    koeer.push('loese');
+  }
+  if (m.uploadStatus === 'kladde' || m.uploadStatus === 'fejlet') koeer.push('strandede');
+  if (m.uploadStatus === 'fjernet') koeer.push('papirkurv');
+  return koeer;
+}
+
+type RawMediaRelationRow = {
+  id?: number;
+  subjekt_type: string;
+  subjekt_id: number;
+  objekt_type: string;
+  objekt_id: number;
+  rolle: string | null;
+};
+type RawMediaMentionRow = {
+  kilde_type: string;
+  kilde_id: number;
+  maal_type: string;
+  maal_id: number;
+};
+type RawMediaNarrativeRow = { id: number; subjekt_type: string; subjekt_id: number };
+
+export type MediaBibliotekPost = Omit<PersonMedia, 'relationId'> & {
+  antalAfbildet: number;
+  antalMentions: number;
+  koeer: MedieKoe[];
+};
+
+export function mapMediaBibliotekRows(
+  mediaRows: RawPersonMediaRow[],
+  relationRows: RawMediaRelationRow[],
+  mentionRows: RawMediaMentionRow[],
+  thumbPathByMediaId: Map<string, string> = new Map(),
+): MediaBibliotekPost[] {
+  const afbildetByMediaId = new Map<string, Set<string>>();
+  for (const r of relationRows) {
+    if (r.rolle !== 'afbildet') continue;
+    const pair = r.subjekt_type === 'person' && r.objekt_type === 'media'
+      ? { mediaId: String(r.objekt_id), target: `person:${r.subjekt_id}` }
+      : r.subjekt_type === 'media' && ['estate','coat_of_arms','lineage'].includes(r.objekt_type)
+        ? { mediaId: String(r.subjekt_id), target: `${r.objekt_type}:${r.objekt_id}` }
+        : null;
+    if (pair) {
+      const targets = afbildetByMediaId.get(pair.mediaId) ?? new Set<string>();
+      targets.add(pair.target);
+      afbildetByMediaId.set(pair.mediaId, targets);
+    }
+  }
+  const antalMentionsById = new Map<string, number>();
+  for (const m of mentionRows) {
+    if (m.maal_type !== 'media') continue;
+    const mediaId = String(m.maal_id);
+    antalMentionsById.set(mediaId, (antalMentionsById.get(mediaId) ?? 0) + 1);
+  }
+  return mapPersonMediaRows(mediaRows, new Map(), thumbPathByMediaId).map((media) => {
+    const { relationId: _relationId, ...udenRelation } = media;
+    const antalAfbildet = afbildetByMediaId.get(media.id)?.size ?? 0;
+    const antalMentions = antalMentionsById.get(media.id) ?? 0;
+    return {
+      ...udenRelation,
+      antalAfbildet,
+      antalMentions,
+      koeer: klassificerMedie(media, antalAfbildet, antalMentions),
+    };
+  });
+}
+
+export async function fetchMediaBibliotek(): Promise<MediaBibliotekPost[]> {
+  if (!supabase) return [];
+  const sb = supabase;
+  const [mediaRows, personRelationer, objektRelationer, mentions] = await Promise.all([
+    getAll<RawPersonMediaRow>(() =>
+      sb.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn')),
+    getAll<RawMediaRelationRow>(() =>
+      sb.from('relation').select('subjekt_type,subjekt_id,objekt_type,objekt_id,rolle')
+        .eq('subjekt_type', 'person').eq('objekt_type', 'media').eq('rolle', 'afbildet')),
+    getAll<RawMediaRelationRow>(() =>
+      sb.from('relation').select('subjekt_type,subjekt_id,objekt_type,objekt_id,rolle')
+        .eq('subjekt_type', 'media').in('objekt_type', ['estate','coat_of_arms','lineage']).eq('rolle', 'afbildet')),
+    getAll<RawMediaMentionRow>(() =>
+      sb.from('text_mention').select('kilde_type,kilde_id,maal_type,maal_id').eq('maal_type', 'media')),
+  ]);
+  const mediaIds = mediaRows.map((m) => m.id);
+  const variants = mediaIds.length
+    ? await getAll<{ media_id: number; storage_path: string }>(() =>
+        sb.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb').in('media_id', mediaIds))
+    : [];
+  return mapMediaBibliotekRows(
+    mediaRows,
+    [...personRelationer, ...objektRelationer],
+    mentions,
+    new Map(variants.map((v) => [String(v.media_id), v.storage_path])),
+  );
+}
+
+export type MediaAnvendelse = {
+  afbildet: { type: string; id: string; navn: string; relationId: string }[];
+  mentions: { kildeType: string; kildeId: string; subjektNavn: string }[];
+};
+
+const entityKey = (type: string, id: number | string) => `${type}:${id}`;
+const fallbackEntityName = (type: string, id: number | string) => `${type} #${id}`;
+
+export function mapMediaAnvendelse(
+  mediaId: string,
+  relationRows: RawMediaRelationRow[],
+  mentionRows: RawMediaMentionRow[],
+  narrativeRows: RawMediaNarrativeRow[],
+  navnBySubjekt: ReadonlyMap<string, string>,
+): MediaAnvendelse {
+  const narrativeById = new Map(narrativeRows.map((n) => [String(n.id), n]));
+  const afbildet: MediaAnvendelse['afbildet'] = [];
+  for (const r of relationRows) {
+    if (r.id == null || r.rolle !== 'afbildet') continue;
+    let type: string;
+    let id: number;
+    if (r.objekt_type === 'media' && String(r.objekt_id) === mediaId) {
+      type = r.subjekt_type;
+      id = r.subjekt_id;
+    } else if (r.subjekt_type === 'media' && String(r.subjekt_id) === mediaId) {
+      type = r.objekt_type;
+      id = r.objekt_id;
+    } else {
+      continue;
+    }
+    afbildet.push({
+      type,
+      id: String(id),
+      navn: navnBySubjekt.get(entityKey(type, id)) ?? fallbackEntityName(type, id),
+      relationId: String(r.id),
+    });
+  }
+  const mentions = mentionRows
+    .filter((m) => m.maal_type === 'media' && String(m.maal_id) === mediaId)
+    .map((m) => {
+      const narrative = m.kilde_type === 'narrative' ? narrativeById.get(String(m.kilde_id)) : undefined;
+      const subjektNavn = narrative
+        ? navnBySubjekt.get(entityKey(narrative.subjekt_type, narrative.subjekt_id))
+          ?? fallbackEntityName(narrative.subjekt_type, narrative.subjekt_id)
+        : '(ukendt subjekt)';
+      return { kildeType: m.kilde_type, kildeId: String(m.kilde_id), subjektNavn };
+    });
+  return { afbildet, mentions };
+}
+
+async function fetchMediaEntityNames(
+  sb: NonNullable<typeof supabase>,
+  targets: { type: string; id: number }[],
+): Promise<Map<string, string>> {
+  const idsFor = (type: string) => [...new Set(targets.filter((t) => t.type === type).map((t) => t.id))];
+  const personIds = idsFor('person');
+  const estateIds = idsFor('estate');
+  const armsIds = idsFor('coat_of_arms');
+  const lineageIds = idsFor('lineage');
+  const [persons, estates, arms, lineages] = await Promise.all([
+    personIds.length ? getAll<{ id: number; visning_navn: string | null }>(() =>
+      sb.from('person').select('id,visning_navn').in('id', personIds)) : [],
+    estateIds.length ? getAll<{ id: number; navn: string | null }>(() =>
+      sb.from('estate').select('id,navn').in('id', estateIds)) : [],
+    armsIds.length ? getAll<{ id: number; blasonering: string | null }>(() =>
+      sb.from('coat_of_arms').select('id,blasonering').in('id', armsIds)) : [],
+    lineageIds.length ? getAll<{ id: number; navn: string | null }>(() =>
+      sb.from('lineage').select('id,navn').in('id', lineageIds)) : [],
+  ]);
+  const names = new Map<string, string>();
+  persons.forEach((r) => names.set(entityKey('person', r.id), r.visning_navn ?? fallbackEntityName('person', r.id)));
+  estates.forEach((r) => names.set(entityKey('estate', r.id), r.navn ?? fallbackEntityName('estate', r.id)));
+  arms.forEach((r) => names.set(entityKey('coat_of_arms', r.id), r.blasonering ?? fallbackEntityName('coat_of_arms', r.id)));
+  lineages.forEach((r) => names.set(entityKey('lineage', r.id), r.navn ?? fallbackEntityName('lineage', r.id)));
+  targets.filter((t) => t.type === 'slaegt').forEach((t) => names.set(entityKey('slaegt', t.id), 'Slægten (generelt)'));
+  return names;
+}
+
+export async function fetchMediaAnvendelse(mediaId: string): Promise<MediaAnvendelse> {
+  if (!supabase) return { afbildet: [], mentions: [] };
+  const trimmedMediaId = mediaId.trim();
+  if (!/^[1-9][0-9]*$/.test(trimmedMediaId) || trimmedMediaId.length > 19 || (trimmedMediaId.length === 19 && trimmedMediaId > '9223372036854775807')) return { afbildet: [], mentions: [] };
+  const parsedMediaId = Number(trimmedMediaId);
+  const numericMediaId: number | string = Number.isSafeInteger(parsedMediaId) ? parsedMediaId : trimmedMediaId;
+  const sb = supabase;
+  const [personRelationer, objektRelationer, mentions] = await Promise.all([
+    getAll<RawMediaRelationRow>(() =>
+      sb.from('relation').select('id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle')
+        .eq('subjekt_type', 'person').eq('objekt_type', 'media').eq('objekt_id', numericMediaId)
+        .eq('rolle', 'afbildet').order('id')),
+    getAll<RawMediaRelationRow>(() =>
+      sb.from('relation').select('id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle')
+        .eq('subjekt_type', 'media').eq('subjekt_id', numericMediaId).eq('rolle', 'afbildet').order('id')),
+    getAll<RawMediaMentionRow>(() =>
+      sb.from('text_mention').select('kilde_type,kilde_id,maal_type,maal_id')
+        .eq('maal_type', 'media').eq('maal_id', numericMediaId).order('kilde_type').order('kilde_id')),
+  ]);
+  const narrativeIds = [...new Set(mentions.filter((m) => m.kilde_type === 'narrative').map((m) => m.kilde_id))];
+  const narratives = narrativeIds.length
+    ? await getAll<RawMediaNarrativeRow>(() =>
+        sb.from('narrative').select('id,subjekt_type,subjekt_id').in('id', narrativeIds))
+    : [];
+  const targets = [
+    ...personRelationer.map((r) => ({ type: r.subjekt_type, id: r.subjekt_id })),
+    ...objektRelationer.map((r) => ({ type: r.objekt_type, id: r.objekt_id })),
+    ...narratives.map((n) => ({ type: n.subjekt_type, id: n.subjekt_id })),
+  ];
+  const names = await fetchMediaEntityNames(sb, targets);
+  return mapMediaAnvendelse(String(numericMediaId), [...personRelationer, ...objektRelationer], mentions, narratives, names);
+}
+
 // Fælles hale: rel-par (media-id + relation-id) → signede/mappede PersonMedia. Retningen af selve
 // relations-forespørgslen (person→media vs. media→objekt) afgøres af kalderne nedenfor.
 async function mediaFromRelPairs(sb: NonNullable<typeof supabase>, pairs: { mediaId: number; relationId: number }[]): Promise<PersonMedia[]> {

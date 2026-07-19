@@ -80,6 +80,12 @@ export type RawRelation = {
   rolle: string | null;
   periode_raw: string | null;
 };
+export type RawTextMention = {
+  kilde_type: string;
+  kilde_id: number | string;
+  maal_type: string;
+  maal_id: number | string;
+};
 export type RawOrg = { id: number | string; navn: string | null; slags: string | null };
 // Media-række (mediehåndtering Slice 0). person_id findes IKKE i skemaet — kobling til person
 // sker via relation (person→media, rolle 'afbildet'); se buildAux.mediaBy.
@@ -90,8 +96,12 @@ export type RawMedia = {
   kunstner?: string | null;
   datering?: string | null;
   storage_path?: string | null;
+  mime_type?: string | null;
   thumb_storage_path?: string | null; // billedstørrelser 2026-07-05, Slice B3 (fra media_variant, tier='thumb')
   medium_storage_path?: string | null; // billedstørrelser 2026-07-05, Slice C (fra media_variant, tier='medium')
+  upload_status?: string | null;
+  maa_publiceres?: boolean | null;
+  rettigheder_status?: string | null;
   [k: string]: unknown;
 };
 export type RawArms = { id: number | string; blasonering: string | null; note: string | null };
@@ -124,7 +134,14 @@ export type Aux = {
   linjeNavn: Record<string, string>; // linje-kode ('I'..) → fuldt navn ('Den holstenske linje')
   kildeListe: { id: string; titel: string; slags: string; udgave: string }[];
   orgListe: { id: string; navn: string; slags: string }[];
-  medieListe: { id: string; titel: string; slags: string; kunstner: string; datering: string }[];
+  medieListe: {
+    id: string; titel: string; slags: string; kunstner: string; datering: string;
+    uploadStatus: string; maaPubliceres: boolean; rettighederStatus: string;
+    antalAfbildet: number; antalMentions: number;
+    storagePath: string; thumbStoragePath: string; mimeType: string;
+    koeer: import('./redaktionRead').MedieKoe[];
+  }[];
+  medieKoeTaellere: Record<import('./redaktionRead').MedieKoe, number>;
   godsListe: { id: string; navn: string; slags: string; ownerCount: number }[];
   vaabenListe: { id: string; blasonering: string; note: string }[];
 };

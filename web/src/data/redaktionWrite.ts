@@ -30,6 +30,7 @@ export type Change = {
      | 'haendelseStatus'
      | 'uploadMedia' // mediehåndtering Slice 0g — redaktør-upload (portræt/objekt-foto)
      | 'opdaterMedia' | 'genopretMedia' | 'mediaRettigheder' // fase 1 filside
+     | 'tilknytMedia' // fase 2: genbrug eksisterende medie via red_relation
      | 'fjernMedia' // Slice 0h — blødt fjern (upload_status='fjernet'); unlink går via sletRelation
      | 'forslag'; // generisk entitets-feltredigering uden direkte RPC → red_suggest
   subjektType: string;
@@ -53,6 +54,13 @@ export type Change = {
 };
 
 export type RpcCall = { fn: string; args: Record<string, unknown> };
+
+function parsePostgresBigintId(value: unknown): number | string | null {
+  const raw = typeof value === 'number' ? String(value) : typeof value === 'string' ? value.trim() : '';
+  if (!/^[1-9][0-9]*$/.test(raw) || raw.length > 19 || (raw.length === 19 && raw > '9223372036854775807')) return null;
+  const id = Number(raw);
+  return Number.isSafeInteger(id) ? id : raw;
+}
 
 function famLinkBase(c: Change): { p_family_id: number; p_person_id: number; p_rolle: string } | null {
   if (c.familyId == null || c.personId == null || !c.rolle) return null;
@@ -252,6 +260,23 @@ export function buildRpcCall(c: Change): RpcCall | null {
     return { fn: 'red_upload_media', args };
   }
 
+  if (c.art === 'tilknytMedia') {
+    const mediaId = parsePostgresBigintId(c.mediaId);
+    const maalId = parsePostgresBigintId(c.payload?.maalId);
+    const maalType = c.payload?.maalType;
+    const tilladteMaal = new Set(['person', 'estate', 'coat_of_arms', 'lineage']);
+    if (mediaId == null || maalId == null || typeof maalType !== 'string' || !tilladteMaal.has(maalType)) return null;
+    const person = maalType === 'person';
+    return { fn: 'red_relation', args: {
+      p_subjekt_type: person ? 'person' : 'media',
+      p_subjekt_id: person ? maalId : mediaId,
+      p_objekt_type: person ? 'media' : maalType,
+      p_objekt_id: person ? mediaId : maalId,
+      p_rolle: 'afbildet',
+      p_periode_raw: null,
+    } };
+  }
+
 if (c.art === 'opdaterMedia') {
   if (c.mediaId == null) return null;
   const p = c.payload || {};
@@ -307,24 +332,30 @@ export function describeCall(call: RpcCall): string {
 // Forslag → staging (red_suggest). Routing-fallback: ikke-redaktion, eller redaktion på en
 // art uden direkte RPC (fx generisk entitets-feltredigering). Bygger ALTID et gyldigt kald.
 export function buildSuggestCall(c: Change): RpcCall {
-  const fallbackPayload = c.art === 'haendelseStatus'
+  const suggestPayload = c.art === 'haendelseStatus'
     ? { haendelseId: c.haendelseId, status: c.status }
-    : {};
+    : c.art === 'tilknytMedia'
+      ? { ...(c.payload ?? {}), mediaId: c.mediaId }
+      : c.payload ?? {};
   return { fn: 'red_suggest', args: {
     p_art: c.art,
     p_subjekt_type: c.subjektType,
-    p_subjekt_id: c.subjektId != null && c.subjektId !== '' ? Number(c.subjektId) : null,
+    p_subjekt_id: c.art === 'tilknytMedia'
+      ? parsePostgresBigintId(c.mediaId)
+      : c.subjektId != null && c.subjektId !== '' ? Number(c.subjektId) : null,
     p_felt: c.felt ?? null,
     p_vaerdi: c.vaerdi ?? null,
     p_kilde_fritekst: c.kildeFritekst ?? null,
-    p_payload: c.payload ?? fallbackPayload,
+    p_payload: suggestPayload,
     p_note: null,
   } };
 }
 
 // Vælg kald efter rolle: redaktion + kendt art → direkte red_*-RPC; ellers → red_suggest (staging).
 export function planCall(c: Change, role: string | undefined): RpcCall {
-  const direct = role === 'redaktion' ? buildRpcCall(c) : null;
+  const bygget = buildRpcCall(c);
+  if (c.art === 'tilknytMedia' && !bygget) throw new Error('Ugyldig medietilknytning.');
+  const direct = role === 'redaktion' ? bygget : null;
   return direct ?? buildSuggestCall(c);
 }
 
@@ -381,5 +412,8 @@ export function oversaetFejl(message: string): string {
   if (/not configured|ikke konfigureret/i.test(message)) return 'Ingen forbindelse til basen.';
   if (/kan kun genoprette et fjernet medie/i.test(message)) return 'Mediet kan kun genoprettes, når det er fjernet.';
   if (/slags kan ikke ryddes/i.test(message)) return 'Slags kan ikke ryddes.';
+  if (/afbildet skal gå person.*media|person kan ikke stå på objekt-siden|gdpr-gating/i.test(message)) {
+    return 'En person skal stå på subjekt-siden ved billedtilknytning.';
+  }
   return message;
 }

@@ -16,7 +16,7 @@ export function MediaMentionPicker({ media, thumbUris, onVælg, onClose }: {
   onVælg: (token: string) => void;
   onClose: () => void;
 }) {
-  const brugbar = media.filter((m) => thumbUris[m.id]);
+  const brugbar = media.filter((m) => m.uploadStatus === 'klar' && m.mimeType?.startsWith('image/') === true && thumbUris[m.id]);
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>

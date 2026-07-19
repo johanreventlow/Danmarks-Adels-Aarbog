@@ -40,7 +40,37 @@ test('buildAux: orgListe + medieListe felt-map', () => {
     orgs: [{ id: 1, navn: 'Hæren', slags: 'myndighed' }] as never,
     media: [{ id: 1, slags: 'foto', titel: 'Portræt', kunstner: 'NN', datering: '1900' }] as never });
   expect(aux.orgListe[0]).toEqual({ id: '1', navn: 'Hæren', slags: 'myndighed' });
-  expect(aux.medieListe[0]).toEqual({ id: '1', titel: 'Portræt', slags: 'foto', kunstner: 'NN', datering: '1900' });
+  expect(aux.medieListe[0]).toMatchObject({ id: '1', titel: 'Portræt', slags: 'foto', kunstner: 'NN', datering: '1900' });
+});
+
+test('buildAux: medieListe-status, anvendelsestal, køer og kø-tællere', () => {
+  const aux = buildAux({
+    ...base,
+    media: [
+      { id: 1, titel: 'Rettighedsløst', upload_status: 'klar', maa_publiceres: false, rettigheder_status: 'ukendt' },
+      { id: 2, titel: 'Strandet', upload_status: 'fejlet', maa_publiceres: false, rettigheder_status: 'ukendt' },
+      { id: 3, titel: 'Brugt', upload_status: 'klar', maa_publiceres: true, rettigheder_status: 'public_domain' },
+      { id: 4, titel: 'Papirkurv', upload_status: 'fjernet', maa_publiceres: true, rettigheder_status: 'public_domain' },
+    ] as never,
+    relations: [
+      { subjekt_type: 'person', subjekt_id: 7, objekt_type: 'media', objekt_id: 3, rolle: 'afbildet', periode_raw: null },
+    ] as never,
+    mediaRelations: [
+      { subjekt_type: 'media', subjekt_id: 3, objekt_type: 'estate', objekt_id: 9, rolle: 'afbildet', periode_raw: null },
+    ] as never,
+    mediaMentions: [
+      { kilde_type: 'narrative', kilde_id: 40, maal_type: 'media', maal_id: 3 },
+    ] as never,
+  });
+
+  expect(aux.medieListe.find((m) => m.id === '1')).toMatchObject({
+    uploadStatus: 'klar', maaPubliceres: false, rettighederStatus: 'ukendt',
+    antalAfbildet: 0, antalMentions: 0, koeer: ['rettigheder', 'loese'],
+  });
+  expect(aux.medieListe.find((m) => m.id === '3')).toMatchObject({
+    antalAfbildet: 2, antalMentions: 1, koeer: [],
+  });
+  expect(aux.medieKoeTaellere).toEqual({ rettigheder: 1, loese: 1, strandede: 1, papirkurv: 1 });
 });
 
 test('buildAux: mediaBy kobles via relation person→media (afbildet), ikke m.person_id', () => {

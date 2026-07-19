@@ -194,3 +194,75 @@ describe('buildRpcCall — filside fase 1', () => {
     expect(oversaetFejl('Slags kan ikke ryddes')).toBe('Slags kan ikke ryddes.');
   });
 });
+
+describe('buildRpcCall — tilknytMedia (mediehåndtering fase 2)', () => {
+  it('person står på subjekt-siden', () => {
+    expect(buildRpcCall({ art: 'tilknytMedia', subjektType: 'media', subjektId: '91', mediaId: '91',
+      payload: { maalType: 'person', maalId: '42' } })).toEqual({
+      fn: 'red_relation',
+      args: {
+        p_subjekt_type: 'person', p_subjekt_id: 42,
+        p_objekt_type: 'media', p_objekt_id: 91,
+        p_rolle: 'afbildet', p_periode_raw: null,
+      },
+    });
+  });
+
+  it.each(['estate', 'coat_of_arms', 'lineage'] as const)('media står på subjekt-siden for %s', (maalType) => {
+    expect(buildRpcCall({ art: 'tilknytMedia', subjektType: 'media', subjektId: '91', mediaId: '91',
+      payload: { maalType, maalId: '7' } })).toEqual({
+      fn: 'red_relation',
+      args: {
+        p_subjekt_type: 'media', p_subjekt_id: 91,
+        p_objekt_type: maalType, p_objekt_id: 7,
+        p_rolle: 'afbildet', p_periode_raw: null,
+      },
+    });
+  });
+
+  it('afviser manglende eller ugyldige id-er og ukendt måltype', () => {
+    const base = { art: 'tilknytMedia', subjektType: 'media', subjektId: '91', mediaId: '91',
+      payload: { maalType: 'person', maalId: '42' } } as const;
+    expect(buildRpcCall({ ...base, mediaId: undefined })).toBeNull();
+    expect(buildRpcCall({ ...base, mediaId: '' })).toBeNull();
+    expect(buildRpcCall({ ...base, mediaId: 'x' })).toBeNull();
+    expect(buildRpcCall({ ...base, payload: { ...base.payload, maalId: '' } })).toBeNull();
+    expect(buildRpcCall({ ...base, payload: { ...base.payload, maalId: 'x' } })).toBeNull();
+    expect(buildRpcCall({ ...base, payload: { ...base.payload, maalId: '0' } })).toBeNull();
+    expect(buildRpcCall({ ...base, payload: { ...base.payload, maalId: '-1' } })).toBeNull();
+    expect(buildRpcCall({ ...base, payload: { ...base.payload, maalId: '9223372036854775808' } })).toBeNull();
+    expect(buildRpcCall({ ...base, payload: { maalType: 'organisation', maalId: '7' } })).toBeNull();
+  });
+
+  it('bevarer gyldige BIGINT-id-er over JavaScripts sikre heltalsgrænse som strenge', () => {
+    expect(buildRpcCall({ art: 'tilknytMedia', subjektType: 'media', subjektId: '91',
+      mediaId: '9223372036854775807', payload: { maalType: 'person', maalId: '9007199254740992' } }))
+      .toMatchObject({ args: { p_subjekt_id: '9007199254740992', p_objekt_id: '9223372036854775807' } });
+  });
+
+  it('kan degradere til red_suggest uden upload-gate', () => {
+    const call = planCall({ art: 'tilknytMedia', subjektType: 'media', subjektId: '91', mediaId: '91',
+      payload: { maalType: 'person', maalId: '42' } }, 'medlem');
+    expect(call).toMatchObject({ fn: 'red_suggest', args: {
+      p_art: 'tilknytMedia', p_payload: { maalType: 'person', maalId: '42', mediaId: '91' },
+    } });
+  });
+
+  it('bevarer et stort media-id præcist i både staging-subjekt og payload', () => {
+    const mediaId = '9223372036854775807';
+    expect(planCall({ art: 'tilknytMedia', subjektType: 'media', subjektId: mediaId, mediaId,
+      payload: { maalType: 'person', maalId: '42' } }, 'medlem')).toMatchObject({
+      fn: 'red_suggest', args: { p_subjekt_id: mediaId, p_payload: { mediaId } },
+    });
+  });
+
+  it('afviser en ugyldig tilknytning før staging', () => {
+    expect(() => planCall({ art: 'tilknytMedia', subjektType: 'media', subjektId: '91', mediaId: '91',
+      payload: { maalType: 'person', maalId: '0' } }, 'medlem')).toThrow('Ugyldig medietilknytning');
+  });
+
+  it('oversætter red_relation GDPR-guarden', () => {
+    expect(oversaetFejl('afbildet skal gå person→media (person kan ikke stå på objekt-siden — GDPR-gating)'))
+      .toBe('En person skal stå på subjekt-siden ved billedtilknytning.');
+  });
+});
