@@ -638,6 +638,169 @@ BEGIN
   RAISE NOTICE 'OK: historik-API redaktion-gated + døde-links-view findes';
 END $$;
 
+-- ===== Mediehåndtering fase 2: døde media-mentions =====
+-- Token-id'er skal være positive: parse_mentions-kontrakten accepterer ikke negative id'er.
+DO $$
+DECLARE
+  v_nid bigint := -999903;
+  v_manglende_media_id bigint := 999999901;
+  v_eksisterende_media_id bigint := 999999902;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);  -- bulk-sti, ingen versionering af testdata
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_class
+    WHERE oid='public.red_doede_links'::regclass
+      AND coalesce(reloptions, ARRAY[]::text[]) @> ARRAY['security_invoker=true']
+  ) THEN
+    RAISE EXCEPTION 'FEJL: red_doede_links har mistet security_invoker=true';
+  END IF;
+
+  INSERT INTO media(id, slags, titel, upload_status)
+    VALUES (v_eksisterende_media_id, 'foto', '__verify_doede_links__', 'klar');
+  INSERT INTO narrative(id, subjekt_type, subjekt_id, tekst)
+    VALUES (
+      v_nid,
+      'person',
+      1,
+      format(
+        '[[media:%s|mangler]] og [[media:%s|findes]]',
+        v_manglende_media_id,
+        v_eksisterende_media_id
+      )
+    );
+
+  IF NOT EXISTS (
+    SELECT 1 FROM text_mention
+    WHERE kilde_type='narrative' AND kilde_id=v_nid
+      AND maal_type='media' AND maal_id=v_manglende_media_id
+  ) OR NOT EXISTS (
+    SELECT 1 FROM text_mention
+    WHERE kilde_type='narrative' AND kilde_id=v_nid
+      AND maal_type='media' AND maal_id=v_eksisterende_media_id
+  ) THEN
+    RAISE EXCEPTION 'FEJL: mention-triggeren indekserede ikke begge media-tokens';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM red_doede_links
+    WHERE kilde_type='narrative' AND kilde_id=v_nid
+      AND maal_type='media' AND maal_id=v_manglende_media_id
+  ) THEN
+    RAISE EXCEPTION 'FEJL: manglende media blev ikke vist som dødt link';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM red_doede_links
+    WHERE kilde_type='narrative' AND kilde_id=v_nid
+      AND maal_type='media' AND maal_id=v_eksisterende_media_id
+  ) THEN
+    RAISE EXCEPTION 'FEJL: eksisterende media blev fejlagtigt vist som dødt link';
+  END IF;
+
+  UPDATE media SET upload_status='fjernet' WHERE id=v_eksisterende_media_id;
+  IF EXISTS (
+    SELECT 1 FROM red_doede_links
+    WHERE kilde_type='narrative' AND kilde_id=v_nid
+      AND maal_type='media' AND maal_id=v_eksisterende_media_id
+  ) THEN
+    RAISE EXCEPTION 'FEJL: fjernet media blev fejlagtigt vist som dødt link';
+  END IF;
+
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN
+    RAISE NOTICE 'OK: døde media-mentions skelner manglende/fjernet (rullet tilbage)';
+  ELSE RAISE; END IF;
+END $$;
+
+-- ===== Mediehåndtering fase 2: redaktionen ser private media-mentions =====
+DO $$
+DECLARE
+  v_uid uuid := '00000000-0000-0000-0000-00000000f202';
+  v_member_uid uuid := '00000000-0000-0000-0000-00000000f203';
+  v_nid bigint := -999904;
+  v_public_nid bigint := -999905;
+  v_public_person_id bigint := 999999905;
+  v_media_id bigint := 999999904;
+  v_hidden_media_id bigint := 999999906;
+  v_missing_media_id bigint := 999999907;
+  v_anon int;
+  v_member int;
+  v_redaktion int;
+  v_dead_redaktion int;
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname='public' AND tablename='text_mention'
+      AND policyname='redaktion_read'
+      AND roles @> ARRAY['authenticated']::name[]
+  ) THEN
+    RAISE EXCEPTION 'FEJL: text_mention.redaktion_read-policy mangler';
+  END IF;
+
+  -- Lokale PostgreSQL-shims har ikke Supabases default grants. De midlertidige
+  -- grants rulles tilbage sammen med fixtures og tester kun policy-adfærden.
+  EXECUTE 'GRANT SELECT ON text_mention, red_doede_links TO anon, authenticated';
+  INSERT INTO auth.users(id,email) VALUES
+    (v_uid,'media-fase2@test.invalid'),
+    (v_member_uid,'media-fase2-member@test.invalid');
+  INSERT INTO profiles(id,rolle,email) VALUES
+    (v_uid,'redaktion','media-fase2@test.invalid'),
+    (v_member_uid,'medlem','media-fase2-member@test.invalid');
+  INSERT INTO person(id,levende,privat) VALUES (v_public_person_id,false,false);
+  INSERT INTO media(id,slags,titel,upload_status,maa_publiceres) VALUES
+    (v_media_id,'foto','__verify_public_media__','klar',true),
+    (v_hidden_media_id,'foto','__verify_hidden_media__','fjernet',true);
+  INSERT INTO narrative(id,subjekt_type,subjekt_id,tekst,privat)
+    VALUES
+      (v_nid,'person',-999904,format('[[media:%s|privat]]',v_media_id),true),
+      (v_public_nid,'person',v_public_person_id,
+        format('[[media:%s|klar]] [[media:%s|skjult]] [[media:%s|mangler]]',
+          v_media_id,v_hidden_media_id,v_missing_media_id),false);
+
+  IF NOT EXISTS (
+    SELECT 1 FROM text_mention
+    WHERE kilde_type='narrative' AND kilde_id=v_nid
+      AND maal_type='media' AND maal_id=v_media_id
+  ) THEN
+    RAISE EXCEPTION 'FEJL: privat media-token blev ikke indekseret';
+  END IF;
+
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  SET LOCAL ROLE anon;
+  SELECT count(*) INTO v_anon FROM text_mention
+    WHERE kilde_type='narrative' AND kilde_id IN (v_nid,v_public_nid)
+      AND maal_type='media';
+  RESET ROLE;
+
+  PERFORM set_config('request.jwt.claim.sub',v_member_uid::text,true);
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO v_member FROM text_mention
+    WHERE kilde_type='narrative' AND kilde_id IN (v_nid,v_public_nid)
+      AND maal_type='media';
+  RESET ROLE;
+
+  PERFORM set_config('request.jwt.claim.sub',v_uid::text,true);
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO v_redaktion FROM text_mention
+    WHERE kilde_type='narrative' AND kilde_id IN (v_nid,v_public_nid)
+      AND maal_type='media';
+  SELECT count(*) INTO v_dead_redaktion FROM red_doede_links
+    WHERE kilde_type='narrative' AND kilde_id=v_public_nid AND maal_type='media';
+  RESET ROLE;
+
+  IF v_anon <> 1 OR v_member <> 1 OR v_redaktion <> 4 OR v_dead_redaktion <> 1 THEN
+    RAISE EXCEPTION 'FEJL: media-mention RLS anon=%/medlem=%/redaktion=%/død=% (vent 1/1/4/1)',
+      v_anon, v_member, v_redaktion, v_dead_redaktion;
+  END IF;
+
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN
+    RAISE NOTICE 'OK: media-mentions gater kilde+mål for anon/medlem og er komplette for redaktion (rullet tilbage)';
+  ELSE RAISE; END IF;
+END $$;
+
 -- ===== Versionering Task 7b: composite-PK restore-hjælpere (B11/M2) =====
 -- T7 dækkede kun enkelt-id (note). Her: family_member (3-kol PK) gennem alle tre
 -- helper-stier — fanger ON CONFLICT-constraint-match + multi-kolonne WHERE-cast.

@@ -2413,9 +2413,10 @@ BEGIN
   RETURN QUERY SELECT * FROM change_event WHERE change_set_id=p_change_set_id ORDER BY seq;
 END $$;
 
--- Døde links: mentions hvis mål ikke længere findes (kun person/estate/lineage vist; udvid efter behov).
+-- Døde links: mentions hvis mål ikke længere findes.
 CREATE OR REPLACE VIEW red_doede_links WITH (security_invoker = true) AS
 SELECT m.* FROM text_mention m
 WHERE (m.maal_type='person' AND NOT EXISTS (SELECT 1 FROM person  p WHERE p.id=m.maal_id))
    OR (m.maal_type='estate' AND NOT EXISTS (SELECT 1 FROM estate  e WHERE e.id=m.maal_id))
-   OR (m.maal_type='lineage' AND NOT EXISTS (SELECT 1 FROM lineage l WHERE l.id=m.maal_id));
+   OR (m.maal_type='lineage' AND NOT EXISTS (SELECT 1 FROM lineage l WHERE l.id=m.maal_id))
+   OR (m.maal_type='media' AND NOT EXISTS (SELECT 1 FROM media md WHERE md.id=m.maal_id));

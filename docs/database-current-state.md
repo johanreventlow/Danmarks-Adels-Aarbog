@@ -109,3 +109,17 @@ rækker kan genoprettes via `red_genopret_media`. Rettighedsgaten vedligeholdes 
 `upload_status='fjernet'` er fortsat usynlig for offentligheden og for almindelige medlemmer.
 Redaktionen læser derimod rækken for at kunne vise status og genoprette den. Lightbox og
 narrativ-mention-pickere filtrerer eksplicit til `upload_status='klar'`.
+
+## Mediehåndtering fase 2 — kodeklar, ikke deployet (2026-07-19)
+
+`schema.sql` og den idempotente blok `mediehaandtering_fase2_doede_links` i
+`db-migrations.sql` udvider `red_doede_links` med `maal_type='media'`: kun et media-id
+uden en eksisterende `media`-række er dødt. En række med `upload_status='fjernet'` er
+ikke død, fordi den stadig findes og kan genoprettes. `security_invoker` er bevaret.
+
+Ændringen er kun implementeret og verificeret lokalt. Den er **ikke live i prod** og
+ændrer derfor ikke §2 ovenfor endnu. Det gatede deploytrin bør samle fase 1-blokken
+`mediehaandtering_fase1_filside` og fase 2-blokken: read-only backup → begge blokke →
+`db-rls.sql` (mention-politikkerne) → `db-verify-media.sql` samt de nye døde-links-
+og mention-RLS-asserts → app-deploy. Prod må først opdateres efter eksplicit
+brugeraccept.

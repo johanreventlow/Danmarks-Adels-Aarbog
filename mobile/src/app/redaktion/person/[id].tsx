@@ -25,7 +25,30 @@ import { RelTilfoejSheet } from '../../../components/redaktion/RelTilfoejSheet';
 import { personEditorSheetStyles } from '../../../components/redaktion/personEditorSheetStyles';
 import { Body, BtnLabel, Mono, Serif } from '../../../components/Typography';
 import { useMediaAndThumbUris } from '../../../lib/media';
-import { buildTidslinje, fetchHaendelserForPerson, fetchStoriesForPerson, storyPrefillFraPost, fetchPersonEvidence, fetchPersonRelationer, fetchPersonFamilie, fetchPersonMedia, fetchSammeSomLinks, fetchForaeldreUkendtMarkering, nudgeOrdinal, type HaendelsePost, type StoryPost, type TidslinjePost, type PersonEvidence, type PersonRelation, type PersonFamilie, type PersonMedia, type SammeSomLink, type ForaeldreUkendtMarkering } from '../../../data/redaktionRead';
+import {
+  buildTidslinje,
+  fetchHaendelserForPerson,
+  fetchStoriesForPerson,
+  storyPrefillFraPost,
+  fetchPersonEvidence,
+  fetchPersonRelationer,
+  fetchPersonFamilie,
+  fetchPersonMedia,
+  fetchSammeSomLinks,
+  fetchForaeldreUkendtMarkering,
+  fetchMediaAnvendelse,
+  nudgeOrdinal,
+  type HaendelsePost,
+  type StoryPost,
+  type TidslinjePost,
+  type PersonEvidence,
+  type PersonRelation,
+  type PersonFamilie,
+  type PersonMedia,
+  type MediaAnvendelse,
+  type SammeSomLink,
+  type ForaeldreUkendtMarkering,
+} from '../../../data/redaktionRead';
 import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, previewSammeSom } from '@daa/core';
 import { eraAdvarsel } from '../../../data/eraAdvarsel';
 import { type Change } from '../../../data/redaktionWrite';
@@ -126,6 +149,8 @@ export default function PersonEditor() {
   // Materiale (mediehåndtering Slice 0g).
   const [media, setMedia] = useState<PersonMedia[]>([]);
   const [mediaDetalje, setMediaDetalje] = useState<PersonMedia | null>(null);
+  const [mediaAnvendelse, setMediaAnvendelse] = useState<MediaAnvendelse | undefined>();
+  const [mediaAnvendelseFejl, setMediaAnvendelseFejl] = useState('');
   const [uploadSheetOpen, setUploadSheetOpen] = useState(false);
   const refreshMedia = () => { if (id) fetchPersonMedia(id).then(setMedia).catch(() => {}); };
   useEffect(refreshMedia, [id]);
@@ -133,6 +158,13 @@ export default function PersonEditor() {
     media.map((m) => ({ id: m.id, storage_path: m.storagePath, thumb_storage_path: m.thumbStoragePath })),
     (m) => m.thumb_storage_path,
   );
+  useEffect(() => {
+    if (!mediaDetalje) { setMediaAnvendelse(undefined); setMediaAnvendelseFejl(''); return; }
+    let aktiv = true; setMediaAnvendelse(undefined); setMediaAnvendelseFejl('');
+    fetchMediaAnvendelse(mediaDetalje.id).then((a) => { if (aktiv) setMediaAnvendelse(a); })
+      .catch(() => { if (aktiv) setMediaAnvendelseFejl('Kunne ikke kontrollere anvendelser. Sletning er blokeret.'); });
+    return () => { aktiv = false; };
+  }, [mediaDetalje?.id]);
 
   function onAction(a: FaktaAction) {
     if (a.type === 'gørKonklusion') {
@@ -418,7 +450,6 @@ export default function PersonEditor() {
             mediaThumbUris={mediaThumbUris}
             onVaelg={setMediaDetalje}
             onFjern={(m) => setPending({ art: 'sletRelation', subjektType: 'person', subjektId: id!, relationId: m.relationId })}
-            onSlet={(m) => setPending({ art: 'fjernMedia', subjektType: 'person', subjektId: id!, mediaId: m.id })}
             onGenopret={(m) => setPending({ art: 'genopretMedia', subjektType: 'person', subjektId: id!, mediaId: m.id })}
           />
           <Pressable style={{ paddingVertical: 6 }} onPress={() => setUploadSheetOpen(true)}>
@@ -614,10 +645,15 @@ export default function PersonEditor() {
         <MediaDetaljeSheet
           media={mediaDetalje}
           uri={mediaUris[mediaDetalje.id]}
+          thumbUri={mediaThumbUris[mediaDetalje.id]}
+          anvendelse={mediaAnvendelse}
+          anvendelseFejl={mediaAnvendelseFejl}
           onClose={() => setMediaDetalje(null)}
           onGemMetadata={(payload) => { setPending({ art: 'opdaterMedia', subjektType: 'person', subjektId: id!, mediaId: mediaDetalje.id, payload }); setMediaDetalje(null); }}
           onGemRettigheder={(payload) => { setPending({ art: 'mediaRettigheder', subjektType: 'person', subjektId: id!, mediaId: mediaDetalje.id, payload }); setMediaDetalje(null); }}
           onFjern={() => { setPending({ art: 'sletRelation', subjektType: 'person', subjektId: id!, relationId: mediaDetalje.relationId }); setMediaDetalje(null); }}
+          onFjernTilknytning={(relationId) => { setPending({ art: 'sletRelation', subjektType: 'media', subjektId: mediaDetalje.id, relationId }); setMediaDetalje(null); }}
+          onTilknyt={() => { const mediaId = mediaDetalje.id; setMediaDetalje(null); router.push({ pathname: '/redaktion/entitet/medie/[id]', params: { id: mediaId } }); }}
           onSlet={() => { setPending({ art: 'fjernMedia', subjektType: 'person', subjektId: id!, mediaId: mediaDetalje.id }); setMediaDetalje(null); }}
           onGenopret={() => { setPending({ art: 'genopretMedia', subjektType: 'person', subjektId: id!, mediaId: mediaDetalje.id }); setMediaDetalje(null); }}
         />
@@ -685,7 +721,7 @@ export default function PersonEditor() {
           if (id) fetchPersonRelationer(id, redaktionAux).then(setRelationer).catch(() => {});
           if (id) fetchPersonFamilie(id, redaktionModel).then(setFamilie).catch(() => {});
           refreshSammeSom();
-          if (['uploadMedia','opdaterMedia','genopretMedia','mediaRettigheder','fjernMedia','sletRelation'].includes(applied?.art ?? '')) refreshMedia();
+          if (['uploadMedia','opdaterMedia','genopretMedia','mediaRettigheder','fjernMedia','sletRelation','tilknytMedia'].includes(applied?.art ?? '')) refreshMedia();
           if ((applied?.art === 'opretStory' || applied?.art === 'redigerStory') && storyKilderEfterGem) {
             const storyId = applied.storyId ?? Number(result);
             setStoryKilderEfterGem(null);

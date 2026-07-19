@@ -400,3 +400,106 @@ describe('mapPersonMediaRows (mediehåndtering fase 1)', () => {
     expect(out[0]).toMatchObject({ id: '93', uploadStatus: 'fjernet', thumbStoragePath: 'thumb.jpg' });
   });
 });
+
+import {
+  klassificerMedie,
+  mapMediaAnvendelse,
+  mapMediaBibliotekRows,
+} from '../redaktionRead';
+
+describe('mediebibliotek fase 2', () => {
+  describe('klassificerMedie', () => {
+    const uploadStatuses = ['klar', 'kladde', 'fejlet', 'fjernet'] as const;
+    const rettighederStatuses = ['ukendt', 'licenseret'] as const;
+    for (const uploadStatus of uploadStatuses) {
+      for (const rettighederStatus of rettighederStatuses) {
+        for (const maaPubliceres of [false, true]) {
+          for (const antalAfbildet of [0, 1]) {
+            for (const antalMentions of [0, 1]) {
+              it(`${uploadStatus}/${rettighederStatus}/public=${maaPubliceres}/afbildet=${antalAfbildet}/mentions=${antalMentions}`, () => {
+                const expected = [];
+                if (uploadStatus === 'klar' && (rettighederStatus === 'ukendt' || !maaPubliceres)) expected.push('rettigheder');
+                if (uploadStatus === 'klar' && antalAfbildet === 0 && antalMentions === 0) expected.push('loese');
+                if (uploadStatus === 'kladde' || uploadStatus === 'fejlet') expected.push('strandede');
+                if (uploadStatus === 'fjernet') expected.push('papirkurv');
+                expect(klassificerMedie({ uploadStatus, rettighederStatus, maaPubliceres }, antalAfbildet, antalMentions))
+                  .toEqual(expected);
+              });
+            }
+          }
+        }
+      }
+    }
+
+    it('tillader flere køer samtidig', () => {
+      expect(klassificerMedie({ uploadStatus: 'klar', rettighederStatus: 'ukendt', maaPubliceres: false }, 0, 0))
+        .toEqual(['rettigheder', 'loese']);
+    });
+  });
+
+  it('joiner tællinger og thumb på alle media, også uden anvendelser', () => {
+    const media = [
+      { id: 91, slags: 'foto', titel: 'Brugt', kunstner: null, datering: null, storage_path: 'a.jpg',
+        upload_status: 'klar', maa_publiceres: true, rettigheder_status: 'public_domain', mime_type: 'image/jpeg',
+        byte_size: 1, bredde: 10, hoejde: 20, original_filnavn: 'a.jpg' },
+      { id: 92, slags: 'foto', titel: 'Løst', kunstner: null, datering: null, storage_path: 'b.jpg',
+        upload_status: 'klar', maa_publiceres: true, rettigheder_status: 'public_domain', mime_type: 'image/jpeg',
+        byte_size: 2, bredde: 10, hoejde: 20, original_filnavn: 'b.jpg' },
+    ];
+    const relationer = [
+      { subjekt_type: 'person', subjekt_id: 7, objekt_type: 'media', objekt_id: 91, rolle: 'afbildet' },
+      { subjekt_type: 'media', subjekt_id: 91, objekt_type: 'estate', objekt_id: 3, rolle: 'afbildet' },
+    ];
+    const mentions = [
+      { kilde_type: 'narrative', kilde_id: 4, maal_type: 'media', maal_id: 91 },
+      { kilde_type: 'note', kilde_id: 5, maal_type: 'media', maal_id: 91 },
+    ];
+    const out = mapMediaBibliotekRows(media, relationer, mentions, new Map([['91', 'thumb/a.jpg']]));
+    expect(out[0]).toMatchObject({ id: '91', antalAfbildet: 2, antalMentions: 2,
+      koeer: [], thumbStoragePath: 'thumb/a.jpg' });
+    expect(out[0]).not.toHaveProperty('relationId');
+    expect(out[1]).toMatchObject({ id: '92', antalAfbildet: 0, antalMentions: 0, koeer: ['loese'],
+      thumbStoragePath: null });
+  });
+
+  it('opløser afbildet-retninger og narrativets subjektNavn', () => {
+    const out = mapMediaAnvendelse(
+      '91',
+      [
+        { id: 501, subjekt_type: 'person', subjekt_id: 7, objekt_type: 'media', objekt_id: 91, rolle: 'afbildet' },
+        { id: 502, subjekt_type: 'media', subjekt_id: 91, objekt_type: 'estate', objekt_id: 3, rolle: 'afbildet' },
+      ],
+      [{ kilde_type: 'narrative', kilde_id: 40, maal_type: 'media', maal_id: 91 }],
+      [{ id: 40, subjekt_type: 'lineage', subjekt_id: 8 }],
+      new Map([
+        ['person:7', 'Anna Reventlow'],
+        ['estate:3', 'Pederstrup'],
+        ['lineage:8', 'Den grevelige linje'],
+      ]),
+    );
+    expect(out).toEqual({
+      afbildet: [
+        { type: 'person', id: '7', navn: 'Anna Reventlow', relationId: '501' },
+        { type: 'estate', id: '3', navn: 'Pederstrup', relationId: '502' },
+      ],
+      mentions: [{ kildeType: 'narrative', kildeId: '40', subjektNavn: 'Den grevelige linje' }],
+    });
+  });
+
+  it('falder lukket tilbage ved ukendt mention-kilde eller subjekt', () => {
+    const out = mapMediaAnvendelse(
+      '91',
+      [],
+      [
+        { kilde_type: 'note', kilde_id: 99, maal_type: 'media', maal_id: 91 },
+        { kilde_type: 'narrative', kilde_id: 302, maal_type: 'media', maal_id: 91 },
+      ],
+      [{ id: 302, subjekt_type: 'lineage', subjekt_id: 8 }],
+      new Map(),
+    );
+    expect(out.mentions).toEqual([
+      { kildeType: 'note', kildeId: '99', subjektNavn: '(ukendt subjekt)' },
+      { kildeType: 'narrative', kildeId: '302', subjektNavn: 'lineage #8' },
+    ]);
+  });
+});

@@ -375,6 +375,50 @@ describe('buildRpcCall — filside fase 1', () => {
   });
 });
 
+describe('buildRpcCall — tilknytMedia fase 2', () => {
+  it('person står på subjekt-siden af GDPR-hensyn', () => {
+    expect(buildRpcCall({ art: 'tilknytMedia', subjektType: 'media', subjektId: '91', mediaId: '91',
+      payload: { maalType: 'person', maalId: '7' } } as never)).toEqual({
+      fn: 'red_relation', args: {
+        p_subjekt_type: 'person', p_subjekt_id: 7, p_objekt_type: 'media', p_objekt_id: 91,
+        p_rolle: 'afbildet', p_periode_raw: null,
+      },
+    });
+  });
+
+  it.each(['estate', 'coat_of_arms', 'lineage'] as const)('media står på subjekt-siden for %s', (maalType) => {
+    expect(buildRpcCall({ art: 'tilknytMedia', subjektType: 'media', subjektId: '91', mediaId: '91',
+      payload: { maalType, maalId: '8' } } as never)).toEqual({
+      fn: 'red_relation', args: {
+        p_subjekt_type: 'media', p_subjekt_id: 91, p_objekt_type: maalType, p_objekt_id: 8,
+        p_rolle: 'afbildet', p_periode_raw: null,
+      },
+    });
+  });
+
+  it('afviser manglende/ugyldige ider og ukendt måltype fail-closed', () => {
+    const baseChange = { art: 'tilknytMedia', subjektType: 'media', subjektId: '91', mediaId: '91',
+      payload: { maalType: 'person', maalId: '7' } };
+    expect(buildRpcCall({ ...baseChange, mediaId: '' } as never)).toBeNull();
+    expect(buildRpcCall({ ...baseChange, payload: { ...baseChange.payload, maalId: '' } } as never)).toBeNull();
+    expect(buildRpcCall({ ...baseChange, payload: { ...baseChange.payload, maalId: '0' } } as never)).toBeNull();
+    expect(buildRpcCall({ ...baseChange, payload: { ...baseChange.payload, maalId: '-1' } } as never)).toBeNull();
+    expect(buildRpcCall({ ...baseChange, payload: { ...baseChange.payload, maalId: '9223372036854775808' } } as never)).toBeNull();
+    expect(buildRpcCall({ ...baseChange, payload: { ...baseChange.payload, maalType: 'organisation' } } as never)).toBeNull();
+  });
+
+  it('bevarer gyldige BIGINT-id-er over JavaScripts sikre heltalsgrænse som strenge', () => {
+    expect(buildRpcCall({ art: 'tilknytMedia', subjektType: 'media', subjektId: '91',
+      mediaId: '9223372036854775807', payload: { maalType: 'person', maalId: '9007199254740992' } } as never))
+      .toMatchObject({ args: { p_subjekt_id: '9007199254740992', p_objekt_id: '9223372036854775807' } });
+  });
+
+  it('oversætter red_relation-person-guarden', () => {
+    expect(oversaetFejl('afbildet skal gå person→media (person kan ikke stå på objekt-siden — GDPR-gating)'))
+      .toBe('En person skal stå på subjekt-siden ved billedtilknytning.');
+  });
+});
+
 describe('buildRpcCall — story/feed_pin (fase 3)', () => {
   it('opretStory → red_opret_story med payload-felter', () => {
     expect(buildRpcCall({ art: 'opretStory', subjektType: 'person', subjektId: '7',

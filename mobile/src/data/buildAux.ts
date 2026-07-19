@@ -1,6 +1,7 @@
 // Port af buildAux() fra design-HTML (linje 808-868). Bygger hjælpe-indekser pr. person:
 // kilder (bogreference), embeder/godser (relation), linjer (grene I–V), medier.
 import { compareDanish, parseYear, stripParen } from '@daa/core';
+import { klassificerMedie, type MedieKoe } from './redaktionRead';
 import type {
   Aux,
   RawArms,
@@ -11,12 +12,15 @@ import type {
   RawOrg,
   RawRelation,
   RawSource,
+  RawTextMention,
 } from './types';
 
 type BuildAuxInput = {
   extIds: RawExtId[];
   sources: RawSource[];
   relations: RawRelation[];
+  mediaRelations?: RawRelation[];
+  mediaMentions?: RawTextMention[];
   estates: RawEstate[];
   orgs: RawOrg[];
   media: RawMedia[];
@@ -29,6 +33,8 @@ export function buildAux(
     extIds,
     sources,
     relations,
+    mediaRelations,
+    mediaMentions,
     estates,
     orgs,
     media,
@@ -176,11 +182,48 @@ export function buildAux(
   const orgListe = (orgs || []).map((o) => ({
     id: String(o.id), navn: o.navn ?? '(uden navn)', slags: o.slags ?? '',
   })).sort((a, b) => compareDanish(a.navn, b.navn));
-  const medieListe = (media || []).map((m) => ({
-    id: String((m as { id?: unknown }).id ?? ''), titel: String((m as { titel?: unknown }).titel ?? ''),
-    slags: String((m as { slags?: unknown }).slags ?? ''), kunstner: String((m as { kunstner?: unknown }).kunstner ?? ''),
-    datering: String((m as { datering?: unknown }).datering ?? ''),
-  })).sort((a, b) => compareDanish(a.titel, b.titel));
+  const afbildetByMediaId = new Map<string, Set<string>>();
+  for (const r of [...(relations || []), ...(mediaRelations || [])]) {
+    if (r.rolle !== 'afbildet') continue;
+    const pair = r.subjekt_type === 'person' && r.objekt_type === 'media'
+      ? { mediaId: String(r.objekt_id), target: `person:${r.subjekt_id}` }
+      : r.subjekt_type === 'media' && ['estate','coat_of_arms','lineage'].includes(r.objekt_type)
+        ? { mediaId: String(r.subjekt_id), target: `${r.objekt_type}:${r.objekt_id}` }
+        : null;
+    if (pair) {
+      const targets = afbildetByMediaId.get(pair.mediaId) ?? new Set<string>();
+      targets.add(pair.target);
+      afbildetByMediaId.set(pair.mediaId, targets);
+    }
+  }
+  const antalMentionsById = new Map<string, number>();
+  for (const mention of mediaMentions || []) {
+    if (mention.maal_type !== 'media') continue;
+    const mediaId = String(mention.maal_id);
+    antalMentionsById.set(mediaId, (antalMentionsById.get(mediaId) ?? 0) + 1);
+  }
+  const medieListe = (media || []).map((m) => {
+    const id = String(m.id ?? '');
+    const uploadStatus = m.upload_status ?? 'kladde';
+    const maaPubliceres = Boolean(m.maa_publiceres);
+    const rettighederStatus = m.rettigheder_status ?? 'ukendt';
+    const antalAfbildet = afbildetByMediaId.get(id)?.size ?? 0;
+    const antalMentions = antalMentionsById.get(id) ?? 0;
+    return {
+      id, titel: String(m.titel ?? ''), slags: String(m.slags ?? ''),
+      kunstner: String(m.kunstner ?? ''), datering: String(m.datering ?? ''),
+      storagePath: String(m.storage_path ?? ''), thumbStoragePath: String(m.thumb_storage_path ?? ''), mimeType: String(m.mime_type ?? ''),
+      uploadStatus, maaPubliceres, rettighederStatus, antalAfbildet, antalMentions,
+      koeer: klassificerMedie({ uploadStatus, maaPubliceres, rettighederStatus }, antalAfbildet, antalMentions),
+    };
+  }).sort((a, b) => compareDanish(a.titel, b.titel));
+  const medieKoeTaellere: Record<MedieKoe, number> = {
+    rettigheder: 0,
+    loese: 0,
+    strandede: 0,
+    papirkurv: 0,
+  };
+  medieListe.forEach((m) => m.koeer.forEach((koe) => { medieKoeTaellere[koe] += 1; }));
   // godsListe: KOMPLET (alle estates, ikke kun ejede); ownerCount fra ownersByEstate (0 hvis ingen).
   const godsListe = (estates || []).map((e) => ({
     id: String(e.id), navn: e.navn ?? '(uden navn)', slags: e.slags ?? '',
@@ -205,6 +248,7 @@ export function buildAux(
     kildeListe,
     orgListe,
     medieListe,
+    medieKoeTaellere,
     godsListe,
     vaabenListe,
   };

@@ -41,6 +41,7 @@ import type {
   RawPlace,
   RawRelation,
   RawSource,
+  RawTextMention,
   Union,
 } from './types';
 
@@ -147,6 +148,8 @@ export async function loadFromSupabase(opts?: {
     extIds,
     sources,
     relations,
+    mediaRelations,
+    mediaMentions,
     estates,
     orgs,
     media,
@@ -179,6 +182,19 @@ export async function loadFromSupabase(opts?: {
           .from('relation')
           .select('subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw')
           .eq('subjekt_type', 'person'),
+      ),
+      getAll<RawRelation>(() =>
+        sb
+          .from('relation')
+          .select('subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw')
+          .eq('subjekt_type', 'media')
+          .eq('rolle', 'afbildet'),
+      ),
+      getAll<RawTextMention>(() =>
+        sb
+          .from('text_mention')
+          .select('kilde_type,kilde_id,maal_type,maal_id')
+          .eq('maal_type', 'media'),
       ),
       getAll<RawEstate>(() => sb.from('estate').select('id,navn,slags,sted_id')),
       getAll<RawOrg>(() => sb.from('organisation').select('id,navn,slags')),
@@ -313,7 +329,7 @@ export async function loadFromSupabase(opts?: {
   });
 
   const aux = buildAux(
-    { extIds, sources, relations, estates, orgs, media: mediaEnriched, lineage, arms },
+    { extIds, sources, relations, mediaRelations, mediaMentions, estates, orgs, media: mediaEnriched, lineage, arms },
     collapsed.canonicalIdById,
   );
 
