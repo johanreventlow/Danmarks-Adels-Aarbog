@@ -1,5 +1,22 @@
 # Changelog
 
+## Mediehåndtering fase 2 — design-spec for biblioteket (2026-07-19)
+
+Spec skrevet (ingen kode), efter fase 1 er merget til main (PR #59):
+`docs/superpowers/specs/2026-07-19-mediehaandtering-fase2-bibliotek-design.md` omsætter
+konceptets fase 2 (M5–M7 + M9's synlighed) til 6 skiver. Empirisk forankret i den
+mergede fase 1-kode: web's "Medier"-fane FINDES allerede men er tom
+(`fetchEntityRecords('media')` → `[]` — fanen skal fyldes, ikke opfindes);
+`red_relation(...,'afbildet')` findes server-side med GDPR-guard men er ueksponeret i
+UI (ny Change-art `tilknytMedia` med klient-sidet retningsforgrening, server-guard som
+bagstopper); `text_mention`+`ix_text_mention_maal` dækker allerede media ("bruges på"
+er tre små queries, on-demand pr. filside). Kun ÉN DB-ændring: `red_doede_links` får
+media-gren (kun ikke-eksisterende media = dødt link; fjernet medie er IKKE dødt — det
+kan genoprettes og synliggøres via papirkurven). Kø-klassifikation som ren, testbar
+funktion; strandede-køen UDEN aldersfilter (media har ingen `created_at` — kolonnen
+udskudt til fase 3's janitor, åbent punkt §9.1). Lukker koncept-§10.5: mobile får
+kø-tællere + tappbare rækker + fuld filside, web er primærflade for kø-arbejde.
+
 ## Mediehåndtering fase 1 — implementeringsplan (2026-07-19)
 
 Plan skrevet (ingen kode): `docs/superpowers/plans/2026-07-19-mediehaandtering-fase1-filside.md`
