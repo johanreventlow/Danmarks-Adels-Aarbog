@@ -40,6 +40,7 @@ DO $$ BEGIN
   END;
 END $$;
 
+
 -- ===== Task 2: Cache-regenerering — regen_person_visning + trigger =====
 -- Vælg en person med navne-fakta; nulstil cache; kald regen; bekræft den genskabes.
 -- Forvent: NOTICE "OK: visning_navn regenereret".
@@ -1952,4 +1953,166 @@ EXCEPTION WHEN OTHERS THEN
   IF SQLERRM='ROLLBACK_TEST_OK' THEN
     RAISE NOTICE 'OK: media fase 1 RPC + undo + upload-signatur (rullet tilbage)';
   ELSE RAISE; END IF;
+END $$;
+
+-- ===== Levende feed fase 3: story/story_kilde/feed_pin — skema, RLS, RPC'er og fortryd =====
+DO $$
+DECLARE
+  v_pub int; v_kladde int; v_levende int; v_privat int;
+  v_kilde int; v_kilde_kladde int; v_pin int; v_auth_pub int; v_auth_kladde int;
+  v_uid uuid := '00000000-0000-0000-0000-0000000000f3';
+  v_seed_af uuid := '00000000-0000-0000-0000-0000000000f4';
+  v_story bigint; v_cs_opret bigint; v_cs_status bigint;
+  v_undo1 bigint; v_undo2 bigint; v_res jsonb;
+BEGIN
+  IF to_regclass('public.story') IS NULL THEN RAISE EXCEPTION 'Fase3: story-tabellen mangler'; END IF;
+  IF to_regclass('public.story_kilde') IS NULL THEN RAISE EXCEPTION 'Fase3: story_kilde mangler'; END IF;
+  IF to_regclass('public.feed_pin') IS NULL THEN RAISE EXCEPTION 'Fase3: feed_pin mangler'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM version_pk_registry WHERE tabel='story' AND skip_cols='{}') THEN
+    RAISE EXCEPTION 'Fase3: story mangler i version_pk_registry uden skip_cols (fuld versionering, §3.7)';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM version_pk_registry WHERE tabel='feed_pin' AND skip_cols='{}') THEN
+    RAISE EXCEPTION 'Fase3: feed_pin mangler i version_pk_registry uden skip_cols';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.story'::regclass
+                 AND tgname='trg_log_story' AND NOT tgisinternal) THEN
+    RAISE EXCEPTION 'Fase3: trg_log_story mangler';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.feed_pin'::regclass
+                 AND tgname='trg_log_feed_pin' AND NOT tgisinternal) THEN
+    RAISE EXCEPTION 'Fase3: trg_log_feed_pin mangler';
+  END IF;
+
+  -- Oprydning + seeds
+  DELETE FROM feed_pin WHERE kort_noegle LIKE 'verify3:%';
+  DELETE FROM story_kilde WHERE id BETWEEN -987657029 AND -987657020;
+  DELETE FROM story WHERE id BETWEEN -987657019 AND -987657010;
+  DELETE FROM source WHERE id=-987657031;
+  DELETE FROM person WHERE id IN (-987657001,-987657002);
+  INSERT INTO person(id,levende,privat,staged) VALUES
+    (-987657001,true,false,false),(-987657002,false,false,false);
+  INSERT INTO source(id,titel,udgave) VALUES (-987657031,'Verify-kilde','1939');
+  INSERT INTO story(id,subjekt_type,subjekt_id,tekst,status,privat,skabt_af) VALUES
+    (-987657011,'person',-987657002,'Publiceret offentlig historie','publiceret',false,v_seed_af),
+    (-987657012,'person',-987657002,'Kladde-historie','kladde',false,v_seed_af),
+    (-987657013,'person',-987657001,'Publiceret om levende','publiceret',false,v_seed_af),
+    (-987657014,'person',-987657002,'Publiceret men privat','publiceret',true,v_seed_af);
+  INSERT INTO story_kilde(id,story_id,source_id,side) VALUES
+    (-987657021,-987657011,-987657031,'112'),
+    (-987657022,-987657012,-987657031,'7');
+  INSERT INTO feed_pin(id,kort_noegle,handling,oprettet_af) VALUES
+    (-987657041,'verify3:portrait:1','pin',v_seed_af);
+
+  -- CHECK + UNIQUE
+  BEGIN
+    INSERT INTO story(id,subjekt_type,subjekt_id,tekst,status,skabt_af)
+      VALUES (-987657015,'person',-987657002,'X','udgivet',v_seed_af);
+    RAISE EXCEPTION 'Fase3: story.status-CHECK fyrede ikke';
+  EXCEPTION WHEN check_violation THEN NULL; END;
+  BEGIN
+    INSERT INTO story(id,subjekt_type,subjekt_id,tekst,oprindelse,skabt_af)
+      VALUES (-987657015,'person',-987657002,'X','ai',v_seed_af);
+    RAISE EXCEPTION 'Fase3: story.oprindelse-CHECK fyrede ikke';
+  EXCEPTION WHEN check_violation THEN NULL; END;
+  BEGIN
+    INSERT INTO feed_pin(id,kort_noegle,handling,oprettet_af)
+      VALUES (-987657042,'verify3:x','fremhaev',v_seed_af);
+    RAISE EXCEPTION 'Fase3: feed_pin.handling-CHECK fyrede ikke';
+  EXCEPTION WHEN check_violation THEN NULL; END;
+  BEGIN
+    INSERT INTO feed_pin(id,kort_noegle,handling,oprettet_af)
+      VALUES (-987657043,'verify3:portrait:1','skjul',v_seed_af);
+    RAISE EXCEPTION 'Fase3: feed_pin UNIQUE(kort_noegle) fyrede ikke';
+  EXCEPTION WHEN unique_violation THEN NULL; END;
+
+  -- RLS-synlighed (anon + authenticated, F-02-linjen)
+  SET LOCAL ROLE anon;
+  SELECT count(*) INTO v_pub     FROM story WHERE id=-987657011;
+  SELECT count(*) INTO v_kladde  FROM story WHERE id=-987657012;
+  SELECT count(*) INTO v_levende FROM story WHERE id=-987657013;
+  SELECT count(*) INTO v_privat  FROM story WHERE id=-987657014;
+  SELECT count(*) INTO v_kilde        FROM story_kilde WHERE id=-987657021;
+  SELECT count(*) INTO v_kilde_kladde FROM story_kilde WHERE id=-987657022;
+  SELECT count(*) INTO v_pin FROM feed_pin WHERE kort_noegle='verify3:portrait:1';
+  RESET ROLE;
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO v_auth_pub    FROM story WHERE id=-987657011;
+  SELECT count(*) INTO v_auth_kladde FROM story WHERE id=-987657012;
+  RESET ROLE;
+  IF v_pub<>1 OR v_kladde<>0 OR v_levende<>0 OR v_privat<>0
+     OR v_kilde<>1 OR v_kilde_kladde<>0 OR v_pin<>1
+     OR v_auth_pub<>1 OR v_auth_kladde<>0 THEN
+    RAISE EXCEPTION 'Fase3 RLS FEJL pub=% kladde=% levende=% privat=% kilde=% kilde_kladde=% pin=% auth_pub=% auth_kladde=%',
+      v_pub,v_kladde,v_levende,v_privat,v_kilde,v_kilde_kladde,v_pin,v_auth_pub,v_auth_kladde;
+  END IF;
+
+  -- RPC-gates
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  BEGIN
+    PERFORM red_opret_story('person',-987657002,'Uautoriseret');
+    RAISE EXCEPTION 'Fase3: red_opret_story afviste ikke ikke-redaktør';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE 'Kun redaktion%' THEN RAISE; END IF; END;
+  BEGIN
+    PERFORM red_set_feed_pin('verify3:portrait:1','pin');
+    RAISE EXCEPTION 'Fase3: red_set_feed_pin afviste ikke ikke-redaktør';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE 'Kun redaktion%' THEN RAISE; END IF; END;
+
+  INSERT INTO auth.users(id,email) VALUES (v_uid,'fase3@test.invalid') ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES (v_uid,'redaktion','fase3@test.invalid')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('request.jwt.claim.sub',v_uid::text,true);
+  BEGIN
+    PERFORM red_set_story_status(-987657011,'udgivet');
+    RAISE EXCEPTION 'Fase3: ugyldig story-status blev ikke afvist';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%ikke en gyldig story-status%' THEN RAISE; END IF; END;
+  BEGIN
+    PERFORM red_set_feed_pin('verify3:x','fremhaev');
+    RAISE EXCEPTION 'Fase3: ugyldig pin-handling blev ikke afvist';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%ikke en gyldig pin-handling%' THEN RAISE; END IF; END;
+
+  -- Fortryd-assert (fuld versionering, §3.7/§3.8): begge retninger
+  v_story := red_opret_story('person',-987657002,'Fortryd-testhistorie','Titel');
+  v_cs_opret := current_setting('app.change_set_id')::bigint;
+  PERFORM set_config('app.change_set_id','',true);
+  BEGIN
+    PERFORM red_set_story_status(v_story,'publiceret');
+    RAISE EXCEPTION 'Fase3: publicering uden kilde blev accepteret';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE 'Story % kan ikke publiceres uden mindst én kilde' THEN RAISE; END IF;
+  END;
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO story_kilde(id,story_id,source_id,side)
+    VALUES (-987657023,v_story,-987657031,'112');
+  PERFORM red_set_story_status(v_story,'publiceret');
+  v_cs_status := current_setting('app.change_set_id')::bigint;
+  IF (SELECT status FROM story WHERE id=v_story) <> 'publiceret'
+     OR (SELECT publiceret_dato FROM story WHERE id=v_story) IS NULL THEN
+    RAISE EXCEPTION 'Fase3: publicering satte ikke status/publiceret_dato';
+  END IF;
+  PERFORM set_config('app.change_set_id','',true);
+  v_res := red_fortryd_change_set(v_cs_status,false);
+  v_undo1 := (v_res->>'reversal_change_set')::bigint;
+  IF (SELECT status FROM story WHERE id=v_story) <> 'kladde' THEN
+    RAISE EXCEPTION 'Fase3: fortryd af status-skiftet genskabte ikke kladde';
+  END IF;
+  PERFORM set_config('app.change_set_id','',true);
+  v_res := red_fortryd_change_set(v_cs_opret,false);
+  v_undo2 := (v_res->>'reversal_change_set')::bigint;
+  IF EXISTS (SELECT 1 FROM story WHERE id=v_story) THEN
+    RAISE EXCEPTION 'Fase3: fortryd af opret-settet slettede ikke storyen';
+  END IF;
+
+  -- Oprydning
+  PERFORM set_config('app.change_set_id','',true);
+  DELETE FROM feed_pin WHERE kort_noegle LIKE 'verify3:%';
+  DELETE FROM story_kilde WHERE id BETWEEN -987657029 AND -987657020;
+  DELETE FROM story WHERE id BETWEEN -987657019 AND -987657010;
+  DELETE FROM source WHERE id=-987657031;
+  DELETE FROM person WHERE id IN (-987657001,-987657002);
+  DELETE FROM change_event WHERE change_set_id IN (v_cs_opret,v_cs_status,v_undo1,v_undo2);
+  DELETE FROM change_set WHERE id IN (v_undo1,v_undo2,v_cs_status,v_cs_opret);
+  DELETE FROM profiles WHERE id=v_uid;
+  DELETE FROM auth.users WHERE id=v_uid;
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  RAISE NOTICE 'OK: levende feed fase 3 (story/story_kilde/feed_pin CHECK/UNIQUE/RLS/RPC/fuld versionering/fortryd)';
 END $$;

@@ -323,7 +323,7 @@ export type HaendelsePost = {
   dato: { min: string | null; max: string | null; qualifier: string | null; raw: string | null };
   feedStatus: 'kandidat' | 'interessant' | 'skjult';
   narrativeId: number; spanStart: number | null; spanLaengde: number | null;
-  sourceTitel?: string; side?: string;
+  sourceId?: number; sourceTitel?: string; side?: string;
   factId: number | null; relationId: number | null;
 };
 type RawHaendelseRow = {
@@ -331,7 +331,7 @@ type RawHaendelseRow = {
   date_min: string | null; date_max: string | null; date_qualifier: string | null; date_raw: string | null;
   feed_status: 'kandidat' | 'interessant' | 'skjult'; narrative_id: number;
   span_start: number | null; span_laengde: number | null; fact_id: number | null; relation_id: number | null;
-  narrative: { side: string | null; source: { titel: string | null; udgave: string | null } | null } | null;
+  narrative: { side: string | null; source: { id: number; titel: string | null; udgave: string | null } | null } | null;
 };
 
 export function mapHaendelser(rows: RawHaendelseRow[]): HaendelsePost[] {
@@ -340,6 +340,7 @@ export function mapHaendelser(rows: RawHaendelseRow[]): HaendelsePost[] {
     dato: { min: r.date_min, max: r.date_max, qualifier: r.date_qualifier, raw: r.date_raw },
     feedStatus: r.feed_status, narrativeId: Number(r.narrative_id),
     spanStart: r.span_start, spanLaengde: r.span_laengde,
+    sourceId: r.narrative?.source?.id != null ? Number(r.narrative.source.id) : undefined,
     sourceTitel: r.narrative?.source?.titel ?? r.narrative?.source?.udgave ?? undefined,
     side: r.narrative?.side ?? undefined,
     factId: r.fact_id == null ? null : Number(r.fact_id),
@@ -350,7 +351,7 @@ export function mapHaendelser(rows: RawHaendelseRow[]): HaendelsePost[] {
 export async function fetchHaendelserForPerson(personId: string): Promise<HaendelsePost[]> {
   if (!personId) return [];
   const { data, error } = await supabase.from('haendelse')
-    .select('id,klausul,kategori,date_min,date_max,date_qualifier,date_raw,feed_status,narrative_id,span_start,span_laengde,fact_id,relation_id,narrative:narrative_id(side,source:source_id(titel,udgave))')
+    .select('id,klausul,kategori,date_min,date_max,date_qualifier,date_raw,feed_status,narrative_id,span_start,span_laengde,fact_id,relation_id,narrative:narrative_id(side,source:source_id(id,titel,udgave))')
     .eq('subjekt_type', 'person').eq('subjekt_id', Number(personId)).order('id');
   if (error) throw new Error(error.message);
   return mapHaendelser((data ?? []) as unknown as RawHaendelseRow[]);
@@ -359,7 +360,7 @@ export async function fetchHaendelserForPerson(personId: string): Promise<Haende
 export type TidslinjePost = {
   art: 'haendelse' | 'rygrad'; id: string;
   dato: HaendelsePost['dato']; klausul: string; kategori: string | null;
-  sourceTitel?: string; side?: string; narrativeId?: number;
+  sourceId?: number; sourceTitel?: string; side?: string; narrativeId?: number;
   spanStart?: number | null; spanLaengde?: number | null;
   haendelseId?: number; feedStatus?: HaendelsePost['feedStatus']; factId?: number;
 };
@@ -376,13 +377,15 @@ export function buildTidslinje(haendelser: HaendelsePost[], evidens: PersonEvide
     poster.push({
       art: 'rygrad', id: `f:${fact.factId}`, factId: fact.factId, dato: valgt.dato,
       klausul: h?.klausul ?? valgt.vaerdi, kategori: h?.kategori ?? fact.faktatype,
+      sourceId: h?.sourceId ?? kilde?.sourceId ?? undefined,
       sourceTitel: h?.sourceTitel ?? kilde?.sourceTitel, side: h?.side ?? kilde?.side,
       narrativeId: h?.narrativeId, spanStart: h?.spanStart, spanLaengde: h?.spanLaengde,
     });
   }
   for (const h of haendelser) if (!linked.has(h.id)) poster.push({
     art: 'haendelse', id: `h:${h.id}`, haendelseId: h.id, dato: h.dato,
-    klausul: h.klausul, kategori: h.kategori, sourceTitel: h.sourceTitel, side: h.side,
+    klausul: h.klausul, kategori: h.kategori, sourceId: h.sourceId,
+    sourceTitel: h.sourceTitel, side: h.side,
     narrativeId: h.narrativeId, spanStart: h.spanStart, spanLaengde: h.spanLaengde,
     feedStatus: h.feedStatus, factId: h.factId ?? undefined,
   });
@@ -394,6 +397,80 @@ export function buildTidslinje(haendelser: HaendelsePost[], evidens: PersonEvide
     const ai = Number(a.id.slice(2)); const bi = Number(b.id.slice(2));
     return ai - bi || a.art.localeCompare(b.art);
   });
+}
+
+// Forudfyldning af story-editoren fra en hændelses-post (fase3-spec §7.2): klausulen er
+// startpunkt; dato og narrativets kilde følger ankeret.
+export function storyPrefillFraPost(post: TidslinjePost): {
+  tekst: string; haendelseId: number | null;
+  dateMin: string | null; dateMax: string | null;
+  dateQualifier: string | null; dateRaw: string | null;
+  kilder: { sourceId: number; side?: string }[];
+} {
+  return {
+    tekst: post.klausul,
+    haendelseId: post.haendelseId ?? null,
+    dateMin: post.dato.min, dateMax: post.dato.max,
+    dateQualifier: post.dato.qualifier, dateRaw: post.dato.raw,
+    kilder: post.sourceId != null
+      ? [{ sourceId: post.sourceId, ...(post.side != null ? { side: post.side } : {}) }]
+      : [],
+  };
+}
+
+export type StoryPost = {
+  id: number; titel: string | null; tekst: string;
+  dato: { min: string | null; max: string | null; qualifier: string | null; raw: string | null };
+  status: 'kladde' | 'klar' | 'publiceret' | 'arkiveret';
+  publiceretDato: string | null; privat: boolean;
+  haendelseId: number | null; factId: number | null; relationId: number | null;
+  historicalEventId: number | null;
+  kilder: { sourceId: number; side: string | null; sourceTitel?: string }[];
+};
+
+export type RawStoryRow = {
+  id: number; titel: string | null; tekst: string;
+  date_min: string | null; date_max: string | null; date_qualifier: string | null; date_raw: string | null;
+  status: StoryPost['status']; publiceret_dato: string | null; privat: boolean | null;
+  haendelse_id: number | null; fact_id: number | null; relation_id: number | null;
+  historical_event_id: number | null;
+  story_kilde: Array<{ id: number; source_id: number; side: string | null;
+    source: { titel: string | null; udgave: string | null } | null }> | null;
+};
+
+export function mapStories(rows: RawStoryRow[]): StoryPost[] {
+  return rows.map((r) => ({
+    id: Number(r.id), titel: r.titel, tekst: r.tekst,
+    dato: { min: r.date_min, max: r.date_max, qualifier: r.date_qualifier, raw: r.date_raw },
+    status: r.status, publiceretDato: r.publiceret_dato, privat: Boolean(r.privat),
+    haendelseId: r.haendelse_id == null ? null : Number(r.haendelse_id),
+    factId: r.fact_id == null ? null : Number(r.fact_id),
+    relationId: r.relation_id == null ? null : Number(r.relation_id),
+    historicalEventId: r.historical_event_id == null ? null : Number(r.historical_event_id),
+    kilder: [...(r.story_kilde ?? [])].sort((a, b) => a.id - b.id).map((k) => ({
+      sourceId: Number(k.source_id), side: k.side,
+      sourceTitel: k.source?.titel ?? k.source?.udgave ?? undefined,
+    })),
+  }));
+}
+
+export async function fetchStoriesForPerson(personId: string): Promise<StoryPost[]> {
+  if (!personId) return [];
+  const { data, error } = await supabase.from('story')
+    .select('id,titel,tekst,date_min,date_max,date_qualifier,date_raw,status,publiceret_dato,privat,haendelse_id,fact_id,relation_id,historical_event_id,story_kilde(id,source_id,side,source:source_id(titel,udgave))')
+    .eq('subjekt_type', 'person').eq('subjekt_id', Number(personId)).order('id');
+  if (error) throw new Error(error.message);
+  return mapStories((data ?? []) as unknown as RawStoryRow[]);
+}
+
+export async function fetchPubliceredeStories(): Promise<(StoryPost & { subjektId: number })[]> {
+  const { data, error } = await supabase.from('story')
+    .select('id,subjekt_id,titel,tekst,date_min,date_max,date_qualifier,date_raw,status,publiceret_dato,privat,haendelse_id,fact_id,relation_id,historical_event_id,story_kilde(id,source_id,side,source:source_id(titel,udgave))')
+    .eq('subjekt_type', 'person').eq('status', 'publiceret').order('id');
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as unknown as Array<RawStoryRow & { subjekt_id: number }>).map((row) => ({
+    ...mapStories([row])[0], subjektId: Number(row.subjekt_id),
+  }));
 }
 
 export type SourceRow = { id: number; titel: string | null; udgave: string | null; slags: string | null; aar: number | null };

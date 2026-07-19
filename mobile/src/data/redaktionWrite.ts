@@ -28,6 +28,8 @@ export type Change = {
      | 'tilbagetraekFakta' // tilbagetræk et fakta-slots konklusion (fjern markering korrekt — review 26 HIGH 2)
      | 'opretPerson' | 'opretEstate' | 'opretKilde' | 'opretOrganisation' | 'fortryd'
      | 'haendelseStatus'
+     | 'opretStory' | 'redigerStory' | 'setStoryStatus' | 'sletStory' | 'setStoryKilder'
+     | 'setFeedPin' | 'fjernFeedPin'
      | 'uploadMedia' // mediehåndtering Slice 0g — redaktør-upload (portræt/objekt-foto)
      | 'opdaterMedia' | 'genopretMedia' | 'mediaRettigheder' // fase 1 filside
      | 'tilknytMedia' // fase 2 — genbrug eksisterende medie på person/objekt
@@ -40,6 +42,11 @@ export type Change = {
   mediaId?: string;
   haendelseId?: number;
   status?: 'kandidat' | 'interessant' | 'skjult';
+  storyId?: number;
+  storyStatus?: 'kladde' | 'klar' | 'publiceret' | 'arkiveret';
+  kortNoegle?: string;
+  handling?: 'pin' | 'skjul';
+  kilder?: { sourceId: number; side?: string }[];
   familyId?: string;
   tilFamilyId?: string;
   personId?: string;
@@ -66,12 +73,69 @@ function famLinkBase(c: Change): { p_family_id: number; p_person_id: number; p_r
   return { p_family_id: Number(c.familyId), p_person_id: Number(c.personId), p_rolle: c.rolle };
 }
 
+function storyPayloadArgs(p: Record<string, unknown>): Record<string, unknown> {
+  return {
+    p_titel: (p.titel as string | null | undefined) ?? null,
+    p_haendelse_id: p.haendelseId != null ? Number(p.haendelseId) : null,
+    p_fact_id: p.factId != null ? Number(p.factId) : null,
+    p_relation_id: p.relationId != null ? Number(p.relationId) : null,
+    p_historical_event_id: p.historicalEventId != null ? Number(p.historicalEventId) : null,
+    p_date_min: (p.dateMin as string | null | undefined) ?? null,
+    p_date_max: (p.dateMax as string | null | undefined) ?? null,
+    p_date_qualifier: (p.dateQualifier as string | null | undefined) ?? null,
+    p_date_raw: (p.dateRaw as string | null | undefined) ?? null,
+    p_privat: Boolean(p.privat),
+  };
+}
+
 export function buildRpcCall(c: Change): RpcCall | null {
   const sid = Number(c.subjektId);
   const aid = c.assertionId != null ? Number(c.assertionId) : null;
   if (c.art === 'haendelseStatus') {
     if (c.haendelseId == null || !Number.isFinite(c.haendelseId) || !c.status || !['kandidat','interessant','skjult'].includes(c.status)) return null;
     return { fn: 'red_set_haendelse_status', args: { p_haendelse_id: c.haendelseId, p_status: c.status } };
+  }
+  if (c.art === 'opretStory') {
+    const p = c.payload || {};
+    const tekst = typeof p.tekst === 'string' ? p.tekst.trim() : '';
+    if (!tekst) return null;
+    return { fn: 'red_opret_story', args: {
+      p_subjekt_type: c.subjektType, p_subjekt_id: sid, p_tekst: tekst, ...storyPayloadArgs(p),
+    } };
+  }
+  if (c.art === 'redigerStory') {
+    const p = c.payload || {};
+    const tekst = typeof p.tekst === 'string' ? p.tekst.trim() : '';
+    if (c.storyId == null || !Number.isFinite(c.storyId) || !tekst) return null;
+    return { fn: 'red_rediger_story', args: {
+      p_story_id: c.storyId, p_tekst: tekst, ...storyPayloadArgs(p),
+    } };
+  }
+  if (c.art === 'setStoryStatus') {
+    if (c.storyId == null || !Number.isFinite(c.storyId) || !c.storyStatus
+        || !['kladde', 'klar', 'publiceret', 'arkiveret'].includes(c.storyStatus)) return null;
+    return { fn: 'red_set_story_status', args: { p_story_id: c.storyId, p_status: c.storyStatus } };
+  }
+  if (c.art === 'sletStory') {
+    if (c.storyId == null || !Number.isFinite(c.storyId)) return null;
+    return { fn: 'red_slet_story', args: { p_story_id: c.storyId } };
+  }
+  if (c.art === 'setStoryKilder') {
+    if (c.storyId == null || !Number.isFinite(c.storyId) || !Array.isArray(c.kilder)) return null;
+    if (c.kilder.some((k) => k.sourceId == null || !Number.isFinite(Number(k.sourceId)))) return null;
+    return { fn: 'red_set_story_kilder', args: {
+      p_story_id: c.storyId,
+      p_kilder: c.kilder.map((k) => ({ source_id: Number(k.sourceId), side: k.side ?? null })),
+    } };
+  }
+  if (c.art === 'setFeedPin') {
+    if (!c.kortNoegle || c.kortNoegle.trim() === '' || !c.handling
+        || !['pin', 'skjul'].includes(c.handling)) return null;
+    return { fn: 'red_set_feed_pin', args: { p_kort_noegle: c.kortNoegle, p_handling: c.handling } };
+  }
+  if (c.art === 'fjernFeedPin') {
+    if (!c.kortNoegle || c.kortNoegle.trim() === '') return null;
+    return { fn: 'red_fjern_feed_pin', args: { p_kort_noegle: c.kortNoegle } };
   }
   if (c.art === 'setKonklusion') {
     if (aid == null) return null;

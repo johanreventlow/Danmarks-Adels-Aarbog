@@ -1,7 +1,7 @@
 # Koncept — Det levende feed: dynamik, uendelig scroll & hændelseshistorier
 
-**Status:** koncept / idéudvikling (2026-07-18). Ingen kode endnu — dokumentet skal
-styre den kommende udvikling (specs + planer pr. fase, jf. §11).
+**Status:** styrende koncept (opdateret 2026-07-19). Fase 1–3 er implementeret og lokalt
+verificeret; deres Supabase-/prod-trin er fortsat gatede. Fase 4 er ikke implementeret.
 **Gælder:** `mobile/` (eksisterende forsidefeed) **og** `web/` (forsiden, hvis form
 stod åben i web-konceptets §9.f — dette dokument lukker den beslutning).
 **Bygger på:** feed v3-spec (`docs/superpowers/specs/2026-07-05-folgesvend-v3-feed-drawer-bogmaerker-design.md`),
@@ -400,10 +400,17 @@ Prod-migrationen og den første prod-pipelinekørsel er ikke udført og kræver 
 gatede deployprocedure.
 
 ### Fase 3 — Minihistorier & redaktionel styring
+*Spec: [`../superpowers/specs/2026-07-19-levende-feed-fase3-design.md`](../superpowers/specs/2026-07-19-levende-feed-fase3-design.md)
+· plan: [`../superpowers/plans/2026-07-19-levende-feed-fase3.md`](../superpowers/plans/2026-07-19-levende-feed-fase3.md).*
 `story`/`story_kilde`/`feed_pin`-tabellerne + story-editor + pin/skjul-UI +
 `historie`-kortet + web-startpersoner fra pins. `FeedOverride`-kroget fra v3-spec'en
 realiseres endelig (pins/hides føder motoren).
 *Leverer løfte 3 — det kuraterede lag.*
+
+**Status 2026-07-19:** Implementeret i kode, regressionsdækket og valideret mod lokale
+PostgreSQL-databaser. Et ekstra review har rettet komplette `red_suggest`-payloads for
+stories og gjort web-editorens to-trins-gemning retry-sikker. Rigtig Supabase/PostgREST,
+authenticated LIVE-UI og prod-migration er fortsat gatede deploytrin.
 
 ### Fase 4 — LLM-assist
 Edge Function + "Foreslå historie"-knap + proveniens + evt. batch-kladder +

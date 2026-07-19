@@ -465,6 +465,70 @@ INSERT INTO vocab (scheme, code, label) VALUES
   ('haendelse_kategori','andet',        'Andet')
 ON CONFLICT (scheme, code) DO NOTHING;
 
+-- FORMIDLINGSLAG (feed-koncept §3.2): redaktionel minihistorie. ÆGTE redaktionelt
+-- indhold (modsat haendelse: IKKE en regenererbar projektion) — versioneres derfor
+-- på de rigtige kolonner (fase3-spec §3.7). Bærer INGEN assertion/conclusion og
+-- konkurrerer aldrig med evidenslaget; historien FORMIDLER, kilderne står i story_kilde.
+CREATE TABLE IF NOT EXISTS story (
+  id                  BIGINT PRIMARY KEY,
+  subjekt_type        TEXT NOT NULL,
+  subjekt_id          BIGINT NOT NULL,
+  -- Alle ankre er valgfrie og nulstilles ved sletning: redaktionelt indhold overlever sit anker.
+  haendelse_id        BIGINT REFERENCES haendelse(id) ON DELETE SET NULL,
+  fact_id             BIGINT REFERENCES fact(id) ON DELETE SET NULL,
+  relation_id         BIGINT REFERENCES relation(id) ON DELETE SET NULL,
+  historical_event_id BIGINT REFERENCES historical_event(id) ON DELETE SET NULL,
+  titel               TEXT,
+  tekst               TEXT NOT NULL,
+  date_min            DATE,
+  date_max            DATE,
+  date_qualifier      TEXT,
+  date_raw            TEXT,
+  status              TEXT NOT NULL DEFAULT 'kladde'
+                        CHECK (status IN ('kladde','klar','publiceret','arkiveret')),
+  publiceret_dato     DATE,
+  oprindelse          TEXT NOT NULL DEFAULT 'redaktoer'
+                        CHECK (oprindelse IN ('redaktoer','llm_assisteret')),
+  llm_model           TEXT,
+  llm_promptversion   TEXT,
+  llm_naar            TIMESTAMPTZ,
+  skabt_af            UUID NOT NULL DEFAULT auth.uid(),
+  godkendt_af         UUID,
+  godkendt_naar       TIMESTAMPTZ,
+  privat              BOOLEAN NOT NULL DEFAULT false
+);
+CREATE INDEX IF NOT EXISTS ix_story_subjekt   ON story(subjekt_type, subjekt_id);
+CREATE INDEX IF NOT EXISTS ix_story_haendelse ON story(haendelse_id);
+CREATE INDEX IF NOT EXISTS ix_story_status    ON story(status);
+
+-- Historien viser altid sine kilder (koncept §3.2 — "transparens er tonen").
+CREATE TABLE IF NOT EXISTS story_kilde (
+  id        BIGINT PRIMARY KEY,
+  story_id  BIGINT NOT NULL REFERENCES story(id) ON DELETE CASCADE,
+  source_id BIGINT NOT NULL REFERENCES source(id),
+  side      TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_story_kilde_story ON story_kilde(story_id);
+
+-- Redaktionel kurering af konkrete, stabile feed-kort: pin øverst eller skjul.
+-- En afgørelse bærer ingen PII og er derfor offentligt læsbar gennem RLS-laget.
+CREATE TABLE IF NOT EXISTS feed_pin (
+  id            BIGINT PRIMARY KEY,
+  kort_noegle   TEXT NOT NULL UNIQUE,
+  handling      TEXT NOT NULL CHECK (handling IN ('pin','skjul')),
+  oprettet_af   UUID NOT NULL DEFAULT auth.uid(),
+  oprettet_naar TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO vocab (scheme, code, label) VALUES
+  ('story_status','kladde',     'Under udarbejdelse — kun redaktion'),
+  ('story_status','klar',       'Færdigskrevet, ikke publiceret'),
+  ('story_status','publiceret', 'Synlig i feed for publikum'),
+  ('story_status','arkiveret',  'Trukket tilbage — den normale slette-vej'),
+  ('story_oprindelse','redaktoer',      'Redaktørskrevet'),
+  ('story_oprindelse','llm_assisteret', 'LLM-kladde, menneskeligt godkendt (fase 4)')
+ON CONFLICT (scheme, code) DO NOTHING;
+
 -- ---------- CACHE-REGENERERING & TRIGGERS ----------
 -- Recompute cache-felter fra personens konklusioner. Læser den VALGTE assertions værdi
 -- pr. faktatype. Dato-fakta (fødsel/død) bruger coalesce(date_raw, vaerdi_tekst).
@@ -910,6 +974,145 @@ BEGIN
   PERFORM begin_change_set('red_set_haendelse_status',
     format('Satte feed-status %s på hændelse %s', p_status, p_haendelse_id), v_stype, v_sid);
   UPDATE haendelse SET feed_status=p_status WHERE id=p_haendelse_id;
+END $$;
+
+-- Redaktionelle minihistorier + feed-kurering (fase3-spec §3.6): eneste skrivevej.
+-- Rolle-gate → validering → begin_change_set → skriv giver dry-run/LIVE og fortryd.
+CREATE OR REPLACE FUNCTION red_opret_story(
+  p_subjekt_type text, p_subjekt_id bigint, p_tekst text,
+  p_titel text DEFAULT NULL, p_haendelse_id bigint DEFAULT NULL,
+  p_fact_id bigint DEFAULT NULL, p_relation_id bigint DEFAULT NULL,
+  p_historical_event_id bigint DEFAULT NULL,
+  p_date_min date DEFAULT NULL, p_date_max date DEFAULT NULL,
+  p_date_qualifier text DEFAULT NULL, p_date_raw text DEFAULT NULL,
+  p_privat boolean DEFAULT false)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_id bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_tekst IS NULL OR btrim(p_tekst) = '' THEN RAISE EXCEPTION 'Story-tekst må ikke være tom'; END IF;
+  PERFORM begin_change_set('red_opret_story',
+    format('Oprettede story om %s %s', p_subjekt_type, p_subjekt_id), p_subjekt_type, p_subjekt_id);
+  INSERT INTO story (id, subjekt_type, subjekt_id, haendelse_id, fact_id, relation_id,
+                     historical_event_id, titel, tekst, date_min, date_max, date_qualifier,
+                     date_raw, privat)
+  VALUES ((SELECT coalesce(max(id),0)+1 FROM story), p_subjekt_type, p_subjekt_id,
+          p_haendelse_id, p_fact_id, p_relation_id, p_historical_event_id,
+          p_titel, p_tekst, p_date_min, p_date_max, p_date_qualifier, p_date_raw, p_privat)
+  RETURNING id INTO v_id;
+  RETURN v_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION red_rediger_story(
+  p_story_id bigint, p_tekst text,
+  p_titel text DEFAULT NULL, p_haendelse_id bigint DEFAULT NULL,
+  p_fact_id bigint DEFAULT NULL, p_relation_id bigint DEFAULT NULL,
+  p_historical_event_id bigint DEFAULT NULL,
+  p_date_min date DEFAULT NULL, p_date_max date DEFAULT NULL,
+  p_date_qualifier text DEFAULT NULL, p_date_raw text DEFAULT NULL,
+  p_privat boolean DEFAULT false)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_stype text; v_sid bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_tekst IS NULL OR btrim(p_tekst) = '' THEN RAISE EXCEPTION 'Story-tekst må ikke være tom'; END IF;
+  SELECT subjekt_type, subjekt_id INTO v_stype, v_sid FROM story WHERE id=p_story_id;
+  IF v_stype IS NULL THEN RAISE EXCEPTION 'Story % findes ikke', p_story_id; END IF;
+  PERFORM begin_change_set('red_rediger_story',
+    format('Redigerede story %s', p_story_id), v_stype, v_sid);
+  UPDATE story SET titel=p_titel, tekst=p_tekst, haendelse_id=p_haendelse_id,
+    fact_id=p_fact_id, relation_id=p_relation_id, historical_event_id=p_historical_event_id,
+    date_min=p_date_min, date_max=p_date_max, date_qualifier=p_date_qualifier,
+    date_raw=p_date_raw, privat=p_privat
+  WHERE id=p_story_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION red_set_story_status(p_story_id bigint, p_status text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_stype text; v_sid bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_status NOT IN ('kladde','klar','publiceret','arkiveret') THEN
+    RAISE EXCEPTION '''%'' er ikke en gyldig story-status (kladde|klar|publiceret|arkiveret)', p_status;
+  END IF;
+  SELECT subjekt_type, subjekt_id INTO v_stype, v_sid FROM story WHERE id=p_story_id;
+  IF v_stype IS NULL THEN RAISE EXCEPTION 'Story % findes ikke', p_story_id; END IF;
+  IF p_status='publiceret'
+     AND NOT EXISTS (SELECT 1 FROM story_kilde WHERE story_id=p_story_id) THEN
+    RAISE EXCEPTION 'Story % kan ikke publiceres uden mindst én kilde', p_story_id;
+  END IF;
+  PERFORM begin_change_set('red_set_story_status',
+    format('Satte status %s på story %s', p_status, p_story_id), v_stype, v_sid);
+  UPDATE story SET status=p_status,
+    publiceret_dato=CASE WHEN p_status='publiceret' THEN current_date ELSE publiceret_dato END
+  WHERE id=p_story_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION red_slet_story(p_story_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_stype text; v_sid bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  SELECT subjekt_type, subjekt_id INTO v_stype, v_sid FROM story WHERE id=p_story_id;
+  IF v_stype IS NULL THEN RAISE EXCEPTION 'Story % findes ikke', p_story_id; END IF;
+  PERFORM begin_change_set('red_slet_story',
+    format('Slettede story %s (hård slet — fejloprettelse)', p_story_id), v_stype, v_sid);
+  DELETE FROM story WHERE id=p_story_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION red_set_story_kilder(p_story_id bigint, p_kilder jsonb)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_stype text; v_sid bigint; v_k jsonb; v_next bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_kilder IS NULL OR jsonb_typeof(p_kilder) <> 'array' THEN
+    RAISE EXCEPTION 'p_kilder skal være et jsonb-array af {source_id, side?}';
+  END IF;
+  SELECT subjekt_type, subjekt_id INTO v_stype, v_sid FROM story WHERE id=p_story_id;
+  IF v_stype IS NULL THEN RAISE EXCEPTION 'Story % findes ikke', p_story_id; END IF;
+  PERFORM begin_change_set('red_set_story_kilder',
+    format('Satte kildeliste på story %s', p_story_id), v_stype, v_sid);
+  DELETE FROM story_kilde WHERE story_id=p_story_id;
+  SELECT coalesce(max(id),0) INTO v_next FROM story_kilde;
+  FOR v_k IN SELECT * FROM jsonb_array_elements(p_kilder) LOOP
+    IF v_k->>'source_id' IS NULL
+       OR NOT EXISTS (SELECT 1 FROM source WHERE id=(v_k->>'source_id')::bigint) THEN
+      RAISE EXCEPTION 'Source % findes ikke', v_k->>'source_id';
+    END IF;
+    v_next := v_next + 1;
+    INSERT INTO story_kilde (id, story_id, source_id, side)
+    VALUES (v_next, p_story_id, (v_k->>'source_id')::bigint, v_k->>'side');
+  END LOOP;
+END $$;
+
+CREATE OR REPLACE FUNCTION red_set_feed_pin(p_kort_noegle text, p_handling text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_handling NOT IN ('pin','skjul') THEN
+    RAISE EXCEPTION '''%'' er ikke en gyldig pin-handling (pin|skjul)', p_handling;
+  END IF;
+  IF p_kort_noegle IS NULL OR btrim(p_kort_noegle)='' THEN
+    RAISE EXCEPTION 'kort_noegle må ikke være tom';
+  END IF;
+  PERFORM begin_change_set('red_set_feed_pin',
+    format('Satte %s på kort %s', p_handling, p_kort_noegle), NULL, NULL);
+  INSERT INTO feed_pin (id, kort_noegle, handling)
+  VALUES ((SELECT coalesce(max(id),0)+1 FROM feed_pin), p_kort_noegle, p_handling)
+  ON CONFLICT (kort_noegle) DO UPDATE
+    SET handling=excluded.handling, oprettet_af=auth.uid(), oprettet_naar=now();
+END $$;
+
+CREATE OR REPLACE FUNCTION red_fjern_feed_pin(p_kort_noegle text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM feed_pin WHERE kort_noegle=p_kort_noegle) THEN
+    RAISE EXCEPTION 'Ingen pin/skjul på %', p_kort_noegle;
+  END IF;
+  PERFORM begin_change_set('red_fjern_feed_pin',
+    format('Fjernede kurering af kort %s', p_kort_noegle), NULL, NULL);
+  DELETE FROM feed_pin WHERE kort_noegle=p_kort_noegle;
 END $$;
 
 -- Direkte person-sletning (og familje-relationer)
@@ -1865,6 +2068,8 @@ INSERT INTO version_pk_registry (tabel, pk_cols, skip_cols) VALUES
   ('citation',           ARRAY['id'], '{}'),
   ('narrative',          ARRAY['id'], '{}'),
   ('haendelse',          ARRAY['id'], ARRAY['subjekt_type','subjekt_id','narrative_id','noegle','span_start','span_laengde','klausul','kategori','date_min','date_max','date_qualifier','date_raw','fact_id','relation_id','pass_version']),
+  ('story',              ARRAY['id'], '{}'),
+  ('feed_pin',           ARRAY['id'], '{}'),
   ('note',               ARRAY['id'], '{}'),
   ('source',             ARRAY['id'], '{}'),
   ('repository',         ARRAY['id'], '{}'),

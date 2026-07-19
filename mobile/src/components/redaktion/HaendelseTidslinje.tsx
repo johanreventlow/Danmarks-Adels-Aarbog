@@ -14,9 +14,10 @@ function datoLabel(p: TidslinjePost) {
   return p.dato.min ?? p.dato.max ?? 'udateret';
 }
 
-export function HaendelseTidslinje({ poster, onSetStatus }: {
+export function HaendelseTidslinje({ poster, onSetStatus, onNyHistorie }: {
   poster: TidslinjePost[];
   onSetStatus: (haendelseId: number, status: Status) => void;
+  onNyHistorie?: (post: TidslinjePost) => void;
 }) {
   const [open, setOpen] = useState(true);
   return (
@@ -45,7 +46,16 @@ export function HaendelseTidslinje({ poster, onSetStatus }: {
                   <BtnLabel size={10} color={aktiv ? '#fff' : Colors.textSecondary2}>{status}</BtnLabel>
                 </Pressable>;
               })}
+              {onNyHistorie ? (
+                <Pressable style={styles.storyButton} onPress={() => onNyHistorie(p)}>
+                  <BtnLabel size={10} color={Colors.bordeaux}>Ny historie</BtnLabel>
+                </Pressable>
+              ) : null}
             </View>
+          ) : onNyHistorie ? (
+            <Pressable style={[styles.storyButton, { marginTop: 10 }]} onPress={() => onNyHistorie(p)}>
+              <BtnLabel size={10} color={Colors.bordeaux}>Ny historie</BtnLabel>
+            </Pressable>
           ) : null}
         </View>
       )) : null}
@@ -61,4 +71,6 @@ const styles = StyleSheet.create({
     borderRadius: Radius.card, padding: 12, marginBottom: 8 },
   meta: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginBottom: 6 },
   statusRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
+  storyButton: { borderWidth: 1, borderColor: Colors.bordeaux, borderRadius: Radius.field,
+    paddingHorizontal: 9, paddingVertical: 5 },
 });

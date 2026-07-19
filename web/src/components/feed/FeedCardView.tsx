@@ -72,6 +72,26 @@ export function FeedCardView({ card, onOpen, onSave, bookmarked }: Props) {
         </div>
       );
 
+    case 'historie':
+      return (
+        <div style={{ ...cardBase, cursor: 'pointer' }} onClick={() => onOpen(card)}>
+          <div style={headerRow}>
+            <span style={kicker}>{card.kicker}</span>
+            {save}
+          </div>
+          {(card.aarLabel || card.kategori || card.nyPubliceret) ? (
+            <div style={{ display: 'flex', gap: 9, alignItems: 'center', flexWrap: 'wrap', marginTop: 9 }}>
+              {card.aarLabel ? <span style={{ fontFamily: T.mono, fontSize: 9.5, color: T.bordeaux }}>{card.aarLabel}</span> : null}
+              {card.kategori ? <span style={{ fontFamily: T.mono, fontSize: 8.5, color: T.muted2 }}>{card.kategori}</span> : null}
+              {card.nyPubliceret ? <span style={{ fontFamily: T.mono, fontSize: 8.5, color: T.gold }}>Nyt i arkivet</span> : null}
+            </div>
+          ) : null}
+          {card.titel ? <div style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600, color: T.ink, marginTop: 8 }}>{card.titel}</div> : null}
+          <div style={{ fontFamily: T.sans, fontSize: 13.5, lineHeight: 1.55, color: T.ink, marginTop: 8 }}>{card.tekst}</div>
+          {card.kilde ? <div style={{ fontFamily: T.sans, fontSize: 10.5, color: T.muted2, marginTop: 12 }}>efter {card.kilde}</div> : null}
+        </div>
+      );
+
     case 'gods':
       return (
         <div style={{ ...cardBase, cursor: 'pointer' }} onClick={() => onOpen(card)}>

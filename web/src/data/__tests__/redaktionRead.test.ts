@@ -7,23 +7,67 @@ import {
   mapMediaAnvendelse,
   mapMediaBibliotekRows,
   mapPersonMediaRows,
+  mapStories,
+  storyPrefillFraPost,
 } from '../redaktionRead';
 import type { Model } from '../types';
 
 describe('hændelses-tidslinje', () => {
   it('mapper også skjulte og fletter fact-kobling uden dublet, NULL sidst', () => {
     const hs = mapHaendelser([
-      { id: 1, klausul: 'Tidlig', kategori: 'rejse', date_min: '1500-01-01', date_max: '1500-12-31', date_qualifier: null, date_raw: '1500', feed_status: 'skjult', narrative_id: 1, span_start: 0, span_laengde: 6, fact_id: null, relation_id: null, narrative: { side: '2', source: { titel: 'DAA', udgave: null } } },
+      { id: 1, klausul: 'Tidlig', kategori: 'rejse', date_min: '1500-01-01', date_max: '1500-12-31', date_qualifier: null, date_raw: '1500', feed_status: 'skjult', narrative_id: 1, span_start: 0, span_laengde: 6, fact_id: null, relation_id: null, narrative: { side: '2', source: { id: 5, titel: 'DAA', udgave: null } } },
       { id: 2, klausul: 'Født her', kategori: 'familie', date_min: '1600-01-01', date_max: '1600-12-31', date_qualifier: null, date_raw: '1600', feed_status: 'interessant', narrative_id: 1, span_start: 8, span_laengde: 8, fact_id: 7, relation_id: null, narrative: null },
       { id: 3, klausul: 'Udateret', kategori: null, date_min: null, date_max: null, date_qualifier: null, date_raw: null, feed_status: 'kandidat', narrative_id: 1, span_start: null, span_laengde: null, fact_id: null, relation_id: null, narrative: null },
     ] as never);
-    expect(hs[0]).toMatchObject({ feedStatus: 'skjult', sourceTitel: 'DAA', side: '2' });
+    expect(hs[0]).toMatchObject({ feedStatus: 'skjult', sourceId: 5, sourceTitel: 'DAA', side: '2' });
     const evidence = { koen: null, felter: { foedt: [{ felt: 'foedt', faktatype: 'fødsel', factId: 7,
       konklusionAssertionId: 70, uenig: false, oplysninger: [{ assertionId: 70, vaerdi: '1600', erKonklusion: true,
         dato: { min: '1600-01-01', max: '1600-12-31', qualifier: null, raw: '1600' }, kilder: [] }] }] } };
     const out = buildTidslinje(hs, evidence);
     expect(out.map((p) => p.id)).toEqual(['h:1', 'f:7', 'h:3']);
     expect(out[1]).toMatchObject({ art: 'rygrad', klausul: 'Født her', factId: 7 });
+  });
+});
+
+describe('stories i redaktionen (fase 3)', () => {
+  it('mapStories medtager alle statusser, NULL-felter og sorterer kilder på link-id', () => {
+    const rows = [
+      { id: 9, titel: 'Klar', tekst: 'Tekst', date_min: '1671-01-01', date_max: '1671-12-31',
+        date_qualifier: 'about', date_raw: 'ca. 1671', status: 'klar', publiceret_dato: null,
+        privat: false, haendelse_id: 12, fact_id: null, relation_id: null, historical_event_id: null,
+        story_kilde: [
+          { id: 7, source_id: 5, side: null, source: { titel: null, udgave: 'DAA 1939' } },
+          { id: 3, source_id: 2, side: '112', source: { titel: 'DAA', udgave: null } },
+        ] },
+      { id: 10, titel: null, tekst: 'Arkiveret', date_min: null, date_max: null,
+        date_qualifier: null, date_raw: null, status: 'arkiveret', publiceret_dato: null,
+        privat: null, haendelse_id: null, fact_id: null, relation_id: null,
+        historical_event_id: null, story_kilde: null },
+    ];
+    const out = mapStories(rows as never);
+    expect(out.map((s) => s.status)).toEqual(['klar', 'arkiveret']);
+    expect(out[0]).toMatchObject({ id: 9, haendelseId: 12,
+      dato: { min: '1671-01-01', raw: 'ca. 1671' },
+      kilder: [{ sourceId: 2, side: '112', sourceTitel: 'DAA' },
+        { sourceId: 5, side: null, sourceTitel: 'DAA 1939' }] });
+    expect(out[1]).toMatchObject({ titel: null, privat: false, haendelseId: null, kilder: [] });
+  });
+
+  it('storyPrefillFraPost kopierer klausul, dato, hændelsesanker og kilde med side', () => {
+    expect(storyPrefillFraPost({ art: 'haendelse', id: 'h:12', haendelseId: 12,
+      klausul: 'Han drog til Norge.', kategori: 'rejse',
+      dato: { min: '1671-01-01', max: '1671-12-31', qualifier: 'about', raw: 'ca. 1671' },
+      sourceId: 2, side: '112' })).toEqual({
+        tekst: 'Han drog til Norge.', haendelseId: 12,
+        dateMin: '1671-01-01', dateMax: '1671-12-31',
+        dateQualifier: 'about', dateRaw: 'ca. 1671', kilder: [{ sourceId: 2, side: '112' }],
+      });
+  });
+
+  it('storyPrefillFraPost uden sourceId giver tom kildeliste', () => {
+    expect(storyPrefillFraPost({ art: 'rygrad', id: 'f:3', factId: 3,
+      klausul: 'Født 1671', kategori: 'fødsel',
+      dato: { min: null, max: null, qualifier: null, raw: '1671' } }).kilder).toEqual([]);
   });
 });
 

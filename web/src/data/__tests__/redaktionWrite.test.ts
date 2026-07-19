@@ -266,3 +266,81 @@ describe('buildRpcCall — tilknytMedia (mediehåndtering fase 2)', () => {
       .toBe('En person skal stå på subjekt-siden ved billedtilknytning.');
   });
 });
+
+describe('buildRpcCall — story/feed_pin (fase 3)', () => {
+  it('opretStory → red_opret_story med payload-felter', () => {
+    const change = { art: 'opretStory', subjektType: 'person', subjektId: '7',
+      payload: { tekst: 'En minihistorie.', titel: 'Slaget', haendelseId: 91, dateRaw: '1671' } } as const;
+    expect(buildRpcCall(change)).toEqual({ fn: 'red_opret_story', args: {
+      p_subjekt_type: 'person', p_subjekt_id: 7, p_tekst: 'En minihistorie.',
+      p_titel: 'Slaget', p_haendelse_id: 91, p_fact_id: null, p_relation_id: null,
+      p_historical_event_id: null, p_date_min: null, p_date_max: null,
+      p_date_qualifier: null, p_date_raw: '1671', p_privat: false,
+    } });
+    expect(buildRpcCall({ art: 'opretStory', subjektType: 'person', subjektId: '7',
+      payload: { tekst: '   ' } })).toBeNull();
+    expect(planCall(change, 'medlem')).toMatchObject({ fn: 'red_suggest',
+      args: { p_art: 'opretStory', p_payload: change.payload } });
+  });
+
+  it('redigerStory → red_rediger_story; kræver storyId + tekst', () => {
+    expect(buildRpcCall({ art: 'redigerStory', subjektType: 'person', subjektId: '7',
+      storyId: 3, payload: { tekst: 'Omskrevet.', privat: true } }))
+      .toMatchObject({ fn: 'red_rediger_story',
+        args: { p_story_id: 3, p_tekst: 'Omskrevet.', p_privat: true } });
+    expect(buildRpcCall({ art: 'redigerStory', subjektType: 'person', subjektId: '7',
+      payload: { tekst: 'x' } })).toBeNull();
+    expect(planCall({ art: 'redigerStory', subjektType: 'person', subjektId: '7',
+      storyId: 3, payload: { tekst: 'Omskrevet.' },
+      kilder: [{ sourceId: 2, side: '112' }] }, 'medlem'))
+      .toMatchObject({ fn: 'red_suggest', args: {
+        p_payload: { storyId: 3, tekst: 'Omskrevet.', kilder: [{ sourceId: 2, side: '112' }] },
+      } });
+  });
+
+  it('opretStory-staging medtager de valgte kilder i det samlede forslag', () => {
+    expect(planCall({ art: 'opretStory', subjektType: 'person', subjektId: '7',
+      payload: { tekst: 'En minihistorie.' },
+      kilder: [{ sourceId: 2 }, { sourceId: 5, side: '44' }] }, 'medlem'))
+      .toMatchObject({ fn: 'red_suggest', args: {
+        p_payload: { tekst: 'En minihistorie.', kilder: [{ sourceId: 2 }, { sourceId: 5, side: '44' }] },
+      } });
+  });
+
+  it('setStoryStatus validerer mod de fire koder', () => {
+    expect(buildRpcCall({ art: 'setStoryStatus', subjektType: 'person', subjektId: '7',
+      storyId: 3, storyStatus: 'publiceret' }))
+      .toEqual({ fn: 'red_set_story_status', args: { p_story_id: 3, p_status: 'publiceret' } });
+    expect(buildRpcCall({ art: 'setStoryStatus', subjektType: 'person', subjektId: '7',
+      storyId: 3, storyStatus: 'udgivet' as never })).toBeNull();
+  });
+
+  it('sletStory / setStoryKilder / setFeedPin / fjernFeedPin', () => {
+    expect(buildRpcCall({ art: 'sletStory', subjektType: 'person', subjektId: '7', storyId: 3 }))
+      .toEqual({ fn: 'red_slet_story', args: { p_story_id: 3 } });
+    expect(buildRpcCall({ art: 'setStoryKilder', subjektType: 'person', subjektId: '7',
+      storyId: 3, kilder: [{ sourceId: 2, side: '112' }, { sourceId: 5 }] }))
+      .toEqual({ fn: 'red_set_story_kilder', args: { p_story_id: 3,
+        p_kilder: [{ source_id: 2, side: '112' }, { source_id: 5, side: null }] } });
+    expect(buildRpcCall({ art: 'setStoryKilder', subjektType: 'person', subjektId: '7',
+      storyId: 3 })).toBeNull();
+    expect(buildRpcCall({ art: 'setFeedPin', subjektType: 'person', subjektId: '7',
+      kortNoegle: 'portrait:12', handling: 'pin' }))
+      .toEqual({ fn: 'red_set_feed_pin', args: { p_kort_noegle: 'portrait:12', p_handling: 'pin' } });
+    expect(buildRpcCall({ art: 'setFeedPin', subjektType: 'person', subjektId: '7',
+      kortNoegle: '  ', handling: 'pin' })).toBeNull();
+    expect(buildRpcCall({ art: 'fjernFeedPin', subjektType: 'person', subjektId: '7',
+      kortNoegle: 'portrait:12' }))
+      .toEqual({ fn: 'red_fjern_feed_pin', args: { p_kort_noegle: 'portrait:12' } });
+    expect(planCall({ art: 'setFeedPin', subjektType: 'feed_pin', subjektId: '',
+      kortNoegle: 'portrait:12', handling: 'skjul' }, 'medlem'))
+      .toMatchObject({ fn: 'red_suggest', args: {
+        p_payload: { kortNoegle: 'portrait:12', handling: 'skjul' },
+      } });
+    expect(planCall({ art: 'setStoryStatus', subjektType: 'person', subjektId: '7',
+      storyId: 3, storyStatus: 'klar' }, 'medlem'))
+      .toMatchObject({ fn: 'red_suggest', args: {
+        p_payload: { storyId: 3, storyStatus: 'klar' },
+      } });
+  });
+});

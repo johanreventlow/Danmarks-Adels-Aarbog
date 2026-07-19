@@ -118,6 +118,56 @@ prod-opdatering er udført; rettet staged data kræver separat backup, rehearsal
 eksplicit godkendt 1939-only opdatering. Se
 `docs/reviews/2026-07-19-1939-narrativ-kvalitet.md`.
 
+## Levende feed fase 3 — implementeret og lokalt verificeret (2026-07-19)
+
+Fase 3 er gennemført efter
+`docs/superpowers/plans/2026-07-19-levende-feed-fase3.md`: additivt
+`story`/`story_kilde`/`feed_pin`-skema med RLS, syv kontrollerede redaktions-RPC'er og
+versionering; delt story-/pin-logik i `@daa/feed`; tolerant load og `historie`-kort i begge
+klienter; inline story-editorer; web-feedstyring; samt portræt-pins som startpersoner med den
+hidtidige kuraterede liste som fallback.
+
+**Ekstra review og rettelser:** Medlemsflowets `red_suggest`-payload mistede tidligere
+`storyId` ved redigering og medtog ikke storyens kilder. Forslaget indeholder nu både
+routing-id, tekstfelter og hele kildelisten. Den direkte web-editor gemmer fortsat story og
+kilder via de to eksisterende RPC'er, men udsætter person-reload til begge er lykkedes. Hvis
+kildekaldet fejler efter en oprettelse, forbliver editoren åben med det persistente story-id,
+så næste forsøg redigerer samme story i stedet for at oprette en dublet. Begge forløb er låst
+af nye regressionstests. Slutreviewet fangede desuden et muligt overlap mellem to samtidige
+gemninger: editoren har nu en single-flight/generations-guard, relevante handlinger er låst
+mens begge RPC'er kører, og sene resultater ignoreres efter navigation/editor-skift. Et
+vellykket medlemsforslag lukker editoren, så samme forslag ikke indsendes igen ved et ekstra
+klik. Publicerings-RPC'en er samtidig gjort fail-closed: kladder må fortsat stå uden kilder,
+men status kan ikke skiftes til `publiceret`, før mindst én `story_kilde` findes. Den nye
+databaseassert blev først kørt rød mod den uhærdede funktion og derefter grøn mod både
+clean-slate- og migrationsstien. Web-feedstyringen genbruger nu de eksisterende theme tokens
+i stedet for at indføre lokale farve- og fontkopier.
+
+**Verificeret automatisk/lokalt:** `@daa/feed` 107/107 tests + typecheck, `@daa/core`
+264/264 tests, mobil 221/221 tests + typecheck og web 231/231 tests + produktions-build.
+Alle nye tests ligger i de eksisterende `feed`, `web` og `mobile`-jobs i
+`.github/workflows/ci.yml`; der er ikke tilføjet fase 3-jobs, og R-jobbet er urørt.
+
+**Verificeret i lokal PostgreSQL:** både frisk `schema.sql` og migrationsstien fra fase 2
+(`db-migrations.sql` kørt to gange, derefter `db-rls.sql`) er kørt. Den afgrænsede fase
+3-blok i `db-verify.sql` er grøn for CHECK/UNIQUE/RPC-gates, anon/authenticated-RLS,
+`story_kilde`-cascade og fortryd af både statusskift og hel story. En afsluttende read-only
+kontrol af migrationsdatabasen bekræftede de tre tabeller, RLS/policies, story-RPC'erne og
+`trg_log_story`/`trg_log_feed_pin`. Det komplette historiske `db-verify.sql` stopper fortsat
+tidligere på en ældre fixture-afhængig cache-test i den tomme lokale base; fase 3-blokken er
+kørt selvstændigt.
+
+**Manuel UI-status og resterende deploy-gates:** Et lokalt browser-smoke dækkede kort-views,
+editor-/feedstyringsflader og staging-preview, men Task 8/10/11's komplette LIVE-forløb
+(opret/publicér/arkivér/fortryd story, pin/skjul/fjern og authenticated medlemsstaging) er
+ikke kørt mod en Supabase-kopi, fordi en sådan kopi ikke er tilgængelig. Derfor er rigtig
+PostgREST-nesting, JWT-rolleoverførsel, schema-cache og Supabase security advisors heller ikke
+end-to-end-verificeret. De punkter er deploy-gates, ikke skjult som lokale testresultater.
+
+**Prod-status:** Ingen prod-migration eller prod-skrivning er udført.
+`docs/database-current-state.md` er bevidst uændret og må først opdateres efter en eksplicit
+gated prod-migrering.
+
 ## Levende feed fase 2 — implementeret i kode (2026-07-18)
 
 Fase 2 er gennemført efter `docs/superpowers/plans/2026-07-18-levende-feed-fase2.md`:

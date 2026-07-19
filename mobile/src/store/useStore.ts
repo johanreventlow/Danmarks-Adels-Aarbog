@@ -8,7 +8,7 @@ import { buildSnapPath } from '../data/selectors';
 import { SEED } from '../data/seed';
 import { childrenOf } from '../data/selectors';
 import { buildModel, EMPTY_GEO, type GenCoord, type ParentsUnknown } from '@daa/core';
-import type { HaendelserBy, LivsdatoBy } from '@daa/feed';
+import type { FeedPinInput, HaendelserBy, LivsdatoBy, StorieBy } from '@daa/feed';
 import type { Aux, Geo, Model } from '../data/types';
 
 const ME_KEY = 'daa_me_id';
@@ -51,6 +51,9 @@ export type State = {
   livsdatoBy: LivsdatoBy;
   // Narrativ-hændelser til arkiv-/hændelseskort; {} indtil load/SEED.
   haendelserBy: HaendelserBy;
+  // Publicerede minihistorier + redaktionel feed-kurering; tomme værdier degraderer til fase 2.
+  storieBy: StorieBy;
+  feedPins: FeedPinInput[];
 
   rootId: string | null;
   focusId: string | null;
@@ -131,6 +134,8 @@ export const useStore = create<State>((set, get) => ({
   parentsUnknownByPerson: {},
   livsdatoBy: {},
   haendelserBy: {},
+  storieBy: {},
+  feedPins: [],
   rootId: null,
   focusId: null,
   variant: 'A',
@@ -185,6 +190,8 @@ export const useStore = create<State>((set, get) => ({
         parentsUnknownByPerson: res.parentsUnknownByPerson ?? {},
         livsdatoBy: res.livsdatoBy ?? {},
         haendelserBy: res.haendelserBy ?? {},
+        storieBy: res.storieBy ?? {},
+        feedPins: res.feedPins ?? [],
         rootId: res.rootId,
         focusId: res.focusId,
         anchorId: res.focusId,
@@ -218,6 +225,8 @@ export const useStore = create<State>((set, get) => ({
         parentsUnknownByPerson: {}, // SEED bærer ingen forældre_ukendt-markeringer
         livsdatoBy: {}, // SEED bærer ingen livsdatoer — tidslige feed-kort degraderer til års-niveau
         haendelserBy: {}, // SEED bærer ingen hændelser — arkiv-/hændelseskort udelades
+        storieBy: {}, // SEED bærer ingen stories — historie-kort udelades
+        feedPins: [], // SEED bærer ingen pins — feed'en vises ukurateret
         rootId: SEED.rootId,
         focusId: SEED.focusId,
         anchorId: SEED.focusId,

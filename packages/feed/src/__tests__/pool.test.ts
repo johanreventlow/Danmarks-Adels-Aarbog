@@ -134,6 +134,26 @@ describe('buildPortraitAndCitat', () => {
     const m = mkModel(Array.from({ length: 12 }, (_, i) => person('r' + i, { bio: LONG_BIO })));
     expect(buildPortraitAndCitat(m)).toEqual(buildPortraitAndCitat(m, null, {}));
   });
+
+  it('filtrerer en citat-kandidat hvis story allerede bruger hændelsen', () => {
+    const persons = Array.from({ length: 8 }, (_, i) => person('p' + i, { bio: LONG_BIO }));
+    const model = mkModel(persons);
+    const citatPerson = persons.find((candidate) => stableHash(candidate.id) % 4 === 0)!;
+    const hs: HaendelserBy = { [citatPerson.id]: [haendelse('h1')] };
+    const uden = buildPortraitAndCitat(model, null, hs);
+    const med = buildPortraitAndCitat(model, null, hs, new Set(['h1']));
+    expect(uden.usedCitatHaendelseIds.has('h1')).toBe(true);
+    expect(med.usedCitatHaendelseIds.has('h1')).toBe(false);
+    expect(med.citater.find((card) => card.id === 'citat:' + citatPerson.id)).toBeDefined();
+  });
+
+  it('uden fjerde argument er output identisk med eksplicit tomt story-sæt', () => {
+    const persons = Array.from({ length: 12 }, (_, i) => person('p' + i, { bio: LONG_BIO }));
+    const model = mkModel(persons);
+    const hs: HaendelserBy = Object.fromEntries(persons.map((p, i) => [p.id, [haendelse('h' + i)]]));
+    expect(buildPortraitAndCitat(model, null, hs))
+      .toEqual(buildPortraitAndCitat(model, null, hs, new Set()));
+  });
 });
 
 describe('buildArkivKort', () => {

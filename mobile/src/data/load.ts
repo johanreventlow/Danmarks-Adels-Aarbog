@@ -7,9 +7,19 @@ import {
   buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, pickPreferredBio, fmtYears, parseYear, getAll, EMPTY_GEO,
   type GenCoord, type ParentsUnknown, type NarrativeCand,
 } from '@daa/core';
-import { buildHaendelserBy, buildLivsdatoBy, type HaendelserBy, type LivsdatoBy } from '@daa/feed';
+import {
+  buildHaendelserBy,
+  buildLivsdatoBy,
+  buildStorieBy,
+  type FeedPinInput,
+  type HaendelserBy,
+  type LivsdatoBy,
+  type StorieBy,
+} from '@daa/feed';
+import { fetchFeedPins } from './feedPins';
 import { fetchHaendelseRows } from './haendelser';
 import { fetchLivsdatoRows } from './livsdato';
+import { fetchStoryRows } from './story';
 import { normalizeKoen, normalizeKonfidens } from './types';
 import type {
   AppPerson,
@@ -66,6 +76,10 @@ export type LoadResult = {
   // Regenererbare narrativ-hændelser pr. kanonisk person-id (fase2-design.md §5.2).
   // {} hvis tabellen endnu ikke er migreret eller hentningen ellers degraderer.
   haendelserBy: HaendelserBy;
+  // Publicerede redaktionelle minihistorier; {} ved umigreret/utilgængelig story-kæde.
+  storieBy: StorieBy;
+  // Redaktionel pin/skjul-kurering; [] betyder almindeligt, ukurateret fase 2-feed.
+  feedPins: FeedPinInput[];
 };
 
 export function mapAppPersons(
@@ -123,6 +137,9 @@ export async function loadFromSupabase(opts?: {
   const livsdatoRowsP = fetchLivsdatoRows(sb);
   // Hændelsesprojektionen følger samme tolerante parallel-load og kanoniseres efter collapse.
   const haendelseRowsP = fetchHaendelseRows(sb);
+  // Stories og pins starter parallelt; story-person-id'er kanoniseres først efter collapse.
+  const storyRowsP = fetchStoryRows(sb);
+  const feedPinsP = fetchFeedPins(sb);
 
   const [
     persons,
@@ -349,6 +366,11 @@ export async function loadFromSupabase(opts?: {
     haendelseRows.rows, haendelseRows.narrativer, haendelseRows.sources,
     collapsed.canonicalIdById,
   );
+  const storyRows = await storyRowsP;
+  const storieBy = buildStorieBy(
+    storyRows.rows, storyRows.kilder, storyRows.sources, collapsed.canonicalIdById,
+  );
+  const feedPins = await feedPinsP;
 
   // Vælg fornuftige start-id'er (flest børn = midt i træet) — på den COLLAPSED db, så et start-id
   // aldrig peger på et foldet alias.
@@ -383,6 +405,8 @@ export async function loadFromSupabase(opts?: {
     parentsUnknownByPerson,
     livsdatoBy,
     haendelserBy,
+    storieBy,
+    feedPins,
   };
 }
 

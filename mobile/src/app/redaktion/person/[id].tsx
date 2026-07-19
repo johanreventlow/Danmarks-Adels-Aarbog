@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { InitialBadge } from '../../../components/InitialBadge';
 import { TopBar } from '../../../components/TopBar';
 import { CenterMsg } from '../../../components/CenterMsg';
@@ -25,7 +25,30 @@ import { RelTilfoejSheet } from '../../../components/redaktion/RelTilfoejSheet';
 import { personEditorSheetStyles } from '../../../components/redaktion/personEditorSheetStyles';
 import { Body, BtnLabel, Mono, Serif } from '../../../components/Typography';
 import { useMediaAndThumbUris } from '../../../lib/media';
-import { buildTidslinje, fetchHaendelserForPerson, fetchPersonEvidence, fetchPersonRelationer, fetchPersonFamilie, fetchPersonMedia, fetchSammeSomLinks, fetchForaeldreUkendtMarkering, fetchMediaAnvendelse, nudgeOrdinal, type HaendelsePost, type PersonEvidence, type PersonRelation, type PersonFamilie, type PersonMedia, type MediaAnvendelse, type SammeSomLink, type ForaeldreUkendtMarkering } from '../../../data/redaktionRead';
+import {
+  buildTidslinje,
+  fetchHaendelserForPerson,
+  fetchStoriesForPerson,
+  storyPrefillFraPost,
+  fetchPersonEvidence,
+  fetchPersonRelationer,
+  fetchPersonFamilie,
+  fetchPersonMedia,
+  fetchSammeSomLinks,
+  fetchForaeldreUkendtMarkering,
+  fetchMediaAnvendelse,
+  nudgeOrdinal,
+  type HaendelsePost,
+  type StoryPost,
+  type TidslinjePost,
+  type PersonEvidence,
+  type PersonRelation,
+  type PersonFamilie,
+  type PersonMedia,
+  type MediaAnvendelse,
+  type SammeSomLink,
+  type ForaeldreUkendtMarkering,
+} from '../../../data/redaktionRead';
 import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, previewSammeSom } from '@daa/core';
 import { eraAdvarsel } from '../../../data/eraAdvarsel';
 import { type Change } from '../../../data/redaktionWrite';
@@ -36,6 +59,13 @@ const FELTER = ['navn', 'foedt', 'doed', 'titel', 'daab', 'begravelse', 'floruit
 const FELT_LABEL: Record<string, string> = {
   navn: 'navn', foedt: 'født', doed: 'død', titel: 'titel',
   daab: 'dåb', begravelse: 'begravelse', floruit: 'floruit', naturalisering: 'naturalisation',
+};
+
+type StoryDraft = {
+  storyId: number | null; titel: string; tekst: string; privat: boolean;
+  haendelseId: number | null; dateMin: string; dateMax: string;
+  dateQualifier: string; dateRaw: string;
+  kilder: { sourceId: number; side: string }[];
 };
 
 export default function PersonEditor() {
@@ -49,6 +79,9 @@ export default function PersonEditor() {
   const setDryRun = useStore((s) => s.setDryRun);
   const [ev, setEv] = useState<PersonEvidence | null>(null);
   const [haendelser, setHaendelser] = useState<HaendelsePost[]>([]);
+  const [stories, setStories] = useState<StoryPost[]>([]);
+  const [storyEditor, setStoryEditor] = useState<StoryDraft | null>(null);
+  const [storyKilderEfterGem, setStoryKilderEfterGem] = useState<StoryDraft['kilder'] | null>(null);
   const [pending, setPending] = useState<Change | null>(null);
   const [markering, setMarkering] = useState<ForaeldreUkendtMarkering | null>(null);
   const [foraeldreReload, setForaeldreReload] = useState(0); // refetch forældre-slot efter vaelgForaeldre
@@ -68,6 +101,8 @@ export default function PersonEditor() {
   useEffect(() => { if (id) fetchPersonEvidence(id).then(setEv).catch((e) => console.warn('[redaktion/person] evidens fejlede:', e)); }, [id]);
   const refreshHaendelser = () => { if (id) fetchHaendelserForPerson(id).then(setHaendelser).catch((e) => console.warn('[redaktion/person] hændelser fejlede:', e)); };
   useEffect(refreshHaendelser, [id]);
+  const refreshStories = () => { if (id) fetchStoriesForPerson(id).then(setStories).catch((e) => console.warn('[redaktion/person] stories fejlede:', e)); };
+  useEffect(refreshStories, [id]);
   const tidslinje = useMemo(() => buildTidslinje(haendelser, ev ?? { felter: {}, koen: null }), [haendelser, ev]);
   useEffect(() => {
     if (!id) return;
@@ -364,7 +399,45 @@ export default function PersonEditor() {
         <HaendelseTidslinje poster={tidslinje}
           onSetStatus={(haendelseId, status) => setPending({
             art: 'haendelseStatus', subjektType: 'person', subjektId: id!, haendelseId, status,
-          })} />
+          })}
+          onNyHistorie={(post) => {
+            const prefill = storyPrefillFraPost(post);
+            setStoryEditor({ storyId: null, titel: '', tekst: prefill.tekst, privat: false,
+              haendelseId: prefill.haendelseId, dateMin: prefill.dateMin ?? '',
+              dateMax: prefill.dateMax ?? '', dateQualifier: prefill.dateQualifier ?? '',
+              dateRaw: prefill.dateRaw ?? '',
+              kilder: prefill.kilder.map((k) => ({ sourceId: k.sourceId, side: k.side ?? '' })) });
+          }} />
+
+        <View style={editorStyles.narrativSektion}>
+          <Mono size={10} color={Colors.textMuted} style={{ marginBottom: 7 }}>MINIHISTORIER · ALLE STATUSSER</Mono>
+          {stories.map((story) => (
+            <View key={story.id} style={editorStyles.storyCard}>
+              <Serif size={17}>{story.titel || 'Historie uden titel'}</Serif>
+              <Body size={13} color={Colors.textSecondary} style={{ marginTop: 3 }}>{story.tekst}</Body>
+              <View style={editorStyles.storyStatusRow}>
+                {(['kladde', 'klar', 'publiceret', 'arkiveret'] as const).map((status) => {
+                  const aktiv = story.status === status;
+                  return <Pressable key={status}
+                    style={[personEditorSheetStyles.koenPille, aktiv && personEditorSheetStyles.koenPilleAktiv]}
+                    onPress={() => setPending({ art: 'setStoryStatus', subjektType: 'person', subjektId: id!,
+                      storyId: story.id, storyStatus: status })}>
+                    <BtnLabel size={9} color={aktiv ? '#fff' : Colors.textSecondary2}>{status}</BtnLabel>
+                  </Pressable>;
+                })}
+                <Pressable style={editorStyles.storyEditButton} onPress={() => setStoryEditor({
+                  storyId: story.id, titel: story.titel ?? '', tekst: story.tekst, privat: story.privat,
+                  haendelseId: story.haendelseId, dateMin: story.dato.min ?? '', dateMax: story.dato.max ?? '',
+                  dateQualifier: story.dato.qualifier ?? '', dateRaw: story.dato.raw ?? '',
+                  kilder: story.kilder.map((k) => ({ sourceId: k.sourceId, side: k.side ?? '' })),
+                })}>
+                  <BtnLabel size={10} color={Colors.bordeaux}>Redigér</BtnLabel>
+                </Pressable>
+              </View>
+            </View>
+          ))}
+          {!stories.length ? <Mono size={9} color={Colors.textMuted}>Ingen historier endnu.</Mono> : null}
+        </View>
 
         <NarrativEditor subjektType="person" subjektId={id!} media={media} mediaThumbUris={mediaThumbUris} />
 
@@ -595,6 +668,27 @@ export default function PersonEditor() {
           }}
         />
       ) : null}
+      {storyEditor ? (
+        <StoryEditorSheet
+          draft={storyEditor}
+          sources={redaktionAux?.kildeListe ?? []}
+          onChange={setStoryEditor}
+          onClose={() => setStoryEditor(null)}
+          onGem={() => {
+            const payload = {
+              titel: storyEditor.titel.trim() || null, tekst: storyEditor.tekst.trim(),
+              haendelseId: storyEditor.haendelseId, dateMin: storyEditor.dateMin || null,
+              dateMax: storyEditor.dateMax || null, dateQualifier: storyEditor.dateQualifier || null,
+              dateRaw: storyEditor.dateRaw || null, privat: storyEditor.privat,
+            };
+            setStoryKilderEfterGem(storyEditor.kilder);
+            setPending(storyEditor.storyId == null
+              ? { art: 'opretStory', subjektType: 'person', subjektId: id!, payload }
+              : { art: 'redigerStory', subjektType: 'person', subjektId: id!, storyId: storyEditor.storyId, payload });
+            setStoryEditor(null);
+          }}
+        />
+      ) : null}
       {ssScratch ? (
         <SammeSomSheet
           redigeret={{ id: id!, navn: redaktionModel?.byId?.[id!]?.name ?? id! }}
@@ -617,16 +711,28 @@ export default function PersonEditor() {
       <SkrivePreviewSheet
         change={pending}
         onClose={() => setPending(null)}
-        onApplied={() => {
-          setPending(null);
+        onApplied={(result) => {
+          const applied = pending;
           if (id) fetchPersonEvidence(id).then(setEv).catch(() => {});
           refreshHaendelser();
+          refreshStories();
           if (id) fetchForaeldreUkendtMarkering(id).then(setMarkering).catch(() => {});
           setForaeldreReload((k) => k + 1);
           if (id) fetchPersonRelationer(id, redaktionAux).then(setRelationer).catch(() => {});
           if (id) fetchPersonFamilie(id, redaktionModel).then(setFamilie).catch(() => {});
           refreshSammeSom();
-          if (['uploadMedia','opdaterMedia','genopretMedia','mediaRettigheder','fjernMedia','sletRelation','tilknytMedia'].includes(pending?.art ?? '')) refreshMedia();
+          if (['uploadMedia','opdaterMedia','genopretMedia','mediaRettigheder','fjernMedia','sletRelation','tilknytMedia'].includes(applied?.art ?? '')) refreshMedia();
+          if ((applied?.art === 'opretStory' || applied?.art === 'redigerStory') && storyKilderEfterGem) {
+            const storyId = applied.storyId ?? Number(result);
+            setStoryKilderEfterGem(null);
+            if (Number.isFinite(storyId)) {
+              setPending({ art: 'setStoryKilder', subjektType: 'person', subjektId: id!, storyId,
+                kilder: storyKilderEfterGem.map((k) => ({ sourceId: k.sourceId,
+                  ...(k.side.trim() ? { side: k.side.trim() } : {}) })) });
+              return;
+            }
+          }
+          setPending(null);
         }}
       />
       {confirmDeleteOpen ? (
@@ -642,6 +748,97 @@ export default function PersonEditor() {
     </View>
   );
 }
+
+function StoryEditorSheet({ draft, sources, onChange, onClose, onGem }: {
+  draft: StoryDraft;
+  sources: { id: string; titel: string; slags: string; udgave: string }[];
+  onChange: (draft: StoryDraft) => void;
+  onClose: () => void;
+  onGem: () => void;
+}) {
+  const ord = draft.tekst.trim() ? draft.tekst.trim().split(/\s+/).length : 0;
+  const setKilde = (index: number, value: Partial<StoryDraft['kilder'][number]>) =>
+    onChange({ ...draft, kilder: draft.kilder.map((k, i) => i === index ? { ...k, ...value } : k) });
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <View style={storySheetStyles.backdrop}>
+        <View style={storySheetStyles.sheet}>
+          <View style={storySheetStyles.header}>
+            <Serif size={21}>{draft.storyId == null ? 'Ny minihistorie' : `Redigér historie #${draft.storyId}`}</Serif>
+            <Pressable onPress={onClose}><BtnLabel color={Colors.textMuted}>Luk</BtnLabel></Pressable>
+          </View>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <TextInput style={storySheetStyles.input} value={draft.titel} placeholder="Titel (valgfri)"
+              placeholderTextColor={Colors.textMuted2} onChangeText={(titel) => onChange({ ...draft, titel })} />
+            <TextInput style={[storySheetStyles.input, storySheetStyles.textarea]} value={draft.tekst}
+              placeholder="Omskriv til cirka 40–90 ord" placeholderTextColor={Colors.textMuted2}
+              multiline textAlignVertical="top" onChangeText={(tekst) => onChange({ ...draft, tekst })} />
+            <Mono size={8.5} color={Colors.textMuted}>{ord} ord · vejledende norm 40–90</Mono>
+            <View style={storySheetStyles.datoGrid}>
+              {([['dateMin', 'Dato min'], ['dateMax', 'Dato max'], ['dateQualifier', 'Kvalifikator'], ['dateRaw', 'Dato som skrevet']] as const).map(([key, label]) => (
+                <TextInput key={key} style={[storySheetStyles.input, storySheetStyles.datoInput]}
+                  value={draft[key]} placeholder={label} placeholderTextColor={Colors.textMuted2}
+                  onChangeText={(value) => onChange({ ...draft, [key]: value })} />
+              ))}
+            </View>
+            <View style={storySheetStyles.privatRow}>
+              <Body size={12}>Privat</Body>
+              <Switch value={draft.privat} onValueChange={(privat) => onChange({ ...draft, privat })}
+                trackColor={{ false: Border.light, true: Colors.bordeaux }} />
+            </View>
+            <Mono size={9} color={Colors.gold} style={{ marginTop: 10 }}>KILDER</Mono>
+            {draft.kilder.map((k, index) => (
+              <View key={`${k.sourceId}-${index}`} style={storySheetStyles.kildeCard}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 5 }}>
+                  {sources.map((source) => {
+                    const aktiv = Number(source.id) === k.sourceId;
+                    return <Pressable key={source.id} onPress={() => setKilde(index, { sourceId: Number(source.id) })}
+                      style={[storySheetStyles.sourcePill, aktiv && storySheetStyles.sourcePillActive]}>
+                      <BtnLabel size={9} color={aktiv ? '#fff' : Colors.textSecondary2}>{source.titel || source.udgave || `#${source.id}`}</BtnLabel>
+                    </Pressable>;
+                  })}
+                </ScrollView>
+                <TextInput style={storySheetStyles.input} value={k.side} placeholder="Side"
+                  placeholderTextColor={Colors.textMuted2} onChangeText={(side) => setKilde(index, { side })} />
+                <Pressable onPress={() => onChange({ ...draft, kilder: draft.kilder.filter((_, i) => i !== index) })}>
+                  <BtnLabel size={10} color={Colors.bordeaux}>Fjern kilde</BtnLabel>
+                </Pressable>
+              </View>
+            ))}
+            <Pressable disabled={!sources.length} style={storySheetStyles.secondaryButton}
+              onPress={() => onChange({ ...draft, kilder: [...draft.kilder, { sourceId: Number(sources[0].id), side: '' }] })}>
+              <BtnLabel color={Colors.bordeaux}>+ Kilde</BtnLabel>
+            </Pressable>
+            <Pressable disabled={!draft.tekst.trim()} style={[storySheetStyles.saveButton, !draft.tekst.trim() && { opacity: 0.45 }]} onPress={onGem}>
+              <BtnLabel color="#fff">Gem historie</BtnLabel>
+            </Pressable>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const storySheetStyles = StyleSheet.create({
+  backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(34,31,26,0.4)' },
+  sheet: { maxHeight: '88%', backgroundColor: Colors.paperBg, borderTopLeftRadius: Radius.sheet,
+    borderTopRightRadius: Radius.sheet, borderWidth: 1, borderColor: Border.light, padding: 18, paddingBottom: 34 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  input: { borderWidth: 1, borderColor: Border.light, borderRadius: Radius.field,
+    backgroundColor: Colors.paperCard, color: Colors.ink, paddingHorizontal: 10, paddingVertical: 9, marginBottom: 7 },
+  textarea: { minHeight: 116 },
+  datoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 9 },
+  datoInput: { width: '48%', marginBottom: 0 },
+  privatRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
+  kildeCard: { borderWidth: 1, borderColor: Border.light, borderRadius: Radius.field, padding: 8, marginTop: 7 },
+  sourcePill: { borderWidth: 1, borderColor: Border.light, borderRadius: Radius.field,
+    paddingHorizontal: 8, paddingVertical: 5, marginBottom: 7 },
+  sourcePillActive: { backgroundColor: Colors.bordeaux, borderColor: Colors.bordeaux },
+  secondaryButton: { borderWidth: 1, borderColor: Colors.bordeaux, borderRadius: Radius.field,
+    padding: 10, alignItems: 'center', marginTop: 8 },
+  saveButton: { backgroundColor: Colors.bordeaux, borderRadius: Radius.field,
+    padding: 13, alignItems: 'center', marginTop: 10 },
+});
 
 const editorStyles = StyleSheet.create({
   handlingsraekke: {
@@ -668,6 +865,11 @@ const editorStyles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: Border.light,
   },
+  storyStatusRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8, alignItems: 'center' },
+  storyCard: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light,
+    borderRadius: Radius.card, padding: 11, marginBottom: 8 },
+  storyEditButton: { borderWidth: 1, borderColor: Colors.bordeaux, borderRadius: Radius.field,
+    paddingHorizontal: 9, paddingVertical: 5 },
   addForm: {
     backgroundColor: Colors.paperCard,
     borderWidth: 1,
