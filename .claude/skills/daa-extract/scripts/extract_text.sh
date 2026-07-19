@@ -16,5 +16,5 @@ for ((p=first; p<=last; p++)); do
   printf '### PAGE %d ###\n' "$p"
   pdftotext -f "$p" -l "$p" -layout "$pdf" - 2>/dev/null \
     | grep -vE '\.indd|DAA 2018-20_saer|^[[:space:]]*[0-9]+[[:space:]]*$' \
-    | grep -vE 'von Reventlow [-–] i linje'
+    | grep -vE 'von Reventlow [-–] i linje|^[[:space:]]*Reventlow\.[[:space:]]*$'
 done

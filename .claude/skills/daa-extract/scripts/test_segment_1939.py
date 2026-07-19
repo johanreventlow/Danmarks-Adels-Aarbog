@@ -62,6 +62,20 @@ def test_normalize_spaced_letters():
     assert norm == "testnavn"
 
 
+def test_clean_1939_text_removes_header_and_despaces_long_runs():
+    raw = "Ro-\n\n   Reventlow.\n\nstock og L o r e n z og A b e 1, men N. N. og f. 1901.\n"
+    clean = seg.clean_1939_text(raw)
+    assert "Reventlow." not in clean
+    assert "Lorenz" in clean
+    assert "Abel" in clean
+    assert "N. N." in clean
+    assert "f. 1901" in clean
+
+
+def test_clean_1939_text_does_not_join_three_single_letters():
+    assert seg.clean_1939_text("A B C") == "A B C"
+
+
 # ---------------------------------------------------------------- pages
 
 def test_parse_pages_and_page_at():
@@ -90,6 +104,119 @@ def test_anchor_cut_between_two_posts():
     assert "12. Marts 1803" not in out["1"]["narrative"]
     assert "12. Marts 1803" in out["2"]["narrative"]
     assert out["1"]["side"] == 490
+
+
+def test_structural_boundary_caps_before_unanchored_next_post():
+    raw = (
+        "### PAGE 490 ###\n"
+        "1. Aksel Aabing, f. 11. Jan. 1801. Lang egen tekst her.\n"
+        "2. Uankret Ulrik, om hvem intet andet vides.\n"
+        "3. Berta Aabing, f. 12. Marts 1803. Lang egen tekst her.\n"
+    )
+    posts = [
+        make_post(1, foedsel="11. Jan. 1801"),
+        make_post(2),
+        make_post(3, foedsel="12. Marts 1803"),
+    ]
+    out = seg.segment(posts, raw, {"window-01": (490, 490)})
+    assert "Uankret Ulrik" not in out["1"]["narrative"]
+    assert "12. Marts 1803" not in out["1"]["narrative"]
+
+
+def test_unanchored_run_maps_one_to_one_to_exact_structural_gap():
+    raw = (
+        "### PAGE 490 ###\n"
+        "1. Aksel Aabing, f. 11. Jan. 1801. Lang egen tekst her.\n"
+        "2. Uankret Ulrik, om hvem en lang opdigtet tekst er skrevet.\n"
+        "3. Uankret Yrsa, om hvem en anden lang opdigtet tekst er skrevet.\n"
+        "4. Berta Aabing, f. 12. Marts 1803. Lang egen tekst her.\n"
+    )
+    posts = [
+        make_post(1, foedsel="11. Jan. 1801"),
+        make_post(20),
+        make_post(30),
+        make_post(4, foedsel="12. Marts 1803"),
+    ]
+    out = seg.segment(posts, raw, {"window-01": (490, 490)})
+    assert out["20"]["metode"] == "struktur-fallback"
+    assert out["30"]["metode"] == "struktur-fallback"
+    assert "Uankret Yrsa" not in out["20"]["narrative"]
+    assert "Uankret Ulrik" not in out["30"]["narrative"]
+
+
+def test_window_edge_uses_last_matching_book_number():
+    raw = (
+        "### PAGE 490 ###\n"
+        "9. Aksel Aabing, f. 11. Jan. 1801. Sikker indledende ankerpost.\n"
+        "1. Tidlig uvedkommende tekst, som er tilstraekkelig lang.\n"
+        "2. Endnu en uvedkommende tekst, som er tilstraekkelig lang.\n"
+        "1. Sen kantpost uden andre tekstankre, men med sikker bognummerering.\n"
+    )
+    post = make_post(99)
+    post["nr"] = "1"
+    out = seg.segment(
+        [make_post(1, foedsel="11. Jan. 1801"), post], raw,
+        {"window-01": (490, 490)})
+    assert out["99"]["metode"] == "struktur-fallback"
+    assert "Sen kantpost" in out["99"]["narrative"]
+    assert "Tidlig uvedkommende" not in out["99"]["narrative"]
+
+
+def test_unique_name_can_anchor_post_without_dates():
+    raw = (
+        "### PAGE 490 ###\n"
+        "1. Testperson 1, om hvem en lang opdigtet biografi er skrevet.\n"
+        "2. Testperson 2, om hvem en anden lang biografi er skrevet.\n"
+    )
+    posts = [make_post(1), make_post(2)]
+    out = seg.segment(posts, raw, {"window-01": (490, 490)})
+    assert out["1"]["metode"] == "anker"
+    assert out["2"]["metode"] == "anker"
+    assert "Testperson 2" not in out["1"]["narrative"]
+
+
+def test_unique_book_number_can_anchor_when_text_anchors_fail():
+    raw = (
+        "### PAGE 490 ###\n"
+        "7. En helt anden opdigtet tekst uden matchende personfelt.\n"
+    )
+    post = make_post(1)
+    post["nr"] = 7
+    out = seg.segment([post], raw, {"window-01": (490, 490)})
+    assert out["1"]["metode"] == "anker"
+    assert out["1"]["narrative"].startswith("7.")
+
+
+def test_book_number_is_scoped_by_roman_line():
+    raw = (
+        "### PAGE 490 ###\n"
+        "II. En opdigtet linje\n"
+        "3. Foerste tekst uden matchende personfelt, men tilstraekkelig lang.\n"
+        "III. En anden opdigtet linje\n"
+        "3. Anden tekst uden matchende personfelt, men tilstraekkelig lang.\n"
+    )
+    post = make_post(1, linje="III. En anden opdigtet linje")
+    post["nr"] = "3"
+    out = seg.segment([post], raw, {"window-01": (490, 490)})
+    assert out["1"]["metode"] == "anker"
+    assert "Anden tekst" in out["1"]["narrative"]
+    assert "Foerste tekst" not in out["1"]["narrative"]
+
+
+def test_book_number_is_scoped_by_named_letter_line():
+    raw = (
+        "### PAGE 490 ###\n"
+        "B. Foerste opdigtede linje\n"
+        "1. Foerste tekst uden matchende personfelt, men tilstraekkelig lang.\n"
+        "B. Anden opdigtede linje\n"
+        "1. Anden tekst uden matchende personfelt, men tilstraekkelig lang.\n"
+    )
+    post = make_post(1, linje="B. Anden opdigtede linje")
+    post["nr"] = "1"
+    out = seg.segment([post], raw, {"window-01": (490, 490)})
+    assert out["1"]["metode"] == "anker"
+    assert "Anden tekst" in out["1"]["narrative"]
+    assert "Foerste tekst" not in out["1"]["narrative"]
 
 
 def test_anchor_fallback_to_doed_and_partner():
@@ -138,10 +265,26 @@ def test_gruppe_fallback_for_anchorless_post():
     assert "12. Marts 1803" in out["3"]["narrative"]
 
 
+def test_group_fallback_is_scoped_by_parent_note():
+    posts = [
+        make_post(1, gruppe="I", linje="L", foedsel="11. Jan. 1801"),
+        make_post(2, gruppe="I", linje="L"),
+        make_post(3, gruppe="I", linje="L", foedsel="12. Marts 1803"),
+        make_post(4, gruppe="I", linje="L"),
+    ]
+    posts[0]["_ctx"]["foraeldre_note"] = "Forælder A"
+    posts[1]["_ctx"]["foraeldre_note"] = "Forælder A"
+    posts[2]["_ctx"]["foraeldre_note"] = "Forælder B"
+    posts[3]["_ctx"]["foraeldre_note"] = "Forælder B"
+    out = run_mini(posts)
+    assert "12. Marts 1803" not in out["2"]["narrative"]
+    assert "11. Jan. 1801" not in out["4"]["narrative"]
+
+
 def test_vindue_fallback_when_no_gruppe_anchor():
     posts = [make_post(1)]  # ingen ankre, ingen gruppe
     out = run_mini(posts)
-    assert out["1"]["metode"] == "vindue-fallback"
+    assert out["1"]["metode"] == "nabo-fallback"
     assert "Aksel Aabing" in out["1"]["narrative"]
     assert "Doris Aabing" in out["1"]["narrative"]
 
@@ -158,7 +301,9 @@ def test_every_post_gets_nonempty_narrative():
     for v in out.values():
         assert v["narrative"].strip()
         assert isinstance(v["side"], int)
-        assert v["metode"] in ("anker", "gruppe-fallback", "vindue-fallback")
+        assert v["metode"] in (
+            "anker", "struktur-fallback", "gruppe-fallback", "nabo-fallback",
+            "kollisions-fallback", "vindue-fallback")
 
 
 def test_duplicate_anchor_position_second_becomes_fallback():
@@ -169,9 +314,10 @@ def test_duplicate_anchor_position_second_becomes_fallback():
     out = run_mini(posts)
     metoder = sorted(v["metode"] for v in out.values())
     assert metoder.count("anker") == 1
+    assert metoder.count("kollisions-fallback") == 1
 
 
-def test_suspiciously_short_anchor_slice_demoted_to_fallback():
+def test_short_but_structurally_bounded_anchor_slice_is_preserved():
     raw = (
         "### PAGE 490 ###\n"
         "Aa, f. 1.1.1801.\n"
@@ -183,9 +329,10 @@ def test_suspiciously_short_anchor_slice_demoted_to_fallback():
         make_post(2, foedsel="2.2.1802"),
     ]
     out = seg.segment(posts, raw, {"window-01": (490, 490)})
-    # post 1's anker-snit er < 20 tegn -> fail-safe: demoteres til fallback
-    assert out["1"]["metode"] == "vindue-fallback"
-    assert len(out["1"]["narrative"]) >= 20
+    # Et entydigt anker med sikker graense er bedre end en enorm fallback,
+    # selv naar kildens egen post er meget kort.
+    assert out["1"]["metode"] == "anker"
+    assert len(out["1"]["narrative"]) < 20
     assert out["2"]["metode"] == "anker"
 
 
@@ -228,3 +375,21 @@ def test_narrative_capped_at_window_region():
     out = seg.segment(posts, raw, {"window-01": (490, 490)})
     # sidste ankrede post i sit vindue: cappes ved vinduets side-region
     assert "Andet stof" not in out["1"]["narrative"]
+
+
+def test_compute_stats_exposes_duplication_and_noise_gates():
+    posts = [make_post(1), make_post(2)]
+    noisy = "1. L o r e n z\nReventlow.\n2. Anden opdigtet post med lang tekst."
+    result = {
+        "1": {"narrative": noisy, "side": 490, "metode": "gruppe-fallback"},
+        "2": {"narrative": noisy, "side": 490, "metode": "gruppe-fallback"},
+    }
+    stats = seg.compute_stats(posts, result, MINI_WINMAP, MINI_RAW)
+    assert stats["duplikerede_poster"] == 2
+    assert stats["duplikat_klynger"] == 1
+    assert stats["narrativer_med_flere_postmarkoerer"] == 2
+    assert stats["narrativer_med_sidehoved"] == 2
+    assert stats["narrativer_med_bogstavspredning"] == 2
+    failures = seg.quality_gate_failures(stats)
+    assert any("sidehoved_forekomster" in failure for failure in failures)
+    assert any("bogstavspredning_forekomster" in failure for failure in failures)
