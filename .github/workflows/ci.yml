@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   core:
@@ -108,3 +108,218 @@ jobs:
       # jest-kørsel fanger ikke syntaks-/type-fejl i dem — kør tsc eksplicit.
       - run: npm --workspace mobile exec -- tsc --noEmit
       - run: npm test -w mobile
+
+  media_db_phase1:
+    name: medie fase 1 · frisk DB + migrationssti
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 59 && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Udvid DB-asserts til hele plankontrakten
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          verify = Path('db-verify.sql')
+          text = verify.read_text(encoding='utf-8')
+          text = text.replace(
+              'DECLARE v_id bigint; v_upload bigint; v_cs bigint;',
+              'DECLARE v_id bigint; v_upload bigint; v_cs bigint; v_cs_foer int; v_cs_efter int;',
+              1,
+          )
+          text = text.replace(
+              "  PERFORM red_opdater_media(v_id, 'Ny titel', NULL, '', 'ca. 1700');",
+              "  SELECT count(*) INTO v_cs_foer FROM change_set;\n  PERFORM red_opdater_media(v_id, 'Ny titel', NULL, '', 'ca. 1700');",
+              1,
+          )
+          anchor = """  IF NOT EXISTS (SELECT 1 FROM media WHERE id=v_id AND titel='Ny titel' AND slags='foto'
+                 AND kunstner IS NULL AND datering='ca. 1700') THEN
+    RAISE EXCEPTION 'FEJL: red_opdater_media overholdt ikke NULL/tom-streng-kontrakten';
+  END IF;
+"""
+          replacement = anchor + """  SELECT count(*) INTO v_cs_efter FROM change_set;
+  IF v_cs_efter <> v_cs_foer + 1 THEN
+    RAISE EXCEPTION 'FEJL: red_opdater_media oprettede % change_set (vent 1)', v_cs_efter-v_cs_foer;
+  END IF;
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_opdater_media(v_id, NULL, '', NULL, NULL);
+    RAISE EXCEPTION 'FEJL: tom slags blev accepteret';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Slags kan ikke ryddes%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_opdater_media(-999999999, 'Ukendt', NULL, NULL, NULL);
+    RAISE EXCEPTION 'FEJL: ukendt media-id blev accepteret';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Media % findes ikke%' THEN RAISE; END IF;
+  END;
+"""
+          if anchor not in text:
+              raise SystemExit('db-verify anchor mangler')
+          verify.write_text(text.replace(anchor, replacement, 1), encoding='utf-8')
+
+          media = Path('db-verify-media.sql')
+          text = media.read_text(encoding='utf-8')
+          text = text.replace("Forvent 4 NOTICE'er:", "Forvent 5 NOTICE'er:", 1)
+          marker = '-- ===== Task 14: genopret-cyklus bevarer fail-closed RLS-gating ====='
+          if marker not in text:
+              raise SystemExit('db-verify-media Task 14 mangler')
+          before = text.split(marker, 1)[0]
+          task14 = r'''-- ===== Task 14: genopret-cyklus bevarer fail-closed RLS-gating =====
+-- Afdød afbildet person + variant sikrer, at både GDPR-, rettigheds- og variantgating
+-- følger forældermediet gennem klar → fjernet → klar.
+DO $$
+DECLARE vis_media_foer int; vis_variant_foer int;
+        vis_media_fjernet int; vis_variant_fjernet int;
+        vis_media_genoprettet int; vis_variant_genoprettet int;
+BEGIN
+  DELETE FROM relation WHERE id=-941;
+  DELETE FROM media_variant WHERE id=-941;
+  DELETE FROM media WHERE id=-941;
+  DELETE FROM person WHERE id=-941;
+
+  INSERT INTO person(id,levende,privat) VALUES (-941,false,false);
+  INSERT INTO media(id,slags,titel,maa_publiceres,upload_status,bucket,storage_path)
+    VALUES (-941,'foto','genopret-test',true,'klar','media','test/genopret.jpg');
+  INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES (-941,'person',-941,'media',-941,'afbildet');
+  INSERT INTO media_variant(id,media_id,tier,storage_path)
+    VALUES (-941,-941,'thumb','test/genopret-thumb.jpg');
+
+  SET LOCAL ROLE anon;
+  SELECT count(*) INTO vis_media_foer FROM media WHERE id=-941;
+  SELECT count(*) INTO vis_variant_foer FROM media_variant WHERE id=-941;
+  RESET ROLE;
+
+  UPDATE media SET upload_status='fjernet' WHERE id=-941;
+  SET LOCAL ROLE anon;
+  SELECT count(*) INTO vis_media_fjernet FROM media WHERE id=-941;
+  SELECT count(*) INTO vis_variant_fjernet FROM media_variant WHERE id=-941;
+  RESET ROLE;
+
+  UPDATE media SET upload_status='klar' WHERE id=-941;
+  SET LOCAL ROLE anon;
+  SELECT count(*) INTO vis_media_genoprettet FROM media WHERE id=-941;
+  SELECT count(*) INTO vis_variant_genoprettet FROM media_variant WHERE id=-941;
+  RESET ROLE;
+
+  IF NOT (
+    vis_media_foer=1 AND vis_variant_foer=1
+    AND vis_media_fjernet=0 AND vis_variant_fjernet=0
+    AND vis_media_genoprettet=1 AND vis_variant_genoprettet=1
+  ) THEN
+    RAISE EXCEPTION 'genopret-gating FEJL: før media/variant=%/% [1/1], fjernet=%/% [0/0], genoprettet=%/% [1/1]',
+      vis_media_foer, vis_variant_foer,
+      vis_media_fjernet, vis_variant_fjernet,
+      vis_media_genoprettet, vis_variant_genoprettet;
+  END IF;
+
+  DELETE FROM relation WHERE id=-941;
+  DELETE FROM media_variant WHERE id=-941;
+  DELETE FROM media WHERE id=-941;
+  DELETE FROM person WHERE id=-941;
+  RAISE NOTICE 'OK: media + variant genopret-cyklus er fail-closed';
+END $$;
+'''
+          media.write_text(before + task14, encoding='utf-8')
+          PY
+
+      - name: Opret Supabase-kompatible testdatabaser
+        shell: bash
+        run: |
+          createdb fresh
+          createdb migrate
+          cat > /tmp/bootstrap.sql <<'SQL'
+          CREATE EXTENSION IF NOT EXISTS pgcrypto;
+          CREATE EXTENSION IF NOT EXISTS btree_gist;
+          DO $$ BEGIN
+            CREATE ROLE anon NOLOGIN;
+          EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          DO $$ BEGIN
+            CREATE ROLE authenticated NOLOGIN;
+          EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          DO $$ BEGIN
+            CREATE ROLE service_role NOLOGIN BYPASSRLS;
+          EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          CREATE SCHEMA IF NOT EXISTS auth;
+          CREATE TABLE IF NOT EXISTS auth.users(id uuid PRIMARY KEY, email text);
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
+            SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+          $$;
+          CREATE SCHEMA IF NOT EXISTS storage;
+          CREATE TABLE IF NOT EXISTS storage.buckets(id text PRIMARY KEY, name text, public boolean DEFAULT false);
+          CREATE TABLE IF NOT EXISTS storage.objects(
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            bucket_id text REFERENCES storage.buckets(id),
+            name text NOT NULL,
+            owner uuid,
+            metadata jsonb,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            UNIQUE(bucket_id,name)
+          );
+          INSERT INTO storage.buckets(id,name,public) VALUES ('media','media',false)
+            ON CONFLICT (id) DO NOTHING;
+          SQL
+          psql -v ON_ERROR_STOP=1 -d fresh -f /tmp/bootstrap.sql
+          psql -v ON_ERROR_STOP=1 -d migrate -f /tmp/bootstrap.sql
+
+      - name: Frisk schema-installation og alle media-asserts
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            psql -v ON_ERROR_STOP=1 -d fresh -f schema.sql
+            psql -v ON_ERROR_STOP=1 -d fresh -f db-rls.sql
+            psql -v ON_ERROR_STOP=1 -d fresh -f db-verify.sql
+            psql -v ON_ERROR_STOP=1 -d fresh -f db-verify-media.sql
+          } 2>&1 | tee /tmp/media-db-fresh.log
+
+      - name: Migrationssti to gange og fuld verifikation
+        shell: bash
+        run: |
+          set -o pipefail
+          git show "${{ github.event.pull_request.base.sha }}:schema.sql" > /tmp/schema-before.sql
+          {
+            psql -v ON_ERROR_STOP=1 -d migrate -f /tmp/schema-before.sql
+            psql -v ON_ERROR_STOP=1 -d migrate -f db-migrations.sql
+            psql -v ON_ERROR_STOP=1 -d migrate -f db-migrations.sql
+            psql -v ON_ERROR_STOP=1 -d migrate -f db-rls.sql
+            psql -v ON_ERROR_STOP=1 -d migrate -f db-verify.sql
+            psql -v ON_ERROR_STOP=1 -d migrate -f db-verify-media.sql
+          } 2>&1 | tee /tmp/media-db-migrate.log
+
+      - name: Commit udvidede DB-tests og ryd engangsjob
+        shell: bash
+        run: |
+          git show "${{ github.event.pull_request.base.sha }}:.github/workflows/ci.yml" > .github/workflows/ci.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add db-verify.sql db-verify-media.sql .github/workflows/ci.yml
+          git commit -m "test(media): udvid DB-verifikation for genopretning"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
