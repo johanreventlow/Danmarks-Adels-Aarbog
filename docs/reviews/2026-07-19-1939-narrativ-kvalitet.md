@@ -4,8 +4,8 @@
 
 **Omfang:** lokal, deterministisk behandling af de 539 gitignorerede 1939-poster.
 
-**Prod:** endnu ikke berørt i denne rapportversion. De allerede loadede 1939-rækker
-er fortsat staged.
+**Prod:** narrative-only opdatering gennemført som change-set 214. Alle 539
+1939-personer er fortsat staged; slægtsgrafen er ikke ændret.
 
 ## Konklusion
 
@@ -102,7 +102,7 @@ Før `red_publicer_udgave` anbefales en manuel, PDF-mod-PDF stikprøve af alle 3
 fallbackposter samt de 12 OCR-`1`-forekomster. Det er en kurateringsgate, ikke en
 invitation til at omskrive prosaen.
 
-## Foreslået reload-strategi (ikke udført)
+## Kontrolleret update-strategi
 
 1. Tag og verificér en prod-backup efter `docs/fase4-runbook.md`.
 2. Genskab `narrative_1939.json` og `clean_1939.json`; gem QA-log og hash, og kræv
@@ -143,3 +143,14 @@ Apply oprettede change-set 214 med 512 audit-events. Kerne-, familie- og
 staging-tællinger var identiske før/efter, og en efterfølgende dry-run fandt 0
 resterende forskelle. Den lokale change-set-id er kun rehearsal-evidens og har ingen
 betydning for prod.
+
+## Prod-resultat
+
+Prod-dry-run gav samme plan som den lokale restore: 539 entydige matches, 512
+tekstændringer og 63 sideændringer fordelt på 512 narrativer. Apply blev committed
+som change-set 214 med 512 audit-events. En efterfølgende read-only dry-run fandt
+0 resterende tekst- eller sideforskelle mod artefaktet.
+
+Efterkontrollen viste fortsat 1.758 personer, 1.131 narrativer, 921 barn-links og
+835 staged personer. Source 3 har fortsat præcis 539 narrativer knyttet 1:1 til de
+539 staged 1939-personer. Der blev ikke kørt loader, publicering eller grafændringer.
