@@ -133,10 +133,22 @@ jobs:
           python - <<'PY'
           import base64
           import zlib
+          from pathlib import Path
+          target = Path('/tmp/implement_media_phase1.py')
           data = open('/tmp/media.zb64', encoding='utf-8').read().strip()
-          open('/tmp/implement_media_phase1.py', 'wb').write(zlib.decompress(base64.b64decode(data)))
+          target.write_bytes(zlib.decompress(base64.b64decode(data)))
+          source = target.read_text(encoding='utf-8')
+          source = source.replace('append_once("CHANGELOG.md"', 'append_once("docs/changelog.md"')
+          source = source.replace(
+              '# Mediehåndtering fase 1 — filside og fuld CRUD: Implementeringsplan',
+              '# Mediehåndtering — fase 1: filsiden & fuld CRUD · Implementeringsplan',
+          )
+          source = source.replace(
+              '# Mediehåndtering — robust koncept',
+              '# Koncept — Robust mediehåndtering: mediebibliotek, livscyklus & rettigheds-workflow',
+          )
+          target.write_text(source, encoding='utf-8')
           PY
-          sed -i 's/append_once("CHANGELOG.md"/append_once("docs\/changelog.md"/' /tmp/implement_media_phase1.py
           python -m py_compile /tmp/implement_media_phase1.py
 
       - name: Implementér planen
