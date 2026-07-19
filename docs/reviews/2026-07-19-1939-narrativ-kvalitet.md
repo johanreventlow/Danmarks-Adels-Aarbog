@@ -4,7 +4,8 @@
 
 **Omfang:** lokal, deterministisk behandling af de 539 gitignorerede 1939-poster.
 
-**Prod:** ikke berørt. De allerede loadede 1939-rækker er fortsat staged.
+**Prod:** endnu ikke berørt i denne rapportversion. De allerede loadede 1939-rækker
+er fortsat staged.
 
 ## Konklusion
 
@@ -120,3 +121,25 @@ invitation til at omskrive prosaen.
 Narrative-only updateren skal lade de nuværende 355 prod-links urørte. De fem ekstra
 preview-links skal enten godkendes og migreres i et separat, eksplicit graftrin eller
 forblive staged/uændrede; en narrativrettelse må ikke snige dem ind implicit.
+
+Den implementerede updater er `R/update-1939-narratives.R`. Den er dry-run som
+default; prod-apply kræver både `--apply`, den forventede project-ref og source-id 3.
+Den låser de berørte audit-/narrativtabeller kortvarigt, opretter ét change-set,
+opdaterer kun ændrede `tekst`/`side`-felter og aborterer transaktionen, hvis row counts,
+staging eller kerneinvarianter afviger.
+
+## Lokal restore-generalprøve
+
+En frisk read-only backup blev taget før updater-arbejdet og verificeret med
+`pg_restore --list`:
+
+- fil: `daa-prod-pre-narrative-20260719-021300.dump`
+- SHA-256: `91b043058d94ecc53662fe7af041cc390095111ed42527ff70f79d1bedd30d4c`
+- størrelse: 1.383.626 bytes
+
+Backupen blev gendannet i en isoleret lokal database. Updaterens dry-run fandt 539
+entydige matches, 512 tekstændringer og 63 sideændringer fordelt på 512 narrativer.
+Apply oprettede change-set 214 med 512 audit-events. Kerne-, familie- og
+staging-tællinger var identiske før/efter, og en efterfølgende dry-run fandt 0
+resterende forskelle. Den lokale change-set-id er kun rehearsal-evidens og har ingen
+betydning for prod.
