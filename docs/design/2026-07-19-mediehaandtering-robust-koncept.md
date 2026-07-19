@@ -320,7 +320,7 @@ mv."), ikke efter teknisk sværhedsgrad:
 
 | Fase | Indhold | Løser | Kerne-leverancer |
 |---|---|---|---|
-| **1 — Filsiden & fuld CRUD** | Medie-detaljeside (web+mobile) med metadata-redigering, rettigheds-panel, genopret | M1, M2, M3 | `red_opdater_media`, `red_genopret_media`, UI-panel, upload-ark udvidet med kunstner/datering |
+| **1 — Filsiden & fuld CRUD** | Medie-detaljeside (web+mobile) med metadata-redigering, rettigheds-panel, genopret | M1, M2, M3 | `red_opdater_media`, `red_genopret_media`, UI-panel, upload-ark udvidet med kunstner/datering. **Spec skrevet:** [`../superpowers/specs/2026-07-19-mediehaandtering-fase1-filside-design.md`](../superpowers/specs/2026-07-19-mediehaandtering-fase1-filside-design.md) |
 | **2 — Biblioteket** | "Medier"-fanen som rigtigt bibliotek: søgning, køer 1–4, "bruges på", advarsel ved fjern/slet | M6, M7, M9 (synlighed) | kø-queries, `red_doede_links`+media, tilknyt-eksisterende-picker (M5) |
 | **3 — Hygiejne** | sha256 ved upload, sha-stier, dedup-UX, janitor-script | M8, M9 (oprydning) | klient-hash, `import/janitor`-R-script, verify-asserts |
 | **4 — Identitet & endeligt farvel** | Erstat fil, udrensning m. preview, portræt-flag | M4, M11, M10 | `red_erstat_media_fil`, `red_udrens_media`(+preview), `red_saet_portraet`, `relation.kvalifikator` |

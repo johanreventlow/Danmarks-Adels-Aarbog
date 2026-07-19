@@ -1,5 +1,20 @@
 # Changelog
 
+## Mediehåndtering fase 1 — design-spec for filsiden (2026-07-19)
+
+Spec skrevet (ingen kode): `docs/superpowers/specs/2026-07-19-mediehaandtering-fase1-filside-design.md`
+omsætter konceptets fase 1 (M1–M3) til 6 skiver: `red_opdater_media` (NULL=uændret/''=ryd),
+`red_genopret_media` (kun fra `'fjernet'`, RAISE ved 0 rækker), `red_upload_media`-
+signatur-udvidelse med kunstner/datering (⚠ kræver DROP+CREATE — `CREATE OR REPLACE`
+ville skabe en PostgREST-tvetydig overload OG knække det navnebaserede grant-loop),
+tre nye Change-arter (`opdaterMedia`/`genopretMedia`/`mediaRettigheder` — alle uden
+fil-bytes, kan degradere til red_suggest), udvidet redaktions-read hvor `'fjernet'`
+nu VISES for redaktionen (med to udpegede fail-open-fælder: narrativ-billedvælgeren
+og Lightbox skal eksplicit filtrere `'klar'` — redaktionens storage-politik signerer
+også fjernede stier), filside-overlay (web) / `MediaDetaljeSheet` (mobile) og udvidet
+upload-ark. Kendt accepteret hul: fjernet medie uden relation kan først genoprettes
+når fase 2-biblioteket lander.
+
 ## Mediehåndtering — koncept for robust medieforvaltning (2026-07-19)
 
 Nyt konceptdokument `docs/design/2026-07-19-mediehaandtering-robust-koncept.md`
