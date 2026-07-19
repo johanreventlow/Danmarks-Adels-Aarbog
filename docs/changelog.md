@@ -1,5 +1,17 @@
 # Changelog
 
+## Mediehåndtering fase 2 — implementeringsplan (2026-07-19)
+
+Plan skrevet (ingen kode): `docs/superpowers/plans/2026-07-19-mediehaandtering-fase2-bibliotek.md`
+— 7 tasks med TDD-tjekbokse oven på fase 2-spec'en, forankret i kortlægningens
+fil:linje-referencer. Ikke-oplagte punkter: NY Global Constraint "CI-hygiejne" (læring
+fra fase 1-kørslen: ingen workflow-ændringer, aldrig `contents: write`, aldrig
+selv-committende jobs — normal CI skal køre på den endelige HEAD, hvilket også står i
+Definition of Done); biblioteks-query'en må IKKE filtrere `upload_status` (køerne er
+pointen) mens pickers/Lightbox fortsat filtrerer `'klar'`; `klassificerMedie` holdes
+tegn-for-tegn i sync web/mobile; prod-runbook'en samler fase 1-migrationen (endnu ikke
+deployet) med fase 2's view-ændring i ét gated deploy.
+
 ## Mediehåndtering — dokumenter/transskription besluttet som fase 5 (2026-07-19)
 
 Bruger-rejst behov (PDF/indscannede kilder + rå tekst-version af fx artikler; teoretisk
