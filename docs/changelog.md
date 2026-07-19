@@ -1480,3 +1480,10 @@ implementering næste session.**
 * RLS-lag (rigtigt) mangler — kritisk før multi-bruger pga. nulevende-data.
 * Dekorations-nøgle hentes fra anden DAA-udgave (koder bevaret rå).
 * ~16% relative datoer uopløst ved udtræk (rå tekst bevaret).
+
+## 2026-07-19 — Mediehåndtering fase 1: filside og fuld CRUD
+
+- Tilføjer redigerbar filside på web og mobile med metadata, rettigheder, publiceringsgate og filstatus.
+- Tilføjer `red_opdater_media` og `red_genopret_media`; upload gemmer nu også kunstner og datering.
+- Fjernede medier bevares i redaktionens læselag og kan genoprettes, men filtreres fortsat fra lightbox og narrativ-mention-pickere.
+- Ingen produktionsmigration er kørt fra dette ændringssæt. Kør `db-migrations.sql`, derefter `db-verify.sql`, `db-verify-media.sql` og til sidst `db-rls.sql` efter runbooken.

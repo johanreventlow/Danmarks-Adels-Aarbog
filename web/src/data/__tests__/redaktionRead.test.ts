@@ -62,41 +62,39 @@ describe('mapFamilieRows — år på partnere og børn', () => {
   });
 });
 
-describe('mapPersonMediaRows (mediehåndtering Slice 0g+0h)', () => {
-  it('mapper media-rækker til PersonMedia, url fra den signerede Map, relationId fra rel-Map', () => {
+
+describe('mapPersonMediaRows (mediehåndtering fase 1)', () => {
+  const rich = {
+    kunstner: 'Jens Juel', datering: 'ca. 1780', rettigheder_status: 'public_domain',
+    mime_type: 'image/jpeg', byte_size: 1234, bredde: 800, hoejde: 1000, original_filnavn: 'portraet.jpg',
+  };
+  it('mapper alle filside-felter, url og relationId', () => {
     const rows = [{ id: 91, slags: 'foto', titel: 'Portræt', storage_path: 'redaktor/a.jpg',
-                    upload_status: 'klar', maa_publiceres: true }];
+                    upload_status: 'klar', maa_publiceres: true, ...rich }];
     const signed = new Map([['redaktor/a.jpg', 'https://signed/a.jpg']]);
     const relByMediaId = new Map([['91', '501']]);
     expect(mapPersonMediaRows(rows, signed, relByMediaId)).toEqual([{
       id: '91', relationId: '501', slags: 'foto', titel: 'Portræt', storagePath: 'redaktor/a.jpg',
+      kunstner: 'Jens Juel', datering: 'ca. 1780', rettighederStatus: 'public_domain',
+      mimeType: 'image/jpeg', byteSize: 1234, bredde: 800, hoejde: 1000, originalFilnavn: 'portraet.jpg',
       uploadStatus: 'klar', maaPubliceres: true, url: 'https://signed/a.jpg', thumbUrl: 'https://signed/a.jpg',
     }]);
   });
-  it('manglende status/slags/maa_publiceres → fail-closed fallback (kladde, false); ingen signering/relation → null/tom', () => {
-    const rows = [{ id: 92, slags: null, titel: null, storage_path: null,
-                    upload_status: null, maa_publiceres: null }];
+  it('manglende felter får fail-closed defaults', () => {
+    const rows = [{ id: 92, slags: null, titel: null, kunstner: null, datering: null, storage_path: null,
+      upload_status: null, maa_publiceres: null, rettigheder_status: null, mime_type: null,
+      byte_size: null, bredde: null, hoejde: null, original_filnavn: null }];
     expect(mapPersonMediaRows(rows)).toEqual([{
-      id: '92', relationId: '', slags: '', titel: null, storagePath: null,
-      uploadStatus: 'kladde', maaPubliceres: false, url: null, thumbUrl: null,
+      id: '92', relationId: '', slags: '', titel: null, storagePath: null, kunstner: null, datering: null,
+      rettighederStatus: 'ukendt', mimeType: null, byteSize: null, bredde: null, hoejde: null,
+      originalFilnavn: null, uploadStatus: 'kladde', maaPubliceres: false, url: null, thumbUrl: null,
     }]);
   });
-  it('thumbPathByMediaId med matchende signeret sti → thumbUrl bruger thumb, ikke url', () => {
-    const rows = [{ id: 94, slags: 'foto', titel: 'Med thumb', storage_path: 'redaktor/d-large.jpg',
-                    upload_status: 'klar', maa_publiceres: true }];
-    const signed = new Map([
-      ['redaktor/d-large.jpg', 'https://signed/d-large.jpg'],
-      ['redaktor/d-thumb.jpg', 'https://signed/d-thumb.jpg'],
-    ]);
-    const thumbPathByMediaId = new Map([['94', 'redaktor/d-thumb.jpg']]);
-    expect(mapPersonMediaRows(rows, signed, new Map(), thumbPathByMediaId)).toEqual([{
-      id: '94', relationId: '', slags: 'foto', titel: 'Med thumb', storagePath: 'redaktor/d-large.jpg',
-      uploadStatus: 'klar', maaPubliceres: true, url: 'https://signed/d-large.jpg', thumbUrl: 'https://signed/d-thumb.jpg',
-    }]);
-  });
-  it('upload_status=fjernet filtreres væk (Slice 0h "slet billede")', () => {
-    const rows = [{ id: 93, slags: 'foto', titel: 'Fjernet', storage_path: 'redaktor/c.jpg',
-                    upload_status: 'fjernet', maa_publiceres: true }];
-    expect(mapPersonMediaRows(rows)).toEqual([]);
+  it('thumb-variant bruges, og fjernet bevares til genopret', () => {
+    const rows = [{ id: 93, slags: 'foto', titel: 'Fjernet', storage_path: 'large.jpg',
+      upload_status: 'fjernet', maa_publiceres: true, ...rich }];
+    const signed = new Map([['large.jpg', 'large-url'], ['thumb.jpg', 'thumb-url']]);
+    const out = mapPersonMediaRows(rows, signed, new Map(), new Map([['93', 'thumb.jpg']]));
+    expect(out[0]).toMatchObject({ id: '93', uploadStatus: 'fjernet', url: 'large-url', thumbUrl: 'thumb-url' });
   });
 });

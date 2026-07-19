@@ -1,5 +1,7 @@
 # Koncept — Robust mediehåndtering: mediebibliotek, livscyklus & rettigheds-workflow
 
+**Implementeringsstatus 2026-07-19:** Fase 1-filsiden, metadataredigering, rettighedspanel og genopretning er implementeret. Biblioteksoversigt, arbejdskøer, filudskiftning, dedup og udrensning er fortsat senere faser.
+
 **Status:** koncept / idéudvikling (2026-07-19). Ingen kode endnu — dokumentet skal
 styre den kommende udvikling (specs + planer pr. fase, jf. §9).
 **Gælder:** redaktør-fladerne i `web/` og `mobile/` + DB-laget (`schema.sql`, `db-rls.sql`).

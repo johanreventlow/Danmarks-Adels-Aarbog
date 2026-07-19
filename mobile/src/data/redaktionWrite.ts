@@ -29,6 +29,7 @@ export type Change = {
      | 'opretPerson' | 'opretEstate' | 'opretKilde' | 'opretOrganisation' | 'fortryd'
      | 'haendelseStatus'
      | 'uploadMedia' // mediehåndtering Slice 0g — redaktør-upload (portræt/objekt-foto)
+     | 'opdaterMedia' | 'genopretMedia' | 'mediaRettigheder' // fase 1 filside
      | 'fjernMedia'; // Slice 0h — blødt fjern (upload_status='fjernet'); unlink går via sletRelation
   subjektType: string;
   subjektId: string;
@@ -271,6 +272,7 @@ export function buildRpcCall(c: Change): RpcCall | null {
     if (!p.slags || !p.titel || !p.storagePath || !p.mimeType) return null;
     const args: Record<string, unknown> = {
       p_slags: p.slags, p_titel: p.titel, p_storage_path: p.storagePath, p_mime: p.mimeType,
+      p_kunstner: p.kunstner ?? null, p_datering: p.datering ?? null,
       p_byte_size: p.byteSize ?? null, p_bredde: p.bredde ?? null, p_hoejde: p.hoejde ?? null,
       p_original_filnavn: p.originalFilnavn ?? null,
       p_rettigheder_status: p.rettighederStatus ?? 'ukendt', p_maa_publiceres: Boolean(p.maaPubliceres),
@@ -282,6 +284,44 @@ export function buildRpcCall(c: Change): RpcCall | null {
     }
     return { fn: 'red_upload_media', args };
   }
+
+if (c.art === 'opdaterMedia') {
+  if (c.mediaId == null) return null;
+  const p = c.payload || {};
+  const args: Record<string, unknown> = { p_media_id: Number(c.mediaId) };
+  const felter: Array<[string, string]> = [
+    ['titel', 'p_titel'], ['slags', 'p_slags'], ['kunstner', 'p_kunstner'], ['datering', 'p_datering'],
+  ];
+  for (const [key, arg] of felter) {
+    if (Object.prototype.hasOwnProperty.call(p, key)) args[arg] = p[key];
+  }
+  return { fn: 'red_opdater_media', args };
+}
+if (c.art === 'genopretMedia') {
+  if (c.mediaId == null) return null;
+  return { fn: 'red_genopret_media', args: { p_media_id: Number(c.mediaId) } };
+}
+if (c.art === 'mediaRettigheder') {
+  if (c.mediaId == null) return null;
+  const p = c.payload || {};
+  if (!p.status) return null;
+  const args: Record<string, unknown> = {
+    p_media_id: Number(c.mediaId),
+    p_status: p.status,
+    p_maa_publiceres: Boolean(p.maaPubliceres),
+  };
+  const dokumentation: Array<[string, string]> = [
+    ['licens', 'p_licens'],
+    ['kildehenvisning', 'p_kildehenvisning'],
+    ['gengivelsestilladelse', 'p_gengivelsestilladelse'],
+    ['kildeFritekst', 'p_kilde_fritekst'],
+  ];
+  for (const [key, arg] of dokumentation) {
+    const value = p[key];
+    if (typeof value === 'string' && value.trim()) args[arg] = value.trim();
+  }
+  return { fn: 'red_set_media_rettigheder', args };
+}
   // Blødt fjern (Slice 0h): sætter upload_status='fjernet', rører aldrig Storage-bytes eller
   // relationen. At AFKOBLE et billede fra én person (uden at slette det andre steder) er derimod
   // bare en almindelig 'sletRelation' på den specifikke afbildet-relation (håndteret ovenfor).
@@ -352,6 +392,8 @@ export function oversaetFejl(message: string): string {
   if (/kun redaktion/i.test(message)) return 'Kræver redaktør-rettigheder.';
   if (/duplicate key|unique/i.test(message)) return 'Findes allerede.';
   if (/not configured|ikke konfigureret/i.test(message)) return 'Ingen forbindelse til basen.';
+  if (/kan kun genoprette et fjernet medie/i.test(message)) return 'Mediet kan kun genoprettes, når det er fjernet.';
+  if (/slags kan ikke ryddes/i.test(message)) return 'Slags kan ikke ryddes.';
   // Defensivt fald-tilbage (review10 H2): UI'en skal skjule Fortryd-knappen for allerede
   // fortrudte poster, men hvis en race/forældet liste alligevel rammer DB-guarden direkte.
   if (/allerede fortrudt/i.test(message)) return 'Denne ændring er allerede fortrudt.';

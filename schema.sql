@@ -1712,6 +1712,7 @@ END $$;
 -- Portræt: sæt p_afbildet_person_id. Objekt-foto (gods/våben): sæt p_objekt_type/p_objekt_id.
 CREATE OR REPLACE FUNCTION red_upload_media(
   p_slags text, p_titel text, p_storage_path text, p_mime text,
+  p_kunstner text DEFAULT NULL, p_datering text DEFAULT NULL,
   p_afbildet_person_id bigint DEFAULT NULL,
   p_objekt_type text DEFAULT NULL, p_objekt_id bigint DEFAULT NULL,
   p_byte_size bigint DEFAULT NULL, p_bredde int DEFAULT NULL, p_hoejde int DEFAULT NULL,
@@ -1722,7 +1723,7 @@ DECLARE v_media bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   PERFORM begin_change_set('red_upload_media', format('Uploadede media %s', coalesce(p_titel,p_original_filnavn,'?')), 'media', NULL);
-  v_media := red_opret_media(p_slags, p_titel, NULL, NULL, 'media', p_storage_path,
+  v_media := red_opret_media(p_slags, p_titel, p_kunstner, p_datering, 'media', p_storage_path,
                              p_mime, p_byte_size, p_bredde, p_hoejde, p_sha256,
                              p_original_filnavn, p_rettigheder_status, p_maa_publiceres);
   IF p_afbildet_person_id IS NOT NULL THEN
@@ -1737,6 +1738,45 @@ BEGIN
     PERFORM red_relation('media', v_media, p_objekt_type, p_objekt_id, 'afbildet');
   END IF;
   RETURN v_media;
+END $$;
+
+-- Fase 1 filside: redigér mediets kuraterbare metadata efter upload.
+-- NULL = uændret; tom streng = ryd feltet (undtagen slags, som er påkrævet).
+CREATE OR REPLACE FUNCTION red_opdater_media(
+  p_media_id bigint,
+  p_titel text DEFAULT NULL,
+  p_slags text DEFAULT NULL,
+  p_kunstner text DEFAULT NULL,
+  p_datering text DEFAULT NULL
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_rows int;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_opdater_media', format('Opdaterede media %s', p_media_id), 'media', p_media_id);
+  IF p_slags IS NOT NULL AND nullif(btrim(p_slags),'') IS NULL THEN
+    RAISE EXCEPTION 'Slags kan ikke ryddes';
+  END IF;
+  UPDATE media SET
+    titel = CASE WHEN p_titel IS NULL THEN titel ELSE nullif(btrim(p_titel),'') END,
+    slags = CASE WHEN p_slags IS NULL THEN slags ELSE btrim(p_slags) END,
+    kunstner = CASE WHEN p_kunstner IS NULL THEN kunstner ELSE nullif(btrim(p_kunstner),'') END,
+    datering = CASE WHEN p_datering IS NULL THEN datering ELSE nullif(btrim(p_datering),'') END
+  WHERE id = p_media_id;
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows = 0 THEN RAISE EXCEPTION 'Media % findes ikke', p_media_id; END IF;
+END $$;
+
+-- Fase 1 filside: symmetrisk genopretning af et blødt fjernet medie.
+CREATE OR REPLACE FUNCTION red_genopret_media(p_media_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_rows int;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_genopret_media', format('Genoprettede media %s', p_media_id), 'media', p_media_id);
+  UPDATE media SET upload_status='klar'
+   WHERE id=p_media_id AND upload_status='fjernet';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows = 0 THEN RAISE EXCEPTION 'Kan kun genoprette et fjernet medie'; END IF;
 END $$;
 
 -- Sæt/opdater rettigheds-gating + (valgfrit) rig rettigheds-dokumentation som fact på medie-entiteten

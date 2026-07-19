@@ -263,7 +263,7 @@ describe('buildRpcCall — uploadMedia (mediehåndtering Slice 0g)', () => {
         byteSize: 1234, bredde: 100, hoejde: 120, originalFilnavn: 'x.jpg' } } as const;
     expect(buildRpcCall(c)).toEqual({ fn: 'red_upload_media', args: {
       p_slags: 'foto', p_titel: 'Portræt', p_storage_path: 'redaktor/x.jpg', p_mime: 'image/jpeg',
-      p_byte_size: 1234, p_bredde: 100, p_hoejde: 120, p_original_filnavn: 'x.jpg',
+      p_kunstner: null, p_datering: null, p_byte_size: 1234, p_bredde: 100, p_hoejde: 120, p_original_filnavn: 'x.jpg',
       p_rettigheder_status: 'ukendt', p_maa_publiceres: true, p_afbildet_person_id: 42 } });
   });
   it('objekt-foto (objektType/objektId) → red_upload_media med p_objekt_type/p_objekt_id, ingen p_afbildet_person_id', () => {
@@ -342,5 +342,35 @@ describe('buildRpcCall — forældrefamilie (Problem 2)', () => {
   });
   it('vaelgForaeldre uden assertion → null', () => {
     expect(buildRpcCall({ art: 'vaelgForaeldre', subjektType: 'person', subjektId: '50', payload: {} } as never)).toBeNull();
+  });
+});
+
+describe('buildRpcCall — filside fase 1', () => {
+  it('opdaterMedia sender kun tilstedeværende felter', () => {
+    expect(buildRpcCall({ art: 'opdaterMedia', subjektType: 'media', subjektId: '91', mediaId: '91',
+      payload: { titel: '', datering: '1701' } } as never)).toEqual({
+      fn: 'red_opdater_media', args: { p_media_id: 91, p_titel: '', p_datering: '1701' },
+    });
+  });
+  it('genopretMedia og mediaRettigheder bygger de nye RPC-kald', () => {
+    expect(buildRpcCall({ art: 'genopretMedia', subjektType: 'media', subjektId: '91', mediaId: '91' } as never))
+      .toEqual({ fn: 'red_genopret_media', args: { p_media_id: 91 } });
+    expect(buildRpcCall({ art: 'mediaRettigheder', subjektType: 'media', subjektId: '91', mediaId: '91',
+      payload: { status: 'tilladelse_givet', maaPubliceres: true, gengivelsestilladelse: 'Mail 19/7' } } as never))
+      .toEqual({ fn: 'red_set_media_rettigheder', args: {
+        p_media_id: 91, p_status: 'tilladelse_givet', p_maa_publiceres: true,
+        p_gengivelsestilladelse: 'Mail 19/7',
+      } });
+  });
+  it('uploadMedia fører kunstner/datering/status igennem', () => {
+    const call = buildRpcCall({ art: 'uploadMedia', subjektType: 'person', subjektId: '42', payload: {
+      afbildetPersonId: 42, slags: 'maleri', titel: 'Portræt', storagePath: 'x.jpg', mimeType: 'image/jpeg',
+      kunstner: 'Jens Juel', datering: 'ca. 1780', rettighederStatus: 'public_domain',
+    } } as never);
+    expect(call?.args).toMatchObject({ p_kunstner: 'Jens Juel', p_datering: 'ca. 1780', p_rettigheder_status: 'public_domain' });
+  });
+  it('nye domænefejl oversættes', () => {
+    expect(oversaetFejl('Kan kun genoprette et fjernet medie')).toContain('kun genoprettes');
+    expect(oversaetFejl('Slags kan ikke ryddes')).toBe('Slags kan ikke ryddes.');
   });
 });

@@ -193,3 +193,31 @@ BEGIN
   DELETE FROM media WHERE id IN (-931,-932);
   RAISE NOTICE 'OK: media_variant arver forælderens gating (klar synlig, fjernet skjult) + media_id_for_object løser begge stityper';
 END $$;
+
+-- ===== Task 14: genopret-cyklus bevarer fail-closed RLS-gating =====
+DO $$
+DECLARE vis_foer int; vis_fjernet int; vis_genoprettet int;
+BEGIN
+  DELETE FROM media WHERE id=-941;
+  INSERT INTO media(id,slags,titel,maa_publiceres,upload_status)
+    VALUES (-941,'foto','genopret-test',true,'klar');
+
+  SET LOCAL ROLE anon;
+  SELECT count(*) INTO vis_foer FROM media WHERE id=-941;
+  RESET ROLE;
+  UPDATE media SET upload_status='fjernet' WHERE id=-941;
+  SET LOCAL ROLE anon;
+  SELECT count(*) INTO vis_fjernet FROM media WHERE id=-941;
+  RESET ROLE;
+  UPDATE media SET upload_status='klar' WHERE id=-941;
+  SET LOCAL ROLE anon;
+  SELECT count(*) INTO vis_genoprettet FROM media WHERE id=-941;
+  RESET ROLE;
+
+  IF NOT (vis_foer=1 AND vis_fjernet=0 AND vis_genoprettet=1) THEN
+    RAISE EXCEPTION 'genopret-gating FEJL: før=% [1], fjernet=% [0], genoprettet=% [1]',
+      vis_foer, vis_fjernet, vis_genoprettet;
+  END IF;
+  DELETE FROM media WHERE id=-941;
+  RAISE NOTICE 'OK: media genopret-cyklus er fail-closed';
+END $$;

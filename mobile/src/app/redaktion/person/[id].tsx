@@ -13,6 +13,7 @@ import { PersonPicker } from '../../../components/redaktion/PersonPicker';
 import { NarrativEditor } from '../../../components/redaktion/NarrativEditor';
 import { MediaUploadSheet } from '../../../components/redaktion/MediaUploadSheet';
 import { MediaGallery } from '../../../components/redaktion/MediaGallery';
+import { MediaDetaljeSheet } from '../../../components/redaktion/MediaDetaljeSheet';
 import { KonfidensVaelger } from '../../../components/redaktion/KonfidensVaelger';
 import { FamilieEditRad } from '../../../components/redaktion/FamilieEditRad';
 import { ForaeldrePaastandePanel } from '../../../components/redaktion/ForaeldrePaastandePanel';
@@ -112,6 +113,7 @@ export default function PersonEditor() {
 
   // Materiale (mediehåndtering Slice 0g).
   const [media, setMedia] = useState<PersonMedia[]>([]);
+  const [mediaDetalje, setMediaDetalje] = useState<PersonMedia | null>(null);
   const [uploadSheetOpen, setUploadSheetOpen] = useState(false);
   const refreshMedia = () => { if (id) fetchPersonMedia(id).then(setMedia).catch(() => {}); };
   useEffect(refreshMedia, [id]);
@@ -364,8 +366,10 @@ export default function PersonEditor() {
             media={media}
             mediaUris={mediaUris}
             mediaThumbUris={mediaThumbUris}
+            onVaelg={setMediaDetalje}
             onFjern={(m) => setPending({ art: 'sletRelation', subjektType: 'person', subjektId: id!, relationId: m.relationId })}
             onSlet={(m) => setPending({ art: 'fjernMedia', subjektType: 'person', subjektId: id!, mediaId: m.id })}
+            onGenopret={(m) => setPending({ art: 'genopretMedia', subjektType: 'person', subjektId: id!, mediaId: m.id })}
           />
           <Pressable style={{ paddingVertical: 6 }} onPress={() => setUploadSheetOpen(true)}>
             <Mono size={9} color={Colors.bordeaux}>+ Tilføj billede</Mono>
@@ -556,6 +560,18 @@ export default function PersonEditor() {
         <PersonPicker excludeId={id} onClose={() => setSsPicker(false)}
           onValg={(v) => { setSsScratch({ personId: v.personId, navn: v.navn, kanoniskId: id! }); setSsPicker(false); }} />
       ) : null}
+      {mediaDetalje ? (
+        <MediaDetaljeSheet
+          media={mediaDetalje}
+          uri={mediaUris[mediaDetalje.id]}
+          onClose={() => setMediaDetalje(null)}
+          onGemMetadata={(payload) => { setPending({ art: 'opdaterMedia', subjektType: 'person', subjektId: id!, mediaId: mediaDetalje.id, payload }); setMediaDetalje(null); }}
+          onGemRettigheder={(payload) => { setPending({ art: 'mediaRettigheder', subjektType: 'person', subjektId: id!, mediaId: mediaDetalje.id, payload }); setMediaDetalje(null); }}
+          onFjern={() => { setPending({ art: 'sletRelation', subjektType: 'person', subjektId: id!, relationId: mediaDetalje.relationId }); setMediaDetalje(null); }}
+          onSlet={() => { setPending({ art: 'fjernMedia', subjektType: 'person', subjektId: id!, mediaId: mediaDetalje.id }); setMediaDetalje(null); }}
+          onGenopret={() => { setPending({ art: 'genopretMedia', subjektType: 'person', subjektId: id!, mediaId: mediaDetalje.id }); setMediaDetalje(null); }}
+        />
+      ) : null}
       {uploadSheetOpen ? (
         <MediaUploadSheet
           target={{ afbildetPersonId: id! }}
@@ -597,7 +613,7 @@ export default function PersonEditor() {
           if (id) fetchPersonRelationer(id, redaktionAux).then(setRelationer).catch(() => {});
           if (id) fetchPersonFamilie(id, redaktionModel).then(setFamilie).catch(() => {});
           refreshSammeSom();
-          if (pending?.art === 'uploadMedia' || pending?.art === 'fjernMedia' || pending?.art === 'sletRelation') refreshMedia();
+          if (['uploadMedia','opdaterMedia','genopretMedia','mediaRettigheder','fjernMedia','sletRelation'].includes(pending?.art ?? '')) refreshMedia();
         }}
       />
       {confirmDeleteOpen ? (

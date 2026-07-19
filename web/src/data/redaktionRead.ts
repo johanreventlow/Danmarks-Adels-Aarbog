@@ -608,15 +608,18 @@ export async function fetchSammeSomLinks(personId: string): Promise<SammeSomLink
 // anon/medlem); redaktionens redaktion_read-politik viser ALLE upload_status, så redaktøren ser
 // egne uploads (også 'kladde') uanset rettigheds-/publikationsstatus. Navngivet forskelligt fra
 // media.ts's samme-formåls-funktion for at undgå importforveksling i Redaktion.tsx.
-// upload_status='fjernet' (Slice 0h "slet billede") filtreres altid væk her — rækken ligger
-// stadig i basen (fortrydbar via den eksisterende redaktionelle historik), men skal ikke vises i
-// den almindelige materiale-galleri.
+// Fase 1: redaktionen beholder også upload_status='fjernet', så mediet kan genoprettes fra filsiden.
 export type PersonMedia = {
   id: string; relationId: string; slags: string; titel: string | null; storagePath: string | null;
-  uploadStatus: string; maaPubliceres: boolean; url: string | null; thumbUrl: string | null;
+  kunstner: string | null; datering: string | null; rettighederStatus: string;
+  mimeType: string | null; byteSize: number | null; bredde: number | null; hoejde: number | null;
+  originalFilnavn: string | null; uploadStatus: string; maaPubliceres: boolean;
+  url: string | null; thumbUrl: string | null;
 };
-type RawPersonMediaRow = { id: number; slags: string | null; titel: string | null;
-  storage_path: string | null; upload_status: string | null; maa_publiceres: boolean | null };
+type RawPersonMediaRow = { id: number; slags: string | null; titel: string | null; kunstner: string | null;
+  datering: string | null; storage_path: string | null; upload_status: string | null;
+  maa_publiceres: boolean | null; rettigheder_status: string | null; mime_type: string | null;
+  byte_size: number | null; bredde: number | null; hoejde: number | null; original_filnavn: string | null };
 
 // signed/relByMediaId/thumbPathByMediaId er valgfri (default tomme Maps) så testen kan kalde ren,
 // netværksfri — kun fetch-funktionerne nedenfor sender reelt udfyldte Maps (signeret ét sted,
@@ -629,9 +632,7 @@ export function mapPersonMediaRows(
   relByMediaId: Map<string, string> = new Map(),
   thumbPathByMediaId: Map<string, string> = new Map(),
 ): PersonMedia[] {
-  return rows
-    .filter((m) => m.upload_status !== 'fjernet')
-    .map((m) => {
+  return rows.map((m) => {
       const url = m.storage_path ? signed.get(m.storage_path) ?? null : null;
       const thumbPath = thumbPathByMediaId.get(String(m.id));
       return {
@@ -640,6 +641,14 @@ export function mapPersonMediaRows(
         slags: m.slags ?? '',
         titel: m.titel,
         storagePath: m.storage_path,
+        kunstner: m.kunstner,
+        datering: m.datering,
+        rettighederStatus: m.rettigheder_status ?? 'ukendt',
+        mimeType: m.mime_type,
+        byteSize: m.byte_size,
+        bredde: m.bredde,
+        hoejde: m.hoejde,
+        originalFilnavn: m.original_filnavn,
         uploadStatus: m.upload_status ?? 'kladde',
         maaPubliceres: Boolean(m.maa_publiceres),
         url,
@@ -656,7 +665,7 @@ async function mediaFromRelPairs(pairs: { mediaId: number; relationId: number }[
   const mediaIds = pairs.map((p) => p.mediaId);
   const [rows, thumbPathByMediaId] = await Promise.all([
     getAll<RawPersonMediaRow>(() =>
-      supabase.from('media').select('id,slags,titel,storage_path,upload_status,maa_publiceres').in('id', mediaIds)),
+      supabase.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn').in('id', mediaIds)),
     fetchThumbPathByMediaId(mediaIds),
   ]);
   const signed = await signPaths([

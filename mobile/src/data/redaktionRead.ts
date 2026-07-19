@@ -623,14 +623,17 @@ export async function fetchDoedeLinks(): Promise<DoedLink[]> {
 // relation er polymorf uden FK (samme mønster som fakta/relationer ovenfor) — to flade queries:
 // afbildet-links (til at finde media-id + relation-id), så media-rækkerne selv. redaktion_read-RLS
 // viser ALLE upload_status (også 'kladde'), så redaktøren ser egne uploads uanset rettigheds-status.
-// upload_status='fjernet' (Slice 0h "slet billede") filtreres altid væk her — den ligger stadig i
-// basen (fortrydbar via historik), men skal ikke vises i den almindelige materiale-galleri.
+// Fase 1: redaktionen beholder også upload_status='fjernet', så filsiden kan genoprette mediet.
 export type PersonMedia = {
   id: string; relationId: string; slags: string; titel: string | null; storagePath: string | null;
-  uploadStatus: string; maaPubliceres: boolean; thumbStoragePath: string | null;
+  kunstner: string | null; datering: string | null; rettighederStatus: string;
+  mimeType: string | null; byteSize: number | null; bredde: number | null; hoejde: number | null;
+  originalFilnavn: string | null; uploadStatus: string; maaPubliceres: boolean; thumbStoragePath: string | null;
 };
-type RawPersonMediaRow = { id: number; slags: string | null; titel: string | null;
-  storage_path: string | null; upload_status: string | null; maa_publiceres: boolean | null };
+type RawPersonMediaRow = { id: number; slags: string | null; titel: string | null; kunstner: string | null;
+  datering: string | null; storage_path: string | null; upload_status: string | null;
+  maa_publiceres: boolean | null; rettigheder_status: string | null; mime_type: string | null;
+  byte_size: number | null; bredde: number | null; hoejde: number | null; original_filnavn: string | null };
 
 // thumbPathByMediaId (billedstørrelser 2026-07-05, Slice B3) er valgfri (default tom Map) så testen
 // kan kalde ren, netværksfri — kun mediaFromRelPairs nedenfor sender reelt en udfyldt Map.
@@ -639,14 +642,20 @@ export function mapPersonMediaRows(
   relByMediaId: Map<string, string> = new Map(),
   thumbPathByMediaId: Map<string, string> = new Map(),
 ): PersonMedia[] {
-  return rows
-    .filter((m) => m.upload_status !== 'fjernet')
-    .map((m) => ({
+  return rows.map((m) => ({
       id: String(m.id),
       relationId: relByMediaId.get(String(m.id)) ?? '',
       slags: m.slags ?? '',
       titel: m.titel,
       storagePath: m.storage_path,
+      kunstner: m.kunstner,
+      datering: m.datering,
+      rettighederStatus: m.rettigheder_status ?? 'ukendt',
+      mimeType: m.mime_type,
+      byteSize: m.byte_size,
+      bredde: m.bredde,
+      hoejde: m.hoejde,
+      originalFilnavn: m.original_filnavn,
       uploadStatus: m.upload_status ?? 'kladde',
       maaPubliceres: Boolean(m.maa_publiceres),
       thumbStoragePath: thumbPathByMediaId.get(String(m.id)) ?? null,
@@ -661,7 +670,7 @@ async function mediaFromRelPairs(sb: NonNullable<typeof supabase>, pairs: { medi
   const mediaIds = pairs.map((p) => p.mediaId);
   const [rows, variants] = await Promise.all([
     getAll<RawPersonMediaRow>(() =>
-      sb.from('media').select('id,slags,titel,storage_path,upload_status,maa_publiceres').in('id', mediaIds)),
+      sb.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn').in('id', mediaIds)),
     getAll<{ media_id: number; storage_path: string }>(() =>
       sb.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb').in('media_id', mediaIds)),
   ]);

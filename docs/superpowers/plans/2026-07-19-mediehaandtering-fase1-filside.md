@@ -1,5 +1,7 @@
 # Mediehåndtering — fase 1: filsiden & fuld CRUD · Implementeringsplan
 
+**Status 2026-07-19:** Implementeret på PR-branch. Produktionsdeploy er ikke udført.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ethvert billede får ét hjem — en medie-detaljeside (web-overlay + mobile-sheet)

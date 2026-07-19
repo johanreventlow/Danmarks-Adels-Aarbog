@@ -1,0 +1,116 @@
+import { Image } from 'expo-image';
+import { useEffect, useState } from 'react';
+import { Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { Body, BtnLabel, Mono, Serif } from '../Typography';
+import { Lightbox } from '../Lightbox';
+import type { PersonMedia } from '../../data/redaktionRead';
+import { Border, Colors, Radius } from '../../theme/tokens';
+
+const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
+const RETTIGHED_STATUS = ['ukendt', 'public_domain', 'licenseret', 'tilladelse_givet', 'begraenset', 'spaerret'] as const;
+
+export function MediaDetaljeSheet({ media, uri, onClose, onGemMetadata, onGemRettigheder, onFjern, onSlet, onGenopret }: {
+  media: PersonMedia;
+  uri?: string;
+  onClose: () => void;
+  onGemMetadata: (payload: Record<string, unknown>) => void;
+  onGemRettigheder: (payload: Record<string, unknown>) => void;
+  onFjern: () => void;
+  onSlet: () => void;
+  onGenopret: () => void;
+}) {
+  const [meta, setMeta] = useState({ titel: '', slags: 'foto', kunstner: '', datering: '' });
+  const [ret, setRet] = useState({ status: 'ukendt', maaPubliceres: false, licens: '', kildehenvisning: '', gengivelsestilladelse: '', kildeFritekst: '' });
+  const [lightbox, setLightbox] = useState(false);
+  useEffect(() => {
+    setMeta({ titel: media.titel ?? '', slags: media.slags || 'foto', kunstner: media.kunstner ?? '', datering: media.datering ?? '' });
+    setRet({ status: media.rettighederStatus || 'ukendt', maaPubliceres: media.maaPubliceres, licens: '', kildehenvisning: '', gengivelsestilladelse: '', kildeFritekst: '' });
+  }, [media.id, media.titel, media.slags, media.kunstner, media.datering, media.rettighederStatus, media.maaPubliceres]);
+
+  const metadataPayload: Record<string, unknown> = {};
+  if (meta.titel !== (media.titel ?? '')) metadataPayload.titel = meta.titel.trim();
+  if (meta.slags !== media.slags) metadataPayload.slags = meta.slags;
+  if (meta.kunstner !== (media.kunstner ?? '')) metadataPayload.kunstner = meta.kunstner.trim();
+  if (meta.datering !== (media.datering ?? '')) metadataPayload.datering = meta.datering.trim();
+  const warning = ret.maaPubliceres && (ret.status === 'spaerret' || ret.status === 'begraenset');
+  const filinfo = [media.mimeType, media.bredde && media.hoejde ? `${media.bredde}×${media.hoejde}` : null,
+    media.byteSize != null ? `${Math.round(media.byteSize / 1024)} KB` : null, media.originalFilnavn].filter(Boolean).join(' · ');
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose} />
+      <View style={styles.sheet}>
+        <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 38 }} keyboardShouldPersistTaps="handled">
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+            <Serif size={22} style={{ flex: 1 }}>{media.titel || 'Medie'}</Serif>
+            <Pressable onPress={onClose}><Serif size={24} color={Colors.textMuted}>×</Serif></Pressable>
+          </View>
+          {uri ? (
+            <Pressable disabled={media.uploadStatus !== 'klar'} onPress={() => setLightbox(true)}>
+              <Image source={{ uri }} style={[styles.preview, media.uploadStatus === 'fjernet' && { opacity: .5 }]} contentFit="contain" />
+            </Pressable>
+          ) : <View style={styles.preview} />}
+          <Mono size={8.5} color={Colors.textMuted2} style={{ marginTop: 5 }}>{media.uploadStatus} · {filinfo || 'ingen filmetadata'}</Mono>
+
+          <Mono size={9} color={Colors.gold} style={styles.heading}>METADATA</Mono>
+          <View style={styles.chips}>{MEDIA_SLAGS.map((s) => (
+            <Pressable key={s} style={[styles.chip, meta.slags === s && styles.chipAktiv]} onPress={() => setMeta((m) => ({ ...m, slags: s }))}>
+              <BtnLabel size={10.5} color={meta.slags === s ? '#fff' : Colors.textSecondary2}>{s}</BtnLabel>
+            </Pressable>
+          ))}</View>
+          <TextInput style={styles.input} placeholder="Titel" placeholderTextColor={Colors.textMuted2} value={meta.titel} onChangeText={(v) => setMeta((m) => ({ ...m, titel: v }))} />
+          <TextInput style={styles.input} placeholder="Kunstner" placeholderTextColor={Colors.textMuted2} value={meta.kunstner} onChangeText={(v) => setMeta((m) => ({ ...m, kunstner: v }))} />
+          <TextInput style={styles.input} placeholder="Datering" placeholderTextColor={Colors.textMuted2} value={meta.datering} onChangeText={(v) => setMeta((m) => ({ ...m, datering: v }))} />
+          <Pressable disabled={!Object.keys(metadataPayload).length} style={[styles.gem, !Object.keys(metadataPayload).length && { opacity: .45 }]} onPress={() => onGemMetadata(metadataPayload)}>
+            <BtnLabel color="#fff">Gem metadata</BtnLabel>
+          </Pressable>
+
+          <Mono size={9} color={Colors.gold} style={styles.heading}>RETTIGHEDER OG PUBLICERING</Mono>
+          <View style={styles.chips}>{RETTIGHED_STATUS.map((s) => (
+            <Pressable key={s} style={[styles.chip, ret.status === s && styles.chipAktiv]} onPress={() => setRet((r) => ({ ...r, status: s }))}>
+              <BtnLabel size={9.5} color={ret.status === s ? '#fff' : Colors.textSecondary2}>{s}</BtnLabel>
+            </Pressable>
+          ))}</View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
+            <Body size={13} style={{ flex: 1 }}>Må publiceres</Body>
+            <Switch value={ret.maaPubliceres} onValueChange={(v) => setRet((r) => ({ ...r, maaPubliceres: v }))}
+              thumbColor={ret.maaPubliceres ? Colors.bordeaux : Colors.textMuted2}
+              trackColor={{ false: Colors.beige3, true: Colors.bordeauxFillLight2 }} />
+          </View>
+          {warning ? <Mono size={9.5} color={Colors.danger} style={{ marginTop: 6 }}>Advarsel: {ret.status} og publicering er valgt samtidig.</Mono> : null}
+          <TextInput style={styles.input} placeholder="Licens" placeholderTextColor={Colors.textMuted2} value={ret.licens} onChangeText={(v) => setRet((r) => ({ ...r, licens: v }))} />
+          <TextInput style={styles.input} placeholder="Kildehenvisning" placeholderTextColor={Colors.textMuted2} value={ret.kildehenvisning} onChangeText={(v) => setRet((r) => ({ ...r, kildehenvisning: v }))} />
+          <TextInput style={styles.input} placeholder="Gengivelsestilladelse" placeholderTextColor={Colors.textMuted2} value={ret.gengivelsestilladelse} onChangeText={(v) => setRet((r) => ({ ...r, gengivelsestilladelse: v }))} />
+          <TextInput style={styles.input} placeholder="Kildenote" placeholderTextColor={Colors.textMuted2} value={ret.kildeFritekst} onChangeText={(v) => setRet((r) => ({ ...r, kildeFritekst: v }))} />
+          <Pressable style={styles.gem} onPress={() => onGemRettigheder(ret)}><BtnLabel color="#fff">Gem rettigheder</BtnLabel></Pressable>
+
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 22 }}>
+            {media.uploadStatus === 'fjernet' ? (
+              <Pressable style={styles.gem} onPress={onGenopret}><BtnLabel color="#fff">Genopret</BtnLabel></Pressable>
+            ) : <>
+              <Pressable disabled={!media.relationId} style={styles.neutral} onPress={onFjern}><BtnLabel color={Colors.textMuted}>Fjern tilknytning</BtnLabel></Pressable>
+              <Pressable style={styles.slet} onPress={onSlet}><BtnLabel color="#fff">Slet billede</BtnLabel></Pressable>
+            </>}
+          </View>
+        </ScrollView>
+      </View>
+      {lightbox && uri && media.uploadStatus === 'klar' ? (
+        <Lightbox items={[{ id: media.id, uri, titel: media.titel }]} index={0} onClose={() => setLightbox(false)} onNavigate={() => {}} />
+      ) : null}
+    </Modal>
+  );
+}
+
+const styles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: 'rgba(34,31,26,.45)' },
+  sheet: { maxHeight: '92%', backgroundColor: Colors.paperBg, borderTopLeftRadius: Radius.sheet, borderTopRightRadius: Radius.sheet, borderTopWidth: 1, borderColor: Border.light },
+  preview: { width: '100%', height: 260, borderRadius: 10, backgroundColor: Colors.beige2 },
+  heading: { marginTop: 20, marginBottom: 7 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  chip: { borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.chip, paddingHorizontal: 10, paddingVertical: 5 },
+  chipAktiv: { backgroundColor: Colors.bordeaux, borderColor: Colors.bordeaux },
+  input: { backgroundColor: '#fff', borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.field, paddingHorizontal: 10, paddingVertical: 8, marginTop: 8, fontFamily: 'HankenGrotesk_400Regular', fontSize: 13, color: Colors.ink },
+  gem: { backgroundColor: Colors.konklusionGroen, borderRadius: Radius.field, paddingHorizontal: 14, paddingVertical: 9, alignSelf: 'flex-start', marginTop: 10 },
+  neutral: { borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.field, paddingHorizontal: 12, paddingVertical: 9 },
+  slet: { backgroundColor: Colors.danger, borderRadius: Radius.field, paddingHorizontal: 12, paddingVertical: 9 },
+});

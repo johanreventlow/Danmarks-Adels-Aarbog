@@ -24,11 +24,13 @@ import { buildBrowse } from './data/browse';
 import { initials } from './data/format';
 import { NarrativRenderer } from './components/NarrativRenderer';
 import { Lightbox } from './components/Lightbox';
+import { MediaDetaljeOverlay } from './components/MediaDetaljeOverlay';
 
 const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
+const MEDIA_RETTIGHED_STATUS = ['ukendt', 'public_domain', 'licenseret', 'tilladelse_givet', 'begraenset', 'spaerret'] as const;
 // Change-arter der kan ændre et materiale-galleri (Slice 0h) — bruges til at afgøre om
 // person-editorens/objekt-editorens medieliste skal genhentes efter et gemt kald.
-const MEDIA_ARTER = new Set(['uploadMedia', 'fjernMedia', 'sletRelation']);
+const MEDIA_ARTER = new Set(['uploadMedia', 'opdaterMedia', 'genopretMedia', 'mediaRettigheder', 'fjernMedia', 'sletRelation']);
 // Generiske entiteter med et materiale-galleri (Slice 0h) — spejler mobiles HAR_MATERIALE.
 const HAR_OBJEKT_MATERIALE = new Set(['estate', 'arms']);
 // --- Tokens (fra designet) ---
@@ -147,9 +149,10 @@ export default function Redaktion() {
   // som media.ts's loadMediaItems) — media[].url er klar til brug, ingen separat uri-state/effekt.
   const [media, setMedia] = useState<PersonMedia[]>([]);
   const [mediaLightbox, setMediaLightbox] = useState<number | null>(null); // Slice A
+  const [mediaDetalje, setMediaDetalje] = useState<{ id: string; subjektType: string; subjektId: string } | null>(null);
   const [mediaPick, setMediaPick] = useState<{ file: File; previewUrl: string } | null>(null);
-  const [mediaForm, setMediaForm] = useState<{ slags: string; titel: string; maaPubliceres: boolean }>(
-    { slags: 'foto', titel: '', maaPubliceres: false });
+  const [mediaForm, setMediaForm] = useState<{ slags: string; titel: string; kunstner: string; datering: string; rettighederStatus: string; maaPubliceres: boolean }>(
+    { slags: 'foto', titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false });
   const [mediaBusy, setMediaBusy] = useState(false); // Slice B2: klient-genkodning tager et øjeblik
   // Retningsbekræftelse for et nyt samme_som-link: den valgte person + hvem der er kanonisk.
   const [ssConfirm, setSsConfirm] = useState<{ personId: string; navn: string; kanoniskId: string } | null>(null);
@@ -278,7 +281,7 @@ export default function Redaktion() {
     fetchPersonRelationer(id).then(setRelationer).catch(() => setRelationer([]));
     fetchSammeSomLinks(id).then(setSammeSom).catch(() => setSammeSom([]));
     if (!opts?.skipMedia) {
-      setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', maaPubliceres: false });
+      setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false }); setMediaDetalje(null);
       fetchRedPersonMedia(id).then(setMedia).catch(() => setMedia([]));
     }
   }, [model, loadNarrativer]);
@@ -348,7 +351,7 @@ export default function Redaktion() {
   useEffect(() => {
     if (!slaegtSubjekt) return;
     loadNarrativer(slaegtSubjekt.type, slaegtSubjekt.id);
-    setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', maaPubliceres: false });
+    setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false }); setMediaDetalje(null);
     if (slaegtSubjekt.type === 'lineage') {
       fetchRedObjectMedia('lineage', String(slaegtSubjekt.id)).then(setMedia).catch(() => setMedia([]));
     }
@@ -364,7 +367,7 @@ export default function Redaktion() {
   }, [entity, curRecord]);
   useEffect(() => {
     if (!HAR_OBJEKT_MATERIALE.has(entity)) return;
-    setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', maaPubliceres: false });
+    setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false }); setMediaDetalje(null);
     refreshObjMedia();
     // refreshObjMedia afhænger kun af entity+curRecord.id reelt (curRecord-objektet skifter
     // reference oftere end det); undgår gen-fetch-loop på uændret post.
@@ -491,6 +494,7 @@ export default function Redaktion() {
       {renderSammeSomConfirm()}
       {renderFlytBarnPicker()}
       {renderMediaPicker()}
+      {renderMediaDetalje()}
     </div>
   );
 
@@ -843,7 +847,7 @@ export default function Redaktion() {
     // Lightbox (Slice A): kun url-bærende rækker er navigerbare (nogle kan mangle url, fx
     // 'kladde' eller mislykket signering) — filtrér FØR indeksering, ellers kan pil-navigation
     // lande på en url-løs post og lukke lightboxen uventet.
-    const mediaMedLightbox = withUrl(media);
+    const mediaMedLightbox = withUrl(media.filter((m) => m.uploadStatus === 'klar'));
     return (
       <>
         <div style={sectionHeader(24)}>Materiale</div>
@@ -854,22 +858,26 @@ export default function Redaktion() {
                 <div key={m.id} style={{ width: 96 }}>
                   {m.url ? (
                     <img src={m.thumbUrl ?? m.url} alt={m.titel ?? m.slags}
-                      onClick={() => setMediaLightbox(mediaMedLightbox.findIndex((x) => x.id === m.id))}
-                      style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 10, background: T.beige, cursor: 'zoom-in' }} />
+                      onClick={() => setMediaDetalje({ id: m.id, subjektType, subjektId })}
+                      style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 10, background: T.beige, cursor: 'pointer', opacity: m.uploadStatus === 'fjernet' ? .45 : 1 }} />
                   ) : (
-                    <div style={{ width: 96, height: 96, borderRadius: 10, background: T.beige }} />
+                    <div onClick={() => setMediaDetalje({ id: m.id, subjektType, subjektId })}
+                      style={{ width: 96, height: 96, borderRadius: 10, background: T.beige, cursor: 'pointer', opacity: m.uploadStatus === 'fjernet' ? .45 : 1 }} />
                   )}
                   <div style={{ fontFamily: T.mono, fontSize: 8, color: T.muted2, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {m.slags}{m.uploadStatus !== 'klar' ? ` · ${m.uploadStatus}` : ''}{m.maaPubliceres ? '' : ' · ej publiceret'}
                   </div>
                   {mayUpload ? (
-                    // Fjern = afkobl KUN denne subjekt (media + Storage-bytes upåvirket). Slet =
-                    // blødt fjern OVERALT (upload_status='fjernet'), fortrydbar via historik.
                     <div style={{ display: 'flex', gap: 8, marginTop: 3 }}>
-                      <span onClick={() => m.relationId && run({ art: 'sletRelation', subjektType, subjektId, relationId: m.relationId }, 'Fjern billede')}
-                        style={{ fontFamily: T.mono, fontSize: 9, color: m.relationId ? T.muted : T.muted3, cursor: m.relationId ? 'pointer' : 'default' }}>Fjern</span>
-                      <span onClick={() => run({ art: 'fjernMedia', subjektType, subjektId, mediaId: m.id }, 'Slet billede')}
-                        style={{ fontFamily: T.mono, fontSize: 9, color: T.red, cursor: 'pointer' }}>Slet</span>
+                      {m.uploadStatus === 'fjernet' ? (
+                        <span onClick={() => run({ art: 'genopretMedia', subjektType, subjektId, mediaId: m.id }, 'Genopret billede')}
+                          style={{ fontFamily: T.mono, fontSize: 9, color: T.green, cursor: 'pointer' }}>Genopret</span>
+                      ) : <>
+                        <span onClick={() => m.relationId && run({ art: 'sletRelation', subjektType, subjektId, relationId: m.relationId }, 'Fjern billede')}
+                          style={{ fontFamily: T.mono, fontSize: 9, color: m.relationId ? T.muted : T.muted3, cursor: m.relationId ? 'pointer' : 'default' }}>Fjern</span>
+                        <span onClick={() => run({ art: 'fjernMedia', subjektType, subjektId, mediaId: m.id }, 'Slet billede')}
+                          style={{ fontFamily: T.mono, fontSize: 9, color: T.red, cursor: 'pointer' }}>Slet</span>
+                      </>}
                     </div>
                   ) : null}
                 </div>
@@ -908,6 +916,18 @@ export default function Redaktion() {
                     </div>
                     <input value={mediaForm.titel} onChange={(e) => setMediaForm((f) => ({ ...f, titel: e.target.value }))}
                       placeholder="Titel" style={inp} />
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                      <input value={mediaForm.kunstner} onChange={(e) => setMediaForm((f) => ({ ...f, kunstner: e.target.value }))} placeholder="Kunstner" style={inp} />
+                      <input value={mediaForm.datering} onChange={(e) => setMediaForm((f) => ({ ...f, datering: e.target.value }))} placeholder="Datering" style={inp} />
+                    </div>
+                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 8 }}>
+                      {MEDIA_RETTIGHED_STATUS.map((s) => (
+                        <span key={s} onClick={() => setMediaForm((f) => ({ ...f, rettighederStatus: s }))}
+                          style={{ fontFamily: T.mono, fontSize: 9, padding: '4px 7px', borderRadius: 6, cursor: 'pointer', background: mediaForm.rettighederStatus === s ? T.bordeaux : T.beige, color: mediaForm.rettighederStatus === s ? T.paperText : T.muted }}>
+                          {s}
+                        </span>
+                      ))}
+                    </div>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: T.muted, marginTop: 8 }}>
                       <input type="checkbox" checked={mediaForm.maaPubliceres} onChange={(e) => setMediaForm((f) => ({ ...f, maaPubliceres: e.target.checked }))} />
                       Må publiceres (rettigheder afklaret)
@@ -920,7 +940,9 @@ export default function Redaktion() {
                           const { thumb, medium, large } = await buildVariants(mediaPick.file);
                           await run({ art: 'uploadMedia', subjektType, subjektId, payload: {
                             ...uploadTarget, slags: mediaForm.slags, titel: mediaForm.titel.trim(),
-                            maaPubliceres: mediaForm.maaPubliceres, file: large.file, mimeType: large.mimeType,
+                            kunstner: mediaForm.kunstner.trim() || null, datering: mediaForm.datering.trim() || null,
+                            rettighederStatus: mediaForm.rettighederStatus, maaPubliceres: mediaForm.maaPubliceres,
+                            file: large.file, mimeType: large.mimeType,
                             byteSize: large.byteSize, bredde: large.bredde, hoejde: large.hoejde,
                             originalFilnavn: mediaPick.file.name, storagePath: large.storagePath,
                             varianter: [thumb, medium],
@@ -949,6 +971,32 @@ export default function Redaktion() {
         )}
       </>
     );
+  }
+
+
+  function renderMediaDetalje() {
+    if (!mediaDetalje) return null;
+    const m = media.find((x) => x.id === mediaDetalje.id);
+    if (!m) return null;
+    const lightboxItems = withUrl(media.filter((x) => x.uploadStatus === 'klar'));
+    return <MediaDetaljeOverlay
+      media={m}
+      onClose={() => setMediaDetalje(null)}
+      onPreview={() => {
+        const i = lightboxItems.findIndex((x) => x.id === m.id);
+        if (i >= 0) setMediaLightbox(i);
+      }}
+      onGemMetadata={(payload) => run({ art: 'opdaterMedia', subjektType: mediaDetalje.subjektType,
+        subjektId: mediaDetalje.subjektId, mediaId: m.id, payload }, 'Opdater medie')}
+      onGemRettigheder={(payload) => run({ art: 'mediaRettigheder', subjektType: mediaDetalje.subjektType,
+        subjektId: mediaDetalje.subjektId, mediaId: m.id, payload }, 'Gem rettigheder')}
+      onFjern={() => m.relationId && run({ art: 'sletRelation', subjektType: mediaDetalje.subjektType,
+        subjektId: mediaDetalje.subjektId, relationId: m.relationId }, 'Fjern billede')}
+      onSlet={() => run({ art: 'fjernMedia', subjektType: mediaDetalje.subjektType,
+        subjektId: mediaDetalje.subjektId, mediaId: m.id }, 'Slet billede')}
+      onGenopret={() => run({ art: 'genopretMedia', subjektType: mediaDetalje.subjektType,
+        subjektId: mediaDetalje.subjektId, mediaId: m.id }, 'Genopret billede')}
+    />;
   }
 
   function renderFactCard(pid: string, label: string, f: FeltEvidens) {
@@ -1195,7 +1243,7 @@ export default function Redaktion() {
   // galleriet nedenfor allerede henter — intet nyt fetch-kald).
   function renderMediaPicker() {
     if (!mediaPickerOpen) return null;
-    const brugbar = media.filter((m) => m.thumbUrl);
+    const brugbar = media.filter((m) => m.uploadStatus === 'klar' && m.thumbUrl);
     return (
       <div onClick={() => setMediaPickerOpen(false)} style={overlay(96)}>
         <div onClick={(e) => e.stopPropagation()} style={{ width: 460, maxWidth: '100%', maxHeight: '70vh', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
