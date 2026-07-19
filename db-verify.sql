@@ -1714,3 +1714,79 @@ BEGIN
   PERFORM set_config('request.jwt.claim.sub','',true);
   RAISE NOTICE 'OK: levende feed fase 2 (haendelse CHECK/RLS/RPC/versionering/fortryd)';
 END $$;
+
+-- ===== Mediehåndtering fase 1: metadata, genopret, upload-signatur og undo =====
+DO $$
+DECLARE v_id bigint; v_upload bigint; v_cs bigint; v_cs_foer int; v_cs_efter int;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+
+  v_id := (SELECT coalesce(max(id),0)+1 FROM media);
+  INSERT INTO media(id,slags,titel,kunstner,datering,upload_status,maa_publiceres)
+    VALUES (v_id,'foto','Gammel titel','Gammel kunstner','1699','klar',false);
+
+  SELECT count(*) INTO v_cs_foer FROM change_set;
+  PERFORM red_opdater_media(v_id, 'Ny titel', NULL, '', 'ca. 1700');
+  IF NOT EXISTS (SELECT 1 FROM media WHERE id=v_id AND titel='Ny titel' AND slags='foto'
+                 AND kunstner IS NULL AND datering='ca. 1700') THEN
+    RAISE EXCEPTION 'FEJL: red_opdater_media overholdt ikke NULL/tom-streng-kontrakten';
+  END IF;
+  SELECT count(*) INTO v_cs_efter FROM change_set;
+  IF v_cs_efter <> v_cs_foer + 1 THEN
+    RAISE EXCEPTION 'FEJL: red_opdater_media oprettede % change_set (vent 1)', v_cs_efter-v_cs_foer;
+  END IF;
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_opdater_media(v_id, NULL, '', NULL, NULL);
+    RAISE EXCEPTION 'FEJL: tom slags blev accepteret';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Slags kan ikke ryddes%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_opdater_media(-999999999, 'Ukendt', NULL, NULL, NULL);
+    RAISE EXCEPTION 'FEJL: ukendt media-id blev accepteret';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Media % findes ikke%' THEN RAISE; END IF;
+  END;
+  SELECT max(id) INTO v_cs FROM change_set;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_fortryd_change_set(v_cs, false);
+  IF NOT EXISTS (SELECT 1 FROM media WHERE id=v_id AND titel='Gammel titel' AND kunstner='Gammel kunstner') THEN
+    RAISE EXCEPTION 'FEJL: undo af media-metadata gendannede ikke rækken';
+  END IF;
+
+  UPDATE media SET upload_status='fjernet' WHERE id=v_id;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_genopret_media(v_id);
+  IF (SELECT upload_status FROM media WHERE id=v_id) <> 'klar' THEN
+    RAISE EXCEPTION 'FEJL: red_genopret_media satte ikke klar';
+  END IF;
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_genopret_media(v_id);
+    RAISE EXCEPTION 'FEJL: genopret-guard accepterede et ikke-fjernet medie';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Kan kun genoprette et fjernet medie%' THEN RAISE; END IF;
+  END;
+
+  PERFORM set_config('app.change_set_id','',true);
+  v_upload := red_upload_media(
+    p_slags => 'foto', p_titel => 'Upload-test',
+    p_storage_path => '__verify__/fase1-' || v_id || '.jpg', p_mime => 'image/jpeg',
+    p_kunstner => 'Testkunstner', p_datering => '1701',
+    p_rettigheder_status => 'ukendt', p_maa_publiceres => false
+  );
+  IF NOT EXISTS (SELECT 1 FROM media WHERE id=v_upload AND kunstner='Testkunstner' AND datering='1701') THEN
+    RAISE EXCEPTION 'FEJL: red_upload_media førte ikke kunstner/datering igennem';
+  END IF;
+
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN
+    RAISE NOTICE 'OK: media fase 1 RPC + undo + upload-signatur (rullet tilbage)';
+  ELSE RAISE; END IF;
+END $$;

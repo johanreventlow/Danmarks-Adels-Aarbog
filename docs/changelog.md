@@ -1,5 +1,46 @@
 # Changelog
 
+## Mediehåndtering fase 1 — implementeringsplan (2026-07-19)
+
+Plan skrevet (ingen kode): `docs/superpowers/plans/2026-07-19-mediehaandtering-fase1-filside.md`
+— 9 tasks med TDD-tjekbokse oven på fase 1-spec'en. Ikke-oplagte valg: RPC-asserts
+lægges i `db-verify.sql` efter det ETABLEREDE impersonerings-mønster (Task 5/5b:
+`request.jwt.claim.sub` + profiles-seed + ROLLBACK_TEST_OK) — ikke i
+`db-verify-media.sql`, hvis kontrakt er RLS-only uden redaktør-kontekst (den får kun
+en anon-gating-assert for fjern→genopret-cyklussen via direkte UPDATE). Migrationens
+DROP af gamle `red_upload_media` skal afskrives eksplicit fra git-historikken
+(14-parameter-signaturen). Task 5/6 (læse-lag viser `'fjernet'`) og Task 7/8 (UI-
+filtrene) er markeret som sammenhørende — mellemtilstanden kan vise fjernede thumbs.
+Prod-deploy er eksplicit UDEN FOR planen (controller-gated runbook-trin i Task 9).
+
+## Mediehåndtering fase 1 — design-spec for filsiden (2026-07-19)
+
+Spec skrevet (ingen kode): `docs/superpowers/specs/2026-07-19-mediehaandtering-fase1-filside-design.md`
+omsætter konceptets fase 1 (M1–M3) til 6 skiver: `red_opdater_media` (NULL=uændret/''=ryd),
+`red_genopret_media` (kun fra `'fjernet'`, RAISE ved 0 rækker), `red_upload_media`-
+signatur-udvidelse med kunstner/datering (⚠ kræver DROP+CREATE — `CREATE OR REPLACE`
+ville skabe en PostgREST-tvetydig overload OG knække det navnebaserede grant-loop),
+tre nye Change-arter (`opdaterMedia`/`genopretMedia`/`mediaRettigheder` — alle uden
+fil-bytes, kan degradere til red_suggest), udvidet redaktions-read hvor `'fjernet'`
+nu VISES for redaktionen (med to udpegede fail-open-fælder: narrativ-billedvælgeren
+og Lightbox skal eksplicit filtrere `'klar'` — redaktionens storage-politik signerer
+også fjernede stier), filside-overlay (web) / `MediaDetaljeSheet` (mobile) og udvidet
+upload-ark. Kendt accepteret hul: fjernet medie uden relation kan først genoprettes
+når fase 2-biblioteket lander.
+
+## Mediehåndtering — koncept for robust medieforvaltning (2026-07-19)
+
+Nyt konceptdokument `docs/design/2026-07-19-mediehaandtering-robust-koncept.md`
+(ingen kode): analyse af redaktørens nuværende medie-muligheder (empirisk kortlægning
+af web+mobile+DB) og et Wikimedia-inspireret målbillede — filside pr. medie,
+mediebibliotek med arbejdskøer, komplet livscyklus (genopret/udrens), rettigheds-
+workflow-UI oven på det eksisterende `red_set_media_rettigheder`, erstat-fil med
+stabil identitet, samt aktivering af den i praksis inaktive sha256-dedup (klienten
+hasher aldrig — DB-guarden fødes ikke). 11 konkrete mangler (M1–M11) prioriteret,
+4 faser, ingen nye tabeller — kun 4–5 nye `red_*`-RPC'er efter etableret konvention.
+Lukker de kendte udeståender "løse billeder"-oversigt + rettigheds-UI (Slice 0h-
+changelog) som del af én sammenhængende plan i stedet for spredte features.
+
 ## 1939-narrativer — deterministisk kvalitetsrettelse (2026-07-19)
 
 1939-segmenteringen er hærdet efter empirisk fund af gruppe-/vinduesduplikering,
@@ -1439,3 +1480,10 @@ implementering næste session.**
 * RLS-lag (rigtigt) mangler — kritisk før multi-bruger pga. nulevende-data.
 * Dekorations-nøgle hentes fra anden DAA-udgave (koder bevaret rå).
 * ~16% relative datoer uopløst ved udtræk (rå tekst bevaret).
+
+## 2026-07-19 — Mediehåndtering fase 1: filside og fuld CRUD
+
+- Tilføjer redigerbar filside på web og mobile med metadata, rettigheder, publiceringsgate og filstatus.
+- Tilføjer `red_opdater_media` og `red_genopret_media`; upload gemmer nu også kunstner og datering.
+- Fjernede medier bevares i redaktionens læselag og kan genoprettes, men filtreres fortsat fra lightbox og narrativ-mention-pickere.
+- Ingen produktionsmigration er kørt fra dette ændringssæt. Kør `db-migrations.sql`, derefter `db-verify.sql`, `db-verify-media.sql` og til sidst `db-rls.sql` efter runbooken.

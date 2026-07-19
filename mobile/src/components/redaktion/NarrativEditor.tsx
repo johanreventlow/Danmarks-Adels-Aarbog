@@ -168,7 +168,7 @@ export function NarrativEditor({ subjektType, subjektId, media, mediaThumbUris }
           ) : null}
           {mediaMentionPickerÅben ? (
             <MediaMentionPicker
-              media={media}
+              media={media.filter((m) => m.uploadStatus === 'klar')}
               thumbUris={mediaThumbUris}
               onClose={() => setMediaMentionPickerÅben(false)}
               onVælg={(token) => {

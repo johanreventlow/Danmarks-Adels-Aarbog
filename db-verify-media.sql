@@ -12,7 +12,7 @@
 --  Forudsætning: db-migrations.sql + db-rls.sql kørt, og (til Task 12b) en
 --  privat 'media'-bucket oprettet. Alle blokke seeder negative-id testrækker
 --  og rydder selv op i én transaktion.
---  Forvent 4 NOTICE'er: 'OK: media-gating', 'OK: media rettigheds-gating',
+--  Forvent 5 NOTICE'er: 'OK: media-gating', 'OK: media rettigheds-gating',
 --  'OK: storage.objects-politikker' (12b springes over hvis bucket mangler), 'OK: media_variant ...'.
 -- =====================================================================
 
@@ -192,4 +192,60 @@ BEGIN
   DELETE FROM media_variant WHERE id IN (-931,-932);
   DELETE FROM media WHERE id IN (-931,-932);
   RAISE NOTICE 'OK: media_variant arver forælderens gating (klar synlig, fjernet skjult) + media_id_for_object løser begge stityper';
+END $$;
+
+-- ===== Task 14: genopret-cyklus bevarer fail-closed RLS-gating =====
+-- Afdød afbildet person + variant sikrer, at både GDPR-, rettigheds- og variantgating
+-- følger forældermediet gennem klar → fjernet → klar.
+DO $$
+DECLARE vis_media_foer int; vis_variant_foer int;
+        vis_media_fjernet int; vis_variant_fjernet int;
+        vis_media_genoprettet int; vis_variant_genoprettet int;
+BEGIN
+  DELETE FROM relation WHERE id=-941;
+  DELETE FROM media_variant WHERE id=-941;
+  DELETE FROM media WHERE id=-941;
+  DELETE FROM person WHERE id=-941;
+
+  INSERT INTO person(id,levende,privat) VALUES (-941,false,false);
+  INSERT INTO media(id,slags,titel,maa_publiceres,upload_status,bucket,storage_path)
+    VALUES (-941,'foto','genopret-test',true,'klar','media','test/genopret.jpg');
+  INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES (-941,'person',-941,'media',-941,'afbildet');
+  INSERT INTO media_variant(id,media_id,tier,storage_path)
+    VALUES (-941,-941,'thumb','test/genopret-thumb.jpg');
+
+  SET LOCAL ROLE anon;
+  SELECT count(*) INTO vis_media_foer FROM media WHERE id=-941;
+  SELECT count(*) INTO vis_variant_foer FROM media_variant WHERE id=-941;
+  RESET ROLE;
+
+  UPDATE media SET upload_status='fjernet' WHERE id=-941;
+  SET LOCAL ROLE anon;
+  SELECT count(*) INTO vis_media_fjernet FROM media WHERE id=-941;
+  SELECT count(*) INTO vis_variant_fjernet FROM media_variant WHERE id=-941;
+  RESET ROLE;
+
+  UPDATE media SET upload_status='klar' WHERE id=-941;
+  SET LOCAL ROLE anon;
+  SELECT count(*) INTO vis_media_genoprettet FROM media WHERE id=-941;
+  SELECT count(*) INTO vis_variant_genoprettet FROM media_variant WHERE id=-941;
+  RESET ROLE;
+
+  IF NOT (
+    vis_media_foer=1 AND vis_variant_foer=1
+    AND vis_media_fjernet=0 AND vis_variant_fjernet=0
+    AND vis_media_genoprettet=1 AND vis_variant_genoprettet=1
+  ) THEN
+    RAISE EXCEPTION 'genopret-gating FEJL: før media/variant=%/% [1/1], fjernet=%/% [0/0], genoprettet=%/% [1/1]',
+      vis_media_foer, vis_variant_foer,
+      vis_media_fjernet, vis_variant_fjernet,
+      vis_media_genoprettet, vis_variant_genoprettet;
+  END IF;
+
+  DELETE FROM relation WHERE id=-941;
+  DELETE FROM media_variant WHERE id=-941;
+  DELETE FROM media WHERE id=-941;
+  DELETE FROM person WHERE id=-941;
+  RAISE NOTICE 'OK: media + variant genopret-cyklus er fail-closed';
 END $$;

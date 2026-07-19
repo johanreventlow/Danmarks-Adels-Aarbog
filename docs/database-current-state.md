@@ -98,3 +98,14 @@ Git-gates (global regel §5): prod-deploy af SQL bekræftes eksplicit med bruger
 - `docs/decisions.md` — arkitektur-log (ikke-oplagte valg + fravalgte alternativer).
 - `datamodel-oversigt.md` — konceptuel model (læs først for *hvorfor*).
 - `docs/README.md` — dokumentationsindeks.
+
+## Mediehåndtering fase 1 (2026-07-19)
+
+Redaktionslaget har nu en filside for eksisterende `media`-rækker. Kuraterbare metadata
+(`titel`, `slags`, `kunstner`, `datering`) opdateres via `red_opdater_media`; blødt fjernede
+rækker kan genoprettes via `red_genopret_media`. Rettighedsgaten vedligeholdes fortsat gennem
+`red_set_media_rettigheder`, og `red_upload_media` accepterer nu også kunstner og datering.
+
+`upload_status='fjernet'` er fortsat usynlig for offentligheden og for almindelige medlemmer.
+Redaktionen læser derimod rækken for at kunne vise status og genoprette den. Lightbox og
+narrativ-mention-pickere filtrerer eksplicit til `upload_status='klar'`.
