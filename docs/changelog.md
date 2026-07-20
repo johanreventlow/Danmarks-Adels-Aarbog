@@ -1,5 +1,31 @@
 # Changelog
 
+## Mediehåndtering fase 1+2 + levende feed fase 2-3 + K2 selektiv publicering — LIVE i prod (2026-07-20)
+
+Deployet direkte til produktionsdatabasen via Supabase MCP (bruger-godkendt, kørt fra
+sessionen — ikke den forberedte manuelle `psql`/dashboard-runbook). Et live objektinventar
+(tabeller + `pg_proc`-funktionsnavne sammenlignet mod `db-migrations.sql`) afslørede at
+`docs/database-current-state.md`s "sidst afstemt 2026-07-01" var stærkt forældet: alt
+arbejde dateret 2026-07-02–2026-07-17 (samme_som, udledt slægtsnavn, dato-hærdning,
+Problem 2 fase 1, K2 staging-gate) var reelt allerede live, blot udokumenteret. Kun tre
+ting manglede: `haendelse` (levende feed fase 2), `story`/`story_kilde`/`feed_pin`
+(levende feed fase 3) og `red_publicer_personer` (K2 selektiv publicering, samme dags dato)
+— alle tre nu deployet, samt mediehåndtering fase 1+2 (se tidligere entries) og hele
+`db-rls.sql` (retter `text_mention`s manglende `GRANT SELECT` + `tm_read`s fail-open
+media-gren). `get_advisors(security)` efter apply: 117 fund, alle kendte mønstre
+(SECURITY DEFINER-eksponering af `red_*`, bevidst deny-all på historiktabeller) — ingen nye.
+Se `docs/database-current-state.md` for den fulde, ajourførte status.
+
+**Ikke-oplagt:** de to store `apply_migration`-kald (2.9k-linjers `db-migrations.sql` og
+723-linjers `db-rls.sql`) blev IKKE sendt i fuld længde — at læse begge filer ind i sin
+helhed ville have brugt langt mere kontekst end rådighed. I stedet blev et præcist
+objekt-diff (forventet vs. faktisk) brugt til at finde de tre manglende regioner, som
+derefter blev udtrukket med `sed`/`grep` og verificeret linje-for-linje før anvendelse;
+`db-rls.sql` blev læst i sin helhed (mindre fil, sikkerhedskritisk indhold) og kørt uændret.
+Undervejs droppede Supabase-MCP-forbindelsen midt i et `apply_migration`-kald (brugerens
+togforbindelse) — ingen skade, da alle statements er idempotente og hele kaldet var én
+transaktion, der rullede atomisk tilbage; blev opdaget og genkørt efter reconnect.
+
 ## Mediehåndtering fase 3 — hygiejne-spec skrevet (2026-07-20)
 
 Design-spec skrevet (ingen kode): `docs/superpowers/specs/2026-07-20-mediehaandtering-fase3-hygiejne-design.md`

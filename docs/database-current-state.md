@@ -5,7 +5,18 @@
 > denne side fortæller *tilstanden*. Ved uenighed mellem en fils egen header og denne
 > side: stol på changelog + denne side, og ret filens header.
 >
-> **Sidst afstemt:** 2026-07-01 mod `docs/changelog.md`. Opdatér ved hver prod-deploy.
+> **Sidst afstemt:** 2026-07-20 (live-objektinventar kørt direkte mod prod via Supabase MCP,
+> ikke kun mod changelog). Opdatér ved hver prod-deploy.
+>
+> **Fund ved 2026-07-20-afstemningen:** denne sides "Sidst afstemt: 2026-07-01" havde stået
+> ureflekteret i tre uger. Et direkte objektinventar (tabeller + `pg_proc`-funktionsnavne)
+> viste at ALT arbejde dateret 2026-07-02 til 2026-07-17 i `db-migrations.sql`/`db-rls.sql`
+> (samme_som/ikke_samme_som, udledt slægtsnavn, dato-hærdning, Problem 2 forældrefamilie-fase 1,
+> K2 staging-gate m.fl.) reelt VAR live i prod — blot aldrig dokumenteret her. Kun tre
+> ting manglede reelt: `haendelse`-tabellen (levende feed fase 2), `story`/`story_kilde`/
+> `feed_pin` (levende feed fase 3) og `red_publicer_personer` (K2 selektiv publicering,
+> selv samme dag). Alle tre er nu deployet (se §2). **Læring:** stol ikke på denne sides
+> dato uden et faktisk objekt-tjek ved næste afstemning — dokumentationsdrift er reel.
 
 ---
 
@@ -60,6 +71,26 @@ Alt herunder er **verificeret deployet** jf. `docs/changelog.md` (dato + evidens
 - 24 verify-asserts grønne ved apply. Bugfix 2026-07-01: `_version_upsert_row` ekskluderer
   nu `GENERATED ALWAYS`-kolonner (fortryd var knækket for `narrative.fts`).
 
+### Mediehåndtering fase 0-2 (live, senest bekræftet 2026-07-20)
+- **Slice 0** (bucket, gating, upload-RPC'er) live siden 2026-07-05. **Fase 1** (filside:
+  `red_opdater_media`, `red_genopret_media`, kunstner/datering i `red_upload_media`) og
+  **fase 2** (bibliotek: `red_doede_links` udvidet med `maal_type='media'`, `text_mention`
+  `GRANT SELECT` + korrekt `media_synlig_anon`-gating i `tm_read`) deployet 2026-07-20.
+- `media`-afbildet-gating er FULDT AKTIV (ikke deny-all/tom — se rettelse i §3): 6 media-
+  rækker i prod (2 `klar`, 4 `fjernet`), `media_variant` populeret.
+
+### Levende feed fase 2-3 + K2 selektiv publicering (deployet 2026-07-20)
+- **`haendelse`** (fase 2, regenererbar hændelses-projektion af narrativer) + **`story`/
+  `story_kilde`/`feed_pin`** (fase 3, kurateret formidlingslag) — additive tabeller,
+  RLS aktiv (anon ser kun `publiceret`+ikke-privat+offentligt-subjekt for story;
+  `feed_status<>'skjult'` for haendelse), versioneret via `log_change`.
+- **`red_publicer_personer(person_ids[])`**: selektiv modstykke til `red_publicer_udgave`
+  — publicerer kun udvalgte 1939-personer (+ familie-partnere) fremfor hele kilden på én gang.
+- Deployet direkte via Supabase MCP (`execute_sql`/`apply_migration`), ikke `psql`-runbooken;
+  objekt-eksistens + `get_advisors(security)` verificeret efter apply (117 fund, alle kendte
+  mønstre — SECURITY DEFINER-eksponering + bevidst deny-all på historik-tabeller — ingen nye).
+  **Udestår:** brugerens egen live-røgtest af filside/bibliotek/feed i appen.
+
 ---
 
 ## 3. Hvad er IKKE live / bevidst udskudt
@@ -67,7 +98,6 @@ Alt herunder er **verificeret deployet** jf. `docs/changelog.md` (dato + evidens
 | Emne | Status |
 |---|---|
 | **RLS `authenticated`-tier** (medlem/forsker ser levende slægtninge m. samtykke) | Kun skitseret i `db-rls.sql` §FREMTID. Bygges når login/profiles-auth er på plads. Indtil da er levende data usynlige for alle uden `redaktion`-rolle. |
-| **`media` afbildet-gating** | `media`-tabel er deny-all (tom). Gating skrives når medie/Storage aktiveres. |
 | **`max(id)+1` → IDENTITY/sekvenser** | Udskudt post-PoC. Kritisk før flerbruger-skrivning. |
 | **Samtykke-granularitet pr. levende person** (`samtykke_offentlig`) | Designes med auth-laget. |
 | **Vocab-håndhævelse** | `vocab`-tabel findes, men `rolle`/`faktatype`/`konfidens` m.fl. er fritekst (ingen FK til vocab). Håndhæves i dag kun konventionelt. |
@@ -99,7 +129,7 @@ Git-gates (global regel §5): prod-deploy af SQL bekræftes eksplicit med bruger
 - `datamodel-oversigt.md` — konceptuel model (læs først for *hvorfor*).
 - `docs/README.md` — dokumentationsindeks.
 
-## Mediehåndtering fase 1 (2026-07-19)
+## Mediehåndtering fase 1+2 — LIVE i prod (2026-07-20)
 
 Redaktionslaget har nu en filside for eksisterende `media`-rækker. Kuraterbare metadata
 (`titel`, `slags`, `kunstner`, `datering`) opdateres via `red_opdater_media`; blødt fjernede
@@ -110,16 +140,13 @@ rækker kan genoprettes via `red_genopret_media`. Rettighedsgaten vedligeholdes 
 Redaktionen læser derimod rækken for at kunne vise status og genoprette den. Lightbox og
 narrativ-mention-pickere filtrerer eksplicit til `upload_status='klar'`.
 
-## Mediehåndtering fase 2 — kodeklar, ikke deployet (2026-07-19)
+`red_doede_links` er udvidet med `maal_type='media'`: kun et media-id uden en eksisterende
+`media`-række er dødt. En række med `upload_status='fjernet'` er ikke død, fordi den stadig
+findes og kan genoprettes. `security_invoker` er bevaret. Samtidig fik `text_mention` sit
+hidtil manglende `GRANT SELECT` (viewet var reelt utilgængeligt for alle, inkl. redaktionen,
+siden 2026-06-30) og `tm_read`-policyen bruger nu `media_synlig_anon` for `maal_type='media'`
+i stedet for `entitet_offentlig`s ubetingede `true`-gren — lukker et latent fail-open-hul
+(aldrig udnyttet i praksis, da manglende GRANT gjorde tabellen uforespørgelig).
 
-`schema.sql` og den idempotente blok `mediehaandtering_fase2_doede_links` i
-`db-migrations.sql` udvider `red_doede_links` med `maal_type='media'`: kun et media-id
-uden en eksisterende `media`-række er dødt. En række med `upload_status='fjernet'` er
-ikke død, fordi den stadig findes og kan genoprettes. `security_invoker` er bevaret.
-
-Ændringen er kun implementeret og verificeret lokalt. Den er **ikke live i prod** og
-ændrer derfor ikke §2 ovenfor endnu. Det gatede deploytrin bør samle fase 1-blokken
-`mediehaandtering_fase1_filside` og fase 2-blokken: read-only backup → begge blokke →
-`db-rls.sql` (mention-politikkerne) → `db-verify-media.sql` samt de nye døde-links-
-og mention-RLS-asserts → app-deploy. Prod må først opdateres efter eksplicit
-brugeraccept.
+Se §2 for detaljer om deploy-vejen (kørt direkte via Supabase MCP samme dag som levende
+feed fase 2-3, se ovenfor).
