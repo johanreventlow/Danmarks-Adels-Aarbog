@@ -9,48 +9,22 @@ import {
 } from '@daa/core';
 import {
   fetchSources, fetchMatchPersoner, fetchIkkeSammeSomPar, fetchSammeSomPar, fetchFamilyGraph,
-  fetchKandidatDetalje, type KandidatDetalje, type SourceRow,
+  fetchKandidatDetalje, fetchMatchAudit,
+  type KandidatDetalje, type MatchAuditPost, type SourceRow,
 } from '../data/redaktionRead';
 import { submitChange, type Change } from '../data/redaktionWrite';
 import { buildArbejdsliste, pairKey, type Kandidat } from '../data/sammenlign';
 import { KandidatSammenligning } from './KandidatSammenligning';
+import {
+  MatchOversigt, foraeldreNavne, formatBogReferencer, formatPersonNavn,
+} from './MatchOversigt';
+
+export { foraeldreNavne, formatBogReferencer, formatPersonNavn } from './MatchOversigt';
 
 // Rå person → Koen (samme normalisering som web/src/data/model.ts, men uden 'ukendt'→null-skridtet
 // dupliceret via en type-import — feltet er lille nok til at holde lokalt her).
 function toKoen(k: string | null): 'mand' | 'kvinde' | null {
   return k === 'mand' || k === 'kvinde' ? k : null;
-}
-
-export function formatPersonNavn(p?: RedMatchPerson): string {
-  if (!p) return '(ukendt)';
-  const fy = p.foedsel?.date_min?.slice(0, 4) ?? '';
-  const dy = p.doed?.date_min?.slice(0, 4) ?? '';
-  const span = fy || dy ? ` (${fy}–${dy})` : '';
-  const navn = p.fuldtNavn ?? p.navn;
-  const navnOgTitel = p.titel ? `${navn} · ${p.titel}` : navn;
-  return `${navnOgTitel}${span}`;
-}
-
-export function foraeldreNavne(
-  personId: string,
-  parentChild: ParentChild[],
-  byId: Map<string, RedMatchPerson>,
-): string {
-  const parentIds = [...new Set(
-    parentChild.filter((edge) => edge.child === personId).map((edge) => edge.parent),
-  )];
-  const navne = parentIds.map((id) => byId.get(id)?.navn).filter((navn): navn is string => Boolean(navn));
-  return navne.length ? `f. af ${navne.join(' & ')}` : '';
-}
-
-export function formatBogReferencer(p?: RedMatchPerson): string {
-  if (!p) return '';
-  return p.bogReferencer.map((ref) => {
-    const bogNr = ref.linje && ref.nr != null
-      ? `${ref.linje}-${ref.nr}`
-      : ref.linje ?? (ref.nr != null ? `nr. ${ref.nr}` : '');
-    return [bogNr, ref.grenNavn].filter(Boolean).join(', ');
-  }).filter(Boolean).join(' · ');
 }
 
 const visning = formatPersonNavn;
@@ -75,6 +49,7 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
   const [personer, setPersoner] = useState<RedMatchPerson[]>([]);
   const [afviste, setAfviste] = useState<{ aId: string; bId: string }[]>([]);
   const [linkede, setLinkede] = useState<{ aId: string; bId: string }[]>([]);
+  const [matchAudit, setMatchAudit] = useState<MatchAuditPost[]>([]);
   const [familieGraf, setFamilieGraf] = useState<{ unions: Union[]; parentChild: ParentChild[] }>({ unions: [], parentChild: [] });
   const [nyKildeId, setNyKildeId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -94,10 +69,13 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
   useEffect(() => {
     let alive = true;
     setLoading(true); setFejl(null);
-    Promise.all([fetchSources(), fetchMatchPersoner(), fetchIkkeSammeSomPar(), fetchSammeSomPar(), fetchFamilyGraph()])
-      .then(([s, p, afv, lnk, fam]) => {
+    Promise.all([
+      fetchSources(), fetchMatchPersoner(), fetchIkkeSammeSomPar(), fetchSammeSomPar(),
+      fetchFamilyGraph(), fetchMatchAudit(),
+    ])
+      .then(([s, p, afv, lnk, fam, audit]) => {
         if (!alive) return;
-        setSources(s); setPersoner(p); setAfviste(afv); setLinkede(lnk); setFamilieGraf(fam);
+        setSources(s); setPersoner(p); setAfviste(afv); setLinkede(lnk); setFamilieGraf(fam); setMatchAudit(audit);
         setNyKildeId((prev) => prev ?? (
           [...s].filter((x) => x.aar != null).sort((a, b) => (b.aar as number) - (a.aar as number))[0]?.id ?? s[0]?.id ?? null));
       })
@@ -222,6 +200,8 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
     run({ art: 'sammeSom', subjektType: 'person', subjektId: aId, payload: { aliasId: aId, objektId: bId } }, `s:${aId}:${bId}`);
   const afvis = (aId: string, bId: string) =>
     run({ art: 'ikkeSammeSom', subjektType: 'person', subjektId: aId, payload: { aId, bId } }, `a:${aId}:${bId}`);
+  const fortrydSammeSom = (relationId: string, aId: string) =>
+    run({ art: 'fjernSammeSom', subjektType: 'person', subjektId: aId, relationId }, `f:${relationId}`);
   const markerNy = (kand: Kandidat[]) => { // afvis alle personens ≥review-kandidater
     kand.filter((k) => !k.afvist && !k.linket).forEach((k) => afvis(String(k.aId), String(k.bId)));
   };
@@ -348,6 +328,15 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
           </ul>
         </details>
       )}
+
+      <MatchOversigt
+        audit={matchAudit}
+        personer={personer}
+        sources={sources}
+        karantaeneByPersonId={karantaeneByPersonId}
+        busy={!!busy}
+        onFortryd={fortrydSammeSom}
+      />
 
       {aabne.map((person) => {
         const a = byId.get(person.aId);

@@ -1067,6 +1067,7 @@ export async function fetchSammeSomPar(): Promise<MatchRelationPar[]> {
 }
 
 export type MatchAuditPost = MatchRelationPar & {
+  beslutning: 'samme_som' | 'ikke_samme_som';
   actorNavn: string | null;
   actorRolle: string | null;
   createdAt: string | null;
@@ -1079,21 +1080,39 @@ type RawMatchAudit = {
   operation: string | null;
 };
 
-/** Hent oprettelsesaudit for alle aktive samme_som-links via den rolle-gatede historik-RPC. */
+/** Hent oprettelsesaudit for alle aktive matchbeslutninger via den rolle-gatede historik-RPC. */
 export async function fetchMatchAudit(): Promise<MatchAuditPost[]> {
-  const links = await fetchSammeSomPar();
-  return Promise.all(links.map(async (link) => {
+  const [sammeSom, ikkeSammeSom] = await Promise.all([fetchSammeSomPar(), fetchIkkeSammeSomPar()]);
+  const beslutninger = [
+    ...sammeSom.map((link) => ({
+      ...link,
+      beslutning: 'samme_som' as const,
+      auditPersonId: link.bId,
+      operation: 'red_samme_som',
+      summary: `Markerede person ${link.aId} som samme som ${link.bId}`,
+    })),
+    ...ikkeSammeSom.map((link) => ({
+      ...link,
+      beslutning: 'ikke_samme_som' as const,
+      auditPersonId: link.aId,
+      operation: 'red_ikke_samme_som',
+      summary: `Markerede person ${link.aId} og ${link.bId} som forskellige`,
+    })),
+  ];
+  return Promise.all(beslutninger.map(async ({ auditPersonId, summary, ...beslutning }) => {
     try {
       const { data, error } = await supabase.rpc('hist_for_subjekt', {
         p_type: 'person',
-        p_id: Number(link.bId),
+        p_id: Number(auditPersonId),
       });
       if (error) throw new Error(error.message);
-      const expectedSummary = `Markerede person ${link.aId} som samme som ${link.bId}`;
       const change = ((data ?? []) as Array<RawMatchAudit & { summary?: string | null }>)
-        .find((row) => row.operation === 'red_samme_som' && row.summary?.includes(expectedSummary));
+        .find((row) => row.operation === beslutning.operation && row.summary?.includes(summary));
       return {
-        ...link,
+        relationId: beslutning.relationId,
+        aId: beslutning.aId,
+        bId: beslutning.bId,
+        beslutning: beslutning.beslutning,
         actorNavn: change?.actor_navn ?? null,
         actorRolle: change?.actor_rolle ?? null,
         createdAt: change?.created_at ?? null,
@@ -1101,7 +1120,10 @@ export async function fetchMatchAudit(): Promise<MatchAuditPost[]> {
       };
     } catch {
       return {
-        ...link,
+        relationId: beslutning.relationId,
+        aId: beslutning.aId,
+        bId: beslutning.bId,
+        beslutning: beslutning.beslutning,
         actorNavn: null,
         actorRolle: null,
         createdAt: null,

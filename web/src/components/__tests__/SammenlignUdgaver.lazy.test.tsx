@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   fetchMatchPersoner: vi.fn(),
   fetchIkkeSammeSomPar: vi.fn(),
   fetchSammeSomPar: vi.fn(),
+  fetchMatchAudit: vi.fn(),
   fetchFamilyGraph: vi.fn(),
   fetchKandidatDetalje: vi.fn(),
   submitChange: vi.fn(),
@@ -18,6 +19,7 @@ vi.mock('../../data/redaktionRead', () => ({
   fetchMatchPersoner: mocks.fetchMatchPersoner,
   fetchIkkeSammeSomPar: mocks.fetchIkkeSammeSomPar,
   fetchSammeSomPar: mocks.fetchSammeSomPar,
+  fetchMatchAudit: mocks.fetchMatchAudit,
   fetchFamilyGraph: mocks.fetchFamilyGraph,
   fetchKandidatDetalje: mocks.fetchKandidatDetalje,
 }));
@@ -58,6 +60,7 @@ describe('SammenlignUdgaver lazy kandidatdetalje', () => {
     ]);
     mocks.fetchIkkeSammeSomPar.mockResolvedValue([]);
     mocks.fetchSammeSomPar.mockResolvedValue([]);
+    mocks.fetchMatchAudit.mockResolvedValue([]);
     mocks.fetchFamilyGraph.mockResolvedValue({ unions: [], parentChild: [] });
     mocks.fetchKandidatDetalje.mockResolvedValue(tomDetalje);
   });
@@ -77,5 +80,22 @@ describe('SammenlignUdgaver lazy kandidatdetalje', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sammenlign' }));
     await screen.findByRole('columnheader', { name: /1939/ });
     expect(mocks.fetchKandidatDetalje).toHaveBeenCalledTimes(2);
+  });
+
+  test('sender Fortryd gennem den eksisterende fjernSammeSom-change', async () => {
+    mocks.fetchSammeSomPar.mockResolvedValue([{ relationId: '91', aId: '1', bId: '2' }]);
+    mocks.fetchMatchAudit.mockResolvedValue([{
+      relationId: '91', aId: '1', bId: '2', beslutning: 'samme_som',
+      actorNavn: 'Johan', actorRolle: 'redaktion', createdAt: '2026-07-20T15:00:00Z',
+      operation: 'red_samme_som',
+    }]);
+    mocks.submitChange.mockResolvedValue({});
+
+    render(<SammenlignUdgaver role="redaktor" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Fortryd' }));
+
+    await waitFor(() => expect(mocks.submitChange).toHaveBeenCalledWith({
+      art: 'fjernSammeSom', subjektType: 'person', subjektId: '1', relationId: '91',
+    }, { dryRun: false, role: 'redaktor' }));
   });
 });

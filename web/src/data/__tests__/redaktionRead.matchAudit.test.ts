@@ -86,11 +86,13 @@ describe('fetchMatchAudit', () => {
     await expect(fetchMatchAudit()).resolves.toEqual([
       {
         relationId: '91', aId: '3', bId: '8',
+        beslutning: 'samme_som',
         actorNavn: 'Johan', actorRolle: 'redaktion',
         createdAt: '2026-07-19T10:00:00Z', operation: 'red_samme_som',
       },
       {
         relationId: '93', aId: '5', bId: '9',
+        beslutning: 'samme_som',
         actorNavn: null, actorRolle: null,
         createdAt: '2026-07-17T09:00:00Z', operation: 'red_samme_som',
       },
@@ -111,6 +113,7 @@ describe('fetchMatchAudit', () => {
 
     await expect(fetchMatchAudit()).resolves.toEqual([{
       relationId: '91', aId: '3', bId: '8',
+      beslutning: 'samme_som',
       actorNavn: null, actorRolle: null, createdAt: null, operation: null,
     }]);
   });
@@ -131,10 +134,12 @@ describe('fetchMatchAudit', () => {
     await expect(fetchMatchAudit()).resolves.toEqual([
       {
         relationId: '91', aId: '3', bId: '8',
+        beslutning: 'samme_som',
         actorNavn: null, actorRolle: null, createdAt: null, operation: null,
       },
       {
         relationId: '93', aId: '5', bId: '9',
+        beslutning: 'samme_som',
         actorNavn: 'Karen', actorRolle: 'redaktion',
         createdAt: '2026-07-20T13:00:00Z', operation: 'red_samme_som',
       },
@@ -162,14 +167,39 @@ describe('fetchMatchAudit', () => {
     await expect(fetchMatchAudit()).resolves.toEqual([
       {
         relationId: '91', aId: '3', bId: '8',
+        beslutning: 'samme_som',
         actorNavn: 'Første redaktør', actorRolle: 'administrator',
         createdAt: '2026-07-19T10:00:00Z', operation: 'red_samme_som',
       },
       {
         relationId: '92', aId: '5', bId: '8',
+        beslutning: 'samme_som',
         actorNavn: 'Nyeste redaktør', actorRolle: 'redaktion',
         createdAt: '2026-07-20T14:00:00Z', operation: 'red_samme_som',
       },
+    ]);
+  });
+
+  it('henter audit for ikke_samme_som via det normaliserede lave person-id', async () => {
+    relationRows = [
+      { id: 92, subjekt_id: 4, objekt_id: 9, rolle: 'ikke_samme_som', subjekt_type: 'person', objekt_type: 'person' },
+    ];
+    rpcByPersonId = {
+      4: { data: [
+        {
+          actor_navn: 'Johan', actor_rolle: 'redaktion', created_at: '2026-07-20T15:00:00Z',
+          operation: 'red_ikke_samme_som', summary: 'Markerede person 4 og 9 som forskellige',
+        },
+      ], error: null },
+    };
+
+    await expect(fetchMatchAudit()).resolves.toEqual([{
+      relationId: '92', aId: '4', bId: '9', beslutning: 'ikke_samme_som',
+      actorNavn: 'Johan', actorRolle: 'redaktion',
+      createdAt: '2026-07-20T15:00:00Z', operation: 'red_ikke_samme_som',
+    }]);
+    expect(rpcCalls).toEqual([
+      { name: 'hist_for_subjekt', args: { p_type: 'person', p_id: 4 } },
     ]);
   });
 });
