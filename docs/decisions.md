@@ -727,3 +727,21 @@ artiklens rå tekst til læsbar visning/søgning; teoretisk også lyd/video.
 - **Eneste konsekvens for fase 2 (biblioteket), indskrevet i spec'en:** defensiv
   rendering — ikke-billede-mime/manglende thumb → dokument-ikon, aldrig knækket
   thumbnail; udeladt af Lightbox.
+
+## Levende feed fase 2+3 prod-cutover: skema nu, hændelsesudtræk senere (2026-07-20)
+
+Bruger vil have fase 2 (`haendelse`) + fase 3 (`story`/`story_kilde`/`feed_pin`)-skemaet i
+prod. Fase 2's offline LLM-hændelsesudtræk (narrativ → `haendelse` via `daa-haendelser`-
+skillen) er derimod aldrig kørt — hverken lokalt eller mod prod.
+
+- **Besluttet: adskil skema-deploy fra dataudtræk.** Skemaet (tabeller/RLS/RPC'er) kræver
+  ingen LLM-kørsel og er harmløst tomt — feed-motoren degraderer bevist gracefult til
+  fase 1-adfærd (`packages/feed/src/pool.ts:32-44`), og `story` kræver ikke et
+  `haendelse_id`-anker. Skemaet deployes nu (runbook:
+  [`levende-feed-fase2-3-runbook.md`](levende-feed-fase2-3-runbook.md)).
+- **Hændelsesudtrækket udskydes bevidst**, samme begrundelse som fase 4 (PoC har for få
+  kilder til at retfærdiggøre en LLM-batch-kørsel over hele korpusset endnu) — men noteret
+  eksplicit som en kommende opgave, ikke annulleret.
+- **Bifund:** `db-migrations.sql`/`db-rls.sql` er monolitiske kumulative filer, så en
+  fase 2+3-cutover bundler mediehåndtering fase 1+2-skema (samme filsektion, interleaved) —
+  se runbookens ⚠-afsnit.
