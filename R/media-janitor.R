@@ -368,10 +368,18 @@ relation_block_for_media <- function(relations, media_id) {
     ))
   }
   touching <- relations[relations$media_id == media_id, , drop = FALSE]
-  expected <- !is.na(touching$rolle) & touching$rolle == "afbildet" &
+  is_portrait <- !is.na(touching$rolle) & touching$rolle == "afbildet" &
     !is.na(touching$subjekt_type) & touching$subjekt_type == "person" &
+    !is.na(touching$subjekt_id) &
     !is.na(touching$objekt_type) & touching$objekt_type == "media" &
     !is.na(touching$objekt_id) & touching$objekt_id == media_id
+  is_object_image <- !is.na(touching$rolle) & touching$rolle == "afbildet" &
+    !is.na(touching$subjekt_type) & touching$subjekt_type == "media" &
+    !is.na(touching$subjekt_id) & touching$subjekt_id == media_id &
+    !is.na(touching$objekt_type) &
+    touching$objekt_type %in% c("estate", "coat_of_arms", "lineage") &
+    !is.na(touching$objekt_id)
+  expected <- is_portrait | is_object_image
   unexpected_ids <- sort(as.numeric(touching$relation_id[!expected]))
   evidence_unknown_or_present <- is.na(touching$has_evidence) | touching$has_evidence
   evidenced_ids <- sort(as.numeric(

@@ -412,6 +412,68 @@ test_that("normal person→media afbildet-relation er tilladt", {
   expect_equal(block$expected_relation_ids, 31L)
 })
 
+test_that("kanonisk media→objekt afbildet tillades og slettes evidence-safe", {
+  object_types <- c("estate", "coat_of_arms", "lineage")
+
+  for (i in seq_along(object_types)) {
+    relation_id <- 40L + i
+    relations <- data.frame(
+      relation_id = relation_id, media_id = 7L,
+      subjekt_type = "media", subjekt_id = 7L,
+      objekt_type = object_types[[i]], objekt_id = 100L + i,
+      rolle = "afbildet", has_evidence = FALSE, stringsAsFactors = FALSE
+    )
+    block <- relation_block_for_media(relations, 7L)
+    expect_false(block$blocked, info = object_types[[i]])
+    expect_equal(block$expected_relation_ids, relation_id, info = object_types[[i]])
+
+    events <- character()
+    db_ops <- list(
+      begin = function(con) events <<- c(events, "begin"),
+      execute = function(con, sql, params) {
+        events <<- c(events, if (grepl("DELETE FROM relation", sql, fixed = TRUE)) {
+          paste0("relation:", params[[1]])
+        } else if (grepl("DELETE FROM media ", sql, fixed = TRUE)) {
+          "media"
+        } else {
+          "dependent"
+        })
+        1L
+      },
+      commit = function(con) events <<- c(events, "commit"),
+      rollback = function(con) events <<- c(events, "rollback")
+    )
+    result <- delete_stranded_media_row(
+      NULL, 7L, "media", "large/7", block$expected_relation_ids,
+      relations$has_evidence, db_ops,
+      storage_delete = function(bucket, paths) events <<- c(events, "storage")
+    )
+
+    expect_equal(result$status, "slettet", info = object_types[[i]])
+    expect_true(paste0("relation:", relation_id) %in% events, info = object_types[[i]])
+    expect_true(match(paste0("relation:", relation_id), events) < match("media", events),
+                info = object_types[[i]])
+    expect_true(match("commit", events) < match("storage", events), info = object_types[[i]])
+  }
+})
+
+test_that("ikke-kanoniske medierelationer forbliver blokerende", {
+  relations <- data.frame(
+    relation_id = 51:56, media_id = 7L,
+    subjekt_type = c("media", "media", "estate", "media", "media", "media"),
+    subjekt_id = c(7L, 7L, 2L, 7L, 7L, 7L),
+    objekt_type = c("person", "media", "media", "estate", "coat_of_arms", "lineage"),
+    objekt_id = c(3L, 8L, 7L, 2L, 4L, 5L),
+    rolle = c("afbildet", "afbildet", "afbildet", "ejer", "skabt_af", "gren_af"),
+    has_evidence = FALSE, stringsAsFactors = FALSE
+  )
+
+  block <- relation_block_for_media(relations, 7L)
+  expect_true(block$blocked)
+  expect_equal(block$unexpected_relation_ids, 51:56)
+  expect_length(block$expected_relation_ids, 0L)
+})
+
 test_that("fremmed bucket og uventet relation rapporteres som manuel afgørelse", {
   now <- utc("2026-07-20")
   media <- data.frame(
