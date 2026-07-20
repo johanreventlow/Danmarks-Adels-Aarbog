@@ -1,4 +1,4 @@
-import { buildRpcCall, FELT_FAKTATYPE, oversaetFejl, planCall } from '../redaktionWrite';
+import { buildResumeMediaUploadPlan, buildRpcCall, FELT_FAKTATYPE, oversaetFejl, planCall } from '../redaktionWrite';
 
 describe('buildRpcCall — udvidede rygrad-felter (dåb/begravelse/floruit/naturalisering)', () => {
   it.each([
@@ -76,7 +76,13 @@ describe('buildRpcCall — uploadMedia (mediehåndtering Slice 0g)', () => {
     expect(buildRpcCall(c)).toEqual({ fn: 'red_upload_media', args: {
       p_slags: 'foto', p_titel: 'Portræt', p_storage_path: 'redaktor/x.jpg', p_mime: 'image/jpeg',
       p_kunstner: null, p_datering: null, p_byte_size: 1234, p_bredde: null, p_hoejde: null, p_original_filnavn: 'x.jpg',
-      p_rettigheder_status: 'ukendt', p_maa_publiceres: true, p_afbildet_person_id: 42 } });
+      p_rettigheder_status: 'ukendt', p_maa_publiceres: true, p_sha256: null, p_afbildet_person_id: 42 } });
+  });
+  it('sender sha256 til oprettelses-RPC, når den er kendt', () => {
+    const c = { art: 'uploadMedia', subjektType: 'person', subjektId: '42',
+      payload: { afbildetPersonId: '42', slags: 'foto', titel: 'Portræt',
+        storagePath: 'redaktor/aa/hash-large.jpg', mimeType: 'image/jpeg', sha256: 'a'.repeat(64) } } as never;
+    expect(buildRpcCall(c)?.args.p_sha256).toBe('a'.repeat(64));
   });
   it('objekt-foto (objektType/objektId) → p_objekt_type/p_objekt_id, ingen p_afbildet_person_id', () => {
     const c = { art: 'uploadMedia', subjektType: 'estate', subjektId: '7',
@@ -92,6 +98,34 @@ describe('buildRpcCall — uploadMedia (mediehåndtering Slice 0g)', () => {
     expect(buildRpcCall({ art: 'uploadMedia', subjektType: 'person', subjektId: '42',
       payload: { afbildetPersonId: '42', slags: 'foto', titel: '',
         storagePath: 'redaktor/x.jpg', mimeType: 'image/jpeg' } } as never)).toBeNull();
+  });
+});
+
+describe('genoptag af eksisterende mediekladde', () => {
+  it('planlægger alle uploads/variantregistreringer før sidste bekræftelse mod samme media-id', () => {
+    const largeFile = new Blob(['large'], { type: 'image/jpeg' });
+    const thumbFile = new Blob(['thumb'], { type: 'image/jpeg' });
+    const mediumFile = new Blob(['medium'], { type: 'image/jpeg' });
+    expect(buildResumeMediaUploadPlan('91',
+      { tier: 'large', file: largeFile, storagePath: 'large.jpg', mimeType: 'image/jpeg', byteSize: 5, bredde: 1200, hoejde: 800 },
+      [
+        { tier: 'thumb', file: thumbFile, storagePath: 'thumb.jpg', mimeType: 'image/jpeg', byteSize: 5, bredde: 300, hoejde: 200 },
+        { tier: 'medium', file: mediumFile, storagePath: 'medium.jpg', mimeType: 'image/jpeg', byteSize: 6, bredde: 900, hoejde: 600 },
+      ],
+    )).toEqual([
+      { kind: 'upload', file: largeFile, storagePath: 'large.jpg' },
+      { kind: 'upload', file: thumbFile, storagePath: 'thumb.jpg' },
+      { kind: 'rpc', fn: 'red_registrer_media_variant', args: {
+        p_media_id: 91, p_tier: 'thumb', p_storage_path: 'thumb.jpg', p_mime: 'image/jpeg',
+        p_byte_size: 5, p_bredde: 300, p_hoejde: 200,
+      } },
+      { kind: 'upload', file: mediumFile, storagePath: 'medium.jpg' },
+      { kind: 'rpc', fn: 'red_registrer_media_variant', args: {
+        p_media_id: 91, p_tier: 'medium', p_storage_path: 'medium.jpg', p_mime: 'image/jpeg',
+        p_byte_size: 6, p_bredde: 900, p_hoejde: 600,
+      } },
+      { kind: 'rpc', fn: 'red_bekraeft_media_upload', args: { p_media_id: 91 } },
+    ]);
   });
 });
 
@@ -212,6 +246,16 @@ describe('buildRpcCall — filside fase 1', () => {
   it('nye domænefejl oversættes', () => {
     expect(oversaetFejl('Kan kun genoprette et fjernet medie')).toContain('kun genoprettes');
     expect(oversaetFejl('Slags kan ikke ryddes')).toBe('Slags kan ikke ryddes.');
+  });
+
+  it('oversætter indholdsdublet præcist før den generiske unique-fallback', () => {
+    expect(oversaetFejl('duplicate key: Medie med samme indhold findes allerede'))
+      .toBe("Billedet findes allerede i biblioteket — brug 'Tilknyt eksisterende' i stedet.");
+  });
+
+  it('oversætter allerede-tilknyttet præcist før den generiske unique-fallback', () => {
+    expect(oversaetFejl('unique constraint: Mediet er allerede tilknyttet dette subjekt'))
+      .toBe('Mediet er allerede tilknyttet dette subjekt.');
   });
 });
 

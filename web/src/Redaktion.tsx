@@ -19,9 +19,10 @@ import {
 import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, insertAt, makeToken, previewSammeSom } from '@daa/core';
 import { loadModel } from './data/model';
 import type { Model } from './data/types';
-import { submitChange, describeCall, oversaetFejl, type Change } from './data/redaktionWrite';
+import { submitChange, describeCall, oversaetFejl, resumeMediaUpload, type Change } from './data/redaktionWrite';
 import { createStorySaveGuard, saveStoryWithSources, storySaveClosesEditor } from './data/storySave';
-import { buildVariants } from './data/mediaUpload';
+import { buildVariants, type BuiltVariants } from './data/mediaUpload';
+import { supabase } from './supabase';
 import { withUrl } from './data/media';
 import { buildBrowse } from './data/browse';
 import { initials } from './data/format';
@@ -36,6 +37,13 @@ type StoryDraft = {
   haendelseId: number | null; dateMin: string; dateMax: string;
   dateQualifier: string; dateRaw: string;
   kilder: { sourceId: number; side: string }[];
+};
+type MediaDedupHit = {
+  id: string; titel: string | null; upload_status: string; storage_path: string | null;
+};
+type MediaDedupState = {
+  existing: MediaDedupHit; built: BuiltVariants; uploadTarget: Record<string, unknown>;
+  originalFilnavn: string;
 };
 // Change-arter der kan ændre et materiale-galleri (Slice 0h) — bruges til at afgøre om
 // person-editorens/objekt-editorens medieliste skal genhentes efter et gemt kald.
@@ -172,6 +180,7 @@ export default function Redaktion() {
   const [mediaTilknytPicker, setMediaTilknytPicker] = useState<{ mediaId: string; maalType: 'person' | 'estate' | 'coat_of_arms' | 'lineage' } | null>(null);
   const [mediaTilknytQuery, setMediaTilknytQuery] = useState('');
   const [mediaPick, setMediaPick] = useState<{ file: File; previewUrl: string } | null>(null);
+  const [mediaDedup, setMediaDedup] = useState<MediaDedupState | null>(null);
   const [mediaForm, setMediaForm] = useState<{ slags: string; titel: string; kunstner: string; datering: string; rettighederStatus: string; maaPubliceres: boolean }>(
     { slags: 'foto', titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false });
   const [mediaBusy, setMediaBusy] = useState(false); // Slice B2: klient-genkodning tager et øjeblik
@@ -252,6 +261,7 @@ export default function Redaktion() {
     setEntity(p.entity);
     setRecordId(p.recordId);
   }, [path]);
+  useEffect(() => { setMediaDedup(null); }, [entity, recordId]);
   // Navigation kan ikke annullere et allerede sendt RPC-kald, men invaliderer dets UI-resultat,
   // så en sen completion aldrig lukker eller overskriver editoren for en anden person.
   useEffect(() => { storySaveGuardRef.current.invalidate(); }, [entity, recordId]);
@@ -630,6 +640,7 @@ export default function Redaktion() {
       {renderMediaPicker()}
       {renderMediaTilknytPicker()}
       {renderMediaDetalje()}
+      {renderMediaDedupDialog()}
     </div>
   );
 
@@ -1198,6 +1209,7 @@ export default function Redaktion() {
                   const file = e.target.files?.[0];
                   e.target.value = '';
                   if (!file) return;
+                  setMediaDedup(null);
                   setMediaPick({ file, previewUrl: URL.createObjectURL(file) });
                   if (!mediaForm.titel) setMediaForm((f) => ({ ...f, titel: file.name.replace(/\.[^.]+$/, '') }));
                 }} />
@@ -1241,14 +1253,27 @@ export default function Redaktion() {
                         if (!mediaForm.titel.trim()) return;
                         setMediaBusy(true);
                         try {
-                          const { thumb, medium, large } = await buildVariants(mediaPick.file);
+                          const built = await buildVariants(mediaPick.file);
+                          const { thumb, medium, large, sha256 } = built;
+                          const { data: existing, error: lookupError } = await supabase.from('media')
+                            .select('id,titel,upload_status,storage_path')
+                            .eq('sha256', sha256)
+                            .maybeSingle();
+                          if (lookupError) throw new Error(lookupError.message);
+                          if (existing) {
+                            setMediaDedup({
+                              existing: { ...existing, id: String(existing.id) }, built,
+                              uploadTarget, originalFilnavn: mediaPick.file.name,
+                            });
+                            return;
+                          }
                           await run({ art: 'uploadMedia', subjektType, subjektId, payload: {
                             ...uploadTarget, slags: mediaForm.slags, titel: mediaForm.titel.trim(),
                             kunstner: mediaForm.kunstner.trim() || null, datering: mediaForm.datering.trim() || null,
                             rettighederStatus: mediaForm.rettighederStatus, maaPubliceres: mediaForm.maaPubliceres,
                             file: large.file, mimeType: large.mimeType,
                             byteSize: large.byteSize, bredde: large.bredde, hoejde: large.hoejde,
-                            originalFilnavn: mediaPick.file.name, storagePath: large.storagePath,
+                            originalFilnavn: mediaPick.file.name, storagePath: large.storagePath, sha256,
                             varianter: [thumb, medium],
                           } }, 'Materiale');
                           setMediaPick(null);
@@ -1258,7 +1283,7 @@ export default function Redaktion() {
                           setMediaBusy(false);
                         }
                       }} style={btnGreen}>{mediaBusy ? 'Behandler…' : 'Gem'}</div>
-                      <div onClick={() => setMediaPick(null)} style={btnGhost}>Annullér</div>
+                      <div onClick={() => { setMediaDedup(null); setMediaPick(null); }} style={btnGhost}>Annullér</div>
                     </div>
                   </div>
                 </div>
@@ -1595,6 +1620,116 @@ export default function Redaktion() {
             </div>)}
             {!synlige.length && <div style={{ padding: '18px 10px', textAlign: 'center', fontSize: 12.5, color: T.muted3 }}>Ingen træffere.</div>}
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderMediaDedupDialog() {
+    if (!mediaDedup) return null;
+    const { existing, built, uploadTarget } = mediaDedup;
+    const maalType = uploadTarget.afbildetPersonId != null ? 'person'
+      : typeof uploadTarget.objektType === 'string' ? uploadTarget.objektType : null;
+    const maalId = uploadTarget.afbildetPersonId != null ? String(uploadTarget.afbildetPersonId)
+      : uploadTarget.objektId != null ? String(uploadTarget.objektId) : null;
+    const gyldigtMaal = maalType === 'person' || maalType === 'estate'
+      || maalType === 'coat_of_arms' || maalType === 'lineage';
+    const alleredeTilknyttet = media.some((m) => m.id === existing.id);
+    const subjektLabel = maalType === 'person'
+      ? persons.find((p) => p.id === maalId)?.navn
+      : maalType === 'lineage'
+        ? lineages.find((l) => String(l.id) === maalId)?.navn
+        : (recCache[maalType === 'coat_of_arms' ? 'arms' : 'estate'] ?? []).find((r) => r.id === maalId)?.label;
+
+    const luk = () => setMediaDedup(null);
+    const tilknytEksisterende = async (): Promise<boolean> => {
+      if (!gyldigtMaal || !maalId) throw new Error('Uploadmålet kan ikke tilknyttes.');
+      const result = await run({
+        art: 'tilknytMedia', subjektType: 'media', subjektId: existing.id, mediaId: existing.id,
+        payload: { maalType, maalId },
+      }, 'Tilknyt eksisterende medie');
+      return result != null;
+    };
+    const refreshAktueltMateriale = async () => {
+      if (maalType === 'person' && maalId) setMedia(await fetchRedPersonMedia(maalId));
+      else if (gyldigtMaal && maalId) setMedia(await fetchRedObjectMedia(maalType, maalId));
+    };
+    const afslut = () => { setMediaDedup(null); setMediaPick(null); };
+
+    const tilknyt = async () => {
+      setMediaBusy(true);
+      try {
+        if (await tilknytEksisterende()) afslut();
+        else setMediaDedup(null);
+      } catch (e) {
+        setWriteView({ title: 'Tilknytning fejlede', lines: [], error: oversaetFejl(String((e as Error)?.message ?? e)), done: false, dryRun, direkte: false });
+        setMediaDedup(null);
+      } finally { setMediaBusy(false); }
+    };
+    const genoptag = async () => {
+      if (dryRun) {
+        setWriteView({
+          title: 'Dry-run · afbrudt upload ville blive færdiggjort',
+          lines: [`Eksisterende medie ${existing.id}: upload large + 2 varianter, bekræft og tilknyt om nødvendigt.`],
+          error: '', done: false, dryRun: true, direkte: true,
+        });
+        setMediaDedup(null);
+        return;
+      }
+      setMediaBusy(true);
+      try {
+        await resumeMediaUpload(existing.id, built.large, [built.thumb, built.medium]);
+        if (!alleredeTilknyttet) {
+          if (!await tilknytEksisterende()) { setMediaDedup(null); return; }
+        } else {
+          await refreshAktueltMateriale();
+          setWriteView({ title: 'Afbrudt upload færdiggjort', lines: [`Eksisterende medie ${existing.id} er bekræftet og varianterne registreret.`], error: '', done: true, dryRun: false, direkte: true });
+        }
+        afslut();
+      } catch (e) {
+        setWriteView({ title: 'Færdiggørelse fejlede', lines: [], error: oversaetFejl(String((e as Error)?.message ?? e)), done: false, dryRun: false, direkte: false });
+        setMediaDedup(null);
+      } finally { setMediaBusy(false); }
+    };
+
+    return (
+      <div onClick={luk} style={overlay(150)}>
+        <div onClick={(e) => e.stopPropagation()} style={{ width: 470, maxWidth: '100%', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: '18px 20px' }}>
+          <div style={{ display: 'flex', gap: 13, alignItems: 'center', marginBottom: 14 }}>
+            {mediaPick?.previewUrl ? <img src={mediaPick.previewUrl} alt="" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 9, background: T.beige }} /> : null}
+            <div>
+              <div style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 600 }}>
+                {existing.upload_status === 'klar' ? 'Billedet findes allerede'
+                  : existing.upload_status === 'fjernet' ? 'Billedet ligger i papirkurven'
+                  : existing.upload_status === 'kladde' ? 'Afbrudt upload fundet' : 'Eksisterende billede fundet'}
+              </div>
+              <div style={{ fontSize: 12.5, color: T.muted, marginTop: 3 }}>{existing.titel || mediaDedup.originalFilnavn}</div>
+            </div>
+          </div>
+
+          {existing.upload_status === 'klar' ? (
+            alleredeTilknyttet
+              ? <div style={{ fontSize: 12.5, color: T.muted }}>Mediet er allerede tilknyttet dette subjekt.</div>
+              : <div onClick={mediaBusy ? undefined : tilknyt} style={btnGreen}>{mediaBusy ? 'Behandler…' : `Tilknyt til ${subjektLabel || 'dette subjekt'} i stedet`}</div>
+          ) : existing.upload_status === 'fjernet' ? (
+            <>
+              <div style={{ fontSize: 12.5, color: T.muted, lineHeight: 1.5, marginBottom: 11 }}>
+                Mediet skal genoprettes fra filsiden. Upload-arket genopretter det ikke automatisk.
+              </div>
+              <a href={`/redaktion/media/${existing.id}`} onClick={(e) => { e.preventDefault(); afslut(); navigate(`/redaktion/media/${existing.id}`); }}
+                style={{ ...btnGreen, display: 'inline-block', textDecoration: 'none' }}>Åbn filsiden</a>
+            </>
+          ) : existing.upload_status === 'kladde' ? (
+            <>
+              <div style={{ fontSize: 12.5, color: T.muted, lineHeight: 1.5, marginBottom: 11 }}>
+                Uploaden blev afbrudt. De indholdsadresserede filer genbruges, og den eksisterende mediepost færdiggøres.
+              </div>
+              <div onClick={mediaBusy ? undefined : genoptag} style={btnGreen}>{mediaBusy ? 'Behandler…' : 'Færdiggør afbrudt upload'}</div>
+            </>
+          ) : (
+            <div style={{ fontSize: 12.5, color: T.red }}>Mediets status “{existing.upload_status}” kan ikke håndteres fra upload-arket.</div>
+          )}
+          <div onClick={luk} style={{ ...btnGhost, display: 'inline-block', marginTop: 9 }}>Tilbage</div>
         </div>
       </div>
     );
