@@ -277,7 +277,7 @@ export function buildRpcCall(c: Change): RpcCall | null {
       p_rolle: p.rolle, p_periode_raw: p.periodeRaw ?? null } };
   }
   if (c.art === 'sletRelation') {
-    const rid = c.relationId != null ? Number(c.relationId) : null;
+    const rid = parsePostgresBigintId(c.relationId);
     if (rid == null) return null;
     return { fn: 'red_slet_relation', args: { p_relation_id: rid } };
   }
@@ -434,8 +434,9 @@ if (c.art === 'mediaRettigheder') {
   // relationen. At AFKOBLE et billede fra én person (uden at slette det andre steder) er derimod
   // bare en almindelig 'sletRelation' på den specifikke afbildet-relation (håndteret ovenfor).
   if (c.art === 'fjernMedia') {
-    if (c.mediaId == null) return null;
-    return { fn: 'red_fjern_media', args: { p_media_id: Number(c.mediaId) } };
+    const mediaId = parsePostgresBigintId(c.mediaId);
+    if (mediaId == null) return null;
+    return { fn: 'red_fjern_media', args: { p_media_id: mediaId } };
   }
   return null;
 }

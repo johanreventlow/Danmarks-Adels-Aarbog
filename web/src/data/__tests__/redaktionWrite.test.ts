@@ -138,6 +138,17 @@ describe('buildRpcCall — fjernMedia (mediehåndtering Slice 0h)', () => {
   it('mangler mediaId → null', () => {
     expect(buildRpcCall({ art: 'fjernMedia', subjektType: 'person', subjektId: '42' } as never)).toBeNull();
   });
+  it('bevarer et bigint media-id som streng', () => {
+    expect(buildRpcCall({ art: 'fjernMedia', subjektType: 'media', subjektId: '9223372036854775807', mediaId: '9223372036854775807' } as never))
+      .toEqual({ fn: 'red_fjern_media', args: { p_media_id: '9223372036854775807' } });
+  });
+});
+
+describe('buildRpcCall — sletRelation med bigint', () => {
+  it('bevarer et bigint relation-id som streng', () => {
+    expect(buildRpcCall({ art: 'sletRelation', subjektType: 'media', subjektId: '91', relationId: '9223372036854775807' } as never))
+      .toEqual({ fn: 'red_slet_relation', args: { p_relation_id: '9223372036854775807' } });
+  });
 });
 
 describe('buildRpcCall — forældre ukendt-markering (docs/reviews/25)', () => {

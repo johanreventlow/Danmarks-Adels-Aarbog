@@ -11,11 +11,14 @@ const C = {
 const input: CSSProperties = { width: '100%', fontSize: 13, color: C.ink, background: '#fff', border: '1px solid rgba(34,31,26,.16)', borderRadius: 8, padding: '8px 10px', outline: 'none' };
 const label: CSSProperties = { fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: C.muted2, margin: '10px 0 4px' };
 type DetaljeMedia = Omit<PersonMedia, 'relationId'> & { relationId?: string };
+type FletKandidat = Pick<DetaljeMedia, 'id' | 'titel' | 'slags' | 'thumbUrl' | 'byteSize' | 'bredde' | 'hoejde'>;
+export type MediaFletResultat = { dryRun: boolean; lines: string[] };
 
-export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, onClose, onPreview, onGemMetadata, onGemRettigheder, onFjern, onFjernTilknytning, onTilknyt, onSlet, onGenopret }: {
+export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKandidater = [], onClose, onPreview, onGemMetadata, onGemRettigheder, onFjern, onFjernTilknytning, onTilknyt, onFlet, onSlet, onGenopret }: {
   media: DetaljeMedia;
   anvendelse?: MediaAnvendelse;
   anvendelseFejl?: string;
+  fletKandidater?: FletKandidat[];
   onClose: () => void;
   onPreview: () => void;
   onGemMetadata: (payload: Record<string, unknown>) => void;
@@ -23,16 +26,23 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, onClose
   onFjern: () => void;
   onFjernTilknytning?: (relationId: string) => void;
   onTilknyt?: () => void;
+  onFlet?: (originalId: string) => Promise<MediaFletResultat>;
   onSlet: () => void;
   onGenopret: () => void;
 }) {
   const [meta, setMeta] = useState({ titel: '', slags: 'foto', kunstner: '', datering: '' });
   const [ret, setRet] = useState({ status: 'ukendt', maaPubliceres: false, licens: '', kildehenvisning: '', gengivelsestilladelse: '', kildeFritekst: '' });
   const [bekraeftSlet, setBekraeftSlet] = useState(false);
+  const [fletOpen, setFletOpen] = useState(false);
+  const [fletOriginalId, setFletOriginalId] = useState('');
+  const [fletBusy, setFletBusy] = useState(false);
+  const [fletFejl, setFletFejl] = useState('');
+  const [fletResultat, setFletResultat] = useState<MediaFletResultat | null>(null);
   useEffect(() => {
     setMeta({ titel: media.titel ?? '', slags: media.slags || 'foto', kunstner: media.kunstner ?? '', datering: media.datering ?? '' });
     setRet({ status: media.rettighederStatus || 'ukendt', maaPubliceres: media.maaPubliceres, licens: '', kildehenvisning: '', gengivelsestilladelse: '', kildeFritekst: '' });
     setBekraeftSlet(false);
+    setFletOpen(false); setFletOriginalId(''); setFletBusy(false); setFletFejl(''); setFletResultat(null);
   }, [media.id, media.titel, media.slags, media.kunstner, media.datering, media.rettighederStatus, media.maaPubliceres]);
 
   const metadataPayload: Record<string, unknown> = {};
@@ -53,11 +63,11 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, onClose
   const sletAdvarsel = `Bruges på ${antalAfbildet} ${antalAfbildet === 1 ? 'tilknytning' : 'tilknytninger'} og i ${antalMentions} ${antalMentions === 1 ? 'narrativ' : 'narrativer'} — slet alligevel? Mentions bliver stående som inaktive tokens.`;
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(34,31,26,.55)', zIndex: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }}>
+    <div onClick={() => { if (!fletBusy) onClose(); }} style={{ position: 'fixed', inset: 0, background: 'rgba(34,31,26,.55)', zIndex: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ width: 720, maxWidth: '100%', maxHeight: '92vh', overflowY: 'auto', background: C.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.16)', boxShadow: '0 24px 70px rgba(0,0,0,.35)', padding: 20 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14 }}>
           <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 25, fontWeight: 600, flex: 1 }}>{media.titel || 'Medie'}</div>
-          <button type="button" onClick={onClose} style={{ border: 0, background: 'transparent', cursor: 'pointer', fontSize: 20, color: C.muted }}>×</button>
+          <button type="button" disabled={fletBusy} onClick={onClose} style={{ border: 0, background: 'transparent', cursor: fletBusy ? 'default' : 'pointer', fontSize: 20, color: C.muted, opacity: fletBusy ? .4 : 1 }}>×</button>
         </div>
         {erBillede ? (
           <img src={media.url!} alt={media.titel ?? media.slags} onClick={media.uploadStatus === 'klar' ? onPreview : undefined}
@@ -126,6 +136,64 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, onClose
             </div>
           )}
         </section>
+
+        {onFlet && fletKandidater.length > 0 ? (
+          <section style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid rgba(34,31,26,.1)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>Mulig dublet</div>
+                <div style={{ fontSize: 11.5, color: C.muted, marginTop: 3 }}>Blød flet flytter tilknytninger og parkerer kopien i papirkurven. Filen udrenses ikke.</div>
+              </div>
+              {!fletOpen ? <button type="button" onClick={() => setFletOpen(true)} style={{ border: '1px solid rgba(136,26,51,.28)', borderRadius: 7, padding: '7px 11px', cursor: 'pointer', background: C.paper, color: C.bordeaux }}>Flet ind i…</button> : null}
+            </div>
+            {fletOpen ? (
+              <div style={{ marginTop: 11, background: C.panel, borderRadius: 10, padding: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 10, alignItems: 'center' }}>
+                  <div>
+                    <div style={label}>Kopi · parkeres</div>
+                    <div style={{ fontSize: 12.5, fontWeight: 650 }}>{media.titel || `Medie #${media.id}`}</div>
+                    <div style={{ fontFamily: 'monospace', fontSize: 9, color: C.muted2 }}>id {media.id}</div>
+                  </div>
+                  <span aria-hidden style={{ color: C.bordeaux, fontSize: 18 }}>→</span>
+                  <div>
+                    <div style={label}>Original · beholdes</div>
+                    <select disabled={fletBusy} value={fletOriginalId} onChange={(e) => { setFletOriginalId(e.target.value); setFletFejl(''); setFletResultat(null); }} style={input}>
+                      <option value="">Vælg original…</option>
+                      {fletKandidater.map((candidate) => (
+                        <option key={candidate.id} value={candidate.id}>{candidate.titel || candidate.slags || 'Medie'} · id {candidate.id}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                {anvendelse?.mentions.length ? (
+                  <div role="alert" style={{ marginTop: 11, padding: '9px 10px', borderRadius: 8, background: '#f8ecef', border: '1px solid rgba(138,43,43,.2)', color: C.red, fontSize: 11.5, lineHeight: 1.45 }}>
+                    <b>Advarsel: {anvendelse.mentions.length} {anvendelse.mentions.length === 1 ? 'narrativ-mention flyttes' : 'narrativ-mentions flyttes'} ikke.</b>
+                    <div>{anvendelse.mentions.map((mention) => `${mention.kildeType} #${mention.kildeId} på ${mention.subjektNavn}`).join(' · ')}</div>
+                  </div>
+                ) : <div style={{ marginTop: 9, fontSize: 11.5, color: C.muted }}>Ingen narrativ-mentions på kopien.</div>}
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 11 }}>
+                  <button type="button" disabled={fletBusy} onClick={() => { setFletOpen(false); setFletOriginalId(''); setFletFejl(''); setFletResultat(null); }} style={{ border: 0, background: 'transparent', color: C.muted, cursor: fletBusy ? 'default' : 'pointer' }}>Annullér</button>
+                  <button type="button" disabled={fletBusy || !fletOriginalId || !anvendelse} onClick={async () => {
+                    if (!fletOriginalId || !anvendelse || fletBusy) return;
+                    setFletBusy(true); setFletFejl(''); setFletResultat(null);
+                    try { setFletResultat(await onFlet(fletOriginalId)); }
+                    catch (error) { setFletFejl(String((error as Error)?.message ?? error)); }
+                    finally { setFletBusy(false); }
+                  }} style={{ border: 0, borderRadius: 7, padding: '8px 13px', cursor: fletBusy || !fletOriginalId || !anvendelse ? 'default' : 'pointer', background: C.bordeaux, color: '#fff', opacity: fletBusy || !fletOriginalId || !anvendelse ? .45 : 1 }}>
+                    {fletBusy ? 'Fletter…' : anvendelse ? 'Kør blød flet' : 'Henter anvendelser…'}
+                  </button>
+                </div>
+                {fletFejl ? <div role="alert" style={{ marginTop: 9, color: C.red, fontSize: 11.5 }}>Fletning stoppede: {fletFejl}. Tilstanden er bevaret; kontrollér papirkurven og prøv igen.</div> : null}
+                {fletResultat ? (
+                  <div style={{ marginTop: 9, color: fletResultat.dryRun ? C.bordeaux : C.green, fontSize: 11.5 }}>
+                    {fletResultat.dryRun ? 'Dry-run — ingen ændringer udført:' : 'Fletning gennemført. Kopien ligger i papirkurven.'}
+                    {fletResultat.lines.length ? <ol style={{ margin: '6px 0 0', paddingLeft: 19 }}>{fletResultat.lines.map((line, index) => <li key={`${index}:${line}`}>{line}</li>)}</ol> : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
 
         <section style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 20, paddingTop: 14, borderTop: '1px solid rgba(34,31,26,.1)' }}>
           {media.uploadStatus === 'fjernet' ? (

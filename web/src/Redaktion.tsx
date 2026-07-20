@@ -14,12 +14,12 @@ import {
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
   type HaendelsePost, type StoryPost, type TidslinjePost, type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia, type ForaeldreUkendtMarkering, SLAEGT_SUBJEKT_ID,
   fetchForaeldreSlot, fetchForaeldreKonflikter, fetchBarnFamilie, type ForaeldreSlot, type ForaeldreKonflikt, type BarnFamilie,
-  fetchMediaBibliotek, fetchMediaAnvendelse, type MediaBibliotekPost, type MediaAnvendelse, type MedieKoe,
+  fetchMediaBibliotek, fetchMediaAnvendelse, formatMedieAlder, type MediaBibliotekPost, type MediaAnvendelse, type MedieKoe,
 } from './data/redaktionRead';
 import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, insertAt, makeToken, previewSammeSom } from '@daa/core';
 import { loadModel } from './data/model';
 import type { Model } from './data/types';
-import { submitChange, describeCall, oversaetFejl, resumeMediaUpload, type Change } from './data/redaktionWrite';
+import { submitChange, describeCall, oversaetFejl, planCall, resumeMediaUpload, type Change } from './data/redaktionWrite';
 import { createStorySaveGuard, saveStoryWithSources, storySaveClosesEditor } from './data/storySave';
 import { buildVariants, type BuiltVariants } from './data/mediaUpload';
 import {
@@ -27,6 +27,7 @@ import {
   executeMediaDedupResume, fetchExistingMediaBySha, fetchMediaLinked,
   type MediaDedupHit, type MediaDedupTarget,
 } from './data/mediaDedup';
+import { executeMediaMerge, findMediaMergeCandidates, sortMediaForQueue } from './data/mediaMerge';
 import { withUrl } from './data/media';
 import { buildBrowse } from './data/browse';
 import { initials } from './data/format';
@@ -711,14 +712,14 @@ export default function Redaktion() {
     const title = ENTITIES.find((e) => e.key === entity)?.label ?? '';
     const b = personBrowse; // non-null ⇔ entity === 'person' (fungerer som person-diskriminator)
     const mediaQuery = query.trim().toLowerCase();
-    const mediaFiltered = mediaBibliotek.filter((m) => {
+    const mediaFiltered = sortMediaForQueue(mediaBibliotek.filter((m) => {
       if (mediaKoe !== 'alle' && !m.koeer.includes(mediaKoe)) return false;
       return !mediaQuery || [m.titel, m.kunstner, m.originalFilnavn].filter(Boolean).join(' ').toLowerCase().includes(mediaQuery);
-    });
+    }), mediaKoe);
     const mediaKoer: { key: MedieKoe | 'alle'; label: string }[] = [
       { key: 'alle', label: 'Alle' }, { key: 'rettigheder', label: 'Rettigheder' },
       { key: 'loese', label: 'Løse' }, { key: 'strandede', label: 'Strandede' },
-      { key: 'papirkurv', label: 'Papirkurv' },
+      { key: 'papirkurv', label: 'Papirkurv' }, { key: 'dubletter', label: 'Mulige dubletter' },
     ];
     // Fælles liste-række (person + generiske entiteter): round = avatar-form, tail = valgfrit suffiks.
     const listRow = (o: { id: string; badge: string; label: string; sub: string; round: number | string; tail?: ReactNode }) => (
@@ -760,6 +761,7 @@ export default function Redaktion() {
               {mediaFiltered.map((m) => {
                 const erBillede = m.mimeType?.startsWith('image/') === true && !!m.thumbUrl;
                 const antalBrug = m.antalAfbildet + m.antalMentions;
+                const alder = m.koeer.includes('strandede') ? formatMedieAlder(m.createdAt) : null;
                 return (
                   <div key={m.id} onClick={() => { openRecord('media', m.id); setMediaDetalje({ id: m.id, subjektType: 'media', subjektId: m.id }); }}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px', borderRadius: 9, cursor: 'pointer', background: m.id === recordId ? '#efe7d7' : 'transparent', opacity: m.uploadStatus === 'fjernet' ? .55 : 1 }}>
@@ -771,6 +773,11 @@ export default function Redaktion() {
                         {m.slags}{m.uploadStatus !== 'klar' ? ` · ${m.uploadStatus}` : ''}{m.maaPubliceres ? '' : ' · ej publiceret'}
                       </div>
                       <div style={{ fontSize: 9.5, color: T.muted, marginTop: 2 }}>bruges {antalBrug} {antalBrug === 1 ? 'sted' : 'steder'}</div>
+                      {alder ? (
+                        <div style={{ fontSize: 9.5, color: alder.includes('muligvis i gang') ? T.muted3 : T.muted, marginTop: 2 }}>
+                          {alder}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 );
@@ -857,7 +864,7 @@ export default function Redaktion() {
             : 'Vælg et medie i listen for at åbne filsiden, redigere metadata og se hvor det bruges.'}
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 18 }}>
-          {([['rettigheder', 'Rettigheder'], ['loese', 'Løse'], ['strandede', 'Strandede'], ['papirkurv', 'Papirkurv']] as const).map(([key, label]) => (
+          {([['rettigheder', 'Rettigheder'], ['loese', 'Løse'], ['strandede', 'Strandede'], ['papirkurv', 'Papirkurv'], ['dubletter', 'Mulige dubletter']] as const).map(([key, label]) => (
             <div key={key} style={{ background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 10, padding: '12px 15px', minWidth: 120 }}>
               <div style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600 }}>{mediaBibliotek.filter((m) => m.koeer.includes(key)).length}</div>
               <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2 }}>{label}</div>
@@ -1308,11 +1315,67 @@ export default function Redaktion() {
     const base = entity === 'media' ? mediaBibliotek : media;
     const lightboxItems = withUrl(base.filter((x) => x.uploadStatus === 'klar' && x.mimeType?.startsWith('image/') === true && !!x.thumbUrl));
     const relationId = 'relationId' in m ? m.relationId : undefined;
+    // Kun bibliotekets tværgående filside ejer flet-flowet. Kandidatfunktionen tillader en
+    // `fjernet` kopi, så et afbrudt flow stadig kan fortsættes fra papirkurven.
+    const fletKandidater = entity === 'media' ? findMediaMergeCandidates(m, mediaBibliotek) : [];
+    const fletMedia = async (originalId: string) => {
+      const result = await executeMediaMerge({ copyId: m.id, originalId, dryRun }, {
+        loadState: async () => {
+          const current = await fetchMediaBibliotek();
+          const copy = current.find((item) => item.id === m.id);
+          const original = current.find((item) => item.id === originalId);
+          if (!copy) throw new Error(`Kopien #${m.id} findes ikke længere i mediebiblioteket`);
+          if (!original || !findMediaMergeCandidates(copy, current).some((item) => item.id === originalId)) {
+            throw new Error('Den valgte original er ikke længere en klar dublet-kandidat. Genåbn filsiden og vælg igen');
+          }
+          const [copyAnvendelse, originalAnvendelse] = await Promise.all([
+            fetchMediaAnvendelse(copy.id), fetchMediaAnvendelse(original.id),
+          ]);
+          return { copyStatus: copy.uploadStatus, copyAnvendelse, originalAnvendelse };
+        },
+        execute: async (change) => {
+          // Hvert eksisterende RPC-kald sendes separat: hvert trin ejer dermed sit eget change_set.
+          const response = await submitChange(change, { dryRun: false, role });
+          if (!response.direkte) throw new Error('Flet kræver redaktør-rettigheder');
+        },
+      }).catch(async (error) => {
+        // En write-fejl kan komme efter et eller flere gennemførte trin. Vis derfor straks den
+        // autoritative papirkurv/relationstilstand, men bevar den oprindelige fejl til dialogen.
+        try {
+          const [current, currentAnvendelse] = await Promise.all([
+            fetchMediaBibliotek(), fetchMediaAnvendelse(m.id),
+          ]);
+          setMediaBibliotek(current); setMediaAnvendelse(currentAnvendelse); setMediaAnvendelseFejl('');
+        } catch (refreshError) {
+          setLoadErr(`Fletningen stoppede, og visningen kunne ikke opdateres: ${oversaetFejl(String((refreshError as Error)?.message ?? refreshError))}`);
+        }
+        throw error;
+      });
+      const preview = result.plan.steps.map((step) => `${step.description}: ${describeCall(planCall(step.change, role)).split('\n')[0]}`);
+      setWriteView({
+        title: result.kind === 'dry-run' ? 'Dry-run · blød medieflet' : 'Blød medieflet gennemført',
+        lines: result.plan.steps.map((step) => `${step.description}\n${describeCall(planCall(step.change, role))}`),
+        error: '', done: result.kind === 'completed', dryRun: result.kind === 'dry-run', direkte: true,
+      });
+      if (result.kind === 'completed') {
+        // En refresh-fejl må ikke omskrive en allerede fuldført fletning til en falsk skrivefejl.
+        try {
+          const [current, currentAnvendelse] = await Promise.all([
+            fetchMediaBibliotek(), fetchMediaAnvendelse(m.id),
+          ]);
+          setMediaBibliotek(current); setMediaAnvendelse(currentAnvendelse); setMediaAnvendelseFejl('');
+        } catch (error) {
+          setLoadErr(`Fletningen er gennemført, men visningen kunne ikke opdateres: ${oversaetFejl(String((error as Error)?.message ?? error))}`);
+        }
+      }
+      return { dryRun: result.kind === 'dry-run', lines: preview };
+    };
     return <>
       <MediaDetaljeOverlay
         media={m}
         anvendelse={mediaAnvendelse}
         anvendelseFejl={mediaAnvendelseFejl}
+        fletKandidater={fletKandidater}
         onClose={() => {
           setMediaDetalje(null); setMediaLightbox(null);
           if (entity === 'media') { setRecordId(null); navigate(redaktionPath('media', null)); }
@@ -1329,6 +1392,7 @@ export default function Redaktion() {
           subjektId: mediaDetalje.subjektId, relationId }, 'Fjern billede')}
         onFjernTilknytning={(id) => run({ art: 'sletRelation', subjektType: 'media', subjektId: m.id, relationId: id }, 'Fjern tilknytning')}
         onTilknyt={() => setMediaTilknytPicker({ mediaId: m.id, maalType: 'person' })}
+        onFlet={entity === 'media' && fletKandidater.length > 0 ? fletMedia : undefined}
         onSlet={() => run({ art: 'fjernMedia', subjektType: mediaDetalje.subjektType,
           subjektId: mediaDetalje.subjektId, mediaId: m.id }, 'Slet billede')}
         onGenopret={() => run({ art: 'genopretMedia', subjektType: mediaDetalje.subjektType,
