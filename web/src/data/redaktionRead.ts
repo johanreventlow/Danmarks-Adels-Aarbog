@@ -3,7 +3,7 @@
 // FK), så vi henter N flade queries og joiner i klienten. citation→source HAR FK og nestes.
 // joinEvidence er ren/testbar uden net.
 import { supabase } from '../supabase';
-import { fmtYears, parseYear, getAll, buildMatchPersoner, parseIkkeSammeSomPar, buildFamilyGraph } from '@daa/core';
+import { fmtYears, parseYear, getAll, buildMatchPersoner, buildFamilyGraph } from '@daa/core';
 import type { RedMatchPerson, MatchPersonRow, MatchFactRow, MatchConcRow, MatchAssertRow, MatchExtIdRow, MatchLineageRow, RawFamilyMember, Union, ParentChild } from '@daa/core';
 import { FELT_FAKTATYPE } from './redaktionWrite';
 import { resolveOrgEstateNames } from './public';
@@ -1018,7 +1018,7 @@ export async function fetchMediaAnvendelse(mediaId: string): Promise<MediaAnvend
 }
 
 // ---- Tværudgave-matching: MatchFrame-input fra DB (Problem 3 §11) ----
-// Tynde supabase-fetches; de rene mappere (buildMatchPersoner/parseIkkeSammeSomPar) bor i
+// Tynde supabase-fetches; de rene mappere bor i
 // @daa/core (samme delt-logik-split som matcher-kernen). Re-eksportér RedMatchPerson for forbrugere.
 export type { RedMatchPerson };
 
@@ -1039,20 +1039,65 @@ export async function fetchMatchPersoner(): Promise<RedMatchPerson[]> {
   return buildMatchPersoner(persons, facts, concs, assertions, extIds, lineages);
 }
 
+export type MatchRelationPar = { relationId: string; aId: string; bId: string };
+type RawMatchRelation = { id: number; subjekt_id: number; objekt_id: number };
+
+export function parseMatchRelationPar(rows: RawMatchRelation[]): MatchRelationPar[] {
+  return rows.map((row) => ({
+    relationId: String(row.id),
+    aId: String(row.subjekt_id),
+    bId: String(row.objekt_id),
+  }));
+}
+
 /** Hent eksisterende ikke_samme_som-afvisninger (person→person). */
-export async function fetchIkkeSammeSomPar(): Promise<{ aId: string; bId: string }[]> {
-  const rows = await getAll<{ subjekt_id: number; objekt_id: number }>(() =>
-    supabase.from('relation').select('subjekt_id,objekt_id')
+export async function fetchIkkeSammeSomPar(): Promise<MatchRelationPar[]> {
+  const rows = await getAll<RawMatchRelation>(() =>
+    supabase.from('relation').select('id,subjekt_id,objekt_id')
       .eq('rolle', 'ikke_samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person'));
-  return parseIkkeSammeSomPar(rows);
+  return parseMatchRelationPar(rows);
 }
 
 /** Hent alle samme_som-links (person→person) — til arbejdslistens "afklaret"-markering. */
-export async function fetchSammeSomPar(): Promise<{ aId: string; bId: string }[]> {
-  const rows = await getAll<{ subjekt_id: number; objekt_id: number }>(() =>
-    supabase.from('relation').select('subjekt_id,objekt_id')
+export async function fetchSammeSomPar(): Promise<MatchRelationPar[]> {
+  const rows = await getAll<RawMatchRelation>(() =>
+    supabase.from('relation').select('id,subjekt_id,objekt_id')
       .eq('rolle', 'samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person'));
-  return parseIkkeSammeSomPar(rows); // samme (subjekt,objekt)→(aId,bId)-form
+  return parseMatchRelationPar(rows);
+}
+
+export type MatchAuditPost = MatchRelationPar & {
+  actorNavn: string | null;
+  actorRolle: string | null;
+  createdAt: string | null;
+  operation: string | null;
+};
+type RawMatchAudit = {
+  actor_navn: string | null;
+  actor_rolle: string | null;
+  created_at: string;
+  operation: string | null;
+};
+
+/** Hent oprettelsesaudit for alle aktive samme_som-links via den rolle-gatede historik-RPC. */
+export async function fetchMatchAudit(): Promise<MatchAuditPost[]> {
+  const links = await fetchSammeSomPar();
+  return Promise.all(links.map(async (link) => {
+    const { data, error } = await supabase.rpc('hist_for_subjekt', {
+      p_type: 'person',
+      p_id: Number(link.bId),
+    });
+    if (error) throw new Error(error.message);
+    const change = ((data ?? []) as RawMatchAudit[])
+      .find((row) => row.operation === 'red_samme_som');
+    return {
+      ...link,
+      actorNavn: change?.actor_navn ?? null,
+      actorRolle: change?.actor_rolle ?? null,
+      createdAt: change?.created_at ?? null,
+      operation: change?.operation ?? null,
+    };
+  }));
 }
 
 /** Hent hele familie-grafen (union + forælder→barn) til den rådgivende samme_som-fold-preview
