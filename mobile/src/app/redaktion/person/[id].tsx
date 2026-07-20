@@ -662,6 +662,7 @@ export default function PersonEditor() {
         <MediaUploadSheet
           target={{ afbildetPersonId: id! }}
           onClose={() => setUploadSheetOpen(false)}
+          onApplied={refreshMedia}
           onGem={(payload) => {
             setPending({ art: 'uploadMedia', subjektType: 'person', subjektId: id!, payload });
             setUploadSheetOpen(false);

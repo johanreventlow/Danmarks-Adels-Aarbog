@@ -348,6 +348,7 @@ export function buildRpcCall(c: Change): RpcCall | null {
       p_byte_size: p.byteSize ?? null, p_bredde: p.bredde ?? null, p_hoejde: p.hoejde ?? null,
       p_original_filnavn: p.originalFilnavn ?? null,
       p_rettigheder_status: p.rettighederStatus ?? 'ukendt', p_maa_publiceres: Boolean(p.maaPubliceres),
+      p_sha256: p.sha256 ?? null,
     };
     if (p.afbildetPersonId != null) args.p_afbildet_person_id = Number(p.afbildetPersonId);
     else if (p.objektType != null && p.objektId != null) {
@@ -479,6 +480,8 @@ export function erFortrydKonflikt(rawMessage: string): boolean {
 // PostgREST/Postgres-fejl → dansk UI-tekst (spec §9). Fald tilbage til rå besked.
 export function oversaetFejl(message: string): string {
   if (/kun redaktion/i.test(message)) return 'Kræver redaktør-rettigheder.';
+  if (/medie med samme indhold findes allerede/i.test(message)) return "Billedet findes allerede i biblioteket — brug 'Tilknyt eksisterende' i stedet.";
+  if (/allerede tilknyttet dette subjekt/i.test(message)) return 'Mediet er allerede tilknyttet dette subjekt.';
   if (/duplicate key|unique/i.test(message)) return 'Findes allerede.';
   if (/not configured|ikke konfigureret/i.test(message)) return 'Ingen forbindelse til basen.';
   if (/kan kun genoprette et fjernet medie/i.test(message)) return 'Mediet kan kun genoprettes, når det er fjernet.';

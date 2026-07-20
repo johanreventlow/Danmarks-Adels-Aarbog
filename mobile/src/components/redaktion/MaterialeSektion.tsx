@@ -57,6 +57,7 @@ export function MaterialeSektion({ objektType, objektId, onMediaChange }: {
       onSlet={() => change({ art: 'fjernMedia', subjektType: objektType, subjektId: objektId, mediaId: valgt.id })}
       onGenopret={() => change({ art: 'genopretMedia', subjektType: objektType, subjektId: objektId, mediaId: valgt.id })} /> : null}
     {uploadSheetOpen ? <MediaUploadSheet target={{ objektType, objektId }} onClose={() => setUploadSheetOpen(false)}
+      onApplied={refreshMedia}
       onGem={(payload) => { setPending({ art: 'uploadMedia', subjektType: objektType, subjektId: objektId, payload }); setUploadSheetOpen(false); }} /> : null}
     <SkrivePreviewSheet change={pending} onClose={() => setPending(null)} onApplied={() => { setPending(null); refreshMedia(); }} />
   </>;
