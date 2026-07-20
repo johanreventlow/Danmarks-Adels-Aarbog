@@ -1,7 +1,7 @@
 import {
   decideMediaDedup, deriveMediaDedupTarget, ensureExistingMediaLinked,
   executeMediaDedupResume, fetchExistingMediaBySha, fetchMediaLinked,
-  mediaDetailRoute, relationFiltersForTarget,
+  mediaDetailRoute, queryMediaBySha, relationFiltersForTarget,
 } from '../mediaDedup';
 
 describe('mediaDedup — målretning og autoritativ relation', () => {
@@ -48,6 +48,33 @@ describe('mediaDedup — målretning og autoritativ relation', () => {
 });
 
 describe('mediaDedup — eksisterende medie og dialogbeslutning', () => {
+  it('default-adapteren vælger id::text og bevarer sha-filteret', async () => {
+    const calls: unknown[] = [];
+    const client = {
+      from: (table: string) => {
+        calls.push(['from', table]);
+        return { select: (columns: string) => {
+          calls.push(['select', columns]);
+          return { eq: (column: string, value: string) => {
+            calls.push(['eq', column, value]);
+            return { maybeSingle: async () => {
+              calls.push(['maybeSingle']);
+              return { data: { id: '9223372036854775807', titel: 'Stor id', upload_status: 'klar', storage_path: 'large.jpg' }, error: null };
+            } };
+          } };
+        } };
+      },
+    };
+    const result = await queryMediaBySha('abc123', client);
+    expect(result.data?.id).toBe('9223372036854775807');
+    expect(calls).toEqual([
+      ['from', 'media'],
+      ['select', 'id::text,titel,upload_status,storage_path'],
+      ['eq', 'sha256', 'abc123'],
+      ['maybeSingle'],
+    ]);
+  });
+
   it('viser det eksisterende thumb; falder tilbage til signeret storage_path', async () => {
     const mediaLookup = async () => ({ data: {
       id: 91, titel: 'Eksisterende titel', upload_status: 'klar', storage_path: 'large.jpg',
@@ -81,8 +108,8 @@ describe('mediaDedup — eksisterende medie og dialogbeslutning', () => {
   });
 
   it.each([
-    ['klar', false, { kind: 'klar-link' }],
-    ['klar', true, { kind: 'klar-linked' }],
+    ['klar', false, { kind: 'klar-link', alreadyLinked: false }],
+    ['klar', true, { kind: 'klar-link', alreadyLinked: true }],
     ['fjernet', false, { kind: 'fjernet', route: '/redaktion/media/91' }],
     ['kladde', false, { kind: 'kladde', alreadyLinked: false }],
     ['kladde', true, { kind: 'kladde', alreadyLinked: true }],
@@ -125,6 +152,24 @@ describe('mediaDedup — idempotent link og kladdegenoptagelse', () => {
   it('behandler en allerede-tilknyttet relationsrace som idempotent succes og refresher', async () => {
     const calls: string[] = [];
     await ensureExistingMediaLinked({ mediaId: '91', target, alreadyLinked: false }, {
+      link: async () => { calls.push('link'); throw new Error('Mediet er allerede tilknyttet dette subjekt'); },
+      refresh: async () => { calls.push('refresh'); },
+    });
+    expect(calls).toEqual(['link', 'refresh']);
+  });
+
+  it('genskaber postconditionen når preflight sagde linked, men relationen siden er fjernet', async () => {
+    const calls: string[] = [];
+    await ensureExistingMediaLinked({ mediaId: '91', target, alreadyLinked: true }, {
+      link: async () => { calls.push('link'); },
+      refresh: async () => { calls.push('refresh'); },
+    });
+    expect(calls).toEqual(['link', 'refresh']);
+  });
+
+  it('behandler linked=true + duplicate som idempotent succes og refresher', async () => {
+    const calls: string[] = [];
+    await ensureExistingMediaLinked({ mediaId: '91', target, alreadyLinked: true }, {
       link: async () => { calls.push('link'); throw new Error('Mediet er allerede tilknyttet dette subjekt'); },
       refresh: async () => { calls.push('refresh'); },
     });

@@ -19,6 +19,15 @@ type LookupError = { message: string } | null;
 type RelationLookup = (filters: Record<string, string>) => Promise<{ data: { id: unknown } | null; error: LookupError }>;
 type RawMediaHit = { id: number | string; titel: string | null; upload_status: string; storage_path: string | null };
 type MediaLookup = (sha: string) => Promise<{ data: RawMediaHit | null; error: LookupError }>;
+type MediaShaQueryClient = {
+  from: (table: string) => {
+    select: (columns: string) => {
+      eq: (column: string, value: string) => {
+        maybeSingle: () => Promise<{ data: RawMediaHit | null; error: LookupError }>;
+      };
+    };
+  };
+};
 
 export function deriveMediaDedupTarget(uploadTarget: Record<string, unknown>): MediaDedupTarget | null {
   if (uploadTarget.afbildetPersonId != null) {
@@ -62,13 +71,25 @@ export async function fetchMediaLinked(
   return data != null;
 }
 
-const defaultMediaLookup: MediaLookup = async (sha) => {
+const MEDIA_DEDUP_SELECT = 'id::text,titel,upload_status,storage_path';
+
+// PostgREST-castet sker i SELECT'en, før JSON dekodes, så bigint-id'et aldrig passerer gennem et
+// JavaScript number. Den injicerbare query-builder er den samme adapter, som default-vejen bruger.
+export async function queryMediaBySha(
+  sha: string,
+  client?: MediaShaQueryClient,
+): ReturnType<MediaLookup> {
+  if (client) {
+    return client.from('media').select(MEDIA_DEDUP_SELECT).eq('sha256', sha).maybeSingle();
+  }
   const { data, error } = await supabase.from('media')
-    .select('id,titel,upload_status,storage_path')
+    .select(MEDIA_DEDUP_SELECT)
     .eq('sha256', sha)
     .maybeSingle();
-  return { data, error };
-};
+  return { data: data as unknown as RawMediaHit | null, error };
+}
+
+const defaultMediaLookup: MediaLookup = queryMediaBySha;
 
 export async function fetchExistingMediaBySha(
   sha: string,
@@ -98,8 +119,7 @@ export function mediaDetailRoute(mediaId: string): string {
 }
 
 export type MediaDedupDecision =
-  | { kind: 'klar-link' }
-  | { kind: 'klar-linked' }
+  | { kind: 'klar-link'; alreadyLinked: boolean }
   | { kind: 'fjernet'; route: string }
   | { kind: 'kladde'; alreadyLinked: boolean }
   | { kind: 'unsupported' };
@@ -108,7 +128,7 @@ export function decideMediaDedup(
   hit: Pick<MediaDedupHit, 'id' | 'uploadStatus'>,
   alreadyLinked: boolean,
 ): MediaDedupDecision {
-  if (hit.uploadStatus === 'klar') return { kind: alreadyLinked ? 'klar-linked' : 'klar-link' };
+  if (hit.uploadStatus === 'klar') return { kind: 'klar-link', alreadyLinked };
   if (hit.uploadStatus === 'fjernet') return { kind: 'fjernet', route: mediaDetailRoute(hit.id) };
   if (hit.uploadStatus === 'kladde') return { kind: 'kladde', alreadyLinked };
   return { kind: 'unsupported' };
@@ -123,13 +143,13 @@ export async function ensureExistingMediaLinked(
   args: { mediaId: string; target: MediaDedupTarget; alreadyLinked: boolean },
   deps: LinkDeps,
 ): Promise<void> {
-  if (!args.alreadyLinked) {
-    try {
-      await deps.link(args.mediaId, args.target);
-    } catch (error) {
-      const message = String((error as Error)?.message ?? error);
-      if (!/allerede tilknyttet dette subjekt/i.test(message)) throw error;
-    }
+  try {
+    // Pre-flight-resultatet er kun et øjebliksbillede. Et idempotent linkforsøg sikrer derfor
+    // postconditionen også hvis en tidligere relation blev slettet, efter dialogen blev åbnet.
+    await deps.link(args.mediaId, args.target);
+  } catch (error) {
+    const message = String((error as Error)?.message ?? error);
+    if (!/allerede tilknyttet dette subjekt/i.test(message)) throw error;
   }
   await deps.refresh();
 }

@@ -1697,7 +1697,7 @@ export default function Redaktion() {
               : <div style={{ width: 72, height: 72, borderRadius: 9, background: T.beige, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.muted, fontSize: 24 }}>▤</div>}
             <div>
               <div style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 600 }}>
-                {decision.kind === 'klar-link' || decision.kind === 'klar-linked' ? 'Billedet findes allerede'
+                {decision.kind === 'klar-link' ? 'Billedet findes allerede'
                   : decision.kind === 'fjernet' ? 'Billedet ligger i papirkurven'
                   : decision.kind === 'kladde' ? 'Afbrudt upload fundet' : 'Eksisterende billede fundet'}
               </div>
@@ -1705,10 +1705,13 @@ export default function Redaktion() {
             </div>
           </div>
 
-          {decision.kind === 'klar-linked' ? (
-            <div style={{ fontSize: 12.5, color: T.muted }}>Mediet er allerede tilknyttet dette subjekt.</div>
-          ) : decision.kind === 'klar-link' ? (
-            <div onClick={mediaBusy ? undefined : tilknyt} style={btnGreen}>{mediaBusy ? 'Behandler…' : `Tilknyt til ${subjektLabel || 'dette subjekt'} i stedet`}</div>
+          {decision.kind === 'klar-link' ? (
+            <>
+              {decision.alreadyLinked && <div style={{ fontSize: 12.5, color: T.muted, lineHeight: 1.5, marginBottom: 9 }}>Tilknytningen blev fundet ved pre-flight og kontrolleres igen ved handlingen.</div>}
+              <div onClick={mediaBusy ? undefined : tilknyt} style={btnGreen}>{mediaBusy ? 'Behandler…' : decision.alreadyLinked
+                ? `Sikr tilknytning til ${subjektLabel || 'dette subjekt'}`
+                : `Tilknyt til ${subjektLabel || 'dette subjekt'} i stedet`}</div>
+            </>
           ) : decision.kind === 'fjernet' ? (
             <>
               <div style={{ fontSize: 12.5, color: T.muted, lineHeight: 1.5, marginBottom: 11 }}>
