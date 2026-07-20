@@ -1,7 +1,7 @@
 # Koncept — Det levende feed: dynamik, uendelig scroll & hændelseshistorier
 
-**Status:** styrende koncept (opdateret 2026-07-19). Fase 1–3 er implementeret og lokalt
-verificeret; deres Supabase-/prod-trin er fortsat gatede. Fase 4 er ikke implementeret.
+**Status:** styrende koncept (opdateret 2026-07-20). Fase 1–3 er implementeret og lokalt
+verificeret; deres Supabase-/prod-trin er fortsat gatede. Fase 4 er bevidst udskudt (§10).
 **Gælder:** `mobile/` (eksisterende forsidefeed) **og** `web/` (forsiden, hvis form
 stod åben i web-konceptets §9.f — dette dokument lukker den beslutning).
 **Bygger på:** feed v3-spec (`docs/superpowers/specs/2026-07-05-folgesvend-v3-feed-drawer-bogmaerker-design.md`),
@@ -418,6 +418,12 @@ efter fuld backup og afbryder ved fase 3-data/-historik; den erstatter ikke et p
 Edge Function + "Foreslå historie"-knap + proveniens + evt. batch-kladder +
 hændelsesgruppering på tværs af udgaver.
 *Skalerer redaktionens kapacitet.*
+
+**Status 2026-07-20: bevidst udskudt** (ikke annulleret) — se
+[`decisions.md`](../decisions.md#levende-feed-fase-4-llm-assist-udskudt-ikke-annulleret-2026-07-20).
+PoC-korpusset har for få kilder indlæst til at LLM-assist giver værdi endnu, og
+scopet er for detaljeret til at tage nu. Rammen i §8 herunder + de åbne
+beslutninger ○b/○c nedenfor står som forberedt grundlag til genoptagelse.
 
 Rækkefølgen er bevidst: hver fase leverer selvstændig brugerværdi, og ingen fase
 blokerer på redaktionelt indhold for at virke.

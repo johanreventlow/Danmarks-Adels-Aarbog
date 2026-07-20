@@ -727,3 +727,21 @@ artiklens rå tekst til læsbar visning/søgning; teoretisk også lyd/video.
 - **Eneste konsekvens for fase 2 (biblioteket), indskrevet i spec'en:** defensiv
   rendering — ikke-billede-mime/manglende thumb → dokument-ikon, aldrig knækket
   thumbnail; udeladt af Lightbox.
+
+## Levende feed fase 4 (LLM-assist): udskudt, ikke annulleret (2026-07-20)
+
+Fase 3 (minihistorier & redaktionel styring) er kode-komplet på `main`, men
+prod-migrationen er fortsat gated (`story`/`story_kilde`/`feed_pin` findes ikke i
+prod endnu). Fase 4 ("Foreslå historie"-Edge Function + proveniens, koncept §8+§10)
+sættes bevidst i bero før spec-arbejdet påbegyndes.
+
+- **Begrundelse:** PoC-korpusset har for få kilder indlæst til at LLM-assist giver
+  reel værdi endnu, og scopet (Edge Function, kontekst-sammensætning på tværs af
+  udgaver, proveniens) er for detaljeret at kaste sig over nu.
+- **Ikke tabt arbejde:** rammen ligger allerede i koncept §8 (teknisk ramme) og
+  fase 3-design §12, som bevidst efterlod ○b (hændelses-gruppering på tværs af
+  udgaver) og ○c (skal `historie`-kort vise AI-oprindelse) åbne til fase 4. `story`
+  har allerede `llm_model`/`llm_promptversion`/`llm_naar`-kolonner (forward-compat,
+  ingen ny migration nødvendig ved genoptagelse).
+- **Genoptages** når kilde-korpusset er vokset nok til at hændelses-mængden
+  retfærdiggør redaktionel LLM-hjælp — ingen fast dato.
