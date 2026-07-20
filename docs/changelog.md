@@ -1,5 +1,25 @@
 # Changelog
 
+## Mediehåndtering fase 3 — hygiejne-spec skrevet (2026-07-20)
+
+Design-spec skrevet (ingen kode): `docs/superpowers/specs/2026-07-20-mediehaandtering-fase3-hygiejne-design.md`
+— aktiverer den hidtil døde dedup-mekanisme (klienten beregner sha256 af large-bytes:
+Web Crypto på web, expo-crypto på mobile), skifter til deterministiske sha-stier
+(`redaktor/<xx>/<sha>-{tier}.jpg`, idempotent genupload) og oversætter DB-guardens fejl
+til et "Billedet findes allerede → tilknyt i stedet"-flow oven på fase 2's tilknyt-mekanisme,
+inkl. selvhelende genoptagelse af strandede kladder. Additiv `media.created_at` (to-trins
+ALTER — ét-trins DEFAULT now() ville stemple alle gamle rækker med migrations-tidspunktet)
+giver strandede-køen alder, og et partielt unikt index (`WHERE rolle='afbildet'`) lukker
+fase 2's kendte relations-dublet-gap uden at røre periode-bårne roller som `ejer`.
+
+Ikke-oplagte valg: sha tages af de GENKODEDE bytes, så dedup fanger samme pipeline-upload
+men ikke web-vs-mobile-dubletter; da `media_sha256_uidx` gør sha-dubletter strukturelt
+umulige, kører bibliotekets nye "Mulige dubletter"-kø på en (byte_size,bredde,hoejde)-
+heuristik, mens janitorens sha-backfill leverer den ægte dublet-liste. "Flet ind i…" er
+klient-orkestreret af eksisterende RPC'er og stopper ved blødt fjern — udrensning er
+fortsat fase 4. Janitoren (`R/media-janitor.R`) er rapport-first: `--slet`/`--backfill-sha`
+er eksplicitte flag, frist-gated, og rækker med ukendt alder røres aldrig.
+
 ## Mediehåndtering fase 2 — biblioteket implementeret lokalt (2026-07-19)
 
 Web og mobil har nu et samlet mediebibliotek med søgning, køerne Rettigheder/Løse/
