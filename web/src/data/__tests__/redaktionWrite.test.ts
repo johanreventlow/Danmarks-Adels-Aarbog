@@ -46,6 +46,26 @@ describe('buildRpcCall — samme_som (identitets-links)', () => {
   });
 });
 
+// K2 selektiv publicering (§7.20): publicér udvalgte person-id'er uden at rydde staged for hele kilden.
+describe('buildRpcCall — publicerPersoner (K2 selektiv publicering)', () => {
+  it('publicerPersoner → red_publicer_personer(p_person_ids)', () => {
+    const call = buildRpcCall({ art: 'publicerPersoner', subjektType: 'person', subjektId: '255',
+      payload: { personIds: ['255', '392'] } } as never);
+    expect(call).toEqual({ fn: 'red_publicer_personer', args: { p_person_ids: [255, 392] } });
+  });
+  it('tom personIds-liste → null', () => {
+    expect(buildRpcCall({ art: 'publicerPersoner', subjektType: 'person', subjektId: '255',
+      payload: { personIds: [] } } as never)).toBeNull();
+  });
+  it('ugyldigt id i listen → null', () => {
+    expect(buildRpcCall({ art: 'publicerPersoner', subjektType: 'person', subjektId: '255',
+      payload: { personIds: ['255', 'ikke-et-id'] } } as never)).toBeNull();
+  });
+  it('manglende payload → null', () => {
+    expect(buildRpcCall({ art: 'publicerPersoner', subjektType: 'person', subjektId: '255' } as never)).toBeNull();
+  });
+});
+
 // Web-spejl af mobile-testen for uploadMedia (mediehåndtering Slice 0g).
 describe('buildRpcCall — uploadMedia (mediehåndtering Slice 0g)', () => {
   it('portræt (afbildetPersonId) → red_upload_media med p_afbildet_person_id', () => {

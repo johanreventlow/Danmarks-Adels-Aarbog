@@ -1,9 +1,10 @@
 #!/usr/bin/env Rscript
 
-# Transactional, fail-closed updater for the already loaded/staged DAA 1939
-# narratives. Dry-run is the default. This script never creates persons,
-# families, facts, links, sources, or narratives; it only updates tekst+side
-# on the existing one-to-one source-1939 narrative rows.
+# Transactional, fail-closed updater for the already loaded DAA 1939 narratives
+# (staged or already selectively published via red_publicer_personer — §7.20).
+# Dry-run is the default. This script never creates persons, families, facts,
+# links, sources, or narratives; it only updates tekst+side on the existing
+# one-to-one source-1939 narrative rows.
 
 suppressPackageStartupMessages({
   library(DBI)
@@ -131,7 +132,17 @@ read_1939_mapping <- function(con, source_id) {
       !identical(as.integer(rows$nr), seq_len(539L))) {
     stop("Prod-mapping er ikke 539 entydige nr/person/narrative-rækker", call. = FALSE)
   }
-  if (!all(rows$staged)) stop("Alle 539 1939-hovedpersoner skal fortsat være staged", call. = FALSE)
+  # Tolererer bevidst BLANDET staged-status (§7.20 selektiv publicering, red_publicer_personer):
+  # redaktøren kan have publiceret nogle 1939-personer (bekræftet samme_som) mens resten stadig
+  # afventer. UPDATE'en nedenfor er staged-agnostisk (opdaterer tekst/side uanset synlighed) —
+  # dette er blot en oplysende note, ikke en gate.
+  n_publiceret <- sum(!rows$staged)
+  if (n_publiceret > 0L) {
+    message(sprintf(
+      "%d af 539 1939-hovedpersoner er allerede publiceret (staged=false) — deres narrativer opdateres direkte i den offentlige visning.",
+      n_publiceret
+    ))
+  }
   rows
 }
 
