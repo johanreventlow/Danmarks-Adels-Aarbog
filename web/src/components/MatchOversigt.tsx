@@ -224,7 +224,10 @@ export function MatchOversigt({
                   : detaljeA && detaljeB && a && b
                     ? <KandidatSammenligning
                         personA={a} personB={b} detaljeA={detaljeA} detaljeB={detaljeB}
-                        kildeA={sourceLabel(a)} kildeB={sourceLabel(b)} navnById={navnById}
+                        kildeA={sourceLabel(a)} kildeB={sourceLabel(b)}
+                        rolleA={post.beslutning === 'samme_som' ? 'alias' : undefined}
+                        rolleB={post.beslutning === 'samme_som' ? 'kanonisk' : undefined}
+                        navnById={navnById}
                         foldHint={post.beslutning === 'samme_som'
                           ? { folder: grund == null, grund }
                           : { folder: false, grund: 'Parret er markeret som forskellige.' }}
