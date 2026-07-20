@@ -9,7 +9,8 @@ import {
 function person(overrides: Partial<RedMatchPerson> = {}): RedMatchPerson {
   return {
     id: '1',
-    navn: 'Detlev Reventlow',
+    navn: 'Detlev',
+    fuldtNavn: 'Detlev Reventlow',
     koen: 'mand',
     foedsel: { date_min: '1660-01-01', date_max: '1660-12-31' },
     doed: { date_min: '1730-01-01', date_max: '1730-12-31' },
@@ -25,6 +26,11 @@ describe('SammenlignUdgaver kandidat-overblik', () => {
   test('viser fuldt navn, titel og det eksisterende fødsel-død-span', () => {
     expect(formatPersonNavn(person({ titel: 'Amtmand' })))
       .toBe('Detlev Reventlow · Amtmand (1660–1730)');
+  });
+
+  test('falder tilbage til matcher-navnet når fuldt navn mangler', () => {
+    expect(formatPersonNavn(person({ fuldtNavn: null })))
+      .toBe('Detlev (1660–1730)');
   });
 
   test('udleder unikke forældre-navne fra den allerede hentede parentChild-graf', () => {

@@ -278,6 +278,7 @@ export function buildMatchFrame(p: FramePerson): MatchFrame {
 export type RedMatchPerson = {
   id: string;
   navn: string;
+  fuldtNavn: string | null;
   koen: string | null;
   foedsel: { date_min: string | null; date_max: string | null } | null;
   doed: { date_min: string | null; date_max: string | null } | null;
@@ -380,7 +381,8 @@ export function buildMatchPersoner(
   }
   return persons.map((p) => ({
     id: String(p.id),
-    navn: p.visning_fuldt_navn ?? p.visning_navn ?? '',
+    navn: p.visning_navn ?? '',
+    fuldtNavn: p.visning_fuldt_navn ?? p.visning_navn ?? null,
     koen: p.koen,
     foedsel: birth.get(p.id) ?? null,
     doed: death.get(p.id) ?? null,

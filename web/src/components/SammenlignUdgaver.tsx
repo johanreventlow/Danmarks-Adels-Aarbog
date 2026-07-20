@@ -24,7 +24,8 @@ export function formatPersonNavn(p?: RedMatchPerson): string {
   const fy = p.foedsel?.date_min?.slice(0, 4) ?? '';
   const dy = p.doed?.date_min?.slice(0, 4) ?? '';
   const span = fy || dy ? ` (${fy}–${dy})` : '';
-  const navnOgTitel = p.titel ? `${p.navn} · ${p.titel}` : p.navn;
+  const navn = p.fuldtNavn ?? p.navn;
+  const navnOgTitel = p.titel ? `${navn} · ${p.titel}` : navn;
   return `${navnOgTitel}${span}`;
 }
 
