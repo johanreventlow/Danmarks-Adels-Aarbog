@@ -44,7 +44,7 @@ function foldAdvice(grund: string): string | null {
   return null;
 }
 
-export function SammenlignUdgaver({ role }: { role?: string }) {
+export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryRun?: boolean }) {
   const [sources, setSources] = useState<SourceRow[]>([]);
   const [personer, setPersoner] = useState<RedMatchPerson[]>([]);
   const [afviste, setAfviste] = useState<{ aId: string; bId: string }[]>([]);
@@ -192,12 +192,12 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
   const run = useCallback(async (change: Change, key: string) => {
     setBusy(key); setFejl(null);
     try {
-      await submitChange(change, { dryRun: false, role });
+      await submitChange(change, { dryRun, role });
       setRefresh((r) => r + 1);
     } catch (e) {
       setFejl(String((e as { message?: string })?.message ?? e));
     } finally { setBusy(null); }
-  }, [role]);
+  }, [role, dryRun]);
 
   const bekraeft = (aId: string, bId: string) => // ny(A)=alias, eksisterende(B)=kanonisk (§5.4)
     run({ art: 'sammeSom', subjektType: 'person', subjektId: aId, payload: { aliasId: aId, objektId: bId } }, `s:${aId}:${bId}`);

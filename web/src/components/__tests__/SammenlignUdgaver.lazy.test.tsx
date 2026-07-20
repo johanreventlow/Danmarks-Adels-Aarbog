@@ -110,12 +110,32 @@ describe('SammenlignUdgaver lazy kandidatdetalje', () => {
     }]);
     mocks.submitChange.mockResolvedValue({});
 
-    render(<SammenlignUdgaver role="redaktor" />);
+    render(<SammenlignUdgaver role="redaktor" dryRun={false} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Fortryd' }));
 
     expect(mocks.fetchMatchAudit).toHaveBeenCalledWith(sammeSom, []);
     await waitFor(() => expect(mocks.submitChange).toHaveBeenCalledWith({
       art: 'fjernSammeSom', subjektType: 'person', subjektId: '1', relationId: '91',
     }, { dryRun: false, role: 'redaktor' }));
+  });
+
+  test('respekterer dryRun=true fra redaktions-fladens globale kontakt (regression: var hardkodet til false)', async () => {
+    const sammeSom = [{ relationId: '91', aId: '1', bId: '2' }];
+    mocks.fetchSammeSomPar.mockResolvedValue(sammeSom);
+    mocks.fetchMatchAudit.mockResolvedValue([{
+      relationId: '91', aId: '1', bId: '2', beslutning: 'samme_som',
+      actorNavn: 'Johan', actorRolle: 'redaktion', createdAt: '2026-07-20T15:00:00Z',
+      operation: 'red_samme_som',
+    }]);
+    mocks.submitChange.mockResolvedValue({});
+
+    // dryRun ikke angivet → default true (samme sikre default som Redaktion.tsx's egen useState).
+    render(<SammenlignUdgaver role="redaktor" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Fortryd' }));
+
+    await waitFor(() => expect(mocks.submitChange).toHaveBeenCalledWith(
+      expect.anything(),
+      { dryRun: true, role: 'redaktor' },
+    ));
   });
 });

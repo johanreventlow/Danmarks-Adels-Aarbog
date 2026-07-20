@@ -608,7 +608,7 @@ export default function Redaktion() {
             {entity === 'feed'
               ? <FeedStyring role={role} model={model} run={run} />
               : entity === 'sammenlign'
-              ? <SammenlignUdgaver role={role} />
+              ? <SammenlignUdgaver role={role} dryRun={dryRun} />
               : <ForaeldreKonflikterListe onOpen={(id) => openRecord('person', id)} />}
           </div>
         ) : (
