@@ -55,6 +55,48 @@ describe('buildMatchPersoner — DB-rækker → MatchFrame-input (§11)', () => 
     expect(r.find((x) => x.id === '1')!.staged).toBe(true);
     expect(r.find((x) => x.id === '2')!.staged).toBe(false);
   });
+
+  test('fuldt navn, valgte titler og kilde-specifik bogreference beriger personen additivt', () => {
+    const enrichedPersons = [
+      { ...persons[0], visning_fuldt_navn: 'Ludvig Alexander Eduard Reventlow' },
+    ];
+    const enrichedFacts = [
+      ...facts,
+      { id: 14, subjekt_id: 1, faktatype: 'titel' },
+      { id: 15, subjekt_id: 1, faktatype: 'titel' },
+    ];
+    const enrichedConcs = [
+      ...concs,
+      { target_id: 14, valgt_assertion_id: 140 },
+      { target_id: 15, valgt_assertion_id: null },
+    ];
+    const enrichedAssertions = [
+      ...assertions,
+      { id: 140, date_min: null, date_max: null, vaerdi_tekst: 'Amtmand' },
+      { id: 150, date_min: null, date_max: null, vaerdi_tekst: 'Ikke valgt titel' },
+    ];
+    const enrichedExtIds = [{
+      person_id: 1, source_id: 5, linje: 'III', nr: 58,
+      slaegtled_lokal: 12, slaegtled_gennem: 12, kuld: 'II',
+    }];
+    const lineages = [{ source_id: 5, kode: 'III', navn: 'Holstenske linje' }];
+
+    const p1 = buildMatchPersoner(
+      enrichedPersons, enrichedFacts, enrichedConcs, enrichedAssertions, enrichedExtIds, lineages,
+    )[0];
+
+    expect(p1.navn).toBe('Ludvig Alexander Eduard Reventlow');
+    expect(p1.titel).toBe('Amtmand');
+    expect(p1.bogReferencer).toEqual([{
+      sourceId: 5,
+      linje: 'III',
+      nr: 58,
+      slaegtledLokal: 12,
+      slaegtledGennem: 12,
+      kuld: 'II',
+      grenNavn: 'Holstenske linje',
+    }]);
+  });
 });
 
 describe('parseIkkeSammeSomPar', () => {

@@ -4,7 +4,7 @@
 // joinEvidence er ren/testbar uden net.
 import { supabase } from '../supabase';
 import { fmtYears, parseYear, getAll, buildMatchPersoner, parseIkkeSammeSomPar, buildFamilyGraph } from '@daa/core';
-import type { RedMatchPerson, MatchPersonRow, MatchFactRow, MatchConcRow, MatchAssertRow, MatchExtIdRow, RawFamilyMember, Union, ParentChild } from '@daa/core';
+import type { RedMatchPerson, MatchPersonRow, MatchFactRow, MatchConcRow, MatchAssertRow, MatchExtIdRow, MatchLineageRow, RawFamilyMember, Union, ParentChild } from '@daa/core';
 import { FELT_FAKTATYPE } from './redaktionWrite';
 import { resolveOrgEstateNames } from './public';
 import { signPaths, fetchThumbPathByMediaId } from './media';
@@ -486,10 +486,10 @@ export async function fetchSources(): Promise<SourceRow[]> {
 // Rå lineage-rækker med deres RIGTIGE numeriske id (til subjekt_id på 'lineage'-narrativer, Slice
 // C3) — bevidst IKKE genbrugt fra Følgesvend-modellens aux.linjeList (den bærer kun linje-KODEN
 // 'I'/'II'/… som nøgle, ikke lineage.id).
-export type LineageRow = { id: number; kode: string; navn: string | null };
+export type LineageRow = MatchLineageRow & { id: number };
 
 export async function fetchLineages(): Promise<LineageRow[]> {
-  const { data, error } = await supabase.from('lineage').select('id,kode,navn').order('kode', { ascending: true });
+  const { data, error } = await supabase.from('lineage').select('id,source_id,kode,navn').order('kode', { ascending: true });
   if (error) throw new Error(error.message);
   return (data ?? []) as LineageRow[];
 }
@@ -987,18 +987,19 @@ export type { RedMatchPerson };
 
 /** Hent MatchFrame-input for hele redaktions-datasættet (tynd; @daa/core-mappere gør arbejdet).
  *  NB (skala): conclusion/assertion hentes for ALLE fact-typer og filtreres klient-side til
- *  fødsel/død, fordi et batch-`.in('target_id', factIds)`-filter sprænger PostgREST's URL-længde
+ *  fødsel/død/titel, fordi et batch-`.in('target_id', factIds)`-filter sprænger PostgREST's URL-længde
  *  ved ~900 personer. Rigtig fix ved skala: et server-side view (fact→conclusion→assertion → ét
  *  fødsels-/døds-interval pr. person). Udskudt — PoC-volumen er håndterbar. */
 export async function fetchMatchPersoner(): Promise<RedMatchPerson[]> {
-  const [persons, facts, concs, assertions, extIds] = await Promise.all([
-    getAll<MatchPersonRow>(() => supabase.from('person').select('id,visning_navn,koen,staged')),
-    getAll<MatchFactRow>(() => supabase.from('fact').select('id,subjekt_id,faktatype').eq('subjekt_type', 'person').in('faktatype', ['fødsel', 'død'])),
+  const [persons, facts, concs, assertions, extIds, lineages] = await Promise.all([
+    getAll<MatchPersonRow>(() => supabase.from('person').select('id,visning_navn,visning_fuldt_navn,koen,staged')),
+    getAll<MatchFactRow>(() => supabase.from('fact').select('id,subjekt_id,faktatype').eq('subjekt_type', 'person').in('faktatype', ['fødsel', 'død', 'titel'])),
     getAll<MatchConcRow>(() => supabase.from('conclusion').select('target_id,valgt_assertion_id').eq('target_type', 'fact').eq('status', 'afklaret')),
-    getAll<MatchAssertRow>(() => supabase.from('assertion').select('id,date_min,date_max').eq('target_type', 'fact')),
-    getAll<MatchExtIdRow>(() => supabase.from('person_external_id').select('person_id,source_id')),
+    getAll<MatchAssertRow>(() => supabase.from('assertion').select('id,date_min,date_max,vaerdi_tekst').eq('target_type', 'fact')),
+    getAll<MatchExtIdRow>(() => supabase.from('person_external_id').select('person_id,source_id,linje,nr,slaegtled_lokal,slaegtled_gennem,kuld')),
+    fetchLineages(),
   ]);
-  return buildMatchPersoner(persons, facts, concs, assertions, extIds);
+  return buildMatchPersoner(persons, facts, concs, assertions, extIds, lineages);
 }
 
 /** Hent eksisterende ikke_samme_som-afvisninger (person→person). */

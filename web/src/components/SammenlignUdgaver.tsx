@@ -19,13 +19,38 @@ function toKoen(k: string | null): 'mand' | 'kvinde' | null {
   return k === 'mand' || k === 'kvinde' ? k : null;
 }
 
-function visning(p?: RedMatchPerson): string {
+export function formatPersonNavn(p?: RedMatchPerson): string {
   if (!p) return '(ukendt)';
   const fy = p.foedsel?.date_min?.slice(0, 4) ?? '';
   const dy = p.doed?.date_min?.slice(0, 4) ?? '';
   const span = fy || dy ? ` (${fy}–${dy})` : '';
-  return `${p.navn}${span}`;
+  const navnOgTitel = p.titel ? `${p.navn} · ${p.titel}` : p.navn;
+  return `${navnOgTitel}${span}`;
 }
+
+export function foraeldreNavne(
+  personId: string,
+  parentChild: ParentChild[],
+  byId: Map<string, RedMatchPerson>,
+): string {
+  const parentIds = [...new Set(
+    parentChild.filter((edge) => edge.child === personId).map((edge) => edge.parent),
+  )];
+  const navne = parentIds.map((id) => byId.get(id)?.navn).filter((navn): navn is string => Boolean(navn));
+  return navne.length ? `f. af ${navne.join(' & ')}` : '';
+}
+
+export function formatBogReferencer(p?: RedMatchPerson): string {
+  if (!p) return '';
+  return p.bogReferencer.map((ref) => {
+    const bogNr = ref.linje && ref.nr != null
+      ? `${ref.linje}-${ref.nr}`
+      : ref.linje ?? (ref.nr != null ? `nr. ${ref.nr}` : '');
+    return [bogNr, ref.grenNavn].filter(Boolean).join(', ');
+  }).filter(Boolean).join(' · ');
+}
+
+const visning = formatPersonNavn;
 
 // Menneskevenlig næste-skridt pr. karantæne-grund (collapseSameAs.ts's groupSameAs/validateGroups
 // producerer de rå, tekniske grund-strenge nedenfor — matchet på deres faste præfiks, uanset den
@@ -265,13 +290,26 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
 
       {aabne.map((person) => {
         const a = byId.get(person.aId);
+        const aDetaljer = [
+          foraeldreNavne(person.aId, familieGraf.parentChild, byId),
+          formatBogReferencer(a),
+        ].filter(Boolean);
         return (
           <div key={person.aId} style={{ border: '1px solid rgba(34,31,26,.1)', borderRadius: 6, padding: '.6rem .8rem', margin: '.5rem 0' }}>
             <strong>{visning(a)}</strong>
             <button style={{ marginLeft: '.8rem', fontSize: '.85em' }} disabled={!!busy}
               onClick={() => markerNy(person.kandidater)}>Markér som ny person</button>
+            {aDetaljer.length > 0 && (
+              <div style={{ fontSize: '.82em', color: '#6f675b', marginTop: '.15rem' }}>
+                {aDetaljer.join(' · ')}
+              </div>
+            )}
             {person.kandidater.filter((k) => !k.afvist).map((k) => {
               const b = byId.get(String(k.bId));
+              const bDetaljer = [
+                foraeldreNavne(String(k.bId), familieGraf.parentChild, byId),
+                formatBogReferencer(b),
+              ].filter(Boolean);
               return (
                 <div key={String(k.bId)} style={{ marginTop: '.4rem', paddingTop: '.4rem', borderTop: '1px dashed rgba(34,31,26,.1)' }}>
                   <span style={{ fontWeight: 600 }}>{k.tier === 'auto' ? '★ stærk' : 'gennemse'}</span>
@@ -279,6 +317,11 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
                   <span style={{ fontSize: '.8em', color: '#6f675b', marginLeft: '.5rem' }}>
                     navn {k.nameSim.toFixed(2)} · fødsel {k.birthOverlap ? '✓' : '—'} · død {k.deathOverlap ? '✓' : '—'} · køn {k.sexEq ? '✓' : '✗'}
                   </span>
+                  {bDetaljer.length > 0 && (
+                    <div style={{ fontSize: '.82em', color: '#6f675b', marginTop: '.15rem' }}>
+                      {bDetaljer.join(' · ')}
+                    </div>
+                  )}
                   <div style={{ marginTop: '.3rem' }}>
                     <button disabled={!!busy || k.linket}
                       onClick={() => bekraeft(person.aId, String(k.bId))}>
