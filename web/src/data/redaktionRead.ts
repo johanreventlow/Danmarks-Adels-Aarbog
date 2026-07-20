@@ -652,6 +652,43 @@ export async function fetchPersonRelationer(id: string): Promise<PersonRelation[
   });
 }
 
+// Samlet, dyr kandidat-detalje til "Sammenlign udgaver". Denne funktion må kun kaldes lazy
+// ved panel-ekspansion: den komponerer de eksisterende redaktions-fetches og introducerer ingen
+// ny query/RPC. Familie-navne opløses af panelet mod SammenlignUdgavers ufoldede person-cache.
+export type KandidatDetalje = {
+  evidence: PersonEvidence;
+  narrativer: PersonNarrativ[];
+  familie: PersonFamilie;
+  relationer: PersonRelation[];
+};
+
+type KandidatDetaljeLoaders = {
+  evidence: typeof fetchPersonEvidence;
+  narrativer: typeof fetchNarrativer;
+  familie: (personId: string) => Promise<PersonFamilie>;
+  relationer: typeof fetchPersonRelationer;
+};
+
+const kandidatDetaljeLoaders: KandidatDetaljeLoaders = {
+  evidence: fetchPersonEvidence,
+  narrativer: fetchNarrativer,
+  familie: (personId) => fetchPersonFamilie(personId, null),
+  relationer: fetchPersonRelationer,
+};
+
+export async function fetchKandidatDetalje(
+  personId: string,
+  loaders: KandidatDetaljeLoaders = kandidatDetaljeLoaders,
+): Promise<KandidatDetalje> {
+  const [evidence, narrativer, familie, relationer] = await Promise.all([
+    loaders.evidence(personId),
+    loaders.narrativer('person', Number(personId)),
+    loaders.familie(personId),
+    loaders.relationer(personId),
+  ]);
+  return { evidence, narrativer, familie, relationer };
+}
+
 // --- samme_som identitets-links (spec 2026-07-02) ---
 export type SammeSomLink = { relationId: string; retning: 'alias' | 'kanonisk'; modpartId: string };
 
