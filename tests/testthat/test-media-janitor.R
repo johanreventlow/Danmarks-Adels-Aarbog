@@ -30,6 +30,25 @@ test_that("frist-logik er streng og fail-safe ved ukendt alder", {
   expect_equal(age_days(created, now), c(8, 7, 6, NA_real_))
 })
 
+test_that("ISO8601 bevarer klokkeslæt, brøksekunder og offset ved fristgrænsen", {
+  now <- parse_iso8601_utc("2026-07-20T18:00:00.000Z")
+  created <- c(
+    "2026-07-13T18:00:00.000Z",
+    "2026-07-13T17:59:59.999Z",
+    "2026-07-13T20:00:00.000+02:00",
+    "2026-07-13T12:30:00.250-05:30",
+    "ikke-en-dato"
+  )
+  parsed <- parse_iso8601_utc(created)
+
+  expect_equal(as.numeric(parsed[1]), as.numeric(now - 7 * 86400))
+  expect_lt(as.numeric(parsed[2]), as.numeric(parsed[1]))
+  expect_equal(as.numeric(parsed[3]), as.numeric(parsed[1]))
+  expect_equal(as.numeric(parsed[4]), as.numeric(parsed[1]) + 0.25)
+  expect_true(is.na(parsed[5]))
+  expect_equal(eligible_by_age(created, now, 7), c(FALSE, TRUE, FALSE, FALSE, FALSE))
+})
+
 test_that("sti-anti-join kender både large- og variantstier", {
   objects <- data.frame(
     name = c("large/aa/known.jpg", "thumb/bb/variant.webp", "orphan/x.png"),
@@ -41,6 +60,24 @@ test_that("sti-anti-join kender både large- og variantstier", {
 
   out <- find_orphan_objects(objects, media, variants)
   expect_equal(out$name, "orphan/x.png")
+})
+
+test_that("sti-anti-join er bucket-aware og varianter arver forælderens bucket", {
+  objects <- data.frame(
+    bucket = "media", name = c("same/path", "thumb/known", "orphan/path"),
+    created_at = utc(c("2026-07-01", "2026-07-01", "2026-07-01")),
+    stringsAsFactors = FALSE
+  )
+  media <- data.frame(
+    id = c(1L, 2L), bucket = c("shared", "media"),
+    storage_path = c("same/path", "large/known"), stringsAsFactors = FALSE
+  )
+  variants <- data.frame(
+    media_id = 2L, storage_path = "thumb/known", stringsAsFactors = FALSE
+  )
+  out <- find_orphan_objects(objects, media, variants)
+  expect_equal(out$name, c("orphan/path", "same/path"))
+  expect_true(all(out$bucket == "media"))
 })
 
 test_that("medier klassificeres i strandet, variant-hul og sha-backfill", {
@@ -87,7 +124,7 @@ test_that("manglende registreret variantsti rapporteres som hul", {
 
 test_that("sti-eksistens er bucket-afgrænset", {
   media <- data.frame(
-    id = 10L, bucket = "media-a", upload_status = "klar",
+    id = 10L, bucket = "media", upload_status = "klar",
     created_at = utc("2026-07-01"), storage_path = "large/samme",
     sha256 = NA_character_, stringsAsFactors = FALSE
   )
@@ -96,13 +133,58 @@ test_that("sti-eksistens er bucket-afgrænset", {
     storage_path = c("thumb/samme", "medium/samme"), stringsAsFactors = FALSE
   )
   bucket_paths <- data.frame(
-    bucket = c("media-a", "media-a", "media-b"),
+    bucket = c("media", "media", "media-b"),
     name = c("large/samme", "thumb/samme", "medium/samme"),
     stringsAsFactors = FALSE
   )
   out <- classify_media_findings(media, variants, bucket_paths, utc("2026-07-20"), 7)
   expect_equal(out$variant_holes$sti, "medium/samme")
   expect_equal(out$sha_candidates$media_id, 10L)
+})
+
+test_that("janitor scanner kun allowlistet media-bucket og parkerer fremmede rækker", {
+  media <- data.frame(
+    id = c(20L, 21L), bucket = c("shared", "media"),
+    upload_status = c("fejlet", "fejlet"),
+    created_at = utc(c("2026-07-01", "2026-07-01")),
+    storage_path = c("shared/object", "media/object"),
+    sha256 = NA_character_, stringsAsFactors = FALSE
+  )
+  variants <- data.frame(media_id = numeric(), tier = character(), storage_path = character())
+  objects <- data.frame(bucket = "media", name = "media/object", stringsAsFactors = FALSE)
+
+  expect_identical(janitor_storage_buckets(media), "media")
+  out <- classify_media_findings(media, variants, objects, utc("2026-07-20"), 7)
+  expect_equal(out$stranded$media_id, 21L)
+  expect_equal(out$foreign_bucket$media_id, 20L)
+  expect_false(any(out$sha_candidates$media_id == 20L))
+
+  deleted <- numeric()
+  execute_janitor_mutations(
+    parse_media_janitor_args("--slet"), out$stranded,
+    data.frame(name = character(), sletbar = logical()), out$sha_candidates,
+    list(
+      delete_stranded = function(item) deleted <<- c(deleted, item$media_id),
+      delete_orphan = function(item) stop("må ikke kaldes"),
+      backfill_sha = function(item) stop("må ikke kaldes")
+    )
+  )
+  expect_equal(deleted, 21L)
+
+  touched <- FALSE
+  result <- delete_stranded_media_row(
+    NULL, 20L, "shared", "shared/object", numeric(), logical(),
+    db_ops = list(begin = function(con) touched <<- TRUE),
+    storage_delete = function(...) touched <<- TRUE
+  )
+  expect_false(touched)
+  expect_equal(result$status, "manuel")
+  expect_match(result$detail, "fremmed bucket")
+
+  context <- list(base_url = "http://skal-ikke-kaldes.invalid", key = "ikke-en-hemmelighed")
+  expect_error(make_storage_list_page(context)("shared", NULL, 10L), "kun tilgå bucket")
+  expect_error(make_storage_delete(context)("shared", "x"), "kun tilgå bucket")
+  expect_error(make_storage_download(context)("shared", "x", tempfile()), "kun tilgå bucket")
 })
 
 test_that("rapportrækker har eksakte kolonner og sikre anbefalinger", {
@@ -113,6 +195,7 @@ test_that("rapportrækker har eksakte kolonner og sikre anbefalinger", {
                               "vurdér manuelt")
 
   expect_identical(names(eligible), MEDIA_JANITOR_REPORT_COLUMNS)
+  expect_equal(eligible$bucket, "media")
   expect_equal(eligible$alder_dage, 19)
   expect_true(is.na(unknown$alder_dage))
   expect_equal(unknown$anbefalet_handling, "vurdér manuelt")
@@ -206,12 +289,19 @@ test_that("defaultkørsel udfører nul DB- og Storage-mutationer", {
 
 test_that("planrapporten persisteres før første mutation", {
   events <- character()
+  report <- build_report_row(
+    "a_strandet", 1L, "large/1", utc("2026-07-01"), utc("2026-07-20"),
+    "sletbar med --slet", bucket = "media"
+  )
   run_after_initial_report(
-    data.frame(kategori = "a_strandet"),
-    write_report = function(report) events <<- c(events, paste0("rapport:", report$kategori)),
+    report,
+    write_report = function(report) {
+      expect_identical(names(report), MEDIA_JANITOR_REPORT_COLUMNS)
+      events <<- c(events, paste0("rapport:", report$bucket, ":", report$kategori))
+    },
     mutate = function() events <<- c(events, "mutation")
   )
-  expect_equal(events, c("rapport:a_strandet", "mutation"))
+  expect_equal(events, c("rapport:media:a_strandet", "mutation"))
 })
 
 test_that("sletteflag rører kun sletbare a+b og backfill er separat", {
@@ -272,6 +362,84 @@ test_that("relation med evidens medfører nul mutationer", {
   )
   expect_false(touched)
   expect_equal(result$status, "manuel")
+
+  touched <- FALSE
+  unknown <- delete_stranded_media_row(
+    con = NULL, media_id = 8L, bucket = "media", paths = "large/8",
+    relation_ids = 32L, has_evidence = NA,
+    db_ops = list(begin = function(con) touched <<- TRUE),
+    storage_delete = function(...) touched <<- TRUE
+  )
+  expect_false(touched)
+  expect_equal(unknown$status, "manuel")
+})
+
+test_that("uventet polymorf relation i begge retninger blokerer hele medierækken", {
+  relations <- data.frame(
+    relation_id = c(31L, 32L, 33L), media_id = 7L,
+    subjekt_type = c("person", "estate", "media"),
+    subjekt_id = c(1L, 2L, 7L),
+    objekt_type = c("media", "media", "person"),
+    objekt_id = c(7L, 7L, 3L),
+    rolle = c("afbildet", "ejer", "skabt_af"),
+    has_evidence = FALSE, stringsAsFactors = FALSE
+  )
+  block <- relation_block_for_media(relations, 7L)
+  expect_true(block$blocked)
+  expect_equal(block$unexpected_relation_ids, c(32L, 33L))
+
+  touched <- FALSE
+  result <- delete_stranded_media_row(
+    NULL, 7L, "media", "large/7", 31L, FALSE,
+    db_ops = list(begin = function(con) touched <<- TRUE),
+    storage_delete = function(...) touched <<- TRUE,
+    has_unexpected_relation = TRUE
+  )
+  expect_false(touched)
+  expect_equal(result$status, "manuel")
+  expect_match(result$detail, "uventet relation")
+})
+
+test_that("normal person→media afbildet-relation er tilladt", {
+  relations <- data.frame(
+    relation_id = 31L, media_id = 7L,
+    subjekt_type = "person", subjekt_id = 1L,
+    objekt_type = "media", objekt_id = 7L,
+    rolle = "afbildet", has_evidence = FALSE, stringsAsFactors = FALSE
+  )
+  block <- relation_block_for_media(relations, 7L)
+  expect_false(block$blocked)
+  expect_equal(block$expected_relation_ids, 31L)
+})
+
+test_that("fremmed bucket og uventet relation rapporteres som manuel afgørelse", {
+  now <- utc("2026-07-20")
+  media <- data.frame(
+    id = c(7L, 8L), bucket = c("media", "shared"),
+    upload_status = "fejlet", created_at = utc("2026-07-01"),
+    storage_path = c("large/7", "shared/8"), sha256 = NA_character_,
+    stringsAsFactors = FALSE
+  )
+  variants <- data.frame(media_id = numeric(), tier = character(), storage_path = character())
+  findings <- classify_media_findings(
+    media, variants, data.frame(bucket = "media", name = "large/7"), now, 7
+  )
+  relations <- data.frame(
+    relation_id = 41L, media_id = 7L,
+    subjekt_type = "estate", subjekt_id = 2L,
+    objekt_type = "media", objekt_id = 7L,
+    rolle = "ejer", has_evidence = FALSE, stringsAsFactors = FALSE
+  )
+  snapshot <- list(media = media, variants = variants, relations = relations)
+  report <- make_report_before_mutation(
+    snapshot, data.frame(), findings,
+    data.frame(name = character(), created_at = as.POSIXct(character()), sletbar = logical()),
+    now, 7
+  )
+
+  expect_match(report$anbefalet_handling[report$media_id == 7L], "uventet relation")
+  expect_match(report$anbefalet_handling[report$media_id == 8L], "fremmed bucket")
+  expect_equal(report$bucket[report$media_id == 8L], "shared")
 })
 
 test_that("SQLSTATE 23503 rollbackes pr række og Storage røres ikke", {

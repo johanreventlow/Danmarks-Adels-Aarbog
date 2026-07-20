@@ -7,13 +7,14 @@
 # Uden flag er scriptet read-only. --slet omfatter kun gamle strandede uploads og
 # gamle forældreløse Storage-objekter. --backfill-sha er et separat skrive-opt-in.
 
+MEDIA_JANITOR_BUCKET <- "media"
 MEDIA_JANITOR_REPORT_COLUMNS <- c(
-  "kategori", "media_id", "sti", "alder_dage", "anbefalet_handling"
+  "kategori", "bucket", "media_id", "sti", "alder_dage", "anbefalet_handling"
 )
 
 empty_media_janitor_report <- function() {
   data.frame(
-    kategori = character(), media_id = numeric(), sti = character(),
+    kategori = character(), bucket = character(), media_id = numeric(), sti = character(),
     alder_dage = numeric(), anbefalet_handling = character(),
     stringsAsFactors = FALSE
   )
@@ -49,9 +50,39 @@ parse_media_janitor_args <- function(args) {
   out
 }
 
+parse_iso8601_utc <- function(x) {
+  values <- as.character(x)
+  result <- rep(as.POSIXct(NA, tz = "UTC"), length(values))
+  pattern <- paste0(
+    "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:",
+    "[0-9]{2}(?:\\.[0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})$"
+  )
+  valid <- !is.na(values) & grepl(pattern, values, perl = TRUE)
+  if (any(valid)) {
+    normalized <- sub("Z$", "+0000", values[valid])
+    normalized <- sub("([+-][0-9]{2}):([0-9]{2})$", "\\1\\2", normalized, perl = TRUE)
+    parsed <- suppressWarnings(strptime(
+      normalized, format = "%Y-%m-%dT%H:%M:%OS%z", tz = "UTC"
+    ))
+    result[valid] <- as.POSIXct(parsed, tz = "UTC")
+  }
+  result
+}
+
 as_utc_time <- function(x) {
   if (inherits(x, "POSIXt")) return(as.POSIXct(x, tz = "UTC"))
-  as.POSIXct(x, tz = "UTC")
+  values <- as.character(x)
+  result <- parse_iso8601_utc(values)
+  date_only <- !is.na(values) & grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}$", values)
+  result[date_only] <- as.POSIXct(strptime(values[date_only], "%Y-%m-%d", tz = "UTC"))
+  plain <- !is.na(values) & grepl(
+    "^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?$",
+    values, perl = TRUE
+  )
+  result[plain] <- as.POSIXct(strptime(
+    values[plain], "%Y-%m-%d %H:%M:%OS", tz = "UTC"
+  ))
+  result
 }
 
 age_days <- function(created_at, now = Sys.time()) {
@@ -74,11 +105,31 @@ known_storage_paths <- function(media, variants) {
   sort(unique(paths[!is.na(paths) & nzchar(paths)]))
 }
 
+janitor_storage_buckets <- function(media = NULL) MEDIA_JANITOR_BUCKET
+
+assert_media_janitor_bucket <- function(bucket) {
+  if (length(bucket) != 1L || is.na(bucket) || bucket != MEDIA_JANITOR_BUCKET) {
+    stop("Media-janitor må kun tilgå bucket 'media'.", call. = FALSE)
+  }
+  invisible(bucket)
+}
+
 find_orphan_objects <- function(objects, media, variants) {
+  if (!"bucket" %in% names(objects)) objects$bucket <- MEDIA_JANITOR_BUCKET
+  objects <- objects[objects$bucket == MEDIA_JANITOR_BUCKET, , drop = FALSE]
   if (!nrow(objects)) return(objects)
-  known <- known_storage_paths(media, variants)
+  if (!"bucket" %in% names(media)) media$bucket <- MEDIA_JANITOR_BUCKET
+  scoped_media <- media[
+    !is.na(media$bucket) & media$bucket == MEDIA_JANITOR_BUCKET, , drop = FALSE
+  ]
+  scoped_variants <- if ("id" %in% names(scoped_media) && "media_id" %in% names(variants)) {
+    variants[variants$media_id %in% scoped_media$id, , drop = FALSE]
+  } else {
+    variants
+  }
+  known <- known_storage_paths(scoped_media, scoped_variants)
   out <- objects[!is.na(objects$name) & nzchar(objects$name) & !(objects$name %in% known), , drop = FALSE]
-  out[order(out$name, method = "radix"), , drop = FALSE]
+  out[order(out$bucket, out$name, method = "radix"), , drop = FALSE]
 }
 
 storage_path_exists <- function(bucket, path, bucket_paths) {
@@ -94,9 +145,10 @@ storage_path_exists <- function(bucket, path, bucket_paths) {
 
 build_report_row <- function(kategori, media_id = NA_real_, sti = NA_character_,
                              created_at = as.POSIXct(NA), now = Sys.time(),
-                             anbefalet_handling) {
+                             anbefalet_handling, bucket = MEDIA_JANITOR_BUCKET) {
   data.frame(
     kategori = as.character(kategori),
+    bucket = as.character(bucket),
     media_id = if (length(media_id) && !is.na(media_id)) as.numeric(media_id) else NA_real_,
     sti = if (length(sti) && !is.na(sti)) as.character(sti) else NA_character_,
     alder_dage = if (length(created_at) && !is.na(created_at)) age_days(created_at, now) else NA_real_,
@@ -108,13 +160,13 @@ build_report_row <- function(kategori, media_id = NA_real_, sti = NA_character_,
 sort_media_janitor_report <- function(report) {
   if (!nrow(report)) return(empty_media_janitor_report())
   category_order <- c("a_strandet", "b_forældreløs", "c_variant_hul",
-                      "d_sha_backfill", "d_ægte_dublet")
+                      "d_sha_backfill", "d_ægte_dublet", "x_fremmed_bucket")
   category_rank <- match(report$kategori, category_order)
   category_rank[is.na(category_rank)] <- length(category_order) + 1L
   id_rank <- report$media_id
   id_rank[is.na(id_rank)] <- Inf
   path_rank <- ifelse(is.na(report$sti), "", report$sti)
-  idx <- order(category_rank, id_rank, path_rank, report$anbefalet_handling,
+  idx <- order(category_rank, report$bucket, id_rank, path_rank, report$anbefalet_handling,
                method = "radix", na.last = TRUE)
   rownames(report) <- NULL
   out <- report[idx, MEDIA_JANITOR_REPORT_COLUMNS, drop = FALSE]
@@ -125,9 +177,14 @@ sort_media_janitor_report <- function(report) {
 classify_media_findings <- function(media, variants, bucket_paths,
                                     now = Sys.time(), frist_dage = 7L) {
   media <- media[order(media$id), , drop = FALSE]
-  stranded <- media[media$upload_status %in% c("kladde", "fejlet"), , drop = FALSE]
+  if (!"bucket" %in% names(media)) media$bucket <- MEDIA_JANITOR_BUCKET
+  in_scope <- !is.na(media$bucket) & media$bucket == MEDIA_JANITOR_BUCKET
+  foreign <- media[!in_scope, , drop = FALSE]
+  scoped <- media[in_scope, , drop = FALSE]
+  stranded <- scoped[scoped$upload_status %in% c("kladde", "fejlet"), , drop = FALSE]
   stranded_out <- data.frame(
     media_id = as.numeric(stranded$id),
+    bucket = as.character(stranded$bucket),
     sti = as.character(stranded$storage_path),
     created_at = as_utc_time(stranded$created_at),
     sletbar = eligible_by_age(stranded$created_at, now, frist_dage),
@@ -135,7 +192,7 @@ classify_media_findings <- function(media, variants, bucket_paths,
   )
 
   holes <- list()
-  ready <- media[media$upload_status == "klar", , drop = FALSE]
+  ready <- scoped[scoped$upload_status == "klar", , drop = FALSE]
   for (i in seq_len(nrow(ready))) {
     media_id <- ready$id[[i]]
     bucket <- if ("bucket" %in% names(ready)) as.character(ready$bucket[[i]]) else "media"
@@ -144,14 +201,14 @@ classify_media_findings <- function(media, variants, bucket_paths,
       variant <- own[own$tier == tier, , drop = FALSE]
       if (!nrow(variant)) {
         holes[[length(holes) + 1L]] <- data.frame(
-          media_id = as.numeric(media_id), tier = tier, sti = tier,
+          media_id = as.numeric(media_id), bucket = bucket, tier = tier, sti = tier,
           created_at = as_utc_time(ready$created_at[[i]]), stringsAsFactors = FALSE
         )
       } else {
         path <- as.character(variant$storage_path[[1]])
         if (!storage_path_exists(bucket, path, bucket_paths)) {
           holes[[length(holes) + 1L]] <- data.frame(
-            media_id = as.numeric(media_id), tier = tier, sti = path,
+            media_id = as.numeric(media_id), bucket = bucket, tier = tier, sti = path,
             created_at = as_utc_time(ready$created_at[[i]]), stringsAsFactors = FALSE
           )
         }
@@ -159,7 +216,7 @@ classify_media_findings <- function(media, variants, bucket_paths,
     }
   }
   variant_holes <- if (length(holes)) do.call(rbind, holes) else data.frame(
-    media_id = integer(), tier = character(), sti = character(),
+    media_id = integer(), bucket = character(), tier = character(), sti = character(),
     created_at = as.POSIXct(character(), tz = "UTC"), stringsAsFactors = FALSE
   )
   if (nrow(variant_holes)) {
@@ -167,14 +224,15 @@ classify_media_findings <- function(media, variants, bucket_paths,
     rownames(variant_holes) <- NULL
   }
 
-  sha_path_exists <- vapply(seq_len(nrow(media)), function(i) {
-    bucket <- if ("bucket" %in% names(media)) as.character(media$bucket[[i]]) else "media"
-    storage_path_exists(bucket, as.character(media$storage_path[[i]]), bucket_paths)
+  sha_path_exists <- vapply(seq_len(nrow(scoped)), function(i) {
+    storage_path_exists(
+      as.character(scoped$bucket[[i]]), as.character(scoped$storage_path[[i]]), bucket_paths
+    )
   }, logical(1))
-  sha <- media[
-    media$upload_status %in% c("klar", "fjernet") &
-      (is.na(media$sha256) | !nzchar(media$sha256)) &
-      !is.na(media$storage_path) & nzchar(media$storage_path) &
+  sha <- scoped[
+    scoped$upload_status %in% c("klar", "fjernet") &
+      (is.na(scoped$sha256) | !nzchar(scoped$sha256)) &
+      !is.na(scoped$storage_path) & nzchar(scoped$storage_path) &
       sha_path_exists,
     , drop = FALSE
   ]
@@ -185,8 +243,14 @@ classify_media_findings <- function(media, variants, bucket_paths,
     stringsAsFactors = FALSE
   )
 
+  foreign_bucket <- data.frame(
+    media_id = as.numeric(foreign$id), bucket = as.character(foreign$bucket),
+    sti = as.character(foreign$storage_path), created_at = as_utc_time(foreign$created_at),
+    sletbar = rep(FALSE, nrow(foreign)), stringsAsFactors = FALSE
+  )
+
   list(stranded = stranded_out, variant_holes = variant_holes,
-       sha_candidates = sha_candidates)
+       sha_candidates = sha_candidates, foreign_bucket = foreign_bucket)
 }
 
 encode_storage_path <- function(path) {
@@ -296,6 +360,31 @@ db_error_sqlstate <- function(error) {
   if (length(hit)) hit[[1]] else NA_character_
 }
 
+relation_block_for_media <- function(relations, media_id) {
+  if (!nrow(relations)) {
+    return(list(
+      blocked = FALSE, expected_relation_ids = numeric(),
+      unexpected_relation_ids = numeric(), evidenced_relation_ids = numeric()
+    ))
+  }
+  touching <- relations[relations$media_id == media_id, , drop = FALSE]
+  expected <- !is.na(touching$rolle) & touching$rolle == "afbildet" &
+    !is.na(touching$subjekt_type) & touching$subjekt_type == "person" &
+    !is.na(touching$objekt_type) & touching$objekt_type == "media" &
+    !is.na(touching$objekt_id) & touching$objekt_id == media_id
+  unexpected_ids <- sort(as.numeric(touching$relation_id[!expected]))
+  evidence_unknown_or_present <- is.na(touching$has_evidence) | touching$has_evidence
+  evidenced_ids <- sort(as.numeric(
+    touching$relation_id[expected & evidence_unknown_or_present]
+  ))
+  list(
+    blocked = length(unexpected_ids) > 0L || length(evidenced_ids) > 0L,
+    expected_relation_ids = sort(as.numeric(touching$relation_id[expected])),
+    unexpected_relation_ids = unexpected_ids,
+    evidenced_relation_ids = evidenced_ids
+  )
+}
+
 default_janitor_db_ops <- function() {
   list(
     begin = DBI::dbBegin,
@@ -326,8 +415,15 @@ default_janitor_db_ops <- function() {
 
 delete_stranded_media_row <- function(con, media_id, bucket, paths,
                                       relation_ids = numeric(), has_evidence = logical(),
-                                      db_ops = default_janitor_db_ops(), storage_delete) {
-  if (length(has_evidence) && any(has_evidence)) {
+                                      db_ops = default_janitor_db_ops(), storage_delete,
+                                      has_unexpected_relation = FALSE) {
+  if (length(bucket) != 1L || is.na(bucket) || bucket != MEDIA_JANITOR_BUCKET) {
+    return(list(status = "manuel", detail = "fremmed bucket"))
+  }
+  if (isTRUE(has_unexpected_relation)) {
+    return(list(status = "manuel", detail = "uventet relation til media"))
+  }
+  if (length(has_evidence) && any(is.na(has_evidence) | has_evidence)) {
     return(list(status = "manuel", detail = "relation har evidens"))
   }
   committed <- FALSE
@@ -435,6 +531,7 @@ storage_api_request <- function(context, method, endpoint, body = NULL) {
 
 make_storage_list_page <- function(context) {
   function(bucket, cursor, limit) {
+    assert_media_janitor_bucket(bucket)
     body <- list(prefix = "", limit = as.integer(limit), with_delimiter = FALSE,
                  sortBy = list(column = "name", order = "asc"))
     if (!is.null(cursor)) body$cursor <- cursor
@@ -447,6 +544,7 @@ make_storage_list_page <- function(context) {
 
 make_storage_delete <- function(context) {
   function(bucket, paths) {
+    assert_media_janitor_bucket(bucket)
     paths <- sort(unique(paths))
     for (start in seq.int(1L, length(paths), by = 1000L)) {
       batch <- paths[start:min(start + 999L, length(paths))]
@@ -461,6 +559,7 @@ make_storage_delete <- function(context) {
 
 make_storage_download <- function(context) {
   function(bucket, path, dest) {
+    assert_media_janitor_bucket(bucket)
     response <- storage_api_request(
       context, "GET",
       paste0("object/", encode_storage_path(bucket), "/", encode_storage_path(path))
@@ -496,14 +595,18 @@ fetch_media_janitor_snapshot <- function(con) {
     "FROM media_variant ORDER BY media_id, tier, id"
   ))
   relations <- DBI::dbGetQuery(con, paste(
-    "SELECT r.id AS relation_id,",
-    "CASE WHEN r.objekt_type='media' THEN r.objekt_id ELSE r.subjekt_id END AS media_id,",
+    "WITH touching AS (",
+    " SELECT r.*, r.subjekt_id AS media_id FROM relation r WHERE r.subjekt_type='media'",
+    " UNION",
+    " SELECT r.*, r.objekt_id AS media_id FROM relation r WHERE r.objekt_type='media'",
+    ")",
+    "SELECT r.id AS relation_id, r.subjekt_type, r.subjekt_id,",
+    "r.objekt_type, r.objekt_id, r.rolle,",
+    "r.media_id,",
     "(EXISTS (SELECT 1 FROM assertion a WHERE a.target_type='relation' AND a.target_id=r.id)",
     " OR EXISTS (SELECT 1 FROM conclusion c WHERE c.target_type='relation' AND c.target_id=r.id)",
     " OR EXISTS (SELECT 1 FROM note n WHERE n.target_type='relation' AND n.target_id=r.id)) AS has_evidence",
-    "FROM relation r",
-    "WHERE r.rolle='afbildet'",
-    "  AND ((r.objekt_type='media') OR (r.subjekt_type='media'))",
+    "FROM touching r",
     "ORDER BY media_id, relation_id"
   ))
   list(media = media, variants = variants, relations = relations)
@@ -514,19 +617,31 @@ make_report_before_mutation <- function(snapshot, objects, findings, orphans, no
   relations <- snapshot$relations
   for (i in seq_len(nrow(findings$stranded))) {
     item <- findings$stranded[i, , drop = FALSE]
-    evidence <- relations[relations$media_id == item$media_id & relations$has_evidence, , drop = FALSE]
-    recommendation <- if (is.na(item$created_at)) {
-      "vurdér manuelt"
-    } else if (nrow(evidence)) {
+    relation_block <- relation_block_for_media(relations, item$media_id)
+    recommendation <- if (length(relation_block$unexpected_relation_ids)) {
+      "manuel afgørelse krævet: uventet relation til media"
+    } else if (length(relation_block$evidenced_relation_ids)) {
       "manuel afgørelse krævet: relation har evidens"
+    } else if (is.na(item$created_at)) {
+      "vurdér manuelt"
     } else if (isTRUE(item$sletbar)) {
       "sletbar med --slet"
     } else {
       "afvent frist"
     }
     rows[[length(rows) + 1L]] <- build_report_row(
-      "a_strandet", item$media_id, item$sti, item$created_at, now, recommendation
+      "a_strandet", item$media_id, item$sti, item$created_at, now, recommendation,
+      bucket = item$bucket
     )
+  }
+  if (nrow(findings$foreign_bucket)) {
+    for (i in seq_len(nrow(findings$foreign_bucket))) {
+      item <- findings$foreign_bucket[i, , drop = FALSE]
+      rows[[length(rows) + 1L]] <- build_report_row(
+        "x_fremmed_bucket", item$media_id, item$sti, item$created_at, now,
+        "manuel afgørelse krævet: fremmed bucket", bucket = item$bucket
+      )
+    }
   }
   if (nrow(orphans)) {
     for (i in seq_len(nrow(orphans))) {
@@ -534,7 +649,8 @@ make_report_before_mutation <- function(snapshot, objects, findings, orphans, no
         is.na(orphans$created_at[[i]])
       ) "vurdér manuelt" else "afvent frist"
       rows[[length(rows) + 1L]] <- build_report_row(
-        "b_forældreløs", NA, orphans$name[[i]], orphans$created_at[[i]], now, recommendation
+        "b_forældreløs", NA, orphans$name[[i]], orphans$created_at[[i]], now, recommendation,
+        bucket = orphans$bucket[[i]]
       )
     }
   }
@@ -543,7 +659,7 @@ make_report_before_mutation <- function(snapshot, objects, findings, orphans, no
       item <- findings$variant_holes[i, , drop = FALSE]
       rows[[length(rows) + 1L]] <- build_report_row(
         "c_variant_hul", item$media_id, item$sti, item$created_at, now,
-        "regenerér variant manuelt"
+        "regenerér variant manuelt", bucket = item$bucket
       )
     }
   }
@@ -572,26 +688,14 @@ run_media_janitor <- function(args = commandArgs(trailingOnly = TRUE), now = Sys
   storage_download <- make_storage_download(storage)
 
   snapshot <- fetch_media_janitor_snapshot(con)
-  buckets <- sort(unique(c(as.character(snapshot$media$bucket), "media")))
-  buckets <- buckets[!is.na(buckets) & nzchar(buckets)]
+  buckets <- janitor_storage_buckets(snapshot$media)
   bucket_objects <- lapply(buckets, function(bucket) {
     out <- list_storage_objects(bucket, list_page)
     out$bucket <- bucket
     out
   })
   objects <- do.call(rbind, bucket_objects)
-  media_bucket <- snapshot$media
-  variant_media <- merge(
-    snapshot$variants, snapshot$media[, c("id", "bucket")],
-    by.x = "media_id", by.y = "id", all.x = TRUE, sort = FALSE
-  )
-  known <- unique(rbind(
-    data.frame(bucket = media_bucket$bucket, storage_path = media_bucket$storage_path),
-    data.frame(bucket = variant_media$bucket, storage_path = variant_media$storage_path)
-  ))
-  orphan_idx <- !paste(objects$bucket, objects$name, sep = "\r") %in%
-    paste(known$bucket, known$storage_path, sep = "\r")
-  orphans <- objects[orphan_idx, , drop = FALSE]
+  orphans <- find_orphan_objects(objects, snapshot$media, snapshot$variants)
   orphans$sletbar <- eligible_by_age(orphans$created_at, now, options$frist_dage)
   orphans <- orphans[order(orphans$bucket, orphans$name), , drop = FALSE]
 
@@ -631,7 +735,8 @@ run_media_janitor <- function(args = commandArgs(trailingOnly = TRUE), now = Sys
       category <- "d_sha_backfill"
     }
     report <- rbind(report, build_report_row(
-      category, item$media_id, item$sti, item$created_at, now, recommendation
+      category, item$media_id, item$sti, item$created_at, now, recommendation,
+      bucket = item$bucket
     ))
     sha_known <- rbind(sha_known, data.frame(id = item$media_id, sha256 = result$sha256))
     sha_results[[as.character(item$media_id)]] <- result
@@ -643,12 +748,16 @@ run_media_janitor <- function(args = commandArgs(trailingOnly = TRUE), now = Sys
     delete_stranded = function(item) {
       id <- as.character(item$media_id[[1]])
       rel <- relation_rows[[id]] %||% data.frame(relation_id = numeric(), has_evidence = logical())
+      relation_block <- relation_block_for_media(rel, item$media_id[[1]])
       vars <- variant_rows[[id]] %||% data.frame(storage_path = character())
       media_row <- snapshot$media[snapshot$media$id == item$media_id[[1]], , drop = FALSE]
       paths <- c(media_row$storage_path, vars$storage_path)
       result <- delete_stranded_media_row(
         con, item$media_id[[1]], media_row$bucket[[1]], paths,
-        rel$relation_id, rel$has_evidence, storage_delete = storage_delete
+        relation_block$expected_relation_ids,
+        rel$has_evidence[rel$relation_id %in% relation_block$expected_relation_ids],
+        storage_delete = storage_delete,
+        has_unexpected_relation = length(relation_block$unexpected_relation_ids) > 0L
       )
       if (!identical(result$status, "slettet")) {
         idx <- report$kategori == "a_strandet" & report$media_id == item$media_id[[1]]
@@ -700,7 +809,8 @@ run_media_janitor <- function(args = commandArgs(trailingOnly = TRUE), now = Sys
   report <- sort_media_janitor_report(report)
   path <- write_media_janitor_report(report)
   counts <- table(factor(report$kategori, levels = c(
-    "a_strandet", "b_forældreløs", "c_variant_hul", "d_sha_backfill", "d_ægte_dublet"
+    "a_strandet", "b_forældreløs", "c_variant_hul", "d_sha_backfill", "d_ægte_dublet",
+    "x_fremmed_bucket"
   )))
   mode <- paste(c(if (options$slet) "SLET" else "RAPPORT",
                   if (options$backfill_sha) "BACKFILL-SHA"), collapse = "+")
