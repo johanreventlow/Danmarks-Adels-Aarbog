@@ -8,6 +8,8 @@ import {
   mapMediaAnvendelse,
   mapMediaBibliotekRows,
   mapPersonMediaRows,
+  mediaAnvendelseQuerySpecs,
+  mediaBibliotekQuerySpecs,
   mapStories,
   storyPrefillFraPost,
 } from '../redaktionRead';
@@ -289,6 +291,17 @@ describe('mapMediaBibliotekRows', () => {
       byte_size: 500, bredde: 50, hoejde: 60 };
     expect(mapMediaBibliotekRows([row, row], [], [], []).every((m) => !m.koeer.includes('dubletter'))).toBe(true);
   });
+
+  it('bevarer max bigint media- og målid gennem de faktiske rå bibliotek-shapes', () => {
+    const max = '9223372036854775807';
+    const row = { slags: 'foto', titel: null, kunstner: null, datering: null, storage_path: null,
+      maa_publiceres: true, rettigheder_status: 'public_domain', mime_type: 'image/jpeg',
+      original_filnavn: null, created_at: null, id: max, upload_status: 'klar',
+      byte_size: 500, bredde: 50, hoejde: 60 };
+    expect(mapMediaBibliotekRows(
+      [row], [{ subjekt_id: max, objekt_id: max }], [], [{ maal_id: max }],
+    )[0]).toMatchObject({ id: max, antalAfbildet: 1, antalMentions: 1 });
+  });
 });
 
 describe('mapMediaAnvendelse', () => {
@@ -320,5 +333,42 @@ describe('mapMediaAnvendelse', () => {
       { kildeType: 'note', kildeId: '99', subjektNavn: '(ukendt subjekt)' },
       { kildeType: 'narrative', kildeId: '302', subjektNavn: 'lineage #8' },
     ]);
+  });
+
+  it('bevarer max bigint for relation, mål, mention og narrativ-subjekt', () => {
+    const max = '9223372036854775807';
+    expect(mapMediaAnvendelse({
+      personRelationer: [{ id: max, subjekt_id: max }],
+      objektRelationer: [{ id: max, objekt_type: 'estate', objekt_id: max }],
+      mentions: [{ kilde_type: 'narrative', kilde_id: max }],
+      narrativer: [{ id: max, subjekt_type: 'person', subjekt_id: max }],
+      navneBySubjekt: new Map([[`person:${max}`, 'Stor person'], [`estate:${max}`, 'Stort gods']]),
+    })).toEqual({
+      afbildet: [
+        { type: 'person', id: max, navn: 'Stor person', relationId: max },
+        { type: 'estate', id: max, navn: 'Stort gods', relationId: max },
+      ],
+      mentions: [{ kildeType: 'narrative', kildeId: max, subjektNavn: 'Stor person' }],
+    });
+  });
+});
+
+describe('merge-læsequeries caster bigint før JSON-dekodning', () => {
+  it('biblioteksqueries caster media- og relationsmål; filtre er separate specs', () => {
+    expect(mediaBibliotekQuerySpecs()).toEqual({
+      media: { table: 'media', select: expect.stringContaining('id::text') },
+      personRelationer: { table: 'relation', select: 'subjekt_id::text,objekt_id::text' },
+      objektRelationer: { table: 'relation', select: 'subjekt_id::text,objekt_type,objekt_id::text' },
+      mentions: { table: 'text_mention', select: 'maal_id::text' },
+    });
+  });
+
+  it('anvendelsesqueries caster relation-, mål-, mention- og narrativ-id', () => {
+    expect(mediaAnvendelseQuerySpecs()).toEqual({
+      personRelationer: { table: 'relation', select: 'id::text,subjekt_id::text' },
+      objektRelationer: { table: 'relation', select: 'id::text,objekt_type,objekt_id::text' },
+      mentions: { table: 'text_mention', select: 'kilde_type,kilde_id::text' },
+      narrativer: { table: 'narrative', select: 'id::text,subjekt_type,subjekt_id::text' },
+    });
   });
 });

@@ -3,6 +3,7 @@ import {
   buildMediaMergePlan,
   executeMediaMerge,
   findMediaMergeCandidates,
+  mediaMentionFingerprint,
   sortMediaForQueue,
 } from '../mediaMerge';
 
@@ -63,6 +64,12 @@ describe('mediaMerge — autoritativ, genoptagelig orkestrering', () => {
   const estate = { type: 'estate', id: '7', navn: 'Gods', relationId: '81' };
   const mention = { kildeType: 'narrative', kildeId: '22', subjektNavn: 'Fortællingens person' };
 
+  it('fingerprinter mention-snapshots deterministisk uafhængigt af rækkefølge', () => {
+    const anden = { kildeType: 'note', kildeId: '9223372036854775807', subjektNavn: 'Et navn' };
+    expect(mediaMentionFingerprint([mention, anden])).toBe(mediaMentionFingerprint([anden, mention]));
+    expect(mediaMentionFingerprint([mention])).not.toBe(mediaMentionFingerprint([anden]));
+  });
+
   it('bygger fjern-før-flyt i korrekt rækkefølge og med mention-advarselsmetadata', () => {
     const plan = buildMediaMergePlan({
       copyId: '9223372036854775807', copyStatus: 'klar', originalId: '9007199254740993',
@@ -95,7 +102,10 @@ describe('mediaMerge — autoritativ, genoptagelig orkestrering', () => {
 
   it('dry-run henter autoritativ tilstand og returnerer sekvensen uden executor-kald', async () => {
     const calls: string[] = [];
-    const result = await executeMediaMerge({ copyId: '91', originalId: '92', dryRun: true }, {
+    const result = await executeMediaMerge({
+      copyId: '91', originalId: '92', dryRun: true,
+      confirmedMentionFingerprint: mediaMentionFingerprint([mention]),
+    }, {
       loadState: async () => {
         calls.push('load');
         return { copyStatus: 'klar', copyAnvendelse: anvendelse([estate], [mention]), originalAnvendelse: anvendelse() };
@@ -103,8 +113,27 @@ describe('mediaMerge — autoritativ, genoptagelig orkestrering', () => {
       execute: async () => { calls.push('execute'); },
     });
     expect(calls).toEqual(['load']);
+    expect(result.kind).toBe('dry-run');
+    if (result.kind === 'mentions-changed') throw new Error('unexpected mention guard');
     expect(result.plan.steps.map((s) => s.kind)).toEqual(['soft-delete-copy', 'link-original', 'delete-copy-relation']);
     expect(result.plan.mentions).toEqual([mention]);
+  });
+
+  it.each([
+    ['tilføjet', [mention], [mention, { kildeType: 'narrative', kildeId: '23', subjektNavn: 'Ny' }]],
+    ['fjernet', [mention], []],
+    ['ændret', [mention], [{ ...mention, subjektNavn: 'Nyt navn' }]],
+  ] as const)('stopper uden writes når en mention er %s siden bekræftelsen', async (_case, confirmed, current) => {
+    const calls: string[] = [];
+    const result = await executeMediaMerge({
+      copyId: '91', originalId: '92', dryRun: false,
+      confirmedMentionFingerprint: mediaMentionFingerprint([...confirmed]),
+    }, {
+      loadState: async () => ({ copyStatus: 'klar', copyAnvendelse: anvendelse([], [...current]), originalAnvendelse: anvendelse() }),
+      execute: async () => { calls.push('write'); },
+    });
+    expect(result).toMatchObject({ kind: 'mentions-changed', state: { copyAnvendelse: { mentions: [...current] } } });
+    expect(calls).toEqual([]);
   });
 
   it('kan genkøres efter afbrydelse: fjernet kopi springes over og en allerede flyttet relation afkobles', async () => {
@@ -129,18 +158,21 @@ describe('mediaMerge — autoritativ, genoptagelig orkestrering', () => {
         }
       },
     };
-    await expect(executeMediaMerge({ copyId: '91', originalId: '92', dryRun: false }, deps))
+    await expect(executeMediaMerge({ copyId: '91', originalId: '92', dryRun: false,
+      confirmedMentionFingerprint: mediaMentionFingerprint([]) }, deps))
       .rejects.toThrow('netværk afbrudt');
     expect([copyStatus, originalHasPerson, copyHasPerson]).toEqual(['fjernet', true, true]);
 
-    await executeMediaMerge({ copyId: '91', originalId: '92', dryRun: false }, deps);
+    await executeMediaMerge({ copyId: '91', originalId: '92', dryRun: false,
+      confirmedMentionFingerprint: mediaMentionFingerprint([]) }, deps);
     expect(calls).toEqual(['fjernMedia', 'tilknytMedia', 'sletRelation', 'sletRelation']);
     expect(copyHasPerson).toBe(false);
   });
 
   it('behandler kun den præcise already-linked-race idempotent og fortsætter med afkobling', async () => {
     const calls: string[] = [];
-    await executeMediaMerge({ copyId: '91', originalId: '92', dryRun: false }, {
+    await executeMediaMerge({ copyId: '91', originalId: '92', dryRun: false,
+      confirmedMentionFingerprint: mediaMentionFingerprint([]) }, {
       loadState: async () => ({ copyStatus: 'fjernet', copyAnvendelse: anvendelse([person]), originalAnvendelse: anvendelse() }),
       execute: async (change) => {
         calls.push(change.art);
@@ -152,7 +184,8 @@ describe('mediaMerge — autoritativ, genoptagelig orkestrering', () => {
 
   it('stopper på en anden linkfejl før kopiens relation slettes', async () => {
     const calls: string[] = [];
-    await expect(executeMediaMerge({ copyId: '91', originalId: '92', dryRun: false }, {
+    await expect(executeMediaMerge({ copyId: '91', originalId: '92', dryRun: false,
+      confirmedMentionFingerprint: mediaMentionFingerprint([]) }, {
       loadState: async () => ({ copyStatus: 'fjernet', copyAnvendelse: anvendelse([person]), originalAnvendelse: anvendelse() }),
       execute: async (change) => {
         calls.push(change.art);

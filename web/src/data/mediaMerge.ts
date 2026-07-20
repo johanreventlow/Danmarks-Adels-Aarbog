@@ -22,6 +22,13 @@ export type MediaMergeState = {
   originalAnvendelse: MediaAnvendelse;
 };
 
+/** Stabil snapshot-identitet for præcis det mention-varsel redaktøren har gennemgået. */
+export function mediaMentionFingerprint(mentions: readonly MediaAnvendelse['mentions'][number][]): string {
+  return JSON.stringify(mentions
+    .map((mention) => [mention.kildeType, mention.kildeId, mention.subjektNavn] as const)
+    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
+}
+
 function validCreatedAt(value: string | null): number | null {
   if (!value) return null;
   const timestamp = Date.parse(value);
@@ -132,15 +139,24 @@ function isAlreadyLinkedRace(error: unknown): boolean {
 }
 
 export async function executeMediaMerge(
-  args: { copyId: string; originalId: string; dryRun: boolean },
+  args: { copyId: string; originalId: string; dryRun: boolean; confirmedMentionFingerprint: string },
   deps: {
     loadState: () => Promise<MediaMergeState>;
     execute: (change: Change) => Promise<void>;
   },
-): Promise<{ kind: 'dry-run' | 'completed'; plan: MediaMergePlan }> {
+): Promise<
+  | { kind: 'mentions-changed'; state: MediaMergeState; mentionFingerprint: string }
+  | { kind: 'dry-run' | 'completed'; plan: MediaMergePlan }
+> {
   // Tilstand og relationer hentes ved hvert forsøg. Det gør papirkurv-status og en delvist flyttet
   // relation autoritative ved rerun i stedet for at stole på den åbne dialogs gamle liste-state.
   const state = await deps.loadState();
+  const currentMentionFingerprint = mediaMentionFingerprint(state.copyAnvendelse.mentions);
+  if (currentMentionFingerprint !== args.confirmedMentionFingerprint) {
+    // Vigtigt: ingen plan eksekveres, før redaktøren har set og eksplicit genbekræftet det nye
+    // autoritative varsel. Gælder både tilføjede, fjernede og ændrede mention-detaljer.
+    return { kind: 'mentions-changed', state, mentionFingerprint: currentMentionFingerprint };
+  }
   const plan = buildMediaMergePlan({ ...args, ...state });
   if (args.dryRun) return { kind: 'dry-run', plan };
 

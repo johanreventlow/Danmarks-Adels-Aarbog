@@ -27,7 +27,7 @@ import {
   executeMediaDedupResume, fetchExistingMediaBySha, fetchMediaLinked,
   type MediaDedupHit, type MediaDedupTarget,
 } from './data/mediaDedup';
-import { executeMediaMerge, findMediaMergeCandidates, sortMediaForQueue } from './data/mediaMerge';
+import { executeMediaMerge, findMediaMergeCandidates, mediaMentionFingerprint, sortMediaForQueue } from './data/mediaMerge';
 import { withUrl } from './data/media';
 import { buildBrowse } from './data/browse';
 import { initials } from './data/format';
@@ -1318,8 +1318,11 @@ export default function Redaktion() {
     // Kun bibliotekets tværgående filside ejer flet-flowet. Kandidatfunktionen tillader en
     // `fjernet` kopi, så et afbrudt flow stadig kan fortsættes fra papirkurven.
     const fletKandidater = entity === 'media' ? findMediaMergeCandidates(m, mediaBibliotek) : [];
-    const fletMedia = async (originalId: string) => {
-      const result = await executeMediaMerge({ copyId: m.id, originalId, dryRun }, {
+    const fletMedia = async (originalId: string, confirmedMentions: MediaAnvendelse['mentions']) => {
+      const result = await executeMediaMerge({
+        copyId: m.id, originalId, dryRun,
+        confirmedMentionFingerprint: mediaMentionFingerprint(confirmedMentions),
+      }, {
         loadState: async () => {
           const current = await fetchMediaBibliotek();
           const copy = current.find((item) => item.id === m.id);
@@ -1351,6 +1354,11 @@ export default function Redaktion() {
         }
         throw error;
       });
+      if (result.kind === 'mentions-changed') {
+        // Ingen writes er kørt. Opdatér varslet og kræv et nyt, eksplicit klik i overlayet.
+        setMediaAnvendelse(result.state.copyAnvendelse); setMediaAnvendelseFejl('');
+        return { kind: 'mentions-changed' as const, mentions: result.state.copyAnvendelse.mentions };
+      }
       const preview = result.plan.steps.map((step) => `${step.description}: ${describeCall(planCall(step.change, role)).split('\n')[0]}`);
       setWriteView({
         title: result.kind === 'dry-run' ? 'Dry-run · blød medieflet' : 'Blød medieflet gennemført',
@@ -1368,7 +1376,7 @@ export default function Redaktion() {
           setLoadErr(`Fletningen er gennemført, men visningen kunne ikke opdateres: ${oversaetFejl(String((error as Error)?.message ?? error))}`);
         }
       }
-      return { dryRun: result.kind === 'dry-run', lines: preview };
+      return { kind: result.kind, lines: preview };
     };
     return <>
       <MediaDetaljeOverlay

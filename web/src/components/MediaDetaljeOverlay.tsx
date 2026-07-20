@@ -12,7 +12,9 @@ const input: CSSProperties = { width: '100%', fontSize: 13, color: C.ink, backgr
 const label: CSSProperties = { fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: C.muted2, margin: '10px 0 4px' };
 type DetaljeMedia = Omit<PersonMedia, 'relationId'> & { relationId?: string };
 type FletKandidat = Pick<DetaljeMedia, 'id' | 'titel' | 'slags' | 'thumbUrl' | 'byteSize' | 'bredde' | 'hoejde'>;
-export type MediaFletResultat = { dryRun: boolean; lines: string[] };
+export type MediaFletResultat =
+  | { kind: 'dry-run' | 'completed'; lines: string[] }
+  | { kind: 'mentions-changed'; mentions: MediaAnvendelse['mentions'] };
 
 export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKandidater = [], onClose, onPreview, onGemMetadata, onGemRettigheder, onFjern, onFjernTilknytning, onTilknyt, onFlet, onSlet, onGenopret }: {
   media: DetaljeMedia;
@@ -26,7 +28,7 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
   onFjern: () => void;
   onFjernTilknytning?: (relationId: string) => void;
   onTilknyt?: () => void;
-  onFlet?: (originalId: string) => Promise<MediaFletResultat>;
+  onFlet?: (originalId: string, confirmedMentions: MediaAnvendelse['mentions']) => Promise<MediaFletResultat>;
   onSlet: () => void;
   onGenopret: () => void;
 }) {
@@ -38,11 +40,12 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
   const [fletBusy, setFletBusy] = useState(false);
   const [fletFejl, setFletFejl] = useState('');
   const [fletResultat, setFletResultat] = useState<MediaFletResultat | null>(null);
+  const [fletReviewMentions, setFletReviewMentions] = useState<MediaAnvendelse['mentions'] | null>(null);
   useEffect(() => {
     setMeta({ titel: media.titel ?? '', slags: media.slags || 'foto', kunstner: media.kunstner ?? '', datering: media.datering ?? '' });
     setRet({ status: media.rettighederStatus || 'ukendt', maaPubliceres: media.maaPubliceres, licens: '', kildehenvisning: '', gengivelsestilladelse: '', kildeFritekst: '' });
     setBekraeftSlet(false);
-    setFletOpen(false); setFletOriginalId(''); setFletBusy(false); setFletFejl(''); setFletResultat(null);
+    setFletOpen(false); setFletOriginalId(''); setFletBusy(false); setFletFejl(''); setFletResultat(null); setFletReviewMentions(null);
   }, [media.id, media.titel, media.slags, media.kunstner, media.datering, media.rettighederStatus, media.maaPubliceres]);
 
   const metadataPayload: Record<string, unknown> = {};
@@ -61,17 +64,21 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
   const antalMentions = anvendelse?.mentions.length ?? 0;
   const erIBrug = antalAfbildet + antalMentions > 0;
   const sletAdvarsel = `Bruges på ${antalAfbildet} ${antalAfbildet === 1 ? 'tilknytning' : 'tilknytninger'} og i ${antalMentions} ${antalMentions === 1 ? 'narrativ' : 'narrativer'} — slet alligevel? Mentions bliver stående som inaktive tokens.`;
+  const visteFletMentions = fletReviewMentions ?? anvendelse?.mentions ?? [];
+  const fletSelectId = `media-flet-original-${media.id}`;
 
   return (
     <div onClick={() => { if (!fletBusy) onClose(); }} style={{ position: 'fixed', inset: 0, background: 'rgba(34,31,26,.55)', zIndex: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: 720, maxWidth: '100%', maxHeight: '92vh', overflowY: 'auto', background: C.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.16)', boxShadow: '0 24px 70px rgba(0,0,0,.35)', padding: 20 }}>
+      <div aria-busy={fletBusy} onClick={(e) => e.stopPropagation()} style={{ width: 720, maxWidth: '100%', maxHeight: '92vh', overflowY: 'auto', background: C.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.16)', boxShadow: '0 24px 70px rgba(0,0,0,.35)', padding: 20 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14 }}>
           <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 25, fontWeight: 600, flex: 1 }}>{media.titel || 'Medie'}</div>
           <button type="button" disabled={fletBusy} onClick={onClose} style={{ border: 0, background: 'transparent', cursor: fletBusy ? 'default' : 'pointer', fontSize: 20, color: C.muted, opacity: fletBusy ? .4 : 1 }}>×</button>
         </div>
+        <fieldset disabled={fletBusy} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         {erBillede ? (
-          <img src={media.url!} alt={media.titel ?? media.slags} onClick={media.uploadStatus === 'klar' ? onPreview : undefined}
-            style={{ width: '100%', maxHeight: 330, objectFit: 'contain', borderRadius: 10, background: C.beige, cursor: media.uploadStatus === 'klar' ? 'zoom-in' : 'default', opacity: media.uploadStatus === 'fjernet' ? .5 : 1 }} />
+          <img src={media.url!} alt={media.titel ?? media.slags} aria-disabled={fletBusy}
+            onClick={media.uploadStatus === 'klar' && !fletBusy ? onPreview : undefined}
+            style={{ width: '100%', maxHeight: 330, objectFit: 'contain', borderRadius: 10, background: C.beige, cursor: media.uploadStatus === 'klar' && !fletBusy ? 'zoom-in' : 'default', opacity: media.uploadStatus === 'fjernet' ? .5 : 1 }} />
         ) : <div style={{ height: 180, borderRadius: 10, background: C.beige, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 7, opacity: media.uploadStatus === 'fjernet' ? .5 : 1 }}>
           <span aria-hidden style={{ fontSize: 34, color: C.muted }}>▤</span>
           <span style={{ fontSize: 12, color: C.muted }}>{media.slags || 'dokument'}</span>
@@ -82,15 +89,15 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
           <div style={{ fontWeight: 700, fontSize: 13 }}>Metadata</div>
           <div style={label}>Slags</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {mediaSlags.map((s) => <button type="button" key={s} onClick={() => setMeta((m) => ({ ...m, slags: s }))}
+            {mediaSlags.map((s) => <button type="button" key={s} disabled={fletBusy} onClick={() => { if (!fletBusy) setMeta((m) => ({ ...m, slags: s })); }}
               style={{ border: 0, borderRadius: 6, padding: '5px 9px', cursor: 'pointer', background: meta.slags === s ? C.bordeaux : C.beige, color: meta.slags === s ? '#fff' : C.muted }}>{s}</button>)}
           </div>
-          <div style={label}>Titel</div><input value={meta.titel} onChange={(e) => setMeta((m) => ({ ...m, titel: e.target.value }))} style={input} />
+          <div style={label}>Titel</div><input disabled={fletBusy} value={meta.titel} onChange={(e) => { if (!fletBusy) setMeta((m) => ({ ...m, titel: e.target.value })); }} style={input} />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div><div style={label}>Kunstner</div><input value={meta.kunstner} onChange={(e) => setMeta((m) => ({ ...m, kunstner: e.target.value }))} style={input} /></div>
-            <div><div style={label}>Datering</div><input value={meta.datering} onChange={(e) => setMeta((m) => ({ ...m, datering: e.target.value }))} style={input} /></div>
+            <div><div style={label}>Kunstner</div><input disabled={fletBusy} value={meta.kunstner} onChange={(e) => { if (!fletBusy) setMeta((m) => ({ ...m, kunstner: e.target.value })); }} style={input} /></div>
+            <div><div style={label}>Datering</div><input disabled={fletBusy} value={meta.datering} onChange={(e) => { if (!fletBusy) setMeta((m) => ({ ...m, datering: e.target.value })); }} style={input} /></div>
           </div>
-          <button type="button" disabled={!Object.keys(metadataPayload).length} onClick={() => onGemMetadata(metadataPayload)}
+          <button type="button" disabled={fletBusy || !Object.keys(metadataPayload).length} onClick={() => { if (!fletBusy) onGemMetadata(metadataPayload); }}
             style={{ marginTop: 12, border: 0, borderRadius: 7, padding: '8px 13px', cursor: Object.keys(metadataPayload).length ? 'pointer' : 'default', background: C.green, color: '#fff', opacity: Object.keys(metadataPayload).length ? 1 : .45 }}>Gem metadata</button>
         </section>
 
@@ -98,33 +105,33 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
           <div style={{ fontWeight: 700, fontSize: 13 }}>Rettigheder og publicering</div>
           <div style={label}>Status</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {RETTIGHED_STATUS.map((s) => <button type="button" key={s} onClick={() => setRet((r) => ({ ...r, status: s }))}
+            {RETTIGHED_STATUS.map((s) => <button type="button" key={s} disabled={fletBusy} onClick={() => { if (!fletBusy) setRet((r) => ({ ...r, status: s })); }}
               style={{ border: 0, borderRadius: 6, padding: '5px 9px', cursor: 'pointer', background: ret.status === s ? C.bordeaux : C.beige, color: ret.status === s ? '#fff' : C.muted }}>{s}</button>)}
           </div>
           <label style={{ display: 'flex', gap: 7, alignItems: 'center', marginTop: 12, fontSize: 12.5, color: C.muted }}>
-            <input type="checkbox" checked={ret.maaPubliceres} onChange={(e) => setRet((r) => ({ ...r, maaPubliceres: e.target.checked }))} /> Må publiceres
+            <input type="checkbox" disabled={fletBusy} checked={ret.maaPubliceres} onChange={(e) => { if (!fletBusy) setRet((r) => ({ ...r, maaPubliceres: e.target.checked })); }} /> Må publiceres
           </label>
           {warning && <div style={{ marginTop: 8, color: C.red, fontSize: 12 }}>Advarsel: status er {ret.status}, men mediet er markeret til publicering.</div>}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div><div style={label}>Licens</div><input value={ret.licens} onChange={(e) => setRet((r) => ({ ...r, licens: e.target.value }))} style={input} /></div>
-            <div><div style={label}>Kildehenvisning</div><input value={ret.kildehenvisning} onChange={(e) => setRet((r) => ({ ...r, kildehenvisning: e.target.value }))} style={input} /></div>
-            <div><div style={label}>Gengivelsestilladelse</div><input value={ret.gengivelsestilladelse} onChange={(e) => setRet((r) => ({ ...r, gengivelsestilladelse: e.target.value }))} style={input} /></div>
-            <div><div style={label}>Kildenote</div><input value={ret.kildeFritekst} onChange={(e) => setRet((r) => ({ ...r, kildeFritekst: e.target.value }))} style={input} /></div>
+            <div><div style={label}>Licens</div><input disabled={fletBusy} value={ret.licens} onChange={(e) => { if (!fletBusy) setRet((r) => ({ ...r, licens: e.target.value })); }} style={input} /></div>
+            <div><div style={label}>Kildehenvisning</div><input disabled={fletBusy} value={ret.kildehenvisning} onChange={(e) => { if (!fletBusy) setRet((r) => ({ ...r, kildehenvisning: e.target.value })); }} style={input} /></div>
+            <div><div style={label}>Gengivelsestilladelse</div><input disabled={fletBusy} value={ret.gengivelsestilladelse} onChange={(e) => { if (!fletBusy) setRet((r) => ({ ...r, gengivelsestilladelse: e.target.value })); }} style={input} /></div>
+            <div><div style={label}>Kildenote</div><input disabled={fletBusy} value={ret.kildeFritekst} onChange={(e) => { if (!fletBusy) setRet((r) => ({ ...r, kildeFritekst: e.target.value })); }} style={input} /></div>
           </div>
-          <button type="button" onClick={() => onGemRettigheder(ret)} style={{ marginTop: 12, border: 0, borderRadius: 7, padding: '8px 13px', cursor: 'pointer', background: C.green, color: '#fff' }}>Gem rettigheder</button>
+          <button type="button" disabled={fletBusy} onClick={() => { if (!fletBusy) onGemRettigheder(ret); }} style={{ marginTop: 12, border: 0, borderRadius: 7, padding: '8px 13px', cursor: fletBusy ? 'default' : 'pointer', background: C.green, color: '#fff' }}>Gem rettigheder</button>
         </section>
 
         <section style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid rgba(34,31,26,.1)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ fontWeight: 700, fontSize: 13, flex: 1 }}>Bruges på</div>
-            {onTilknyt ? <button type="button" disabled={!anvendelse} onClick={onTilknyt} style={{ border: '1px solid rgba(136,26,51,.28)', borderRadius: 7, padding: '6px 10px', cursor: anvendelse ? 'pointer' : 'default', background: C.paper, color: C.bordeaux, opacity: anvendelse ? 1 : .45 }}>Tilknyt til…</button> : null}
+            {onTilknyt ? <button type="button" disabled={fletBusy || !anvendelse} onClick={() => { if (!fletBusy) onTilknyt(); }} style={{ border: '1px solid rgba(136,26,51,.28)', borderRadius: 7, padding: '6px 10px', cursor: anvendelse && !fletBusy ? 'pointer' : 'default', background: C.paper, color: C.bordeaux, opacity: anvendelse && !fletBusy ? 1 : .45 }}>Tilknyt til…</button> : null}
           </div>
           {!anvendelse ? <div style={{ marginTop: 9, fontSize: 12, color: anvendelseFejl ? C.red : C.muted2 }}>{anvendelseFejl || 'Henter anvendelser…'}</div> : (
             <div style={{ marginTop: 8, display: 'grid', gap: 7 }}>
               {anvendelse.afbildet.map((a) => (
                 <div key={a.relationId} style={{ display: 'flex', alignItems: 'center', gap: 9, background: C.panel, borderRadius: 8, padding: '8px 10px' }}>
                   <span style={{ flex: 1, minWidth: 0, fontSize: 12.5 }}>{a.navn} <span style={{ color: C.muted2 }}>· {a.type}</span></span>
-                  {onFjernTilknytning ? <button type="button" onClick={() => onFjernTilknytning(a.relationId)} style={{ border: 0, background: 'transparent', color: C.red, cursor: 'pointer', padding: 2 }}>Fjern</button> : null}
+                  {onFjernTilknytning ? <button type="button" disabled={fletBusy} onClick={() => { if (!fletBusy) onFjernTilknytning(a.relationId); }} style={{ border: 0, background: 'transparent', color: C.red, cursor: fletBusy ? 'default' : 'pointer', padding: 2 }}>Fjern</button> : null}
                 </div>
               ))}
               {anvendelse.mentions.map((m) => (
@@ -156,8 +163,8 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
                   </div>
                   <span aria-hidden style={{ color: C.bordeaux, fontSize: 18 }}>→</span>
                   <div>
-                    <div style={label}>Original · beholdes</div>
-                    <select disabled={fletBusy} value={fletOriginalId} onChange={(e) => { setFletOriginalId(e.target.value); setFletFejl(''); setFletResultat(null); }} style={input}>
+                    <label htmlFor={fletSelectId} style={{ display: 'block', ...label }}>Original · beholdes</label>
+                    <select id={fletSelectId} disabled={fletBusy} value={fletOriginalId} onChange={(e) => { setFletOriginalId(e.target.value); setFletFejl(''); setFletResultat(null); setFletReviewMentions(null); }} style={input}>
                       <option value="">Vælg original…</option>
                       {fletKandidater.map((candidate) => (
                         <option key={candidate.id} value={candidate.id}>{candidate.titel || candidate.slags || 'Medie'} · id {candidate.id}</option>
@@ -165,10 +172,10 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
                     </select>
                   </div>
                 </div>
-                {anvendelse?.mentions.length ? (
+                {visteFletMentions.length ? (
                   <div role="alert" style={{ marginTop: 11, padding: '9px 10px', borderRadius: 8, background: '#f8ecef', border: '1px solid rgba(138,43,43,.2)', color: C.red, fontSize: 11.5, lineHeight: 1.45 }}>
-                    <b>Advarsel: {anvendelse.mentions.length} {anvendelse.mentions.length === 1 ? 'narrativ-mention flyttes' : 'narrativ-mentions flyttes'} ikke.</b>
-                    <div>{anvendelse.mentions.map((mention) => `${mention.kildeType} #${mention.kildeId} på ${mention.subjektNavn}`).join(' · ')}</div>
+                    <b>Advarsel: {visteFletMentions.length} {visteFletMentions.length === 1 ? 'narrativ-mention flyttes' : 'narrativ-mentions flyttes'} ikke.</b>
+                    <div>{visteFletMentions.map((mention) => `${mention.kildeType} #${mention.kildeId} på ${mention.subjektNavn}`).join(' · ')}</div>
                   </div>
                 ) : <div style={{ marginTop: 9, fontSize: 11.5, color: C.muted }}>Ingen narrativ-mentions på kopien.</div>}
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 11 }}>
@@ -176,17 +183,27 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
                   <button type="button" disabled={fletBusy || !fletOriginalId || !anvendelse} onClick={async () => {
                     if (!fletOriginalId || !anvendelse || fletBusy) return;
                     setFletBusy(true); setFletFejl(''); setFletResultat(null);
-                    try { setFletResultat(await onFlet(fletOriginalId)); }
+                    try {
+                      const result = await onFlet(fletOriginalId, visteFletMentions);
+                      if (result.kind === 'mentions-changed') setFletReviewMentions(result.mentions);
+                      setFletResultat(result);
+                    }
                     catch (error) { setFletFejl(String((error as Error)?.message ?? error)); }
                     finally { setFletBusy(false); }
                   }} style={{ border: 0, borderRadius: 7, padding: '8px 13px', cursor: fletBusy || !fletOriginalId || !anvendelse ? 'default' : 'pointer', background: C.bordeaux, color: '#fff', opacity: fletBusy || !fletOriginalId || !anvendelse ? .45 : 1 }}>
-                    {fletBusy ? 'Fletter…' : anvendelse ? 'Kør blød flet' : 'Henter anvendelser…'}
+                    {fletBusy ? 'Fletter…' : anvendelse
+                      ? fletResultat?.kind === 'mentions-changed' ? 'Gennemgået — kør blød flet' : 'Kør blød flet'
+                      : 'Henter anvendelser…'}
                   </button>
                 </div>
                 {fletFejl ? <div role="alert" style={{ marginTop: 9, color: C.red, fontSize: 11.5 }}>Fletning stoppede: {fletFejl}. Tilstanden er bevaret; kontrollér papirkurven og prøv igen.</div> : null}
-                {fletResultat ? (
-                  <div style={{ marginTop: 9, color: fletResultat.dryRun ? C.bordeaux : C.green, fontSize: 11.5 }}>
-                    {fletResultat.dryRun ? 'Dry-run — ingen ændringer udført:' : 'Fletning gennemført. Kopien ligger i papirkurven.'}
+                {fletResultat?.kind === 'mentions-changed' ? (
+                  <div role="alert" style={{ marginTop: 9, color: C.bordeaux, fontSize: 11.5 }}>
+                    Mentions er ændret siden din første gennemgang. Ingen ændringer er udført. Gennemgå advarslen og klik igen.
+                  </div>
+                ) : fletResultat ? (
+                  <div style={{ marginTop: 9, color: fletResultat.kind === 'dry-run' ? C.bordeaux : C.green, fontSize: 11.5 }}>
+                    {fletResultat.kind === 'dry-run' ? 'Dry-run — ingen ændringer udført:' : 'Fletning gennemført. Kopien ligger i papirkurven.'}
                     {fletResultat.lines.length ? <ol style={{ margin: '6px 0 0', paddingLeft: 19 }}>{fletResultat.lines.map((line, index) => <li key={`${index}:${line}`}>{line}</li>)}</ol> : null}
                   </div>
                 ) : null}
@@ -197,11 +214,11 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
 
         <section style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 20, paddingTop: 14, borderTop: '1px solid rgba(34,31,26,.1)' }}>
           {media.uploadStatus === 'fjernet' ? (
-            <button type="button" onClick={onGenopret} style={{ border: 0, borderRadius: 7, padding: '8px 13px', cursor: 'pointer', background: C.green, color: '#fff' }}>Genopret</button>
+            <button type="button" disabled={fletBusy} onClick={() => { if (!fletBusy) onGenopret(); }} style={{ border: 0, borderRadius: 7, padding: '8px 13px', cursor: fletBusy ? 'default' : 'pointer', background: C.green, color: '#fff' }}>Genopret</button>
           ) : <>
-            <button type="button" disabled={!media.relationId} onClick={onFjern} style={{ border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 13px', cursor: media.relationId ? 'pointer' : 'default', background: C.beige, color: C.muted }}>Fjern tilknytning</button>
-            <button type="button" disabled={!anvendelse} title={bekraeftSlet ? sletAdvarsel : undefined} onClick={() => {
-              if (!anvendelse) return;
+            <button type="button" disabled={fletBusy || !media.relationId} onClick={() => { if (!fletBusy) onFjern(); }} style={{ border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 13px', cursor: media.relationId && !fletBusy ? 'pointer' : 'default', background: C.beige, color: C.muted }}>Fjern tilknytning</button>
+            <button type="button" disabled={fletBusy || !anvendelse} title={bekraeftSlet ? sletAdvarsel : undefined} onClick={() => {
+              if (fletBusy || !anvendelse) return;
               if (erIBrug && !bekraeftSlet) { setBekraeftSlet(true); return; }
               onSlet();
             }} style={{ border: 0, borderRadius: 7, padding: '8px 13px', cursor: anvendelse ? 'pointer' : 'default', background: C.red, color: '#fff', opacity: anvendelse ? 1 : .45 }}>
@@ -209,6 +226,7 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
             </button>
           </>}
         </section>
+        </fieldset>
       </div>
     </div>
   );
