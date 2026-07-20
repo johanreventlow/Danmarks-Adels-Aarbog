@@ -1,12 +1,13 @@
 # Database — Current State (operatør-guide)
 
-> **Formål:** Ét sted der siger *hvad der faktisk er i prod lige nu*, hvilke SQL-filer
-> der er autoritative, og hvordan man deployer sikkert. Changelog fortæller *historien*;
-> denne side fortæller *tilstanden*. Ved uenighed mellem en fils egen header og denne
-> side: stol på changelog + denne side, og ret filens header.
+> **Formål:** Ét sted der siger, hvad der faktisk er i prod nu, hvilke SQL-filer der
+> er autoritative, og hvordan næste deploy forberedes sikkert. Changelog fortæller
+> historien; denne side fortæller tilstanden.
 >
 > **Sidst afstemt:** 2026-07-20 (live-objektinventar kørt direkte mod prod via Supabase MCP,
-> ikke kun mod changelog). Opdatér ved hver prod-deploy.
+> ikke kun mod changelog). Opdatér ved hver prod-deploy. Ved uenighed med ældre planer/specs
+> gælder denne side for prod-status; ret derefter det forældede dokument i dets egen
+> dokumentationsrunde.
 >
 > **Fund ved 2026-07-20-afstemningen:** denne sides "Sidst afstemt: 2026-07-01" havde stået
 > ureflekteret i tre uger. Et direkte objektinventar (tabeller + `pg_proc`-funktionsnavne)
@@ -20,56 +21,95 @@
 
 ---
 
-## 1. Autoritative filer (rod-niveau)
+## 1. Verificeret prod-snapshot 2026-07-20
 
-| Fil | Rolle | Køres mod prod? |
-|---|---|---|
-| `schema.sql` | **Source of truth** for hele skemaet (PostgreSQL/Supabase + DuckDB-blokke). Fuld gen-opbygning fra bunden. | Kun ved frisk base / clean-slate |
-| `db-migrations.sql` | **Idempotente additive migrationer** oven på en allerede-deployet base. Afstemmer en kørende base med `schema.sql`. Skrevet drop-/create-if-exists. | Ja — den inkrementelle deploy-sti |
-| `db-rls.sql` | **RLS-laget** (anon-tier GDPR-filtrering + historik-deny-all + helpere). Definitionen af politikkerne. | Ja — anon-tier er live (se §2) |
-| `db-verify.sql` | **Adfærds-verifikation** (Task 1-11): asserts der bekræfter RPC'er, triggere, cache-regen, RLS-gating og versionering virker. Ikke en integritetsrapport. | Kør efter deploy for grønt lys |
-| `docs/db-backups/*.sql` | **Pre-apply dumps** (tidsstemplet). Tages FØR hver prod-ændring — free tier har ingen indbygget backup. | Nej (aflæsning/restore) |
+| Område | Faktisk tilstand |
+|---|---|
+| Personer | **1.758** total; **835 staged**; **77 levende**; 0 `privat=TRUE` |
+| Offentlig/medlem | `anon` og almindelig `authenticated` ser begge **853 personer**, **0 levende**, **0 staged** |
+| Kilder | 3 source-rækker. Source 1 = DAA 2018-20/2020 med 591 direkte poster; source 3 = DAA 1939/1939 med 539 direkte poster |
+| Slægtskab | 2.224 `family_member`-rækker; **921** `forældrefamilie`-facts |
+| Medier | **6** media-rækker: 2 `klar`, 4 `fjernet`; privat `media`-bucket og `media_variant` findes |
+| Bogmærker | `bookmark` er live og indeholder 1 række |
+| Versionering | 22 tabeller i `version_pk_registry`; `change_set`/`change_event` og `text_mention` er live |
+| API-sikkerhed | `anon` og `authenticated` har ikke EXECUTE på `_delete_relation_evidence(bigint)`; public-schemaet har 63 RLS-politikker |
 
-`supabase_load.R` (rod) er **historisk** — den oprindelige seed-loader, erstattet af
-`/daa-extract`'s bulk-`load_daa.R`. Behold som reference; brug ikke til nye loads.
+Tallene er et øjebliksbillede og kan drive. Synligheds- og objekttilstedeværelses-
+asserts er de vigtigste driftsinvarianter; opdatér snapshotdato og tal ved næste
+prod-deploy.
 
 ---
 
-## 2. Hvad er LIVE i prod
+## 2. Autoritative repo-filer
 
-Alt herunder er **verificeret deployet** jf. `docs/changelog.md` (dato + evidens i parentes).
+| Fil | Rolle | Prod-brug |
+|---|---|---|
+| `schema.sql` | Source of truth for ønsket clean-slate-skema. Indeholder også endnu ikke deployede faser. | Kun frisk base; er **ikke** bevis for prod-status |
+| `db-migrations.sql` | Kumulativ additiv migrationssti mod en eksisterende base. Indeholder både live og endnu ikke deployede blokke. | Kun efter backup + rehearsal; brug den præcist godkendte sti/blok |
+| `db-rls.sql` | Samlet RLS-/grant-definition. Migrationer genanvender den ikke automatisk. | Genanvend efter relevante DDL-ændringer og verificér roller |
+| `db-verify.sql` | Muterende adfærdsasserts med fixtures. Flere blokke er miljø-/dataafhængige. | Kør scoped efter runbook; ikke ukritisk som én samlet prod-fil |
+| `db-verify-media.sql` | Media-/Storage-RLS-asserts. Rigtig Supabase har `storage.protect_delete`, som lokal shim ikke spejler fuldt. | Brug mod kopi eller med særskilt godkendt prod-testflow |
+| `db-rollback-fase3.sql` | Kirurgisk rollback af tomt fase 3-feedlag; afbryder ved fase 3-data/-historik. | Kun efter fuld backup; ikke deployet eller prod-rehearsed |
 
-### Skema & kerne
-- **Evidensmodel:** `assertion` / `conclusion` / `citation` — påstand vs. blåstemplet konklusion.
-- **Generisk `relation`** (polymorf, rolle + periode + konfidens) og **polymorf `fact`** på enhver entitet.
-- **`person.visning_*`-cache** + envejs-regenerering via triggere `trg_conclusion_regen`
-  / `trg_assertion_regen` → `regen_person_visning(pid)` (`schema.sql`). *Batch-rebuild:*
-  loop `regen_person_visning` over alle person-id'er (ingen dedikeret "rebuild-all"-wrapper endnu).
-- **`lineage`-entitet** med `parent_lineage_id` (forgrening) + `status` — additivt skema (2026-06-30).
-- **Data:** ~960 personer loadet (Reventlow-udsnittet). *Præcist antal drifter — se seneste
-  changelog-entry; versioneringslaget rapporterede 963 uændret pr. 2026-06-30.*
+`supabase_load.R` i repo-roden er historisk. Nye DAA-loads går gennem
+`.claude/skills/daa-extract/scripts/load_daa.R`, normalt append/staged og aldrig
+`--reset` mod en befolket prod-base.
 
-### Redaktions-RPC-lag (SECURITY DEFINER, rolle-gated)
-- `profiles`, `suggestion`, `current_rolle()`, `red_upsert_fakta`, `red_set_konklusion`,
-  `red_edit_oplysning` (append → jsonb), `red_slet_oplysning`, `red_suggest`, m.fl.
-- **Opret-entitet (2026-06-29):** `red_opret_person` / `_estate` / `_kilde` / `_organisation`.
-- ⚠️ Alle bruger `max(id)+1` til PK-tildeling — **race-følsomt, bevidst PoC-gæld** under
-  single-editor. Migrér til IDENTITY/sekvenser før multi-writer. (Selv-dokumenteret i koden.)
+---
 
-### RLS — anon-tier (GDPR)
-- **Live siden 2026-06-25** (kørt via `work/rls_deploy.R`). Anon ser kun **afdøde ikke-private**
-  personer + personbundne rækker; **levende usynlige** for anon. Verificeret: 893 afdøde
-  synlige, 0 levende lækket, midlertidig `dev_anon_read` (USING true) droppet.
-- Helper `person_offentlig(pid)` (SECURITY DEFINER, fail-closed på `levende`).
+## 3. Hvad er live i prod
 
-### Versionering + hyperlinks (DB-lag, applied 2026-06-30, atomisk `--single-transaction`)
-- `change_set` / `change_event` + generisk `log_change`-trigger på **22 versionerede tabeller**
-  (`version_pk_registry` styrer PK/skip-kolonner). `red_fortryd_change_set` inverse-applier
-  ét sæt m. optimistisk divergens-tjek.
-- **Hyperlinks:** `parse_mentions` + afledt `text_mention`-indeks (regen-trigger på
-  narrative/note) + døde-links-view. **Deny-all RLS** på historik-tabellerne.
-- 24 verify-asserts grønne ved apply. Bugfix 2026-07-01: `_version_upsert_row` ekskluderer
-  nu `GENERATED ALWAYS`-kolonner (fortryd var knækket for `narrative.fts`).
+### Kerne, evidens og Fase 4-cutover
+
+- Evidensmodellen `fact` → `assertion` → `citation`/`conclusion`, generiske
+  relationer, lineage og personens `visning_*`-cache er live.
+- Problem 2-cutoveret er live: `assertion.objekt_type/objekt_id`, fødselsfamilie-
+  constraint, `forældrefamilie`-slots og redaktions-RPC'erne til konkurrerende
+  forældrepåstande findes. De 921 slots svarer til de to loadede udgavers valgte
+  forældrefamilier.
+- A1-datohærdningen er live: bl.a. `assertion.date_certainty` og calendar-bæring.
+- K2-staging er live: `person.staged`, `person_offentlig`-gaten og
+  `red_publicer_udgave(bigint)` findes.
+- F-01/F-02/F-02c-hærdningen er live: interne mutatorer er fjernet fra den offentlige
+  API-flade, og almindelig `authenticated` er fail-closed til samme personregel som
+  `anon`. Levende/staged kræver fortsat redaktionsadgang.
+
+### 1939: loadet staged, men publicering er pauset
+
+- DAA 1939 er loadet som source 3 med 835 staged personer (539 direkte poster +
+  partnerstubs). De er usynlige for `anon` og almindelig `authenticated`.
+- **Publicér ikke source 3.** Projektbeslutningen 2026-07-20 er, at 1939-PDF'en skal
+  OCR-udtrækkes igen, og at artefakt-/komplethedsgaten skal gentages før videre
+  1939-arbejde. Den ældre `plan-1939-produktionsklar.md` dokumenterer det tidligere
+  forløb, men er ikke længere handlingsanvisning for publicering.
+- En kommende erstatning/opdatering af staged source 3 kræver en særskilt,
+  source-scoped plan, backup og rehearsal. Der må hverken appendes en dubletudgave
+  eller bruges `--reset`.
+
+### RLS/GDPR
+
+- `anon` og almindelig `authenticated` ser kun afdøde, ikke-private, ikke-staged
+  personer og de personbundne rækker, som arver samme gate.
+- `entitet_offentlig`/`family_offentlig` lukker polymorfe fakta, relationer,
+  narrativer, noter og mentions fail-closed på levende eller ukendte targets.
+- Redaktion har et additivt læse-/skrive-lag gennem rolle-gatede RPC'er.
+- En fremtidig medlem/forsker-model med samtykke og slægtsscope er ikke implementeret.
+
+### Versionering, hyperlinks og bogmærker
+
+- `change_set`/`change_event`, `log_change`, `red_fortryd_change_set` og 22
+  registry-styrede versioneringstriggere er live.
+- `parse_mentions`, `text_mention` og døde-links-viewet er live. Media-grenen i den
+  nye fase 2-version af `red_doede_links` er **ikke** deployet endnu.
+- Konto-bogmærker er live med owner-bundet RLS.
+
+### Medier — Slice 0 live
+
+- `media`, `media_variant`, privat Storage-bucket, afbildet-/rettighedsgating,
+  upload/bekræft, variantregistrering, blødt fjern og Storage-politikker er live.
+- Prod har seks media-rækker; fire er blødt fjernet og kan ikke ses offentligt.
+- `red_opdater_media` og `red_genopret_media` findes **ikke** i prod. Fase 1-filsiden
+  og fase 2-biblioteket er kodeklare, men deres SQL/RLS/app-deploy er fortsat gated.
 
 ### Mediehåndtering fase 0-2 (live, senest bekræftet 2026-07-20)
 - **Slice 0** (bucket, gating, upload-RPC'er) live siden 2026-07-05. **Fase 1** (filside:
@@ -93,40 +133,51 @@ Alt herunder er **verificeret deployet** jf. `docs/changelog.md` (dato + evidens
 
 ---
 
-## 3. Hvad er IKKE live / bevidst udskudt
+## 4. Hvad er ikke live / bevidst udskudt
 
 | Emne | Status |
 |---|---|
 | **RLS `authenticated`-tier** (medlem/forsker ser levende slægtninge m. samtykke) | Kun skitseret i `db-rls.sql` §FREMTID. Bygges når login/profiles-auth er på plads. Indtil da er levende data usynlige for alle uden `redaktion`-rolle. |
-| **`max(id)+1` → IDENTITY/sekvenser** | Udskudt post-PoC. Kritisk før flerbruger-skrivning. |
+| **`max(id)+1` → IDENTITY/sekvenser** | Udskudt post-PoC. Kritisk før flerbruger-skrivning (også multi-writer-risikoen generelt). |
 | **Samtykke-granularitet pr. levende person** (`samtykke_offentlig`) | Designes med auth-laget. |
 | **Vocab-håndhævelse** | `vocab`-tabel findes, men `rolle`/`faktatype`/`konfidens` m.fl. er fritekst (ingen FK til vocab). Håndhæves i dag kun konventionelt. |
 | **Polymorf døde-link-integritetsrapport** | Kun `text_mention` har et døde-links-view. Bredere orphan-check (fact/relation/assertion → subjekt) findes ikke systematisk endnu. |
+| Levende feed fase 4 | LLM-assist/Edge Function — bevidst udskudt 2026-07-20 (for få kilder i PoC til at retfærdiggøre kørslen endnu), ikke annulleret. Se `decisions.md`. |
+| Mediehåndtering fase 3–5 | Hygiejne/dedup-spec+plan skrevet (2026-07-20, ikke implementeret); identitet/udrensning og dokumenttransskription er ikke designet endnu |
+| 1939-publicering | Pauset indtil nyt OCR-udtræk, nyt artefakt og fornyet komplethedsgate (uddybet i §3) |
+| Import-sikkerhed | Stabil import-run/checksum/udgavenøgle og source-scoped replace mangler; `--reset` er fortsat en farlig nødvej |
+| Skalering | Klienterne materialiserer hele grafen; bounded server-slices/keyset-pagination mangler |
 
 ---
 
-## 4. Deploy-procedure (observeret mønster)
+## 5. Gated deployprocedure
 
-Free tier: ingen branch-base, ingen indbygget backup. Etableret arbejdsgang:
+1. **Lås scope:** navngiv prod-projekt og præcis migrationsblok/feature. Ingen bred
+   "kør alt"-antagelse.
+2. **Read-only preflight:** tag katalog-/tælle-snapshot og bekræft forventet baseline.
+3. **Backup:** krypteret `pg_dump` af prod; opbevar PII uden for Git.
+4. **Restore-rehearsal:** gendan dumpet i en lokal engangsbase, kør den identiske
+   migrations-/RLS-sti, mål blast radius og øv rollback.
+5. **Eksplicit godkendelse:** brugeren navngiver prod-målet og det konkrete apply.
+6. **Atomisk apply:** `--single-transaction` hvor artefaktet tillader det; genanvend
+   `db-rls.sql` når policies/grants påvirkes.
+7. **Verificér:** scoped adfærdsasserts, read-only katalog-/RLS-smoke, Data API-grants,
+   schema-cache og Supabase security advisors.
+8. **Dokumentér:** opdatér changelog og denne side med faktisk resultat, tal og
+   rollback-artefakt. Markér tydeligt kodeklar versus live.
 
-1. **Backup først:** dump berørte objekter til `docs/db-backups/<dato>-<beskrivelse>-pre.sql`.
-2. **TDD mod lokal prod-kopi:** `postgresql@17` + auth-shim + read-only `pg_dump` af `public`
-   (se memory `lokal-db-testbase`). Kør ændring + `db-verify.sql` lokalt før prod.
-3. **Apply atomisk:** `psql --single-transaction` med den relevante fil (`db-migrations.sql`
-   for additivt; `db-rls.sql` for RLS). Alt-eller-intet — ingen delvis korruption.
-4. **Verificér:** kør `db-verify.sql` mod prod → alle asserts grønne. For RLS: `SET ROLE anon`
-   + tæl synlige rækker.
-5. **Dokumentér:** ny changelog-entry + opdatér denne side.
-
-Git-gates (global regel §5): prod-deploy af SQL bekræftes eksplicit med bruger.
+Git-, app- og prod-databasestatus er tre separate dimensioner. En merge eller grøn CI
+er aldrig i sig selv et prod-deploy.
 
 ---
 
-## 5. Se også
+## 6. Se også
 
-- `docs/changelog.md` — kronologisk historik med fejl, reviews, testniveau.
-- `docs/decisions.md` — arkitektur-log (ikke-oplagte valg + fravalgte alternativer).
-- `datamodel-oversigt.md` — konceptuel model (læs først for *hvorfor*).
+- `docs/changelog.md` — kronologisk historik og test-/deploybeviser.
+- `docs/fase4-runbook.md` — det gennemførte Problem 2/A1/K2-cutover og 1939-loadets
+  tidligere runbook.
+- `docs/decisions.md` — arkitekturbeslutninger.
+- `datamodel-oversigt.md` — konceptuel model.
 - `docs/README.md` — dokumentationsindeks.
 
 ## Mediehåndtering fase 1+2 — LIVE i prod (2026-07-20)

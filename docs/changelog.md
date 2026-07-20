@@ -41,6 +41,25 @@ Undervejs droppede Supabase-MCP-forbindelsen midt i et `apply_migration`-kald (b
 togforbindelse) — ingen skade, da alle statements er idempotente og hele kaldet var én
 transaktion, der rullede atomisk tilbage; blev opdaget og genkørt efter reconnect.
 
+## Operatørguide afstemt mod read-only prod-facit (2026-07-20)
+
+**Denne audit var read-only og forud for deploy-entryen ovenfor** — dens "ikke live"-
+konklusion for levende feed fase 2/3 og mediefase 1–2 er indhentet af samme dags deploy;
+bevaret som historik for selve audit-fundet (dokumentationsdrift), ikke som aktuel status.
+
+`docs/database-current-state.md` blev omskrevet fra det forældede 1. juli-snapshot til
+en aktuel skelnen mellem repo, app og prod. Read-only katalog-/aggregatqueries mod
+prod `xjnvdhajfyrcytatnzos` bekræftede: 1.758 personer, 835 staged, 77 levende;
+`anon` og almindelig `authenticated` ser begge 853 personer og 0 levende/staged;
+921 forældrefamilie-facts; 22 versionerede tabeller; 6 media-rækker (2 klare, 4
+fjernede); samt at `_delete_relation_evidence` ikke er API-eksekverbar for anon/auth.
+
+Problem 2/A1/K2 og media Slice 0 var live. 1939-source 3 forbliver staged og usynlig.
+Gældende beslutning er **ingen publicering** før nyt OCR-udtræk og gentaget
+artefakt-/komplethedsgate. Den ældre 1939-plan er bevaret som fasehistorik, ikke som
+aktuel publiceringsordre. Ingen prod-skrivning eller schemaændring blev udført i denne
+dokumentationsrunde.
+
 ## Mediehåndtering fase 3 — hygiejne-spec skrevet (2026-07-20)
 
 Design-spec skrevet (ingen kode): `docs/superpowers/specs/2026-07-20-mediehaandtering-fase3-hygiejne-design.md`
