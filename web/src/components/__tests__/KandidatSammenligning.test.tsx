@@ -93,6 +93,46 @@ describe('KandidatSammenligning', () => {
     expect(screen.getAllByText(/Frisenvold · ejer · 1700–1710/).length).toBe(2);
   });
 
+  test('viser alias/kanonisk-rolle i kolonneoverskrifterne når angivet (tydelighed om hvilken udgave bliver main)', () => {
+    render(<KandidatSammenligning
+      personA={person('1')}
+      personB={person('2')}
+      detaljeA={detalje('1660', 'DAA 1939', 'x')}
+      detaljeB={detalje('1660', 'DAA 2018', 'x')}
+      kildeA="DAA 1939"
+      kildeB="DAA 2018"
+      rolleA="alias"
+      rolleB="kanonisk"
+      navnById={navnById}
+      foldHint={{ folder: true, grund: null }}
+      onBekraeft={vi.fn()}
+      onAfvis={vi.fn()}
+    />);
+
+    expect(screen.getByRole('columnheader', { name: /Kilde A · DAA 1939.*foldes ind \(alias\)/ })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: /Kilde B · DAA 2018.*forbliver synlig \(main\)/ })).toBeTruthy();
+  });
+
+  test('viser ingen rolle-badge når rolleA/rolleB udelades (fx ikke_samme_som-afvisning uden alias/kanonisk-forhold)', () => {
+    render(<KandidatSammenligning
+      personA={person('1')}
+      personB={person('2')}
+      detaljeA={detalje('1660', 'DAA 1939', 'x')}
+      detaljeB={detalje('1660', 'DAA 2018', 'x')}
+      kildeA="DAA 1939"
+      kildeB="DAA 2018"
+      navnById={navnById}
+      foldHint={{ folder: false, grund: 'Parret er markeret som forskellige.' }}
+      onBekraeft={vi.fn()}
+      onAfvis={vi.fn()}
+    />);
+
+    expect(screen.getByRole('columnheader', { name: 'Kilde A · DAA 1939' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Kilde B · DAA 2018' })).toBeTruthy();
+    expect(screen.queryByText(/foldes ind \(alias\)/)).toBeNull();
+    expect(screen.queryByText(/forbliver synlig \(main\)/)).toBeNull();
+  });
+
   test('viser fold-advarslen før handlingerne og holder narrativet sammenfoldet indtil toggle', () => {
     const onBekraeft = vi.fn();
     const onAfvis = vi.fn();

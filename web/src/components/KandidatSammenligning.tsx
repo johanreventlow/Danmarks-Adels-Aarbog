@@ -11,6 +11,10 @@ export type KandidatSammenligningProps = {
   detaljeB: KandidatDetalje;
   kildeA: string;
   kildeB: string;
+  /** Retning ved bekræftelse (§5.4: eksisterende base = kanonisk, ny udgaves person = alias).
+   *  Udelades (ingen rolle vist) når parret ikke er et samme_som-forhold, fx en ikke_samme_som-afvisning. */
+  rolleA?: 'alias' | 'kanonisk';
+  rolleB?: 'alias' | 'kanonisk';
   navnById: ReadonlyMap<string, string>;
   foldHint: FoldHint;
   foldAdvice?: string | null;
@@ -174,8 +178,21 @@ function SammenligningsRaekke({
   );
 }
 
+function RolleBadge({ rolle }: { rolle?: 'alias' | 'kanonisk' }) {
+  if (!rolle) return null;
+  const tekst = rolle === 'kanonisk' ? '→ forbliver synlig (main)' : '→ foldes ind (alias)';
+  return (
+    <span style={{
+      display: 'block', fontSize: '.72em', fontWeight: 600, marginTop: '.1rem',
+      color: rolle === 'kanonisk' ? '#2f632f' : '#6f675b',
+    }}>
+      {tekst}
+    </span>
+  );
+}
+
 export function KandidatSammenligning({
-  personA, personB, detaljeA, detaljeB, kildeA, kildeB, navnById,
+  personA, personB, detaljeA, detaljeB, kildeA, kildeB, rolleA, rolleB, navnById,
   foldHint, foldAdvice, linket = false, busy = false, onBekraeft, onAfvis,
 }: KandidatSammenligningProps) {
   const foraeldreA = familieNavne(detaljeA, 'foraeldre', navnById);
@@ -206,8 +223,14 @@ export function KandidatSammenligning({
         <thead>
           <tr>
             <th aria-label="Felt" style={{ width: '18%' }} />
-            <th scope="col" style={{ textAlign: 'left', padding: '.4rem .55rem' }}>Kilde A · {kildeA}</th>
-            <th scope="col" style={{ textAlign: 'left', padding: '.4rem .55rem' }}>Kilde B · {kildeB}</th>
+            <th scope="col" style={{ textAlign: 'left', padding: '.4rem .55rem' }}>
+              Kilde A · {kildeA}
+              <RolleBadge rolle={rolleA} />
+            </th>
+            <th scope="col" style={{ textAlign: 'left', padding: '.4rem .55rem' }}>
+              Kilde B · {kildeB}
+              <RolleBadge rolle={rolleB} />
+            </th>
           </tr>
         </thead>
         <tbody>
