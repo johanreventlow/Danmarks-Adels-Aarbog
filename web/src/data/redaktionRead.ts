@@ -992,7 +992,7 @@ export type { RedMatchPerson };
  *  fødsels-/døds-interval pr. person). Udskudt — PoC-volumen er håndterbar. */
 export async function fetchMatchPersoner(): Promise<RedMatchPerson[]> {
   const [persons, facts, concs, assertions, extIds] = await Promise.all([
-    getAll<MatchPersonRow>(() => supabase.from('person').select('id,visning_navn,koen')),
+    getAll<MatchPersonRow>(() => supabase.from('person').select('id,visning_navn,koen,staged')),
     getAll<MatchFactRow>(() => supabase.from('fact').select('id,subjekt_id,faktatype').eq('subjekt_type', 'person').in('faktatype', ['fødsel', 'død'])),
     getAll<MatchConcRow>(() => supabase.from('conclusion').select('target_id,valgt_assertion_id').eq('target_type', 'fact').eq('status', 'afklaret')),
     getAll<MatchAssertRow>(() => supabase.from('assertion').select('id,date_min,date_max').eq('target_type', 'fact')),

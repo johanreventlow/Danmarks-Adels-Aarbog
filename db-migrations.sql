@@ -2946,3 +2946,40 @@ CREATE TRIGGER trg_log_story AFTER INSERT OR UPDATE OR DELETE ON story
 DROP TRIGGER IF EXISTS trg_log_feed_pin ON feed_pin;
 CREATE TRIGGER trg_log_feed_pin AFTER INSERT OR UPDATE OR DELETE ON feed_pin
   FOR EACH ROW EXECUTE FUNCTION log_change();
+
+-- =====================================================================
+-- 2026-07-20: K2 — selektiv publicering (person_ids)
+-- red_publicer_udgave (2026-07-17) er alt-eller-intet pr. kilde. Redaktøren skal kunne
+-- publicere KUN de 1939-personer hvor et samme_som-match allerede er bekræftet, mens
+-- resten forbliver staged indtil et korrigeret OCR-udtræk er indlæst (R/update-1939-
+-- narratives.R er løsnet samtidig til at tolerere blandet staged-status — se dens
+-- kommentar ved read_1939_mapping). I MODSÆTNING til red_publicer_udgave (som er
+-- REVOKE'et fra alle roller — kun tiltænkt manuel SQL-editor-kørsel) er denne funktion
+-- BEVIDST callable fra app-laget som redaktion (samme mønster som red_samme_som): ingen
+-- REVOKE her, gates udelukkende via current_rolle() i funktionskroppen — nødvendigt for
+-- at kunne wire en "Publicér valgte"-knap ind i Sammenlign udgaver.
+-- =====================================================================
+CREATE OR REPLACE FUNCTION red_publicer_personer(p_person_ids bigint[])
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_n integer;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN
+    RAISE EXCEPTION 'Kun redaktion må publicere personer (din rolle: %)', current_rolle();
+  END IF;
+  IF p_person_ids IS NULL OR array_length(p_person_ids, 1) IS NULL THEN
+    RAISE EXCEPTION 'p_person_ids må ikke være tom';
+  END IF;
+  PERFORM begin_change_set('red_publicer_personer',
+    format('Publicerede %s valgt(e) person(er)', array_length(p_person_ids, 1)), NULL, NULL);
+  -- Rydder staged for de valgte personer + deres familie-partnere (fx en 1939-ægtefælle-stub
+  -- uden eget external_id — samme partner-stub-inklusion som red_publicer_udgave, blot scopet
+  -- til udvalget i stedet for hele kilden).
+  UPDATE person p SET staged = false
+  WHERE p.staged = true
+    AND (p.id = ANY(p_person_ids)
+      OR EXISTS (SELECT 1 FROM family_member fm1
+                 JOIN family_member fm2 ON fm2.family_id = fm1.family_id
+                 WHERE fm1.person_id = p.id AND fm2.person_id = ANY(p_person_ids)));
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  RETURN jsonb_build_object('valgte_person_ids', p_person_ids, 'personer_afstaget', v_n);
+END $$;

@@ -3,8 +3,8 @@ import { buildMatchPersoner, parseIkkeSammeSomPar } from '../matchUdgaver';
 
 describe('buildMatchPersoner — DB-rækker → MatchFrame-input (§11)', () => {
   const persons = [
-    { id: 1, visning_navn: 'Ludvig Alexander Eduard', koen: 'mand' },
-    { id: 2, visning_navn: 'Uden datoer', koen: 'kvinde' },
+    { id: 1, visning_navn: 'Ludvig Alexander Eduard', koen: 'mand', staged: true },
+    { id: 2, visning_navn: 'Uden datoer', koen: 'kvinde', staged: false },
   ];
   const facts = [
     { id: 10, subjekt_id: 1, faktatype: 'fødsel' },
@@ -48,6 +48,12 @@ describe('buildMatchPersoner — DB-rækker → MatchFrame-input (§11)', () => 
     const p2 = buildMatchPersoner(persons, facts, concs, assertions, extIds).find((x) => x.id === '2')!;
     expect(p2.foedsel).toBe(null);
     expect(p2.doed).toBe(null);
+  });
+
+  test('staged normaliseres til boolean (§7.20 selektiv publicering)', () => {
+    const r = buildMatchPersoner(persons, facts, concs, assertions, extIds);
+    expect(r.find((x) => x.id === '1')!.staged).toBe(true);
+    expect(r.find((x) => x.id === '2')!.staged).toBe(false);
   });
 });
 
