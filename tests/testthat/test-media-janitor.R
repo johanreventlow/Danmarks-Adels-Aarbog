@@ -212,7 +212,7 @@ test_that("rapporten sorteres deterministisk efter kategori, id og sti", {
   out2 <- sort_media_janitor_report(rows[c(4, 2, 1, 3), ])
   expect_identical(out1, out2)
   expect_equal(out1$kategori, c("a_strandet", "a_strandet", "b_forældreløs", "d_sha_backfill"))
-  expect_equal(out1$media_id[1:2], c(1, 2))
+  expect_identical(out1$media_id[1:2], c("1", "2"))
 })
 
 test_that("objektstier URL-enkodes segmentvist uden at tabe mapper", {
@@ -266,7 +266,7 @@ test_that("sha-beslutning skriver kun unik hash og rapporterer ægte dublet", {
   expect_equal(decide_sha_backfill(2L, "cccc", known)$action, "update")
   duplicate <- decide_sha_backfill(2L, "bbbb", known)
   expect_equal(duplicate$action, "duplicate")
-  expect_equal(duplicate$duplicate_media_id, 8L)
+  expect_identical(duplicate$duplicate_media_id, "8")
   expect_equal(decide_sha_backfill(8L, "bbbb", known)$action, "already_set")
 })
 
@@ -350,6 +350,62 @@ test_that("strandet rækkes DB-sletning følger FK-orden og HTTP sker efter comm
   expect_equal(events, c("begin", rep(c("citation", "conclusion", "assertion", "note", "relation"), 2),
                          "variant", "media", "commit", "storage"))
   expect_equal(result$status, "slettet")
+})
+
+test_that("BIGINT-id'er over 2^53 bevares eksakt gennem destructive targets", {
+  media_id <- "9007199254740993"
+  relation_id <- "9007199254740995"
+  expect_identical(normalize_bigint_id(media_id, "media-id"), media_id)
+  expect_error(normalize_bigint_id(9007199254740992, "media-id"), "tekst")
+
+  media <- data.frame(
+    id = media_id, bucket = "media", upload_status = "fejlet",
+    created_at = utc("2026-07-01"), storage_path = "large/huge",
+    sha256 = NA_character_, stringsAsFactors = FALSE
+  )
+  variants <- data.frame(media_id = character(), tier = character(), storage_path = character())
+  findings <- classify_media_findings(
+    media, variants, data.frame(bucket = "media", name = "large/huge"),
+    utc("2026-07-20"), 7
+  )
+  expect_identical(findings$stranded$media_id, media_id)
+
+  relations <- data.frame(
+    relation_id = relation_id, media_id = media_id,
+    subjekt_type = "person", subjekt_id = "1",
+    objekt_type = "media", objekt_id = media_id,
+    rolle = "afbildet", has_evidence = FALSE, stringsAsFactors = FALSE
+  )
+  block <- relation_block_for_media(relations, media_id)
+  expect_identical(block$expected_relation_ids, relation_id)
+
+  destructive_ids <- character()
+  db_ops <- list(
+    begin = function(con) NULL,
+    execute = function(con, sql, params) {
+      if (length(params)) destructive_ids <<- c(destructive_ids, as.character(params[[1]]))
+      1L
+    },
+    delete_media = function(con, id) {
+      destructive_ids <<- c(destructive_ids, as.character(id))
+      1L
+    },
+    commit = function(con) NULL,
+    rollback = function(con) NULL
+  )
+  result <- delete_stranded_media_row(
+    NULL, media_id, "media", "large/huge", block$expected_relation_ids,
+    FALSE, db_ops, storage_delete = function(...) NULL
+  )
+  expect_equal(result$status, "slettet")
+  expect_true(relation_id %in% destructive_ids)
+  expect_true(media_id %in% destructive_ids)
+
+  report <- build_report_row(
+    "a_strandet", media_id, "large/huge", utc("2026-07-01"), utc("2026-07-20"),
+    "sletbar med --slet"
+  )
+  expect_identical(report$media_id, media_id)
 })
 
 test_that("relation med evidens medfører nul mutationer", {

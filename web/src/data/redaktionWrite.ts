@@ -19,7 +19,7 @@ const DATE_FELT = new Set(['foedt', 'doed', 'daab', 'begravelse', 'floruit', 'na
 export type Change = {
   art: 'fakta' | 'narrativ' | 'relation' | 'gods' | 'hverv'
      | 'redigerOplysning' | 'sletOplysning' | 'setKonklusion' | 'setPrivat' | 'sletPerson'
-     | 'tilfoejOplysning' | 'opretFakta' | 'sletRelation' | 'tilfoejRelation'
+     | 'tilfoejOplysning' | 'opretFakta' | 'sletRelation' | 'sletMediaRelationUdenEvidens' | 'tilfoejRelation'
      | 'opretUnion' | 'tilfoejBarn' | 'setFamilieKonfidens' | 'sletFamilieLink'
      | 'setFamilieOrdinal' | 'flytBarn'
      | 'sammeSom' | 'fjernSammeSom' // redaktionel identitets-sammenkædning (samme_som)
@@ -281,6 +281,11 @@ export function buildRpcCall(c: Change): RpcCall | null {
     if (rid == null) return null;
     return { fn: 'red_slet_relation', args: { p_relation_id: rid } };
   }
+  if (c.art === 'sletMediaRelationUdenEvidens') {
+    const rid = parsePostgresBigintId(c.relationId);
+    if (rid == null) return null;
+    return { fn: 'red_slet_medierelation_uden_evidens', args: { p_relation_id: rid } };
+  }
   if (c.art === 'tilfoejRelation') {
     const p = c.payload || {};
     return { fn: 'red_tilfoej_relation', args: {
@@ -515,13 +520,11 @@ export async function submitChange(c: Change, opts: { dryRun: boolean; role?: st
   }
   const { data, error } = await supabase.rpc(call.fn, call.args);
   if (error) throw new Error(error.message);
-  // red_upload_media opretter ALTID rækken som upload_status='kladde'; først når bytes reelt ligger
-  // i Storage (lige udført ovenfor) er det sandt at bekræfte 'klar' — derfor et separat RPC-kald.
   if (c.art === 'uploadMedia') {
-    const { error: bekraeftError } = await supabase.rpc('red_bekraeft_media_upload', { p_media_id: data });
-    if (bekraeftError) throw new Error(bekraeftError.message);
     // Billedstørrelser Slice B2: thumb+medium er selvstændige størrelsestrin (media_variant),
-    // ikke en del af red_upload_media selv — hver uploades og registreres uafhængigt af de andre.
+    // ikke en del af red_upload_media selv. Rækken forbliver 'kladde', indtil ALLE varianter
+    // ligger i Storage og er registreret; ellers kan en variantfejl efterlade en ufuldstændig
+    // 'klar'-række, som kladde-resume-flowet ikke kan reparere.
     const varianter = (c.payload?.varianter ?? []) as Array<{
       tier: string; file: Blob; storagePath: string; mimeType: string; byteSize: number; bredde: number; hoejde: number;
     }>;
@@ -533,6 +536,8 @@ export async function submitChange(c: Change, opts: { dryRun: boolean; role?: st
       });
       if (variantError) throw new Error(variantError.message);
     }));
+    const { error: bekraeftError } = await supabase.rpc('red_bekraeft_media_upload', { p_media_id: data });
+    if (bekraeftError) throw new Error(bekraeftError.message);
   }
   return { dryRun: false as const, call, direkte, result: data };
 }

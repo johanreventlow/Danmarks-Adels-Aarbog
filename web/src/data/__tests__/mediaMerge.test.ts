@@ -63,6 +63,7 @@ describe('mediaMerge — autoritativ, genoptagelig orkestrering', () => {
   const person = { type: 'person', id: '9007199254740992', navn: 'Person', relationId: '9223372036854775806' };
   const estate = { type: 'estate', id: '7', navn: 'Gods', relationId: '81' };
   const mention = { kildeType: 'narrative', kildeId: '22', subjektNavn: 'Fortællingens person' };
+  const noRelationEvidence = async () => [];
 
   it('fingerprinter mention-snapshots deterministisk uafhængigt af rækkefølge', () => {
     const anden = { kildeType: 'note', kildeId: '9223372036854775807', subjektNavn: 'Et navn' };
@@ -85,9 +86,9 @@ describe('mediaMerge — autoritativ, genoptagelig orkestrering', () => {
     expect(plan.steps.map((s) => s.change)).toEqual([
       { art: 'fjernMedia', subjektType: 'media', subjektId: '9223372036854775807', mediaId: '9223372036854775807' },
       { art: 'tilknytMedia', subjektType: 'media', subjektId: '9007199254740993', mediaId: '9007199254740993', payload: { maalType: 'person', maalId: '9007199254740992' } },
-      { art: 'sletRelation', subjektType: 'media', subjektId: '9223372036854775807', relationId: '9223372036854775806' },
+      { art: 'sletMediaRelationUdenEvidens', subjektType: 'media', subjektId: '9223372036854775807', relationId: '9223372036854775806' },
       { art: 'tilknytMedia', subjektType: 'media', subjektId: '9007199254740993', mediaId: '9007199254740993', payload: { maalType: 'estate', maalId: '7' } },
-      { art: 'sletRelation', subjektType: 'media', subjektId: '9223372036854775807', relationId: '81' },
+      { art: 'sletMediaRelationUdenEvidens', subjektType: 'media', subjektId: '9223372036854775807', relationId: '81' },
     ]);
   });
 
@@ -110,6 +111,7 @@ describe('mediaMerge — autoritativ, genoptagelig orkestrering', () => {
         calls.push('load');
         return { copyStatus: 'klar', copyAnvendelse: anvendelse([estate], [mention]), originalAnvendelse: anvendelse() };
       },
+      loadRelationEvidence: noRelationEvidence,
       execute: async () => { calls.push('execute'); },
     });
     expect(calls).toEqual(['load']);
@@ -130,6 +132,7 @@ describe('mediaMerge — autoritativ, genoptagelig orkestrering', () => {
       confirmedMentionFingerprint: mediaMentionFingerprint([...confirmed]),
     }, {
       loadState: async () => ({ copyStatus: 'klar', copyAnvendelse: anvendelse([], [...current]), originalAnvendelse: anvendelse() }),
+      loadRelationEvidence: noRelationEvidence,
       execute: async () => { calls.push('write'); },
     });
     expect(result).toMatchObject({ kind: 'mentions-changed', state: { copyAnvendelse: { mentions: [...current] } } });
@@ -148,11 +151,12 @@ describe('mediaMerge — autoritativ, genoptagelig orkestrering', () => {
         copyAnvendelse: anvendelse(copyHasPerson ? [person] : []),
         originalAnvendelse: anvendelse(originalHasPerson ? [{ ...person, relationId: '99' }] : []),
       }),
+      loadRelationEvidence: noRelationEvidence,
       execute: async (change: { art: string }) => {
         calls.push(change.art);
         if (change.art === 'fjernMedia') copyStatus = 'fjernet';
         if (change.art === 'tilknytMedia') originalHasPerson = true;
-        if (change.art === 'sletRelation') {
+        if (change.art === 'sletMediaRelationUdenEvidens') {
           if (interrupt) { interrupt = false; throw new Error('netværk afbrudt'); }
           copyHasPerson = false;
         }
@@ -165,7 +169,7 @@ describe('mediaMerge — autoritativ, genoptagelig orkestrering', () => {
 
     await executeMediaMerge({ copyId: '91', originalId: '92', dryRun: false,
       confirmedMentionFingerprint: mediaMentionFingerprint([]) }, deps);
-    expect(calls).toEqual(['fjernMedia', 'tilknytMedia', 'sletRelation', 'sletRelation']);
+    expect(calls).toEqual(['fjernMedia', 'tilknytMedia', 'sletMediaRelationUdenEvidens', 'sletMediaRelationUdenEvidens']);
     expect(copyHasPerson).toBe(false);
   });
 
@@ -174,12 +178,13 @@ describe('mediaMerge — autoritativ, genoptagelig orkestrering', () => {
     await executeMediaMerge({ copyId: '91', originalId: '92', dryRun: false,
       confirmedMentionFingerprint: mediaMentionFingerprint([]) }, {
       loadState: async () => ({ copyStatus: 'fjernet', copyAnvendelse: anvendelse([person]), originalAnvendelse: anvendelse() }),
+      loadRelationEvidence: noRelationEvidence,
       execute: async (change) => {
         calls.push(change.art);
         if (change.art === 'tilknytMedia') throw new Error('Mediet er allerede tilknyttet dette subjekt');
       },
     });
-    expect(calls).toEqual(['tilknytMedia', 'sletRelation']);
+    expect(calls).toEqual(['tilknytMedia', 'sletMediaRelationUdenEvidens']);
   });
 
   it('stopper på en anden linkfejl før kopiens relation slettes', async () => {
@@ -187,11 +192,28 @@ describe('mediaMerge — autoritativ, genoptagelig orkestrering', () => {
     await expect(executeMediaMerge({ copyId: '91', originalId: '92', dryRun: false,
       confirmedMentionFingerprint: mediaMentionFingerprint([]) }, {
       loadState: async () => ({ copyStatus: 'fjernet', copyAnvendelse: anvendelse([person]), originalAnvendelse: anvendelse() }),
+      loadRelationEvidence: noRelationEvidence,
       execute: async (change) => {
         calls.push(change.art);
         if (change.art === 'tilknytMedia') throw new Error('forbindelse tabt');
       },
     })).rejects.toThrow('forbindelse tabt');
     expect(calls).toEqual(['tilknytMedia']);
+  });
+
+  it('stopper uden writes når en kopirelation har evidens', async () => {
+    const calls: string[] = [];
+    await expect(executeMediaMerge({ copyId: '91', originalId: '92', dryRun: false,
+      confirmedMentionFingerprint: mediaMentionFingerprint([]) }, {
+      loadState: async () => ({
+        copyStatus: 'klar', copyAnvendelse: anvendelse([person]), originalAnvendelse: anvendelse(),
+      }),
+      loadRelationEvidence: async (relationIds) => {
+        calls.push(`evidence:${relationIds.join(',')}`);
+        return [person.relationId];
+      },
+      execute: async (change) => { calls.push(change.art); },
+    })).rejects.toThrow('evidens');
+    expect(calls).toEqual([`evidence:${person.relationId}`]);
   });
 });

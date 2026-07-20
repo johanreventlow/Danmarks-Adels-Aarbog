@@ -11,6 +11,38 @@ test_that("buffer_counts tæller rækker pr. tabel", {
   expect_equal(buffer_counts(buf), c(person = 2L, fact = 1L))
 })
 
+test_that("flush skriver relation før relationsevidens og bevarer øvrige afhængigheder", {
+  fixture <- list(
+    citation = list(list(id = 40, assertion_id = 30, source_id = 1)),
+    conclusion = list(list(id = 50, target_type = "relation", target_id = 20,
+                           valgt_assertion_id = 30)),
+    assertion = list(list(id = 30, target_type = "relation", target_id = 20)),
+    relation = list(list(id = 20, subjekt_type = "person", subjekt_id = 10,
+                         objekt_type = "estate", objekt_id = 11)),
+    fact = list(list(id = 21, subjekt_type = "person", subjekt_id = 10)),
+    family = list(list(id = 12)),
+    family_member = list(list(family_id = 12, person_id = 10)),
+    person = list(list(id = 10)),
+    estate = list(list(id = 11)),
+    place = list(list(id = 9))
+  )
+  written <- character()
+
+  flush_buffer_in_dependency_order(fixture, function(tbl, rows) {
+    if (tbl == "family_member") expect_true(all(c("person", "family") %in% written))
+    if (tbl == "fact") expect_true(all(c("person", "place") %in% written))
+    if (tbl == "relation") expect_true(all(c("person", "estate") %in% written))
+    if (tbl == "assertion") expect_true(all(c("fact", "relation") %in% written))
+    if (tbl %in% c("citation", "conclusion")) expect_true("assertion" %in% written)
+    expect_true(length(rows) > 0L)
+    written <<- c(written, tbl)
+  })
+
+  expect_lt(match("relation", written), match("assertion", written))
+  expect_lt(match("assertion", written), match("citation", written))
+  expect_lt(match("assertion", written), match("conclusion", written))
+})
+
 test_that("has_editorial_changes ser kun red_-operationer som redaktionelle", {
   expect_false(has_editorial_changes(data.frame(operation = c("daa_import"))))
   expect_true(has_editorial_changes(data.frame(operation = c("daa_import", "red_opret_fakta"))))

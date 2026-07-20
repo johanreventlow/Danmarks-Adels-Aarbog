@@ -27,7 +27,7 @@ import {
   executeMediaDedupResume, fetchExistingMediaBySha, fetchMediaLinked,
   type MediaDedupHit, type MediaDedupTarget,
 } from './data/mediaDedup';
-import { executeMediaMerge, findMediaMergeCandidates, mediaMentionFingerprint, sortMediaForQueue } from './data/mediaMerge';
+import { executeMediaMerge, fetchMediaMergeRelationEvidence, findMediaMergeCandidates, mediaMentionFingerprint, sortMediaForQueue } from './data/mediaMerge';
 import { withUrl } from './data/media';
 import { buildBrowse } from './data/browse';
 import { initials } from './data/format';
@@ -48,7 +48,7 @@ type MediaDedupState = {
 };
 // Change-arter der kan ændre et materiale-galleri (Slice 0h) — bruges til at afgøre om
 // person-editorens/objekt-editorens medieliste skal genhentes efter et gemt kald.
-const MEDIA_ARTER = new Set(['uploadMedia', 'opdaterMedia', 'genopretMedia', 'mediaRettigheder', 'fjernMedia', 'sletRelation', 'tilknytMedia']);
+const MEDIA_ARTER = new Set(['uploadMedia', 'opdaterMedia', 'genopretMedia', 'mediaRettigheder', 'fjernMedia', 'sletRelation', 'sletMediaRelationUdenEvidens', 'tilknytMedia']);
 // Generiske entiteter med et materiale-galleri (Slice 0h) — spejler mobiles HAR_MATERIALE.
 const HAR_OBJEKT_MATERIALE = new Set(['estate', 'arms']);
 // --- Tokens (fra designet) ---
@@ -1336,6 +1336,7 @@ export default function Redaktion() {
           ]);
           return { copyStatus: copy.uploadStatus, copyAnvendelse, originalAnvendelse };
         },
+        loadRelationEvidence: fetchMediaMergeRelationEvidence,
         execute: async (change) => {
           // Hvert eksisterende RPC-kald sendes separat: hvert trin ejer dermed sit eget change_set.
           const response = await submitChange(change, { dryRun: false, role });

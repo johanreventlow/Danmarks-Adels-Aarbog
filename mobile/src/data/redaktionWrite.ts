@@ -434,37 +434,42 @@ export function describeCall(call: RpcCall): string {
 // red_upload_media opretter ALTID rækken som upload_status='kladde' (schema-default); først når
 // bytes reelt ligger i Storage (lige udført ovenfor) er det sandt at bekræfte 'klar' — derfor et
 // eksplicit andet RPC-kald bagefter, ikke en del af red_upload_media selv.
-export async function submitChange(c: Change, opts: { dryRun: boolean }) {
+export async function submitChange(
+  c: Change,
+  opts: { dryRun: boolean },
+  deps: { performUpload?: (localUri: string, storagePath: string, mimeType: string) => Promise<void> } = {},
+) {
   const call = buildRpcCall(c);
   if (!call) throw new Error(`Kan ikke bygge RPC-kald for art=${c.art} felt=${c.felt}`);
   if (opts.dryRun) return { dryRun: true as const, call };
   if (!supabase) throw new Error('Supabase ikke konfigureret');
   const client = supabase; // narrowing overlever ikke ind i closures nedenfor (Promise.all/map)
+  let upload: ((localUri: string, storagePath: string, mimeType: string) => Promise<void>) | null = null;
   if (c.art === 'uploadMedia') {
     const p = c.payload || {};
     if (!p.localUri || !p.storagePath) throw new Error('Mangler lokal fil eller sti til upload');
-    const { performUpload } = await import('../lib/mediaUpload');
-    await performUpload(String(p.localUri), String(p.storagePath), String(p.mimeType ?? 'application/octet-stream'));
+    upload = deps.performUpload ?? (await import('../lib/mediaUpload')).performUpload;
+    await upload(String(p.localUri), String(p.storagePath), String(p.mimeType ?? 'application/octet-stream'));
   }
   const { data, error } = await client.rpc(call.fn, call.args);
   if (error) throw new Error(error.message);
   if (c.art === 'uploadMedia') {
-    const { error: bekraeftError } = await client.rpc('red_bekraeft_media_upload', { p_media_id: data });
-    if (bekraeftError) throw new Error(bekraeftError.message);
     // Billedstørrelser Slice B2: thumb+medium er selvstændige størrelsestrin (§ media_variant),
-    // ikke en del af red_upload_media selv — hver uploades og registreres uafhængigt af de andre.
+    // ikke en del af red_upload_media selv. Bevar 'kladde', indtil alle varianter er uploadet
+    // og registreret, så en fejl fortsat kan repareres af det eksisterende resume-flow.
     const varianter = (c.payload?.varianter ?? []) as Array<{
       tier: string; uri: string; storagePath: string; mimeType: string; byteSize: number; bredde: number; hoejde: number;
     }>;
-    const { performUpload } = await import('../lib/mediaUpload');
     await Promise.all(varianter.map(async (v) => {
-      await performUpload(v.uri, v.storagePath, v.mimeType);
+      await upload!(v.uri, v.storagePath, v.mimeType);
       const { error: variantError } = await client.rpc('red_registrer_media_variant', {
         p_media_id: data, p_tier: v.tier, p_storage_path: v.storagePath,
         p_mime: v.mimeType, p_byte_size: v.byteSize, p_bredde: v.bredde, p_hoejde: v.hoejde,
       });
       if (variantError) throw new Error(variantError.message);
     }));
+    const { error: bekraeftError } = await client.rpc('red_bekraeft_media_upload', { p_media_id: data });
+    if (bekraeftError) throw new Error(bekraeftError.message);
   }
   return { dryRun: false as const, call, result: data };
 }

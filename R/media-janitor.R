@@ -11,10 +11,55 @@ MEDIA_JANITOR_BUCKET <- "media"
 MEDIA_JANITOR_REPORT_COLUMNS <- c(
   "kategori", "bucket", "media_id", "sti", "alder_dage", "anbefalet_handling"
 )
+MEDIA_JANITOR_MAX_BIGINT <- "9223372036854775807"
+MEDIA_JANITOR_MAX_SAFE_DOUBLE_ID <- 2^53 - 1
+
+normalize_bigint_id <- function(id, label = "id") {
+  if (length(id) != 1L || is.na(id)) {
+    stop(label, " skal være ét ikke-manglende BIGINT-id.", call. = FALSE)
+  }
+  if (inherits(id, "integer64")) {
+    value <- as.character(id)
+  } else if (is.character(id)) {
+    value <- id
+  } else if (is.integer(id)) {
+    value <- as.character(id)
+  } else if (is.numeric(id)) {
+    if (!is.finite(id) || id < 0 || id != floor(id)) {
+      stop(label, " skal være et ikke-negativt heltal.", call. = FALSE)
+    }
+    if (id > MEDIA_JANITOR_MAX_SAFE_DOUBLE_ID) {
+      stop(label, " over 2^53-1 skal leveres som tekst eller integer64.", call. = FALSE)
+    }
+    value <- sprintf("%.0f", id)
+  } else {
+    stop(label, " skal leveres som tekst, integer eller integer64.", call. = FALSE)
+  }
+  if (length(value) != 1L || is.na(value) || !grepl("^[0-9]+$", value)) {
+    stop(label, " er ikke et gyldigt ikke-negativt BIGINT-id.", call. = FALSE)
+  }
+  value <- sub("^0+(?=[0-9])", "", value, perl = TRUE)
+  if (nchar(value) > nchar(MEDIA_JANITOR_MAX_BIGINT) ||
+      (nchar(value) == nchar(MEDIA_JANITOR_MAX_BIGINT) &&
+       value > MEDIA_JANITOR_MAX_BIGINT)) {
+    stop(label, " ligger uden for PostgreSQL BIGINT-området.", call. = FALSE)
+  }
+  value
+}
+
+normalize_bigint_ids <- function(ids, label = "id") {
+  if (!length(ids)) return(character())
+  vapply(seq_along(ids), function(i) normalize_bigint_id(ids[i], label), character(1))
+}
+
+sort_bigint_ids <- function(ids, label = "id") {
+  values <- normalize_bigint_ids(ids, label)
+  values[order(nchar(values), values, method = "radix")]
+}
 
 empty_media_janitor_report <- function() {
   data.frame(
-    kategori = character(), bucket = character(), media_id = numeric(), sti = character(),
+    kategori = character(), bucket = character(), media_id = character(), sti = character(),
     alder_dage = numeric(), anbefalet_handling = character(),
     stringsAsFactors = FALSE
   )
@@ -143,13 +188,17 @@ storage_path_exists <- function(bucket, path, bucket_paths) {
   path %in% bucket_paths
 }
 
-build_report_row <- function(kategori, media_id = NA_real_, sti = NA_character_,
+build_report_row <- function(kategori, media_id = NA_character_, sti = NA_character_,
                              created_at = as.POSIXct(NA), now = Sys.time(),
                              anbefalet_handling, bucket = MEDIA_JANITOR_BUCKET) {
   data.frame(
     kategori = as.character(kategori),
     bucket = as.character(bucket),
-    media_id = if (length(media_id) && !is.na(media_id)) as.numeric(media_id) else NA_real_,
+    media_id = if (length(media_id) && !is.na(media_id)) {
+      normalize_bigint_id(media_id, "media-id")
+    } else {
+      NA_character_
+    },
     sti = if (length(sti) && !is.na(sti)) as.character(sti) else NA_character_,
     alder_dage = if (length(created_at) && !is.na(created_at)) age_days(created_at, now) else NA_real_,
     anbefalet_handling = as.character(anbefalet_handling),
@@ -163,10 +212,12 @@ sort_media_janitor_report <- function(report) {
                       "d_sha_backfill", "d_ægte_dublet", "x_fremmed_bucket")
   category_rank <- match(report$kategori, category_order)
   category_rank[is.na(category_rank)] <- length(category_order) + 1L
-  id_rank <- report$media_id
-  id_rank[is.na(id_rank)] <- Inf
+  id_missing <- is.na(report$media_id)
+  id_rank <- ifelse(id_missing, "", report$media_id)
+  id_length <- nchar(id_rank)
   path_rank <- ifelse(is.na(report$sti), "", report$sti)
-  idx <- order(category_rank, report$bucket, id_rank, path_rank, report$anbefalet_handling,
+  idx <- order(category_rank, report$bucket, id_missing, id_length, id_rank,
+               path_rank, report$anbefalet_handling,
                method = "radix", na.last = TRUE)
   rownames(report) <- NULL
   out <- report[idx, MEDIA_JANITOR_REPORT_COLUMNS, drop = FALSE]
@@ -183,7 +234,7 @@ classify_media_findings <- function(media, variants, bucket_paths,
   scoped <- media[in_scope, , drop = FALSE]
   stranded <- scoped[scoped$upload_status %in% c("kladde", "fejlet"), , drop = FALSE]
   stranded_out <- data.frame(
-    media_id = as.numeric(stranded$id),
+    media_id = stranded$id,
     bucket = as.character(stranded$bucket),
     sti = as.character(stranded$storage_path),
     created_at = as_utc_time(stranded$created_at),
@@ -201,14 +252,14 @@ classify_media_findings <- function(media, variants, bucket_paths,
       variant <- own[own$tier == tier, , drop = FALSE]
       if (!nrow(variant)) {
         holes[[length(holes) + 1L]] <- data.frame(
-          media_id = as.numeric(media_id), bucket = bucket, tier = tier, sti = tier,
+          media_id = media_id, bucket = bucket, tier = tier, sti = tier,
           created_at = as_utc_time(ready$created_at[[i]]), stringsAsFactors = FALSE
         )
       } else {
         path <- as.character(variant$storage_path[[1]])
         if (!storage_path_exists(bucket, path, bucket_paths)) {
           holes[[length(holes) + 1L]] <- data.frame(
-            media_id = as.numeric(media_id), bucket = bucket, tier = tier, sti = path,
+            media_id = media_id, bucket = bucket, tier = tier, sti = path,
             created_at = as_utc_time(ready$created_at[[i]]), stringsAsFactors = FALSE
           )
         }
@@ -237,14 +288,14 @@ classify_media_findings <- function(media, variants, bucket_paths,
     , drop = FALSE
   ]
   sha_candidates <- data.frame(
-    media_id = as.numeric(sha$id),
+    media_id = sha$id,
     bucket = if ("bucket" %in% names(sha)) as.character(sha$bucket) else rep("media", nrow(sha)),
     sti = as.character(sha$storage_path), created_at = as_utc_time(sha$created_at),
     stringsAsFactors = FALSE
   )
 
   foreign_bucket <- data.frame(
-    media_id = as.numeric(foreign$id), bucket = as.character(foreign$bucket),
+    media_id = foreign$id, bucket = as.character(foreign$bucket),
     sti = as.character(foreign$storage_path), created_at = as_utc_time(foreign$created_at),
     sletbar = rep(FALSE, nrow(foreign)), stringsAsFactors = FALSE
   )
@@ -303,12 +354,15 @@ list_storage_objects <- function(bucket, list_page, page_size = 1000L) {
 
 decide_sha_backfill <- function(media_id, sha, known_sha) {
   own <- known_sha[known_sha$id == media_id & known_sha$sha256 == sha, , drop = FALSE]
-  if (nrow(own)) return(list(action = "already_set", duplicate_media_id = NA_integer_))
+  if (nrow(own)) return(list(action = "already_set", duplicate_media_id = NA_character_))
   duplicate <- known_sha[known_sha$id != media_id & known_sha$sha256 == sha, , drop = FALSE]
   if (nrow(duplicate)) {
-    return(list(action = "duplicate", duplicate_media_id = as.integer(min(duplicate$id))))
+    return(list(
+      action = "duplicate",
+      duplicate_media_id = sort_bigint_ids(duplicate$id, "dublet-media-id")[[1]]
+    ))
   }
-  list(action = "update", duplicate_media_id = NA_integer_)
+  list(action = "update", duplicate_media_id = NA_character_)
 }
 
 backfill_one_sha <- function(media_id, bucket, path, known_sha, download, update,
@@ -380,14 +434,12 @@ relation_block_for_media <- function(relations, media_id) {
     touching$objekt_type %in% c("estate", "coat_of_arms", "lineage") &
     !is.na(touching$objekt_id)
   expected <- is_portrait | is_object_image
-  unexpected_ids <- sort(as.numeric(touching$relation_id[!expected]))
+  unexpected_ids <- touching$relation_id[!expected]
   evidence_unknown_or_present <- is.na(touching$has_evidence) | touching$has_evidence
-  evidenced_ids <- sort(as.numeric(
-    touching$relation_id[expected & evidence_unknown_or_present]
-  ))
+  evidenced_ids <- touching$relation_id[expected & evidence_unknown_or_present]
   list(
     blocked = length(unexpected_ids) > 0L || length(evidenced_ids) > 0L,
-    expected_relation_ids = sort(as.numeric(touching$relation_id[expected])),
+    expected_relation_ids = touching$relation_id[expected],
     unexpected_relation_ids = unexpected_ids,
     evidenced_relation_ids = evidenced_ids
   )
@@ -398,16 +450,13 @@ default_janitor_db_ops <- function() {
     begin = DBI::dbBegin,
     execute = function(con, sql, params) DBI::dbExecute(con, sql, params = params),
     delete_media = function(con, media_id) {
-      id <- as.numeric(media_id)
-      if (length(id) != 1L || is.na(id) || !is.finite(id) || id < 0 || id != floor(id)) {
-        stop("Ugyldigt media-id ved sletning.", call. = FALSE)
-      }
+      id <- normalize_bigint_id(media_id, "media-id ved sletning")
       # RPostgres 1.4.10 reducerer serverfejl til simpleError og eksponerer ikke
       # SQLSTATE. Fang derfor den konkrete PostgreSQL-condition server-side og
       # oversæt KUN foreign_key_violation (23503) til en stabil intern sentinel.
       sql <- paste0(
         "DO $media_janitor$ BEGIN ",
-        "DELETE FROM media WHERE id=", format(id, scientific = FALSE, trim = TRUE), "; ",
+        "DELETE FROM media WHERE id=", id, "; ",
         "IF NOT FOUND THEN RAISE EXCEPTION 'MEDIA_JANITOR_ROW_NOT_FOUND'; END IF; ",
         "EXCEPTION WHEN foreign_key_violation THEN ",
         "RAISE EXCEPTION 'MEDIA_JANITOR_SQLSTATE_23503'; ",
@@ -434,10 +483,12 @@ delete_stranded_media_row <- function(con, media_id, bucket, paths,
   if (length(has_evidence) && any(is.na(has_evidence) | has_evidence)) {
     return(list(status = "manuel", detail = "relation har evidens"))
   }
+  media_id <- normalize_bigint_id(media_id, "media-id ved sletning")
+  relation_ids <- sort_bigint_ids(relation_ids, "relation-id ved sletning")
   committed <- FALSE
   db_ops$begin(con)
   tryCatch({
-    for (relation_id in sort(as.numeric(relation_ids))) {
+    for (relation_id in relation_ids) {
       # Samme FK-orden som _delete_relation_evidence. Hvert DELETE er betinget af,
       # at HELE evidenssættet stadig er tomt; en samtidig evidensrække bliver derfor
       # aldrig slettet af janitoren, og relationens affected-row-check stopper rækken.
@@ -589,7 +640,7 @@ connect_media_janitor_db <- function() {
     port = as.integer(Sys.getenv("SUPABASE_PORT", "5432")),
     dbname = Sys.getenv("SUPABASE_DB", "postgres"), user = user,
     password = password, sslmode = Sys.getenv("SUPABASE_SSLMODE", "require"),
-    bigint = "numeric"
+    bigint = "character"
   )
 }
 

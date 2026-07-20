@@ -10,6 +10,23 @@ buffer_counts <- function(buf) {
   vapply(setNames(tbls, tbls), function(t) length(buf[[t]]), integer(1))
 }
 
+# FK-/mål-afhængig COPY-rækkefølge. Source-rækken skrives direkte før bufferen flushes.
+# Polymorfe target_id'er har ingen fysisk FK, men behandles som en reel afhængighed:
+# både fact og relation skal derfor eksistere før assertion/conclusion-laget.
+load_flush_order <- function() c(
+  "place", "person", "person_external_id", "estate", "organisation",
+  "historical_event", "family", "family_member", "fact", "relation",
+  "assertion", "citation", "conclusion", "note", "narrative"
+)
+
+flush_buffer_in_dependency_order <- function(buf, append_table) {
+  for (tbl in load_flush_order()) {
+    rows <- buf[[tbl]]
+    if (length(rows)) append_table(tbl, rows)
+  }
+  invisible()
+}
+
 # Redaktionelle change_set-rækker (operation 'red_%') markerer arbejde der ikke må
 # TRUNCATE'es. Import/load-changes gør ikke. Ren funktion; cs = data.frame m. 'operation'.
 has_editorial_changes <- function(cs) {

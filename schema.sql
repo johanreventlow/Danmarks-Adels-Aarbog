@@ -933,6 +933,7 @@ CREATE INDEX IF NOT EXISTS ix_fact_subjekt       ON fact(subjekt_type, subjekt_i
 CREATE INDEX IF NOT EXISTS ix_assertion_target   ON assertion(target_type, target_id);
 CREATE INDEX IF NOT EXISTS ix_conclusion_target  ON conclusion(target_type, target_id);
 CREATE INDEX IF NOT EXISTS ix_citation_assertion ON citation(assertion_id);
+CREATE INDEX IF NOT EXISTS ix_note_target        ON note(target_type, target_id);
 CREATE INDEX IF NOT EXISTS ix_relation_subjekt   ON relation(subjekt_type, subjekt_id);
 CREATE INDEX IF NOT EXISTS ix_relation_objekt    ON relation(objekt_type, objekt_id);
 CREATE INDEX IF NOT EXISTS ix_assertion_objekt   ON assertion(objekt_type, objekt_id) WHERE objekt_id IS NOT NULL;
@@ -1248,6 +1249,94 @@ BEGIN
   PERFORM begin_change_set('red_slet_relation', format('Slettede relation %s', p_relation_id), NULL, NULL);
   PERFORM _delete_relation_evidence(p_relation_id);
 END $$;
+
+-- Polymorf relationsevidens har ingen deklarativ FK. Lås derfor målrækken som en
+-- rigtig FK ville gøre: writer-før-delete holder KEY SHARE; delete-før-writer holder
+-- UPDATE/DELETE-lock, hvorefter writeren vågner og fejler, fordi rækken er væk.
+CREATE OR REPLACE FUNCTION enforce_relation_evidence_target()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF NEW.target_type='relation' THEN
+    PERFORM 1 FROM relation WHERE id=NEW.target_id FOR KEY SHARE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Relations-evidens kræver eksisterende relation %', NEW.target_id;
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+
+REVOKE ALL ON FUNCTION public.enforce_relation_evidence_target() FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE TRIGGER trg_assertion_relation_target
+  BEFORE INSERT OR UPDATE OF target_type, target_id ON assertion
+  FOR EACH ROW EXECUTE FUNCTION enforce_relation_evidence_target();
+CREATE OR REPLACE TRIGGER trg_conclusion_relation_target
+  BEFORE INSERT OR UPDATE OF target_type, target_id ON conclusion
+  FOR EACH ROW EXECUTE FUNCTION enforce_relation_evidence_target();
+CREATE OR REPLACE TRIGGER trg_note_relation_target
+  BEFORE INSERT OR UPDATE OF target_type, target_id ON note
+  FOR EACH ROW EXECUTE FUNCTION enforce_relation_evidence_target();
+
+-- Direkte DELETE eller ændring af relationens PK må ikke kunne omgå den polymorfe
+-- invariant. Evidensfri id-update er fortsat tilladt til import/undo; de tilsigtede
+-- sletteveje bruger _delete_relation_evidence og rydder først evidensen.
+CREATE OR REPLACE FUNCTION guard_relation_evidence_delete()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  -- Generisk undo SET'er også PK-kolonnen til dens nuværende værdi.
+  IF TG_OP='UPDATE' AND NEW.id IS NOT DISTINCT FROM OLD.id THEN RETURN NEW; END IF;
+  IF EXISTS (SELECT 1 FROM assertion WHERE target_type='relation' AND target_id=OLD.id)
+     OR EXISTS (SELECT 1 FROM conclusion WHERE target_type='relation' AND target_id=OLD.id)
+     OR EXISTS (SELECT 1 FROM note WHERE target_type='relation' AND target_id=OLD.id) THEN
+    IF TG_OP='UPDATE' THEN
+      RAISE EXCEPTION 'Relation % har evidens og id kan ikke ændres', OLD.id;
+    END IF;
+    RAISE EXCEPTION 'Relation % har evidens og kan ikke slettes direkte', OLD.id;
+  END IF;
+  IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
+END $$;
+
+REVOKE ALL ON FUNCTION public.guard_relation_evidence_delete() FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE TRIGGER trg_relation_evidence_delete
+  BEFORE DELETE OR UPDATE OF id ON relation
+  FOR EACH ROW EXECUTE FUNCTION guard_relation_evidence_delete();
+
+-- Medieflet må aldrig arve red_slet_relation's tilsigtede "slet relation + evidens"-semantik.
+-- Relationens rækkelås serialiserer mod evidens-triggerens KEY SHARE uden at blokere
+-- writes til andre relationer. Almindelig red_slet_relation er uændret.
+CREATE OR REPLACE FUNCTION red_slet_medierelation_uden_evidens(p_relation_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_relation relation%ROWTYPE;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- FOR UPDATE konflikter med evidens-triggerens FOR KEY SHARE på præcis denne relation.
+  SELECT * INTO v_relation FROM relation WHERE id=p_relation_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Relation % findes ikke', p_relation_id; END IF;
+  IF NOT (
+    (v_relation.rolle='afbildet' AND v_relation.subjekt_type='person'
+      AND v_relation.objekt_type='media')
+    OR
+    (v_relation.rolle='afbildet' AND v_relation.subjekt_type='media'
+      AND v_relation.objekt_type IN ('estate','coat_of_arms','lineage'))
+  ) THEN
+    RAISE EXCEPTION 'Relation % er ikke en kanonisk medie-afbildning', p_relation_id;
+  END IF;
+  IF EXISTS (SELECT 1 FROM assertion WHERE target_type='relation' AND target_id=p_relation_id)
+     OR EXISTS (SELECT 1 FROM conclusion WHERE target_type='relation' AND target_id=p_relation_id)
+     OR EXISTS (SELECT 1 FROM note WHERE target_type='relation' AND target_id=p_relation_id) THEN
+    RAISE EXCEPTION 'Medierelationen % har evidens og kan ikke fjernes ved blød flet', p_relation_id;
+  END IF;
+  PERFORM begin_change_set(
+    'red_slet_medierelation_uden_evidens',
+    format('Fjernede evidensfri medierelation %s ved blød flet', p_relation_id), NULL, NULL
+  );
+  DELETE FROM relation WHERE id=p_relation_id;
+END $$;
+
+REVOKE ALL ON FUNCTION public.red_slet_medierelation_uden_evidens(bigint) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.red_slet_medierelation_uden_evidens(bigint) TO authenticated;
 
 -- ============================================================================
 -- Redaktionel identitets-sammenkædning (samme_som) — spec 2026-07-02, Codex-3.

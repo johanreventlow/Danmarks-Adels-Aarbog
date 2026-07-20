@@ -8,8 +8,8 @@
 Fase 1+2 og `db-rls.sql` er allerede live. Deploy derfor **kun** den navngivne blok
 `mediehaandtering_fase3_hygiejne` fra `db-migrations.sql` — ikke hele migrationsfilen,
 som også indeholder uafhængige funktioner. Blokken starter ved sin daterede overskrift
-og slutter efter `red_relation`-definitionen, umiddelbart før overskriften for levende
-feed fase 3.
+og slutter efter `red_slet_medierelation_uden_evidens`-definitionen og dens grants,
+umiddelbart før overskriften for levende feed fase 3.
 
 Stop uden ændringer hvis:
 
@@ -42,7 +42,12 @@ Kør alene `mediehaandtering_fase3_hygiejne` i én atomisk transaktion. Blokken:
 - opretter `relation_afbildet_uidx` på
   `(subjekt_type, subjekt_id, objekt_type, objekt_id) WHERE rolle='afbildet'`;
 - erstatter den eksisterende `red_relation`-signatur med constraint-specifik
-  håndtering af netop dette index.
+  håndtering af netop dette index;
+- opretter `red_slet_medierelation_uden_evidens`, som atomisk afviser blød flet ved
+  relations-evidens uden at ændre almindelig `red_slet_relation`;
+- opretter `ix_note_target` samt triggerinvarianten på `assertion`, `conclusion`,
+  `note` og `relation`, så relationsevidens og relationssletning serialiseres på den
+  konkrete relationsrække og aldrig kan efterlade nye forældreløse evidensrækker.
 
 `db-rls.sql` skal ikke deployes for fase 3; filen er uændret. Der må heller ikke køres
 nogen migration eller omdøbning af gamle Storage-stier.
@@ -55,7 +60,11 @@ nogen migration eller omdøbning af gamle Storage-stier.
 3. Assertér direkte i kataloget:
    - `media.created_at` er NULL-bar `timestamptz` med default `now()`;
    - `relation_afbildet_uidx` har præcis fire nøglekolonner og partial-predikatet;
-   - `red_relation(text,bigint,text,bigint,text,text)` er den forventede definition.
+   - `red_relation(text,bigint,text,bigint,text,text)` er den forventede definition;
+   - `red_slet_medierelation_uden_evidens(bigint)` findes, kan kun eksekveres af
+     `authenticated`, og afviser evidensbærende relationer uden datatab;
+   - de fire relationsevidens-triggere og `ix_note_target` findes, og både writer-før-unlink
+     og unlink-før-writer afviser den tabsgivende side uden orphan-data.
 4. Kør Supabase security advisors (`get_advisors(security)`). Sammenlign med den kendte
    baseline; nye fund stopper deployet, mens kendte SECURITY DEFINER-/deny-all-mønstre
    dokumenteres uden at blive kaldt nye regressionsfund.

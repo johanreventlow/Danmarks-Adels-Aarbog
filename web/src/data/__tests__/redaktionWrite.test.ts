@@ -149,6 +149,17 @@ describe('buildRpcCall — sletRelation med bigint', () => {
     expect(buildRpcCall({ art: 'sletRelation', subjektType: 'media', subjektId: '91', relationId: '9223372036854775807' } as never))
       .toEqual({ fn: 'red_slet_relation', args: { p_relation_id: '9223372036854775807' } });
   });
+
+  it('medieflet bruger den atomiske evidensbevarende RPC uden at ændre almindelig sletRelation', () => {
+    expect(buildRpcCall({
+      art: 'sletMediaRelationUdenEvidens', subjektType: 'media', subjektId: '91', relationId: '81',
+    } as never)).toEqual({
+      fn: 'red_slet_medierelation_uden_evidens', args: { p_relation_id: 81 },
+    });
+    expect(buildRpcCall({
+      art: 'sletRelation', subjektType: 'media', subjektId: '91', relationId: '81',
+    } as never)).toEqual({ fn: 'red_slet_relation', args: { p_relation_id: 81 } });
+  });
 });
 
 describe('buildRpcCall — forældre ukendt-markering (docs/reviews/25)', () => {

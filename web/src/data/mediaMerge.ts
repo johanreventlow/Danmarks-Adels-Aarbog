@@ -1,5 +1,7 @@
 import type { Change } from './redaktionWrite';
 import type { MediaAnvendelse, MediaBibliotekPost, MedieKoe } from './redaktionRead';
+import { supabase } from '../supabase';
+import { getAll } from '@daa/core';
 
 type MergeTargetType = 'person' | 'estate' | 'coat_of_arms' | 'lineage';
 
@@ -120,7 +122,7 @@ export function buildMediaMergePlan(args: {
       kind: 'delete-copy-relation',
       description: `Fjern kopiens tilknytning til ${relation.navn}`,
       change: {
-        art: 'sletRelation', subjektType: 'media', subjektId: args.copyId,
+        art: 'sletMediaRelationUdenEvidens', subjektType: 'media', subjektId: args.copyId,
         relationId: relation.relationId,
       },
     });
@@ -138,10 +140,31 @@ function isAlreadyLinkedRace(error: unknown): boolean {
   return /mediet er allerede tilknyttet dette subjekt/i.test(String((error as Error)?.message ?? error));
 }
 
+type RelationEvidenceRow = { target_id: string | number };
+
+/**
+ * Relationsevidens er polymorf og kan derfor ikke joines fra relation-tabellen. Citations
+ * er dækket af assertion-opslaget, fordi citation.assertion_id peger på assertion-rækken.
+ */
+export async function fetchMediaMergeRelationEvidence(relationIds: readonly string[]): Promise<string[]> {
+  const ids = [...new Set(relationIds)];
+  if (!ids.length) return [];
+  const [assertions, conclusions, notes] = await Promise.all([
+    getAll<RelationEvidenceRow>(() => supabase.from('assertion').select('target_id::text')
+      .eq('target_type', 'relation').in('target_id', ids)),
+    getAll<RelationEvidenceRow>(() => supabase.from('conclusion').select('target_id::text')
+      .eq('target_type', 'relation').in('target_id', ids)),
+    getAll<RelationEvidenceRow>(() => supabase.from('note').select('target_id::text')
+      .eq('target_type', 'relation').in('target_id', ids)),
+  ]);
+  return [...new Set([...assertions, ...conclusions, ...notes].map((row) => String(row.target_id)))].sort();
+}
+
 export async function executeMediaMerge(
   args: { copyId: string; originalId: string; dryRun: boolean; confirmedMentionFingerprint: string },
   deps: {
     loadState: () => Promise<MediaMergeState>;
+    loadRelationEvidence: (relationIds: readonly string[]) => Promise<string[]>;
     execute: (change: Change) => Promise<void>;
   },
 ): Promise<
@@ -156,6 +179,11 @@ export async function executeMediaMerge(
     // Vigtigt: ingen plan eksekveres, før redaktøren har set og eksplicit genbekræftet det nye
     // autoritative varsel. Gælder både tilføjede, fjernede og ændrede mention-detaljer.
     return { kind: 'mentions-changed', state, mentionFingerprint: currentMentionFingerprint };
+  }
+  const relationIds = state.copyAnvendelse.afbildet.map((relation) => relation.relationId);
+  const evidencedRelationIds = await deps.loadRelationEvidence(relationIds);
+  if (evidencedRelationIds.length) {
+    throw new Error(`Blød flet er blokeret: kopiens relationer har evidens (${evidencedRelationIds.join(', ')}).`);
   }
   const plan = buildMediaMergePlan({ ...args, ...state });
   if (args.dryRun) return { kind: 'dry-run', plan };
