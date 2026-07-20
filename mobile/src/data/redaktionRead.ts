@@ -1027,7 +1027,7 @@ export async function fetchMatchPersoner(): Promise<RedMatchPerson[]> {
   if (!supabase) return [];
   const sb = supabase;
   const [persons, facts, concs, assertions, extIds] = await Promise.all([
-    getAll<MatchPersonRow>(() => sb.from('person').select('id,visning_navn,koen')),
+    getAll<MatchPersonRow>(() => sb.from('person').select('id,visning_navn,koen,staged')),
     getAll<MatchFactRow>(() => sb.from('fact').select('id,subjekt_id,faktatype').eq('subjekt_type', 'person').in('faktatype', ['fødsel', 'død'])),
     getAll<MatchConcRow>(() => sb.from('conclusion').select('target_id,valgt_assertion_id').eq('target_type', 'fact').eq('status', 'afklaret')),
     getAll<MatchAssertRow>(() => sb.from('assertion').select('id,date_min,date_max').eq('target_type', 'fact')),

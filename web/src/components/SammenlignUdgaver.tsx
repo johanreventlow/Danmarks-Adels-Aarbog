@@ -53,6 +53,9 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
   const [fejl, setFejl] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
+  // K2 selektiv publicering (§7.20): aId'er markeret til "Publicér valgte" — kun bekræftede
+  // matches, kun staged personer (allerede publicerede har ingen afkrydsning at sætte).
+  const [valgteTilPublicering, setValgteTilPublicering] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let alive = true;
@@ -137,6 +140,21 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
     kand.filter((k) => !k.afvist && !k.linket).forEach((k) => afvis(String(k.aId), String(k.bId)));
   };
 
+  const toggleValgtTilPublicering = (aId: string) => setValgteTilPublicering((prev) => {
+    const next = new Set(prev);
+    if (next.has(aId)) next.delete(aId); else next.add(aId);
+    return next;
+  });
+  // Publicér KUN de valgte person-id'er (§7.20) — ikke hele kilden. Rydder valget efter
+  // forsøget, uanset udfald; en fejl vises stadig via `fejl` (sat af run()).
+  const publicerValgte = async () => {
+    const ids = [...valgteTilPublicering];
+    if (!ids.length) return;
+    await run({ art: 'publicerPersoner', subjektType: 'person', subjektId: ids[0],
+      payload: { personIds: ids } }, 'publicer');
+    setValgteTilPublicering(new Set());
+  };
+
   // Fold-hint pr. par: for et allerede bekræftet link, slå op om DET par er en af de karantænerede
   // grupper (fra den ÉN kørsel over alle bekræftede kanter ovenfor); for et endnu ubekræftet par,
   // kør previewSammeSom med den hypotetiske kant. RÅDGIVENDE (offentlig visning kan afvige pga.
@@ -153,6 +171,7 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
 
   const f = arbejdsliste?.fremdrift;
   const aabne = arbejdsliste?.personer.filter((p) => p.status === 'aaben') ?? [];
+  const afklarede = arbejdsliste?.personer.filter((p) => p.status === 'afklaret') ?? [];
   const formodetNye = arbejdsliste?.personer.filter((p) => p.status === 'formodet_ny') ?? [];
 
   return (
@@ -190,6 +209,53 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
                 <li key={i}>
                   {q.members.map((id) => visning(byId.get(id))).join(' = ')} — <em>{q.reason}</em>
                   {advice && <div style={{ color: '#6f675b' }}>{advice}</div>}
+                </li>
+              );
+            })}
+          </ul>
+        </details>
+      )}
+
+      {/* Bekræftede matches (§7.20): kun HER kan en staged 1939-person vælges til selektiv
+          publicering — allerede publicerede vises med et badge i stedet for afkrydsning.
+          Adskilt fra `aabne`, fordi buildArbejdsliste flytter en person hertil i samme
+          øjeblik ÉT af dens kandidater bekræftes (uanset øvrige kandidaters status). */}
+      {afklarede.length > 0 && (
+        <details open style={{ marginTop: '.75rem' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+            {afklarede.length} bekræftet{afklarede.length === 1 ? '' : 'e'} match{afklarede.length === 1 ? '' : 'es'}
+          </summary>
+          <div style={{ margin: '.6rem 0', display: 'flex', alignItems: 'baseline', gap: '.6rem' }}>
+            <button disabled={!!busy || valgteTilPublicering.size === 0} onClick={publicerValgte}>
+              Publicér valgte ({valgteTilPublicering.size})
+            </button>
+            <span style={{ fontSize: '.8em', color: '#6f675b' }}>
+              Gør kun de markerede personer synlige for besøgende — resten forbliver skjult, til de er klar.
+            </span>
+          </div>
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+            {afklarede.map((person) => {
+              const a = byId.get(person.aId);
+              const staged = a?.staged ?? false;
+              const linket = person.kandidater.find((k) => k.linket);
+              const b = linket ? byId.get(String(linket.bId)) : undefined;
+              const hint = linket ? foldHint(person.aId, String(linket.bId), true) : { folder: false, grund: null };
+              const advice = hint.grund ? foldAdvice(hint.grund) : null;
+              return (
+                <li key={person.aId} style={{ padding: '.4rem 0', borderBottom: '1px dashed rgba(34,31,26,.08)' }}>
+                  {staged ? (
+                    <label style={{ cursor: 'pointer' }}>
+                      <input type="checkbox" checked={valgteTilPublicering.has(person.aId)}
+                        onChange={() => toggleValgtTilPublicering(person.aId)} style={{ marginRight: '.4rem' }} />
+                      {visning(a)} = {visning(b)}
+                    </label>
+                  ) : (
+                    <span>{visning(a)} = {visning(b)} <span style={{ fontSize: '.8em', color: '#3d7a3d' }}>✓ publiceret</span></span>
+                  )}
+                  <div style={{ fontSize: '.8em', marginTop: '.15rem', color: hint.folder ? '#3d7a3d' : '#881A33' }}>
+                    {hint.folder ? '✓ foldes offentligt til én person' : `foldes IKKE endnu offentligt: ${hint.grund}`}
+                    {!hint.folder && advice && <div style={{ color: '#6f675b' }}>{advice}</div>}
+                  </div>
                 </li>
               );
             })}

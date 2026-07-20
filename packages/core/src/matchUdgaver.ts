@@ -282,9 +282,10 @@ export type RedMatchPerson = {
   foedsel: { date_min: string | null; date_max: string | null } | null;
   doed: { date_min: string | null; date_max: string | null } | null;
   sourceIds: number[]; // kilde-medlemskab (person_external_id) → disjunkt-kilde-afgrænsning
+  staged: boolean; // K2-kuratering: TRUE = usynlig for anon (§7.20 selektiv publicering)
 };
 
-export type MatchPersonRow = { id: number; visning_navn: string | null; koen: string | null };
+export type MatchPersonRow = { id: number; visning_navn: string | null; koen: string | null; staged?: boolean | null };
 export type MatchFactRow = { id: number; subjekt_id: number; faktatype: string };
 export type MatchConcRow = { target_id: number; valgt_assertion_id: number | null };
 export type MatchAssertRow = { id: number; date_min: string | null; date_max: string | null };
@@ -323,6 +324,7 @@ export function buildMatchPersoner(
     foedsel: birth.get(p.id) ?? null,
     doed: death.get(p.id) ?? null,
     sourceIds: srcByPerson.get(p.id) ?? [],
+    staged: Boolean(p.staged),
   }));
 }
 

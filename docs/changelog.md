@@ -1,24 +1,84 @@
 # Changelog
 
+## Mediehåndtering fase 3 — implementeringsplan skrevet + dual-reviewet (2026-07-20)
+
+Implementeringsplan (10 TDD-tasks, skrevet af Fable): `docs/superpowers/plans/2026-07-20-mediehaandtering-fase3-hygiejne.md`,
+mod den mergede fase 3-spec. Dual-reviewet (`docs/reviews/33-mediehaandtering-fase3-plan-dual-review.md`)
+— to uafhængige gennemgange (Codex var ikke tilgængeligt som værktøj i denne sessions miljø,
+så anden-reviewer-rollen blev udfyldt af en fuldt uafhængig subagent i stedet, dokumenteret
+eksplicit i reviewet). Fund: en fjerde, udokumenteret FK (`haendelse.relation_id → relation`)
+i den evidens-sikre oprydnings-DELETE — verificeret strukturelt uskadelig i dag (kun skrives
+for conclusion-bærende relationer, som DELETE'en allerede udelukker), men nu dokumenteret +
+en defensiv `foreign_key_violation`-fangst tilføjet til janitorens sletning som fremtidssikring;
+en accepteret race-vindue-restrisiko i dedup-guardens fejltekst (ingen kodeændring); og en
+rækkefølge-fix i "Flet ind i…"-flowet (parkér kopien i papirkurven FØR relationerne flyttes,
+så et afbrudt flet altid lander i en allerede håndteret tilstand). Klar til PR — implementering
+ikke påbegyndt.
+
+## Mediehåndtering fase 1+2 + levende feed fase 2-3 + K2 selektiv publicering — LIVE i prod (2026-07-20)
+
+Deployet direkte til produktionsdatabasen via Supabase MCP (bruger-godkendt, kørt fra
+sessionen — ikke den forberedte manuelle `psql`/dashboard-runbook). Et live objektinventar
+(tabeller + `pg_proc`-funktionsnavne sammenlignet mod `db-migrations.sql`) afslørede at
+`docs/database-current-state.md`s "sidst afstemt 2026-07-01" var stærkt forældet: alt
+arbejde dateret 2026-07-02–2026-07-17 (samme_som, udledt slægtsnavn, dato-hærdning,
+Problem 2 fase 1, K2 staging-gate) var reelt allerede live, blot udokumenteret. Kun tre
+ting manglede: `haendelse` (levende feed fase 2), `story`/`story_kilde`/`feed_pin`
+(levende feed fase 3) og `red_publicer_personer` (K2 selektiv publicering, samme dags dato)
+— alle tre nu deployet, samt mediehåndtering fase 1+2 (se tidligere entries) og hele
+`db-rls.sql` (retter `text_mention`s manglende `GRANT SELECT` + `tm_read`s fail-open
+media-gren). `get_advisors(security)` efter apply: 117 fund, alle kendte mønstre
+(SECURITY DEFINER-eksponering af `red_*`, bevidst deny-all på historiktabeller) — ingen nye.
+Se `docs/database-current-state.md` for den fulde, ajourførte status.
+
+**Ikke-oplagt:** de to store `apply_migration`-kald (2.9k-linjers `db-migrations.sql` og
+723-linjers `db-rls.sql`) blev IKKE sendt i fuld længde — at læse begge filer ind i sin
+helhed ville have brugt langt mere kontekst end rådighed. I stedet blev et præcist
+objekt-diff (forventet vs. faktisk) brugt til at finde de tre manglende regioner, som
+derefter blev udtrukket med `sed`/`grep` og verificeret linje-for-linje før anvendelse;
+`db-rls.sql` blev læst i sin helhed (mindre fil, sikkerhedskritisk indhold) og kørt uændret.
+Undervejs droppede Supabase-MCP-forbindelsen midt i et `apply_migration`-kald (brugerens
+togforbindelse) — ingen skade, da alle statements er idempotente og hele kaldet var én
+transaktion, der rullede atomisk tilbage; blev opdaget og genkørt efter reconnect.
+
 ## Operatørguide afstemt mod read-only prod-facit (2026-07-20)
 
-`docs/database-current-state.md` er omskrevet fra det forældede 1. juli-snapshot til
+**Denne audit var read-only og forud for deploy-entryen ovenfor** — dens "ikke live"-
+konklusion for levende feed fase 2/3 og mediefase 1–2 er indhentet af samme dags deploy;
+bevaret som historik for selve audit-fundet (dokumentationsdrift), ikke som aktuel status.
+
+`docs/database-current-state.md` blev omskrevet fra det forældede 1. juli-snapshot til
 en aktuel skelnen mellem repo, app og prod. Read-only katalog-/aggregatqueries mod
 prod `xjnvdhajfyrcytatnzos` bekræftede: 1.758 personer, 835 staged, 77 levende;
 `anon` og almindelig `authenticated` ser begge 853 personer og 0 levende/staged;
 921 forældrefamilie-facts; 22 versionerede tabeller; 6 media-rækker (2 klare, 4
 fjernede); samt at `_delete_relation_evidence` ikke er API-eksekverbar for anon/auth.
 
-Problem 2/A1/K2 og media Slice 0 er live. Levende feed fase 2/3-tabellerne
-(`haendelse`, `story`, `story_kilde`, `feed_pin`) og mediefase 1-RPC'erne
-(`red_opdater_media`, `red_genopret_media`) findes ikke i prod. Mediefase 1–2 er
-derfor fortsat kodeklar, ikke live.
+Problem 2/A1/K2 og media Slice 0 var live. 1939-source 3 forbliver staged og usynlig.
+Gældende beslutning er **ingen publicering** før nyt OCR-udtræk og gentaget
+artefakt-/komplethedsgate. Den ældre 1939-plan er bevaret som fasehistorik, ikke som
+aktuel publiceringsordre. Ingen prod-skrivning eller schemaændring blev udført i denne
+dokumentationsrunde.
 
-1939-source 3 forbliver staged og usynlig. Gældende beslutning er **ingen
-publicering** før nyt OCR-udtræk og gentaget artefakt-/komplethedsgate. Den ældre
-1939-plan er bevaret som fasehistorik, ikke som aktuel publiceringsordre. README og
-mediekonceptets statuslinje er afstemt tilsvarende. Ingen prod-skrivning eller
-schemaændring blev udført i denne dokumentationsrunde.
+## Mediehåndtering fase 3 — hygiejne-spec skrevet (2026-07-20)
+
+Design-spec skrevet (ingen kode): `docs/superpowers/specs/2026-07-20-mediehaandtering-fase3-hygiejne-design.md`
+— aktiverer den hidtil døde dedup-mekanisme (klienten beregner sha256 af large-bytes:
+Web Crypto på web, expo-crypto på mobile), skifter til deterministiske sha-stier
+(`redaktor/<xx>/<sha>-{tier}.jpg`, idempotent genupload) og oversætter DB-guardens fejl
+til et "Billedet findes allerede → tilknyt i stedet"-flow oven på fase 2's tilknyt-mekanisme,
+inkl. selvhelende genoptagelse af strandede kladder. Additiv `media.created_at` (to-trins
+ALTER — ét-trins DEFAULT now() ville stemple alle gamle rækker med migrations-tidspunktet)
+giver strandede-køen alder, og et partielt unikt index (`WHERE rolle='afbildet'`) lukker
+fase 2's kendte relations-dublet-gap uden at røre periode-bårne roller som `ejer`.
+
+Ikke-oplagte valg: sha tages af de GENKODEDE bytes, så dedup fanger samme pipeline-upload
+men ikke web-vs-mobile-dubletter; da `media_sha256_uidx` gør sha-dubletter strukturelt
+umulige, kører bibliotekets nye "Mulige dubletter"-kø på en (byte_size,bredde,hoejde)-
+heuristik, mens janitorens sha-backfill leverer den ægte dublet-liste. "Flet ind i…" er
+klient-orkestreret af eksisterende RPC'er og stopper ved blødt fjern — udrensning er
+fortsat fase 4. Janitoren (`R/media-janitor.R`) er rapport-first: `--slet`/`--backfill-sha`
+er eksplicitte flag, frist-gated, og rækker med ukendt alder røres aldrig.
 
 ## Mediehåndtering fase 2 — biblioteket implementeret lokalt (2026-07-19)
 
