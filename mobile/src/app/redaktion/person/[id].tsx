@@ -152,8 +152,16 @@ export default function PersonEditor() {
   const [mediaAnvendelse, setMediaAnvendelse] = useState<MediaAnvendelse | undefined>();
   const [mediaAnvendelseFejl, setMediaAnvendelseFejl] = useState('');
   const [uploadSheetOpen, setUploadSheetOpen] = useState(false);
-  const refreshMedia = () => { if (id) fetchPersonMedia(id).then(setMedia).catch(() => {}); };
-  useEffect(refreshMedia, [id]);
+  const refreshMedia = async () => {
+    if (!id) return;
+    setMedia(await fetchPersonMedia(id));
+  };
+  useEffect(() => {
+    if (!id) return;
+    let aktiv = true;
+    fetchPersonMedia(id).then((m) => { if (aktiv) setMedia(m); }).catch(() => {});
+    return () => { aktiv = false; };
+  }, [id]);
   const { uris: mediaUris, thumbUris: mediaThumbUris } = useMediaAndThumbUris(
     media.map((m) => ({ id: m.id, storage_path: m.storagePath, thumb_storage_path: m.thumbStoragePath })),
     (m) => m.thumb_storage_path,
@@ -722,7 +730,9 @@ export default function PersonEditor() {
           if (id) fetchPersonRelationer(id, redaktionAux).then(setRelationer).catch(() => {});
           if (id) fetchPersonFamilie(id, redaktionModel).then(setFamilie).catch(() => {});
           refreshSammeSom();
-          if (['uploadMedia','opdaterMedia','genopretMedia','mediaRettigheder','fjernMedia','sletRelation','tilknytMedia'].includes(applied?.art ?? '')) refreshMedia();
+          if (['uploadMedia','opdaterMedia','genopretMedia','mediaRettigheder','fjernMedia','sletRelation','tilknytMedia'].includes(applied?.art ?? '')) {
+            void refreshMedia().catch(() => {});
+          }
           if ((applied?.art === 'opretStory' || applied?.art === 'redigerStory') && storyKilderEfterGem) {
             const storyId = applied.storyId ?? Number(result);
             setStoryKilderEfterGem(null);

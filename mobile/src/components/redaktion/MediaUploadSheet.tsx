@@ -97,8 +97,8 @@ export function MediaUploadSheet({ target, onClose, onGem, onApplied }: {
   }
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.modalBackdrop} onPress={onClose} />
+    <Modal visible transparent animationType="slide" onRequestClose={busy ? () => {} : onClose}>
+      <Pressable style={styles.modalBackdrop} onPress={busy ? undefined : onClose} disabled={busy} />
       <View style={styles.modalSheet}>
         <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
           <Serif size={20} style={{ marginBottom: 10 }}>Tilføj billede</Serif>
@@ -130,7 +130,7 @@ export function MediaUploadSheet({ target, onClose, onGem, onApplied }: {
                 <Body size={12} style={{ marginTop: 10 }}>
                   Mediet skal genoprettes fra filsiden. Upload-arket genopretter det ikke automatisk.
                 </Body>
-                <Pressable style={styles.addOpret} onPress={() => { onClose(); router.push(decision.route as never); }}>
+                <Pressable style={styles.addOpret} disabled={busy} onPress={() => { onClose(); router.push(decision.route as never); }}>
                   <BtnLabel color="#fff">Åbn filsiden</BtnLabel>
                 </Pressable>
               </> : decision.kind === 'kladde' ? <>
@@ -143,7 +143,8 @@ export function MediaUploadSheet({ target, onClose, onGem, onApplied }: {
               </> : <Body size={12} color={Colors.bordeaux} style={{ marginTop: 10 }}>
                 Mediets status “{dedup.existing.uploadStatus}” kan ikke håndteres fra upload-arket.
               </Body>}
-              <Pressable style={styles.addAnnuller} onPress={() => { setDedup(null); setBesked(null); }}>
+              <Pressable style={[styles.addAnnuller, busy && styles.disabled]} disabled={busy}
+                onPress={() => { setDedup(null); setBesked(null); }}>
                 <BtnLabel color={Colors.textMuted}>Tilbage</BtnLabel>
               </Pressable>
             </View>;
@@ -195,7 +196,9 @@ export function MediaUploadSheet({ target, onClose, onGem, onApplied }: {
                 } catch (error) { setFejl(oversaetFejl(String((error as Error)?.message ?? error))); }
                 finally { setBusy(false); }
               }} disabled={busy}><BtnLabel color="#fff">{busy ? 'Behandler…' : 'Gem'}</BtnLabel></Pressable>
-              <Pressable style={styles.addAnnuller} onPress={onClose}><BtnLabel color={Colors.textMuted}>Annullér</BtnLabel></Pressable>
+              <Pressable style={[styles.addAnnuller, busy && styles.disabled]} disabled={busy} onPress={onClose}>
+                <BtnLabel color={Colors.textMuted}>Annullér</BtnLabel>
+              </Pressable>
             </View>
           </> : null}
         </ScrollView>
@@ -215,4 +218,5 @@ const styles = StyleSheet.create({
   addOpret: { backgroundColor: Colors.konklusionGroen, borderRadius: Radius.field, paddingHorizontal: 16, paddingVertical: 8 },
   addAnnuller: { borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.field, paddingHorizontal: 16, paddingVertical: 8, alignSelf: 'flex-start' },
   dedupBox: { borderWidth: 1, borderColor: Border.light, borderRadius: Radius.field, padding: 14, gap: 10 },
+  disabled: { opacity: 0.5 },
 });
