@@ -1210,7 +1210,14 @@ BEGIN
               p_subjekt_type, p_subjekt_id, p_objekt_type, p_objekt_id, p_rolle, p_periode_raw)
       RETURNING id INTO v_id;
   EXCEPTION WHEN unique_violation THEN
-    RAISE EXCEPTION 'Mediet er allerede tilknyttet dette subjekt';
+    DECLARE v_constraint_name text;
+    BEGIN
+      GET STACKED DIAGNOSTICS v_constraint_name = CONSTRAINT_NAME;
+      IF v_constraint_name = 'relation_afbildet_uidx' THEN
+        RAISE EXCEPTION 'Mediet er allerede tilknyttet dette subjekt';
+      END IF;
+      RAISE;
+    END;
   END;
   RETURN v_id;
 END $$;

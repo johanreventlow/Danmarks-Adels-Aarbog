@@ -1882,7 +1882,7 @@ END $$;
 -- ===== Mediehåndtering fase 1: metadata, genopret, upload-signatur og undo =====
 DO $$
 DECLARE v_id bigint; v_upload bigint; v_cs bigint; v_cs_foer int; v_cs_efter int;
-        v_sha text;
+        v_relation bigint; v_sha text;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
@@ -1962,8 +1962,15 @@ BEGIN
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM NOT LIKE 'Medie med samme indhold findes allerede (sha256=%' THEN RAISE; END IF;
   END;
+  v_relation := red_relation('person',-999951,'media',v_upload,'afbildet');
+  IF v_relation IS NULL OR NOT EXISTS (
+    SELECT 1 FROM relation
+    WHERE id=v_relation AND subjekt_type='person' AND subjekt_id=-999951
+      AND objekt_type='media' AND objekt_id=v_upload AND rolle='afbildet'
+  ) THEN
+    RAISE EXCEPTION 'FEJL: første red_relation-kald returnerede/indsatte ikke relationen';
+  END IF;
   BEGIN
-    PERFORM red_relation('person',-999951,'media',v_upload,'afbildet');
     PERFORM red_relation('person',-999951,'media',v_upload,'afbildet');
     RAISE EXCEPTION 'FEJL: red_relation accepterede dublet-afbildet';
   EXCEPTION WHEN OTHERS THEN
@@ -1975,6 +1982,43 @@ EXCEPTION WHEN OTHERS THEN
   IF SQLERRM='ROLLBACK_TEST_OK' THEN
     RAISE NOTICE 'OK: media fase 1 RPC + undo + upload-signatur (rullet tilbage)';
   ELSE RAISE; END IF;
+END $$;
+
+-- ===== Mediehåndtering fase 3: fremmed unique-constraint genkastes uændret =====
+-- relation_pkey-racet kan ikke reproduceres deterministisk i én sekventiel session.
+-- Simulér derfor PostgreSQL-diagnostikken og assert, at den brede handler ikke
+-- maskerer den som en afbildet-dublet.
+DO $$
+DECLARE v_sqlstate text; v_constraint_name text; v_message text;
+BEGIN
+  BEGIN
+    BEGIN
+      RAISE EXCEPTION 'simuleret relation_pkey-kollision'
+        USING ERRCODE='23505', CONSTRAINT='relation_pkey';
+    EXCEPTION WHEN unique_violation THEN
+      DECLARE v_constraint_name text;
+      BEGIN
+        GET STACKED DIAGNOSTICS v_constraint_name = CONSTRAINT_NAME;
+        IF v_constraint_name = 'relation_afbildet_uidx' THEN
+          RAISE EXCEPTION 'Mediet er allerede tilknyttet dette subjekt';
+        END IF;
+        RAISE;
+      END;
+    END;
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS
+      v_sqlstate = RETURNED_SQLSTATE,
+      v_constraint_name = CONSTRAINT_NAME,
+      v_message = MESSAGE_TEXT;
+  END;
+
+  IF v_sqlstate IS DISTINCT FROM '23505'
+     OR v_constraint_name IS DISTINCT FROM 'relation_pkey'
+     OR v_message IS DISTINCT FROM 'simuleret relation_pkey-kollision' THEN
+    RAISE EXCEPTION 'FEJL: fremmed unique-fejl blev ændret: sqlstate=%, constraint=%, message=%',
+      v_sqlstate, v_constraint_name, v_message;
+  END IF;
+  RAISE NOTICE 'OK: fremmed unique-constraint genkastes uændret';
 END $$;
 
 -- ===== Levende feed fase 3: story/story_kilde/feed_pin — skema, RLS, RPC'er og fortryd =====
