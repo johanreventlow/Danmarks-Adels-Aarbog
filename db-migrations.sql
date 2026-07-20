@@ -2723,6 +2723,66 @@ WHERE (m.maal_type='person' AND NOT EXISTS (SELECT 1 FROM person  p WHERE p.id=m
    OR (m.maal_type='estate' AND NOT EXISTS (SELECT 1 FROM estate  e WHERE e.id=m.maal_id))
    OR (m.maal_type='lineage' AND NOT EXISTS (SELECT 1 FROM lineage l WHERE l.id=m.maal_id))
    OR (m.maal_type='media' AND NOT EXISTS (SELECT 1 FROM media md WHERE md.id=m.maal_id));
+
+-- =====================================================================
+-- 2026-07-20: mediehaandtering_fase3_hygiejne
+-- To-trins created_at bevarer NULL (= ukendt alder) på præ-fase-3-rækker.
+-- Evidensfri afbildet-dubletter ryddes før partial-indexet; evidens-bærende
+-- dubletter overlever med vilje og får index-oprettelsen til at fejle højlydt.
+-- =====================================================================
+ALTER TABLE media ADD COLUMN IF NOT EXISTS created_at timestamptz;
+ALTER TABLE media ALTER COLUMN created_at SET DEFAULT now();
+
+-- Evidens omfatter assertion/conclusion/note. haendelse.relation_id er strukturelt
+-- udelukket via conclusion-tjekket (den eneste skrivevej kræver en afklaret conclusion),
+-- ikke ved en tilfældighed; en haendelse-båret dublet kan derfor ikke nå DELETE'en.
+DELETE FROM relation r USING relation r2
+ WHERE r.rolle='afbildet' AND r2.rolle='afbildet' AND r.id > r2.id
+   AND r.subjekt_type=r2.subjekt_type AND r.subjekt_id=r2.subjekt_id
+   AND r.objekt_type=r2.objekt_type   AND r.objekt_id=r2.objekt_id
+   AND NOT EXISTS (SELECT 1 FROM assertion  a WHERE a.target_type='relation' AND a.target_id=r.id)
+   AND NOT EXISTS (SELECT 1 FROM conclusion c WHERE c.target_type='relation' AND c.target_id=r.id)
+   AND NOT EXISTS (SELECT 1 FROM note       n WHERE n.target_type='relation' AND n.target_id=r.id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS relation_afbildet_uidx
+  ON relation (subjekt_type, subjekt_id, objekt_type, objekt_id)
+  WHERE rolle='afbildet';
+
+-- Samme signatur og funktionskrop som schema.sql: ingen overload-/grant-ændring.
+CREATE OR REPLACE FUNCTION red_relation(
+  p_subjekt_type text, p_subjekt_id bigint, p_objekt_type text, p_objekt_id bigint,
+  p_rolle text, p_periode_raw text DEFAULT NULL)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_id bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_rolle = 'samme_som' THEN RAISE EXCEPTION 'Brug red_samme_som til identitets-links'; END IF;
+  IF p_rolle = 'ikke_samme_som' THEN RAISE EXCEPTION 'Brug red_ikke_samme_som til identitets-afvisning'; END IF;
+  -- GDPR-invariant ved fødslen (ikke kun i red_upload_media): en 'afbildet'-relation skal gå
+  -- person→media, fordi media_afbilder_skjult/privat KUN scanner (subjekt=person, objekt=media).
+  -- En person på objekt-siden ville være usynlig for gatingen → fail-open. Luk det for ALLE kaldere.
+  IF p_rolle = 'afbildet' AND p_objekt_type = 'person' THEN
+    RAISE EXCEPTION 'afbildet skal gå person→media (person kan ikke stå på objekt-siden — GDPR-gating)';
+  END IF;
+  PERFORM begin_change_set('red_relation', format('Relation %s: %s/%s → %s/%s', p_rolle, p_subjekt_type, p_subjekt_id, p_objekt_type, p_objekt_id), p_subjekt_type, p_subjekt_id);
+  BEGIN
+    INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle, periode_raw)
+      VALUES ((SELECT coalesce(max(id),0)+1 FROM relation),
+              p_subjekt_type, p_subjekt_id, p_objekt_type, p_objekt_id, p_rolle, p_periode_raw)
+      RETURNING id INTO v_id;
+  EXCEPTION WHEN unique_violation THEN
+    DECLARE v_constraint_name text;
+    BEGIN
+      GET STACKED DIAGNOSTICS v_constraint_name = CONSTRAINT_NAME;
+      IF v_constraint_name = 'relation_afbildet_uidx' THEN
+        RAISE EXCEPTION 'Mediet er allerede tilknyttet dette subjekt';
+      END IF;
+      RAISE;
+    END;
+  END;
+  RETURN v_id;
+END $$;
+
 -- 2026-07-19: levende feed fase 3 — story/story_kilde/feed_pin
 -- Kurateret formidlingslag (fase3-spec §3); additiv oven på fase 2.
 -- RLS-politikkerne bor i db-rls.sql og skal gen-anvendes efter migrationen.
