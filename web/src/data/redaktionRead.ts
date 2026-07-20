@@ -1083,20 +1083,31 @@ type RawMatchAudit = {
 export async function fetchMatchAudit(): Promise<MatchAuditPost[]> {
   const links = await fetchSammeSomPar();
   return Promise.all(links.map(async (link) => {
-    const { data, error } = await supabase.rpc('hist_for_subjekt', {
-      p_type: 'person',
-      p_id: Number(link.bId),
-    });
-    if (error) throw new Error(error.message);
-    const change = ((data ?? []) as RawMatchAudit[])
-      .find((row) => row.operation === 'red_samme_som');
-    return {
-      ...link,
-      actorNavn: change?.actor_navn ?? null,
-      actorRolle: change?.actor_rolle ?? null,
-      createdAt: change?.created_at ?? null,
-      operation: change?.operation ?? null,
-    };
+    try {
+      const { data, error } = await supabase.rpc('hist_for_subjekt', {
+        p_type: 'person',
+        p_id: Number(link.bId),
+      });
+      if (error) throw new Error(error.message);
+      const expectedSummary = `Markerede person ${link.aId} som samme som ${link.bId}`;
+      const change = ((data ?? []) as Array<RawMatchAudit & { summary?: string | null }>)
+        .find((row) => row.operation === 'red_samme_som' && row.summary?.includes(expectedSummary));
+      return {
+        ...link,
+        actorNavn: change?.actor_navn ?? null,
+        actorRolle: change?.actor_rolle ?? null,
+        createdAt: change?.created_at ?? null,
+        operation: change?.operation ?? null,
+      };
+    } catch {
+      return {
+        ...link,
+        actorNavn: null,
+        actorRolle: null,
+        createdAt: null,
+        operation: null,
+      };
+    }
   }));
 }
 
