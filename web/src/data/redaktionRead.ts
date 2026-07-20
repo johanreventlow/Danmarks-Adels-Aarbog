@@ -3,8 +3,8 @@
 // FK), så vi henter N flade queries og joiner i klienten. citation→source HAR FK og nestes.
 // joinEvidence er ren/testbar uden net.
 import { supabase } from '../supabase';
-import { fmtYears, parseYear, getAll, buildMatchPersoner, parseIkkeSammeSomPar, buildFamilyGraph } from '@daa/core';
-import type { RedMatchPerson, MatchPersonRow, MatchFactRow, MatchConcRow, MatchAssertRow, MatchExtIdRow, RawFamilyMember, Union, ParentChild } from '@daa/core';
+import { fmtYears, parseYear, getAll, buildMatchPersoner, buildFamilyGraph } from '@daa/core';
+import type { RedMatchPerson, MatchPersonRow, MatchFactRow, MatchConcRow, MatchAssertRow, MatchExtIdRow, MatchLineageRow, RawFamilyMember, Union, ParentChild } from '@daa/core';
 import { FELT_FAKTATYPE } from './redaktionWrite';
 import { resolveOrgEstateNames } from './public';
 import { signPaths, fetchThumbPathByMediaId } from './media';
@@ -486,10 +486,10 @@ export async function fetchSources(): Promise<SourceRow[]> {
 // Rå lineage-rækker med deres RIGTIGE numeriske id (til subjekt_id på 'lineage'-narrativer, Slice
 // C3) — bevidst IKKE genbrugt fra Følgesvend-modellens aux.linjeList (den bærer kun linje-KODEN
 // 'I'/'II'/… som nøgle, ikke lineage.id).
-export type LineageRow = { id: number; kode: string; navn: string | null };
+export type LineageRow = MatchLineageRow & { id: number };
 
 export async function fetchLineages(): Promise<LineageRow[]> {
-  const { data, error } = await supabase.from('lineage').select('id,kode,navn').order('kode', { ascending: true });
+  const { data, error } = await supabase.from('lineage').select('id,source_id,kode,navn').order('kode', { ascending: true });
   if (error) throw new Error(error.message);
   return (data ?? []) as LineageRow[];
 }
@@ -650,6 +650,43 @@ export async function fetchPersonRelationer(id: string): Promise<PersonRelation[
     else if (r.objekt_type === 'estate') { art = 'gods'; navn = estNavn.get(objektId) || `#${objektId}`; }
     return { relationId: r.id, art, objektType: r.objekt_type, objektId, navn, rolle: r.rolle ?? '', periode: r.periode_raw ?? '' };
   });
+}
+
+// Samlet, dyr kandidat-detalje til "Sammenlign udgaver". Denne funktion må kun kaldes lazy
+// ved panel-ekspansion: den komponerer de eksisterende redaktions-fetches og introducerer ingen
+// ny query/RPC. Familie-navne opløses af panelet mod SammenlignUdgavers ufoldede person-cache.
+export type KandidatDetalje = {
+  evidence: PersonEvidence;
+  narrativer: PersonNarrativ[];
+  familie: PersonFamilie;
+  relationer: PersonRelation[];
+};
+
+type KandidatDetaljeLoaders = {
+  evidence: typeof fetchPersonEvidence;
+  narrativer: typeof fetchNarrativer;
+  familie: (personId: string) => Promise<PersonFamilie>;
+  relationer: typeof fetchPersonRelationer;
+};
+
+const kandidatDetaljeLoaders: KandidatDetaljeLoaders = {
+  evidence: fetchPersonEvidence,
+  narrativer: fetchNarrativer,
+  familie: (personId) => fetchPersonFamilie(personId, null),
+  relationer: fetchPersonRelationer,
+};
+
+export async function fetchKandidatDetalje(
+  personId: string,
+  loaders: KandidatDetaljeLoaders = kandidatDetaljeLoaders,
+): Promise<KandidatDetalje> {
+  const [evidence, narrativer, familie, relationer] = await Promise.all([
+    loaders.evidence(personId),
+    loaders.narrativer('person', Number(personId)),
+    loaders.familie(personId),
+    loaders.relationer(personId),
+  ]);
+  return { evidence, narrativer, familie, relationer };
 }
 
 // --- samme_som identitets-links (spec 2026-07-02) ---
@@ -1063,40 +1100,121 @@ export async function fetchMediaAnvendelse(mediaId: string): Promise<MediaAnvend
 }
 
 // ---- Tværudgave-matching: MatchFrame-input fra DB (Problem 3 §11) ----
-// Tynde supabase-fetches; de rene mappere (buildMatchPersoner/parseIkkeSammeSomPar) bor i
+// Tynde supabase-fetches; de rene mappere bor i
 // @daa/core (samme delt-logik-split som matcher-kernen). Re-eksportér RedMatchPerson for forbrugere.
 export type { RedMatchPerson };
 
 /** Hent MatchFrame-input for hele redaktions-datasættet (tynd; @daa/core-mappere gør arbejdet).
  *  NB (skala): conclusion/assertion hentes for ALLE fact-typer og filtreres klient-side til
- *  fødsel/død, fordi et batch-`.in('target_id', factIds)`-filter sprænger PostgREST's URL-længde
+ *  fødsel/død/titel, fordi et batch-`.in('target_id', factIds)`-filter sprænger PostgREST's URL-længde
  *  ved ~900 personer. Rigtig fix ved skala: et server-side view (fact→conclusion→assertion → ét
  *  fødsels-/døds-interval pr. person). Udskudt — PoC-volumen er håndterbar. */
 export async function fetchMatchPersoner(): Promise<RedMatchPerson[]> {
-  const [persons, facts, concs, assertions, extIds] = await Promise.all([
-    getAll<MatchPersonRow>(() => supabase.from('person').select('id,visning_navn,koen,staged')),
-    getAll<MatchFactRow>(() => supabase.from('fact').select('id,subjekt_id,faktatype').eq('subjekt_type', 'person').in('faktatype', ['fødsel', 'død'])),
+  const [persons, facts, concs, assertions, extIds, lineages] = await Promise.all([
+    getAll<MatchPersonRow>(() => supabase.from('person').select('id,visning_navn,visning_fuldt_navn,koen,staged')),
+    getAll<MatchFactRow>(() => supabase.from('fact').select('id,subjekt_id,faktatype').eq('subjekt_type', 'person').in('faktatype', ['fødsel', 'død', 'titel'])),
     getAll<MatchConcRow>(() => supabase.from('conclusion').select('target_id,valgt_assertion_id').eq('target_type', 'fact').eq('status', 'afklaret')),
-    getAll<MatchAssertRow>(() => supabase.from('assertion').select('id,date_min,date_max').eq('target_type', 'fact')),
-    getAll<MatchExtIdRow>(() => supabase.from('person_external_id').select('person_id,source_id')),
+    getAll<MatchAssertRow>(() => supabase.from('assertion').select('id,date_min,date_max,vaerdi_tekst').eq('target_type', 'fact')),
+    getAll<MatchExtIdRow>(() => supabase.from('person_external_id').select('person_id,source_id,linje,nr,slaegtled_lokal,slaegtled_gennem,kuld')),
+    fetchLineages(),
   ]);
-  return buildMatchPersoner(persons, facts, concs, assertions, extIds);
+  return buildMatchPersoner(persons, facts, concs, assertions, extIds, lineages);
+}
+
+export type MatchRelationPar = { relationId: string; aId: string; bId: string };
+type RawMatchRelation = { id: number; subjekt_id: number; objekt_id: number };
+
+export function parseMatchRelationPar(rows: RawMatchRelation[]): MatchRelationPar[] {
+  return rows.map((row) => ({
+    relationId: String(row.id),
+    aId: String(row.subjekt_id),
+    bId: String(row.objekt_id),
+  }));
 }
 
 /** Hent eksisterende ikke_samme_som-afvisninger (person→person). */
-export async function fetchIkkeSammeSomPar(): Promise<{ aId: string; bId: string }[]> {
-  const rows = await getAll<{ subjekt_id: number; objekt_id: number }>(() =>
-    supabase.from('relation').select('subjekt_id,objekt_id')
+export async function fetchIkkeSammeSomPar(): Promise<MatchRelationPar[]> {
+  const rows = await getAll<RawMatchRelation>(() =>
+    supabase.from('relation').select('id,subjekt_id,objekt_id')
       .eq('rolle', 'ikke_samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person'));
-  return parseIkkeSammeSomPar(rows);
+  return parseMatchRelationPar(rows);
 }
 
 /** Hent alle samme_som-links (person→person) — til arbejdslistens "afklaret"-markering. */
-export async function fetchSammeSomPar(): Promise<{ aId: string; bId: string }[]> {
-  const rows = await getAll<{ subjekt_id: number; objekt_id: number }>(() =>
-    supabase.from('relation').select('subjekt_id,objekt_id')
+export async function fetchSammeSomPar(): Promise<MatchRelationPar[]> {
+  const rows = await getAll<RawMatchRelation>(() =>
+    supabase.from('relation').select('id,subjekt_id,objekt_id')
       .eq('rolle', 'samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person'));
-  return parseIkkeSammeSomPar(rows); // samme (subjekt,objekt)→(aId,bId)-form
+  return parseMatchRelationPar(rows);
+}
+
+export type MatchAuditPost = MatchRelationPar & {
+  beslutning: 'samme_som' | 'ikke_samme_som';
+  actorNavn: string | null;
+  actorRolle: string | null;
+  createdAt: string | null;
+  operation: string | null;
+};
+type RawMatchAudit = {
+  actor_navn: string | null;
+  actor_rolle: string | null;
+  created_at: string;
+  operation: string | null;
+};
+
+/** Hent oprettelsesaudit for alle aktive matchbeslutninger via den rolle-gatede historik-RPC. */
+export async function fetchMatchAudit(
+  sammeSom: MatchRelationPar[],
+  ikkeSammeSom: MatchRelationPar[],
+): Promise<MatchAuditPost[]> {
+  const beslutninger = [
+    ...sammeSom.map((link) => ({
+      ...link,
+      beslutning: 'samme_som' as const,
+      auditPersonId: link.bId,
+      operation: 'red_samme_som',
+      summary: `Markerede person ${link.aId} som samme som ${link.bId}`,
+    })),
+    ...ikkeSammeSom.map((link) => ({
+      ...link,
+      beslutning: 'ikke_samme_som' as const,
+      auditPersonId: link.aId,
+      operation: 'red_ikke_samme_som',
+      summary: `Markerede person ${link.aId} og ${link.bId} som forskellige`,
+    })),
+  ];
+  return Promise.all(beslutninger.map(async ({ auditPersonId, summary, ...beslutning }) => {
+    try {
+      const { data, error } = await supabase.rpc('hist_for_subjekt', {
+        p_type: 'person',
+        p_id: Number(auditPersonId),
+      });
+      if (error) throw new Error(error.message);
+      const change = ((data ?? []) as Array<RawMatchAudit & { summary?: string | null }>)
+        .find((row) => row.operation === beslutning.operation && row.summary?.includes(summary));
+      return {
+        relationId: beslutning.relationId,
+        aId: beslutning.aId,
+        bId: beslutning.bId,
+        beslutning: beslutning.beslutning,
+        actorNavn: change?.actor_navn ?? null,
+        actorRolle: change?.actor_rolle ?? null,
+        createdAt: change?.created_at ?? null,
+        operation: change?.operation ?? null,
+      };
+    } catch {
+      return {
+        relationId: beslutning.relationId,
+        aId: beslutning.aId,
+        bId: beslutning.bId,
+        beslutning: beslutning.beslutning,
+        actorNavn: null,
+        actorRolle: null,
+        createdAt: null,
+        operation: null,
+      };
+    }
+  }));
 }
 
 /** Hent hele familie-grafen (union + forælder→barn) til den rådgivende samme_som-fold-preview

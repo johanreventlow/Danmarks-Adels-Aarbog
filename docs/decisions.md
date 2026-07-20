@@ -727,3 +727,45 @@ artiklens rå tekst til læsbar visning/søgning; teoretisk også lyd/video.
 - **Eneste konsekvens for fase 2 (biblioteket), indskrevet i spec'en:** defensiv
   rendering — ikke-billede-mime/manglende thumb → dokument-ikon, aldrig knækket
   thumbnail; udeladt af Lightbox.
+
+## Levende feed fase 4 (LLM-assist): udskudt, ikke annulleret (2026-07-20)
+
+Fase 3 (minihistorier & redaktionel styring) er kode-komplet på `main`. Fase 2+3-
+skemaet (`haendelse`/`story`/`story_kilde`/`feed_pin`) blev deployet til prod samme
+dag (se sektionen nedenfor) — men det ændrer ikke fase 4-vurderingen: Fase 4
+("Foreslå historie"-Edge Function + proveniens, koncept §8+§10) sættes bevidst i
+bero før spec-arbejdet påbegyndes.
+
+- **Begrundelse:** PoC-korpusset har for få kilder indlæst til at LLM-assist giver
+  reel værdi endnu, og scopet (Edge Function, kontekst-sammensætning på tværs af
+  udgaver, proveniens) er for detaljeret at kaste sig over nu.
+- **Ikke tabt arbejde:** rammen ligger allerede i koncept §8 (teknisk ramme) og
+  fase 3-design §12, som bevidst efterlod ○b (hændelses-gruppering på tværs af
+  udgaver) og ○c (skal `historie`-kort vise AI-oprindelse) åbne til fase 4. `story`
+  har allerede `llm_model`/`llm_promptversion`/`llm_naar`-kolonner (forward-compat,
+  ingen ny migration nødvendig ved genoptagelse).
+- **Genoptages** når kilde-korpusset er vokset nok til at hændelses-mængden
+  retfærdiggør redaktionel LLM-hjælp — ingen fast dato.
+
+## Levende feed fase 2+3 prod-cutover: skema nu, hændelsesudtræk senere (2026-07-20)
+
+Bruger vil have fase 2 (`haendelse`) + fase 3 (`story`/`story_kilde`/`feed_pin`)-skemaet i
+prod. Fase 2's offline LLM-hændelsesudtræk (narrativ → `haendelse` via `daa-haendelser`-
+skillen) er derimod aldrig kørt — hverken lokalt eller mod prod.
+
+- **Besluttet: adskil skema-deploy fra dataudtræk.** Skemaet (tabeller/RLS/RPC'er) kræver
+  ingen LLM-kørsel og er harmløst tomt — feed-motoren degraderer bevist gracefult til
+  fase 1-adfærd (`packages/feed/src/pool.ts:32-44`), og `story` kræver ikke et
+  `haendelse_id`-anker. Runbook:
+  [`levende-feed-fase2-3-runbook.md`](levende-feed-fase2-3-runbook.md).
+- **Opdatering samme dag:** skemaet blev deployet til prod 2026-07-20 — ikke via den
+  forberedte `psql`-runbook, men direkte via Supabase MCP fra en parallel session
+  (`docs/database-current-state.md` §3). Bundlingen med mediehåndtering fase 1+2 (næste
+  punkt) indtraf som forudsagt. `db-rollback-fase2.sql`/`db-rollback-fase3.sql` fra
+  runbooken er stadig relevante som rollback-beredskab.
+- **Hændelsesudtrækket udskydes fortsat bevidst**, samme begrundelse som fase 4 (PoC har
+  for få kilder til at retfærdiggøre en LLM-batch-kørsel over hele korpusset endnu) — men
+  noteret eksplicit som en kommende opgave, ikke annulleret.
+- **Bifund:** `db-migrations.sql`/`db-rls.sql` er monolitiske kumulative filer, så en
+  fase 2+3-cutover bundler mediehåndtering fase 1+2-skema (samme filsektion, interleaved) —
+  se runbookens ⚠-afsnit.

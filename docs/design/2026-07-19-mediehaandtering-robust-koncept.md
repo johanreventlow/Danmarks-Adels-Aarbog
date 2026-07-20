@@ -1,9 +1,11 @@
 # Koncept — Robust mediehåndtering: mediebibliotek, livscyklus & rettigheds-workflow
 
-**Implementeringsstatus 2026-07-19:** Fase 1-filsiden, metadataredigering, rettighedspanel og genopretning er implementeret. Biblioteksoversigt, arbejdskøer, filudskiftning, dedup og udrensning er fortsat senere faser.
+**Implementeringsstatus 2026-07-20:** Fase 1-filsiden og fase 2-biblioteket er
+implementeret, merget og lokalt/CI-verificeret. Deres samlede prod-migration, RLS,
+runtime-E2E og app-deploy er fortsat gatede. Fase 3–5 er ikke implementeret.
 
-**Status:** koncept / idéudvikling (2026-07-19). Ingen kode endnu — dokumentet skal
-styre den kommende udvikling (specs + planer pr. fase, jf. §9).
+**Status:** levende koncept (2026-07-19, status afstemt 2026-07-20). Dokumentet
+styrer den kommende udvikling; aktuel prod-sandhed står i `docs/database-current-state.md`.
 **Gælder:** redaktør-fladerne i `web/` og `mobile/` + DB-laget (`schema.sql`, `db-rls.sql`).
 **Bygger på:** den samlede medieplan (`docs/superpowers/plans/2026-07-04-mediehaandtering.md`,
 Slice 0–5), datamodellens invarianter (`claude.md` §3, `datamodel-oversigt.md`),
@@ -16,7 +18,11 @@ rotation, farver …) — kun robust *forvaltning* af medier.
 
 ---
 
-## 1. Nuværende stand (empirisk, ikke antaget)
+## 1. Baseline ved konceptets start (2026-07-19)
+
+Kortlægningen nedenfor er den historiske baseline, som fase 1–2 blev bygget ud fra;
+den beskriver ikke den nuværende kode efter implementeringen. Se statusblokken
+ovenfor og §9 for aktuel implementeringsstatus.
 
 Fundamentet fra Slice 0/0g/0h + billedstørrelses-slices er reelt og stærkt:
 
@@ -31,7 +37,7 @@ Fundamentet fra Slice 0/0g/0h + billedstørrelses-slices er reelt og stærkt:
   `upload_status='fjernet'`) findes i UI.
 - **Mentions i narrativ** (`[[media:id|…]]`) kan indsættes og renderes indlejret.
 
-Men redaktør-*forvaltningen* stopper dér. Hvad redaktøren **ikke** kan i dag
+Men redaktør-*forvaltningen* stoppede dér. Hvad redaktøren **ikke kunne ved baseline**
 (verificeret i koden, jf. subagent-kortlægning 2026-07-19):
 
 | # | Mangel | Detalje |
@@ -48,7 +54,7 @@ Men redaktør-*forvaltningen* stopper dér. Hvad redaktøren **ikke** kan i dag
 | M10 | **Vælge portræt eksplicit** | Hovedbillede vælges heuristisk (`pickPortrait`), ikke redaktionelt. Kendt udskudt punkt (plan §Slice 3 / "åbent punkt"). |
 | M11 | **Rigtig sletning (udrensning)** | Blødt fjern rører aldrig Storage-bytes. Ved reel rettigheds-tilbagekaldelse eller GDPR-krav skal bytes faktisk væk — den vej findes ikke. |
 
-Konklusionen matcher brugerens oplevelse: *upload findes, forvaltning mangler*.
+Konklusionen matchede brugerens oplevelse: *upload findes, forvaltning mangler*.
 Den oprindelige plan forudså det meste (Slice 1 = rettigheds-UI, Slice 2 = bulk-import,
 "løse billeder"-oversigt) — dette koncept samler de manglende dele i én sammenhængende
 redaktør-oplevelse i stedet for spredte enkelt-features.
@@ -61,7 +67,7 @@ Wikimedia Commons' styrke er ikke billedredigering — det er at **hver fil er e
 førsteklasses ting med sin egen side, sin egen historik og sit eget ansvar**
 (licens, kilde, anvendelse). Oversat punkt for punkt:
 
-| Commons-begreb | DAA-ækvivalent | Status i dag |
+| Commons-begreb | DAA-ækvivalent | Status ved baseline |
 |---|---|---|
 | **Filside** (`File:…` med beskrivelse, kilde, ophav, dato, licens) | Medie-detaljeside i redaktionen (§4.1) | Mangler |
 | **Structured data: "depicts"** | `afbildet`-relation (polymorf, GDPR-gatet) | ✅ Findes — men kan kun oprettes ved upload |
@@ -361,7 +367,7 @@ mv."), ikke efter teknisk sværhedsgrad:
 
 | Fase | Indhold | Løser | Kerne-leverancer |
 |---|---|---|---|
-| **1 — Filsiden & fuld CRUD** | Medie-detaljeside (web+mobile) med metadata-redigering, rettigheds-panel, genopret | M1, M2, M3 | `red_opdater_media`, `red_genopret_media`, UI-panel, upload-ark udvidet med kunstner/datering. **Spec skrevet:** [`../superpowers/specs/2026-07-19-mediehaandtering-fase1-filside-design.md`](../superpowers/specs/2026-07-19-mediehaandtering-fase1-filside-design.md) |
+| **1 — Filsiden & fuld CRUD** | Medie-detaljeside (web+mobile) med metadata-redigering, rettigheds-panel, genopret | M1, M2, M3 | `red_opdater_media`, `red_genopret_media`, UI-panel, upload-ark udvidet med kunstner/datering. **Implementeret lokalt; prod-deploy gated:** [`../superpowers/specs/2026-07-19-mediehaandtering-fase1-filside-design.md`](../superpowers/specs/2026-07-19-mediehaandtering-fase1-filside-design.md) |
 | **2 — Biblioteket** | "Medier"-fanen som rigtigt bibliotek: søgning, køer 1–4, "bruges på", advarsel ved fjern/slet | M6, M7, M9 (synlighed) | kø-queries, `red_doede_links`+media, tilknyt-eksisterende-picker (M5). **Implementeret lokalt; prod-deploy gated:** [`../superpowers/specs/2026-07-19-mediehaandtering-fase2-bibliotek-design.md`](../superpowers/specs/2026-07-19-mediehaandtering-fase2-bibliotek-design.md) |
 | **3 — Hygiejne** | sha256 ved upload, sha-stier, dedup-UX, janitor-script | M8, M9 (oprydning) | klient-hash, `import/janitor`-R-script, verify-asserts. **Implementeret og verificeret lokalt; prod/E2E/CI er fortsat gated:** [`../superpowers/specs/2026-07-20-mediehaandtering-fase3-hygiejne-design.md`](../superpowers/specs/2026-07-20-mediehaandtering-fase3-hygiejne-design.md) |
 | **4 — Identitet & endeligt farvel** | Erstat fil, udrensning m. preview, portræt-flag | M4, M11, M10 | `red_erstat_media_fil`, `red_udrens_media`(+preview), `red_saet_portraet`, `relation.kvalifikator` |

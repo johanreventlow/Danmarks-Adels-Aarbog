@@ -278,18 +278,51 @@ export function buildMatchFrame(p: FramePerson): MatchFrame {
 export type RedMatchPerson = {
   id: string;
   navn: string;
+  fuldtNavn: string | null;
   koen: string | null;
   foedsel: { date_min: string | null; date_max: string | null } | null;
   doed: { date_min: string | null; date_max: string | null } | null;
+  titel: string | null;
+  bogReferencer: MatchBogReference[];
   sourceIds: number[]; // kilde-medlemskab (person_external_id) → disjunkt-kilde-afgrænsning
   staged: boolean; // K2-kuratering: TRUE = usynlig for anon (§7.20 selektiv publicering)
 };
 
-export type MatchPersonRow = { id: number; visning_navn: string | null; koen: string | null; staged?: boolean | null };
+export type MatchBogReference = {
+  sourceId: number;
+  linje: string | null;
+  nr: number | null;
+  slaegtledLokal: number | null;
+  slaegtledGennem: number | null;
+  kuld: string | null;
+  grenNavn: string | null;
+};
+
+export type MatchPersonRow = {
+  id: number;
+  visning_navn: string | null;
+  visning_fuldt_navn?: string | null;
+  koen: string | null;
+  staged?: boolean | null;
+};
 export type MatchFactRow = { id: number; subjekt_id: number; faktatype: string };
 export type MatchConcRow = { target_id: number; valgt_assertion_id: number | null };
-export type MatchAssertRow = { id: number; date_min: string | null; date_max: string | null };
-export type MatchExtIdRow = { person_id: number; source_id: number };
+export type MatchAssertRow = {
+  id: number;
+  date_min: string | null;
+  date_max: string | null;
+  vaerdi_tekst?: string | null;
+};
+export type MatchExtIdRow = {
+  person_id: number;
+  source_id: number;
+  linje?: string | null;
+  nr?: number | null;
+  slaegtled_lokal?: number | null;
+  slaegtled_gennem?: number | null;
+  kuld?: string | null;
+};
+export type MatchLineageRow = { source_id: number; kode: string; navn: string | null };
 
 /** Ren samling: personer + konkluderede fødsels-/døds-intervaller + kilde-medlemskab →
  *  MatchFrame-input. Fødsel/død fra den VALGTE assertions date_min/date_max (as-of-korrekt). */
@@ -299,30 +332,62 @@ export function buildMatchPersoner(
   concs: MatchConcRow[],
   assertions: MatchAssertRow[],
   extIds: MatchExtIdRow[],
+  lineages: MatchLineageRow[] = [],
 ): RedMatchPerson[] {
   const assertById = new Map(assertions.map((a) => [a.id, a]));
   const chosenByFact = new Map(concs.map((c) => [c.target_id, c.valgt_assertion_id]));
   const birth = new Map<number, { date_min: string | null; date_max: string | null }>();
   const death = new Map<number, { date_min: string | null; date_max: string | null }>();
+  const titles = new Map<number, string[]>();
   for (const f of facts) {
-    if (f.faktatype !== 'fødsel' && f.faktatype !== 'død') continue;
+    if (f.faktatype !== 'fødsel' && f.faktatype !== 'død' && f.faktatype !== 'titel') continue;
     const aid = chosenByFact.get(f.id);
     if (aid == null) continue;
     const a = assertById.get(aid);
     if (!a) continue;
-    (f.faktatype === 'fødsel' ? birth : death).set(f.subjekt_id, { date_min: a.date_min, date_max: a.date_max });
+    if (f.faktatype === 'titel') {
+      const title = a.vaerdi_tekst?.trim();
+      if (!title) continue;
+      const arr = titles.get(f.subjekt_id);
+      if (arr) {
+        if (!arr.includes(title)) arr.push(title);
+      } else titles.set(f.subjekt_id, [title]);
+    } else {
+      (f.faktatype === 'fødsel' ? birth : death).set(f.subjekt_id, { date_min: a.date_min, date_max: a.date_max });
+    }
   }
   const srcByPerson = new Map<number, number[]>();
+  const refsByPerson = new Map<number, MatchBogReference[]>();
+  const lineageBySourceAndCode = new Map(
+    lineages.map((l) => [`${l.source_id}:${l.kode ?? ''}`, l]),
+  );
   for (const e of extIds) {
     const arr = srcByPerson.get(e.person_id);
     if (arr) arr.push(e.source_id); else srcByPerson.set(e.person_id, [e.source_id]);
+    const lineage = e.linje == null
+      ? null
+      : lineageBySourceAndCode.get(`${e.source_id}:${e.linje}`) ?? null;
+    const ref: MatchBogReference = {
+      sourceId: e.source_id,
+      linje: e.linje ?? null,
+      nr: e.nr ?? null,
+      slaegtledLokal: e.slaegtled_lokal ?? null,
+      slaegtledGennem: e.slaegtled_gennem ?? null,
+      kuld: e.kuld ?? null,
+      grenNavn: lineage?.navn ?? null,
+    };
+    const refs = refsByPerson.get(e.person_id);
+    if (refs) refs.push(ref); else refsByPerson.set(e.person_id, [ref]);
   }
   return persons.map((p) => ({
     id: String(p.id),
     navn: p.visning_navn ?? '',
+    fuldtNavn: p.visning_fuldt_navn ?? p.visning_navn ?? null,
     koen: p.koen,
     foedsel: birth.get(p.id) ?? null,
     doed: death.get(p.id) ?? null,
+    titel: titles.get(p.id)?.join(' · ') ?? null,
+    bogReferencer: refsByPerson.get(p.id) ?? [],
     sourceIds: srcByPerson.get(p.id) ?? [],
     staged: Boolean(p.staged),
   }));
