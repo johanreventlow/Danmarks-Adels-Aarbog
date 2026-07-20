@@ -12,7 +12,7 @@
 --  Forudsætning: db-migrations.sql + db-rls.sql kørt, og (til Task 12b) en
 --  privat 'media'-bucket oprettet. Alle blokke seeder negative-id testrækker
 --  og rydder selv op i én transaktion.
---  Forvent 5 NOTICE'er: 'OK: media-gating', 'OK: media rettigheds-gating',
+--  Forvent 6 NOTICE'er: 'OK: media-gating', 'OK: media rettigheds-gating',
 --  'OK: storage.objects-politikker' (12b springes over hvis bucket mangler), 'OK: media_variant ...'.
 -- =====================================================================
 
@@ -57,6 +57,48 @@ BEGIN
   DELETE FROM relation WHERE id IN (-901,-902);
   DELETE FROM media    WHERE id IN (-901,-902,-903);
   DELETE FROM person   WHERE id IN (-901,-902);
+END $$;
+
+-- ===== Task 15: fase 3 upload-alder + unik afbildet-tilknytning =====
+-- Direkte seed-DML: created_at skal default-udfyldes, men forblive NULL-bar for
+-- præ-fase-3-rækker. Kun identiske afbildet-relationer er dubletter; ejer-relationer
+-- må fortsat kunne gentages.
+DO $$
+BEGIN
+  DELETE FROM relation WHERE id IN (-951,-952,-953,-954);
+  DELETE FROM media WHERE id=-951;
+
+  IF (SELECT is_nullable
+      FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='media' AND column_name='created_at')
+     IS DISTINCT FROM 'YES' THEN
+    RAISE EXCEPTION 'media.created_at skal være NULL-bar';
+  END IF;
+
+  INSERT INTO media(id,slags,titel) VALUES (-951,'foto','fase-3-created-at-test');
+  IF (SELECT created_at FROM media WHERE id=-951) IS NULL THEN
+    RAISE EXCEPTION 'media.created_at-default blev ikke udfyldt';
+  END IF;
+
+  INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES (-951,'person',-951,'media',-951,'afbildet');
+  BEGIN
+    INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+      VALUES (-952,'person',-951,'media',-951,'afbildet');
+    RAISE EXCEPTION 'identisk afbildet-relation blev accepteret';
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+
+  INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES
+    (-953,'person',-951,'media',-951,'ejer'),
+    (-954,'person',-951,'media',-951,'ejer');
+  IF (SELECT count(*) FROM relation WHERE id IN (-953,-954)) <> 2 THEN
+    RAISE EXCEPTION 'partial-indexet afviste identiske ejer-relationer';
+  END IF;
+
+  DELETE FROM relation WHERE id IN (-951,-952,-953,-954);
+  DELETE FROM media WHERE id=-951;
+  RAISE NOTICE 'OK: media created_at-default/NULL-bar + partiel afbildet-unikhed';
 END $$;
 
 

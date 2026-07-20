@@ -79,6 +79,7 @@ CREATE TABLE media (
   sha256           TEXT,                          -- hex; dedup + deterministisk sti
   original_filnavn TEXT,
   upload_status    TEXT NOT NULL DEFAULT 'kladde',-- 'kladde'|'klar'|'fejlet' (to-fase: række → bytes → 'klar')
+  created_at timestamptz DEFAULT now(),   -- fase 3: aldersbegreb for strandede uploads (NULL = ukendt, præ-fase-3)
   -- ---- publikations-gating (rettigheder, fra dag 1) ----
   -- Kontrol-kolonne (som person.levende/privat) der driver RLS. FAIL-CLOSED: intet vises før frigivet.
   -- Uafhængig af GDPR-person-gating: et rettigheds-begrænset billede af en afdød forbliver skjult.
@@ -365,6 +366,9 @@ CREATE TABLE relation (
   periode_raw TEXT,
   konfidens   TEXT
 );
+CREATE UNIQUE INDEX IF NOT EXISTS relation_afbildet_uidx
+  ON relation (subjekt_type, subjekt_id, objekt_type, objekt_id)
+  WHERE rolle='afbildet';
 
 -- ---------- EVIDENS: PÅSTAND / KONKLUSION / CITATION ----------
 CREATE TABLE assertion (                 -- én kildes udsagn om et FACT ELLER en RELATION
@@ -1200,10 +1204,14 @@ BEGIN
     RAISE EXCEPTION 'afbildet skal gå person→media (person kan ikke stå på objekt-siden — GDPR-gating)';
   END IF;
   PERFORM begin_change_set('red_relation', format('Relation %s: %s/%s → %s/%s', p_rolle, p_subjekt_type, p_subjekt_id, p_objekt_type, p_objekt_id), p_subjekt_type, p_subjekt_id);
-  INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle, periode_raw)
-    VALUES ((SELECT coalesce(max(id),0)+1 FROM relation),
-            p_subjekt_type, p_subjekt_id, p_objekt_type, p_objekt_id, p_rolle, p_periode_raw)
-    RETURNING id INTO v_id;
+  BEGIN
+    INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle, periode_raw)
+      VALUES ((SELECT coalesce(max(id),0)+1 FROM relation),
+              p_subjekt_type, p_subjekt_id, p_objekt_type, p_objekt_id, p_rolle, p_periode_raw)
+      RETURNING id INTO v_id;
+  EXCEPTION WHEN unique_violation THEN
+    RAISE EXCEPTION 'Mediet er allerede tilknyttet dette subjekt';
+  END;
   RETURN v_id;
 END $$;
 

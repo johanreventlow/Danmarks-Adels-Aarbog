@@ -1882,6 +1882,7 @@ END $$;
 -- ===== Mediehåndtering fase 1: metadata, genopret, upload-signatur og undo =====
 DO $$
 DECLARE v_id bigint; v_upload bigint; v_cs bigint; v_cs_foer int; v_cs_efter int;
+        v_sha text;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
@@ -1938,15 +1939,36 @@ BEGIN
   END;
 
   PERFORM set_config('app.change_set_id','',true);
+  v_sha := '__verify_fase3_sha_' || v_id;
   v_upload := red_upload_media(
     p_slags => 'foto', p_titel => 'Upload-test',
     p_storage_path => '__verify__/fase1-' || v_id || '.jpg', p_mime => 'image/jpeg',
     p_kunstner => 'Testkunstner', p_datering => '1701',
+    p_sha256 => v_sha,
     p_rettigheder_status => 'ukendt', p_maa_publiceres => false
   );
-  IF NOT EXISTS (SELECT 1 FROM media WHERE id=v_upload AND kunstner='Testkunstner' AND datering='1701') THEN
-    RAISE EXCEPTION 'FEJL: red_upload_media førte ikke kunstner/datering igennem';
+  IF NOT EXISTS (SELECT 1 FROM media WHERE id=v_upload AND kunstner='Testkunstner' AND datering='1701'
+                 AND sha256=v_sha AND created_at IS NOT NULL) THEN
+    RAISE EXCEPTION 'FEJL: red_upload_media førte ikke metadata/sha256/created_at igennem';
   END IF;
+  BEGIN
+    PERFORM red_upload_media(
+      p_slags => 'foto', p_titel => 'Upload-dublet-test',
+      p_storage_path => '__verify__/fase1-dublet-' || v_id || '.jpg', p_mime => 'image/jpeg',
+      p_sha256 => v_sha,
+      p_rettigheder_status => 'ukendt', p_maa_publiceres => false
+    );
+    RAISE EXCEPTION 'FEJL: red_upload_media accepterede gentaget sha256';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Medie med samme indhold findes allerede (sha256=%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    PERFORM red_relation('person',-999951,'media',v_upload,'afbildet');
+    PERFORM red_relation('person',-999951,'media',v_upload,'afbildet');
+    RAISE EXCEPTION 'FEJL: red_relation accepterede dublet-afbildet';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'Mediet er allerede tilknyttet dette subjekt' THEN RAISE; END IF;
+  END;
 
   RAISE EXCEPTION 'ROLLBACK_TEST_OK';
 EXCEPTION WHEN OTHERS THEN
