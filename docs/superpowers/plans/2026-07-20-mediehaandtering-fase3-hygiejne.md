@@ -26,6 +26,9 @@ TypeScript, React/Vite + vitest (web, node-miljø med nativ Web Crypto), RN/Expo
 - Koncept: `docs/design/2026-07-19-mediehaandtering-robust-koncept.md` (§4.2 kø 5, §4.6, §9 fase 3, §10.1–3)
 - Kortlægning (fil:linje verificeret på denne branch 2026-07-20 — spec'ens `redaktionWrite.ts`-ankre er forskudt ~7 linjer af fase 2's `tilknytMedia`-gren, resten uændrede): tilfældige stier + `upsert:false` (`web/src/data/mediaUpload.ts:18-21,74-80`, `mobile/src/lib/mediaUpload.ts:51-54,98-106`); HEIC-begrænsning (`web/src/data/mediaUpload.ts:26-35`, urørt); DB-guard + index (`schema.sql:79,89,1885-1887`), `p_sha256` i `red_bekraeft_media_upload`/`red_upload_media` (`schema.sql:1900,1922`); `red_relation` INSERT'er blindt (`schema.sql:1187-1208`), `relation` uden unikhed (`schema.sql:354-367`), `_delete_relation_evidence`s FK-orden (`schema.sql:1214-1227`); web `buildRpcCall`-uploadMedia uden `p_sha256` (`redaktionWrite.ts:316-332`), `submitChange`-upload-flow (`:453-492`), `oversaetFejl` (`:495-504`); upload-ark (`web/src/Redaktion.tsx:1244-1253`, `MediaUploadSheet.tsx:75`); læse-lag (`web/src/data/redaktionRead.ts:745,778-793,814-841,843-863`; mobile `:732-`, `mapMediaBibliotekRows :773`); `expo-crypto` IKKE installeret (`mobile/package.json:5-44`); R-præcedenser (`.claude/skills/daa-extract/scripts/load_daa.R:67-71`, `R/geo-enrich/03-geocode.R:12,18,42`, `tests/testthat/test-geo-enrich.R`); vitest node-miljø (`web/vitest.config.ts:6`)
 - **Prod-status (VIGTIG afvigelse fra spec'ens §2/§8-formulering, verificeret):** fase 1+2-migrationerne + hele `db-rls.sql` gik LIVE i prod 2026-07-20 (changelog-top-entry, commit `2eb4a8c` — EFTER spec-commit `b8e7fd1`). "Samles med de udestående fase 1+2-migrationer" er derfor overhalet: fase 3-migrationen deployes ALENE i sin egen gated runbook — se Task 10.
+- **Dual-review:** `docs/reviews/33-mediehaandtering-fase3-plan-dual-review.md` — 1 fund
+  nedjusteret og dokumenteret (Task 2/9, `haendelse`-FK), 1 accepteret restrisiko (Task 4,
+  race-fejltekst), 1 rækkefølge-fix indarbejdet (Task 8, flet-flowets fjern-før-flyt).
 
 ## Global Constraints
 
@@ -167,6 +170,17 @@ DELETE FROM relation r USING relation r2
 `trg_log_media` snapshotter `created_at` automatisk (jsonb-rækkesnapshot) — ingen
 versioneringsændring (spec §3.1).
 
+⚠ **Dual-review-fund H1 (review 33, nedjusteret):** `schema.sql:445` har en FJERDE FK ind
+mod `relation(id)` — `haendelse.relation_id` (uden `ON DELETE`, default RESTRICT) — som
+hverken spec §3.2 eller ovenstående evidens-enumeration nævner. Empirisk strukturelt lukket
+i dag: eneste skrivevej (`load_haendelser.R:73`) kræver `JOIN conclusion … status='afklaret'`,
+og conclusion-bærende rækker er allerede udelukket af DELETE'en ovenfor — de to mængder er
+disjunkte. Alligevel: (a) dokumentér `haendelse` eksplicit i evidens-kommentaren ovenfor som
+"strukturelt udelukket via conclusion-tjekket, ikke en tilfældighed", og (b) Task 9's
+janitor-kategori (a) (som genbruger samme evidens-mønster på en ANDEN tabel, `media`, uden
+conclusion-garantien) bør fange `foreign_key_violation` defensivt i stedet for at antage
+assertion/conclusion/note er den fulde FK-liste for alle nuværende og fremtidige skrivere.
+
 - [ ] **Step 1: Skriv migrationsblokken** jf. Interface (DELETE+CREATE INDEX er
   tilsammen idempotente: andet gennemløb finder ingen dubletter og `IF NOT EXISTS`
   springer indexet over).
@@ -247,6 +261,13 @@ via `redaktion_read`). Ved hit vises dialog i stedet for upload, forgrenet på
   EKSISTERENDE række, og tilknyt om nødvendigt (selvhelende for samme-fil-tilfældet).
 Server-guarden forbliver race-bagstopperen; race-tilfældets bytes ligger på vinderens
 egen sha-sti (samme sha → samme sti) — intet orphan (spec §4.2.2).
+**Dual-review-fund M1 (review 33, accepteret restrisiko — L, ingen kodeændring krævet):**
+guarden i `red_opret_media` (`schema.sql:1884-1887`) har intet `FOR UPDATE`/exception-
+wrap om selve INSERT'en — ved en ÆGTE samtidig race (to redaktører, samme fil, samme
+øjeblik) rammer taberen Postgres' rå `unique_violation`, som falder i den GENERISKE
+`/duplicate key|unique/i`-fallback ("Findes allerede.") frem for ovenstående præcise
+tekst. Accepteret: brugeren får stadig en forståelig fejl i et sjældent vindue spec
+§4.2.2 selv erkender; ingen wrap tilføjes i denne fase.
 
 - [ ] **Step 1: Skriv fejlende vitest-cases** — `buildRpcCall` med `sha256` i payload
   → `p_sha256` i args (og `null` når fraværende); begge nye `oversaetFejl`-grene
@@ -366,12 +387,18 @@ støjer trillingen, kan `mime_type` føjes til nøglen — afgøres empirisk, no
 - **"Flet ind i…" (web-only, blødt — spec §6.3):** handling på filsiden/dubletkøen
   når mediet har dublet-kandidater. Redaktøren står på KOPIEN → picker over
   dublet-gruppens øvrige medier (originalen) → klient-orkestreret sekvens af
-  EKSISTERENDE changes (ingen ny SQL): for hver `afbildet`-relation på kopien der
-  ikke findes på originalen (`fetchMediaAnvendelse`, web `:956`):
-  `tilknytMedia`(original) → `sletRelation`(kopiens relation); til sidst
-  `fjernMedia`(kopien) → papirkurven. Narrativ-mentions flyttes IKKE — mention-listen
-  vises som ADVARSEL før kørsel. Hvert trin er sit eget change_set (granulær
-  fortrydelse); afbrydes midtvejs er tilstanden konsistent. Task 1-indexet gør
+  EKSISTERENDE changes (ingen ny SQL). **Rækkefølge (dual-review-fund, review 33 —
+  omvendt af den oprindelige spec-tekst):** `fjernMedia`(kopien) → papirkurven
+  KØRES FØRST, derefter for hver `afbildet`-relation på kopien der ikke findes på
+  originalen (`fetchMediaAnvendelse`, web `:956`): `tilknytMedia`(original) →
+  `sletRelation`(kopiens relation). **Begrundelse:** afbrydes flowet (netværk/luk-
+  browser) MELLEM to relations-flytninger, er tilstanden allerede en velkendt,
+  håndteret situation — "medie i papirkurven med resterende relationer", synlig og
+  fortsætbar via filsidens papirkurvs-"bruges på". Den oprindelige rækkefølge
+  (fjern sidst) kunne efterlade en relations-løs, stadig-`klar` kopi uden en
+  planlagt afslutningsvej hvis afbrydelsen ramte lige efter sidste `sletRelation`.
+  Narrativ-mentions flyttes IKKE — mention-listen vises som ADVARSEL før kørsel.
+  Hvert trin er sit eget change_set (granulær fortrydelse). Task 1-indexet gør
   "findes allerede på originalen"-racet ufarligt (domæne-fejl → spring over).
   Mobile får INGEN flet-orkestrering (kø-behandling er web, koncept §7).
 - Den reelle udrensning af kopien er og bliver fase 4 (`red_udrens_media`) —
@@ -383,8 +410,11 @@ støjer trillingen, kan `mime_type` føjes til nøglen — afgøres empirisk, no
   en vitest-case; ellers gælder Step 2's manuelle verifikation, jf. fase 2-planens
   UI-task-præcedens).
 - [ ] **Step 2: Verifikation** — tsc + vitest + build; browser-røgtest: to medier med
-  samme trilling → begge i "Mulige dubletter"; flet flytter relationen, advarer om
-  mentions og parkerer kopien i papirkurven; genopret fra papirkurv virker fortsat.
+  samme trilling → begge i "Mulige dubletter"; flet parkerer kopien i papirkurven
+  FØRST, flytter derefter relationerne, advarer om mentions; genopret fra papirkurv
+  virker fortsat. Afbryd flowet (dev-tools/netværk) MELLEM to relations-flytninger →
+  bekræft tilstanden er den kendte "papirkurv med resterende relationer" og at
+  re-kørsel af flet fuldfører uden dobbelt-flytning (dual-review-fund, review 33).
 
 ## Task 9: Janitor — `R/media-janitor.R` (rapport-first)
 
@@ -414,6 +444,12 @@ Kategorier (spec §7a–d):
   stier. `created_at IS NULL` slettes ALDRIG (rapporteres: "vurdér manuelt").
   Direkte SQL uden change_set (bulk-præcedensen — janitoren rydder affald,
   den redigerer ikke indhold; accepteret fortryd-hazard, spec §9.2 — bekræft).
+  ⚠ **Dual-review-fund H1 (review 33):** i modsætning til Task 2's DELETE (som opererer
+  på `relation`, hvor conclusion-tjekket strukturelt udelukker `haendelse`-FK'en) sletter
+  denne kategori en `media`-række direkte — en tabel uden samme garanti mod fremtidige
+  FK'er. Slettesekvensen SKAL fange `foreign_key_violation` pr. række (log + spring over
+  + rapportér "manuel afgørelse krævet") i stedet for at lade en uventet reference stoppe
+  hele kørslen eller fejle stille.
 - **(b) Forældreløse objekter:** rekursiv bucket-listning anti-joinet mod
   `media.storage_path ∪ media_variant.storage_path`; `--slet` kun objekter ældre end
   fristen (objektets egen `created_at`-metadata).

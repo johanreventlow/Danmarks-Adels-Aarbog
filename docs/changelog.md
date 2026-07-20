@@ -1,5 +1,20 @@
 # Changelog
 
+## Mediehåndtering fase 3 — implementeringsplan skrevet + dual-reviewet (2026-07-20)
+
+Implementeringsplan (10 TDD-tasks, skrevet af Fable): `docs/superpowers/plans/2026-07-20-mediehaandtering-fase3-hygiejne.md`,
+mod den mergede fase 3-spec. Dual-reviewet (`docs/reviews/33-mediehaandtering-fase3-plan-dual-review.md`)
+— to uafhængige gennemgange (Codex var ikke tilgængeligt som værktøj i denne sessions miljø,
+så anden-reviewer-rollen blev udfyldt af en fuldt uafhængig subagent i stedet, dokumenteret
+eksplicit i reviewet). Fund: en fjerde, udokumenteret FK (`haendelse.relation_id → relation`)
+i den evidens-sikre oprydnings-DELETE — verificeret strukturelt uskadelig i dag (kun skrives
+for conclusion-bærende relationer, som DELETE'en allerede udelukker), men nu dokumenteret +
+en defensiv `foreign_key_violation`-fangst tilføjet til janitorens sletning som fremtidssikring;
+en accepteret race-vindue-restrisiko i dedup-guardens fejltekst (ingen kodeændring); og en
+rækkefølge-fix i "Flet ind i…"-flowet (parkér kopien i papirkurven FØR relationerne flyttes,
+så et afbrudt flet altid lander i en allerede håndteret tilstand). Klar til PR — implementering
+ikke påbegyndt.
+
 ## Mediehåndtering fase 1+2 + levende feed fase 2-3 + K2 selektiv publicering — LIVE i prod (2026-07-20)
 
 Deployet direkte til produktionsdatabasen via Supabase MCP (bruger-godkendt, kørt fra
