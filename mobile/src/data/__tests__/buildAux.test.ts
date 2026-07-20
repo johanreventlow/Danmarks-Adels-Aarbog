@@ -70,7 +70,24 @@ test('buildAux: medieListe-status, anvendelsestal, køer og kø-tællere', () =>
   expect(aux.medieListe.find((m) => m.id === '3')).toMatchObject({
     antalAfbildet: 2, antalMentions: 1, koeer: [],
   });
-  expect(aux.medieKoeTaellere).toEqual({ rettigheder: 1, loese: 1, strandede: 1, papirkurv: 1 });
+  expect(aux.medieKoeTaellere).toEqual({ rettigheder: 1, loese: 1, strandede: 1, papirkurv: 1, dubletter: 0 });
+});
+
+test('buildAux: dubletkandidater bruger samme 3-feltsnøgle og opdaterer tælleren', () => {
+  const aux = buildAux({
+    ...base,
+    media: [
+      { id: 1, titel: 'A', upload_status: 'klar', maa_publiceres: true, rettigheder_status: 'public_domain',
+        byte_size: 100, bredde: 10, hoejde: 20 },
+      { id: 2, titel: 'B', upload_status: 'klar', maa_publiceres: true, rettigheder_status: 'public_domain',
+        byte_size: 100, bredde: 10, hoejde: 20 },
+      { id: 3, titel: 'Kladde', upload_status: 'kladde', maa_publiceres: false, rettigheder_status: 'ukendt',
+        byte_size: 100, bredde: 10, hoejde: 20 },
+    ] as never,
+  });
+
+  expect(aux.medieListe.filter((m) => m.koeer.includes('dubletter')).map((m) => m.id)).toEqual(['1', '2']);
+  expect(aux.medieKoeTaellere.dubletter).toBe(2);
 });
 
 test('buildAux: mediaBy kobles via relation person→media (afbildet), ikke m.person_id', () => {

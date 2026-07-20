@@ -42,7 +42,7 @@ const aux: Aux = {
   kildeListe: [],
   orgListe: [],
   medieListe: [],
-  medieKoeTaellere: { rettigheder: 0, loese: 0, strandede: 0, papirkurv: 0 },
+  medieKoeTaellere: { rettigheder: 0, loese: 0, strandede: 0, papirkurv: 0, dubletter: 0 },
   godsListe: [],
   vaabenListe: [],
 };
