@@ -105,3 +105,41 @@ laveste id, fejler korrekt højlydt på en overlevende evidens-bærende dublet.
 at dække FK-grafen fuldt ud — enhver ny tabel der senere refererer samme mål (`haendelse`
 her) skal enten indgå i evidens-enumerationen eller mødes med en defensiv fangst i
 oprydningskode, fremfor en stiltiende antagelse om at listen er komplet.
+
+---
+
+## Addendum — Codex-fund under implementering (2026-07-20)
+
+**Genstand:** Codex fandt, under implementering på branch `codex/media-fase3-hygiejne`,
+at Task 1's begrundelse for `red_relation`s `unique_violation`-fangst var faktuelt
+forkert: "eneste unique-index på `relation` er det partielle afbildet-index" overser at
+`relation.id BIGINT PRIMARY KEY` (`schema.sql:355`) selv er et implicit unikt index
+(`relation_pkey`). **BEGGE denne reviews passer (Fase 1 og Fase 3) overså dette** — en
+reel dækningsblind vinkel i selve reviewet, ikke kun i planen.
+
+**Mekanisme (Codex' empiriske reproduktion i isoleret Postgres 17, ingen prod berørt):**
+`red_relation`s `INSERT … VALUES ((SELECT coalesce(max(id),0)+1 FROM relation), …)`
+(`schema.sql:1203-1206`) er det kendte, projektbredt dokumenterede `max(id)+1`-PoC-race
+(`docs/database-current-state.md` §3). To samtidige kald kan beregne samme id; taberen
+rammer `relation_pkey`, ikke det tilsigtede partielle index. En bred
+`WHEN unique_violation`-fangst ville derfor oversætte EN PK-KOLLISION — uanset rolle,
+også `'ejer'` m.fl. — til den forkerte "allerede tilknyttet"-besked og skjule racet.
+
+**Verdikt (Claude, verificeret direkte mod `schema.sql` på `main`):** fundet er korrekt
+og severity Medium/Important (ingen konstateret data-korruption; RPC-kaldet rulles
+tilbage; men en misvisende besked og et skjult, sværere-at-fejlsøge race). Codex' foreslåede
+fix — diskriminér på `CONSTRAINT_NAME` via `GET STACKED DIAGNOSTICS`, genkast uændret
+(`RAISE;`) for alt andet end `relation_afbildet_uidx` — er korrekt, minimal og idiomatisk
+PL/pgSQL; bekræftet at `RAISE;` bevarer SQLSTATE/diagnostik, og at `CONSTRAINT_NAME`
+pålideligt rapporterer et partielt unikt indexs eget navn (stabil adfærd siden PG 9.2,
+ikke Supabase-versionsafhængig). Testforstærkningen (split de to `red_relation`-kald ud
+af samme exception-blok) er påkrævet; det egentlige race kan IKKE fremtvinges
+deterministisk i én sekventiel session (enhver "decoy"-række tælles selv med i
+`max(id)`) — anbefalet i stedet: en isoleret `DO`-blok der simulerer en fremmed
+`unique_violation` via `RAISE … USING CONSTRAINT='relation_pkey'` og beviser re-raise,
+frem for at bygge ægte to-forbindelses-concurrency ind i `db-verify.sql`. `max(id)+1`s
+egentlige løsning (IDENTITY/sekvens) forbliver eksplicit UDEN FOR fase 3-scope —
+allerede en separat, kendt debt-post.
+
+**Ændringer:** Task 1 i planen opdateret med den korrekte, constraint-diskriminerende
+fangst og den udvidede test-struktur; se plandokumentets Task 1 for den fulde tekst.

@@ -29,6 +29,12 @@ TypeScript, React/Vite + vitest (web, node-miljø med nativ Web Crypto), RN/Expo
 - **Dual-review:** `docs/reviews/33-mediehaandtering-fase3-plan-dual-review.md` — 1 fund
   nedjusteret og dokumenteret (Task 2/9, `haendelse`-FK), 1 accepteret restrisiko (Task 4,
   race-fejltekst), 1 rækkefølge-fix indarbejdet (Task 8, flet-flowets fjern-før-flyt).
+- **Codex-fund under implementering (addendum til review 33, 2026-07-20):** BEGGE
+  dual-review-passer overså at `relation.id BIGINT PRIMARY KEY` selv er et unikt index
+  — Task 1's oprindelige `unique_violation`-fangst i `red_relation` var derfor for bred
+  og ville have oversat en `max(id)+1`-PK-kollision (kendt projektbred debt) til en
+  forkert domæne-fejl. Rettet i Task 1 til constraint-navns-diskrimineret fangst
+  (`GET STACKED DIAGNOSTICS … CONSTRAINT_NAME`); testkravet i Task 1 udvidet tilsvarende.
 
 ## Global Constraints
 
@@ -112,15 +118,36 @@ CREATE UNIQUE INDEX IF NOT EXISTS relation_afbildet_uidx
   ON relation (subjekt_type, subjekt_id, objekt_type, objekt_id)
   WHERE rolle='afbildet';
 ```
-`red_relation` (`schema.sql:1203-1206`): INSERT'en wrappes i blok med
+⚠ **Rettelse efter Codex-fund under implementering (dokumenteret i review 33-addendum):**
+den oprindelige begrundelse herunder ("eneste unique-index på `relation`") er FAKTUELT
+FORKERT — `relation.id BIGINT PRIMARY KEY` (`schema.sql:355`) er selv et implicit unikt
+index (`relation_pkey`). `red_relation`s `INSERT … VALUES ((SELECT coalesce(max(id),0)+1
+FROM relation), …)` (`schema.sql:1203-1206`) er det kendte, projektbredt dokumenterede
+`max(id)+1`-PoC-race (`docs/database-current-state.md` §3) — to samtidige kald kan
+beregne samme id, hvorved TABEREN rammer `relation_pkey`, ikke det partielle index. En
+bred `WHEN unique_violation`-fangst ville derfor oversætte EN PK-KOLLISION (uanset rolle,
+også `'ejer'` m.fl.) til den forkerte, misvisende "allerede tilknyttet"-besked og skjule
+det reelle race. Fangsten SKAL derfor diskriminere på constraint-navn:
 ```sql
 EXCEPTION WHEN unique_violation THEN
-  RAISE EXCEPTION 'Mediet er allerede tilknyttet dette subjekt';
+  DECLARE v_constraint_name text;
+  BEGIN
+    GET STACKED DIAGNOSTICS v_constraint_name = CONSTRAINT_NAME;
+    IF v_constraint_name = 'relation_afbildet_uidx' THEN
+      RAISE EXCEPTION 'Mediet er allerede tilknyttet dette subjekt';
+    END IF;
+    RAISE;  -- fremmed unique-fejl (fx relation_pkey) genkastes UÆNDRET
+  END;
 ```
-(eneste unique-index på `relation` er det partielle afbildet-index, så fangsten er
-entydig; domæne-fejl frem for rå duplicate-key, spec §3.2 sidste punkt).
+`RAISE;` (uden argumenter) genkaster den oprindelige fejl med bevaret SQLSTATE/diagnostik
+— domæne-fejlen rammer KUN den tilsigtede afbildet-dublet; enhver anden unique-violation
+(nuværende `relation_pkey`-racet eller et fremtidigt index) forbliver en rå, uændret fejl
+i stedet for at blive tavst maskeret. `max(id)+1`-racets egentlige løsning (IDENTITY/
+sekvens) er UDEN FOR fase 3-scope — registreres separat, jf. eksisterende debt-post.
 Frisk-install-skemaet indeholder INGEN oprydnings-DELETE (tom base) — den hører
-udelukkende til migrationsblokken (Task 2).
+udelukkende til migrationsblokken (Task 2), som skal kopiere BÅDE indexet OG denne
+constraint-diskriminerende funktionskrop verbatim (samme streng `relation_afbildet_uidx`
+begge steder — undgå at de to filer driver fra hinanden).
 
 - [ ] **Step 1: Skriv de fejlende asserts.**
   - `db-verify-media.sql` (ny DO-blok, seed negative id'er + ryd op i én transaktion):
@@ -132,6 +159,17 @@ udelukkende til migrationsblokken (Task 2).
     sha landede på rækken og `created_at` er sat; gentaget kald samme sha → forvent
     dedup-guardens domæne-fejl (`schema.sql:1885-1887`); `red_relation` med dublet-
     afbildet → forvent 'Mediet er allerede tilknyttet dette subjekt'.
+    **Test-struktur (Codex-fund):** de to `red_relation`-kald må IKKE stå i samme
+    exception-blok (et fejlagtigt 1. kald ville få testen til at bestå uden at nå det
+    2. kald) — 1. kald køres UDEN FOR exception-blokken, retur-id asserteres indsat;
+    kun 2., identiske kald omsluttes af exception-blokken der asserterer den præcise
+    domæne-fejl. **Derudover:** en isoleret, deterministisk `DO`-blok der bevidst
+    rejser en simuleret unique-violation med `RAISE EXCEPTION '…' USING
+    ERRCODE='23505', CONSTRAINT='relation_pkey'` og fanger den med SAMME
+    diskriminerings-snippet (kopieret, ikke kaldt via `red_relation` — racet i sig
+    selv er ikke deterministisk reproducerbart i én sekventiel session) → assert at
+    fejlen genkastes UÆNDRET (ikke oversat). Ingen ægte concurrency, ingen
+    test-mekanismer i produktionsskemaet.
 - [ ] **Step 2: Kør mod frisk lokal install** — bekræft at de nye blokke FEJLER
   (kolonne/index/fangst findes ikke; `red_relation`-dubletten går stille igennem).
 - [ ] **Step 3: Implementér** kolonnen, indexet og `unique_violation`-fangsten i
