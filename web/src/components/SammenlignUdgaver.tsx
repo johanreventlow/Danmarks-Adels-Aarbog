@@ -2,16 +2,24 @@
 // Kildevalg → matcher-kørsel (memoiseret, @daa/core) → arbejdsliste → Bekræft/Afvis via
 // submitChange (samme dry-run/LIVE-flow som resten af redaktionen). Retning (§5.4):
 // eksisterende base = kanonisk (objekt/sink), ny udgaves person = alias (subjekt).
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   matchUdgaver, buildMatchFrame, collapseSameAs, previewSammeSom, parseYear,
   type MatchFrame, type RedMatchPerson, type Db, type SameAsEdge, type Union, type ParentChild,
 } from '@daa/core';
 import {
-  fetchSources, fetchMatchPersoner, fetchIkkeSammeSomPar, fetchSammeSomPar, fetchFamilyGraph, type SourceRow,
+  fetchSources, fetchMatchPersoner, fetchIkkeSammeSomPar, fetchSammeSomPar, fetchFamilyGraph,
+  fetchKandidatDetalje, fetchMatchAudit,
+  type KandidatDetalje, type MatchAuditPost, type SourceRow,
 } from '../data/redaktionRead';
 import { submitChange, type Change } from '../data/redaktionWrite';
 import { buildArbejdsliste, pairKey, type Kandidat } from '../data/sammenlign';
+import { KandidatSammenligning } from './KandidatSammenligning';
+import {
+  MatchOversigt, foraeldreNavne, formatBogReferencer, formatPersonNavn,
+} from './MatchOversigt';
+
+export { foraeldreNavne, formatBogReferencer, formatPersonNavn } from './MatchOversigt';
 
 // Rå person → Koen (samme normalisering som web/src/data/model.ts, men uden 'ukendt'→null-skridtet
 // dupliceret via en type-import — feltet er lille nok til at holde lokalt her).
@@ -19,13 +27,7 @@ function toKoen(k: string | null): 'mand' | 'kvinde' | null {
   return k === 'mand' || k === 'kvinde' ? k : null;
 }
 
-function visning(p?: RedMatchPerson): string {
-  if (!p) return '(ukendt)';
-  const fy = p.foedsel?.date_min?.slice(0, 4) ?? '';
-  const dy = p.doed?.date_min?.slice(0, 4) ?? '';
-  const span = fy || dy ? ` (${fy}–${dy})` : '';
-  return `${p.navn}${span}`;
-}
+const visning = formatPersonNavn;
 
 // Menneskevenlig næste-skridt pr. karantæne-grund (collapseSameAs.ts's groupSameAs/validateGroups
 // producerer de rå, tekniske grund-strenge nedenfor — matchet på deres faste præfiks, uanset den
@@ -42,17 +44,24 @@ function foldAdvice(grund: string): string | null {
   return null;
 }
 
-export function SammenlignUdgaver({ role }: { role?: string }) {
+export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryRun?: boolean }) {
   const [sources, setSources] = useState<SourceRow[]>([]);
   const [personer, setPersoner] = useState<RedMatchPerson[]>([]);
   const [afviste, setAfviste] = useState<{ aId: string; bId: string }[]>([]);
   const [linkede, setLinkede] = useState<{ aId: string; bId: string }[]>([]);
+  const [matchAudit, setMatchAudit] = useState<MatchAuditPost[]>([]);
   const [familieGraf, setFamilieGraf] = useState<{ unions: Union[]; parentChild: ParentChild[] }>({ unions: [], parentChild: [] });
   const [nyKildeId, setNyKildeId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [fejl, setFejl] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
+  const [aabentPar, setAabentPar] = useState<string | null>(null);
+  const [detaljeCache, setDetaljeCache] = useState<Map<string, KandidatDetalje>>(() => new Map());
+  const [detaljeLoading, setDetaljeLoading] = useState<Set<string>>(() => new Set());
+  const [detaljeFejl, setDetaljeFejl] = useState<Map<string, string>>(() => new Map());
+  const detaljeCacheRef = useRef(new Map<string, KandidatDetalje>());
+  const detaljePendingRef = useRef(new Map<string, Promise<KandidatDetalje>>());
   // K2 selektiv publicering (§7.20): aId'er markeret til "Publicér valgte" — kun bekræftede
   // matches, kun staged personer (allerede publicerede har ingen afkrydsning at sætte).
   const [valgteTilPublicering, setValgteTilPublicering] = useState<Set<string>>(new Set());
@@ -60,10 +69,16 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
   useEffect(() => {
     let alive = true;
     setLoading(true); setFejl(null);
-    Promise.all([fetchSources(), fetchMatchPersoner(), fetchIkkeSammeSomPar(), fetchSammeSomPar(), fetchFamilyGraph()])
-      .then(([s, p, afv, lnk, fam]) => {
+    Promise.all([
+      fetchSources(), fetchMatchPersoner(), fetchIkkeSammeSomPar(), fetchSammeSomPar(),
+      fetchFamilyGraph(),
+    ])
+      .then(async ([s, p, afv, lnk, fam]) => ({
+        s, p, afv, lnk, fam, audit: await fetchMatchAudit(lnk, afv),
+      }))
+      .then(({ s, p, afv, lnk, fam, audit }) => {
         if (!alive) return;
-        setSources(s); setPersoner(p); setAfviste(afv); setLinkede(lnk); setFamilieGraf(fam);
+        setSources(s); setPersoner(p); setAfviste(afv); setLinkede(lnk); setFamilieGraf(fam); setMatchAudit(audit);
         setNyKildeId((prev) => prev ?? (
           [...s].filter((x) => x.aar != null).sort((a, b) => (b.aar as number) - (a.aar as number))[0]?.id ?? s[0]?.id ?? null));
       })
@@ -73,6 +88,58 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
   }, [refresh]);
 
   const byId = useMemo(() => new Map(personer.map((p) => [String(p.id), p])), [personer]);
+  const navnById = useMemo(
+    () => new Map(personer.map((p) => [String(p.id), p.fuldtNavn ?? p.navn])),
+    [personer],
+  );
+
+  const hentKandidatDetalje = useCallback((personId: string): Promise<KandidatDetalje> => {
+    const cached = detaljeCacheRef.current.get(personId);
+    if (cached) return Promise.resolve(cached);
+    const pending = detaljePendingRef.current.get(personId);
+    if (pending) return pending;
+
+    setDetaljeLoading((prev) => new Set(prev).add(personId));
+    setDetaljeFejl((prev) => {
+      const next = new Map(prev); next.delete(personId); return next;
+    });
+    const promise = fetchKandidatDetalje(personId)
+      .then((detalje) => {
+        detaljeCacheRef.current.set(personId, detalje);
+        setDetaljeCache(new Map(detaljeCacheRef.current));
+        return detalje;
+      })
+      .catch((error) => {
+        setDetaljeFejl((prev) => new Map(prev).set(personId, String(error?.message ?? error)));
+        throw error;
+      })
+      .finally(() => {
+        detaljePendingRef.current.delete(personId);
+        setDetaljeLoading((prev) => {
+          const next = new Set(prev); next.delete(personId); return next;
+        });
+      });
+    detaljePendingRef.current.set(personId, promise);
+    return promise;
+  }, []);
+
+  const toggleSammenligning = (aId: string, bId: string) => {
+    const key = pairKey(aId, bId);
+    if (aabentPar === key) {
+      setAabentPar(null);
+      return;
+    }
+    setAabentPar(key);
+    void Promise.all([hentKandidatDetalje(aId), hentKandidatDetalje(bId)]).catch(() => undefined);
+  };
+
+  const kildeLabel = (sourceIds: number[]): string => {
+    const labels = sourceIds.map((id) => {
+      const source = sources.find((candidate) => candidate.id === id);
+      return source?.udgave ?? source?.titel ?? `Kilde ${id}`;
+    });
+    return labels.length ? labels.join(' · ') : 'Ukendt kilde';
+  };
 
   // Db til den rådgivende fold-preview (§7.18): rå personer (born/died fra den VALGTE
   // fødsel/død-assertion, samme kilde som matcheren bruger) + hele familie-grafen. IKKE den
@@ -125,17 +192,19 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
   const run = useCallback(async (change: Change, key: string) => {
     setBusy(key); setFejl(null);
     try {
-      await submitChange(change, { dryRun: false, role });
+      await submitChange(change, { dryRun, role });
       setRefresh((r) => r + 1);
     } catch (e) {
       setFejl(String((e as { message?: string })?.message ?? e));
     } finally { setBusy(null); }
-  }, [role]);
+  }, [role, dryRun]);
 
   const bekraeft = (aId: string, bId: string) => // ny(A)=alias, eksisterende(B)=kanonisk (§5.4)
     run({ art: 'sammeSom', subjektType: 'person', subjektId: aId, payload: { aliasId: aId, objektId: bId } }, `s:${aId}:${bId}`);
   const afvis = (aId: string, bId: string) =>
     run({ art: 'ikkeSammeSom', subjektType: 'person', subjektId: aId, payload: { aId, bId } }, `a:${aId}:${bId}`);
+  const fortrydSammeSom = (relationId: string, aId: string) =>
+    run({ art: 'fjernSammeSom', subjektType: 'person', subjektId: aId, relationId }, `f:${relationId}`);
   const markerNy = (kand: Kandidat[]) => { // afvis alle personens ≥review-kandidater
     kand.filter((k) => !k.afvist && !k.linket).forEach((k) => afvis(String(k.aId), String(k.bId)));
   };
@@ -263,15 +332,48 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
         </details>
       )}
 
+      <MatchOversigt
+        audit={matchAudit}
+        personer={personer}
+        sources={sources}
+        karantaeneByPersonId={karantaeneByPersonId}
+        detaljeCache={detaljeCache}
+        busy={!!busy}
+        hentKandidatDetalje={hentKandidatDetalje}
+        onFortryd={fortrydSammeSom}
+      />
+
       {aabne.map((person) => {
         const a = byId.get(person.aId);
+        const aDetaljer = [
+          foraeldreNavne(person.aId, familieGraf.parentChild, byId),
+          formatBogReferencer(a),
+        ].filter(Boolean);
         return (
           <div key={person.aId} style={{ border: '1px solid rgba(34,31,26,.1)', borderRadius: 6, padding: '.6rem .8rem', margin: '.5rem 0' }}>
             <strong>{visning(a)}</strong>
             <button style={{ marginLeft: '.8rem', fontSize: '.85em' }} disabled={!!busy}
               onClick={() => markerNy(person.kandidater)}>Markér som ny person</button>
+            {aDetaljer.length > 0 && (
+              <div style={{ fontSize: '.82em', color: '#6f675b', marginTop: '.15rem' }}>
+                {aDetaljer.join(' · ')}
+              </div>
+            )}
             {person.kandidater.filter((k) => !k.afvist).map((k) => {
               const b = byId.get(String(k.bId));
+              const bId = String(k.bId);
+              const parNoegle = pairKey(person.aId, bId);
+              const erAabent = aabentPar === parNoegle;
+              const detaljeA = detaljeCache.get(person.aId);
+              const detaljeB = detaljeCache.get(bId);
+              const detaljerIndlaeses = detaljeLoading.has(person.aId) || detaljeLoading.has(bId);
+              const detaljeError = detaljeFejl.get(person.aId) ?? detaljeFejl.get(bId) ?? null;
+              const hint = foldHint(person.aId, bId, k.linket);
+              const advice = hint.grund ? foldAdvice(hint.grund) : null;
+              const bDetaljer = [
+                foraeldreNavne(bId, familieGraf.parentChild, byId),
+                formatBogReferencer(b),
+              ].filter(Boolean);
               return (
                 <div key={String(k.bId)} style={{ marginTop: '.4rem', paddingTop: '.4rem', borderTop: '1px dashed rgba(34,31,26,.1)' }}>
                   <span style={{ fontWeight: 600 }}>{k.tier === 'auto' ? '★ stærk' : 'gennemse'}</span>
@@ -279,26 +381,38 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
                   <span style={{ fontSize: '.8em', color: '#6f675b', marginLeft: '.5rem' }}>
                     navn {k.nameSim.toFixed(2)} · fødsel {k.birthOverlap ? '✓' : '—'} · død {k.deathOverlap ? '✓' : '—'} · køn {k.sexEq ? '✓' : '✗'}
                   </span>
-                  <div style={{ marginTop: '.3rem' }}>
-                    <button disabled={!!busy || k.linket}
-                      onClick={() => bekraeft(person.aId, String(k.bId))}>
-                      {k.linket ? '✓ bekræftet' : 'Bekræft samme person'}
-                    </button>
-                    {' '}
-                    <button disabled={!!busy} onClick={() => afvis(person.aId, String(k.bId))}>Afvis</button>
-                  </div>
-                  {(() => {
-                    const hint = foldHint(person.aId, String(k.bId), k.linket);
-                    const advice = hint.grund ? foldAdvice(hint.grund) : null;
-                    return (
-                      <div style={{ fontSize: '.8em', marginTop: '.25rem', color: hint.folder ? '#3d7a3d' : '#881A33' }}>
-                        {k.linket
-                          ? (hint.folder ? '✓ foldes offentligt til én person' : `✓ bekræftet — foldes IKKE endnu offentligt: ${hint.grund}`)
-                          : (hint.folder ? '→ vil folde offentligt til én person' : `→ vil IKKE folde: ${hint.grund}`)}
-                        {!hint.folder && advice && <div style={{ color: '#6f675b', marginTop: '.15rem' }}>{advice}</div>}
-                      </div>
-                    );
-                  })()}
+                  {bDetaljer.length > 0 && (
+                    <div style={{ fontSize: '.82em', color: '#6f675b', marginTop: '.15rem' }}>
+                      {bDetaljer.join(' · ')}
+                    </div>
+                  )}
+                  <button type="button" style={{ marginTop: '.35rem', fontSize: '.85em' }}
+                    onClick={() => toggleSammenligning(person.aId, bId)}>
+                    {erAabent ? 'Luk sammenligning' : 'Sammenlign'}
+                  </button>
+                  {erAabent && (
+                    detaljeError
+                      ? <p style={{ color: '#881A33' }}>Kunne ikke hente kandidatdetaljer: {detaljeError}</p>
+                      : detaljeA && detaljeB && a && b
+                        ? <KandidatSammenligning
+                            personA={a}
+                            personB={b}
+                            detaljeA={detaljeA}
+                            detaljeB={detaljeB}
+                            kildeA={kildeLabel(a.sourceIds)}
+                            kildeB={kildeLabel(b.sourceIds)}
+                            navnById={navnById}
+                            foldHint={hint}
+                            foldAdvice={advice}
+                            linket={k.linket}
+                            busy={!!busy}
+                            onBekraeft={() => bekraeft(person.aId, bId)}
+                            onAfvis={() => afvis(person.aId, bId)}
+                          />
+                        : <p style={{ color: '#6f675b' }}>
+                            {detaljerIndlaeses ? 'Indlæser kandidatdetaljer…' : 'Kandidatdetaljer mangler.'}
+                          </p>
+                  )}
                 </div>
               );
             })}

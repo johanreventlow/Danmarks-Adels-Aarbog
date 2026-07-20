@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildTidslinje,
+  fetchKandidatDetalje,
   klassificerMedie,
   mapFamilieRows,
   mapHaendelser,
@@ -11,6 +12,29 @@ import {
   storyPrefillFraPost,
 } from '../redaktionRead';
 import type { Model } from '../types';
+
+describe('fetchKandidatDetalje', () => {
+  it('komponerer de eksisterende lazy person-fetches til en samlet detalje', async () => {
+    const evidence = { felter: {}, koen: 'mand' };
+    const narrativer = [{ id: 1, sourceId: 3, sourceTitel: 'DAA', udgave: '1939', side: '12', tekst: 'Tekst', privat: false }];
+    const familie = { somPartner: [], somBarn: [] };
+    const relationer = [{ relationId: 7, art: 'gods' as const, objektType: 'estate', objektId: '9', navn: 'Frisenvold', rolle: 'ejer', periode: '1700' }];
+    const loaders = {
+      evidence: vi.fn().mockResolvedValue(evidence),
+      narrativer: vi.fn().mockResolvedValue(narrativer),
+      familie: vi.fn().mockResolvedValue(familie),
+      relationer: vi.fn().mockResolvedValue(relationer),
+    };
+
+    await expect(fetchKandidatDetalje('42', loaders)).resolves.toEqual({
+      evidence, narrativer, familie, relationer,
+    });
+    expect(loaders.evidence).toHaveBeenCalledWith('42');
+    expect(loaders.narrativer).toHaveBeenCalledWith('person', 42);
+    expect(loaders.familie).toHaveBeenCalledWith('42');
+    expect(loaders.relationer).toHaveBeenCalledWith('42');
+  });
+});
 
 describe('hændelses-tidslinje', () => {
   it('mapper også skjulte og fletter fact-kobling uden dublet, NULL sidst', () => {
