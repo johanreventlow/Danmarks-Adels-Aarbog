@@ -102,6 +102,7 @@ Alt herunder er **verificeret deployet** jf. `docs/changelog.md` (dato + evidens
 | **Samtykke-granularitet pr. levende person** (`samtykke_offentlig`) | Designes med auth-laget. |
 | **Vocab-håndhævelse** | `vocab`-tabel findes, men `rolle`/`faktatype`/`konfidens` m.fl. er fritekst (ingen FK til vocab). Håndhæves i dag kun konventionelt. |
 | **Polymorf døde-link-integritetsrapport** | Kun `text_mention` har et døde-links-view. Bredere orphan-check (fact/relation/assertion → subjekt) findes ikke systematisk endnu. |
+| **Mediehåndtering fase 3 — hygiejne** | Implementeret og verificeret lokalt på `d97c64e`, men **ikke live i prod**. Det aktuelle `schema.sql` har NULL-bar `media.created_at DEFAULT now()`, det partielle firekolonne-index `relation_afbildet_uidx` for `rolle='afbildet'` og constraint-specifik domænefejl i `red_relation`; den scoped blok `mediehaandtering_fase3_hygiejne` i `db-migrations.sql` bringer en fase 1+2-base til samme flade. Web/mobil bruger sha-stier; janitoren er report-first. `db-rls.sql` er uændret af fase 3, og gamle storage-stier migreres ikke. Deploy følger den separate fase 3-runbook. |
 
 ---
 
