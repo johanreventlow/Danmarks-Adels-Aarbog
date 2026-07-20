@@ -1081,8 +1081,10 @@ type RawMatchAudit = {
 };
 
 /** Hent oprettelsesaudit for alle aktive matchbeslutninger via den rolle-gatede historik-RPC. */
-export async function fetchMatchAudit(): Promise<MatchAuditPost[]> {
-  const [sammeSom, ikkeSammeSom] = await Promise.all([fetchSammeSomPar(), fetchIkkeSammeSomPar()]);
+export async function fetchMatchAudit(
+  sammeSom: MatchRelationPar[],
+  ikkeSammeSom: MatchRelationPar[],
+): Promise<MatchAuditPost[]> {
   const beslutninger = [
     ...sammeSom.map((link) => ({
       ...link,

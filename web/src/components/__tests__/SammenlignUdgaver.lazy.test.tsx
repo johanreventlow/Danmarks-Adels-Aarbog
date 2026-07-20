@@ -82,8 +82,27 @@ describe('SammenlignUdgaver lazy kandidatdetalje', () => {
     expect(mocks.fetchKandidatDetalje).toHaveBeenCalledTimes(2);
   });
 
+  test('deler person-cache mellem arbejdslisten og audit-oversigten', async () => {
+    mocks.fetchMatchAudit.mockResolvedValue([{
+      relationId: '91', aId: '1', bId: '2', beslutning: 'samme_som',
+      actorNavn: 'Johan', actorRolle: 'redaktion', createdAt: '2026-07-20T15:00:00Z',
+      operation: 'red_samme_som',
+    }]);
+
+    render(<SammenlignUdgaver role="redaktor" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Sammenlign' }));
+    await waitFor(() => expect(mocks.fetchKandidatDetalje).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole('button', { name: 'Luk sammenligning' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Se sammenligning' }));
+    await screen.findByRole('button', { name: 'Luk sammenligning' });
+    expect(mocks.fetchKandidatDetalje).toHaveBeenCalledTimes(2);
+  });
+
   test('sender Fortryd gennem den eksisterende fjernSammeSom-change', async () => {
-    mocks.fetchSammeSomPar.mockResolvedValue([{ relationId: '91', aId: '1', bId: '2' }]);
+    const sammeSom = [{ relationId: '91', aId: '1', bId: '2' }];
+    mocks.fetchSammeSomPar.mockResolvedValue(sammeSom);
     mocks.fetchMatchAudit.mockResolvedValue([{
       relationId: '91', aId: '1', bId: '2', beslutning: 'samme_som',
       actorNavn: 'Johan', actorRolle: 'redaktion', createdAt: '2026-07-20T15:00:00Z',
@@ -94,6 +113,7 @@ describe('SammenlignUdgaver lazy kandidatdetalje', () => {
     render(<SammenlignUdgaver role="redaktor" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Fortryd' }));
 
+    expect(mocks.fetchMatchAudit).toHaveBeenCalledWith(sammeSom, []);
     await waitFor(() => expect(mocks.submitChange).toHaveBeenCalledWith({
       art: 'fjernSammeSom', subjektType: 'person', subjektId: '1', relationId: '91',
     }, { dryRun: false, role: 'redaktor' }));

@@ -68,9 +68,9 @@ describe('match-relationer', () => {
 
 describe('fetchMatchAudit', () => {
   it('henter seneste relevante red_samme_som-række for hvert bekræftet link', async () => {
-    relationRows = [
-      { id: 91, subjekt_id: 3, objekt_id: 8, rolle: 'samme_som', subjekt_type: 'person', objekt_type: 'person' },
-      { id: 93, subjekt_id: 5, objekt_id: 9, rolle: 'samme_som', subjekt_type: 'person', objekt_type: 'person' },
+    const sammeSom = [
+      { relationId: '91', aId: '3', bId: '8' },
+      { relationId: '93', aId: '5', bId: '9' },
     ];
     rpcByPersonId = {
       8: { data: [
@@ -83,7 +83,7 @@ describe('fetchMatchAudit', () => {
       ], error: null },
     };
 
-    await expect(fetchMatchAudit()).resolves.toEqual([
+    await expect(fetchMatchAudit(sammeSom, [])).resolves.toEqual([
       {
         relationId: '91', aId: '3', bId: '8',
         beslutning: 'samme_som',
@@ -101,17 +101,16 @@ describe('fetchMatchAudit', () => {
       { name: 'hist_for_subjekt', args: { p_type: 'person', p_id: 8 } },
       { name: 'hist_for_subjekt', args: { p_type: 'person', p_id: 9 } },
     ]);
+    expect(selectCalls).toEqual([]);
   });
 
   it('bevarer linket med tom audit, når historikken mangler en oprettelsesrække', async () => {
-    relationRows = [
-      { id: 91, subjekt_id: 3, objekt_id: 8, rolle: 'samme_som', subjekt_type: 'person', objekt_type: 'person' },
-    ];
+    const sammeSom = [{ relationId: '91', aId: '3', bId: '8' }];
     rpcByPersonId = {
       8: { data: [{ operation: 'red_edit_person' }], error: null },
     };
 
-    await expect(fetchMatchAudit()).resolves.toEqual([{
+    await expect(fetchMatchAudit(sammeSom, [])).resolves.toEqual([{
       relationId: '91', aId: '3', bId: '8',
       beslutning: 'samme_som',
       actorNavn: null, actorRolle: null, createdAt: null, operation: null,
@@ -119,9 +118,9 @@ describe('fetchMatchAudit', () => {
   });
 
   it('bevarer øvrige links, når ét links historikopslag fejler', async () => {
-    relationRows = [
-      { id: 91, subjekt_id: 3, objekt_id: 8, rolle: 'samme_som', subjekt_type: 'person', objekt_type: 'person' },
-      { id: 93, subjekt_id: 5, objekt_id: 9, rolle: 'samme_som', subjekt_type: 'person', objekt_type: 'person' },
+    const sammeSom = [
+      { relationId: '91', aId: '3', bId: '8' },
+      { relationId: '93', aId: '5', bId: '9' },
     ];
     rpcByPersonId = {
       8: { data: null, error: { message: 'Midlertidig fejl' } },
@@ -131,7 +130,7 @@ describe('fetchMatchAudit', () => {
       }], error: null },
     };
 
-    await expect(fetchMatchAudit()).resolves.toEqual([
+    await expect(fetchMatchAudit(sammeSom, [])).resolves.toEqual([
       {
         relationId: '91', aId: '3', bId: '8',
         beslutning: 'samme_som',
@@ -147,9 +146,9 @@ describe('fetchMatchAudit', () => {
   });
 
   it('matcher hver alias audit, når flere links deler samme kanoniske person', async () => {
-    relationRows = [
-      { id: 91, subjekt_id: 3, objekt_id: 8, rolle: 'samme_som', subjekt_type: 'person', objekt_type: 'person' },
-      { id: 92, subjekt_id: 5, objekt_id: 8, rolle: 'samme_som', subjekt_type: 'person', objekt_type: 'person' },
+    const sammeSom = [
+      { relationId: '91', aId: '3', bId: '8' },
+      { relationId: '92', aId: '5', bId: '8' },
     ];
     rpcByPersonId = {
       8: { data: [
@@ -164,7 +163,7 @@ describe('fetchMatchAudit', () => {
       ], error: null },
     };
 
-    await expect(fetchMatchAudit()).resolves.toEqual([
+    await expect(fetchMatchAudit(sammeSom, [])).resolves.toEqual([
       {
         relationId: '91', aId: '3', bId: '8',
         beslutning: 'samme_som',
@@ -181,9 +180,7 @@ describe('fetchMatchAudit', () => {
   });
 
   it('henter audit for ikke_samme_som via det normaliserede lave person-id', async () => {
-    relationRows = [
-      { id: 92, subjekt_id: 4, objekt_id: 9, rolle: 'ikke_samme_som', subjekt_type: 'person', objekt_type: 'person' },
-    ];
+    const ikkeSammeSom = [{ relationId: '92', aId: '4', bId: '9' }];
     rpcByPersonId = {
       4: { data: [
         {
@@ -193,7 +190,7 @@ describe('fetchMatchAudit', () => {
       ], error: null },
     };
 
-    await expect(fetchMatchAudit()).resolves.toEqual([{
+    await expect(fetchMatchAudit([], ikkeSammeSom)).resolves.toEqual([{
       relationId: '92', aId: '4', bId: '9', beslutning: 'ikke_samme_som',
       actorNavn: 'Johan', actorRolle: 'redaktion',
       createdAt: '2026-07-20T15:00:00Z', operation: 'red_ikke_samme_som',

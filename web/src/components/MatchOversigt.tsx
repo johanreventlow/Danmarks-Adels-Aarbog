@@ -1,10 +1,9 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   buildMatchFrame, defaultCfg, jaroWinkler, overlapEvidence, scorePair,
   type ParentChild, type RedMatchPerson,
 } from '@daa/core';
 import {
-  fetchKandidatDetalje,
   type KandidatDetalje, type MatchAuditPost, type SourceRow,
 } from '../data/redaktionRead';
 import { KandidatSammenligning } from './KandidatSammenligning';
@@ -27,7 +26,10 @@ export function foraeldreNavne(
   const parentIds = [...new Set(
     parentChild.filter((edge) => edge.child === personId).map((edge) => edge.parent),
   )];
-  const navne = parentIds.map((id) => byId.get(id)?.navn).filter((navn): navn is string => Boolean(navn));
+  const navne = parentIds.map((id) => {
+    const parent = byId.get(id);
+    return parent?.fuldtNavn ?? parent?.navn;
+  }).filter((navn): navn is string => Boolean(navn));
   return navne.length ? `f. af ${navne.join(' & ')}` : '';
 }
 
@@ -56,7 +58,9 @@ export type MatchOversigtProps = {
   personer: RedMatchPerson[];
   sources: SourceRow[];
   karantaeneByPersonId: ReadonlyMap<string, string>;
+  detaljeCache: ReadonlyMap<string, KandidatDetalje>;
   busy: boolean;
+  hentKandidatDetalje: (personId: string) => Promise<KandidatDetalje>;
   onFortryd: (relationId: string, aId: string) => void;
 };
 
@@ -72,18 +76,16 @@ function auditTid(createdAt: string | null): string {
 }
 
 export function MatchOversigt({
-  audit, personer, sources, karantaeneByPersonId, busy, onFortryd,
+  audit, personer, sources, karantaeneByPersonId, detaljeCache, busy,
+  hentKandidatDetalje, onFortryd,
 }: MatchOversigtProps) {
   const [soegning, setSoegning] = useState('');
   const [kildeId, setKildeId] = useState('');
   const [linjeGren, setLinjeGren] = useState('');
   const [kunIkkeFoldende, setKunIkkeFoldende] = useState(false);
   const [aabentRelationId, setAabentRelationId] = useState<string | null>(null);
-  const [detaljer, setDetaljer] = useState<Map<string, KandidatDetalje>>(() => new Map());
   const [detaljeLoading, setDetaljeLoading] = useState<Set<string>>(() => new Set());
   const [detaljeFejl, setDetaljeFejl] = useState<Map<string, string>>(() => new Map());
-  const detaljeRef = useRef(new Map<string, KandidatDetalje>());
-  const pendingRef = useRef(new Map<string, Promise<KandidatDetalje>>());
 
   const byId = useMemo(() => new Map(personer.map((person) => [String(person.id), person])), [personer]);
   const navnById = useMemo(
@@ -96,32 +98,20 @@ export function MatchOversigt({
   ))].sort((a, b) => a.localeCompare(b, 'da')), [personer]);
 
   const hentDetalje = (personId: string): Promise<KandidatDetalje> => {
-    const cached = detaljeRef.current.get(personId);
-    if (cached) return Promise.resolve(cached);
-    const pending = pendingRef.current.get(personId);
-    if (pending) return pending;
     setDetaljeLoading((prev) => new Set(prev).add(personId));
     setDetaljeFejl((prev) => {
       const next = new Map(prev); next.delete(personId); return next;
     });
-    const promise = fetchKandidatDetalje(personId)
-      .then((detalje) => {
-        detaljeRef.current.set(personId, detalje);
-        setDetaljer(new Map(detaljeRef.current));
-        return detalje;
-      })
+    return hentKandidatDetalje(personId)
       .catch((error) => {
         setDetaljeFejl((prev) => new Map(prev).set(personId, String(error?.message ?? error)));
         throw error;
       })
       .finally(() => {
-        pendingRef.current.delete(personId);
         setDetaljeLoading((prev) => {
           const next = new Set(prev); next.delete(personId); return next;
         });
       });
-    pendingRef.current.set(personId, promise);
-    return promise;
   };
 
   const toggleSammenligning = (post: MatchAuditPost) => {
@@ -187,8 +177,8 @@ export function MatchOversigt({
             : null;
           const score = a && b ? rekomputerMatchScore(a, b) : null;
           const erAabent = aabentRelationId === post.relationId;
-          const detaljeA = detaljer.get(post.aId);
-          const detaljeB = detaljer.get(post.bId);
+          const detaljeA = detaljeCache.get(post.aId);
+          const detaljeB = detaljeCache.get(post.bId);
           const detaljeError = detaljeFejl.get(post.aId) ?? detaljeFejl.get(post.bId) ?? null;
           const indlaeser = detaljeLoading.has(post.aId) || detaljeLoading.has(post.bId);
           const actor = [post.actorNavn ?? 'Ukendt redaktør', post.actorRolle].filter(Boolean).join(' · ');

@@ -71,9 +71,12 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
     setLoading(true); setFejl(null);
     Promise.all([
       fetchSources(), fetchMatchPersoner(), fetchIkkeSammeSomPar(), fetchSammeSomPar(),
-      fetchFamilyGraph(), fetchMatchAudit(),
+      fetchFamilyGraph(),
     ])
-      .then(([s, p, afv, lnk, fam, audit]) => {
+      .then(async ([s, p, afv, lnk, fam]) => ({
+        s, p, afv, lnk, fam, audit: await fetchMatchAudit(lnk, afv),
+      }))
+      .then(({ s, p, afv, lnk, fam, audit }) => {
         if (!alive) return;
         setSources(s); setPersoner(p); setAfviste(afv); setLinkede(lnk); setFamilieGraf(fam); setMatchAudit(audit);
         setNyKildeId((prev) => prev ?? (
@@ -334,7 +337,9 @@ export function SammenlignUdgaver({ role }: { role?: string }) {
         personer={personer}
         sources={sources}
         karantaeneByPersonId={karantaeneByPersonId}
+        detaljeCache={detaljeCache}
         busy={!!busy}
+        hentKandidatDetalje={hentKandidatDetalje}
         onFortryd={fortrydSammeSom}
       />
 

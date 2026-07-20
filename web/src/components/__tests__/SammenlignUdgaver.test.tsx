@@ -36,8 +36,8 @@ describe('SammenlignUdgaver kandidat-overblik', () => {
   test('udleder unikke forældre-navne fra den allerede hentede parentChild-graf', () => {
     const byId = new Map([
       ['1', person()],
-      ['2', person({ id: '2', navn: 'Christian Ditlev Reventlow' })],
-      ['3', person({ id: '3', navn: 'Anna Sophie Schack' })],
+      ['2', person({ id: '2', navn: 'christian d. r.', fuldtNavn: 'Christian Ditlev Reventlow' })],
+      ['3', person({ id: '3', navn: 'anna s.', fuldtNavn: 'Anna Sophie Schack' })],
     ]);
     const parentChild: ParentChild[] = [
       { child: '1', parent: '2', union: 'f10' },

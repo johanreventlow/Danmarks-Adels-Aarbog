@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useState } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { RedMatchPerson } from '@daa/core';
@@ -53,17 +54,29 @@ const tomDetalje: KandidatDetalje = {
   familie: { somPartner: [], somBarn: [] }, relationer: [],
 };
 
-function renderOversigt(onFortryd = vi.fn()) {
-  return {
-    onFortryd,
-    ...render(<MatchOversigt
+function MatchOversigtHarness({ onFortryd }: { onFortryd: ReturnType<typeof vi.fn> }) {
+  const [detaljeCache, setDetaljeCache] = useState<Map<string, KandidatDetalje>>(() => new Map());
+  const hentKandidatDetalje = (personId: string) => mocks.fetchKandidatDetalje(personId)
+    .then((detalje: KandidatDetalje) => {
+      setDetaljeCache((prev) => new Map(prev).set(personId, detalje));
+      return detalje;
+    });
+  return <MatchOversigt
       audit={audit}
       personer={personer}
       sources={sources}
       karantaeneByPersonId={new Map([['1', 'konkurrerende forældre (1 vs. 2)']])}
+      detaljeCache={detaljeCache}
       busy={false}
+      hentKandidatDetalje={hentKandidatDetalje}
       onFortryd={onFortryd}
-    />),
+    />;
+}
+
+function renderOversigt(onFortryd = vi.fn()) {
+  return {
+    onFortryd,
+    ...render(<MatchOversigtHarness onFortryd={onFortryd} />),
   };
 }
 
@@ -115,17 +128,12 @@ describe('MatchOversigt', () => {
     expect(screen.queryByTestId('audit-post-92')).toBeNull();
   });
 
-  test('henter kandidatdetaljer lazy og genbruger KandidatSammenligning ved genåbning', async () => {
+  test('henter kandidatdetaljer lazy gennem parentens cachefunktion', async () => {
     renderOversigt();
     expect(mocks.fetchKandidatDetalje).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Se sammenligning' })[0]);
     await waitFor(() => expect(mocks.fetchKandidatDetalje).toHaveBeenCalledTimes(2));
     expect(await screen.findByRole('columnheader', { name: /1939/ })).toBeTruthy();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Luk sammenligning' }));
-    fireEvent.click(screen.getAllByRole('button', { name: 'Se sammenligning' })[0]);
-    await screen.findByRole('columnheader', { name: /1939/ });
-    expect(mocks.fetchKandidatDetalje).toHaveBeenCalledTimes(2);
   });
 });
