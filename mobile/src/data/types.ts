@@ -102,6 +102,10 @@ export type RawMedia = {
   upload_status?: string | null;
   maa_publiceres?: boolean | null;
   rettigheder_status?: string | null;
+  byte_size?: number | null;
+  bredde?: number | null;
+  hoejde?: number | null;
+  created_at?: string | null;
   [k: string]: unknown;
 };
 export type RawArms = { id: number | string; blasonering: string | null; note: string | null };

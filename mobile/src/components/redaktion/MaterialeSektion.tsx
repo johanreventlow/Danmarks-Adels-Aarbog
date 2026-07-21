@@ -22,10 +22,20 @@ export function MaterialeSektion({ objektType, objektId, onMediaChange }: {
   const [uploadSheetOpen, setUploadSheetOpen] = useState(false);
   const [pending, setPending] = useState<Change | null>(null);
   const router = useRouter();
-  const refreshMedia = () => {
-    fetchObjectMediaRed(objektType, objektId).then((m) => { setMedia(m); onMediaChange?.(m); }).catch(() => {});
+  const refreshMedia = async () => {
+    const m = await fetchObjectMediaRed(objektType, objektId);
+    setMedia(m);
+    onMediaChange?.(m);
   };
-  useEffect(refreshMedia, [objektType, objektId]);
+  useEffect(() => {
+    let aktiv = true;
+    fetchObjectMediaRed(objektType, objektId).then((m) => {
+      if (!aktiv) return;
+      setMedia(m);
+      onMediaChange?.(m);
+    }).catch(() => {});
+    return () => { aktiv = false; };
+  }, [objektType, objektId, onMediaChange]);
   const { uris: mediaUris, thumbUris: mediaThumbUris } = useMediaAndThumbUris(
     media.map((m) => ({ id: m.id, storage_path: m.storagePath, thumb_storage_path: m.thumbStoragePath })),
     (m) => m.thumb_storage_path,
@@ -57,7 +67,11 @@ export function MaterialeSektion({ objektType, objektId, onMediaChange }: {
       onSlet={() => change({ art: 'fjernMedia', subjektType: objektType, subjektId: objektId, mediaId: valgt.id })}
       onGenopret={() => change({ art: 'genopretMedia', subjektType: objektType, subjektId: objektId, mediaId: valgt.id })} /> : null}
     {uploadSheetOpen ? <MediaUploadSheet target={{ objektType, objektId }} onClose={() => setUploadSheetOpen(false)}
+      onApplied={refreshMedia}
       onGem={(payload) => { setPending({ art: 'uploadMedia', subjektType: objektType, subjektId: objektId, payload }); setUploadSheetOpen(false); }} /> : null}
-    <SkrivePreviewSheet change={pending} onClose={() => setPending(null)} onApplied={() => { setPending(null); refreshMedia(); }} />
+    <SkrivePreviewSheet change={pending} onClose={() => setPending(null)} onApplied={() => {
+      setPending(null);
+      void refreshMedia().catch(() => {});
+    }} />
   </>;
 }

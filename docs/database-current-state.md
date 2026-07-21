@@ -99,19 +99,12 @@ prod-deploy.
 
 - `change_set`/`change_event`, `log_change`, `red_fortryd_change_set` og 22
   registry-styrede versioneringstriggere er live.
-- `parse_mentions`, `text_mention` og døde-links-viewet er live. Media-grenen i den
-  nye fase 2-version af `red_doede_links` er **ikke** deployet endnu.
+- `parse_mentions`, `text_mention` og døde-links-viewet er live. Media-grenen i
+  `red_doede_links` er live som del af mediehåndtering fase 2.
 - Konto-bogmærker er live med owner-bundet RLS.
 
-### Medier — Slice 0 live
-
-- `media`, `media_variant`, privat Storage-bucket, afbildet-/rettighedsgating,
-  upload/bekræft, variantregistrering, blødt fjern og Storage-politikker er live.
-- Prod har seks media-rækker; fire er blødt fjernet og kan ikke ses offentligt.
-- `red_opdater_media` og `red_genopret_media` findes **ikke** i prod. Fase 1-filsiden
-  og fase 2-biblioteket er kodeklare, men deres SQL/RLS/app-deploy er fortsat gated.
-
 ### Mediehåndtering fase 0-2 (live, senest bekræftet 2026-07-20)
+
 - **Slice 0** (bucket, gating, upload-RPC'er) live siden 2026-07-05. **Fase 1** (filside:
   `red_opdater_media`, `red_genopret_media`, kunstner/datering i `red_upload_media`) og
   **fase 2** (bibliotek: `red_doede_links` udvidet med `maal_type='media'`, `text_mention`
@@ -143,7 +136,8 @@ prod-deploy.
 | **Vocab-håndhævelse** | `vocab`-tabel findes, men `rolle`/`faktatype`/`konfidens` m.fl. er fritekst (ingen FK til vocab). Håndhæves i dag kun konventionelt. |
 | **Polymorf døde-link-integritetsrapport** | Kun `text_mention` har et døde-links-view. Bredere orphan-check (fact/relation/assertion → subjekt) findes ikke systematisk endnu. |
 | Levende feed fase 4 | LLM-assist/Edge Function — bevidst udskudt 2026-07-20 (for få kilder i PoC til at retfærdiggøre kørslen endnu), ikke annulleret. Se `decisions.md`. |
-| Mediehåndtering fase 3–5 | Hygiejne/dedup-spec+plan skrevet (2026-07-20, ikke implementeret); identitet/udrensning og dokumenttransskription er ikke designet endnu |
+| **Mediehåndtering fase 3 — hygiejne** | Implementeret og verificeret lokalt, men **ikke live i prod**. Det aktuelle `schema.sql` har NULL-bar `media.created_at DEFAULT now()`, det partielle firekolonne-index `relation_afbildet_uidx` for `rolle='afbildet'`, constraint-specifik domænefejl i `red_relation` samt relationsspecifikke evidenstriggere og den atomiske flet-RPC `red_slet_medierelation_uden_evidens`; den scoped blok `mediehaandtering_fase3_hygiejne` i `db-migrations.sql` bringer en fase 1+2-base til samme flade. Web/mobil bruger sha-stier; janitoren er report-first. `db-rls.sql` er uændret af fase 3, og gamle storage-stier migreres ikke. Deploy følger den separate fase 3-runbook. |
+| Mediehåndtering fase 4–5 | Identitet/udrensning og dokumenttransskription er ikke designet endnu. |
 | 1939-publicering | Pauset indtil nyt OCR-udtræk, nyt artefakt og fornyet komplethedsgate (uddybet i §3) |
 | Import-sikkerhed | Stabil import-run/checksum/udgavenøgle og source-scoped replace mangler; `--reset` er fortsat en farlig nødvej |
 | Skalering | Klienterne materialiserer hele grafen; bounded server-slices/keyset-pagination mangler |

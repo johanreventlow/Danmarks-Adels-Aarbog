@@ -67,14 +67,14 @@ export async function signPaths(paths: string[]): Promise<Map<string, string>> {
 // Slice C — narrativ-indlejrede billeder) — én forespørgselsform, parametriseret på tier, i stedet
 // for at hver tier får sin egen kopi (/simplify-fund, Slice B3, udvidet her til at dække tier som
 // parameter fremfor kun 'thumb').
-async function fetchVariantPathByMediaId(mediaIds: number[], tier: 'thumb' | 'medium'): Promise<Map<string, string>> {
+async function fetchVariantPathByMediaId(mediaIds: Array<number | string>, tier: 'thumb' | 'medium'): Promise<Map<string, string>> {
   if (!mediaIds.length) return new Map();
-  const variants = await getAll<{ media_id: number; storage_path: string }>(() =>
+  const variants = await getAll<{ media_id: number | string; storage_path: string }>(() =>
     supabase.from('media_variant').select('media_id,storage_path').eq('tier', tier).in('media_id', mediaIds));
   return new Map(variants.map((v) => [String(v.media_id), v.storage_path]));
 }
 
-export function fetchThumbPathByMediaId(mediaIds: number[]): Promise<Map<string, string>> {
+export function fetchThumbPathByMediaId(mediaIds: Array<number | string>): Promise<Map<string, string>> {
   return fetchVariantPathByMediaId(mediaIds, 'thumb');
 }
 

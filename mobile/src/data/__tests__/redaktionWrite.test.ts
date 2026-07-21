@@ -264,7 +264,7 @@ describe('buildRpcCall — uploadMedia (mediehåndtering Slice 0g)', () => {
     expect(buildRpcCall(c)).toEqual({ fn: 'red_upload_media', args: {
       p_slags: 'foto', p_titel: 'Portræt', p_storage_path: 'redaktor/x.jpg', p_mime: 'image/jpeg',
       p_kunstner: null, p_datering: null, p_byte_size: 1234, p_bredde: 100, p_hoejde: 120, p_original_filnavn: 'x.jpg',
-      p_rettigheder_status: 'ukendt', p_maa_publiceres: true, p_afbildet_person_id: 42 } });
+      p_rettigheder_status: 'ukendt', p_maa_publiceres: true, p_sha256: null, p_afbildet_person_id: 42 } });
   });
   it('objekt-foto (objektType/objektId) → red_upload_media med p_objekt_type/p_objekt_id, ingen p_afbildet_person_id', () => {
     const c = { art: 'uploadMedia', subjektType: 'estate', subjektId: '7',
@@ -280,6 +280,15 @@ describe('buildRpcCall — uploadMedia (mediehåndtering Slice 0g)', () => {
     expect(buildRpcCall({ art: 'uploadMedia', subjektType: 'person', subjektId: '42',
       payload: { afbildetPersonId: '42', slags: 'foto', titel: '',
         storagePath: 'redaktor/x.jpg', mimeType: 'image/jpeg' } } as const)).toBeNull();
+  });
+
+  it('sender sha256 til red_upload_media og bruger null for gamle payloads', () => {
+    const base = { art: 'uploadMedia', subjektType: 'person', subjektId: '42',
+      payload: { afbildetPersonId: '42', slags: 'foto', titel: 'Portræt',
+        storagePath: 'redaktor/ab/abc-large.jpg', mimeType: 'image/jpeg' } } as const;
+    expect(buildRpcCall({ ...base, payload: { ...base.payload, sha256: 'abc123' } })?.args.p_sha256)
+      .toBe('abc123');
+    expect(buildRpcCall(base)?.args.p_sha256).toBeNull();
   });
 });
 
@@ -316,6 +325,13 @@ test('fortryd uden changeSetId → null', () => {
 
 test('oversaetFejl: allerede fortrudt → dansk (review10 H2, defensiv fallback)', () => {
   expect(oversaetFejl('FEJL: change_set 12 er allerede fortrudt')).toBe('Denne ændring er allerede fortrudt.');
+});
+
+test('oversaetFejl: mediededup bruger web-kontraktens præcise tekster før generisk unique', () => {
+  expect(oversaetFejl('medie med samme indhold findes allerede (sha256=abc, media_id=91)'))
+    .toBe("Billedet findes allerede i biblioteket — brug 'Tilknyt eksisterende' i stedet.");
+  expect(oversaetFejl('Mediet er allerede tilknyttet dette subjekt'))
+    .toBe('Mediet er allerede tilknyttet dette subjekt.');
 });
 
 test('erFortrydKonflikt: matcher en statisk kopi af DB-RAISE-teksten (red_fortryd_change_set B9)', () => {

@@ -12,7 +12,7 @@
 --  Forudsætning: db-migrations.sql + db-rls.sql kørt, og (til Task 12b) en
 --  privat 'media'-bucket oprettet. Alle blokke seeder negative-id testrækker
 --  og rydder selv op i én transaktion.
---  Forvent 5 NOTICE'er: 'OK: media-gating', 'OK: media rettigheds-gating',
+--  Forvent 6 NOTICE'er: 'OK: media-gating', 'OK: media rettigheds-gating',
 --  'OK: storage.objects-politikker' (12b springes over hvis bucket mangler), 'OK: media_variant ...'.
 -- =====================================================================
 
@@ -57,6 +57,202 @@ BEGIN
   DELETE FROM relation WHERE id IN (-901,-902);
   DELETE FROM media    WHERE id IN (-901,-902,-903);
   DELETE FROM person   WHERE id IN (-901,-902);
+END $$;
+
+-- ===== Task 15: fase 3 upload-alder + unik afbildet-tilknytning =====
+-- Direkte seed-DML: created_at skal default-udfyldes, men forblive NULL-bar for
+-- præ-fase-3-rækker. Kun identiske afbildet-relationer er dubletter; ejer-relationer
+-- må fortsat kunne gentages.
+DO $$
+BEGIN
+  DELETE FROM relation WHERE id IN (-951,-952,-953,-954);
+  DELETE FROM media WHERE id=-951;
+
+  IF (SELECT is_nullable
+      FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='media' AND column_name='created_at')
+     IS DISTINCT FROM 'YES' THEN
+    RAISE EXCEPTION 'media.created_at skal være NULL-bar';
+  END IF;
+
+  INSERT INTO media(id,slags,titel) VALUES (-951,'foto','fase-3-created-at-test');
+  IF (SELECT created_at FROM media WHERE id=-951) IS NULL THEN
+    RAISE EXCEPTION 'media.created_at-default blev ikke udfyldt';
+  END IF;
+
+  INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES (-951,'person',-951,'media',-951,'afbildet');
+  BEGIN
+    INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+      VALUES (-952,'person',-951,'media',-951,'afbildet');
+    RAISE EXCEPTION 'identisk afbildet-relation blev accepteret';
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+
+  INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES
+    (-953,'person',-951,'media',-951,'ejer'),
+    (-954,'person',-951,'media',-951,'ejer');
+  IF (SELECT count(*) FROM relation WHERE id IN (-953,-954)) <> 2 THEN
+    RAISE EXCEPTION 'partial-indexet afviste identiske ejer-relationer';
+  END IF;
+
+  DELETE FROM relation WHERE id IN (-951,-952,-953,-954);
+  DELETE FROM media WHERE id=-951;
+  RAISE NOTICE 'OK: media created_at-default/NULL-bar + partiel afbildet-unikhed';
+END $$;
+
+-- ===== Task 15b: blød medieflet bevarer relationsevidens atomisk =====
+-- Hele blokken rulles tilbage. Den nye RPC skal afvise evidens, slette en evidensfri
+-- kanonisk medierelation og må ikke ændre red_slet_relation's eksisterende semantik.
+DO $$
+DECLARE
+  v_uid uuid := '00000000-0000-0000-0000-000000000961';
+BEGIN
+  INSERT INTO auth.users(id,email) VALUES (v_uid,'media-merge-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES (v_uid,'redaktion','media-merge-verify@test.invalid')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('request.jwt.claim.sub',v_uid::text,true);
+  PERFORM set_config('app.change_set_id','',true);
+
+  INSERT INTO person(id,levende,privat) VALUES (-961,false,false);
+  INSERT INTO media(id,slags,titel,upload_status) VALUES
+    (-961,'foto','flet-evidens','fjernet'),
+    (-962,'foto','flet-uden-evidens','fjernet'),
+    (-963,'foto','almindelig-slet','fjernet'),
+    (-964,'foto','evidensfri-id-update','fjernet');
+  INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES
+    (-961,'person',-961,'media',-961,'afbildet'),
+    (-962,'person',-961,'media',-962,'afbildet'),
+    (-963,'person',-961,'media',-963,'afbildet'),
+    (-964,'person',-961,'media',-964,'afbildet');
+  INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst) VALUES
+    (-961,'relation',-961,'bevar mig'), (-963,'relation',-963,'slet mig som hidtil');
+  INSERT INTO citation(id,assertion_id,citat_tekst) VALUES
+    (-961,-961,'bevar citation'), (-963,-963,'slet citation');
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status) VALUES
+    (-961,'relation',-961,-961,'afklaret'), (-963,'relation',-963,-963,'afklaret');
+  INSERT INTO note(id,target_type,target_id,indhold) VALUES
+    (-961,'relation',-961,'bevar note'), (-963,'relation',-963,'slet note');
+
+  BEGIN
+    PERFORM red_slet_medierelation_uden_evidens(-961);
+    RAISE EXCEPTION 'evidensbærende medierelation blev slettet';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE '%har evidens%' THEN RAISE; END IF;
+  END;
+  IF NOT EXISTS (SELECT 1 FROM relation WHERE id=-961)
+     OR NOT EXISTS (SELECT 1 FROM assertion WHERE id=-961)
+     OR NOT EXISTS (SELECT 1 FROM citation WHERE id=-961)
+     OR NOT EXISTS (SELECT 1 FROM conclusion WHERE id=-961)
+     OR NOT EXISTS (SELECT 1 FROM note WHERE id=-961) THEN
+    RAISE EXCEPTION 'atomisk medieflet mistede relation eller evidens';
+  END IF;
+
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_slet_medierelation_uden_evidens(-962);
+  IF EXISTS (SELECT 1 FROM relation WHERE id=-962) THEN
+    RAISE EXCEPTION 'evidensfri medierelation blev ikke slettet';
+  END IF;
+
+  -- Invarianten skal gælde på ALLE DML-veje, ikke kun i soft-unlink-RPC'en:
+  -- ny/ompeget polymorf evidens må aldrig kunne lande på en slettet relation.
+  BEGIN
+    INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst)
+      VALUES (-962,'relation',-962,'må ikke blive orphan');
+    RAISE EXCEPTION 'assertion accepterede en manglende relation';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Relations-evidens kræver eksisterende relation %' THEN RAISE; END IF;
+  END;
+  BEGIN
+    INSERT INTO conclusion(id,target_type,target_id,status)
+      VALUES (-962,'relation',-962,'afklaret');
+    RAISE EXCEPTION 'conclusion accepterede en manglende relation';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Relations-evidens kræver eksisterende relation %' THEN RAISE; END IF;
+  END;
+  BEGIN
+    INSERT INTO note(id,target_type,target_id,indhold)
+      VALUES (-962,'relation',-962,'må ikke blive orphan');
+    RAISE EXCEPTION 'note accepterede en manglende relation';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Relations-evidens kræver eksisterende relation %' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE assertion SET target_id=-962 WHERE id=-961;
+    RAISE EXCEPTION 'assertion kunne ompeges til en manglende relation';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Relations-evidens kræver eksisterende relation %' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE conclusion SET target_id=-962 WHERE id=-961;
+    RAISE EXCEPTION 'conclusion kunne ompeges til en manglende relation';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Relations-evidens kræver eksisterende relation %' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE note SET target_id=-962 WHERE id=-961;
+    RAISE EXCEPTION 'note kunne ompeges til en manglende relation';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Relations-evidens kræver eksisterende relation %' THEN RAISE; END IF;
+  END;
+
+  -- Direkte relation-DELETE må heller ikke omgå polymorf evidens. Den ordinære
+  -- RPC nedenfor skal fortsat lykkes, fordi helperen sletter evidensen først.
+  BEGIN
+    DELETE FROM relation WHERE id=-961;
+    RAISE EXCEPTION 'direkte relation-DELETE forældreløste evidens';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Relation % har evidens og kan ikke slettes direkte' THEN RAISE; END IF;
+  END;
+
+  -- En relation-PK er del af den polymorfe reference. Evidensbærende id-update
+  -- skal derfor fail-loud; evidensfri id-update forbliver tilladt til import/undo.
+  BEGIN
+    UPDATE relation SET id=-971 WHERE id=-961;
+    RAISE EXCEPTION 'relation-id kunne ompeges væk fra sin evidens';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Relation % har evidens og id kan ikke ændres' THEN RAISE; END IF;
+  END;
+  IF NOT EXISTS (SELECT 1 FROM relation WHERE id=-961)
+     OR NOT EXISTS (SELECT 1 FROM assertion WHERE target_type='relation' AND target_id=-961) THEN
+    RAISE EXCEPTION 'afvist relation-id-update bevarede ikke relation/evidens';
+  END IF;
+
+  -- Undo-upsertens generiske SET-liste indeholder PK'en, selv når værdien er
+  -- uændret. Den vej må fortsat kunne opdatere øvrige felter på evidensrelationen.
+  UPDATE relation SET id=id, konfidens='sikker' WHERE id=-961;
+  IF (SELECT konfidens FROM relation WHERE id=-961) IS DISTINCT FROM 'sikker' THEN
+    RAISE EXCEPTION 'no-op relation-id blokerede undo-kompatibel feltopdatering';
+  END IF;
+
+  UPDATE relation SET id=-972 WHERE id=-964;
+  IF EXISTS (SELECT 1 FROM relation WHERE id=-964)
+     OR NOT EXISTS (SELECT 1 FROM relation WHERE id=-972) THEN
+    RAISE EXCEPTION 'evidensfri relation-id-update blev ikke bevaret som tilladt';
+  END IF;
+
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_slet_relation(-963);
+  IF EXISTS (SELECT 1 FROM relation WHERE id=-963)
+     OR EXISTS (SELECT 1 FROM assertion WHERE id=-963)
+     OR EXISTS (SELECT 1 FROM citation WHERE id=-963)
+     OR EXISTS (SELECT 1 FROM conclusion WHERE id=-963)
+     OR EXISTS (SELECT 1 FROM note WHERE id=-963) THEN
+    RAISE EXCEPTION 'red_slet_relation bevarede ikke sin eksisterende evidenssletning';
+  END IF;
+
+  IF has_function_privilege('anon','public.red_slet_medierelation_uden_evidens(bigint)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_slet_medierelation_uden_evidens(bigint)','EXECUTE') THEN
+    RAISE EXCEPTION 'forkerte EXECUTE-privilegier på medieflet-RPC';
+  END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN
+    RAISE NOTICE 'OK: atomisk medieflet bevarer evidens; almindelig relationsslet er uændret (rullet tilbage)';
+  ELSE
+    RAISE;
+  END IF;
 END $$;
 
 

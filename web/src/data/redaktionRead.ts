@@ -727,13 +727,14 @@ export type PersonMedia = {
   id: string; relationId: string; slags: string; titel: string | null; storagePath: string | null;
   kunstner: string | null; datering: string | null; rettighederStatus: string;
   mimeType: string | null; byteSize: number | null; bredde: number | null; hoejde: number | null;
-  originalFilnavn: string | null; uploadStatus: string; maaPubliceres: boolean;
+  originalFilnavn: string | null; uploadStatus: string; maaPubliceres: boolean; createdAt: string | null;
   url: string | null; thumbUrl: string | null;
 };
-type RawPersonMediaRow = { id: number; slags: string | null; titel: string | null; kunstner: string | null;
+type RawPersonMediaRow = { id: number | string; slags: string | null; titel: string | null; kunstner: string | null;
   datering: string | null; storage_path: string | null; upload_status: string | null;
   maa_publiceres: boolean | null; rettigheder_status: string | null; mime_type: string | null;
-  byte_size: number | null; bredde: number | null; hoejde: number | null; original_filnavn: string | null };
+  byte_size: number | null; bredde: number | null; hoejde: number | null; original_filnavn: string | null;
+  created_at?: string | null };
 
 // signed/relByMediaId/thumbPathByMediaId er valgfri (default tomme Maps) så testen kan kalde ren,
 // netværksfri — kun fetch-funktionerne nedenfor sender reelt udfyldte Maps (signeret ét sted,
@@ -765,6 +766,7 @@ export function mapPersonMediaRows(
         originalFilnavn: m.original_filnavn,
         uploadStatus: m.upload_status ?? 'kladde',
         maaPubliceres: Boolean(m.maa_publiceres),
+        createdAt: m.created_at ?? null,
         url,
         thumbUrl: (thumbPath ? signed.get(thumbPath) : null) ?? url,
       };
@@ -779,7 +781,7 @@ async function mediaFromRelPairs(pairs: { mediaId: number; relationId: number }[
   const mediaIds = pairs.map((p) => p.mediaId);
   const [rows, thumbPathByMediaId] = await Promise.all([
     getAll<RawPersonMediaRow>(() =>
-      supabase.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn').in('id', mediaIds)),
+      supabase.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn,created_at').in('id', mediaIds)),
     fetchThumbPathByMediaId(mediaIds),
   ]);
   const signed = await signPaths([
@@ -810,12 +812,68 @@ export async function fetchRedObjectMedia(objektType: string, objektId: string):
 
 // --- Tværgående mediebibliotek + "bruges på" (mediehåndtering fase 2) ---
 
-export type MedieKoe = 'rettigheder' | 'loese' | 'strandede' | 'papirkurv';
+export type MedieKoe = 'rettigheder' | 'loese' | 'strandede' | 'papirkurv' | 'dubletter';
+
+const TIME = 60 * 60 * 1000;
+const DAG = 24 * TIME;
+const UGE = 7 * DAG;
+const MAANED = 30 * DAG;
+
+export function formatMedieAlder(createdAt: string | null, nu: Date = new Date()): string {
+  if (!createdAt) return 'ukendt alder';
+  const oprettet = Date.parse(createdAt);
+  const nuTid = nu.getTime();
+  if (!Number.isFinite(oprettet) || !Number.isFinite(nuTid) || oprettet > nuTid) return 'ukendt alder';
+  const alder = nuTid - oprettet;
+  if (alder < TIME) return 'under 1 time — muligvis i gang';
+  if (alder < DAG) {
+    const timer = Math.floor(alder / TIME);
+    return `${timer} ${timer === 1 ? 'time' : 'timer'}`;
+  }
+  if (alder < UGE) {
+    const dage = Math.floor(alder / DAG);
+    return `${dage} ${dage === 1 ? 'dag' : 'dage'}`;
+  }
+  if (alder < MAANED) {
+    const uger = Math.floor(alder / UGE);
+    return `${uger} ${uger === 1 ? 'uge' : 'uger'}`;
+  }
+  const maaneder = Math.floor(alder / MAANED);
+  return `${maaneder} ${maaneder === 1 ? 'måned' : 'måneder'}`;
+}
+
+export type MedieDubletGrundlag = {
+  id: number | string;
+  upload_status?: string | null;
+  byte_size?: number | null;
+  bredde?: number | null;
+  hoejde?: number | null;
+};
+
+export function findMedieDubletKandidatIds(mediaRows: MedieDubletGrundlag[]): ReadonlySet<string> {
+  const idsByNoegle = new Map<string, Set<string>>();
+  for (const media of mediaRows) {
+    if (media.upload_status !== 'klar'
+      || media.byte_size == null || media.bredde == null || media.hoejde == null) continue;
+    // Fase 3 bruger empirisk den planlagte 3-feltsnøgle. mime_type medtages ikke: testen
+    // bevarer et signal på tværs af containerformat, mens køen fortsat kun er en mistanke.
+    const noegle = JSON.stringify([media.byte_size, media.bredde, media.hoejde]);
+    const ids = idsByNoegle.get(noegle) ?? new Set<string>();
+    ids.add(String(media.id));
+    idsByNoegle.set(noegle, ids);
+  }
+  const kandidater = new Set<string>();
+  for (const ids of idsByNoegle.values()) {
+    if (ids.size > 1) ids.forEach((id) => kandidater.add(id));
+  }
+  return kandidater;
+}
 
 export function klassificerMedie(
   m: { uploadStatus: string; rettighederStatus: string; maaPubliceres: boolean },
   antalAfbildet: number,
   antalMentions: number,
+  harDubletKandidat: boolean,
 ): MedieKoe[] {
   const koeer: MedieKoe[] = [];
   if (m.uploadStatus === 'klar' && (m.rettighederStatus === 'ukendt' || !m.maaPubliceres)) {
@@ -826,6 +884,7 @@ export function klassificerMedie(
   }
   if (m.uploadStatus === 'kladde' || m.uploadStatus === 'fejlet') koeer.push('strandede');
   if (m.uploadStatus === 'fjernet') koeer.push('papirkurv');
+  if (m.uploadStatus === 'klar' && harDubletKandidat) koeer.push('dubletter');
   return koeer;
 }
 
@@ -835,11 +894,22 @@ export type MediaBibliotekPost = Omit<PersonMedia, 'relationId'> & {
   koeer: MedieKoe[];
 };
 
-type RawPersonMediaRelation = { subjekt_id: number; objekt_id: number };
-type RawObjectMediaRelation = { subjekt_id: number; objekt_type: string; objekt_id: number };
-type RawMediaMentionCount = { maal_id: number };
+type RawPersonMediaRelation = { subjekt_id: number | string; objekt_id: number | string };
+type RawObjectMediaRelation = { subjekt_id: number | string; objekt_type: string; objekt_id: number | string };
+type RawMediaMentionCount = { maal_id: number | string };
 
-function countById(rows: number[]): Map<string, number> {
+// Query-specs er eksporterede, så bigint-grænsen kan testes uden netværk. Castet ligger i selve
+// PostgREST SELECT'en og sker dermed før JSON-dekodning; filtre nedenfor bruger fortsat rå kolonner.
+export function mediaBibliotekQuerySpecs() {
+  return {
+    media: { table: 'media', select: 'id::text,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn,created_at' },
+    personRelationer: { table: 'relation', select: 'subjekt_id::text,objekt_id::text' },
+    objektRelationer: { table: 'relation', select: 'subjekt_id::text,objekt_type,objekt_id::text' },
+    mentions: { table: 'text_mention', select: 'maal_id::text' },
+  } as const;
+}
+
+function countById(rows: Array<number | string>): Map<string, number> {
   const out = new Map<string, number>();
   for (const id of rows) {
     const key = String(id);
@@ -857,13 +927,14 @@ export function mapMediaBibliotekRows(
   thumbPathByMediaId: Map<string, string> = new Map(),
 ): MediaBibliotekPost[] {
   const afbildetByMediaId = new Map<string, Set<string>>();
-  const tilfoej = (mediaId: number, target: string) => {
+  const tilfoej = (mediaId: number | string, target: string) => {
     const targets = afbildetByMediaId.get(String(mediaId)) ?? new Set<string>();
     targets.add(target); afbildetByMediaId.set(String(mediaId), targets);
   };
   personRelationer.forEach((r) => tilfoej(r.objekt_id, `person:${r.subjekt_id}`));
   objektRelationer.forEach((r) => tilfoej(r.subjekt_id, `${r.objekt_type}:${r.objekt_id}`));
   const mentionCount = countById(mentions.map((m) => m.maal_id));
+  const dubletKandidatIds = findMedieDubletKandidatIds(mediaRows);
 
   return mapPersonMediaRows(mediaRows, signed, new Map(), thumbPathByMediaId).map(({ relationId: _relationId, ...media }) => {
     const antalAfbildet = afbildetByMediaId.get(media.id)?.size ?? 0;
@@ -872,7 +943,7 @@ export function mapMediaBibliotekRows(
       ...media,
       antalAfbildet,
       antalMentions,
-      koeer: klassificerMedie(media, antalAfbildet, antalMentions),
+      koeer: klassificerMedie(media, antalAfbildet, antalMentions, dubletKandidatIds.has(media.id)),
     };
   });
 }
@@ -880,15 +951,16 @@ export function mapMediaBibliotekRows(
 export async function fetchMediaBibliotek(): Promise<MediaBibliotekPost[]> {
   // Ingen upload_status-filter her: kladder, fejl og fjernede rækker er selve grundlaget for
   // bibliotekets strandede-/papirkurvskøer. RLS afgør fortsat, hvem der må se dem.
+  const specs = mediaBibliotekQuerySpecs();
   const [mediaRows, personRelationer, objektRelationer, mentions] = await Promise.all([
     getAll<RawPersonMediaRow>(() =>
-      supabase.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn')),
+      supabase.from(specs.media.table).select(specs.media.select)),
     getAll<RawPersonMediaRelation>(() =>
-      supabase.from('relation').select('subjekt_id,objekt_id').eq('subjekt_type', 'person').eq('objekt_type', 'media').eq('rolle', 'afbildet')),
+      supabase.from(specs.personRelationer.table).select(specs.personRelationer.select).eq('subjekt_type', 'person').eq('objekt_type', 'media').eq('rolle', 'afbildet')),
     getAll<RawObjectMediaRelation>(() =>
-      supabase.from('relation').select('subjekt_id,objekt_type,objekt_id').eq('subjekt_type', 'media').in('objekt_type', ['estate','coat_of_arms','lineage']).eq('rolle', 'afbildet')),
+      supabase.from(specs.objektRelationer.table).select(specs.objektRelationer.select).eq('subjekt_type', 'media').in('objekt_type', ['estate','coat_of_arms','lineage']).eq('rolle', 'afbildet')),
     getAll<RawMediaMentionCount>(() =>
-      supabase.from('text_mention').select('maal_id').eq('maal_type', 'media')),
+      supabase.from(specs.mentions.table).select(specs.mentions.select).eq('maal_type', 'media')),
   ]);
   const mediaIds = mediaRows.map((m) => m.id);
   const thumbPathByMediaId = await fetchThumbPathByMediaId(mediaIds);
@@ -904,10 +976,19 @@ export type MediaAnvendelse = {
   mentions: { kildeType: string; kildeId: string; subjektNavn: string }[];
 };
 
-type RawMediaPersonAnvendelse = { id: number; subjekt_id: number };
-type RawMediaObjektAnvendelse = { id: number; objekt_type: string; objekt_id: number };
-type RawMediaMention = { kilde_type: string; kilde_id: number };
-type RawNarrativeSubject = { id: number; subjekt_type: string; subjekt_id: number };
+type RawMediaPersonAnvendelse = { id: number | string; subjekt_id: number | string };
+type RawMediaObjektAnvendelse = { id: number | string; objekt_type: string; objekt_id: number | string };
+type RawMediaMention = { kilde_type: string; kilde_id: number | string };
+type RawNarrativeSubject = { id: number | string; subjekt_type: string; subjekt_id: number | string };
+
+export function mediaAnvendelseQuerySpecs() {
+  return {
+    personRelationer: { table: 'relation', select: 'id::text,subjekt_id::text' },
+    objektRelationer: { table: 'relation', select: 'id::text,objekt_type,objekt_id::text' },
+    mentions: { table: 'text_mention', select: 'kilde_type,kilde_id::text' },
+    narrativer: { table: 'narrative', select: 'id::text,subjekt_type,subjekt_id::text' },
+  } as const;
+}
 
 const subjectKey = (type: string, id: number | string) => `${type}:${id}`;
 const fallbackSubjectName = (type: string, id: number | string) => `${type} #${id}`;
@@ -956,10 +1037,10 @@ function parseDatabaseId(value: string): number | string | null {
   return Number.isSafeInteger(id) ? id : trimmed;
 }
 
-async function fetchMediaSubjectNames(subjects: { type: string; id: number }[]): Promise<Map<string, string>> {
-  const idsByType = new Map<string, Set<number>>();
+async function fetchMediaSubjectNames(subjects: { type: string; id: number | string }[]): Promise<Map<string, string>> {
+  const idsByType = new Map<string, Set<number | string>>();
   for (const subject of subjects) {
-    const ids = idsByType.get(subject.type) ?? new Set<number>();
+    const ids = idsByType.get(subject.type) ?? new Set<number | string>();
     ids.add(subject.id);
     idsByType.set(subject.type, ids);
   }
@@ -968,20 +1049,20 @@ async function fetchMediaSubjectNames(subjects: { type: string; id: number }[]):
     const ids = [...idSet];
     if (!ids.length) return;
     if (type === 'person') {
-      const rows = await getAll<{ id: number; visning_navn: string | null }>(() =>
-        supabase.from('person').select('id,visning_navn').in('id', ids));
+      const rows = await getAll<{ id: number | string; visning_navn: string | null }>(() =>
+        supabase.from('person').select('id::text,visning_navn').in('id', ids));
       rows.forEach((r) => out.set(subjectKey(type, r.id), r.visning_navn ?? fallbackSubjectName(type, r.id)));
     } else if (type === 'estate') {
-      const rows = await getAll<{ id: number; navn: string | null }>(() =>
-        supabase.from('estate').select('id,navn').in('id', ids));
+      const rows = await getAll<{ id: number | string; navn: string | null }>(() =>
+        supabase.from('estate').select('id::text,navn').in('id', ids));
       rows.forEach((r) => out.set(subjectKey(type, r.id), r.navn ?? fallbackSubjectName(type, r.id)));
     } else if (type === 'coat_of_arms') {
-      const rows = await getAll<{ id: number; blasonering: string | null }>(() =>
-        supabase.from('coat_of_arms').select('id,blasonering').in('id', ids));
+      const rows = await getAll<{ id: number | string; blasonering: string | null }>(() =>
+        supabase.from('coat_of_arms').select('id::text,blasonering').in('id', ids));
       rows.forEach((r) => out.set(subjectKey(type, r.id), r.blasonering ?? fallbackSubjectName(type, r.id)));
     } else if (type === 'lineage') {
-      const rows = await getAll<{ id: number; navn: string | null }>(() =>
-        supabase.from('lineage').select('id,navn').in('id', ids));
+      const rows = await getAll<{ id: number | string; navn: string | null }>(() =>
+        supabase.from('lineage').select('id::text,navn').in('id', ids));
       rows.forEach((r) => out.set(subjectKey(type, r.id), r.navn ?? fallbackSubjectName(type, r.id)));
     } else if (type === 'slaegt') {
       ids.forEach((id) => out.set(subjectKey(type, id), 'Slægten (generelt)'));
@@ -993,21 +1074,22 @@ async function fetchMediaSubjectNames(subjects: { type: string; id: number }[]):
 export async function fetchMediaAnvendelse(mediaId: string): Promise<MediaAnvendelse> {
   const id = parseDatabaseId(mediaId);
   if (id == null) return { afbildet: [], mentions: [] };
+  const specs = mediaAnvendelseQuerySpecs();
   const [personRelationer, objektRelationer, mentions] = await Promise.all([
     getAll<RawMediaPersonAnvendelse>(() =>
-      supabase.from('relation').select('id,subjekt_id')
+      supabase.from(specs.personRelationer.table).select(specs.personRelationer.select)
         .eq('subjekt_type', 'person').eq('objekt_type', 'media').eq('objekt_id', id).eq('rolle', 'afbildet').order('id')),
     getAll<RawMediaObjektAnvendelse>(() =>
-      supabase.from('relation').select('id,objekt_type,objekt_id')
+      supabase.from(specs.objektRelationer.table).select(specs.objektRelationer.select)
         .eq('subjekt_type', 'media').eq('subjekt_id', id).eq('rolle', 'afbildet').order('id')),
     getAll<RawMediaMention>(() =>
-      supabase.from('text_mention').select('kilde_type,kilde_id')
+      supabase.from(specs.mentions.table).select(specs.mentions.select)
         .eq('maal_type', 'media').eq('maal_id', id).order('kilde_type').order('kilde_id')),
   ]);
   const narrativIds = [...new Set(mentions.filter((m) => m.kilde_type === 'narrative').map((m) => m.kilde_id))];
   const narrativer = narrativIds.length
     ? await getAll<RawNarrativeSubject>(() =>
-      supabase.from('narrative').select('id,subjekt_type,subjekt_id').in('id', narrativIds))
+      supabase.from(specs.narrativer.table).select(specs.narrativer.select).in('id', narrativIds))
     : [];
   const navneBySubjekt = await fetchMediaSubjectNames([
     ...personRelationer.map((r) => ({ type: 'person', id: r.subjekt_id })),

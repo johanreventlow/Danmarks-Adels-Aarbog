@@ -695,12 +695,14 @@ export type PersonMedia = {
   id: string; relationId: string; slags: string; titel: string | null; storagePath: string | null;
   kunstner: string | null; datering: string | null; rettighederStatus: string;
   mimeType: string | null; byteSize: number | null; bredde: number | null; hoejde: number | null;
-  originalFilnavn: string | null; uploadStatus: string; maaPubliceres: boolean; thumbStoragePath: string | null;
+  originalFilnavn: string | null; uploadStatus: string; maaPubliceres: boolean; createdAt: string | null;
+  thumbStoragePath: string | null;
 };
 type RawPersonMediaRow = { id: number; slags: string | null; titel: string | null; kunstner: string | null;
   datering: string | null; storage_path: string | null; upload_status: string | null;
   maa_publiceres: boolean | null; rettigheder_status: string | null; mime_type: string | null;
-  byte_size: number | null; bredde: number | null; hoejde: number | null; original_filnavn: string | null };
+  byte_size: number | null; bredde: number | null; hoejde: number | null; original_filnavn: string | null;
+  created_at?: string | null };
 
 // thumbPathByMediaId (billedstørrelser 2026-07-05, Slice B3) er valgfri (default tom Map) så testen
 // kan kalde ren, netværksfri — kun mediaFromRelPairs nedenfor sender reelt en udfyldt Map.
@@ -725,16 +727,73 @@ export function mapPersonMediaRows(
       originalFilnavn: m.original_filnavn,
       uploadStatus: m.upload_status ?? 'kladde',
       maaPubliceres: Boolean(m.maa_publiceres),
+      createdAt: m.created_at ?? null,
       thumbStoragePath: thumbPathByMediaId.get(String(m.id)) ?? null,
     }));
 }
 
-export type MedieKoe = 'rettigheder' | 'loese' | 'strandede' | 'papirkurv';
+export type MedieKoe = 'rettigheder' | 'loese' | 'strandede' | 'papirkurv' | 'dubletter';
+
+const TIME = 60 * 60 * 1000;
+const DAG = 24 * TIME;
+const UGE = 7 * DAG;
+const MAANED = 30 * DAG;
+
+export function formatMedieAlder(createdAt: string | null, nu: Date = new Date()): string {
+  if (!createdAt) return 'ukendt alder';
+  const oprettet = Date.parse(createdAt);
+  const nuTid = nu.getTime();
+  if (!Number.isFinite(oprettet) || !Number.isFinite(nuTid) || oprettet > nuTid) return 'ukendt alder';
+  const alder = nuTid - oprettet;
+  if (alder < TIME) return 'under 1 time — muligvis i gang';
+  if (alder < DAG) {
+    const timer = Math.floor(alder / TIME);
+    return `${timer} ${timer === 1 ? 'time' : 'timer'}`;
+  }
+  if (alder < UGE) {
+    const dage = Math.floor(alder / DAG);
+    return `${dage} ${dage === 1 ? 'dag' : 'dage'}`;
+  }
+  if (alder < MAANED) {
+    const uger = Math.floor(alder / UGE);
+    return `${uger} ${uger === 1 ? 'uge' : 'uger'}`;
+  }
+  const maaneder = Math.floor(alder / MAANED);
+  return `${maaneder} ${maaneder === 1 ? 'måned' : 'måneder'}`;
+}
+
+export type MedieDubletGrundlag = {
+  id: number | string;
+  upload_status?: string | null;
+  byte_size?: number | null;
+  bredde?: number | null;
+  hoejde?: number | null;
+};
+
+export function findMedieDubletKandidatIds(mediaRows: MedieDubletGrundlag[]): ReadonlySet<string> {
+  const idsByNoegle = new Map<string, Set<string>>();
+  for (const media of mediaRows) {
+    if (media.upload_status !== 'klar'
+      || media.byte_size == null || media.bredde == null || media.hoejde == null) continue;
+    // Fase 3 bruger empirisk den planlagte 3-feltsnøgle. mime_type medtages ikke: testen
+    // bevarer et signal på tværs af containerformat, mens køen fortsat kun er en mistanke.
+    const noegle = JSON.stringify([media.byte_size, media.bredde, media.hoejde]);
+    const ids = idsByNoegle.get(noegle) ?? new Set<string>();
+    ids.add(String(media.id));
+    idsByNoegle.set(noegle, ids);
+  }
+  const kandidater = new Set<string>();
+  for (const ids of idsByNoegle.values()) {
+    if (ids.size > 1) ids.forEach((id) => kandidater.add(id));
+  }
+  return kandidater;
+}
 
 export function klassificerMedie(
   m: { uploadStatus: string; rettighederStatus: string; maaPubliceres: boolean },
   antalAfbildet: number,
   antalMentions: number,
+  harDubletKandidat: boolean,
 ): MedieKoe[] {
   const koeer: MedieKoe[] = [];
   if (m.uploadStatus === 'klar' && (m.rettighederStatus === 'ukendt' || !m.maaPubliceres)) {
@@ -745,6 +804,7 @@ export function klassificerMedie(
   }
   if (m.uploadStatus === 'kladde' || m.uploadStatus === 'fejlet') koeer.push('strandede');
   if (m.uploadStatus === 'fjernet') koeer.push('papirkurv');
+  if (m.uploadStatus === 'klar' && harDubletKandidat) koeer.push('dubletter');
   return koeer;
 }
 
@@ -796,6 +856,7 @@ export function mapMediaBibliotekRows(
     const mediaId = String(m.maal_id);
     antalMentionsById.set(mediaId, (antalMentionsById.get(mediaId) ?? 0) + 1);
   }
+  const dubletKandidatIds = findMedieDubletKandidatIds(mediaRows);
   return mapPersonMediaRows(mediaRows, new Map(), thumbPathByMediaId).map((media) => {
     const { relationId: _relationId, ...udenRelation } = media;
     const antalAfbildet = afbildetByMediaId.get(media.id)?.size ?? 0;
@@ -804,7 +865,7 @@ export function mapMediaBibliotekRows(
       ...udenRelation,
       antalAfbildet,
       antalMentions,
-      koeer: klassificerMedie(media, antalAfbildet, antalMentions),
+      koeer: klassificerMedie(media, antalAfbildet, antalMentions, dubletKandidatIds.has(media.id)),
     };
   });
 }
@@ -814,7 +875,7 @@ export async function fetchMediaBibliotek(): Promise<MediaBibliotekPost[]> {
   const sb = supabase;
   const [mediaRows, personRelationer, objektRelationer, mentions] = await Promise.all([
     getAll<RawPersonMediaRow>(() =>
-      sb.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn')),
+      sb.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn,created_at')),
     getAll<RawMediaRelationRow>(() =>
       sb.from('relation').select('subjekt_type,subjekt_id,objekt_type,objekt_id,rolle')
         .eq('subjekt_type', 'person').eq('objekt_type', 'media').eq('rolle', 'afbildet')),
@@ -956,7 +1017,7 @@ async function mediaFromRelPairs(sb: NonNullable<typeof supabase>, pairs: { medi
   const mediaIds = pairs.map((p) => p.mediaId);
   const [rows, variants] = await Promise.all([
     getAll<RawPersonMediaRow>(() =>
-      sb.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn').in('id', mediaIds)),
+      sb.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn,created_at').in('id', mediaIds)),
     getAll<{ media_id: number; storage_path: string }>(() =>
       sb.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb').in('media_id', mediaIds)),
   ]);

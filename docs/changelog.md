@@ -1,5 +1,43 @@
 # Changelog
 
+## Mediehåndtering fase 3 — implementeret og verificeret lokalt (2026-07-20)
+
+Fase 3-koden er implementeret lokalt: nye uploads hashes over de genkodede large-bytes,
+bruger deterministiske sha-stier og kan genoptages idempotent; web og mobil tilbyder
+tilknytning til et allerede eksisterende medie. Biblioteket viser alder på strandede
+uploads og en heuristisk dubletkø med blødt flet-flow. `R/media-janitor.R` er
+rapport-first; destruktiv DB/Storage-oprydning kræver `--slet`, og sha-backfill kræver
+sit separate `--backfill-sha`-flag.
+
+Slutreviewet lukkede tre dataintegritetskanter: blød flet bruger nu en atomisk RPC, der
+afviser evidensbærende relationer; janitoren bærer PostgreSQL `BIGINT`-id'er tabsfrit som
+tekst; og normal web-/mobilupload bekræfter først `klar`, når alle varianter er uploadet
+og registreret. Lokal slutverifikation efter merge af `origin/main`: web TypeScript +
+422 tests + build, mobil TypeScript + 345 tests, core TypeScript + 267 tests og
+R/testthat 420 tests var grønne. DAA-loaderens COPY-rækkefølge er samtidig låst af en
+import-smoke, så relationer skrives før deres assertion/citation/conclusion-evidens.
+Isoleret PostgreSQL 17 bekræftede både frisk skema og
+den præcist scoped migrationssti fra præ-fase-3-basen; migrationen var idempotent ved to
+gennemløb, bevarede ukendt historisk `created_at` som `NULL`, ryddede kun evidensfri
+relationsdubletter og fejlede højlydt på en evidensbærende dublet. En reel to-session-test
+bekræftede begge rækkefølger: writer-før-unlink afviser sletningen med relation og
+evidens bevaret; unlink-før-writer afviser writeren uden orphan-data. Fresh og migration
+gav samme fase 3-flade (`media.created_at`, `relation_afbildet_uidx`, `ix_note_target`,
+relationsevidens-triggerne, `red_relation` og `red_slet_medierelation_uden_evidens`).
+Ingen RLS-fil eller gamle storage-stier er ændret.
+
+Tre implementeringsskøn er nu fastholdt: janitorens standardfrist er 7 dage og UI's
+"muligvis i gang"-grænse er 1 time; dubletkøens nøgle er præcis
+`(byte_size, bredde, hoejde)` uden `mime_type`; mobil bruger `expo-crypto` frem for
+`@noble/hashes`. Tilføjelsen af det native Expo-modul kræver genbygning af dev- og
+release-builds — en JavaScript-only opdatering er ikke tilstrækkelig.
+
+**Åbne gates:** empirisk browser-/mobil-/Storage-E2E blev ikke kørt, fordi der ikke var
+en eksplicit lokal Supabase-stack eller en bevist ikke-produktions-dev-bucket. Normal CI
+har heller ikke kørt uden push. Produktion er **ikke** migreret eller deployet; den
+separate gatede procedure står i
+`docs/db-backups/2026-07-20-mediehaandtering-fase3-runbook.md`.
+
 ## Mediehåndtering fase 3 — implementeringsplan skrevet + dual-reviewet (2026-07-20)
 
 Implementeringsplan (10 TDD-tasks, skrevet af Fable): `docs/superpowers/plans/2026-07-20-mediehaandtering-fase3-hygiejne.md`,

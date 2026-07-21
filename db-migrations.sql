@@ -2723,6 +2723,153 @@ WHERE (m.maal_type='person' AND NOT EXISTS (SELECT 1 FROM person  p WHERE p.id=m
    OR (m.maal_type='estate' AND NOT EXISTS (SELECT 1 FROM estate  e WHERE e.id=m.maal_id))
    OR (m.maal_type='lineage' AND NOT EXISTS (SELECT 1 FROM lineage l WHERE l.id=m.maal_id))
    OR (m.maal_type='media' AND NOT EXISTS (SELECT 1 FROM media md WHERE md.id=m.maal_id));
+
+-- =====================================================================
+-- 2026-07-20: mediehaandtering_fase3_hygiejne
+-- To-trins created_at bevarer NULL (= ukendt alder) på præ-fase-3-rækker.
+-- Evidensfri afbildet-dubletter ryddes før partial-indexet; evidens-bærende
+-- dubletter overlever med vilje og får index-oprettelsen til at fejle højlydt.
+-- =====================================================================
+ALTER TABLE media ADD COLUMN IF NOT EXISTS created_at timestamptz;
+ALTER TABLE media ALTER COLUMN created_at SET DEFAULT now();
+
+-- Evidens omfatter assertion/conclusion/note. haendelse.relation_id er strukturelt
+-- udelukket via conclusion-tjekket (den eneste skrivevej kræver en afklaret conclusion),
+-- ikke ved en tilfældighed; en haendelse-båret dublet kan derfor ikke nå DELETE'en.
+DELETE FROM relation r USING relation r2
+ WHERE r.rolle='afbildet' AND r2.rolle='afbildet' AND r.id > r2.id
+   AND r.subjekt_type=r2.subjekt_type AND r.subjekt_id=r2.subjekt_id
+   AND r.objekt_type=r2.objekt_type   AND r.objekt_id=r2.objekt_id
+   AND NOT EXISTS (SELECT 1 FROM assertion  a WHERE a.target_type='relation' AND a.target_id=r.id)
+   AND NOT EXISTS (SELECT 1 FROM conclusion c WHERE c.target_type='relation' AND c.target_id=r.id)
+   AND NOT EXISTS (SELECT 1 FROM note       n WHERE n.target_type='relation' AND n.target_id=r.id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS relation_afbildet_uidx
+  ON relation (subjekt_type, subjekt_id, objekt_type, objekt_id)
+  WHERE rolle='afbildet';
+CREATE INDEX IF NOT EXISTS ix_note_target ON note(target_type, target_id);
+
+-- Samme signatur og funktionskrop som schema.sql: ingen overload-/grant-ændring.
+CREATE OR REPLACE FUNCTION red_relation(
+  p_subjekt_type text, p_subjekt_id bigint, p_objekt_type text, p_objekt_id bigint,
+  p_rolle text, p_periode_raw text DEFAULT NULL)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_id bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_rolle = 'samme_som' THEN RAISE EXCEPTION 'Brug red_samme_som til identitets-links'; END IF;
+  IF p_rolle = 'ikke_samme_som' THEN RAISE EXCEPTION 'Brug red_ikke_samme_som til identitets-afvisning'; END IF;
+  -- GDPR-invariant ved fødslen (ikke kun i red_upload_media): en 'afbildet'-relation skal gå
+  -- person→media, fordi media_afbilder_skjult/privat KUN scanner (subjekt=person, objekt=media).
+  -- En person på objekt-siden ville være usynlig for gatingen → fail-open. Luk det for ALLE kaldere.
+  IF p_rolle = 'afbildet' AND p_objekt_type = 'person' THEN
+    RAISE EXCEPTION 'afbildet skal gå person→media (person kan ikke stå på objekt-siden — GDPR-gating)';
+  END IF;
+  PERFORM begin_change_set('red_relation', format('Relation %s: %s/%s → %s/%s', p_rolle, p_subjekt_type, p_subjekt_id, p_objekt_type, p_objekt_id), p_subjekt_type, p_subjekt_id);
+  BEGIN
+    INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle, periode_raw)
+      VALUES ((SELECT coalesce(max(id),0)+1 FROM relation),
+              p_subjekt_type, p_subjekt_id, p_objekt_type, p_objekt_id, p_rolle, p_periode_raw)
+      RETURNING id INTO v_id;
+  EXCEPTION WHEN unique_violation THEN
+    DECLARE v_constraint_name text;
+    BEGIN
+      GET STACKED DIAGNOSTICS v_constraint_name = CONSTRAINT_NAME;
+      IF v_constraint_name = 'relation_afbildet_uidx' THEN
+        RAISE EXCEPTION 'Mediet er allerede tilknyttet dette subjekt';
+      END IF;
+      RAISE;
+    END;
+  END;
+  RETURN v_id;
+END $$;
+
+-- Polymorf relationsevidens har ingen deklarativ FK. Fælles trigger giver den
+-- samme rækkelåssemantik: writer-før-delete holder KEY SHARE; delete-før-writer
+-- holder UPDATE/DELETE-lock, hvorefter writeren fejler, hvis relationen er væk.
+CREATE OR REPLACE FUNCTION enforce_relation_evidence_target()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF NEW.target_type='relation' THEN
+    PERFORM 1 FROM relation WHERE id=NEW.target_id FOR KEY SHARE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Relations-evidens kræver eksisterende relation %', NEW.target_id;
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+
+REVOKE ALL ON FUNCTION public.enforce_relation_evidence_target() FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE TRIGGER trg_assertion_relation_target
+  BEFORE INSERT OR UPDATE OF target_type, target_id ON assertion
+  FOR EACH ROW EXECUTE FUNCTION enforce_relation_evidence_target();
+CREATE OR REPLACE TRIGGER trg_conclusion_relation_target
+  BEFORE INSERT OR UPDATE OF target_type, target_id ON conclusion
+  FOR EACH ROW EXECUTE FUNCTION enforce_relation_evidence_target();
+CREATE OR REPLACE TRIGGER trg_note_relation_target
+  BEFORE INSERT OR UPDATE OF target_type, target_id ON note
+  FOR EACH ROW EXECUTE FUNCTION enforce_relation_evidence_target();
+
+-- Direkte relation-DELETE eller PK-ændring må ikke omgå invarianten. Evidensfri
+-- id-update forbliver tilladt til import/undo; slette-RPC'erne rydder evidensen først.
+CREATE OR REPLACE FUNCTION guard_relation_evidence_delete()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  -- Generisk undo SET'er også PK-kolonnen til dens nuværende værdi.
+  IF TG_OP='UPDATE' AND NEW.id IS NOT DISTINCT FROM OLD.id THEN RETURN NEW; END IF;
+  IF EXISTS (SELECT 1 FROM assertion WHERE target_type='relation' AND target_id=OLD.id)
+     OR EXISTS (SELECT 1 FROM conclusion WHERE target_type='relation' AND target_id=OLD.id)
+     OR EXISTS (SELECT 1 FROM note WHERE target_type='relation' AND target_id=OLD.id) THEN
+    IF TG_OP='UPDATE' THEN
+      RAISE EXCEPTION 'Relation % har evidens og id kan ikke ændres', OLD.id;
+    END IF;
+    RAISE EXCEPTION 'Relation % har evidens og kan ikke slettes direkte', OLD.id;
+  END IF;
+  IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
+END $$;
+
+REVOKE ALL ON FUNCTION public.guard_relation_evidence_delete() FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE TRIGGER trg_relation_evidence_delete
+  BEFORE DELETE OR UPDATE OF id ON relation
+  FOR EACH ROW EXECUTE FUNCTION guard_relation_evidence_delete();
+
+-- Atomisk evidensværn til den bløde medieflets specifikke unlink. Separat RPC bevarer
+-- red_slet_relation's eksisterende, tilsigtede "relation + evidens"-sletning.
+CREATE OR REPLACE FUNCTION red_slet_medierelation_uden_evidens(p_relation_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_relation relation%ROWTYPE;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- FOR UPDATE konflikter med evidens-triggerens FOR KEY SHARE på præcis denne relation.
+  SELECT * INTO v_relation FROM relation WHERE id=p_relation_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Relation % findes ikke', p_relation_id; END IF;
+  IF NOT (
+    (v_relation.rolle='afbildet' AND v_relation.subjekt_type='person'
+      AND v_relation.objekt_type='media')
+    OR
+    (v_relation.rolle='afbildet' AND v_relation.subjekt_type='media'
+      AND v_relation.objekt_type IN ('estate','coat_of_arms','lineage'))
+  ) THEN
+    RAISE EXCEPTION 'Relation % er ikke en kanonisk medie-afbildning', p_relation_id;
+  END IF;
+  IF EXISTS (SELECT 1 FROM assertion WHERE target_type='relation' AND target_id=p_relation_id)
+     OR EXISTS (SELECT 1 FROM conclusion WHERE target_type='relation' AND target_id=p_relation_id)
+     OR EXISTS (SELECT 1 FROM note WHERE target_type='relation' AND target_id=p_relation_id) THEN
+    RAISE EXCEPTION 'Medierelationen % har evidens og kan ikke fjernes ved blød flet', p_relation_id;
+  END IF;
+  PERFORM begin_change_set(
+    'red_slet_medierelation_uden_evidens',
+    format('Fjernede evidensfri medierelation %s ved blød flet', p_relation_id), NULL, NULL
+  );
+  DELETE FROM relation WHERE id=p_relation_id;
+END $$;
+
+REVOKE ALL ON FUNCTION public.red_slet_medierelation_uden_evidens(bigint) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.red_slet_medierelation_uden_evidens(bigint) TO authenticated;
+
 -- 2026-07-19: levende feed fase 3 — story/story_kilde/feed_pin
 -- Kurateret formidlingslag (fase3-spec §3); additiv oven på fase 2.
 -- RLS-politikkerne bor i db-rls.sql og skal gen-anvendes efter migrationen.

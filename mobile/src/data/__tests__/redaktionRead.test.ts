@@ -375,22 +375,22 @@ describe('mapPersonMediaRows (mediehåndtering fase 1)', () => {
   };
   it('mapper alle filside-felter og relationId', () => {
     const rows = [{ id: 91, slags: 'foto', titel: 'Portræt', storage_path: 'redaktor/a.jpg',
-      upload_status: 'klar', maa_publiceres: true, ...rich }];
+      upload_status: 'klar', maa_publiceres: true, created_at: '2026-07-20T08:00:00Z', ...rich }];
     expect(mapPersonMediaRows(rows, new Map([['91', '501']]))).toEqual([{
       id: '91', relationId: '501', slags: 'foto', titel: 'Portræt', storagePath: 'redaktor/a.jpg',
       kunstner: 'Jens Juel', datering: 'ca. 1780', rettighederStatus: 'public_domain',
       mimeType: 'image/jpeg', byteSize: 1234, bredde: 800, hoejde: 1000, originalFilnavn: 'portraet.jpg',
-      uploadStatus: 'klar', maaPubliceres: true, thumbStoragePath: null,
+      uploadStatus: 'klar', maaPubliceres: true, createdAt: '2026-07-20T08:00:00Z', thumbStoragePath: null,
     }]);
   });
   it('manglende felter får fail-closed defaults', () => {
     const rows = [{ id: 92, slags: null, titel: null, kunstner: null, datering: null, storage_path: null,
       upload_status: null, maa_publiceres: null, rettigheder_status: null, mime_type: null,
-      byte_size: null, bredde: null, hoejde: null, original_filnavn: null }];
+      byte_size: null, bredde: null, hoejde: null, original_filnavn: null, created_at: null }];
     expect(mapPersonMediaRows(rows)).toEqual([{
       id: '92', relationId: '', slags: '', titel: null, storagePath: null, kunstner: null, datering: null,
       rettighederStatus: 'ukendt', mimeType: null, byteSize: null, bredde: null, hoejde: null,
-      originalFilnavn: null, uploadStatus: 'kladde', maaPubliceres: false, thumbStoragePath: null,
+      originalFilnavn: null, uploadStatus: 'kladde', maaPubliceres: false, createdAt: null, thumbStoragePath: null,
     }]);
   });
   it('thumb udfyldes, og fjernet bevares til genopret', () => {
@@ -402,6 +402,7 @@ describe('mapPersonMediaRows (mediehåndtering fase 1)', () => {
 });
 
 import {
+  formatMedieAlder,
   klassificerMedie,
   mapMediaAnvendelse,
   mapMediaBibliotekRows,
@@ -422,7 +423,7 @@ describe('mediebibliotek fase 2', () => {
                 if (uploadStatus === 'klar' && antalAfbildet === 0 && antalMentions === 0) expected.push('loese');
                 if (uploadStatus === 'kladde' || uploadStatus === 'fejlet') expected.push('strandede');
                 if (uploadStatus === 'fjernet') expected.push('papirkurv');
-                expect(klassificerMedie({ uploadStatus, rettighederStatus, maaPubliceres }, antalAfbildet, antalMentions))
+                expect(klassificerMedie({ uploadStatus, rettighederStatus, maaPubliceres }, antalAfbildet, antalMentions, false))
                   .toEqual(expected);
               });
             }
@@ -432,8 +433,42 @@ describe('mediebibliotek fase 2', () => {
     }
 
     it('tillader flere køer samtidig', () => {
-      expect(klassificerMedie({ uploadStatus: 'klar', rettighederStatus: 'ukendt', maaPubliceres: false }, 0, 0))
+      expect(klassificerMedie({ uploadStatus: 'klar', rettighederStatus: 'ukendt', maaPubliceres: false }, 0, 0, false))
         .toEqual(['rettigheder', 'loese']);
+    });
+
+    it('tilføjer dubletter kun for klar og bevarer multi-kø', () => {
+      expect(klassificerMedie(
+        { uploadStatus: 'klar', rettighederStatus: 'ukendt', maaPubliceres: false }, 1, 0, true,
+      )).toEqual(['rettigheder', 'dubletter']);
+      expect(klassificerMedie(
+        { uploadStatus: 'kladde', rettighederStatus: 'ukendt', maaPubliceres: false }, 0, 0, true,
+      )).toEqual(['strandede']);
+      expect(klassificerMedie(
+        { uploadStatus: 'fjernet', rettighederStatus: 'ukendt', maaPubliceres: false }, 0, 0, true,
+      )).toEqual(['papirkurv']);
+    });
+  });
+
+  describe('formatMedieAlder', () => {
+    const nu = new Date('2026-07-20T12:00:00.000Z');
+
+    it.each([
+      [null, 'ukendt alder'],
+      ['', 'ukendt alder'],
+      ['ikke-en-dato', 'ukendt alder'],
+      ['2026-07-20T12:01:00.000Z', 'ukendt alder'],
+      ['2026-07-20T11:00:01.000Z', 'under 1 time — muligvis i gang'],
+      ['2026-07-20T11:00:00.000Z', '1 time'],
+      ['2026-07-20T10:00:00.000Z', '2 timer'],
+      ['2026-07-19T12:00:00.000Z', '1 dag'],
+      ['2026-07-14T12:00:00.000Z', '6 dage'],
+      ['2026-07-13T12:00:00.000Z', '1 uge'],
+      ['2026-06-22T12:00:00.000Z', '4 uger'],
+      ['2026-06-20T12:00:00.000Z', '1 måned'],
+      ['2026-05-21T12:00:00.000Z', '2 måneder'],
+    ])('formatterer %s deterministisk som %s', (createdAt, forventet) => {
+      expect(formatMedieAlder(createdAt, nu)).toBe(forventet);
     });
   });
 
@@ -441,10 +476,10 @@ describe('mediebibliotek fase 2', () => {
     const media = [
       { id: 91, slags: 'foto', titel: 'Brugt', kunstner: null, datering: null, storage_path: 'a.jpg',
         upload_status: 'klar', maa_publiceres: true, rettigheder_status: 'public_domain', mime_type: 'image/jpeg',
-        byte_size: 1, bredde: 10, hoejde: 20, original_filnavn: 'a.jpg' },
+        byte_size: 1, bredde: 10, hoejde: 20, original_filnavn: 'a.jpg', created_at: '2026-07-20T08:00:00Z' },
       { id: 92, slags: 'foto', titel: 'Løst', kunstner: null, datering: null, storage_path: 'b.jpg',
         upload_status: 'klar', maa_publiceres: true, rettigheder_status: 'public_domain', mime_type: 'image/jpeg',
-        byte_size: 2, bredde: 10, hoejde: 20, original_filnavn: 'b.jpg' },
+        byte_size: 2, bredde: 10, hoejde: 20, original_filnavn: 'b.jpg', created_at: null },
     ];
     const relationer = [
       { subjekt_type: 'person', subjekt_id: 7, objekt_type: 'media', objekt_id: 91, rolle: 'afbildet' },
@@ -456,10 +491,45 @@ describe('mediebibliotek fase 2', () => {
     ];
     const out = mapMediaBibliotekRows(media, relationer, mentions, new Map([['91', 'thumb/a.jpg']]));
     expect(out[0]).toMatchObject({ id: '91', antalAfbildet: 2, antalMentions: 2,
-      koeer: [], thumbStoragePath: 'thumb/a.jpg' });
+      koeer: [], createdAt: '2026-07-20T08:00:00Z', thumbStoragePath: 'thumb/a.jpg' });
     expect(out[0]).not.toHaveProperty('relationId');
     expect(out[1]).toMatchObject({ id: '92', antalAfbildet: 0, antalMentions: 0, koeer: ['loese'],
-      thumbStoragePath: null });
+      createdAt: null, thumbStoragePath: null });
+  });
+
+  it('finder kun andre klare medier med samme komplette 3-feltsnøgle som mulige dubletter', () => {
+    const basis = { slags: 'foto', titel: null, kunstner: null, datering: null, storage_path: null,
+      maa_publiceres: true, rettigheder_status: 'public_domain', mime_type: 'image/jpeg',
+      original_filnavn: null, created_at: null };
+    const rows = [
+      { ...basis, id: 1, upload_status: 'klar', byte_size: 100, bredde: 10, hoejde: 20 },
+      { ...basis, id: 2, upload_status: 'klar', byte_size: 100, bredde: 10, hoejde: 20, mime_type: 'image/png' },
+      { ...basis, id: 3, upload_status: 'klar', byte_size: 100, bredde: 10, hoejde: 20 },
+      { ...basis, id: 4, upload_status: 'klar', byte_size: 200, bredde: 10, hoejde: 20 },
+      { ...basis, id: 5, upload_status: 'klar', byte_size: 200, bredde: 10, hoejde: 20 },
+      { ...basis, id: 6, upload_status: 'klar', byte_size: null, bredde: 10, hoejde: 20 },
+      { ...basis, id: 12, upload_status: 'klar', byte_size: null, bredde: 10, hoejde: 20 },
+      { ...basis, id: 13, upload_status: 'klar', byte_size: 500, bredde: null, hoejde: 20 },
+      { ...basis, id: 14, upload_status: 'klar', byte_size: 500, bredde: null, hoejde: 20 },
+      { ...basis, id: 15, upload_status: 'klar', byte_size: 600, bredde: 10, hoejde: null },
+      { ...basis, id: 16, upload_status: 'klar', byte_size: 600, bredde: 10, hoejde: null },
+      { ...basis, id: 7, upload_status: 'kladde', byte_size: 300, bredde: 30, hoejde: 40 },
+      { ...basis, id: 8, upload_status: 'klar', byte_size: 300, bredde: 30, hoejde: 40 },
+      { ...basis, id: 9, upload_status: 'fjernet', byte_size: 400, bredde: 40, hoejde: 50 },
+      { ...basis, id: 10, upload_status: 'klar', byte_size: 400, bredde: 40, hoejde: 50 },
+    ];
+    const out = mapMediaBibliotekRows(rows, [], []);
+    const dubletIds = out.filter((m) => m.koeer.includes('dubletter')).map((m) => m.id);
+    expect(dubletIds).toEqual(['1', '2', '3', '4', '5']);
+    expect(out.find((m) => m.id === '7')?.koeer).toContain('strandede');
+  });
+
+  it('kræver et andet media-id, ikke blot to rækker med samme id', () => {
+    const row = { slags: 'foto', titel: null, kunstner: null, datering: null, storage_path: null,
+      maa_publiceres: true, rettigheder_status: 'public_domain', mime_type: 'image/jpeg',
+      original_filnavn: null, created_at: null, id: 11, upload_status: 'klar',
+      byte_size: 500, bredde: 50, hoejde: 60 };
+    expect(mapMediaBibliotekRows([row, row], [], []).every((m) => !m.koeer.includes('dubletter'))).toBe(true);
   });
 
   it('opløser afbildet-retninger og narrativets subjektNavn', () => {

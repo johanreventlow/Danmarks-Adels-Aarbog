@@ -65,7 +65,7 @@ jobs:
       # Test-træet er DB-service-frit, men updater-testen sourcer et script, der
       # indlæser RPostgres. Installér derfor alle pakker, som testtræet loader.
       - name: Installér R-testpakker
-        run: Rscript -e 'install.packages(c("testthat","jsonlite","DBI","duckdb","RPostgres","stringdist","stringi","withr"))'
+        run: Rscript -e 'install.packages(c("testthat","jsonlite","DBI","duckdb","RPostgres","stringdist","stringi","withr","digest"))'
       - run: Rscript run-tests.R
 
   pipeline:

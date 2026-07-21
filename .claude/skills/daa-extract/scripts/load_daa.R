@@ -110,9 +110,9 @@ rows_to_df <- function(rows) {
   as.data.frame(data, stringsAsFactors = FALSE, optional = TRUE)
 }
 flush_all <- function() {
-  ord <- c("place","person","person_external_id","estate","organisation","historical_event",
-           "fact","assertion","citation","conclusion","family","family_member","relation","note","narrative")
-  for (tbl in ord) { rows <- .buf[[tbl]]; if (length(rows)) dbAppendTable(con, tbl, rows_to_df(rows)) }
+  flush_buffer_in_dependency_order(.buf, function(tbl, rows) {
+    dbAppendTable(con, tbl, rows_to_df(rows))
+  })
 }
 
 add_person <- function(koen = NA) { id <- nid("person"); push("person", list(id=id, levende=FALSE, staged=STAGED, koen=koen)); id }

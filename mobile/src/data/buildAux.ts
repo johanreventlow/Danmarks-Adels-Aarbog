@@ -1,7 +1,7 @@
 // Port af buildAux() fra design-HTML (linje 808-868). Bygger hjælpe-indekser pr. person:
 // kilder (bogreference), embeder/godser (relation), linjer (grene I–V), medier.
 import { compareDanish, parseYear, stripParen } from '@daa/core';
-import { klassificerMedie, type MedieKoe } from './redaktionRead';
+import { findMedieDubletKandidatIds, klassificerMedie, type MedieKoe } from './redaktionRead';
 import type {
   Aux,
   RawArms,
@@ -202,6 +202,7 @@ export function buildAux(
     const mediaId = String(mention.maal_id);
     antalMentionsById.set(mediaId, (antalMentionsById.get(mediaId) ?? 0) + 1);
   }
+  const dubletKandidatIds = findMedieDubletKandidatIds(media || []);
   const medieListe = (media || []).map((m) => {
     const id = String(m.id ?? '');
     const uploadStatus = m.upload_status ?? 'kladde';
@@ -214,7 +215,12 @@ export function buildAux(
       kunstner: String(m.kunstner ?? ''), datering: String(m.datering ?? ''),
       storagePath: String(m.storage_path ?? ''), thumbStoragePath: String(m.thumb_storage_path ?? ''), mimeType: String(m.mime_type ?? ''),
       uploadStatus, maaPubliceres, rettighederStatus, antalAfbildet, antalMentions,
-      koeer: klassificerMedie({ uploadStatus, maaPubliceres, rettighederStatus }, antalAfbildet, antalMentions),
+      koeer: klassificerMedie(
+        { uploadStatus, maaPubliceres, rettighederStatus },
+        antalAfbildet,
+        antalMentions,
+        dubletKandidatIds.has(id),
+      ),
     };
   }).sort((a, b) => compareDanish(a.titel, b.titel));
   const medieKoeTaellere: Record<MedieKoe, number> = {
@@ -222,6 +228,7 @@ export function buildAux(
     loese: 0,
     strandede: 0,
     papirkurv: 0,
+    dubletter: 0,
   };
   medieListe.forEach((m) => m.koeer.forEach((koe) => { medieKoeTaellere[koe] += 1; }));
   // godsListe: KOMPLET (alle estates, ikke kun ejede); ownerCount fra ownersByEstate (0 hvis ingen).

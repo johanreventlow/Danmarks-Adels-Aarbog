@@ -4,6 +4,7 @@
 // Ren build-funktion (buildRpcCall) er netværksfri og unit-testes; submitChange udfører.
 import { supabase } from '../supabase';
 import { performUpload } from './mediaUpload';
+import type { ResizedVariant } from './mediaUpload';
 
 // felt → fact.faktatype. koen er BEVIDST udeladt: arbejdsværdi på person, ikke et fact.
 // daab/begravelse/floruit/naturalisering er del af rygraden og lå allerede i DB (loaderen
@@ -18,7 +19,7 @@ const DATE_FELT = new Set(['foedt', 'doed', 'daab', 'begravelse', 'floruit', 'na
 export type Change = {
   art: 'fakta' | 'narrativ' | 'relation' | 'gods' | 'hverv'
      | 'redigerOplysning' | 'sletOplysning' | 'setKonklusion' | 'setPrivat' | 'sletPerson'
-     | 'tilfoejOplysning' | 'opretFakta' | 'sletRelation' | 'tilfoejRelation'
+     | 'tilfoejOplysning' | 'opretFakta' | 'sletRelation' | 'sletMediaRelationUdenEvidens' | 'tilfoejRelation'
      | 'opretUnion' | 'tilfoejBarn' | 'setFamilieKonfidens' | 'sletFamilieLink'
      | 'setFamilieOrdinal' | 'flytBarn'
      | 'sammeSom' | 'fjernSammeSom' // redaktionel identitets-sammenkædning (samme_som)
@@ -63,11 +64,54 @@ export type Change = {
 
 export type RpcCall = { fn: string; args: Record<string, unknown> };
 
+export type ResumeMediaUploadStep =
+  | { kind: 'upload'; file: Blob; storagePath: string }
+  | { kind: 'rpc'; fn: 'red_bekraeft_media_upload' | 'red_registrer_media_variant'; args: Record<string, unknown> };
+
 function parsePostgresBigintId(value: unknown): number | string | null {
   const raw = typeof value === 'number' ? String(value) : typeof value === 'string' ? value.trim() : '';
   if (!/^[1-9][0-9]*$/.test(raw) || raw.length > 19 || (raw.length === 19 && raw > '9223372036854775807')) return null;
   const id = Number(raw);
   return Number.isSafeInteger(id) ? id : raw;
+}
+
+// Ren genoptagelsesplan: samme write-once Storage-stier kan uploades idempotent, mens alle RPC'er
+// målrettes den allerede eksisterende kladde. Bekræftelsen gentager bevidst ikke sha256 — guarden
+// har allerede kørt, før rækken blev oprettet.
+export function buildResumeMediaUploadPlan(
+  mediaId: string,
+  large: ResizedVariant,
+  variants: ResizedVariant[],
+): ResumeMediaUploadStep[] {
+  const parsedMediaId = parsePostgresBigintId(mediaId);
+  if (parsedMediaId == null) throw new Error('Ugyldigt media-id ved genoptagelse.');
+  return [
+    { kind: 'upload', file: large.file, storagePath: large.storagePath },
+    ...variants.flatMap((variant): ResumeMediaUploadStep[] => [
+      { kind: 'upload', file: variant.file, storagePath: variant.storagePath },
+      { kind: 'rpc', fn: 'red_registrer_media_variant', args: {
+        p_media_id: parsedMediaId, p_tier: variant.tier, p_storage_path: variant.storagePath,
+        p_mime: variant.mimeType, p_byte_size: variant.byteSize,
+        p_bredde: variant.bredde, p_hoejde: variant.hoejde,
+      } },
+    ]),
+    { kind: 'rpc', fn: 'red_bekraeft_media_upload', args: { p_media_id: parsedMediaId } },
+  ];
+}
+
+export async function resumeMediaUpload(
+  mediaId: string,
+  large: ResizedVariant,
+  variants: ResizedVariant[],
+): Promise<void> {
+  for (const step of buildResumeMediaUploadPlan(mediaId, large, variants)) {
+    if (step.kind === 'upload') {
+      await performUpload(step.file, step.storagePath);
+      continue;
+    }
+    const { error } = await supabase.rpc(step.fn, step.args);
+    if (error) throw new Error(error.message);
+  }
 }
 
 function famLinkBase(c: Change): { p_family_id: number; p_person_id: number; p_rolle: string } | null {
@@ -233,9 +277,14 @@ export function buildRpcCall(c: Change): RpcCall | null {
       p_rolle: p.rolle, p_periode_raw: p.periodeRaw ?? null } };
   }
   if (c.art === 'sletRelation') {
-    const rid = c.relationId != null ? Number(c.relationId) : null;
+    const rid = parsePostgresBigintId(c.relationId);
     if (rid == null) return null;
     return { fn: 'red_slet_relation', args: { p_relation_id: rid } };
+  }
+  if (c.art === 'sletMediaRelationUdenEvidens') {
+    const rid = parsePostgresBigintId(c.relationId);
+    if (rid == null) return null;
+    return { fn: 'red_slet_medierelation_uden_evidens', args: { p_relation_id: rid } };
   }
   if (c.art === 'tilfoejRelation') {
     const p = c.payload || {};
@@ -322,6 +371,7 @@ export function buildRpcCall(c: Change): RpcCall | null {
       p_byte_size: p.byteSize ?? null, p_bredde: p.bredde ?? null, p_hoejde: p.hoejde ?? null,
       p_original_filnavn: p.originalFilnavn ?? null,
       p_rettigheder_status: p.rettighederStatus ?? 'ukendt', p_maa_publiceres: Boolean(p.maaPubliceres),
+      p_sha256: p.sha256 ?? null,
     };
     if (p.afbildetPersonId != null) args.p_afbildet_person_id = Number(p.afbildetPersonId);
     else if (p.objektType != null && p.objektId != null) {
@@ -389,8 +439,9 @@ if (c.art === 'mediaRettigheder') {
   // relationen. At AFKOBLE et billede fra én person (uden at slette det andre steder) er derimod
   // bare en almindelig 'sletRelation' på den specifikke afbildet-relation (håndteret ovenfor).
   if (c.art === 'fjernMedia') {
-    if (c.mediaId == null) return null;
-    return { fn: 'red_fjern_media', args: { p_media_id: Number(c.mediaId) } };
+    const mediaId = parsePostgresBigintId(c.mediaId);
+    if (mediaId == null) return null;
+    return { fn: 'red_fjern_media', args: { p_media_id: mediaId } };
   }
   return null;
 }
@@ -469,13 +520,11 @@ export async function submitChange(c: Change, opts: { dryRun: boolean; role?: st
   }
   const { data, error } = await supabase.rpc(call.fn, call.args);
   if (error) throw new Error(error.message);
-  // red_upload_media opretter ALTID rækken som upload_status='kladde'; først når bytes reelt ligger
-  // i Storage (lige udført ovenfor) er det sandt at bekræfte 'klar' — derfor et separat RPC-kald.
   if (c.art === 'uploadMedia') {
-    const { error: bekraeftError } = await supabase.rpc('red_bekraeft_media_upload', { p_media_id: data });
-    if (bekraeftError) throw new Error(bekraeftError.message);
     // Billedstørrelser Slice B2: thumb+medium er selvstændige størrelsestrin (media_variant),
-    // ikke en del af red_upload_media selv — hver uploades og registreres uafhængigt af de andre.
+    // ikke en del af red_upload_media selv. Rækken forbliver 'kladde', indtil ALLE varianter
+    // ligger i Storage og er registreret; ellers kan en variantfejl efterlade en ufuldstændig
+    // 'klar'-række, som kladde-resume-flowet ikke kan reparere.
     const varianter = (c.payload?.varianter ?? []) as Array<{
       tier: string; file: Blob; storagePath: string; mimeType: string; byteSize: number; bredde: number; hoejde: number;
     }>;
@@ -487,6 +536,8 @@ export async function submitChange(c: Change, opts: { dryRun: boolean; role?: st
       });
       if (variantError) throw new Error(variantError.message);
     }));
+    const { error: bekraeftError } = await supabase.rpc('red_bekraeft_media_upload', { p_media_id: data });
+    if (bekraeftError) throw new Error(bekraeftError.message);
   }
   return { dryRun: false as const, call, direkte, result: data };
 }
@@ -494,6 +545,8 @@ export async function submitChange(c: Change, opts: { dryRun: boolean; role?: st
 // PostgREST/Postgres-fejl → dansk UI-tekst (spec §9). Fald tilbage til rå besked.
 export function oversaetFejl(message: string): string {
   if (/kun redaktion/i.test(message)) return 'Kræver redaktør-rettigheder.';
+  if (/medie med samme indhold findes allerede/i.test(message)) return "Billedet findes allerede i biblioteket — brug 'Tilknyt eksisterende' i stedet.";
+  if (/allerede tilknyttet dette subjekt/i.test(message)) return 'Mediet er allerede tilknyttet dette subjekt.';
   if (/duplicate key|unique/i.test(message)) return 'Findes allerede.';
   if (/not configured|ikke konfigureret/i.test(message)) return 'Ingen forbindelse til basen.';
   if (/kan kun genoprette et fjernet medie/i.test(message)) return 'Mediet kan kun genoprettes, når det er fjernet.';
