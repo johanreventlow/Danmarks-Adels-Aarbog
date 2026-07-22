@@ -12,6 +12,7 @@ export type MediaItem = {
   datering: string;
   url: string | null; // kortlivet signed URL til FULD størrelse ('large' — media-rækkens egen storage_path)
   thumbUrl: string | null; // 'thumb'-variant (billedstørrelser 2026-07-05, Slice B3); falder tilbage til url hvis ingen findes
+  primaer?: boolean;
 };
 
 type RawMediaRow = {
@@ -118,8 +119,8 @@ async function fetchMediaByRelation(opts: {
   if (!opts.ankerIds.length) return byAnker;
   const ankerSide = opts.mediaSide === 'objekt' ? 'subjekt' : 'objekt'; // ankeret sidder modsat media
   try {
-    const rels = await getAll<{ subjekt_id: number; objekt_id: number }>(() =>
-      supabase.from('relation').select('subjekt_id,objekt_id')
+    const rels = await getAll<{ subjekt_id: number; objekt_id: number; kvalifikator: { primaer?: boolean } | null }>(() =>
+      supabase.from('relation').select('subjekt_id,objekt_id,kvalifikator')
         .eq(`${ankerSide}_type`, opts.ankerType).in(`${ankerSide}_id`, opts.ankerIds)
         .eq(`${opts.mediaSide}_type`, 'media').eq('rolle', 'afbildet'));
     const mediaIdOf = (r: { subjekt_id: number; objekt_id: number }) => opts.mediaSide === 'objekt' ? r.objekt_id : r.subjekt_id;
@@ -131,7 +132,7 @@ async function fetchMediaByRelation(opts: {
       if (!it) continue;
       const k = String(ankerIdOf(r));
       const arr = byAnker.get(k) ?? [];
-      arr.push(it);
+      arr.push(r.kvalifikator?.primaer === true ? { ...it, primaer: true } : it);
       byAnker.set(k, arr);
     }
   } catch (e) {
@@ -140,11 +141,27 @@ async function fetchMediaByRelation(opts: {
   return byAnker;
 }
 
+// Dedup pr. media-id, men lad 'primaer:true' ALDRIG tabes til rækkefølge. Baggrund: samme medie kan
+// have en separat 'afbildet'-relationsrække pr. foldet samme_som-alias (relation_afbildet_uidx
+// håndhæver kun unikhed pr. enkelt (person,media)-par, ikke på tværs af en foldet persongruppe) — én
+// alias kan have kvalifikator.primaer=true, den anden ikke, og der er ingen ORDER BY der garanterer
+// hvilken af de to kommer først fra fetchMediaByRelation. Et naivt "første forekomst vinder"-filter
+// kan derfor stille slette redaktørens portræt-valg, hvis den ikke-primaer kopi behandles først.
+// Løsning: en forekomst med primaer=true overskriver altid en tidligere ikke-primaer forekomst af
+// samme id — men en senere ikke-primaer forekomst overskriver ALDRIG en allerede-set primaer=true.
+export function dedupPreferPrimaer(items: MediaItem[]): MediaItem[] {
+  const byId = new Map<string, MediaItem>();
+  for (const it of items) {
+    const existing = byId.get(it.id);
+    if (!existing || (it.primaer === true && existing.primaer !== true)) byId.set(it.id, it);
+  }
+  return [...byId.values()];
+}
+
 // Personens billeder (portræt+materiale): union over foldede medlems-id'er, dedup pr. media-id.
 export async function fetchPersonMedia(numIds: number[]): Promise<MediaItem[]> {
   const byPerson = await fetchMediaByRelation({ mediaSide: 'objekt', ankerType: 'person', ankerIds: numIds });
-  const seen = new Set<string>();
-  return [...byPerson.values()].flat().filter((it) => (seen.has(it.id) ? false : seen.add(it.id)));
+  return dedupPreferPrimaer([...byPerson.values()].flat());
 }
 
 // Objekt-billeder (gods/våben/…), batchet: ankerId → MediaItem[].
@@ -164,10 +181,12 @@ export function withUrl<T extends { url: string | null }>(items: (T | null | und
   return items.filter((m): m is T & { url: string } => !!m?.url);
 }
 
-// Vælg hovedbillede (portræt): første portræt-egnede med URL, ellers første med URL.
+// Vælg hovedbillede: eksplicit portræt-valg (primaer, fase 4/M10) → slags-heuristik → første med URL.
 export function pickPortrait(media: MediaItem[]): MediaItem | null {
   const signable = withUrl(media);
-  return signable.find((m) => PORTRAIT_SLAGS.has(normSlags(m.slags))) ?? signable[0] ?? null;
+  return signable.find((m) => m.primaer === true)
+    ?? signable.find((m) => PORTRAIT_SLAGS.has(normSlags(m.slags)))
+    ?? signable[0] ?? null;
 }
 
 // Billedtekst: titel · kunstner · datering (kun de udfyldte). Delt af MediaThumb (primitives.tsx)

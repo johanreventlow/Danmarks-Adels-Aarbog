@@ -367,10 +367,10 @@ mv."), ikke efter teknisk sværhedsgrad:
 
 | Fase | Indhold | Løser | Kerne-leverancer |
 |---|---|---|---|
-| **1 — Filsiden & fuld CRUD** | Medie-detaljeside (web+mobile) med metadata-redigering, rettigheds-panel, genopret | M1, M2, M3 | `red_opdater_media`, `red_genopret_media`, UI-panel, upload-ark udvidet med kunstner/datering. **Implementeret lokalt; prod-deploy gated:** [`../superpowers/specs/2026-07-19-mediehaandtering-fase1-filside-design.md`](../superpowers/specs/2026-07-19-mediehaandtering-fase1-filside-design.md) |
-| **2 — Biblioteket** | "Medier"-fanen som rigtigt bibliotek: søgning, køer 1–4, "bruges på", advarsel ved fjern/slet | M6, M7, M9 (synlighed) | kø-queries, `red_doede_links`+media, tilknyt-eksisterende-picker (M5). **Implementeret lokalt; prod-deploy gated:** [`../superpowers/specs/2026-07-19-mediehaandtering-fase2-bibliotek-design.md`](../superpowers/specs/2026-07-19-mediehaandtering-fase2-bibliotek-design.md) |
+| **1 — Filsiden & fuld CRUD** | Medie-detaljeside (web+mobile) med metadata-redigering, rettigheds-panel, genopret | M1, M2, M3 | `red_opdater_media`, `red_genopret_media`, UI-panel, upload-ark udvidet med kunstner/datering. **LIVE i prod (2026-07-20):** [`../superpowers/specs/2026-07-19-mediehaandtering-fase1-filside-design.md`](../superpowers/specs/2026-07-19-mediehaandtering-fase1-filside-design.md) |
+| **2 — Biblioteket** | "Medier"-fanen som rigtigt bibliotek: søgning, køer 1–4, "bruges på", advarsel ved fjern/slet | M6, M7, M9 (synlighed) | kø-queries, `red_doede_links`+media, tilknyt-eksisterende-picker (M5). **LIVE i prod (2026-07-20):** [`../superpowers/specs/2026-07-19-mediehaandtering-fase2-bibliotek-design.md`](../superpowers/specs/2026-07-19-mediehaandtering-fase2-bibliotek-design.md) |
 | **3 — Hygiejne** | sha256 ved upload, sha-stier, dedup-UX, janitor-script | M8, M9 (oprydning) | klient-hash, `import/janitor`-R-script, verify-asserts. **Implementeret og verificeret lokalt; prod/E2E/CI er fortsat gated:** [`../superpowers/specs/2026-07-20-mediehaandtering-fase3-hygiejne-design.md`](../superpowers/specs/2026-07-20-mediehaandtering-fase3-hygiejne-design.md) |
-| **4 — Identitet & endeligt farvel** | Erstat fil, udrensning m. preview, portræt-flag | M4, M11, M10 | `red_erstat_media_fil`, `red_udrens_media`(+preview), `red_saet_portraet`, `relation.kvalifikator` |
+| **4 — Identitet & endeligt farvel** | Erstat fil, udrensning m. preview, portræt-flag | M4, M11, M10 | `red_erstat_media_fil`, `red_udrens_media`(+preview), `red_saet_portraet`, `relation.kvalifikator`. **Implementeret og verificeret lokalt (2026-07-22); prod-deploy gated:** dual-reviewet (`docs/reviews/34-mediehaandtering-fase4-plan-dual-review.md`), §10.1–2 besluttet (hård sletning accepteret; frist = janitorens `--frist-dage`), §10.3 accepteret restrisiko (variant-mismatch efter fortryd-af-erstat), §10.4 dobbelt-klik-bekræft valgt, §10.5 ryd-portræt-grenen medtaget. Spec: [`../superpowers/specs/2026-07-21-mediehaandtering-fase4-identitet-design.md`](../superpowers/specs/2026-07-21-mediehaandtering-fase4-identitet-design.md) |
 | **5 — Dokumenter & transskription** (§4.8, tilføjet 2026-07-19) | PDF/scanning-upload uden variant-pipeline, dokument-preview, transskription som narrativ-på-media (fts-søgbar), nye `slags`-værdier | (nyt behov, ikke M-nummereret) | upload-gren for ikke-billeder, filside-preview, narrativ-på-media inkl. GDPR-arv (egen designrunde), vocab |
 
 Fase 1+2 giver ~80 % af den oplevede forbedring og kræver nul nye arkitektur-
@@ -385,8 +385,15 @@ transskriptions-GDPR-spørgsmål (§4.8) må ikke hastes.
 1. **Udrensning vs. arkiverings-ånden** (§4.3): bekræft at hård sletning af bytes
    + række er acceptabel når jura kræver det, og hvad der præcis skal overleve
    (change_row-snapshot gør det i dag — er det nok, eller for meget ift. GDPR?).
+   **Besluttet (fase 4-implementering, review 34):** ja — hård sletning accepteres;
+   invarianten "påstande overskrives aldrig" fredér assertion/conclusion, ikke
+   media-bytes/-metadata. `change_event.foer`-snapshottet er arkivsporet; et konkret
+   metadata-sletningskrav udover bytes håndteres manuelt, ikke via RPC.
 2. **Tilbageholdelses-frist for gamle bytes efter erstat-fil** (§4.5): hvor længe
    skal en erstattet version kunne fortrydes, før janitoren må rydde den?
+   **Besluttet (fase 4-implementering, review 34):** janitorens eksisterende
+   `--frist-dage` (default 7) — ingen ny mekanisme, ingen change_event-baseret fredning
+   (ville gøre tilbagekaldt materiale udødeligt).
 3. **Dubletter fra før dedup** (§4.2 kø 5): skal eksisterende dubletter flettes
    (om-peg relationer → udrens kopien), eller blot flages?
 4. **Vocab-håndhævelse for `slags`:** medie-`slags` er fritekst i dag (som al vocab)

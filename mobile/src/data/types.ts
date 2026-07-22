@@ -79,6 +79,7 @@ export type RawRelation = {
   objekt_id: number | string;
   rolle: string | null;
   periode_raw: string | null;
+  kvalifikator?: { primaer?: boolean } | null;
 };
 export type RawTextMention = {
   kilde_type: string;
@@ -106,6 +107,7 @@ export type RawMedia = {
   bredde?: number | null;
   hoejde?: number | null;
   created_at?: string | null;
+  primaer?: boolean;
   [k: string]: unknown;
 };
 export type RawArms = { id: number | string; blasonering: string | null; note: string | null };

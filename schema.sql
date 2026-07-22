@@ -364,7 +364,8 @@ CREATE TABLE relation (
   end_min   DATE, end_max   DATE,
   period_type TEXT,                      -- 'closed','open_start','open_end','ongoing','floruit','until_event'
   periode_raw TEXT,
-  konfidens   TEXT
+  konfidens   TEXT,
+  kvalifikator jsonb                     -- fase 4: rolle-kvalifikation, fx {"primaer":true} (portræt-valg, M10); generisk pr. plan Slice 3 — deles med fremtidig region-tagging (bbox) uden ny DDL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS relation_afbildet_uidx
   ON relation (subjekt_type, subjekt_id, objekt_type, objekt_id)
@@ -2150,6 +2151,279 @@ BEGIN
           byte_size = excluded.byte_size, bredde = excluded.bredde, hoejde = excluded.hoejde
     RETURNING id INTO v_id;
   RETURN v_id;
+END $$;
+
+-- Fase 4 (M4): erstat mediets BYTES men behold dets IDENTITET (id, relationer, mentions,
+-- rettigheder, bogmærkelinks). Klienten har lagt de nye bytes på NYE sha-stier FØRST
+-- (fase 3-pipelinen, idempotent) — dette kald flytter rækkens identitet atomisk over på dem.
+-- Gamle objekter overskrives ALDRIG: de bliver forældreløse (media_id_for_object → NULL =
+-- fail-closed usynlige) og ryddes af janitorens kategori b efter --frist-dage — DET er
+-- fortryd-vinduet (koncept §10.2). Varianter re-registreres INDE i transaktionen (et afbrud
+-- må ikke efterlade ny large + gamle thumbs); red_registrer_media_variant åbner bevidst intet
+-- eget change_set, så hele erstatningen er ÉT fortrydbart sæt — fortryd-historikken ER
+-- filhistorikken (koncept §4.5), ingen media_version-tabel. KENDT begrænsning (B8, spec §3.2):
+-- fortryd ruller kun media-rækken tilbage; variant-rækkerne er uversioneret cache og bliver
+-- stående på de nye stier (selvopdagende thumb/large-mismatch — afhjælpes ved at erstatte igen).
+CREATE OR REPLACE FUNCTION red_erstat_media_fil(
+  p_media_id bigint,
+  p_storage_path text, p_mime text, p_byte_size bigint,
+  p_bredde int, p_hoejde int, p_sha256 text,
+  p_original_filnavn text DEFAULT NULL,
+  p_varianter jsonb DEFAULT '[]'
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_status text; v_egen_sha text; v_v record;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF nullif(btrim(p_storage_path),'') IS NULL THEN RAISE EXCEPTION 'Storage-sti er påkrævet'; END IF;
+  IF nullif(btrim(p_sha256),'') IS NULL THEN RAISE EXCEPTION 'sha256 er påkrævet'; END IF;
+  SELECT upload_status, sha256 INTO v_status, v_egen_sha FROM media WHERE id = p_media_id;
+  IF v_status IS NULL THEN RAISE EXCEPTION 'Media % findes ikke', p_media_id; END IF;
+  -- 'kladde' færdiggøres via fase 3's genoptag-flow; 'fjernet' genoprettes først.
+  IF v_status <> 'klar' THEN RAISE EXCEPTION 'Kan kun erstatte filen på et klart medie'; END IF;
+  -- Dedup-guard, to grene (klientens pre-flight fanger begge FØR bytes uploades; dette er race-bagstopperen):
+  IF v_egen_sha = p_sha256 THEN RAISE EXCEPTION 'Filen er identisk med den nuværende'; END IF;
+  IF EXISTS (SELECT 1 FROM media WHERE sha256 = p_sha256 AND id <> p_media_id) THEN
+    RAISE EXCEPTION 'Medie med samme indhold findes allerede (sha256=%). Genbrug den eksisterende media-række via red_relation.', p_sha256;
+  END IF;
+  PERFORM begin_change_set('red_erstat_media_fil', format('Erstattede filen på media %s', p_media_id), 'media', p_media_id);
+  -- Statustjekket er også del af selve UPDATE'ens WHERE (ikke kun den tidlige SELECT
+  -- ovenfor): den tidlige SELECT er en billig fast-fail i det almindelige (ikke-race)
+  -- tilfælde, men er IKKE i sig selv den autoritative gate — et konkurrerende
+  -- red_fjern_media kan committe mellem SELECT og UPDATE (check-then-act race).
+  -- Ved at gøre 'klar'-betingelsen atomisk med selve skrivningen lukkes racet.
+  UPDATE media SET
+    storage_path = p_storage_path, mime_type = p_mime, byte_size = p_byte_size,
+    bredde = p_bredde, hoejde = p_hoejde, sha256 = p_sha256,
+    original_filnavn = coalesce(nullif(btrim(p_original_filnavn),''), original_filnavn)
+  WHERE id = p_media_id AND upload_status = 'klar';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Kan kun erstatte filen på et klart medie';
+  END IF;
+  FOR v_v IN SELECT * FROM jsonb_to_recordset(coalesce(p_varianter,'[]'::jsonb))
+      AS x(tier text, storage_path text, mime text, byte_size bigint, bredde int, hoejde int)
+  LOOP
+    PERFORM red_registrer_media_variant(p_media_id, v_v.tier, v_v.storage_path,
+                                        v_v.mime, v_v.byte_size, v_v.bredde, v_v.hoejde);
+  END LOOP;
+END $$;
+
+-- Fase 4 (M11): read-only forhåndsvisning af udrensning — bekræftelsesdialogens datagrundlag.
+-- Kopierer red_slet_person_preview-kontrakten: SECURITY DEFINER, rolle-gated, intet change_set.
+-- 'blokeringer' fortæller UI'et præcis hvorfor knappen er grå; 'stier' er samtidig klientens
+-- arbejdsliste til Storage-sletningen — preview og udførelse deler ét sandhedsgrundlag.
+-- Review 34 (H1/H3): tæller ALLE polymorfe ankre, ikke kun deklarative FK'er — relation
+-- (begge retninger), text_mention, fact (rettighedsdokumentation via red_set_media_rettigheder;
+-- evidenskæden assertion/citation/conclusion hænger på fact'et og blokeres med det), story og
+-- narrative (deres RPC'er validerer ikke det polymorfe mål; haendelse cascader FRA narrative
+-- og tælles bevidst ikke selvstændigt), note (defensivt — ingen live skriver i dag) samt
+-- suggestion (Codex-review efter H1/H3: red_suggest accepterer ethvert p_subjekt_type/_id fra
+-- enhver logget-ind bruger uden FK/CHECK — web-appens degraderingslogik ruter faktisk
+-- ikke-redaktion-medlemmers medie-relaterede rettelser gennem red_suggest med
+-- p_subjekt_type='media', så en forslags-række anker på et medie er en reel, deterministisk
+-- konsekvens af normal app-brug, ikke en race).
+-- Review 34 (L1): feltet hedder 'tilknytninger', IKKE 'afbildet' — det rummer enhver rolle.
+CREATE OR REPLACE FUNCTION red_udrens_media_preview(p_media_id bigint)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_status text; v_tilknytninger jsonb; v_mentions jsonb; v_fakta jsonb; v_stories jsonb;
+        v_narrativer jsonb; v_noter jsonb; v_forslag jsonb; v_stier jsonb; v_blok text[] := '{}';
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  SELECT upload_status INTO v_status FROM media WHERE id = p_media_id;
+  IF v_status IS NULL THEN RAISE EXCEPTION 'Media % findes ikke', p_media_id; END IF;
+  -- ALLE relationer (enhver rolle, begge retninger) blokerer — ikke kun 'afbildet'.
+  SELECT coalesce(jsonb_agg(r), '[]'::jsonb) INTO v_tilknytninger FROM (
+    SELECT id AS relation_id,
+           CASE WHEN subjekt_type='media' AND subjekt_id=p_media_id THEN 'ud' ELSE 'ind' END AS retning,
+           CASE WHEN subjekt_type='media' AND subjekt_id=p_media_id THEN objekt_type ELSE subjekt_type END AS modpart_type,
+           CASE WHEN subjekt_type='media' AND subjekt_id=p_media_id THEN objekt_id ELSE subjekt_id END AS modpart_id
+    FROM relation
+    WHERE (subjekt_type='media' AND subjekt_id=p_media_id)
+       OR (objekt_type='media'  AND objekt_id=p_media_id)
+    ORDER BY id) r;
+  SELECT coalesce(jsonb_agg(m), '[]'::jsonb) INTO v_mentions FROM (
+    SELECT kilde_type, kilde_id FROM text_mention
+    WHERE maal_type='media' AND maal_id=p_media_id
+    ORDER BY kilde_type, kilde_id) m;
+  SELECT coalesce(jsonb_agg(f.id ORDER BY f.id), '[]'::jsonb) INTO v_fakta
+    FROM fact f WHERE f.subjekt_type='media' AND f.subjekt_id=p_media_id;
+  SELECT coalesce(jsonb_agg(s.id ORDER BY s.id), '[]'::jsonb) INTO v_stories
+    FROM story s WHERE s.subjekt_type='media' AND s.subjekt_id=p_media_id;
+  SELECT coalesce(jsonb_agg(n.id ORDER BY n.id), '[]'::jsonb) INTO v_narrativer
+    FROM narrative n WHERE n.subjekt_type='media' AND n.subjekt_id=p_media_id;
+  SELECT coalesce(jsonb_agg(t.id ORDER BY t.id), '[]'::jsonb) INTO v_noter
+    FROM note t WHERE t.target_type='media' AND t.target_id=p_media_id;
+  SELECT coalesce(jsonb_agg(g.id ORDER BY g.id), '[]'::jsonb) INTO v_forslag
+    FROM suggestion g WHERE g.subjekt_type='media' AND g.subjekt_id=p_media_id;
+  SELECT coalesce(jsonb_agg(s), '[]'::jsonb) INTO v_stier FROM (
+    SELECT bucket, storage_path AS sti, 'media' AS kilde FROM media
+      WHERE id=p_media_id AND storage_path IS NOT NULL
+    UNION ALL
+    SELECT m.bucket, v.storage_path, v.tier FROM media_variant v JOIN media m ON m.id=v.media_id
+      WHERE v.media_id=p_media_id) s;
+  IF v_status <> 'fjernet' THEN
+    v_blok := v_blok || 'Kan kun udrense et fjernet medie — fjern det først (papirkurven)';
+  END IF;
+  IF jsonb_array_length(v_tilknytninger) > 0 THEN
+    v_blok := v_blok || format('%s tilknytning(er) skal fjernes først', jsonb_array_length(v_tilknytninger));
+  END IF;
+  IF jsonb_array_length(v_mentions) > 0 THEN
+    v_blok := v_blok || format('%s narrativ-omtale(r) skal redigeres ud først', jsonb_array_length(v_mentions));
+  END IF;
+  IF jsonb_array_length(v_fakta) > 0 THEN
+    v_blok := v_blok || format('Mediet har rettighedsdokumentation (%s faktum/fakta) — fjern den først', jsonb_array_length(v_fakta));
+  END IF;
+  IF jsonb_array_length(v_stories) > 0 THEN
+    v_blok := v_blok || format('Mediet er subjekt for %s story/stories — flyt eller slet dem først', jsonb_array_length(v_stories));
+  END IF;
+  IF jsonb_array_length(v_narrativer) > 0 THEN
+    v_blok := v_blok || format('Mediet har %s tilknyttet narrativ(er) — slet dem først', jsonb_array_length(v_narrativer));
+  END IF;
+  IF jsonb_array_length(v_noter) > 0 THEN
+    v_blok := v_blok || format('%s note(r) peger på mediet — fjern dem først', jsonb_array_length(v_noter));
+  END IF;
+  IF jsonb_array_length(v_forslag) > 0 THEN
+    v_blok := v_blok || format('Mediet har %s forslag i kø — afvis eller godkend dem først', jsonb_array_length(v_forslag));
+  END IF;
+  RETURN jsonb_build_object(
+    'upload_status', v_status,
+    'kan_udrenses', coalesce(array_length(v_blok,1),0) = 0,
+    'blokeringer', to_jsonb(v_blok),
+    'antal_tilknytninger', jsonb_array_length(v_tilknytninger),
+    'antal_mentions', jsonb_array_length(v_mentions),
+    'antal_fakta', jsonb_array_length(v_fakta),
+    'antal_stories', jsonb_array_length(v_stories),
+    'antal_narrativer', jsonb_array_length(v_narrativer),
+    'antal_noter', jsonb_array_length(v_noter),
+    'antal_forslag', jsonb_array_length(v_forslag),
+    'tilknytninger', v_tilknytninger,
+    'mentions', v_mentions,
+    'fakta', v_fakta,
+    'stories', v_stories,
+    'narrativer', v_narrativer,
+    'noter', v_noter,
+    'forslag', v_forslag,
+    'stier', v_stier);
+END $$;
+
+-- Fase 4 (M11): den rigtige sletning — række + (returnerede) stier. To-trins: KUN fra 'fjernet'
+-- (blødt fjern først, koncept §4.3) og BLOKERET ved ethvert polymorft anker (review 34 H1/H3):
+-- relation (begge retninger — ryddes eksplicit først via red_slet_relation /
+-- red_slet_medierelation_uden_evidens, som håndterer polymorf evidens; flad DELETE her ville ikke),
+-- text_mention (redigeres ud af prosaen manuelt), fact m. subjekt_type='media'
+-- (rettighedsdokumentation fra red_set_media_rettigheder — evidenskæden assertion/citation/
+-- conclusion hænger på fact'et og ville forældreløses af en flad media-DELETE), story og
+-- narrative m. subjekt_type='media' (red_opret_story/red_upsert_narrativ validerer ikke målet;
+-- haendelse cascader FRA narrative via ON DELETE CASCADE og kræver INGEN selvstændig kode),
+-- note m. target_type='media' (DEFENSIVT — ingen live skriver i dag; red_slet_person-forsigtigheden)
+-- samt suggestion m. subjekt_type='media' (Codex-review efter H1/H3: red_suggest — kun gated af
+-- auth.uid() IS NOT NULL, ingen rolle-check — accepterer subjekt_type='media' fra ethvert
+-- logget-ind medlem; web-appens degraderingslogik ruter faktisk medie-forslag herigennem, så
+-- dette er en 7. reel polymorf anker, ikke en teoretisk).
+-- Udrens kan derfor aldrig forældreløse evidens eller efterlade friske døde links
+-- (red_doede_links-media-grenen er bagstopper for historiske tokens).
+-- Review 34 (H2): guard-tjek + slet er kollapset til ÉT atomisk DELETE-statement — de venlige
+-- RAISE-guards ovenfor giver præcise domæne-fejl, men den AUTORITATIVE gate er DELETE'ens egne
+-- NOT EXISTS-betingelser, som ikke kan skilles fra sletningen af en samtidig skriver (fx
+-- red_relation, der INSERT'er blindt). Postgres' standardmønster for check-then-act i en
+-- polymorf, FK-fri model uden separate lås-primitiver. Rammer DELETE 0 rækker efter at
+-- guardsne passerede, ændrede tilstanden sig undervejs → fail-loud, prøv igen.
+-- Storage-sletning er KLIENT-SIDET og sker EFTER dette kald (Postgres-txn og Storage deler ikke
+-- transaktion): DB-først garanterer at der aldrig findes en synlig række uden bytes; fejler
+-- klientens storage.remove, er objekterne forældreløse = fail-closed usynlige + janitor-kategori-b.
+-- media_variant CASCADE'r (uversioneret cache, ikke logget); media-rækken logges som DELETE med
+-- foer-snapshot → red_fortryd_change_set kan genskabe RÆKKEN, men hverken varianter eller bytes
+-- (dokumenteret, accepteret hazard — UI'et siger "kan ikke reelt fortrydes"; janitor-kategori c opdager).
+CREATE OR REPLACE FUNCTION red_udrens_media(p_media_id bigint)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_status text; v_stier jsonb;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  SELECT upload_status INTO v_status FROM media WHERE id = p_media_id;
+  IF v_status IS NULL THEN RAISE EXCEPTION 'Media % findes ikke', p_media_id; END IF;
+  IF v_status <> 'fjernet' THEN RAISE EXCEPTION 'Kan kun udrense et fjernet medie'; END IF;
+  -- Venlige, kategori-præcise domæne-fejl (det atomiske DELETE nedenfor er den autoritative gate):
+  IF EXISTS (SELECT 1 FROM relation
+             WHERE (subjekt_type='media' AND subjekt_id=p_media_id)
+                OR (objekt_type='media' AND objekt_id=p_media_id)) THEN
+    RAISE EXCEPTION 'Mediet har tilknytninger og kan ikke udrenses — fjern dem først';
+  END IF;
+  IF EXISTS (SELECT 1 FROM text_mention WHERE maal_type='media' AND maal_id=p_media_id) THEN
+    RAISE EXCEPTION 'Mediet er nævnt i narrativer og kan ikke udrenses — redigér omtalerne ud først';
+  END IF;
+  IF EXISTS (SELECT 1 FROM fact WHERE subjekt_type='media' AND subjekt_id=p_media_id) THEN
+    RAISE EXCEPTION 'Mediet har rettighedsdokumentation (fakta) og kan ikke udrenses — fjern den først';
+  END IF;
+  IF EXISTS (SELECT 1 FROM story WHERE subjekt_type='media' AND subjekt_id=p_media_id) THEN
+    RAISE EXCEPTION 'Mediet er subjekt for en story og kan ikke udrenses — flyt eller slet storyen først';
+  END IF;
+  IF EXISTS (SELECT 1 FROM narrative WHERE subjekt_type='media' AND subjekt_id=p_media_id) THEN
+    RAISE EXCEPTION 'Mediet har et tilknyttet narrativ og kan ikke udrenses — slet narrativet først';
+  END IF;
+  IF EXISTS (SELECT 1 FROM note WHERE target_type='media' AND target_id=p_media_id) THEN
+    RAISE EXCEPTION 'Mediet har noter og kan ikke udrenses — fjern dem først';
+  END IF;
+  IF EXISTS (SELECT 1 FROM suggestion WHERE subjekt_type='media' AND subjekt_id=p_media_id) THEN
+    RAISE EXCEPTION 'Mediet har forslag i kø og kan ikke udrenses — afvis eller godkend dem først';
+  END IF;
+  SELECT coalesce(jsonb_agg(s), '[]'::jsonb) INTO v_stier FROM (
+    SELECT bucket, storage_path AS sti FROM media WHERE id=p_media_id AND storage_path IS NOT NULL
+    UNION ALL
+    SELECT m.bucket, v.storage_path FROM media_variant v JOIN media m ON m.id=v.media_id
+      WHERE v.media_id=p_media_id) s;
+  PERFORM begin_change_set('red_udrens_media', format('Udrensede media %s permanent', p_media_id), 'media', p_media_id);
+  -- ÉT atomisk statement (H2): check-then-act kan ikke splittes af en samtidig transaktion.
+  DELETE FROM media
+   WHERE id = p_media_id
+     AND upload_status = 'fjernet'
+     AND NOT EXISTS (SELECT 1 FROM relation
+                     WHERE (subjekt_type='media' AND subjekt_id=p_media_id)
+                        OR (objekt_type='media' AND objekt_id=p_media_id))
+     AND NOT EXISTS (SELECT 1 FROM text_mention WHERE maal_type='media' AND maal_id=p_media_id)
+     AND NOT EXISTS (SELECT 1 FROM fact WHERE subjekt_type='media' AND subjekt_id=p_media_id)
+     AND NOT EXISTS (SELECT 1 FROM story WHERE subjekt_type='media' AND subjekt_id=p_media_id)
+     AND NOT EXISTS (SELECT 1 FROM narrative WHERE subjekt_type='media' AND subjekt_id=p_media_id)
+     AND NOT EXISTS (SELECT 1 FROM note WHERE target_type='media' AND target_id=p_media_id)
+     AND NOT EXISTS (SELECT 1 FROM suggestion WHERE subjekt_type='media' AND subjekt_id=p_media_id);
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Mediet kunne ikke udrenses — tilstanden ændrede sig undervejs, prøv igen';
+  END IF;
+  RETURN jsonb_build_object('stier', v_stier);
+END $$;
+
+-- Fase 4 (M10): portræt som redaktionelt VALG — {"primaer":true} på personens afbildet-relation.
+-- pickPortrait i læse-lagene prioriterer flaget og degraderer til slags-heuristikken (koncept §4.7).
+-- relation_afbildet_uidx garanterer max én relation pr. (person, media)-par, så "sæt flaget på
+-- parret" er entydigt. Retningen person→media er GDPR-invariantens (red_relation-guarden) — kun
+-- den ene retning scannes. Ingen upload_status-guard: et flag på et senere-fjernet medie er
+-- harmløst (læse-lagene ser kun synlige medier) og overlever genopret. p_media_id=NULL rydder
+-- valget. relation står i version_pk_registry uden skip-cols → begge UPDATEs logges og fortrydes.
+-- Samtidighed (review 34, M1 dismissed): to samtidige kald kan IKKE efterlade to primaer-flag
+-- — begin_change_set's eget max(id)+1 på change_set kolliderer FØRST (unique_violation), og
+-- taberen ruller hele sit kald tilbage før portræt-logikken nås. Verificeret umuligt, ikke
+-- blot usandsynligt; ingen ekstra lås nødvendig.
+CREATE OR REPLACE FUNCTION red_saet_portraet(p_person_id bigint, p_media_id bigint DEFAULT NULL)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_rows int;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_saet_portraet',
+    CASE WHEN p_media_id IS NULL THEN format('Ryddede portræt-valg for person %s', p_person_id)
+         ELSE format('Satte media %s som portræt for person %s', p_media_id, p_person_id) END,
+    'person', p_person_id);
+  -- Nulstil søskende først (én UPDATE): fjern nøglen; tom jsonb normaliseres til NULL.
+  UPDATE relation SET kvalifikator = nullif(kvalifikator - 'primaer', '{}'::jsonb)
+   WHERE subjekt_type='person' AND subjekt_id=p_person_id
+     AND objekt_type='media' AND rolle='afbildet'
+     AND kvalifikator ? 'primaer';
+  IF p_media_id IS NOT NULL THEN
+    UPDATE relation SET kvalifikator = coalesce(kvalifikator,'{}'::jsonb) || '{"primaer":true}'::jsonb
+     WHERE subjekt_type='person' AND subjekt_id=p_person_id
+       AND objekt_type='media' AND objekt_id=p_media_id AND rolle='afbildet';
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    IF v_rows = 0 THEN
+      RAISE EXCEPTION 'Mediet er ikke tilknyttet personen — tilknyt først';
+    END IF;
+  END IF;
 END $$;
 
 -- =====================================================================

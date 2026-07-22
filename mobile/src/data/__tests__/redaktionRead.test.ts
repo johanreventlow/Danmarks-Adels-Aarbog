@@ -1,4 +1,4 @@
-import { buildTidslinje, joinEvidence, mapHaendelser, mapKonfliktRow, mapNarrativer, mapRelationRow, mapStories, storyPrefillFraPost } from '../redaktionRead';
+import { buildTidslinje, joinEvidence, mapHaendelser, mapKonfliktRow, mapNarrativer, mapRelationRow, mapStories, mapUdrensPreview, storyPrefillFraPost } from '../redaktionRead';
 import { mapRedPerson, mapSammeSomLinks } from '../redaktionRead';
 import { getAll } from '@daa/core';
 
@@ -381,6 +381,7 @@ describe('mapPersonMediaRows (mediehåndtering fase 1)', () => {
       kunstner: 'Jens Juel', datering: 'ca. 1780', rettighederStatus: 'public_domain',
       mimeType: 'image/jpeg', byteSize: 1234, bredde: 800, hoejde: 1000, originalFilnavn: 'portraet.jpg',
       uploadStatus: 'klar', maaPubliceres: true, createdAt: '2026-07-20T08:00:00Z', thumbStoragePath: null,
+      primaer: false,
     }]);
   });
   it('manglende felter får fail-closed defaults', () => {
@@ -391,6 +392,7 @@ describe('mapPersonMediaRows (mediehåndtering fase 1)', () => {
       id: '92', relationId: '', slags: '', titel: null, storagePath: null, kunstner: null, datering: null,
       rettighederStatus: 'ukendt', mimeType: null, byteSize: null, bredde: null, hoejde: null,
       originalFilnavn: null, uploadStatus: 'kladde', maaPubliceres: false, createdAt: null, thumbStoragePath: null,
+      primaer: false,
     }]);
   });
   it('thumb udfyldes, og fjernet bevares til genopret', () => {
@@ -536,7 +538,7 @@ describe('mediebibliotek fase 2', () => {
     const out = mapMediaAnvendelse(
       '91',
       [
-        { id: 501, subjekt_type: 'person', subjekt_id: 7, objekt_type: 'media', objekt_id: 91, rolle: 'afbildet' },
+        { id: 501, subjekt_type: 'person', subjekt_id: 7, objekt_type: 'media', objekt_id: 91, rolle: 'afbildet', kvalifikator: { primaer: true } },
         { id: 502, subjekt_type: 'media', subjekt_id: 91, objekt_type: 'estate', objekt_id: 3, rolle: 'afbildet' },
       ],
       [{ kilde_type: 'narrative', kilde_id: 40, maal_type: 'media', maal_id: 91 }],
@@ -549,8 +551,8 @@ describe('mediebibliotek fase 2', () => {
     );
     expect(out).toEqual({
       afbildet: [
-        { type: 'person', id: '7', navn: 'Anna Reventlow', relationId: '501' },
-        { type: 'estate', id: '3', navn: 'Pederstrup', relationId: '502' },
+        { type: 'person', id: '7', navn: 'Anna Reventlow', relationId: '501', primaer: true },
+        { type: 'estate', id: '3', navn: 'Pederstrup', relationId: '502', primaer: false },
       ],
       mentions: [{ kildeType: 'narrative', kildeId: '40', subjektNavn: 'Den grevelige linje' }],
     });
@@ -571,5 +573,38 @@ describe('mediebibliotek fase 2', () => {
       { kildeType: 'note', kildeId: '99', subjektNavn: '(ukendt subjekt)' },
       { kildeType: 'narrative', kildeId: '302', subjektNavn: 'lineage #8' },
     ]);
+  });
+});
+
+describe('mapUdrensPreview (mediehåndtering fase 4)', () => {
+  it('mapper alle felter i den aktuelle preview-RPC-kontrakt til camelCase', () => {
+    expect(mapUdrensPreview({
+      upload_status: 'fjernet', kan_udrenses: false,
+      blokeringer: ['1 tilknytning skal fjernes først'],
+      antal_tilknytninger: 1, antal_mentions: 2, antal_fakta: 3, antal_stories: 4,
+      antal_narrativer: 5, antal_noter: 6, antal_forslag: 7,
+      tilknytninger: [{ relation_id: 11, retning: 'ud', modpart_type: 'person', modpart_id: 42 }],
+      mentions: [{ kilde_type: 'narrative', kilde_id: 21 }],
+      fakta: [31], stories: [41], narrativer: [51], noter: [61], forslag: [71],
+      stier: [{ bucket: 'media', sti: 'redaktor/a.jpg', kilde: 'media' }],
+    })).toEqual({
+      uploadStatus: 'fjernet', kanUdrenses: false,
+      blokeringer: ['1 tilknytning skal fjernes først'],
+      antalTilknytninger: 1, antalMentions: 2, antalFakta: 3, antalStories: 4,
+      antalNarrativer: 5, antalNoter: 6, antalForslag: 7,
+      tilknytninger: [{ relationId: '11', retning: 'ud', modpartType: 'person', modpartId: '42' }],
+      mentions: [{ kildeType: 'narrative', kildeId: '21' }],
+      fakta: ['31'], stories: ['41'], narrativer: ['51'], noter: ['61'], forslag: ['71'],
+      stier: [{ bucket: 'media', sti: 'redaktor/a.jpg', kilde: 'media' }],
+    });
+  });
+
+  it('giver fail-closed scalarer og tomme lister ved tomt input', () => {
+    expect(mapUdrensPreview(null)).toEqual({
+      uploadStatus: '', kanUdrenses: false, blokeringer: [],
+      antalTilknytninger: 0, antalMentions: 0, antalFakta: 0, antalStories: 0,
+      antalNarrativer: 0, antalNoter: 0, antalForslag: 0,
+      tilknytninger: [], mentions: [], fakta: [], stories: [], narrativer: [], noter: [], forslag: [], stier: [],
+    });
   });
 });

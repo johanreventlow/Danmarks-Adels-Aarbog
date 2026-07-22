@@ -2021,6 +2021,388 @@ BEGIN
   RAISE NOTICE 'OK: fremmed unique-constraint genkastes uændret';
 END $$;
 
+-- ===== Mediehåndtering fase 4: red_erstat_media_fil (erstat fil, stabil identitet) =====
+DO $$
+DECLARE v_id bigint; v_rel bigint; v_andet bigint; v_cs bigint; v_thumb_foer text; v_thumb_efter text;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+
+  -- Seed: klart medie med sha + thumb-variant + afbildet-relation (identiteten der skal overleve)
+  v_id := (SELECT coalesce(max(id),0)+1 FROM media);
+  INSERT INTO media(id,slags,titel,storage_path,mime_type,byte_size,bredde,hoejde,sha256,
+                    original_filnavn,upload_status,maa_publiceres)
+    VALUES (v_id,'foto','Erstat-test','redaktor/aa/gammel-large.jpg','image/jpeg',100,20,10,
+            '__f4_gammel_sha_'||v_id,'gammel.jpg','klar',false);
+  INSERT INTO media_variant(id,media_id,tier,storage_path)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM media_variant),v_id,'thumb','redaktor/aa/gammel-thumb.jpg');
+  v_rel := red_relation('person',-999941,'media',v_id,'afbildet');
+  SELECT storage_path INTO v_thumb_foer FROM media_variant WHERE media_id=v_id AND tier='thumb';
+
+  -- Happy path: én transaktion flytter identiteten + re-registrerer varianter
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_erstat_media_fil(v_id,'redaktor/bb/ny-large.jpg','image/jpeg',200,40,20,
+    '__f4_ny_sha_'||v_id, NULL,
+    jsonb_build_array(jsonb_build_object('tier','thumb','storage_path','redaktor/bb/ny-thumb.jpg',
+      'mime','image/jpeg','byte_size',5,'bredde',4,'hoejde',2)));
+  IF NOT EXISTS (SELECT 1 FROM media WHERE id=v_id AND storage_path='redaktor/bb/ny-large.jpg'
+                 AND sha256='__f4_ny_sha_'||v_id AND byte_size=200
+                 AND original_filnavn='gammel.jpg' AND upload_status='klar') THEN
+    RAISE EXCEPTION 'FEJL: erstat opdaterede ikke rækken korrekt (eller mistede original_filnavn)';
+  END IF;
+  SELECT storage_path INTO v_thumb_efter FROM media_variant WHERE media_id=v_id AND tier='thumb';
+  IF v_thumb_efter <> 'redaktor/bb/ny-thumb.jpg' THEN
+    RAISE EXCEPTION 'FEJL: varianten blev ikke re-registreret atomisk';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM relation WHERE id=v_rel AND objekt_id=v_id) THEN
+    RAISE EXCEPTION 'FEJL: relationen overlevede ikke erstatningen';
+  END IF;
+
+  -- Guard: identisk sha (no-op-erstat afvises)
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_erstat_media_fil(v_id,'redaktor/bb/ny-large.jpg','image/jpeg',200,40,20,'__f4_ny_sha_'||v_id);
+    RAISE EXCEPTION 'FEJL: identisk sha blev accepteret';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Filen er identisk med den nuværende%' THEN RAISE; END IF;
+  END;
+
+  -- Guard: sha på ANDEN række (dedup-bagstopper)
+  v_andet := (SELECT coalesce(max(id),0)+1 FROM media);
+  INSERT INTO media(id,slags,upload_status,sha256) VALUES (v_andet,'foto','klar','__f4_andet_sha_'||v_id);
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_erstat_media_fil(v_id,'redaktor/cc/x.jpg','image/jpeg',1,1,1,'__f4_andet_sha_'||v_id);
+    RAISE EXCEPTION 'FEJL: fremmed sha blev accepteret';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Medie med samme indhold findes allerede%' THEN RAISE; END IF;
+  END;
+
+  -- Guard: kun 'klar' (status='fjernet')
+  UPDATE media SET upload_status='fjernet' WHERE id=v_id;
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_erstat_media_fil(v_id,'redaktor/dd/y.jpg','image/jpeg',1,1,1,'__f4_tredje_sha_'||v_id);
+    RAISE EXCEPTION 'FEJL: fjernet medie kunne erstattes';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Kan kun erstatte filen på et klart medie%' THEN RAISE; END IF;
+  END;
+
+  -- Guard: kun 'klar' (status='kladde') — dækker den anden ikke-'klar' status,
+  -- ikke kun 'fjernet'
+  UPDATE media SET upload_status='kladde' WHERE id=v_id;
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_erstat_media_fil(v_id,'redaktor/dd/y.jpg','image/jpeg',1,1,1,'__f4_fjerde_sha_'||v_id);
+    RAISE EXCEPTION 'FEJL: kladde-medie kunne erstattes';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Kan kun erstatte filen på et klart medie%' THEN RAISE; END IF;
+  END;
+  UPDATE media SET upload_status='klar' WHERE id=v_id;
+
+  -- Guard: nonexistent media id
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_erstat_media_fil(-999999999,'redaktor/dd/y.jpg','image/jpeg',1,1,1,'__f4_femte_sha_'||v_id);
+    RAISE EXCEPTION 'FEJL: ikke-eksisterende media blev accepteret';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Media % findes ikke%' THEN RAISE; END IF;
+  END;
+
+  -- Fortryd: media-rækken ruller tilbage til gamle stier; variant-rækken bliver
+  -- BEVIDST stående på den nye sti (uversioneret cache, B8 — spec §3.2, plan-beslutning §10.3)
+  SELECT max(id) INTO v_cs FROM change_set WHERE operation='red_erstat_media_fil';
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_fortryd_change_set(v_cs, false);
+  IF NOT EXISTS (SELECT 1 FROM media WHERE id=v_id AND storage_path='redaktor/aa/gammel-large.jpg'
+                 AND sha256='__f4_gammel_sha_'||v_id) THEN
+    RAISE EXCEPTION 'FEJL: fortryd rullede ikke media-rækken tilbage';
+  END IF;
+  IF (SELECT storage_path FROM media_variant WHERE media_id=v_id AND tier='thumb')
+     <> 'redaktor/bb/ny-thumb.jpg' THEN
+    RAISE EXCEPTION 'FEJL: variant-cache uventet versioneret (B8-kontrakten er brudt)';
+  END IF;
+
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN
+    RAISE NOTICE 'OK: media fase 4 erstat-fil (guards, atomiske varianter, fortryd, rullet tilbage)';
+  ELSE RAISE; END IF;
+END $$;
+
+-- ===== Mediehåndtering fase 4: red_udrens_media + preview (den rigtige sletning) =====
+-- Review 34: seeder BEVIDST alle syv polymorfe ankre (relation, mention, fakta via LIVE
+-- red_set_media_rettigheder, story via red_opret_story, narrativ via red_upsert_narrativ,
+-- note direkte, forslag via LIVE red_suggest) og rydder dem én ad gangen — den oprindelige
+-- plan seedede kun to og passerede grøn med H1/H3 til stede. H2 (atomisk guard+slet) er ikke
+-- serielt testbar; den verificeres ved kode-form (ét DELETE-statement, Step 3) + race-
+-- bagstopper-fejlteksten. Forslags-ankeret (Codex-review efter H1/H3) seedes via den RIGTIGE
+-- red_suggest-RPC (ikke en hånd-rullet INSERT) — den kræver kun auth.uid() IS NOT NULL, ingen
+-- rolle-check, så et almindeligt medlem (anden uid end redaktøren ovenfor) kan kalde den direkte.
+DO $$
+DECLARE v_id bigint; v_rel bigint; v_story bigint; v_narr bigint; v_note bigint; v_forslag bigint;
+        v_prev jsonb; v_res jsonb; v_cs bigint;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+
+  -- Seed: fjernet medie m. variant + ALLE syv ankre
+  v_id := (SELECT coalesce(max(id),0)+1 FROM media);
+  INSERT INTO media(id,slags,titel,storage_path,upload_status,maa_publiceres)
+    VALUES (v_id,'foto','Udrens-test','redaktor/ee/udrens-large.jpg','fjernet',false);
+  INSERT INTO media_variant(id,media_id,tier,storage_path)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM media_variant),v_id,'thumb','redaktor/ee/udrens-thumb.jpg');
+  v_rel := red_relation('person',-999942,'media',v_id,'afbildet');
+  INSERT INTO text_mention(kilde_type,kilde_id,maal_type,maal_id) VALUES ('narrative',-999942,'media',v_id);
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_set_media_rettigheder(v_id,'afklaret',false,'CC-BY-4.0','Testarkivet',NULL,'fase4-verify');
+  PERFORM set_config('app.change_set_id','',true);
+  v_story := red_opret_story('media',v_id,'En story der peger direkte på mediet');
+  PERFORM set_config('app.change_set_id','',true);
+  v_narr := red_upsert_narrativ('media',v_id,'Et narrativ ophængt på mediet',false,NULL);
+  v_note := (SELECT coalesce(max(id),0)+1 FROM note);
+  INSERT INTO note(id,target_type,target_id,indhold) VALUES (v_note,'media',v_id,'defensiv note');
+  IF NOT EXISTS (SELECT 1 FROM fact WHERE subjekt_type='media' AND subjekt_id=v_id) THEN
+    RAISE EXCEPTION 'FEJL: seed-forudsætning brast — red_set_media_rettigheder skrev ingen fakta';
+  END IF;
+  -- Forslag via LIVE red_suggest, som en anden (ikke-redaktion) logget-ind bruger.
+  INSERT INTO auth.users(id,email) VALUES
+    ('00000000-0000-0000-0000-000000000002','media-fase4-medlem@test.invalid') ON CONFLICT DO NOTHING;
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000002',true);
+  v_forslag := red_suggest('fakta','media',v_id,'titel','Foreslået ny titel');
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+
+  -- Preview: blokeret af alle syv kategorier, med tællinger + stier
+  v_prev := red_udrens_media_preview(v_id);
+  IF (v_prev->>'kan_udrenses')::boolean
+     OR (v_prev->>'antal_tilknytninger')::int <> 1
+     OR (v_prev->>'antal_mentions')::int <> 1
+     OR (v_prev->>'antal_fakta')::int <> 2          -- licens + kildehenvisning (tredje felt NULL)
+     OR (v_prev->>'antal_stories')::int <> 1
+     OR (v_prev->>'antal_narrativer')::int <> 1
+     OR (v_prev->>'antal_noter')::int <> 1
+     OR (v_prev->>'antal_forslag')::int <> 1
+     OR jsonb_array_length(v_prev->'stier') <> 2
+     OR jsonb_array_length(v_prev->'blokeringer') <> 7 THEN
+    RAISE EXCEPTION 'FEJL: preview-blokeringer/tællinger forkerte: %', v_prev;
+  END IF;
+
+  -- Udrens blokeret af relation
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_udrens_media(v_id);
+    RAISE EXCEPTION 'FEJL: udrens accepterede medie med relation';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Mediet har tilknytninger%' THEN RAISE; END IF;
+  END;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_slet_relation(v_rel);
+
+  -- Udrens blokeret af mention
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_udrens_media(v_id);
+    RAISE EXCEPTION 'FEJL: udrens accepterede medie med mention';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Mediet er nævnt i narrativer%' THEN RAISE; END IF;
+  END;
+  DELETE FROM text_mention WHERE maal_type='media' AND maal_id=v_id;
+
+  -- Udrens blokeret af rettigheds-fakta (H1) — preview skal også være rød med rette tekst
+  v_prev := red_udrens_media_preview(v_id);
+  IF (v_prev->>'kan_udrenses')::boolean
+     OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(v_prev->'blokeringer') b
+                    WHERE b LIKE '%rettighedsdokumentation%') THEN
+    RAISE EXCEPTION 'FEJL: preview grøn/uklar trods rettigheds-fakta: %', v_prev;
+  END IF;
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_udrens_media(v_id);
+    RAISE EXCEPTION 'FEJL: udrens accepterede medie med rettigheds-fakta (H1)';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Mediet har rettighedsdokumentation%' THEN RAISE; END IF;
+  END;
+  -- Ryd fakta-blokeringen: HELE evidenskæden i FK-orden (red_slet_person-mønsteret, schema.sql:1128-1165)
+  DELETE FROM citation WHERE assertion_id IN (SELECT id FROM assertion WHERE target_type='fact'
+    AND target_id IN (SELECT id FROM fact WHERE subjekt_type='media' AND subjekt_id=v_id));
+  DELETE FROM conclusion WHERE target_type='fact'
+    AND target_id IN (SELECT id FROM fact WHERE subjekt_type='media' AND subjekt_id=v_id);
+  DELETE FROM assertion WHERE target_type='fact'
+    AND target_id IN (SELECT id FROM fact WHERE subjekt_type='media' AND subjekt_id=v_id);
+  DELETE FROM note WHERE target_type='fact'
+    AND target_id IN (SELECT id FROM fact WHERE subjekt_type='media' AND subjekt_id=v_id);
+  DELETE FROM fact WHERE subjekt_type='media' AND subjekt_id=v_id;
+
+  -- Udrens blokeret af story (H3)
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_udrens_media(v_id);
+    RAISE EXCEPTION 'FEJL: udrens accepterede medie med story (H3)';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Mediet er subjekt for en story%' THEN RAISE; END IF;
+  END;
+  DELETE FROM story WHERE id=v_story;
+
+  -- Udrens blokeret af narrativ (H3) — evt. haendelser ville cascade FRA narrativet, ingen egen oprydning
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_udrens_media(v_id);
+    RAISE EXCEPTION 'FEJL: udrens accepterede medie med narrativ (H3)';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Mediet har et tilknyttet narrativ%' THEN RAISE; END IF;
+  END;
+  DELETE FROM narrative WHERE id=v_narr;
+
+  -- Udrens blokeret af note (defensiv guard)
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_udrens_media(v_id);
+    RAISE EXCEPTION 'FEJL: udrens accepterede medie med note (defensiv guard)';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Mediet har noter%' THEN RAISE; END IF;
+  END;
+  DELETE FROM note WHERE id=v_note;
+
+  -- Udrens blokeret af forslag i kø (Codex-review efter H1/H3 — suggestion som 7. anker)
+  v_prev := red_udrens_media_preview(v_id);
+  IF (v_prev->>'kan_udrenses')::boolean
+     OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(v_prev->'blokeringer') b
+                    WHERE b LIKE '%forslag i kø%') THEN
+    RAISE EXCEPTION 'FEJL: preview grøn/uklar trods forslag i kø: %', v_prev;
+  END IF;
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_udrens_media(v_id);
+    RAISE EXCEPTION 'FEJL: udrens accepterede medie med forslag i kø';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Mediet har forslag i kø%' THEN RAISE; END IF;
+  END;
+  DELETE FROM suggestion WHERE id=v_forslag;  -- ingen retract-RPC findes; direkte SQL er OK til test-oprydning
+
+  -- Kun-fra-fjernet
+  UPDATE media SET upload_status='klar' WHERE id=v_id;
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_udrens_media(v_id);
+    RAISE EXCEPTION 'FEJL: udrens accepterede et klart medie';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Kan kun udrense et fjernet medie%' THEN RAISE; END IF;
+  END;
+  UPDATE media SET upload_status='fjernet' WHERE id=v_id;
+
+  -- Preview↔udrens-paritet på stier + selve sletningen
+  v_prev := red_udrens_media_preview(v_id);
+  IF NOT (v_prev->>'kan_udrenses')::boolean THEN RAISE EXCEPTION 'FEJL: preview burde være grøn nu: %', v_prev; END IF;
+  PERFORM set_config('app.change_set_id','',true);
+  v_res := red_udrens_media(v_id);
+  IF jsonb_array_length(v_res->'stier') <> jsonb_array_length(v_prev->'stier') THEN
+    RAISE EXCEPTION 'FEJL: preview og udrens er uenige om stierne (% vs %)', v_prev->'stier', v_res->'stier';
+  END IF;
+  IF EXISTS (SELECT 1 FROM media WHERE id=v_id) OR EXISTS (SELECT 1 FROM media_variant WHERE media_id=v_id) THEN
+    RAISE EXCEPTION 'FEJL: række/varianter overlevede udrensningen';
+  END IF;
+  -- Intet forældreløst tilbage: fact-kæden, story, narrativ, note og forslag blev ryddet FØR
+  -- udrens (blokerings-modellen), og efter udrens må INTET pege på det slettede medie (H1-garantien)
+  IF EXISTS (SELECT 1 FROM fact WHERE subjekt_type='media' AND subjekt_id=v_id)
+     OR EXISTS (SELECT 1 FROM story WHERE subjekt_type='media' AND subjekt_id=v_id)
+     OR EXISTS (SELECT 1 FROM narrative WHERE subjekt_type='media' AND subjekt_id=v_id)
+     OR EXISTS (SELECT 1 FROM note WHERE target_type='media' AND target_id=v_id)
+     OR EXISTS (SELECT 1 FROM text_mention WHERE maal_type='media' AND maal_id=v_id)
+     OR EXISTS (SELECT 1 FROM suggestion WHERE subjekt_type='media' AND subjekt_id=v_id) THEN
+    RAISE EXCEPTION 'FEJL: forældreløst anker/evidens peger stadig på det udrensede medie';
+  END IF;
+  -- DELETE-event med foer-snapshot logget
+  SELECT max(cs.id) INTO v_cs FROM change_set cs WHERE cs.operation='red_udrens_media';
+  IF NOT EXISTS (SELECT 1 FROM change_event WHERE change_set_id=v_cs AND tabel='media'
+                 AND op='DELETE' AND foer->>'id' = v_id::text AND efter IS NULL) THEN
+    RAISE EXCEPTION 'FEJL: udrens loggede ikke DELETE med foer-snapshot';
+  END IF;
+  -- Fortryd genskaber rækken fra snapshottet — men uden varianter (dokumenteret hazard, spec §4.2)
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_fortryd_change_set(v_cs, false);
+  IF NOT EXISTS (SELECT 1 FROM media WHERE id=v_id AND upload_status='fjernet') THEN
+    RAISE EXCEPTION 'FEJL: fortryd genskabte ikke media-rækken';
+  END IF;
+  IF EXISTS (SELECT 1 FROM media_variant WHERE media_id=v_id) THEN
+    RAISE EXCEPTION 'FEJL: variant-rækker uventet genskabt (cache er ikke versioneret)';
+  END IF;
+
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN
+    RAISE NOTICE 'OK: media fase 4 udrens (alle syv anker-guards, paritet, DELETE-log, fortryd uden varianter, rullet tilbage)';
+  ELSE RAISE; END IF;
+END $$;
+
+-- ===== Mediehåndtering fase 4: relation.kvalifikator + red_saet_portraet =====
+DO $$
+DECLARE v_m1 bigint; v_m2 bigint; v_r1 bigint; v_r2 bigint;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+
+  -- Kolonnen findes og er jsonb
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema='public' AND table_name='relation'
+                   AND column_name='kvalifikator' AND data_type='jsonb') THEN
+    RAISE EXCEPTION 'FEJL: relation.kvalifikator mangler eller har forkert type';
+  END IF;
+
+  v_m1 := (SELECT coalesce(max(id),0)+1 FROM media);
+  INSERT INTO media(id,slags,upload_status) VALUES (v_m1,'foto','klar');
+  v_m2 := v_m1 + 1;
+  INSERT INTO media(id,slags,upload_status) VALUES (v_m2,'foto','klar');
+  v_r1 := red_relation('person',-999943,'media',v_m1,'afbildet');
+  v_r2 := red_relation('person',-999943,'media',v_m2,'afbildet');
+
+  -- Sæt portræt på m1
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_saet_portraet(-999943, v_m1);
+  IF (SELECT kvalifikator->>'primaer' FROM relation WHERE id=v_r1) IS DISTINCT FROM 'true' THEN
+    RAISE EXCEPTION 'FEJL: primaer-flag blev ikke sat';
+  END IF;
+
+  -- Skift til m2 → søskende-nulstilling af m1
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_saet_portraet(-999943, v_m2);
+  IF (SELECT kvalifikator FROM relation WHERE id=v_r1) IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: søskende-nulstilling efterlod kvalifikator på m1 (%)',
+      (SELECT kvalifikator FROM relation WHERE id=v_r1);
+  END IF;
+  IF (SELECT kvalifikator->>'primaer' FROM relation WHERE id=v_r2) IS DISTINCT FROM 'true' THEN
+    RAISE EXCEPTION 'FEJL: flaget flyttede ikke til m2';
+  END IF;
+
+  -- Ryd-grenen (p_media_id = NULL)
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_saet_portraet(-999943, NULL);
+  IF EXISTS (SELECT 1 FROM relation
+             WHERE subjekt_type='person' AND subjekt_id=-999943 AND kvalifikator ? 'primaer') THEN
+    RAISE EXCEPTION 'FEJL: ryd-grenen fjernede ikke flaget';
+  END IF;
+
+  -- Manglende relation → domæne-fejl, INGEN implicit oprettelse
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_saet_portraet(-999943, -424242);
+    RAISE EXCEPTION 'FEJL: portræt accepteret uden relation';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Mediet er ikke tilknyttet personen%' THEN RAISE; END IF;
+  END;
+
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN
+    RAISE NOTICE 'OK: media fase 4 portræt (kolonne, søskende-nulstilling, ryd, guard, rullet tilbage)';
+  ELSE RAISE; END IF;
+END $$;
+
 -- ===== Levende feed fase 3: story/story_kilde/feed_pin — skema, RLS, RPC'er og fortryd =====
 DO $$
 DECLARE

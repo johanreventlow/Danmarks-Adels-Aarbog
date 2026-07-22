@@ -83,9 +83,23 @@ export function useMediaAndThumbUris(
   return state;
 }
 
-// Vælg hovedbillede (portræt): første portræt-egnede, ellers første medie.
+// Dedup pr. media-id uden at et primaer-flag kan tabes til relationsrækkefølgen. Det samme medie
+// kan være knyttet til flere samme_som-foldede aliaser, hvor kun den ene relation er primær.
+export function dedupPreferPrimaer(items: RawMedia[]): RawMedia[] {
+  const byId = new Map<string, RawMedia>();
+  for (const item of items) {
+    const id = String(item.id);
+    const existing = byId.get(id);
+    if (!existing || (item.primaer === true && existing.primaer !== true)) byId.set(id, item);
+  }
+  return [...byId.values()];
+}
+
+// Vælg hovedbillede: eksplicit portræt-valg → slags-heuristik → første medie.
 export function pickPortrait(media: RawMedia[]): RawMedia | null {
-  return media.find((m) => PORTRAIT_SLAGS.has(normSlags(String(m.slags ?? '')))) ?? media[0] ?? null;
+  return media.find((m) => m.primaer === true)
+    ?? media.find((m) => PORTRAIT_SLAGS.has(normSlags(String(m.slags ?? ''))))
+    ?? media[0] ?? null;
 }
 
 // Lightbox-klar visning af ét medie (Slice A) — id/uri + de felter mediaCaption-formlen (web-

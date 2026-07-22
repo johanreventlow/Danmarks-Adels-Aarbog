@@ -2,6 +2,7 @@
 // kilder (bogreference), embeder/godser (relation), linjer (grene I–V), medier.
 import { compareDanish, parseYear, stripParen } from '@daa/core';
 import { findMedieDubletKandidatIds, klassificerMedie, type MedieKoe } from './redaktionRead';
+import { dedupPreferPrimaer } from '../lib/media';
 import type {
   Aux,
   RawArms,
@@ -171,8 +172,13 @@ export function buildAux(
     const m = mediaById[String(r.objekt_id)];
     if (m) {
       const pid = cid(String(r.subjekt_id));
-      (mediaBy[pid] = mediaBy[pid] || []).push(m);
+      (mediaBy[pid] = mediaBy[pid] || []).push(
+        r.kvalifikator?.primaer === true ? { ...m, primaer: true } : m,
+      );
     }
+  });
+  Object.keys(mediaBy).forEach((pid) => {
+    mediaBy[pid] = dedupPreferPrimaer(mediaBy[pid]);
   });
 
   // Flade entitets-lister (2C-1, read-only browse). Rene mappings, dansk-sorteret.

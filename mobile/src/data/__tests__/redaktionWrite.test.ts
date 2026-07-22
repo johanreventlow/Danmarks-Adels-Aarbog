@@ -1,4 +1,17 @@
-import { buildRpcCall, describeCall, oversaetFejl, erFortrydKonflikt, FELT_FAKTATYPE } from '../redaktionWrite';
+const rpcEvents: string[] = [];
+
+jest.mock('../../lib/supabase', () => ({
+  supabase: {
+    rpc: jest.fn(async (fn: string) => {
+      rpcEvents.push(fn);
+      return { data: null, error: null };
+    }),
+  },
+}));
+
+import { buildRpcCall, describeCall, oversaetFejl, erFortrydKonflikt, FELT_FAKTATYPE, submitChange } from '../redaktionWrite';
+
+beforeEach(() => { rpcEvents.length = 0; });
 
 test('buildRpcCall — haendelseStatus', () => {
   expect(buildRpcCall({ art: 'haendelseStatus', subjektType: 'person', subjektId: '7',
@@ -440,6 +453,115 @@ describe('buildRpcCall — tilknytMedia fase 2', () => {
   it('oversætter red_relation-person-guarden', () => {
     expect(oversaetFejl('afbildet skal gå person→media (person kan ikke stå på objekt-siden — GDPR-gating)'))
       .toBe('En person skal stå på subjekt-siden ved billedtilknytning.');
+  });
+});
+
+describe('fase 4: erstatMediaFil', () => {
+  const base = {
+    art: 'erstatMediaFil', subjektType: 'media', subjektId: '7', mediaId: '7',
+    payload: {
+      localUri: 'file:///large.jpg', storagePath: 'redaktor/ab/s-large.jpg', mimeType: 'image/jpeg',
+      byteSize: 3, bredde: 2, hoejde: 1, sha256: 'abc123', originalFilnavn: 'ny.jpg',
+      varianter: [{
+        tier: 'thumb', uri: 'file:///thumb.jpg', storagePath: 'redaktor/ab/s-thumb.jpg',
+        mimeType: 'image/jpeg', byteSize: 1, bredde: 1, hoejde: 1,
+      }],
+    },
+  } as const;
+
+  it('bygger red_erstat_media_fil med metadata-varianter (ALDRIG URI-referencer i args)', () => {
+    const call = buildRpcCall(base as never)!;
+    expect(call.fn).toBe('red_erstat_media_fil');
+    expect(call.args.p_media_id).toBe(7);
+    expect(call.args.p_sha256).toBe('abc123');
+    expect(call.args.p_varianter).toEqual([{
+      tier: 'thumb', storage_path: 'redaktor/ab/s-thumb.jpg', mime: 'image/jpeg',
+      byte_size: 1, bredde: 1, hoejde: 1,
+    }]);
+    expect(JSON.stringify(call.args)).not.toContain('file:///');
+  });
+
+  it('afviser manglende mediaId/sha256/sti', () => {
+    expect(buildRpcCall({ ...base, mediaId: undefined } as never)).toBeNull();
+    expect(buildRpcCall({ ...base, payload: { ...base.payload, sha256: undefined } } as never)).toBeNull();
+    expect(buildRpcCall({ ...base, payload: { ...base.payload, storagePath: undefined } } as never)).toBeNull();
+  });
+
+  it('dry-run uploader INTET og udfører intet RPC', async () => {
+    const performUpload = jest.fn();
+    const res = await submitChange(base as never, { dryRun: true }, { performUpload });
+    expect(res.dryRun).toBe(true);
+    expect(performUpload).not.toHaveBeenCalled();
+    expect(rpcEvents).toEqual([]);
+  });
+});
+
+describe('fase 4: udrensMedia', () => {
+  const change = {
+    art: 'udrensMedia', subjektType: 'media', subjektId: '9', mediaId: '9',
+  } as const;
+
+  it('bygger red_udrens_media', () => {
+    expect(buildRpcCall(change as never)).toEqual({ fn: 'red_udrens_media', args: { p_media_id: 9 } });
+    expect(buildRpcCall({ ...change, mediaId: undefined } as never)).toBeNull();
+  });
+
+  it('dry-run uploader INTET og udfører intet RPC', async () => {
+    const performUpload = jest.fn();
+    const res = await submitChange(change as never, { dryRun: true }, { performUpload });
+    expect(res.dryRun).toBe(true);
+    expect(performUpload).not.toHaveBeenCalled();
+    expect(rpcEvents).toEqual([]);
+  });
+});
+
+describe('fase 4: saetPortraet', () => {
+  const change = {
+    art: 'saetPortraet', subjektType: 'person', subjektId: '5', personId: '5', mediaId: '7',
+  } as const;
+
+  it('bygger red_saet_portraet med og uden media (NULL = ryd)', () => {
+    expect(buildRpcCall(change as never))
+      .toEqual({ fn: 'red_saet_portraet', args: { p_person_id: 5, p_media_id: 7 } });
+    expect(buildRpcCall({ ...change, mediaId: undefined } as never))
+      .toEqual({ fn: 'red_saet_portraet', args: { p_person_id: 5, p_media_id: null } });
+    expect(buildRpcCall({ ...change, subjektId: '', personId: undefined } as never)).toBeNull();
+  });
+
+  it('dry-run uploader INTET og udfører intet RPC', async () => {
+    const performUpload = jest.fn();
+    const res = await submitChange(change as never, { dryRun: true }, { performUpload });
+    expect(res.dryRun).toBe(true);
+    expect(performUpload).not.toHaveBeenCalled();
+    expect(rpcEvents).toEqual([]);
+  });
+});
+
+describe('fase 4: oversaetFejl', () => {
+  it.each([
+    ['Kan kun erstatte filen på et klart medie', /kun erstattes på et klart medie/i],
+    ['Filen er identisk med den nuværende', /identisk/i],
+    ['Kan kun udrense et fjernet medie', /papirkurven/i],
+    ['Mediet har tilknytninger og kan ikke udrenses — fjern dem først', /tilknytninger/i],
+    ['Mediet er nævnt i narrativer og kan ikke udrenses — redigér omtalerne ud først', /narrativer/i],
+    ['Mediet er ikke tilknyttet personen — tilknyt først', /tilknyt/i],
+    ['Mediet har rettighedsdokumentation (fakta) og kan ikke udrenses — fjern den først',
+      'Mediet har rettighedsdokumentation — fjern den, før det udrenses.'],
+    ['Mediet er subjekt for en story og kan ikke udrenses — flyt eller slet storyen først',
+      'Mediet bruges som subjekt for en story — flyt eller slet storyen, før det udrenses.'],
+    ['Mediet har et tilknyttet narrativ og kan ikke udrenses — slet narrativet først',
+      'Mediet har et tilknyttet narrativ — slet narrativet, før det udrenses.'],
+    ['Mediet har noter og kan ikke udrenses — fjern dem først',
+      'Mediet har noter — fjern dem, før det udrenses.'],
+    ['Mediet har forslag i kø og kan ikke udrenses — afvis eller godkend dem først',
+      'Mediet har forslag i kø — afvis eller godkend dem, før det udrenses.'],
+    ['Mediet kunne ikke udrenses — tilstanden ændrede sig undervejs, prøv igen',
+      'Mediet kunne ikke udrenses, fordi tilstanden ændrede sig undervejs — prøv igen.'],
+    ['Media 42 findes ikke', /allerede slettet af en anden redaktør/i],
+    ['Storage-sti er påkrævet', /storage-sti/i],
+    ['sha256 er påkrævet', /sha256/i],
+  ])('oversætter %s', (raa, forvent) => {
+    expect(oversaetFejl(raa)).toMatch(forvent);
   });
 });
 
