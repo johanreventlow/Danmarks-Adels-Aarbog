@@ -141,11 +141,27 @@ async function fetchMediaByRelation(opts: {
   return byAnker;
 }
 
+// Dedup pr. media-id, men lad 'primaer:true' ALDRIG tabes til rækkefølge. Baggrund: samme medie kan
+// have en separat 'afbildet'-relationsrække pr. foldet samme_som-alias (relation_afbildet_uidx
+// håndhæver kun unikhed pr. enkelt (person,media)-par, ikke på tværs af en foldet persongruppe) — én
+// alias kan have kvalifikator.primaer=true, den anden ikke, og der er ingen ORDER BY der garanterer
+// hvilken af de to kommer først fra fetchMediaByRelation. Et naivt "første forekomst vinder"-filter
+// kan derfor stille slette redaktørens portræt-valg, hvis den ikke-primaer kopi behandles først.
+// Løsning: en forekomst med primaer=true overskriver altid en tidligere ikke-primaer forekomst af
+// samme id — men en senere ikke-primaer forekomst overskriver ALDRIG en allerede-set primaer=true.
+export function dedupPreferPrimaer(items: MediaItem[]): MediaItem[] {
+  const byId = new Map<string, MediaItem>();
+  for (const it of items) {
+    const existing = byId.get(it.id);
+    if (!existing || (it.primaer === true && existing.primaer !== true)) byId.set(it.id, it);
+  }
+  return [...byId.values()];
+}
+
 // Personens billeder (portræt+materiale): union over foldede medlems-id'er, dedup pr. media-id.
 export async function fetchPersonMedia(numIds: number[]): Promise<MediaItem[]> {
   const byPerson = await fetchMediaByRelation({ mediaSide: 'objekt', ankerType: 'person', ankerIds: numIds });
-  const seen = new Set<string>();
-  return [...byPerson.values()].flat().filter((it) => (seen.has(it.id) ? false : seen.add(it.id)));
+  return dedupPreferPrimaer([...byPerson.values()].flat());
 }
 
 // Objekt-billeder (gods/våben/…), batchet: ankerId → MediaItem[].
