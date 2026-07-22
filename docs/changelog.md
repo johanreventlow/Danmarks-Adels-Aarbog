@@ -1,5 +1,40 @@
 # Changelog
 
+## Mediehåndtering fase 4 — implementeret og verificeret lokalt (2026-07-22)
+
+Fase 4 ("identitet & endeligt farvel") er implementeret lokalt via subagent-drevet
+udvikling (Claude på DB-tasks, Codex gpt-5.6-sol på TS/React-tasks, dobbelt-review pr.
+task): `red_erstat_media_fil` (M4, erstat bytes men behold identitet — id/relationer/
+mentions/rettigheder uændret, filhistorik er fortryd-historikken), `red_udrens_media`
++ preview (M11, den rigtige permanente sletning — kun fra `'fjernet'`, blokeret af ALLE
+polymorfe ankre: relation, text_mention, fakta m. evidenskæde, story, narrativ, note,
+og — fundet under implementering, ikke i den oprindelige spec — `suggestion`; guard+slet
+er ét atomisk statement), og `red_saet_portraet` + `relation.kvalifikator` (M10,
+portræt-valg som redaktionelt fravalg af heuristikken, ikke dens erstatning).
+
+Dual-reviewet design (`docs/reviews/34-mediehaandtering-fase4-plan-dual-review.md`) fandt
+og rettede tre fund FØR implementering (manglende fakta-/story-/narrativ-anker, en
+check-then-delete-race, NULL-blinde test-assertions) samt ét under implementeringen
+(den manglende `suggestion`-anker). Per-task-review fandt yderligere fem reelle fund,
+alle rettet: en check-then-act-race i erstat-filens statustjek, manglende oversættelse af
+domænefejl, en foldet-samme_som-dedup der kunne tabe portræt-flaget til rækkefølge
+(fundet og rettet på BÅDE web og mobile), en fejlagtig "mislykkedes"-besked efter en
+allerede gennemført permanent sletning, og manglende dobbeltklik-beskyttelse på de nye
+handlinger. To fund blev bevidst accepteret som restrisiko frem for at udvide scope:
+en resterende (indsnævret, ikke elimineret) race på tværs af eksisterende, urørte
+skrive-RPC'er (§10.2-afvejningen), og en tilsvarende resterende race i mobilens delte,
+allerede-eksisterende `SkrivePreviewSheet`-komponent (prod-dato fra før fase 4, bruges
+af fire andre skærme — uden for denne fases filscope).
+
+Verificeret: frisk `schema.sql`-install og migrationssti (`mediehaandtering_fase4_identitet`)
+konvergerer til identisk flade (tomt `diff`); alle fire fase-4-verify-blokke grønne ad
+begge veje; web (tsc + 460 tests + build) og mobile (tsc + 375 tests) grønne; empirisk
+ende-til-ende bekræftet mod lokal Postgres (erstat bevarer identitet, udrens
+blokeres/lykkes korrekt, portræt sættes/ryddes korrekt). Ingen janitor-kodeændring
+(kategori b dækker allerede erstat-/udrens-efterladenskaber); ingen RLS-fil ændret.
+**Prod-deploy udestår som separat, gated trin** (egen runbook, fase 3-præcedensen);
+mobile er dev-only i dette projekt, så app-deploy dækker kun web.
+
 ## Mediehåndtering fase 3 — implementeret og verificeret lokalt (2026-07-20)
 
 Fase 3-koden er implementeret lokalt: nye uploads hashes over de genkodede large-bytes,
