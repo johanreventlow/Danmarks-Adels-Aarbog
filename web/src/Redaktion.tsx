@@ -199,6 +199,10 @@ export default function Redaktion() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [editingAssert, setEditingAssert] = useState<number | null>(null);
   const [addingFact, setAddingFact] = useState<number | null>(null);
+  // Opret-FØRSTE-oplysning for et felt uden noget fact endnu (factId er den syntetiske -1-
+  // placeholder, se renderFactCard) — nøglet på felt-navn, IKKE factId, da flere tomme felter
+  // (fx overhoved + naturalisering) ellers ville dele samme -1-sentinel og åbne samtidigt.
+  const [addingNyFelt, setAddingNyFelt] = useState<string | null>(null);
   const [scratch, setScratch] = useState<Record<string, string>>({});
 
   const [login, setLogin] = useState<{ open: boolean; email: string; pw: string; err: string; busy: boolean }>(
@@ -1443,6 +1447,21 @@ export default function Redaktion() {
               </div>
             ) : (
               <div onClick={() => setAddingFact(f.factId)} style={{ fontSize: 12, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', padding: '4px 2px' }}>+ Tilføj oplysning</div>
+            ))}
+            {/* Feltet har INTET fact endnu (factId er -1-placeholderen) — "+ Tilføj oplysning"
+                ovenfor kræver en eksisterende factId, så her opretter vi det allerførste fact. */}
+            {f.factId <= 0 && (addingNyFelt === f.felt ? (
+              <div style={{ background: T.paper, border: '1px solid rgba(34,31,26,.16)', borderRadius: 10, padding: 12, marginTop: 3 }}>
+                <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux, marginBottom: 8 }}>Ny oplysning</div>
+                <input value={sc('ny:' + f.felt + ':v')} onChange={(e) => setSc('ny:' + f.felt + ':v', e.target.value)} placeholder="Værdi" style={inp} />
+                <input value={sc('ny:' + f.felt + ':src')} onChange={(e) => setSc('ny:' + f.felt + ':src', e.target.value)} placeholder="Kildeangivelse — kilde, side/linje/nr" style={{ ...inp, marginTop: 7 }} />
+                <div style={{ display: 'flex', gap: 8, marginTop: 9 }}>
+                  <div onClick={() => { run({ art: 'fakta', subjektType: 'person', subjektId: pid, felt: f.felt, vaerdi: sc('ny:' + f.felt + ':v'), kildeFritekst: sc('ny:' + f.felt + ':src') || undefined }, 'Opret fakta'); setAddingNyFelt(null); }} style={btnGreen}>Registrér oplysning</div>
+                  <div onClick={() => setAddingNyFelt(null)} style={btnGhost}>Annullér</div>
+                </div>
+              </div>
+            ) : (
+              <div onClick={() => setAddingNyFelt(f.felt)} style={{ fontSize: 12, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', padding: '4px 2px' }}>+ Tilføj oplysning</div>
             ))}
           </div>
         )}
