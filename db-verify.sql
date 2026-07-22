@@ -2364,7 +2364,7 @@ BEGIN
   -- Sæt portræt på m1
   PERFORM set_config('app.change_set_id','',true);
   PERFORM red_saet_portraet(-999943, v_m1);
-  IF (SELECT kvalifikator->>'primaer' FROM relation WHERE id=v_r1) <> 'true' THEN
+  IF (SELECT kvalifikator->>'primaer' FROM relation WHERE id=v_r1) IS DISTINCT FROM 'true' THEN
     RAISE EXCEPTION 'FEJL: primaer-flag blev ikke sat';
   END IF;
 
@@ -2375,7 +2375,7 @@ BEGIN
     RAISE EXCEPTION 'FEJL: søskende-nulstilling efterlod kvalifikator på m1 (%)',
       (SELECT kvalifikator FROM relation WHERE id=v_r1);
   END IF;
-  IF (SELECT kvalifikator->>'primaer' FROM relation WHERE id=v_r2) <> 'true' THEN
+  IF (SELECT kvalifikator->>'primaer' FROM relation WHERE id=v_r2) IS DISTINCT FROM 'true' THEN
     RAISE EXCEPTION 'FEJL: flaget flyttede ikke til m2';
   END IF;
 
