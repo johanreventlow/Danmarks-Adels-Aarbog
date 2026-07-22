@@ -2207,12 +2207,17 @@ END $$;
 -- (begge retninger), text_mention, fact (rettighedsdokumentation via red_set_media_rettigheder;
 -- evidenskæden assertion/citation/conclusion hænger på fact'et og blokeres med det), story og
 -- narrative (deres RPC'er validerer ikke det polymorfe mål; haendelse cascader FRA narrative
--- og tælles bevidst ikke selvstændigt) samt note (defensivt — ingen live skriver i dag).
+-- og tælles bevidst ikke selvstændigt), note (defensivt — ingen live skriver i dag) samt
+-- suggestion (Codex-review efter H1/H3: red_suggest accepterer ethvert p_subjekt_type/_id fra
+-- enhver logget-ind bruger uden FK/CHECK — web-appens degraderingslogik ruter faktisk
+-- ikke-redaktion-medlemmers medie-relaterede rettelser gennem red_suggest med
+-- p_subjekt_type='media', så en forslags-række anker på et medie er en reel, deterministisk
+-- konsekvens af normal app-brug, ikke en race).
 -- Review 34 (L1): feltet hedder 'tilknytninger', IKKE 'afbildet' — det rummer enhver rolle.
 CREATE OR REPLACE FUNCTION red_udrens_media_preview(p_media_id bigint)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_status text; v_tilknytninger jsonb; v_mentions jsonb; v_fakta jsonb; v_stories jsonb;
-        v_narrativer jsonb; v_noter jsonb; v_stier jsonb; v_blok text[] := '{}';
+        v_narrativer jsonb; v_noter jsonb; v_forslag jsonb; v_stier jsonb; v_blok text[] := '{}';
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   SELECT upload_status INTO v_status FROM media WHERE id = p_media_id;
@@ -2239,6 +2244,8 @@ BEGIN
     FROM narrative n WHERE n.subjekt_type='media' AND n.subjekt_id=p_media_id;
   SELECT coalesce(jsonb_agg(t.id ORDER BY t.id), '[]'::jsonb) INTO v_noter
     FROM note t WHERE t.target_type='media' AND t.target_id=p_media_id;
+  SELECT coalesce(jsonb_agg(g.id ORDER BY g.id), '[]'::jsonb) INTO v_forslag
+    FROM suggestion g WHERE g.subjekt_type='media' AND g.subjekt_id=p_media_id;
   SELECT coalesce(jsonb_agg(s), '[]'::jsonb) INTO v_stier FROM (
     SELECT bucket, storage_path AS sti, 'media' AS kilde FROM media
       WHERE id=p_media_id AND storage_path IS NOT NULL
@@ -2266,6 +2273,9 @@ BEGIN
   IF jsonb_array_length(v_noter) > 0 THEN
     v_blok := v_blok || format('%s note(r) peger på mediet — fjern dem først', jsonb_array_length(v_noter));
   END IF;
+  IF jsonb_array_length(v_forslag) > 0 THEN
+    v_blok := v_blok || format('Mediet har %s forslag i kø — afvis eller godkend dem først', jsonb_array_length(v_forslag));
+  END IF;
   RETURN jsonb_build_object(
     'upload_status', v_status,
     'kan_udrenses', coalesce(array_length(v_blok,1),0) = 0,
@@ -2276,12 +2286,14 @@ BEGIN
     'antal_stories', jsonb_array_length(v_stories),
     'antal_narrativer', jsonb_array_length(v_narrativer),
     'antal_noter', jsonb_array_length(v_noter),
+    'antal_forslag', jsonb_array_length(v_forslag),
     'tilknytninger', v_tilknytninger,
     'mentions', v_mentions,
     'fakta', v_fakta,
     'stories', v_stories,
     'narrativer', v_narrativer,
     'noter', v_noter,
+    'forslag', v_forslag,
     'stier', v_stier);
 END $$;
 
@@ -2293,8 +2305,12 @@ END $$;
 -- (rettighedsdokumentation fra red_set_media_rettigheder — evidenskæden assertion/citation/
 -- conclusion hænger på fact'et og ville forældreløses af en flad media-DELETE), story og
 -- narrative m. subjekt_type='media' (red_opret_story/red_upsert_narrativ validerer ikke målet;
--- haendelse cascader FRA narrative via ON DELETE CASCADE og kræver INGEN selvstændig kode) samt
--- note m. target_type='media' (DEFENSIVT — ingen live skriver i dag; red_slet_person-forsigtigheden).
+-- haendelse cascader FRA narrative via ON DELETE CASCADE og kræver INGEN selvstændig kode),
+-- note m. target_type='media' (DEFENSIVT — ingen live skriver i dag; red_slet_person-forsigtigheden)
+-- samt suggestion m. subjekt_type='media' (Codex-review efter H1/H3: red_suggest — kun gated af
+-- auth.uid() IS NOT NULL, ingen rolle-check — accepterer subjekt_type='media' fra ethvert
+-- logget-ind medlem; web-appens degraderingslogik ruter faktisk medie-forslag herigennem, så
+-- dette er en 7. reel polymorf anker, ikke en teoretisk).
 -- Udrens kan derfor aldrig forældreløse evidens eller efterlade friske døde links
 -- (red_doede_links-media-grenen er bagstopper for historiske tokens).
 -- Review 34 (H2): guard-tjek + slet er kollapset til ÉT atomisk DELETE-statement — de venlige
@@ -2338,6 +2354,9 @@ BEGIN
   IF EXISTS (SELECT 1 FROM note WHERE target_type='media' AND target_id=p_media_id) THEN
     RAISE EXCEPTION 'Mediet har noter og kan ikke udrenses — fjern dem først';
   END IF;
+  IF EXISTS (SELECT 1 FROM suggestion WHERE subjekt_type='media' AND subjekt_id=p_media_id) THEN
+    RAISE EXCEPTION 'Mediet har forslag i kø og kan ikke udrenses — afvis eller godkend dem først';
+  END IF;
   SELECT coalesce(jsonb_agg(s), '[]'::jsonb) INTO v_stier FROM (
     SELECT bucket, storage_path AS sti FROM media WHERE id=p_media_id AND storage_path IS NOT NULL
     UNION ALL
@@ -2355,7 +2374,8 @@ BEGIN
      AND NOT EXISTS (SELECT 1 FROM fact WHERE subjekt_type='media' AND subjekt_id=p_media_id)
      AND NOT EXISTS (SELECT 1 FROM story WHERE subjekt_type='media' AND subjekt_id=p_media_id)
      AND NOT EXISTS (SELECT 1 FROM narrative WHERE subjekt_type='media' AND subjekt_id=p_media_id)
-     AND NOT EXISTS (SELECT 1 FROM note WHERE target_type='media' AND target_id=p_media_id);
+     AND NOT EXISTS (SELECT 1 FROM note WHERE target_type='media' AND target_id=p_media_id)
+     AND NOT EXISTS (SELECT 1 FROM suggestion WHERE subjekt_type='media' AND subjekt_id=p_media_id);
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Mediet kunne ikke udrenses — tilstanden ændrede sig undervejs, prøv igen';
   END IF;

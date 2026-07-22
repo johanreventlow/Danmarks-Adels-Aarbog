@@ -2133,13 +2133,16 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 
 -- ===== Mediehåndtering fase 4: red_udrens_media + preview (den rigtige sletning) =====
--- Review 34: seeder BEVIDST alle seks polymorfe ankre (relation, mention, fakta via LIVE
+-- Review 34: seeder BEVIDST alle syv polymorfe ankre (relation, mention, fakta via LIVE
 -- red_set_media_rettigheder, story via red_opret_story, narrativ via red_upsert_narrativ,
--- note direkte) og rydder dem én ad gangen — den oprindelige plan seedede kun to og
--- passerede grøn med H1/H3 til stede. H2 (atomisk guard+slet) er ikke serielt testbar;
--- den verificeres ved kode-form (ét DELETE-statement, Step 3) + race-bagstopper-fejlteksten.
+-- note direkte, forslag via LIVE red_suggest) og rydder dem én ad gangen — den oprindelige
+-- plan seedede kun to og passerede grøn med H1/H3 til stede. H2 (atomisk guard+slet) er ikke
+-- serielt testbar; den verificeres ved kode-form (ét DELETE-statement, Step 3) + race-
+-- bagstopper-fejlteksten. Forslags-ankeret (Codex-review efter H1/H3) seedes via den RIGTIGE
+-- red_suggest-RPC (ikke en hånd-rullet INSERT) — den kræver kun auth.uid() IS NOT NULL, ingen
+-- rolle-check, så et almindeligt medlem (anden uid end redaktøren ovenfor) kan kalde den direkte.
 DO $$
-DECLARE v_id bigint; v_rel bigint; v_story bigint; v_narr bigint; v_note bigint;
+DECLARE v_id bigint; v_rel bigint; v_story bigint; v_narr bigint; v_note bigint; v_forslag bigint;
         v_prev jsonb; v_res jsonb; v_cs bigint;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
@@ -2147,7 +2150,7 @@ BEGIN
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
 
-  -- Seed: fjernet medie m. variant + ALLE seks ankre
+  -- Seed: fjernet medie m. variant + ALLE syv ankre
   v_id := (SELECT coalesce(max(id),0)+1 FROM media);
   INSERT INTO media(id,slags,titel,storage_path,upload_status,maa_publiceres)
     VALUES (v_id,'foto','Udrens-test','redaktor/ee/udrens-large.jpg','fjernet',false);
@@ -2166,8 +2169,14 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM fact WHERE subjekt_type='media' AND subjekt_id=v_id) THEN
     RAISE EXCEPTION 'FEJL: seed-forudsætning brast — red_set_media_rettigheder skrev ingen fakta';
   END IF;
+  -- Forslag via LIVE red_suggest, som en anden (ikke-redaktion) logget-ind bruger.
+  INSERT INTO auth.users(id,email) VALUES
+    ('00000000-0000-0000-0000-000000000002','media-fase4-medlem@test.invalid') ON CONFLICT DO NOTHING;
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000002',true);
+  v_forslag := red_suggest('fakta','media',v_id,'titel','Foreslået ny titel');
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
 
-  -- Preview: blokeret af alle seks kategorier, med tællinger + stier
+  -- Preview: blokeret af alle syv kategorier, med tællinger + stier
   v_prev := red_udrens_media_preview(v_id);
   IF (v_prev->>'kan_udrenses')::boolean
      OR (v_prev->>'antal_tilknytninger')::int <> 1
@@ -2176,8 +2185,9 @@ BEGIN
      OR (v_prev->>'antal_stories')::int <> 1
      OR (v_prev->>'antal_narrativer')::int <> 1
      OR (v_prev->>'antal_noter')::int <> 1
+     OR (v_prev->>'antal_forslag')::int <> 1
      OR jsonb_array_length(v_prev->'stier') <> 2
-     OR jsonb_array_length(v_prev->'blokeringer') <> 6 THEN
+     OR jsonb_array_length(v_prev->'blokeringer') <> 7 THEN
     RAISE EXCEPTION 'FEJL: preview-blokeringer/tællinger forkerte: %', v_prev;
   END IF;
 
@@ -2257,6 +2267,22 @@ BEGIN
   END;
   DELETE FROM note WHERE id=v_note;
 
+  -- Udrens blokeret af forslag i kø (Codex-review efter H1/H3 — suggestion som 7. anker)
+  v_prev := red_udrens_media_preview(v_id);
+  IF (v_prev->>'kan_udrenses')::boolean
+     OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(v_prev->'blokeringer') b
+                    WHERE b LIKE '%forslag i kø%') THEN
+    RAISE EXCEPTION 'FEJL: preview grøn/uklar trods forslag i kø: %', v_prev;
+  END IF;
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_udrens_media(v_id);
+    RAISE EXCEPTION 'FEJL: udrens accepterede medie med forslag i kø';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Mediet har forslag i kø%' THEN RAISE; END IF;
+  END;
+  DELETE FROM suggestion WHERE id=v_forslag;  -- ingen retract-RPC findes; direkte SQL er OK til test-oprydning
+
   -- Kun-fra-fjernet
   UPDATE media SET upload_status='klar' WHERE id=v_id;
   BEGIN
@@ -2279,13 +2305,14 @@ BEGIN
   IF EXISTS (SELECT 1 FROM media WHERE id=v_id) OR EXISTS (SELECT 1 FROM media_variant WHERE media_id=v_id) THEN
     RAISE EXCEPTION 'FEJL: række/varianter overlevede udrensningen';
   END IF;
-  -- Intet forældreløst tilbage: fact-kæden, story, narrativ og note blev ryddet FØR udrens
-  -- (blokerings-modellen), og efter udrens må INTET pege på det slettede medie (H1-garantien)
+  -- Intet forældreløst tilbage: fact-kæden, story, narrativ, note og forslag blev ryddet FØR
+  -- udrens (blokerings-modellen), og efter udrens må INTET pege på det slettede medie (H1-garantien)
   IF EXISTS (SELECT 1 FROM fact WHERE subjekt_type='media' AND subjekt_id=v_id)
      OR EXISTS (SELECT 1 FROM story WHERE subjekt_type='media' AND subjekt_id=v_id)
      OR EXISTS (SELECT 1 FROM narrative WHERE subjekt_type='media' AND subjekt_id=v_id)
      OR EXISTS (SELECT 1 FROM note WHERE target_type='media' AND target_id=v_id)
-     OR EXISTS (SELECT 1 FROM text_mention WHERE maal_type='media' AND maal_id=v_id) THEN
+     OR EXISTS (SELECT 1 FROM text_mention WHERE maal_type='media' AND maal_id=v_id)
+     OR EXISTS (SELECT 1 FROM suggestion WHERE subjekt_type='media' AND subjekt_id=v_id) THEN
     RAISE EXCEPTION 'FEJL: forældreløst anker/evidens peger stadig på det udrensede medie';
   END IF;
   -- DELETE-event med foer-snapshot logget
@@ -2307,7 +2334,7 @@ BEGIN
   RAISE EXCEPTION 'ROLLBACK_TEST_OK';
 EXCEPTION WHEN OTHERS THEN
   IF SQLERRM='ROLLBACK_TEST_OK' THEN
-    RAISE NOTICE 'OK: media fase 4 udrens (alle seks anker-guards, paritet, DELETE-log, fortryd uden varianter, rullet tilbage)';
+    RAISE NOTICE 'OK: media fase 4 udrens (alle syv anker-guards, paritet, DELETE-log, fortryd uden varianter, rullet tilbage)';
   ELSE RAISE; END IF;
 END $$;
 
