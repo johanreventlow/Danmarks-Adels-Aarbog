@@ -253,3 +253,33 @@ describe('buildPresensListe — krydshenvisning inden for én gren (dobbelt-fæt
     expect(liste.advarsler.filter((a) => a.art === 'dobbelt_naaet')).toHaveLength(0);
   });
 });
+
+// Facitliste for det OPRINDELIGT rapporterede fund (decisions.md, "kendt struktur-begrænsning"):
+// ÉT pruneUndertrae-kalds EGEN rekursion (ikke to separate buildGren-sidegren-kald som ovenfor)
+// støder på samme levende person ad to veje, fordi to søskende (R's børn) er gift med hinanden
+// og har et fælles (levende) barn G. Før rettelsen blev den anden vej stille droppet (G's forælder
+// kunne miste sin eneste levende-forbindelse); nu bliver G en krydshenvisning i stedet.
+describe('pruneUndertrae — krydshenvisning INDEN FOR samme undertræ (oprindeligt rapporterede fund)', () => {
+  test('R ─┬─ A ─┐ giver G som fuld node under A, krydshenvisning under B', () => {
+    //    └─ B ─┘→ G (levende, barn af BÅDE A og B)
+    const db: Db = {
+      persons: [mk('R', 'mand'), mk('A', 'mand'), mk('B', 'kvinde'), mk('G', 'kvinde')],
+      unions: [union('fR', 'R'), { id: 'fAB', p1: 'A', p2: 'B', p2_name: null, year: null }],
+      parentChild: [pc('A', 'R', 'fR'), pc('B', 'R', 'fR'), pc('G', 'A', 'fAB'), pc('G', 'B', 'fAB')],
+    };
+    const model = buildModel(db);
+    const node = pruneUndertrae(model, { G: true }, 'R'); // ÉT top-niveau-kald, ingen ekstern deling
+    expect(node).not.toBeNull();
+    const [rodA, rodB] = node!.boern; // sorteret på fødselsår (begge null) → id-orden: 'A' < 'B'
+    expect(rodA.id).toBe('A');
+    expect(rodB.id).toBe('B');
+    const gUnderA = rodA.boern.find((b) => b.id === 'G')!;
+    const gUnderB = rodB.boern.find((b) => b.id === 'G')!;
+    expect(gUnderA).toBeDefined();
+    expect(gUnderB).toBeDefined();
+    const krydsCount = [gUnderA, gUnderB].filter((n) => n.krydsReference).length;
+    expect(krydsCount).toBe(1);
+    const fulde = gUnderA.krydsReference ? gUnderB : gUnderA;
+    expect(fulde.krydsReference).toBe(false);
+  });
+});

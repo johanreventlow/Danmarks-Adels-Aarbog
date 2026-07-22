@@ -22,21 +22,21 @@ Spec: `docs/superpowers/specs/2026-07-22-praesensliste-visning-design.md`. Plan:
   (uparsebar værdi giver aldrig et gættet anker). **Prod-apply af vokabular-seeden er
   fortsat bruger-gated** — kun filerne (schema.sql/db-migrations.sql/db-verify.sql) er
   opdateret i denne branch, intet er kørt mod en rigtig database.
-- **Kendt struktur-begrænsning, bevidst ikke rettet nu:** `pruneUndertrae`s cyklus-/
-  dobbeltvej-vagt (`seen`-sæt) er scoped til ÉT kald (én ankers eget undertræ). Når en
-  levende person er nået ad to veje INDEN FOR samme ankers undertræ (fx et
-  dobbelt-fætterskab/dobbelt-søskendeægteskab, historisk ikke ualmindeligt i adelsslægter),
-  dropper den anden vej stille sin gren i stedet for at vise personen dobbelt. Dette er
-  forskelligt fra `dobbelt_naaet`-advarslen (Task 4), som kun fanger overlap MELLEM
-  forskellige grene/ankre — det inden-for-gren-tilfælde er udokumenteret indtil nu og
-  kræver en designbeslutning (skal personen vises begge steder, kun ét sted med
-  krydshenvisning, eller flages som ny advarselstype?) før det rettes. **Kerens spejlbillede
-  (fanget af slut-reviewet):** når to FORSKELLIGE sidegrene af samme anker begge fører til
-  samme levende person (fx et fætter-fætter-ægteskab), har hver `pruneUndertrae`-kald sit
-  eget `seen`-sæt, så personen i stedet vises DOBBELT (én gang i hver gruppe) —
-  `dobbelt_naaet` fanger det ikke, fordi advarslen tæller pr. gren og et enkelt genfund
-  inden for én gren kollapser til 1. Visnings-duplikering, ikke datatab — samme
-  designbeslutning som ovenfor afgør begge tilfælde på én gang.
+- **RETTET (2026-07-22, bruger-beslutning "vis én gang + krydshenvisning"):** den tidligere
+  kendte struktur-begrænsning er lukket. `pruneUndertrae`s vagt er splittet i to: `paaVej`
+  (ID'er på den aktuelle rekursions-stak — en ægte data-cyklus beskæres fortsat defensivt til
+  null, som hidtil) og `alleredeVist` (ID'er allerede fuldt bygget og BEHOLDT, delt på tværs
+  af HELE `buildGren`-kaldet — ikke kun ét undertræ). Første forekomst af en levende person
+  inden for én gren vises fuldt ud; enhver senere forekomst inden for SAMME gren bliver en tom
+  krydshenvisnings-stub (`PresensNode.krydsReference`), vist i UI som en kort note ("vist
+  andetsteds i denne gren") i stedet for stille at blive droppet (det oprindelige fund) eller
+  duplikeret fuldt ud (kernens spejlbillede, fanget af slut-reviewet — to FORSKELLIGE
+  sidegrene der begge fører til samme levende person, fx et fætter-fætter-ægteskab). ÉN
+  mekanisme løser begge varianter, da `alleredeVist` trådes gennem både ankerBlokkens egen
+  rekursion og hver søskende-sidegrens kald. `alleredeVist` tilføjes KUN på succes-stien
+  (aldrig ved beskæring til null), så et tidligere forgæves forsøg aldrig blokerer en senere
+  gyldig forekomst. Krydsning MELLEM grene (`dobbelt_naaet`-advarslen) er uændret og upåvirket
+  — scopet er bevidst kun inden-for-gren. Facitliste-tests dækker begge varianter direkte.
 - **Trust-erfaring fra eksekveringen:** Codex' selv-rapporterede tekst (rapportfiler,
   afsluttende chat-resumeer) viste sig ved ét tilfælde (Task 4) at være fuldstændig
   opdigtet — beskrev funktioner/tests der ikke fandtes i den faktisk leverede (og korrekte)
