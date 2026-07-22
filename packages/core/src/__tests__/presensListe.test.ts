@@ -166,3 +166,90 @@ describe('kanoniserPresensGrundlag', () => {
     expect(r.levendeById['1']).toBe(true);
   });
 });
+
+describe('pruneUndertrae — krydshenvisning (levende nået ad to veje inden for samme gren)', () => {
+  test('ægte cyklus i data (A er sin egen ane) terminerer stadig og fjerner den cykliske gren', () => {
+    // Kunstig datafejl: B er registreret som barn af A, OG A som barn af B (parentChild i begge
+    // retninger). Uden på-vej-vagten ville dette give uendelig rekursion. A er levende (holder
+    // A selv ude af beskæringen uafhængigt af cyklussen); B er død uden andre efterkommere, så
+    // B's eneste "barn" er den cykliske gentagelse af A, som den indre på-vej-vagt afviser (null)
+    // — B beskæres derfor væk, og A ender med et tomt (ikke uendeligt dybt) børne-sæt.
+    const db: Db = { persons: [mk('A'), mk('B')], unions: [union('fA', 'A'), union('fB', 'B')], parentChild: [pc('B', 'A', 'fA'), pc('A', 'B', 'fB')] };
+    const model = buildModel(db);
+    const resultat = pruneUndertrae(model, { A: true }, 'A');
+    expect(resultat).toMatchObject({ id: 'A', levende: true, boern: [] });
+  });
+
+  test('delt alleredeVist-sæt: anden forekomst bliver en krydshenvisnings-stub, ikke en duplikeret undertræ eller et stille drop', () => {
+    // To UAFHÆNGIGE pruneUndertrae-kald (som to søskende-sidegrene i samme gren ville give),
+    // der deler ÉT alleredeVist-sæt — simulerer buildGrens deling på tværs af sidegrene.
+    const db: Db = {
+      persons: [mk('P', 'kvinde')], unions: [], parentChild: [],
+    };
+    const model = buildModel(db);
+    const alleredeVist = new Set<string>();
+    const foerste = pruneUndertrae(model, { P: true }, 'P', null, new Set(), alleredeVist);
+    const anden = pruneUndertrae(model, { P: true }, 'P', null, new Set(), alleredeVist);
+    expect(foerste).toMatchObject({ id: 'P', levende: true, krydsReference: false });
+    expect(anden).toMatchObject({ id: 'P', levende: true, krydsReference: true, boern: [], partnere: [] });
+  });
+
+  test('en beskåret (null) forekomst registreres IKKE i alleredeVist — blokerer ikke en senere gyldig forekomst', () => {
+    // X er død uden levende efterkommere/enke → beskæres til null ved første forsøg.
+    // Et andet, UAFHÆNGIGT senere kald på samme id (fx via en anden sidegren, hvor X's
+    // undertræ set fra dén vinkel faktisk indeholder en levende efterkommer) skal stadig
+    // kunne bygges fuldt ud — ikke fejlagtigt blive en krydshenvisning til ingenting.
+    const db: Db = {
+      persons: [mk('X'), mk('Y')], unions: [union('fX', 'X')], parentChild: [pc('Y', 'X', 'fX')],
+    };
+    const model = buildModel(db);
+    const alleredeVist = new Set<string>();
+    const foersteForsoeg = pruneUndertrae(model, {}, 'X', null, new Set(), alleredeVist); // ingen levende → null
+    expect(foersteForsoeg).toBeNull();
+    const andetForsoeg = pruneUndertrae(model, { X: true }, 'X', null, new Set(), alleredeVist); // nu levende
+    expect(andetForsoeg).toMatchObject({ id: 'X', levende: true, krydsReference: false });
+  });
+});
+
+describe('buildPresensListe — krydshenvisning inden for én gren (dobbelt-fætterskab)', () => {
+  // ANKER ─┬─ Gren1 ─ Faelles(levende, nået via TO sidegrene)
+  //        └─ Gren2 ─ Faelles(samme person, samme id — konvergent slægtskab, ikke datafejl)
+  const db: Db = {
+    persons: [mk('Bedste', 'mand'), mk('Gren1', 'mand'), mk('Gren2', 'kvinde'), mk('ANKER', 'mand'), mk('Faelles', 'kvinde')],
+    unions: [union('fBedste', 'Bedste'), union('fG1', 'Gren1'), { id: 'fG1G2', p1: 'Gren1', p2: 'Gren2', p2_name: null, year: null }],
+    parentChild: [
+      pc('Gren1', 'Bedste', 'fBedste'), pc('Gren2', 'Bedste', 'fBedste'), pc('ANKER', 'Bedste', 'fBedste'),
+      // Faelles er barn af BÅDE Gren1 og Gren2 (som er søskende, gift med hinanden — konvergent
+      // slægtskab, ikke en datafejl) — nås derfor ad to veje under ANKERs FARBROR/FARS SØSTER-gruppe.
+      pc('Faelles', 'Gren1', 'fG1G2'), pc('Faelles', 'Gren2', 'fG1G2'),
+    ],
+  };
+  const model = buildModel(db);
+  const levende = { ANKER: true, Faelles: true };
+
+  test('Faelles vises fuldt ud i den første gruppe, som krydshenvisning i den anden', () => {
+    const g = buildPresensListe(model, [{ personId: 'ANKER', linje: 'I', gren: 1, raaVaerdi: 'I linje, 1. gren' }], levende).grene[0];
+    // Gren1 og Gren2 er begge ANKERs søskende → begge i SAME søskende-gruppe (niveau 1) som roedder,
+    // sorteret på fødselsår (begge null → id-orden: 'Gren1' < 'Gren2').
+    const soeskende = g.grupper.find((x) => x.art === 'soeskende')!;
+    const [rodGren1, rodGren2] = soeskende.roedder;
+    expect(rodGren1.id).toBe('Gren1');
+    expect(rodGren2.id).toBe('Gren2');
+    // Faelles optræder under BEGGE — én gang fuldt, én gang som krydshenvisning.
+    const faellesUnderGren1 = rodGren1.boern.find((b) => b.id === 'Faelles')!;
+    const faellesUnderGren2 = rodGren2.boern.find((b) => b.id === 'Faelles')!;
+    expect(faellesUnderGren1).toBeDefined();
+    expect(faellesUnderGren2).toBeDefined();
+    const krydsCount = [faellesUnderGren1, faellesUnderGren2].filter((n) => n.krydsReference).length;
+    expect(krydsCount).toBe(1); // netop ÉN af de to er en krydshenvisning, den anden er den fulde node
+    const fulde = faellesUnderGren1.krydsReference ? faellesUnderGren2 : faellesUnderGren1;
+    expect(fulde.krydsReference).toBe(false);
+  });
+
+  test('krydshenvisning ændrer ikke dobbelt_naaet-advarslen (den dækker fortsat kun MELLEM grene)', () => {
+    const liste = buildPresensListe(model, [{ personId: 'ANKER', linje: 'I', gren: 1, raaVaerdi: 'I linje, 1. gren' }], levende);
+    // Faelles nås to gange INDEN FOR samme (eneste) gren — samlIds bruger et Set pr. gren,
+    // så det tæller kun som ÉT gren-medlemskab. Ingen dobbelt_naaet-advarsel skal udløses.
+    expect(liste.advarsler.filter((a) => a.art === 'dobbelt_naaet')).toHaveLength(0);
+  });
+});

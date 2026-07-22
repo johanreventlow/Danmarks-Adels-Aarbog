@@ -12,6 +12,10 @@ export type PresensNode = {
   partnere: PresensPartner[];
   boern: PresensNode[];
   usikker: boolean; // formodet/omstridt konfidens på kanten OP til denne node (invariant 7)
+  // Personen er allerede vist FULDT ud et andet sted i SAMME gren (fx et dobbelt-fætterskab,
+  // ikke ualmindeligt i tætsammengift adel) — denne forekomst er en tom stub uden undertræ.
+  // Krydsning MELLEM grene dækkes separat af dobbelt_naaet-advarslen og påvirkes ikke af dette.
+  krydsReference: boolean;
 };
 
 const svag = (k: Konfidens): boolean => k != null && KONFIDENS_RANK[k] <= KONFIDENS_RANK.formodet;
@@ -34,24 +38,40 @@ function sortNodes(model: Model, ns: PresensNode[]): void {
 // Beskæring bottom-up: levende medtages; afdøde kun med levende under sig eller efterlevende
 // ægtefælle. GDPR-bemærkning: `levende` kommer fra person.levende — RLS afgør hvad klienten
 // overhovedet kan se; denne funktion tilføjer ingen eksponering.
+//
+// To adskilte spor forhindrer uendelig rekursion/gentagelse:
+// - `paaVej` — id'er PÅ DEN AKTUELLE rekursions-sti. Genfund her er en ÆGTE cyklus i data
+//   (skal ikke forekomme i gyldige slægtsdata) → beskæres defensivt til null, som hidtil.
+// - `alleredeVist` — id'er der ALLEREDE er fuldt bygget og BEHOLDT et andet sted i SAMME
+//   kald til `buildGren` (delt på tværs af søskende-sidegrene, ikke kun inden for én undertræ-
+//   sti). Genfund her er et gyldigt konvergent slægtskab (fx dobbelt-fætterskab), ikke en fejl
+//   → returnerer en krydshenvisnings-stub i stedet for at duplikere undertræet eller stille
+//   droppe grenen. Tilføjes KUN når noden faktisk beholdes (ikke ved beskæring til null),
+//   så en tidligere forgæves gren aldrig blokerer en senere gyldig forekomst af samme id.
 export function pruneUndertrae(
   model: Model,
   levendeById: LevendeById,
   id: string,
   edgeKonfidens: Konfidens = null,
-  seen: Set<string> = new Set(),
+  paaVej: Set<string> = new Set(),
+  alleredeVist: Set<string> = new Set(),
 ): PresensNode | null {
-  if (seen.has(id)) return null; // cyklus-/dobbeltvej-vagt
-  seen.add(id);
+  if (paaVej.has(id)) return null;
+  if (alleredeVist.has(id)) {
+    return { id, levende: levendeById[id] === true, forbindelsesled: levendeById[id] !== true, partnere: [], boern: [], usikker: false, krydsReference: true };
+  }
+  paaVej.add(id);
   const levende = levendeById[id] === true;
   const boern = [...(model.indexes.childIdx[id] ?? new Set<string>())]
-    .map((cid) => pruneUndertrae(model, levendeById, cid, edgeKonf(model, cid, id), seen))
+    .map((cid) => pruneUndertrae(model, levendeById, cid, edgeKonf(model, cid, id), paaVej, alleredeVist))
     .filter((n): n is PresensNode => n != null);
   sortNodes(model, boern);
+  paaVej.delete(id);
   const partnere = partnereAf(model, levendeById, id);
   const efterlevendePartner = !levende && partnere.some((p) => p.levende);
   if (!levende && boern.length === 0 && !efterlevendePartner) return null;
-  return { id, levende, forbindelsesled: !levende, partnere, boern, usikker: svag(edgeKonfidens) };
+  alleredeVist.add(id);
+  return { id, levende, forbindelsesled: !levende, partnere, boern, usikker: svag(edgeKonfidens), krydsReference: false };
 }
 
 import { sortAnkre, stiOverskrift } from './presensLabels';
@@ -123,14 +143,19 @@ function koenSammensaetning(model: Model, ids: string[]): SoeskendeSammensaetnin
 // Enkelt-person-node uden undertræ (gift-ind-forælder, enke, nød-anker).
 function blad(model: Model, levendeById: LevendeById, id: string): PresensNode {
   const levende = levendeById[id] === true;
-  return { id, levende, forbindelsesled: !levende, partnere: partnereAf(model, levendeById, id), boern: [], usikker: false };
+  return { id, levende, forbindelsesled: !levende, partnere: partnereAf(model, levendeById, id), boern: [], usikker: false, krydsReference: false };
 }
 
 const ART_ORDEN: Record<PresensGruppe['art'], number> = { soeskende: 0, foraelder: 1, enke: 2 };
 
 function buildGren(model: Model, levendeById: LevendeById, anker: PresensAnker, andreAnkre: Set<string>): PresensGren {
+  // Delt på tværs af HELE grenens opbygning (ankerblok + alle sidegrene på alle niveauer), så en
+  // person nået ad to veje inden for samme gren vises fuldt ud én gang og som krydshenvisning
+  // resten af stederne (spec 2026-07-22, bruger-beslutning 2026-07-22 om dobbelt-fætterskaber).
+  const alleredeVist = new Set<string>();
   // Ankeret medtages ALTID — også hvis beskæringen ellers ville fjerne det.
-  const ankerBlok = pruneUndertrae(model, levendeById, anker.personId) ?? blad(model, levendeById, anker.personId);
+  const ankerBlok = pruneUndertrae(model, levendeById, anker.personId, null, new Set(), alleredeVist) ?? blad(model, levendeById, anker.personId);
+  alleredeVist.add(anker.personId); // også ved blad()-fallback, så senere fund af samme id korrekt krydshenviser
   const grupper: PresensGruppe[] = [];
   const kaede: Koen[] = [];
   let cur = anker.personId;
@@ -142,7 +167,7 @@ function buildGren(model: Model, levendeById: LevendeById, anker: PresensAnker, 
     if (blod != null) {
       const roedder = [...(model.indexes.childIdx[blod] ?? new Set<string>())]
         .filter((c) => c !== cur && !indeholderAnker(model, c, andreAnkre))
-        .map((c) => pruneUndertrae(model, levendeById, c, edgeKonf(model, c, blod)))
+        .map((c) => pruneUndertrae(model, levendeById, c, edgeKonf(model, c, blod), new Set(), alleredeVist))
         .filter((n): n is PresensNode => n != null);
       sortNodes(model, roedder);
       if (roedder.length > 0) {

@@ -31,6 +31,7 @@ function PraesensNodeView({ n, dybde, model, router }: {
           style={{ fontStyle: n.forbindelsesled ? 'italic' : 'normal' }}
         >
           {navn}{aar}{n.usikker ? ' ⚠' : ''}
+          {n.krydsReference ? ' (vist andetsteds i denne gren)' : ''}
         </Body>
       </Pressable>
       {partnere.map((p) => {

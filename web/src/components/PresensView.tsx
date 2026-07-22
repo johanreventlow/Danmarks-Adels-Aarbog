@@ -30,6 +30,7 @@ export function PresensGrenSektion(props: {
         }}
       >
         {navnAf(n.id)} {aarAf(n.id)}{n.usikker ? <span> ⚠</span> : ''}
+        {n.krydsReference ? <span style={{ fontStyle: 'normal' }}> (vist andetsteds i denne gren)</span> : ''}
       </span>
       {n.partnere.filter((p) => p.levende || !n.forbindelsesled).map((p) => (
         <span key={p.id} style={{ color: T.muted3 }}>
