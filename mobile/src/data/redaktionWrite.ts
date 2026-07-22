@@ -33,7 +33,8 @@ export type Change = {
      | 'uploadMedia' // mediehåndtering Slice 0g — redaktør-upload (portræt/objekt-foto)
      | 'opdaterMedia' | 'genopretMedia' | 'mediaRettigheder' // fase 1 filside
      | 'tilknytMedia' // fase 2 — genbrug eksisterende medie på person/objekt
-     | 'fjernMedia'; // Slice 0h — blødt fjern (upload_status='fjernet'); unlink går via sletRelation
+     | 'fjernMedia' // Slice 0h — blødt fjern (upload_status='fjernet'); unlink går via sletRelation
+     | 'erstatMediaFil' | 'udrensMedia' | 'saetPortraet'; // fase 4: identitet og endeligt farvel
   subjektType: string;
   subjektId: string;
   assertionId?: string;
@@ -419,6 +420,39 @@ if (c.art === 'mediaRettigheder') {
     if (c.mediaId == null) return null;
     return { fn: 'red_fjern_media', args: { p_media_id: Number(c.mediaId) } };
   }
+  // Fase 4 (M4): URI-referencer bruges kun til klient-upload. RPC'en modtager udelukkende
+  // metadata, så hverken localUri eller variantens uri kan lække ind i JSON-argumenterne.
+  if (c.art === 'erstatMediaFil') {
+    const mediaId = parsePostgresBigintId(c.mediaId);
+    const p = c.payload || {};
+    if (mediaId == null || !p.storagePath || !p.mimeType || !p.sha256) return null;
+    const varianter = (p.varianter ?? []) as Array<{
+      tier: string; storagePath: string; mimeType: string; byteSize: number; bredde: number; hoejde: number;
+    }>;
+    return { fn: 'red_erstat_media_fil', args: {
+      p_media_id: mediaId,
+      p_storage_path: p.storagePath, p_mime: p.mimeType,
+      p_byte_size: p.byteSize ?? null, p_bredde: p.bredde ?? null, p_hoejde: p.hoejde ?? null,
+      p_sha256: p.sha256,
+      p_original_filnavn: p.originalFilnavn ?? null,
+      p_varianter: varianter.map((v) => ({
+        tier: v.tier, storage_path: v.storagePath, mime: v.mimeType,
+        byte_size: v.byteSize, bredde: v.bredde, hoejde: v.hoejde,
+      })),
+    } };
+  }
+  if (c.art === 'udrensMedia') {
+    const mediaId = parsePostgresBigintId(c.mediaId);
+    if (mediaId == null) return null;
+    return { fn: 'red_udrens_media', args: { p_media_id: mediaId } };
+  }
+  if (c.art === 'saetPortraet') {
+    const personId = parsePostgresBigintId(c.personId ?? c.subjektId);
+    if (personId == null) return null;
+    const mediaId = c.mediaId != null ? parsePostgresBigintId(c.mediaId) : null;
+    if (c.mediaId != null && mediaId == null) return null;
+    return { fn: 'red_saet_portraet', args: { p_person_id: personId, p_media_id: mediaId } };
+  }
   return null;
 }
 
@@ -445,6 +479,14 @@ export async function submitChange(
   if (!supabase) throw new Error('Supabase ikke konfigureret');
   const client = supabase; // narrowing overlever ikke ind i closures nedenfor (Promise.all/map)
   let upload: ((localUri: string, storagePath: string, mimeType: string) => Promise<void>) | null = null;
+  if (c.art === 'erstatMediaFil') {
+    const p = c.payload || {};
+    if (!p.localUri || !p.storagePath) throw new Error('Mangler lokal fil eller sti til erstatning');
+    upload = deps.performUpload ?? (await import('../lib/mediaUpload')).performUpload;
+    await upload(String(p.localUri), String(p.storagePath), String(p.mimeType ?? 'application/octet-stream'));
+    const varianter = (p.varianter ?? []) as Array<{ uri: string; storagePath: string; mimeType: string }>;
+    for (const v of varianter) await upload(v.uri, v.storagePath, v.mimeType);
+  }
   if (c.art === 'uploadMedia') {
     const p = c.payload || {};
     if (!p.localUri || !p.storagePath) throw new Error('Mangler lokal fil eller sti til upload');
@@ -487,6 +529,21 @@ export function oversaetFejl(message: string): string {
   if (/kun redaktion/i.test(message)) return 'Kræver redaktør-rettigheder.';
   if (/medie med samme indhold findes allerede/i.test(message)) return "Billedet findes allerede i biblioteket — brug 'Tilknyt eksisterende' i stedet.";
   if (/allerede tilknyttet dette subjekt/i.test(message)) return 'Mediet er allerede tilknyttet dette subjekt.';
+  if (/kan kun erstatte filen på et klart medie/i.test(message)) return 'Filen kan kun erstattes på et klart medie.';
+  if (/filen er identisk med den nuværende/i.test(message)) return 'Filen er identisk med den nuværende — ingen ændring.';
+  if (/kan kun udrense et fjernet medie/i.test(message)) return 'Mediet skal først fjernes (papirkurven), før det kan udrenses.';
+  if (/har tilknytninger og kan ikke udrenses/i.test(message)) return 'Mediet har tilknytninger — fjern dem, før det udrenses.';
+  if (/nævnt i narrativer og kan ikke udrenses/i.test(message)) return 'Mediet er nævnt i narrativer — redigér omtalerne ud, før det udrenses.';
+  if (/ikke tilknyttet personen/i.test(message)) return 'Mediet er ikke tilknyttet personen — tilknyt det først.';
+  if (/har rettighedsdokumentation \(fakta\) og kan ikke udrenses/i.test(message)) return 'Mediet har rettighedsdokumentation — fjern den, før det udrenses.';
+  if (/er subjekt for en story og kan ikke udrenses/i.test(message)) return 'Mediet bruges som subjekt for en story — flyt eller slet storyen, før det udrenses.';
+  if (/har et tilknyttet narrativ og kan ikke udrenses/i.test(message)) return 'Mediet har et tilknyttet narrativ — slet narrativet, før det udrenses.';
+  if (/har noter og kan ikke udrenses/i.test(message)) return 'Mediet har noter — fjern dem, før det udrenses.';
+  if (/har forslag i kø og kan ikke udrenses/i.test(message)) return 'Mediet har forslag i kø — afvis eller godkend dem, før det udrenses.';
+  if (/kunne ikke udrenses.*tilstanden ændrede sig undervejs/i.test(message)) return 'Mediet kunne ikke udrenses, fordi tilstanden ændrede sig undervejs — prøv igen.';
+  if (/media\s+\S+\s+findes ikke/i.test(message)) return 'Mediet findes ikke længere — det er formentlig allerede slettet af en anden redaktør.';
+  if (/storage-sti er påkrævet/i.test(message)) return 'Der mangler en storage-sti til filen.';
+  if (/sha256 er påkrævet/i.test(message)) return 'Der mangler en sha256-værdi for filen.';
   if (/duplicate key|unique/i.test(message)) return 'Findes allerede.';
   if (/not configured|ikke konfigureret/i.test(message)) return 'Ingen forbindelse til basen.';
   if (/kan kun genoprette et fjernet medie/i.test(message)) return 'Mediet kan kun genoprettes, når det er fjernet.';

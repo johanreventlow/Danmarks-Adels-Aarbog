@@ -36,6 +36,9 @@ export type Change = {
      | 'opdaterMedia' | 'genopretMedia' | 'mediaRettigheder' // fase 1 filside
      | 'tilknytMedia' // fase 2: genbrug eksisterende medie via red_relation
      | 'fjernMedia' // Slice 0h — blødt fjern (upload_status='fjernet'); unlink går via sletRelation
+     | 'erstatMediaFil' // fase 4 (M4): erstat bytes, behold identitet — bytes FØR RPC, hård gate
+     | 'udrensMedia' // fase 4 (M11): permanent sletning (kun fra 'fjernet'); result = {stier}
+     | 'saetPortraet' // fase 4 (M10): {"primaer":true} på afbildet-relationen; mediaId udeladt = ryd
      | 'forslag'; // generisk entitets-feltredigering uden direkte RPC → red_suggest
   subjektType: string;
   subjektId: string;
@@ -443,6 +446,39 @@ if (c.art === 'mediaRettigheder') {
     if (mediaId == null) return null;
     return { fn: 'red_fjern_media', args: { p_media_id: mediaId } };
   }
+  // Fase 4 (M4): varianter sendes som METADATA (p_varianter); file-blobs må ALDRIG med i args
+  // (File JSON-serialiserer til {} — samme fælde som uploadMedia-forslags-gaten beskriver).
+  if (c.art === 'erstatMediaFil') {
+    const mediaId = parsePostgresBigintId(c.mediaId);
+    const p = c.payload || {};
+    if (mediaId == null || !p.storagePath || !p.mimeType || !p.sha256) return null;
+    const varianter = (p.varianter ?? []) as Array<{
+      tier: string; storagePath: string; mimeType: string; byteSize: number; bredde: number; hoejde: number;
+    }>;
+    return { fn: 'red_erstat_media_fil', args: {
+      p_media_id: mediaId,
+      p_storage_path: p.storagePath, p_mime: p.mimeType,
+      p_byte_size: p.byteSize ?? null, p_bredde: p.bredde ?? null, p_hoejde: p.hoejde ?? null,
+      p_sha256: p.sha256,
+      p_original_filnavn: p.originalFilnavn ?? null,
+      p_varianter: varianter.map((v) => ({
+        tier: v.tier, storage_path: v.storagePath, mime: v.mimeType,
+        byte_size: v.byteSize, bredde: v.bredde, hoejde: v.hoejde,
+      })),
+    } };
+  }
+  if (c.art === 'udrensMedia') {
+    const mediaId = parsePostgresBigintId(c.mediaId);
+    if (mediaId == null) return null;
+    return { fn: 'red_udrens_media', args: { p_media_id: mediaId } };
+  }
+  if (c.art === 'saetPortraet') {
+    const personId = parsePostgresBigintId(c.personId ?? c.subjektId);
+    if (personId == null) return null;
+    const mediaId = c.mediaId != null ? parsePostgresBigintId(c.mediaId) : null;
+    if (c.mediaId != null && mediaId == null) return null;
+    return { fn: 'red_saet_portraet', args: { p_person_id: personId, p_media_id: mediaId } };
+  }
   return null;
 }
 
@@ -466,6 +502,8 @@ export function buildSuggestCall(c: Change): RpcCall {
             ? { kortNoegle: c.kortNoegle, handling: c.handling }
             : c.art === 'fjernFeedPin'
               ? { kortNoegle: c.kortNoegle }
+              : c.art === 'saetPortraet'
+                ? { personId: c.personId ?? c.subjektId, mediaId: c.mediaId ?? null }
               : {};
   const payload = c.art === 'tilknytMedia' || c.payload == null
     ? fallbackPayload
@@ -509,10 +547,24 @@ export async function submitChange(c: Change, opts: { dryRun: boolean; role?: st
   // "forslag sendt"-kvittering ville lyve. UI'en skjuler allerede knappen for ikke-redaktion
   // (Redaktion.tsx), men denne gate er den robuste, ikke UI-afhængige grænse (fejler tydeligt
   // fremfor at oprette et korrupt forslag med falsk succes).
-  if (c.art === 'uploadMedia' && !direkte) {
+  // erstatMediaFil bærer fil-bytes (samme fælde som uploadMedia); udrensMedia er destruktiv og
+  // afhænger af de RETURNEREDE stier — et "udrens-forslag" ville lyve om begge dele (spec §6).
+  if ((c.art === 'uploadMedia' || c.art === 'erstatMediaFil') && !direkte) {
     throw new Error('Medieupload kræver redaktør-rettigheder — kan ikke sendes som forslag.');
   }
+  if (c.art === 'udrensMedia' && !direkte) {
+    throw new Error('Udrensning kræver redaktør-rettigheder — kan ikke sendes som forslag.');
+  }
   if (opts.dryRun) return { dryRun: true as const, call, direkte };
+  if (c.art === 'erstatMediaFil') {
+    // Bytes FØR RPC (idempotent på sha-stier, fase 3). Modsat upload er der ingen bekræft-fase:
+    // rækken forbliver 'klar' hele vejen, og RPC'en re-registrerer varianterne selv.
+    const p = c.payload || {};
+    if (!p.file || !p.storagePath) throw new Error('Mangler fil eller sti til erstatning');
+    const varianter = (p.varianter ?? []) as Array<{ file: Blob; storagePath: string }>;
+    await performUpload(p.file as Blob, String(p.storagePath));
+    await Promise.all(varianter.map((v) => performUpload(v.file, v.storagePath)));
+  }
   if (c.art === 'uploadMedia') {
     const p = c.payload || {};
     if (!p.file || !p.storagePath) throw new Error('Mangler fil eller sti til upload');
@@ -547,6 +599,21 @@ export function oversaetFejl(message: string): string {
   if (/kun redaktion/i.test(message)) return 'Kræver redaktør-rettigheder.';
   if (/medie med samme indhold findes allerede/i.test(message)) return "Billedet findes allerede i biblioteket — brug 'Tilknyt eksisterende' i stedet.";
   if (/allerede tilknyttet dette subjekt/i.test(message)) return 'Mediet er allerede tilknyttet dette subjekt.';
+  if (/kan kun erstatte filen på et klart medie/i.test(message)) return 'Filen kan kun erstattes på et klart medie.';
+  if (/filen er identisk med den nuværende/i.test(message)) return 'Filen er identisk med den nuværende — ingen ændring.';
+  if (/kan kun udrense et fjernet medie/i.test(message)) return 'Mediet skal først fjernes (papirkurven), før det kan udrenses.';
+  if (/har tilknytninger og kan ikke udrenses/i.test(message)) return 'Mediet har tilknytninger — fjern dem, før det udrenses.';
+  if (/nævnt i narrativer og kan ikke udrenses/i.test(message)) return 'Mediet er nævnt i narrativer — redigér omtalerne ud, før det udrenses.';
+  if (/ikke tilknyttet personen/i.test(message)) return 'Mediet er ikke tilknyttet personen — tilknyt det først.';
+  if (/har rettighedsdokumentation \(fakta\) og kan ikke udrenses/i.test(message)) return 'Mediet har rettighedsdokumentation — fjern den, før det udrenses.';
+  if (/er subjekt for en story og kan ikke udrenses/i.test(message)) return 'Mediet bruges som subjekt for en story — flyt eller slet storyen, før det udrenses.';
+  if (/har et tilknyttet narrativ og kan ikke udrenses/i.test(message)) return 'Mediet har et tilknyttet narrativ — slet narrativet, før det udrenses.';
+  if (/har noter og kan ikke udrenses/i.test(message)) return 'Mediet har noter — fjern dem, før det udrenses.';
+  if (/har forslag i kø og kan ikke udrenses/i.test(message)) return 'Mediet har forslag i kø — afvis eller godkend dem, før det udrenses.';
+  if (/kunne ikke udrenses.*tilstanden ændrede sig undervejs/i.test(message)) return 'Mediet kunne ikke udrenses, fordi tilstanden ændrede sig undervejs — prøv igen.';
+  if (/media\s+\S+\s+findes ikke/i.test(message)) return 'Mediet findes ikke længere — det er formentlig allerede slettet af en anden redaktør.';
+  if (/storage-sti er påkrævet/i.test(message)) return 'Der mangler en storage-sti til filen.';
+  if (/sha256 er påkrævet/i.test(message)) return 'Der mangler en sha256-værdi for filen.';
   if (/duplicate key|unique/i.test(message)) return 'Findes allerede.';
   if (/not configured|ikke konfigureret/i.test(message)) return 'Ingen forbindelse til basen.';
   if (/kan kun genoprette et fjernet medie/i.test(message)) return 'Mediet kan kun genoprettes, når det er fjernet.';

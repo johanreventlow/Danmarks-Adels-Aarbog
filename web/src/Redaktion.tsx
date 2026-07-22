@@ -14,7 +14,7 @@ import {
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
   type HaendelsePost, type StoryPost, type TidslinjePost, type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia, type ForaeldreUkendtMarkering, SLAEGT_SUBJEKT_ID,
   fetchForaeldreSlot, fetchForaeldreKonflikter, fetchBarnFamilie, type ForaeldreSlot, type ForaeldreKonflikt, type BarnFamilie,
-  fetchMediaBibliotek, fetchMediaAnvendelse, formatMedieAlder, type MediaBibliotekPost, type MediaAnvendelse, type MedieKoe,
+  fetchMediaBibliotek, fetchMediaAnvendelse, fetchUdrensPreview, formatMedieAlder, type MediaBibliotekPost, type MediaAnvendelse, type MedieKoe, type UdrensPreview,
 } from './data/redaktionRead';
 import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, insertAt, makeToken, previewSammeSom } from '@daa/core';
 import { loadModel } from './data/model';
@@ -28,7 +28,9 @@ import {
   type MediaDedupHit, type MediaDedupTarget,
 } from './data/mediaDedup';
 import { executeMediaMerge, fetchMediaMergeRelationEvidence, findMediaMergeCandidates, mediaMentionFingerprint, sortMediaForQueue } from './data/mediaMerge';
+import { executeUdrens } from './data/mediaUdrens';
 import { withUrl } from './data/media';
+import { supabase } from './supabase';
 import { buildBrowse } from './data/browse';
 import { initials } from './data/format';
 import { NarrativRenderer } from './components/NarrativRenderer';
@@ -48,7 +50,7 @@ type MediaDedupState = {
 };
 // Change-arter der kan ændre et materiale-galleri (Slice 0h) — bruges til at afgøre om
 // person-editorens/objekt-editorens medieliste skal genhentes efter et gemt kald.
-const MEDIA_ARTER = new Set(['uploadMedia', 'opdaterMedia', 'genopretMedia', 'mediaRettigheder', 'fjernMedia', 'sletRelation', 'sletMediaRelationUdenEvidens', 'tilknytMedia']);
+const MEDIA_ARTER = new Set(['uploadMedia', 'opdaterMedia', 'genopretMedia', 'mediaRettigheder', 'fjernMedia', 'sletRelation', 'sletMediaRelationUdenEvidens', 'tilknytMedia', 'erstatMediaFil', 'udrensMedia', 'saetPortraet']);
 // Generiske entiteter med et materiale-galleri (Slice 0h) — spejler mobiles HAR_MATERIALE.
 const HAR_OBJEKT_MATERIALE = new Set(['estate', 'arms']);
 // --- Tokens (fra designet) ---
@@ -175,6 +177,7 @@ export default function Redaktion() {
   const [mediaKoe, setMediaKoe] = useState<MedieKoe | 'alle'>('alle');
   const [mediaAnvendelse, setMediaAnvendelse] = useState<MediaAnvendelse | undefined>();
   const [mediaAnvendelseFejl, setMediaAnvendelseFejl] = useState('');
+  const [udrensPreview, setUdrensPreview] = useState<UdrensPreview | undefined>();
   const [mediaLightbox, setMediaLightbox] = useState<number | null>(null); // Slice A
   const [mediaDetalje, setMediaDetalje] = useState<{ id: string; subjektType: string; subjektId: string } | null>(null);
   const mediaDetaljeRef = useRef(mediaDetalje);
@@ -302,6 +305,19 @@ export default function Redaktion() {
       .catch(() => { if (aktiv) setMediaAnvendelseFejl('Kunne ikke kontrollere anvendelser. Sletning er derfor blokeret.'); });
     return () => { aktiv = false; };
   }, [mediaDetalje?.id]);
+  useEffect(() => {
+    setUdrensPreview(undefined);
+    if (!mediaDetalje) return;
+    const detaljeMedia = entity === 'media'
+      ? mediaBibliotek.find((m) => m.id === mediaDetalje.id)
+      : media.find((m) => m.id === mediaDetalje.id);
+    if (detaljeMedia?.uploadStatus !== 'fjernet') return;
+    let aktiv = true;
+    fetchUdrensPreview(mediaDetalje.id)
+      .then((preview) => { if (aktiv) setUdrensPreview(preview); })
+      .catch(() => { if (aktiv) setUdrensPreview(undefined); });
+    return () => { aktiv = false; };
+  }, [mediaDetalje?.id, entity, mediaBibliotek, media]);
   useEffect(() => {
     if (entity !== 'media') return;
     if (!recordId) { setMediaDetalje(null); return; }
@@ -1318,6 +1334,47 @@ export default function Redaktion() {
     // Kun bibliotekets tværgående filside ejer flet-flowet. Kandidatfunktionen tillader en
     // `fjernet` kopi, så et afbrudt flow stadig kan fortsættes fra papirkurven.
     const fletKandidater = entity === 'media' ? findMediaMergeCandidates(m, mediaBibliotek) : [];
+    const erstatFil = async (file: File) => {
+      try {
+        const built = await buildVariants(file);
+        if (m.sha256 != null && built.sha256 === m.sha256) {
+          setWriteView({ title: 'Erstat stoppet', lines: [], error: 'Filen er identisk med den nuværende — ingen ændring.', done: false, dryRun, direkte: true });
+          return;
+        }
+        const existing = await fetchExistingMediaBySha(built.sha256);
+        if (existing && existing.id !== m.id) {
+          setWriteView({ title: 'Erstat stoppet', lines: [`Billedet findes allerede som medie ${existing.id}.`], error: "Brug 'Tilknyt eksisterende' i stedet for at erstatte.", done: false, dryRun, direkte: true });
+          return;
+        }
+        await run({
+          art: 'erstatMediaFil', subjektType: mediaDetalje.subjektType, subjektId: mediaDetalje.subjektId,
+          mediaId: m.id, payload: {
+            file: built.large.file, storagePath: built.large.storagePath, mimeType: built.large.mimeType,
+            byteSize: built.large.byteSize, bredde: built.large.bredde, hoejde: built.large.hoejde,
+            sha256: built.sha256, originalFilnavn: file.name,
+            varianter: [built.thumb, built.medium],
+          },
+        }, 'Erstat fil');
+      } catch (e) {
+        setWriteView({ title: 'Erstat fil fejlede', lines: [], error: oversaetFejl(String((e as Error)?.message ?? e)), done: false, dryRun, direkte: false });
+      }
+    };
+    const udrens = async () => {
+      try {
+        const res = await executeUdrens({ mediaId: m.id, dryRun, role }, {
+          submit: (change, options) => submitChange(change, options),
+          removeObjects: async (bucket, stier) => supabase.storage.from(bucket).remove(stier),
+        });
+        setWriteView({
+          title: res.kind === 'dry-run' ? 'Dry-run · udrensning' : 'Mediet er udrenset permanent',
+          lines: res.storageAdvarsel ? [res.storageAdvarsel] : [],
+          error: '', done: res.kind === 'completed', dryRun: res.kind === 'dry-run', direkte: true,
+        });
+        if (res.kind === 'completed') { setMediaDetalje(null); refreshMediaBibliotek(); }
+      } catch (e) {
+        setWriteView({ title: 'Udrensning fejlede', lines: [], error: oversaetFejl(String((e as Error)?.message ?? e)), done: false, dryRun, direkte: false });
+      }
+    };
     const fletMedia = async (originalId: string, confirmedMentions: MediaAnvendelse['mentions']) => {
       const result = await executeMediaMerge({
         copyId: m.id, originalId, dryRun,
@@ -1402,6 +1459,11 @@ export default function Redaktion() {
         onFjernTilknytning={(id) => run({ art: 'sletRelation', subjektType: 'media', subjektId: m.id, relationId: id }, 'Fjern tilknytning')}
         onTilknyt={() => setMediaTilknytPicker({ mediaId: m.id, maalType: 'person' })}
         onFlet={entity === 'media' && fletKandidater.length > 0 ? fletMedia : undefined}
+        onErstatFil={erstatFil}
+        onUdrens={udrens}
+        udrensPreview={udrensPreview}
+        onSaetPortraet={(personId, mediaId) => run({ art: 'saetPortraet', subjektType: 'person', subjektId: personId,
+          personId, mediaId: mediaId ?? undefined }, mediaId ? 'Sæt portræt' : 'Fjern portræt-valg')}
         onSlet={() => run({ art: 'fjernMedia', subjektType: mediaDetalje.subjektType,
           subjektId: mediaDetalje.subjektId, mediaId: m.id }, 'Slet billede')}
         onGenopret={() => run({ art: 'genopretMedia', subjektType: mediaDetalje.subjektType,

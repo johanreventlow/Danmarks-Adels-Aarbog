@@ -1,9 +1,9 @@
 import { Image } from 'expo-image';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { Body, BtnLabel, Mono, Serif } from '../Typography';
 import { Lightbox } from '../Lightbox';
-import type { MediaAnvendelse, PersonMedia } from '../../data/redaktionRead';
+import type { MediaAnvendelse, PersonMedia, UdrensPreview } from '../../data/redaktionRead';
 import { Border, Colors, Radius } from '../../theme/tokens';
 
 const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
@@ -11,7 +11,7 @@ const RETTIGHED_STATUS = ['ukendt', 'public_domain', 'licenseret', 'tilladelse_g
 
 type DetaljeMedia = Omit<PersonMedia, 'relationId'> & { relationId?: string };
 
-export function MediaDetaljeSheet({ media, uri, thumbUri, anvendelse, anvendelseFejl, onClose, onGemMetadata, onGemRettigheder, onFjern, onFjernTilknytning, onTilknyt, onSlet, onGenopret }: {
+export function MediaDetaljeSheet({ media, uri, thumbUri, anvendelse, anvendelseFejl, onClose, onGemMetadata, onGemRettigheder, onFjern, onFjernTilknytning, onTilknyt, onSlet, onGenopret, onErstatFil, onUdrens, udrensPreview, onSaetPortraet }: {
   media: DetaljeMedia;
   uri?: string;
   thumbUri?: string;
@@ -25,16 +25,40 @@ export function MediaDetaljeSheet({ media, uri, thumbUri, anvendelse, anvendelse
   onTilknyt?: () => void;
   onSlet: () => void;
   onGenopret: () => void;
+  onErstatFil?: () => void | Promise<unknown>;
+  onUdrens?: () => void | Promise<unknown>;
+  udrensPreview?: UdrensPreview;
+  onSaetPortraet?: (personId: string, mediaId: string | null) => void | Promise<unknown>;
 }) {
   const [meta, setMeta] = useState({ titel: '', slags: 'foto', kunstner: '', datering: '' });
   const [ret, setRet] = useState({ status: 'ukendt', maaPubliceres: false, licens: '', kildehenvisning: '', gengivelsestilladelse: '', kildeFritekst: '' });
   const [lightbox, setLightbox] = useState(false);
   const [bekraeftSlet, setBekraeftSlet] = useState(false);
+  const [bekraeftUdrens, setBekraeftUdrens] = useState(false);
+  const [medieAktionBusy, setMedieAktionBusy] = useState(false);
+  const medieAktionBusyRef = useRef(false);
   useEffect(() => {
     setMeta({ titel: media.titel ?? '', slags: media.slags || 'foto', kunstner: media.kunstner ?? '', datering: media.datering ?? '' });
     setRet({ status: media.rettighederStatus || 'ukendt', maaPubliceres: media.maaPubliceres, licens: '', kildehenvisning: '', gengivelsestilladelse: '', kildeFritekst: '' });
     setBekraeftSlet(false);
+    setBekraeftUdrens(false);
+    setMedieAktionBusy(false);
+    medieAktionBusyRef.current = false;
   }, [media.id, media.titel, media.slags, media.kunstner, media.datering, media.rettighederStatus, media.maaPubliceres]);
+
+  async function runMedieAktion(action: () => void | Promise<unknown>, holdUntilUnmount = false) {
+    if (medieAktionBusyRef.current) return;
+    medieAktionBusyRef.current = true;
+    setMedieAktionBusy(true);
+    try {
+      await action();
+    } finally {
+      if (!holdUntilUnmount) {
+        medieAktionBusyRef.current = false;
+        setMedieAktionBusy(false);
+      }
+    }
+  }
 
   const metadataPayload: Record<string, unknown> = {};
   if (meta.titel !== (media.titel ?? '')) metadataPayload.titel = meta.titel.trim();
@@ -108,6 +132,16 @@ export function MediaDetaljeSheet({ media, uri, thumbUri, anvendelse, anvendelse
           {!anvendelse ? <Body size={12} color={anvendelseFejl ? Colors.danger : Colors.textMuted}>{anvendelseFejl || 'Henter anvendelser…'}</Body> : <View style={{ gap: 7 }}>
             {anvendelse.afbildet.map((a) => <View key={a.relationId} style={styles.anvendelseRad}>
               <Body size={12.5} style={{ flex: 1 }}>{a.navn} · {a.type}</Body>
+              {a.primaer ? <Mono size={8.5} color={Colors.gold}>Portræt</Mono> : null}
+              {a.type === 'person' && media.uploadStatus === 'klar' && onSaetPortraet ? (
+                <Pressable disabled={medieAktionBusy} onPress={() => {
+                  void runMedieAktion(() => onSaetPortraet(a.id, a.primaer ? null : media.id), true);
+                }}>
+                  <BtnLabel size={10} color={Colors.bordeaux}>
+                    {a.primaer ? 'Fjern portræt-valg' : 'Sæt som portræt'}
+                  </BtnLabel>
+                </Pressable>
+              ) : null}
               {onFjernTilknytning ? <Pressable onPress={() => onFjernTilknytning(a.relationId)}><BtnLabel size={10} color={Colors.danger}>Fjern</BtnLabel></Pressable> : null}
             </View>)}
             {anvendelse.mentions.map((m) => <View key={`${m.kildeType}:${m.kildeId}`} style={styles.anvendelseRad}>
@@ -116,10 +150,32 @@ export function MediaDetaljeSheet({ media, uri, thumbUri, anvendelse, anvendelse
             {!erIBrug ? <Body size={12} color={Colors.textMuted}>Mediet bruges ikke endnu.</Body> : null}
           </View>}
 
-          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 22 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 8, marginTop: 22 }}>
             {media.uploadStatus === 'fjernet' ? (
-              <Pressable style={styles.gem} onPress={onGenopret}><BtnLabel color="#fff">Genopret</BtnLabel></Pressable>
+              <>
+                <Pressable style={styles.gem} onPress={onGenopret}><BtnLabel color="#fff">Genopret</BtnLabel></Pressable>
+                {onUdrens ? <Pressable
+                  disabled={medieAktionBusy || !udrensPreview?.kanUdrenses}
+                  style={[styles.slet, (medieAktionBusy || !udrensPreview?.kanUdrenses) && { opacity: .45 }]}
+                  onPress={() => {
+                    if (medieAktionBusyRef.current || !udrensPreview?.kanUdrenses) return;
+                    if (!bekraeftUdrens) { setBekraeftUdrens(true); return; }
+                    void runMedieAktion(onUdrens, true);
+                  }}>
+                  <BtnLabel size={bekraeftUdrens ? 9 : undefined} color="#fff">
+                    {medieAktionBusy ? 'Sletter permanent…' : bekraeftUdrens
+                      ? `${udrensPreview?.stier.length ?? 0} fil(er) slettes permanent — bytes kan IKKE fortrydes. Klik igen for at bekræfte.`
+                      : !udrensPreview ? 'Kontrollerer…' : udrensPreview.kanUdrenses ? 'Slet permanent…' : 'Slet permanent (blokeret)'}
+                  </BtnLabel>
+                </Pressable> : null}
+              </>
             ) : <>
+              {media.uploadStatus === 'klar' && onErstatFil ? (
+                <Pressable disabled={medieAktionBusy} style={[styles.neutral, medieAktionBusy && { opacity: .45 }]}
+                  onPress={() => { void runMedieAktion(onErstatFil); }}>
+                  <BtnLabel color={Colors.textMuted}>{medieAktionBusy ? 'Erstatter…' : 'Erstat fil…'}</BtnLabel>
+                </Pressable>
+              ) : null}
               <Pressable disabled={!media.relationId} style={styles.neutral} onPress={onFjern}><BtnLabel color={Colors.textMuted}>Fjern tilknytning</BtnLabel></Pressable>
               <Pressable disabled={!anvendelse} style={[styles.slet, !anvendelse && { opacity: .45 }]} onPress={() => {
                 if (!anvendelse) return;
@@ -128,6 +184,13 @@ export function MediaDetaljeSheet({ media, uri, thumbUri, anvendelse, anvendelse
               }}><BtnLabel size={bekraeftSlet ? 9 : undefined} color="#fff">{bekraeftSlet ? sletAdvarsel : anvendelse ? 'Slet billede' : 'Kontrollerer…'}</BtnLabel></Pressable>
             </>}
           </View>
+          {media.uploadStatus === 'fjernet' && udrensPreview && !udrensPreview.kanUdrenses ? (
+            <View style={{ marginTop: 8 }}>
+              {udrensPreview.blokeringer.map((blokering) => (
+                <Body key={blokering} size={11.5} color={Colors.danger}>· {blokering}</Body>
+              ))}
+            </View>
+          ) : null}
         </ScrollView>
       </View>
       {lightbox && erBillede && uri && media.uploadStatus === 'klar' ? (

@@ -728,13 +728,13 @@ export type PersonMedia = {
   kunstner: string | null; datering: string | null; rettighederStatus: string;
   mimeType: string | null; byteSize: number | null; bredde: number | null; hoejde: number | null;
   originalFilnavn: string | null; uploadStatus: string; maaPubliceres: boolean; createdAt: string | null;
-  url: string | null; thumbUrl: string | null;
+  primaer: boolean; sha256: string | null; url: string | null; thumbUrl: string | null;
 };
 type RawPersonMediaRow = { id: number | string; slags: string | null; titel: string | null; kunstner: string | null;
   datering: string | null; storage_path: string | null; upload_status: string | null;
   maa_publiceres: boolean | null; rettigheder_status: string | null; mime_type: string | null;
   byte_size: number | null; bredde: number | null; hoejde: number | null; original_filnavn: string | null;
-  created_at?: string | null };
+  created_at?: string | null; sha256?: string | null };
 
 // signed/relByMediaId/thumbPathByMediaId er valgfri (default tomme Maps) så testen kan kalde ren,
 // netværksfri — kun fetch-funktionerne nedenfor sender reelt udfyldte Maps (signeret ét sted,
@@ -767,6 +767,8 @@ export function mapPersonMediaRows(
         uploadStatus: m.upload_status ?? 'kladde',
         maaPubliceres: Boolean(m.maa_publiceres),
         createdAt: m.created_at ?? null,
+        primaer: false,
+        sha256: m.sha256 ?? null,
         url,
         thumbUrl: (thumbPath ? signed.get(thumbPath) : null) ?? url,
       };
@@ -775,28 +777,32 @@ export function mapPersonMediaRows(
 
 // Fælles hale: rel-par (media-id + relation-id) → signede/mappede PersonMedia. Retningen af selve
 // relations-forespørgslen (person→media vs. media→objekt) afgøres af kalderne nedenfor.
-async function mediaFromRelPairs(pairs: { mediaId: number; relationId: number }[]): Promise<PersonMedia[]> {
+async function mediaFromRelPairs(pairs: { mediaId: number; relationId: number; primaer?: boolean }[]): Promise<PersonMedia[]> {
   if (!pairs.length) return [];
   const relByMediaId = new Map(pairs.map((p) => [String(p.mediaId), String(p.relationId)]));
+  const primaerByMediaId = new Map(pairs.map((p) => [String(p.mediaId), p.primaer === true]));
   const mediaIds = pairs.map((p) => p.mediaId);
   const [rows, thumbPathByMediaId] = await Promise.all([
     getAll<RawPersonMediaRow>(() =>
-      supabase.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn,created_at').in('id', mediaIds)),
+      supabase.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn,created_at,sha256').in('id', mediaIds)),
     fetchThumbPathByMediaId(mediaIds),
   ]);
   const signed = await signPaths([
     ...rows.map((r) => r.storage_path ?? ''),
     ...thumbPathByMediaId.values(),
   ].filter(Boolean));
-  return mapPersonMediaRows(rows, signed, relByMediaId, thumbPathByMediaId);
+  return mapPersonMediaRows(rows, signed, relByMediaId, thumbPathByMediaId)
+    .map((media) => ({ ...media, primaer: primaerByMediaId.get(media.id) === true }));
 }
 
 export async function fetchRedPersonMedia(id: string): Promise<PersonMedia[]> {
-  const rels = await getAll<{ id: number; objekt_id: number }>(() =>
-    supabase.from('relation').select('id,objekt_id')
+  const rels = await getAll<{ id: number; objekt_id: number; kvalifikator: { primaer?: boolean } | null }>(() =>
+    supabase.from('relation').select('id,objekt_id,kvalifikator')
       .eq('subjekt_type', 'person').eq('subjekt_id', Number(id))
       .eq('objekt_type', 'media').eq('rolle', 'afbildet'));
-  return mediaFromRelPairs(rels.map((r) => ({ mediaId: r.objekt_id, relationId: r.id })));
+  return mediaFromRelPairs(rels.map((r) => ({
+    mediaId: r.objekt_id, relationId: r.id, primaer: r.kvalifikator?.primaer === true,
+  })));
 }
 
 // Objekt-foto (gods/våben m.fl.): relationen går OMVENDT af person-varianten — media er subjekt,
@@ -902,7 +908,7 @@ type RawMediaMentionCount = { maal_id: number | string };
 // PostgREST SELECT'en og sker dermed før JSON-dekodning; filtre nedenfor bruger fortsat rå kolonner.
 export function mediaBibliotekQuerySpecs() {
   return {
-    media: { table: 'media', select: 'id::text,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn,created_at' },
+    media: { table: 'media', select: 'id::text,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn,created_at,sha256' },
     personRelationer: { table: 'relation', select: 'subjekt_id::text,objekt_id::text' },
     objektRelationer: { table: 'relation', select: 'subjekt_id::text,objekt_type,objekt_id::text' },
     mentions: { table: 'text_mention', select: 'maal_id::text' },
@@ -972,18 +978,19 @@ export async function fetchMediaBibliotek(): Promise<MediaBibliotekPost[]> {
 }
 
 export type MediaAnvendelse = {
-  afbildet: { type: string; id: string; navn: string; relationId: string }[];
+  afbildet: { type: string; id: string; navn: string; relationId: string; primaer: boolean }[];
   mentions: { kildeType: string; kildeId: string; subjektNavn: string }[];
 };
 
-type RawMediaPersonAnvendelse = { id: number | string; subjekt_id: number | string };
+type RawMediaPersonAnvendelse = { id: number | string; subjekt_id: number | string;
+  kvalifikator?: { primaer?: boolean } | null };
 type RawMediaObjektAnvendelse = { id: number | string; objekt_type: string; objekt_id: number | string };
 type RawMediaMention = { kilde_type: string; kilde_id: number | string };
 type RawNarrativeSubject = { id: number | string; subjekt_type: string; subjekt_id: number | string };
 
 export function mediaAnvendelseQuerySpecs() {
   return {
-    personRelationer: { table: 'relation', select: 'id::text,subjekt_id::text' },
+    personRelationer: { table: 'relation', select: 'id::text,subjekt_id::text,kvalifikator' },
     objektRelationer: { table: 'relation', select: 'id::text,objekt_type,objekt_id::text' },
     mentions: { table: 'text_mention', select: 'kilde_type,kilde_id::text' },
     narrativer: { table: 'narrative', select: 'id::text,subjekt_type,subjekt_id::text' },
@@ -1008,12 +1015,14 @@ export function mapMediaAnvendelse(rows: {
         id: String(r.subjekt_id),
         navn: rows.navneBySubjekt.get(subjectKey('person', r.subjekt_id)) ?? fallbackSubjectName('person', r.subjekt_id),
         relationId: String(r.id),
+        primaer: r.kvalifikator?.primaer === true,
       })),
       ...rows.objektRelationer.map((r) => ({
         type: r.objekt_type,
         id: String(r.objekt_id),
         navn: rows.navneBySubjekt.get(subjectKey(r.objekt_type, r.objekt_id)) ?? fallbackSubjectName(r.objekt_type, r.objekt_id),
         relationId: String(r.id),
+        primaer: false,
       })),
     ],
     mentions: rows.mentions.map((m) => {
@@ -1097,6 +1106,75 @@ export async function fetchMediaAnvendelse(mediaId: string): Promise<MediaAnvend
     ...narrativer.map((n) => ({ type: n.subjekt_type, id: n.subjekt_id })),
   ]);
   return mapMediaAnvendelse({ personRelationer, objektRelationer, mentions, narrativer, navneBySubjekt });
+}
+
+export type UdrensPreview = {
+  uploadStatus: string;
+  kanUdrenses: boolean;
+  blokeringer: string[];
+  antalTilknytninger: number;
+  antalMentions: number;
+  antalFakta: number;
+  antalStories: number;
+  antalNarrativer: number;
+  antalNoter: number;
+  antalForslag: number;
+  tilknytninger: { relationId: string; retning: 'ud' | 'ind'; modpartType: string; modpartId: string }[];
+  mentions: { kildeType: string; kildeId: string }[];
+  fakta: string[];
+  stories: string[];
+  narrativer: string[];
+  noter: string[];
+  forslag: string[];
+  stier: { bucket: string; sti: string; kilde: string }[];
+};
+
+export function mapUdrensPreview(raw: unknown): UdrensPreview {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const arr = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+  const ids = (value: unknown): string[] => arr(value).map(String);
+  return {
+    uploadStatus: String(r.upload_status ?? ''),
+    kanUdrenses: r.kan_udrenses === true,
+    blokeringer: arr(r.blokeringer).map(String),
+    antalTilknytninger: Number(r.antal_tilknytninger ?? 0),
+    antalMentions: Number(r.antal_mentions ?? 0),
+    antalFakta: Number(r.antal_fakta ?? 0),
+    antalStories: Number(r.antal_stories ?? 0),
+    antalNarrativer: Number(r.antal_narrativer ?? 0),
+    antalNoter: Number(r.antal_noter ?? 0),
+    antalForslag: Number(r.antal_forslag ?? 0),
+    tilknytninger: arr(r.tilknytninger).map((tilknytning) => {
+      const x = tilknytning as Record<string, unknown>;
+      return {
+        relationId: String(x.relation_id),
+        retning: x.retning === 'ud' ? 'ud' as const : 'ind' as const,
+        modpartType: String(x.modpart_type),
+        modpartId: String(x.modpart_id),
+      };
+    }),
+    mentions: arr(r.mentions).map((mention) => {
+      const x = mention as Record<string, unknown>;
+      return { kildeType: String(x.kilde_type), kildeId: String(x.kilde_id) };
+    }),
+    fakta: ids(r.fakta),
+    stories: ids(r.stories),
+    narrativer: ids(r.narrativer),
+    noter: ids(r.noter),
+    forslag: ids(r.forslag),
+    stier: arr(r.stier).map((sti) => {
+      const x = sti as Record<string, unknown>;
+      return { bucket: String(x.bucket), sti: String(x.sti), kilde: String(x.kilde ?? 'media') };
+    }),
+  };
+}
+
+export async function fetchUdrensPreview(mediaId: string): Promise<UdrensPreview> {
+  const id = parseDatabaseId(mediaId);
+  if (id == null) throw new Error('Ugyldigt media-id');
+  const { data, error } = await supabase.rpc('red_udrens_media_preview', { p_media_id: id });
+  if (error) throw new Error(error.message);
+  return mapUdrensPreview(data);
 }
 
 // ---- Tværudgave-matching: MatchFrame-input fra DB (Problem 3 §11) ----
