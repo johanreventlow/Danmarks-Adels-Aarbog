@@ -1,4 +1,17 @@
-import { buildResumeMediaUploadPlan, buildRpcCall, FELT_FAKTATYPE, oversaetFejl, planCall } from '../redaktionWrite';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  buildResumeMediaUploadPlan, buildRpcCall, buildSuggestCall, FELT_FAKTATYPE,
+  oversaetFejl, planCall, submitChange, type Change,
+} from '../redaktionWrite';
+
+vi.mock('../../supabase', () => ({
+  supabase: { rpc: vi.fn(), auth: { onAuthStateChange: vi.fn() } },
+}));
+vi.mock('../mediaUpload', () => ({ performUpload: vi.fn() }));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe('buildRpcCall — udvidede rygrad-felter (dåb/begravelse/floruit/naturalisering)', () => {
   it.each([
@@ -428,5 +441,133 @@ describe('buildRpcCall — story/feed_pin (fase 3)', () => {
       .toMatchObject({ fn: 'red_suggest', args: {
         p_payload: { storyId: 3, storyStatus: 'klar' },
       } });
+  });
+});
+
+describe('fase 4: erstatMediaFil', () => {
+  const base: Change = {
+    art: 'erstatMediaFil', subjektType: 'media', subjektId: '7', mediaId: '7',
+    payload: {
+      file: new Blob(['x']), storagePath: 'redaktor/ab/s-large.jpg', mimeType: 'image/jpeg',
+      byteSize: 3, bredde: 2, hoejde: 1, sha256: 'abc123', originalFilnavn: 'ny.jpg',
+      varianter: [{
+        tier: 'thumb', file: new Blob(['t']), storagePath: 'redaktor/ab/s-thumb.jpg',
+        mimeType: 'image/jpeg', byteSize: 1, bredde: 1, hoejde: 1,
+      }],
+    },
+  };
+
+  it('bygger red_erstat_media_fil med metadata-varianter (ALDRIG file-blobs i args)', () => {
+    const call = buildRpcCall(base)!;
+    expect(call.fn).toBe('red_erstat_media_fil');
+    expect(call.args.p_media_id).toBe(7);
+    expect(call.args.p_sha256).toBe('abc123');
+    expect(call.args.p_varianter).toEqual([{
+      tier: 'thumb', storage_path: 'redaktor/ab/s-thumb.jpg', mime: 'image/jpeg',
+      byte_size: 1, bredde: 1, hoejde: 1,
+    }]);
+    expect(JSON.stringify(call.args)).not.toContain('"file"');
+  });
+
+  it('afviser manglende mediaId/sha256/sti', () => {
+    expect(buildRpcCall({ ...base, mediaId: undefined })).toBeNull();
+    expect(buildRpcCall({ ...base, payload: { ...base.payload, sha256: undefined } })).toBeNull();
+    expect(buildRpcCall({ ...base, payload: { ...base.payload, storagePath: undefined } })).toBeNull();
+  });
+
+  it('kan IKKE degradere til red_suggest (hård gate som uploadMedia)', async () => {
+    await expect(submitChange(base, { dryRun: false, role: 'medlem' }))
+      .rejects.toThrow(/redaktør-rettigheder/);
+  });
+
+  it('dry-run uploader INTET og udfører intet RPC (dryRun respekteres)', async () => {
+    const { performUpload } = await import('../mediaUpload');
+    const { supabase } = await import('../../supabase');
+    vi.clearAllMocks();
+    const res = await submitChange(base, { dryRun: true, role: 'redaktion' });
+    expect(res.dryRun).toBe(true);
+    expect(performUpload).not.toHaveBeenCalled();
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('fase 4: udrensMedia', () => {
+  const change: Change = {
+    art: 'udrensMedia', subjektType: 'media', subjektId: '9', mediaId: '9',
+  };
+
+  it('bygger red_udrens_media', () => {
+    expect(buildRpcCall(change)).toEqual({ fn: 'red_udrens_media', args: { p_media_id: 9 } });
+    expect(buildRpcCall({ ...change, mediaId: undefined })).toBeNull();
+  });
+
+  it('kan IKKE degradere til red_suggest', async () => {
+    await expect(submitChange(change, { dryRun: false, role: 'medlem' }))
+      .rejects.toThrow(/redaktør-rettigheder/);
+  });
+
+  it('dry-run uploader INTET og udfører intet RPC', async () => {
+    const { performUpload } = await import('../mediaUpload');
+    const { supabase } = await import('../../supabase');
+    vi.clearAllMocks();
+    const res = await submitChange(change, { dryRun: true, role: 'redaktion' });
+    expect(res.dryRun).toBe(true);
+    expect(performUpload).not.toHaveBeenCalled();
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('fase 4: saetPortraet', () => {
+  const change: Change = {
+    art: 'saetPortraet', subjektType: 'person', subjektId: '5', personId: '5', mediaId: '7',
+  };
+
+  it('bygger red_saet_portraet med og uden media (NULL = ryd)', () => {
+    expect(buildRpcCall(change))
+      .toEqual({ fn: 'red_saet_portraet', args: { p_person_id: 5, p_media_id: 7 } });
+    expect(buildRpcCall({ ...change, mediaId: undefined }))
+      .toEqual({ fn: 'red_saet_portraet', args: { p_person_id: 5, p_media_id: null } });
+    expect(buildRpcCall({ ...change, subjektId: '', personId: undefined })).toBeNull();
+  });
+
+  it('degraderer til red_suggest for ikke-redaktion (metadata-change)', () => {
+    const call = buildSuggestCall(change);
+    expect(call.fn).toBe('red_suggest');
+    expect(call.args.p_payload).toEqual({ personId: '5', mediaId: '7' });
+  });
+
+  it('dry-run uploader INTET og udfører intet RPC', async () => {
+    const { performUpload } = await import('../mediaUpload');
+    const { supabase } = await import('../../supabase');
+    vi.clearAllMocks();
+    const res = await submitChange(change, { dryRun: true, role: 'redaktion' });
+    expect(res.dryRun).toBe(true);
+    expect(performUpload).not.toHaveBeenCalled();
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('fase 4: oversaetFejl', () => {
+  it.each([
+    ['Kan kun erstatte filen på et klart medie', /kun erstattes på et klart medie/i],
+    ['Filen er identisk med den nuværende', /identisk/i],
+    ['Kan kun udrense et fjernet medie', /papirkurven/i],
+    ['Mediet har tilknytninger og kan ikke udrenses — fjern dem først', /tilknytninger/i],
+    ['Mediet er nævnt i narrativer og kan ikke udrenses — redigér omtalerne ud først', /narrativer/i],
+    ['Mediet er ikke tilknyttet personen — tilknyt først', /tilknyt/i],
+    ['Mediet har rettighedsdokumentation (fakta) og kan ikke udrenses — fjern den først',
+      'Mediet har rettighedsdokumentation — fjern den, før det udrenses.'],
+    ['Mediet er subjekt for en story og kan ikke udrenses — flyt eller slet storyen først',
+      'Mediet bruges som subjekt for en story — flyt eller slet storyen, før det udrenses.'],
+    ['Mediet har et tilknyttet narrativ og kan ikke udrenses — slet narrativet først',
+      'Mediet har et tilknyttet narrativ — slet narrativet, før det udrenses.'],
+    ['Mediet har noter og kan ikke udrenses — fjern dem først',
+      'Mediet har noter — fjern dem, før det udrenses.'],
+    ['Mediet har forslag i kø og kan ikke udrenses — afvis eller godkend dem først',
+      'Mediet har forslag i kø — afvis eller godkend dem, før det udrenses.'],
+    ['Mediet kunne ikke udrenses — tilstanden ændrede sig undervejs, prøv igen',
+      'Mediet kunne ikke udrenses, fordi tilstanden ændrede sig undervejs — prøv igen.'],
+  ])('oversætter %s', (raa, forvent) => {
+    expect(oversaetFejl(raa)).toMatch(forvent);
   });
 });
