@@ -80,7 +80,16 @@ function PraesensGrenView({ gren, model, router }: {
 export default function PraesensScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const model = useStore((s) => s.model);
+  const rawModel = useStore((s) => s.model);
+  // Mobil-storen holder canonicalIdById som et separat felt (useStore.ts) i stedet for stampet på
+  // model — modsat web's loadModel. Uden denne sammenkobling ville kanoniserPresensGrundlag nedenfor
+  // være en no-op på mobil (model.canonicalIdById ?? {} → tomt), og en overhoved-udpegning eller et
+  // levende-flag registreret på et samme_som-alias ville aldrig linje op med den kollapsede graf.
+  const canonicalIdById = useStore((s) => s.canonicalIdById);
+  const model = useMemo(
+    () => (rawModel ? { ...rawModel, canonicalIdById } : null),
+    [rawModel, canonicalIdById],
+  );
   const rolle = useStore((s) => s.rolle);
   const [grundlag, setGrundlag] = useState<PresensGrundlag | null>(null);
   const [fejl, setFejl] = useState<string | null>(null);

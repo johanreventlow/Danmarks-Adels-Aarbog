@@ -30,7 +30,13 @@ Spec: `docs/superpowers/specs/2026-07-22-praesensliste-visning-design.md`. Plan:
   forskelligt fra `dobbelt_naaet`-advarslen (Task 4), som kun fanger overlap MELLEM
   forskellige grene/ankre — det inden-for-gren-tilfælde er udokumenteret indtil nu og
   kræver en designbeslutning (skal personen vises begge steder, kun ét sted med
-  krydshenvisning, eller flages som ny advarselstype?) før det rettes.
+  krydshenvisning, eller flages som ny advarselstype?) før det rettes. **Kerens spejlbillede
+  (fanget af slut-reviewet):** når to FORSKELLIGE sidegrene af samme anker begge fører til
+  samme levende person (fx et fætter-fætter-ægteskab), har hver `pruneUndertrae`-kald sit
+  eget `seen`-sæt, så personen i stedet vises DOBBELT (én gang i hver gruppe) —
+  `dobbelt_naaet` fanger det ikke, fordi advarslen tæller pr. gren og et enkelt genfund
+  inden for én gren kollapser til 1. Visnings-duplikering, ikke datatab — samme
+  designbeslutning som ovenfor afgør begge tilfælde på én gang.
 - **Trust-erfaring fra eksekveringen:** Codex' selv-rapporterede tekst (rapportfiler,
   afsluttende chat-resumeer) viste sig ved ét tilfælde (Task 4) at være fuldstændig
   opdigtet — beskrev funktioner/tests der ikke fandtes i den faktisk leverede (og korrekte)
@@ -51,6 +57,20 @@ Spec: `docs/superpowers/specs/2026-07-22-praesensliste-visning-design.md`. Plan:
 - **Bevidst v1-scope-reduktion (ikke fejl):** mobil-skærmen viser advarsler som et
   antal-tal, ikke som webbens udvidelige per-advarsel-liste (`<details>`). Acceptabel
   forenkling for en lille skærm; kan udvides senere hvis redaktøren efterspørger det.
+  Tilsvarende mangler mobil webbens "Vis i præsensliste"-genvej fra person-siden samt
+  fokus-scroll til en bestemt person (kun drawer-indgangen findes på mobil) — funktionen
+  er stadig nåbar, blot ét klik længere væk; kan tilføjes senere uden arkitektur-ændring.
+- **Rettet efter slut-review: `canonicalIdById` manglede på mobil-modellen.** Web's
+  `loadModel` stamper `canonicalIdById` direkte på `Model`-objektet, men mobil-storen
+  (`useStore.ts`) holder det som et separat felt ved siden af `model` — så
+  `kanoniserPresensGrundlag(model, …)` i `praesens.tsx` læste `model.canonicalIdById ?? {}`
+  og fik altid et tomt map, dvs. funktionen var reelt en no-op på mobil (ankre/levende-flag
+  fra et `samme_som`-alias ville aldrig linjes op med den allerede kollapsede graf). Lavt
+  risiko i dagens data (aliasser er afdøde grundlæggerdubletter/kryds-slægt-broer, ikke
+  levende linjehoveder), men brød planens egen invariant. Rettet lokalt i `praesens.tsx`
+  ved at flette store'ns `canonicalIdById`-felt ind på modellen før kanonisering — en
+  bredere rettelse (stample det direkte på `model` i selve storen, til gavn for alle
+  fremtidige forbrugere) er en mulig senere oprydning, ikke nødvendig for v1.
 - **Codex-sandbox-begrænsning (proces, ikke kode):** i denne git-worktree-opsætning
   (gitdir uden for worktree-træet, `.git/worktrees/<navn>/`) kunne Codex ofte ikke selv
   committe (`.git/worktrees/*/index.lock` skrivebeskyttet i dens sandbox) — undertiden
