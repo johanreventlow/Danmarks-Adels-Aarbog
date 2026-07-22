@@ -1,5 +1,7 @@
 import { buildModel } from '../buildModel';
 import { pruneUndertrae } from '../presensListe';
+import { buildPresensListe, kanoniserPresensGrundlag } from '../presensListe';
+import type { PresensAnker } from '../presensLabels';
 import type { Db, Koen } from '../types';
 
 // Fixture-hjælpere (deles med klatrings- og facit-testene i denne fil).
@@ -63,5 +65,110 @@ describe('pruneUndertrae — bogens s.15-beskæring', () => {
     const m4 = buildModel(db4);
     const node = pruneUndertrae(m4, { A: true, B: true, C: true }, 'A');
     expect(node!.boern.map((b) => b.id)).toEqual(['C', 'B']);
+  });
+});
+
+const anker = (personId: string, linje = 'II', gren: number | null = 1): PresensAnker =>
+  ({ personId, linje, gren, raaVaerdi: `${linje} linje${gren != null ? `, ${gren}. gren` : ''}` });
+
+describe('buildPresensListe — klatring og grupper', () => {
+  // FF(død) ─┬─ Far(død) ─┬─ ANKER(levende) ─ barn K1(levende)
+  //          │            ├─ Søster S1(levende), Søster S2(levende)
+  //          │            └─ (Mor(levende) er gift-ind: partner i Fars union, uden op-kobling)
+  //          └─ Farbror FB(død) ─ FBdatter(levende)
+  const db: Db = {
+    persons: [
+      mk('FF', 'mand'), mk('Far', 'mand'), mk('Mor', 'kvinde'), mk('ANKER', 'mand'),
+      mk('K1', 'kvinde'), mk('S1', 'kvinde', 1946), mk('S2', 'kvinde', 1948),
+      mk('FB', 'mand'), mk('FBdatter', 'kvinde'),
+    ],
+    unions: [
+      union('fFF', 'FF'),
+      { id: 'fFar', p1: 'Far', p2: 'Mor', p2_name: null, year: null },
+      union('fANKER', 'ANKER'), union('fFB', 'FB'),
+    ],
+    parentChild: [
+      pc('Far', 'FF', 'fFF'), pc('FB', 'FF', 'fFF'),
+      pc('ANKER', 'Far', 'fFar'), pc('ANKER', 'Mor', 'fFar'),
+      pc('S1', 'Far', 'fFar'), pc('S1', 'Mor', 'fFar'),
+      pc('S2', 'Far', 'fFar'), pc('S2', 'Mor', 'fFar'),
+      pc('K1', 'ANKER', 'fANKER'), pc('FBdatter', 'FB', 'fFB'),
+    ],
+  };
+  const model = buildModel(db);
+  const levende = { ANKER: true, K1: true, S1: true, S2: true, Mor: true, FBdatter: true };
+
+  test('ankerblok + SØSTRE + MOR + FARBROR i bogens rækkefølge', () => {
+    const liste = buildPresensListe(model, [anker('ANKER')], levende);
+    expect(liste.grene).toHaveLength(1);
+    const g = liste.grene[0];
+    expect(g.ankerBlok.id).toBe('ANKER');
+    expect(g.ankerBlok.boern.map((b) => b.id)).toEqual(['K1']);
+    expect(g.grupper.map((x) => x.overskrift)).toEqual(['Søstre', 'Mor', 'Farbror']);
+    expect(g.grupper.map((x) => x.niveau)).toEqual([1, 1, 2]);
+    // FB er død forbindelsesled med levende datter under sig
+    const fb = g.grupper[2].roedder[0];
+    expect(fb).toMatchObject({ id: 'FB', forbindelsesled: true });
+    expect(fb.boern[0].id).toBe('FBdatter');
+  });
+
+  test('død mor → ingen MOR-gruppe; levende enke efter far → FARS ENKE', () => {
+    // Far død, Mor død, men Far har en efterlevende 2. hustru E2
+    const db2: Db = {
+      persons: [mk('Far', 'mand'), mk('Mor', 'kvinde'), mk('E2', 'kvinde'), mk('ANKER', 'mand')],
+      unions: [
+        { id: 'f1', p1: 'Far', p2: 'Mor', p2_name: null, year: null },
+        { id: 'f2', p1: 'Far', p2: 'E2', p2_name: null, year: null },
+      ],
+      parentChild: [pc('ANKER', 'Far', 'f1'), pc('ANKER', 'Mor', 'f1')],
+    };
+    const m2 = buildModel(db2);
+    const g = buildPresensListe(m2, [anker('ANKER')], { ANKER: true, E2: true }).grene[0];
+    expect(g.grupper.map((x) => x.overskrift)).toEqual(['Fars enke']);
+    expect(g.grupper[0].roedder[0].id).toBe('E2');
+  });
+
+  test('anker-partitionering: sidegren med eget anker springes over', () => {
+    // FF ─┬─ Far ─ ANKER1;  FF ─┴─ Onkel ─ ANKER2 (eget gren-overhoved)
+    const db3: Db = {
+      persons: [mk('FF', 'mand'), mk('Far', 'mand'), mk('Onkel', 'mand'), mk('ANKER1', 'mand'), mk('ANKER2', 'mand')],
+      unions: [union('fFF', 'FF'), union('fFar', 'Far'), union('fO', 'Onkel')],
+      parentChild: [pc('Far', 'FF', 'fFF'), pc('Onkel', 'FF', 'fFF'), pc('ANKER1', 'Far', 'fFar'), pc('ANKER2', 'Onkel', 'fO')],
+    };
+    const m3 = buildModel(db3);
+    const liste = buildPresensListe(m3, [anker('ANKER1', 'II', 1), anker('ANKER2', 'II', 2)], { ANKER1: true, ANKER2: true });
+    const g1 = liste.grene[0];
+    // Onkel-sidegrenen indeholder ANKER2 → ingen FARBROR-gruppe i gren 1
+    expect(g1.grupper).toHaveLength(0);
+    expect(liste.grene[1].ankerBlok.id).toBe('ANKER2');
+  });
+
+  test('advarsler: levende uden gren + anker-konflikt + dobbelt nået', () => {
+    const db4: Db = {
+      persons: [mk('A', 'mand'), mk('Loes', 'kvinde')],
+      unions: [union('fA', 'A')],
+      parentChild: [],
+    };
+    const m4 = buildModel(db4);
+    const liste = buildPresensListe(m4, [anker('A', 'I', 1), anker('A', 'I', 1)], { A: true, Loes: true });
+    expect(liste.advarsler.some((x) => x.art === 'anker_konflikt')).toBe(true);
+    expect(liste.advarsler.some((x) => x.art === 'levende_uden_gren' && x.personId === 'Loes')).toBe(true);
+    expect(liste.advarsler.some((x) => x.art === 'dobbelt_naaet' && x.personId === 'A')).toBe(true);
+  });
+
+  test('determinisme: samme input → identisk output', () => {
+    const a = buildPresensListe(model, [anker('ANKER')], levende);
+    const b = buildPresensListe(model, [anker('ANKER')], levende);
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+  });
+});
+
+describe('kanoniserPresensGrundlag', () => {
+  test('alias-id\'er foldes; levende OR-semantik over komponenten', () => {
+    const db: Db = { persons: [mk('1'), mk('2')], unions: [], parentChild: [] };
+    const model = { ...buildModel(db), canonicalIdById: { '2': '1', '1': '1' } };
+    const r = kanoniserPresensGrundlag(model, [anker('2')], { '2': true, '1': false });
+    expect(r.ankre[0].personId).toBe('1');
+    expect(r.levendeById['1']).toBe(true);
   });
 });
