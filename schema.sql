@@ -2178,11 +2178,19 @@ BEGIN
     RAISE EXCEPTION 'Medie med samme indhold findes allerede (sha256=%). Genbrug den eksisterende media-række via red_relation.', p_sha256;
   END IF;
   PERFORM begin_change_set('red_erstat_media_fil', format('Erstattede filen på media %s', p_media_id), 'media', p_media_id);
+  -- Statustjekket er også del af selve UPDATE'ens WHERE (ikke kun den tidlige SELECT
+  -- ovenfor): den tidlige SELECT er en billig fast-fail i det almindelige (ikke-race)
+  -- tilfælde, men er IKKE i sig selv den autoritative gate — et konkurrerende
+  -- red_fjern_media kan committe mellem SELECT og UPDATE (check-then-act race).
+  -- Ved at gøre 'klar'-betingelsen atomisk med selve skrivningen lukkes racet.
   UPDATE media SET
     storage_path = p_storage_path, mime_type = p_mime, byte_size = p_byte_size,
     bredde = p_bredde, hoejde = p_hoejde, sha256 = p_sha256,
     original_filnavn = coalesce(nullif(btrim(p_original_filnavn),''), original_filnavn)
-  WHERE id = p_media_id;
+  WHERE id = p_media_id AND upload_status = 'klar';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Kan kun erstatte filen på et klart medie';
+  END IF;
   FOR v_v IN SELECT * FROM jsonb_to_recordset(coalesce(p_varianter,'[]'::jsonb))
       AS x(tier text, storage_path text, mime text, byte_size bigint, bredde int, hoejde int)
   LOOP

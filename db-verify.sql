@@ -2080,7 +2080,7 @@ BEGIN
     IF SQLERRM NOT LIKE 'Medie med samme indhold findes allerede%' THEN RAISE; END IF;
   END;
 
-  -- Guard: kun 'klar'
+  -- Guard: kun 'klar' (status='fjernet')
   UPDATE media SET upload_status='fjernet' WHERE id=v_id;
   BEGIN
     PERFORM set_config('app.change_set_id','',true);
@@ -2089,7 +2089,27 @@ BEGIN
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM NOT LIKE 'Kan kun erstatte filen på et klart medie%' THEN RAISE; END IF;
   END;
+
+  -- Guard: kun 'klar' (status='kladde') — dækker den anden ikke-'klar' status,
+  -- ikke kun 'fjernet'
+  UPDATE media SET upload_status='kladde' WHERE id=v_id;
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_erstat_media_fil(v_id,'redaktor/dd/y.jpg','image/jpeg',1,1,1,'__f4_fjerde_sha_'||v_id);
+    RAISE EXCEPTION 'FEJL: kladde-medie kunne erstattes';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Kan kun erstatte filen på et klart medie%' THEN RAISE; END IF;
+  END;
   UPDATE media SET upload_status='klar' WHERE id=v_id;
+
+  -- Guard: nonexistent media id
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_erstat_media_fil(-999999999,'redaktor/dd/y.jpg','image/jpeg',1,1,1,'__f4_femte_sha_'||v_id);
+    RAISE EXCEPTION 'FEJL: ikke-eksisterende media blev accepteret';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Media % findes ikke%' THEN RAISE; END IF;
+  END;
 
   -- Fortryd: media-rækken ruller tilbage til gamle stier; variant-rækken bliver
   -- BEVIDST stående på den nye sti (uversioneret cache, B8 — spec §3.2, plan-beslutning §10.3)
