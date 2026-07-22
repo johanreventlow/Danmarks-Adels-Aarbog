@@ -2021,6 +2021,97 @@ BEGIN
   RAISE NOTICE 'OK: fremmed unique-constraint genkastes uændret';
 END $$;
 
+-- ===== Mediehåndtering fase 4: red_erstat_media_fil (erstat fil, stabil identitet) =====
+DO $$
+DECLARE v_id bigint; v_rel bigint; v_andet bigint; v_cs bigint; v_thumb_foer text; v_thumb_efter text;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+
+  -- Seed: klart medie med sha + thumb-variant + afbildet-relation (identiteten der skal overleve)
+  v_id := (SELECT coalesce(max(id),0)+1 FROM media);
+  INSERT INTO media(id,slags,titel,storage_path,mime_type,byte_size,bredde,hoejde,sha256,
+                    original_filnavn,upload_status,maa_publiceres)
+    VALUES (v_id,'foto','Erstat-test','redaktor/aa/gammel-large.jpg','image/jpeg',100,20,10,
+            '__f4_gammel_sha_'||v_id,'gammel.jpg','klar',false);
+  INSERT INTO media_variant(id,media_id,tier,storage_path)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM media_variant),v_id,'thumb','redaktor/aa/gammel-thumb.jpg');
+  v_rel := red_relation('person',-999941,'media',v_id,'afbildet');
+  SELECT storage_path INTO v_thumb_foer FROM media_variant WHERE media_id=v_id AND tier='thumb';
+
+  -- Happy path: én transaktion flytter identiteten + re-registrerer varianter
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_erstat_media_fil(v_id,'redaktor/bb/ny-large.jpg','image/jpeg',200,40,20,
+    '__f4_ny_sha_'||v_id, NULL,
+    jsonb_build_array(jsonb_build_object('tier','thumb','storage_path','redaktor/bb/ny-thumb.jpg',
+      'mime','image/jpeg','byte_size',5,'bredde',4,'hoejde',2)));
+  IF NOT EXISTS (SELECT 1 FROM media WHERE id=v_id AND storage_path='redaktor/bb/ny-large.jpg'
+                 AND sha256='__f4_ny_sha_'||v_id AND byte_size=200
+                 AND original_filnavn='gammel.jpg' AND upload_status='klar') THEN
+    RAISE EXCEPTION 'FEJL: erstat opdaterede ikke rækken korrekt (eller mistede original_filnavn)';
+  END IF;
+  SELECT storage_path INTO v_thumb_efter FROM media_variant WHERE media_id=v_id AND tier='thumb';
+  IF v_thumb_efter <> 'redaktor/bb/ny-thumb.jpg' THEN
+    RAISE EXCEPTION 'FEJL: varianten blev ikke re-registreret atomisk';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM relation WHERE id=v_rel AND objekt_id=v_id) THEN
+    RAISE EXCEPTION 'FEJL: relationen overlevede ikke erstatningen';
+  END IF;
+
+  -- Guard: identisk sha (no-op-erstat afvises)
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_erstat_media_fil(v_id,'redaktor/bb/ny-large.jpg','image/jpeg',200,40,20,'__f4_ny_sha_'||v_id);
+    RAISE EXCEPTION 'FEJL: identisk sha blev accepteret';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Filen er identisk med den nuværende%' THEN RAISE; END IF;
+  END;
+
+  -- Guard: sha på ANDEN række (dedup-bagstopper)
+  v_andet := (SELECT coalesce(max(id),0)+1 FROM media);
+  INSERT INTO media(id,slags,upload_status,sha256) VALUES (v_andet,'foto','klar','__f4_andet_sha_'||v_id);
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_erstat_media_fil(v_id,'redaktor/cc/x.jpg','image/jpeg',1,1,1,'__f4_andet_sha_'||v_id);
+    RAISE EXCEPTION 'FEJL: fremmed sha blev accepteret';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Medie med samme indhold findes allerede%' THEN RAISE; END IF;
+  END;
+
+  -- Guard: kun 'klar'
+  UPDATE media SET upload_status='fjernet' WHERE id=v_id;
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_erstat_media_fil(v_id,'redaktor/dd/y.jpg','image/jpeg',1,1,1,'__f4_tredje_sha_'||v_id);
+    RAISE EXCEPTION 'FEJL: fjernet medie kunne erstattes';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Kan kun erstatte filen på et klart medie%' THEN RAISE; END IF;
+  END;
+  UPDATE media SET upload_status='klar' WHERE id=v_id;
+
+  -- Fortryd: media-rækken ruller tilbage til gamle stier; variant-rækken bliver
+  -- BEVIDST stående på den nye sti (uversioneret cache, B8 — spec §3.2, plan-beslutning §10.3)
+  SELECT max(id) INTO v_cs FROM change_set WHERE operation='red_erstat_media_fil';
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_fortryd_change_set(v_cs, false);
+  IF NOT EXISTS (SELECT 1 FROM media WHERE id=v_id AND storage_path='redaktor/aa/gammel-large.jpg'
+                 AND sha256='__f4_gammel_sha_'||v_id) THEN
+    RAISE EXCEPTION 'FEJL: fortryd rullede ikke media-rækken tilbage';
+  END IF;
+  IF (SELECT storage_path FROM media_variant WHERE media_id=v_id AND tier='thumb')
+     <> 'redaktor/bb/ny-thumb.jpg' THEN
+    RAISE EXCEPTION 'FEJL: variant-cache uventet versioneret (B8-kontrakten er brudt)';
+  END IF;
+
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN
+    RAISE NOTICE 'OK: media fase 4 erstat-fil (guards, atomiske varianter, fortryd, rullet tilbage)';
+  ELSE RAISE; END IF;
+END $$;
+
 -- ===== Levende feed fase 3: story/story_kilde/feed_pin — skema, RLS, RPC'er og fortryd =====
 DO $$
 DECLARE

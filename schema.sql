@@ -2145,6 +2145,52 @@ BEGIN
   RETURN v_id;
 END $$;
 
+-- Fase 4 (M4): erstat mediets BYTES men behold dets IDENTITET (id, relationer, mentions,
+-- rettigheder, bogmærkelinks). Klienten har lagt de nye bytes på NYE sha-stier FØRST
+-- (fase 3-pipelinen, idempotent) — dette kald flytter rækkens identitet atomisk over på dem.
+-- Gamle objekter overskrives ALDRIG: de bliver forældreløse (media_id_for_object → NULL =
+-- fail-closed usynlige) og ryddes af janitorens kategori b efter --frist-dage — DET er
+-- fortryd-vinduet (koncept §10.2). Varianter re-registreres INDE i transaktionen (et afbrud
+-- må ikke efterlade ny large + gamle thumbs); red_registrer_media_variant åbner bevidst intet
+-- eget change_set, så hele erstatningen er ÉT fortrydbart sæt — fortryd-historikken ER
+-- filhistorikken (koncept §4.5), ingen media_version-tabel. KENDT begrænsning (B8, spec §3.2):
+-- fortryd ruller kun media-rækken tilbage; variant-rækkerne er uversioneret cache og bliver
+-- stående på de nye stier (selvopdagende thumb/large-mismatch — afhjælpes ved at erstatte igen).
+CREATE OR REPLACE FUNCTION red_erstat_media_fil(
+  p_media_id bigint,
+  p_storage_path text, p_mime text, p_byte_size bigint,
+  p_bredde int, p_hoejde int, p_sha256 text,
+  p_original_filnavn text DEFAULT NULL,
+  p_varianter jsonb DEFAULT '[]'
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_status text; v_egen_sha text; v_v record;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF nullif(btrim(p_storage_path),'') IS NULL THEN RAISE EXCEPTION 'Storage-sti er påkrævet'; END IF;
+  IF nullif(btrim(p_sha256),'') IS NULL THEN RAISE EXCEPTION 'sha256 er påkrævet'; END IF;
+  SELECT upload_status, sha256 INTO v_status, v_egen_sha FROM media WHERE id = p_media_id;
+  IF v_status IS NULL THEN RAISE EXCEPTION 'Media % findes ikke', p_media_id; END IF;
+  -- 'kladde' færdiggøres via fase 3's genoptag-flow; 'fjernet' genoprettes først.
+  IF v_status <> 'klar' THEN RAISE EXCEPTION 'Kan kun erstatte filen på et klart medie'; END IF;
+  -- Dedup-guard, to grene (klientens pre-flight fanger begge FØR bytes uploades; dette er race-bagstopperen):
+  IF v_egen_sha = p_sha256 THEN RAISE EXCEPTION 'Filen er identisk med den nuværende'; END IF;
+  IF EXISTS (SELECT 1 FROM media WHERE sha256 = p_sha256 AND id <> p_media_id) THEN
+    RAISE EXCEPTION 'Medie med samme indhold findes allerede (sha256=%). Genbrug den eksisterende media-række via red_relation.', p_sha256;
+  END IF;
+  PERFORM begin_change_set('red_erstat_media_fil', format('Erstattede filen på media %s', p_media_id), 'media', p_media_id);
+  UPDATE media SET
+    storage_path = p_storage_path, mime_type = p_mime, byte_size = p_byte_size,
+    bredde = p_bredde, hoejde = p_hoejde, sha256 = p_sha256,
+    original_filnavn = coalesce(nullif(btrim(p_original_filnavn),''), original_filnavn)
+  WHERE id = p_media_id;
+  FOR v_v IN SELECT * FROM jsonb_to_recordset(coalesce(p_varianter,'[]'::jsonb))
+      AS x(tier text, storage_path text, mime text, byte_size bigint, bredde int, hoejde int)
+  LOOP
+    PERFORM red_registrer_media_variant(p_media_id, v_v.tier, v_v.storage_path,
+                                        v_v.mime, v_v.byte_size, v_v.bredde, v_v.hoejde);
+  END LOOP;
+END $$;
+
 -- =====================================================================
 --  VERSIONERING + HYPERLINKS (2026-06-30)
 --  Additive features: fortryd-bar redaktionel ændringshistorik + hyperlinks.
