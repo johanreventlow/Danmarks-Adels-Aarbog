@@ -19,9 +19,14 @@ Spec: `docs/superpowers/specs/2026-07-22-praesensliste-visning-design.md`. Plan:
 - **Overhoved-udpegning:** ny vokabular-række `('faktatype','overhoved', …)` (INGEN
   skemaændring) + eksisterende `red_upsert_fakta`/`red_opret_fakta`-flow. Værdi-format
   `"<ROMERTAL> linje[, <N>. gren]"`, parset fail-closed af `parseOverhovedVaerdi`
-  (uparsebar værdi giver aldrig et gættet anker). **Prod-apply af vokabular-seeden er
-  fortsat bruger-gated** — kun filerne (schema.sql/db-migrations.sql/db-verify.sql) er
-  opdateret i denne branch, intet er kørt mod en rigtig database.
+  (uparsebar værdi giver aldrig et gættet anker). **Prod-apply udført 2026-07-22 (bruger-
+  godkendt):** `INSERT INTO vocab (scheme, code, label) VALUES ('faktatype','overhoved', …)
+  ON CONFLICT DO NOTHING` kørt transaktionelt mod prod (xjnvdhajfyrcytatnzos) via psql
+  (session pooler, `sslmode=require`). Verificeret: rækken findes med korrekt label,
+  `vocab`-antal 152→153 (præcis +1, ingen sideeffekter), idempotens bekræftet (gentaget
+  INSERT gav 0 rækker), `vocab.relrowsecurity` uændret (RLS-lint/get_advisors ikke kørt —
+  ingen Supabase MCP tilgængelig i denne session — men irrelevant her: ingen ny tabel,
+  funktion eller RLS-politik, kun én dataræke i en allerede-sikret referencetabel).
 - **RETTET (2026-07-22, bruger-beslutning "vis én gang + krydshenvisning"):** den tidligere
   kendte struktur-begrænsning er lukket. `pruneUndertrae`s vagt er splittet i to: `paaVej`
   (ID'er på den aktuelle rekursions-stak — en ægte data-cyklus beskæres fortsat defensivt til

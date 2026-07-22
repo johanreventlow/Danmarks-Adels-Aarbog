@@ -3,7 +3,8 @@
 **Dato:** 2026-07-22
 **Status:** Implementeret (v1) — se `docs/superpowers/plans/2026-07-22-praesensliste-visning.md`
 (alle 10 tasks) + `docs/decisions.md` §"Præsensliste-visning v1" for afvigelser fra planen
-opdaget under implementering. Prod-apply af vokabular-seeden (Task 1) er fortsat bruger-gated.
+opdaget under implementering. Prod-apply af vokabular-seeden (Task 1) udført 2026-07-22
+(bruger-godkendt) — se `docs/decisions.md`.
 **Relateret:** `docs/superpowers/specs/2026-07-15-praesensliste-tidsserie-design.md` (som-af/diff mellem
 trykte udgaver — ORTOGONALT: dette spec er læsevisningen, tidsserie-spec'et er redaktions-diffen),
 `docs/daa-presens-archetype.md` + `.claude/skills/daa-presens/SKILL.md` (parsing af trykte

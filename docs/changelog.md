@@ -13,21 +13,27 @@ Claude-subagenter som task-reviewere. Alle 10 tasks grønne og godkendt:
   `presensListe.ts` (bottom-up-beskæring af afdøde uden levende efterkommere,
   anker-klatring, relationsgrupper, gren-partitionering via ankersæt, redaktionelle
   advarsler). Facitliste-test reproducerer DAA 2012-14 II linje 1. grens gruppestruktur.
-  Suite: 291/291.
+  Suite: 297/297 (efter krydshenvisnings-tilføjelsen, se nedenfor).
 - **Vokabular:** ny faktatype `overhoved` (schema.sql + db-migrations.sql + db-verify.sql)
   — udpeger linje-/gren-overhoveder som redaktionelt fakta, ingen skemaændring. Genbruger
   eksisterende `red_upsert_fakta`/`red_opret_fakta`-flow i person-editoren (web + mobil).
-  **Prod-apply udestår** (bruger-gated).
+  **Prod-apply udført 2026-07-22** (bruger-godkendt) — se `docs/decisions.md` for verifikation.
 - **Web:** ny "Præsensliste"-fane i Følgesvend-navigationen (`/praesens`), redaktion-gated,
-  "Vis i præsensliste"-genvej fra person-detaljepanelet. Suite: 426/426.
+  "Vis i præsensliste"-genvej fra person-detaljepanelet. Suite: 427/427.
 - **Mobil:** ny `/praesens`-skærm + drawer-punkt 09, spejler webbens gating/tomtilstande/
   partner-visning. Suite: 348/348.
 - **Fund undervejs (rettet, se `docs/decisions.md` for detaljer):** en Vitest-dobbelt-
   test-registrering pga. sibling-test-import (rettet: udtrukket delte fixtures til egen
-  fil); mobil-skærmens manglende partner-visning + indlejrede komponenter (rettet).
-- **Kendt struktur-begrænsning (ikke rettet, kræver designbeslutning):** en levende person
-  nået ad to veje inden for SAMME ankers undertræ (ikke på tværs af grene) kan stille miste
-  den ene gren pga. traversal-guarden — se `docs/decisions.md`.
+  fil); mobil-skærmens manglende partner-visning + indlejrede komponenter (rettet); mobil
+  manglede `canonicalIdById` på modellen (gjorde samme_som-kanonisering til en no-op på
+  mobil — rettet, fanget af slut-reviewet).
+- **Struktur-begrænsning RETTET 2026-07-22 (bruger-beslutning "vis én gang +
+  krydshenvisning"):** en levende person nået ad to veje inden for SAMME ankers
+  undertræ/gren (fx et dobbelt-fætterskab) blev tidligere enten stille droppet eller vist
+  dobbelt. `pruneUndertrae` deler nu ét `alleredeVist`-sæt på tværs af hele grenens
+  opbygning; første forekomst vises fuldt, senere forekomster bliver en
+  `krydsReference`-stub med en synlig note i UI'et. Krydsning MELLEM grene
+  (`dobbelt_naaet`-advarslen) er uændret. Se `docs/decisions.md`.
 - **Trust-note:** Codex' selv-rapportering viste sig ved ét task at være opdigtet (beskrev
   ikke-eksisterende kode); den faktiske kode var korrekt i alle 10 tasks, fanget fordi hver
   task blev uafhængigt genverificeret (kontrollør kørte selv test-suiter, reviewer læste
