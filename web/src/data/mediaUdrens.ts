@@ -20,8 +20,17 @@ export async function executeUdrens(
   for (const s of stier) byBucket.set(s.bucket, [...(byBucket.get(s.bucket) ?? []), s.sti]);
   const fejl: string[] = [];
   for (const [bucket, paths] of byBucket) {
-    const { error } = await deps.removeObjects(bucket, paths);
-    if (error) fejl.push(`${bucket}: ${error.message}`);
+    try {
+      const { error } = await deps.removeObjects(bucket, paths);
+      if (error) fejl.push(`${bucket}: ${error.message}`);
+    } catch (e) {
+      // removeObjects kan AFVISE (throw) i stedet for at resolve'e { error } for
+      // ikke-StorageError-fejl (fx netværk) — DB-sletningen er allerede autoritativ og
+      // gennemført her, så ét bucket-kald der kaster må ikke stoppe resten af loopet
+      // eller lade en Storage-fejl fremstå som en fejlet udrensning.
+      const message = e instanceof Error ? e.message : String(e);
+      fejl.push(`${bucket}: ${message}`);
+    }
   }
   return fejl.length
     ? { kind: 'completed', storageAdvarsel: `Rækken er slettet, men ${fejl.length} Storage-kald fejlede (${fejl.join('; ')}) — de forladte bytes er usynlige og ryddes af janitoren.` }

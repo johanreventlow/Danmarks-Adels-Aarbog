@@ -31,15 +31,18 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
   onFlet?: (originalId: string, confirmedMentions: MediaAnvendelse['mentions']) => Promise<MediaFletResultat>;
   onSlet: () => void;
   onGenopret: () => void;
-  onErstatFil?: (file: File) => void;
-  onUdrens?: () => void;
+  onErstatFil?: (file: File) => void | Promise<unknown>;
+  onUdrens?: () => void | Promise<unknown>;
   udrensPreview?: UdrensPreview;
-  onSaetPortraet?: (personId: string, mediaId: string | null) => void;
+  onSaetPortraet?: (personId: string, mediaId: string | null) => void | Promise<unknown>;
 }) {
   const [meta, setMeta] = useState({ titel: '', slags: 'foto', kunstner: '', datering: '' });
   const [ret, setRet] = useState({ status: 'ukendt', maaPubliceres: false, licens: '', kildehenvisning: '', gengivelsestilladelse: '', kildeFritekst: '' });
   const [bekraeftSlet, setBekraeftSlet] = useState(false);
   const [bekraeftUdrens, setBekraeftUdrens] = useState(false);
+  // Delt busy-lås for de tre nye skrivehandlinger (erstat fil/slet permanent/portræt), så et
+  // hurtigt dobbeltklik ikke starter operationen to gange samtidig (Codex-fund, review af Task 9).
+  const [medieAktionBusy, setMedieAktionBusy] = useState(false);
   const [fletOpen, setFletOpen] = useState(false);
   const [fletOriginalId, setFletOriginalId] = useState('');
   const [fletBusy, setFletBusy] = useState(false);
@@ -51,6 +54,7 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
     setRet({ status: media.rettighederStatus || 'ukendt', maaPubliceres: media.maaPubliceres, licens: '', kildehenvisning: '', gengivelsestilladelse: '', kildeFritekst: '' });
     setBekraeftSlet(false);
     setBekraeftUdrens(false);
+    setMedieAktionBusy(false);
     setFletOpen(false); setFletOriginalId(''); setFletBusy(false); setFletFejl(''); setFletResultat(null); setFletReviewMentions(null);
   }, [media.id, media.titel, media.slags, media.kunstner, media.datering, media.rettighederStatus, media.maaPubliceres]);
 
@@ -141,9 +145,14 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
                     {a.primaer ? <span style={{ marginLeft: 7, fontSize: 9.5, letterSpacing: '.06em', textTransform: 'uppercase', color: C.bordeaux, border: '1px solid rgba(136,26,51,.28)', borderRadius: 5, padding: '1px 5px' }}>Portræt</span> : null}
                   </span>
                   {a.type === 'person' && onSaetPortraet && media.uploadStatus === 'klar' ? (
-                    <button type="button" disabled={fletBusy}
-                      onClick={() => { if (!fletBusy) onSaetPortraet(a.id, a.primaer ? null : media.id); }}
-                      style={{ border: 0, background: 'transparent', color: C.bordeaux, cursor: fletBusy ? 'default' : 'pointer', padding: 2, fontSize: 12 }}>
+                    <button type="button" disabled={fletBusy || medieAktionBusy}
+                      onClick={async () => {
+                        if (fletBusy || medieAktionBusy) return;
+                        setMedieAktionBusy(true);
+                        try { await onSaetPortraet(a.id, a.primaer ? null : media.id); }
+                        finally { setMedieAktionBusy(false); }
+                      }}
+                      style={{ border: 0, background: 'transparent', color: C.bordeaux, cursor: fletBusy || medieAktionBusy ? 'default' : 'pointer', padding: 2, fontSize: 12, opacity: medieAktionBusy ? .5 : 1 }}>
                       {a.primaer ? 'Fjern portræt-valg' : 'Sæt som portræt'}
                     </button>
                   ) : null}
@@ -233,15 +242,17 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
             <>
               <button type="button" disabled={fletBusy} onClick={() => { if (!fletBusy) onGenopret(); }} style={{ border: 0, borderRadius: 7, padding: '8px 13px', cursor: fletBusy ? 'default' : 'pointer', background: C.green, color: '#fff' }}>Genopret</button>
               {onUdrens ? (
-                <button type="button" disabled={fletBusy || !udrensPreview || !udrensPreview.kanUdrenses}
+                <button type="button" disabled={fletBusy || medieAktionBusy || !udrensPreview || !udrensPreview.kanUdrenses}
                   title={udrensPreview && !udrensPreview.kanUdrenses ? udrensPreview.blokeringer.join(' · ') : undefined}
-                  onClick={() => {
-                    if (fletBusy || !udrensPreview?.kanUdrenses) return;
+                  onClick={async () => {
+                    if (fletBusy || medieAktionBusy || !udrensPreview?.kanUdrenses) return;
                     if (!bekraeftUdrens) { setBekraeftUdrens(true); return; }
-                    onUdrens();
+                    setMedieAktionBusy(true);
+                    try { await onUdrens(); }
+                    finally { setMedieAktionBusy(false); }
                   }}
-                  style={{ border: 0, borderRadius: 7, padding: '8px 13px', cursor: udrensPreview?.kanUdrenses ? 'pointer' : 'default', background: C.red, color: '#fff', opacity: udrensPreview?.kanUdrenses ? 1 : .45 }}>
-                  {bekraeftUdrens
+                  style={{ border: 0, borderRadius: 7, padding: '8px 13px', cursor: udrensPreview?.kanUdrenses && !medieAktionBusy ? 'pointer' : 'default', background: C.red, color: '#fff', opacity: udrensPreview?.kanUdrenses && !medieAktionBusy ? 1 : .45 }}>
+                  {medieAktionBusy ? 'Sletter permanent…' : bekraeftUdrens
                     ? `${udrensPreview?.stier.length ?? 0} fil(er) slettes permanent — bytes kan IKKE fortrydes. Klik igen for at bekræfte.`
                     : !udrensPreview ? 'Kontrollerer…' : udrensPreview.kanUdrenses ? 'Slet permanent…' : 'Slet permanent (blokeret)'}
                 </button>
@@ -254,10 +265,16 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
             </>
           ) : <>
             {media.uploadStatus === 'klar' && onErstatFil ? (
-              <label style={{ border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 13px', cursor: 'pointer', background: C.beige, color: C.muted, fontSize: 13 }}>
-                Erstat fil…
-                <input type="file" accept="image/*" style={{ display: 'none' }}
-                  onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onErstatFil(f); }} />
+              <label style={{ border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 13px', cursor: medieAktionBusy ? 'default' : 'pointer', background: C.beige, color: C.muted, fontSize: 13, opacity: medieAktionBusy ? .5 : 1 }}>
+                {medieAktionBusy ? 'Erstatter…' : 'Erstat fil…'}
+                <input type="file" accept="image/*" disabled={medieAktionBusy} style={{ display: 'none' }}
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0]; e.target.value = '';
+                    if (!f || medieAktionBusy) return;
+                    setMedieAktionBusy(true);
+                    try { await onErstatFil(f); }
+                    finally { setMedieAktionBusy(false); }
+                  }} />
               </label>
             ) : null}
             <button type="button" disabled={fletBusy || !media.relationId} onClick={() => { if (!fletBusy) onFjern(); }} style={{ border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 13px', cursor: media.relationId && !fletBusy ? 'pointer' : 'default', background: C.beige, color: C.muted }}>Fjern tilknytning</button>
