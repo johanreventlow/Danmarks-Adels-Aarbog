@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { CenterMsg } from '../../../../components/CenterMsg';
 import { TopBar } from '../../../../components/TopBar';
@@ -8,11 +8,15 @@ import { MediaDetaljeSheet } from '../../../../components/redaktion/MediaDetalje
 import { SkrivePreviewSheet } from '../../../../components/redaktion/SkrivePreviewSheet';
 import { pickerSheetStyles } from '../../../../components/redaktion/pickerSheetStyles';
 import {
-  fetchLineages, fetchMediaAnvendelse, fetchMediaBibliotek,
-  type MediaAnvendelse, type MediaBibliotekPost,
+  fetchLineages, fetchMediaAnvendelse, fetchMediaBibliotek, fetchUdrensPreview,
+  type MediaAnvendelse, type MediaBibliotekPost, type UdrensPreview,
 } from '../../../../data/redaktionRead';
+import { fetchExistingMediaBySha } from '../../../../data/mediaDedup';
+import { cleanupUdrensStorage } from '../../../../data/mediaUdrens';
 import type { Change } from '../../../../data/redaktionWrite';
 import { useMediaAndThumbUris } from '../../../../lib/media';
+import { buildVariants, pickImage } from '../../../../lib/mediaUpload';
+import { supabase } from '../../../../lib/supabase';
 import { useStore } from '../../../../store/useStore';
 import { Border, Colors, Radius } from '../../../../theme/tokens';
 
@@ -89,6 +93,7 @@ export default function MedieDetalje() {
   const [media, setMedia] = useState<MediaBibliotekPost | null>(null);
   const [anvendelse, setAnvendelse] = useState<MediaAnvendelse | undefined>();
   const [anvendelseFejl, setAnvendelseFejl] = useState('');
+  const [udrensPreview, setUdrensPreview] = useState<UdrensPreview | undefined>();
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [pending, setPending] = useState<Change | null>(null);
   const [picker, setPicker] = useState(false);
@@ -97,11 +102,18 @@ export default function MedieDetalje() {
   const hent = useCallback(() => {
     if (!id) return;
     const sekvens = ++hentSekvens.current;
-    setStatus('loading'); setAnvendelse(undefined); setAnvendelseFejl('');
+    setStatus('loading'); setAnvendelse(undefined); setAnvendelseFejl(''); setUdrensPreview(undefined);
     fetchMediaBibliotek().then((rows) => {
       if (sekvens !== hentSekvens.current) return;
       const fundet = rows.find((m) => m.id === id) ?? null;
       setMedia(fundet); setStatus(fundet ? 'ready' : 'error');
+      if (fundet?.uploadStatus === 'fjernet') {
+        fetchUdrensPreview(fundet.id).then((preview) => {
+          if (sekvens === hentSekvens.current) setUdrensPreview(preview);
+        }).catch(() => {
+          if (sekvens === hentSekvens.current) setUdrensPreview(undefined);
+        });
+      }
     }).catch(() => { if (sekvens === hentSekvens.current) setStatus('error'); });
     fetchMediaAnvendelse(id).then((a) => {
       if (sekvens === hentSekvens.current) setAnvendelse(a);
@@ -136,11 +148,57 @@ export default function MedieDetalje() {
       onFjern={() => {}}
       onFjernTilknytning={(relationId) => setPending({ art: 'sletRelation', subjektType: 'media', subjektId: media.id, relationId })}
       onTilknyt={() => setPicker(true)}
+      onErstatFil={async () => {
+        try {
+          const picked = await pickImage();
+          if (!picked) return;
+          const built = await buildVariants(picked);
+          const existing = await fetchExistingMediaBySha(built.sha256);
+          if (existing?.id === media.id) {
+            Alert.alert('Erstat stoppet', 'Filen er identisk med den nuværende — ingen ændring.');
+            return;
+          }
+          if (existing) {
+            Alert.alert('Erstat stoppet', `Billedet findes allerede som medie ${existing.id}. Brug Tilknyt i stedet.`);
+            return;
+          }
+          setPending({
+            art: 'erstatMediaFil', subjektType: 'media', subjektId: media.id, mediaId: media.id,
+            payload: {
+              localUri: built.large.uri, storagePath: built.large.storagePath,
+              mimeType: built.large.mimeType, byteSize: built.large.byteSize,
+              bredde: built.large.bredde, hoejde: built.large.hoejde,
+              sha256: built.sha256, originalFilnavn: picked.fileName ?? undefined,
+              varianter: [built.thumb, built.medium],
+            },
+          });
+        } catch (error) {
+          Alert.alert('Erstat fil fejlede', String((error as Error)?.message ?? error));
+        }
+      }}
+      onUdrens={() => setPending({ art: 'udrensMedia', subjektType: 'media', subjektId: media.id, mediaId: media.id })}
+      udrensPreview={udrensPreview}
+      onSaetPortraet={(personId, mediaId) => setPending({
+        art: 'saetPortraet', subjektType: 'person', subjektId: personId, personId,
+        mediaId: mediaId ?? undefined,
+      })}
       onSlet={() => setPending({ art: 'fjernMedia', subjektType: 'media', subjektId: media.id, mediaId: media.id })}
       onGenopret={() => setPending({ art: 'genopretMedia', subjektType: 'media', subjektId: media.id, mediaId: media.id })} /> : null}
     {picker ? <MediaTilknytPicker mediaId={media.id} udelukkedeMaal={tilknyttedeMaal}
       onClose={() => setPicker(false)} onVaelg={(change) => { setPicker(false); setPending(change); }} /> : null}
-    <SkrivePreviewSheet change={pending} onClose={() => setPending(null)} onApplied={() => {
+    <SkrivePreviewSheet change={pending} onClose={() => setPending(null)} onApplied={async (result) => {
+      const applied = pending;
+      if (applied?.art === 'udrensMedia') {
+        const warning = await cleanupUdrensStorage(result, async (bucket, stier) => {
+          if (!supabase) return { error: { message: 'Supabase ikke konfigureret' } };
+          return supabase.storage.from(bucket).remove(stier);
+        });
+        setPending(null);
+        loadRedaktionModel(true).catch(() => {});
+        if (warning) Alert.alert('Storage-advarsel', warning);
+        router.back();
+        return;
+      }
       setPending(null); hent(); loadRedaktionModel(true).catch(() => {});
     }} />
   </View>;

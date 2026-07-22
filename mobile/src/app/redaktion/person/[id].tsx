@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { InitialBadge } from '../../../components/InitialBadge';
 import { TopBar } from '../../../components/TopBar';
 import { CenterMsg } from '../../../components/CenterMsg';
@@ -25,6 +25,8 @@ import { RelTilfoejSheet } from '../../../components/redaktion/RelTilfoejSheet';
 import { personEditorSheetStyles } from '../../../components/redaktion/personEditorSheetStyles';
 import { Body, BtnLabel, Mono, Serif } from '../../../components/Typography';
 import { useMediaAndThumbUris } from '../../../lib/media';
+import { buildVariants, pickImage } from '../../../lib/mediaUpload';
+import { supabase } from '../../../lib/supabase';
 import {
   buildTidslinje,
   fetchHaendelserForPerson,
@@ -37,6 +39,7 @@ import {
   fetchSammeSomLinks,
   fetchForaeldreUkendtMarkering,
   fetchMediaAnvendelse,
+  fetchUdrensPreview,
   nudgeOrdinal,
   type HaendelsePost,
   type StoryPost,
@@ -46,9 +49,12 @@ import {
   type PersonFamilie,
   type PersonMedia,
   type MediaAnvendelse,
+  type UdrensPreview,
   type SammeSomLink,
   type ForaeldreUkendtMarkering,
 } from '../../../data/redaktionRead';
+import { fetchExistingMediaBySha } from '../../../data/mediaDedup';
+import { cleanupUdrensStorage } from '../../../data/mediaUdrens';
 import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, previewSammeSom } from '@daa/core';
 import { eraAdvarsel } from '../../../data/eraAdvarsel';
 import { type Change } from '../../../data/redaktionWrite';
@@ -151,6 +157,7 @@ export default function PersonEditor() {
   const [mediaDetalje, setMediaDetalje] = useState<PersonMedia | null>(null);
   const [mediaAnvendelse, setMediaAnvendelse] = useState<MediaAnvendelse | undefined>();
   const [mediaAnvendelseFejl, setMediaAnvendelseFejl] = useState('');
+  const [udrensPreview, setUdrensPreview] = useState<UdrensPreview | undefined>();
   const [uploadSheetOpen, setUploadSheetOpen] = useState(false);
   const refreshMedia = async () => {
     if (!id) return;
@@ -167,12 +174,46 @@ export default function PersonEditor() {
     (m) => m.thumb_storage_path,
   );
   useEffect(() => {
-    if (!mediaDetalje) { setMediaAnvendelse(undefined); setMediaAnvendelseFejl(''); return; }
-    let aktiv = true; setMediaAnvendelse(undefined); setMediaAnvendelseFejl('');
+    if (!mediaDetalje) { setMediaAnvendelse(undefined); setMediaAnvendelseFejl(''); setUdrensPreview(undefined); return; }
+    let aktiv = true; setMediaAnvendelse(undefined); setMediaAnvendelseFejl(''); setUdrensPreview(undefined);
     fetchMediaAnvendelse(mediaDetalje.id).then((a) => { if (aktiv) setMediaAnvendelse(a); })
       .catch(() => { if (aktiv) setMediaAnvendelseFejl('Kunne ikke kontrollere anvendelser. Sletning er blokeret.'); });
+    if (mediaDetalje.uploadStatus === 'fjernet') {
+      fetchUdrensPreview(mediaDetalje.id).then((preview) => { if (aktiv) setUdrensPreview(preview); })
+        .catch(() => { if (aktiv) setUdrensPreview(undefined); });
+    }
     return () => { aktiv = false; };
-  }, [mediaDetalje?.id]);
+  }, [mediaDetalje?.id, mediaDetalje?.uploadStatus]);
+
+  async function erstatMediaFil(m: PersonMedia) {
+    try {
+      const picked = await pickImage();
+      if (!picked) return;
+      const built = await buildVariants(picked);
+      const existing = await fetchExistingMediaBySha(built.sha256);
+      if (existing?.id === m.id) {
+        Alert.alert('Erstat stoppet', 'Filen er identisk med den nuværende — ingen ændring.');
+        return;
+      }
+      if (existing) {
+        Alert.alert('Erstat stoppet', `Billedet findes allerede som medie ${existing.id}. Brug Tilknyt i stedet.`);
+        return;
+      }
+      setPending({
+        art: 'erstatMediaFil', subjektType: 'person', subjektId: id!, mediaId: m.id,
+        payload: {
+          localUri: built.large.uri, storagePath: built.large.storagePath,
+          mimeType: built.large.mimeType, byteSize: built.large.byteSize,
+          bredde: built.large.bredde, hoejde: built.large.hoejde,
+          sha256: built.sha256, originalFilnavn: picked.fileName ?? undefined,
+          varianter: [built.thumb, built.medium],
+        },
+      });
+      setMediaDetalje(null);
+    } catch (error) {
+      Alert.alert('Erstat fil fejlede', String((error as Error)?.message ?? error));
+    }
+  }
 
   function onAction(a: FaktaAction) {
     if (a.type === 'gørKonklusion') {
@@ -662,6 +703,13 @@ export default function PersonEditor() {
           onFjern={() => { setPending({ art: 'sletRelation', subjektType: 'person', subjektId: id!, relationId: mediaDetalje.relationId }); setMediaDetalje(null); }}
           onFjernTilknytning={(relationId) => { setPending({ art: 'sletRelation', subjektType: 'media', subjektId: mediaDetalje.id, relationId }); setMediaDetalje(null); }}
           onTilknyt={() => { const mediaId = mediaDetalje.id; setMediaDetalje(null); router.push({ pathname: '/redaktion/entitet/medie/[id]', params: { id: mediaId } }); }}
+          onErstatFil={() => erstatMediaFil(mediaDetalje)}
+          onUdrens={() => { setPending({ art: 'udrensMedia', subjektType: 'media', subjektId: mediaDetalje.id, mediaId: mediaDetalje.id }); setMediaDetalje(null); }}
+          udrensPreview={udrensPreview}
+          onSaetPortraet={(personId, mediaId) => {
+            setPending({ art: 'saetPortraet', subjektType: 'person', subjektId: personId, personId, mediaId: mediaId ?? undefined });
+            setMediaDetalje(null);
+          }}
           onSlet={() => { setPending({ art: 'fjernMedia', subjektType: 'person', subjektId: id!, mediaId: mediaDetalje.id }); setMediaDetalje(null); }}
           onGenopret={() => { setPending({ art: 'genopretMedia', subjektType: 'person', subjektId: id!, mediaId: mediaDetalje.id }); setMediaDetalje(null); }}
         />
@@ -720,8 +768,14 @@ export default function PersonEditor() {
       <SkrivePreviewSheet
         change={pending}
         onClose={() => setPending(null)}
-        onApplied={(result) => {
+        onApplied={async (result) => {
           const applied = pending;
+          const storageWarning = applied?.art === 'udrensMedia'
+            ? await cleanupUdrensStorage(result, async (bucket, stier) => {
+                if (!supabase) return { error: { message: 'Supabase ikke konfigureret' } };
+                return supabase.storage.from(bucket).remove(stier);
+              })
+            : null;
           if (id) fetchPersonEvidence(id).then(setEv).catch(() => {});
           refreshHaendelser();
           refreshStories();
@@ -730,7 +784,7 @@ export default function PersonEditor() {
           if (id) fetchPersonRelationer(id, redaktionAux).then(setRelationer).catch(() => {});
           if (id) fetchPersonFamilie(id, redaktionModel).then(setFamilie).catch(() => {});
           refreshSammeSom();
-          if (['uploadMedia','opdaterMedia','genopretMedia','mediaRettigheder','fjernMedia','sletRelation','tilknytMedia'].includes(applied?.art ?? '')) {
+          if (['uploadMedia','opdaterMedia','genopretMedia','mediaRettigheder','fjernMedia','sletRelation','tilknytMedia','erstatMediaFil','udrensMedia','saetPortraet'].includes(applied?.art ?? '')) {
             void refreshMedia().catch(() => {});
           }
           if ((applied?.art === 'opretStory' || applied?.art === 'redigerStory') && storyKilderEfterGem) {
@@ -744,6 +798,7 @@ export default function PersonEditor() {
             }
           }
           setPending(null);
+          if (storageWarning) Alert.alert('Storage-advarsel', storageWarning);
         }}
       />
       {confirmDeleteOpen ? (
