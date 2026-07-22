@@ -8,13 +8,14 @@ import type { PresensGren, PresensNode } from '@daa/core';
 import { LoadGate } from '../components/LoadGate';
 import { Body, BtnLabel, Serif } from '../components/Typography';
 import { fetchPresensGrundlag, type PresensGrundlag } from '../data/presens';
+import type { Model } from '../data/types';
 import { useStore } from '../store/useStore';
 import { Border, Colors } from '../theme/tokens';
 
 // Modul-scope (ikke indlejret i skærmen): bevarer komponent-identitet på tværs af re-renders —
 // en indlejret komponent ville genoprettes ved hvert render og tvinge fuld remount af hele træet.
 function PraesensNodeView({ n, dybde, model, router }: {
-  n: PresensNode; dybde: number; model: ReturnType<typeof useStore.getState>['model']; router: ReturnType<typeof useRouter>;
+  n: PresensNode; dybde: number; model: Model | null; router: ReturnType<typeof useRouter>;
 }) {
   const person = model?.byId[n.id];
   const navn = person?.name ?? `person ${n.id}`;
@@ -48,7 +49,7 @@ function PraesensNodeView({ n, dybde, model, router }: {
 }
 
 function PraesensGrenView({ gren, model, router }: {
-  gren: PresensGren; model: ReturnType<typeof useStore.getState>['model']; router: ReturnType<typeof useRouter>;
+  gren: PresensGren; model: Model | null; router: ReturnType<typeof useRouter>;
 }) {
   return (
     <View style={{ marginBottom: 30 }}>
