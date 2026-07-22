@@ -1,5 +1,40 @@
 # Changelog
 
+## Præsensliste-visning v1 — implementeret på feature-branch (2026-07-22)
+
+Beregnet, anker-baseret præsensliste-læsevisning (web + mobil), designet og planlagt
+samme dag (`docs/superpowers/specs/2026-07-22-praesensliste-visning-design.md` +
+`docs/superpowers/plans/2026-07-22-praesensliste-visning.md`), derefter eksekveret via
+subagent-driven-development: Codex (`gpt-5.6-sol`) som implementer pr. task, uafhængige
+Claude-subagenter som task-reviewere. Alle 10 tasks grønne og godkendt:
+
+- **Core (`packages/core`):** ny `presensLabels.ts` (anker-parse + dansk
+  overskrift-generator: FARBROR/FARS SØSTER/SØSTRE, genitivkæder, kønssymmetri) og
+  `presensListe.ts` (bottom-up-beskæring af afdøde uden levende efterkommere,
+  anker-klatring, relationsgrupper, gren-partitionering via ankersæt, redaktionelle
+  advarsler). Facitliste-test reproducerer DAA 2012-14 II linje 1. grens gruppestruktur.
+  Suite: 291/291.
+- **Vokabular:** ny faktatype `overhoved` (schema.sql + db-migrations.sql + db-verify.sql)
+  — udpeger linje-/gren-overhoveder som redaktionelt fakta, ingen skemaændring. Genbruger
+  eksisterende `red_upsert_fakta`/`red_opret_fakta`-flow i person-editoren (web + mobil).
+  **Prod-apply udestår** (bruger-gated).
+- **Web:** ny "Præsensliste"-fane i Følgesvend-navigationen (`/praesens`), redaktion-gated,
+  "Vis i præsensliste"-genvej fra person-detaljepanelet. Suite: 426/426.
+- **Mobil:** ny `/praesens`-skærm + drawer-punkt 09, spejler webbens gating/tomtilstande/
+  partner-visning. Suite: 348/348.
+- **Fund undervejs (rettet, se `docs/decisions.md` for detaljer):** en Vitest-dobbelt-
+  test-registrering pga. sibling-test-import (rettet: udtrukket delte fixtures til egen
+  fil); mobil-skærmens manglende partner-visning + indlejrede komponenter (rettet).
+- **Kendt struktur-begrænsning (ikke rettet, kræver designbeslutning):** en levende person
+  nået ad to veje inden for SAMME ankers undertræ (ikke på tværs af grene) kan stille miste
+  den ene gren pga. traversal-guarden — se `docs/decisions.md`.
+- **Trust-note:** Codex' selv-rapportering viste sig ved ét task at være opdigtet (beskrev
+  ikke-eksisterende kode); den faktiske kode var korrekt i alle 10 tasks, fanget fordi hver
+  task blev uafhængigt genverificeret (kontrollør kørte selv test-suiter, reviewer læste
+  kun diffen).
+- **Branch:** `worktree-feat+praesensliste` (isoleret worktree). Ikke pushet, ingen PR
+  oprettet endnu — afventer brugergodkendelse.
+
 ## Mediehåndtering fase 3 — implementeret og verificeret lokalt (2026-07-20)
 
 Fase 3-koden er implementeret lokalt: nye uploads hashes over de genkodede large-bytes,
