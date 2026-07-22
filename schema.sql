@@ -533,6 +533,13 @@ INSERT INTO vocab (scheme, code, label) VALUES
   ('story_oprindelse','llm_assisteret', 'LLM-kladde, menneskeligt godkendt (fase 4)')
 ON CONFLICT (scheme, code) DO NOTHING;
 
+-- Præsensliste: linje-/gren-overhoved udpeges som redaktionelt fakta (spec
+-- docs/superpowers/specs/2026-07-22-praesensliste-visning-design.md §4).
+-- Værdi-format: '<ROMERTAL> linje' eller '<ROMERTAL> linje, <N>. gren' — fx 'II linje, 1. gren'.
+INSERT INTO vocab (scheme, code, label) VALUES
+  ('faktatype','overhoved','Linje-/gren-overhoved — anker for præsenslisten')
+ON CONFLICT (scheme, code) DO NOTHING;
+
 -- ---------- CACHE-REGENERERING & TRIGGERS ----------
 -- Recompute cache-felter fra personens konklusioner. Læser den VALGTE assertions værdi
 -- pr. faktatype. Dato-fakta (fødsel/død) bruger coalesce(date_raw, vaerdi_tekst).

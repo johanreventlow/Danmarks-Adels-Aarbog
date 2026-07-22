@@ -3130,3 +3130,11 @@ BEGIN
   GET DIAGNOSTICS v_n = ROW_COUNT;
   RETURN jsonb_build_object('valgte_person_ids', p_person_ids, 'personer_afstaget', v_n);
 END $$;
+
+-- ============================================================
+-- 2026-07-22: Præsensliste — faktatype 'overhoved' (vokabular-seed)
+-- Ingen skemaændring. Se docs/superpowers/specs/2026-07-22-praesensliste-visning-design.md §4.
+-- ============================================================
+INSERT INTO vocab (scheme, code, label) VALUES
+  ('faktatype','overhoved','Linje-/gren-overhoved — anker for præsenslisten')
+ON CONFLICT (scheme, code) DO NOTHING;
