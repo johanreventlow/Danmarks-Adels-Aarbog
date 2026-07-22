@@ -180,7 +180,7 @@ export async function loadFromSupabase(opts?: {
       getAll<RawRelation>(() =>
         sb
           .from('relation')
-          .select('subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw')
+          .select('subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw,kvalifikator')
           .eq('subjekt_type', 'person'),
       ),
       getAll<RawRelation>(() =>

@@ -696,7 +696,7 @@ export type PersonMedia = {
   kunstner: string | null; datering: string | null; rettighederStatus: string;
   mimeType: string | null; byteSize: number | null; bredde: number | null; hoejde: number | null;
   originalFilnavn: string | null; uploadStatus: string; maaPubliceres: boolean; createdAt: string | null;
-  thumbStoragePath: string | null;
+  thumbStoragePath: string | null; primaer: boolean;
 };
 type RawPersonMediaRow = { id: number; slags: string | null; titel: string | null; kunstner: string | null;
   datering: string | null; storage_path: string | null; upload_status: string | null;
@@ -729,6 +729,7 @@ export function mapPersonMediaRows(
       maaPubliceres: Boolean(m.maa_publiceres),
       createdAt: m.created_at ?? null,
       thumbStoragePath: thumbPathByMediaId.get(String(m.id)) ?? null,
+      primaer: false,
     }));
 }
 
@@ -815,6 +816,7 @@ type RawMediaRelationRow = {
   objekt_type: string;
   objekt_id: number;
   rolle: string | null;
+  kvalifikator?: { primaer?: boolean } | null;
 };
 type RawMediaMentionRow = {
   kilde_type: string;
@@ -899,7 +901,7 @@ export async function fetchMediaBibliotek(): Promise<MediaBibliotekPost[]> {
 }
 
 export type MediaAnvendelse = {
-  afbildet: { type: string; id: string; navn: string; relationId: string }[];
+  afbildet: { type: string; id: string; navn: string; relationId: string; primaer: boolean }[];
   mentions: { kildeType: string; kildeId: string; subjektNavn: string }[];
 };
 
@@ -933,6 +935,7 @@ export function mapMediaAnvendelse(
       id: String(id),
       navn: navnBySubjekt.get(entityKey(type, id)) ?? fallbackEntityName(type, id),
       relationId: String(r.id),
+      primaer: r.objekt_type === 'media' && r.subjekt_type === 'person' && r.kvalifikator?.primaer === true,
     });
   }
   const mentions = mentionRows
@@ -985,7 +988,7 @@ export async function fetchMediaAnvendelse(mediaId: string): Promise<MediaAnvend
   const sb = supabase;
   const [personRelationer, objektRelationer, mentions] = await Promise.all([
     getAll<RawMediaRelationRow>(() =>
-      sb.from('relation').select('id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle')
+      sb.from('relation').select('id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,kvalifikator')
         .eq('subjekt_type', 'person').eq('objekt_type', 'media').eq('objekt_id', numericMediaId)
         .eq('rolle', 'afbildet').order('id')),
     getAll<RawMediaRelationRow>(() =>
@@ -1009,11 +1012,88 @@ export async function fetchMediaAnvendelse(mediaId: string): Promise<MediaAnvend
   return mapMediaAnvendelse(String(numericMediaId), [...personRelationer, ...objektRelationer], mentions, narratives, names);
 }
 
+export type UdrensPreview = {
+  uploadStatus: string;
+  kanUdrenses: boolean;
+  blokeringer: string[];
+  antalTilknytninger: number;
+  antalMentions: number;
+  antalFakta: number;
+  antalStories: number;
+  antalNarrativer: number;
+  antalNoter: number;
+  antalForslag: number;
+  tilknytninger: { relationId: string; retning: 'ud' | 'ind'; modpartType: string; modpartId: string }[];
+  mentions: { kildeType: string; kildeId: string }[];
+  fakta: string[];
+  stories: string[];
+  narrativer: string[];
+  noter: string[];
+  forslag: string[];
+  stier: { bucket: string; sti: string; kilde: string }[];
+};
+
+export function mapUdrensPreview(raw: unknown): UdrensPreview {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const arr = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+  const ids = (value: unknown): string[] => arr(value).map(String);
+  return {
+    uploadStatus: String(r.upload_status ?? ''),
+    kanUdrenses: r.kan_udrenses === true,
+    blokeringer: arr(r.blokeringer).map(String),
+    antalTilknytninger: Number(r.antal_tilknytninger ?? 0),
+    antalMentions: Number(r.antal_mentions ?? 0),
+    antalFakta: Number(r.antal_fakta ?? 0),
+    antalStories: Number(r.antal_stories ?? 0),
+    antalNarrativer: Number(r.antal_narrativer ?? 0),
+    antalNoter: Number(r.antal_noter ?? 0),
+    antalForslag: Number(r.antal_forslag ?? 0),
+    tilknytninger: arr(r.tilknytninger).map((tilknytning) => {
+      const x = tilknytning as Record<string, unknown>;
+      return {
+        relationId: String(x.relation_id),
+        retning: x.retning === 'ud' ? 'ud' as const : 'ind' as const,
+        modpartType: String(x.modpart_type),
+        modpartId: String(x.modpart_id),
+      };
+    }),
+    mentions: arr(r.mentions).map((mention) => {
+      const x = mention as Record<string, unknown>;
+      return { kildeType: String(x.kilde_type), kildeId: String(x.kilde_id) };
+    }),
+    fakta: ids(r.fakta),
+    stories: ids(r.stories),
+    narrativer: ids(r.narrativer),
+    noter: ids(r.noter),
+    forslag: ids(r.forslag),
+    stier: arr(r.stier).map((sti) => {
+      const x = sti as Record<string, unknown>;
+      return { bucket: String(x.bucket), sti: String(x.sti), kilde: String(x.kilde ?? 'media') };
+    }),
+  };
+}
+
+export async function fetchUdrensPreview(mediaId: string): Promise<UdrensPreview> {
+  if (!supabase) return mapUdrensPreview(null);
+  const trimmed = mediaId.trim();
+  if (!/^[1-9][0-9]*$/.test(trimmed)
+    || trimmed.length > 19
+    || (trimmed.length === 19 && trimmed > '9223372036854775807')) {
+    throw new Error('Ugyldigt media-id');
+  }
+  const parsed = Number(trimmed);
+  const id: number | string = Number.isSafeInteger(parsed) ? parsed : trimmed;
+  const { data, error } = await supabase.rpc('red_udrens_media_preview', { p_media_id: id });
+  if (error) throw new Error(error.message);
+  return mapUdrensPreview(data);
+}
+
 // Fælles hale: rel-par (media-id + relation-id) → signede/mappede PersonMedia. Retningen af selve
 // relations-forespørgslen (person→media vs. media→objekt) afgøres af kalderne nedenfor.
-async function mediaFromRelPairs(sb: NonNullable<typeof supabase>, pairs: { mediaId: number; relationId: number }[]): Promise<PersonMedia[]> {
+async function mediaFromRelPairs(sb: NonNullable<typeof supabase>, pairs: { mediaId: number; relationId: number; primaer?: boolean }[]): Promise<PersonMedia[]> {
   if (!pairs.length) return [];
   const relByMediaId = new Map(pairs.map((p) => [String(p.mediaId), String(p.relationId)]));
+  const primaerByMediaId = new Map(pairs.map((p) => [String(p.mediaId), p.primaer === true]));
   const mediaIds = pairs.map((p) => p.mediaId);
   const [rows, variants] = await Promise.all([
     getAll<RawPersonMediaRow>(() =>
@@ -1022,17 +1102,20 @@ async function mediaFromRelPairs(sb: NonNullable<typeof supabase>, pairs: { medi
       sb.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb').in('media_id', mediaIds)),
   ]);
   const thumbPathByMediaId = new Map(variants.map((v) => [String(v.media_id), v.storage_path]));
-  return mapPersonMediaRows(rows, relByMediaId, thumbPathByMediaId);
+  return mapPersonMediaRows(rows, relByMediaId, thumbPathByMediaId)
+    .map((media) => ({ ...media, primaer: primaerByMediaId.get(media.id) === true }));
 }
 
 export async function fetchPersonMedia(id: string): Promise<PersonMedia[]> {
   if (!supabase) return [];
   const sb = supabase;
-  const rels = await getAll<{ id: number; objekt_id: number }>(() =>
-    sb.from('relation').select('id,objekt_id')
+  const rels = await getAll<{ id: number; objekt_id: number; kvalifikator: { primaer?: boolean } | null }>(() =>
+    sb.from('relation').select('id,objekt_id,kvalifikator')
       .eq('subjekt_type', 'person').eq('subjekt_id', Number(id))
       .eq('objekt_type', 'media').eq('rolle', 'afbildet'));
-  return mediaFromRelPairs(sb, rels.map((r) => ({ mediaId: r.objekt_id, relationId: r.id })));
+  return mediaFromRelPairs(sb, rels.map((r) => ({
+    mediaId: r.objekt_id, relationId: r.id, primaer: r.kvalifikator?.primaer === true,
+  })));
 }
 
 // Objekt-foto (gods/våben m.fl.): relationen går OMVENDT af person-varianten — media er subjekt,
