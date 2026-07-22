@@ -364,7 +364,8 @@ CREATE TABLE relation (
   end_min   DATE, end_max   DATE,
   period_type TEXT,                      -- 'closed','open_start','open_end','ongoing','floruit','until_event'
   periode_raw TEXT,
-  konfidens   TEXT
+  konfidens   TEXT,
+  kvalifikator jsonb                     -- fase 4: rolle-kvalifikation, fx {"primaer":true} (portræt-valg, M10); generisk pr. plan Slice 3 — deles med fremtidig region-tagging (bbox) uden ny DDL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS relation_afbildet_uidx
   ON relation (subjekt_type, subjekt_id, objekt_type, objekt_id)
@@ -2380,6 +2381,42 @@ BEGIN
     RAISE EXCEPTION 'Mediet kunne ikke udrenses — tilstanden ændrede sig undervejs, prøv igen';
   END IF;
   RETURN jsonb_build_object('stier', v_stier);
+END $$;
+
+-- Fase 4 (M10): portræt som redaktionelt VALG — {"primaer":true} på personens afbildet-relation.
+-- pickPortrait i læse-lagene prioriterer flaget og degraderer til slags-heuristikken (koncept §4.7).
+-- relation_afbildet_uidx garanterer max én relation pr. (person, media)-par, så "sæt flaget på
+-- parret" er entydigt. Retningen person→media er GDPR-invariantens (red_relation-guarden) — kun
+-- den ene retning scannes. Ingen upload_status-guard: et flag på et senere-fjernet medie er
+-- harmløst (læse-lagene ser kun synlige medier) og overlever genopret. p_media_id=NULL rydder
+-- valget. relation står i version_pk_registry uden skip-cols → begge UPDATEs logges og fortrydes.
+-- Samtidighed (review 34, M1 dismissed): to samtidige kald kan IKKE efterlade to primaer-flag
+-- — begin_change_set's eget max(id)+1 på change_set kolliderer FØRST (unique_violation), og
+-- taberen ruller hele sit kald tilbage før portræt-logikken nås. Verificeret umuligt, ikke
+-- blot usandsynligt; ingen ekstra lås nødvendig.
+CREATE OR REPLACE FUNCTION red_saet_portraet(p_person_id bigint, p_media_id bigint DEFAULT NULL)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_rows int;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_saet_portraet',
+    CASE WHEN p_media_id IS NULL THEN format('Ryddede portræt-valg for person %s', p_person_id)
+         ELSE format('Satte media %s som portræt for person %s', p_media_id, p_person_id) END,
+    'person', p_person_id);
+  -- Nulstil søskende først (én UPDATE): fjern nøglen; tom jsonb normaliseres til NULL.
+  UPDATE relation SET kvalifikator = nullif(kvalifikator - 'primaer', '{}'::jsonb)
+   WHERE subjekt_type='person' AND subjekt_id=p_person_id
+     AND objekt_type='media' AND rolle='afbildet'
+     AND kvalifikator ? 'primaer';
+  IF p_media_id IS NOT NULL THEN
+    UPDATE relation SET kvalifikator = coalesce(kvalifikator,'{}'::jsonb) || '{"primaer":true}'::jsonb
+     WHERE subjekt_type='person' AND subjekt_id=p_person_id
+       AND objekt_type='media' AND objekt_id=p_media_id AND rolle='afbildet';
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    IF v_rows = 0 THEN
+      RAISE EXCEPTION 'Mediet er ikke tilknyttet personen — tilknyt først';
+    END IF;
+  END IF;
 END $$;
 
 -- =====================================================================

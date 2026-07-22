@@ -2338,6 +2338,71 @@ EXCEPTION WHEN OTHERS THEN
   ELSE RAISE; END IF;
 END $$;
 
+-- ===== Mediehåndtering fase 4: relation.kvalifikator + red_saet_portraet =====
+DO $$
+DECLARE v_m1 bigint; v_m2 bigint; v_r1 bigint; v_r2 bigint;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+
+  -- Kolonnen findes og er jsonb
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema='public' AND table_name='relation'
+                   AND column_name='kvalifikator' AND data_type='jsonb') THEN
+    RAISE EXCEPTION 'FEJL: relation.kvalifikator mangler eller har forkert type';
+  END IF;
+
+  v_m1 := (SELECT coalesce(max(id),0)+1 FROM media);
+  INSERT INTO media(id,slags,upload_status) VALUES (v_m1,'foto','klar');
+  v_m2 := v_m1 + 1;
+  INSERT INTO media(id,slags,upload_status) VALUES (v_m2,'foto','klar');
+  v_r1 := red_relation('person',-999943,'media',v_m1,'afbildet');
+  v_r2 := red_relation('person',-999943,'media',v_m2,'afbildet');
+
+  -- Sæt portræt på m1
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_saet_portraet(-999943, v_m1);
+  IF (SELECT kvalifikator->>'primaer' FROM relation WHERE id=v_r1) <> 'true' THEN
+    RAISE EXCEPTION 'FEJL: primaer-flag blev ikke sat';
+  END IF;
+
+  -- Skift til m2 → søskende-nulstilling af m1
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_saet_portraet(-999943, v_m2);
+  IF (SELECT kvalifikator FROM relation WHERE id=v_r1) IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: søskende-nulstilling efterlod kvalifikator på m1 (%)',
+      (SELECT kvalifikator FROM relation WHERE id=v_r1);
+  END IF;
+  IF (SELECT kvalifikator->>'primaer' FROM relation WHERE id=v_r2) <> 'true' THEN
+    RAISE EXCEPTION 'FEJL: flaget flyttede ikke til m2';
+  END IF;
+
+  -- Ryd-grenen (p_media_id = NULL)
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_saet_portraet(-999943, NULL);
+  IF EXISTS (SELECT 1 FROM relation
+             WHERE subjekt_type='person' AND subjekt_id=-999943 AND kvalifikator ? 'primaer') THEN
+    RAISE EXCEPTION 'FEJL: ryd-grenen fjernede ikke flaget';
+  END IF;
+
+  -- Manglende relation → domæne-fejl, INGEN implicit oprettelse
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_saet_portraet(-999943, -424242);
+    RAISE EXCEPTION 'FEJL: portræt accepteret uden relation';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'Mediet er ikke tilknyttet personen%' THEN RAISE; END IF;
+  END;
+
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN
+    RAISE NOTICE 'OK: media fase 4 portræt (kolonne, søskende-nulstilling, ryd, guard, rullet tilbage)';
+  ELSE RAISE; END IF;
+END $$;
+
 -- ===== Levende feed fase 3: story/story_kilde/feed_pin — skema, RLS, RPC'er og fortryd =====
 DO $$
 DECLARE
