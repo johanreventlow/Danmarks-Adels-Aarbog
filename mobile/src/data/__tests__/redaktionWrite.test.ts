@@ -164,6 +164,14 @@ test('opretFakta → red_opret_fakta m. faktatype', () => {
       args: { p_subjekt_type: 'person', p_subjekt_id: 1, p_faktatype: 'titel', p_vaerdi: 'greve', p_kilde_fritekst: 'DAA' } });
 });
 
+test('opretFakta med felt overhoved mapper til red_opret_fakta med faktatype overhoved', () => {
+  expect(buildRpcCall({ art: 'opretFakta', subjektType: 'person', subjektId: '1',
+    felt: 'overhoved', vaerdi: 'II linje, 1. gren' }))
+    .toEqual({ fn: 'red_opret_fakta',
+      args: { p_subjekt_type: 'person', p_subjekt_id: 1, p_faktatype: 'overhoved',
+        p_vaerdi: 'II linje, 1. gren' } });
+});
+
 test('sletRelation → red_slet_relation', () => {
   expect(buildRpcCall({ art: 'sletRelation', subjektType: 'person', subjektId: '1', relationId: '100' }))
     .toEqual({ fn: 'red_slet_relation', args: { p_relation_id: 100 } });

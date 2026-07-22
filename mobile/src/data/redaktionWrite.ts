@@ -12,6 +12,7 @@ import { supabase } from '../lib/supabase';
 export const FELT_FAKTATYPE: Record<string, string> = {
   navn: 'navn', foedt: 'fødsel', doed: 'død', titel: 'titel',
   daab: 'dåb', begravelse: 'begravelse', floruit: 'floruit', naturalisering: 'naturalisering',
+  overhoved: 'overhoved', // præsensliste-anker: 'II linje, 1. gren' (spec 2026-07-22 §4)
 };
 const DATE_FELT = new Set(['foedt', 'doed', 'daab', 'begravelse', 'floruit', 'naturalisering']);
 

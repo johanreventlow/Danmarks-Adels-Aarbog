@@ -79,6 +79,7 @@ const ENTITIES = [
 const FELT_DEFS: [string, string][] = [
   ['navn', 'Navn'], ['foedt', 'Født'], ['doed', 'Død'], ['titel', 'Titel/rang'],
   ['daab', 'Dåb'], ['begravelse', 'Begravelse'], ['floruit', 'Floruit'], ['naturalisering', 'Naturalisation'],
+  ['overhoved', 'Overhoved (linje/gren)'],
 ];
 // UI-entitetsnøgle → DB subjekt_type + primær-felt (til forslag via red_suggest). Eksplicit
 // map, så UI-nøgler ('org','arms') ikke lækker rå til basen, der bruger fulde navne.
