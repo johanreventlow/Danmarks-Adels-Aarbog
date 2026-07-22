@@ -445,3 +445,27 @@ BEGIN
   DELETE FROM person WHERE id=-941;
   RAISE NOTICE 'OK: media + variant genopret-cyklus er fail-closed';
 END $$;
+
+-- ===== Task fase 4: anon ser 0 gennem hele udrens-cyklussen =====
+-- Forvent: NOTICE "OK: media fase 4 anon-usynlighed ...". Seeder negative id'er, rydder selv op.
+-- Udrens-tilstandene ('fjernet' → slettet række) må aldrig ændre anon-synligheden fra 0.
+DO $$
+DECLARE vis int;
+BEGIN
+  DELETE FROM media WHERE id = -941;
+  INSERT INTO media(id,slags,titel,storage_path,upload_status,maa_publiceres)
+    VALUES (-941,'foto','fase4-anon-test','__verify__/f4-anon.jpg','fjernet',true);
+
+  SET LOCAL ROLE anon;
+  SELECT count(*) INTO vis FROM media WHERE id = -941;
+  RESET ROLE;
+  IF vis <> 0 THEN RAISE EXCEPTION 'FEJL: anon ser et fjernet medie (%)', vis; END IF;
+
+  DELETE FROM media WHERE id = -941;  -- simuleret udrens (rækken borte)
+  SET LOCAL ROLE anon;
+  SELECT count(*) INTO vis FROM media WHERE id = -941;
+  RESET ROLE;
+  IF vis <> 0 THEN RAISE EXCEPTION 'FEJL: anon ser en slettet række (%)', vis; END IF;
+
+  RAISE NOTICE 'OK: media fase 4 anon-usynlighed gennem udrens-cyklussen';
+END $$;

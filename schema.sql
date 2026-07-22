@@ -2199,6 +2199,169 @@ BEGIN
   END LOOP;
 END $$;
 
+-- Fase 4 (M11): read-only forhåndsvisning af udrensning — bekræftelsesdialogens datagrundlag.
+-- Kopierer red_slet_person_preview-kontrakten: SECURITY DEFINER, rolle-gated, intet change_set.
+-- 'blokeringer' fortæller UI'et præcis hvorfor knappen er grå; 'stier' er samtidig klientens
+-- arbejdsliste til Storage-sletningen — preview og udførelse deler ét sandhedsgrundlag.
+-- Review 34 (H1/H3): tæller ALLE polymorfe ankre, ikke kun deklarative FK'er — relation
+-- (begge retninger), text_mention, fact (rettighedsdokumentation via red_set_media_rettigheder;
+-- evidenskæden assertion/citation/conclusion hænger på fact'et og blokeres med det), story og
+-- narrative (deres RPC'er validerer ikke det polymorfe mål; haendelse cascader FRA narrative
+-- og tælles bevidst ikke selvstændigt) samt note (defensivt — ingen live skriver i dag).
+-- Review 34 (L1): feltet hedder 'tilknytninger', IKKE 'afbildet' — det rummer enhver rolle.
+CREATE OR REPLACE FUNCTION red_udrens_media_preview(p_media_id bigint)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_status text; v_tilknytninger jsonb; v_mentions jsonb; v_fakta jsonb; v_stories jsonb;
+        v_narrativer jsonb; v_noter jsonb; v_stier jsonb; v_blok text[] := '{}';
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  SELECT upload_status INTO v_status FROM media WHERE id = p_media_id;
+  IF v_status IS NULL THEN RAISE EXCEPTION 'Media % findes ikke', p_media_id; END IF;
+  -- ALLE relationer (enhver rolle, begge retninger) blokerer — ikke kun 'afbildet'.
+  SELECT coalesce(jsonb_agg(r), '[]'::jsonb) INTO v_tilknytninger FROM (
+    SELECT id AS relation_id,
+           CASE WHEN subjekt_type='media' AND subjekt_id=p_media_id THEN 'ud' ELSE 'ind' END AS retning,
+           CASE WHEN subjekt_type='media' AND subjekt_id=p_media_id THEN objekt_type ELSE subjekt_type END AS modpart_type,
+           CASE WHEN subjekt_type='media' AND subjekt_id=p_media_id THEN objekt_id ELSE subjekt_id END AS modpart_id
+    FROM relation
+    WHERE (subjekt_type='media' AND subjekt_id=p_media_id)
+       OR (objekt_type='media'  AND objekt_id=p_media_id)
+    ORDER BY id) r;
+  SELECT coalesce(jsonb_agg(m), '[]'::jsonb) INTO v_mentions FROM (
+    SELECT kilde_type, kilde_id FROM text_mention
+    WHERE maal_type='media' AND maal_id=p_media_id
+    ORDER BY kilde_type, kilde_id) m;
+  SELECT coalesce(jsonb_agg(f.id ORDER BY f.id), '[]'::jsonb) INTO v_fakta
+    FROM fact f WHERE f.subjekt_type='media' AND f.subjekt_id=p_media_id;
+  SELECT coalesce(jsonb_agg(s.id ORDER BY s.id), '[]'::jsonb) INTO v_stories
+    FROM story s WHERE s.subjekt_type='media' AND s.subjekt_id=p_media_id;
+  SELECT coalesce(jsonb_agg(n.id ORDER BY n.id), '[]'::jsonb) INTO v_narrativer
+    FROM narrative n WHERE n.subjekt_type='media' AND n.subjekt_id=p_media_id;
+  SELECT coalesce(jsonb_agg(t.id ORDER BY t.id), '[]'::jsonb) INTO v_noter
+    FROM note t WHERE t.target_type='media' AND t.target_id=p_media_id;
+  SELECT coalesce(jsonb_agg(s), '[]'::jsonb) INTO v_stier FROM (
+    SELECT bucket, storage_path AS sti, 'media' AS kilde FROM media
+      WHERE id=p_media_id AND storage_path IS NOT NULL
+    UNION ALL
+    SELECT m.bucket, v.storage_path, v.tier FROM media_variant v JOIN media m ON m.id=v.media_id
+      WHERE v.media_id=p_media_id) s;
+  IF v_status <> 'fjernet' THEN
+    v_blok := v_blok || 'Kan kun udrense et fjernet medie — fjern det først (papirkurven)';
+  END IF;
+  IF jsonb_array_length(v_tilknytninger) > 0 THEN
+    v_blok := v_blok || format('%s tilknytning(er) skal fjernes først', jsonb_array_length(v_tilknytninger));
+  END IF;
+  IF jsonb_array_length(v_mentions) > 0 THEN
+    v_blok := v_blok || format('%s narrativ-omtale(r) skal redigeres ud først', jsonb_array_length(v_mentions));
+  END IF;
+  IF jsonb_array_length(v_fakta) > 0 THEN
+    v_blok := v_blok || format('Mediet har rettighedsdokumentation (%s faktum/fakta) — fjern den først', jsonb_array_length(v_fakta));
+  END IF;
+  IF jsonb_array_length(v_stories) > 0 THEN
+    v_blok := v_blok || format('Mediet er subjekt for %s story/stories — flyt eller slet dem først', jsonb_array_length(v_stories));
+  END IF;
+  IF jsonb_array_length(v_narrativer) > 0 THEN
+    v_blok := v_blok || format('Mediet har %s tilknyttet narrativ(er) — slet dem først', jsonb_array_length(v_narrativer));
+  END IF;
+  IF jsonb_array_length(v_noter) > 0 THEN
+    v_blok := v_blok || format('%s note(r) peger på mediet — fjern dem først', jsonb_array_length(v_noter));
+  END IF;
+  RETURN jsonb_build_object(
+    'upload_status', v_status,
+    'kan_udrenses', coalesce(array_length(v_blok,1),0) = 0,
+    'blokeringer', to_jsonb(v_blok),
+    'antal_tilknytninger', jsonb_array_length(v_tilknytninger),
+    'antal_mentions', jsonb_array_length(v_mentions),
+    'antal_fakta', jsonb_array_length(v_fakta),
+    'antal_stories', jsonb_array_length(v_stories),
+    'antal_narrativer', jsonb_array_length(v_narrativer),
+    'antal_noter', jsonb_array_length(v_noter),
+    'tilknytninger', v_tilknytninger,
+    'mentions', v_mentions,
+    'fakta', v_fakta,
+    'stories', v_stories,
+    'narrativer', v_narrativer,
+    'noter', v_noter,
+    'stier', v_stier);
+END $$;
+
+-- Fase 4 (M11): den rigtige sletning — række + (returnerede) stier. To-trins: KUN fra 'fjernet'
+-- (blødt fjern først, koncept §4.3) og BLOKERET ved ethvert polymorft anker (review 34 H1/H3):
+-- relation (begge retninger — ryddes eksplicit først via red_slet_relation /
+-- red_slet_medierelation_uden_evidens, som håndterer polymorf evidens; flad DELETE her ville ikke),
+-- text_mention (redigeres ud af prosaen manuelt), fact m. subjekt_type='media'
+-- (rettighedsdokumentation fra red_set_media_rettigheder — evidenskæden assertion/citation/
+-- conclusion hænger på fact'et og ville forældreløses af en flad media-DELETE), story og
+-- narrative m. subjekt_type='media' (red_opret_story/red_upsert_narrativ validerer ikke målet;
+-- haendelse cascader FRA narrative via ON DELETE CASCADE og kræver INGEN selvstændig kode) samt
+-- note m. target_type='media' (DEFENSIVT — ingen live skriver i dag; red_slet_person-forsigtigheden).
+-- Udrens kan derfor aldrig forældreløse evidens eller efterlade friske døde links
+-- (red_doede_links-media-grenen er bagstopper for historiske tokens).
+-- Review 34 (H2): guard-tjek + slet er kollapset til ÉT atomisk DELETE-statement — de venlige
+-- RAISE-guards ovenfor giver præcise domæne-fejl, men den AUTORITATIVE gate er DELETE'ens egne
+-- NOT EXISTS-betingelser, som ikke kan skilles fra sletningen af en samtidig skriver (fx
+-- red_relation, der INSERT'er blindt). Postgres' standardmønster for check-then-act i en
+-- polymorf, FK-fri model uden separate lås-primitiver. Rammer DELETE 0 rækker efter at
+-- guardsne passerede, ændrede tilstanden sig undervejs → fail-loud, prøv igen.
+-- Storage-sletning er KLIENT-SIDET og sker EFTER dette kald (Postgres-txn og Storage deler ikke
+-- transaktion): DB-først garanterer at der aldrig findes en synlig række uden bytes; fejler
+-- klientens storage.remove, er objekterne forældreløse = fail-closed usynlige + janitor-kategori-b.
+-- media_variant CASCADE'r (uversioneret cache, ikke logget); media-rækken logges som DELETE med
+-- foer-snapshot → red_fortryd_change_set kan genskabe RÆKKEN, men hverken varianter eller bytes
+-- (dokumenteret, accepteret hazard — UI'et siger "kan ikke reelt fortrydes"; janitor-kategori c opdager).
+CREATE OR REPLACE FUNCTION red_udrens_media(p_media_id bigint)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_status text; v_stier jsonb;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  SELECT upload_status INTO v_status FROM media WHERE id = p_media_id;
+  IF v_status IS NULL THEN RAISE EXCEPTION 'Media % findes ikke', p_media_id; END IF;
+  IF v_status <> 'fjernet' THEN RAISE EXCEPTION 'Kan kun udrense et fjernet medie'; END IF;
+  -- Venlige, kategori-præcise domæne-fejl (det atomiske DELETE nedenfor er den autoritative gate):
+  IF EXISTS (SELECT 1 FROM relation
+             WHERE (subjekt_type='media' AND subjekt_id=p_media_id)
+                OR (objekt_type='media' AND objekt_id=p_media_id)) THEN
+    RAISE EXCEPTION 'Mediet har tilknytninger og kan ikke udrenses — fjern dem først';
+  END IF;
+  IF EXISTS (SELECT 1 FROM text_mention WHERE maal_type='media' AND maal_id=p_media_id) THEN
+    RAISE EXCEPTION 'Mediet er nævnt i narrativer og kan ikke udrenses — redigér omtalerne ud først';
+  END IF;
+  IF EXISTS (SELECT 1 FROM fact WHERE subjekt_type='media' AND subjekt_id=p_media_id) THEN
+    RAISE EXCEPTION 'Mediet har rettighedsdokumentation (fakta) og kan ikke udrenses — fjern den først';
+  END IF;
+  IF EXISTS (SELECT 1 FROM story WHERE subjekt_type='media' AND subjekt_id=p_media_id) THEN
+    RAISE EXCEPTION 'Mediet er subjekt for en story og kan ikke udrenses — flyt eller slet storyen først';
+  END IF;
+  IF EXISTS (SELECT 1 FROM narrative WHERE subjekt_type='media' AND subjekt_id=p_media_id) THEN
+    RAISE EXCEPTION 'Mediet har et tilknyttet narrativ og kan ikke udrenses — slet narrativet først';
+  END IF;
+  IF EXISTS (SELECT 1 FROM note WHERE target_type='media' AND target_id=p_media_id) THEN
+    RAISE EXCEPTION 'Mediet har noter og kan ikke udrenses — fjern dem først';
+  END IF;
+  SELECT coalesce(jsonb_agg(s), '[]'::jsonb) INTO v_stier FROM (
+    SELECT bucket, storage_path AS sti FROM media WHERE id=p_media_id AND storage_path IS NOT NULL
+    UNION ALL
+    SELECT m.bucket, v.storage_path FROM media_variant v JOIN media m ON m.id=v.media_id
+      WHERE v.media_id=p_media_id) s;
+  PERFORM begin_change_set('red_udrens_media', format('Udrensede media %s permanent', p_media_id), 'media', p_media_id);
+  -- ÉT atomisk statement (H2): check-then-act kan ikke splittes af en samtidig transaktion.
+  DELETE FROM media
+   WHERE id = p_media_id
+     AND upload_status = 'fjernet'
+     AND NOT EXISTS (SELECT 1 FROM relation
+                     WHERE (subjekt_type='media' AND subjekt_id=p_media_id)
+                        OR (objekt_type='media' AND objekt_id=p_media_id))
+     AND NOT EXISTS (SELECT 1 FROM text_mention WHERE maal_type='media' AND maal_id=p_media_id)
+     AND NOT EXISTS (SELECT 1 FROM fact WHERE subjekt_type='media' AND subjekt_id=p_media_id)
+     AND NOT EXISTS (SELECT 1 FROM story WHERE subjekt_type='media' AND subjekt_id=p_media_id)
+     AND NOT EXISTS (SELECT 1 FROM narrative WHERE subjekt_type='media' AND subjekt_id=p_media_id)
+     AND NOT EXISTS (SELECT 1 FROM note WHERE target_type='media' AND target_id=p_media_id);
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Mediet kunne ikke udrenses — tilstanden ændrede sig undervejs, prøv igen';
+  END IF;
+  RETURN jsonb_build_object('stier', v_stier);
+END $$;
+
 -- =====================================================================
 --  VERSIONERING + HYPERLINKS (2026-06-30)
 --  Additive features: fortryd-bar redaktionel ændringshistorik + hyperlinks.
