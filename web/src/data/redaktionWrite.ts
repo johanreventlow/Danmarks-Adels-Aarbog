@@ -611,6 +611,9 @@ export function oversaetFejl(message: string): string {
   if (/har noter og kan ikke udrenses/i.test(message)) return 'Mediet har noter — fjern dem, før det udrenses.';
   if (/har forslag i kø og kan ikke udrenses/i.test(message)) return 'Mediet har forslag i kø — afvis eller godkend dem, før det udrenses.';
   if (/kunne ikke udrenses.*tilstanden ændrede sig undervejs/i.test(message)) return 'Mediet kunne ikke udrenses, fordi tilstanden ændrede sig undervejs — prøv igen.';
+  if (/media\s+\S+\s+findes ikke/i.test(message)) return 'Mediet findes ikke længere — det er formentlig allerede slettet af en anden redaktør.';
+  if (/storage-sti er påkrævet/i.test(message)) return 'Der mangler en storage-sti til filen.';
+  if (/sha256 er påkrævet/i.test(message)) return 'Der mangler en sha256-værdi for filen.';
   if (/duplicate key|unique/i.test(message)) return 'Findes allerede.';
   if (/not configured|ikke konfigureret/i.test(message)) return 'Ingen forbindelse til basen.';
   if (/kan kun genoprette et fjernet medie/i.test(message)) return 'Mediet kan kun genoprettes, når det er fjernet.';

@@ -567,6 +567,9 @@ describe('fase 4: oversaetFejl', () => {
       'Mediet har forslag i kø — afvis eller godkend dem, før det udrenses.'],
     ['Mediet kunne ikke udrenses — tilstanden ændrede sig undervejs, prøv igen',
       'Mediet kunne ikke udrenses, fordi tilstanden ændrede sig undervejs — prøv igen.'],
+    ['Media 42 findes ikke', /allerede slettet af en anden redaktør/i],
+    ['Storage-sti er påkrævet', /storage-sti/i],
+    ['sha256 er påkrævet', /sha256/i],
   ])('oversætter %s', (raa, forvent) => {
     expect(oversaetFejl(raa)).toMatch(forvent);
   });
