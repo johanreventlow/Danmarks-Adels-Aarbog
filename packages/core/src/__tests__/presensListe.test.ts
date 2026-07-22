@@ -1,15 +1,9 @@
 import { buildModel } from '../buildModel';
 import { pruneUndertrae } from '../presensListe';
 import { buildPresensListe, kanoniserPresensGrundlag } from '../presensListe';
+import { mk, union, pc } from './presensFixtures';
 import type { PresensAnker } from '../presensLabels';
-import type { Db, Koen } from '../types';
-
-// Fixture-hjælpere (deles med klatrings- og facit-testene i denne fil).
-export const mk = (id: string, koen: Koen = 'mand', born: number | null = null, died: number | null = null) =>
-  ({ id, name: 'P' + id, born, died, years: '', title: '', bio: '', privat: false, koen });
-export const union = (id: string, p1: string, p2: string | null = null) => ({ id, p1, p2, p2_name: null, year: null });
-export const pc = (child: string, parent: string, unionId: string, konfidens?: 'sikker' | 'sandsynlig' | 'formodet' | 'omstridt') =>
-  ({ child, parent, union: unionId, ...(konfidens ? { konfidens } : {}) });
+import type { Db } from '../types';
 
 describe('pruneUndertrae — bogens s.15-beskæring', () => {
   // A(død) ─ B(død) ─ C(levende);  A ─ D(død, ingen levende under sig)

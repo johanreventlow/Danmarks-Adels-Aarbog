@@ -1,6 +1,6 @@
 import { buildModel } from '../buildModel';
 import { buildPresensListe } from '../presensListe';
-import { mk, union, pc } from './presensListe.test';
+import { mk, union, pc } from './presensFixtures';
 import type { Db } from '../types';
 
 // Facit: DAA 2012-14, II LINJE 1. GREN (PDF s. 362). Anker = Christian Ditlev Ludvig (CDL).
