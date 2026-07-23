@@ -3365,3 +3365,9 @@ BEGIN
     END IF;
   END IF;
 END $$;
+
+-- Præsensliste-redesign 2026-07-24: ny rolle-kode til lineage→coat_of_arms-relationen
+-- (linjens våben). Selve relations-/media-/coat_of_arms-rækkerne for de faktiske våben
+-- indsættes separat via docs/superpowers/plans/2026-07-24-praesensliste-vaaben-data-runbook.md
+-- (redaktionelt indhold — blasonering/billeder — ikke noget en migration skal fabrikere).
+INSERT INTO vocab (scheme, code, label) VALUES ('rolle','vaaben','våbenskjold for') ON CONFLICT (scheme, code) DO NOTHING;
