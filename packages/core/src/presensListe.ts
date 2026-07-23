@@ -110,39 +110,18 @@ export type PresensAdvarsel = {
 };
 export type PresensListe = { grene: PresensGren[]; advarsler: PresensAdvarsel[] };
 
-// Søskende af p: børn af p's forældre, minus p selv.
-function soeskendeAf(model: Model, p: string): string[] {
-  const ud = new Set<string>();
-  for (const par of model.indexes.parentsByChild[p] ?? [])
-    for (const c of model.indexes.childIdx[par] ?? new Set<string>()) if (c !== p) ud.add(c);
-  return [...ud];
-}
-
-// Blod- vs gift-ind-forælder (spec §3): gift-ind-personer står typisk uden op-kobling i
-// grafen (deres forældre er kun parentes-noter) — blodforælderen er den med egen op-kobling.
-// Tie-break: mand først (DAA er patrilineær i PoC-data), dernæst laveste id. HEURISTIK,
-// dokumenteret i spec §5 — fejlklassifikation giver en forkert-benævnt gruppe, aldrig datatab.
+// Blod- vs gift-ind-forælder ved klatring. ÉN kilde til sandhed med patrilinealForaelder
+// (§"patrilineær efterkommer-tilhør") — blod er ALTID den samme person klatrings- og
+// efterkommer-retningen enes om, i ethvert tilfælde (kendt far; ukendt/tvetydigt køn falder
+// begge tilbage til samme deterministiske laveste-id-regel). Brugerfund 2026-07-23
+// (task-review): en tidligere rigdoms-først-heuristik her kunne uenes med patrilinealForaelder
+// og fejlagtigt ekskludere ankerets egne fulde søskende fra grenen — løst ved at lade
+// blodOgGiftInd og patrilinealForaelder dele nøjagtig samme regel, ikke to separate heuristikker.
 function blodOgGiftInd(model: Model, cur: string): { blod: string | null; giftInd: string | null } {
   const par = model.indexes.parentsByChild[cur] ?? [];
   if (par.length === 0) return { blod: null, giftInd: null };
-  if (par.length === 1) return { blod: par[0], giftInd: null };
-  // Patrilineær FØRST (konsistent med patrilinealForaelder, §"patrilineær efterkommer-tilhør"):
-  // en registreret far er ALTID blod-forælderen ved klatring, uanset hvor righoldig hver sides
-  // dokumenterede herkomst er. Brugerfund 2026-07-23 (task-review): den tidligere rigdoms-først-
-  // heuristik kunne vælge MODEREN som "blod", når faderen manglede egen registreret herkomst men
-  // moderen havde sin — og det patrilineære søskende-filter ekskluderede da fejlagtigt hendes
-  // øvrige børn (inkl. ankerets EGNE fulde søskende) fra grenen. Uden en kendt far (begge/ingen
-  // "mand") falder vi tilbage til den oprindelige rigdoms-heuristik som ren tie-break.
-  const faedre = par.filter((p) => model.byId[p]?.koen === 'mand');
-  if (faedre.length === 1) {
-    const blod = faedre[0];
-    return { blod, giftInd: par.find((p) => p !== blod) ?? null };
-  }
-  const score = (p: string): number =>
-    ((model.indexes.parentsByChild[p] ?? []).length > 0 || soeskendeAf(model, p).length > 0 ? 2 : 0) +
-    (model.byId[p]?.koen === 'mand' ? 1 : 0);
-  const sorted = [...par].sort((a, b) => score(b) - score(a) || (a < b ? -1 : a > b ? 1 : 0));
-  return { blod: sorted[0], giftInd: sorted[1] ?? null };
+  const blod = patrilinealForaelder(model, cur);
+  return { blod, giftInd: par.find((p) => p !== blod) ?? null };
 }
 
 // Er et af de andre ankre i rootId's undertræ (inkl. rootId selv)? → sidegrenen har sin egen
