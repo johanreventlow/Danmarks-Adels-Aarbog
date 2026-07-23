@@ -35,6 +35,22 @@ function sortNodes(model: Model, ns: PresensNode[]): void {
   ns.sort((a, b) => (model.byId[a.id]?.born ?? 9999) - (model.byId[b.id]?.born ?? 9999) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
+// DAA er patrilineær: linje/gren nedarves gennem faderen (jf. compareParentOrder i
+// web/src/data/model.ts, "DAA er patrilineær, linje/nr følger mandslinjen"). Et barn med TO
+// registrerede forældre hører derfor KUN til under faderens efterkommer-liste — aldrig moderens,
+// selv når begge er blod-Reventlow (fx to grene der gifter sig sammen, brugerfund 2026-07-23).
+// Har barnet kun ÉN registreret forælder, er der intet at vælge imellem (aldrig datatab). Er
+// faderen ikke selv nået nogen steder i denne præsensliste, dukker barnet ikke stille op under
+// moderen i stedet — det fanges af den eksisterende levende_uden_gren-advarsel (§7), som er den
+// rette kanal for redaktionel opmærksomhed, ikke en stille fejlplacering.
+function patrilinealForaelder(model: Model, childId: string): string | null {
+  const par = model.indexes.parentsByChild[childId] ?? [];
+  if (par.length <= 1) return par[0] ?? null;
+  const faedre = par.filter((p) => model.byId[p]?.koen === 'mand');
+  if (faedre.length === 1) return faedre[0];
+  return [...par].sort()[0]; // ingen (eller >1, datafejl) far registreret — deterministisk fallback
+}
+
 // Beskæring bottom-up: levende medtages; afdøde kun med levende under sig eller efterlevende
 // ægtefælle. GDPR-bemærkning: `levende` kommer fra person.levende — RLS afgør hvad klienten
 // overhovedet kan se; denne funktion tilføjer ingen eksponering.
@@ -63,6 +79,7 @@ export function pruneUndertrae(
   paaVej.add(id);
   const levende = levendeById[id] === true;
   const boern = [...(model.indexes.childIdx[id] ?? new Set<string>())]
+    .filter((cid) => patrilinealForaelder(model, cid) === id)
     .map((cid) => pruneUndertrae(model, levendeById, cid, edgeKonf(model, cid, id), paaVej, alleredeVist))
     .filter((n): n is PresensNode => n != null);
   sortNodes(model, boern);
@@ -166,7 +183,7 @@ function buildGren(model: Model, levendeById: LevendeById, anker: PresensAnker, 
     // 1) Søskende-sidegrene: blodforfaderens øvrige børn.
     if (blod != null) {
       const roedder = [...(model.indexes.childIdx[blod] ?? new Set<string>())]
-        .filter((c) => c !== cur && !indeholderAnker(model, c, andreAnkre))
+        .filter((c) => c !== cur && !indeholderAnker(model, c, andreAnkre) && patrilinealForaelder(model, c) === blod)
         .map((c) => pruneUndertrae(model, levendeById, c, edgeKonf(model, c, blod), new Set(), alleredeVist))
         .filter((n): n is PresensNode => n != null);
       sortNodes(model, roedder);

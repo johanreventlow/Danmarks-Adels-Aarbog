@@ -211,57 +211,50 @@ describe('pruneUndertrae — krydshenvisning (levende nået ad to veje inden for
   });
 });
 
-describe('buildPresensListe — krydshenvisning inden for én gren (dobbelt-fætterskab)', () => {
-  // ANKER ─┬─ Gren1 ─ Faelles(levende, nået via TO sidegrene)
-  //        └─ Gren2 ─ Faelles(samme person, samme id — konvergent slægtskab, ikke datafejl)
+// OPDATERET 2026-07-23 (brugerfund): denne fixture blev oprindeligt skrevet til at
+// dokumentere krydsReference-mekanismen. Med den senere patrilineære rettelse (se
+// "patrilineær efterkommer-tilhør" nedenfor) er ambiguiteten nu løst FØR den nogensinde når
+// alleredeVist-laget: Faelles har to kendte forældre (Gren1=mand, Gren2=kvinde), og hører
+// derfor UDELUKKENDE til under faderen Gren1 — slet ikke under Gren2, heller ikke som
+// krydshenvisning. Testen dokumenterer nu netop DÉT (krydsReference-mekanismen er stadig
+// dækket separat af det parentesløse "delt alleredeVist-sæt"-testet ovenfor, som ikke går
+// gennem det patrilineære filter).
+describe('buildPresensListe — barn af to grene der gifter sig sammen (patrilineær, ikke krydshenvisning)', () => {
   const db: Db = {
     persons: [mk('Bedste', 'mand'), mk('Gren1', 'mand'), mk('Gren2', 'kvinde'), mk('ANKER', 'mand'), mk('Faelles', 'kvinde')],
     unions: [union('fBedste', 'Bedste'), union('fG1', 'Gren1'), { id: 'fG1G2', p1: 'Gren1', p2: 'Gren2', p2_name: null, year: null }],
     parentChild: [
       pc('Gren1', 'Bedste', 'fBedste'), pc('Gren2', 'Bedste', 'fBedste'), pc('ANKER', 'Bedste', 'fBedste'),
-      // Faelles er barn af BÅDE Gren1 og Gren2 (som er søskende, gift med hinanden — konvergent
-      // slægtskab, ikke en datafejl) — nås derfor ad to veje under ANKERs FARBROR/FARS SØSTER-gruppe.
       pc('Faelles', 'Gren1', 'fG1G2'), pc('Faelles', 'Gren2', 'fG1G2'),
     ],
   };
   const model = buildModel(db);
   const levende = { ANKER: true, Faelles: true };
 
-  test('Faelles vises fuldt ud i den første gruppe, som krydshenvisning i den anden', () => {
+  test('Faelles vises KUN under faderen Gren1 — ikke under Gren2, ikke som krydshenvisning', () => {
     const g = buildPresensListe(model, [{ personId: 'ANKER', linje: 'I', gren: 1, raaVaerdi: 'I linje, 1. gren' }], levende).grene[0];
-    // Gren1 og Gren2 er begge ANKERs søskende → begge i SAME søskende-gruppe (niveau 1) som roedder,
-    // sorteret på fødselsår (begge null → id-orden: 'Gren1' < 'Gren2').
     const soeskende = g.grupper.find((x) => x.art === 'soeskende')!;
-    const [rodGren1, rodGren2] = soeskende.roedder;
-    expect(rodGren1.id).toBe('Gren1');
-    expect(rodGren2.id).toBe('Gren2');
-    // Faelles optræder under BEGGE — én gang fuldt, én gang som krydshenvisning.
-    const faellesUnderGren1 = rodGren1.boern.find((b) => b.id === 'Faelles')!;
-    const faellesUnderGren2 = rodGren2.boern.find((b) => b.id === 'Faelles')!;
-    expect(faellesUnderGren1).toBeDefined();
-    expect(faellesUnderGren2).toBeDefined();
-    const krydsCount = [faellesUnderGren1, faellesUnderGren2].filter((n) => n.krydsReference).length;
-    expect(krydsCount).toBe(1); // netop ÉN af de to er en krydshenvisning, den anden er den fulde node
-    const fulde = faellesUnderGren1.krydsReference ? faellesUnderGren2 : faellesUnderGren1;
-    expect(fulde.krydsReference).toBe(false);
+    const rodGren1 = soeskende.roedder.find((r) => r.id === 'Gren1')!;
+    expect(rodGren1.boern.map((b) => b.id)).toEqual(['Faelles']);
+    expect(rodGren1.boern[0].krydsReference).toBe(false);
+    // Gren2 er selv barnløs i denne optik (Faelles er ikke hendes) — dør uden levende under sig
+    // eller enke → beskæres helt væk, findes derfor slet ikke i roedder-listen.
+    expect(soeskende.roedder.find((r) => r.id === 'Gren2')).toBeUndefined();
   });
 
-  test('krydshenvisning ændrer ikke dobbelt_naaet-advarslen (den dækker fortsat kun MELLEM grene)', () => {
+  test('ingen dobbelt_naaet-advarsel (Faelles nås nu kun ad én vej)', () => {
     const liste = buildPresensListe(model, [{ personId: 'ANKER', linje: 'I', gren: 1, raaVaerdi: 'I linje, 1. gren' }], levende);
-    // Faelles nås to gange INDEN FOR samme (eneste) gren — samlIds bruger et Set pr. gren,
-    // så det tæller kun som ÉT gren-medlemskab. Ingen dobbelt_naaet-advarsel skal udløses.
     expect(liste.advarsler.filter((a) => a.art === 'dobbelt_naaet')).toHaveLength(0);
   });
 });
 
-// Facitliste for det OPRINDELIGT rapporterede fund (decisions.md, "kendt struktur-begrænsning"):
-// ÉT pruneUndertrae-kalds EGEN rekursion (ikke to separate buildGren-sidegren-kald som ovenfor)
-// støder på samme levende person ad to veje, fordi to søskende (R's børn) er gift med hinanden
-// og har et fælles (levende) barn G. Før rettelsen blev den anden vej stille droppet (G's forælder
-// kunne miste sin eneste levende-forbindelse); nu bliver G en krydshenvisning i stedet.
-describe('pruneUndertrae — krydshenvisning INDEN FOR samme undertræ (oprindeligt rapporterede fund)', () => {
-  test('R ─┬─ A ─┐ giver G som fuld node under A, krydshenvisning under B', () => {
-    //    └─ B ─┘→ G (levende, barn af BÅDE A og B)
+// OPDATERET 2026-07-23 (brugerfund): oprindeligt skrevet til at dokumentere krydsReference
+// INDEN FOR ét pruneUndertrae-kalds egen rekursion (R's to børn A+B gift med hinanden, fælles
+// barn G). Den patrilineære rettelse løser dette FØR alleredeVist-laget når at blive relevant:
+// G har to kendte forældre og hører derfor udelukkende til under faderen A.
+describe('pruneUndertrae — barn af to søskende der gifter sig sammen, ét delt rekursions-kald', () => {
+  test('R ─┬─ A ─┐ giver G KUN under faderen A — B forbliver barnløs og beskæres væk', () => {
+    //    └─ B ─┘→ G (levende, barn af BÅDE A og B — men patrilineært kun A's)
     const db: Db = {
       persons: [mk('R', 'mand'), mk('A', 'mand'), mk('B', 'kvinde'), mk('G', 'kvinde')],
       unions: [union('fR', 'R'), { id: 'fAB', p1: 'A', p2: 'B', p2_name: null, year: null }],
@@ -270,16 +263,74 @@ describe('pruneUndertrae — krydshenvisning INDEN FOR samme undertræ (oprindel
     const model = buildModel(db);
     const node = pruneUndertrae(model, { G: true }, 'R'); // ÉT top-niveau-kald, ingen ekstern deling
     expect(node).not.toBeNull();
-    const [rodA, rodB] = node!.boern; // sorteret på fødselsår (begge null) → id-orden: 'A' < 'B'
-    expect(rodA.id).toBe('A');
-    expect(rodB.id).toBe('B');
-    const gUnderA = rodA.boern.find((b) => b.id === 'G')!;
-    const gUnderB = rodB.boern.find((b) => b.id === 'G')!;
-    expect(gUnderA).toBeDefined();
-    expect(gUnderB).toBeDefined();
-    const krydsCount = [gUnderA, gUnderB].filter((n) => n.krydsReference).length;
-    expect(krydsCount).toBe(1);
-    const fulde = gUnderA.krydsReference ? gUnderB : gUnderA;
-    expect(fulde.krydsReference).toBe(false);
+    // B har intet levende under sig (G er ikke hendes) og ingen levende partner → beskæret væk;
+    // kun A står tilbage som R's boern.
+    expect(node!.boern.map((b) => b.id)).toEqual(['A']);
+    expect(node!.boern[0].boern.map((b) => b.id)).toEqual(['G']);
+    expect(node!.boern[0].boern[0].krydsReference).toBe(false);
+  });
+});
+
+// Facitliste for brugerfund 2026-07-23: DAA er patrilineær (linje/gren nedarves gennem faderen,
+// jf. compareParentOrder i web/src/data/model.ts). Et barn af to blod-Reventlow-forældre (fx to
+// grene der gifter sig sammen) hører KUN til under faderens efterkommer-liste, aldrig moderens —
+// selv når moderen selv er en fuldt registreret blod-slægtning med egne forældre i data.
+describe('pruneUndertrae/buildGren — patrilineær efterkommer-tilhør (barn af to blod-forældre)', () => {
+  test('barn med to registrerede forældre vises KUN under faderens (mand) undertræ, ikke moderens', () => {
+    // FarsFar → FAR(mand);  MorsFar → MOR(kvinde);  FAR + MOR → BARN(levende, fælles).
+    // MOR har desuden sit EGET barn EgetBarn (kun hende som forælder, levende) — udelukkende for
+    // at holde MOR selv ude af total-beskæring, så hendes boern-liste kan inspiceres direkte.
+    const db: Db = {
+      persons: [mk('FarsFar', 'mand'), mk('MorsFar', 'mand'), mk('FAR', 'mand'), mk('MOR', 'kvinde'), mk('BARN', 'kvinde'), mk('EgetBarn', 'mand')],
+      unions: [union('fFarsFar', 'FarsFar'), union('fMorsFar', 'MorsFar'), { id: 'fFARMOR', p1: 'FAR', p2: 'MOR', p2_name: null, year: null }, union('fMOREgen', 'MOR')],
+      parentChild: [
+        pc('FAR', 'FarsFar', 'fFarsFar'), pc('MOR', 'MorsFar', 'fMorsFar'),
+        pc('BARN', 'FAR', 'fFARMOR'), pc('BARN', 'MOR', 'fFARMOR'),
+        pc('EgetBarn', 'MOR', 'fMOREgen'),
+      ],
+    };
+    const model = buildModel(db);
+    const levende = { BARN: true, EgetBarn: true };
+    // To UAFHÆNGIGE top-niveau-kald (som buildGren ville nå FAR og MOR ad to helt forskellige veje).
+    const farNode = pruneUndertrae(model, levende, 'FAR');
+    const morNode = pruneUndertrae(model, levende, 'MOR');
+    expect(farNode!.boern.map((b) => b.id)).toEqual(['BARN']);
+    expect(morNode!.boern.map((b) => b.id)).toEqual(['EgetBarn']); // BARN er IKKE med under MOR — kun hendes eget barn
+  });
+
+  test('barn med kun ÉN registreret forælder vises normalt (aldrig datatab) uanset køn', () => {
+    const db: Db = {
+      persons: [mk('MorsFar', 'mand'), mk('MOR', 'kvinde'), mk('BARN', 'kvinde')],
+      unions: [union('fMorsFar', 'MorsFar'), union('fMOR', 'MOR')],
+      parentChild: [pc('MOR', 'MorsFar', 'fMorsFar'), pc('BARN', 'MOR', 'fMOR')],
+    };
+    const model = buildModel(db);
+    const morNode = pruneUndertrae(model, { BARN: true }, 'MOR');
+    expect(morNode!.boern.map((b) => b.id)).toEqual(['BARN']);
+  });
+
+  test('buildGren: søskende-sidegrene filtreres samme vej — blod-ancestors øvrige børn ekskluderer et barn hvor blod kun er moderen', () => {
+    // FF ─┬─ Far(ANKERs far) ─ ANKER(levende)
+    //     └─ MOR(kvinde, FFs datter) ─ (gift med UdefraFar, ikke i træet) ─ Halvsoester(levende)
+    const db: Db = {
+      persons: [mk('FF', 'mand'), mk('Far', 'mand'), mk('MOR', 'kvinde'), mk('ANKER', 'mand'), mk('UdefraFar', 'mand'), mk('Halvsoester', 'kvinde')],
+      unions: [union('fFF', 'FF'), union('fFar', 'Far'), { id: 'fMORUdefra', p1: 'UdefraFar', p2: 'MOR', p2_name: null, year: null }],
+      parentChild: [
+        pc('Far', 'FF', 'fFF'), pc('MOR', 'FF', 'fFF'),
+        pc('ANKER', 'Far', 'fFar'),
+        pc('Halvsoester', 'MOR', 'fMORUdefra'), pc('Halvsoester', 'UdefraFar', 'fMORUdefra'),
+      ],
+    };
+    const model = buildModel(db);
+    const liste = buildPresensListe(model, [{ personId: 'ANKER', linje: 'I', gren: 1, raaVaerdi: 'I linje, 1. gren' }], { ANKER: true, Halvsoester: true });
+    const g = liste.grene[0];
+    // Halvsoester hører til UNDER HENDES FAR (UdefraFar, uden for dette træ), IKKE under MOR —
+    // MOR er derfor selv barnløs i denne optik (intet levende under sig, ingen enke) og beskæres
+    // helt væk; der opstår slet ingen søskende-gruppe ved niveau 2 (FFs børn), i modsætning til
+    // den utilsigtede for-fix-adfærd hvor MOR ville bestå som forbindelsesled til Halvsoester.
+    expect(g.grupper.find((x) => x.art === 'soeskende' && x.niveau === 2)).toBeUndefined();
+    // Halvsoester er dermed reelt UREACHABLE i denne gren (hendes far er uden for træet) —
+    // korrekt fanget som en levende_uden_gren-advarsel, ikke stille fejlplaceret under MOR.
+    expect(liste.advarsler.some((a) => a.art === 'levende_uden_gren' && a.personId === 'Halvsoester')).toBe(true);
   });
 });
