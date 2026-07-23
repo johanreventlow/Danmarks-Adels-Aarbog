@@ -1,5 +1,17 @@
 # Changelog
 
+## Præsensliste: patrilineær efterkommer-tilhør rettet mod rigtig prod-data (2026-07-23)
+
+Brugerfund ved faktisk brug af den nye præsensliste: et barn af to blod-Reventlow-forældre
+(to grene der giftede sig sammen) blev vist under BEGGE forældres efterkommer-liste — men DAA
+er patrilineær, så barnet hører kun til under faderen. Rettet i to omgange (task-reviewer fangede
+en reel regression i første forsøg — se `docs/decisions.md` for det fulde forløb): ny
+`patrilinealForaelder`-hjælper i `packages/core/src/presensListe.ts`, og `blodOgGiftInd`
+(klatrings-heuristikken) gjort konsekvent med den samme regel i stedet for sin egen separate
+rigdoms-heuristik. Superseder `krydsReference`-mekanismen for "barn af to kendte forældre" —
+ambiguiteten løses nu før krydshenvisning bliver relevant. Core-suite: 301/301. Ingen
+prod-datarettelse nødvendig (kun algoritmen var forkert).
+
 ## Præsensliste-visning v1 — implementeret på feature-branch (2026-07-22)
 
 Beregnet, anker-baseret præsensliste-læsevisning (web + mobil), designet og planlagt

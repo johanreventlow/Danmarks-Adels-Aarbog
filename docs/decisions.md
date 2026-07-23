@@ -2,6 +2,37 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Præsensliste: patrilineær efterkommer-tilhør — barn hører kun til under faderen (2026-07-23)
+
+**Brugerfund mod rigtig prod-data:** Friedrich (Fritz) Carl Heinrich Reventlow (person 455,
+†2008) er søn af to blod-Reventlow-forældre (Einar og Adelheid, fra hver sin gren der giftede
+sig sammen) og blev vist under BEGGE forældres efterkommer-liste i "I linje, 1. gren" — men DAA
+er patrilineær ("linje/nr følger mandslinjen", jf. `compareParentOrder` i `web/src/data/model.ts`),
+så et barn med to kendte forældre hører KUN til under faderen, aldrig moderen, selv når moderen
+selv er en fuldt dokumenteret blod-slægtning.
+
+- **Ny hjælper `patrilinealForaelder`** (`packages/core/src/presensListe.ts`): barn med 2+
+  registrerede forældre → foretræk den med `koen='mand'`; barn med 0-1 forælder → den forælder
+  uændret (aldrig datatab). Anvendt i `pruneUndertrae`s egen boern-beregning og `buildGren`s
+  søskende-sidegren-beregning.
+- **Superseder `krydsReference`-mekanismen for "barn af to kendte forældre".** Den ambiguitet
+  (fx to grene der gifter sig sammen) løses nu FØR `alleredeVist`-laget nås overhovedet — ingen
+  krydshenvisning nødvendig, da moderen aldrig får tilbudt barnet i første omgang.
+  `krydsReference` forbliver som forsvarsmekanisme for ægte konvergent slægtskab dybere i
+  træet (dobbelt-fætterskab uden en direkte fælles forælder) — dækket af en parentesløs
+  lavniveau-test, ikke længere reelt eksponeret via `buildGren` for den almindelige sag.
+- **To reviewrunder fandt en reel regression før dette landede:** den første version filtrerede
+  kun `pruneUndertrae`/`buildGren`s efterkommer-retning, men lod `blodOgGiftInd` (klatrings-
+  retningen) beholde sin gamle rigdoms-først-heuristik. Når faderen INGEN egen registreret
+  herkomst har, men moderen HAR sin, valgte `blodOgGiftInd` fejlagtigt moderen som "blod" —
+  og det nye søskende-filter ekskluderede da hendes øvrige børn, INKL. ankerets egne fulde
+  søskende, med kun en misvisende `levende_uden_gren`-advarsel som spor. Rettet ved at lade
+  `blodOgGiftInd` delegere HELE afgørelsen til `patrilinealForaelder` (ét kald, ingen separat
+  heuristik tilbage at uenes med) — klatring stopper nu naturligt ved en far uden videre
+  herkomst, i stedet for fejlagtigt at klatre videre via morens linje.
+- **Ingen prod-datarettelse nødvendig** — Fritz' egne data (to korrekt registrerede forældre)
+  var altid rigtige; fejlen lå udelukkende i visnings-algoritmen.
+
 ## Præsensliste-visning v1: beregnet frem for lagret + overhoved-fakta-konvention (2026-07-22)
 
 Implementeret via subagent-driven-development med Codex (`gpt-5.6-sol`) som udførende
