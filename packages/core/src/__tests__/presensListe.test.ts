@@ -334,3 +334,34 @@ describe('pruneUndertrae/buildGren — patrilineær efterkommer-tilhør (barn af
     expect(liste.advarsler.some((a) => a.art === 'levende_uden_gren' && a.personId === 'Halvsoester')).toBe(true);
   });
 });
+
+// Regression fanget af task-reviewer (2026-07-23): blodOgGiftInd (klatring) og
+// patrilinealForaelder (efterkommer-tilhør) brugte hver sin heuristik. Når faderen INGEN egen
+// registreret herkomst har, men moderen HAR (fx en fars-linje der går i stå, mens morens egen
+// slægt er velkendt), valgte blodOgGiftInd tidligere MODEREN som "blod" (strukturel rigdom
+// vejede tungere end køn) — og det nye søskende-filter (patrilinealForaelder(c)===blod) endte
+// dermed med at ekskludere HENDES øvrige børn, INKL. ankerets egne fulde søskende, fra grenen.
+// Fikset ved at gøre blodOgGiftInd konsekvent patrilineær: foretræk faderen når han er kendt,
+// UANSET hvor righoldig hver sides dokumenterede herkomst er — strukturel rigdom er kun
+// tie-break, når køn ikke afgør sagen (begge/ingen "mand").
+describe('blodOgGiftInd — patrilineær selv når faderens egen herkomst er ukendt', () => {
+  test('far uden registreret herkomst foretrækkes stadig som blod-forælder ved klatring, og ankerets fulde søster forbliver i grenen', () => {
+    // FAR(mand, INGEN egne forældre) + MOR(kvinde, har MorsFar) → ANKER + S (fuld søster, levende)
+    const db: Db = {
+      persons: [mk('MorsFar', 'mand'), mk('FAR', 'mand'), mk('MOR', 'kvinde'), mk('ANKER', 'mand'), mk('S', 'kvinde')],
+      unions: [union('fMorsFar', 'MorsFar'), { id: 'fFARMOR', p1: 'FAR', p2: 'MOR', p2_name: null, year: null }],
+      parentChild: [
+        pc('MOR', 'MorsFar', 'fMorsFar'),
+        pc('ANKER', 'FAR', 'fFARMOR'), pc('ANKER', 'MOR', 'fFARMOR'),
+        pc('S', 'FAR', 'fFARMOR'), pc('S', 'MOR', 'fFARMOR'),
+      ],
+    };
+    const model = buildModel(db);
+    const liste = buildPresensListe(model, [{ personId: 'ANKER', linje: 'I', gren: 1, raaVaerdi: 'I linje, 1. gren' }], { ANKER: true, S: true });
+    const g = liste.grene[0];
+    const soeskende = g.grupper.find((x) => x.art === 'soeskende');
+    expect(soeskende).toBeDefined();
+    expect(soeskende!.roedder.map((r) => r.id)).toEqual(['S']);
+    expect(liste.advarsler.filter((a) => a.art === 'levende_uden_gren')).toHaveLength(0); // S er IKKE tabt
+  });
+});
