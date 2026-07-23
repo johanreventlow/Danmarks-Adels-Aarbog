@@ -2,8 +2,9 @@
 // RLS er sikkerhedsgrænsen (§8). Beregningen er en ren projektion; ingen skrivninger.
 import { useEffect, useMemo, useState } from 'react';
 import { buildPresensListe, kanoniserPresensGrundlag } from '@daa/core';
-import type { Model, PresensGren, PresensListe, PresensNode } from '@daa/core';
+import type { Model, PresensGren, PresensListe, PresensNode, PresensLinjeGruppe } from '@daa/core';
 import { fetchPresensGrundlag, type PresensGrundlag } from '../data/presens';
+import type { PresensLinjeInfo } from '../data/presensLinjer';
 import { currentSession, type RedSession } from '../data/auth';
 import { T } from '../theme';
 
@@ -62,9 +63,6 @@ export function PresensGrenSektion(props: {
     </section>
   );
 }
-
-import type { PresensLinjeGruppe } from '@daa/core';
-import type { PresensLinjeInfo } from '../data/presensLinjer';
 
 // Pr.-linje sektion: våben + linjenummer + titel (lineage.navn) + navn (lineage.slaegtsnavn),
 // derefter dens grene i rækkefølge (eksporteret til test, samme mønster som PresensGrenSektion).
