@@ -1,5 +1,18 @@
 # Changelog
 
+## Mediehåndtering fase 4 — LIVE i prod (2026-07-22)
+
+Fase 4 er deployet til produktion samme dag som lokal verifikation (PR #75 merget):
+krypteret backup taget først; migrationsblokken `mediehaandtering_fase4_identitet`
+anvendt; alle fire fase-4-verify-blokke kørt og bestået direkte mod prod (impersoneret
+den reelle redaktion-profil, ingen testdata-rester bagefter); `get_advisors(security)`
+viste kun de allerede kendte SECURITY DEFINER-mønstre (samme som alle øvrige `red_*`-
+funktioner) — ingen nye fund. Web app-deployet via Vercel. Redaktøren gennemførte en
+fuld røgtest af alle tre flows (erstat fil, slet permanent, sæt/fjern portræt) med
+succes. Første `R/media-janitor.R`-kørsel (rapport-only) efter et reelt erstat-forløb
+bekræftede at de tre gamle byte-objekter (large/medium/thumb) korrekt identificeres som
+forældreløse (kategori b) med anbefalingen "afvent frist" — ingen `--slet` kørt.
+
 ## Mediehåndtering fase 4 — implementeret og verificeret lokalt (2026-07-22)
 
 Fase 4 ("identitet & endeligt farvel") er implementeret lokalt via subagent-drevet
