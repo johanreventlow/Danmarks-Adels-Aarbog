@@ -2564,3 +2564,10 @@ BEGIN
   PERFORM set_config('request.jwt.claim.sub','',true);
   RAISE NOTICE 'OK: levende feed fase 3 (story/story_kilde/feed_pin CHECK/UNIQUE/RLS/RPC/fuld versionering/fortryd)';
 END $$;
+
+-- Præsensliste: vokabular-seed for overhoved-faktatypen
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM vocab WHERE scheme='faktatype' AND code='overhoved') THEN
+    RAISE EXCEPTION 'FEJL: vocab mangler (faktatype, overhoved) — kør db-migrations.sql';
+  END IF;
+END $$;

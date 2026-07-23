@@ -115,6 +115,17 @@ export function FaktaKort({ felt, evidens, onAction, hideFeltLabel = false }: {
   );
 }
 
+// Redaktionelt tilføjede oplysninger har ALDRIG en linket source (source_id er hardkodet NULL i
+// red_*_fakta-flowet — "PoC: kilde er fritekst") — deres eneste kilde-spor er citatTekst
+// (fritekst-feltet redaktøren selv udfylder). At kun vise sourceTitel betød derfor at ALLE
+// redaktionelt tilføjede oplysninger fremstod som "(kilde mangler)", selvom redaktøren rent
+// faktisk havde indtastet en kildeangivelse (brugerfund 2026-07-23, spejler web-rettelsen).
+export function kildeAf(o: Oplysning): string {
+  const k = o.kilder[0];
+  if (!k) return '(kilde mangler)';
+  return [k.sourceTitel, k.side].filter(Boolean).join(', ') || k.citatTekst || '(kilde mangler)';
+}
+
 function OplysningRad({ o, onGørKonklusion, onRedigér, onSlet }: {
   o: Oplysning;
   onGørKonklusion: () => void;
@@ -126,7 +137,7 @@ function OplysningRad({ o, onGørKonklusion, onRedigér, onSlet }: {
       <View style={{ flex: 1 }}>
         <Serif size={17}>{o.vaerdi}</Serif>
         <Mono size={8} color={Colors.textMuted}>
-          {o.erKonklusion ? 'konklusion' : 'oplysning'} · {o.kilder[0]?.sourceTitel ?? '(kilde mangler)'}
+          {o.erKonklusion ? 'konklusion' : 'oplysning'} · {kildeAf(o)}
         </Mono>
       </View>
       <View style={{ flexDirection: 'row', gap: 8 }}>

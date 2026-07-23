@@ -13,9 +13,10 @@ import { Lightbox } from './Lightbox';
 import { MediaThumb, BookmarkFlag, Label } from './primitives';
 import { ExpandableMiniMap, MapFallback } from './lazyMaps';
 
-export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onClose, onFocusTree, onRelate, isMe, onToggleMe, isBookmarked, onToggleBookmark, geoLoading }: {
+export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onClose, onFocusTree, onRelate, onVisPraesens, isMe, onToggleMe, isBookmarked, onToggleBookmark, geoLoading }: {
   model: Model; focusId: string; detail: PersonDetailData | null; onPick: (id: string) => void;
   backName: string | null; onBack: () => void; onClose?: () => void; onFocusTree: () => void; onRelate: () => void;
+  onVisPraesens?: () => void;
   isMe: boolean; onToggleMe: () => void; isBookmarked: boolean; onToggleBookmark: () => void;
   geoLoading: boolean;
 }) {
@@ -247,6 +248,11 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
           <div onClick={onRelate} style={{ flex: 1, textAlign: 'center', fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, color: T.paper, background: T.bordeaux, padding: '11px 0', borderRadius: 10, cursor: 'pointer' }}>Find slægtskab</div>
           <div onClick={onToggleMe} title={isMe ? 'Fjern din markering' : 'Marker denne person som dig'} style={{ flex: 1, textAlign: 'center', fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, color: isMe ? T.bordeaux : '#3d382f', background: isMe ? '#f8ecef' : T.panel, border: `1.5px solid ${isMe ? T.bordeaux : 'rgba(34,31,26,.16)'}`, padding: '11px 0', borderRadius: 10, cursor: 'pointer' }}>{isMe ? '★ Dette er dig' : 'Det er mig'}</div>
         </div>
+        {onVisPraesens && (
+          <div onClick={onVisPraesens} style={{ cursor: 'pointer', fontFamily: T.sans, fontSize: 12, color: T.bordeaux, marginTop: 10 }}>
+            Vis i præsensliste ↗
+          </div>
+        )}
       </div>
     </div>
     {lightbox != null && (

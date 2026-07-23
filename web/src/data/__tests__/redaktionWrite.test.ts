@@ -13,6 +13,16 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+test('fakta-art med felt overhoved mapper til red_upsert_fakta med faktatype overhoved', () => {
+  const c = { art: 'fakta', subjektType: 'person', subjektId: '7',
+    felt: 'overhoved', vaerdi: 'II linje, 1. gren' } as const;
+  expect(buildRpcCall(c)).toEqual({
+    fn: 'red_upsert_fakta',
+    args: { p_subjekt_type: 'person', p_subjekt_id: 7, p_faktatype: 'overhoved',
+      p_vaerdi: 'II linje, 1. gren' },
+  });
+});
+
 describe('buildRpcCall — udvidede rygrad-felter (dåb/begravelse/floruit/naturalisering)', () => {
   it.each([
     ['daab', 'dåb'], ['begravelse', 'begravelse'], ['floruit', 'floruit'], ['naturalisering', 'naturalisering'],

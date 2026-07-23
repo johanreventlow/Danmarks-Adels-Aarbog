@@ -22,6 +22,7 @@ import { RelateView } from './components/RelateView';
 import { DetailPanel } from './components/DetailPanel';
 import { EstatesView } from './components/EstatesView';
 import { OverviewMapView } from './components/OverviewMapView';
+import PresensView from './components/PresensView';
 import { ArmsView } from './components/ArmsView';
 import { AboutView } from './components/AboutView';
 import type { TreeSearchBundle } from './components/TreeSearch';
@@ -483,6 +484,7 @@ export default function Folgesvend() {
             : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} onPick={navigateTree} />
             : mode === 'bookmarks' ? (model ? <BookmarksView model={model} ids={bookmarkIds} sort={bmSort} setSort={setBmSort} onPick={pickBookmark} onRemove={saveOrPrompt} loggedIn={bookmarks.canSave} onRequireLogin={() => setLoginOpen(true)} /> : <div style={{ padding: 40, color: T.muted3 }}>Henter…</div>)
             : mode === 'kort' ? <OverviewMapView model={model} geoLoading={geoLoading} onPickPerson={navigateTree} onPickEstate={(id) => navigate(`/estate/${id}`)} />
+            : mode === 'praesens' ? <PresensView model={model} onPickPerson={navigateTree} />
             : <Placeholder label={labelOfMode(mode)} />}
         </div>
 
@@ -493,6 +495,7 @@ export default function Folgesvend() {
             backName={backName} onBack={() => window.history.back()} onClose={mode === 'tree' ? closeDetail : undefined}
             onFocusTree={() => goToMode('tree')}
             onRelate={() => { setRelA(focusId); setRelB(null); setRelSlot('B'); goToMode('relate'); }}
+            onVisPraesens={() => navigate('/praesens', { state: { fokusId: focusId } })}
             isMe={focusId === meCanon} onToggleMe={() => toggleMe(focusId)}
             isBookmarked={bookmarks.has(focusId)} onToggleBookmark={() => saveOrPrompt(focusId)}
             geoLoading={geoLoading}
