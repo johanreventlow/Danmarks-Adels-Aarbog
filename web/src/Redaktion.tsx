@@ -97,10 +97,16 @@ const ENTITY_DB: Record<string, { type: string; felt: string }> = {
   media: { type: 'media', felt: 'titel' },
 };
 const konklusionAf = (f: FeltEvidens): Oplysning | undefined => f.oplysninger.find((o) => o.erKonklusion) ?? f.oplysninger[0];
-const kildeAf = (o: Oplysning): string => {
+// Eksporteret for testbarhed. Redaktionelt tilføjede oplysninger (opretFakta/tilfoejOplysning/
+// redigerOplysning) har ALDRIG en linket source (source_id er hardkodet NULL i red_*_fakta —
+// "PoC: kilde er fritekst", schema.sql) — deres eneste kilde-spor er citat_tekst (fritekst-feltet
+// redaktøren selv udfylder). At kun vise sourceTitel/side betød derfor at ALLE redaktionelt
+// tilføjede oplysninger fremstod som "ingen kilde", selvom redaktøren rent faktisk havde
+// indtastet en kildeangivelse (brugerfund 2026-07-23).
+export const kildeAf = (o: Oplysning): string => {
   const k = o.kilder[0];
   if (!k) return 'ingen kilde';
-  return [k.sourceTitel, k.side].filter(Boolean).join(', ') || 'ingen kilde';
+  return [k.sourceTitel, k.side].filter(Boolean).join(', ') || k.citatTekst || 'ingen kilde';
 };
 
 // URL-grammatik (matcher web/vercel.json's SPA-fallback + allerede etableret navngivning i
