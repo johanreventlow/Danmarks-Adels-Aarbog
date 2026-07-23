@@ -24,4 +24,8 @@ describe('kildeAf', () => {
   test('hverken source, side eller citatTekst → "(kilde mangler)"', () => {
     expect(kildeAf(mkOplysning([{ sourceId: null }]))).toBe('(kilde mangler)');
   });
+
+  test('linket source vinder over co-eksisterende citatTekst (bog-indlæste fakta uændret)', () => {
+    expect(kildeAf(mkOplysning([{ sourceId: 5, sourceTitel: 'DAA 2018-20', citatTekst: 'skal ikke vises' }]))).toBe('DAA 2018-20');
+  });
 });

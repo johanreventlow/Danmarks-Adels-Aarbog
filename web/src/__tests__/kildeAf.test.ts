@@ -29,6 +29,10 @@ describe('kildeAf', () => {
     expect(kildeAf(mkOplysning([{ sourceId: null }]))).toBe('ingen kilde');
   });
 
+  test('linket source vinder over co-eksisterende citatTekst (bog-indlæste fakta uændret)', () => {
+    expect(kildeAf(mkOplysning([{ sourceId: 5, sourceTitel: 'DAA 2018-20', citatTekst: 'skal ikke vises' }]))).toBe('DAA 2018-20');
+  });
+
   test('kun første kilde-række bruges', () => {
     expect(kildeAf(mkOplysning([{ sourceId: 5, sourceTitel: 'Første' }, { sourceId: 6, sourceTitel: 'Anden' }]))).toBe('Første');
   });
