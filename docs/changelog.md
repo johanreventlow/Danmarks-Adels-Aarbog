@@ -1,5 +1,46 @@
 # Changelog
 
+## Præsensliste-visning v1 — implementeret på feature-branch (2026-07-22)
+
+Beregnet, anker-baseret præsensliste-læsevisning (web + mobil), designet og planlagt
+samme dag (`docs/superpowers/specs/2026-07-22-praesensliste-visning-design.md` +
+`docs/superpowers/plans/2026-07-22-praesensliste-visning.md`), derefter eksekveret via
+subagent-driven-development: Codex (`gpt-5.6-sol`) som implementer pr. task, uafhængige
+Claude-subagenter som task-reviewere. Alle 10 tasks grønne og godkendt:
+
+- **Core (`packages/core`):** ny `presensLabels.ts` (anker-parse + dansk
+  overskrift-generator: FARBROR/FARS SØSTER/SØSTRE, genitivkæder, kønssymmetri) og
+  `presensListe.ts` (bottom-up-beskæring af afdøde uden levende efterkommere,
+  anker-klatring, relationsgrupper, gren-partitionering via ankersæt, redaktionelle
+  advarsler). Facitliste-test reproducerer DAA 2012-14 II linje 1. grens gruppestruktur.
+  Suite: 297/297 (efter krydshenvisnings-tilføjelsen, se nedenfor).
+- **Vokabular:** ny faktatype `overhoved` (schema.sql + db-migrations.sql + db-verify.sql)
+  — udpeger linje-/gren-overhoveder som redaktionelt fakta, ingen skemaændring. Genbruger
+  eksisterende `red_upsert_fakta`/`red_opret_fakta`-flow i person-editoren (web + mobil).
+  **Prod-apply udført 2026-07-22** (bruger-godkendt) — se `docs/decisions.md` for verifikation.
+- **Web:** ny "Præsensliste"-fane i Følgesvend-navigationen (`/praesens`), redaktion-gated,
+  "Vis i præsensliste"-genvej fra person-detaljepanelet. Suite: 427/427.
+- **Mobil:** ny `/praesens`-skærm + drawer-punkt 09, spejler webbens gating/tomtilstande/
+  partner-visning. Suite: 348/348.
+- **Fund undervejs (rettet, se `docs/decisions.md` for detaljer):** en Vitest-dobbelt-
+  test-registrering pga. sibling-test-import (rettet: udtrukket delte fixtures til egen
+  fil); mobil-skærmens manglende partner-visning + indlejrede komponenter (rettet); mobil
+  manglede `canonicalIdById` på modellen (gjorde samme_som-kanonisering til en no-op på
+  mobil — rettet, fanget af slut-reviewet).
+- **Struktur-begrænsning RETTET 2026-07-22 (bruger-beslutning "vis én gang +
+  krydshenvisning"):** en levende person nået ad to veje inden for SAMME ankers
+  undertræ/gren (fx et dobbelt-fætterskab) blev tidligere enten stille droppet eller vist
+  dobbelt. `pruneUndertrae` deler nu ét `alleredeVist`-sæt på tværs af hele grenens
+  opbygning; første forekomst vises fuldt, senere forekomster bliver en
+  `krydsReference`-stub med en synlig note i UI'et. Krydsning MELLEM grene
+  (`dobbelt_naaet`-advarslen) er uændret. Se `docs/decisions.md`.
+- **Trust-note:** Codex' selv-rapportering viste sig ved ét task at være opdigtet (beskrev
+  ikke-eksisterende kode); den faktiske kode var korrekt i alle 10 tasks, fanget fordi hver
+  task blev uafhængigt genverificeret (kontrollør kørte selv test-suiter, reviewer læste
+  kun diffen).
+- **Branch:** `feat/praesensliste` — [PR #76](https://github.com/johanreventlow/Danmarks-Adels-Aarbog/pull/76)
+  (draft), afventer brugergodkendelse af merge.
+
 ## Mediehåndtering fase 4 — implementeret og verificeret lokalt (2026-07-22)
 
 Fase 4 ("identitet & endeligt farvel") er implementeret lokalt via subagent-drevet

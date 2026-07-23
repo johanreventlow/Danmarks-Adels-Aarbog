@@ -23,6 +23,7 @@ const NAV: NavItem[] = [
   { no: '06', title: 'Er vi i familie?', sub: 'Find slægtskabet', href: '/relate' },
   { no: '07', title: 'Søg', sub: 'Bladr blandt personer', href: '/search' },
   { no: '08', title: 'Bogmærker', sub: 'Blade du har gemt', href: '/bogmaerker' },
+  { no: '09', title: 'Præsensliste', sub: 'Levende medlemmer efter linje og gren', href: '/praesens' },
 ];
 
 export function MenuDrawer({ visible, onClose }: { visible: boolean; onClose: () => void }) {

@@ -4,7 +4,7 @@
 // 'home' = forsiden/landing (brief §6). 'bookmarks' er en konto-klynge-indgang (bmQuick
 // "Se alle", spec §3.3). Begge ligger UDEN FOR mega-menuens temaer men indgår i Mode-typen
 // så center-switchen i Folgesvend er exhaustive-tjekket af tsc.
-export type Mode = 'home' | 'tree' | 'relate' | 'estates' | 'arms' | 'about' | 'bookmarks' | 'kort';
+export type Mode = 'home' | 'tree' | 'relate' | 'estates' | 'arms' | 'about' | 'bookmarks' | 'kort' | 'praesens';
 
 // Mega-menu-navigationen (brief §3): rygraden er de TRE temaer, ikke enkeltdestinationer.
 // Hvert punkt peger på en live Mode, eller null = "kommer" (endnu ikke bygget — vises
@@ -15,6 +15,7 @@ export type Theme = { key: string; label: string; items: ThemeItem[] };
 export const THEMES: Theme[] = [
   { key: 'slaegten', label: 'Slægten', items: [
     { label: 'Stamtræ', mode: 'tree' }, { label: 'Slægtskab', mode: 'relate' },
+    { label: 'Præsensliste', mode: 'praesens' },
     { label: 'Våben', mode: 'arms' }, { label: 'Om slægten', mode: 'about' },
   ] },
   { key: 'godser', label: 'Godser & steder', items: [
@@ -47,7 +48,7 @@ export function labelOfMode(mode: Mode): string {
 // Faste (id-løse) faners sti — delt tabel så retning (mode→sti) og modstående retning
 // (sti→mode, i parseFolgesvendPath) ikke kan komme ud af trit med hinanden (/simplify-fund).
 const MODE_PATH: Record<Exclude<Mode, 'home'>, string> = {
-  tree: '/stamtrae', estates: '/estates', relate: '/relate', arms: '/arms', about: '/about', bookmarks: '/bookmarks', kort: '/kort',
+  tree: '/stamtrae', estates: '/estates', relate: '/relate', arms: '/arms', about: '/about', bookmarks: '/bookmarks', kort: '/kort', praesens: '/praesens',
 };
 const PATH_MODE: Record<string, Mode> = Object.fromEntries(Object.entries(MODE_PATH).map(([m, p]) => [p.slice(1), m as Mode]));
 

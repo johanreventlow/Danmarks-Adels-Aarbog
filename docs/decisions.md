@@ -2,6 +2,86 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Præsensliste-visning v1: beregnet frem for lagret + overhoved-fakta-konvention (2026-07-22)
+
+Implementeret via subagent-driven-development med Codex (`gpt-5.6-sol`) som udførende
+implementer pr. task og Claude-subagenter som uafhængige task-reviewere (spec + kvalitet).
+Spec: `docs/superpowers/specs/2026-07-22-praesensliste-visning-design.md`. Plan:
+`docs/superpowers/plans/2026-07-22-praesensliste-visning.md`. Alle 10 tasks grønne
+(`packages/core` 291/291, web 426/426, mobil 348/348, alle `tsc --noEmit` rene).
+
+- **Beregnet, ikke lagret (bekræftet ved implementering).** Relationsgrupper og
+  overskrifter (FARBROR, SØSTRE, FARFARS FARBROR …) beregnes af `buildPresensListe`
+  (`packages/core/src/presensListe.ts`) fra slægtsgrafen + et sæt redaktionelt udpegede
+  overhoved-fakta — ingen bogstruktur er lagret. Facitliste-testen (Task 5) reproducerer
+  DAA 2012-14 II linje 1. grens gruppestruktur (SØSTRE + FARFARS FARBROR) fra en syntetisk
+  graf-fixture, som bekræftelse af algoritmen mod den trykte bog.
+- **Overhoved-udpegning:** ny vokabular-række `('faktatype','overhoved', …)` (INGEN
+  skemaændring) + eksisterende `red_upsert_fakta`/`red_opret_fakta`-flow. Værdi-format
+  `"<ROMERTAL> linje[, <N>. gren]"`, parset fail-closed af `parseOverhovedVaerdi`
+  (uparsebar værdi giver aldrig et gættet anker). **Prod-apply udført 2026-07-22 (bruger-
+  godkendt):** `INSERT INTO vocab (scheme, code, label) VALUES ('faktatype','overhoved', …)
+  ON CONFLICT DO NOTHING` kørt transaktionelt mod prod (xjnvdhajfyrcytatnzos) via psql
+  (session pooler, `sslmode=require`). Verificeret: rækken findes med korrekt label,
+  `vocab`-antal 152→153 (præcis +1, ingen sideeffekter), idempotens bekræftet (gentaget
+  INSERT gav 0 rækker), `vocab.relrowsecurity` uændret (RLS-lint/get_advisors ikke kørt —
+  ingen Supabase MCP tilgængelig i denne session — men irrelevant her: ingen ny tabel,
+  funktion eller RLS-politik, kun én dataræke i en allerede-sikret referencetabel).
+- **RETTET (2026-07-22, bruger-beslutning "vis én gang + krydshenvisning"):** den tidligere
+  kendte struktur-begrænsning er lukket. `pruneUndertrae`s vagt er splittet i to: `paaVej`
+  (ID'er på den aktuelle rekursions-stak — en ægte data-cyklus beskæres fortsat defensivt til
+  null, som hidtil) og `alleredeVist` (ID'er allerede fuldt bygget og BEHOLDT, delt på tværs
+  af HELE `buildGren`-kaldet — ikke kun ét undertræ). Første forekomst af en levende person
+  inden for én gren vises fuldt ud; enhver senere forekomst inden for SAMME gren bliver en tom
+  krydshenvisnings-stub (`PresensNode.krydsReference`), vist i UI som en kort note ("vist
+  andetsteds i denne gren") i stedet for stille at blive droppet (det oprindelige fund) eller
+  duplikeret fuldt ud (kernens spejlbillede, fanget af slut-reviewet — to FORSKELLIGE
+  sidegrene der begge fører til samme levende person, fx et fætter-fætter-ægteskab). ÉN
+  mekanisme løser begge varianter, da `alleredeVist` trådes gennem både ankerBlokkens egen
+  rekursion og hver søskende-sidegrens kald. `alleredeVist` tilføjes KUN på succes-stien
+  (aldrig ved beskæring til null), så et tidligere forgæves forsøg aldrig blokerer en senere
+  gyldig forekomst. Krydsning MELLEM grene (`dobbelt_naaet`-advarslen) er uændret og upåvirket
+  — scopet er bevidst kun inden-for-gren. Facitliste-tests dækker begge varianter direkte.
+- **Trust-erfaring fra eksekveringen:** Codex' selv-rapporterede tekst (rapportfiler,
+  afsluttende chat-resumeer) viste sig ved ét tilfælde (Task 4) at være fuldstændig
+  opdigtet — beskrev funktioner/tests der ikke fandtes i den faktisk leverede (og korrekte)
+  kode. Al implementering blev derfor verificeret uafhængigt gennem hele kørslen: kontrolløren
+  genkørte selv test-suiter/`tsc` efter hvert task, og task-revieweren læste diffen — aldrig
+  rapporten — som eneste kilde til sandhed. Selve koden var i alle 10 tasks korrekt.
+- **To reelle implementeringsfejl fanget af task-reviewere og rettet under kørslen** (ikke
+  Codex-fejl — begge var mangler i selve planen, forfattet af controlleren):
+  1. Task 5's facitliste-test importerede hjælpefunktioner (`mk`/`union`/`pc`) fra en
+     sibling `*.test.ts`-fil, hvilket fik Vitest til at genregistrere den importerede fils
+     `describe`/`test`-blokke under den importerende fils suite (302 tests i stedet for de
+     forventede 291). Rettet ved at udtrække hjælperne til en ikke-testfil
+     (`packages/core/src/__tests__/presensFixtures.ts`).
+  2. Task 9's mobil-skærm udelod stille partner-visning (design-spec §"Ægtefæller vises
+     sammen med deres familie") og genskabte `Node`/`Gren` som indlejrede komponenter ved
+     hvert render. Rettet: partnere vises nu identisk med webbens logik, komponenterne er
+     løftet til modul-scope.
+- **Bevidst v1-scope-reduktion (ikke fejl):** mobil-skærmen viser advarsler som et
+  antal-tal, ikke som webbens udvidelige per-advarsel-liste (`<details>`). Acceptabel
+  forenkling for en lille skærm; kan udvides senere hvis redaktøren efterspørger det.
+  Tilsvarende mangler mobil webbens "Vis i præsensliste"-genvej fra person-siden samt
+  fokus-scroll til en bestemt person (kun drawer-indgangen findes på mobil) — funktionen
+  er stadig nåbar, blot ét klik længere væk; kan tilføjes senere uden arkitektur-ændring.
+- **Rettet efter slut-review: `canonicalIdById` manglede på mobil-modellen.** Web's
+  `loadModel` stamper `canonicalIdById` direkte på `Model`-objektet, men mobil-storen
+  (`useStore.ts`) holder det som et separat felt ved siden af `model` — så
+  `kanoniserPresensGrundlag(model, …)` i `praesens.tsx` læste `model.canonicalIdById ?? {}`
+  og fik altid et tomt map, dvs. funktionen var reelt en no-op på mobil (ankre/levende-flag
+  fra et `samme_som`-alias ville aldrig linjes op med den allerede kollapsede graf). Lavt
+  risiko i dagens data (aliasser er afdøde grundlæggerdubletter/kryds-slægt-broer, ikke
+  levende linjehoveder), men brød planens egen invariant. Rettet lokalt i `praesens.tsx`
+  ved at flette store'ns `canonicalIdById`-felt ind på modellen før kanonisering — en
+  bredere rettelse (stample det direkte på `model` i selve storen, til gavn for alle
+  fremtidige forbrugere) er en mulig senere oprydning, ikke nødvendig for v1.
+- **Codex-sandbox-begrænsning (proces, ikke kode):** i denne git-worktree-opsætning
+  (gitdir uden for worktree-træet, `.git/worktrees/<navn>/`) kunne Codex ofte ikke selv
+  committe (`.git/worktrees/*/index.lock` skrivebeskyttet i dens sandbox) — undertiden
+  lykkedes det dog. Controlleren staged/committede derfor konsekvent selv efter hver
+  implementer-kørsel, uafhængigt verificeret først.
+
 ## RLS-synlighed: fail-closed `entitet_offentlig`-helper, ikke `type <> 'person'` (2026-07-17)
 
 **Besluttet:** al polymorf RLS-gating (fact/relation/narrative/note/text_mention) afgør synlighed via

@@ -22,6 +22,7 @@ describe('parseFolgesvendPath', () => {
     expect(parseFolgesvendPath('/about').mode).toBe('about');
     expect(parseFolgesvendPath('/bookmarks').mode).toBe('bookmarks');
     expect(parseFolgesvendPath('/kort').mode).toBe('kort');
+    expect(parseFolgesvendPath('/praesens').mode).toBe('praesens');
   });
   it('ukendt sti → home (ikke tree)', () => {
     expect(parseFolgesvendPath('/findes-ikke').mode).toBe('home');
@@ -33,6 +34,7 @@ describe('pathForMode + rundtur', () => {
   it('home → /, tree → /stamtrae', () => {
     expect(pathForMode('home')).toBe('/');
     expect(pathForMode('tree')).toBe('/stamtrae');
+    expect(pathForMode('praesens')).toBe('/praesens');
   });
   it('parse(pathForMode(m)).mode === m for alle id-løse modes', () => {
     for (const m of modes) expect(parseFolgesvendPath(pathForMode(m)).mode).toBe(m);
