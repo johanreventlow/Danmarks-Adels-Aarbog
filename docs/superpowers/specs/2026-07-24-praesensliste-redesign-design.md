@@ -39,19 +39,24 @@ advarsler) er allerede bygget, testet mod et facit (DAA 2012-14 II linje
 
 ### 2.1 Linje-titel (kort undertitel, fx "Den lensgrevelige linje af 1767")
 
-`lineage`-skemaet har allerede en `navn TEXT NOT NULL`-kolonne med
-kommentaren `-- 'Den holstenske linje', ...` — samme *slags* tekst som
-mockuppets `lin.titel`. **Første implementeringsskridt:** verificér de
-faktiske værdier i `lineage.navn` for de eksisterende rækker (I/II linje).
-
-- Indeholder de allerede beskrivende titler i denne stil → genbrug `navn`
-  direkte, ingen migration.
-- Er de tomme/generiske → tilføj `lineage.titel TEXT` (samme pragmatiske
-  mønster som `slaegtsnavn`: ren kolonne, ikke fact-række, fordi det er
-  redaktionel visningstekst uden selvstændigt evidens-behov).
+**Verificeret via dokumentation** (live prod-query blev blokeret af
+permission-classifier under brainstorm; krydstjekket i to uafhængige,
+daterede kilder i stedet): `lineage.navn`
+indeholder allerede præcis denne slags deskriptiv titel for alle 5
+eksisterende rækker: I=Den holstenske linje, II=Linjen Gallentin, III=Den
+mecklenburgske linje, IV=Den lensgrevelige linje af 1767, V=Den grevelige
+linje af 1673 (`docs/changelog.md:1750-51`,
+`docs/superpowers/specs/2026-07-03-udledt-slaegtsnavn-design.md:38`:
+"`lineage.navn` — deskriptivt, IKKE et efternavn"). **Ingen ny kolonne
+nødvendig** — dette erstatter den oprindelige "ny kolonne"-beslutning, som
+blev truffet før denne verifikation.
 
 `lin.navn` i mockuppet (stavevariant, "Reventlou" vs. "Reventlow") svarer til
 den eksisterende `lineage.slaegtsnavn` (Udledt Slægtsnavn, live).
+
+Der findes i dag kun 5 `lineage`-rækker totalt, ét pr. `kode` — ingen
+kode-kollision på tværs af kilder at disambiguere for. Opslag sker derfor
+direkte på `kode` uden `source_id`-filtrering.
 
 ### 2.2 Våbenskjold → linje
 
@@ -67,15 +72,21 @@ ved `lineage.parent_lineage_id`:
    `objekt_type='coat_of_arms'`, `objekt_id=<coat_of_arms.id>`,
    `rolle='vaaben'` (ny vocab-kode i scheme `'rolle'`).
 
-To hop, samme mønster som datamodel-oversigtens "Person —[afbildet i]→
-Maleri"-eksempel (den depikterede entitet er subjekt, medie er objekt):
+To hop — **genbruger eksisterende, allerede-implementeret infrastruktur**
+(`web/src/data/public.ts:fetchArms()` gør nøjagtig dette for
+familie-niveauets våben i dag; kun hop 1 er nyt):
 
 1. `relation(subjekt_type='lineage', objekt_type='coat_of_arms',
-   rolle='vaaben')` — hvilket våben hører til linjen.
-2. `relation(subjekt_type='coat_of_arms', objekt_type='media',
-   rolle='afbildet_i')` — hvilken billedfil viser det våben.
+   rolle='vaaben')` — hvilket våben hører til linjen. **Ny relationstype**,
+   `rolle='vaaben'` tilføjes til `vocab(scheme='rolle')`.
+2. `relation(subjekt_type='media', objekt_type='coat_of_arms',
+   rolle='afbildet')` — hvilken billedfil viser det våben. **Findes
+   allerede** som konvention (`fetchObjectMedia()` i `web/src/data/media.ts`
+   forudsætter præcis denne retning/rolle) — genbruges uændret, ingen ny kode.
 
-Web-laget henter begge hop for at nå frem til `media.storage_path`.
+Web-laget: slå `coat_of_arms.id` op pr. linje via hop 1, kald derefter den
+eksisterende `fetchObjectMedia('coat_of_arms', armIds)` (uændret) for
+billed-URL'en.
 
 ### 2.3 Præsens-intro (dedikeret narrativ)
 
