@@ -41,10 +41,12 @@ export function PresensGrenSektion(props: {
     </div>
   );
   return (
-    <section style={{ marginBottom: 34 }}>
-      <h2 style={{ fontFamily: T.sans, fontSize: 13, letterSpacing: 1.5, textTransform: 'uppercase', color: T.bordeaux }}>
-        {gren.anker.raaVaerdi}
-      </h2>
+    <section id={gren.anker.gren != null ? `${gren.anker.linje.toLowerCase()}-g${gren.anker.gren}` : undefined} style={{ marginBottom: 34 }}>
+      {gren.anker.gren != null && (
+        <h2 style={{ fontFamily: T.mono, fontSize: 10.5, letterSpacing: '.22em', textTransform: 'uppercase', color: T.gold, fontWeight: 500 }}>
+          {gren.anker.gren}. gren
+        </h2>
+      )}
       {renderNode(gren.ankerBlok, 0)}
       {gren.grupper.map((gr) => (
         <div key={gr.overskrift + gr.niveau} style={{ marginTop: 16 }}>
@@ -58,6 +60,46 @@ export function PresensGrenSektion(props: {
         </div>
       ))}
     </section>
+  );
+}
+
+import type { PresensLinjeGruppe } from '@daa/core';
+import type { PresensLinjeInfo } from '../data/presensLinjer';
+
+// Pr.-linje sektion: våben + linjenummer + titel (lineage.navn) + navn (lineage.slaegtsnavn),
+// derefter dens grene i rækkefølge (eksporteret til test, samme mønster som PresensGrenSektion).
+export function PresensLinjeSektion(props: {
+  gruppe: PresensLinjeGruppe;
+  info: PresensLinjeInfo | undefined;
+  navnAf: (id: string) => string;
+  aarAf: (id: string) => string;
+  onPick: (id: string) => void;
+  fokusId?: string | null;
+}) {
+  const { gruppe, info, navnAf, aarAf, onPick, fokusId } = props;
+  return (
+    <div id={`linje-${gruppe.linje.toLowerCase()}`} style={{ marginTop: 52 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 24, borderTop: `1px solid rgba(34,31,26,.14)`, paddingTop: 26 }}>
+        {info?.vaaben?.url && (
+          <img src={info.vaaben.url} alt="Linjens våben" style={{ width: 92, height: 'auto', display: 'block', flex: 'none' }} />
+        )}
+        <div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <span style={{ fontFamily: T.serif, fontSize: 34, fontWeight: 600, color: T.bordeaux, lineHeight: 1 }}>{gruppe.linje}</span>
+            <span style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.26em', textTransform: 'uppercase', color: T.ink }}>linje</span>
+          </div>
+          {info?.titel && (
+            <div style={{ fontFamily: T.serif, fontSize: 19, fontStyle: 'italic', color: '#3d382f', marginTop: 8 }}>{info.titel}</div>
+          )}
+          {info?.slaegtsnavn && (
+            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.3em', textTransform: 'uppercase', color: T.muted2, marginTop: 6 }}>{info.slaegtsnavn}</div>
+          )}
+        </div>
+      </div>
+      {gruppe.grene.map((g) => (
+        <PresensGrenSektion key={g.anker.personId} gren={g} navnAf={navnAf} aarAf={aarAf} onPick={onPick} fokusId={fokusId} />
+      ))}
+    </div>
   );
 }
 
