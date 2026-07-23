@@ -273,3 +273,20 @@ export function kanoniserPresensGrundlag(
   }
   return { ankre: [...ud.values()], levendeById: levende };
 }
+
+export type PresensLinjeGruppe = { linje: string; grene: PresensGren[] };
+
+// Ren, rækkefølge-bevarende gruppering af den flade gren-liste under linje (visningslag —
+// liste.grene er allerede sorteret via sortAnkre, så grupperingen arver den rækkefølge).
+export function groupByLinje(grene: PresensGren[]): PresensLinjeGruppe[] {
+  const out: PresensLinjeGruppe[] = [];
+  const byLinje = new Map<string, PresensGren[]>();
+  for (const g of grene) {
+    const arr = byLinje.get(g.anker.linje);
+    if (arr) arr.push(g); else byLinje.set(g.anker.linje, [g]);
+  }
+  for (const g of grene) {
+    if (!out.some((o) => o.linje === g.anker.linje)) out.push({ linje: g.anker.linje, grene: byLinje.get(g.anker.linje)! });
+  }
+  return out;
+}
