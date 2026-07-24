@@ -189,6 +189,28 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
       new Set(linkede.map((x) => pairKey(x.aId, x.bId))),
     );
   }, [personer, nyKildeId, afviste, linkede]);
+  const { aabne, afklarede, formodetNye } = useMemo(() => {
+    const arbejdspersoner = arbejdsliste?.personer ?? [];
+    return {
+      aabne: arbejdspersoner.filter((p) => p.status === 'aaben'),
+      afklarede: arbejdspersoner.filter((p) => p.status === 'afklaret'),
+      formodetNye: arbejdspersoner.filter((p) => p.status === 'formodet_ny'),
+    };
+  }, [arbejdsliste]);
+  const ubekraeftedeFoldHints = useMemo(() => {
+    const hints = new Map<string, { folder: boolean; grund: string | null }>();
+    for (const person of aabne) {
+      for (const kandidat of person.kandidater) {
+        if (kandidat.linket) continue;
+        const bId = String(kandidat.bId);
+        hints.set(
+          pairKey(person.aId, bId),
+          previewSammeSom(rawDb, existingEdges, { alias: person.aId, canonical: bId }),
+        );
+      }
+    }
+    return hints;
+  }, [aabne, rawDb, existingEdges]);
 
   const run = useCallback(async (
     change: Change,
@@ -283,22 +305,19 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
 
   // Fold-hint pr. par: for et allerede bekræftet link, slå op om DET par er en af de karantænerede
   // grupper (fra den ÉN kørsel over alle bekræftede kanter ovenfor); for et endnu ubekræftet par,
-  // kør previewSammeSom med den hypotetiske kant. RÅDGIVENDE (offentlig visning kan afvige pga.
-  // RLS/completeness) — se sammeSomPreflight.ts-header.
+  // slå den memoiserede previewSammeSom-beregning op. RÅDGIVENDE (offentlig visning kan afvige
+  // pga. RLS/completeness) — se sammeSomPreflight.ts-header.
   const foldHint = (aId: string, bId: string, linket: boolean): { folder: boolean; grund: string | null } => {
     if (linket) {
       const grund = karantaeneByPersonId.get(aId) ?? karantaeneByPersonId.get(bId) ?? null;
       return { folder: grund == null, grund };
     }
-    return previewSammeSom(rawDb, existingEdges, { alias: aId, canonical: bId });
+    return ubekraeftedeFoldHints.get(pairKey(aId, bId)) ?? { folder: false, grund: null };
   };
 
   if (loading && personer.length === 0) return <div className="sammenlign">Indlæser redaktions-datasæt…</div>;
 
   const f = arbejdsliste?.fremdrift;
-  const aabne = arbejdsliste?.personer.filter((p) => p.status === 'aaben') ?? [];
-  const afklarede = arbejdsliste?.personer.filter((p) => p.status === 'afklaret') ?? [];
-  const formodetNye = arbejdsliste?.personer.filter((p) => p.status === 'formodet_ny') ?? [];
 
   return (
     <div className="sammenlign" style={{ padding: '1rem', maxWidth: 900 }}>

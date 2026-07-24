@@ -640,6 +640,7 @@ ALTER TABLE change_set   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE change_event ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON change_set, change_event FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION hist_for_subjekt(text,bigint) TO authenticated;
+GRANT EXECUTE ON FUNCTION hist_for_subjekter(text,bigint[]) TO authenticated;
 GRANT EXECUTE ON FUNCTION hist_events(bigint)            TO authenticated;
 GRANT EXECUTE ON FUNCTION red_fortryd_change_set(bigint,boolean) TO authenticated;
 -- Redaktionel identitets-sammenkædning (samme_som) — spec 2026-07-02.

@@ -1234,10 +1234,12 @@ export type MatchAuditPost = MatchRelationPar & {
   operation: string | null;
 };
 type RawMatchAudit = {
+  subjekt_id: number;
   actor_navn: string | null;
   actor_rolle: string | null;
   created_at: string;
   operation: string | null;
+  summary?: string | null;
 };
 
 /** Hent oprettelsesaudit for alle aktive matchbeslutninger via den rolle-gatede historik-RPC. */
@@ -1261,15 +1263,26 @@ export async function fetchMatchAudit(
       summary: `Markerede person ${link.aId} og ${link.bId} som forskellige`,
     })),
   ];
-  return Promise.all(beslutninger.map(async ({ auditPersonId, summary, ...beslutning }) => {
-    try {
-      const { data, error } = await supabase.rpc('hist_for_subjekt', {
-        p_type: 'person',
-        p_id: Number(auditPersonId),
-      });
-      if (error) throw new Error(error.message);
-      const change = ((data ?? []) as Array<RawMatchAudit & { summary?: string | null }>)
-        .find((row) => row.operation === beslutning.operation && row.summary?.includes(summary));
+  if (beslutninger.length === 0) return [];
+
+  try {
+    const pIds = [...new Set(beslutninger.map(({ auditPersonId }) => Number(auditPersonId)))];
+    const { data, error } = await supabase.rpc('hist_for_subjekter', {
+      p_type: 'person',
+      p_ids: pIds,
+    });
+    if (error) throw new Error(error.message);
+
+    const auditByPersonId = new Map<number, RawMatchAudit[]>();
+    for (const row of (data ?? []) as RawMatchAudit[]) {
+      const rows = auditByPersonId.get(row.subjekt_id) ?? [];
+      rows.push(row);
+      auditByPersonId.set(row.subjekt_id, rows);
+    }
+
+    return beslutninger.map(({ auditPersonId, summary, ...beslutning }) => {
+      const change = auditByPersonId.get(Number(auditPersonId))
+        ?.find((row) => row.operation === beslutning.operation && row.summary?.includes(summary));
       return {
         relationId: beslutning.relationId,
         aId: beslutning.aId,
@@ -1280,8 +1293,9 @@ export async function fetchMatchAudit(
         createdAt: change?.created_at ?? null,
         operation: change?.operation ?? null,
       };
-    } catch {
-      return {
+    });
+  } catch {
+    return beslutninger.map(({ auditPersonId: _auditPersonId, summary: _summary, ...beslutning }) => ({
         relationId: beslutning.relationId,
         aId: beslutning.aId,
         bId: beslutning.bId,
@@ -1290,9 +1304,8 @@ export async function fetchMatchAudit(
         actorRolle: null,
         createdAt: null,
         operation: null,
-      };
-    }
-  }));
+      }));
+  }
 }
 
 /** Hent hele familie-grafen (union + forælder→barn) til den rådgivende samme_som-fold-preview

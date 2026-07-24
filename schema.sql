@@ -2791,6 +2791,14 @@ BEGIN
     WHERE subjekt_type=p_type AND subjekt_id=p_id ORDER BY created_at DESC;
 END $$;
 
+CREATE OR REPLACE FUNCTION hist_for_subjekter(p_type text, p_ids bigint[])
+RETURNS SETOF change_set LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  RETURN QUERY SELECT * FROM change_set
+    WHERE subjekt_type=p_type AND subjekt_id = ANY(p_ids) ORDER BY created_at DESC;
+END $$;
+
 CREATE OR REPLACE FUNCTION hist_events(p_change_set_id bigint)
 RETURNS SETOF change_event LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $$
 BEGIN
