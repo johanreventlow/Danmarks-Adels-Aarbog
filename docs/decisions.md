@@ -2,9 +2,9 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
-## BACKLOG: redaktions-datahentning er strukturelt tung, ikke midlertidigt langsom (2026-07-24)
+## Redaktions-datahentning var strukturelt tung, ikke midlertidigt langsom (2026-07-24)
 
-**Ikke løst — opgave til senere.** Fund fra manuel test af "Sammenlign udgaver": "Indlæser
+**Delvist løst samme dag.** Fund fra manuel test af "Sammenlign udgaver": "Indlæser
 redaktions-datasæt…" tager mærkbart lang tid. Verificeret empirisk mod prod
 (`xjnvdhajfyrcytatnzos`, status `ACTIVE_HEALTHY` — ikke en midlertidig serverdegradering):
 
@@ -22,16 +22,27 @@ redaktions-datasæt…" tager mærkbart lang tid. Verificeret empirisk mod prod
    policies (`auth_read` + `redaktion_read`) for samme rolle/handling — tvinger Postgres til at
    OR'e begge sammen pr. række i stedet for én samlet policy (`multiple_permissive_policies`,
    WARN).
-4. **`fetchMatchPersoner()` (`web/src/data/redaktionRead.ts`) er allerede kode-kommenteret som en
+4. **`fetchMatchPersoner()` (`web/src/data/redaktionRead.ts`) var allerede kode-kommenteret som en
    bevidst bred, ufiltreret hentning** ("PoC-volumen er håndterbar") — en rimelig afvejning ved
-   ~900 personer, men målingen ovenfor er efter 1939-loadet (1758 personer). Bliver kun værre med
-   mere data, retter sig ikke af sig selv.
+   ~900 personer, men målingen ovenfor er efter 1939-loadet (1758 personer). Blev kun værre med
+   mere data, rettede sig ikke af sig selv.
 
-**Retning for senere fix (ikke udført):** indeksér/omskriv `entitet_offentlig`s underliggende
-opslag så det bliver sargable, eller flyt filtreringen til et smallere server-side view;
-konsolidér de doblede permissive policies til én; overvej om `fetchMatchPersoner` kan blive
-person-scoped nu hvor N+1-fixet (`hist_for_subjekter`, `db-migrations.sql` 2026-07-24) har vist
-at et batchet RPC-mønster fungerer for denne slags skala-problem.
+**Genmåling som ægte redaktion-JWT (samme dag) nuancerede fundet:** `redaktion_read`-policyen
+bruger `(select current_rolle())='redaktion'` som InitPlan og kortslutter OR'et korrekt — de dyre
+`entitet_offentlig`-subplans viste `never executed`. For redaktøren selv var flaskehalsen derfor
+IKKE punkt 1 (RLS-sargability), men punkt 2: summen af net-roundtrips på tværs af 5 parallelle,
+pagineret-i-1000 `getAll()`-kald.
+
+**Løst (punkt 2+4):** `red_match_personer()` — batchet, redaktion-gated RPC i samme mønster som
+`hist_for_subjekter` (`db-migrations.sql` 2026-07-24), returnerer de samme rå rækkesæt i ét
+kald. `fetchMatchPersoner()` er nu et tyndt `.rpc()`-kald; `buildMatchPersoner`/`RedMatchPerson`
+uændret. PR #88, anvendt+verificeret mod prod samme dag (~135ms server-side for hele
+aggregatet). Policy-konsolidering (punkt 3) er droppet som følge af genmålingen — ingen målt
+gevinst, unødig risiko på GDPR-fladen.
+
+**Ikke løst:** punkt 1 (entitet_offentlig-sargability) gælder fortsat for anon/almindelig
+authenticated-læsning (ikke redaktion) — relevant hvis/når den offentlige API-flade vokser til
+samme skala. Ingen akut driver pt.
 
 ## Præsensliste: patrilineær efterkommer-tilhør — barn hører kun til under faderen (2026-07-23)
 
