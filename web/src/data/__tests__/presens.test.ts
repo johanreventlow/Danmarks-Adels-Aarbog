@@ -1,4 +1,4 @@
-import { mapPresensGrundlag, mapPresensNavneDele, formatAnkerNavn, formatAndetNavn, erAdelsTitel } from '../presens';
+import { mapPresensGrundlag, mapPresensNavneDele, formatAnkerNavn, formatAndetNavn, erAdelsTitel, feminiserTitel } from '../presens';
 
 test('mapPresensGrundlag: joiner fact→konklusion→assertion og parser værdier', () => {
   const r = mapPresensGrundlag(
@@ -103,4 +103,122 @@ test('erAdelsTitel: hverv/militærgrad/embede afvises — den præcise fejl der 
   expect(erAdelsTitel('Dr.')).toBe(false);
   expect(erAdelsTitel('hofjægermester')).toBe(false);
   expect(erAdelsTitel('til Ziesendorf og Brockhusen')).toBe(false);
+});
+
+test('feminiserTitel: mandstitel → kvindelig form (case-insensitivt)', () => {
+  expect(feminiserTitel('Lensgreve')).toBe('Lensgrevinde');
+  expect(feminiserTitel('greve')).toBe('Grevinde');
+  expect(feminiserTitel('BARON')).toBe('Baronesse');
+  expect(feminiserTitel('Friherre')).toBe('Friherreinde');
+  expect(feminiserTitel('Rigsgreve')).toBe('Rigsgrevinde');
+});
+
+test('feminiserTitel: ukendt/ikke-bøjelig titel giver null (fx Komtesse — ingen "gifter sig til"-form)', () => {
+  expect(feminiserTitel('Komtesse')).toBeNull();
+  expect(feminiserTitel('Premierløjtnant i vesttyske Pionier Bataillons reserve')).toBeNull();
+});
+
+test('mapPresensNavneDele: gift-ind kvinde overtager ægtefællens titel+efternavn, egen fødeidentitet i født-klausul — Hedwig-scenariet', () => {
+  // Reelt prod-scenarie (bruger-verifikation 2026-07-24): Hedwig Mundhenke (811) er enke efter
+  // Lensgreve Henning Lothar Gerd Reventlow (380). Efter datastrukturering (visning_navn='Hedwig',
+  // visning_efternavn='Mundhenke', ingen egen titel) skal hun vises "Lensgrevinde Hedwig
+  // Reventlow, født Mundhenke" — ALDRIG "Hedwig Mundhenke" (hendes rå, utilgiftede identitet).
+  const personer = [
+    { id: 811, visning_navn: 'Hedwig', visning_efternavn: 'Mundhenke', koen: 'kvinde' },
+    { id: 380, visning_navn: 'Henning Lothar Gerd', visning_efternavn: 'Reventlow', koen: 'mand' },
+  ];
+  const adelsTitelFakta = [{ subjekt_id: 380, vaerdi_tekst: 'Lensgreve' }];
+  const aegtefaelleIdById = new Map([['811', '380'], ['380', '811']]);
+  const r = mapPresensNavneDele(personer, adelsTitelFakta, aegtefaelleIdById);
+  expect(r['811']).toEqual({ navn: 'Hedwig', titel: 'Lensgrevinde', efternavn: 'Reventlow', fodt: 'Mundhenke', tilgiftet: true });
+  expect(formatAndetNavn(r['811'], 'fallback')).toBe('Lensgrevinde Hedwig Reventlow, født Mundhenke');
+});
+
+test('mapPresensNavneDele: gift-ind kvinde der selv var adelig — fødetitel bevares i født-klausul (Beke-scenariet)', () => {
+  // Beke (852, afdød, ikke i præsenslisten — men bekræftet af bruger som andet eksempel): født
+  // komtesse Ahlefeldt-Laurvig, gift med en lensgreve Reventlow. Hendes EGEN adelstitel viger for
+  // ægtefællens rang i hovedvisningen, men bevares i født-klausulen.
+  const personer = [
+    { id: 852, visning_navn: 'Beke', visning_efternavn: 'Ahlefeldt-Laurvig', koen: 'kvinde' },
+    { id: 900, visning_navn: 'En Lensgreve', visning_efternavn: 'Reventlow', koen: 'mand' },
+  ];
+  const adelsTitelFakta = [
+    { subjekt_id: 852, vaerdi_tekst: 'Komtesse' },
+    { subjekt_id: 900, vaerdi_tekst: 'Lensgreve' },
+  ];
+  const aegtefaelleIdById = new Map([['852', '900'], ['900', '852']]);
+  const r = mapPresensNavneDele(personer, adelsTitelFakta, aegtefaelleIdById);
+  expect(r['852']).toEqual({ navn: 'Beke', titel: 'Lensgrevinde', efternavn: 'Reventlow', fodt: 'komtesse Ahlefeldt-Laurvig', tilgiftet: true });
+  expect(formatAndetNavn(r['852'], 'fallback')).toBe('Lensgrevinde Beke Reventlow, født komtesse Ahlefeldt-Laurvig');
+});
+
+test('mapPresensNavneDele: gift-ind kvinde UDEN registreret pigenavn — efternavnet vises stadig i begge formater', () => {
+  // Reviewfund (whole-branch-review 2026-07-24): tilgiftet-flaget er UAFHÆNGIGT af fodt — en gift-ind
+  // kvinde uden eget registreret efternavn får ingen født-klausul (intet at vise), men skal STADIG
+  // have ægtefællens efternavn med i "øvrige rækker"-formatet, ligesom hovedrække-formatet allerede
+  // gjorde ubetinget. Før fixet var gaten på `fodt`s tilstedeværelse, så dette tilfælde tabte
+  // efternavnet i formatAndetNavn alene — de to formater var uenige om samme person.
+  const personer = [
+    { id: 811, visning_navn: 'Hedwig', visning_efternavn: null, koen: 'kvinde' },
+    { id: 380, visning_navn: 'Henning Lothar Gerd', visning_efternavn: 'Reventlow', koen: 'mand' },
+  ];
+  const adelsTitelFakta = [{ subjekt_id: 380, vaerdi_tekst: 'Lensgreve' }];
+  const aegtefaelleIdById = new Map([['811', '380'], ['380', '811']]);
+  const r = mapPresensNavneDele(personer, adelsTitelFakta, aegtefaelleIdById);
+  expect(r['811']).toEqual({ navn: 'Hedwig', titel: 'Lensgrevinde', efternavn: 'Reventlow', tilgiftet: true });
+  expect(r['811'].fodt).toBeUndefined();
+  expect(formatAnkerNavn(r['811'], 'fallback')).toBe('Hedwig lensgrevinde Reventlow');
+  expect(formatAndetNavn(r['811'], 'fallback')).toBe('Lensgrevinde Hedwig Reventlow');
+});
+
+test('mapPresensNavneDele: ægtefællen har slet ingen adelstitel-fakta — ingen tilgift-override', () => {
+  const personer = [
+    { id: 1, visning_navn: 'Anni', visning_efternavn: null, koen: 'kvinde' },
+    { id: 2, visning_navn: 'Manden', visning_efternavn: 'Reventlow', koen: 'mand' },
+  ];
+  const adelsTitelFakta: { subjekt_id: number; vaerdi_tekst: string }[] = []; // manden har ingen adelstitel
+  const aegtefaelleIdById = new Map([['1', '2'], ['2', '1']]);
+  const r = mapPresensNavneDele(personer, adelsTitelFakta, aegtefaelleIdById);
+  expect(r['1']).toEqual({ navn: 'Anni', titel: '', efternavn: '' });
+  expect(r['1'].fodt).toBeUndefined();
+});
+
+test('mapPresensNavneDele: ægtefællens adelstitel er ikke kønsbøjelig (allerede en kvindeform, fx datafejl) — ingen tilgift-override', () => {
+  // Adskilt fra testen ovenfor: her HAR "manden" en adelstitel-fakta (består erAdelsTitel), men
+  // den findes ikke i FEMININ_TITEL (kun mands-formerne er nøgler der) — feminiserTitel afviser
+  // den, og overrideet skal derfor udeblive ligesom ved manglende titel-fakta.
+  const personer = [
+    { id: 1, visning_navn: 'Anni', visning_efternavn: null, koen: 'kvinde' },
+    { id: 2, visning_navn: 'Manden', visning_efternavn: 'Reventlow', koen: 'mand' },
+  ];
+  const adelsTitelFakta = [{ subjekt_id: 2, vaerdi_tekst: 'Grevinde' }]; // datafejl: allerede en kvindeform
+  const aegtefaelleIdById = new Map([['1', '2'], ['2', '1']]);
+  const r = mapPresensNavneDele(personer, adelsTitelFakta, aegtefaelleIdById);
+  expect(r['1']).toEqual({ navn: 'Anni', titel: '', efternavn: '' });
+  expect(r['1'].fodt).toBeUndefined();
+});
+
+test('mapPresensNavneDele: ægtefællen har gyldig titel men mangler efternavn — ingen tilgift-override', () => {
+  const personer = [
+    { id: 1, visning_navn: 'Anni', visning_efternavn: null, koen: 'kvinde' },
+    { id: 2, visning_navn: 'Manden', visning_efternavn: null, koen: 'mand' }, // intet efternavn registreret
+  ];
+  const adelsTitelFakta = [{ subjekt_id: 2, vaerdi_tekst: 'Greve' }];
+  const aegtefaelleIdById = new Map([['1', '2'], ['2', '1']]);
+  const r = mapPresensNavneDele(personer, adelsTitelFakta, aegtefaelleIdById);
+  expect(r['1']).toEqual({ navn: 'Anni', titel: '', efternavn: '' });
+  expect(r['1'].fodt).toBeUndefined();
+});
+
+test('mapPresensNavneDele: mand uden ægtefælle-opslag rammes ikke af kvinde-mekanismen', () => {
+  const personer = [{ id: 380, visning_navn: 'Henning Lothar Gerd', visning_efternavn: 'Reventlow', koen: 'mand' }];
+  const adelsTitelFakta = [{ subjekt_id: 380, vaerdi_tekst: 'Lensgreve' }];
+  const r = mapPresensNavneDele(personer, adelsTitelFakta, new Map([['811', '380']]));
+  expect(r['380']).toEqual({ navn: 'Henning Lothar Gerd', titel: 'Lensgreve', efternavn: 'Reventlow' });
+});
+
+test('formatAnkerNavn/formatAndetNavn: født-klausul vedhæftes uændret uanset format', () => {
+  const dele = { navn: 'Hedwig', titel: 'Lensgrevinde', efternavn: 'Reventlow', fodt: 'Mundhenke', tilgiftet: true };
+  expect(formatAnkerNavn(dele, 'fallback')).toBe('Hedwig lensgrevinde Reventlow, født Mundhenke');
+  expect(formatAndetNavn(dele, 'fallback')).toBe('Lensgrevinde Hedwig Reventlow, født Mundhenke');
 });

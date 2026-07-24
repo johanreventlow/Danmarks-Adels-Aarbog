@@ -1,5 +1,140 @@
-// Præsensliste-læsefladen (spec 2026-07-22 §6). Redaktion-gated i v1: klient-gaten er UX —
-// RLS er sikkerhedsgrænsen (§8). Beregningen er en ren projektion; ingen skrivninger.
+# Præsensliste: fold-ud narrativ ved navneklik — implementeringsplan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Klik på et navn i Præsenslisten folder en narrativ-boks ud under rækken (i stedet for at navigere væk med det samme); en "Se fuld profil"-knap i boksen er den eneste vej videre til stamtræ-profilen.
+
+**Architecture:** Ren tilføjelse i `web/src/components/PresensView.tsx`. `PresensGrenSektion`/`PresensLinjeSektion` forbliver "dumme" præsentationskomponenter — de kender kun til fire nye, valgfrie props (`erAaben`, `erHenter`, `bioAf`, `onToggle`); al data-hentning (`fetchPersonDetail`) og state (åbne id'er, cache) lever i det øverste `PresensView`-komponent, samme sted `fokusId`/`navneDele` allerede bor.
+
+**Tech Stack:** React 18, TypeScript, Vitest + @testing-library/react, eksisterende `NarrativRenderer`/`fetchPersonDetail` (`web/src/data/public.ts`).
+
+## Global Constraints
+
+- Klik på et navn (personens eget OG en ægtefælles, "· g. m. ...") skal veksle fold-ud, ikke navigere direkte — se spec `docs/superpowers/specs/2026-07-24-praesens-navn-foldud-design.md`.
+- Flere rækker skal kunne være foldet ud samtidig og uafhængigt — ingen accordion-lukning.
+- Tom/manglende narrativ viser præcis teksten "Ingen biografi registreret" (dæmpet, kursiv).
+- Loading-tilstand viser præcis teksten "Henter…".
+- "Se fuld profil"-linket skal kalde `onPick`, ALDRIG `onToggle` — det er den eneste tilbageværende vej til `onPickPerson`/`navigateTree`.
+- Bio-tekst hentes via den eksisterende `fetchPersonDetail(id, memberIds)` (`web/src/data/public.ts:143`), `memberIds` udledt som i `Folgesvend.tsx:180`: `model.byId[id]?.mergedFrom?.map((m) => m.personId)`.
+- Bio caches pr. person-id — gentagne fold-ud/-sammen af samme række må ikke genudløse et fetch-kald.
+- `NarrativRenderer`s egne indlejrede person-links (inde i selve bio-teksten) er UÆNDREDE — de kalder fortsat `onPick` direkte, uden fold-ud.
+- Ingen ændring af `DetailPanel`, `AboutView`, `EstatesView`, eller andre steder `fetchPersonDetail`/`NarrativRenderer` allerede bruges.
+- Eksisterende 6 tests i `PresensView.test.tsx` (og den seneste marginLeft-regressionstest) må fortsat bestå UÆNDREDE — de nye props skal derfor være valgfrie med sikre defaults.
+
+---
+
+### Task 1: Fold-ud narrativ ved navneklik
+
+**Files:**
+- Modify: `web/src/components/PresensView.tsx`
+- Test: `web/src/components/__tests__/PresensView.test.tsx`
+
+**Interfaces:**
+- Consumes: `fetchPersonDetail(id: string, memberIds?: string[]): Promise<PersonDetailData>` (`web/src/data/public.ts`, `PersonDetailData.bio: string`); `NarrativRenderer(props: { tekst: string; onPickPerson: (id: string) => void; linkColor: string; inactiveColor: string })` (`web/src/components/NarrativRenderer.tsx`); `model.byId[id].mergedFrom?: { personId: string; linje: string | null; nr: number | null }[]` (`@daa/core` `Provenance[]`).
+- Produces: `PresensGrenSektion`/`PresensLinjeSektion` gain four new optional props — `erAaben?: (id: string) => boolean`, `erHenter?: (id: string) => boolean`, `bioAf?: (id: string) => string | undefined`, `onToggle?: (id: string) => void` — defaulting to `() => false` / `() => false` / `() => undefined` / `() => {}` respectively when omitted.
+
+- [ ] **Step 1: Skriv de fejlende tests først**
+
+Åbn `web/src/components/__tests__/PresensView.test.tsx`. Tilføj `fireEvent` og `useState` til imports øverst:
+
+```tsx
+import { useState } from 'react';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { vi } from 'vitest';
+```
+
+(behold de eksisterende imports af `PresensGrenSektion`, `PresensLinjeSektion`, typerne osv. uændrede).
+
+Tilføj følgende harness + fem tests i BUNDEN af filen (efter den sidste eksisterende test, "navnAfAnker bruges KUN til..."):
+
+```tsx
+// ---- Fold-ud narrativ ved navneklik (spec 2026-07-24-praesens-navn-foldud-design.md) ----
+// PresensGrenSektion er bevidst "dum" og kender ikke til fetchPersonDetail — denne harness
+// holder ÆGTE aabne/henter/bio-state (samme mønster PresensView selv bruger) og injicerer sin
+// egen hentBio-stub, så testen dækker den rigtige toggle/cache-logik uden at mocke supabase.
+function FoldUdHarness(props: { gren: PresensGren; hentBio: (id: string) => Promise<string> }) {
+  const { gren, hentBio } = props;
+  const [aabne, setAabne] = useState<Set<string>>(new Set());
+  const [henter, setHenter] = useState<Set<string>>(new Set());
+  const [bio, setBio] = useState<Map<string, string>>(new Map());
+  const onToggle = (id: string) => {
+    setAabne((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+    if (bio.has(id) || henter.has(id)) return;
+    setHenter((prev) => new Set(prev).add(id));
+    hentBio(id).then((tekst) => {
+      setBio((prev) => new Map(prev).set(id, tekst));
+      setHenter((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    });
+  };
+  return (
+    <PresensGrenSektion
+      gren={gren} navnAf={navnAf} aarAf={aarAf} onPick={() => {}}
+      erAaben={(id) => aabne.has(id)} erHenter={(id) => henter.has(id)} bioAf={(id) => bio.get(id)}
+      onToggle={onToggle}
+    />
+  );
+}
+
+test('klik på et navn folder en boks ud med hentet narrativ; klik igen folder den sammen', async () => {
+  const hentBio = async (id: string) => (id === 'A' ? 'Anker biografi.' : '');
+  render(<FoldUdHarness gren={gren} hentBio={hentBio} />);
+  fireEvent.click(screen.getByText('Anker Person'));
+  expect(await screen.findByText('Anker biografi.')).toBeTruthy();
+  fireEvent.click(screen.getByText('Anker Person'));
+  expect(screen.queryByText('Anker biografi.')).toBeNull();
+});
+
+test('to forskellige rækker kan være foldet ud samtidig, uafhængigt af hinanden', async () => {
+  const hentBio = async (id: string) => `Bio for ${id}.`;
+  render(<FoldUdHarness gren={gren} hentBio={hentBio} />);
+  fireEvent.click(screen.getByText('Anker Person'));
+  fireEvent.click(screen.getByText('Søster Person'));
+  expect(await screen.findByText('Bio for A.')).toBeTruthy();
+  expect(await screen.findByText('Bio for S.')).toBeTruthy();
+});
+
+test('mangler narrativ (tom streng) viser en dæmpet placeholder, ikke en tom boks', async () => {
+  const hentBio = async () => '';
+  render(<FoldUdHarness gren={gren} hentBio={hentBio} />);
+  fireEvent.click(screen.getByText('Anker Person'));
+  expect(await screen.findByText('Ingen biografi registreret')).toBeTruthy();
+});
+
+test('gentagne fold-ud/-sammen af samme række genhenter ikke bio-teksten', async () => {
+  const hentBio = vi.fn(async (id: string) => `Bio for ${id}.`);
+  render(<FoldUdHarness gren={gren} hentBio={hentBio} />);
+  fireEvent.click(screen.getByText('Anker Person')); // fold ud (1. hentning)
+  await screen.findByText('Bio for A.');
+  fireEvent.click(screen.getByText('Anker Person')); // fold sammen
+  fireEvent.click(screen.getByText('Anker Person')); // fold ud igen — skal IKKE genhente
+  await screen.findByText('Bio for A.');
+  expect(hentBio).toHaveBeenCalledTimes(1);
+});
+
+test('"Se fuld profil"-linket kalder onPick med personens id, ikke onToggle', () => {
+  const onPick = vi.fn();
+  render(
+    <PresensGrenSektion
+      gren={gren} navnAf={navnAf} aarAf={aarAf} onPick={onPick}
+      erAaben={(id) => id === 'A'} erHenter={() => false} bioAf={() => 'Anker biografi.'}
+      onToggle={() => {}}
+    />
+  );
+  fireEvent.click(screen.getByText('→ Se fuld profil'));
+  expect(onPick).toHaveBeenCalledWith('A');
+});
+```
+
+- [ ] **Step 2: Kør testene og bekræft at de fejler**
+
+Run: `cd web && npx vitest run src/components/__tests__/PresensView.test.tsx`
+Expected: FAIL — `erAaben`/`erHenter`/`bioAf`/`onToggle` findes ikke som props endnu (TypeScript-fejl eller ingen synlig fold-ud-effekt); "→ Se fuld profil" findes slet ikke i DOM'en.
+
+- [ ] **Step 3: Udvid `PresensGrenSektion` med toggle-interaktion og fold-ud-rendering**
+
+I `web/src/components/PresensView.tsx`, erstat hele den eksisterende `PresensGrenSektion`-funktion (linje 14-104 i den nuværende fil) med:
+
+```tsx
 import { useEffect, useMemo, useState } from 'react';
 import { buildPresensListe, kanoniserPresensGrundlag, groupByLinje, samlIds } from '@daa/core';
 import type { Model, PresensGren, PresensListe, PresensNode, PresensLinjeGruppe } from '@daa/core';
@@ -68,6 +203,7 @@ export function PresensGrenSektion(props: {
       )}
     </div>
   );
+
   // dybde styrer KUN den visuelle indrykning (marginLeft); erAnker styrer navngivningsformatet
   // og er sand PRÆCIST for gren.ankerBlok's egen række — de to var tidligere sammenblandet via
   // "dybde===0", hvilket fejlagtigt gav grupperødder (fx "Søstre") anker-navneformat, når de blev
@@ -157,7 +293,15 @@ export function PresensGrenSektion(props: {
     </section>
   );
 }
+```
 
+Bemærk: dette erstatter kun imports-blokken øverst i filen OG hele `PresensGrenSektion`-funktionen — resten af filen (`PresensLinjeSektion`, `PresensView`) redigeres i de næste steps, ikke her.
+
+- [ ] **Step 4: Tråd de fire nye props gennem `PresensLinjeSektion`**
+
+Erstat den eksisterende `PresensLinjeSektion`-funktion med:
+
+```tsx
 // Pr.-linje sektion: våben + linjenummer + titel (lineage.navn) + navn (lineage.slaegtsnavn),
 // derefter dens grene i rækkefølge (eksporteret til test, samme mønster som PresensGrenSektion).
 export function PresensLinjeSektion(props: {
@@ -199,14 +343,18 @@ export function PresensLinjeSektion(props: {
     </div>
   );
 }
+```
 
-export default function PresensView(props: { model: Model | null; onPickPerson: (id: string) => void }) {
-  const { model, onPickPerson } = props;
-  const [session, setSession] = useState<RedSession | null | 'henter'>('henter');
-  const [grundlag, setGrundlag] = useState<PresensGrundlag | null>(null);
-  const [fejl, setFejl] = useState<string | null>(null);
-  const [linjeInfo, setLinjeInfo] = useState<Record<string, PresensLinjeInfo>>({});
-  const [intro, setIntro] = useState<string | null>(null);
+- [ ] **Step 5: Kør testene og bekræft at de nye 5 tests + de 6 eksisterende (inkl. marginLeft-regressionstesten) består**
+
+Run: `cd web && npx vitest run src/components/__tests__/PresensView.test.tsx`
+Expected: PASS — 11 tests i alt (6 eksisterende + 5 nye).
+
+- [ ] **Step 6: Wire data-hentning ind i `PresensView`**
+
+I den samme fil, i `PresensView`-funktionen: tilføj tre nye `useState`-hooks lige efter den eksisterende `navneDele`-state (linje 151 i den nuværende fil), FØR `fokusId`-konstanten:
+
+```tsx
   const [navneDele, setNavneDele] = useState<Record<string, PresensNavneDele>>({});
   // Fold-ud-narrativ ved navneklik (spec 2026-07-24-praesens-navn-foldud-design.md): aabne = hvilke
   // person-id'er er foldet ud; bioById = hentet bio-tekst pr. id (tom streng er en gyldig "ingen
@@ -216,63 +364,11 @@ export default function PresensView(props: { model: Model | null; onPickPerson: 
   const [bioById, setBioById] = useState<Map<string, string>>(new Map());
   const [hentendeIds, setHentendeIds] = useState<Set<string>>(new Set());
   const fokusId = (window.history.state as { fokusId?: string } | null)?.fokusId ?? null;
+```
 
-  useEffect(() => { currentSession().then(setSession).catch(() => setSession(null)); }, []);
-  useEffect(() => {
-    if (session === 'henter' || session?.role !== 'redaktion') return;
-    fetchPresensGrundlag().then(setGrundlag).catch((e) => setFejl(String(e?.message ?? e)));
-    fetchPresensLinjer().then(setLinjeInfo).catch(() => setLinjeInfo({})); // ikke-kritisk pynt
-    fetchPresensIntro().then(setIntro).catch(() => setIntro(null)); // ikke-kritisk pynt
-  }, [session]);
+Tilføj derefter, lige efter linjen `const aarAf = (id: string) => model!.byId[id]?.years ?? '';` (mod slutningen af filen, efter alle de tidlige `return`-guards — modellen er her garanteret ikke-null, ligesom for `navnAf`/`aarAf`):
 
-  const liste: PresensListe | null = useMemo(() => {
-    if (!model || !grundlag) return null;
-    const k = kanoniserPresensGrundlag(model, grundlag.ankre, grundlag.levendeById);
-    return buildPresensListe(model, k.ankre, k.levendeById);
-  }, [model, grundlag]);
-
-  const linjer = useMemo(() => (liste ? groupByLinje(liste.grene) : []), [liste]);
-
-  // Alle person-id'er der reelt optræder i listen — bruges til at hente navne-dele (visning_navn/
-  // visning_titel/visning_efternavn) til bogens to navngivningsformater (§ navnAf/navnAfAnker).
-  const alleIds = useMemo(() => {
-    if (!liste) return [] as string[];
-    const s = new Set<string>();
-    for (const g of liste.grene) {
-      samlIds(g.ankerBlok, s);
-      for (const gr of g.grupper) for (const r of gr.roedder) samlIds(r, s);
-    }
-    return [...s];
-  }, [liste]);
-
-  useEffect(() => {
-    if (!alleIds.length) return;
-    fetchPresensNavneDele(alleIds).then(setNavneDele).catch(() => setNavneDele({})); // ikke-kritisk pynt
-  }, [alleIds]);
-
-  useEffect(() => {
-    if (liste && fokusId) document.querySelector(`[data-person-id="${fokusId}"]`)?.scrollIntoView({ block: 'center' });
-  }, [liste, fokusId]);
-
-  if (session === 'henter') return <div style={{ padding: 40, color: T.muted3 }}>Henter…</div>;
-  if (session?.role !== 'redaktion')
-    return <div style={{ padding: 40, color: T.muted3, fontFamily: T.sans }}>
-      Præsenslisten kræver redaktør-login (v1 er redaktion-only). Log ind via <a href="/redaktion">Redaktion</a> og vend tilbage.
-    </div>;
-  if (fejl) return <div style={{ padding: 40, color: T.bordeaux }}>Kunne ikke hente grundlaget: {fejl}</div>;
-  if (!liste) return <div style={{ padding: 40, color: T.muted3 }}>Henter…</div>;
-  if (liste.grene.length === 0)
-    return <div style={{ padding: 40, color: T.muted3, fontFamily: T.sans }}>
-      Ingen overhoveder udpeget endnu. Udpeg et linje-/gren-overhoved via person-editorens felt
-      "Overhoved (linje/gren)" (værdi fx "II linje, 1. gren").
-      {Object.values(grundlag?.levendeById ?? {}).every((v) => !v) && (
-        <div style={{ marginTop: 10 }}>Bemærk: modellen indeholder ingen levende personer — er du logget ind som redaktør, så genindlæs siden, så data hentes med dit login.</div>
-      )}
-    </div>;
-
-  const fallbackNavn = (id: string) => model!.byId[id]?.name ?? `person ${id}`;
-  const navnAf = (id: string) => formatAndetNavn(navneDele[id], fallbackNavn(id));
-  const navnAfAnker = (id: string) => formatAnkerNavn(navneDele[id], fallbackNavn(id));
+```tsx
   const aarAf = (id: string) => model!.byId[id]?.years ?? '';
   const erAaben = (id: string) => aabne.has(id);
   const erHenter = (id: string) => hentendeIds.has(id);
@@ -291,81 +387,48 @@ export default function PresensView(props: { model: Model | null; onPickPerson: 
       .catch(() => setBioById((prev) => new Map(prev).set(id, '')))
       .finally(() => setHentendeIds((prev) => { const next = new Set(prev); next.delete(id); return next; }));
   };
-  return (
-    <div style={{ maxWidth: 1240, margin: '0 auto', padding: '40px 28px 90px', display: 'grid', gridTemplateColumns: '200px minmax(0,860px)', gap: 36, justifyContent: 'center', alignItems: 'start' }}>
-      {/* Venstre sticky-indeks */}
-      <nav style={{ position: 'sticky', top: 28, paddingTop: 10 }}>
-        <div style={{ fontFamily: T.mono, fontSize: 9.5, letterSpacing: '.2em', textTransform: 'uppercase', color: T.muted2, marginBottom: 14 }}>Indhold</div>
-        {linjer.map((lin) => (
-          <div key={lin.linje} style={{ marginBottom: 18 }}>
-            <a href={`#linje-${lin.linje.toLowerCase()}`} style={{ display: 'flex', alignItems: 'baseline', gap: 8, color: T.ink }}>
-              <span style={{ fontFamily: T.serif, fontSize: 19, fontWeight: 600, color: T.bordeaux }}>{lin.linje}</span>
-              <span style={{ fontSize: 12.5, fontWeight: 600 }}>linje</span>
-            </a>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 5, margin: '8px 0 0 4px', borderLeft: '1px solid rgba(34,31,26,.12)', paddingLeft: 14 }}>
-              {lin.grene.filter((g) => g.anker.gren != null).map((g) => (
-                <a key={g.anker.personId} href={`#${lin.linje.toLowerCase()}-g${g.anker.gren}`} style={{ fontSize: 12.5, color: T.muted }}>
-                  {g.anker.gren}. gren
-                </a>
-              ))}
-            </div>
-          </div>
-        ))}
-        <div style={{ borderTop: '1px solid rgba(34,31,26,.12)', marginTop: 6, paddingTop: 14 }}>
-          <div style={{ fontFamily: T.mono, fontSize: 9.5, letterSpacing: '.2em', textTransform: 'uppercase', color: T.muted2, marginBottom: 10 }}>Signatur</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 7, fontSize: 11.5, color: T.muted, lineHeight: 1.45 }}>
-            <div><span style={{ fontWeight: 600, color: T.ink }}>Navn</span> — levende person</div>
-            <div><span style={{ fontStyle: 'italic', color: T.muted2 }}>Navn</span> — afdød forbindelsesled</div>
-            <div><span style={{ color: T.gold }}>⚠</span> usikkert slægtskabsled</div>
-            <div><span style={{ color: T.muted2 }}>↗</span> vist andetsteds i grenen</div>
-          </div>
-        </div>
-      </nav>
+```
 
-      {/* Arket */}
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.12em', color: T.muted2, margin: '0 0 14px 4px' }}>Reventlow / Præsensliste</div>
-        <div style={{ background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 4, boxShadow: '0 2px 14px rgba(34,31,26,.07)', padding: '56px 72px 64px' }}>
-          <div style={{ textAlign: 'center' }}>
-            {/* Slægtens grundvåben er bevidst ikke vist her endnu — en linje-specifik
-                coat_of_arms-række må ikke fejlagtigt genbruges som "hele slægtens" våben;
-                kræver sin egen, adskillelige familie-niveau-række (jf. runbook-mønsteret). */}
-            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.22em', textTransform: 'uppercase', color: T.muted2 }}>Slægten Reventlow</div>
-            <h1 style={{ fontFamily: T.serif, fontSize: 40, fontWeight: 500, lineHeight: 1.08, margin: '12px 0 0' }}>Præsensliste</h1>
-            <div style={{ fontSize: 13.5, color: T.muted, marginTop: 10 }}>Slægtens nulevende medlemmer, ordnet efter linje og gren</div>
-            <div style={{ width: 44, height: 1.5, background: T.gold, margin: '26px auto 0' }} />
-          </div>
+Til sidst, opdater kaldet af `PresensLinjeSektion` i JSX'en (linje ~278) til at give de fire nye props videre:
 
-          {intro && (
-            <div style={{ maxWidth: 640, margin: '34px auto 0' }}>
-              {intro.split('\n\n').map((afsnit, i) => (
-                <p key={i} style={{ fontFamily: T.serif, fontSize: 17.5, fontStyle: 'italic', lineHeight: 1.65, color: '#3d382f', margin: i === 0 ? 0 : '16px 0 0' }}>{afsnit}</p>
-              ))}
-            </div>
-          )}
-
-          {liste.advarsler.length > 0 && (
-            <details style={{ margin: '28px auto 0', maxWidth: 640, background: T.panel, border: '1px solid rgba(185,160,106,.4)', borderRadius: 4, padding: '12px 18px' }}>
-              <summary style={{ fontFamily: T.mono, fontSize: 10.5, letterSpacing: '.1em', color: T.muted }}>
-                {liste.advarsler.length} redaktionelle advarsler — rapportering, udløser aldrig ændringer
-              </summary>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12, fontSize: 12.5, color: T.muted, lineHeight: 1.5 }}>
-                {liste.advarsler.slice(0, 200).map((a, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 10 }}><span style={{ color: T.gold, flex: 'none' }}>▲</span><span>{a.besked}</span></div>
-                ))}
-              </div>
-            </details>
-          )}
-
+```tsx
           {linjer.map((lin) => (
             <PresensLinjeSektion key={lin.linje} gruppe={lin} info={linjeInfo[lin.linje]} navnAf={navnAf} navnAfAnker={navnAfAnker} aarAf={aarAf} onPick={onPickPerson} erAaben={erAaben} erHenter={erHenter} bioAf={bioAf} onToggle={onToggle} fokusId={fokusId} />
           ))}
+```
 
-          <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.08em', color: T.muted2, marginTop: 52, borderTop: '1px solid rgba(34,31,26,.08)', paddingTop: 14, textAlign: 'center' }}>
-            Kun levende personer samt afdøde forbindelsesled medtages.
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+- [ ] **Step 7: Fuld verifikation**
+
+Run: `cd web && npx vitest run`
+Expected: alle test-filer består (503 eksisterende + 5 nye = 508).
+
+Run: `cd web && npx tsc --noEmit`
+Expected: ingen output (ren).
+
+Run: `cd web && npx vite build`
+Expected: build lykkes (samme chunk-size-advarsel som hidtil er OK, ikke en regression).
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add web/src/components/PresensView.tsx web/src/components/__tests__/PresensView.test.tsx
+git commit -m "$(cat <<'EOF'
+feat(praesens): fold narrativ ud ved navneklik i stedet for direkte navigation
+
+Klik på et navn (person eller ægtefælle) veksler nu en fold-ud-boks med
+personens narrativ under rækken; et "Se fuld profil"-link i boksen er
+den eneste vej videre til stamtræ-profilen. Flere rækker kan være åbne
+samtidig. Bio hentes lazy via eksisterende fetchPersonDetail og caches
+pr. person-id.
+
+Design godkendt 2026-07-24, se
+docs/superpowers/specs/2026-07-24-praesens-navn-foldud-design.md
+EOF
+)"
+```
+
+---
+
+## Self-Review Note (til udførende agent)
+
+Efter Step 8: kør en hurtig manuel gennemgang af diffen mod Global Constraints-listen øverst i denne plan, før branchen betragtes som færdig. Ingen yderligere opgaver i denne plan — funktionen er lille nok til ét sammenhængende task.
