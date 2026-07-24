@@ -55,7 +55,9 @@ export function PresensGrenSektion(props: {
       }
     >
       {gren.anker.gren != null && (
-        <h2 style={{ fontFamily: T.mono, fontSize: 10.5, letterSpacing: '.22em', textTransform: 'uppercase', color: T.gold, fontWeight: 500 }}>
+        // margin:0 — appen har ingen CSS-reset, så <h2> ellers arver browserens UA-standardmargin
+        // og lægger uventet luft oveni sektionens egen border-top/padding-top (reviewfund).
+        <h2 style={{ margin: 0, fontFamily: T.mono, fontSize: 10.5, letterSpacing: '.22em', textTransform: 'uppercase', color: T.gold, fontWeight: 500 }}>
           {gren.anker.gren}. gren
         </h2>
       )}
@@ -64,7 +66,9 @@ export function PresensGrenSektion(props: {
         <div key={gr.overskrift + gr.niveau} style={{ marginTop: 26 }}>
           <h3
             title={gr.usikker ? 'Usikkert slægtskab (formodet/omstridt led)' : undefined}
-            style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.2em', textTransform: 'uppercase', color: T.muted, borderBottom: '1px solid rgba(34,31,26,.08)', paddingBottom: 6, marginBottom: 10 }}
+            // margin:0 (samme reviewfund) — kun paddingBottom+marginBottom fra mockuppet skal gælde,
+            // ikke <h3>'ens egen UA-standard top-margin oveni det omgivende div's marginTop:26.
+            style={{ margin: 0, fontFamily: T.mono, fontSize: 10, letterSpacing: '.2em', textTransform: 'uppercase', color: T.muted, borderBottom: '1px solid rgba(34,31,26,.08)', paddingBottom: 6, marginBottom: 10 }}
           >
             {gr.overskrift}{gr.usikker ? ' ⚠' : ''}
           </h3>
