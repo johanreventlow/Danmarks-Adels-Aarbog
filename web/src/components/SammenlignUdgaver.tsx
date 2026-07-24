@@ -21,6 +21,24 @@ import {
 
 export { foraeldreNavne, formatBogReferencer, formatPersonNavn } from './MatchOversigt';
 
+type SammenlignCache = {
+  sources: SourceRow[];
+  personer: RedMatchPerson[];
+  afviste: MatchRelationPar[];
+  linkede: MatchRelationPar[];
+  matchAudit: MatchAuditPost[];
+  familieGraf: { unions: Union[]; parentChild: ParentChild[] };
+};
+
+// Redaktionsfanen unmountes ved faneskift, så seneste komplette læsning holdes her til næste mount.
+let senesteDatasaet: SammenlignCache | null = null;
+
+function senesteKildeId(sources: SourceRow[]): number | null {
+  return [...sources].filter((x) => x.aar != null).sort((a, b) => (b.aar as number) - (a.aar as number))[0]?.id
+    ?? sources[0]?.id
+    ?? null;
+}
+
 // Rå person → Koen (samme normalisering som web/src/data/model.ts, men uden 'ukendt'→null-skridtet
 // dupliceret via en type-import — feltet er lille nok til at holde lokalt her).
 function toKoen(k: string | null): 'mand' | 'kvinde' | null {
@@ -45,13 +63,15 @@ function foldAdvice(grund: string): string | null {
 }
 
 export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryRun?: boolean }) {
-  const [sources, setSources] = useState<SourceRow[]>([]);
-  const [personer, setPersoner] = useState<RedMatchPerson[]>([]);
-  const [afviste, setAfviste] = useState<MatchRelationPar[]>([]);
-  const [linkede, setLinkede] = useState<MatchRelationPar[]>([]);
-  const [matchAudit, setMatchAudit] = useState<MatchAuditPost[]>([]);
-  const [familieGraf, setFamilieGraf] = useState<{ unions: Union[]; parentChild: ParentChild[] }>({ unions: [], parentChild: [] });
-  const [nyKildeId, setNyKildeId] = useState<number | null>(null);
+  const [sources, setSources] = useState<SourceRow[]>(() => senesteDatasaet?.sources ?? []);
+  const [personer, setPersoner] = useState<RedMatchPerson[]>(() => senesteDatasaet?.personer ?? []);
+  const [afviste, setAfviste] = useState<MatchRelationPar[]>(() => senesteDatasaet?.afviste ?? []);
+  const [linkede, setLinkede] = useState<MatchRelationPar[]>(() => senesteDatasaet?.linkede ?? []);
+  const [matchAudit, setMatchAudit] = useState<MatchAuditPost[]>(() => senesteDatasaet?.matchAudit ?? []);
+  const [familieGraf, setFamilieGraf] = useState<{ unions: Union[]; parentChild: ParentChild[] }>(
+    () => senesteDatasaet?.familieGraf ?? { unions: [], parentChild: [] },
+  );
+  const [nyKildeId, setNyKildeId] = useState<number | null>(() => senesteKildeId(senesteDatasaet?.sources ?? []));
   const [loading, setLoading] = useState(true);
   const [fejl, setFejl] = useState<string | null>(null);
   const [dryRunPreview, setDryRunPreview] = useState<{ key: string; text: string } | null>(null);
@@ -80,10 +100,10 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
         s, p, afv, lnk, fam, audit: await fetchMatchAudit(lnk, afv),
       }))
       .then(({ s, p, afv, lnk, fam, audit }) => {
+        senesteDatasaet = { sources: s, personer: p, afviste: afv, linkede: lnk, familieGraf: fam, matchAudit: audit };
         if (!alive) return;
         setSources(s); setPersoner(p); setAfviste(afv); setLinkede(lnk); setFamilieGraf(fam); setMatchAudit(audit);
-        setNyKildeId((prev) => prev ?? (
-          [...s].filter((x) => x.aar != null).sort((a, b) => (b.aar as number) - (a.aar as number))[0]?.id ?? s[0]?.id ?? null));
+        setNyKildeId((prev) => prev ?? senesteKildeId(s));
       })
       .catch((e) => alive && setFejl(String(e?.message ?? e)))
       .finally(() => alive && setLoading(false));
@@ -345,7 +365,14 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
     return ubekraeftedeFoldHints.get(pairKey(aId, bId)) ?? { folder: false, grund: null };
   };
 
-  if (loading && personer.length === 0) return <div className="sammenlign">Indlæser redaktions-datasæt…</div>;
+  if (loading && personer.length === 0) return (
+    <div className="sammenlign" data-testid="sammenlign-skeleton" aria-busy="true" style={{ padding: '1rem', maxWidth: 900 }}>
+      <div style={{ width: '13rem', height: '1.5rem', marginBottom: '1rem', borderRadius: 3, background: '#e7e2d9' }} />
+      {[72, 91, 64, 83, 76, 68].map((width, index) => (
+        <div key={width} style={{ width: `${width}%`, height: '2.4rem', marginBottom: '.45rem', borderRadius: 4, background: index % 2 ? '#f1eee8' : '#e7e2d9' }} />
+      ))}
+    </div>
+  );
 
   const f = arbejdsliste?.fremdrift;
 
