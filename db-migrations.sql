@@ -3374,3 +3374,9 @@ BEGIN
     END IF;
   END IF;
 END $$;
+
+-- =====================================================================
+-- 2026-07-24: K2 — app-adgang til bulk-publicering af en hel udgave
+-- Funktionen har sin egen interne redaktion-gate ligesom de øvrige red_*-RPC'er.
+-- =====================================================================
+GRANT EXECUTE ON FUNCTION red_publicer_udgave(bigint) TO authenticated;

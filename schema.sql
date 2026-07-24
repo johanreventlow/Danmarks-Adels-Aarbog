@@ -1490,6 +1490,57 @@ BEGIN
   PERFORM _delete_relation_evidence(p_relation_id);
 END $$;
 
+-- Publicér en udgave: ryd staged for dens egne poster (person_external_id→source)
+-- + dens partner-stubs (staged personer i en familie m. et source-scopet medlem;
+-- stubs har ingen external_id). Redaktion-gated, revisions-tal returneres.
+CREATE OR REPLACE FUNCTION red_publicer_udgave(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_n integer;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN
+    RAISE EXCEPTION 'Kun redaktion må publicere en udgave (din rolle: %)', current_rolle();
+  END IF;
+  UPDATE person p SET staged = false
+  WHERE p.staged = true
+    AND (EXISTS (SELECT 1 FROM person_external_id pei
+                 WHERE pei.person_id = p.id AND pei.source_id = p_source_id)
+      OR EXISTS (SELECT 1 FROM family_member fm1
+                 JOIN family_member fm2 ON fm2.family_id = fm1.family_id
+                 JOIN person_external_id pei ON pei.person_id = fm2.person_id
+                   AND pei.source_id = p_source_id
+                 WHERE fm1.person_id = p.id));
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  RETURN jsonb_build_object('publiceret_source', p_source_id, 'personer_afstaget', v_n);
+END $$;
+REVOKE ALL ON FUNCTION red_publicer_udgave(bigint) FROM PUBLIC, anon, authenticated;
+-- 2026-07-24: funktionen har sin egen interne redaktion-gate (som øvrige red_*-RPC'er) —
+-- grant'et var uforvarende glemt ved oprettelsen, hvilket gjorde den ukaldbar for alle.
+GRANT EXECUTE ON FUNCTION red_publicer_udgave(bigint) TO authenticated;
+
+-- Publicér udvalgte personer (K2 §7.20): ryd staged for netop de valgte + deres familie-
+-- partnere (samme partner-stub-inklusion som red_publicer_udgave, blot scopet til udvalget).
+CREATE OR REPLACE FUNCTION red_publicer_personer(p_person_ids bigint[])
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_n integer;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN
+    RAISE EXCEPTION 'Kun redaktion må publicere personer (din rolle: %)', current_rolle();
+  END IF;
+  IF p_person_ids IS NULL OR array_length(p_person_ids, 1) IS NULL THEN
+    RAISE EXCEPTION 'p_person_ids må ikke være tom';
+  END IF;
+  PERFORM begin_change_set('red_publicer_personer',
+    format('Publicerede %s valgt(e) person(er)', array_length(p_person_ids, 1)), NULL, NULL);
+  UPDATE person p SET staged = false
+  WHERE p.staged = true
+    AND (p.id = ANY(p_person_ids)
+      OR EXISTS (SELECT 1 FROM family_member fm1
+                 JOIN family_member fm2 ON fm2.family_id = fm1.family_id
+                 WHERE fm1.person_id = p.id AND fm2.person_id = ANY(p_person_ids)));
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  RETURN jsonb_build_object('valgte_person_ids', p_person_ids, 'personer_afstaget', v_n);
+END $$;
+
 -- Valideret + idempotent tilføj af person↔org/estate-relation (erstatter rå red_relation for UI).
 CREATE OR REPLACE FUNCTION red_tilfoej_relation(
   p_subjekt_id bigint, p_objekt_type text, p_objekt_id bigint, p_rolle text, p_periode_raw text DEFAULT NULL)

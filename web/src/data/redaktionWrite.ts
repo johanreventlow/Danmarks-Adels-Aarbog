@@ -26,6 +26,7 @@ export type Change = {
      | 'sammeSom' | 'fjernSammeSom' // redaktionel identitets-sammenkædning (samme_som)
      | 'ikkeSammeSom' | 'fjernIkkeSammeSom' // persisteret identitets-afvisning (tværudgave §4)
      | 'publicerPersoner' // K2 selektiv publicering — rydder staged for udvalgte person-id'er (§7.20)
+     | 'publicerUdgave' // K2 bulk-publicering — rydder staged for hele den valgte kilde
      | 'foraeldrePaastand' | 'vaelgForaeldre' // konkurrerende forældrefamilie-påstande (Problem 2)
      | 'markerForaeldreUkendt' // "forældre ukendt"-markering (docs/reviews/25); fjern = 'tilbagetraekFakta'
      | 'tilbagetraekFakta' // tilbagetræk et fakta-slots konklusion (fjern markering korrekt — review 26 HIGH 2)
@@ -339,6 +340,11 @@ export function buildRpcCall(c: Change): RpcCall | null {
     const ids = Array.isArray(p.personIds) ? (p.personIds as unknown[]) : null;
     if (!ids || !ids.length || ids.some((id) => id == null || !Number.isFinite(Number(id)))) return null;
     return { fn: 'red_publicer_personer', args: { p_person_ids: ids.map(Number) } };
+  }
+  if (c.art === 'publicerUdgave') {
+    const sourceId = Number(c.subjektId);
+    if (!c.subjektId.trim() || !Number.isInteger(sourceId) || sourceId <= 0) return null;
+    return { fn: 'red_publicer_udgave', args: { p_source_id: sourceId } };
   }
   if (c.art === 'foraeldrePaastand') { // registrér en udgaves forældrefamilie-påstand (Problem 2)
     const p = c.payload || {};

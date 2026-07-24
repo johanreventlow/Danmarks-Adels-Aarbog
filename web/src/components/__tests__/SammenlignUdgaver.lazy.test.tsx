@@ -263,4 +263,65 @@ describe('SammenlignUdgaver lazy kandidatdetalje', () => {
     expect(screen.getByRole('heading', { name: 'Til gennemgang (1)' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Trufne beslutninger (0)' })).toBeNull();
   });
+
+  test('publicerer hele den valgte udgave efter bekræftelse', async () => {
+    mocks.fetchMatchPersoner.mockResolvedValue([
+      {
+        id: '1', navn: 'detlev reventlow', fuldtNavn: 'Detlev Reventlow', koen: 'mand',
+        foedsel: { date_min: '1660-01-01', date_max: '1660-12-31' },
+        doed: { date_min: '1730-01-01', date_max: '1730-12-31' }, titel: 'Amtmand',
+        bogReferencer: [], sourceIds: [3], staged: false,
+      },
+      {
+        id: '2', navn: 'detlev reventlow', fuldtNavn: 'Detlev Reventlow', koen: 'mand',
+        foedsel: { date_min: '1660-01-01', date_max: '1660-12-31' },
+        doed: { date_min: '1730-01-01', date_max: '1730-12-31' }, titel: 'Amtmand',
+        bogReferencer: [], sourceIds: [7], staged: true,
+      },
+    ]);
+    mocks.fetchSammeSomPar.mockResolvedValue([{ relationId: '91', aId: '2', bId: '1' }]);
+    mocks.submitChange.mockResolvedValue({});
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    render(<SammenlignUdgaver role="redaktor" dryRun={false} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Bekræftede (1)' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publicér hele udgaven' }));
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining(
+      'Publicér HELE udgaven "2018-20" (1 skjulte personer bliver offentlige)?',
+    ));
+    await waitFor(() => expect(mocks.submitChange).toHaveBeenCalledWith({
+      art: 'publicerUdgave', subjektType: 'source', subjektId: '7',
+    }, { dryRun: false, role: 'redaktor' }));
+    confirm.mockRestore();
+  });
+
+  test('publicerer ikke hele udgaven, når dialogen annulleres', async () => {
+    mocks.fetchMatchPersoner.mockResolvedValue([
+      {
+        id: '1', navn: 'detlev reventlow', fuldtNavn: 'Detlev Reventlow', koen: 'mand',
+        foedsel: { date_min: '1660-01-01', date_max: '1660-12-31' },
+        doed: { date_min: '1730-01-01', date_max: '1730-12-31' }, titel: 'Amtmand',
+        bogReferencer: [], sourceIds: [3], staged: false,
+      },
+      {
+        id: '2', navn: 'detlev reventlow', fuldtNavn: 'Detlev Reventlow', koen: 'mand',
+        foedsel: { date_min: '1660-01-01', date_max: '1660-12-31' },
+        doed: { date_min: '1730-01-01', date_max: '1730-12-31' }, titel: 'Amtmand',
+        bogReferencer: [], sourceIds: [7], staged: true,
+      },
+    ]);
+    mocks.fetchSammeSomPar.mockResolvedValue([{ relationId: '91', aId: '2', bId: '1' }]);
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    render(<SammenlignUdgaver role="redaktor" dryRun={false} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Bekræftede (1)' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publicér hele udgaven' }));
+
+    expect(confirm).toHaveBeenCalled();
+    expect(mocks.submitChange).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
 });

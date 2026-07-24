@@ -315,6 +315,24 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
     setValgteTilPublicering(new Set());
   };
 
+  const publicerHeleUdgaven = () => {
+    if (nyKildeId == null) return;
+    const antalStaged = personer.filter((p) => p.sourceIds.includes(nyKildeId) && p.staged).length;
+    if (!antalStaged) return;
+    const kilde = sources.find((s) => s.id === nyKildeId);
+    const kildeNavn = kilde?.udgave ?? kilde?.titel ?? `Kilde ${nyKildeId}`;
+    if (!window.confirm(
+      `Publicér HELE udgaven "${kildeNavn}" (${antalStaged} skjulte personer bliver offentlige)?\n\n`
+      + 'Dette gør ALLE endnu skjulte personer fra denne udgave synlige på én gang — også dem der ikke er '
+      + 'individuelt bekræftet eller afvist endnu. Brug kun når match-gennemgangen for hele udgaven er afsluttet.',
+    )) return;
+    run(
+      { art: 'publicerUdgave', subjektType: 'source', subjektId: String(nyKildeId) },
+      'publicer-udgave',
+      () => setRefresh((r) => r + 1),
+    );
+  };
+
   // Fold-hint pr. par: for et allerede bekræftet link, slå op om DET par er en af de karantænerede
   // grupper (fra den ÉN kørsel over alle bekræftede kanter ovenfor); for et endnu ubekræftet par,
   // slå den memoiserede previewSammeSom-beregning op. RÅDGIVENDE (offentlig visning kan afvige
@@ -539,11 +557,17 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
             : (
               <>
                 <div style={{ margin: '.6rem 0', display: 'flex', alignItems: 'baseline', gap: '.6rem' }}>
-                  <button disabled={!!busy || valgteTilPublicering.size === 0} onClick={publicerValgte}>
-                    Publicér valgte ({valgteTilPublicering.size})
+                  <button type="button" disabled={!!busy || valgteTilPublicering.size === 0} onClick={publicerValgte}>
+                    {busy === 'publicer' ? 'Gemmer…' : `Publicér valgte (${valgteTilPublicering.size})`}
                   </button>
                   <span style={{ fontSize: '.8em', color: '#6f675b' }}>
                     Gør kun de markerede personer synlige for besøgende — resten forbliver skjult, til de er klar.
+                  </span>
+                  <button type="button" disabled={!!busy || nyKildeId == null} onClick={publicerHeleUdgaven}>
+                    {busy === 'publicer-udgave' ? 'Gemmer…' : 'Publicér hele udgaven'}
+                  </button>
+                  <span style={{ fontSize: '.8em', color: '#6f675b' }}>
+                    Gør ALLE resterende skjulte personer fra den valgte udgave offentlige — brug når hele match-gennemgangen er færdig.
                   </span>
                 </div>
                 <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>

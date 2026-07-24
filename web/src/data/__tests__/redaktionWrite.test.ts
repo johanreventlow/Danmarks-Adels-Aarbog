@@ -89,6 +89,22 @@ describe('buildRpcCall — publicerPersoner (K2 selektiv publicering)', () => {
   });
 });
 
+describe('buildRpcCall — publicerUdgave (K2 bulk-publicering)', () => {
+  it('publicerUdgave → red_publicer_udgave(p_source_id)', () => {
+    expect(buildRpcCall({
+      art: 'publicerUdgave', subjektType: 'source', subjektId: '7',
+    } as never)).toEqual({
+      fn: 'red_publicer_udgave', args: { p_source_id: 7 },
+    });
+  });
+
+  it('ugyldigt source-id → null', () => {
+    expect(buildRpcCall({
+      art: 'publicerUdgave', subjektType: 'source', subjektId: 'ikke-et-id',
+    } as never)).toBeNull();
+  });
+});
+
 // Web-spejl af mobile-testen for uploadMedia (mediehåndtering Slice 0g).
 describe('buildRpcCall — uploadMedia (mediehåndtering Slice 0g)', () => {
   it('portræt (afbildetPersonId) → red_upload_media med p_afbildet_person_id', () => {

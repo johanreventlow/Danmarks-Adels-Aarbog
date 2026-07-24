@@ -646,6 +646,7 @@ GRANT EXECUTE ON FUNCTION red_fortryd_change_set(bigint,boolean) TO authenticate
 -- Redaktionel identitets-sammenkædning (samme_som) — spec 2026-07-02.
 GRANT EXECUTE ON FUNCTION red_samme_som(bigint,bigint) TO authenticated;
 GRANT EXECUTE ON FUNCTION red_fjern_samme_som(bigint) TO authenticated;
+GRANT EXECUTE ON FUNCTION red_publicer_udgave(bigint) TO authenticated;
 
 -- =====================================================================
 -- 2026-07-02: SIKKERHEDSHÆRDNING (review 12) — version_pk_registry (intet RLS,
