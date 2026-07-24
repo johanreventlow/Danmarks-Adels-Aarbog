@@ -25,8 +25,13 @@ export function PresensGrenSektion(props: {
   fokusId?: string | null;
 }) {
   const { gren, navnAf, navnAfAnker = navnAf, aarAf, onPick, fokusId } = props;
-  const renderNode = (n: PresensNode, dybde: number) => (
-    <div key={n.id} style={{ marginLeft: dybde * 22, marginBottom: 2, fontSize: 14.5, lineHeight: 1.5 }}>
+  // dybde styrer KUN den visuelle indrykning (marginLeft); erAnker styrer navngivningsformatet
+  // og er sand PRÆCIST for gren.ankerBlok's egen række — de to var tidligere sammenblandet via
+  // "dybde===0", hvilket fejlagtigt gav grupperødder (fx "Søstre") anker-navneformat, når de blev
+  // rykket til dybde 0 (bruger-fund 2026-07-24: grupperødder står allerede under egen overskrift
+  // og skal derfor IKKE indrykkes yderligere, men skal stadig hedde "Komtesse X", ikke ankerformen).
+  const renderNode = (n: PresensNode, dybde: number, erAnker: boolean) => (
+    <div key={n.id} style={{ marginLeft: dybde * 16, marginBottom: 2, fontSize: 14.5, lineHeight: 1.5 }}>
       <span
         data-person-id={n.id}
         onClick={() => onPick(n.id)}
@@ -39,7 +44,7 @@ export function PresensGrenSektion(props: {
           background: fokusId === n.id ? 'rgba(128,0,32,.08)' : 'transparent',
         }}
       >
-        {dybde === 0 ? navnAfAnker(n.id) : navnAf(n.id)}
+        {erAnker ? navnAfAnker(n.id) : navnAf(n.id)}
       </span>
       {' '}<span style={{ fontFamily: T.mono, fontSize: 11, color: T.muted2 }}>{aarAf(n.id)}</span>
       {n.usikker ? <span style={{ color: T.gold }}> ⚠</span> : ''}
@@ -50,7 +55,7 @@ export function PresensGrenSektion(props: {
           <span data-person-id={p.id} onClick={() => onPick(p.id)} style={{ cursor: 'pointer', color: T.muted, fontSize: 13.5 }}>{navnAf(p.id)}</span>
         </span>
       ))}
-      {n.boern.map((b) => renderNode(b, dybde + 1))}
+      {n.boern.map((b) => renderNode(b, dybde + 1, false))}
     </div>
   );
   return (
@@ -69,7 +74,7 @@ export function PresensGrenSektion(props: {
           {gren.anker.gren}. gren
         </h2>
       )}
-      {renderNode(gren.ankerBlok, 0)}
+      {renderNode(gren.ankerBlok, 0, true)}
       {gren.grupper.map((gr) => (
         <div key={gr.overskrift + gr.niveau} style={{ marginTop: 26 }}>
           <h3
@@ -80,7 +85,9 @@ export function PresensGrenSektion(props: {
           >
             {gr.overskrift}{gr.usikker ? ' ⚠' : ''}
           </h3>
-          {gr.roedder.map((r) => renderNode(r, 1))}
+          {/* dybde 0 — gruppens egen overskrift (fx "Søstre") giver allerede konteksten, så
+              rødderne rykkes ikke yderligere ind (bruger-fund 2026-07-24). */}
+          {gr.roedder.map((r) => renderNode(r, 0, false))}
         </div>
       ))}
     </section>
