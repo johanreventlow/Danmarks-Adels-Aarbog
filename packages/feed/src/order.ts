@@ -107,14 +107,19 @@ export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): 
   );
   const pinKeys = pins.filter((pin) => pin.handling === 'pin').map((pin) => pin.kortNoegle);
   const todayYear = Number(inputs.todayISO.slice(0, 4));
+  const disabledKinds = inputs.disabledKinds ?? new Set();
 
-  // dagens person udelades af portræt/citat-poolen (disjunkthed) og vises som sit eget kort.
-  const dagensPersonId = pickDagensPerson(model, inputs.todayISO);
+  // dagens person udelades af portræt/citat-poolen (disjunkthed) og vises som sit eget kort —
+  // men kun når kort-typen er slået til. Ellers ville personen forsvinde helt fra feedet
+  // (udelukket fra portræt-poolen uden at få et dagensperson-kort i stedet).
+  const dagensPersonId = disabledKinds.has('dagensperson')
+    ? null
+    : pickDagensPerson(model, inputs.todayISO);
   const { cards: storieKort, usedHaendelseIds } = buildStorieKort(
     model, storieBy, haendelserBy, inputs.todayISO,
   );
   const { portraits, citater, usedCitatHaendelseIds } = buildPortraitAndCitat(
-    model, dagensPersonId, haendelserBy, usedHaendelseIds,
+    model, dagensPersonId, haendelserBy, usedHaendelseIds, !disabledKinds.has('citat'),
   );
   const arkivEksklusion = new Set([...usedHaendelseIds, ...usedCitatHaendelseIds]);
   const dagensPersonCard = dagensPersonId ? buildDagensPersonCard(model, dagensPersonId) : null;

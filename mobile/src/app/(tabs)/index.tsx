@@ -16,7 +16,9 @@ import { Rise } from '../../components/Rise';
 import { SlaegtPicker } from '../../components/SlaegtPicker';
 import { FeedCardView } from '../../components/feed/FeedCardView';
 import { BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
-import { bookmarkPersonId, createFeedStream, type FeedCard, type FeedStream } from '@daa/feed';
+import {
+  bookmarkPersonId, createFeedStream, TEMP_DISABLED_KINDS, type FeedCard, type FeedStream,
+} from '@daa/feed';
 import { counts } from '../../data/selectors';
 import { epochDay, newSeed, todayISO } from '../../lib/feedSession';
 import { useBookmarks } from '../../lib/bookmarks';
@@ -116,6 +118,7 @@ export default function HomeScreen() {
       haendelserBy,
       storieBy,
       pins: feedPins,
+      disabledKinds: TEMP_DISABLED_KINDS,
     });
   }, [model, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkedSnapshot, seenWeights, livsdatoBy, haendelserBy, storieBy, feedPins]);
 

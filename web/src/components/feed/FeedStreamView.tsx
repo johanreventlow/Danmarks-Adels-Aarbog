@@ -6,7 +6,7 @@
 // kolonne, centreret, ~680px — redaktionel ro, ikke et masonry-dashboard.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  bookmarkPersonId, createFeedStream, resumeStream,
+  bookmarkPersonId, createFeedStream, resumeStream, TEMP_DISABLED_KINDS,
   type FeedCard, type FeedPinInput, type FeedStream, type HaendelserBy, type LivsdatoBy,
   type StorieBy,
 } from '@daa/feed';
@@ -124,6 +124,7 @@ export function FeedStreamView({
       seed, todayISO: today, meId, focusId,
       bookmarkedIds: bookmarkSnapshot.ids,
       seenWeights, livsdatoBy, haendelserBy, storieBy, pins: feedPins,
+      disabledKinds: TEMP_DISABLED_KINDS,
     });
     if (streamRef.current === null || streamOwnerRef.current !== bookmarkSnapshot.ownerId) {
       streamRef.current = built;
