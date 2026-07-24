@@ -32,8 +32,9 @@ test('gren-sektion viser overskrift, ankerblok, gruppe og usikkerheds-markering'
 test('krydsReference-node viser en henvisningsnote i stedet for at gentage undertræet', () => {
   render(<PresensGrenSektion gren={gren} navnAf={navnAf} aarAf={aarAf} onPick={() => {}} />);
   // Noten sidder i sit eget indlejrede span (samme mønster som ⚠-markøren, review 26/task 8),
-  // så getByText matcher den separat fra personnavnets egen direkte tekstknude.
-  expect(screen.getByText('(vist andetsteds i denne gren)')).toBeTruthy();
+  // så getByText matcher den separat fra personnavnets egen direkte tekstknude. Ordlyd+glyf
+  // rettet til mockuppets "↗ vist andetsteds i denne gren" (design-fidelitets-gennemgang).
+  expect(screen.getByText('↗ vist andetsteds i denne gren')).toBeTruthy();
   expect(screen.getByText('Krydset Person')).toBeTruthy();
 });
 
@@ -52,4 +53,16 @@ test('linje-sektion uden info (data endnu ikke tilknyttet) viser stadig grenene'
   render(<PresensLinjeSektion gruppe={gruppe} info={undefined} navnAf={navnAf} aarAf={aarAf} onPick={() => {}} />);
   expect(screen.getByText('IV')).toBeTruthy();
   expect(screen.getByText('Anker Person')).toBeTruthy();
+});
+
+test('navnAfAnker bruges KUN til grenens hovedrække (dybde 0) — alle øvrige rækker bruger navnAf', () => {
+  // Regressionstest for prop-threading (reviewfund) — to indbyrdes adskillelige funktioner, så en
+  // fejlagtig ombytning eller en tabt default et sted i kæden (PresensLinjeSektion→PresensGrenSektion
+  // →renderNode) fanges her, i modsætning til de øvrige tests hvor navnAfAnker slet ikke sættes.
+  const navnAfAlm = () => 'ALM-NAVN';
+  const navnAfAnker = () => 'ANKER-NAVN';
+  render(<PresensGrenSektion gren={gren} navnAf={navnAfAlm} navnAfAnker={navnAfAnker} aarAf={aarAf} onPick={() => {}} />);
+  expect(screen.getByText('ANKER-NAVN')).toBeTruthy(); // ankerBlok (id 'A', dybde 0)
+  expect(screen.getAllByText('ALM-NAVN').length).toBeGreaterThan(0); // barn ('B'), søstre ('S'/'S2'), partner ('P')
+  expect(screen.queryAllByText('ANKER-NAVN')).toHaveLength(1); // ALDRIG mere end hovedrækken
 });
