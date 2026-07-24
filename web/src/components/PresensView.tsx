@@ -30,8 +30,16 @@ export function PresensGrenSektion(props: {
   // "dybde===0", hvilket fejlagtigt gav grupperødder (fx "Søstre") anker-navneformat, når de blev
   // rykket til dybde 0 (bruger-fund 2026-07-24: grupperødder står allerede under egen overskrift
   // og skal derfor IKKE indrykkes yderligere, men skal stadig hedde "Komtesse X", ikke ankerformen).
+  //
+  // marginLeft er en FAST værdi pr. niveau (0 for roden, ellers 16), IKKE dybde*16 — børnene
+  // renderes som nestede <div>'er (bruger-fund 2026-07-24: afstanden mellem generationer voksede
+  // støt jo dybere i træet, fx en 4-5 led lang linje som "Farfars farbror"). Da marginLeft på et
+  // nested element regnes relativt til FORÆLDRENS allerede forskudte position, ville dybde*16 lægge
+  // barnets fulde absolutte forskydning oveni forælderens — dybde 2 endte fx 48px fra venstre
+  // (16 fra forælder + 32 egen), ikke de tilsigtede 32. Nestingen giver akkumuleringen gratis; et
+  // fast 16px-tillæg pr. niveau giver derfor korrekt lineær 16/32/48/64-forskydning.
   const renderNode = (n: PresensNode, dybde: number, erAnker: boolean) => (
-    <div key={n.id} style={{ marginLeft: dybde * 16, marginBottom: 2, fontSize: 14.5, lineHeight: 1.5 }}>
+    <div key={n.id} style={{ marginLeft: dybde === 0 ? 0 : 16, marginBottom: 2, fontSize: 14.5, lineHeight: 1.5 }}>
       <span
         data-person-id={n.id}
         onClick={() => onPick(n.id)}
