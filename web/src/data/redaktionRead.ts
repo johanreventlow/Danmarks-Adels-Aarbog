@@ -1188,14 +1188,19 @@ export type { RedMatchPerson };
  *  ved ~900 personer. Rigtig fix ved skala: et server-side view (fact→conclusion→assertion → ét
  *  fødsels-/døds-interval pr. person). Udskudt — PoC-volumen er håndterbar. */
 export async function fetchMatchPersoner(): Promise<RedMatchPerson[]> {
-  const [persons, facts, concs, assertions, extIds, lineages] = await Promise.all([
-    getAll<MatchPersonRow>(() => supabase.from('person').select('id,visning_navn,visning_fuldt_navn,koen,staged')),
-    getAll<MatchFactRow>(() => supabase.from('fact').select('id,subjekt_id,faktatype').eq('subjekt_type', 'person').in('faktatype', ['fødsel', 'død', 'titel'])),
-    getAll<MatchConcRow>(() => supabase.from('conclusion').select('target_id,valgt_assertion_id').eq('target_type', 'fact').eq('status', 'afklaret')),
-    getAll<MatchAssertRow>(() => supabase.from('assertion').select('id,date_min,date_max,vaerdi_tekst').eq('target_type', 'fact')),
-    getAll<MatchExtIdRow>(() => supabase.from('person_external_id').select('person_id,source_id,linje,nr,slaegtled_lokal,slaegtled_gennem,kuld')),
+  const [{ data, error }, lineages] = await Promise.all([
+    supabase.rpc('red_match_personer'),
     fetchLineages(),
   ]);
+  if (error) throw new Error(error.message);
+  if (data == null) throw new Error('red_match_personer returnerede intet datasæt');
+  const { persons, facts, concs, assertions, extIds } = data as {
+    persons: MatchPersonRow[];
+    facts: MatchFactRow[];
+    concs: MatchConcRow[];
+    assertions: MatchAssertRow[];
+    extIds: MatchExtIdRow[];
+  };
   return buildMatchPersoner(persons, facts, concs, assertions, extIds, lineages);
 }
 

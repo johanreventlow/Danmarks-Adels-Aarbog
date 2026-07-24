@@ -1177,6 +1177,36 @@ BEGIN
     WHERE subjekt_type=p_type AND subjekt_id = ANY(p_ids) ORDER BY created_at DESC;
 END $$;
 
+-- 2026-07-24: ét batchet kald til tværudgave-match-datasættet
+CREATE OR REPLACE FUNCTION red_match_personer()
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $$
+DECLARE result jsonb;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  SELECT jsonb_build_object(
+    'persons', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+      'id', id, 'visning_navn', visning_navn, 'visning_fuldt_navn', visning_fuldt_navn,
+      'koen', koen, 'staged', staged
+    )) FROM person), '[]'::jsonb),
+    'facts', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+      'id', id, 'subjekt_id', subjekt_id, 'faktatype', faktatype
+    )) FROM fact
+      WHERE subjekt_type='person' AND faktatype IN ('fødsel','død','titel')), '[]'::jsonb),
+    'concs', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+      'target_id', target_id, 'valgt_assertion_id', valgt_assertion_id
+    )) FROM conclusion
+      WHERE target_type='fact' AND status='afklaret'), '[]'::jsonb),
+    'assertions', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+      'id', id, 'date_min', date_min, 'date_max', date_max, 'vaerdi_tekst', vaerdi_tekst
+    )) FROM assertion WHERE target_type='fact'), '[]'::jsonb),
+    'extIds', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+      'person_id', person_id, 'source_id', source_id, 'linje', linje, 'nr', nr,
+      'slaegtled_lokal', slaegtled_lokal, 'slaegtled_gennem', slaegtled_gennem, 'kuld', kuld
+    )) FROM person_external_id), '[]'::jsonb)
+  ) INTO result;
+  RETURN result;
+END $$;
+
 CREATE OR REPLACE FUNCTION hist_events(p_change_set_id bigint)
 RETURNS SETOF change_event LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $$
 BEGIN

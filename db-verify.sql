@@ -645,6 +645,52 @@ BEGIN
   RAISE NOTICE 'OK: historik-API redaktion-gated + døde-links-view findes';
 END $$;
 
+-- ===== Fase 4.1: batchet tværudgave-match-RPC =====
+DO $$
+DECLARE
+  v_uid uuid := gen_random_uuid();
+  v_result jsonb;
+  v_denied boolean := false;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    PERFORM red_match_personer();
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'Kun redaktion%' THEN v_denied := true;
+    ELSE RAISE; END IF;
+  END;
+  RESET ROLE;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'FEJL: red_match_personer tillod ikke-redaktion';
+  END IF;
+
+  INSERT INTO auth.users(id,email) VALUES (v_uid,'match-rpc-verify@test.invalid');
+  INSERT INTO profiles(id,rolle,email) VALUES (v_uid,'redaktion','match-rpc-verify@test.invalid');
+  PERFORM set_config('request.jwt.claim.sub',v_uid::text,true);
+  SET LOCAL ROLE authenticated;
+  v_result := red_match_personer();
+  RESET ROLE;
+
+  IF v_result IS NULL
+     OR NOT v_result ?& ARRAY['persons','facts','concs','assertions','extIds']
+     OR jsonb_typeof(v_result->'persons') <> 'array'
+     OR jsonb_array_length(v_result->'persons') <> (SELECT count(*) FROM person) THEN
+    RAISE EXCEPTION 'FEJL: red_match_personer returnerede ugyldigt datasæt';
+  END IF;
+
+  DELETE FROM profiles WHERE id=v_uid;
+  DELETE FROM auth.users WHERE id=v_uid;
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  RAISE NOTICE 'OK: red_match_personer er redaktion-gated og returnerer komplet rådatasæt';
+EXCEPTION WHEN OTHERS THEN
+  RESET ROLE;
+  DELETE FROM profiles WHERE id=v_uid;
+  DELETE FROM auth.users WHERE id=v_uid;
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  RAISE;
+END $$;
+
 -- ===== Mediehåndtering fase 2: døde media-mentions =====
 -- Token-id'er skal være positive: parse_mentions-kontrakten accepterer ikke negative id'er.
 DO $$
