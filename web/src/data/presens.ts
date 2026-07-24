@@ -58,11 +58,19 @@ export async function fetchPresensGrundlag(): Promise<PresensGrundlag> {
 // (= visning_fuldt_navn, som allerede har efternavnet indbagt og derfor ikke kan bruges til
 // "øvrige rækker"-formatet uden det).
 //
+// `tilgiftet` (valgfri): sand for en gift-ind kvinde hvis titel/efternavn er OVERSKREVET med
+// ægtefællens (uafhængigt af om hun selv har en registreret fødeidentitet at vise) — styrer ALENE
+// om "øvrige rækker"-formatet skal medtage efternavnet (ellers udelades det format normalt). Var
+// tidligere overloadet på `fodt`s tilstedeværelse, hvilket lod de to formater komme i uoverens-
+// stemmelse for en gift-ind kvinde UDEN registreret pigenavn (formatAnkerNavn viste stadig
+// efternavnet, formatAndetNavn tabte det — reviewfund 2026-07-24). Se mapPresensNavneDele.
+//
 // `fodt` (valgfri): gift-ind kvinder tager ægtefællens køns-bøjede titel + efternavn i BEGGE
 // formater (inkl. efternavn i det ellers efternavn-løse "øvrige rækker"-format), med egen
 // fødeidentitet i en født-klausul — "Lensgrevinde Hedwig Reventlow, født Mundhenke" (fundet ved
-// bruger-verifikation 2026-07-24). Se beregningen i mapPresensNavneDele nedenfor.
-export type PresensNavneDele = { navn: string; titel: string; efternavn: string; fodt?: string };
+// bruger-verifikation 2026-07-24). Tom/manglende eget efternavn giver INGEN født-klausul (intet at
+// vise), men `tilgiftet` forbliver sand — efternavnet skal stadig med. Se mapPresensNavneDele.
+export type PresensNavneDele = { navn: string; titel: string; efternavn: string; fodt?: string; tilgiftet?: boolean };
 
 type RawNavneDele = { id: number | string; visning_navn: string | null; visning_efternavn: string | null; koen?: string | null };
 
@@ -134,6 +142,7 @@ export function mapPresensNavneDele(
       if (feminiseret && aegtefaelle?.visning_efternavn) {
         dele.titel = feminiseret;
         dele.efternavn = aegtefaelle.visning_efternavn;
+        dele.tilgiftet = true;
         dele.fodt = fodtKlausul(egenTitel, egetEfternavn);
       }
     }
@@ -228,9 +237,11 @@ const capFirst = (s: string): string => (s ? s.charAt(0).toUpperCase() + s.slice
 export function formatAndetNavn(dele: PresensNavneDele | undefined, fallback: string): string {
   if (!dele || !dele.navn) return fallback;
   const titelOgNavn = dele.titel ? `${capFirst(dele.titel)} ${dele.navn}` : dele.navn;
-  // født-klausul til stede = tilgiftet titel (se mapPresensNavneDele) → efternavnet skal med,
-  // i modsætning til det almindelige "øvrige rækker"-format der ellers udelader det.
-  if (!dele.fodt) return titelOgNavn;
+  // tilgiftet titel (se mapPresensNavneDele) → efternavnet skal med, i modsætning til det
+  // almindelige "øvrige rækker"-format der ellers udelader det. Gates PÅ `tilgiftet`, ikke på
+  // `fodt`s tilstedeværelse — de to er uafhængige (en gift-ind kvinde uden registreret pigenavn
+  // har tilgiftet=true men fodt=undefined, og skal stadig vise efternavnet).
+  if (!dele.tilgiftet) return titelOgNavn;
   const efternavn = dele.efternavn ? ` ${dele.efternavn}` : '';
   return `${titelOgNavn}${efternavn}${fodtSuffiks(dele.fodt)}`;
 }
