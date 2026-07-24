@@ -86,7 +86,11 @@ export function mapPresensNavneDele(
   const titelById = new Map<string, string>();
   for (const t of adelsTitelFakta) {
     const id = String(t.subjekt_id);
-    if (!titelById.has(id)) titelById.set(id, t.vaerdi_tekst); // første fund vinder (deterministisk pr. query-orden)
+    // Første fund vinder — deterministisk fordi fetchAdelsTitelFakta ORDER BY id på alle tre led,
+    // så rækkefølgen her altid er laveste-conclusion-id-først. Ved to konkurrerende adelstitler
+    // for samme person (fx grevelig OG friherre-arv) vinder den tidligst afklarede — en rimelig,
+    // men vilkårlig, standardregel; ingen semantisk "vigtigst titel"-rangordning er indbygget.
+    if (!titelById.has(id)) titelById.set(id, t.vaerdi_tekst);
   }
   const out: Record<string, PresensNavneDele> = {};
   for (const p of personer) {
@@ -101,14 +105,14 @@ export function mapPresensNavneDele(
 async function fetchAdelsTitelFakta(personIds: number[]): Promise<RawTitelFact[]> {
   if (!personIds.length) return [];
   const facts = await getAll<{ id: number | string; subjekt_id: number | string }>(() =>
-    supabase.from('fact').select('id,subjekt_id').eq('subjekt_type', 'person').eq('faktatype', 'titel').in('subjekt_id', personIds));
+    supabase.from('fact').select('id,subjekt_id').eq('subjekt_type', 'person').eq('faktatype', 'titel').in('subjekt_id', personIds).order('id'));
   if (!facts.length) return [];
   const factIds = facts.map((f) => f.id);
   const conclusions = await getAll<RawKonkl>(() =>
-    supabase.from('conclusion').select('target_id,valgt_assertion_id').eq('target_type', 'fact').eq('status', 'afklaret').in('target_id', factIds));
+    supabase.from('conclusion').select('target_id,valgt_assertion_id').eq('target_type', 'fact').eq('status', 'afklaret').in('target_id', factIds).order('id'));
   const assertionIds = conclusions.map((c) => c.valgt_assertion_id).filter((v): v is number | string => v != null);
   if (!assertionIds.length) return [];
-  const assertions = await getAll<RawAssert>(() => supabase.from('assertion').select('id,vaerdi_tekst').in('id', assertionIds));
+  const assertions = await getAll<RawAssert>(() => supabase.from('assertion').select('id,vaerdi_tekst').in('id', assertionIds).order('id'));
   const assertById = new Map(assertions.map((a) => [String(a.id), a.vaerdi_tekst]));
   const subjektByFact = new Map(facts.map((f) => [String(f.id), f.subjekt_id]));
   const out: RawTitelFact[] = [];

@@ -28,17 +28,31 @@ test('mapPresensNavneDele: kobler rå person-rækker + adels-titel-fakta til nav
   expect(r['999']).toEqual({ navn: 'Ingeborg Theresia Pfab', titel: '', efternavn: '' });
 });
 
-test('mapPresensNavneDele: person med FLERE afklarede titel-fakta (adelstitel + hverv) — regression for person 469', () => {
+test('mapPresensNavneDele: person 469s reelle prod-scenarie (fetchAdelsTitelFakta har allerede udelukket hvervet)', () => {
   // Fundet ved bruger-verifikation: "Einar…" har to afklarede titel-fakta i prod, "Greve" og
   // "Premierløjtnant i vesttyske Pionier Bataillons reserve". Den cachede visning_titel-kolonne
-  // (som IKKE længere bruges her, se kommentar i presens.ts) valgte fejlagtigt den sidste. Denne
-  // test simulerer at kilde-laget (fetchAdelsTitelFakta) allerede har filtreret til adelstitler —
-  // "Premierløjtnant..." må ALDRIG nå denne funktion, men testen bekræfter "første fund vinder"
-  // er deterministisk hvis det alligevel skulle ske to gange for samme person.
+  // (IKKE længere brugt her, se kommentar i presens.ts) valgte fejlagtigt den sidste. Kildelaget
+  // (fetchAdelsTitelFakta) filtrerer allerede hvervet fra FØR mapPresensNavneDele kaldes — denne
+  // test bekræfter kun output for det RIGTIGE, allerede-filtrerede input (ingen "første fund
+  // vinder"-tievalg testes her, se testen nedenfor for det).
   const personer = [{ id: 469, visning_navn: 'Einar Karl Ludwig', visning_efternavn: 'Reventlow' }];
   const adelsTitelFakta = [{ subjekt_id: 469, vaerdi_tekst: 'Greve' }];
   const r = mapPresensNavneDele(personer, adelsTitelFakta);
   expect(r['469'].titel).toBe('Greve');
+});
+
+test('mapPresensNavneDele: to konkurrerende adelstitler for samme person — første i input-rækkefølgen vinder', () => {
+  // Ægte tie-break-test (i modsætning til testen ovenfor): to FORSKELLIGE, begge-gyldige
+  // adelstitler for samme person (fx grevelig linje OG friherre-arv). fetchAdelsTitelFakta
+  // sikrer input-rækkefølgen er laveste-conclusion-id-først (ORDER BY id på alle tre led) —
+  // her simuleres det direkte ved array-rækkefølgen.
+  const personer = [{ id: 469, visning_navn: 'Einar Karl Ludwig', visning_efternavn: 'Reventlow' }];
+  const adelsTitelFakta = [
+    { subjekt_id: 469, vaerdi_tekst: 'Greve' },
+    { subjekt_id: 469, vaerdi_tekst: 'Baron' },
+  ];
+  const r = mapPresensNavneDele(personer, adelsTitelFakta);
+  expect(r['469'].titel).toBe('Greve'); // først i rækkefølgen, ikke sidst
 });
 
 test('formatAnkerNavn: fornavne + titel (småt) inde i navnet + efternavn — bogens hovedrække-format', () => {
