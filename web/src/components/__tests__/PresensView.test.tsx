@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { render, screen } from '@testing-library/react';
-import { PresensGrenSektion } from '../PresensView';
+import { PresensGrenSektion, PresensLinjeSektion } from '../PresensView';
 import type { PresensGren } from '@daa/core';
+import type { PresensLinjeGruppe } from '@daa/core';
+import type { PresensLinjeInfo } from '../../data/presensLinjer';
 
 const gren: PresensGren = {
   anker: { personId: 'A', linje: 'II', gren: 1, raaVaerdi: 'II linje, 1. gren' },
@@ -20,7 +22,7 @@ const aarAf = () => '';
 
 test('gren-sektion viser overskrift, ankerblok, gruppe og usikkerheds-markering', () => {
   render(<PresensGrenSektion gren={gren} navnAf={navnAf} aarAf={aarAf} onPick={() => {}} />);
-  expect(screen.getByText('II linje, 1. gren')).toBeTruthy();
+  expect(screen.getByText('1. gren')).toBeTruthy();
   expect(screen.getByText('Anker Person')).toBeTruthy();
   expect(screen.getByText('Søstre')).toBeTruthy();
   expect(screen.getByText('Søster Person')).toBeTruthy();
@@ -33,4 +35,21 @@ test('krydsReference-node viser en henvisningsnote i stedet for at gentage under
   // så getByText matcher den separat fra personnavnets egen direkte tekstknude.
   expect(screen.getByText('(vist andetsteds i denne gren)')).toBeTruthy();
   expect(screen.getByText('Krydset Person')).toBeTruthy();
+});
+
+test('linje-sektion viser linjenummer, titel, navn og dens grene', () => {
+  const gruppe: PresensLinjeGruppe = { linje: 'II', grene: [gren] };
+  const info: PresensLinjeInfo = { titel: 'Den grevelige linje af 1673', slaegtsnavn: 'Reventlow', vaaben: null };
+  render(<PresensLinjeSektion gruppe={gruppe} info={info} navnAf={navnAf} aarAf={aarAf} onPick={() => {}} />);
+  expect(screen.getByText('II')).toBeTruthy();
+  expect(screen.getByText('Den grevelige linje af 1673')).toBeTruthy();
+  expect(screen.getByText('Reventlow')).toBeTruthy();
+  expect(screen.getByText('1. gren')).toBeTruthy(); // fra den indlejrede gren-sektion
+});
+
+test('linje-sektion uden info (data endnu ikke tilknyttet) viser stadig grenene', () => {
+  const gruppe: PresensLinjeGruppe = { linje: 'IV', grene: [gren] };
+  render(<PresensLinjeSektion gruppe={gruppe} info={undefined} navnAf={navnAf} aarAf={aarAf} onPick={() => {}} />);
+  expect(screen.getByText('IV')).toBeTruthy();
+  expect(screen.getByText('Anker Person')).toBeTruthy();
 });

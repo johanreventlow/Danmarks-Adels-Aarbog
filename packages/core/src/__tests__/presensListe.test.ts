@@ -1,6 +1,8 @@
 import { buildModel } from '../buildModel';
 import { pruneUndertrae } from '../presensListe';
 import { buildPresensListe, kanoniserPresensGrundlag } from '../presensListe';
+import { groupByLinje } from '../presensListe';
+import type { PresensGren } from '../presensListe';
 import { mk, union, pc } from './presensFixtures';
 import type { PresensAnker } from '../presensLabels';
 import type { Db } from '../types';
@@ -363,5 +365,32 @@ describe('blodOgGiftInd — patrilineær selv når faderens egen herkomst er uke
     expect(soeskende).toBeDefined();
     expect(soeskende!.roedder.map((r) => r.id)).toEqual(['S']);
     expect(liste.advarsler.filter((a) => a.art === 'levende_uden_gren')).toHaveLength(0); // S er IKKE tabt
+  });
+});
+
+describe('groupByLinje', () => {
+  const anker = (linje: string, gren: number | null, personId: string): PresensAnker =>
+    ({ personId, linje, gren, raaVaerdi: gren != null ? `${linje} linje, ${gren}. gren` : `${linje} linje` });
+  const gren = (a: PresensAnker): PresensGren => ({
+    anker: a,
+    ankerBlok: { id: a.personId, levende: true, forbindelsesled: false, partnere: [], boern: [], usikker: false, krydsReference: false },
+    grupper: [],
+  });
+
+  test('grupperer flad gren-liste under linje, bevarer indbyrdes rækkefølge', () => {
+    const grene = [gren(anker('II', 1, 'A')), gren(anker('II', 2, 'B')), gren(anker('IV', 1, 'C'))];
+    const grupperet = groupByLinje(grene);
+    expect(grupperet.map((g) => g.linje)).toEqual(['II', 'IV']);
+    expect(grupperet[0].grene.map((g) => g.anker.personId)).toEqual(['A', 'B']);
+    expect(grupperet[1].grene.map((g) => g.anker.personId)).toEqual(['C']);
+  });
+
+  test('tom liste giver tom gruppering', () => {
+    expect(groupByLinje([])).toEqual([]);
+  });
+
+  test('linje-overhoved uden gren-nummer (gren=null) grupperes for sig selv', () => {
+    const grupperet = groupByLinje([gren(anker('I', null, 'Z'))]);
+    expect(grupperet).toEqual([{ linje: 'I', grene: [gren(anker('I', null, 'Z'))] }]);
   });
 });
