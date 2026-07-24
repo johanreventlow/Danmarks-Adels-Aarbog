@@ -82,6 +82,64 @@ describe('SammenlignUdgaver lazy kandidatdetalje', () => {
     expect(mocks.fetchKandidatDetalje).toHaveBeenCalledTimes(2);
   });
 
+  test('bekræfter lokalt uden at genhente de globale datasæt', async () => {
+    mocks.submitChange.mockResolvedValue({
+      dryRun: false,
+      call: { fn: 'red_samme_som', args: {} },
+      direkte: true,
+      result: 123,
+    });
+
+    render(<SammenlignUdgaver role="redaktor" dryRun={false} />);
+
+    expect(await screen.findByRole('heading', { name: 'Til gennemgang (1)' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Sammenlign' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Bekræft samme person' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Til gennemgang (0)' })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'Sammenlign' })).toBeNull();
+    });
+    expect(mocks.fetchMatchPersoner).toHaveBeenCalledTimes(1);
+    expect(mocks.fetchSources).toHaveBeenCalledTimes(1);
+    expect(mocks.fetchFamilyGraph).toHaveBeenCalledTimes(1);
+  });
+
+  test('bekræfter direkte fra kandidatrækken uden at indlæse sammenligningen', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mocks.submitChange.mockResolvedValue({
+      dryRun: false,
+      call: { fn: 'red_samme_som', args: {} },
+      direkte: true,
+      result: 123,
+    });
+
+    render(<SammenlignUdgaver role="redaktor" dryRun={false} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '✓ Bekræft' }));
+
+    expect(confirm).toHaveBeenCalledWith(
+      'Bekræft Detlev Reventlow · Amtmand (1660–1730) = Detlev Reventlow · Amtmand (1660–1730) som samme person uden at se sammenligningen?',
+    );
+    await waitFor(() => expect(mocks.submitChange).toHaveBeenCalledWith({
+      art: 'sammeSom', subjektType: 'person', subjektId: '2',
+      payload: { aliasId: '2', objektId: '1' },
+    }, { dryRun: false, role: 'redaktor' }));
+    await screen.findByRole('heading', { name: 'Til gennemgang (0)' });
+    expect(mocks.fetchKandidatDetalje).not.toHaveBeenCalled();
+  });
+
+  test('sender ikke bekræftelse fra kandidatrækken, når dialogen annulleres', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    render(<SammenlignUdgaver role="redaktor" dryRun={false} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '✓ Bekræft' }));
+
+    expect(mocks.submitChange).not.toHaveBeenCalled();
+    expect(mocks.fetchKandidatDetalje).not.toHaveBeenCalled();
+  });
+
   test('deler person-cache mellem arbejdslisten og audit-oversigten', async () => {
     mocks.fetchMatchAudit.mockResolvedValue([{
       relationId: '91', aId: '1', bId: '2', beslutning: 'samme_som',
@@ -95,6 +153,7 @@ describe('SammenlignUdgaver lazy kandidatdetalje', () => {
     await waitFor(() => expect(mocks.fetchKandidatDetalje).toHaveBeenCalledTimes(2));
     fireEvent.click(screen.getByRole('button', { name: 'Luk sammenligning' }));
 
+    fireEvent.click(screen.getByRole('button', { name: /Historik/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Se sammenligning' }));
     await screen.findByRole('button', { name: 'Luk sammenligning' });
     expect(mocks.fetchKandidatDetalje).toHaveBeenCalledTimes(2);
@@ -111,6 +170,7 @@ describe('SammenlignUdgaver lazy kandidatdetalje', () => {
     mocks.submitChange.mockResolvedValue({});
 
     render(<SammenlignUdgaver role="redaktor" dryRun={false} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Historik/ }));
     fireEvent.click(await screen.findByRole('button', { name: 'Fortryd' }));
 
     expect(mocks.fetchMatchAudit).toHaveBeenCalledWith(sammeSom, []);
@@ -131,11 +191,137 @@ describe('SammenlignUdgaver lazy kandidatdetalje', () => {
 
     // dryRun ikke angivet → default true (samme sikre default som Redaktion.tsx's egen useState).
     render(<SammenlignUdgaver role="redaktor" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Historik/ }));
     fireEvent.click(await screen.findByRole('button', { name: 'Fortryd' }));
 
     await waitFor(() => expect(mocks.submitChange).toHaveBeenCalledWith(
       expect.anything(),
       { dryRun: true, role: 'redaktor' },
     ));
+  });
+
+  test('filtrerer arbejdslisten på person- og kandidatnavne uden at ændre totalen', async () => {
+    mocks.fetchMatchPersoner.mockResolvedValue([
+      {
+        id: '1', navn: 'detlev reventlow', fuldtNavn: 'Detlev Reventlow', koen: 'mand',
+        foedsel: { date_min: '1660-01-01', date_max: '1660-12-31' },
+        doed: { date_min: '1730-01-01', date_max: '1730-12-31' }, titel: 'Amtmand',
+        bogReferencer: [], sourceIds: [3], staged: false,
+      },
+      {
+        id: '2', navn: 'detlev reventlow', fuldtNavn: 'Detlev Reventlow', koen: 'mand',
+        foedsel: { date_min: '1660-01-01', date_max: '1660-12-31' },
+        doed: { date_min: '1730-01-01', date_max: '1730-12-31' }, titel: 'Amtmand',
+        bogReferencer: [], sourceIds: [7], staged: true,
+      },
+      {
+        id: '3', navn: 'christian holck', fuldtNavn: 'Christian Holck', koen: 'mand',
+        foedsel: { date_min: '1750-01-01', date_max: '1750-12-31' },
+        doed: { date_min: '1810-01-01', date_max: '1810-12-31' }, titel: 'Kammerherre',
+        bogReferencer: [], sourceIds: [3], staged: false,
+      },
+      {
+        id: '4', navn: 'christian holck', fuldtNavn: 'Christian Holck', koen: 'mand',
+        foedsel: { date_min: '1750-01-01', date_max: '1750-12-31' },
+        doed: { date_min: '1810-01-01', date_max: '1810-12-31' }, titel: 'Kammerherre',
+        bogReferencer: [], sourceIds: [7], staged: true,
+      },
+    ]);
+
+    render(<SammenlignUdgaver role="redaktor" />);
+
+    expect(await screen.findByRole('heading', { name: 'Til gennemgang (2)' })).toBeTruthy();
+    expect(screen.getAllByText(/Detlev Reventlow/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Christian Holck/).length).toBeGreaterThan(0);
+
+    fireEvent.change(screen.getByLabelText('Søg på navn'), { target: { value: 'christian' } });
+
+    expect(screen.getByRole('heading', { name: 'Til gennemgang (2)' })).toBeTruthy();
+    expect(screen.queryByText(/Detlev Reventlow/)).toBeNull();
+    expect(screen.getAllByText(/Christian Holck/).length).toBeGreaterThan(0);
+  });
+
+  test('viser kun indholdet for den aktive fane og kan skifte mellem alle fire', async () => {
+    render(<SammenlignUdgaver role="redaktor" />);
+
+    expect(await screen.findByRole('heading', { name: 'Til gennemgang (1)' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Trufne beslutninger (0)' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bekræftede (0)' }));
+    expect(screen.getByText('Ingen bekræftede matches endnu.')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Til gennemgang (1)' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Karantæne (0)' }));
+    expect(screen.getByText('Ingen karantænerede links.')).toBeTruthy();
+    expect(screen.queryByText('Ingen bekræftede matches endnu.')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Historik (0)' }));
+    expect(screen.getByRole('heading', { name: 'Trufne beslutninger (0)' })).toBeTruthy();
+    expect(screen.queryByText('Ingen karantænerede links.')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Arbejdsliste (1)' }));
+    expect(screen.getByRole('heading', { name: 'Til gennemgang (1)' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Trufne beslutninger (0)' })).toBeNull();
+  });
+
+  test('publicerer hele den valgte udgave efter bekræftelse', async () => {
+    mocks.fetchMatchPersoner.mockResolvedValue([
+      {
+        id: '1', navn: 'detlev reventlow', fuldtNavn: 'Detlev Reventlow', koen: 'mand',
+        foedsel: { date_min: '1660-01-01', date_max: '1660-12-31' },
+        doed: { date_min: '1730-01-01', date_max: '1730-12-31' }, titel: 'Amtmand',
+        bogReferencer: [], sourceIds: [3], staged: false,
+      },
+      {
+        id: '2', navn: 'detlev reventlow', fuldtNavn: 'Detlev Reventlow', koen: 'mand',
+        foedsel: { date_min: '1660-01-01', date_max: '1660-12-31' },
+        doed: { date_min: '1730-01-01', date_max: '1730-12-31' }, titel: 'Amtmand',
+        bogReferencer: [], sourceIds: [7], staged: true,
+      },
+    ]);
+    mocks.fetchSammeSomPar.mockResolvedValue([{ relationId: '91', aId: '2', bId: '1' }]);
+    mocks.submitChange.mockResolvedValue({});
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    render(<SammenlignUdgaver role="redaktor" dryRun={false} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Bekræftede (1)' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publicér hele udgaven' }));
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining(
+      'Publicér HELE udgaven "2018-20" (1 skjulte personer bliver offentlige)?',
+    ));
+    await waitFor(() => expect(mocks.submitChange).toHaveBeenCalledWith({
+      art: 'publicerUdgave', subjektType: 'source', subjektId: '7',
+    }, { dryRun: false, role: 'redaktor' }));
+    confirm.mockRestore();
+  });
+
+  test('publicerer ikke hele udgaven, når dialogen annulleres', async () => {
+    mocks.fetchMatchPersoner.mockResolvedValue([
+      {
+        id: '1', navn: 'detlev reventlow', fuldtNavn: 'Detlev Reventlow', koen: 'mand',
+        foedsel: { date_min: '1660-01-01', date_max: '1660-12-31' },
+        doed: { date_min: '1730-01-01', date_max: '1730-12-31' }, titel: 'Amtmand',
+        bogReferencer: [], sourceIds: [3], staged: false,
+      },
+      {
+        id: '2', navn: 'detlev reventlow', fuldtNavn: 'Detlev Reventlow', koen: 'mand',
+        foedsel: { date_min: '1660-01-01', date_max: '1660-12-31' },
+        doed: { date_min: '1730-01-01', date_max: '1730-12-31' }, titel: 'Amtmand',
+        bogReferencer: [], sourceIds: [7], staged: true,
+      },
+    ]);
+    mocks.fetchSammeSomPar.mockResolvedValue([{ relationId: '91', aId: '2', bId: '1' }]);
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    render(<SammenlignUdgaver role="redaktor" dryRun={false} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Bekræftede (1)' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publicér hele udgaven' }));
+
+    expect(confirm).toHaveBeenCalled();
+    expect(mocks.submitChange).not.toHaveBeenCalled();
+    confirm.mockRestore();
   });
 });

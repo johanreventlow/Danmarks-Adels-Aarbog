@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 type FakeRow = Record<string, unknown>;
-type RpcResult = { data: FakeRow[] | null; error: { message: string } | null };
 
 let relationRows: FakeRow[] = [];
-let rpcByPersonId: Record<number, RpcResult> = {};
-const rpcCalls: Array<{ name: string; args: { p_type: string; p_id: number } }> = [];
+let rpcRowsByPersonId: Record<number, FakeRow[]> = {};
+let rpcError: { message: string } | null = null;
+const rpcCalls: Array<{ name: string; args: { p_type: string; p_ids: number[] } }> = [];
 const selectCalls: string[] = [];
 
 vi.mock('../../supabase', () => ({
@@ -26,9 +26,15 @@ vi.mock('../../supabase', () => ({
       };
       return builder;
     },
-    async rpc(name: string, args: { p_type: string; p_id: number }) {
+    async rpc(name: string, args: { p_type: string; p_ids: number[] }) {
       rpcCalls.push({ name, args });
-      return rpcByPersonId[args.p_id] ?? { data: [], error: null };
+      return {
+        data: rpcError
+          ? null
+          : args.p_ids.flatMap((personId) =>
+            (rpcRowsByPersonId[personId] ?? []).map((row) => ({ subjekt_id: personId, ...row }))),
+        error: rpcError,
+      };
     },
   },
 }));
@@ -42,7 +48,8 @@ const {
 
 beforeEach(() => {
   relationRows = [];
-  rpcByPersonId = {};
+  rpcRowsByPersonId = {};
+  rpcError = null;
   rpcCalls.length = 0;
   selectCalls.length = 0;
 });
@@ -72,15 +79,15 @@ describe('fetchMatchAudit', () => {
       { relationId: '91', aId: '3', bId: '8' },
       { relationId: '93', aId: '5', bId: '9' },
     ];
-    rpcByPersonId = {
-      8: { data: [
+    rpcRowsByPersonId = {
+      8: [
         { actor_navn: 'Nyere redaktør', actor_rolle: 'redaktion', created_at: '2026-07-20T12:00:00Z', operation: 'red_edit_person' },
         { actor_navn: 'Johan', actor_rolle: 'redaktion', created_at: '2026-07-19T10:00:00Z', operation: 'red_samme_som', summary: 'Markerede person 3 som samme som 8' },
         { actor_navn: 'Ældre', actor_rolle: 'redaktion', created_at: '2026-07-18T10:00:00Z', operation: 'red_samme_som', summary: 'Markerede person 2 som samme som 8' },
-      ], error: null },
-      9: { data: [
+      ],
+      9: [
         { actor_navn: null, actor_rolle: null, created_at: '2026-07-17T09:00:00Z', operation: 'red_samme_som', summary: 'Markerede person 5 som samme som 9' },
-      ], error: null },
+      ],
     };
 
     await expect(fetchMatchAudit(sammeSom, [])).resolves.toEqual([
@@ -98,16 +105,15 @@ describe('fetchMatchAudit', () => {
       },
     ]);
     expect(rpcCalls).toEqual([
-      { name: 'hist_for_subjekt', args: { p_type: 'person', p_id: 8 } },
-      { name: 'hist_for_subjekt', args: { p_type: 'person', p_id: 9 } },
+      { name: 'hist_for_subjekter', args: { p_type: 'person', p_ids: [8, 9] } },
     ]);
     expect(selectCalls).toEqual([]);
   });
 
   it('bevarer linket med tom audit, når historikken mangler en oprettelsesrække', async () => {
     const sammeSom = [{ relationId: '91', aId: '3', bId: '8' }];
-    rpcByPersonId = {
-      8: { data: [{ operation: 'red_edit_person' }], error: null },
+    rpcRowsByPersonId = {
+      8: [{ operation: 'red_edit_person' }],
     };
 
     await expect(fetchMatchAudit(sammeSom, [])).resolves.toEqual([{
@@ -117,18 +123,12 @@ describe('fetchMatchAudit', () => {
     }]);
   });
 
-  it('bevarer øvrige links, når ét links historikopslag fejler', async () => {
+  it('bevarer alle links med tom audit, når det batchede historikopslag fejler', async () => {
     const sammeSom = [
       { relationId: '91', aId: '3', bId: '8' },
       { relationId: '93', aId: '5', bId: '9' },
     ];
-    rpcByPersonId = {
-      8: { data: null, error: { message: 'Midlertidig fejl' } },
-      9: { data: [{
-        actor_navn: 'Karen', actor_rolle: 'redaktion', created_at: '2026-07-20T13:00:00Z',
-        operation: 'red_samme_som', summary: 'Markerede person 5 som samme som 9',
-      }], error: null },
-    };
+    rpcError = { message: 'Midlertidig fejl' };
 
     await expect(fetchMatchAudit(sammeSom, [])).resolves.toEqual([
       {
@@ -139,8 +139,7 @@ describe('fetchMatchAudit', () => {
       {
         relationId: '93', aId: '5', bId: '9',
         beslutning: 'samme_som',
-        actorNavn: 'Karen', actorRolle: 'redaktion',
-        createdAt: '2026-07-20T13:00:00Z', operation: 'red_samme_som',
+        actorNavn: null, actorRolle: null, createdAt: null, operation: null,
       },
     ]);
   });
@@ -150,8 +149,8 @@ describe('fetchMatchAudit', () => {
       { relationId: '91', aId: '3', bId: '8' },
       { relationId: '92', aId: '5', bId: '8' },
     ];
-    rpcByPersonId = {
-      8: { data: [
+    rpcRowsByPersonId = {
+      8: [
         {
           actor_navn: 'Nyeste redaktør', actor_rolle: 'redaktion', created_at: '2026-07-20T14:00:00Z',
           operation: 'red_samme_som', summary: 'Markerede person 5 som samme som 8',
@@ -160,7 +159,7 @@ describe('fetchMatchAudit', () => {
           actor_navn: 'Første redaktør', actor_rolle: 'administrator', created_at: '2026-07-19T10:00:00Z',
           operation: 'red_samme_som', summary: 'Markerede person 3 som samme som 8',
         },
-      ], error: null },
+      ],
     };
 
     await expect(fetchMatchAudit(sammeSom, [])).resolves.toEqual([
@@ -181,13 +180,13 @@ describe('fetchMatchAudit', () => {
 
   it('henter audit for ikke_samme_som via det normaliserede lave person-id', async () => {
     const ikkeSammeSom = [{ relationId: '92', aId: '4', bId: '9' }];
-    rpcByPersonId = {
-      4: { data: [
+    rpcRowsByPersonId = {
+      4: [
         {
           actor_navn: 'Johan', actor_rolle: 'redaktion', created_at: '2026-07-20T15:00:00Z',
           operation: 'red_ikke_samme_som', summary: 'Markerede person 4 og 9 som forskellige',
         },
-      ], error: null },
+      ],
     };
 
     await expect(fetchMatchAudit([], ikkeSammeSom)).resolves.toEqual([{
@@ -196,7 +195,26 @@ describe('fetchMatchAudit', () => {
       createdAt: '2026-07-20T15:00:00Z', operation: 'red_ikke_samme_som',
     }]);
     expect(rpcCalls).toEqual([
-      { name: 'hist_for_subjekt', args: { p_type: 'person', p_id: 4 } },
+      { name: 'hist_for_subjekter', args: { p_type: 'person', p_ids: [4] } },
     ]);
+  });
+
+  it('henter tre beslutningers historik i ét kald med unikke person-id’er', async () => {
+    const sammeSom = [
+      { relationId: '91', aId: '3', bId: '8' },
+      { relationId: '93', aId: '5', bId: '9' },
+    ];
+    const ikkeSammeSom = [{ relationId: '92', aId: '4', bId: '10' }];
+
+    await fetchMatchAudit(sammeSom, ikkeSammeSom);
+
+    expect(rpcCalls).toEqual([
+      { name: 'hist_for_subjekter', args: { p_type: 'person', p_ids: [8, 9, 4] } },
+    ]);
+  });
+
+  it('springer historikopslaget over, når der ikke er nogen beslutninger', async () => {
+    await expect(fetchMatchAudit([], [])).resolves.toEqual([]);
+    expect(rpcCalls).toEqual([]);
   });
 });

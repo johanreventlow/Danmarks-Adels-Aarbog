@@ -51,3 +51,11 @@ Hemmeligheder ligger i `~/.Renviron` / env-variabler — aldrig i kode eller git
 ---
 
 use fable subagents when you need more intelligence
+
+## Codex til udvikling og review
+
+`codex:codex-rescue` kan bruges til afgrænsede udviklingsopgaver — ikke kun fejlretning — samt til review og adversarial review (Codex er stærk til at finde problemer i eget eller andres arbejde). Vælg model efter opgavens sværhedsgrad:
+
+- `gpt-5.6-sol` — høj intelligens: arkitektur/refactors på tværs af flere filer, DB-migrationer, alt der kræver dømmekraft
+- `gpt-5.6-terra` — almindelig: afgrænsede, veldefinerede opgaver (én komponent, én testfil)
+- `gpt-5.6-luna` — lavest intelligens: rene rutineopgaver (mekaniske omdøbninger, oprydning, ensartede gentagne rettelser)

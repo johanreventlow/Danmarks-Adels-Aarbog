@@ -19,15 +19,18 @@ export type KandidatSammenligningProps = {
   foldHint: FoldHint;
   foldAdvice?: string | null;
   linket?: boolean;
-  busy?: boolean;
+  busyAction?: 'bekraeft' | 'afvis' | null;
+  readOnly?: boolean;
   onBekraeft: () => void;
   onAfvis: () => void;
 };
 
 type FeltStatus = 'enig' | 'afvigende' | 'neutral';
 
+// Fjerner punktummer før sammenligning: kilderne staver samme dato forskelligt rent
+// tegnsætningsmæssigt (fx "3 Sept. 1857" vs. "3. sept. 1857") — det er ikke en reel afvigelse.
 function normaliser(value: string): string {
-  return value.trim().toLocaleLowerCase('da-DK').replace(/\s+/g, ' ');
+  return value.trim().toLocaleLowerCase('da-DK').replace(/\./g, '').replace(/\s+/g, ' ').trim();
 }
 
 function feltStatus(a: string, b: string): FeltStatus {
@@ -159,11 +162,14 @@ function NarrativCelle({ narrativer, testId }: { narrativer: PersonNarrativ[]; t
 }
 
 function SammenligningsRaekke({
-  felt, label, aTekst, bTekst, aIndhold, bIndhold,
+  felt, label, aTekst, bTekst, aIndhold, bIndhold, neutral = false,
 }: {
   felt: string; label: string; aTekst: string; bTekst: string; aIndhold?: ReactNode; bIndhold?: ReactNode;
+  /** Feltet sammenlignes bevidst ikke (fx bog-nr, som pr. definition er forskelligt nummereret
+   *  mellem to udgaver) — en "afvigelse" her er ikke evidens for eller imod samme person. */
+  neutral?: boolean;
 }) {
-  const status = feltStatus(aTekst, bTekst);
+  const status = neutral ? 'neutral' : feltStatus(aTekst, bTekst);
   const cellStyle = status === 'enig'
     ? { background: '#eef8ee', borderLeft: '3px solid #3d7a3d' }
     : status === 'afvigende'
@@ -171,7 +177,12 @@ function SammenligningsRaekke({
       : { background: '#f7f5f1', borderLeft: '3px solid transparent' };
   return (
     <tr data-testid={`felt-${felt}`} data-status={status}>
-      <th scope="row" style={{ textAlign: 'left', verticalAlign: 'top', padding: '.55rem', width: '18%' }}>{label}</th>
+      <th scope="row" style={{ textAlign: 'left', verticalAlign: 'top', padding: '.55rem', width: '18%' }}>
+        {label}
+        {status === 'afvigende' && (
+          <span style={{ marginLeft: '.35rem', color: '#9a4b19', fontWeight: 600, fontSize: '.85em' }}> ⚠ afviger</span>
+        )}
+      </th>
       <td style={{ ...cellStyle, verticalAlign: 'top', padding: '.55rem', overflowWrap: 'anywhere' }}>{aIndhold ?? (aTekst || '—')}</td>
       <td style={{ ...cellStyle, verticalAlign: 'top', padding: '.55rem', overflowWrap: 'anywhere' }}>{bIndhold ?? (bTekst || '—')}</td>
     </tr>
@@ -193,7 +204,7 @@ function RolleBadge({ rolle }: { rolle?: 'alias' | 'kanonisk' }) {
 
 export function KandidatSammenligning({
   personA, personB, detaljeA, detaljeB, kildeA, kildeB, rolleA, rolleB, navnById,
-  foldHint, foldAdvice, linket = false, busy = false, onBekraeft, onAfvis,
+  foldHint, foldAdvice, linket = false, busyAction = null, readOnly = false, onBekraeft, onAfvis,
 }: KandidatSammenligningProps) {
   const foraeldreA = familieNavne(detaljeA, 'foraeldre', navnById);
   const foraeldreB = familieNavne(detaljeB, 'foraeldre', navnById);
@@ -244,7 +255,7 @@ export function KandidatSammenligning({
           <SammenligningsRaekke felt="foraeldre" label="Forældre" aTekst={foraeldreA} bTekst={foraeldreB} />
           <SammenligningsRaekke felt="aegteskaber" label="Ægtefælle(r)" aTekst={partnereA} bTekst={partnereB} />
           <SammenligningsRaekke felt="boern" label="Børn" aTekst={boernA} bTekst={boernB} />
-          <SammenligningsRaekke felt="bog" label="Linje / gren + bog-nr" aTekst={bogReferencer(personA)} bTekst={bogReferencer(personB)} />
+          <SammenligningsRaekke felt="bog" label="Linje / gren + bog-nr" aTekst={bogReferencer(personA)} bTekst={bogReferencer(personB)} neutral />
           <SammenligningsRaekke felt="relationer" label="Embeder / godser" aTekst={relationerA} bTekst={relationerB} />
           <SammenligningsRaekke
             felt="narrativ" label="Narrativ" aTekst={narrativerA} bTekst={narrativerB}
@@ -254,12 +265,16 @@ export function KandidatSammenligning({
         </tbody>
       </table>
 
-      <div style={{ marginTop: '.65rem' }}>
-        <button type="button" disabled={busy || linket} onClick={onBekraeft}>
-          {linket ? '✓ bekræftet' : 'Bekræft samme person'}
-        </button>{' '}
-        <button type="button" disabled={busy} onClick={onAfvis}>Afvis</button>
-      </div>
+      {!readOnly && (
+        <div style={{ marginTop: '.65rem' }}>
+          <button type="button" disabled={busyAction != null || linket} onClick={onBekraeft}>
+            {linket ? '✓ bekræftet' : busyAction === 'bekraeft' ? 'Gemmer…' : 'Bekræft samme person'}
+          </button>{' '}
+          <button type="button" disabled={busyAction != null} onClick={onAfvis}>
+            {busyAction === 'afvis' ? 'Gemmer…' : 'Afvis'}
+          </button>
+        </div>
+      )}
     </section>
   );
 }

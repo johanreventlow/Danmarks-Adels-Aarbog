@@ -1168,6 +1168,15 @@ BEGIN
     WHERE subjekt_type=p_type AND subjekt_id=p_id ORDER BY created_at DESC;
 END $$;
 
+-- 2026-07-24: batchet historik-API til flere subjekter
+CREATE OR REPLACE FUNCTION hist_for_subjekter(p_type text, p_ids bigint[])
+RETURNS SETOF change_set LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  RETURN QUERY SELECT * FROM change_set
+    WHERE subjekt_type=p_type AND subjekt_id = ANY(p_ids) ORDER BY created_at DESC;
+END $$;
+
 CREATE OR REPLACE FUNCTION hist_events(p_change_set_id bigint)
 RETURNS SETOF change_event LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $$
 BEGIN
@@ -3383,3 +3392,9 @@ ALTER TABLE lineage ADD COLUMN IF NOT EXISTS presens_kode TEXT;
 -- præsens-nummer (reviewfund — hvilken af dem der "vinder" ved opslag ville ellers
 -- afhænge af rækkefølge, præcis den fejlklasse denne rettelse lukker).
 CREATE UNIQUE INDEX IF NOT EXISTS lineage_presens_kode_uidx ON lineage (presens_kode) WHERE presens_kode IS NOT NULL;
+
+-- =====================================================================
+-- 2026-07-24: K2 — app-adgang til bulk-publicering af en hel udgave
+-- Funktionen har sin egen interne redaktion-gate ligesom de øvrige red_*-RPC'er.
+-- =====================================================================
+GRANT EXECUTE ON FUNCTION red_publicer_udgave(bigint) TO authenticated;

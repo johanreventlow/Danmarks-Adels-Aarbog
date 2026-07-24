@@ -635,6 +635,13 @@ BEGIN
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM LIKE 'FEJL:%' THEN RAISE; END IF;  -- vores assert-fejl propagerer
   END;
+  -- hist_for_subjekter skal RAISE for ikke-redaktion (SQL Editor = medlem)
+  BEGIN
+    PERFORM * FROM hist_for_subjekter('person', ARRAY[1]::bigint[]);
+    RAISE EXCEPTION 'FEJL: hist_for_subjekter tillod ikke-redaktion';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'FEJL:%' THEN RAISE; END IF;  -- vores assert-fejl propagerer
+  END;
   RAISE NOTICE 'OK: historik-API redaktion-gated + døde-links-view findes';
 END $$;
 

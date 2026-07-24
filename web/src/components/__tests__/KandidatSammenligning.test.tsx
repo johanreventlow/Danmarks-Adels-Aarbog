@@ -191,4 +191,77 @@ describe('KandidatSammenligning', () => {
 
     expect(screen.getByText('1660-01-01–1660-12-31')).toBeTruthy();
   });
+
+  test('viser handling-specifik gemmefeedback under bekræftelse', () => {
+    render(<KandidatSammenligning
+      personA={person('1')}
+      personB={person('2')}
+      detaljeA={detalje('1660', 'DAA 1939', 'x')}
+      detaljeB={detalje('1660', 'DAA 2018', 'x')}
+      kildeA="DAA 1939"
+      kildeB="DAA 2018"
+      navnById={navnById}
+      foldHint={{ folder: true, grund: null }}
+      busyAction="bekraeft"
+      onBekraeft={vi.fn()}
+      onAfvis={vi.fn()}
+    />);
+
+    expect(screen.getByRole('button', { name: 'Gemmer…' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Afvis' }).hasAttribute('disabled')).toBe(true);
+  });
+
+  test('skjuler handlingsknapper i read-only-visning', () => {
+    render(<KandidatSammenligning
+      personA={person('1')}
+      personB={person('2')}
+      detaljeA={detalje('1660', 'DAA 1939', 'x')}
+      detaljeB={detalje('1660', 'DAA 2018', 'x')}
+      kildeA="DAA 1939"
+      kildeB="DAA 2018"
+      navnById={navnById}
+      foldHint={{ folder: true, grund: null }}
+      readOnly
+      onBekraeft={vi.fn()}
+      onAfvis={vi.fn()}
+    />);
+
+    expect(screen.queryByRole('button', { name: 'Bekræft samme person' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Afvis' })).toBeNull();
+  });
+
+  test('flager ikke to udgavers punktueringsforskel i samme dato som afvigelse (kun tegnsætning)', () => {
+    render(<KandidatSammenligning
+      personA={person('1')}
+      personB={person('2')}
+      detaljeA={detalje('3 Sept. 1857', 'DAA 1939', 'x')}
+      detaljeB={detalje('3. sept. 1857', 'DAA 2018', 'x')}
+      kildeA="DAA 1939"
+      kildeB="DAA 2018"
+      navnById={navnById}
+      foldHint={{ folder: true, grund: null }}
+      onBekraeft={vi.fn()}
+      onAfvis={vi.fn()}
+    />);
+
+    expect(screen.getByTestId('felt-foedsel-doed').getAttribute('data-status')).toBe('enig');
+  });
+
+  test('flager aldrig bog-nr/linje-reference som afvigende — forskellig nummerering mellem udgaver er forventet, ikke evidens', () => {
+    render(<KandidatSammenligning
+      personA={person('1', { bogReferencer: [{ sourceId: 3, linje: '1939', nr: 381, slaegtledLokal: null, slaegtledGennem: null, kuld: null, grenNavn: null }] })}
+      personB={person('2', { bogReferencer: [{ sourceId: 7, linje: 'V', nr: 115, slaegtledLokal: null, slaegtledGennem: null, kuld: null, grenNavn: 'Den grevelige linje af 1673' }] })}
+      detaljeA={detalje('1660', 'DAA 1939', 'x')}
+      detaljeB={detalje('1660', 'DAA 2018', 'x')}
+      kildeA="DAA 1939"
+      kildeB="DAA 2018"
+      navnById={navnById}
+      foldHint={{ folder: true, grund: null }}
+      onBekraeft={vi.fn()}
+      onAfvis={vi.fn()}
+    />);
+
+    expect(screen.getByTestId('felt-bog').getAttribute('data-status')).toBe('neutral');
+    expect(screen.queryByText('⚠ afviger')).toBeNull();
+  });
 });
