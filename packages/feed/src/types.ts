@@ -85,6 +85,9 @@ export interface FeedInputs {
   haendelserBy?: HaendelserBy;
   storieBy?: StorieBy;
   pins?: FeedPinInput[];
+  // Kort-typer der midlertidigt skal udelades helt fra feedet (fx indtil databasen har mere
+  // indhold i kategorien). Se TEMP_DISABLED_KINDS i web/mobile's opsætning af FeedInputs.
+  disabledKinds?: ReadonlySet<FeedCard['kind']>;
 }
 
 export function bookmarkPersonId(card: FeedCard): string | null {

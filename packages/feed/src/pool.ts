@@ -31,6 +31,9 @@ export function buildPortraitAndCitat(
   excludeId: string | null = null,
   haendelserBy: HaendelserBy = {},
   usedStorieHaendelseIds: ReadonlySet<string> = new Set(),
+  // Når citat er slået fra (kaldersiden, se FeedInputs.disabledKinds) skal ingen bio-person
+  // routes til citat-partitionen uden portræt-fallback — de skal i stedet altid have et portræt.
+  citatEnabled = true,
 ): { portraits: FeedCard[]; citater: FeedCard[]; usedCitatHaendelseIds: Set<string> } {
   const bioPersons = model.persons
     .filter((p) => p.bio.trim() !== '' && p.id !== excludeId)
@@ -39,7 +42,7 @@ export function buildPortraitAndCitat(
   const citater: FeedCard[] = [];
   const usedCitatHaendelseIds = new Set<string>();
   for (const p of bioPersons) {
-    const isCitatSlot = stableHash(p.id) % 4 === 0;
+    const isCitatSlot = citatEnabled && stableHash(p.id) % 4 === 0;
     if (isCitatSlot) {
       const kandidater = (haendelserBy[p.id] ?? []).filter(
         (item) => !item.rygrad && !usedStorieHaendelseIds.has(item.id)

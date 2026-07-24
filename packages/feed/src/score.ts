@@ -17,19 +17,31 @@ export const BASE: Record<FeedCard['kind'], number> = {
   samle: 0,
 };
 
+// Midlertidig drosling (kaldersiden, ikke biblioteket selv): web og mobile sender dette sæt
+// videre som FeedInputs.disabledKinds, indtil databasen har mere indhold i kategorierne.
+// BASE ovenfor er urørt og afspejler den tilsigtede prioritering — for at genaktivere en
+// korttype, fjern den blot herfra (ingen andre ændringer nødvendige).
+export const TEMP_DISABLED_KINDS: ReadonlySet<FeedCard['kind']> = new Set([
+  'historie', 'dagensperson', 'jubilaeum', 'slaegt',
+  'gods', 'embede', 'forbundet', 'arkiv', 'citat', 'vaaben',
+]);
+
 export interface ScoreContext {
   bookmarkedIds: ReadonlySet<string>;
   seenWeights: Record<string, number>;
+  disabledKinds?: ReadonlySet<FeedCard['kind']>;
 }
 
 export function toScoreContext(inputs: FeedInputs): ScoreContext {
   return {
     bookmarkedIds: new Set(inputs.bookmarkedIds ?? []),
     seenWeights: inputs.seenWeights ?? {},
+    disabledKinds: inputs.disabledKinds ?? new Set(),
   };
 }
 
 export function score(card: FeedCard, ctx: ScoreContext): number {
+  if (ctx.disabledKinds?.has(card.kind)) return 0;
   let s = BASE[card.kind];
 
   if (card.kind === 'paadennedag' && card.praecision === 'dag') s *= 4;
