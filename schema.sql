@@ -176,6 +176,9 @@ CREATE TABLE lineage (                   -- SLÆGTSLINJE / GREN (fx Reventlows f
   --   (parent_lineage_id er den hurtige FK; 'gren_af'-relationen bærer evidens/konfidens).
   -- Jf. datamodel-oversigt §5/§9.
 );
+-- Fanger dubletter loudly (DB-fejl) i stedet for at lade to linjer stille dele samme
+-- præsens-nummer (hvilken af dem der "vinder" ved opslag ville afhænge af rækkefølge).
+CREATE UNIQUE INDEX IF NOT EXISTS lineage_presens_kode_uidx ON lineage (presens_kode) WHERE presens_kode IS NOT NULL;
 
 -- ---------- UDLEDT SLÆGTSNAVN: cyklus-sikre lineage-graf-walkers ----------
 -- Bruges BÅDE til skrive-tids cyklus-forebyggelse (BEFORE-trigger nedenfor) OG læse-tids

@@ -3379,3 +3379,7 @@ INSERT INTO vocab (scheme, code, label) VALUES ('rolle','vaaben','våbenskjold f
 -- tilknytning af dette — NULL = linjen indgår ikke (endnu) i præsenslisten. Slås ALDRIG op med
 -- fallback til kode (ville kollidere: kode='I' er allerede den uddøde Holstenske linje).
 ALTER TABLE lineage ADD COLUMN IF NOT EXISTS presens_kode TEXT;
+-- Fanger dubletter loudly (DB-fejl) i stedet for at lade to linjer stille dele samme
+-- præsens-nummer (reviewfund — hvilken af dem der "vinder" ved opslag ville ellers
+-- afhænge af rækkefølge, præcis den fejlklasse denne rettelse lukker).
+CREATE UNIQUE INDEX IF NOT EXISTS lineage_presens_kode_uidx ON lineage (presens_kode) WHERE presens_kode IS NOT NULL;
