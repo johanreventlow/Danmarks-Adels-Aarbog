@@ -1,22 +1,30 @@
 // Præsensliste-læsefladen (spec 2026-07-22 §6). Redaktion-gated i v1: klient-gaten er UX —
 // RLS er sikkerhedsgrænsen (§8). Beregningen er en ren projektion; ingen skrivninger.
 import { useEffect, useMemo, useState } from 'react';
-import { buildPresensListe, kanoniserPresensGrundlag, groupByLinje } from '@daa/core';
+import { buildPresensListe, kanoniserPresensGrundlag, groupByLinje, samlIds } from '@daa/core';
 import type { Model, PresensGren, PresensListe, PresensNode, PresensLinjeGruppe } from '@daa/core';
-import { fetchPresensGrundlag, type PresensGrundlag } from '../data/presens';
+import {
+  fetchPresensGrundlag, fetchPresensNavneDele, formatAnkerNavn, formatAndetNavn,
+  type PresensGrundlag, type PresensNavneDele,
+} from '../data/presens';
 import { fetchPresensLinjer, fetchPresensIntro, type PresensLinjeInfo } from '../data/presensLinjer';
 import { currentSession, type RedSession } from '../data/auth';
 import { T } from '../theme';
 
 // Ren gren-sektion — eksporteret til test. navnAf/aarAf holder Model ude af renderingen.
+// navnAfAnker (valgfri, default=navnAf) navngiver KUN grenens hovedrække (dybde 0, gren.ankerBlok)
+// efter bogens hovedrække-format (fulde fornavne + titel inde i navnet + efternavn); alle øvrige
+// rækker (søskende, efterkommere, forbindelsesled, partnere) bruger det almindelige navnAf-format
+// (Titel + fornavne, uden efternavn) — jf. mekanismen fundet ved bruger-verifikation 2026-07-24.
 export function PresensGrenSektion(props: {
   gren: PresensGren;
   navnAf: (id: string) => string;
+  navnAfAnker?: (id: string) => string;
   aarAf: (id: string) => string;
   onPick: (id: string) => void;
   fokusId?: string | null;
 }) {
-  const { gren, navnAf, aarAf, onPick, fokusId } = props;
+  const { gren, navnAf, navnAfAnker = navnAf, aarAf, onPick, fokusId } = props;
   const renderNode = (n: PresensNode, dybde: number) => (
     <div key={n.id} style={{ marginLeft: dybde * 22, marginBottom: 2, fontSize: 14.5, lineHeight: 1.5 }}>
       <span
@@ -31,7 +39,7 @@ export function PresensGrenSektion(props: {
           background: fokusId === n.id ? 'rgba(128,0,32,.08)' : 'transparent',
         }}
       >
-        {navnAf(n.id)}
+        {dybde === 0 ? navnAfAnker(n.id) : navnAf(n.id)}
       </span>
       {' '}<span style={{ fontFamily: T.mono, fontSize: 11, color: T.muted2 }}>{aarAf(n.id)}</span>
       {n.usikker ? <span style={{ color: T.gold }}> ⚠</span> : ''}
@@ -85,11 +93,12 @@ export function PresensLinjeSektion(props: {
   gruppe: PresensLinjeGruppe;
   info: PresensLinjeInfo | undefined;
   navnAf: (id: string) => string;
+  navnAfAnker?: (id: string) => string;
   aarAf: (id: string) => string;
   onPick: (id: string) => void;
   fokusId?: string | null;
 }) {
-  const { gruppe, info, navnAf, aarAf, onPick, fokusId } = props;
+  const { gruppe, info, navnAf, navnAfAnker, aarAf, onPick, fokusId } = props;
   return (
     <div id={`linje-${gruppe.linje.toLowerCase()}`} style={{ marginTop: 52 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 24, borderTop: `1px solid rgba(34,31,26,.14)`, paddingTop: 26 }}>
@@ -110,7 +119,7 @@ export function PresensLinjeSektion(props: {
         </div>
       </div>
       {gruppe.grene.map((g) => (
-        <PresensGrenSektion key={g.anker.personId} gren={g} navnAf={navnAf} aarAf={aarAf} onPick={onPick} fokusId={fokusId} />
+        <PresensGrenSektion key={g.anker.personId} gren={g} navnAf={navnAf} navnAfAnker={navnAfAnker} aarAf={aarAf} onPick={onPick} fokusId={fokusId} />
       ))}
     </div>
   );
@@ -123,6 +132,7 @@ export default function PresensView(props: { model: Model | null; onPickPerson: 
   const [fejl, setFejl] = useState<string | null>(null);
   const [linjeInfo, setLinjeInfo] = useState<Record<string, PresensLinjeInfo>>({});
   const [intro, setIntro] = useState<string | null>(null);
+  const [navneDele, setNavneDele] = useState<Record<string, PresensNavneDele>>({});
   const fokusId = (window.history.state as { fokusId?: string } | null)?.fokusId ?? null;
 
   useEffect(() => { currentSession().then(setSession).catch(() => setSession(null)); }, []);
@@ -140,6 +150,23 @@ export default function PresensView(props: { model: Model | null; onPickPerson: 
   }, [model, grundlag]);
 
   const linjer = useMemo(() => (liste ? groupByLinje(liste.grene) : []), [liste]);
+
+  // Alle person-id'er der reelt optræder i listen — bruges til at hente navne-dele (visning_navn/
+  // visning_titel/visning_efternavn) til bogens to navngivningsformater (§ navnAf/navnAfAnker).
+  const alleIds = useMemo(() => {
+    if (!liste) return [] as string[];
+    const s = new Set<string>();
+    for (const g of liste.grene) {
+      samlIds(g.ankerBlok, s);
+      for (const gr of g.grupper) for (const r of gr.roedder) samlIds(r, s);
+    }
+    return [...s];
+  }, [liste]);
+
+  useEffect(() => {
+    if (!alleIds.length) return;
+    fetchPresensNavneDele(alleIds).then(setNavneDele).catch(() => setNavneDele({})); // ikke-kritisk pynt
+  }, [alleIds]);
 
   useEffect(() => {
     if (liste && fokusId) document.querySelector(`[data-person-id="${fokusId}"]`)?.scrollIntoView({ block: 'center' });
@@ -161,7 +188,9 @@ export default function PresensView(props: { model: Model | null; onPickPerson: 
       )}
     </div>;
 
-  const navnAf = (id: string) => model!.byId[id]?.name ?? `person ${id}`;
+  const fallbackNavn = (id: string) => model!.byId[id]?.name ?? `person ${id}`;
+  const navnAf = (id: string) => formatAndetNavn(navneDele[id], fallbackNavn(id));
+  const navnAfAnker = (id: string) => formatAnkerNavn(navneDele[id], fallbackNavn(id));
   const aarAf = (id: string) => model!.byId[id]?.years ?? '';
   return (
     <div style={{ maxWidth: 1240, margin: '0 auto', padding: '40px 28px 90px', display: 'grid', gridTemplateColumns: '200px minmax(0,860px)', gap: 36, justifyContent: 'center', alignItems: 'start' }}>
@@ -230,7 +259,7 @@ export default function PresensView(props: { model: Model | null; onPickPerson: 
           )}
 
           {linjer.map((lin) => (
-            <PresensLinjeSektion key={lin.linje} gruppe={lin} info={linjeInfo[lin.linje]} navnAf={navnAf} aarAf={aarAf} onPick={onPickPerson} fokusId={fokusId} />
+            <PresensLinjeSektion key={lin.linje} gruppe={lin} info={linjeInfo[lin.linje]} navnAf={navnAf} navnAfAnker={navnAfAnker} aarAf={aarAf} onPick={onPickPerson} fokusId={fokusId} />
           ))}
 
           <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.08em', color: T.muted2, marginTop: 52, borderTop: '1px solid rgba(34,31,26,.08)', paddingTop: 14, textAlign: 'center' }}>

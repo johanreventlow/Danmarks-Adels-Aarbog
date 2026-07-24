@@ -217,7 +217,9 @@ function buildGren(model: Model, levendeById: LevendeById, anker: PresensAnker, 
   return { anker, ankerBlok, grupper };
 }
 
-function samlIds(n: PresensNode, ud: Set<string>): void {
+// Eksporteret (var privat) så web-laget kan indsamle alle id'er i en PresensListe
+// til et navne-dele-opslag (anker vs. øvrige rækkers navngivningsformat).
+export function samlIds(n: PresensNode, ud: Set<string>): void {
   ud.add(n.id);
   for (const p of n.partnere) ud.add(p.id);
   for (const b of n.boern) samlIds(b, ud);

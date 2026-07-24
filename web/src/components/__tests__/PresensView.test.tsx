@@ -54,3 +54,15 @@ test('linje-sektion uden info (data endnu ikke tilknyttet) viser stadig grenene'
   expect(screen.getByText('IV')).toBeTruthy();
   expect(screen.getByText('Anker Person')).toBeTruthy();
 });
+
+test('navnAfAnker bruges KUN til grenens hovedrække (dybde 0) — alle øvrige rækker bruger navnAf', () => {
+  // Regressionstest for prop-threading (reviewfund) — to indbyrdes adskillelige funktioner, så en
+  // fejlagtig ombytning eller en tabt default et sted i kæden (PresensLinjeSektion→PresensGrenSektion
+  // →renderNode) fanges her, i modsætning til de øvrige tests hvor navnAfAnker slet ikke sættes.
+  const navnAfAlm = () => 'ALM-NAVN';
+  const navnAfAnker = () => 'ANKER-NAVN';
+  render(<PresensGrenSektion gren={gren} navnAf={navnAfAlm} navnAfAnker={navnAfAnker} aarAf={aarAf} onPick={() => {}} />);
+  expect(screen.getByText('ANKER-NAVN')).toBeTruthy(); // ankerBlok (id 'A', dybde 0)
+  expect(screen.getAllByText('ALM-NAVN').length).toBeGreaterThan(0); // barn ('B'), søstre ('S'/'S2'), partner ('P')
+  expect(screen.queryAllByText('ANKER-NAVN')).toHaveLength(1); // ALDRIG mere end hovedrækken
+});
