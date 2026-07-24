@@ -392,6 +392,15 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
                     onClick={() => toggleSammenligning(person.aId, bId)}>
                     {erAabent ? 'Luk sammenligning' : 'Sammenlign'}
                   </button>
+                  <button type="button" style={{ marginTop: '.35rem', marginLeft: '.35rem', fontSize: '.85em' }}
+                    disabled={!!k.linket || busy === `s:${person.aId}:${bId}`}
+                    onClick={() => {
+                      if (window.confirm('Bekræft ' + visning(a) + ' = ' + visning(b) + ' som samme person uden at se sammenligningen?')) {
+                        bekraeft(person.aId, bId);
+                      }
+                    }}>
+                    {busy === `s:${person.aId}:${bId}` ? 'Gemmer…' : '✓ Bekræft'}
+                  </button>
                   {erAabent && (
                     detaljeError
                       ? <p style={{ color: '#881A33' }}>Kunne ikke hente kandidatdetaljer: {detaljeError}</p>

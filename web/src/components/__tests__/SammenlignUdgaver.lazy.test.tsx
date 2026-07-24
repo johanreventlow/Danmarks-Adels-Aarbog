@@ -105,6 +105,41 @@ describe('SammenlignUdgaver lazy kandidatdetalje', () => {
     expect(mocks.fetchFamilyGraph).toHaveBeenCalledTimes(1);
   });
 
+  test('bekræfter direkte fra kandidatrækken uden at indlæse sammenligningen', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mocks.submitChange.mockResolvedValue({
+      dryRun: false,
+      call: { fn: 'red_samme_som', args: {} },
+      direkte: true,
+      result: 123,
+    });
+
+    render(<SammenlignUdgaver role="redaktor" dryRun={false} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '✓ Bekræft' }));
+
+    expect(confirm).toHaveBeenCalledWith(
+      'Bekræft Detlev Reventlow · Amtmand (1660–1730) = Detlev Reventlow · Amtmand (1660–1730) som samme person uden at se sammenligningen?',
+    );
+    await waitFor(() => expect(mocks.submitChange).toHaveBeenCalledWith({
+      art: 'sammeSom', subjektType: 'person', subjektId: '2',
+      payload: { aliasId: '2', objektId: '1' },
+    }, { dryRun: false, role: 'redaktor' }));
+    await screen.findByRole('heading', { name: 'Til gennemgang (0)' });
+    expect(mocks.fetchKandidatDetalje).not.toHaveBeenCalled();
+  });
+
+  test('sender ikke bekræftelse fra kandidatrækken, når dialogen annulleres', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    render(<SammenlignUdgaver role="redaktor" dryRun={false} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '✓ Bekræft' }));
+
+    expect(mocks.submitChange).not.toHaveBeenCalled();
+    expect(mocks.fetchKandidatDetalje).not.toHaveBeenCalled();
+  });
+
   test('deler person-cache mellem arbejdslisten og audit-oversigten', async () => {
     mocks.fetchMatchAudit.mockResolvedValue([{
       relationId: '91', aId: '1', bId: '2', beslutning: 'samme_som',
