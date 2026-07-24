@@ -162,6 +162,12 @@ CREATE TABLE lineage (                   -- SLÆGTSLINJE / GREN (fx Reventlows f
   -- fact/assertion/conclusion-join i den løkke ville være markant dyrere. Hvis efternavnet en dag
   -- får brug for evidenslag (fx to DAA-udgaver uenige om et grennavn), genovervej dette.
   slaegtsnavn TEXT,
+  -- Præsenslistens EGEN, sekventielle nummerering af de nulevende linjer (springer uddøde
+  -- linjer over) — IKKE det samme som `kode` (stamtræets faste nummerering). NULL = linjen
+  -- indgår ikke i præsenslisten. Redaktør-sat, løbende (ændres i takt med hvem der er levende).
+  -- Slås ALDRIG op med fallback til `kode` — det ville kollidere (kode='I' er typisk en anden,
+  -- uddød linje). Præsensliste-redesign 2026-07-24.
+  presens_kode TEXT,
   UNIQUE (source_id, kode)
   -- Resten af (b) kræver INGEN skema-ændring — den rider på de polymorfe evidens-tabeller:
   --   * fact     subjekt_type='lineage'  → adling, floruit, alternative navne m. evidens

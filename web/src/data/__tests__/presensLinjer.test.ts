@@ -1,22 +1,32 @@
 import { mapPresensLinjer, pickPresensIntro } from '../presensLinjer';
 
-test('mapPresensLinjer: kobler lineage-rækker til deres våben-media via relation', () => {
+test('mapPresensLinjer: nøgles på presens_kode, ikke kode — kobler til våben-media via relation', () => {
   const lineageRows = [
-    { id: 1, kode: 'I', navn: 'Den holstenske linje', slaegtsnavn: 'Reventlow' },
-    { id: 2, kode: 'II', navn: 'Linjen Gallentin', slaegtsnavn: null },
+    { id: 4, kode: 'IV', navn: 'Den lensgrevelige linje af 1767', slaegtsnavn: 'Reventlou', presens_kode: 'I' },
+    { id: 5, kode: 'V', navn: 'Den grevelige linje af 1673', slaegtsnavn: 'Reventlow', presens_kode: 'II' },
   ];
-  const vaabenRel = [{ subjekt_id: 1, objekt_id: 100 }];
+  const vaabenRel = [{ subjekt_id: 4, objekt_id: 100 }];
   const media = { id: 'm1', slags: 'foto', titel: '', kunstner: '', datering: '', url: 'https://x/1.png', thumbUrl: null };
   const mediaByArm = new Map([['100', [media]]]);
   const result = mapPresensLinjer(lineageRows, vaabenRel, mediaByArm);
-  expect(result['I']).toEqual({ titel: 'Den holstenske linje', slaegtsnavn: 'Reventlow', vaaben: media });
-  expect(result['II']).toEqual({ titel: 'Linjen Gallentin', slaegtsnavn: null, vaaben: null });
+  expect(result['I']).toEqual({ titel: 'Den lensgrevelige linje af 1767', slaegtsnavn: 'Reventlou', vaaben: media });
+  expect(result['II']).toEqual({ titel: 'Den grevelige linje af 1673', slaegtsnavn: 'Reventlow', vaaben: null });
 });
 
 test('mapPresensLinjer: linje uden vaaben-relation får vaaben=null', () => {
-  const lineageRows = [{ id: 5, kode: 'V', navn: 'Den grevelige linje af 1673', slaegtsnavn: 'Reventlow' }];
+  const lineageRows = [{ id: 5, kode: 'V', navn: 'Den grevelige linje af 1673', slaegtsnavn: 'Reventlow', presens_kode: 'II' }];
   const result = mapPresensLinjer(lineageRows, [], new Map());
-  expect(result['V'].vaaben).toBeNull();
+  expect(result['II'].vaaben).toBeNull();
+});
+
+test('mapPresensLinjer: uddød linje uden presens_kode udelades — kollisionsfri selvom kode="I" allerede findes', () => {
+  const lineageRows = [
+    { id: 1, kode: 'I', navn: 'Den holstenske linje', slaegtsnavn: null, presens_kode: null }, // uddød, ikke i præsenslisten
+    { id: 4, kode: 'IV', navn: 'Den lensgrevelige linje af 1767', slaegtsnavn: 'Reventlou', presens_kode: 'I' },
+  ];
+  const result = mapPresensLinjer(lineageRows, [], new Map());
+  expect(Object.keys(result)).toEqual(['I']);
+  expect(result['I'].titel).toBe('Den lensgrevelige linje af 1767'); // IKKE den uddøde Holstenske linje
 });
 
 test('pickPresensIntro: filtrerer til source.slags=præsens-intro, vælger seneste id', () => {

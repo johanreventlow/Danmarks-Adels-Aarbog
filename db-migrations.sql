@@ -3371,3 +3371,11 @@ END $$;
 -- indsættes separat via docs/superpowers/plans/2026-07-24-praesensliste-vaaben-data-runbook.md
 -- (redaktionelt indhold — blasonering/billeder — ikke noget en migration skal fabrikere).
 INSERT INTO vocab (scheme, code, label) VALUES ('rolle','vaaben','våbenskjold for') ON CONFLICT (scheme, code) DO NOTHING;
+
+-- Præsensliste-redesign 2026-07-24 (rettelse efter bruger-verifikation): lineage.kode er IKKE
+-- det samme nummer som præsenslistens "I"/"II" — præsenslisten nummererer kun de nulevende
+-- linjer sekventielt og springer uddøde linjer over (i dag: kode='IV' vises som "I linje",
+-- kode='V' som "II linje" i præsenslisten). presens_kode er redaktørens eksplicitte, løbende
+-- tilknytning af dette — NULL = linjen indgår ikke (endnu) i præsenslisten. Slås ALDRIG op med
+-- fallback til kode (ville kollidere: kode='I' er allerede den uddøde Holstenske linje).
+ALTER TABLE lineage ADD COLUMN IF NOT EXISTS presens_kode TEXT;

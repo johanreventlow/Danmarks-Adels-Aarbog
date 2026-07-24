@@ -55,8 +55,23 @@ blev truffet før denne verifikation.
 den eksisterende `lineage.slaegtsnavn` (Udledt Slægtsnavn, live).
 
 Der findes i dag kun 5 `lineage`-rækker totalt, ét pr. `kode` — ingen
-kode-kollision på tværs af kilder at disambiguere for. Opslag sker derfor
-direkte på `kode` uden `source_id`-filtrering.
+kode-kollision på tværs af kilder at disambiguere for.
+
+**RETTELSE (fundet under bruger-verifikation, 2026-07-24, efter første review-runde):**
+Ovenstående antog fejlagtigt at `anker.linje` (præsenslistens "I"/"II" fra
+redaktørens `Overhoved (linje/gren)`-fakta) er identisk med `lineage.kode`.
+Det er det IKKE. Præsenslisten nummererer kun de *nulevende* linjer
+sekventielt (I, II, …) og springer uddøde linjer over — pt. betyder det
+"I linje" i præsenslisten = `lineage.kode='IV'` (Den lensgrevelige linje af
+1767) og "II linje" = `lineage.kode='V'` (Den grevelige linje af 1673), IKKE
+kode I/II i stamtræet (Den holstenske linje / Linjen Gallentin, begge
+uddøde). Denne sammenhæng er redaktørens egen, løbende beslutning — den
+uddør/ændres i takt med hvilke linjer der har levende medlemmer — og kan
+derfor ikke afledes af `kode` alene. Løsning: ny nullable kolonne
+`lineage.presens_kode TEXT` sat af redaktøren på præcis de linjer der
+indgår i præsenslisten; opslag sker på `presens_kode`, ALDRIG med fallback
+til `kode` (en `COALESCE(presens_kode, kode)` ville kollidere, fordi
+`kode='I'` allerede er brugt af den uddøde linje).
 
 ### 2.2 Våbenskjold → linje
 

@@ -6,11 +6,18 @@ import { fetchObjectMedia, firstSignable, type MediaItem } from './media';
 
 export type PresensLinjeInfo = { titel: string; slaegtsnavn: string | null; vaaben: MediaItem | null };
 
-type RawLineage = { id: number; kode: string; navn: string; slaegtsnavn: string | null };
+type RawLineage = { id: number; kode: string; navn: string; slaegtsnavn: string | null; presens_kode: string | null };
 type RawRelation = { subjekt_id: number; objekt_id: number };
 
 // Ren mapper — testes uden Supabase. mediaByArm er keyet på coat_of_arms.id som streng
 // (samme konvention som fetchObjectMedia's returtype).
+//
+// Nøgles på `presens_kode`, IKKE `kode` — præsenslistens "I"/"II" er redaktørens egen,
+// løbende omnummerering af kun de nulevende linjer (uddøde linjer udelades og springes
+// over), og matcher IKKE stamtræets faste `kode` (fx kode='IV' vises som "I linje" i
+// præsenslisten, fordi kode='I' er en anden, uddød linje). Rækker uden `presens_kode`
+// indgår ikke i præsenslisten og filtreres fra — ALDRIG fallback til `kode`, det ville
+// kollidere (to linjer om samme nøgle).
 export function mapPresensLinjer(
   lineageRows: RawLineage[],
   vaabenRel: RawRelation[],
@@ -19,16 +26,17 @@ export function mapPresensLinjer(
   const armIdByLineageId = new Map(vaabenRel.map((r) => [r.subjekt_id, r.objekt_id]));
   const out: Record<string, PresensLinjeInfo> = {};
   for (const l of lineageRows) {
+    if (l.presens_kode == null) continue;
     const armId = armIdByLineageId.get(l.id);
     const media = armId != null ? mediaByArm.get(String(armId)) ?? [] : [];
-    out[l.kode] = { titel: l.navn, slaegtsnavn: l.slaegtsnavn, vaaben: firstSignable(media) };
+    out[l.presens_kode] = { titel: l.navn, slaegtsnavn: l.slaegtsnavn, vaaben: firstSignable(media) };
   }
   return out;
 }
 
 export async function fetchPresensLinjer(): Promise<Record<string, PresensLinjeInfo>> {
   const lineageRows = await getAll<RawLineage>(() =>
-    supabase.from('lineage').select('id,kode,navn,slaegtsnavn'));
+    supabase.from('lineage').select('id,kode,navn,slaegtsnavn,presens_kode'));
   const lineageIds = lineageRows.map((l) => l.id);
   const vaabenRel = lineageIds.length
     ? await getAll<RawRelation>(() =>
