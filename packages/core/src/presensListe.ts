@@ -217,7 +217,9 @@ function buildGren(model: Model, levendeById: LevendeById, anker: PresensAnker, 
   return { anker, ankerBlok, grupper };
 }
 
-function samlIds(n: PresensNode, ud: Set<string>): void {
+// Eksporteret (var privat) så web-laget kan indsamle alle id'er i en PresensListe
+// til et navne-dele-opslag (anker vs. øvrige rækkers navngivningsformat).
+export function samlIds(n: PresensNode, ud: Set<string>): void {
   ud.add(n.id);
   for (const p of n.partnere) ud.add(p.id);
   for (const b of n.boern) samlIds(b, ud);
@@ -272,4 +274,21 @@ export function kanoniserPresensGrundlag(
     if (!ud.has(cid)) ud.set(cid, { ...a, personId: cid });
   }
   return { ankre: [...ud.values()], levendeById: levende };
+}
+
+export type PresensLinjeGruppe = { linje: string; grene: PresensGren[] };
+
+// Ren, rækkefølge-bevarende gruppering af den flade gren-liste under linje (visningslag —
+// liste.grene er allerede sorteret via sortAnkre, så grupperingen arver den rækkefølge).
+export function groupByLinje(grene: PresensGren[]): PresensLinjeGruppe[] {
+  const out: PresensLinjeGruppe[] = [];
+  const byLinje = new Map<string, PresensGren[]>();
+  for (const g of grene) {
+    const arr = byLinje.get(g.anker.linje);
+    if (arr) arr.push(g); else byLinje.set(g.anker.linje, [g]);
+  }
+  for (const g of grene) {
+    if (!out.some((o) => o.linje === g.anker.linje)) out.push({ linje: g.anker.linje, grene: byLinje.get(g.anker.linje)! });
+  }
+  return out;
 }

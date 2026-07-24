@@ -3375,6 +3375,24 @@ BEGIN
   END IF;
 END $$;
 
+-- Præsensliste-redesign 2026-07-24: ny rolle-kode til lineage→coat_of_arms-relationen
+-- (linjens våben). Selve relations-/media-/coat_of_arms-rækkerne for de faktiske våben
+-- indsættes separat via docs/superpowers/plans/2026-07-24-praesensliste-vaaben-data-runbook.md
+-- (redaktionelt indhold — blasonering/billeder — ikke noget en migration skal fabrikere).
+INSERT INTO vocab (scheme, code, label) VALUES ('rolle','vaaben','våbenskjold for') ON CONFLICT (scheme, code) DO NOTHING;
+
+-- Præsensliste-redesign 2026-07-24 (rettelse efter bruger-verifikation): lineage.kode er IKKE
+-- det samme nummer som præsenslistens "I"/"II" — præsenslisten nummererer kun de nulevende
+-- linjer sekventielt og springer uddøde linjer over (i dag: kode='IV' vises som "I linje",
+-- kode='V' som "II linje" i præsenslisten). presens_kode er redaktørens eksplicitte, løbende
+-- tilknytning af dette — NULL = linjen indgår ikke (endnu) i præsenslisten. Slås ALDRIG op med
+-- fallback til kode (ville kollidere: kode='I' er allerede den uddøde Holstenske linje).
+ALTER TABLE lineage ADD COLUMN IF NOT EXISTS presens_kode TEXT;
+-- Fanger dubletter loudly (DB-fejl) i stedet for at lade to linjer stille dele samme
+-- præsens-nummer (reviewfund — hvilken af dem der "vinder" ved opslag ville ellers
+-- afhænge af rækkefølge, præcis den fejlklasse denne rettelse lukker).
+CREATE UNIQUE INDEX IF NOT EXISTS lineage_presens_kode_uidx ON lineage (presens_kode) WHERE presens_kode IS NOT NULL;
+
 -- =====================================================================
 -- 2026-07-24: K2 — app-adgang til bulk-publicering af en hel udgave
 -- Funktionen har sin egen interne redaktion-gate ligesom de øvrige red_*-RPC'er.
