@@ -8,7 +8,9 @@ import {
   type PresensGrundlag, type PresensNavneDele,
 } from '../data/presens';
 import { fetchPresensLinjer, fetchPresensIntro, type PresensLinjeInfo } from '../data/presensLinjer';
+import { fetchPersonDetail } from '../data/public';
 import { currentSession, type RedSession } from '../data/auth';
+import { NarrativRenderer } from './NarrativRenderer';
 import { T } from '../theme';
 
 // Ren gren-sektion — eksporteret til test. navnAf/aarAf holder Model ude af renderingen.
@@ -16,15 +18,56 @@ import { T } from '../theme';
 // efter bogens hovedrække-format (fulde fornavne + titel inde i navnet + efternavn); alle øvrige
 // rækker (søskende, efterkommere, forbindelsesled, partnere) bruger det almindelige navnAf-format
 // (Titel + fornavne, uden efternavn) — jf. mekanismen fundet ved bruger-verifikation 2026-07-24.
+//
+// erAaben/erHenter/bioAf/onToggle (alle valgfri, default = ingen fold-ud nogensinde åben) styrer
+// fold-ud-narrativet ved navneklik (spec 2026-07-24-praesens-navn-foldud-design.md). Komponenten
+// kender bevidst IKKE til fetchPersonDetail — al hentning/cache lever i PresensView, der kalder
+// onToggle og læser tilbage via erAaben/erHenter/bioAf. Det holder denne fil testbar uden supabase.
 export function PresensGrenSektion(props: {
   gren: PresensGren;
   navnAf: (id: string) => string;
   navnAfAnker?: (id: string) => string;
   aarAf: (id: string) => string;
   onPick: (id: string) => void;
+  erAaben?: (id: string) => boolean;
+  erHenter?: (id: string) => boolean;
+  bioAf?: (id: string) => string | undefined;
+  onToggle?: (id: string) => void;
   fokusId?: string | null;
 }) {
-  const { gren, navnAf, navnAfAnker = navnAf, aarAf, onPick, fokusId } = props;
+  const {
+    gren, navnAf, navnAfAnker = navnAf, aarAf, onPick,
+    erAaben = () => false, erHenter = () => false, bioAf = () => undefined, onToggle = () => {},
+    fokusId,
+  } = props;
+
+  // Fold-ud-boksen under en række — bio-teksten rendres med samme NarrativRenderer som Om-siden/
+  // Godser/detaljepanelet (samme typografi, samme klikbare person-links INDE i teksten, som fortsat
+  // navigerer direkte via onPick — det er en anden, allerede etableret mekanik, ikke en del af dette
+  // fold-ud-lag). "Se fuld profil" er den eneste tilbageværende vej fra Præsenslisten til profilen.
+  const renderFoldud = (id: string) => (
+    <div style={{ marginTop: 4, marginBottom: 12, paddingLeft: 14, borderLeft: '2px solid rgba(185,160,106,.45)' }}>
+      {erHenter(id) ? (
+        <div style={{ fontSize: 13, color: T.muted2 }}>Henter…</div>
+      ) : (
+        <>
+          <div style={{ fontFamily: T.serif, fontSize: 14.5, lineHeight: 1.6, color: '#3d382f' }}>
+            {bioAf(id) ? (
+              <NarrativRenderer tekst={bioAf(id)!} onPickPerson={onPick} linkColor={T.bordeaux} inactiveColor={T.muted2} />
+            ) : (
+              <span style={{ fontStyle: 'italic', color: T.muted2 }}>Ingen biografi registreret</span>
+            )}
+          </div>
+          <div
+            onClick={() => onPick(id)}
+            style={{ marginTop: 6, cursor: 'pointer', color: T.bordeaux, fontSize: 12.5, fontFamily: T.mono, letterSpacing: '.03em' }}
+          >
+            → Se fuld profil
+          </div>
+        </>
+      )}
+    </div>
+  );
   // dybde styrer KUN den visuelle indrykning (marginLeft); erAnker styrer navngivningsformatet
   // og er sand PRÆCIST for gren.ankerBlok's egen række — de to var tidligere sammenblandet via
   // "dybde===0", hvilket fejlagtigt gav grupperødder (fx "Søstre") anker-navneformat, når de blev
@@ -39,11 +82,17 @@ export function PresensGrenSektion(props: {
   // barnets fulde absolutte forskydning oveni forælderens — dybde 2 endte fx 66px fra venstre
   // (22 fra forælder + 44 egen), ikke de tilsigtede 44. Nestingen giver akkumuleringen gratis; et
   // fast 22px-tillæg pr. niveau giver derfor korrekt lineær 22/44/66/88-forskydning, som i mockuppet.
+  //
+  // Navne-spannet indeholder chevronen i sit EGET nested <span> og navnet i sit EGET nested <span>
+  // (adskilt fra chevronen) — så det ydre klik-spans textContent er "▸ Navn", men det INDRE
+  // navne-span's egen textContent forbliver PRÆCIST "Navn". Det er bevidst: getByText matcher på et
+  // elements EGEN textContent, så hvis chevronen lå som ren tekst ved siden af navnet i samme span
+  // (uden eget wrapper), ville alle eksisterende getByText('Anker Person')-agtige tests knække.
   const renderNode = (n: PresensNode, dybde: number, erAnker: boolean) => (
     <div key={n.id} style={{ marginLeft: dybde === 0 ? 0 : 22, marginBottom: 2, fontSize: 14.5, lineHeight: 1.5 }}>
       <span
         data-person-id={n.id}
-        onClick={() => onPick(n.id)}
+        onClick={() => onToggle(n.id)}
         title={n.usikker ? 'Usikkert slægtskab (formodet/omstridt led)' : undefined}
         style={{
           cursor: 'pointer',
@@ -53,7 +102,8 @@ export function PresensGrenSektion(props: {
           background: fokusId === n.id ? 'rgba(128,0,32,.08)' : 'transparent',
         }}
       >
-        {erAnker ? navnAfAnker(n.id) : navnAf(n.id)}
+        <span aria-hidden style={{ color: T.muted2, fontSize: 10 }}>{erAaben(n.id) ? '▾ ' : '▸ '}</span>
+        <span>{erAnker ? navnAfAnker(n.id) : navnAf(n.id)}</span>
       </span>
       {' '}<span style={{ fontFamily: T.mono, fontSize: 11, color: T.muted2 }}>{aarAf(n.id)}</span>
       {n.usikker ? <span style={{ color: T.gold }}> ⚠</span> : ''}
@@ -61,9 +111,14 @@ export function PresensGrenSektion(props: {
       {n.partnere.filter((p) => p.levende || !n.forbindelsesled).map((p) => (
         <span key={p.id}>
           <span style={{ color: T.muted2, fontSize: 13.5 }}> · g. m. </span>
-          <span data-person-id={p.id} onClick={() => onPick(p.id)} style={{ cursor: 'pointer', color: T.muted, fontSize: 13.5 }}>{navnAf(p.id)}</span>
+          <span data-person-id={p.id} onClick={() => onToggle(p.id)} style={{ cursor: 'pointer', color: T.muted, fontSize: 13.5 }}>
+            <span aria-hidden style={{ fontSize: 9 }}>{erAaben(p.id) ? '▾ ' : '▸ '}</span>
+            <span>{navnAf(p.id)}</span>
+          </span>
         </span>
       ))}
+      {erAaben(n.id) && renderFoldud(n.id)}
+      {n.partnere.filter((p) => erAaben(p.id)).map((p) => <div key={`fu-${p.id}`}>{renderFoldud(p.id)}</div>)}
       {n.boern.map((b) => renderNode(b, dybde + 1, false))}
     </div>
   );
@@ -112,9 +167,13 @@ export function PresensLinjeSektion(props: {
   navnAfAnker?: (id: string) => string;
   aarAf: (id: string) => string;
   onPick: (id: string) => void;
+  erAaben?: (id: string) => boolean;
+  erHenter?: (id: string) => boolean;
+  bioAf?: (id: string) => string | undefined;
+  onToggle?: (id: string) => void;
   fokusId?: string | null;
 }) {
-  const { gruppe, info, navnAf, navnAfAnker, aarAf, onPick, fokusId } = props;
+  const { gruppe, info, navnAf, navnAfAnker, aarAf, onPick, erAaben, erHenter, bioAf, onToggle, fokusId } = props;
   return (
     <div id={`linje-${gruppe.linje.toLowerCase()}`} style={{ marginTop: 52 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 24, borderTop: `1px solid rgba(34,31,26,.14)`, paddingTop: 26 }}>
@@ -135,7 +194,7 @@ export function PresensLinjeSektion(props: {
         </div>
       </div>
       {gruppe.grene.map((g) => (
-        <PresensGrenSektion key={g.anker.personId} gren={g} navnAf={navnAf} navnAfAnker={navnAfAnker} aarAf={aarAf} onPick={onPick} fokusId={fokusId} />
+        <PresensGrenSektion key={g.anker.personId} gren={g} navnAf={navnAf} navnAfAnker={navnAfAnker} aarAf={aarAf} onPick={onPick} erAaben={erAaben} erHenter={erHenter} bioAf={bioAf} onToggle={onToggle} fokusId={fokusId} />
       ))}
     </div>
   );
@@ -149,6 +208,13 @@ export default function PresensView(props: { model: Model | null; onPickPerson: 
   const [linjeInfo, setLinjeInfo] = useState<Record<string, PresensLinjeInfo>>({});
   const [intro, setIntro] = useState<string | null>(null);
   const [navneDele, setNavneDele] = useState<Record<string, PresensNavneDele>>({});
+  // Fold-ud-narrativ ved navneklik (spec 2026-07-24-praesens-navn-foldud-design.md): aabne = hvilke
+  // person-id'er er foldet ud; bioById = hentet bio-tekst pr. id (tom streng er en gyldig "ingen
+  // bio"-værdi, IKKE "endnu ikke hentet" — den skelnen holdes af hentendeIds i stedet); hentendeIds =
+  // id'er hvis fetchPersonDetail-kald er undervejs (viser "Henter…", og forhindrer dobbelt-hentning).
+  const [aabne, setAabne] = useState<Set<string>>(new Set());
+  const [bioById, setBioById] = useState<Map<string, string>>(new Map());
+  const [hentendeIds, setHentendeIds] = useState<Set<string>>(new Set());
   const fokusId = (window.history.state as { fokusId?: string } | null)?.fokusId ?? null;
 
   useEffect(() => { currentSession().then(setSession).catch(() => setSession(null)); }, []);
@@ -208,6 +274,23 @@ export default function PresensView(props: { model: Model | null; onPickPerson: 
   const navnAf = (id: string) => formatAndetNavn(navneDele[id], fallbackNavn(id));
   const navnAfAnker = (id: string) => formatAnkerNavn(navneDele[id], fallbackNavn(id));
   const aarAf = (id: string) => model!.byId[id]?.years ?? '';
+  const erAaben = (id: string) => aabne.has(id);
+  const erHenter = (id: string) => hentendeIds.has(id);
+  const bioAf = (id: string) => bioById.get(id);
+  const onToggle = (id: string) => {
+    setAabne((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+    if (bioById.has(id) || hentendeIds.has(id)) return;
+    setHentendeIds((prev) => new Set(prev).add(id));
+    const members = model!.byId[id]?.mergedFrom?.map((m) => m.personId);
+    fetchPersonDetail(id, members)
+      .then((d) => setBioById((prev) => new Map(prev).set(id, d.bio)))
+      .catch(() => setBioById((prev) => new Map(prev).set(id, '')))
+      .finally(() => setHentendeIds((prev) => { const next = new Set(prev); next.delete(id); return next; }));
+  };
   return (
     <div style={{ maxWidth: 1240, margin: '0 auto', padding: '40px 28px 90px', display: 'grid', gridTemplateColumns: '200px minmax(0,860px)', gap: 36, justifyContent: 'center', alignItems: 'start' }}>
       {/* Venstre sticky-indeks */}
@@ -275,7 +358,7 @@ export default function PresensView(props: { model: Model | null; onPickPerson: 
           )}
 
           {linjer.map((lin) => (
-            <PresensLinjeSektion key={lin.linje} gruppe={lin} info={linjeInfo[lin.linje]} navnAf={navnAf} navnAfAnker={navnAfAnker} aarAf={aarAf} onPick={onPickPerson} fokusId={fokusId} />
+            <PresensLinjeSektion key={lin.linje} gruppe={lin} info={linjeInfo[lin.linje]} navnAf={navnAf} navnAfAnker={navnAfAnker} aarAf={aarAf} onPick={onPickPerson} erAaben={erAaben} erHenter={erHenter} bioAf={bioAf} onToggle={onToggle} fokusId={fokusId} />
           ))}
 
           <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.08em', color: T.muted2, marginTop: 52, borderTop: '1px solid rgba(34,31,26,.08)', paddingTop: 14, textAlign: 'center' }}>
