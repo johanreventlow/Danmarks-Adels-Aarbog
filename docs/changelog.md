@@ -101,7 +101,7 @@ blokeres/lykkes korrekt, portræt sættes/ryddes korrekt). Ingen janitor-kodeæn
 **Prod-deploy udestår som separat, gated trin** (egen runbook, fase 3-præcedensen);
 mobile er dev-only i dette projekt, så app-deploy dækker kun web.
 
-## Mediehåndtering fase 3 — implementeret og verificeret lokalt (2026-07-20)
+## Mediehåndtering fase 3 — LIVE i prod (2026-07-21)
 
 Fase 3-koden er implementeret lokalt: nye uploads hashes over de genkodede large-bytes,
 bruger deterministiske sha-stier og kan genoptages idempotent; web og mobil tilbyder
@@ -133,11 +133,13 @@ Tre implementeringsskøn er nu fastholdt: janitorens standardfrist er 7 dage og 
 `@noble/hashes`. Tilføjelsen af det native Expo-modul kræver genbygning af dev- og
 release-builds — en JavaScript-only opdatering er ikke tilstrækkelig.
 
-**Åbne gates:** empirisk browser-/mobil-/Storage-E2E blev ikke kørt, fordi der ikke var
-en eksplicit lokal Supabase-stack eller en bevist ikke-produktions-dev-bucket. Normal CI
-har heller ikke kørt uden push. Produktion er **ikke** migreret eller deployet; den
-separate gatede procedure står i
-`docs/db-backups/2026-07-20-mediehaandtering-fase3-runbook.md`.
+**Prod-cutover afsluttet:** Den scoped blok blev anvendt mod
+`xjnvdhajfyrcytatnzos` fra `caeb6a3`; web-produktionen og en ny native iOS Release blev
+verificeret, og redaktør-røgtesten er udført. Første janitor-kørsel var rapport-only og
+fandt 0 strandede uploads, 0 forældreløse objekter, 2 variant-huller og 6
+SHA-backfill-kandidater. Der blev ikke kørt `--slet` eller `--backfill-sha`; begge er
+fortsat særskilte, eksplicitte opt-ins. Se den lukkede
+`docs/db-backups/2026-07-20-mediehaandtering-fase3-runbook.md` for deployloggen.
 
 ## Mediehåndtering fase 3 — implementeringsplan skrevet + dual-reviewet (2026-07-20)
 

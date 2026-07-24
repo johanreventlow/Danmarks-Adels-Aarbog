@@ -1,7 +1,18 @@
 # Prod-runbook: mediehåndtering fase 3 — hygiejne
 
-> **Status: IKKE UDFØRT.** Dette dokument er et gated håndoff; ingen database-,
-> Storage-, web- eller mobilændring er udført i produktion som del af fase 3.
+> **Status: UDFØRT 2026-07-21.** Produktionsmålet var Supabase-projekt
+> `xjnvdhajfyrcytatnzos` og godkendt app-commit var `caeb6a3`.
+>
+> **Deploylog (lukket):** Den scoped blok
+> `mediehaandtering_fase3_hygiejne` blev kørt mod en frisk backup
+> `daa-prod-public-pre-media-f3.dump` (SHA-256
+> `558b343f43585316f017fd504a8da8dcd740f5be6cddffce6aae926cdcb033e7`); den
+> aktuelle blok ved committen har SHA-256
+> `e983643e5f39cc4d1acd70bfd8caa7991ff9644e14db5f74028c98e23159a07f`.
+> Web-produktion og en ny native iOS Release blev verificeret, og den fulde
+> redaktør-røgtest i §4 blev udført. Første janitor-kørsel var rapport-only:
+> 0 strandede, 0 forældreløse, 2 variant-huller og 6 SHA-backfill-kandidater.
+> Der blev hverken kørt `--slet` eller `--backfill-sha`.
 
 ## Scope og stopbetingelser
 

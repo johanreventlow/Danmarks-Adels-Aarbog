@@ -4,8 +4,8 @@
 > er autoritative, og hvordan næste deploy forberedes sikkert. Changelog fortæller
 > historien; denne side fortæller tilstanden.
 >
-> **Sidst afstemt:** 2026-07-20 (live-objektinventar kørt direkte mod prod via Supabase MCP,
-> ikke kun mod changelog). Opdatér ved hver prod-deploy. Ved uenighed med ældre planer/specs
+> **Sidst afstemt:** 2026-07-21 (fase 3-mediecutover, app-deploy og første janitorrapport;
+> det øvrige live-objektinventar er fra 2026-07-20). Opdatér ved hver prod-deploy. Ved uenighed med ældre planer/specs
 > gælder denne side for prod-status; ret derefter det forældede dokument i dets egen
 > dokumentationsrunde.
 >
@@ -112,6 +112,20 @@ prod-deploy.
 - `media`-afbildet-gating er FULDT AKTIV (ikke deny-all/tom — se rettelse i §3): 6 media-
   rækker i prod (2 `klar`, 4 `fjernet`), `media_variant` populeret.
 
+### Mediehåndtering fase 3 — hygiejne (live 2026-07-21)
+
+- Den scoped migrationsblok `mediehaandtering_fase3_hygiejne` er live: NULL-bar
+  `media.created_at DEFAULT now()`, `relation_afbildet_uidx`, constraint-specifik
+  fejlhåndtering i `red_relation`, `ix_note_target`, relationsevidens-triggerne og
+  `red_slet_medierelation_uden_evidens`.
+- Web-produktionen og en ny native iOS Release fra `caeb6a3` er deployet; den
+  autentificerede redaktør-røgtest af upload, dedup, afbrudt upload, blødt flet og
+  HEIC-henvisning er gennemført.
+- Første janitor-kørsel var rapport-only: 0 strandede uploads, 0 forældreløse
+  Storage-objekter, 0 ægte SHA-dubletter og 0 fremmede buckets. Den fandt to
+  manglende varianter på media 3 og seks historiske SHA-kandidater (media 1–6).
+  Disse er opfølgning; `--slet` og `--backfill-sha` er ikke kørt.
+
 ### Levende feed fase 2-3 + K2 selektiv publicering (deployet 2026-07-20)
 - **`haendelse`** (fase 2, regenererbar hændelses-projektion af narrativer) + **`story`/
   `story_kilde`/`feed_pin`** (fase 3, kurateret formidlingslag) — additive tabeller,
@@ -136,7 +150,6 @@ prod-deploy.
 | **Vocab-håndhævelse** | `vocab`-tabel findes, men `rolle`/`faktatype`/`konfidens` m.fl. er fritekst (ingen FK til vocab). Håndhæves i dag kun konventionelt. |
 | **Polymorf døde-link-integritetsrapport** | Kun `text_mention` har et døde-links-view. Bredere orphan-check (fact/relation/assertion → subjekt) findes ikke systematisk endnu. |
 | Levende feed fase 4 | LLM-assist/Edge Function — bevidst udskudt 2026-07-20 (for få kilder i PoC til at retfærdiggøre kørslen endnu), ikke annulleret. Se `decisions.md`. |
-| **Mediehåndtering fase 3 — hygiejne** | Implementeret og verificeret lokalt, men **ikke live i prod**. Det aktuelle `schema.sql` har NULL-bar `media.created_at DEFAULT now()`, det partielle firekolonne-index `relation_afbildet_uidx` for `rolle='afbildet'`, constraint-specifik domænefejl i `red_relation` samt relationsspecifikke evidenstriggere og den atomiske flet-RPC `red_slet_medierelation_uden_evidens`; den scoped blok `mediehaandtering_fase3_hygiejne` i `db-migrations.sql` bringer en fase 1+2-base til samme flade. Web/mobil bruger sha-stier; janitoren er report-first. `db-rls.sql` er uændret af fase 3, og gamle storage-stier migreres ikke. Deploy følger den separate fase 3-runbook. |
 | **Mediehåndtering fase 4 — identitet & endeligt farvel** | **LIVE i prod (2026-07-22).** Nye funktioner i `schema.sql`: `red_erstat_media_fil` (erstat bytes, behold identitet — atomisk `AND upload_status='klar'`-gate mod race), `red_udrens_media_preview`+`red_udrens_media` (permanent sletning, blokeret på SYV polymorfe ankre: relation, text_mention, fact, story, narrative, note, suggestion — guard+slet i ét atomisk `DELETE...NOT EXISTS`-statement), `red_saet_portraet` (portræt-valg, `relation.kvalifikator jsonb`-kolonne, additiv). Deployet via scoped blok `mediehaandtering_fase4_identitet`; fase-4-verify-blokkene kørt og bestået direkte mod prod (impersoneret redaktion-profil), `get_advisors(security)` viste kun kendte SECURITY DEFINER-mønstre. `db-rls.sql` uændret. Web app-deployet (Vercel, PR #75); redaktør-røgtestet (erstat/udrens/portræt) med succes; janitor-rapport bekræftede korrekt kategori-b-håndtering af et reelt erstat, ingen `--slet` kørt. |
 | Mediehåndtering fase 5 | Dokumenttransskription er ikke designet endnu. |
 | 1939-publicering | Pauset indtil nyt OCR-udtræk, nyt artefakt og fornyet komplethedsgate (uddybet i §3) |
