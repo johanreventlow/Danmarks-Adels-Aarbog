@@ -32,8 +32,9 @@ test('gren-sektion viser overskrift, ankerblok, gruppe og usikkerheds-markering'
 test('krydsReference-node viser en henvisningsnote i stedet for at gentage undertræet', () => {
   render(<PresensGrenSektion gren={gren} navnAf={navnAf} aarAf={aarAf} onPick={() => {}} />);
   // Noten sidder i sit eget indlejrede span (samme mønster som ⚠-markøren, review 26/task 8),
-  // så getByText matcher den separat fra personnavnets egen direkte tekstknude.
-  expect(screen.getByText('(vist andetsteds i denne gren)')).toBeTruthy();
+  // så getByText matcher den separat fra personnavnets egen direkte tekstknude. Ordlyd+glyf
+  // rettet til mockuppets "↗ vist andetsteds i denne gren" (design-fidelitets-gennemgang).
+  expect(screen.getByText('↗ vist andetsteds i denne gren')).toBeTruthy();
   expect(screen.getByText('Krydset Person')).toBeTruthy();
 });
 

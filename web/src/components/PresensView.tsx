@@ -18,31 +18,42 @@ export function PresensGrenSektion(props: {
 }) {
   const { gren, navnAf, aarAf, onPick, fokusId } = props;
   const renderNode = (n: PresensNode, dybde: number) => (
-    <div key={n.id} style={{ marginLeft: dybde * 18, marginBottom: 2 }}>
+    <div key={n.id} style={{ marginLeft: dybde * 22, marginBottom: 2, fontSize: 14.5, lineHeight: 1.5 }}>
       <span
         data-person-id={n.id}
         onClick={() => onPick(n.id)}
         title={n.usikker ? 'Usikkert slægtskab (formodet/omstridt led)' : undefined}
         style={{
           cursor: 'pointer',
+          fontWeight: n.forbindelsesled ? 400 : 600, // bogens fed for levende, normal for forbindelsesled
           fontStyle: n.forbindelsesled ? 'italic' : 'normal', // bogens kursiv for afdøde forbindelsesled
           color: n.forbindelsesled ? T.muted3 : T.ink,
           background: fokusId === n.id ? 'rgba(128,0,32,.08)' : 'transparent',
         }}
       >
-        {navnAf(n.id)} {aarAf(n.id)}{n.usikker ? <span> ⚠</span> : ''}
-        {n.krydsReference ? <span style={{ fontStyle: 'normal' }}> (vist andetsteds i denne gren)</span> : ''}
+        {navnAf(n.id)}
       </span>
+      {' '}<span style={{ fontFamily: T.mono, fontSize: 11, color: T.muted2 }}>{aarAf(n.id)}</span>
+      {n.usikker ? <span style={{ color: T.gold }}> ⚠</span> : ''}
+      {n.krydsReference ? <span style={{ fontSize: 12, color: T.muted2 }}> ↗ vist andetsteds i denne gren</span> : ''}
       {n.partnere.filter((p) => p.levende || !n.forbindelsesled).map((p) => (
-        <span key={p.id} style={{ color: T.muted3 }}>
-          {' '}· g. m. <span data-person-id={p.id} onClick={() => onPick(p.id)} style={{ cursor: 'pointer' }}>{navnAf(p.id)}</span>
+        <span key={p.id}>
+          <span style={{ color: T.muted2, fontSize: 13.5 }}> · g. m. </span>
+          <span data-person-id={p.id} onClick={() => onPick(p.id)} style={{ cursor: 'pointer', color: T.muted, fontSize: 13.5 }}>{navnAf(p.id)}</span>
         </span>
       ))}
       {n.boern.map((b) => renderNode(b, dybde + 1))}
     </div>
   );
   return (
-    <section id={gren.anker.gren != null ? `${gren.anker.linje.toLowerCase()}-g${gren.anker.gren}` : undefined} style={{ marginBottom: 34 }}>
+    <section
+      id={gren.anker.gren != null ? `${gren.anker.linje.toLowerCase()}-g${gren.anker.gren}` : undefined}
+      style={
+        gren.anker.gren != null
+          ? { marginTop: 34, borderLeft: '2px solid rgba(185,160,106,.45)', paddingLeft: 26 }
+          : { marginBottom: 34 }
+      }
+    >
       {gren.anker.gren != null && (
         <h2 style={{ fontFamily: T.mono, fontSize: 10.5, letterSpacing: '.22em', textTransform: 'uppercase', color: T.gold, fontWeight: 500 }}>
           {gren.anker.gren}. gren
@@ -50,10 +61,10 @@ export function PresensGrenSektion(props: {
       )}
       {renderNode(gren.ankerBlok, 0)}
       {gren.grupper.map((gr) => (
-        <div key={gr.overskrift + gr.niveau} style={{ marginTop: 16 }}>
+        <div key={gr.overskrift + gr.niveau} style={{ marginTop: 26 }}>
           <h3
             title={gr.usikker ? 'Usikkert slægtskab (formodet/omstridt led)' : undefined}
-            style={{ fontFamily: T.sans, fontSize: 11.5, letterSpacing: 2, textTransform: 'uppercase', color: T.muted3 }}
+            style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.2em', textTransform: 'uppercase', color: T.muted, borderBottom: '1px solid rgba(34,31,26,.08)', paddingBottom: 6, marginBottom: 10 }}
           >
             {gr.overskrift}{gr.usikker ? ' ⚠' : ''}
           </h3>
@@ -184,7 +195,11 @@ export default function PresensView(props: { model: Model | null; onPickPerson: 
         <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.12em', color: T.muted2, margin: '0 0 14px 4px' }}>Reventlow / Præsensliste</div>
         <div style={{ background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 4, boxShadow: '0 2px 14px rgba(34,31,26,.07)', padding: '56px 72px 64px' }}>
           <div style={{ textAlign: 'center' }}>
-            <h1 style={{ fontFamily: T.serif, fontSize: 40, fontWeight: 500, lineHeight: 1.08, margin: 0 }}>Præsensliste</h1>
+            {/* Slægtens grundvåben er bevidst ikke vist her endnu — en linje-specifik
+                coat_of_arms-række må ikke fejlagtigt genbruges som "hele slægtens" våben;
+                kræver sin egen, adskillelige familie-niveau-række (jf. runbook-mønsteret). */}
+            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.22em', textTransform: 'uppercase', color: T.muted2 }}>Slægten Reventlow</div>
+            <h1 style={{ fontFamily: T.serif, fontSize: 40, fontWeight: 500, lineHeight: 1.08, margin: '12px 0 0' }}>Præsensliste</h1>
             <div style={{ fontSize: 13.5, color: T.muted, marginTop: 10 }}>Slægtens nulevende medlemmer, ordnet efter linje og gren</div>
             <div style={{ width: 44, height: 1.5, background: T.gold, margin: '26px auto 0' }} />
           </div>
