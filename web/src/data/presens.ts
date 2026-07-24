@@ -57,9 +57,14 @@ export async function fetchPresensGrundlag(): Promise<PresensGrundlag> {
 // personer (typisk gift-ind ægtefæller) vises uden præfiks. Adskilt fra `model.byId[id].name`
 // (= visning_fuldt_navn, som allerede har efternavnet indbagt og derfor ikke kan bruges til
 // "øvrige rækker"-formatet uden det).
-export type PresensNavneDele = { navn: string; titel: string; efternavn: string };
+//
+// `fodt` (valgfri): gift-ind kvinder tager ægtefællens køns-bøjede titel + efternavn i BEGGE
+// formater (inkl. efternavn i det ellers efternavn-løse "øvrige rækker"-format), med egen
+// fødeidentitet i en født-klausul — "Lensgrevinde Hedwig Reventlow, født Mundhenke" (fundet ved
+// bruger-verifikation 2026-07-24). Se beregningen i mapPresensNavneDele nedenfor.
+export type PresensNavneDele = { navn: string; titel: string; efternavn: string; fodt?: string };
 
-type RawNavneDele = { id: number | string; visning_navn: string | null; visning_efternavn: string | null };
+type RawNavneDele = { id: number | string; visning_navn: string | null; visning_efternavn: string | null; koen?: string | null };
 
 // BEVIDST IKKE person.visning_titel (den cachede visnings-kolonne): faktatypen 'titel' er i praksis
 // et bredt "titler og hverv"-felt (militærgrad, hofembede, akademisk grad, ordensbånd, gods-
@@ -79,9 +84,28 @@ export const erAdelsTitel = (s: string): boolean => ADELS_TITLER.has(s.trim().to
 
 type RawTitelFact = { subjekt_id: number | string; vaerdi_tekst: string };
 
+// Køns-bøjning af adelstitler — gift-ind kvinder overtager ægtefællens RANG (ikke egen fødetitel)
+// som deres visnings-titel; kun mænd-formerne fra ADELS_TITLER er nøgler her, da 'komtesse' (ugift
+// datter) og de kvindelige varianter i øvrigt ikke er noget en kvinde "gifter sig til" via ægtefællen.
+const FEMININ_TITEL: Record<string, string> = {
+  greve: 'Grevinde', lensgreve: 'Lensgrevinde', baron: 'Baronesse',
+  friherre: 'Friherreinde', rigsgreve: 'Rigsgrevinde',
+};
+// Eksporteret til test.
+export const feminiserTitel = (mandsTitel: string): string | null => FEMININ_TITEL[mandsTitel.trim().toLowerCase()] ?? null;
+
+// Født-klausul af EGEN (ikke ægtefællens) titel+efternavn — titel med lille forbogstav som i
+// hovedrække-formatet ("født komtesse Ahlefeldt-Laurvig"), aldrig stort (det ville fejlagtigt
+// signalere at "komtesse" var en del af hendes NUVÆRENDE, tilgiftede rang).
+function fodtKlausul(egenTitel: string, egetEfternavn: string): string | undefined {
+  if (!egetEfternavn) return undefined;
+  return egenTitel ? `${egenTitel.toLowerCase()} ${egetEfternavn}` : egetEfternavn;
+}
+
 export function mapPresensNavneDele(
   personer: RawNavneDele[],
   adelsTitelFakta: RawTitelFact[],
+  aegtefaelleIdById: Map<string, string> = new Map(),
 ): Record<string, PresensNavneDele> {
   const titelById = new Map<string, string>();
   for (const t of adelsTitelFakta) {
@@ -92,10 +116,28 @@ export function mapPresensNavneDele(
     // men vilkårlig, standardregel; ingen semantisk "vigtigst titel"-rangordning er indbygget.
     if (!titelById.has(id)) titelById.set(id, t.vaerdi_tekst);
   }
+  const personById = new Map(personer.map((p) => [String(p.id), p]));
   const out: Record<string, PresensNavneDele> = {};
   for (const p of personer) {
     const id = String(p.id);
-    out[id] = { navn: p.visning_navn ?? '', titel: titelById.get(id) ?? '', efternavn: p.visning_efternavn ?? '' };
+    const egenTitel = titelById.get(id) ?? '';
+    const egetEfternavn = p.visning_efternavn ?? '';
+    const dele: PresensNavneDele = { navn: p.visning_navn ?? '', titel: egenTitel, efternavn: egetEfternavn };
+
+    // Gift-ind kvinde: ægtefællens køns-bøjede rang + efternavn overtages som visnings-titel,
+    // egen fødeidentitet flyttes til en "født"-klausul (bruger-verifikation 2026-07-24, se øverst).
+    if (p.koen === 'kvinde') {
+      const aegtefaelleId = aegtefaelleIdById.get(id);
+      const aegtefaelle = aegtefaelleId != null ? personById.get(aegtefaelleId) : undefined;
+      const aegtefaelleTitel = aegtefaelleId != null ? titelById.get(aegtefaelleId) : undefined;
+      const feminiseret = aegtefaelleTitel ? feminiserTitel(aegtefaelleTitel) : null;
+      if (feminiseret && aegtefaelle?.visning_efternavn) {
+        dele.titel = feminiseret;
+        dele.efternavn = aegtefaelle.visning_efternavn;
+        dele.fodt = fodtKlausul(egenTitel, egetEfternavn);
+      }
+    }
+    out[id] = dele;
   }
   return out;
 }
@@ -124,21 +166,59 @@ async function fetchAdelsTitelFakta(personIds: number[]): Promise<RawTitelFact[]
   return out;
 }
 
+type RawPartnerRow = { family_id: number | string; person_id: number | string };
+
+// Ægtefælle pr. person (kun 'partner'-rollen, jf. family_member.rolle) — antager monogamt par pr.
+// family_id (ordinal-feltet modellerer flere ægteskaber som SEPARATE family-rækker, ikke flere
+// partnere i samme). Har en person flere ægteskaber (enke, gengift), vinder den sidst behandlede
+// familie i family_id-orden (ORDER BY family_id, jf. filens øvrige queries) — ikke en semantisk
+// "seneste ægteskab"-regel, men deterministisk, og proportionalt med det aktuelle behov (kun
+// gift-ind-titel-visning).
+async function fetchAegtefaelleIdById(personIds: number[]): Promise<Map<string, string>> {
+  if (!personIds.length) return new Map();
+  const mine = await getAll<RawPartnerRow>(() =>
+    supabase.from('family_member').select('family_id,person_id').eq('rolle', 'partner').in('person_id', personIds).order('family_id'));
+  if (!mine.length) return new Map();
+  const familyIds = [...new Set(mine.map((m) => m.family_id))];
+  const alle = await getAll<RawPartnerRow>(() =>
+    supabase.from('family_member').select('family_id,person_id').eq('rolle', 'partner').in('family_id', familyIds).order('family_id'));
+  const partnereByFamily = new Map<string, string[]>();
+  for (const r of alle) {
+    const k = String(r.family_id);
+    const arr = partnereByFamily.get(k) ?? [];
+    arr.push(String(r.person_id));
+    partnereByFamily.set(k, arr);
+  }
+  const aegtefaelleIdById = new Map<string, string>();
+  for (const m of mine) {
+    const id = String(m.person_id);
+    const partnere = partnereByFamily.get(String(m.family_id)) ?? [];
+    const andenPart = partnere.find((pid) => pid !== id);
+    if (andenPart) aegtefaelleIdById.set(id, andenPart);
+  }
+  return aegtefaelleIdById;
+}
+
 export async function fetchPresensNavneDele(ids: string[]): Promise<Record<string, PresensNavneDele>> {
   if (!ids.length) return {};
   const numIds = [...new Set(ids.map(Number).filter((n) => Number.isFinite(n)))];
+  const aegtefaelleIdById = await fetchAegtefaelleIdById(numIds);
+  const aegtefaelleIds = [...new Set([...aegtefaelleIdById.values()].map(Number))];
+  const alleIds = [...new Set([...numIds, ...aegtefaelleIds])];
   const [personer, adelsTitelFakta] = await Promise.all([
-    getAll<RawNavneDele>(() => supabase.from('person').select('id,visning_navn,visning_efternavn').in('id', numIds)),
-    fetchAdelsTitelFakta(numIds),
+    getAll<RawNavneDele>(() => supabase.from('person').select('id,visning_navn,visning_efternavn,koen').in('id', alleIds)),
+    fetchAdelsTitelFakta(alleIds),
   ]);
-  return mapPresensNavneDele(personer, adelsTitelFakta);
+  return mapPresensNavneDele(personer, adelsTitelFakta, aegtefaelleIdById);
 }
+
+const fodtSuffiks = (fodt: string | undefined): string => (fodt ? `, født ${fodt}` : '');
 
 export function formatAnkerNavn(dele: PresensNavneDele | undefined, fallback: string): string {
   if (!dele || !dele.navn) return fallback;
   const titel = dele.titel ? ` ${dele.titel.toLowerCase()}` : '';
   const efternavn = dele.efternavn ? ` ${dele.efternavn}` : '';
-  return `${dele.navn}${titel}${efternavn}`;
+  return `${dele.navn}${titel}${efternavn}${fodtSuffiks(dele.fodt)}`;
 }
 
 // Stort forbogstav uafhængigt af hvordan titlen faktisk er lagret (ingen DB-CHECK håndhæver
@@ -147,5 +227,10 @@ const capFirst = (s: string): string => (s ? s.charAt(0).toUpperCase() + s.slice
 
 export function formatAndetNavn(dele: PresensNavneDele | undefined, fallback: string): string {
   if (!dele || !dele.navn) return fallback;
-  return dele.titel ? `${capFirst(dele.titel)} ${dele.navn}` : dele.navn;
+  const titelOgNavn = dele.titel ? `${capFirst(dele.titel)} ${dele.navn}` : dele.navn;
+  // født-klausul til stede = tilgiftet titel (se mapPresensNavneDele) → efternavnet skal med,
+  // i modsætning til det almindelige "øvrige rækker"-format der ellers udelader det.
+  if (!dele.fodt) return titelOgNavn;
+  const efternavn = dele.efternavn ? ` ${dele.efternavn}` : '';
+  return `${titelOgNavn}${efternavn}${fodtSuffiks(dele.fodt)}`;
 }
