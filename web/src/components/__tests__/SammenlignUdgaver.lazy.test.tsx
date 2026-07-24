@@ -82,6 +82,29 @@ describe('SammenlignUdgaver lazy kandidatdetalje', () => {
     expect(mocks.fetchKandidatDetalje).toHaveBeenCalledTimes(2);
   });
 
+  test('bekræfter lokalt uden at genhente de globale datasæt', async () => {
+    mocks.submitChange.mockResolvedValue({
+      dryRun: false,
+      call: { fn: 'red_samme_som', args: {} },
+      direkte: true,
+      result: 123,
+    });
+
+    render(<SammenlignUdgaver role="redaktor" dryRun={false} />);
+
+    expect(await screen.findByRole('heading', { name: 'Til gennemgang (1)' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Sammenlign' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Bekræft samme person' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Til gennemgang (0)' })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'Sammenlign' })).toBeNull();
+    });
+    expect(mocks.fetchMatchPersoner).toHaveBeenCalledTimes(1);
+    expect(mocks.fetchSources).toHaveBeenCalledTimes(1);
+    expect(mocks.fetchFamilyGraph).toHaveBeenCalledTimes(1);
+  });
+
   test('deler person-cache mellem arbejdslisten og audit-oversigten', async () => {
     mocks.fetchMatchAudit.mockResolvedValue([{
       relationId: '91', aId: '1', bId: '2', beslutning: 'samme_som',

@@ -19,7 +19,8 @@ export type KandidatSammenligningProps = {
   foldHint: FoldHint;
   foldAdvice?: string | null;
   linket?: boolean;
-  busy?: boolean;
+  busyAction?: 'bekraeft' | 'afvis' | null;
+  readOnly?: boolean;
   onBekraeft: () => void;
   onAfvis: () => void;
 };
@@ -171,7 +172,12 @@ function SammenligningsRaekke({
       : { background: '#f7f5f1', borderLeft: '3px solid transparent' };
   return (
     <tr data-testid={`felt-${felt}`} data-status={status}>
-      <th scope="row" style={{ textAlign: 'left', verticalAlign: 'top', padding: '.55rem', width: '18%' }}>{label}</th>
+      <th scope="row" style={{ textAlign: 'left', verticalAlign: 'top', padding: '.55rem', width: '18%' }}>
+        {label}
+        {status === 'afvigende' && (
+          <span style={{ marginLeft: '.35rem', color: '#9a4b19', fontWeight: 600, fontSize: '.85em' }}> ⚠ afviger</span>
+        )}
+      </th>
       <td style={{ ...cellStyle, verticalAlign: 'top', padding: '.55rem', overflowWrap: 'anywhere' }}>{aIndhold ?? (aTekst || '—')}</td>
       <td style={{ ...cellStyle, verticalAlign: 'top', padding: '.55rem', overflowWrap: 'anywhere' }}>{bIndhold ?? (bTekst || '—')}</td>
     </tr>
@@ -193,7 +199,7 @@ function RolleBadge({ rolle }: { rolle?: 'alias' | 'kanonisk' }) {
 
 export function KandidatSammenligning({
   personA, personB, detaljeA, detaljeB, kildeA, kildeB, rolleA, rolleB, navnById,
-  foldHint, foldAdvice, linket = false, busy = false, onBekraeft, onAfvis,
+  foldHint, foldAdvice, linket = false, busyAction = null, readOnly = false, onBekraeft, onAfvis,
 }: KandidatSammenligningProps) {
   const foraeldreA = familieNavne(detaljeA, 'foraeldre', navnById);
   const foraeldreB = familieNavne(detaljeB, 'foraeldre', navnById);
@@ -254,12 +260,16 @@ export function KandidatSammenligning({
         </tbody>
       </table>
 
-      <div style={{ marginTop: '.65rem' }}>
-        <button type="button" disabled={busy || linket} onClick={onBekraeft}>
-          {linket ? '✓ bekræftet' : 'Bekræft samme person'}
-        </button>{' '}
-        <button type="button" disabled={busy} onClick={onAfvis}>Afvis</button>
-      </div>
+      {!readOnly && (
+        <div style={{ marginTop: '.65rem' }}>
+          <button type="button" disabled={busyAction != null || linket} onClick={onBekraeft}>
+            {linket ? '✓ bekræftet' : busyAction === 'bekraeft' ? 'Gemmer…' : 'Bekræft samme person'}
+          </button>{' '}
+          <button type="button" disabled={busyAction != null} onClick={onAfvis}>
+            {busyAction === 'afvis' ? 'Gemmer…' : 'Afvis'}
+          </button>
+        </div>
+      )}
     </section>
   );
 }

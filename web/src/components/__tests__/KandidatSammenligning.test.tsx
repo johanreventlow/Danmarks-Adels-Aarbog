@@ -191,4 +191,42 @@ describe('KandidatSammenligning', () => {
 
     expect(screen.getByText('1660-01-01–1660-12-31')).toBeTruthy();
   });
+
+  test('viser handling-specifik gemmefeedback under bekræftelse', () => {
+    render(<KandidatSammenligning
+      personA={person('1')}
+      personB={person('2')}
+      detaljeA={detalje('1660', 'DAA 1939', 'x')}
+      detaljeB={detalje('1660', 'DAA 2018', 'x')}
+      kildeA="DAA 1939"
+      kildeB="DAA 2018"
+      navnById={navnById}
+      foldHint={{ folder: true, grund: null }}
+      busyAction="bekraeft"
+      onBekraeft={vi.fn()}
+      onAfvis={vi.fn()}
+    />);
+
+    expect(screen.getByRole('button', { name: 'Gemmer…' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Afvis' }).hasAttribute('disabled')).toBe(true);
+  });
+
+  test('skjuler handlingsknapper i read-only-visning', () => {
+    render(<KandidatSammenligning
+      personA={person('1')}
+      personB={person('2')}
+      detaljeA={detalje('1660', 'DAA 1939', 'x')}
+      detaljeB={detalje('1660', 'DAA 2018', 'x')}
+      kildeA="DAA 1939"
+      kildeB="DAA 2018"
+      navnById={navnById}
+      foldHint={{ folder: true, grund: null }}
+      readOnly
+      onBekraeft={vi.fn()}
+      onAfvis={vi.fn()}
+    />);
+
+    expect(screen.queryByRole('button', { name: 'Bekræft samme person' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Afvis' })).toBeNull();
+  });
 });

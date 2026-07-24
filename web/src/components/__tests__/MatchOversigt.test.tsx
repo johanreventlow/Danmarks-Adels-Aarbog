@@ -54,7 +54,15 @@ const tomDetalje: KandidatDetalje = {
   familie: { somPartner: [], somBarn: [] }, relationer: [],
 };
 
-function MatchOversigtHarness({ onFortryd }: { onFortryd: ReturnType<typeof vi.fn> }) {
+function MatchOversigtHarness({
+  auditData = audit,
+  onFortryd,
+  onFortrydAfvisning,
+}: {
+  auditData?: MatchAuditPost[];
+  onFortryd: ReturnType<typeof vi.fn>;
+  onFortrydAfvisning: ReturnType<typeof vi.fn>;
+}) {
   const [detaljeCache, setDetaljeCache] = useState<Map<string, KandidatDetalje>>(() => new Map());
   const hentKandidatDetalje = (personId: string) => mocks.fetchKandidatDetalje(personId)
     .then((detalje: KandidatDetalje) => {
@@ -62,7 +70,7 @@ function MatchOversigtHarness({ onFortryd }: { onFortryd: ReturnType<typeof vi.f
       return detalje;
     });
   return <MatchOversigt
-      audit={audit}
+      audit={auditData}
       personer={personer}
       sources={sources}
       karantaeneByPersonId={new Map([['1', 'konkurrerende forældre (1 vs. 2)']])}
@@ -70,13 +78,23 @@ function MatchOversigtHarness({ onFortryd }: { onFortryd: ReturnType<typeof vi.f
       busy={false}
       hentKandidatDetalje={hentKandidatDetalje}
       onFortryd={onFortryd}
+      onFortrydAfvisning={onFortrydAfvisning}
     />;
 }
 
-function renderOversigt(onFortryd = vi.fn()) {
+function renderOversigt(
+  onFortryd = vi.fn(),
+  onFortrydAfvisning = vi.fn(),
+  auditData: MatchAuditPost[] = audit,
+) {
   return {
     onFortryd,
-    ...render(<MatchOversigtHarness onFortryd={onFortryd} />),
+    onFortrydAfvisning,
+    ...render(<MatchOversigtHarness
+      auditData={auditData}
+      onFortryd={onFortryd}
+      onFortrydAfvisning={onFortrydAfvisning}
+    />),
   };
 }
 
@@ -87,7 +105,7 @@ describe('MatchOversigt', () => {
   });
 
   test('viser begge beslutningstyper med audit, rekomputeret score, bogreference og fold-status', () => {
-    const { container, onFortryd } = renderOversigt();
+    const { container, onFortryd, onFortrydAfvisning } = renderOversigt();
 
     expect(screen.getByText('Bekræftet samme person')).toBeTruthy();
     expect(screen.getByText('Afvist som forskellige')).toBeTruthy();
@@ -99,10 +117,12 @@ describe('MatchOversigt', () => {
     expect(screen.getByText(/Fold-status er ikke relevant for en afvisning/)).toBeTruthy();
     expect(container.querySelector('time')?.getAttribute('datetime')).toBe('2026-07-20T15:00:00Z');
 
-    const fortryd = screen.getByRole('button', { name: 'Fortryd' });
-    fireEvent.click(fortryd);
+    const fortryd = screen.getAllByRole('button', { name: 'Fortryd' });
+    fireEvent.click(fortryd[0]);
     expect(onFortryd).toHaveBeenCalledWith('91', '1');
-    expect(screen.getAllByRole('button', { name: 'Fortryd' })).toHaveLength(1);
+    fireEvent.click(fortryd[1]);
+    expect(onFortrydAfvisning).toHaveBeenCalledWith('92', '4');
+    expect(fortryd).toHaveLength(2);
   });
 
   test('filtrerer klient-side på navn, kildeudgave, linje/gren og ikke-foldende links', () => {
@@ -135,5 +155,27 @@ describe('MatchOversigt', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Se sammenligning' })[0]);
     await waitFor(() => expect(mocks.fetchKandidatDetalje).toHaveBeenCalledTimes(2));
     expect(await screen.findByRole('columnheader', { name: /1939/ })).toBeTruthy();
+  });
+
+  test('viser de 20 nyeste beslutninger først og kan vise flere', () => {
+    const mangePoster: MatchAuditPost[] = Array.from({ length: 25 }, (_, index) => ({
+      relationId: String(100 + index),
+      aId: '1',
+      bId: '2',
+      beslutning: 'samme_som',
+      actorNavn: 'Johan',
+      actorRolle: 'redaktion',
+      createdAt: `2026-07-${String(index + 1).padStart(2, '0')}T12:00:00Z`,
+      operation: 'red_samme_som',
+    }));
+
+    renderOversigt(vi.fn(), vi.fn(), mangePoster);
+
+    expect(screen.getAllByTestId(/^audit-post-/)).toHaveLength(20);
+    expect(screen.getByTestId('audit-post-124')).toBeTruthy();
+    expect(screen.queryByTestId('audit-post-100')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Vis flere' }));
+    expect(screen.getAllByTestId(/^audit-post-/)).toHaveLength(25);
   });
 });

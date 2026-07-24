@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   buildMatchFrame, defaultCfg, jaroWinkler, overlapEvidence, scorePair,
   type ParentChild, type RedMatchPerson,
@@ -62,6 +62,7 @@ export type MatchOversigtProps = {
   busy: boolean;
   hentKandidatDetalje: (personId: string) => Promise<KandidatDetalje>;
   onFortryd: (relationId: string, aId: string) => void;
+  onFortrydAfvisning: (relationId: string, aId: string) => void;
 };
 
 function kildeNavn(source: SourceRow): string {
@@ -77,7 +78,7 @@ function auditTid(createdAt: string | null): string {
 
 export function MatchOversigt({
   audit, personer, sources, karantaeneByPersonId, detaljeCache, busy,
-  hentKandidatDetalje, onFortryd,
+  hentKandidatDetalje, onFortryd, onFortrydAfvisning,
 }: MatchOversigtProps) {
   const [soegning, setSoegning] = useState('');
   const [kildeId, setKildeId] = useState('');
@@ -86,6 +87,7 @@ export function MatchOversigt({
   const [aabentRelationId, setAabentRelationId] = useState<string | null>(null);
   const [detaljeLoading, setDetaljeLoading] = useState<Set<string>>(() => new Set());
   const [detaljeFejl, setDetaljeFejl] = useState<Map<string, string>>(() => new Map());
+  const [antalVist, setAntalVist] = useState(20);
 
   const byId = useMemo(() => new Map(personer.map((person) => [String(person.id), person])), [personer]);
   const navnById = useMemo(
@@ -136,8 +138,18 @@ export function MatchOversigt({
       if (kunIkkeFoldende && (post.beslutning !== 'samme_som'
         || !(karantaeneByPersonId.has(post.aId) || karantaeneByPersonId.has(post.bId)))) return false;
       return true;
+    }).sort((a, b) => {
+      const aTid = a.createdAt ? Date.parse(a.createdAt) : Number.NaN;
+      const bTid = b.createdAt ? Date.parse(b.createdAt) : Number.NaN;
+      if (Number.isNaN(aTid)) return Number.isNaN(bTid) ? 0 : 1;
+      if (Number.isNaN(bTid)) return -1;
+      return bTid - aTid;
     });
   }, [audit, byId, kildeId, karantaeneByPersonId, kunIkkeFoldende, linjeGren, soegning]);
+
+  useEffect(() => setAntalVist(20), [soegning, kildeId, linjeGren, kunIkkeFoldende]);
+
+  const vistePoster = filtreret.slice(0, antalVist);
 
   return (
     <section aria-label="Trufne matchbeslutninger" style={{ marginTop: '1rem' }}>
@@ -169,7 +181,7 @@ export function MatchOversigt({
 
       {filtreret.length === 0 && <p style={{ color: '#6f675b' }}>Ingen beslutninger matcher filtrene.</p>}
       <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-        {filtreret.map((post) => {
+        {vistePoster.map((post) => {
           const a = byId.get(post.aId);
           const b = byId.get(post.bId);
           const grund = post.beslutning === 'samme_som'
@@ -214,9 +226,9 @@ export function MatchOversigt({
                 <button type="button" onClick={() => toggleSammenligning(post)}>
                   {erAabent ? 'Luk sammenligning' : 'Se sammenligning'}
                 </button>
-                {post.beslutning === 'samme_som' && <>{' '}
-                  <button type="button" disabled={busy} onClick={() => onFortryd(post.relationId, post.aId)}>Fortryd</button>
-                </>}
+                {post.beslutning === 'samme_som'
+                  ? <>{' '}<button type="button" disabled={busy} onClick={() => onFortryd(post.relationId, post.aId)}>Fortryd</button></>
+                  : <>{' '}<button type="button" disabled={busy} onClick={() => onFortrydAfvisning(post.relationId, post.aId)}>Fortryd</button></>}
               </div>
               {erAabent && (
                 detaljeError
@@ -231,7 +243,7 @@ export function MatchOversigt({
                         foldHint={post.beslutning === 'samme_som'
                           ? { folder: grund == null, grund }
                           : { folder: false, grund: 'Parret er markeret som forskellige.' }}
-                        linket={post.beslutning === 'samme_som'} busy
+                        linket={post.beslutning === 'samme_som'} readOnly
                         onBekraeft={() => undefined} onAfvis={() => undefined}
                       />
                     : <p style={{ color: '#6f675b' }}>{indlaeser ? 'Indlæser kandidatdetaljer…' : 'Kandidatdetaljer mangler.'}</p>
@@ -240,6 +252,9 @@ export function MatchOversigt({
           );
         })}
       </ul>
+      {antalVist < filtreret.length && (
+        <button type="button" onClick={() => setAntalVist((antal) => antal + 20)}>Vis flere</button>
+      )}
     </section>
   );
 }
