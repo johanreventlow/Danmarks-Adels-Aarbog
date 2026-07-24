@@ -27,8 +27,10 @@ export type KandidatSammenligningProps = {
 
 type FeltStatus = 'enig' | 'afvigende' | 'neutral';
 
+// Fjerner punktummer før sammenligning: kilderne staver samme dato forskelligt rent
+// tegnsætningsmæssigt (fx "3 Sept. 1857" vs. "3. sept. 1857") — det er ikke en reel afvigelse.
 function normaliser(value: string): string {
-  return value.trim().toLocaleLowerCase('da-DK').replace(/\s+/g, ' ');
+  return value.trim().toLocaleLowerCase('da-DK').replace(/\./g, '').replace(/\s+/g, ' ').trim();
 }
 
 function feltStatus(a: string, b: string): FeltStatus {
@@ -160,11 +162,14 @@ function NarrativCelle({ narrativer, testId }: { narrativer: PersonNarrativ[]; t
 }
 
 function SammenligningsRaekke({
-  felt, label, aTekst, bTekst, aIndhold, bIndhold,
+  felt, label, aTekst, bTekst, aIndhold, bIndhold, neutral = false,
 }: {
   felt: string; label: string; aTekst: string; bTekst: string; aIndhold?: ReactNode; bIndhold?: ReactNode;
+  /** Feltet sammenlignes bevidst ikke (fx bog-nr, som pr. definition er forskelligt nummereret
+   *  mellem to udgaver) — en "afvigelse" her er ikke evidens for eller imod samme person. */
+  neutral?: boolean;
 }) {
-  const status = feltStatus(aTekst, bTekst);
+  const status = neutral ? 'neutral' : feltStatus(aTekst, bTekst);
   const cellStyle = status === 'enig'
     ? { background: '#eef8ee', borderLeft: '3px solid #3d7a3d' }
     : status === 'afvigende'
@@ -250,7 +255,7 @@ export function KandidatSammenligning({
           <SammenligningsRaekke felt="foraeldre" label="Forældre" aTekst={foraeldreA} bTekst={foraeldreB} />
           <SammenligningsRaekke felt="aegteskaber" label="Ægtefælle(r)" aTekst={partnereA} bTekst={partnereB} />
           <SammenligningsRaekke felt="boern" label="Børn" aTekst={boernA} bTekst={boernB} />
-          <SammenligningsRaekke felt="bog" label="Linje / gren + bog-nr" aTekst={bogReferencer(personA)} bTekst={bogReferencer(personB)} />
+          <SammenligningsRaekke felt="bog" label="Linje / gren + bog-nr" aTekst={bogReferencer(personA)} bTekst={bogReferencer(personB)} neutral />
           <SammenligningsRaekke felt="relationer" label="Embeder / godser" aTekst={relationerA} bTekst={relationerB} />
           <SammenligningsRaekke
             felt="narrativ" label="Narrativ" aTekst={narrativerA} bTekst={narrativerB}
