@@ -57,10 +57,10 @@ test('linje-sektion uden info (data endnu ikke tilknyttet) viser stadig grenene'
 
 test('marginLeft er et FAST tillæg pr. niveau, ikke dybde*N — undgår voksende generationsafstand', () => {
   // Regressionstest (bruger-fund 2026-07-24): børn renderes som nestede <div>'er, så en absolut
-  // værdi som dybde*16 lægger forælderens forskydning oveni barnets egen (16, 48, 96, 160 — voksende
-  // gab). Et fast tillæg pr. niveau giver i stedet korrekt lineær 16px/niveau, fordi DOM-nestingen
-  // selv står for akkumuleringen. Kæden A→B→C har dybde 0/1/2; B og C skal derfor have SAMME
-  // marginLeft (16px), ikke 16px hhv. 32px.
+  // værdi som dybde*22 lægger forælderens forskydning oveni barnets egen (22, 66, 132, 220 — voksende
+  // gab). Et fast tillæg pr. niveau giver i stedet korrekt lineær 22px/niveau (mockuppets indent*22),
+  // fordi DOM-nestingen selv står for akkumuleringen. Kæden A→B→C har dybde 0/1/2; B og C skal derfor
+  // have SAMME marginLeft (22px), ikke 22px hhv. 44px.
   const kaede: PresensGren = {
     anker: { personId: 'A', linje: 'II', gren: 1, raaVaerdi: 'II linje, 1. gren' },
     ankerBlok: { id: 'A', levende: true, forbindelsesled: false, partnere: [], boern: [
@@ -73,8 +73,8 @@ test('marginLeft er et FAST tillæg pr. niveau, ikke dybde*N — undgår voksend
   render(<PresensGrenSektion gren={kaede} navnAf={navnAf} aarAf={aarAf} onPick={() => {}} />);
   const bDiv = screen.getByText('Barn Person').closest('div');
   const cDiv = screen.getByText('C').closest('div');
-  expect(bDiv?.style.marginLeft).toBe('16px');
-  expect(cDiv?.style.marginLeft).toBe('16px');
+  expect(bDiv?.style.marginLeft).toBe('22px');
+  expect(cDiv?.style.marginLeft).toBe('22px');
 });
 
 test('navnAfAnker bruges KUN til grenens hovedrække (dybde 0) — alle øvrige rækker bruger navnAf', () => {
