@@ -58,6 +58,8 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
   const [busy, setBusy] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [aabentPar, setAabentPar] = useState<string | null>(null);
+  const [aktivFane, setAktivFane] = useState<'arbejdsliste' | 'bekraeftede' | 'karantaene' | 'historik'>('arbejdsliste');
+  const [arbejdslisteSoegning, setArbejdslisteSoegning] = useState('');
   const [detaljeCache, setDetaljeCache] = useState<Map<string, KandidatDetalje>>(() => new Map());
   const [detaljeLoading, setDetaljeLoading] = useState<Set<string>>(() => new Set());
   const [detaljeFejl, setDetaljeFejl] = useState<Map<string, string>>(() => new Map());
@@ -197,6 +199,16 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
       formodetNye: arbejdspersoner.filter((p) => p.status === 'formodet_ny'),
     };
   }, [arbejdsliste]);
+  const filtreredeAabne = useMemo(() => {
+    const needle = arbejdslisteSoegning.trim().toLocaleLowerCase('da-DK');
+    if (!needle) return aabne;
+    return aabne.filter((person) => {
+      const a = byId.get(person.aId);
+      return visning(a).toLocaleLowerCase('da-DK').includes(needle)
+        || person.kandidater.some((kandidat) =>
+          visning(byId.get(String(kandidat.bId))).toLocaleLowerCase('da-DK').includes(needle));
+    });
+  }, [aabne, arbejdslisteSoegning, byId]);
   const ubekraeftedeFoldHints = useMemo(() => {
     const hints = new Map<string, { folder: boolean; grund: string | null }>();
     for (const person of aabne) {
@@ -360,11 +372,43 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
         </p>
       )}
 
-      <h3>Til gennemgang ({aabne.length})</h3>
-      {aabne.length === 0 && !loading && (
-        <p style={{ color: '#3d7a3d' }}>✓ Alle kandidater for denne udgave er afklaret.</p>
-      )}
-      {aabne.map((person) => {
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem', margin: '.75rem 0' }}>
+        <button type="button" onClick={() => setAktivFane('arbejdsliste')}
+          aria-current={aktivFane === 'arbejdsliste' ? 'true' : undefined}
+          style={{ fontWeight: aktivFane === 'arbejdsliste' ? 700 : 400 }}>
+          Arbejdsliste ({aabne.length})
+        </button>
+        <button type="button" onClick={() => setAktivFane('bekraeftede')}
+          aria-current={aktivFane === 'bekraeftede' ? 'true' : undefined}
+          style={{ fontWeight: aktivFane === 'bekraeftede' ? 700 : 400 }}>
+          Bekræftede ({afklarede.length})
+        </button>
+        <button type="button" onClick={() => setAktivFane('karantaene')}
+          aria-current={aktivFane === 'karantaene' ? 'true' : undefined}
+          style={{ fontWeight: aktivFane === 'karantaene' ? 700 : 400 }}>
+          Karantæne ({foldPreview.quarantined.length})
+        </button>
+        <button type="button" onClick={() => setAktivFane('historik')}
+          aria-current={aktivFane === 'historik' ? 'true' : undefined}
+          style={{ fontWeight: aktivFane === 'historik' ? 700 : 400 }}>
+          Historik ({matchAudit.length})
+        </button>
+      </div>
+
+      {aktivFane === 'arbejdsliste' && (
+        <>
+          <label>Søg på navn<br />
+            <input value={arbejdslisteSoegning}
+              onChange={(event) => setArbejdslisteSoegning(event.target.value)} type="search" />
+          </label>
+          <h3>Til gennemgang ({aabne.length})</h3>
+          {aabne.length === 0 && !loading && (
+            <p style={{ color: '#3d7a3d' }}>✓ Alle kandidater for denne udgave er afklaret.</p>
+          )}
+          {aabne.length > 0 && filtreredeAabne.length === 0 && (
+            <p style={{ color: '#6f675b' }}>Ingen kandidater matcher søgningen.</p>
+          )}
+          {filtreredeAabne.map((person) => {
         const a = byId.get(person.aId);
         const aDetaljer = [
           foraeldreNavne(person.aId, familieGraf.parentChild, byId),
@@ -452,80 +496,89 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
             })}
           </div>
         );
-      })}
+          })}
+        </>
+      )}
 
       {/* Karantæne-oversigt (§7.18): bekræftede samme_som-links der endnu ikke folder offentligt
           — typisk fordi forældrene i de to udgaver ikke selv er matchet endnu. Rådgivende. */}
-      {foldPreview.quarantined.length > 0 && (
-        <details style={{ marginTop: '.75rem', border: '1px solid rgba(136,26,51,.25)', borderRadius: 6, padding: '.5rem .8rem', background: '#fdf3f5' }}>
-          <summary style={{ color: '#881A33', fontWeight: 600, cursor: 'pointer' }}>
+      {aktivFane === 'karantaene' && (
+        <section style={{ marginTop: '.75rem', border: '1px solid rgba(136,26,51,.25)', borderRadius: 6, padding: '.5rem .8rem', background: '#fdf3f5' }}>
+          <h3 style={{ color: '#881A33' }}>
             {foldPreview.quarantined.length} bekræftet link{foldPreview.quarantined.length === 1 ? '' : 's'} folder endnu ikke offentligt
-          </summary>
-          <ul style={{ fontSize: '.85em', marginTop: '.4rem', marginBottom: 0 }}>
-            {foldPreview.quarantined.map((q, i) => {
-              const advice = foldAdvice(q.reason);
-              return (
-                <li key={i}>
-                  {q.members.map((id) => visning(byId.get(id))).join(' = ')} — <em>{q.reason}</em>
-                  {advice && <div style={{ color: '#6f675b' }}>{advice}</div>}
-                </li>
-              );
-            })}
-          </ul>
-        </details>
+          </h3>
+          {foldPreview.quarantined.length === 0
+            ? <p style={{ color: '#6f675b' }}>Ingen karantænerede links.</p>
+            : (
+              <ul style={{ fontSize: '.85em', marginTop: '.4rem', marginBottom: 0 }}>
+                {foldPreview.quarantined.map((q, i) => {
+                  const advice = foldAdvice(q.reason);
+                  return (
+                    <li key={i}>
+                      {q.members.map((id) => visning(byId.get(id))).join(' = ')} — <em>{q.reason}</em>
+                      {advice && <div style={{ color: '#6f675b' }}>{advice}</div>}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+        </section>
       )}
 
       {/* Bekræftede matches (§7.20): kun HER kan en staged 1939-person vælges til selektiv
           publicering — allerede publicerede vises med et badge i stedet for afkrydsning.
           Adskilt fra `aabne`, fordi buildArbejdsliste flytter en person hertil i samme
           øjeblik ÉT af dens kandidater bekræftes (uanset øvrige kandidaters status). */}
-      {afklarede.length > 0 && (
-        <details open style={{ marginTop: '.75rem' }}>
-          <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+      {aktivFane === 'bekraeftede' && (
+        <section style={{ marginTop: '.75rem' }}>
+          <h3>
             {afklarede.length} bekræftet{afklarede.length === 1 ? '' : 'e'} match{afklarede.length === 1 ? '' : 'es'}
-          </summary>
-          <div style={{ margin: '.6rem 0', display: 'flex', alignItems: 'baseline', gap: '.6rem' }}>
-            <button disabled={!!busy || valgteTilPublicering.size === 0} onClick={publicerValgte}>
-              Publicér valgte ({valgteTilPublicering.size})
-            </button>
-            <span style={{ fontSize: '.8em', color: '#6f675b' }}>
-              Gør kun de markerede personer synlige for besøgende — resten forbliver skjult, til de er klar.
-            </span>
-          </div>
-          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-            {afklarede.map((person) => {
-              const a = byId.get(person.aId);
-              const staged = a?.staged ?? false;
-              const linket = person.kandidater.find((k) => k.linket);
-              const b = linket ? byId.get(String(linket.bId)) : undefined;
-              const hint = linket ? foldHint(person.aId, String(linket.bId), true) : { folder: false, grund: null };
-              const advice = hint.grund ? foldAdvice(hint.grund) : null;
-              return (
-                <li key={person.aId} style={{ padding: '.4rem 0', borderBottom: '1px dashed rgba(34,31,26,.08)' }}>
-                  {staged ? (
-                    <label style={{ cursor: 'pointer' }}>
-                      <input type="checkbox" checked={valgteTilPublicering.has(person.aId)}
-                        onChange={() => toggleValgtTilPublicering(person.aId)} style={{ marginRight: '.4rem' }} />
-                      {visning(a)} = {visning(b)}
-                    </label>
-                  ) : (
-                    <span>{visning(a)} = {visning(b)} <span style={{ fontSize: '.8em', color: '#3d7a3d' }}>✓ publiceret</span></span>
-                  )}
-                  <div style={{ fontSize: '.8em', marginTop: '.15rem', color: hint.folder ? '#3d7a3d' : '#881A33' }}>
-                    {hint.folder ? '✓ foldes offentligt til én person' : `foldes IKKE endnu offentligt: ${hint.grund}`}
-                    {!hint.folder && advice && <div style={{ color: '#6f675b' }}>{advice}</div>}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </details>
+          </h3>
+          {afklarede.length === 0
+            ? <p style={{ color: '#6f675b' }}>Ingen bekræftede matches endnu.</p>
+            : (
+              <>
+                <div style={{ margin: '.6rem 0', display: 'flex', alignItems: 'baseline', gap: '.6rem' }}>
+                  <button disabled={!!busy || valgteTilPublicering.size === 0} onClick={publicerValgte}>
+                    Publicér valgte ({valgteTilPublicering.size})
+                  </button>
+                  <span style={{ fontSize: '.8em', color: '#6f675b' }}>
+                    Gør kun de markerede personer synlige for besøgende — resten forbliver skjult, til de er klar.
+                  </span>
+                </div>
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                  {afklarede.map((person) => {
+                    const a = byId.get(person.aId);
+                    const staged = a?.staged ?? false;
+                    const linket = person.kandidater.find((k) => k.linket);
+                    const b = linket ? byId.get(String(linket.bId)) : undefined;
+                    const hint = linket ? foldHint(person.aId, String(linket.bId), true) : { folder: false, grund: null };
+                    const advice = hint.grund ? foldAdvice(hint.grund) : null;
+                    return (
+                      <li key={person.aId} style={{ padding: '.4rem 0', borderBottom: '1px dashed rgba(34,31,26,.08)' }}>
+                        {staged ? (
+                          <label style={{ cursor: 'pointer' }}>
+                            <input type="checkbox" checked={valgteTilPublicering.has(person.aId)}
+                              onChange={() => toggleValgtTilPublicering(person.aId)} style={{ marginRight: '.4rem' }} />
+                            {visning(a)} = {visning(b)}
+                          </label>
+                        ) : (
+                          <span>{visning(a)} = {visning(b)} <span style={{ fontSize: '.8em', color: '#3d7a3d' }}>✓ publiceret</span></span>
+                        )}
+                        <div style={{ fontSize: '.8em', marginTop: '.15rem', color: hint.folder ? '#3d7a3d' : '#881A33' }}>
+                          {hint.folder ? '✓ foldes offentligt til én person' : `foldes IKKE endnu offentligt: ${hint.grund}`}
+                          {!hint.folder && advice && <div style={{ color: '#6f675b' }}>{advice}</div>}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
+            )}
+        </section>
       )}
 
-      <details style={{ marginTop: '1rem' }}>
-        <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
-          Historik — {matchAudit.length} trufne beslutninger
-        </summary>
+      {aktivFane === 'historik' && (
         <MatchOversigt
           audit={matchAudit}
           personer={personer}
@@ -537,7 +590,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
           onFortryd={fortrydSammeSom}
           onFortrydAfvisning={fortrydIkkeSammeSom}
         />
-      </details>
+      )}
 
       {formodetNye.length > 0 && (
         <details style={{ marginTop: '1rem' }}>

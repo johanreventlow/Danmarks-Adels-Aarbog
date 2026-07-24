@@ -153,6 +153,7 @@ describe('SammenlignUdgaver lazy kandidatdetalje', () => {
     await waitFor(() => expect(mocks.fetchKandidatDetalje).toHaveBeenCalledTimes(2));
     fireEvent.click(screen.getByRole('button', { name: 'Luk sammenligning' }));
 
+    fireEvent.click(screen.getByRole('button', { name: /Historik/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Se sammenligning' }));
     await screen.findByRole('button', { name: 'Luk sammenligning' });
     expect(mocks.fetchKandidatDetalje).toHaveBeenCalledTimes(2);
@@ -169,6 +170,7 @@ describe('SammenlignUdgaver lazy kandidatdetalje', () => {
     mocks.submitChange.mockResolvedValue({});
 
     render(<SammenlignUdgaver role="redaktor" dryRun={false} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Historik/ }));
     fireEvent.click(await screen.findByRole('button', { name: 'Fortryd' }));
 
     expect(mocks.fetchMatchAudit).toHaveBeenCalledWith(sammeSom, []);
@@ -189,11 +191,76 @@ describe('SammenlignUdgaver lazy kandidatdetalje', () => {
 
     // dryRun ikke angivet → default true (samme sikre default som Redaktion.tsx's egen useState).
     render(<SammenlignUdgaver role="redaktor" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Historik/ }));
     fireEvent.click(await screen.findByRole('button', { name: 'Fortryd' }));
 
     await waitFor(() => expect(mocks.submitChange).toHaveBeenCalledWith(
       expect.anything(),
       { dryRun: true, role: 'redaktor' },
     ));
+  });
+
+  test('filtrerer arbejdslisten på person- og kandidatnavne uden at ændre totalen', async () => {
+    mocks.fetchMatchPersoner.mockResolvedValue([
+      {
+        id: '1', navn: 'detlev reventlow', fuldtNavn: 'Detlev Reventlow', koen: 'mand',
+        foedsel: { date_min: '1660-01-01', date_max: '1660-12-31' },
+        doed: { date_min: '1730-01-01', date_max: '1730-12-31' }, titel: 'Amtmand',
+        bogReferencer: [], sourceIds: [3], staged: false,
+      },
+      {
+        id: '2', navn: 'detlev reventlow', fuldtNavn: 'Detlev Reventlow', koen: 'mand',
+        foedsel: { date_min: '1660-01-01', date_max: '1660-12-31' },
+        doed: { date_min: '1730-01-01', date_max: '1730-12-31' }, titel: 'Amtmand',
+        bogReferencer: [], sourceIds: [7], staged: true,
+      },
+      {
+        id: '3', navn: 'christian holck', fuldtNavn: 'Christian Holck', koen: 'mand',
+        foedsel: { date_min: '1750-01-01', date_max: '1750-12-31' },
+        doed: { date_min: '1810-01-01', date_max: '1810-12-31' }, titel: 'Kammerherre',
+        bogReferencer: [], sourceIds: [3], staged: false,
+      },
+      {
+        id: '4', navn: 'christian holck', fuldtNavn: 'Christian Holck', koen: 'mand',
+        foedsel: { date_min: '1750-01-01', date_max: '1750-12-31' },
+        doed: { date_min: '1810-01-01', date_max: '1810-12-31' }, titel: 'Kammerherre',
+        bogReferencer: [], sourceIds: [7], staged: true,
+      },
+    ]);
+
+    render(<SammenlignUdgaver role="redaktor" />);
+
+    expect(await screen.findByRole('heading', { name: 'Til gennemgang (2)' })).toBeTruthy();
+    expect(screen.getAllByText(/Detlev Reventlow/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Christian Holck/).length).toBeGreaterThan(0);
+
+    fireEvent.change(screen.getByLabelText('Søg på navn'), { target: { value: 'christian' } });
+
+    expect(screen.getByRole('heading', { name: 'Til gennemgang (2)' })).toBeTruthy();
+    expect(screen.queryByText(/Detlev Reventlow/)).toBeNull();
+    expect(screen.getAllByText(/Christian Holck/).length).toBeGreaterThan(0);
+  });
+
+  test('viser kun indholdet for den aktive fane og kan skifte mellem alle fire', async () => {
+    render(<SammenlignUdgaver role="redaktor" />);
+
+    expect(await screen.findByRole('heading', { name: 'Til gennemgang (1)' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Trufne beslutninger (0)' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bekræftede (0)' }));
+    expect(screen.getByText('Ingen bekræftede matches endnu.')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Til gennemgang (1)' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Karantæne (0)' }));
+    expect(screen.getByText('Ingen karantænerede links.')).toBeTruthy();
+    expect(screen.queryByText('Ingen bekræftede matches endnu.')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Historik (0)' }));
+    expect(screen.getByRole('heading', { name: 'Trufne beslutninger (0)' })).toBeTruthy();
+    expect(screen.queryByText('Ingen karantænerede links.')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Arbejdsliste (1)' }));
+    expect(screen.getByRole('heading', { name: 'Til gennemgang (1)' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Trufne beslutninger (0)' })).toBeNull();
   });
 });
