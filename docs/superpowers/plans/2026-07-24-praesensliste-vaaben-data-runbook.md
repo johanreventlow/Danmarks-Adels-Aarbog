@@ -1,5 +1,11 @@
 # Præsensliste — våben + intro-tekst dataindsættelse (runbook)
 
+**Status: udført mod prod (2026-07-24).** Alle 5 trin nedenfor er gennemført —
+`presens_kode` er sat, coat_of_arms-rækkerne + relation-tilknytningerne findes,
+begge våben-billeder er uploadet og tilknyttet via redaktions-UI'et, og
+præsens-intro-narrativet er indsat. Dokumentet bevares som opskrift, hvis en
+tredje linje senere skal have levende medlemmer.
+
 Kør EFTER migrationerne (`vocab` rolle='vaaben' + `lineage.presens_kode`) er anvendt
 mod prod. Kør altid mod en lokal kopi/branch-base først (jf. global regel om
 DB-ændringer).
