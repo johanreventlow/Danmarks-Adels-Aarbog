@@ -1183,10 +1183,8 @@ export async function fetchUdrensPreview(mediaId: string): Promise<UdrensPreview
 export type { RedMatchPerson };
 
 /** Hent MatchFrame-input for hele redaktions-datasættet (tynd; @daa/core-mappere gør arbejdet).
- *  NB (skala): conclusion/assertion hentes for ALLE fact-typer og filtreres klient-side til
- *  fødsel/død/titel, fordi et batch-`.in('target_id', factIds)`-filter sprænger PostgREST's URL-længde
- *  ved ~900 personer. Rigtig fix ved skala: et server-side view (fact→conclusion→assertion → ét
- *  fødsels-/døds-interval pr. person). Udskudt — PoC-volumen er håndterbar. */
+ *  Ét batchet RPC-kald (`red_match_personer`, Fase 4.1) i stedet for 5 parallelle pagineret-i-1000
+ *  `getAll()`-læsninger — undgik den akkumulerede net-roundtrip-latens ved 1758+ personer. */
 export async function fetchMatchPersoner(): Promise<RedMatchPerson[]> {
   const [{ data, error }, lineages] = await Promise.all([
     supabase.rpc('red_match_personer'),
