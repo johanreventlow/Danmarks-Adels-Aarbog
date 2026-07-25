@@ -3,8 +3,12 @@ import { curatedFounders, forsideStartpersoner, pickMaanedensGods } from '../dat
 import type { Model, ModelPerson } from '../data/types';
 import type { EstateItem } from '../data/public';
 
+const DAGS_AAR = 2026;
+
+// died: 1900 → sikkert død (kunSikkertDoede's GDPR-gate i home.ts ekskluderer ellers alle
+// test-personer, uafhængigt af hvad den enkelte test faktisk øver på).
 function person(id: string, name: string): ModelPerson {
-  return { id, name, born: null, died: null, years: '', title: '', bio: '', privat: false, parentId: null, spouse: null } as ModelPerson;
+  return { id, name, born: null, died: 1900, years: '', title: '', bio: '', privat: false, parentId: null, spouse: null } as ModelPerson;
 }
 
 function buildModel(persons: ModelPerson[], childIdx: Record<string, Set<string>>, heads: (string | null)[]): Model {
@@ -23,7 +27,7 @@ describe('curatedFounders', () => {
     const ps = [person('a', 'A'), person('b', 'B'), person('c', 'C')];
     // heads inkluderer en dublet ('a') og et ukendt id ('zzz') der skal ignoreres
     const m = buildModel(ps, {}, ['a', 'b', 'a', 'zzz', 'c']);
-    expect(curatedFounders(m, 5).map((p) => p.id)).toEqual(['a', 'b', 'c']);
+    expect(curatedFounders(m, 5, DAGS_AAR).map((p) => p.id)).toEqual(['a', 'b', 'c']);
   });
 
   it('udfylder op til n med mest centrale personer (flest børn) når der er for få stamfædre', () => {
@@ -31,20 +35,20 @@ describe('curatedFounders', () => {
     const childIdx = { b: new Set(['x', 'y', 'z']), c: new Set(['x']), d: new Set(['x', 'y']) };
     const m = buildModel(ps, childIdx, ['a']); // kun 1 stamfader
     // a (stamfader) + fyld efter centralitet: b(3) > d(2) > c(1)
-    expect(curatedFounders(m, 3).map((p) => p.id)).toEqual(['a', 'b', 'd']);
+    expect(curatedFounders(m, 3, DAGS_AAR).map((p) => p.id)).toEqual(['a', 'b', 'd']);
   });
 
   it('respekterer n-loftet og medtager ikke centralitets-personer med 0 børn', () => {
     const ps = [person('a', 'A'), person('b', 'B')];
     const m = buildModel(ps, {}, ['a']); // ingen børn-indeks → ingen fill-kandidater
-    expect(curatedFounders(m, 5).map((p) => p.id)).toEqual(['a']);
+    expect(curatedFounders(m, 5, DAGS_AAR).map((p) => p.id)).toEqual(['a']);
   });
 
   it('tie-break på id ved lige centralitet', () => {
     const ps = [person('b', 'B'), person('a', 'A')];
     const childIdx = { a: new Set(['x']), b: new Set(['y']) };
     const m = buildModel(ps, childIdx, []); // ingen stamfædre → ren centralitets-fill
-    expect(curatedFounders(m, 2).map((p) => p.id)).toEqual(['a', 'b']);
+    expect(curatedFounders(m, 2, DAGS_AAR).map((p) => p.id)).toEqual(['a', 'b']);
   });
 });
 
@@ -57,7 +61,7 @@ describe('forsideStartpersoner', () => {
       { kortNoegle: 'portrait:d', handling: 'pin' as const },
       { kortNoegle: 'portrait:c', handling: 'pin' as const },
     ];
-    expect(forsideStartpersoner(model, pins, 3).map((p) => p.id)).toEqual(['d', 'c', 'a']);
+    expect(forsideStartpersoner(model, pins, 3, DAGS_AAR).map((p) => p.id)).toEqual(['d', 'c', 'a']);
   });
 
   it('ignorerer dinglende, story/arkiv og skjul', () => {
@@ -67,16 +71,16 @@ describe('forsideStartpersoner', () => {
       { kortNoegle: 'arkiv:8', handling: 'pin' as const },
       { kortNoegle: 'portrait:d', handling: 'skjul' as const },
     ];
-    expect(forsideStartpersoner(model, pins, 2).map((p) => p.id)).toEqual(['a', 'b']);
+    expect(forsideStartpersoner(model, pins, 2, DAGS_AAR).map((p) => p.id)).toEqual(['a', 'b']);
   });
 
   it('fallback udfylder uden dubletter', () => {
-    expect(forsideStartpersoner(model, [{ kortNoegle: 'portrait:a', handling: 'pin' }], 3)
+    expect(forsideStartpersoner(model, [{ kortNoegle: 'portrait:a', handling: 'pin' }], 3, DAGS_AAR)
       .map((p) => p.id)).toEqual(['a', 'b', 'd']);
   });
 
   it('tom pin-liste er identisk med curatedFounders', () => {
-    expect(forsideStartpersoner(model, [], 4)).toEqual(curatedFounders(model, 4));
+    expect(forsideStartpersoner(model, [], 4, DAGS_AAR)).toEqual(curatedFounders(model, 4, DAGS_AAR));
   });
 });
 

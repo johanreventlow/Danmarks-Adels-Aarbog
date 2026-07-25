@@ -22,6 +22,16 @@ export function firstQuotableSentence(bio: string): string | null {
   return null;
 }
 
+// Nedre grænse for et brugbart narrativ i portræt-/dagensperson-kort: "et par sætninger",
+// afledt af firstQuotableSentence's eksisterende 40-tegns minimum for ÉN sætning ovenfor
+// (× ca. 2-3 sætninger) — ikke et vilkårligt tal. Et enkelt kort fragment ("Nævnt 1650.")
+// skal ikke kunne bære et helt portræt-kort alene.
+export const MIN_BIO_LAENGDE = 120;
+
+export function harBrugbarBio(bio: string): boolean {
+  return bio.trim().length >= MIN_BIO_LAENGDE;
+}
+
 // Portrait/citat trækker fra samme bio-population, men en person optræder ALDRIG som begge
 // (spec §3.3a, v3-spec §3.3a): deterministisk hash-partition. Citat-slot uden brugbar
 // sætning falder helt ud. `excludeId` (spec §3, task 3) udelader dagens person — den
@@ -36,7 +46,7 @@ export function buildPortraitAndCitat(
   citatEnabled = true,
 ): { portraits: FeedCard[]; citater: FeedCard[]; usedCitatHaendelseIds: Set<string> } {
   const bioPersons = model.persons
-    .filter((p) => p.bio.trim() !== '' && p.id !== excludeId)
+    .filter((p) => harBrugbarBio(p.bio) && p.id !== excludeId)
     .sort(byIdStr);
   const portraits: FeedCard[] = [];
   const citater: FeedCard[] = [];

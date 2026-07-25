@@ -150,13 +150,16 @@ describe('buildPaaDenneDag', () => {
   });
 });
 
+const LONG_BIO = 'Dette er en tilstrækkelig lang og velformet biografisk tekst om personens liv, '
+  + 'virke og eftermæle, skrevet med tilstrækkeligt mange detaljer og sammenhæng.';
+
 describe('pickDagensPerson', () => {
   it('deterministisk pr. dato', () => {
-    const m = mkModel(Array.from({ length: 10 }, (_, i) => person('p' + i, { bio: 'x' })));
+    const m = mkModel(Array.from({ length: 10 }, (_, i) => person('p' + i, { bio: LONG_BIO })));
     expect(pickDagensPerson(m, '2026-07-18')).toBe(pickDagensPerson(m, '2026-07-18'));
   });
   it('skifter mellem forskellige datoer (statistisk — mindst én forskel over flere datoer)', () => {
-    const m = mkModel(Array.from({ length: 10 }, (_, i) => person('p' + i, { bio: 'x' })));
+    const m = mkModel(Array.from({ length: 10 }, (_, i) => person('p' + i, { bio: LONG_BIO })));
     const picks = new Set(
       ['2026-01-01', '2026-02-14', '2026-03-30', '2026-07-18', '2026-12-25'].map((d) => pickDagensPerson(m, d)),
     );

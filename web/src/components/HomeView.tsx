@@ -9,6 +9,7 @@ import { PersonCard, SearchIcon, Crest } from './primitives';
 import { forsideStartpersoner, pickMaanedensGods } from '../data/home';
 import { FeedStreamView } from './feed/FeedStreamView';
 import { fetchFeedPins } from '../data/feedPins';
+import { todayISO } from '../data/feedSession';
 import type { FeedPinInput } from '@daa/feed';
 import type { Model } from '../data/types';
 import type { ArmsItem, EstateItem } from '../data/public';
@@ -52,7 +53,11 @@ export function HomeView({
 }) {
   // Ét delt pin-load for feed-strømmen og forsidens startpersoner (Task 12).
   const [feedPins, setFeedPins] = useState<FeedPinInput[]>([]);
-  const curated = useMemo(() => (model ? forsideStartpersoner(model, feedPins, 4) : []), [model, feedPins]);
+  const dagsAar = useMemo(() => Number(todayISO().slice(0, 4)), []);
+  const curated = useMemo(
+    () => (model ? forsideStartpersoner(model, feedPins, 4, dagsAar) : []),
+    [model, feedPins, dagsAar],
+  );
   const gods = useMemo(() => pickMaanedensGods(estates), [estates]);
   useEffect(() => {
     let alive = true;

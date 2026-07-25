@@ -1,6 +1,7 @@
 export * from './prng';
 export * from './types';
 export * from './haendelser';
+export * from './levende';
 export * from './story';
 export * from './pins';
 export * from './pool';

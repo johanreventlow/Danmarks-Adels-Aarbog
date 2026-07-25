@@ -8,12 +8,14 @@ import type {
   FeedAux, FeedCard, FeedInputs, HaendelseItem, HaendelserBy, Model, StorieBy, StoryItem,
 } from '../types';
 
+// died defaulter til sikkert-død (levende.ts's GDPR-gate udelukker ellers alle test-personer
+// fra buildFeedOrder). Tests af selve gaten sætter died/born eksplicit til null/nylig.
 function person(id: string, over: Partial<{
   name: string; born: number | null; died: number | null; years: string;
   title: string; bio: string; privat: boolean;
 }> = {}) {
   return {
-    id, name: 'Person ' + id, born: null, died: null, years: '', title: '', bio: '',
+    id, name: 'Person ' + id, born: null, died: 1700, years: '', title: '', bio: '',
     privat: false, ...over,
   };
 }
@@ -23,7 +25,8 @@ function mkModel(persons: ReturnType<typeof person>[]): Model {
 }
 
 const EMPTY_AUX: FeedAux = { godsListe: [], vaabenListe: [], officesBy: {} };
-const LONG_BIO = 'Dette er en tilstrækkelig lang og velformet sætning om personens liv og virke her.';
+const LONG_BIO = 'Dette er en tilstrækkelig lang og velformet biografisk tekst om personens liv, '
+  + 'virke og eftermæle, skrevet med tilstrækkeligt mange detaljer og sammenhæng.';
 
 function baseInputs(over: Partial<FeedInputs> = {}): FeedInputs {
   return { seed: 1, todayISO: '2026-07-18', meId: null, focusId: null, ...over };
@@ -456,6 +459,42 @@ describe('buildFeedOrder — fase 3', () => {
       pins: [{ kortNoegle: 'story:s1', handling: 'pin' }] });
     expect(buildFeedOrder(model, EMPTY_AUX, inputs)).toEqual(buildFeedOrder(model, EMPTY_AUX, inputs));
     expect(createFeedStream(model, EMPTY_AUX, inputs).next(12)[0].id).toBe('story:s1');
+  });
+});
+
+// --- GDPR-gate: person-kort kræver dødsevidens (levende.ts) --------------------
+describe('buildFeedOrder — udelukker personer uden dødsevidens (levende.ts)', () => {
+  it('person uden dødsår og født inden for aldersgrænsen optræder i intet person-kort', () => {
+    const persons = [
+      person('doed', { bio: LONG_BIO, died: 1950 }),
+      person('maaske-i-live', { bio: LONG_BIO, born: 1980, died: null }),
+    ];
+    const cards = buildFeedOrder(mkModel(persons), EMPTY_AUX, baseInputs());
+    const ids = cards.flatMap((c) => ('personId' in c ? [c.personId] : []));
+    expect(ids).not.toContain('maaske-i-live');
+  });
+
+  it('født for over 120 år siden uden dødsår tælles alligevel som sikkert død', () => {
+    const persons = [person('gammel', { bio: LONG_BIO, born: 1900, died: null })];
+    const cards = buildFeedOrder(mkModel(persons), EMPTY_AUX, baseInputs());
+    const ids = cards.flatMap((c) => ('personId' in c ? [c.personId] : []));
+    expect(ids).toContain('gammel');
+  });
+
+  it('person helt uden fødsels-/dødsår udelades (fail-closed)', () => {
+    const persons = [person('ukendt', { bio: LONG_BIO, born: null, died: null })];
+    const cards = buildFeedOrder(mkModel(persons), EMPTY_AUX, baseInputs());
+    expect(cards.some((c) => 'personId' in c && c.personId === 'ukendt')).toBe(false);
+  });
+
+  it('samle-kortets optælling af resterende personer er upåvirket af gaten', () => {
+    const persons = [
+      person('doed', { bio: LONG_BIO, died: 1950 }),
+      person('maaske-i-live', { bio: LONG_BIO, born: 1980, died: null }),
+    ];
+    const cards = buildFeedOrder(mkModel(persons), EMPTY_AUX, baseInputs());
+    const samle = cards.find((c) => c.kind === 'samle');
+    expect(samle).toMatchObject({ count: 1 });
   });
 });
 
