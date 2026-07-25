@@ -1,6 +1,6 @@
 // Tidslige kort (spec §4.4, §6). Rene funktioner — al netværkshentning bor i app-lagene
 // (mobile/src/data/livsdato.ts, web/src/data/feedAux.ts); denne fil joiner/udleder kun.
-import { byIdStr, initialsOf } from './pool';
+import { byIdStr, harBrugbarBio, initialsOf } from './pool';
 import { stableHash } from './prng';
 import { isExactDay } from './types';
 import type { FeedCard, FuzzyDato, HaendelserBy, LivsdatoBy, Model } from './types';
@@ -118,7 +118,7 @@ export function buildPaaDenneDag(
 // Én person pr. dag, ens for alle brugere (spec §6.3): hash(todayISO) % N over den
 // stabilt id-sorterede bio-population. null hvis ingen har en bio.
 export function pickDagensPerson(model: Model, todayISO: string): string | null {
-  const bioPersons = model.persons.filter((p) => p.bio.trim() !== '').sort(byIdStr);
+  const bioPersons = model.persons.filter((p) => harBrugbarBio(p.bio)).sort(byIdStr);
   if (bioPersons.length === 0) return null;
   return bioPersons[stableHash(todayISO) % bioPersons.length].id;
 }

@@ -2,6 +2,43 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Feedets GDPR-nødbremse: dødsevidens-gate + narrativ-minimum, kun i feed-laget (2026-07-25)
+
+**Implementeret på feature-branch, ikke deployet.** Ønske: aldrig vis en levende eller
+muligvis-levende person i feedet (web-forside + mobil), og aldrig et portræt-/dagensperson-kort
+uden et brugbart narrativ.
+
+**`person.levende` er en ren manuel redaktør-markering** (`schema.sql`) der aldrig genberegnes
+ud fra fødsels-/dødsdato — RLS' `person_offentlig` (`db-rls.sql`) stoler blindt på den. En
+fejlmarkering (glemt/forkert flag) ville derfor kunne lække en levende person gennem hele
+site'et. Bevidst valgt at IKKE ændre RLS/`person_offentlig` denne omgang — det ville ramme
+person-sider, søgning og stamtræ, langt bredere end det efterspurgte "feed", og er en
+prod-RLS-migration med større blast radius. I stedet: en uafhængig gate udelukkende i
+`packages/feed` (`levende.ts`, `kunSikkertDoede`/`erSikkertDoed`), anvendt ét sted
+(`buildFeedOrder`'s choke-point) + separat i `web/src/data/home.ts` (`curatedFounders`/
+`forsideStartpersoner`, som viser navne UDEN OM `buildFeedOrder` og ellers ville omgå gaten).
+Kræver positiv dødsevidens: registreret dødsår, ELLER fødsel for over **120 år** siden uden
+dødsår (ingen kendt person i slægten er dokumenteret ældre). Mangler begge → udelades
+(fail-closed), selvom `person.levende=false` allerede skulle have tilladt personen.
+
+Målt mod prod (`xjnvdhajfyrcytatnzos`, 2026-07-25, 889 RLS-synlige personer): 720 har positiv
+dødsevidens (81 %); 3 er født inden for aldersgrænsen uden dødsår (den reelle risikogruppe
+gaten er lavet til); 166 har hverken fødsels- eller dødsår og kan derfor ikke klassificeres.
+Feedets person-kort-pulje krymper med disse ~169 (19 %) — de forbliver synlige på egne
+person-sider/søgning/stamtræ, kun feedets kuraterede overflader er strammet.
+
+**Narrativ-minimum:** portræt-/citat-/dagensperson-kort krævede før kun ikke-tom bio
+(`p.bio.trim() !== ''`); et enkelt fragment ("Nævnt 1650.") kunne bære et helt kort. Ny grænse
+`MIN_BIO_LAENGDE = 120` tegn (`pool.ts`), afledt af den eksisterende `firstQuotableSentence`-
+gates 40-tegns minimum for ÉN sætning × ca. 2-3 sætninger. Målt mod prod med samme
+udgave-prioritering som `pickPreferredBio` (nyeste udgave vinder): **399 af 889** synlige
+personer består BÅDE dødsevidens- og narrativ-gaten (45 %) — det er feedets reelle
+portræt/citat-pulje, ikke det rå 890-tal. 312 har slet intet foretrukket narrativ, 112 har ét
+under 120 tegn.
+
+**Åben backlog:** skal `person_offentlig`/RLS også hærdes med samme 120-års-regel (site-bredt,
+ikke kun feed)? Brugerens beslutning — ikke taget denne omgang.
+
 ## Redaktions-datahentning var strukturelt tung, ikke midlertidigt langsom (2026-07-24)
 
 **Delvist løst samme dag.** Fund fra manuel test af "Sammenlign udgaver": "Indlæser

@@ -3,12 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { createFeedStream, resumeStream } from '../stream';
 import type { FeedAux, FeedInputs, Model } from '../types';
 
+// died: 1700 → sikkert-død (levende.ts's GDPR-gate i buildFeedOrder ellers udelukker alle).
 function person(id: string, over: Partial<{ bio: string }> = {}) {
-  return { id, name: 'Person ' + id, born: null, died: null, years: '', title: '', bio: '', privat: false, ...over };
+  return { id, name: 'Person ' + id, born: null, died: 1700, years: '', title: '', bio: '', privat: false, ...over };
 }
 
 function mkModel(n: number): Model {
-  const persons = Array.from({ length: n }, (_, i) => person('p' + i, { bio: 'Dette er en tilstrækkelig lang og velformet sætning om personens liv og virke her.' }));
+  const persons = Array.from({ length: n }, (_, i) => person('p' + i, { bio: 'Dette er en tilstrækkelig lang og velformet biografisk tekst om personens liv, virke og eftermæle, skrevet med tilstrækkeligt mange detaljer og sammenhæng.' }));
   return buildModel({ persons, unions: [], parentChild: [] }) as unknown as Model;
 }
 

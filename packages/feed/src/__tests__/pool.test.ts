@@ -15,7 +15,8 @@ import { stableHash } from '../prng';
 import type { FeedAux, FeedCard, HaendelseItem, HaendelserBy, Model } from '../types';
 
 const LONG_BIO =
-  'Dette er en tilstrækkelig lang og velformet sætning om personens liv og virke her.';
+  'Dette er en tilstrækkelig lang og velformet biografisk tekst om personens liv, '
+  + 'virke og eftermæle, skrevet med tilstrækkeligt mange detaljer og sammenhæng.';
 
 function person(id: string, over: Partial<{
   name: string; born: number | null; died: number | null; years: string;
@@ -75,6 +76,13 @@ describe('buildPortraitAndCitat', () => {
   });
   it('person uden bio giver intet person-kort', () => {
     const { portraits, citater } = buildPortraitAndCitat(mkModel([person('x', { bio: '   ' })]));
+    expect(portraits).toHaveLength(0);
+    expect(citater).toHaveLength(0);
+  });
+  it('bio under MIN_BIO_LAENGDE (et enkelt kort fragment) giver intet person-kort', () => {
+    const { portraits, citater } = buildPortraitAndCitat(
+      mkModel([person('x', { bio: 'Nævnt i skiftet 1650.' })]),
+    );
     expect(portraits).toHaveLength(0);
     expect(citater).toHaveLength(0);
   });

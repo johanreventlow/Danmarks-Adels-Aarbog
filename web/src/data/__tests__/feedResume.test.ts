@@ -14,10 +14,12 @@ describe('preserveShownForResume', () => {
   });
 
   it('lader den genbyggede strøm levere et opdateret terminalkort til sidst', () => {
+    // died: 1700 → sikkert død (levende.ts's GDPR-gate i buildFeedOrder ekskluderer ellers
+    // alle tre, uafhængigt af bio-berigelsen testen faktisk øver på).
     const raw = [
-      { id: '1', name: 'A', born: null, died: null, years: '', title: '', bio: '', privat: false },
-      { id: '2', name: 'B', born: null, died: null, years: '', title: '', bio: '', privat: false },
-      { id: '3', name: 'C', born: null, died: null, years: '', title: '', bio: '', privat: false },
+      { id: '1', name: 'A', born: null, died: 1700, years: '', title: '', bio: '', privat: false },
+      { id: '2', name: 'B', born: null, died: 1700, years: '', title: '', bio: '', privat: false },
+      { id: '3', name: 'C', born: null, died: 1700, years: '', title: '', bio: '', privat: false },
     ];
     const model = buildModel({ persons: raw, unions: [], parentChild: [] }) as unknown as Model;
     const aux = { godsListe: [], vaabenListe: [], officesBy: {} };
@@ -27,7 +29,8 @@ describe('preserveShownForResume', () => {
 
     const persons = model.persons.map((p) => p.id === '3' ? p : ({
       ...p,
-      bio: 'Dette er en tilstrækkelig lang og velformet sætning om personens liv og virke her.',
+      bio: 'Dette er en tilstrækkelig lang og velformet biografisk tekst om personens liv, '
+        + 'virke og eftermæle, skrevet med tilstrækkeligt mange detaljer og sammenhæng.',
     }));
     const enriched = { ...model, persons, byId: Object.fromEntries(persons.map((p) => [p.id, p])) };
     const preserved = preserveShownForResume(initialShown);

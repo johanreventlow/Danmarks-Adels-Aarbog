@@ -2,6 +2,7 @@
 // positionslåse + terminal. Hele ordningen beregnes ÉN GANG pr. seed (eager, bevidst
 // implementeringsvalg — spec §3.5) — "uendelig scroll" er dosering af denne færdige
 // ordning (strøm-API, task 5), ikke løbende genberegning.
+import { kunSikkertDoede } from './levende';
 import {
   buildArkivKort,
   buildEmbeder,
@@ -96,6 +97,11 @@ function chooseRankedIndex(
 
 export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): FeedCard[] {
   const rng = mulberry32(inputs.seed);
+  const todayYear = Number(inputs.todayISO.slice(0, 4));
+  // GDPR-nødbremse (levende.ts): kun personer med positiv dødsevidens (dødsår, eller fødsel
+  // for >120 år siden) må optræde i feedets person-identificerende kort. Ét choke-point her,
+  // FØR alle kort-builders, i stedet for spredt pr. builder — se levende.ts for begrundelsen.
+  const safeModel = kunSikkertDoede(model, todayYear);
   const livsdatoBy = inputs.livsdatoBy ?? {};
   const haendelserBy = inputs.haendelserBy ?? {};
   const storieBy = inputs.storieBy ?? {};
@@ -106,7 +112,6 @@ export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): 
     pins.filter((pin) => pin.handling === 'skjul').map((pin) => pin.kortNoegle),
   );
   const pinKeys = pins.filter((pin) => pin.handling === 'pin').map((pin) => pin.kortNoegle);
-  const todayYear = Number(inputs.todayISO.slice(0, 4));
   const disabledKinds = inputs.disabledKinds ?? new Set();
 
   // dagens person udelades af portræt/citat-poolen (disjunkthed) og vises som sit eget kort —
@@ -114,28 +119,28 @@ export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): 
   // (udelukket fra portræt-poolen uden at få et dagensperson-kort i stedet).
   const dagensPersonId = disabledKinds.has('dagensperson')
     ? null
-    : pickDagensPerson(model, inputs.todayISO);
+    : pickDagensPerson(safeModel, inputs.todayISO);
   const { cards: storieKort, usedHaendelseIds } = buildStorieKort(
-    model, storieBy, haendelserBy, inputs.todayISO,
+    safeModel, storieBy, haendelserBy, inputs.todayISO,
   );
   const { portraits, citater, usedCitatHaendelseIds } = buildPortraitAndCitat(
-    model, dagensPersonId, haendelserBy, usedHaendelseIds, !disabledKinds.has('citat'),
+    safeModel, dagensPersonId, haendelserBy, usedHaendelseIds, !disabledKinds.has('citat'),
   );
   const arkivEksklusion = new Set([...usedHaendelseIds, ...usedCitatHaendelseIds]);
-  const dagensPersonCard = dagensPersonId ? buildDagensPersonCard(model, dagensPersonId) : null;
+  const dagensPersonCard = dagensPersonId ? buildDagensPersonCard(safeModel, dagensPersonId) : null;
 
   const candidateCards: FeedCard[] = [
     ...portraits,
     ...citater,
     ...storieKort,
-    ...buildArkivKort(model, haendelserBy, arkivEksklusion),
+    ...buildArkivKort(safeModel, haendelserBy, arkivEksklusion),
     ...buildGods(aux),
-    ...buildForbundet(model),
-    ...buildEmbeder(model, aux),
-    ...buildJubilaeer(model, todayYear, livsdatoBy, inputs.todayISO),
+    ...buildForbundet(safeModel),
+    ...buildEmbeder(safeModel, aux),
+    ...buildJubilaeer(safeModel, todayYear, livsdatoBy, inputs.todayISO),
     ...buildVaaben(aux),
-    ...buildSlaegt(model, inputs.meId, inputs.focusId),
-    ...buildPaaDenneDag(model, livsdatoBy, inputs.todayISO, haendelserBy),
+    ...buildSlaegt(safeModel, inputs.meId, inputs.focusId),
+    ...buildPaaDenneDag(safeModel, livsdatoBy, inputs.todayISO, haendelserBy),
     ...(dagensPersonCard ? [dagensPersonCard] : []),
   ];
 
