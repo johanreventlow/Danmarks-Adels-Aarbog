@@ -228,11 +228,21 @@ describe('Redaktion — dovent griddet, cachet for sessionen', () => {
     expect(mocks.fetchPersonKvalitetsark).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: 'Alle personer' }).getAttribute('aria-pressed')).toBe('true');
 
+    // Vælg et andet preset — dokumenterer bevidst V1-adfærden nedenfor (ikke en tilfældighed):
+    // griddets EGET filter-/sorteringsstate lever i PersonKvalitetsark-instansen, som af-/re-
+    // monteres når man forlader/genbesøger kvalitetsark-tilstanden. De HENTEDE rækker er
+    // cachet (fetchPersonKvalitetsark kaldes stadig kun én gang) — kun det lokale UI-filter
+    // nulstilles. Ændres dette i en fremtidig opgave (fx via en løftet filter-state), skal
+    // denne assertion opdateres bevidst, ikke brydes stiltiende.
+    fireEvent.click(screen.getByRole('button', { name: 'Åbne OCR-fejl' }));
+    expect(screen.getByRole('button', { name: 'Åbne OCR-fejl' }).getAttribute('aria-pressed')).toBe('true');
+
     // Gen-besøg (liste → kvalitetsark igen) genhenter IKKE griddet — kun "Genindlæs" gør.
     fireEvent.click(screen.getByRole('button', { name: 'Liste' }));
     fireEvent.click(screen.getByRole('button', { name: 'Kvalitetsark' }));
     await screen.findByText('Christian Ditlev Reventlow');
     expect(mocks.fetchPersonKvalitetsark).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Alle personer' }).getAttribute('aria-pressed')).toBe('true');
 
     fireEvent.click(screen.getByRole('button', { name: 'Genindlæs' }));
     await waitFor(() => expect(mocks.fetchPersonKvalitetsark).toHaveBeenCalledTimes(2));
@@ -305,16 +315,26 @@ describe('Redaktion — gemning erstatter kun den returnerede række', () => {
 });
 
 describe('Redaktion — exit bevarer den valgte person', () => {
-  test('exit til liste mister ikke den person der var åben', async () => {
+  test('"Åbn person" fra griddet skifter selv til liste og viser den åbnede person', async () => {
     await aabnKvalitetsark();
-    // Åbn personen fra griddet (tælle-kolonnen kalder altid onOpenPerson, uafhængigt af kanRettes).
+    // Tælle-kolonnen kalder altid onOpenPerson, uafhængigt af kanRettes — "Åbn person" skal
+    // reelt VISE editoren, ikke kun opdatere URL'en mens griddet forbliver på skærmen.
+    fireEvent.click(screen.getByRole('button', { name: '2 titler' }));
+    await waitFor(() => expect(window.location.pathname).toBe('/redaktion/person/1'));
+    expect(screen.queryByText('Personers OCR-kvalitetsark')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Liste' }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test('exit til liste (uden at åbne en person) mister ikke en allerede-åben person', async () => {
+    await aabnKvalitetsark();
     fireEvent.click(screen.getByRole('button', { name: '2 titler' }));
     await waitFor(() => expect(window.location.pathname).toBe('/redaktion/person/1'));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Liste' }));
-    expect(window.location.pathname).toBe('/redaktion/person/1');
-
+    // Tilbage i kvalitetsark og ud igen uden at åbne noget nyt — den tidligere åbnede person
+    // (URL'en) er stadig den samme.
     fireEvent.click(screen.getByRole('button', { name: 'Kvalitetsark' }));
+    await screen.findByText('Personers OCR-kvalitetsark');
+    fireEvent.click(screen.getByRole('button', { name: 'Liste' }));
     expect(window.location.pathname).toBe('/redaktion/person/1');
   });
 });

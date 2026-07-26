@@ -299,6 +299,13 @@ export default function Redaktion() {
     setKvSelected(sel);
   }, []);
   const handleKvClosePanel = useCallback(() => { setKvSelected(null); setKvSaveError(null); }, []);
+  // "Åbn person" (grid-tælle-kolonner + panelets blokerings-link) skal reelt vise personens
+  // editor — uden at skifte til liste-visning ville URL'en pege på personen, men brugeren ville
+  // stadig se griddet, ikke editoren linket lover.
+  const handleKvOpenPerson = useCallback((id: string) => {
+    setPersonVisning('liste');
+    openRecord('person', id);
+  }, [setPersonVisning]);
   // Gemning erstatter KUN den returnerede række (matchet på personId) — griddet genhentes
   // aldrig i sin helhed efter et gemt kald (Global Constraints). Kaster videre ved fejl, så
   // OcrKildepanel's `await onSave(...)` afvises (panelet nulstiller intet af sig selv ved fejl —
@@ -877,7 +884,7 @@ export default function Redaktion() {
           </div>
           <div style={{ flex: 1, minHeight: 0 }}>
             <PersonKvalitetsark rows={kvRows} loading={kvLoading} error={kvError} selected={kvSelected}
-              onSelect={handleKvSelect} onOpenPerson={(id) => openRecord('person', id)} />
+              onSelect={handleKvSelect} onOpenPerson={handleKvOpenPerson} />
           </div>
         </div>
         {kvSelected && selectedRow && (
@@ -885,7 +892,7 @@ export default function Redaktion() {
             row={selectedRow} felt={kvSelected.felt} historik={kvHistorik} historikLoading={kvHistorikLoading}
             busy={kvBusy} error={kvSaveError} proevekoersel={dryRun}
             onSave={handleKvSave} onClose={handleKvClosePanel}
-            onOpenPerson={(id) => openRecord('person', id)} onRefreshRow={handleKvRefreshRow}
+            onOpenPerson={handleKvOpenPerson} onRefreshRow={handleKvRefreshRow}
           />
         )}
       </>
