@@ -606,6 +606,13 @@ DROP POLICY IF EXISTS redaktion_read ON public.import_korrektion;
 CREATE POLICY redaktion_read ON public.import_korrektion FOR SELECT TO authenticated
   USING ((select public.current_rolle()) = 'redaktion');
 
+-- Grid-RPC'en er den eneste læseoverflade for kvalitetsarket. Den læser som ejer,
+-- men dens interne rolle-gate er stadig autoritativ; den delte fingerprint-helper er intern.
+REVOKE EXECUTE ON FUNCTION public.ocr_input_fingerprint(text,text,text,jsonb,text)
+  FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.red_person_grid() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.red_person_grid() TO authenticated;
+
 -- =====================================================================
 --  FREMTID · 'authenticated'-lag (medlem/forsker) — SKITSE, ikke aktiv.
 --

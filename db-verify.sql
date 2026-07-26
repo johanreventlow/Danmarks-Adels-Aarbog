@@ -40,6 +40,179 @@ DO $$ BEGIN
   END;
 END $$;
 
+-- ===== Person OCR kvalitetsark — samlet redaktionsprojektion =====
+-- Selvstændig grid-fixture. Den ruller alle rækker tilbage og afprøver den faktiske
+-- SECURITY DEFINER-overflade med lokale roller; den afhænger ikke af produktionsdata.
+DO $$
+DECLARE
+  v_redaktor uuid := '00000000-0000-0000-0000-0000000000c3';
+  v_anon_blokeret boolean := false;
+  v_medlem_blokeret boolean := false;
+  v_antal integer;
+  v_qa text[];
+BEGIN
+  INSERT INTO source(id,titel,udgave,import_key) VALUES
+    (-987656101,'Grid verify-kilde','Grid verify 1','daa:1939');
+  INSERT INTO person(id,koen) VALUES
+    (-987656111,'mand'), (-987656112,'kvinde'), (-987656113,NULL),
+    (-987656114,'ukendt'), (-987656115,'mand'), (-987656116,'kvinde');
+  UPDATE person SET staged=true WHERE id=-987656114;
+  INSERT INTO person_external_id(person_id,source_id,linje,nr,record_key,slaegtled_lokal) VALUES
+    (-987656111,-987656101,'I',15,'I-15a',3),
+    (-987656112,-987656101,'I',16,'I-16',3),
+    (-987656113,-987656101,'I',17,NULL,4),
+    (-987656114,-987656101,'II',1,'II-1',1),
+    (-987656115,-987656101,'II',2,'II-2',1),
+    (-987656116,-987656101,'II',3,'II-3',1);
+
+  -- Normal person: selected source assertions, titel/familie/relation-counts and
+  -- deliberately odd OCR/date context for the deterministic QA contract.
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES
+    (-987656201,'person',-987656111,'navn'),
+    (-987656202,'person',-987656111,'fødsel'),
+    (-987656203,'person',-987656111,'død'),
+    (-987656204,'person',-987656111,'titel'),
+    (-987656205,'person',-987656112,'navn'),
+    (-987656206,'person',-987656112,'fødsel'),
+    (-987656207,'person',-987656112,'fødsel'),
+    (-987656208,'person',-987656113,'fødsel'),
+    (-987656209,'person',-987656114,'navn'),
+    (-987656210,'person',-987656115,'navn'),
+    (-987656211,'person',-987656116,'navn'),
+    (-987656212,'person',-987656112,'død');
+  INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,date_min,date_max,date_qualifier,date_raw)
+  VALUES
+    (-987656301,'fact',-987656201,'Mikkel',NULL,NULL,NULL,NULL),
+    (-987656302,'fact',-987656202,NULL,'1901-01-01','1901-12-31','between','født 1901'),
+    (-987656303,'fact',-987656203,NULL,'1900-01-01','1900-12-31','between','død 1900'),
+    (-987656304,'fact',-987656204,'kammerherre',NULL,NULL,NULL,NULL),
+    (-987656305,'fact',-987656205,'Ambig',NULL,NULL,NULL,NULL),
+    (-987656306,'fact',-987656206,NULL,'1800-01-01','1800-12-31','between','født 1800'),
+    (-987656307,'fact',-987656207,NULL,'1801-01-01','1801-12-31','between','født 1801'),
+    (-987656308,'fact',-987656208,NULL,NULL,NULL,NULL,'dato kan ikke læses'),
+    (-987656309,'fact',-987656209,'Uden kontekst',NULL,NULL,NULL,NULL),
+    (-987656310,'fact',-987656210,'Alias',NULL,NULL,NULL,NULL),
+    (-987656311,'fact',-987656211,'Kanonisk',NULL,NULL,NULL,NULL),
+    (-987656312,'fact',-987656212,NULL,NULL,NULL,NULL,'dato kan ikke læses');
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status) VALUES
+    (-987656401,'fact',-987656201,-987656301,'afklaret'),
+    (-987656402,'fact',-987656202,-987656302,'afklaret'),
+    (-987656403,'fact',-987656203,-987656303,'afklaret'),
+    (-987656404,'fact',-987656204,-987656304,'afklaret'),
+    (-987656405,'fact',-987656205,-987656305,'afklaret'),
+    (-987656406,'fact',-987656206,-987656306,'afklaret'),
+    (-987656407,'fact',-987656207,-987656307,'afklaret'),
+    (-987656408,'fact',-987656208,-987656308,'afklaret'),
+    (-987656409,'fact',-987656209,-987656309,'afklaret'),
+    (-987656410,'fact',-987656210,-987656310,'afklaret'),
+    (-987656411,'fact',-987656211,-987656311,'afklaret'),
+    (-987656412,'fact',-987656212,-987656312,'afklaret');
+  INSERT INTO citation(id,assertion_id,source_id,side,citat_tekst) VALUES
+    (-987656501,-987656301,-987656101,'42','Mikkel ?'),
+    (-987656502,-987656302,-987656101,'42','født 1901'),
+    (-987656503,-987656303,-987656101,'42','død 1900'),
+    (-987656504,-987656304,-987656101,'42','kammerherre'),
+    (-987656505,-987656305,-987656101,'43','Ambig'),
+    (-987656506,-987656306,-987656101,'43','født 1800'),
+    (-987656507,-987656307,-987656101,'43','født 1801'),
+    (-987656508,-987656308,-987656101,'44','dato kan ikke læses'),
+    (-987656510,-987656310,-987656101,'45','Alias'),
+    (-987656511,-987656311,-987656101,'45','Kanonisk'),
+    (-987656512,-987656312,-987656101,'44','dato kan ikke læses');
+  INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,korrigeret,status)
+    VALUES ('daa:1939','I-15a','navn','0123456789abcdef0123456789abcdef',
+            '{"value":"Mikkel"}','{"value":"Mikkel rettet"}','rettet');
+  INSERT INTO family(id,type) VALUES (-987656601,'vielse');
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES (-987656601,-987656111,'partner');
+  INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES
+    (-987656701,'person',-987656111,'person',-987656112,'bekendt_med'),
+    (-987656702,'person',-987656115,'person',-987656116,'samme_som');
+
+  -- Fingerprint-parity with Task 2's independently fixed UTF-8 vector.
+  IF ocr_input_fingerprint('daa:1939','I-15a','foedsel',
+       '{"raw":"* 1644","min":"1644-01-01","max":"1644-12-31","qualifier":null,"calendar":"gregoriansk","certainty":null}'::jsonb,
+       'side=42;span=1') <> '5fc3d843cc82550a45ff2a176bc7cc83' THEN
+    RAISE EXCEPTION 'FEJL: OCR-fingerprint er ikke i Task 2-paritet';
+  END IF;
+
+  -- EXECUTE ACL plus SECURITY DEFINER-role guard are both part of the contract.
+  SET LOCAL ROLE anon;
+  BEGIN
+    PERFORM * FROM red_person_grid();
+  EXCEPTION WHEN insufficient_privilege THEN v_anon_blokeret := true;
+  END;
+  RESET ROLE;
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    PERFORM * FROM red_person_grid();
+  EXCEPTION WHEN others THEN
+    IF SQLERRM LIKE 'Kun redaktion%' THEN v_medlem_blokeret := true; ELSE RAISE; END IF;
+  END;
+  RESET ROLE;
+  INSERT INTO auth.users(id,email) VALUES (v_redaktor,'ocr-grid-verify@test.invalid');
+  INSERT INTO profiles(id,rolle,email) VALUES (v_redaktor,'redaktion','ocr-grid-verify@test.invalid');
+  PERFORM set_config('request.jwt.claim.sub',v_redaktor::text,true);
+  SET LOCAL ROLE authenticated;
+
+  SELECT count(*) INTO v_antal FROM red_person_grid() WHERE person_id BETWEEN -987656116 AND -987656111;
+  IF v_antal <> 6 THEN RAISE EXCEPTION 'FEJL: grid returnerede %/6 fysiske personer', v_antal; END IF;
+  IF (SELECT count(*) FROM red_person_grid() WHERE person_id IN (-987656115,-987656116)) <> 2
+     OR (SELECT kanonisk_person_id FROM red_person_grid() WHERE person_id=-987656115) <> -987656116 THEN
+    RAISE EXCEPTION 'FEJL: grid kollapser eller mister samme_som-kontekst';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656111
+                 AND antal_titler=1 AND antal_familier=1 AND antal_relationer=1
+                 AND antal_kilde_assertions=4
+                 AND ocr_context->>'navn'='Mikkel ?' AND kilde_side->>'navn'='42') THEN
+    RAISE EXCEPTION 'FEJL: grid-counts eller valgt assertions OCR-kontekst er forkert';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656112
+                 AND kan_rettes->>'foedsel'='false'
+                 AND blokarsager->>'foedsel'='flere_importerede_facts') THEN
+    RAISE EXCEPTION 'FEJL: flere importerede fødselsfacts er ikke fail-closed';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656113
+                 AND kan_rettes->>'navn'='false' AND blokarsager->>'navn'='record_key_mangler') THEN
+    RAISE EXCEPTION 'FEJL: legacy-række uden record_key er ikke blokeret';
+  END IF;
+
+  SELECT qa_koder INTO v_qa FROM red_person_grid() WHERE person_id=-987656111;
+  IF NOT (v_qa @> ARRAY['mistænkeligt_ocr_tegn','foedt_efter_doed','struktureret_afviger_fra_ocr']::text[]) THEN
+    RAISE EXCEPTION 'FEJL: normale OCR-/dato-QA-koder mangler: %', v_qa;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656111
+                 AND review_status->>'navn'='stale'
+                 AND qa_koder @> ARRAY['kilde_aendret']::text[]
+                 AND importeret->'navn'='{"value":"Mikkel"}'::jsonb
+                 AND korrigeret->'navn'='{"value":"Mikkel rettet"}'::jsonb) THEN
+    RAISE EXCEPTION 'FEJL: stale journal-overlay bevarer ikke immutable importinput';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656112 AND qa_koder @> ARRAY['flere_importerede_facts']::text[])
+     OR NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656113 AND qa_koder @> ARRAY['dato_ufortolkelig','record_key_mangler']::text[])
+     OR NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656114 AND qa_koder @> ARRAY['ocr_kontekst_mangler']::text[])
+     OR NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656114 AND qa_koder @> ARRAY['navn_mangler']::text[]) THEN
+    RAISE EXCEPTION 'FEJL: deterministiske grid-QA-koder mangler ambig=% legacy=% staged_context=% staged_navn=%',
+      EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656112 AND qa_koder @> ARRAY['flere_importerede_facts']::text[]),
+      EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656113 AND qa_koder @> ARRAY['dato_ufortolkelig','record_key_mangler']::text[]),
+      EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656114 AND qa_koder @> ARRAY['ocr_kontekst_mangler']::text[]),
+      EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656114 AND qa_koder @> ARRAY['navn_mangler']::text[]);
+  END IF;
+  IF EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656115
+             AND (qa_koder @> ARRAY['dato_ufortolkelig']::text[])) THEN
+    RAISE EXCEPTION 'FEJL: manglende fødsel/død blev fejlagtigt OCR-fejl';
+  END IF;
+  RESET ROLE;
+  IF NOT v_anon_blokeret OR NOT v_medlem_blokeret THEN
+    RAISE EXCEPTION 'FEJL: grid EXECUTE/gate anon=% medlem=%',v_anon_blokeret,v_medlem_blokeret;
+  END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN others THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN
+    RAISE NOTICE 'OK: Person OCR kvalitetsark — set-baseret grid, QA, fingerprint og roller';
+  ELSE RAISE; END IF;
+END $$;
+
 
 -- ===== Task 2: Cache-regenerering — regen_person_visning + trigger =====
 -- Vælg en person med navne-fakta; nulstil cache; kald regen; bekræft den genskabes.

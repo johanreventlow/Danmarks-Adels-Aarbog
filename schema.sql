@@ -173,6 +173,199 @@ CREATE TABLE import_korrektion (
 CREATE INDEX import_korrektion_status_import_idx
   ON import_korrektion (status, import_key);
 
+-- Fast byte-kontrakt delt af kvalitetsarkets læse- og kommende skrivevej.
+-- jsonb bevarer ikke indsat nøgleorden, så teksten bygges eksplicit i Task 2's R-orden
+-- før UTF-8/0x1f/MD5. Task 4 skal genbruge denne helper, ikke kopiere logikken.
+CREATE OR REPLACE FUNCTION ocr_input_fingerprint(
+  p_import_key text, p_record_key text, p_felt text, p_importeret jsonb, p_ocr_context text
+) RETURNS text LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp AS $$
+  SELECT md5(concat_ws(chr(31),
+    coalesce(p_import_key,''), coalesce(p_record_key,''), coalesce(p_felt,''),
+    CASE WHEN p_felt IN ('foedsel','doed') THEN format(
+      '{"raw":%s,"min":%s,"max":%s,"qualifier":%s,"calendar":%s,"certainty":%s}',
+      coalesce(to_jsonb(p_importeret->>'raw')::text,'null'),
+      coalesce(to_jsonb(p_importeret->>'min')::text,'null'),
+      coalesce(to_jsonb(p_importeret->>'max')::text,'null'),
+      coalesce(to_jsonb(p_importeret->>'qualifier')::text,'null'),
+      coalesce(to_jsonb(coalesce(p_importeret->>'calendar','gregoriansk'))::text,'null'),
+      coalesce(to_jsonb(p_importeret->>'certainty')::text,'null'))
+    ELSE format('{"value":%s}',coalesce(to_jsonb(p_importeret->>'value')::text,'null'))
+    END,
+    coalesce(p_ocr_context,'')))
+$$;
+
+-- Én række pr. fysisk person; alle sidegrene aggregeres før slut-projektionen, så
+-- relationer/facts aldrig multiplicerer griddens rækker. Samme-som er kontekst, aldrig collapse.
+CREATE OR REPLACE FUNCTION red_person_grid()
+RETURNS TABLE (
+  person_id bigint, import_key text, record_key text, source_id bigint, source_titel text,
+  source_udgave text, linje text, nr integer, slaegtled integer, navn text,
+  navn_assertion_id bigint, foedsel_raw text, foedsel_min date, foedsel_max date,
+  foedsel_qualifier text, foedsel_assertion_id bigint, doed_raw text, doed_min date,
+  doed_max date, doed_qualifier text, doed_assertion_id bigint, input_fingerprint jsonb,
+  importeret jsonb, korrigeret jsonb, ocr_context jsonb, kilde_side jsonb, koen text,
+  levende boolean, privat boolean, staged boolean, person_status text, kanonisk_person_id bigint,
+  samme_som_status text, antal_titler integer, antal_familier integer,
+  antal_relationer integer, antal_kilde_assertions integer, qa_koder text[], qa_alvor text,
+  review_status jsonb, kan_rettes jsonb, blokarsager jsonb
+) LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+#variable_conflict use_column
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  RETURN QUERY
+  WITH external_anchor AS (
+    SELECT p.id AS grid_person_id, count(pei.person_id)::integer AS anchor_count,
+      count(*) FILTER (WHERE s.import_key IS NOT NULL AND pei.record_key IS NOT NULL)::integer AS stable_anchor_count,
+      max(s.import_key) AS import_key, max(pei.record_key) AS record_key, max(s.id) AS source_id,
+      max(s.titel) AS source_titel, max(s.udgave) AS source_udgave, max(pei.linje) AS linje,
+      max(pei.nr) AS nr, max(pei.slaegtled_lokal) AS slaegtled
+    FROM person p LEFT JOIN person_external_id pei ON pei.person_id=p.id
+      LEFT JOIN source s ON s.id=pei.source_id
+    GROUP BY p.id
+  ), selected_assertions AS (
+    SELECT f.subjekt_id AS grid_person_id,
+      CASE f.faktatype WHEN 'navn' THEN 'navn' WHEN 'fødsel' THEN 'foedsel' WHEN 'død' THEN 'doed' END AS felt,
+      a.id AS assertion_id, a.vaerdi_tekst, a.date_raw, a.date_min, a.date_max, a.date_qualifier,
+      a.calendar, a.date_certainty
+    FROM fact f JOIN conclusion cn ON cn.target_type='fact' AND cn.target_id=f.id
+      JOIN assertion a ON a.id=cn.valgt_assertion_id
+    WHERE f.subjekt_type='person' AND f.faktatype IN ('navn','fødsel','død')
+  ), cited_assertions AS (
+    SELECT sa.*, c.source_id, count(c.id)::integer AS citation_count,
+      (array_agg(c.citat_tekst ORDER BY c.id))[1] AS ocr_context,
+      (array_agg(c.side ORDER BY c.id))[1] AS kilde_side
+    FROM selected_assertions sa LEFT JOIN citation c ON c.assertion_id=sa.assertion_id
+    GROUP BY sa.grid_person_id,sa.felt,sa.assertion_id,sa.vaerdi_tekst,sa.date_raw,sa.date_min,sa.date_max,
+      sa.date_qualifier,sa.calendar,sa.date_certainty,c.source_id
+  ), field_candidates AS (
+    SELECT ca.grid_person_id,ca.felt,ca.assertion_id,ca.vaerdi_tekst,ca.date_raw,ca.date_min,ca.date_max,
+      ca.date_qualifier,ca.ocr_context,ca.kilde_side,
+      CASE WHEN ca.felt IN ('foedsel','doed') THEN jsonb_build_object(
+        'raw',ca.date_raw,'min',ca.date_min::text,'max',ca.date_max::text,
+        'qualifier',ca.date_qualifier,'calendar',coalesce(ca.calendar,'gregoriansk'),'certainty',ca.date_certainty)
+      ELSE jsonb_build_object('value',ca.vaerdi_tekst) END AS current_importeret
+    FROM cited_assertions ca JOIN external_anchor ea ON ea.grid_person_id=ca.grid_person_id
+    WHERE ea.anchor_count=1 AND ea.stable_anchor_count=1 AND ca.source_id=ea.source_id
+      AND ca.citation_count > 0
+  ), field_rollup AS (
+    SELECT grid_person_id,felt,count(DISTINCT assertion_id)::integer AS candidate_count,
+      min(assertion_id) AS assertion_id,max(vaerdi_tekst) AS vaerdi_tekst,max(date_raw) AS date_raw,
+      max(date_min) AS date_min,max(date_max) AS date_max,max(date_qualifier) AS date_qualifier,
+      max(ocr_context) AS ocr_context,max(kilde_side) AS kilde_side,(array_agg(current_importeret ORDER BY assertion_id))[1] AS current_importeret
+    FROM field_candidates GROUP BY grid_person_id,felt
+  ), title_counts AS (
+    SELECT f.subjekt_id AS grid_person_id,count(*)::integer AS antal_titler FROM fact f
+    WHERE f.subjekt_type='person' AND f.faktatype='titel' GROUP BY f.subjekt_id
+  ), family_counts AS (
+    SELECT person_id AS grid_person_id,count(DISTINCT family_id)::integer AS antal_familier FROM family_member GROUP BY person_id
+  ), relation_counts AS (
+    SELECT grid_person_id,count(DISTINCT relation_id)::integer AS antal_relationer FROM (
+      SELECT subjekt_id AS grid_person_id,id AS relation_id FROM relation WHERE subjekt_type='person'
+      UNION ALL SELECT objekt_id,id FROM relation WHERE objekt_type='person') r GROUP BY grid_person_id
+  ), citation_counts AS (
+    SELECT f.subjekt_id AS grid_person_id,count(DISTINCT a.id)::integer AS antal_kilde_assertions
+    FROM fact f JOIN assertion a ON a.target_type='fact' AND a.target_id=f.id JOIN citation c ON c.assertion_id=a.id
+    WHERE f.subjekt_type='person' GROUP BY f.subjekt_id
+  ), counts AS (
+    SELECT p.id AS grid_person_id,coalesce(tc.antal_titler,0) AS antal_titler,coalesce(fc.antal_familier,0) AS antal_familier,
+      coalesce(rc.antal_relationer,0) AS antal_relationer,coalesce(cc.antal_kilde_assertions,0) AS antal_kilde_assertions
+    FROM person p LEFT JOIN title_counts tc ON tc.grid_person_id=p.id LEFT JOIN family_counts fc ON fc.grid_person_id=p.id
+      LEFT JOIN relation_counts rc ON rc.grid_person_id=p.id LEFT JOIN citation_counts cc ON cc.grid_person_id=p.id
+  ), same_as_context AS (
+    SELECT r.subjekt_id AS grid_person_id,r.objekt_id AS kanonisk_grid_person_id,'alias'::text AS samme_som_status
+    FROM relation r WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'
+    UNION ALL
+    SELECT r.objekt_id,r.objekt_id,'kanonisk'::text
+    FROM relation r WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'
+  ), all_fields AS (
+    SELECT p.id AS grid_person_id,v.felt FROM person p CROSS JOIN (VALUES ('navn'::text),('foedsel'),('doed'),('koen')) v(felt)
+  ), field_data AS (
+    SELECT af.grid_person_id,af.felt,ea.anchor_count,ea.stable_anchor_count,ea.import_key,ea.record_key,ea.source_id,
+      ea.source_titel,ea.source_udgave,ea.linje,ea.nr,ea.slaegtled,fr.candidate_count,fr.assertion_id,fr.vaerdi_tekst,fr.date_raw,
+      fr.date_min,fr.date_max,fr.date_qualifier,fr.ocr_context,fr.kilde_side,fr.current_importeret,
+      CASE WHEN af.felt='koen' THEN jsonb_build_object('value',p.koen) ELSE fr.current_importeret END AS base_importeret,
+      CASE WHEN af.felt='koen' THEN p.koen ELSE fr.vaerdi_tekst END AS felt_vaerdi
+    FROM all_fields af JOIN person p ON p.id=af.grid_person_id JOIN external_anchor ea ON ea.grid_person_id=af.grid_person_id
+      LEFT JOIN field_rollup fr ON fr.grid_person_id=af.grid_person_id AND fr.felt=af.felt
+  ), journal AS (
+    SELECT fd.*,ik.importeret AS journal_importeret,ik.korrigeret,ik.status AS journal_status,
+      ik.input_fingerprint AS journal_fingerprint,
+      CASE WHEN fd.anchor_count=1 AND fd.stable_anchor_count=1
+             AND (fd.felt='koen' OR fd.candidate_count=1)
+        THEN ocr_input_fingerprint(fd.import_key,fd.record_key,fd.felt,coalesce(ik.importeret,fd.base_importeret),fd.ocr_context)
+      END AS fingerprint
+    FROM field_data fd LEFT JOIN import_korrektion ik
+      ON ik.import_key=fd.import_key AND ik.record_key=fd.record_key AND ik.felt=fd.felt
+  ), field_state AS (
+    SELECT j.*,coalesce(j.journal_importeret,j.base_importeret) AS effective_importeret,
+      CASE WHEN j.journal_status IS NULL THEN 'aaben'
+           WHEN j.fingerprint IS DISTINCT FROM j.journal_fingerprint
+             THEN 'stale' ELSE j.journal_status END AS effective_status,
+      CASE WHEN j.anchor_count=0 THEN 'ingen_importanker'
+           WHEN j.anchor_count<>1 THEN 'flere_importankre'
+           WHEN j.stable_anchor_count<>1 AND j.import_key IS NULL THEN 'import_key_mangler'
+           WHEN j.stable_anchor_count<>1 THEN 'record_key_mangler'
+           WHEN j.felt='koen' THEN NULL
+           WHEN coalesce(j.candidate_count,0)=0 THEN 'ingen_kildebelagt_assertion'
+           WHEN j.candidate_count>1 THEN 'flere_importerede_facts'
+      END AS blokarsag
+    FROM journal j
+  ), missing_context AS (
+    SELECT DISTINCT sa.grid_person_id FROM selected_assertions sa JOIN external_anchor ea ON ea.grid_person_id=sa.grid_person_id
+    WHERE ea.anchor_count=1 AND ea.stable_anchor_count=1 AND NOT EXISTS (
+      SELECT 1 FROM citation c WHERE c.assertion_id=sa.assertion_id AND c.source_id=ea.source_id
+        AND nullif(btrim(c.citat_tekst),'') IS NOT NULL)
+  ), qa_items AS (
+    SELECT fs.grid_person_id,'mistænkeligt_ocr_tegn'::text AS kode,'advarsel'::text AS alvor FROM field_state fs
+      WHERE coalesce(fs.ocr_context,'') ~ '[?�]'
+    UNION ALL SELECT sa.grid_person_id,'dato_ufortolkelig','fejl' FROM selected_assertions sa
+      WHERE sa.felt IN ('foedsel','doed') AND sa.date_raw IS NOT NULL AND sa.date_min IS NULL AND sa.date_max IS NULL
+    UNION ALL SELECT b.grid_person_id,'foedt_efter_doed','fejl' FROM field_state b JOIN field_state d
+      ON d.grid_person_id=b.grid_person_id AND d.felt='doed'
+      WHERE b.felt='foedsel' AND b.date_min IS NOT NULL AND d.date_max IS NOT NULL AND b.date_min>d.date_max
+    UNION ALL SELECT fs.grid_person_id,'struktureret_afviger_fra_ocr','advarsel' FROM field_state fs
+      WHERE fs.felt='navn' AND fs.felt_vaerdi IS NOT NULL AND fs.ocr_context IS NOT NULL AND btrim(fs.felt_vaerdi)<>btrim(fs.ocr_context)
+    UNION ALL SELECT fs.grid_person_id,'navn_mangler','fejl' FROM field_state fs
+      WHERE fs.felt='navn' AND (coalesce(fs.candidate_count,0)=0 OR nullif(btrim(fs.felt_vaerdi),'') IS NULL)
+    UNION ALL SELECT fs.grid_person_id,'record_key_mangler','fejl' FROM field_state fs
+      WHERE fs.anchor_count=1 AND fs.stable_anchor_count=0 AND fs.record_key IS NULL
+    UNION ALL SELECT grid_person_id,'ocr_kontekst_mangler','advarsel' FROM missing_context
+    UNION ALL SELECT fs.grid_person_id,'flere_importerede_facts','fejl' FROM field_state fs
+      WHERE fs.felt IN ('navn','foedsel','doed') AND fs.candidate_count>1
+    UNION ALL SELECT fs.grid_person_id,'kilde_aendret','advarsel' FROM field_state fs WHERE fs.effective_status='stale'
+  ), qa AS (
+    SELECT grid_person_id,array_agg(DISTINCT kode ORDER BY kode) AS qa_koder,
+      CASE WHEN bool_or(alvor='fejl') THEN 'fejl' WHEN bool_or(alvor='advarsel') THEN 'advarsel' ELSE 'info' END AS qa_alvor
+    FROM qa_items GROUP BY grid_person_id
+  ), field_json AS (
+    SELECT grid_person_id,
+      jsonb_object_agg(felt,effective_status) AS review_status,
+      jsonb_object_agg(felt,(blokarsag IS NULL)) AS kan_rettes,
+      coalesce(jsonb_object_agg(felt,blokarsag) FILTER (WHERE blokarsag IS NOT NULL),'{}'::jsonb) AS blokarsager,
+      jsonb_object_agg(felt,to_jsonb(fingerprint)) FILTER (WHERE fingerprint IS NOT NULL) AS input_fingerprint,
+      jsonb_object_agg(felt,effective_importeret) FILTER (WHERE effective_importeret IS NOT NULL) AS importeret,
+      jsonb_object_agg(felt,korrigeret) FILTER (WHERE korrigeret IS NOT NULL) AS korrigeret,
+      jsonb_object_agg(felt,to_jsonb(ocr_context)) FILTER (WHERE ocr_context IS NOT NULL) AS ocr_context,
+      jsonb_object_agg(felt,to_jsonb(kilde_side)) FILTER (WHERE kilde_side IS NOT NULL) AS kilde_side
+    FROM field_state GROUP BY grid_person_id
+  )
+  SELECT p.id,ea.import_key,ea.record_key,ea.source_id,ea.source_titel,ea.source_udgave,ea.linje,ea.nr,ea.slaegtled,
+    max(fs.felt_vaerdi) FILTER (WHERE fs.felt='navn'),max(fs.assertion_id) FILTER (WHERE fs.felt='navn'),
+    max(fs.date_raw) FILTER (WHERE fs.felt='foedsel'),max(fs.date_min) FILTER (WHERE fs.felt='foedsel'),max(fs.date_max) FILTER (WHERE fs.felt='foedsel'),max(fs.date_qualifier) FILTER (WHERE fs.felt='foedsel'),max(fs.assertion_id) FILTER (WHERE fs.felt='foedsel'),
+    max(fs.date_raw) FILTER (WHERE fs.felt='doed'),max(fs.date_min) FILTER (WHERE fs.felt='doed'),max(fs.date_max) FILTER (WHERE fs.felt='doed'),max(fs.date_qualifier) FILTER (WHERE fs.felt='doed'),max(fs.assertion_id) FILTER (WHERE fs.felt='doed'),
+    coalesce(fj.input_fingerprint,'{}'::jsonb),coalesce(fj.importeret,'{}'::jsonb),coalesce(fj.korrigeret,'{}'::jsonb),coalesce(fj.ocr_context,'{}'::jsonb),coalesce(fj.kilde_side,'{}'::jsonb),
+    p.koen,p.levende,p.privat,p.staged,p.status,sac.kanonisk_grid_person_id,sac.samme_som_status,
+    coalesce(ct.antal_titler,0),coalesce(ct.antal_familier,0),coalesce(ct.antal_relationer,0),coalesce(ct.antal_kilde_assertions,0),
+    coalesce(q.qa_koder,ARRAY[]::text[]),q.qa_alvor,coalesce(fj.review_status,'{}'::jsonb),coalesce(fj.kan_rettes,'{}'::jsonb),coalesce(fj.blokarsager,'{}'::jsonb)
+  FROM person p JOIN external_anchor ea ON ea.grid_person_id=p.id JOIN field_state fs ON fs.grid_person_id=p.id
+    LEFT JOIN counts ct ON ct.grid_person_id=p.id LEFT JOIN same_as_context sac ON sac.grid_person_id=p.id
+    LEFT JOIN qa q ON q.grid_person_id=p.id LEFT JOIN field_json fj ON fj.grid_person_id=p.id
+  GROUP BY p.id,ea.import_key,ea.record_key,ea.source_id,ea.source_titel,ea.source_udgave,ea.linje,ea.nr,ea.slaegtled,
+    p.koen,p.levende,p.privat,p.staged,p.status,sac.kanonisk_grid_person_id,sac.samme_som_status,ct.antal_titler,ct.antal_familier,
+    ct.antal_relationer,ct.antal_kilde_assertions,q.qa_koder,q.qa_alvor,fj.input_fingerprint,fj.importeret,fj.korrigeret,
+    fj.ocr_context,fj.kilde_side,fj.review_status,fj.kan_rettes,fj.blokarsager;
+END $$;
+
 CREATE TABLE lineage (                   -- SLÆGTSLINJE / GREN (fx Reventlows fem linjer)
   id        BIGINT PRIMARY KEY,
   source_id BIGINT REFERENCES source(id),  -- hvilken udgaves linje-inddeling
