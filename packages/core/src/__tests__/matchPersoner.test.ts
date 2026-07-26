@@ -5,6 +5,9 @@ import {
   matchUdgaver,
   parseIkkeSammeSomPar,
   udledKilderForAegtefaeller,
+  assignTiers,
+  defaultCfg,
+  type ScoredPair,
 } from '../matchUdgaver';
 
 describe('buildMatchPersoner — DB-rækker → MatchFrame-input (§11)', () => {
@@ -198,5 +201,76 @@ describe('udledKilderForAegtefaeller', () => {
   it('tåler unioner med kun én partner', () => {
     const ud = udledKilderForAegtefaeller([P('1', [3])], [U('f1', '1', null)]);
     expect(ud.find((p) => p.id === '1')!.sourceIds).toEqual([3]);
+  });
+});
+
+// ------------------------------------ evidens-normaliseret score (opt-in)
+
+describe('evidensNormaliseret score', () => {
+  const par = (o: Partial<ScoredPair> & { aId: string; bId: string }): ScoredPair => ({
+    nameSim: 1, birthOverlap: false, deathOverlap: false, sexEq: false, uniqueBlock: true,
+    birthKendt: false, deathKendt: false, koenKendt: false, ...o,
+  });
+
+  it('lader en datoløs person med identisk navn nå gennemsyn', () => {
+    // Uden normalisering: 0,6·1 = 0,60 < 0,70 → tier none.
+    const uden = assignTiers([par({ aId: 'a', bId: 'b' })]);
+    expect(uden[0].tier).toBe('none');
+    // Med: kun navnet kan vurderes, så nævneren er 0,6 → 1,00.
+    const med = assignTiers([par({ aId: 'a', bId: 'b' })], { ...defaultCfg(), evidensNormaliseret: true });
+    expect(med[0].tier).not.toBe('none');
+  });
+
+  it('straffer stadig et dårligt navn — normalisering løfter ikke uenighed', () => {
+    const med = assignTiers(
+      [par({ aId: 'a', bId: 'b', nameSim: 0.5 })],
+      { ...defaultCfg(), evidensNormaliseret: true },
+    );
+    expect(med[0].tier).toBe('none');
+  });
+
+  it('tæller et kendt men IKKE-overlappende fødselsår imod parret', () => {
+    const med = assignTiers(
+      [par({ aId: 'a', bId: 'b', birthKendt: true, birthOverlap: false })],
+      { ...defaultCfg(), evidensNormaliseret: true },
+    );
+    // nævner 0,6+0,2 = 0,8, tæller 0,6 → 0,75: gennemsyn, ikke stærk
+    expect(med[0].tier).toBe('review');
+  });
+
+  it('gør ikke flertydige navnematch til stærke kandidater', () => {
+    // Samme datoløse navn mod to forskellige B'er → margin 0 → aldrig auto.
+    const med = assignTiers(
+      [par({ aId: 'a', bId: 'b1' }), par({ aId: 'a', bId: 'b2' })],
+      { ...defaultCfg(), evidensNormaliseret: true },
+    );
+    expect(med.filter((r) => r.tier === 'auto')).toHaveLength(0);
+  });
+
+  it('er slået fra som standard', () => {
+    expect(defaultCfg().evidensNormaliseret).toBeFalsy();
+  });
+});
+
+describe('evidensNormaliseret: navn alene giver aldrig "stærk"', () => {
+  const par = (o: any): ScoredPair => ({
+    nameSim: 1, birthOverlap: false, deathOverlap: false, sexEq: true, uniqueBlock: true,
+    birthKendt: false, deathKendt: false, koenKendt: true, ...o,
+  });
+  const cfg = { ...defaultCfg(), evidensNormaliseret: true };
+
+  it('kapper til gennemsyn når hverken fødsel eller død kan vurderes', () => {
+    const r = assignTiers([par({ aId: 'a', bId: 'b' })], cfg);
+    expect(r[0].tier).toBe('review');
+  });
+
+  it('tillader stærk når mindst ét årstal bekræfter', () => {
+    const r = assignTiers([par({ aId: 'a', bId: 'b', birthKendt: true, birthOverlap: true })], cfg);
+    expect(r[0].tier).toBe('auto');
+  });
+
+  it('rører ikke den umodificerede model', () => {
+    const r = assignTiers([par({ aId: 'a', bId: 'b', birthKendt: true, birthOverlap: true })]);
+    expect(r[0].tier).toBe('auto');
   });
 });
