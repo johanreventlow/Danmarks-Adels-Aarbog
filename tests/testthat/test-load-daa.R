@@ -331,6 +331,33 @@ test_that("stale genafspilning lader importen stå og udpeger kun stale journal-
   expect_equal(stale_correction_ids(list(result, list(status = "anvendt", correction_id = 42L))), 41L)
 })
 
+# Fingerprintet daekker BAADE den importerede vaerdi og OCR-konteksten. Testen ovenfor
+# aendrer kun konteksten; her aendres selve den importerede vaerdi med UAENDRET kontekst,
+# saa fail-closed-garantien er daekket i begge retninger.
+test_that("aendret importeret vaerdi giver stale selv naar OCR-konteksten er uaendret", {
+  kontekst <- "Mikkel OCR, født 1644-01-01, død 1700-01-01."
+  fingerprint_ved_import <- ocr_input_fingerprint(
+    "daa:test:ocr-kvalitetsark", "I-15a", "navn", "Mikkel OCR", kontekst
+  )
+  correction <- list(
+    id = 41L, import_key = "daa:test:ocr-kvalitetsark", record_key = "I-15a",
+    felt = "navn", input_fingerprint = fingerprint_ved_import,
+    korrigeret = '{"value":"Mikkel Rettet"}', status = "rettet"
+  )
+  index <- index_import_corrections(list(correction))
+
+  uaendret <- apply_import_correction("daa:test:ocr-kvalitetsark", "I-15a", "navn",
+                                      "Mikkel OCR", kontekst, index)
+  expect_identical(uaendret$status, "anvendt")
+
+  # Samme kontekst, men udtrækket leverer nu en anden importeret værdi.
+  aendret <- apply_import_correction("daa:test:ocr-kvalitetsark", "I-15a", "navn",
+                                     "Mikael OCR", kontekst, index)
+  expect_identical(aendret$status, "stale")
+  expect_identical(aendret$value, "Mikael OCR")
+  expect_equal(stale_correction_ids(list(aendret)), 41L)
+})
+
 # jsonlite::fromJSON() har default null = "list", så JSON-null bliver til list() og ikke
 # til NULL. Uden normalisering slipper den nul-længde-værdi hele vejen ind i buffer-rækken,
 # hvor unlist() dropper den og kolonnen bliver kortere end tabellen.

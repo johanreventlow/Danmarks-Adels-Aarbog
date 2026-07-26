@@ -159,4 +159,18 @@ databaseobjekterne kan blive stående uden effekt, da intet eksisterende kald r�
 
 ---
 
+## 7. Udskudte review-punkter — eksplicit afgjort
+
+Reviewrunderne under task 1-4 efterlod fire mindre punkter. De er afgjort her, så de
+ikke sejler videre som løse noter.
+
+| Punkt | Afgørelse |
+|---|---|
+| Ingen test for at en ændret **importeret værdi** (ikke kun ændret OCR-kontekst) giver `stale` | **LUKKET.** Test tilføjet i `tests/testthat/test-load-daa.R`. Den asserter begge polariteter — uændret værdi giver `anvendt`, ændret værdi giver `stale` — og er derfor ikke tom. Punktet dækkede en fail-closed-garanti og var det eneste af de fire, der kunne skjule en reel fejl. |
+| `db-verify` katalog-asserter ikke, at de to unikke indekser er **partielle** | **ACCEPTERET.** Prædikaterne `WHERE ... IS NOT NULL` blev bekræftet direkte i kataloget under task 1. En assert ville teste PostgreSQL' DDL-semantik, ikke vores invariant. |
+| Dato-payload-validering afviser ikke **enhver** inkonsistent felt-kombination | **ACCEPTERET for v1.** Validering er fail-closed på de kombinationer der kan nå databasen gennem panelet; panelet sender ét felt ad gangen med faste former. En udtømmende kombinatorisk validering hører til, hvis payloaden nogensinde bliver åben for andre klienter. |
+| Historik-test asserter ikke eksakt frossen aktør/tidsstempel/indhold og nyeste-først-identitet | **ACCEPTERET.** Rækkefølgen er fastlagt i SQL (`ORDER BY cs.created_at DESC, cs.id DESC, ce.seq DESC`) og dækket funktionelt. En test på eksakte tidsstempler ville være tidsafhængig uden at beskytte en invariant. |
+
+---
+
 **Oprettet:** 2026-07-26
