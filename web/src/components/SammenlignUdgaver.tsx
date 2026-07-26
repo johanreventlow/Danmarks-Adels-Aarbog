@@ -253,6 +253,11 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
     return hints;
   }, [aabne, rawDb, existingEdges]);
 
+  const medSvage = useMemo(
+    () => formodetNye.filter((p) => p.svageKandidater.some((k) => !k.afvist)).length,
+    [formodetNye],
+  );
+
   const run = useCallback(async (
     change: Change,
     key: string,
@@ -654,9 +659,53 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
 
       {formodetNye.length > 0 && (
         <details style={{ marginTop: '1rem' }}>
-          <summary>{formodetNye.length} formodet nye — ingen handling nødvendig</summary>
+          <summary>
+            {formodetNye.length} uden kandidat over tærsklen
+            {medSvage > 0 && ` — ${medSvage} har et forslag under tærsklen`}
+          </summary>
+          {medSvage > 0 && (
+            <p style={{ fontSize: '.85em', color: '#6f675b', margin: '.4rem 0' }}>
+              Personer uden årstal kan ikke nå tærsklen, uanset hvor godt navnet passer:
+              dato-overlap tæller kun når begge udgaver har en dato. Forslagene nedenfor er
+              derfor ikke vurderet og fravalgt — de er aldrig blevet vist. Bedøm dem selv.
+            </p>
+          )}
           <ul style={{ fontSize: '.9em', color: '#6f675b' }}>
-            {formodetNye.map((p) => <li key={p.aId}>{visning(byId.get(p.aId))}</li>)}
+            {formodetNye.map((p) => {
+              const svage = p.svageKandidater.filter((k) => !k.afvist).slice(0, 5);
+              return (
+                <li key={p.aId} style={{ marginBottom: svage.length ? '.5rem' : 0 }}>
+                  {visning(byId.get(p.aId))}
+                  {svage.map((k) => {
+                    const bId = String(k.bId);
+                    const b = byId.get(bId);
+                    return (
+                      <div key={bId} style={{ marginTop: '.25rem', marginLeft: '1rem' }}>
+                        <code>{(k.score ?? 0).toFixed(3)}</code> — {visning(b)}
+                        <span style={{ fontSize: '.85em', marginLeft: '.4rem' }}>
+                          navn {k.nameSim.toFixed(2)} · fødsel {k.birthOverlap ? '✓' : '—'}
+                          {' '}· død {k.deathOverlap ? '✓' : '—'} · køn {k.sexEq ? '✓' : '✗'}
+                        </span>
+                        <button type="button" style={{ marginLeft: '.4rem', fontSize: '.85em' }}
+                          onClick={() => toggleSammenligning(p.aId, bId)}>
+                          {aabentPar === `${p.aId}:${bId}` ? 'Luk' : 'Sammenlign'}
+                        </button>
+                        <button type="button" style={{ marginLeft: '.35rem', fontSize: '.85em' }}
+                          disabled={busy === `s:${p.aId}:${bId}`}
+                          onClick={() => {
+                            const navnA = visning(byId.get(p.aId));
+                            if (window.confirm(`Bekræft ${navnA} = ${visning(b)} som samme person?`)) {
+                              bekraeft(p.aId, bId);
+                            }
+                          }}>
+                          {busy === `s:${p.aId}:${bId}` ? 'Gemmer…' : '✓ Bekræft'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </li>
+              );
+            })}
           </ul>
         </details>
       )}
