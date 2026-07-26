@@ -10,7 +10,7 @@ i historiske planer og afsluttede reviews.
 
 | Dokument | Hvad |
 |---|---|
-| [`../claude.md`](../claude.md) | Projekt-handoff: vision, arkitektur, invarianter (§3 er ufravigelige), aktuel tilstand. |
+| [`../CLAUDE.md`](../CLAUDE.md) | Projekt-handoff: vision, arkitektur, invarianter (§3 er ufravigelige), aktuel tilstand. |
 | [`../datamodel-oversigt.md`](../datamodel-oversigt.md) | **Autoritativ** konceptuel modelbeskrivelse — *hvorfor* modellen ser sådan ud. |
 | [`database-current-state.md`](database-current-state.md) | **Hvad er faktisk i prod nu** + hvilke SQL-filer der er autoritative + deploy-procedure. |
 

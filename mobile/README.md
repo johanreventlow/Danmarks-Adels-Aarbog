@@ -11,7 +11,7 @@ Supabase-backend som `../web/`. To publikummer i én app:
 
 > **Datamodel & backend-status:** se [`../docs/database-current-state.md`](../docs/database-current-state.md)
 > og [`../datamodel-oversigt.md`](../datamodel-oversigt.md). Invarianterne i
-> [`../claude.md`](../claude.md) §3 (evidens før konklusion, cache-felter regenereres,
+> [`../CLAUDE.md`](../CLAUDE.md) §3 (evidens før konklusion, cache-felter regenereres,
 > GDPR via `person.levende`) gælder også her.
 
 ---

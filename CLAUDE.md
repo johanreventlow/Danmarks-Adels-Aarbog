@@ -3,23 +3,26 @@
 Et levende, multimedie- og slægtskabssøgende **supplement** til det trykte DAA — ikke en
 konkurrent. Kernefunktion: **"er vi i familie?"** (slægtskabssøgning på tværs af slægter).
 Gratis for foreningens medlemmer, abonnement for forskere/genealoger. PoC afgrænset til
-**familien Reventlow** (~922 personer, live i prod); lykkes den, er målet foreningens samlede data.
+**familien Reventlow** (live i prod — aktuelle tal: `docs/database-current-state.md`); lykkes den, er
+målet foreningens samlede data.
 
 ## Stack (rør ikke uden god grund)
 
 - **Backend:** Supabase (Postgres + Auth + Storage + RLS + auto-API), **EU-region** (persondata om levende). Skema deployet.
 - **Frontend:** TypeScript + React — `web/` (Vite, PWA-først) og `mobile/` (RN/Expo). Begge har læser- **og** redaktør-flade bundet af RLS.
-- **Data / ETL:** **R** (DBI/RPostgres/dbplyr). Python-filer er kun reference — R er fremadrettet.
+- **Data / ETL:** Python til udtræk/segmentering/validering (`.claude/skills/daa-*/scripts/`); **R** (DBI/RPostgres/dbplyr) til DB-load-laget.
 - **Interop:** GEDCOM 7 til import/eksport (intern model er rigere, fladgøres ved eksport).
 
 ## Kommandoer
 
 | Spor | Kommandoer |
 |---|---|
-| `web/` | `npm run dev` · `npm run build` · `npm run test` (vitest) · Playwright e2e |
+| Monorepo | npm workspaces, ÉN rod-lockfile → `npm ci` fra roden, kør pr. workspace: `npm run test -w @daa/core`. Delt DOM/RN-fri kerne: `packages/core` + `packages/feed`. |
+| `web/` | `npm run dev` · `npm run build` · `npm run test` (vitest) · `npm run e2e` (Playwright) |
 | `mobile/` | `npm start` · `npm run ios` / `npm run android` (expo) · `npm test` (jest) |
-| Data (R) | `Rscript supabase_load.R` (seed/reload) · `Rscript run-tests.R` |
+| Data | Indgange: `/daa-extract` (stamtavle) · `/daa-presens` (præsensliste) · `/daa-haendelser`. Load går gennem skill'ens `load_daa.R` (append/staged) — **`supabase_load.R` i roden er historisk, brug den aldrig mod prod.** `Rscript run-tests.R` = R-suiten. |
 | DB | `schema.sql` = **source of truth** · `db-migrations.sql` (idempotent → prod) · `db-verify.sql` (asserts) · `db-rls.sql` (politikker) |
+| CI | `.github/workflows/ci.yml` — 6 jobs skal være grønne: core · feed · r · pipeline · web · mobil (m. `tsc --noEmit`) |
 
 Hemmeligheder ligger i `~/.Renviron` / env-variabler — aldrig i kode eller git.
 
@@ -39,6 +42,7 @@ Hemmeligheder ligger i `~/.Renviron` / env-variabler — aldrig i kode eller git
 
 - **Supabase:** brug *Session pooler* (IPv4), `sslmode=require`, EU-region. Free-tier pauser efter 7 dages inaktivitet (hold varm før live-demo) og har ingen backup — hold et dump i repo'et.
 - **Hver trykt DAA-udgave er en selvstændig `source`** — så modstridende udgaver håndteres indfødt.
+- **Arbejdsmapper indeholder PII:** `work/`, `work_1939_stamtavle/`, `work_presens/` (gitignoreret) rummer prosa om levende personer — commit dem aldrig, send dem aldrig til en model (invariant 8).
 
 ## Levende dokumentation (status/backlog bor IKKE her)
 
