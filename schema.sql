@@ -417,9 +417,13 @@ BEGIN
     RAISE EXCEPTION 'OCR_VALUE_INVALID';
   END IF;
 
-  SELECT count(*),min(pei.person_id),min(s.id) INTO v_anchor_count,v_anchor_person,v_source_id
-    FROM source s JOIN person_external_id pei ON pei.source_id=s.id
-   WHERE s.import_key=p_import_key AND pei.record_key=p_record_key;
+  WITH anchor_rows AS (
+    SELECT pei.person_id,s.id AS source_id
+      FROM source s JOIN person_external_id pei ON pei.source_id=s.id
+     WHERE s.import_key=p_import_key AND pei.record_key=p_record_key
+     FOR UPDATE OF s,pei
+  ) SELECT count(*),min(person_id),min(source_id) INTO v_anchor_count,v_anchor_person,v_source_id
+      FROM anchor_rows;
   IF v_anchor_count <> 1 THEN RAISE EXCEPTION 'OCR_IMPORT_ANCHOR_AMBIGUOUS'; END IF;
   IF v_anchor_person <> p_person_id THEN RAISE EXCEPTION 'OCR_PERSON_NOT_FOUND'; END IF;
   SELECT count(*) INTO v_person_anchor_count
@@ -447,7 +451,7 @@ BEGIN
              a.date_qualifier,a.calendar,a.date_certainty),c.citat_tekst
       INTO v_observed,v_context
       FROM assertion a JOIN citation c ON c.assertion_id=a.id AND c.source_id=v_source_id
-     WHERE a.id=v_assertion_id ORDER BY c.id LIMIT 1 FOR UPDATE OF a;
+     WHERE a.id=v_assertion_id ORDER BY c.id LIMIT 1 FOR UPDATE OF a,c;
     IF NOT FOUND THEN RAISE EXCEPTION 'OCR_ASSERTION_AMBIGUOUS'; END IF;
   END IF;
 
@@ -457,7 +461,12 @@ BEGIN
    WHERE import_key=p_import_key AND record_key=p_record_key AND felt=p_felt FOR UPDATE;
   v_importeret := coalesce(v_journal.importeret,v_observed);
   v_fingerprint := private.ocr_fingerprint(p_import_key,p_record_key,p_felt,v_importeret,v_context);
-  IF p_input_fingerprint IS DISTINCT FROM v_fingerprint THEN RAISE EXCEPTION 'OCR_FINGERPRINT_STALE'; END IF;
+  IF v_journal.id IS NOT NULL AND v_journal.input_fingerprint IS DISTINCT FROM v_fingerprint THEN
+    RAISE EXCEPTION 'OCR_FINGERPRINT_STALE';
+  END IF;
+  IF p_input_fingerprint IS DISTINCT FROM coalesce(v_journal.input_fingerprint,v_fingerprint) THEN
+    RAISE EXCEPTION 'OCR_FINGERPRINT_STALE';
+  END IF;
 
   IF p_status='rettet' THEN
     IF jsonb_typeof(p_korrigeret) <> 'object' THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF;
@@ -497,8 +506,9 @@ BEGIN
     VALUES (p_import_key,p_record_key,p_felt,v_fingerprint,v_importeret,
       CASE WHEN p_status='rettet' THEN p_korrigeret ELSE NULL END,p_status,v_actor_id,v_actor_navn)
   ON CONFLICT (import_key,record_key,felt) DO UPDATE SET
-    input_fingerprint=excluded.input_fingerprint,
-    korrigeret=excluded.korrigeret,status=excluded.status,actor_id=excluded.actor_id,
+    input_fingerprint=import_korrektion.input_fingerprint,
+    korrigeret=CASE WHEN excluded.status='rettet' THEN excluded.korrigeret ELSE import_korrektion.korrigeret END,
+    status=excluded.status,actor_id=excluded.actor_id,
     actor_navn=excluded.actor_navn,opdateret_at=now();
   SELECT to_jsonb(g) INTO v_result FROM red_person_grid() g WHERE g.person_id=p_person_id;
   RETURN v_result;

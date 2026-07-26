@@ -51,6 +51,7 @@ DECLARE
   v_death_assertion bigint := -987655303; v_citation_id bigint := -987655501;
   v_before_journal int; v_before_events int; v_before_assertions int;
   v_before_conclusions int; v_before_name text; v_before_gender text; v_koen_fingerprint text;
+  v_fresh_fingerprint text; v_frozen_fingerprint text; v_name_events int; v_name_history int;
   v_member_blocked boolean := false; v_anon_blocked boolean := false;
   v_hist_member_blocked boolean := false; v_hist_anon_blocked boolean := false;
   v_hist_count int; v_first_after jsonb; v_second_after jsonb;
@@ -168,6 +169,30 @@ BEGIN
      OR (SELECT vaerdi_tekst FROM assertion WHERE id=v_name_assertion) <> 'Mikkel Rettet Igen' THEN
     RAISE EXCEPTION 'FEJL: gentagen OCR-rettelse drev import-snapshot eller journalidentitet';
   END IF;
+  SELECT input_fingerprint INTO v_frozen_fingerprint FROM import_korrektion WHERE id=v_journal_id;
+  IF v_frozen_fingerprint <> v_before_name THEN
+    RAISE EXCEPTION 'FEJL: gentagen OCR-rettelse ændrede frosset source-fingerprint';
+  END IF;
+  -- A newly projected fingerprint after source-context drift must not bless a stale journal.
+  PERFORM set_config('app.change_set_id','',true);
+  RESET ROLE;
+  UPDATE citation SET citat_tekst='Mikkel OCR ændret kildekontekst' WHERE id=v_citation_id;
+  SET LOCAL ROLE authenticated;
+  SELECT input_fingerprint->>'navn' INTO v_fresh_fingerprint FROM red_person_grid() WHERE person_id=-987655111;
+  RESET ROLE;
+  SELECT count(*) INTO v_name_events FROM change_event;
+  SELECT count(*) INTO v_name_history FROM red_ocr_historik('verify:ocr:write','I-15a','navn');
+  BEGIN
+    PERFORM red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','navn',v_fresh_fingerprint,
+      '{"value":"må ikke gemmes"}'::jsonb);
+    RAISE EXCEPTION 'FEJL: frisk fingerprint efter kildeændring blev accepteret';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE 'OCR_FINGERPRINT_STALE%' THEN RAISE; END IF; END;
+  IF (SELECT input_fingerprint FROM import_korrektion WHERE id=v_journal_id) <> v_frozen_fingerprint
+     OR (SELECT vaerdi_tekst FROM assertion WHERE id=v_name_assertion) <> 'Mikkel Rettet Igen'
+     OR (SELECT count(*) FROM change_event) <> v_name_events
+     OR (SELECT count(*) FROM red_ocr_historik('verify:ocr:write','I-15a','navn')) <> v_name_history THEN
+    RAISE EXCEPTION 'FEJL: stale kildekontekst ændrede journal, model eller historik';
+  END IF;
   IF EXISTS (SELECT 1 FROM assertion WHERE id NOT IN (v_name_assertion,v_birth_assertion,v_death_assertion,-987655304,-987655305,-987655306)
              AND target_id IN (-987655201,-987655202,-987655203))
      OR (SELECT count(*) FROM conclusion WHERE target_id IN (-987655201,-987655202,-987655203)) <> 3
@@ -209,7 +234,8 @@ BEGIN
   PERFORM red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','koen',v_before_name,NULL,'godkendt');
   PERFORM red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','koen',v_before_name,NULL,'udskudt');
   IF (SELECT koen FROM person WHERE id=-987655111) <> 'kvinde'
-     OR (SELECT status FROM import_korrektion WHERE import_key='verify:ocr:write' AND record_key='I-15a' AND felt='koen') <> 'udskudt' THEN
+     OR (SELECT status FROM import_korrektion WHERE import_key='verify:ocr:write' AND record_key='I-15a' AND felt='koen') <> 'udskudt'
+     OR (SELECT korrigeret FROM import_korrektion WHERE import_key='verify:ocr:write' AND record_key='I-15a' AND felt='koen') <> '{"value":"kvinde"}'::jsonb THEN
     RAISE EXCEPTION 'FEJL: godkend/udskyd ændrede model eller journalstatus forkert';
   END IF;
 
