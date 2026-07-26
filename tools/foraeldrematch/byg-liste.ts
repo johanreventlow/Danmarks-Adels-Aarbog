@@ -119,6 +119,17 @@ Hvert punkt er ét forældrepar der optræder i begge udgaver uden at være matc
 Matcher du personerne i punktet, forsvinder karantænen for **alle** de børn der er
 nævnt — de vises derefter som én person i stedet for to.
 
+> ⚠️ **LÆS FØRST — listen kan ikke bruges endnu.**
+> Ingen af punkterne kan gennemføres i redaktørfladen som den ser ud i dag.
+> Hvert eneste par omfatter mindst én ægtefælle uden eget bog-nummer, og
+> \`buildMatchPersoner\` giver kun personer med et bog-nummer et udgave-tilhør
+> (\`sourceIds: []\`). Uden udgave-tilhør bliver de aldrig kandidater i matcheren.
+>
+> Karantænen løftes først når **begge** forældre på begge sider er matchet —
+> reglen kræver at forældresættene bliver helt identiske. Derfor er listen
+> foreløbig kun en oversigt over, hvad der venter, når ægtefæller kan matches.
+> Se \`docs/reviews/kryds-udgave-udfyldning-scoping-2026-07-26.md\`.
+
 Arbejd oppefra: de øverste giver mest for indsatsen.
 
 ## Signaturforklaring
@@ -175,3 +186,29 @@ for (const k of liste) {
 }
 console.log(`  person-forslag i alt:  ${sikre + tjek} (${sikre} oplagte, ${tjek} kræver et kig)`);
 console.log(`  uden modpart-forslag:  ${uparret}`);
+
+// Hvor mange af de forældre der skal matches, har overhovedet et bog-nummer?
+const skalMatches = new Set<string>();
+for (const k of liste) for (const id of [...k.f39, ...k.f20]) if (!alleErMatchet(id)) skalMatches.add(id);
+function alleErMatchet(id: string) { return Object.prototype.hasOwnProperty.call(res.canonicalIdById, id); }
+let medNr = 0, udenNr = 0;
+for (const id of skalMatches) (kilde.has(id) ? medNr++ : udenNr++);
+console.log(`\n  forældre der mangler match: ${skalMatches.size}`);
+console.log(`    heraf med bog-nummer:     ${medNr}`);
+console.log(`    heraf kun ægtefælle-nævnt: ${udenNr}`);
+
+// Kan hvert forældrepar overhovedet løses i den nuværende flade?
+let heltLoesbare = 0, delvis = 0, uloeselige = 0, boernLoesbare = 0, boernBlokerede = 0;
+for (const k of liste) {
+  const alle = [...k.f39, ...k.f20];
+  const manglerMatch = alle.filter((id) => !Object.prototype.hasOwnProperty.call(res.canonicalIdById, id));
+  const kanMatches = manglerMatch.filter((id) => kilde.has(id));
+  if (manglerMatch.length === 0) continue;
+  if (kanMatches.length === manglerMatch.length) { heltLoesbare++; boernLoesbare += k.boern.length; }
+  else if (kanMatches.length > 0) { delvis++; boernBlokerede += k.boern.length; }
+  else { uloeselige++; boernBlokerede += k.boern.length; }
+}
+console.log(`\n  forældrepar der kan løses fuldt i fladen i dag: ${heltLoesbare}  → ${boernLoesbare} børn`);
+console.log(`  delvist (mindst én part har intet bog-nummer):  ${delvis}`);
+console.log(`  slet ikke (begge mangler bog-nummer):           ${uloeselige}`);
+console.log(`  børn der forbliver blokerede:                   ${boernBlokerede}`);

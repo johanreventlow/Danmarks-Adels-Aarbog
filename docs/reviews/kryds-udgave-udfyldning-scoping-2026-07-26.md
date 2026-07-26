@@ -97,8 +97,34 @@ Og de klumper: ét forældrepar frigiver alle sine børn på én gang.
 | 10 børn | Detlev + Anna Margretha von Jessen ↔ Detlef + Anna Margretha von Jessen |
 | 9 børn | Henning + Margarethe Rumohr ↔ Henning + Margaretha von Rumohr |
 
-**~133 forældre-matches frigiver 287 karantænerede par.** Det er redaktør-arbejde i den
-eksisterende UI, ikke kode.
+**~133 forældre-matches ville frigive 287 karantænerede par.**
+
+### Men de kan ikke matches i redaktørfladen som den er i dag
+
+Undersøgt efter at arbejdslisten var bygget — og det vender konklusionen:
+
+| Af de 73 forældrepar på listen | Antal |
+|---|---|
+| Kan gennemføres fuldt i fladen i dag | **0** |
+| Mindst én part mangler bog-nummer | 47 |
+| Begge parter mangler bog-nummer | 26 |
+
+Årsagen er to sammenfaldende ting:
+
+1. **Ægtefæller har sjældent eget bog-nummer.** Moderen står typisk kun nævnt inde i faderens
+   opslag, ikke som egen nummereret post. 122 af de 207 forældre der mangler match, er sådanne.
+2. **Matcheren kræver et udgave-tilhør.** `matchUdgaver.ts:359-370` udleder `sourceIds` alene af
+   `person_external_id`. En person uden bog-nummer får `sourceIds: []`, hører derfor til ingen
+   udgave, og indgår aldrig i kandidatparrene ("disjunkte kilder forudsættes af kalderen").
+
+Og karantænen løftes kun når forældresættene bliver **helt identiske** efter kanonisering —
+`collapseSameAs.ts:165-170` afviser enhver forskel, også delmængder. Ét matchet forældrepar er
+altså ikke nok; begge forældre på begge sider skal matches.
+
+**Konsekvens: det er ikke redaktør-arbejde, det er en lille kodeændring først.**
+Ægtefæller skal kunne få et udgave-tilhør — det kan udledes af den post de er nævnt i (deres
+partners eller børns `person_external_id`), uden at give dem et bog-nummer de ikke har.
+Derefter er de 73 par almindeligt redaktionelt arbejde.
 
 ## Hvad det betyder for trin 2
 
