@@ -4,7 +4,7 @@
 // eksisterende base = kanonisk (objekt/sink), ny udgaves person = alias (subjekt).
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
-  matchUdgaver, buildMatchFrame, collapseSameAs, previewSammeSom, parseYear,
+  matchUdgaver, buildMatchFrame, collapseSameAs, previewSammeSom, parseYear, defaultCfg,
   udledKilderForAegtefaeller,
   type MatchFrame, type RedMatchPerson, type Db, type SameAsEdge, type Union, type ParentChild,
 } from '@daa/core';
@@ -213,7 +213,13 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
       if (p.sourceIds.includes(nyKildeId)) { framesA.push(f); aIds.push(String(p.id)); }
       else framesB.push(f);
     }
-    const pairs = matchUdgaver(framesA, framesB);
+    // Evidens-normaliseret score: vægt kun de signaler der faktisk kunne vurderes.
+    // Uden den har en person uden årstal et loft på wName + wSex = præcis
+    // reviewCutoff — bogens ægtefæller kunne derfor ikke bestå, uanset navnet.
+    // Målt mod prod: personer med mindst ét forslag går 442 -> 815 af 835.
+    // assignTiers kapper navn-alene-match til "gennemsyn" (måling: 152 -> 0 par
+    // markeret stærke uden ét eneste årstal).
+    const pairs = matchUdgaver(framesA, framesB, { ...defaultCfg(), evidensNormaliseret: true });
     return buildArbejdsliste(
       pairs, aIds,
       new Set(afviste.map((x) => pairKey(x.aId, x.bId))),
@@ -665,9 +671,9 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
           </summary>
           {medSvage > 0 && (
             <p style={{ fontSize: '.85em', color: '#6f675b', margin: '.4rem 0' }}>
-              Personer uden årstal kan ikke nå tærsklen, uanset hvor godt navnet passer:
-              dato-overlap tæller kun når begge udgaver har en dato. Forslagene nedenfor er
-              derfor ikke vurderet og fravalgt — de er aldrig blevet vist. Bedøm dem selv.
+              Scoren vægter kun det der kunne vurderes, så et manglende årstal tæller
+              hverken for eller imod. Disse forslag nåede alligevel ikke tærsklen — typisk
+              fordi navnene afviger, eller fordi et kendt årstal ikke passer. Bedøm dem selv.
             </p>
           )}
           <ul style={{ fontSize: '.9em', color: '#6f675b' }}>
