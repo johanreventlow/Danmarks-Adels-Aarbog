@@ -67,7 +67,7 @@ export function selectFeedMedia<T extends FeedMediaCandidate>(
 - Portrait-suitable normalized kinds are exactly `foto`, `maleri`, `portræt`, `portraet`.
 - Rotation offset is `stableHash(`${cardId}|${personId}`) % candidates.length`.
 
-- [ ] **Step 1: Write the failing selection tests**
+- [x] **Step 1: Write the failing selection tests**
 
 Create fixtures with literal expected IDs:
 
@@ -98,7 +98,7 @@ Also assert:
 - different input permutations produce the same IDs;
 - returned objects retain an extra fixture property.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run:
 
@@ -108,7 +108,7 @@ npm test --workspace packages/feed -- src/__tests__/media.test.ts
 
 Expected: FAIL because `../media` and `selectFeedMedia` do not exist.
 
-- [ ] **Step 3: Implement the minimal pure selector**
+- [x] **Step 3: Implement the minimal pure selector**
 
 Implement helpers local to `media.ts`:
 
@@ -127,7 +127,7 @@ then slice. For all other kinds rotate the full sorted list, then slice. Default
 
 Export `media.ts` from `packages/feed/src/index.ts`.
 
-- [ ] **Step 4: Verify GREEN and package regression**
+- [x] **Step 4: Verify GREEN and package regression**
 
 Run:
 
@@ -138,7 +138,7 @@ npm test --workspace packages/feed
 
 Expected: focused tests pass and the complete feed suite remains green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/feed/src/media.ts packages/feed/src/__tests__/media.test.ts packages/feed/src/index.ts
@@ -190,7 +190,7 @@ export async function resolveFeedMediaForCards(
 ): Promise<WebFeedMediaByCard>;
 ```
 
-- [ ] **Step 1: Write failing query/mapping/signing tests**
+- [x] **Step 1: Write failing query/mapping/signing tests**
 
 Mock complete Supabase query builders with `select`, `eq`, `in`, `order`, `range`, and
 thenable behavior, plus `signPaths`.
@@ -227,7 +227,7 @@ Assert:
 - thrown fetch errors warn and return keys with empty arrays for requested persons;
 - an empty request performs no Supabase or Storage call.
 
-- [ ] **Step 2: Run focused test and verify RED**
+- [x] **Step 2: Run focused test and verify RED**
 
 Run:
 
@@ -237,7 +237,7 @@ VITE_SUPABASE_URL=https://example.supabase.co VITE_SUPABASE_ANON_KEY=test-anon-k
 
 Expected: FAIL because `../feedMedia` does not exist.
 
-- [ ] **Step 3: Implement batched candidate loading**
+- [x] **Step 3: Implement batched candidate loading**
 
 Implement the three-query flow:
 
@@ -260,14 +260,14 @@ Normalize nullable text to `''`, preserve `primaer`, map relation subject throug
 Catch once at the exported boundary, warn with prefix `[feedMedia]`, and return empty
 keys.
 
-- [ ] **Step 4: Implement selected-path signing**
+- [x] **Step 4: Implement selected-path signing**
 
 For each request, call `selectFeedMedia(request.cardId, request.kind,
 request.personId, candidates)`. Build one union of selected medium/large paths, call
 the existing `signPaths` once, and then materialize `WebFeedMediaItem[]` per card.
 Require a signed `largePath`; use `signed.get(mediumPath) ?? largeUrl` for `mediumUrl`.
 
-- [ ] **Step 5: Verify GREEN and web data regression**
+- [x] **Step 5: Verify GREEN and web data regression**
 
 Run:
 
@@ -278,7 +278,7 @@ VITE_SUPABASE_URL=https://example.supabase.co VITE_SUPABASE_ANON_KEY=test-anon-k
 
 Expected: focused tests and full web suite pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add web/src/data/feedMedia.ts web/src/data/__tests__/feedMedia.test.ts
@@ -330,7 +330,7 @@ export function useMobileFeedMedia(
 ): MobileFeedMediaItem[];
 ```
 
-- [ ] **Step 1: Install exact mobile test dependencies**
+- [x] **Step 1: Install exact mobile test dependencies**
 
 Run:
 
@@ -340,7 +340,7 @@ npm install --workspace mobile --save-dev --save-exact @testing-library/react-na
 
 Verify only `mobile/package.json` and root `package-lock.json` changed.
 
-- [ ] **Step 2: Write failing adapter tests**
+- [x] **Step 2: Write failing adapter tests**
 
 Use real `selectMobileFeedMedia` behavior with raw fields:
 
@@ -361,7 +361,7 @@ Assert:
   to large, and retains nullable captions;
 - missing large URI filters only the affected item.
 
-- [ ] **Step 3: Run focused test and verify RED**
+- [x] **Step 3: Run focused test and verify RED**
 
 Run:
 
@@ -371,7 +371,7 @@ npm test --workspace mobile -- src/lib/__tests__/feedMedia.test.ts --runInBand
 
 Expected: FAIL because `../feedMedia` does not exist.
 
-- [ ] **Step 4: Implement normalization, mapping, and hook**
+- [x] **Step 4: Implement normalization, mapping, and hook**
 
 Normalize each displayable `RawMedia` into:
 
@@ -399,7 +399,7 @@ useMediaAndThumbUris(selected, m => m.medium_storage_path)
 and pass `uris`/`thumbUris` to `buildMobileFeedMediaItems`. Do not sign unselected raw
 media.
 
-- [ ] **Step 5: Verify GREEN and mobile regression**
+- [x] **Step 5: Verify GREEN and mobile regression**
 
 Run:
 
@@ -411,7 +411,7 @@ npm test --workspace mobile -- --runInBand
 Expected: focused tests and full mobile suite pass, with only the established offline
 Supabase warnings.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add mobile/package.json package-lock.json mobile/src/lib/feedMedia.ts mobile/src/lib/__tests__/feedMedia.test.ts
@@ -453,7 +453,7 @@ type PersonIdentity = { name: string; years: string };
   `personId` to `PersonFeedCardView`; non-person cases remain visually and behaviorally
   unchanged.
 
-- [ ] **Step 1: Write failing person-post interaction tests**
+- [x] **Step 1: Write failing person-post interaction tests**
 
 Use `@vitest-environment jsdom`, Testing Library, a real portrait card, and two literal
 `WebFeedMediaItem` fixtures. Assert:
@@ -470,7 +470,7 @@ Use `@vitest-environment jsdom`, Testing Library, a real portrait card, and two 
 
 Query by accessible roles/names, not test IDs.
 
-- [ ] **Step 2: Run focused component test and verify RED**
+- [x] **Step 2: Run focused component test and verify RED**
 
 Run:
 
@@ -481,7 +481,7 @@ VITE_SUPABASE_URL=https://example.supabase.co VITE_SUPABASE_ANON_KEY=test-anon-k
 Expected: FAIL because `PersonFeedCardView` does not exist and `FeedCardView` lacks the
 new props.
 
-- [ ] **Step 3: Implement `FeedMediaStrip` and lightbox state**
+- [x] **Step 3: Implement `FeedMediaStrip` and lightbox state**
 
 Render no wrapper for `[]`. For one item use `flexBasis: '100%'`; for multiple use
 `flexBasis: '78%'`. The scroll container uses:
@@ -501,7 +501,7 @@ Each image is inside a real button with Danish accessible name
 height, neutral theme background, and `scrollSnapAlign: 'start'`. Stop propagation on
 the media button. Local nullable index renders existing `Lightbox` with `largeUrl`.
 
-- [ ] **Step 4: Implement the shared web person shell**
+- [x] **Step 4: Implement the shared web person shell**
 
 Use one paper `<article>` as the surface. Inside it:
 
@@ -522,7 +522,7 @@ Move these person cases from the old switch without losing fields:
 Change `BookmarkFlag` from a clickable `<span>` to a reset-styled real `<button
 type="button">` while preserving its title, SVG, size, colors, and propagation stop.
 
-- [ ] **Step 5: Integrate progressive web media loading without feed rebuild**
+- [x] **Step 5: Integrate progressive web media loading without feed rebuild**
 
 In `FeedStreamView`:
 
@@ -544,7 +544,7 @@ In `FeedStreamView`:
 
 Pass `person` and `mediaByCard[card.id] ?? []` into `FeedCardView`.
 
-- [ ] **Step 6: Verify web GREEN, typecheck, and build**
+- [x] **Step 6: Verify web GREEN, typecheck, and build**
 
 Run:
 
@@ -556,7 +556,7 @@ VITE_SUPABASE_URL=https://example.supabase.co VITE_SUPABASE_ANON_KEY=test-anon-k
 
 Expected: focused tests, complete web suite, TypeScript, and Vite build pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add web/src/components/feed/FeedMediaStrip.tsx web/src/components/feed/PersonFeedCardView.tsx web/src/components/__tests__/PersonFeedCardView.test.tsx web/src/components/feed/FeedCardView.tsx web/src/components/feed/FeedStreamView.tsx web/src/components/primitives.tsx
@@ -591,7 +591,7 @@ git commit -m "feat(web): vis personposter med billedstribe"
 }
 ```
 
-- [ ] **Step 1: Write failing React Native interaction tests**
+- [x] **Step 1: Write failing React Native interaction tests**
 
 Using the exact Task 3 testing-library dependency, render a real portrait card and mock
 only the slow/external `useMobileFeedMedia` boundary with two complete
@@ -610,7 +610,7 @@ Assert by accessible roles/names:
 - `arkiv` keeps clause/year/category/source in the shared shell;
 - a `gods` card remains on the existing non-person branch.
 
-- [ ] **Step 2: Run focused test and verify RED**
+- [x] **Step 2: Run focused test and verify RED**
 
 Run:
 
@@ -620,7 +620,7 @@ npm test --workspace mobile -- src/components/feed/__tests__/PersonFeedCardView.
 
 Expected: FAIL because the new component and props do not exist.
 
-- [ ] **Step 3: Implement mobile media strip**
+- [x] **Step 3: Implement mobile media strip**
 
 Use a horizontal `ScrollView` with:
 
@@ -639,7 +639,7 @@ an independent `Pressable` labeled `Åbn billede: …`, with `expo-image`
 `contentFit="contain"` and a neutral token-backed surface. Local nullable index renders
 the existing `Lightbox` with `largeUri`.
 
-- [ ] **Step 4: Implement mobile shared person shell**
+- [x] **Step 4: Implement mobile shared person shell**
 
 Use a non-pressable card `View`. Inside it:
 
@@ -654,7 +654,7 @@ All non-person cases remain in `FeedCardView`.
 Add Danish accessibility labels to Lightbox close/previous/next controls while keeping
 existing behavior.
 
-- [ ] **Step 5: Wire mobile model and `Aux.mediaBy`**
+- [x] **Step 5: Wire mobile model and `Aux.mediaBy`**
 
 In `mobile/src/app/(tabs)/index.tsx` render:
 
@@ -673,7 +673,7 @@ const person = pid ? model?.byId[pid] : null;
 is unexpectedly absent. Media signing remains inside each visible person card through
 `useMobileFeedMedia`; only Task 1's selected maximum four paths reach the signing hook.
 
-- [ ] **Step 6: Verify mobile GREEN, typecheck, and suite**
+- [x] **Step 6: Verify mobile GREEN, typecheck, and suite**
 
 Run:
 
@@ -686,7 +686,7 @@ npx tsc --noEmit -p mobile/tsconfig.json
 Expected: focused and full mobile tests pass, TypeScript passes, and only established
 offline Supabase warnings remain.
 
-- [ ] **Step 7: Run cross-workspace acceptance gates**
+- [x] **Step 7: Run cross-workspace acceptance gates**
 
 Run:
 
@@ -703,7 +703,7 @@ git diff --check
 Also verify the changed-file list contains no SQL, migration, RLS, redaktion, upload, or
 publication files.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add mobile/src/components/feed/FeedMediaStrip.tsx mobile/src/components/feed/PersonFeedCardView.tsx mobile/src/components/feed/__tests__/PersonFeedCardView.test.tsx mobile/src/components/feed/FeedCardView.tsx 'mobile/src/app/(tabs)/index.tsx' mobile/src/components/Lightbox.tsx
@@ -712,3 +712,42 @@ git commit -m "feat(mobile): vis personposter med billedstribe"
 
 After this task, the controller performs the branch-wide review and visual smoke tests
 before presenting integration options.
+
+---
+
+## Status (2026-07-26): Tasks 1–5 done, scope decision applied
+
+All five tasks implemented and committed. Last review before handoff found commit
+`fa4c018` ("invalidér direkte signering ved authskift") had extended the feed's
+auth-epoch invalidation into `mobile/src/data/mediaDedup.ts`,
+`mobile/src/data/presensLinjer.ts`, `mobile/src/app/praesens.tsx`, and
+`mobile/src/components/redaktion/MediaUploadSheet.tsx` — all redaktion upload/resume
+territory, violating the Global Constraint against touching those flows.
+
+**Decision: reverted `fa4c018`** (commit `f38a0c6`). `mobile/src/data/mediaDedup.ts`,
+`mobile/src/data/presensLinjer.ts`, `mobile/src/app/praesens.tsx`, and
+`MediaUploadSheet.tsx` are now byte-identical to `main` again (`git diff main -- <files>`
+is empty). The two commits before it (`d8cd1f2`, `cc9cc00`) stayed — they only added an
+optional `epoch` param to `signPaths` and epoch-keyed the cache, touching no redaktion
+call site, and fix a real bug in this branch's own new mobile feed-media hook
+(`useMediaAndThumbUris`/`useMobileFeedMedia`): stale signed URLs could survive a
+login/logout across renders. That fix needed no change to `signPaths`' external
+contract — `useMediaAndThumbUris` already guards via its own `requestKey`/epoch-tagged
+state and returns `{}` on a mismatch.
+
+**Parked, not fixed here:** `fetchExistingMediaBySha` (`mediaDedup.ts`) calls
+`signPaths(paths)` with the default epoch captured at call time — if auth changes
+mid-`await`, the dedup flow can resolve with a stale signed URL. This race is
+pre-existing on `main`, not introduced by this branch, and fixing it means touching the
+redaktion upload/resume flow this plan explicitly excludes. Backlog item for a separate,
+dedicated change.
+
+**Verification run after the revert** (all green):
+`packages/feed`, `packages/core`, `web` test suite (545 tests) + build, `mobile` full
+suite (417 tests) + `tsc --noEmit -p mobile/tsconfig.json`, `git diff --check`. Changed-file
+list vs `main` reviewed — no SQL, migration, RLS, redaktion, upload, or publication files
+present.
+
+**Not run:** visual/device smoke tests (no simulator/device driven this session). Unit +
+typecheck + build confirm the code is wired correctly; they don't confirm the feed cards
+render and swipe correctly on a real screen.
