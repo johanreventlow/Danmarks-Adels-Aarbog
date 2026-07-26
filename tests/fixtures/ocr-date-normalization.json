@@ -175,6 +175,20 @@
     "certainty": null
   },
   {
+    "raw": "1645",
+    "min": "1645-01-01",
+    "max": "1645-12-31",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "1712-83",
+    "min": "1712-01-01",
+    "max": "1712-12-31",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
     "raw": "1645-01-01",
     "min": "1645-01-01",
     "max": "1645-01-01",
