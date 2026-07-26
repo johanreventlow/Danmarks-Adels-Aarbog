@@ -9,3 +9,4 @@ export * from './temporal';
 export * from './score';
 export * from './order';
 export * from './stream';
+export * from './media';

@@ -195,10 +195,13 @@ export default function HomeScreen() {
   const renderItem = useCallback<ListRenderItem<FeedCard>>(
     ({ item }) => {
       const pid = bookmarkPersonId(item);
+      const person = pid ? model?.byId[pid] : null;
       return (
         <View style={ROW_STYLE}>
           <FeedCardView
             card={item}
+            person={person ? { name: person.name, years: person.years } : undefined}
+            rawMedia={pid ? aux?.mediaBy[pid] ?? [] : []}
             bookmarked={pid ? has(pid) : false}
             onSave={saveOrPrompt}
             onOpen={openCard}
@@ -206,7 +209,7 @@ export default function HomeScreen() {
         </View>
       );
     },
-    [has, saveOrPrompt, openCard],
+    [model, aux, bookmarkOwnerId, has, saveOrPrompt, openCard],
   );
 
   // Stabile referencer til FlatList's viewabilityConfig/onViewableItemsChanged-props (RN

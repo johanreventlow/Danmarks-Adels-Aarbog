@@ -1,12 +1,14 @@
 // Medie-URL'er (mediehåndtering Slice 0). Én privat 'media'-bucket → billeder serveres via
 // kortlivede signed URLs mintet på brugerens session (RLS gater hvad rollen må se). Lille
 // TTL-cache så gentagne renders ikke re-signerer. Ren læse-vej; upload er en senere slice.
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { supabase } from './supabase';
 import type { RawMedia } from '../data/types';
 
 const SIGN_TTL = 600; // sek.
 const cache = new Map<string, { url: string; exp: number }>();
+let authEpoch = 0;
+const authEpochListeners = new Set<() => void>();
 
 // Portræt-egnede slags (hovedbillede på personkort). Spejler web PORTRAIT_SLAGS.
 // Sammenlign altid normaliseret (lowercase+trim), så 'Maleri'/'Portræt ' også genkendes.
@@ -16,15 +18,35 @@ const normSlags = (s: string) => s.trim().toLowerCase();
 // Ryd signed-URL-cachen ved auth/session-skift: signed URLs er bærer-tokens der virker uafhængigt
 // af session indtil udløb — uden dette kunne en bruger efter rolle-skift genbruge en tidligere
 // (mere privilegeret) brugers cachede URLs i op til ~TTL sekunder.
-supabase?.auth.onAuthStateChange(() => cache.clear());
+supabase?.auth.onAuthStateChange(() => {
+  cache.clear();
+  authEpoch += 1;
+  authEpochListeners.forEach((listener) => listener());
+});
+
+// Medieforbrugere skal reagere på auth-events, ikke blot et bruger-id: token-refresh eller
+// nye rolleclaims kan ændre RLS for samme person. Epoch'en er et tællepunkt, aldrig en token.
+// Kun feedets egen invalidering (feedMedia.ts) abonnerer på den; redaktions-/personskærmenes
+// useMediaAndThumbUris er uændret og kender ikke til epoker.
+export function useMediaAuthEpoch(): number {
+  return useSyncExternalStore(
+    (listener) => {
+      authEpochListeners.add(listener);
+      return () => authEpochListeners.delete(listener);
+    },
+    () => authEpoch,
+    () => authEpoch,
+  );
+}
 
 // Signér en batch stier i ét kald; path→url. Tolerant (fejl → udeladt). Bruger cache.
-export async function signPaths(paths: string[]): Promise<Map<string, string>> {
+export async function signPaths(paths: string[], epoch = authEpoch): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   const now = Date.now();
   const need: string[] = [];
   for (const p of new Set(paths.filter(Boolean))) {
-    const c = cache.get(p);
+    const cacheKey = `${epoch}\u0000${p}`;
+    const c = cache.get(cacheKey);
     if (c && c.exp > now) out.set(p, c.url);
     else need.push(p);
   }
@@ -36,7 +58,8 @@ export async function signPaths(paths: string[]): Promise<Map<string, string>> {
         for (const row of data ?? []) {
           if (row.signedUrl && row.path) {
             out.set(row.path, row.signedUrl);
-            cache.set(row.path, { url: row.signedUrl, exp: now + (SIGN_TTL - 30) * 1000 });
+            const cacheKey = `${epoch}\u0000${row.path}`;
+            cache.set(cacheKey, { url: row.signedUrl, exp: now + (SIGN_TTL - 30) * 1000 });
           }
         }
     } catch (e) {
