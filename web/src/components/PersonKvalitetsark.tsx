@@ -11,7 +11,7 @@ import { useMemo, useState, type CSSProperties } from 'react';
 import {
   filterKvalitetsark, sortKvalitetsark,
   type KvalitetsarkFilter, type KvalitetsarkPreset, type KvalitetsarkSortKey,
-  type OcrFelt, type PersonKvalitetsarkRow,
+  type OcrFelt, type OcrReviewStatus, type PersonKvalitetsarkRow,
 } from '@daa/core';
 
 export type PersonKvalitetsarkProps = {
@@ -32,6 +32,15 @@ const T = {
   ink: '#221f1a', bordeaux: '#881A33', muted: '#6f675b', muted2: '#9a8f78', muted3: '#a99f8c',
   red: '#8a2b2b',
   serif: "'Cormorant Garamond',serif", sans: "'Hanken Grotesk',sans-serif", mono: "'JetBrains Mono',monospace",
+};
+
+// Danske labels til felt-/reviewstatus-filtrene (samme fire/fem koder som
+// EDITABLE_COLUMN_FELT / OcrReviewStatus i @daa/core).
+const FELT_LABELS: Record<OcrFelt, string> = {
+  navn: 'Navn', foedsel: 'Født', doed: 'Død', koen: 'Køn',
+};
+const REVIEW_STATUS_LABELS: Record<OcrReviewStatus, string> = {
+  aaben: 'Åben', rettet: 'Rettet', godkendt: 'Godkendt', udskudt: 'Udskudt', stale: 'Stale',
 };
 
 const PRESETS: { key: KvalitetsarkPreset; label: string }[] = [
@@ -195,11 +204,66 @@ function FilterSelect({ label, alleLabel, value, options, onChange }: {
   );
 }
 
+// Delt af "Filtrér på felt" og "Filtrér på reviewstatus" — samme form som FilterSelect,
+// men med separate value/label-par (koderne fra @daa/core er ikke selvforklarende Dansk).
+function EnumFilterSelect<K extends string>({ label, alleLabel, value, options, onChange }: {
+  label: string;
+  alleLabel: string;
+  value: K | null;
+  options: { value: K; label: string }[];
+  onChange: (value: K | null) => void;
+}) {
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', fontSize: 9.5, color: T.muted3, gap: 2 }}>
+      {label}
+      <select
+        value={value ?? ''}
+        onChange={(e) => onChange((e.target.value || null) as K | null)}
+        style={{ fontSize: 12, padding: '5px 8px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6 }}
+      >
+        <option value="">{alleLabel}</option>
+        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </label>
+  );
+}
+
+// Delt af "Filtrér på staged" og "Filtrér på samme_som" — tre tilstande (alle / ja / nej)
+// over en boolean|null-dimension. HTML-select-værdier er altid strenge, så 'true'/'false'
+// koder booleanen og '' koder null (= "alle").
+function TriStateFilterSelect({ label, alleLabel, jaLabel, nejLabel, value, onChange }: {
+  label: string;
+  alleLabel: string;
+  jaLabel: string;
+  nejLabel: string;
+  value: boolean | null;
+  onChange: (value: boolean | null) => void;
+}) {
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', fontSize: 9.5, color: T.muted3, gap: 2 }}>
+      {label}
+      <select
+        value={value === null ? '' : value ? 'true' : 'false'}
+        onChange={(e) => onChange(e.target.value === '' ? null : e.target.value === 'true')}
+        style={{ fontSize: 12, padding: '5px 8px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6 }}
+      >
+        <option value="">{alleLabel}</option>
+        <option value="true">{jaLabel}</option>
+        <option value="false">{nejLabel}</option>
+      </select>
+    </label>
+  );
+}
+
 export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, onOpenPerson }: PersonKvalitetsarkProps) {
   const [preset, setPreset] = useState<KvalitetsarkPreset>('alle');
   const [query, setQuery] = useState('');
   const [sourceFilter, setSourceFilter] = useState<string | null>(null);
   const [linjeFilter, setLinjeFilter] = useState<string | null>(null);
+  const [feltFilter, setFeltFilter] = useState<OcrFelt | null>(null);
+  const [reviewStatusFilter, setReviewStatusFilter] = useState<OcrReviewStatus | null>(null);
+  const [stagedFilter, setStagedFilter] = useState<boolean | null>(null);
+  const [sammeSomFilter, setSammeSomFilter] = useState<boolean | null>(null);
   const [sortKey, setSortKey] = useState<KvalitetsarkSortKey>('navn');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [columnsOpen, setColumnsOpen] = useState(false);
@@ -214,11 +278,13 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
   const sorted = useMemo(() => {
     const filter: KvalitetsarkFilter = {
       preset, query, source: sourceFilter, linje: linjeFilter,
-      // felt/reviewStatus/staged/sammeSom har ingen UI i denne opgave — Task 9 ejer dem.
-      felt: null, reviewStatus: null, staged: null, sammeSom: null,
+      felt: feltFilter, reviewStatus: reviewStatusFilter, staged: stagedFilter, sammeSom: sammeSomFilter,
     };
     return sortKvalitetsark(filterKvalitetsark(rows, filter), sortKey, sortDir);
-  }, [rows, preset, query, sourceFilter, linjeFilter, sortKey, sortDir]);
+  }, [
+    rows, preset, query, sourceFilter, linjeFilter, feltFilter, reviewStatusFilter,
+    stagedFilter, sammeSomFilter, sortKey, sortDir,
+  ]);
 
   function handleSort(key: KvalitetsarkSortKey) {
     if (sortKey === key) {
@@ -373,6 +439,26 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
         <FilterSelect
           label="Filtrér på linje" alleLabel="Alle linjer"
           value={linjeFilter} options={linjer} onChange={setLinjeFilter}
+        />
+        <EnumFilterSelect
+          label="Filtrér på felt" alleLabel="Alle felter"
+          value={feltFilter}
+          options={(['navn', 'foedsel', 'doed', 'koen'] as const).map((f) => ({ value: f, label: FELT_LABELS[f] }))}
+          onChange={setFeltFilter}
+        />
+        <EnumFilterSelect
+          label="Filtrér på reviewstatus" alleLabel="Alle statusser"
+          value={reviewStatusFilter}
+          options={(['aaben', 'rettet', 'godkendt', 'udskudt', 'stale'] as const).map((s) => ({ value: s, label: REVIEW_STATUS_LABELS[s] }))}
+          onChange={setReviewStatusFilter}
+        />
+        <TriStateFilterSelect
+          label="Filtrér på staged" alleLabel="Alle" jaLabel="Kun staged" nejLabel="Kun ikke-staged"
+          value={stagedFilter} onChange={setStagedFilter}
+        />
+        <TriStateFilterSelect
+          label="Filtrér på samme_som" alleLabel="Alle" jaLabel="Kun med samme_som" nejLabel="Kun uden samme_som"
+          value={sammeSomFilter} onChange={setSammeSomFilter}
         />
 
         <div style={{ position: 'relative' }}>

@@ -178,6 +178,117 @@ describe('PersonKvalitetsark — søgning, filtre, sortering, kolonner', () => {
     expect(screen.queryByText('AndenLinje')).toBeNull();
   });
 
+  test('felt-filter vælger blandt de fire OCR-felter, og "Alle felter" nulstiller', () => {
+    const rows = [
+      row({ personId: '1', navn: 'HarNavnStatus', reviewStatus: { navn: 'rettet' } }),
+      row({ personId: '2', navn: 'HarFoedselStatus', reviewStatus: { foedsel: 'rettet' } }),
+    ];
+    render(<PersonKvalitetsark rows={rows} {...baseProps} onSelect={vi.fn()} onOpenPerson={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Filtrér på felt'), { target: { value: 'foedsel' } });
+    expect(screen.getByText('HarFoedselStatus')).toBeTruthy();
+    expect(screen.queryByText('HarNavnStatus')).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('Filtrér på felt'), { target: { value: '' } });
+    expect(screen.getByText('HarFoedselStatus')).toBeTruthy();
+    expect(screen.getByText('HarNavnStatus')).toBeTruthy();
+  });
+
+  test('reviewstatus-filter kombineret med felt-filter ser kun på det valgte felt (AND)', () => {
+    const rows = [
+      row({ personId: '1', navn: 'NavnRettetFoedselAaben', reviewStatus: { navn: 'rettet', foedsel: 'aaben' } }),
+      row({ personId: '2', navn: 'NavnAabenFoedselRettet', reviewStatus: { navn: 'aaben', foedsel: 'rettet' } }),
+    ];
+    render(<PersonKvalitetsark rows={rows} {...baseProps} onSelect={vi.fn()} onOpenPerson={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Filtrér på felt'), { target: { value: 'foedsel' } });
+    fireEvent.change(screen.getByLabelText('Filtrér på reviewstatus'), { target: { value: 'rettet' } });
+    expect(screen.getByText('NavnAabenFoedselRettet')).toBeTruthy();
+    expect(screen.queryByText('NavnRettetFoedselAaben')).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('Filtrér på reviewstatus'), { target: { value: '' } });
+    expect(screen.getByText('NavnRettetFoedselAaben')).toBeTruthy();
+    expect(screen.getByText('NavnAabenFoedselRettet')).toBeTruthy();
+  });
+
+  test('reviewstatus-preset og reviewstatus-filter kombineres med AND, ikke gensidig udelukkelse', () => {
+    // "Rettede" (preset) betyder: mindst ét felt har status 'rettet' — uanset hvilket.
+    // Reviewstatus-filteret (uden valgt felt) betyder: mindst ét felt har den valgte
+    // status — også uanset hvilket, og ikke nødvendigvis samme felt som preset'et fandt.
+    // De to kan derfor sagtens begge være sande for samme række uden at modsige
+    // hinanden — det er en ægte AND-indsnævring, ikke en modstridende akse.
+    const rows = [
+      row({ personId: '1', navn: 'RettetOgGodkendt', reviewStatus: { navn: 'rettet', foedsel: 'godkendt' } }),
+      row({ personId: '2', navn: 'KunRettet', reviewStatus: { navn: 'rettet' } }),
+    ];
+    render(<PersonKvalitetsark rows={rows} {...baseProps} onSelect={vi.fn()} onOpenPerson={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Rettede' }));
+    fireEvent.change(screen.getByLabelText('Filtrér på reviewstatus'), { target: { value: 'godkendt' } });
+    expect(screen.getByText('RettetOgGodkendt')).toBeTruthy();
+    expect(screen.queryByText('KunRettet')).toBeNull();
+  });
+
+  test('staged-filter har tre tilstande: alle / kun staged / kun ikke-staged', () => {
+    const rows = [
+      row({ personId: '1', navn: 'ErStaged', staged: true }),
+      row({ personId: '2', navn: 'ErIkkeStaged', staged: false }),
+    ];
+    render(<PersonKvalitetsark rows={rows} {...baseProps} onSelect={vi.fn()} onOpenPerson={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Filtrér på staged'), { target: { value: 'true' } });
+    expect(screen.getByText('ErStaged')).toBeTruthy();
+    expect(screen.queryByText('ErIkkeStaged')).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('Filtrér på staged'), { target: { value: 'false' } });
+    expect(screen.getByText('ErIkkeStaged')).toBeTruthy();
+    expect(screen.queryByText('ErStaged')).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('Filtrér på staged'), { target: { value: '' } });
+    expect(screen.getByText('ErStaged')).toBeTruthy();
+    expect(screen.getByText('ErIkkeStaged')).toBeTruthy();
+  });
+
+  test('samme_som-filter har tre tilstande: alle / kun med samme_som / kun uden', () => {
+    const rows = [
+      row({ personId: '1', navn: 'HarSammeSom', sammeSomStatus: 'sikker' }),
+      row({ personId: '2', navn: 'HarIkkeSammeSom', sammeSomStatus: null }),
+    ];
+    render(<PersonKvalitetsark rows={rows} {...baseProps} onSelect={vi.fn()} onOpenPerson={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Filtrér på samme_som'), { target: { value: 'true' } });
+    expect(screen.getByText('HarSammeSom')).toBeTruthy();
+    expect(screen.queryByText('HarIkkeSammeSom')).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('Filtrér på samme_som'), { target: { value: 'false' } });
+    expect(screen.getByText('HarIkkeSammeSom')).toBeTruthy();
+    expect(screen.queryByText('HarSammeSom')).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('Filtrér på samme_som'), { target: { value: '' } });
+    expect(screen.getByText('HarSammeSom')).toBeTruthy();
+    expect(screen.getByText('HarIkkeSammeSom')).toBeTruthy();
+  });
+
+  test('felt/reviewstatus/staged/samme_som-filtre kombineres alle sammen med AND', () => {
+    const rows = [
+      row({
+        personId: '1', navn: 'MatcherAlt', staged: true, sammeSomStatus: 'sikker',
+        reviewStatus: { foedsel: 'rettet' },
+      }),
+      row({
+        personId: '2', navn: 'IkkeStaged', staged: false, sammeSomStatus: 'sikker',
+        reviewStatus: { foedsel: 'rettet' },
+      }),
+      row({
+        personId: '3', navn: 'AndetFelt', staged: true, sammeSomStatus: 'sikker',
+        reviewStatus: { navn: 'rettet' },
+      }),
+    ];
+    render(<PersonKvalitetsark rows={rows} {...baseProps} onSelect={vi.fn()} onOpenPerson={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Filtrér på felt'), { target: { value: 'foedsel' } });
+    fireEvent.change(screen.getByLabelText('Filtrér på reviewstatus'), { target: { value: 'rettet' } });
+    fireEvent.change(screen.getByLabelText('Filtrér på staged'), { target: { value: 'true' } });
+    fireEvent.change(screen.getByLabelText('Filtrér på samme_som'), { target: { value: 'true' } });
+    expect(screen.getByText('MatcherAlt')).toBeTruthy();
+    expect(screen.queryByText('IkkeStaged')).toBeNull();
+    expect(screen.queryByText('AndetFelt')).toBeNull();
+  });
+
   test('Navn-header sorterer stigende som standard og skifter retning ved klik', () => {
     const rows = [row({ personId: '1', navn: 'Bertha' }), row({ personId: '2', navn: 'Anna' })];
     const { container } = render(
