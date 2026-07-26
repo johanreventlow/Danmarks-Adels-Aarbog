@@ -199,11 +199,14 @@ describe('fetchPersonKvalitetsark — paginering', () => {
 });
 
 describe('fetchPersonKvalitetsark — person uden importanker', () => {
-  it('source_id=NULL (ingen person_external_id-række) → sourceId tom streng, kaster ikke', async () => {
+  it('source_id=NULL (ingen person_external_id-række) → sourceId null, kaster ikke', async () => {
     // external_anchor er en LEFT JOIN i red_person_grid() (schema.sql) — en person uden
     // nogen person_external_id får stadig én grid-række, blot med source_id=NULL. Griddet
     // skal blive ved med at være "alle personer, permanent first-class view" — én ramt
     // person må aldrig vælte hele svaret.
+    // NULL mappes til null, ikke til en sentinel: importKey og recordKey er nullable af
+    // præcis samme grund, og en tom streng ville tvinge hver UI-komponent til at kende
+    // sentinel-konventionen for at skelne "intet importanker" fra en gyldig værdi.
     rpcImpl = () => rangeResult([rawRow({
       source_id: null, import_key: null, record_key: null,
       kan_rettes: { navn: false, foedsel: false, doed: false, koen: true },
@@ -211,7 +214,7 @@ describe('fetchPersonKvalitetsark — person uden importanker', () => {
     })]);
     const rows = await fetchPersonKvalitetsark();
     expect(rows).toHaveLength(1);
-    expect(rows[0].sourceId).toBe('');
+    expect(rows[0].sourceId).toBeNull();
     expect(rows[0].personId).toBe('42');
   });
 });

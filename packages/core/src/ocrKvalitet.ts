@@ -24,7 +24,9 @@ export type PersonKvalitetsarkRow = {
   personId: string;
   importKey: string | null;
   recordKey: string | null;
-  sourceId: string;
+  // Nullable som importKey/recordKey: red_person_grid() LEFT JOIN'er person_external_id,
+  // så en person uden importanker stadig får en række — den skal forblive læsbar.
+  sourceId: string | null;
   sourceTitel: string | null;
   sourceUdgave: string | null;
   linje: string | null;

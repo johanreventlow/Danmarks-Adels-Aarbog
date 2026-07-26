@@ -41,16 +41,9 @@ function bigintTilStringEllerNull(v: BigintLike): string | null {
 // source_id kan reelt være NULL: external_anchor er en LEFT JOIN person_external_id …
 // GROUP BY p.id i red_person_grid() (schema.sql), så en person UDEN nogen
 // person_external_id-række stadig får én grid-række, blot med source_id=NULL (og
-// blokarsag 'ingen_importanker' i kan_rettes/blokarsager). @daa/core's
-// PersonKvalitetsarkRow.sourceId er typet som `string` (ikke `string | null`) — den type
-// ejes af Task 6 og er uden for denne opgaves scope at ændre. At kaste her ville i stedet
-// vælte HELE griddet på én ramt person, i modstrid med Global Constraints "Alle personer
-// er en permanent first-class view" og "Ambiguous rows remain readable". Vi falder derfor
-// bevidst tilbage til tom streng frem for at kaste — se ikke-afklaret bekymring i
-// task-7-report.md for Task 8 (UI bør behandle en tom sourceId som "intet importanker").
-function bigintTilStringMedTomFallback(v: BigintLike): string {
-  return v === null || v === undefined ? '' : String(v);
-}
+// blokarsag 'ingen_importanker' i kan_rettes/blokarsager). Den række skal forblive
+// læsbar — jf. Global Constraints om at "Alle personer" er en permanent first-class
+// view. NULL mappes derfor til null (som importKey/recordKey), ikke til en sentinel.
 
 // Raw RPC-række (snake_case) — spejler RETURNS TABLE i red_person_grid() (schema.sql).
 type RawPersonGridRow = {
@@ -121,7 +114,7 @@ function mapPersonKvalitetsarkRow(raw: RawPersonGridRow | null): PersonKvalitets
     personId: bigintTilString(raw.person_id, 'person_id', raw.person_id),
     importKey: raw.import_key,
     recordKey: raw.record_key,
-    sourceId: bigintTilStringMedTomFallback(raw.source_id),
+    sourceId: bigintTilStringEllerNull(raw.source_id),
     sourceTitel: raw.source_titel,
     sourceUdgave: raw.source_udgave,
     linje: raw.linje,
