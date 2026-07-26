@@ -1,5 +1,35 @@
 # Changelog
 
+## Personers OCR-kvalitetsark — kodeklar, IKKE deployet (2026-07-26)
+
+Redaktør-værktøj der viser hver importeret person som én række i et regneark-lignende
+grid, med et sidepanel hvor navn, fødsel, død og køn kan rettes. En OCR-rettelse er en
+rettelse af *samme* importerede kildeudsagn: `fact.id`, `assertion.id`, citation og
+konklusion bevares, så oprydning aldrig bliver til en ny historisk påstand. Rettelser
+lever i en holdbar journal uden for loaderens reset-liste og genafspilles efter en
+genindlæsning via stabile `(import_key, record_key)`-nøgler; en ændret OCR-kontekst
+markerer rettelsen `stale`, så den ikke genafspilles blindt.
+
+Fail-closed hele vejen: RPC'en afviser med mindre personen har præcis ét stabilt
+importanker og feltet peger på præcis én valgt, citeret påstand. Personer uden anker
+forbliver **læsbare, men låste**. Anonyme og medlemmer afvises server-side.
+
+**Status: kodeklar og lokalt DB-verificeret — produktionsdatabasen er ikke rørt, intet
+er deployet, intet pushet.** Drift, gates og udestående manuel røgtest:
+`docs/runbooks/person-ocr-kvalitetsark.md`.
+
+Verificeret: R 475, core 358, feed 120, web 613, mobil 399, validate.py 130, loader-
+DB-smoke 124 — alle grønne. Frisk base + opgraderingssti på PostgreSQL 17.10 med
+idempotente migrationer (kørt to gange); rolleadgang efterprøvet med efterlignede
+JWT-claims. Skala-måling ved 2001 personer: `red_person_grid()` 285–301 ms, 3.470 kB.
+
+Undervejs fandt og lukkede arbejdet tre fejl, som testene ikke selv fangede: loaderen
+korrumperede stille en buffer-kolonne, fordi `jsonlite` læser JSON-null som `NULL` men
+skriver det tilbage som `{}`; `red_person_grid()` manglede `ORDER BY`, så pagineret
+læsning var uden ordensgaranti; og en bar ISO-dato blev tolket som helår i *begge*
+parsere — uskadeligt i udtrækket, men tavst tab af præcision når en redaktør selv
+taster datoen (0 af 1322 `date_raw` i korpus var berørt, så rettelsen var inert).
+
 ## Mediehåndtering fase 4 — LIVE i prod (2026-07-22)
 
 Fase 4 er deployet til produktion samme dag som lokal verifikation (PR #75 merget):
