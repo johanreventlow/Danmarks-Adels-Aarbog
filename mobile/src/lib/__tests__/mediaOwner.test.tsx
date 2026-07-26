@@ -7,13 +7,21 @@ type SignResult = { data: Array<{ path: string; signedUrl: string }>; error: nul
 type Deferred<T> = { promise: Promise<T>; resolve(value: T): void };
 
 const mockCreateSignedUrls = jest.fn<Promise<SignResult>, [string[], number]>();
+type AuthListener = (event: string, session: { user: { id: string }; access_token: string } | null) => void;
 
-jest.mock('../supabase', () => ({
-  supabase: {
-    auth: { onAuthStateChange: jest.fn(() => ({ data: { subscription: { unsubscribe: jest.fn() } } })) },
-    storage: { from: jest.fn(() => ({ createSignedUrls: mockCreateSignedUrls })) },
-  },
-}));
+jest.mock('../supabase', () => {
+  const auth = { listener: null as AuthListener | null };
+  return {
+    __mockAuth: auth,
+    supabase: {
+      auth: { onAuthStateChange: jest.fn((listener) => {
+        auth.listener = listener;
+        return { data: { subscription: { unsubscribe: jest.fn() } } };
+      }) },
+      storage: { from: jest.fn(() => ({ createSignedUrls: mockCreateSignedUrls })) },
+    },
+  };
+});
 
 const mediaFor = (path: string) => [{ id: '1', storage_path: path }] satisfies RawMedia[];
 
@@ -23,12 +31,18 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve };
 }
 
-function Probe({ ownerId, path }: { ownerId: string; path: string }) {
-  const { uris } = useMediaAndThumbUris(mediaFor(path), () => null, ownerId);
+function Probe({ path }: { path: string }) {
+  const { uris } = useMediaAndThumbUris(mediaFor(path), () => null);
   return <Text>{uris['1'] ?? 'tom'}</Text>;
 }
 
-describe('useMediaAndThumbUris owner-invalidering', () => {
+function authEvent(userId: string, token: string) {
+  const { __mockAuth } = jest.requireMock('../supabase') as { __mockAuth: { listener: AuthListener | null } };
+  if (!__mockAuth.listener) throw new Error('auth-listener mangler');
+  __mockAuth.listener('TOKEN_REFRESHED', { user: { id: userId }, access_token: token });
+}
+
+describe('useMediaAndThumbUris auth-epoch-invalidering', () => {
   let requests: Deferred<SignResult>[];
 
   beforeEach(() => {
@@ -41,12 +55,12 @@ describe('useMediaAndThumbUris owner-invalidering', () => {
     });
   });
 
-  test('rydder straks den gamle ejers URI og resolvér samme path for den nye ejer', async () => {
-    const view = render(<Probe ownerId="ejer-a" path="large/first.jpg" />);
+  test('rydder straks URI og resolvér samme path ved token-refresh for samme bruger', async () => {
+    const view = render(<Probe path="large/first.jpg" />);
     await act(async () => { requests[0].resolve({ data: [{ path: 'large/first.jpg', signedUrl: 'a-url' }], error: null }); await Promise.resolve(); });
     expect(view.getByText('a-url')).toBeTruthy();
 
-    view.rerender(<Probe ownerId="ejer-b" path="large/first.jpg" />);
+    act(() => { authEvent('ejer-a', 'fornyet-token'); });
 
     expect(view.queryByText('a-url')).toBeNull();
     expect(view.getByText('tom')).toBeTruthy();
@@ -56,10 +70,23 @@ describe('useMediaAndThumbUris owner-invalidering', () => {
     expect(view.getByText('b-url')).toBeTruthy();
   });
 
-  test('afviser den gamle ejers sene signeringssvar efter ejerskifte', async () => {
-    const view = render(<Probe ownerId="ejer-a" path="large/late.jpg" />);
+  test('rydder og resolvér igen når auth-eventet skifter bruger-id', async () => {
+    const view = render(<Probe path="large/new-user.jpg" />);
+    await act(async () => { requests[0].resolve({ data: [{ path: 'large/new-user.jpg', signedUrl: 'a-url' }], error: null }); await Promise.resolve(); });
+    expect(view.getByText('a-url')).toBeTruthy();
 
-    view.rerender(<Probe ownerId="ejer-b" path="large/late.jpg" />);
+    act(() => { authEvent('ejer-b', 'nyt-bruger-token'); });
+    expect(view.getByText('tom')).toBeTruthy();
+    expect(mockCreateSignedUrls).toHaveBeenCalledTimes(2);
+
+    await act(async () => { requests[1].resolve({ data: [{ path: 'large/new-user.jpg', signedUrl: 'b-url' }], error: null }); await Promise.resolve(); });
+    expect(view.getByText('b-url')).toBeTruthy();
+  });
+
+  test('afviser den gamle auth-epochs sene signeringssvar', async () => {
+    const view = render(<Probe path="large/late.jpg" />);
+
+    act(() => { authEvent('ejer-a', 'fornyet-token'); });
     expect(view.getByText('tom')).toBeTruthy();
     expect(mockCreateSignedUrls).toHaveBeenCalledTimes(2);
 
@@ -69,5 +96,16 @@ describe('useMediaAndThumbUris owner-invalidering', () => {
 
     await act(async () => { requests[1].resolve({ data: [{ path: 'large/late.jpg', signedUrl: 'b-url' }], error: null }); await Promise.resolve(); });
     expect(view.getByText('b-url')).toBeTruthy();
+  });
+
+  test('skriver ikke efter unmount når et deferred svar lander', async () => {
+    const updateError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const view = render(<Probe path="large/unmount.jpg" />);
+
+    view.unmount();
+    await act(async () => { requests[0].resolve({ data: [{ path: 'large/unmount.jpg', signedUrl: 'a-url' }], error: null }); await Promise.resolve(); });
+
+    expect(updateError).not.toHaveBeenCalled();
+    updateError.mockRestore();
   });
 });

@@ -20,16 +20,15 @@ const cardBase = {
   ...Shadow.card,
 } as const;
 
-export function PersonFeedCardView({ card, person, rawMedia, ownerKey = null, onOpen, onSave, bookmarked }: {
+export function PersonFeedCardView({ card, person, rawMedia, onOpen, onSave, bookmarked }: {
   card: PersonCard;
   person: PersonIdentity;
   rawMedia: RawMedia[];
-  ownerKey?: string | null;
   onOpen: (card: FeedCard) => void;
   onSave: (personId: string) => void;
   bookmarked: boolean;
 }) {
-  const media = useMobileFeedMedia(card, card.personId, rawMedia, ownerKey);
+  const media = useMobileFeedMedia(card, card.personId, rawMedia);
 
   return (
     <View style={[cardBase, { position: 'relative' }]}>

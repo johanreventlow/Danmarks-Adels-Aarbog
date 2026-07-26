@@ -202,7 +202,6 @@ export default function HomeScreen() {
             card={item}
             person={person ? { name: person.name, years: person.years } : undefined}
             rawMedia={pid ? aux?.mediaBy[pid] ?? [] : []}
-            ownerKey={bookmarkOwnerId}
             bookmarked={pid ? has(pid) : false}
             onSave={saveOrPrompt}
             onOpen={openCard}
@@ -210,7 +209,7 @@ export default function HomeScreen() {
         </View>
       );
     },
-    [model, aux, has, saveOrPrompt, openCard],
+    [model, aux, bookmarkOwnerId, has, saveOrPrompt, openCard],
   );
 
   // Stabile referencer til FlatList's viewabilityConfig/onViewableItemsChanged-props (RN

@@ -65,12 +65,11 @@ export function useMobileFeedMedia(
   card: Pick<FeedCard, 'id' | 'kind'>,
   personId: string,
   media: readonly RawMedia[],
-  ownerKey: string | null = null,
 ): MobileFeedMediaItem[] {
   const selected = useMemo(
     () => selectMobileFeedMedia(card, personId, media),
     [card.id, card.kind, personId, media],
   );
-  const { uris, thumbUris } = useMediaAndThumbUris(selected, (m) => m.medium_storage_path, ownerKey);
+  const { uris, thumbUris } = useMediaAndThumbUris(selected, (m) => m.medium_storage_path);
   return buildMobileFeedMediaItems(selected, uris, thumbUris);
 }

@@ -17,7 +17,6 @@ type Props = {
   bookmarked: boolean;
   person?: PersonIdentity;
   rawMedia?: RawMedia[];
-  ownerKey?: string | null;
 };
 
 const cardBase = {
@@ -29,11 +28,11 @@ const cardBase = {
 } as const;
 const cardBase15 = { ...cardBase, padding: 15 } as const;
 
-function FeedCardViewImpl({ card, onOpen, onSave, bookmarked, person, rawMedia = [], ownerKey }: Props) {
+function FeedCardViewImpl({ card, onOpen, onSave, bookmarked, person, rawMedia = [] }: Props) {
   if ('personId' in card) {
     const fallbackName = 'name' in card ? card.name : `#${card.personId}`;
     const fallbackYears = 'years' in card ? card.years : '';
-    return <PersonFeedCardView card={card} person={person ?? { name: fallbackName, years: fallbackYears }} rawMedia={rawMedia} ownerKey={ownerKey} onOpen={onOpen} onSave={onSave} bookmarked={bookmarked} />;
+    return <PersonFeedCardView card={card} person={person ?? { name: fallbackName, years: fallbackYears }} rawMedia={rawMedia} onOpen={onOpen} onSave={onSave} bookmarked={bookmarked} />;
   }
 
   switch (card.kind) {
