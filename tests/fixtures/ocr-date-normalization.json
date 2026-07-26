@@ -1,0 +1,233 @@
+[
+  {
+    "raw": "1698",
+    "min": "1698-01-01",
+    "max": "1698-12-31",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "26. juli 1975",
+    "min": "1975-07-26",
+    "max": "1975-07-26",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "29. februar 2000",
+    "min": "2000-02-29",
+    "max": "2000-02-29",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "31. april 1500",
+    "min": "1500-04-31",
+    "max": "1500-04-31",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "3. marts 1500",
+    "min": "1500-03-03",
+    "max": "1500-03-03",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "26. Mai 1975",
+    "min": "1975-05-26",
+    "max": "1975-05-26",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "3. März 1500",
+    "min": "1500-03-03",
+    "max": "1500-03-03",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "24. Dezember 1600",
+    "min": "1600-12-24",
+    "max": "1600-12-24",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "12. Jänner 1700",
+    "min": "1700-01-12",
+    "max": "1700-01-12",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "5. Octbr. 1750",
+    "min": "1750-10-05",
+    "max": "1750-10-05",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "9. sept. 1800",
+    "min": "1800-09-09",
+    "max": "1800-09-09",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "MCMXCIV",
+    "min": "1994-01-01",
+    "max": "1994-12-31",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "anno dni MCCCCXCIIII",
+    "min": "1494-01-01",
+    "max": "1494-12-31",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "III",
+    "min": null,
+    "max": null,
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "MCCCCXCIIII (1494)",
+    "min": "1494-01-01",
+    "max": "1494-12-31",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "ca. 1484",
+    "min": "1484-01-01",
+    "max": "1484-12-31",
+    "qualifier": "about",
+    "certainty": null
+  },
+  {
+    "raw": "o. 1250",
+    "min": "1250-01-01",
+    "max": "1250-12-31",
+    "qualifier": "about",
+    "certainty": null
+  },
+  {
+    "raw": "um 1483",
+    "min": "1483-01-01",
+    "max": "1483-12-31",
+    "qualifier": "about",
+    "certainty": null
+  },
+  {
+    "raw": "ca. 1484-1569",
+    "min": "1484-01-01",
+    "max": "1569-12-31",
+    "qualifier": "about",
+    "certainty": null
+  },
+  {
+    "raw": "† før 1261",
+    "min": null,
+    "max": "1261-12-31",
+    "qualifier": "before",
+    "certainty": null
+  },
+  {
+    "raw": "før 26. juli 1261",
+    "min": null,
+    "max": "1261-07-26",
+    "qualifier": "before",
+    "certainty": null
+  },
+  {
+    "raw": "inden 1500",
+    "min": null,
+    "max": "1500-12-31",
+    "qualifier": "before",
+    "certainty": null
+  },
+  {
+    "raw": "† efter 1575",
+    "min": "1575-01-01",
+    "max": null,
+    "qualifier": "after",
+    "certainty": null
+  },
+  {
+    "raw": "mellem 1500 og 1510",
+    "min": "1500-01-01",
+    "max": "1510-12-31",
+    "qualifier": "between",
+    "certainty": null
+  },
+  {
+    "raw": "1712-1783",
+    "min": "1712-01-01",
+    "max": "1783-12-31",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "(-1223-1247-)",
+    "min": "1223-01-01",
+    "max": "1247-12-31",
+    "qualifier": "floruit",
+    "certainty": null
+  },
+  {
+    "raw": "-1223-1247-",
+    "min": "1223-01-01",
+    "max": "1247-12-31",
+    "qualifier": "floruit",
+    "certainty": null
+  },
+  {
+    "raw": "† 147(5?)",
+    "min": "1475-01-01",
+    "max": "1475-12-31",
+    "qualifier": null,
+    "certainty": "uncertain"
+  },
+  {
+    "raw": "1475?",
+    "min": "1475-01-01",
+    "max": "1475-12-31",
+    "qualifier": null,
+    "certainty": "uncertain"
+  },
+  {
+    "raw": "14?8",
+    "min": "1408-01-01",
+    "max": "1498-12-31",
+    "qualifier": null,
+    "certainty": "uncertain"
+  },
+  {
+    "raw": "1475",
+    "min": "1475-01-01",
+    "max": "1475-12-31",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "ukendt",
+    "min": null,
+    "max": null,
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "1500 1600 1700",
+    "min": null,
+    "max": null,
+    "qualifier": null,
+    "certainty": null
+  }
+]
