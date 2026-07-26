@@ -564,6 +564,7 @@ BEGIN
   INSERT INTO person(id,koen) VALUES
     (-987656111,'mand'), (-987656112,'kvinde'), (-987656113,NULL),
     (-987656114,'ukendt'), (-987656115,'mand'), (-987656116,'kvinde');
+  INSERT INTO person(id,koen) VALUES (-987656117,'mand');
   UPDATE person SET staged=true WHERE id=-987656114;
   INSERT INTO person_external_id(person_id,source_id,linje,nr,record_key,slaegtled_lokal) VALUES
     (-987656111,-987656101,'I',15,'I-15a',3),
@@ -572,7 +573,8 @@ BEGIN
     (-987656114,-987656101,'II',1,'II-1',1),
     (-987656115,-987656101,'II',2,'II-2',1),
     (-987656116,-987656101,'II',3,'II-3',1),
-    (-987656116,-987656102,'II',3,'II-3-ny',1);
+    (-987656116,-987656102,'II',3,'II-3-ny',1),
+    (-987656117,-987656101,'III',99,NULL,5);
 
   -- Normal person: selected source assertions, titel/familie/relation-counts and
   -- deliberately odd OCR/date context for the deterministic QA contract.
@@ -588,7 +590,9 @@ BEGIN
     (-987656209,'person',-987656114,'navn'),
     (-987656210,'person',-987656115,'navn'),
     (-987656211,'person',-987656116,'navn'),
-    (-987656212,'person',-987656112,'død');
+    (-987656212,'person',-987656112,'død'),
+    (-987656213,'person',-987656117,'navn'),
+    (-987656214,'person',-987656117,'fødsel');
   INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,date_min,date_max,date_qualifier,date_raw)
   VALUES
     (-987656301,'fact',-987656201,'Mikkel',NULL,NULL,NULL,NULL),
@@ -602,7 +606,9 @@ BEGIN
     (-987656309,'fact',-987656209,'Uden kontekst',NULL,NULL,NULL,NULL),
     (-987656310,'fact',-987656210,'Alias',NULL,NULL,NULL,NULL),
     (-987656311,'fact',-987656211,'Kanonisk',NULL,NULL,NULL,NULL),
-    (-987656312,'fact',-987656212,NULL,NULL,NULL,NULL,'dato kan ikke læses');
+    (-987656312,'fact',-987656212,NULL,NULL,NULL,NULL,'dato kan ikke læses'),
+    (-987656313,'fact',-987656213,'Legacy Navn Uden Anker',NULL,NULL,NULL,NULL),
+    (-987656314,'fact',-987656214,NULL,'1690-01-01','1690-12-31','between','født 1690');
   INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status) VALUES
     (-987656401,'fact',-987656201,-987656301,'afklaret'),
     (-987656402,'fact',-987656202,-987656302,'afklaret'),
@@ -615,7 +621,9 @@ BEGIN
     (-987656409,'fact',-987656209,-987656309,'afklaret'),
     (-987656410,'fact',-987656210,-987656310,'forældet'),
     (-987656411,'fact',-987656211,-987656311,'afklaret'),
-    (-987656412,'fact',-987656212,-987656312,'afklaret');
+    (-987656412,'fact',-987656212,-987656312,'afklaret'),
+    (-987656413,'fact',-987656213,-987656313,'afklaret'),
+    (-987656414,'fact',-987656214,-987656314,'afklaret');
   INSERT INTO citation(id,assertion_id,source_id,side,citat_tekst) VALUES
     (-987656501,-987656301,-987656101,'42','Mikkel ?'),
     (-987656502,-987656302,-987656101,'42','født 1901'),
@@ -627,7 +635,9 @@ BEGIN
     (-987656508,-987656308,-987656101,'44','dato kan ikke læses'),
     (-987656510,-987656310,-987656101,'45','Alias'),
     (-987656511,-987656311,-987656101,'45','Kanonisk'),
-    (-987656512,-987656312,-987656101,'44','dato kan ikke læses');
+    (-987656512,-987656312,-987656101,'44','dato kan ikke læses'),
+    (-987656513,-987656313,-987656101,'99','Legacy Navn Uden Anker'),
+    (-987656514,-987656314,-987656101,'99','født 1690');
   INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,korrigeret,status)
     VALUES ('daa:1939','I-15a','navn','0123456789abcdef0123456789abcdef',
             '{"value":"Mikkel"}','{"value":"Mikkel rettet"}','rettet');
@@ -699,6 +709,21 @@ BEGIN
                  AND kan_rettes->>'navn'='false' AND blokarsager->>'navn'='record_key_mangler') THEN
     RAISE EXCEPTION 'FEJL: legacy-række uden record_key er ikke blokeret';
   END IF;
+  -- En legacy-række uden stabilt anker (record_key NULL) kan ikke rettes, men skal
+  -- stadig kunne IDENTIFICERES og TIDSFÆSTES i griddet. Fallback bruger den allerede
+  -- afklarede evidens (selected_assertions, FØR anker-gaten) — IKKE person.visning_*,
+  -- som viste sig at ignorere conclusion.status og derfor kan lække en forældet værdi.
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656117
+                 AND navn='Legacy Navn Uden Anker' AND kan_rettes->>'navn'='false'
+                 AND foedsel_min='1690-01-01' AND foedsel_max='1690-12-31'
+                 AND kan_rettes->>'foedsel'='false') THEN
+    RAISE EXCEPTION 'FEJL: legacy-række uden stabilt anker viser ikke afklaret evidens som navn/fødsel';
+  END IF;
+  -- Beskyttelse mod status-læk: -987656115's eneste navn-konklusion er 'forældet'
+  -- (ikke afklaret). Fallback må IKKE hente fra en ikke-afklaret konklusion, selvom
+  -- den har et gyldigt valgt_assertion_id — det ville lade en tilbagetrukket værdi
+  -- sive ind i visningen. Denne test dækkede allerede dette FØR fallback blev tilføjet;
+  -- den skal fortsat holde bagefter.
 
   SELECT qa_koder INTO v_qa FROM red_person_grid() WHERE person_id=-987656111;
   IF NOT (v_qa @> ARRAY['mistænkeligt_ocr_tegn','foedt_efter_doed','struktureret_afviger_fra_ocr']::text[]) THEN

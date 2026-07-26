@@ -3655,6 +3655,14 @@ BEGIN
     FROM fact f JOIN conclusion cn ON cn.target_type='fact' AND cn.target_id=f.id
       JOIN assertion a ON a.id=cn.valgt_assertion_id
     WHERE f.subjekt_type='person' AND f.faktatype IN ('navn','fødsel','død') AND cn.status='afklaret'
+  ), resolved_rollup AS (
+    SELECT grid_person_id,felt,
+      CASE WHEN count(DISTINCT assertion_id)=1 THEN min(vaerdi_tekst) END AS vaerdi_tekst,
+      CASE WHEN count(DISTINCT assertion_id)=1 THEN min(date_raw) END AS date_raw,
+      CASE WHEN count(DISTINCT assertion_id)=1 THEN min(date_min) END AS date_min,
+      CASE WHEN count(DISTINCT assertion_id)=1 THEN min(date_max) END AS date_max,
+      CASE WHEN count(DISTINCT assertion_id)=1 THEN min(date_qualifier) END AS date_qualifier
+    FROM selected_assertions GROUP BY grid_person_id,felt
   ), cited_assertions AS (
     SELECT sa.*, c.source_id, count(c.id)::integer AS citation_count,
       (array_agg(c.citat_tekst ORDER BY c.id))[1] AS ocr_context,
@@ -3714,10 +3722,13 @@ BEGIN
     SELECT af.grid_person_id,af.felt,ea.anchor_count,ea.stable_anchor_count,ea.import_key,ea.record_key,ea.source_id,
       ea.source_titel,ea.source_udgave,ea.linje,ea.nr,ea.slaegtled,fr.candidate_count,fr.assertion_id,fr.vaerdi_tekst,fr.date_raw,
       fr.date_min,fr.date_max,fr.date_qualifier,fr.ocr_context,fr.kilde_side,fr.current_importeret,
+      rr.vaerdi_tekst AS resolved_vaerdi_tekst,rr.date_raw AS resolved_date_raw,rr.date_min AS resolved_date_min,
+      rr.date_max AS resolved_date_max,rr.date_qualifier AS resolved_date_qualifier,
       CASE WHEN af.felt='koen' THEN jsonb_build_object('value',p.koen) ELSE fr.current_importeret END AS base_importeret,
       CASE WHEN af.felt='koen' THEN p.koen ELSE fr.vaerdi_tekst END AS felt_vaerdi
     FROM all_fields af JOIN person p ON p.id=af.grid_person_id JOIN external_anchor ea ON ea.grid_person_id=af.grid_person_id
       LEFT JOIN field_rollup fr ON fr.grid_person_id=af.grid_person_id AND fr.felt=af.felt
+      LEFT JOIN resolved_rollup rr ON rr.grid_person_id=af.grid_person_id AND rr.felt=af.felt
   ), journal AS (
     SELECT fd.*,ik.importeret AS journal_importeret,ik.korrigeret,ik.status AS journal_status,
       ik.input_fingerprint AS journal_fingerprint,
@@ -3781,9 +3792,17 @@ BEGIN
     FROM field_state GROUP BY grid_person_id
   )
   SELECT p.id,ea.import_key,ea.record_key,ea.source_id,ea.source_titel,ea.source_udgave,ea.linje,ea.nr,ea.slaegtled,
-    max(fs.felt_vaerdi) FILTER (WHERE fs.felt='navn'),max(fs.assertion_id) FILTER (WHERE fs.felt='navn'),
-    max(fs.date_raw) FILTER (WHERE fs.felt='foedsel'),max(fs.date_min) FILTER (WHERE fs.felt='foedsel'),max(fs.date_max) FILTER (WHERE fs.felt='foedsel'),max(fs.date_qualifier) FILTER (WHERE fs.felt='foedsel'),max(fs.assertion_id) FILTER (WHERE fs.felt='foedsel'),
-    max(fs.date_raw) FILTER (WHERE fs.felt='doed'),max(fs.date_min) FILTER (WHERE fs.felt='doed'),max(fs.date_max) FILTER (WHERE fs.felt='doed'),max(fs.date_qualifier) FILTER (WHERE fs.felt='doed'),max(fs.assertion_id) FILTER (WHERE fs.felt='doed'),
+    coalesce(max(fs.felt_vaerdi) FILTER (WHERE fs.felt='navn'),max(fs.resolved_vaerdi_tekst) FILTER (WHERE fs.felt='navn')),max(fs.assertion_id) FILTER (WHERE fs.felt='navn'),
+    coalesce(max(fs.date_raw) FILTER (WHERE fs.felt='foedsel'),max(fs.resolved_date_raw) FILTER (WHERE fs.felt='foedsel')),
+    coalesce(max(fs.date_min) FILTER (WHERE fs.felt='foedsel'),max(fs.resolved_date_min) FILTER (WHERE fs.felt='foedsel')),
+    coalesce(max(fs.date_max) FILTER (WHERE fs.felt='foedsel'),max(fs.resolved_date_max) FILTER (WHERE fs.felt='foedsel')),
+    coalesce(max(fs.date_qualifier) FILTER (WHERE fs.felt='foedsel'),max(fs.resolved_date_qualifier) FILTER (WHERE fs.felt='foedsel')),
+    max(fs.assertion_id) FILTER (WHERE fs.felt='foedsel'),
+    coalesce(max(fs.date_raw) FILTER (WHERE fs.felt='doed'),max(fs.resolved_date_raw) FILTER (WHERE fs.felt='doed')),
+    coalesce(max(fs.date_min) FILTER (WHERE fs.felt='doed'),max(fs.resolved_date_min) FILTER (WHERE fs.felt='doed')),
+    coalesce(max(fs.date_max) FILTER (WHERE fs.felt='doed'),max(fs.resolved_date_max) FILTER (WHERE fs.felt='doed')),
+    coalesce(max(fs.date_qualifier) FILTER (WHERE fs.felt='doed'),max(fs.resolved_date_qualifier) FILTER (WHERE fs.felt='doed')),
+    max(fs.assertion_id) FILTER (WHERE fs.felt='doed'),
     coalesce(fj.input_fingerprint,'{}'::jsonb),coalesce(fj.importeret,'{}'::jsonb),coalesce(fj.korrigeret,'{}'::jsonb),coalesce(fj.ocr_context,'{}'::jsonb),coalesce(fj.kilde_side,'{}'::jsonb),
     p.koen,p.levende,p.privat,p.staged,p.status,sac.kanonisk_grid_person_id,sac.samme_som_status,
     coalesce(ct.antal_titler,0),coalesce(ct.antal_familier,0),coalesce(ct.antal_relationer,0),coalesce(ct.antal_kilde_assertions,0),
