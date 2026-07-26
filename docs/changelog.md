@@ -1,5 +1,50 @@
 # Changelog
 
+## Tværudgave-matchning gjort mulig for ægtefæller (2026-07-26)
+
+Fulgte af 1939-auditen nedenfor: auditen fandt ~51 % mangelfulde forældrelink og pegede
+på re-ekstraktion (trin 2). Analysen viste at det var forkert diagnose — og hver rettelse
+afdækkede den næste.
+
+**1. Hullet var allerede halvt lukket.** `collapseSameAs` omskriver `parentChild`-kanter til
+kanoniske id'er, så en matchet 1939-person arver sin 2018-20-modparts forældre i visningen.
+Data-lag 253/539 mangelfulde, læser-lag 86/539. Matcharbejdet lukkede ~68 % gratis.
+(`docs/reviews/kryds-udgave-udfyldning-scoping-2026-07-26.md`)
+
+**2. 287 grupper var i karantæne — ikke af uenighed.** Målt ved at køre den rigtige
+`collapseSameAs` mod et prod-dump; to SQL-genimplementeringer gav upålidelige tal. Bøgerne
+er enige: 1939 skriver `Bertram + Christine Rantzau` hvor 2018-20 skriver
+`Bartram + Christina von Rantzau`. Forældrene var bare ikke matchet til hinanden.
+
+**3. De kunne ikke matches.** Ægtefæller har sjældent eget bog-nummer, og `sourceIds` blev
+udledt alene af `person_external_id` — uden nummer hørte de til ingen udgave og indgik aldrig
+i kandidatparrene. 0 af 73 forældrepar kunne gennemføres. `udledKilderForAegtefaeller` lader
+dem arve udgaven fra deres partner, entydigt eller slet ikke: 627 ægtefæller (296+331),
+0 flertydige, forældrepar 0 → 77. Lukkede samtidig at 1939-ægtefæller lå i B-siden og kunne
+foreslås som match for deres egen udgave. (#90)
+
+**4. Brugerfund: "formodet nye" var en blindgyde.** 393 poster, hvoraf 392 havde en kandidat
+der var fundet og smidt væk (`tier === 'none'`), og 125 havde eksakt samme navn i 2018-20.
+Årsagen strukturel: overlap tæller kun når begge sider har en dato, så en person uden årstal
+har loft = `wName + wSex` = præcis review-tærsklen. `svageKandidater` bevarer dem nu med
+Sammenlign/Bekræft — uden for status og fremdrift, så tællerne er uændrede. (#93)
+
+**5. Modellen rettet.** `scorePairEvidens` normaliserer over de signaler der faktisk kunne
+vurderes; ukendt årstal ryger ud af nævneren, kendt-men-uenigt bliver stående. Personer med
+mindst ét forslag: **442 → 815 af 835**. Første måling uden spærre viste faren konkret —
+152 par uden ét eneste årstal blev markeret "stærke" (`Otto ↔ Otto`) — så `assignTiers`
+kapper navn-alene til "gennemsyn": 152 → 0. (#95 opt-in, #96 slået til)
+
+**Værktøj:** `tools/foraeldrematch/` — `status.ts` (karantænetal), `byg-liste.ts`
+(arbejdsliste, 73 forældrepar sorteret efter hvor mange børn de frigiver), `effekt.ts`,
+`normaliseret.ts`. Alle read-only, og de kører den rigtige kode frem for at gengive reglerne.
+
+**Udestår:** matcharbejdet selv (73 forældrepar → 287 karantænerede par frigives).
+Arbejdslisten ligger gitignoreret i `work/`.
+
+**CI:** R-jobbet tog 42 minutter fordi `duckdb` blev kompileret fra kilde ved hver kørsel.
+Cache på `R_LIBS_USER` + idempotent install: **42m10s → 45s**, hele CI under 2 minutter. (#92)
+
 ## 1939-kvalitetsvurdering + re-segmentering — LIVE i prod (2026-07-26)
 
 Brugerspørgsmål: er 1939-indlæsningen for dårlig, og kan matcharbejdet reddes?
