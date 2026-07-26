@@ -48,6 +48,11 @@ describe('selectFeedMedia', () => {
       .toEqual(['3', '4', '5', '1']);
   });
 
+  it('behandler dagensperson som en portrætkind', () => {
+    expect(selectFeedMedia('dagensperson:p1', 'dagensperson', 'p1', media).map((item) => item.id))
+      .toEqual(['3', '1', '2', '4']);
+  });
+
   it('returnerer tomt for tomt input og bevarer ét input', () => {
     expect(selectFeedMedia('tom', 'arkiv', 'p1', [])).toEqual([]);
     expect(selectFeedMedia('enkelt', 'arkiv', 'p1', [media[0]])).toEqual([media[0]]);
@@ -79,6 +84,12 @@ describe('selectFeedMedia', () => {
     expect(selectFeedMedia('arkiv:a', 'arkiv', 'p1', media, 2).map((item) => item.id))
       .toEqual(['1', '2']);
     expect(selectFeedMedia('arkiv:a', 'arkiv', 'p1', media, 0)).toEqual([]);
+    expect(selectFeedMedia('arkiv:a', 'arkiv', 'p1', media, -1)).toEqual([]);
+  });
+
+  it("sorterer id'er numerisk før rotation", () => {
+    expect(selectFeedMedia('arkiv:a', 'arkiv', 'p1', [m('10', 'foto'), m('2', 'foto')])
+      .map((item) => item.id)).toEqual(['2', '10']);
   });
 
   it('giver samme ids for inputpermutationer og bevarer ekstra felter', () => {
