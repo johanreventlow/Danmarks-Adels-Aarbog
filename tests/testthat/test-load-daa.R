@@ -164,6 +164,25 @@ test_that("ocr_input_fingerprint bruger den fastlagte UTF-8-vektor", {
   )
 })
 
+test_that("ocr_input_fingerprint canonicaliserer JSON før hash", {
+  cases <- list(
+    list(felt = "navn", canonical = '{"value":"Conrad Detlev Reventlow"}',
+         samme = ' { "value" : "Conrad Detlev Reventlow" } '),
+    list(felt = "foedsel",
+         canonical = '{"raw":"* 1644","min":"1644-01-01","max":"1644-12-31","qualifier":null,"calendar":"gregoriansk","certainty":null}',
+         samme = '{"calendar":"gregoriansk", "max":"1644-12-31", "raw":"* 1644", "certainty":null, "min":"1644-01-01", "qualifier":null}'),
+    list(felt = "koen", canonical = '{"value":"mand"}', samme = '{ "value" : "mand" }')
+  )
+
+  for (case in cases) {
+    expect_identical(
+      ocr_input_fingerprint("daa:1939", "I-15a", case$felt, case$samme, "side=42;span=1"),
+      ocr_input_fingerprint("daa:1939", "I-15a", case$felt, case$canonical, "side=42;span=1"),
+      info = sprintf("felt=%s", case$felt)
+    )
+  }
+})
+
 test_that("apply_import_correction anvender kun en matchende rettet journalpost", {
   importeret <- '{"raw":"* 1644","min":"1644-01-01","max":"1644-12-31","qualifier":null,"calendar":"gregoriansk","certainty":null}'
   korrigeret <- '{"raw":"* 1645","min":"1645-01-01","max":"1645-12-31","qualifier":null,"calendar":"gregoriansk","certainty":null}'

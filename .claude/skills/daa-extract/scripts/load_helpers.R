@@ -67,8 +67,15 @@ canonical_import_value <- function(felt, value) {
 }
 
 .canonical_import_json <- function(felt, importeret) {
-  if (is.character(importeret) && length(importeret) == 1L &&
-      grepl("^\\s*\\{", importeret)) return(importeret)
+  if (is.character(importeret) && length(importeret) == 1L) {
+    parsed <- tryCatch(jsonlite::fromJSON(importeret, simplifyVector = FALSE),
+                       error = function(e) NULL)
+    if (is.list(parsed)) {
+      value <- if (felt %in% c("foedsel", "doed")) parsed else
+        if ("value" %in% names(parsed)) parsed$value else parsed
+      return(canonical_import_value(felt, value))
+    }
+  }
   canonical_import_value(felt, importeret)
 }
 
