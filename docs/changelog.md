@@ -1,5 +1,32 @@
 # Changelog
 
+## 2018-20: 18 narrativer med slaegtled-/kuld-bleed rettet — LIVE i prod (2026-07-27)
+
+2018-20-auditen fandt 14 poster med en trailing sektionsoverskrift
+(`Sjette (nittende) slægtled`) hængende på halen af forrige posts narrativ. Videre
+undersøgelse fandt 4 mere alvorlige tilfælde hvor både overskriften OG den
+efterfølgende kuld-markør (`Overkammerherre Detlef lensgreve de Reventlous børn`)
+bløder ind — 18 poster i alt.
+
+**Rodårsagen var allerede rettet i koden — bare ikke genindlæst.** Sporet til
+`work/raw_full.txt`: `segment.py`'s `SLGT_RE` matcher en bar slaegtled-header
+korrekt, når den (som her) står alene på sin egen linje. Kørt frisk mod
+`raw_full.txt` gav det nuværende `segment.py` alle 18 poster ren tekst, byte-
+identisk med de øvrige 573 upåvirkede poster. Bug'en sad kun i det allerede
+indlæste artefakt (`work/clean_full.json`, stale ift. dagens segmenterer) —
+`segment.py` er ikke ændret. To regressionstests låser adfærden fast.
+
+`R/update-2018-narratives.R` — målrettet patch af 18 navngivne poster, nøglet på
+`(linje, nr)` fordi det ikke er globalt unikt i denne udgave (I-15a/b/c deler
+basenr). Bruger `jsonb_to_recordset()` af ét JSON-parameter, da hverken
+`CREATE TEMP TABLE` (DDL, fejler i dry-runs READ ONLY-transaktion) eller et
+array-parameter blandet med et skalar-parameter (RPostgres fortolker det som
+batch-udførsel) virkede.
+
+**Anvendt mod prod:** `change_set=532`, 18 rækker, 18 audit-events. Verificeret
+efter apply — ingen bar `slægtled`-hale tilbage, legitime krydshenvisninger
+(`Andet (femtende) slægtled, nr. 2‑9.`) intakte. (#98)
+
 ## Tværudgave-matchning gjort mulig for ægtefæller (2026-07-26)
 
 Fulgte af 1939-auditen nedenfor: auditen fandt ~51 % mangelfulde forældrelink og pegede
