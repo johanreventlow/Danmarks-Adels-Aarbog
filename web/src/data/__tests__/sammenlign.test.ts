@@ -65,3 +65,50 @@ describe('buildArbejdsliste (§5.2)', () => {
     expect(statusRk[statusRk.length - 1]).toBe('formodet_ny');
   });
 });
+
+describe('svage kandidater (tier=none) bevares til manuel gennemgang', () => {
+  const par = (aId: string, bId: string, tier: 'auto' | 'review' | 'none', score: number) => ({
+    aId, bId, tier, score, nameSim: score, birthOverlap: false, deathOverlap: false,
+    sexEq: false, uniqueBlock: false,
+  });
+
+  it('lægger tier=none i svageKandidater, ikke i kandidater', () => {
+    const l = buildArbejdsliste([par('1', 'b1', 'none', 0.62)], ['1'], new Set(), new Set());
+    const p = l.personer[0];
+    expect(p.kandidater).toHaveLength(0);
+    expect(p.svageKandidater.map((k) => k.bId)).toEqual(['b1']);
+  });
+
+  it('holder status formodet_ny — svage kandidater ændrer ikke fremdriften', () => {
+    const l = buildArbejdsliste([par('1', 'b1', 'none', 0.62)], ['1'], new Set(), new Set());
+    expect(l.personer[0].status).toBe('formodet_ny');
+    expect(l.fremdrift.formodetNye).toBe(1);
+    expect(l.fremdrift.gennemse).toBe(0);
+  });
+
+  it('sorterer svage kandidater efter score, bedste først', () => {
+    const l = buildArbejdsliste(
+      [par('1', 'lav', 'none', 0.40), par('1', 'hoej', 'none', 0.65)],
+      ['1'], new Set(), new Set(),
+    );
+    expect(l.personer[0].svageKandidater.map((k) => k.bId)).toEqual(['hoej', 'lav']);
+  });
+
+  it('markerer allerede afviste svage kandidater, så de kan skjules', () => {
+    const l = buildArbejdsliste(
+      [par('1', 'b1', 'none', 0.62)], ['1'],
+      new Set([pairKey('1', 'b1')]), new Set(),
+    );
+    expect(l.personer[0].svageKandidater[0].afvist).toBe(true);
+  });
+
+  it('rører ikke personer der har rigtige kandidater', () => {
+    const l = buildArbejdsliste(
+      [par('1', 'god', 'review', 0.75), par('1', 'svag', 'none', 0.5)],
+      ['1'], new Set(), new Set(),
+    );
+    expect(l.personer[0].status).toBe('aaben');
+    expect(l.personer[0].kandidater.map((k) => k.bId)).toEqual(['god']);
+    expect(l.personer[0].svageKandidater.map((k) => k.bId)).toEqual(['svag']);
+  });
+});
