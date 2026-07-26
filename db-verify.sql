@@ -305,11 +305,43 @@ DO $$
 DECLARE
   v_uid uuid := '00000000-0000-0000-0000-0000000000c6';
   v_conn text := format('dbname=%s', current_database());
-  v_a_busy boolean;
-  v_b_busy boolean;
+  v_a_busy integer;
+  v_b_busy integer;
+  v_a_pid integer;
+  v_b_pid integer;
+  v_locked bigint;
   v_result bigint;
   v_deleted bigint;
   v_deadline timestamptz;
+  v_a_async boolean := false;
+  v_b_async boolean := false;
+  v_a_in_tx boolean := false;
+  v_b_in_tx boolean := false;
+  v_error_state text;
+  v_error_message text;
+  v_cleanup_error text;
+  v_cleanup_sql text := $cleanup_sql$
+    DO $remote_cleanup$
+    BEGIN
+      DELETE FROM change_event WHERE change_set_id IN (
+        SELECT id FROM change_set
+        WHERE operation='red_slet_person' AND subjekt_type='person' AND subjekt_id=-987654611
+      );
+      DELETE FROM change_set
+        WHERE operation='red_slet_person' AND subjekt_type='person' AND subjekt_id=-987654611;
+      DELETE FROM import_korrektion
+        WHERE import_key='verify:ocr:lock' AND record_key='I-lock';
+      DELETE FROM citation WHERE id=-987654951;
+      DELETE FROM conclusion WHERE id=-987654901;
+      DELETE FROM assertion WHERE id=-987654801;
+      DELETE FROM fact WHERE id=-987654701;
+      DELETE FROM person_external_id WHERE person_id=-987654611 AND source_id=-987654601;
+      DELETE FROM profiles WHERE id='00000000-0000-0000-0000-0000000000c6';
+      DELETE FROM auth.users WHERE id='00000000-0000-0000-0000-0000000000c6';
+      DELETE FROM person WHERE id=-987654611;
+      DELETE FROM source WHERE id=-987654601;
+    END $remote_cleanup$
+  $cleanup_sql$;
 BEGIN
   IF to_regprocedure('public.dblink_connect(text,text)') IS NULL THEN
     RAISE NOTICE 'SKIP: OCR-låseorden kræver dblink i disposable verify-base';
@@ -317,7 +349,7 @@ BEGIN
   END IF;
   -- Setup is committed through a third local connection: dblink sessions cannot see
   -- uncommitted rows from this verify DO-block.
-  PERFORM dblink_connect('ocr_lock_setup',v_conn);
+  PERFORM dblink_connect('ocr_lock_setup',v_conn || ' application_name=daa_verify_ocr_lock_setup');
   PERFORM dblink_exec('ocr_lock_setup','INSERT INTO source(id,titel,import_key) VALUES (-987654601,''OCR lock verify'',''verify:ocr:lock'') ON CONFLICT (id) DO UPDATE SET titel=excluded.titel');
   PERFORM dblink_exec('ocr_lock_setup','INSERT INTO person(id) VALUES (-987654611) ON CONFLICT (id) DO NOTHING');
   PERFORM dblink_exec('ocr_lock_setup','INSERT INTO person_external_id(person_id,source_id,record_key) VALUES (-987654611,-987654601,''I-lock'') ON CONFLICT DO NOTHING');
@@ -327,55 +359,192 @@ BEGIN
   PERFORM dblink_exec('ocr_lock_setup','INSERT INTO citation(id,assertion_id,source_id,citat_tekst) VALUES (-987654951,-987654801,-987654601,''Lock'') ON CONFLICT DO NOTHING');
   PERFORM dblink_exec('ocr_lock_setup',format('INSERT INTO auth.users(id,email) VALUES (''%s'',''ocr-lock-verify@test.invalid'') ON CONFLICT (id) DO NOTHING',v_uid));
   PERFORM dblink_exec('ocr_lock_setup',format('INSERT INTO profiles(id,rolle,email) VALUES (''%s'',''redaktion'',''ocr-lock-verify@test.invalid'') ON CONFLICT (id) DO UPDATE SET rolle=''redaktion''',v_uid));
-  PERFORM dblink_connect('ocr_lock_a',v_conn);
-  PERFORM dblink_connect('ocr_lock_b',v_conn);
-  -- A holds source/external-id first, then reaches citation while B tries the deletion.
-  PERFORM dblink_send_query('ocr_lock_a',
-    'WITH locked AS MATERIALIZED (SELECT s.id FROM source s JOIN person_external_id pei ON pei.source_id=s.id '
-    || 'WHERE pei.person_id=-987654611 FOR UPDATE OF s,pei), waited AS (SELECT pg_sleep(1) FROM locked) '
-    || 'UPDATE citation SET citat_tekst=''A'' FROM waited WHERE id=-987654951 RETURNING id');
-  PERFORM pg_sleep(0.2);
+  PERFORM dblink_connect('ocr_lock_a',v_conn || ' application_name=daa_verify_ocr_lock_a');
+  PERFORM dblink_connect('ocr_lock_b',v_conn || ' application_name=daa_verify_ocr_lock_b');
+  SELECT pid INTO v_a_pid
+    FROM dblink('ocr_lock_a','SELECT pg_backend_pid()') AS t(pid integer);
+  SELECT pid INTO v_b_pid
+    FROM dblink('ocr_lock_b','SELECT pg_backend_pid()') AS t(pid integer);
+  IF v_a_pid IS NULL OR v_b_pid IS NULL THEN
+    RAISE EXCEPTION 'FEJL: OCR-låseorden kunne ikke observere backend-PID';
+  END IF;
+
+  -- A acquires both stable-anchor row locks synchronously. B is not started until this
+  -- real lock operation has returned, so the intended interleaving has no timer race.
+  PERFORM dblink_exec('ocr_lock_a','BEGIN');
+  v_a_in_tx := true;
+  PERFORM dblink_exec('ocr_lock_a','SET LOCAL statement_timeout=''10s''');
+  SELECT locked INTO v_locked FROM dblink('ocr_lock_a',
+    'SELECT count(*)::bigint FROM ('
+    || 'SELECT s.id FROM source s JOIN person_external_id pei ON pei.source_id=s.id '
+    || 'WHERE pei.person_id=-987654611 FOR UPDATE OF s,pei'
+    || ') locked') AS t(locked bigint);
+  IF v_locked IS DISTINCT FROM 1 THEN
+    RAISE EXCEPTION 'FEJL: OCR-låseorden A låste ikke source/external-id, antal=%',v_locked;
+  END IF;
+
   PERFORM dblink_exec('ocr_lock_b','BEGIN');
+  v_b_in_tx := true;
+  PERFORM dblink_exec('ocr_lock_b','SET LOCAL statement_timeout=''10s''');
   PERFORM * FROM dblink('ocr_lock_b',format(
     'SELECT set_config(''request.jwt.claim.sub'',''%s'',true)',v_uid)) AS t(value text);
-  -- Both sides are asynchronous so this verifier, rather than a blocked client,
-  -- observes a deadlock or timeout deterministically.
   PERFORM dblink_send_query('ocr_lock_b',
     'SELECT count(*)::bigint AS deleted FROM (SELECT red_slet_person(-987654611)) s');
+  v_b_async := true;
+
+  -- The barrier is behavior, not elapsed time: B must be waiting behind A's backend
+  -- before A reaches citation. With the old inverse order B already owns citation here,
+  -- so A's next statement recreates the deadlock; with the fixed order A can proceed.
+  v_deadline := clock_timestamp() + interval '3 seconds';
+  LOOP
+    EXIT WHEN v_a_pid = ANY(pg_blocking_pids(v_b_pid));
+    SELECT dblink_is_busy('ocr_lock_b') INTO v_b_busy;
+    IF v_b_busy = 0 THEN
+      RAISE EXCEPTION 'FEJL: OCR-låseorden B nåede ikke blocker-barrieren';
+    END IF;
+    IF clock_timestamp() > v_deadline THEN
+      RAISE EXCEPTION 'FEJL: OCR-låseorden observerede ikke B blokeret af A';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  -- Kept as an executable failure-mode test: at this point A owns the anchor locks
+  -- and B is actively waiting, so the exception path must roll back/disconnect both.
+  IF current_setting('daa.verify_force_ocr_lock_failure',true) = 'on' THEN
+    RAISE EXCEPTION 'FORCED_OCR_LOCK_VERIFY_FAILURE';
+  END IF;
+
+  PERFORM dblink_send_query('ocr_lock_a',
+    'UPDATE citation SET citat_tekst=''A'' WHERE id=-987654951 RETURNING id');
+  v_a_async := true;
   v_deadline := clock_timestamp() + interval '10 seconds';
   LOOP
-    SELECT dblink_is_busy('ocr_lock_a'), dblink_is_busy('ocr_lock_b')
-      INTO v_a_busy, v_b_busy;
-    EXIT WHEN NOT v_a_busy AND NOT v_b_busy;
+    SELECT dblink_is_busy('ocr_lock_a') INTO v_a_busy;
+    EXIT WHEN v_a_busy = 0;
     IF clock_timestamp() > v_deadline THEN
-      RAISE EXCEPTION 'FEJL: OCR-låseorden overskred 10 sekunder (mulig deadlock)';
+      RAISE EXCEPTION 'FEJL: OCR-låseorden A overskred 10 sekunder (mulig deadlock)';
     END IF;
-    PERFORM pg_sleep(0.05);
+    PERFORM pg_sleep(0.02);
   END LOOP;
   SELECT id INTO v_result FROM dblink_get_result('ocr_lock_a') AS t(id bigint);
-  IF v_result <> -987654951 THEN RAISE EXCEPTION 'FEJL: OCR-låseorden fuldførte ikke citation-skriveren'; END IF;
-  SELECT deleted INTO v_deleted FROM dblink_get_result('ocr_lock_b') AS t(deleted bigint);
-  IF v_deleted <> 1 THEN RAISE EXCEPTION 'FEJL: OCR-låseorden fuldførte ikke personsletningen'; END IF;
-  -- dblink emits one final empty result marker after an asynchronous statement.
-  -- Drain it before issuing COMMIT on either connection.
   PERFORM * FROM dblink_get_result('ocr_lock_a') AS t(id bigint);
+  v_a_async := false;
+  IF v_result IS DISTINCT FROM -987654951 THEN
+    RAISE EXCEPTION 'FEJL: OCR-låseorden fuldførte ikke citation-skriveren, resultat=%',v_result;
+  END IF;
+  PERFORM dblink_exec('ocr_lock_a','COMMIT');
+  v_a_in_tx := false;
+
+  v_deadline := clock_timestamp() + interval '10 seconds';
+  LOOP
+    SELECT dblink_is_busy('ocr_lock_b') INTO v_b_busy;
+    EXIT WHEN v_b_busy = 0;
+    IF clock_timestamp() > v_deadline THEN
+      RAISE EXCEPTION 'FEJL: OCR-låseorden B overskred 10 sekunder';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  SELECT deleted INTO v_deleted FROM dblink_get_result('ocr_lock_b') AS t(deleted bigint);
   PERFORM * FROM dblink_get_result('ocr_lock_b') AS t(deleted bigint);
+  v_b_async := false;
+  IF v_deleted IS DISTINCT FROM 1 THEN
+    RAISE EXCEPTION 'FEJL: OCR-låseorden fuldførte ikke personsletningen, resultat=%',v_deleted;
+  END IF;
   PERFORM dblink_exec('ocr_lock_b','COMMIT');
+  v_b_in_tx := false;
   PERFORM dblink_disconnect('ocr_lock_a');
   PERFORM dblink_disconnect('ocr_lock_b');
 
-  PERFORM dblink_exec('ocr_lock_setup','DELETE FROM change_event WHERE change_set_id IN (SELECT id FROM change_set WHERE operation=''red_slet_person'' AND subjekt_type=''person'' AND subjekt_id=-987654611)');
-  PERFORM dblink_exec('ocr_lock_setup','DELETE FROM change_set WHERE operation=''red_slet_person'' AND subjekt_type=''person'' AND subjekt_id=-987654611');
-  PERFORM dblink_exec('ocr_lock_setup',format('DELETE FROM profiles WHERE id=''%s''',v_uid));
-  PERFORM dblink_exec('ocr_lock_setup',format('DELETE FROM auth.users WHERE id=''%s''',v_uid));
-  PERFORM dblink_exec('ocr_lock_setup','DELETE FROM source WHERE id=-987654601');
+  PERFORM dblink_exec('ocr_lock_setup',v_cleanup_sql);
   PERFORM dblink_disconnect('ocr_lock_setup');
+  IF EXISTS (
+       SELECT 1 FROM source WHERE id=-987654601
+       UNION ALL SELECT 1 FROM person WHERE id=-987654611
+       UNION ALL SELECT 1 FROM person_external_id WHERE person_id=-987654611
+       UNION ALL SELECT 1 FROM fact WHERE id=-987654701
+       UNION ALL SELECT 1 FROM assertion WHERE id=-987654801
+       UNION ALL SELECT 1 FROM conclusion WHERE id=-987654901
+       UNION ALL SELECT 1 FROM citation WHERE id=-987654951
+       UNION ALL SELECT 1 FROM import_korrektion
+         WHERE import_key='verify:ocr:lock' AND record_key='I-lock'
+       UNION ALL SELECT 1 FROM profiles WHERE id=v_uid
+       UNION ALL SELECT 1 FROM auth.users WHERE id=v_uid
+       UNION ALL SELECT 1 FROM change_set
+         WHERE operation='red_slet_person' AND subjekt_type='person' AND subjekt_id=-987654611
+     )
+     OR EXISTS (
+       SELECT 1 FROM pg_stat_activity
+       WHERE datname=current_database() AND application_name LIKE 'daa_verify_ocr_lock_%'
+     ) THEN
+    RAISE EXCEPTION 'FEJL: OCR-låseorden efterlod fixture eller dblink-session';
+  END IF;
   RAISE NOTICE 'OK: OCR-låseorden to-forbindelsesregression';
 EXCEPTION WHEN OTHERS THEN
-  BEGIN PERFORM dblink_disconnect('ocr_lock_a'); EXCEPTION WHEN others THEN NULL; END;
-  BEGIN PERFORM dblink_disconnect('ocr_lock_b'); EXCEPTION WHEN others THEN NULL; END;
-  BEGIN PERFORM dblink_disconnect('ocr_lock_setup'); EXCEPTION WHEN others THEN NULL; END;
-  RAISE;
+  GET STACKED DIAGNOSTICS
+    v_error_state = RETURNED_SQLSTATE,
+    v_error_message = MESSAGE_TEXT;
+
+  -- Cancel/drain first when possible, explicitly roll back, and always disconnect.
+  -- Disconnect is the final rollback guarantee if a remote query is still active.
+  IF array_position(coalesce(dblink_get_connections(),'{}'::text[]),'ocr_lock_a') IS NOT NULL THEN
+    BEGIN
+      IF v_a_async AND dblink_is_busy('ocr_lock_a') = 1 THEN
+        PERFORM dblink_cancel_query('ocr_lock_a');
+      END IF;
+      IF v_a_async THEN
+        v_deadline := clock_timestamp() + interval '2 seconds';
+        WHILE dblink_is_busy('ocr_lock_a') = 1 AND clock_timestamp() < v_deadline
+          LOOP PERFORM pg_sleep(0.01); END LOOP;
+        IF dblink_is_busy('ocr_lock_a') = 0 THEN
+          PERFORM * FROM dblink_get_result('ocr_lock_a',false) AS t(id bigint);
+          PERFORM * FROM dblink_get_result('ocr_lock_a',false) AS t(id bigint);
+        END IF;
+      END IF;
+      IF v_a_in_tx THEN PERFORM dblink_exec('ocr_lock_a','ROLLBACK'); END IF;
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+    BEGIN PERFORM dblink_disconnect('ocr_lock_a'); EXCEPTION WHEN OTHERS THEN NULL; END;
+  END IF;
+  IF array_position(coalesce(dblink_get_connections(),'{}'::text[]),'ocr_lock_b') IS NOT NULL THEN
+    BEGIN
+      IF v_b_async AND dblink_is_busy('ocr_lock_b') = 1 THEN
+        PERFORM dblink_cancel_query('ocr_lock_b');
+      END IF;
+      IF v_b_async THEN
+        v_deadline := clock_timestamp() + interval '2 seconds';
+        WHILE dblink_is_busy('ocr_lock_b') = 1 AND clock_timestamp() < v_deadline
+          LOOP PERFORM pg_sleep(0.01); END LOOP;
+        IF dblink_is_busy('ocr_lock_b') = 0 THEN
+          PERFORM * FROM dblink_get_result('ocr_lock_b',false) AS t(deleted bigint);
+          PERFORM * FROM dblink_get_result('ocr_lock_b',false) AS t(deleted bigint);
+        END IF;
+      END IF;
+      IF v_b_in_tx THEN PERFORM dblink_exec('ocr_lock_b','ROLLBACK'); END IF;
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+    BEGIN PERFORM dblink_disconnect('ocr_lock_b'); EXCEPTION WHEN OTHERS THEN NULL; END;
+  END IF;
+  IF array_position(coalesce(dblink_get_connections(),'{}'::text[]),'ocr_lock_setup') IS NOT NULL THEN
+    BEGIN PERFORM dblink_disconnect('ocr_lock_setup'); EXCEPTION WHEN OTHERS THEN NULL; END;
+  END IF;
+
+  -- Setup is autonomous/committed, so cleanup must be autonomous too. A fresh
+  -- connection avoids an aborted setup/RPC transaction and retries success-cleanup errors.
+  BEGIN
+    IF array_position(coalesce(dblink_get_connections(),'{}'::text[]),'ocr_lock_cleanup') IS NOT NULL THEN
+      PERFORM dblink_disconnect('ocr_lock_cleanup');
+    END IF;
+    PERFORM dblink_connect('ocr_lock_cleanup',
+      v_conn || ' application_name=daa_verify_ocr_lock_cleanup');
+    PERFORM dblink_exec('ocr_lock_cleanup',v_cleanup_sql);
+    PERFORM dblink_disconnect('ocr_lock_cleanup');
+  EXCEPTION WHEN OTHERS THEN
+    v_cleanup_error := SQLERRM;
+    BEGIN PERFORM dblink_disconnect('ocr_lock_cleanup'); EXCEPTION WHEN OTHERS THEN NULL; END;
+    RAISE EXCEPTION USING
+      ERRCODE = v_error_state,
+      MESSAGE = format('%s; autonom cleanup fejlede: %s',v_error_message,v_cleanup_error);
+  END;
+  RAISE EXCEPTION USING ERRCODE = v_error_state, MESSAGE = v_error_message;
 END $$;
 
 -- ===== Person OCR kvalitetsark — samlet redaktionsprojektion =====
