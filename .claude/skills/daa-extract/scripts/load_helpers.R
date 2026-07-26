@@ -36,6 +36,86 @@ has_editorial_changes <- function(cs) {
 
 `%||%` <- function(a, b) if (is.null(a) || length(a) == 0) b else a
 
+# Reload-stabil postnøgle: bogens linje + dens label (15a må aldrig blive til 15).
+# Uden begge bog-identiteter er opslaget ikke sikkert; database-id og navn er bevidst
+# ikke kandidater til fallback.
+record_key_of <- function(rec) {
+  linje <- rec$linje
+  nr <- rec$nr_label %||% rec$nr
+  if (is.null(linje) || length(linje) == 0L || is.na(linje) ||
+      is.null(nr) || length(nr) == 0L || is.na(nr)) return(NA_character_)
+  paste0(as.character(linje), "-", as.character(nr))
+}
+
+# Journalen gemmer importerede værdier i en lille, fast JSON-kontrakt, så både R og
+# SQL kan fingerprint'e samme bytes. Listeorden er JSON-nøgleorden.
+canonical_import_value <- function(felt, value) {
+  if (felt %in% c("foedsel", "doed")) {
+    date_value <- if (is.list(value)) value else list(raw = value)
+    canonical <- list(
+      raw = date_value$raw %||% date_value$date_raw %||% NA_character_,
+      min = date_value$min %||% date_value$date_min %||% NA_character_,
+      max = date_value$max %||% date_value$date_max %||% NA_character_,
+      qualifier = date_value$qualifier %||% date_value$date_qualifier %||% NA_character_,
+      calendar = date_value$calendar %||% "gregoriansk",
+      certainty = date_value$certainty %||% date_value$date_certainty %||% NA_character_
+    )
+  } else {
+    canonical <- list(value = value)
+  }
+  jsonlite::toJSON(canonical, auto_unbox = TRUE, null = "null", na = "null")
+}
+
+.canonical_import_json <- function(felt, importeret) {
+  if (is.character(importeret) && length(importeret) == 1L &&
+      grepl("^\\s*\\{", importeret)) return(importeret)
+  canonical_import_value(felt, importeret)
+}
+
+ocr_input_fingerprint <- function(import_key, record_key, felt, importeret, ocr_context) {
+  values <- c(import_key, record_key, felt, .canonical_import_json(felt, importeret), ocr_context)
+  payload <- paste(enc2utf8(as.character(values)), collapse = rawToChar(as.raw(0x1f)))
+  digest::digest(payload, algo = "md5", serialize = FALSE)
+}
+
+.correction_rows <- function(corrections) {
+  if (is.null(corrections) || !length(corrections)) return(list())
+  if (is.data.frame(corrections)) {
+    return(lapply(seq_len(nrow(corrections)), function(i) as.list(corrections[i, , drop = FALSE])))
+  }
+  corrections
+}
+
+.same_correction_key <- function(a, b) {
+  length(a) == 1L && length(b) == 1L && !is.na(a) && !is.na(b) &&
+    identical(as.character(a), as.character(b))
+}
+
+apply_import_correction <- function(import_key, record_key, felt, importeret,
+                                    ocr_context, corrections) {
+  fingerprint <- ocr_input_fingerprint(import_key, record_key, felt, importeret, ocr_context)
+  result <- list(value = importeret, status = "ingen", fingerprint = fingerprint,
+                 correction_id = NA)
+  matches <- Filter(function(row) {
+    .same_correction_key(row$import_key, import_key) &&
+      .same_correction_key(row$record_key, record_key) &&
+      .same_correction_key(row$felt, felt)
+  }, .correction_rows(corrections))
+  if (!length(matches)) return(result)
+
+  correction <- matches[[1]]
+  result$correction_id <- correction$id %||% NA
+  if (!.same_correction_key(correction$input_fingerprint, fingerprint)) {
+    result$status <- "stale"
+    return(result)
+  }
+  if (identical(correction$status, "rettet") && !is.null(correction$korrigeret)) {
+    result$value <- correction$korrigeret
+    result$status <- "anvendt"
+  }
+  result
+}
+
 # Er en DB-fejlbesked et "relation findes ikke"-signal (Postgres 42P01)? Så er
 # change_set-tabellen fraværende (umigreret base) -> sikkert at antage 0 redaktionelle
 # rækker. Alle andre fejl er usikre og skal fejle lukket.

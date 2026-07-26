@@ -129,3 +129,86 @@ test_that("tom kontekst og ingen ægteskaber giver sigende NA-reason", {
   expect_equal(match_barn_union(NA, m2)$reason, "tom_kontekst")
   expect_equal(match_barn_union("af andet ægteskab med X", list())$reason, "ingen_aegteskaber")
 })
+
+test_that("record_key_of bevarer postens nr_label og fejler lukket uden postnummer", {
+  expect_identical(record_key_of(list(linje = "I", nr_label = "15a", nr = 15L)), "I-15a")
+  expect_identical(record_key_of(list(linje = "III", nr_label = "79", nr = 79L)), "III-79")
+  expect_identical(record_key_of(list(linje = "II", nr = 8L)), "II-8")
+  expect_identical(record_key_of(list(linje = "II", person_id = 42L, navn = "Søren")), NA_character_)
+})
+
+test_that("canonical_import_value emitterer faste JSON-former", {
+  cases <- list(
+    list(felt = "navn", value = "Conrad Detlev Reventlow",
+         want = '{"value":"Conrad Detlev Reventlow"}'),
+    list(felt = "navn", value = "Søren Ørsted Ågård",
+         want = '{"value":"Søren Ørsted Ågård"}'),
+    list(felt = "foedsel",
+         value = list(raw = "* 1644", min = "1644-01-01", max = "1644-12-31",
+                      qualifier = NA_character_, calendar = "gregoriansk", certainty = NA_character_),
+         want = '{"raw":"* 1644","min":"1644-01-01","max":"1644-12-31","qualifier":null,"calendar":"gregoriansk","certainty":null}'),
+    list(felt = "koen", value = "mand", want = '{"value":"mand"}')
+  )
+
+  for (case in cases) {
+    expect_identical(as.character(canonical_import_value(case$felt, case$value)), case$want,
+                     info = sprintf("felt=%s", case$felt))
+  }
+})
+
+test_that("ocr_input_fingerprint bruger den fastlagte UTF-8-vektor", {
+  importeret <- '{"raw":"* 1644","min":"1644-01-01","max":"1644-12-31","qualifier":null,"calendar":"gregoriansk","certainty":null}'
+  expect_identical(
+    ocr_input_fingerprint("daa:1939", "I-15a", "foedsel", importeret, "side=42;span=1"),
+    "5fc3d843cc82550a45ff2a176bc7cc83"
+  )
+})
+
+test_that("apply_import_correction anvender kun en matchende rettet journalpost", {
+  importeret <- '{"raw":"* 1644","min":"1644-01-01","max":"1644-12-31","qualifier":null,"calendar":"gregoriansk","certainty":null}'
+  korrigeret <- '{"raw":"* 1645","min":"1645-01-01","max":"1645-12-31","qualifier":null,"calendar":"gregoriansk","certainty":null}'
+  correction <- list(
+    id = 17L, import_key = "daa:1939", record_key = "I-15a", felt = "foedsel",
+    input_fingerprint = "5fc3d843cc82550a45ff2a176bc7cc83",
+    korrigeret = korrigeret, status = "rettet"
+  )
+
+  result <- apply_import_correction("daa:1939", "I-15a", "foedsel", importeret,
+                                    "side=42;span=1", list(correction))
+  expect_identical(result$value, korrigeret)
+  expect_identical(result$status, "anvendt")
+  expect_identical(result$fingerprint, "5fc3d843cc82550a45ff2a176bc7cc83")
+  expect_identical(result$correction_id, 17L)
+})
+
+test_that("apply_import_correction lader godkendt og udskudt import stå uændret", {
+  importeret <- '{"value":"Conrad Detlev Reventlow"}'
+  fingerprint <- "babf4f524a74d4b5abea44789673a7e8"
+  base <- list(
+    id = 18L, import_key = "daa:1939", record_key = "I-15a", felt = "navn",
+    input_fingerprint = fingerprint, korrigeret = NULL
+  )
+
+  for (journal_status in c("godkendt", "udskudt")) {
+    correction <- c(base, list(status = journal_status))
+    result <- apply_import_correction("daa:1939", "I-15a", "navn", importeret,
+                                      "side=42;span=1", list(correction))
+    expect_identical(result$value, importeret, info = journal_status)
+    expect_identical(result$status, "ingen", info = journal_status)
+  }
+})
+
+test_that("apply_import_correction markerer ændret OCR-kontekst som stale", {
+  importeret <- '{"raw":"* 1644","min":"1644-01-01","max":"1644-12-31","qualifier":null,"calendar":"gregoriansk","certainty":null}'
+  correction <- list(
+    id = 19L, import_key = "daa:1939", record_key = "I-15a", felt = "foedsel",
+    input_fingerprint = "5fc3d843cc82550a45ff2a176bc7cc83",
+    korrigeret = '{"raw":"* 1645"}', status = "rettet"
+  )
+
+  result <- apply_import_correction("daa:1939", "I-15a", "foedsel", importeret,
+                                    "side=43;span=1", list(correction))
+  expect_identical(result$value, importeret)
+  expect_identical(result$status, "stale")
+  expect_identical(result$correction_id, 19L)
+})
