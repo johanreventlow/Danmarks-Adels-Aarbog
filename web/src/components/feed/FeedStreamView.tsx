@@ -117,25 +117,31 @@ export function FeedStreamView({
   const [mediaCandidatesByPerson, setMediaCandidatesByPerson] = useState<FeedMediaCandidatesByPerson>({});
   const [mediaByCard, setMediaByCard] = useState<WebFeedMediaByCard>({});
   const requestedPersonIdsRef = useRef<Set<string>>(new Set());
+  const mediaContextVersionRef = useRef(0);
 
   // Medier følger den viste side, men må aldrig deltage i streamens opbygning eller resume.
   // Ved ejerskifte nulstilles både cache og allerede reserverede id'er før næste auth-kontekst
   // må hente; hvert asynkront løb annulleres desuden lokalt mod sene svar.
   useEffect(() => {
+    const contextVersion = ++mediaContextVersionRef.current;
     setMediaCandidatesByPerson({});
     setMediaByCard({});
     requestedPersonIdsRef.current.clear();
+    return () => {
+      if (mediaContextVersionRef.current === contextVersion) mediaContextVersionRef.current += 1;
+    };
   }, [bookmarkOwnerId]);
 
   useEffect(() => {
     const missingIds = feedMediaPersonIds.filter((personId) => !requestedPersonIdsRef.current.has(personId));
     if (missingIds.length === 0) return;
     missingIds.forEach((personId) => requestedPersonIdsRef.current.add(personId));
-    let alive = true;
+    const contextVersion = mediaContextVersionRef.current;
     void fetchFeedMediaCandidates(missingIds, model.canonicalIdById ?? {}).then((received) => {
-      if (alive) setMediaCandidatesByPerson((current) => ({ ...current, ...received }));
+      if (mediaContextVersionRef.current === contextVersion) {
+        setMediaCandidatesByPerson((current) => ({ ...current, ...received }));
+      }
     });
-    return () => { alive = false; };
   }, [feedMediaPersonIds, model.canonicalIdById, bookmarkOwnerId]);
 
   useEffect(() => {
