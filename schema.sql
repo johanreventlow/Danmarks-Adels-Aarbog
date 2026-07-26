@@ -1531,6 +1531,13 @@ BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   PERFORM begin_change_set('red_slet_person', format('Slettede person %s', p_person_id), 'person', p_person_id);
 
+  -- Fælles skriveorden med OCR-rettelsen: source/external-id → person → evidens.
+  -- Sletningen må vente her, før den tager citation/assertion, ellers kan to transaktioner
+  -- danne cyklussen external-id→citation / citation→external-id.
+  PERFORM 1 FROM source s JOIN person_external_id pei ON pei.source_id=s.id
+    WHERE pei.person_id=p_person_id ORDER BY s.id,pei.source_id FOR UPDATE OF s,pei;
+  PERFORM 1 FROM person WHERE id=p_person_id FOR UPDATE;
+
   SELECT coalesce(array_agg(id),'{}') INTO v_facts FROM fact
     WHERE subjekt_type='person' AND subjekt_id=p_person_id;
   SELECT coalesce(array_agg(id),'{}') INTO v_rels FROM relation
