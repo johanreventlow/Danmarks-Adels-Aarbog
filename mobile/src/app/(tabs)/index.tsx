@@ -202,6 +202,7 @@ export default function HomeScreen() {
             card={item}
             person={person ? { name: person.name, years: person.years } : undefined}
             rawMedia={pid ? aux?.mediaBy[pid] ?? [] : []}
+            ownerKey={bookmarkOwnerId}
             bookmarked={pid ? has(pid) : false}
             onSave={saveOrPrompt}
             onOpen={openCard}

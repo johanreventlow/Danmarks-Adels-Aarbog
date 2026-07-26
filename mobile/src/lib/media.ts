@@ -19,12 +19,13 @@ const normSlags = (s: string) => s.trim().toLowerCase();
 supabase?.auth.onAuthStateChange(() => cache.clear());
 
 // Signér en batch stier i ét kald; path→url. Tolerant (fejl → udeladt). Bruger cache.
-export async function signPaths(paths: string[]): Promise<Map<string, string>> {
+export async function signPaths(paths: string[], ownerKey: string | null = null): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   const now = Date.now();
   const need: string[] = [];
   for (const p of new Set(paths.filter(Boolean))) {
-    const c = cache.get(p);
+    const cacheKey = ownerKey == null ? p : `${ownerKey}\u0000${p}`;
+    const c = cache.get(cacheKey);
     if (c && c.exp > now) out.set(p, c.url);
     else need.push(p);
   }
@@ -36,7 +37,8 @@ export async function signPaths(paths: string[]): Promise<Map<string, string>> {
         for (const row of data ?? []) {
           if (row.signedUrl && row.path) {
             out.set(row.path, row.signedUrl);
-            cache.set(row.path, { url: row.signedUrl, exp: now + (SIGN_TTL - 30) * 1000 });
+            const cacheKey = ownerKey == null ? row.path : `${ownerKey}\u0000${row.path}`;
+            cache.set(cacheKey, { url: row.signedUrl, exp: now + (SIGN_TTL - 30) * 1000 });
           }
         }
     } catch (e) {
@@ -54,14 +56,26 @@ export async function signPaths(paths: string[]): Promise<Map<string, string>> {
 export function useMediaAndThumbUris(
   media: RawMedia[],
   thumbPathOf: (m: RawMedia) => string | null | undefined = () => null,
+  ownerKey: string | null = null,
 ): { uris: Record<string, string>; thumbUris: Record<string, string> } {
-  const [state, setState] = useState<{ uris: Record<string, string>; thumbUris: Record<string, string> }>({ uris: {}, thumbUris: {} });
   const fullPaths = media.map((m) => m.storage_path ?? '').filter(Boolean);
   const thumbPaths = media.map((m) => thumbPathOf(m) ?? '').filter(Boolean);
   const key = [...fullPaths, ...thumbPaths].sort().join('|');
+  // En signer-URL er bundet til den aktuelle session. State mærkes derfor med både ejer og
+  // paths: et render efter login/logout kan aldrig vise forrige ejers URL, heller ikke før
+  // effekten når at rydde state, og sene svar fra den annullerede effekt bliver irrelevante.
+  const requestKey = JSON.stringify([ownerKey, key]);
+  const [state, setState] = useState<{
+    requestKey: string;
+    uris: Record<string, string>;
+    thumbUris: Record<string, string>;
+  }>(() => ({ requestKey, uris: {}, thumbUris: {} }));
   useEffect(() => {
     let cancelled = false;
-    signPaths([...fullPaths, ...thumbPaths]).then((signed) => {
+    setState((current) => current.requestKey === requestKey && Object.keys(current.uris).length === 0 && Object.keys(current.thumbUris).length === 0
+      ? current
+      : { requestKey, uris: {}, thumbUris: {} });
+    signPaths([...fullPaths, ...thumbPaths], ownerKey).then((signed) => {
       if (cancelled) return;
       const uris: Record<string, string> = {};
       const thumbUris: Record<string, string> = {};
@@ -72,15 +86,17 @@ export function useMediaAndThumbUris(
         const thumb = tp ? signed.get(tp) : undefined;
         if (thumb) thumbUris[String(m.id)] = thumb;
       }
-      setState({ uris, thumbUris });
+      setState({ requestKey, uris, thumbUris });
     });
     return () => {
       cancelled = true;
     };
     // key dækker path-sættet; media-objekterne selv er stabile pr. path.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-  return state;
+  }, [key, requestKey]);
+  return state.requestKey === requestKey
+    ? { uris: state.uris, thumbUris: state.thumbUris }
+    : { uris: {}, thumbUris: {} };
 }
 
 // Dedup pr. media-id uden at et primaer-flag kan tabes til relationsrækkefølgen. Det samme medie
