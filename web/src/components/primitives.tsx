@@ -29,10 +29,12 @@ export const Avatar = ({ n, size }: { n: string; size: number }) => (
 // V-hak i bunden), ikke et flag — SVG frem for et Unicode-glyf for konsistent rendering på tværs
 // af browsere/fonte (bruger-feedback: den tidligere ⚑/⚐-glyf lignede et flag, ikke et bogmærke).
 export const BookmarkFlag = ({ active, onClick }: { active: boolean; onClick: () => void }) => (
-  <span
+  <button
+    type="button"
     onClick={(e) => { e.stopPropagation(); onClick(); }}
     title={active ? 'Fjern bogmærke' : 'Bogmærk denne person'}
-    style={{ cursor: 'pointer', lineHeight: 1, flex: 'none', display: 'inline-flex' }}
+    aria-label={active ? 'Fjern bogmærke' : 'Bogmærk denne person'}
+    style={{ cursor: 'pointer', lineHeight: 1, flex: 'none', display: 'inline-flex', border: 0, padding: 0, background: 'transparent' }}
   >
     <svg width={14} height={17} viewBox="0 0 14 17" style={{ display: 'block' }}>
       <path
@@ -43,7 +45,7 @@ export const BookmarkFlag = ({ active, onClick }: { active: boolean; onClick: ()
         strokeLinejoin="round"
       />
     </svg>
-  </span>
+  </button>
 );
 
 // Medie-billede med fallback: intet render hvis signering fejlede (url=null). Klik åbner en

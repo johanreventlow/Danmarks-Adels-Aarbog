@@ -17,6 +17,10 @@ import { loadHaendelserBy } from '../../data/haendelser';
 import { loadStorieBy } from '../../data/story';
 import { preserveShownForResume } from '../../data/feedResume';
 import { createSeenStore, toSeenWeights } from '../../data/seenCards';
+import {
+  fetchFeedMediaCandidates, resolveFeedMediaForCards,
+  type FeedMediaCandidatesByPerson, type FeedMediaRequest, type WebFeedMediaByCard,
+} from '../../data/feedMedia';
 import { T } from '../../theme';
 import type { ArmsItem, EstateItem } from '../../data/public';
 import type { Model } from '../../data/types';
@@ -105,6 +109,42 @@ export function FeedStreamView({
   const [shown, setShown] = useState<FeedCard[]>([]);
   const shownRef = useRef<FeedCard[]>([]);
   useEffect(() => { shownRef.current = shown; }, [shown]);
+  const feedMediaRequests = useMemo<FeedMediaRequest[]>(() => shown.flatMap((card) => {
+    if (!('personId' in card)) return [];
+    return [{ cardId: card.id, kind: card.kind, personId: model.canonicalIdById?.[card.personId] ?? card.personId }];
+  }), [shown, model.canonicalIdById]);
+  const feedMediaPersonIds = useMemo(() => [...new Set(feedMediaRequests.map((request) => request.personId))], [feedMediaRequests]);
+  const [mediaCandidatesByPerson, setMediaCandidatesByPerson] = useState<FeedMediaCandidatesByPerson>({});
+  const [mediaByCard, setMediaByCard] = useState<WebFeedMediaByCard>({});
+  const requestedPersonIdsRef = useRef<Set<string>>(new Set());
+
+  // Medier følger den viste side, men må aldrig deltage i streamens opbygning eller resume.
+  // Ved ejerskifte nulstilles både cache og allerede reserverede id'er før næste auth-kontekst
+  // må hente; hvert asynkront løb annulleres desuden lokalt mod sene svar.
+  useEffect(() => {
+    setMediaCandidatesByPerson({});
+    setMediaByCard({});
+    requestedPersonIdsRef.current.clear();
+  }, [bookmarkOwnerId]);
+
+  useEffect(() => {
+    const missingIds = feedMediaPersonIds.filter((personId) => !requestedPersonIdsRef.current.has(personId));
+    if (missingIds.length === 0) return;
+    missingIds.forEach((personId) => requestedPersonIdsRef.current.add(personId));
+    let alive = true;
+    void fetchFeedMediaCandidates(missingIds, model.canonicalIdById ?? {}).then((received) => {
+      if (alive) setMediaCandidatesByPerson((current) => ({ ...current, ...received }));
+    });
+    return () => { alive = false; };
+  }, [feedMediaPersonIds, model.canonicalIdById, bookmarkOwnerId]);
+
+  useEffect(() => {
+    let alive = true;
+    void resolveFeedMediaForCards(feedMediaRequests, mediaCandidatesByPerson).then((resolved) => {
+      if (alive) setMediaByCard(resolved);
+    });
+    return () => { alive = false; };
+  }, [feedMediaRequests, mediaCandidatesByPerson, bookmarkOwnerId]);
   const markedIdsRef = useRef<Set<string>>(new Set());
   // streamRef holder DEN STRØM der aktuelt doseres fra — genopbygget (via resumeStream, se
   // nedenfor) hver gang bio/livsdato/hændelser ankommer, uden at nulstille viste kort.
@@ -223,10 +263,15 @@ export function FeedStreamView({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {shown.map((card) => {
           const pid = bookmarkPersonId(card);
+          const modelPerson = 'personId' in card ? model.byId[card.personId] : null;
+          const fallbackName = 'personId' in card && 'name' in card ? card.name : ('personId' in card ? `#${card.personId}` : '');
+          const fallbackYears = 'personId' in card && 'years' in card ? card.years : '';
           return (
             <FeedCardView
               key={card.id}
               card={card}
+              person={'personId' in card ? { name: modelPerson?.name ?? fallbackName, years: modelPerson?.years ?? fallbackYears } : undefined}
+              media={mediaByCard[card.id] ?? []}
               bookmarked={pid ? hasBookmark(pid) : false}
               onSave={onSaveBookmark}
               onOpen={openCard}
