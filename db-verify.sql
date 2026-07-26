@@ -2624,3 +2624,167 @@ DO $$ BEGIN
     RAISE EXCEPTION 'FEJL: vocab mangler (faktatype, overhoved) — kør db-migrations.sql';
   END IF;
 END $$;
+
+-- ===== Person OCR kvalitetsark — identitet =====
+-- Selvstændig, rollback-sikker kontrakt for stabile importnøgler og den varige
+-- korrektionsjournal. Den bruger rigtige constraints, trigger og SET ROLE, ikke
+-- kildekode-matching, og efterlader derfor ingen verify-rækker.
+DO $$
+DECLARE
+  v_kolonner int;
+  v_redaktor uuid := '00000000-0000-0000-0000-0000000000c1';
+  v_journal_id bigint;
+  v_change_set bigint := -987658099;
+  v_anon_blokeret boolean := false;
+  v_indsaet_blokeret boolean := false;
+  v_opdater_blokeret boolean := false;
+  v_slet_blokeret boolean := false;
+  v_medlem_antal int;
+  v_redaktor_antal int;
+BEGIN
+  -- Eksakte kolonnekontrakter: nullable import-/record-nøgler bevarer legacy-rækker;
+  -- journalens beslutningsfelter er obligatoriske bortset fra rettelse og aktør.
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema='public' AND table_name='source'
+                   AND column_name='import_key' AND data_type='text' AND is_nullable='YES') THEN
+    RAISE EXCEPTION 'FEJL: source.import_key mangler eller har forkert type/nullability';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema='public' AND table_name='person_external_id'
+                   AND column_name='record_key' AND data_type='text' AND is_nullable='YES') THEN
+    RAISE EXCEPTION 'FEJL: person_external_id.record_key mangler eller har forkert type/nullability';
+  END IF;
+  SELECT count(*) INTO v_kolonner
+    FROM information_schema.columns
+   WHERE table_schema='public' AND table_name='import_korrektion'
+     AND ((column_name='id' AND data_type='bigint' AND is_nullable='NO')
+       OR (column_name IN ('import_key','record_key','felt','input_fingerprint','status')
+           AND data_type='text' AND is_nullable='NO')
+       OR (column_name='importeret' AND data_type='jsonb' AND is_nullable='NO')
+       OR (column_name='korrigeret' AND data_type='jsonb' AND is_nullable='YES')
+       OR (column_name='actor_id' AND data_type='uuid' AND is_nullable='YES')
+       OR (column_name='actor_navn' AND data_type='text' AND is_nullable='YES')
+       OR (column_name IN ('oprettet_at','opdateret_at')
+           AND data_type='timestamp with time zone' AND is_nullable='NO'));
+  IF v_kolonner <> 12 THEN
+    RAISE EXCEPTION 'FEJL: import_korrektion mangler eksakte kolonnekontrakter (fik %/12)', v_kolonner;
+  END IF;
+
+  -- Delvise unikke nøgler: ikke-NULL importidentiteter må aldrig dubleres,
+  -- men de historiske NULL-rækker skal fortsat kunne sameksistere.
+  INSERT INTO source(id,titel,import_key) VALUES
+    (-987658001,'Legacy A',NULL),(-987658002,'Legacy B',NULL),
+    (-987658003,'Import-nøgle','verify:ocr:source');
+  BEGIN
+    INSERT INTO source(id,titel,import_key) VALUES (-987658004,'Dublet','verify:ocr:source');
+    RAISE EXCEPTION 'FEJL: source import_key-unikhed afviste ikke dublet';
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+  INSERT INTO person(id) VALUES (-987658011),(-987658012),(-987658013),(-987658014);
+  INSERT INTO person_external_id(person_id,source_id,record_key) VALUES
+    (-987658011,-987658003,NULL),(-987658012,-987658003,NULL),
+    (-987658013,-987658003,'verify:ocr:record');
+  BEGIN
+    INSERT INTO person_external_id(person_id,source_id,record_key)
+      VALUES (-987658014,-987658003,'verify:ocr:record');
+    RAISE EXCEPTION 'FEJL: person_external_id record_key-unikhed afviste ikke dublet';
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+
+  -- Journalens kontrollerede vokabular og MD5-fingerprint afviser ukendte værdier.
+  BEGIN
+    INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,status)
+      VALUES ('verify:ocr','ukendt-felt','ukendt','0123456789abcdef0123456789abcdef','{}','aaben');
+    RAISE EXCEPTION 'FEJL: import_korrektion.felt-CHECK afviste ikke ukendt felt';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,status)
+      VALUES ('verify:ocr','ukendt-status','navn','0123456789abcdef0123456789abcdef','{}','ukendt');
+    RAISE EXCEPTION 'FEJL: import_korrektion.status-CHECK afviste ikke ukendt status';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,status)
+      VALUES ('verify:ocr','forkert-hash','navn','IKKE-EN-MD5','{}','aaben');
+    RAISE EXCEPTION 'FEJL: import_korrektion.input_fingerprint-CHECK afviste ikke ugyldig hash';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  IF EXISTS (SELECT 1 FROM pg_constraint
+             WHERE conrelid='public.import_korrektion'::regclass AND contype='f') THEN
+    RAISE EXCEPTION 'FEJL: import_korrektion har FK til regenererbare identifikatorer';
+  END IF;
+
+  -- Registry + konkret trigger bevarer den immutable historik i change_event.
+  IF NOT EXISTS (SELECT 1 FROM version_pk_registry
+                 WHERE tabel='import_korrektion' AND pk_cols=ARRAY['id']::text[] AND skip_cols='{}') THEN
+    RAISE EXCEPTION 'FEJL: import_korrektion mangler korrekt version_pk_registry-række';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger
+                 WHERE tgrelid='public.import_korrektion'::regclass
+                   AND tgname='trg_log_import_korrektion' AND NOT tgisinternal) THEN
+    RAISE EXCEPTION 'FEJL: trg_log_import_korrektion mangler';
+  END IF;
+
+  INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,status)
+    VALUES ('verify:ocr','journal','navn','0123456789abcdef0123456789abcdef','{"navn":"OCR"}','aaben')
+    RETURNING id INTO v_journal_id;
+
+  -- RLS og grants: anon har ingen adgang; medlemmet får ingen rækker; redaktøren
+  -- må læse, men alle direkte DML-veje er lukkede indtil den kommende RPC.
+  SET LOCAL ROLE anon;
+  BEGIN
+    PERFORM 1 FROM import_korrektion WHERE id=v_journal_id;
+  EXCEPTION WHEN insufficient_privilege THEN v_anon_blokeret := true;
+  END;
+  RESET ROLE;
+
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO v_medlem_antal FROM import_korrektion WHERE id=v_journal_id;
+  RESET ROLE;
+
+  INSERT INTO auth.users(id,email) VALUES (v_redaktor,'ocr-journal-verify@test.invalid');
+  INSERT INTO profiles(id,rolle,email) VALUES (v_redaktor,'redaktion','ocr-journal-verify@test.invalid');
+  PERFORM set_config('request.jwt.claim.sub',v_redaktor::text,true);
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO v_redaktor_antal FROM import_korrektion WHERE id=v_journal_id;
+  BEGIN
+    INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,status)
+      VALUES ('verify:ocr','redaktor-indsaet','navn','0123456789abcdef0123456789abcdef','{}','aaben');
+  EXCEPTION WHEN insufficient_privilege THEN v_indsaet_blokeret := true;
+  END;
+  BEGIN
+    UPDATE import_korrektion SET actor_navn='må ikke ske' WHERE id=v_journal_id;
+  EXCEPTION WHEN insufficient_privilege THEN v_opdater_blokeret := true;
+  END;
+  BEGIN
+    DELETE FROM import_korrektion WHERE id=v_journal_id;
+  EXCEPTION WHEN insufficient_privilege THEN v_slet_blokeret := true;
+  END;
+  RESET ROLE;
+  IF NOT v_anon_blokeret OR v_medlem_antal <> 0 OR v_redaktor_antal <> 1
+     OR NOT v_indsaet_blokeret OR NOT v_opdater_blokeret OR NOT v_slet_blokeret THEN
+    RAISE EXCEPTION 'FEJL: journal-RLS/grants anon=% medlem=% redaktor=% dml=%/%/%',
+      v_anon_blokeret,v_medlem_antal,v_redaktor_antal,
+      v_indsaet_blokeret,v_opdater_blokeret,v_slet_blokeret;
+  END IF;
+
+  INSERT INTO change_set(id,operation) VALUES (v_change_set,'verify_import_korrektion');
+  PERFORM set_config('app.change_set_id',v_change_set::text,true);
+  PERFORM set_config('app.change_seq','0',true);
+  INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,status)
+    VALUES ('verify:ocr','journal','navn','0123456789abcdef0123456789abcdef','{"navn":"OCR"}','rettet')
+  ON CONFLICT (import_key,record_key,felt) DO UPDATE SET status=excluded.status;
+  IF NOT EXISTS (SELECT 1 FROM change_event
+                 WHERE change_set_id=v_change_set AND tabel='import_korrektion' AND op='UPDATE'
+                   AND row_pk->>'id'=v_journal_id::text) THEN
+    RAISE EXCEPTION 'FEJL: import_korrektion-upsert loggede ikke normalt change_event';
+  END IF;
+
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN
+    RAISE NOTICE 'OK: Person OCR kvalitetsark — stabile nøgler, constraints, RLS og journalhistorik';
+  ELSE RAISE; END IF;
+END $$;

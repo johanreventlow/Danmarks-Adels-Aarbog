@@ -593,6 +593,20 @@ grant select on public.red_konflikt to authenticated;
 grant select on public.red_konflikt to anon;
 
 -- =====================================================================
+-- 2026-07-26: Person OCR kvalitetsark — korrektionsjournal
+-- Aktuelle beslutninger er kun læsbare for redaktionen. Direkte DML er lukket:
+-- Task 4's rolle-gated RPC bliver den eneste skrivevej og change_event bevarer auditsporet.
+-- =====================================================================
+ALTER TABLE public.import_korrektion ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.import_korrektion FROM anon;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+  ON TABLE public.import_korrektion FROM authenticated;
+GRANT SELECT ON TABLE public.import_korrektion TO authenticated;
+DROP POLICY IF EXISTS redaktion_read ON public.import_korrektion;
+CREATE POLICY redaktion_read ON public.import_korrektion FOR SELECT TO authenticated
+  USING ((select public.current_rolle()) = 'redaktion');
+
+-- =====================================================================
 --  FREMTID · 'authenticated'-lag (medlem/forsker) — SKITSE, ikke aktiv.
 --
 --  Når login + profiles.reventlow_person_id er på plads, tilføjes politikker for
