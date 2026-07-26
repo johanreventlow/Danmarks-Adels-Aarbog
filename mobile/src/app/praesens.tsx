@@ -31,7 +31,6 @@ import {
   fetchPresensLinjer,
   type PresensLinjeInfo,
 } from '../data/presensLinjer';
-import { useMediaAuthEpoch } from '../lib/media';
 import type { Model } from '../data/types';
 import { useStore } from '../store/useStore';
 import { Border, Colors, Fonts, monoSpacing } from '../theme/tokens';
@@ -280,24 +279,17 @@ export default function PraesensScreen() {
     [rawModel, canonicalIdById],
   );
   const rolle = useStore((state) => state.rolle);
-  const mediaAuthEpoch = useMediaAuthEpoch();
   const [grundlag, setGrundlag] = useState<PresensGrundlag | null>(null);
   const [fejl, setFejl] = useState<string | null>(null);
-  const [linjeInfo, setLinjeInfo] = useState<{
-    epoch: number;
-    values: Record<string, PresensLinjeInfo>;
-  }>({ epoch: mediaAuthEpoch, values: {} });
-  const synligLinjeInfo = linjeInfo.epoch === mediaAuthEpoch ? linjeInfo.values : {};
+  const [linjeInfo, setLinjeInfo] = useState<Record<string, PresensLinjeInfo>>({});
   const [intro, setIntro] = useState<string | null>(null);
   const [navneDele, setNavneDele] = useState<Record<string, PresensNavneDele>>({});
 
   useEffect(() => {
     let aktiv = true;
     if (rolle !== 'redaktion') {
-      setLinjeInfo({ epoch: mediaAuthEpoch, values: {} });
       return () => { aktiv = false; };
     }
-    setLinjeInfo({ epoch: mediaAuthEpoch, values: {} });
     fetchPresensGrundlag()
       .then((resultat) => {
         if (aktiv) {
@@ -308,14 +300,14 @@ export default function PraesensScreen() {
       .catch((error) => {
         if (aktiv) setFejl(error instanceof Error ? error.message : String(error));
       });
-    fetchPresensLinjer(mediaAuthEpoch)
-      .then((resultat) => { if (aktiv) setLinjeInfo({ epoch: mediaAuthEpoch, values: resultat }); })
-      .catch(() => { if (aktiv) setLinjeInfo({ epoch: mediaAuthEpoch, values: {} }); });
+    fetchPresensLinjer()
+      .then((resultat) => { if (aktiv) setLinjeInfo(resultat); })
+      .catch(() => { if (aktiv) setLinjeInfo({}); });
     fetchPresensIntro()
       .then((resultat) => { if (aktiv) setIntro(resultat); })
       .catch(() => { if (aktiv) setIntro(null); });
     return () => { aktiv = false; };
-  }, [rolle, mediaAuthEpoch]);
+  }, [rolle]);
 
   const liste = useMemo(() => {
     if (!model || !grundlag) return null;
@@ -467,7 +459,7 @@ export default function PraesensScreen() {
               <PraesensLinjeSektion
                 key={linje.linje}
                 gruppe={linje}
-                info={synligLinjeInfo[linje.linje]}
+                info={linjeInfo[linje.linje]}
                 model={model}
                 router={router}
                 navnAf={navnAf}

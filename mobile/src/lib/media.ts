@@ -26,15 +26,7 @@ supabase?.auth.onAuthStateChange(() => {
 
 // Medieforbrugere skal reagere på auth-events, ikke blot et bruger-id: token-refresh eller
 // nye rolleclaims kan ændre RLS for samme person. Epoch'en er et tællepunkt, aldrig en token.
-export function getMediaAuthEpoch(): number {
-  return authEpoch;
-}
-
-export function isMediaAuthEpochCurrent(epoch: number): boolean {
-  return epoch === authEpoch;
-}
-
-export function useMediaAuthEpoch(): number {
+function useMediaAuthEpoch(): number {
   return useSyncExternalStore(
     (listener) => {
       authEpochListeners.add(listener);
@@ -48,7 +40,6 @@ export function useMediaAuthEpoch(): number {
 // Signér en batch stier i ét kald; path→url. Tolerant (fejl → udeladt). Bruger cache.
 export async function signPaths(paths: string[], epoch = authEpoch): Promise<Map<string, string>> {
   const out = new Map<string, string>();
-  if (!isMediaAuthEpochCurrent(epoch)) return out;
   const now = Date.now();
   const need: string[] = [];
   for (const p of new Set(paths.filter(Boolean))) {
@@ -73,7 +64,7 @@ export async function signPaths(paths: string[], epoch = authEpoch): Promise<Map
       console.warn('[media] signering kastede:', e);
     }
   }
-  return isMediaAuthEpochCurrent(epoch) ? out : new Map();
+  return out;
 }
 
 // Resolvér BÅDE fulde ('large') og thumb-signed URLs for et sæt medie-rækker i ÉT signPaths-kald
