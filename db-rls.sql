@@ -612,6 +612,14 @@ REVOKE EXECUTE ON FUNCTION public.ocr_input_fingerprint(text,text,text,jsonb,tex
   FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.red_person_grid() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.red_person_grid() TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.red_ret_ocr_felt(bigint,text,text,text,text,jsonb,text,text)
+  FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.red_ret_ocr_felt(bigint,text,text,text,text,jsonb,text,text)
+  TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.red_ocr_historik(text,text,text)
+  FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.red_ocr_historik(text,text,text)
+  TO authenticated;
 
 -- =====================================================================
 --  FREMTID · 'authenticated'-lag (medlem/forsker) — SKITSE, ikke aktiv.

@@ -40,6 +40,238 @@ DO $$ BEGIN
   END;
 END $$;
 
+-- ===== Person OCR kvalitetsark — atomisk rettelse og historik =====
+-- Selvstændig transaktionsfixture. Alle positive og negative veje kører gennem
+-- den offentlige SECURITY DEFINER-flade, og blokken ruller altid tilbage.
+DO $$
+DECLARE
+  v_redaktor uuid := '00000000-0000-0000-0000-0000000000c4';
+  v_row jsonb; v_hist record; v_cs_date bigint; v_journal_id bigint;
+  v_name_assertion bigint := -987655301; v_birth_assertion bigint := -987655302;
+  v_death_assertion bigint := -987655303; v_citation_id bigint := -987655501;
+  v_before_journal int; v_before_events int; v_before_assertions int;
+  v_before_conclusions int; v_before_name text; v_before_gender text; v_koen_fingerprint text;
+  v_member_blocked boolean := false; v_anon_blocked boolean := false;
+  v_hist_member_blocked boolean := false; v_hist_anon_blocked boolean := false;
+  v_hist_count int; v_first_after jsonb; v_second_after jsonb;
+  v_original_import jsonb;
+BEGIN
+  INSERT INTO source(id,titel,import_key) VALUES
+    (-987655101,'OCR rette-fixture','verify:ocr:write'),
+    (-987655102,'Forkert OCR-kilde','verify:ocr:other'),
+    (-987655103,'Ekstra importanker','verify:ocr:extra');
+  INSERT INTO person(id,koen) VALUES
+    (-987655111,'mand'), (-987655112,'kvinde'), (-987655113,'mand'),
+    (-987655114,'ukendt');
+  INSERT INTO person_external_id(person_id,source_id,record_key) VALUES
+    (-987655111,-987655101,'I-15a'),
+    (-987655112,-987655101,'I-16'),
+    (-987655113,-987655101,'I-17'),
+    (-987655113,-987655103,'I-17-extra'),
+    (-987655114,-987655101,'I-18');
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES
+    (-987655201,'person',-987655111,'navn'),
+    (-987655202,'person',-987655111,'fødsel'),
+    (-987655203,'person',-987655111,'død'),
+    (-987655204,'person',-987655112,'navn'),
+    (-987655205,'person',-987655114,'navn'),
+    (-987655206,'person',-987655114,'navn');
+  INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,date_raw,date_min,date_max,
+                        date_qualifier,calendar,date_certainty,uforanderlig) VALUES
+    (v_name_assertion,'fact',-987655201,'Mikkel OCR',NULL,NULL,NULL,NULL,'gregoriansk',NULL,true),
+    (v_birth_assertion,'fact',-987655202,NULL,'1644-06-11','1644-06-11','1644-06-11','exact','gregoriansk',NULL,true),
+    (v_death_assertion,'fact',-987655203,NULL,'1700-01-01','1700-01-01','1700-01-01','exact','gregoriansk',NULL,true),
+    (-987655304,'fact',-987655204,'Forkert kilde',NULL,NULL,NULL,NULL,'gregoriansk',NULL,true),
+    (-987655305,'fact',-987655205,'Flertydig A',NULL,NULL,NULL,NULL,'gregoriansk',NULL,true),
+    (-987655306,'fact',-987655206,'Flertydig B',NULL,NULL,NULL,NULL,'gregoriansk',NULL,true);
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status) VALUES
+    (-987655401,'fact',-987655201,v_name_assertion,'afklaret'),
+    (-987655402,'fact',-987655202,v_birth_assertion,'afklaret'),
+    (-987655403,'fact',-987655203,v_death_assertion,'afklaret'),
+    (-987655404,'fact',-987655204,-987655304,'afklaret'),
+    (-987655405,'fact',-987655205,-987655305,'afklaret');
+  -- A second selected fact makes the fourth person fail closed as ambiguous.
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status)
+    VALUES (-987655406,'fact',-987655206,-987655306,'afklaret');
+  INSERT INTO citation(id,assertion_id,source_id,side,citat_tekst) VALUES
+    (v_citation_id,v_name_assertion,-987655101,'42','Mikkel OCR'),
+    (-987655502,v_birth_assertion,-987655101,'42','født 1644-06-11'),
+    (-987655503,v_death_assertion,-987655101,'42','død 1700-01-01'),
+    (-987655504,-987655304,-987655102,'42','Forkert kilde'),
+    (-987655505,-987655305,-987655101,'42','Flertydig A'),
+    (-987655506,-987655306,-987655101,'42','Flertydig B');
+
+  -- Fixed SQL vector is independent of the new helper and must remain in Task 2 parity.
+  IF ocr_input_fingerprint('verify:ocr:write','I-15a','foedsel',
+       '{"raw":"1644-06-11","min":"1644-06-11","max":"1644-06-11","qualifier":"exact","calendar":"gregoriansk","certainty":null}'::jsonb,
+       'født 1644-06-11') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: OCR-fingerprint-vektor kunne ikke beregnes';
+  END IF;
+
+  -- Execute ACL and internal role guards are independently observable.
+  SET LOCAL ROLE anon;
+  BEGIN
+    PERFORM red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','navn','x',NULL,'godkendt');
+  EXCEPTION WHEN insufficient_privilege THEN v_anon_blocked := true;
+  END;
+  BEGIN
+    PERFORM * FROM red_ocr_historik('verify:ocr:write','I-15a','navn');
+  EXCEPTION WHEN insufficient_privilege THEN v_hist_anon_blocked := true;
+  END;
+  RESET ROLE;
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    PERFORM red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','navn','x',NULL,'godkendt');
+  EXCEPTION WHEN others THEN
+    IF SQLERRM LIKE 'OCR_ROLE_FORBIDDEN%' THEN v_member_blocked := true; ELSE RAISE; END IF;
+  END;
+  BEGIN
+    PERFORM * FROM red_ocr_historik('verify:ocr:write','I-15a','navn');
+  EXCEPTION WHEN others THEN
+    IF SQLERRM LIKE 'OCR_ROLE_FORBIDDEN%' THEN v_hist_member_blocked := true; ELSE RAISE; END IF;
+  END;
+  RESET ROLE;
+  IF NOT v_anon_blocked OR NOT v_hist_anon_blocked OR NOT v_member_blocked OR NOT v_hist_member_blocked THEN
+    RAISE EXCEPTION 'FEJL: OCR-RPC ACL/rolle-gate anon=%/% medlem=%/%',
+      v_anon_blocked,v_hist_anon_blocked,v_member_blocked,v_hist_member_blocked;
+  END IF;
+
+  INSERT INTO auth.users(id,email) VALUES (v_redaktor,'ocr-write-verify@test.invalid');
+  INSERT INTO profiles(id,rolle,navn,email) VALUES
+    (v_redaktor,'redaktion','OCR Verify Actor','ocr-write-verify@test.invalid');
+  PERFORM set_config('request.jwt.claim.sub',v_redaktor::text,true);
+  SET LOCAL ROLE authenticated;
+
+  -- First and repeated name correction: one logical journal row keeps original import/fingerprint.
+  SELECT input_fingerprint->>'navn', importeret->'navn' INTO STRICT v_before_name, v_original_import
+    FROM red_person_grid() WHERE person_id=-987655111;
+  v_row := red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','navn',v_before_name,
+    '{"value":"Mikkel Rettet"}'::jsonb,'rettet','må ikke vinde');
+  IF v_row->>'person_id' <> '-987655111' OR (SELECT vaerdi_tekst FROM assertion WHERE id=v_name_assertion) <> 'Mikkel Rettet' THEN
+    RAISE EXCEPTION 'FEJL: navnerettelse returnerede ikke den friske, rettede række';
+  END IF;
+  SELECT id INTO v_journal_id FROM import_korrektion
+    WHERE import_key='verify:ocr:write' AND record_key='I-15a' AND felt='navn';
+  IF v_journal_id IS NULL OR (SELECT actor_id FROM import_korrektion WHERE id=v_journal_id) <> v_redaktor
+     OR (SELECT actor_navn FROM import_korrektion WHERE id=v_journal_id) <> 'OCR Verify Actor' THEN
+    RAISE EXCEPTION 'FEJL: navnejournal mangler autentisk aktør';
+  END IF;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+  v_row := red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','navn',v_before_name,
+    '{"value":"Mikkel Rettet Igen"}'::jsonb,'rettet','fallback');
+  IF (SELECT count(*) FROM import_korrektion WHERE import_key='verify:ocr:write' AND record_key='I-15a' AND felt='navn') <> 1
+     OR (SELECT id FROM import_korrektion WHERE import_key='verify:ocr:write' AND record_key='I-15a' AND felt='navn') <> v_journal_id
+     OR (SELECT importeret FROM import_korrektion WHERE id=v_journal_id) <> v_original_import
+     OR (SELECT korrigeret FROM import_korrektion WHERE id=v_journal_id) <> '{"value":"Mikkel Rettet Igen"}'::jsonb
+     OR (SELECT vaerdi_tekst FROM assertion WHERE id=v_name_assertion) <> 'Mikkel Rettet Igen' THEN
+    RAISE EXCEPTION 'FEJL: gentagen OCR-rettelse drev import-snapshot eller journalidentitet';
+  END IF;
+  IF EXISTS (SELECT 1 FROM assertion WHERE id NOT IN (v_name_assertion,v_birth_assertion,v_death_assertion,-987655304,-987655305,-987655306)
+             AND target_id IN (-987655201,-987655202,-987655203))
+     OR (SELECT count(*) FROM conclusion WHERE target_id IN (-987655201,-987655202,-987655203)) <> 3
+     OR (SELECT source_id FROM citation WHERE id=v_citation_id) <> -987655101
+     OR NOT (SELECT uforanderlig FROM assertion WHERE id=v_name_assertion) THEN
+    RAISE EXCEPTION 'FEJL: OCR-navnerettelse ændrede evidensidentitet';
+  END IF;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+
+  -- Date touches only the one selected assertion's date fields, and the normal trigger regenerates the cache.
+  SELECT input_fingerprint->>'foedsel' INTO STRICT v_before_name FROM red_person_grid() WHERE person_id=-987655111;
+  v_row := red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','foedsel',v_before_name,
+    '{"raw":"1644-06-12","min":"1644-06-12","max":"1644-06-12","qualifier":"exact","calendar":"gregoriansk","certainty":null}'::jsonb);
+  v_cs_date := current_setting('app.change_set_id')::bigint;
+  IF (SELECT date_raw FROM assertion WHERE id=v_birth_assertion) <> '1644-06-12'
+     OR (SELECT date_min FROM assertion WHERE id=v_birth_assertion) <> date '1644-06-12'
+     OR (SELECT vaerdi_tekst FROM assertion WHERE id=v_birth_assertion) IS NOT NULL
+     OR (SELECT date_raw FROM assertion WHERE id=v_death_assertion) <> '1700-01-01' THEN
+    RAISE EXCEPTION 'FEJL: datorettelse ramte ikke kun den valgte assertion';
+  END IF;
+  PERFORM red_fortryd_change_set(v_cs_date,false);
+  IF (SELECT date_raw FROM assertion WHERE id=v_birth_assertion) <> '1644-06-11'
+     OR EXISTS (SELECT 1 FROM import_korrektion WHERE import_key='verify:ocr:write' AND record_key='I-15a' AND felt='foedsel') THEN
+    RAISE EXCEPTION 'FEJL: fortryd genskabte ikke OCR-dato og journal';
+  END IF;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+
+  -- Gender is the sole model mutation for gender; approve/defer never mutate the model.
+  SELECT input_fingerprint->>'koen', koen INTO STRICT v_before_name,v_before_gender FROM red_person_grid() WHERE person_id=-987655111;
+  v_row := red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','koen',v_before_name,
+    '{"value":"kvinde"}'::jsonb);
+  IF (SELECT koen FROM person WHERE id=-987655111) <> 'kvinde'
+     OR (SELECT vaerdi_tekst FROM assertion WHERE id=v_name_assertion) <> 'Mikkel Rettet Igen' THEN
+    RAISE EXCEPTION 'FEJL: kønsrettelse rørte andet end person.koen';
+  END IF;
+  SELECT input_fingerprint->>'koen' INTO STRICT v_before_name FROM red_person_grid() WHERE person_id=-987655111;
+  PERFORM red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','koen',v_before_name,NULL,'godkendt');
+  PERFORM red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','koen',v_before_name,NULL,'udskudt');
+  IF (SELECT koen FROM person WHERE id=-987655111) <> 'kvinde'
+     OR (SELECT status FROM import_korrektion WHERE import_key='verify:ocr:write' AND record_key='I-15a' AND felt='koen') <> 'udskudt' THEN
+    RAISE EXCEPTION 'FEJL: godkend/udskyd ændrede model eller journalstatus forkert';
+  END IF;
+
+  -- History is scoped to the one logical journal PK and frozen, newest first snapshots.
+  SELECT count(*) INTO v_hist_count FROM red_ocr_historik('verify:ocr:write','I-15a','navn');
+  SELECT h.efter INTO v_first_after FROM red_ocr_historik('verify:ocr:write','I-15a','navn') h LIMIT 1;
+  SELECT h.efter INTO v_second_after FROM red_ocr_historik('verify:ocr:write','I-15a','navn') h OFFSET 1 LIMIT 1;
+  IF v_hist_count <> 2 OR v_first_after->>'korrigeret' IS NULL OR v_second_after->>'importeret' IS NULL
+     OR EXISTS (SELECT 1 FROM red_ocr_historik('verify:ocr:write','I-15a','doed')) THEN
+    RAISE EXCEPTION 'FEJL: OCR-historik er ikke isoleret eller komplet';
+  END IF;
+
+  -- Every negative path is atomic: counts and model values remain exactly as before.
+  RESET ROLE;
+  SELECT count(*) INTO v_before_journal FROM import_korrektion;
+  SELECT count(*) INTO v_before_events FROM change_event;
+  SELECT count(*) INTO v_before_assertions FROM assertion;
+  SELECT count(*) INTO v_before_conclusions FROM conclusion;
+  SELECT vaerdi_tekst INTO v_before_name FROM assertion WHERE id=v_name_assertion;
+  SELECT koen INTO v_before_gender FROM person WHERE id=-987655111;
+  BEGIN PERFORM red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','ukendt','x',NULL,'godkendt');
+    RAISE EXCEPTION 'FEJL: ukendt felt blev accepteret';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE 'OCR_FIELD_INVALID%' THEN RAISE; END IF; END;
+  BEGIN PERFORM red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','koen','forkert',NULL,'godkendt');
+    RAISE EXCEPTION 'FEJL: stale fingerprint blev accepteret';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE 'OCR_FINGERPRINT_STALE%' THEN RAISE; END IF; END;
+  SELECT input_fingerprint->>'koen' INTO v_koen_fingerprint FROM red_person_grid() WHERE person_id=-987655111;
+  BEGIN PERFORM red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','koen',v_koen_fingerprint,'{"value":"andet"}'::jsonb);
+    RAISE EXCEPTION 'FEJL: ugyldigt køn blev accepteret';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE 'OCR_VALUE_INVALID%' THEN RAISE; END IF; END;
+  BEGIN PERFORM red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','navn',(SELECT input_fingerprint->>'navn' FROM red_person_grid() WHERE person_id=-987655111),NULL);
+    RAISE EXCEPTION 'FEJL: manglende rettelse blev accepteret';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE 'OCR_VALUE_INVALID%' THEN RAISE; END IF; END;
+  BEGIN PERFORM red_ret_ocr_felt(-987655113,'verify:ocr:write','I-17','koen','x',NULL,'godkendt');
+    RAISE EXCEPTION 'FEJL: flere importankre blev accepteret';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE 'OCR_IMPORT_ANCHOR_AMBIGUOUS%' THEN RAISE; END IF; END;
+  BEGIN PERFORM red_ret_ocr_felt(-987655114,'verify:ocr:write','I-18','navn','x',NULL,'godkendt');
+    RAISE EXCEPTION 'FEJL: flere assertion-kandidater blev accepteret';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE 'OCR_ASSERTION_AMBIGUOUS%' THEN RAISE; END IF; END;
+  BEGIN PERFORM red_ret_ocr_felt(-987655112,'verify:ocr:write','I-16','navn','x',NULL,'godkendt');
+    RAISE EXCEPTION 'FEJL: source mismatch blev accepteret';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE 'OCR_ASSERTION_AMBIGUOUS%' THEN RAISE; END IF; END;
+  IF (SELECT count(*) FROM import_korrektion) <> v_before_journal
+     OR (SELECT count(*) FROM change_event) <> v_before_events
+     OR (SELECT count(*) FROM assertion) <> v_before_assertions
+     OR (SELECT count(*) FROM conclusion) <> v_before_conclusions
+     OR (SELECT vaerdi_tekst FROM assertion WHERE id=v_name_assertion) <> v_before_name
+     OR (SELECT koen FROM person WHERE id=-987655111) <> v_before_gender THEN
+    RAISE EXCEPTION 'FEJL: negativ OCR-vej var ikke atomisk journal=%/% event=%/% assertion=%/% conclusion=%/% navn=%/% koen=%/%',
+      (SELECT count(*) FROM import_korrektion),v_before_journal,(SELECT count(*) FROM change_event),v_before_events,
+      (SELECT count(*) FROM assertion),v_before_assertions,(SELECT count(*) FROM conclusion),v_before_conclusions,
+      (SELECT vaerdi_tekst FROM assertion WHERE id=v_name_assertion),v_before_name,
+      (SELECT koen FROM person WHERE id=-987655111),v_before_gender;
+  END IF;
+  RESET ROLE;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN
+    RAISE NOTICE 'OK: Person OCR kvalitetsark — atomisk rettelse, historik, undo og roller';
+  ELSE RAISE; END IF;
+END $$;
+
 -- ===== Person OCR kvalitetsark — samlet redaktionsprojektion =====
 -- Selvstændig grid-fixture. Den ruller alle rækker tilbage og afprøver den faktiske
 -- SECURITY DEFINER-overflade med lokale roller; den afhænger ikke af produktionsdata.

@@ -144,6 +144,87 @@ BEGIN
   RETURN NULL;
 END $$;
 
+/* Deferred until the Task 1 journal/table block below has created its dependencies.
+-- 2026-07-26: person_ocr_kvalitetsark_rettelse
+CREATE SCHEMA IF NOT EXISTS private;
+REVOKE ALL ON SCHEMA private FROM PUBLIC, anon, authenticated;
+CREATE OR REPLACE FUNCTION private.ocr_importeret(p_felt text,p_vaerdi text,p_raw text,p_min date,p_max date,p_qualifier text,p_calendar text,p_certainty text)
+RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp AS $$
+  SELECT CASE WHEN p_felt IN ('foedsel','doed') THEN jsonb_build_object('raw',p_raw,'min',p_min::text,'max',p_max::text,'qualifier',p_qualifier,'calendar',coalesce(p_calendar,'gregoriansk'),'certainty',p_certainty) ELSE jsonb_build_object('value',p_vaerdi) END
+$$;
+CREATE OR REPLACE FUNCTION private.ocr_fingerprint(p_import_key text,p_record_key text,p_felt text,p_importeret jsonb,p_ocr_context text)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp AS $$
+  SELECT public.ocr_input_fingerprint(p_import_key,p_record_key,p_felt,p_importeret,p_ocr_context)
+$$;
+REVOKE ALL ON FUNCTION private.ocr_importeret(text,text,text,date,date,text,text,text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.ocr_fingerprint(text,text,text,jsonb,text) FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION red_ret_ocr_felt(p_person_id bigint,p_import_key text,p_record_key text,p_felt text,p_input_fingerprint text,p_korrigeret jsonb,p_status text DEFAULT 'rettet',p_actor_navn text DEFAULT NULL)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  v_source_id bigint; v_anchor_person bigint; v_anchor_count integer; v_person_anchor_count integer;
+  v_assertion_id bigint; v_candidate_count integer; v_context text; v_observed jsonb;
+  v_journal import_korrektion%ROWTYPE; v_importeret jsonb; v_fingerprint text;
+  v_actor_id uuid := auth.uid(); v_actor_navn text; v_result jsonb; v_min date; v_max date;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'OCR_ROLE_FORBIDDEN'; END IF;
+  IF p_felt NOT IN ('navn','foedsel','doed','koen') THEN RAISE EXCEPTION 'OCR_FIELD_INVALID'; END IF;
+  IF p_status NOT IN ('rettet','godkendt','udskudt') OR (p_status='rettet' AND p_korrigeret IS NULL) OR (p_status<>'rettet' AND p_korrigeret IS NOT NULL) THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF;
+  SELECT count(*),min(pei.person_id),min(s.id) INTO v_anchor_count,v_anchor_person,v_source_id FROM source s JOIN person_external_id pei ON pei.source_id=s.id WHERE s.import_key=p_import_key AND pei.record_key=p_record_key;
+  IF v_anchor_count <> 1 THEN RAISE EXCEPTION 'OCR_IMPORT_ANCHOR_AMBIGUOUS'; END IF;
+  IF v_anchor_person <> p_person_id THEN RAISE EXCEPTION 'OCR_PERSON_NOT_FOUND'; END IF;
+  SELECT count(*) INTO v_person_anchor_count FROM person_external_id pei JOIN source s ON s.id=pei.source_id WHERE pei.person_id=p_person_id AND s.import_key IS NOT NULL AND pei.record_key IS NOT NULL;
+  IF v_person_anchor_count <> 1 THEN RAISE EXCEPTION 'OCR_IMPORT_ANCHOR_AMBIGUOUS'; END IF;
+  PERFORM 1 FROM person WHERE id=p_person_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'OCR_PERSON_NOT_FOUND'; END IF;
+  IF p_felt='koen' THEN
+    SELECT private.ocr_importeret('koen',koen,NULL,NULL,NULL,NULL,NULL,NULL) INTO v_observed FROM person WHERE id=p_person_id; v_context := NULL;
+  ELSE
+    WITH candidates AS (SELECT DISTINCT a.id FROM fact f JOIN conclusion cn ON cn.target_type='fact' AND cn.target_id=f.id JOIN assertion a ON a.id=cn.valgt_assertion_id JOIN citation c ON c.assertion_id=a.id AND c.source_id=v_source_id WHERE f.subjekt_type='person' AND f.subjekt_id=p_person_id AND cn.status='afklaret' AND f.faktatype=CASE p_felt WHEN 'navn' THEN 'navn' WHEN 'foedsel' THEN 'fødsel' ELSE 'død' END) SELECT count(*),min(id) INTO v_candidate_count,v_assertion_id FROM candidates;
+    IF v_candidate_count <> 1 THEN RAISE EXCEPTION 'OCR_ASSERTION_AMBIGUOUS'; END IF;
+    SELECT private.ocr_importeret(p_felt,a.vaerdi_tekst,a.date_raw,a.date_min,a.date_max,a.date_qualifier,a.calendar,a.date_certainty),c.citat_tekst INTO v_observed,v_context FROM assertion a JOIN citation c ON c.assertion_id=a.id AND c.source_id=v_source_id WHERE a.id=v_assertion_id ORDER BY c.id LIMIT 1 FOR UPDATE OF a;
+    IF NOT FOUND THEN RAISE EXCEPTION 'OCR_ASSERTION_AMBIGUOUS'; END IF;
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended(concat_ws(chr(31),p_import_key,p_record_key,p_felt),0));
+  SELECT * INTO v_journal FROM import_korrektion WHERE import_key=p_import_key AND record_key=p_record_key AND felt=p_felt FOR UPDATE;
+  v_importeret := coalesce(v_journal.importeret,v_observed); v_fingerprint := private.ocr_fingerprint(p_import_key,p_record_key,p_felt,v_importeret,v_context);
+  IF p_input_fingerprint IS DISTINCT FROM v_fingerprint THEN RAISE EXCEPTION 'OCR_FINGERPRINT_STALE'; END IF;
+  IF p_status='rettet' THEN
+    IF jsonb_typeof(p_korrigeret) <> 'object' THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF;
+    IF p_felt='navn' AND (jsonb_typeof(p_korrigeret->'value') <> 'string' OR nullif(btrim(p_korrigeret->>'value'),'') IS NULL) THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF;
+    IF p_felt='koen' AND p_korrigeret->>'value' NOT IN ('mand','kvinde','ukendt') THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF;
+    IF p_felt IN ('foedsel','doed') THEN
+      IF jsonb_typeof(p_korrigeret->'raw') <> 'string' OR nullif(btrim(p_korrigeret->>'raw'),'') IS NULL THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF;
+      BEGIN v_min := NULLIF(p_korrigeret->>'min','')::date; v_max := NULLIF(p_korrigeret->>'max','')::date; EXCEPTION WHEN others THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END;
+    END IF;
+  END IF;
+  SELECT coalesce(pr.navn,pr.email,p_actor_navn,v_actor_id::text,'ukendt') INTO v_actor_navn FROM profiles pr WHERE pr.id=v_actor_id;
+  v_actor_navn := coalesce(v_actor_navn,p_actor_navn,'ukendt');
+  PERFORM begin_change_set('red_ret_ocr_felt',format('OCR-%s: %s/%s',p_felt,p_import_key,p_record_key),'person',p_person_id);
+  IF p_status='rettet' THEN
+    IF p_felt='navn' THEN UPDATE assertion SET vaerdi_tekst=p_korrigeret->>'value' WHERE id=v_assertion_id;
+    ELSIF p_felt='koen' THEN UPDATE person SET koen=p_korrigeret->>'value' WHERE id=p_person_id;
+    ELSE UPDATE assertion SET date_raw=p_korrigeret->>'raw',date_min=v_min,date_max=v_max,date_qualifier=p_korrigeret->>'qualifier',calendar=coalesce(p_korrigeret->>'calendar','gregoriansk'),date_certainty=p_korrigeret->>'certainty' WHERE id=v_assertion_id; END IF;
+  END IF;
+  INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,korrigeret,status,actor_id,actor_navn) VALUES (p_import_key,p_record_key,p_felt,v_fingerprint,v_importeret,CASE WHEN p_status='rettet' THEN p_korrigeret ELSE NULL END,p_status,v_actor_id,v_actor_navn)
+  ON CONFLICT (import_key,record_key,felt) DO UPDATE SET input_fingerprint=excluded.input_fingerprint,korrigeret=excluded.korrigeret,status=excluded.status,actor_id=excluded.actor_id,actor_navn=excluded.actor_navn,opdateret_at=now();
+  SELECT to_jsonb(g) INTO v_result FROM red_person_grid() g WHERE g.person_id=p_person_id; RETURN v_result;
+END $$;
+*/
+
+/* Deferred with the Task 4 block below.
+CREATE OR REPLACE FUNCTION red_ocr_historik(p_import_key text,p_record_key text,p_felt text)
+RETURNS TABLE(change_set_id bigint,changed_at timestamptz,actor_navn text,operation text,foer jsonb,efter jsonb)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE v_journal_id bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'OCR_ROLE_FORBIDDEN'; END IF;
+  SELECT id INTO v_journal_id FROM import_korrektion WHERE import_key=p_import_key AND record_key=p_record_key AND felt=p_felt;
+  IF v_journal_id IS NULL THEN RETURN; END IF;
+  RETURN QUERY SELECT cs.id,cs.created_at,cs.actor_navn,cs.operation,ce.foer,ce.efter FROM change_event ce JOIN change_set cs ON cs.id=ce.change_set_id WHERE ce.tabel='import_korrektion' AND ce.row_pk->>'id'=v_journal_id::text ORDER BY cs.created_at DESC,cs.id DESC,ce.seq DESC;
+END $$;
+*/
+
 DROP TRIGGER IF EXISTS trg_conclusion_regen ON conclusion;
 CREATE TRIGGER trg_conclusion_regen
   AFTER INSERT OR UPDATE OR DELETE ON conclusion
@@ -3705,3 +3786,30 @@ BEGIN
     ct.antal_relationer,ct.antal_kilde_assertions,q.qa_koder,q.qa_alvor,fj.input_fingerprint,fj.importeret,fj.korrigeret,
     fj.ocr_context,fj.kilde_side,fj.review_status,fj.kan_rettes,fj.blokarsager;
 END $$;
+
+-- 2026-07-26: person_ocr_kvalitetsark_rettelse (efter journal + fingerprint)
+CREATE SCHEMA IF NOT EXISTS private;
+REVOKE ALL ON SCHEMA private FROM PUBLIC, anon, authenticated;
+CREATE OR REPLACE FUNCTION private.ocr_importeret(p_felt text,p_vaerdi text,p_raw text,p_min date,p_max date,p_qualifier text,p_calendar text,p_certainty text) RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path=public,pg_temp AS $$ SELECT CASE WHEN p_felt IN ('foedsel','doed') THEN jsonb_build_object('raw',p_raw,'min',p_min::text,'max',p_max::text,'qualifier',p_qualifier,'calendar',coalesce(p_calendar,'gregoriansk'),'certainty',p_certainty) ELSE jsonb_build_object('value',p_vaerdi) END $$;
+CREATE OR REPLACE FUNCTION private.ocr_fingerprint(p_import_key text,p_record_key text,p_felt text,p_importeret jsonb,p_ocr_context text) RETURNS text LANGUAGE sql IMMUTABLE SET search_path=public,pg_temp AS $$ SELECT public.ocr_input_fingerprint(p_import_key,p_record_key,p_felt,p_importeret,p_ocr_context) $$;
+REVOKE ALL ON FUNCTION private.ocr_importeret(text,text,text,date,date,text,text,text) FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION private.ocr_fingerprint(text,text,text,jsonb,text) FROM PUBLIC,anon,authenticated;
+CREATE OR REPLACE FUNCTION red_ret_ocr_felt(p_person_id bigint,p_import_key text,p_record_key text,p_felt text,p_input_fingerprint text,p_korrigeret jsonb,p_status text DEFAULT 'rettet',p_actor_navn text DEFAULT NULL) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+DECLARE s bigint; ap bigint; ac int; pc int; aid bigint; cc int; ctx text; observed jsonb; j import_korrektion%ROWTYPE; imp jsonb; fp text; actor text; dmin date; dmax date; out jsonb;
+BEGIN
+ IF current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'OCR_ROLE_FORBIDDEN'; END IF;
+ IF p_felt NOT IN ('navn','foedsel','doed','koen') THEN RAISE EXCEPTION 'OCR_FIELD_INVALID'; END IF;
+ IF p_status NOT IN ('rettet','godkendt','udskudt') OR (p_status='rettet' AND p_korrigeret IS NULL) OR (p_status<>'rettet' AND p_korrigeret IS NOT NULL) THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF;
+ SELECT count(*),min(pei.person_id),min(src.id) INTO ac,ap,s FROM source src JOIN person_external_id pei ON pei.source_id=src.id WHERE src.import_key=p_import_key AND pei.record_key=p_record_key;
+ IF ac<>1 THEN RAISE EXCEPTION 'OCR_IMPORT_ANCHOR_AMBIGUOUS'; END IF; IF ap<>p_person_id THEN RAISE EXCEPTION 'OCR_PERSON_NOT_FOUND'; END IF;
+ SELECT count(*) INTO pc FROM person_external_id pei JOIN source src ON src.id=pei.source_id WHERE pei.person_id=p_person_id AND src.import_key IS NOT NULL AND pei.record_key IS NOT NULL;
+ IF pc<>1 THEN RAISE EXCEPTION 'OCR_IMPORT_ANCHOR_AMBIGUOUS'; END IF; PERFORM 1 FROM person WHERE id=p_person_id FOR UPDATE; IF NOT FOUND THEN RAISE EXCEPTION 'OCR_PERSON_NOT_FOUND'; END IF;
+ IF p_felt='koen' THEN SELECT private.ocr_importeret('koen',koen,NULL,NULL,NULL,NULL,NULL,NULL) INTO observed FROM person WHERE id=p_person_id; ctx:=NULL;
+ ELSE WITH c AS (SELECT DISTINCT a.id FROM fact f JOIN conclusion cn ON cn.target_type='fact' AND cn.target_id=f.id JOIN assertion a ON a.id=cn.valgt_assertion_id JOIN citation ci ON ci.assertion_id=a.id AND ci.source_id=s WHERE f.subjekt_type='person' AND f.subjekt_id=p_person_id AND cn.status='afklaret' AND f.faktatype=CASE p_felt WHEN 'navn' THEN 'navn' WHEN 'foedsel' THEN 'fødsel' ELSE 'død' END) SELECT count(*),min(id) INTO cc,aid FROM c; IF cc<>1 THEN RAISE EXCEPTION 'OCR_ASSERTION_AMBIGUOUS'; END IF; SELECT private.ocr_importeret(p_felt,a.vaerdi_tekst,a.date_raw,a.date_min,a.date_max,a.date_qualifier,a.calendar,a.date_certainty),ci.citat_tekst INTO observed,ctx FROM assertion a JOIN citation ci ON ci.assertion_id=a.id AND ci.source_id=s WHERE a.id=aid ORDER BY ci.id LIMIT 1 FOR UPDATE OF a; IF NOT FOUND THEN RAISE EXCEPTION 'OCR_ASSERTION_AMBIGUOUS'; END IF; END IF;
+ PERFORM pg_advisory_xact_lock(hashtextextended(concat_ws(chr(31),p_import_key,p_record_key,p_felt),0)); SELECT * INTO j FROM import_korrektion WHERE import_key=p_import_key AND record_key=p_record_key AND felt=p_felt FOR UPDATE; imp:=coalesce(j.importeret,observed); fp:=private.ocr_fingerprint(p_import_key,p_record_key,p_felt,imp,ctx); IF p_input_fingerprint IS DISTINCT FROM fp THEN RAISE EXCEPTION 'OCR_FINGERPRINT_STALE'; END IF;
+ IF p_status='rettet' THEN IF jsonb_typeof(p_korrigeret)<>'object' THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF; IF p_felt='navn' AND (jsonb_typeof(p_korrigeret->'value')<>'string' OR nullif(btrim(p_korrigeret->>'value'),'') IS NULL) THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF; IF p_felt='koen' AND p_korrigeret->>'value' NOT IN ('mand','kvinde','ukendt') THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF; IF p_felt IN ('foedsel','doed') THEN IF jsonb_typeof(p_korrigeret->'raw')<>'string' OR nullif(btrim(p_korrigeret->>'raw'),'') IS NULL THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF; BEGIN dmin:=nullif(p_korrigeret->>'min','')::date; dmax:=nullif(p_korrigeret->>'max','')::date; EXCEPTION WHEN others THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END; END IF; END IF;
+ SELECT coalesce(pr.navn,pr.email,p_actor_navn,auth.uid()::text,'ukendt') INTO actor FROM profiles pr WHERE pr.id=auth.uid(); actor:=coalesce(actor,p_actor_navn,'ukendt'); PERFORM begin_change_set('red_ret_ocr_felt',format('OCR-%s: %s/%s',p_felt,p_import_key,p_record_key),'person',p_person_id);
+ IF p_status='rettet' THEN IF p_felt='navn' THEN UPDATE assertion SET vaerdi_tekst=p_korrigeret->>'value' WHERE id=aid; ELSIF p_felt='koen' THEN UPDATE person SET koen=p_korrigeret->>'value' WHERE id=p_person_id; ELSE UPDATE assertion SET date_raw=p_korrigeret->>'raw',date_min=dmin,date_max=dmax,date_qualifier=p_korrigeret->>'qualifier',calendar=coalesce(p_korrigeret->>'calendar','gregoriansk'),date_certainty=p_korrigeret->>'certainty' WHERE id=aid; END IF; END IF;
+ INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,korrigeret,status,actor_id,actor_navn) VALUES(p_import_key,p_record_key,p_felt,fp,imp,CASE WHEN p_status='rettet' THEN p_korrigeret ELSE NULL END,p_status,auth.uid(),actor) ON CONFLICT(import_key,record_key,felt) DO UPDATE SET input_fingerprint=excluded.input_fingerprint,korrigeret=excluded.korrigeret,status=excluded.status,actor_id=excluded.actor_id,actor_navn=excluded.actor_navn,opdateret_at=now(); SELECT to_jsonb(g) INTO out FROM red_person_grid() g WHERE g.person_id=p_person_id; RETURN out;
+END $$;
+CREATE OR REPLACE FUNCTION red_ocr_historik(p_import_key text,p_record_key text,p_felt text) RETURNS TABLE(change_set_id bigint,changed_at timestamptz,actor_navn text,operation text,foer jsonb,efter jsonb) LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$ DECLARE jid bigint; BEGIN IF current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'OCR_ROLE_FORBIDDEN'; END IF; SELECT id INTO jid FROM import_korrektion WHERE import_key=p_import_key AND record_key=p_record_key AND felt=p_felt; IF jid IS NULL THEN RETURN; END IF; RETURN QUERY SELECT cs.id,cs.created_at,cs.actor_navn,cs.operation,ce.foer,ce.efter FROM change_event ce JOIN change_set cs ON cs.id=ce.change_set_id WHERE ce.tabel='import_korrektion' AND ce.row_pk->>'id'=jid::text ORDER BY cs.created_at DESC,cs.id DESC,ce.seq DESC; END $$;
