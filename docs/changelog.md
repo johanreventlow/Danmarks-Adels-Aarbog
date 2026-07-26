@@ -1,5 +1,45 @@
 # Changelog
 
+## 1939-kvalitetsvurdering + re-segmentering — LIVE i prod (2026-07-26)
+
+Brugerspørgsmål: er 1939-indlæsningen for dårlig, og kan matcharbejdet reddes?
+Svaret er kvantificeret i to rapporter under `docs/reviews/`.
+
+**Måling.** Strukturelt: 1939 har 355/539 hovedposter med forældrelink mod 2018-20's 566/591,
+og 3,76 fakta pr. person mod 5,33. Datoparsingen er derimod *bedre* (7,8 % uparsede mod 16,4 %),
+og tegn-niveau-OCR var allerede rettet af Calamari-patchen. Restdefekten var **segmentering**:
+280 af 539 narrativer (51,9 %) havde mindst én snitfejl.
+
+**Stikprøve-audit (N=25, bedømt mod renderede PDF-sider, ikke mod OCR-teksten).**
+~54 % af posterne har ≥1 materiel fejl — men **0 forkerte navne, 0 forkerte fødsels-/dødsår,
+0 forkerte ægtefæller**. Fejlene er udeladelser og fejlklip, ikke forkerte påstande. Fund der
+ikke kan ses i SQL: mor mangler bag et gyldigt far-link i ~12 % (den strukturelle måling
+undervurderer altså problemet), inkonsistent linking inden for samme kuld, og en OCR-fejl i en
+kildehenvisning (`Aarb. LVIII` for `XLVIII`).
+
+**Re-segmentering (trin 1) anvendt mod prod.** Fem rettelser i `segment_1939.py`:
+kuld-overskrifter som snitgrænse, bar romertalslinje, bindestreg-normalisering (orddelte navne
+ved linjeskift), `_orig_nr`-præference (`nr` er en global tæller i 1939-artefaktet, så
+nummer-ankeret var reelt dødt) og snap-back til postens egen nummerlinje. Defekt-union
+**280 → 159**; pipelinens kvalitetsgate gik fra rød til grøn (R1/R6-proxy 88,8 % → 91,2 %) —
+artefaktet der lå i prod var accepteret med fejlende gate. I stikprøven: 16 defekte narrativer
+→ 5, heraf 11 nu ordret identiske med bogen.
+
+**Anvendt:** `R/update-1939-narratives.R` mod `xjnvdhajfyrcytatnzos`, 216 rækker,
+`change_set=493`, 216 audit-events. Kun `narrative.tekst` — 0 sideændringer, ingen personer,
+ingen `nr`, ingen links. De 429 samme_som-matchpar er urørte og desuden sikkerhedskopieret med
+navn + rå datoer i `work_1939_stamtavle/match_backup_2026-07-26.json`. Prod-fingeraftryk
+verificeret identisk med artefaktet efter apply.
+
+**Trukket tilbage undervejs:** en sjette rettelse (indsnævring af fallback-blokke) målte som en
+forbedring, men stikprøven viste at den bandt post 276/277 til en anden families børn med samme
+fornavne. `_orig_nr` er ikke pålideligt scopet til postens egen blok. Reverteret før apply.
+
+**Udestår:** 12 af de 216 ændrede rækker er allerede publiceret (`staged=false`) og slog derfor
+igennem i den offentlige visning med det samme. Trin 2 (re-ekstraktion af fakta mod de ~51 %
+mangelfulde forældrelinks) kræver ny loader-kode og er ikke startet. 2018-20 er ikke auditeret
+med samme harness.
+
 ## Mediehåndtering fase 4 — LIVE i prod (2026-07-22)
 
 Fase 4 er deployet til produktion samme dag som lokal verifikation (PR #75 merget):

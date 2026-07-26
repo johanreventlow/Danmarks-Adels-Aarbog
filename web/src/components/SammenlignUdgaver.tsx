@@ -5,6 +5,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   matchUdgaver, buildMatchFrame, collapseSameAs, previewSammeSom, parseYear,
+  udledKilderForAegtefaeller,
   type MatchFrame, type RedMatchPerson, type Db, type SameAsEdge, type Union, type ParentChild,
 } from '@daa/core';
 import {
@@ -196,10 +197,18 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
     return m;
   }, [foldPreview]);
 
+  // Ægtefæller uden eget bog-nummer arver udgaven fra deres partner (entydigt, ellers urørt).
+  // Uden det havner de i B-siden uanset udgave — så en 1939-ægtefælle kunne foreslås som match
+  // for en 1939-person, og forældrepar kunne aldrig matches færdigt (→ "konkurrerende forældre").
+  const personerMedKilde = useMemo(
+    () => udledKilderForAegtefaeller(personer, familieGraf.unions),
+    [personer, familieGraf.unions],
+  );
+
   const arbejdsliste = useMemo(() => {
     if (nyKildeId == null) return null;
     const framesA: MatchFrame[] = [], framesB: MatchFrame[] = [], aIds: string[] = [];
-    for (const p of personer) {
+    for (const p of personerMedKilde) {
       const f = buildMatchFrame(p);
       if (p.sourceIds.includes(nyKildeId)) { framesA.push(f); aIds.push(String(p.id)); }
       else framesB.push(f);
@@ -210,7 +219,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
       new Set(afviste.map((x) => pairKey(x.aId, x.bId))),
       new Set(linkede.map((x) => pairKey(x.aId, x.bId))),
     );
-  }, [personer, nyKildeId, afviste, linkede]);
+  }, [personerMedKilde, nyKildeId, afviste, linkede]);
   const { aabne, afklarede, formodetNye } = useMemo(() => {
     const arbejdspersoner = arbejdsliste?.personer ?? [];
     return {

@@ -4,6 +4,7 @@
 // intet tier udløser en skrivning — hvert samme_som-link kræver et redaktør-klik (spec §3.4).
 import { matchKey } from './navnevarianter';
 import { parseYear } from './fields';
+import type { Union } from './types';
 
 export type Sex = 'mand' | 'kvinde' | 'ukendt';
 export type Id = string | number;
@@ -391,6 +392,44 @@ export function buildMatchPersoner(
     sourceIds: srcByPerson.get(p.id) ?? [],
     staged: Boolean(p.staged),
   }));
+}
+
+/** Udled udgave-tilhør for ægtefæller uden eget bog-nummer.
+ *
+ *  Bogens ægtefæller har sjældent en egen nummereret post — moderen står typisk kun
+ *  nævnt inde i faderens opslag. `sourceIds` udledes ellers alene af
+ *  `person_external_id`, så sådan en person får `[]`, hører til ingen udgave og
+ *  bliver derfor aldrig stillet op som kandidat i tværudgave-matcheren. Uden hende
+ *  kan et forældrepar ikke matches færdigt, og `collapseSameAs` holder børnene i
+ *  karantæne med grunden "konkurrerende forældre".
+ *
+ *  Reglen: en person uden bog-nummer arver udgaven fra sine partnere i de familier
+ *  hun indgår i — men KUN når de peger entydigt på én udgave. Peger de på flere,
+ *  lades hun urørt, så matcherens forudsætning om disjunkte kilder (a ⟂ b) holder.
+ *
+ *  Ren funktion: muterer ikke input. */
+export function udledKilderForAegtefaeller<T extends { id: string; sourceIds: number[] }>(
+  personer: T[],
+  unions: Union[],
+): T[] {
+  const kilderAf = new Map(personer.map((p) => [p.id, p.sourceIds]));
+  const kandidater = new Map<string, Set<number>>();
+  for (const u of unions) {
+    const parter = [u.p1, u.p2].filter((x): x is string => x != null);
+    const kendte = new Set(parter.flatMap((id) => kilderAf.get(id) ?? []));
+    for (const id of parter) {
+      if ((kilderAf.get(id) ?? []).length) continue;
+      const s = kandidater.get(id) ?? new Set<number>();
+      for (const k of kendte) s.add(k);
+      kandidater.set(id, s);
+    }
+  }
+  return personer.map((p) => {
+    if (p.sourceIds.length) return p;
+    const s = kandidater.get(p.id);
+    if (!s || s.size !== 1) return p; // ukendt eller flertydig → urørt
+    return { ...p, sourceIds: [...s] };
+  });
 }
 
 /** Ren: relation-rækker (rolle='ikke_samme_som') → persistente afvisnings-par. */
