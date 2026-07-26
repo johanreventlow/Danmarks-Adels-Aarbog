@@ -68,7 +68,28 @@ definition).
 Rolletjek er udført med efterlignede JWT-claims
 (`set_config('request.jwt.claim.sub', ...)`), ikke som funktionsejer.
 
-### 3.1 Skala-måling
+### 3.1 Rehearsal mod prods rigtige data
+
+Ud over den syntetiske engangsbase blev der kørt en fuld rehearsal mod prods
+**faktiske** data: `pg_dump --data-only` af prod (read-only), genoprettet i en lokal
+engangsbase med prods faktiske pre-feature-struktur, hvorefter feature-migrationerne
+blev lagt oven på og verificeret mod de 1757 rigtige personer.
+
+Dette fandt et reelt fund, som den syntetiske base ikke kunne afsløre: griddets
+`navn`/`foedsel`/`doed`-visningskolonner delte anker-gate med redigerbarheden, så
+**alle** 1757 eksisterende personer viste tomme felter — ikke kun ikke-redigerbare.
+Rettet (commit `4d041bf`): visningsværdien falder nu tilbage til den allerede
+afklarede evidens (`selected_assertions`, samme kilde field_candidates selv bruger
+før anker-gaten), uafhængigt af redigerbarhed. `kan_rettes`/`blokarsager`/fingerprint
+er urørt. Efter fix: 0/1757 personer har `navn IS NULL` (var 1757 før).
+
+| Kontrol mod rigtige data | Resultat |
+|---|---|
+| Data genoprettet | person=1757, assertion=8619, citation=8173, person_external_id=1130 — matcher prod |
+| `db-verify.sql` OCR-blokke mod rigtige data | 3/4 bestod; 4. springer sig selv over (kræver `dblink`, kendt vilkår) |
+| `navn IS NULL` efter fix | 0/1757 (via ægte PostgREST+RLS-kald, ikke kun rå SQL) |
+
+### 3.2 Skala-måling
 
 Syntetisk datasæt på **2001 personer** med evidenskomplette navn/fødsel/død-fakta:
 
@@ -103,7 +124,7 @@ skrivebordsbredde af en redaktør:
       er en gengivelse af den trykte side
 - [ ] **Prøvekørsel:** bekræft at panelet nægter at gemme, mens prøvekørsel er slået
       til, og forklarer hvorfor (se §6)
-- [ ] Notér browserens rendertid ved fuld datamængde (§3.1)
+- [ ] Notér browserens rendertid ved fuld datamængde (§3.2)
 
 ---
 

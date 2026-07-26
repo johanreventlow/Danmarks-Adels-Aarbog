@@ -23,12 +23,16 @@ DB-smoke 124 — alle grønne. Frisk base + opgraderingssti på PostgreSQL 17.10
 idempotente migrationer (kørt to gange); rolleadgang efterprøvet med efterlignede
 JWT-claims. Skala-måling ved 2001 personer: `red_person_grid()` 285–301 ms, 3.470 kB.
 
-Undervejs fandt og lukkede arbejdet tre fejl, som testene ikke selv fangede: loaderen
+Undervejs fandt og lukkede arbejdet fire fejl, som testene ikke selv fangede: loaderen
 korrumperede stille en buffer-kolonne, fordi `jsonlite` læser JSON-null som `NULL` men
 skriver det tilbage som `{}`; `red_person_grid()` manglede `ORDER BY`, så pagineret
-læsning var uden ordensgaranti; og en bar ISO-dato blev tolket som helår i *begge*
+læsning var uden ordensgaranti; en bar ISO-dato blev tolket som helår i *begge*
 parsere — uskadeligt i udtrækket, men tavst tab af præcision når en redaktør selv
-taster datoen (0 af 1322 `date_raw` i korpus var berørt, så rettelsen var inert).
+taster datoen (0 af 1322 `date_raw` i korpus var berørt, så rettelsen var inert); og en
+rehearsal mod prods **rigtige** data (ikke syntetisk fixture) afslørede at griddets
+navn/fødsel/død-visning delte anker-gate med redigerbarheden, så alle 1757 eksisterende
+personer viste tomme felter. Rettet ved at falde tilbage til den allerede afklarede
+evidens, uafhængigt af redigerbarhed — 0/1757 personer har nu tomt navn (var 1757 før).
 
 ## Mediehåndtering fase 4 — LIVE i prod (2026-07-22)
 
