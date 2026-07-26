@@ -120,6 +120,15 @@ export function validateGroups(
   rawDb: Db,
 ): { accepted: Map<string, string[]>; quarantined: QuarantineNote[] } {
   const personById = new Map(rawDb.persons.map((p) => [p.id, p]));
+  // Bøttet pr. barn ÉN gang: forældre-opslaget ligger i et per-gruppe-per-medlem-loop inde i
+  // fixed-point-runden — et lineært filter dér koster O(medlemmer × kanter) pr. runde, og
+  // previewSammeSom kalder hertil én gang pr. kandidatpar (tusindvis i SammenlignUdgaver).
+  const pcByChild = new Map<string, ParentChild[]>();
+  for (const pc of rawDb.parentChild) {
+    let arr = pcByChild.get(pc.child);
+    if (!arr) pcByChild.set(pc.child, (arr = []));
+    arr.push(pc);
+  }
   const quarantined: QuarantineNote[] = [];
   const rejected = new Set<string>();
   const rej = (canon: string, reason: string) => {
@@ -159,7 +168,7 @@ export function validateGroups(
       }
       // Konkurrerende ikke-tomme forældre-sæt: forældre pr. medlem, kanoniseret med accepted-only cm.
       const parentSets = ids.map(
-        (id) => new Set(rawDb.parentChild.filter((pc) => pc.child === id).map((pc) => cid(cm, pc.parent))),
+        (id) => new Set((pcByChild.get(id) ?? []).map((pc) => cid(cm, pc.parent))),
       );
       const nonEmpty = parentSets.filter((s) => s.size > 0);
       if (nonEmpty.length > 1) {
@@ -243,6 +252,19 @@ export function validateGroups(
 const regenYears = (born: number | null, died: number | null): string =>
   fmtYears(born == null ? null : String(born), died == null ? null : String(died));
 
+// Gruppér (Task 1) → validér/karantænér (Task 2) UDEN projektion. Egen indgang fordi
+// previewSammeSom kun behøver karantænen — den fulde projektion (person-flet + kant-omskrivning)
+// er O(hele grafen) og ville være spildt arbejde pr. kandidatpar (tusindvis i SammenlignUdgaver).
+export function resolveSameAs(
+  rawDb: Db,
+  edges: SameAsEdge[],
+): { accepted: Map<string, string[]>; quarantined: QuarantineNote[] } {
+  const known = new Set(rawDb.persons.map((p) => p.id));
+  const { groups, quarantined: q1 } = groupSameAs(edges, known);
+  const { accepted, quarantined: q2 } = validateGroups(groups, rawDb);
+  return { accepted, quarantined: [...q1, ...q2] };
+}
+
 // Fuld projektion: gruppér (Task 1) → validér/karantænér (Task 2) → flet accepterede grupper til
 // deres kanoniske post og omskriv alle graf-kanter til kanoniske id'er. Reversibel: returnerer
 // alias-map + mergedFrom (proveniens) + karantæne. Motoren (buildModel/relationship) forbliver urørt.
@@ -251,10 +273,7 @@ export function collapseSameAs(
   edges: SameAsEdge[],
   ext: Map<string, { linje: string | null; nr: number | null }>,
 ): CollapseResult {
-  const known = new Set(rawDb.persons.map((p) => p.id));
-  const { groups, quarantined: q1 } = groupSameAs(edges, known);
-  const { accepted, quarantined: q2 } = validateGroups(groups, rawDb);
-  const quarantined = [...q1, ...q2];
+  const { accepted, quarantined } = resolveSameAs(rawDb, edges);
 
   const cm = canonMap(accepted);
   const canonicalIdById: Record<string, string> = Object.fromEntries(cm);
