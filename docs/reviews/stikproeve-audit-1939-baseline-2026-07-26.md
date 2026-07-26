@@ -169,7 +169,11 @@ fejler regulært, ikke tilfældigt.
 
 ## EFTER re-segmenteringen (samme dag, samme stikprøve)
 
-Trin 1 er gennemført lokalt. Artefaktet er **ikke** skrevet til prod endnu.
+**Status: ANVENDT MOD PROD 2026-07-26** — `xjnvdhajfyrcytatnzos`, 216 rækker,
+`change_set=493`, 216 audit-events. Kun `narrative.tekst`; 0 sideændringer, ingen personer,
+ingen `nr`, ingen links. Prod-fingeraftryk verificeret identisk med artefaktet efter apply.
+Rollback: `work_1939_stamtavle/narrative_1939_patch.json` er fingeraftryk-verificeret identisk
+med prod-teksten *før* apply og kan køres tilbage ad samme vej.
 
 ### Ændringer i `segment_1939.py` (TDD, 28 → 40 tests grønne)
 
