@@ -1,7 +1,8 @@
 import { act, render } from '@testing-library/react-native';
 import { Text } from 'react-native';
 import type { RawMedia } from '../../data/types';
-import { useMediaAndThumbUris } from '../media';
+import { signPaths, useMediaAndThumbUris } from '../media';
+import { fetchExistingMediaBySha } from '../../data/mediaDedup';
 
 type SignResult = { data: Array<{ path: string; signedUrl: string }>; error: null };
 type Deferred<T> = { promise: Promise<T>; resolve(value: T): void };
@@ -107,5 +108,28 @@ describe('useMediaAndThumbUris auth-epoch-invalidering', () => {
 
     expect(updateError).not.toHaveBeenCalled();
     updateError.mockRestore();
+  });
+
+  test('direkte signPaths fejler sikkert, når auth-epoch skifter under signering', async () => {
+    const signed = signPaths(['large/direct.jpg']);
+    act(() => { authEvent('ejer-a', 'fornyet-token'); });
+    await act(async () => { requests[0].resolve({ data: [{ path: 'large/direct.jpg', signedUrl: 'a-url' }], error: null }); await Promise.resolve(); });
+
+    await expect(signed).resolves.toEqual(new Map());
+  });
+
+  test('dedup-hit med miniature falder bort, når auth-epoch skifter under signering', async () => {
+    const hit = fetchExistingMediaBySha('sha', {
+      mediaLookup: async () => ({ data: { id: '1', titel: 'Eksisterende', upload_status: 'klar', storage_path: 'large/dedup.jpg' }, error: null }),
+      thumbPath: async () => 'thumb/dedup.jpg',
+    });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    act(() => { authEvent('ejer-a', 'fornyet-token'); });
+    await act(async () => {
+      requests[0].resolve({ data: [{ path: 'large/dedup.jpg', signedUrl: 'large-url' }, { path: 'thumb/dedup.jpg', signedUrl: 'thumb-url' }], error: null });
+      await Promise.resolve();
+    });
+
+    await expect(hit).resolves.toBeNull();
   });
 });

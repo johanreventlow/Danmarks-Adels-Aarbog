@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { BtnLabel, Body, Mono, Serif } from '../Typography';
 import { pickImage, buildVariants, type BuiltVariants, type PickedImage } from '../../lib/mediaUpload';
@@ -10,6 +10,7 @@ import {
   type MediaDedupHit, type MediaDedupTarget,
 } from '../../data/mediaDedup';
 import { oversaetFejl, submitChange } from '../../data/redaktionWrite';
+import { getMediaAuthEpoch, useMediaAuthEpoch } from '../../lib/media';
 import { useStore } from '../../store/useStore';
 import { Border, Colors, Radius } from '../../theme/tokens';
 
@@ -21,6 +22,7 @@ type MediaDedupState = {
   built: BuiltVariants;
   target: MediaDedupTarget;
   alreadyLinked: boolean;
+  epoch: number;
 };
 
 export function MediaUploadSheet({ target, onClose, onGem, onApplied }: {
@@ -30,6 +32,7 @@ export function MediaUploadSheet({ target, onClose, onGem, onApplied }: {
   onApplied?: () => void | Promise<void>;
 }) {
   const dryRun = useStore((s) => s.dryRun);
+  const mediaAuthEpoch = useMediaAuthEpoch();
   const router = useRouter();
   const [picked, setPicked] = useState<PickedImage | null>(null);
   const [busy, setBusy] = useState(false);
@@ -42,6 +45,11 @@ export function MediaUploadSheet({ target, onClose, onGem, onApplied }: {
   const [fejl, setFejl] = useState<string | null>(null);
   const [besked, setBesked] = useState<string | null>(null);
   const [dedup, setDedup] = useState<MediaDedupState | null>(null);
+  const activeDedup = dedup?.epoch === mediaAuthEpoch ? dedup : null;
+
+  useEffect(() => {
+    setDedup(null);
+  }, [mediaAuthEpoch]);
 
   async function vaelg() {
     setFejl(null); setBesked(null); setDedup(null); setBusy(true);
@@ -62,35 +70,35 @@ export function MediaUploadSheet({ target, onClose, onGem, onApplied }: {
   };
 
   async function tilknytEksisterende() {
-    if (!dedup) return;
+    if (!activeDedup) return;
     setFejl(null); setBesked(null);
     if (dryRun) {
-      setBesked(`Dry-run · medie ${dedup.existing.id} ville blive tilknyttet ${dedup.target.maalType} ${dedup.target.maalId}.`);
+      setBesked(`Dry-run · medie ${activeDedup.existing.id} ville blive tilknyttet ${activeDedup.target.maalType} ${activeDedup.target.maalId}.`);
       return;
     }
     setBusy(true);
     try {
       await ensureExistingMediaLinked({
-        mediaId: dedup.existing.id, target: dedup.target, alreadyLinked: dedup.alreadyLinked,
+        mediaId: activeDedup.existing.id, target: activeDedup.target, alreadyLinked: activeDedup.alreadyLinked,
       }, { link, refresh });
-      setBesked(`Eksisterende medie ${dedup.existing.id} er tilknyttet.`);
+      setBesked(`Eksisterende medie ${activeDedup.existing.id} er tilknyttet.`);
     } catch (error) {
       setFejl(oversaetFejl(String((error as Error)?.message ?? error)));
     } finally { setBusy(false); }
   }
 
   async function genoptagKladde() {
-    if (!dedup) return;
+    if (!activeDedup) return;
     setFejl(null); setBesked(null); setBusy(true);
     try {
       const result = await executeMediaDedupResume({
-        dryRun, mediaId: dedup.existing.id, alreadyLinked: dedup.alreadyLinked,
-        target: dedup.target, large: dedup.built.large,
-        variants: [dedup.built.thumb, dedup.built.medium],
+        dryRun, mediaId: activeDedup.existing.id, alreadyLinked: activeDedup.alreadyLinked,
+        target: activeDedup.target, large: activeDedup.built.large,
+        variants: [activeDedup.built.thumb, activeDedup.built.medium],
       }, { link, refresh });
       setBesked(result.kind === 'dry-run'
-        ? `Dry-run · medie ${dedup.existing.id} ville få large + 2 varianter, blive bekræftet og tilknyttet.`
-        : `Afbrudt upload ${dedup.existing.id} er færdiggjort og tilknyttet.`);
+        ? `Dry-run · medie ${activeDedup.existing.id} ville få large + 2 varianter, blive bekræftet og tilknyttet.`
+        : `Afbrudt upload ${activeDedup.existing.id} er færdiggjort og tilknyttet.`);
     } catch (error) {
       setFejl(oversaetFejl(String((error as Error)?.message ?? error)));
     } finally { setBusy(false); }
@@ -102,22 +110,22 @@ export function MediaUploadSheet({ target, onClose, onGem, onApplied }: {
       <View style={styles.modalSheet}>
         <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
           <Serif size={20} style={{ marginBottom: 10 }}>Tilføj billede</Serif>
-          {dedup?.existing.thumbUrl
-            ? <Image source={{ uri: dedup.existing.thumbUrl }} style={styles.preview} contentFit="cover" />
+          {activeDedup?.existing.thumbUrl
+            ? <Image source={{ uri: activeDedup.existing.thumbUrl }} style={styles.preview} contentFit="cover" />
             : picked ? <Image source={{ uri: picked.uri }} style={styles.preview} contentFit="cover" /> : null}
           <Pressable style={styles.addAnnuller} onPress={vaelg} disabled={busy}>
             <BtnLabel color={Colors.textSecondary2}>{picked ? 'Vælg andet billede' : 'Vælg billede fra bibliotek'}</BtnLabel>
           </Pressable>
           {fejl ? <Mono size={10} color={Colors.bordeaux} style={{ marginTop: 8 }}>{fejl}</Mono> : null}
           {besked ? <Mono size={10} color={Colors.konklusionGroen} style={{ marginTop: 8 }}>{besked}</Mono> : null}
-          {dedup ? (() => {
-            const decision = decideMediaDedup(dedup.existing, dedup.alreadyLinked);
+          {activeDedup ? (() => {
+            const decision = decideMediaDedup(activeDedup.existing, activeDedup.alreadyLinked);
             return <View style={styles.dedupBox}>
               <Serif size={18}>{decision.kind === 'klar-link' ? 'Billedet findes allerede'
                 : decision.kind === 'fjernet' ? 'Billedet ligger i papirkurven'
                   : decision.kind === 'kladde' ? 'Afbrudt upload fundet' : 'Eksisterende billede fundet'}</Serif>
               <Body size={12} color={Colors.textSecondary2} style={{ marginTop: 4 }}>
-                {dedup.existing.titel || '(uden titel)'} · #{dedup.existing.id}
+                {activeDedup.existing.titel || '(uden titel)'} · #{activeDedup.existing.id}
               </Body>
               {decision.kind === 'klar-link' ? <>
                 {decision.alreadyLinked ? <Body size={12} style={{ marginTop: 10 }}>
@@ -141,7 +149,7 @@ export function MediaUploadSheet({ target, onClose, onGem, onApplied }: {
                   <BtnLabel color="#fff">{busy ? 'Behandler…' : 'Færdiggør afbrudt upload'}</BtnLabel>
                 </Pressable>
               </> : <Body size={12} color={Colors.bordeaux} style={{ marginTop: 10 }}>
-                Mediets status “{dedup.existing.uploadStatus}” kan ikke håndteres fra upload-arket.
+                Mediets status “{activeDedup.existing.uploadStatus}” kan ikke håndteres fra upload-arket.
               </Body>}
               <Pressable style={[styles.addAnnuller, busy && styles.disabled]} disabled={busy}
                 onPress={() => { setDedup(null); setBesked(null); }}>
@@ -175,14 +183,18 @@ export function MediaUploadSheet({ target, onClose, onGem, onApplied }: {
                 if (!titel.trim()) { setFejl('Titel er påkrævet.'); return; }
                 setFejl(null); setBusy(true);
                 try {
+                  const epoch = getMediaAuthEpoch();
                   const built = await buildVariants(picked);
+                  if (getMediaAuthEpoch() !== epoch) return;
                   const { thumb, medium, large, sha256 } = built;
-                  const existing = await fetchExistingMediaBySha(sha256);
+                  const existing = await fetchExistingMediaBySha(sha256, { epoch });
+                  if (getMediaAuthEpoch() !== epoch) return;
                   if (existing) {
                     const dedupTarget = deriveMediaDedupTarget(target);
                     if (!dedupTarget) throw new Error('Uploadmålet kan ikke tilknyttes.');
                     const alreadyLinked = await fetchMediaLinked(existing.id, dedupTarget);
-                    setDedup({ existing, built, target: dedupTarget, alreadyLinked });
+                    if (getMediaAuthEpoch() !== epoch) return;
+                    setDedup({ existing, built, target: dedupTarget, alreadyLinked, epoch });
                     return;
                   }
                   onGem({

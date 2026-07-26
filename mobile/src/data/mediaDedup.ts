@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { signPaths } from '../lib/media';
+import { getMediaAuthEpoch, isMediaAuthEpochCurrent, signPaths } from '../lib/media';
 import type { ResizedVariant } from '../lib/mediaUpload';
 
 export type MediaDedupTarget = {
@@ -105,6 +105,7 @@ export async function fetchExistingMediaBySha(
     mediaLookup?: MediaLookup;
     thumbPath?: ThumbPathLookup;
     sign?: typeof signPaths;
+    epoch?: number;
   } = {},
 ): Promise<MediaDedupHit | null> {
   const { data, error } = await (deps.mediaLookup ?? queryMediaBySha)(sha);
@@ -113,7 +114,9 @@ export async function fetchExistingMediaBySha(
   const id = String(data.id);
   const thumbPath = await (deps.thumbPath ?? defaultThumbPathLookup)(id);
   const paths = [data.storage_path, thumbPath].filter((path): path is string => Boolean(path));
-  const signed = await (deps.sign ?? signPaths)(paths);
+  const epoch = deps.epoch ?? getMediaAuthEpoch();
+  const signed = await (deps.sign ?? signPaths)(paths, epoch);
+  if (!isMediaAuthEpochCurrent(epoch)) return null;
   const fallbackUrl = data.storage_path ? signed.get(data.storage_path) ?? null : null;
   const thumbUrl = thumbPath ? signed.get(thumbPath) : undefined;
   return {

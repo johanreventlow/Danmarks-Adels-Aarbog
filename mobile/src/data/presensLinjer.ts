@@ -1,6 +1,6 @@
 // Mobilens enkle linje-metadata: titel/slægtsnavn + én signeret våben-URL samt præsens-intro.
 import { getAll } from '@daa/core';
-import { signPaths } from '../lib/media';
+import { isMediaAuthEpochCurrent, signPaths } from '../lib/media';
 import { supabase } from '../lib/supabase';
 
 export type PresensLinjeInfo = {
@@ -56,7 +56,7 @@ export function mapPresensLinjer(
   return out;
 }
 
-export async function fetchPresensLinjer(): Promise<Record<string, PresensLinjeInfo>> {
+export async function fetchPresensLinjer(epoch: number): Promise<Record<string, PresensLinjeInfo>> {
   if (!supabase) return {};
   const sb = supabase;
   const lineageRows = await getAll<RawLineage>(() =>
@@ -88,7 +88,9 @@ export async function fetchPresensLinjer(): Promise<Record<string, PresensLinjeI
     : [];
   const signed = await signPaths(
     mediaRows.map((media) => media.storage_path ?? '').filter(Boolean),
+    epoch,
   );
+  if (!isMediaAuthEpochCurrent(epoch)) return {};
   return mapPresensLinjer(lineageRows, vaabenRel, mediaRel, mediaRows, signed);
 }
 
