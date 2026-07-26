@@ -73,6 +73,20 @@ De **14 poster der ender på `…slægtled`** er den konkrete, afgrænsede opryd
 en trailing sektionsoverskrift skal skæres af. Rent narrativ-lag, samme form som 1939-patchen
 — ingen personer, ingen links.
 
+**Alle 14 er verificeret som ægte bleeds**, ikke afkortede krydshenvisninger. Skelnen er
+entydig, og det er den regel en oprydning skal bruge:
+
+- **Legitim krydshenvisning** slutter med en reference: `– 6 børn: Syvende (attende) slægtled, V, nr. 119‑124.`
+- **Bleed** er en bar overskrift uden reference, klistret på efter postens egen sidste sætning:
+  `… i Itzehoe Adelige Kloster. Tredje (sekstende) slægtled`
+
+To af de 14 (V-44, V-156) indeholder *begge* — først en gyldig krydshenvisning midt i teksten,
+derefter den bare overskrift til sidst. Et snit må derfor kun fjerne den afsluttende bare form.
+
+⚠️ Mindst én af de 14 er en nulevende person. En oprydning skal køre gennem samme
+`levende`-disciplin som al anden 1939/2018-20-behandling (invariant 8) — ingen prosa om
+levende personer sendes til en model.
+
 Bemærk at "under 60 tegn" er et dårligt prædikat i **begge** udgaver: bogen har mange poster
 der legitimt er korte (`Detlef – * 1677, † 1678.`, `David – † før faderen.`). 4 af de 10
 S2-poster i denne stikprøve var falske positive af netop den grund.
