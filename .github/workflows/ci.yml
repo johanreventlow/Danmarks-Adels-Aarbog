@@ -60,12 +60,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: r-lib/actions/setup-r@v2
+        id: setup-r
         with:
           use-public-rspm: true
+      # duckdb har ingen RSPM-binary og kompileres derfor fra kilde — det tog 41 af
+      # jobbets 42 minutter, ved HVER kørsel. Alle øvrige pakker installeres som
+      # binaries på under et sekund. Cachen gør den kompilering til en engangsudgift.
+      # Bump vN i nøglen når pakkelisten nedenfor ændres.
+      - name: Cache R-bibliotek
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.R_LIBS_USER }}
+          key: ${{ runner.os }}-rlib-${{ steps.setup-r.outputs.installed-r-version }}-v1
       # Test-træet er DB-service-frit, men updater-testen sourcer et script, der
       # indlæser RPostgres. Installér derfor alle pakker, som testtræet loader.
+      # Kun de manglende installeres, så et cache-hit ikke bygger duckdb igen.
       - name: Installér R-testpakker
-        run: Rscript -e 'install.packages(c("testthat","jsonlite","DBI","duckdb","RPostgres","stringdist","stringi","withr","digest"))'
+        run: |
+          Rscript -e 'pkgs <- c("testthat","jsonlite","DBI","duckdb","RPostgres","stringdist","stringi","withr","digest")
+            mangler <- setdiff(pkgs, rownames(installed.packages()))
+            cat("mangler:", if (length(mangler)) paste(mangler, collapse = ", ") else "ingen", "\n")
+            if (length(mangler)) install.packages(mangler)'
       - run: Rscript run-tests.R
 
   pipeline:
