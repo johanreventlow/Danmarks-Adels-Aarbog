@@ -175,6 +175,41 @@
     "certainty": null
   },
   {
+    "raw": "1645-01-01",
+    "min": "1645-01-01",
+    "max": "1645-01-01",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "1500-04-31",
+    "min": "1500-04-31",
+    "max": "1500-04-31",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "før 1645-01-01",
+    "min": null,
+    "max": "1645-01-01",
+    "qualifier": "before",
+    "certainty": null
+  },
+  {
+    "raw": "efter 1645-03-15",
+    "min": "1645-03-15",
+    "max": null,
+    "qualifier": "after",
+    "certainty": null
+  },
+  {
+    "raw": "ca. 1650",
+    "min": "1650-01-01",
+    "max": "1650-12-31",
+    "qualifier": "about",
+    "certainty": null
+  },
+  {
     "raw": "(-1223-1247-)",
     "min": "1223-01-01",
     "max": "1247-12-31",

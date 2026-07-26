@@ -88,7 +88,12 @@ const OCR_FELTER: readonly OcrFelt[] = ['navn', 'foedsel', 'doed', 'koen'];
 //
 // Ingen kalender-validering (matcher Python): "31. april 1500" giver "1500-04-31",
 // selvom april kun har 30 dage. Det er den eksisterende extraction-adfærd, ikke en
-// fejl vi retter her.
+// fejl vi retter her. Samme konvention gælder et bart ISO-punkt: "1500-04-31"
+// accepteres som skrevet, uden dag/måned-validering.
+//
+// Et bart ISO-punkt ('YYYY-MM-DD', fx redaktør-indtastet i OCR-kildepanelet) giver
+// EKSAKT dag (min=max=datoen) — samme prioritet som dd.-månedsnavn-formen ("26.
+// juli"). Kun punktet, IKKE 'YYYY-MM' eller ISO-intervaller (uden for scope).
 
 const MAANEDER: Record<string, number> = {
   jan: 1, jän: 1, jaen: 1,
@@ -127,6 +132,12 @@ function romertalAar(tok: string): number | null {
   }
   return total >= 1000 && total <= 2100 ? total : null;
 }
+
+// Bar ISO-dato (YYYY-MM-DD) — redaktøren taster selv en eksakt dag i
+// OCR-kildepanelet. Adskilt fra det bindestreg-flankerede levetids-span
+// 'YYYY-YYYY' ved at kræve to-cifrede måned/dag-grupper (ikke endnu et
+// 4-cifret år): '1712-1783' matcher IKKE dette mønster.
+const ISO_POINT_RE = /(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)/;
 
 const Q_BEFORE_RE = /\b(?:før|inden|senest)\b/;
 const Q_AFTER_RE = /\befter\b/;
@@ -216,6 +227,15 @@ function deriveDateInfo(dateRaw: string): DateInfo {
     const da = parseInt(dm[1], 10);
     if (mo && da >= 1 && da <= 31) {
       isoPoint = `${y}-${String(mo).padStart(2, '0')}-${String(da).padStart(2, '0')}`;
+    }
+  }
+  if (!isoPoint) {
+    // Bar ISO-punkt ('1645-01-01') — samme prioritet som dd.-månedsnavn-formen,
+    // ingen kalender-validering (matcher Python og den eksisterende konvention
+    // for "31. april 1500"): dagen accepteres som skrevet.
+    const isoMatch = ISO_POINT_RE.exec(t);
+    if (isoMatch && isoMatch[1] === y) {
+      isoPoint = `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
     }
   }
 
