@@ -1,7 +1,7 @@
 import { act, render } from '@testing-library/react-native';
 import { Text } from 'react-native';
 import type { RawMedia } from '../../data/types';
-import { useMediaAndThumbUris } from '../media';
+import { useMobileFeedMedia } from '../feedMedia';
 
 type SignResult = { data: Array<{ path: string; signedUrl: string }>; error: null };
 type Deferred<T> = { promise: Promise<T>; resolve(value: T): void };
@@ -23,7 +23,7 @@ jest.mock('../supabase', () => {
   };
 });
 
-const mediaFor = (path: string) => [{ id: '1', storage_path: path }] satisfies RawMedia[];
+const mediaFor = (path: string) => [{ id: '1', slags: 'segl', storage_path: path }] satisfies RawMedia[];
 
 function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
@@ -32,8 +32,8 @@ function deferred<T>(): Deferred<T> {
 }
 
 function Probe({ path }: { path: string }) {
-  const { uris } = useMediaAndThumbUris(mediaFor(path), () => null);
-  return <Text>{uris['1'] ?? 'tom'}</Text>;
+  const items = useMobileFeedMedia({ id: 'arkiv:1', kind: 'arkiv' }, 'p1', mediaFor(path));
+  return <Text>{items[0]?.largeUri ?? 'tom'}</Text>;
 }
 
 function authEvent(userId: string, token: string) {
@@ -42,7 +42,7 @@ function authEvent(userId: string, token: string) {
   __mockAuth.listener('TOKEN_REFRESHED', { user: { id: userId }, access_token: token });
 }
 
-describe('useMediaAndThumbUris auth-epoch-invalidering', () => {
+describe('useMobileFeedMedia auth-epoch-invalidering', () => {
   let requests: Deferred<SignResult>[];
 
   beforeEach(() => {

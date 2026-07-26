@@ -26,7 +26,9 @@ supabase?.auth.onAuthStateChange(() => {
 
 // Medieforbrugere skal reagere på auth-events, ikke blot et bruger-id: token-refresh eller
 // nye rolleclaims kan ændre RLS for samme person. Epoch'en er et tællepunkt, aldrig en token.
-function useMediaAuthEpoch(): number {
+// Kun feedets egen invalidering (feedMedia.ts) abonnerer på den; redaktions-/personskærmenes
+// useMediaAndThumbUris er uændret og kender ikke til epoker.
+export function useMediaAuthEpoch(): number {
   return useSyncExternalStore(
     (listener) => {
       authEpochListeners.add(listener);
@@ -76,25 +78,13 @@ export function useMediaAndThumbUris(
   media: RawMedia[],
   thumbPathOf: (m: RawMedia) => string | null | undefined = () => null,
 ): { uris: Record<string, string>; thumbUris: Record<string, string> } {
-  const epoch = useMediaAuthEpoch();
+  const [state, setState] = useState<{ uris: Record<string, string>; thumbUris: Record<string, string> }>({ uris: {}, thumbUris: {} });
   const fullPaths = media.map((m) => m.storage_path ?? '').filter(Boolean);
   const thumbPaths = media.map((m) => thumbPathOf(m) ?? '').filter(Boolean);
   const key = [...fullPaths, ...thumbPaths].sort().join('|');
-  // En signer-URL er bundet til den aktuelle session. State mærkes derfor med både epoch og
-  // paths: et render efter login/logout kan aldrig vise forrige ejers URL, heller ikke før
-  // effekten når at rydde state, og sene svar fra den annullerede effekt bliver irrelevante.
-  const requestKey = JSON.stringify([epoch, key]);
-  const [state, setState] = useState<{
-    requestKey: string;
-    uris: Record<string, string>;
-    thumbUris: Record<string, string>;
-  }>(() => ({ requestKey, uris: {}, thumbUris: {} }));
   useEffect(() => {
     let cancelled = false;
-    setState((current) => current.requestKey === requestKey && Object.keys(current.uris).length === 0 && Object.keys(current.thumbUris).length === 0
-      ? current
-      : { requestKey, uris: {}, thumbUris: {} });
-    signPaths([...fullPaths, ...thumbPaths], epoch).then((signed) => {
+    signPaths([...fullPaths, ...thumbPaths]).then((signed) => {
       if (cancelled) return;
       const uris: Record<string, string> = {};
       const thumbUris: Record<string, string> = {};
@@ -105,17 +95,15 @@ export function useMediaAndThumbUris(
         const thumb = tp ? signed.get(tp) : undefined;
         if (thumb) thumbUris[String(m.id)] = thumb;
       }
-      setState({ requestKey, uris, thumbUris });
+      setState({ uris, thumbUris });
     });
     return () => {
       cancelled = true;
     };
     // key dækker path-sættet; media-objekterne selv er stabile pr. path.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, requestKey]);
-  return state.requestKey === requestKey
-    ? { uris: state.uris, thumbUris: state.thumbUris }
-    : { uris: {}, thumbUris: {} };
+  }, [key]);
+  return state;
 }
 
 // Dedup pr. media-id uden at et primaer-flag kan tabes til relationsrækkefølgen. Det samme medie
