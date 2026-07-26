@@ -49,6 +49,55 @@ test_that("has_editorial_changes ser kun red_-operationer som redaktionelle", {
   expect_false(has_editorial_changes(data.frame(operation = character(0))))
 })
 
+test_that("reset tillader kun den durabelt genafspillelige OCR-change_set", {
+  expect_false(has_reset_blocking_editorial_changes(
+    data.frame(operation = "red_ret_ocr_felt")
+  ))
+  expect_true(has_reset_blocking_editorial_changes(
+    data.frame(operation = "red_opret_fakta")
+  ))
+  expect_true(has_reset_blocking_editorial_changes(
+    data.frame(operation = c("red_ret_ocr_felt", "red_opret_fakta"))
+  ))
+  expect_true(has_reset_blocking_editorial_changes(data.frame(operation = NA_character_)))
+})
+
+test_that("korrektionsimport kræver eksplicit nøgle eller markeret legacy-tilstand", {
+  parsed <- parse_load_daa_args(c(
+    "tests/fixtures/person-ocr-kvalitetsark-clean.json", "DAA OCR-fixture",
+    "--import-key=daa:test:ocr-kvalitetsark", "--reset"
+  ))
+  expect_identical(parsed$import_key, "daa:test:ocr-kvalitetsark")
+  expect_false(parsed$legacy_import)
+  expect_true(parsed$reset)
+
+  expect_error(
+    parse_load_daa_args(c("clean.json", "--import-key=")),
+    "import-key må ikke være tom"
+  )
+  expect_error(
+    parse_load_daa_args(c("clean.json", "DAA OCR-fixture")),
+    "import-key kræves"
+  )
+
+  legacy <- parse_load_daa_args(c("clean.json", "--legacy-import"))
+  expect_null(legacy$import_key)
+  expect_true(legacy$legacy_import)
+})
+
+test_that("add_extid-bufferrækken bærer nr_label-baseret record_key", {
+  rec <- list(linje = "I", nr = 15L, nr_label = "15a")
+  row <- external_id_buffer_row(101L, 7L, rec$linje, rec$nr, record_key_of(rec))
+
+  expect_identical(row, list(
+    person_id = 101L, source_id = 7L, linje = "I", nr = 15L, record_key = "I-15a"
+  ))
+})
+
+test_that("reset-listen bevarer import_korrektion uden for truncate", {
+  expect_false("import_korrektion" %in% loader_model_tables())
+})
+
 test_that("is_missing_table_error genkender 42P01 / does not exist", {
   expect_true(is_missing_table_error('relation "change_set" does not exist'))
   expect_true(is_missing_table_error("ERROR: 42P01"))
@@ -183,6 +232,13 @@ test_that("ocr_input_fingerprint canonicaliserer JSON før hash", {
   }
 })
 
+test_that("ocr_input_fingerprint bruger tom OCR-kontekst som SQL-kontrakten", {
+  expect_identical(
+    ocr_input_fingerprint("daa:test:ocr-kvalitetsark", "I-15a", "koen", "mand", NA_character_),
+    "9918e9b8875add05ecc29f23b1bea916"
+  )
+})
+
 test_that("apply_import_correction anvender kun en matchende rettet journalpost", {
   importeret <- '{"raw":"* 1644","min":"1644-01-01","max":"1644-12-31","qualifier":null,"calendar":"gregoriansk","certainty":null}'
   korrigeret <- '{"raw":"* 1645","min":"1645-01-01","max":"1645-12-31","qualifier":null,"calendar":"gregoriansk","certainty":null}'
@@ -230,4 +286,47 @@ test_that("apply_import_correction markerer ændret OCR-kontekst som stale", {
   expect_identical(result$value, importeret)
   expect_identical(result$status, "stale")
   expect_identical(result$correction_id, 19L)
+})
+
+test_that("forudindlæste rettelser genafspilles for navn, dato og køn", {
+  corrections <- index_import_corrections(list(
+    list(id = 31L, import_key = "daa:test:ocr-kvalitetsark", record_key = "I-15a",
+         felt = "navn", input_fingerprint = "ac44c464b6ebd8e7a8ef45b2feba4c75",
+         korrigeret = '{"value":"Mikkel Rettet"}', status = "rettet"),
+    list(id = 32L, import_key = "daa:test:ocr-kvalitetsark", record_key = "I-15a",
+         felt = "foedsel", input_fingerprint = "a4edd8400a9239adf377b42eaba969e2",
+         korrigeret = '{"raw":"1645-01-01","min":"1645-01-01","max":"1645-01-01","qualifier":"exact","calendar":"gregoriansk","certainty":null}', status = "rettet"),
+    list(id = 33L, import_key = "daa:test:ocr-kvalitetsark", record_key = "I-15a",
+         felt = "koen", input_fingerprint = "9918e9b8875add05ecc29f23b1bea916",
+         korrigeret = '{"value":"kvinde"}', status = "rettet")
+  ))
+
+  navn <- apply_import_correction("daa:test:ocr-kvalitetsark", "I-15a", "navn",
+                                  "Mikkel OCR", "Mikkel OCR, født 1644", corrections)
+  foedsel <- apply_import_correction("daa:test:ocr-kvalitetsark", "I-15a", "foedsel",
+    list(raw = "1644-01-01", min = "1644-01-01", max = "1644-01-01",
+         qualifier = "exact", calendar = "gregoriansk", certainty = NA_character_),
+    "født 1644-01-01", corrections)
+  koen <- apply_import_correction("daa:test:ocr-kvalitetsark", "I-15a", "koen",
+                                  "mand", NA_character_, corrections)
+
+  expect_identical(navn$value, '{"value":"Mikkel Rettet"}')
+  expect_identical(foedsel$value, '{"raw":"1645-01-01","min":"1645-01-01","max":"1645-01-01","qualifier":"exact","calendar":"gregoriansk","certainty":null}')
+  expect_identical(koen$value, '{"value":"kvinde"}')
+  expect_true(all(c(navn$status, foedsel$status, koen$status) == "anvendt"))
+})
+
+test_that("stale genafspilning lader importen stå og udpeger kun stale journal-id'er", {
+  correction <- list(
+    id = 41L, import_key = "daa:test:ocr-kvalitetsark", record_key = "I-15a",
+    felt = "navn", input_fingerprint = "ac44c464b6ebd8e7a8ef45b2feba4c75",
+    korrigeret = '{"value":"Mikkel Rettet"}', status = "rettet"
+  )
+  result <- apply_import_correction("daa:test:ocr-kvalitetsark", "I-15a", "navn",
+                                    "Mikkel OCR", "ændret OCR-kontekst",
+                                    index_import_corrections(list(correction)))
+
+  expect_identical(result$value, "Mikkel OCR")
+  expect_identical(result$status, "stale")
+  expect_equal(stale_correction_ids(list(result, list(status = "anvendt", correction_id = 42L))), 41L)
 })

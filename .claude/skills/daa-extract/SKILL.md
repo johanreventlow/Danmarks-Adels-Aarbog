@@ -146,7 +146,8 @@ Hvis trin ④ flagger poster i `escalation.json`, køres denne drift af agenten:
 ### ⑤ Load til Supabase (R)
 
 ```bash
-Rscript scripts/load_daa.R work/clean.json
+Rscript scripts/load_daa.R work/clean.json "DAA 2018-20" \
+  --import-key=daa:2018-20:reventlow
 ```
 
 **Append som default** (ingen TRUNCATE, review 12 2026-07-02): en ny slægt
@@ -157,7 +158,10 @@ cascade-sletter ALT afledt data, inkl. redaktionel historik).
 Loader hver post som: `narrative` (fuld prosa, source = DAA-udgaven) +
 `fact`/`assertion`/`conclusion`/`citation` for rygraden + `family`/
 `family_member` for slægtskab + `relation` for godser/embeder/begivenheder.
-Login fra `~/.Renviron` (samme som `supabase_load.R`). Regenererer til sidst
+Login fra `~/.Renviron` (samme som `supabase_load.R`). Korrektionsdygtige loads
+skal altid angive en eksplicit, reload-stabil `--import-key=...`; nøglen må aldrig
+udledes af visningstitlen. Ældre loads uden nøgle skal køres med `--legacy-import`;
+de er fortsat synlige, men kan ikke rettes i OCR-kvalitetsarket. Regenererer til sidst
 `person.visning_*`-cachen fra konklusionerne.
 
 **Forældrefamilie-slot (Problem 2):** hver 'barn'-`family_member`-række ledsages af
@@ -182,7 +186,8 @@ python3 .claude/skills/daa-extract/scripts/segment.py work/raw.txt > work/posts.
 python3 .claude/skills/daa-extract/scripts/validate.py \
   work/posts.json work/extracted/ --clean work/clean.json --review work/review.json
 # gennemgå work/review.json (menneske) -> godkend -> derefter:
-Rscript .claude/skills/daa-extract/scripts/load_daa.R work/clean.json
+Rscript .claude/skills/daa-extract/scripts/load_daa.R work/clean.json "DAA 2018-20" \
+  --import-key=daa:2018-20:reventlow
 ```
 
 `work/` er en arbejdsmappe — git-ignorér den (kan indeholde levende-persondata).

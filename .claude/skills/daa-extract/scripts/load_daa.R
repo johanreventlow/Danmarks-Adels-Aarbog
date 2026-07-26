@@ -3,7 +3,8 @@
 #  load_daa.R — loader VALIDERET DAA-udtræk (clean.json) til Supabase.
 #  Erstatter det håndtransskriberede udsnit i supabase_load.R.
 #
-#  Brug:  Rscript load_daa.R clean.json [udgave] [--reset]
+#  Brug:  Rscript load_daa.R clean.json [udgave] --import-key=<stabil nøgle> [--reset]
+#         Legacy: Rscript load_daa.R clean.json [udgave] --legacy-import
 #         udgave default "DAA 2018-20".
 #  Login fra ~/.Renviron (samme som supabase_load.R).
 #
@@ -32,17 +33,18 @@ suppressMessages({library(DBI); library(jsonlite)})
 # forudsætter Rscript køres fra repo-roden, jf. skillets Quick-run).
 source(".claude/skills/daa-extract/scripts/load_helpers.R")
 
-argv    <- commandArgs(trailingOnly = TRUE)
-if (length(argv) < 1) stop("brug: load_daa.R clean.json [udgave] [--reset] [--force-reset] [--dry-run] [--staged]")
-path    <- argv[1]
-udgave  <- if (length(argv) >= 2 && !startsWith(argv[2], "--")) argv[2] else "DAA 2018-20"
-RESET       <- "--reset" %in% argv
-FORCE_RESET <- "--force-reset" %in% argv   # tilsidesæt RESET-guarden bevidst (sletter change_set-arbejde)
-DRY_RUN <- "--dry-run" %in% argv
+args <- parse_load_daa_args(commandArgs(trailingOnly = TRUE))
+path <- args$path
+udgave <- args$udgave
+IMPORT_KEY <- args$import_key
+LEGACY_IMPORT <- args$legacy_import
+RESET <- args$reset
+FORCE_RESET <- args$force_reset  # tilsidesæt RESET-guarden bevidst (sletter change_set-arbejde)
+DRY_RUN <- args$dry_run
 # --staged (K2-kuratering): markér ALLE personer denne kørsel opretter som staged=TRUE →
 # skjult for anon (person_offentlig) indtil redaktør har matchet dem mod eksisterende udgaver.
 # Ryddes samlet med red_publicer_udgave(source_id) når match-gennemgangen er færdig.
-STAGED <- "--staged" %in% argv
+STAGED <- args$staged
 
 # source.aar = tidsserie-aksen (schema.sql:37). Konvention: SIDSTE dækkede år; fail-closed ved
 # uparsebar udgave (præsens-tidsserie-spec Problem 1 §3.2). Samme lille helper som load_presens.R
@@ -72,9 +74,7 @@ con <- dbConnect(RPostgres::Postgres(), host = host,
                  user = user, password = pw, sslmode = "require", bigint = "integer")
 
 ex <- function(sql, params = list()) if (length(params)) dbExecute(con, sql, params = params) else dbExecute(con, sql)
-model_tables <- c("note","citation","conclusion","assertion","relation","fact",
-                  "family_member","family","person_external_id","narrative","person",
-                  "coat_of_arms","historical_event","media","estate","organisation","place","source")
+model_tables <- loader_model_tables()
 # Tabeller denne loader selv allokerer id'er til via nid() (dvs. har egen bigint id-kolonne
 # OG bruges af scriptet — person_external_id/family_member er komposit-nøgle-junction-tabeller
 # uden id-kolonne; coat_of_arms/media populeres ikke af denne loader).
@@ -116,7 +116,8 @@ flush_all <- function() {
 }
 
 add_person <- function(koen = NA) { id <- nid("person"); push("person", list(id=id, levende=FALSE, staged=STAGED, koen=koen)); id }
-add_extid <- function(pid, sid, linje, nr) push("person_external_id", list(person_id=pid, source_id=sid, linje=linje, nr=nr))
+add_extid <- function(pid, sid, linje, nr, record_key)
+  push("person_external_id", external_id_buffer_row(pid, sid, linje, nr, record_key))
 add_narr <- function(pid, sid, side, tekst) push("narrative", list(id=nid("narrative"), subjekt_type="person", subjekt_id=pid, source_id=sid, side=side, tekst=tekst))
 add_fact <- function(sid_, ft, sted_id=NA, st="person") { id <- nid("fact"); push("fact", list(id=id, subjekt_type=st, subjekt_id=sid_, faktatype=ft, sted_id=sted_id)); id }
 # objekt_type/objekt_id (Problem 2): en påstands VÆRDI kan være en entitet (forældrefamilie-slot).
@@ -254,9 +255,9 @@ tryCatch({
                conditionMessage(e), "). Fejler lukket for at beskytte evt. redaktionelt arbejde.")
         }
       })
-    if (has_editorial_changes(cs) && !FORCE_RESET)
-      stop("RESET (--reset) afvist: basen har redaktionelle change_set-rækker (red_*). Kør uden --reset (append) eller tilføj --force-reset for bevidst at slette dem.")
-    if (has_editorial_changes(cs) && FORCE_RESET)
+    if (has_reset_blocking_editorial_changes(cs) && !FORCE_RESET)
+      stop("RESET (--reset) afvist: basen har andre redaktionelle change_set-rækker end den genafspillelige red_ret_ocr_felt. Kør uden --reset (append) eller tilføj --force-reset for bevidst at slette dem.")
+    if (has_reset_blocking_editorial_changes(cs) && FORCE_RESET)
       message("ADVARSEL: --force-reset tilsidesætter RESET-guarden — redaktionelle change_set-rækker slettes.")
     message("RESET: tømmer model-tabeller…")
     ex(paste0("TRUNCATE ", paste(model_tables, collapse=", "), " CASCADE;"))
@@ -268,8 +269,19 @@ tryCatch({
   seed_vocab()
 
   src <- nid("source")
-  ex("INSERT INTO source (id, slags, titel, udgave, aar, ekstern) VALUES ($1,'DAA-udgave',$2,$3,$4,FALSE)",
-     list(src, paste("Dansk Adels Aarbog –", udgave), udgave, aar))
+  ex("INSERT INTO source (id, slags, titel, udgave, aar, ekstern, import_key) VALUES ($1,'DAA-udgave',$2,$3,$4,FALSE,$5)",
+     list(src, paste("Dansk Adels Aarbog –", udgave), udgave, aar, IMPORT_KEY))
+
+  # Én læsning pr. import. Journalen har ingen FK til de regenererbare model-id'er
+  # og står derfor uden for model_tables/TRUNCATE. Legacy-importer har ingen nøgle og
+  # kan bevidst ikke have rettelser at genafspille.
+  corrections <- if (is.null(IMPORT_KEY)) list() else dbGetQuery(
+    con,
+    "SELECT id, import_key, record_key, felt, input_fingerprint, korrigeret, status FROM import_korrektion WHERE import_key = $1",
+    params = list(IMPORT_KEY)
+  )
+  correction_index <- index_import_corrections(corrections)
+  stale_results <- list()
 
   pmap <- new.env(parent = emptyenv())          # (linje-nr_label) -> person_id
   umap <- new.env(parent = emptyenv())          # (linje-nr_label) -> usikker (TRUE/FALSE)
@@ -280,15 +292,35 @@ tryCatch({
   # ---- pass 1: personer, external_id, narrative, fakta ----
   for (rec in clean) {
     current_by <- if (isTRUE(rec[["_escalated"]])) "Opus-escalated" else udgave
-    pid <- add_person(g(rec, "koen"))
-    k <- key(rec$linje, lbl_of(rec))
+    record_key <- record_key_of(rec)
+    persisted_record_key <- if (LEGACY_IMPORT) NA_character_ else record_key
+    k <- if (is.na(record_key)) key(rec$linje, lbl_of(rec)) else record_key
+    side <- g(rec, "sider", g(rec, "side"))
+
+    # Navn og køn skal være rettet FØR titel-split/person-bufferen bygges.
+    # Narrativen er den uændrede OCR-kontekst for top-level-navnet.
+    navn_context <- g(rec, "navn_kilde_span", g(rec, "narrative", NA_character_))
+    navn_overlay <- apply_import_correction(IMPORT_KEY, record_key, "navn", rec$navn,
+                                            navn_context, correction_index)
+    if (identical(navn_overlay$status, "stale"))
+      stale_results <- c(stale_results, list(navn_overlay))
+    navn <- if (identical(navn_overlay$status, "anvendt"))
+      fromJSON(navn_overlay$value, simplifyVector = FALSE)$value else rec$navn
+
+    koen_overlay <- apply_import_correction(IMPORT_KEY, record_key, "koen", g(rec, "koen"),
+                                            NA_character_, correction_index)
+    if (identical(koen_overlay$status, "stale"))
+      stale_results <- c(stale_results, list(koen_overlay))
+    koen <- if (identical(koen_overlay$status, "anvendt"))
+      fromJSON(koen_overlay$value, simplifyVector = FALSE)$value else g(rec, "koen")
+
+    pid <- add_person(koen)
     assign(k, pid, envir = pmap); assign(k, isTRUE(rec$usikker), envir = umap)
     assign(k, rec, envir = recmap)
-    add_extid(pid, src, rec$linje, rec$nr)        # ekstern-id bærer basenr (heltal)
-    side <- g(rec, "sider", g(rec, "side"))
+    add_extid(pid, src, rec$linje, rec$nr, persisted_record_key)
     add_narr(pid, src, side, rec$narrative)
-    tp <- split_title(rec$navn)
-    fact_value(pid, "navn", vaerdi = tp$rest, sid = src, side = side)
+    tp <- split_title(navn)
+    fact_value(pid, "navn", vaerdi = tp$rest, sid = src, side = side, span = navn_context)
     # bevar titel som fakta hvis den var bagt ind i navnet og ikke allerede findes
     if (!is.na(tp$titel) && !any(vapply(g(rec, "facts", list()), function(f) identical(f$faktatype, "titel"), logical(1))))
       fact_value(pid, "titel", vaerdi = tp$titel, sid = src, side = side)
@@ -296,6 +328,26 @@ tryCatch({
       fact_value(pid, "tilnavn", vaerdi = rec$tilnavn, sid = src, side = side)
     for (f in g(rec, "facts", list())) {
       if (f$faktatype %in% c("erhverv", "uddannelse")) next   # foreløbig IKKE rygrad — bliver i narrativen
+      felt <- switch(f$faktatype, "fødsel" = "foedsel", "død" = "doed", NULL)
+      if (!is.null(felt)) {
+        imported_date <- list(raw = g(f, "date_raw"), min = g(f, "date_min"),
+                              max = g(f, "date_max"), qualifier = g(f, "date_qualifier"),
+                              calendar = g(f, "calendar", "gregoriansk"),
+                              certainty = g(f, "date_certainty"))
+        date_overlay <- apply_import_correction(IMPORT_KEY, record_key, felt, imported_date,
+                                                g(f, "kilde_span"), correction_index)
+        if (identical(date_overlay$status, "stale"))
+          stale_results <- c(stale_results, list(date_overlay))
+        if (identical(date_overlay$status, "anvendt")) {
+          corrected_date <- fromJSON(date_overlay$value, simplifyVector = FALSE)
+          f$date_raw <- corrected_date$raw
+          f$date_min <- corrected_date$min
+          f$date_max <- corrected_date$max
+          f$date_qualifier <- corrected_date$qualifier
+          f$calendar <- corrected_date$calendar
+          f$date_certainty <- corrected_date$certainty
+        }
+      }
       fact_value(pid, f$faktatype, vaerdi = g(f,"vaerdi"), dmin = g(f,"date_min"),
                  dmax = g(f,"date_max"), qual = g(f,"date_qualifier"), raw = g(f,"date_raw"),
                  sid = src, side = side, sted = g(f,"sted"), span = g(f,"kilde_span"),
@@ -421,6 +473,14 @@ tryCatch({
 
   # ---- skriv alle akkumulerede rækker (bulk COPY, FK-rækkefølge) ----
   flush_all()
+
+  # Først efter en vellykket buffer-flush må en ændret kilde markere journalen stale.
+  # Én samlet UPDATE bevarer den atomare load-transaktion; fejl længere nede ruller også
+  # denne statusændring tilbage.
+  stale_ids <- stale_correction_ids(stale_results)
+  if (length(stale_ids))
+    ex(sprintf("UPDATE import_korrektion SET status='stale' WHERE id IN (%s)",
+               paste(as.integer(stale_ids), collapse = ",")))
 
   # ---- visnings-cache: ALLE fire felter regenereres fra konklusioner ----
   # (invariant #4: envejs-projektion). LIMIT 1 da en person kan have flere
