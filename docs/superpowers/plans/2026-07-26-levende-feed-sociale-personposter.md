@@ -750,6 +750,21 @@ as a generic subscription primitive (harmless — a no-op for anyone who doesn't
 but no redaktion or reader screen does. `mediaOwner.test.tsx` now exercises
 `useMobileFeedMedia` instead of the shared hook directly.
 
+**Why `signPaths` itself staying modified doesn't count as touching redaktion:** the full
+residual diff of `lib/media.ts` vs `main` is exactly four things — the `authEpoch`
+counter/listener set, `onAuthStateChange` also bumping it, exported `useMediaAuthEpoch`,
+and `signPaths`' optional `epoch` param with an epoch-namespaced cache key.
+`mediaDedup.ts`/`presensLinjer.ts` still call `signPaths(paths)` with no explicit epoch
+(defaults to current), and `cache.clear()` still fires on every auth event exactly as on
+`main` — so within one epoch the cache keys are stable, and namespacing them by epoch
+cannot produce a hit the old path-keyed cache wouldn't already have produced. Default-
+epoch callers see identical results to `main`.
+
+**Web-side symmetry:** `web/src/data/media.ts` doesn't appear in the changed-file list —
+web's shared media/signing layer was never touched. Web's feed media went entirely
+through the new `web/src/data/feedMedia.ts`, calling the existing `signPaths` unchanged.
+No mirror fix was needed on the web side.
+
 **Parked, not fixed here:** `fetchExistingMediaBySha` (`mediaDedup.ts`) calls
 `signPaths(paths)` with the default epoch captured at call time — if auth changes
 mid-`await`, the dedup flow can resolve with a stale signed URL. This race is
