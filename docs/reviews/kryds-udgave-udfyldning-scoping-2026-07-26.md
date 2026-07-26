@@ -46,6 +46,60 @@ kæden fra bog til skærm er altså efterprøvet i begge ender for netop det til
 
 ---
 
+---
+
+## Efterprøvet ved at køre den rigtige `collapseSameAs` mod prod-data
+
+SQL-genimplementeringer af reglen var upålidelige. Den afgørende måling er lavet ved at dumpe
+`person`, `family_member` og `samme_som` fra prod (read-only, `tmp/dump-collapse-input.R`) og
+køre den **faktiske** `collapseSameAs` over dem (`tmp/run-collapse.ts`, vite-node).
+
+| Måling | Antal |
+|---|---|
+| samme_som-kanter | 434 |
+| Accepterede grupper | **140** |
+| **Karantænerede grupper** | **287** |
+| — årsag | 100 % `konkurrerende forældre` |
+| — alle på tværs af 1939↔2018-20 | 287 |
+
+**Korrektion til tallene ovenfor:** af de 114 forældreløse 1939-poster arver **110** faktisk
+forældrene; de sidste 4 er blokeret fordi et *andet* medlem af deres gruppe har en konflikt.
+Læser-synligt hul bliver dermed 86 af 539, ikke 82.
+
+### De 287 er ikke uenighed mellem bøgerne
+
+Testet ved at kanonisere forældrene med *alle* samme_som-grupper i stedet for kun de accepterede:
+0 af de 287 skyldes kaskade — men navnene afslører hvad der faktisk sker:
+
+| 1939 siger | 2018-20 siger |
+|---|---|
+| `Bertram + Christine Rantzau` | `Bartram + Christina von Rantzau` |
+| `Cay Friedrich + Hedevig Ida Buchwald` | `Cay Friedrich + Hedwig Ida von Buchwaldt` |
+| `Henning + Margarethe Rumohr` | `Henning + Margaretha von Rumohr` |
+
+Det er **de samme mennesker med forskellig stavemåde**. Karantænen skyldes ikke at bøgerne er
+uenige, men at *forældrene endnu ikke er matchet til hinanden* — kun børnene er.
+
+### Det gør oprydningen meget billig
+
+| | Antal |
+|---|---|
+| Karantænerede grupper | 287 |
+| Distinkte forældrepar involveret | 143 |
+| Forældre uden match i dag | **133** |
+
+Og de klumper: ét forældrepar frigiver alle sine børn på én gang.
+
+| Frigives | Forældrepar |
+|---|---|
+| 14 børn | Cay Friedrich + Hedevig Ida Buchwald ↔ Cay Friedrich + Hedwig Ida von Buchwaldt |
+| 11 børn | Christian Ditlev + Benedicte Margrethe Brockdorff ↔ Christian Detlef + Benedicte Margaretha von Brockdorff |
+| 10 børn | Detlev + Anna Margretha von Jessen ↔ Detlef + Anna Margretha von Jessen |
+| 9 børn | Henning + Margarethe Rumohr ↔ Henning + Margaretha von Rumohr |
+
+**~133 forældre-matches frigiver 287 karantænerede par.** Det er redaktør-arbejde i den
+eksisterende UI, ikke kode.
+
 ## Hvad det betyder for trin 2
 
 Trin 2 blev begrundet i "~184 forældreløse poster". Det reelle, læser-synlige tal er **82**,
