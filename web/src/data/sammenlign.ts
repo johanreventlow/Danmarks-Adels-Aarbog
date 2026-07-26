@@ -12,7 +12,17 @@ export function pairKey(a: Id, b: Id): string {
 
 export type Kandidat = ScoredPair & { afvist: boolean; linket: boolean };
 export type PersonStatus = 'aaben' | 'afklaret' | 'formodet_ny';
-export type ArbejdslistePerson = { aId: string; kandidater: Kandidat[]; status: PersonStatus };
+export type ArbejdslistePerson = {
+  aId: string;
+  kandidater: Kandidat[];
+  /** Kandidater under review-tærsklen. Holdes UDE af status og fremdrift — de er ikke
+   *  arbejde matcheren tør pålægge — men bevares, så redaktøren kan tage stilling alligevel.
+   *  Personer uden årstal (bogens ægtefæller har sjældent nogen) kan strukturelt ikke nå
+   *  tærsklen: overlap tæller kun når BEGGE sider har en dato, så deres loft er
+   *  0,6·navn + 0,1·køn = 0,70 = præcis cutoff. Uden denne liste var de en blindgyde. */
+  svageKandidater: Kandidat[];
+  status: PersonStatus;
+};
 export type Fremdrift = { total: number; afklaret: number; staerke: number; gennemse: number; formodetNye: number };
 export type Arbejdsliste = { personer: ArbejdslistePerson[]; fremdrift: Fremdrift };
 
@@ -23,15 +33,25 @@ export function buildArbejdsliste(
   linkedeKeys: Set<string>,  // samme_som normaliserede par-nøgler
 ): Arbejdsliste {
   const byA = new Map<string, ScoredPair[]>();
+  const svageByA = new Map<string, ScoredPair[]>();
   for (const p of pairs) {
-    if (p.tier === 'none') continue;
-    const arr = byA.get(String(p.aId));
-    if (arr) arr.push(p); else byA.set(String(p.aId), [p]);
+    const maal = p.tier === 'none' ? svageByA : byA;
+    const arr = maal.get(String(p.aId));
+    if (arr) arr.push(p); else maal.set(String(p.aId), [p]);
   }
+
+  const berig = (p: ScoredPair): Kandidat => ({
+    ...p,
+    afvist: afvisteKeys.has(pairKey(p.aId, p.bId)),
+    linket: linkedeKeys.has(pairKey(p.aId, p.bId)),
+  });
 
   const personer: ArbejdslistePerson[] = aIds.map((aId) => {
     const kandidater: Kandidat[] = (byA.get(aId) ?? [])
-      .map((p) => ({ ...p, afvist: afvisteKeys.has(pairKey(p.aId, p.bId)), linket: linkedeKeys.has(pairKey(p.aId, p.bId)) }))
+      .map(berig)
+      .sort((x, y) => (y.score ?? 0) - (x.score ?? 0));
+    const svageKandidater: Kandidat[] = (svageByA.get(aId) ?? [])
+      .map(berig)
       .sort((x, y) => (y.score ?? 0) - (x.score ?? 0));
     const aktive = kandidater.filter((k) => !k.afvist);
     const harLink = kandidater.some((k) => k.linket);
@@ -39,7 +59,7 @@ export function buildArbejdsliste(
     if (kandidater.length === 0) status = 'formodet_ny';
     else if (harLink || aktive.length === 0) status = 'afklaret';
     else status = 'aaben';
-    return { aId, kandidater, status };
+    return { aId, kandidater, svageKandidater, status };
   });
 
   // sortér: åbne først (topscore faldende), så afklarede, så formodet-nye
