@@ -717,37 +717,56 @@ before presenting integration options.
 
 ## Status (2026-07-26): Tasks 1–5 done, scope decision applied
 
-All five tasks implemented and committed. Last review before handoff found commit
-`fa4c018` ("invalidér direkte signering ved authskift") had extended the feed's
+All five tasks implemented and committed. Last review before handoff (by Codex) found
+commit `fa4c018` ("invalidér direkte signering ved authskift") had extended the feed's
 auth-epoch invalidation into `mobile/src/data/mediaDedup.ts`,
 `mobile/src/data/presensLinjer.ts`, `mobile/src/app/praesens.tsx`, and
 `mobile/src/components/redaktion/MediaUploadSheet.tsx` — all redaktion upload/resume
-territory, violating the Global Constraint against touching those flows.
+territory, violating the Global Constraint against touching those flows. Codex
+recommended reverting and stopped without deciding; the user asked for the remaining
+work including this finding, and the Global Constraint itself makes the call, so option
+A (scope-limit to feed/media display) was applied rather than asked again.
 
-**Decision: reverted `fa4c018`** (commit `f38a0c6`). `mobile/src/data/mediaDedup.ts`,
-`mobile/src/data/presensLinjer.ts`, `mobile/src/app/praesens.tsx`, and
-`MediaUploadSheet.tsx` are now byte-identical to `main` again (`git diff main -- <files>`
-is empty). The two commits before it (`d8cd1f2`, `cc9cc00`) stayed — they only added an
-optional `epoch` param to `signPaths` and epoch-keyed the cache, touching no redaktion
-call site, and fix a real bug in this branch's own new mobile feed-media hook
-(`useMediaAndThumbUris`/`useMobileFeedMedia`): stale signed URLs could survive a
-login/logout across renders. That fix needed no change to `signPaths`' external
-contract — `useMediaAndThumbUris` already guards via its own `requestKey`/epoch-tagged
-state and returns `{}` on a mismatch.
+**Step 1 — reverted `fa4c018`** (commit `f38a0c6`). `mediaDedup.ts`, `presensLinjer.ts`,
+`praesens.tsx`, and `MediaUploadSheet.tsx` are byte-identical to `main` again.
+
+**Step 2 — found the leak went one level deeper.** The two earlier commits (`d8cd1f2`,
+`cc9cc00`) that survived the revert had themselves changed the *shared*
+`useMediaAndThumbUris` hook in `mobile/src/lib/media.ts` (requestKey/epoch-tagged state,
+clears to `{}` immediately on auth or path change). That hook isn't feed-only — it's
+called directly by six redaktion/reader screens (`app/redaktion/entitet/[type].tsx`,
+`.../slaegt-narrativ.tsx`, `.../medie/[id].tsx`, `app/redaktion/person/[id].tsx`,
+`components/redaktion/MaterialeSektion.tsx`, `components/NarrativRenderer.tsx`) plus
+`usePersonMedia` (used by the reader's `app/person/[id].tsx`). Changing its clear-timing
+changes observable render behavior on all of those screens — the same class of scope
+violation as `fa4c018`, just via a shared function instead of direct file edits.
+
+**Fix (commit `6a7de7b`):** restored `useMediaAndThumbUris` in `lib/media.ts` to be
+byte-identical to its pre-branch form (verified with a direct diff against the
+pre-Task-3 commit). The auth-epoch invalidation now lives only in a local
+`useFeedMediaUris` hook inside `mobile/src/lib/feedMedia.ts` (feed-only file), consumed
+solely by `useMobileFeedMedia`. `useMediaAuthEpoch` stays exported from `lib/media.ts`
+as a generic subscription primitive (harmless — a no-op for anyone who doesn't call it),
+but no redaktion or reader screen does. `mediaOwner.test.tsx` now exercises
+`useMobileFeedMedia` instead of the shared hook directly.
 
 **Parked, not fixed here:** `fetchExistingMediaBySha` (`mediaDedup.ts`) calls
 `signPaths(paths)` with the default epoch captured at call time — if auth changes
 mid-`await`, the dedup flow can resolve with a stale signed URL. This race is
-pre-existing on `main`, not introduced by this branch, and fixing it means touching the
-redaktion upload/resume flow this plan explicitly excludes. Backlog item for a separate,
-dedicated change.
+pre-existing on `main` (confirmed by reading `main`'s version), not introduced by this
+branch, and fixing it means touching the redaktion upload/resume flow this plan
+explicitly excludes. Backlog item for a separate, dedicated change. The user can choose
+option B (harden it now, in a follow-up PR) if preferred.
 
-**Verification run after the revert** (all green):
-`packages/feed`, `packages/core`, `web` test suite (545 tests) + build, `mobile` full
-suite (417 tests) + `tsc --noEmit -p mobile/tsconfig.json`, `git diff --check`. Changed-file
-list vs `main` reviewed — no SQL, migration, RLS, redaktion, upload, or publication files
-present.
+**Verification run after both fixes** (all green): `packages/feed` (129 tests),
+`packages/core` (304 tests), `web` (545 tests) + build, `mobile` full suite (417 tests) +
+`tsc --noEmit -p mobile/tsconfig.json`, `git diff --check`. Changed-file list vs `main`
+reviewed twice (before and after the second fix) — no SQL, migration, RLS, redaktion, or
+upload/publication files present either time. `git diff main -- mediaDedup.ts
+presensLinjer.ts praesens.tsx MediaUploadSheet.tsx` is empty.
 
 **Not run:** visual/device smoke tests (no simulator/device driven this session). Unit +
 typecheck + build confirm the code is wired correctly; they don't confirm the feed cards
-render and swipe correctly on a real screen.
+render and swipe correctly on a real screen, or that the six redaktion/reader screens
+using `useMediaAndThumbUris` still look/feel identical to `main` in practice (the byte-
+identical diff is strong evidence but isn't the same as eyes on a device).
