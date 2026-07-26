@@ -595,3 +595,48 @@ def test_prose_mentioning_children_is_not_a_group_header():
          make_post(2, foedsel="12. Marts 1803")],
         raw, {"window-01": (490, 490)})
     assert "vandmoellen til sin doed" in out["1"]["narrative"]
+
+
+# --------------------------------------------- indsnaevring af fallback-blokke
+
+def test_group_fallback_narrows_to_own_numbered_record():
+    """En ankerloes post arver gruppens blok. Indeholder blokken flere
+    nummererede bogposter, og matcher praecis én dem postens eget lokale
+    nummer, snaevres blokken ind til netop den post."""
+    raw = (
+        "### PAGE 490 ###\n"
+        "1. Aksel Aabing, en tekst uden felter der kan ankre posten her.\n"
+        "2. Berta Aabing, en anden tekst uden ankerbare felter i posten.\n"
+        "3. Carla Aabing, f. 11. Jan. 1801, som ankrer denne sidste post.\n"
+    )
+    anchorless = make_post(1, gruppe="B")
+    anchorless["_orig_nr"] = 1
+    anchored = make_post(2, gruppe="B", foedsel="11. Jan. 1801")
+    out = seg.segment([anchorless, anchored], raw, {"window-01": (490, 490)})
+    assert "Aksel Aabing" in out["1"]["narrative"]
+    assert "Berta Aabing" not in out["1"]["narrative"]
+    assert "Carla Aabing" not in out["1"]["narrative"]
+
+
+def test_narrow_fallback_span_picks_unique_numbered_record():
+    raw = (
+        "1. Aksel Aabing, en tekst uden ankerbare felter i posten her.\n"
+        "2. Berta Aabing, en anden tekst uden ankerbare felter i posten.\n"
+        "3. Carla Aabing, en tredje tekst uden ankerbare felter i posten.\n"
+    )
+    post = {"_orig_nr": 2}
+    s, e = seg._narrow_fallback_span(raw, post, (0, len(raw)),
+                                     seg.structural_boundaries(raw))
+    assert raw[s:e].startswith("2. Berta")
+    assert "Carla" not in raw[s:e]
+
+
+def test_narrow_fallback_span_keeps_block_when_number_is_ambiguous():
+    raw = (
+        "1. Aksel Aabing, en tekst uden ankerbare felter i posten her.\n"
+        "1. Berta Aabing, en anden tekst uden ankerbare felter i posten.\n"
+    )
+    post = {"_orig_nr": 1}
+    span = (0, len(raw))
+    assert seg._narrow_fallback_span(
+        raw, post, span, seg.structural_boundaries(raw)) == span

@@ -429,6 +429,38 @@ def group_header_starts(raw):
     return sorted(starts)
 
 
+def _narrow_fallback_span(raw, post, span, boundaries):
+    """Snaevr en blok-tildeling ind til postens egen nummererede bogpost.
+
+    Fallback-spans (gruppe/nabo/vindue) daekker en hel blok og kan derfor
+    tilskrive én person flere posters tekst — den fejltype der ser rigtig ud
+    og er forkert. Findes postens lokale bognummer PRAECIS én gang i blokken,
+    bruges den linje som start og naeste strukturgraense som slut.
+
+    Fail-closed: er nummeret fravaerende eller flertydigt i blokken, beholdes
+    blokken uaendret. Hellere for meget tekst end den forkerte persons.
+    """
+    start, end = span
+    number = _post_number(post)
+    if number is None:
+        return span
+    starts = [start + m.start() for m in RECORD_START_RE.finditer(raw[start:end])]
+    if len(starts) < 2:
+        return span  # blokken er allerede én post
+    matching = [
+        s for s in starts
+        if int(re.match(r"[ \t]*(\d{1,3})", raw[s:]).group(1)) == number
+    ]
+    if len(matching) != 1:
+        return span
+    new_start = matching[0]
+    bi = bisect.bisect_right(boundaries, new_start)
+    new_end = end
+    if bi < len(boundaries) and new_start < boundaries[bi] < end:
+        new_end = boundaries[bi]
+    return (new_start, new_end) if new_end > new_start else span
+
+
 def segment(posts, raw, winmap):
     """Kernefunktion (ren): posts + raw + {window-id: (p_lo, p_hi)} ->
     {_id_str: {"narrative", "side", "metode"}}. Hver post faar ikke-tom
@@ -584,10 +616,13 @@ def segment(posts, raw, winmap):
         if pid in collision_spans:
             candidates.append(("kollisions-fallback", collision_spans[pid]))
         if key is not None and key in group_spans:
-            candidates.append(("gruppe-fallback", group_spans[key]))
+            candidates.append(("gruppe-fallback", _narrow_fallback_span(
+                raw, post, group_spans[key], boundaries)))
         if pid in neighbor_spans:
-            candidates.append(("nabo-fallback", neighbor_spans[pid]))
-        candidates.append(("vindue-fallback", regions[pid]))
+            candidates.append(("nabo-fallback", _narrow_fallback_span(
+                raw, post, neighbor_spans[pid], boundaries)))
+        candidates.append(("vindue-fallback", _narrow_fallback_span(
+            raw, post, regions[pid], boundaries)))
 
         metode, narrative, s = candidates[-1][0], "", candidates[-1][1][0]
         for m, (cs, ce) in candidates:

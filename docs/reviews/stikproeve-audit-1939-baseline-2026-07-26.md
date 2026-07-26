@@ -180,6 +180,7 @@ Trin 1 er gennemført lokalt. Artefaktet er **ikke** skrevet til prod endnu.
 | **Bindestreger fjernes i normaliseringen** (symmetrisk i anker og råtekst). | Navne orddelt ved linjeskift (`Ana-\nstasia`) fandtes ikke → hovedet gik tabt |
 | **`_post_number()` foretrækker `_orig_nr`.** `nr` er en GLOBAL tæller (1-539) i 1939-artefaktet, mens bogen nummererer lokalt (`4.`). Nummer-ankeret ledte altså efter `105.` hvor bogen skriver `4.` — reelt dødt for dette korpus. | Nummer-ankeret virker nu |
 | **Snap-back til postens egen nummerlinje.** Ligger ankeret inde i posten, flyttes starten tilbage til den sidste nummerlinje før ankeret — kun hvis dens tal matcher bogens lokale nummer, så der pr. konstruktion ikke ligger en fremmed postgrænse imellem. | Manglende hoved |
+| **Indsnævring af fallback-blokke.** En ankerløs post arver hele gruppens blok og kan derfor få flere personers tekst. Findes postens lokale bognummer præcis én gang i blokken, skæres blokken ned til netop den post. Fail-closed ved flertydighed. | Forkert person |
 
 Tre regressionsvagter blev skrevet *fordi* rettelserne er over-inklusive af natur:
 prosalinje der ender på `:`, bogens krydshenvisning `— Børn:`, og prosa der nævner
@@ -191,14 +192,28 @@ prosalinje der ender på `:`, bogens krydshenvisning `— Børn:`, og prosa der 
 |---|---|---|---|
 | Starter midt i sætning | 91 | **22** | −69 |
 | Gren-header inde i teksten | 33 | **2** | −31 |
-| Slutter uden punktum (hale-bleed) | 153 | **71** | −82 |
-| Under 60 tegn | 73 | 82 | +9 |
-| **Union** | **280 (51,9 %)** | **159 (29,5 %)** | **−121 (−43 %)** |
+| Slutter uden punktum (hale-bleed) | 153 | **69** | −84 |
+| Under 60 tegn | 73 | 85 | +12 |
+| **Union** | **280 (51,9 %)** | **160 (29,7 %)** | **−120 (−43 %)** |
+| **Narrativ med >1 postmarkør** (forkert person) | **14** | **5** | **−9** |
 
-216 af 539 narrativer ændret. Fordelingen af metoder blev bedre: gruppe-fallback 18 → 14,
+217 af 539 narrativer ændret. Fordelingen af metoder blev bedre: gruppe-fallback 18 → 14,
 nabo-fallback 7 → 4. **Pipelinens egen kvalitetsgate går fra rød til grøn**
 (R1/R6-proxy 666/750 = 88,8 % → 684/750 = 91,2 %, krav ≥ 90 %) — værd at bemærke at
 **artefaktet der ligger i prod i dag blev accepteret med fejlende gate.**
+
+### Kontrolmål: den fejltype der IKKE kan ses på kanterne
+
+De fire kant-prædikater (starter midt i, slutter uden punktum, …) kan **ikke** se den værste
+fejltype: et fallback-span der dækker en hel blok har rene kanter pr. konstruktion, men
+tilskriver én person flere posters tekst. Målt separat som "antal postmarkører i narrativet":
+
+- **11 poster løst** (63, 115, 172, 186, 188, 192, 199, 276, 277, 312, 533)
+- **2 poster blev værre — kendt og accepteret regression:** post 13 (+193 tegn) og post 38.
+  Begge var wrong-person *i forvejen*; de har intet lokalt bognummer der er entydigt i blokken,
+  så indsnævringen slår fail-closed fra. Ingen ny fejltype, men mere fremmed tekst på en
+  allerede forkert post.
+- **3 poster stadig multi:** 3, 29 (samme blok, 9 markører) og 141.
 
 Stigningen i "under 60 tegn" er forventet og ufarlig: når en bleedet overskrift skæres af,
 bliver en kort post kortere. Post 204 går fra 79 til 21 tegn — og 21 tegn er *hele* bogens post
@@ -221,7 +236,9 @@ sammen med hovedet. Det er præcis den mekanisme der gør trin 1 til en forudsæ
 ### Hvad der stadig fejler, og hvorfor
 
 - **Post 13 (forkert person)** er `gruppe-fallback` — der blev aldrig fundet et anker, så posten
-  arver hele gruppens blok. Skal løses ved at indsnævre fallback-spannet, ikke ved bedre snit.
+  arver hele gruppens blok. Indsnævringen hjælper ikke her: postens lokale nummer (`1`) optræder
+  flere gange i blokken, og reglen er bevidst fail-closed. Kræver en stærkere binding
+  (fx rækkefølge inden for gruppen) end nummer-entydighed.
 - **Post 59, 92, 112, 125** ligger i bogens *prosa-oversigtsafsnit*, hvor posterne ikke er
   nummereret (`_orig_nr` er `None` eller `A)`). Snap-back har intet at snappe til. Kræver
   understøttelse af bogstavmarkører (`A)`, `B)`) og af unummereret oversigtsprosa.
