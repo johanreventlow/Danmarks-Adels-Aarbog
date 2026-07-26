@@ -24,6 +24,12 @@ export interface MatchCfg {
   wName: number; wBirth: number; wDeath: number; wSex: number;
   autoCutoff: number; reviewCutoff: number; ambiguityMargin: number;
   topK: number;
+  /** Vægt kun de signaler der FAKTISK kunne vurderes, og normalisér over dem.
+   *  Uden dette har en person uden årstal et loft på wName + wSex — for bogens
+   *  ægtefæller (sjældent årstal) er det præcis reviewCutoff, så de kan ikke bestå
+   *  uanset hvor godt navnet passer. Opt-in: ændrer tier-fordelingen for hele
+   *  korpuset og skal måles, ikke antages. */
+  evidensNormaliseret?: boolean;
 }
 
 export function defaultCfg(): MatchCfg {
@@ -46,6 +52,12 @@ export interface ScoredPair {
   deathOverlap: boolean;
   sexEq: boolean;
   uniqueBlock: boolean;
+  // Kunne signalet overhovedet vurderes? (dato/køn kendt på BEGGE sider). Skelner
+  // "ingen evidens" fra "uenighed" — uden det kan et manglende årstal ikke skelnes
+  // fra et årstal der modsiger. Se evidensNormaliseret i MatchCfg.
+  birthKendt?: boolean;
+  deathKendt?: boolean;
+  koenKendt?: boolean;
   score?: number;
   tier?: Tier;
 }
@@ -114,6 +126,22 @@ export function scorePair(
     + cfg.wSex * (sexEq ? 1 : 0);
 }
 
+/** Score normaliseret over de signaler der kunne vurderes. Et UKENDT årstal tages ud
+ *  af nævneren (ingen evidens), mens et KENDT men ikke-overlappende årstal bliver
+ *  stående og tæller imod parret (uenighed). Navnet vejer altid med. */
+export function scorePairEvidens(p: ScoredPair, cfg: MatchCfg): number {
+  const birth = p.birthKendt ?? (p.birthOverlap || false);
+  const death = p.deathKendt ?? (p.deathOverlap || false);
+  const koen = p.koenKendt ?? (p.sexEq || false);
+  const naevner = cfg.wName
+    + (birth ? cfg.wBirth : 0) + (death ? cfg.wDeath : 0) + (koen ? cfg.wSex : 0);
+  const taeller = cfg.wName * p.nameSim
+    + (birth && p.birthOverlap ? cfg.wBirth : 0)
+    + (death && p.deathOverlap ? cfg.wDeath : 0)
+    + (koen && p.sexEq ? cfg.wSex : 0);
+  return naevner > 0 ? taeller / naevner : 0;
+}
+
 /** Byg kandidat-par: blocking (fornavns-initial af foldet nøgle) + fødselsårs-vindue +
  *  name_floor-prune + top-K. Disjunkte kilder forudsættes af kalderen (a ⟂ b). */
 export function buildScored(a: MatchFrame[], b: MatchFrame[], cfg: MatchCfg = defaultCfg()): ScoredPair[] {
@@ -150,6 +178,9 @@ export function buildScored(a: MatchFrame[], b: MatchFrame[], cfg: MatchCfg = de
         birthOverlap: overlapEvidence(af.birthMin, af.birthMax, c.birthMin, c.birthMax),
         deathOverlap: overlapEvidence(af.deathMin, af.deathMax, c.deathMin, c.deathMax),
         sexEq: af.sex === c.sex && af.sex !== 'ukendt',
+        birthKendt: (af.birthMin != null || af.birthMax != null) && (c.birthMin != null || c.birthMax != null),
+        deathKendt: (af.deathMin != null || af.deathMax != null) && (c.deathMin != null || c.deathMax != null),
+        koenKendt: af.sex !== 'ukendt' && c.sex !== 'ukendt',
       }))
       .filter((x) => x.sim >= nameFloor);
     if (!scored.length) continue;
@@ -164,8 +195,11 @@ export function buildScored(a: MatchFrame[], b: MatchFrame[], cfg: MatchCfg = de
         .map((w) => w.x);
     }
 
-    for (const { c, sim, birthOverlap, deathOverlap, sexEq } of scored) {
-      out.push({ aId: af.id, bId: c.id, nameSim: sim, birthOverlap, deathOverlap, sexEq, uniqueBlock: nPlausible === 1 });
+    for (const { c, sim, birthOverlap, deathOverlap, sexEq, birthKendt, deathKendt, koenKendt } of scored) {
+      out.push({
+        aId: af.id, bId: c.id, nameSim: sim, birthOverlap, deathOverlap, sexEq,
+        birthKendt, deathKendt, koenKendt, uniqueBlock: nPlausible === 1,
+      });
     }
   }
   return out;
@@ -177,7 +211,9 @@ export function assignTiers(scored: ScoredPair[], cfg: MatchCfg = defaultCfg()):
   interface Row extends ScoredPair { score: number; _margin: number; _isTop: boolean }
   const rows: Row[] = scored.map((s) => ({
     ...s,
-    score: scorePair(s.nameSim, s.birthOverlap, s.deathOverlap, s.sexEq, cfg),
+    score: cfg.evidensNormaliseret
+      ? scorePairEvidens(s, cfg)
+      : scorePair(s.nameSim, s.birthOverlap, s.deathOverlap, s.sexEq, cfg),
     _margin: Infinity, _isTop: false,
   }));
 
@@ -196,7 +232,12 @@ export function assignTiers(scored: ScoredPair[], cfg: MatchCfg = defaultCfg()):
   const usedA = new Set<Id>(), usedB = new Set<Id>();
   for (const r of ordered) {
     if (usedA.has(r.aId) || usedB.has(r.bId)) { r.tier = 'none'; continue; }
-    if (r.score >= cfg.autoCutoff && r._margin >= cfg.ambiguityMargin && r._isTop) {
+    // Navn alene er aldrig nok til "stærk". Normaliseringen kan løfte et rent
+    // navnematch til 1,00, fordi der intet er at modsige det med — men fravær af
+    // evidens er ikke styrke. Måling mod prod: uden denne spærre blev 152 par
+    // uden ét eneste årstal markeret stærke (fx "Otto ↔ Otto").
+    const kunNavn = cfg.evidensNormaliseret && !r.birthKendt && !r.deathKendt;
+    if (!kunNavn && r.score >= cfg.autoCutoff && r._margin >= cfg.ambiguityMargin && r._isTop) {
       r.tier = 'auto'; usedA.add(r.aId); usedB.add(r.bId);
     } else if (r.score >= cfg.reviewCutoff) {
       r.tier = 'review';
