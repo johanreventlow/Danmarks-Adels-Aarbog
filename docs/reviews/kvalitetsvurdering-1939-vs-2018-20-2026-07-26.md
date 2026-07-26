@@ -205,6 +205,12 @@ datofejl på 591 poster (~1 %), empirisk verificeret. Det eneste der reelt bør 
 **16,4 % uparsede datoer** — sandsynligvis relative former (`s.å.`/`s.m.`), som bevidst blev
 sprunget over i A2.
 
+➡️ **Auditeret med samme harness:**
+[`stikproeve-audit-2018-20-2026-07-26.md`](stikproeve-audit-2018-20-2026-07-26.md) (N=28).
+**27/28 narrativer ordret identiske med bogen; 0 mangelfulde forældrelink.** Eneste fund:
+14 narrativer korpus-bredt med en trailing sektionsoverskrift. Brugerens vurdering — at
+2018-20 samlet er bedre — er nu målt, ikke antaget.
+
 ---
 
 ## 7. Sideobservation (ikke kvalitet — synlighed)
