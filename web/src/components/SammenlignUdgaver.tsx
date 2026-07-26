@@ -259,6 +259,26 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
     return hints;
   }, [aabne, rawDb, existingEdges]);
 
+  // Bøttet child->[ParentChild] én gang, så foraeldreNavne() slår O(1) op i stedet for
+  // at scanne HELE familieGraf.parentChild (~1500-2000 kanter) for hver kandidat-række.
+  // Uden dette kører scanningen 2x pr. synlig række (A-side + B-side) på HVERT klik —
+  // ethvert state-skift (aabentPar, busy, søgning) re-kører render-funktionen for
+  // samtlige rækker i "aabne", og efter evidensNormaliseret-ændringen (review 304->3229
+  // par) blev det tungt nok til at hænge synligt. Målt: ~1800 kanter × 2 kald × op til
+  // hundredvis af synlige rækker = millioner af array-operationer pr. klik.
+  const parentChildByChild = useMemo(() => {
+    const m = new Map<string, ParentChild[]>();
+    for (const pc of familieGraf.parentChild) {
+      const arr = m.get(pc.child);
+      if (arr) arr.push(pc); else m.set(pc.child, [pc]);
+    }
+    return m;
+  }, [familieGraf.parentChild]);
+  const foraeldreEdgesFor = useCallback(
+    (personId: string) => parentChildByChild.get(personId) ?? [],
+    [parentChildByChild],
+  );
+
   const medSvage = useMemo(
     () => formodetNye.filter((p) => p.svageKandidater.some((k) => !k.afvist)).length,
     [formodetNye],
@@ -476,7 +496,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
           {filtreredeAabne.map((person) => {
         const a = byId.get(person.aId);
         const aDetaljer = [
-          foraeldreNavne(person.aId, familieGraf.parentChild, byId),
+          foraeldreNavne(person.aId, foraeldreEdgesFor(person.aId), byId),
           formatBogReferencer(a),
         ].filter(Boolean);
         return (
@@ -501,7 +521,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
               const hint = foldHint(person.aId, bId, k.linket);
               const advice = hint.grund ? foldAdvice(hint.grund) : null;
               const bDetaljer = [
-                foraeldreNavne(bId, familieGraf.parentChild, byId),
+                foraeldreNavne(bId, foraeldreEdgesFor(bId), byId),
                 formatBogReferencer(b),
               ].filter(Boolean);
               return (
