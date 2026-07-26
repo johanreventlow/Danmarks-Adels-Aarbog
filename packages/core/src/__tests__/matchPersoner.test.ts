@@ -1,9 +1,10 @@
-import { describe, test, expect } from 'vitest';
+import { describe, test, it, expect } from 'vitest';
 import {
   buildMatchFrame,
   buildMatchPersoner,
   matchUdgaver,
   parseIkkeSammeSomPar,
+  udledKilderForAegtefaeller,
 } from '../matchUdgaver';
 
 describe('buildMatchPersoner — DB-rækker → MatchFrame-input (§11)', () => {
@@ -154,5 +155,48 @@ describe('buildMatchPersoner — DB-rækker → MatchFrame-input (§11)', () => 
 describe('parseIkkeSammeSomPar', () => {
   test('relation-rækker → afvisnings-par som strenge', () => {
     expect(parseIkkeSammeSomPar([{ subjekt_id: 3, objekt_id: 8 }])).toEqual([{ aId: '3', bId: '8' }]);
+  });
+});
+
+// ---------------------------------------- udgave-tilhør for ægtefæller
+
+describe('udledKilderForAegtefaeller', () => {
+  const P = (id: string, sourceIds: number[]) => ({ id, sourceIds });
+  const U = (id: string, p1: string, p2: string | null) =>
+    ({ id, p1, p2, p2_name: null, year: null });
+
+  it('giver ægtefællen uden bog-nummer samme udgave som sin partner', () => {
+    const ud = udledKilderForAegtefaeller(
+      [P('1', [3]), P('2', [])],
+      [U('f1', '1', '2')],
+    );
+    expect(ud.find((p) => p.id === '2')!.sourceIds).toEqual([3]);
+  });
+
+  it('rører ikke personer der allerede har et bog-nummer', () => {
+    const ud = udledKilderForAegtefaeller(
+      [P('1', [3]), P('2', [1])],
+      [U('f1', '1', '2')],
+    );
+    expect(ud.find((p) => p.id === '2')!.sourceIds).toEqual([1]);
+  });
+
+  it('udleder IKKE når partnerne peger på flere udgaver (bevarer disjunkthed)', () => {
+    // Person 3 er partner i to familier — én i hver udgave. Tvetydigt.
+    const ud = udledKilderForAegtefaeller(
+      [P('1', [3]), P('2', [1]), P('3', [])],
+      [U('f1', '1', '3'), U('f2', '2', '3')],
+    );
+    expect(ud.find((p) => p.id === '3')!.sourceIds).toEqual([]);
+  });
+
+  it('lader ægtefællen være når ingen i familien har bog-nummer', () => {
+    const ud = udledKilderForAegtefaeller([P('1', []), P('2', [])], [U('f1', '1', '2')]);
+    expect(ud.every((p) => p.sourceIds.length === 0)).toBe(true);
+  });
+
+  it('tåler unioner med kun én partner', () => {
+    const ud = udledKilderForAegtefaeller([P('1', [3])], [U('f1', '1', null)]);
+    expect(ud.find((p) => p.id === '1')!.sourceIds).toEqual([3]);
   });
 });

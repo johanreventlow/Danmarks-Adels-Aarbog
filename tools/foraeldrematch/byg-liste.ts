@@ -119,16 +119,14 @@ Hvert punkt er ét forældrepar der optræder i begge udgaver uden at være matc
 Matcher du personerne i punktet, forsvinder karantænen for **alle** de børn der er
 nævnt — de vises derefter som én person i stedet for to.
 
-> ⚠️ **LÆS FØRST — listen kan ikke bruges endnu.**
-> Ingen af punkterne kan gennemføres i redaktørfladen som den ser ud i dag.
-> Hvert eneste par omfatter mindst én ægtefælle uden eget bog-nummer, og
-> \`buildMatchPersoner\` giver kun personer med et bog-nummer et udgave-tilhør
-> (\`sourceIds: []\`). Uden udgave-tilhør bliver de aldrig kandidater i matcheren.
+> ℹ️ **Kræver at rettelsen er deployet.**
+> Ægtefæller har sjældent eget bog-nummer, og matcheren gav kun personer med et
+> bog-nummer et udgave-tilhør — derfor kunne ingen af punkterne gennemføres.
+> \`udledKilderForAegtefaeller\` (PR #90) lader ægtefællen arve udgaven fra sin
+> partner, entydigt eller slet ikke. Målt mod prod-data: 627 ægtefæller får en
+> udgave, 0 bliver flertydige, og **alle 77 forældrepar kan derefter gennemføres**.
 >
-> Karantænen løftes først når **begge** forældre på begge sider er matchet —
-> reglen kræver at forældresættene bliver helt identiske. Derfor er listen
-> foreløbig kun en oversigt over, hvad der venter, når ægtefæller kan matches.
-> Se \`docs/reviews/kryds-udgave-udfyldning-scoping-2026-07-26.md\`.
+> Indtil web-appen er deployet med rettelsen, er listen en oversigt — ikke en to-do.
 
 Arbejd oppefra: de øverste giver mest for indsatsen.
 
