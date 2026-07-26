@@ -52,7 +52,8 @@ DECLARE
   v_qa text[];
 BEGIN
   INSERT INTO source(id,titel,udgave,import_key) VALUES
-    (-987656101,'Grid verify-kilde','Grid verify 1','daa:1939');
+    (-987656101,'Grid verify-kilde','Grid verify 1','daa:1939'),
+    (-987656102,'Grid verify-ekstra','Grid verify 2','daa:1940');
   INSERT INTO person(id,koen) VALUES
     (-987656111,'mand'), (-987656112,'kvinde'), (-987656113,NULL),
     (-987656114,'ukendt'), (-987656115,'mand'), (-987656116,'kvinde');
@@ -63,7 +64,8 @@ BEGIN
     (-987656113,-987656101,'I',17,NULL,4),
     (-987656114,-987656101,'II',1,'II-1',1),
     (-987656115,-987656101,'II',2,'II-2',1),
-    (-987656116,-987656101,'II',3,'II-3',1);
+    (-987656116,-987656101,'II',3,'II-3',1),
+    (-987656116,-987656102,'II',3,'II-3-ny',1);
 
   -- Normal person: selected source assertions, titel/familie/relation-counts and
   -- deliberately odd OCR/date context for the deterministic QA contract.
@@ -104,7 +106,7 @@ BEGIN
     (-987656407,'fact',-987656207,-987656307,'afklaret'),
     (-987656408,'fact',-987656208,-987656308,'afklaret'),
     (-987656409,'fact',-987656209,-987656309,'afklaret'),
-    (-987656410,'fact',-987656210,-987656310,'afklaret'),
+    (-987656410,'fact',-987656210,-987656310,'forældet'),
     (-987656411,'fact',-987656211,-987656311,'afklaret'),
     (-987656412,'fact',-987656212,-987656312,'afklaret');
   INSERT INTO citation(id,assertion_id,source_id,side,citat_tekst) VALUES
@@ -169,8 +171,22 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656112
                  AND kan_rettes->>'foedsel'='false'
-                 AND blokarsager->>'foedsel'='flere_importerede_facts') THEN
-    RAISE EXCEPTION 'FEJL: flere importerede fødselsfacts er ikke fail-closed';
+                 AND blokarsager->>'foedsel'='flere_importerede_facts'
+                 AND foedsel_assertion_id IS NULL AND foedsel_raw IS NULL
+                 AND foedsel_min IS NULL AND foedsel_max IS NULL
+                 AND ocr_context->'foedsel' IS NULL) THEN
+    RAISE EXCEPTION 'FEJL: flere importerede fødselsfacts er ikke koherent fail-closed';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656115
+                 AND navn IS NULL AND navn_assertion_id IS NULL
+                 AND kan_rettes->>'navn'='false'
+                 AND NOT (qa_koder @> ARRAY['ocr_kontekst_mangler']::text[])) THEN
+    RAISE EXCEPTION 'FEJL: ikke-afklaret konklusion projekteres stadig';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656116
+                 AND kan_rettes='{"navn": false, "foedsel": false, "doed": false, "koen": false}'::jsonb
+                 AND blokarsager='{"navn": "flere_importankre", "foedsel": "flere_importankre", "doed": "flere_importankre", "koen": "flere_importankre"}'::jsonb) THEN
+    RAISE EXCEPTION 'FEJL: flere importankre er ikke blokeret for alle felter';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656113
                  AND kan_rettes->>'navn'='false' AND blokarsager->>'navn'='record_key_mangler') THEN

@@ -229,7 +229,7 @@ BEGIN
       a.calendar, a.date_certainty
     FROM fact f JOIN conclusion cn ON cn.target_type='fact' AND cn.target_id=f.id
       JOIN assertion a ON a.id=cn.valgt_assertion_id
-    WHERE f.subjekt_type='person' AND f.faktatype IN ('navn','fødsel','død')
+    WHERE f.subjekt_type='person' AND f.faktatype IN ('navn','fødsel','død') AND cn.status='afklaret'
   ), cited_assertions AS (
     SELECT sa.*, c.source_id, count(c.id)::integer AS citation_count,
       (array_agg(c.citat_tekst ORDER BY c.id))[1] AS ocr_context,
@@ -249,9 +249,15 @@ BEGIN
       AND ca.citation_count > 0
   ), field_rollup AS (
     SELECT grid_person_id,felt,count(DISTINCT assertion_id)::integer AS candidate_count,
-      min(assertion_id) AS assertion_id,max(vaerdi_tekst) AS vaerdi_tekst,max(date_raw) AS date_raw,
-      max(date_min) AS date_min,max(date_max) AS date_max,max(date_qualifier) AS date_qualifier,
-      max(ocr_context) AS ocr_context,max(kilde_side) AS kilde_side,(array_agg(current_importeret ORDER BY assertion_id))[1] AS current_importeret
+      CASE WHEN count(DISTINCT assertion_id)=1 THEN min(assertion_id) END AS assertion_id,
+      CASE WHEN count(DISTINCT assertion_id)=1 THEN min(vaerdi_tekst) END AS vaerdi_tekst,
+      CASE WHEN count(DISTINCT assertion_id)=1 THEN min(date_raw) END AS date_raw,
+      CASE WHEN count(DISTINCT assertion_id)=1 THEN min(date_min) END AS date_min,
+      CASE WHEN count(DISTINCT assertion_id)=1 THEN min(date_max) END AS date_max,
+      CASE WHEN count(DISTINCT assertion_id)=1 THEN min(date_qualifier) END AS date_qualifier,
+      CASE WHEN count(DISTINCT assertion_id)=1 THEN min(ocr_context) END AS ocr_context,
+      CASE WHEN count(DISTINCT assertion_id)=1 THEN min(kilde_side) END AS kilde_side,
+      CASE WHEN count(DISTINCT assertion_id)=1 THEN (array_agg(current_importeret ORDER BY assertion_id))[1] END AS current_importeret
     FROM field_candidates GROUP BY grid_person_id,felt
   ), title_counts AS (
     SELECT f.subjekt_id AS grid_person_id,count(*)::integer AS antal_titler FROM fact f
