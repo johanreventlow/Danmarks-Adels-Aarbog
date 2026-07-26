@@ -192,6 +192,30 @@ apply_import_correction <- function(import_key, record_key, felt, importeret,
   result
 }
 
+# Normalisér en enkelt værdi fra en afkodet korrektion til en buffer-egnet skalar.
+# jsonlite::fromJSON() bruger default null = "list", så JSON-null bliver list() og ikke
+# NULL. En sådan nul-længde-værdi overlever g()'s NULL-guard, og unlist() i rows_to_df
+# dropper den bagefter, så kolonnen bliver kortere end tabellen.
+correction_scalar <- function(x) {
+  if (is.null(x) || length(x) == 0L) return(NA)
+  if (length(x) > 1L)
+    stop("Korrektionsværdi skal være en skalar, fik ", length(x), " elementer.")
+  if (is.list(x)) return(correction_scalar(x[[1L]]))
+  x
+}
+
+# Fail-closed: en buffer-kolonne der ikke har præcis én værdi pr. række ville ellers
+# først fejle i as.data.frame() med en besked uden tabel- eller kolonnenavn.
+assert_buffer_columns <- function(data, nrows, tbl = NA_character_) {
+  lens <- vapply(data, length, integer(1))
+  bad <- names(lens)[lens != nrows]
+  if (length(bad))
+    stop("Buffer-tabel '", tbl, "': kolonne(r) ", paste(bad, collapse = ", "),
+         " har længde ", paste(lens[bad], collapse = ", "),
+         " men tabellen har ", nrows, " rækker.")
+  invisible(TRUE)
+}
+
 stale_correction_ids <- function(results) {
   ids <- vapply(results, function(result) {
     if (identical(result$status, "stale")) result$correction_id %||% NA else NA

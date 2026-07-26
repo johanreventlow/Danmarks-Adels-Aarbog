@@ -68,10 +68,15 @@ if (!length(clean)) stop("clean.json er tom — intet at loade.")
 # ---- forbindelse ----
 host <- Sys.getenv("SUPABASE_HOST"); user <- Sys.getenv("SUPABASE_USER"); pw <- Sys.getenv("SUPABASE_PASSWORD")
 if (host == "" || user == "" || pw == "") stop("Sæt SUPABASE_HOST/USER/PASSWORD i ~/.Renviron.")
+# sslmode defaulter til "require" (Supabase-kravet). Kun en lokal engangsdatabase uden
+# TLS må sætte SUPABASE_SSLMODE=disable — aldrig mod en fjernvært.
+sslmode <- Sys.getenv("SUPABASE_SSLMODE", "require")
+if (sslmode != "require" && !(host %in% c("127.0.0.1", "localhost", "::1")))
+  stop("SUPABASE_SSLMODE != require er kun tilladt mod en lokal vært; fik host=", host)
 con <- dbConnect(RPostgres::Postgres(), host = host,
                  port = as.integer(Sys.getenv("SUPABASE_PORT", "5432")),
                  dbname = Sys.getenv("SUPABASE_DB", "postgres"),
-                 user = user, password = pw, sslmode = "require", bigint = "integer")
+                 user = user, password = pw, sslmode = sslmode, bigint = "integer")
 
 ex <- function(sql, params = list()) if (length(params)) dbExecute(con, sql, params = params) else dbExecute(con, sql)
 model_tables <- loader_model_tables()
@@ -102,16 +107,17 @@ nid <- function(t) { v <- (if (is.null(.seq[[t]])) 0L else .seq[[t]]) + 1L; .seq
 .buf <- new.env(parent = emptyenv())
 .unresolved <- new.env(parent = emptyenv()); .unresolved$rows <- list()
 push <- function(tbl, row) { .buf[[tbl]] <- c(.buf[[tbl]], list(row)); invisible() }
-rows_to_df <- function(rows) {
+rows_to_df <- function(rows, tbl = NA_character_) {
   cols <- names(rows[[1]])
   data <- lapply(cols, function(cn)
     unlist(lapply(rows, function(r) { v <- r[[cn]]; if (is.null(v)) NA else v }), use.names = FALSE))
   names(data) <- cols
+  assert_buffer_columns(data, length(rows), tbl)
   as.data.frame(data, stringsAsFactors = FALSE, optional = TRUE)
 }
 flush_all <- function() {
   flush_buffer_in_dependency_order(.buf, function(tbl, rows) {
-    dbAppendTable(con, tbl, rows_to_df(rows))
+    dbAppendTable(con, tbl, rows_to_df(rows, tbl))
   })
 }
 
@@ -196,7 +202,10 @@ rel_value <- function(st, sid_, ot, oid_, rolle, raw=NA, em=NA, sid) {
   rid <- add_relation(st, sid_, ot, oid_, rolle, raw, em)
   aid <- add_assertion("relation", rid, vaerdi=rolle, raw=raw)
   add_citation(aid, sid); add_conclusion("relation", rid, aid); invisible(rid) }
-g <- function(x, k, d=NA) if (!is.null(x[[k]])) x[[k]] else d
+# NB: jsonlite er asymmetrisk — JSON-null læses som NULL, men skrives tilbage som {},
+# der læses som en tom liste. is.null() fanger ikke den tomme liste, og en nul-længde-
+# værdi ville derefter blive droppet af unlist() i rows_to_df og korrumpere kolonnen.
+g <- function(x, k, d=NA) { v <- x[[k]]; if (is.null(v) || length(v) == 0L) d else v }
 # Adskil ledende adelstitel fra navnet (titel != navn, datamodel §5). Nogle
 # udtræk bager titlen ind i navnet -> ryddes her, så navn-fakta er rent.
 .titler <- c("lensgrevinde","lensgreve","rigsgrevinde","rigsgreve","grevinde","komtesse",
@@ -305,14 +314,14 @@ tryCatch({
     if (identical(navn_overlay$status, "stale"))
       stale_results <- c(stale_results, list(navn_overlay))
     navn <- if (identical(navn_overlay$status, "anvendt"))
-      fromJSON(navn_overlay$value, simplifyVector = FALSE)$value else rec$navn
+      correction_scalar(fromJSON(navn_overlay$value, simplifyVector = FALSE)$value) else rec$navn
 
     koen_overlay <- apply_import_correction(IMPORT_KEY, record_key, "koen", g(rec, "koen"),
                                             NA_character_, correction_index)
     if (identical(koen_overlay$status, "stale"))
       stale_results <- c(stale_results, list(koen_overlay))
     koen <- if (identical(koen_overlay$status, "anvendt"))
-      fromJSON(koen_overlay$value, simplifyVector = FALSE)$value else g(rec, "koen")
+      correction_scalar(fromJSON(koen_overlay$value, simplifyVector = FALSE)$value) else g(rec, "koen")
 
     pid <- add_person(koen)
     assign(k, pid, envir = pmap); assign(k, isTRUE(rec$usikker), envir = umap)
@@ -340,12 +349,12 @@ tryCatch({
           stale_results <- c(stale_results, list(date_overlay))
         if (identical(date_overlay$status, "anvendt")) {
           corrected_date <- fromJSON(date_overlay$value, simplifyVector = FALSE)
-          f$date_raw <- corrected_date$raw
-          f$date_min <- corrected_date$min
-          f$date_max <- corrected_date$max
-          f$date_qualifier <- corrected_date$qualifier
-          f$calendar <- corrected_date$calendar
-          f$date_certainty <- corrected_date$certainty
+          f$date_raw <- correction_scalar(corrected_date$raw)
+          f$date_min <- correction_scalar(corrected_date$min)
+          f$date_max <- correction_scalar(corrected_date$max)
+          f$date_qualifier <- correction_scalar(corrected_date$qualifier)
+          f$calendar <- correction_scalar(corrected_date$calendar)
+          f$date_certainty <- correction_scalar(corrected_date$certainty)
         }
       }
       fact_value(pid, f$faktatype, vaerdi = g(f,"vaerdi"), dmin = g(f,"date_min"),

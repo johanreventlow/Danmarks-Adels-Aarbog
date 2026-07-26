@@ -330,3 +330,191 @@ test_that("stale genafspilning lader importen stå og udpeger kun stale journal-
   expect_identical(result$status, "stale")
   expect_equal(stale_correction_ids(list(result, list(status = "anvendt", correction_id = 42L))), 41L)
 })
+
+# jsonlite::fromJSON() har default null = "list", så JSON-null bliver til list() og ikke
+# til NULL. Uden normalisering slipper den nul-længde-værdi hele vejen ind i buffer-rækken,
+# hvor unlist() dropper den og kolonnen bliver kortere end tabellen.
+test_that("korrektionsværdier normaliseres fra JSON-null til NA", {
+  expect_identical(correction_scalar(list()), NA)
+  expect_identical(correction_scalar(NULL), NA)
+  expect_identical(correction_scalar(character(0)), NA)
+  expect_identical(correction_scalar("Mikkel Rettet"), "Mikkel Rettet")
+  expect_identical(correction_scalar(list("kvinde")), "kvinde")
+  expect_error(correction_scalar(list("a", "b")), "skalar")
+})
+
+test_that("en rettet dato med certainty=null giver kun skalarer til buffer-rækken", {
+  corrected <- jsonlite::fromJSON(
+    '{"raw":"1645-01-01","min":"1645-01-01","max":"1645-01-01","qualifier":"exact","calendar":"gregoriansk","certainty":null}',
+    simplifyVector = FALSE)
+
+  expect_identical(length(corrected$certainty), 0L)   # fælden: JSON-null -> list()
+  expect_identical(correction_scalar(corrected$certainty), NA)
+  expect_identical(correction_scalar(corrected$raw), "1645-01-01")
+})
+
+test_that("buffer-kolonner med afvigende længde fejler med tabel- og kolonnenavn", {
+  ok <- list(id = c(1L, 2L), vaerdi = c("a", "b"))
+  expect_silent(assert_buffer_columns(ok, 2L, "assertion"))
+
+  broken <- list(id = c(1L, 2L, 3L), date_certainty = c(NA, NA))
+  expect_error(assert_buffer_columns(broken, 3L, "assertion"),
+               "assertion.*date_certainty.*2.*3")
+})
+
+test_that("opt-in lokal DB-smoke genafspiller rettelser efter reset og ruller stale tilbage", {
+  skip_if_not(identical(Sys.getenv("DAA_RUN_LOCAL_DB_SMOKE"), "1"))
+
+  import_key <- "daa:test:ocr-kvalitetsark"
+  record_key <- "I-15a"
+  smoke_uid <- "00000000-0000-0000-0000-00000000f505"
+  smoke_db <- "daa_person_grid_loader_task5_test"
+  root <- normalizePath(file.path(getwd(), "..", ".."))
+  fixture <- file.path(root, "tests/fixtures/person-ocr-kvalitetsark-clean.json")
+  loader <- file.path(root, ".claude/skills/daa-extract/scripts/load_daa.R")
+  psql <- "/opt/homebrew/opt/postgresql@17/bin/psql"
+  expect_true(grepl("^[a-z0-9_]+$", smoke_db))
+  admin <- DBI::dbConnect(RPostgres::Postgres(), host = "127.0.0.1", port = 5432,
+                          dbname = "postgres", bigint = "integer")
+  DBI::dbExecute(admin, sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", smoke_db))
+  DBI::dbExecute(admin, sprintf("CREATE DATABASE %s", smoke_db))
+  DBI::dbDisconnect(admin)
+  drop_smoke_database <- function() {
+    admin <- try(DBI::dbConnect(RPostgres::Postgres(), host = "127.0.0.1", port = 5432,
+                                dbname = "postgres", bigint = "integer"), silent = TRUE)
+    if (!inherits(admin, "try-error")) {
+      try(DBI::dbExecute(admin, sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", smoke_db)), silent = TRUE)
+      DBI::dbDisconnect(admin)
+    }
+  }
+  on.exit(drop_smoke_database(), add = TRUE)
+
+  # Supabase-shim: auth-laget findes ikke i schema.sql. auth.uid() er Supabases
+  # ægte definition, som RLS-politikkerne og korrektions-RPC'en bygger på.
+  shim <- DBI::dbConnect(RPostgres::Postgres(), host = "127.0.0.1", port = 5432,
+                         dbname = smoke_db, bigint = "integer")
+  DBI::dbExecute(shim, "
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon NOLOGIN; END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role NOLOGIN; END IF;
+    END $$;")
+  DBI::dbExecute(shim, "CREATE SCHEMA IF NOT EXISTS auth")
+  DBI::dbExecute(shim, "CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY, email text)")
+  DBI::dbExecute(shim, "
+    CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS
+    $$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;")
+  DBI::dbDisconnect(shim)
+
+  for (sql_file in c("schema.sql", "db-migrations.sql", "db-rls.sql")) {
+    output <- system2(psql, c("-h", "127.0.0.1", "-d", smoke_db, "-v", "ON_ERROR_STOP=1",
+                              "-f", file.path(root, sql_file)), stdout = TRUE, stderr = TRUE)
+    if (!identical(attr(output, "status") %||% 0L, 0L))
+      stop("Kunne ikke oprette lokal smoke-database med ", sql_file, ":\n", paste(output, collapse = "\n"))
+  }
+  con <- DBI::dbConnect(RPostgres::Postgres(), host = "127.0.0.1", port = 5432,
+                        dbname = smoke_db, bigint = "integer")
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  cleanup <- function() {
+    try(DBI::dbExecute(con, "DROP TRIGGER IF EXISTS daa_loader_smoke_fail ON person"), silent = TRUE)
+    try(DBI::dbExecute(con, "DROP FUNCTION IF EXISTS daa_loader_smoke_fail()"), silent = TRUE)
+    try(DBI::dbExecute(con, "DELETE FROM import_korrektion WHERE import_key=$1", params = list(import_key)), silent = TRUE)
+    try(DBI::dbExecute(con, "DELETE FROM change_set WHERE operation='red_ret_ocr_felt' AND summary LIKE $1",
+                       params = list(paste0("OCR-%: ", import_key, "/%"))), silent = TRUE)
+    try(DBI::dbExecute(con, paste0("TRUNCATE ", paste(loader_model_tables(), collapse = ", "), " RESTART IDENTITY CASCADE")), silent = TRUE)
+    try(DBI::dbExecute(con, "DELETE FROM profiles WHERE id=$1", params = list(smoke_uid)), silent = TRUE)
+    try(DBI::dbExecute(con, "DELETE FROM auth.users WHERE id=$1", params = list(smoke_uid)), silent = TRUE)
+  }
+  cleanup()
+  on.exit(cleanup(), add = TRUE)
+
+  # R indlæser ~/.Renviron ved opstart og OVERSKRIVER arvede miljøvariabler. Uden
+  # R_ENVIRON_USER=/dev/null ville child-loaderen ignorere SUPABASE_* nedenfor og
+  # forbinde til den rigtige (produktions-)vært fra ~/.Renviron.
+  child_env <- c("R_ENVIRON_USER=/dev/null",
+                 "SUPABASE_HOST=127.0.0.1", "SUPABASE_PORT=5432", paste0("SUPABASE_DB=", smoke_db),
+                 "SUPABASE_USER=johanreventlow", "SUPABASE_PASSWORD=local-test-only",
+                 "SUPABASE_SSLMODE=disable")
+
+  # Fail-closed: bevis at child-processen faktisk ser den disponible lokale database,
+  # før loaderen får lov at skrive noget som helst.
+  probe <- system2("Rscript", c("-e", shQuote('cat(Sys.getenv("SUPABASE_HOST"), Sys.getenv("SUPABASE_DB"))')),
+                   stdout = TRUE, stderr = TRUE, env = child_env)
+  expect_identical(paste(probe, collapse = " "), paste("127.0.0.1", smoke_db))
+  if (!identical(paste(probe, collapse = " "), paste("127.0.0.1", smoke_db)))
+    stop("Child-R ser ikke smoke-databasen (~/.Renviron-override?); afbryder før skrivning: ",
+         paste(probe, collapse = " "))
+
+  run_loader <- function(input, reset = FALSE) {
+    args <- c(loader, input, shQuote("DAA OCR-fixture 2026"), paste0("--import-key=", import_key))
+    if (reset) args <- c(args, "--reset")
+    old_wd <- setwd(root)
+    on.exit(setwd(old_wd), add = TRUE)
+    output <- system2("Rscript", args, stdout = TRUE, stderr = TRUE, env = child_env)
+    list(status = attr(output, "status") %||% 0L, output = output)
+  }
+  scalar <- function(sql, params = list()) DBI::dbGetQuery(con, sql, params = params)[[1]][1]
+  set_redaktion <- function() {
+    DBI::dbExecute(con, "INSERT INTO auth.users(id,email) VALUES ($1,$2)",
+                   params = list(smoke_uid, "loader-smoke@test.invalid"))
+    DBI::dbExecute(con, "INSERT INTO profiles(id,rolle,email) VALUES ($1,'redaktion',$2)",
+                   params = list(smoke_uid, "loader-smoke@test.invalid"))
+    DBI::dbExecute(con, "SELECT set_config('request.jwt.claim.sub',$1,false)", params = list(smoke_uid))
+  }
+  grid_field <- function(person_id, felt) scalar(
+    sprintf("SELECT input_fingerprint->>'%s' FROM red_person_grid() WHERE person_id=$1", felt), list(person_id)
+  )
+  call_correction <- function(person_id, felt, value) {
+    fingerprint <- grid_field(person_id, felt)
+    DBI::dbGetQuery(con,
+      "SELECT red_ret_ocr_felt($1,$2,$3,$4,$5,$6::jsonb,'rettet')",
+      params = list(person_id, import_key, record_key, felt, fingerprint, value))
+  }
+
+  initial <- run_loader(fixture, reset = TRUE)
+  expect_identical(initial$status, 0L, info = paste(initial$output, collapse = "\n"))
+  if (!identical(initial$status, 0L)) return(invisible())
+  first_id <- scalar("SELECT person_id FROM person_external_id pei JOIN source s ON s.id=pei.source_id WHERE s.import_key=$1 AND pei.record_key=$2",
+                     list(import_key, record_key))
+  set_redaktion()
+  call_correction(first_id, "navn", '{"value":"Mikkel Rettet"}')
+  call_correction(first_id, "foedsel", '{"raw":"1645-01-01","min":"1645-01-01","max":"1645-01-01","qualifier":"exact","calendar":"gregoriansk","certainty":null}')
+  call_correction(first_id, "doed", '{"raw":"1701-01-01","min":"1701-01-01","max":"1701-01-01","qualifier":"exact","calendar":"gregoriansk","certainty":null}')
+  call_correction(first_id, "koen", '{"value":"kvinde"}')
+  journal_id <- scalar("SELECT id FROM import_korrektion WHERE import_key=$1 AND record_key=$2 AND felt='navn'",
+                       list(import_key, record_key))
+
+  records <- jsonlite::fromJSON(fixture, simplifyVector = FALSE)
+  reordered <- tempfile(fileext = ".json")
+  jsonlite::write_json(rev(records), reordered, auto_unbox = TRUE, pretty = TRUE, null = "null")
+  replay <- run_loader(reordered, reset = TRUE)
+  expect_identical(replay$status, 0L, info = paste(replay$output, collapse = "\n"))
+  second_id <- scalar("SELECT person_id FROM person_external_id pei JOIN source s ON s.id=pei.source_id WHERE s.import_key=$1 AND pei.record_key=$2",
+                      list(import_key, record_key))
+  expect_false(identical(first_id, second_id))
+  expect_identical(scalar("SELECT visning_navn FROM person WHERE id=$1", list(second_id)), "Mikkel Rettet")
+  expect_identical(scalar("SELECT koen FROM person WHERE id=$1", list(second_id)), "kvinde")
+  expect_identical(scalar("SELECT a.date_raw FROM fact f JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id JOIN assertion a ON a.id=c.valgt_assertion_id WHERE f.subjekt_id=$1 AND f.faktatype='fødsel'", list(second_id)), "1645-01-01")
+  expect_identical(scalar("SELECT a.date_raw FROM fact f JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id JOIN assertion a ON a.id=c.valgt_assertion_id WHERE f.subjekt_id=$1 AND f.faktatype='død'", list(second_id)), "1701-01-01")
+  expect_identical(scalar("SELECT id FROM import_korrektion WHERE import_key=$1 AND record_key=$2 AND felt='navn'", list(import_key, record_key)), journal_id)
+
+  stale_records <- jsonlite::fromJSON(reordered, simplifyVector = FALSE)
+  stale_records[[2]]$navn_kilde_span <- "Mikkel OCR ændret OCR-kontekst."
+  stale_input <- tempfile(fileext = ".json")
+  jsonlite::write_json(stale_records, stale_input, auto_unbox = TRUE, pretty = TRUE, null = "null")
+  stale <- run_loader(stale_input, reset = TRUE)
+  expect_identical(stale$status, 0L, info = paste(stale$output, collapse = "\n"))
+  stale_id <- scalar("SELECT person_id FROM person_external_id pei JOIN source s ON s.id=pei.source_id WHERE s.import_key=$1 AND pei.record_key=$2", list(import_key, record_key))
+  expect_identical(scalar("SELECT visning_navn FROM person WHERE id=$1", list(stale_id)), "Mikkel OCR")
+  expect_identical(scalar("SELECT status FROM import_korrektion WHERE id=$1", list(journal_id)), "stale")
+
+  DBI::dbExecute(con, "UPDATE import_korrektion SET status='rettet' WHERE id=$1", params = list(journal_id))
+  DBI::dbExecute(con, "CREATE FUNCTION daa_loader_smoke_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'DAA_SMOKE_AFTER_STALE'; END $$")
+  DBI::dbExecute(con, "CREATE TRIGGER daa_loader_smoke_fail BEFORE UPDATE ON person FOR EACH STATEMENT EXECUTE FUNCTION daa_loader_smoke_fail()")
+  # Denne kørsel SKAL fejle (triggeren ovenfor); system2's exit-status-warning er forventet.
+  failed <- suppressWarnings(run_loader(stale_input, reset = TRUE))
+  expect_false(identical(failed$status, 0L))
+  expect_match(paste(failed$output, collapse = "\n"), "DAA_SMOKE_AFTER_STALE")
+  expect_identical(scalar("SELECT status FROM import_korrektion WHERE id=$1", list(journal_id)), "rettet")
+})
