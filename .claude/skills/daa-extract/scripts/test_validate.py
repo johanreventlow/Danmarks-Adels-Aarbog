@@ -1,6 +1,12 @@
 import os, sys, json, tempfile, unittest
+from pathlib import Path
 sys.path.insert(0, os.path.dirname(__file__))
 import validate
+
+# Kryds-sproglig kontrakt (Task 6, person-ocr-kvalitetsark): samme fixture bestås af
+# denne fil OG packages/core/src/__tests__/ocrKvalitet.test.ts. Sti udledes af
+# __file__, ikke cwd — scriptet ligger i <repo>/.claude/skills/daa-extract/scripts/.
+_FIXTURE_PATH = Path(__file__).resolve().parents[4] / "tests" / "fixtures" / "ocr-date-normalization.json"
 
 
 class TestDeriveBoern(unittest.TestCase):
@@ -518,6 +524,30 @@ class TestDateInfoFloruit(unittest.TestCase):
         src = {"raw_text": "N.N. (-1223-1247-)."}
         validate.normalize_record(rec, src)
         self.assertEqual(rec["facts"][0].get("date_qualifier"), "floruit")
+
+
+class TestDeriveDateInfoKrydsSprogligFixture(unittest.TestCase):
+    """Paritetstest: hver post i tests/fixtures/ocr-date-normalization.json skal
+    matche derive_date_info() PRÆCIST. Fixturen deles ordret med TypeScript-porten
+    (packages/core/src/ocrKvalitet.ts::normaliserOcrDato) — se den fils header-
+    kommentar for hvad der BEVIDST er udeladt (kirkelige mærkedage/computus)."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(_FIXTURE_PATH, encoding="utf-8") as fh:
+            cls.fixture = json.load(fh)
+
+    def test_fixture_ikke_tom(self):
+        self.assertGreater(len(self.fixture), 0)
+
+    def test_hver_fixture_post_matcher_derive_date_info(self):
+        for case in self.fixture:
+            with self.subTest(raw=case["raw"]):
+                info = validate.derive_date_info(case["raw"])
+                self.assertEqual(info["date_min"], case["min"])
+                self.assertEqual(info["date_max"], case["max"])
+                self.assertEqual(info["qualifier"], case["qualifier"])
+                self.assertEqual(info["certainty"], case["certainty"])
 
 
 class TestNormalizeRecordDateOverride(unittest.TestCase):

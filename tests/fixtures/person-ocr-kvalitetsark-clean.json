@@ -1,0 +1,66 @@
+[
+  {
+    "linje": "I",
+    "nr": 15,
+    "nr_label": "15a",
+    "navn": "Mikkel OCR",
+    "navn_kilde_span": "Mikkel OCR, født 1644-01-01, død 1700-01-01.",
+    "koen": "mand",
+    "sider": "42",
+    "narrative": "Mikkel OCR, født 1644-01-01, død 1700-01-01.",
+    "facts": [
+      {
+        "faktatype": "fødsel",
+        "date_raw": "1644-01-01",
+        "date_min": "1644-01-01",
+        "date_max": "1644-01-01",
+        "date_qualifier": "exact",
+        "calendar": "gregoriansk",
+        "date_certainty": null,
+        "kilde_span": "født 1644-01-01"
+      },
+      {
+        "faktatype": "død",
+        "date_raw": "1700-01-01",
+        "date_min": "1700-01-01",
+        "date_max": "1700-01-01",
+        "date_qualifier": "exact",
+        "calendar": "gregoriansk",
+        "date_certainty": null,
+        "kilde_span": "død 1700-01-01"
+      }
+    ]
+  },
+  {
+    "linje": "I",
+    "nr": 16,
+    "nr_label": "16",
+    "navn": "Anna OCR",
+    "navn_kilde_span": "Anna OCR, født 1650-02-02, død 1710-02-02.",
+    "koen": "kvinde",
+    "sider": "42",
+    "narrative": "Anna OCR, født 1650-02-02, død 1710-02-02.",
+    "facts": [
+      {
+        "faktatype": "fødsel",
+        "date_raw": "1650-02-02",
+        "date_min": "1650-02-02",
+        "date_max": "1650-02-02",
+        "date_qualifier": "exact",
+        "calendar": "gregoriansk",
+        "date_certainty": null,
+        "kilde_span": "født 1650-02-02"
+      },
+      {
+        "faktatype": "død",
+        "date_raw": "1710-02-02",
+        "date_min": "1710-02-02",
+        "date_max": "1710-02-02",
+        "date_qualifier": "exact",
+        "calendar": "gregoriansk",
+        "date_certainty": null,
+        "kilde_span": "død 1710-02-02"
+      }
+    ]
+  }
+]

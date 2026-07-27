@@ -49,6 +49,55 @@ test_that("has_editorial_changes ser kun red_-operationer som redaktionelle", {
   expect_false(has_editorial_changes(data.frame(operation = character(0))))
 })
 
+test_that("reset tillader kun den durabelt genafspillelige OCR-change_set", {
+  expect_false(has_reset_blocking_editorial_changes(
+    data.frame(operation = "red_ret_ocr_felt")
+  ))
+  expect_true(has_reset_blocking_editorial_changes(
+    data.frame(operation = "red_opret_fakta")
+  ))
+  expect_true(has_reset_blocking_editorial_changes(
+    data.frame(operation = c("red_ret_ocr_felt", "red_opret_fakta"))
+  ))
+  expect_true(has_reset_blocking_editorial_changes(data.frame(operation = NA_character_)))
+})
+
+test_that("korrektionsimport kræver eksplicit nøgle eller markeret legacy-tilstand", {
+  parsed <- parse_load_daa_args(c(
+    "tests/fixtures/person-ocr-kvalitetsark-clean.json", "DAA OCR-fixture",
+    "--import-key=daa:test:ocr-kvalitetsark", "--reset"
+  ))
+  expect_identical(parsed$import_key, "daa:test:ocr-kvalitetsark")
+  expect_false(parsed$legacy_import)
+  expect_true(parsed$reset)
+
+  expect_error(
+    parse_load_daa_args(c("clean.json", "--import-key=")),
+    "import-key må ikke være tom"
+  )
+  expect_error(
+    parse_load_daa_args(c("clean.json", "DAA OCR-fixture")),
+    "import-key kræves"
+  )
+
+  legacy <- parse_load_daa_args(c("clean.json", "--legacy-import"))
+  expect_null(legacy$import_key)
+  expect_true(legacy$legacy_import)
+})
+
+test_that("add_extid-bufferrækken bærer nr_label-baseret record_key", {
+  rec <- list(linje = "I", nr = 15L, nr_label = "15a")
+  row <- external_id_buffer_row(101L, 7L, rec$linje, rec$nr, record_key_of(rec))
+
+  expect_identical(row, list(
+    person_id = 101L, source_id = 7L, linje = "I", nr = 15L, record_key = "I-15a"
+  ))
+})
+
+test_that("reset-listen bevarer import_korrektion uden for truncate", {
+  expect_false("import_korrektion" %in% loader_model_tables())
+})
+
 test_that("is_missing_table_error genkender 42P01 / does not exist", {
   expect_true(is_missing_table_error('relation "change_set" does not exist'))
   expect_true(is_missing_table_error("ERROR: 42P01"))
@@ -128,4 +177,371 @@ test_that("tom kontekst og ingen ægteskaber giver sigende NA-reason", {
   expect_equal(match_barn_union("", m2)$reason, "tom_kontekst")
   expect_equal(match_barn_union(NA, m2)$reason, "tom_kontekst")
   expect_equal(match_barn_union("af andet ægteskab med X", list())$reason, "ingen_aegteskaber")
+})
+
+test_that("record_key_of bevarer postens nr_label og fejler lukket uden postnummer", {
+  expect_identical(record_key_of(list(linje = "I", nr_label = "15a", nr = 15L)), "I-15a")
+  expect_identical(record_key_of(list(linje = "III", nr_label = "79", nr = 79L)), "III-79")
+  expect_identical(record_key_of(list(linje = "II", nr = 8L)), "II-8")
+  expect_identical(record_key_of(list(linje = "II", person_id = 42L, navn = "Søren")), NA_character_)
+})
+
+test_that("canonical_import_value emitterer faste JSON-former", {
+  cases <- list(
+    list(felt = "navn", value = "Conrad Detlev Reventlow",
+         want = '{"value":"Conrad Detlev Reventlow"}'),
+    list(felt = "navn", value = "Søren Ørsted Ågård",
+         want = '{"value":"Søren Ørsted Ågård"}'),
+    list(felt = "foedsel",
+         value = list(raw = "* 1644", min = "1644-01-01", max = "1644-12-31",
+                      qualifier = NA_character_, calendar = "gregoriansk", certainty = NA_character_),
+         want = '{"raw":"* 1644","min":"1644-01-01","max":"1644-12-31","qualifier":null,"calendar":"gregoriansk","certainty":null}'),
+    list(felt = "koen", value = "mand", want = '{"value":"mand"}')
+  )
+
+  for (case in cases) {
+    expect_identical(as.character(canonical_import_value(case$felt, case$value)), case$want,
+                     info = sprintf("felt=%s", case$felt))
+  }
+})
+
+test_that("ocr_input_fingerprint bruger den fastlagte UTF-8-vektor", {
+  importeret <- '{"raw":"* 1644","min":"1644-01-01","max":"1644-12-31","qualifier":null,"calendar":"gregoriansk","certainty":null}'
+  expect_identical(
+    ocr_input_fingerprint("daa:1939", "I-15a", "foedsel", importeret, "side=42;span=1"),
+    "5fc3d843cc82550a45ff2a176bc7cc83"
+  )
+})
+
+test_that("ocr_input_fingerprint canonicaliserer JSON før hash", {
+  cases <- list(
+    list(felt = "navn", canonical = '{"value":"Conrad Detlev Reventlow"}',
+         samme = ' { "value" : "Conrad Detlev Reventlow" } '),
+    list(felt = "foedsel",
+         canonical = '{"raw":"* 1644","min":"1644-01-01","max":"1644-12-31","qualifier":null,"calendar":"gregoriansk","certainty":null}',
+         samme = '{"calendar":"gregoriansk", "max":"1644-12-31", "raw":"* 1644", "certainty":null, "min":"1644-01-01", "qualifier":null}'),
+    list(felt = "koen", canonical = '{"value":"mand"}', samme = '{ "value" : "mand" }')
+  )
+
+  for (case in cases) {
+    expect_identical(
+      ocr_input_fingerprint("daa:1939", "I-15a", case$felt, case$samme, "side=42;span=1"),
+      ocr_input_fingerprint("daa:1939", "I-15a", case$felt, case$canonical, "side=42;span=1"),
+      info = sprintf("felt=%s", case$felt)
+    )
+  }
+})
+
+test_that("ocr_input_fingerprint bruger tom OCR-kontekst som SQL-kontrakten", {
+  expect_identical(
+    ocr_input_fingerprint("daa:test:ocr-kvalitetsark", "I-15a", "koen", "mand", NA_character_),
+    "9918e9b8875add05ecc29f23b1bea916"
+  )
+})
+
+test_that("apply_import_correction anvender kun en matchende rettet journalpost", {
+  importeret <- '{"raw":"* 1644","min":"1644-01-01","max":"1644-12-31","qualifier":null,"calendar":"gregoriansk","certainty":null}'
+  korrigeret <- '{"raw":"* 1645","min":"1645-01-01","max":"1645-12-31","qualifier":null,"calendar":"gregoriansk","certainty":null}'
+  correction <- list(
+    id = 17L, import_key = "daa:1939", record_key = "I-15a", felt = "foedsel",
+    input_fingerprint = "5fc3d843cc82550a45ff2a176bc7cc83",
+    korrigeret = korrigeret, status = "rettet"
+  )
+
+  result <- apply_import_correction("daa:1939", "I-15a", "foedsel", importeret,
+                                    "side=42;span=1", list(correction))
+  expect_identical(result$value, korrigeret)
+  expect_identical(result$status, "anvendt")
+  expect_identical(result$fingerprint, "5fc3d843cc82550a45ff2a176bc7cc83")
+  expect_identical(result$correction_id, 17L)
+})
+
+test_that("apply_import_correction lader godkendt og udskudt import stå uændret", {
+  importeret <- '{"value":"Conrad Detlev Reventlow"}'
+  fingerprint <- "babf4f524a74d4b5abea44789673a7e8"
+  base <- list(
+    id = 18L, import_key = "daa:1939", record_key = "I-15a", felt = "navn",
+    input_fingerprint = fingerprint, korrigeret = NULL
+  )
+
+  for (journal_status in c("godkendt", "udskudt")) {
+    correction <- c(base, list(status = journal_status))
+    result <- apply_import_correction("daa:1939", "I-15a", "navn", importeret,
+                                      "side=42;span=1", list(correction))
+    expect_identical(result$value, importeret, info = journal_status)
+    expect_identical(result$status, "ingen", info = journal_status)
+  }
+})
+
+test_that("apply_import_correction markerer ændret OCR-kontekst som stale", {
+  importeret <- '{"raw":"* 1644","min":"1644-01-01","max":"1644-12-31","qualifier":null,"calendar":"gregoriansk","certainty":null}'
+  correction <- list(
+    id = 19L, import_key = "daa:1939", record_key = "I-15a", felt = "foedsel",
+    input_fingerprint = "5fc3d843cc82550a45ff2a176bc7cc83",
+    korrigeret = '{"raw":"* 1645"}', status = "rettet"
+  )
+
+  result <- apply_import_correction("daa:1939", "I-15a", "foedsel", importeret,
+                                    "side=43;span=1", list(correction))
+  expect_identical(result$value, importeret)
+  expect_identical(result$status, "stale")
+  expect_identical(result$correction_id, 19L)
+})
+
+test_that("forudindlæste rettelser genafspilles for navn, dato og køn", {
+  corrections <- index_import_corrections(list(
+    list(id = 31L, import_key = "daa:test:ocr-kvalitetsark", record_key = "I-15a",
+         felt = "navn", input_fingerprint = "ac44c464b6ebd8e7a8ef45b2feba4c75",
+         korrigeret = '{"value":"Mikkel Rettet"}', status = "rettet"),
+    list(id = 32L, import_key = "daa:test:ocr-kvalitetsark", record_key = "I-15a",
+         felt = "foedsel", input_fingerprint = "a4edd8400a9239adf377b42eaba969e2",
+         korrigeret = '{"raw":"1645-01-01","min":"1645-01-01","max":"1645-01-01","qualifier":"exact","calendar":"gregoriansk","certainty":null}', status = "rettet"),
+    list(id = 33L, import_key = "daa:test:ocr-kvalitetsark", record_key = "I-15a",
+         felt = "koen", input_fingerprint = "9918e9b8875add05ecc29f23b1bea916",
+         korrigeret = '{"value":"kvinde"}', status = "rettet")
+  ))
+
+  navn <- apply_import_correction("daa:test:ocr-kvalitetsark", "I-15a", "navn",
+                                  "Mikkel OCR", "Mikkel OCR, født 1644", corrections)
+  foedsel <- apply_import_correction("daa:test:ocr-kvalitetsark", "I-15a", "foedsel",
+    list(raw = "1644-01-01", min = "1644-01-01", max = "1644-01-01",
+         qualifier = "exact", calendar = "gregoriansk", certainty = NA_character_),
+    "født 1644-01-01", corrections)
+  koen <- apply_import_correction("daa:test:ocr-kvalitetsark", "I-15a", "koen",
+                                  "mand", NA_character_, corrections)
+
+  expect_identical(navn$value, '{"value":"Mikkel Rettet"}')
+  expect_identical(foedsel$value, '{"raw":"1645-01-01","min":"1645-01-01","max":"1645-01-01","qualifier":"exact","calendar":"gregoriansk","certainty":null}')
+  expect_identical(koen$value, '{"value":"kvinde"}')
+  expect_true(all(c(navn$status, foedsel$status, koen$status) == "anvendt"))
+})
+
+test_that("stale genafspilning lader importen stå og udpeger kun stale journal-id'er", {
+  correction <- list(
+    id = 41L, import_key = "daa:test:ocr-kvalitetsark", record_key = "I-15a",
+    felt = "navn", input_fingerprint = "ac44c464b6ebd8e7a8ef45b2feba4c75",
+    korrigeret = '{"value":"Mikkel Rettet"}', status = "rettet"
+  )
+  result <- apply_import_correction("daa:test:ocr-kvalitetsark", "I-15a", "navn",
+                                    "Mikkel OCR", "ændret OCR-kontekst",
+                                    index_import_corrections(list(correction)))
+
+  expect_identical(result$value, "Mikkel OCR")
+  expect_identical(result$status, "stale")
+  expect_equal(stale_correction_ids(list(result, list(status = "anvendt", correction_id = 42L))), 41L)
+})
+
+# Fingerprintet daekker BAADE den importerede vaerdi og OCR-konteksten. Testen ovenfor
+# aendrer kun konteksten; her aendres selve den importerede vaerdi med UAENDRET kontekst,
+# saa fail-closed-garantien er daekket i begge retninger.
+test_that("aendret importeret vaerdi giver stale selv naar OCR-konteksten er uaendret", {
+  kontekst <- "Mikkel OCR, født 1644-01-01, død 1700-01-01."
+  fingerprint_ved_import <- ocr_input_fingerprint(
+    "daa:test:ocr-kvalitetsark", "I-15a", "navn", "Mikkel OCR", kontekst
+  )
+  correction <- list(
+    id = 41L, import_key = "daa:test:ocr-kvalitetsark", record_key = "I-15a",
+    felt = "navn", input_fingerprint = fingerprint_ved_import,
+    korrigeret = '{"value":"Mikkel Rettet"}', status = "rettet"
+  )
+  index <- index_import_corrections(list(correction))
+
+  uaendret <- apply_import_correction("daa:test:ocr-kvalitetsark", "I-15a", "navn",
+                                      "Mikkel OCR", kontekst, index)
+  expect_identical(uaendret$status, "anvendt")
+
+  # Samme kontekst, men udtrækket leverer nu en anden importeret værdi.
+  aendret <- apply_import_correction("daa:test:ocr-kvalitetsark", "I-15a", "navn",
+                                     "Mikael OCR", kontekst, index)
+  expect_identical(aendret$status, "stale")
+  expect_identical(aendret$value, "Mikael OCR")
+  expect_equal(stale_correction_ids(list(aendret)), 41L)
+})
+
+# jsonlite::fromJSON() har default null = "list", så JSON-null bliver til list() og ikke
+# til NULL. Uden normalisering slipper den nul-længde-værdi hele vejen ind i buffer-rækken,
+# hvor unlist() dropper den og kolonnen bliver kortere end tabellen.
+test_that("korrektionsværdier normaliseres fra JSON-null til NA", {
+  expect_identical(correction_scalar(list()), NA)
+  expect_identical(correction_scalar(NULL), NA)
+  expect_identical(correction_scalar(character(0)), NA)
+  expect_identical(correction_scalar("Mikkel Rettet"), "Mikkel Rettet")
+  expect_identical(correction_scalar(list("kvinde")), "kvinde")
+  expect_error(correction_scalar(list("a", "b")), "skalar")
+})
+
+test_that("en rettet dato med certainty=null giver kun skalarer til buffer-rækken", {
+  corrected <- jsonlite::fromJSON(
+    '{"raw":"1645-01-01","min":"1645-01-01","max":"1645-01-01","qualifier":"exact","calendar":"gregoriansk","certainty":null}',
+    simplifyVector = FALSE)
+
+  expect_identical(length(corrected$certainty), 0L)   # fælden: JSON-null -> list()
+  expect_identical(correction_scalar(corrected$certainty), NA)
+  expect_identical(correction_scalar(corrected$raw), "1645-01-01")
+})
+
+test_that("buffer-kolonner med afvigende længde fejler med tabel- og kolonnenavn", {
+  ok <- list(id = c(1L, 2L), vaerdi = c("a", "b"))
+  expect_silent(assert_buffer_columns(ok, 2L, "assertion"))
+
+  broken <- list(id = c(1L, 2L, 3L), date_certainty = c(NA, NA))
+  expect_error(assert_buffer_columns(broken, 3L, "assertion"),
+               "assertion.*date_certainty.*2.*3")
+})
+
+test_that("opt-in lokal DB-smoke genafspiller rettelser efter reset og ruller stale tilbage", {
+  skip_if_not(identical(Sys.getenv("DAA_RUN_LOCAL_DB_SMOKE"), "1"))
+
+  import_key <- "daa:test:ocr-kvalitetsark"
+  record_key <- "I-15a"
+  smoke_uid <- "00000000-0000-0000-0000-00000000f505"
+  smoke_db <- "daa_person_grid_loader_task5_test"
+  root <- normalizePath(file.path(getwd(), "..", ".."))
+  fixture <- file.path(root, "tests/fixtures/person-ocr-kvalitetsark-clean.json")
+  loader <- file.path(root, ".claude/skills/daa-extract/scripts/load_daa.R")
+  psql <- "/opt/homebrew/opt/postgresql@17/bin/psql"
+  expect_true(grepl("^[a-z0-9_]+$", smoke_db))
+  admin <- DBI::dbConnect(RPostgres::Postgres(), host = "127.0.0.1", port = 5432,
+                          dbname = "postgres", bigint = "integer")
+  DBI::dbExecute(admin, sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", smoke_db))
+  DBI::dbExecute(admin, sprintf("CREATE DATABASE %s", smoke_db))
+  DBI::dbDisconnect(admin)
+  drop_smoke_database <- function() {
+    admin <- try(DBI::dbConnect(RPostgres::Postgres(), host = "127.0.0.1", port = 5432,
+                                dbname = "postgres", bigint = "integer"), silent = TRUE)
+    if (!inherits(admin, "try-error")) {
+      try(DBI::dbExecute(admin, sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", smoke_db)), silent = TRUE)
+      DBI::dbDisconnect(admin)
+    }
+  }
+  on.exit(drop_smoke_database(), add = TRUE)
+
+  # Supabase-shim: auth-laget findes ikke i schema.sql. auth.uid() er Supabases
+  # ægte definition, som RLS-politikkerne og korrektions-RPC'en bygger på.
+  shim <- DBI::dbConnect(RPostgres::Postgres(), host = "127.0.0.1", port = 5432,
+                         dbname = smoke_db, bigint = "integer")
+  DBI::dbExecute(shim, "
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon NOLOGIN; END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role NOLOGIN; END IF;
+    END $$;")
+  DBI::dbExecute(shim, "CREATE SCHEMA IF NOT EXISTS auth")
+  DBI::dbExecute(shim, "CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY, email text)")
+  DBI::dbExecute(shim, "
+    CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS
+    $$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;")
+  DBI::dbDisconnect(shim)
+
+  for (sql_file in c("schema.sql", "db-migrations.sql", "db-rls.sql")) {
+    output <- system2(psql, c("-h", "127.0.0.1", "-d", smoke_db, "-v", "ON_ERROR_STOP=1",
+                              "-f", file.path(root, sql_file)), stdout = TRUE, stderr = TRUE)
+    if (!identical(attr(output, "status") %||% 0L, 0L))
+      stop("Kunne ikke oprette lokal smoke-database med ", sql_file, ":\n", paste(output, collapse = "\n"))
+  }
+  con <- DBI::dbConnect(RPostgres::Postgres(), host = "127.0.0.1", port = 5432,
+                        dbname = smoke_db, bigint = "integer")
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  cleanup <- function() {
+    try(DBI::dbExecute(con, "DROP TRIGGER IF EXISTS daa_loader_smoke_fail ON person"), silent = TRUE)
+    try(DBI::dbExecute(con, "DROP FUNCTION IF EXISTS daa_loader_smoke_fail()"), silent = TRUE)
+    try(DBI::dbExecute(con, "DELETE FROM import_korrektion WHERE import_key=$1", params = list(import_key)), silent = TRUE)
+    try(DBI::dbExecute(con, "DELETE FROM change_set WHERE operation='red_ret_ocr_felt' AND summary LIKE $1",
+                       params = list(paste0("OCR-%: ", import_key, "/%"))), silent = TRUE)
+    try(DBI::dbExecute(con, paste0("TRUNCATE ", paste(loader_model_tables(), collapse = ", "), " RESTART IDENTITY CASCADE")), silent = TRUE)
+    try(DBI::dbExecute(con, "DELETE FROM profiles WHERE id=$1", params = list(smoke_uid)), silent = TRUE)
+    try(DBI::dbExecute(con, "DELETE FROM auth.users WHERE id=$1", params = list(smoke_uid)), silent = TRUE)
+  }
+  cleanup()
+  on.exit(cleanup(), add = TRUE)
+
+  # R indlæser ~/.Renviron ved opstart og OVERSKRIVER arvede miljøvariabler. Uden
+  # R_ENVIRON_USER=/dev/null ville child-loaderen ignorere SUPABASE_* nedenfor og
+  # forbinde til den rigtige (produktions-)vært fra ~/.Renviron.
+  child_env <- c("R_ENVIRON_USER=/dev/null",
+                 "SUPABASE_HOST=127.0.0.1", "SUPABASE_PORT=5432", paste0("SUPABASE_DB=", smoke_db),
+                 "SUPABASE_USER=johanreventlow", "SUPABASE_PASSWORD=local-test-only",
+                 "SUPABASE_SSLMODE=disable")
+
+  # Fail-closed: bevis at child-processen faktisk ser den disponible lokale database,
+  # før loaderen får lov at skrive noget som helst.
+  probe <- system2("Rscript", c("-e", shQuote('cat(Sys.getenv("SUPABASE_HOST"), Sys.getenv("SUPABASE_DB"))')),
+                   stdout = TRUE, stderr = TRUE, env = child_env)
+  expect_identical(paste(probe, collapse = " "), paste("127.0.0.1", smoke_db))
+  if (!identical(paste(probe, collapse = " "), paste("127.0.0.1", smoke_db)))
+    stop("Child-R ser ikke smoke-databasen (~/.Renviron-override?); afbryder før skrivning: ",
+         paste(probe, collapse = " "))
+
+  run_loader <- function(input, reset = FALSE) {
+    args <- c(loader, input, shQuote("DAA OCR-fixture 2026"), paste0("--import-key=", import_key))
+    if (reset) args <- c(args, "--reset")
+    old_wd <- setwd(root)
+    on.exit(setwd(old_wd), add = TRUE)
+    output <- system2("Rscript", args, stdout = TRUE, stderr = TRUE, env = child_env)
+    list(status = attr(output, "status") %||% 0L, output = output)
+  }
+  scalar <- function(sql, params = list()) DBI::dbGetQuery(con, sql, params = params)[[1]][1]
+  set_redaktion <- function() {
+    DBI::dbExecute(con, "INSERT INTO auth.users(id,email) VALUES ($1,$2)",
+                   params = list(smoke_uid, "loader-smoke@test.invalid"))
+    DBI::dbExecute(con, "INSERT INTO profiles(id,rolle,email) VALUES ($1,'redaktion',$2)",
+                   params = list(smoke_uid, "loader-smoke@test.invalid"))
+    DBI::dbExecute(con, "SELECT set_config('request.jwt.claim.sub',$1,false)", params = list(smoke_uid))
+  }
+  grid_field <- function(person_id, felt) scalar(
+    sprintf("SELECT input_fingerprint->>'%s' FROM red_person_grid() WHERE person_id=$1", felt), list(person_id)
+  )
+  call_correction <- function(person_id, felt, value) {
+    fingerprint <- grid_field(person_id, felt)
+    DBI::dbGetQuery(con,
+      "SELECT red_ret_ocr_felt($1,$2,$3,$4,$5,$6::jsonb,'rettet')",
+      params = list(person_id, import_key, record_key, felt, fingerprint, value))
+  }
+
+  initial <- run_loader(fixture, reset = TRUE)
+  expect_identical(initial$status, 0L, info = paste(initial$output, collapse = "\n"))
+  if (!identical(initial$status, 0L)) return(invisible())
+  first_id <- scalar("SELECT person_id FROM person_external_id pei JOIN source s ON s.id=pei.source_id WHERE s.import_key=$1 AND pei.record_key=$2",
+                     list(import_key, record_key))
+  set_redaktion()
+  call_correction(first_id, "navn", '{"value":"Mikkel Rettet"}')
+  call_correction(first_id, "foedsel", '{"raw":"1645-01-01","min":"1645-01-01","max":"1645-01-01","qualifier":"exact","calendar":"gregoriansk","certainty":null}')
+  call_correction(first_id, "doed", '{"raw":"1701-01-01","min":"1701-01-01","max":"1701-01-01","qualifier":"exact","calendar":"gregoriansk","certainty":null}')
+  call_correction(first_id, "koen", '{"value":"kvinde"}')
+  journal_id <- scalar("SELECT id FROM import_korrektion WHERE import_key=$1 AND record_key=$2 AND felt='navn'",
+                       list(import_key, record_key))
+
+  records <- jsonlite::fromJSON(fixture, simplifyVector = FALSE)
+  reordered <- tempfile(fileext = ".json")
+  jsonlite::write_json(rev(records), reordered, auto_unbox = TRUE, pretty = TRUE, null = "null")
+  replay <- run_loader(reordered, reset = TRUE)
+  expect_identical(replay$status, 0L, info = paste(replay$output, collapse = "\n"))
+  second_id <- scalar("SELECT person_id FROM person_external_id pei JOIN source s ON s.id=pei.source_id WHERE s.import_key=$1 AND pei.record_key=$2",
+                      list(import_key, record_key))
+  expect_false(identical(first_id, second_id))
+  expect_identical(scalar("SELECT visning_navn FROM person WHERE id=$1", list(second_id)), "Mikkel Rettet")
+  expect_identical(scalar("SELECT koen FROM person WHERE id=$1", list(second_id)), "kvinde")
+  expect_identical(scalar("SELECT a.date_raw FROM fact f JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id JOIN assertion a ON a.id=c.valgt_assertion_id WHERE f.subjekt_id=$1 AND f.faktatype='fødsel'", list(second_id)), "1645-01-01")
+  expect_identical(scalar("SELECT a.date_raw FROM fact f JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id JOIN assertion a ON a.id=c.valgt_assertion_id WHERE f.subjekt_id=$1 AND f.faktatype='død'", list(second_id)), "1701-01-01")
+  expect_identical(scalar("SELECT id FROM import_korrektion WHERE import_key=$1 AND record_key=$2 AND felt='navn'", list(import_key, record_key)), journal_id)
+
+  stale_records <- jsonlite::fromJSON(reordered, simplifyVector = FALSE)
+  stale_records[[2]]$navn_kilde_span <- "Mikkel OCR ændret OCR-kontekst."
+  stale_input <- tempfile(fileext = ".json")
+  jsonlite::write_json(stale_records, stale_input, auto_unbox = TRUE, pretty = TRUE, null = "null")
+  stale <- run_loader(stale_input, reset = TRUE)
+  expect_identical(stale$status, 0L, info = paste(stale$output, collapse = "\n"))
+  stale_id <- scalar("SELECT person_id FROM person_external_id pei JOIN source s ON s.id=pei.source_id WHERE s.import_key=$1 AND pei.record_key=$2", list(import_key, record_key))
+  expect_identical(scalar("SELECT visning_navn FROM person WHERE id=$1", list(stale_id)), "Mikkel OCR")
+  expect_identical(scalar("SELECT status FROM import_korrektion WHERE id=$1", list(journal_id)), "stale")
+
+  DBI::dbExecute(con, "UPDATE import_korrektion SET status='rettet' WHERE id=$1", params = list(journal_id))
+  DBI::dbExecute(con, "CREATE FUNCTION daa_loader_smoke_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'DAA_SMOKE_AFTER_STALE'; END $$")
+  DBI::dbExecute(con, "CREATE TRIGGER daa_loader_smoke_fail BEFORE UPDATE ON person FOR EACH STATEMENT EXECUTE FUNCTION daa_loader_smoke_fail()")
+  # Denne kørsel SKAL fejle (triggeren ovenfor); system2's exit-status-warning er forventet.
+  failed <- suppressWarnings(run_loader(stale_input, reset = TRUE))
+  expect_false(identical(failed$status, 0L))
+  expect_match(paste(failed$output, collapse = "\n"), "DAA_SMOKE_AFTER_STALE")
+  expect_identical(scalar("SELECT status FROM import_korrektion WHERE id=$1", list(journal_id)), "rettet")
 })

@@ -17,6 +17,7 @@ export * from './navnevarianter';
 export * from './matchUdgaver';
 export * from './presensLabels';
 export * from './presensListe';
+export * from './ocrKvalitet';
 export { KONFIDENS_VALUES, KONFIDENS_RANK } from './types';
 export type {
   RawExtId,

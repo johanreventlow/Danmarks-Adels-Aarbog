@@ -16,10 +16,15 @@ import {
   fetchForaeldreSlot, fetchForaeldreKonflikter, fetchBarnFamilie, type ForaeldreSlot, type ForaeldreKonflikt, type BarnFamilie,
   fetchMediaBibliotek, fetchMediaAnvendelse, fetchUdrensPreview, formatMedieAlder, type MediaBibliotekPost, type MediaAnvendelse, type MedieKoe, type UdrensPreview,
 } from './data/redaktionRead';
-import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, insertAt, makeToken, previewSammeSom } from '@daa/core';
+import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, insertAt, makeToken, previewSammeSom, type OcrFelt, type PersonKvalitetsarkRow } from '@daa/core';
 import { loadModel } from './data/model';
 import type { Model } from './data/types';
 import { submitChange, describeCall, oversaetFejl, planCall, resumeMediaUpload, type Change } from './data/redaktionWrite';
+import {
+  fetchPersonKvalitetsark, fetchOcrHistorik, retOcrFelt, oversaetOcrFejl, type OcrHistorikEntry,
+} from './data/personKvalitetsark';
+import { PersonKvalitetsark } from './components/PersonKvalitetsark';
+import { OcrKildepanel, type RetOcrFeltInput } from './components/OcrKildepanel';
 import { createStorySaveGuard, saveStoryWithSources, storySaveClosesEditor } from './data/storySave';
 import { buildVariants, type BuiltVariants } from './data/mediaUpload';
 import {
@@ -120,6 +125,21 @@ function redaktionPath(entity: string, recordId: string | null): string {
   return recordId ? `/redaktion/${entity}/${recordId}` : `/redaktion/${entity}`;
 }
 
+// Task 9b (personers OCR-kvalitetsark, integrationshalvdel): Liste/Kvalitetsark-visning for
+// person-entiteten. Gemmes i localStorage, men kun genbrugt hvis værdien rent faktisk er en
+// af de to gyldige — en tidligere/fremmed værdi (eller korrupt localStorage) falder tilbage
+// til 'liste', som altid er tilgængelig (Global Constraints: "Alle personer" er first-class).
+type PersonVisning = 'liste' | 'kvalitetsark';
+const PERSON_VISNING_STORAGE_KEY = 'redaktion.personVisning';
+function laesGemtPersonVisning(): PersonVisning {
+  try {
+    const v = window.localStorage.getItem(PERSON_VISNING_STORAGE_KEY);
+    return v === 'kvalitetsark' ? 'kvalitetsark' : 'liste';
+  } catch {
+    return 'liste';
+  }
+}
+
 // Indsæt fonte + base-styles én gang (svarer til designets <helmet>).
 function useDesignHead() {
   useEffect(() => {
@@ -140,6 +160,19 @@ export default function Redaktion() {
   const [session, setSession] = useState<RedSession | null>(null);
   const [dryRun, setDryRun] = useState(true);
   const [showAnno, setShowAnno] = useState(true);
+  // Personers OCR-kvalitetsark (Task 9b) — kun for entity==='person' && role==='redaktion'
+  // (håndhæves ved render, ikke her). Grid-rækkerne caches for sessionen (kvGridFetchedRef),
+  // celle-valgets historik hentes dovent pr. (person, felt) i en separat effekt nedenfor.
+  const [personVisning, setPersonVisningState] = useState<PersonVisning>(laesGemtPersonVisning);
+  const [kvRows, setKvRows] = useState<PersonKvalitetsarkRow[]>([]);
+  const [kvLoading, setKvLoading] = useState(false);
+  const [kvError, setKvError] = useState<string | null>(null);
+  const kvGridFetchedRef = useRef(false);
+  const [kvSelected, setKvSelected] = useState<{ personId: string; felt: OcrFelt } | null>(null);
+  const [kvHistorik, setKvHistorik] = useState<OcrHistorikEntry[]>([]);
+  const [kvHistorikLoading, setKvHistorikLoading] = useState(false);
+  const [kvBusy, setKvBusy] = useState(false);
+  const [kvSaveError, setKvSaveError] = useState<string | null>(null);
   // Initialiseres synkront fra URL'en (deep link, fx /redaktion/person/123) — overlever login-
   // flowet uændret, jf. recordId-auto-default nedenfor der KUN fylder et tomt felt (cur ?? …).
   const initialPath = parseRedaktionPath(window.location.pathname);
@@ -226,6 +259,79 @@ export default function Redaktion() {
   const setSc = (k: string, v: string) => setScratch((s) => ({ ...s, [k]: v }));
   const refreshMediaBibliotek = useCallback(() => {
     fetchMediaBibliotek().then(setMediaBibliotek).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
+  }, []);
+
+  // --- Personers OCR-kvalitetsark (Task 9b) ---
+  const setPersonVisning = useCallback((v: PersonVisning) => {
+    setPersonVisningState(v);
+    try { window.localStorage.setItem(PERSON_VISNING_STORAGE_KEY, v); } catch { /* localStorage utilgængelig — visningen huskes blot ikke */ }
+  }, []);
+  // Henter hele grid'et — kaldes ved første indgang i kvalitetsark-tilstand (nedenfor, ref-gated
+  // så et tilstands-skift frem og tilbage ikke genhenter) OG eksplicit fra "Genindlæs"-knappen.
+  const loadKvalitetsark = useCallback(() => {
+    setKvLoading(true); setKvError(null);
+    fetchPersonKvalitetsark().then((rows) => { setKvRows(rows); setKvLoading(false); })
+      .catch((e) => { setKvError(oversaetOcrFejl(e)); setKvLoading(false); });
+  }, []);
+  useEffect(() => {
+    if (entity !== 'person' || personVisning !== 'kvalitetsark' || role !== 'redaktion') return;
+    if (kvGridFetchedRef.current) return;
+    kvGridFetchedRef.current = true;
+    loadKvalitetsark();
+  }, [entity, personVisning, role, loadKvalitetsark]);
+  // Korrektionshistorik hentes dovent pr. valgt celle (person+felt) — ALDRIG én gang pr.
+  // grid-række. `red_ocr_historik` slår op på (import_key, record_key, felt), ikke person_id —
+  // rækker uden importanker viser derfor "ikke tilgængelig" i panelet i stedet for at blive hentet.
+  useEffect(() => {
+    if (!kvSelected) { setKvHistorik([]); return; }
+    const row = kvRows.find((r) => r.personId === kvSelected.personId);
+    if (!row || row.importKey === null || row.recordKey === null) { setKvHistorik([]); return; }
+    let alive = true;
+    setKvHistorikLoading(true);
+    fetchOcrHistorik(row.importKey, row.recordKey, kvSelected.felt)
+      .then((h) => { if (alive) setKvHistorik(h); })
+      .catch(() => { if (alive) setKvHistorik([]); })
+      .finally(() => { if (alive) setKvHistorikLoading(false); });
+    return () => { alive = false; };
+  }, [kvSelected, kvRows]);
+  const handleKvSelect = useCallback((sel: { personId: string; felt: OcrFelt }) => {
+    setKvSaveError(null);
+    setKvSelected(sel);
+  }, []);
+  const handleKvClosePanel = useCallback(() => { setKvSelected(null); setKvSaveError(null); }, []);
+  // "Åbn person" (grid-tælle-kolonner + panelets blokerings-link) skal reelt vise personens
+  // editor — uden at skifte til liste-visning ville URL'en pege på personen, men brugeren ville
+  // stadig se griddet, ikke editoren linket lover.
+  const handleKvOpenPerson = useCallback((id: string) => {
+    setPersonVisning('liste');
+    openRecord('person', id);
+  }, [setPersonVisning]);
+  // Gemning erstatter KUN den returnerede række (matchet på personId) — griddet genhentes
+  // aldrig i sin helhed efter et gemt kald (Global Constraints). Kaster videre ved fejl, så
+  // OcrKildepanel's `await onSave(...)` afvises (panelet nulstiller intet af sig selv ved fejl —
+  // det er `error`-proppen, sat her, der viser fejlen ved næste render).
+  const handleKvSave = useCallback(async (input: RetOcrFeltInput) => {
+    setKvBusy(true); setKvSaveError(null);
+    try {
+      const updated = await retOcrFelt(input);
+      setKvRows((rows) => rows.map((r) => (r.personId === updated.personId ? updated : r)));
+    } catch (e) {
+      setKvSaveError(oversaetOcrFejl(e));
+      throw e;
+    } finally {
+      setKvBusy(false);
+    }
+  }, []);
+  // Stale-fingerprint-genindlæsning af ÉN kilderække. Der findes ingen enkelt-række-RPC
+  // (red_person_grid() er set-returnerende) — denne vej genhenter derfor hele griddet, men det
+  // er en eksplicit, brugerudløst gendannelses-handling (klik på "Genindlæs kilderække" i
+  // panelet ved OCR_FINGERPRINT_STALE), ikke det forbudte "genhent alt efter hver gemning".
+  const handleKvRefreshRow = useCallback(async (personId: string): Promise<PersonKvalitetsarkRow> => {
+    const rows = await fetchPersonKvalitetsark();
+    setKvRows(rows);
+    const found = rows.find((r) => r.personId === personId);
+    if (!found) throw new Error('Personen findes ikke længere i kvalitetsarket.');
+    return found;
   }, []);
 
   // --- Initial load ---
@@ -637,6 +743,11 @@ export default function Redaktion() {
     setConfirmDel(null);
   };
 
+  // Kvalitetsark-tilstand er kun reelt aktiv når rollen faktisk er redaktion — falder tilbage
+  // til den almindelige liste/editor hvis session udløber eller entiteten skiftes væk, uden at
+  // rydde personVisning-state (så et tilbageskift til person+redaktion respekterer valget igen).
+  const visKvalitetsark = entity === 'person' && personVisning === 'kvalitetsark' && role === 'redaktion';
+
   // ============ RENDER ============
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: T.pageBg, fontFamily: T.sans, color: T.ink, overflow: 'hidden' }}>
@@ -651,6 +762,8 @@ export default function Redaktion() {
               ? <SammenlignUdgaver role={role} dryRun={dryRun} />
               : <ForaeldreKonflikterListe onOpen={(id) => openRecord('person', id)} />}
           </div>
+        ) : visKvalitetsark ? (
+          renderKvalitetsark()
         ) : (
           <>
             {renderList()}
@@ -736,6 +849,56 @@ export default function Redaktion() {
     );
   }
 
+  // ---- Personers OCR-kvalitetsark (Task 9b) ----
+  // Vist kun for entity==='person' og en redaktør-session — den almindelige liste/editor
+  // forbliver default og uændret for enhver anden entitet/rolle. Gengivet BÅDE i liste-header'et
+  // (renderList) og øverst i kvalitetsark-arbejdsområdet, så et skift virker begge veje.
+  function renderPersonVisningToggle() {
+    if (entity !== 'person' || role !== 'redaktion') return null;
+    return (
+      <div role="group" aria-label="Personvisning" style={{ display: 'flex', background: '#e6ddcc', borderRadius: 7, padding: 2, gap: 2, flex: 'none' }}>
+        {([['liste', 'Liste'], ['kvalitetsark', 'Kvalitetsark']] as const).map(([v, label]) => (
+          <button key={v} type="button" aria-pressed={personVisning === v} onClick={() => setPersonVisning(v)}
+            style={{ border: 0, fontFamily: T.sans, fontSize: 10.5, fontWeight: 600, padding: '4px 9px', borderRadius: 5, cursor: 'pointer', background: personVisning === v ? T.bordeaux : 'transparent', color: personVisning === v ? T.paper : '#3d382f' }}>
+            {label}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  // Erstatter det tidligere liste+editor-areal med grid (flex 1) + et fast kildepanel til højre,
+  // når en celle er valgt (Global Constraints: "wide desktop workspace", ingen mobil-styles).
+  function renderKvalitetsark() {
+    const selectedRow = kvSelected ? kvRows.find((r) => r.personId === kvSelected.personId) ?? null : null;
+    return (
+      <>
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', background: T.paper }}>
+          <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid rgba(34,31,26,.1)' }}>
+            {renderPersonVisningToggle()}
+            <span style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600 }}>Personers OCR-kvalitetsark</span>
+            <button type="button" onClick={loadKvalitetsark} disabled={kvLoading}
+              style={{ marginLeft: 'auto', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6, padding: '5px 10px', background: T.paper, cursor: kvLoading ? 'default' : 'pointer', fontSize: 11.5 }}>
+              {kvLoading ? 'Genindlæser…' : 'Genindlæs'}
+            </button>
+          </div>
+          <div style={{ flex: 1, minHeight: 0 }}>
+            <PersonKvalitetsark rows={kvRows} loading={kvLoading} error={kvError} selected={kvSelected}
+              onSelect={handleKvSelect} onOpenPerson={handleKvOpenPerson} />
+          </div>
+        </div>
+        {kvSelected && selectedRow && (
+          <OcrKildepanel
+            row={selectedRow} felt={kvSelected.felt} historik={kvHistorik} historikLoading={kvHistorikLoading}
+            busy={kvBusy} error={kvSaveError} proevekoersel={dryRun}
+            onSave={handleKvSave} onClose={handleKvClosePanel}
+            onOpenPerson={handleKvOpenPerson} onRefreshRow={handleKvRefreshRow}
+          />
+        )}
+      </>
+    );
+  }
+
   // ---- Record-liste ----
   function renderList() {
     const title = ENTITIES.find((e) => e.key === entity)?.label ?? '';
@@ -768,8 +931,9 @@ export default function Redaktion() {
     return (
       <div data-scroll style={{ flex: 'none', width: 286, borderRight: '1px solid rgba(34,31,26,.1)', background: T.panel, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: '16px 16px 10px', position: 'sticky', top: 0, background: T.panel, zIndex: 2 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 9 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 9, gap: 8 }}>
             <div style={{ fontFamily: T.serif, fontSize: 21, fontWeight: 600 }}>{title}</div>
+            {renderPersonVisningToggle()}
           </div>
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Søg…" style={{ width: '100%', fontSize: 13, color: T.ink, background: T.paper, border: '1px solid rgba(34,31,26,.14)', borderRadius: 8, padding: '9px 11px', outline: 'none' }} />
         </div>

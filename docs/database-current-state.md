@@ -126,6 +126,24 @@ prod-deploy.
   manglende varianter på media 3 og seks historiske SHA-kandidater (media 1–6).
   Disse er opfølgning; `--slet` og `--backfill-sha` er ikke kørt.
 
+### Personers OCR-kvalitetsark — DB live, web IKKE deployet (2026-07-27)
+
+- Migreret mod prod (`person_ocr_kvalitetsark` + `person_ocr_kvalitetsark_rls`,
+  Supabase migrationshistorik `20260727215750`/`20260727215816`): `import_korrektion`-
+  journal (uden for loaderens reset-liste, ingen FK til regenererbare id'er), stabile
+  importnøgler (`source.import_key`, `person_external_id.record_key`) samt RPC'erne
+  `red_person_grid`, `red_ret_ocr_felt`, `red_ocr_historik`.
+- Verificeret direkte mod prod efter migration: `anon` afvist (rigtig REST-kald, 401),
+  `get_advisors(security)` delta +3 (kun de kendte SECURITY DEFINER-mønstre, ingen nye
+  kategorier), data uændret (1756 personer, 8716 assertions).
+- Krypteret fuld backup taget og gendannelses-verificeret før migration
+  (`daa-prod-pre-ocr-kvalitetsark-20260727-214752.dump.gpg`).
+- Eksisterende personer har endnu ingen stabil `(import_key, record_key)` — griddet
+  viser navn/fødsel/død (afklaret evidens, ikke kun redigerbare felter), men intet felt
+  er redigerbart før en separat, senere genindlæsning med `--import-key=`.
+- **Web-laget er IKKE deployet.** Drift, gated procedure og udestående trin:
+  `docs/runbooks/person-ocr-kvalitetsark.md`.
+
 ### Levende feed fase 2-3 + K2 selektiv publicering (deployet 2026-07-20)
 - **`haendelse`** (fase 2, regenererbar hændelses-projektion af narrativer) + **`story`/
   `story_kilde`/`feed_pin`** (fase 3, kurateret formidlingslag) — additive tabeller,

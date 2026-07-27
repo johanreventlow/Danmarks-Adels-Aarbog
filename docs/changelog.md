@@ -1,5 +1,54 @@
 # Changelog
 
+## Personers OCR-kvalitetsark — DB LIVE i prod, web IKKE deployet (2026-07-27)
+
+Databasen er migreret mod prod (`xjnvdhajfyrcytatnzos`): `import_korrektion`-journal,
+stabile importnøgler og RPC'erne `red_person_grid`/`red_ret_ocr_felt`/`red_ocr_historik`
+er live. Krypteret backup taget og gendannelses-verificeret først. Verificeret mod
+rigtig prod efter migration: `anon` afvist (ægte REST-kald, 401), `get_advisors`-delta
++3 (kun de kendte SECURITY DEFINER-mønstre), data uændret (1756 personer). Brugeren
+valgte at migrere databasen nu og genindlæse en udgave med `--import-key=` separat
+senere — eksisterende personer er derfor synlige i griddet men endnu ikke redigerbare.
+
+Web-laget er **ikke** deployet endnu. Se `docs/runbooks/person-ocr-kvalitetsark.md` §5.1
+for detaljer, inklusive en hændelse under første migrationsforsøg (en manuel
+gentastning af SQL introducerede en kolonnenavne-fejl; transaktionen rullede atomisk
+tilbage uden nogen skade, og genforsøget med filens eksakte indhold lykkedes).
+
+## Personers OCR-kvalitetsark — kodeklar, IKKE deployet (2026-07-26)
+
+Redaktør-værktøj der viser hver importeret person som én række i et regneark-lignende
+grid, med et sidepanel hvor navn, fødsel, død og køn kan rettes. En OCR-rettelse er en
+rettelse af *samme* importerede kildeudsagn: `fact.id`, `assertion.id`, citation og
+konklusion bevares, så oprydning aldrig bliver til en ny historisk påstand. Rettelser
+lever i en holdbar journal uden for loaderens reset-liste og genafspilles efter en
+genindlæsning via stabile `(import_key, record_key)`-nøgler; en ændret OCR-kontekst
+markerer rettelsen `stale`, så den ikke genafspilles blindt.
+
+Fail-closed hele vejen: RPC'en afviser med mindre personen har præcis ét stabilt
+importanker og feltet peger på præcis én valgt, citeret påstand. Personer uden anker
+forbliver **læsbare, men låste**. Anonyme og medlemmer afvises server-side.
+
+**Status: kodeklar og lokalt DB-verificeret — produktionsdatabasen er ikke rørt, intet
+er deployet, intet pushet.** Drift, gates og udestående manuel røgtest:
+`docs/runbooks/person-ocr-kvalitetsark.md`.
+
+Verificeret: R 475, core 358, feed 120, web 613, mobil 399, validate.py 130, loader-
+DB-smoke 124 — alle grønne. Frisk base + opgraderingssti på PostgreSQL 17.10 med
+idempotente migrationer (kørt to gange); rolleadgang efterprøvet med efterlignede
+JWT-claims. Skala-måling ved 2001 personer: `red_person_grid()` 285–301 ms, 3.470 kB.
+
+Undervejs fandt og lukkede arbejdet fire fejl, som testene ikke selv fangede: loaderen
+korrumperede stille en buffer-kolonne, fordi `jsonlite` læser JSON-null som `NULL` men
+skriver det tilbage som `{}`; `red_person_grid()` manglede `ORDER BY`, så pagineret
+læsning var uden ordensgaranti; en bar ISO-dato blev tolket som helår i *begge*
+parsere — uskadeligt i udtrækket, men tavst tab af præcision når en redaktør selv
+taster datoen (0 af 1322 `date_raw` i korpus var berørt, så rettelsen var inert); og en
+rehearsal mod prods **rigtige** data (ikke syntetisk fixture) afslørede at griddets
+navn/fødsel/død-visning delte anker-gate med redigerbarheden, så alle 1757 eksisterende
+personer viste tomme felter. Rettet ved at falde tilbage til den allerede afklarede
+evidens, uafhængigt af redigerbarhed — 0/1757 personer har nu tomt navn (var 1757 før).
+
 ## 2018-20: 18 narrativer med slaegtled-/kuld-bleed rettet — LIVE i prod (2026-07-27)
 
 2018-20-auditen fandt 14 poster med en trailing sektionsoverskrift
