@@ -40,16 +40,16 @@ export function Lightbox({ items, index, onClose, onNavigate }: {
           </View>
         )}
         {harForrige ? (
-          <Pressable style={[styles.navBtn, styles.navLeft]} onPress={() => onNavigate(index - 1)} hitSlop={16}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Forrige billede" style={[styles.navBtn, styles.navLeft]} onPress={() => onNavigate(index - 1)} hitSlop={16}>
             <Mono size={30} color={Colors.paperCard}>‹</Mono>
           </Pressable>
         ) : null}
         {harNaeste ? (
-          <Pressable style={[styles.navBtn, styles.navRight]} onPress={() => onNavigate(index + 1)} hitSlop={16}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Næste billede" style={[styles.navBtn, styles.navRight]} onPress={() => onNavigate(index + 1)} hitSlop={16}>
             <Mono size={30} color={Colors.paperCard}>›</Mono>
           </Pressable>
         ) : null}
-        <Pressable style={styles.closeBtn} onPress={onClose} hitSlop={16}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Luk billedevisning" style={styles.closeBtn} onPress={onClose} hitSlop={16}>
           <Mono size={24} color={Colors.paperCard}>×</Mono>
         </Pressable>
       </Pressable>

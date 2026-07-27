@@ -49,6 +49,118 @@ navn/fødsel/død-visning delte anker-gate med redigerbarheden, så alle 1757 ek
 personer viste tomme felter. Rettet ved at falde tilbage til den allerede afklarede
 evidens, uafhængigt af redigerbarhed — 0/1757 personer har nu tomt navn (var 1757 før).
 
+## 2018-20: 18 narrativer med slaegtled-/kuld-bleed rettet — LIVE i prod (2026-07-27)
+
+2018-20-auditen fandt 14 poster med en trailing sektionsoverskrift
+(`Sjette (nittende) slægtled`) hængende på halen af forrige posts narrativ. Videre
+undersøgelse fandt 4 mere alvorlige tilfælde hvor både overskriften OG den
+efterfølgende kuld-markør (`Overkammerherre Detlef lensgreve de Reventlous børn`)
+bløder ind — 18 poster i alt.
+
+**Rodårsagen var allerede rettet i koden — bare ikke genindlæst.** Sporet til
+`work/raw_full.txt`: `segment.py`'s `SLGT_RE` matcher en bar slaegtled-header
+korrekt, når den (som her) står alene på sin egen linje. Kørt frisk mod
+`raw_full.txt` gav det nuværende `segment.py` alle 18 poster ren tekst, byte-
+identisk med de øvrige 573 upåvirkede poster. Bug'en sad kun i det allerede
+indlæste artefakt (`work/clean_full.json`, stale ift. dagens segmenterer) —
+`segment.py` er ikke ændret. To regressionstests låser adfærden fast.
+
+`R/update-2018-narratives.R` — målrettet patch af 18 navngivne poster, nøglet på
+`(linje, nr)` fordi det ikke er globalt unikt i denne udgave (I-15a/b/c deler
+basenr). Bruger `jsonb_to_recordset()` af ét JSON-parameter, da hverken
+`CREATE TEMP TABLE` (DDL, fejler i dry-runs READ ONLY-transaktion) eller et
+array-parameter blandet med et skalar-parameter (RPostgres fortolker det som
+batch-udførsel) virkede.
+
+**Anvendt mod prod:** `change_set=532`, 18 rækker, 18 audit-events. Verificeret
+efter apply — ingen bar `slægtled`-hale tilbage, legitime krydshenvisninger
+(`Andet (femtende) slægtled, nr. 2‑9.`) intakte. (#98)
+
+## Tværudgave-matchning gjort mulig for ægtefæller (2026-07-26)
+
+Fulgte af 1939-auditen nedenfor: auditen fandt ~51 % mangelfulde forældrelink og pegede
+på re-ekstraktion (trin 2). Analysen viste at det var forkert diagnose — og hver rettelse
+afdækkede den næste.
+
+**1. Hullet var allerede halvt lukket.** `collapseSameAs` omskriver `parentChild`-kanter til
+kanoniske id'er, så en matchet 1939-person arver sin 2018-20-modparts forældre i visningen.
+Data-lag 253/539 mangelfulde, læser-lag 86/539. Matcharbejdet lukkede ~68 % gratis.
+(`docs/reviews/kryds-udgave-udfyldning-scoping-2026-07-26.md`)
+
+**2. 287 grupper var i karantæne — ikke af uenighed.** Målt ved at køre den rigtige
+`collapseSameAs` mod et prod-dump; to SQL-genimplementeringer gav upålidelige tal. Bøgerne
+er enige: 1939 skriver `Bertram + Christine Rantzau` hvor 2018-20 skriver
+`Bartram + Christina von Rantzau`. Forældrene var bare ikke matchet til hinanden.
+
+**3. De kunne ikke matches.** Ægtefæller har sjældent eget bog-nummer, og `sourceIds` blev
+udledt alene af `person_external_id` — uden nummer hørte de til ingen udgave og indgik aldrig
+i kandidatparrene. 0 af 73 forældrepar kunne gennemføres. `udledKilderForAegtefaeller` lader
+dem arve udgaven fra deres partner, entydigt eller slet ikke: 627 ægtefæller (296+331),
+0 flertydige, forældrepar 0 → 77. Lukkede samtidig at 1939-ægtefæller lå i B-siden og kunne
+foreslås som match for deres egen udgave. (#90)
+
+**4. Brugerfund: "formodet nye" var en blindgyde.** 393 poster, hvoraf 392 havde en kandidat
+der var fundet og smidt væk (`tier === 'none'`), og 125 havde eksakt samme navn i 2018-20.
+Årsagen strukturel: overlap tæller kun når begge sider har en dato, så en person uden årstal
+har loft = `wName + wSex` = præcis review-tærsklen. `svageKandidater` bevarer dem nu med
+Sammenlign/Bekræft — uden for status og fremdrift, så tællerne er uændrede. (#93)
+
+**5. Modellen rettet.** `scorePairEvidens` normaliserer over de signaler der faktisk kunne
+vurderes; ukendt årstal ryger ud af nævneren, kendt-men-uenigt bliver stående. Personer med
+mindst ét forslag: **442 → 815 af 835**. Første måling uden spærre viste faren konkret —
+152 par uden ét eneste årstal blev markeret "stærke" (`Otto ↔ Otto`) — så `assignTiers`
+kapper navn-alene til "gennemsyn": 152 → 0. (#95 opt-in, #96 slået til)
+
+**Værktøj:** `tools/foraeldrematch/` — `status.ts` (karantænetal), `byg-liste.ts`
+(arbejdsliste, 73 forældrepar sorteret efter hvor mange børn de frigiver), `effekt.ts`,
+`normaliseret.ts`. Alle read-only, og de kører den rigtige kode frem for at gengive reglerne.
+
+**Udestår:** matcharbejdet selv (73 forældrepar → 287 karantænerede par frigives).
+Arbejdslisten ligger gitignoreret i `work/`.
+
+**CI:** R-jobbet tog 42 minutter fordi `duckdb` blev kompileret fra kilde ved hver kørsel.
+Cache på `R_LIBS_USER` + idempotent install: **42m10s → 45s**, hele CI under 2 minutter. (#92)
+
+## 1939-kvalitetsvurdering + re-segmentering — LIVE i prod (2026-07-26)
+
+Brugerspørgsmål: er 1939-indlæsningen for dårlig, og kan matcharbejdet reddes?
+Svaret er kvantificeret i to rapporter under `docs/reviews/`.
+
+**Måling.** Strukturelt: 1939 har 355/539 hovedposter med forældrelink mod 2018-20's 566/591,
+og 3,76 fakta pr. person mod 5,33. Datoparsingen er derimod *bedre* (7,8 % uparsede mod 16,4 %),
+og tegn-niveau-OCR var allerede rettet af Calamari-patchen. Restdefekten var **segmentering**:
+280 af 539 narrativer (51,9 %) havde mindst én snitfejl.
+
+**Stikprøve-audit (N=25, bedømt mod renderede PDF-sider, ikke mod OCR-teksten).**
+~54 % af posterne har ≥1 materiel fejl — men **0 forkerte navne, 0 forkerte fødsels-/dødsår,
+0 forkerte ægtefæller**. Fejlene er udeladelser og fejlklip, ikke forkerte påstande. Fund der
+ikke kan ses i SQL: mor mangler bag et gyldigt far-link i ~12 % (den strukturelle måling
+undervurderer altså problemet), inkonsistent linking inden for samme kuld, og en OCR-fejl i en
+kildehenvisning (`Aarb. LVIII` for `XLVIII`).
+
+**Re-segmentering (trin 1) anvendt mod prod.** Fem rettelser i `segment_1939.py`:
+kuld-overskrifter som snitgrænse, bar romertalslinje, bindestreg-normalisering (orddelte navne
+ved linjeskift), `_orig_nr`-præference (`nr` er en global tæller i 1939-artefaktet, så
+nummer-ankeret var reelt dødt) og snap-back til postens egen nummerlinje. Defekt-union
+**280 → 159**; pipelinens kvalitetsgate gik fra rød til grøn (R1/R6-proxy 88,8 % → 91,2 %) —
+artefaktet der lå i prod var accepteret med fejlende gate. I stikprøven: 16 defekte narrativer
+→ 5, heraf 11 nu ordret identiske med bogen.
+
+**Anvendt:** `R/update-1939-narratives.R` mod `xjnvdhajfyrcytatnzos`, 216 rækker,
+`change_set=493`, 216 audit-events. Kun `narrative.tekst` — 0 sideændringer, ingen personer,
+ingen `nr`, ingen links. De 429 samme_som-matchpar er urørte og desuden sikkerhedskopieret med
+navn + rå datoer i `work_1939_stamtavle/match_backup_2026-07-26.json`. Prod-fingeraftryk
+verificeret identisk med artefaktet efter apply.
+
+**Trukket tilbage undervejs:** en sjette rettelse (indsnævring af fallback-blokke) målte som en
+forbedring, men stikprøven viste at den bandt post 276/277 til en anden families børn med samme
+fornavne. `_orig_nr` er ikke pålideligt scopet til postens egen blok. Reverteret før apply.
+
+**Udestår:** 12 af de 216 ændrede rækker er allerede publiceret (`staged=false`) og slog derfor
+igennem i den offentlige visning med det samme. Trin 2 (re-ekstraktion af fakta mod de ~51 %
+mangelfulde forældrelinks) kræver ny loader-kode og er ikke startet. 2018-20 er ikke auditeret
+med samme harness.
+
 ## Mediehåndtering fase 4 — LIVE i prod (2026-07-22)
 
 Fase 4 er deployet til produktion samme dag som lokal verifikation (PR #75 merget):

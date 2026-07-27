@@ -393,3 +393,205 @@ def test_compute_stats_exposes_duplication_and_noise_gates():
     failures = seg.quality_gate_failures(stats)
     assert any("sidehoved_forekomster" in failure for failure in failures)
     assert any("bogstavspredning_forekomster" in failure for failure in failures)
+
+
+# ------------------------------------------------- gruppeoverskrifter (bleed)
+
+def test_group_header_terminates_previous_narrative():
+    """Bogens kuld-overskrifter er ikke personposter og maa ikke haenge paa
+    halen af den foregaaende post."""
+    raw = (
+        "### PAGE 490 ###\n"
+        "1. Aksel Aabing, f. 11. Jan. 1801. Egen tekst om hans virke.\n"
+        "Sjette Slægtled.\n"
+        "Aksel Aabings Børn m. Berta Bagger:\n"
+        "1. Carla Aabing, f. 12. Marts 1830.\n"
+    )
+    out = seg.segment(
+        [make_post(1, foedsel="11. Jan. 1801"),
+         make_post(2, foedsel="12. Marts 1830")],
+        raw, {"window-01": (490, 490)})
+    assert "Egen tekst om hans virke" in out["1"]["narrative"]
+    assert "Slægtled" not in out["1"]["narrative"]
+    assert "Aabings Børn" not in out["1"]["narrative"]
+
+
+def test_multiline_group_header_is_cut_from_its_first_line():
+    """Overskrifter over flere linjer snittes fra foerste linje, ikke fra den
+    linje hvor 'Børn' tilfaeldigvis staar."""
+    raw = (
+        "### PAGE 490 ###\n"
+        "1. Aksel Aabing, f. 11. Jan. 1801. Egen tekst om hans virke.\n"
+        "Kammerherre, Hofjægermester Aksel Bertram\n"
+        "Christian Aabings Børn\n"
+        "af første Ægteskab med Berta Bagger:\n"
+        "1. Carla Aabing, f. 12. Marts 1830.\n"
+    )
+    out = seg.segment(
+        [make_post(1, foedsel="11. Jan. 1801"),
+         make_post(2, foedsel="12. Marts 1830")],
+        raw, {"window-01": (490, 490)})
+    assert "Kammerherre" not in out["1"]["narrative"]
+    assert "Ægteskab" not in out["1"]["narrative"]
+
+
+def test_inline_boern_crossreference_does_not_cut_narrative():
+    """'- Børn:' sidst i en post er bogens krydshenvisning, ikke en overskrift
+    — snittet maa ikke vandre baglaens ind i prosaen."""
+    raw = (
+        "### PAGE 490 ###\n"
+        "1. Aksel Aabing, f. 11. Jan. 1801, en tekst der fortsaetter\n"
+        "uden punktum ved linjeskift og slutter med en opremsning\n"
+        "- Børn:\n"
+        "2. Berta Aabing, f. 12. Marts 1803.\n"
+    )
+    out = seg.segment(
+        [make_post(1, foedsel="11. Jan. 1801"),
+         make_post(2, foedsel="12. Marts 1803")],
+        raw, {"window-01": (490, 490)})
+    assert "fortsaetter" in out["1"]["narrative"]
+    assert "uden punktum ved linjeskift" in out["1"]["narrative"]
+
+
+def test_slaegtled_line_alone_terminates_narrative():
+    raw = (
+        "### PAGE 490 ###\n"
+        "1. Aksel Aabing, f. 11. Jan. 1801. Egen tekst om hans virke.\n"
+        "Fjerde Slægtled.\n"
+        "1. Carla Aabing, f. 12. Marts 1830.\n"
+    )
+    out = seg.segment(
+        [make_post(1, foedsel="11. Jan. 1801"),
+         make_post(2, foedsel="12. Marts 1830")],
+        raw, {"window-01": (490, 490)})
+    assert "Slægtled" not in out["1"]["narrative"]
+
+
+def test_prose_line_ending_in_colon_is_not_a_group_header():
+    raw = (
+        "### PAGE 490 ###\n"
+        "1. Aksel Aabing, f. 11. Jan. 1801, som skrev til sin ven\n"
+        "og udtrykte det saaledes:\n"
+        "»en meget lang og opdigtet sentens uden overskriftskarakter«.\n"
+        "2. Berta Aabing, f. 12. Marts 1803.\n"
+    )
+    out = seg.segment(
+        [make_post(1, foedsel="11. Jan. 1801"),
+         make_post(2, foedsel="12. Marts 1803")],
+        raw, {"window-01": (490, 490)})
+    assert "sentens uden overskriftskarakter" in out["1"]["narrative"]
+
+
+# ----------------------------------------------- orddelt navn ved linjeskift
+
+def test_hyphenated_name_across_linebreak_still_anchors_head():
+    """OCR deler navne ved linjeskift ('Ana-\\nstasia'); ankeret skal stadig
+    finde navnet, saa postens hoved ikke gaar tabt."""
+    raw = (
+        "### PAGE 490 ###\n"
+        "3. Comtesse Karoline Ana-\n"
+        "stasia, f. 11. Jan. 1801 paa Testgaard, en laengere tekst.\n"
+        "4. Berta Aabing, f. 12. Marts 1803.\n"
+    )
+    post = make_post(1, foedsel="11. Jan. 1801")
+    post["navn"] = "Karoline Anastasia"
+    out = seg.segment(
+        [post, make_post(2, foedsel="12. Marts 1803")],
+        raw, {"window-01": (490, 490)})
+    assert out["1"]["narrative"].startswith("3.")
+    assert "Ana-" in out["1"]["narrative"]
+
+
+def test_normalize_drops_hyphens_symmetrically():
+    norm, _ = seg.normalize_with_map("Ana-\nstasia")
+    assert norm == "anastasia"
+    norm2, _ = seg.normalize_with_map("Anastasia")
+    assert norm == norm2
+
+
+# ------------------------------------------------ bar romertalslinje + snap
+
+def test_bare_roman_line_terminates_narrative():
+    """Romertalslinjer uden efterfoelgende tekst ('III.' alene paa linjen)
+    er ogsaa sektionsgraenser."""
+    raw = (
+        "### PAGE 490 ###\n"
+        "1. Aksel Aabing, f. 11. Jan. 1801. Egen tekst om hans virke.\n"
+        "III.\n"
+        "Aksel Aabings Børn m. Berta Bagger:\n"
+        "1. Carla Aabing, f. 12. Marts 1830.\n"
+    )
+    out = seg.segment(
+        [make_post(1, foedsel="11. Jan. 1801"),
+         make_post(2, foedsel="12. Marts 1830")],
+        raw, {"window-01": (490, 490)})
+    assert "III." not in out["1"]["narrative"]
+
+
+def test_anchor_snaps_back_to_own_record_start():
+    """Naar ankeret er et faktum inde i posten, flyttes starten tilbage til
+    postens egen nummerlinje, saa hovedet ikke gaar tabt."""
+    raw = (
+        "### PAGE 490 ###\n"
+        "2. Aksel Aabing, som var en meget omtalt mand i sin samtid,\n"
+        "f. 11. Jan. 1801 paa Testgaard, og som drev vandmoellen.\n"
+        "3. Berta Aabing, f. 12. Marts 1803.\n"
+    )
+    post = make_post(1, foedsel="11. Jan. 1801")
+    post["navn"] = "Ukendt Navn Der Ikke Findes"
+    post["_orig_nr"] = 2
+    out = seg.segment(
+        [post, make_post(2, foedsel="12. Marts 1803")],
+        raw, {"window-01": (490, 490)})
+    assert out["1"]["narrative"].startswith("2. Aksel Aabing")
+    assert "omtalt mand" in out["1"]["narrative"]
+
+
+def test_snap_back_stops_at_foreign_record_start():
+    """Ligger der en anden posts nummerlinje mellem ankeret og postens egen
+    nummerlinje, snappes der ikke — saa naboens tekst aldrig opsluges."""
+    raw = (
+        "### PAGE 490 ###\n"
+        "2. Aksel Aabing, en kort indledning uden ankerord i teksten.\n"
+        "3. Berta Bagger, om hvem der staar en anden lang tekst her.\n"
+        "en fortsaettelse med f. 11. Jan. 1801 midt i naboens afsnit.\n"
+    )
+    post = make_post(1, foedsel="11. Jan. 1801")
+    post["navn"] = "Ukendt Navn Der Ikke Findes"
+    post["_orig_nr"] = 2
+    out = seg.segment([post], raw, {"window-01": (490, 490)})
+    assert "Aksel Aabing" not in out["1"]["narrative"]
+
+
+def test_group_header_without_colon_terminates_narrative():
+    """Nogle kuld-overskrifter ender paa punktum, ikke kolon
+    ('Johan Reventlows Døtre m. Birgitte Hansdatter (Lindenov).')."""
+    raw = (
+        "### PAGE 490 ###\n"
+        "1. Aksel Aabing, f. 11. Jan. 1801. Egen tekst om hans virke.\n"
+        "Johan Aabings Døtre m. Berta Bagger\n"
+        "(Lindenov).\n"
+        "1. Carla Aabing, f. 12. Marts 1830.\n"
+    )
+    out = seg.segment(
+        [make_post(1, foedsel="11. Jan. 1801"),
+         make_post(2, foedsel="12. Marts 1830")],
+        raw, {"window-01": (490, 490)})
+    assert "Aabings Døtre" not in out["1"]["narrative"]
+    assert "Egen tekst om hans virke" in out["1"]["narrative"]
+
+
+def test_prose_mentioning_children_is_not_a_group_header():
+    """En prosalinje der naevner '<Navn>s Børn' midt i en saetning maa ikke
+    snitte posten over."""
+    raw = (
+        "### PAGE 490 ###\n"
+        "1. Aksel Aabing, f. 11. Jan. 1801, som var Fader til\n"
+        "Bertram Aabings Børn og som drev vandmoellen til sin doed.\n"
+        "2. Berta Aabing, f. 12. Marts 1803.\n"
+    )
+    out = seg.segment(
+        [make_post(1, foedsel="11. Jan. 1801"),
+         make_post(2, foedsel="12. Marts 1803")],
+        raw, {"window-01": (490, 490)})
+    assert "vandmoellen til sin doed" in out["1"]["narrative"]

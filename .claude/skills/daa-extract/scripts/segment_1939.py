@@ -46,11 +46,49 @@ SPACED_LETTERS_RE = re.compile(
     rf"(?<!\w)(?:[{LETTER_CHARS}1][ \t]+){{3,}}[{LETTER_CHARS}1](?!\w)"
 )
 STRUCTURAL_BOUNDARY_RE = re.compile(
-    r"^[ \t]*(?:\d{1,3}[A-Za-z]?\.|[IVXLCDM]+\.|[A-Z\xc6\xd8\xc5]\.)[ \t]+",
+    # markoeren staar enten foran tekst paa samme linje eller alene ("III.")
+    r"^[ \t]*(?:\d{1,3}[A-Za-z]?\.|[IVXLCDM]+\.|[A-Z\xc6\xd8\xc5]\.)(?=[ \t]|$)",
     re.MULTILINE,
 )
 RECORD_START_RE = re.compile(r"^[ \t]*\d{1,3}[A-Za-z]?\.[ \t]+", re.MULTILINE)
 ROMAN_SECTION_RE = re.compile(r"^[ \t]*([IVXLCDM]+)\.[ \t]+", re.MULTILINE)
+ORDINAL_WORDS = (
+    "F\xf8rste", "Anden", "Andet", "Tredje", "Fjerde", "Femte", "Sjette",
+    "Syvende", "Ottende", "Niende", "Tiende", "Ellevte", "Tolvte",
+    "Trettende", "Fjortende", "Femtende", "Sekstende", "Syttende",
+    "Attende", "Nittende", "Tyvende",
+)
+SLAEGTLED_RE = re.compile(
+    r"^[ \t]*(?:%s)[ \t]+Sl[\xe6a]gtled\b" % "|".join(ORDINAL_WORDS),
+    re.MULTILINE,
+)
+KULD_WORDS = r"B\xf8rn|D\xf8tre|S\xf8nner|Datter|S\xf8n"
+# "<Navn>s Børn", "Hr. Ivens Sønner" — mindst ét stort forbogstav-ord der
+# ender på "s" umiddelbart før kuld-ordet. Små ord ("hendes Datter") rammes ikke.
+GROUP_NAME_RE = re.compile(
+    rf"[A-Z\xc6\xd8\xc5][{LETTER_CHARS}\-]*s[ \t]+(?:{KULD_WORDS})\b")
+# Samme, men forankret i linjestart: linjen skal BEGYNDE med en raekke
+# stort-forbogstavs-ord (titler + navn). Det skiller overskriften
+# "Johan Reventlows Døtre m. …" fra prosaen "… var Fader til
+# Bertram Reventlows Børn …", hvor kaeden brydes af et lille ord.
+GROUP_HEADER_LINE_RE = re.compile(
+    rf"^[ \t]*(?:[A-Z\xc6\xd8\xc5][{LETTER_CHARS}.\-]*,?[ \t]+)*"
+    rf"[A-Z\xc6\xd8\xc5][{LETTER_CHARS}\-]*s[ \t]+(?:{KULD_WORDS})"
+    # efter kuld-ordet foelger enten linjeskift eller aegtefaelle-leddet;
+    # fortsaetter linjen som almindelig prosa ("… Børn og som drev …"),
+    # er det en saetning og ikke en overskrift
+    rf"(?:[ \t]*$|[ \t]+(?:m\.|med\b|af\b))",
+    re.MULTILINE,
+)
+# "af første Ægteskab" — OCR taber ofte det initiale Æ ("gteskab")
+AEGTESKAB_RE = re.compile(r"gteskab\b")
+# "— Børn:" sidst i en post er bogens krydshenvisning, ikke en overskrift
+CROSSREF_COLON_RE = re.compile(rf"^[-–— \t]*(?:{KULD_WORDS})[ \t]*:$")
+HEADER_BLOCK_MAX_LINES = 5
+# Postens egen nummerlinje ligger taet paa ankeret; laengere tilbage snappes ikke
+RECORD_SNAP_MAX = 400
+# Linjer der ender sådan er prosa, ikke en overskriftslinje under opbygning
+PROSE_LINE_ENDINGS = (".", ",", ";", ")", "\xbb", "!", "?")
 LINE_SECTION_RE = re.compile(
     r"^[ \t]*(?:[IVXLCDM]+|[A-Z\xc6\xd8\xc5])\.[ \t]+", re.MULTILINE)
 MIN_ANCHOR_LEN = 3  # normaliserede tegn; uniqueness-krav er den reelle vagt
@@ -93,7 +131,13 @@ def clean_1939_text(text):
     return SPACED_LETTERS_RE.sub(despaced, text)
 
 def normalize_with_map(text):
-    """OCR-normaliser: lowercase, dagger->t, al whitespace fjernet.
+    """OCR-normaliser: lowercase, dagger->t, whitespace OG bindestreger fjernet.
+
+    Bindestreger fjernes symmetrisk i baade anker og raatekst, saa et navn
+    der er orddelt ved linjeskift ("Ana-\\nstasia") stadig matcher sin
+    kompakte form — og omvendt, saa et aegte bindestregsnavn
+    ("Brahe-Trolleborg") matcher ogsaa naar OCR har delt det ved sin egen
+    bindestreg.
 
     Returnerer (norm_text, idx) hvor idx[i] er original-offset for
     norm_text[i], saa fund kan mappes tilbage til raw-offsets.
@@ -104,6 +148,8 @@ def normalize_with_map(text):
         c = ch.lower()
         if c == "†":  # dagger
             c = "t"
+        if c in ("-", "\xad", "‐", "‑"):
+            continue
         if c.isspace():
             continue
         norm.append(c)
@@ -218,11 +264,20 @@ def _first_unique_anchor(nraw, nidx, candidates, lo, hi):
 
 
 def _post_number(post):
-    value = post.get("nr")
-    if isinstance(value, int) and 0 <= value <= 999:
-        return value
-    if isinstance(value, str) and re.fullmatch(r"\d{1,3}", value.strip()):
-        return int(value)
+    """Bogens lokale postnummer.
+
+    ``_orig_nr`` foretraekkes: i 1939-artefaktet er ``nr`` en GLOBAL taeller
+    (1-539), mens bogen selv nummererer lokalt inden for hvert kuld ("4."),
+    og det er bogens tal der staar i teksten.
+    """
+    for key in ("_orig_nr", "nr"):
+        value = post.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int) and 0 <= value <= 999:
+            return value
+        if isinstance(value, str) and re.fullmatch(r"\d{1,3}", value.strip()):
+            return int(value.strip())
     return None
 
 
@@ -272,6 +327,31 @@ def _contextual_number_anchor(raw, nraw, nidx, post, lo, hi):
     return starts[0] if len(starts) == 1 else None
 
 
+def _snap_to_own_record_start(raw, post, pos, lo):
+    """Flyt starten tilbage til postens EGEN nummerlinje, hvis ankeret ligger
+    inde i posten.
+
+    Fail-closed: der snappes kun til den SIDSTE nummerlinje foer ankeret —
+    saa der pr. konstruktion ikke ligger en fremmed postgraense imellem — og
+    kun naar dens tal matcher bogens lokale nummer for posten.
+    """
+    number = _post_number(post)
+    if number is None:
+        return pos
+    if RECORD_START_RE.match(raw, pos):
+        return pos  # ankeret ER allerede en postgraense — intet at redde
+    starts = [lo + m.start() for m in RECORD_START_RE.finditer(raw[lo:pos])]
+    if not starts:
+        return pos
+    start = starts[-1]
+    if pos - start > RECORD_SNAP_MAX:
+        return pos
+    match = re.match(r"[ \t]*(\d{1,3})", raw[start:])
+    if not match or int(match.group(1)) != number:
+        return pos
+    return start
+
+
 def _post_anchor(raw, nraw, nidx, post, lo, hi):
     """Vaelg et sikkert anker; et naert, tidligere navnetraef giver fuld start."""
     fact = _first_unique_anchor(nraw, nidx, collect_anchors(post), lo, hi)
@@ -281,14 +361,16 @@ def _post_anchor(raw, nraw, nidx, post, lo, hi):
         name_start = _line_start(raw, name)
         if name_start <= fact_start and fact_start - name_start <= NAME_BEFORE_FACT_MAX:
             return name_start
-        return fact_start
+        return _snap_to_own_record_start(raw, post, fact_start, lo)
     pos = fact if fact is not None else name
     if pos is None:
         pos = _first_unique_anchor(
             nraw, nidx, collect_secondary_anchors(post), lo, hi)
     if pos is None:
         pos = _contextual_number_anchor(raw, nraw, nidx, post, lo, hi)
-    return _line_start(raw, pos) if pos is not None else None
+    if pos is None:
+        return None
+    return _snap_to_own_record_start(raw, post, _line_start(raw, pos), lo)
 
 
 def structural_boundaries(raw):
@@ -301,6 +383,52 @@ def record_starts(raw):
     return [m.start() for m in RECORD_START_RE.finditer(raw)]
 
 
+def group_header_starts(raw):
+    """Linjestarter for bogens kuld-overskrifter — de er ikke personposter.
+
+    To former genkendes:
+
+    1. Slaegtled-linjen alene ("Sjette Slægtled.").
+    2. En overskriftsblok der slutter paa ":" og navngiver et kuld
+       ("Bertram Reventlows Børn m. Christine Rantzau:") eller et aegteskab
+       ("af første Ægteskab med ...:"). Blokken samles baglaens fra
+       kolon-linjen, saa flerlinjede overskrifter snittes fra deres FOERSTE
+       linje og ikke efterlader en stump paa den foregaaende post.
+
+    Fail-closed: prosalinjer der tilfaeldigvis ender paa ":" bliver kun til
+    en graense hvis blokken ogsaa navngiver et kuld eller et aegteskab, og
+    bogens krydshenvisning ("— Børn:") er eksplicit undtaget.
+    """
+    starts = {m.start() for m in SLAEGTLED_RE.finditer(raw)}
+    # Overskrifter uden kolon ("Johan Reventlows Døtre m. X (Lindenov).")
+    starts |= {m.start() for m in GROUP_HEADER_LINE_RE.finditer(raw)}
+
+    lines = []  # (offset, raatekst)
+    offset = 0
+    for line in raw.splitlines(keepends=True):
+        lines.append((offset, line))
+        offset += len(line)
+
+    for i, (_, line) in enumerate(lines):
+        stripped = line.strip()
+        if not stripped.endswith(":") or CROSSREF_COLON_RE.match(stripped):
+            continue
+        block = [i]
+        j = i - 1
+        while j >= 0 and len(block) < HEADER_BLOCK_MAX_LINES:
+            prev = lines[j][1].strip()
+            if (not prev or prev.endswith(PROSE_LINE_ENDINGS)
+                    or RECORD_START_RE.match(lines[j][1])
+                    or PAGE_RE.search(lines[j][1])):
+                break
+            block.append(j)
+            j -= 1
+        text = " ".join(lines[k][1].strip() for k in sorted(block))
+        if GROUP_NAME_RE.search(text) or AEGTESKAB_RE.search(text):
+            starts.add(lines[min(block)][0])
+    return sorted(starts)
+
+
 def segment(posts, raw, winmap):
     """Kernefunktion (ren): posts + raw + {window-id: (p_lo, p_hi)} ->
     {_id_str: {"narrative", "side", "metode"}}. Hver post faar ikke-tom
@@ -308,7 +436,8 @@ def segment(posts, raw, winmap):
     raw = clean_1939_text(raw)
     pages = parse_pages(raw)
     nraw, nidx = normalize_with_map(raw)
-    boundaries = structural_boundaries(raw)
+    boundaries = sorted(set(structural_boundaries(raw))
+                        | set(group_header_starts(raw)))
     entry_starts = record_starts(raw)
 
     regions = {}  # _id -> (lo, hi) vindue-region

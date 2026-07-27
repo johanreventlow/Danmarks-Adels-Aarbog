@@ -4,7 +4,8 @@
 // eksisterende base = kanonisk (objekt/sink), ny udgaves person = alias (subjekt).
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
-  matchUdgaver, buildMatchFrame, collapseSameAs, previewSammeSom, parseYear,
+  matchUdgaver, buildMatchFrame, collapseSameAs, previewSammeSom, parseYear, defaultCfg,
+  udledKilderForAegtefaeller,
   type MatchFrame, type RedMatchPerson, type Db, type SameAsEdge, type Union, type ParentChild,
 } from '@daa/core';
 import {
@@ -196,21 +197,35 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
     return m;
   }, [foldPreview]);
 
+  // Ægtefæller uden eget bog-nummer arver udgaven fra deres partner (entydigt, ellers urørt).
+  // Uden det havner de i B-siden uanset udgave — så en 1939-ægtefælle kunne foreslås som match
+  // for en 1939-person, og forældrepar kunne aldrig matches færdigt (→ "konkurrerende forældre").
+  const personerMedKilde = useMemo(
+    () => udledKilderForAegtefaeller(personer, familieGraf.unions),
+    [personer, familieGraf.unions],
+  );
+
   const arbejdsliste = useMemo(() => {
     if (nyKildeId == null) return null;
     const framesA: MatchFrame[] = [], framesB: MatchFrame[] = [], aIds: string[] = [];
-    for (const p of personer) {
+    for (const p of personerMedKilde) {
       const f = buildMatchFrame(p);
       if (p.sourceIds.includes(nyKildeId)) { framesA.push(f); aIds.push(String(p.id)); }
       else framesB.push(f);
     }
-    const pairs = matchUdgaver(framesA, framesB);
+    // Evidens-normaliseret score: vægt kun de signaler der faktisk kunne vurderes.
+    // Uden den har en person uden årstal et loft på wName + wSex = præcis
+    // reviewCutoff — bogens ægtefæller kunne derfor ikke bestå, uanset navnet.
+    // Målt mod prod: personer med mindst ét forslag går 442 -> 815 af 835.
+    // assignTiers kapper navn-alene-match til "gennemsyn" (måling: 152 -> 0 par
+    // markeret stærke uden ét eneste årstal).
+    const pairs = matchUdgaver(framesA, framesB, { ...defaultCfg(), evidensNormaliseret: true });
     return buildArbejdsliste(
       pairs, aIds,
       new Set(afviste.map((x) => pairKey(x.aId, x.bId))),
       new Set(linkede.map((x) => pairKey(x.aId, x.bId))),
     );
-  }, [personer, nyKildeId, afviste, linkede]);
+  }, [personerMedKilde, nyKildeId, afviste, linkede]);
   const { aabne, afklarede, formodetNye } = useMemo(() => {
     const arbejdspersoner = arbejdsliste?.personer ?? [];
     return {
@@ -243,6 +258,31 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
     }
     return hints;
   }, [aabne, rawDb, existingEdges]);
+
+  // Bøttet child->[ParentChild] én gang, så foraeldreNavne() slår O(1) op i stedet for
+  // at scanne HELE familieGraf.parentChild (~1500-2000 kanter) for hver kandidat-række.
+  // Uden dette kører scanningen 2x pr. synlig række (A-side + B-side) på HVERT klik —
+  // ethvert state-skift (aabentPar, busy, søgning) re-kører render-funktionen for
+  // samtlige rækker i "aabne", og efter evidensNormaliseret-ændringen (review 304->3229
+  // par) blev det tungt nok til at hænge synligt. Målt: ~1800 kanter × 2 kald × op til
+  // hundredvis af synlige rækker = millioner af array-operationer pr. klik.
+  const parentChildByChild = useMemo(() => {
+    const m = new Map<string, ParentChild[]>();
+    for (const pc of familieGraf.parentChild) {
+      const arr = m.get(pc.child);
+      if (arr) arr.push(pc); else m.set(pc.child, [pc]);
+    }
+    return m;
+  }, [familieGraf.parentChild]);
+  const foraeldreEdgesFor = useCallback(
+    (personId: string) => parentChildByChild.get(personId) ?? [],
+    [parentChildByChild],
+  );
+
+  const medSvage = useMemo(
+    () => formodetNye.filter((p) => p.svageKandidater.some((k) => !k.afvist)).length,
+    [formodetNye],
+  );
 
   const run = useCallback(async (
     change: Change,
@@ -456,7 +496,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
           {filtreredeAabne.map((person) => {
         const a = byId.get(person.aId);
         const aDetaljer = [
-          foraeldreNavne(person.aId, familieGraf.parentChild, byId),
+          foraeldreNavne(person.aId, foraeldreEdgesFor(person.aId), byId),
           formatBogReferencer(a),
         ].filter(Boolean);
         return (
@@ -481,7 +521,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
               const hint = foldHint(person.aId, bId, k.linket);
               const advice = hint.grund ? foldAdvice(hint.grund) : null;
               const bDetaljer = [
-                foraeldreNavne(bId, familieGraf.parentChild, byId),
+                foraeldreNavne(bId, foraeldreEdgesFor(bId), byId),
                 formatBogReferencer(b),
               ].filter(Boolean);
               return (
@@ -645,9 +685,53 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
 
       {formodetNye.length > 0 && (
         <details style={{ marginTop: '1rem' }}>
-          <summary>{formodetNye.length} formodet nye — ingen handling nødvendig</summary>
+          <summary>
+            {formodetNye.length} uden kandidat over tærsklen
+            {medSvage > 0 && ` — ${medSvage} har et forslag under tærsklen`}
+          </summary>
+          {medSvage > 0 && (
+            <p style={{ fontSize: '.85em', color: '#6f675b', margin: '.4rem 0' }}>
+              Scoren vægter kun det der kunne vurderes, så et manglende årstal tæller
+              hverken for eller imod. Disse forslag nåede alligevel ikke tærsklen — typisk
+              fordi navnene afviger, eller fordi et kendt årstal ikke passer. Bedøm dem selv.
+            </p>
+          )}
           <ul style={{ fontSize: '.9em', color: '#6f675b' }}>
-            {formodetNye.map((p) => <li key={p.aId}>{visning(byId.get(p.aId))}</li>)}
+            {formodetNye.map((p) => {
+              const svage = p.svageKandidater.filter((k) => !k.afvist).slice(0, 5);
+              return (
+                <li key={p.aId} style={{ marginBottom: svage.length ? '.5rem' : 0 }}>
+                  {visning(byId.get(p.aId))}
+                  {svage.map((k) => {
+                    const bId = String(k.bId);
+                    const b = byId.get(bId);
+                    return (
+                      <div key={bId} style={{ marginTop: '.25rem', marginLeft: '1rem' }}>
+                        <code>{(k.score ?? 0).toFixed(3)}</code> — {visning(b)}
+                        <span style={{ fontSize: '.85em', marginLeft: '.4rem' }}>
+                          navn {k.nameSim.toFixed(2)} · fødsel {k.birthOverlap ? '✓' : '—'}
+                          {' '}· død {k.deathOverlap ? '✓' : '—'} · køn {k.sexEq ? '✓' : '✗'}
+                        </span>
+                        <button type="button" style={{ marginLeft: '.4rem', fontSize: '.85em' }}
+                          onClick={() => toggleSammenligning(p.aId, bId)}>
+                          {aabentPar === `${p.aId}:${bId}` ? 'Luk' : 'Sammenlign'}
+                        </button>
+                        <button type="button" style={{ marginLeft: '.35rem', fontSize: '.85em' }}
+                          disabled={busy === `s:${p.aId}:${bId}`}
+                          onClick={() => {
+                            const navnA = visning(byId.get(p.aId));
+                            if (window.confirm(`Bekræft ${navnA} = ${visning(b)} som samme person?`)) {
+                              bekraeft(p.aId, bId);
+                            }
+                          }}>
+                          {busy === `s:${p.aId}:${bId}` ? 'Gemmer…' : '✓ Bekræft'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </li>
+              );
+            })}
           </ul>
         </details>
       )}
