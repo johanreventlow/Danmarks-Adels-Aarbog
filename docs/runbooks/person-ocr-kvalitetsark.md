@@ -20,11 +20,12 @@ at OCR-oprydning bliver til nye historiske påstande.
 |---|---|---|
 | `code_ready` | **OPNÅET** | Se §2 (alle automatiske gates grønne) |
 | `local_db_verified` | **OPNÅET** | Se §3 (frisk base, opgraderingssti, rolleadgang) |
-| `production_db_migrated` | **IKKE OPNÅET** | Kræver godkendelse — se §5 |
-| `web_deployed` | **IKKE OPNÅET** | Kræver godkendelse — se §5 |
-| `smoke_verified` | **IKKE OPNÅET** | Kræver manuel redaktør-røgtest i browser — se §4 |
+| `production_db_migrated` | **OPNÅET (2026-07-27)** | Se §5.1 — migreret, verificeret mod rigtig prod |
+| `web_deployed` | **IKKE OPNÅET** | Kræver separat godkendelse (git push + merge til main) |
+| `smoke_verified` | **IKKE OPNÅET** | Kræver manuel redaktør-røgtest i browser mod prod — se §4 |
 
-Produktionsdatabasen er **ikke** rørt. Ingen push, ingen PR, ingen deploy.
+Produktionsdatabasen ER migreret (§5.1). Web-laget er **ikke** deployet. Ingen push,
+ingen PR endnu.
 
 ---
 
@@ -132,28 +133,44 @@ skrivebordsbredde af en redaktør:
 
 Hvert trin kræver en **frisk, eksplicit godkendelse**. Stop ved første afvigelse.
 
-1. **Backup.** Tag en krypteret dump af prod og bekræft, at den kan gendannes.
-   Free tier har ingen indbygget backup.
-2. **Skrivefrys.** Aftal at ingen redaktør skriver, mens migrationen kører.
-3. **Migration.** Kør kun de nye, navngivne blokke i `db-migrations.sql` mod prod.
-   Blokkene er idempotente og verificeret kørt to gange lokalt.
-4. **RLS.** Kør `db-rls.sql`.
-5. **Verifikation.** Kør de relevante `db-verify.sql`-blokke mod prod. Kør derefter
-   `get_advisors(security)` — DDL-migrationer kan indføre RLS-/`search_path`-fund,
-   som `db-verify` ikke tester for.
-6. **Rolletjek mod prod.** Gentag §3's anon/medlem/redaktion-kontrol med efterlignede
-   claims mod den reelle base.
-7. **Importnøgle-beslutning.** Eksisterende personer har ingen stabil
-   `(import_key, record_key)`. De forbliver **læsbare men ikke-redigerbare**, indtil
-   deres udgave genindlæses med `--import-key=`. Beslut per udgave, om og hvornår en
-   genindlæsning skal køres — det er ikke en forudsætning for at tage griddet i brug.
-8. **Web-deploy.** Vercel. Husk at `VITE_`-variabler bages ind ved build.
-9. **Røgtest.** Kør §4 mod prod.
-10. **Ophæv skrivefrys.**
+### 5.1 Database — UDFØRT (2026-07-27), brugergodkendt
 
-**Rollback:** Featuren tilføjer kun nye objekter (journal-tabel, tre RPC'er, to
-kolonner). Web-laget kan rulles tilbage uafhængigt ved at redeploye forrige commit;
-databaseobjekterne kan blive stående uden effekt, da intet eksisterende kald rører dem.
+1. **Backup.** Fuld krypteret `pg_dump` (AES256/gpg) af prod taget og
+   gendannelses-verificeret (restore til lokal engangsbase, `person`/`assertion`-tal
+   matchede). Fil: `daa-prod-pre-ocr-kvalitetsark-20260727-214752.dump.gpg`.
+   Passphrase ligger **kun** i en lokal fil under sessionens scratchpad — flyt den til
+   en adgangskode-manager, den er ikke i git eller chatlog.
+2. **Migration.** De to navngivne blokke anvendt mod `xjnvdhajfyrcytatnzos` via
+   Supabase migrationshistorik: `person_ocr_kvalitetsark` (20260727215750,
+   identitet+grid+rettelse) og `person_ocr_kvalitetsark_rls` (20260727215816).
+3. **Verifikation mod rigtig prod:**
+   - `anon`-kald til `red_person_grid` afvist (ægte REST-kald, HTTP 401,
+     `permission denied for function`).
+   - `get_advisors(security)`: 130 → 133 lints, **+3** (nøjagtigt de tre nye
+     SECURITY DEFINER-funktioner), ingen nye lint-kategorier.
+   - Data uændret: 1756 personer, 8716 assertions (samme før/efter migration).
+4. **Importnøgle-beslutning (brugervalg):** migrér nu, genindlæs senere. Ingen
+   udgave er genindlæst med `--import-key=` endnu — alle eksisterende personer er
+   derfor synlige (navn/fødsel/død vises) men ikke-redigerbare (`record_key_mangler`).
+
+**Hændelse under migrationen (ingen skade, men værd at kende):** første forsøg på at
+anvende migrationen fejlede, fordi jeg manuelt genskrev SQL'en fra hukommelsen i
+værktøjskaldet i stedet for at bruge den allerede verificerede, udtrukne fil ordret —
+en linje fik forkerte kolonnenavne (`pk_kolonner`/`generated_kolonner` i stedet for
+prods faktiske `pk_cols`/`skip_cols`). Transaktionen rullede atomisk tilbage; et
+efterfølgende tjek bekræftede at intet var delvist anvendt. Genforsøgt med filens
+eksakte, læste indhold — lykkedes.
+
+### 5.2 Web — udestående
+
+5. **Web-deploy.** `git push` + PR + merge til `main` (Vercel bygger derfra) — hver
+   for sig en separat godkendelse. Husk at `VITE_`-variabler bages ind ved build.
+6. **Røgtest.** Kør §4 mod prod.
+7. **Ophæv evt. skrivefrys.**
+
+**Rollback:** Featuren tilføjede kun nye objekter (journal-tabel, tre RPC'er, to
+kolonner) — intet eksisterende kald er ændret. Web-laget kan rulles tilbage
+uafhængigt ved at redeploye forrige commit.
 
 ---
 

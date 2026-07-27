@@ -126,6 +126,24 @@ prod-deploy.
   manglende varianter på media 3 og seks historiske SHA-kandidater (media 1–6).
   Disse er opfølgning; `--slet` og `--backfill-sha` er ikke kørt.
 
+### Personers OCR-kvalitetsark — DB live, web IKKE deployet (2026-07-27)
+
+- Migreret mod prod (`person_ocr_kvalitetsark` + `person_ocr_kvalitetsark_rls`,
+  Supabase migrationshistorik `20260727215750`/`20260727215816`): `import_korrektion`-
+  journal (uden for loaderens reset-liste, ingen FK til regenererbare id'er), stabile
+  importnøgler (`source.import_key`, `person_external_id.record_key`) samt RPC'erne
+  `red_person_grid`, `red_ret_ocr_felt`, `red_ocr_historik`.
+- Verificeret direkte mod prod efter migration: `anon` afvist (rigtig REST-kald, 401),
+  `get_advisors(security)` delta +3 (kun de kendte SECURITY DEFINER-mønstre, ingen nye
+  kategorier), data uændret (1756 personer, 8716 assertions).
+- Krypteret fuld backup taget og gendannelses-verificeret før migration
+  (`daa-prod-pre-ocr-kvalitetsark-20260727-214752.dump.gpg`).
+- Eksisterende personer har endnu ingen stabil `(import_key, record_key)` — griddet
+  viser navn/fødsel/død (afklaret evidens, ikke kun redigerbare felter), men intet felt
+  er redigerbart før en separat, senere genindlæsning med `--import-key=`.
+- **Web-laget er IKKE deployet.** Drift, gated procedure og udestående trin:
+  `docs/runbooks/person-ocr-kvalitetsark.md`.
+
 ### Levende feed fase 2-3 + K2 selektiv publicering (deployet 2026-07-20)
 - **`haendelse`** (fase 2, regenererbar hændelses-projektion af narrativer) + **`story`/
   `story_kilde`/`feed_pin`** (fase 3, kurateret formidlingslag) — additive tabeller,
@@ -151,7 +169,6 @@ prod-deploy.
 | **Polymorf døde-link-integritetsrapport** | Kun `text_mention` har et døde-links-view. Bredere orphan-check (fact/relation/assertion → subjekt) findes ikke systematisk endnu. |
 | Levende feed fase 4 | LLM-assist/Edge Function — bevidst udskudt 2026-07-20 (for få kilder i PoC til at retfærdiggøre kørslen endnu), ikke annulleret. Se `decisions.md`. |
 | **Mediehåndtering fase 4 — identitet & endeligt farvel** | **LIVE i prod (2026-07-22).** Nye funktioner i `schema.sql`: `red_erstat_media_fil` (erstat bytes, behold identitet — atomisk `AND upload_status='klar'`-gate mod race), `red_udrens_media_preview`+`red_udrens_media` (permanent sletning, blokeret på SYV polymorfe ankre: relation, text_mention, fact, story, narrative, note, suggestion — guard+slet i ét atomisk `DELETE...NOT EXISTS`-statement), `red_saet_portraet` (portræt-valg, `relation.kvalifikator jsonb`-kolonne, additiv). Deployet via scoped blok `mediehaandtering_fase4_identitet`; fase-4-verify-blokkene kørt og bestået direkte mod prod (impersoneret redaktion-profil), `get_advisors(security)` viste kun kendte SECURITY DEFINER-mønstre. `db-rls.sql` uændret. Web app-deployet (Vercel, PR #75); redaktør-røgtestet (erstat/udrens/portræt) med succes; janitor-rapport bekræftede korrekt kategori-b-håndtering af et reelt erstat, ingen `--slet` kørt. |
-| **Personers OCR-kvalitetsark** | **Kodeklar, IKKE deployet (2026-07-26).** Nye objekter venter i `schema.sql`/`db-migrations.sql`: `import_korrektion`-journal (uden for loaderens reset-liste, ingen FK til regenererbare id'er), stabile importnøgler (`source.import_key`, `person_external_id.record_key`) samt RPC'erne `red_person_grid`, `red_ret_ocr_felt` og `red_ocr_historik`. Verificeret mod lokale engangsbaser på PG 17.10: frisk installation, opgraderingssti, idempotente migrationer (kørt to gange), rolleadgang med efterlignede JWT-claims (anon og medlem afvist), samt genafspilning af rettelser efter reset-load. **Prod er ikke rørt.** Gated procedure, skala-måling og udestående manuel røgtest: `docs/runbooks/person-ocr-kvalitetsark.md`. |
 | Mediehåndtering fase 5 | Dokumenttransskription er ikke designet endnu. |
 | 1939-publicering | Pauset indtil nyt OCR-udtræk, nyt artefakt og fornyet komplethedsgate (uddybet i §3) |
 | Import-sikkerhed | Stabil import-run/checksum/udgavenøgle og source-scoped replace mangler; `--reset` er fortsat en farlig nødvej |

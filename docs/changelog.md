@@ -1,5 +1,20 @@
 # Changelog
 
+## Personers OCR-kvalitetsark — DB LIVE i prod, web IKKE deployet (2026-07-27)
+
+Databasen er migreret mod prod (`xjnvdhajfyrcytatnzos`): `import_korrektion`-journal,
+stabile importnøgler og RPC'erne `red_person_grid`/`red_ret_ocr_felt`/`red_ocr_historik`
+er live. Krypteret backup taget og gendannelses-verificeret først. Verificeret mod
+rigtig prod efter migration: `anon` afvist (ægte REST-kald, 401), `get_advisors`-delta
++3 (kun de kendte SECURITY DEFINER-mønstre), data uændret (1756 personer). Brugeren
+valgte at migrere databasen nu og genindlæse en udgave med `--import-key=` separat
+senere — eksisterende personer er derfor synlige i griddet men endnu ikke redigerbare.
+
+Web-laget er **ikke** deployet endnu. Se `docs/runbooks/person-ocr-kvalitetsark.md` §5.1
+for detaljer, inklusive en hændelse under første migrationsforsøg (en manuel
+gentastning af SQL introducerede en kolonnenavne-fejl; transaktionen rullede atomisk
+tilbage uden nogen skade, og genforsøget med filens eksakte indhold lykkedes).
+
 ## Personers OCR-kvalitetsark — kodeklar, IKKE deployet (2026-07-26)
 
 Redaktør-værktøj der viser hver importeret person som én række i et regneark-lignende
