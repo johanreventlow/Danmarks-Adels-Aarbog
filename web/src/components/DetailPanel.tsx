@@ -34,7 +34,9 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
   const spouses = (model.indexes.spousesBy[focusId] ?? []);
   const children = childrenOf(model, focusId);
   const linjer = model.lineage?.byPerson[focusId] ?? [];
-  const sources = model.sourcesBy?.[focusId] ?? [];
+  // Bog-nummeret ("Linje II, nr. 4") vinder; citation-proveniensen udfylder kun for personer bogen
+  // ikke gav et opslag — typisk ægtefæller, der ellers stod helt uden kilde.
+  const sources = model.sourcesBy?.[focusId]?.length ? model.sourcesBy[focusId] : (detail?.sources ?? []);
   // Portræt = hovedbilledet; galleri = de øvrige medier (materiale). RLS-gatet i data-laget.
   const media = detail?.media ?? [];
   const portrait = pickPortrait(media);

@@ -224,3 +224,44 @@ describe('buildAux — kilder ("Linje X, nr. N" + trykt værk)', () => {
     expect(aux.sourcesBy['7']).toEqual([{ ref: 'Linje II, nr. 4', work: 'Danmarks Adels Aarbog' }]);
   });
 });
+
+// --- Kilde-faldback for personer uden bog-nummer (ægtefæller) ---
+
+const DAA_1939 = { id: 3, slags: 'DAA-udgave', titel: 'DAA 1939', udgave: 'DAA 1939', ekstern: null };
+
+test('buildAux: ægtefælle uden person_external_id får kilde fra citationerne', () => {
+  const aux = buildAux({
+    ...base,
+    sources: [DAA_1939] as never,
+    citationKilder: [{ person_id: '1690', work: 'DAA 1939', side: '578' }],
+  });
+  expect(aux.sourcesBy['1690']).toEqual([{ work: 'DAA 1939', ref: 's. 578' }]);
+});
+
+test('buildAux: bog-nummeret vinder — citationen fortrænger ikke "Linje X, nr. N"', () => {
+  const aux = buildAux({
+    ...base,
+    sources: [DAA_1939] as never,
+    extIds: [{ person_id: 7, source_id: 3, linje: 'II', nr: 4 }] as never,
+    citationKilder: [{ person_id: '7', work: 'DAA 1939', side: '12' }],
+  });
+  expect(aux.sourcesBy['7']).toEqual([{ work: 'DAA 1939', ref: 'Linje II, nr. 4' }]);
+});
+
+test('buildAux: uden citationKilder er adfærden uændret (bagudkompat)', () => {
+  const aux = buildAux({
+    ...base,
+    sources: [DAA_1939] as never,
+    extIds: [{ person_id: 7, source_id: 3, linje: 'II', nr: 4 }] as never,
+  });
+  expect(aux.sourcesBy['7']).toEqual([{ work: 'DAA 1939', ref: 'Linje II, nr. 4' }]);
+});
+
+test('buildAux: citation-nøglen kanoniseres som resten af aux', () => {
+  const aux = buildAux(
+    { ...base, sources: [DAA_1939] as never, citationKilder: [{ person_id: '1690', work: 'DAA 1939', side: '578' }] },
+    { '1690': '841' },
+  );
+  expect(aux.sourcesBy['841']).toEqual([{ work: 'DAA 1939', ref: 's. 578' }]);
+  expect(aux.sourcesBy['1690']).toBeUndefined();
+});

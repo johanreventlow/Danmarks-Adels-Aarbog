@@ -3,7 +3,7 @@
 // viser en tom-tilstand frem for at vælte siden — men breakage er ikke HELT tavst (console).
 import { supabase } from '../supabase';
 import type { Model } from './types';
-import { pickPreferredBio, buildBioVersions, getAll, type NarrativeCand, type BioVersion } from '@daa/core';
+import { pickPreferredBio, buildBioVersions, getAll, buildProvenanceSources, citationRowsTilProveniens, type NarrativeCand, type BioVersion, type RaaCitationRow, type SourceRef } from '@daa/core';
 import { fetchPersonMedia, fetchObjectMedia, type MediaItem } from './media';
 
 // Rå narrativ-række med source-join (PostgREST embedded resource).
@@ -134,14 +134,42 @@ export type PersonEstate = { id: string; navn: string };
 // bioVersions: alle offentlige DAA-udgave-versioner af biografien, nyeste først (§7.18
 // versionsvælger). bio er altid = bioVersions[0]?.tekst (bagudkompatibel — mobile og øvrige
 // kaldere der kun læser .bio er upåvirkede).
-export type PersonDetailData = { bio: string; bioVersions: BioVersion[]; offices: PersonOffice[]; estates: PersonEstate[]; media: MediaItem[] };
+// sources: kilde udledt af EVIDENSLAGET (citation→source). Hentes kun når personen ikke har et
+// bog-nummer (person_external_id) — se hentKilder nedenfor.
+export type PersonDetailData = { bio: string; bioVersions: BioVersion[]; offices: PersonOffice[]; estates: PersonEstate[]; media: MediaItem[]; sources: SourceRef[] };
 
 type RawPersonRel = { objekt_type: string; objekt_id: number; rolle: string | null; periode_raw: string | null };
 
+export const TOM_PERSONDETALJE: PersonDetailData = { bio: '', bioVersions: [], offices: [], estates: [], media: [], sources: [] };
+
+// Proveniens for personer UDEN bog-nummer (de 627 ægtefæller): fact → assertion → citation →
+// source. Tre flade opslag, fordi assertion.target_id er polymorf og derfor uden FK at neste på.
+async function fetchProveniens(numIds: number[]): Promise<SourceRef[]> {
+  if (!numIds.length) return [];
+  const { data: facts } = await supabase.from('fact')
+    .select('id,subjekt_id').eq('subjekt_type', 'person').in('subjekt_id', numIds);
+  const factRows = (facts ?? []) as { id: number; subjekt_id: number }[];
+  if (!factRows.length) return [];
+  const { data: asserts } = await supabase.from('assertion')
+    .select('id,target_id').eq('target_type', 'fact').in('target_id', factRows.map((f) => f.id));
+  const assertRows = (asserts ?? []) as { id: number; target_id: number }[];
+  if (!assertRows.length) return [];
+  const { data: cits } = await supabase.from('citation')
+    .select('assertion_id,side,source:source_id(titel,udgave)').in('assertion_id', assertRows.map((a) => a.id));
+  const personAfFact = new Map(factRows.map((f) => [f.id, String(f.subjekt_id)]));
+  const personAfAssert = new Map(assertRows.map((a) => [a.id, personAfFact.get(a.target_id) ?? '']));
+  const rows = citationRowsTilProveniens((cits ?? []) as unknown as RaaCitationRow[], personAfAssert);
+  // Alle medlems-id'er hører til den samme foldede person her, så de samles under én nøgle.
+  const perPerson = buildProvenanceSources(rows, Object.fromEntries(numIds.map((n) => [String(n), String(numIds[0])])));
+  return perPerson[String(numIds[0])] ?? [];
+}
+
 // memberIds: for en samme_som-foldet person, alle medlems-id'er i gruppen — narrativ + relationer
 // unioneres over dem (spec §8). Uden memberIds (ikke-foldet) = kun personens eget id.
-export function fetchPersonDetail(id: string, memberIds?: string[]): Promise<PersonDetailData> {
-  const empty: PersonDetailData = { bio: '', bioVersions: [], offices: [], estates: [], media: [] };
+// hentKilder: kun sandt når personen mangler bog-nummer, så de ~1129 hovedposter ikke betaler for
+// tre ekstra opslag de alligevel ikke bruger.
+export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder = false): Promise<PersonDetailData> {
+  const empty = TOM_PERSONDETALJE;
   const ids = memberIds && memberIds.length ? memberIds : [id];
   const numIds = ids.map(Number).filter((n) => !Number.isNaN(n));
   return safe(async () => {
@@ -187,7 +215,8 @@ export function fetchPersonDetail(id: string, memberIds?: string[]): Promise<Per
       })),
       (e) => e.id,
     );
-    return { bio, bioVersions, offices, estates, media };
+    const sources = hentKilder ? await fetchProveniens(numIds) : [];
+    return { bio, bioVersions, offices, estates, media, sources };
   }, empty, 'fetchPersonDetail');
 }
 
