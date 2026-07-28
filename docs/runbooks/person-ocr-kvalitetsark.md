@@ -21,11 +21,15 @@ at OCR-oprydning bliver til nye historiske påstande.
 | `code_ready` | **OPNÅET** | Se §2 (alle automatiske gates grønne) |
 | `local_db_verified` | **OPNÅET** | Se §3 (frisk base, opgraderingssti, rolleadgang) |
 | `production_db_migrated` | **OPNÅET (2026-07-27)** | Se §5.1 — migreret, verificeret mod rigtig prod |
-| `web_deployed` | **IKKE OPNÅET** | Kræver separat godkendelse (git push + merge til main) |
+| `web_deployed` | **OPNÅET (2026-07-27)** | PR #103 merget til `main` af brugeren; Vercel auto-deploy verificeret (feature-strenge fundet i live JS-bundle) |
 | `smoke_verified` | **IKKE OPNÅET** | Kræver manuel redaktør-røgtest i browser mod prod — se §4 |
 
-Produktionsdatabasen ER migreret (§5.1). Web-laget er **ikke** deployet. Ingen push,
-ingen PR endnu.
+Produktionsdatabasen ER migreret (§5.1). Web-laget ER deployet (§5.2). Eneste
+udestående er den manuelle redaktør-røgtest (§4).
+
+**Identitet (2026-07-28):** DAA 2018-20 (591 personer, `source.id=1`) har nu stabil
+`record_key`/`import_key` via en tilføjende backfill, ikke en genindlæsning — se §5.1
+punkt 6. 1939-udgaven (staged, `source.id=3`) er stadig uden stabil identitet.
 
 ---
 
@@ -152,6 +156,35 @@ Hvert trin kræver en **frisk, eksplicit godkendelse**. Stop ved første afvigel
 4. **Importnøgle-beslutning (brugervalg):** migrér nu, genindlæs senere. Ingen
    udgave er genindlæst med `--import-key=` endnu — alle eksisterende personer er
    derfor synlige (navn/fødsel/død vises) men ikke-redigerbare (`record_key_mangler`).
+5. **`--reset`-genindlæsning afvist som vej (2026-07-28).** `has_reset_blocking_
+   editorial_changes()` (`load_helpers.R`) blokerer på enhver `red_%`-operation
+   undtagen `red_ret_ocr_felt`. Prods `change_set` har 482 `red_samme_som` plus
+   dusinvis andre redaktørrettelser (slettede personer, forældre-fixes,
+   medie-/narrativoperationer) — en `--reset` ville enten blive nægtet af spærren
+   eller, hvis tvunget igennem, slette den historik. Vejen forkastet uden at røre
+   prod.
+6. **Backfill af `record_key`/`import_key` for DAA 2018-20 (2026-07-28),
+   brugergodkendt.** Alternativ til genindlæsning: en smal, kun-tilføjende
+   `UPDATE` der stempler eksisterende rækker med den identitet en fremtidig
+   genindlæsning ville have givet dem — uden at røre `--reset`-spærren, person-,
+   fact- eller family-data.
+   - **Grundlag:** de 591 JSON-filer i `data/extracted-2026-06-18/` er selv
+     navngivet med `record_key` (fx `I-15a.json`); `citation.source_id` på
+     eksisterende navn/fødsel/død-påstande verificeret til at pege på samme
+     `source`-række (id 1) som blev stemplet.
+   - **To `(linje,nr)`-kollisioner** (basenr 15 delt af I-15a/b/c; basenr 41 delt
+     af I-41a/b) løst entydigt ved navnematch mod prods faktiske data — 591/591
+     dækning, ingen gæt, ingen rækker efterladt tvetydige.
+   - **Rehearsal:** kørt mod en lokal kopi af prods rigtige data (samme stack som
+     §3.1) inde i en transaktion, rullet tilbage. Resultat: 591/591 fik
+     `record_key`, 0 `record_key_mangler` tilbage, 588/591 blev `kan_rettes.navn`.
+   - **Prod:** frisk krypteret backup taget og gendannelses-verificeret
+     (`daa-prod-pre-record-key-backfill-20260728-074303.dump.gpg`), scriptet
+     kørt i én transaktion med indbygget verifikations-`SELECT` før `COMMIT`.
+     Resultat mod ægte prod (via `red_person_grid()` som redaktør): identisk med
+     rehearsal — 591/591, 0 mangler, 588 `kan_rettes.navn`. `get_advisors
+     (security)` uændret på 133 lints (ren DML, ingen ny DDL). Persontal
+     uændret af backfillen (kun `UPDATE` af to eksisterende NULL-felter).
 
 **Hændelse under migrationen (ingen skade, men værd at kende):** første forsøg på at
 anvende migrationen fejlede, fordi jeg manuelt genskrev SQL'en fra hukommelsen i
@@ -161,12 +194,16 @@ prods faktiske `pk_cols`/`skip_cols`). Transaktionen rullede atomisk tilbage; et
 efterfølgende tjek bekræftede at intet var delvist anvendt. Genforsøgt med filens
 eksakte, læste indhold — lykkedes.
 
-### 5.2 Web — udestående
+### 5.2 Web — UDFØRT (2026-07-27), brugerhandling
 
-5. **Web-deploy.** `git push` + PR + merge til `main` (Vercel bygger derfra) — hver
-   for sig en separat godkendelse. Husk at `VITE_`-variabler bages ind ved build.
-6. **Røgtest.** Kør §4 mod prod.
-7. **Ophæv evt. skrivefrys.**
+5. **Web-deploy.** PR #103 (merge-konflikt mod 51 samtidige `main`-commits løst,
+   enkelt konflikt i `docs/changelog.md`) merget til `main` af brugeren direkte via
+   GitHub. Vercel auto-deploy bekræftet ved at hente det live JS-bundle og finde
+   feature-strenge (`Kvalitetsark`, `record_key_mangler`, `Prøvekørsel`,
+   `OCR-kontekst`).
+6. **Røgtest.** Udestående — kør §4 mod prod (kræver en redaktør i browseren).
+7. **Ophæv evt. skrivefrys.** Ikke relevant — der blev ikke indført skrivefrys for
+   denne feature.
 
 **Rollback:** Featuren tilføjede kun nye objekter (journal-tabel, tre RPC'er, to
 kolonner) — intet eksisterende kald er ændret. Web-laget kan rulles tilbage
