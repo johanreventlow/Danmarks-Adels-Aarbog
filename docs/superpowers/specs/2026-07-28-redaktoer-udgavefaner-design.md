@@ -174,11 +174,58 @@ med at stå som to poster.** Det er let at bryde ved et uheld senere.
 - **B1, nøglerummet** — to slægters "Linje I" i samme udgave. Se
   `docs/reviews/flerslaegt-parathed-2026-07-28.md`.
 
+## Hvornår er to udgaver "uenige" om en dato? (målt 2026-07-28)
+
+Brugerfund: datoerne er skrevet forskelligt i de to bøger, så en naiv sammenligning ville flage
+næsten alle personer. Målt på de matchede par i prod:
+
+| | fødsel | død |
+|---|---|---|
+| Sammenlignelige par | 354 | 307 |
+| Rå tekst ens | 14 (4 %) | 18 (5 %) |
+| Parsede datoer *identiske* | 73 | 59 |
+| **Parsede datoer forskellige** | **281 (79 %)** | **248 (81 %)** |
+
+En sammenligning på rå tekst er altså ubrugelig — men **en sammenligning på parsede datoer er det
+også.** Det var det overraskende. Årsagen viser sig når man spørger *hvordan* de er forskellige:
+
+| | fødsel | død |
+|---|---|---|
+| Identiske intervaller | 73 | 59 |
+| **Det ene interval indeholder det andet** | **277** | **235** |
+| Delvist overlap uden indeholdelse | **0** | **0** |
+| **Disjunkte (ægte uenighed)** | **4** | **12** |
+
+**Bøgerne er næsten aldrig uenige — de er forskelligt præcise.** I 99 % (fødsel) og 96 % (død) af
+parrene indeholder det ene interval det andet: den ene bog skriver `1748`, den anden
+`11. okt. 1748`. Det er ikke to påstande der strider mod hinanden; det er en grov og en fin.
+
+Og taksonomien er ren: **delvist overlap uden indeholdelse forekommer nul gange.** Hvert par er
+enten identisk, indeholdende eller disjunkt.
+
+### Reglen
+
+| Forhold | Betydning | Hvad UI'et gør |
+|---|---|---|
+| Identiske intervaller | Enige | Vis som enige. Ingen handling. |
+| Ét interval indeholder det andet | Enige, forskellig præcision | Vis den **fineste** som konklusion. Ingen handling; præcisionen kan ses i udgave-fanen. |
+| Disjunkte intervaller | **Ægte uenighed** | Hør til i "Uenigheder". Kræver beslutning. |
+
+Sammenligning sker på `date_min`/`date_max`, **aldrig** på `date_raw`. Rå tekst bevares som
+proveniens og vises i udgave-fanen, men bruges ikke til at afgøre enighed.
+
+**Konsekvens for "Uenigheder"-sektionen:** den ville i dag indeholde **16 felter i alt** på tværs af
+alle 429 matchede par — ikke ~660. Det er en liste man kan gennemgå, hvilket var hele formålet.
+
+**Åbent til planen:** samme spørgsmål for ikke-dato-felter (navn, titel, sted). Der findes ingen
+normaliseret form at sammenligne på, og `matchKey`-foldningen er bygget til scoring, ikke til at
+afgøre enighed. Kandidat: vis som "forskellig skrivemåde" frem for "uenighed", medmindre der findes
+et bedre grundlag.
+
 ## Åbne forbehold
 
 - Antallet af karantænerede grupper (238) er målt 2026-07-28 og falder i takt med matcharbejdet.
   Designet afhænger ikke af tallet, kun af at tilstanden findes.
-- "Uenigheder"-udregningen forudsætter at felter kan sammenlignes på tværs af udgaver. For datoer
-  findes normaliserede `date_min`/`date_max`; for fritekst-felter er sammenligningen mere usikker
-  og kan give falske uenigheder på ren ortografi (`Oktbr.` vs `okt.`). Bør afgøres i planen —
-  enten normaliseret sammenligning eller en eksplicit "kun typografisk forskel"-markering.
+- Dato-målingen er lavet på personer der **allerede er matchet**. Par hvor datoerne var åbenlyst
+  uforenelige blev formentlig aldrig til par, så andelen af ægte uenigheder er sandsynligvis
+  underestimeret. Reglen påvirkes ikke — kun forventningen til hvor lang listen bliver.
