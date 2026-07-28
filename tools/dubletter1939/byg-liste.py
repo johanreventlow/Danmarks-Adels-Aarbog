@@ -285,6 +285,8 @@ def main():
             "poster": {
                 str(p["nr"]): {
                     "id": p["id"], "navn": p["navn"], "foedt": p["foedt"], "doed": p["doed"],
+                    # Sidetal fra citationen — så hvert par kan slås op i bogen uden at lede.
+                    "side": p.get("side"),
                     "fakta": p["fakta"], "fm_kanter": p["fm_kanter"], "staged": p["staged"],
                     "narrativ": p["narrativ"],
                     "ctx_gruppe": ctx_af_nr.get(p["nr"], {}).get("gruppe"),
@@ -311,11 +313,12 @@ def main():
 
     for i, r in enumerate(raekker, 1):
         b, f = r["poster"][str(r["behold"])], r["poster"][str(r["fjern"])]
+        sider = sorted({str(b.get("side") or "?"), str(f.get("side") or "?")})
         md += [f"## {i}. nr {r['behold']} ↔ nr {r['fjern']} · klasse {r['klasse']} "
-               f"· {r['styrke']}/4 detektorer", "",
+               f"· {r['styrke']}/4 detektorer · **s. {' + '.join(sider)}**", "",
                f"`{'`, `'.join(r['detektorer'])}`", ""]
         for rolle, p, nr in (("BEHOLD", b, r["behold"]), ("FJERN ", f, r["fjern"])):
-            md += [f"**{rolle} nr {nr}** (id {p['id']}) — {p['navn'] or '?'} · "
+            md += [f"**{rolle} nr {nr}** (id {p['id']}) · **s. {p.get('side') or '?'}** — {p['navn'] or '?'} · "
                    f"f. {p['foedt'] or '?'} · † {p['doed'] or '?'} · "
                    f"{p['fakta']} fakta · {p['fm_kanter']} family_member-rækker · "
                    f"{p['window']} · gruppe `{p['ctx_gruppe'] or '—'}`", "",
