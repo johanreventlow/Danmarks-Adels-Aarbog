@@ -1,5 +1,27 @@
 # Changelog
 
+## Personers OCR-kvalitetsark — record_key-backfill for DAA 2018-20 + web-status rettet (2026-07-28)
+
+Genindlæsning med `--reset --import-key=` blev overvejet for at gøre eksisterende
+personer redigerbare, men forkastet: loaderens `has_reset_blocking_editorial_
+changes()`-spærre blokerer på enhver `red_%`-operation undtagen `red_ret_ocr_felt`,
+og prods `change_set` har 482 `red_samme_som`-links plus dusinvis andre
+redaktørrettelser den ville have ramt. I stedet blev en smal, kun-tilføjende
+`UPDATE`-backfill kørt: 591 eksisterende DAA 2018-20-personer fik
+`source.import_key='daa:2018-20'` og `person_external_id.record_key` stemplet,
+udledt af at filnavnene i `data/extracted-2026-06-18/*.json` selv ER `record_key`.
+To `(linje,nr)`-kollisioner (basenr 15 og 41) løst entydigt ved navnematch. Rehearsed
+mod en lokal kopi af prods rigtige data før kørsel; frisk krypteret backup taget
+(`daa-prod-pre-record-key-backfill-20260728-074303.dump.gpg`). Resultat mod ægte
+prod: 588/591 personer nu redigerbare, 0 `record_key_mangler` tilbage,
+`get_advisors(security)` uændret på 133 lints. 1939-udgaven har stadig ingen stabil
+identitet.
+
+Samtidig rettet: forrige changelog-entry og runbook sagde web-laget ikke var
+deployet — brugeren havde i mellemtiden selv merget PR #103 til `main` via GitHub,
+og Vercel havde allerede auto-deployet featuren til prod. `web_deployed` er derfor
+opnået siden 2026-07-27; kun den manuelle redaktør-røgtest udestår.
+
 ## Personers OCR-kvalitetsark — DB LIVE i prod, web IKKE deployet (2026-07-27)
 
 Databasen er migreret mod prod (`xjnvdhajfyrcytatnzos`): `import_korrektion`-journal,

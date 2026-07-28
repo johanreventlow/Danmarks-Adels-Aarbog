@@ -126,7 +126,7 @@ prod-deploy.
   manglende varianter på media 3 og seks historiske SHA-kandidater (media 1–6).
   Disse er opfølgning; `--slet` og `--backfill-sha` er ikke kørt.
 
-### Personers OCR-kvalitetsark — DB live, web IKKE deployet (2026-07-27)
+### Personers OCR-kvalitetsark — DB + web live, røgtest udestående (2026-07-28)
 
 - Migreret mod prod (`person_ocr_kvalitetsark` + `person_ocr_kvalitetsark_rls`,
   Supabase migrationshistorik `20260727215750`/`20260727215816`): `import_korrektion`-
@@ -138,11 +138,24 @@ prod-deploy.
   kategorier), data uændret (1756 personer, 8716 assertions).
 - Krypteret fuld backup taget og gendannelses-verificeret før migration
   (`daa-prod-pre-ocr-kvalitetsark-20260727-214752.dump.gpg`).
-- Eksisterende personer har endnu ingen stabil `(import_key, record_key)` — griddet
-  viser navn/fødsel/død (afklaret evidens, ikke kun redigerbare felter), men intet felt
-  er redigerbart før en separat, senere genindlæsning med `--import-key=`.
-- **Web-laget er IKKE deployet.** Drift, gated procedure og udestående trin:
-  `docs/runbooks/person-ocr-kvalitetsark.md`.
+- **Web merget og deployet (2026-07-27).** PR #103 merget til `main` af brugeren;
+  Vercel auto-deploy bekræftet mod det live JS-bundle. Manuel redaktør-røgtest i
+  browser (checklisten i runbookens §4) er stadig udestående.
+- **DAA 2018-20 har nu stabil `(import_key, record_key)` (2026-07-28), via en
+  tilføjende backfill — IKKE en genindlæsning.** `--reset`-genindlæsning blev
+  forkastet: prods `change_set` har 482 `red_samme_som` plus dusinvis andre
+  redaktørrettelser, som loaderens `has_reset_blocking_editorial_changes()`-spærre
+  fail-closed ville have blokeret (eller, hvis tvunget igennem, slettet). I stedet
+  stemplede en ren `UPDATE`-transaktion — rehearsed mod en lokal kopi af prods
+  rigtige data, verificeret 591/591 uden gæt (kilde: filnavnene i
+  `data/extracted-2026-06-18/*.json` ER `record_key`) — de 591 eksisterende
+  2018-20-personer med `source.import_key='daa:2018-20'` og
+  `person_external_id.record_key`. Frisk backup taget før kørsel
+  (`daa-prod-pre-record-key-backfill-20260728-074303.dump.gpg`). Resultat mod
+  ægte prod: 588/591 personer nu `kan_rettes.navn=true`, 0 `record_key_mangler`,
+  `get_advisors(security)` uændret på 133 lints (ren DML). **1939-udgaven
+  (staged, `source.id=3`) har stadig ingen stabil identitet.**
+- Drift, gated procedure og udestående trin: `docs/runbooks/person-ocr-kvalitetsark.md`.
 
 ### Levende feed fase 2-3 + K2 selektiv publicering (deployet 2026-07-20)
 - **`haendelse`** (fase 2, regenererbar hændelses-projektion af narrativer) + **`story`/
