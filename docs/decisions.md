@@ -2,6 +2,45 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## 1939-posternes permanente løbenummer: ÅBEN, og bevidst ikke sat endnu (2026-07-28)
+
+Brugerspørgsmål: er der en plan for at 1939-posterne får et permanent løbenummer
+(`person_external_id.record_key`)? **Nej — det er noteret tre gange samme dag af to
+uafhængige arbejdsspor, men aldrig planlagt.** Denne sektion findes for at det ikke skal
+genopdages en fjerde gang.
+
+**Hvorfor DAA 2018-20 kunne backfilles, og 1939 ikke kan.** 2018-20's `record_key` blev
+udledt af at filnavnene i `data/extracted-2026-06-18/*.json` selv *er* nøglen — identiteten
+fandtes i forvejen, den var bare ikke skrevet ind i basen. 1939 har ikke det: løbenumrene
+1–539 tildeles af `convert_1939_stamtavle.py` som en gennemløbende tæller hen over hele
+bogen. Konverterens egen header fastslår at nummer-ankeret derfor er "reelt dødt".
+
+- **Beslutning: ingen nøgle før korpuset ligger fast.** En permanent nøgle skal overleve at
+  bogen segmenteres om. Re-segmenteringen 2026-07-26 flyttede postgrænser i 216 narrativer;
+  havde numrene været brugt som nøgle, ville redaktionelle rettelser bagefter have hængt på
+  de forkerte personer. Fraværet af `record_key` er derfor **det rigtige valg indtil videre**,
+  ikke en forglemmelse.
+- **Konsekvens i dag:** 1939 kan læses og bruges som kilde — `red_set_konklusion` tager kun
+  et assertion-id og har intet ankerkrav, så en 1939-oplysning kan udmærket vælges som den
+  gældende. Kun `red_ret_ocr_felt` (transskriptionsrettelse) er spærret, fordi den forankrer
+  på `(import_key, record_key)`.
+- **Rækkefølge, når det tages op:** (1) dubletgennemgangen fra
+  `docs/reviews/dubletter-1939-2026-07-27.md` — ~30 par betyder at nogle poster skal væk, og
+  man giver ikke nøgler til poster der forsvinder; (2) nøglen på et korpus der ligger fast;
+  (3) redigerbarhed af 1939.
+- **Kandidater, ikke undersøgt:** artefaktet bevarer postens egen nummerering inde i sin
+  gruppe (`lokal_id`) og en intern post-id (`_id`) — begge fra kilden frem for opfundet af
+  konverteren. Om nogen af dem er stabil på tværs af re-segmentering er præcis det
+  spørgsmål en plan skal besvare.
+- **Fremadrettet krav (K4 i `docs/reviews/flerslaegt-parathed-2026-07-28.md`):** for nye
+  slægter sættes `record_key` **ved udtræk**, ikke ved backfill bagefter. Så opstår problemet
+  ikke igen.
+
+Beslægtet, men egen sag: de **627 gift-ind-ægtefæller** uden bogpost er ikke-redigerbare af
+samme grund (intet anker). Nøglen dér ville være forælderens `record_key` + indeks i
+`aegteskaber`, og `linje` SKAL være NULL, da `regen_person_visning()` ellers påhæfter
+slægtsnavnet til indgifte ægtefæller.
+
 ## Feedets GDPR-nødbremse: dødsevidens-gate + narrativ-minimum, kun i feed-laget (2026-07-25)
 
 **Implementeret på feature-branch, ikke deployet.** Ønske: aldrig vis en levende eller
