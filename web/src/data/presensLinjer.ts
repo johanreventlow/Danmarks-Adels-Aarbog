@@ -1,12 +1,16 @@
 // Linje-metadata (titel/navn/våben) + dedikeret præsens-intro til Præsenslisten-visningen.
 // Sideordnet presens.ts (som holder levende-flag + overhoved-ankre) — eget ansvar, egen fil.
 import { supabase } from '../supabase';
-import { getAll } from '@daa/core';
+import { getAll, effektivtSlaegtsnavn } from '@daa/core';
 import { fetchObjectMedia, firstSignable, type MediaItem } from './media';
 
 export type PresensLinjeInfo = { titel: string; slaegtsnavn: string | null; vaaben: MediaItem | null };
 
-type RawLineage = { id: number; kode: string; navn: string; slaegtsnavn: string | null; presens_kode: string | null };
+type RawLineage = {
+  id: number; kode: string; navn: string; slaegtsnavn: string | null; presens_kode: string | null;
+  // Slægtsnavnet bor på slægts-roden og arves ned; en gren har typisk selv NULL.
+  parent_lineage_id: number | null;
+};
 type RawRelation = { subjekt_id: number; objekt_id: number };
 
 // Ren mapper — testes uden Supabase. mediaByArm er keyet på coat_of_arms.id som streng
@@ -29,14 +33,15 @@ export function mapPresensLinjer(
     if (l.presens_kode == null) continue;
     const armId = armIdByLineageId.get(l.id);
     const media = armId != null ? mediaByArm.get(String(armId)) ?? [] : [];
-    out[l.presens_kode] = { titel: l.navn, slaegtsnavn: l.slaegtsnavn, vaaben: firstSignable(media) };
+    // Arvet, ikke råt: efter slægts-rod-migrationen er grenens egen slaegtsnavn NULL.
+    out[l.presens_kode] = { titel: l.navn, slaegtsnavn: effektivtSlaegtsnavn(lineageRows, l.id), vaaben: firstSignable(media) };
   }
   return out;
 }
 
 export async function fetchPresensLinjer(): Promise<Record<string, PresensLinjeInfo>> {
   const lineageRows = await getAll<RawLineage>(() =>
-    supabase.from('lineage').select('id,kode,navn,slaegtsnavn,presens_kode'));
+    supabase.from('lineage').select('id,kode,navn,slaegtsnavn,presens_kode,parent_lineage_id'));
   const lineageIds = lineageRows.map((l) => l.id);
   const vaabenRel = lineageIds.length
     ? await getAll<RawRelation>(() =>
@@ -64,6 +69,9 @@ export async function fetchPresensIntro(): Promise<string | null> {
   // Håndfuld rækker (typisk kun 1 præsens-intro-kilde) — ingen getAll-paginering nødvendig.
   // Rå cast (samme mønster som fetchAbout/RawAboutRow i public.ts): Supabases genererede typer
   // for et embedded source_id(...)-join matcher ikke automatisk to-en-kardinalitet.
+  //
+  // subjekt_id=1 er en SENTINEL for "hele slægten" (SLAEGT_SUBJEKT_ID i redaktionRead), ikke en
+  // fremmednøgle til lineage 1 — den følger derfor ikke med slægts-roden.
   const res = await supabase.from('narrative').select('id,tekst,source:source_id(slags)')
     .eq('subjekt_type', 'slaegt').eq('subjekt_id', 1).eq('privat', false);
   if (res.error) throw res.error;

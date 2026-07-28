@@ -3509,3 +3509,68 @@ EXCEPTION WHEN OTHERS THEN
     RAISE NOTICE 'OK: Person OCR kvalitetsark — stabile nøgler, constraints, RLS og journalhistorik';
   ELSE RAISE; END IF;
 END $$;
+
+-- ===== Slægts-rod i lineage (flerslægts-forberedelse, B2) =====
+-- Forvent: præcis én navnbærende rod pr. slægt, alle grene hænger under den,
+-- alle grene arver samme effektive slægtsnavn, og personernes visning_efternavn
+-- er UÆNDRET (migrationen må ikke røre cachen).
+DO $$
+DECLARE v_roedder INT; v_grene INT; v_uden_ophav INT; v_effektiv INT; v_sentinel INT;
+BEGIN
+  SELECT count(*) INTO v_roedder FROM lineage
+   WHERE parent_lineage_id IS NULL AND slaegtsnavn IS NOT NULL;
+  IF v_roedder < 1 THEN
+    RAISE EXCEPTION 'FEJL: ingen slægts-rod i lineage (B2-migrationen er ikke kørt)';
+  END IF;
+
+  -- Ingen gren må stå tilbage som sideordnet rod med sit eget slægtsnavn: det er
+  -- præcis den tilstand B2 fjerner, og den ville gøre roden dekorativ.
+  SELECT count(*) INTO v_uden_ophav FROM lineage
+   WHERE parent_lineage_id IS NULL AND kode IS NOT NULL;
+  IF v_uden_ophav > 0 THEN
+    RAISE EXCEPTION 'FEJL: % gren(e) med kode står uden slægts-rod', v_uden_ophav;
+  END IF;
+
+  SELECT count(*) INTO v_grene FROM lineage WHERE kode IS NOT NULL;
+  SELECT count(*) INTO v_effektiv FROM lineage
+   WHERE kode IS NOT NULL AND lineage_effective_slaegtsnavn(id) IS NULL;
+  IF v_effektiv > 0 THEN
+    RAISE EXCEPTION 'FEJL: % af % grene kan ikke udlede et slægtsnavn', v_effektiv, v_grene;
+  END IF;
+
+  -- Roden må aldrig få medlemmer: person_external_id joiner på (source_id, kode),
+  -- og roden har begge NULL. Fanger en fremtidig rod der får sat kode ved et uheld.
+  IF EXISTS (
+    SELECT 1 FROM lineage l JOIN person_external_id pei
+      ON pei.source_id = l.source_id AND pei.linje = l.kode
+     WHERE l.parent_lineage_id IS NULL AND l.slaegtsnavn IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION 'FEJL: slægts-roden har medlemmer — den skal være en ren beholder';
+  END IF;
+
+  -- Slægts-narrativet er en SENTINEL (subjekt_id=1 = "hele slægten"), ikke en
+  -- fremmednøgle til lineage 1. B2 flytter den IKKE; denne assert fastholder det.
+  SELECT count(*) INTO v_sentinel FROM narrative
+   WHERE subjekt_type = 'slaegt' AND subjekt_id <> 1;
+  IF v_sentinel > 0 THEN
+    RAISE EXCEPTION 'FEJL: % slægts-narrativ(er) er flyttet væk fra sentinel subjekt_id=1', v_sentinel;
+  END IF;
+
+  RAISE NOTICE 'OK: slægts-rod — % rod(/rødder), % grene, alle med arvet slægtsnavn', v_roedder, v_grene;
+END $$;
+
+-- Dublet-rod skal afvises af det partielle unikke indeks.
+DO $$
+DECLARE v_navn TEXT;
+BEGIN
+  SELECT slaegtsnavn INTO v_navn FROM lineage
+   WHERE parent_lineage_id IS NULL AND slaegtsnavn IS NOT NULL LIMIT 1;
+  BEGIN
+    INSERT INTO lineage (id, source_id, kode, navn, slaegtsnavn, parent_lineage_id)
+    VALUES (-99, NULL, NULL, v_navn, v_navn, NULL);
+    DELETE FROM lineage WHERE id = -99;
+    RAISE EXCEPTION 'FEJL: en rod nummer to for samme slægt blev accepteret';
+  EXCEPTION WHEN unique_violation THEN
+    RAISE NOTICE 'OK: lineage_slaegtsrod_uidx afviser dublet slægts-rod';
+  END;
+END $$;
