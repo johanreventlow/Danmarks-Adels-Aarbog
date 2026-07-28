@@ -4,6 +4,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { buildFamilyGraph } from '../../packages/core/src/buildFamilyGraph';
 import { collapseSameAs } from '../../packages/core/src/collapseSameAs';
+import { udledKilderForAegtefaeller } from '../../packages/core/src/matchUdgaver';
 import type { AppPerson, Db, SameAsEdge } from '../../packages/core/src/types';
 
 const raw = JSON.parse(readFileSync('tmp/collapse-input.json', 'utf8'));
@@ -24,6 +25,19 @@ const res = collapseSameAs(db, edges, new Map());
 
 const kilde = new Map<string, { source_id: number; linje: string; nr: number | null }>();
 for (const k of raw.kilde) kilde.set(k.person_id, k);
+
+// Kan personen overhovedet stilles op som kandidat i matchfladen? Det kræver et
+// udgave-tilhør — men IKKE nødvendigvis et bog-nummer: udledKilderForAegtefaeller
+// (PR #90) lader en ægtefælle uden egen bogpost arve udgaven fra sin partner, hvis
+// partnerne peger entydigt på én udgave. Denne fil regnede tidligere kun med
+// bog-nummer og undervurderede derfor hvor meget der kan løses i fladen i dag.
+const kanMatchesIFladen = (() => {
+  const medUdgave = new Map<string, number[]>();
+  for (const [id, k] of kilde) medUdgave.set(id, [k.source_id]);
+  const beriget = udledKilderForAegtefaeller(
+    persons.map((p) => ({ id: p.id, sourceIds: medUdgave.get(p.id) ?? [] })), unions);
+  return new Set(beriget.filter((p) => p.sourceIds.length).map((p) => p.id));
+})();
 const src = (id: string) => kilde.get(id)?.source_id;
 const ref = (id: string) => {
   const k = kilde.get(id);
@@ -119,14 +133,11 @@ Hvert punkt er ét forældrepar der optræder i begge udgaver uden at være matc
 Matcher du personerne i punktet, forsvinder karantænen for **alle** de børn der er
 nævnt — de vises derefter som én person i stedet for to.
 
-> ℹ️ **Kræver at rettelsen er deployet.**
-> Ægtefæller har sjældent eget bog-nummer, og matcheren gav kun personer med et
-> bog-nummer et udgave-tilhør — derfor kunne ingen af punkterne gennemføres.
-> \`udledKilderForAegtefaeller\` (PR #90) lader ægtefællen arve udgaven fra sin
-> partner, entydigt eller slet ikke. Målt mod prod-data: 627 ægtefæller får en
-> udgave, 0 bliver flertydige, og **alle 77 forældrepar kan derefter gennemføres**.
->
-> Indtil web-appen er deployet med rettelsen, er listen en oversigt — ikke en to-do.
+> ✅ **Klar til brug.** Ægtefæller har sjældent eget bog-nummer, og matcheren gav
+> tidligere kun personer med et bog-nummer et udgave-tilhør — derfor kunne ingen
+> punkter gennemføres. \`udledKilderForAegtefaeller\` (PR #90) lader ægtefællen arve
+> udgaven fra sin partner, entydigt eller slet ikke. Den er merget og deployet, så
+> punkterne kan gennemføres i redaktørfladen nu.
 
 Arbejd oppefra: de øverste giver mest for indsatsen.
 
@@ -190,23 +201,23 @@ const skalMatches = new Set<string>();
 for (const k of liste) for (const id of [...k.f39, ...k.f20]) if (!alleErMatchet(id)) skalMatches.add(id);
 function alleErMatchet(id: string) { return Object.prototype.hasOwnProperty.call(res.canonicalIdById, id); }
 let medNr = 0, udenNr = 0;
-for (const id of skalMatches) (kilde.has(id) ? medNr++ : udenNr++);
+for (const id of skalMatches) (kanMatchesIFladen.has(id) ? medNr++ : udenNr++);
 console.log(`\n  forældre der mangler match: ${skalMatches.size}`);
-console.log(`    heraf med bog-nummer:     ${medNr}`);
-console.log(`    heraf kun ægtefælle-nævnt: ${udenNr}`);
+console.log(`    heraf kan stilles op i fladen: ${medNr}`);
+console.log(`    heraf uden udgave-tilhør:     ${udenNr}`);
 
 // Kan hvert forældrepar overhovedet løses i den nuværende flade?
 let heltLoesbare = 0, delvis = 0, uloeselige = 0, boernLoesbare = 0, boernBlokerede = 0;
 for (const k of liste) {
   const alle = [...k.f39, ...k.f20];
   const manglerMatch = alle.filter((id) => !Object.prototype.hasOwnProperty.call(res.canonicalIdById, id));
-  const kanMatches = manglerMatch.filter((id) => kilde.has(id));
+  const kanMatches = manglerMatch.filter((id) => kanMatchesIFladen.has(id));
   if (manglerMatch.length === 0) continue;
   if (kanMatches.length === manglerMatch.length) { heltLoesbare++; boernLoesbare += k.boern.length; }
   else if (kanMatches.length > 0) { delvis++; boernBlokerede += k.boern.length; }
   else { uloeselige++; boernBlokerede += k.boern.length; }
 }
 console.log(`\n  forældrepar der kan løses fuldt i fladen i dag: ${heltLoesbare}  → ${boernLoesbare} børn`);
-console.log(`  delvist (mindst én part har intet bog-nummer):  ${delvis}`);
-console.log(`  slet ikke (begge mangler bog-nummer):           ${uloeselige}`);
+console.log(`  delvist (mindst én part uden udgave-tilhør):    ${delvis}`);
+console.log(`  slet ikke (ingen parter med udgave-tilhør):     ${uloeselige}`);
 console.log(`  børn der forbliver blokerede:                   ${boernBlokerede}`);
