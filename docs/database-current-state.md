@@ -126,6 +126,54 @@ prod-deploy.
   manglende varianter på media 3 og seks historiske SHA-kandidater (media 1–6).
   Disse er opfølgning; `--slet` og `--backfill-sha` er ikke kørt.
 
+### Personers OCR-kvalitetsark — DB + web live, røgtest udestående (2026-07-28)
+
+- Migreret mod prod (`person_ocr_kvalitetsark` + `person_ocr_kvalitetsark_rls`,
+  Supabase migrationshistorik `20260727215750`/`20260727215816`): `import_korrektion`-
+  journal (uden for loaderens reset-liste, ingen FK til regenererbare id'er), stabile
+  importnøgler (`source.import_key`, `person_external_id.record_key`) samt RPC'erne
+  `red_person_grid`, `red_ret_ocr_felt`, `red_ocr_historik`.
+- Verificeret direkte mod prod efter migration: `anon` afvist (rigtig REST-kald, 401),
+  `get_advisors(security)` delta +3 (kun de kendte SECURITY DEFINER-mønstre, ingen nye
+  kategorier), data uændret (1756 personer, 8716 assertions).
+- Krypteret fuld backup taget og gendannelses-verificeret før migration
+  (`daa-prod-pre-ocr-kvalitetsark-20260727-214752.dump.gpg`).
+- **Web merget og deployet (2026-07-27).** PR #103 merget til `main` af brugeren;
+  Vercel auto-deploy bekræftet mod det live JS-bundle. Manuel redaktør-røgtest i
+  browser (checklisten i runbookens §4) er stadig udestående.
+- **DAA 2018-20 har nu stabil `(import_key, record_key)` (2026-07-28), via en
+  tilføjende backfill — IKKE en genindlæsning.** `--reset`-genindlæsning blev
+  forkastet: prods `change_set` har 482 `red_samme_som` plus dusinvis andre
+  redaktørrettelser, som loaderens `has_reset_blocking_editorial_changes()`-spærre
+  fail-closed ville have blokeret (eller, hvis tvunget igennem, slettet). I stedet
+  stemplede en ren `UPDATE`-transaktion — rehearsed mod en lokal kopi af prods
+  rigtige data, verificeret 591/591 uden gæt (kilde: filnavnene i
+  `data/extracted-2026-06-18/*.json` ER `record_key`) — de 591 eksisterende
+  2018-20-personer med `source.import_key='daa:2018-20'` og
+  `person_external_id.record_key`. Frisk backup taget før kørsel
+  (`daa-prod-pre-record-key-backfill-20260728-074303.dump.gpg`). Resultat mod
+  ægte prod: 588/591 personer nu `kan_rettes.navn=true`, 0 `record_key_mangler`,
+  `get_advisors(security)` uændret på 133 lints (ren DML). **1939-udgaven
+  (staged, `source.id=3`) har stadig ingen stabil identitet.**
+- **`red_person_grid` rettet i prod 2026-07-28** (ren `CREATE OR REPLACE FUNCTION`,
+  ingen data rørt, `get_advisors` uændret på 133 lints): `navn_mangler` målte på
+  anker-gatede felter og flagede derfor hver ikke-redigerbar række — 1169 af 1757,
+  alle med synligt navn, nul ægte. Måler nu den viste værdi. Samtidig gav
+  `same_as_context` to rækker for en person midt i en `samme_som`-kæde (både alias
+  og kanonisk); griddet lover én række pr. fysisk person, nu håndhævet med
+  `DISTINCT ON` og alias-forrang. Prod efter: 1756 rækker / 1756 personer, 0
+  `navn_mangler`.
+- **Kendt, ikke lukket:** `enforce_samme_som_invariants()` er kun `BEFORE INSERT`
+  og G4 tjekker kun `NEW.subjekt`. Indsættes den inderste kant i en kæde først,
+  slipper den ydre igennem — sådan opstod person 826's tilstand. Griddet tåler det
+  nu, men invarianten kan fortsat omgås via indsættelsesrækkefølge.
+- **627 gift-ind-ægtefæller** (ægtefælle/forælder i en familie, ingen egen bogpost)
+  har intet `person_external_id` og er derfor ikke-redigerbare i kvalitetsarket.
+  Egen plan udestår; nøgle ville være forælderens `record_key` + indeks i
+  `aegteskaber`, og `linje` SKAL være NULL — ellers joiner
+  `regen_person_visning()` dem ind i slægtslinjen og påhæfter slægtsnavnet.
+- Drift, gated procedure og udestående trin: `docs/runbooks/person-ocr-kvalitetsark.md`.
+
 ### Levende feed fase 2-3 + K2 selektiv publicering (deployet 2026-07-20)
 - **`haendelse`** (fase 2, regenererbar hændelses-projektion af narrativer) + **`story`/
   `story_kilde`/`feed_pin`** (fase 3, kurateret formidlingslag) — additive tabeller,

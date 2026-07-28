@@ -447,6 +447,14 @@ _Q_BETWEEN_RE = re.compile(r'\bmellem\b')
 _FLORUIT_FLANK_RE = re.compile(
     r'[-–]\s*\d{3,4}(?:\s*[-–]\s*\d{3,4})?\s*[-–](?!\s*\d)')
 
+# Bar ISO-dato (YYYY-MM-DD) — redaktøren taster selv en eksakt dag i
+# OCR-kildepanelet (TS-porten). Adskilt fra det bindestreg-flankerede
+# levetids-span 'YYYY-YYYY' ved at kræve to-cifrede måned/dag-grupper (ikke
+# endnu et 4-cifret år): '1712-1783' matcher IKKE dette mønster. Ingen
+# kalender-validering (samme konvention som "31. april 1500"): dagen
+# accepteres som skrevet.
+_ISO_POINT_RE = re.compile(r'(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)')
+
 
 def derive_date_info(date_raw):
     """Udled {date_min, date_max, qualifier, certainty, calendar} deterministisk fra rå dato.
@@ -462,7 +470,14 @@ def derive_date_info(date_raw):
       'efter 1575' -> date_min='1575-01-01', date_max=None,        qualifier='after'
       'mellem N og M' -> N-01-01 .. M-12-31, qualifier='between'
       'ca./o./um N' -> hele året N,          qualifier='about'
-    Ved fuld dato ('før 26. juli 1261') bruges dagpunktet som grænse.
+    Ved fuld dato ('før 26. juli 1261') bruges dagpunktet som grænse — et bart
+    ISO-punkt ('før 1645-01-01') tæller som fuld dato på samme måde (giver
+    dagpunktet '1645-01-01' som grænse, ikke helåret '1645-12-31').
+
+    Et bart ISO-punkt uden qualifier ('1645-01-01') giver EKSAKT dag
+    (date_min=date_max=datoen) — redaktøren har tastet præcisionen selv, i
+    modsætning til et bart årstal ('1645') der giver helår. Ingen
+    kalender-validering (se nedenfor): '1500-04-31' accepteres som skrevet.
 
     KIRKELIGE MÆRKEDAGE (runde 2): 'Mikkelsdag 1712', 'Paaske 1650',
     '14. søndag efter Trinitatis 1712' m.fl. konverteres til præcis dag når
@@ -546,6 +561,11 @@ def derive_date_info(date_raw):
         da = int(dm.group(1))
         if mo and 1 <= da <= 31:
             iso_point = f"{y}-{mo:02d}-{da:02d}"
+    if iso_point is None:
+        # Bar ISO-punkt ('YYYY-MM-DD') — samme prioritet som dd.-månedsnavn-formen.
+        iso_m = _ISO_POINT_RE.search(t)
+        if iso_m and iso_m.group(1) == y:
+            iso_point = f"{iso_m.group(1)}-{iso_m.group(2)}-{iso_m.group(3)}"
     if iso_point is None and kirkedag and kirkedag[0]:
         iso_point, iso_cal = kirkedag[0], kirkedag[1]
 

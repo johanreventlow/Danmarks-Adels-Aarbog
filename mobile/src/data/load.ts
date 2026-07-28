@@ -5,7 +5,8 @@ import { supabase, supabaseEnabled } from '../lib/supabase';
 import { buildAux } from './buildAux';
 import {
   buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, pickPreferredBio, fmtYears, parseYear, getAll, EMPTY_GEO,
-  type GenCoord, type ParentsUnknown, type NarrativeCand,
+  citationRowsTilProveniens,
+  type GenCoord, type ParentsUnknown, type NarrativeCand, type CitationProvenanceRow, type RaaCitationRow,
 } from '@daa/core';
 import {
   buildHaendelserBy,
@@ -328,8 +329,9 @@ export async function loadFromSupabase(opts?: {
     return (thumb || medium) ? { ...m, thumb_storage_path: thumb, medium_storage_path: medium } : m;
   });
 
+  const citationKilder = await fetchNavnProveniens(sb);
   const aux = buildAux(
-    { extIds, sources, relations, mediaRelations, mediaMentions, estates, orgs, media: mediaEnriched, lineage, arms },
+    { extIds, sources, relations, mediaRelations, mediaMentions, estates, orgs, media: mediaEnriched, lineage, arms, citationKilder },
     collapsed.canonicalIdById,
   );
 
@@ -421,6 +423,31 @@ type ParentsUnknownRows = {
   assertions: { id: number | string; vaerdi_tekst: string | null }[];
   citations: { assertion_id: number | string; citat_tekst: string | null }[];
 };
+
+// Proveniens til "Kilde i Aarbogen" for personer UDEN bog-nummer (de 627 ægtefæller). Kun
+// `navn`-faktaet hentes: det er det ene faktum hver person beviseligt har (1756 af 1756), så
+// omkostningen er ~1 række pr. person i stedet for hele faktabordet. Forbehold: en person med
+// fakta fra flere udgaver får kun navnefaktaets kilde — men netop faldback-mængden har
+// gennemgående præcis én kilde, så det koster intet i praksis.
+// Tolerant: fejler opslaget, degraderer visningen til det den var før (ingen kilde vist).
+async function fetchNavnProveniens(sb: NonNullable<typeof supabase>): Promise<CitationProvenanceRow[]> {
+  try {
+    const facts = await getAll<{ id: number; subjekt_id: number }>(() =>
+      sb.from('fact').select('id,subjekt_id').eq('subjekt_type', 'person').eq('faktatype', 'navn').order('id'));
+    if (!facts.length) return [];
+    const asserts = await getAll<{ id: number; target_id: number }>(() =>
+      sb.from('assertion').select('id,target_id').eq('target_type', 'fact').in('target_id', facts.map((f) => f.id)).order('id'));
+    if (!asserts.length) return [];
+    const cits = await getAll<RaaCitationRow>(() =>
+      sb.from('citation').select('assertion_id,side,source:source_id(titel,udgave)').in('assertion_id', asserts.map((a) => a.id)).order('id'));
+    const personAfFact = new Map(facts.map((f) => [f.id, String(f.subjekt_id)]));
+    const personAfAssert = new Map(asserts.map((a) => [a.id, personAfFact.get(a.target_id) ?? '']));
+    return citationRowsTilProveniens(cits, personAfAssert);
+  } catch (e) {
+    console.warn('[loadFromSupabase] citation-proveniens utilgængelig — ægtefæller vises uden kilde:', e);
+    return [];
+  }
+}
 
 async function fetchParentsUnknownRows(sb: NonNullable<typeof supabase>): Promise<ParentsUnknownRows> {
   const empty: ParentsUnknownRows = { facts: [], conclusions: [], assertions: [], citations: [] };

@@ -15,8 +15,11 @@ export * from './buildModel';
 export * from './tree';
 export * from './navnevarianter';
 export * from './matchUdgaver';
+export * from './kildeProveniens';
+export * from './slaegtsrod';
 export * from './presensLabels';
 export * from './presensListe';
+export * from './ocrKvalitet';
 export { KONFIDENS_VALUES, KONFIDENS_RANK } from './types';
 export type {
   RawExtId,

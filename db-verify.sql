@@ -40,6 +40,792 @@ DO $$ BEGIN
   END;
 END $$;
 
+-- ===== Person OCR kvalitetsark — atomisk rettelse og historik =====
+-- Selvstændig transaktionsfixture. Alle positive og negative veje kører gennem
+-- den offentlige SECURITY DEFINER-flade, og blokken ruller altid tilbage.
+DO $$
+DECLARE
+  v_redaktor uuid := '00000000-0000-0000-0000-0000000000c4';
+  v_row jsonb; v_hist record; v_cs_date bigint; v_journal_id bigint;
+  v_name_assertion bigint := -987655301; v_birth_assertion bigint := -987655302;
+  v_death_assertion bigint := -987655303; v_citation_id bigint := -987655501;
+  v_before_journal int; v_before_events int; v_before_assertions int;
+  v_before_conclusions int; v_before_name text; v_before_gender text; v_koen_fingerprint text;
+  v_fresh_fingerprint text; v_frozen_fingerprint text; v_name_events int; v_name_history int;
+  v_member_blocked boolean := false; v_anon_blocked boolean := false;
+  v_hist_member_blocked boolean := false; v_hist_anon_blocked boolean := false;
+  v_hist_count int; v_first_after jsonb; v_second_after jsonb;
+  v_original_import jsonb;
+BEGIN
+  INSERT INTO source(id,titel,import_key) VALUES
+    (-987655101,'OCR rette-fixture','verify:ocr:write'),
+    (-987655102,'Forkert OCR-kilde','verify:ocr:other'),
+    (-987655103,'Ekstra importanker','verify:ocr:extra');
+  INSERT INTO person(id,koen) VALUES
+    (-987655111,'mand'), (-987655112,'kvinde'), (-987655113,'mand'),
+    (-987655114,'ukendt');
+  INSERT INTO person_external_id(person_id,source_id,record_key) VALUES
+    (-987655111,-987655101,'I-15a'),
+    (-987655112,-987655101,'I-16'),
+    (-987655113,-987655101,'I-17'),
+    (-987655113,-987655103,'I-17-extra'),
+    (-987655114,-987655101,'I-18');
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES
+    (-987655201,'person',-987655111,'navn'),
+    (-987655202,'person',-987655111,'fødsel'),
+    (-987655203,'person',-987655111,'død'),
+    (-987655204,'person',-987655112,'navn'),
+    (-987655205,'person',-987655114,'navn'),
+    (-987655206,'person',-987655114,'navn');
+  INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,date_raw,date_min,date_max,
+                        date_qualifier,calendar,date_certainty,uforanderlig) VALUES
+    (v_name_assertion,'fact',-987655201,'Mikkel OCR',NULL,NULL,NULL,NULL,'gregoriansk',NULL,true),
+    (v_birth_assertion,'fact',-987655202,NULL,'1644-06-11','1644-06-11','1644-06-11','exact','gregoriansk',NULL,true),
+    (v_death_assertion,'fact',-987655203,NULL,'1700-01-01','1700-01-01','1700-01-01','exact','gregoriansk',NULL,true),
+    (-987655304,'fact',-987655204,'Forkert kilde',NULL,NULL,NULL,NULL,'gregoriansk',NULL,true),
+    (-987655305,'fact',-987655205,'Flertydig A',NULL,NULL,NULL,NULL,'gregoriansk',NULL,true),
+    (-987655306,'fact',-987655206,'Flertydig B',NULL,NULL,NULL,NULL,'gregoriansk',NULL,true);
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status) VALUES
+    (-987655401,'fact',-987655201,v_name_assertion,'afklaret'),
+    (-987655402,'fact',-987655202,v_birth_assertion,'afklaret'),
+    (-987655403,'fact',-987655203,v_death_assertion,'afklaret'),
+    (-987655404,'fact',-987655204,-987655304,'afklaret'),
+    (-987655405,'fact',-987655205,-987655305,'afklaret');
+  -- A second selected fact makes the fourth person fail closed as ambiguous.
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status)
+    VALUES (-987655406,'fact',-987655206,-987655306,'afklaret');
+  INSERT INTO citation(id,assertion_id,source_id,side,citat_tekst) VALUES
+    (v_citation_id,v_name_assertion,-987655101,'42','Mikkel OCR'),
+    (-987655502,v_birth_assertion,-987655101,'42','født 1644-06-11'),
+    (-987655503,v_death_assertion,-987655101,'42','død 1700-01-01'),
+    (-987655504,-987655304,-987655102,'42','Forkert kilde'),
+    (-987655505,-987655305,-987655101,'42','Flertydig A'),
+    (-987655506,-987655306,-987655101,'42','Flertydig B');
+
+  -- Fixed SQL vector is independent of the new helper and must remain in Task 2 parity.
+  IF ocr_input_fingerprint('verify:ocr:write','I-15a','foedsel',
+       '{"raw":"1644-06-11","min":"1644-06-11","max":"1644-06-11","qualifier":"exact","calendar":"gregoriansk","certainty":null}'::jsonb,
+       'født 1644-06-11') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: OCR-fingerprint-vektor kunne ikke beregnes';
+  END IF;
+
+  -- Execute ACL and internal role guards are independently observable.
+  SET LOCAL ROLE anon;
+  BEGIN
+    PERFORM red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','navn','x',NULL,'godkendt');
+  EXCEPTION WHEN insufficient_privilege THEN v_anon_blocked := true;
+  END;
+  BEGIN
+    PERFORM * FROM red_ocr_historik('verify:ocr:write','I-15a','navn');
+  EXCEPTION WHEN insufficient_privilege THEN v_hist_anon_blocked := true;
+  END;
+  RESET ROLE;
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    PERFORM red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','navn','x',NULL,'godkendt');
+  EXCEPTION WHEN others THEN
+    IF SQLERRM LIKE 'OCR_ROLE_FORBIDDEN%' THEN v_member_blocked := true; ELSE RAISE; END IF;
+  END;
+  BEGIN
+    PERFORM * FROM red_ocr_historik('verify:ocr:write','I-15a','navn');
+  EXCEPTION WHEN others THEN
+    IF SQLERRM LIKE 'OCR_ROLE_FORBIDDEN%' THEN v_hist_member_blocked := true; ELSE RAISE; END IF;
+  END;
+  RESET ROLE;
+  IF NOT v_anon_blocked OR NOT v_hist_anon_blocked OR NOT v_member_blocked OR NOT v_hist_member_blocked THEN
+    RAISE EXCEPTION 'FEJL: OCR-RPC ACL/rolle-gate anon=%/% medlem=%/%',
+      v_anon_blocked,v_hist_anon_blocked,v_member_blocked,v_hist_member_blocked;
+  END IF;
+
+  INSERT INTO auth.users(id,email) VALUES (v_redaktor,'ocr-write-verify@test.invalid');
+  INSERT INTO profiles(id,rolle,navn,email) VALUES
+    (v_redaktor,'redaktion','OCR Verify Actor','ocr-write-verify@test.invalid');
+  PERFORM set_config('request.jwt.claim.sub',v_redaktor::text,true);
+  SET LOCAL ROLE authenticated;
+
+  -- First and repeated name correction: one logical journal row keeps original import/fingerprint.
+  SELECT input_fingerprint->>'navn', importeret->'navn' INTO STRICT v_before_name, v_original_import
+    FROM red_person_grid() WHERE person_id=-987655111;
+  v_row := red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','navn',v_before_name,
+    '{"value":"Mikkel Rettet"}'::jsonb,'rettet','må ikke vinde');
+  IF v_row->>'person_id' <> '-987655111' OR (SELECT vaerdi_tekst FROM assertion WHERE id=v_name_assertion) <> 'Mikkel Rettet' THEN
+    RAISE EXCEPTION 'FEJL: navnerettelse returnerede ikke den friske, rettede række';
+  END IF;
+  SELECT id INTO v_journal_id FROM import_korrektion
+    WHERE import_key='verify:ocr:write' AND record_key='I-15a' AND felt='navn';
+  IF v_journal_id IS NULL OR (SELECT actor_id FROM import_korrektion WHERE id=v_journal_id) <> v_redaktor
+     OR (SELECT actor_navn FROM import_korrektion WHERE id=v_journal_id) <> 'OCR Verify Actor' THEN
+    RAISE EXCEPTION 'FEJL: navnejournal mangler autentisk aktør';
+  END IF;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+  v_row := red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','navn',v_before_name,
+    '{"value":"Mikkel Rettet Igen"}'::jsonb,'rettet','fallback');
+  IF (SELECT count(*) FROM import_korrektion WHERE import_key='verify:ocr:write' AND record_key='I-15a' AND felt='navn') <> 1
+     OR (SELECT id FROM import_korrektion WHERE import_key='verify:ocr:write' AND record_key='I-15a' AND felt='navn') <> v_journal_id
+     OR (SELECT importeret FROM import_korrektion WHERE id=v_journal_id) <> v_original_import
+     OR (SELECT korrigeret FROM import_korrektion WHERE id=v_journal_id) <> '{"value":"Mikkel Rettet Igen"}'::jsonb
+     OR (SELECT vaerdi_tekst FROM assertion WHERE id=v_name_assertion) <> 'Mikkel Rettet Igen' THEN
+    RAISE EXCEPTION 'FEJL: gentagen OCR-rettelse drev import-snapshot eller journalidentitet';
+  END IF;
+  SELECT input_fingerprint INTO v_frozen_fingerprint FROM import_korrektion WHERE id=v_journal_id;
+  IF v_frozen_fingerprint <> v_before_name THEN
+    RAISE EXCEPTION 'FEJL: gentagen OCR-rettelse ændrede frosset source-fingerprint';
+  END IF;
+  -- A newly projected fingerprint after source-context drift must not bless a stale journal.
+  PERFORM set_config('app.change_set_id','',true);
+  RESET ROLE;
+  UPDATE citation SET citat_tekst='Mikkel OCR ændret kildekontekst' WHERE id=v_citation_id;
+  SET LOCAL ROLE authenticated;
+  SELECT input_fingerprint->>'navn' INTO v_fresh_fingerprint FROM red_person_grid() WHERE person_id=-987655111;
+  RESET ROLE;
+  SELECT count(*) INTO v_name_events FROM change_event;
+  SELECT count(*) INTO v_name_history FROM red_ocr_historik('verify:ocr:write','I-15a','navn');
+  BEGIN
+    PERFORM red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','navn',v_fresh_fingerprint,
+      '{"value":"må ikke gemmes"}'::jsonb);
+    RAISE EXCEPTION 'FEJL: frisk fingerprint efter kildeændring blev accepteret';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE 'OCR_FINGERPRINT_STALE%' THEN RAISE; END IF; END;
+  IF (SELECT input_fingerprint FROM import_korrektion WHERE id=v_journal_id) <> v_frozen_fingerprint
+     OR (SELECT vaerdi_tekst FROM assertion WHERE id=v_name_assertion) <> 'Mikkel Rettet Igen'
+     OR (SELECT count(*) FROM change_event) <> v_name_events
+     OR (SELECT count(*) FROM red_ocr_historik('verify:ocr:write','I-15a','navn')) <> v_name_history THEN
+    RAISE EXCEPTION 'FEJL: stale kildekontekst ændrede journal, model eller historik';
+  END IF;
+  IF EXISTS (SELECT 1 FROM assertion WHERE id NOT IN (v_name_assertion,v_birth_assertion,v_death_assertion,-987655304,-987655305,-987655306)
+             AND target_id IN (-987655201,-987655202,-987655203))
+     OR (SELECT count(*) FROM conclusion WHERE target_id IN (-987655201,-987655202,-987655203)) <> 3
+     OR (SELECT source_id FROM citation WHERE id=v_citation_id) <> -987655101
+     OR NOT (SELECT uforanderlig FROM assertion WHERE id=v_name_assertion) THEN
+    RAISE EXCEPTION 'FEJL: OCR-navnerettelse ændrede evidensidentitet';
+  END IF;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+
+  -- Date touches only the one selected assertion's date fields, and the normal trigger regenerates the cache.
+  SELECT input_fingerprint->>'foedsel' INTO STRICT v_before_name FROM red_person_grid() WHERE person_id=-987655111;
+  v_row := red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','foedsel',v_before_name,
+    '{"raw":"1644-06-12","min":"1644-06-12","max":"1644-06-12","qualifier":"exact","calendar":"gregoriansk","certainty":null}'::jsonb);
+  v_cs_date := current_setting('app.change_set_id')::bigint;
+  IF (SELECT date_raw FROM assertion WHERE id=v_birth_assertion) <> '1644-06-12'
+     OR (SELECT date_min FROM assertion WHERE id=v_birth_assertion) <> date '1644-06-12'
+     OR (SELECT vaerdi_tekst FROM assertion WHERE id=v_birth_assertion) IS NOT NULL
+     OR (SELECT date_raw FROM assertion WHERE id=v_death_assertion) <> '1700-01-01' THEN
+    RAISE EXCEPTION 'FEJL: datorettelse ramte ikke kun den valgte assertion';
+  END IF;
+  PERFORM red_fortryd_change_set(v_cs_date,false);
+  IF (SELECT date_raw FROM assertion WHERE id=v_birth_assertion) <> '1644-06-11'
+     OR EXISTS (SELECT 1 FROM import_korrektion WHERE import_key='verify:ocr:write' AND record_key='I-15a' AND felt='foedsel') THEN
+    RAISE EXCEPTION 'FEJL: fortryd genskabte ikke OCR-dato og journal';
+  END IF;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+
+  -- Gender is the sole model mutation for gender; approve/defer never mutate the model.
+  SELECT input_fingerprint->>'koen', koen INTO STRICT v_before_name,v_before_gender FROM red_person_grid() WHERE person_id=-987655111;
+  v_row := red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','koen',v_before_name,
+    '{"value":"kvinde"}'::jsonb);
+  IF (SELECT koen FROM person WHERE id=-987655111) <> 'kvinde'
+     OR (SELECT vaerdi_tekst FROM assertion WHERE id=v_name_assertion) <> 'Mikkel Rettet Igen' THEN
+    RAISE EXCEPTION 'FEJL: kønsrettelse rørte andet end person.koen';
+  END IF;
+  SELECT input_fingerprint->>'koen' INTO STRICT v_before_name FROM red_person_grid() WHERE person_id=-987655111;
+  PERFORM red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','koen',v_before_name,NULL,'godkendt');
+  PERFORM red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','koen',v_before_name,NULL,'udskudt');
+  IF (SELECT koen FROM person WHERE id=-987655111) <> 'kvinde'
+     OR (SELECT status FROM import_korrektion WHERE import_key='verify:ocr:write' AND record_key='I-15a' AND felt='koen') <> 'udskudt'
+     OR (SELECT korrigeret FROM import_korrektion WHERE import_key='verify:ocr:write' AND record_key='I-15a' AND felt='koen') <> '{"value":"kvinde"}'::jsonb THEN
+    RAISE EXCEPTION 'FEJL: godkend/udskyd ændrede model eller journalstatus forkert';
+  END IF;
+
+  -- History is scoped to the one logical journal PK and frozen, newest first snapshots.
+  SELECT count(*) INTO v_hist_count FROM red_ocr_historik('verify:ocr:write','I-15a','navn');
+  SELECT h.efter INTO v_first_after FROM red_ocr_historik('verify:ocr:write','I-15a','navn') h LIMIT 1;
+  SELECT h.efter INTO v_second_after FROM red_ocr_historik('verify:ocr:write','I-15a','navn') h OFFSET 1 LIMIT 1;
+  IF v_hist_count <> 2 OR v_first_after->>'korrigeret' IS NULL OR v_second_after->>'importeret' IS NULL
+     OR EXISTS (SELECT 1 FROM red_ocr_historik('verify:ocr:write','I-15a','doed')) THEN
+    RAISE EXCEPTION 'FEJL: OCR-historik er ikke isoleret eller komplet';
+  END IF;
+
+  -- Every negative path is atomic: counts and model values remain exactly as before.
+  RESET ROLE;
+  SELECT count(*) INTO v_before_journal FROM import_korrektion;
+  SELECT count(*) INTO v_before_events FROM change_event;
+  SELECT count(*) INTO v_before_assertions FROM assertion;
+  SELECT count(*) INTO v_before_conclusions FROM conclusion;
+  SELECT vaerdi_tekst INTO v_before_name FROM assertion WHERE id=v_name_assertion;
+  SELECT koen INTO v_before_gender FROM person WHERE id=-987655111;
+  BEGIN PERFORM red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','ukendt','x',NULL,'godkendt');
+    RAISE EXCEPTION 'FEJL: ukendt felt blev accepteret';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE 'OCR_FIELD_INVALID%' THEN RAISE; END IF; END;
+  BEGIN PERFORM red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','koen','forkert',NULL,'godkendt');
+    RAISE EXCEPTION 'FEJL: stale fingerprint blev accepteret';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE 'OCR_FINGERPRINT_STALE%' THEN RAISE; END IF; END;
+  SELECT input_fingerprint->>'koen' INTO v_koen_fingerprint FROM red_person_grid() WHERE person_id=-987655111;
+  BEGIN PERFORM red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','koen',v_koen_fingerprint,'{"value":"andet"}'::jsonb);
+    RAISE EXCEPTION 'FEJL: ugyldigt køn blev accepteret';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE 'OCR_VALUE_INVALID%' THEN RAISE; END IF; END;
+  BEGIN PERFORM red_ret_ocr_felt(-987655111,'verify:ocr:write','I-15a','navn',(SELECT input_fingerprint->>'navn' FROM red_person_grid() WHERE person_id=-987655111),NULL);
+    RAISE EXCEPTION 'FEJL: manglende rettelse blev accepteret';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE 'OCR_VALUE_INVALID%' THEN RAISE; END IF; END;
+  BEGIN PERFORM red_ret_ocr_felt(-987655113,'verify:ocr:write','I-17','koen','x',NULL,'godkendt');
+    RAISE EXCEPTION 'FEJL: flere importankre blev accepteret';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE 'OCR_IMPORT_ANCHOR_AMBIGUOUS%' THEN RAISE; END IF; END;
+  BEGIN PERFORM red_ret_ocr_felt(-987655114,'verify:ocr:write','I-18','navn','x',NULL,'godkendt');
+    RAISE EXCEPTION 'FEJL: flere assertion-kandidater blev accepteret';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE 'OCR_ASSERTION_AMBIGUOUS%' THEN RAISE; END IF; END;
+  BEGIN PERFORM red_ret_ocr_felt(-987655112,'verify:ocr:write','I-16','navn','x',NULL,'godkendt');
+    RAISE EXCEPTION 'FEJL: source mismatch blev accepteret';
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE 'OCR_ASSERTION_AMBIGUOUS%' THEN RAISE; END IF; END;
+  IF (SELECT count(*) FROM import_korrektion) <> v_before_journal
+     OR (SELECT count(*) FROM change_event) <> v_before_events
+     OR (SELECT count(*) FROM assertion) <> v_before_assertions
+     OR (SELECT count(*) FROM conclusion) <> v_before_conclusions
+     OR (SELECT vaerdi_tekst FROM assertion WHERE id=v_name_assertion) <> v_before_name
+     OR (SELECT koen FROM person WHERE id=-987655111) <> v_before_gender THEN
+    RAISE EXCEPTION 'FEJL: negativ OCR-vej var ikke atomisk journal=%/% event=%/% assertion=%/% conclusion=%/% navn=%/% koen=%/%',
+      (SELECT count(*) FROM import_korrektion),v_before_journal,(SELECT count(*) FROM change_event),v_before_events,
+      (SELECT count(*) FROM assertion),v_before_assertions,(SELECT count(*) FROM conclusion),v_before_conclusions,
+      (SELECT vaerdi_tekst FROM assertion WHERE id=v_name_assertion),v_before_name,
+      (SELECT koen FROM person WHERE id=-987655111),v_before_gender;
+  END IF;
+  RESET ROLE;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN
+    RAISE NOTICE 'OK: Person OCR kvalitetsark — atomisk rettelse, historik, undo og roller';
+  ELSE RAISE; END IF;
+END $$;
+
+-- ===== Person OCR kvalitetsark — reel to-forbindelses låseorden =====
+-- dblink er bevidst kun et VERIFY-hjælpemiddel. En produktionsbase uden extension
+-- springer over; den lokale disposable gate aktiverer den og kører den reelle cyklus.
+DO $$
+DECLARE
+  v_uid uuid := '00000000-0000-0000-0000-0000000000c6';
+  v_conn text := format('dbname=%s', current_database());
+  v_a_busy integer;
+  v_b_busy integer;
+  v_a_pid integer;
+  v_b_pid integer;
+  v_locked bigint;
+  v_result bigint;
+  v_deleted bigint;
+  v_deadline timestamptz;
+  v_a_async boolean := false;
+  v_b_async boolean := false;
+  v_a_in_tx boolean := false;
+  v_b_in_tx boolean := false;
+  v_error_state text;
+  v_error_message text;
+  v_cleanup_error text;
+  v_cleanup_sql text := $cleanup_sql$
+    DO $remote_cleanup$
+    BEGIN
+      DELETE FROM change_event WHERE change_set_id IN (
+        SELECT id FROM change_set
+        WHERE operation='red_slet_person' AND subjekt_type='person' AND subjekt_id=-987654611
+      );
+      DELETE FROM change_set
+        WHERE operation='red_slet_person' AND subjekt_type='person' AND subjekt_id=-987654611;
+      DELETE FROM import_korrektion
+        WHERE import_key='verify:ocr:lock' AND record_key='I-lock';
+      DELETE FROM citation WHERE id=-987654951;
+      DELETE FROM conclusion WHERE id=-987654901;
+      DELETE FROM assertion WHERE id=-987654801;
+      DELETE FROM fact WHERE id=-987654701;
+      DELETE FROM person_external_id WHERE person_id=-987654611 AND source_id=-987654601;
+      DELETE FROM profiles WHERE id='00000000-0000-0000-0000-0000000000c6';
+      DELETE FROM auth.users WHERE id='00000000-0000-0000-0000-0000000000c6';
+      DELETE FROM person WHERE id=-987654611;
+      DELETE FROM source WHERE id=-987654601;
+    END $remote_cleanup$
+  $cleanup_sql$;
+BEGIN
+  IF to_regprocedure('public.dblink_connect(text,text)') IS NULL THEN
+    RAISE NOTICE 'SKIP: OCR-låseorden kræver dblink i disposable verify-base';
+    RETURN;
+  END IF;
+  -- Setup is committed through a third local connection: dblink sessions cannot see
+  -- uncommitted rows from this verify DO-block.
+  PERFORM dblink_connect('ocr_lock_setup',v_conn || ' application_name=daa_verify_ocr_lock_setup');
+  PERFORM dblink_exec('ocr_lock_setup','INSERT INTO source(id,titel,import_key) VALUES (-987654601,''OCR lock verify'',''verify:ocr:lock'') ON CONFLICT (id) DO UPDATE SET titel=excluded.titel');
+  PERFORM dblink_exec('ocr_lock_setup','INSERT INTO person(id) VALUES (-987654611) ON CONFLICT (id) DO NOTHING');
+  PERFORM dblink_exec('ocr_lock_setup','INSERT INTO person_external_id(person_id,source_id,record_key) VALUES (-987654611,-987654601,''I-lock'') ON CONFLICT DO NOTHING');
+  PERFORM dblink_exec('ocr_lock_setup','INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-987654701,''person'',-987654611,''navn'') ON CONFLICT DO NOTHING');
+  PERFORM dblink_exec('ocr_lock_setup','INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst) VALUES (-987654801,''fact'',-987654701,''Lock'') ON CONFLICT DO NOTHING');
+  PERFORM dblink_exec('ocr_lock_setup','INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status) VALUES (-987654901,''fact'',-987654701,-987654801,''afklaret'') ON CONFLICT DO NOTHING');
+  PERFORM dblink_exec('ocr_lock_setup','INSERT INTO citation(id,assertion_id,source_id,citat_tekst) VALUES (-987654951,-987654801,-987654601,''Lock'') ON CONFLICT DO NOTHING');
+  PERFORM dblink_exec('ocr_lock_setup',format('INSERT INTO auth.users(id,email) VALUES (''%s'',''ocr-lock-verify@test.invalid'') ON CONFLICT (id) DO NOTHING',v_uid));
+  PERFORM dblink_exec('ocr_lock_setup',format('INSERT INTO profiles(id,rolle,email) VALUES (''%s'',''redaktion'',''ocr-lock-verify@test.invalid'') ON CONFLICT (id) DO UPDATE SET rolle=''redaktion''',v_uid));
+  PERFORM dblink_connect('ocr_lock_a',v_conn || ' application_name=daa_verify_ocr_lock_a');
+  PERFORM dblink_connect('ocr_lock_b',v_conn || ' application_name=daa_verify_ocr_lock_b');
+  SELECT pid INTO v_a_pid
+    FROM dblink('ocr_lock_a','SELECT pg_backend_pid()') AS t(pid integer);
+  SELECT pid INTO v_b_pid
+    FROM dblink('ocr_lock_b','SELECT pg_backend_pid()') AS t(pid integer);
+  IF v_a_pid IS NULL OR v_b_pid IS NULL THEN
+    RAISE EXCEPTION 'FEJL: OCR-låseorden kunne ikke observere backend-PID';
+  END IF;
+
+  -- A acquires both stable-anchor row locks synchronously. B is not started until this
+  -- real lock operation has returned, so the intended interleaving has no timer race.
+  PERFORM dblink_exec('ocr_lock_a','BEGIN');
+  v_a_in_tx := true;
+  PERFORM dblink_exec('ocr_lock_a','SET LOCAL statement_timeout=''10s''');
+  SELECT locked INTO v_locked FROM dblink('ocr_lock_a',
+    'SELECT count(*)::bigint FROM ('
+    || 'SELECT s.id FROM source s JOIN person_external_id pei ON pei.source_id=s.id '
+    || 'WHERE pei.person_id=-987654611 FOR UPDATE OF s,pei'
+    || ') locked') AS t(locked bigint);
+  IF v_locked IS DISTINCT FROM 1 THEN
+    RAISE EXCEPTION 'FEJL: OCR-låseorden A låste ikke source/external-id, antal=%',v_locked;
+  END IF;
+
+  PERFORM dblink_exec('ocr_lock_b','BEGIN');
+  v_b_in_tx := true;
+  PERFORM dblink_exec('ocr_lock_b','SET LOCAL statement_timeout=''10s''');
+  PERFORM * FROM dblink('ocr_lock_b',format(
+    'SELECT set_config(''request.jwt.claim.sub'',''%s'',true)',v_uid)) AS t(value text);
+  PERFORM dblink_send_query('ocr_lock_b',
+    'SELECT count(*)::bigint AS deleted FROM (SELECT red_slet_person(-987654611)) s');
+  v_b_async := true;
+
+  -- The barrier is behavior, not elapsed time: B must be waiting behind A's backend
+  -- before A reaches citation. With the old inverse order B already owns citation here,
+  -- so A's next statement recreates the deadlock; with the fixed order A can proceed.
+  v_deadline := clock_timestamp() + interval '3 seconds';
+  LOOP
+    EXIT WHEN v_a_pid = ANY(pg_blocking_pids(v_b_pid));
+    SELECT dblink_is_busy('ocr_lock_b') INTO v_b_busy;
+    IF v_b_busy = 0 THEN
+      RAISE EXCEPTION 'FEJL: OCR-låseorden B nåede ikke blocker-barrieren';
+    END IF;
+    IF clock_timestamp() > v_deadline THEN
+      RAISE EXCEPTION 'FEJL: OCR-låseorden observerede ikke B blokeret af A';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  -- Kept as an executable failure-mode test: at this point A owns the anchor locks
+  -- and B is actively waiting, so the exception path must roll back/disconnect both.
+  IF current_setting('daa.verify_force_ocr_lock_failure',true) = 'on' THEN
+    RAISE EXCEPTION 'FORCED_OCR_LOCK_VERIFY_FAILURE';
+  END IF;
+
+  PERFORM dblink_send_query('ocr_lock_a',
+    'UPDATE citation SET citat_tekst=''A'' WHERE id=-987654951 RETURNING id');
+  v_a_async := true;
+  v_deadline := clock_timestamp() + interval '10 seconds';
+  LOOP
+    SELECT dblink_is_busy('ocr_lock_a') INTO v_a_busy;
+    EXIT WHEN v_a_busy = 0;
+    IF clock_timestamp() > v_deadline THEN
+      RAISE EXCEPTION 'FEJL: OCR-låseorden A overskred 10 sekunder (mulig deadlock)';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  SELECT id INTO v_result FROM dblink_get_result('ocr_lock_a') AS t(id bigint);
+  PERFORM * FROM dblink_get_result('ocr_lock_a') AS t(id bigint);
+  v_a_async := false;
+  IF v_result IS DISTINCT FROM -987654951 THEN
+    RAISE EXCEPTION 'FEJL: OCR-låseorden fuldførte ikke citation-skriveren, resultat=%',v_result;
+  END IF;
+  PERFORM dblink_exec('ocr_lock_a','COMMIT');
+  v_a_in_tx := false;
+
+  v_deadline := clock_timestamp() + interval '10 seconds';
+  LOOP
+    SELECT dblink_is_busy('ocr_lock_b') INTO v_b_busy;
+    EXIT WHEN v_b_busy = 0;
+    IF clock_timestamp() > v_deadline THEN
+      RAISE EXCEPTION 'FEJL: OCR-låseorden B overskred 10 sekunder';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  SELECT deleted INTO v_deleted FROM dblink_get_result('ocr_lock_b') AS t(deleted bigint);
+  PERFORM * FROM dblink_get_result('ocr_lock_b') AS t(deleted bigint);
+  v_b_async := false;
+  IF v_deleted IS DISTINCT FROM 1 THEN
+    RAISE EXCEPTION 'FEJL: OCR-låseorden fuldførte ikke personsletningen, resultat=%',v_deleted;
+  END IF;
+  PERFORM dblink_exec('ocr_lock_b','COMMIT');
+  v_b_in_tx := false;
+  PERFORM dblink_disconnect('ocr_lock_a');
+  PERFORM dblink_disconnect('ocr_lock_b');
+
+  PERFORM dblink_exec('ocr_lock_setup',v_cleanup_sql);
+  PERFORM dblink_disconnect('ocr_lock_setup');
+  IF EXISTS (
+       SELECT 1 FROM source WHERE id=-987654601
+       UNION ALL SELECT 1 FROM person WHERE id=-987654611
+       UNION ALL SELECT 1 FROM person_external_id WHERE person_id=-987654611
+       UNION ALL SELECT 1 FROM fact WHERE id=-987654701
+       UNION ALL SELECT 1 FROM assertion WHERE id=-987654801
+       UNION ALL SELECT 1 FROM conclusion WHERE id=-987654901
+       UNION ALL SELECT 1 FROM citation WHERE id=-987654951
+       UNION ALL SELECT 1 FROM import_korrektion
+         WHERE import_key='verify:ocr:lock' AND record_key='I-lock'
+       UNION ALL SELECT 1 FROM profiles WHERE id=v_uid
+       UNION ALL SELECT 1 FROM auth.users WHERE id=v_uid
+       UNION ALL SELECT 1 FROM change_set
+         WHERE operation='red_slet_person' AND subjekt_type='person' AND subjekt_id=-987654611
+     )
+     OR EXISTS (
+       SELECT 1 FROM pg_stat_activity
+       WHERE datname=current_database() AND application_name LIKE 'daa_verify_ocr_lock_%'
+     ) THEN
+    RAISE EXCEPTION 'FEJL: OCR-låseorden efterlod fixture eller dblink-session';
+  END IF;
+  RAISE NOTICE 'OK: OCR-låseorden to-forbindelsesregression';
+EXCEPTION WHEN OTHERS THEN
+  GET STACKED DIAGNOSTICS
+    v_error_state = RETURNED_SQLSTATE,
+    v_error_message = MESSAGE_TEXT;
+
+  -- Cancel/drain first when possible, explicitly roll back, and always disconnect.
+  -- Disconnect is the final rollback guarantee if a remote query is still active.
+  IF array_position(coalesce(dblink_get_connections(),'{}'::text[]),'ocr_lock_a') IS NOT NULL THEN
+    BEGIN
+      IF v_a_async AND dblink_is_busy('ocr_lock_a') = 1 THEN
+        PERFORM dblink_cancel_query('ocr_lock_a');
+      END IF;
+      IF v_a_async THEN
+        v_deadline := clock_timestamp() + interval '2 seconds';
+        WHILE dblink_is_busy('ocr_lock_a') = 1 AND clock_timestamp() < v_deadline
+          LOOP PERFORM pg_sleep(0.01); END LOOP;
+        IF dblink_is_busy('ocr_lock_a') = 0 THEN
+          PERFORM * FROM dblink_get_result('ocr_lock_a',false) AS t(id bigint);
+          PERFORM * FROM dblink_get_result('ocr_lock_a',false) AS t(id bigint);
+        END IF;
+      END IF;
+      IF v_a_in_tx THEN PERFORM dblink_exec('ocr_lock_a','ROLLBACK'); END IF;
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+    BEGIN PERFORM dblink_disconnect('ocr_lock_a'); EXCEPTION WHEN OTHERS THEN NULL; END;
+  END IF;
+  IF array_position(coalesce(dblink_get_connections(),'{}'::text[]),'ocr_lock_b') IS NOT NULL THEN
+    BEGIN
+      IF v_b_async AND dblink_is_busy('ocr_lock_b') = 1 THEN
+        PERFORM dblink_cancel_query('ocr_lock_b');
+      END IF;
+      IF v_b_async THEN
+        v_deadline := clock_timestamp() + interval '2 seconds';
+        WHILE dblink_is_busy('ocr_lock_b') = 1 AND clock_timestamp() < v_deadline
+          LOOP PERFORM pg_sleep(0.01); END LOOP;
+        IF dblink_is_busy('ocr_lock_b') = 0 THEN
+          PERFORM * FROM dblink_get_result('ocr_lock_b',false) AS t(deleted bigint);
+          PERFORM * FROM dblink_get_result('ocr_lock_b',false) AS t(deleted bigint);
+        END IF;
+      END IF;
+      IF v_b_in_tx THEN PERFORM dblink_exec('ocr_lock_b','ROLLBACK'); END IF;
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+    BEGIN PERFORM dblink_disconnect('ocr_lock_b'); EXCEPTION WHEN OTHERS THEN NULL; END;
+  END IF;
+  IF array_position(coalesce(dblink_get_connections(),'{}'::text[]),'ocr_lock_setup') IS NOT NULL THEN
+    BEGIN PERFORM dblink_disconnect('ocr_lock_setup'); EXCEPTION WHEN OTHERS THEN NULL; END;
+  END IF;
+
+  -- Setup is autonomous/committed, so cleanup must be autonomous too. A fresh
+  -- connection avoids an aborted setup/RPC transaction and retries success-cleanup errors.
+  BEGIN
+    IF array_position(coalesce(dblink_get_connections(),'{}'::text[]),'ocr_lock_cleanup') IS NOT NULL THEN
+      PERFORM dblink_disconnect('ocr_lock_cleanup');
+    END IF;
+    PERFORM dblink_connect('ocr_lock_cleanup',
+      v_conn || ' application_name=daa_verify_ocr_lock_cleanup');
+    PERFORM dblink_exec('ocr_lock_cleanup',v_cleanup_sql);
+    PERFORM dblink_disconnect('ocr_lock_cleanup');
+  EXCEPTION WHEN OTHERS THEN
+    v_cleanup_error := SQLERRM;
+    BEGIN PERFORM dblink_disconnect('ocr_lock_cleanup'); EXCEPTION WHEN OTHERS THEN NULL; END;
+    RAISE EXCEPTION USING
+      ERRCODE = v_error_state,
+      MESSAGE = format('%s; autonom cleanup fejlede: %s',v_error_message,v_cleanup_error);
+  END;
+  RAISE EXCEPTION USING ERRCODE = v_error_state, MESSAGE = v_error_message;
+END $$;
+
+-- ===== Person OCR kvalitetsark — samlet redaktionsprojektion =====
+-- Selvstændig grid-fixture. Den ruller alle rækker tilbage og afprøver den faktiske
+-- SECURITY DEFINER-overflade med lokale roller; den afhænger ikke af produktionsdata.
+DO $$
+DECLARE
+  v_redaktor uuid := '00000000-0000-0000-0000-0000000000c3';
+  v_anon_blokeret boolean := false;
+  v_medlem_blokeret boolean := false;
+  v_antal integer;
+  v_qa text[];
+BEGIN
+  INSERT INTO source(id,titel,udgave,import_key) VALUES
+    (-987656101,'Grid verify-kilde','Grid verify 1','daa:1939'),
+    (-987656102,'Grid verify-ekstra','Grid verify 2','daa:1940');
+  INSERT INTO person(id,koen) VALUES
+    (-987656111,'mand'), (-987656112,'kvinde'), (-987656113,NULL),
+    (-987656114,'ukendt'), (-987656115,'mand'), (-987656116,'kvinde');
+  INSERT INTO person(id,koen) VALUES (-987656117,'mand');
+  UPDATE person SET staged=true WHERE id=-987656114;
+  INSERT INTO person_external_id(person_id,source_id,linje,nr,record_key,slaegtled_lokal) VALUES
+    (-987656111,-987656101,'I',15,'I-15a',3),
+    (-987656112,-987656101,'I',16,'I-16',3),
+    (-987656113,-987656101,'I',17,NULL,4),
+    (-987656114,-987656101,'II',1,'II-1',1),
+    (-987656115,-987656101,'II',2,'II-2',1),
+    (-987656116,-987656101,'II',3,'II-3',1),
+    (-987656116,-987656102,'II',3,'II-3-ny',1),
+    (-987656117,-987656101,'III',99,NULL,5);
+
+  -- Normal person: selected source assertions, titel/familie/relation-counts and
+  -- deliberately odd OCR/date context for the deterministic QA contract.
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES
+    (-987656201,'person',-987656111,'navn'),
+    (-987656202,'person',-987656111,'fødsel'),
+    (-987656203,'person',-987656111,'død'),
+    (-987656204,'person',-987656111,'titel'),
+    (-987656205,'person',-987656112,'navn'),
+    (-987656206,'person',-987656112,'fødsel'),
+    (-987656207,'person',-987656112,'fødsel'),
+    (-987656208,'person',-987656113,'fødsel'),
+    (-987656209,'person',-987656114,'navn'),
+    (-987656210,'person',-987656115,'navn'),
+    (-987656211,'person',-987656116,'navn'),
+    (-987656212,'person',-987656112,'død'),
+    (-987656213,'person',-987656117,'navn'),
+    (-987656214,'person',-987656117,'fødsel');
+  INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,date_min,date_max,date_qualifier,date_raw)
+  VALUES
+    (-987656301,'fact',-987656201,'Mikkel',NULL,NULL,NULL,NULL),
+    (-987656302,'fact',-987656202,NULL,'1901-01-01','1901-12-31','between','født 1901'),
+    (-987656303,'fact',-987656203,NULL,'1900-01-01','1900-12-31','between','død 1900'),
+    (-987656304,'fact',-987656204,'kammerherre',NULL,NULL,NULL,NULL),
+    (-987656305,'fact',-987656205,'Ambig',NULL,NULL,NULL,NULL),
+    (-987656306,'fact',-987656206,NULL,'1800-01-01','1800-12-31','between','født 1800'),
+    (-987656307,'fact',-987656207,NULL,'1801-01-01','1801-12-31','between','født 1801'),
+    (-987656308,'fact',-987656208,NULL,NULL,NULL,NULL,'dato kan ikke læses'),
+    (-987656309,'fact',-987656209,'Uden kontekst',NULL,NULL,NULL,NULL),
+    (-987656310,'fact',-987656210,'Alias',NULL,NULL,NULL,NULL),
+    (-987656311,'fact',-987656211,'Kanonisk',NULL,NULL,NULL,NULL),
+    (-987656312,'fact',-987656212,NULL,NULL,NULL,NULL,'dato kan ikke læses'),
+    (-987656313,'fact',-987656213,'Legacy Navn Uden Anker',NULL,NULL,NULL,NULL),
+    (-987656314,'fact',-987656214,NULL,'1690-01-01','1690-12-31','between','født 1690');
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status) VALUES
+    (-987656401,'fact',-987656201,-987656301,'afklaret'),
+    (-987656402,'fact',-987656202,-987656302,'afklaret'),
+    (-987656403,'fact',-987656203,-987656303,'afklaret'),
+    (-987656404,'fact',-987656204,-987656304,'afklaret'),
+    (-987656405,'fact',-987656205,-987656305,'afklaret'),
+    (-987656406,'fact',-987656206,-987656306,'afklaret'),
+    (-987656407,'fact',-987656207,-987656307,'afklaret'),
+    (-987656408,'fact',-987656208,-987656308,'afklaret'),
+    (-987656409,'fact',-987656209,-987656309,'afklaret'),
+    (-987656410,'fact',-987656210,-987656310,'forældet'),
+    (-987656411,'fact',-987656211,-987656311,'afklaret'),
+    (-987656412,'fact',-987656212,-987656312,'afklaret'),
+    (-987656413,'fact',-987656213,-987656313,'afklaret'),
+    (-987656414,'fact',-987656214,-987656314,'afklaret');
+  INSERT INTO citation(id,assertion_id,source_id,side,citat_tekst) VALUES
+    (-987656501,-987656301,-987656101,'42','Mikkel ?'),
+    (-987656502,-987656302,-987656101,'42','født 1901'),
+    (-987656503,-987656303,-987656101,'42','død 1900'),
+    (-987656504,-987656304,-987656101,'42','kammerherre'),
+    (-987656505,-987656305,-987656101,'43','Ambig'),
+    (-987656506,-987656306,-987656101,'43','født 1800'),
+    (-987656507,-987656307,-987656101,'43','født 1801'),
+    (-987656508,-987656308,-987656101,'44','dato kan ikke læses'),
+    (-987656510,-987656310,-987656101,'45','Alias'),
+    (-987656511,-987656311,-987656101,'45','Kanonisk'),
+    (-987656512,-987656312,-987656101,'44','dato kan ikke læses'),
+    (-987656513,-987656313,-987656101,'99','Legacy Navn Uden Anker'),
+    (-987656514,-987656314,-987656101,'99','født 1690');
+  INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,korrigeret,status)
+    VALUES ('daa:1939','I-15a','navn','0123456789abcdef0123456789abcdef',
+            '{"value":"Mikkel"}','{"value":"Mikkel rettet"}','rettet');
+  INSERT INTO family(id,type) VALUES (-987656601,'vielse');
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES (-987656601,-987656111,'partner');
+  INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES
+    (-987656701,'person',-987656111,'person',-987656112,'bekendt_med'),
+    (-987656702,'person',-987656115,'person',-987656116,'samme_som');
+
+  -- samme_som-KÆDE: -987656119 er BÅDE alias (af -987656120) OG kanonisk (for
+  -- -987656118). same_as_context producerede før én række pr. rolle, og da de to
+  -- rækker adskiller sig på samme_som_status overlevede begge GROUP BY'et — samme
+  -- fysiske person kom altså ud af griddet TO gange. Griddet lover én række pr.
+  -- fysisk person; kæden låser det løfte fast.
+  --
+  -- RÆKKEFØLGEN ER IKKE VILKÅRLIG. enforce_samme_som_invariants() er BEFORE INSERT,
+  -- og G4 tjekker kun om den NYE rækkes SUBJEKT allerede er kanonisk — ikke om dens
+  -- OBJEKT allerede er alias. Indsættes den inderste kant (119→120) først, slipper
+  -- den ydre (118→119) derfor igennem, og kæden opstår. Det er ikke et hul jeg
+  -- opfinder til testen: præcis én person i prod står i den tilstand. Den omvendte
+  -- rækkefølge ville blive afvist af G4 — griddet skal alligevel kunne tåle
+  -- tilstanden, uanset om invarianten senere strammes.
+  INSERT INTO person(id,koen) VALUES
+    (-987656118,'mand'), (-987656119,'mand'), (-987656120,'mand');
+  INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES
+    (-987656704,'person',-987656119,'person',-987656120,'samme_som');
+  INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES
+    (-987656703,'person',-987656118,'person',-987656119,'samme_som');
+
+  -- Fingerprint-parity with Task 2's independently fixed UTF-8 vector.
+  IF ocr_input_fingerprint('daa:1939','I-15a','foedsel',
+       '{"raw":"* 1644","min":"1644-01-01","max":"1644-12-31","qualifier":null,"calendar":"gregoriansk","certainty":null}'::jsonb,
+       'side=42;span=1') <> '5fc3d843cc82550a45ff2a176bc7cc83' THEN
+    RAISE EXCEPTION 'FEJL: OCR-fingerprint er ikke i Task 2-paritet';
+  END IF;
+
+  -- EXECUTE ACL plus SECURITY DEFINER-role guard are both part of the contract.
+  SET LOCAL ROLE anon;
+  BEGIN
+    PERFORM * FROM red_person_grid();
+  EXCEPTION WHEN insufficient_privilege THEN v_anon_blokeret := true;
+  END;
+  RESET ROLE;
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    PERFORM * FROM red_person_grid();
+  EXCEPTION WHEN others THEN
+    IF SQLERRM LIKE 'Kun redaktion%' THEN v_medlem_blokeret := true; ELSE RAISE; END IF;
+  END;
+  RESET ROLE;
+  INSERT INTO auth.users(id,email) VALUES (v_redaktor,'ocr-grid-verify@test.invalid');
+  INSERT INTO profiles(id,rolle,email) VALUES (v_redaktor,'redaktion','ocr-grid-verify@test.invalid');
+  PERFORM set_config('request.jwt.claim.sub',v_redaktor::text,true);
+  SET LOCAL ROLE authenticated;
+
+  SELECT count(*) INTO v_antal FROM red_person_grid() WHERE person_id BETWEEN -987656116 AND -987656111;
+  IF v_antal <> 6 THEN RAISE EXCEPTION 'FEJL: grid returnerede %/6 fysiske personer', v_antal; END IF;
+  IF (SELECT count(*) FROM red_person_grid() WHERE person_id IN (-987656115,-987656116)) <> 2
+     OR (SELECT kanonisk_person_id FROM red_person_grid() WHERE person_id=-987656115) <> -987656116 THEN
+    RAISE EXCEPTION 'FEJL: grid kollapser eller mister samme_som-kontekst';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656111
+                 AND antal_titler=1 AND antal_familier=1 AND antal_relationer=1
+                 AND antal_kilde_assertions=4
+                 AND ocr_context->>'navn'='Mikkel ?' AND kilde_side->>'navn'='42') THEN
+    RAISE EXCEPTION 'FEJL: grid-counts eller valgt assertions OCR-kontekst er forkert';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656112
+                 AND kan_rettes->>'foedsel'='false'
+                 AND blokarsager->>'foedsel'='flere_importerede_facts'
+                 AND foedsel_assertion_id IS NULL AND foedsel_raw IS NULL
+                 AND foedsel_min IS NULL AND foedsel_max IS NULL
+                 AND ocr_context->'foedsel' IS NULL) THEN
+    RAISE EXCEPTION 'FEJL: flere importerede fødselsfacts er ikke koherent fail-closed';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656115
+                 AND navn IS NULL AND navn_assertion_id IS NULL
+                 AND kan_rettes->>'navn'='false'
+                 AND NOT (qa_koder @> ARRAY['ocr_kontekst_mangler']::text[])) THEN
+    RAISE EXCEPTION 'FEJL: ikke-afklaret konklusion projekteres stadig';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656116
+                 AND kan_rettes='{"navn": false, "foedsel": false, "doed": false, "koen": false}'::jsonb
+                 AND blokarsager='{"navn": "flere_importankre", "foedsel": "flere_importankre", "doed": "flere_importankre", "koen": "flere_importankre"}'::jsonb) THEN
+    RAISE EXCEPTION 'FEJL: flere importankre er ikke blokeret for alle felter';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656113
+                 AND kan_rettes->>'navn'='false' AND blokarsager->>'navn'='record_key_mangler') THEN
+    RAISE EXCEPTION 'FEJL: legacy-række uden record_key er ikke blokeret';
+  END IF;
+  -- En legacy-række uden stabilt anker (record_key NULL) kan ikke rettes, men skal
+  -- stadig kunne IDENTIFICERES og TIDSFÆSTES i griddet. Fallback bruger den allerede
+  -- afklarede evidens (selected_assertions, FØR anker-gaten) — IKKE person.visning_*,
+  -- som viste sig at ignorere conclusion.status og derfor kan lække en forældet værdi.
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656117
+                 AND navn='Legacy Navn Uden Anker' AND kan_rettes->>'navn'='false'
+                 AND foedsel_min='1690-01-01' AND foedsel_max='1690-12-31'
+                 AND kan_rettes->>'foedsel'='false') THEN
+    RAISE EXCEPTION 'FEJL: legacy-række uden stabilt anker viser ikke afklaret evidens som navn/fødsel';
+  END IF;
+  -- Beskyttelse mod status-læk: -987656115's eneste navn-konklusion er 'forældet'
+  -- (ikke afklaret). Fallback må IKKE hente fra en ikke-afklaret konklusion, selvom
+  -- den har et gyldigt valgt_assertion_id — det ville lade en tilbagetrukket værdi
+  -- sive ind i visningen. Denne test dækkede allerede dette FØR fallback blev tilføjet;
+  -- den skal fortsat holde bagefter.
+
+  SELECT qa_koder INTO v_qa FROM red_person_grid() WHERE person_id=-987656111;
+  IF NOT (v_qa @> ARRAY['mistænkeligt_ocr_tegn','foedt_efter_doed','struktureret_afviger_fra_ocr']::text[]) THEN
+    RAISE EXCEPTION 'FEJL: normale OCR-/dato-QA-koder mangler: %', v_qa;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656111
+                 AND review_status->>'navn'='stale'
+                 AND qa_koder @> ARRAY['kilde_aendret']::text[]
+                 AND importeret->'navn'='{"value":"Mikkel"}'::jsonb
+                 AND korrigeret->'navn'='{"value":"Mikkel rettet"}'::jsonb) THEN
+    RAISE EXCEPTION 'FEJL: stale journal-overlay bevarer ikke immutable importinput';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656112 AND qa_koder @> ARRAY['flere_importerede_facts']::text[])
+     OR NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656113 AND qa_koder @> ARRAY['dato_ufortolkelig','record_key_mangler']::text[])
+     OR NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656114 AND qa_koder @> ARRAY['ocr_kontekst_mangler']::text[]) THEN
+    RAISE EXCEPTION 'FEJL: deterministiske grid-QA-koder mangler ambig=% legacy=% staged_context=%',
+      EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656112 AND qa_koder @> ARRAY['flere_importerede_facts']::text[]),
+      EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656113 AND qa_koder @> ARRAY['dato_ufortolkelig','record_key_mangler']::text[]),
+      EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656114 AND qa_koder @> ARRAY['ocr_kontekst_mangler']::text[]);
+  END IF;
+
+  -- ---- navn_mangler betyder "der vises intet navn" — IKKE "navnet kan ikke rettes" ----
+  -- Redigerbarhed udtrykkes af kan_rettes/blokarsager. Da QA-koden tidligere målte på
+  -- de anker-gatede felter (candidate_count/felt_vaerdi), mens VISNINGEN falder tilbage
+  -- til afklaret evidens, flagede den hver eneste ikke-redigerbare række — 1169 af 1757
+  -- i prod, alle med et synligt navn, nul ægte. Samme fejlklasse som den tomme
+  -- navnekolonne: gaten hørte til redigerbarheden, ikke til værdien.
+
+  -- (a) Anker-løs, men navn opløst via fallback => navnet mangler IKKE.
+  IF EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656117
+             AND qa_koder @> ARRAY['navn_mangler']::text[]) THEN
+    RAISE EXCEPTION 'FEJL: navn_mangler sat på række der viser et navn (anker-løs fallback)';
+  END IF;
+
+  -- (b) Navn kendt (afklaret konklusion) men uden citation => vises, altså ikke
+  -- navn_mangler; manglen er kildedækning, og den udtrykkes af ocr_kontekst_mangler
+  -- + blokårsagen ingen_kildebelagt_assertion.
+  IF EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656114
+             AND qa_koder @> ARRAY['navn_mangler']::text[]) THEN
+    RAISE EXCEPTION 'FEJL: navn_mangler forveksler manglende kildedækning med manglende navn';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656114
+                 AND navn='Uden kontekst'
+                 AND kan_rettes->>'navn'='false'
+                 AND blokarsager->>'navn'='ingen_kildebelagt_assertion') THEN
+    RAISE EXCEPTION 'FEJL: ukildebelagt navn vises ikke, eller er ikke blokeret for rettelse';
+  END IF;
+
+  -- (c) Ægte tomt navn SKAL stadig flages. -987656115's eneste navn-konklusion er
+  -- 'forældet', så selected_assertions giver intet — der er reelt intet navn at vise.
+  -- Denne retning er værnet mod at fixet bare slukker for koden.
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656115
+                 AND navn IS NULL AND qa_koder @> ARRAY['navn_mangler']::text[]) THEN
+    RAISE EXCEPTION 'FEJL: ægte manglende navn flages ikke længere';
+  END IF;
+
+  -- ---- én række pr. fysisk person, også midt i en samme_som-kæde ----
+  IF (SELECT count(*) FROM red_person_grid() WHERE person_id=-987656119) <> 1 THEN
+    RAISE EXCEPTION 'FEJL: person midt i samme_som-kæde duplikeres i griddet (% rækker)',
+      (SELECT count(*) FROM red_person_grid() WHERE person_id=-987656119);
+  END IF;
+  -- Alias-rollen vinder over kanonisk: at være alias er det stærkere udsagn om
+  -- personens identitetsstatus, og redaktøren skal kunne se hvem hun peger på.
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656119
+                 AND samme_som_status='alias' AND kanonisk_person_id=-987656120) THEN
+    RAISE EXCEPTION 'FEJL: kæde-person viser ikke alias-rollen mod sin kanoniske';
+  END IF;
+  IF EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656115
+             AND (qa_koder @> ARRAY['dato_ufortolkelig']::text[])) THEN
+    RAISE EXCEPTION 'FEJL: manglende fødsel/død blev fejlagtigt OCR-fejl';
+  END IF;
+  RESET ROLE;
+  IF NOT v_anon_blokeret OR NOT v_medlem_blokeret THEN
+    RAISE EXCEPTION 'FEJL: grid EXECUTE/gate anon=% medlem=%',v_anon_blokeret,v_medlem_blokeret;
+  END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN others THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN
+    RAISE NOTICE 'OK: Person OCR kvalitetsark — set-baseret grid, QA, fingerprint og roller';
+  ELSE RAISE; END IF;
+END $$;
+
 
 -- ===== Task 2: Cache-regenerering — regen_person_visning + trigger =====
 -- Vælg en person med navne-fakta; nulstil cache; kald regen; bekræft den genskabes.
@@ -2623,4 +3409,233 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM vocab WHERE scheme='faktatype' AND code='overhoved') THEN
     RAISE EXCEPTION 'FEJL: vocab mangler (faktatype, overhoved) — kør db-migrations.sql';
   END IF;
+END $$;
+
+-- ===== Person OCR kvalitetsark — identitet =====
+-- Selvstændig, rollback-sikker kontrakt for stabile importnøgler og den varige
+-- korrektionsjournal. Den bruger rigtige constraints, trigger og SET ROLE, ikke
+-- kildekode-matching, og efterlader derfor ingen verify-rækker.
+DO $$
+DECLARE
+  v_kolonner int;
+  v_redaktor uuid := '00000000-0000-0000-0000-0000000000c1';
+  v_journal_id bigint;
+  v_change_set bigint := -987658099;
+  v_anon_blokeret boolean := false;
+  v_indsaet_blokeret boolean := false;
+  v_opdater_blokeret boolean := false;
+  v_slet_blokeret boolean := false;
+  v_medlem_antal int;
+  v_redaktor_antal int;
+BEGIN
+  -- Eksakte kolonnekontrakter: nullable import-/record-nøgler bevarer legacy-rækker;
+  -- journalens beslutningsfelter er obligatoriske bortset fra rettelse og aktør.
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema='public' AND table_name='source'
+                   AND column_name='import_key' AND data_type='text' AND is_nullable='YES') THEN
+    RAISE EXCEPTION 'FEJL: source.import_key mangler eller har forkert type/nullability';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema='public' AND table_name='person_external_id'
+                   AND column_name='record_key' AND data_type='text' AND is_nullable='YES') THEN
+    RAISE EXCEPTION 'FEJL: person_external_id.record_key mangler eller har forkert type/nullability';
+  END IF;
+  SELECT count(*) INTO v_kolonner
+    FROM information_schema.columns
+   WHERE table_schema='public' AND table_name='import_korrektion'
+     AND ((column_name='id' AND data_type='bigint' AND is_nullable='NO')
+       OR (column_name IN ('import_key','record_key','felt','input_fingerprint','status')
+           AND data_type='text' AND is_nullable='NO')
+       OR (column_name='importeret' AND data_type='jsonb' AND is_nullable='NO')
+       OR (column_name='korrigeret' AND data_type='jsonb' AND is_nullable='YES')
+       OR (column_name='actor_id' AND data_type='uuid' AND is_nullable='YES')
+       OR (column_name='actor_navn' AND data_type='text' AND is_nullable='YES')
+       OR (column_name IN ('oprettet_at','opdateret_at')
+           AND data_type='timestamp with time zone' AND is_nullable='NO'));
+  IF v_kolonner <> 12 THEN
+    RAISE EXCEPTION 'FEJL: import_korrektion mangler eksakte kolonnekontrakter (fik %/12)', v_kolonner;
+  END IF;
+
+  -- Delvise unikke nøgler: ikke-NULL importidentiteter må aldrig dubleres,
+  -- men de historiske NULL-rækker skal fortsat kunne sameksistere.
+  INSERT INTO source(id,titel,import_key) VALUES
+    (-987658001,'Legacy A',NULL),(-987658002,'Legacy B',NULL),
+    (-987658003,'Import-nøgle','verify:ocr:source');
+  BEGIN
+    INSERT INTO source(id,titel,import_key) VALUES (-987658004,'Dublet','verify:ocr:source');
+    RAISE EXCEPTION 'FEJL: source import_key-unikhed afviste ikke dublet';
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+  INSERT INTO person(id) VALUES (-987658011),(-987658012),(-987658013),(-987658014);
+  INSERT INTO person_external_id(person_id,source_id,record_key) VALUES
+    (-987658011,-987658003,NULL),(-987658012,-987658003,NULL),
+    (-987658013,-987658003,'verify:ocr:record');
+  BEGIN
+    INSERT INTO person_external_id(person_id,source_id,record_key)
+      VALUES (-987658014,-987658003,'verify:ocr:record');
+    RAISE EXCEPTION 'FEJL: person_external_id record_key-unikhed afviste ikke dublet';
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+
+  -- Journalens kontrollerede vokabular og MD5-fingerprint afviser ukendte værdier.
+  BEGIN
+    INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,status)
+      VALUES ('verify:ocr','ukendt-felt','ukendt','0123456789abcdef0123456789abcdef','{}','aaben');
+    RAISE EXCEPTION 'FEJL: import_korrektion.felt-CHECK afviste ikke ukendt felt';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,status)
+      VALUES ('verify:ocr','ukendt-status','navn','0123456789abcdef0123456789abcdef','{}','ukendt');
+    RAISE EXCEPTION 'FEJL: import_korrektion.status-CHECK afviste ikke ukendt status';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,status)
+      VALUES ('verify:ocr','forkert-hash','navn','IKKE-EN-MD5','{}','aaben');
+    RAISE EXCEPTION 'FEJL: import_korrektion.input_fingerprint-CHECK afviste ikke ugyldig hash';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  IF EXISTS (SELECT 1 FROM pg_constraint
+             WHERE conrelid='public.import_korrektion'::regclass AND contype='f') THEN
+    RAISE EXCEPTION 'FEJL: import_korrektion har FK til regenererbare identifikatorer';
+  END IF;
+
+  -- Registry + konkret trigger bevarer den immutable historik i change_event.
+  IF NOT EXISTS (SELECT 1 FROM version_pk_registry
+                 WHERE tabel='import_korrektion' AND pk_cols=ARRAY['id']::text[] AND skip_cols='{}') THEN
+    RAISE EXCEPTION 'FEJL: import_korrektion mangler korrekt version_pk_registry-række';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger
+                 WHERE tgrelid='public.import_korrektion'::regclass
+                   AND tgname='trg_log_import_korrektion' AND NOT tgisinternal) THEN
+    RAISE EXCEPTION 'FEJL: trg_log_import_korrektion mangler';
+  END IF;
+
+  INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,status)
+    VALUES ('verify:ocr','journal','navn','0123456789abcdef0123456789abcdef','{"navn":"OCR"}','aaben')
+    RETURNING id INTO v_journal_id;
+
+  -- RLS og grants: anon har ingen adgang; medlemmet får ingen rækker; redaktøren
+  -- må læse, men alle direkte DML-veje er lukkede indtil den kommende RPC.
+  SET LOCAL ROLE anon;
+  BEGIN
+    PERFORM 1 FROM import_korrektion WHERE id=v_journal_id;
+  EXCEPTION WHEN insufficient_privilege THEN v_anon_blokeret := true;
+  END;
+  RESET ROLE;
+
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO v_medlem_antal FROM import_korrektion WHERE id=v_journal_id;
+  RESET ROLE;
+
+  INSERT INTO auth.users(id,email) VALUES (v_redaktor,'ocr-journal-verify@test.invalid');
+  INSERT INTO profiles(id,rolle,email) VALUES (v_redaktor,'redaktion','ocr-journal-verify@test.invalid');
+  PERFORM set_config('request.jwt.claim.sub',v_redaktor::text,true);
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO v_redaktor_antal FROM import_korrektion WHERE id=v_journal_id;
+  BEGIN
+    INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,status)
+      VALUES ('verify:ocr','redaktor-indsaet','navn','0123456789abcdef0123456789abcdef','{}','aaben');
+  EXCEPTION WHEN insufficient_privilege THEN v_indsaet_blokeret := true;
+  END;
+  BEGIN
+    UPDATE import_korrektion SET actor_navn='må ikke ske' WHERE id=v_journal_id;
+  EXCEPTION WHEN insufficient_privilege THEN v_opdater_blokeret := true;
+  END;
+  BEGIN
+    DELETE FROM import_korrektion WHERE id=v_journal_id;
+  EXCEPTION WHEN insufficient_privilege THEN v_slet_blokeret := true;
+  END;
+  RESET ROLE;
+  IF NOT v_anon_blokeret OR v_medlem_antal <> 0 OR v_redaktor_antal <> 1
+     OR NOT v_indsaet_blokeret OR NOT v_opdater_blokeret OR NOT v_slet_blokeret THEN
+    RAISE EXCEPTION 'FEJL: journal-RLS/grants anon=% medlem=% redaktor=% dml=%/%/%',
+      v_anon_blokeret,v_medlem_antal,v_redaktor_antal,
+      v_indsaet_blokeret,v_opdater_blokeret,v_slet_blokeret;
+  END IF;
+
+  INSERT INTO change_set(id,operation) VALUES (v_change_set,'verify_import_korrektion');
+  PERFORM set_config('app.change_set_id',v_change_set::text,true);
+  PERFORM set_config('app.change_seq','0',true);
+  INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,status)
+    VALUES ('verify:ocr','journal','navn','0123456789abcdef0123456789abcdef','{"navn":"OCR"}','rettet')
+  ON CONFLICT (import_key,record_key,felt) DO UPDATE SET status=excluded.status;
+  IF NOT EXISTS (SELECT 1 FROM change_event
+                 WHERE change_set_id=v_change_set AND tabel='import_korrektion' AND op='UPDATE'
+                   AND row_pk->>'id'=v_journal_id::text) THEN
+    RAISE EXCEPTION 'FEJL: import_korrektion-upsert loggede ikke normalt change_event';
+  END IF;
+
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN
+    RAISE NOTICE 'OK: Person OCR kvalitetsark — stabile nøgler, constraints, RLS og journalhistorik';
+  ELSE RAISE; END IF;
+END $$;
+
+-- ===== Slægts-rod i lineage (flerslægts-forberedelse, B2) =====
+-- Forvent: præcis én navnbærende rod pr. slægt, alle grene hænger under den,
+-- alle grene arver samme effektive slægtsnavn, og personernes visning_efternavn
+-- er UÆNDRET (migrationen må ikke røre cachen).
+DO $$
+DECLARE v_roedder INT; v_grene INT; v_uden_ophav INT; v_effektiv INT; v_sentinel INT;
+BEGIN
+  SELECT count(*) INTO v_roedder FROM lineage
+   WHERE parent_lineage_id IS NULL AND slaegtsnavn IS NOT NULL;
+  IF v_roedder < 1 THEN
+    RAISE EXCEPTION 'FEJL: ingen slægts-rod i lineage (B2-migrationen er ikke kørt)';
+  END IF;
+
+  -- Ingen gren må stå tilbage som sideordnet rod med sit eget slægtsnavn: det er
+  -- præcis den tilstand B2 fjerner, og den ville gøre roden dekorativ.
+  SELECT count(*) INTO v_uden_ophav FROM lineage
+   WHERE parent_lineage_id IS NULL AND kode IS NOT NULL;
+  IF v_uden_ophav > 0 THEN
+    RAISE EXCEPTION 'FEJL: % gren(e) med kode står uden slægts-rod', v_uden_ophav;
+  END IF;
+
+  SELECT count(*) INTO v_grene FROM lineage WHERE kode IS NOT NULL;
+  SELECT count(*) INTO v_effektiv FROM lineage
+   WHERE kode IS NOT NULL AND lineage_effective_slaegtsnavn(id) IS NULL;
+  IF v_effektiv > 0 THEN
+    RAISE EXCEPTION 'FEJL: % af % grene kan ikke udlede et slægtsnavn', v_effektiv, v_grene;
+  END IF;
+
+  -- Roden må aldrig få medlemmer: person_external_id joiner på (source_id, kode),
+  -- og roden har begge NULL. Fanger en fremtidig rod der får sat kode ved et uheld.
+  IF EXISTS (
+    SELECT 1 FROM lineage l JOIN person_external_id pei
+      ON pei.source_id = l.source_id AND pei.linje = l.kode
+     WHERE l.parent_lineage_id IS NULL AND l.slaegtsnavn IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION 'FEJL: slægts-roden har medlemmer — den skal være en ren beholder';
+  END IF;
+
+  -- Slægts-narrativet er en SENTINEL (subjekt_id=1 = "hele slægten"), ikke en
+  -- fremmednøgle til lineage 1. B2 flytter den IKKE; denne assert fastholder det.
+  SELECT count(*) INTO v_sentinel FROM narrative
+   WHERE subjekt_type = 'slaegt' AND subjekt_id <> 1;
+  IF v_sentinel > 0 THEN
+    RAISE EXCEPTION 'FEJL: % slægts-narrativ(er) er flyttet væk fra sentinel subjekt_id=1', v_sentinel;
+  END IF;
+
+  RAISE NOTICE 'OK: slægts-rod — % rod(/rødder), % grene, alle med arvet slægtsnavn', v_roedder, v_grene;
+END $$;
+
+-- Dublet-rod skal afvises af det partielle unikke indeks.
+DO $$
+DECLARE v_navn TEXT;
+BEGIN
+  SELECT slaegtsnavn INTO v_navn FROM lineage
+   WHERE parent_lineage_id IS NULL AND slaegtsnavn IS NOT NULL LIMIT 1;
+  BEGIN
+    INSERT INTO lineage (id, source_id, kode, navn, slaegtsnavn, parent_lineage_id)
+    VALUES (-99, NULL, NULL, v_navn, v_navn, NULL);
+    DELETE FROM lineage WHERE id = -99;
+    RAISE EXCEPTION 'FEJL: en rod nummer to for samme slægt blev accepteret';
+  EXCEPTION WHEN unique_violation THEN
+    RAISE NOTICE 'OK: lineage_slaegtsrod_uidx afviser dublet slægts-rod';
+  END;
 END $$;

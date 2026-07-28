@@ -1,5 +1,183 @@
 # Changelog
 
+## Slægts-rod i lineage — LIVE i prod, begge trin (2026-07-28)
+
+Forberedelse til at andre slægter end Reventlow kan bo i samme base. Alle fem linjer havde
+`parent_lineage_id = NULL`, så intet knudepunkt repræsenterede selve slægten: slægtsnavnet stod
+gentaget på fem rækker, og en ny slægts linjer ville lægge sig sideordnet uden noget der bandt dem
+sammen. Nu findes én rod pr. slægt (`source_id`/`kode` = NULL, så den aldrig får medlemmer og er
+usynlig i app'ens linje-liste), og linjerne hænger under den.
+
+**Delt i to trin efter deploy-rækkefølge — begge nu kørt.** Trin 1 (rod + repegning + dublet-guard)
+er forward-kompatibel med *begge* web-versioner, fordi grenene beholdt deres eget `slaegtsnavn`;
+den kunne derfor køres uden at vente på app-deployet. Trin 2 (rydning af grenenes `slaegtsnavn`)
+blev kørt efter at PR #109 var merget og deployet, fordi den daværende web læste feltet råt og
+ellers ville have vist præsenslistens overskrift tom. Opdelingen var ikke formalitet: den fjernede
+tidsvinduet helt frem for at gøre det kort.
+
+Slægtsnavnet bor herefter kun på roden (id 6); alle fem grene har `slaegtsnavn = NULL` og udleder
+`Reventlow` via `lineage_effective_slaegtsnavn()`.
+
+**Verificeret mod prod efter hvert trin:** korpus-diff på `visning_efternavn`/`visning_fuldt_navn`
+for alle 1756 personer viser 0 forskelle mod før-tilstanden, `slaegtsnavn_karantaene` står på 0, alle 5
+grene udleder fortsat `Reventlow`, roden har 0 medlemmer, og `get_advisors(security)` er uændret på
+133 lints uden nye lineage-relaterede. Frisk backup taget før kørslen
+(`daa-prod-pre-slaegtsrod-20260728-141840.dump`, uden for git).
+
+**Fejlrettet antagelse undervejs.** `narrative.subjekt_type='slaegt'` med `subjekt_id=1` ligner en
+fremmednøgle til `lineage` 1 og blev i første omgang beskrevet som "slægtsteksten parkeret på linje
+I". Det er forkert: id'et er en *sentinel* for hele slægten, båret som konstant i begge apper
+(`SLAEGT_SUBJEKT_ID`), og `fetchAbout` filtrerer slet ikke på det. En planlagt flytning til roden
+ville have koblet redaktørfladens skrivesti fra læsestien. Flytningen er ude af migrationen, og en
+`db-verify`-assert fastholder det. `docs/reviews/flerslaegt-parathed-2026-07-28.md` er rettet.
+
+**Ikke løst her:** to slægter i samme årbog har begge en "Linje I", og `lineage UNIQUE
+(source_id, kode)` afviser den anden — bekræftet empirisk. Det er B1 i flerslægts-vurderingen og
+kræver en beslutning om nøglerummet før næste slægt loades.
+
+## Kilde vist for de 627 personer uden bog-nummer (2026-07-28)
+
+Brugerfund: mange personer stod uden kildeangivelse i følgesvenden (`Ada Jessie Howard Grøn`).
+Årsagen var visning, ikke data. `sourcesBy` bygges alene af `person_external_id`, som kun findes
+for personer bogen gav et eget opslag; de 627 ægtefæller har intet bog-nummer, så opslaget var tomt
+og `DetailPanel` skjulte hele "Kilde i Aarbogen"-blokken. 335 af dem er offentligt synlige.
+
+Proveniensen fandtes hele tiden — invariant 1 kræver at hvert faktum er kildebundet, så alle 1756
+personer har `fact → assertion → citation → source`. Målt mod prod har alle 627 **præcis én** kilde
+(0 flertydige) og 296 endda sidetal. Rollefordelingen blev derfor: bog-nummeret (`Linje II, nr. 4`)
+er den mest præcise reference og vinder hvor den findes, mens citationen er reglen der dækker alle.
+Ada konkret: id 841 → `DAA 2018-20`, id 1690 → `DAA 1939, s. 578` — matchet til hinanden, men da
+ingen af siderne har bog-nummer kunne `collapseSameAs` heller ikke redde det.
+
+Reglen ligger i `@daa/core` (`kildeProveniens.ts`), så web og mobil deler formatering. Wiringen er
+bevidst forskellig: web henter først når personen mangler bog-nummer (de ~1129 hovedposter betaler
+ikke for opslag de ikke bruger), mobil bulk-henter kun `navn`-faktaet — det ene faktum hver person
+beviseligt har. `citationRowsTilProveniens` findes fordi PostgREST returnerer et *objekt* for en
+til-én-relation mens de genererede typer siger *array*; web slap afsted med en cast, mobil gjorde
+ikke. Anon-adgang til `citation`/`assertion`/`fact` + det nestede source-join blev verificeret
+empirisk mod REST-API'et, ikke udledt af at en service-key-forespørgsel lykkedes.
+
+Ingen DB-ændringer. Merget som PR #105, CI grøn på alle 6 jobs (mobil-jobbet kørte de 2 suiter der
+fejler lokalt pga. manglende `@testing-library/react-native` i `node_modules` — install-drift, ikke
+kode). **Udestår:** visuel verifikation af blokken i den deployede web.
+
+**Målt undervejs, ikke rettet:**
+
+- **Køn mangler på 625 personer** — samme population (329 + 296 ægtefæller; hovedposter mangler 0).
+  Testet kontrafaktisk om det bremser tværudgave-matchningen: 625 af 629 kan udledes af partnerens
+  køn, men effekten er negativ (`auto` 267 → 258, `review` 3639 → 4003). `evidensNormaliseret`
+  normaliserer allerede over de signaler der kan vurderes, så et manglende køn koster intet dér.
+  Det er en visnings-/korrekthedssag, ikke en matchning-blokering, og kræver skrivning via
+  `red_set_koen`.
+- **Ægtefælle-dubletter behøver ikke egen liste.** `udledKilderForAegtefaeller` (#90) virker 100 %
+  (627/627 får udgave), og med fladens egen config (`evidensNormaliseret: true`) har 394 af de 431
+  umatchede ægtefæller mindst én kandidat. Arbejdet kan gøres i `SammenlignUdgaver` som det er.
+
+## Kvalitetsark: navn_mangler-flaget var falsk på 1169 af 1757 rækker (2026-07-28)
+
+Brugeren spurgte hvorfor `navn_mangler` stod ved alle. Måling: **1169 flag, nul
+ægte** — hver eneste flaget række viste et navn korrekt. QA-koden målte på
+`candidate_count`/`felt_vaerdi`, som begge er anker-gatede, mens selve
+navnevisningen (siden `4d041bf`) falder tilbage til den afklarede evidens
+uafhængigt af anker. Koden flagede altså reelt "kan ikke rettes", ikke "har intet
+navn" — samme sammenblanding som den tomme navnekolonne, bare flyttet fra
+visningen til QA-laget. Redigerbarhed udtrykkes allerede af
+`kan_rettes`/`blokarsager`. Rettet til at måle præcis den værdi griddet viser.
+
+Fundet undervejs: griddet returnerede **to rækker for samme fysiske person** når
+personen står midt i en `samme_som`-kæde (både alias og kanonisk) — rækkerne
+adskiller sig på `samme_som_status` og overlevede derfor `GROUP BY`'et. Præcis én
+person i prod (826) stod sådan. Nu `DISTINCT ON` med alias-forrang. Kæden kan
+opstå fordi `enforce_samme_som_invariants()` kun er `BEFORE INSERT` og G4 kun
+tjekker `NEW.subjekt`: indsættes den inderste kant først, slipper den ydre
+igennem. **Trigger-hullet er ikke lukket** — griddet er gjort robust over for
+tilstanden, men invarianten kan stadig omgås via indsættelsesrækkefølge.
+
+Verificeret mod en lokal kopi af prods rigtige data før udrulning (1169 → 0,
+navn vises på alle, `kan_rettes` uændret på 588), derefter anvendt mod prod som
+ren `CREATE OR REPLACE FUNCTION` — ingen data rørt, ingen DDL, `get_advisors`
+uændret på 133 lints. Prod efter: 1756 rækker for 1756 personer (dubletten væk),
+0 `navn_mangler`. Rollback-artefakt med den forrige definition gemt før
+udrulning.
+
+Ikke løst her: de **627 gift-ind-ægtefæller** uden egen bogpost er fortsat
+ikke-redigerbare (`ingen_importanker`). Planen behandlede dem som et sjældent
+legacy-hjørne; de er 36% af korpus. Kræver egen plan — nøglen ville være
+forælderens `record_key` + indeks i `aegteskaber`, og `linje` SKAL være NULL,
+da `regen_person_visning()` ellers ville påhæfte slægtsnavnet til indgifte
+ægtefæller.
+
+## Personers OCR-kvalitetsark — record_key-backfill for DAA 2018-20 + web-status rettet (2026-07-28)
+
+Genindlæsning med `--reset --import-key=` blev overvejet for at gøre eksisterende
+personer redigerbare, men forkastet: loaderens `has_reset_blocking_editorial_
+changes()`-spærre blokerer på enhver `red_%`-operation undtagen `red_ret_ocr_felt`,
+og prods `change_set` har 482 `red_samme_som`-links plus dusinvis andre
+redaktørrettelser den ville have ramt. I stedet blev en smal, kun-tilføjende
+`UPDATE`-backfill kørt: 591 eksisterende DAA 2018-20-personer fik
+`source.import_key='daa:2018-20'` og `person_external_id.record_key` stemplet,
+udledt af at filnavnene i `data/extracted-2026-06-18/*.json` selv ER `record_key`.
+To `(linje,nr)`-kollisioner (basenr 15 og 41) løst entydigt ved navnematch. Rehearsed
+mod en lokal kopi af prods rigtige data før kørsel; frisk krypteret backup taget
+(`daa-prod-pre-record-key-backfill-20260728-074303.dump.gpg`). Resultat mod ægte
+prod: 588/591 personer nu redigerbare, 0 `record_key_mangler` tilbage,
+`get_advisors(security)` uændret på 133 lints. 1939-udgaven har stadig ingen stabil
+identitet.
+
+Samtidig rettet: forrige changelog-entry og runbook sagde web-laget ikke var
+deployet — brugeren havde i mellemtiden selv merget PR #103 til `main` via GitHub,
+og Vercel havde allerede auto-deployet featuren til prod. `web_deployed` er derfor
+opnået siden 2026-07-27; kun den manuelle redaktør-røgtest udestår.
+
+## Personers OCR-kvalitetsark — DB LIVE i prod, web IKKE deployet (2026-07-27)
+
+Databasen er migreret mod prod (`xjnvdhajfyrcytatnzos`): `import_korrektion`-journal,
+stabile importnøgler og RPC'erne `red_person_grid`/`red_ret_ocr_felt`/`red_ocr_historik`
+er live. Krypteret backup taget og gendannelses-verificeret først. Verificeret mod
+rigtig prod efter migration: `anon` afvist (ægte REST-kald, 401), `get_advisors`-delta
++3 (kun de kendte SECURITY DEFINER-mønstre), data uændret (1756 personer). Brugeren
+valgte at migrere databasen nu og genindlæse en udgave med `--import-key=` separat
+senere — eksisterende personer er derfor synlige i griddet men endnu ikke redigerbare.
+
+Web-laget er **ikke** deployet endnu. Se `docs/runbooks/person-ocr-kvalitetsark.md` §5.1
+for detaljer, inklusive en hændelse under første migrationsforsøg (en manuel
+gentastning af SQL introducerede en kolonnenavne-fejl; transaktionen rullede atomisk
+tilbage uden nogen skade, og genforsøget med filens eksakte indhold lykkedes).
+
+## Personers OCR-kvalitetsark — kodeklar, IKKE deployet (2026-07-26)
+
+Redaktør-værktøj der viser hver importeret person som én række i et regneark-lignende
+grid, med et sidepanel hvor navn, fødsel, død og køn kan rettes. En OCR-rettelse er en
+rettelse af *samme* importerede kildeudsagn: `fact.id`, `assertion.id`, citation og
+konklusion bevares, så oprydning aldrig bliver til en ny historisk påstand. Rettelser
+lever i en holdbar journal uden for loaderens reset-liste og genafspilles efter en
+genindlæsning via stabile `(import_key, record_key)`-nøgler; en ændret OCR-kontekst
+markerer rettelsen `stale`, så den ikke genafspilles blindt.
+
+Fail-closed hele vejen: RPC'en afviser med mindre personen har præcis ét stabilt
+importanker og feltet peger på præcis én valgt, citeret påstand. Personer uden anker
+forbliver **læsbare, men låste**. Anonyme og medlemmer afvises server-side.
+
+**Status: kodeklar og lokalt DB-verificeret — produktionsdatabasen er ikke rørt, intet
+er deployet, intet pushet.** Drift, gates og udestående manuel røgtest:
+`docs/runbooks/person-ocr-kvalitetsark.md`.
+
+Verificeret: R 475, core 358, feed 120, web 613, mobil 399, validate.py 130, loader-
+DB-smoke 124 — alle grønne. Frisk base + opgraderingssti på PostgreSQL 17.10 med
+idempotente migrationer (kørt to gange); rolleadgang efterprøvet med efterlignede
+JWT-claims. Skala-måling ved 2001 personer: `red_person_grid()` 285–301 ms, 3.470 kB.
+
+Undervejs fandt og lukkede arbejdet fire fejl, som testene ikke selv fangede: loaderen
+korrumperede stille en buffer-kolonne, fordi `jsonlite` læser JSON-null som `NULL` men
+skriver det tilbage som `{}`; `red_person_grid()` manglede `ORDER BY`, så pagineret
+læsning var uden ordensgaranti; en bar ISO-dato blev tolket som helår i *begge*
+parsere — uskadeligt i udtrækket, men tavst tab af præcision når en redaktør selv
+taster datoen (0 af 1322 `date_raw` i korpus var berørt, så rettelsen var inert); og en
+rehearsal mod prods **rigtige** data (ikke syntetisk fixture) afslørede at griddets
+navn/fødsel/død-visning delte anker-gate med redigerbarheden, så alle 1757 eksisterende
+personer viste tomme felter. Rettet ved at falde tilbage til den allerede afklarede
+evidens, uafhængigt af redigerbarhed — 0/1757 personer har nu tomt navn (var 1757 før).
+
 ## 2018-20: 18 narrativer med slaegtled-/kuld-bleed rettet — LIVE i prod (2026-07-27)
 
 2018-20-auditen fandt 14 poster med en trailing sektionsoverskrift

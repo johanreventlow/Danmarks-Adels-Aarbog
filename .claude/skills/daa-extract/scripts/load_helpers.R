@@ -34,7 +34,194 @@ has_editorial_changes <- function(cs) {
   any(grepl("^red_", cs$operation))
 }
 
+# Kun OCR-rettelserne kan genopbygges sikkert fra import_korrektion efter reset.
+# Alle øvrige redaktionelle change_set-operationer skal fortsat stoppe reset fail-closed.
+has_reset_blocking_editorial_changes <- function(cs) {
+  if (is.null(cs) || !nrow(cs)) return(FALSE)
+  operation <- as.character(cs$operation)
+  any(is.na(operation) | (grepl("^red_", operation) & operation != "red_ret_ocr_felt"))
+}
+
+# Korrektionsimporter skal have en stabil, eksplicit nøgle. Ældre importer er kun
+# tilladt med et bevidst legacy-flag og får derfor NULL import_key/record_key i DB.
+parse_load_daa_args <- function(argv) {
+  if (!length(argv) || startsWith(argv[1], "--"))
+    stop("brug: load_daa.R clean.json [udgave] --import-key=<nøgle> [--reset] [--force-reset] [--dry-run] [--staged] | --legacy-import")
+
+  import_flags <- grep("^--import-key=", argv, value = TRUE)
+  if (length(import_flags) > 1L) stop("--import-key må kun angives én gang")
+  legacy_import <- "--legacy-import" %in% argv
+  if (legacy_import && length(import_flags))
+    stop("--legacy-import og --import-key kan ikke kombineres")
+  if (!legacy_import && !length(import_flags))
+    stop("--import-key kræves; brug kun --legacy-import for en ikke-redigerbar legacy-import")
+
+  import_key <- if (length(import_flags)) sub("^--import-key=", "", import_flags) else NULL
+  if (!is.null(import_key) && !nzchar(trimws(import_key))) stop("import-key må ikke være tom")
+  positional <- argv[-1][!startsWith(argv[-1], "--")]
+  list(
+    path = argv[1],
+    udgave = if (length(positional)) positional[1] else "DAA 2018-20",
+    import_key = import_key,
+    legacy_import = legacy_import,
+    reset = "--reset" %in% argv,
+    force_reset = "--force-reset" %in% argv,
+    dry_run = "--dry-run" %in% argv,
+    staged = "--staged" %in% argv
+  )
+}
+
+# Den fulde resetliste er centraliseret her, så kontrakten kan testes uden DB-forbindelse.
+loader_model_tables <- function() c(
+  "note", "citation", "conclusion", "assertion", "relation", "fact",
+  "family_member", "family", "person_external_id", "narrative", "person",
+  "coat_of_arms", "historical_event", "media", "estate", "organisation", "place", "source"
+)
+
+external_id_buffer_row <- function(pid, sid, linje, nr, record_key) {
+  list(person_id = pid, source_id = sid, linje = linje, nr = nr, record_key = record_key)
+}
+
 `%||%` <- function(a, b) if (is.null(a) || length(a) == 0) b else a
+
+# Reload-stabil postnøgle: bogens linje + dens label (15a må aldrig blive til 15).
+# Uden begge bog-identiteter er opslaget ikke sikkert; database-id og navn er bevidst
+# ikke kandidater til fallback.
+record_key_of <- function(rec) {
+  linje <- rec$linje
+  nr <- rec$nr_label %||% rec$nr
+  if (is.null(linje) || length(linje) == 0L || is.na(linje) ||
+      is.null(nr) || length(nr) == 0L || is.na(nr)) return(NA_character_)
+  paste0(as.character(linje), "-", as.character(nr))
+}
+
+# Journalen gemmer importerede værdier i en lille, fast JSON-kontrakt, så både R og
+# SQL kan fingerprint'e samme bytes. Listeorden er JSON-nøgleorden.
+canonical_import_value <- function(felt, value) {
+  if (felt %in% c("foedsel", "doed")) {
+    date_value <- if (is.list(value)) value else list(raw = value)
+    canonical <- list(
+      raw = date_value$raw %||% date_value$date_raw %||% NA_character_,
+      min = date_value$min %||% date_value$date_min %||% NA_character_,
+      max = date_value$max %||% date_value$date_max %||% NA_character_,
+      qualifier = date_value$qualifier %||% date_value$date_qualifier %||% NA_character_,
+      calendar = date_value$calendar %||% "gregoriansk",
+      certainty = date_value$certainty %||% date_value$date_certainty %||% NA_character_
+    )
+  } else {
+    canonical <- list(value = value)
+  }
+  jsonlite::toJSON(canonical, auto_unbox = TRUE, null = "null", na = "null")
+}
+
+.canonical_import_json <- function(felt, importeret) {
+  if (is.character(importeret) && length(importeret) == 1L) {
+    parsed <- tryCatch(jsonlite::fromJSON(importeret, simplifyVector = FALSE),
+                       error = function(e) NULL)
+    if (is.list(parsed)) {
+      value <- if (felt %in% c("foedsel", "doed")) parsed else
+        if ("value" %in% names(parsed)) parsed$value else parsed
+      return(canonical_import_value(felt, value))
+    }
+  }
+  canonical_import_value(felt, importeret)
+}
+
+ocr_input_fingerprint <- function(import_key, record_key, felt, importeret, ocr_context) {
+  text_part <- function(value) {
+    if (is.null(value) || !length(value) || is.na(value[1])) "" else as.character(value[1])
+  }
+  values <- c(text_part(import_key), text_part(record_key), text_part(felt),
+              .canonical_import_json(felt, importeret), text_part(ocr_context))
+  payload <- paste(enc2utf8(as.character(values)), collapse = rawToChar(as.raw(0x1f)))
+  digest::digest(payload, algo = "md5", serialize = FALSE)
+}
+
+.correction_rows <- function(corrections) {
+  if (is.null(corrections) || !length(corrections)) return(list())
+  if (is.data.frame(corrections)) {
+    return(lapply(seq_len(nrow(corrections)), function(i) as.list(corrections[i, , drop = FALSE])))
+  }
+  corrections
+}
+
+.same_correction_key <- function(a, b) {
+  length(a) == 1L && length(b) == 1L && !is.na(a) && !is.na(b) &&
+    identical(as.character(a), as.character(b))
+}
+
+.correction_index_key <- function(record_key, felt) paste(record_key, felt, sep = rawToChar(as.raw(0x1f)))
+
+# Preload er én DB-forespørgsel i loaderen; dette indeks gør alle efterfølgende opslag O(1).
+index_import_corrections <- function(corrections) {
+  index <- new.env(parent = emptyenv())
+  for (row in .correction_rows(corrections)) {
+    if (!is.null(row$record_key) && !is.null(row$felt))
+      assign(.correction_index_key(row$record_key, row$felt), row, envir = index)
+  }
+  index
+}
+
+.find_import_correction <- function(import_key, record_key, felt, corrections) {
+  if (is.environment(corrections))
+    return(get0(.correction_index_key(record_key, felt), envir = corrections, inherits = FALSE))
+  matches <- Filter(function(row) {
+    .same_correction_key(row$import_key, import_key) &&
+      .same_correction_key(row$record_key, record_key) &&
+      .same_correction_key(row$felt, felt)
+  }, .correction_rows(corrections))
+  if (length(matches)) matches[[1]] else NULL
+}
+
+apply_import_correction <- function(import_key, record_key, felt, importeret,
+                                    ocr_context, corrections) {
+  fingerprint <- ocr_input_fingerprint(import_key, record_key, felt, importeret, ocr_context)
+  result <- list(value = importeret, status = "ingen", fingerprint = fingerprint,
+                 correction_id = NA)
+  correction <- .find_import_correction(import_key, record_key, felt, corrections)
+  if (is.null(correction)) return(result)
+  result$correction_id <- correction$id %||% NA
+  if (!.same_correction_key(correction$input_fingerprint, fingerprint)) {
+    result$status <- "stale"
+    return(result)
+  }
+  if (identical(correction$status, "rettet") && !is.null(correction$korrigeret)) {
+    result$value <- correction$korrigeret
+    result$status <- "anvendt"
+  }
+  result
+}
+
+# Normalisér en enkelt værdi fra en afkodet korrektion til en buffer-egnet skalar.
+# jsonlite::fromJSON() bruger default null = "list", så JSON-null bliver list() og ikke
+# NULL. En sådan nul-længde-værdi overlever g()'s NULL-guard, og unlist() i rows_to_df
+# dropper den bagefter, så kolonnen bliver kortere end tabellen.
+correction_scalar <- function(x) {
+  if (is.null(x) || length(x) == 0L) return(NA)
+  if (length(x) > 1L)
+    stop("Korrektionsværdi skal være en skalar, fik ", length(x), " elementer.")
+  if (is.list(x)) return(correction_scalar(x[[1L]]))
+  x
+}
+
+# Fail-closed: en buffer-kolonne der ikke har præcis én værdi pr. række ville ellers
+# først fejle i as.data.frame() med en besked uden tabel- eller kolonnenavn.
+assert_buffer_columns <- function(data, nrows, tbl = NA_character_) {
+  lens <- vapply(data, length, integer(1))
+  bad <- names(lens)[lens != nrows]
+  if (length(bad))
+    stop("Buffer-tabel '", tbl, "': kolonne(r) ", paste(bad, collapse = ", "),
+         " har længde ", paste(lens[bad], collapse = ", "),
+         " men tabellen har ", nrows, " rækker.")
+  invisible(TRUE)
+}
+
+stale_correction_ids <- function(results) {
+  ids <- vapply(results, function(result) {
+    if (identical(result$status, "stale")) result$correction_id %||% NA else NA
+  }, numeric(1))
+  unique(ids[!is.na(ids)])
+}
 
 # Er en DB-fejlbesked et "relation findes ikke"-signal (Postgres 42P01)? Så er
 # change_set-tabellen fraværende (umigreret base) -> sikkert at antage 0 redaktionelle
