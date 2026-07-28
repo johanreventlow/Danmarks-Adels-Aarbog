@@ -31,6 +31,44 @@ ville have koblet redaktørfladens skrivesti fra læsestien. Flytningen er ude a
 (source_id, kode)` afviser den anden — bekræftet empirisk. Det er B1 i flerslægts-vurderingen og
 kræver en beslutning om nøglerummet før næste slægt loades.
 
+## Kilde vist for de 627 personer uden bog-nummer (2026-07-28)
+
+Brugerfund: mange personer stod uden kildeangivelse i følgesvenden (`Ada Jessie Howard Grøn`).
+Årsagen var visning, ikke data. `sourcesBy` bygges alene af `person_external_id`, som kun findes
+for personer bogen gav et eget opslag; de 627 ægtefæller har intet bog-nummer, så opslaget var tomt
+og `DetailPanel` skjulte hele "Kilde i Aarbogen"-blokken. 335 af dem er offentligt synlige.
+
+Proveniensen fandtes hele tiden — invariant 1 kræver at hvert faktum er kildebundet, så alle 1756
+personer har `fact → assertion → citation → source`. Målt mod prod har alle 627 **præcis én** kilde
+(0 flertydige) og 296 endda sidetal. Rollefordelingen blev derfor: bog-nummeret (`Linje II, nr. 4`)
+er den mest præcise reference og vinder hvor den findes, mens citationen er reglen der dækker alle.
+Ada konkret: id 841 → `DAA 2018-20`, id 1690 → `DAA 1939, s. 578` — matchet til hinanden, men da
+ingen af siderne har bog-nummer kunne `collapseSameAs` heller ikke redde det.
+
+Reglen ligger i `@daa/core` (`kildeProveniens.ts`), så web og mobil deler formatering. Wiringen er
+bevidst forskellig: web henter først når personen mangler bog-nummer (de ~1129 hovedposter betaler
+ikke for opslag de ikke bruger), mobil bulk-henter kun `navn`-faktaet — det ene faktum hver person
+beviseligt har. `citationRowsTilProveniens` findes fordi PostgREST returnerer et *objekt* for en
+til-én-relation mens de genererede typer siger *array*; web slap afsted med en cast, mobil gjorde
+ikke. Anon-adgang til `citation`/`assertion`/`fact` + det nestede source-join blev verificeret
+empirisk mod REST-API'et, ikke udledt af at en service-key-forespørgsel lykkedes.
+
+Ingen DB-ændringer. Merget som PR #105, CI grøn på alle 6 jobs (mobil-jobbet kørte de 2 suiter der
+fejler lokalt pga. manglende `@testing-library/react-native` i `node_modules` — install-drift, ikke
+kode). **Udestår:** visuel verifikation af blokken i den deployede web.
+
+**Målt undervejs, ikke rettet:**
+
+- **Køn mangler på 625 personer** — samme population (329 + 296 ægtefæller; hovedposter mangler 0).
+  Testet kontrafaktisk om det bremser tværudgave-matchningen: 625 af 629 kan udledes af partnerens
+  køn, men effekten er negativ (`auto` 267 → 258, `review` 3639 → 4003). `evidensNormaliseret`
+  normaliserer allerede over de signaler der kan vurderes, så et manglende køn koster intet dér.
+  Det er en visnings-/korrekthedssag, ikke en matchning-blokering, og kræver skrivning via
+  `red_set_koen`.
+- **Ægtefælle-dubletter behøver ikke egen liste.** `udledKilderForAegtefaeller` (#90) virker 100 %
+  (627/627 får udgave), og med fladens egen config (`evidensNormaliseret: true`) har 394 af de 431
+  umatchede ægtefæller mindst én kandidat. Arbejdet kan gøres i `SammenlignUdgaver` som det er.
+
 ## Kvalitetsark: navn_mangler-flaget var falsk på 1169 af 1757 rækker (2026-07-28)
 
 Brugeren spurgte hvorfor `navn_mangler` stod ved alle. Måling: **1169 flag, nul
