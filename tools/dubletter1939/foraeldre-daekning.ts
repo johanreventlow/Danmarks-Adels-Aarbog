@@ -7,9 +7,9 @@
 //                   tal docs/reviews/kryds-udgave-udfyldning-... kalder 253/539.
 // Begge lag bruger SAMME prædikat; forskellen er alene om id'er kanoniseres.
 import { readFileSync, writeFileSync } from 'node:fs';
-import { buildFamilyGraph } from '../packages/core/src/buildFamilyGraph';
-import { collapseSameAs } from '../packages/core/src/collapseSameAs';
-import type { AppPerson, Db, SameAsEdge } from '../packages/core/src/types';
+import { buildFamilyGraph } from '../../packages/core/src/buildFamilyGraph';
+import { collapseSameAs } from '../../packages/core/src/collapseSameAs';
+import type { AppPerson, Db, SameAsEdge } from '../../packages/core/src/types';
 
 const raw = JSON.parse(readFileSync('tmp/collapse-input.json', 'utf8'));
 

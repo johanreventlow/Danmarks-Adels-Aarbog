@@ -1,5 +1,35 @@
 # Changelog
 
+## 1939-dubletter: 23 af 35 kandidater slettet (2026-07-28)
+
+Oprydning efter dubletdiagnosen. Brugeren gennemgik kandidatlisten mod bogens sider og slettede
+23 poster via redaktørfladens `red_slet_person` — 6 først, derefter 17.
+
+**Resultat:** 1756 → 1733 personer, 1939-hovedposter 538 → 515, 2018-20 urørt på 591. Læser-lagets
+huller i forældrelink faldt fra 62 til 44 (11,5 % → 8,5 % af 1939-posterne). Integritet efter
+sletningerne: **0 forældreløse rækker** i `person_external_id`, `family_member`, `relation` (begge
+retninger), `narrative` og `fact` — den FK-ordnede kaskade i RPC'en holdt.
+
+**Korrektion til diagnosen.** Rapporten konkluderede at dubletterne *producerede* de konflikter der
+satte `samme_som`-grupper i karantæne, og at sletningen ville frigøre dem. Det holdt ikke: antallet
+af karantænerede grupper står uændret på **238**. De 12 blokerede poster forsvandt fordi de selv
+blev slettet, ikke fordi blokeringen blev ophævet. Sammenfaldet (12 af 12 stod på slettelisten) var
+ægte; årsagsretningen var en tilføjelse. Karantænerne skyldes uenighed om forældre mellem *rigtige*
+personer og kræver fortsat manuelt matcharbejde.
+
+**Sidetal tilføjet til kandidatlisten undervejs** — alle 538 1939-hovedposter har et sidetal i
+citationen, så hvert par kan slås op uden at lede. De 35 par fordeler sig på 32 sider (s. 504-581).
+
+**10 par udestår bevidst:** `nr` 68 (eneste bro til 2018-20 — matchet skal flyttes først), `nr` 54
+og `nr` 102 (familiekanter skal flyttes; 102 er desuden matchet til en anden 2018-20-person end sin
+makker og er ikke en bekræftet dublet), `nr` 44/94 (begge er prosaomtaler, klasse AA) og fem par med
+kun én detektor.
+
+**Sidebemærkning:** sletningerne kunne ikke udføres fra en service-forbindelse — `current_rolle()`
+giver `medlem` uden en indlogget bruger, og både `red_slet_person` og dens preview kræver
+`redaktion`. Rå `DELETE` blev fravalgt: den ville omgå `change_set` (ingen fortrydelse) og den
+FK-ordnede kaskade. RLS-hærdningen virkede efter hensigten.
+
 ## Slægts-rod i lineage — LIVE i prod, begge trin (2026-07-28)
 
 Forberedelse til at andre slægter end Reventlow kan bo i samme base. Alle fem linjer havde
