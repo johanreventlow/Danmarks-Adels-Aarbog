@@ -155,6 +155,23 @@ prod-deploy.
   ægte prod: 588/591 personer nu `kan_rettes.navn=true`, 0 `record_key_mangler`,
   `get_advisors(security)` uændret på 133 lints (ren DML). **1939-udgaven
   (staged, `source.id=3`) har stadig ingen stabil identitet.**
+- **`red_person_grid` rettet i prod 2026-07-28** (ren `CREATE OR REPLACE FUNCTION`,
+  ingen data rørt, `get_advisors` uændret på 133 lints): `navn_mangler` målte på
+  anker-gatede felter og flagede derfor hver ikke-redigerbar række — 1169 af 1757,
+  alle med synligt navn, nul ægte. Måler nu den viste værdi. Samtidig gav
+  `same_as_context` to rækker for en person midt i en `samme_som`-kæde (både alias
+  og kanonisk); griddet lover én række pr. fysisk person, nu håndhævet med
+  `DISTINCT ON` og alias-forrang. Prod efter: 1756 rækker / 1756 personer, 0
+  `navn_mangler`.
+- **Kendt, ikke lukket:** `enforce_samme_som_invariants()` er kun `BEFORE INSERT`
+  og G4 tjekker kun `NEW.subjekt`. Indsættes den inderste kant i en kæde først,
+  slipper den ydre igennem — sådan opstod person 826's tilstand. Griddet tåler det
+  nu, men invarianten kan fortsat omgås via indsættelsesrækkefølge.
+- **627 gift-ind-ægtefæller** (ægtefælle/forælder i en familie, ingen egen bogpost)
+  har intet `person_external_id` og er derfor ikke-redigerbare i kvalitetsarket.
+  Egen plan udestår; nøgle ville være forælderens `record_key` + indeks i
+  `aegteskaber`, og `linje` SKAL være NULL — ellers joiner
+  `regen_person_visning()` dem ind i slægtslinjen og påhæfter slægtsnavnet.
 - Drift, gated procedure og udestående trin: `docs/runbooks/person-ocr-kvalitetsark.md`.
 
 ### Levende feed fase 2-3 + K2 selektiv publicering (deployet 2026-07-20)
