@@ -292,11 +292,23 @@ BEGIN
     FROM person p LEFT JOIN title_counts tc ON tc.grid_person_id=p.id LEFT JOIN family_counts fc ON fc.grid_person_id=p.id
       LEFT JOIN relation_counts rc ON rc.grid_person_id=p.id LEFT JOIN citation_counts cc ON cc.grid_person_id=p.id
   ), same_as_context AS (
-    SELECT r.subjekt_id AS grid_person_id,r.objekt_id AS kanonisk_grid_person_id,'alias'::text AS samme_som_status
-    FROM relation r WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'
-    UNION ALL
-    SELECT r.objekt_id,r.objekt_id,'kanonisk'::text
-    FROM relation r WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'
+    -- Højst ÉN række pr. person. En person midt i en samme_som-kæde er både alias og
+    -- kanonisk; de to rækker adskiller sig på samme_som_status og overlevede derfor
+    -- GROUP BY'et i den afsluttende SELECT, så samme fysiske person kom ud af griddet
+    -- to gange. (Kæder er ikke hypotetiske: enforce_samme_som_invariants() er BEFORE
+    -- INSERT og G4 tjekker kun NEW.subjekt, så indsættes den inderste kant først,
+    -- slipper den ydre igennem — én person i prod står sådan.) Alias vinder over
+    -- kanonisk: det er det stærkere udsagn om personens identitet, og redaktøren skal
+    -- kunne se hvem rækken peger på. Laveste kanoniske id bryder resten deterministisk.
+    SELECT DISTINCT ON (grid_person_id) grid_person_id,kanonisk_grid_person_id,samme_som_status
+    FROM (
+      SELECT r.subjekt_id AS grid_person_id,r.objekt_id AS kanonisk_grid_person_id,'alias'::text AS samme_som_status,1 AS prio
+      FROM relation r WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'
+      UNION ALL
+      SELECT r.objekt_id,r.objekt_id,'kanonisk'::text,2
+      FROM relation r WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'
+    ) s
+    ORDER BY grid_person_id,prio,kanonisk_grid_person_id
   ), all_fields AS (
     SELECT p.id AS grid_person_id,v.felt FROM person p CROSS JOIN (VALUES ('navn'::text),('foedsel'),('doed'),('koen')) v(felt)
   ), field_data AS (
@@ -348,8 +360,13 @@ BEGIN
       WHERE b.felt='foedsel' AND b.date_min IS NOT NULL AND d.date_max IS NOT NULL AND b.date_min>d.date_max
     UNION ALL SELECT fs.grid_person_id,'struktureret_afviger_fra_ocr','advarsel' FROM field_state fs
       WHERE fs.felt='navn' AND fs.felt_vaerdi IS NOT NULL AND fs.ocr_context IS NOT NULL AND btrim(fs.felt_vaerdi)<>btrim(fs.ocr_context)
+    -- navn_mangler måler PRÆCIS den værdi griddet viser — ikke om rækken kan rettes.
+    -- candidate_count/felt_vaerdi er anker-gatede; visningen falder tilbage til
+    -- resolved_vaerdi_tekst. Målte koden på de gatede felter, flagede den hver eneste
+    -- ikke-redigerbar række, uanset at navnet stod der. Redigerbarhed hører til
+    -- kan_rettes/blokarsager; at blande de to gav 1169 falske flag ud af 1757.
     UNION ALL SELECT fs.grid_person_id,'navn_mangler','fejl' FROM field_state fs
-      WHERE fs.felt='navn' AND (coalesce(fs.candidate_count,0)=0 OR nullif(btrim(fs.felt_vaerdi),'') IS NULL)
+      WHERE fs.felt='navn' AND nullif(btrim(coalesce(fs.felt_vaerdi,fs.resolved_vaerdi_tekst)),'') IS NULL
     UNION ALL SELECT fs.grid_person_id,'record_key_mangler','fejl' FROM field_state fs
       WHERE fs.anchor_count=1 AND fs.stable_anchor_count=0 AND fs.record_key IS NULL
     UNION ALL SELECT grid_person_id,'ocr_kontekst_mangler','advarsel' FROM missing_context

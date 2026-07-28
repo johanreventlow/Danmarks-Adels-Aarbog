@@ -647,6 +647,26 @@ BEGIN
     (-987656701,'person',-987656111,'person',-987656112,'bekendt_med'),
     (-987656702,'person',-987656115,'person',-987656116,'samme_som');
 
+  -- samme_som-KÆDE: -987656119 er BÅDE alias (af -987656120) OG kanonisk (for
+  -- -987656118). same_as_context producerede før én række pr. rolle, og da de to
+  -- rækker adskiller sig på samme_som_status overlevede begge GROUP BY'et — samme
+  -- fysiske person kom altså ud af griddet TO gange. Griddet lover én række pr.
+  -- fysisk person; kæden låser det løfte fast.
+  --
+  -- RÆKKEFØLGEN ER IKKE VILKÅRLIG. enforce_samme_som_invariants() er BEFORE INSERT,
+  -- og G4 tjekker kun om den NYE rækkes SUBJEKT allerede er kanonisk — ikke om dens
+  -- OBJEKT allerede er alias. Indsættes den inderste kant (119→120) først, slipper
+  -- den ydre (118→119) derfor igennem, og kæden opstår. Det er ikke et hul jeg
+  -- opfinder til testen: præcis én person i prod står i den tilstand. Den omvendte
+  -- rækkefølge ville blive afvist af G4 — griddet skal alligevel kunne tåle
+  -- tilstanden, uanset om invarianten senere strammes.
+  INSERT INTO person(id,koen) VALUES
+    (-987656118,'mand'), (-987656119,'mand'), (-987656120,'mand');
+  INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES
+    (-987656704,'person',-987656119,'person',-987656120,'samme_som');
+  INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES
+    (-987656703,'person',-987656118,'person',-987656119,'samme_som');
+
   -- Fingerprint-parity with Task 2's independently fixed UTF-8 vector.
   IF ocr_input_fingerprint('daa:1939','I-15a','foedsel',
        '{"raw":"* 1644","min":"1644-01-01","max":"1644-12-31","qualifier":null,"calendar":"gregoriansk","certainty":null}'::jsonb,
@@ -738,13 +758,58 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656112 AND qa_koder @> ARRAY['flere_importerede_facts']::text[])
      OR NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656113 AND qa_koder @> ARRAY['dato_ufortolkelig','record_key_mangler']::text[])
-     OR NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656114 AND qa_koder @> ARRAY['ocr_kontekst_mangler']::text[])
-     OR NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656114 AND qa_koder @> ARRAY['navn_mangler']::text[]) THEN
-    RAISE EXCEPTION 'FEJL: deterministiske grid-QA-koder mangler ambig=% legacy=% staged_context=% staged_navn=%',
+     OR NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656114 AND qa_koder @> ARRAY['ocr_kontekst_mangler']::text[]) THEN
+    RAISE EXCEPTION 'FEJL: deterministiske grid-QA-koder mangler ambig=% legacy=% staged_context=%',
       EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656112 AND qa_koder @> ARRAY['flere_importerede_facts']::text[]),
       EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656113 AND qa_koder @> ARRAY['dato_ufortolkelig','record_key_mangler']::text[]),
-      EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656114 AND qa_koder @> ARRAY['ocr_kontekst_mangler']::text[]),
-      EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656114 AND qa_koder @> ARRAY['navn_mangler']::text[]);
+      EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656114 AND qa_koder @> ARRAY['ocr_kontekst_mangler']::text[]);
+  END IF;
+
+  -- ---- navn_mangler betyder "der vises intet navn" — IKKE "navnet kan ikke rettes" ----
+  -- Redigerbarhed udtrykkes af kan_rettes/blokarsager. Da QA-koden tidligere målte på
+  -- de anker-gatede felter (candidate_count/felt_vaerdi), mens VISNINGEN falder tilbage
+  -- til afklaret evidens, flagede den hver eneste ikke-redigerbare række — 1169 af 1757
+  -- i prod, alle med et synligt navn, nul ægte. Samme fejlklasse som den tomme
+  -- navnekolonne: gaten hørte til redigerbarheden, ikke til værdien.
+
+  -- (a) Anker-løs, men navn opløst via fallback => navnet mangler IKKE.
+  IF EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656117
+             AND qa_koder @> ARRAY['navn_mangler']::text[]) THEN
+    RAISE EXCEPTION 'FEJL: navn_mangler sat på række der viser et navn (anker-løs fallback)';
+  END IF;
+
+  -- (b) Navn kendt (afklaret konklusion) men uden citation => vises, altså ikke
+  -- navn_mangler; manglen er kildedækning, og den udtrykkes af ocr_kontekst_mangler
+  -- + blokårsagen ingen_kildebelagt_assertion.
+  IF EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656114
+             AND qa_koder @> ARRAY['navn_mangler']::text[]) THEN
+    RAISE EXCEPTION 'FEJL: navn_mangler forveksler manglende kildedækning med manglende navn';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656114
+                 AND navn='Uden kontekst'
+                 AND kan_rettes->>'navn'='false'
+                 AND blokarsager->>'navn'='ingen_kildebelagt_assertion') THEN
+    RAISE EXCEPTION 'FEJL: ukildebelagt navn vises ikke, eller er ikke blokeret for rettelse';
+  END IF;
+
+  -- (c) Ægte tomt navn SKAL stadig flages. -987656115's eneste navn-konklusion er
+  -- 'forældet', så selected_assertions giver intet — der er reelt intet navn at vise.
+  -- Denne retning er værnet mod at fixet bare slukker for koden.
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656115
+                 AND navn IS NULL AND qa_koder @> ARRAY['navn_mangler']::text[]) THEN
+    RAISE EXCEPTION 'FEJL: ægte manglende navn flages ikke længere';
+  END IF;
+
+  -- ---- én række pr. fysisk person, også midt i en samme_som-kæde ----
+  IF (SELECT count(*) FROM red_person_grid() WHERE person_id=-987656119) <> 1 THEN
+    RAISE EXCEPTION 'FEJL: person midt i samme_som-kæde duplikeres i griddet (% rækker)',
+      (SELECT count(*) FROM red_person_grid() WHERE person_id=-987656119);
+  END IF;
+  -- Alias-rollen vinder over kanonisk: at være alias er det stærkere udsagn om
+  -- personens identitetsstatus, og redaktøren skal kunne se hvem hun peger på.
+  IF NOT EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656119
+                 AND samme_som_status='alias' AND kanonisk_person_id=-987656120) THEN
+    RAISE EXCEPTION 'FEJL: kæde-person viser ikke alias-rollen mod sin kanoniske';
   END IF;
   IF EXISTS (SELECT 1 FROM red_person_grid() WHERE person_id=-987656115
              AND (qa_koder @> ARRAY['dato_ufortolkelig']::text[])) THEN

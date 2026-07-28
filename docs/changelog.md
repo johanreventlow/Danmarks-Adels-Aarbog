@@ -69,6 +69,40 @@ kode). **Udestår:** visuel verifikation af blokken i den deployede web.
   (627/627 får udgave), og med fladens egen config (`evidensNormaliseret: true`) har 394 af de 431
   umatchede ægtefæller mindst én kandidat. Arbejdet kan gøres i `SammenlignUdgaver` som det er.
 
+## Kvalitetsark: navn_mangler-flaget var falsk på 1169 af 1757 rækker (2026-07-28)
+
+Brugeren spurgte hvorfor `navn_mangler` stod ved alle. Måling: **1169 flag, nul
+ægte** — hver eneste flaget række viste et navn korrekt. QA-koden målte på
+`candidate_count`/`felt_vaerdi`, som begge er anker-gatede, mens selve
+navnevisningen (siden `4d041bf`) falder tilbage til den afklarede evidens
+uafhængigt af anker. Koden flagede altså reelt "kan ikke rettes", ikke "har intet
+navn" — samme sammenblanding som den tomme navnekolonne, bare flyttet fra
+visningen til QA-laget. Redigerbarhed udtrykkes allerede af
+`kan_rettes`/`blokarsager`. Rettet til at måle præcis den værdi griddet viser.
+
+Fundet undervejs: griddet returnerede **to rækker for samme fysiske person** når
+personen står midt i en `samme_som`-kæde (både alias og kanonisk) — rækkerne
+adskiller sig på `samme_som_status` og overlevede derfor `GROUP BY`'et. Præcis én
+person i prod (826) stod sådan. Nu `DISTINCT ON` med alias-forrang. Kæden kan
+opstå fordi `enforce_samme_som_invariants()` kun er `BEFORE INSERT` og G4 kun
+tjekker `NEW.subjekt`: indsættes den inderste kant først, slipper den ydre
+igennem. **Trigger-hullet er ikke lukket** — griddet er gjort robust over for
+tilstanden, men invarianten kan stadig omgås via indsættelsesrækkefølge.
+
+Verificeret mod en lokal kopi af prods rigtige data før udrulning (1169 → 0,
+navn vises på alle, `kan_rettes` uændret på 588), derefter anvendt mod prod som
+ren `CREATE OR REPLACE FUNCTION` — ingen data rørt, ingen DDL, `get_advisors`
+uændret på 133 lints. Prod efter: 1756 rækker for 1756 personer (dubletten væk),
+0 `navn_mangler`. Rollback-artefakt med den forrige definition gemt før
+udrulning.
+
+Ikke løst her: de **627 gift-ind-ægtefæller** uden egen bogpost er fortsat
+ikke-redigerbare (`ingen_importanker`). Planen behandlede dem som et sjældent
+legacy-hjørne; de er 36% af korpus. Kræver egen plan — nøglen ville være
+forælderens `record_key` + indeks i `aegteskaber`, og `linje` SKAL være NULL,
+da `regen_person_visning()` ellers ville påhæfte slægtsnavnet til indgifte
+ægtefæller.
+
 ## Personers OCR-kvalitetsark — record_key-backfill for DAA 2018-20 + web-status rettet (2026-07-28)
 
 Genindlæsning med `--reset --import-key=` blev overvejet for at gøre eksisterende
