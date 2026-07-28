@@ -1,6 +1,6 @@
 // Port af buildAux() fra design-HTML (linje 808-868). Bygger hjælpe-indekser pr. person:
 // kilder (bogreference), embeder/godser (relation), linjer (grene I–V), medier.
-import { compareDanish, parseYear, stripParen } from '@daa/core';
+import { buildProvenanceSources, compareDanish, flettKilder, parseYear, stripParen, type CitationProvenanceRow } from '@daa/core';
 import { findMedieDubletKandidatIds, klassificerMedie, type MedieKoe } from './redaktionRead';
 import { dedupPreferPrimaer } from '../lib/media';
 import type {
@@ -27,6 +27,9 @@ type BuildAuxInput = {
   media: RawMedia[];
   lineage?: RawLineage[];
   arms?: RawArms[];
+  // Proveniens fra evidenslaget (citation→source). Bruges KUN for personer uden bog-nummer —
+  // se flettKilder. Mirror af web/src/data/public.ts's fetchProveniens.
+  citationKilder?: CitationProvenanceRow[];
 };
 
 export function buildAux(
@@ -41,6 +44,7 @@ export function buildAux(
     media,
     lineage,
     arms,
+    citationKilder,
   }: BuildAuxInput,
   // samme_som-collapse: alle person-id-bærende strukturer kanoniseres, så hjælpedata for en foldet
   // person samles under den kanoniske id (spec §8). Default {} for bagudkompat i eksisterende tests.
@@ -61,7 +65,7 @@ export function buildAux(
   });
 
   // Kilder pr. person: trykt værk + "Linje X, nr. N". Nøgle kanoniseres → union pr. foldet person.
-  const sourcesBy: Aux['sourcesBy'] = {};
+  const bogKilder: Aux['sourcesBy'] = {};
   (extIds || []).forEach((x) => {
     const src = srcById[String(x.source_id)] || ({} as RawSource);
     const work = src.titel || src.udgave || 'Kilde';
@@ -69,8 +73,14 @@ export function buildAux(
       .filter(Boolean)
       .join(', ');
     const pid = cid(String(x.person_id));
-    (sourcesBy[pid] = sourcesBy[pid] || []).push({ ref: place, work });
+    (bogKilder[pid] = bogKilder[pid] || []).push({ ref: place, work });
   });
+  // Ægtefæller har intet bog-nummer og fik derfor ingen kilde vist. Deres proveniens står i
+  // citationerne — bog-nummeret vinder hvor det findes.
+  const sourcesBy: Aux['sourcesBy'] = flettKilder(
+    bogKilder,
+    buildProvenanceSources(citationKilder ?? [], canonicalIdById),
+  );
 
   // Linjer (grene): hver person hører til en (eller flere) linje(r); hver linje har en stamfader
   // (laveste nr). En collapsed grundlægger tilhører både oprindelses- og grundlagt-linje.
