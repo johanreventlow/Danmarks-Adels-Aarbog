@@ -587,6 +587,16 @@ CREATE TABLE lineage (                   -- SLÆGTSLINJE / GREN (fx Reventlows f
 -- præsens-nummer (hvilken af dem der "vinder" ved opslag ville afhænge af rækkefølge).
 CREATE UNIQUE INDEX IF NOT EXISTS lineage_presens_kode_uidx ON lineage (presens_kode) WHERE presens_kode IS NOT NULL;
 
+-- SLÆGTS-ROD (2026-07-28): hver slægt har ÉN rod-række (source_id=NULL, kode=NULL,
+-- parent_lineage_id=NULL) der bærer slaegtsnavn; udgavens linjer hænger under den via
+-- parent_lineage_id og arver navnet gennem lineage_effective_slaegtsnavn(). Roden er en ren
+-- beholder: person_external_id joiner på (source_id, kode), som begge er NULL, så den får
+-- aldrig medlemmer, og app-lagets linje-liste filtrerer kode-løse rækker fra.
+-- UNIQUE (source_id, kode) håndhæver intet for roden (NULL'er er distinkte), så dubletter
+-- fanges her i stedet — ellers ville to ophav til samme slægt konkurrere om opslaget.
+CREATE UNIQUE INDEX IF NOT EXISTS lineage_slaegtsrod_uidx
+  ON lineage (slaegtsnavn) WHERE parent_lineage_id IS NULL AND slaegtsnavn IS NOT NULL;
+
 -- ---------- UDLEDT SLÆGTSNAVN: cyklus-sikre lineage-graf-walkers ----------
 -- Bruges BÅDE til skrive-tids cyklus-forebyggelse (BEFORE-trigger nedenfor) OG læse-tids
 -- efternavns-opslag/subtræ-regen (docs/superpowers/specs/2026-07-03-udledt-slaegtsnavn-design.md

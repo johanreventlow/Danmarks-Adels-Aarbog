@@ -66,3 +66,24 @@ test('pickPresensIntro: ingen gyldig tekst giver null', () => {
   expect(pickPresensIntro([{ id: 1, tekst: '  ', source: { slags: 'præsens-intro' } }])).toBeNull();
   expect(pickPresensIntro([])).toBeNull();
 });
+
+// --- Slægts-rod (B2): slaegtsnavn bor på roden og arves ned til grenene ---
+
+test('mapPresensLinjer: gren uden eget slaegtsnavn arver slægts-rodens', () => {
+  const lineageRows = [
+    { id: 6, kode: null as never, navn: 'Reventlow', slaegtsnavn: 'Reventlow', presens_kode: null, parent_lineage_id: null },
+    { id: 4, kode: 'IV', navn: 'Den lensgrevelige linje af 1767', slaegtsnavn: null, presens_kode: 'I', parent_lineage_id: 6 },
+  ];
+  const result = mapPresensLinjer(lineageRows, [], [], [], new Map());
+  expect(result['I'].slaegtsnavn).toBe('Reventlow');
+  expect(Object.keys(result)).toEqual(['I']);
+});
+
+test('mapPresensLinjer: gren med EGET slaegtsnavn vinder over rodens', () => {
+  const lineageRows = [
+    { id: 6, kode: null as never, navn: 'Reventlow', slaegtsnavn: 'Reventlow', presens_kode: null, parent_lineage_id: null },
+    { id: 7, kode: 'VI', navn: 'Den grevelige linje', slaegtsnavn: 'Haugwitz-Hardenberg-Reventlow', presens_kode: 'III', parent_lineage_id: 6 },
+  ];
+  expect(mapPresensLinjer(lineageRows, [], [], [], new Map())['III'].slaegtsnavn)
+    .toBe('Haugwitz-Hardenberg-Reventlow');
+});

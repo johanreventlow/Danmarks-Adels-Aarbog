@@ -1,5 +1,36 @@
 # Changelog
 
+## Slægts-rod i lineage — trin 1 LIVE i prod (2026-07-28)
+
+Forberedelse til at andre slægter end Reventlow kan bo i samme base. Alle fem linjer havde
+`parent_lineage_id = NULL`, så intet knudepunkt repræsenterede selve slægten: slægtsnavnet stod
+gentaget på fem rækker, og en ny slægts linjer ville lægge sig sideordnet uden noget der bandt dem
+sammen. Nu findes én rod pr. slægt (`source_id`/`kode` = NULL, så den aldrig får medlemmer og er
+usynlig i app'ens linje-liste), og linjerne hænger under den.
+
+**Delt i to trin efter deploy-rækkefølge.** Trin 1 (rod + repegning + dublet-guard) er kørt mod prod
+og er forward-kompatibel med *begge* web-versioner, fordi grenene indtil videre beholder deres eget
+`slaegtsnavn`. Trin 2 — rydning af grenenes `slaegtsnavn`, så navnet bor ét sted og arves af
+`lineage_effective_slaegtsnavn()` — venter på at PR #109 er merget og deployet, da den nuværende
+web læser feltet råt og ellers ville vise præsenslistens overskrift tom.
+
+**Verificeret mod prod efter apply:** korpus-diff på `visning_efternavn`/`visning_fuldt_navn` for
+alle 1756 personer viser 0 forskelle mod før-tilstanden, `slaegtsnavn_karantaene` står på 0, alle 5
+grene udleder fortsat `Reventlow`, roden har 0 medlemmer, og `get_advisors(security)` er uændret på
+133 lints uden nye lineage-relaterede. Frisk backup taget før kørslen
+(`daa-prod-pre-slaegtsrod-20260728-141840.dump`, uden for git).
+
+**Fejlrettet antagelse undervejs.** `narrative.subjekt_type='slaegt'` med `subjekt_id=1` ligner en
+fremmednøgle til `lineage` 1 og blev i første omgang beskrevet som "slægtsteksten parkeret på linje
+I". Det er forkert: id'et er en *sentinel* for hele slægten, båret som konstant i begge apper
+(`SLAEGT_SUBJEKT_ID`), og `fetchAbout` filtrerer slet ikke på det. En planlagt flytning til roden
+ville have koblet redaktørfladens skrivesti fra læsestien. Flytningen er ude af migrationen, og en
+`db-verify`-assert fastholder det. `docs/reviews/flerslaegt-parathed-2026-07-28.md` er rettet.
+
+**Ikke løst her:** to slægter i samme årbog har begge en "Linje I", og `lineage UNIQUE
+(source_id, kode)` afviser den anden — bekræftet empirisk. Det er B1 i flerslægts-vurderingen og
+kræver en beslutning om nøglerummet før næste slægt loades.
+
 ## Personers OCR-kvalitetsark — record_key-backfill for DAA 2018-20 + web-status rettet (2026-07-28)
 
 Genindlæsning med `--reset --import-key=` blev overvejet for at gøre eksisterende

@@ -3842,3 +3842,72 @@ BEGIN
  INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,korrigeret,status,actor_id,actor_navn) VALUES(p_import_key,p_record_key,p_felt,fp,imp,CASE WHEN p_status='rettet' THEN p_korrigeret ELSE NULL END,p_status,auth.uid(),actor) ON CONFLICT(import_key,record_key,felt) DO UPDATE SET input_fingerprint=import_korrektion.input_fingerprint,korrigeret=CASE WHEN excluded.status='rettet' THEN excluded.korrigeret ELSE import_korrektion.korrigeret END,status=excluded.status,actor_id=excluded.actor_id,actor_navn=excluded.actor_navn,opdateret_at=now(); SELECT to_jsonb(g) INTO out FROM red_person_grid() g WHERE g.person_id=p_person_id; RETURN out;
 END $$;
 CREATE OR REPLACE FUNCTION red_ocr_historik(p_import_key text,p_record_key text,p_felt text) RETURNS TABLE(change_set_id bigint,changed_at timestamptz,actor_navn text,operation text,foer jsonb,efter jsonb) LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$ DECLARE jid bigint; BEGIN IF current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'OCR_ROLE_FORBIDDEN'; END IF; SELECT id INTO jid FROM import_korrektion WHERE import_key=p_import_key AND record_key=p_record_key AND felt=p_felt; IF jid IS NULL THEN RETURN; END IF; RETURN QUERY SELECT cs.id,cs.created_at,cs.actor_navn,cs.operation,ce.foer,ce.efter FROM change_event ce JOIN change_set cs ON cs.id=ce.change_set_id WHERE ce.tabel='import_korrektion' AND ce.row_pk->>'id'=jid::text ORDER BY cs.created_at DESC,cs.id DESC,ce.seq DESC; END $$;
+
+-- =============================================================
+-- 2026-07-28: SLÆGTS-ROD I lineage (flerslægts-forberedelse, B2)
+--
+-- Problem: alle fem Reventlow-linjer har parent_lineage_id = NULL, så INTET
+-- knudepunkt repræsenterer *slægten*. Konsekvens i dag: slaegtsnavn står
+-- gentaget på fem rækker — fem steder at drifte fra hinanden — og en ny slægt
+-- ville lægge sine linjer sideordnet med Reventlows uden noget der binder dem
+-- sammen.
+--
+-- IKKE en del af dette: narrative.subjekt_type='slaegt' med subjekt_id=1 er en
+-- SENTINEL for "hele slægten", ikke en fremmednøgle til lineage 1 (se
+-- web/src/Redaktion.tsx og mobile/src/data/redaktionRead.ts:
+-- SLAEGT_SUBJEKT_ID). Den flyttes derfor ikke.
+--
+-- Rettelsen er additiv og bruger mekanik der allerede findes:
+-- lineage_effective_slaegtsnavn() går op ad parent_lineage_id til første
+-- ikke-NULL, så efternavnet kan bo ÉT sted og arves ned. Ingen personrækker
+-- røres; visning_efternavn skal være bit-identisk bagefter (verificeret ved
+-- korpus-diff mod alle 1756 personer, ikke kun ved asserts).
+--
+-- Roden får source_id=NULL og kode=NULL med vilje:
+--   * kode=NULL → person_external_id-joinet (l.source_id=pei.source_id AND
+--     l.kode=pei.linje) rammer den aldrig, så roden har ingen medlemmer og er
+--     rent en beholder. App-laget filtrerer også kode-løse rækker fra
+--     linje-listen (buildLineage: `if (l.kode && l.navn)`), så den er usynlig
+--     i UI'et.
+--   * source_id=NULL → slægten er ikke en bestemt udgaves opfindelse. Linjernes
+--     inddeling er udgavebestemt; slægten er det ikke.
+--
+-- Idempotent: kan køres igen uden at oprette en rod nummer to.
+-- =============================================================
+DO $$
+DECLARE v_root BIGINT; v_slaegt TEXT := 'Reventlow'; v_repeget INT;
+BEGIN
+  SELECT id INTO v_root FROM lineage
+   WHERE parent_lineage_id IS NULL AND source_id IS NULL AND kode IS NULL
+     AND slaegtsnavn = v_slaegt;
+
+  IF v_root IS NULL THEN
+    -- Ingen sekvens på lineage.id (jf. post_load_fixup.R der også sætter den
+    -- eksplicit) → beregn den, så en parallel indsættelse ikke kolliderer.
+    SELECT coalesce(max(id), 0) + 1 INTO v_root FROM lineage;
+    INSERT INTO lineage (id, source_id, kode, navn, slaegtsnavn, parent_lineage_id)
+    VALUES (v_root, NULL, NULL, v_slaegt, v_slaegt, NULL);
+    RAISE NOTICE 'lineage: slægts-rod oprettet for % (id %)', v_slaegt, v_root;
+  END IF;
+
+  -- Grene der i dag er rødder og bærer slægtsnavnet, hænges under roden.
+  UPDATE lineage SET parent_lineage_id = v_root
+   WHERE id <> v_root AND parent_lineage_id IS NULL AND slaegtsnavn = v_slaegt;
+  GET DIAGNOSTICS v_repeget = ROW_COUNT;
+
+  -- Slægtsnavnet bor herefter ét sted. Ryddes EFTER repegningen, så
+  -- lineage_effective_slaegtsnavn() aldrig ser en gren uden ophav.
+  UPDATE lineage SET slaegtsnavn = NULL
+   WHERE parent_lineage_id = v_root AND slaegtsnavn = v_slaegt;
+
+  RAISE NOTICE 'lineage: % gren(e) hængt under slægts-rod %', v_repeget, v_root;
+END $$;
+
+-- Én rod pr. slægtsnavn. Uden dette ville UNIQUE (source_id, kode) intet
+-- håndhæve for roden (begge er NULL, og NULL'er er distinkte), så en fejlagtig
+-- gentagelse ville give to ophav til samme slægt — og et tilfældigt af dem
+-- ville "vinde" ved opslag. Fanger det som DB-fejl i stedet. Samme form som
+-- lineage_presens_kode_uidx. Partiel: kun rødder, så grene med arvet NULL
+-- ikke indgår.
+CREATE UNIQUE INDEX IF NOT EXISTS lineage_slaegtsrod_uidx
+  ON lineage (slaegtsnavn) WHERE parent_lineage_id IS NULL AND slaegtsnavn IS NOT NULL;
