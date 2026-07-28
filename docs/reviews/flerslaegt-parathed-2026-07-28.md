@@ -111,15 +111,22 @@ Ahlefeldt-Laurvig i samme årbog ville derfor lande på `source_id = 1` — og b
 *intet* knudepunkt siger "dette er slægten Reventlow". Mekanikken til at nøgle grene under en rod
 findes og er cyklus-sikret — den er bare ikke taget i brug.
 
-Beviset for at det gør ondt allerede: de to slægts-narrativer
-(`narrative.subjekt_type='slaegt'`, "# von REVENTLOW …" og "Holstensk og mecklenburgsk
-uradelsslægt …") har `subjekt_id = 1`, hvilket er **`lineage`-rækken for linje I**. Teksten om
-*slægten* sidder altså parkeret på dens første *gren*, fordi der ikke er noget andet sted at gøre af
-den.
+**Rettelse (2026-07-28, efter implementering):** en tidligere version af dette afsnit påstod at de
+to slægts-narrativer (`narrative.subjekt_type='slaegt'`, `subjekt_id = 1`) lå parkeret på
+`lineage`-rækken for linje I. **Det er forkert.** `subjekt_id = 1` er en *sentinel* der betyder
+"hele slægten" — ikke en fremmednøgle til `lineage`. Begge apper har den som konstant
+(`SLAEGT_SUBJEKT_ID` i `redaktionRead`), og `fetchAbout` filtrerer slet ikke på id'et. Narrativerne
+skal derfor **ikke** flyttes, og B2-migrationen rører dem ikke. En `db-verify`-assert fastholder det.
 
-Migrationen er additiv: én rod-`lineage` pr. slægt med `slaegtsnavn` på roden, eksisterende grene
-repeget via `parent_lineage_id`, slægts-narrativer flyttet til roden. `lineage_effective_slaegtsnavn()`
-gør resten af sig selv.
+Den reelle omkostning ved den manglende rod er dermed snævrere, men stadig reel: `slaegtsnavn` står
+gentaget på fem rækker (fem steder at drifte fra hinanden), og en ny slægts linjer ville ligge
+sideordnet med Reventlows uden noget der binder dem sammen.
+
+Migrationen er additiv: én rod-`lineage` pr. slægt med `slaegtsnavn` på roden og eksisterende grene
+repeget via `parent_lineage_id`. `lineage_effective_slaegtsnavn()` gør resten af sig selv.
+
+**Status: bygget** (`feat/slaegtsrod`) og verificeret mod en lokal prod-kopi — 0 forskelle på
+`visning_*` for alle 1756 personer. Ikke anvendt mod prod.
 
 **B3 — pipelinen har slægtsnavnet indbygget tre steder:**
 
@@ -146,8 +153,8 @@ ikke bære slægten; roden gør.
 
 ## Rækkefølge
 
-1. **B2 (slægts-rod)** — additiv, ingen constraint-ændring, giver slægts-narrativerne et hjem og
-   gør `slaegtsnavn` til ét sted pr. slægt i stedet for fem.
+1. ~~**B2 (slægts-rod)**~~ — **bygget**, se `feat/slaegtsrod`. Additiv; gør `slaegtsnavn` til ét
+   sted pr. slægt i stedet for fem.
 2. **B1 (nøglerum)** — beslutning før næste slægt loades. Vej 1 eller vej 2; ikke en kodeopgave
    før valget er truffet.
 3. **B3 (parametrisering)** — når en anden slægt faktisk skal udtrækkes; det er dér kravene bliver
