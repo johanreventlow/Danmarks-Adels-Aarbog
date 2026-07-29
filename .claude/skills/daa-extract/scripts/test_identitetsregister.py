@@ -115,3 +115,15 @@ def test_json_er_deterministisk_sorteret():
     def lokatorer(reg):
         return [(r["side"], r["lokal_id"]) for r in json.loads(reg.to_json())["poster"]]
     assert lokatorer(a) == lokatorer(b) == [("504", "A.V.1"), ("505", "B.I.3")]
+
+
+def test_reconcile_afviser_dublet_lokator():
+    """Uden denne vagt ville to poster med samme lokator BEGGE få samme id
+    tildelt — tavst. Kontrollen fandtes kun i mint() (Codex-review 2026-07-29)."""
+    reg = mint(Register(), [post("504", "A.V.1")], udgave="1939")
+    try:
+        reconcile(reg, [post("504", "A.V.1"), post("504", "A.V.1")], udgave="1939")
+    except ValueError as e:
+        assert "lokator" in str(e).lower()
+    else:
+        raise AssertionError("dublet-lokator i udtrækket skulle være afvist")

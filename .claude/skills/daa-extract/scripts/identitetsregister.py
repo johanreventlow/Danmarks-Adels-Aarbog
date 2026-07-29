@@ -12,11 +12,12 @@ gang og skrives i registeret sammen med en fysisk lokator. Ved en senere
 ekstraktion genfindes posten via lokatoren — og er den ikke entydig, stopper vi
 frem for at gætte.
 
-LOKATOREN er (udgave, side, lokal_id):
-  * `side` er den trykte sides nummer (fra citationen)
-  * `lokal_id` er bogens egen strukturelle sti (linje/slægtled/gruppe), fx "A.V.1"
-Begge er læst AF bogen. Målt på DAA 1939: `lokal_id` alene giver 425 distinkte
-værdier for 515 poster — ikke nok. Sammen med `side` er alle 515 entydige.
+LOKATOREN er (udgave, side, lokal_id) — den nuværende adresse, med KENDTE
+svagheder (Codex-review 2026-07-29): `side` er i praksis PDF-sideordinal, ikke
+bogens trykte tal (59/515 poster afviger allerede mellem register og artefakt),
+og `lokal_id` er LLM-genereret i 42 forskellige formater. Entydighed i ét
+øjebliksbillede (515/515 med side) er IKKE stabilitet på tværs af udtræk —
+dét måler test_perturbation.py, og kravet dér er nul FORKERTE match.
 
 Lokatoren behøver ikke være perfekt stabil. Den skal være god nok til at
 FORESLÅ et match; tvetydighed er et lovligt udfald der kræver en menneskelig
@@ -146,8 +147,19 @@ def reconcile(reg: Register, poster: Iterable[dict], udgave: str) -> Reconciliat
     * hverken lokator eller `lokal_id` kendes → ny post
     * i registeret, ikke i udtrækket → bortfalden (meldes, tombstones IKKE)
     """
+    poster = list(poster)   # itereres to gange — en generator ville være tom i 2. løkke
     res = Reconciliation()
     set_i_udtraek: set[str] = set()
+
+    # Samme vagt som mint(): to poster med samme lokator kan ikke skelnes, og
+    # uden dette tjek ville BEGGE tavst få det samme book_post_id tildelt.
+    # (Codex-review 2026-07-29: kontrollen fandtes kun i mint.)
+    seet: set[str] = set()
+    for p in poster:
+        k = _lokator(p, udgave).key()
+        if k in seet:
+            raise ValueError(f"dublet-lokator i udtrækket: {k}")
+        seet.add(k)
 
     for p in poster:
         lok = _lokator(p, udgave)
