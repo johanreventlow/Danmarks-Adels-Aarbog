@@ -209,6 +209,27 @@ var præcis dét der gjorde ægteskabsnummeret ubrugeligt som nøgle.
    MULIG — men upsert-/replay-laget findes ikke og skal designes og bygges FØR load
    (jf. docs/superpowers/plans/2026-07-02-daa-reimport-fire-etaper.md om differentiel reload).
 
+### Trin 3½ — lokal_id fra segmenteringen (status 2026-07-30)
+
+**2018-20-sporet: løst.** `segment.py` komponerer nu `lokal_id = {linje}.{nr_label}`
+(fx `I.15a`) — begge komponenter er TRYKTE (gren-label + løbenummer), bogens egen
+unikke nøgle, og en overset post forskyder ingen naboers identitet. Mangler
+linje-konteksten sættes `None`, og R9-gaten blokerer posten.
+
+**1939-sporet: design udestår — og det naive skema er forkastet på måling.**
+1939 har ingen trykt gren-label; kandidaten `G{gruppeindeks}.{trykt nr}` blev målt
+mod artefaktet: (gruppe, orig_nr) er ganske vist unik (476/515 dækning, 0 dubletter),
+men gruppeindekset er BEREGNET, og grupperne er små — **127 nabogruppe-par deler
+både trykt nr og side**. Ét forskudt gruppeindeks (en overset/sammenlagt gruppe)
+ville altså give tavse forkerte match i stor stil — samme fejl som positions-
+lokatoren, bare på gruppeniveau. Kravet til 1939-skemaet er derfor en TRYKT
+gruppe-forankring (fx normaliseret gruppeoverskrift/stamfar-linje + trykt nr), og
+det designes som del af re-segmenteringen — med perturbationstesten som gate FØR
+skemaet vælges. De 39 unummererede poster (stamfædre m.fl.) skal have egen løsning.
+Om-nøglingen af registeret (record_key → nyt skema, afstem_lokator-mønstret
+generaliseret til begge lokator-komponenter) sker først når den nye segmentering
+findes og skemaet har bestået perturbationstesten.
+
 ## Åbne forbehold
 
 - `reconcile()` er unit-testet, men **aldrig kørt mod et rigtigt nyt udtræk**. Trin 4 er det første

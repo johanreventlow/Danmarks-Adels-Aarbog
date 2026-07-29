@@ -51,5 +51,35 @@ class TestKolonBindestregBleed(unittest.TestCase):
         self.assertEqual(by.get(84), "med Margaretha von Rumohr (se nr. 55)")
 
 
+class TestLokalId(unittest.TestCase):
+    """lokal_id = bogens egen strukturelle adresse (linje.nr_label) — TRYKT,
+    ikke beregnet. Halvdelen af identitetsregisterets lokator; en overset post
+    må aldrig forskyde naboernes identitet (jf. test_perturbation.py)."""
+
+    RAW = "\n".join([
+        "### PAGE 1 ###",
+        "I",
+        "DEN HOLSTENSKE LINJE",
+        "        1.       Gottschalk, nævnes 1237.",
+        "        15a.       Claus, til Aalebæk.",
+        "        15b.       Ditlev, broder til 15a.",
+    ])
+
+    def test_lokal_id_er_linje_punkt_nr_label(self):
+        posts = run_segment(self.RAW)
+        self.assertEqual([p["lokal_id"] for p in posts], ["I.1", "I.15a", "I.15b"])
+
+    def test_suffiks_poster_faar_hver_sin_identitet(self):
+        # 15a/15b er DISTINKTE personer — nr alene ville give kollision.
+        posts = run_segment(self.RAW)
+        self.assertEqual(len({p["lokal_id"] for p in posts}), len(posts))
+
+    def test_manglende_linje_giver_none_ikke_gaet(self):
+        # Post uden linje-kontekst: lokal_id sættes ikke — R9-gaten blokerer
+        # posten nedstrøms frem for at give den en gættet identitet.
+        posts = run_segment("### PAGE 1 ###\n        7.       Henning, uden gren-header.")
+        self.assertEqual(posts[0].get("lokal_id"), None)
+
+
 if __name__ == "__main__":
     unittest.main()
