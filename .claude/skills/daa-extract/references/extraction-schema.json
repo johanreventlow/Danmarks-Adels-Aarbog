@@ -10,9 +10,12 @@
     "nr": {"type": "integer", "description": "basenummer i linjen (15a/15b -> 15)"},
     "nr_label": {"type": "string", "description": "fuldt løbenummer som i bogen, fx '15a' eller '47' — kopier verbatim fra posten"},
     "usikker": {"type": "boolean", "description": "true hvis posten havde '?'-præfiks (bogens markør for formodet/usikkert medlemskab) -> konfidens"},
-    "navn": {"type": "string"},
+    "er_omtale": {"type": "boolean", "description": "TRUE hvis 'posten' i virkeligheden kun er en OMTALE af en person inde i løbende prosa (oversigtsafsnit, 'Fader til X', 'hvis Sønner var a-d'), og ikke et selvstændigt nummereret opslag. En omtale må ALDRIG blive til en person — den samme person har typisk sit rigtige opslag et andet sted i bogen. Dette gav ~30 spøgelsespersoner i DAA 1939; sæt hellere true ved tvivl, så valideringen kan spærre."},
+    "tekst_afhugget": {"type": "boolean", "description": "TRUE hvis postens prosa begynder eller slutter midt i en sætning, fordi segmenteringen har klippet forkert. Dette er IKKE det samme som er_omtale: en afhugget post er en RIGTIG person hvis tekst vi mangler noget af, og den skal re-segmenteres — ikke kasseres. Kalibreringen 2026-07-29 viste at sammenblandingen får modellen til at markere virkelige mennesker som omtaler."},
+    "navn": {"type": "string", "description": "KUN personens egennavn. Titler, rang, godsbesiddelser og parenteser hører i titel-fakta/godser — ALDRIG i navnet. Forkert: 'Kammerherre Christian Ditlev Reventlow til Grevskabet Christianssæde'. Rigtigt: navn='Christian Ditlev', titel-fakta='Kammerherre', gods='Grevskabet Christianssæde'."},
     "tilnavn": {"type": ["string", "null"], "description": "fx 'kaldet Kale'"},
     "koen": {"type": ["string", "null"], "enum": ["mand", "kvinde", "ukendt", null]},
+    "koen_kilde": {"type": ["string", "null"], "enum": ["bog", "udledt", null], "description": "'bog' hvis kønnet står i teksten (fx 'Datteren', 'hans Søn', 'Comtesse'); 'udledt' hvis det er sluttet af fornavnet eller sammenhængen. Skøn må ikke kunne forveksles med kildens udsagn — gates bygger på dette."},
     "facts": {
       "type": "array",
       "items": {
@@ -68,7 +71,12 @@
         "additionalProperties": false,
         "properties": {
           "ordinal": {"type": "integer", "description": "1, 2, 3 (gift 1°/2°/3°)"},
-          "partner_navn": {"type": ["string", "null"]},
+          "ordinal_kilde": {"type": ["string", "null"], "enum": ["bog", "udledt", null], "description": "'bog' KUN hvis bogen selv nummererer ægteskabet (1°/2°/3°); 'udledt' hvis nummeret er din egen optælling af rækkefølgen. Et udledt nummer kan ikke bære en varig nøgle — se docs/decisions.md om identitet der udstedes frem for udledes."},
+          "partner_navn": {"type": ["string", "null"], "description": "KUN ægtefællens egennavn + slægtsnavn. Titler, rang og godser hører i partner_titel/partner_godser — ikke i navnet."},
+          "partner_koen": {"type": ["string", "null"], "enum": ["mand", "kvinde", "ukendt", null], "description": "Ægtefællens køn. OBLIGATORISK at forsøge: gift-ind ægtefæller har ingen egen post, så dette er eneste kilde. 625 personer manglede køn efter DAA 1939-udtrækket, fordi feltet ikke fandtes."},
+          "partner_koen_kilde": {"type": ["string", "null"], "enum": ["bog", "udledt", null]},
+          "partner_titel": {"type": ["string", "null"], "description": "ægtefællens titel/rang, fx 'Kammerherre', 'Comtesse' — holdt UDE af partner_navn"},
+          "partner_godser": {"type": "array", "items": {"type": "string"}, "description": "godser ægtefællen skrives 'til', fx 'Grünholz'. Holdes UDE af partner_navn; 85 ægtefæller havde gods inde i navnefeltet efter DAA 1939-udtrækket."},
           "partner_ekstern_ref": {"type": ["string", "null"], "description": "fx 'DAA 1930, II, 71' — ekstern kilde/identitet, IKKE ny person"},
           "type": {"type": ["string", "null"], "enum": ["vielse", "partnerskab", "ugift union", null]},
           "dato_raw": {"type": ["string", "null"], "description": "vielsesdato ordret, fx 'g. 26. juli 1975' — årstal SKAL findes i raw_text"},

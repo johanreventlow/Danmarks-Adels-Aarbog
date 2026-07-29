@@ -150,6 +150,8 @@ class TestExpectedSignals(unittest.TestCase):
             "aegteskaber": [],
             "boern": None,
             "facts": [],
+            "side": "508",      # R9-gaten blokerer poster uden lokator
+            "lokal_id": "A.1",
         }
         src = {"raw_text": "N.N. g. 1750 m. Sofie. † 1799.", "linje": "I", "nr": 1, "nr_label": "1"}
         issues, advisory = validate.validate(rec, src, {"I": {1}})

@@ -88,6 +88,19 @@ external_id_buffer_row <- function(pid, sid, linje, nr, record_key) {
 # Uden begge bog-identiteter er opslaget ikke sikkert; database-id og navn er bevidst
 # ikke kandidater til fallback.
 record_key_of <- function(rec) {
+  # Bærer posten et id fra identitetsregisteret, er DET nøglen — også når
+  # linje/nr findes. Identitet udstedes, den udledes ikke: `linje-nr` er for
+  # DAA 1939 en gennemløbende tæller der flytter sig ved re-segmentering, mens
+  # registerets id er mintet én gang mod en fysisk boglokator
+  # (data/identitet/, docs/decisions.md).
+  #
+  # Fallback til `linje-nr` bevarer DAA 2018-20 uændret: dér er artefaktets
+  # filnavne selv nøglen, og der er intet register-id på posten.
+  udstedt <- rec$record_key
+  if (!is.null(udstedt) && length(udstedt) == 1L && !is.na(udstedt) &&
+      nzchar(as.character(udstedt))) {
+    return(as.character(udstedt))
+  }
   linje <- rec$linje
   nr <- rec$nr_label %||% rec$nr
   if (is.null(linje) || length(linje) == 0L || is.na(linje) ||
