@@ -249,6 +249,39 @@ describe('udledKilderForAegtefaeller', () => {
     const ud = udledKilderForAegtefaeller([P('1', [3])], [U('f1', '1', null)]);
     expect(ud.find((p) => p.id === '1')!.sourceIds).toEqual([3]);
   });
+
+  // Indgifte i en undtaget linje har intet eget bognummer og bliver derfor ikke fanget
+  // af lineage-flaget — de skal arve undtagelsen fra deres partner, efter samme
+  // "entydigt, ellers urørt"-regel som udgave-tilhøret.
+  const PU = (id: string, sourceIds: number[], udenforMatchning: boolean) =>
+    ({ id, sourceIds, udenforMatchning });
+
+  it('lader indgifte uden bog-nummer arve undtagelsen fra deres partner', () => {
+    const ud = udledKilderForAegtefaeller(
+      [PU('1', [3], true), PU('2', [], false)],
+      [U('f1', '1', '2')],
+    );
+    expect(ud.find((p) => p.id === '2')!.udenforMatchning).toBe(true);
+  });
+
+  it('undtager ikke en indgift der ogsaa er gift ind i en ikke-undtaget linje', () => {
+    // Fail-open: at vise en kandidat for meget er en irritation, at skjule en ægte
+    // kandidat er et datatab.
+    const ud = udledKilderForAegtefaeller(
+      [PU('1', [3], true), PU('2', [3], false), PU('3', [], false)],
+      [U('f1', '1', '3'), U('f2', '2', '3')],
+    );
+    expect(ud.find((p) => p.id === '3')!.udenforMatchning).toBe(false);
+  });
+
+  it('roerer ikke en person der har sin egen bogpost', () => {
+    // Har man eget bognummer, afgoer ens EGEN linje sagen — ikke ægtefællens.
+    const ud = udledKilderForAegtefaeller(
+      [PU('1', [3], true), PU('2', [1], false)],
+      [U('f1', '1', '2')],
+    );
+    expect(ud.find((p) => p.id === '2')!.udenforMatchning).toBe(false);
+  });
 });
 
 // ------------------------------------ evidens-normaliseret score (opt-in)

@@ -464,12 +464,21 @@ export function buildMatchPersoner(
  *  lades hun urørt, så matcherens forudsætning om disjunkte kilder (a ⟂ b) holder.
  *
  *  Ren funktion: muterer ikke input. */
-export function udledKilderForAegtefaeller<T extends { id: string; sourceIds: number[] }>(
+export function udledKilderForAegtefaeller<
+  T extends { id: string; sourceIds: number[]; udenforMatchning?: boolean },
+>(
   personer: T[],
   unions: Union[],
 ): T[] {
   const kilderAf = new Map(personer.map((p) => [p.id, p.sourceIds]));
+  const undtagetAf = new Map(personer.map((p) => [p.id, p.udenforMatchning === true]));
   const kandidater = new Map<string, Set<number>>();
+  // Indgifte arver også linjens undtagelse: de har intet eget bognummer og fanges derfor
+  // ikke af lineage-flaget, men er lige så umatchbare som den de er gift med. Samlingen
+  // er af BOOLEANS, ikke et flertal — er blot én partner ikke undtaget, bliver sættet
+  // {true,false}, størrelsen 2, og personen forbliver urørt. Fail-open med vilje: at vise
+  // en kandidat for meget er en irritation, at skjule en ægte kandidat er et datatab.
+  const undtagelseskandidater = new Map<string, Set<boolean>>();
   for (const u of unions) {
     const parter = [u.p1, u.p2].filter((x): x is string => x != null);
     const kendte = new Set(parter.flatMap((id) => kilderAf.get(id) ?? []));
@@ -478,13 +487,23 @@ export function udledKilderForAegtefaeller<T extends { id: string; sourceIds: nu
       const s = kandidater.get(id) ?? new Set<number>();
       for (const k of kendte) s.add(k);
       kandidater.set(id, s);
+      const u2 = undtagelseskandidater.get(id) ?? new Set<boolean>();
+      for (const andre of parter) {
+        if (andre === id) continue;
+        u2.add(undtagetAf.get(andre) === true);
+      }
+      undtagelseskandidater.set(id, u2);
     }
   }
   return personer.map((p) => {
-    if (p.sourceIds.length) return p;
+    if (p.sourceIds.length) return p; // egen bogpost → egen linje afgør, ikke ægtefællens
     const s = kandidater.get(p.id);
-    if (!s || s.size !== 1) return p; // ukendt eller flertydig → urørt
-    return { ...p, sourceIds: [...s] };
+    const u = undtagelseskandidater.get(p.id);
+    const arvetUndtagelse = u && u.size === 1 && u.has(true);
+    if (!s || s.size !== 1) {
+      return arvetUndtagelse ? { ...p, udenforMatchning: true } : p; // ukendt/flertydig kilde → kun undtagelsen kan arves
+    }
+    return { ...p, sourceIds: [...s], ...(arvetUndtagelse ? { udenforMatchning: true } : {}) };
   });
 }
 
