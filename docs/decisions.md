@@ -86,7 +86,14 @@ bogen. Konverterens egen header fastslår at nummer-ankeret derfor er "reelt dø
   gruppe (`lokal_id`) og en intern post-id (`_id`) — begge fra kilden frem for opfundet af
   konverteren. Om nogen af dem er stabil på tværs af re-segmentering er præcis det
   spørgsmål en plan skal besvare.
-- **Fremadrettet krav (K4 i `docs/reviews/flerslaegt-parathed-2026-07-28.md`):** for nye
+- - **⚠ Artefaktet og prod er drevet fra hinanden (opdaget 2026-07-29).** `linked_clean.json` og
+  `clean_1939.json` indeholder begge **539** poster; prod har **515** efter at 23 dubletter blev
+  slettet. Sletningerne findes **kun i basen**. `person_external_id` står på loaderens reset-liste
+  (`load_helpers.R`), så en genindlæsning fra artefaktet ville **genskabe alle 23 dubletter** og
+  efterlade enhver nøgle mintet i mellemtiden pegende på poster der ikke længere skulle findes.
+  Enhver nøgle-mintning skal derfor ske **efter** at artefaktet er afstemt med prod — ikke før.
+
+**Fremadrettet krav (K4 i `docs/reviews/flerslaegt-parathed-2026-07-28.md`):** for nye
   slægter sættes `record_key` **ved udtræk**, ikke ved backfill bagefter. Så opstår problemet
   ikke igen.
 
