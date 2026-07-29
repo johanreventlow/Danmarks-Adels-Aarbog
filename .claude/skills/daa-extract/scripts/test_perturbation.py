@@ -17,6 +17,9 @@
 # Tests med KENDT_SVAGHED i navnet dokumenterer hvor den NUVÆRENDE lokator
 # knækker. De er grønne fordi de asserter observeret adfærd — rettes
 # lokatoren, skal de vendes til deres negation, ikke slettes.
+# (Sidedrift-svagheden BLEV rettet med nabo-vagten efter Codex-review
+# 2026-07-29 fund 2 — dén test er vendt, se
+# test_sidedrift_med_delt_lokal_id_meldes_nu_tvetydig.)
 from identitetsregister import Register, mint, reconcile
 
 
@@ -67,15 +70,36 @@ def test_sideskift_med_unik_lokal_id_meldes_tvetydig():
     assert not r["forkerte"] and r["tvetydige"] == 1 and r["korrekte"] == 1
 
 
-def test_KENDT_SVAGHED_sidedrift_med_delt_lokal_id_giver_forkert_match():
-    # 1939-virkeligheden: lokal_id har kun 425 distinkte værdier for 515
-    # poster, og `side` er PDF-ordinal der allerede driver (59/515). Deler to
-    # poster lokal_id på nabosider, lander den ene på den andens registrerede
-    # nøgle ved én sides forskydning — og reconcile kalder det ENTYDIGT.
+def test_sidedrift_med_delt_lokal_id_meldes_nu_tvetydig():
+    # Var KENDT_SVAGHED: et eksakt hit på en NABOS nøgle (delt lokal_id, én
+    # sides drift) blev accepteret tavst som entydigt. Nabo-vagten (Codex-
+    # review 2026-07-29, fund 2) demoterer eksakte hit til tvetydige når en
+    # anden aktiv post deler lokal_id inden for driftvinduet — "tvetydig frem
+    # for forkert" holder nu også her.
     reg, sand = byg([post("a", "10", "1"), post("b", "11", "1")])
     r = evaluer(reg, sand, [post("a", "11", "1"), post("b", "12", "1")])
-    assert r["forkerte"] == [("a", "b")], \
-        "vendepunkt: er lokatoren rettet, så vend denne test og fjern KENDT_SVAGHED"
+    assert not r["forkerte"] and r["tvetydige"] == 2 and r["korrekte"] == 0
+
+
+def test_delt_lokal_id_uden_for_driftvinduet_er_stadig_entydig():
+    # Nabo-vagten må ikke drukne mennesket i falske tvetydigheder:
+    # 1939-virkeligheden er at delte lokal_id'er ligger mindst 15 sider fra
+    # hinanden (målt 2026-07-29) — eksakte hit dér forbliver entydige.
+    reg, sand = byg([post("a", "10", "1"), post("b", "40", "1")])
+    r = evaluer(reg, sand, [post("a", "10", "1"), post("b", "40", "1")])
+    assert r["korrekte"] == 2 and not r["tvetydige"] and not r["forkerte"]
+
+
+def test_post_uden_lokator_afvises_af_registeret():
+    # Fail-open-kæden (Codex-review 2026-07-29, fund 1): str(None) blev til
+    # den GYLDIGE nøgle "1939|None|None". Registeret afviser nu selv.
+    reg, _ = byg([post("a", "10", "A.1")])
+    try:
+        reconcile(reg, [{"side": None, "lokal_id": "A.1"}], "1939")
+    except ValueError as e:
+        assert "lokator" in str(e)
+    else:
+        raise AssertionError("post uden side skulle være afvist")
 
 
 def test_split_ny_post_meldes_ny_og_resten_er_uroert():

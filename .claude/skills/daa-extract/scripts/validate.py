@@ -723,6 +723,12 @@ def validate(rec, src, known_by_linje):
     if src is None:
         issues.append(f'K: ingen kilde-post for linje {rec.get("linje")} nr {rec.get("nr")}')
 
+    # R9: lokator komplet — uden (side, lokal_id) kan posten ikke genfindes i
+    # identitetsregisteret, og registeret afviser den selv. tjek_lokator var
+    # tidligere en løs funktion INGEN kaldte, så poster uden lokator passerede
+    # rene (Codex-review 2026-07-29, fund 1 — reproduceret).
+    issues.extend(tjek_lokator(rec))
+
     # R6: autoritativ narrativ findes (fra kilden, ikke fra LLM)
     if src is not None and not src_text:
         issues.append('R6: kilde-postens raw_text er tom')

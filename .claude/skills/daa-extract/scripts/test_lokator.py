@@ -54,3 +54,13 @@ def test_lokator_mangler_er_en_R_fejl():
 def test_komplet_lokator_giver_ingen_fejl():
     assert validate.tjek_lokator(
         {"linje": "1939", "nr_label": "42", "side": "508", "lokal_id": "A.V.1"}) == []
+
+
+def test_r9_haandhaeves_af_validate_selv():
+    # Codex-review 2026-07-29, fund 1: tjek_lokator fandtes men blev aldrig
+    # kaldt — validate() lod poster uden lokator passere RENE, og registeret
+    # gjorde str(None) til en gyldig nøgle. Gaten er nu inde i validate().
+    issues, _ = validate.validate(
+        {"linje": "1939", "nr_label": "42", "facts": []},
+        {"raw_text": "N.N. † 1300."}, {})
+    assert any(i.startswith("R9") for i in issues)

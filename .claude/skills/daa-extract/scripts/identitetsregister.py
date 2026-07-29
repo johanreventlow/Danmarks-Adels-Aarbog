@@ -112,7 +112,16 @@ class Register:
 
 
 def _lokator(post: dict, udgave: str) -> Lokator:
-    return Lokator(udgave, str(post.get("side")), str(post.get("lokal_id")))
+    side, lokal_id = post.get("side"), post.get("lokal_id")
+    # Fail-closed ved grænsen (Codex-review 2026-07-29, fund 1): str(None) blev
+    # til den GYLDIGE nøgle "1939|None|None", så poster uden lokator kunne både
+    # mintes og matches. Registeret afviser dem nu selv — R9-gaten i validate
+    # er første forsvarslinje, dette er den sidste.
+    if not side or not lokal_id:
+        raise ValueError(
+            f"post uden komplet lokator (side={side!r}, lokal_id={lokal_id!r}) — "
+            "kør paahaeft_lokator + R9-gaten før registeret")
+    return Lokator(udgave, str(side), str(lokal_id))
 
 
 def mint(reg: Register, poster: Iterable[dict], udgave: str) -> Register:
@@ -137,10 +146,30 @@ def mint(reg: Register, poster: Iterable[dict], udgave: str) -> Register:
     return reg
 
 
-def reconcile(reg: Register, poster: Iterable[dict], udgave: str) -> Reconciliation:
+def _sidetal(s: str) -> int | None:
+    try:
+        return int(s)
+    except (TypeError, ValueError):
+        return None
+
+
+def _inden_for(side_a: str, side_b: str, vindue: int) -> bool:
+    a, b = _sidetal(side_a), _sidetal(side_b)
+    if a is None or b is None:
+        return True   # kan ikke afstandsmåles → konservativt: tæl med
+    return abs(a - b) <= vindue
+
+
+def reconcile(reg: Register, poster: Iterable[dict], udgave: str,
+              drift_vindue: int = 10) -> Reconciliation:
     """Hold et nyt udtræk op mod registeret. Gætter aldrig.
 
-    * lokator findes og er aktiv  → entydigt genbrug af id
+    * lokator findes og er aktiv → entydigt genbrug af id — MEDMINDRE en anden
+      aktiv post deler lokal_id inden for `drift_vindue` sider. Så kan hittet
+      ikke skelnes fra sidedrift (perturbationstesten viste at et eksakt hit
+      under drift kan være en NABOS nøgle), og udfaldet er TVETYDIGT.
+      Vinduet er valgt fra empiri: observeret drift ≤ ~6 sider, delte
+      lokal_id'er mindst 15 sider fra hinanden (målt 2026-07-29).
     * lokator findes ikke, men `lokal_id` gør på en anden side → TVETYDIG.
       Posten kan være flyttet, eller det kan være en anden post. Kræver
       menneskelig afgørelse.
@@ -150,6 +179,11 @@ def reconcile(reg: Register, poster: Iterable[dict], udgave: str) -> Reconciliat
     poster = list(poster)   # itereres to gange — en generator ville være tom i 2. løkke
     res = Reconciliation()
     set_i_udtraek: set[str] = set()
+
+    fra_lokal_id: dict[str, list[Post]] = {}
+    for q in reg.poster.values():
+        if q.status == "aktiv" and q.lokator.udgave == udgave:
+            fra_lokal_id.setdefault(q.lokator.lokal_id, []).append(q)
 
     # Samme vagt som mint(): to poster med samme lokator kan ikke skelnes, og
     # uden dette tjek ville BEGGE tavst få det samme book_post_id tildelt.
@@ -166,16 +200,19 @@ def reconcile(reg: Register, poster: Iterable[dict], udgave: str) -> Reconciliat
         set_i_udtraek.add(lok.key())
         kendt = reg.poster.get(lok.key())
         if kendt is not None and kendt.status == "aktiv":
-            res.entydige.append((p, kendt.book_post_id))
+            naboer = [q.book_post_id for q in fra_lokal_id.get(lok.lokal_id, ())
+                      if q.lokator.key() != lok.key()
+                      and _inden_for(q.lokator.side, lok.side, drift_vindue)]
+            if naboer:
+                res.tvetydige.append((p, [kendt.book_post_id, *naboer],
+                                      f"eksakt hit, men delt lokal_id inden for {drift_vindue} siders drift"))
+            else:
+                res.entydige.append((p, kendt.book_post_id))
             continue
         if kendt is not None:                     # tombstone: må ikke genopstå
             res.nye.append(p)
             continue
-        kandidater = [
-            q.book_post_id for q in reg.poster.values()
-            if q.status == "aktiv" and q.lokator.udgave == udgave
-            and q.lokator.lokal_id == lok.lokal_id
-        ]
+        kandidater = [q.book_post_id for q in fra_lokal_id.get(lok.lokal_id, ())]
         if kandidater:
             res.tvetydige.append((p, kandidater, "samme lokal_id, anden side"))
         else:
