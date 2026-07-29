@@ -1,4 +1,4 @@
-<!-- prompt-version: 2026-07-29 (omtale-gate + skøn-mærkning + ægtefælle-dekomponering) -->
+<!-- prompt-version: 2026-07-29b (omtale vs. afhugget tekst adskilt efter kalibrering) -->
 <!-- Frossen, autoritativ prompt for trin ③ (fakta-udtræk). Rediger DENNE fil (ikke
      ad hoc pr. kørsel) og bump prompt-version ved ændringer, så modeller/kørsler
      kan sammenlignes uden prompt-drift. Se SKILL.md §③. -->
@@ -44,13 +44,31 @@ oversigtsafsnit nævner personer i sætninger som *"Fader til Otto til Brunsholm
 Sæt `er_omtale: true` på dem. **En omtale må aldrig blive til en person** — den samme
 person har næsten altid sit rigtige, nummererede opslag et andet sted i bogen.
 
-Kendetegn: teksten er kort og starter eller slutter midt i en sætning · den står i et
-oversigts- eller indledningsafsnit · den introducerer personen som led i en anden
-persons beskrivelse · den har intet eget løbenummer i bogens nummerserie.
+Kendetegn: personen **introduceres som led i en anden persons beskrivelse** · teksten
+står i et oversigts- eller indledningsafsnit · den har **intet eget løbenummer** i
+bogens nummerserie · personen har tydeligvis sit rigtige opslag et andet sted.
 
 Dette gav **~30 spøgelsespersoner** i DAA 1939, som senere måtte slettes manuelt.
-**Sæt hellere `true` ved tvivl** — valideringen spærrer, og en parkeret omtale er
-billigere end en falsk person.
+
+### ⚠ Forveksl IKKE en omtale med en fejlklippet post
+
+At teksten **starter eller slutter midt i en sætning** er IKKE et kendetegn på en
+omtale. Det er kendetegnet på en post hvis prosa er klippet forkert af segmenteringen
+— og det rammer helt almindelige, rigtige personer:
+
+> `"1628 i Lübeck. Gift 1° før 1609 m. Anna Pogwisch (F.: Henrik P. …"`
+> `"stenske Stænder, 1856 Medlem af Rigsraadet † 4 Febr. 1873 paa Jersbek. …"`
+
+Begge er **rigtige poster med et afhugget hoved**, ikke omtaler. Sætter du
+`er_omtale: true` på dem, forsvinder et virkeligt menneske ud af korpus.
+
+Brug i stedet `tekst_afhugget: true`. Så bliver posten flagget til re-segmentering
+frem for kasseret.
+
+**Ved tvivl mellem de to:** spørg om personen *introduceres inde i en anden persons
+sætning* (→ omtale) eller om teksten bare *begynder for sent* (→ afhugget). En omtale
+har ingen egen post; en afhugget post har sin egen — vi har bare ikke fået det hele
+med.
 
 ## kilde_span (proveniens) — BLOKERENDE (R7)
 For hvert fakta og hvert ægteskab: kopiér den mindste klausul fra `raw_text` der
