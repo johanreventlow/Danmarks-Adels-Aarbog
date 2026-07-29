@@ -56,6 +56,39 @@ def test_komplet_lokator_giver_ingen_fejl():
         {"linje": "1939", "nr_label": "42", "side": "508", "lokal_id": "A.V.1"}) == []
 
 
+def test_r10_omtale_mod_eget_nummeranker_spaerres():
+    # Kalibrering 2026-07-29: terra kasserede 4 RIGTIGE personer med afhugget
+    # tekst som omtaler. Omtaler har intet eget løbenummer — anker-forankring
+    # modsiger påstanden, og gaten sender posten til review.
+    issues = validate.tjek_omtale({"er_omtale": True}, {"metode": "anker"})
+    assert issues and "R10" in issues[0]
+
+
+def test_r10_tier_uden_anker_signal():
+    # Fail-soft: fallback-segmenteret eller ukendt metode → kan ikke konkludere.
+    assert validate.tjek_omtale({"er_omtale": True}, {"metode": "gruppe-fallback"}) == []
+    assert validate.tjek_omtale({"er_omtale": True}, None) == []
+    assert validate.tjek_omtale({"er_omtale": False}, {"metode": "anker"}) == []
+
+
+def test_r10_haandhaeves_af_validate_selv():
+    issues, _ = validate.validate(
+        {"linje": "1939", "nr_label": "42", "side": "508", "lokal_id": "A.1",
+         "er_omtale": True, "facts": []},
+        {"raw_text": "N.N. † 1300.", "metode": "anker"}, {})
+    assert any(i.startswith("R10") for i in issues)
+
+
+def test_kontraktfelter_passerer_r5():
+    # er_omtale/tekst_afhugget/koen_kilde manglede i ALLOWED_TOP — R5 ville
+    # have flagget ethvert kontrakt-konformt udtræk som tredjeparts-felter.
+    issues, _ = validate.validate(
+        {"linje": "1939", "nr_label": "42", "side": "508", "lokal_id": "A.1",
+         "er_omtale": False, "tekst_afhugget": True, "koen_kilde": "kilde", "facts": []},
+        {"raw_text": "N.N. † 1300."}, {})
+    assert not any(i.startswith("R5") for i in issues)
+
+
 def test_r9_haandhaeves_af_validate_selv():
     # Codex-review 2026-07-29, fund 1: tjek_lokator fandtes men blev aldrig
     # kaldt — validate() lod poster uden lokator passere RENE, og registeret
