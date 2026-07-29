@@ -126,6 +126,54 @@ poster eller kilder. Mindst tre forklaringer, og de kræver **modsatte** handlin
 **En oprydning der antager spøgelses-union kan slette et ægte ægteskab.** Hver af de 10 skal
 afgøres mod bogen med alle fire forklaringer i hånden.
 
+## Kontrol-review (Codex gpt-5.6-sol, 2026-07-29) — tre fund planen ikke havde
+
+**1. De 463 er IKKE sikre.** "Ankerpersonen har ét ægteskab" er en egenskab ved *dagens*
+ekstraktion, ikke en varig bogidentitet. Finder en senere ekstraktion et ægteskab nummer to, kan
+`:1` flytte til en anden ægtefælle — og den allerede satte nøgle peger så forkert, bagudrettet.
+Planens "ingen forudsætninger" var forkert. Gaten skal sammenligne en **vedvarende ægteskabsnøgle**,
+ikke antallet af ægteskaber.
+
+**2. R4-argumentet holder kun delvist.** `validate.py:737` filtrerer `ordinal is not None` fra, så
+R4 blokerer kun gentagne **ikke-NULL** ordinaler. "De 10 kollisioner må komme fra flere poster"
+følger derfor ikke af R4 alene. Kollisionernes oprindelse er fortsat uafklaret.
+
+**3. Artefakt og prod er drevet fra hinanden.** `linked_clean.json` og `clean_1939.json` har begge
+**539** poster; prod har **515**. De 23 slettede dubletter findes kun i basen, og
+`person_external_id` står på loaderens reset-liste — **en genindlæsning ville genskabe dem.**
+Se `docs/decisions.md`.
+
+### Konsekvens for nøgledesignet
+
+En holdbar `record_key` for 1939 kan ikke udledes af noget i det nuværende artefakt:
+
+| Kandidat | Overlever re-segmentering + re-ekstraktion? |
+|---|---|
+| `nr` (konverterens tæller) | nej — global, rækkefølgeafhængig |
+| `_orig_nr` (bogens eget tal) | delvist — lokalt, gentaget, undertiden fraværende |
+| `lokal_id` / `_id` | usikkert — ikke del af ekstraktionsskemaet |
+| `kilde_span` | nej — feltproveniens, ændres ved OCR-rettelse |
+| indholds-hash | nej — ændres netop af den rettelse identiteten skal overleve |
+| **opaque, én gang mintet id + fysisk boglokator** | **ja — men kræver et register** |
+
+Det opaque id er kun holdbart med et **varigt identitetsregister**: id, fysisk lokator (trykt side +
+postens position), status og matchhistorik. Ved re-ekstraktion matches nye kandidater mod
+registeret; entydigt match genbruger id'et, bortfaldne poster får tombstone, id'er genbruges aldrig,
+og tvetydighed stopper fail-closed. Uden registeret er "mintet i artefaktet" cirkulært.
+
+### Ægtefæller hører ikke i `person_external_id`
+
+Tabellen betyder *bogens egen postidentitet*. En indgift omtalt inde i en anden post har ikke en
+sådan, og en syntetisk række forveksler **personidentitet** med **omtale-proveniens**.
+
+Renere model: journalisér rettelsen som `(import_key, anchor_record_key, marriage_key, partnerfelt)`
+i `import_korrektion` frem for at opfinde en personpost. Det kræver at journalen udvides med
+måltype/målnøgle, at fingeraftrykket inkluderer dem, og at RPC'en kan opløse præcis ét anker, ét
+ægteskab og én partner — i dag kræver den at ankerpersonen *er* den redigerede person.
+
+**Denne plan bør derfor omskrives til en omtale-journal, ikke en syntetisk personpost.** Den
+nuværende form er bevaret som dokumentation af hvorfor.
+
 ## Rettelser undervejs (bevaret, fordi de forklarer konklusionen)
 
 1. **Første version:** ordinal er positionsafhængig for 28 af 38 poster og dermed skrøbelig.
