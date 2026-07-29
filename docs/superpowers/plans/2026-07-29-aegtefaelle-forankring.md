@@ -45,78 +45,97 @@ record_key = <ankerpersonens record_key> + ':' + <ægteskabsnummer>
 For 463 af de 627 er ægteskabsnummeret altid 1 og kunne udelades — men det gør nøglen uensartet.
 Behold det altid; ensartethed er mere værd end kortere nøgler.
 
-## Er ægteskabsnummeret stabilt? — undersøgt, ja
+## Er ægteskabsnummeret stabilt? — NEJ
 
-`family_member.ordinal` findes allerede og bærer ægteskabsnummeret:
+⚠ **Dette afsnit er omskrevet to gange. Læs kun denne version.** Historikken står i §"Rettelser"
+nedenfor, fordi den forklarer hvorfor konklusionen er som den er.
 
-| | |
-|---|---|
-| `partner`-rækker | 1301 |
-| med `ordinal` | 1281 |
-| **uden `ordinal`** | **20** |
-| værdier | 1–4 |
+### Hvor tallet FAKTISK kommer fra
 
-### Hvor tallet kommer fra
+`family_member.ordinal` sættes af **LLM-udtrækket**, ikke af nogen deterministisk regel:
 
-`derive_aegteskaber()` (`validate.py`) udleder det på to måder:
-
-```python
-if ord_positions:            # bogen skriver selv "1° … 2° …"
-    ordinal = int(ord_str)   # bogens eget tal
-else:
-    running_ordinal += 1     # tælling i tekstrækkefølge
+```
+LLM-udtræk  →  convert_1939_stamtavle.py:148  ("ordinal": a.get("ordinal"), ren passthrough)
+            →  load_daa.R:378                 (add_member(..., ordinal = g(a, "ordinal")))
 ```
 
-Af 1939-artefaktets 38 poster med flere ægteskaber bærer **10** bogens egne `1°/2°`-markører;
-de øvrige 28 får tallet af tælleren.
+`validate.py:804-805` siger det eksplicit:
 
-### ⚠ Retraktion (2026-07-29)
+> *"aegteskaber er IKKE deterministisk — LLM-udtræk er autoritativt; `derive_aegteskaber()` bruges
+> kun advisory (R8)."*
 
-En tidligere version af denne plan konkluderede at de 28 tællede tilfælde var
-**positionsafhængige og dermed skrøbelige**, på linje med 1939's `nr` og `linje='1939'`.
-**Den konklusion var forkert**, og planen skal ikke bygge på den.
+`derive_aegteskaber()` kaldes ét sted i produktion (`validate.py:678`) og kun som et boolsk
+advarselsflag. **Den skriver aldrig en ordinal.**
 
-Efterprøvningen:
+### Konsekvens
 
-- `segment_1939.py` klipper **sammenhængende udsnit** `(start, end)` af råteksten. Den omordner
-  aldrig. Ordene står i bogens rækkefølge.
-- `derive_aegteskaber(raw_text)` nulstiller `running_ordinal = 0` **pr. narrativ**, altså pr.
-  person — tallet løber ikke på tværs af poster.
+`ordinal` deler proveniens med `nr` og `linje='1939'`: **tildelt af pipelinen, ikke af bogen.** En
+re-ekstraktion kører LLM'en igen, og LLM-output er ikke deterministisk. Nummeret er derfor **ikke**
+en stabil nøglekomponent, og det står i samme kategori som de to andre værdier vi allerede har
+besluttet ikke at nøgle på.
 
-Tælleren reproducerer derfor **bogens egen implicitte rækkefølge**. Det stabile faktum man ville
-udlede af i en "gør nummeret solidt"-øvelse *er* bogens læserækkefølge — og det er præcis dét
-tælleren allerede bruger. Der er ikke noget mere stabilt at flytte den over på.
+### Yderligere fund der svækker nøglen
 
-### Den reelle rest-risiko, og hvad der fanger den
+- **"Pr. narrativ = pr. person" holder ikke.** `segment_1939.py:16` — ankerløse poster får
+  *gruppens* delte tekstblok. Flere søskende kan dele samme klip.
+- **Grænserne flytter sig empirisk.** Re-segmenteringen 2026-07-26 flyttede postgrænser i **216**
+  narrativer (`docs/decisions.md`).
+- **`R4` blokerer dublet-ordinaler *inden for* én post** (`validate.py:736-739`). De 10 kollisioner
+  i prod må derfor komme fra **flere poster eller kilder** — se §"De 10 kollisioner".
 
-`ordinal` er ikke selvstændigt skrøbelig. Den arver **én** skrøbelighed: om en `Gift`-klausul
-lander i den rigtige persons narrativ. Flytter en klausul person ved en fremtidig re-ekstraktion,
-er ægteskabet tilskrevet et forkert menneske — og da er nummeret det mindste af problemerne. Intet
-nummereringsskema opdager det.
+### Valgt vej: nøgl kun hvor bogen selv nummererer
 
-**Derfor: en re-ekstraktions-kontrol frem for en ny nummerering.** Efter enhver fremtidig
-re-ekstraktion kontrolleres pr. ankerperson at
+Sæt `record_key` for:
 
-- antallet af ægteskaber er uændret, og
-- sættet af partnernavne er uændret
+- alle ægtefæller hvor ankerpersonen har **præcis ét** ægteskab (463 af 627) — intet nummer i spil
+- ægtefæller hvor **bogen selv** skriver `1°`/`2°` — bogens eget tal, stabilt på tværs af kørsler
 
-sammenlignet med det der står i basen. Triller kontrollen for en person, **re-nøgles den person
-ikke** (fail-closed). Det fanger den fejl der faktisk kan ske, og som ingen nummerering fanger.
+**Park resten.** Fail-closed, samme disciplin som beslutningen om 1939's `record_key`: hellere ingen
+nøgle end en der kan pege forkert uden at nogen opdager det.
 
-### De 10 kollisioner er et dataproblem, ikke et talproblem
+Det kræver at udtrækket **registrerer om tallet kom fra bogen eller fra modellens skøn**. Det gør
+det ikke i dag — og det er en ændring i ekstraktionskontrakten, ikke i denne backfill. Uden det felt
+kan de to grupper ikke skilles ad, og planen kan kun gennemføre den første (463).
 
-| Ankerpersoner med flere ægteskaber | 89 |
+### Re-ekstraktions-kontrol — nødvendig, men ikke tilstrækkelig
+
+En kontrol af *antal ægteskaber + partnernavne* pr. ankerperson efter re-ekstraktion fanger ikke:
+
+- **ombytning:** samme antal og samme navnesæt, men nummer 1 og 2 byttet → nøglen peger på den
+  forkerte ægtefælle. Kontrollen skal sammenligne **afbildningen nummer→partnernavn**, ikke mængder.
+- **navnløse ægtefæller:** to med `partner_navn = NULL` er ikke til at skelne.
+- **1939 er cirkulær:** kontrollen matcher "pr. ankerperson", men 1939-ankre har ingen `record_key`.
+  Den forudsætter altså den identitet den skulle beskytte.
+- **falske alarmer fryser:** en legitim OCR-navnerettelse ændrer navnesættet → fail-closed → den
+  person kan aldrig re-nøgles.
+
+Kontrollen skal derfor sammenligne afbildningen, ikke mængderne — og den løser ikke 1939.
+
+## De 10 kollisioner — flere mulige forklaringer
+
+Fordi `R4` allerede blokerer dublet-ordinaler inden for én post, stammer kollisionerne fra flere
+poster eller kilder. Mindst tre forklaringer, og de kræver **modsatte** handlinger:
+
+| Forklaring | Rigtig handling |
 |---|---|
-| entydige ordinaler | 79 |
-| **kolliderer** (to unioner med samme eller manglende ordinal) | **10** |
+| Spøgelses-union (to unioner, bogen beskriver ét ægteskab) | slet den ene |
+| **Samme ægteskab attesteret af begge udgaver** | **match dem — det er evidensmodellen efter design** |
+| LLM udelod ordinal på to reelle ægteskaber | udfyld, slet intet |
+| Gengifte med samme partner | behold begge |
 
-Med den nye forståelse skærpes tolkningen: er bogens rækkefølge stabil, og reproducerer tælleren
-den, så betyder to unioner med **samme** ordinal under én ankerperson at der er registreret **to
-unioner hvor bogen beskriver ét ægteskab**. Det er spøgelses-union-mønsteret, som er ryddet op
-før (`docs/changelog.md`, change_sets 3-7).
+**En oprydning der antager spøgelses-union kan slette et ægte ægteskab.** Hver af de 10 skal
+afgøres mod bogen med alle fire forklaringer i hånden.
 
-**De 10 skal derfor afgøres mod bogen som dataoprydning.** Det er fortsat planens første skridt og
-dens egentlige arbejde — men det er oprydning, ikke nummerering.
+## Rettelser undervejs (bevaret, fordi de forklarer konklusionen)
+
+1. **Første version:** ordinal er positionsafhængig for 28 af 38 poster og dermed skrøbelig.
+2. **Anden version — forkert:** trak det tilbage med den begrundelse at `derive_aegteskaber`
+   klipper i bogens rækkefølge og nulstiller pr. person. **Fejlen var at analysere den forkerte
+   kodesti** — den funktion er advisory og skriver aldrig en ordinal. Målingen "10 fra bogens
+   markører, 28 fra tælleren" målte tilstedeværelsen af `°` i teksten, ikke hvordan tallet blev
+   sat, og beviser derfor ingenting om proveniensen.
+3. **Denne version:** ordinal kommer fra LLM'en og er ikke stabil. Den oprindelige bekymring var
+   rigtig; retraktionen var forkert.
 
 ## `linje` — hvad feltet faktisk gør, og hvem der bruger det rigtigt
 
@@ -183,19 +202,25 @@ noteres, så en fremtidig diff ikke tolker dem som noget planen forårsagede.
 
 ## Rækkefølge
 
-1. **Opgør de 10 ordinal-kollisioner** og afgør hver enkelt mod bogen. Uden dette kan nøglen ikke
-   sættes — en nøgle der peger på to rækker er værre end ingen nøgle, fordi rettelsen lander
-   vilkårligt uden fejlmelding. Forventet årsag: to unioner registreret hvor bogen beskriver ét
-   ægteskab (spøgelses-union). Altså dataoprydning.
-2. **Fyld de 20 manglende `ordinal`** ud fra bogens rækkefølge.
-3. **Backfill `record_key`** for de 627 — `linje` NULL, `nr` NULL.
+1. **Backfill de 463** hvor ankerpersonen kun er gift én gang. Ingen nummer-afhængighed, ingen
+   forudsætninger. Det er planens eneste trin der kan gennemføres i dag.
+2. **Opgør de 10 kollisioner** mod bogen med alle fire forklaringer i hånden (se ovenfor) — det er
+   dataoprydning, ikke nummerering, og udfaldet kan være både sletning og matchning.
+3. **Udvid ekstraktionskontrakten** med et felt der siger om ordinalen kom fra bogens `1°`-markør
+   eller fra modellens skøn. Uden det kan de resterende 164 ikke nøgles fail-closed.
+4. **Rettelser skal være reload-durable.** Trin 1-2 retter i basen; en `--force-reset` regenererer
+   fra artefaktet og ville efterlade nyMintede nøgler forældreløse. Rettelserne hører derfor i
+   artefaktet eller i `post_load_fixup.R`-mønstret — ellers bygger planen præcis den skrøbelighed
+   `docs/decisions.md` besluttede at undgå.
 4. **Verificér:** korpus-diff 0 forskelle · ingen ny inkonsistent `visning_efternavn` ·
    ingen række med `linje='1939'` rørt · `red_person_grid` viser 331 flere redigerbare ·
    `get_advisors(security)` uændret.
 5. **Indfør re-ekstraktions-kontrollen** (antal ægteskaber + partnernavne pr. ankerperson,
    fail-closed) som en del af pipelinens gate — ikke som en engangs-kontrol.
 
-**Gevinst:** 591 → 1218 redigerbare (34 % → 70 %).
+**Gevinst, realistisk:** trin 1 alene giver 463 nøgler — men kun de 2018-20-ægtefæller blandt dem
+bliver faktisk redigerbare, da 1939-ankre selv mangler `record_key`. Forventet **~250 af 1733**
+(34 % → ~48 %). De resterende kræver enten 1939-identitet eller den udvidede ekstraktionskontrakt.
 
 ## Afgrænsning
 
