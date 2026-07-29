@@ -216,19 +216,32 @@ var præcis dét der gjorde ægteskabsnummeret ubrugeligt som nøgle.
 unikke nøgle, og en overset post forskyder ingen naboers identitet. Mangler
 linje-konteksten sættes `None`, og R9-gaten blokerer posten.
 
-**1939-sporet: design udestår — og det naive skema er forkastet på måling.**
-1939 har ingen trykt gren-label; kandidaten `G{gruppeindeks}.{trykt nr}` blev målt
-mod artefaktet: (gruppe, orig_nr) er ganske vist unik (476/515 dækning, 0 dubletter),
-men gruppeindekset er BEREGNET, og grupperne er små — **127 nabogruppe-par deler
-både trykt nr og side**. Ét forskudt gruppeindeks (en overset/sammenlagt gruppe)
-ville altså give tavse forkerte match i stor stil — samme fejl som positions-
-lokatoren, bare på gruppeniveau. Kravet til 1939-skemaet er derfor en TRYKT
-gruppe-forankring (fx normaliseret gruppeoverskrift/stamfar-linje + trykt nr), og
-det designes som del af re-segmenteringen — med perturbationstesten som gate FØR
-skemaet vælges. De 39 unummererede poster (stamfædre m.fl.) skal have egen løsning.
-Om-nøglingen af registeret (record_key → nyt skema, afstem_lokator-mønstret
-generaliseret til begge lokator-komponenter) sker først når den nye segmentering
-findes og skemaet har bestået perturbationstesten.
+**1939-sporet: skemaet er VALGT (bruger-anvist 2026-07-30) — bogens egen trykte sti.**
+Første kandidat, `G{gruppeindeks}.{trykt nr}`, blev forkastet på måling: (gruppe,
+orig_nr) er unik i artefaktet (476/515, 0 dubletter), men gruppeindekset er BEREGNET,
+og grupperne er små — **127 nabogruppe-par deler både trykt nr og side**, så ét
+forskudt indeks giver tavse forkerte match i stor stil (samme fejl som positions-
+lokatoren, på gruppeniveau).
+
+Det valgte skema bruger i stedet bogens egen firleddede, TRYKTE adresse:
+
+    lokal_id = {linje}.{slægtled}.{afsnit}.{nr_label}     fx  IV.Ottende.II.6
+    (IV Den danske grevelige Linje af 1673 → Ottende Slægtled → II → nr 6)
+
+Verificeret mod raw.txt 2026-07-30: 80 slægtled-markører ("Ottende Slægtled I.",
+"Børn: Tredje Slægtled III."), linje-headere med romertal ("III Den anden
+meklenborgske Linje af …", "Linjen Gallentin"). Alle fire led er trykt — en overset
+post eller gruppe forskyder intet, for der tælles ikke, der læses. segment.py sporer
+allerede linje/slaegtled/kuld for 2018-20, så 1939-varianten er regex-justering af
+en kendt model.
+
+Kendte detaljer til segmenteringen: OCR-fejl i romertal ("Tredje Slægtled IIL" →
+III, normaliseres); nogle grupper mangler afsnits-romertallet ("Slægtled." alene —
+leddet er da tomt); de 39 unummererede poster (stamfædre m.fl.) får slægtled-stien
++ bogens egen betegnelse i stedet for et opfundet tal. Skemaet skal BESTÅ
+perturbationstesten + entydighedsmåling på den nye segmentering FØR om-nøglingen
+af registeret (record_key → nyt skema, afstem_lokator-mønstret generaliseret til
+begge lokator-komponenter).
 
 ## Åbne forbehold
 
