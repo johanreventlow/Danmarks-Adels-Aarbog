@@ -94,6 +94,78 @@ ville genindføre fejlen. Det slugte linjetillæg er reelt genealogisk indhold
 (uplacerede personer, fx *"Hinrich von Reventlow – † før 1390"*) og hører hjemme
 på linjeniveau — `narrative.subjekt_type='slaegt'` findes allerede og bruges. Begge
 dele er separate opgaver.
+## Slægts-rod i lineage — LIVE i prod, begge trin (2026-07-28)
+
+Forberedelse til at andre slægter end Reventlow kan bo i samme base. Alle fem linjer havde
+`parent_lineage_id = NULL`, så intet knudepunkt repræsenterede selve slægten: slægtsnavnet stod
+gentaget på fem rækker, og en ny slægts linjer ville lægge sig sideordnet uden noget der bandt dem
+sammen. Nu findes én rod pr. slægt (`source_id`/`kode` = NULL, så den aldrig får medlemmer og er
+usynlig i app'ens linje-liste), og linjerne hænger under den.
+
+**Delt i to trin efter deploy-rækkefølge — begge nu kørt.** Trin 1 (rod + repegning + dublet-guard)
+er forward-kompatibel med *begge* web-versioner, fordi grenene beholdt deres eget `slaegtsnavn`;
+den kunne derfor køres uden at vente på app-deployet. Trin 2 (rydning af grenenes `slaegtsnavn`)
+blev kørt efter at PR #109 var merget og deployet, fordi den daværende web læste feltet råt og
+ellers ville have vist præsenslistens overskrift tom. Opdelingen var ikke formalitet: den fjernede
+tidsvinduet helt frem for at gøre det kort.
+
+Slægtsnavnet bor herefter kun på roden (id 6); alle fem grene har `slaegtsnavn = NULL` og udleder
+`Reventlow` via `lineage_effective_slaegtsnavn()`.
+
+**Verificeret mod prod efter hvert trin:** korpus-diff på `visning_efternavn`/`visning_fuldt_navn`
+for alle 1756 personer viser 0 forskelle mod før-tilstanden, `slaegtsnavn_karantaene` står på 0, alle 5
+grene udleder fortsat `Reventlow`, roden har 0 medlemmer, og `get_advisors(security)` er uændret på
+133 lints uden nye lineage-relaterede. Frisk backup taget før kørslen
+(`daa-prod-pre-slaegtsrod-20260728-141840.dump`, uden for git).
+
+**Fejlrettet antagelse undervejs.** `narrative.subjekt_type='slaegt'` med `subjekt_id=1` ligner en
+fremmednøgle til `lineage` 1 og blev i første omgang beskrevet som "slægtsteksten parkeret på linje
+I". Det er forkert: id'et er en *sentinel* for hele slægten, båret som konstant i begge apper
+(`SLAEGT_SUBJEKT_ID`), og `fetchAbout` filtrerer slet ikke på det. En planlagt flytning til roden
+ville have koblet redaktørfladens skrivesti fra læsestien. Flytningen er ude af migrationen, og en
+`db-verify`-assert fastholder det. `docs/reviews/flerslaegt-parathed-2026-07-28.md` er rettet.
+
+**Ikke løst her:** to slægter i samme årbog har begge en "Linje I", og `lineage UNIQUE
+(source_id, kode)` afviser den anden — bekræftet empirisk. Det er B1 i flerslægts-vurderingen og
+kræver en beslutning om nøglerummet før næste slægt loades.
+
+## Kilde vist for de 627 personer uden bog-nummer (2026-07-28)
+
+Brugerfund: mange personer stod uden kildeangivelse i følgesvenden (`Ada Jessie Howard Grøn`).
+Årsagen var visning, ikke data. `sourcesBy` bygges alene af `person_external_id`, som kun findes
+for personer bogen gav et eget opslag; de 627 ægtefæller har intet bog-nummer, så opslaget var tomt
+og `DetailPanel` skjulte hele "Kilde i Aarbogen"-blokken. 335 af dem er offentligt synlige.
+
+Proveniensen fandtes hele tiden — invariant 1 kræver at hvert faktum er kildebundet, så alle 1756
+personer har `fact → assertion → citation → source`. Målt mod prod har alle 627 **præcis én** kilde
+(0 flertydige) og 296 endda sidetal. Rollefordelingen blev derfor: bog-nummeret (`Linje II, nr. 4`)
+er den mest præcise reference og vinder hvor den findes, mens citationen er reglen der dækker alle.
+Ada konkret: id 841 → `DAA 2018-20`, id 1690 → `DAA 1939, s. 578` — matchet til hinanden, men da
+ingen af siderne har bog-nummer kunne `collapseSameAs` heller ikke redde det.
+
+Reglen ligger i `@daa/core` (`kildeProveniens.ts`), så web og mobil deler formatering. Wiringen er
+bevidst forskellig: web henter først når personen mangler bog-nummer (de ~1129 hovedposter betaler
+ikke for opslag de ikke bruger), mobil bulk-henter kun `navn`-faktaet — det ene faktum hver person
+beviseligt har. `citationRowsTilProveniens` findes fordi PostgREST returnerer et *objekt* for en
+til-én-relation mens de genererede typer siger *array*; web slap afsted med en cast, mobil gjorde
+ikke. Anon-adgang til `citation`/`assertion`/`fact` + det nestede source-join blev verificeret
+empirisk mod REST-API'et, ikke udledt af at en service-key-forespørgsel lykkedes.
+
+Ingen DB-ændringer. Merget som PR #105, CI grøn på alle 6 jobs (mobil-jobbet kørte de 2 suiter der
+fejler lokalt pga. manglende `@testing-library/react-native` i `node_modules` — install-drift, ikke
+kode). **Udestår:** visuel verifikation af blokken i den deployede web.
+
+**Målt undervejs, ikke rettet:**
+
+- **Køn mangler på 625 personer** — samme population (329 + 296 ægtefæller; hovedposter mangler 0).
+  Testet kontrafaktisk om det bremser tværudgave-matchningen: 625 af 629 kan udledes af partnerens
+  køn, men effekten er negativ (`auto` 267 → 258, `review` 3639 → 4003). `evidensNormaliseret`
+  normaliserer allerede over de signaler der kan vurderes, så et manglende køn koster intet dér.
+  Det er en visnings-/korrekthedssag, ikke en matchning-blokering, og kræver skrivning via
+  `red_set_koen`.
+- **Ægtefælle-dubletter behøver ikke egen liste.** `udledKilderForAegtefaeller` (#90) virker 100 %
+  (627/627 får udgave), og med fladens egen config (`evidensNormaliseret: true`) har 394 af de 431
+  umatchede ægtefæller mindst én kandidat. Arbejdet kan gøres i `SammenlignUdgaver` som det er.
 
 ## Kvalitetsark: navn_mangler-flaget var falsk på 1169 af 1757 rækker (2026-07-28)
 

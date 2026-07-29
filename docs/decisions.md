@@ -2,6 +2,99 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Delmængde-forældre: konflikt eller blot mindre detalje? ÅBEN (2026-07-29)
+
+`collapseSameAs` sætter to udgavers version af samme person i karantæne når deres forældresæt er
+"forskellige ikke-tomme sæt". Spørgsmålet: skal `{far}` mod `{far, mor}` tælle som **konflikt**
+(som i dag) eller som **forenelig, blot mindre detaljeret** — sådan som vi allerede har besluttet
+for datointervaller?
+
+**Målt 2026-07-29** på de 142 resterende karantæner (efter dubletoprydning og ~119 forældre-match):
+
+| Type | Antal | Betydning |
+|---|---|---|
+| **Delmængde** — den ene udgave siger mindre | **38** (27 %) | 1939 nævner kun faren; 2018-20 har begge. Den fælles forælder er allerede matchet |
+| **Delvist** — én fælles, hver side har én ekstra | 79 (56 %) | Blandet; nogle bliver delmængder når den ekstra forælder matches |
+| **Disjunkt** — ingen fælles forælder | 25 (18 %) | Overvejende stavevarianter (`Iven`/`Iwan`, `Hartvig`/`Hartwich`) der endnu ikke er matchet |
+
+To ting følger af tallene:
+
+- **De 38 kan aldrig løses ved matchning.** Der findes ingen 1939-person at koble moderen til —
+  bogen nævner hende ikke. De bliver stående uanset hvor meget matcharbejde der lægges i.
+- **De 25 disjunkte kan.** Der er præcis 25 umatchede forældre tilbage; tallene passer på hinanden.
+  Matches de, bliver parrene til delmængder — altså flytter de bare over i den første kategori.
+
+### Argumentet for at kalde det forenelighed
+
+Det er samme mønster som datoerne, hvor vi målte at bøgerne næsten aldrig er uenige — de er
+forskelligt præcise — og hvor reglen blev: *indeholdelse = enige, vis den fineste*. `{far}` ⊂
+`{far, mor}` er den samme relation. Konsekvens hvis kriteriet ændres: **38 grupper folder sammen
+med det samme**, og matcharbejdet får en langt lavere bund.
+
+### Argumentet imod
+
+Datointervaller er entydige; forældresæt er det ikke. To forskellige mænd ved navn Siwert med hver
+deres børn ville også folde sammen, hvis 1939 kun nævnte faren. Karantænen er i dag den
+konservative default — den gætter ikke, den parkerer — og den har vist sig at ramme rigtigt hidtil.
+
+### Hvad der skal afgøre det
+
+Ikke om delmængde *kan* betyde enighed, men om der findes en **diskriminator** der skiller de to
+tilfælde. Kandidater, ingen af dem undersøgt:
+
+- kræv at den fælles forælder er matchet **og** at barneparret i forvejen er enigt om navn og
+  datoer (så forældresættet ikke er eneste bevis)
+- begræns til det konkrete mønster: præcis 1 forælder på den ene side, præcis 2 på den anden, hvor
+  den ene er fælles — altså "moderen er ikke nævnt", ikke vilkårlige delmængder
+- lad det være et redaktionelt valg pr. tilfælde frem for en global regel: vis dem som en egen
+  kø ("den ene udgave nævner kun én forælder — er det samme person?")
+
+**Konsekvens for læseren så længe det står åbent:** de 38 vises som to personer i stedet for én.
+Det er synligt, men ikke forkert — og at folde dem forkert sammen ville være værre.
+
+Beslægtet: dato-reglen i
+`docs/superpowers/specs/2026-07-28-redaktoer-udgavefaner-design.md` §"Hvornår er to udgaver uenige
+om en dato?".
+
+## 1939-posternes permanente løbenummer: ÅBEN, og bevidst ikke sat endnu (2026-07-28)
+
+Brugerspørgsmål: er der en plan for at 1939-posterne får et permanent løbenummer
+(`person_external_id.record_key`)? **Nej — det er noteret tre gange samme dag af to
+uafhængige arbejdsspor, men aldrig planlagt.** Denne sektion findes for at det ikke skal
+genopdages en fjerde gang.
+
+**Hvorfor DAA 2018-20 kunne backfilles, og 1939 ikke kan.** 2018-20's `record_key` blev
+udledt af at filnavnene i `data/extracted-2026-06-18/*.json` selv *er* nøglen — identiteten
+fandtes i forvejen, den var bare ikke skrevet ind i basen. 1939 har ikke det: løbenumrene
+1–539 tildeles af `convert_1939_stamtavle.py` som en gennemløbende tæller hen over hele
+bogen. Konverterens egen header fastslår at nummer-ankeret derfor er "reelt dødt".
+
+- **Beslutning: ingen nøgle før korpuset ligger fast.** En permanent nøgle skal overleve at
+  bogen segmenteres om. Re-segmenteringen 2026-07-26 flyttede postgrænser i 216 narrativer;
+  havde numrene været brugt som nøgle, ville redaktionelle rettelser bagefter have hængt på
+  de forkerte personer. Fraværet af `record_key` er derfor **det rigtige valg indtil videre**,
+  ikke en forglemmelse.
+- **Konsekvens i dag:** 1939 kan læses og bruges som kilde — `red_set_konklusion` tager kun
+  et assertion-id og har intet ankerkrav, så en 1939-oplysning kan udmærket vælges som den
+  gældende. Kun `red_ret_ocr_felt` (transskriptionsrettelse) er spærret, fordi den forankrer
+  på `(import_key, record_key)`.
+- **Rækkefølge, når det tages op:** (1) dubletgennemgangen fra
+  `docs/reviews/dubletter-1939-2026-07-27.md` — ~30 par betyder at nogle poster skal væk, og
+  man giver ikke nøgler til poster der forsvinder; (2) nøglen på et korpus der ligger fast;
+  (3) redigerbarhed af 1939.
+- **Kandidater, ikke undersøgt:** artefaktet bevarer postens egen nummerering inde i sin
+  gruppe (`lokal_id`) og en intern post-id (`_id`) — begge fra kilden frem for opfundet af
+  konverteren. Om nogen af dem er stabil på tværs af re-segmentering er præcis det
+  spørgsmål en plan skal besvare.
+- **Fremadrettet krav (K4 i `docs/reviews/flerslaegt-parathed-2026-07-28.md`):** for nye
+  slægter sættes `record_key` **ved udtræk**, ikke ved backfill bagefter. Så opstår problemet
+  ikke igen.
+
+Beslægtet, men egen sag: de **627 gift-ind-ægtefæller** uden bogpost er ikke-redigerbare af
+samme grund (intet anker). Nøglen dér ville være forælderens `record_key` + indeks i
+`aegteskaber`, og `linje` SKAL være NULL, da `regen_person_visning()` ellers påhæfter
+slægtsnavnet til indgifte ægtefæller.
+
 ## Feedets GDPR-nødbremse: dødsevidens-gate + narrativ-minimum, kun i feed-laget (2026-07-25)
 
 **Implementeret på feature-branch, ikke deployet.** Ønske: aldrig vis en levende eller

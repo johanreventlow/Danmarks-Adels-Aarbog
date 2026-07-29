@@ -1,5 +1,5 @@
 // Mobilens enkle linje-metadata: titel/slægtsnavn + én signeret våben-URL samt præsens-intro.
-import { getAll } from '@daa/core';
+import { getAll, effektivtSlaegtsnavn } from '@daa/core';
 import { signPaths } from '../lib/media';
 import { supabase } from '../lib/supabase';
 
@@ -15,6 +15,8 @@ type RawLineage = {
   navn: string;
   slaegtsnavn: string | null;
   presens_kode: string | null;
+  // Slægtsnavnet bor på slægts-roden og arves ned; en gren har typisk selv NULL.
+  parent_lineage_id: number | null;
 };
 type RawRelation = { subjekt_id: number; objekt_id: number };
 type RawMedia = { id: number; storage_path: string | null };
@@ -49,7 +51,8 @@ export function mapPresensLinjer(
           .find((url): url is string => url != null) ?? null;
     out[lineage.presens_kode] = {
       titel: lineage.navn,
-      slaegtsnavn: lineage.slaegtsnavn,
+      // Arvet, ikke råt: efter slægts-rod-migrationen er grenens egen slaegtsnavn NULL.
+      slaegtsnavn: effektivtSlaegtsnavn(lineageRows, lineage.id),
       vaabenUrl,
     };
   }
@@ -60,7 +63,7 @@ export async function fetchPresensLinjer(): Promise<Record<string, PresensLinjeI
   if (!supabase) return {};
   const sb = supabase;
   const lineageRows = await getAll<RawLineage>(() =>
-    sb.from('lineage').select('id,kode,navn,slaegtsnavn,presens_kode'));
+    sb.from('lineage').select('id,kode,navn,slaegtsnavn,presens_kode,parent_lineage_id'));
   const lineageIds = lineageRows.map((lineage) => lineage.id);
   const vaabenRel = lineageIds.length
     ? await getAll<RawRelation>(() =>
