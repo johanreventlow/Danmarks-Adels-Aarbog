@@ -56,6 +56,51 @@ Beslægtet: dato-reglen i
 `docs/superpowers/specs/2026-07-28-redaktoer-udgavefaner-design.md` §"Hvornår er to udgaver uenige
 om en dato?".
 
+## Model-tier til GPT: terra som default, sol til eskalering (2026-07-29)
+
+Brugervalg efter kalibrering, jf. `tools/kalibrering/` og
+`docs/reviews/re-ekstraktion-forberedelse-2026-07-29.md`. Erstatter ikke
+juni-beslutningen om Claude-tierne; den gælder GPT-sporet til
+1939-re-ekstraktionen, valgt for at holde tokenforbruget ude af Claude-konteksten.
+
+**Kalibreringen:** 30 poster, stratificeret hvor det gik galt sidst — 10 gravsatte
+omtaler (facit kendt uden bogopslag), 10 med flere ægteskaber, 10 tætte biografier.
+Samme frosne prompt til begge modeller.
+
+| | `gpt-5.6-terra` | `gpt-5.6-luna` |
+|---|---|---|
+| Ugyldig JSON | 0 | 0 |
+| `er_omtale` på stratum A | **10/10** | **10/10** |
+| `kilde_span` ordret (blokerende, R7) | 96/96 | 82/82 |
+| Ægteskaber m. partnerdata | 26/26 | 26/26 |
+| `koen_kilde` sat | 24/30 | 18/30 |
+| **Embeder fundet** | **59** | **35** |
+| Godser fundet | 67 | 67 |
+
+- **Besluttet: `terra` på max effort som default, `sol` til poster valideringen flagger.**
+  Eskaleringsmønsteret findes allerede (`escalate_merge.py`).
+- **Begge modeller løser rygraden.** Ingen ugyldig JSON, ingen opfundne `kilde_span`,
+  alle ægtefæller dekomponeret, og begge fandt samtlige ti omtaler. Kontrakt-ændringen
+  bar mere end modelvalget gjorde.
+- **Forskellen er udtræksdybde:** terra finder 69 % flere embeder og mærker køn-kilden
+  oftere. Det er samme dimension juni-beslutningen målte for Haiku — klassifikations-
+  nuancer, ikke grundlæggende korrekthed.
+
+⚠ **Forbehold der ikke er lukket:** embede-forskellen (59 vs 35) er et *antal*, ikke en
+korrekthed. Om terras 24 ekstra er rigtige fund eller falske positiver kræver et
+menneskeligt facit på C-strata. Brugeren valgte bevidst at gå videre uden — beslutningen
+hviler derfor på at terra ikke er *dårligere* på nogen målt dimension, ikke på at de
+ekstra embeder er verificeret. `work/kalibrering/uenigheder.md` har de 24 uenige poster,
+hvis det senere skal afgøres.
+
+**Kalibreringens største udbytte var ikke modelvalget.** Den afslørede en fejl i
+kontrakten: `er_omtale`-kriteriet sammenblandede "dette er en omtale" med "denne tekst
+er klippet forkert", så terra loyalt markerede fire rigtige personer som omtaler. Ved
+fuld kørsel var de forsvundet tavst ud af korpus. Rettet med et selvstændigt felt
+`tekst_afhugget` (prompt-version 2026-07-29b); kontrolkørsel bekræftede at alle fem
+omstridte poster nu klassificeres rigtigt uden tab af data. **60 kald fandt en fejl der
+ellers ville være ramt 515 poster.**
+
 ## 1939-posternes permanente løbenummer: ÅBEN, og bevidst ikke sat endnu (2026-07-28)
 
 Brugerspørgsmål: er der en plan for at 1939-posterne får et permanent løbenummer
