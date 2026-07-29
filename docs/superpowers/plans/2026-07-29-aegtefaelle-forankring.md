@@ -45,7 +45,7 @@ record_key = <ankerpersonens record_key> + ':' + <ægteskabsnummer>
 For 463 af de 627 er ægteskabsnummeret altid 1 og kunne udelades — men det gør nøglen uensartet.
 Behold det altid; ensartethed er mere værd end kortere nøgler.
 
-## Den reelle udfordring: er ægteskabsnummeret stabilt?
+## Er ægteskabsnummeret stabilt? — undersøgt, ja
 
 `family_member.ordinal` findes allerede og bærer ægteskabsnummeret:
 
@@ -56,17 +56,67 @@ Behold det altid; ensartethed er mere værd end kortere nøgler.
 | **uden `ordinal`** | **20** |
 | værdier | 1–4 |
 
-Men det er **ikke entydigt pr. ankerperson**:
+### Hvor tallet kommer fra
+
+`derive_aegteskaber()` (`validate.py`) udleder det på to måder:
+
+```python
+if ord_positions:            # bogen skriver selv "1° … 2° …"
+    ordinal = int(ord_str)   # bogens eget tal
+else:
+    running_ordinal += 1     # tælling i tekstrækkefølge
+```
+
+Af 1939-artefaktets 38 poster med flere ægteskaber bærer **10** bogens egne `1°/2°`-markører;
+de øvrige 28 får tallet af tælleren.
+
+### ⚠ Retraktion (2026-07-29)
+
+En tidligere version af denne plan konkluderede at de 28 tællede tilfælde var
+**positionsafhængige og dermed skrøbelige**, på linje med 1939's `nr` og `linje='1939'`.
+**Den konklusion var forkert**, og planen skal ikke bygge på den.
+
+Efterprøvningen:
+
+- `segment_1939.py` klipper **sammenhængende udsnit** `(start, end)` af råteksten. Den omordner
+  aldrig. Ordene står i bogens rækkefølge.
+- `derive_aegteskaber(raw_text)` nulstiller `running_ordinal = 0` **pr. narrativ**, altså pr.
+  person — tallet løber ikke på tværs af poster.
+
+Tælleren reproducerer derfor **bogens egen implicitte rækkefølge**. Det stabile faktum man ville
+udlede af i en "gør nummeret solidt"-øvelse *er* bogens læserækkefølge — og det er præcis dét
+tælleren allerede bruger. Der er ikke noget mere stabilt at flytte den over på.
+
+### Den reelle rest-risiko, og hvad der fanger den
+
+`ordinal` er ikke selvstændigt skrøbelig. Den arver **én** skrøbelighed: om en `Gift`-klausul
+lander i den rigtige persons narrativ. Flytter en klausul person ved en fremtidig re-ekstraktion,
+er ægteskabet tilskrevet et forkert menneske — og da er nummeret det mindste af problemerne. Intet
+nummereringsskema opdager det.
+
+**Derfor: en re-ekstraktions-kontrol frem for en ny nummerering.** Efter enhver fremtidig
+re-ekstraktion kontrolleres pr. ankerperson at
+
+- antallet af ægteskaber er uændret, og
+- sættet af partnernavne er uændret
+
+sammenlignet med det der står i basen. Triller kontrollen for en person, **re-nøgles den person
+ikke** (fail-closed). Det fanger den fejl der faktisk kan ske, og som ingen nummerering fanger.
+
+### De 10 kollisioner er et dataproblem, ikke et talproblem
 
 | Ankerpersoner med flere ægteskaber | 89 |
 |---|---|
 | entydige ordinaler | 79 |
 | **kolliderer** (to unioner med samme eller manglende ordinal) | **10** |
 
-**De 10 kollisioner skal løses før `ordinal` kan bruges som nøgle.** En nøgle der peger på to
-rækker er værre end ingen nøgle: rettelsen ville lande vilkårligt.
+Med den nye forståelse skærpes tolkningen: er bogens rækkefølge stabil, og reproducerer tælleren
+den, så betyder to unioner med **samme** ordinal under én ankerperson at der er registreret **to
+unioner hvor bogen beskriver ét ægteskab**. Det er spøgelses-union-mønsteret, som er ryddet op
+før (`docs/changelog.md`, change_sets 3-7).
 
-Dette er planens egentlige arbejde. Resten er mekanik.
+**De 10 skal derfor afgøres mod bogen som dataoprydning.** Det er fortsat planens første skridt og
+dens egentlige arbejde — men det er oprydning, ikke nummerering.
 
 ## `linje` — hvad feltet faktisk gør, og hvem der bruger det rigtigt
 
@@ -134,14 +184,16 @@ noteres, så en fremtidig diff ikke tolker dem som noget planen forårsagede.
 ## Rækkefølge
 
 1. **Opgør de 10 ordinal-kollisioner** og afgør hver enkelt mod bogen. Uden dette kan nøglen ikke
-   sættes. Sandsynlig årsag: to unioner oprettet for samme person hvor bogen kun beskriver ét
-   ægteskab — jf. de tidligere "spøgelses-union"-fund. Nogle af dem kan vise sig at være
-   dataoprydning frem for nummerering.
+   sættes — en nøgle der peger på to rækker er værre end ingen nøgle, fordi rettelsen lander
+   vilkårligt uden fejlmelding. Forventet årsag: to unioner registreret hvor bogen beskriver ét
+   ægteskab (spøgelses-union). Altså dataoprydning.
 2. **Fyld de 20 manglende `ordinal`** ud fra bogens rækkefølge.
 3. **Backfill `record_key`** for de 627 — `linje` NULL, `nr` NULL.
 4. **Verificér:** korpus-diff 0 forskelle · ingen ny inkonsistent `visning_efternavn` ·
    ingen række med `linje='1939'` rørt · `red_person_grid` viser 331 flere redigerbare ·
    `get_advisors(security)` uændret.
+5. **Indfør re-ekstraktions-kontrollen** (antal ægteskaber + partnernavne pr. ankerperson,
+   fail-closed) som en del af pipelinens gate — ikke som en engangs-kontrol.
 
 **Gevinst:** 591 → 1218 redigerbare (34 % → 70 %).
 
