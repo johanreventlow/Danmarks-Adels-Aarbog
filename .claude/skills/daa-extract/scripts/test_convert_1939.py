@@ -562,3 +562,41 @@ def test_intet_range_indeholder_ikke_barn():
             lo, hi = p["boern"]["nr_range"]
             for n in range(lo, hi + 1):
                 assert nr2post[n].get("_link_foraelder_nr") == p["nr"]
+
+
+
+# --- Gravsten: `fjernet` markerer en post som bevidst fjernet fra korpus ---
+# Kravet der er let at bryde: taelleren skal taelle gravstenen MED, saa de
+# overlevende beholder deres `nr`. Springes posten over foer optaellingen,
+# rykker alle efterfoelgende et ned, og prods eksisterende `nr` peger paa de
+# forkerte personer.
+
+def _gravsten_recs(n, fjernede=()):
+    # Ankerloese poster uden gruppe -> hver sin unit, stabil dokumentorden.
+    return [{"_id": f"p{i}", "navn": f"Person {i}", "_ctx": {}, "_window": "w1",
+             **({"fjernet": "dublet"} if i in fjernede else {})}
+            for i in range(1, n + 1)]
+
+
+def test_gravsten_udelades_fra_output():
+    assert len(convert_all(_gravsten_recs(5, fjernede={2}), rapport={})) == 4
+
+
+def test_overlevende_beholder_deres_nr():
+    posts = convert_all(_gravsten_recs(5, fjernede={2}), rapport={})
+    assert {p["nr"] for p in posts} == {1, 3, 4, 5}, "nr maa IKKE forskyde sig"
+
+
+def test_flere_gravstene_i_traek():
+    posts = convert_all(_gravsten_recs(6, fjernede={2, 3, 4}), rapport={})
+    assert {p["nr"] for p in posts} == {1, 5, 6}
+
+
+def test_uden_gravsten_er_adfaerden_uaendret():
+    posts = convert_all(_gravsten_recs(4), rapport={})
+    assert {p["nr"] for p in posts} == {1, 2, 3, 4}
+
+
+def test_nr_label_foelger_nr_ved_gravsten():
+    for p in convert_all(_gravsten_recs(3, fjernede={1}), rapport={}):
+        assert p["nr_label"] == str(p["nr"])

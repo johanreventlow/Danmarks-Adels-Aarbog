@@ -693,7 +693,13 @@ def convert_all(records, rapport=None, narrative_map=None):
     for gi, unit in enumerate(units, start=1):
         har_gruppe = group_key(unit[0]) is not None
         for rec in unit:
+            # Tælleren tæller ALTID — også gravstene. Sprang vi en fjernet post
+            # over før optællingen, ville alle efterfølgende poster rykke ét ned,
+            # og prods eksisterende `nr` ville pege på de forkerte personer.
+            # Gravstenen fjernes derfor FRA OUTPUT, ikke fra nummereringen.
             nr += 1
+            if rec.get("fjernet"):
+                continue
             p = convert_record(rec, nr)
             scope = linje_af_id[rec["_id"]]
             p["_linje_scope"] = {

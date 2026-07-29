@@ -22,7 +22,11 @@ import sys, os, re, json, argparse
 ALLOWED_TOP = {"linje", "nr", "nr_label", "usikker", "navn", "tilnavn", "koen",
                "facts", "godser", "embeder", "aegteskaber", "boern",
                "begivenheder", "narrative", "_escalated",
-               "kuld", "aegteskab_kontekst"}
+               "kuld", "aegteskab_kontekst",
+               # Gravsten: posten er bevidst fjernet fra korpus (dublet/fejludtræk).
+               # Værdien er begrundelsen. Konverteren tæller den med i nr-tildelingen
+               # men udelader den fra output — se convert_1939_stamtavle.convert_all.
+               "fjernet"}
 
 # Kontrolleret vokabular (invariant #9): flag drift/fejl som advisory.
 try:
