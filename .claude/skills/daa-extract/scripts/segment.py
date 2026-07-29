@@ -45,6 +45,12 @@ def flush(posts, cur):
     if cur and cur.get('_lines'):
         cur['sider'] = (str(cur['_pages'][0]) if cur['_pages'][0] == cur['_pages'][-1]
                         else f"{cur['_pages'][0]}-{cur['_pages'][-1]}")
+        # Lokator-halvdelen (identitetsregisteret): bogens egen strukturelle
+        # adresse. (linje, nr_label) er bogens unikke nøgle (se docstring), så
+        # lokal_id er unik pr. udgave — og TRYKT, ikke beregnet: en overset
+        # post forskyder ingen naboers identitet. Mangler linje-konteksten
+        # sættes None frem for et gæt; R9-gaten blokerer posten nedstrøms.
+        cur['lokal_id'] = f"{cur['linje']}.{cur['nr_label']}" if cur.get('linje') else None
         cur['raw_text'] = norm(' '.join(cur.pop('_lines')))
         cur.pop('_pages')
         posts.append(cur)
