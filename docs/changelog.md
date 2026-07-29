@@ -1,5 +1,41 @@
 # Changelog
 
+## 2018-20: bogens apparat bløt ind i sidste posts narrativ (2026-07-29)
+
+Brugeren bemærkede at person 391 — en nulevende, født 2001 — havde et narrativ
+med indhold fra 1700-tallet. Det var ikke en anden persons biografi, men bogens
+**portrætfortegnelse**: én korrekt sætning efterfulgt af billedtekster med 21
+krydsreferencer.
+
+**Rodårsag:** IV-94 er den sidste post i linje IV. Segmenteringen skar "fra
+overskrift til sektionens slut" og slugte alt efterstillet apparat. Systematisk,
+ikke tilfældigt: fire af fem linjers sidste post var ramt — I-133 (person 39),
+II-35 (165) og III-129 (205) havde slugt linjetillægget *"Til denne linje hørte
+formentlig…"*, III-129 og IV-94 (391) desuden portrætfortegnelsen. V-200 var ren.
+Ingen andre af de 591 narrativer havde mønstret, målt på tre uafhængige signaler
+(tillægsmarkør, billedtekst-ord, krydsreference-tæthed).
+
+**Kontrolleret at intet manglede den modsatte vej:** alle 591 personer har et
+narrativ, og de 71 helt korte er ægte ("Barn.", "Cord – † ung.", "Gottschalk von
+Reventlow, se II. Linjen Gallentin."), også de 7 hvor en kort post følger en meget
+lang forgænger. Indblødningen er ensidig — sidste post sluger efterstillet stof,
+men stjæler ikke fra naboen.
+
+**Ingen persondatalækage:** anon får 0 rækker for den nulevendes narrativ; RLS-
+gaten holdt hele tiden. Verificeret.
+
+Trimmet i `change_set` 787 inde i et `begin_change_set`, så `log_change`-triggeren
+fangede før-billedet: **12.469 tegn bevaret i `change_event.foer`**, 1.014 tegn
+tilbage. Fuldt fortrydbart — teksten er ikke destrueret. Rehearset mod prod i en
+rullet-tilbage transaktion først; alle fire trimninger ender på en afsluttet
+sætning. Efter: 0 tillæg, 0 billedord, max krydsreferencer i hele korpus = 0.
+
+**Udestår:** selve segmenteringen er ikke rettet, så en genekstraktion af 2018-20
+ville genindføre fejlen. Det slugte linjetillæg er reelt genealogisk indhold
+(uplacerede personer, fx *"Hinrich von Reventlow – † før 1390"*) og hører hjemme
+på linjeniveau — `narrative.subjekt_type='slaegt'` findes allerede og bruges. Begge
+dele er separate opgaver.
+
 ## Kvalitetsark: navn_mangler-flaget var falsk på 1169 af 1757 rækker (2026-07-28)
 
 Brugeren spurgte hvorfor `navn_mangler` stod ved alle. Måling: **1169 flag, nul
