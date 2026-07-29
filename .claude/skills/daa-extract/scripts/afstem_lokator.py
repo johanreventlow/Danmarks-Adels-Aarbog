@@ -16,6 +16,11 @@ Den gamle side gemmes i `begrundelse` — en versioneret observation frem for
 en overskrivning (Codex-review 2026-07-29: mint aldrig om; flyt adressen og
 lad id'et stå).
 
+AFGRÆNSNING (Codex-review 2026-07-29, fund 4): dette er BASELINE-afstemning,
+ikke en matcher. Scriptet virker kun fordi det nuværende artefakt allerede
+bærer record_key. For et FRISK udtræk er opgaven netop at finde record_key —
+det gør reconcile() + menneskelig afgørelse af tvetydige, aldrig dette script.
+
 Kør:
   python3 afstem_lokator.py            # afstemmer 1939-registeret in place (med backup)
   python3 afstem_lokator.py --dry-run  # viser kun hvad der ville ske

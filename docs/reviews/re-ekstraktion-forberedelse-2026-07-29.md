@@ -195,14 +195,29 @@ var præcis dét der gjorde ægteskabsnummeret ubrugeligt som nøgle.
    til `2026-07-29`. K1-K3 kræver ingen kontraktændring — kun at kontrakten faktisk bruges.
 2. **Kalibrér** (Del 1) på ~30 stratificerede poster. Skriv beslutningen i `decisions.md`.
 3. **Kør fuldt udtræk** med den valgte model + eskalering.
-4. **Afstem mod identitetsregisteret** — `reconcile()` afgør hvilke poster der er de samme.
-   Tvetydige stopper fail-closed og kræver menneskelig afgørelse.
-5. **Load** — record_key følger med fra registeret, så de 613 match overlever.
+4. **Afstem mod identitetsregisteret** — `reconcile()` FORESLÅR hvilke poster der er de samme.
+   Tvetydige stopper og kræver menneskelig afgørelse. Eksakte hit hvor en anden aktiv post deler
+   `lokal_id` inden for driftvinduet (10 sider) demoteres OGSÅ til tvetydige — perturbationstesten
+   viste at et eksakt hit under sidedrift kan være en nabos nøgle (nabo-vagten, Codex-review
+   2026-07-29 fund 2). Udestående proces-trin efter reconcile: menneskelig afgørelse af tvetydige,
+   writeback af id til artefaktet, håndtering af nye poster og bortfaldne.
+5. **Load** — ⚠ **UAFKLARET BLOCKER (Codex-review 2026-07-29 fund 3):** loaderen kan i dag kun
+   *append* (opretter ny source + NYE personer; samme import_key rammer source-unikheden) eller
+   *reset* (truncater bl.a. relation, person_external_id, person, source). Ingen af delene fører
+   redaktionelt arbejde over: de 613 samme_som-match hænger på person-id, og kun
+   `import_korrektion` har replay. At record_key følger med i artefaktet gør en fremtidig upsert
+   MULIG — men upsert-/replay-laget findes ikke og skal designes og bygges FØR load
+   (jf. docs/superpowers/plans/2026-07-02-daa-reimport-fire-etaper.md om differentiel reload).
 
 ## Åbne forbehold
 
 - `reconcile()` er unit-testet, men **aldrig kørt mod et rigtigt nyt udtræk**. Trin 4 er det første
   virkelige møde med den funktion, og den bør køres i tørløb først.
+- **Loaderen er ikke et migrationsværktøj.** Se blockeren under trin 5 — re-ekstraktionens
+  resultat kan ikke loades oven i eksisterende redaktionelt arbejde uden et nyt upsert/replay-lag.
+- **`afstem_lokator.py` er baseline-afstemning, ikke matcher** (Codex-review 2026-07-29 fund 4):
+  den kræver at artefaktet allerede bærer record_key. For et frisk udtræk er opgaven netop at
+  FINDE record_key — det gør reconcile() + menneskelig afgørelse.
 - Kalibreringen forudsætter et håndlavet facit for ~30 poster. Det er manuelt arbejde mod bogen og
   bør laves af en der kan læse gotisk sats.
 - K8 (hændelser) er medtaget som beslutning, ikke som krav.

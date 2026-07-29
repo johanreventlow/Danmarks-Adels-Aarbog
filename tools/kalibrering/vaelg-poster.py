@@ -98,6 +98,10 @@ def main():
                 "stratum": stratum,
                 "nr": n,
                 "side": side.get(n),
+                # lokal_id skal med, ellers fejler kalibrerings-udtræk på
+                # R9-gaten og kan ikke afprøve lokator-flowet (Codex-review
+                # 2026-07-29, fund 1: batchen havde side men ikke lokal_id).
+                "lokal_id": alle[n].get("lokal_id"),
                 "linje": "1939",
                 "nr_label": str(n),
                 "raw_text": tekst,
