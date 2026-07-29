@@ -1,5 +1,19 @@
 # Changelog
 
+## Personers OCR-kvalitetsark — røgtest udført, arket i drift (2026-07-29)
+
+Den manuelle redaktør-røgtest fra runbookens §4 er kørt af brugeren i browseren og meldt OK —
+inklusive prøvekørsels-punktet, der bekræfter at panelet nægter at gemme mens dry-run er slået til.
+`smoke_verified` er dermed opnået, og kvalitetsarket er i fuld drift for de poster der har et
+importanker.
+
+**Rækkevidde målt samme dag:** 591 af 1733 personer (34 %) er redigerbare — alle DAA 2018-20's
+hovedposter, 100 %. De øvrige 1142 er blokeret af samme rod: `red_ret_ocr_felt` forankrer på
+`(import_key, record_key)`, og de mangler det ene eller begge. To planer udestår, ingen af dem
+skrevet: 1939-identitet (811 personer, blokeret af en åben beslutning) og ægtefælle-forankring
+(627 personer, ikke blokeret af noget). De overlapper på de 296 1939-ægtefæller, som rammes af
+begge.
+
 ## 1939: Den fyenske Linje fik egen linje og omstridt slægtskab (2026-07-29)
 
 De 26 personer i DAA 1939s linje VI kan aldrig matches mod DAA 2018-20, fordi

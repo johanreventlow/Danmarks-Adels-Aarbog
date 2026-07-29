@@ -114,22 +114,49 @@ cursor-paginering designes som en **selvstændig opfølgning** — ikke som en s
 
 ---
 
-## 4. Udestående: manuel redaktør-røgtest (blokeret uden browser)
+## 4. Manuel redaktør-røgtest — UDFØRT (2026-07-29)
 
-Følgende kan ikke afgøres automatisk og mangler før `smoke_verified`. Køres ved
-skrivebordsbredde af en redaktør:
+**Udført af brugeren i browseren, meldt OK.** `smoke_verified` er dermed opnået, og
+kvalitetsarket er i fuld drift for de poster der har et importanker (se §4.1).
 
-- [ ] Skift Liste ↔ Kvalitetsark; bekræft at "Alle personer" er valgt fra start
-- [ ] Kombinér QA-preset, fritekstsøgning og kilde-/linjefilter
-- [ ] Sortér hver redigerbar kolonne, begge retninger; tjek at tomme datoer lander sidst
-- [ ] Åbn en blokeret række i den eksisterende editor via "Åbn person"
-- [ ] Ret ét felt; godkend ét felt; udskyd ét felt
-- [ ] Genindlæs browseren og bekræft at tilstanden holder
-- [ ] Læs panelets ordlyd: skal sige "OCR-kontekst" og indeholde noten om at det ikke
+- [x] Skift Liste ↔ Kvalitetsark; bekræft at "Alle personer" er valgt fra start
+- [x] Kombinér QA-preset, fritekstsøgning og kilde-/linjefilter
+- [x] Sortér hver redigerbar kolonne, begge retninger; tjek at tomme datoer lander sidst
+- [x] Åbn en blokeret række i den eksisterende editor via "Åbn person"
+- [x] Ret ét felt; godkend ét felt; udskyd ét felt
+- [x] Genindlæs browseren og bekræft at tilstanden holder
+- [x] Læs panelets ordlyd: skal sige "OCR-kontekst" og indeholde noten om at det ikke
       er en gengivelse af den trykte side
-- [ ] **Prøvekørsel:** bekræft at panelet nægter at gemme, mens prøvekørsel er slået
+- [x] **Prøvekørsel:** bekræft at panelet nægter at gemme, mens prøvekørsel er slået
       til, og forklarer hvorfor (se §6)
-- [ ] Notér browserens rendertid ved fuld datamængde (§3.2)
+- [x] Notér browserens rendertid ved fuld datamængde (§3.2)
+
+### 4.1 Hvor langt rækker arket i dag
+
+Målt mod prod 2026-07-29 (1733 personer efter dubletoprydningen):
+
+| Bånd | Personer | Redigerbare |
+|---|---|---|
+| **DAA 2018-20 hovedposter** | 591 | **591 (100 %)** |
+| DAA 2018-20 ægtefæller | 331 | 0 |
+| DAA 1939 hovedposter | 515 | 0 |
+| DAA 1939 ægtefæller | 296 | 0 |
+| **I alt** | **1733** | **591 (34 %)** |
+
+Alle 1142 blokerede har samme rod: `red_ret_ocr_felt` forankrer på
+`(import_key, record_key)`, og de mangler det ene eller begge. To udestående planer
+dækker resten — ingen af dem er skrevet:
+
+1. **1939-identitet** (811 personer: 515 hovedposter + 296 ægtefæller). Blokeret af en
+   åben beslutning, se `docs/decisions.md` → "1939-posternes permanente løbenummer".
+   Rækkefølge: dubletgennemgangen først.
+2. **Ægtefælle-forankring** (627 personer). Nøglen skulle være forælderens `record_key`
+   + indeks i `aegteskaber`, og `linje` SKAL være NULL — ellers påhæfter
+   `regen_person_visning()` slægtsnavnet til indgifte ægtefæller. Ikke blokeret af
+   noget andet.
+
+De to overlapper: de 296 1939-ægtefæller rammes af **begge**, og løses kun den ene,
+forbliver de blokerede.
 
 ---
 
