@@ -50,8 +50,17 @@ Ingen ny personpost opfindes, og `person_external_id` beholder sin betydning.
 | `import_korrektion` | måltype + målnøgle-kolonner; unikhed over `(import_key, anker_record_key, aegteskab_noegle, partnerfelt)` |
 | fingeraftryk | skal inkludere de nye dimensioner, ellers kan to omtaler kollidere |
 | `red_ret_ocr_felt` | skal kunne opløse **præcis ét** anker, **ét** ægteskab, **én** partner. I dag kræver den at ankerpersonen *er* den redigerede person (`schema.sql:443-474`) |
+| **DB-bærer (manglede i første udgave)** | ny kolonne på `family`/`family_member` der bærer `aegteskab_noegle` — uden den kan journalnøglen ikke opløses til en række. Basen har i dag kun `ordinal`, som §4 erklærer ubrugelig |
 | loader | skal replaye rettelsen inde i `aegteskaber` **før** partnerpersonen materialiseres |
+| `has_reset_blocking_editorial_changes()` | whitelister KUN strengen `'red_ret_ocr_felt'` (`load_helpers.R:42`). Nyt operationsnavn → reset blokeres altid; genbrugt navn → reset tillades før loaderen kan replaye. Helper + loader skal opdateres **senest samtidig** med RPC'en |
 | kvalitetsark | ægtefællerækker skal vise hvilket anker de hænger på |
+
+**Gate på partner-opløsning:** anker og ægtefælle har *begge* `rolle='partner'`, og
+`partner_ekstern_ref`-grenen (`load_daa.R:379-386`) kan linke en eksisterende, **ankret** person som
+partner. For sådan en person findes der så to skrivestier til samme assertion (record_key-stien og
+omtale-stien) med hver sin journalnøgle → dobbelt-journal og fingerprint-drift. Omtale-stien skal
+derfor **kun** tillades når partneren ikke har eget anker. Bemærk også: `red_ret_ocr_felt` kræver
+i dag at personen har præcis ét anker i alt (`schema.sql:471-474`) — det krav skal genbesøges.
 
 ## 4. Den svære del: `aegteskab_noegle`
 
@@ -77,26 +86,38 @@ løbenummer"): id, fysisk lokator, status, matchhistorik — og fail-closed ved 
 
 **Ægtefælle-identitet kan derfor ikke løses før 1939-hovedposternes identitet er løst.**
 
-## 5. Hvad der KAN gøres uafhængigt
+## 5. Hvad der KAN gøres uafhængigt — de 331 fra 2018-20
 
-De **331 ægtefæller fra DAA 2018-20**: deres ankerpersoner har allerede stabile `record_key`.
+**Dette afsnit har svinget mellem to yderpunkter; begge var forkerte** (dual-review 2026-07-29,
+se `docs/reviews/aegtefaelle-plan-dual-review-2026-07-29.md`).
 
-Men de har stadig brug for en stabil `aegteskab_noegle`. For dem hvor ankerpersonen kun har ét
-ægteskab, kunne nøglen i princippet være konstant — **men §4's kardinalitets-indvending gælder også
-her.** Uden en varig ægteskabsnøgle er selv de 331 ikke sikre.
+- *"Realistisk gevinst: 0"* var en **over-korrektion**: 2018-20 behøver ikke et register af
+  1939-kaliber. Ankeridentiteten er stabil (`record_key` = filnavnet i
+  `data/extracted-2026-06-18/`), så reconciliation efter en re-ekstraktion er intra-post — typisk
+  ét ægteskab — ikke 1939's fulde postidentitets-problem.
+- *"Én linje skrevet tilbage i artefaktfilen"* var en **under-korrektion**: snapshot-mappen læses
+  af ingen kode (loaderen tager ét `clean.json`, `load_daa.R:6`; grep viser kun docs-referencer),
+  en ny top-level-property fejler R5 fail-closed (`validate.py:22,769`), og nøglen mangler under
+  alle omstændigheder en DB-bærer (§3).
 
-**Realistisk gevinst uden identitetsregister: 0.** Det er ubehageligt, men det er konklusionen.
+**Den reelle kanal for de 331:** nøglen mintes som *nested* property i `aegteskaber`-objekterne i
+det artefakt loaderen faktisk læser, plus validate-passthrough, loader-læsning og DB-kolonnen fra
+§3. Overkommelig — men fire lag, ikke én linje.
+
+**Gevinst i to trin:** 331 personer uden 1939-registeret · yderligere 296 når 1939 har identitet.
 
 ## 6. Rækkefølge
 
-1. **Afstem artefaktet med prod.** `linked_clean.json` og `clean_1939.json` har 539 poster; prod
-   har 515. De 23 slettede dubletter findes kun i basen, og `person_external_id` står på loaderens
-   reset-liste (`load_helpers.R:74-78`) — en genindlæsning ville genskabe dem. **Ingen nøgle må
-   mintes før dette er gjort.**
+1. **Afstem 1939-artefaktet med prod.** Artefakterne har 539 poster; prod har 515. Regnestykket er
+   539 − 1 − 23: **`nr` 43 blev aldrig loadet** (mangler i prod-dump fra før sletningerne) og 23
+   dubletter er siden slettet — begge dele findes kun i basen, og `person_external_id` står på
+   loaderens reset-liste (`load_helpers.R:74-78`), så en genindlæsning ville genskabe dubletterne
+   og genindføre spørgsmålet om nr 43. **Ingen nøgle må mintes før dette er gjort.**
 2. **Etablér identitetsregisteret** for 1939-hovedposter (fysisk lokator + opaque id + fail-closed
    reconciliation). Fælles forudsætning for §4 og for 1939's egen `record_key`.
 3. **Udvid `import_korrektion`** med måltype/målnøgle + fingeraftryk.
-4. **Omskriv `red_ret_ocr_felt`** til at kunne forankre på en omtale.
+4. **Omskriv `red_ret_ocr_felt`** til at kunne forankre på en omtale — og opdater
+   `has_reset_blocking_editorial_changes()` + loader-replay **i samme leverance** (§3).
 5. **Backfill og verificér** (§8).
 
 ## 7. Hvorfor den første form blev forkastet
@@ -106,6 +127,7 @@ her.** Uden en varig ægteskabsnøgle er selv de 331 ikke sikre.
 | 1 | ægteskabsnummeret er positionsafhængigt og skrøbeligt | — (viste sig rigtigt, men begrundet forkert) |
 | 2 | nummeret er stabilt, fordi tælleren følger bogens rækkefølge | **analyserede forkert kodesti** — `derive_aegteskaber` skriver aldrig ordinalen |
 | 3 | de 463 med ét ægteskab kan nøgles risikofrit | **kardinalitet er ikke en varig egenskab** — et ægteskab nummer to kan dukke op |
+| 4 | derfor er gevinsten 0 uden identitetsregister | **over-korrektion** — 2018-20's ankeridentitet er stabil; kun 1939 kræver registeret (§5) |
 
 Fælles mønster: hver version antog at *noget i det nuværende udtræk* kunne bære identitet. Det kan
 intet af det. Se `docs/decisions.md` for den fulde vurdering af kandidaterne.
@@ -119,8 +141,11 @@ intet af det. Se `docs/decisions.md` for den fulde vurdering af kandidaterne.
   planen forårsagede
 - ingen række med `linje = '1939'` rørt
 - `get_advisors(security)` uændret
-- rettelser skal være **reload-durable** (artefakt eller `post_load_fixup.R`-mønstret) —
-  `person_external_id` og `import_korrektion` nulstilles begge ved reset
+- rettelser skal være **reload-durable**. Præcisering efter dual-review: `person_external_id`
+  nulstilles ved reset, men **`import_korrektion` gør ikke** — journalen står bevidst uden for
+  `loader_model_tables()` (`load_daa.R:285`, `load_helpers.R:75-79`) og replayes efter reset.
+  Journal-tilgangen i §3 er altså reload-durable **by design**; det er endnu et argument for den
+  frem for syntetiske `person_external_id`-rækker
 
 ## 9. Åbne forbehold
 
