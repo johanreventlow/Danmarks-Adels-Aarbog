@@ -72,12 +72,33 @@ genudtræk — det er den asymmetri der afgør at kalibreringen skal køres.
 
 ---
 
-## Del 2 — Hvad SKAL udtrækkes (målt mangel, ikke ønskeliste)
+## Del 2 — Hvad SKAL udtrækkes
 
-Målt mod prod 2026-07-29. Sammenligningsgrundlaget er DAA 2018-20, som er udtrukket med den
-nuværende kontrakt og fungerer.
+> ⚠ **Rettelse (2026-07-29, efter at have læst kontrakten frem for kun databasen).**
+> Første udgave af dette afsnit opstillede ti krav som om kontrakten manglede dem. Det var forkert.
+>
+> **DAA 1939 blev aldrig udtrukket med `extraction-schema.json`.** Artefakternes nøgler er en helt
+> anden, ad hoc-form:
+>
+> ```
+> 2018-20:  facts[] · embeder[] · begivenheder[] · tilnavn · boern    ← kontrakten
+> 1939:     foedsel{} · doed{} · erhverv[] · _ctx · lokal_id · flags  ← noget andet
+> ```
+>
+> 1939-artefaktet har **intet `facts`-array, intet `embeder`, intet `begivenheder`**. Derfor mangler
+> otte faktatyper: der var ingen kasse at lægge dem i. Modellen overså dem ikke.
+>
+> **Konsekvens: en re-ekstraktion med den faktiske frosne kontrakt retter K1, K2 og størstedelen af
+> K3 uden en eneste ny regel.** Kun tre ting manglede reelt i skemaet — de er nu tilføjet (K4b, K9,
+> K10 nedenfor).
+>
+> Læringen er metodisk: jeg målte hvad databasen manglede og sluttede tilbage til kontrakten.
+> Kontrakten skulle have været læst først.
 
-### K1 — Faktatyper 1939 slet ikke har
+Målt mod prod 2026-07-29. Sammenligningsgrundlaget er DAA 2018-20, som **er** udtrukket med den
+frosne kontrakt og fungerer.
+
+### K1 — Faktatyper 1939 slet ikke har *(rettes af kontrakten alene)*
 
 | Faktatype | 2018-20 | **1939** |
 |---|---|---|
@@ -93,7 +114,7 @@ nuværende kontrakt og fungerer.
 Otte typer, nul forekomster. Bogen fra 1939 *indeholder* dåbsdatoer og dekorationer — de blev bare
 ikke udtrukket. **Kontrakten skal kræve dem eksplicit**, ikke bare tillade dem.
 
-### K2 — Embeder og hverv: 1939 har ingen
+### K2 — Embeder og hverv: 1939 har ingen *(rettes af kontrakten alene)*
 
 ```
 personer med embede-relation:   2018-20: 150      1939: 0
@@ -102,7 +123,7 @@ personer med embede-relation:   2018-20: 150      1939: 0
 506 embede-relationer i alt, **ingen** fra 1939. Det er den største enkeltmangel, og den rammer
 netop de personer bogen skriver mest om.
 
-### K3 — Ægtefæller: kun et navn
+### K3 — Ægtefæller: kun et navn *(delvist i kontrakten: `partner_foedsel`/`_daab`/`_doed` fandtes, men blev brugt 0 %)*
 
 ```
 snit fakta pr. ægtefælle:   2018-20: 2,62      1939: 1,00
@@ -113,10 +134,13 @@ snit fakta pr. ægtefælle:   2018-20: 2,62      1939: 1,00
 viser at det kan lade sig gøre. Se også omtale-journal-planen: ægtefællens felter skal kunne rettes,
 og det forudsætter at de findes.
 
-### K4 — Køn
+### K4 — Køn *(reel mangel i skemaet — nu tilføjet)*
 
-625 personer uden `koen`, alle ægtefæller. Kontrakten skal kræve køn på **enhver** navngiven person,
-også dem der kun optræder i en ægteskabsklausul.
+625 personer uden `koen`, alle ægtefæller. Årsagen er konkret: skemaet havde `koen` på posten, men
+**intet `partner_koen`** på ægteskabet. Gift-ind ægtefæller har ingen egen post, så der fandtes
+bogstavelig talt intet felt at skrive deres køn i.
+
+**Tilføjet 2026-07-29:** `partner_koen` + `partner_koen_kilde`.
 
 ### K5 — Navne må ikke være sætninger
 
@@ -143,14 +167,14 @@ navnesammenligningen fra ~0,86 til 0,54 og forhindrer tværudgave-match.
 fyldt. Det er et selvstændigt LLM-pass (`/daa-haendelser`) og hører ikke nødvendigvis i denne
 re-ekstraktion — men beslutningen bør tages bevidst, ikke ved forglemmelse.
 
-### K9 — Omtaler må ikke blive personer
+### K9 — Omtaler må ikke blive personer *(reel mangel — nu tilføjet)*
 
 Den dyreste fejl sidst: oversigtsprosa gav ~30 spøgelsesposter. Modellen *så* det selv — den
 skrev `_ctx.gruppe = "narrativ-kæde (…)"`. **Kontrakten skal kræve et eksplicit felt**
 (`er_omtale: true`) frem for at lade det ligge i en fritekst-etiket, så valideringen kan gate på
 det i stedet for at nogen skal opdage det bagefter.
 
-### K10 — Modellen skal deklarere sin egen usikkerhed
+### K10 — Modellen skal deklarere sin egen usikkerhed *(reel mangel — nu tilføjet)*
 
 Hvor et felt beror på modellens skøn frem for bogens ord, skal det fremgå:
 
@@ -164,8 +188,11 @@ var præcis dét der gjorde ægteskabsnummeret ubrugeligt som nøgle.
 
 ## Del 3 — Rækkefølge
 
-1. **Opdatér kontrakten** (`extraction-schema.json` + `extract-prompt.md`) med K1-K10. Bump
-   `prompt-version`, så kørsler kan sammenlignes.
+1. ~~**Opdatér kontrakten**~~ ✅ **udført 2026-07-29.** `extraction-schema.json` fik `er_omtale`,
+   `koen_kilde`, `ordinal_kilde`, `partner_koen`, `partner_koen_kilde`, `partner_titel`,
+   `partner_godser` + skærpet `navn`-beskrivelse. `extract-prompt.md` fik en blokerende
+   `er_omtale`-sektion, krav om ægtefælle-dekomponering og skøn-mærkning; `prompt-version` bumpet
+   til `2026-07-29`. K1-K3 kræver ingen kontraktændring — kun at kontrakten faktisk bruges.
 2. **Kalibrér** (Del 1) på ~30 stratificerede poster. Skriv beslutningen i `decisions.md`.
 3. **Kør fuldt udtræk** med den valgte model + eskalering.
 4. **Afstem mod identitetsregisteret** — `reconcile()` afgør hvilke poster der er de samme.
