@@ -36,6 +36,61 @@ SLGT_RE    = re.compile(r'^\s*(\w+)(?:\s*\((\w+)\))?\s+slægtled\s*$', re.I)
 MARR_RE    = re.compile(r'^\s*((?:af [\w ]+ ægteskab )?med .+):[\s\-–—]*$', re.I)
 NOISE_RE   = re.compile(r'^\s*(von\s+R\s*E.*|Ridder\s+.+sønner)\s*$', re.I)
 
+# 1939 har en anden typografi og dermed andre sikre grænser. Regexerne bor
+# samlet i udgaveprofilen nedenfor; de må ikke "forbedre" 2018-20-matchene.
+# NB: bevidst \s{0,2} efter ?-præfikset — et \s* dér åd vilkårlig indrykning
+# og gjorde indrykningskravet virkningsløst (indledningens dybt indrykkede
+# oversigtslister "1. Geheimeraad D i 11 e v" slap ind som poster).
+POST_1939_RE = re.compile(
+    r'^\s{0,4}(\??)\s{0,2}(\d{1,3})\s*([a-z]?)\.\s+(\S.*)$',
+    re.I | re.UNICODE,
+)
+SLGT_1939_RE = re.compile(r'^([a-zæøå]+)slægtled[,.]?$', re.I)
+# Tolerer OCR-støj omkring romertallet — målt: "' i.", "II. .", "• IV.", "VIL".
+AFSNIT_1939_RE = re.compile(r"^\s{10,}[•'‘’\s]*([ivxl]{1,6})[.,]?[\s.]*$", re.I)
+# Gruppebeskrivelse ("Einert Carl Detlef Greve Reventlows Børn med …:") — kan
+# være ombrudt over op til 3 linjer og er GRUPPEGRÆNSE i sig selv: mindst én
+# gruppe (målt: IV.Sjette, s. 571) har INGEN centreret roman i OCR, kun
+# beskrivelsen. 'Slægtled' i teksten udelukker (så pegepinde aldrig rammer).
+GRUPPEBESKRIVELSE_1939_RE = re.compile(
+    r"Reventlows?\s+(?:Børn|Døtre|Sønner|Søn|Datter)\b[^:]*:\s*$", re.I)
+# Indledningens centrerede sektionsoverskrifter ("Den ældre meklenborgske
+# Linje.") skiller fællesstammens undersektioner, som genbruger romertal.
+# Må KUN bruges FØR første blok-linje-header — som generel linje-detektion
+# fejlramte formen indledningens prosa (deraf fjernelsen ovenfor).
+STAMME_SEKTION_1939_RE = re.compile(
+    r'^\s{6,}(?:Den\s+(.{3,40}?)\s+Linje\w*|Linjen\s+(\w+))\.\s*$', re.I)
+LINJE_NAMED_1939_RE = re.compile(r'^\s*Linjen\s+(.+?)\.\s*$', re.I)
+LINJE_ROMAN_1939_RE = re.compile(r'^\s*([IVXL]+)\s+.+\bLinje\b.*$', re.I)
+LINJE_ROMAN_PREFIX_1939_RE = re.compile(r'^\s*([IVXL]+)\s+\S.*$', re.I)
+LINJE_WRAPPED_TAIL_1939_RE = re.compile(r'^\s*Linje\b.*$', re.I)
+PAGE_NOISE_1939_RE = re.compile(r'^\s*(?:Reventlow\s*\.?|\d{1,4})[\s.•*]*$', re.I)
+# Linje-header-blokken (målt: alle 6 linjer, øverst på frisk side):
+# centreret romertal (evt. med .,-suffiks; OCR: IL=II) + navnelinje + "(S. nn).".
+LINJE_BLOK_ROMAN_1939_RE = re.compile(r'^\s{15,}([IVXL]{1,6})[.,]?\s*$')
+LINJE_NAVN_1939_RE = re.compile(r'\bLinjen?\b.*\.\s*$', re.I)
+SIDEHENVISNING_1939_RE = re.compile(r'^\s*\(S\.\s*\d+\)\.?\s*$')
+UNNUMBERED_1939_RE = re.compile(
+    r"^\s{0,4}'?(?:[^\W\d_]|1)(?:\s+(?:[^\W\d_]|1)){1,}",
+    re.UNICODE,
+)
+SPAERRET_NAVN_1939_RE = re.compile(
+    r"'?(?:[^\W\d_]|1)(?:\s+(?:[^\W\d_]|1)){1,}",
+    re.UNICODE,
+)
+DATO_FORTSAETTELSE_1939_RE = re.compile(r'^\d+\s+s\.\s*M\.', re.I)
+KILDELINJE_1939_RE = re.compile(r': .*S\.\s*\d+\.?\s*$', re.I)
+NAVNLOEST_BARN_1939_RE = re.compile(r'^(?:En Søn|en Datter)\b', re.I)
+RENT_SPOERGSMAALSTEGN_1939_RE = re.compile(r'^\(\?\)\s*$')
+
+ORDINALER_1939 = {
+    ordinal: ordinal.capitalize()
+    for ordinal in (
+        'første', 'andet', 'tredje', 'fjerde', 'femte', 'sjette',
+        'syvende', 'ottende', 'niende', 'tiende', 'ellevte', 'tolvte',
+    )
+}
+
 
 def norm(s):
     return re.sub(r'\s+', ' ', s).strip()
@@ -67,8 +122,31 @@ def significant(lines, k):
     return None
 
 
-def main(path):
-    lines = open(path, encoding='utf-8', errors='replace').read().splitlines()
+def _quality_report(posts):
+    """Fang stille fejl. nr RESETTER per linje, så contiguity tjekkes PER LINJE
+    ((linje,nr) er nøglen, jf. krydsref '(III, 37)')."""
+    no_linje = [p['nr'] for p in posts if not p['linje']]
+    if no_linje:
+        print(f'[segment] ADVARSEL: {len(no_linje)} poster uden linje-kontekst '
+              f'(gren-header før intervallet?): nr {no_linje}', file=sys.stderr)
+    by_linje = {}
+    for p in posts:
+        by_linje.setdefault(p['linje'], []).append(p)
+    for lin, ps in sorted(by_linje.items(), key=lambda kv: str(kv[0])):
+        labels = [p.get('nr_label', str(p['nr'])) for p in ps]
+        dupes = sorted({l for l in labels if labels.count(l) > 1})   # 15a≠15b; to rene "15" = dublet
+        if dupes:
+            print(f'[segment] ADVARSEL: dublet-poster i linje {lin}: {dupes}', file=sys.stderr)
+        base = sorted({p['nr'] for p in ps})                          # basenr (15a/15b -> 15)
+        gaps = [n for n in range(base[0], base[-1] + 1) if n not in set(base)]
+        if gaps:
+            print(f'[segment] ADVARSEL: hul i basenr i linje {lin} (droppet post?): mangler {gaps}',
+                  file=sys.stderr)
+        print(f'[segment] linje {lin}: {len(ps)} poster, basenr {base[0]}-{base[-1]}', file=sys.stderr)
+
+
+def _segment_2018_20(lines, profile):
+    """Den hidtidige state-maskine, holdt isoleret som default-profil."""
     linje = slaegtled = marr = kuld = page = cur = None
     slaegtled_lokal = slaegtled_gennem = None
     posts = []
@@ -141,33 +219,379 @@ def main(path):
     sys.stdout.write('\n')
     print(f'[segment] {len(posts)} poster', file=sys.stderr)
     _quality_report(posts)
-    return posts   # muliggør unit-test (kaldes via CLI hvor returværdien ignoreres)
+    return posts
 
 
-def _quality_report(posts):
-    """Fang stille fejl. nr RESETTER per linje, så contiguity tjekkes PER LINJE
-    ((linje,nr) er nøglen, jf. krydsref '(III, 37)')."""
-    no_linje = [p['nr'] for p in posts if not p['linje']]
-    if no_linje:
-        print(f'[segment] ADVARSEL: {len(no_linje)} poster uden linje-kontekst '
-              f'(gren-header før intervallet?): nr {no_linje}', file=sys.stderr)
-    by_linje = {}
-    for p in posts:
-        by_linje.setdefault(p['linje'], []).append(p)
-    for lin, ps in sorted(by_linje.items(), key=lambda kv: str(kv[0])):
-        labels = [p.get('nr_label', str(p['nr'])) for p in ps]
-        dupes = sorted({l for l in labels if labels.count(l) > 1})   # 15a≠15b; to rene "15" = dublet
-        if dupes:
-            print(f'[segment] ADVARSEL: dublet-poster i linje {lin}: {dupes}', file=sys.stderr)
-        base = sorted({p['nr'] for p in ps})                          # basenr (15a/15b -> 15)
-        gaps = [n for n in range(base[0], base[-1] + 1) if n not in set(base)]
-        if gaps:
-            print(f'[segment] ADVARSEL: hul i basenr i linje {lin} (droppet post?): mangler {gaps}',
+def _normaliser_romertal_1939(roman, profile):
+    """Ret kun dokumenterede OCR-forvekslinger; ingen fri romertalsfortolkning."""
+    if roman is None:
+        return None
+    roman = roman.upper()
+    return profile['roman_ocr'].get(roman, roman)
+
+
+def _linje_header_1939(lines, i, profile):
+    """Returnér (kort label, antal linjer) for en selvstændig linje-header.
+
+    Bogens dominerende form (målt: alle 6 linjer, altid øverst på frisk side):
+
+                                  IV.        <- centreret romertal = linjens nummer
+        Den danske grevelige Linje af 1673.  <- navnelinje (indryk varierer, ned til 0)
+                                (S. 43).     <- sidehenvisning, konsumeres
+
+    Romertallet ER lokatorens linje-led. OCR-varianter: 'I', 'IL' (=II), 'III,',
+    'IV.' — tegnsætning varierer og L/I forveksles (samme klasse som IIL->III).
+    Denne form SKAL genkendes før afsnit-romanerne, ellers ædes romertallet som
+    afsnit og navnelinjen som gruppekontekst.
+    """
+    line = lines[i]
+    m = profile['linje_blok_roman_re'].match(line)
+    if m and i + 1 < len(lines):
+        naeste = lines[i + 1]
+        if profile['linje_navn_re'].search(naeste):
+            forbrug = 2
+            if i + 2 < len(lines) and profile['sidehenvisning_re'].match(lines[i + 2]):
+                forbrug = 3
+            return _normaliser_romertal_1939(m.group(1).rstrip('.,'), profile), forbrug
+    # Blok-formen er den ENESTE linje-header i 1939 (alle 6 verificeret mod
+    # teksten). Løsere én-linjes-former blev fjernet igen: de matchede
+    # indledningens PROSA-overskrifter ("Den holstenske Linje." s. 499) og
+    # satte linje-state før stamtavlen — hvilket skjulte fællesstammen.
+    return None
+
+
+def _slaegtled_header_1939(line, profile):
+    """OCR spreder bogstaverne; kun centreret sats må ændre gruppe-state.
+
+    Venstrestillede ``Slægtled I.`` er ombrudte krydshenvisninger inde i
+    poster og skal derfor aldrig nå denne parser.
+
+    Indrykningen måles efter indledende OCR-støjtegn (anførselstegn m.m.) —
+    målt: '"           T redje S læ g tled .' hvor anførselstegnet stjæler
+    kolonne 0 og ellers skjuler en ægte centreret overskrift.
+    """
+    kerne = re.sub(r'^[\s"“”\'’•*^]+', '', line)
+    indryk = len(line) - len(kerne)
+    if indryk < 8:
+        return None
+    uden_mellemrum = re.sub(r'\s+', '', kerne)
+    match = profile['slaegtled_re'].match(uden_mellemrum.lower())
+    if not match:
+        return None
+    ordinal_raw = uden_mellemrum[:match.end(1)]
+    ordinal = profile['ordinals'].get(match.group(1).lower())
+    return ordinal or ordinal_raw, ordinal is None
+
+
+def _post_start_1939(line, profile):
+    """Validér nummerlinjen mod de tre målte posthoveder.
+
+    Af-spærring er kun et detektionssignal. Returteksten er resten af
+    kildelinjen uændret, så ``raw_text`` beholder OCR-satsen ordret.
+    """
+    match = profile['post_re'].match(line)
+    if not match:
+        return None
+    rest = match.group(4)
+    if (profile['dato_fortsaettelse_re'].match(rest)
+            or profile['kildelinje_re'].search(rest)):
+        return None
+
+    efter_markoer = rest
+    usikker = bool(match.group(1))
+    if efter_markoer.startswith('(?)'):
+        usikker = True
+        efter_markoer = efter_markoer[3:].lstrip()
+
+    gyldigt_hoved = (
+        not efter_markoer and profile['rent_spoergsmaalstegn_re'].match(rest)
+        or profile['navnloest_barn_re'].match(efter_markoer)
+        or profile['spaerret_navn_re'].search(efter_markoer[:80])
+    )
+    if not gyldigt_hoved:
+        return None
+    return match, usikker
+
+
+def _flush_1939(posts, cur, pre_linje_label=None):
+    if not cur or not cur.get('_lines'):
+        return
+    cur['sider'] = (str(cur['_pages'][0]) if cur['_pages'][0] == cur['_pages'][-1]
+                    else f"{cur['_pages'][0]}-{cur['_pages'][-1]}")
+    # Lokatoren er kun bogens trykte struktur. Mangler et bærende led,
+    # lukkes der bevidst: R9 skal standse posten frem for at acceptere et gæt.
+    i_stammefasen = (pre_linje_label
+                     and str(cur.get('linje') or '').startswith(pre_linje_label))
+    if i_stammefasen:
+        # Fællesstammen (før første linje-header, s. 496-510): sektionens
+        # centrerede romaner ER slægtleddene. Navnerummet 'Stamme' (evt. +
+        # sektions-slug) er bogens egne overskrifter, ikke en optælling.
+        # Uden roman er posten uadresserbar — fail-closed.
+        cur['lokal_id'] = (f"{cur['linje']}.{cur['afsnit']}.{cur['nr_label']}"
+                           if cur.get('afsnit') else None)
+    elif cur.get('linje') and cur.get('slaegtled'):
+        dele = [cur['linje'], cur['slaegtled']]
+        if cur.get('afsnit'):
+            dele.append(cur['afsnit'])
+        dele.append(cur['nr_label'])
+        cur['lokal_id'] = '.'.join(dele)
+    else:
+        cur['lokal_id'] = None
+    cur['raw_text'] = norm(' '.join(cur.pop('_lines')))
+    cur.pop('_pages')
+    posts.append(cur)
+
+
+def _gruppe_label_1939(key):
+    return '.'.join(str(del_) if del_ else '?' for del_ in key)
+
+
+def _quality_report_1939(posts, unummererede, kontekstlinjer,
+                         ukendte_ordinals, slaegtled_fald):
+    """1939-numre kontrolleres pr. trykt gruppe, ikke på tværs af bogen."""
+    uden_lokal_id = [p['nr_label'] for p in posts if not p.get('lokal_id')]
+    print(f'[segment] {len(uden_lokal_id)} poster uden lokal_id'
+          f'{": " + str(uden_lokal_id) if uden_lokal_id else ""}', file=sys.stderr)
+    print(f'[segment] {unummererede} unummererede poster udeladt', file=sys.stderr)
+    print(f'[segment] {kontekstlinjer} gruppe-kontekstlinjer droppet', file=sys.stderr)
+    ordinal_prefix = 'ADVARSEL: ' if ukendte_ordinals else ''
+    fald_prefix = 'ADVARSEL: ' if slaegtled_fald else ''
+    print(f'[segment] {ordinal_prefix}{len(ukendte_ordinals)} ukendte ordinalord: '
+          f'{ukendte_ordinals}', file=sys.stderr)
+    print(f'[segment] {fald_prefix}{slaegtled_fald} slægtled-fald uden linjeskift',
+          file=sys.stderr)
+
+    grupper = {}
+    for post in posts:
+        key = (post.get('linje'), post.get('slaegtled'), post.get('afsnit'))
+        grupper.setdefault(key, []).append(post)
+    for key, gruppeposter in sorted(grupper.items(), key=lambda item: str(item[0])):
+        label = _gruppe_label_1939(key)
+        labels = [post['nr_label'] for post in gruppeposter]
+        dubletter = sorted({nr for nr in labels if labels.count(nr) > 1})
+        if dubletter:
+            print(f'[segment] ADVARSEL: dublet-poster i gruppe {label}: {dubletter}',
                   file=sys.stderr)
-        print(f'[segment] linje {lin}: {len(ps)} poster, basenr {base[0]}-{base[-1]}', file=sys.stderr)
+        basenumre = sorted({post['nr'] for post in gruppeposter})
+        huller = [nr for nr in range(basenumre[0], basenumre[-1] + 1)
+                  if nr not in set(basenumre)]
+        if huller:
+            print(f'[segment] ADVARSEL: hul i basenr i gruppe {label}: mangler {huller}',
+                  file=sys.stderr)
+        print(f'[segment] gruppe {label}: {len(gruppeposter)} poster, '
+              f'basenr {basenumre[0]}-{basenumre[-1]}, '
+              f'dubletter {dubletter}, huller {huller}', file=sys.stderr)
+
+    lokal_ids = [post['lokal_id'] for post in posts if post.get('lokal_id')]
+    dublet_ids = sorted({lokal_id for lokal_id in lokal_ids
+                         if lokal_ids.count(lokal_id) > 1})
+    print(f'[segment] lokal_id-dubletter: {dublet_ids}', file=sys.stderr)
+
+
+def _gruppebeskrivelse_1939(lines, i, profile):
+    """Match en (evt. ombrudt) gruppebeskrivelse; returnér (slug, forbrug).
+
+    Beskrivelsen er bogens egen gruppeoverskrift ("…s Børn med …:") og den
+    ENESTE markør hvor OCR har tabt den centrerede roman. 'Slægtled' i
+    teksten diskvalificerer — så rammer pegepinde og prosa aldrig."""
+    samlet = []
+    for k in range(i, min(i + 3, len(lines))):
+        if not lines[k].strip():
+            break
+        samlet.append(lines[k].strip())
+        tekst = norm(' '.join(samlet))
+        if 'slægtled' in tekst.lower():
+            return None
+        if profile['gruppebeskrivelse_re'].search(tekst):
+            slug = re.sub(r'[^\wÆØÅæøå]+', '-', tekst.rstrip(':'),
+                          flags=re.UNICODE).strip('-')
+            return slug, k - i + 1
+        if tekst.endswith(':'):
+            return None            # anden slags kolon-linje (kuld/ægteskab)
+    return None
+
+
+def _segment_1939(lines, profile):
+    # Før første blok-linje-header er vi i fællesstammen; linje bærer dens
+    # navnerum ("Stamme", evt. + sektions-slug) indtil stamtavlen begynder.
+    linje = profile.get('pre_linje_label')
+    slaegtled = afsnit = page = cur = None
+    stamtavle_startet = False
+    afsnit_frisk = False    # roman netop set og endnu ubrugt af en post
+    posts = []
+    unummererede = 0
+    kontekstlinjer = 0
+    ukendte_ordinals = []
+    slaegtled_fald = 0
+    sidste_slaegtled_nr = None
+    side_naerhed = 0
+    pre_label = profile.get('pre_linje_label')
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+
+        m = profile['page_re'].match(line)
+        if m:
+            page = int(m.group(1))
+            side_naerhed = profile['page_noise_window']
+            if cur:
+                cur['_pages'].append(page)
+            i += 1; continue
+
+        if not line.strip():
+            i += 1; continue
+
+        if side_naerhed:
+            side_naerhed -= 1
+            if profile['page_noise_re'].match(line):
+                i += 1; continue
+
+        linje_header = _linje_header_1939(lines, i, profile)
+        if linje_header:
+            _flush_1939(posts, cur, pre_label); cur = None
+            linje, forbrug = linje_header
+            stamtavle_startet = True
+            slaegtled = afsnit = None
+            afsnit_frisk = False
+            sidste_slaegtled_nr = None
+            i += forbrug; continue
+
+        if not stamtavle_startet and pre_label:
+            m = profile['stamme_sektion_re'].match(line)
+            if m:
+                _flush_1939(posts, cur, pre_label); cur = None
+                slug = re.sub(r'[^\wÆØÅæøå]+', '-', (m.group(1) or m.group(2)),
+                              flags=re.UNICODE).strip('-')
+                linje = f"{pre_label}-{slug}"
+                afsnit = None
+                afsnit_frisk = False
+                i += 1; continue
+
+        slaegtled_header = _slaegtled_header_1939(line, profile)
+        if slaegtled_header:
+            _flush_1939(posts, cur, pre_label); cur = None
+            slaegtled, ukendt = slaegtled_header
+            afsnit = None
+            afsnit_frisk = False
+            if ukendt:
+                ukendte_ordinals.append(slaegtled)
+            else:
+                slaegtled_nr = ordinal_to_int(slaegtled)
+                if (sidste_slaegtled_nr is not None
+                        and slaegtled_nr < sidste_slaegtled_nr):
+                    slaegtled_fald += 1
+                sidste_slaegtled_nr = slaegtled_nr
+            i += 1; continue
+
+        m = profile['afsnit_re'].match(line)
+        if m:
+            _flush_1939(posts, cur, pre_label); cur = None
+            afsnit = _normaliser_romertal_1939(m.group(1), profile)
+            afsnit_frisk = True
+            i += 1; continue
+
+        beskrivelse = _gruppebeskrivelse_1939(lines, i, profile)
+        if beskrivelse:
+            _flush_1939(posts, cur, pre_label); cur = None
+            slug, forbrug = beskrivelse
+            if not afsnit_frisk:
+                # Roman mangler i OCR — beskrivelsen selv er gruppens trykte
+                # id. Slug, ikke løbenummer: intet må tælles.
+                afsnit = slug
+            i += forbrug; continue
+
+        post_start = _post_start_1939(line, profile)
+        if post_start:
+            m, usikker = post_start
+            afsnit_frisk = False
+            _flush_1939(posts, cur, pre_label)
+            nr_label = m.group(2) + m.group(3)
+            cur = {
+                'linje': linje, 'nr': int(m.group(2)), 'nr_label': nr_label,
+                'usikker': usikker, 'kuld': None, 'slaegtled': slaegtled,
+                'afsnit': afsnit,
+                'slaegtled_lokal': ordinal_to_int(slaegtled) if slaegtled else None,
+                'slaegtled_gennem': None, 'aegteskab_kontekst': None,
+                '_lines': [m.group(4)], '_pages': [page],
+            }
+            i += 1; continue
+
+        if cur is None and profile['unnumbered_re'].match(line):
+            unummererede += 1
+            i += 1; continue
+
+        if cur is not None:
+            cur['_lines'].append(line.strip())
+        else:
+            # Mellem strukturheader og første nummererede post er teksten en
+            # gruppebeskrivelse, ikke en del af nogen persons kildetekst.
+            kontekstlinjer += 1
+        i += 1
+
+    _flush_1939(posts, cur, pre_label)
+    json.dump(posts, sys.stdout, ensure_ascii=False, indent=2)
+    sys.stdout.write('\n')
+    print(f'[segment] {len(posts)} poster', file=sys.stderr)
+    _quality_report_1939(
+        posts, unummererede, kontekstlinjer, ukendte_ordinals, slaegtled_fald)
+    return posts
+
+
+# Profilen er den eneste udgave-dispatch. Regexer og adfærdsforskelle er
+# deklareret her, så nye boglayout ikke sniger sig ind som spredte årstals-if'er.
+UDGAVE_PROFILER = {
+    '2018-20': {
+        'segmenter': _segment_2018_20,
+        'page_re': PAGE_RE,
+        'post_re': POST_RE,
+        'slaegtled_re': SLGT_RE,
+        'filter_page_noise': False,
+        'post_requires_spaerret_navn': False,
+        'lokal_id_dele': ('linje', 'nr_label'),
+    },
+    '1939': {
+        'segmenter': _segment_1939,
+        'page_re': PAGE_RE,
+        'post_re': POST_1939_RE,
+        'slaegtled_re': SLGT_1939_RE,
+        'afsnit_re': AFSNIT_1939_RE,
+        'linje_named_re': LINJE_NAMED_1939_RE,
+        'linje_roman_re': LINJE_ROMAN_1939_RE,
+        'linje_roman_prefix_re': LINJE_ROMAN_PREFIX_1939_RE,
+        'linje_wrapped_tail_re': LINJE_WRAPPED_TAIL_1939_RE,
+        'linje_blok_roman_re': LINJE_BLOK_ROMAN_1939_RE,
+        'linje_navn_re': LINJE_NAVN_1939_RE,
+        'sidehenvisning_re': SIDEHENVISNING_1939_RE,
+        'gruppebeskrivelse_re': GRUPPEBESKRIVELSE_1939_RE,
+        'stamme_sektion_re': STAMME_SEKTION_1939_RE,
+        'pre_linje_label': 'Stamme',
+        'page_noise_re': PAGE_NOISE_1939_RE,
+        'unnumbered_re': UNNUMBERED_1939_RE,
+        'spaerret_navn_re': SPAERRET_NAVN_1939_RE,
+        'dato_fortsaettelse_re': DATO_FORTSAETTELSE_1939_RE,
+        'kildelinje_re': KILDELINJE_1939_RE,
+        'navnloest_barn_re': NAVNLOEST_BARN_1939_RE,
+        'rent_spoergsmaalstegn_re': RENT_SPOERGSMAALSTEGN_1939_RE,
+        'ordinals': ORDINALER_1939,
+        'roman_ocr': {'IIL': 'III', 'IL': 'II', 'VIL': 'VII'},   # L<->I-forveksling, kun kendte former
+        'page_noise_window': 2,
+        'filter_page_noise': True,
+        'post_requires_spaerret_navn': True,
+        'lokal_id_dele': ('linje', 'slaegtled', 'afsnit?', 'nr_label'),
+    },
+}
+
+
+def main(path, udgave=None):
+    profile = UDGAVE_PROFILER[udgave or '2018-20']
+    lines = open(path, encoding='utf-8', errors='replace').read().splitlines()
+    return profile['segmenter'](lines, profile)
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 2:
-        sys.exit('brug: segment.py raw.txt > posts.json')
-    main(sys.argv[1])
+    if len(sys.argv) == 2:
+        main(sys.argv[1])
+    elif len(sys.argv) == 4 and sys.argv[2:] == ['--udgave', '1939']:
+        main(sys.argv[1], udgave='1939')
+    else:
+        sys.exit('brug: segment.py raw.txt [--udgave 1939] > posts.json')
