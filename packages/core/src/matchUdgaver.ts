@@ -328,6 +328,10 @@ export type RedMatchPerson = {
   bogReferencer: MatchBogReference[];
   sourceIds: number[]; // kilde-medlemskab (person_external_id) → disjunkt-kilde-afgrænsning
   staged: boolean; // K2-kuratering: TRUE = usynlig for anon (§7.20 selektiv publicering)
+  // TRUE = personen tilhører en linje der ikke findes i den anden udgave, og kan derfor
+  // aldrig få en modpart (DAA 1939s fyenske Linje: 2018-20 udelod den bevidst). Sat ud fra
+  // et eksplicit flag på lineage-rækken — statusteksten parses ALDRIG.
+  udenforMatchning: boolean;
 };
 
 export type MatchBogReference = {
@@ -364,7 +368,14 @@ export type MatchExtIdRow = {
   slaegtled_gennem?: number | null;
   kuld?: string | null;
 };
-export type MatchLineageRow = { source_id: number; kode: string; navn: string | null };
+export type MatchLineageRow = {
+  source_id: number;
+  kode: string;
+  navn: string | null;
+  // Udledt i datalaget (ikke i UI'et), så reglen står ét sted: en linje hvis
+  // gren_af-relation er 'omstridt' har ingen modpart at matche imod.
+  udenforMatchning?: boolean;
+};
 
 /** Ren samling: personer + konkluderede fødsels-/døds-intervaller + kilde-medlemskab →
  *  MatchFrame-input. Fødsel/død fra den VALGTE assertions date_min/date_max (as-of-korrekt). */
@@ -400,6 +411,8 @@ export function buildMatchPersoner(
   }
   const srcByPerson = new Map<number, number[]>();
   const refsByPerson = new Map<number, MatchBogReference[]>();
+  // Én bogpost i en undtaget linje er nok; fravær af bogpost undtager aldrig.
+  const udenfor = new Set<number>();
   const lineageBySourceAndCode = new Map(
     lineages.map((l) => [`${l.source_id}:${l.kode ?? ''}`, l]),
   );
@@ -420,6 +433,7 @@ export function buildMatchPersoner(
     };
     const refs = refsByPerson.get(e.person_id);
     if (refs) refs.push(ref); else refsByPerson.set(e.person_id, [ref]);
+    if (lineage?.udenforMatchning) udenfor.add(e.person_id);
   }
   return persons.map((p) => ({
     id: String(p.id),
@@ -432,6 +446,7 @@ export function buildMatchPersoner(
     bogReferencer: refsByPerson.get(p.id) ?? [],
     sourceIds: srcByPerson.get(p.id) ?? [],
     staged: Boolean(p.staged),
+    udenforMatchning: udenfor.has(p.id),
   }));
 }
 

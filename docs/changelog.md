@@ -41,10 +41,16 @@ karantænen er fortsat tom.
 3. **"A. Den holstenske Linje"** i den rensede OCR er en fejllæsning; `raw.txt`
    har "I".
 
-**Udestår:** matcheren filtrerer dem ikke endnu. 2018-20 er nyeste udgave, så de
-26 ligger i *kandidat*-puljen og kan foreslås som match for 2018-20-personer.
-Filteret kræver at `MatchLineageRow` (i dag `{source_id, kode, navn}`) udvides med
-et eksplicit signal — status-teksten må ikke parses.
+**Matcher-filteret er med.** `MatchLineageRow` har fået `udenforMatchning`, og
+`buildMatchPersoner` sætter et tilsvarende flag pr. person. `SammenlignUdgaver`
+springer dem over **før** frames bygges, så de hverken bliver arbejdsemne eller
+kandidat — 2018-20 er nyeste udgave, så uden filteret lå de 26 i *kandidat*-puljen
+og kunne foreslås som match for 2018-20-personer. Flaget udledes i `fetchLineages`
+fra `gren_af`-relationen, så reglen står ét sted og `lineage.status` (fri tekst)
+aldrig parses. Fejler relations-opslaget, undtages ingen: at vise for mange
+kandidater er en irritation, at skjule en ægte kandidat er et datatab. Testet på
+begge sider — også at flaget ikke smitter mellem udgaver med samme linjekode
+(opslag på `(source_id, kode)`, ikke kode alene; jf. IV/V-ombytningen).
 
 **Udestår også:** de øvrige 489 1939-personer har fortsat den syntetiske
 `linje='1939'`. Strukturen findes allerede i loaderens input (`_ctx.linje`,

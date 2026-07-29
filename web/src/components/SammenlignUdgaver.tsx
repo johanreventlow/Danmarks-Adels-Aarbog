@@ -209,6 +209,10 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
     if (nyKildeId == null) return null;
     const framesA: MatchFrame[] = [], framesB: MatchFrame[] = [], aIds: string[] = [];
     for (const p of personerMedKilde) {
+      // Linjer uden modpart i den anden udgave holdes helt ude af matchningen — de kan
+      // hverken være arbejdsemne eller kandidat. Ellers ville fx DAA 1939s fyenske Linje
+      // blive foreslået som match for 2018-20-personer, selvom 2018-20 bevidst udelod den.
+      if (p.udenforMatchning) continue;
       const f = buildMatchFrame(p);
       if (p.sourceIds.includes(nyKildeId)) { framesA.push(f); aIds.push(String(p.id)); }
       else framesB.push(f);
