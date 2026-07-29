@@ -186,6 +186,31 @@ test_that("record_key_of bevarer postens nr_label og fejler lukket uden postnumm
   expect_identical(record_key_of(list(linje = "II", person_id = 42L, navn = "Søren")), NA_character_)
 })
 
+test_that("record_key_of foretrækker postens EGEN record_key over den beregnede", {
+  # Identitet udstedes, den udledes ikke: bærer posten et id fra
+  # identitetsregisteret, er det dét der gælder — også når linje/nr findes og
+  # ville give en anden (beregnet) nøgle. `linje-nr` er en gennemløbende tæller
+  # for DAA 1939 og flytter sig ved re-segmentering; registerets id gør ikke.
+  rec <- list(linje = "1939", nr_label = "42", nr = 42L,
+              record_key = "c7a75809-80f8-4688-9915-82546f761236")
+  expect_identical(record_key_of(rec), "c7a75809-80f8-4688-9915-82546f761236")
+})
+
+test_that("record_key_of falder tilbage til linje-nr når posten intet id bærer", {
+  # DAA 2018-20 har ingen registernøgle i artefaktet; adfærden dér er uændret.
+  expect_identical(record_key_of(list(linje = "I", nr_label = "15a", nr = 15L)), "I-15a")
+})
+
+test_that("record_key_of accepterer et id selv uden linje og nr", {
+  # En omtale-post har ikke bogens nummerering, men kan godt bære et register-id.
+  expect_identical(record_key_of(list(record_key = "abc-123")), "abc-123")
+})
+
+test_that("record_key_of ignorerer tomt eller NA id og bruger fallback", {
+  expect_identical(record_key_of(list(linje = "I", nr = 3L, record_key = NA_character_)), "I-3")
+  expect_identical(record_key_of(list(linje = "I", nr = 3L, record_key = "")), "I-3")
+})
+
 test_that("canonical_import_value emitterer faste JSON-former", {
   cases <- list(
     list(felt = "navn", value = "Conrad Detlev Reventlow",

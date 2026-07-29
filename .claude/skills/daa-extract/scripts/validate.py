@@ -26,7 +26,11 @@ ALLOWED_TOP = {"linje", "nr", "nr_label", "usikker", "navn", "tilnavn", "koen",
                # Gravsten: posten er bevidst fjernet fra korpus (dublet/fejludtræk).
                # Værdien er begrundelsen. Konverteren tæller den med i nr-tildelingen
                # men udelader den fra output — se convert_1939_stamtavle.convert_all.
-               "fjernet"}
+               "fjernet",
+               # Id fra identitetsregisteret (data/identitet/). Bæres uændret
+               # gennem konverteren til loaderen, som foretrækker det over den
+               # beregnede `linje-nr`. Se record_key_of i load_helpers.R.
+               "record_key"}
 
 # Kontrolleret vokabular (invariant #9): flag drift/fejl som advisory.
 try:

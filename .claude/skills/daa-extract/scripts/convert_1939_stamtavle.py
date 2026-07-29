@@ -234,6 +234,11 @@ def convert_record(rec, global_nr):
         "aegteskaber": aegteskaber,
         "godser": convert_godser(rec.get("godser")),
         "note": note,
+        # Id fra identitetsregisteret hvis posten bærer et. Loaderen
+        # foretraekker det over den beregnede `linje-nr` (record_key_of), fordi
+        # `nr` er en gennemloebende taeller der flytter sig ved re-segmentering.
+        # Udelades naar posten intet id har, saa DAA 2018-20 er upaavirket.
+        **({"record_key": rec["record_key"]} if rec.get("record_key") else {}),
         # ---- passthrough (loaderen ignorerer; A3b/A3c + QA bruger dem) ----
         "_id": rec["_id"],
         "_orig_nr": rec.get("nr"),
