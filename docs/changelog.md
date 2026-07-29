@@ -1,5 +1,58 @@
 # Changelog
 
+## 1939: Den fyenske Linje fik egen linje og omstridt slægtskab (2026-07-29)
+
+De 26 personer i DAA 1939s linje VI kan aldrig matches mod DAA 2018-20, fordi
+2018-20-forfatteren bevidst udelod dem. Bogen selv er dog mere forbeholden end
+"de hører ikke til": 1939 skriver at de førte Reventlowernes murtinde men et
+**helt andet hjelmtegn**, at efterkommerne *"lejlighedsvis har ført
+Reventlow-Navnet"* og regnede sig til slægten, *"men om den fyenske Linjes
+Samhørighed med de holstenske og meklenborgske Reventlower kan intet oplyses."*
+Begge udgaver er altså enige om at slægtskabet er udokumenteret; de er uenige om
+hvad man så gør.
+
+Modelleret som to adskilte påstande frem for én:
+
+- **Navnet hævdes.** Linjen får `parent_lineage_id=6` (slægtsroden) og arver
+  dermed slægtsnavnet — "Henrik Jensen" vises nu som *Henrik Jensen Reventlow*,
+  som bogen ville skrive ham. `slaegtsnavn=NULL` blev forkastet: det ville
+  benægte et dokumenteret faktum for at udtrykke tvivl om et andet.
+- **Slægtskabet hævdes ikke.** En `gren_af`-relation (lineage 7 → 6) med
+  `konfidens='omstridt'` bærer selve afstamningspåstanden, med assertions og
+  citationer fra **begge** udgaver og en `conclusion` med status `omstridt`.
+  Skemaet foreskriver netop dette: *"parent_lineage_id er den hurtige FK;
+  'gren_af'-relationen bærer evidens/konfidens."*
+
+Udført i `change_set` 788: ny `lineage` 7 (source 3, kode VI), `linje='VI'` på de
+26 (person 1437–1462), rolle `gren_af` tilføjet vokabularet. Verificeret positivt
+før kørsel: artefaktets 26 `Lfyn`-poster står i nøjagtig samme navnerækkefølge som
+DB'ens nr 514–539. Rehearset i rullet-tilbage transaktion. Ingen sideeffekt: de
+øvrige 489 1939-personer og alle 2018-20-personer er urørte, slægtsnavns-
+karantænen er fortsat tom.
+
+**Faldgruber fundet undervejs (vigtige for det videre arbejde):**
+
+1. **IV og V er byttet om mellem udgaverne.** 1939 IV = "Den danske grevelige
+   Linje af 1673" = 2018-20 **V**; 1939 V = "grevelige Linje af 1767" = 2018-20
+   **IV**. Enhver logik der bærer et romertal på tværs af udgaver matcher stille
+   to forkerte linjer. `matchUdgaver` slår heldigvis op på `${source_id}:${kode}`.
+2. **1939 er uenig med sig selv:** indledningen nummererer den fyenske som IV,
+   brødteksten som VI.
+3. **"A. Den holstenske Linje"** i den rensede OCR er en fejllæsning; `raw.txt`
+   har "I".
+
+**Udestår:** matcheren filtrerer dem ikke endnu. 2018-20 er nyeste udgave, så de
+26 ligger i *kandidat*-puljen og kan foreslås som match for 2018-20-personer.
+Filteret kræver at `MatchLineageRow` (i dag `{source_id, kode, navn}`) udvides med
+et eksplicit signal — status-teksten må ikke parses.
+
+**Udestår også:** de øvrige 489 1939-personer har fortsat den syntetiske
+`linje='1939'`. Strukturen findes allerede i loaderens input (`_ctx.linje`,
+`lokal_id`-præfikser som `Lfyn`/`LGallentin`/`HL`), men `_ctx.linje` er
+LLM-udledt og hullet (222 poster uden værdi, mange "udledt"/"ukendt"), så en fuld
+omlægning er sit eget stykke arbejde — og konverteren skal med, ellers ruller en
+genindlæsning ændringen tilbage.
+
 ## 2018-20: bogens apparat bløt ind i sidste posts narrativ (2026-07-29)
 
 Brugeren bemærkede at person 391 — en nulevende, født 2001 — havde et narrativ
