@@ -489,9 +489,23 @@ export async function fetchSources(): Promise<SourceRow[]> {
 export type LineageRow = MatchLineageRow & { id: number };
 
 export async function fetchLineages(): Promise<LineageRow[]> {
-  const { data, error } = await supabase.from('lineage').select('id,source_id,kode,navn').order('kode', { ascending: true });
+  // `udenforMatchning` udledes HER, så reglen står ét sted og UI'et aldrig parser
+  // lineage.status (fri tekst). En linje hvis gren_af-relation er 'omstridt' hævder
+  // ikke afstamning fra slægtsroden og har derfor ingen modpart i den anden udgave —
+  // DAA 1939s fyenske Linje, som DAA 2018-20 bevidst udelod. Fejler relations-
+  // opslaget, markeres ingen som undtaget: at vise for mange kandidater er en
+  // irritation, at skjule en ægte kandidat er et datatab.
+  const [{ data, error }, { data: grenData, error: grenError }] = await Promise.all([
+    supabase.from('lineage').select('id,source_id,kode,navn').order('kode', { ascending: true }),
+    supabase.from('relation')
+      .select('subjekt_id')
+      .eq('subjekt_type', 'lineage').eq('objekt_type', 'lineage')
+      .eq('rolle', 'gren_af').eq('konfidens', 'omstridt'),
+  ]);
   if (error) throw new Error(error.message);
-  return (data ?? []) as LineageRow[];
+  if (grenError) console.warn('[fetchLineages] gren_af-opslag fejlede — ingen linjer undtages:', grenError.message);
+  const omstridte = new Set((grenData ?? []).map((r: { subjekt_id: number }) => r.subjekt_id));
+  return (data ?? []).map((l) => ({ ...l, udenforMatchning: omstridte.has((l as LineageRow).id) })) as LineageRow[];
 }
 
 // --- Generiske entitets-lister (simple tabeller) til midter-panelet ---

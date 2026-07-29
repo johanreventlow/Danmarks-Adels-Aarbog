@@ -108,6 +108,53 @@ describe('buildMatchPersoner — DB-rækker → MatchFrame-input (§11)', () => 
     }]);
   });
 
+  // En linje kan være udenfor tværudgave-matchning, fordi den slet ikke findes i den
+  // anden udgave (DAA 1939s fyenske Linje: 2018-20 udelod den bevidst). Signalet er en
+  // eksplicit boolean på lineage-rækken — status-teksten må ALDRIG parses.
+  test('personer i en linje udenfor matchning markeres, uden at røre de øvrige', () => {
+    const persons = [
+      { id: 1, visning_navn: 'Henrik Jensen', koen: 'mand' },
+      { id: 2, visning_navn: 'Detlef', koen: 'mand' },
+      { id: 3, visning_navn: 'Uden bogpost', koen: 'kvinde' },
+    ];
+    const extIds = [
+      { person_id: 1, source_id: 3, linje: 'VI', nr: 514 },
+      { person_id: 2, source_id: 3, linje: 'I', nr: 1 },
+    ];
+    const lineages = [
+      { source_id: 3, kode: 'VI', navn: 'Den fyenske Linje', udenforMatchning: true },
+      { source_id: 3, kode: 'I', navn: 'Den holstenske Linje' },
+    ];
+
+    const r = buildMatchPersoner(persons, [], [], [], extIds, lineages);
+    const byId = new Map(r.map((p) => [p.id, p]));
+    expect(byId.get('1')!.udenforMatchning).toBe(true);
+    expect(byId.get('2')!.udenforMatchning).toBe(false);
+    // Uden bogpost = ingen linje at være undtaget via → aldrig undtaget ved et uheld.
+    expect(byId.get('3')!.udenforMatchning).toBe(false);
+  });
+
+  test('udenforMatchning smitter ikke mellem udgaver med samme linjekode', () => {
+    // 1939 VI er undtaget; en hypotetisk 2018-20 VI er det ikke. Slås der op på koden
+    // alene i stedet for (source_id, kode), ville begge blive undtaget.
+    const persons = [
+      { id: 1, visning_navn: 'Fyensk', koen: 'mand' },
+      { id: 2, visning_navn: 'Anden udgave', koen: 'mand' },
+    ];
+    const extIds = [
+      { person_id: 1, source_id: 3, linje: 'VI', nr: 514 },
+      { person_id: 2, source_id: 1, linje: 'VI', nr: 9 },
+    ];
+    const lineages = [
+      { source_id: 3, kode: 'VI', navn: 'Den fyenske Linje', udenforMatchning: true },
+      { source_id: 1, kode: 'VI', navn: 'En anden udgaves linje VI' },
+    ];
+
+    const byId = new Map(buildMatchPersoner(persons, [], [], [], extIds, lineages).map((p) => [p.id, p]));
+    expect(byId.get('1')!.udenforMatchning).toBe(true);
+    expect(byId.get('2')!.udenforMatchning).toBe(false);
+  });
+
   test('fuldt visningsnavn ændrer ikke matcherens navn, score eller tier', () => {
     const detlevs = buildMatchPersoner(
       [
@@ -201,6 +248,39 @@ describe('udledKilderForAegtefaeller', () => {
   it('tåler unioner med kun én partner', () => {
     const ud = udledKilderForAegtefaeller([P('1', [3])], [U('f1', '1', null)]);
     expect(ud.find((p) => p.id === '1')!.sourceIds).toEqual([3]);
+  });
+
+  // Indgifte i en undtaget linje har intet eget bognummer og bliver derfor ikke fanget
+  // af lineage-flaget — de skal arve undtagelsen fra deres partner, efter samme
+  // "entydigt, ellers urørt"-regel som udgave-tilhøret.
+  const PU = (id: string, sourceIds: number[], udenforMatchning: boolean) =>
+    ({ id, sourceIds, udenforMatchning });
+
+  it('lader indgifte uden bog-nummer arve undtagelsen fra deres partner', () => {
+    const ud = udledKilderForAegtefaeller(
+      [PU('1', [3], true), PU('2', [], false)],
+      [U('f1', '1', '2')],
+    );
+    expect(ud.find((p) => p.id === '2')!.udenforMatchning).toBe(true);
+  });
+
+  it('undtager ikke en indgift der ogsaa er gift ind i en ikke-undtaget linje', () => {
+    // Fail-open: at vise en kandidat for meget er en irritation, at skjule en ægte
+    // kandidat er et datatab.
+    const ud = udledKilderForAegtefaeller(
+      [PU('1', [3], true), PU('2', [3], false), PU('3', [], false)],
+      [U('f1', '1', '3'), U('f2', '2', '3')],
+    );
+    expect(ud.find((p) => p.id === '3')!.udenforMatchning).toBe(false);
+  });
+
+  it('roerer ikke en person der har sin egen bogpost', () => {
+    // Har man eget bognummer, afgoer ens EGEN linje sagen — ikke ægtefællens.
+    const ud = udledKilderForAegtefaeller(
+      [PU('1', [3], true), PU('2', [1], false)],
+      [U('f1', '1', '2')],
+    );
+    expect(ud.find((p) => p.id === '2')!.udenforMatchning).toBe(false);
   });
 });
 
