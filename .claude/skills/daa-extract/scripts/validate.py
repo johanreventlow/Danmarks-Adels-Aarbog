@@ -30,7 +30,9 @@ ALLOWED_TOP = {"linje", "nr", "nr_label", "usikker", "navn", "tilnavn", "koen",
                # Id fra identitetsregisteret (data/identitet/). Bæres uændret
                # gennem konverteren til loaderen, som foretrækker det over den
                # beregnede `linje-nr`. Se record_key_of i load_helpers.R.
-               "record_key"}
+               "record_key",
+               # Lokator — påhæftes deterministisk af paahaeft_lokator, ikke af modellen.
+               "side", "lokal_id"}
 
 # Kontrolleret vokabular (invariant #9): flag drift/fejl som advisory.
 try:
@@ -805,6 +807,49 @@ def validate(rec, src, known_by_linje):
     return issues, advisory
 
 
+# ---------------------------------------------------------------- lokator
+# Lokatoren (side, lokal_id) er postens fysiske adresse i den trykte bog og
+# halvdelen af identitetsregisterets nøgle (data/identitet/). Den påhæftes
+# DETERMINISTISK fra segmenteringens output — modellen spørges aldrig om
+# identitet, ligesom den ikke spørges om narrative, boern eller record_key.
+#
+# Tørløb 2026-07-29: et kontrakt-konformt udtræk havde hverken felt, så
+# reconcile() matchede 0 af 30 poster og meldte hele registeret bortfaldet.
+# På en rigtig re-ekstraktion havde det mintet 515 nye identiteter og
+# efterladt 613 samme_som-match forældreløse.
+
+def _foerste(v):
+    """segment.py skriver undertiden et side-INTERVAL; postens anker er den første."""
+    if isinstance(v, (list, tuple)):
+        v = v[0] if v else None
+    if v is None:
+        return None
+    v = str(v).strip()
+    return v or None
+
+
+def paahaeft_lokator(rec, src):
+    """Sæt `side` + `lokal_id` fra kilde-posten. Muterer og returnerer rec.
+
+    Modellens egne værdier OVERSKRIVES — identitet udledes ikke af et skøn.
+    Mangler kilden felterne, sættes None frem for et gæt; `tjek_lokator`
+    fanger det som en blokerende fejl.
+    """
+    src = src or {}
+    rec["side"] = _foerste(src.get("sider", src.get("side")))
+    rec["lokal_id"] = _foerste(src.get("lokal_id"))
+    return rec
+
+
+def tjek_lokator(rec):
+    """R9: uden lokator kan posten ikke genfindes ved en senere re-ekstraktion."""
+    mangler = [f for f in ("side", "lokal_id") if not rec.get(f)]
+    if mangler:
+        return [f"R9: lokator ufuldstændig (mangler {', '.join(mangler)}) — "
+                f"posten kan ikke genfindes i identitetsregisteret"]
+    return []
+
+
 def normalize_record(rec, src):
     """Anvend deterministiske overrides (boern fra prosa) som validate.main gør.
 
@@ -812,6 +857,7 @@ def normalize_record(rec, src):
     normaliserede post. NB: aegteskaber er IKKE deterministisk — LLM-udtræk
     er autoritativt; derive_aegteskaber() bruges kun advisory (R8).
     """
+    paahaeft_lokator(rec, src)
     if src:
         derived = derive_boern(src['raw_text'])
         if derived:
