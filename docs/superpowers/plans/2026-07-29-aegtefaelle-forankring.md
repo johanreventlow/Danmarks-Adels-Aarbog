@@ -68,20 +68,68 @@ rækker er værre end ingen nøgle: rettelsen ville lande vilkårligt.
 
 Dette er planens egentlige arbejde. Resten er mekanik.
 
-## Fælden der skal undgås
+## `linje` — hvad feltet faktisk gør, og hvem der bruger det rigtigt
 
-`person_external_id.linje` **SKAL være NULL** for indgiftede ægtefæller.
+Feltet har **to opgaver på én gang**: det er proveniens (hvilken gren i bogen) *og* nøglen der
+udleder efternavnet, via `regen_person_visning()`s join
+`lineage ON l.source_id = pei.source_id AND l.kode = pei.linje`.
 
-`regen_person_visning()` udleder `visning_efternavn` af linje-medlemskab og påhæfter slægtsnavnet.
-Får en indgift hustru en linje, kommer hun til at hedde *Marie Elisabeth Reventlow* — men hun hed
-Blome. Hun blev gift ind i slægten; hun tilhører den ikke.
+For DAA 2018-20 falder de to sammen. For DAA 1939 gør de ikke:
 
-Feltet `linje` og feltet `record_key` bor i samme tabel og udfyldes normalt sammen. Det er præcis
-derfor det er let at ramme forkert.
+| Kilde | `linje` | Personer | Findes som gren? | Får efternavn |
+|---|---|---|---|---|
+| 2018-20 | `I`–`V` | 591 | ✅ | 582 |
+| 1939 | `VI` | 26 | ✅ (`lineage` id 7, "Den fyenske Linje") | 26 |
+| **1939** | **`'1939'`** | **489** | ❌ **placeholder, ingen gren** | **0** |
 
-**Verifikation:** korpus-diff på `visning_efternavn` og `visning_fuldt_navn` for alle personer før
-og efter. Forventet resultat: **0 forskelle**. Samme disciplin som slægts-rod-migrationen, hvor den
-fangede at cachen ikke blev rørt.
+**Svar på spørgsmålet: nej, grenen bruges ikke på alle de rigtige slægtsmedlemmer.** 489 ægte
+Reventlow'er står uden efternavn, fordi konverteren gav dem et syntetisk `linje='1939'` der ikke
+matcher nogen gren. De 26 med `linje='VI'` får deres, fordi der siden er oprettet en gren for dem.
+
+Det er samme fejlklasse som en placeholder-`record_key`: en værdi der udfylder et felt uden at
+betyde det feltet skal betyde. Vi har allerede besluttet ikke at sætte placeholder-nøgler for 1939
+(`docs/decisions.md`); `linje='1939'` er den beslutning, truffet modsat, før den blev formuleret.
+
+### Konsekvens for denne plan
+
+Planen skriver nye rækker i **præcis det felt der allerede er forkert for 489 personer**. To ting
+følger:
+
+1. **Ægtefæller får `linje = NULL`.** Ikke en placeholder. Får en indgift hustru en linje, påhæfter
+   `regen_person_visning()` slægtsnavnet, og *Marie Elisabeth Blome* bliver til *Marie Elisabeth
+   Reventlow*. Hun blev gift ind i slægten; hun tilhører den ikke. `linje` og `record_key` bor i
+   samme tabel og udfyldes normalt sammen — derfor er det let at ramme forkert.
+2. **Backfillen må ikke røre de 489.** De er uden for scope her, men skal håndteres af
+   1939-identitetsarbejdet, som alligevel skal afgøre hvad `linje` betyder for 1939. Assert: ingen
+   opdatering rammer en række med `linje = '1939'`.
+
+## Verifikation — og hvad den ikke beviser
+
+Korpus-diff på `visning_efternavn` og `visning_fuldt_navn` for alle personer før og efter.
+Forventet: **0 forskelle**.
+
+⚠ **Men en diff på 0 beviser kun at migrationen ikke ÆNDREDE cachen — ikke at cachen er korrekt.**
+`regen_person_visning()` er eneste skriver, og den kan kun udlede `Reventlow`. Alligevel står der i
+dag to ægtefæller uden `person_external_id` med et efternavn sat:
+
+| id | navn | `visning_efternavn` |
+|---|---|---|
+| 811 | Hedwig | `Mundhenke` |
+| 852 | Beke | `Ahlefeldt-Laurvig` |
+
+Ingen af de to kan stamme fra den nuværende udledning — det er deres **egne pigenavne**, altså
+forældet cache fra et tidligere mekanisme eller en siden fjernet `person_external_id`-række.
+`UPDATE`-sætningen har en `IS DISTINCT FROM`-vagt og skriver kun ved ændring, så en værdi der aldrig
+regenereres bliver stående.
+
+Verifikationen skal derfor være **to** kontroller, ikke én:
+
+- **diff = 0** → migrationen rørte ikke cachen
+- **ingen ny række med `visning_efternavn` sat uden at udledningen ville producere den** → cachen er
+  konsistent for de rækker vi tilføjer
+
+De to eksisterende afvigelser er forudbestående og skal ikke rettes af denne plan — men de skal
+noteres, så en fremtidig diff ikke tolker dem som noget planen forårsagede.
 
 ## Rækkefølge
 
@@ -91,7 +139,8 @@ fangede at cachen ikke blev rørt.
    dataoprydning frem for nummerering.
 2. **Fyld de 20 manglende `ordinal`** ud fra bogens rækkefølge.
 3. **Backfill `record_key`** for de 627 — `linje` NULL, `nr` NULL.
-4. **Verificér:** korpus-diff 0 forskelle · `red_person_grid` viser 627 flere redigerbare ·
+4. **Verificér:** korpus-diff 0 forskelle · ingen ny inkonsistent `visning_efternavn` ·
+   ingen række med `linje='1939'` rørt · `red_person_grid` viser 331 flere redigerbare ·
    `get_advisors(security)` uændret.
 
 **Gevinst:** 591 → 1218 redigerbare (34 % → 70 %).
