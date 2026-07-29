@@ -41,9 +41,43 @@ python3 tools/kalibrering/scor.py --udtraek work/kalibrering/luna \
     --batch work/kalibrering/batch.json --navn luna
 ```
 
-Uden `--facit` scores kun `er_omtale` for stratum A (som ikke kræver bogopslag).
-Med `--facit work/kalibrering/facit.json` scores også ægtefælle-data, embeder og
-godser mod menneskeligt facit — udfyld `facit-skabelon.json` mens du læser bogen.
+## Det menneskelige arbejde — holdt så småt som muligt
+
+Første udgave bad om et facit for alle 30 poster, angivet med bare et løbenummer.
+Det var ubrugeligt: man kunne ikke se hvem posten handlede om og skulle slå op i
+årbogen for hver linje. To ting fjerner det arbejde.
+
+**1. Prosaen står i arket — bogen skal ikke frem.**
+
+```bash
+python3 tools/kalibrering/lav-facitark.py   # → work/kalibrering/facitark.md
+```
+
+Kalibreringen tester om modellen udtrækker korrekt **fra en given tekst**, ikke
+om OCR'en er rigtig. Teksten er derfor facit-grundlaget, og den har vi. Bogen
+skal kun frem hvis man mistænker at teksten selv er forkert klippet.
+Stratum A er forudfyldt (de ER omtalerne), så 20 af 30 kræver læsning.
+
+**2. Kør begge modeller først — afgør kun hvor de er uenige.**
+
+```bash
+python3 tools/kalibrering/uenigheder.py --a work/kalibrering/terra --b work/kalibrering/luna
+```
+
+Er to modeller enige om en post, bidrager den intet til rangeringen — uanset om
+begge har ret eller begge tager fejl. Kun uenighederne afgør hvilken model der er
+bedst. Med to rimeligt gode modeller er det typisk en håndfuld poster frem for
+tyve, og hver enkelt præsenteres med prosaen og de to svar side om side.
+
+⚠ **Enighed er ikke sandhed.** To modeller kan dele samme fejl. Derfor scores
+stratum A stadig mod sit kendte facit, og de enige poster stikprøves.
+
+**Anbefalet rækkefølge:** kør begge modeller → se uenighederne → udfyld kun dem.
+Facitarket er reserven, hvis uenighederne ikke rækker til en klar afgørelse.
+
+Uden `--facit` scorer `scor.py` kun `er_omtale` for stratum A (som ikke kræver
+bogopslag). Med `--facit work/kalibrering/facit.json` scores også ægtefælle-data,
+embeder og godser.
 
 ## Hvad der scores — og hvorfor kun det
 
