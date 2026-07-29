@@ -1,5 +1,99 @@
 # Changelog
 
+## 1939: Den fyenske Linje fik egen linje og omstridt slægtskab (2026-07-29)
+
+De 26 personer i DAA 1939s linje VI kan aldrig matches mod DAA 2018-20, fordi
+2018-20-forfatteren bevidst udelod dem. Bogen selv er dog mere forbeholden end
+"de hører ikke til": 1939 skriver at de førte Reventlowernes murtinde men et
+**helt andet hjelmtegn**, at efterkommerne *"lejlighedsvis har ført
+Reventlow-Navnet"* og regnede sig til slægten, *"men om den fyenske Linjes
+Samhørighed med de holstenske og meklenborgske Reventlower kan intet oplyses."*
+Begge udgaver er altså enige om at slægtskabet er udokumenteret; de er uenige om
+hvad man så gør.
+
+Modelleret som to adskilte påstande frem for én:
+
+- **Navnet hævdes.** Linjen får `parent_lineage_id=6` (slægtsroden) og arver
+  dermed slægtsnavnet — "Henrik Jensen" vises nu som *Henrik Jensen Reventlow*,
+  som bogen ville skrive ham. `slaegtsnavn=NULL` blev forkastet: det ville
+  benægte et dokumenteret faktum for at udtrykke tvivl om et andet.
+- **Slægtskabet hævdes ikke.** En `gren_af`-relation (lineage 7 → 6) med
+  `konfidens='omstridt'` bærer selve afstamningspåstanden, med assertions og
+  citationer fra **begge** udgaver og en `conclusion` med status `omstridt`.
+  Skemaet foreskriver netop dette: *"parent_lineage_id er den hurtige FK;
+  'gren_af'-relationen bærer evidens/konfidens."*
+
+Udført i `change_set` 788: ny `lineage` 7 (source 3, kode VI), `linje='VI'` på de
+26 (person 1437–1462), rolle `gren_af` tilføjet vokabularet. Verificeret positivt
+før kørsel: artefaktets 26 `Lfyn`-poster står i nøjagtig samme navnerækkefølge som
+DB'ens nr 514–539. Rehearset i rullet-tilbage transaktion. Ingen sideeffekt: de
+øvrige 489 1939-personer og alle 2018-20-personer er urørte, slægtsnavns-
+karantænen er fortsat tom.
+
+**Faldgruber fundet undervejs (vigtige for det videre arbejde):**
+
+1. **IV og V er byttet om mellem udgaverne.** 1939 IV = "Den danske grevelige
+   Linje af 1673" = 2018-20 **V**; 1939 V = "grevelige Linje af 1767" = 2018-20
+   **IV**. Enhver logik der bærer et romertal på tværs af udgaver matcher stille
+   to forkerte linjer. `matchUdgaver` slår heldigvis op på `${source_id}:${kode}`.
+2. **1939 er uenig med sig selv:** indledningen nummererer den fyenske som IV,
+   brødteksten som VI.
+3. **"A. Den holstenske Linje"** i den rensede OCR er en fejllæsning; `raw.txt`
+   har "I".
+
+**Matcher-filteret er med.** `MatchLineageRow` har fået `udenforMatchning`, og
+`buildMatchPersoner` sætter et tilsvarende flag pr. person. `SammenlignUdgaver`
+springer dem over **før** frames bygges, så de hverken bliver arbejdsemne eller
+kandidat — 2018-20 er nyeste udgave, så uden filteret lå de 26 i *kandidat*-puljen
+og kunne foreslås som match for 2018-20-personer. Flaget udledes i `fetchLineages`
+fra `gren_af`-relationen, så reglen står ét sted og `lineage.status` (fri tekst)
+aldrig parses. Fejler relations-opslaget, undtages ingen: at vise for mange
+kandidater er en irritation, at skjule en ægte kandidat er et datatab. Testet på
+begge sider — også at flaget ikke smitter mellem udgaver med samme linjekode
+(opslag på `(source_id, kode)`, ikke kode alene; jf. IV/V-ombytningen).
+
+**Udestår også:** de øvrige 489 1939-personer har fortsat den syntetiske
+`linje='1939'`. Strukturen findes allerede i loaderens input (`_ctx.linje`,
+`lokal_id`-præfikser som `Lfyn`/`LGallentin`/`HL`), men `_ctx.linje` er
+LLM-udledt og hullet (222 poster uden værdi, mange "udledt"/"ukendt"), så en fuld
+omlægning er sit eget stykke arbejde — og konverteren skal med, ellers ruller en
+genindlæsning ændringen tilbage.
+
+## 2018-20: bogens apparat bløt ind i sidste posts narrativ (2026-07-29)
+
+Brugeren bemærkede at person 391 — en nulevende, født 2001 — havde et narrativ
+med indhold fra 1700-tallet. Det var ikke en anden persons biografi, men bogens
+**portrætfortegnelse**: én korrekt sætning efterfulgt af billedtekster med 21
+krydsreferencer.
+
+**Rodårsag:** IV-94 er den sidste post i linje IV. Segmenteringen skar "fra
+overskrift til sektionens slut" og slugte alt efterstillet apparat. Systematisk,
+ikke tilfældigt: fire af fem linjers sidste post var ramt — I-133 (person 39),
+II-35 (165) og III-129 (205) havde slugt linjetillægget *"Til denne linje hørte
+formentlig…"*, III-129 og IV-94 (391) desuden portrætfortegnelsen. V-200 var ren.
+Ingen andre af de 591 narrativer havde mønstret, målt på tre uafhængige signaler
+(tillægsmarkør, billedtekst-ord, krydsreference-tæthed).
+
+**Kontrolleret at intet manglede den modsatte vej:** alle 591 personer har et
+narrativ, og de 71 helt korte er ægte ("Barn.", "Cord – † ung.", "Gottschalk von
+Reventlow, se II. Linjen Gallentin."), også de 7 hvor en kort post følger en meget
+lang forgænger. Indblødningen er ensidig — sidste post sluger efterstillet stof,
+men stjæler ikke fra naboen.
+
+**Ingen persondatalækage:** anon får 0 rækker for den nulevendes narrativ; RLS-
+gaten holdt hele tiden. Verificeret.
+
+Trimmet i `change_set` 787 inde i et `begin_change_set`, så `log_change`-triggeren
+fangede før-billedet: **12.469 tegn bevaret i `change_event.foer`**, 1.014 tegn
+tilbage. Fuldt fortrydbart — teksten er ikke destrueret. Rehearset mod prod i en
+rullet-tilbage transaktion først; alle fire trimninger ender på en afsluttet
+sætning. Efter: 0 tillæg, 0 billedord, max krydsreferencer i hele korpus = 0.
+
+**Udestår:** selve segmenteringen er ikke rettet, så en genekstraktion af 2018-20
+ville genindføre fejlen. Det slugte linjetillæg er reelt genealogisk indhold
+(uplacerede personer, fx *"Hinrich von Reventlow – † før 1390"*) og hører hjemme
+på linjeniveau — `narrative.subjekt_type='slaegt'` findes allerede og bruges. Begge
+dele er separate opgaver.
 ## Slægts-rod i lineage — LIVE i prod, begge trin (2026-07-28)
 
 Forberedelse til at andre slægter end Reventlow kan bo i samme base. Alle fem linjer havde
