@@ -93,6 +93,30 @@ hviler derfor på at terra ikke er *dårligere* på nogen målt dimension, ikke 
 ekstra embeder er verificeret. `work/kalibrering/uenigheder.md` har de 24 uenige poster,
 hvis det senere skal afgøres.
 
+**Addendum 2026-07-29 (uenigheds-gennemgang, bruger-godkendt: terra + to betingelser):**
+
+- **er_omtale UDEN FOR stratum A afgjort mod kendt facit** (B/C-poster ER rigtige
+  personer): terra kasserede 4 (alle med afhugget tekststart), luna 1. Ingen af dem
+  satte `tekst_afhugget` en eneste gang. Det var kalibreringens alvorligste fund —
+  den dyreste fejltype i omvendt retning (rigtige mennesker gravsat).
+- **Prompt-hærdningen virker, empirisk:** afhugget-sektionen i `extract-prompt.md`
+  (skrevet fra netop disse fund) blev kontrolkørt med terra på de 5 fejlposter —
+  **5/5 nu korrekte** (`er_omtale=false` + `tekst_afhugget=true`), se
+  `work/kalibrering/terra-kontrol/`.
+- **Embede-forbeholdet delvist lukket ved stikprøve:** terras 5 ekstra embeder på
+  B:275 (Hofjkr., Hof- og Kancelliraad, Amtmand, Landraad, Oberst) er alle ordrette
+  citater fra prosaen — luna fandt 0 af dem. Merudtrækket er ægte fund, ikke støj.
+  (Stikprøve, ikke fuldt facit — resten af forbeholdet står.)
+- **Betingelse 2 implementeret som R10-gate** (`validate.tjek_omtale`):
+  `er_omtale=true` på en post segmenteringen har forankret til sit EGET trykte nummer
+  er en selvmodsigelse (omtaler har intet eget nummer) → blokeres til menneskelig
+  afgørelse, aldrig auto-gravsat. Fail-soft uden anker-signal.
+- Bifund: `er_omtale`/`tekst_afhugget`/`koen_kilde` manglede i validates `ALLOWED_TOP`,
+  så R5 ville have flagget ethvert kontrakt-konformt udtræk. Rettet.
+- C:3 og C:29 viste sig at have IDENTISK gruppetekst — det kendte delt-narrativ-problem
+  ramte selve kalibreringsbatchen (2 af 10 C-poster). Re-segmenteringen fjerner den
+  fejlkilde ved roden.
+
 **Kalibreringens største udbytte var ikke modelvalget.** Den afslørede en fejl i
 kontrakten: `er_omtale`-kriteriet sammenblandede "dette er en omtale" med "denne tekst
 er klippet forkert", så terra loyalt markerede fire rigtige personer som omtaler. Ved

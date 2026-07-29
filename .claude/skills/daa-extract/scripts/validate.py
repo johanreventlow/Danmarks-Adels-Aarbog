@@ -32,7 +32,10 @@ ALLOWED_TOP = {"linje", "nr", "nr_label", "usikker", "navn", "tilnavn", "koen",
                # beregnede `linje-nr`. Se record_key_of i load_helpers.R.
                "record_key",
                # Lokator — påhæftes deterministisk af paahaeft_lokator, ikke af modellen.
-               "side", "lokal_id"}
+               "side", "lokal_id",
+               # Kontrakt 2026-07-29: omtale-gate + afhugget-flag + køn-proveniens.
+               # Uden dem her ville R5 flagge ethvert kontrakt-konformt udtræk.
+               "er_omtale", "tekst_afhugget", "koen_kilde"}
 
 # Kontrolleret vokabular (invariant #9): flag drift/fejl som advisory.
 try:
@@ -729,6 +732,10 @@ def validate(rec, src, known_by_linje):
     # rene (Codex-review 2026-07-29, fund 1 — reproduceret).
     issues.extend(tjek_lokator(rec))
 
+    # R10: omtale-påstand mod nummer-anker (kalibrering 2026-07-29) — spærrer
+    # auto-gravsætning af rigtige personer, sender dem til review.
+    issues.extend(tjek_omtale(rec, src))
+
     # R6: autoritativ narrativ findes (fra kilden, ikke fra LLM)
     if src is not None and not src_text:
         issues.append('R6: kilde-postens raw_text er tom')
@@ -853,6 +860,22 @@ def tjek_lokator(rec):
     if mangler:
         return [f"R9: lokator ufuldstændig (mangler {', '.join(mangler)}) — "
                 f"posten kan ikke genfindes i identitetsregisteret"]
+    return []
+
+
+def tjek_omtale(rec, src):
+    """R10: er_omtale på en post med eget nummer-anker er en selvmodsigelse.
+
+    Omtaler har intet eget løbenummer — så hvis segmenteringen har forankret
+    posten til sin EGEN trykte nummerlinje (metode="anker"), kan den ikke være
+    en omtale. Kalibreringen 2026-07-29 viste modellen kassere RIGTIGE
+    personer med afhugget tekst som omtaler; gaten sender dem til menneskelig
+    afgørelse i stedet for tavs gravsætning. Fail-soft: uden metode-signal kan
+    vi ikke konkludere, og gaten tier."""
+    if rec.get("er_omtale") and (src or {}).get("metode") == "anker":
+        return ["R10: er_omtale=true, men kilde-posten er forankret til sit eget "
+                "trykte nummer — omtaler har intet eget nummer. Menneskelig "
+                "afgørelse påkrævet (auto-gravsætning spærret)"]
     return []
 
 
