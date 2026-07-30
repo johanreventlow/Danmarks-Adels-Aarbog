@@ -108,6 +108,25 @@ test_that("reset tømmer versioneringshistorik men aldrig journalen (#124)", {
   expect_length(intersect(loader_model_tables(), loader_versioning_tables()), 0)
 })
 
+test_that("navn≠ref-guarden afviser kun beviselig uenighed (#125)", {
+  # spøgelses-union-mønstret: partner_navn = mor, ref opløst til ane/far
+  expect_false(partner_ref_navn_enige("Margrethe Rantzau", "Ditlev"))
+  expect_false(partner_ref_navn_enige("Dorothea von Bülow", "Henning"))
+  # 1939-mønstret: ref-personens navn-felt bærer kun fornavne
+  expect_true(partner_ref_navn_enige("Anna Catharine Reventlow", "Anna Catharine"))
+  # titel/adelspræfiks i partner_navn forstyrrer ikke token-subset
+  expect_true(partner_ref_navn_enige("Oberst Joachim Diedrich von Dewitz", "Joachim Diedrich"))
+  # delt distinkt navne-token (≥4 tegn) er nok
+  expect_true(partner_ref_navn_enige("Magdalene Blome", "Otto Blome"))
+  # kort fornavn (<4 tegn) matcher via token-subset, ikke substring
+  expect_true(partner_ref_navn_enige("Cai von Thienen", "Cai"))
+  expect_false(partner_ref_navn_enige("Anna", "Susanna"))  # ingen substring-falsk-positiv
+  # NA (ukendt) må aldrig afvise — kun beviselig uenighed parkerer
+  expect_identical(partner_ref_navn_enige(NULL, "Ditlev"), NA)
+  expect_identical(partner_ref_navn_enige("Margrethe", NA), NA)
+  expect_identical(partner_ref_navn_enige("", "Ditlev"), NA)
+})
+
 test_that("is_missing_table_error genkender 42P01 / does not exist", {
   expect_true(is_missing_table_error('relation "change_set" does not exist'))
   expect_true(is_missing_table_error("ERROR: 42P01"))

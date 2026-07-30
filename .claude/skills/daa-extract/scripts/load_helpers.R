@@ -285,6 +285,27 @@ barn_lookup_reason <- function(keys) if (length(keys) > 0) "ok" else "nr_ikke_i_
   if (length(vals) == 1L) vals else NA_integer_
 }
 
+# navn≠ref-guard (#125; diskriminator-beslutning 2026-07-03): når en ægteskabs-
+# post BÅDE bærer partner_navn og en intern partner_ekstern_ref, skal de to
+# uafhængige signaler være enige før ref-linket bruges — mis-opløste "se nr."-
+# refs skabte 26 spøgelses-unioner (barn "gift" med egen ane). Tolerant
+# sammenligning i match_barn_union-stil: alle tokens fra den ene side indeholdt
+# i den anden (1939-poster bærer ofte kun fornavne i navn-feltet), ellers delt
+# navne-token ≥4 tegn. TRUE = enige, FALSE = uenige (afvis ref-linket),
+# NA = kan ikke afgøres (navn mangler på en side) — NA må ALDRIG afvise:
+# kun beviselig uenighed parkerer, jf. konservativ-scope-læringen.
+partner_ref_navn_enige <- function(partner_navn, ref_navn) {
+  toks <- function(x) {
+    if (is.null(x) || length(x) == 0L || is.na(x)) return(character(0))
+    t <- strsplit(tolower(trimws(as.character(x))), "[^[:alnum:]]+")[[1]]
+    t[nzchar(t)]
+  }
+  pt <- toks(partner_navn); rt <- toks(ref_navn)
+  if (!length(pt) || !length(rt)) return(NA)
+  if (all(pt %in% rt) || all(rt %in% pt)) return(TRUE)
+  length(intersect(pt[nchar(pt) >= 4L], rt[nchar(rt) >= 4L])) > 0L
+}
+
 # match_barn_union: knyt et barns fritekst-`aegteskab_kontekst` til ét af
 # forælderens ægteskaber. `aegteskaber` er rec$aegteskaber (samme rækkefølge som
 # loaderens `fams`-liste), hvert element en liste m. $ordinal + $partner_navn.

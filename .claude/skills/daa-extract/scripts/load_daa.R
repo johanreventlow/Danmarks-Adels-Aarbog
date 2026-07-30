@@ -378,12 +378,24 @@ tryCatch({
       add_member(fam, pid, "partner", ordinal = g(a, "ordinal"))
       ref <- parse_intern_ref(g(a, "partner_ekstern_ref"), rec$linje)
       existing_key <- if (!is.null(ref)) key(ref$linje, ref$nr) else NULL
+      ref_afvist <- FALSE
       if (!is.null(existing_key) && exists(existing_key, envir = pmap, inherits = FALSE)) {
         # partner_ekstern_ref pegede internt på en person der allerede findes i
         # denne kilde (fx "se nr. 97") — link den eksisterende i stedet for at
-        # oprette en dublet-stub.
-        add_member(fam, get(existing_key, envir = pmap), "partner", ordinal = g(a, "ordinal"))
-      } else if (!is.null(a$partner_navn) && !is.na(a$partner_navn)) {
+        # oprette en dublet-stub. MEN kun hvis ref og partner_navn er enige
+        # (#125): mis-opløste refs skabte spøgelses-unioner (barn gift m. ane).
+        ref_rec <- get0(existing_key, envir = recmap, inherits = FALSE)
+        enige <- partner_ref_navn_enige(g(a, "partner_navn"), g(ref_rec, "navn"))
+        if (isFALSE(enige)) {
+          ref_afvist <- TRUE
+          message(sprintf("navn≠ref: partner_navn '%s' ~ ref-person '%s' (%s) er uenige — ref-link afvist, partner oprettes fra navnet",
+                          a$partner_navn, g(ref_rec, "navn", "?"), a$partner_ekstern_ref))
+        } else {
+          add_member(fam, get(existing_key, envir = pmap), "partner", ordinal = g(a, "ordinal"))
+        }
+      }
+      if ((is.null(existing_key) || !exists(existing_key, envir = pmap, inherits = FALSE) || ref_afvist) &&
+          !is.null(a$partner_navn) && !is.na(a$partner_navn)) {
         sp <- add_person(); sp_t <- split_title(a$partner_navn)
         fact_value(sp, "navn", vaerdi = sp_t$rest, sid = src, side = side)
         if (!is.na(sp_t$titel)) fact_value(sp, "titel", vaerdi = sp_t$titel, sid = src, side = side)
@@ -408,7 +420,9 @@ tryCatch({
         fact_value(fam, "skilsmisse", raw = "skilt", sid = src, side = side, st = "family")
       add_note("family", fam, g(a, "note", NULL))
       if (!is.null(a$partner_ekstern_ref) && !is.na(a$partner_ekstern_ref))
-        add_note("family", fam, paste("partner ekstern ref:", a$partner_ekstern_ref))
+        add_note("family", fam, paste0("partner ekstern ref",
+                                       if (ref_afvist) " AFVIST (navn≠ref)" else "",
+                                       ": ", a$partner_ekstern_ref))
       fams[[length(fams) + 1]] <- fam
     }
     # børn: knyt til den KORREKTE union via barnets eget aegteskab_kontekst.
