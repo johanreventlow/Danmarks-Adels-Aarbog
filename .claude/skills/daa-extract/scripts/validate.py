@@ -982,7 +982,10 @@ def main():
                 advisories += 1
                 print(f'[validate] ~ linje {rec.get("linje")} nr {rec.get("nr_label")}: {adv}', file=sys.stderr)
 
-    json.dump(clean, open(args.clean, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+    # Serialisér én gang: samme bytes skrives til disk OG hashes, så manifestets
+    # hash pr. konstruktion er hash af disk-indholdet (ingen genlæsning).
+    clean_bytes = json.dumps(clean, ensure_ascii=False, indent=2).encode('utf-8')
+    open(args.clean, 'wb').write(clean_bytes)
     json.dump(review, open(args.review, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
     if args.escalate:
         json.dump(escalation, open(args.escalate, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
@@ -992,12 +995,11 @@ def main():
     # ved hash-mismatch eller rød gate — kvalitetsgaten var før kun proces-
     # håndhævet (1939 blev loadet til prod med fejlende gate, changelog
     # 2026-07-26). Ingen timestamp: manifestet skal være deterministisk
-    # reproducerbart fra samme input (samme princip som resume-forbuddet
-    # mod Date.now i workflows).
+    # reproducerbart fra samme input.
     total = len(clean) + len(review)
     manifest = {
         'artefakt': os.path.basename(args.clean),
-        'sha256': hashlib.sha256(open(args.clean, 'rb').read()).hexdigest(),
+        'sha256': hashlib.sha256(clean_bytes).hexdigest(),
         'rene': len(clean),
         'flaggede': len(review),
         'andel_rene': round(len(clean) / total, 4) if total else 0.0,

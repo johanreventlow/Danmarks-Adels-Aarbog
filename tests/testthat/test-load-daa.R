@@ -526,7 +526,9 @@ test_that("opt-in lokal DB-smoke genafspiller rettelser efter reset og ruller st
     try(DBI::dbExecute(con, "DELETE FROM import_korrektion WHERE import_key=$1", params = list(import_key)), silent = TRUE)
     try(DBI::dbExecute(con, "DELETE FROM change_set WHERE operation='red_ret_ocr_felt' AND summary LIKE $1",
                        params = list(paste0("OCR-%: ", import_key, "/%"))), silent = TRUE)
-    try(DBI::dbExecute(con, paste0("TRUNCATE ", paste(loader_model_tables(), collapse = ", "), " RESTART IDENTITY CASCADE")), silent = TRUE)
+    # Samme fulde reset-kontrakt som loaderen (#124): model + versionering,
+    # ellers genindfører testens egen cleanup stale-historik-klassen lokalt.
+    try(DBI::dbExecute(con, paste0("TRUNCATE ", paste(c(loader_model_tables(), loader_versioning_tables()), collapse = ", "), " RESTART IDENTITY CASCADE")), silent = TRUE)
     try(DBI::dbExecute(con, "DELETE FROM profiles WHERE id=$1", params = list(smoke_uid)), silent = TRUE)
     try(DBI::dbExecute(con, "DELETE FROM auth.users WHERE id=$1", params = list(smoke_uid)), silent = TRUE)
   }

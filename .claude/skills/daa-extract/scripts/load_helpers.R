@@ -91,7 +91,9 @@ parse_load_daa_args <- function(argv) {
   )
 }
 
-# Den fulde resetliste er centraliseret her, så kontrakten kan testes uden DB-forbindelse.
+# Reset-kontrakten er centraliseret i disse to lister (testbare uden DB):
+# model-tabellerne (datamodellen) + versioneringstabellerne nedenfor. En reset-
+# TRUNCATE skal ALTID tage begge — se load_daa.R's RESET-gren og #124.
 loader_model_tables <- function() c(
   "note", "citation", "conclusion", "assertion", "relation", "fact",
   "family_member", "family", "person_external_id", "narrative", "person",
