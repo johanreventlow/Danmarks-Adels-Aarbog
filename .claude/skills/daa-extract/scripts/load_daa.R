@@ -268,8 +268,8 @@ tryCatch({
       stop("RESET (--reset) afvist: basen har andre redaktionelle change_set-rækker end den genafspillelige red_ret_ocr_felt. Kør uden --reset (append) eller tilføj --force-reset for bevidst at slette dem.")
     if (has_reset_blocking_editorial_changes(cs) && FORCE_RESET)
       message("ADVARSEL: --force-reset tilsidesætter RESET-guarden — redaktionelle change_set-rækker slettes.")
-    message("RESET: tømmer model-tabeller…")
-    ex(paste0("TRUNCATE ", paste(model_tables, collapse=", "), " CASCADE;"))
+    message("RESET: tømmer model-tabeller + versioneringshistorik…")
+    ex(paste0("TRUNCATE ", paste(c(model_tables, loader_versioning_tables()), collapse=", "), " CASCADE;"))
   }
 
   seed_seq()      # skal køre EFTER en evt. TRUNCATE, og under alle omstændigheder før nid()

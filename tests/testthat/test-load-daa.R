@@ -98,6 +98,16 @@ test_that("reset-listen bevarer import_korrektion uden for truncate", {
   expect_false("import_korrektion" %in% loader_model_tables())
 })
 
+test_that("reset tømmer versioneringshistorik men aldrig journalen (#124)", {
+  # Historik nøglet til model-id'er må ikke overleve TRUNCATE — id-genbrug
+  # ville knytte gamle events til nye, forkerte rækker.
+  expect_setequal(loader_versioning_tables(), c("change_set", "change_event"))
+  # Journalen er replay-laget og skal netop overleve reset.
+  expect_false("import_korrektion" %in% loader_versioning_tables())
+  # De to lister må ikke overlappe — hver tabel har præcis én reset-semantik.
+  expect_length(intersect(loader_model_tables(), loader_versioning_tables()), 0)
+})
+
 test_that("is_missing_table_error genkender 42P01 / does not exist", {
   expect_true(is_missing_table_error('relation "change_set" does not exist'))
   expect_true(is_missing_table_error("ERROR: 42P01"))

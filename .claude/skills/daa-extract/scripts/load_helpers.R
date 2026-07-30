@@ -78,6 +78,13 @@ loader_model_tables <- function() c(
   "coat_of_arms", "historical_event", "media", "estate", "organisation", "place", "source"
 )
 
+# Versioneringstabeller der SKAL med i en reset-TRUNCATE (#124): historikken er
+# nøglet til model-id'er som TRUNCATE frigiver til genbrug — overlever den,
+# fremstår gamle events knyttet til nye, forkerte rækker. import_korrektion er
+# bevidst IKKE her: journalen er nøglet på (import_key, record_key) og skal
+# netop overleve reset (replay-laget).
+loader_versioning_tables <- function() c("change_set", "change_event")
+
 external_id_buffer_row <- function(pid, sid, linje, nr, record_key) {
   list(person_id = pid, source_id = sid, linje = linje, nr = nr, record_key = record_key)
 }
