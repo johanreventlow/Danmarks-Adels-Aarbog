@@ -42,7 +42,10 @@ PREFIX = 70
 
 def _norm(s: str | None) -> str:
     s = (s or "").replace("­", "")
-    return re.sub(r"[\W_]+", "", s).lower()
+    s = re.sub(r"[\W_]+", "", s).lower()
+    # OCR forveksler l og 1 i spærret sats ("C 1 a r e 1 i a" = Clarelia) —
+    # kollaps begge til l, så tekst-ankeret ser gennem forvekslingen.
+    return s.replace("1", "l")
 
 
 def _gammel_kerne(narrativ: str | None) -> str:

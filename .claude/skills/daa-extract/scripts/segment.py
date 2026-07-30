@@ -346,9 +346,45 @@ def _gruppe_label_1939(key):
     return '.'.join(str(del_) if del_ else '?' for del_ in key)
 
 
+# Pegepind i en posts narrativ: "— Børn: Ottende Slægtled I." Whitespace-normen
+# i raw_text har helet linjeombrud, så mønstret kan læses samlet.
+PEGEPIND_1939_RE = re.compile(
+    r'(?:Børn|Døtre|Søn|Sønner|Datter)\s*[:;]\s*([A-ZÆØÅ][a-zæøå]+)\s+Slægtled'
+    r'(?:\s+([IVXL]+))?')
+
+
+def _pegepind_krydstjek_1939(posts, profile):
+    """Bogen dobbeltbogfører strukturen: forældrenes "Børn: X Slægtled Y"-
+    pegepinde er en UAFHÆNGIG facitliste over hvilke grupper der skal findes.
+    Enhver peget gruppe uden segmenteret modpart = misset markør → advarsel.
+    Samme princip som reconciles "tvetydig frem for forkert", et niveau op."""
+    grupper = {(p.get('linje'), p.get('slaegtled'), p.get('afsnit')) for p in posts}
+    slaegtled_par = {(l, s) for l, s, _ in grupper}
+    mangler = []
+    for p in posts:
+        for m in PEGEPIND_1939_RE.finditer(p.get('raw_text') or ''):
+            ordinal = profile['ordinals'].get(m.group(1).lower())
+            if ordinal is None:
+                continue                      # prosa-sætning, ikke pegepind
+            roman = _normaliser_romertal_1939(m.group(2), profile)
+            maal = (p.get('linje'), ordinal, roman)
+            fundet = maal in grupper if roman else (p.get('linje'), ordinal) in slaegtled_par
+            if not fundet:
+                mangler.append((p.get('lokal_id') or p.get('nr_label'),
+                                _gruppe_label_1939(maal)))
+    return mangler
+
+
 def _quality_report_1939(posts, unummererede, kontekstlinjer,
-                         ukendte_ordinals, slaegtled_fald):
+                         ukendte_ordinals, slaegtled_fald, profile=None):
     """1939-numre kontrolleres pr. trykt gruppe, ikke på tværs af bogen."""
+    if profile:
+        mangler = _pegepind_krydstjek_1939(posts, profile)
+        prefix = 'ADVARSEL: ' if mangler else ''
+        print(f'[segment] {prefix}pegepind-krydstjek: {len(mangler)} pegede grupper '
+              f'uden segmenteret modpart', file=sys.stderr)
+        for fra, maal in mangler[:20]:
+            print(f'[segment]    post {fra} peger på {maal} — findes ikke', file=sys.stderr)
     uden_lokal_id = [p['nr_label'] for p in posts if not p.get('lokal_id')]
     print(f'[segment] {len(uden_lokal_id)} poster uden lokal_id'
           f'{": " + str(uden_lokal_id) if uden_lokal_id else ""}', file=sys.stderr)
@@ -533,7 +569,8 @@ def _segment_1939(lines, profile):
     sys.stdout.write('\n')
     print(f'[segment] {len(posts)} poster', file=sys.stderr)
     _quality_report_1939(
-        posts, unummererede, kontekstlinjer, ukendte_ordinals, slaegtled_fald)
+        posts, unummererede, kontekstlinjer, ukendte_ordinals, slaegtled_fald,
+        profile)
     return posts
 
 

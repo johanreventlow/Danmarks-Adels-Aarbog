@@ -275,5 +275,47 @@ class TestSegment1939Profil(unittest.TestCase):
         self.assertIn("lokal_id-dubletter: ['I.Ottende.I.1']", rapport)
 
 
+class TestPegepindKrydstjek1939(unittest.TestCase):
+    """Bogen dobbeltbogfører strukturen — pegepindene er facitliste."""
+
+    def _profil(self):
+        return segment.UDGAVE_PROFILER["1939"]
+
+    def test_peget_gruppe_der_findes_giver_ingen_advarsel(self):
+        posts = [
+            {"linje": "I", "slaegtled": "Syvende", "afsnit": "II", "lokal_id": "I.Syvende.II.1",
+             "raw_text": "N.N. † 1700. — Børn: Ottende Slægtled I."},
+            {"linje": "I", "slaegtled": "Ottende", "afsnit": "I", "lokal_id": "I.Ottende.I.1",
+             "raw_text": "M.M. f. 1690."},
+        ]
+        self.assertEqual(segment._pegepind_krydstjek_1939(posts, self._profil()), [])
+
+    def test_peget_gruppe_uden_modpart_meldes(self):
+        # Pegepinden nævner Niende Slægtled — ingen gruppe har det: misset
+        # markør ELLER OCR-tab. Skal meldes, aldrig ties.
+        posts = [{"linje": "I", "slaegtled": "Syvende", "afsnit": None,
+                  "lokal_id": "I.Syvende.3",
+                  "raw_text": "N.N. † 1700. — Børn: Niende Slægtled II."}]
+        mangler = segment._pegepind_krydstjek_1939(posts, self._profil())
+        self.assertEqual(len(mangler), 1)
+        self.assertIn("Niende", mangler[0][1])
+
+    def test_pegepind_uden_roman_matcher_ethvert_afsnit(self):
+        posts = [
+            {"linje": "I", "slaegtled": "Femte", "afsnit": "III", "lokal_id": "I.Femte.III.2",
+             "raw_text": "N.N. — Børn: Sjette Slægtled."},
+            {"linje": "I", "slaegtled": "Sjette", "afsnit": "I", "lokal_id": "I.Sjette.I.1",
+             "raw_text": "M.M."},
+        ]
+        self.assertEqual(segment._pegepind_krydstjek_1939(posts, self._profil()), [])
+
+    def test_prosa_med_ordinallignende_ord_ignoreres(self):
+        # "Søn: Peter Slægtled…" findes ikke — men et ikke-ordinal førsteord
+        # må aldrig udløse krydstjek (fail-soft mod prosa).
+        posts = [{"linje": "I", "slaegtled": "Femte", "afsnit": None, "lokal_id": "I.Femte.1",
+                  "raw_text": "N.N. — Børn: Peter Slægtled arvede intet."}]
+        self.assertEqual(segment._pegepind_krydstjek_1939(posts, self._profil()), [])
+
+
 if __name__ == "__main__":
     unittest.main()
