@@ -2,6 +2,19 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Replay-laget: source-scoped replace, ikke generaliseret journal (2026-07-30)
+
+**Besluttet (bruger-valg efter helhedsreview, issue #123):** re-load af en udgave bevarer
+person-id'er via record_key-match mod identitetsregisteret; kun source-ejede rækker (uden
+change_event-spor) erstattes, redaktionelt arbejde består automatisk. **Fravalgt:**
+generaliseret journal-mønster (reload-invariante ankre i alle ~60 red_*-RPC'er + migration
+af eksisterende samme_som-change_sets) — (b)'s forudsætninger var netop færdigbygget
+(register 514/514, book_post_id = record_key, perturbationstestet reconcile), mens (a)'s
+hovedomkostning netop var migrationen. Fuldt design inkl. forudsætninger (record_key-
+backfill i prod, IDENTITY-migration, dry-run-match-rapport først) og åbne spørgsmål:
+`docs/replay-source-scoped-design.md`. Ledsagende gates landet samme dag: #124 (reset
+tømmer versioneringshistorik), #125 (navn≠ref-guard), #126 (gate-manifest).
+
 ## 1939-lokal_id: bogens trykte firleddede adresse — der tælles ikke, der læses (2026-07-30)
 
 **Besluttet (bruger-anvist):** en 1939-posts identitetsadresse er `{linje}.{slægtled}.{afsnit}.{nr}`

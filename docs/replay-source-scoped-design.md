@@ -1,0 +1,92 @@
+# Replay-design: source-scoped replace (#123)
+
+**Status:** Besluttet 2026-07-30 (bruger valgte modtil (b) efter helhedsreview).
+**Kontekst:** `docs/reviews/helhedsreview-redaktoer-import-muligheder-2026-07-30.md`
+Tema A + issue #123. Implementering er IKKE startet — dette dokument er
+designsessionens leverance.
+
+## Problemet
+
+Import-laget og redaktør-laget er to adskilte skriveverdener. Loaderen kan kun
+append (dubletter ved gen-load) eller `--reset` (TRUNCATE). Alt redaktionelt
+arbejde (samme_som-links, sletninger, narrativ-patches) er nøglet til
+person-id'er som en reload regenererer — re-ekstraktion kan derfor ikke loades
+uden at ofre redaktionsarbejdet. Kun `red_ret_ocr_felt` overlever (journal på
+`(import_key, record_key)`).
+
+## Beslutningen: (b) source-scoped replace
+
+Reload **bevarer person-id'er**. Loaderen matcher hver ny post til den
+eksisterende person via `record_key` og erstatter kun de rækker kilden ejer;
+redaktionelle rækker er nøglet til person-id og består automatisk.
+
+**Fravalgt (a) generaliseret journal** (alle `red_*`-operationer får
+reload-invariante ankre + afspilning): ville kræve ændring i ~60 RPC'er samt
+migration af de eksisterende samme_som-change_sets fra person-id til stabile
+ankre. (b)'s forudsætninger er derimod netop færdigbygget: identitetsregisteret
+er komplet (514/514 aktive med trykt adresse, `book_post_id` = artefaktets
+`record_key`), reconcile-maskineriet med fire udfald findes og er
+perturbationstestet, og alle poster er nummer-krydstjekkede.
+
+## Mekanik
+
+Ny load-mode `--replace <source>` (afløser reset/append ved re-load af en
+eksisterende udgave):
+
+1. **Gate:** kræver grønt gate-manifest (#126). Reset-vejen består som nød-flow
+   (#124: tømmer nu også change_set/change_event). navn≠ref-guarden (#125) er
+   aktiv i replace-mode som i alle modes.
+2. **Match-fase:** `reconcile(register, nye_poster)` → fire udfald:
+   - **Entydig:** person-id bevares; source-ejede rækker erstattes (se §Ejerskab).
+   - **Tvetydig:** STOP — menneskelig afgørelse (om-nøglings-præcedens; slutark).
+   - **Ny:** opret person som i dag + mint id i registeret.
+   - **Bortfalden:** markér i rapport, slet ALDRIG automatisk (register-princip:
+     bortfald kan lige så vel være segmenteringsfejl som ægte sletning).
+   Tombstonede `book_post_id`'er må aldrig genindsættes (2.11-præcedensen).
+3. **Replay af OCR-rettelser:** `import_korrektion`-overlay uændret (eksisterende
+   mekanisme, allerede uden for reset).
+4. **Efterverifikation (blokerende):** antal redaktionelle rækker
+   (change_event-loggede assertions, samme_som-relationer, red_-narrativer) er
+   IDENTISK før/efter replace; db-verify-asserts grønne.
+
+## §Ejerskab: hvad må replace røre?
+
+**Source-ejet (slettes + genindsættes pr. matchet person):** facts + deres
+assertions/citations/conclusions med citation → den re-loadede source og uden
+change_event-spor; narrativ for den source; relationer/familie-struktur oprettet
+af loaderen for den source.
+
+**Redaktionelt (røres ALDRIG):** enhver række med change_event-spor,
+samme_som-relationer, red_-narrativ-patches, suggestion, bogmærker, profiles.
+
+Afgrænsningen "har change_event-spor" er den maskinelle diskriminator — den
+forudsætter at versioneringshistorikken er retvisende, hvilket #124 netop har
+sikret (historik overlever ikke længere id-genbrug).
+
+## Forudsætninger (rækkefølge)
+
+0. **record_key-backfill i prod:** kun 591/1733 redigerbare personer har
+   `record_key` i `person_external_id`. 1939-personerne kan backfilles nu:
+   registerets `book_post_id` ↔ artefaktets `record_key` ↔ `(linje, nr)` ↔
+   person. UDEN dette kan match-fasen ikke køre. Særskilt, verificérbart trin.
+1. **IDENTITY-migration** (review 24 fund 15 / RED-8): `max(id)+1`-allokering
+   skal væk før replace-mode — replace åbner for gentagne loads og dermed flere
+   samtidige skrivere mod samme id-rum.
+2. **Match-rapport (dry-run):** `--replace --dry-run` udskriver fuld
+   udfalds-fordeling + diff-oversigt FØR noget skrives. Første leverance —
+   giver empirisk facit for §Ejerskab-afgrænsningen inden der bygges skrive-kode.
+3. **Replace af person-scoped data** (facts/narrativ) — mindste farlige skive.
+4. **Familie-graf-replace** — sværest: family/family_member er delt struktur
+   (gift-ind-stubs, børne-tilknytninger). Egen designrunde når trin 3 er
+   verificeret mod den lokale prod-kopi ([[lokal-db-testbase]]-mønstret).
+
+## Åbne spørgsmål (til implementeringssessionerne)
+
+- Familie-ejerskab: en union med redaktionelt tilføjet medlem — er familien så
+  redaktionel? (Foreslået: familien består, kun loader-oprettede medlemmer
+  gen-matches.)
+- samme_som til en bortfalden person: linket består (personen slettes ikke),
+  men skal flages i match-rapporten.
+- 2018-20-artefaktets record_keys er filnavns-baserede (`linje-nr`) uden
+  register — skal 2018-20 have eget identitetsregister før replace kan bruges
+  på den udgave? (Foreslået: ja, men først når 1939-flowet er bevist.)
