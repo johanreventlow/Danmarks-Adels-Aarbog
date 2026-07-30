@@ -65,6 +65,30 @@ aar <- parse_aar(udgave)
 clean <- fromJSON(path, simplifyVector = FALSE)
 if (!length(clean)) stop("clean.json er tom — intet at loade.")
 
+# ---- gate-manifest (#126): valideringsresultat SKAL følge artefaktet ----
+# validate.py skriver <clean>.manifest.json (sha256 + gate-tal). Uden manifest,
+# ved hash-mismatch eller rød gate afvises load fail-closed; --force-gate er den
+# bevidste override (samme mønster som --force-reset). --legacy-import er
+# undtaget: de gamle 2018-20-artefakter er fra før manifest-kontrakten.
+if (!LEGACY_IMPORT) {
+  manifest_path <- paste0(path, ".manifest.json")
+  gate_problem <- if (!file.exists(manifest_path)) {
+    sprintf("manifest mangler (%s) — kør validate.py igen, den skriver det nu", manifest_path)
+  } else {
+    if (!requireNamespace("openssl", quietly = TRUE))
+      stop("Gate-manifestet kræver R-pakken 'openssl' til sha256 — install.packages(\"openssl\").")
+    fil_con <- file(path, "rb")
+    faktisk_sha <- as.character(openssl::sha256(fil_con))  # openssl lukker selv connection
+    res <- verify_gate_manifest(fromJSON(manifest_path, simplifyVector = TRUE), faktisk_sha)
+    if (res$ok) { message("Gate-manifest: ", res$grund); NULL } else res$grund
+  }
+  if (!is.null(gate_problem)) {
+    if (!args$force_gate)
+      stop("LOAD afvist (#126): ", gate_problem, ". Tilføj --force-gate for bevidst at loade alligevel.")
+    message("ADVARSEL: --force-gate tilsidesætter gate-manifestet — ", gate_problem)
+  }
+}
+
 # ---- forbindelse ----
 host <- Sys.getenv("SUPABASE_HOST"); user <- Sys.getenv("SUPABASE_USER"); pw <- Sys.getenv("SUPABASE_PASSWORD")
 if (host == "" || user == "" || pw == "") stop("Sæt SUPABASE_HOST/USER/PASSWORD i ~/.Renviron.")

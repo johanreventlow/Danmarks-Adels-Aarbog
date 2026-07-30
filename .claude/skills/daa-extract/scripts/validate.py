@@ -17,7 +17,7 @@ Reglerne (kan-tjekkes-deterministisk delmængde):
   R6  narrative findes, er ikke-tom og matcher kilde-postens raw_text
   K   linje/nr i udtræk matcher kilde-posten
 """
-import sys, os, re, json, argparse
+import sys, os, re, json, argparse, hashlib
 
 ALLOWED_TOP = {"linje", "nr", "nr_label", "usikker", "navn", "tilnavn", "koen",
                "facts", "godser", "embeder", "aegteskaber", "boern",
@@ -986,6 +986,24 @@ def main():
     json.dump(review, open(args.review, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
     if args.escalate:
         json.dump(escalation, open(args.escalate, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+
+    # Gate-manifest (#126): bind valideringsresultatet kryptografisk til det
+    # artefakt der senere loades. load_daa.R kræver manifestet og afviser load
+    # ved hash-mismatch eller rød gate — kvalitetsgaten var før kun proces-
+    # håndhævet (1939 blev loadet til prod med fejlende gate, changelog
+    # 2026-07-26). Ingen timestamp: manifestet skal være deterministisk
+    # reproducerbart fra samme input (samme princip som resume-forbuddet
+    # mod Date.now i workflows).
+    total = len(clean) + len(review)
+    manifest = {
+        'artefakt': os.path.basename(args.clean),
+        'sha256': hashlib.sha256(open(args.clean, 'rb').read()).hexdigest(),
+        'rene': len(clean),
+        'flaggede': len(review),
+        'andel_rene': round(len(clean) / total, 4) if total else 0.0,
+    }
+    json.dump(manifest, open(args.clean + '.manifest.json', 'w', encoding='utf-8'),
+              ensure_ascii=False, indent=2)
 
     print(f'[validate] {len(clean)} rene, {len(review)} flaggede (kræver review), {advisories} advisory', file=sys.stderr)
     for r in review:

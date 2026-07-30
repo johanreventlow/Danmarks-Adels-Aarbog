@@ -108,6 +108,29 @@ test_that("reset tømmer versioneringshistorik men aldrig journalen (#124)", {
   expect_length(intersect(loader_model_tables(), loader_versioning_tables()), 0)
 })
 
+test_that("gate-manifestet binder valideringsresultat til artefaktet (#126)", {
+  sha <- "abc123"
+  m <- list(sha256 = "ABC123", andel_rene = 0.95)   # case-ufølsom hash-match
+  expect_true(verify_gate_manifest(m, sha)$ok)
+  # forkert/ændret fil → afvis
+  expect_false(verify_gate_manifest(list(sha256 = "def", andel_rene = 0.95), sha)$ok)
+  # manifest uden hash → afvis
+  expect_false(verify_gate_manifest(list(andel_rene = 0.95), sha)$ok)
+  # rød gate (præcis den historiske 88,8 %-situation) → afvis
+  roed <- verify_gate_manifest(list(sha256 = sha, andel_rene = 0.888), sha)
+  expect_false(roed$ok); expect_match(roed$grund, "RØD")
+  # manglende gate-tal → afvis (fail-closed)
+  expect_false(verify_gate_manifest(list(sha256 = sha), sha)$ok)
+  # tærskel kan skærpes
+  expect_false(verify_gate_manifest(list(sha256 = sha, andel_rene = 0.95), sha, taerskel = 0.99)$ok)
+})
+
+test_that("parse_load_daa_args kender --force-gate", {
+  a <- parse_load_daa_args(c("clean.json", "DAA 1939", "--import-key=k", "--force-gate"))
+  expect_true(a$force_gate)
+  expect_false(parse_load_daa_args(c("clean.json", "--import-key=k"))$force_gate)
+})
+
 test_that("navn≠ref-guarden afviser kun beviselig uenighed (#125)", {
   # spøgelses-union-mønstret: partner_navn = mor, ref opløst til ane/far
   expect_false(partner_ref_navn_enige("Margrethe Rantzau", "Ditlev"))
