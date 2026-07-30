@@ -2,6 +2,34 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## 1939-lokal_id: bogens trykte firleddede adresse — der tælles ikke, der læses (2026-07-30)
+
+**Besluttet (bruger-anvist):** en 1939-posts identitetsadresse er `{linje}.{slægtled}.{afsnit}.{nr}`
+(fx `IV.Ottende.II.6`) — alle fire led læst af bogens egne overskrifter og numre.
+
+**Forkastede alternativer, begge på måling — ikke på smag:**
+- *Position på siden:* en indskudt post forskyder alle efterfølgende; reconcile accepterer
+  eksakte hit, så post N+1 arver tavst post N's id (perturbationstesten beviste det).
+- *Beregnet gruppeindeks* (`G7.3`): 127 nabogruppe-par deler trykt nr + side, så ét forskudt
+  indeks fejl-tildeler i stor stil. Samme sygdom, gruppeniveau.
+
+Mønstret efter tre faldne kandidater: alt BEREGNET (løbenummer, position, indeks) taber
+forskydningstesten, fordi én opdaget fejl omnummererer resten. Kun trykte etiketter står fast.
+Enhver fremtidig lokator-kandidat skal bestå perturbationstesten (nul FORKERTE, ikke nul
+tvetydige) FØR entydighed overhovedet måles.
+
+## Register-broer valideres mod facit man allerede ejer (2026-07-30)
+
+Om-nøglingen af identitetsregisteret (LLM-æra-lokatorer → trykt skema) brugte tre
+evidenskilder, hver med indbygget kontrol: (1) tekst-anker — gammel og ny post kommer fra
+samme kildetekst, så normaliserede vinduer skal stå ordret (l↔1-OCR kollapses); (2) bogens
+trykte nummer som uafhængigt krydstjek — BLOKERENDE ved én uenighed (målt 445/445 enige);
+(3) afkodning af de gamle LLM-id'ers indlejrede sti — men først efter kalibrering mod de
+437 allerede-sikre match (0 hårde fejl på 281 afkodelige). Princip: et signal uden målt
+fejlrate er et gæt; injektivitet håndhæves (to gamle om samme nye adresse → begge til
+menneske). Alternativ forkastet: score-baseret matching uden margin/injektivitet (Codex-
+reviewets hovedindvending mod første udkast).
+
 ## Delmængde-forældre: konflikt eller blot mindre detalje? ÅBEN (2026-07-29)
 
 `collapseSameAs` sætter to udgavers version af samme person i karantæne når deres forældresæt er

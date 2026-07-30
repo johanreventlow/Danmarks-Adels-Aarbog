@@ -1,5 +1,33 @@
 # Changelog
 
+## 1939-identitet: fra LLM-lokatorer til bogens trykte adresse — 445/515 i mål (2026-07-29/30)
+
+To dages sammenhængende spor der gjorde 1939-identiteten produktionsklar på registersiden:
+
+- **Identitetsregisteret hærdet** (#116): dublet-vagt i reconcile, perturbationsharness
+  (kravet er nul FORKERTE match, ikke nul tvetydige), nabo-vagt mod sidedrift, og de 59
+  side-driftede registerposter afstemt via record_key (515/0/0/0 efter).
+- **Codex-review (4 fund) reconciled** : R9-lokatorgaten var aldrig koblet ind (nu i validate
+  OG registeret selv), sidedrift-svagheden RETTET med nabo-vagten, loaderens manglende
+  upsert/replay-lag markeret som åben blocker i planen, afstem-scriptets afgrænsning
+  dokumenteret.
+- **Kalibrering afgjort** (#117): terra som udtræksmodel (69 % flere embeder, stikprøve-
+  verificeret ægte), prompt-hærdning kontrolkørt 5/5 mod afhugget-fejlen, R10-gate
+  (er_omtale mod eget nummer-anker = review, aldrig auto-gravsætning).
+- **lokal_id fra trykt struktur** (#118, #119): 2018-20 = `{linje}.{nr_label}`; 1939-profil
+  i segment.py med bogens firleddede adresse (`IV.Ottende.II.6`) — grammatik empirisk
+  kortlagt mod OCR-teksten (af-spærrede overskrifter "O ttende S læ gtled ,", blok-linje-
+  headere, pegepind-vs-header-skel via centrering). Målt: 505/505/505 unikke, delt-narrativ-
+  problemet elimineret (4.814 vs 80.192 tegn), og Cay Friedrich-oversigten (den gamle
+  dublet-kilde) afvises nu ved kilden.
+- **Registeret om-nøglet** (#120, #121): tekst-anker-bro + l↔1-normalisering + id-afkodning
+  kalibreret mod kendt facit — 445/515 flyttet automatisk, alle nummer-krydstjekkede,
+  0 tvetydige. Pegepind-krydstjek i kvalitetsrapporten fandt 14 ægte OCR-tabte afsnits-
+  romaner (bogens dobbeltbogføring som facitliste).
+- **Udestår:** 22 ægte menneskeafgørelser (slutark i work-mappen), 48 strukturelt parkerede
+  stamfædre/oversigtsposter (afventer v2-segmentering af unummererede), og loaderens
+  upsert/replay-lag — den sidste store blocker før re-ekstraktion kan føre til load.
+
 ## Personers OCR-kvalitetsark — røgtest udført, arket i drift (2026-07-29)
 
 Den manuelle redaktør-røgtest fra runbookens §4 er kørt af brugeren i browseren og meldt OK —
