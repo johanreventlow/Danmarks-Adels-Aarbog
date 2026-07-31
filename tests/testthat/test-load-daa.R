@@ -489,6 +489,21 @@ test_that("opt-in lokal DB-smoke genafspiller rettelser efter reset og ruller st
   root <- normalizePath(file.path(getwd(), "..", ".."))
   fixture <- file.path(root, "tests/fixtures/person-ocr-kvalitetsark-clean.json")
   loader <- file.path(root, ".claude/skills/daa-extract/scripts/load_daa.R")
+  # Gate-manifest (#126): loaderen afviser artefakter uden grønt manifest.
+  # Testens artefakter (fixturen + afledte tempfiler) er kuraterede rene input,
+  # så manifestet skrives ærligt pr. input (sha256 af de faktiske bytes).
+  skip_if_not_installed("digest")
+  write_manifest <- function(input) {
+    poster <- jsonlite::fromJSON(input, simplifyVector = FALSE)
+    manifest_path <- paste0(input, ".manifest.json")
+    jsonlite::write_json(list(
+      artefakt = basename(input),
+      sha256 = digest::digest(file = input, algo = "sha256"),
+      rene = length(poster), flaggede = 0L, andel_rene = 1.0
+    ), manifest_path, auto_unbox = TRUE)
+    manifest_path
+  }
+  on.exit(unlink(paste0(fixture, ".manifest.json")), add = TRUE)
   psql <- "/opt/homebrew/opt/postgresql@17/bin/psql"
   expect_true(grepl("^[a-z0-9_]+$", smoke_db))
   admin <- DBI::dbConnect(RPostgres::Postgres(), host = "127.0.0.1", port = 5432,
@@ -566,6 +581,7 @@ test_that("opt-in lokal DB-smoke genafspiller rettelser efter reset og ruller st
          paste(probe, collapse = " "))
 
   run_loader <- function(input, reset = FALSE) {
+    write_manifest(input)
     args <- c(loader, input, shQuote("DAA OCR-fixture 2026"), paste0("--import-key=", import_key))
     if (reset) args <- c(args, "--reset")
     old_wd <- setwd(root)
