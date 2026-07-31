@@ -40,6 +40,8 @@ IMPORT_KEY <- args$import_key
 LEGACY_IMPORT <- args$legacy_import
 RESET <- args$reset
 FORCE_RESET <- args$force_reset  # tilsidesæt RESET-guarden bevidst (sletter change_set-arbejde)
+REPLACE <- isTRUE(args$replace)  # source-scoped replace: bevar person-id'er (replay-design #123)
+REGISTER_PATH <- args$register
 DRY_RUN <- args$dry_run
 # --staged (K2-kuratering): markér ALLE personer denne kørsel opretter som staged=TRUE →
 # skjult for anon (person_offentlig) indtil redaktør har matchet dem mod eksisterende udgaver.
@@ -315,9 +317,79 @@ tryCatch({
 
   seed_vocab()
 
-  src <- nid("source")
-  ex("INSERT INTO source (id, slags, titel, udgave, aar, ekstern, import_key) VALUES ($1,'DAA-udgave',$2,$3,$4,FALSE,$5)",
-     list(src, paste("Dansk Adels Aarbog –", udgave), udgave, aar, IMPORT_KEY))
+  if (REPLACE) {
+    # ---- REPLACE (replay-design #123, trin 3: person-scoped) ----
+    # Genbrug den EKSISTERENDE source-række: narrativer/citations peger på den,
+    # og dens import_key er journalens nøgle (OCR-rettelser replayes dermed).
+    src_rows <- dbGetQuery(con, "SELECT id, import_key FROM source WHERE udgave = $1", list(udgave))
+    if (nrow(src_rows) != 1)
+      stop(sprintf("--replace: source '%s' gav %d kandidater (fail-closed).", udgave, nrow(src_rows)))
+    src <- as.integer(src_rows$id[1])
+    IMPORT_KEY <- src_rows$import_key[1]
+    if (is.na(IMPORT_KEY)) stop("--replace: eksisterende source har ingen import_key (legacy) — replace kræver journal-nøgle.")
+
+    reg_poster <- fromJSON(REGISTER_PATH, simplifyVector = FALSE)$poster
+    reg_aktiv <- vapply(Filter(function(r) r$status == "aktiv", reg_poster), `[[`, "", "book_post_id")
+    reg_tomb  <- vapply(Filter(function(r) r$status == "tombstone", reg_poster), `[[`, "", "book_post_id")
+    prod_map <- dbGetQuery(con, "SELECT person_id, record_key FROM person_external_id WHERE source_id = $1 AND record_key IS NOT NULL", list(src))
+
+    # Klassificér HVER artefaktpost — fail-closed på alt der ikke er entydigt/tombstonet.
+    art_keys <- vapply(clean, function(r) { v <- record_key_of(r); if (is.na(v)) NA_character_ else v }, character(1))
+    if (anyNA(art_keys)) stop(sprintf("--replace: %d poster uden record_key — replace kræver fuld nøgledækning.", sum(is.na(art_keys))))
+    nye <- setdiff(art_keys, c(reg_aktiv, reg_tomb))
+    if (length(nye)) stop(sprintf("--replace: %d record_keys ukendt af registeret (fx %s) — mint id'er via reconcile FØR load.",
+                                  length(nye), nye[1]))
+    kun_register <- setdiff(intersect(art_keys, reg_aktiv), prod_map$record_key)
+    if (length(kun_register)) stop(sprintf("--replace: %d aktive registerposter uden prod-person (fx %s) — hul der kræver forklaring.",
+                                           length(kun_register), kun_register[1]))
+    replace_tomb <- intersect(art_keys, reg_tomb)
+    match_keys <- intersect(art_keys, prod_map$record_key)
+    replace_pid <- setNames(as.list(prod_map$person_id[match(match_keys, prod_map$record_key)]), match_keys)
+    ids_sql <- paste(unlist(replace_pid), collapse = ",")
+    stopifnot(grepl("^[0-9,]+$", ids_sql))
+    bortfaldne <- setdiff(prod_map$record_key, art_keys)
+
+    # Slette-kandidater: source-ejede person-fakta. Forældrefamilie-fakta er
+    # familie-grafens (trin 4) og røres IKKE. Guards er BLOKERENDE:
+    # (1) red-spor = konflikt-klassen (empirisk tom 2026-07-31, men skal STOPPE
+    #     hvis den opstår — flette-logik er bevidst udeladt af v1);
+    # (2) evidens fra andre sources på samme fact = kryds-source-fact, rør ikke;
+    # (3) haendelse/story-FK'er på kandidater = forbrugslag peger på rækken.
+    kandidat_sql <- sprintf(
+      "SELECT f.id FROM fact f WHERE f.subjekt_type='person' AND f.subjekt_id IN (%s)
+         AND f.faktatype <> 'forældrefamilie'
+         AND NOT EXISTS (SELECT 1 FROM assertion a JOIN citation c ON c.assertion_id=a.id
+                         WHERE a.target_type='fact' AND a.target_id=f.id AND c.source_id <> %d)", ids_sql, src)
+    konflikt <- dbGetQuery(con, sprintf(
+      "SELECT count(*) n FROM change_event ce WHERE ce.tabel='fact' AND (ce.row_pk->>'id')::bigint IN (%s)", kandidat_sql))$n
+    if (konflikt > 0) stop(sprintf("--replace: %d slette-kandidater har redaktionelt spor (konflikt-klassen) — v1 STOPPER; kræver flette-design.", konflikt))
+    fk_haendelse <- dbGetQuery(con, sprintf("SELECT count(*) n FROM haendelse WHERE fact_id IN (%s)", kandidat_sql))$n
+    fk_story     <- dbGetQuery(con, sprintf("SELECT count(*) n FROM story WHERE fact_id IN (%s)", kandidat_sql))$n
+    if (fk_haendelse + fk_story > 0)
+      stop(sprintf("--replace: %d hændelser/%d stories refererer slette-kandidater — håndtér forbrugslaget først.", fk_haendelse, fk_story))
+
+    # Før-tælling af det der SKAL være invariant (verificeres efter flush).
+    replace_invarianter <- dbGetQuery(con, sprintf(
+      "SELECT (SELECT count(*) FROM relation WHERE rolle IN ('samme_som','ikke_samme_som')) samme_som,
+              (SELECT count(*) FROM change_set) cs, (SELECT count(*) FROM change_event) ce,
+              (SELECT count(*) FROM family_member) fm, (SELECT count(*) FROM person) pers,
+              (SELECT count(*) FROM narrative WHERE source_id=%d) narr", src))
+
+    # Pre-delete i FK-orden (citation → conclusion → assertion → fact).
+    n_slettet <- c(
+      citation   = ex(sprintf("DELETE FROM citation WHERE assertion_id IN (SELECT a.id FROM assertion a WHERE a.target_type='fact' AND a.target_id IN (%s))", kandidat_sql)),
+      conclusion = ex(sprintf("DELETE FROM conclusion WHERE target_type='fact' AND target_id IN (%s)", kandidat_sql)),
+      assertion  = ex(sprintf("DELETE FROM assertion WHERE target_type='fact' AND target_id IN (%s)", kandidat_sql)),
+      fact       = ex(sprintf("DELETE FROM fact WHERE id IN (%s)", kandidat_sql)))
+    message(sprintf("REPLACE: %d matchede, %d tombstonede (skippes), %d bortfaldne (røres ikke); slettet source-ejet: %s",
+                    length(match_keys), length(replace_tomb), length(bortfaldne),
+                    paste(names(n_slettet), n_slettet, sep = "=", collapse = ", ")))
+    replace_narr <- list(); replace_koen <- list()
+  } else {
+    src <- nid("source")
+    ex("INSERT INTO source (id, slags, titel, udgave, aar, ekstern, import_key) VALUES ($1,'DAA-udgave',$2,$3,$4,FALSE,$5)",
+       list(src, paste("Dansk Adels Aarbog –", udgave), udgave, aar, IMPORT_KEY))
+  }
 
   # Én læsning pr. import. Journalen har ingen FK til de regenererbare model-id'er
   # og står derfor uden for model_tables/TRUNCATE. Legacy-importer har ingen nøgle og
@@ -361,11 +433,23 @@ tryCatch({
     koen <- if (identical(koen_overlay$status, "anvendt"))
       correction_scalar(fromJSON(koen_overlay$value, simplifyVector = FALSE)$value) else g(rec, "koen")
 
-    pid <- add_person(koen)
-    assign(k, pid, envir = pmap); assign(k, isTRUE(rec$usikker), envir = umap)
-    assign(k, rec, envir = recmap)
-    add_extid(pid, src, rec$linje, rec$nr, persisted_record_key)
-    add_narr(pid, src, side, rec$narrative)
+    if (REPLACE) {
+      if (record_key %in% reg_tomb) next   # tombstonet identitet genopstår ALDRIG
+      pid <- replace_pid[[record_key]]      # person-id BEVARES — det er hele pointen
+      # person-rækken og external_id består; koen og narrativ opdateres EFTER
+      # flush (passene er DB-frie per design). Narrativ-UPDATE bevarer
+      # narrative.id (narrativ-undtagelsen: source-ejet uanset red-spor).
+      replace_koen[[length(replace_koen) + 1]] <- list(pid = pid, koen = koen)
+      replace_narr[[length(replace_narr) + 1]] <- list(pid = pid, side = side, tekst = rec$narrative)
+      assign(k, pid, envir = pmap); assign(k, isTRUE(rec$usikker), envir = umap)
+      assign(k, rec, envir = recmap)
+    } else {
+      pid <- add_person(koen)
+      assign(k, pid, envir = pmap); assign(k, isTRUE(rec$usikker), envir = umap)
+      assign(k, rec, envir = recmap)
+      add_extid(pid, src, rec$linje, rec$nr, persisted_record_key)
+      add_narr(pid, src, side, rec$narrative)
+    }
     tp <- split_title(navn)
     fact_value(pid, "navn", vaerdi = tp$rest, sid = src, side = side, span = navn_context)
     # bevar titel som fakta hvis den var bagt ind i navnet og ikke allerede findes
@@ -403,7 +487,10 @@ tryCatch({
   }
 
   # ---- pass 2: slægtskab + relationer ----
-  for (rec in clean) {
+  # REPLACE v1 springer pass 2 over: familie-grafen (unions, gift-ind-stubs,
+  # børne-kanter, godser/begivenheder) er trin 4 i replay-designet og røres
+  # ikke — de eksisterende familie-strukturer består uændret.
+  for (rec in (if (REPLACE) list() else clean)) {
     current_by <- if (isTRUE(rec[["_escalated"]])) "Opus-escalated" else udgave
     pid <- get(key(rec$linje, lbl_of(rec)), envir = pmap)
     side <- g(rec, "sider", g(rec, "side"))
@@ -533,6 +620,33 @@ tryCatch({
 
   # ---- skriv alle akkumulerede rækker (bulk COPY, FK-rækkefølge) ----
   flush_all()
+
+  if (REPLACE) {
+    # Narrativ-UPDATE (bevarer narrative.id og dermed evt. haendelse-FK'er) +
+    # koen-opdatering på de bevarede person-rækker.
+    for (u in replace_narr) {
+      n <- ex("UPDATE narrative SET tekst=$1, side=$2 WHERE subjekt_type='person' AND subjekt_id=$3 AND source_id=$4",
+              list(u$tekst, u$side, u$pid, src))
+      if (n != 1) stop(sprintf("--replace: narrativ-UPDATE ramte %d rækker for person %d (forventet 1) — fail-closed.", n, u$pid))
+    }
+    for (u in replace_koen)
+      ex("UPDATE person SET koen=$1 WHERE id=$2", list(u$koen, u$pid))
+
+    # EFTERVERIFIKATION (blokerende, jf. designdok): alt redaktionelt og al
+    # struktur uden for replace-scope SKAL være uændret. Person-antal uændret
+    # (ingen nye personer i replace v1 — pass 2 er skippet).
+    efter <- dbGetQuery(con, sprintf(
+      "SELECT (SELECT count(*) FROM relation WHERE rolle IN ('samme_som','ikke_samme_som')) samme_som,
+              (SELECT count(*) FROM change_set) cs, (SELECT count(*) FROM change_event) ce,
+              (SELECT count(*) FROM family_member) fm, (SELECT count(*) FROM person) pers,
+              (SELECT count(*) FROM narrative WHERE source_id=%d) narr", src))
+    for (kol in names(replace_invarianter)) {
+      if (!identical(as.integer(efter[[kol]]), as.integer(replace_invarianter[[kol]])))
+        stop(sprintf("--replace: invariant '%s' ændrede sig (%s → %s) — ROLLBACK.",
+                     kol, replace_invarianter[[kol]], efter[[kol]]))
+    }
+    message("REPLACE: alle invarianter uændrede (samme_som/change_set/change_event/family_member/person/narrativ-antal).")
+  }
 
   # Først efter en vellykket buffer-flush må en ændret kilde markere journalen stale.
   # Én samlet UPDATE bevarer den atomare load-transaktion; fejl længere nede ruller også

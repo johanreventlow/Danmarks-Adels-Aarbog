@@ -65,24 +65,39 @@ verify_gate_manifest <- function(manifest, faktisk_sha256, taerskel = 0.90) {
 # tilladt med et bevidst legacy-flag og får derfor NULL import_key/record_key i DB.
 parse_load_daa_args <- function(argv) {
   if (!length(argv) || startsWith(argv[1], "--"))
-    stop("brug: load_daa.R clean.json [udgave] --import-key=<nøgle> [--reset] [--force-reset] [--force-gate] [--dry-run] [--staged] | --legacy-import")
+    stop("brug: load_daa.R clean.json [udgave] --import-key=<nøgle> [--reset] [--force-reset] [--force-gate] [--dry-run] [--staged] | --legacy-import | --replace --register=<identitetsregister.json>")
 
   import_flags <- grep("^--import-key=", argv, value = TRUE)
   if (length(import_flags) > 1L) stop("--import-key må kun angives én gang")
   legacy_import <- "--legacy-import" %in% argv
   if (legacy_import && length(import_flags))
     stop("--legacy-import og --import-key kan ikke kombineres")
-  if (!legacy_import && !length(import_flags))
+  if (!legacy_import && !length(import_flags) && !("--replace" %in% argv))
     stop("--import-key kræves; brug kun --legacy-import for en ikke-redigerbar legacy-import")
 
   import_key <- if (length(import_flags)) sub("^--import-key=", "", import_flags) else NULL
   if (!is.null(import_key) && !nzchar(trimws(import_key))) stop("import-key må ikke være tom")
+
+  # --replace (source-scoped replace, replay-design #123): genbruger eksisterende
+  # source-række (og DENS import_key — journalen replayes), bevarer person-id'er.
+  replace_mode <- "--replace" %in% argv
+  register_flags <- grep("^--register=", argv, value = TRUE)
+  register_path <- if (length(register_flags)) sub("^--register=", "", register_flags[1]) else NULL
+  if (replace_mode) {
+    if (is.null(register_path)) stop("--replace kræver --register=<identitetsregister.json> (tombstone-/ny-detektion)")
+    if ("--reset" %in% argv || "--force-reset" %in% argv) stop("--replace og --reset udelukker hinanden")
+    if (legacy_import) stop("--replace og --legacy-import udelukker hinanden")
+    if (!is.null(import_key)) stop("--replace læser import_key fra den eksisterende source-række — angiv ikke --import-key")
+  }
+
   positional <- argv[-1][!startsWith(argv[-1], "--")]
   list(
     path = argv[1],
     udgave = if (length(positional)) positional[1] else "DAA 2018-20",
     import_key = import_key,
     legacy_import = legacy_import,
+    replace = replace_mode,
+    register = register_path,
     reset = "--reset" %in% argv,
     force_reset = "--force-reset" %in% argv,
     force_gate = "--force-gate" %in% argv,
