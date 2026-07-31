@@ -422,11 +422,17 @@ tryCatch({
              (SELECT count(*) FROM relation WHERE (subjekt_type='fact' AND subjekt_id IN (%s))
                                              OR (objekt_type='fact' AND objekt_id IN (%s))) r_fact,
              (SELECT count(*) FROM haendelse h JOIN narrative n ON n.id=h.narrative_id
-                WHERE n.subjekt_type='person' AND n.subjekt_id IN (%s) AND n.source_id=%d) h_narr",
-      kid_sql, kid_sql, kid_sql, kid_sql, kid_sql, ids_sql, src))
+                WHERE n.subjekt_type='person' AND n.subjekt_id IN (%s) AND n.source_id=%d) h_narr,
+             (SELECT count(*) FROM note WHERE target_type='narrative' AND target_id IN (
+                SELECT n.id FROM narrative n WHERE n.subjekt_type='person' AND n.subjekt_id IN (%s) AND n.source_id=%d)) n_narr,
+             (SELECT count(*) FROM relation r WHERE (r.subjekt_type='narrative' AND r.subjekt_id IN (
+                  SELECT n.id FROM narrative n WHERE n.subjekt_type='person' AND n.subjekt_id IN (%s) AND n.source_id=%d))
+                OR (r.objekt_type='narrative' AND r.objekt_id IN (
+                  SELECT n.id FROM narrative n WHERE n.subjekt_type='person' AND n.subjekt_id IN (%s) AND n.source_id=%d))) r_narr",
+      kid_sql, kid_sql, kid_sql, kid_sql, kid_sql, ids_sql, src, ids_sql, src, ids_sql, src, ids_sql, src))
     if (sum(unlist(forbrug)) > 0)
-      stop(sprintf("--replace: referencer på slette-/opdaterings-scope (haendelse.fact=%d, story.fact=%d, note.fact=%d, relation.fact=%d, haendelse.narrativ=%d) — håndtér forbrugslaget først (regenerér hændelser efter replace).",
-                   forbrug$h_fact, forbrug$s_fact, forbrug$n_fact, forbrug$r_fact, forbrug$h_narr))
+      stop(sprintf("--replace: referencer på slette-/opdaterings-scope (haendelse.fact=%d, story.fact=%d, note.fact=%d, relation.fact=%d, haendelse.narrativ=%d, note.narrativ=%d, relation.narrativ=%d) — håndtér forbrugslaget først (regenerér hændelser efter replace).",
+                   forbrug$h_fact, forbrug$s_fact, forbrug$n_fact, forbrug$r_fact, forbrug$h_narr, forbrug$n_narr, forbrug$r_narr))
 
     # Koen-guard (sol blocker 2): personer hvis koen er redaktionelt ændret
     # (red_set_koen logger person-UPDATE m. koen-diff) må IKKE overskrives.

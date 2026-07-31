@@ -4778,12 +4778,14 @@ END $$;
 DO $$
 DECLARE
   t TEXT; seqname TEXT; gulv BIGINT;
+  -- KANONISK LÅSEORDEN (samme som loadernes id_tables: forældre-først,
+  -- relation FØR assertion) — alfabetisk orden ville kunne deadlocke mod en
+  -- samtidig loaders LOCK-statement (sol-re-review punkt 8).
   tabeller TEXT[] := ARRAY[
-    'assertion','change_event','change_set','citation','coat_of_arms',
-    'conclusion','estate','fact','family','feed_pin','haendelse',
-    'historical_event','lineage','media','media_variant','narrative','note',
-    'organisation','person','place','relation','repository','source',
-    'story','story_kilde'];
+    'source','person','place','estate','organisation','historical_event',
+    'family','note','narrative','fact','relation','assertion','citation',
+    'conclusion','repository','lineage','coat_of_arms','media','media_variant',
+    'haendelse','story','story_kilde','feed_pin','change_set','change_event'];
 BEGIN
   FOREACH t IN ARRAY tabeller LOOP
     seqname := pg_get_serial_sequence(t, 'id');

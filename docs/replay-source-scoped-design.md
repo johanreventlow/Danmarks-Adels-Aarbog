@@ -106,6 +106,19 @@ består automatisk fordi person-id'erne bevares.
    (gift-ind-stubs, børne-tilknytninger). Egen designrunde når trin 3 er
    verificeret mod den lokale prod-kopi ([[lokal-db-testbase]]-mønstret).
 
+### Kendte v1-begrænsninger (fra sol-review-cyklussen 2026-07-31)
+
+- **OCR-journal vs. konfliktguard:** `red_ret_ocr_felt` logger assertion-events;
+  når en OCR-rettelse rammer en source-ejet fact, vil konfliktguarden STOPPE et
+  senere `--replace` (fail-closed, ikke datatab). Journalen replayes ganske vist
+  ovenpå — men guarden kan ikke vide det. Løses ved behov med et flette-design
+  der fritager assertion-events fra `red_ret_ocr_felt`-change_sets hvis feltet
+  er journal-dækket. Empirisk tomt i dag.
+- **Op til 4 dublet-fakta:** de ikke-source-ejede fakta fredes OG artefaktets
+  version genindsættes — accepteret v1-risiko, rapporteres af loaderen.
+- **GO-betingelser før ægte prod-kørsel:** grønt manifest uden `--force-gate`
+  + destruktiv integrationstest mod lokal prod-kopi.
+
 ## Åbne spørgsmål (til implementeringssessionerne)
 
 - Familie-ejerskab: en union med redaktionelt tilføjet medlem — er familien så
