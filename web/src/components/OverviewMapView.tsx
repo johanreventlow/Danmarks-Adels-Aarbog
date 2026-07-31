@@ -17,14 +17,14 @@ export function OverviewMapView({ model, geoLoading, onPickPerson, onPickEstate 
   const linjeList = model?.lineage?.list ?? [];
   const points = linje ? filterByLineage(allPoints, model?.lineage?.byPerson ?? {}, linje, { includeNonPerson: true }) : allPoints;
   const chip = (active: boolean): CSSProperties => ({
-    fontSize: 11.5, fontWeight: 600, padding: '6px 12px', borderRadius: 999, cursor: 'pointer',
+    fontSize: 12.5, fontWeight: 600, padding: '6px 12px', borderRadius: 999, cursor: 'pointer',
     border: '1px solid ' + (active ? 'rgba(136,26,51,.3)' : 'rgba(34,31,26,.1)'),
     background: active ? '#f4e2e6' : T.beige, color: active ? T.bordeaux : T.muted,
   });
   return (
     <div style={{ padding: '30px 40px 0', height: 'calc(100vh - 60px)', display: 'flex', flexDirection: 'column' }}>
       <ViewHeader title="Slægtens kort" />
-      <div style={{ fontSize: 13, color: T.muted, marginTop: 4, marginBottom: 12 }}>
+      <div style={{ fontSize: 14, color: T.muted, marginTop: 4, marginBottom: 12 }}>
         {geoLoading ? 'Indlæser kortlagte steder…' : `${points.length} ${points.length === 1 ? 'sted' : 'steder'} kortlagt${linje ? ` for ${linjeList.find((l) => l.linje === linje)?.navn ?? 'linje ' + linje}` : ' — flere følger efterhånden som slægtens steder kortlægges'}.`}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>

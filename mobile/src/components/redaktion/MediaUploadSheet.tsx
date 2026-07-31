@@ -214,7 +214,7 @@ const styles = StyleSheet.create({
   chips: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
   chip: { borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.chip, paddingHorizontal: 12, paddingVertical: 6 },
   chipAktiv: { backgroundColor: Colors.bordeaux, borderColor: Colors.bordeaux },
-  input: { backgroundColor: '#fff', borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.field, paddingHorizontal: 10, paddingVertical: 8, marginTop: 10, fontFamily: 'HankenGrotesk_400Regular', fontSize: 13, color: Colors.ink },
+  input: { backgroundColor: '#fff', borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.field, paddingHorizontal: 10, paddingVertical: 8, marginTop: 10, fontFamily: 'HankenGrotesk_400Regular', fontSize: 14, color: Colors.ink },
   addOpret: { backgroundColor: Colors.konklusionGroen, borderRadius: Radius.field, paddingHorizontal: 16, paddingVertical: 8 },
   addAnnuller: { borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.field, paddingHorizontal: 16, paddingVertical: 8, alignSelf: 'flex-start' },
   dedupBox: { borderWidth: 1, borderColor: Border.light, borderRadius: Radius.field, padding: 14, gap: 10 },

@@ -7,7 +7,7 @@ import { initials } from '../data/format';
 import { mediaCaption, type MediaItem } from '../data/media';
 
 export const Kicker = ({ children }: { children: React.ReactNode }) => (
-  <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.2em', textTransform: 'uppercase', color: T.gold, marginBottom: 6 }}>{children}</div>
+  <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.2em', textTransform: 'uppercase', color: T.gold, marginBottom: 6 }}>{children}</div>
 );
 export const H1 = ({ children }: { children: React.ReactNode }) => (
   <div style={{ fontFamily: T.serif, fontSize: 30, fontWeight: 600, lineHeight: 1 }}>{children}</div>
@@ -74,8 +74,8 @@ export const PersonCard = ({ p, onClick, width = 210 }: {
   <div onClick={onClick} style={{ width, background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 14, padding: 16, cursor: onClick ? 'pointer' : 'default', boxShadow: '0 1px 2px rgba(34,31,26,.04)' }}>
     <Avatar n={p.name} size={50} />
     <div style={{ fontFamily: T.serif, fontSize: 19, lineHeight: 1.05, fontWeight: 600, color: T.ink, marginTop: 11 }}>{p.name}</div>
-    {p.years ? <div style={{ fontFamily: T.mono, fontSize: 9.5, color: T.muted2, marginTop: 4 }}>{p.years}</div> : null}
-    {p.title ? <div style={{ fontFamily: T.sans, fontSize: 11.5, fontWeight: 500, color: T.bordeaux, marginTop: 6, lineHeight: 1.3 }}>{p.title}</div> : null}
+    {p.years ? <div style={{ fontFamily: T.mono, fontSize: 10.5, color: T.muted2, marginTop: 4 }}>{p.years}</div> : null}
+    {p.title ? <div style={{ fontFamily: T.sans, fontSize: 12.5, fontWeight: 500, color: T.bordeaux, marginTop: 6, lineHeight: 1.3 }}>{p.title}</div> : null}
   </div>
 );
 
@@ -102,13 +102,13 @@ export const Crest = ({ stroke = T.bordeaux, inner = T.gold, opacity = 0.12, siz
 // ---- Små byggeklodser (udtrukket fra Folgesvend.tsx ved W-K1-splittet, review 27) ----
 // Sidebar-/tæller-celle (tal over label). Bruges af AboutView.
 export const Counter = ({ n, label }: { n: number; label: string }) => (
-  <div><span style={{ fontFamily: T.serif, fontSize: 28, fontWeight: 600, color: T.bordeaux }}>{n.toLocaleString('da')}</span> <span style={{ fontSize: 12.5, color: T.muted }}>{label}</span></div>
+  <div><span style={{ fontFamily: T.serif, fontSize: 28, fontWeight: 600, color: T.bordeaux }}>{n.toLocaleString('da')}</span> <span style={{ fontSize: 13.5, color: T.muted }}>{label}</span></div>
 );
 // Gren-filter-chip (§9.2). Aktiv = bordeaux fyld. Bruges af TreeSearch.
 export const LinjeChip = ({ label, active, onClick, title }: { label: string; active: boolean; onClick: () => void; title?: string }) => (
-  <div onClick={onClick} title={title} style={{ padding: '5px 11px', borderRadius: 15, fontFamily: T.sans, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', background: active ? T.bordeaux : 'transparent', color: active ? T.paper : T.muted, border: `1px solid ${active ? T.bordeaux : 'rgba(34,31,26,.18)'}` }}>{label}</div>
+  <div onClick={onClick} title={title} style={{ padding: '5px 11px', borderRadius: 15, fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: active ? T.bordeaux : 'transparent', color: active ? T.paper : T.muted, border: `1px solid ${active ? T.bordeaux : 'rgba(34,31,26,.18)'}` }}>{label}</div>
 );
 // Sektionslabel (mono, kapitæler). Bruges af TreeView/DetailPanel/EstatesView/ArmsView.
-export const Label = ({ children }: { children: React.ReactNode }) => <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted3, margin: '6px 0 12px' }}>{children}</div>;
+export const Label = ({ children }: { children: React.ReactNode }) => <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted3, margin: '6px 0 12px' }}>{children}</div>;
 // Lodret forbindelses-streg mellem generationer. Bruges af TreeView (variant A).
 export const Stem = ({ h, mt = 0 }: { h: number; mt?: number }) => <div style={{ width: 1, height: h, background: 'rgba(34,31,26,.22)', marginTop: mt }} />;

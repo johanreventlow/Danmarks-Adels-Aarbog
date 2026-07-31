@@ -111,7 +111,7 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
           {(['A', 'B'] as const).map((v) => {
             const active = variant === v;
             return (
-              <div key={v} onClick={() => setVariant(v)} style={{ padding: '7px 16px', borderRadius: 7, fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: active ? T.paper : 'transparent', color: active ? T.bordeaux : '#8a8170' }}>{v === 'A' ? 'Fokus' : 'Kolonner'}</div>
+              <div key={v} onClick={() => setVariant(v)} style={{ padding: '7px 16px', borderRadius: 7, fontFamily: T.sans, fontSize: 13.5, fontWeight: 600, cursor: 'pointer', background: active ? T.paper : 'transparent', color: active ? T.bordeaux : '#8a8170' }}>{v === 'A' ? 'Fokus' : 'Kolonner'}</div>
             );
           })}
         </div>
@@ -124,24 +124,24 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
         <div ref={colsRef} data-scroll style={{ display: 'flex', gap: 14, overflowX: 'auto', padding: '10px 0 16px', alignItems: 'flex-start' }}>
           {cols.map((col) => (
             <div key={col.key} style={{ flex: 'none', width: 208, display: 'flex', flexDirection: 'column', gap: 9 }}>
-              <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.gold, padding: '0 2px 4px', borderBottom: '1px solid rgba(34,31,26,.1)' }}>{col.label}</div>
+              <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.gold, padding: '0 2px 4px', borderBottom: '1px solid rgba(34,31,26,.1)' }}>{col.label}</div>
               {col.candidate && col.candidateNote && (
-                <div style={{ fontFamily: T.sans, fontSize: 10.5, color: T.muted2, padding: '0 2px', marginTop: -4, lineHeight: 1.3 }}>{col.candidateNote}</div>
+                <div style={{ fontFamily: T.sans, fontSize: 11.5, color: T.muted2, padding: '0 2px', marginTop: -4, lineHeight: 1.3 }}>{col.candidateNote}</div>
               )}
               {col.candidate ? (
                 <>
                   {Object.entries(col.kuldGroups ?? {}).map(([kuld, people]) => (
                     <div key={kuld} style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
                       {kuld !== '—' && (
-                        <div style={{ fontFamily: T.mono, fontSize: 8.5, letterSpacing: '.08em', textTransform: 'uppercase', color: T.muted3, padding: '2px 2px 0' }}>Kuld {kuld}</div>
+                        <div style={{ fontFamily: T.mono, fontSize: 9.5, letterSpacing: '.08em', textTransform: 'uppercase', color: T.muted3, padding: '2px 2px 0' }}>Kuld {kuld}</div>
                       )}
                       {people.map((p) => (
                         <div key={p.id} onClick={() => onFocus(p.id)} style={{ background: '#faf1dc', border: `1.5px dashed ${T.gold}`, borderRadius: 12, padding: '11px 13px', cursor: 'pointer', boxShadow: '0 1px 2px rgba(34,31,26,.04)', display: 'flex', alignItems: 'center', gap: 10 }}>
                           <Avatar n={p.name} size={34} />
                           <div style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{ fontFamily: T.serif, fontSize: 16, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-                            {p.years && <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 2 }}>{p.years}</div>}
-                            <div style={{ fontFamily: T.mono, fontSize: 8, letterSpacing: '.06em', textTransform: 'uppercase', color: T.gold, marginTop: 2 }}>muligt slægtled</div>
+                            <div style={{ fontFamily: T.serif, fontSize: 17, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+                            {p.years && <div style={{ fontFamily: T.mono, fontSize: 10, color: T.muted2, marginTop: 2 }}>{p.years}</div>}
+                            <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.06em', textTransform: 'uppercase', color: T.gold, marginTop: 2 }}>muligt slægtled</div>
                           </div>
                           <BookmarkFlag active={hasBookmark(p.id)} onClick={() => onToggleBookmark(p.id)} />
                         </div>
@@ -149,7 +149,7 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
                     </div>
                   ))}
                   {col.kilde && (
-                    <div style={{ fontFamily: T.mono, fontSize: 8.5, color: T.muted3, padding: '4px 2px 0', lineHeight: 1.35, borderTop: '1px dashed rgba(34,31,26,.12)', marginTop: 2 }}>Kilde: {col.kilde}</div>
+                    <div style={{ fontFamily: T.mono, fontSize: 9.5, color: T.muted3, padding: '4px 2px 0', lineHeight: 1.35, borderTop: '1px dashed rgba(34,31,26,.12)', marginTop: 2 }}>Kilde: {col.kilde}</div>
                   )}
                 </>
               ) : col.people.map((p) => {
@@ -164,30 +164,30 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
                   : () => selectDescendant(col.depth, p.id);
                 return (
                   <div key={p.id} onClick={onTap} style={{ background: sel ? '#f8ecef' : T.paper, border: `1.5px solid ${sel ? T.bordeaux : 'rgba(34,31,26,.1)'}`, borderRadius: 12, padding: '11px 13px', cursor: col.kind === 'anchor' ? 'default' : 'pointer', boxShadow: sel ? '0 4px 14px rgba(136,26,51,.12)' : '0 1px 2px rgba(34,31,26,.04)', display: 'flex', alignItems: 'center', gap: 10 }}>
-                    {canAnc && <span style={{ color: '#bcae93', fontSize: 16, flex: 'none' }}>‹</span>}
+                    {canAnc && <span style={{ color: '#bcae93', fontSize: 17, flex: 'none' }}>‹</span>}
                     <Avatar n={p.name} size={34} />
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontFamily: T.serif, fontSize: 16, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-                      {p.years && <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 2 }}>{p.years}</div>}
+                      <div style={{ fontFamily: T.serif, fontSize: 17, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+                      {p.years && <div style={{ fontFamily: T.mono, fontSize: 10, color: T.muted2, marginTop: 2 }}>{p.years}</div>}
                     </div>
                     <BookmarkFlag active={hasBookmark(p.id)} onClick={() => onToggleBookmark(p.id)} />
-                    {canDesc && <span style={{ color: '#bcae93', fontSize: 16, flex: 'none' }}>›</span>}
+                    {canDesc && <span style={{ color: '#bcae93', fontSize: 17, flex: 'none' }}>›</span>}
                   </div>
                 );
               })}
               {col.unconnectedChildren && col.unconnectedChildren.length > 0 && (
                 <div style={{ marginTop: 4, paddingTop: 8, borderTop: '1px dashed rgba(34,31,26,.16)' }}>
-                  <div style={{ fontFamily: T.mono, fontSize: 8, letterSpacing: '.08em', textTransform: 'uppercase', color: T.muted3, padding: '0 2px 6px' }}>Uforbundne — placeret efter slægtled, ikke forældreskab</div>
+                  <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: T.muted3, padding: '0 2px 6px' }}>Uforbundne — placeret efter slægtled, ikke forældreskab</div>
                   {col.unconnectedChildren.map((group) => (
                     <div key={group.grade} style={{ display: 'flex', flexDirection: 'column', gap: 9, marginBottom: 6 }}>
-                      <div style={{ fontFamily: T.sans, fontSize: 10, color: T.muted2, padding: '0 2px', lineHeight: 1.3 }}>{group.note}</div>
+                      <div style={{ fontFamily: T.sans, fontSize: 11, color: T.muted2, padding: '0 2px', lineHeight: 1.3 }}>{group.note}</div>
                       {group.people.map(({ person, kilde }) => (
                         <div key={person.id} onClick={() => onFocus(person.id)} style={{ background: '#faf1dc', border: `1.5px dashed ${T.gold}`, borderRadius: 12, padding: '9px 11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}>
                           <Avatar n={person.name} size={30} />
                           <div style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{ fontFamily: T.serif, fontSize: 15, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{person.name}</div>
-                            {person.years && <div style={{ fontFamily: T.mono, fontSize: 8.5, color: T.muted2, marginTop: 1 }}>{person.years}</div>}
-                            {kilde && <div style={{ fontFamily: T.mono, fontSize: 7.5, color: T.muted3, marginTop: 2 }}>Kilde: {kilde}</div>}
+                            <div style={{ fontFamily: T.serif, fontSize: 16, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{person.name}</div>
+                            {person.years && <div style={{ fontFamily: T.mono, fontSize: 9.5, color: T.muted2, marginTop: 1 }}>{person.years}</div>}
+                            {kilde && <div style={{ fontFamily: T.mono, fontSize: 8.5, color: T.muted3, marginTop: 2 }}>Kilde: {kilde}</div>}
                           </div>
                           <BookmarkFlag active={hasBookmark(person.id)} onClick={() => onToggleBookmark(person.id)} />
                         </div>
@@ -204,8 +204,8 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
         {grand && (
           <>
             <div onClick={() => onPick(grand.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 16px', borderRadius: 20, background: T.beige, border: '1px solid rgba(34,31,26,.08)', cursor: 'pointer', opacity: 0.85 }}>
-              <span style={{ color: T.muted2, fontSize: 12 }}>▲</span>
-              <span style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: '#5a5246' }}>{grand.name}</span>
+              <span style={{ color: T.muted2, fontSize: 13 }}>▲</span>
+              <span style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 600, color: '#5a5246' }}>{grand.name}</span>
             </div>
             <Stem h={18} />
           </>
@@ -215,7 +215,7 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
             <div onClick={() => onPick(parent.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 13, padding: '11px 18px 11px 12px', cursor: 'pointer', boxShadow: '0 1px 2px rgba(34,31,26,.04)' }}>
               <Avatar n={parent.name} size={40} />
               <div>
-                <div style={{ fontFamily: T.mono, fontSize: 8, letterSpacing: '.12em', textTransform: 'uppercase', color: T.gold }}>Forælder ▲</div>
+                <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', color: T.gold }}>Forælder ▲</div>
                 <div style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600, lineHeight: 1.05 }}>{parent.name}</div>
               </div>
             </div>
@@ -229,17 +229,17 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
             return (
               <div key={p.id} onClick={() => onPick(p.id)} style={{ position: 'relative', width: 188, background: sel ? '#fff' : T.paper, border: `1.5px solid ${sel ? T.bordeaux : 'rgba(34,31,26,.1)'}`, borderRadius: 15, padding: 16, cursor: 'pointer', boxShadow: sel ? '0 4px 14px rgba(136,26,51,.12)' : '0 1px 2px rgba(34,31,26,.04)' }}>
                 <div style={{ position: 'absolute', top: 12, left: 13 }}><BookmarkFlag active={hasBookmark(p.id)} onClick={() => onToggleBookmark(p.id)} /></div>
-                {sel && <div style={{ position: 'absolute', top: 12, right: 13, fontFamily: T.mono, fontSize: 7.5, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux }}>I fokus</div>}
+                {sel && <div style={{ position: 'absolute', top: 12, right: 13, fontFamily: T.mono, fontSize: 8.5, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux }}>I fokus</div>}
                 <Avatar n={p.name} size={56} />
                 <div style={{ fontFamily: T.serif, fontSize: 21, lineHeight: 1.04, fontWeight: 600, marginTop: 11 }}>{p.name}</div>
-                {p.years && <div style={{ fontFamily: T.mono, fontSize: 10, color: T.muted2, marginTop: 4 }}>{p.years}</div>}
-                {p.title && <div style={{ fontSize: 11.5, fontWeight: 500, color: T.bordeaux, marginTop: 6, lineHeight: 1.3 }}>{p.title}</div>}
-                {childCount(p.id) > 0 && <div style={{ fontSize: 10.5, color: T.muted, marginTop: 8 }}>↓ {childCount(p.id)} {childCount(p.id) === 1 ? 'barn' : 'børn'}</div>}
+                {p.years && <div style={{ fontFamily: T.mono, fontSize: 11, color: T.muted2, marginTop: 4 }}>{p.years}</div>}
+                {p.title && <div style={{ fontSize: 12.5, fontWeight: 500, color: T.bordeaux, marginTop: 6, lineHeight: 1.3 }}>{p.title}</div>}
+                {childCount(p.id) > 0 && <div style={{ fontSize: 11.5, color: T.muted, marginTop: 8 }}>↓ {childCount(p.id)} {childCount(p.id) === 1 ? 'barn' : 'børn'}</div>}
               </div>
             );
           })}
         </div>
-        {spouses.length > 0 && <div style={{ marginTop: 12, fontFamily: T.serif, fontSize: 15, fontStyle: 'italic', color: T.muted }}>⚭ gift med {spouses.join(', ')}</div>}
+        {spouses.length > 0 && <div style={{ marginTop: 12, fontFamily: T.serif, fontSize: 16, fontStyle: 'italic', color: T.muted }}>⚭ gift med {spouses.join(', ')}</div>}
         {children.length > 0 ? (
           <>
             <Stem h={22} mt={16} />
@@ -249,14 +249,14 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
                 <div key={p.id} onClick={() => onPick(p.id)} style={{ width: 150, background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: 13, cursor: 'pointer', boxShadow: '0 1px 2px rgba(34,31,26,.04)' }}>
                   <Avatar n={p.name} size={40} />
                   <div style={{ fontFamily: T.serif, fontSize: 17, lineHeight: 1.05, fontWeight: 600, marginTop: 9 }}>{p.name}</div>
-                  {p.years && <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 3 }}>{p.years}</div>}
-                  {childCount(p.id) > 0 && <div style={{ fontSize: 10, color: T.bordeaux, marginTop: 6 }}>↓ {childCount(p.id)}</div>}
+                  {p.years && <div style={{ fontFamily: T.mono, fontSize: 10, color: T.muted2, marginTop: 3 }}>{p.years}</div>}
+                  {childCount(p.id) > 0 && <div style={{ fontSize: 11, color: T.bordeaux, marginTop: 6 }}>↓ {childCount(p.id)}</div>}
                 </div>
               ))}
             </div>
           </>
         ) : (
-          <div style={{ marginTop: 18, fontSize: 12.5, color: T.muted3 }}>Ingen registrerede efterkommere</div>
+          <div style={{ marginTop: 18, fontSize: 13.5, color: T.muted3 }}>Ingen registrerede efterkommere</div>
         )}
       </div>
       ))}

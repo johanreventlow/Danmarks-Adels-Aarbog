@@ -24,13 +24,13 @@ export function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
             {mainCrest ? (
               <div style={{ flex: 'none' }}><MediaThumb m={mainCrest} w={150} h={185} radius={10} onClick={() => setLightbox(0)} /></div>
             ) : (
-              <div style={{ width: 150, height: 185, borderRadius: 10, background: 'repeating-linear-gradient(45deg,#3a352c 0 9px,#322d25 9px 18px)', border: '1px solid rgba(231,201,143,.2)', flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><span style={{ fontFamily: T.mono, fontSize: 10, color: T.gold }}>våbenskjold</span></div>
+              <div style={{ width: 150, height: 185, borderRadius: 10, background: 'repeating-linear-gradient(45deg,#3a352c 0 9px,#322d25 9px 18px)', border: '1px solid rgba(231,201,143,.2)', flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><span style={{ fontFamily: T.mono, fontSize: 11, color: T.gold }}>våbenskjold</span></div>
             )}
             <div>
-              <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.goldLight }}>Autoriseret våben</div>
-              <div style={{ fontSize: 12, color: T.cream, marginTop: 3 }}>Dansk Adels Forenings gældende gengivelse</div>
+              <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: T.goldLight }}>Autoriseret våben</div>
+              <div style={{ fontSize: 13, color: T.cream, marginTop: 3 }}>Dansk Adels Forenings gældende gengivelse</div>
               <div style={{ fontFamily: T.serif, fontSize: 17, fontStyle: 'italic', lineHeight: 1.45, color: T.paper, marginTop: 14 }}>{main?.blasonering || 'Blasonering ikke registreret.'}</div>
-              {main?.note && <div style={{ fontSize: 11.5, color: T.cream, marginTop: 10, lineHeight: 1.45 }}>{main.note}</div>}
+              {main?.note && <div style={{ fontSize: 12.5, color: T.cream, marginTop: 10, lineHeight: 1.45 }}>{main.note}</div>}
             </div>
           </div>
           {rest.length > 0 && (
@@ -50,7 +50,7 @@ export function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
                       ) : (
                         <div style={{ width: '100%', aspectRatio: '.82', borderRadius: 8, background: 'repeating-linear-gradient(45deg,#ece4d6 0 8px,#e2d8c8 8px 16px)', border: '1px solid rgba(34,31,26,.08)' }} />
                       )}
-                      <div style={{ fontFamily: T.serif, fontSize: 14, fontWeight: 600, marginTop: 7, lineHeight: 1.1 }}>{v.note || v.blasonering.slice(0, 40) || 'variant'}</div>
+                      <div style={{ fontFamily: T.serif, fontSize: 15, fontWeight: 600, marginTop: 7, lineHeight: 1.1 }}>{v.note || v.blasonering.slice(0, 40) || 'variant'}</div>
                     </div>
                   );
                 })}

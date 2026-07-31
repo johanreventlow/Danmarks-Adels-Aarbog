@@ -60,9 +60,9 @@ export function Lightbox({ items, index, onClose, onNavigate }: {
         style={{ maxWidth: '92vw', maxHeight: '82vh', objectFit: 'contain', borderRadius: 6, boxShadow: '0 24px 70px rgba(0,0,0,.55)' }} />
       {(cap || items.length > 1) && (
         <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 14, textAlign: 'center', maxWidth: '80vw' }}>
-          {cap && <div style={{ fontFamily: T.sans, fontSize: 13, color: T.cream }}>{cap}</div>}
+          {cap && <div style={{ fontFamily: T.sans, fontSize: 14, color: T.cream }}>{cap}</div>}
           {items.length > 1 && (
-            <div style={{ fontFamily: T.mono, fontSize: 10, color: T.muted3, marginTop: 4 }}>{index + 1} / {items.length}</div>
+            <div style={{ fontFamily: T.mono, fontSize: 11, color: T.muted3, marginTop: 4 }}>{index + 1} / {items.length}</div>
           )}
         </div>
       )}

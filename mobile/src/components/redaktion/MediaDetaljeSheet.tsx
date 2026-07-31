@@ -209,7 +209,7 @@ const styles = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: { borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.chip, paddingHorizontal: 10, paddingVertical: 5 },
   chipAktiv: { backgroundColor: Colors.bordeaux, borderColor: Colors.bordeaux },
-  input: { backgroundColor: '#fff', borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.field, paddingHorizontal: 10, paddingVertical: 8, marginTop: 8, fontFamily: 'HankenGrotesk_400Regular', fontSize: 13, color: Colors.ink },
+  input: { backgroundColor: '#fff', borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.field, paddingHorizontal: 10, paddingVertical: 8, marginTop: 8, fontFamily: 'HankenGrotesk_400Regular', fontSize: 14, color: Colors.ink },
   gem: { backgroundColor: Colors.konklusionGroen, borderRadius: Radius.field, paddingHorizontal: 14, paddingVertical: 9, alignSelf: 'flex-start', marginTop: 10 },
   neutral: { borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.field, paddingHorizontal: 12, paddingVertical: 9 },
   slet: { backgroundColor: Colors.danger, borderRadius: Radius.field, paddingHorizontal: 12, paddingVertical: 9 },
