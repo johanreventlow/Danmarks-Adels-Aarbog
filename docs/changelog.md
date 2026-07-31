@@ -1,5 +1,30 @@
 # Changelog
 
+## FØRSTE ÆGTE PROD-REPLACE: 1939-v2-artefaktet live (2026-07-31)
+
+Replay-kæden brugt skarpt mod prod for første gang — hele dagens kæde fra
+GO-betingelser til levende data i én session:
+
+- **Registeret gjort v2-klart** (godkendelse A-D): 43 om-nøglinger anvendt
+  (18 auto + 25 fra sols kalibrerede evidenspas, alle tekst-anker-krydstjekkede),
+  55 nye identiteter mintet, 7 indledningsoversigter afvist som dubletter af
+  navngivne detaljeposter, 23 strukturelle fund står som bortfaldne (redaktionel
+  prod-oprydning senere). Reconcile: 546 entydige / 0 tvetydige / 0 uforklarede.
+- **Nyt artefakt `clean_1939_v2.json`** (build_1939_v2.py): 546 poster — struktur
+  fra raw.txt (v2-segmenteringens 48 unummererede stamfædre/oversigter), narrativ
+  fra Calamari hvor krydstjekket match findes (415/131), grønt manifest.
+- **Ny-klassen i loaderen**: replay-designets fjerde udfald implementeret
+  (registerkendte poster uden prod-person oprettes ad append-vejen) — fanget af
+  gate-kæden, sol-reviewet GO.
+- **Prod-kørslen**: 491 matchede (person-id'er bevaret), 55 nye oprettet,
+  23 bortfaldne urørte, 289 unioner genbrugt med id-stabile stubs, 1 redaktionel
+  familie fredet. Uafhængigt før/efter-snapshot mod prod: samme_som, change_events,
+  stub-id'er, bookmarks alle byte-identiske. Prod: 1787 personer, 569
+  1939-narrativer. 14 nye poster står bevidst uden navn (fail-closed frem for
+  fabrikation — redaktionel opgave).
+- Kendt rest: 78 uopløste barn-opslag (work/load-unresolved.csv), 4 nr_range-mål
+  peger på bortfaldne, LOW-fund (nul-match-kant i replace-guard, fail-safe).
+
 ## Replay-GO-betingelser opfyldt: destruktiv --replace-test grøn + manifest-hul lukket (2026-07-31)
 
 Begge GO-betingelser fra replay-designet er nu opfyldt (detaljer i
