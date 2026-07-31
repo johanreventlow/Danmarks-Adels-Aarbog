@@ -435,7 +435,11 @@ split_title <- function(navn) {
 .replace_norm_navn <- function(navn) {
   if (is.null(navn) || length(navn) == 0L || is.na(navn)) return(NA_character_)
   rest <- split_title(navn)$rest
-  tolower(gsub("\\s+", " ", trimws(rest)))
+  norm <- tolower(gsub("\\s+", " ", trimws(rest)))
+  # Tomt/whitespace navn er UNAVNGIVET (NA), aldrig blank-navngivet — ellers
+  # klassificeres ægteskabet som navngivet og kan stjæle/miste en union
+  # (sol-review runde 3, medium).
+  if (!nzchar(norm)) NA_character_ else norm
 }
 .replace_navnetokens <- function(norm) {
   if (is.na(norm)) return(character(0))
@@ -466,11 +470,20 @@ match_replace_unioner <- function(aegteskaber, db_unioner) {
 
   # Fase 0: eksakt (navn + ordinal)-match — bogens navne-dubletter parres på
   # ordinal FØR navn-alene-fasen ellers ville stemple dem tvetydige.
+  # Fail-closed på dublet (navn, ordinal) på BEGGE sider (sol runde 3 blocker
+  # 2): en mange-til-én ville ellers parre første post og kalde resten 'nye' —
+  # vilkårlig tildeling af en id-bærende stub + fixpoint-brud.
   for (i in art_rest) {
     if (is.na(art_ord[i])) next
+    art_dubletter <- sum(!is.na(art_ord[art_rest]) & art_ord[art_rest] == art_ord[i] &
+                           art_norm[art_rest] == art_norm[i])
     hits <- db_rest[db_norm[db_rest] == art_norm[i] &
                       !is.na(db_unioner$ordinal[db_rest]) &
                       db_unioner$ordinal[db_rest] == art_ord[i]]
+    if (art_dubletter > 1L && length(hits))
+      return(fejl(sprintf("flere artefakt-ægteskaber med samme partnernavn '%s' OG ordinal %d — tvetydigt", art_norm[i], art_ord[i])))
+    if (length(hits) > 1L)
+      return(fejl(sprintf("flere eksisterende unioner med samme stub-navn '%s' OG ordinal %d — tvetydigt", art_norm[i], art_ord[i])))
     if (length(hits) == 1L) par(i, hits)
   }
   # Fase 1: eksakt navne-match — kræver unikhed på BEGGE sider.

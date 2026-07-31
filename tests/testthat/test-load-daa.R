@@ -751,3 +751,27 @@ test_that("match_replace_unioner: navne-dublet UDEN ordinaler er stadig fail-clo
                                   list(404, 1485, "Margarethe Rantzau")))
   expect_false(is.null(r$fejl))
 })
+
+test_that("match_replace_unioner: dublet (navn, ordinal) i artefaktet er fail-closed (sol runde 3 blocker 2)", {
+  # to artefakt-ægteskaber, samme navn OG samme ordinal, én DB-union: fase 0
+  # må ikke parre den første og kalde den anden 'ny' — vilkårlig stub-tildeling
+  r <- match_replace_unioner(list(ae("Margarethe Rantzau", 3L), ae("Margarethe Rantzau", 3L)),
+                             db_u(list(403, 1484, "Margarethe Rantzau", 3L)))
+  expect_false(is.null(r$fejl))
+})
+
+test_that("match_replace_unioner: dublet (navn, ordinal) i DB er fail-closed", {
+  r <- match_replace_unioner(list(ae("Margarethe Rantzau", 3L)),
+                             db_u(list(403, 1484, "Margarethe Rantzau", 3L),
+                                  list(404, 1485, "Margarethe Rantzau", 3L)))
+  expect_false(is.null(r$fejl))
+})
+
+test_that("match_replace_unioner: tomt/whitespace partnernavn er unavngivet, ikke blank-navngivet (sol runde 3 medium)", {
+  r <- match_replace_unioner(list(ae(""), ae("   "), ae("Anna Gabel")),
+                             db_u(list(10, 100, "Anna Gabel")))
+  expect_null(r$fejl)
+  expect_setequal(r$nye_idx, c(1L, 2L))
+  expect_equal(r$match[["3"]], list(family_id = 10, stub_pid = 100))
+  expect_length(r$bortfaldne_family_ids, 0)
+})

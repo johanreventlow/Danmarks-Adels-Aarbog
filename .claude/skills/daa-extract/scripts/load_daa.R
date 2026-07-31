@@ -438,16 +438,37 @@ tryCatch({
     # stub — stub-person-id er redaktionel valuta: 209 bærer samme_som-links),
     # parkerings-unioner (uden stub, ingen id-valuta) og fredede (change_event-
     # spor på family eller nogen af dens kanter = redaktionel familie).
+    # POSITIVT source-ejerskab pr. familie (sol-review runde 3, BLOCKER 1 —
+    # samme klasse som trin 3's blocker 1): AL evidens bundet til familien
+    # (family-fakta-assertions + forældrefamilie-slot-assertions med objekt =
+    # familien) skal have ≥1 citation, og ALLE citations skal pege på netop
+    # denne source. En familie med fremmed/citationsløs evidens er IKKE vores
+    # og behandles som fredet (skip + rapport, kanterne bliver i urørt-md5'en).
+    # Familier helt uden evidens (tomme parkeringer) er ejede pr. definition —
+    # en fremmed tom familie med en matchet person kan kun opstå redaktionelt
+    # og bærer så change_event-spor (fredet ad den vej).
     fam_db <- dbGetQuery(con, sprintf("
       SELECT hoved.family_id, hoved.person_id AS hoved_pid, hoved.ordinal,
              stub.person_id AS stub_pid, p.visning_navn AS stub_navn,
              EXISTS (SELECT 1 FROM person_external_id x WHERE x.person_id=stub.person_id) AS stub_har_extid,
              (EXISTS (SELECT 1 FROM change_event ce WHERE ce.tabel='family' AND (ce.row_pk->>'id')::bigint=hoved.family_id)
-              OR EXISTS (SELECT 1 FROM change_event ce WHERE ce.tabel='family_member' AND (ce.row_pk->>'family_id')::bigint=hoved.family_id)) AS fredet
+              OR EXISTS (SELECT 1 FROM change_event ce WHERE ce.tabel='family_member' AND (ce.row_pk->>'family_id')::bigint=hoved.family_id)) AS fredet,
+             NOT EXISTS (
+               SELECT 1 FROM assertion a
+               WHERE ((a.target_type='fact' AND a.target_id IN (
+                         SELECT f.id FROM fact f WHERE f.subjekt_type='family' AND f.subjekt_id=hoved.family_id))
+                   OR (a.objekt_type='family' AND a.objekt_id=hoved.family_id))
+                 AND (NOT EXISTS (SELECT 1 FROM citation c WHERE c.assertion_id=a.id)
+                      OR EXISTS (SELECT 1 FROM citation c WHERE c.assertion_id=a.id
+                                 AND c.source_id IS DISTINCT FROM %d))) AS ejet
       FROM family_member hoved
       LEFT JOIN family_member stub ON stub.family_id=hoved.family_id AND stub.rolle='partner' AND stub.person_id<>hoved.person_id
       LEFT JOIN person p ON p.id=stub.person_id
-      WHERE hoved.rolle='partner' AND hoved.person_id IN (%s)", ids_sql))
+      WHERE hoved.rolle='partner' AND hoved.person_id IN (%s)", src, ids_sql))
+    fam_db$fredet <- (fam_db$fredet %in% TRUE) | !(fam_db$ejet %in% TRUE)
+    if (any(!(fam_db$ejet %in% TRUE)))
+      message(sprintf("REPLACE trin 4: %d familier i scope er IKKE positivt source-ejede (fremmed/citationsløs evidens) — fredes.",
+                      sum(!(fam_db$ejet %in% TRUE))))
     # v1-grænser (fail-closed): en union med 2+ matchede partnere (brug_ref-
     # klassen), en medpartner der selv er artefakt-person, eller en stub delt
     # mellem unioner er alle udenfor v1's match-model. Empirisk 0 i 1939.
@@ -768,7 +789,9 @@ tryCatch({
       }
       if (brug_ref) {
         add_member(fam, get(existing_key, envir = pmap), "partner", ordinal = g(a, "ordinal"))
-      } else if (!is.null(a$partner_navn) && !is.na(a$partner_navn)) {
+      } else if (!is.null(a$partner_navn) && !is.na(a$partner_navn) && nzchar(trimws(a$partner_navn))) {
+        # nzchar-kravet spejler match_replace_unioner: et tomt/whitespace-navn
+        # er UNAVNGIVET og må aldrig materialisere en blank stub (sol runde 3).
         # Trin 4: matchet union genbruger stub-person-id'et — stubbens gamle
         # source-fakta er slettet i setup, så rygraden genindsættes rent på
         # SAMME person; samme_som-links på stubben består dermed automatisk.
