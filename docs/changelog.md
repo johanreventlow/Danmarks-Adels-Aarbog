@@ -38,7 +38,19 @@ springes helt over. Testen mod lokal prod-kopi fangede to ægte fund: Iven-casen
 (I-72 gift med to forskellige kvinder der begge hed Margarethe Rantzau — ordinal
 afgør) og en latent nøgle-bug (pmap record_key-nøglet, pass 2 slår linje-nøglet
 op — ville knække ethvert UUID-nøglet artefakt, også i append). Uafhængigt
-md5-snapshot 100 % identisk før/efter; 569/569 tests. Sol-review igangsat.
+md5-snapshot 100 % identisk før/efter; 569/569 tests.
+
+**Sol-review: GO efter tre adversarialer runder** (77d2aa2 → b2f47d5 → 50d58fc).
+Runderne fandt og lukkede: familie-ejerskab uden positiv afgrænsning (nu
+to-grenet: evidens fuldt citeret mod source ELLER positivt proveniens-bevis
+pr. nul-evidens-medlem via fakta-citations, fail-closed for personer uden
+proveniens — begge omgåelsesklasser bevist lukket med injicerede syntetiske
+legacy-familier mod prod-kopien), fase 0-fixpoint-brud ved artefakt-
+navnedubletter (nu up-front fail-closed, kørsel-uafhængigt) og NA-navne-hits
+i R's subsetting. Slutfacit: 582/582 tests, ægte kørsel stabil 295 genbrugte
+unioner / 19 parkeringer / 1 fredet / 0 bortfaldne. **Hele replay-kæden
+(trin 1-4) er hermed komplet og GO'et — klar til ægte prod-replace når
+re-ekstraktionen (v2-segmentering) foreligger.**
 
 ## Helhedsreview → slutark lukket → replay-kæden bygget (2026-07-30/31)
 

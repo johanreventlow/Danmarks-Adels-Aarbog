@@ -178,6 +178,16 @@ byte-identisk; alle stub-id'er med samme_som eksisterer fortsat og har fortsat
 en partner-kant; fredede kanter uændrede; change_set/change_event-antal
 uændret; EXCLUDE-invarianten (én fødselsfamilie pr. barn) holder.
 
+**✅ SOL-GO 2026-07-31** efter tre adversarialer runder (commits 77d2aa2 →
+b2f47d5 → 50d58fc): (1) positivt familie-ejerskab, to-grenet — MED evidens
+kræves alt fuldt citeret mod denne source; UDEN evidens kræves positivt
+proveniens-bevis pr. ikke-matchet medlem (fremmed external_id diskvalificerer;
+extid-løse skal have ≥1 fakta-citation mod denne source og ingen fremmed —
+personer uden proveniens fredes fail-closed). Begge omgåelsesklasser bevist
+lukket med injicerede syntetiske legacy-familier. (2) Artefakt-navnedubletter
+uden parvis distinkte ordinaler fail-closes up-front (kørsel-uafhængigt).
+(3) NA-navne-sikring i alle match-sammenligninger. 582/582 tests.
+
 **✅ IMPLEMENTERET + DESTRUKTIVT TESTET 2026-07-31** (commit 53fd921):
 match_replace_unioner (DB-fri, testdækket) + replace-familie-fase i loaderen.
 Skarp kørsel mod lokal prod-kopi: 295 unioner genbrugt (id-stabile stubs),
