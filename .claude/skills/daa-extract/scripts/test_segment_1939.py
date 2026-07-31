@@ -1,7 +1,7 @@
 """Tests for 1939-segmentering og deterministisk narrativbinding.
 
-De små fixtures bruger korte typografiske OCR-ankre. To v2-integrationstests
-kører mod repoets faktiske ``raw.txt``-fallback for regressionsbeviset.
+De små fixtures bruger korte typografiske OCR-ankre. V2-integrationstestene
+kører mod både den faktiske Calamari-OCR og ``raw.txt``-fallbacken.
 """
 
 import segment_1939 as seg
@@ -275,17 +275,22 @@ def test_v2_kan_vaelges_fra_kommandolinjen():
 
 
 def test_v2_faktisk_ocr_bevarer_v1_nummererede_byte_for_byte():
-    # full_ocr_calamari_r6_clean.txt har ikke den centreringsinformation, som
-    # den nuværende 1939-v1 er kalibreret imod; raw.txt er dens dokumenterede
-    # fallback og det live regressionsgrundlag.
     repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-    ocr = os.path.join(repo, "work_1939_stamtavle", "raw.txt")
+    ocr = os.path.join(
+        repo, "work_1939_stamtavle", "full_ocr_calamari_r6_clean.txt")
 
     v1, _ = run_structural_path(ocr, "1939")
     v2, _ = run_structural_path(ocr, "1939-v2")
     v2_nummererede = [post for post in v2 if not post.get("postklasse")]
 
-    assert len(v1) == 505  # live parserfacit på denne branch
+    # Empirisk parserfacit: v1 giver 483 på denne Calamari-fil. Briefens 515
+    # er derfor ikke v1-outputtet her; 505 gælder den separate raw.txt-fallback.
+    assert len(v1) == 483
+    assert len(v2_nummererede) == len(v1)
+    for v1_post, v2_post in zip(v1, v2_nummererede):
+        assert v2_post["lokal_id"] == v1_post["lokal_id"]
+        assert v2_post["sider"] == v1_post["sider"]
+        assert v2_post["raw_text"] == v1_post["raw_text"]
     assert v2_nummererede == v1
     assert (json.dumps(v2_nummererede, ensure_ascii=False, indent=2).encode("utf-8")
             == json.dumps(v1, ensure_ascii=False, indent=2).encode("utf-8"))
