@@ -4762,3 +4762,40 @@ BEGIN
     VALUES (p_story_id, (v_k->>'source_id')::bigint, v_k->>'side');
   END LOOP;
 END $$;
+
+-- =============================================================
+-- 2026-07-31: SEKVENS-GULV LØFTES OVER VERSIONERINGSHISTORIKKEN
+--
+-- IDENTITY-migrationens setval brugte max(id) — men rækker slettet via
+-- red_slet-*-RPC'er efterlader change_events med HØJERE id'er end levende max.
+-- En DEFAULT-insert kunne dermed genbruge et historisk id og "genoplive" gammel
+-- historik på en ny, forkert række (fundet empirisk af --replace-dry-runens
+-- invariantvagt: red_fact steg 11→13). Gulvet er nu GREATEST(levende max,
+-- historikkens max) pr. tabel. Genkørsel er sikker: setval sker under
+-- eksplicit tabel-lås (jf. Codex-review fund 3-mønstret), og formlen er
+-- monotont ikke-faldende.
+-- =============================================================
+DO $$
+DECLARE
+  t TEXT; seqname TEXT; gulv BIGINT;
+  tabeller TEXT[] := ARRAY[
+    'assertion','change_event','change_set','citation','coat_of_arms',
+    'conclusion','estate','fact','family','feed_pin','haendelse',
+    'historical_event','lineage','media','media_variant','narrative','note',
+    'organisation','person','place','relation','repository','source',
+    'story','story_kilde'];
+BEGIN
+  FOREACH t IN ARRAY tabeller LOOP
+    seqname := pg_get_serial_sequence(t, 'id');
+    IF seqname IS NULL THEN CONTINUE; END IF;
+    EXECUTE format('LOCK TABLE %I IN EXCLUSIVE MODE', t);
+    EXECUTE format(
+      'SELECT GREATEST(COALESCE((SELECT MAX(id) FROM %I), 0),
+                       COALESCE((SELECT MAX((row_pk->>''id'')::bigint) FROM change_event WHERE tabel=%L), 0))', t, t)
+      INTO gulv;
+    -- setval må aldrig sænke gulvet (monotoni): tag også nuværende sekvens med.
+    EXECUTE format('SELECT GREATEST(%s, COALESCE((SELECT last_value FROM %s WHERE is_called), 0))', gulv, seqname)
+      INTO gulv;
+    PERFORM setval(seqname, gulv + 1, false);
+  END LOOP;
+END $$;

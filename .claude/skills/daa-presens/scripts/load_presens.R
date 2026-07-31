@@ -60,8 +60,14 @@ model_tables <- c("note","citation","conclusion","assertion","relation","fact",
                   "estate","organisation","place","source")
 
 .seq <- new.env(parent = emptyenv())
+# Id-gulv = GREATEST(levende max, højeste id i versioneringshistorikken) —
+# historik over slettede rækker må aldrig genoplives af id-genbrug (samme
+# formel som load_daa.R's id_gulv_sql; bevidst duplikeret, uafhængige scripts).
+id_gulv_sql <- function(t) sprintf(
+  "SELECT GREATEST(COALESCE((SELECT MAX(id) FROM %s), 0),
+                   COALESCE((SELECT MAX((row_pk->>'id')::bigint) FROM change_event WHERE tabel='%s'), 0)) m", t, t)
 seed_seq <- function() for (t in id_tables) {
-  m <- dbGetQuery(con, sprintf("SELECT COALESCE(MAX(id),0) m FROM %s", t))$m[1]
+  m <- dbGetQuery(con, id_gulv_sql(t))$m[1]
   .seq[[t]] <- as.integer(m)
 }
 nid <- function(t) { v <- (if (is.null(.seq[[t]])) 0L else .seq[[t]]) + 1L; .seq[[t]] <- v; v }
@@ -208,7 +214,7 @@ tryCatch({
   for (t in id_tables) {
     s <- dbGetQuery(con, sprintf("SELECT pg_get_serial_sequence('%s','id') s", t))$s[1]
     if (is.na(s) || is.null(s)) message(sprintf("sekvens-sync: %s uden identity — sprunget over", t))
-    else ex(sprintf("SELECT setval('%s', (SELECT coalesce(max(id),0)+1 FROM %s), false)", s, t))
+    else ex(sprintf("SELECT setval('%s', (%s) + 1, false)", s, sub(" m$", "", id_gulv_sql(t))))
   }
   dbCommit(con); message(sprintf("Indlæst %d personer fra præsensliste (%s).", total, udgave))
 }, error = function(e) { dbRollback(con); dbDisconnect(con)

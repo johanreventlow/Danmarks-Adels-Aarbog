@@ -26,7 +26,11 @@ con <- dbConnect(RPostgres::Postgres(), host = host,
                  user = user, password = pw, sslmode = "require", bigint = "integer")
 ex <- function(sql, p = list()) if (length(p)) dbExecute(con, sql, params = p) else dbExecute(con, sql)
 one <- function(sql, p = list()) { r <- if (length(p)) dbGetQuery(con, sql, params = p) else dbGetQuery(con, sql); if (nrow(r)) r[[1]][1] else NA }
-nid <- function(t) as.integer(one(sprintf("SELECT COALESCE(MAX(id),0)+1 FROM %s", t)))
+# Id-gulv inkluderer versioneringshistorikkens højeste id pr. tabel (historik
+# over slettede rækker må ikke genoplives af id-genbrug).
+nid <- function(t) as.integer(one(sprintf(
+  "SELECT GREATEST(COALESCE((SELECT MAX(id) FROM %s), 0),
+                   COALESCE((SELECT MAX((row_pk->>'id')::bigint) FROM change_event WHERE tabel='%s'), 0)) + 1", t, t)))
 
 # Fail-closed source-resolution (Leverance 0, tværudgave-spec §7): ved 2+ DAA-udgaver må
 # (linje,nr)-opslag og grundlægger-links IKKE ramme forkert udgaves person. Resolvér den
@@ -106,7 +110,9 @@ tryCatch({
   for (t in c("lineage","relation","assertion","citation","conclusion")) {
     s <- one(sprintf("SELECT pg_get_serial_sequence('%s','id')", t))
     if (is.na(s) || is.null(s)) message(sprintf("sekvens-sync: %s uden identity — sprunget over", t))
-    else ex(sprintf("SELECT setval('%s', (SELECT coalesce(max(id),0)+1 FROM %s), false)", s, t))
+    else ex(sprintf(
+      "SELECT setval('%s', (SELECT GREATEST(COALESCE((SELECT MAX(id) FROM %s), 0),
+         COALESCE((SELECT MAX((row_pk->>'id')::bigint) FROM change_event WHERE tabel='%s'), 0))) + 1, false)", s, t, t))
   }
   dbCommit(con); message("post_load_fixup: OK")
 }, error = function(e) { dbRollback(con); dbDisconnect(con); stop("fixup fejlede, rullet tilbage: ", conditionMessage(e)) })
