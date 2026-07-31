@@ -32,6 +32,13 @@ def test_sider_kan_vaere_liste():
     assert ud["side"] == "508"
 
 
+def test_sidespan_bruger_foerste_side_som_lokatoranker():
+    # v2 skriver fler-sides poster som "496-497". Registerets lokator har
+    # netop én fysisk ankerside, så intervallets første side skal vælges.
+    ud = validate.paahaeft_lokator({}, {"sider": "496-497", "lokal_id": "A.I.1"})
+    assert ud["side"] == "496"
+
+
 def test_manglende_kilde_efterlader_felterne_tomme():
     # Fail-open ville give en post uden lokator, som reconcile ikke kan matche.
     # Vi sætter None frem for at opfinde noget — gaten fanger det.
