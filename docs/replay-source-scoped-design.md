@@ -136,6 +136,48 @@ består automatisk fordi person-id'erne bevares.
     sekvenser over gulvet, 0 brud). **Alle forudsætninger for ægte
     prod-replace er hermed på plads.**
 
+## Trin 4-design: familie-graf-replace (2026-07-31)
+
+Empiri fra den lokale prod-kopi (post-trin-3): 315 familier med 1939-medlem =
+296 × (1 hovedperson + 1 navngiven stub, 286 barn-kanter) + 19 × (1 hovedperson
+alene — parkerings-/default-unioner, 69 barn-kanter). 0 hovedperson↔hovedperson-
+unioner. **209 af 296 stubs bærer redaktionelle samme_som/ikke_samme_som-links**
+(tvær-udgave-ægtefælle-matchning) + 4 person-change_events på stubs → **stubs
+kan ALDRIG slettes/genoprettes; deres person-id er redaktionel valuta.**
+Kun 1 familie har change_event-spor på medlemslisten (kendt fra dry-run).
+
+**Princip: strukturen (family-id, stub-person-id) genbruges via match;
+indholdet (family-fakta, stub-fakta, noter, barn-kanter) erstattes.**
+
+1. **Kortlægning pr. matchet hovedperson:** eksisterende partner-familier →
+   `(family_id, stub_id, stub_navn, ordinal, har_red_spor)`.
+2. **Union-match:** artefakt-ægteskab ↔ eksisterende union via normaliseret
+   partnernavn (split_title-rest — samme princip som `match_barn_union`:
+   partnernavn primær, ordinal kryds-tjek). Tvetydighed (to unioner, samme
+   partnernavn) = STOP fail-closed.
+3. **Matchet union:** family_id + stub_id genbruges; source-ejede family-fakta-
+   kæder, family-noter og stub-fakta (navn/titel/fødsel/dåb/død) erstattes;
+   ordinal opdateres.
+4. **Umatchet artefakt-ægteskab:** ny familie + ny stub (som append-flowet).
+5. **Bortfalden union:** består + rapporteres — aldrig auto-slettet
+   (register-princippet; en bortfalden union med samme_som-stub er ellers
+   datatab af redaktionsarbejde).
+6. **Barn-kanter:** source-ejede (uden change_event-spor) slettes og genopbygges
+   fra artefaktet mod de genbrugte/nye family_ids; kanter med spor fredes
+   (skip-hvis-findes beskytter mod PK-kollision når artefaktet genindsætter
+   en fredet kant).
+7. **Parkerings-unioner (ingen stub):** ingen id-valuta at bevare → slettes
+   som source-ejede og genopstår ved behov under genopbygningen.
+8. **Fredning:** familie med change_event-spor på family/family_member er
+   redaktionel — hele familien springes over (indhold urørt) og rapporteres;
+   artefaktets tilsvarende union behandles da som bortfalden-i-spejl (ingen
+   dublet-oprettelse: matchede fredede unioner tæller som matchede).
+
+**Udvidet efterverifikation (blokerende):** samme_som/ikke_samme_som-mængden
+byte-identisk; alle stub-id'er med samme_som eksisterer fortsat og har fortsat
+en partner-kant; fredede kanter uændrede; change_set/change_event-antal
+uændret; EXCLUDE-invarianten (én fødselsfamilie pr. barn) holder.
+
 ## Åbne spørgsmål (til implementeringssessionerne)
 
 - Familie-ejerskab: en union med redaktionelt tilføjet medlem — er familien så

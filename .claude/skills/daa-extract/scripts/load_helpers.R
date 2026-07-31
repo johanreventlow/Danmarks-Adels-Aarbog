@@ -397,3 +397,119 @@ match_barn_union <- function(ctx, aegteskaber) {
   if (length(up) > 1L)  return(na_res("flertydigt_partnernavn"))
   na_res("ukendt_partner")   # partner nævnt men ikke blandt ægteskaberne, el. intet spor
 }
+
+# Adskil ledende adelstitel fra navnet (titel != navn, datamodel §5). Nogle
+# udtræk bager titlen ind i navnet -> ryddes her, så navn-fakta er rent.
+# Bor i helpers (flyttet fra load_daa.R) fordi trin 4's union-match skal
+# normalisere artefakt-partnernavne med præcis samme titel-strip.
+.titler <- c("lensgrevinde","lensgreve","rigsgrevinde","rigsgreve","grevinde","komtesse",
+             "greve","friherreinde","friherre","baronesse","baron","hertuginde","hertug",
+             "prinsesse","prins","fyrstinde","fyrste")
+split_title <- function(navn) {
+  if (is.null(navn) || length(navn)==0 || is.na(navn)) return(list(titel=NA, rest=navn))
+  w <- strsplit(trimws(navn), "\\s+")[[1]]
+  if (length(w) >= 2 && tolower(w[1]) %in% .titler)
+    return(list(titel=w[1], rest=paste(w[-1], collapse=" ")))
+  list(titel=NA, rest=navn)
+}
+
+# ---- match_replace_unioner (replay-design #123, trin 4) ----
+# Matcher en matchet hovedpersons artefakt-ægteskaber mod personens EKSISTERENDE
+# DB-unioner, så family-id + stub-person-id kan genbruges (stubs bærer
+# redaktionel valuta: samme_som-links). Ren funktion, fail-closed.
+#
+#   aegteskaber: artefaktets liste (partner_navn, evt. ordinal)
+#   db_unioner:  data.frame(family_id, stub_pid, stub_navn, ordinal) —
+#                kun IKKE-fredede unioner MED navngiven stub
+#
+# Kontrakt (spejler designdok-trin 4 pkt. 2):
+#   0. eksakt (navn + ordinal)-match — håndterer bogens navne-dubletter
+#      (Iven-casen: to forskellige hustruer, begge 'Margarethe Rantzau',
+#      ordinal 3 og 4)
+#   1. eksakt normaliseret navne-match (unikt på begge sider)
+#   2. ordinal-match på resten (unik ordinal på begge sider)
+#   3. token-overlap på resten (delt navne-token ≥3 tegn, entydig tildeling)
+#      — fanger stavningsdrift fra re-ekstraktion uden at parre fremmede navne
+#   >1 kandidat noget sted → fejl (STOP); 0 kandidater → ny hhv. bortfalden.
+# Unavngivne artefakt-ægteskaber er altid nye (ingen stub = ingen id-valuta).
+.replace_norm_navn <- function(navn) {
+  if (is.null(navn) || length(navn) == 0L || is.na(navn)) return(NA_character_)
+  rest <- split_title(navn)$rest
+  tolower(gsub("\\s+", " ", trimws(rest)))
+}
+.replace_navnetokens <- function(norm) {
+  if (is.na(norm)) return(character(0))
+  toks <- strsplit(norm, "[ .,-]+")[[1]]
+  toks[nchar(toks) >= 3L]
+}
+match_replace_unioner <- function(aegteskaber, db_unioner) {
+  res <- list(match = list(), nye_idx = integer(0),
+              bortfaldne_family_ids = numeric(0), fejl = NULL)
+  fejl <- function(msg) { res$fejl <- msg; res }
+
+  art_norm <- vapply(aegteskaber, function(a) .replace_norm_navn(a[["partner_navn"]]), character(1))
+  art_ord <- vapply(aegteskaber, function(a) {
+    o <- a[["ordinal"]]
+    if (is.null(o) || length(o) == 0L || is.na(o)) NA_integer_ else suppressWarnings(as.integer(o))
+  }, integer(1))
+  db_norm <- vapply(seq_len(nrow(db_unioner)), function(i) .replace_norm_navn(db_unioner$stub_navn[i]), character(1))
+
+  # Unavngivne artefakt-ægteskaber: altid nye.
+  res$nye_idx <- which(is.na(art_norm))
+  art_rest <- which(!is.na(art_norm))
+  db_rest <- seq_len(nrow(db_unioner))
+  par <- function(i, j) {
+    res$match[[as.character(i)]] <<- list(family_id = db_unioner$family_id[j],
+                                          stub_pid = db_unioner$stub_pid[j])
+    art_rest <<- setdiff(art_rest, i); db_rest <<- setdiff(db_rest, j)
+  }
+
+  # Fase 0: eksakt (navn + ordinal)-match — bogens navne-dubletter parres på
+  # ordinal FØR navn-alene-fasen ellers ville stemple dem tvetydige.
+  for (i in art_rest) {
+    if (is.na(art_ord[i])) next
+    hits <- db_rest[db_norm[db_rest] == art_norm[i] &
+                      !is.na(db_unioner$ordinal[db_rest]) &
+                      db_unioner$ordinal[db_rest] == art_ord[i]]
+    if (length(hits) == 1L) par(i, hits)
+  }
+  # Fase 1: eksakt navne-match — kræver unikhed på BEGGE sider.
+  for (i in art_rest) {
+    hits <- db_rest[db_norm[db_rest] == art_norm[i]]
+    if (length(hits) > 1L)
+      return(fejl(sprintf("stub-navnet '%s' findes i %d eksisterende unioner — tvetydigt", art_norm[i], length(hits))))
+    if (length(hits) == 1L) {
+      if (sum(art_norm[art_rest] == art_norm[i]) > 1L)
+        return(fejl(sprintf("artefaktet har flere ægteskaber med partnernavn '%s' — tvetydigt", art_norm[i])))
+      par(i, hits)
+    }
+  }
+  # Fase 2: ordinal-match på resten (unik ordinal på begge sider).
+  for (i in art_rest) {
+    if (is.na(art_ord[i]) || sum(!is.na(art_ord[art_rest]) & art_ord[art_rest] == art_ord[i]) > 1L) next
+    hits <- db_rest[!is.na(db_unioner$ordinal[db_rest]) & db_unioner$ordinal[db_rest] == art_ord[i]]
+    if (length(hits) == 1L) par(i, hits)
+  }
+  # Fase 3: token-overlap på resten — entydig tildeling eller STOP.
+  if (length(art_rest) && length(db_rest)) {
+    kandidater <- lapply(art_rest, function(i) {
+      at <- .replace_navnetokens(art_norm[i])
+      db_rest[vapply(db_rest, function(j) length(intersect(at, .replace_navnetokens(db_norm[j]))) > 0L, logical(1))]
+    })
+    for (k in seq_along(art_rest)) {
+      if (length(kandidater[[k]]) > 1L)
+        return(fejl(sprintf("ægteskab med '%s' deler navne-tokens med %d eksisterende unioner — tvetydigt",
+                            art_norm[art_rest[k]], length(kandidater[[k]]))))
+    }
+    flat <- unlist(kandidater)
+    if (anyDuplicated(flat[!is.na(flat)]))
+      return(fejl("to artefakt-ægteskaber peger på samme eksisterende union via navne-tokens — tvetydigt"))
+    for (k in seq_along(art_rest)) {
+      if (length(kandidater[[k]]) == 1L) par(art_rest[k], kandidater[[k]])
+    }
+  }
+
+  res$nye_idx <- sort(c(res$nye_idx, art_rest))
+  res$bortfaldne_family_ids <- db_unioner$family_id[db_rest]
+  res
+}

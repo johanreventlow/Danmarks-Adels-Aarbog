@@ -247,18 +247,8 @@ rel_value <- function(st, sid_, ot, oid_, rolle, raw=NA, em=NA, sid) {
 # der læses som en tom liste. is.null() fanger ikke den tomme liste, og en nul-længde-
 # værdi ville derefter blive droppet af unlist() i rows_to_df og korrumpere kolonnen.
 g <- function(x, k, d=NA) { v <- x[[k]]; if (is.null(v) || length(v) == 0L) d else v }
-# Adskil ledende adelstitel fra navnet (titel != navn, datamodel §5). Nogle
-# udtræk bager titlen ind i navnet -> ryddes her, så navn-fakta er rent.
-.titler <- c("lensgrevinde","lensgreve","rigsgrevinde","rigsgreve","grevinde","komtesse",
-             "greve","friherreinde","friherre","baronesse","baron","hertuginde","hertug",
-             "prinsesse","prins","fyrstinde","fyrste")
-split_title <- function(navn) {
-  if (is.null(navn) || length(navn)==0 || is.na(navn)) return(list(titel=NA, rest=navn))
-  w <- strsplit(trimws(navn), "\\s+")[[1]]
-  if (length(w) >= 2 && tolower(w[1]) %in% .titler)
-    return(list(titel=w[1], rest=paste(w[-1], collapse=" ")))
-  list(titel=NA, rest=navn)
-}
+# split_title (titel != navn, datamodel §5) bor nu i load_helpers.R — trin 4's
+# union-match normaliserer med samme titel-strip og skal dele definitionen.
 # Seed kontrolleret vokabular (invariant #9) fra vocab.json — idempotent.
 seed_vocab <- function() {
   vp <- ".claude/skills/daa-extract/references/vocab.json"
@@ -443,19 +433,157 @@ tryCatch({
     if (length(koen_beskyttet))
       message(sprintf("REPLACE: %d personer har redaktionel koen-ændring — deres koen overskrives IKKE.", length(koen_beskyttet)))
 
+    # ---- Trin 4: familie-graf-replace (designdok §Trin 4-design) ----
+    # Kortlæg matchede personers partner-familier: genbrugskandidater (navngiven
+    # stub — stub-person-id er redaktionel valuta: 209 bærer samme_som-links),
+    # parkerings-unioner (uden stub, ingen id-valuta) og fredede (change_event-
+    # spor på family eller nogen af dens kanter = redaktionel familie).
+    fam_db <- dbGetQuery(con, sprintf("
+      SELECT hoved.family_id, hoved.person_id AS hoved_pid, hoved.ordinal,
+             stub.person_id AS stub_pid, p.visning_navn AS stub_navn,
+             EXISTS (SELECT 1 FROM person_external_id x WHERE x.person_id=stub.person_id) AS stub_har_extid,
+             (EXISTS (SELECT 1 FROM change_event ce WHERE ce.tabel='family' AND (ce.row_pk->>'id')::bigint=hoved.family_id)
+              OR EXISTS (SELECT 1 FROM change_event ce WHERE ce.tabel='family_member' AND (ce.row_pk->>'family_id')::bigint=hoved.family_id)) AS fredet
+      FROM family_member hoved
+      LEFT JOIN family_member stub ON stub.family_id=hoved.family_id AND stub.rolle='partner' AND stub.person_id<>hoved.person_id
+      LEFT JOIN person p ON p.id=stub.person_id
+      WHERE hoved.rolle='partner' AND hoved.person_id IN (%s)", ids_sql))
+    # v1-grænser (fail-closed): en union med 2+ matchede partnere (brug_ref-
+    # klassen), en medpartner der selv er artefakt-person, eller en stub delt
+    # mellem unioner er alle udenfor v1's match-model. Empirisk 0 i 1939.
+    if (anyDuplicated(fam_db$family_id))
+      stop("--replace trin 4: en union har flere hoved-/medpartnere i match-scope (brug_ref-/flerpartner-klassen) — v1 STOPPER.")
+    if (any(fam_db$stub_har_extid %in% TRUE))
+      stop("--replace trin 4: en unions medpartner er selv en artefakt-person (brug_ref-klassen) — v1 STOPPER.")
+    if (anyDuplicated(fam_db$stub_pid[!is.na(fam_db$stub_pid)]))
+      stop("--replace trin 4: samme stub-person sidder i flere unioner — v1 STOPPER.")
+
+    # Match pr. hovedperson: artefakt-ægteskaber ↔ eksisterende unioner
+    # (match_replace_unioner: navn → ordinal → token-overlap, fail-closed).
+    recs_by_key <- clean; names(recs_by_key) <- art_keys
+    replace_fam_plan <- list(); fam_genbrug <- c(); stub_genbrug <- c(); fam_park <- c()
+    n_fredede_unioner <- 0L; n_bortfaldne_unioner <- 0L
+    for (rk in match_keys) {
+      pid <- replace_pid[[rk]]
+      mine <- fam_db[fam_db$hoved_pid == pid, , drop = FALSE]
+      navngivne <- mine[!is.na(mine$stub_pid), , drop = FALSE]
+      m <- match_replace_unioner(
+        g(recs_by_key[[rk]], "aegteskaber", list()),
+        data.frame(family_id = navngivne$family_id, stub_pid = navngivne$stub_pid,
+                   stub_navn = navngivne$stub_navn, ordinal = navngivne$ordinal))
+      if (!is.null(m$fejl))
+        stop(sprintf("--replace trin 4 (%s): %s — fail-closed.", rk, m$fejl))
+      # Matchede FREDEDE unioner tæller som matchede men røres ikke (designdok
+      # pkt. 8): artefaktets version droppes, den redaktionelle består.
+      fredet_ids <- navngivne$family_id[navngivne$fredet %in% TRUE]
+      skip_idx <- as.integer(names(m$match)[vapply(m$match, function(x) x$family_id %in% fredet_ids, logical(1))])
+      brug <- m$match[setdiff(names(m$match), as.character(skip_idx))]
+      replace_fam_plan[[rk]] <- list(match = brug, skip_idx = skip_idx)
+      fam_genbrug <- c(fam_genbrug, vapply(brug, function(x) as.numeric(x$family_id), numeric(1)))
+      stub_genbrug <- c(stub_genbrug, vapply(brug, function(x) as.numeric(x$stub_pid), numeric(1)))
+      fam_park <- c(fam_park, mine$family_id[is.na(mine$stub_pid) & !(mine$fredet %in% TRUE)])
+      n_fredede_unioner <- n_fredede_unioner + length(skip_idx)
+      n_bortfaldne_unioner <- n_bortfaldne_unioner + sum(!(m$bortfaldne_family_ids %in% fredet_ids))
+    }
+    fam_beroert <- unique(c(fam_genbrug, fam_park))
+    fam_sql  <- if (length(fam_beroert)) paste(fam_beroert, collapse = ",") else "-1"
+    park_sql <- if (length(fam_park)) paste(fam_park, collapse = ",") else "-1"
+    stub_sql <- if (length(stub_genbrug)) paste(stub_genbrug, collapse = ",") else "-1"
+    stopifnot(grepl("^[0-9,-]+$", fam_sql), grepl("^[0-9,-]+$", park_sql), grepl("^[0-9,-]+$", stub_sql))
+
+    # Source-ejede fakta i familie-scope: samme positive ejerskabs-kriterium som
+    # person-fakta (alle citations → denne source, fuld evidenskæde).
+    ejede_fakta <- function(where_clause) dbGetQuery(con, sprintf(
+      "SELECT f.id FROM fact f WHERE %s
+         AND EXISTS (SELECT 1 FROM assertion a WHERE a.target_type='fact' AND a.target_id=f.id)
+         AND NOT EXISTS (SELECT 1 FROM assertion a WHERE a.target_type='fact' AND a.target_id=f.id
+                         AND NOT EXISTS (SELECT 1 FROM citation c WHERE c.assertion_id=a.id))
+         AND NOT EXISTS (SELECT 1 FROM assertion a JOIN citation c ON c.assertion_id=a.id
+                         WHERE a.target_type='fact' AND a.target_id=f.id
+                           AND c.source_id IS DISTINCT FROM %d)", where_clause, src))$id
+    fam_fakta  <- ejede_fakta(sprintf("f.subjekt_type='family' AND f.subjekt_id IN (%s)", fam_sql))
+    stub_fakta <- ejede_fakta(sprintf("f.subjekt_type='person' AND f.subjekt_id IN (%s) AND f.faktatype<>'forældrefamilie'", stub_sql))
+    # Forældrefamilie-slots for børn i de berørte familier (Problem 2-triplen)
+    # genopbygges af pass 2 — de gamle slots slettes, ellers dubleres de.
+    slot_fakta <- ejede_fakta(sprintf(
+      "f.subjekt_type='person' AND f.faktatype='forældrefamilie'
+         AND EXISTS (SELECT 1 FROM assertion a WHERE a.target_type='fact' AND a.target_id=f.id
+                     AND a.objekt_type='family' AND a.objekt_id IN (%s))", fam_sql))
+    t4_kid <- c(fam_fakta, stub_fakta, slot_fakta)
+    t4_kid_sql <- if (length(t4_kid)) paste(t4_kid, collapse = ",") else "-1"
+    stopifnot(grepl("^[0-9,-]+$", t4_kid_sql))
+
+    # Source-ejede person-relationer (godser/embeder/begivenheder — rel_value-
+    # laget): genopbygges af pass 2. samme_som-klassen er dobbelt beskyttet:
+    # eksplicit rolle-udelukkelse OG positivt ejerskab (red-citations ≠ src).
+    rel_kand <- dbGetQuery(con, sprintf(
+      "SELECT r.id FROM relation r WHERE r.subjekt_type='person' AND r.subjekt_id IN (%s)
+         AND r.rolle NOT IN ('samme_som','ikke_samme_som')
+         AND EXISTS (SELECT 1 FROM assertion a WHERE a.target_type='relation' AND a.target_id=r.id)
+         AND NOT EXISTS (SELECT 1 FROM assertion a WHERE a.target_type='relation' AND a.target_id=r.id
+                         AND NOT EXISTS (SELECT 1 FROM citation c WHERE c.assertion_id=a.id))
+         AND NOT EXISTS (SELECT 1 FROM assertion a JOIN citation c ON c.assertion_id=a.id
+                         WHERE a.target_type='relation' AND a.target_id=r.id
+                           AND c.source_id IS DISTINCT FROM %d)", ids_sql, src))$id
+    rel_sql <- if (length(rel_kand)) paste(rel_kand, collapse = ",") else "-1"
+    stopifnot(grepl("^[0-9,-]+$", rel_sql))
+
+    # Konflikt-klassen for trin 4-scope (BLOKERENDE, spejl af person-scope):
+    # redaktionelt spor på kandidat-fakta/-relationer eller deres evidenskæder,
+    # eller på family-noter der skal slettes.
+    t4_konflikt <- dbGetQuery(con, sprintf("
+      SELECT (SELECT count(*) FROM change_event ce WHERE ce.tabel='fact' AND (ce.row_pk->>'id')::bigint IN (%s))
+           + (SELECT count(*) FROM change_event ce WHERE ce.tabel='relation' AND (ce.row_pk->>'id')::bigint IN (%s))
+           + (SELECT count(*) FROM change_event ce WHERE ce.tabel='assertion' AND (ce.row_pk->>'id')::bigint IN (
+                SELECT a.id FROM assertion a WHERE (a.target_type='fact' AND a.target_id IN (%s))
+                                               OR (a.target_type='relation' AND a.target_id IN (%s))))
+           + (SELECT count(*) FROM change_event ce WHERE ce.tabel='citation' AND (ce.row_pk->>'id')::bigint IN (
+                SELECT c.id FROM citation c JOIN assertion a ON a.id=c.assertion_id
+                WHERE (a.target_type='fact' AND a.target_id IN (%s)) OR (a.target_type='relation' AND a.target_id IN (%s))))
+           + (SELECT count(*) FROM change_event ce WHERE ce.tabel='conclusion' AND (ce.row_pk->>'id')::bigint IN (
+                SELECT co.id FROM conclusion co WHERE (co.target_type='fact' AND co.target_id IN (%s))
+                                                  OR (co.target_type='relation' AND co.target_id IN (%s))))
+           + (SELECT count(*) FROM change_event ce WHERE ce.tabel='note' AND (ce.row_pk->>'id')::bigint IN (
+                SELECT n.id FROM note n WHERE n.target_type='family' AND n.target_id IN (%s))) n",
+      t4_kid_sql, rel_sql, t4_kid_sql, rel_sql, t4_kid_sql, rel_sql, t4_kid_sql, rel_sql, fam_sql))$n
+    if (t4_konflikt > 0)
+      stop(sprintf("--replace trin 4: %d redaktionelle spor på familie-/relations-scope (konflikt-klassen) — v1 STOPPER.", t4_konflikt))
+
+    # Forbrugslag på trin 4-kandidater (spejl af person-scope, BLOKERENDE).
+    t4_forbrug <- dbGetQuery(con, sprintf("
+      SELECT (SELECT count(*) FROM haendelse WHERE fact_id IN (%s)) h_fact,
+             (SELECT count(*) FROM story WHERE fact_id IN (%s)) s_fact,
+             (SELECT count(*) FROM note WHERE target_type='fact' AND target_id IN (%s)) n_fact,
+             (SELECT count(*) FROM relation WHERE (subjekt_type='fact' AND subjekt_id IN (%s))
+                                              OR (objekt_type='fact' AND objekt_id IN (%s))
+                                              OR (subjekt_type='relation' AND subjekt_id IN (%s))
+                                              OR (objekt_type='relation' AND objekt_id IN (%s))) r_ref",
+      t4_kid_sql, t4_kid_sql, t4_kid_sql, t4_kid_sql, t4_kid_sql, rel_sql, rel_sql))
+    if (sum(unlist(t4_forbrug)) > 0)
+      stop(sprintf("--replace trin 4: forbrugslag refererer slette-scope (haendelse=%d, story=%d, note=%d, relation=%d) — håndtér forbrugslaget først.",
+                   t4_forbrug$h_fact, t4_forbrug$s_fact, t4_forbrug$n_fact, t4_forbrug$r_ref))
+
     # Invarianter (verificeres efter flush). Ud over globale counts (sol fund 7):
     # antal EKSISTERENDE rækker refereret af change_events pr. evidens-tabel —
     # falder et af dem, har replace slettet en redaktionelt logget række.
+    # Trin 4: den blinde family_member-count er erstattet af (a) md5 over ALLE
+    # kanter uden for de berørte familier — de SKAL være byte-identiske — og
+    # (b) person-count der specialtjekkes (+ nye stubs) efter flush.
     red_ref_sql <- "
       SELECT (SELECT count(*) FROM change_event ce JOIN fact t ON t.id=(ce.row_pk->>'id')::bigint WHERE ce.tabel='fact') red_fact,
              (SELECT count(*) FROM change_event ce JOIN assertion t ON t.id=(ce.row_pk->>'id')::bigint WHERE ce.tabel='assertion') red_assertion,
              (SELECT count(*) FROM change_event ce JOIN citation t ON t.id=(ce.row_pk->>'id')::bigint WHERE ce.tabel='citation') red_citation,
              (SELECT count(*) FROM change_event ce JOIN conclusion t ON t.id=(ce.row_pk->>'id')::bigint WHERE ce.tabel='conclusion') red_conclusion"
+    # NB: family_id <= gulvet — familier pass 2 selv opretter (nye unioner,
+    # genopbyggede parkeringer) ligger over gulvet og skal ikke forurene
+    # "urørt"-mængden; formlen er identisk før og efter.
+    fm_urort_sql <- sprintf(
+      "(SELECT COALESCE(md5(string_agg(family_id||':'||person_id||':'||rolle||':'||COALESCE(ordinal::text,'')||':'||COALESCE(konfidens,''), ',' ORDER BY family_id, person_id, rolle)),'tom') FROM family_member WHERE family_id NOT IN (%s) AND family_id <= %d)", fam_sql, as.integer(.seq[["family"]]))
     replace_invarianter <- dbGetQuery(con, sprintf(
       "SELECT (SELECT count(*) FROM relation WHERE rolle IN ('samme_som','ikke_samme_som')) samme_som,
               (SELECT count(*) FROM change_set) cs, (SELECT count(*) FROM change_event) ce,
-              (SELECT count(*) FROM family_member) fm, (SELECT count(*) FROM person) pers,
-              (SELECT count(*) FROM narrative WHERE source_id=%d) narr, %s", src,
+              %s fm_urort, (SELECT count(*) FROM person) pers,
+              (SELECT count(*) FROM narrative WHERE source_id=%d) narr, %s", fm_urort_sql, src,
       sub("^\\s*SELECT", "", red_ref_sql)))
 
     # Pre-delete i FK-orden (citation → conclusion → assertion → fact).
@@ -464,9 +592,27 @@ tryCatch({
       conclusion = ex(sprintf("DELETE FROM conclusion WHERE target_type='fact' AND target_id IN (%s)", kid_sql)),
       assertion  = ex(sprintf("DELETE FROM assertion WHERE target_type='fact' AND target_id IN (%s)", kid_sql)),
       fact       = ex(sprintf("DELETE FROM fact WHERE id IN (%s)", kid_sql)))
+    # Trin 4-sletning (samme FK-orden; family-rækker: KUN parkerings-unioner —
+    # matchede genbruges, fredede/bortfaldne røres ikke).
+    n_slettet_t4 <- c(
+      citation   = ex(sprintf("DELETE FROM citation WHERE assertion_id IN (
+                       SELECT a.id FROM assertion a WHERE (a.target_type='fact' AND a.target_id IN (%s))
+                                                      OR (a.target_type='relation' AND a.target_id IN (%s)))", t4_kid_sql, rel_sql)),
+      conclusion = ex(sprintf("DELETE FROM conclusion WHERE (target_type='fact' AND target_id IN (%s))
+                                                        OR (target_type='relation' AND target_id IN (%s))", t4_kid_sql, rel_sql)),
+      assertion  = ex(sprintf("DELETE FROM assertion WHERE (target_type='fact' AND target_id IN (%s))
+                                                       OR (target_type='relation' AND target_id IN (%s))", t4_kid_sql, rel_sql)),
+      fact       = ex(sprintf("DELETE FROM fact WHERE id IN (%s)", t4_kid_sql)),
+      relation   = ex(sprintf("DELETE FROM relation WHERE id IN (%s)", rel_sql)),
+      note       = ex(sprintf("DELETE FROM note WHERE target_type='family' AND target_id IN (%s)", fam_sql)),
+      fm_kanter  = ex(sprintf("DELETE FROM family_member WHERE family_id IN (%s)", fam_sql)),
+      family     = ex(sprintf("DELETE FROM family WHERE id IN (%s)", park_sql)))
     message(sprintf("REPLACE: %d matchede, %d tombstonede (skippes), %d bortfaldne (røres ikke), %d ikke-source-ejede fakta (røres ikke); slettet source-ejet: %s",
                     length(match_keys), length(replace_tomb), length(bortfaldne), ikke_ejede,
                     paste(names(n_slettet), n_slettet, sep = "=", collapse = ", ")))
+    message(sprintf("REPLACE trin 4: %d unioner genbruges (id-stabile stubs: %d), %d parkerings-unioner genopbygges, %d fredede (redaktionelle) springes over, %d bortfaldne består; slettet: %s",
+                    length(fam_genbrug), length(stub_genbrug), length(fam_park), n_fredede_unioner, n_bortfaldne_unioner,
+                    paste(names(n_slettet_t4), n_slettet_t4, sep = "=", collapse = ", ")))
     replace_narr <- list(); replace_koen <- list()
   } else {
     src <- nid("source")
@@ -500,7 +646,12 @@ tryCatch({
     # post der bevidst aldrig genindsættes.
     if (REPLACE && record_key %in% reg_tomb) next
     persisted_record_key <- if (LEGACY_IMPORT) NA_character_ else record_key
-    k <- if (is.na(record_key)) key(rec$linje, lbl_of(rec)) else record_key
+    # pmap/umap/recmap nøgles ALTID med linje-nøglen: pass 2's opslag (egen
+    # pid, partner_ekstern_ref, resolve_barn_keys) er alle linje-nøglede.
+    # record_key som map-nøgle (tidligere adfærd) var kun harmløs fordi
+    # 2018-20's record_keys ER linje-nøgler; 1939's UUID-nøgler knækkede
+    # pass 2 (fundet ved trin 4-integrationstesten — latent også i append).
+    k <- key(rec$linje, lbl_of(rec))
     side <- g(rec, "sider", g(rec, "side"))
 
     # Navn og køn skal være rettet FØR titel-split/person-bufferen bygges.
@@ -573,19 +724,31 @@ tryCatch({
   }
 
   # ---- pass 2: slægtskab + relationer ----
-  # REPLACE v1 springer pass 2 over: familie-grafen (unions, gift-ind-stubs,
-  # børne-kanter, godser/begivenheder) er trin 4 i replay-designet og røres
-  # ikke — de eksisterende familie-strukturer består uændret.
-  for (rec in (if (REPLACE) list() else clean)) {
+  # REPLACE (trin 4): pass 2 kører nu OGSÅ i replace-mode. Matchede unioner
+  # genbruger family-id + stub-person-id (replace_fam_plan; det gamle indhold
+  # er slettet i setup), fredede unioner springes helt over (deres kanter/
+  # indhold består — markeres NA i fams så børne-match ved det), nye unioner
+  # og parkerings-unioner oprettes som i append.
+  replace_ny_stub <- 0L
+  for (rec in clean) {
+    if (REPLACE && record_key_of(rec) %in% reg_tomb) next   # tombstone-skip som i pass 1
     current_by <- if (isTRUE(rec[["_escalated"]])) "Opus-escalated" else udgave
     pid <- get(key(rec$linje, lbl_of(rec)), envir = pmap)
     side <- g(rec, "sider", g(rec, "side"))
+    fam_plan <- if (REPLACE) replace_fam_plan[[record_key_of(rec)]] else NULL
 
     # ægteskaber: familie pr. union; partner oprettes minimalt hvis navngivet.
     # Vielse/skilsmisse loades som FAMILIE-fakta (m. evidenslag); note bevares.
     fams <- list()
-    for (a in g(rec, "aegteskaber", list())) {
-      fam <- add_family(g(a, "type", "union"))
+    aeg_liste <- g(rec, "aegteskaber", list())
+    for (ai in seq_along(aeg_liste)) {
+      a <- aeg_liste[[ai]]
+      if (!is.null(fam_plan) && ai %in% fam_plan$skip_idx) {
+        fams[[ai]] <- NA          # fredet union: består urørt; børn dertil skippes
+        next
+      }
+      genbrug <- if (!is.null(fam_plan)) fam_plan$match[[as.character(ai)]] else NULL
+      fam <- if (!is.null(genbrug)) genbrug$family_id else add_family(g(a, "type", "union"))
       add_member(fam, pid, "partner", ordinal = g(a, "ordinal"))
       ref <- parse_intern_ref(g(a, "partner_ekstern_ref"), rec$linje)
       existing_key <- if (!is.null(ref)) key(ref$linje, ref$nr) else NULL
@@ -606,7 +769,14 @@ tryCatch({
       if (brug_ref) {
         add_member(fam, get(existing_key, envir = pmap), "partner", ordinal = g(a, "ordinal"))
       } else if (!is.null(a$partner_navn) && !is.na(a$partner_navn)) {
-        sp <- add_person(); sp_t <- split_title(a$partner_navn)
+        # Trin 4: matchet union genbruger stub-person-id'et — stubbens gamle
+        # source-fakta er slettet i setup, så rygraden genindsættes rent på
+        # SAMME person; samme_som-links på stubben består dermed automatisk.
+        sp <- if (!is.null(genbrug)) genbrug$stub_pid else {
+          if (REPLACE) replace_ny_stub <- replace_ny_stub + 1L
+          add_person()
+        }
+        sp_t <- split_title(a$partner_navn)
         fact_value(sp, "navn", vaerdi = sp_t$rest, sid = src, side = side)
         if (!is.na(sp_t$titel)) fact_value(sp, "titel", vaerdi = sp_t$titel, sid = src, side = side)
         # gift-ind ægtefælles rygrad som RIGTIGE fakta på hende (ingen egen post)
@@ -633,7 +803,13 @@ tryCatch({
         add_note("family", fam, paste0("partner ekstern ref",
                                        if (ref_afvist) " AFVIST (navn≠ref)" else "",
                                        ": ", a$partner_ekstern_ref))
-      fams[[length(fams) + 1]] <- fam
+      # Trin 4-værn: en matched union hvis artefakt-udgave nu bruger intern
+      # ref (brug_ref) ville efterlade den genbrugte stub kantløs — udenfor
+      # v1's model, stop før der skrives noget forkert.
+      if (!is.null(genbrug) && brug_ref)
+        stop(sprintf("--replace trin 4 (%s): matched union %d er skiftet til intern partner-ref — v1 STOPPER.",
+                     record_key_of(rec), fam))
+      fams[[ai]] <- fam
     }
     # børn: knyt til den KORREKTE union via barnets eget aegteskab_kontekst.
     b <- rec[["boern"]]                       # direkte opslag: NULL hvis fraværende
@@ -676,6 +852,9 @@ tryCatch({
               log_unres(n, paste0("union_", mu$reason))
             }
           }
+          # Trin 4: NA = fredet (redaktionel) union — barnets kant + slot består
+          # allerede urørt dér; genindsættelse ville dublere/PK-kollidere.
+          if (length(fam) == 1L && is.na(fam)) next
           konf <- if (isTRUE(get0(ck, envir = umap, inherits = FALSE))) "formodet" else NA
           barn_pid <- get(ck, envir = pmap)
           add_member(fam, barn_pid, "barn", konfidens = konf)
@@ -725,18 +904,36 @@ tryCatch({
     # struktur uden for replace-scope SKAL være uændret — inkl. at hver
     # change_event-refereret evidensrække stadig eksisterer (falder red_*-
     # tallene, har replace slettet redaktionelt logget evidens; sol fund 7).
+    # Trin 4: fm_urort = md5 over kanter UDEN FOR de berørte familier (byte-
+    # identisk); pers må vokse med præcis de nye stubs pass 2 oprettede.
     efter <- dbGetQuery(con, sprintf(
       "SELECT (SELECT count(*) FROM relation WHERE rolle IN ('samme_som','ikke_samme_som')) samme_som,
               (SELECT count(*) FROM change_set) cs, (SELECT count(*) FROM change_event) ce,
-              (SELECT count(*) FROM family_member) fm, (SELECT count(*) FROM person) pers,
-              (SELECT count(*) FROM narrative WHERE source_id=%d) narr, %s", src,
+              %s fm_urort, (SELECT count(*) FROM person) pers,
+              (SELECT count(*) FROM narrative WHERE source_id=%d) narr, %s", fm_urort_sql, src,
       sub("^\\s*SELECT", "", red_ref_sql)))
     for (kol in names(replace_invarianter)) {
-      if (!identical(as.integer(efter[[kol]]), as.integer(replace_invarianter[[kol]])))
-        stop(sprintf("--replace: invariant '%s' ændrede sig (%s → %s) — ROLLBACK.",
-                     kol, replace_invarianter[[kol]], efter[[kol]]))
+      forventet <- if (identical(kol, "pers"))
+        as.character(as.integer(replace_invarianter$pers) + replace_ny_stub)
+      else as.character(replace_invarianter[[kol]])
+      if (!identical(as.character(efter[[kol]]), forventet))
+        stop(sprintf("--replace: invariant '%s' ændrede sig (%s → %s, forventet %s) — ROLLBACK.",
+                     kol, replace_invarianter[[kol]], efter[[kol]], forventet))
     }
-    message("REPLACE: alle invarianter uændrede (samme_som/change_set/change_event/family_member/person/narrativ-antal).")
+    # Trin 4: hver genbrugt stub SKAL stadig eksistere OG have fået sin
+    # partner-kant genindsat — ellers er redaktionel valuta (samme_som-mål)
+    # blevet forældreløs. Og ingen samme_som-part må mangle sin person.
+    stub_efter <- dbGetQuery(con, sprintf(
+      "SELECT (SELECT count(*) FROM person WHERE id IN (%s)) pers,
+              (SELECT count(*) FROM family_member WHERE person_id IN (%s) AND rolle='partner') kanter,
+              (SELECT count(*) FROM relation r WHERE r.rolle IN ('samme_som','ikke_samme_som')
+                 AND ((r.subjekt_type='person' AND NOT EXISTS (SELECT 1 FROM person p WHERE p.id=r.subjekt_id))
+                   OR (r.objekt_type='person' AND NOT EXISTS (SELECT 1 FROM person p WHERE p.id=r.objekt_id)))) foraeldreloese",
+      stub_sql, stub_sql))
+    if (stub_efter$pers != length(stub_genbrug) || stub_efter$kanter != length(stub_genbrug) || stub_efter$foraeldreloese != 0)
+      stop(sprintf("--replace trin 4: stub-integritet brudt (personer %d/%d, partner-kanter %d/%d, forældreløse samme_som %d) — ROLLBACK.",
+                   stub_efter$pers, length(stub_genbrug), stub_efter$kanter, length(stub_genbrug), stub_efter$foraeldreloese))
+    message(sprintf("REPLACE: alle invarianter uændrede (samme_som/change_set/change_event/fm-urørt-md5/narrativ; person +%d nye stubs); stub-integritet OK.", replace_ny_stub))
   }
 
   # Først efter en vellykket buffer-flush må en ændret kilde markere journalen stale.
