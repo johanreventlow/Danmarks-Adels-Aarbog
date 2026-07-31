@@ -63,6 +63,29 @@ Afgrænsningen "har change_event-spor" er den maskinelle diskriminator — den
 forudsætter at versioneringshistorikken er retvisende, hvilket #124 netop har
 sikret (historik overlever ikke længere id-genbrug).
 
+### Empiri fra dry-run-matchrapporten (2026-07-31, replace_dryrun.R)
+
+Match-tilstanden er PERFEKT: 515 artefaktposter → 514 entydige + 1 tombstonet
+(2.11), 0 huller/nye/bortfaldne, 0 tombstonede nøgler i prod. Tre designfund:
+
+1. **Narrativ-undtagelsen (ændrer diskriminatoren):** alle 514 source-3-
+   narrativer bærer red-spor — de blev patchet ind via `red_upsert_narrativ`
+   (Calamari-kørslen 2026-07-29). Spor-diskriminatoren dur derfor IKKE for
+   `narrative`: udgave-narrativer er source-ejede UANSET spor og erstattes af
+   re-ekstraktionens (bedre) tekst. Kun narrativer for ANDRE sources røres ikke.
+2. **Konflikt-klassen er tom:** 0 af 1.963 fakta har red-spor — ingen source-
+   ejede rækker er efterredigeret. Replace-logikkens sværeste tilfælde
+   (redaktionel konklusion oven på udskiftet påstand) findes ikke i data i dag;
+   klassen skal stadig håndteres (fail-closed: STOP hvis den dukker op), men
+   kræver ingen flette-logik i v1.
+3. **Familie-grafen:** 670 kanter, 0 med red-spor på kanterne selv; kun 1
+   familie med redaktionelt ændret medlemsliste; 296 gift-ind-stubs (uden
+   external_id). Trin 4's design kan behandle stub+kanter som source-ejede med
+   én undtagelsesliste (den ene familie) frem for generel flette-logik.
+
+samme_som (450) + ikke_samme_som (3) har alle red-spor som forventet — de
+består automatisk fordi person-id'erne bevares.
+
 ## Forudsætninger (rækkefølge)
 
 0. **record_key-backfill i prod: ✅ ALLEREDE OPFYLDT** (verificeret empirisk
