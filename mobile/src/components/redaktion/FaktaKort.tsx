@@ -214,7 +214,7 @@ const styles = StyleSheet.create({
     borderColor: Border.light,
     borderRadius: Radius.field,
     padding: 10,
-    fontSize: 14,
+    fontSize: 15,
     color: Colors.ink,
     fontFamily: undefined, // sans default
   },

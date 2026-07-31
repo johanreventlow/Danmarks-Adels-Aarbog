@@ -104,3 +104,9 @@ export const Motion = {
 
 // Mono letter-spacing (§6: .1–.22em). RN bruger absolutte px — ~0.1em ≈ fontSize*0.1.
 export const monoSpacing = (fontSize: number, em = 0.16) => fontSize * em;
+
+// Typografisk løft (2026-07-31): prototypernes px-værdier lå 20–30 % under OS-normal
+// læsestørrelse. Monoton mapping — alt ≤16 løftes ét trin, store overskrifter urørte —
+// så hierarkiet mellem mono/sans/serif bevares. Ét sted at skrue: brugt af Typography-
+// primitiverne, så call-sites stadig angiver prototypens størrelser.
+export const scaleType = (s: number) => (s <= 16 ? s + 1 : s);

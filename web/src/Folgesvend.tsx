@@ -347,13 +347,13 @@ export default function Folgesvend() {
       <div style={{ minHeight: '100vh', background: T.pageBg, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, fontFamily: T.sans }}>
         <div style={{ maxWidth: 420, background: T.paper, borderRadius: 16, border: `1px solid ${T.cream}`, padding: '32px 28px', textAlign: 'center' }}>
           <div style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600, color: T.bordeaux, marginBottom: 12 }}>Kunne ikke hente data</div>
-          <div style={{ color: T.ink, whiteSpace: 'pre-wrap', fontSize: 14, marginBottom: 14 }}>{err}</div>
-          <div style={{ color: T.muted, fontSize: 13, marginBottom: 20 }}>
+          <div style={{ color: T.ink, whiteSpace: 'pre-wrap', fontSize: 15, marginBottom: 14 }}>{err}</div>
+          <div style={{ color: T.muted, fontSize: 14, marginBottom: 20 }}>
             Databasen kan være gået i dvale efter en periode uden aktivitet. Vent et øjeblik og prøv igen.
           </div>
           <button
             onClick={loadData}
-            style={{ background: T.bordeaux, color: T.paper, border: 'none', borderRadius: 10, padding: '10px 22px', fontFamily: T.sans, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+            style={{ background: T.bordeaux, color: T.paper, border: 'none', borderRadius: 10, padding: '10px 22px', fontFamily: T.sans, fontSize: 15, fontWeight: 600, cursor: 'pointer' }}
           >
             Prøv igen
           </button>
@@ -392,15 +392,15 @@ export default function Folgesvend() {
           <img src="/daf-logo.png" alt="Dansk Adels Forening" style={{ width: 40, height: 40, objectFit: 'contain' }} />
           <div>
             <div style={{ fontFamily: T.serif, fontSize: 21, fontWeight: 600, lineHeight: 1, color: T.ink }}>Danmarks Adels Aarbog</div>
-            <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.16em', textTransform: 'uppercase', color: T.muted2, marginTop: 2 }}>Følgesvend · Dansk Adels Forening</div>
+            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: T.muted2, marginTop: 2 }}>Følgesvend · Dansk Adels Forening</div>
           </div>
         </div>
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
           {THEMES.map((t) => {
             const active = activeTheme === t.key;
             return (
-              <div key={t.key} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 9, fontFamily: T.sans, fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', color: active ? T.bordeaux : '#3d382f' }}>
-                {t.label}<span style={{ fontSize: 9, color: active ? T.bordeaux : T.muted2 }}>▾</span>
+              <div key={t.key} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 9, fontFamily: T.sans, fontSize: 15, fontWeight: 600, whiteSpace: 'nowrap', color: active ? T.bordeaux : '#3d382f' }}>
+                {t.label}<span style={{ fontSize: 10, color: active ? T.bordeaux : T.muted2 }}>▾</span>
               </div>
             );
           })}
@@ -409,24 +409,24 @@ export default function Folgesvend() {
           {/* Søg-knap — åbner søg/gennemse-modalen (v3: erstatter den permanente sidebar). */}
           <div onClick={() => { goToMode('tree'); bumpSearchFocus(); }} title="Søg &amp; gennemse personer" style={{ display: 'flex', alignItems: 'center', gap: 8, background: T.panel, border: '1px solid rgba(34,31,26,.12)', borderRadius: 9, padding: '7px 13px', cursor: 'pointer' }}>
             <SearchIcon size={15} />
-            <span style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: '#3d382f' }}>Søg</span>
+            <span style={{ fontFamily: T.sans, fontSize: 14, fontWeight: 600, color: '#3d382f' }}>Søg</span>
           </div>
           {/* Slægt-chip — åbner slægt-vælger-modal (kosmetisk, kun Reventlow findes — spec §3.3). */}
           <div onClick={() => setSlaegtOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 9, background: T.panel, border: '1px solid rgba(34,31,26,.12)', borderRadius: 9, padding: '6px 12px', cursor: 'pointer' }}>
-            <span style={{ width: 26, height: 26, borderRadius: '50%', border: '1px solid rgba(136,26,51,.55)', boxShadow: 'inset 0 0 0 2px #f4efe6, inset 0 0 0 2.5px rgba(136,26,51,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 13, fontWeight: 600, color: T.bordeaux }}>R</span>
-            <span style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.ink }}>Reventlow</span>
-            <span style={{ fontSize: 10, color: T.muted2 }}>▾</span>
+            <span style={{ width: 26, height: 26, borderRadius: '50%', border: '1px solid rgba(136,26,51,.55)', boxShadow: 'inset 0 0 0 2px #f4efe6, inset 0 0 0 2.5px rgba(136,26,51,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 14, fontWeight: 600, color: T.bordeaux }}>R</span>
+            <span style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 600, color: T.ink }}>Reventlow</span>
+            <span style={{ fontSize: 11, color: T.muted2 }}>▾</span>
           </div>
           {/* Konto-indikator (bogmærke-login) — minimal, ikke en fuld kontoflade (spec §6). */}
           {session ? (
-            <div onClick={() => { void doLogout(); }} title={session.email} style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.muted, cursor: 'pointer' }}>Log ud</div>
+            <div onClick={() => { void doLogout(); }} title={session.email} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.muted, cursor: 'pointer' }}>Log ud</div>
           ) : (
-            <div onClick={() => setLoginOpen(true)} style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>Log ind</div>
+            <div onClick={() => setLoginOpen(true)} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>Log ind</div>
           )}
           {meCanon && model?.byId[meCanon] && (
-            <div onClick={() => navigateTree(meCanon)} title="Din plads i slægten" style={{ width: 38, height: 38, borderRadius: '50%', background: '#f8ecef', border: `1.5px solid ${T.bordeaux}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontFamily: T.serif, fontSize: 15, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{initials(model.byId[meCanon].name)}</div>
+            <div onClick={() => navigateTree(meCanon)} title="Din plads i slægten" style={{ width: 38, height: 38, borderRadius: '50%', background: '#f8ecef', border: `1.5px solid ${T.bordeaux}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{initials(model.byId[meCanon].name)}</div>
           )}
-          <a href="/redaktion" onClick={(e) => { e.preventDefault(); navigate('/redaktion'); }} style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.bordeaux, textDecoration: 'none' }}>Redaktion ↗</a>
+          <a href="/redaktion" onClick={(e) => { e.preventDefault(); navigate('/redaktion'); }} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.bordeaux, textDecoration: 'none' }}>Redaktion ↗</a>
         </div>
         </div>
 
@@ -442,13 +442,13 @@ export default function Folgesvend() {
                 <img src="/daf-logo.png" alt="Dansk Adels Forening" style={{ width: 64, height: 64, objectFit: 'contain', transition: 'transform .28s ease', transform: megaOpen ? 'scale(1)' : 'scale(.62)', transformOrigin: 'top left' }} />
                 <div style={{ fontFamily: T.serif, fontSize: 26, fontWeight: 600, color: T.ink, lineHeight: 1.05, marginTop: 14 }}>Danmarks Adels Aarbog</div>
               </div>
-              <div style={{ fontFamily: T.sans, fontSize: 12.5, color: T.muted, marginTop: 6, lineHeight: 1.45 }}>Følgesvend · Dansk Adels Forening. En digital ledsager til det trykte værk.</div>
-              <div onClick={() => goToMode('home')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 16, fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>‹ Til forsiden</div>
+              <div style={{ fontFamily: T.sans, fontSize: 13.5, color: T.muted, marginTop: 6, lineHeight: 1.45 }}>Følgesvend · Dansk Adels Forening. En digital ledsager til det trykte værk.</div>
+              <div onClick={() => goToMode('home')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 16, fontFamily: T.sans, fontSize: 13.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>‹ Til forsiden</div>
             </div>
             <div style={{ flex: 1, display: 'flex', gap: 32 }}>
               {THEMES.map((t) => (
                 <div key={t.key} style={{ flex: 1 }}>
-                  <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', color: T.gold, paddingBottom: 10, borderBottom: '1px solid rgba(34,31,26,.1)' }}>{t.label}</div>
+                  <div style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.18em', textTransform: 'uppercase', color: T.gold, paddingBottom: 10, borderBottom: '1px solid rgba(34,31,26,.1)' }}>{t.label}</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 1, marginTop: 10 }}>
                     {t.items.map((it) => {
                       const live = it.mode !== null;
@@ -457,8 +457,8 @@ export default function Folgesvend() {
                         <div key={it.label} onClick={() => { if (it.mode) goToMode(it.mode); }} title={live ? '' : 'Kommer'} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontFamily: T.serif, fontSize: 19, fontWeight: 600, color: active ? T.bordeaux : (live ? T.ink : T.muted3), padding: '6px 0', cursor: live ? 'pointer' : 'default' }}>
                           <span>{it.label}</span>
                           {live
-                            ? <span style={{ fontFamily: T.mono, fontSize: 9, color: active ? T.bordeaux : '#1f8a5b' }}>✓</span>
-                            : <span style={{ fontFamily: T.mono, fontSize: 8.5, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>kommer</span>}
+                            ? <span style={{ fontFamily: T.mono, fontSize: 10, color: active ? T.bordeaux : '#1f8a5b' }}>✓</span>
+                            : <span style={{ fontFamily: T.mono, fontSize: 9.5, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>kommer</span>}
                         </div>
                       );
                     })}
@@ -511,13 +511,13 @@ export default function Folgesvend() {
         <div onClick={() => setLoginOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(20,17,13,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: 380, maxWidth: '100%', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: '22px 24px 20px' }}>
             <div style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600 }}>Log ind</div>
-            <div style={{ fontSize: 12, color: T.muted, marginTop: 3, marginBottom: 15 }}>Log ind for at gemme bogmærker på tværs af dine enheder.</div>
-            <input value={login.email} onChange={(e) => setLogin((l) => ({ ...l, email: e.target.value }))} placeholder="din@email.dk" style={{ width: '100%', fontSize: 13, color: '#221f1a', background: '#fff', border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 10px', outline: 'none' }} />
-            <input value={login.pw} type="password" onChange={(e) => setLogin((l) => ({ ...l, pw: e.target.value }))} style={{ width: '100%', fontSize: 13, color: '#221f1a', background: '#fff', border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 10px', outline: 'none', marginTop: 11 }} />
-            {login.err && <div style={{ fontSize: 11.5, color: T.bordeaux, marginTop: 9 }}>{login.err}</div>}
+            <div style={{ fontSize: 13, color: T.muted, marginTop: 3, marginBottom: 15 }}>Log ind for at gemme bogmærker på tværs af dine enheder.</div>
+            <input value={login.email} onChange={(e) => setLogin((l) => ({ ...l, email: e.target.value }))} placeholder="din@email.dk" style={{ width: '100%', fontSize: 14, color: '#221f1a', background: '#fff', border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 10px', outline: 'none' }} />
+            <input value={login.pw} type="password" onChange={(e) => setLogin((l) => ({ ...l, pw: e.target.value }))} style={{ width: '100%', fontSize: 14, color: '#221f1a', background: '#fff', border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 10px', outline: 'none', marginTop: 11 }} />
+            {login.err && <div style={{ fontSize: 12.5, color: T.bordeaux, marginTop: 9 }}>{login.err}</div>}
             <div style={{ display: 'flex', gap: 9, marginTop: 16, justifyContent: 'flex-end' }}>
-              <div onClick={() => setLoginOpen(false)} style={{ fontSize: 12, fontWeight: 600, color: T.muted, padding: '8px 13px', cursor: 'pointer' }}>Annullér</div>
-              <div onClick={doLogin} style={{ fontSize: 12, fontWeight: 600, color: '#fbf8f1', background: T.bordeaux, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' }}>{login.busy ? 'Logger ind…' : 'Log ind'}</div>
+              <div onClick={() => setLoginOpen(false)} style={{ fontSize: 13, fontWeight: 600, color: T.muted, padding: '8px 13px', cursor: 'pointer' }}>Annullér</div>
+              <div onClick={doLogin} style={{ fontSize: 13, fontWeight: 600, color: '#fbf8f1', background: T.bordeaux, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' }}>{login.busy ? 'Logger ind…' : 'Log ind'}</div>
             </div>
           </div>
         </div>

@@ -135,7 +135,7 @@ function PersonRow({ item, tag, onPress }: { item: SearchItem; tag?: 'levende' |
 const styles = StyleSheet.create({
   header: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 6, gap: 8 },
   input: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light,
-    borderRadius: Radius.field, paddingHorizontal: 12, paddingVertical: 9, fontFamily: 'HankenGrotesk_400Regular', fontSize: 14 },
+    borderRadius: Radius.field, paddingHorizontal: 12, paddingVertical: 9, fontFamily: 'HankenGrotesk_400Regular', fontSize: 15 },
   sortRow: { flexDirection: 'row', gap: 8 },
   sortPill: { borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.chip, paddingHorizontal: 14, paddingVertical: 5 },
   sortPillActive: { backgroundColor: Colors.bordeaux, borderColor: Colors.bordeaux },

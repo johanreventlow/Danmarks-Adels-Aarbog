@@ -43,7 +43,7 @@ export function MapLightbox({ points, onClose }: { points: GeoPoint[]; onClose: 
         <GeoMap points={points} mode="explorer" height="100%" />
       </div>
       <div onClick={(e) => e.stopPropagation()}
-        style={{ marginTop: 12, fontFamily: T.mono, fontSize: 10, letterSpacing: '.08em', color: T.muted3 }}>
+        style={{ marginTop: 12, fontFamily: T.mono, fontSize: 11, letterSpacing: '.08em', color: T.muted3 }}>
         Zoom og træk for at udforske
       </div>
     </div>,
@@ -71,7 +71,7 @@ export function ExpandableMiniMap({ points }: { points: GeoPoint[] }) {
       >
         <span style={{
           display: 'inline-flex', alignItems: 'center', gap: 5,
-          fontFamily: T.mono, fontSize: 9.5, fontWeight: 600, letterSpacing: '.06em', color: T.ink,
+          fontFamily: T.mono, fontSize: 10.5, fontWeight: 600, letterSpacing: '.06em', color: T.ink,
           background: 'rgba(247,244,239,.92)', border: '1px solid rgba(34,31,26,.12)', borderRadius: 7,
           padding: '4px 8px', boxShadow: '0 1px 4px rgba(34,31,26,.12)',
         }}>

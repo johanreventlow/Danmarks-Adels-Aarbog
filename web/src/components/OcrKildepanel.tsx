@@ -106,18 +106,18 @@ function formatTidspunkt(iso: string): string {
 }
 
 const inputStyle: CSSProperties = {
-  fontSize: 13, padding: '6px 9px', border: '1px solid rgba(34,31,26,.2)', borderRadius: 6,
+  fontSize: 14, padding: '6px 9px', border: '1px solid rgba(34,31,26,.2)', borderRadius: 6,
   width: '100%', boxSizing: 'border-box', font: 'inherit',
 };
 
 const primaryButtonStyle = (disabled: boolean): CSSProperties => ({
-  border: 0, borderRadius: 6, padding: '7px 14px', fontSize: 12.5, fontWeight: 600,
+  border: 0, borderRadius: 6, padding: '7px 14px', fontSize: 13.5, fontWeight: 600,
   cursor: disabled ? 'not-allowed' : 'pointer', background: disabled ? T.beige : T.bordeaux,
   color: disabled ? T.muted2 : T.paper,
 });
 
 const secondaryButtonStyle = (disabled: boolean): CSSProperties => ({
-  border: '1px solid rgba(34,31,26,.2)', borderRadius: 6, padding: '7px 14px', fontSize: 12.5,
+  border: '1px solid rgba(34,31,26,.2)', borderRadius: 6, padding: '7px 14px', fontSize: 13.5,
   cursor: disabled ? 'not-allowed' : 'pointer', background: T.paper,
   color: disabled ? T.muted2 : T.ink,
 });
@@ -241,7 +241,7 @@ export function OcrKildepanel({
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <h2 style={{ margin: 0, fontFamily: T.serif, fontSize: 20 }}>Ret {FELT_LABELS[felt]}</h2>
-          <p style={{ margin: '2px 0 0', fontSize: 11.5, color: T.muted }}>{activeRow.navn}</p>
+          <p style={{ margin: '2px 0 0', fontSize: 12.5, color: T.muted }}>{activeRow.navn}</p>
         </div>
         <button type="button" onClick={onClose} style={secondaryButtonStyle(false)}>
           Annuller
@@ -249,13 +249,13 @@ export function OcrKildepanel({
       </header>
 
       {proevekoersel && (
-        <p role="note" style={{ margin: 0, fontSize: 12, color: T.red, background: T.beige, borderRadius: 6, padding: '8px 10px' }}>
+        <p role="note" style={{ margin: 0, fontSize: 13, color: T.red, background: T.beige, borderRadius: 6, padding: '8px 10px' }}>
           Prøvekørsel er slået til. OCR-rettelser kan ikke prøvekøres — slå prøvekørsel fra for at rette dette felt.
         </p>
       )}
 
       {error && (
-        <div role="alert" style={{ fontSize: 12, color: T.red }}>
+        <div role="alert" style={{ fontSize: 13, color: T.red }}>
           <p style={{ margin: 0 }}>{error}</p>
           {staleFejl && (
             <button
@@ -272,7 +272,7 @@ export function OcrKildepanel({
 
       {!kanRettes && (
         <div>
-          <p style={{ margin: 0, fontSize: 12.5, color: T.muted }}>
+          <p style={{ margin: 0, fontSize: 13.5, color: T.muted }}>
             {blokarsagTekst(activeRow.blokarsager[felt])}
           </p>
           <button
@@ -288,14 +288,14 @@ export function OcrKildepanel({
       {kanRettes && (
         <>
           <section>
-            <p style={{ margin: '0 0 4px', fontSize: 9.5, textTransform: 'uppercase', letterSpacing: '.06em', color: T.muted3 }}>
+            <p style={{ margin: '0 0 4px', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '.06em', color: T.muted3 }}>
               Importeret værdi
             </p>
-            <p style={{ margin: 0, fontSize: 13.5 }}>{displayEllerStreg(importeretVaerdi(activeRow, felt))}</p>
+            <p style={{ margin: 0, fontSize: 14.5 }}>{displayEllerStreg(importeretVaerdi(activeRow, felt))}</p>
           </section>
 
           <section>
-            <p style={{ margin: '0 0 4px', fontSize: 9.5, textTransform: 'uppercase', letterSpacing: '.06em', color: T.muted3 }}>
+            <p style={{ margin: '0 0 4px', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '.06em', color: T.muted3 }}>
               Ny værdi
             </p>
             {felt === 'navn' && (
@@ -326,16 +326,16 @@ export function OcrKildepanel({
                 />
                 {datoDraft.trim() !== '' && datoInfo && (
                   datoInfo.understood ? (
-                    <p style={{ margin: '6px 0 0', fontSize: 11.5, color: T.green }}>
+                    <p style={{ margin: '6px 0 0', fontSize: 12.5, color: T.green }}>
                       Udledte grænser: {datoInfo.min ?? '?'} – {datoInfo.max ?? '?'}
                       {datoInfo.qualifier ? ` (${datoInfo.qualifier})` : ''}
                     </p>
                   ) : (
                     <div style={{ marginTop: 6 }}>
-                      <p style={{ margin: 0, fontSize: 11.5, color: T.red }}>
+                      <p style={{ margin: 0, fontSize: 12.5, color: T.red }}>
                         Denne dato kan ikke fortolkes automatisk. Den gemmes som rå tekst uden udledte grænser.
                       </p>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11.5 }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 12.5 }}>
                         <input
                           type="checkbox"
                           checked={bekraeftUfortolkelig}
@@ -351,14 +351,14 @@ export function OcrKildepanel({
           </section>
 
           <section aria-label="OCR-kontekst">
-            <h3 style={{ margin: '0 0 4px', fontSize: 13, fontFamily: T.serif }}>OCR-kontekst</h3>
-            <p style={{ margin: 0, fontSize: 12.5, whiteSpace: 'pre-wrap' }}>
+            <h3 style={{ margin: '0 0 4px', fontSize: 14, fontFamily: T.serif }}>OCR-kontekst</h3>
+            <p style={{ margin: 0, fontSize: 13.5, whiteSpace: 'pre-wrap' }}>
               {ocrContext ?? 'Ingen bevaret OCR-kontekst for dette felt.'}
             </p>
-            <p style={{ margin: '4px 0 0', fontSize: 11, color: T.muted }}>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: T.muted }}>
               Kilde: {kilde}{side ? ` · s. ${side}` : ''}
             </p>
-            <p style={{ margin: '6px 0 0', fontSize: 10.5, color: T.muted2, fontStyle: 'italic' }}>
+            <p style={{ margin: '6px 0 0', fontSize: 11.5, color: T.muted2, fontStyle: 'italic' }}>
               Konteksten er fra OCR-udtrækket, ikke en gengivelse af den trykte side.
             </p>
           </section>
@@ -393,19 +393,19 @@ export function OcrKildepanel({
       )}
 
       <section aria-label="Korrektionshistorik">
-        <h3 style={{ margin: '0 0 4px', fontSize: 13, fontFamily: T.serif }}>Historik</h3>
+        <h3 style={{ margin: '0 0 4px', fontSize: 14, fontFamily: T.serif }}>Historik</h3>
         {historikUtilgaengelig ? (
-          <p style={{ margin: 0, fontSize: 11.5, color: T.muted }}>
+          <p style={{ margin: 0, fontSize: 12.5, color: T.muted }}>
             Historik er ikke tilgængelig for denne post (intet importanker).
           </p>
         ) : historikLoading ? (
-          <p style={{ margin: 0, fontSize: 11.5, color: T.muted }}>Henter historik…</p>
+          <p style={{ margin: 0, fontSize: 12.5, color: T.muted }}>Henter historik…</p>
         ) : historik.length === 0 ? (
-          <p style={{ margin: 0, fontSize: 11.5, color: T.muted }}>Ingen rettelser endnu.</p>
+          <p style={{ margin: 0, fontSize: 12.5, color: T.muted }}>Ingen rettelser endnu.</p>
         ) : (
           <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
             {historik.map((entry) => (
-              <li key={entry.changeSetId} style={{ fontSize: 11.5 }}>
+              <li key={entry.changeSetId} style={{ fontSize: 12.5 }}>
                 <span>{entry.actorNavn ?? 'Ukendt aktør'}</span>{' · '}
                 <time dateTime={entry.changedAt}>{formatTidspunkt(entry.changedAt)}</time>
                 {entry.operation && <span style={{ color: T.muted2 }}> ({entry.operation})</span>}

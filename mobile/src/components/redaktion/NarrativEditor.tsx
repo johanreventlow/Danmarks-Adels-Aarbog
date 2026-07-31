@@ -207,10 +207,10 @@ const styles = StyleSheet.create({
   faneAktiv: { backgroundColor: Colors.bordeaux, borderColor: Colors.bordeaux },
   faneNy: { paddingVertical: 5, paddingHorizontal: 10, borderRadius: 7, borderWidth: 1, borderStyle: 'dashed', borderColor: Border.medium },
   nyUdgaveBoks: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light, borderRadius: Radius.field, padding: 10, marginBottom: 10 },
-  nyUdgaveInput: { backgroundColor: '#fff', borderWidth: 1, borderColor: Border.light, borderRadius: 6, paddingHorizontal: 9, paddingVertical: 6, marginTop: 6, fontFamily: 'HankenGrotesk_400Regular', fontSize: 12.5, color: Colors.ink },
+  nyUdgaveInput: { backgroundColor: '#fff', borderWidth: 1, borderColor: Border.light, borderRadius: 6, paddingHorizontal: 9, paddingVertical: 6, marginTop: 6, fontFamily: 'HankenGrotesk_400Regular', fontSize: 13.5, color: Colors.ink },
   nyUdgaveOpretKnap: { backgroundColor: Colors.bordeaux, borderRadius: 6, paddingVertical: 8, alignItems: 'center', marginTop: 8 },
-  input: { backgroundColor: Colors.paperCard, borderRadius: Radius.field, borderWidth: 1, borderColor: Border.medium, padding: 12, minHeight: 120, fontFamily: 'HankenGrotesk_400Regular', fontSize: 13, color: Colors.ink },
+  input: { backgroundColor: Colors.paperCard, borderRadius: Radius.field, borderWidth: 1, borderColor: Border.medium, padding: 12, minHeight: 120, fontFamily: 'HankenGrotesk_400Regular', fontSize: 14, color: Colors.ink },
   previewBoks: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light, borderRadius: Radius.field, padding: 10, marginTop: 8 },
-  sideInput: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 5, fontFamily: 'HankenGrotesk_400Regular', fontSize: 11, color: Colors.ink, minWidth: 110 },
+  sideInput: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 5, fontFamily: 'HankenGrotesk_400Regular', fontSize: 12, color: Colors.ink, minWidth: 110 },
   gemKnap: { backgroundColor: Colors.bordeaux, borderRadius: Radius.field, padding: 14, alignItems: 'center', marginTop: 10 },
 });

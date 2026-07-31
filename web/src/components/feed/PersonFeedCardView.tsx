@@ -22,10 +22,10 @@ export function PersonFeedCardView({ card, person, media, onOpen, onSave, bookma
           <Avatar n={person.name} size={42} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontFamily: T.serif, fontSize: 22, lineHeight: 1.08, fontWeight: 600, color: T.ink }}>{person.name}</div>
-            {person.years ? <div style={{ fontFamily: T.mono, fontSize: 10, color: T.muted2, marginTop: 3 }}>{person.years}</div> : null}
+            {person.years ? <div style={{ fontFamily: T.mono, fontSize: 11, color: T.muted2, marginTop: 3 }}>{person.years}</div> : null}
           </div>
         </div>
-        <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.gold, marginTop: 12 }}>{card.kicker}</div>
+        <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: T.gold, marginTop: 12 }}>{card.kicker}</div>
         <PersonCardBody card={card} />
       </button>
       <div style={{ position: 'absolute', top: 18, right: 18 }}><BookmarkFlag active={bookmarked} onClick={() => onSave(card.personId)} /></div>
@@ -35,20 +35,20 @@ export function PersonFeedCardView({ card, person, media, onOpen, onSave, bookma
 }
 
 function PersonCardBody({ card }: { card: PersonCard }) {
-  const metaStyle: React.CSSProperties = { fontFamily: T.mono, fontSize: 9.5, color: T.muted2 };
-  const source = (kilde: string | null) => kilde ? <div style={{ fontFamily: T.sans, fontSize: 10.5, color: T.muted2, marginTop: 12 }}>efter {kilde}</div> : null;
+  const metaStyle: React.CSSProperties = { fontFamily: T.mono, fontSize: 10.5, color: T.muted2 };
+  const source = (kilde: string | null) => kilde ? <div style={{ fontFamily: T.sans, fontSize: 11.5, color: T.muted2, marginTop: 12 }}>efter {kilde}</div> : null;
 
   switch (card.kind) {
     case 'portrait':
     case 'dagensperson':
       return <>
-        {card.title ? <div style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 500, color: T.bordeaux, marginTop: 7 }}>{card.title}</div> : null}
-        <div style={{ fontFamily: T.sans, fontSize: 13, lineHeight: 1.5, color: T.muted, marginTop: 10, display: '-webkit-box', WebkitLineClamp: 5, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{card.bio}</div>
+        {card.title ? <div style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 500, color: T.bordeaux, marginTop: 7 }}>{card.title}</div> : null}
+        <div style={{ fontFamily: T.sans, fontSize: 14, lineHeight: 1.5, color: T.muted, marginTop: 10, display: '-webkit-box', WebkitLineClamp: 5, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{card.bio}</div>
       </>;
     case 'citat':
       return <>
         <div style={{ fontFamily: T.serif, fontStyle: 'italic', fontSize: 21, lineHeight: 1.4, color: T.ink, marginTop: 10 }}>{card.quote}</div>
-        <div style={{ fontFamily: T.sans, fontSize: 11, color: T.muted2, marginTop: 14 }}>{card.source}</div>
+        <div style={{ fontFamily: T.sans, fontSize: 12, color: T.muted2, marginTop: 14 }}>{card.source}</div>
       </>;
     case 'arkiv':
       return <>
@@ -60,7 +60,7 @@ function PersonCardBody({ card }: { card: PersonCard }) {
       return <>
         <ArchiveMeta aarLabel={card.aarLabel} kategori={card.kategori} nyPubliceret={card.nyPubliceret} />
         {card.titel ? <div style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600, color: T.ink, marginTop: 8 }}>{card.titel}</div> : null}
-        <div style={{ fontFamily: T.sans, fontSize: 13.5, lineHeight: 1.55, color: T.ink, marginTop: 8 }}>{card.tekst}</div>
+        <div style={{ fontFamily: T.sans, fontSize: 14.5, lineHeight: 1.55, color: T.ink, marginTop: 8 }}>{card.tekst}</div>
         {source(card.kilde)}
       </>;
     case 'embede':
@@ -72,12 +72,12 @@ function PersonCardBody({ card }: { card: PersonCard }) {
       return <>
         <div style={{ fontFamily: T.serif, fontSize: 30, color: T.bordeaux, lineHeight: 1, marginTop: 9 }}>{card.num}</div>
         <div style={{ ...metaStyle, textTransform: 'uppercase', marginTop: 2 }}>år siden</div>
-        <div style={{ fontFamily: T.sans, fontSize: 12, color: T.muted2, marginTop: 6 }}>{card.sub}</div>
+        <div style={{ fontFamily: T.sans, fontSize: 13, color: T.muted2, marginTop: 6 }}>{card.sub}</div>
       </>;
     case 'paadennedag':
       return <>
-        <div style={{ fontFamily: T.mono, fontSize: 12, color: T.bordeaux, marginTop: 9 }}>{card.aarstal}</div>
-        <div style={{ fontFamily: T.sans, fontSize: 12, color: T.muted2, marginTop: 4 }}>{card.hvad === 'hændelse' ? card.klausul : `${card.hvad === 'født' ? 'Født' : 'Død'} ${card.aarstal}`}</div>
+        <div style={{ fontFamily: T.mono, fontSize: 13, color: T.bordeaux, marginTop: 9 }}>{card.aarstal}</div>
+        <div style={{ fontFamily: T.sans, fontSize: 13, color: T.muted2, marginTop: 4 }}>{card.hvad === 'hændelse' ? card.klausul : `${card.hvad === 'født' ? 'Født' : 'Død'} ${card.aarstal}`}</div>
       </>;
   }
 }
@@ -85,8 +85,8 @@ function PersonCardBody({ card }: { card: PersonCard }) {
 function ArchiveMeta({ aarLabel, kategori, nyPubliceret }: { aarLabel: string | null; kategori: string | null; nyPubliceret?: boolean }) {
   if (!aarLabel && !kategori && !nyPubliceret) return null;
   return <div style={{ display: 'flex', gap: 9, alignItems: 'center', flexWrap: 'wrap', marginTop: 9 }}>
-    {aarLabel ? <span style={{ fontFamily: T.mono, fontSize: 9.5, color: T.bordeaux }}>{aarLabel}</span> : null}
-    {kategori ? <span style={{ fontFamily: T.mono, fontSize: 8.5, color: T.muted2 }}>{kategori}</span> : null}
-    {nyPubliceret ? <span style={{ fontFamily: T.mono, fontSize: 8.5, color: T.gold }}>Nyt i arkivet</span> : null}
+    {aarLabel ? <span style={{ fontFamily: T.mono, fontSize: 10.5, color: T.bordeaux }}>{aarLabel}</span> : null}
+    {kategori ? <span style={{ fontFamily: T.mono, fontSize: 9.5, color: T.muted2 }}>{kategori}</span> : null}
+    {nyPubliceret ? <span style={{ fontFamily: T.mono, fontSize: 9.5, color: T.gold }}>Nyt i arkivet</span> : null}
   </div>;
 }

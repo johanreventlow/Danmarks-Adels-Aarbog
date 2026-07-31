@@ -145,13 +145,13 @@ function uniqueSorted(rows: PersonKvalitetsarkRow[], vaelg: (r: PersonKvalitetsa
 
 const th_base: CSSProperties = {
   position: 'sticky', top: 0, background: T.panel, zIndex: 2,
-  padding: '6px 10px', textAlign: 'left', fontFamily: T.mono, fontSize: 9.5,
+  padding: '6px 10px', textAlign: 'left', fontFamily: T.mono, fontSize: 10.5,
   letterSpacing: '.06em', textTransform: 'uppercase', color: T.muted,
   borderBottom: '1px solid rgba(34,31,26,.14)', whiteSpace: 'nowrap',
 };
 
 const td_base: CSSProperties = {
-  padding: '5px 10px', fontSize: 12.5, color: T.ink,
+  padding: '5px 10px', fontSize: 13.5, color: T.ink,
   borderBottom: '1px solid rgba(34,31,26,.08)', whiteSpace: 'nowrap',
 };
 
@@ -190,12 +190,12 @@ function FilterSelect({ label, alleLabel, value, options, onChange }: {
   onChange: (value: string | null) => void;
 }) {
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', fontSize: 9.5, color: T.muted3, gap: 2 }}>
+    <label style={{ display: 'flex', flexDirection: 'column', fontSize: 10.5, color: T.muted3, gap: 2 }}>
       {label}
       <select
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value || null)}
-        style={{ fontSize: 12, padding: '5px 8px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6 }}
+        style={{ fontSize: 13, padding: '5px 8px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6 }}
       >
         <option value="">{alleLabel}</option>
         {options.map((o) => <option key={o} value={o}>{o}</option>)}
@@ -214,12 +214,12 @@ function EnumFilterSelect<K extends string>({ label, alleLabel, value, options, 
   onChange: (value: K | null) => void;
 }) {
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', fontSize: 9.5, color: T.muted3, gap: 2 }}>
+    <label style={{ display: 'flex', flexDirection: 'column', fontSize: 10.5, color: T.muted3, gap: 2 }}>
       {label}
       <select
         value={value ?? ''}
         onChange={(e) => onChange((e.target.value || null) as K | null)}
-        style={{ fontSize: 12, padding: '5px 8px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6 }}
+        style={{ fontSize: 13, padding: '5px 8px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6 }}
       >
         <option value="">{alleLabel}</option>
         {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -240,12 +240,12 @@ function TriStateFilterSelect({ label, alleLabel, jaLabel, nejLabel, value, onCh
   onChange: (value: boolean | null) => void;
 }) {
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', fontSize: 9.5, color: T.muted3, gap: 2 }}>
+    <label style={{ display: 'flex', flexDirection: 'column', fontSize: 10.5, color: T.muted3, gap: 2 }}>
       {label}
       <select
         value={value === null ? '' : value ? 'true' : 'false'}
         onChange={(e) => onChange(e.target.value === '' ? null : e.target.value === 'true')}
-        style={{ fontSize: 12, padding: '5px 8px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6 }}
+        style={{ fontSize: 13, padding: '5px 8px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6 }}
       >
         <option value="">{alleLabel}</option>
         <option value="true">{jaLabel}</option>
@@ -335,11 +335,11 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
         <span role="button" tabIndex={0} aria-disabled="true" aria-describedby={reasonId}>
           {value}
         </span>
-        <p id={reasonId} style={{ fontSize: 9.5, color: T.muted2, margin: '2px 0 0' }}>{reasonText}</p>
+        <p id={reasonId} style={{ fontSize: 10.5, color: T.muted2, margin: '2px 0 0' }}>{reasonText}</p>
         <button
           type="button"
           onClick={() => onOpenPerson(row.personId)}
-          style={{ fontSize: 9.5, border: 0, background: 'transparent', color: T.bordeaux, cursor: 'pointer', padding: '2px 0' }}
+          style={{ fontSize: 10.5, border: 0, background: 'transparent', color: T.bordeaux, cursor: 'pointer', padding: '2px 0' }}
         >
           Åbn person
         </button>
@@ -376,7 +376,7 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
           <div>
             <span aria-hidden="true">{alvor.icon}</span> <span>{alvor.label}</span>
             {row.qaKoder.length > 0 && (
-              <div style={{ fontSize: 9, color: T.muted2 }}>{row.qaKoder.join(', ')}</div>
+              <div style={{ fontSize: 10, color: T.muted2 }}>{row.qaKoder.join(', ')}</div>
             )}
           </div>
         );
@@ -413,7 +413,7 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
               style={{
                 border: 0, borderRadius: 6, padding: '5px 10px', cursor: 'pointer',
                 background: preset === p.key ? T.bordeaux : T.beige,
-                color: preset === p.key ? T.paper : T.muted, fontSize: 11.5, fontWeight: 600,
+                color: preset === p.key ? T.paper : T.muted, fontSize: 12.5, fontWeight: 600,
               }}
             >
               {p.label}
@@ -421,14 +421,14 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
           ))}
         </div>
 
-        <label style={{ display: 'flex', flexDirection: 'column', fontSize: 9.5, color: T.muted3, gap: 2 }}>
+        <label style={{ display: 'flex', flexDirection: 'column', fontSize: 10.5, color: T.muted3, gap: 2 }}>
           Søg
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Navn, post, kilde…"
-            style={{ fontSize: 12, padding: '5px 8px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6 }}
+            style={{ fontSize: 13, padding: '5px 8px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6 }}
           />
         </label>
 
@@ -466,14 +466,14 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
             type="button"
             aria-expanded={columnsOpen}
             onClick={() => setColumnsOpen((v) => !v)}
-            style={{ border: '1px solid rgba(34,31,26,.16)', borderRadius: 6, padding: '5px 10px', background: T.paper, cursor: 'pointer', fontSize: 11.5 }}
+            style={{ border: '1px solid rgba(34,31,26,.16)', borderRadius: 6, padding: '5px 10px', background: T.paper, cursor: 'pointer', fontSize: 12.5 }}
           >
             Kolonner
           </button>
           {columnsOpen && (
             <div style={{ position: 'absolute', top: '110%', left: 0, background: T.paper, border: '1px solid rgba(34,31,26,.16)', borderRadius: 8, padding: 10, zIndex: 10, minWidth: 200, boxShadow: '0 6px 18px rgba(0,0,0,.15)' }}>
               {COLUMNS.filter((c) => c.hideable).map((c) => (
-                <label key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '2px 0' }}>
+                <label key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, padding: '2px 0' }}>
                   <input type="checkbox" checked={!hiddenColumns.has(c.key)} onChange={() => toggleColumn(c.key)} />
                   {c.label}
                 </label>
@@ -481,7 +481,7 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
               <button
                 type="button"
                 onClick={() => setHiddenColumns(new Set())}
-                style={{ marginTop: 6, border: 0, background: 'transparent', color: T.bordeaux, cursor: 'pointer', fontSize: 11, padding: 0 }}
+                style={{ marginTop: 6, border: 0, background: 'transparent', color: T.bordeaux, cursor: 'pointer', fontSize: 12, padding: 0 }}
               >
                 Nulstil kolonner
               </button>
@@ -489,7 +489,7 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
           )}
         </div>
 
-        <span aria-live="polite" style={{ marginLeft: 'auto', fontFamily: T.mono, fontSize: 10, color: T.muted2 }}>
+        <span aria-live="polite" style={{ marginLeft: 'auto', fontFamily: T.mono, fontSize: 11, color: T.muted2 }}>
           Viser {sorted.length} af {rows.length} personer
         </span>
       </div>

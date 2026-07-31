@@ -293,7 +293,7 @@ export function FeedStreamView({
 
 function FeedFooter({ done }: { done: boolean }) {
   return (
-    <div style={{ padding: '28px 0', textAlign: 'center', fontFamily: T.mono, fontSize: 8.5, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2 }}>
+    <div style={{ padding: '28px 0', textAlign: 'center', fontFamily: T.mono, fontSize: 9.5, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2 }}>
       {done ? 'Du har mødt hele slægten i dag — udforsk registeret' : 'Henter flere blade fra slægten'}
     </div>
   );

@@ -9,5 +9,5 @@ export const GeoMap = lazy(() => import('./GeoMap').then((m) => ({ default: m.Ge
 export const ExpandableMiniMap = lazy(() => import('./MapLightbox').then((m) => ({ default: m.ExpandableMiniMap })));
 
 export const MapFallback = ({ height }: { height?: number | string }) => (
-  <div style={{ height: height ?? 160, width: '100%', borderRadius: 14, border: '1px solid rgba(34,31,26,.1)', background: T.panel, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: T.muted2 }}>Indlæser kort…</div>
+  <div style={{ height: height ?? 160, width: '100%', borderRadius: 14, border: '1px solid rgba(34,31,26,.1)', background: T.panel, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: T.muted2 }}>Indlæser kort…</div>
 );

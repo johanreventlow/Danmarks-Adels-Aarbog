@@ -49,6 +49,6 @@ const styles = StyleSheet.create({
   handle: { alignSelf: 'center', width: 38, height: 4, borderRadius: 2,
     backgroundColor: Border.medium, marginBottom: 14 },
   input: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light,
-    borderRadius: Radius.field, padding: 12, marginBottom: 10, fontFamily: Fonts.sans, fontSize: 14 },
+    borderRadius: Radius.field, padding: 12, marginBottom: 10, fontFamily: Fonts.sans, fontSize: 15 },
   btn: { backgroundColor: Colors.bordeaux, borderRadius: Radius.field, padding: 14, alignItems: 'center' },
 });

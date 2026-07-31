@@ -37,7 +37,7 @@ export const personEditorSheetStyles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     fontFamily: 'HankenGrotesk_400Regular',
-    fontSize: 13,
+    fontSize: 14,
     color: Colors.ink,
   },
   addOpret: {

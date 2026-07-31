@@ -768,7 +768,7 @@ export default function Redaktion() {
           <>
             {renderList()}
             <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: T.paper }}>
-              {loadErr && <pre style={{ margin: 18, color: T.red, fontSize: 12, whiteSpace: 'pre-wrap' }}>{loadErr}</pre>}
+              {loadErr && <pre style={{ margin: 18, color: T.red, fontSize: 13, whiteSpace: 'pre-wrap' }}>{loadErr}</pre>}
               {entity === 'person' ? renderPersonEditor() : entity === 'slaegt' ? renderSlaegtEditor() : entity === 'media' ? renderMediaBibliotekEditor() : renderGenericEditor()}
             </div>
           </>
@@ -795,35 +795,35 @@ export default function Redaktion() {
           <img src="/daf-logo.png" alt="Dansk Adels Forening" style={{ width: 40, height: 40, objectFit: 'contain' }} />
           <div>
             <div style={{ fontFamily: T.serif, fontSize: 21, fontWeight: 600, lineHeight: 1, color: T.ink }}>Danmarks Adels Aarbog</div>
-            <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.16em', textTransform: 'uppercase', color: T.muted2, marginTop: 2 }}>Redaktion · Dansk Adels Forening</div>
+            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: T.muted2, marginTop: 2 }}>Redaktion · Dansk Adels Forening</div>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, background: T.panel, border: '1px solid rgba(34,31,26,.12)', borderRadius: 9, padding: '6px 12px', flex: 'none' }}>
-          <span style={{ width: 26, height: 26, borderRadius: '50%', border: '1px solid rgba(136,26,51,.55)', boxShadow: 'inset 0 0 0 2px #f4efe6, inset 0 0 0 2.5px rgba(136,26,51,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 13, fontWeight: 600, color: T.bordeaux }}>R</span>
-          <span style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.ink }}>Reventlow</span>
-          <span style={{ fontFamily: T.sans, fontSize: 11, color: T.muted2 }}>▾</span>
+          <span style={{ width: 26, height: 26, borderRadius: '50%', border: '1px solid rgba(136,26,51,.55)', boxShadow: 'inset 0 0 0 2px #f4efe6, inset 0 0 0 2.5px rgba(136,26,51,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 14, fontWeight: 600, color: T.bordeaux }}>R</span>
+          <span style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 600, color: T.ink }}>Reventlow</span>
+          <span style={{ fontFamily: T.sans, fontSize: 12, color: T.muted2 }}>▾</span>
         </div>
         <div style={{ flex: 1 }} />
         <div onClick={() => setShowAnno((v) => !v)} style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', border: '1px solid rgba(34,31,26,.18)', borderRadius: 8, padding: '5px 11px' }}>
           <span style={{ width: 9, height: 9, borderRadius: '50%', background: showAnno ? '#1f8a5b' : T.muted }} />
-          <span style={{ fontSize: 11.5, color: T.muted }}>Forklaringer</span>
+          <span style={{ fontSize: 12.5, color: T.muted }}>Forklaringer</span>
         </div>
         <div onClick={() => setDryRun((v) => !v)} style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', background: dryRun ? T.beige : '#7a2230', border: `1px solid ${dryRun ? 'rgba(34,31,26,.2)' : '#a83246'}`, borderRadius: 8, padding: '6px 11px' }}>
           <span style={{ width: 9, height: 9, borderRadius: '50%', background: dryRun ? T.goldLight : '#ff6b6b' }} />
-          <span style={{ fontSize: 11.5, fontWeight: 600, color: dryRun ? T.ink : '#fff' }}>{dryRun ? 'Dry-run · skriver ikke' : 'LIVE · skriver til basen'}</span>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: dryRun ? T.ink : '#fff' }}>{dryRun ? 'Dry-run · skriver ikke' : 'LIVE · skriver til basen'}</span>
         </div>
         {session ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f8ecef', border: `1px solid ${T.bordeaux}`, borderRadius: 9, padding: '5px 10px' }}>
-            <span style={{ width: 26, height: 26, borderRadius: '50%', background: T.bordeaux, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 11, fontWeight: 600, color: T.paperText }}>{(session.email || '?').slice(0, 2).toUpperCase()}</span>
+            <span style={{ width: 26, height: 26, borderRadius: '50%', background: T.bordeaux, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 12, fontWeight: 600, color: T.paperText }}>{(session.email || '?').slice(0, 2).toUpperCase()}</span>
             <div>
-              <div style={{ fontSize: 11.5, fontWeight: 600, color: T.ink, lineHeight: 1, maxWidth: 150, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{session.email}</div>
-              <div style={{ fontFamily: T.mono, fontSize: 8.5, color: T.muted2, marginTop: 1 }}>{session.role === 'redaktion' ? 'redaktion · skriver direkte' : `${session.role} · forslag til staging`}</div>
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: T.ink, lineHeight: 1, maxWidth: 150, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{session.email}</div>
+              <div style={{ fontFamily: T.mono, fontSize: 9.5, color: T.muted2, marginTop: 1 }}>{session.role === 'redaktion' ? 'redaktion · skriver direkte' : `${session.role} · forslag til staging`}</div>
             </div>
-            <span onClick={doLogout} style={{ fontSize: 10.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', marginLeft: 4 }}>Log ud</span>
+            <span onClick={doLogout} style={{ fontSize: 11.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', marginLeft: 4 }}>Log ud</span>
           </div>
         ) : (
           <div onClick={() => setLogin((l) => ({ ...l, open: true, err: '' }))} style={{ display: 'flex', alignItems: 'center', gap: 7, background: T.goldLight, borderRadius: 8, padding: '7px 14px', cursor: 'pointer' }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: T.dark }}>Log ind</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: T.dark }}>Log ind</span>
           </div>
         )}
       </div>
@@ -834,14 +834,14 @@ export default function Redaktion() {
   function renderSidebar() {
     return (
       <div data-scroll style={{ flex: 'none', width: 226, borderRight: '1px solid rgba(34,31,26,.1)', background: T.panel, overflowY: 'auto', padding: '14px 12px' }}>
-        <div style={{ padding: '0 8px 8px', fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted3 }}>Entiteter</div>
+        <div style={{ padding: '0 8px 8px', fontFamily: T.mono, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted3 }}>Entiteter</div>
         {ENTITIES.map((e) => {
           const active = e.key === entity;
           return (
             <div key={e.key} onClick={() => goToEntity(e.key)} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 10px', borderRadius: 9, cursor: 'pointer', background: active ? T.paper : 'transparent', marginBottom: 2 }}>
-              <span style={{ width: 24, height: 24, borderRadius: 6, background: active ? T.bordeaux : T.beige, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: active ? T.paperText : '#8a8170' }}>{e.icon}</span>
-              <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: active ? T.ink : '#3d382f' }}>{e.label}</span>
-              <span style={{ fontFamily: T.mono, fontSize: 9.5, color: active ? T.bordeaux : T.muted3 }}>{e.key === 'person' ? persons.length || '' : (recCache[e.key]?.length ?? '')}</span>
+              <span style={{ width: 24, height: 24, borderRadius: 6, background: active ? T.bordeaux : T.beige, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: active ? T.paperText : '#8a8170' }}>{e.icon}</span>
+              <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: active ? T.ink : '#3d382f' }}>{e.label}</span>
+              <span style={{ fontFamily: T.mono, fontSize: 10.5, color: active ? T.bordeaux : T.muted3 }}>{e.key === 'person' ? persons.length || '' : (recCache[e.key]?.length ?? '')}</span>
             </div>
           );
         })}
@@ -859,7 +859,7 @@ export default function Redaktion() {
       <div role="group" aria-label="Personvisning" style={{ display: 'flex', background: '#e6ddcc', borderRadius: 7, padding: 2, gap: 2, flex: 'none' }}>
         {([['liste', 'Liste'], ['kvalitetsark', 'Kvalitetsark']] as const).map(([v, label]) => (
           <button key={v} type="button" aria-pressed={personVisning === v} onClick={() => setPersonVisning(v)}
-            style={{ border: 0, fontFamily: T.sans, fontSize: 10.5, fontWeight: 600, padding: '4px 9px', borderRadius: 5, cursor: 'pointer', background: personVisning === v ? T.bordeaux : 'transparent', color: personVisning === v ? T.paper : '#3d382f' }}>
+            style={{ border: 0, fontFamily: T.sans, fontSize: 11.5, fontWeight: 600, padding: '4px 9px', borderRadius: 5, cursor: 'pointer', background: personVisning === v ? T.bordeaux : 'transparent', color: personVisning === v ? T.paper : '#3d382f' }}>
             {label}
           </button>
         ))}
@@ -878,7 +878,7 @@ export default function Redaktion() {
             {renderPersonVisningToggle()}
             <span style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600 }}>Personers OCR-kvalitetsark</span>
             <button type="button" onClick={loadKvalitetsark} disabled={kvLoading}
-              style={{ marginLeft: 'auto', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6, padding: '5px 10px', background: T.paper, cursor: kvLoading ? 'default' : 'pointer', fontSize: 11.5 }}>
+              style={{ marginLeft: 'auto', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6, padding: '5px 10px', background: T.paper, cursor: kvLoading ? 'default' : 'pointer', fontSize: 12.5 }}>
               {kvLoading ? 'Genindlæser…' : 'Genindlæs'}
             </button>
           </div>
@@ -916,17 +916,17 @@ export default function Redaktion() {
     // Fælles liste-række (person + generiske entiteter): round = avatar-form, tail = valgfrit suffiks.
     const listRow = (o: { id: string; badge: string; label: string; sub: string; round: number | string; tail?: ReactNode }) => (
       <div key={o.id} onClick={() => openRecord(entity, o.id)} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 9px', borderRadius: 9, cursor: 'pointer', background: o.id === recordId ? '#efe7d7' : 'transparent' }}>
-        <span style={{ width: 30, height: 30, borderRadius: o.round, background: T.beige, border: '1px solid rgba(34,31,26,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 12, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{o.badge}</span>
+        <span style={{ width: 30, height: 30, borderRadius: o.round, background: T.beige, border: '1px solid rgba(34,31,26,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 13, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{o.badge}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: T.serif, fontSize: 15.5, fontWeight: 600, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.label}</div>
-          <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.sub}</div>
+          <div style={{ fontFamily: T.serif, fontSize: 16.5, fontWeight: 600, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.label}</div>
+          <div style={{ fontFamily: T.mono, fontSize: 10, color: T.muted2, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.sub}</div>
         </div>
         {o.tail}
       </div>
     );
     const pRow = (p: { id: string; navn: string; aar: string; privat: boolean }) => listRow({
       id: p.id, badge: initials(p.navn), label: p.navn, sub: p.aar || '—', round: '50%',
-      tail: p.privat ? <span style={{ fontFamily: T.mono, fontSize: 8, letterSpacing: '.06em', textTransform: 'uppercase', color: T.red, flex: 'none' }}>privat</span> : undefined,
+      tail: p.privat ? <span style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.06em', textTransform: 'uppercase', color: T.red, flex: 'none' }}>privat</span> : undefined,
     });
     return (
       <div data-scroll style={{ flex: 'none', width: 286, borderRight: '1px solid rgba(34,31,26,.1)', background: T.panel, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
@@ -935,7 +935,7 @@ export default function Redaktion() {
             <div style={{ fontFamily: T.serif, fontSize: 21, fontWeight: 600 }}>{title}</div>
             {renderPersonVisningToggle()}
           </div>
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Søg…" style={{ width: '100%', fontSize: 13, color: T.ink, background: T.paper, border: '1px solid rgba(34,31,26,.14)', borderRadius: 8, padding: '9px 11px', outline: 'none' }} />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Søg…" style={{ width: '100%', fontSize: 14, color: T.ink, background: T.paper, border: '1px solid rgba(34,31,26,.14)', borderRadius: 8, padding: '9px 11px', outline: 'none' }} />
         </div>
 
         {entity === 'media' ? (
@@ -945,7 +945,7 @@ export default function Redaktion() {
                 const aktiv = mediaKoe === k.key;
                 const antal = k.key === 'alle' ? mediaBibliotek.length : mediaBibliotek.filter((m) => m.koeer.includes(k.key as MedieKoe)).length;
                 return <button type="button" key={k.key} onClick={() => setMediaKoe(k.key)}
-                  style={{ border: 0, borderRadius: 6, padding: '5px 8px', cursor: 'pointer', background: aktiv ? T.bordeaux : T.beige, color: aktiv ? T.paperText : T.muted, fontFamily: T.mono, fontSize: 8.5 }}>
+                  style={{ border: 0, borderRadius: 6, padding: '5px 8px', cursor: 'pointer', background: aktiv ? T.bordeaux : T.beige, color: aktiv ? T.paperText : T.muted, fontFamily: T.mono, fontSize: 9.5 }}>
                   {k.label} ({antal})
                 </button>;
               })}
@@ -959,15 +959,15 @@ export default function Redaktion() {
                   <div key={m.id} onClick={() => { openRecord('media', m.id); setMediaDetalje({ id: m.id, subjektType: 'media', subjektId: m.id }); }}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px', borderRadius: 9, cursor: 'pointer', background: m.id === recordId ? '#efe7d7' : 'transparent', opacity: m.uploadStatus === 'fjernet' ? .55 : 1 }}>
                     {erBillede ? <img src={m.thumbUrl!} alt={m.titel ?? m.slags} style={{ width: 42, height: 42, borderRadius: 7, objectFit: 'cover', background: T.beige, flex: 'none' }} />
-                      : <span style={{ width: 42, height: 42, borderRadius: 7, background: T.beige, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: T.muted, flex: 'none', fontSize: 16 }}>▤<small style={{ fontSize: 7 }}>{m.slags}</small></span>}
+                      : <span style={{ width: 42, height: 42, borderRadius: 7, background: T.beige, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: T.muted, flex: 'none', fontSize: 17 }}>▤<small style={{ fontSize: 8 }}>{m.slags}</small></span>}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontFamily: T.serif, fontSize: 14.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.titel || '(uden titel)'}</div>
-                      <div style={{ fontFamily: T.mono, fontSize: 8, color: T.muted2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <div style={{ fontFamily: T.serif, fontSize: 15.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.titel || '(uden titel)'}</div>
+                      <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {m.slags}{m.uploadStatus !== 'klar' ? ` · ${m.uploadStatus}` : ''}{m.maaPubliceres ? '' : ' · ej publiceret'}
                       </div>
-                      <div style={{ fontSize: 9.5, color: T.muted, marginTop: 2 }}>bruges {antalBrug} {antalBrug === 1 ? 'sted' : 'steder'}</div>
+                      <div style={{ fontSize: 10.5, color: T.muted, marginTop: 2 }}>bruges {antalBrug} {antalBrug === 1 ? 'sted' : 'steder'}</div>
                       {alder ? (
-                        <div style={{ fontSize: 9.5, color: alder.includes('muligvis i gang') ? T.muted3 : T.muted, marginTop: 2 }}>
+                        <div style={{ fontSize: 10.5, color: alder.includes('muligvis i gang') ? T.muted3 : T.muted, marginTop: 2 }}>
                           {alder}
                         </div>
                       ) : null}
@@ -975,7 +975,7 @@ export default function Redaktion() {
                   </div>
                 );
               })}
-              {!mediaFiltered.length && <div style={{ padding: '22px 10px', textAlign: 'center', fontSize: 12.5, color: T.muted3 }}>{mediaBibliotek.length ? 'Ingen træffere' : 'Henter medier…'}</div>}
+              {!mediaFiltered.length && <div style={{ padding: '22px 10px', textAlign: 'center', fontSize: 13.5, color: T.muted3 }}>{mediaBibliotek.length ? 'Ingen træffere' : 'Henter medier…'}</div>}
             </div>
           </>
         ) : b ? (
@@ -983,12 +983,12 @@ export default function Redaktion() {
             {/* Linje-filter (§9.2) — filtrerer kun listen; redaktør har intet stamtræ at hoppe fokus i. */}
             {linjeList.length > 0 && (
               <div style={{ padding: '0 14px 8px' }}>
-                <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2, marginBottom: 7 }}>Linjer</div>
+                <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2, marginBottom: 7 }}>Linjer</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {[{ linje: null as string | null, navn: null as string | null }, ...linjeList].map((l) => {
                     const on = activeLinje === l.linje;
                     return (
-                      <div key={l.linje ?? 'all'} onClick={() => setActiveLinje(l.linje)} title={l.navn ?? undefined} style={{ padding: '5px 11px', borderRadius: 15, fontFamily: T.sans, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', background: on ? T.bordeaux : 'transparent', color: on ? T.paper : T.muted, border: `1px solid ${on ? T.bordeaux : 'rgba(34,31,26,.18)'}` }}>{l.linje ? `Linje ${l.linje}` : 'Hele slægten'}</div>
+                      <div key={l.linje ?? 'all'} onClick={() => setActiveLinje(l.linje)} title={l.navn ?? undefined} style={{ padding: '5px 11px', borderRadius: 15, fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: on ? T.bordeaux : 'transparent', color: on ? T.paper : T.muted, border: `1px solid ${on ? T.bordeaux : 'rgba(34,31,26,.18)'}` }}>{l.linje ? `Linje ${l.linje}` : 'Hele slægten'}</div>
                     );
                   })}
                 </div>
@@ -996,10 +996,10 @@ export default function Redaktion() {
             )}
 
             <div style={{ padding: '0 14px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <span style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>{`${activeLinje ? `Linje ${activeLinje} · ` : ''}${b.flat.length} ${query ? 'træffere' : 'personer'}`}</span>
+              <span style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>{`${activeLinje ? `Linje ${activeLinje} · ` : ''}${b.flat.length} ${query ? 'træffere' : 'personer'}`}</span>
               <div style={{ display: 'flex', background: '#e6ddcc', borderRadius: 7, padding: 2, gap: 2, flex: 'none' }}>
                 {(['navn', 'aar'] as const).map((s) => (
-                  <span key={s} onClick={() => setBrowseSort(s)} style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 5, cursor: 'pointer', background: browseSort === s ? T.bordeaux : 'transparent', color: browseSort === s ? T.paper : '#3d382f' }}>{s === 'navn' ? 'A–Å' : 'Født'}</span>
+                  <span key={s} onClick={() => setBrowseSort(s)} style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 5, cursor: 'pointer', background: browseSort === s ? T.bordeaux : 'transparent', color: browseSort === s ? T.paper : '#3d382f' }}>{s === 'navn' ? 'A–Å' : 'Født'}</span>
                 ))}
               </div>
             </div>
@@ -1009,7 +1009,7 @@ export default function Redaktion() {
                 {[{ key: null as string | null, label: 'Alle' }, ...b.letters.map((l) => ({ key: l as string | null, label: l }))].map((L) => {
                   const on = activeLetter === L.key;
                   return (
-                    <span key={L.label} onClick={() => setActiveLetter(L.key)} style={{ fontFamily: T.mono, fontSize: 10, fontWeight: 500, minWidth: 19, height: 19, padding: '0 3px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 5, cursor: 'pointer', background: on ? T.bordeaux : T.beige, color: on ? T.paper : T.muted }}>{L.label}</span>
+                    <span key={L.label} onClick={() => setActiveLetter(L.key)} style={{ fontFamily: T.mono, fontSize: 11, fontWeight: 500, minWidth: 19, height: 19, padding: '0 3px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 5, cursor: 'pointer', background: on ? T.bordeaux : T.beige, color: on ? T.paper : T.muted }}>{L.label}</span>
                   );
                 })}
               </div>
@@ -1019,12 +1019,12 @@ export default function Redaktion() {
               {b.grouped
                 ? b.groups.map((g) => (
                     <div key={g.letter}>
-                      <div style={{ padding: '7px 9px 3px', fontFamily: T.serif, fontSize: 15, fontWeight: 600, color: T.gold, borderBottom: '1px solid rgba(34,31,26,.07)' }}>{g.letter}</div>
+                      <div style={{ padding: '7px 9px 3px', fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.gold, borderBottom: '1px solid rgba(34,31,26,.07)' }}>{g.letter}</div>
                       {g.people.map(pRow)}
                     </div>
                   ))
                 : b.flat.map(pRow)}
-              {!b.flat.length && <div style={{ padding: '22px 10px', textAlign: 'center', fontSize: 12.5, color: T.muted3 }}>{persons.length ? 'Ingen træffere' : 'Henter…'}</div>}
+              {!b.flat.length && <div style={{ padding: '22px 10px', textAlign: 'center', fontSize: 13.5, color: T.muted3 }}>{persons.length ? 'Ingen træffere' : 'Henter…'}</div>}
             </div>
           </>
         ) : entity === 'slaegt' ? (
@@ -1040,7 +1040,7 @@ export default function Redaktion() {
         ) : (
           <div style={{ padding: '2px 10px 12px' }}>
             {filtered.map((r) => listRow({ id: r.id, badge: r.badge, label: r.label, sub: r.sub, round: 7 }))}
-            {!filtered.length && <div style={{ padding: '22px 10px', textAlign: 'center', fontSize: 12.5, color: T.muted3 }}>{query ? 'Ingen træffere' : 'Ingen liste-kilde endnu'}</div>}
+            {!filtered.length && <div style={{ padding: '22px 10px', textAlign: 'center', fontSize: 13.5, color: T.muted3 }}>{query ? 'Ingen træffere' : 'Ingen liste-kilde endnu'}</div>}
           </div>
         )}
       </div>
@@ -1052,7 +1052,7 @@ export default function Redaktion() {
     return (
       <div style={{ padding: '28px 30px', maxWidth: 760 }}>
         <div style={{ fontFamily: T.serif, fontSize: 29, fontWeight: 600 }}>Mediebibliotek</div>
-        <div style={{ marginTop: 8, color: T.muted, fontSize: 13, lineHeight: 1.5 }}>
+        <div style={{ marginTop: 8, color: T.muted, fontSize: 14, lineHeight: 1.5 }}>
           {valgt ? <>Valgt: <b>{valgt.titel || '(uden titel)'}</b>. Klik på rækken igen for at åbne filsiden.</>
             : 'Vælg et medie i listen for at åbne filsiden, redigere metadata og se hvor det bruges.'}
         </div>
@@ -1060,7 +1060,7 @@ export default function Redaktion() {
           {([['rettigheder', 'Rettigheder'], ['loese', 'Løse'], ['strandede', 'Strandede'], ['papirkurv', 'Papirkurv'], ['dubletter', 'Mulige dubletter']] as const).map(([key, label]) => (
             <div key={key} style={{ background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 10, padding: '12px 15px', minWidth: 120 }}>
               <div style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600 }}>{mediaBibliotek.filter((m) => m.koeer.includes(key)).length}</div>
-              <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2 }}>{label}</div>
+              <div style={{ fontFamily: T.mono, fontSize: 10, color: T.muted2 }}>{label}</div>
             </div>
           ))}
         </div>
@@ -1079,19 +1079,19 @@ export default function Redaktion() {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontFamily: T.serif, fontSize: 30, fontWeight: 600, lineHeight: 1 }}>{p.navn}</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 7 }}>
-              <span style={{ fontFamily: T.mono, fontSize: 10, color: T.muted2 }}>{p.aar || '—'}</span>
-              <span style={{ fontFamily: T.mono, fontSize: 9, color: T.muted, background: T.beige, borderRadius: 5, padding: '3px 7px' }}>id {p.id}</span>
-              <span style={{ fontFamily: T.mono, fontSize: 9, color: T.muted, background: T.beige, borderRadius: 5, padding: '3px 7px' }}>{evidence?.koen ?? 'køn ?'}</span>
-              {p.efternavnAfledt && <span title="Efternavnet er afledt af linje-medlemskab, ikke en del af bogens rå navn" style={{ fontFamily: T.mono, fontSize: 9, color: T.bordeaux, background: '#f4e2e6', border: '1px solid rgba(136,26,51,.16)', borderRadius: 5, padding: '3px 7px' }}>efternavn afledt af linje</span>}
+              <span style={{ fontFamily: T.mono, fontSize: 11, color: T.muted2 }}>{p.aar || '—'}</span>
+              <span style={{ fontFamily: T.mono, fontSize: 10, color: T.muted, background: T.beige, borderRadius: 5, padding: '3px 7px' }}>id {p.id}</span>
+              <span style={{ fontFamily: T.mono, fontSize: 10, color: T.muted, background: T.beige, borderRadius: 5, padding: '3px 7px' }}>{evidence?.koen ?? 'køn ?'}</span>
+              {p.efternavnAfledt && <span title="Efternavnet er afledt af linje-medlemskab, ikke en del af bogens rå navn" style={{ fontFamily: T.mono, fontSize: 10, color: T.bordeaux, background: '#f4e2e6', border: '1px solid rgba(136,26,51,.16)', borderRadius: 5, padding: '3px 7px' }}>efternavn afledt af linje</span>}
             </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7, alignItems: 'flex-end' }}>
             <div onClick={() => run({ art: 'setPrivat', subjektType: 'person', subjektId: p.id, payload: { privat: !p.privat } }, 'Privat')} style={{ display: 'flex', alignItems: 'center', gap: 8, background: p.privat ? '#f8ecef' : T.panel, border: `1.5px solid ${p.privat ? T.bordeaux : 'rgba(34,31,26,.16)'}`, borderRadius: 8, padding: '6px 11px', cursor: 'pointer' }}>
               <span style={{ width: 26, height: 15, borderRadius: 8, background: p.privat ? T.bordeaux : '#cfc6b5', position: 'relative' }}><span style={{ position: 'absolute', top: 1.5, left: p.privat ? 12.5 : 1.5, width: 11, height: 11, borderRadius: '50%', background: '#fff' }} /></span>
-              <span style={{ fontSize: 12, fontWeight: 600, color: p.privat ? T.bordeaux : T.muted }}>Privat</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: p.privat ? T.bordeaux : T.muted }}>Privat</span>
             </div>
             <div onClick={() => requestDelete(p.id, p.navn)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: T.paper, border: '1.5px solid rgba(138,43,43,.3)', borderRadius: 8, padding: '6px 11px', cursor: 'pointer' }}>
-              <span style={{ fontSize: 12, color: T.red }}>🗑</span><span style={{ fontSize: 12, fontWeight: 600, color: T.red }}>Slet person</span>
+              <span style={{ fontSize: 13, color: T.red }}>🗑</span><span style={{ fontSize: 13, fontWeight: 600, color: T.red }}>Slet person</span>
             </div>
           </div>
         </div>
@@ -1101,17 +1101,17 @@ export default function Redaktion() {
 
         {showAnno && (
           <div style={{ marginTop: 16, ...annoBox }}>
-            <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux, marginBottom: 4 }}>Sådan virker evidens-laget</div>
-            <div style={{ fontSize: 12.5, lineHeight: 1.5, color: '#3d382f' }}>Hvert <b>faktum</b> vises som en <b>konklusion</b> (den blåstemplede værdi) ovenpå en eller flere <b>oplysninger</b>, hver med sin <b>kildeangivelse</b>. Redaktøren tilføjer oplysninger og vælger konklusionen; intet overskrives destruktivt.</div>
+            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux, marginBottom: 4 }}>Sådan virker evidens-laget</div>
+            <div style={{ fontSize: 13.5, lineHeight: 1.5, color: '#3d382f' }}>Hvert <b>faktum</b> vises som en <b>konklusion</b> (den blåstemplede værdi) ovenpå en eller flere <b>oplysninger</b>, hver med sin <b>kildeangivelse</b>. Redaktøren tilføjer oplysninger og vælger konklusionen; intet overskrives destruktivt.</div>
           </div>
         )}
 
         <div style={sectionHeader(22)}>Kerne-fakta · konklusion ← oplysninger</div>
-        {!evidence && <div style={{ color: T.muted3, fontSize: 12.5 }}>Henter evidens…</div>}
+        {!evidence && <div style={{ color: T.muted3, fontSize: 13.5 }}>Henter evidens…</div>}
         {evidence && FELT_DEFS.flatMap(([felt, label]) => (evidence.felter[felt] ?? [{ felt, faktatype: felt, factId: -1, konklusionAssertionId: null, oplysninger: [], uenig: false } as FeltEvidens]).map((f) => renderFactCard(p.id, label, f)))}
 
         <div style={sectionHeader(22)}>Hændelser · tidslinje fra prosaen</div>
-        {haendelseNotice && <div style={{ ...annoBox, color: T.bordeaux, fontSize: 11.5, marginBottom: 8 }}>{haendelseNotice}</div>}
+        {haendelseNotice && <div style={{ ...annoBox, color: T.bordeaux, fontSize: 12.5, marginBottom: 8 }}>{haendelseNotice}</div>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
           {tidslinje.map((post) => {
             const dato = post.dato.raw ?? (post.dato.min && post.dato.max && post.dato.min !== post.dato.max
@@ -1119,26 +1119,26 @@ export default function Redaktion() {
             const statusser = ['kandidat','interessant','skjult'] as const;
             return <div key={post.id} style={{ background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 10, padding: '10px 12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-                <span style={{ fontFamily: T.mono, fontSize: 9, color: T.bordeaux }}>{dato}</span>
-                <span style={{ fontFamily: T.mono, fontSize: 8, color: T.muted, background: T.beige, borderRadius: 5, padding: '2px 5px' }}>{post.art === 'rygrad' ? 'RYGRAD' : (post.kategori ?? 'ANDET').toUpperCase()}</span>
+                <span style={{ fontFamily: T.mono, fontSize: 10, color: T.bordeaux }}>{dato}</span>
+                <span style={{ fontFamily: T.mono, fontSize: 9, color: T.muted, background: T.beige, borderRadius: 5, padding: '2px 5px' }}>{post.art === 'rygrad' ? 'RYGRAD' : (post.kategori ?? 'ANDET').toUpperCase()}</span>
                 <span style={{ flex: 1 }} />
                 <button type="button" disabled={storySaving} onClick={() => nyStoryFraPost(post)}
-                  style={{ border: '1px solid rgba(136,26,51,.28)', background: T.paper, color: T.bordeaux, borderRadius: 6, padding: '3px 7px', fontFamily: T.mono, fontSize: 8, cursor: storySaving ? 'default' : 'pointer' }}>
+                  style={{ border: '1px solid rgba(136,26,51,.28)', background: T.paper, color: T.bordeaux, borderRadius: 6, padding: '3px 7px', fontFamily: T.mono, fontSize: 9, cursor: storySaving ? 'default' : 'pointer' }}>
                   + Historie
                 </button>
                 {post.art === 'haendelse' && post.haendelseId != null && <span style={{ display: 'flex', gap: 3 }}>
                   {statusser.map((status) => <span key={status}
                     onClick={() => run({ art: 'haendelseStatus', subjektType: 'person', subjektId: p.id, haendelseId: post.haendelseId, status }, 'Feed-status')}
-                    style={{ fontFamily: T.mono, fontSize: 8, fontWeight: 600, padding: '3px 6px', borderRadius: 5, cursor: 'pointer', background: post.feedStatus === status ? T.bordeaux : T.beige, color: post.feedStatus === status ? T.paperText : T.muted }}>
+                    style={{ fontFamily: T.mono, fontSize: 9, fontWeight: 600, padding: '3px 6px', borderRadius: 5, cursor: 'pointer', background: post.feedStatus === status ? T.bordeaux : T.beige, color: post.feedStatus === status ? T.paperText : T.muted }}>
                     {status}
                   </span>)}
                 </span>}
               </div>
-              <div onClick={() => hopTilHaendelse(post)} style={{ fontFamily: T.serif, fontSize: 16, fontStyle: 'italic', lineHeight: 1.35, cursor: post.narrativeId != null ? 'pointer' : 'default' }}>“{post.klausul}”</div>
-              <div style={{ fontFamily: T.mono, fontSize: 8.5, color: T.muted2, marginTop: 4 }}>{[post.sourceTitel, post.side ? `s. ${post.side}` : null].filter(Boolean).join(', ') || 'kilde mangler'}</div>
+              <div onClick={() => hopTilHaendelse(post)} style={{ fontFamily: T.serif, fontSize: 17, fontStyle: 'italic', lineHeight: 1.35, cursor: post.narrativeId != null ? 'pointer' : 'default' }}>“{post.klausul}”</div>
+              <div style={{ fontFamily: T.mono, fontSize: 9.5, color: T.muted2, marginTop: 4 }}>{[post.sourceTitel, post.side ? `s. ${post.side}` : null].filter(Boolean).join(', ') || 'kilde mangler'}</div>
             </div>;
           })}
-          {!tidslinje.length && <div style={{ color: T.muted3, fontSize: 12 }}>Ingen daterede poster endnu.</div>}
+          {!tidslinje.length && <div style={{ color: T.muted3, fontSize: 13 }}>Ingen daterede poster endnu.</div>}
         </div>
 
         <div style={sectionHeader(18)}>Minihistorier · alle statusser</div>
@@ -1146,31 +1146,31 @@ export default function Redaktion() {
           {stories.map((story) => (
             <div key={story.id} style={{ background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 10, padding: '10px 12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span style={{ fontFamily: T.serif, fontWeight: 600, fontSize: 16 }}>{story.titel || 'Historie uden titel'}</span>
+                <span style={{ fontFamily: T.serif, fontWeight: 600, fontSize: 17 }}>{story.titel || 'Historie uden titel'}</span>
                 <span style={{ flex: 1 }} />
                 {(['kladde', 'klar', 'publiceret', 'arkiveret'] as const).map((status) => (
                   <button key={status} type="button"
                     onClick={() => run({ art: 'setStoryStatus', subjektType: 'person', subjektId: p.id,
                       storyId: story.id, storyStatus: status }, 'Story-status')}
                     style={{ border: 0, borderRadius: 5, padding: '3px 6px', cursor: 'pointer', fontFamily: T.mono,
-                      fontSize: 8, fontWeight: 600, background: story.status === status ? T.bordeaux : T.beige,
+                      fontSize: 9, fontWeight: 600, background: story.status === status ? T.bordeaux : T.beige,
                       color: story.status === status ? T.paperText : T.muted }}>
                     {status}
                   </button>
                 ))}
                 <button type="button" disabled={storySaving} onClick={() => redigerStory(story)}
                   style={{ border: '1px solid rgba(34,31,26,.15)', background: T.panel, color: T.ink,
-                    borderRadius: 6, padding: '3px 7px', fontFamily: T.mono, fontSize: 8, cursor: storySaving ? 'default' : 'pointer' }}>
+                    borderRadius: 6, padding: '3px 7px', fontFamily: T.mono, fontSize: 9, cursor: storySaving ? 'default' : 'pointer' }}>
                   Redigér
                 </button>
               </div>
-              <div style={{ marginTop: 5, fontSize: 12.5, lineHeight: 1.45, color: T.muted }}>{story.tekst}</div>
-              <div style={{ marginTop: 5, fontFamily: T.mono, fontSize: 8.5, color: T.muted2 }}>
+              <div style={{ marginTop: 5, fontSize: 13.5, lineHeight: 1.45, color: T.muted }}>{story.tekst}</div>
+              <div style={{ marginTop: 5, fontFamily: T.mono, fontSize: 9.5, color: T.muted2 }}>
                 {story.dato.raw || story.dato.min || 'udateret'} · {story.kilder.map((k) => [k.sourceTitel, k.side ? `s. ${k.side}` : null].filter(Boolean).join(', ')).filter(Boolean).join(' · ') || 'kilde mangler'}
               </div>
             </div>
           ))}
-          {!stories.length && <div style={{ color: T.muted3, fontSize: 12 }}>Ingen historier endnu.</div>}
+          {!stories.length && <div style={{ color: T.muted3, fontSize: 13 }}>Ingen historier endnu.</div>}
         </div>
 
         {storyEditor && (
@@ -1191,7 +1191,7 @@ export default function Redaktion() {
             <textarea value={storyEditor.tekst} rows={5} placeholder="Omskriv til en minihistorie på cirka 40–90 ord"
               onChange={(e) => setStoryEditor((s) => s && ({ ...s, tekst: e.target.value }))}
               style={{ width: '100%', marginTop: 8, resize: 'vertical', border: '1px solid rgba(34,31,26,.16)', borderRadius: 7, padding: '8px 9px', background: T.paper, color: T.ink, lineHeight: 1.5 }} />
-            <div style={{ marginTop: 3, fontFamily: T.mono, fontSize: 8.5, color: T.muted2 }}>
+            <div style={{ marginTop: 3, fontFamily: T.mono, fontSize: 9.5, color: T.muted2 }}>
               {storyEditor.tekst.trim() ? storyEditor.tekst.trim().split(/\s+/).length : 0} ord · vejledende norm 40–90
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 7, marginTop: 9 }}>
@@ -1201,11 +1201,11 @@ export default function Redaktion() {
                   style={{ minWidth: 0, border: '1px solid rgba(34,31,26,.16)', borderRadius: 7, padding: '7px 8px', background: T.paper, color: T.ink }} />
               ))}
             </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 11.5, color: T.muted }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 12.5, color: T.muted }}>
               <input type="checkbox" checked={storyEditor.privat}
                 onChange={(e) => setStoryEditor((s) => s && ({ ...s, privat: e.target.checked }))} /> Privat
             </label>
-            <div style={{ marginTop: 10, fontFamily: T.mono, fontSize: 9, color: T.gold }}>KILDER</div>
+            <div style={{ marginTop: 10, fontFamily: T.mono, fontSize: 10, color: T.gold }}>KILDER</div>
             {storyEditor.kilder.map((k, i) => (
               <div key={`${k.sourceId}-${i}`} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 7, marginTop: 6 }}>
                 <select value={k.sourceId} onChange={(e) => setStoryEditor((s) => s && ({ ...s,
@@ -1254,69 +1254,69 @@ export default function Redaktion() {
           {/* Udgave-faner: én pr. kilde subjektet har en narrativ i, + evt. ny (ugemt) udgave + "+ Ny udgave" */}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
             {narrativer.map((n) => (
-              <div key={n.id} onClick={() => vaelgUdgave(n.sourceId)} style={{ fontSize: 11.5, padding: '4px 10px', borderRadius: 7, cursor: 'pointer',
+              <div key={n.id} onClick={() => vaelgUdgave(n.sourceId)} style={{ fontSize: 12.5, padding: '4px 10px', borderRadius: 7, cursor: 'pointer',
                 background: n.sourceId === aktivSourceId ? T.bordeaux : 'transparent', color: n.sourceId === aktivSourceId ? T.paper : T.muted,
                 border: `1px solid ${n.sourceId === aktivSourceId ? T.bordeaux : 'rgba(34,31,26,.16)'}` }}>
                 {n.udgave ?? n.sourceTitel ?? `Kilde ${n.sourceId ?? '—'}`}{n.privat ? ' · privat' : ''}
               </div>
             ))}
             {aktivSourceId != null && !narrativer.some((n) => n.sourceId === aktivSourceId) && (
-              <div style={{ fontSize: 11.5, padding: '4px 10px', borderRadius: 7, background: T.bordeaux, color: T.paper, border: `1px solid ${T.bordeaux}` }}>
+              <div style={{ fontSize: 12.5, padding: '4px 10px', borderRadius: 7, background: T.bordeaux, color: T.paper, border: `1px solid ${T.bordeaux}` }}>
                 {sources.find((s) => s.id === aktivSourceId)?.udgave ?? `Kilde ${aktivSourceId}`} · ny
               </div>
             )}
-            <div onClick={() => setNyUdgave({ titel: '', udgave: '', aar: '' })} style={{ fontSize: 11.5, padding: '4px 10px', borderRadius: 7, cursor: 'pointer', border: '1px dashed rgba(34,31,26,.3)', color: T.muted2 }}>+ Ny udgave</div>
+            <div onClick={() => setNyUdgave({ titel: '', udgave: '', aar: '' })} style={{ fontSize: 12.5, padding: '4px 10px', borderRadius: 7, cursor: 'pointer', border: '1px dashed rgba(34,31,26,.3)', color: T.muted2 }}>+ Ny udgave</div>
           </div>
 
           {/* Ny udgave: vælg eksisterende kilde subjektet ikke har endnu, ELLER opret en ny DAA-udgave */}
           {nyUdgave != null && (
             <div style={{ ...annoBox, marginBottom: 10, padding: '10px 11px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ fontSize: 10.5, color: T.muted }}>Vælg en udgave subjektet ikke har endnu:</div>
+              <div style={{ fontSize: 11.5, color: T.muted }}>Vælg en udgave subjektet ikke har endnu:</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {ledigeSources.map((s) => (
-                  <div key={s.id} onClick={() => vaelgUdgave(s.id)} style={{ fontSize: 11.5, padding: '4px 9px', borderRadius: 6, cursor: 'pointer', border: '1px solid rgba(34,31,26,.16)', color: T.muted }}>
+                  <div key={s.id} onClick={() => vaelgUdgave(s.id)} style={{ fontSize: 12.5, padding: '4px 9px', borderRadius: 6, cursor: 'pointer', border: '1px solid rgba(34,31,26,.16)', color: T.muted }}>
                     {s.udgave ?? s.titel ?? `Kilde ${s.id}`}
                   </div>
                 ))}
-                {ledigeSources.length === 0 && <span style={{ fontSize: 11, color: T.muted3 }}>(ingen ledige)</span>}
+                {ledigeSources.length === 0 && <span style={{ fontSize: 12, color: T.muted3 }}>(ingen ledige)</span>}
               </div>
-              <div style={{ fontSize: 10.5, color: T.muted, marginTop: 2 }}>… eller opret en ny DAA-udgave:</div>
+              <div style={{ fontSize: 11.5, color: T.muted, marginTop: 2 }}>… eller opret en ny DAA-udgave:</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                <input placeholder="Titel" value={nyUdgave.titel} onChange={(e) => setNyUdgave((u) => ({ ...u!, titel: e.target.value }))} style={{ fontSize: 11.5, padding: '5px 8px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6, background: '#fff', color: '#3d382f', outline: 'none', flex: 1, minWidth: 120 }} />
-                <input placeholder="Udgave (DAA 1982-84)" value={nyUdgave.udgave} onChange={(e) => setNyUdgave((u) => ({ ...u!, udgave: e.target.value }))} style={{ fontSize: 11.5, padding: '5px 8px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6, background: '#fff', color: '#3d382f', outline: 'none', width: 150 }} />
-                <input placeholder="År" value={nyUdgave.aar} onChange={(e) => setNyUdgave((u) => ({ ...u!, aar: e.target.value }))} style={{ fontSize: 11.5, padding: '5px 8px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6, background: '#fff', color: '#3d382f', outline: 'none', width: 64 }} />
-                <div onClick={opretUdgave} style={{ fontSize: 11.5, fontWeight: 600, color: T.paper, background: T.green, borderRadius: 6, padding: '6px 11px', cursor: 'pointer' }}>Opret</div>
+                <input placeholder="Titel" value={nyUdgave.titel} onChange={(e) => setNyUdgave((u) => ({ ...u!, titel: e.target.value }))} style={{ fontSize: 12.5, padding: '5px 8px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6, background: '#fff', color: '#3d382f', outline: 'none', flex: 1, minWidth: 120 }} />
+                <input placeholder="Udgave (DAA 1982-84)" value={nyUdgave.udgave} onChange={(e) => setNyUdgave((u) => ({ ...u!, udgave: e.target.value }))} style={{ fontSize: 12.5, padding: '5px 8px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6, background: '#fff', color: '#3d382f', outline: 'none', width: 150 }} />
+                <input placeholder="År" value={nyUdgave.aar} onChange={(e) => setNyUdgave((u) => ({ ...u!, aar: e.target.value }))} style={{ fontSize: 12.5, padding: '5px 8px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6, background: '#fff', color: '#3d382f', outline: 'none', width: 64 }} />
+                <div onClick={opretUdgave} style={{ fontSize: 12.5, fontWeight: 600, color: T.paper, background: T.green, borderRadius: 6, padding: '6px 11px', cursor: 'pointer' }}>Opret</div>
               </div>
             </div>
           )}
 
           <div style={{ marginBottom: 6 }}>
-            <span onClick={() => setMediaPickerOpen(true)} style={{ fontSize: 11.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>🖼 Indsæt billede</span>
+            <span onClick={() => setMediaPickerOpen(true)} style={{ fontSize: 12.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>🖼 Indsæt billede</span>
           </div>
           <textarea ref={narrativTextareaRef} value={narrativUdkast.tekst}
             onChange={(e) => setNarrativUdkast((u) => ({ ...u, tekst: e.target.value }))}
             onSelect={(e) => { narrativSelPos.current = e.currentTarget.selectionStart ?? 0; }}
-            style={{ width: '100%', height: 104, fontSize: 13, lineHeight: 1.55, color: '#3d382f', background: '#fff', border: '1px solid rgba(34,31,26,.16)', borderRadius: 9, padding: '11px 12px', outline: 'none', resize: 'vertical' }} />
+            style={{ width: '100%', height: 104, fontSize: 14, lineHeight: 1.55, color: '#3d382f', background: '#fff', border: '1px solid rgba(34,31,26,.16)', borderRadius: 9, padding: '11px 12px', outline: 'none', resize: 'vertical' }} />
           {/* Passiv forhåndsvisning — viser hvordan [[type:id|tekst]]-links renderes for publikum,
               så redaktøren kan se om en redigering har brudt et eksisterende link. Ikke klikbar
               (undgår at navigere væk fra en igangværende redigering, jf. review 12 fund om
               korrumperbare tokens i den rå textarea). Fanger KUN knækket token-grammatik — et
               syntaktisk gyldigt token der peger på forkert id ser identisk ud med et korrekt. */}
           {!!narrativUdkast.tekst && (
-            <div style={{ marginTop: 8, ...annoBox, fontSize: 11.5, lineHeight: 1.5, color: T.muted }}>
-              <div style={{ fontSize: 9.5, letterSpacing: '.08em', textTransform: 'uppercase', color: T.muted3, marginBottom: 3 }}>Sådan vises det for besøgende</div>
+            <div style={{ marginTop: 8, ...annoBox, fontSize: 12.5, lineHeight: 1.5, color: T.muted }}>
+              <div style={{ fontSize: 10.5, letterSpacing: '.08em', textTransform: 'uppercase', color: T.muted3, marginBottom: 3 }}>Sådan vises det for besøgende</div>
               <NarrativRenderer tekst={narrativUdkast.tekst} onPickPerson={() => {}} linkColor={T.bordeaux} inactiveColor={T.muted2} />
             </div>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 9 }}>
-            <label style={{ fontSize: 11, color: T.muted, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <label style={{ fontSize: 12, color: T.muted, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
               <input type="checkbox" checked={narrativUdkast.privat} onChange={(e) => setNarrativUdkast((u) => ({ ...u, privat: e.target.checked }))} /> privat
             </label>
-            <label style={{ fontSize: 11, color: T.muted, display: 'flex', alignItems: 'center', gap: 5 }}>
-              side <input value={narrativUdkast.side} onChange={(e) => setNarrativUdkast((u) => ({ ...u, side: e.target.value }))} placeholder="fx 209-211" style={{ fontSize: 11, padding: '4px 7px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6, background: '#fff', color: '#3d382f', outline: 'none', width: 78 }} />
+            <label style={{ fontSize: 12, color: T.muted, display: 'flex', alignItems: 'center', gap: 5 }}>
+              side <input value={narrativUdkast.side} onChange={(e) => setNarrativUdkast((u) => ({ ...u, side: e.target.value }))} placeholder="fx 209-211" style={{ fontSize: 12, padding: '4px 7px', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6, background: '#fff', color: '#3d382f', outline: 'none', width: 78 }} />
             </label>
             <div style={{ flex: 1 }} />
-            <div onClick={() => run({ art: 'narrativ', subjektType: subjekt.type, subjektId, vaerdi: narrativUdkast.tekst, payload: { privat: narrativUdkast.privat, sourceId: aktivSourceId, side: narrativUdkast.side.trim() || null } }, 'Narrativ')} style={{ fontSize: 12, fontWeight: 600, color: T.paper, background: T.green, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' }}>Gem narrativ</div>
+            <div onClick={() => run({ art: 'narrativ', subjektType: subjekt.type, subjektId, vaerdi: narrativUdkast.tekst, payload: { privat: narrativUdkast.privat, sourceId: aktivSourceId, side: narrativUdkast.side.trim() || null } }, 'Narrativ')} style={{ fontSize: 13, fontWeight: 600, color: T.paper, background: T.green, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' }}>Gem narrativ</div>
           </div>
         </div>
       </>
@@ -1378,20 +1378,20 @@ export default function Redaktion() {
                       style={{ width: 96, height: 96, borderRadius: 10, background: T.beige,
                         cursor: mayUpload ? 'pointer' : 'default', opacity: m.uploadStatus === 'fjernet' ? .45 : 1,
                         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: T.muted }}>
-                      <span style={{ fontSize: 28 }}>▤</span><span style={{ fontSize: 9 }}>{m.slags || 'dokument'}</span>
+                      <span style={{ fontSize: 28 }}>▤</span><span style={{ fontSize: 10 }}>{m.slags || 'dokument'}</span>
                     </div>
                   )}
-                  <div style={{ fontFamily: T.mono, fontSize: 8, color: T.muted2, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {m.slags}{m.uploadStatus !== 'klar' ? ` · ${m.uploadStatus}` : ''}{m.maaPubliceres ? '' : ' · ej publiceret'}
                   </div>
                   {mayUpload ? (
                     <div style={{ display: 'flex', gap: 8, marginTop: 3 }}>
                       {m.uploadStatus === 'fjernet' ? (
                         <span onClick={() => run({ art: 'genopretMedia', subjektType, subjektId, mediaId: m.id }, 'Genopret billede')}
-                          style={{ fontFamily: T.mono, fontSize: 9, color: T.green, cursor: 'pointer' }}>Genopret</span>
+                          style={{ fontFamily: T.mono, fontSize: 10, color: T.green, cursor: 'pointer' }}>Genopret</span>
                       ) : <>
                         <span onClick={() => m.relationId && run({ art: 'sletRelation', subjektType, subjektId, relationId: m.relationId }, 'Fjern billede')}
-                          style={{ fontFamily: T.mono, fontSize: 9, color: m.relationId ? T.muted : T.muted3, cursor: m.relationId ? 'pointer' : 'default' }}>Fjern</span>
+                          style={{ fontFamily: T.mono, fontSize: 10, color: m.relationId ? T.muted : T.muted3, cursor: m.relationId ? 'pointer' : 'default' }}>Fjern</span>
                       </>}
                     </div>
                   ) : null}
@@ -1399,7 +1399,7 @@ export default function Redaktion() {
               })}
             </div>
           ) : (
-            <div style={{ fontSize: 12, color: T.muted3, marginBottom: 10 }}>Intet materiale endnu.</div>
+            <div style={{ fontSize: 13, color: T.muted3, marginBottom: 10 }}>Intet materiale endnu.</div>
           )}
 
           {mayUpload ? (
@@ -1415,7 +1415,7 @@ export default function Redaktion() {
                 }} />
 
               {!mediaPick ? (
-                <div onClick={() => mediaInputRef.current?.click()} style={{ fontSize: 12, fontWeight: 600, color: T.bordeaux, border: '1px solid rgba(136,26,51,.3)', borderRadius: 7, padding: '8px 13px', display: 'inline-block', cursor: 'pointer' }}>
+                <div onClick={() => mediaInputRef.current?.click()} style={{ fontSize: 13, fontWeight: 600, color: T.bordeaux, border: '1px solid rgba(136,26,51,.3)', borderRadius: 7, padding: '8px 13px', display: 'inline-block', cursor: 'pointer' }}>
                   + Vælg billede
                 </div>
               ) : (
@@ -1425,7 +1425,7 @@ export default function Redaktion() {
                     <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 8 }}>
                       {MEDIA_SLAGS.map((s) => (
                         <span key={s} onClick={() => setMediaForm((f) => ({ ...f, slags: s }))}
-                          style={{ fontFamily: T.mono, fontSize: 10, fontWeight: 600, padding: '4px 8px', borderRadius: 6, cursor: 'pointer', background: mediaForm.slags === s ? T.bordeaux : T.beige, color: mediaForm.slags === s ? T.paperText : T.muted }}>
+                          style={{ fontFamily: T.mono, fontSize: 11, fontWeight: 600, padding: '4px 8px', borderRadius: 6, cursor: 'pointer', background: mediaForm.slags === s ? T.bordeaux : T.beige, color: mediaForm.slags === s ? T.paperText : T.muted }}>
                           {s}
                         </span>
                       ))}
@@ -1439,12 +1439,12 @@ export default function Redaktion() {
                     <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 8 }}>
                       {MEDIA_RETTIGHED_STATUS.map((s) => (
                         <span key={s} onClick={() => setMediaForm((f) => ({ ...f, rettighederStatus: s }))}
-                          style={{ fontFamily: T.mono, fontSize: 9, padding: '4px 7px', borderRadius: 6, cursor: 'pointer', background: mediaForm.rettighederStatus === s ? T.bordeaux : T.beige, color: mediaForm.rettighederStatus === s ? T.paperText : T.muted }}>
+                          style={{ fontFamily: T.mono, fontSize: 10, padding: '4px 7px', borderRadius: 6, cursor: 'pointer', background: mediaForm.rettighederStatus === s ? T.bordeaux : T.beige, color: mediaForm.rettighederStatus === s ? T.paperText : T.muted }}>
                           {s}
                         </span>
                       ))}
                     </div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: T.muted, marginTop: 8 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: T.muted, marginTop: 8 }}>
                       <input type="checkbox" checked={mediaForm.maaPubliceres} onChange={(e) => setMediaForm((f) => ({ ...f, maaPubliceres: e.target.checked }))} />
                       Må publiceres (rettigheder afklaret)
                     </label>
@@ -1488,7 +1488,7 @@ export default function Redaktion() {
           ) : (
             // Upload kan ikke degradere til red_suggest (forslags-laget ejer ingen fil-bytes at
             // pege på) — modsat tekst-redigering vises knappen derfor slet ikke for ikke-redaktion.
-            <div style={{ fontSize: 11.5, color: T.muted3 }}>Kun redaktion kan tilføje materiale.</div>
+            <div style={{ fontSize: 12.5, color: T.muted3 }}>Kun redaktion kan tilføje materiale.</div>
           )}
         </div>
         {mediaLightbox != null && (
@@ -1657,21 +1657,21 @@ export default function Redaktion() {
     return (
       <div key={ek} style={{ background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, marginBottom: 9, overflow: 'hidden' }}>
         <div onClick={() => setExpanded((s) => ({ ...s, [ek]: !s[ek] }))} style={{ display: 'flex', alignItems: 'center', gap: 13, padding: '12px 15px', cursor: 'pointer' }}>
-          <span style={{ flex: 'none', width: 78, fontFamily: T.mono, fontSize: 9.5, textTransform: 'uppercase', color: T.muted2 }}>{label}</span>
+          <span style={{ flex: 'none', width: 78, fontFamily: T.mono, fontSize: 10.5, textTransform: 'uppercase', color: T.muted2 }}>{label}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontFamily: T.serif, fontSize: 19, fontWeight: 600, lineHeight: 1.1 }}>{konk?.vaerdi || '—'}</div>
-            <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>⮡ {konk ? kildeAf(konk) : 'ingen oplysninger'}</div>
+            <div style={{ fontFamily: T.mono, fontSize: 10, color: T.muted2, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>⮡ {konk ? kildeAf(konk) : 'ingen oplysninger'}</div>
           </div>
-          {f.uenig && <span style={{ fontFamily: T.mono, fontSize: 8, textTransform: 'uppercase', color: T.red, background: '#f2dede', borderRadius: 5, padding: '3px 7px' }}>uenige kilder</span>}
-          <span style={{ fontFamily: T.mono, fontSize: 9, color: T.muted, background: T.beige, borderRadius: 5, padding: '3px 7px' }}>{f.oplysninger.length} {f.oplysninger.length === 1 ? 'oplysning' : 'oplysninger'}</span>
-          <span style={{ color: '#bcae93', fontSize: 11 }}>{open ? '▾' : '▸'}</span>
+          {f.uenig && <span style={{ fontFamily: T.mono, fontSize: 9, textTransform: 'uppercase', color: T.red, background: '#f2dede', borderRadius: 5, padding: '3px 7px' }}>uenige kilder</span>}
+          <span style={{ fontFamily: T.mono, fontSize: 10, color: T.muted, background: T.beige, borderRadius: 5, padding: '3px 7px' }}>{f.oplysninger.length} {f.oplysninger.length === 1 ? 'oplysning' : 'oplysninger'}</span>
+          <span style={{ color: '#bcae93', fontSize: 12 }}>{open ? '▾' : '▸'}</span>
         </div>
         {open && (
           <div style={{ padding: '2px 15px 14px' }}>
             {f.oplysninger.map((o) => renderOplysning(pid, f, o))}
             {f.factId > 0 && (addingFact === f.factId ? (
               <div style={{ background: T.paper, border: '1px solid rgba(34,31,26,.16)', borderRadius: 10, padding: 12, marginTop: 3 }}>
-                <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux, marginBottom: 8 }}>Ny oplysning</div>
+                <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux, marginBottom: 8 }}>Ny oplysning</div>
                 <input value={sc('add:' + f.factId + ':v')} onChange={(e) => setSc('add:' + f.factId + ':v', e.target.value)} placeholder="Værdi" style={inp} />
                 <input value={sc('add:' + f.factId + ':src')} onChange={(e) => setSc('add:' + f.factId + ':src', e.target.value)} placeholder="Kildeangivelse — kilde, side/linje/nr" style={{ ...inp, marginTop: 7 }} />
                 <div style={{ display: 'flex', gap: 8, marginTop: 9 }}>
@@ -1680,13 +1680,13 @@ export default function Redaktion() {
                 </div>
               </div>
             ) : (
-              <div onClick={() => setAddingFact(f.factId)} style={{ fontSize: 12, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', padding: '4px 2px' }}>+ Tilføj oplysning</div>
+              <div onClick={() => setAddingFact(f.factId)} style={{ fontSize: 13, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', padding: '4px 2px' }}>+ Tilføj oplysning</div>
             ))}
             {/* Feltet har INTET fact endnu (factId er -1-placeholderen) — "+ Tilføj oplysning"
                 ovenfor kræver en eksisterende factId, så her opretter vi det allerførste fact. */}
             {f.factId <= 0 && (addingNyFelt?.pid === pid && addingNyFelt?.felt === f.felt ? (
               <div style={{ background: T.paper, border: '1px solid rgba(34,31,26,.16)', borderRadius: 10, padding: 12, marginTop: 3 }}>
-                <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux, marginBottom: 8 }}>Ny oplysning</div>
+                <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux, marginBottom: 8 }}>Ny oplysning</div>
                 <input value={sc('ny:' + pid + ':' + f.felt + ':v')} onChange={(e) => setSc('ny:' + pid + ':' + f.felt + ':v', e.target.value)} placeholder="Værdi" style={inp} />
                 <input value={sc('ny:' + pid + ':' + f.felt + ':src')} onChange={(e) => setSc('ny:' + pid + ':' + f.felt + ':src', e.target.value)} placeholder="Kildeangivelse — kilde, side/linje/nr" style={{ ...inp, marginTop: 7 }} />
                 <div style={{ display: 'flex', gap: 8, marginTop: 9 }}>
@@ -1695,7 +1695,7 @@ export default function Redaktion() {
                 </div>
               </div>
             ) : (
-              <div onClick={() => setAddingNyFelt({ pid, felt: f.felt })} style={{ fontSize: 12, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', padding: '4px 2px' }}>+ Tilføj oplysning</div>
+              <div onClick={() => setAddingNyFelt({ pid, felt: f.felt })} style={{ fontSize: 13, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', padding: '4px 2px' }}>+ Tilføj oplysning</div>
             ))}
           </div>
         )}
@@ -1713,12 +1713,12 @@ export default function Redaktion() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                 <span style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 600 }}>{o.vaerdi || '—'}</span>
-                <span style={{ fontFamily: T.mono, fontSize: 8, textTransform: 'uppercase', color: o.erKonklusion ? T.green : T.muted2 }}>{o.erKonklusion ? 'konklusion' : 'oplysning'}</span>
+                <span style={{ fontFamily: T.mono, fontSize: 9, textTransform: 'uppercase', color: o.erKonklusion ? T.green : T.muted2 }}>{o.erKonklusion ? 'konklusion' : 'oplysning'}</span>
               </div>
-              <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>§ {kildeAf(o)}</div>
+              <div style={{ fontSize: 13, color: T.muted, marginTop: 3 }}>§ {kildeAf(o)}</div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-              {!o.erKonklusion && <div onClick={() => run({ art: 'setKonklusion', subjektType: 'person', subjektId: pid, assertionId: String(o.assertionId) }, 'Konklusion')} style={{ fontSize: 11, fontWeight: 600, color: T.green, border: '1px solid rgba(31,91,58,.4)', borderRadius: 7, padding: '6px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Gør til konklusion</div>}
+              {!o.erKonklusion && <div onClick={() => run({ art: 'setKonklusion', subjektType: 'person', subjektId: pid, assertionId: String(o.assertionId) }, 'Konklusion')} style={{ fontSize: 12, fontWeight: 600, color: T.green, border: '1px solid rgba(31,91,58,.4)', borderRadius: 7, padding: '6px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Gør til konklusion</div>}
               <div style={{ display: 'flex', gap: 4 }}>
                 <span onClick={() => { setEditingAssert(o.assertionId); setAddingFact(null); setSc('ed:' + o.assertionId + ':v', o.vaerdi); setSc('ed:' + o.assertionId + ':src', kildeAf(o) === 'ingen kilde' ? '' : kildeAf(o)); }} title="Redigér" style={iconBtn}>✎</span>
                 <span onClick={() => run({ art: 'sletOplysning', subjektType: 'person', subjektId: pid, assertionId: String(o.assertionId) }, 'Slet oplysning')} title="Slet" style={{ ...iconBtn, border: '1px solid rgba(138,43,43,.3)', color: T.red }}>🗑</span>
@@ -1727,7 +1727,7 @@ export default function Redaktion() {
           </>
         ) : (
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux, marginBottom: 7 }}>Redigér oplysning</div>
+            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux, marginBottom: 7 }}>Redigér oplysning</div>
             <input value={sc('ed:' + o.assertionId + ':v', o.vaerdi)} onChange={(e) => setSc('ed:' + o.assertionId + ':v', e.target.value)} placeholder="Værdi" style={inp} />
             <input value={sc('ed:' + o.assertionId + ':src')} onChange={(e) => setSc('ed:' + o.assertionId + ':src', e.target.value)} placeholder="Kildeangivelse" style={{ ...inp, marginTop: 7 }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 9 }}>
@@ -1748,14 +1748,14 @@ export default function Redaktion() {
     const godser = (relationer ?? []).filter((r) => r.art === 'gods');
     const subHeader = (label: string, onAdd: () => void, addLabel: string, mt = 0) => (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7, marginTop: mt }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: T.muted }}>{label}</span>
-        <span onClick={onAdd} style={{ fontSize: 11, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>{addLabel}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: T.muted }}>{label}</span>
+        <span onClick={onAdd} style={{ fontSize: 12, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>{addLabel}</span>
       </div>
     );
     const konfidensChips = (current: string | null, onChange: (k: string) => void) => (
       <div style={{ display: 'flex', gap: 3, flex: 'none' }}>
         {KONF.map((k) => (
-          <span key={k} onClick={() => onChange(k)} title={k} style={{ fontFamily: T.mono, fontSize: 8, fontWeight: 600, padding: '3px 5px', borderRadius: 5, cursor: 'pointer', background: current === k ? T.bordeaux : T.beige, color: current === k ? T.paperText : T.muted }}>{k.slice(0, 3)}</span>
+          <span key={k} onClick={() => onChange(k)} title={k} style={{ fontFamily: T.mono, fontSize: 9, fontWeight: 600, padding: '3px 5px', borderRadius: 5, cursor: 'pointer', background: current === k ? T.bordeaux : T.beige, color: current === k ? T.paperText : T.muted }}>{k.slice(0, 3)}</span>
         ))}
       </div>
     );
@@ -1766,25 +1766,25 @@ export default function Redaktion() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 10, padding: '8px 11px', marginBottom: 6 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div onClick={onOpen} title={onOpen ? 'Åbn person' : undefined}
-            style={{ fontFamily: T.serif, fontSize: 15, fontWeight: 600, lineHeight: 1.05, cursor: onOpen ? 'pointer' : 'default', color: onOpen ? T.bordeaux : undefined, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            {navn}{onOpen && <span style={{ fontSize: 10, opacity: .55 }}>↗</span>}
+            style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, lineHeight: 1.05, cursor: onOpen ? 'pointer' : 'default', color: onOpen ? T.bordeaux : undefined, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            {navn}{onOpen && <span style={{ fontSize: 11, opacity: .55 }}>↗</span>}
           </div>
-          {meta && <div style={{ fontFamily: T.mono, fontSize: 8.5, color: T.muted2, marginTop: 1 }}>{meta}</div>}
+          {meta && <div style={{ fontFamily: T.mono, fontSize: 9.5, color: T.muted2, marginTop: 1 }}>{meta}</div>}
         </div>
         {extra}
-        <span onClick={onRemove} title="Fjern" style={{ color: '#bcae93', fontSize: 13, cursor: 'pointer', flex: 'none' }}>✕</span>
+        <span onClick={onRemove} title="Fjern" style={{ color: '#bcae93', fontSize: 14, cursor: 'pointer', flex: 'none' }}>✕</span>
       </div>
     );
     return (
       <>
         <div style={sectionHeader(26)}>Familie</div>
         <div style={{ background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: '14px 15px' }}>
-          {!familie ? <div style={{ fontSize: 12.5, color: T.muted3 }}>Henter familie…</div> : (
+          {!familie ? <div style={{ fontSize: 13.5, color: T.muted3 }}>Henter familie…</div> : (
             <>
               {familie.somPartner.map((u) => (
                 <div key={u.familyId} style={{ marginBottom: 13 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: T.muted }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: T.muted }}>
                       {u.type || 'partnerskab'} ·{' '}
                       {u.partnere.length ? u.partnere.map((p, idx) => (
                         <span key={p.personId}>
@@ -1794,14 +1794,14 @@ export default function Redaktion() {
                         </span>
                       )) : '(ukendt partner)'}
                     </span>
-                    <span onClick={() => setPicker({ kind: 'barn', familyId: u.familyId })} style={{ fontSize: 11, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>+ Tilføj barn</span>
+                    <span onClick={() => setPicker({ kind: 'barn', familyId: u.familyId })} style={{ fontSize: 12, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>+ Tilføj barn</span>
                   </div>
                   {u.boern.map((b, i) => {
                     const opOrdinal = nudgeOrdinal(u.boern, i, 'op');
                     const nedOrdinal = nudgeOrdinal(u.boern, i, 'ned');
                     const pil = (retning: '↑' | '↓', ordinal: number | null, titel: string) => (
                       <span key={retning} onClick={ordinal == null ? undefined : () => run({ art: 'setFamilieOrdinal', subjektType: 'person', subjektId: pid, familyId: u.familyId, personId: b.personId, rolle: b.rolle, ordinal }, titel)}
-                        style={{ fontSize: 12, cursor: ordinal == null ? 'default' : 'pointer', color: ordinal == null ? T.muted3 : T.muted, padding: '0 2px' }}>{retning}</span>
+                        style={{ fontSize: 13, cursor: ordinal == null ? 'default' : 'pointer', color: ordinal == null ? T.muted3 : T.muted, padding: '0 2px' }}>{retning}</span>
                     );
                     return linkRow(b.navn, [b.rolle, b.aar].filter(Boolean).join(' · '), () => run({ art: 'sletFamilieLink', subjektType: 'person', subjektId: pid, familyId: u.familyId, personId: b.personId, rolle: b.rolle }, 'Fjern barn'),
                       <>
@@ -1809,16 +1809,16 @@ export default function Redaktion() {
                         {pil('↓', nedOrdinal, 'Flyt ned')}
                         {konfidensChips(b.konfidens, (k) => run({ art: 'setFamilieKonfidens', subjektType: 'person', subjektId: pid, familyId: u.familyId, personId: b.personId, rolle: b.rolle, konfidens: k }, 'Konfidens'))}
                         <span onClick={() => setFlytBarn({ fraFamilyId: u.familyId, personId: b.personId, rolle: b.rolle, navn: b.navn })}
-                          style={{ fontFamily: T.mono, fontSize: 9, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>flyt→</span>
+                          style={{ fontFamily: T.mono, fontSize: 10, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>flyt→</span>
                       </>,
                       () => openRecord('person', b.personId));
                   })}
                 </div>
               ))}
               {familie.somBarn.map((sb, i) => (
-                <div key={sb.familyId + i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 12.5 }}>
-                  <span style={{ fontFamily: T.mono, fontSize: 8.5, letterSpacing: '.08em', textTransform: 'uppercase', color: T.gold }}>Barn af</span>
-                  <span style={{ fontFamily: T.serif, fontSize: 15, fontWeight: 600 }}>
+                <div key={sb.familyId + i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 13.5 }}>
+                  <span style={{ fontFamily: T.mono, fontSize: 9.5, letterSpacing: '.08em', textTransform: 'uppercase', color: T.gold }}>Barn af</span>
+                  <span style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600 }}>
                     {sb.foraeldre.length ? sb.foraeldre.map((f, j) => (
                       <span key={f.personId}>
                         <span onClick={() => openRecord('person', f.personId)} title="Åbn person" style={{ color: T.bordeaux, cursor: 'pointer' }}>{f.navn}</span>
@@ -1826,28 +1826,28 @@ export default function Redaktion() {
                       </span>
                     )) : '(ukendt)'}
                   </span>
-                  <span style={{ fontFamily: T.mono, fontSize: 8.5, color: T.muted2 }}>{sb.rolle}{sb.konfidens ? ` · ${sb.konfidens}` : ''}</span>
+                  <span style={{ fontFamily: T.mono, fontSize: 9.5, color: T.muted2 }}>{sb.rolle}{sb.konfidens ? ` · ${sb.konfidens}` : ''}</span>
                 </div>
               ))}
-              <div onClick={() => setPicker({ kind: 'partner' })} style={{ fontSize: 12, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', marginTop: 6 }}>+ Nyt partnerskab</div>
+              <div onClick={() => setPicker({ kind: 'partner' })} style={{ fontSize: 13, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', marginTop: 6 }}>+ Nyt partnerskab</div>
             </>
           )}
         </div>
 
         <div style={sectionHeader(24)}>Embeder & godser</div>
         <div style={{ background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: '14px 15px' }}>
-          {!relationer ? <div style={{ fontSize: 12.5, color: T.muted3 }}>Henter relationer…</div> : (
+          {!relationer ? <div style={{ fontSize: 13.5, color: T.muted3 }}>Henter relationer…</div> : (
             <>
               {subHeader('Embeder, rang & hverv', () => setPicker({ kind: 'hverv' }), '+ Tilføj hverv')}
-              {hverv.length ? hverv.map((r) => linkRow(r.navn, [r.rolle, r.periode].filter(Boolean).join(' · '), () => run({ art: 'sletRelation', subjektType: 'person', subjektId: pid, relationId: String(r.relationId) }, 'Fjern hverv'))) : <div style={{ fontSize: 11.5, color: T.muted3, marginBottom: 8 }}>Ingen hverv.</div>}
+              {hverv.length ? hverv.map((r) => linkRow(r.navn, [r.rolle, r.periode].filter(Boolean).join(' · '), () => run({ art: 'sletRelation', subjektType: 'person', subjektId: pid, relationId: String(r.relationId) }, 'Fjern hverv'))) : <div style={{ fontSize: 12.5, color: T.muted3, marginBottom: 8 }}>Ingen hverv.</div>}
               {subHeader('Godser & besiddelser', () => setPicker({ kind: 'gods' }), '+ Tilføj gods', 10)}
-              {godser.length ? godser.map((r) => linkRow(r.navn, [r.rolle, r.periode].filter(Boolean).join(' · '), () => run({ art: 'sletRelation', subjektType: 'person', subjektId: pid, relationId: String(r.relationId) }, 'Fjern gods'))) : <div style={{ fontSize: 11.5, color: T.muted3 }}>Ingen godser.</div>}
+              {godser.length ? godser.map((r) => linkRow(r.navn, [r.rolle, r.periode].filter(Boolean).join(' · '), () => run({ art: 'sletRelation', subjektType: 'person', subjektId: pid, relationId: String(r.relationId) }, 'Fjern gods'))) : <div style={{ fontSize: 12.5, color: T.muted3 }}>Ingen godser.</div>}
               {subHeader('Samme person', () => setPicker({ kind: 'sammeSom' }), '+ Marker som samme person', 10)}
               {sammeSom.length ? sammeSom.map((l) => linkRow(
                 persons.find((p) => p.id === l.modpartId)?.navn ?? `#${l.modpartId}`,
                 l.retning === 'alias' ? 'denne foldes ind i' : 'foldes ind i denne',
                 () => run({ art: 'fjernSammeSom', subjektType: 'person', subjektId: pid, relationId: l.relationId }, 'Fjern samme-person-link'),
-              )) : <div style={{ fontSize: 11.5, color: T.muted3 }}>Ingen identitets-links.</div>}
+              )) : <div style={{ fontSize: 12.5, color: T.muted3 }}>Ingen identitets-links.</div>}
             </>
           )}
         </div>
@@ -1890,14 +1890,14 @@ export default function Redaktion() {
           <div data-scroll style={{ flex: 1, overflowY: 'auto', padding: '0 10px 12px' }}>
             {items.map((it) => (
               <div key={it.id} onClick={() => onPick(it.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 9px', borderRadius: 9, cursor: 'pointer' }}>
-                <span style={{ width: 28, height: 28, borderRadius: isPerson ? '50%' : 7, background: T.beige, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 11, fontWeight: 600, color: T.bordeaux }}>{isPerson ? initials(it.label) : '⌂'}</span>
+                <span style={{ width: 28, height: 28, borderRadius: isPerson ? '50%' : 7, background: T.beige, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 12, fontWeight: 600, color: T.bordeaux }}>{isPerson ? initials(it.label) : '⌂'}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: T.serif, fontSize: 15, fontWeight: 600, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.label}</div>
-                  <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2 }}>{it.sub}</div>
+                  <div style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.label}</div>
+                  <div style={{ fontFamily: T.mono, fontSize: 10, color: T.muted2 }}>{it.sub}</div>
                 </div>
               </div>
             ))}
-            {!items.length && <div style={{ padding: '18px 10px', textAlign: 'center', fontSize: 12.5, color: T.muted3 }}>Ingen træffere.</div>}
+            {!items.length && <div style={{ padding: '18px 10px', textAlign: 'center', fontSize: 13.5, color: T.muted3 }}>Ingen træffere.</div>}
           </div>
         </div>
       </div>
@@ -1938,10 +1938,10 @@ export default function Redaktion() {
               run({ art: 'tilknytMedia', subjektType: 'media', subjektId: mediaTilknytPicker.mediaId, mediaId: mediaTilknytPicker.mediaId, payload: { maalType, maalId: it.id } }, 'Tilknyt medie');
               luk();
             }} style={{ padding: '9px 10px', borderRadius: 8, cursor: 'pointer' }}>
-              <div style={{ fontFamily: T.serif, fontSize: 15, fontWeight: 600 }}>{it.label}</div>
-              <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2 }}>{it.sub}</div>
+              <div style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600 }}>{it.label}</div>
+              <div style={{ fontFamily: T.mono, fontSize: 10, color: T.muted2 }}>{it.sub}</div>
             </div>)}
-            {!synlige.length && <div style={{ padding: '18px 10px', textAlign: 'center', fontSize: 12.5, color: T.muted3 }}>Ingen træffere.</div>}
+            {!synlige.length && <div style={{ padding: '18px 10px', textAlign: 'center', fontSize: 13.5, color: T.muted3 }}>Ingen træffere.</div>}
           </div>
         </div>
       </div>
@@ -2028,20 +2028,20 @@ export default function Redaktion() {
                   : decision.kind === 'fjernet' ? 'Billedet ligger i papirkurven'
                   : decision.kind === 'kladde' ? 'Afbrudt upload fundet' : 'Eksisterende billede fundet'}
               </div>
-              <div style={{ fontSize: 12.5, color: T.muted, marginTop: 3 }}>{existing.titel || '(uden titel)'}</div>
+              <div style={{ fontSize: 13.5, color: T.muted, marginTop: 3 }}>{existing.titel || '(uden titel)'}</div>
             </div>
           </div>
 
           {decision.kind === 'klar-link' ? (
             <>
-              {decision.alreadyLinked && <div style={{ fontSize: 12.5, color: T.muted, lineHeight: 1.5, marginBottom: 9 }}>Tilknytningen blev fundet ved pre-flight og kontrolleres igen ved handlingen.</div>}
+              {decision.alreadyLinked && <div style={{ fontSize: 13.5, color: T.muted, lineHeight: 1.5, marginBottom: 9 }}>Tilknytningen blev fundet ved pre-flight og kontrolleres igen ved handlingen.</div>}
               <div onClick={mediaBusy ? undefined : tilknyt} style={btnGreen}>{mediaBusy ? 'Behandler…' : decision.alreadyLinked
                 ? `Sikr tilknytning til ${subjektLabel || 'dette subjekt'}`
                 : `Tilknyt til ${subjektLabel || 'dette subjekt'} i stedet`}</div>
             </>
           ) : decision.kind === 'fjernet' ? (
             <>
-              <div style={{ fontSize: 12.5, color: T.muted, lineHeight: 1.5, marginBottom: 11 }}>
+              <div style={{ fontSize: 13.5, color: T.muted, lineHeight: 1.5, marginBottom: 11 }}>
                 Mediet skal genoprettes fra filsiden. Upload-arket genopretter det ikke automatisk.
               </div>
               <a href={decision.route} onClick={(e) => { e.preventDefault(); afslut(); navigate(decision.route); }}
@@ -2049,13 +2049,13 @@ export default function Redaktion() {
             </>
           ) : decision.kind === 'kladde' ? (
             <>
-              <div style={{ fontSize: 12.5, color: T.muted, lineHeight: 1.5, marginBottom: 11 }}>
+              <div style={{ fontSize: 13.5, color: T.muted, lineHeight: 1.5, marginBottom: 11 }}>
                 Uploaden blev afbrudt. De indholdsadresserede filer genbruges, og den eksisterende mediepost færdiggøres.
               </div>
               <div onClick={mediaBusy ? undefined : genoptag} style={btnGreen}>{mediaBusy ? 'Behandler…' : 'Færdiggør afbrudt upload'}</div>
             </>
           ) : (
-            <div style={{ fontSize: 12.5, color: T.red }}>Mediets status “{existing.uploadStatus}” kan ikke håndteres fra upload-arket.</div>
+            <div style={{ fontSize: 13.5, color: T.red }}>Mediets status “{existing.uploadStatus}” kan ikke håndteres fra upload-arket.</div>
           )}
           <div onClick={luk} style={{ ...btnGhost, display: 'inline-block', marginTop: 9 }}>Tilbage</div>
         </div>
@@ -2078,10 +2078,10 @@ export default function Redaktion() {
               <div key={m.id} onClick={() => { insertNarrativToken(makeToken('media', Number(m.id), m.titel ?? '')); setMediaPickerOpen(false); }}
                 style={{ width: 100, cursor: 'pointer' }}>
                 <img src={m.thumbUrl!} style={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 8, background: T.beige, display: 'block' }} />
-                {m.titel && <div style={{ fontSize: 10, color: T.muted, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.titel}</div>}
+                {m.titel && <div style={{ fontSize: 11, color: T.muted, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.titel}</div>}
               </div>
             ))}
-            {!brugbar.length && <div style={{ padding: '18px 4px', fontSize: 12.5, color: T.muted3 }}>Ingen billeder uploadet endnu.</div>}
+            {!brugbar.length && <div style={{ padding: '18px 4px', fontSize: 13.5, color: T.muted3 }}>Ingen billeder uploadet endnu.</div>}
           </div>
         </div>
       </div>
@@ -2107,21 +2107,21 @@ export default function Redaktion() {
       <div onClick={() => setSsConfirm(null)} style={overlay(96)}>
         <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: '100%', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: 20 }}>
           <div style={{ fontFamily: T.serif, fontSize: 19, fontWeight: 600, marginBottom: 14 }}>Samme person</div>
-          <div style={{ fontFamily: T.mono, fontSize: 9, color: T.gold, marginBottom: 3 }}>KANONISK (beholdes)</div>
-          <div style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, marginBottom: 10 }}>{kanonisk.navn}</div>
-          <div style={{ fontFamily: T.mono, fontSize: 9, color: T.gold, marginBottom: 3 }}>FOLDES IND I OVENSTÅENDE</div>
-          <div style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, marginBottom: 12 }}>{alias.navn}</div>
+          <div style={{ fontFamily: T.mono, fontSize: 10, color: T.gold, marginBottom: 3 }}>KANONISK (beholdes)</div>
+          <div style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 600, marginBottom: 10 }}>{kanonisk.navn}</div>
+          <div style={{ fontFamily: T.mono, fontSize: 10, color: T.gold, marginBottom: 3 }}>FOLDES IND I OVENSTÅENDE</div>
+          <div style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 600, marginBottom: 12 }}>{alias.navn}</div>
           <div onClick={() => setSsConfirm({ ...ssConfirm, kanoniskId: ssConfirm.kanoniskId === sid ? ssConfirm.personId : sid })}
-            style={{ fontFamily: T.mono, fontSize: 11, color: T.bordeaux, cursor: 'pointer', marginBottom: 12 }}>⇅ Byt retning</div>
+            style={{ fontFamily: T.mono, fontSize: 12, color: T.bordeaux, cursor: 'pointer', marginBottom: 12 }}>⇅ Byt retning</div>
           {!preview.folder ? (
-            <div style={{ fontSize: 11.5, color: T.bordeaux, marginBottom: 12, lineHeight: 1.4 }}>
+            <div style={{ fontSize: 12.5, color: T.bordeaux, marginBottom: 12, lineHeight: 1.4 }}>
               ⚠ Foldes ikke endnu — {preview.grund}. Linket oprettes, men personerne vises separat til konflikten er løst. (redaktionel projektion — offentlig visning kan afvige)
             </div>
           ) : null}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <div onClick={() => setSsConfirm(null)} style={{ padding: '9px 16px', borderRadius: 9, background: T.beige, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Annullér</div>
+            <div onClick={() => setSsConfirm(null)} style={{ padding: '9px 16px', borderRadius: 9, background: T.beige, cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>Annullér</div>
             <div onClick={() => { run({ art: 'sammeSom', subjektType: 'person', subjektId: sid, payload: { aliasId: alias.id, objektId: kanonisk.id } }, 'Marker som samme person'); setSsConfirm(null); }}
-              style={{ padding: '9px 16px', borderRadius: 9, background: T.bordeaux, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Gem</div>
+              style={{ padding: '9px 16px', borderRadius: 9, background: T.bordeaux, color: '#fff', cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>Gem</div>
           </div>
         </div>
       </div>
@@ -2142,18 +2142,18 @@ export default function Redaktion() {
         <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: '100%', maxHeight: '70vh', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ padding: '16px 18px 12px' }}>
             <div style={{ fontFamily: T.serif, fontSize: 19, fontWeight: 600, marginBottom: 4 }}>Flyt {flytBarn.navn} til…</div>
-            <div style={{ fontSize: 11.5, color: T.muted2 }}>Kun personens egne andre forhold — ikke en fri søgning.</div>
+            <div style={{ fontSize: 12.5, color: T.muted2 }}>Kun personens egne andre forhold — ikke en fri søgning.</div>
           </div>
           <div data-scroll style={{ flex: 1, overflowY: 'auto', padding: '0 10px 12px' }}>
             {andre.map((u) => (
               <div key={u.familyId} onClick={() => onVael(u.familyId)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 9px', borderRadius: 9, cursor: 'pointer' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: T.serif, fontSize: 15, fontWeight: 600, lineHeight: 1.05 }}>{u.partnere.map((p) => p.navn).join(' & ') || '(ukendt partner)'}</div>
-                  <div style={{ fontFamily: T.mono, fontSize: 9, color: T.muted2 }}>{u.type}</div>
+                  <div style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, lineHeight: 1.05 }}>{u.partnere.map((p) => p.navn).join(' & ') || '(ukendt partner)'}</div>
+                  <div style={{ fontFamily: T.mono, fontSize: 10, color: T.muted2 }}>{u.type}</div>
                 </div>
               </div>
             ))}
-            {!andre.length && <div style={{ padding: '18px 10px', textAlign: 'center', fontSize: 12.5, color: T.muted3 }}>Personen har ingen andre registrerede forhold.</div>}
+            {!andre.length && <div style={{ padding: '18px 10px', textAlign: 'center', fontSize: 13.5, color: T.muted3 }}>Personen har ingen andre registrerede forhold.</div>}
           </div>
         </div>
       </div>
@@ -2169,17 +2169,17 @@ export default function Redaktion() {
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
           <span style={{ width: 54, height: 54, borderRadius: 12, background: '#f8ecef', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, color: T.bordeaux }}>{ent?.icon}</span>
           <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', color: T.muted2 }}>{ent?.label}</div>
+            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: T.muted2 }}>{ent?.label}</div>
             <div style={{ fontFamily: T.serif, fontSize: 28, fontWeight: 600, lineHeight: 1.05, marginTop: 2 }}>{curRecord.label}</div>
           </div>
         </div>
         {showAnno && (
-          <div style={{ marginTop: 16, ...annoBox, fontSize: 12.5, lineHeight: 1.5, color: '#3d382f' }}>
+          <div style={{ marginTop: 16, ...annoBox, fontSize: 13.5, lineHeight: 1.5, color: '#3d382f' }}>
             Generiske entiteter har endnu ingen direkte skrive-RPC. Ændringer sendes som <b>forslag til staging</b> (red_suggest) og afventer redaktionel godkendelse. Dedikerede red_*-RPC'er er en follow-up.
           </div>
         )}
         <div style={{ marginTop: 18 }}>
-          <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: T.muted, marginBottom: 5 }}>Primær værdi · {db.felt}</label>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: T.muted, marginBottom: 5 }}>Primær værdi · {db.felt}</label>
           <input value={sc('gen:' + entity + ':' + curRecord.id, curRecord.label)} onChange={(e) => setSc('gen:' + entity + ':' + curRecord.id, e.target.value)} style={{ ...inp, background: '#fff' }} />
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
             <div onClick={() => run({ art: 'forslag', subjektType: db.type, subjektId: curRecord.id, felt: db.felt, vaerdi: sc('gen:' + entity + ':' + curRecord.id, curRecord.label) }, 'Forslag')} style={{ ...btnGreen, background: T.bordeaux }}>Foreslå ændring</div>
@@ -2201,12 +2201,12 @@ export default function Redaktion() {
       <div onClick={() => setLogin((l) => ({ ...l, open: false }))} style={overlay(95)}>
         <div onClick={(e) => e.stopPropagation()} style={{ width: 380, maxWidth: '100%', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: '22px 24px 20px' }}>
           <div style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600 }}>Redaktør-login</div>
-          <div style={{ fontSize: 12, color: T.muted, marginTop: 3, marginBottom: 15 }}>Supabase Auth · adgang og skriverettigheder afgøres af din rolle.</div>
+          <div style={{ fontSize: 13, color: T.muted, marginTop: 3, marginBottom: 15 }}>Supabase Auth · adgang og skriverettigheder afgøres af din rolle.</div>
           <label style={lbl}>E-mail</label>
           <input value={login.email} onChange={(e) => setLogin((l) => ({ ...l, email: e.target.value }))} placeholder="redaktion@adelsaarbog.dk" style={{ ...inp, background: '#fff' }} />
           <label style={{ ...lbl, marginTop: 11 }}>Adgangskode</label>
           <input value={login.pw} type="password" onChange={(e) => setLogin((l) => ({ ...l, pw: e.target.value }))} style={{ ...inp, background: '#fff' }} />
-          {login.err && <div style={{ fontSize: 11.5, color: T.red, marginTop: 9 }}>{login.err}</div>}
+          {login.err && <div style={{ fontSize: 12.5, color: T.red, marginTop: 9 }}>{login.err}</div>}
           <div style={{ display: 'flex', gap: 9, marginTop: 16, justifyContent: 'flex-end' }}>
             <div onClick={() => setLogin((l) => ({ ...l, open: false }))} style={btnGhost}>Annullér</div>
             <div onClick={doLogin} style={{ ...btnGreen, background: T.bordeaux }}>{login.busy ? 'Logger ind…' : 'Log ind'}</div>
@@ -2226,22 +2226,22 @@ export default function Redaktion() {
             <span style={{ width: 42, height: 42, borderRadius: '50%', background: '#f2dede', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, color: T.red }}>⚠</span>
             <div style={{ flex: 1 }}>
               <div style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600, lineHeight: 1.1 }}>Slet person?</div>
-              <div style={{ fontSize: 13, lineHeight: 1.5, color: '#3d382f', marginTop: 5 }}>Du er ved at slette <b>{confirmDel.label}</b>. Posten fjernes permanent fra basen.</div>
+              <div style={{ fontSize: 14, lineHeight: 1.5, color: '#3d382f', marginTop: 5 }}>Du er ved at slette <b>{confirmDel.label}</b>. Posten fjernes permanent fra basen.</div>
             </div>
           </div>
           <div style={{ margin: '0 22px', background: '#f8ecef', border: '1px solid rgba(138,43,43,.25)', borderRadius: 11, padding: '13px 15px' }}>
-            <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.red, marginBottom: 6 }}>Relationer der brydes</div>
-            <div style={{ fontSize: 12.5, lineHeight: 1.5, color: '#3d382f' }}>{pv ? `${pv.antalRelationer} relation(er) og ${pv.antalFacts} fakta knyttet til personen.` : 'Henter relations-overblik…'}</div>
+            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.red, marginBottom: 6 }}>Relationer der brydes</div>
+            <div style={{ fontSize: 13.5, lineHeight: 1.5, color: '#3d382f' }}>{pv ? `${pv.antalRelationer} relation(er) og ${pv.antalFacts} fakta knyttet til personen.` : 'Henter relations-overblik…'}</div>
           </div>
           <div style={{ padding: '16px 22px 4px' }}>
             <label onClick={() => setConfirmDel((c) => c && { ...c, ack: !c.ack })} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-              <span style={{ width: 18, height: 18, borderRadius: 5, border: `1.5px solid ${confirmDel.ack ? T.red : 'rgba(34,31,26,.3)'}`, background: confirmDel.ack ? T.red : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#fff' }}>{confirmDel.ack ? '✓' : ''}</span>
-              <span style={{ fontSize: 12, color: '#3d382f' }}>Jeg forstår at relationerne brydes</span>
+              <span style={{ width: 18, height: 18, borderRadius: 5, border: `1.5px solid ${confirmDel.ack ? T.red : 'rgba(34,31,26,.3)'}`, background: confirmDel.ack ? T.red : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#fff' }}>{confirmDel.ack ? '✓' : ''}</span>
+              <span style={{ fontSize: 13, color: '#3d382f' }}>Jeg forstår at relationerne brydes</span>
             </label>
           </div>
           <div style={{ display: 'flex', gap: 9, padding: '16px 22px 20px', justifyContent: 'flex-end' }}>
             <div onClick={() => setConfirmDel(null)} style={btnGhost}>Annullér</div>
-            <div onClick={performDelete} style={{ fontSize: 12.5, fontWeight: 600, color: confirmDel.ack ? '#fff' : '#b79c9c', background: confirmDel.ack ? T.red : '#e7d9d9', borderRadius: 9, padding: '10px 16px', cursor: confirmDel.ack ? 'pointer' : 'not-allowed' }}>Slet endeligt</div>
+            <div onClick={performDelete} style={{ fontSize: 13.5, fontWeight: 600, color: confirmDel.ack ? '#fff' : '#b79c9c', background: confirmDel.ack ? T.red : '#e7d9d9', borderRadius: 9, padding: '10px 16px', cursor: confirmDel.ack ? 'pointer' : 'not-allowed' }}>Slet endeligt</div>
           </div>
         </div>
       </div>
@@ -2259,16 +2259,16 @@ export default function Redaktion() {
               <span style={{ width: 9, height: 9, borderRadius: '50%', background: w.error ? '#ff6b6b' : (w.dryRun ? T.goldLight : '#1f8a5b') }} />
               <span style={{ fontFamily: T.serif, fontSize: 21, fontWeight: 600 }}>{w.title}</span>
             </div>
-            <div style={{ fontSize: 12, color: T.muted, marginTop: 5 }}>{w.direkte ? 'Direkte til evidens-/data-tabellerne (red_*-RPC).' : 'Forslag i staging (red_suggest) — afventer redaktionel godkendelse.'}</div>
+            <div style={{ fontSize: 13, color: T.muted, marginTop: 5 }}>{w.direkte ? 'Direkte til evidens-/data-tabellerne (red_*-RPC).' : 'Forslag i staging (red_suggest) — afventer redaktionel godkendelse.'}</div>
           </div>
           <div data-scroll style={{ flex: 1, overflowY: 'auto', padding: '14px 22px' }}>
-            {w.error && <div style={{ fontFamily: T.mono, fontSize: 12, lineHeight: 1.5, color: T.red, whiteSpace: 'pre-wrap' }}>{w.error}</div>}
+            {w.error && <div style={{ fontFamily: T.mono, fontSize: 13, lineHeight: 1.5, color: T.red, whiteSpace: 'pre-wrap' }}>{w.error}</div>}
             {w.lines.map((ln, i) => (
               <div key={i} style={{ background: T.dark, borderRadius: 9, padding: '11px 13px', marginBottom: 9 }}>
-                <pre style={{ margin: 0, fontFamily: T.mono, fontSize: 11, lineHeight: 1.5, color: '#e7e0d2', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{ln}</pre>
+                <pre style={{ margin: 0, fontFamily: T.mono, fontSize: 12, lineHeight: 1.5, color: '#e7e0d2', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{ln}</pre>
               </div>
             ))}
-            {w.done && <div style={{ fontSize: 12.5, color: T.green, fontWeight: 600 }}>✓ Udført.</div>}
+            {w.done && <div style={{ fontSize: 13.5, color: T.green, fontWeight: 600 }}>✓ Udført.</div>}
           </div>
           <div style={{ padding: '14px 22px', borderTop: '1px solid rgba(34,31,26,.1)', display: 'flex', justifyContent: 'flex-end' }}>
             <div onClick={() => setWriteView(null)} style={{ ...btnGreen, background: T.bordeaux }}>Luk</div>
@@ -2280,13 +2280,13 @@ export default function Redaktion() {
 }
 
 // --- delte små stilarter ---
-const inp: React.CSSProperties = { width: '100%', fontSize: 13, color: '#221f1a', background: '#fff', border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 10px', outline: 'none' };
-const lbl: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: '#6f675b', marginBottom: 4 };
-const btnGreen: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#fbf8f1', background: '#1f5b3a', borderRadius: 7, padding: '8px 13px', cursor: 'pointer' };
-const btnGhost: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#6f675b', padding: '8px 10px', cursor: 'pointer' };
-const iconBtn: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 6, border: '1px solid rgba(34,31,26,.16)', color: '#6f675b', fontSize: 12, cursor: 'pointer' };
+const inp: React.CSSProperties = { width: '100%', fontSize: 14, color: '#221f1a', background: '#fff', border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 10px', outline: 'none' };
+const lbl: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: '#6f675b', marginBottom: 4 };
+const btnGreen: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: '#fbf8f1', background: '#1f5b3a', borderRadius: 7, padding: '8px 13px', cursor: 'pointer' };
+const btnGhost: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: '#6f675b', padding: '8px 10px', cursor: 'pointer' };
+const iconBtn: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 6, border: '1px solid rgba(34,31,26,.16)', color: '#6f675b', fontSize: 13, cursor: 'pointer' };
 const overlay = (z: number): React.CSSProperties => ({ position: 'fixed', inset: 0, background: 'rgba(34,27,22,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: z, padding: 24 });
-const sectionHeader = (mt: number): React.CSSProperties => ({ marginTop: mt, fontFamily: T.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: T.gold, marginBottom: 10 });
+const sectionHeader = (mt: number): React.CSSProperties => ({ marginTop: mt, fontFamily: T.mono, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: T.gold, marginBottom: 10 });
 const annoBox: React.CSSProperties = { border: '1px dashed rgba(136,26,51,.4)', borderRadius: 11, padding: '13px 15px', background: '#f8ecef' };
 
 // "Forældre ukendt"-markering (docs/reviews/25): redaktør-kontrol til at markere at KILDEN ikke
@@ -2319,27 +2319,27 @@ function ForaeldreUkendtControl({ personId, run }: { personId: string; run: (c: 
   const gradeLabel = (g: string) => g === GRADE_FORAELDER_UKENDT ? 'Forælder findes, men er ukendt for os' : 'Bogen forbinder ikke personen opad';
   return (
     <div style={{ marginTop: 14, border: `1px solid ${mk ? 'rgba(136,26,51,.25)' : 'rgba(34,31,26,.14)'}`, borderRadius: 11, padding: '12px 14px', background: mk ? '#faf1dc' : T.panel }}>
-      <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', color: T.gold, marginBottom: 8 }}>
+      <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: T.gold, marginBottom: 8 }}>
         Forældre ukendt — kilden forbinder ikke opad
       </div>
       {mk === undefined ? (
-        <div style={{ fontSize: 12, color: T.muted }}>Henter markering…</div>
+        <div style={{ fontSize: 13, color: T.muted }}>Henter markering…</div>
       ) : (
         <>
           {mk && (
-            <div style={{ fontSize: 12.5, color: '#3d382f', marginBottom: 9, lineHeight: 1.45 }}>
+            <div style={{ fontSize: 13.5, color: '#3d382f', marginBottom: 9, lineHeight: 1.45 }}>
               Markeret: <b>{gradeLabel(mk.grade)}</b>{mk.kilde ? <> · kilde: <i>{mk.kilde}</i></> : ''}.
               Personen viser en kandidat-kolonne (forrige slægtled) i stamtræet.
             </div>
           )}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-            <select value={grade} onChange={(e) => setGrade(e.target.value)} style={{ fontFamily: T.sans, fontSize: 12, padding: '6px 8px', borderRadius: 7, border: '1px solid rgba(34,31,26,.18)', background: T.paper, color: T.ink }}>
+            <select value={grade} onChange={(e) => setGrade(e.target.value)} style={{ fontFamily: T.sans, fontSize: 13, padding: '6px 8px', borderRadius: 7, border: '1px solid rgba(34,31,26,.18)', background: T.paper, color: T.ink }}>
               <option value={GRADE_FORAELDER_UKENDT}>Forælder ukendt (findes, men ukendt)</option>
               <option value={GRADE_INGEN_FORBINDELSE}>Ingen forbindelse angivet</option>
             </select>
-            <input value={kilde} onChange={(e) => setKilde(e.target.value)} placeholder="Kilde (fx DAA 1939 s.97)" style={{ flex: 1, minWidth: 160, fontFamily: T.sans, fontSize: 12, padding: '6px 9px', borderRadius: 7, border: '1px solid rgba(34,31,26,.18)', background: T.paper, color: T.ink }} />
-            <div onClick={marker} style={{ fontSize: 12, fontWeight: 600, color: '#fff', background: T.bordeaux, borderRadius: 7, padding: '7px 13px', cursor: 'pointer' }}>{mk ? 'Opdatér' : 'Markér'}</div>
-            {mk && <div onClick={fjern} style={{ fontSize: 12, fontWeight: 600, color: T.red, border: '1px solid rgba(138,43,43,.3)', borderRadius: 7, padding: '6px 12px', cursor: 'pointer' }}>Fjern</div>}
+            <input value={kilde} onChange={(e) => setKilde(e.target.value)} placeholder="Kilde (fx DAA 1939 s.97)" style={{ flex: 1, minWidth: 160, fontFamily: T.sans, fontSize: 13, padding: '6px 9px', borderRadius: 7, border: '1px solid rgba(34,31,26,.18)', background: T.paper, color: T.ink }} />
+            <div onClick={marker} style={{ fontSize: 13, fontWeight: 600, color: '#fff', background: T.bordeaux, borderRadius: 7, padding: '7px 13px', cursor: 'pointer' }}>{mk ? 'Opdatér' : 'Markér'}</div>
+            {mk && <div onClick={fjern} style={{ fontSize: 13, fontWeight: 600, color: T.red, border: '1px solid rgba(138,43,43,.3)', borderRadius: 7, padding: '6px 12px', cursor: 'pointer' }}>Fjern</div>}
           </div>
         </>
       )}
@@ -2386,34 +2386,34 @@ function ForaeldrePaastandeControl({ personId, run, sammeSom }: { personId: stri
   const omstridt = slot?.status === 'omstridt' || (slot?.paastande.length ?? 0) > 1;
   return (
     <div style={{ marginTop: 14, border: `1px solid ${omstridt ? 'rgba(136,26,51,.35)' : 'rgba(34,31,26,.14)'}`, borderRadius: 11, padding: '12px 14px', background: omstridt ? '#faf1dc' : T.panel }}>
-      <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', color: omstridt ? T.bordeaux : T.gold, marginBottom: 8 }}>
+      <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: omstridt ? T.bordeaux : T.gold, marginBottom: 8 }}>
         Forældrefamilie{omstridt ? ' · konkurrerende påstande' : ''}
       </div>
       {(slot?.paastande ?? []).map((pp) => (
         <div key={pp.assertionId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderTop: '1px dashed rgba(34,31,26,.1)' }}>
-          <span style={{ fontFamily: T.mono, fontSize: 9, color: T.muted, background: T.beige, borderRadius: 5, padding: '3px 7px', whiteSpace: 'nowrap' }}>{pp.udgave ?? 'redaktionel'}</span>
-          <div style={{ flex: 1, fontSize: 12.5, color: '#3d382f' }}>
+          <span style={{ fontFamily: T.mono, fontSize: 10, color: T.muted, background: T.beige, borderRadius: 5, padding: '3px 7px', whiteSpace: 'nowrap' }}>{pp.udgave ?? 'redaktionel'}</span>
+          <div style={{ flex: 1, fontSize: 13.5, color: '#3d382f' }}>
             {pp.foraeldre.map((f) => f.navn).join(' & ') || '(ukendt familie)'}
             {pp.side ? <span style={{ color: T.muted2 }}> · {pp.side}</span> : null}
             {pp.valgt ? <span style={{ color: T.bordeaux, fontWeight: 600 }}> · ✓ valgt</span> : null}
           </div>
           {pp.valgt ? null : (
-            <div onClick={() => vaelg(pp.assertionId)} style={{ fontSize: 12, fontWeight: 600, color: '#fff', background: T.bordeaux, borderRadius: 7, padding: '6px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Vælg denne</div>
+            <div onClick={() => vaelg(pp.assertionId)} style={{ fontSize: 13, fontWeight: 600, color: '#fff', background: T.bordeaux, borderRadius: 7, padding: '6px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Vælg denne</div>
           )}
         </div>
       ))}
       {/* §6 trin (a): importér en samme_som-linket persons (anden udgaves) forældre som rival-påstand */}
       {importable.map((r) => (
         <div key={r.fraId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderTop: '1px dashed rgba(34,31,26,.1)' }}>
-          <span style={{ fontFamily: T.mono, fontSize: 9, color: T.gold, background: T.beige, borderRadius: 5, padding: '3px 7px', whiteSpace: 'nowrap' }}>{r.fam.udgave ?? 'anden udgave'}</span>
-          <div style={{ flex: 1, fontSize: 12.5, color: T.muted }}>{r.fam.foraeldre.map((f) => f.navn).join(' & ') || '(ukendt familie)'}</div>
-          <div onClick={() => importer(r.fam)} style={{ fontSize: 12, fontWeight: 600, color: T.bordeaux, border: '1px solid rgba(136,26,51,.3)', borderRadius: 7, padding: '6px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Importér som påstand</div>
+          <span style={{ fontFamily: T.mono, fontSize: 10, color: T.gold, background: T.beige, borderRadius: 5, padding: '3px 7px', whiteSpace: 'nowrap' }}>{r.fam.udgave ?? 'anden udgave'}</span>
+          <div style={{ flex: 1, fontSize: 13.5, color: T.muted }}>{r.fam.foraeldre.map((f) => f.navn).join(' & ') || '(ukendt familie)'}</div>
+          <div onClick={() => importer(r.fam)} style={{ fontSize: 13, fontWeight: 600, color: T.bordeaux, border: '1px solid rgba(136,26,51,.3)', borderRadius: 7, padding: '6px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Importér som påstand</div>
         </div>
       ))}
       {omstridt && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 9 }}>
-          <span style={{ fontSize: 11.5, color: T.muted }}>Tillid ved valg:</span>
-          <select value={konfidens} onChange={(e) => setKonfidens(e.target.value)} style={{ fontFamily: T.sans, fontSize: 12, padding: '5px 8px', borderRadius: 7, border: '1px solid rgba(34,31,26,.18)', background: T.paper, color: T.ink }}>
+          <span style={{ fontSize: 12.5, color: T.muted }}>Tillid ved valg:</span>
+          <select value={konfidens} onChange={(e) => setKonfidens(e.target.value)} style={{ fontFamily: T.sans, fontSize: 13, padding: '5px 8px', borderRadius: 7, border: '1px solid rgba(34,31,26,.18)', background: T.paper, color: T.ink }}>
             {['sikker', 'sandsynlig', 'formodet', 'omstridt'].map((k) => <option key={k} value={k}>{k}</option>)}
           </select>
         </div>
@@ -2435,24 +2435,24 @@ function ForaeldreKonflikterListe({ onOpen }: { onOpen: (personId: string) => vo
   return (
     <div style={{ padding: '18px 22px', maxWidth: 720 }}>
       <div style={{ fontFamily: T.serif, fontSize: 22, color: T.ink, marginBottom: 6 }}>Forældre-konflikter</div>
-      <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 16, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 13.5, color: T.muted, marginBottom: 16, lineHeight: 1.5 }}>
         Personer hvor to udgaver påstår forskellige forældrefamilier. Åbn personen for at se påstandene side om side og vælge den kanoniske (bevarer begge, kildebundet).
       </div>
       {fejl ? (
-        <div style={{ fontSize: 12.5, color: T.red, background: '#faf1dc', border: '1px solid rgba(136,26,51,.3)', borderRadius: 8, padding: '10px 13px' }}>Kunne ikke hente konflikt-listen: {fejl}. (Konflikter kan ikke vises — ikke nødvendigvis fordi der ingen er.)</div>
+        <div style={{ fontSize: 13.5, color: T.red, background: '#faf1dc', border: '1px solid rgba(136,26,51,.3)', borderRadius: 8, padding: '10px 13px' }}>Kunne ikke hente konflikt-listen: {fejl}. (Konflikter kan ikke vises — ikke nødvendigvis fordi der ingen er.)</div>
       ) : rows === undefined ? (
-        <div style={{ fontSize: 12.5, color: T.muted }}>Henter…</div>
+        <div style={{ fontSize: 13.5, color: T.muted }}>Henter…</div>
       ) : rows.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: T.muted }}>Ingen forældre-konflikter — alle personer har én afklaret forældrefamilie.</div>
+        <div style={{ fontSize: 13.5, color: T.muted }}>Ingen forældre-konflikter — alle personer har én afklaret forældrefamilie.</div>
       ) : (
         rows.map((r) => (
           <div key={r.factId} onClick={() => onOpen(String(r.personId))}
             style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', marginBottom: 8, cursor: 'pointer',
               border: '1px solid rgba(136,26,51,.25)', borderRadius: 10, background: '#faf1dc' }}>
-            <span style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux }}>{r.status ?? 'omstridt'}</span>
-            <div style={{ flex: 1, fontSize: 13.5, color: '#3d382f', fontWeight: 600 }}>{r.navn ?? `Person ${r.personId}`}</div>
-            <span style={{ fontSize: 11.5, color: T.muted }}>{r.antalFamilier} familier · {r.antalPaastande} påstande</span>
-            <span style={{ color: T.bordeaux, fontSize: 15 }}>→</span>
+            <span style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux }}>{r.status ?? 'omstridt'}</span>
+            <div style={{ flex: 1, fontSize: 14.5, color: '#3d382f', fontWeight: 600 }}>{r.navn ?? `Person ${r.personId}`}</div>
+            <span style={{ fontSize: 12.5, color: T.muted }}>{r.antalFamilier} familier · {r.antalPaastande} påstande</span>
+            <span style={{ color: T.bordeaux, fontSize: 16 }}>→</span>
           </div>
         ))
       )}
