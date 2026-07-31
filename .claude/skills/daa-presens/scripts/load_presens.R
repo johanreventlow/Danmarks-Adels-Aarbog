@@ -51,8 +51,10 @@ con <- dbConnect(RPostgres::Postgres(), host = host,
                  user = user, password = pw, sslmode = "require", bigint = "integer")
 
 ex <- function(sql, params = list()) if (length(params)) dbExecute(con, sql, params = params) else dbExecute(con, sql)
-id_tables <- c("source","person","fact","assertion","conclusion","citation",
-               "relation","family","narrative","place","estate","organisation","note")
+# KANONISK LÅSEORDEN — skal matche load_daa.R's id_tables (forældre-først,
+# relation FØR assertion); inversion mellem samtidige LOCK-statements = deadlock.
+id_tables <- c("source","person","place","estate","organisation",
+               "family","note","narrative","fact","relation","assertion","citation","conclusion")
 model_tables <- c("note","citation","conclusion","assertion","relation","fact",
                   "family_member","family","person_external_id","narrative","person",
                   "estate","organisation","place","source")

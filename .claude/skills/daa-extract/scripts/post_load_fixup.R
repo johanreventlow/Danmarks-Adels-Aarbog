@@ -45,6 +45,8 @@ tryCatch({
   # IDENTITY-kontrakt (2026-07-31): nid() slår MAX(id)+1 op pr. kald — kræver
   # eksklusiv skrive-lås på de tabeller der allokeres til, ellers kan en
   # samtidig RPC's nextval tage samme id. Sync før commit nedenfor.
+  # Rækkefølgen følger den KANONISKE låseorden (se load_daa.R id_tables):
+  # lineage (forælder) → relation FØR assertion → citation → conclusion.
   ex("LOCK TABLE lineage, relation, assertion, citation, conclusion IN EXCLUSIVE MODE")
   # ---- 1) lineage-navne + families-efternavn (idempotent) ----
   # slaegtsnavn driver den udledte visning_efternavn/visning_fuldt_navn-cache (regen_person_visning,

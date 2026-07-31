@@ -110,8 +110,13 @@ model_tables <- loader_model_tables()
 # Tabeller denne loader selv allokerer id'er til via nid() (dvs. har egen bigint id-kolonne
 # OG bruges af scriptet — person_external_id/family_member er komposit-nøgle-junction-tabeller
 # uden id-kolonne; coat_of_arms/media populeres ikke af denne loader).
+# KANONISK LÅSEORDEN (Codex-review 2026-07-31 restfund 5): alle scripts der
+# LOCKer flere af disse tabeller SKAL bruge denne rækkefølge — forældre-først
+# og relation FØR assertion (RPC'ernes naturlige skriveorden, fx red_samme_som:
+# relation→assertion→conclusion). Inversion mellem to samtidige transaktioner
+# = deadlock. Samme orden i load_presens.R og post_load_fixup.R.
 id_tables <- c("source","person","place","estate","organisation","historical_event",
-               "fact","assertion","citation","conclusion","family","note","narrative","relation")
+               "family","note","narrative","fact","relation","assertion","citation","conclusion")
 
 # id-allokering: start fra max(id) i basen (eller 0 efter --reset). seed_seq() SKAL køres
 # efter en evt. RESET-TRUNCATE (samme transaktion), ellers ses de gamle id'er stadig —
