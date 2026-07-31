@@ -125,6 +125,19 @@ test_that("gate-manifestet binder valideringsresultat til artefaktet (#126)", {
   expect_false(verify_gate_manifest(list(sha256 = sha, andel_rene = 0.95), sha, taerskel = 0.99)$ok)
 })
 
+test_that("--replace-kontrakten er fail-closed (#123 trin 3)", {
+  a <- parse_load_daa_args(c("clean.json", "DAA 1939", "--replace", "--register=reg.json", "--dry-run"))
+  expect_true(a$replace); expect_identical(a$register, "reg.json"); expect_null(a$import_key)
+  # register er obligatorisk
+  expect_error(parse_load_daa_args(c("c.json", "--replace")), "kræver --register")
+  # udelukker reset/legacy/import-key (nøglen læses fra source-rækken)
+  expect_error(parse_load_daa_args(c("c.json", "--replace", "--register=r.json", "--reset")), "udelukker")
+  expect_error(parse_load_daa_args(c("c.json", "--replace", "--register=r.json", "--legacy-import")), "udelukker|kan ikke")
+  expect_error(parse_load_daa_args(c("c.json", "--replace", "--register=r.json", "--import-key=k")), "angiv ikke")
+  # almindelige modes påvirkes ikke
+  expect_false(parse_load_daa_args(c("c.json", "--import-key=k"))$replace)
+})
+
 test_that("parse_load_daa_args kender --force-gate", {
   a <- parse_load_daa_args(c("clean.json", "DAA 1939", "--import-key=k", "--force-gate"))
   expect_true(a$force_gate)

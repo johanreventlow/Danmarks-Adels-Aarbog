@@ -63,12 +63,38 @@ Afgrænsningen "har change_event-spor" er den maskinelle diskriminator — den
 forudsætter at versioneringshistorikken er retvisende, hvilket #124 netop har
 sikret (historik overlever ikke længere id-genbrug).
 
+### Empiri fra dry-run-matchrapporten (2026-07-31, replace_dryrun.R)
+
+Match-tilstanden er PERFEKT: 515 artefaktposter → 514 entydige + 1 tombstonet
+(2.11), 0 huller/nye/bortfaldne, 0 tombstonede nøgler i prod. Tre designfund:
+
+1. **Narrativ-undtagelsen (ændrer diskriminatoren):** alle 514 source-3-
+   narrativer bærer red-spor — de blev patchet ind via `red_upsert_narrativ`
+   (Calamari-kørslen 2026-07-29). Spor-diskriminatoren dur derfor IKKE for
+   `narrative`: udgave-narrativer er source-ejede UANSET spor og erstattes af
+   re-ekstraktionens (bedre) tekst. Kun narrativer for ANDRE sources røres ikke.
+2. **Konflikt-klassen er tom:** 0 af 1.963 fakta har red-spor — ingen source-
+   ejede rækker er efterredigeret. Replace-logikkens sværeste tilfælde
+   (redaktionel konklusion oven på udskiftet påstand) findes ikke i data i dag;
+   klassen skal stadig håndteres (fail-closed: STOP hvis den dukker op), men
+   kræver ingen flette-logik i v1.
+3. **Familie-grafen:** 670 kanter, 0 med red-spor på kanterne selv; kun 1
+   familie med redaktionelt ændret medlemsliste; 296 gift-ind-stubs (uden
+   external_id). Trin 4's design kan behandle stub+kanter som source-ejede med
+   én undtagelsesliste (den ene familie) frem for generel flette-logik.
+
+samme_som (450) + ikke_samme_som (3) har alle red-spor som forventet — de
+består automatisk fordi person-id'erne bevares.
+
 ## Forudsætninger (rækkefølge)
 
-0. **record_key-backfill i prod:** kun 591/1733 redigerbare personer har
-   `record_key` i `person_external_id`. 1939-personerne kan backfilles nu:
-   registerets `book_post_id` ↔ artefaktets `record_key` ↔ `(linje, nr)` ↔
-   person. UDEN dette kan match-fasen ikke køre. Særskilt, verificérbart trin.
+0. **record_key-backfill i prod: ✅ ALLEREDE OPFYLDT** (verificeret empirisk
+   2026-07-31): prods 514 `person_external_id.record_key`-rækker for source 3
+   er en eksakt 1:1-afspejling af registerets 514 aktive `book_post_id`'er
+   (0 afvigelser i begge retninger, mængde-tjek via psql). 2018-20's 591 rækker
+   har alle `record_key` (filnavns-nøglede). Den gamle "591/1733"-observation
+   talte personer HELT uden external_id-række — gift-ind-stubs, som replay
+   alligevel behandler som source-ejede. Intet backfill-arbejde nødvendigt.
 1. **IDENTITY-migration** (review 24 fund 15 / RED-8): `max(id)+1`-allokering
    skal væk før replace-mode — replace åbner for gentagne loads og dermed flere
    samtidige skrivere mod samme id-rum.
@@ -79,6 +105,19 @@ sikret (historik overlever ikke længere id-genbrug).
 4. **Familie-graf-replace** — sværest: family/family_member er delt struktur
    (gift-ind-stubs, børne-tilknytninger). Egen designrunde når trin 3 er
    verificeret mod den lokale prod-kopi ([[lokal-db-testbase]]-mønstret).
+
+### Kendte v1-begrænsninger (fra sol-review-cyklussen 2026-07-31)
+
+- **OCR-journal vs. konfliktguard:** `red_ret_ocr_felt` logger assertion-events;
+  når en OCR-rettelse rammer en source-ejet fact, vil konfliktguarden STOPPE et
+  senere `--replace` (fail-closed, ikke datatab). Journalen replayes ganske vist
+  ovenpå — men guarden kan ikke vide det. Løses ved behov med et flette-design
+  der fritager assertion-events fra `red_ret_ocr_felt`-change_sets hvis feltet
+  er journal-dækket. Empirisk tomt i dag.
+- **Op til 4 dublet-fakta:** de ikke-source-ejede fakta fredes OG artefaktets
+  version genindsættes — accepteret v1-risiko, rapporteres af loaderen.
+- **GO-betingelser før ægte prod-kørsel:** grønt manifest uden `--force-gate`
+  + destruktiv integrationstest mod lokal prod-kopi.
 
 ## Åbne spørgsmål (til implementeringssessionerne)
 

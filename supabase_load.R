@@ -1,4 +1,8 @@
 #!/usr/bin/env Rscript
+# RETIRED 2026-07-31 (Codex-review restfund 6): dette script er historisk og
+# opfylder IKKE IDENTITY-kontrakten (eksplicitte id'er uden lås/sekvens-sync,
+# RESET uden guards). Brug skill-loaderne (.claude/skills/daa-*/scripts/).
+stop("supabase_load.R er retired — brug load_daa.R (skill). Kørsel mod enhver base er blokeret.")
 # =====================================================================
 #  Supabase-loader (R) for Reventlow-datamodellen
 #

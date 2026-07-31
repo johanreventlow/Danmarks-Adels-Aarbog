@@ -51,15 +51,23 @@ con <- dbConnect(RPostgres::Postgres(), host = host,
                  user = user, password = pw, sslmode = "require", bigint = "integer")
 
 ex <- function(sql, params = list()) if (length(params)) dbExecute(con, sql, params = params) else dbExecute(con, sql)
-id_tables <- c("source","person","fact","assertion","conclusion","citation",
-               "relation","family","narrative","place","estate","organisation","note")
+# KANONISK LÅSEORDEN — skal matche load_daa.R's id_tables (forældre-først,
+# relation FØR assertion); inversion mellem samtidige LOCK-statements = deadlock.
+id_tables <- c("source","person","place","estate","organisation",
+               "family","note","narrative","fact","relation","assertion","citation","conclusion")
 model_tables <- c("note","citation","conclusion","assertion","relation","fact",
                   "family_member","family","person_external_id","narrative","person",
                   "estate","organisation","place","source")
 
 .seq <- new.env(parent = emptyenv())
+# Id-gulv = GREATEST(levende max, højeste id i versioneringshistorikken) —
+# historik over slettede rækker må aldrig genoplives af id-genbrug (samme
+# formel som load_daa.R's id_gulv_sql; bevidst duplikeret, uafhængige scripts).
+id_gulv_sql <- function(t) sprintf(
+  "SELECT GREATEST(COALESCE((SELECT MAX(id) FROM %s), 0),
+                   COALESCE((SELECT MAX((row_pk->>'id')::bigint) FROM change_event WHERE tabel='%s'), 0)) m", t, t)
 seed_seq <- function() for (t in id_tables) {
-  m <- dbGetQuery(con, sprintf("SELECT COALESCE(MAX(id),0) m FROM %s", t))$m[1]
+  m <- dbGetQuery(con, id_gulv_sql(t))$m[1]
   .seq[[t]] <- as.integer(m)
 }
 nid <- function(t) { v <- (if (is.null(.seq[[t]])) 0L else .seq[[t]]) + 1L; .seq[[t]] <- v; v }
@@ -125,6 +133,10 @@ dd <- function(d, k) { v <- if (is.list(d)) d[[k]] else NULL; if (is.null(v)) NA
 
 dbBegin(con)
 tryCatch({
+  # IDENTITY-kontrakt (2026-07-31, samme som load_daa.R): eksplicit id-allokering
+  # fra MAX(id) kræver eksklusiv skrive-lås — ellers kan en samtidig RPC's
+  # nextval tage samme id. Læsere passerer uhindret.
+  ex(paste0("LOCK TABLE ", paste(id_tables, collapse = ", "), " IN EXCLUSIVE MODE"))
   if (RESET) { message("RESET: tømmer model-tabeller…")
     ex(paste0("TRUNCATE ", paste(model_tables, collapse=", "), " CASCADE;")) }
   seed_seq()
@@ -197,6 +209,13 @@ tryCatch({
               WHERE p.visning_navn IS NULL",
              vexpr("navn","vaerdi_tekst"), vexpr("fødsel","date_raw"),
              vexpr("død","date_raw"), vexpr("titel","vaerdi_tekst")))
+  # Fail-closed sekvens-sync før commit (IDENTITY-kontrakt): tabeller uden
+  # identity-sekvens (base før migrationen) er eneste lovlige undtagelse.
+  for (t in id_tables) {
+    s <- dbGetQuery(con, sprintf("SELECT pg_get_serial_sequence('%s','id') s", t))$s[1]
+    if (is.na(s) || is.null(s)) message(sprintf("sekvens-sync: %s uden identity — sprunget over", t))
+    else ex(sprintf("SELECT setval('%s', (%s) + 1, false)", s, sub(" m$", "", id_gulv_sql(t))))
+  }
   dbCommit(con); message(sprintf("Indlæst %d personer fra præsensliste (%s).", total, udgave))
 }, error = function(e) { dbRollback(con); dbDisconnect(con)
   stop("Load fejlede, rullet tilbage: ", conditionMessage(e)) })

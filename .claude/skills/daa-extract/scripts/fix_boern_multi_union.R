@@ -1,4 +1,9 @@
 #!/usr/bin/env Rscript
+# RETIRED 2026-07-31 (Codex-review restfund 6): engangs-korrektionen er udført
+# (change_set 1, 2026-07-01) og scriptet opfylder ikke IDENTITY-kontrakten
+# (MAX(id)+1 på family uden lås/sync). Bevaret som dokumentation; skal det
+# nogensinde genbruges, kræves lås+sync-kontrakten fra load_daa.R først.
+stop("fix_boern_multi_union.R er retired — korrektionen er allerede udført (change_set 1).")
 # =====================================================================
 #  fix_boern_multi_union.R — ENGANGS, VERSIONERET prod-korrektion.
 #
