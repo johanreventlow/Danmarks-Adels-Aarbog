@@ -178,6 +178,17 @@ byte-identisk; alle stub-id'er med samme_som eksisterer fortsat og har fortsat
 en partner-kant; fredede kanter uændrede; change_set/change_event-antal
 uændret; EXCLUDE-invarianten (én fødselsfamilie pr. barn) holder.
 
+**✅ IMPLEMENTERET + DESTRUKTIVT TESTET 2026-07-31** (commit 53fd921):
+match_replace_unioner (DB-fri, testdækket) + replace-familie-fase i loaderen.
+Skarp kørsel mod lokal prod-kopi: 295 unioner genbrugt (id-stabile stubs),
+19 parkeringer genopbygget, 1 fredet sprunget over, 0 bortfaldne; uafhængigt
+md5-snapshot (stub-id'er, samme_som, 2018-20-graf, narrativer) 100 % identisk;
+0 dobbelt-fødselsfamilier; fixpoint ved genkørsel. 569/569 tests.
+To fund fra testen: (1) Iven-casen (I-72: to hustruer begge 'Margarethe
+Rantzau') krævede navn+ordinal-fase før navn-alene; (2) pmap var
+record_key-nøglet men pass 2 slår linje-nøglet op — latent brud for alle
+UUID-nøglede artefakter, også i append; rettet til altid-linje-nøgle.
+
 ## Åbne spørgsmål (til implementeringssessionerne)
 
 - Familie-ejerskab: en union med redaktionelt tilføjet medlem — er familien så

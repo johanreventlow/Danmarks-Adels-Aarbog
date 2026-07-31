@@ -25,6 +25,21 @@ Begge GO-betingelser fra replay-designet er nu opfyldt (detaljer i
 **Næste:** (1) sekvens-gulv til prod, (2) trin 4-designrunde (familie-graf-
 replace) — indtil da bevarer `--replace` bevidst loader-oprettede familie-kanter.
 
+## Trin 4: familie-graf-replace bygget + destruktivt testet (2026-07-31, samme dag)
+
+Replay-kædens sidste trin (designet + implementeret + testet i én session, commit
+53fd921): `--replace` erstatter nu også familie-grafen. Kerneprincip: **strukturen
+(family-id + stub-person-id) genbruges via match; indholdet erstattes.** Stubs kan
+aldrig slettes/genoprettes — empirien viste at 209 af 296 gift-ind-stubs bærer
+redaktionelle samme_som-links (tvær-udgave-ægtefælle-matchning); deres person-id'er
+er redaktionel valuta. Union-match i fire faser (navn+ordinal → navn → ordinal →
+token-overlap), alle tvetydigheder fail-closed. Fredede familier (change_event-spor)
+springes helt over. Testen mod lokal prod-kopi fangede to ægte fund: Iven-casen
+(I-72 gift med to forskellige kvinder der begge hed Margarethe Rantzau — ordinal
+afgør) og en latent nøgle-bug (pmap record_key-nøglet, pass 2 slår linje-nøglet
+op — ville knække ethvert UUID-nøglet artefakt, også i append). Uafhængigt
+md5-snapshot 100 % identisk før/efter; 569/569 tests. Sol-review igangsat.
+
 ## Helhedsreview → slutark lukket → replay-kæden bygget (2026-07-30/31)
 
 Én sammenhængende session fra review til fungerende replace-lag:
