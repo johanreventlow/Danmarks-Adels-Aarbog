@@ -10,11 +10,11 @@ Begge GO-betingelser fra replay-designet er nu opfyldt (detaljer i
   person-id'er bevaret, alle redaktionelle invarianter identiske i et
   UAFHÆNGIGT md5-snapshot før/efter (ikke kun loaderens egen verifikation),
   0 genoplivede historik-id'er, fixpoint ved gentaget kørsel. R-suiten 543/543.
-- **Sekvens-gulv-migrationen rehearset lokalt** på prod-kopien: fact-sekvens
-  6836→6837 (eneste kollision — præcis den id-genoplivningsklasse dry-run-fundet
-  forudsagde), idempotent genkørsel no-op. **Prod-apply udestår** (blev
-  permission-blokeret i sessionen — skal køres af bruger eller godkendt kørsel;
-  blokken ligger klar i `db-migrations.sql` "SEKVENS-GULV"-sektionen).
+- **Sekvens-gulv-migrationen APPLIED TIL PROD** (efter lokal rehearsal på
+  prod-kopien): fact-sekvens 6836→6837 (eneste kollision — præcis den
+  id-genoplivningsklasse dry-run-fundet forudsagde), øvrige 24 tabeller no-op.
+  Efterverificeret: alle 25 sekvenser står over gulvet
+  (GREATEST(levende max, historik-max)), 0 brud.
 - **Manifest-hullet lukket:** convert_1939 skriver nu gate-manifest (#126) i
   samme serialisering som clean-filen; eksisterende clean_1939.json fik ægte
   manifest efter bevist byte-identisk re-serialisering (515/515 rene) — gaten

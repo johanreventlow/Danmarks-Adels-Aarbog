@@ -131,9 +131,10 @@ består automatisk fordi person-id'erne bevares.
   - *Manifest:* convert_1939 skriver nu gate-manifest (commit 836c1af);
     clean_1939.json har grønt manifest (515/515 rene) — gate GRØN uden
     `--force-gate`, verificeret mod loaderen.
-  - *Rehearsal af sekvens-gulv-migrationen* kørte samtidig lokalt: fact-sekvens
-    6836→6837 (eneste kollision, præcis dry-run-fundets klasse), idempotent.
-    **Prod-apply udestår** (permission-gated i sessionen).
+  - *Sekvens-gulv-migrationen* rehearset lokalt OG **APPLIED TIL PROD samme
+    dag** (fact 6836→6837, eneste kollision; efterverificeret: alle 25
+    sekvenser over gulvet, 0 brud). **Alle forudsætninger for ægte
+    prod-replace er hermed på plads.**
 
 ## Åbne spørgsmål (til implementeringssessionerne)
 
