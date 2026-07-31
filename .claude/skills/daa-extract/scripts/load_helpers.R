@@ -458,7 +458,9 @@ match_replace_unioner <- function(aegteskaber, db_unioner) {
   }, integer(1))
   db_norm <- vapply(seq_len(nrow(db_unioner)), function(i) .replace_norm_navn(db_unioner$stub_navn[i]), character(1))
 
-  # Unavngivne artefakt-ægteskaber: altid nye.
+  # Unavngivne artefakt-ægteskaber: altid nye. NB: DB-unioner kan også have
+  # NA/blank stub-navn — alle navne-sammenligninger nedenfor er NA-sikre
+  # (sol runde 4: `db_rest[cond]` med NA i cond giver NA-rækker i R).
   res$nye_idx <- which(is.na(art_norm))
   art_rest <- which(!is.na(art_norm))
   db_rest <- seq_len(nrow(db_unioner))
@@ -467,28 +469,36 @@ match_replace_unioner <- function(aegteskaber, db_unioner) {
                                           stub_pid = db_unioner$stub_pid[j])
     art_rest <<- setdiff(art_rest, i); db_rest <<- setdiff(db_rest, j)
   }
+  navnehits <- function(i, kraev_ordinal = FALSE) {
+    cond <- !is.na(db_norm[db_rest]) & db_norm[db_rest] == art_norm[i]
+    if (kraev_ordinal)
+      cond <- cond & !is.na(db_unioner$ordinal[db_rest]) & db_unioner$ordinal[db_rest] == art_ord[i]
+    db_rest[cond]
+  }
+
+  # Up-front (sol runde 4, blocker 2 endeligt): artefakt-navnedubletter uden
+  # parvis distinkte ordinaler er fail-closed UANSET DB-tilstand — med 0 hits
+  # ville de blive 'nye' dubletunioner, og næste kørsel ville så stoppe på
+  # DB-dubletten. Adfærden skal være kørsel-uafhængig.
+  for (nm in unique(art_norm[art_rest])) {
+    grp <- art_rest[art_norm[art_rest] == nm]
+    if (length(grp) > 1L && (anyNA(art_ord[grp]) || anyDuplicated(art_ord[grp])))
+      return(fejl(sprintf("artefaktet har %d ægteskaber med partnernavn '%s' uden parvis distinkte ordinaler — tvetydigt", length(grp), nm)))
+  }
 
   # Fase 0: eksakt (navn + ordinal)-match — bogens navne-dubletter parres på
   # ordinal FØR navn-alene-fasen ellers ville stemple dem tvetydige.
-  # Fail-closed på dublet (navn, ordinal) på BEGGE sider (sol runde 3 blocker
-  # 2): en mange-til-én ville ellers parre første post og kalde resten 'nye' —
-  # vilkårlig tildeling af en id-bærende stub + fixpoint-brud.
+  # (Artefakt-dubletter er allerede afvist up-front; DB-dubletter fanges her.)
   for (i in art_rest) {
     if (is.na(art_ord[i])) next
-    art_dubletter <- sum(!is.na(art_ord[art_rest]) & art_ord[art_rest] == art_ord[i] &
-                           art_norm[art_rest] == art_norm[i])
-    hits <- db_rest[db_norm[db_rest] == art_norm[i] &
-                      !is.na(db_unioner$ordinal[db_rest]) &
-                      db_unioner$ordinal[db_rest] == art_ord[i]]
-    if (art_dubletter > 1L && length(hits))
-      return(fejl(sprintf("flere artefakt-ægteskaber med samme partnernavn '%s' OG ordinal %d — tvetydigt", art_norm[i], art_ord[i])))
+    hits <- navnehits(i, kraev_ordinal = TRUE)
     if (length(hits) > 1L)
       return(fejl(sprintf("flere eksisterende unioner med samme stub-navn '%s' OG ordinal %d — tvetydigt", art_norm[i], art_ord[i])))
     if (length(hits) == 1L) par(i, hits)
   }
   # Fase 1: eksakt navne-match — kræver unikhed på BEGGE sider.
   for (i in art_rest) {
-    hits <- db_rest[db_norm[db_rest] == art_norm[i]]
+    hits <- navnehits(i)
     if (length(hits) > 1L)
       return(fejl(sprintf("stub-navnet '%s' findes i %d eksisterende unioner — tvetydigt", art_norm[i], length(hits))))
     if (length(hits) == 1L) {

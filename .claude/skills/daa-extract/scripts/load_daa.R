@@ -438,33 +438,44 @@ tryCatch({
     # stub — stub-person-id er redaktionel valuta: 209 bærer samme_som-links),
     # parkerings-unioner (uden stub, ingen id-valuta) og fredede (change_event-
     # spor på family eller nogen af dens kanter = redaktionel familie).
-    # POSITIVT source-ejerskab pr. familie (sol-review runde 3, BLOCKER 1 —
-    # samme klasse som trin 3's blocker 1): AL evidens bundet til familien
-    # (family-fakta-assertions + forældrefamilie-slot-assertions med objekt =
-    # familien) skal have ≥1 citation, og ALLE citations skal pege på netop
-    # denne source. En familie med fremmed/citationsløs evidens er IKKE vores
-    # og behandles som fredet (skip + rapport, kanterne bliver i urørt-md5'en).
-    # Familier helt uden evidens (tomme parkeringer) er ejede pr. definition —
-    # en fremmed tom familie med en matchet person kan kun opstå redaktionelt
-    # og bærer så change_event-spor (fredet ad den vej).
+    # POSITIVT source-ejerskab pr. familie (sol-review runde 3+4, BLOCKER 1 —
+    # samme klasse som trin 3's blocker 1). To-grenet kriterium:
+    #   HAR familien evidens (family-fakta-assertions + forældrefamilie-slot-
+    #   assertions med objekt = familien): AL evidens skal have ≥1 citation og
+    #   ALLE citations skal pege på netop denne source.
+    #   HAR den INGEN evidens (tomme parkeringer): alle medlemmer skal være
+    #   vores — intet medlem må have en external_id uden for match-settet
+    #   (runde 4: nul-evidens-grenen må ikke være en omgåelse for legacy-/
+    #   fremmed-familier).
+    # Ikke-ejede familier behandles som fredede (skip + rapport) og deres
+    # kanter bliver i urørt-md5-mængden, så en overtrædelse opdages.
     fam_db <- dbGetQuery(con, sprintf("
       SELECT hoved.family_id, hoved.person_id AS hoved_pid, hoved.ordinal,
              stub.person_id AS stub_pid, p.visning_navn AS stub_navn,
              EXISTS (SELECT 1 FROM person_external_id x WHERE x.person_id=stub.person_id) AS stub_har_extid,
              (EXISTS (SELECT 1 FROM change_event ce WHERE ce.tabel='family' AND (ce.row_pk->>'id')::bigint=hoved.family_id)
               OR EXISTS (SELECT 1 FROM change_event ce WHERE ce.tabel='family_member' AND (ce.row_pk->>'family_id')::bigint=hoved.family_id)) AS fredet,
-             NOT EXISTS (
+             CASE WHEN EXISTS (
+                    SELECT 1 FROM assertion a
+                    WHERE (a.target_type='fact' AND a.target_id IN (
+                             SELECT f.id FROM fact f WHERE f.subjekt_type='family' AND f.subjekt_id=hoved.family_id))
+                       OR (a.objekt_type='family' AND a.objekt_id=hoved.family_id))
+             THEN NOT EXISTS (
                SELECT 1 FROM assertion a
                WHERE ((a.target_type='fact' AND a.target_id IN (
                          SELECT f.id FROM fact f WHERE f.subjekt_type='family' AND f.subjekt_id=hoved.family_id))
                    OR (a.objekt_type='family' AND a.objekt_id=hoved.family_id))
                  AND (NOT EXISTS (SELECT 1 FROM citation c WHERE c.assertion_id=a.id)
                       OR EXISTS (SELECT 1 FROM citation c WHERE c.assertion_id=a.id
-                                 AND c.source_id IS DISTINCT FROM %d))) AS ejet
+                                 AND c.source_id IS DISTINCT FROM %d)))
+             ELSE NOT EXISTS (
+               SELECT 1 FROM family_member fm2 JOIN person_external_id x ON x.person_id=fm2.person_id
+               WHERE fm2.family_id=hoved.family_id AND fm2.person_id NOT IN (%s))
+             END AS ejet
       FROM family_member hoved
       LEFT JOIN family_member stub ON stub.family_id=hoved.family_id AND stub.rolle='partner' AND stub.person_id<>hoved.person_id
       LEFT JOIN person p ON p.id=stub.person_id
-      WHERE hoved.rolle='partner' AND hoved.person_id IN (%s)", src, ids_sql))
+      WHERE hoved.rolle='partner' AND hoved.person_id IN (%s)", src, ids_sql, ids_sql))
     fam_db$fredet <- (fam_db$fredet %in% TRUE) | !(fam_db$ejet %in% TRUE)
     if (any(!(fam_db$ejet %in% TRUE)))
       message(sprintf("REPLACE trin 4: %d familier i scope er IKKE positivt source-ejede (fremmed/citationsløs evidens) — fredes.",

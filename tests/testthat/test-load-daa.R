@@ -775,3 +775,25 @@ test_that("match_replace_unioner: tomt/whitespace partnernavn er unavngivet, ikk
   expect_equal(r$match[["3"]], list(family_id = 10, stub_pid = 100))
   expect_length(r$bortfaldne_family_ids, 0)
 })
+
+test_that("match_replace_unioner: artefakt-navnedublet uden adskillende ordinaler er fail-closed OGSÅ ved 0 DB-hits (sol runde 4)", {
+  # 0 DB-hits: begge ville blive 'nye' → første load opretter dubletter,
+  # næste load støder på DB-dubletten og stopper — kørsel-afhængig adfærd
+  r <- match_replace_unioner(list(ae("Margarethe Rantzau", 3L), ae("Margarethe Rantzau", 3L)), db_u()[0, ])
+  expect_false(is.null(r$fejl))
+  # samme uden ordinaler
+  r2 <- match_replace_unioner(list(ae("Margarethe Rantzau"), ae("Margarethe Rantzau")), db_u()[0, ])
+  expect_false(is.null(r2$fejl))
+  # MED adskillende ordinaler er dubletten legitim (Iven-casen) — 0 DB-hits = to nye
+  r3 <- match_replace_unioner(list(ae("Margarethe Rantzau", 3L), ae("Margarethe Rantzau", 4L)), db_u()[0, ])
+  expect_null(r3$fejl)
+  expect_setequal(r3$nye_idx, c(1L, 2L))
+})
+
+test_that("match_replace_unioner: DB-union med NA/blank stub-navn giver hverken NA-hits eller falsk tvetydighed (sol runde 4)", {
+  r <- match_replace_unioner(list(ae("Anna Gabel", 2L)),
+                             db_u(list(10, 100, "Anna Gabel", 2L), list(11, 101, "", 1L)))
+  expect_null(r$fejl)
+  expect_equal(r$match[["1"]], list(family_id = 10, stub_pid = 100))
+  expect_equal(r$bortfaldne_family_ids, 11)
+})
