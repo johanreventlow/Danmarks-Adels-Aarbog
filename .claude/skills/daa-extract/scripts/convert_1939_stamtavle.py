@@ -53,6 +53,7 @@
 #      Flere grupper pr. forælder: samlet spænd KUN hvis blokkene er
 #      nr-tilstødende; ellers største blok + logget begrænsning.
 # =====================================================================
+import hashlib
 import json
 import re
 import sys
@@ -747,6 +748,32 @@ def flet_narrative(out, narrativ_sti, narrative_map=None):
     return flettet, mangler
 
 
+def skriv_manifest(poster, ud):
+    """Skriv clean-artefaktet + gate-manifest (#126) i én serialisering.
+
+    Samme kontrakt som validate.py: manifestet binder valideringsresultatet
+    kryptografisk (sha256 af bytes på disk) til artefaktet, og load_daa.R
+    afviser load ved hash-mismatch eller rød gate. 1939-flowets rene/flaggede:
+    load kræver narrative pr. post (NOT NULL), så en post uden narrative er
+    flagget. Ingen timestamp — manifestet skal være deterministisk.
+    """
+    ud = Path(ud)
+    clean_bytes = (json.dumps(poster, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
+    ud.write_bytes(clean_bytes)
+    rene = sum(1 for p in poster if p.get("narrative"))
+    flaggede = len(poster) - rene
+    manifest = {
+        "artefakt": ud.name,
+        "sha256": hashlib.sha256(clean_bytes).hexdigest(),
+        "rene": rene,
+        "flaggede": flaggede,
+        "andel_rene": round(rene / len(poster), 4) if poster else 0.0,
+    }
+    with open(str(ud) + ".manifest.json", "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+    return manifest
+
+
 def main(argv):
     inp = Path(argv[1]) if len(argv) > 1 else Path("work_1939_stamtavle/linked_clean.json")
     ud = Path(argv[2]) if len(argv) > 2 else Path("work_1939_stamtavle/clean_1939.json")
@@ -762,9 +789,7 @@ def main(argv):
     out = convert_all(records, rapport=rapport, narrative_map=narrative_map)
     n_flettet, n_mangler = flet_narrative(
         out, narrativ_sti, narrative_map=narrative_map)
-    with open(ud, "w", encoding="utf-8") as f:
-        json.dump(out, f, ensure_ascii=False, indent=1)
-        f.write("\n")
+    manifest = skriv_manifest(out, ud)
     print(f"convert_1939_stamtavle v{CONVERTER_VERSION}: "
           f"{len(records)} poster ind -> {len(out)} poster ud ({ud})")
     print(f"narrative flettet (A3b): {n_flettet}/{len(out)}"
@@ -773,6 +798,8 @@ def main(argv):
     print("A3c link-rapport (KUN tal, ingen persondata):")
     for k, v in rapport.items():
         print(f"  {k}: {v}")
+    print(f"gate-manifest (#126): andel_rene={manifest['andel_rene']:.4f} "
+          f"({manifest['rene']} rene / {manifest['flaggede']} flaggede) -> {ud}.manifest.json")
 
 
 if __name__ == "__main__":

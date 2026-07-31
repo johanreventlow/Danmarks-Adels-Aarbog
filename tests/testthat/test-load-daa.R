@@ -489,6 +489,21 @@ test_that("opt-in lokal DB-smoke genafspiller rettelser efter reset og ruller st
   root <- normalizePath(file.path(getwd(), "..", ".."))
   fixture <- file.path(root, "tests/fixtures/person-ocr-kvalitetsark-clean.json")
   loader <- file.path(root, ".claude/skills/daa-extract/scripts/load_daa.R")
+  # Gate-manifest (#126): loaderen afviser artefakter uden grønt manifest.
+  # Testens artefakter (fixturen + afledte tempfiler) er kuraterede rene input,
+  # så manifestet skrives ærligt pr. input (sha256 af de faktiske bytes).
+  skip_if_not_installed("digest")
+  write_manifest <- function(input) {
+    poster <- jsonlite::fromJSON(input, simplifyVector = FALSE)
+    manifest_path <- paste0(input, ".manifest.json")
+    jsonlite::write_json(list(
+      artefakt = basename(input),
+      sha256 = digest::digest(file = input, algo = "sha256"),
+      rene = length(poster), flaggede = 0L, andel_rene = 1.0
+    ), manifest_path, auto_unbox = TRUE)
+    manifest_path
+  }
+  on.exit(unlink(paste0(fixture, ".manifest.json")), add = TRUE)
   psql <- "/opt/homebrew/opt/postgresql@17/bin/psql"
   expect_true(grepl("^[a-z0-9_]+$", smoke_db))
   admin <- DBI::dbConnect(RPostgres::Postgres(), host = "127.0.0.1", port = 5432,
@@ -566,6 +581,7 @@ test_that("opt-in lokal DB-smoke genafspiller rettelser efter reset og ruller st
          paste(probe, collapse = " "))
 
   run_loader <- function(input, reset = FALSE) {
+    write_manifest(input)
     args <- c(loader, input, shQuote("DAA OCR-fixture 2026"), paste0("--import-key=", import_key))
     if (reset) args <- c(args, "--reset")
     old_wd <- setwd(root)
@@ -636,4 +652,148 @@ test_that("opt-in lokal DB-smoke genafspiller rettelser efter reset og ruller st
   expect_false(identical(failed$status, 0L))
   expect_match(paste(failed$output, collapse = "\n"), "DAA_SMOKE_AFTER_STALE")
   expect_identical(scalar("SELECT status FROM import_korrektion WHERE id=$1", list(journal_id)), "rettet")
+})
+
+
+# ---- match_replace_unioner (trin 4): artefakt-ægteskaber ↔ eksisterende DB-unioner ----
+
+db_u <- function(...) {
+  rows <- list(...)
+  data.frame(family_id = vapply(rows, `[[`, 0, 1), stub_pid = vapply(rows, `[[`, 0, 2),
+             stub_navn = vapply(rows, `[[`, "", 3),
+             ordinal = vapply(rows, function(r) if (length(r) >= 4) r[[4]] else NA_integer_, NA_integer_))
+}
+ae <- function(navn, ordinal = NULL) {
+  a <- list(partner_navn = navn); if (!is.null(ordinal)) a$ordinal <- ordinal; a
+}
+
+test_that("match_replace_unioner: eksakt navne-match genbruger family+stub", {
+  r <- match_replace_unioner(list(ae("Anna Gabel"), ae("Beke Rantzau")),
+                             db_u(list(10, 100, "Anna Gabel"), list(11, 101, "Beke Rantzau")))
+  expect_null(r$fejl)
+  expect_equal(r$match[["1"]], list(family_id = 10, stub_pid = 100))
+  expect_equal(r$match[["2"]], list(family_id = 11, stub_pid = 101))
+  expect_length(r$nye_idx, 0); expect_length(r$bortfaldne_family_ids, 0)
+})
+
+test_that("match_replace_unioner: navne-match er case-/whitespace-ufølsom og titel-strippet", {
+  r <- match_replace_unioner(list(ae("Grevinde  anna   GABEL")), db_u(list(10, 100, "Anna Gabel")))
+  expect_null(r$fejl)
+  expect_equal(r$match[["1"]], list(family_id = 10, stub_pid = 100))
+})
+
+test_that("match_replace_unioner: rest parres ved delt navne-token (stavningsdrift)", {
+  # re-ekstraktionen har rettet OCR-stavning; 'Beke' deles → samme union
+  r <- match_replace_unioner(list(ae("Anna Gabel"), ae("Beke Rantzow")),
+                             db_u(list(10, 100, "Anna Gabel"), list(11, 101, "Beke Bantzau")))
+  expect_null(r$fejl)
+  expect_equal(r$match[["2"]], list(family_id = 11, stub_pid = 101))
+})
+
+test_that("match_replace_unioner: ordinal afgør når flere navne er ændret", {
+  r <- match_replace_unioner(list(ae("Anna X", 1L), ae("Beke Y", 2L)),
+                             db_u(list(10, 100, "Anna Gammel", 1L), list(11, 101, "Beke Gammel", 2L)))
+  expect_null(r$fejl)
+  expect_equal(r$match[["1"]]$family_id, 10)
+  expect_equal(r$match[["2"]]$family_id, 11)
+})
+
+test_that("match_replace_unioner: tvetydighed er fail-closed", {
+  # begge artefakt-navne deler token med BEGGE DB-navne — kan ikke afgøres
+  r <- match_replace_unioner(list(ae("Anna Louise"), ae("Anna Marie")),
+                             db_u(list(10, 100, "Anna Gammel"), list(11, 101, "Anna Aeldre")))
+  expect_false(is.null(r$fejl))
+})
+
+test_that("match_replace_unioner: samme stub-navn to gange er fail-closed", {
+  r <- match_replace_unioner(list(ae("Anna Gabel")),
+                             db_u(list(10, 100, "Anna Gabel"), list(11, 101, "Anna Gabel")))
+  expect_false(is.null(r$fejl))
+})
+
+test_that("match_replace_unioner: uden navne-slægtskab er resten ny + bortfalden, ikke et par", {
+  # Cecilie/Dorthea deler intet token — parring ville stjæle Dortheas family-id
+  # (og dermed hendes stubs samme_som) til en helt anden person. Konservativt:
+  # ny union oprettes, den gamle består som bortfalden.
+  r <- match_replace_unioner(list(ae("Anna Gabel"), ae("Cecilie Ny")),
+                             db_u(list(10, 100, "Anna Gabel"), list(12, 102, "Dorthea Borte")))
+  expect_null(r$fejl)
+  expect_equal(r$nye_idx, 2L)
+  expect_equal(r$bortfaldne_family_ids, 12)
+})
+
+test_that("match_replace_unioner: unavngivne artefakt-ægteskaber er altid nye", {
+  r <- match_replace_unioner(list(ae(NULL), ae("Anna Gabel")), db_u(list(10, 100, "Anna Gabel")))
+  expect_null(r$fejl)
+  expect_true("1" %in% r$nye_idx)
+  expect_equal(r$match[["2"]], list(family_id = 10, stub_pid = 100))
+})
+
+test_that("match_replace_unioner: tom DB-side gør alle artefakt-unioner nye", {
+  r <- match_replace_unioner(list(ae("Anna Gabel")), db_u()[0, ])
+  expect_null(r$fejl)
+  expect_equal(r$nye_idx, 1L)
+})
+
+test_that("match_replace_unioner: navne-dublet disambigueres af ordinal (Iven-casen)", {
+  # bogens virkelighed: to forskellige hustruer med SAMME navn, ordinal 3 og 4
+  r <- match_replace_unioner(list(ae("Margarethe Rantzau", 3L), ae("Margarethe Rantzau", 4L)),
+                             db_u(list(403, 1484, "Margarethe Rantzau", 3L),
+                                  list(404, 1485, "Margarethe Rantzau", 4L)))
+  expect_null(r$fejl)
+  expect_equal(r$match[["1"]]$stub_pid, 1484)
+  expect_equal(r$match[["2"]]$stub_pid, 1485)
+})
+
+test_that("match_replace_unioner: navne-dublet UDEN ordinaler er stadig fail-closed", {
+  r <- match_replace_unioner(list(ae("Margarethe Rantzau"), ae("Margarethe Rantzau")),
+                             db_u(list(403, 1484, "Margarethe Rantzau"),
+                                  list(404, 1485, "Margarethe Rantzau")))
+  expect_false(is.null(r$fejl))
+})
+
+test_that("match_replace_unioner: dublet (navn, ordinal) i artefaktet er fail-closed (sol runde 3 blocker 2)", {
+  # to artefakt-ægteskaber, samme navn OG samme ordinal, én DB-union: fase 0
+  # må ikke parre den første og kalde den anden 'ny' — vilkårlig stub-tildeling
+  r <- match_replace_unioner(list(ae("Margarethe Rantzau", 3L), ae("Margarethe Rantzau", 3L)),
+                             db_u(list(403, 1484, "Margarethe Rantzau", 3L)))
+  expect_false(is.null(r$fejl))
+})
+
+test_that("match_replace_unioner: dublet (navn, ordinal) i DB er fail-closed", {
+  r <- match_replace_unioner(list(ae("Margarethe Rantzau", 3L)),
+                             db_u(list(403, 1484, "Margarethe Rantzau", 3L),
+                                  list(404, 1485, "Margarethe Rantzau", 3L)))
+  expect_false(is.null(r$fejl))
+})
+
+test_that("match_replace_unioner: tomt/whitespace partnernavn er unavngivet, ikke blank-navngivet (sol runde 3 medium)", {
+  r <- match_replace_unioner(list(ae(""), ae("   "), ae("Anna Gabel")),
+                             db_u(list(10, 100, "Anna Gabel")))
+  expect_null(r$fejl)
+  expect_setequal(r$nye_idx, c(1L, 2L))
+  expect_equal(r$match[["3"]], list(family_id = 10, stub_pid = 100))
+  expect_length(r$bortfaldne_family_ids, 0)
+})
+
+test_that("match_replace_unioner: artefakt-navnedublet uden adskillende ordinaler er fail-closed OGSÅ ved 0 DB-hits (sol runde 4)", {
+  # 0 DB-hits: begge ville blive 'nye' → første load opretter dubletter,
+  # næste load støder på DB-dubletten og stopper — kørsel-afhængig adfærd
+  r <- match_replace_unioner(list(ae("Margarethe Rantzau", 3L), ae("Margarethe Rantzau", 3L)), db_u()[0, ])
+  expect_false(is.null(r$fejl))
+  # samme uden ordinaler
+  r2 <- match_replace_unioner(list(ae("Margarethe Rantzau"), ae("Margarethe Rantzau")), db_u()[0, ])
+  expect_false(is.null(r2$fejl))
+  # MED adskillende ordinaler er dubletten legitim (Iven-casen) — 0 DB-hits = to nye
+  r3 <- match_replace_unioner(list(ae("Margarethe Rantzau", 3L), ae("Margarethe Rantzau", 4L)), db_u()[0, ])
+  expect_null(r3$fejl)
+  expect_setequal(r3$nye_idx, c(1L, 2L))
+})
+
+test_that("match_replace_unioner: DB-union med NA/blank stub-navn giver hverken NA-hits eller falsk tvetydighed (sol runde 4)", {
+  r <- match_replace_unioner(list(ae("Anna Gabel", 2L)),
+                             db_u(list(10, 100, "Anna Gabel", 2L), list(11, 101, "", 1L)))
+  expect_null(r$fejl)
+  expect_equal(r$match[["1"]], list(family_id = 10, stub_pid = 100))
+  expect_equal(r$bortfaldne_family_ids, 11)
 })

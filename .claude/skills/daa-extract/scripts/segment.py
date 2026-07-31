@@ -18,6 +18,8 @@ Struktur i bogen (vigtigt):
 Deterministisk. Edition-følsom: justér regexerne ved en ny udgave. Kvalitets-
 rapporten (stderr) flagger manglende linje-kontekst og huller/dubletter i nr.
 """
+import contextlib
+import io
 import sys, re, json
 from ordinals import ordinal_to_int
 
@@ -82,6 +84,17 @@ DATO_FORTSAETTELSE_1939_RE = re.compile(r'^\d+\s+s\.\s*M\.', re.I)
 KILDELINJE_1939_RE = re.compile(r': .*S\.\s*\d+\.?\s*$', re.I)
 NAVNLOEST_BARN_1939_RE = re.compile(r'^(?:En Søn|en Datter)\b', re.I)
 RENT_SPOERGSMAALSTEGN_1939_RE = re.compile(r'^\(\?\)\s*$')
+INDLEDNING_OVERSIGT_1939_RE = re.compile(r'^\s*Fra ovennævnte\b', re.I)
+UPLACERET_OVERSIGT_1939_RE = re.compile(
+    r'^\s*Personer af Navnet Reventlow, der ikke kan anvises Plads\s*$', re.I)
+OVERSIGT_NAVN_PREFIX_1939_RE = re.compile(
+    r'^\s*(?:(?:[IVXL]+|[A-ZÆØÅ]|\d+)\s*[.)]\s+)?(?P<tekst>.*)$')
+UNNUMBERED_NAME_START_1939_RE = re.compile(
+    r"(?:[^\W\d_1][ \t]+){3,}[^\W\d_1]",
+    re.UNICODE,
+)
+STAMME_POSITION_1939_RE = re.compile(
+    r'^\s{10,}([IVXL1]+)(?:\s*([A-Z]))?\.\s*$', re.I)
 
 ORDINALER_1939 = {
     ordinal: ordinal.capitalize()
@@ -447,6 +460,274 @@ def _gruppebeskrivelse_1939(lines, i, profile):
     return None
 
 
+def _unummereret_navn_start_1939(line, profile):
+    """Sand hvis linjen har bogens udbredte navnesats ved poststart.
+
+    Et eventuelt hierarkisk oversigtspræfiks (``II.``, ``A)`` eller ``1)``)
+    fjernes kun til detektion. Kildelinjen returneres aldrig omskrevet.
+    """
+    match = OVERSIGT_NAVN_PREFIX_1939_RE.match(line)
+    tekst = match.group('tekst') if match else line
+    if not tekst or not tekst[0].isupper():
+        return False
+    return bool(UNNUMBERED_NAME_START_1939_RE.search(tekst[:80]))
+
+
+def _unummereret_post_1939(lines, start, slut, *, lokal_id, postklasse,
+                            dublet, linje=None, slaegtled=None, afsnit=None,
+                            page=None):
+    """Byg én verbatim unummereret post fra et allerede valideret interval."""
+    tekstlinjer = []
+    sider = []
+    aktiv_side = page
+    if aktiv_side is None:
+        for tidligere in reversed(lines[:start]):
+            side_match = PAGE_RE.match(tidligere)
+            if side_match:
+                aktiv_side = int(side_match.group(1))
+                break
+    for line in lines[start:slut]:
+        side_match = PAGE_RE.match(line)
+        if side_match:
+            aktiv_side = int(side_match.group(1))
+            continue
+        if not line.strip() or PAGE_NOISE_1939_RE.match(line):
+            continue
+        tekstlinjer.append(line.strip())
+        if aktiv_side is not None and (not sider or sider[-1] != aktiv_side):
+            sider.append(aktiv_side)
+    if not tekstlinjer:
+        return None
+    sidefelt = None
+    if sider:
+        sidefelt = str(sider[0]) if sider[0] == sider[-1] else f'{sider[0]}-{sider[-1]}'
+    return {
+        'linje': linje, 'nr': None, 'nr_label': lokal_id.rsplit('.', 1)[-1],
+        'usikker': False, 'kuld': None, 'slaegtled': slaegtled, 'afsnit': afsnit,
+        'slaegtled_lokal': ordinal_to_int(slaegtled) if slaegtled else None,
+        'slaegtled_gennem': None, 'aegteskab_kontekst': None,
+        'sider': sidefelt, 'lokal_id': lokal_id,
+        'raw_text': norm(' '.join(tekstlinjer)), 'postklasse': postklasse,
+        'dublet_af_stamtavle': dublet,
+    }
+
+
+def _segment_oversigter_1939(lines, profile):
+    """Udskil de to eksplicit markerede oversigtsblokke fail-closed."""
+    blokke = []
+    aktiv = None
+    for i, line in enumerate(lines):
+        if profile['indledning_oversigt_re'].match(line):
+            aktiv = {'label': 'Indledning', 'start': i + 1, 'dublet': True}
+            continue
+        if profile['uplaceret_oversigt_re'].match(line):
+            aktiv = {'label': 'Uplacerede', 'start': i + 1, 'dublet': False}
+            continue
+        if aktiv and aktiv['label'] == 'Indledning':
+            er_naeste_stammesektion = (
+                i + 1 < len(lines)
+                and profile['stamme_sektion_re'].match(lines[i + 1]))
+            if (_linje_header_1939(lines, i, profile)
+                    or profile['stamme_sektion_re'].match(line)
+                    or er_naeste_stammesektion):
+                aktiv['slut'] = i
+                blokke.append(aktiv)
+                aktiv = None
+    if aktiv:
+        aktiv['slut'] = len(lines)
+        blokke.append(aktiv)
+
+    poster = []
+    brugte_linjer = set()
+    for blok in blokke:
+        starter = [
+            i for i in range(blok['start'], blok['slut'])
+            if _unummereret_navn_start_1939(lines[i], profile)
+        ]
+        for position, start in enumerate(starter, 1):
+            slut = starter[position] if position < len(starter) else blok['slut']
+            lokal_id = f"Oversigt.{blok['label']}.U{position}"
+            post = _unummereret_post_1939(
+                lines, start, slut, lokal_id=lokal_id,
+                postklasse='oversigtspost', dublet=blok['dublet'])
+            if post:
+                poster.append(post)
+                brugte_linjer.update(range(start, slut))
+    return poster, brugte_linjer
+
+
+def _segment_stamfaedre_1939(lines, profile, reserverede_linjer):
+    """Find én entydig unummereret post i hver trykt strukturslot.
+
+    Et slot åbnes af en linje-, slægtleds-, afsnits- eller gruppeoverskrift.
+    Første nummererede post lukker slottet. Flere navnelignende starter i det
+    samme slot er tvetydige og udskilles ikke.
+    """
+    linje = profile.get('pre_linje_label')
+    slaegtled = afsnit = page = None
+    slot = None
+    poster = []
+    tvetydige = []
+    positioner = {}
+    nummereret_aktiv = False
+
+    def luk_slot(slut):
+        nonlocal slot
+        if not slot:
+            return
+        kandidater = slot['kandidater']
+        if len(kandidater) == 1:
+            start = kandidater[0]
+            key = (slot['linje'], slot['slaegtled'], slot['afsnit'])
+            positioner[key] = positioner.get(key, 0) + 1
+            pos = positioner[key]
+            if str(slot['linje'] or '').startswith(profile['pre_linje_label']):
+                dele = [slot['linje'], slot['afsnit']]
+            else:
+                dele = [slot['linje'], slot['slaegtled']]
+                if slot['afsnit']:
+                    dele.append(slot['afsnit'])
+            if not all(dele):
+                tvetydige.append(start)
+            else:
+                lokal_id = '.'.join(dele + [f'U{pos}'])
+                post = _unummereret_post_1939(
+                    lines, start, slut, lokal_id=lokal_id,
+                    postklasse='stamfader', dublet=False,
+                    linje=slot['linje'], slaegtled=slot['slaegtled'],
+                    afsnit=slot['afsnit'], page=slot['page'])
+                if post:
+                    poster.append(post)
+        elif kandidater:
+            tvetydige.extend(kandidater)
+        slot = None
+
+    def aabn_slot(start):
+        nonlocal slot, nummereret_aktiv
+        luk_slot(start)
+        nummereret_aktiv = False
+        slot = {'linje': linje, 'slaegtled': slaegtled, 'afsnit': afsnit,
+                'page': page, 'kandidater': []}
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        side_match = profile['page_re'].match(line)
+        if side_match:
+            page = int(side_match.group(1))
+            i += 1
+            continue
+
+        if (profile['indledning_oversigt_re'].match(line)
+                or profile['uplaceret_oversigt_re'].match(line)):
+            luk_slot(i)
+            nummereret_aktiv = False
+            i += 1
+            continue
+
+        linje_header = _linje_header_1939(lines, i, profile)
+        if linje_header:
+            luk_slot(i)
+            linje, forbrug = linje_header
+            slaegtled = afsnit = None
+            i += forbrug
+            aabn_slot(i)
+            continue
+
+        stamme_sektion = profile['stamme_sektion_re'].match(line)
+        if stamme_sektion:
+            luk_slot(i)
+            slug = re.sub(
+                r'[^\wÆØÅæøå]+', '-',
+                stamme_sektion.group(1) or stamme_sektion.group(2),
+                flags=re.UNICODE).strip('-')
+            linje = f"{profile['pre_linje_label']}-{slug}"
+            slaegtled = afsnit = None
+            i += 1
+            aabn_slot(i)
+            continue
+
+        slaegtled_header = _slaegtled_header_1939(line, profile)
+        if slaegtled_header:
+            luk_slot(i)
+            slaegtled = slaegtled_header[0]
+            afsnit = None
+            i += 1
+            aabn_slot(i)
+            continue
+
+        stamme_position = None
+        if str(linje or '').startswith(profile['pre_linje_label']):
+            stamme_position = STAMME_POSITION_1939_RE.match(line)
+        if stamme_position:
+            luk_slot(i)
+            roman = stamme_position.group(1).upper().replace('1', 'I')
+            afsnit = (_normaliser_romertal_1939(roman, profile)
+                      + (stamme_position.group(2) or '').upper())
+            i += 1
+            aabn_slot(i)
+            continue
+
+        afsnit_match = profile['afsnit_re'].match(line)
+        if afsnit_match:
+            luk_slot(i)
+            afsnit = _normaliser_romertal_1939(afsnit_match.group(1), profile)
+            i += 1
+            aabn_slot(i)
+            continue
+
+        gruppe = _gruppebeskrivelse_1939(lines, i, profile) if slot else None
+        if gruppe:
+            luk_slot(i)
+            afsnit = afsnit or gruppe[0]
+            i += gruppe[1]
+            aabn_slot(i)
+            continue
+
+        if slot and _post_start_1939(line, profile):
+            luk_slot(i)
+            nummereret_aktiv = True
+            i += 1
+            continue
+
+        if (slot and i not in reserverede_linjer
+                and _unummereret_navn_start_1939(line, profile)):
+            slot['kandidater'].append(i)
+        elif (not slot and not nummereret_aktiv and i not in reserverede_linjer
+              and _unummereret_navn_start_1939(line, profile)):
+            tvetydige.append(i)
+        i += 1
+    luk_slot(len(lines))
+    return poster, tvetydige
+
+
+def _segment_1939_v2(lines, profile):
+    """V1-nummererede poster plus deterministiske unummererede poster."""
+    base_profile = profile['base_profile']
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        nummererede = _segment_1939(lines, base_profile)
+    oversigter, reserverede = _segment_oversigter_1939(lines, profile)
+    stamfaedre, tvetydige = _segment_stamfaedre_1939(lines, profile, reserverede)
+    poster = nummererede + stamfaedre + oversigter
+    lokal_ids = [post.get('lokal_id') for post in poster]
+    dubletter = sorted({lokal_id for lokal_id in lokal_ids
+                        if lokal_id and lokal_ids.count(lokal_id) > 1})
+    json.dump(poster, sys.stdout, ensure_ascii=False, indent=2)
+    sys.stdout.write('\n')
+    print(f'[segment-v2] {len(nummererede)} nummererede poster', file=sys.stderr)
+    print(f'[segment-v2] {len(stamfaedre)} stamfædre', file=sys.stderr)
+    print(f'[segment-v2] {len(oversigter)} oversigtsposter; '
+          f'{sum(post["dublet_af_stamtavle"] for post in oversigter)} dublet-markerede',
+          file=sys.stderr)
+    print(f'[segment-v2] tvetydige unummererede kandidater: {len(tvetydige)}',
+          file=sys.stderr)
+    for linjenummer in tvetydige:
+        anker = norm(lines[linjenummer])[:80]
+        print(f'[segment-v2]    linje {linjenummer + 1}: {anker}', file=sys.stderr)
+    print(f'[segment-v2] lokal_id-dubletter: {dubletter}', file=sys.stderr)
+    return poster
+
+
 def _segment_1939(lines, profile):
     # Før første blok-linje-header er vi i fællesstammen; linje bærer dens
     # navnerum ("Stamme", evt. + sektions-slug) indtil stamtavlen begynder.
@@ -609,6 +890,8 @@ UDGAVE_PROFILER = {
         'kildelinje_re': KILDELINJE_1939_RE,
         'navnloest_barn_re': NAVNLOEST_BARN_1939_RE,
         'rent_spoergsmaalstegn_re': RENT_SPOERGSMAALSTEGN_1939_RE,
+        'indledning_oversigt_re': INDLEDNING_OVERSIGT_1939_RE,
+        'uplaceret_oversigt_re': UPLACERET_OVERSIGT_1939_RE,
         'ordinals': ORDINALER_1939,
         'roman_ocr': {'IIL': 'III', 'IL': 'II', 'VIL': 'VII'},   # L<->I-forveksling, kun kendte former
         'page_noise_window': 2,
@@ -616,6 +899,16 @@ UDGAVE_PROFILER = {
         'post_requires_spaerret_navn': True,
         'lokal_id_dele': ('linje', 'slaegtled', 'afsnit?', 'nr_label'),
     },
+}
+
+# V2 er bevidst en separat profil. Den kalder 1939-v1 som sort boks for de
+# nummererede poster og kan derfor ikke ændre deres afgrænsning eller tekst.
+UDGAVE_PROFILER['1939-v2'] = {
+    **UDGAVE_PROFILER['1939'],
+    'segmenter': _segment_1939_v2,
+    'base_profile': UDGAVE_PROFILER['1939'],
+    'lokal_id_dele_unummereret':
+        ('linje', 'slaegtled', 'afsnit?', 'U-position'),
 }
 
 
@@ -628,7 +921,8 @@ def main(path, udgave=None):
 if __name__ == '__main__':
     if len(sys.argv) == 2:
         main(sys.argv[1])
-    elif len(sys.argv) == 4 and sys.argv[2:] == ['--udgave', '1939']:
-        main(sys.argv[1], udgave='1939')
+    elif (len(sys.argv) == 4 and sys.argv[2] == '--udgave'
+          and sys.argv[3] in ('1939', '1939-v2')):
+        main(sys.argv[1], udgave=sys.argv[3])
     else:
-        sys.exit('brug: segment.py raw.txt [--udgave 1939] > posts.json')
+        sys.exit('brug: segment.py raw.txt [--udgave 1939|1939-v2] > posts.json')

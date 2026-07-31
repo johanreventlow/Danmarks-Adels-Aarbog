@@ -2,6 +2,17 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Kanonisk låseorden + id-gulv over versioneringshistorik (2026-07-31)
+
+**Besluttet (af sol-review-cyklussen):** (1) Alle scripts/migrationer der LOCKer flere
+model-tabeller bruger ÉN kanonisk rækkefølge — forældre-først, relation FØR assertion
+(RPC'ernes naturlige skriveorden; definitionen bor ved `id_tables` i load_daa.R).
+Inversion mellem samtidige LOCK-statements = deadlock. (2) Id-allokering bruger aldrig
+rå `max(id)` som gulv men `GREATEST(levende max, versioneringshistorikkens max pr. tabel)`
+— rækker slettet via red_slet-* efterlader change_events med højere id'er end levende max,
+og id-genbrug dér "genopliver" historik på nye, forkerte rækker (fundet empirisk af
+--replace-dry-runens invariantvagt). Gælder alle fire loadere + sekvens-setval i migrationer.
+
 ## Replay-laget: source-scoped replace, ikke generaliseret journal (2026-07-30)
 
 **Besluttet (bruger-valg efter helhedsreview, issue #123):** re-load af en udgave bevarer

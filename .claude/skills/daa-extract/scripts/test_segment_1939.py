@@ -1,9 +1,19 @@
-"""Tests for segment_1939.py — deterministisk narrative-segmentering (1939).
+"""Tests for 1939-segmentering og deterministisk narrativbinding.
 
-Alt testdata er SYNTETISK (opdigtede navne/datoer) — ingen PII.
+De små fixtures bruger korte typografiske OCR-ankre. V2-integrationstestene
+kører mod både den faktiske Calamari-OCR og ``raw.txt``-fallbacken.
 """
 
 import segment_1939 as seg
+import contextlib
+import io
+import os
+import json
+import subprocess
+import sys
+import tempfile
+
+import segment as structural_segment
 
 
 # ---------------------------------------------------------------- helpers
@@ -40,6 +50,269 @@ MINI_WINMAP = {"window-01": (490, 491)}
 
 def run_mini(posts, raw=MINI_RAW, winmap=MINI_WINMAP):
     return seg.segment(posts, raw, winmap)
+
+
+def run_structural(text, udgave):
+    """Kør struktursegmenteringen på en kort OCR-fixture."""
+    with tempfile.NamedTemporaryFile(
+            "w", suffix=".txt", delete=False, encoding="utf-8") as handle:
+        handle.write(text)
+        path = handle.name
+    try:
+        stderr = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(stderr):
+            posts = structural_segment.main(path, udgave=udgave)
+        return posts, stderr.getvalue()
+    finally:
+        os.unlink(path)
+
+
+def run_structural_path(path, udgave):
+    stderr = io.StringIO()
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(stderr):
+        posts = structural_segment.main(str(path), udgave=udgave)
+    return posts, stderr.getvalue()
+
+
+# ------------------------------------------------------ v2 unnumbered records
+
+def test_v2_udskiller_stamfader_efter_centreret_slaegtledsanker():
+    # Faktisk typografisk anker: "F ø rste S læ gtled ." efterfølges af en
+    # udbredt personlinje uden trykt nummer; næste slægtled lukker posten.
+    raw = "\n".join([
+        "                    IL",
+        "Linjen Gallentin.",
+        "                  (S. 21).",
+        "                     F ø rste S læ gtled .",
+        "  T e s t A n e til Prøvested, nævnes 1393. — Søn:",
+        "                     A ndet S læ gtled .",
+        "1. T e s t B o er en nummereret post.",
+    ])
+
+    posts, _ = run_structural(raw, "1939-v2")
+    unummererede = [post for post in posts if post.get("postklasse")]
+
+    assert len(unummererede) == 1
+    assert unummererede[0]["postklasse"] == "stamfader"
+    assert unummererede[0]["lokal_id"] == "II.Første.U1"
+    assert unummererede[0]["raw_text"] == (
+        "T e s t A n e til Prøvested, nævnes 1393. — Søn:")
+    assert unummererede[0]["dublet_af_stamtavle"] is False
+
+
+def test_v2_udskiller_faellesstammens_sektionsstamfader():
+    # Faktiske ankre før hovedlinjerne: "Den holstenske Linje." og et
+    # centreret romertal bærer adressen; selve personen er unummereret.
+    raw = "\n".join([
+        "                                A.",
+        "          Den holstenske Linje.",
+        "                                    i.",
+        "   T e s t A n e af Prøvested, nævnes 1223. — Sønner:",
+        " 1. T e s t B o er nummereret.",
+    ])
+
+    posts, _ = run_structural(raw, "1939-v2")
+    unummererede = [post for post in posts if post.get("postklasse")]
+
+    assert len(unummererede) == 1
+    assert unummererede[0]["lokal_id"] == "Stamme-holstenske.I.U1"
+
+
+def test_v2_normaliserer_centreret_ocr_1_til_romertal_i_i_stammefasen():
+    # Faktisk OCR-anker ved den ældre meklenborgske rod: centreret "1." er
+    # bogens romertal I; reparationen gælder kun før hovedlinjerne.
+    raw = "\n".join([
+        "                                B.",
+        "          Den ældre meklenborgske Linje.",
+        "                                1.",
+        "   T e s t A n e er den unummererede rod. — Sønner:",
+        "                                II.",
+        " 1. T e s t B o er nummereret.",
+    ])
+
+    posts, _ = run_structural(raw, "1939-v2")
+    unummererede = [post for post in posts if post.get("postklasse")]
+
+    assert [post["lokal_id"] for post in unummererede] == [
+        "Stamme-ældre-meklenborgske.I.U1"]
+
+
+def test_v2_bruger_faellesstammens_romertal_bogstav_som_adresse():
+    # Faktisk typografisk anker: "VII C." efterfølges af én unummereret
+    # enkeltbarnspost og bærer derfor et stabilt, trykt strukturslot.
+    raw = "\n".join([
+        "                                A.",
+        "          Den holstenske Linje.",
+        "                            VII B.",
+        " 1. T e s t B o er en nummereret post.",
+        "    fortsættelse med Efterslægt: Stamrække I.",
+        "                            VII C.",
+        "                  Lyder Reventlows Søn:",
+        "   Dr. T e s t A n e er en unummereret enkeltbarnspost.",
+    ])
+
+    posts, _ = run_structural(raw, "1939-v2")
+    unummererede = [post for post in posts if post.get("postklasse")]
+
+    assert [post["lokal_id"] for post in unummererede] == [
+        "Stamme-holstenske.VIIC.U1"]
+
+
+def test_v2_markerer_indledningsoversigt_som_dubletklasse():
+    # Faktisk typografisk anker: "Fra ovennævnte" indleder den kompakte,
+    # hierarkiske oversigt, der tidligere gav Cay Friedrich-dubletten.
+    raw = "\n".join([
+        "    Fra ovennævnte J O A C H I M R E V E N T L O W nedstammer Linjen.",
+        "    Joachim havde Sønnerne:",
+        "   I. T e s t A n e til Prøvested.",
+        " II. T e s t B o til Andetsted.",
+        "                                B.",
+        "          Den ældre meklenborgske Linje.",
+        "  T e s t C a r l er sektionsprosa, ikke del af oversigten.",
+        "                    I",
+        "Den holstenske Linje.",
+        "                  (S. 14).",
+    ])
+
+    posts, _ = run_structural(raw, "1939-v2")
+    oversigt = [post for post in posts if post.get("postklasse") == "oversigtspost"]
+
+    assert [post["lokal_id"] for post in oversigt] == [
+        "Oversigt.Indledning.U1", "Oversigt.Indledning.U2"]
+    assert all(post["dublet_af_stamtavle"] is True for post in oversigt)
+
+
+def test_v2_udskiller_slutoversigt_uden_dubletgaet():
+    # Faktisk typografisk anker: "Personer af Navnet Reventlow, der ikke kan
+    # anvises Plads". Udbredte navnelinjer er poster indtil næste navnelinje.
+    raw = "\n".join([
+        "Personer af Navnet Reventlow, der ikke kan anvises Plads",
+        "                  paa Slægtstavlerne:",
+        "    T e s t A n e , nævnes 1350 som vidne.",
+        "fortsat kort kildeprosa.",
+        "    T e s t B o , nævnes 1366 som vidne.",
+    ])
+
+    posts, _ = run_structural(raw, "1939-v2")
+    oversigt = [post for post in posts if post.get("postklasse") == "oversigtspost"]
+
+    assert [post["lokal_id"] for post in oversigt] == [
+        "Oversigt.Uplacerede.U1", "Oversigt.Uplacerede.U2"]
+    assert "fortsat kort kildeprosa" in oversigt[0]["raw_text"]
+    assert all(post["dublet_af_stamtavle"] is False for post in oversigt)
+
+
+def test_v2_fail_closed_rapporterer_navnelignende_linje_uden_strukturanker():
+    raw = "T v e t y d i g T e k s t kunne ligne en person, men mangler kontekst."
+
+    posts, rapport = run_structural(raw, "1939-v2")
+
+    assert posts == []
+    assert "tvetydige unummererede kandidater: 1" in rapport
+    assert "linje 1:" in rapport
+    assert "T v e t y d i g" in rapport
+
+
+def test_v2_bevarer_alle_v1_nummererede_poster_post_for_post():
+    raw = "\n".join([
+        "                    IV.",
+        "Den danske grevelige Linje af 1673.",
+        "                  (S. 43).",
+        "                     F ø rste S læ gtled .",
+        "  T e s t A n e er en unummereret stamfader.",
+        "                     A ndet S læ gtled .",
+        "1. T e s t B o har første nummererede narrativ.",
+        "2. T e s t C a r l har andet nummererede narrativ.",
+    ])
+
+    v1, _ = run_structural(raw, "1939")
+    v2, _ = run_structural(raw, "1939-v2")
+    v2_nummererede = [post for post in v2 if not post.get("postklasse")]
+
+    assert v2_nummererede == v1
+
+
+def test_v2_lokal_ids_er_unikke_og_output_deterministisk():
+    raw = "\n".join([
+        "                    IL",
+        "Linjen Gallentin.",
+        "                     F ø rste S læ gtled .",
+        "  T e s t A n e er stamfader.",
+        "                     A ndet S læ gtled .",
+        " T e s t B o er næste stamfader.",
+        "                     T red je S læ gtled .",
+        "1. T e s t C a r l er nummereret.",
+    ])
+
+    foerste, _ = run_structural(raw, "1939-v2")
+    anden, _ = run_structural(raw, "1939-v2")
+
+    assert foerste == anden
+    assert len({post["lokal_id"] for post in foerste}) == len(foerste)
+
+
+def test_v2_kan_vaelges_fra_kommandolinjen():
+    raw = "\n".join([
+        "                    I",
+        "Den holstenske Linje.",
+        "                     F ø rste S læ gtled .",
+        "  T e s t A n e er stamfader.",
+    ])
+    with tempfile.NamedTemporaryFile(
+            "w", suffix=".txt", delete=False, encoding="utf-8") as handle:
+        handle.write(raw)
+        path = handle.name
+    try:
+        result = subprocess.run(
+            [sys.executable, structural_segment.__file__, path,
+             "--udgave", "1939-v2"],
+            capture_output=True, text=True, check=False)
+    finally:
+        os.unlink(path)
+
+    assert result.returncode == 0
+    assert json.loads(result.stdout)[0]["lokal_id"] == "I.Første.U1"
+
+
+def test_v2_faktisk_ocr_bevarer_v1_nummererede_byte_for_byte():
+    repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
+    ocr = os.path.join(
+        repo, "work_1939_stamtavle", "full_ocr_calamari_r6_clean.txt")
+
+    v1, _ = run_structural_path(ocr, "1939")
+    v2, _ = run_structural_path(ocr, "1939-v2")
+    v2_nummererede = [post for post in v2 if not post.get("postklasse")]
+
+    # Empirisk parserfacit: v1 giver 483 på denne Calamari-fil. Briefens 515
+    # er derfor ikke v1-outputtet her; 505 gælder den separate raw.txt-fallback.
+    assert len(v1) == 483
+    assert len(v2_nummererede) == len(v1)
+    for v1_post, v2_post in zip(v1, v2_nummererede):
+        assert v2_post["lokal_id"] == v1_post["lokal_id"]
+        assert v2_post["sider"] == v1_post["sider"]
+        assert v2_post["raw_text"] == v1_post["raw_text"]
+    assert v2_nummererede == v1
+    assert (json.dumps(v2_nummererede, ensure_ascii=False, indent=2).encode("utf-8")
+            == json.dumps(v1, ensure_ascii=False, indent=2).encode("utf-8"))
+
+
+def test_v2_faktisk_ocr_taelling_unikhed_fail_closed_og_determinisme():
+    repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
+    ocr = os.path.join(repo, "work_1939_stamtavle", "raw.txt")
+
+    foerste, rapport = run_structural_path(ocr, "1939-v2")
+    anden, _ = run_structural_path(ocr, "1939-v2")
+    nye = [post for post in foerste if post.get("postklasse")]
+    stamfaedre = [post for post in nye if post["postklasse"] == "stamfader"]
+    oversigter = [post for post in nye if post["postklasse"] == "oversigtspost"]
+
+    assert len(nye) == 48
+    assert len(stamfaedre) == 23
+    assert len(oversigter) == 25
+    assert sum(post["dublet_af_stamtavle"] for post in oversigter) == 7
+    assert "tvetydige unummererede kandidater: 25" in rapport
+    assert len({post["lokal_id"] for post in foerste}) == len(foerste)
+    assert foerste == anden
 
 
 # ---------------------------------------------------------------- normalize

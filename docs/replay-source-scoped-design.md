@@ -118,6 +118,86 @@ består automatisk fordi person-id'erne bevares.
   version genindsættes — accepteret v1-risiko, rapporteres af loaderen.
 - **GO-betingelser før ægte prod-kørsel:** grønt manifest uden `--force-gate`
   + destruktiv integrationstest mod lokal prod-kopi.
+  **✅ BEGGE OPFYLDT 2026-07-31:**
+  - *Destruktiv test:* frisk prod-dump (1:1 på 8 nøgletal) → skarp `--replace`
+    mod lokal kopi: 514 matchede/1 tombstonet skippet/0 bortfaldne; 1604
+    source-ejede rækker × 4 tabeller erstattet; **uafhængigt før/efter-snapshot
+    (md5 over samme_som, change_event-sum, person-id-rum, family_member,
+    andre-sources-narrativer, bookmarks) 100 % identisk**; person-id'er bevaret
+    (stikprøvet via record_key); 0 genoplivede historik-id'er (nye fakta starter
+    ved 6837 = over gulvet); R-suiten 543/543 inkl. DB-smoke. Gentaget dry-run
+    efter replace viser fixpoint (1608→1608 — de 4 dublet-fakta er source-ejede
+    efter første kørsel).
+  - *Manifest:* convert_1939 skriver nu gate-manifest (commit 836c1af);
+    clean_1939.json har grønt manifest (515/515 rene) — gate GRØN uden
+    `--force-gate`, verificeret mod loaderen.
+  - *Sekvens-gulv-migrationen* rehearset lokalt OG **APPLIED TIL PROD samme
+    dag** (fact 6836→6837, eneste kollision; efterverificeret: alle 25
+    sekvenser over gulvet, 0 brud). **Alle forudsætninger for ægte
+    prod-replace er hermed på plads.**
+
+## Trin 4-design: familie-graf-replace (2026-07-31)
+
+Empiri fra den lokale prod-kopi (post-trin-3): 315 familier med 1939-medlem =
+296 × (1 hovedperson + 1 navngiven stub, 286 barn-kanter) + 19 × (1 hovedperson
+alene — parkerings-/default-unioner, 69 barn-kanter). 0 hovedperson↔hovedperson-
+unioner. **209 af 296 stubs bærer redaktionelle samme_som/ikke_samme_som-links**
+(tvær-udgave-ægtefælle-matchning) + 4 person-change_events på stubs → **stubs
+kan ALDRIG slettes/genoprettes; deres person-id er redaktionel valuta.**
+Kun 1 familie har change_event-spor på medlemslisten (kendt fra dry-run).
+
+**Princip: strukturen (family-id, stub-person-id) genbruges via match;
+indholdet (family-fakta, stub-fakta, noter, barn-kanter) erstattes.**
+
+1. **Kortlægning pr. matchet hovedperson:** eksisterende partner-familier →
+   `(family_id, stub_id, stub_navn, ordinal, har_red_spor)`.
+2. **Union-match:** artefakt-ægteskab ↔ eksisterende union via normaliseret
+   partnernavn (split_title-rest — samme princip som `match_barn_union`:
+   partnernavn primær, ordinal kryds-tjek). Tvetydighed (to unioner, samme
+   partnernavn) = STOP fail-closed.
+3. **Matchet union:** family_id + stub_id genbruges; source-ejede family-fakta-
+   kæder, family-noter og stub-fakta (navn/titel/fødsel/dåb/død) erstattes;
+   ordinal opdateres.
+4. **Umatchet artefakt-ægteskab:** ny familie + ny stub (som append-flowet).
+5. **Bortfalden union:** består + rapporteres — aldrig auto-slettet
+   (register-princippet; en bortfalden union med samme_som-stub er ellers
+   datatab af redaktionsarbejde).
+6. **Barn-kanter:** source-ejede (uden change_event-spor) slettes og genopbygges
+   fra artefaktet mod de genbrugte/nye family_ids; kanter med spor fredes
+   (skip-hvis-findes beskytter mod PK-kollision når artefaktet genindsætter
+   en fredet kant).
+7. **Parkerings-unioner (ingen stub):** ingen id-valuta at bevare → slettes
+   som source-ejede og genopstår ved behov under genopbygningen.
+8. **Fredning:** familie med change_event-spor på family/family_member er
+   redaktionel — hele familien springes over (indhold urørt) og rapporteres;
+   artefaktets tilsvarende union behandles da som bortfalden-i-spejl (ingen
+   dublet-oprettelse: matchede fredede unioner tæller som matchede).
+
+**Udvidet efterverifikation (blokerende):** samme_som/ikke_samme_som-mængden
+byte-identisk; alle stub-id'er med samme_som eksisterer fortsat og har fortsat
+en partner-kant; fredede kanter uændrede; change_set/change_event-antal
+uændret; EXCLUDE-invarianten (én fødselsfamilie pr. barn) holder.
+
+**✅ SOL-GO 2026-07-31** efter tre adversarialer runder (commits 77d2aa2 →
+b2f47d5 → 50d58fc): (1) positivt familie-ejerskab, to-grenet — MED evidens
+kræves alt fuldt citeret mod denne source; UDEN evidens kræves positivt
+proveniens-bevis pr. ikke-matchet medlem (fremmed external_id diskvalificerer;
+extid-løse skal have ≥1 fakta-citation mod denne source og ingen fremmed —
+personer uden proveniens fredes fail-closed). Begge omgåelsesklasser bevist
+lukket med injicerede syntetiske legacy-familier. (2) Artefakt-navnedubletter
+uden parvis distinkte ordinaler fail-closes up-front (kørsel-uafhængigt).
+(3) NA-navne-sikring i alle match-sammenligninger. 582/582 tests.
+
+**✅ IMPLEMENTERET + DESTRUKTIVT TESTET 2026-07-31** (commit 53fd921):
+match_replace_unioner (DB-fri, testdækket) + replace-familie-fase i loaderen.
+Skarp kørsel mod lokal prod-kopi: 295 unioner genbrugt (id-stabile stubs),
+19 parkeringer genopbygget, 1 fredet sprunget over, 0 bortfaldne; uafhængigt
+md5-snapshot (stub-id'er, samme_som, 2018-20-graf, narrativer) 100 % identisk;
+0 dobbelt-fødselsfamilier; fixpoint ved genkørsel. 569/569 tests.
+To fund fra testen: (1) Iven-casen (I-72: to hustruer begge 'Margarethe
+Rantzau') krævede navn+ordinal-fase før navn-alene; (2) pmap var
+record_key-nøglet men pass 2 slår linje-nøglet op — latent brud for alle
+UUID-nøglede artefakter, også i append; rettet til altid-linje-nøgle.
 
 ## Åbne spørgsmål (til implementeringssessionerne)
 

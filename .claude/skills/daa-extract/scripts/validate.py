@@ -841,6 +841,20 @@ def _foerste(v):
     return v or None
 
 
+def _foerste_side(v):
+    """Returnér første fysiske side fra segmenteringens sidefelt.
+
+    ``segment.py`` kan skrive et span som ``"496-497"``. Lokatoren er et
+    punktanker, ikke et interval, og bruger derfor deterministisk første side.
+    Hjælperen er særskilt fra ``_foerste`` så bindestreger i ``lokal_id`` aldrig
+    fortolkes som et sidespan.
+    """
+    v = _foerste(v)
+    if v and re.fullmatch(r"\d+\s*-\s*\d+", v):
+        return v.split("-", 1)[0].strip()
+    return v
+
+
 def paahaeft_lokator(rec, src):
     """Sæt `side` + `lokal_id` fra kilde-posten. Muterer og returnerer rec.
 
@@ -849,7 +863,7 @@ def paahaeft_lokator(rec, src):
     fanger det som en blokerende fejl.
     """
     src = src or {}
-    rec["side"] = _foerste(src.get("sider", src.get("side")))
+    rec["side"] = _foerste_side(src.get("sider", src.get("side")))
     rec["lokal_id"] = _foerste(src.get("lokal_id"))
     return rec
 
