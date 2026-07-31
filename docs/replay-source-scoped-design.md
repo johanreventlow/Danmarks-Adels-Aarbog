@@ -118,6 +118,22 @@ består automatisk fordi person-id'erne bevares.
   version genindsættes — accepteret v1-risiko, rapporteres af loaderen.
 - **GO-betingelser før ægte prod-kørsel:** grønt manifest uden `--force-gate`
   + destruktiv integrationstest mod lokal prod-kopi.
+  **✅ BEGGE OPFYLDT 2026-07-31:**
+  - *Destruktiv test:* frisk prod-dump (1:1 på 8 nøgletal) → skarp `--replace`
+    mod lokal kopi: 514 matchede/1 tombstonet skippet/0 bortfaldne; 1604
+    source-ejede rækker × 4 tabeller erstattet; **uafhængigt før/efter-snapshot
+    (md5 over samme_som, change_event-sum, person-id-rum, family_member,
+    andre-sources-narrativer, bookmarks) 100 % identisk**; person-id'er bevaret
+    (stikprøvet via record_key); 0 genoplivede historik-id'er (nye fakta starter
+    ved 6837 = over gulvet); R-suiten 543/543 inkl. DB-smoke. Gentaget dry-run
+    efter replace viser fixpoint (1608→1608 — de 4 dublet-fakta er source-ejede
+    efter første kørsel).
+  - *Manifest:* convert_1939 skriver nu gate-manifest (commit 836c1af);
+    clean_1939.json har grønt manifest (515/515 rene) — gate GRØN uden
+    `--force-gate`, verificeret mod loaderen.
+  - *Rehearsal af sekvens-gulv-migrationen* kørte samtidig lokalt: fact-sekvens
+    6836→6837 (eneste kollision, præcis dry-run-fundets klasse), idempotent.
+    **Prod-apply udestår** (permission-gated i sessionen).
 
 ## Åbne spørgsmål (til implementeringssessionerne)
 

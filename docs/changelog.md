@@ -1,5 +1,30 @@
 # Changelog
 
+## Replay-GO-betingelser opfyldt: destruktiv --replace-test grøn + manifest-hul lukket (2026-07-31)
+
+Begge GO-betingelser fra replay-designet er nu opfyldt (detaljer i
+`docs/replay-source-scoped-design.md` §Kendte v1-begrænsninger):
+
+- **Destruktiv integrationstest mod lokal prod-kopi:** frisk pg_dump af prod
+  (1:1 verificeret på 8 nøgletal) → skarp `--replace` af DAA 1939: 514 matchede,
+  person-id'er bevaret, alle redaktionelle invarianter identiske i et
+  UAFHÆNGIGT md5-snapshot før/efter (ikke kun loaderens egen verifikation),
+  0 genoplivede historik-id'er, fixpoint ved gentaget kørsel. R-suiten 543/543.
+- **Sekvens-gulv-migrationen rehearset lokalt** på prod-kopien: fact-sekvens
+  6836→6837 (eneste kollision — præcis den id-genoplivningsklasse dry-run-fundet
+  forudsagde), idempotent genkørsel no-op. **Prod-apply udestår** (blev
+  permission-blokeret i sessionen — skal køres af bruger eller godkendt kørsel;
+  blokken ligger klar i `db-migrations.sql` "SEKVENS-GULV"-sektionen).
+- **Manifest-hullet lukket:** convert_1939 skriver nu gate-manifest (#126) i
+  samme serialisering som clean-filen; eksisterende clean_1939.json fik ægte
+  manifest efter bevist byte-identisk re-serialisering (515/515 rene) — gaten
+  er GRØN uden `--force-gate`.
+- **Sidegevinst:** #126-gaten havde brudt den miljøgatede DB-smoke-test
+  (fixture uden manifest) — testen skriver nu ærligt manifest pr. loader-input.
+
+**Næste:** (1) sekvens-gulv til prod, (2) trin 4-designrunde (familie-graf-
+replace) — indtil da bevarer `--replace` bevidst loader-oprettede familie-kanter.
+
 ## Helhedsreview → slutark lukket → replay-kæden bygget (2026-07-30/31)
 
 Én sammenhængende session fra review til fungerende replace-lag:
