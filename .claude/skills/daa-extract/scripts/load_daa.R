@@ -443,10 +443,11 @@ tryCatch({
     #   HAR familien evidens (family-fakta-assertions + forældrefamilie-slot-
     #   assertions med objekt = familien): AL evidens skal have ≥1 citation og
     #   ALLE citations skal pege på netop denne source.
-    #   HAR den INGEN evidens (tomme parkeringer): alle medlemmer skal være
-    #   vores — intet medlem må have en external_id uden for match-settet
-    #   (runde 4: nul-evidens-grenen må ikke være en omgåelse for legacy-/
-    #   fremmed-familier).
+    #   HAR den INGEN evidens (tomme parkeringer): hvert ikke-matchet medlem
+    #   skal POSITIVT bevises som vores (runde 4+5): fremmed external_id
+    #   diskvalificerer, og et extid-løst medlem skal have ≥1 person-fakta-
+    #   citation mod netop denne source og INGEN mod nogen anden — en person
+    #   helt uden proveniens kan ikke bevises og fredes fail-closed.
     # Ikke-ejede familier behandles som fredede (skip + rapport) og deres
     # kanter bliver i urørt-md5-mængden, så en overtrædelse opdages.
     fam_db <- dbGetQuery(con, sprintf("
@@ -469,13 +470,22 @@ tryCatch({
                       OR EXISTS (SELECT 1 FROM citation c WHERE c.assertion_id=a.id
                                  AND c.source_id IS DISTINCT FROM %d)))
              ELSE NOT EXISTS (
-               SELECT 1 FROM family_member fm2 JOIN person_external_id x ON x.person_id=fm2.person_id
-               WHERE fm2.family_id=hoved.family_id AND fm2.person_id NOT IN (%s))
+               SELECT 1 FROM family_member fm2
+               WHERE fm2.family_id=hoved.family_id AND fm2.person_id NOT IN (%s)
+                 AND (EXISTS (SELECT 1 FROM person_external_id x WHERE x.person_id=fm2.person_id)
+                   OR NOT EXISTS (
+                        SELECT 1 FROM fact f JOIN assertion a ON a.target_type='fact' AND a.target_id=f.id
+                                             JOIN citation c ON c.assertion_id=a.id
+                        WHERE f.subjekt_type='person' AND f.subjekt_id=fm2.person_id AND c.source_id=%d)
+                   OR EXISTS (
+                        SELECT 1 FROM fact f JOIN assertion a ON a.target_type='fact' AND a.target_id=f.id
+                                             JOIN citation c ON c.assertion_id=a.id
+                        WHERE f.subjekt_type='person' AND f.subjekt_id=fm2.person_id AND c.source_id IS DISTINCT FROM %d)))
              END AS ejet
       FROM family_member hoved
       LEFT JOIN family_member stub ON stub.family_id=hoved.family_id AND stub.rolle='partner' AND stub.person_id<>hoved.person_id
       LEFT JOIN person p ON p.id=stub.person_id
-      WHERE hoved.rolle='partner' AND hoved.person_id IN (%s)", src, ids_sql, ids_sql))
+      WHERE hoved.rolle='partner' AND hoved.person_id IN (%s)", src, ids_sql, src, src, ids_sql))
     fam_db$fredet <- (fam_db$fredet %in% TRUE) | !(fam_db$ejet %in% TRUE)
     if (any(!(fam_db$ejet %in% TRUE)))
       message(sprintf("REPLACE trin 4: %d familier i scope er IKKE positivt source-ejede (fremmed/citationsløs evidens) — fredes.",
