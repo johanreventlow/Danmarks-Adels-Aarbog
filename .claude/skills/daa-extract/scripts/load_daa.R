@@ -566,6 +566,18 @@ tryCatch({
     print(buffer_counts(.buf))
     dbRollback(con)
   } else {
+    # IDENTITY-kontrakten (db-migrations 2026-07-31): nid() indsætter eksplicitte
+    # id'er uden om sekvenserne — synk dem FØR commit, ellers kolliderer næste
+    # DEFAULT-insert (RPC'erne) med loaderens rækker. Kun tabeller loaderen
+    # allokerer til; tolerant hvor IDENTITY endnu ikke er applied (lokal base).
+    for (t in id_tables) {
+      tryCatch(
+        ex(sprintf(
+          "SELECT setval(pg_get_serial_sequence('%s','id'), (SELECT coalesce(max(id),0)+1 FROM %s), false)",
+          t, t)),
+        error = function(e) message(sprintf(
+          "sekvens-sync sprunget over for %s (%s)", t, conditionMessage(e))))
+    }
     dbCommit(con); message(sprintf("Indlæst %d poster (udgave %s).", length(clean), udgave))
   }
 }, error = function(e) { dbRollback(con); dbDisconnect(con)

@@ -65,10 +65,13 @@ sikret (historik overlever ikke længere id-genbrug).
 
 ## Forudsætninger (rækkefølge)
 
-0. **record_key-backfill i prod:** kun 591/1733 redigerbare personer har
-   `record_key` i `person_external_id`. 1939-personerne kan backfilles nu:
-   registerets `book_post_id` ↔ artefaktets `record_key` ↔ `(linje, nr)` ↔
-   person. UDEN dette kan match-fasen ikke køre. Særskilt, verificérbart trin.
+0. **record_key-backfill i prod: ✅ ALLEREDE OPFYLDT** (verificeret empirisk
+   2026-07-31): prods 514 `person_external_id.record_key`-rækker for source 3
+   er en eksakt 1:1-afspejling af registerets 514 aktive `book_post_id`'er
+   (0 afvigelser i begge retninger, mængde-tjek via psql). 2018-20's 591 rækker
+   har alle `record_key` (filnavns-nøglede). Den gamle "591/1733"-observation
+   talte personer HELT uden external_id-række — gift-ind-stubs, som replay
+   alligevel behandler som source-ejede. Intet backfill-arbejde nødvendigt.
 1. **IDENTITY-migration** (review 24 fund 15 / RED-8): `max(id)+1`-allokering
    skal væk før replace-mode — replace åbner for gentagne loads og dermed flere
    samtidige skrivere mod samme id-rum.
