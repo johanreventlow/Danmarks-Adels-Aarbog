@@ -2,20 +2,27 @@
  "version": 1,
  "poster": [
   {
-   "book_post_id": "c7a75809-80f8-4688-9915-82546f761236",
-   "udgave": "1939",
-   "side": "496",
-   "lokal_id": "AI.stamfar",
-   "status": "aktiv",
-   "begrundelse": "side afstemt 490→496 mod artefakt (record_key-verificeret)"
-  },
-  {
    "book_post_id": "7dfc96cd-22d2-48bd-928d-5224767c9282",
    "udgave": "1939",
    "side": "496",
    "lokal_id": "Stamme-holstenske.I.1",
    "status": "aktiv",
    "begrundelse": "om-nøglet 496|A.V.1 → 496|Stamme-holstenske.I.1 (tekst-anker, trykt skema 2026-07-30); tidligere: side afstemt 498→496 mod artefakt (record_key-verificeret)"
+  },
+  {
+   "book_post_id": "c7a75809-80f8-4688-9915-82546f761236",
+   "udgave": "1939",
+   "side": "496",
+   "lokal_id": "Stamme-holstenske.I.U1",
+   "status": "aktiv",
+   "begrundelse": "side afstemt 490→496 mod artefakt (record_key-verificeret)"
+  },
+  {
+   "book_post_id": "8e116675-0f17-4531-ba55-d33266df5b14",
+   "udgave": "1939",
+   "side": "497",
+   "lokal_id": "Stamme-holstenske.I.2",
+   "status": "aktiv"
   },
   {
    "book_post_id": "d712f8d8-76a4-4eb6-be40-55837795ada1",
@@ -26,19 +33,19 @@
    "begrundelse": "om-nøglet 497|A.II.3 → 497|Stamme-holstenske.I.3 (tekst-anker, trykt skema 2026-07-30); tidligere: side afstemt 498→497 mod artefakt (record_key-verificeret)"
   },
   {
+   "book_post_id": "65cc3c18-cae3-4995-a022-9339c23114b5",
+   "udgave": "1939",
+   "side": "497",
+   "lokal_id": "Stamme-holstenske.I.4",
+   "status": "aktiv"
+  },
+  {
    "book_post_id": "b41e06e5-4a5d-45aa-af48-e4c0e14cafd1",
    "udgave": "1939",
    "side": "497",
    "lokal_id": "Stamme-holstenske.III.1",
    "status": "aktiv",
    "begrundelse": "om-nøglet 498|A.III.1 → 497|Stamme-holstenske.III.1 (tekst-anker, trykt skema 2026-07-30)"
-  },
-  {
-   "book_post_id": "eae0669d-4690-4108-b079-026efcf0357b",
-   "udgave": "1939",
-   "side": "498",
-   "lokal_id": "A.III.3",
-   "status": "aktiv"
   },
   {
    "book_post_id": "80960791-c231-4bf7-b3e2-74195a48ceb3",
@@ -62,6 +69,20 @@
    "status": "aktiv"
   },
   {
+   "book_post_id": "ae28932c-9aec-4db3-ab8f-496669afd5fe",
+   "udgave": "1939",
+   "side": "498",
+   "lokal_id": "Stamme-holstenske.III.2",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "eae0669d-4690-4108-b079-026efcf0357b",
+   "udgave": "1939",
+   "side": "498",
+   "lokal_id": "Stamme-holstenske.III.3",
+   "status": "aktiv"
+  },
+  {
    "book_post_id": "1f075502-0ea9-485c-b508-31a8dce99229",
    "udgave": "1939",
    "side": "499",
@@ -79,31 +100,22 @@
    "book_post_id": "8144f57e-1539-49d0-ac74-ac228bf3e04d",
    "udgave": "1939",
    "side": "500",
-   "lokal_id": "A.IVB.1",
+   "lokal_id": "Stamme-holstenske.IV-B-Hr-Iven-Reventlows-Sønner.1",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "642aa296-3872-4442-a84b-19aff7e29e6d",
+   "udgave": "1939",
+   "side": "500",
+   "lokal_id": "Stamme-holstenske.IV-B-Hr-Iven-Reventlows-Sønner.2",
    "status": "aktiv"
   },
   {
    "book_post_id": "887b5006-197b-4dcc-a172-45f5985ec492",
    "udgave": "1939",
    "side": "500",
-   "lokal_id": "A.IVB.3",
+   "lokal_id": "Stamme-holstenske.IV-B-Hr-Iven-Reventlows-Sønner.3",
    "status": "aktiv"
-  },
-  {
-   "book_post_id": "c8d5e5dc-be9a-4e6d-a1d6-bf7ba659a6c1",
-   "udgave": "1939",
-   "side": "500",
-   "lokal_id": "A.IVC.3",
-   "status": "aktiv",
-   "begrundelse": "side afstemt 496→500 mod artefakt (record_key-verificeret)"
-  },
-  {
-   "book_post_id": "e723f358-41f0-47b6-95cb-3a44901d1e64",
-   "udgave": "1939",
-   "side": "500",
-   "lokal_id": "A.V.3",
-   "status": "aktiv",
-   "begrundelse": "side afstemt 498→500 mod artefakt (record_key-verificeret)"
   },
   {
    "book_post_id": "40a2b0f3-3119-41db-860e-91869dc1b78e",
@@ -112,6 +124,71 @@
    "lokal_id": "Stamme-holstenske.IV-B-Hr-Iven-Reventlows-Sønner.4",
    "status": "aktiv",
    "begrundelse": "om-nøglet 500|A.IVB.4 → 500|Stamme-holstenske.IV-B-Hr-Iven-Reventlows-Sønner.4 (tekst-anker, trykt skema 2026-07-30)"
+  },
+  {
+   "book_post_id": "6894c1a8-4a69-4450-8a60-7923d1eac5ac",
+   "udgave": "1939",
+   "side": "500",
+   "lokal_id": "Stamme-holstenske.IV-C-Hr-Claus-Reventlows-Sønner.1",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "4d2e4ff6-b40e-43bf-bb89-0a4ff2335216",
+   "udgave": "1939",
+   "side": "500",
+   "lokal_id": "Stamme-holstenske.IV-C-Hr-Claus-Reventlows-Sønner.2",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "c8d5e5dc-be9a-4e6d-a1d6-bf7ba659a6c1",
+   "udgave": "1939",
+   "side": "500",
+   "lokal_id": "Stamme-holstenske.IV-C-Hr-Claus-Reventlows-Sønner.3",
+   "status": "aktiv",
+   "begrundelse": "side afstemt 496→500 mod artefakt (record_key-verificeret)"
+  },
+  {
+   "book_post_id": "38baaa29-9209-437f-983f-b61885e2024c",
+   "udgave": "1939",
+   "side": "500",
+   "lokal_id": "Stamme-holstenske.IV-C-Hr-Claus-Reventlows-Sønner.4",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "a5e19de2-df1d-461c-8116-863d541fd3e9",
+   "udgave": "1939",
+   "side": "501",
+   "lokal_id": "Stamme-holstenske.V.1",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "38a318e5-5fc5-4b86-a441-dbd26717769f",
+   "udgave": "1939",
+   "side": "501",
+   "lokal_id": "Stamme-holstenske.V.2",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "e723f358-41f0-47b6-95cb-3a44901d1e64",
+   "udgave": "1939",
+   "side": "501",
+   "lokal_id": "Stamme-holstenske.V.3",
+   "status": "aktiv",
+   "begrundelse": "side afstemt 498→500 mod artefakt (record_key-verificeret)"
+  },
+  {
+   "book_post_id": "efcf27d5-c303-41d6-8729-be96809a5d57",
+   "udgave": "1939",
+   "side": "501",
+   "lokal_id": "Stamme-holstenske.V.4",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "907f2dba-6d39-4c73-9a61-cd67c6aa71bb",
+   "udgave": "1939",
+   "side": "501",
+   "lokal_id": "Stamme-holstenske.V.5",
+   "status": "aktiv"
   },
   {
    "book_post_id": "9afe39ed-589a-4bfb-b422-163735f7654e",
@@ -170,6 +247,20 @@
    "begrundelse": "om-nøglet 502|VIA.6 → 502|Stamme-holstenske.til-Cismar-Kloster-udstedt-Skøde-VI-A-Hartvig-Reventlows-Børn.6 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
+   "book_post_id": "34540675-a7ab-436c-bd91-b6a7f8f8b6b7",
+   "udgave": "1939",
+   "side": "502",
+   "lokal_id": "Stamme-holstenske.til-Cismar-Kloster-udstedt-Skøde-VI-A-Hartvig-Reventlows-Børn.7",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "08bdea57-df57-40f4-9efd-d96b363fe3d1",
+   "udgave": "1939",
+   "side": "503",
+   "lokal_id": "Stamme-holstenske.VI-B-Lyder-Reventlows-Børn.2",
+   "status": "aktiv"
+  },
+  {
    "book_post_id": "70ef7e58-8ef8-45bd-9572-6707d0fbf1e5",
    "udgave": "1939",
    "side": "503",
@@ -186,34 +277,41 @@
    "begrundelse": "om-nøglet 503|VIIB.2 → 503|Stamme-holstenske.VII-B-Hr-Detlev-Reventlows-Børn-med-Sophie-Jakobs-datter-Bjørn.2 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
-   "book_post_id": "f81f2fc4-1d45-45fd-be9f-4330e69196e7",
+   "book_post_id": "9917b79f-e227-4fa8-b666-554cd5733d38",
    "udgave": "1939",
    "side": "503",
-   "lokal_id": "Stamme-holstenske.hagen-VII-A-Henrik-Reventlows-Sønner.3",
-   "status": "aktiv",
-   "begrundelse": "om-nøglet 503|AML-1.stamfar → 503|Stamme-holstenske.hagen-VII-A-Henrik-Reventlows-Sønner.3 (tekst-anker, trykt skema 2026-07-30); tidligere: side afstemt 502→503 mod artefakt (record_key-verificeret)"
-  },
-  {
-   "book_post_id": "49fb7c0a-5f88-41b2-a0be-2c4fb5b53a42",
-   "udgave": "1939",
-   "side": "503",
-   "lokal_id": "VIIA.1",
-   "status": "aktiv"
-  },
-  {
-   "book_post_id": "03bdc4bc-a745-4bb7-85c7-614d73f5e96a",
-   "udgave": "1939",
-   "side": "503",
-   "lokal_id": "VIIA.2",
+   "lokal_id": "Stamme-holstenske.VII-B-Hr-Detlev-Reventlows-Børn-med-Sophie-Jakobs-datter-Bjørn.3",
    "status": "aktiv"
   },
   {
    "book_post_id": "35daa2fd-1e16-4a70-9cae-cac187bc4009",
    "udgave": "1939",
    "side": "503",
-   "lokal_id": "VIIC.1",
+   "lokal_id": "Stamme-holstenske.VIIC.U1",
    "status": "aktiv",
    "begrundelse": "side afstemt 502→503 mod artefakt (record_key-verificeret)"
+  },
+  {
+   "book_post_id": "49fb7c0a-5f88-41b2-a0be-2c4fb5b53a42",
+   "udgave": "1939",
+   "side": "503",
+   "lokal_id": "Stamme-holstenske.hagen-VII-A-Henrik-Reventlows-Sønner.1",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "03bdc4bc-a745-4bb7-85c7-614d73f5e96a",
+   "udgave": "1939",
+   "side": "503",
+   "lokal_id": "Stamme-holstenske.hagen-VII-A-Henrik-Reventlows-Sønner.2",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "f81f2fc4-1d45-45fd-be9f-4330e69196e7",
+   "udgave": "1939",
+   "side": "503",
+   "lokal_id": "Stamme-holstenske.hagen-VII-A-Henrik-Reventlows-Sønner.3",
+   "status": "aktiv",
+   "begrundelse": "om-nøglet 503|AML-1.stamfar → 503|Stamme-holstenske.hagen-VII-A-Henrik-Reventlows-Sønner.3 (tekst-anker, trykt skema 2026-07-30); tidligere: side afstemt 502→503 mod artefakt (record_key-verificeret)"
   },
   {
    "book_post_id": "065b23d8-a70d-49d0-ac4f-c323fcd00d4c",
@@ -283,6 +381,28 @@
    "status": "aktiv"
   },
   {
+   "book_post_id": "7e5431b3-5a60-46b7-8760-a87f00988e25",
+   "udgave": "1939",
+   "side": "505",
+   "lokal_id": "Stamme-ældre-meklenborgske.I.U1",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "009cdd38-2404-40b0-b7c5-f2da8b5b059d",
+   "udgave": "1939",
+   "side": "505",
+   "lokal_id": "Stamme-ældre-meklenborgske.II.1",
+   "status": "aktiv",
+   "begrundelse": "side afstemt 502→508 mod artefakt (record_key-verificeret)"
+  },
+  {
+   "book_post_id": "d6b01d86-f1ed-4b0d-a4b5-add1512091e3",
+   "udgave": "1939",
+   "side": "505",
+   "lokal_id": "Stamme-ældre-meklenborgske.II.2",
+   "status": "aktiv"
+  },
+  {
    "book_post_id": "87694db2-dcd6-46dd-88db-e79b3abaa24c",
    "udgave": "1939",
    "side": "505",
@@ -306,20 +426,26 @@
    "status": "aktiv"
   },
   {
+   "book_post_id": "33094d44-8619-4dbc-8f02-c0f352255790",
+   "udgave": "1939",
+   "side": "506",
+   "lokal_id": "Stamme-ældre-meklenborgske.II.3",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "c3fa562f-153b-44c0-bf0c-cf0dc8f1de69",
+   "udgave": "1939",
+   "side": "506",
+   "lokal_id": "Stamme-ældre-meklenborgske.IV.U1",
+   "status": "aktiv"
+  },
+  {
    "book_post_id": "4733708c-be3e-45bf-aa69-c0c7740a0532",
    "udgave": "1939",
    "side": "507",
    "lokal_id": "Stamme-ældre-meklenborgske.V.1",
    "status": "aktiv",
    "begrundelse": "om-nøglet 507|AML-V.1 → 507|Stamme-ældre-meklenborgske.V.1 (tekst-anker, trykt skema 2026-07-30); tidligere: side afstemt 502→507 mod artefakt (record_key-verificeret)"
-  },
-  {
-   "book_post_id": "009cdd38-2404-40b0-b7c5-f2da8b5b059d",
-   "udgave": "1939",
-   "side": "508",
-   "lokal_id": "AML-II.1",
-   "status": "aktiv",
-   "begrundelse": "side afstemt 502→508 mod artefakt (record_key-verificeret)"
   },
   {
    "book_post_id": "7a73853c-c2f1-43c7-ad2d-87e96511f6ff",
@@ -338,26 +464,19 @@
    "begrundelse": "om-nøglet 508|preVI.3 → 508|Stamme-ældre-meklenborgske.V.3 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
+   "book_post_id": "ddd9c8f8-f659-4e6a-8082-ae0563e7a0cf",
+   "udgave": "1939",
+   "side": "508",
+   "lokal_id": "Stamme-ældre-meklenborgske.VI.1",
+   "status": "aktiv"
+  },
+  {
    "book_post_id": "cc98c27f-90aa-4b70-8b6a-7fcbae3a03f7",
    "udgave": "1939",
    "side": "508",
    "lokal_id": "Stamme-ældre-meklenborgske.VI.2",
    "status": "aktiv",
    "begrundelse": "om-nøglet 509|VI.2.N1.1.1.1.II.B.1.B.2 → 508|Stamme-ældre-meklenborgske.VI.2 (tekst-anker, trykt skema 2026-07-30); tidligere: side afstemt 508→509 mod artefakt (record_key-verificeret)"
-  },
-  {
-   "book_post_id": "2f3e2489-4710-4bef-b753-684da5ef18dc",
-   "udgave": "1939",
-   "side": "508",
-   "lokal_id": "VI.2.N1",
-   "status": "aktiv"
-  },
-  {
-   "book_post_id": "236a969e-2e6e-459b-b26d-00f93726d6da",
-   "udgave": "1939",
-   "side": "508",
-   "lokal_id": "VI.2.N1.1.1",
-   "status": "aktiv"
   },
   {
    "book_post_id": "16a93a3f-6218-44ce-8f96-71f79468a9ec",
@@ -524,19 +643,19 @@
    "begrundelse": "dublet — oversigts-/prosaomtale; slettet i prod 2026-07-27/28"
   },
   {
-   "book_post_id": "5323a655-ce49-4fb9-94e8-3dd82dabc028",
-   "udgave": "1939",
-   "side": "511",
-   "lokal_id": "HL-I.stamfar",
-   "status": "aktiv"
-  },
-  {
    "book_post_id": "39cb0311-e424-4bca-ab7c-6218c5726af7",
    "udgave": "1939",
    "side": "511",
    "lokal_id": "I.Andet.1",
    "status": "aktiv",
    "begrundelse": "om-nøglet 511|HL-II.1 → 511|I.Andet.1 (tekst-anker, trykt skema 2026-07-30)"
+  },
+  {
+   "book_post_id": "5323a655-ce49-4fb9-94e8-3dd82dabc028",
+   "udgave": "1939",
+   "side": "511",
+   "lokal_id": "I.Første.U1",
+   "status": "aktiv"
   },
   {
    "book_post_id": "3b9bf23f-0108-4d73-8bb6-b71a977be175",
@@ -561,6 +680,13 @@
    "lokal_id": "I.Andet.4",
    "status": "aktiv",
    "begrundelse": "om-nøglet 513|HL-II.4 → 513|I.Andet.4 (tekst-anker, trykt skema 2026-07-30)"
+  },
+  {
+   "book_post_id": "c2d9bae1-d107-4967-be91-2956494d36a8",
+   "udgave": "1939",
+   "side": "513",
+   "lokal_id": "I.Andet.5",
+   "status": "aktiv"
   },
   {
    "book_post_id": "88f93d45-de77-44a8-acdb-2ac7b7defc51",
@@ -683,6 +809,13 @@
    "begrundelse": "om-nøglet 515|3II.1 → 515|I.Tredje.II.1 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
+   "book_post_id": "afd133b2-1612-42c7-ab52-f7406ffcd606",
+   "udgave": "1939",
+   "side": "515",
+   "lokal_id": "I.Tredje.II.2",
+   "status": "aktiv"
+  },
+  {
    "book_post_id": "e0172f2d-c8fc-4450-b53c-ee703ff28ab1",
    "udgave": "1939",
    "side": "515",
@@ -707,12 +840,26 @@
    "begrundelse": "om-nøglet 515|3III.3 → 515|I.Tredje.III.3 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
+   "book_post_id": "b38ba30a-7b9b-4e3b-9922-fe71d066f34e",
+   "udgave": "1939",
+   "side": "515",
+   "lokal_id": "I.Tredje.III.4",
+   "status": "aktiv"
+  },
+  {
    "book_post_id": "b0650531-22fa-45fc-864c-79f62e48062c",
    "udgave": "1939",
    "side": "516",
    "lokal_id": "I.Fjerde.Ditlev-Reventlows-Børn-af-første-Ægteskab-m-Anna-Rantzau.3",
    "status": "aktiv",
    "begrundelse": "om-nøglet 516|4I.3 → 516|I.Fjerde.Ditlev-Reventlows-Børn-af-første-Ægteskab-m-Anna-Rantzau.3 (tekst-anker, trykt skema 2026-07-30)"
+  },
+  {
+   "book_post_id": "c59da8e9-8cdd-4464-9f4c-47a3fb53d925",
+   "udgave": "1939",
+   "side": "516",
+   "lokal_id": "I.Fjerde.Ditlev-Reventlows-Børn-af-første-Ægteskab-m-Anna-Rantzau.4",
+   "status": "aktiv"
   },
   {
    "book_post_id": "cbc2e4e5-c333-4683-aaae-c46cec3d1e07",
@@ -915,14 +1062,6 @@
    "begrundelse": "om-nøglet 519|7II.4 → 519|I.Syvende.sum-Skanse-II-Ditlev-Reventlows-Børn-med-Marie-Elisabeth-Buchwald.4 (tekst-anker, trykt skema 2026-07-30); tidligere: side afstemt 515→519 mod artefakt (record_key-verificeret)"
   },
   {
-   "book_post_id": "a5c2adac-3ba5-4f37-94fa-9958f8cc2495",
-   "udgave": "1939",
-   "side": "520",
-   "lokal_id": "I.Syvende.sum-Skanse-II-Ditlev-Reventlows-Børn-med-Marie-Elisabeth-Buchwald.5",
-   "status": "aktiv",
-   "begrundelse": "om-nøglet 520|7I.5 → 520|I.Syvende.sum-Skanse-II-Ditlev-Reventlows-Børn-med-Marie-Elisabeth-Buchwald.5 (slutark manuelt pas, bruger+Claude 2026-07-30)"
-  },
-  {
    "book_post_id": "de6887f1-5266-48f4-9bcd-fcb80b437c4c",
    "udgave": "1939",
    "side": "520",
@@ -945,6 +1084,14 @@
    "lokal_id": "I.Syvende.sum-Skanse-II-Ditlev-Reventlows-Børn-med-Marie-Elisabeth-Buchwald.10",
    "status": "aktiv",
    "begrundelse": "om-nøglet 520|7I.10 → 520|I.Syvende.sum-Skanse-II-Ditlev-Reventlows-Børn-med-Marie-Elisabeth-Buchwald.10 (tekst-anker, trykt skema 2026-07-30)"
+  },
+  {
+   "book_post_id": "a5c2adac-3ba5-4f37-94fa-9958f8cc2495",
+   "udgave": "1939",
+   "side": "520",
+   "lokal_id": "I.Syvende.sum-Skanse-II-Ditlev-Reventlows-Børn-med-Marie-Elisabeth-Buchwald.5",
+   "status": "aktiv",
+   "begrundelse": "om-nøglet 520|7I.5 → 520|I.Syvende.sum-Skanse-II-Ditlev-Reventlows-Børn-med-Marie-Elisabeth-Buchwald.5 (slutark manuelt pas, bruger+Claude 2026-07-30)"
   },
   {
    "book_post_id": "afd1a022-e009-401a-8fe1-e0e9a0871e48",
@@ -979,14 +1126,6 @@
    "begrundelse": "om-nøglet 520|7I.9 → 520|I.Syvende.sum-Skanse-II-Ditlev-Reventlows-Børn-med-Marie-Elisabeth-Buchwald.9 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
-   "book_post_id": "5e0dcb53-44fb-4960-9539-97bbf2219f93",
-   "udgave": "1939",
-   "side": "521",
-   "lokal_id": "I.Ottende.II.1",
-   "status": "aktiv",
-   "begrundelse": "om-nøglet 521|8II.1 → 521|I.Ottende.II.1 (slutark manuelt pas, bruger+Claude 2026-07-30)"
-  },
-  {
    "book_post_id": "cf11c1c8-2d0b-4c17-a754-4469ccf63fd7",
    "udgave": "1939",
    "side": "521",
@@ -1009,6 +1148,14 @@
    "lokal_id": "I.Ottende.I.3",
    "status": "aktiv",
    "begrundelse": "om-nøglet 521|8I.3 → 521|I.Ottende.I.3 (tekst-anker, trykt skema 2026-07-30)"
+  },
+  {
+   "book_post_id": "5e0dcb53-44fb-4960-9539-97bbf2219f93",
+   "udgave": "1939",
+   "side": "521",
+   "lokal_id": "I.Ottende.II.U1",
+   "status": "aktiv",
+   "begrundelse": "om-nøglet 521|8II.1 → 521|I.Ottende.II.1 (slutark manuelt pas, bruger+Claude 2026-07-30)"
   },
   {
    "book_post_id": "c80006d8-c401-4082-acf2-b15570448ca5",
@@ -1067,10 +1214,46 @@
    "begrundelse": "om-nøglet 522|9I.4 → 522|I.Niende.Ritmester-Frederik-Reventlows-Børn-m-Catharine-Margarethe-von-Thoden.4 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
+   "book_post_id": "def943e4-39ec-4fe7-8a8e-91cd4452c917",
+   "udgave": "1939",
+   "side": "523",
+   "lokal_id": "II.Andet.U1",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "7f20503e-f24b-43de-ac86-1b57aea52e29",
+   "udgave": "1939",
+   "side": "523",
+   "lokal_id": "II.Femte.U1",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "d819adfb-9486-4f3e-9977-9a43c7246958",
+   "udgave": "1939",
+   "side": "523",
+   "lokal_id": "II.Fjerde.U1",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "8d279106-8832-4c8d-b182-5a5465ce5c76",
+   "udgave": "1939",
+   "side": "523",
+   "lokal_id": "II.Første.U1",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "39d12d06-93bb-4a18-8836-1b6bfdb6b5e6",
+   "udgave": "1939",
+   "side": "523",
+   "lokal_id": "II.Sjette.1",
+   "status": "aktiv",
+   "begrundelse": "om-nøglet 524|LGallentin-6.1 → 524|II.Sjette.1 (slutark manuelt pas, bruger+Claude 2026-07-30)"
+  },
+  {
    "book_post_id": "417cc226-aa10-493a-ac8d-5a36af321412",
    "udgave": "1939",
    "side": "523",
-   "lokal_id": "II.Tredje.1",
+   "lokal_id": "II.Tredje.U1",
    "status": "aktiv",
    "begrundelse": "om-nøglet 523|LGallentin-3.1 → 523|II.Tredje.1 (slutark manuelt pas, bruger+Claude 2026-07-30); tidligere: side afstemt 524→523 mod artefakt (record_key-verificeret)"
   },
@@ -1107,6 +1290,14 @@
    "begrundelse": "om-nøglet 524|LGallentin-9.4 → 524|II.Niende.4 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
+   "book_post_id": "bddbcb7b-b4f4-4a24-870e-d9f3ac63629a",
+   "udgave": "1939",
+   "side": "524",
+   "lokal_id": "II.Ottende.U1",
+   "status": "aktiv",
+   "begrundelse": "om-nøglet 524|LGallentin-8.1 → 524|II.Ottende.1 (slutark manuelt pas, bruger+Claude 2026-07-30)"
+  },
+  {
    "book_post_id": "bf153df7-8f9c-4447-bec6-ac557ee61cb5",
    "udgave": "1939",
    "side": "524",
@@ -1129,22 +1320,6 @@
    "lokal_id": "II.Syvende.2",
    "status": "aktiv",
    "begrundelse": "om-nøglet 524|LGallentin-7.2 → 524|II.Syvende.2 (tekst-anker, trykt skema 2026-07-30)"
-  },
-  {
-   "book_post_id": "39d12d06-93bb-4a18-8836-1b6bfdb6b5e6",
-   "udgave": "1939",
-   "side": "524",
-   "lokal_id": "II.Sjette.1",
-   "status": "aktiv",
-   "begrundelse": "om-nøglet 524|LGallentin-6.1 → 524|II.Sjette.1 (slutark manuelt pas, bruger+Claude 2026-07-30)"
-  },
-  {
-   "book_post_id": "bddbcb7b-b4f4-4a24-870e-d9f3ac63629a",
-   "udgave": "1939",
-   "side": "524",
-   "lokal_id": "II.Ottende.1",
-   "status": "aktiv",
-   "begrundelse": "om-nøglet 524|LGallentin-8.1 → 524|II.Ottende.1 (slutark manuelt pas, bruger+Claude 2026-07-30)"
   },
   {
    "book_post_id": "5cb985e3-9d14-433d-8050-df83c87f299b",
@@ -1193,14 +1368,6 @@
    "lokal_id": "II.Tiende.I.3",
    "status": "aktiv",
    "begrundelse": "om-nøglet 525|LGallentin-10I.3 → 525|II.Tiende.I.3 (tekst-anker, trykt skema 2026-07-30)"
-  },
-  {
-   "book_post_id": "4b27dc2f-817f-4e21-bc4b-6ad47de8ff58",
-   "udgave": "1939",
-   "side": "525",
-   "lokal_id": "II.Tiende.I.7",
-   "status": "aktiv",
-   "begrundelse": "om-nøglet 525|LGallentin-10I.7 → 525|II.Tiende.I.7 (slutark manuelt pas, bruger+Claude 2026-07-30)"
   },
   {
    "book_post_id": "6b864db1-4d6c-4cf3-8a59-7ee007a5df0d",
@@ -1259,12 +1426,27 @@
    "begrundelse": "om-nøglet 526|LGallentin-10I.4 → 526|II.Tiende.I.4 (tekst-anker, trykt skema 2026-07-30); tidligere: side afstemt 525→526 mod artefakt (record_key-verificeret)"
   },
   {
+   "book_post_id": "f5126fd4-e091-42dc-8a17-b4774ddf83ca",
+   "udgave": "1939",
+   "side": "526",
+   "lokal_id": "II.Tiende.I.5",
+   "status": "aktiv"
+  },
+  {
    "book_post_id": "e4ddb17d-8aa2-49be-9de9-e00cedbfe93a",
    "udgave": "1939",
    "side": "526",
    "lokal_id": "II.Tiende.I.6",
    "status": "aktiv",
    "begrundelse": "om-nøglet 526|u526.6 → 526|II.Tiende.I.6 (tekst-anker, trykt skema 2026-07-30)"
+  },
+  {
+   "book_post_id": "4b27dc2f-817f-4e21-bc4b-6ad47de8ff58",
+   "udgave": "1939",
+   "side": "526",
+   "lokal_id": "II.Tiende.I.7",
+   "status": "aktiv",
+   "begrundelse": "om-nøglet 525|LGallentin-10I.7 → 525|II.Tiende.I.7 (slutark manuelt pas, bruger+Claude 2026-07-30)"
   },
   {
    "book_post_id": "ce6cfb78-df35-4a49-9cd6-ce16b7396de3",
@@ -1315,12 +1497,33 @@
    "begrundelse": "om-nøglet 527|u527.XI.8 → 527|II.Ellevte.8 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
+   "book_post_id": "b7770ba5-75fb-46cd-a8b2-f662c41fca10",
+   "udgave": "1939",
+   "side": "528",
+   "lokal_id": "III.Andet.1",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "f85a34b6-350e-4fcb-9e56-7d05bb609531",
+   "udgave": "1939",
+   "side": "528",
+   "lokal_id": "III.Andet.2",
+   "status": "aktiv"
+  },
+  {
    "book_post_id": "f07201c3-a831-4f26-ae1a-b602d48e1734",
    "udgave": "1939",
    "side": "528",
    "lokal_id": "III.Andet.3",
    "status": "aktiv",
    "begrundelse": "om-nøglet 528|L3-2.3 → 528|III.Andet.3 (tekst-anker, trykt skema 2026-07-30); tidligere: side afstemt 526→528 mod artefakt (record_key-verificeret)"
+  },
+  {
+   "book_post_id": "236a969e-2e6e-459b-b26d-00f93726d6da",
+   "udgave": "1939",
+   "side": "528",
+   "lokal_id": "III.Andet.4",
+   "status": "aktiv"
   },
   {
    "book_post_id": "7db1c343-3d82-43ac-8abf-70341063e8c0",
@@ -1339,6 +1542,20 @@
    "begrundelse": "om-nøglet 528|L3-2.6 → 528|III.Andet.6 (tekst-anker, trykt skema 2026-07-30); tidligere: side afstemt 526→528 mod artefakt (record_key-verificeret)"
   },
   {
+   "book_post_id": "4ed75ac3-d438-4c71-acae-497021e2d828",
+   "udgave": "1939",
+   "side": "528",
+   "lokal_id": "III.Andet.7",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "2f3e2489-4710-4bef-b753-684da5ef18dc",
+   "udgave": "1939",
+   "side": "528",
+   "lokal_id": "III.Første.U1",
+   "status": "aktiv"
+  },
+  {
    "book_post_id": "fd1c45fe-1283-499e-8a86-ab5164a391ae",
    "udgave": "1939",
    "side": "529",
@@ -1355,12 +1572,33 @@
    "begrundelse": "om-nøglet 529|L3-3.1 → 529|III.Tredje.Lorenz-Reventlows-Børn-m-Anna-von-Below.1 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
+   "book_post_id": "a0f6c38e-09c6-43bf-8453-3b2d99884224",
+   "udgave": "1939",
+   "side": "529",
+   "lokal_id": "III.Tredje.Lorenz-Reventlows-Børn-m-Anna-von-Below.2",
+   "status": "aktiv"
+  },
+  {
    "book_post_id": "c3254a8c-e71a-46f6-9fce-3da8547672fb",
    "udgave": "1939",
    "side": "529",
    "lokal_id": "III.Tredje.Lorenz-Reventlows-Børn-m-Anna-von-Below.3",
    "status": "aktiv",
    "begrundelse": "om-nøglet 529|L3-3.3 → 529|III.Tredje.Lorenz-Reventlows-Børn-m-Anna-von-Below.3 (tekst-anker, trykt skema 2026-07-30); tidligere: side afstemt 526→529 mod artefakt (record_key-verificeret)"
+  },
+  {
+   "book_post_id": "6eb67dcf-e4ce-4f01-b31d-e28362a56271",
+   "udgave": "1939",
+   "side": "529",
+   "lokal_id": "III.Tredje.Lorenz-Reventlows-Børn-m-Anna-von-Below.4",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "c095bec4-56b2-4366-a760-37b6f5567a8a",
+   "udgave": "1939",
+   "side": "529",
+   "lokal_id": "III.Tredje.Lorenz-Reventlows-Børn-m-Anna-von-Below.5",
+   "status": "aktiv"
   },
   {
    "book_post_id": "37c26622-d8ca-42e5-8fa9-9c08ba371264",
@@ -1419,6 +1657,13 @@
    "begrundelse": "om-nøglet 530|L3-4I.5 → 530|III.Fjerde.I.5 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
+   "book_post_id": "2280f8ee-4b1c-45bb-9624-17eb5a89fb2c",
+   "udgave": "1939",
+   "side": "530",
+   "lokal_id": "III.Fjerde.I.6",
+   "status": "aktiv"
+  },
+  {
    "book_post_id": "4a491fc4-a3a2-457f-8789-103aa65fa73f",
    "udgave": "1939",
    "side": "530",
@@ -1443,6 +1688,21 @@
    "begrundelse": "om-nøglet 530|L3-4II.1 → 530|III.Fjerde.II.1 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
+   "book_post_id": "adb8dd62-279a-4da5-9616-3466e2304a26",
+   "udgave": "1939",
+   "side": "530",
+   "lokal_id": "III.Fjerde.II.2",
+   "status": "aktiv",
+   "begrundelse": "om-nøglet 530|L3-4II.2 → 530|III.Fjerde.II.2 (slutark manuelt pas, bruger+Claude 2026-07-30)"
+  },
+  {
+   "book_post_id": "7b7b4cd1-e360-44e0-b56a-ed3bc3e949a1",
+   "udgave": "1939",
+   "side": "530",
+   "lokal_id": "III.Fjerde.II.3",
+   "status": "aktiv"
+  },
+  {
    "book_post_id": "d0393a6c-17be-4d35-a760-bfa6a866d8ba",
    "udgave": "1939",
    "side": "530",
@@ -1457,14 +1717,6 @@
    "lokal_id": "III.Fjerde.II.5",
    "status": "aktiv",
    "begrundelse": "om-nøglet 530|L3-4II.5 → 530|III.Fjerde.II.5 (tekst-anker, trykt skema 2026-07-30)"
-  },
-  {
-   "book_post_id": "adb8dd62-279a-4da5-9616-3466e2304a26",
-   "udgave": "1939",
-   "side": "530",
-   "lokal_id": "III.Fjerde.II.2",
-   "status": "aktiv",
-   "begrundelse": "om-nøglet 530|L3-4II.2 → 530|III.Fjerde.II.2 (slutark manuelt pas, bruger+Claude 2026-07-30)"
   },
   {
    "book_post_id": "8f8b92fe-e1be-4c65-9478-b684a9acf98d",
@@ -1513,6 +1765,13 @@
    "lokal_id": "III.Femte.II.2",
    "status": "aktiv",
    "begrundelse": "om-nøglet 531|L3-5II.2 → 531|III.Femte.II.2 (tekst-anker, trykt skema 2026-07-30)"
+  },
+  {
+   "book_post_id": "79f3a7ab-8409-4581-810e-4c5ff7f25675",
+   "udgave": "1939",
+   "side": "531",
+   "lokal_id": "III.Fjerde.II.6",
+   "status": "aktiv"
   },
   {
    "book_post_id": "42037036-a50a-49a5-9280-9472743dfd49",
@@ -1593,14 +1852,6 @@
    "begrundelse": "om-nøglet 533|5U.12 → 533|III.Femte.II.12 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
-   "book_post_id": "a76ae449-af92-4ee4-9749-eddf0491676f",
-   "udgave": "1939",
-   "side": "534",
-   "lokal_id": "III.Sjette.II.1",
-   "status": "aktiv",
-   "begrundelse": "om-nøglet 534|6II.1 → 534|III.Sjette.II.1 (slutark manuelt pas, bruger+Claude 2026-07-30)"
-  },
-  {
    "book_post_id": "1a7efdb6-b22b-4c26-8e10-171e97d6f2c4",
    "udgave": "1939",
    "side": "534",
@@ -1657,6 +1908,14 @@
    "begrundelse": "om-nøglet 534|6I.7 → 534|III.Sjette.I.7 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
+   "book_post_id": "a76ae449-af92-4ee4-9749-eddf0491676f",
+   "udgave": "1939",
+   "side": "534",
+   "lokal_id": "III.Sjette.II.U1",
+   "status": "aktiv",
+   "begrundelse": "om-nøglet 534|6II.1 → 534|III.Sjette.II.1 (slutark manuelt pas, bruger+Claude 2026-07-30)"
+  },
+  {
    "book_post_id": "6243066b-f358-4eac-b965-e946e3af5c28",
    "udgave": "1939",
    "side": "534",
@@ -1687,6 +1946,13 @@
    "lokal_id": "III.Sjette.III.2",
    "status": "aktiv",
    "begrundelse": "om-nøglet 535|6III.2 → 535|III.Sjette.III.2 (tekst-anker, trykt skema 2026-07-30); tidligere: side afstemt 534→535 mod artefakt (record_key-verificeret)"
+  },
+  {
+   "book_post_id": "c0105329-3fe4-432a-abbe-d47199e2a485",
+   "udgave": "1939",
+   "side": "535",
+   "lokal_id": "III.Sjette.III.3",
+   "status": "aktiv"
   },
   {
    "book_post_id": "afc8a2d0-837e-4d5a-8281-1ad2856e3d07",
@@ -2057,10 +2323,31 @@
    "begrundelse": "om-nøglet 540|7IV.9 → 540|III.Syvende.IV.9 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
+   "book_post_id": "1f2de2bd-dc64-49fe-8c4d-e73ef3f5a1f8",
+   "udgave": "1939",
+   "side": "541",
+   "lokal_id": "IV.Første.2",
+   "status": "aktiv"
+  },
+  {
    "book_post_id": "f00bcd8e-e294-4424-9ebf-d892fbe99e67",
    "udgave": "1939",
    "side": "541",
-   "lokal_id": "L1673-1.stamfar",
+   "lokal_id": "IV.Første.U1",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "818d862d-5747-4a66-a885-c190429bcfd2",
+   "udgave": "1939",
+   "side": "542",
+   "lokal_id": "IV.Andet.1",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "b7b91240-6c84-41f8-aac8-f5b43bc14d93",
+   "udgave": "1939",
+   "side": "542",
+   "lokal_id": "IV.Andet.2",
    "status": "aktiv"
   },
   {
@@ -2158,6 +2445,13 @@
    "lokal_id": "IV.Andet.14",
    "status": "aktiv",
    "begrundelse": "om-nøglet 544|2.14 → 544|IV.Andet.14 (tekst-anker, trykt skema 2026-07-30)"
+  },
+  {
+   "book_post_id": "7604e9b5-16f9-4c67-afcf-1af440b9075c",
+   "udgave": "1939",
+   "side": "544",
+   "lokal_id": "IV.Andet.15",
+   "status": "aktiv"
   },
   {
    "book_post_id": "b4f5dce3-e60a-4f34-8492-5db35677eb8b",
@@ -2362,7 +2656,7 @@
   {
    "book_post_id": "c3f1bb6d-c143-47e9-8c02-f4287dd70e17",
    "udgave": "1939",
-   "side": "548",
+   "side": "547",
    "lokal_id": "IV.Fjerde.II.2",
    "status": "aktiv",
    "begrundelse": "om-nøglet 548|4II.2 → 548|IV.Fjerde.II.2 (slutark manuelt pas, bruger+Claude 2026-07-30); tidligere: side afstemt 534→548 mod artefakt (record_key-verificeret)"
@@ -2403,7 +2697,7 @@
    "book_post_id": "19e7883f-678a-465b-9947-1bc86dd29739",
    "udgave": "1939",
    "side": "551",
-   "lokal_id": "IV.Femte.I.1",
+   "lokal_id": "IV.Femte.I.U1",
    "status": "aktiv",
    "begrundelse": "om-nøglet 551|5I.1 → 551|IV.Femte.I.1 (slutark manuelt pas, bruger+Claude 2026-07-30)"
   },
@@ -2496,14 +2790,6 @@
    "begrundelse": "om-nøglet 552|5II.9 → 552|IV.Femte.II.9 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
-   "book_post_id": "12ffa885-c23c-4875-96e5-14922c79c113",
-   "udgave": "1939",
-   "side": "553",
-   "lokal_id": "IV.Femte.III.1",
-   "status": "aktiv",
-   "begrundelse": "om-nøglet 553|5III.1 → 553|IV.Femte.III.1 (slutark manuelt pas, bruger+Claude 2026-07-30)"
-  },
-  {
    "book_post_id": "3defa4dc-3948-4ff2-beb4-61791350ea5a",
    "udgave": "1939",
    "side": "553",
@@ -2518,6 +2804,14 @@
    "lokal_id": "IV.Femte.II.12",
    "status": "aktiv",
    "begrundelse": "om-nøglet 553|5II.12 → 553|IV.Femte.II.12 (tekst-anker, trykt skema 2026-07-30)"
+  },
+  {
+   "book_post_id": "12ffa885-c23c-4875-96e5-14922c79c113",
+   "udgave": "1939",
+   "side": "553",
+   "lokal_id": "IV.Femte.III.U1",
+   "status": "aktiv",
+   "begrundelse": "om-nøglet 553|5III.1 → 553|IV.Femte.III.1 (slutark manuelt pas, bruger+Claude 2026-07-30)"
   },
   {
    "book_post_id": "dc6534d4-ae1f-4c7a-a2c1-253d52e0359c",
@@ -2787,7 +3081,7 @@
    "book_post_id": "010b9bae-32ad-4e80-90a0-261e6beb3ca3",
    "udgave": "1939",
    "side": "573",
-   "lokal_id": "IV.Syvende.I.1",
+   "lokal_id": "IV.Syvende.I.U1",
    "status": "aktiv",
    "begrundelse": "om-nøglet 573|7I.1 → 573|IV.Syvende.I.1 (slutark manuelt pas, bruger+Claude 2026-07-30)"
   },
@@ -2944,14 +3238,6 @@
    "begrundelse": "om-nøglet 575|7V.1 → 575|IV.Syvende.V.1 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
-   "book_post_id": "22b69217-10df-48b0-9053-aac3573c8c85",
-   "udgave": "1939",
-   "side": "576",
-   "lokal_id": "IV.Syvende.VI.2",
-   "status": "aktiv",
-   "begrundelse": "om-nøglet 576|7VI.2 → 576|IV.Syvende.VI.2 (slutark manuelt pas, bruger+Claude 2026-07-30)"
-  },
-  {
    "book_post_id": "4150ee76-1fcd-4382-a9ab-ce9379dbb9ea",
    "udgave": "1939",
    "side": "576",
@@ -2998,6 +3284,14 @@
    "lokal_id": "IV.Syvende.VI.1",
    "status": "aktiv",
    "begrundelse": "om-nøglet 576|7VI.1 → 576|IV.Syvende.VI.1 (tekst-anker, trykt skema 2026-07-30)"
+  },
+  {
+   "book_post_id": "22b69217-10df-48b0-9053-aac3573c8c85",
+   "udgave": "1939",
+   "side": "576",
+   "lokal_id": "IV.Syvende.VI.2",
+   "status": "aktiv",
+   "begrundelse": "om-nøglet 576|7VI.2 → 576|IV.Syvende.VI.2 (slutark manuelt pas, bruger+Claude 2026-07-30)"
   },
   {
    "book_post_id": "e3073009-3631-4712-bdb4-e7763929cc22",
@@ -3184,20 +3478,20 @@
    "begrundelse": "om-nøglet 578|8III.4 → 578|IV.Ottende.III.4 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
-   "book_post_id": "29e1eb62-a709-4cbf-b241-6cff056cd025",
-   "udgave": "1939",
-   "side": "579",
-   "lokal_id": "IV.Ottende.IV.1",
-   "status": "aktiv",
-   "begrundelse": "om-nøglet 579|8IV.1 → 579|IV.Ottende.IV.1 (slutark manuelt pas, bruger+Claude 2026-07-30)"
-  },
-  {
    "book_post_id": "531dc28b-886b-4047-9f7a-c68988dfac76",
    "udgave": "1939",
    "side": "579",
    "lokal_id": "IV.Niende.I.1",
    "status": "aktiv",
    "begrundelse": "om-nøglet 579|9I.1 → 579|IV.Niende.I.1 (tekst-anker, trykt skema 2026-07-30)"
+  },
+  {
+   "book_post_id": "29e1eb62-a709-4cbf-b241-6cff056cd025",
+   "udgave": "1939",
+   "side": "579",
+   "lokal_id": "IV.Ottende.IV.U1",
+   "status": "aktiv",
+   "begrundelse": "om-nøglet 579|8IV.1 → 579|IV.Ottende.IV.1 (slutark manuelt pas, bruger+Claude 2026-07-30)"
   },
   {
    "book_post_id": "7da1dc5e-bf78-468b-bf99-e894252e4759",
@@ -3248,14 +3542,6 @@
    "begrundelse": "om-nøglet 579|8VI.3 → 579|IV.Ottende.VI.3 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
-   "book_post_id": "16674ea9-66de-44f2-b2de-9b2be84cff4d",
-   "udgave": "1939",
-   "side": "580",
-   "lokal_id": "IV.Niende.II.1",
-   "status": "aktiv",
-   "begrundelse": "om-nøglet 580|9II.1 → 580|IV.Niende.II.1 (slutark manuelt pas, bruger+Claude 2026-07-30)"
-  },
-  {
    "book_post_id": "3bd0811c-c907-4a94-951f-c0679a7e1e75",
    "udgave": "1939",
    "side": "580",
@@ -3270,6 +3556,14 @@
    "lokal_id": "IV.Niende.I.3",
    "status": "aktiv",
    "begrundelse": "om-nøglet 580|9I.3 → 580|IV.Niende.I.3 (tekst-anker, trykt skema 2026-07-30)"
+  },
+  {
+   "book_post_id": "16674ea9-66de-44f2-b2de-9b2be84cff4d",
+   "udgave": "1939",
+   "side": "580",
+   "lokal_id": "IV.Niende.II.U1",
+   "status": "aktiv",
+   "begrundelse": "om-nøglet 580|9II.1 → 580|IV.Niende.II.1 (slutark manuelt pas, bruger+Claude 2026-07-30)"
   },
   {
    "book_post_id": "cc32ff78-93bf-419f-aec0-959b53aadaee",
@@ -3307,7 +3601,7 @@
    "book_post_id": "b0fe7bf1-5b08-466b-b493-449a772a094d",
    "udgave": "1939",
    "side": "581",
-   "lokal_id": "L1767-1.stamfar",
+   "lokal_id": "V.Første.U1",
    "status": "aktiv"
   },
   {
@@ -3333,6 +3627,13 @@
    "lokal_id": "V.Andet.Overkammerherre-Ditlev-Greve-Reventlows-Børn-med-Margrethe-Raben.3",
    "status": "aktiv",
    "begrundelse": "om-nøglet 582|L1767-2.3 → 582|V.Andet.Overkammerherre-Ditlev-Greve-Reventlows-Børn-med-Margrethe-Raben.3 (tekst-anker, trykt skema 2026-07-30)"
+  },
+  {
+   "book_post_id": "e171ad23-bf1e-416a-85ab-cab9b7a3fd31",
+   "udgave": "1939",
+   "side": "583",
+   "lokal_id": "V.Andet.Overkammerherre-Ditlev-Greve-Reventlows-Børn-med-Margrethe-Raben.3s",
+   "status": "aktiv"
   },
   {
    "book_post_id": "f431420b-0edc-4055-bcdf-b13f08ae20e4",
@@ -3527,6 +3828,13 @@
    "begrundelse": "om-nøglet 587|4I.2 → 587|V.Fjerde.I.2 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
+   "book_post_id": "8ecd4750-4846-4e9b-9d5c-ea0a7e2600bd",
+   "udgave": "1939",
+   "side": "587",
+   "lokal_id": "V.Fjerde.I.3",
+   "status": "aktiv"
+  },
+  {
    "book_post_id": "774b57af-2e38-4713-bdd0-ee6d923254eb",
    "udgave": "1939",
    "side": "587",
@@ -3647,14 +3955,6 @@
    "begrundelse": "om-nøglet 588|4IV.3 → 588|V.Fjerde.IV.3 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
-   "book_post_id": "dd76739b-458e-458b-b143-e709b46e0858",
-   "udgave": "1939",
-   "side": "589",
-   "lokal_id": "V.Fjerde.V.1",
-   "status": "aktiv",
-   "begrundelse": "om-nøglet 589|4V.1 → 589|V.Fjerde.V.1 (slutark manuelt pas, bruger+Claude 2026-07-30)"
-  },
-  {
    "book_post_id": "3833ac89-f616-4faf-bfa0-f047a629d76d",
    "udgave": "1939",
    "side": "589",
@@ -3685,6 +3985,14 @@
    "lokal_id": "V.Fjerde.IV.7",
    "status": "aktiv",
    "begrundelse": "om-nøglet 589|4IV.7 → 589|V.Fjerde.IV.7 (tekst-anker, trykt skema 2026-07-30)"
+  },
+  {
+   "book_post_id": "dd76739b-458e-458b-b143-e709b46e0858",
+   "udgave": "1939",
+   "side": "589",
+   "lokal_id": "V.Fjerde.V.U1",
+   "status": "aktiv",
+   "begrundelse": "om-nøglet 589|4V.1 → 589|V.Fjerde.V.1 (slutark manuelt pas, bruger+Claude 2026-07-30)"
   },
   {
    "book_post_id": "1091eeda-7c07-4e4f-9d76-75d2d98e06c8",
@@ -3903,6 +4211,13 @@
    "begrundelse": "om-nøglet 592|p592-I.4 → 592|V.Sjette.I.4 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
+   "book_post_id": "d53c33e7-511d-494f-b704-dc38ec366b36",
+   "udgave": "1939",
+   "side": "592",
+   "lokal_id": "V.Sjette.II.1",
+   "status": "aktiv"
+  },
+  {
    "book_post_id": "371c96b6-2048-4511-a963-f29f8294cdbc",
    "udgave": "1939",
    "side": "592",
@@ -3959,27 +4274,27 @@
    "begrundelse": "om-nøglet 592|p592-III.4 → 592|V.Sjette.III.4 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
-   "book_post_id": "d53c33e7-511d-494f-b704-dc38ec366b36",
-   "udgave": "1939",
-   "side": "592",
-   "lokal_id": "p592-II.1",
-   "status": "aktiv"
-  },
-  {
-   "book_post_id": "2d54b6c1-3d37-41ce-bd12-7c0b74703aba",
-   "udgave": "1939",
-   "side": "593",
-   "lokal_id": "Lfyn-1.stamfar",
-   "status": "aktiv",
-   "begrundelse": "side afstemt 592→593 mod artefakt (record_key-verificeret)"
-  },
-  {
    "book_post_id": "d7b66cb7-d6d5-462f-a880-2d193759bc5a",
    "udgave": "1939",
    "side": "593",
    "lokal_id": "VI.Andet.1",
    "status": "aktiv",
    "begrundelse": "om-nøglet 593|Lfyn-2.1 → 593|VI.Andet.1 (tekst-anker, trykt skema 2026-07-30); tidligere: side afstemt 592→593 mod artefakt (record_key-verificeret)"
+  },
+  {
+   "book_post_id": "b9174bb3-db6e-4734-ae3e-49237ee6b26b",
+   "udgave": "1939",
+   "side": "593",
+   "lokal_id": "VI.Andet.2",
+   "status": "aktiv",
+   "begrundelse": "om-nøglet 594|Lfyn-2.2 → 594|VI.Andet.2 (slutark manuelt pas, bruger+Claude 2026-07-30)"
+  },
+  {
+   "book_post_id": "b0033676-9981-4b3b-85a3-1095a9208e94",
+   "udgave": "1939",
+   "side": "593",
+   "lokal_id": "VI.Andet.3",
+   "status": "aktiv"
   },
   {
    "book_post_id": "6a00ec9d-6f5b-499c-8461-b33227eaf082",
@@ -3990,12 +4305,12 @@
    "begrundelse": "om-nøglet 593|Lfyn-2.4 → 593|VI.Andet.4 (tekst-anker, trykt skema 2026-07-30); tidligere: side afstemt 592→593 mod artefakt (record_key-verificeret)"
   },
   {
-   "book_post_id": "b9174bb3-db6e-4734-ae3e-49237ee6b26b",
+   "book_post_id": "2d54b6c1-3d37-41ce-bd12-7c0b74703aba",
    "udgave": "1939",
-   "side": "594",
-   "lokal_id": "VI.Andet.2",
+   "side": "593",
+   "lokal_id": "VI.Første.U1",
    "status": "aktiv",
-   "begrundelse": "om-nøglet 594|Lfyn-2.2 → 594|VI.Andet.2 (slutark manuelt pas, bruger+Claude 2026-07-30)"
+   "begrundelse": "side afstemt 592→593 mod artefakt (record_key-verificeret)"
   },
   {
    "book_post_id": "a33158c0-0c95-4434-8f30-73f9f1abc646",
@@ -4094,6 +4409,13 @@
    "begrundelse": "om-nøglet 595|Lfyn-4II.3 → 595|VI.Fjerde.II.3 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
+   "book_post_id": "40dd3ce0-c8ae-462f-8d23-209134d792d6",
+   "udgave": "1939",
+   "side": "595",
+   "lokal_id": "VI.Fjerde.II.4",
+   "status": "aktiv"
+  },
+  {
    "book_post_id": "f03e6298-afc8-4080-8249-986b932ce260",
    "udgave": "1939",
    "side": "595",
@@ -4102,12 +4424,26 @@
    "begrundelse": "om-nøglet 595|Lfyn-4II.5 → 595|VI.Fjerde.II.5 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
+   "book_post_id": "2656cc14-bf42-418e-9cc6-aa142b7e07e5",
+   "udgave": "1939",
+   "side": "595",
+   "lokal_id": "VI.Fjerde.II.6",
+   "status": "aktiv"
+  },
+  {
    "book_post_id": "8b7c92ce-bec2-461c-9457-10456979db40",
    "udgave": "1939",
    "side": "595",
    "lokal_id": "VI.Fjerde.II.7",
    "status": "aktiv",
    "begrundelse": "om-nøglet 595|Lfyn-4II.7 → 595|VI.Fjerde.II.7 (tekst-anker, trykt skema 2026-07-30)"
+  },
+  {
+   "book_post_id": "97f73436-e9f3-465a-89ac-79501269b3c2",
+   "udgave": "1939",
+   "side": "596",
+   "lokal_id": "VI.Femte.3",
+   "status": "aktiv"
   },
   {
    "book_post_id": "a2d0912b-29cd-404b-858d-9457114b494f",
@@ -4166,6 +4502,13 @@
    "begrundelse": "om-nøglet 596|Lfyn-6.7 → 596|VI.Sjette.7 (tekst-anker, trykt skema 2026-07-30); tidligere: side afstemt 592→596 mod artefakt (record_key-verificeret)"
   },
   {
+   "book_post_id": "c8ca0482-f096-43eb-a9aa-158cfd86ba14",
+   "udgave": "1939",
+   "side": "596",
+   "lokal_id": "VI.Sjette.8",
+   "status": "aktiv"
+  },
+  {
    "book_post_id": "ebf1b73c-91d7-41fe-959f-71af097d6e3e",
    "udgave": "1939",
    "side": "596",
@@ -4174,17 +4517,38 @@
    "begrundelse": "om-nøglet 596|Lfyn-6.9 → 596|VI.Sjette.9 (tekst-anker, trykt skema 2026-07-30)"
   },
   {
+   "book_post_id": "12c9f5d4-c7ef-4a30-9d63-b859c759d6ba",
+   "udgave": "1939",
+   "side": "597",
+   "lokal_id": "Oversigt.Uplacerede.U1",
+   "status": "aktiv"
+  },
+  {
    "book_post_id": "865eb154-0c1d-42f1-a381-7924ccb83e22",
    "udgave": "1939",
    "side": "597",
-   "lokal_id": "Uplac.10",
+   "lokal_id": "Oversigt.Uplacerede.U10",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "28e8135e-db90-4506-aa82-a662ee8b8a9f",
+   "udgave": "1939",
+   "side": "597",
+   "lokal_id": "Oversigt.Uplacerede.U11",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "1326bdd9-2b23-4450-b222-63e8dd50f35d",
+   "udgave": "1939",
+   "side": "597",
+   "lokal_id": "Oversigt.Uplacerede.U2",
    "status": "aktiv"
   },
   {
    "book_post_id": "2c76dddc-ca3b-4b24-a468-89ee3d555aed",
    "udgave": "1939",
    "side": "597",
-   "lokal_id": "Uplac.3",
+   "lokal_id": "Oversigt.Uplacerede.U3",
    "status": "aktiv",
    "begrundelse": "side afstemt 592→597 mod artefakt (record_key-verificeret)"
   },
@@ -4192,7 +4556,7 @@
    "book_post_id": "6bfbce43-740d-49b1-9b4b-1aa2e9b17266",
    "udgave": "1939",
    "side": "597",
-   "lokal_id": "Uplac.4",
+   "lokal_id": "Oversigt.Uplacerede.U4",
    "status": "aktiv",
    "begrundelse": "side afstemt 592→597 mod artefakt (record_key-verificeret)"
   },
@@ -4200,7 +4564,7 @@
    "book_post_id": "4a658e9b-037d-4504-accb-f3f9200d128f",
    "udgave": "1939",
    "side": "597",
-   "lokal_id": "Uplac.5",
+   "lokal_id": "Oversigt.Uplacerede.U5",
    "status": "aktiv",
    "begrundelse": "side afstemt 592→597 mod artefakt (record_key-verificeret)"
   },
@@ -4208,9 +4572,30 @@
    "book_post_id": "a8f1d8f0-d8f6-436d-86e2-7574d8fc2caf",
    "udgave": "1939",
    "side": "597",
-   "lokal_id": "Uplac.6",
+   "lokal_id": "Oversigt.Uplacerede.U6",
    "status": "aktiv",
    "begrundelse": "side afstemt 592→597 mod artefakt (record_key-verificeret)"
+  },
+  {
+   "book_post_id": "fe2b2f91-8e39-4778-b15f-1d49bd7182b0",
+   "udgave": "1939",
+   "side": "597",
+   "lokal_id": "Oversigt.Uplacerede.U7",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "e8560f63-9366-4ead-a7ff-4773e95f3ebf",
+   "udgave": "1939",
+   "side": "597",
+   "lokal_id": "Oversigt.Uplacerede.U8",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "02823206-ef6e-4107-be87-655c9b27cbe8",
+   "udgave": "1939",
+   "side": "597",
+   "lokal_id": "Oversigt.Uplacerede.U9",
+   "status": "aktiv"
   },
   {
    "book_post_id": "46cc80f2-d8be-4425-bed7-0e0bf7293413",
@@ -4221,24 +4606,17 @@
    "begrundelse": "side afstemt 592→597 mod artefakt (record_key-verificeret)"
   },
   {
-   "book_post_id": "28e8135e-db90-4506-aa82-a662ee8b8a9f",
-   "udgave": "1939",
-   "side": "598",
-   "lokal_id": "Uplac.11",
-   "status": "aktiv"
-  },
-  {
    "book_post_id": "b6d2bede-cd36-4b40-bfc5-0f41ce6f1958",
    "udgave": "1939",
    "side": "598",
-   "lokal_id": "Uplac.11.datter",
+   "lokal_id": "Oversigt.Uplacerede.U12",
    "status": "aktiv"
   },
   {
    "book_post_id": "0aa21d7d-fe20-470e-9338-89b34cda958a",
    "udgave": "1939",
    "side": "598",
-   "lokal_id": "Uplac.12",
+   "lokal_id": "Oversigt.Uplacerede.U13",
    "status": "aktiv",
    "begrundelse": "side afstemt 592→598 mod artefakt (record_key-verificeret)"
   },
@@ -4246,7 +4624,7 @@
    "book_post_id": "9355e9d5-c821-416e-b58f-4cfb7b829646",
    "udgave": "1939",
    "side": "598",
-   "lokal_id": "Uplac.13",
+   "lokal_id": "Oversigt.Uplacerede.U14",
    "status": "aktiv",
    "begrundelse": "side afstemt 592→598 mod artefakt (record_key-verificeret)"
   },
@@ -4254,21 +4632,28 @@
    "book_post_id": "8140704b-1aff-4bf8-94cc-a605ae753a68",
    "udgave": "1939",
    "side": "598",
-   "lokal_id": "Uplac.14",
+   "lokal_id": "Oversigt.Uplacerede.U15",
    "status": "aktiv"
   },
   {
    "book_post_id": "84b4b45e-aca6-4d3b-9327-aa5698a5bc71",
    "udgave": "1939",
    "side": "598",
-   "lokal_id": "Uplac.15",
+   "lokal_id": "Oversigt.Uplacerede.U16",
    "status": "aktiv"
   },
   {
    "book_post_id": "29bbb72f-f25a-491d-a789-32300c760026",
    "udgave": "1939",
    "side": "598",
-   "lokal_id": "Uplac.16",
+   "lokal_id": "Oversigt.Uplacerede.U17",
+   "status": "aktiv"
+  },
+  {
+   "book_post_id": "0f27904a-6420-4042-aed1-9a48416dfeb3",
+   "udgave": "1939",
+   "side": "598",
+   "lokal_id": "Oversigt.Uplacerede.U18",
    "status": "aktiv"
   },
   {

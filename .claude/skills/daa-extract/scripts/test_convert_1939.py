@@ -150,6 +150,18 @@ def test_narrative_er_none_og_boern_udeladt():
     assert "boern" not in out
 
 
+def test_v2_fakta_og_narrativ_proveniens_bevares_som_qa_metadata():
+    out = convert_record(synth(
+        1,
+        _fakta_status="efterudtraek",
+        _narrativ_kilde="calamari",
+        _v2_lokal_id="I.Andet.1",
+    ), 1)
+    assert out["_fakta_status"] == "efterudtraek"
+    assert out["_narrativ_kilde"] == "calamari"
+    assert out["_v2_lokal_id"] == "I.Andet.1"
+
+
 def test_usikker_afledes_af_navn_usikker_eller_ufuldstaendig():
     assert convert_record(synth(1, navn_usikker=True), 1)["usikker"] is True
     assert convert_record(synth(1, ufuldstaendig=True), 1)["usikker"] is True

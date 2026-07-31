@@ -352,9 +352,17 @@ tryCatch({
     nye <- setdiff(art_keys, c(reg_aktiv, reg_tomb))
     if (length(nye)) stop(sprintf("--replace: %d record_keys ukendt af registeret (fx %s) — mint id'er via reconcile FØR load.",
                                   length(nye), nye[1]))
-    kun_register <- setdiff(intersect(art_keys, reg_aktiv), prod_map$record_key)
-    if (length(kun_register)) stop(sprintf("--replace: %d aktive registerposter uden prod-person (fx %s) — hul der kræver forklaring.",
-                                           length(kun_register), kun_register[1]))
+    # Ny-klassen (replay-designets fjerde udfald, aktiveret ved v2-mint 2026-07-31):
+    # registerkendte record_keys uden prod-person er LEGITIME nye poster — de
+    # oprettes ad append-vejen (person + external_id + narrativ) i pass 1.
+    # Klassen er KUN lovlig for nøgler artefaktet faktisk bærer; en aktiv
+    # registerpost uden prod-person OG uden artefaktpost er fortsat et hul.
+    ny_keys <- setdiff(intersect(art_keys, reg_aktiv), prod_map$record_key)
+    if (length(ny_keys))
+      message(sprintf("REPLACE: %d nye poster (registerkendte uden prod-person) oprettes ad append-vejen.", length(ny_keys)))
+    hul <- setdiff(setdiff(reg_aktiv, prod_map$record_key), art_keys)
+    if (length(hul)) stop(sprintf("--replace: %d aktive registerposter uden prod-person OG uden artefaktpost (fx %s) — hul der kræver forklaring.",
+                                  length(hul), hul[1]))
     replace_tomb <- intersect(art_keys, reg_tomb)
     match_keys <- intersect(intersect(art_keys, reg_aktiv), prod_map$record_key)
     replace_pid <- setNames(as.list(prod_map$person_id[match(match_keys, prod_map$record_key)]), match_keys)
@@ -713,7 +721,7 @@ tryCatch({
     koen <- if (identical(koen_overlay$status, "anvendt"))
       correction_scalar(fromJSON(koen_overlay$value, simplifyVector = FALSE)$value) else g(rec, "koen")
 
-    if (REPLACE) {
+    if (REPLACE && !(record_key %in% ny_keys)) {
       pid <- replace_pid[[record_key]]      # person-id BEVARES — det er hele pointen
       # person-rækken og external_id består; koen og narrativ opdateres EFTER
       # flush (passene er DB-frie per design). Narrativ-UPDATE bevarer
@@ -723,6 +731,8 @@ tryCatch({
       assign(k, pid, envir = pmap); assign(k, isTRUE(rec$usikker), envir = umap)
       assign(k, rec, envir = recmap)
     } else {
+      # append-vejen: både almindelig append OG replace-ny-klassen (register-
+      # kendt record_key uden prod-person — replay-designets fjerde udfald).
       pid <- add_person(koen)
       assign(k, pid, envir = pmap); assign(k, isTRUE(rec$usikker), envir = umap)
       assign(k, rec, envir = recmap)
@@ -957,8 +967,12 @@ tryCatch({
               (SELECT count(*) FROM narrative WHERE source_id=%d) narr, %s", fm_urort_sql, src,
       sub("^\\s*SELECT", "", red_ref_sql)))
     for (kol in names(replace_invarianter)) {
+      # pers og narr vokser LEGITIMT med ny-klassen (append-vejen i pass 1)
+      # og nye stubs (pass 2) — alt andet skal være uændret.
       forventet <- if (identical(kol, "pers"))
-        as.character(as.integer(replace_invarianter$pers) + replace_ny_stub)
+        as.character(as.integer(replace_invarianter$pers) + replace_ny_stub + length(ny_keys))
+      else if (identical(kol, "narr"))
+        as.character(as.integer(replace_invarianter$narr) + length(ny_keys))
       else as.character(replace_invarianter[[kol]])
       if (!identical(as.character(efter[[kol]]), forventet))
         stop(sprintf("--replace: invariant '%s' ændrede sig (%s → %s, forventet %s) — ROLLBACK.",
