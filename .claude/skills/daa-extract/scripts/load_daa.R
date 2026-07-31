@@ -279,6 +279,12 @@ current_by <- udgave   # konklusions-proveniens; sættes per record
 # ================= LOAD (én transaktion) =================
 dbBegin(con)
 tryCatch({
+  # IDENTITY-kontrakten (Codex-review 2026-07-31 fund 1): loaderen allokerer
+  # eksplicitte id'er fra MAX(id) — uden lås kan en samtidig RPC's nextval få
+  # præcis samme id, og slut-sync kan ikke reparere en PK-kollision der
+  # allerede er sket. EXCLUSIVE MODE blokerer andre skrivere (RPC'er venter
+  # til commit) men lader alle læsere passere. Låsen SKAL tages før seed_seq().
+  ex(paste0("LOCK TABLE ", paste(id_tables, collapse = ", "), " IN EXCLUSIVE MODE"))
   if (RESET) {
     cs <- tryCatch(
       dbGetQuery(con, "SELECT operation FROM change_set"),
@@ -568,15 +574,21 @@ tryCatch({
   } else {
     # IDENTITY-kontrakten (db-migrations 2026-07-31): nid() indsætter eksplicitte
     # id'er uden om sekvenserne — synk dem FØR commit, ellers kolliderer næste
-    # DEFAULT-insert (RPC'erne) med loaderens rækker. Kun tabeller loaderen
-    # allokerer til; tolerant hvor IDENTITY endnu ikke er applied (lokal base).
+    # DEFAULT-insert (RPC'erne) med loaderens rækker. FAIL-CLOSED (Codex-review
+    # fund 1): en sync-fejl på en identity-tabel skal vælte transaktionen, ikke
+    # logges — ellers committes data med desynket sekvens. Tabeller uden
+    # identity (fx lokal testbase før migration) springes eksplicit over via
+    # NULL-sekvens-tjekket; det er den eneste lovlige undtagelse.
     for (t in id_tables) {
-      tryCatch(
+      seq_navn <- dbGetQuery(con,
+        sprintf("SELECT pg_get_serial_sequence('%s','id') s", t))$s[1]
+      if (is.na(seq_navn) || is.null(seq_navn)) {
+        message(sprintf("sekvens-sync: %s har ingen identity-sekvens (base før migration) — sprunget over", t))
+      } else {
         ex(sprintf(
-          "SELECT setval(pg_get_serial_sequence('%s','id'), (SELECT coalesce(max(id),0)+1 FROM %s), false)",
-          t, t)),
-        error = function(e) message(sprintf(
-          "sekvens-sync sprunget over for %s (%s)", t, conditionMessage(e))))
+          "SELECT setval('%s', (SELECT coalesce(max(id),0)+1 FROM %s), false)",
+          seq_navn, t))
+      }
     }
     dbCommit(con); message(sprintf("Indlæst %d poster (udgave %s).", length(clean), udgave))
   }

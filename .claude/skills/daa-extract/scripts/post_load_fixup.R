@@ -42,6 +42,10 @@ message(sprintf("post_load_fixup: source '%s' (id %s)", udgave, src))
 
 dbBegin(con)
 tryCatch({
+  # IDENTITY-kontrakt (2026-07-31): nid() slår MAX(id)+1 op pr. kald — kræver
+  # eksklusiv skrive-lås på de tabeller der allokeres til, ellers kan en
+  # samtidig RPC's nextval tage samme id. Sync før commit nedenfor.
+  ex("LOCK TABLE lineage, relation, assertion, citation, conclusion IN EXCLUSIVE MODE")
   # ---- 1) lineage-navne + families-efternavn (idempotent) ----
   # slaegtsnavn driver den udledte visning_efternavn/visning_fuldt_navn-cache (regen_person_visning,
   # udledt-slægtsnavn-design). Alle 5 linjer er Reventlow i dag — ingen forgrening (parent_lineage_id
@@ -95,6 +99,13 @@ tryCatch({
   link_samme_som("III","58","V","1",  "Conrad de Reventlow (grundl. linje V)")
   link_samme_som("III","104","IV","1","Detlef de Reventlou (grundl. linje IV)")
 
+  # Fail-closed sekvens-sync før commit (IDENTITY-kontrakt): tabeller uden
+  # identity-sekvens (base før migrationen) er eneste lovlige undtagelse.
+  for (t in c("lineage","relation","assertion","citation","conclusion")) {
+    s <- one(sprintf("SELECT pg_get_serial_sequence('%s','id')", t))
+    if (is.na(s) || is.null(s)) message(sprintf("sekvens-sync: %s uden identity — sprunget over", t))
+    else ex(sprintf("SELECT setval('%s', (SELECT coalesce(max(id),0)+1 FROM %s), false)", s, t))
+  }
   dbCommit(con); message("post_load_fixup: OK")
 }, error = function(e) { dbRollback(con); dbDisconnect(con); stop("fixup fejlede, rullet tilbage: ", conditionMessage(e)) })
 

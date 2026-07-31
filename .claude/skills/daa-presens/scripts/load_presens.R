@@ -125,6 +125,10 @@ dd <- function(d, k) { v <- if (is.list(d)) d[[k]] else NULL; if (is.null(v)) NA
 
 dbBegin(con)
 tryCatch({
+  # IDENTITY-kontrakt (2026-07-31, samme som load_daa.R): eksplicit id-allokering
+  # fra MAX(id) kræver eksklusiv skrive-lås — ellers kan en samtidig RPC's
+  # nextval tage samme id. Læsere passerer uhindret.
+  ex(paste0("LOCK TABLE ", paste(id_tables, collapse = ", "), " IN EXCLUSIVE MODE"))
   if (RESET) { message("RESET: tømmer model-tabeller…")
     ex(paste0("TRUNCATE ", paste(model_tables, collapse=", "), " CASCADE;")) }
   seed_seq()
@@ -197,6 +201,13 @@ tryCatch({
               WHERE p.visning_navn IS NULL",
              vexpr("navn","vaerdi_tekst"), vexpr("fødsel","date_raw"),
              vexpr("død","date_raw"), vexpr("titel","vaerdi_tekst")))
+  # Fail-closed sekvens-sync før commit (IDENTITY-kontrakt): tabeller uden
+  # identity-sekvens (base før migrationen) er eneste lovlige undtagelse.
+  for (t in id_tables) {
+    s <- dbGetQuery(con, sprintf("SELECT pg_get_serial_sequence('%s','id') s", t))$s[1]
+    if (is.na(s) || is.null(s)) message(sprintf("sekvens-sync: %s uden identity — sprunget over", t))
+    else ex(sprintf("SELECT setval('%s', (SELECT coalesce(max(id),0)+1 FROM %s), false)", s, t))
+  }
   dbCommit(con); message(sprintf("Indlæst %d personer fra præsensliste (%s).", total, udgave))
 }, error = function(e) { dbRollback(con); dbDisconnect(con)
   stop("Load fejlede, rullet tilbage: ", conditionMessage(e)) })

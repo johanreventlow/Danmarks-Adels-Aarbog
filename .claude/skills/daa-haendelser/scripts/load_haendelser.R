@@ -43,7 +43,9 @@ counts <- c(updates=0L,inserts=0L,deletes=0L,overfoerte=0L,mistede=0L,uoploeste=
 
 dbBegin(con)
 tryCatch({
-  # Samme MAX(id)-konvention som DAA-loaderen; låsen serialiserer samtidige pipeline-loads.
+  # Samme MAX(id)-konvention som DAA-loaderen; låsen serialiserer samtidige
+  # pipeline-loads OG (IDENTITY-kontrakt 2026-07-31) blokerer DEFAULT-inserts
+  # fra RPC'er mens de eksplicitte id'er allokeres.
   dbExecute(con, "LOCK TABLE haendelse IN SHARE ROW EXCLUSIVE MODE")
   next_id <- as.numeric(dbGetQuery(con, "SELECT coalesce(max(id),0) AS id FROM haendelse")$id[[1]])
   nid <- function() { next_id <<- next_id + 1; next_id }
@@ -149,6 +151,10 @@ tryCatch({
     dbRollback(con)
     message("DRY-RUN: transaktionen er rullet tilbage.")
   } else {
+    # Fail-closed sekvens-sync før commit (IDENTITY-kontrakt 2026-07-31).
+    s <- dbGetQuery(con, "SELECT pg_get_serial_sequence('haendelse','id') s")$s[1]
+    if (is.na(s) || is.null(s)) message("sekvens-sync: haendelse uden identity — sprunget over")
+    else dbExecute(con, sprintf("SELECT setval('%s', (SELECT coalesce(max(id),0)+1 FROM haendelse), false)", s))
     dbCommit(con)
   }
 }, error=function(e) {
