@@ -931,5 +931,34 @@ class TestKontekstMerge(unittest.TestCase):
         self.assertIsNone(out["kuld"])
 
 
+class TestGateManifest(unittest.TestCase):
+    """#126: main() skriver et manifest der binder gateresultat til artefaktet."""
+
+    def test_manifest_skrives_med_korrekt_hash_og_gate_tal(self):
+        import hashlib, subprocess
+        with tempfile.TemporaryDirectory() as td:
+            posts = [{"linje": "I", "nr": 1, "nr_label": "1",
+                      "raw_text": "N.N., til Testgaard."}]
+            posts_path = os.path.join(td, "posts.json")
+            json.dump(posts, open(posts_path, "w", encoding="utf-8"))
+            exdir = os.path.join(td, "extracted"); os.makedirs(exdir)
+            json.dump({"linje": "I", "nr": 1, "nr_label": "1", "navn": "N.N.",
+                       "koen": "mand", "facts": [], "aegteskaber": [],
+                       "kilde_span_check": True},
+                      open(os.path.join(exdir, "I-1.json"), "w", encoding="utf-8"))
+            clean_path = os.path.join(td, "clean.json")
+            subprocess.run([sys.executable, str(Path(__file__).parent / "validate.py"),
+                            posts_path, exdir, "--clean", clean_path,
+                            "--review", os.path.join(td, "review.json")],
+                           check=True, capture_output=True)
+            manifest = json.load(open(clean_path + ".manifest.json", encoding="utf-8"))
+            self.assertEqual(manifest["artefakt"], "clean.json")
+            self.assertEqual(manifest["sha256"],
+                             hashlib.sha256(open(clean_path, "rb").read()).hexdigest())
+            self.assertEqual(manifest["rene"] + manifest["flaggede"], 1)
+            self.assertAlmostEqual(manifest["andel_rene"],
+                                   manifest["rene"] / 1, places=4)
+
+
 if __name__ == "__main__":
     unittest.main()

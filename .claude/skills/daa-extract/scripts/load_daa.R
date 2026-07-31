@@ -62,8 +62,35 @@ parse_aar <- function(u) {
 }
 aar <- parse_aar(udgave)
 
-clean <- fromJSON(path, simplifyVector = FALSE)
+# Én rå læsning af artefaktet: samme bytes bruges til både parse og hash, så
+# gate-manifestets hash-kontrakt ("bytes på disk") holdes uden dobbelt fil-I/O.
+raw_bytes <- readBin(path, "raw", n = file.info(path)$size)
+clean <- fromJSON(rawToChar(raw_bytes), simplifyVector = FALSE)
 if (!length(clean)) stop("clean.json er tom — intet at loade.")
+
+# ---- gate-manifest (#126): valideringsresultat SKAL følge artefaktet ----
+# validate.py skriver <clean>.manifest.json (sha256 + gate-tal). Uden manifest,
+# ved hash-mismatch eller rød gate afvises load fail-closed; --force-gate er den
+# bevidste override (samme mønster som --force-reset). --legacy-import er
+# undtaget: de gamle 2018-20-artefakter er fra før manifest-kontrakten.
+if (!LEGACY_IMPORT) {
+  manifest_path <- paste0(path, ".manifest.json")
+  res <- if (!file.exists(manifest_path)) {
+    list(ok = FALSE, grund = sprintf("manifest mangler (%s) — kør validate.py igen, den skriver det nu", manifest_path))
+  } else {
+    if (!requireNamespace("digest", quietly = TRUE))
+      stop("Gate-manifestet kræver R-pakken 'digest' til sha256 — install.packages(\"digest\").")
+    verify_gate_manifest(fromJSON(manifest_path, simplifyVector = TRUE),
+                         digest::digest(raw_bytes, algo = "sha256", serialize = FALSE))
+  }
+  if (res$ok) {
+    message("Gate-manifest: ", res$grund)
+  } else if (!args$force_gate) {
+    stop("LOAD afvist (#126): ", res$grund, ". Tilføj --force-gate for bevidst at loade alligevel.")
+  } else {
+    message("ADVARSEL: --force-gate tilsidesætter gate-manifestet — ", res$grund)
+  }
+}
 
 # ---- forbindelse ----
 host <- Sys.getenv("SUPABASE_HOST"); user <- Sys.getenv("SUPABASE_USER"); pw <- Sys.getenv("SUPABASE_PASSWORD")
@@ -268,8 +295,8 @@ tryCatch({
       stop("RESET (--reset) afvist: basen har andre redaktionelle change_set-rækker end den genafspillelige red_ret_ocr_felt. Kør uden --reset (append) eller tilføj --force-reset for bevidst at slette dem.")
     if (has_reset_blocking_editorial_changes(cs) && FORCE_RESET)
       message("ADVARSEL: --force-reset tilsidesætter RESET-guarden — redaktionelle change_set-rækker slettes.")
-    message("RESET: tømmer model-tabeller…")
-    ex(paste0("TRUNCATE ", paste(model_tables, collapse=", "), " CASCADE;"))
+    message("RESET: tømmer model-tabeller + versioneringshistorik…")
+    ex(paste0("TRUNCATE ", paste(c(model_tables, loader_versioning_tables()), collapse=", "), " CASCADE;"))
   }
 
   seed_seq()      # skal køre EFTER en evt. TRUNCATE, og under alle omstændigheder før nid()
@@ -378,10 +405,21 @@ tryCatch({
       add_member(fam, pid, "partner", ordinal = g(a, "ordinal"))
       ref <- parse_intern_ref(g(a, "partner_ekstern_ref"), rec$linje)
       existing_key <- if (!is.null(ref)) key(ref$linje, ref$nr) else NULL
-      if (!is.null(existing_key) && exists(existing_key, envir = pmap, inherits = FALSE)) {
+      ref_afvist <- FALSE
+      brug_ref <- !is.null(existing_key) && exists(existing_key, envir = pmap, inherits = FALSE)
+      if (brug_ref) {
         # partner_ekstern_ref pegede internt på en person der allerede findes i
         # denne kilde (fx "se nr. 97") — link den eksisterende i stedet for at
-        # oprette en dublet-stub.
+        # oprette en dublet-stub. MEN kun hvis ref og partner_navn er enige
+        # (#125): mis-opløste refs skabte spøgelses-unioner (barn gift m. ane).
+        ref_rec <- get0(existing_key, envir = recmap, inherits = FALSE)
+        if (isFALSE(partner_ref_navn_enige(g(a, "partner_navn"), g(ref_rec, "navn")))) {
+          ref_afvist <- TRUE; brug_ref <- FALSE
+          message(sprintf("navn≠ref: partner_navn '%s' ~ ref-person '%s' (%s) er uenige — ref-link afvist, partner oprettes fra navnet",
+                          a$partner_navn, g(ref_rec, "navn", "?"), a$partner_ekstern_ref))
+        }
+      }
+      if (brug_ref) {
         add_member(fam, get(existing_key, envir = pmap), "partner", ordinal = g(a, "ordinal"))
       } else if (!is.null(a$partner_navn) && !is.na(a$partner_navn)) {
         sp <- add_person(); sp_t <- split_title(a$partner_navn)
@@ -408,7 +446,9 @@ tryCatch({
         fact_value(fam, "skilsmisse", raw = "skilt", sid = src, side = side, st = "family")
       add_note("family", fam, g(a, "note", NULL))
       if (!is.null(a$partner_ekstern_ref) && !is.na(a$partner_ekstern_ref))
-        add_note("family", fam, paste("partner ekstern ref:", a$partner_ekstern_ref))
+        add_note("family", fam, paste0("partner ekstern ref",
+                                       if (ref_afvist) " AFVIST (navn≠ref)" else "",
+                                       ": ", a$partner_ekstern_ref))
       fams[[length(fams) + 1]] <- fam
     }
     # børn: knyt til den KORREKTE union via barnets eget aegteskab_kontekst.

@@ -98,6 +98,58 @@ test_that("reset-listen bevarer import_korrektion uden for truncate", {
   expect_false("import_korrektion" %in% loader_model_tables())
 })
 
+test_that("reset tømmer versioneringshistorik men aldrig journalen (#124)", {
+  # Historik nøglet til model-id'er må ikke overleve TRUNCATE — id-genbrug
+  # ville knytte gamle events til nye, forkerte rækker.
+  expect_setequal(loader_versioning_tables(), c("change_set", "change_event"))
+  # Journalen er replay-laget og skal netop overleve reset.
+  expect_false("import_korrektion" %in% loader_versioning_tables())
+  # De to lister må ikke overlappe — hver tabel har præcis én reset-semantik.
+  expect_length(intersect(loader_model_tables(), loader_versioning_tables()), 0)
+})
+
+test_that("gate-manifestet binder valideringsresultat til artefaktet (#126)", {
+  sha <- "abc123"
+  m <- list(sha256 = "ABC123", andel_rene = 0.95)   # case-ufølsom hash-match
+  expect_true(verify_gate_manifest(m, sha)$ok)
+  # forkert/ændret fil → afvis
+  expect_false(verify_gate_manifest(list(sha256 = "def", andel_rene = 0.95), sha)$ok)
+  # manifest uden hash → afvis
+  expect_false(verify_gate_manifest(list(andel_rene = 0.95), sha)$ok)
+  # rød gate (præcis den historiske 88,8 %-situation) → afvis
+  roed <- verify_gate_manifest(list(sha256 = sha, andel_rene = 0.888), sha)
+  expect_false(roed$ok); expect_match(roed$grund, "RØD")
+  # manglende gate-tal → afvis (fail-closed)
+  expect_false(verify_gate_manifest(list(sha256 = sha), sha)$ok)
+  # tærskel kan skærpes
+  expect_false(verify_gate_manifest(list(sha256 = sha, andel_rene = 0.95), sha, taerskel = 0.99)$ok)
+})
+
+test_that("parse_load_daa_args kender --force-gate", {
+  a <- parse_load_daa_args(c("clean.json", "DAA 1939", "--import-key=k", "--force-gate"))
+  expect_true(a$force_gate)
+  expect_false(parse_load_daa_args(c("clean.json", "--import-key=k"))$force_gate)
+})
+
+test_that("navn≠ref-guarden afviser kun beviselig uenighed (#125)", {
+  # spøgelses-union-mønstret: partner_navn = mor, ref opløst til ane/far
+  expect_false(partner_ref_navn_enige("Margrethe Rantzau", "Ditlev"))
+  expect_false(partner_ref_navn_enige("Dorothea von Bülow", "Henning"))
+  # 1939-mønstret: ref-personens navn-felt bærer kun fornavne
+  expect_true(partner_ref_navn_enige("Anna Catharine Reventlow", "Anna Catharine"))
+  # titel/adelspræfiks i partner_navn forstyrrer ikke token-subset
+  expect_true(partner_ref_navn_enige("Oberst Joachim Diedrich von Dewitz", "Joachim Diedrich"))
+  # delt distinkt navne-token (≥4 tegn) er nok
+  expect_true(partner_ref_navn_enige("Magdalene Blome", "Otto Blome"))
+  # kort fornavn (<4 tegn) matcher via token-subset, ikke substring
+  expect_true(partner_ref_navn_enige("Cai von Thienen", "Cai"))
+  expect_false(partner_ref_navn_enige("Anna", "Susanna"))  # ingen substring-falsk-positiv
+  # NA (ukendt) må aldrig afvise — kun beviselig uenighed parkerer
+  expect_identical(partner_ref_navn_enige(NULL, "Ditlev"), NA)
+  expect_identical(partner_ref_navn_enige("Margrethe", NA), NA)
+  expect_identical(partner_ref_navn_enige("", "Ditlev"), NA)
+})
+
 test_that("is_missing_table_error genkender 42P01 / does not exist", {
   expect_true(is_missing_table_error('relation "change_set" does not exist'))
   expect_true(is_missing_table_error("ERROR: 42P01"))
@@ -474,7 +526,9 @@ test_that("opt-in lokal DB-smoke genafspiller rettelser efter reset og ruller st
     try(DBI::dbExecute(con, "DELETE FROM import_korrektion WHERE import_key=$1", params = list(import_key)), silent = TRUE)
     try(DBI::dbExecute(con, "DELETE FROM change_set WHERE operation='red_ret_ocr_felt' AND summary LIKE $1",
                        params = list(paste0("OCR-%: ", import_key, "/%"))), silent = TRUE)
-    try(DBI::dbExecute(con, paste0("TRUNCATE ", paste(loader_model_tables(), collapse = ", "), " RESTART IDENTITY CASCADE")), silent = TRUE)
+    # Samme fulde reset-kontrakt som loaderen (#124): model + versionering,
+    # ellers genindfører testens egen cleanup stale-historik-klassen lokalt.
+    try(DBI::dbExecute(con, paste0("TRUNCATE ", paste(c(loader_model_tables(), loader_versioning_tables()), collapse = ", "), " RESTART IDENTITY CASCADE")), silent = TRUE)
     try(DBI::dbExecute(con, "DELETE FROM profiles WHERE id=$1", params = list(smoke_uid)), silent = TRUE)
     try(DBI::dbExecute(con, "DELETE FROM auth.users WHERE id=$1", params = list(smoke_uid)), silent = TRUE)
   }

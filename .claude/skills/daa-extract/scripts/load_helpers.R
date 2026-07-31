@@ -42,11 +42,30 @@ has_reset_blocking_editorial_changes <- function(cs) {
   any(is.na(operation) | (grepl("^red_", operation) & operation != "red_ret_ocr_felt"))
 }
 
+# Gate-manifest-verifikation (#126): ren, DB-fri kontrakt. Manifestet skrives af
+# validate.py sammen med clean.json; loaderen afviser artefakter hvis hash ikke
+# matcher (forkert/ændret fil) eller hvis gaten var rød ved valideringen.
+# Tærsklen 0.90 er den gate der historisk blev håndhævet pr. proces (og brudt:
+# 1939 kom i prod på 88,8 %) — nu maskinel.
+verify_gate_manifest <- function(manifest, faktisk_sha256, taerskel = 0.90) {
+  m_sha <- manifest$sha256
+  if (is.null(m_sha) || !length(m_sha) || is.na(m_sha) ||
+      !identical(tolower(as.character(m_sha)), tolower(as.character(faktisk_sha256))))
+    return(list(ok = FALSE, grund = "sha256-mismatch: manifestet beskriver ikke denne fil"))
+  andel <- suppressWarnings(as.numeric(manifest$andel_rene))
+  if (!length(andel) || is.na(andel))
+    return(list(ok = FALSE, grund = "manifest mangler andel_rene"))
+  if (andel < taerskel)
+    return(list(ok = FALSE, grund = sprintf("gate RØD: andel_rene %.1f%% < tærskel %.0f%%",
+                                            100 * andel, 100 * taerskel)))
+  list(ok = TRUE, grund = sprintf("gate GRØN: andel_rene %.1f%%", 100 * andel))
+}
+
 # Korrektionsimporter skal have en stabil, eksplicit nøgle. Ældre importer er kun
 # tilladt med et bevidst legacy-flag og får derfor NULL import_key/record_key i DB.
 parse_load_daa_args <- function(argv) {
   if (!length(argv) || startsWith(argv[1], "--"))
-    stop("brug: load_daa.R clean.json [udgave] --import-key=<nøgle> [--reset] [--force-reset] [--dry-run] [--staged] | --legacy-import")
+    stop("brug: load_daa.R clean.json [udgave] --import-key=<nøgle> [--reset] [--force-reset] [--force-gate] [--dry-run] [--staged] | --legacy-import")
 
   import_flags <- grep("^--import-key=", argv, value = TRUE)
   if (length(import_flags) > 1L) stop("--import-key må kun angives én gang")
@@ -66,17 +85,27 @@ parse_load_daa_args <- function(argv) {
     legacy_import = legacy_import,
     reset = "--reset" %in% argv,
     force_reset = "--force-reset" %in% argv,
+    force_gate = "--force-gate" %in% argv,
     dry_run = "--dry-run" %in% argv,
     staged = "--staged" %in% argv
   )
 }
 
-# Den fulde resetliste er centraliseret her, så kontrakten kan testes uden DB-forbindelse.
+# Reset-kontrakten er centraliseret i disse to lister (testbare uden DB):
+# model-tabellerne (datamodellen) + versioneringstabellerne nedenfor. En reset-
+# TRUNCATE skal ALTID tage begge — se load_daa.R's RESET-gren og #124.
 loader_model_tables <- function() c(
   "note", "citation", "conclusion", "assertion", "relation", "fact",
   "family_member", "family", "person_external_id", "narrative", "person",
   "coat_of_arms", "historical_event", "media", "estate", "organisation", "place", "source"
 )
+
+# Versioneringstabeller der SKAL med i en reset-TRUNCATE (#124): historikken er
+# nøglet til model-id'er som TRUNCATE frigiver til genbrug — overlever den,
+# fremstår gamle events knyttet til nye, forkerte rækker. import_korrektion er
+# bevidst IKKE her: journalen er nøglet på (import_key, record_key) og skal
+# netop overleve reset (replay-laget).
+loader_versioning_tables <- function() c("change_set", "change_event")
 
 external_id_buffer_row <- function(pid, sid, linje, nr, record_key) {
   list(person_id = pid, source_id = sid, linje = linje, nr = nr, record_key = record_key)
@@ -276,6 +305,27 @@ barn_lookup_reason <- function(keys) if (length(keys) > 0) "ok" else "nr_ikke_i_
   traf <- ord[vapply(names(ord), function(w) grepl(w, low, fixed = TRUE), logical(1))]
   vals <- unique(unname(traf))
   if (length(vals) == 1L) vals else NA_integer_
+}
+
+# navn≠ref-guard (#125; diskriminator-beslutning 2026-07-03): når en ægteskabs-
+# post BÅDE bærer partner_navn og en intern partner_ekstern_ref, skal de to
+# uafhængige signaler være enige før ref-linket bruges — mis-opløste "se nr."-
+# refs skabte 26 spøgelses-unioner (barn "gift" med egen ane). Tolerant
+# sammenligning i match_barn_union-stil: alle tokens fra den ene side indeholdt
+# i den anden (1939-poster bærer ofte kun fornavne i navn-feltet), ellers delt
+# navne-token ≥4 tegn. TRUE = enige, FALSE = uenige (afvis ref-linket),
+# NA = kan ikke afgøres (navn mangler på en side) — NA må ALDRIG afvise:
+# kun beviselig uenighed parkerer, jf. konservativ-scope-læringen.
+partner_ref_navn_enige <- function(partner_navn, ref_navn) {
+  toks <- function(x) {
+    if (is.null(x) || length(x) == 0L || is.na(x)) return(character(0))
+    t <- strsplit(tolower(trimws(as.character(x))), "[^[:alnum:]]+")[[1]]
+    t[nzchar(t)]
+  }
+  pt <- toks(partner_navn); rt <- toks(ref_navn)
+  if (!length(pt) || !length(rt)) return(NA)
+  if (all(pt %in% rt) || all(rt %in% pt)) return(TRUE)
+  length(intersect(pt[nchar(pt) >= 4L], rt[nchar(rt) >= 4L])) > 0L
 }
 
 # match_barn_union: knyt et barns fritekst-`aegteskab_kontekst` til ét af

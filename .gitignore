@@ -58,3 +58,4 @@ supabase/.temp/
 
 # Brainstorming visual companion (throwaway mockups)
 .superpowers/
+__pycache__/

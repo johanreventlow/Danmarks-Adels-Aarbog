@@ -67,13 +67,13 @@ if (length(conflicts)) {
 }
 
 # F6: DATA-aware idempotens-guard (IKKE change_set-eksistens).
-# BEGRUNDELSE (dual-review 2026-07-05): change_set-rækker OVERLEVER
-# --force-reset's TRUNCATE ... CASCADE (change_set er ikke selv en
-# model-tabel der nulstilles), mens slaegtled_lokal/slaegtled_gennem/kuld
-# nulstilles til NULL ved reload. En guard der kun tjekker om et
-# 'backfill_slaegtled' change_set findes ville derfor BLOKERE gen-anvendelse
-# efter en reset-reload, selvom generationsdataen reelt er væk — featuren
-# forsvinder tavst. Tjek i stedet om generationsdata FAKTISK findes for den
+# BEGRUNDELSE (dual-review 2026-07-05, opdateret #124 2026-07-30): en guard
+# på change_set-EKSISTENS er skrøbelig over for reset-semantikken (før #124
+# overlevede change_set en reset; efter #124 tømmes den med) — mens
+# slaegtled_lokal/slaegtled_gennem/kuld altid nulstilles til NULL ved reload.
+# En eksistens-guard ville før #124 BLOKERE gen-anvendelse efter reset-reload
+# selvom generationsdataen reelt var væk — featuren forsvinder tavst.
+# Tjek i stedet om generationsdata FAKTISK findes for den
 # resolverede source_id; spring kun over (stop) hvis data allerede er der.
 # change_set oprettes stadig ved anvendelse (bevarer fortryd-evnen).
 # NOTE: wiring ind i post_load_fixup.R (med dens egen transaktions-isolation)
