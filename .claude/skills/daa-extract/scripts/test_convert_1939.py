@@ -600,3 +600,29 @@ def test_uden_gravsten_er_adfaerden_uaendret():
 def test_nr_label_foelger_nr_ved_gravsten():
     for p in convert_all(_gravsten_recs(3, fjernede={1}), rapport={}):
         assert p["nr_label"] == str(p["nr"])
+
+
+# ---- gate-manifest (#126): converteren binder valideringsresultat til artefaktet ----
+
+def test_skriv_manifest_binder_sha256_til_de_skrevne_bytes(tmp_path):
+    from convert_1939_stamtavle import skriv_manifest
+    import hashlib, json as _json
+    ud = tmp_path / "clean_1939.json"
+    poster = [{"_id": "a", "narrative": "tekst"}, {"_id": "b", "narrative": "mere"}]
+    skriv_manifest(poster, ud)
+    manifest = _json.load(open(str(ud) + ".manifest.json", encoding="utf-8"))
+    assert manifest["sha256"] == hashlib.sha256(ud.read_bytes()).hexdigest()
+    assert manifest["artefakt"] == "clean_1939.json"
+    assert manifest["rene"] == 2 and manifest["flaggede"] == 0
+    assert manifest["andel_rene"] == 1.0
+
+
+def test_skriv_manifest_poster_uden_narrative_er_flaggede(tmp_path):
+    from convert_1939_stamtavle import skriv_manifest
+    import json as _json
+    ud = tmp_path / "clean_1939.json"
+    poster = [{"_id": "a", "narrative": "tekst"}, {"_id": "b"}, {"_id": "c", "narrative": ""}]
+    skriv_manifest(poster, ud)
+    manifest = _json.load(open(str(ud) + ".manifest.json", encoding="utf-8"))
+    assert manifest["rene"] == 1 and manifest["flaggede"] == 2
+    assert manifest["andel_rene"] == round(1 / 3, 4)
