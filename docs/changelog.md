@@ -1,5 +1,23 @@
 # Changelog
 
+## Trin B: fakta-efterudtrækket i prod — v3 live (2026-07-31, aften)
+
+Anden replace samme dag (kæden er nu rutine): terra udtrak fakta af alle 546
+narrativer (22 batches, 36 retries, tom retry-kø); Codex' kvote løb tør EFTER
+udtrækket, så merge/validering blev kørt deterministisk af Claude
+(efterudtraek_1939.py: fail-closed merge, 11 elementer saneret med log,
+R7-span-gate, byte-verificeret genmerge). Dækning i prod: dåb 0→50, titel
+266→309, død 344→352, vielser 478 familie-fakta, 713 supplerede
+ægteskabsfelter (bl.a. partner-datoer), +17 nye ægtefælle-stubs; fødsel
+362→370 — mønster-sweep bekræftede at resten reelt ikke har fødselsdato i
+bogen (tidlige poster). Prod: 1804 personer. Alle redaktionelle invarianter
+grønne — inkl. det NYE redaktionelle arbejde fra i aften (45 change_events
+efter eftermiddagens load), som replace-kørslen beviste sig mod. Undervejs:
+delt-workdir-race (anden session skiftede branch under terra-kørslen) →
+stoppet, karantænet, genkørt rent med selektivt valideret batch-genbrug.
+Rest: 157 ægteskabsfelt-konflikter rapporteret (redaktionelt), 78 uopløste
+barn-opslag, Codex-kvote tom til 5/8 (rammer kun kommende store opgaver).
+
 ## FØRSTE ÆGTE PROD-REPLACE: 1939-v2-artefaktet live (2026-07-31)
 
 Replay-kæden brugt skarpt mod prod for første gang — hele dagens kæde fra
