@@ -249,6 +249,9 @@ def convert_record(rec, global_nr):
         "_foraeldre_note": rec.get("foraeldre_note"),
         "_window": rec.get("_window"),
         "_converter_version": CONVERTER_VERSION,
+        **({"_fakta_status": rec["_fakta_status"]} if rec.get("_fakta_status") else {}),
+        **({"_narrativ_kilde": rec["_narrativ_kilde"]} if rec.get("_narrativ_kilde") else {}),
+        **({"_v2_lokal_id": rec["_v2_lokal_id"]} if rec.get("_v2_lokal_id") else {}),
     }
     if rec.get("_foraelder_id") is not None:
         out["_foraelder_id"] = rec["_foraelder_id"]
