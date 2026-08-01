@@ -636,4 +636,23 @@ describe('buildRpcCall — union-redigering', () => {
     const c = { art: 'sletUnion', subjektType: 'person', subjektId: '1198', payload: {} } as Change;
     expect(buildRpcCall(c)).toBeNull();
   });
+
+  // Et ufuldstændigt struktur-kald må IKKE degradere til red_suggest: redaktøren ville få
+  // "Forslag sendt til staging" som kvittering på en handling der ikke skete (Codex sol).
+  it.each(['tilfoejPartner', 'sletUnion'])('%s uden mål kaster frem for at blive et tomt forslag', (art) => {
+    const c = { art, subjektType: 'person', subjektId: '1198', payload: {} } as Change;
+    expect(() => planCall(c, 'redaktion')).toThrow(/Ufuldstændig/);
+  });
+
+  it('gyldigt sletUnion routes direkte for redaktion', () => {
+    const c = { art: 'sletUnion', subjektType: 'person', subjektId: '1198',
+      payload: { familyId: '726' } } as Change;
+    expect(planCall(c, 'redaktion').fn).toBe('red_slet_union');
+  });
+
+  it('ikke-redaktion får stadig forslags-stien for et GYLDIGT kald', () => {
+    const c = { art: 'tilfoejPartner', subjektType: 'person', subjektId: '1198',
+      payload: { familyId: '726', personId: '1613' } } as Change;
+    expect(planCall(c, 'medlem').fn).toBe('red_suggest');
+  });
 });

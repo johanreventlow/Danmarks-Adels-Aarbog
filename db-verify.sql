@@ -3642,21 +3642,24 @@ END $$;
 
 -- =============================================================
 -- 2026-08-01: union-redigering — red_tilfoej_partner / red_slet_union
--- Kører som redaktion via transaktions-lokal jwt-claim; hele blokken rulles
--- tilbage til sidst (RAISE fanget af blokkens egen EXCEPTION-klausul), så
--- prod-data er urørt.
+-- Kører som redaktion via transaktions-lokal jwt-claim. Blokken ruller sine
+-- RÆKKER tilbage til sidst (RAISE fanget af blokkens egen EXCEPTION-klausul);
+-- IDENTITY-sekvenser rulles derimod ikke tilbage, så et par id-numre brændes
+-- pr. kørsel. Ingen eksisterende data røres.
+-- Mangler der en redaktionsprofil, FEJLER blokken — en assert der stiltiende
+-- springer sig selv over er værre end ingen assert (Codex sol, 2026-08-01).
 -- =============================================================
 DO $$
 DECLARE
-  v_uid uuid; v_fam bigint; v_a bigint; v_b bigint; v_barn bigint; v_fejlede boolean;
+  v_uid uuid; v_fam bigint; v_a bigint; v_b bigint; v_barn bigint; v_alias bigint; v_fejlede boolean;
 BEGIN
   SELECT id INTO v_uid FROM profiles WHERE rolle='redaktion' LIMIT 1;
-  IF v_uid IS NULL THEN RAISE NOTICE 'SPRINGER OVER: ingen redaktion-profil at køre som'; RETURN; END IF;
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'FEJL: ingen redaktion-profil — union-asserts kan ikke køres'; END IF;
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_uid, 'role','authenticated')::text, true);
 
-  INSERT INTO person DEFAULT VALUES RETURNING id INTO v_a;
-  INSERT INTO person DEFAULT VALUES RETURNING id INTO v_b;
-  INSERT INTO person DEFAULT VALUES RETURNING id INTO v_barn;
+  v_a := red_opret_person('VERIFY far');
+  v_b := red_opret_person('VERIFY mor');
+  v_barn := red_opret_person('VERIFY barn');
 
   -- Skallen bygges råt (red_opret_union kræver to partnere; red_tilfoej_barn ville
   -- oprette en forældrefamilie-påstand og dermed forurene reference-testen nedenfor).
@@ -3671,11 +3674,28 @@ BEGIN
     RAISE EXCEPTION 'FEJL: red_tilfoej_partner gav ikke præcis 2 partnere (idempotens brudt?)';
   END IF;
 
+  -- 1b) en tredje part afvises (læselaget projicerer kun p1/p2)
+  v_fejlede := false;
+  BEGIN PERFORM red_tilfoej_partner(v_fam, red_opret_person('VERIFY tredje'));
+  EXCEPTION WHEN others THEN v_fejlede := true; END;
+  IF NOT v_fejlede THEN RAISE EXCEPTION 'FEJL: en tredje part blev accepteret i unionen'; END IF;
+
   -- 2) et barn i familien kan ikke også blive partner
   v_fejlede := false;
   BEGIN PERFORM red_tilfoej_partner(v_fam, v_barn);
   EXCEPTION WHEN others THEN v_fejlede := true; END;
   IF NOT v_fejlede THEN RAISE EXCEPTION 'FEJL: barn blev accepteret som partner i samme familie'; END IF;
+
+  -- 2b) …og heller ikke en alias-post for barnet (identitets-bevidst cyklus-guard).
+  --     Barnet fjernes som part-kandidat via samme_som, ikke via rå id.
+  v_alias := red_opret_person('VERIFY barn-alias');
+  PERFORM red_samme_som(v_alias, v_barn);
+  PERFORM red_slet_familie_link(v_fam, v_b, 'partner');   -- gør plads under to-parts-loftet
+  v_fejlede := false;
+  BEGIN PERFORM red_tilfoej_partner(v_fam, v_alias);
+  EXCEPTION WHEN others THEN v_fejlede := true; END;
+  IF NOT v_fejlede THEN RAISE EXCEPTION 'FEJL: alias for et barn blev accepteret som part (cyklus)'; END IF;
+  PERFORM red_tilfoej_partner(v_fam, v_b);                -- genskab udgangspunktet
 
   -- 3) slet-union afvises så længe der er børn
   v_fejlede := false;
@@ -3699,13 +3719,21 @@ BEGIN
   EXCEPTION WHEN others THEN v_fejlede := true; END;
   IF NOT v_fejlede THEN RAISE EXCEPTION 'FEJL: union med et hængende faktum blev slettet'; END IF;
 
-  -- 6) …men går igennem når skallen er reelt tom
+  -- 5b) …og når et [[family:…]]-hyperlink peger på den
   DELETE FROM fact WHERE subjekt_type='family' AND subjekt_id=v_fam;
+  INSERT INTO text_mention(kilde_type, kilde_id, maal_type, maal_id) VALUES ('narrative', -1, 'family', v_fam);
+  v_fejlede := false;
+  BEGIN PERFORM red_slet_union(v_fam);
+  EXCEPTION WHEN others THEN v_fejlede := true; END;
+  IF NOT v_fejlede THEN RAISE EXCEPTION 'FEJL: union med et hyperlink blev slettet'; END IF;
+
+  -- 6) …men går igennem når skallen er reelt tom
+  DELETE FROM text_mention WHERE maal_type='family' AND maal_id=v_fam;
   PERFORM red_slet_union(v_fam);
   IF EXISTS(SELECT 1 FROM family WHERE id=v_fam) THEN RAISE EXCEPTION 'FEJL: tom union blev ikke slettet'; END IF;
   IF EXISTS(SELECT 1 FROM family_member WHERE family_id=v_fam) THEN RAISE EXCEPTION 'FEJL: family_member-rækker overlevede sletningen'; END IF;
 
-  RAISE NOTICE 'OK: red_tilfoej_partner + red_slet_union — guards holder (barn, to partnere, hængende evidens)';
+  RAISE NOTICE 'OK: red_tilfoej_partner + red_slet_union — guards holder (to-parts-loft, identitets-cyklus, barn, to partnere, evidens, hyperlink)';
   RAISE EXCEPTION 'ROLLBACK_TESTDATA';
 EXCEPTION WHEN others THEN
   IF SQLERRM = 'ROLLBACK_TESTDATA' THEN RAISE NOTICE 'OK: testdata rullet tilbage'; ELSE RAISE; END IF;

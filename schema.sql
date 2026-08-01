@@ -2164,6 +2164,25 @@ BEGIN
   END IF;
 END $$;
 
+-- Identitets-ækvivalens til struktur-guards. samme_som er retningsbestemt (subjekt=alias →
+-- objekt=kanonisk) og kan danne kæder; her returneres HELE den uorienterede komponent, så en
+-- guard kan sammenligne personer på identitet frem for på rå id. Uden den kan en alias-post for
+-- en efterkommer smutte forbi en cyklus-kontrol, og collapseSameAs opdager det først bagefter —
+-- som karantæne, ikke som korruption, men det er en fejl der kunne være afvist ved skrivning
+-- (Codex sol, 2026-08-01). Cyklus-sikker: UNION (ikke UNION ALL) terminerer på besøgte id'er.
+CREATE OR REPLACE FUNCTION _samme_som_gruppe(p_person bigint)
+RETURNS TABLE(pid bigint) LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+  WITH RECURSIVE grp(pid) AS (
+    SELECT p_person
+    UNION
+    SELECT CASE WHEN r.subjekt_id = g.pid THEN r.objekt_id ELSE r.subjekt_id END
+    FROM grp g
+    JOIN relation r ON r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'
+      AND (r.subjekt_id = g.pid OR r.objekt_id = g.pid)
+  )
+  SELECT pid FROM grp;
+$$;
+
 -- Tilføj en partner til en EKSISTERENDE union. red_opret_union laver altid en ny familie, så
 -- indtil nu kunne en union der manglede sin ene part (fx 1939-loaderens mor-løse børne-familier,
 -- 2026-08-01) kun repareres ved at flytte alle børnene væk. Denne funktion reparerer i stedet
@@ -2174,33 +2193,48 @@ END $$;
 -- hvor barnet skifter familie). Den afledte forældre-mængde i app-laget udvides derimod, hvilket er
 -- hele pointen.
 --
--- Cyklus-guard er spejlvendt af red_tilfoej_barns: dér må et barn ikke være ane til en partner;
--- her må den nye partner ikke være efterkommer af et barn i familien (partneren bliver jo forælder
--- til netop de børn). Samme pre-INSERT-uden-lås-forbehold som red_tilfoej_barn (single-writer-PoC).
+-- Tre guards ud over de trivielle:
+--  * MAX TO PARTER. En union har to parter. Læselaget projicerer kun to (web/src/data/model.ts
+--    p1/p2), men afleder forældre af ALLE partner-rækker — en tredje part ville altså blive
+--    forælder til børnene uden at kunne ses. Afvises ved skrivning (Codex sol).
+--  * CYKLUS, identitets-bevidst. Den nye part må ikke være efterkommer af et barn i familien
+--    (parten bliver jo forælder til netop de børn). Sammenligningen sker på samme_som-komponenter,
+--    ikke rå id'er, så en alias-post ikke kan smutte udenom.
+--  * DUBLET FØR CHANGE_SET. No-op'en ligger foran begin_change_set, så et gentaget kald ikke
+--    efterlader et tomt change_set (og en tom fortrydelse).
+-- Pre-INSERT uden lås, samme forbehold som red_tilfoej_barn (single-writer-PoC-antagelsen).
 CREATE OR REPLACE FUNCTION red_tilfoej_partner(p_family_id bigint, p_person_id bigint, p_ordinal int DEFAULT NULL)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
-DECLARE v_cyklus boolean;
+DECLARE v_cyklus boolean; v_partnere int;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Dublet-no-op FØR change_set'et, så gentagne kald ikke skriver tom historik.
+  IF EXISTS(SELECT 1 FROM family_member WHERE family_id=p_family_id AND person_id=p_person_id AND rolle='partner') THEN RETURN; END IF;
   PERFORM begin_change_set('red_tilfoej_partner', format('Tilføjede partner %s til familie %s', p_person_id, p_family_id), 'person', p_person_id);
   IF NOT EXISTS(SELECT 1 FROM family WHERE id=p_family_id) THEN RAISE EXCEPTION 'Familie % findes ikke', p_family_id; END IF;
   IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_person_id) THEN RAISE EXCEPTION 'Person % findes ikke', p_person_id; END IF;
   IF EXISTS(SELECT 1 FROM family_member WHERE family_id=p_family_id AND person_id=p_person_id AND rolle<>'partner')
     THEN RAISE EXCEPTION 'Person % er allerede barn i familie % — kan ikke også være partner', p_person_id, p_family_id; END IF;
-  -- Cyklus: er den nye partner efterkommer af et barn i familien?
+  SELECT count(*) INTO v_partnere FROM family_member WHERE family_id=p_family_id AND rolle='partner';
+  IF v_partnere >= 2 THEN
+    RAISE EXCEPTION 'Familie % har allerede to parter — en union har to; fjern en part først', p_family_id;
+  END IF;
+  -- Cyklus: er den nye part (eller nogen den er samme_som) efterkommer af et barn i familien?
   WITH RECURSIVE efterkommere(pid) AS (
-    SELECT b.person_id FROM family_member b
+    SELECT g.pid FROM family_member b
+      JOIN LATERAL _samme_som_gruppe(b.person_id) g ON true
       WHERE b.family_id = p_family_id AND b.rolle IN ('barn','adopteret_barn','plejebarn','stedbarn')
     UNION
-    SELECT b.person_id FROM efterkommere e
+    SELECT g.pid FROM efterkommere e
       JOIN family_member par ON par.person_id = e.pid AND par.rolle = 'partner'
       JOIN family_member b   ON b.family_id = par.family_id
         AND b.rolle IN ('barn','adopteret_barn','plejebarn','stedbarn')
+      JOIN LATERAL _samme_som_gruppe(b.person_id) g ON true
   )
-  SELECT EXISTS(SELECT 1 FROM efterkommere WHERE pid = p_person_id) INTO v_cyklus;
+  SELECT EXISTS(
+    SELECT 1 FROM efterkommere e JOIN _samme_som_gruppe(p_person_id) k ON k.pid = e.pid
+  ) INTO v_cyklus;
   IF v_cyklus THEN RAISE EXCEPTION 'Cyklus: person % er efterkommer af et barn i familie %', p_person_id, p_family_id; END IF;
-  -- Dup-guard (PK): no-op hvis linket allerede findes
-  IF EXISTS(SELECT 1 FROM family_member WHERE family_id=p_family_id AND person_id=p_person_id AND rolle='partner') THEN RETURN; END IF;
   INSERT INTO family_member(family_id, person_id, rolle, ordinal, konfidens)
     VALUES (p_family_id, p_person_id, 'partner', p_ordinal, NULL);
 END $$;
@@ -2226,7 +2260,12 @@ DECLARE v_boern int; v_partnere int; v_refs int;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   PERFORM begin_change_set('red_slet_union', format('Slettede tom union %s', p_family_id), 'family', p_family_id);
-  IF NOT EXISTS(SELECT 1 FROM family WHERE id=p_family_id) THEN RAISE EXCEPTION 'Familie % findes ikke', p_family_id; END IF;
+  -- Rækkelås først: reference-tjek og DELETE er separate statements, og uden låsen kan en
+  -- samtidig skriver nå at hænge noget på familien imellem dem (Codex sol). Låsen serialiserer
+  -- mod enhver anden skriver der også låser rækken; red_suggest gør det ikke, så restrisikoen
+  -- er den samme single-writer-antagelse som red_tilfoej_barns cyklus-tjek hviler på.
+  PERFORM 1 FROM family WHERE id=p_family_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Familie % findes ikke', p_family_id; END IF;
   SELECT count(*) FILTER (WHERE rolle <> 'partner'), count(*) FILTER (WHERE rolle = 'partner')
     INTO v_boern, v_partnere FROM family_member WHERE family_id=p_family_id;
   IF v_boern > 0 THEN RAISE EXCEPTION 'Familie % har % barn/børn — flyt dem først', p_family_id, v_boern; END IF;
@@ -2241,8 +2280,11 @@ BEGIN
        + (SELECT count(*) FROM suggestion WHERE subjekt_type='family' AND subjekt_id=p_family_id)
        + (SELECT count(*) FROM relation WHERE (subjekt_type='family' AND subjekt_id=p_family_id)
                                             OR (objekt_type='family' AND objekt_id=p_family_id))
+       -- [[family:id|…]] er lovligt i narrativ/note-grammatikken (parse_mentions), så et
+       -- hyperlink kan pege på familien uden at ramme nogen af guardsne ovenfor (Codex sol).
+       + (SELECT count(*) FROM text_mention WHERE maal_type='family' AND maal_id=p_family_id)
     INTO v_refs;
-  IF v_refs > 0 THEN RAISE EXCEPTION 'Familie % er refereret % sted(er) (fakta/påstande/noter/narrativer/hændelser/historier/forslag/relationer) — kan ikke slettes', p_family_id, v_refs; END IF;
+  IF v_refs > 0 THEN RAISE EXCEPTION 'Familie % er refereret % sted(er) (fakta/påstande/noter/narrativer/hændelser/historier/forslag/relationer/henvisninger) — kan ikke slettes', p_family_id, v_refs; END IF;
   DELETE FROM family_member WHERE family_id=p_family_id;
   DELETE FROM family WHERE id=p_family_id;
 END $$;
@@ -3427,9 +3469,18 @@ BEGIN
 END $$;
 
 -- Døde links: mentions hvis mål ikke længere findes.
+-- Dækker HELE vokabularet i parse_mentions. Tidligere manglede family, place, organisation,
+-- source, coat_of_arms og historical_event — et dødt link af de typer blev altså ikke bare
+-- ignoreret, det blev rapporteret som "ingen døde links" (Codex sol, 2026-08-01).
 CREATE OR REPLACE VIEW red_doede_links WITH (security_invoker = true) AS
 SELECT m.* FROM text_mention m
 WHERE (m.maal_type='person' AND NOT EXISTS (SELECT 1 FROM person  p WHERE p.id=m.maal_id))
    OR (m.maal_type='estate' AND NOT EXISTS (SELECT 1 FROM estate  e WHERE e.id=m.maal_id))
    OR (m.maal_type='lineage' AND NOT EXISTS (SELECT 1 FROM lineage l WHERE l.id=m.maal_id))
-   OR (m.maal_type='media' AND NOT EXISTS (SELECT 1 FROM media md WHERE md.id=m.maal_id));
+   OR (m.maal_type='media' AND NOT EXISTS (SELECT 1 FROM media md WHERE md.id=m.maal_id))
+   OR (m.maal_type='family' AND NOT EXISTS (SELECT 1 FROM family f WHERE f.id=m.maal_id))
+   OR (m.maal_type='place' AND NOT EXISTS (SELECT 1 FROM place pl WHERE pl.id=m.maal_id))
+   OR (m.maal_type='organisation' AND NOT EXISTS (SELECT 1 FROM organisation o WHERE o.id=m.maal_id))
+   OR (m.maal_type='source' AND NOT EXISTS (SELECT 1 FROM source s WHERE s.id=m.maal_id))
+   OR (m.maal_type='coat_of_arms' AND NOT EXISTS (SELECT 1 FROM coat_of_arms c WHERE c.id=m.maal_id))
+   OR (m.maal_type='historical_event' AND NOT EXISTS (SELECT 1 FROM historical_event h WHERE h.id=m.maal_id));

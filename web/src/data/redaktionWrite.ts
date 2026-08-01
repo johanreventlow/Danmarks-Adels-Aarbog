@@ -547,9 +547,16 @@ export function buildSuggestCall(c: Change): RpcCall {
 }
 
 // Vælg kald efter rolle: redaktion + kendt art → direkte red_*-RPC; ellers → red_suggest (staging).
+// Arter hvor et ufuldstændigt Change ALDRIG må degradere til red_suggest: de beskriver en
+// struktur-operation på en konkret række, og et forslag uden mål er ikke en svagere udgave af
+// handlingen — det er en tom post der kvitteres som "sendt til staging" (Codex sol, 2026-08-01).
+const KRAEVER_GYLDIGT_KALD = new Set(['tilknytMedia', 'tilfoejPartner', 'sletUnion']);
+
 export function planCall(c: Change, role: string | undefined): RpcCall {
   const bygget = buildRpcCall(c);
-  if (c.art === 'tilknytMedia' && !bygget) throw new Error('Ugyldig medietilknytning.');
+  if (KRAEVER_GYLDIGT_KALD.has(c.art) && !bygget) {
+    throw new Error(c.art === 'tilknytMedia' ? 'Ugyldig medietilknytning.' : 'Ufuldstændig ændring — handlingen blev ikke sendt.');
+  }
   const direct = role === 'redaktion' ? bygget : null;
   return direct ?? buildSuggestCall(c);
 }
