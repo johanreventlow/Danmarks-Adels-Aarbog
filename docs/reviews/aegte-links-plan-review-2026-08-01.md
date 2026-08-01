@@ -166,3 +166,128 @@ Samme sonde bekræftede alle tre præmisser empirisk:
 Worktreet manglede `node_modules`; `npm ci` kørt (1248 pakker, 20 s). Uden det fejler enhver
 `npm run test -w web` i worktreet med en uløselig `@testing-library/react`-import. Bør stå som
 trin 0 i planen.
+
+---
+
+## Codex adversarial-review konsekvens (2026-08-01)
+
+**Verdict: needs-attention** — én blocker, to HIGH, alle reproduceret.
+
+Baseline før ændringer, kørt i worktreet: **55 testfiler, 637 tests, alle grønne.**
+
+### Bekræftet (verificeret empirisk)
+
+**B1 [BLOCKER] — `Link` stopper propagation for sent.** Planens snippet returnerer ved
+modifier-klik *før* `stopPropagation()`. I `TreeView`, `BookmarksView` og `PersonFeedCardView`
+ligger ankeret inde i et kort med egen `onClick`: et cmd-klik lader browseren åbne ny fane **og**
+lader kortet navigere den aktuelle fane. Samme sker ved `defaultPrevented`.
+
+Reproduktion (sonde `web/src/__tests__/tmp-blocker.test.tsx`, slettet igen — begge tests grønne):
+
+```
+✓ cmd-klik på navnet i et kort med egen onClick fyrer OGSÅ kortets navigation
+✓ rettet udgave: stopPropagation FØR early-return holder forælderen urørt
+```
+
+Første test asserterer `expect(kortNavigerer).toHaveBeenCalledTimes(1)` — altså at fejlen er der.
+Anden asserterer `not.toHaveBeenCalled()` med rettelsen. **Fix:** kald `e.stopPropagation()` som
+allerførste sætning når proppen er sat, før `isModifiedClick`-tjekket.
+
+**B2 [HIGH] — Planens påstand om uændret grøn suite er falsk.** Tre eksisterende tests forudsætter
+rollen `button` på elementer planen gør til ankre:
+
+- `components/__tests__/PersonFeedCardView.test.tsx:40` — `getByRole('button', { name: 'Åbn profil for Anna Reventlow' })`
+  og forventer **3** aktiveringer (klik + Enter + Space). Et anker har rollen `link`, og **Space
+  aktiverer ikke et anker** → tælleren bliver 2.
+- `components/__tests__/PersonFeedCardView.test.tsx:97` — samme `getByRole('button', …)` for arkivkortet.
+- `components/__tests__/OcrKildepanel.test.tsx:302` — `getByRole('button', { name: 'Åbn person' })`.
+
+**Fix:** opdatér til `getByRole('link')`, assertér `href`, test klik + Enter, fjern Space-forventningen.
+
+**B3 [HIGH] — Seks oversete kaldesteder med adresserbare mål.** Alle verificeret til stede:
+
+| Sted | Handling i dag | Sti |
+|---|---|---|
+| `Folgesvend.tsx:427` | `navigateTree(meCanon)` (brugerens egen avatar) | `/person/<id>` |
+| `HomeView.tsx:98` | `onOpenEstate(gods.id)` ("Månedens gods") | `/estate/<id>` |
+| `PresensView.tsx:61` | `onPick(id)` ("Se fuld profil") | `/person/<id>` |
+| `PersonKvalitetsark.tsx:339` | `onOpenPerson(row.personId)` | `/redaktion/person/<id>` |
+| `Redaktion.tsx:2449` | `onOpen(String(r.personId))` (forældre-konflikt-rækker) | `/redaktion/person/<id>` |
+| `RelateView.tsx:87` | `onPickStep(st.id)` (`focusOnly`, ingen navigation) | `/person/<id>` |
+
+`RelateView` er særligt inkonsistent: speccens egen afgrænsning lover at `focusOnly`-links får et
+`href`, men planen konverterer dem aldrig.
+
+`OverviewMapView.tsx:46` navigerer via kort-rendererens `onPointPress`-callback og kan ikke levere
+ankre — dokumenteres som teknisk undtagelse.
+
+**B4 [MEDIUM] — P1 rekalibreret, men skærpet.** Codex' pointe om at `data/redaktionRead.ts` ikke er
+et neutralt hjem holder — og er stærkere end antaget. `web/src/supabase.ts:7` kaster ved modul-load
+uden `VITE_SUPABASE_*`, og worktreet har ingen `.env.local` (gitignoreret, følger ikke med):
+
+```
+FAIL  src/data/__tests__/redaktionRead.foraeldre.test.ts
+Error: Mangler VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY.
+ ❯ src/supabase.ts:8:9
+ ❯ src/data/redaktionRead.ts:1:1
+```
+
+Efter kopiering af `web/.env.local` fra hovedmappen: 3/3 grønne. **Fix:** læg `sammeSomEtiket` i et
+nyt Supabase-frit modul `web/src/data/sammeSom.ts`; tilføj `.env.local`-kopiering som trin 0.
+
+**B5 [MEDIUM] — samme_som-forklaringen lover en foldning der kan udeblive.** Verificeret i
+`Redaktion.tsx:2117-2119`:
+
+```tsx
+⚠ Foldes ikke endnu — {preview.grund}. Linket oprettes, men personerne vises separat
+til konflikten er løst.
+```
+
+Et link kan altså eksistere uden foldning. Planens tekst "den post du redigerer foldes ind i denne"
+er derfor for kategorisk. **Fix:** behold `KANONISK`/`ALIAS`, men skriv relationen frem for
+resultatet: "den post du redigerer er markeret som alias for denne" / "markeret som alias for den
+post du redigerer". Codex bekræftede desuden selve retnings-tabellen som korrekt.
+
+**B6 [LOW] — linjedrift.** Uafhængig bekræftelse af mit eget P6: 917 / 1765 / 1806-1814 / 2047.
+Codex bekræftede samtidig at `listRow` kun har en ikke-interaktiv `privat`-`span` som tail (hele
+rækken må lovligt være anker), og at intet eksisterende `linkRow`-kald brydes af et valgfrit 6. argument.
+
+**B7 [LOW] — Task 4's overskriftslinjer peger på de ydre kort** (139/166/185/206/215/230/249), mens
+Step 5's linjer rammer navnene (142/170/188/208/219/234/251). Kun navnene må være ankre.
+
+**B8 [LOW] — feed-testfixtures bruger `as never`**, hvilket skjuler fixturefejl, og `forbundet`
+testes ikke. Codex bekræftede at switchens 13 cases er udtømmende mod `FeedCard`-unionen
+(`packages/feed/src/types.ts:49`), og at `null` er korrekt for `slaegt`/`samle`/`forbundet`.
+
+### Afvist
+
+- **P2** (`React.CSSProperties` → TS2686): Codex nåede uafhængigt samme konklusion som min egen
+  fase 1b. Mit oprindelige fund var forkert.
+- **P3** (beregnet modifier-nøgle): Codex fandt at `@testing-library/dom` typer event-options som
+  `{}`, ikke `MouseEventInit` (`types/events.d.ts:94`) — udtrykket typechecker. Dertil kommer min
+  egen observation at `web/tsconfig.json` ekskluderer `src/**/__tests__/**` helt. To uafhængige
+  grunde til at fundet ikke holder.
+
+### Inferred (plausibelt, ikke reproduceret)
+
+- **`target`-attributten:** props-typen tillader ikke `target` i dag, så scenariet er hypotetisk.
+  Forslaget om at basere props på `AnchorHTMLAttributes<HTMLAnchorElement>` er alligevel en
+  forenkling (fjerner den håndlistede `title`/`aria-label`-flade), og guarden er én linje. Tages med
+  som design-forbedring, ikke som fejlrettelse.
+
+### Impact-buckets (verificerede fund)
+
+| Bucket | Antal | Hvilke |
+|---|---|---|
+| Hard runtime-crash | 0 | — |
+| Semantisk fejl / forkert adfærd | 2 | B1 (dobbelt-navigation), B5 (lover foldning) |
+| Falsk tryghed / proces | 3 | B2 (påstået grøn suite), B4 (test kan ikke køre), B6 (linjedrift) |
+| Manglende dækning | 1 | B3 (seks kaldesteder) |
+| Sub-optimalt / oprydning | 2 | B7, B8 |
+
+### Læring
+
+**En anker-primitiv har to klik-veje, ikke én.** Det rene venstreklik er det man designer og tester;
+modifier-vejen er den man glemmer — og netop dér er `stopPropagation` stadig nødvendig, selv om
+appen ikke selv navigerer. Enhver "afgiv klikket til browseren"-tidlig-returnering skal spørge:
+hvad gør de omsluttende handlers imens?
