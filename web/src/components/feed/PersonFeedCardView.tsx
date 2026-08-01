@@ -3,12 +3,15 @@ import { T } from '../../theme';
 import { Avatar, BookmarkFlag } from '../primitives';
 import type { WebFeedMediaItem } from '../../data/feedMedia';
 import { FeedMediaStrip } from './FeedMediaStrip';
+import { Link } from '../../Link';
+import { personPath } from '../../data/nav';
 
 export type PersonCard = Extract<FeedCard, { personId: string }>;
 export type PersonIdentity = { name: string; years: string };
 
-export function PersonFeedCardView({ card, person, media, onOpen, onSave, bookmarked }: {
+export function PersonFeedCardView({ card, href, person, media, onOpen, onSave, bookmarked }: {
   card: PersonCard;
+  href?: string | null;
   person: PersonIdentity;
   media: WebFeedMediaItem[];
   onOpen: (card: FeedCard) => void;
@@ -17,7 +20,11 @@ export function PersonFeedCardView({ card, person, media, onOpen, onSave, bookma
 }) {
   return (
     <article onClick={() => onOpen(card)} style={{ position: 'relative', background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 14, padding: 18, boxShadow: '0 1px 2px rgba(34,31,26,.04)', cursor: 'pointer' }}>
-      <button type="button" aria-label={`Åbn profil for ${person.name}`} onClick={(event) => { event.stopPropagation(); onOpen(card); }} style={{ display: 'block', width: '100%', border: 0, padding: 0, background: 'transparent', color: 'inherit', cursor: 'pointer', textAlign: 'left' }}>
+      {/* Ægte link, ikke knap: at åbne en profil ER navigation, så rollen skal være 'link'.
+          stopPropagation, så article'ens egen onClick ikke navigerer oveni — heller ikke ved cmd-klik. */}
+      <Link href={href ?? personPath(card.personId)} onNavigate={() => onOpen(card)} stopPropagation
+        aria-label={`Åbn profil for ${person.name}`}
+        style={{ display: 'block', width: '100%', textAlign: 'left' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 11, paddingRight: 26 }}>
           <Avatar n={person.name} size={42} />
           <div style={{ minWidth: 0 }}>
@@ -27,7 +34,7 @@ export function PersonFeedCardView({ card, person, media, onOpen, onSave, bookma
         </div>
         <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: T.gold, marginTop: 12 }}>{card.kicker}</div>
         <PersonCardBody card={card} />
-      </button>
+      </Link>
       <div style={{ position: 'absolute', top: 18, right: 18 }}><BookmarkFlag active={bookmarked} onClick={() => onSave(card.personId)} /></div>
       <FeedMediaStrip media={media} />
     </article>

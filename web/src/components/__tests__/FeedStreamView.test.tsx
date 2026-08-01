@@ -2,6 +2,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FeedCard } from '@daa/feed';
+import { hrefForCard } from '../feed/FeedStreamView';
 
 const mediaMocks = vi.hoisted(() => ({
   fetchFeedMediaCandidates: vi.fn(),
@@ -138,5 +139,43 @@ describe('FeedStreamView media lifecycle', () => {
     expect(mediaMocks.resolveFeedMediaForCards.mock.calls.some(([, candidates]) => (
       candidates['1']?.some((candidate: { titel: string }) => candidate.titel === 'Må ikke vises')
     ))).toBe(false);
+  });
+});
+
+describe('hrefForCard', () => {
+  it('person-kort peger på personens side', () => {
+    const kort: Extract<FeedCard, { kind: 'dagensperson' }> = {
+      kind: 'dagensperson', id: 'dagensperson:42', personId: '42', name: 'Anna', years: '1700–1760',
+      initials: 'A', title: null, bio: '', kicker: 'Dagens person',
+    };
+    expect(hrefForCard(kort)).toBe('/person/42');
+  });
+  it('gods-kort peger på godsets side', () => {
+    const kort: Extract<FeedCard, { kind: 'gods' }> = {
+      kind: 'gods', id: 'gods:7', estateId: '7', navn: 'Gammel Gaard', meta: 'herregård', ownerDots: 3, kicker: 'Gods',
+    };
+    expect(hrefForCard(kort)).toBe('/estate/7');
+  });
+  it('våben-kort peger på våben-fanen', () => {
+    const kort: Extract<FeedCard, { kind: 'vaaben' }> = {
+      kind: 'vaaben', id: 'vaaben:1', armsId: '1', blazon: 'to skjolde', foot: 'DAA', kicker: 'Våben',
+    };
+    expect(hrefForCard(kort)).toBe('/arms');
+  });
+  it('slægtskabs-, forbundet- og samle-kort får intet href (målet ligger uden for URL-grammatikken)', () => {
+    const slaegt: Extract<FeedCard, { kind: 'slaegt' }> = {
+      kind: 'slaegt', id: 'slaegt:1', aId: '1', bId: '2', aName: 'A', bName: 'B',
+      rel: 'fætre', foot: '', kicker: 'Slægtskab',
+    };
+    expect(hrefForCard(slaegt)).toBeNull();
+    const forbundet: Extract<FeedCard, { kind: 'forbundet' }> = {
+      kind: 'forbundet', id: 'forbundet:1', aName: 'A', bName: 'B', aInit: 'A', bInit: 'B',
+      marBottom: '0', kicker: 'Forbundet',
+    };
+    expect(hrefForCard(forbundet)).toBeNull();
+    const samle: Extract<FeedCard, { kind: 'samle' }> = {
+      kind: 'samle', id: 'samle:1', count: 3, tail: 'mere', kicker: 'Saml',
+    };
+    expect(hrefForCard(samle)).toBeNull();
   });
 });

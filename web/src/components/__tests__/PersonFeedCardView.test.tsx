@@ -37,17 +37,21 @@ describe('PersonFeedCardView', () => {
     expect(screen.getByRole('img', { name: 'Slægtsbillede' })).toBeTruthy();
   });
 
-  it('åbner personkortet med klik, Enter og Space på den store profilkontrol', async () => {
+  // Profilkontrollen er et ægte link, ikke en knap: at åbne en profil ER navigation. Derfor
+  // rollen 'link', et href højreklik-menuen kan bruge — og derfor ingen Space-aktivering,
+  // som er knappers tastatur-kontrakt, ikke ankres.
+  it('åbner personkortet med klik og Enter på den store profilkontrol', async () => {
     const { onOpen } = renderPersonCard();
-    const profile = screen.getByRole('button', { name: 'Åbn profil for Anna Reventlow' });
+    const profile = screen.getByRole('link', { name: 'Åbn profil for Anna Reventlow' });
     const user = userEvent.setup();
+
+    expect(profile.getAttribute('href')).toBe('/person/42');
 
     fireEvent.click(profile);
     profile.focus();
     await user.keyboard('{Enter}');
-    await user.keyboard(' ');
 
-    expect(onOpen).toHaveBeenCalledTimes(3);
+    expect(onOpen).toHaveBeenCalledTimes(2);
     expect(onOpen).toHaveBeenLastCalledWith(portrait);
   });
 
@@ -94,7 +98,7 @@ describe('PersonFeedCardView', () => {
     };
     render(<FeedCardView card={arkiv} person={person} media={[]} onOpen={vi.fn()} onSave={vi.fn()} bookmarked={false} />);
 
-    expect(screen.getByRole('button', { name: 'Åbn profil for Anna Reventlow' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Åbn profil for Anna Reventlow' })).toBeTruthy();
     expect(screen.getByText('Arkivfund')).toBeTruthy();
     expect(screen.getByText('Arvede godset i 1764.')).toBeTruthy();
     expect(screen.getByText('1764')).toBeTruthy();
