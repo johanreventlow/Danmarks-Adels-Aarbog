@@ -1207,3 +1207,46 @@ dag. Fire beslutninger med varig virkning:
 Driftslæring: delt-workdir-racen ramte igen (anden session skiftede branch under en
 kørende terra-batch) — stoppet, karantænet, genkørt med selektivt valideret genbrug.
 Parallelle sessioner bør bruge git worktrees.
+
+## Union-redigering + identitets-invarianter (2026-08-01)
+
+- **`red_slet_union` bygget og derefter droppet.** Funktionen krævede referentiel
+  integritet i en model der bevidst ikke har fremmednøgler på polymorfe referencer.
+  Hver rettelse skubbede kravet videre ud: rækkelås → ni tabellåse → en fælles
+  låseprotokol på tværs af loadere og RPC'er. Og racet kunne ikke lukkes med låse
+  overhovedet — en ventende `red_suggest` fortsætter EFTER sletningens commit.
+  Værdien var samtidig nær nul: de 15 mor-løse 1939-skaller kan **ikke** slettes
+  alligevel, fordi bogens oprindelige forældrepåstande peger på dem (familie 726 er
+  refereret 14 steder). Skallerne er ikke affald, men evidens der har mistet sin krop.
+  Alternativet (byg en tombstone-/valideringsmekanisme) er selvstændigt arbejde.
+- **Invarianter i triggere, ikke i RPC'er.** To-parts-loftet og identitets-guardsne
+  ligger på `family_member` og `relation`, ikke i `red_tilfoej_partner`. En RPC-tælling
+  dækkede hverken fortryd-stien (`_version_upsert_row` skriver rækker direkte tilbage)
+  eller samtidige kald. Samme begrundelse som `enforce_samme_som_invariants` i sin tid.
+- **Håndhævelsen skal være symmetrisk.** "Alias tilføjes som part nr. 2" og "to parter
+  linkes bagefter som samme person" giver samme forbudte sluttilstand; med kun én guard
+  afhang udfaldet af redaktørens klik-rækkefølge. Begge veje er nu spærret, i hver sin
+  trigger.
+- **`samme_som`-rolle og -endepunkter er uforanderlige.** Ændring kræver slet+genopret.
+  Evidensen hænger på relationens stabile id, så en `UPDATE` ville genbruge en gammel
+  kildehenvisning til en ny identitetspåstand. Alternativet (en `OLD`-ekskluderende
+  graf-guard på UPDATE) blev forkastet: det ville tillade at en påstand skifter mening
+  uden at skifte identitet.
+- **Krydsracet mellem de to triggere er BEVIDST ikke lukket.** Advisory-låsen der ville
+  lukke det inverterede rækkefølgen mod `load_daa.R` (loaderen tager EXCLUSIVE på
+  `relation` og flusher `family_member` først, mens `red_samme_som` holder advisory-låsen
+  og venter på `relation`) — en ægte deadlock-cyklus der kan abortere en hel load.
+  Cyklussen kan ikke omarrangeres væk. Fuld lukning kræver BEGGE dele: låsen i
+  `load_daa.R`/`load_presens.R`/`post_load_fixup.R` før deres `LOCK TABLE`, OG i
+  partner-triggeren. Restrisikoen kræver to samtidige transaktioner og fanges bagefter
+  af projektionen som karantæne, ikke som stille korruption — samme single-writer-
+  antagelse som `red_tilfoej_barn`s cyklus-tjek allerede hviler på.
+
+Review-læring: otte adversarial Codex-runder, og fundene skrumpede først da en
+**funktion blev fjernet**, ikke da endnu en guard blev tilføjet — at droppe
+`red_slet_union` lukkede tre HIGH på én gang. To gange rettede en Codex-rettelse ét
+problem og skabte et nyt (alfabetisk låseorden inverterede projektets kanoniske orden;
+advisory-låsen gav deadlock). Peer-review er ikke monotont forbedrende. Og
+`get_advisors(security)` fangede efter deploy noget ingen af de otte runder så: to nye
+`SECURITY DEFINER`-trigger-funktioner stod åbne for `anon` via Supabases default-grants.
+Codex læser SQL; advisoren læser den kørende bases ACL.

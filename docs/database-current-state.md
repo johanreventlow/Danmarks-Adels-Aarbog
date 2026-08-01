@@ -4,7 +4,11 @@
 > er autoritative, og hvordan næste deploy forberedes sikkert. Changelog fortæller
 > historien; denne side fortæller tilstanden.
 >
-> **Sidst afstemt:** 2026-07-31 (replay-dagen: IDENTITY + sekvens-gulv-migrationer
+> **Sidst afstemt:** 2026-08-01 (union-redigering: `red_tilfoej_partner`,
+> `_samme_som_gruppe`, `trg_partner_loft`, opdateret `red_tilfoej_barn`,
+> `enforce_samme_som_invariants` m. UPDATE-trigger og udvidet `red_doede_links`
+> applied til prod; data: 65 børn flyttet + 7 forældre matchet → 0 karantænerede
+> grupper. Se §7 og changelog 2026-08-01). Forudgående afstemning 2026-07-31 (replay-dagen: IDENTITY + sekvens-gulv-migrationer
 > applied; to source-scoped `--replace`-kørsler af DAA 1939 — v2-strukturen med 48
 > unummererede + v3-fakta-laget; prod = 1804 personer, 569 1939-poster, alle
 > redaktionelle invarianter verificeret; se changelog 2026-07-31). Objektinventar
@@ -261,3 +265,32 @@ i stedet for `entitet_offentlig`s ubetingede `true`-gren — lukker et latent fa
 
 Se §2 for detaljer om deploy-vejen (kørt direkte via Supabase MCP samme dag som levende
 feed fase 2-3, se ovenfor).
+
+
+## 7. Union-redigering + identitets-invarianter — LIVE i prod (2026-08-01)
+
+Applied atomisk med `lock_timeout 5s`; verify-blokken derefter kørt mod prod og rullet
+tilbage. `get_advisors(security)`: 139 → 135 lints (revoke på de to nye trigger-funktioner).
+
+**Nye objekter**
+
+| Objekt | Rolle |
+|---|---|
+| `_samme_som_gruppe(bigint)` | Hele den uorienterede `samme_som`-komponent for en person. `SECURITY INVOKER`, EXECUTE revoked fra `PUBLIC, anon, authenticated` (ville ellers være et oracle mod skjulte relationer). |
+| `_tjek_partner_loft()` + `trg_partner_loft` | `BEFORE INSERT OR UPDATE ON family_member`. Maks to parter pr. union, og de to skal være forskellige personer også på identitet. EXECUTE revoked. |
+| `red_tilfoej_partner(family, person, ordinal)` | Tilføj manglende part til en EKSISTERENDE union. Gated på `current_rolle()='redaktion'`. |
+| `trg_enforce_samme_som_update` | `BEFORE UPDATE ON relation`. Rolle/endepunkter på `samme_som` er uforanderlige — slet+genopret. |
+
+**Ændrede objekter**
+
+- `red_tilfoej_barn` — cyklus-guarden sammenligner nu `samme_som`-komponenter, ikke rå id'er.
+- `enforce_samme_som_invariants` — nu `SECURITY DEFINER`, håndterer `TG_OP='UPDATE'`, og
+  afviser at to parter i samme union linkes som samme person. EXECUTE revoked.
+- `red_doede_links` — udvidet fra 4 til 10 måltyper (hele `parse_mentions`-vokabularet).
+
+**Kendt, dokumenteret restrisiko:** krydsracet mellem `trg_partner_loft` og
+`enforce_samme_som_invariants` er ikke lukket — advisory-låsen der ville lukke det gav
+deadlock mod `load_daa.R`. Se `docs/decisions.md` (2026-08-01).
+
+**Efterladt i data:** 15 mor-løse 1939-familier står tilbage med én part og 0 børn.
+De kan ikke slettes: bogens oprindelige forældrepåstande peger stadig på dem.

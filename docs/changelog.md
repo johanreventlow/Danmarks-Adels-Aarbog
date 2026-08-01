@@ -2410,3 +2410,47 @@ implementering næste session.**
 - Tilføjer `red_opdater_media` og `red_genopret_media`; upload gemmer nu også kunstner og datering.
 - Fjernede medier bevares i redaktionens læselag og kan genoprettes, men filtreres fortsat fra lightbox og narrativ-mention-pickere.
 - Ingen produktionsmigration er kørt fra dette ændringssæt. Kør `db-migrations.sql`, derefter `db-verify.sql`, `db-verify-media.sql` og til sidst `db-rls.sql` efter runbooken.
+
+## 2026-08-01 — Karantænen opløst + union-redigering (PR #141)
+
+**Diagnose.** Sybille Malvina Lonny (456/1346) foldede ikke, selvom begge hendes
+forældre var matchede. Årsagen lå **otte generationer oppe**: 1939-loaderen lagde børn
+af mænd med flere ægteskaber i en separat "børne-familie" med kun faderen som partner,
+mens ægteskaberne lå i egne familier uden børn. Sæt-uligheden `{far}` vs `{far,mor}`
+afviser gruppen, og fixed-point-løkken i `collapseSameAs` kaskaderer nedad til alle
+efterkommere. UI-hintet peger på nærmeste forældre — roden kan ligge vilkårligt langt oppe.
+
+**Prod-datarettelser (begge fortrydbare change_sets).**
+* 65 børn flyttet fra 15 mor-løse 1939-familier til de korrekte ægteskaber
+  (`change_set 858`, 390 hændelser). Hustru pr. barn afledt maskinelt af de allerede
+  matchede 1930-poster — 0 tvetydige. De øvrige 26 børn i mor-løse familier har ingen
+  `samme_som`-modpart og kan pr. konstruktion ikke konflikte.
+* 7 resterende forældre matchet på tværs af udgaverne (Iwan/Iven ×2, Augusta Sophia,
+  Elly Stein, Cecilie/Tzile, Hartwich/Hartvig, Ghese).
+* **Karantænerede grupper: ~70 → 0.** Verificeret med den rigtige `collapseSameAs` mod
+  et friskt prod-dump (`tools/foraeldrematch/`), ikke med genimplementeret SQL.
+
+**Union-redigering (PR #141, DDL applied til prod).**
+* `red_tilfoej_partner` — tilføj manglende part til en EKSISTERENDE union. Præcis det
+  hul der gjorde de 65 flytninger nødvendige.
+* `trg_partner_loft` — maks to parter pr. union som tabel-invariant; dækker også
+  fortryd-stien og samtidige kald. Prod havde 0 overtrædelser ved indførelsen.
+* `_samme_som_gruppe()` + identitets-bevidst cyklus-guard i BEGGE retninger
+  (`red_tilfoej_barn` sammenlignede før kun rå person-id'er).
+* `samme_som`-rolle/endepunkter gjort uforanderlige (slet+genopret), så en påstands
+  evidens ikke genbruges til en ny identitetspåstand.
+* `red_doede_links` udvidet 4 → 10 måltyper; de manglende blev rapporteret som
+  "ingen døde links".
+* UI: "+ Tilføj part" pr. forhold (skjult ved to parter), ✕ på hver part med
+  bekræftelse der siger hvor mange børn der mister en forælder.
+* `.gitignore`: `tmp/` — `dump-prod.R` skriver et fuldt persondump dertil, og mappen
+  var ikke ignoreret (invariant 8).
+
+**Review.** Otte adversarial runder med Codex `gpt-5.6-sol`; afvist 1-7, accepteret i
+runde 8. `red_slet_union` blev bygget og droppet igen undervejs. `get_advisors(security)`
+efter DDL: 139 → 135 lints (revoke på de to nye trigger-funktioner).
+
+**Udestår.** Manuel UI-test af de nye knapper mod prod · PR #141 er draft ·
+loader-låsen (parkeret, se decisions) · 1235/1237 peger begge på 1930-id 527
+(sandsynlig dublet i 1939-posten) · 15 mor-løse skaller står tilbage med én part og
+0 børn, bevidst ikke slettet.
