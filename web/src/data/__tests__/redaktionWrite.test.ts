@@ -600,3 +600,48 @@ describe('fase 4: oversaetFejl', () => {
     expect(oversaetFejl(raa)).toMatch(forvent);
   });
 });
+
+// --- Union-redigering (2026-08-01): reparér en union der mangler sin ene part.
+// Hullet kostede 65 barne-flytninger da 1939-loaderens mor-løse børne-familier
+// skulle rettes — én "tilføj mor" havde været nok.
+describe('buildRpcCall — union-redigering', () => {
+  it('tilfoejPartner → red_tilfoej_partner', () => {
+    const c = { art: 'tilfoejPartner', subjektType: 'person', subjektId: '1198',
+      payload: { familyId: '726', personId: '1613' } } as Change;
+    expect(buildRpcCall(c)).toEqual({
+      fn: 'red_tilfoej_partner',
+      args: { p_family_id: 726, p_person_id: 1613, p_ordinal: null },
+    });
+  });
+
+  it('tilfoejPartner videresender ordinal når den er sat', () => {
+    const c = { art: 'tilfoejPartner', subjektType: 'person', subjektId: '1198',
+      payload: { familyId: '726', personId: '1613', ordinal: 2 } } as Change;
+    expect(buildRpcCall(c)?.args).toMatchObject({ p_ordinal: 2 });
+  });
+
+  it('tilfoejPartner uden personId giver null (ingen halvt kald)', () => {
+    const c = { art: 'tilfoejPartner', subjektType: 'person', subjektId: '1198',
+      payload: { familyId: '726' } } as Change;
+    expect(buildRpcCall(c)).toBeNull();
+  });
+
+  // Et ufuldstændigt struktur-kald må IKKE degradere til red_suggest: redaktøren ville få
+  // "Forslag sendt til staging" som kvittering på en handling der ikke skete (Codex sol).
+  it('tilfoejPartner uden mål kaster frem for at blive et tomt forslag', () => {
+    const c = { art: 'tilfoejPartner', subjektType: 'person', subjektId: '1198', payload: {} } as Change;
+    expect(() => planCall(c, 'redaktion')).toThrow(/Ufuldstændig/);
+  });
+
+  it('gyldigt tilfoejPartner routes direkte for redaktion', () => {
+    const c = { art: 'tilfoejPartner', subjektType: 'person', subjektId: '1198',
+      payload: { familyId: '726', personId: '1613' } } as Change;
+    expect(planCall(c, 'redaktion').fn).toBe('red_tilfoej_partner');
+  });
+
+  it('ikke-redaktion får stadig forslags-stien for et GYLDIGT kald', () => {
+    const c = { art: 'tilfoejPartner', subjektType: 'person', subjektId: '1198',
+      payload: { familyId: '726', personId: '1613' } } as Change;
+    expect(planCall(c, 'medlem').fn).toBe('red_suggest');
+  });
+});

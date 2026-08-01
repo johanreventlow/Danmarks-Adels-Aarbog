@@ -4801,3 +4801,313 @@ BEGIN
     PERFORM setval(seqname, gulv + 1, false);
   END LOOP;
 END $$;
+
+-- =============================================================
+-- 2026-08-01: UNION-REDIGERING — tilføj part til en eksisterende union
+-- Redaktør-fladen kunne oprette unioner og flytte børn, men ikke reparere
+-- en union der manglede sin ene part. Hullet kostede 65 barne-flytninger
+-- 2026-08-01, hvor én "tilføj mor"-handling havde været nok.
+-- Alle funktioner er CREATE OR REPLACE og triggeren DROP/CREATE →
+-- idempotent. Ingen DDL på tabeller.
+-- =============================================================
+-- Identitets-ækvivalens til struktur-guards. samme_som er retningsbestemt (subjekt=alias →
+-- objekt=kanonisk) og kan danne kæder; her returneres HELE den uorienterede komponent, så en
+-- guard kan sammenligne personer på identitet frem for på rå id. Uden den kan en alias-post for
+-- en efterkommer smutte forbi en cyklus-kontrol, og collapseSameAs opdager det først bagefter —
+-- som karantæne, ikke som korruption, men det er en fejl der kunne være afvist ved skrivning
+-- (Codex sol, 2026-08-01). Cyklus-sikker: UNION (ikke UNION ALL) terminerer på besøgte id'er.
+--
+-- SECURITY INVOKER, ikke DEFINER (Codex sol runde 2): kaldt fra en gated definer-RPC kører den
+-- alligevel som ejer, men kaldt DIREKTE af anon rammer den relation-RLS som den skal. En definer-
+-- udgave ville være et oracle: giv et person-id, få id'er fra skjulte samme_som-relationer.
+-- EXECUTE revokes desuden eksplicit pr. rolle nedenfor — Supabases default-grants gør PUBLIC-
+-- revoke alene utilstrækkelig.
+CREATE OR REPLACE FUNCTION _samme_som_gruppe(p_person bigint)
+RETURNS TABLE(pid bigint) LANGUAGE sql STABLE SECURITY INVOKER SET search_path=public AS $$
+  WITH RECURSIVE grp(pid) AS (
+    SELECT p_person
+    UNION
+    SELECT CASE WHEN r.subjekt_id = g.pid THEN r.objekt_id ELSE r.subjekt_id END
+    FROM grp g
+    JOIN relation r ON r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'
+      AND (r.subjekt_id = g.pid OR r.objekt_id = g.pid)
+  )
+  SELECT pid FROM grp;
+$$;
+REVOKE EXECUTE ON FUNCTION _samme_som_gruppe(bigint) FROM PUBLIC, anon, authenticated;
+
+-- SECURITY DEFINER (2026-08-01): guarden nedenfor kalder _samme_som_gruppe, hvis EXECUTE er
+-- revoked fra anon/authenticated. Alle reelle skriveveje går gennem definer-RPC'er og kører
+-- allerede som ejer, men uden dette ville en fremtidig ikke-ejer-sti fejle på rettigheder frem
+-- for på invarianten. Funktionen skriver intet — den læser og rejser.
+CREATE OR REPLACE FUNCTION enforce_samme_som_invariants() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    -- samme_som er en identitetspåstand med evidens knyttet til relationens stabile id.
+    -- En rolle-/endepunkts-UPDATE ville derfor genbruge den gamle evidens til en ny påstand.
+    -- Kræv slet+genopret (nyt relations-id) frem for en OLD-ekskluderende graf-guard;
+    -- metadata, som ikke ændrer påstandens semantik, kan fortsat opdateres på stedet.
+    IF (OLD.rolle = 'samme_som' OR NEW.rolle = 'samme_som')
+       AND ROW(OLD.rolle, OLD.subjekt_type, OLD.subjekt_id, OLD.objekt_type, OLD.objekt_id)
+           IS DISTINCT FROM
+           ROW(NEW.rolle, NEW.subjekt_type, NEW.subjekt_id, NEW.objekt_type, NEW.objekt_id) THEN
+      RAISE EXCEPTION 'samme_som: rolle og endepunkter er uforanderlige — brug slet+genopret';
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF NEW.rolle <> 'samme_som' OR NEW.subjekt_type <> 'person' OR NEW.objekt_type <> 'person' THEN
+    RETURN NEW; -- ikke et person→person samme_som — rør ikke
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation')); -- serialisér samme_som-mutationer
+  IF NEW.subjekt_id = NEW.objekt_id THEN
+    RAISE EXCEPTION 'samme_som: kan ikke linke en person til sig selv';
+  END IF;
+  -- G3 out-degree ≤ 1: alias peger ikke allerede på en ANDEN kanonisk (multi-sink).
+  IF EXISTS (SELECT 1 FROM relation WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'
+             AND subjekt_id = NEW.subjekt_id AND objekt_id <> NEW.objekt_id) THEN
+    RAISE EXCEPTION 'samme_som: person % er allerede alias for en anden (ville give multi-sink)', NEW.subjekt_id;
+  END IF;
+  -- G4 alias er ikke en eksisterende kanonisk (sink): ville stille re-roote en komponent.
+  IF EXISTS (SELECT 1 FROM relation WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'
+             AND objekt_id = NEW.subjekt_id) THEN
+    RAISE EXCEPTION 'samme_som: person % er allerede kanonisk for andre — skift retning via fjern+genopret', NEW.subjekt_id;
+  END IF;
+  -- Unionens to parter skal forblive to FORSKELLIGE personer. Den omvendte rækkefølge af
+  -- trg_partner_loft's guard (Codex sol runde 5): dér blokeres "alias tilføjes som part nr. 2",
+  -- her blokeres "to parter linkes bagefter". Uden begge er håndhævelsen asymmetrisk — samme
+  -- slutresultat, afhængigt af klik-rækkefølgen. Komponenterne læses FØR den nye kant er
+  -- indsat (BEFORE-trigger), hvilket er præcis de to sider der ville smelte sammen.
+  -- Rettelsen er ikke at afvise identiteten, men at rette unionen først: står de samme person
+  -- som gift med sig selv, er unionen forkert, ikke sammenkædningen.
+  IF EXISTS (
+    SELECT 1 FROM family_member a
+    JOIN family_member b ON b.family_id = a.family_id AND b.rolle = 'partner' AND b.person_id <> a.person_id
+    WHERE a.rolle = 'partner'
+      AND a.person_id IN (SELECT pid FROM _samme_som_gruppe(NEW.subjekt_id))
+      AND b.person_id IN (SELECT pid FROM _samme_som_gruppe(NEW.objekt_id))
+  ) THEN
+    RAISE EXCEPTION 'samme_som: % og % er parter i samme union — ret unionen først, ellers ville personen være gift med sig selv', NEW.subjekt_id, NEW.objekt_id;
+  END IF;
+  -- (Cyklus kan ikke opstå her: en ny alias→kanonisk-kant lukker kun en cyklus hvis alias er reachable
+  -- fra kanonisk, dvs. alias har en indgående kant og dermed er et objekt — hvilket G4 allerede afviser.
+  -- G3+G4 håndhæver derfor invarianten fuldt. En eksplicit graf-walk her ville være død kode + kunne
+  -- fejle en urelateret insert hvis en cyklus var pre-injiceret via trigger-disabled rå-SQL.)
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_enforce_samme_som ON relation;
+CREATE TRIGGER trg_enforce_samme_som BEFORE INSERT ON relation
+  FOR EACH ROW WHEN (NEW.rolle = 'samme_som') EXECUTE FUNCTION enforce_samme_som_invariants();
+DROP TRIGGER IF EXISTS trg_enforce_samme_som_update ON relation;
+CREATE TRIGGER trg_enforce_samme_som_update BEFORE UPDATE ON relation
+  FOR EACH ROW WHEN (OLD.rolle = 'samme_som' OR NEW.rolle = 'samme_som')
+  EXECUTE FUNCTION enforce_samme_som_invariants();
+
+-- Tilføj barn til en union. Struktur-guards (Codex H3): barn ≠ partner i samme family;
+-- ingen ane-cyklus (recursiv CTE: descendants(barn) må ikke indeholde en partner i family).
+-- NB: cyklus-tjekket er pre-INSERT uden lås — to samtidige txn'er kan i teorien hver indsætte den anden
+--   som barn og tilsammen lukke en cyklus. Accepteret under projektets single-writer-PoC-antagelse
+--   (samme klasse som max(id)+1; cycle 07 Codex H1). Advisory-lock = fremtidig hærdning hvis multi-writer.
+CREATE OR REPLACE FUNCTION red_tilfoej_barn(p_family_id bigint, p_barn_id bigint, p_rolle text DEFAULT 'barn', p_konfidens text DEFAULT NULL)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_cyklus boolean;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_tilfoej_barn', format('Tilføjede barn %s til familie %s', p_barn_id, p_family_id), 'person', p_barn_id);
+  IF NOT EXISTS(SELECT 1 FROM family WHERE id=p_family_id) THEN RAISE EXCEPTION 'Familie % findes ikke', p_family_id; END IF;
+  IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_barn_id) THEN RAISE EXCEPTION 'Person % findes ikke', p_barn_id; END IF;
+  IF p_rolle NOT IN ('barn','adopteret_barn','plejebarn','stedbarn') THEN RAISE EXCEPTION 'Ugyldig barn-rolle %', p_rolle; END IF;
+  IF p_konfidens IS NOT NULL AND p_konfidens NOT IN ('sikker','sandsynlig','formodet','omstridt')
+    THEN RAISE EXCEPTION 'Ugyldig konfidens %', p_konfidens; END IF;
+  IF EXISTS(SELECT 1 FROM family_member WHERE family_id=p_family_id AND person_id=p_barn_id AND rolle='partner')
+    THEN RAISE EXCEPTION 'Person % er partner i familie % — kan ikke også være barn', p_barn_id, p_family_id; END IF;
+  -- Fødselsfamilie-prætjek (invariant P1/EXCLUDE): kun én 'barn'-række pr. person. Venlig fejl frem
+  -- for rå exclusion_violation. red_flyt_barn er delete-før-insert, så den passerer her (gammel række væk).
+  IF p_rolle = 'barn' AND EXISTS(SELECT 1 FROM family_member
+       WHERE person_id=p_barn_id AND rolle='barn' AND family_id <> p_family_id) THEN
+    RAISE EXCEPTION 'Person % har allerede en fødselsfamilie — brug red_flyt_barn eller forældre-påstands-flowet', p_barn_id;
+  END IF;
+  -- Cyklus: er en partner i family en efterkommer af barnet? Sammenlignes på samme_som-
+  -- komponenter, ikke rå id'er — ellers kunne en alias-post for en ane smutte forbi, og den
+  -- spejlede guard i red_tilfoej_partner ville afvise præcis den omvendte operation
+  -- (asymmetri fanget af Codex sol runde 2).
+  WITH RECURSIVE efterkommere(pid) AS (
+    SELECT g.pid FROM _samme_som_gruppe(p_barn_id) g
+    UNION
+    SELECT g.pid FROM efterkommere e
+      JOIN family_member par ON par.person_id = e.pid AND par.rolle = 'partner'
+      JOIN family_member b   ON b.family_id = par.family_id
+        AND b.rolle IN ('barn','adopteret_barn','plejebarn','stedbarn')
+      JOIN LATERAL _samme_som_gruppe(b.person_id) g ON true
+  )
+  SELECT EXISTS(
+    SELECT 1 FROM family_member fp
+    WHERE fp.family_id = p_family_id AND fp.rolle='partner' AND fp.person_id IN (SELECT pid FROM efterkommere)
+  ) INTO v_cyklus;
+  IF v_cyklus THEN RAISE EXCEPTION 'Cyklus: barn % er ane til en partner i familie %', p_barn_id, p_family_id; END IF;
+  -- Dup-guard (PK): no-op hvis linket allerede findes
+  IF EXISTS(SELECT 1 FROM family_member WHERE family_id=p_family_id AND person_id=p_barn_id AND rolle=p_rolle) THEN RETURN; END IF;
+  INSERT INTO family_member(family_id, person_id, rolle, ordinal, konfidens)
+    VALUES (p_family_id, p_barn_id, p_rolle, NULL, p_konfidens);
+  -- Slot-komplethed (review 30/Codex #1): sikr et AFKLARET slot mod p_family. Dækker nyt barn (intet
+  -- slot), delete→re-add (retrakteret slot) og slot der peger forkert. No-op når red_vaelg/red_flyt
+  -- allerede pegede slottet på p_family (bevar deres valgte, source-bundne assertion).
+  IF p_rolle = 'barn' AND NOT EXISTS(
+       SELECT 1 FROM fact f
+       JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id AND c.status='afklaret'
+       JOIN assertion a ON a.id=c.valgt_assertion_id
+       WHERE f.subjekt_type='person' AND f.subjekt_id=p_barn_id AND f.faktatype='forældrefamilie'
+         AND a.objekt_id=p_family_id) THEN
+    PERFORM _ensure_foraeldrefamilie_redaktionel(p_barn_id, p_family_id);
+  END IF;
+END $$;
+
+
+-- To parter pr. union — håndhævet i tabellen, ikke kun i RPC'en (Codex sol runde 2).
+-- En RPC-tælling dækkede hverken fortryd-stien (_version_upsert_row skriver rækken direkte
+-- tilbage) eller to samtidige kald der hver ser ét eksisterende partner-link. En rækkelås på
+-- family (SELECT … FOR UPDATE) serialiserer skrivninger for SAMME familie, så tællingen er
+-- pålidelig; låsen er transaktionsbundet og frigives med commit/rollback.
+-- Prod havde 0 overtrædelser da invarianten blev indført (654 familier m. 2 parter, 28 m. 1).
+CREATE OR REPLACE FUNCTION _tjek_partner_loft() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_n int;
+BEGIN
+  IF NEW.rolle <> 'partner' THEN RETURN NEW; END IF;
+  -- BEVIDST INGEN samme_som-advisory-lås her (Codex sol runde 7). Et forsøg på at lukke
+  -- krydsracet med den lås inverterede rækkefølgen mod loaderen: load_daa.R tager EXCLUSIVE på
+  -- bl.a. relation og flusher family_member FØR relation, mens red_samme_som holder advisory-
+  -- låsen og venter på relation — en ægte deadlock-cyklus der kan abortere en hel load.
+  -- RESTRISIKO, accepteret: to SAMTIDIGE transaktioner — én der indsætter ELLER omskriver en
+  -- partner-række, én der linker to parter som samme person — kan hver overse den andens
+  -- ucommittede række og tilsammen committe en selv-union. Det behøver ikke være to redaktører:
+  -- én aktør med overlappende transaktioner, eller en anden skrivevej, kan udgøre den ene side.
+  -- Samme single-writer-antagelse som red_tilfoej_barns cyklus-tjek allerede hviler på, og
+  -- projektionen fanger tilstanden bagefter som karantæne, ikke som stille korruption.
+  -- FULD lukning kræver BEGGE dele: at loaderne tager samme advisory-lås før deres LOCK TABLE,
+  -- OG at låsen genindføres her. Parkeret samlet, fordi første halvdel rører tre prod-kritiske
+  -- load-scripts der ikke kan verificeres uden en rigtig load-kørsel.
+  PERFORM 1 FROM family WHERE id = NEW.family_id FOR UPDATE;  -- serialisér samtidige skrivninger for SAMME familie
+  -- Ved UPDATE står OLD-rækken stadig i tabellen (BEFORE-trigger) og skal trækkes fra på sin
+  -- EGEN nøgle. At udelade "alle rækker med samme nye person_id" ville overafvise en legitim
+  -- omskrivning af en eksisterende parts person_id (Codex sol runde 3).
+  SELECT count(*) INTO v_n FROM family_member fm
+    WHERE fm.family_id = NEW.family_id AND fm.rolle = 'partner'
+      AND NOT (TG_OP = 'UPDATE'
+               AND fm.family_id = OLD.family_id AND fm.person_id = OLD.person_id AND fm.rolle = OLD.rolle);
+  IF v_n >= 2 THEN
+    RAISE EXCEPTION 'Familie % ville få % parter — en union har to', NEW.family_id, v_n + 1;
+  END IF;
+  -- De to parter skal være to FORSKELLIGE personer — også på identitet, ikke kun på id.
+  -- Et samme_som-alias for den siddende part ville ellers give en union hvor begge parter
+  -- kanoniserer til samme person; projektionen kalder det selv-ægtefælle og karantænerer hele
+  -- identitetsgruppen, så en ægte sammenkædning holder op med at folde (Codex sol runde 4).
+  -- Kun relevant når familien allerede HAR en part — springes over i det almindelige tilfælde,
+  -- så loaderens batch-indsættelser ikke betaler for opslaget på den første partner-række.
+  -- Hurtig forudsætning: har NEW.person_id overhovedet en samme_som-kant, hverken som subjekt
+  -- eller objekt, er dens komponent = {sig selv}, og et overlap ville kræve en anden partner-række
+  -- med præcis samme person_id — udelukket af primærnøglen. Uden dette filter betaler ENHVER
+  -- anden-part-indsættelse for en rekursiv CTE (målt: 602 µs/række mod 17 µs).
+  IF v_n > 0 AND EXISTS (
+    SELECT 1 FROM relation r WHERE r.rolle='samme_som' AND r.subjekt_type='person'
+      AND (r.subjekt_id = NEW.person_id OR r.objekt_id = NEW.person_id)
+  ) AND EXISTS (
+    SELECT 1 FROM family_member fm
+    WHERE fm.family_id = NEW.family_id AND fm.rolle = 'partner'
+      AND NOT (TG_OP = 'UPDATE'
+               AND fm.family_id = OLD.family_id AND fm.person_id = OLD.person_id AND fm.rolle = OLD.rolle)
+      AND EXISTS (SELECT 1 FROM _samme_som_gruppe(fm.person_id) a
+                  JOIN _samme_som_gruppe(NEW.person_id) b ON b.pid = a.pid)
+  ) THEN
+    RAISE EXCEPTION 'Person % er samme person som den anden part i familie % (samme_som)', NEW.person_id, NEW.family_id;
+  END IF;
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS trg_partner_loft ON family_member;
+CREATE TRIGGER trg_partner_loft BEFORE INSERT OR UPDATE ON family_member
+  FOR EACH ROW EXECUTE FUNCTION _tjek_partner_loft();
+
+-- Trigger-funktioner skal ikke kunne kaldes som RPC'er. PostgREST afviser ganske vist
+-- trigger-returtypen, men Supabases default-grants får dem til at figurere i
+-- get_advisors(security) som anon/authenticated-eksekverbare definer-funktioner — og
+-- PUBLIC-revoke alene er utilstrækkelig, rollerne har direkte grants.
+REVOKE EXECUTE ON FUNCTION _tjek_partner_loft() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION enforce_samme_som_invariants() FROM PUBLIC, anon, authenticated;
+
+-- Tilføj en partner til en EKSISTERENDE union. red_opret_union laver altid en ny familie, så
+-- indtil nu kunne en union der manglede sin ene part (fx 1939-loaderens mor-løse børne-familier,
+-- 2026-08-01) kun repareres ved at flytte alle børnene væk. Denne funktion reparerer i stedet
+-- familien selv.
+--
+-- Børnenes forældrefamilie-slot peger på FAMILIEN, ikke på forældrene, så en ny partner ændrer
+-- ikke slottet — derfor intet _ensure_foraeldrefamilie_redaktionel-kald her (modsat red_tilfoej_barn,
+-- hvor barnet skifter familie). Den afledte forældre-mængde i app-laget udvides derimod, hvilket er
+-- hele pointen.
+--
+-- Tre guards ud over de trivielle:
+--  * MAX TO PARTER. En union har to parter. Læselaget projicerer kun to (web/src/data/model.ts
+--    p1/p2), men afleder forældre af ALLE partner-rækker — en tredje part ville altså blive
+--    forælder til børnene uden at kunne ses. Afvises ved skrivning (Codex sol).
+--  * CYKLUS, identitets-bevidst. Den nye part må ikke være efterkommer af et barn i familien
+--    (parten bliver jo forælder til netop de børn). Sammenligningen sker på samme_som-komponenter,
+--    ikke rå id'er, så en alias-post ikke kan smutte udenom.
+--  * DUBLET FØR CHANGE_SET. No-op'en ligger foran begin_change_set, så et gentaget kald ikke
+--    efterlader et tomt change_set (og en tom fortrydelse).
+-- Pre-INSERT uden lås, samme forbehold som red_tilfoej_barn (single-writer-PoC-antagelsen).
+CREATE OR REPLACE FUNCTION red_tilfoej_partner(p_family_id bigint, p_person_id bigint, p_ordinal int DEFAULT NULL)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_cyklus boolean; v_partnere int;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Dublet-no-op FØR change_set'et, så gentagne kald ikke skriver tom historik.
+  IF EXISTS(SELECT 1 FROM family_member WHERE family_id=p_family_id AND person_id=p_person_id AND rolle='partner') THEN RETURN; END IF;
+  PERFORM begin_change_set('red_tilfoej_partner', format('Tilføjede partner %s til familie %s', p_person_id, p_family_id), 'person', p_person_id);
+  IF NOT EXISTS(SELECT 1 FROM family WHERE id=p_family_id) THEN RAISE EXCEPTION 'Familie % findes ikke', p_family_id; END IF;
+  IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_person_id) THEN RAISE EXCEPTION 'Person % findes ikke', p_person_id; END IF;
+  IF EXISTS(SELECT 1 FROM family_member WHERE family_id=p_family_id AND person_id=p_person_id AND rolle<>'partner')
+    THEN RAISE EXCEPTION 'Person % er allerede barn i familie % — kan ikke også være partner', p_person_id, p_family_id; END IF;
+  -- Venlig fejl før arbejdet; trg_partner_loft er den egentlige invariant og fanger også
+  -- fortryd-stien og samtidige kald.
+  SELECT count(*) INTO v_partnere FROM family_member WHERE family_id=p_family_id AND rolle='partner';
+  IF v_partnere >= 2 THEN
+    RAISE EXCEPTION 'Familie % har allerede to parter — en union har to; fjern en part først', p_family_id;
+  END IF;
+  -- Cyklus: er den nye part (eller nogen den er samme_som) efterkommer af et barn i familien?
+  WITH RECURSIVE efterkommere(pid) AS (
+    SELECT g.pid FROM family_member b
+      JOIN LATERAL _samme_som_gruppe(b.person_id) g ON true
+      WHERE b.family_id = p_family_id AND b.rolle IN ('barn','adopteret_barn','plejebarn','stedbarn')
+    UNION
+    SELECT g.pid FROM efterkommere e
+      JOIN family_member par ON par.person_id = e.pid AND par.rolle = 'partner'
+      JOIN family_member b   ON b.family_id = par.family_id
+        AND b.rolle IN ('barn','adopteret_barn','plejebarn','stedbarn')
+      JOIN LATERAL _samme_som_gruppe(b.person_id) g ON true
+  )
+  SELECT EXISTS(
+    SELECT 1 FROM efterkommere e JOIN _samme_som_gruppe(p_person_id) k ON k.pid = e.pid
+  ) INTO v_cyklus;
+  IF v_cyklus THEN RAISE EXCEPTION 'Cyklus: person % er efterkommer af et barn i familie %', p_person_id, p_family_id; END IF;
+  INSERT INTO family_member(family_id, person_id, rolle, ordinal, konfidens)
+    VALUES (p_family_id, p_person_id, 'partner', p_ordinal, NULL);
+END $$;
+
+
+
+-- Døde links: mentions hvis mål ikke længere findes.
+-- Dækker HELE vokabularet i parse_mentions. Tidligere manglede family, place, organisation,
+-- source, coat_of_arms og historical_event — et dødt link af de typer blev altså ikke bare
+-- ignoreret, det blev rapporteret som "ingen døde links" (Codex sol, 2026-08-01).
+CREATE OR REPLACE VIEW red_doede_links WITH (security_invoker = true) AS
+SELECT m.* FROM text_mention m
+WHERE (m.maal_type='person' AND NOT EXISTS (SELECT 1 FROM person  p WHERE p.id=m.maal_id))
+   OR (m.maal_type='estate' AND NOT EXISTS (SELECT 1 FROM estate  e WHERE e.id=m.maal_id))
+   OR (m.maal_type='lineage' AND NOT EXISTS (SELECT 1 FROM lineage l WHERE l.id=m.maal_id))
+   OR (m.maal_type='media' AND NOT EXISTS (SELECT 1 FROM media md WHERE md.id=m.maal_id))
+   OR (m.maal_type='family' AND NOT EXISTS (SELECT 1 FROM family f WHERE f.id=m.maal_id))
+   OR (m.maal_type='place' AND NOT EXISTS (SELECT 1 FROM place pl WHERE pl.id=m.maal_id))
+   OR (m.maal_type='organisation' AND NOT EXISTS (SELECT 1 FROM organisation o WHERE o.id=m.maal_id))
+   OR (m.maal_type='source' AND NOT EXISTS (SELECT 1 FROM source s WHERE s.id=m.maal_id))
+   OR (m.maal_type='coat_of_arms' AND NOT EXISTS (SELECT 1 FROM coat_of_arms c WHERE c.id=m.maal_id))
+   OR (m.maal_type='historical_event' AND NOT EXISTS (SELECT 1 FROM historical_event h WHERE h.id=m.maal_id));

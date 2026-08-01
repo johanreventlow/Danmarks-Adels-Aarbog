@@ -59,3 +59,6 @@ supabase/.temp/
 # Brainstorming visual companion (throwaway mockups)
 .superpowers/
 __pycache__/
+
+# Prod-dumps til read-only analyse (PII — invariant 8, aldrig commit)
+tmp/

@@ -3639,3 +3639,170 @@ BEGIN
     RAISE NOTICE 'OK: lineage_slaegtsrod_uidx afviser dublet slægts-rod';
   END;
 END $$;
+
+-- =============================================================
+-- 2026-08-01: union-redigering — red_tilfoej_partner + to-parts-invariant
+-- Kører som redaktion via transaktions-lokal jwt-claim. Blokken ruller sine
+-- RÆKKER tilbage til sidst (RAISE fanget af blokkens egen EXCEPTION-klausul);
+-- IDENTITY-sekvenser rulles derimod ikke tilbage, så et par id-numre brændes
+-- pr. kørsel. Ingen eksisterende data røres.
+-- Mangler der en redaktionsprofil, FEJLER blokken — en assert der stiltiende
+-- springer sig selv over er værre end ingen assert (Codex sol, 2026-08-01).
+-- Hver negativ assert matcher den FORVENTEDE fejltekst, så et grønt assert
+-- ikke kan skyldes en uvedkommende fejl (Codex sol runde 2).
+-- =============================================================
+DO $$
+DECLARE
+  v_uid uuid; v_fam bigint; v_a bigint; v_b bigint; v_barn bigint; v_alias bigint; v_fejl text;
+BEGIN
+  SELECT id INTO v_uid FROM profiles WHERE rolle='redaktion' LIMIT 1;
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'FEJL: ingen redaktion-profil — union-asserts kan ikke køres'; END IF;
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_uid, 'role','authenticated')::text, true);
+
+  v_a := red_opret_person('VERIFY far');
+  v_b := red_opret_person('VERIFY mor');
+  v_barn := red_opret_person('VERIFY barn');
+
+  -- Skallen bygges råt: red_opret_union kræver to partnere fra start, og det er netop den
+  -- mor-løse børne-familie fra 1939-loaderen vi vil kunne reparere.
+  INSERT INTO family(type) VALUES ('vielse') RETURNING id INTO v_fam;
+  INSERT INTO family_member(family_id, person_id, rolle) VALUES (v_fam, v_a, 'partner');
+  INSERT INTO family_member(family_id, person_id, rolle) VALUES (v_fam, v_barn, 'barn');
+
+  -- 1) tilføj partner virker og er idempotent
+  PERFORM red_tilfoej_partner(v_fam, v_b);
+  PERFORM red_tilfoej_partner(v_fam, v_b);
+  IF (SELECT count(*) FROM family_member WHERE family_id=v_fam AND rolle='partner') <> 2 THEN
+    RAISE EXCEPTION 'FEJL: red_tilfoej_partner gav ikke præcis 2 partnere (idempotens brudt?)';
+  END IF;
+
+  -- 1b) en tredje part afvises af RPC'en (læselaget projicerer kun p1/p2)
+  v_fejl := NULL;
+  BEGIN PERFORM red_tilfoej_partner(v_fam, red_opret_person('VERIFY tredje'));
+  EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+  IF v_fejl IS NULL THEN RAISE EXCEPTION 'FEJL: en tredje part blev accepteret i unionen'; END IF;
+  IF v_fejl NOT LIKE '%to parter%' THEN RAISE EXCEPTION 'FEJL: afvist, men af den forkerte grund: %', v_fejl; END IF;
+
+  -- 1c) …og af tabellen selv, uden om RPC'en (fortryd-stien skriver rækker direkte tilbage)
+  v_fejl := NULL;
+  BEGIN
+    INSERT INTO family_member(family_id, person_id, rolle)
+      VALUES (v_fam, red_opret_person('VERIFY raa tredje'), 'partner');
+  EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+  IF v_fejl IS NULL THEN RAISE EXCEPTION 'FEJL: rå INSERT omgik to-parts-invarianten'; END IF;
+  IF v_fejl NOT LIKE '%en union har to%' THEN RAISE EXCEPTION 'FEJL: rå INSERT afvist af forkert grund: %', v_fejl; END IF;
+
+  -- 1d) …men en legitim UPDATE af en eksisterende parts person_id må IKKE afvises
+  UPDATE family_member SET person_id = red_opret_person('VERIFY mor v2')
+    WHERE family_id=v_fam AND person_id=v_b AND rolle='partner';
+  IF (SELECT count(*) FROM family_member WHERE family_id=v_fam AND rolle='partner') <> 2 THEN
+    RAISE EXCEPTION 'FEJL: legitim partner-UPDATE ændrede antallet af parter';
+  END IF;
+
+  -- 2) et barn i familien kan ikke også blive partner
+  v_fejl := NULL;
+  BEGIN PERFORM red_tilfoej_partner(v_fam, v_barn);
+  EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+  IF v_fejl IS NULL THEN RAISE EXCEPTION 'FEJL: barn blev accepteret som partner i samme familie'; END IF;
+  IF v_fejl NOT LIKE '%allerede barn%' THEN RAISE EXCEPTION 'FEJL: afvist, men af den forkerte grund: %', v_fejl; END IF;
+
+  -- 3) …og heller ikke en alias-post for barnet (identitets-bevidst cyklus-guard)
+  v_alias := red_opret_person('VERIFY barn-alias');
+  PERFORM red_samme_som(v_alias, v_barn);
+  DELETE FROM family_member WHERE family_id=v_fam AND rolle='partner' AND person_id <> v_a;
+  v_fejl := NULL;
+  BEGIN PERFORM red_tilfoej_partner(v_fam, v_alias);
+  EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+  IF v_fejl IS NULL THEN RAISE EXCEPTION 'FEJL: alias for et barn blev accepteret som part (cyklus)'; END IF;
+  IF v_fejl NOT LIKE 'Cyklus:%' THEN RAISE EXCEPTION 'FEJL: afvist, men af den forkerte grund: %', v_fejl; END IF;
+
+  -- 3b) …og heller ikke et alias for den SIDDENDE part (to parter, én person = selv-ægtefælle
+  --      efter collapse). Både gennem RPC'en og udenom den.
+  v_alias := red_opret_person('VERIFY far-alias');
+  PERFORM red_samme_som(v_alias, v_a);
+  v_fejl := NULL;
+  BEGIN PERFORM red_tilfoej_partner(v_fam, v_alias);
+  EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+  IF v_fejl IS NULL THEN RAISE EXCEPTION 'FEJL: alias for den siddende part blev accepteret som part nr. 2'; END IF;
+  IF v_fejl NOT LIKE '%samme person%' THEN RAISE EXCEPTION 'FEJL: afvist, men af den forkerte grund: %', v_fejl; END IF;
+
+  v_fejl := NULL;
+  BEGIN INSERT INTO family_member(family_id, person_id, rolle) VALUES (v_fam, v_alias, 'partner');
+  EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+  IF v_fejl IS NULL THEN RAISE EXCEPTION 'FEJL: rå INSERT omgik identitets-distinktheden'; END IF;
+  IF v_fejl NOT LIKE '%samme person%' THEN RAISE EXCEPTION 'FEJL: rå INSERT afvist af forkert grund: %', v_fejl; END IF;
+
+  -- 3c) Den OMVENDTE rækkefølge er også spærret: to parter først, samme_som bagefter.
+  --      Uden denne ville håndhævelsen afhænge af redaktørens klik-rækkefølge.
+  v_fejl := NULL;
+  BEGIN PERFORM red_samme_som(red_opret_person('VERIFY spejl'), v_a);
+  EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+  IF v_fejl IS NOT NULL THEN RAISE EXCEPTION 'FEJL: et uskyldigt samme_som-link blev afvist: %', v_fejl; END IF;
+
+  DECLARE v_fam2 bigint; v_x bigint; v_y bigint;
+  BEGIN
+    v_x := red_opret_person('VERIFY union-part X');
+    v_y := red_opret_person('VERIFY union-part Y');
+    v_fam2 := red_opret_union(v_x, v_y, 'vielse');
+    v_fejl := NULL;
+    BEGIN PERFORM red_samme_som(v_y, v_x);
+    EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+    IF v_fejl IS NULL THEN RAISE EXCEPTION 'FEJL: to parter i samme union blev linket som samme person'; END IF;
+    IF v_fejl NOT LIKE '%samme union%' THEN RAISE EXCEPTION 'FEJL: afvist, men af den forkerte grund: %', v_fejl; END IF;
+  END;
+
+  -- 3d) En eksisterende relation må ikke kunne omskrives TIL samme_som med rå UPDATE.
+  --      samme_som-identitet oprettes og fjernes som en hel relation, så dens evidens ikke
+  --      stiltiende genbruges til en anden rolle eller andre endepunkter.
+  DECLARE v_rel bigint; v_alias2 bigint; v_kanon2 bigint; v_anden bigint;
+  BEGIN
+    v_alias2 := red_opret_person('VERIFY UPDATE alias');
+    v_kanon2 := red_opret_person('VERIFY UPDATE kanonisk');
+    INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle)
+      VALUES ((SELECT coalesce(max(id),0)+1 FROM relation),
+              'person', v_alias2, 'person', v_kanon2, 'bekendt_med')
+      RETURNING id INTO v_rel;
+    v_fejl := NULL;
+    BEGIN
+      UPDATE relation SET rolle='samme_som' WHERE id=v_rel;
+      RAISE EXCEPTION 'VERIFY_UPDATE_BLEV_ACCEPTERET';
+    EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+    IF v_fejl = 'VERIFY_UPDATE_BLEV_ACCEPTERET' THEN
+      RAISE EXCEPTION 'FEJL: rå UPDATE kunne ændre en eksisterende relation til samme_som';
+    END IF;
+    IF v_fejl <> 'samme_som: rolle og endepunkter er uforanderlige — brug slet+genopret' THEN
+      RAISE EXCEPTION 'FEJL: rå samme_som-UPDATE afvist af forkert grund: %', v_fejl;
+    END IF;
+
+    -- 3e) Undo-hjælperens eksisterende-række-sti bruger UPDATE og skal ramme samme guard.
+    --      INSERT-stien for en slettet relation forbliver tilladt og valideres af insert-guarden.
+    v_rel := red_samme_som(v_alias2, v_kanon2);
+    v_anden := red_opret_person('VERIFY UPDATE andet endpoint');
+    v_fejl := NULL;
+    BEGIN
+      PERFORM _version_upsert_row(
+        'relation',
+        jsonb_set((SELECT to_jsonb(r) FROM relation r WHERE r.id=v_rel),
+                  '{objekt_id}', to_jsonb(v_anden), false)
+      );
+      RAISE EXCEPTION 'VERIFY_VERSION_UPSERT_BLEV_ACCEPTERET';
+    EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+    IF v_fejl = 'VERIFY_VERSION_UPSERT_BLEV_ACCEPTERET' THEN
+      RAISE EXCEPTION 'FEJL: _version_upsert_row kunne flytte et samme_som-endepunkt';
+    END IF;
+    IF v_fejl <> 'samme_som: rolle og endepunkter er uforanderlige — brug slet+genopret' THEN
+      RAISE EXCEPTION 'FEJL: _version_upsert_row samme_som-UPDATE afvist af forkert grund: %', v_fejl;
+    END IF;
+  END;
+
+  -- 4) negativ kontrol: guarden afviser ikke bare alt
+  PERFORM red_tilfoej_partner(v_fam, red_opret_person('VERIFY urelateret'));
+  IF (SELECT count(*) FROM family_member WHERE family_id=v_fam AND rolle='partner') <> 2 THEN
+    RAISE EXCEPTION 'FEJL: en urelateret person blev ikke accepteret som part';
+  END IF;
+
+  RAISE NOTICE 'OK: red_tilfoej_partner + trg_partner_loft — guards holder (to-parts-loft i RPC og tabel, legitim partner-UPDATE, barn, identitets-cyklus, identitets-distinkthed begge veje, samme_som-immutability via rå UPDATE og _version_upsert_row, negativ kontrol)';
+  RAISE EXCEPTION 'ROLLBACK_TESTDATA';
+EXCEPTION WHEN others THEN
+  IF SQLERRM = 'ROLLBACK_TESTDATA' THEN RAISE NOTICE 'OK: testdata rullet tilbage'; ELSE RAISE; END IF;
+END $$;
