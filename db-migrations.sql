@@ -4908,9 +4908,13 @@ DECLARE v_n int;
 BEGIN
   IF NEW.rolle <> 'partner' THEN RETURN NEW; END IF;
   PERFORM 1 FROM family WHERE id = NEW.family_id FOR UPDATE;  -- serialisér samtidige indsættelser for SAMME familie
-  SELECT count(*) INTO v_n FROM family_member
-    WHERE family_id = NEW.family_id AND rolle = 'partner'
-      AND person_id <> NEW.person_id;   -- UPDATE af egen række må ikke tælle sig selv
+  -- Ved UPDATE står OLD-rækken stadig i tabellen (BEFORE-trigger) og skal trækkes fra på sin
+  -- EGEN nøgle. At udelade "alle rækker med samme nye person_id" ville overafvise en legitim
+  -- omskrivning af en eksisterende parts person_id (Codex sol runde 3).
+  SELECT count(*) INTO v_n FROM family_member fm
+    WHERE fm.family_id = NEW.family_id AND fm.rolle = 'partner'
+      AND NOT (TG_OP = 'UPDATE'
+               AND fm.family_id = OLD.family_id AND fm.person_id = OLD.person_id AND fm.rolle = OLD.rolle);
   IF v_n >= 2 THEN
     RAISE EXCEPTION 'Familie % ville få % parter — en union har to', NEW.family_id, v_n + 1;
   END IF;
@@ -4978,60 +4982,6 @@ BEGIN
     VALUES (p_family_id, p_person_id, 'partner', p_ordinal, NULL);
 END $$;
 
--- Slet en TOM union-entitet. Modsvarer red_slet_familie_link, som bevidst aldrig rører selve
--- family-rækken (Codex H1: family bærer facts/notes uden FK). Her slettes den — men kun når
--- ingenting hænger på den.
---
--- Guard-valget er stramt med vilje (advisor 2026-08-01): 0 børn OG højst én partner. En union med
--- to partnere er en evidensbåret påstand om et ægteskab; at kunne slette den med ét klik strider
--- mod invariant 1 (påstande overskrives ikke). Vil man virkelig af med sådan en, fjernes partneren
--- først — et bevidst ekstra skridt.
---
--- Reference-guarden er den strengeste af de tre, og den er tilsigtet: de 15 mor-løse 1939-skaller
--- der blev tomme 2026-08-01 bliver AFVIST (verificeret mod prod-kopi: familie 726 er refereret 14
--- steder). Deres børn er flyttet væk, men bogens oprindelige påstand "barnet hørte til denne
--- familie" står stadig og er uforanderlig. At slette familien ville efterlade den påstand
--- hængende i luften. Skallerne er altså ikke affald, men evidens der har mistet sin krop —
--- funktionen rammer i praksis kun unioner en redaktør selv har oprettet ved en fejl.
-CREATE OR REPLACE FUNCTION red_slet_union(p_family_id bigint)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
-DECLARE v_boern int; v_partnere int; v_refs int;
-BEGIN
-  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
-  PERFORM begin_change_set('red_slet_union', format('Slettede tom union %s', p_family_id), 'family', p_family_id);
-  -- Reference-tjek og DELETE er separate statements. En rækkelås på family er ikke nok: de
-  -- polymorfe skrivere (red_suggest først og fremmest, som bevidst er åben for alle
-  -- authenticated) rører aldrig family-rækken og ville derfor kunne hænge noget på familien
-  -- imellem tjek og sletning (Codex sol runde 2). Derfor låses de refererende TABELLER for
-  -- indsættelse i sletningens levetid. Grov, men sletning er en sjælden redaktør-handling, og
-  -- alternativet er at kræve at hver eneste nuværende og fremtidige family-skriver husker en lås.
-  -- Fast rækkefølge (alfabetisk) = ingen cirkulær ventekæde mod andre transaktioner.
-  LOCK TABLE assertion, fact, haendelse, narrative, note, relation, story, suggestion, text_mention
-    IN SHARE ROW EXCLUSIVE MODE;
-  PERFORM 1 FROM family WHERE id=p_family_id FOR UPDATE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'Familie % findes ikke', p_family_id; END IF;
-  SELECT count(*) FILTER (WHERE rolle <> 'partner'), count(*) FILTER (WHERE rolle = 'partner')
-    INTO v_boern, v_partnere FROM family_member WHERE family_id=p_family_id;
-  IF v_boern > 0 THEN RAISE EXCEPTION 'Familie % har % barn/børn — flyt dem først', p_family_id, v_boern; END IF;
-  IF v_partnere > 1 THEN RAISE EXCEPTION 'Familie % har % partnere — en registreret union slettes ikke i ét klik; fjern partner først', p_family_id, v_partnere; END IF;
-  -- Ingen FK peger på family, så forældreløse rækker ville blive tavse. Tjek hver vej eksplicit.
-  SELECT (SELECT count(*) FROM fact WHERE subjekt_type='family' AND subjekt_id=p_family_id)
-       + (SELECT count(*) FROM assertion WHERE objekt_type='family' AND objekt_id=p_family_id)
-       + (SELECT count(*) FROM note WHERE target_type='family' AND target_id=p_family_id)
-       + (SELECT count(*) FROM narrative WHERE subjekt_type='family' AND subjekt_id=p_family_id)
-       + (SELECT count(*) FROM haendelse WHERE subjekt_type='family' AND subjekt_id=p_family_id)
-       + (SELECT count(*) FROM story WHERE subjekt_type='family' AND subjekt_id=p_family_id)
-       + (SELECT count(*) FROM suggestion WHERE subjekt_type='family' AND subjekt_id=p_family_id)
-       + (SELECT count(*) FROM relation WHERE (subjekt_type='family' AND subjekt_id=p_family_id)
-                                            OR (objekt_type='family' AND objekt_id=p_family_id))
-       -- [[family:id|…]] er lovligt i narrativ/note-grammatikken (parse_mentions), så et
-       -- hyperlink kan pege på familien uden at ramme nogen af guardsne ovenfor (Codex sol).
-       + (SELECT count(*) FROM text_mention WHERE maal_type='family' AND maal_id=p_family_id)
-    INTO v_refs;
-  IF v_refs > 0 THEN RAISE EXCEPTION 'Familie % er refereret % sted(er) (fakta/påstande/noter/narrativer/hændelser/historier/forslag/relationer/henvisninger) — kan ikke slettes', p_family_id, v_refs; END IF;
-  DELETE FROM family_member WHERE family_id=p_family_id;
-  DELETE FROM family WHERE id=p_family_id;
-END $$;
 
 
 -- Døde links: mentions hvis mål ikke længere findes.

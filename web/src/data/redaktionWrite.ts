@@ -23,7 +23,7 @@ export type Change = {
      | 'tilfoejOplysning' | 'opretFakta' | 'sletRelation' | 'sletMediaRelationUdenEvidens' | 'tilfoejRelation'
      | 'opretUnion' | 'tilfoejBarn' | 'setFamilieKonfidens' | 'sletFamilieLink'
      | 'setFamilieOrdinal' | 'flytBarn'
-     | 'tilfoejPartner' | 'sletUnion' // union-redigering (2026-08-01): reparér/ryd en union
+     | 'tilfoejPartner' // union-redigering (2026-08-01): tilføj en manglende part til en eksisterende union
      | 'sammeSom' | 'fjernSammeSom' // redaktionel identitets-sammenkædning (samme_som)
      | 'ikkeSammeSom' | 'fjernIkkeSammeSom' // persisteret identitets-afvisning (tværudgave §4)
      | 'publicerPersoner' // K2 selektiv publicering — rydder staged for udvalgte person-id'er (§7.20)
@@ -319,11 +319,6 @@ export function buildRpcCall(c: Change): RpcCall | null {
       p_family_id: Number(p.familyId), p_person_id: Number(p.personId),
       p_ordinal: p.ordinal != null ? Number(p.ordinal) : null } };
   }
-  if (c.art === 'sletUnion') {
-    const p = c.payload || {};
-    if (p.familyId == null) return null;
-    return { fn: 'red_slet_union', args: { p_family_id: Number(p.familyId) } };
-  }
   if (c.art === 'setFamilieKonfidens') { const b = famLinkBase(c); if (!b) return null;
     return { fn: 'red_set_familie_konfidens', args: { ...b, p_konfidens: c.konfidens ?? null } }; }
   if (c.art === 'sletFamilieLink') { const b = famLinkBase(c); if (!b) return null;
@@ -550,7 +545,7 @@ export function buildSuggestCall(c: Change): RpcCall {
 // Arter hvor et ufuldstændigt Change ALDRIG må degradere til red_suggest: de beskriver en
 // struktur-operation på en konkret række, og et forslag uden mål er ikke en svagere udgave af
 // handlingen — det er en tom post der kvitteres som "sendt til staging" (Codex sol, 2026-08-01).
-const KRAEVER_GYLDIGT_KALD = new Set(['tilknytMedia', 'tilfoejPartner', 'sletUnion']);
+const KRAEVER_GYLDIGT_KALD = new Set(['tilknytMedia', 'tilfoejPartner']);
 
 export function planCall(c: Change, role: string | undefined): RpcCall {
   const bygget = buildRpcCall(c);

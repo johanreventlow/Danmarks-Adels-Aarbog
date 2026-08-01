@@ -238,14 +238,10 @@ export default function Redaktion() {
   // mor/far-par). Ikke en fri søgning som `picker` ovenfor — bevidst begrænset til de forhold
   // der allerede vises på denne side, så et barn ikke kan flyttes til en urelateret persons familie.
   const [flytBarn, setFlytBarn] = useState<{ fraFamilyId: string; personId: string; rolle: string; navn: string } | null>(null);
-  // Bekræftelse af struktur-indgreb i familie-sektionen. GEMMER KUN IDS — hverken tekst eller
-  // closure: en funktion lagt i state fanger den render den blev lavet i, så et barnetal beregnet
-  // "dovent" ville stadig være det gamle efter en genhentning. renderBekraeft slår op i den
-  // aktuelle familie-state i stedet.
-  const [bekraeft, setBekraeft] = useState<
-    | { slags: 'fjernPart'; familyId: string; personId: string; navn: string }
-    | { slags: 'sletUnion'; familyId: string }
-    | null>(null);
+  // Bekræftelse før en part fjernes fra et forhold. GEMMER KUN IDS — hverken tekst eller closure:
+  // en funktion lagt i state fanger den render den blev lavet i, så et "dovent" beregnet barnetal
+  // stadig ville være det gamle efter en genhentning. renderBekraeft slår op i aktuel state.
+  const [bekraeft, setBekraeft] = useState<{ familyId: string; personId: string; navn: string } | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -476,7 +472,7 @@ export default function Redaktion() {
 
   const loadPerson = useCallback((id: string, opts?: { skipMedia?: boolean }) => {
     storySaveGuardRef.current.invalidate();
-    setEvidence(null); setHaendelser([]); setStories([]); setStoryEditor(null); setHaendelseNotice(''); setFamilie(null); setRelationer(null); setEditingAssert(null); setAddingFact(null); setAddingNyFelt(null);
+    setEvidence(null); setHaendelser([]); setStories([]); setStoryEditor(null); setHaendelseNotice(''); setFamilie(null); setRelationer(null); setEditingAssert(null); setAddingFact(null); setAddingNyFelt(null); setBekraeft(null);
     fetchPersonEvidence(id).then(setEvidence).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
     fetchHaendelserForPerson(id).then(setHaendelser).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
     fetchStoriesForPerson(id).then(setStories).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
@@ -1803,7 +1799,7 @@ export default function Redaktion() {
                           {p.aar ? <span style={{ color: T.muted3, fontWeight: 500 }}> ({p.aar})</span> : null}
                           {/* Fjern part: RPC'en fandtes hele tiden, kun rækken manglede. Rammer forældre-
                               mængden for alle børn i unionen, derfor bekræftelse frem for ét klik. */}
-                          <span onClick={() => setBekraeft({ slags: 'fjernPart', familyId: u.familyId, personId: p.personId, navn: p.navn })}
+                          <span onClick={() => setBekraeft({ familyId: u.familyId, personId: p.personId, navn: p.navn })}
                             title="Fjern part fra forholdet" style={{ color: '#bcae93', fontSize: 12, cursor: 'pointer', padding: '0 3px' }}>✕</span>
                           {idx < u.partnere.length - 1 ? ', ' : ''}
                         </span>
@@ -1818,12 +1814,6 @@ export default function Redaktion() {
                       <span onClick={() => setPicker({ kind: 'barn', familyId: u.familyId })} style={{ fontSize: 12, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>+ Tilføj barn</span>
                     </span>
                   </div>
-                  {/* Tom skal: kun når intet står tilbage at bevare. To parter = en registreret union,
-                      der slettes ikke i ét klik (invariant 1); DB'en afviser desuden hvis påstande peger på den. */}
-                  {u.boern.length === 0 && u.partnere.length <= 1 && (
-                    <div onClick={() => setBekraeft({ slags: 'sletUnion', familyId: u.familyId })}
-                      style={{ fontFamily: T.mono, fontSize: 10, fontWeight: 600, color: T.muted2, cursor: 'pointer', marginBottom: 6 }}>slet tomt forhold</div>
-                  )}
                   {u.boern.map((b, i) => {
                     const opOrdinal = nudgeOrdinal(u.boern, i, 'op');
                     const nedOrdinal = nudgeOrdinal(u.boern, i, 'ned');
@@ -2157,41 +2147,31 @@ export default function Redaktion() {
     );
   }
 
-  // Fælles bekræftelse for struktur-indgreb i familie-sektionen. Fjern-part og slet-forhold
-  // rammer begge noget der ikke er synligt fra selve knappen — hvor mange børn der mister en
-  // forælder, hvad forholdet indeholder — så dialogen siger det højt. Teksten bygges HER, af den
-  // aktuelle familie-state, så den følger med hvis data genhentes mens dialogen står åben.
+  // Bekræftelse før en part fjernes. Handlingen rammer noget der ikke er synligt fra selve
+  // knappen — hvor mange børn der mister en forælder — så dialogen siger det højt. Teksten bygges
+  // HER, af aktuel familie-state, så den følger med hvis data genhentes mens dialogen står åben.
   function renderBekraeft() {
     if (!bekraeft) return null;
     const pid = recordId!;
     const u = (familie?.somPartner ?? []).find((x) => x.familyId === bekraeft.familyId);
-    if (!u) return null; // forholdet er forsvundet under dialogen — luk frem for at gætte
-    const { titel, tekst, knap, handling } = bekraeft.slags === 'fjernPart'
-      ? {
-          titel: `Fjern ${bekraeft.navn} fra forholdet?`,
-          tekst: u.boern.length > 0
-            ? `${u.boern.length} barn/børn i dette forhold mister ${bekraeft.navn} som forælder. Personen slettes ikke — kun tilknytningen.`
-            : 'Personen slettes ikke — kun tilknytningen til dette forhold.',
-          knap: 'Fjern',
-          handling: { art: 'sletFamilieLink', subjektType: 'person', subjektId: pid,
-            familyId: bekraeft.familyId, personId: bekraeft.personId, rolle: 'partner' } as Change,
-        }
-      : {
-          titel: 'Slet dette tomme forhold?',
-          tekst: `Forholdet (${u.type || 'partnerskab'}${u.partnere.length ? ' · ' + u.partnere.map((x) => x.navn).join(' & ') : ''}) har ingen børn. Selve personerne slettes ikke. Databasen afviser sletningen, hvis en påstand, et narrativ eller en henvisning stadig peger på forholdet.`,
-          knap: 'Slet forhold',
-          handling: { art: 'sletUnion', subjektType: 'person', subjektId: pid,
-            payload: { familyId: bekraeft.familyId } } as Change,
-        };
-    const udfoer = () => { run(handling, knap); setBekraeft(null); };
+    if (!u) return null; // forholdet forsvandt under dialogen — ryddes af effekten nedenfor
+    const udfoer = () => {
+      run({ art: 'sletFamilieLink', subjektType: 'person', subjektId: pid,
+        familyId: bekraeft.familyId, personId: bekraeft.personId, rolle: 'partner' }, 'Fjern part');
+      setBekraeft(null);
+    };
     return (
       <div onClick={() => setBekraeft(null)} style={overlay(96)}>
         <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: '100%', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: '18px 20px' }}>
-          <div style={{ fontFamily: T.serif, fontSize: 19, fontWeight: 600, marginBottom: 6 }}>{titel}</div>
-          <div style={{ fontSize: 13.5, color: T.muted2, lineHeight: 1.5, marginBottom: 14 }}>{tekst}</div>
+          <div style={{ fontFamily: T.serif, fontSize: 19, fontWeight: 600, marginBottom: 6 }}>Fjern {bekraeft.navn} fra forholdet?</div>
+          <div style={{ fontSize: 13.5, color: T.muted2, lineHeight: 1.5, marginBottom: 14 }}>
+            {u.boern.length > 0
+              ? `${u.boern.length} barn/børn i dette forhold mister ${bekraeft.navn} som forælder. Personen slettes ikke — kun tilknytningen.`
+              : 'Personen slettes ikke — kun tilknytningen til dette forhold.'}
+          </div>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <div onClick={() => setBekraeft(null)} style={btnGhost}>Annullér</div>
-            <div onClick={udfoer} style={{ padding: '9px 16px', borderRadius: 9, background: T.bordeaux, color: '#fff', cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>{knap}</div>
+            <div onClick={udfoer} style={{ padding: '9px 16px', borderRadius: 9, background: T.bordeaux, color: '#fff', cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>Fjern</div>
           </div>
         </div>
       </div>
