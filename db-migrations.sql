@@ -4979,13 +4979,15 @@ BEGIN
   -- krydsracet med den lås inverterede rækkefølgen mod loaderen: load_daa.R tager EXCLUSIVE på
   -- bl.a. relation og flusher family_member FØR relation, mens red_samme_som holder advisory-
   -- låsen og venter på relation — en ægte deadlock-cyklus der kan abortere en hel load.
-  -- RESTRISIKO, accepteret: to SAMTIDIGE transaktioner (én der tilføjer en part, én der linker
-  -- to parter som samme person) kan hver overse den andens ucommittede række og tilsammen
-  -- committe en selv-union. Det kræver to redaktører der skriver komplementært i samme
-  -- øjeblik — samme single-writer-antagelse som red_tilfoej_barns cyklus-tjek allerede hviler
-  -- på — og projektionen fanger tilstanden bagefter som karantæne, ikke som stille korruption.
-  -- Ægte lukning kræver at loaderne tager samme lås før deres LOCK TABLE; parkeret som
-  -- selvstændigt arbejde, fordi det rører tre prod-kritiske load-scripts.
+  -- RESTRISIKO, accepteret: to SAMTIDIGE transaktioner — én der indsætter ELLER omskriver en
+  -- partner-række, én der linker to parter som samme person — kan hver overse den andens
+  -- ucommittede række og tilsammen committe en selv-union. Det behøver ikke være to redaktører:
+  -- én aktør med overlappende transaktioner, eller en anden skrivevej, kan udgøre den ene side.
+  -- Samme single-writer-antagelse som red_tilfoej_barns cyklus-tjek allerede hviler på, og
+  -- projektionen fanger tilstanden bagefter som karantæne, ikke som stille korruption.
+  -- FULD lukning kræver BEGGE dele: at loaderne tager samme advisory-lås før deres LOCK TABLE,
+  -- OG at låsen genindføres her. Parkeret samlet, fordi første halvdel rører tre prod-kritiske
+  -- load-scripts der ikke kan verificeres uden en rigtig load-kørsel.
   PERFORM 1 FROM family WHERE id = NEW.family_id FOR UPDATE;  -- serialisér samtidige skrivninger for SAMME familie
   -- Ved UPDATE står OLD-rækken stadig i tabellen (BEFORE-trigger) og skal trækkes fra på sin
   -- EGEN nøgle. At udelade "alle rækker med samme nye person_id" ville overafvise en legitim
