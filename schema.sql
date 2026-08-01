@@ -2296,6 +2296,13 @@ DROP TRIGGER IF EXISTS trg_partner_loft ON family_member;
 CREATE TRIGGER trg_partner_loft BEFORE INSERT OR UPDATE ON family_member
   FOR EACH ROW EXECUTE FUNCTION _tjek_partner_loft();
 
+-- Trigger-funktioner skal ikke kunne kaldes som RPC'er. PostgREST afviser ganske vist
+-- trigger-returtypen, men Supabases default-grants får dem til at figurere i
+-- get_advisors(security) som anon/authenticated-eksekverbare definer-funktioner — og
+-- PUBLIC-revoke alene er utilstrækkelig, rollerne har direkte grants.
+REVOKE EXECUTE ON FUNCTION _tjek_partner_loft() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION enforce_samme_som_invariants() FROM PUBLIC, anon, authenticated;
+
 -- Tilføj en partner til en EKSISTERENDE union. red_opret_union laver altid en ny familie, så
 -- indtil nu kunne en union der manglede sin ene part (fx 1939-loaderens mor-løse børne-familier,
 -- 2026-08-01) kun repareres ved at flytte alle børnene væk. Denne funktion reparerer i stedet
