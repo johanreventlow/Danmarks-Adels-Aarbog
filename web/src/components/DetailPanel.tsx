@@ -2,6 +2,8 @@
 // Udtrukket fra Folgesvend.tsx (review 27 W-K1) — samme komponent, blot flyttet fil.
 import { Suspense, useEffect, useState } from 'react';
 import { T } from '../theme';
+import { Link } from '../Link';
+import { personPath } from '../data/nav';
 import { initials } from '../data/format';
 import { childrenOf, parentsOf } from '../data/model';
 import { pickPortrait, withUrl } from '../data/media';
@@ -108,7 +110,7 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
             {parents.map((pa, i) => (
               <span key={pa.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 {i > 0 && <span style={{ fontFamily: T.serif, fontSize: 16, fontStyle: 'italic', color: T.gold }}>&amp;</span>}
-                <span onClick={() => onPick(pa.id)} style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>{pa.name} ›</span>
+                <Link href={personPath(pa.id)} onNavigate={() => onPick(pa.id)} style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 600, color: T.bordeaux }}>{pa.name} ›</Link>
               </span>
             ))}
           </div>
@@ -167,7 +169,7 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
             {spouses.map((sp, i) => (
               <span key={(sp.id ?? sp.name) + i}>
                 {i > 0 && <span style={{ color: T.gold }}>· </span>}
-                {sp.id ? <span onClick={() => onPick(sp.id!)} style={{ fontWeight: 600, fontStyle: 'normal', color: T.bordeaux, cursor: 'pointer' }}>{sp.name} ›</span> : <span>{sp.name}</span>}
+                {sp.id ? <Link href={personPath(sp.id)} onNavigate={() => onPick(sp.id!)} style={{ fontWeight: 600, fontStyle: 'normal', color: T.bordeaux }}>{sp.name} ›</Link> : <span>{sp.name}</span>}
               </span>
             ))}
           </div>
@@ -178,10 +180,10 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
             <Label>Børn</Label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
               {children.map((c) => (
-                <div key={c.id} onClick={() => onPick(c.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 9, padding: '6px 11px 6px 7px', cursor: 'pointer' }}>
+                <Link key={c.id} href={personPath(c.id)} onNavigate={() => onPick(c.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 9, padding: '6px 11px 6px 7px' }}>
                   <div style={{ width: 26, height: 26, borderRadius: '50%', background: T.beige, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 12, fontWeight: 600, color: T.bordeaux }}>{initials(c.name)}</div>
                   <span style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600 }}>{c.name.split(' ')[0]}</span>
-                </div>
+                </Link>
               ))}
             </div>
           </>

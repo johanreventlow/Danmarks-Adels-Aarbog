@@ -2,6 +2,8 @@
 // al lager-/sorteringslogik bor i data/bookmarks.ts (buildBookmarkList), her kun rendering + wiring.
 import { useMemo } from 'react';
 import { T } from '../theme';
+import { Link } from '../Link';
+import { personPath } from '../data/nav';
 import { ViewHeader, Avatar, BookmarkFlag } from './primitives';
 import { buildBookmarkList, type BookmarkSort } from '../data/bookmarks';
 import type { Model } from '../data/types';
@@ -55,7 +57,7 @@ export function BookmarksView({ model, ids, sort, setSort, onPick, onRemove, log
                 <div key={p.id} onClick={() => onPick(p.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px', borderRadius: 10, background: T.paper, border: '1px solid rgba(34,31,26,.1)', cursor: 'pointer' }}>
                   <Avatar n={p.name} size={32} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 600, lineHeight: 1.05 }}>{p.name}</div>
+                    <Link href={personPath(p.id)} onNavigate={() => onPick(p.id)} stopPropagation style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 600, lineHeight: 1.05, display: 'block' }}>{p.name}</Link>
                     {p.years && <div style={{ fontFamily: T.mono, fontSize: 10, color: T.muted2, marginTop: 1 }}>{p.years}</div>}
                   </div>
                   <BookmarkFlag active onClick={() => onRemove(p.id)} />

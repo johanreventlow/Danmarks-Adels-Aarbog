@@ -12,6 +12,8 @@ import { fetchPersonDetail } from '../data/public';
 import { currentSession, type RedSession } from '../data/auth';
 import { NarrativRenderer } from './NarrativRenderer';
 import { T } from '../theme';
+import { Link } from '../Link';
+import { personPath } from '../data/nav';
 
 // Ren gren-sektion — eksporteret til test. navnAf/aarAf holder Model ude af renderingen.
 // navnAfAnker (valgfri, default=navnAf) navngiver KUN grenens hovedrække (dybde 0, gren.ankerBlok)
@@ -58,12 +60,13 @@ export function PresensGrenSektion(props: {
               <span style={{ fontStyle: 'italic', color: T.muted2 }}>Ingen biografi registreret</span>
             )}
           </div>
-          <div
-            onClick={() => onPick(id)}
-            style={{ marginTop: 6, cursor: 'pointer', color: T.bordeaux, fontSize: 13.5, fontFamily: T.mono, letterSpacing: '.03em' }}
+          <Link
+            href={personPath(id)}
+            onNavigate={() => onPick(id)}
+            style={{ marginTop: 6, display: 'block', color: T.bordeaux, fontSize: 13.5, fontFamily: T.mono, letterSpacing: '.03em' }}
           >
             → Se fuld profil
-          </div>
+          </Link>
         </>
       )}
     </div>

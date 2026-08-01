@@ -17,6 +17,31 @@ function makeModel(persons: ModelPerson[]): Model {
 }
 
 describe('BookmarksView', () => {
+  it('bogmærke-navnet er et ægte anker til /person/<id>', () => {
+    const model = makeModel([person('1', 'Anders Reventlow')]);
+    render(<BookmarksView model={model} ids={['1']} sort="navn" setSort={vi.fn()} onPick={vi.fn()} onRemove={vi.fn()} loggedIn onRequireLogin={vi.fn()} />);
+    const anker = screen.getByText('Anders Reventlow').closest('a');
+    expect(anker).not.toBeNull();
+    expect(anker!.getAttribute('href')).toBe('/person/1');
+  });
+
+  it('klik på navnet kalder onPick præcis én gang (rækkens egen handler fyrer ikke også)', () => {
+    const model = makeModel([person('1', 'Anders Reventlow')]);
+    const onPick = vi.fn();
+    render(<BookmarksView model={model} ids={['1']} sort="navn" setSort={vi.fn()} onPick={onPick} onRemove={vi.fn()} loggedIn onRequireLogin={vi.fn()} />);
+    fireEvent.click(screen.getByText('Anders Reventlow'));
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(onPick).toHaveBeenCalledWith('1');
+  });
+
+  it('cmd-klik på navnet lader browseren om det og rækken navigerer ikke', () => {
+    const model = makeModel([person('1', 'Anders Reventlow')]);
+    const onPick = vi.fn();
+    render(<BookmarksView model={model} ids={['1']} sort="navn" setSort={vi.fn()} onPick={onPick} onRemove={vi.fn()} loggedIn onRequireLogin={vi.fn()} />);
+    fireEvent.click(screen.getByText('Anders Reventlow'), { metaKey: true });
+    expect(onPick).not.toHaveBeenCalled();
+  });
+
   it('viser tom-tilstand når ingen bogmærker', () => {
     render(<BookmarksView model={makeModel([])} ids={[]} sort="linje" setSort={vi.fn()} onPick={vi.fn()} onRemove={vi.fn()} loggedIn onRequireLogin={vi.fn()} />);
     expect(screen.getByText(/Ingen bogmærker endnu/)).toBeTruthy();
