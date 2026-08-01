@@ -1180,3 +1180,30 @@ skillen) er derimod aldrig kørt — hverken lokalt eller mod prod.
 - **Bifund:** `db-migrations.sql`/`db-rls.sql` er monolitiske kumulative filer, så en
   fase 2+3-cutover bundler mediehåndtering fase 1+2-skema (samme filsektion, interleaved) —
   se runbookens ⚠-afsnit.
+
+## Replay-dagen: fire beslutninger fra første ægte prod-replace (2026-07-31)
+
+Hele replay-kæden (design → implementering → to skarpe prod-kørsler) landede på én
+dag. Fire beslutninger med varig virkning:
+
+- **De 48 unummererede genbruger identiteter — mint kun for beviseligt identitetsløse.**
+  Sols fail-closed-stop afslørede at de "48 nye" stamfædre/oversigtsposter allerede
+  havde parkerede registeridentiteter (legacy-lokatorer). Mint ville have skabt
+  dublet-identiteter; i stedet om-nøgledes lokatorerne (#120-mønstret). Alternativet
+  (mint + senere sammenlægning) blev forkastet: registerprincippet er "id mintes ÉN gang".
+- **Strukturelle bortfald tombstones IKKE før prod-oprydning.** De 23 legacy-identiteter
+  hvis person i v2 ligger i samleposter forbliver AKTIVE som "bortfaldne" — replace-
+  designet lader bortfaldne bestå urørt, mens tombstone ville udløse loaderens
+  tombstone-guard og blokere alle fremtidige replaces indtil prod-personerne er
+  håndteret. Tombstone + oprydning er en senere samlet redaktionel operation.
+- **Kildetekst-strategi for 1939: struktur fra raw, prosa fra Calamari.** De unummererede
+  poster kan kun findes i raw.txt (centreringsinfo); Calamari-teksten giver bedre
+  narrativ-kvalitet. build_1939_v2 kombinerer (415 Calamari / 131 raw) med krydstjekket
+  match — hverken ren-raw eller ren-Calamari kunne levere begge dele.
+- **Ny-klassen i --replace (replay-udfald 4).** Registerkendte record_keys uden
+  prod-person oprettes ad append-vejen; hullet-guarden består for nøgler uden hverken
+  prod-person eller artefaktpost. Aktiveret af mint-arbejdet; sol-reviewet GO.
+
+Driftslæring: delt-workdir-racen ramte igen (anden session skiftede branch under en
+kørende terra-batch) — stoppet, karantænet, genkørt med selektivt valideret genbrug.
+Parallelle sessioner bør bruge git worktrees.
