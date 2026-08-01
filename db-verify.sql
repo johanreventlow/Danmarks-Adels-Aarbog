@@ -3651,7 +3651,7 @@ END $$;
 -- =============================================================
 DO $$
 DECLARE
-  v_uid uuid; v_fam bigint; v_a bigint; v_b bigint; v_barn bigint; v_alias bigint; v_fejlede boolean;
+  v_uid uuid; v_fam bigint; v_a bigint; v_b bigint; v_barn bigint; v_alias bigint; v_fejl text;
 BEGIN
   SELECT id INTO v_uid FROM profiles WHERE rolle='redaktion' LIMIT 1;
   IF v_uid IS NULL THEN RAISE EXCEPTION 'FEJL: ingen redaktion-profil — union-asserts kan ikke køres'; END IF;
@@ -3675,57 +3675,73 @@ BEGIN
   END IF;
 
   -- 1b) en tredje part afvises (læselaget projicerer kun p1/p2)
-  v_fejlede := false;
+  v_fejl := NULL;
   BEGIN PERFORM red_tilfoej_partner(v_fam, red_opret_person('VERIFY tredje'));
-  EXCEPTION WHEN others THEN v_fejlede := true; END;
-  IF NOT v_fejlede THEN RAISE EXCEPTION 'FEJL: en tredje part blev accepteret i unionen'; END IF;
+  EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+  IF v_fejl IS NULL THEN RAISE EXCEPTION 'FEJL: en tredje part blev accepteret i unionen'; END IF;
+  IF v_fejl NOT LIKE '%to parter%' THEN RAISE EXCEPTION 'FEJL: afvist, men af den forkerte grund: %', v_fejl; END IF;
+
+  -- 1c) to-parts-loftet holder også uden om RPC'en (fortryd-stien skriver rækker direkte)
+  v_fejl := NULL;
+  BEGIN
+    INSERT INTO family_member(family_id, person_id, rolle)
+      VALUES (v_fam, red_opret_person('VERIFY raa tredje'), 'partner');
+  EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+  IF v_fejl IS NULL THEN RAISE EXCEPTION 'FEJL: rå INSERT omgik to-parts-invarianten'; END IF;
+  IF v_fejl NOT LIKE '%en union har to%' THEN RAISE EXCEPTION 'FEJL: rå INSERT afvist af forkert grund: %', v_fejl; END IF;
 
   -- 2) et barn i familien kan ikke også blive partner
-  v_fejlede := false;
+  v_fejl := NULL;
   BEGIN PERFORM red_tilfoej_partner(v_fam, v_barn);
-  EXCEPTION WHEN others THEN v_fejlede := true; END;
-  IF NOT v_fejlede THEN RAISE EXCEPTION 'FEJL: barn blev accepteret som partner i samme familie'; END IF;
+  EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+  IF v_fejl IS NULL THEN RAISE EXCEPTION 'FEJL: barn blev accepteret som partner i samme familie'; END IF;
+  IF v_fejl NOT LIKE '%allerede barn%' THEN RAISE EXCEPTION 'FEJL: afvist, men af den forkerte grund: %', v_fejl; END IF;
 
   -- 2b) …og heller ikke en alias-post for barnet (identitets-bevidst cyklus-guard).
   --     Barnet fjernes som part-kandidat via samme_som, ikke via rå id.
   v_alias := red_opret_person('VERIFY barn-alias');
   PERFORM red_samme_som(v_alias, v_barn);
   PERFORM red_slet_familie_link(v_fam, v_b, 'partner');   -- gør plads under to-parts-loftet
-  v_fejlede := false;
+  v_fejl := NULL;
   BEGIN PERFORM red_tilfoej_partner(v_fam, v_alias);
-  EXCEPTION WHEN others THEN v_fejlede := true; END;
-  IF NOT v_fejlede THEN RAISE EXCEPTION 'FEJL: alias for et barn blev accepteret som part (cyklus)'; END IF;
+  EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+  IF v_fejl IS NULL THEN RAISE EXCEPTION 'FEJL: alias for et barn blev accepteret som part (cyklus)'; END IF;
+  IF v_fejl NOT LIKE 'Cyklus:%' THEN RAISE EXCEPTION 'FEJL: afvist, men af den forkerte grund: %', v_fejl; END IF;
   PERFORM red_tilfoej_partner(v_fam, v_b);                -- genskab udgangspunktet
 
   -- 3) slet-union afvises så længe der er børn
-  v_fejlede := false;
+  v_fejl := NULL;
   BEGIN PERFORM red_slet_union(v_fam);
-  EXCEPTION WHEN others THEN v_fejlede := true; END;
-  IF NOT v_fejlede THEN RAISE EXCEPTION 'FEJL: union med barn blev slettet'; END IF;
+  EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+  IF v_fejl IS NULL THEN RAISE EXCEPTION 'FEJL: union med barn blev slettet'; END IF;
+  IF v_fejl NOT LIKE '%barn/børn%' THEN RAISE EXCEPTION 'FEJL: afvist, men af den forkerte grund: %', v_fejl; END IF;
 
   -- 4) …og stadig når der er to partnere (evidensbåret union, invariant 1)
   DELETE FROM family_member WHERE family_id=v_fam AND rolle='barn';
-  v_fejlede := false;
+  v_fejl := NULL;
   BEGIN PERFORM red_slet_union(v_fam);
-  EXCEPTION WHEN others THEN v_fejlede := true; END;
-  IF NOT v_fejlede THEN RAISE EXCEPTION 'FEJL: union med to partnere blev slettet i ét klik'; END IF;
+  EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+  IF v_fejl IS NULL THEN RAISE EXCEPTION 'FEJL: union med to partnere blev slettet i ét klik'; END IF;
+  IF v_fejl NOT LIKE '%partnere%' THEN RAISE EXCEPTION 'FEJL: afvist, men af den forkerte grund: %', v_fejl; END IF;
 
   -- 5) …og stadig når en påstand peger på familien (de mor-løse 1939-skaller:
   --    børnene er flyttet væk, men bogens oprindelige påstand står tilbage)
   PERFORM red_slet_familie_link(v_fam, v_b, 'partner');
   INSERT INTO fact(subjekt_type, subjekt_id, faktatype) VALUES ('family', v_fam, 'vielse');
-  v_fejlede := false;
+  v_fejl := NULL;
   BEGIN PERFORM red_slet_union(v_fam);
-  EXCEPTION WHEN others THEN v_fejlede := true; END;
-  IF NOT v_fejlede THEN RAISE EXCEPTION 'FEJL: union med et hængende faktum blev slettet'; END IF;
+  EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+  IF v_fejl IS NULL THEN RAISE EXCEPTION 'FEJL: union med et hængende faktum blev slettet'; END IF;
+  IF v_fejl NOT LIKE '%refereret%' THEN RAISE EXCEPTION 'FEJL: afvist, men af den forkerte grund: %', v_fejl; END IF;
 
   -- 5b) …og når et [[family:…]]-hyperlink peger på den
   DELETE FROM fact WHERE subjekt_type='family' AND subjekt_id=v_fam;
   INSERT INTO text_mention(kilde_type, kilde_id, maal_type, maal_id) VALUES ('narrative', -1, 'family', v_fam);
-  v_fejlede := false;
+  v_fejl := NULL;
   BEGIN PERFORM red_slet_union(v_fam);
-  EXCEPTION WHEN others THEN v_fejlede := true; END;
-  IF NOT v_fejlede THEN RAISE EXCEPTION 'FEJL: union med et hyperlink blev slettet'; END IF;
+  EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+  IF v_fejl IS NULL THEN RAISE EXCEPTION 'FEJL: union med et hyperlink blev slettet'; END IF;
+  IF v_fejl NOT LIKE '%refereret%' THEN RAISE EXCEPTION 'FEJL: afvist, men af den forkerte grund: %', v_fejl; END IF;
 
   -- 6) …men går igennem når skallen er reelt tom
   DELETE FROM text_mention WHERE maal_type='family' AND maal_id=v_fam;
@@ -3733,7 +3749,7 @@ BEGIN
   IF EXISTS(SELECT 1 FROM family WHERE id=v_fam) THEN RAISE EXCEPTION 'FEJL: tom union blev ikke slettet'; END IF;
   IF EXISTS(SELECT 1 FROM family_member WHERE family_id=v_fam) THEN RAISE EXCEPTION 'FEJL: family_member-rækker overlevede sletningen'; END IF;
 
-  RAISE NOTICE 'OK: red_tilfoej_partner + red_slet_union — guards holder (to-parts-loft, identitets-cyklus, barn, to partnere, evidens, hyperlink)';
+  RAISE NOTICE 'OK: red_tilfoej_partner + red_slet_union — guards holder (to-parts-loft, identitets-cyklus, barn, to partnere, evidens, hyperlink, rå-insert)';
   RAISE EXCEPTION 'ROLLBACK_TESTDATA';
 EXCEPTION WHEN others THEN
   IF SQLERRM = 'ROLLBACK_TESTDATA' THEN RAISE NOTICE 'OK: testdata rullet tilbage'; ELSE RAISE; END IF;
