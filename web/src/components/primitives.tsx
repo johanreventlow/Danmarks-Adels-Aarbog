@@ -3,6 +3,7 @@
 // komponent → Folgesvend). /simplify-fund (review 19b): BookmarksView/SlaegtPicker
 // reimplementerede Avatar/ViewHeader inline i stedet for at importere dem herfra.
 import { T } from '../theme';
+import { Link } from '../Link';
 import { initials } from '../data/format';
 import { mediaCaption, type MediaItem } from '../data/media';
 
@@ -67,17 +68,26 @@ export const MediaThumb = ({ m, w, h, radius = 10, onClick }: { m: MediaItem; w:
 // valgfri titel. Bruges af forsidens kuraterede grid nu; tænkt genbrugt af søgeresultater og
 // træet i senere slices (§4/§5), så appen føles som ét system. Tager kun de felter et kort
 // har brug for (ikke hele ModelPerson) så primitiven forbliver løst koblet.
-export const PersonCard = ({ p, onClick, width = 210 }: {
+// href: kortet rummer intet andet klikbart, så HELE kortet bliver ankeret — højreklik/cmd-klik
+// åbner personen i ny fane. Uden href opfører kortet sig præcis som før.
+export const PersonCard = ({ p, onClick, href, width = 210 }: {
   p: { name: string; years?: string; title?: string };
-  onClick?: () => void; width?: number | string;
-}) => (
-  <div onClick={onClick} style={{ width, background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 14, padding: 16, cursor: onClick ? 'pointer' : 'default', boxShadow: '0 1px 2px rgba(34,31,26,.04)' }}>
-    <Avatar n={p.name} size={50} />
-    <div style={{ fontFamily: T.serif, fontSize: 19, lineHeight: 1.05, fontWeight: 600, color: T.ink, marginTop: 11 }}>{p.name}</div>
-    {p.years ? <div style={{ fontFamily: T.mono, fontSize: 10.5, color: T.muted2, marginTop: 4 }}>{p.years}</div> : null}
-    {p.title ? <div style={{ fontFamily: T.sans, fontSize: 12.5, fontWeight: 500, color: T.bordeaux, marginTop: 6, lineHeight: 1.3 }}>{p.title}</div> : null}
-  </div>
-);
+  onClick?: () => void; href?: string; width?: number | string;
+}) => {
+  const indhold = (
+    <>
+      <Avatar n={p.name} size={50} />
+      <div style={{ fontFamily: T.serif, fontSize: 19, lineHeight: 1.05, fontWeight: 600, color: T.ink, marginTop: 11 }}>{p.name}</div>
+      {p.years ? <div style={{ fontFamily: T.mono, fontSize: 10.5, color: T.muted2, marginTop: 4 }}>{p.years}</div> : null}
+      {p.title ? <div style={{ fontFamily: T.sans, fontSize: 12.5, fontWeight: 500, color: T.bordeaux, marginTop: 6, lineHeight: 1.3 }}>{p.title}</div> : null}
+    </>
+  );
+  const kortStil = { width, background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 14, padding: 16, boxShadow: '0 1px 2px rgba(34,31,26,.04)' };
+  if (href) {
+    return <Link href={href} onNavigate={onClick} style={{ ...kortStil, display: 'block' }}>{indhold}</Link>;
+  }
+  return <div onClick={onClick} style={{ ...kortStil, cursor: onClick ? 'pointer' : 'default' }}>{indhold}</div>;
+};
 
 // Forstørrelsesglas — delt af header-søgeknappen og forsidens søge-hero (/simplify-fund:
 // var to identiske inline-SVG'er der kunne drive fra hinanden).

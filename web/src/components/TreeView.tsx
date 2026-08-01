@@ -4,13 +4,15 @@
 // onPick = fokus-hop MED historik (variant A-kort, matcher designets goToPerson). onFocus =
 // drill-valg UDEN historik (variant B-kolonner, matcher designets selectAt) — så en dyb drill
 // ikke fylder detalje-panelets tilbage-stak med hvert generations-trin.
-import { useLayoutEffect, useEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { T } from '../theme';
 import { childrenOf, parentsOf } from '../data/model';
 import type { Model } from '../data/types';
 import { buildBidirectionalColumns } from '@daa/core';
 import { ViewHeader, Avatar, BookmarkFlag, Crest, Label, Stem } from './primitives';
 import { TreeSearch, type TreeSearchBundle } from './TreeSearch';
+import { Link } from '../Link';
+import { personPath } from '../data/nav';
 
 export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggleBookmark, search }: {
   model: Model | null; focusId: string | null; onPick: (id: string) => void; onFocus: (id: string) => void;
@@ -90,6 +92,14 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
   const childCount = (id: string) => model.indexes.childIdx[id]?.size ?? 0;
   const hasParents = (id: string) => (model.indexes.parentsByChild[id]?.length ?? 0) > 0;
 
+  // Navnet i et kort er ankeret (kortet selv rummer BookmarkFlag → ugyldigt som <a>).
+  // stopPropagation: kortets egen onClick ville ellers udføre samme navigation én gang til —
+  // og ved cmd-klik navigere den aktuelle fane mens browseren åbner en ny.
+  const navnLink = (id: string, navn: string, style: CSSProperties, onTap?: () => void) =>
+    onTap
+      ? <Link href={personPath(id)} onNavigate={onTap} stopPropagation style={style}>{navn}</Link>
+      : <div style={style}>{navn}</div>;
+
   // Drill-valg (variant B). onFocus opdaterer fokus UDEN historik, så detalje-panelet følger valget.
   // Vi udvider up/down KUN med parentsOf/childrenOf-id'er (kanoniske) → frontier-invarianten holder.
   const selectAncestor = (depth: number, id: string) => { setUp((prev) => prev.slice(0, depth - 1).concat(id)); onFocus(id); };
@@ -139,7 +149,7 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
                         <div key={p.id} onClick={() => onFocus(p.id)} style={{ background: '#faf1dc', border: `1.5px dashed ${T.gold}`, borderRadius: 12, padding: '11px 13px', cursor: 'pointer', boxShadow: '0 1px 2px rgba(34,31,26,.04)', display: 'flex', alignItems: 'center', gap: 10 }}>
                           <Avatar n={p.name} size={34} />
                           <div style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{ fontFamily: T.serif, fontSize: 17, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+                            {navnLink(p.id, p.name, { fontFamily: T.serif, fontSize: 17, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, () => onFocus(p.id))}
                             {p.years && <div style={{ fontFamily: T.mono, fontSize: 10, color: T.muted2, marginTop: 2 }}>{p.years}</div>}
                             <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.06em', textTransform: 'uppercase', color: T.gold, marginTop: 2 }}>muligt slægtled</div>
                           </div>
@@ -167,7 +177,7 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
                     {canAnc && <span style={{ color: '#bcae93', fontSize: 17, flex: 'none' }}>‹</span>}
                     <Avatar n={p.name} size={34} />
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontFamily: T.serif, fontSize: 17, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+                      {navnLink(p.id, p.name, { fontFamily: T.serif, fontSize: 17, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, onTap)}
                       {p.years && <div style={{ fontFamily: T.mono, fontSize: 10, color: T.muted2, marginTop: 2 }}>{p.years}</div>}
                     </div>
                     <BookmarkFlag active={hasBookmark(p.id)} onClick={() => onToggleBookmark(p.id)} />
@@ -185,7 +195,7 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
                         <div key={person.id} onClick={() => onFocus(person.id)} style={{ background: '#faf1dc', border: `1.5px dashed ${T.gold}`, borderRadius: 12, padding: '9px 11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9 }}>
                           <Avatar n={person.name} size={30} />
                           <div style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{ fontFamily: T.serif, fontSize: 16, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{person.name}</div>
+                            {navnLink(person.id, person.name, { fontFamily: T.serif, fontSize: 16, lineHeight: 1.02, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, () => onFocus(person.id))}
                             {person.years && <div style={{ fontFamily: T.mono, fontSize: 9.5, color: T.muted2, marginTop: 1 }}>{person.years}</div>}
                             {kilde && <div style={{ fontFamily: T.mono, fontSize: 8.5, color: T.muted3, marginTop: 2 }}>Kilde: {kilde}</div>}
                           </div>
@@ -205,7 +215,7 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
           <>
             <div onClick={() => onPick(grand.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 16px', borderRadius: 20, background: T.beige, border: '1px solid rgba(34,31,26,.08)', cursor: 'pointer', opacity: 0.85 }}>
               <span style={{ color: T.muted2, fontSize: 13 }}>▲</span>
-              <span style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 600, color: '#5a5246' }}>{grand.name}</span>
+              {navnLink(grand.id, grand.name, { fontFamily: T.serif, fontSize: 17, fontWeight: 600, color: '#5a5246' }, () => onPick(grand.id))}
             </div>
             <Stem h={18} />
           </>
@@ -216,7 +226,7 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
               <Avatar n={parent.name} size={40} />
               <div>
                 <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', color: T.gold }}>Forælder ▲</div>
-                <div style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600, lineHeight: 1.05 }}>{parent.name}</div>
+                {navnLink(parent.id, parent.name, { fontFamily: T.serif, fontSize: 18, fontWeight: 600, lineHeight: 1.05 }, () => onPick(parent.id))}
               </div>
             </div>
             <Stem h={22} />
@@ -231,7 +241,7 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
                 <div style={{ position: 'absolute', top: 12, left: 13 }}><BookmarkFlag active={hasBookmark(p.id)} onClick={() => onToggleBookmark(p.id)} /></div>
                 {sel && <div style={{ position: 'absolute', top: 12, right: 13, fontFamily: T.mono, fontSize: 8.5, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux }}>I fokus</div>}
                 <Avatar n={p.name} size={56} />
-                <div style={{ fontFamily: T.serif, fontSize: 21, lineHeight: 1.04, fontWeight: 600, marginTop: 11 }}>{p.name}</div>
+                {navnLink(p.id, p.name, { fontFamily: T.serif, fontSize: 21, lineHeight: 1.04, fontWeight: 600, marginTop: 11 }, () => onPick(p.id))}
                 {p.years && <div style={{ fontFamily: T.mono, fontSize: 11, color: T.muted2, marginTop: 4 }}>{p.years}</div>}
                 {p.title && <div style={{ fontSize: 12.5, fontWeight: 500, color: T.bordeaux, marginTop: 6, lineHeight: 1.3 }}>{p.title}</div>}
                 {childCount(p.id) > 0 && <div style={{ fontSize: 11.5, color: T.muted, marginTop: 8 }}>↓ {childCount(p.id)} {childCount(p.id) === 1 ? 'barn' : 'børn'}</div>}
@@ -248,7 +258,7 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
               {children.map((p) => (
                 <div key={p.id} onClick={() => onPick(p.id)} style={{ width: 150, background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: 13, cursor: 'pointer', boxShadow: '0 1px 2px rgba(34,31,26,.04)' }}>
                   <Avatar n={p.name} size={40} />
-                  <div style={{ fontFamily: T.serif, fontSize: 17, lineHeight: 1.05, fontWeight: 600, marginTop: 9 }}>{p.name}</div>
+                  {navnLink(p.id, p.name, { fontFamily: T.serif, fontSize: 17, lineHeight: 1.05, fontWeight: 600, marginTop: 9 }, () => onPick(p.id))}
                   {p.years && <div style={{ fontFamily: T.mono, fontSize: 10, color: T.muted2, marginTop: 3 }}>{p.years}</div>}
                   {childCount(p.id) > 0 && <div style={{ fontSize: 11, color: T.bordeaux, marginTop: 6 }}>↓ {childCount(p.id)}</div>}
                 </div>

@@ -6,6 +6,7 @@
 import { useEffect, useRef, type CSSProperties } from 'react';
 import { T } from '../theme';
 import { SearchIcon, PersonCard, LinjeChip } from './primitives';
+import { personPath } from '../data/nav';
 import type { BrowseResult } from '../data/browse';
 import type { LinjeEntry } from '../data/types';
 
@@ -106,11 +107,11 @@ export function TreeSearch(s: TreeSearchBundle) {
                 <div key={g.letter} style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 700px' } as CSSProperties}>
                   <div style={{ fontFamily: T.serif, fontSize: 19, fontWeight: 600, color: T.gold, margin: '6px 0 10px', paddingBottom: 5, borderBottom: '1px solid rgba(34,31,26,.08)' }}>{g.letter}</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
-                    {g.people.map((p) => <PersonCard key={p.id} p={p} width={186} onClick={() => s.onPick(p.id)} />)}
+                    {g.people.map((p) => <PersonCard key={p.id} p={p} width={186} href={personPath(p.id)} onClick={() => s.onPick(p.id)} />)}
                   </div>
                 </div>
               ))
-            : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>{s.browse.flat.map((p) => <PersonCard key={p.id} p={p} width={186} onClick={() => s.onPick(p.id)} />)}</div>}
+            : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>{s.browse.flat.map((p) => <PersonCard key={p.id} p={p} width={186} href={personPath(p.id)} onClick={() => s.onPick(p.id)} />)}</div>}
           {s.browse.flat.length === 0 && <div style={{ padding: '20px 4px', fontFamily: T.sans, fontSize: 14, color: T.muted3 }}>Ingen træffere.</div>}
         </div>
       )}
