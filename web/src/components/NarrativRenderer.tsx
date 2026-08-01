@@ -8,16 +8,25 @@ import { useEffect, useMemo, useState } from 'react';
 import { parseNarrativ, groupBlocks, type Block, type Segment } from '@daa/core';
 import { fetchMediaByIds, mediaCaption, type EmbeddedMedia } from '../data/media';
 import { Lightbox, type LightboxItem } from './Lightbox';
+import { Link } from '../Link';
+import { personPath } from '../data/nav';
 
-function renderInline(segs: Segment[], onPickPerson: (id: string) => void, linkColor: string, inactiveColor: string) {
+function renderInline(
+  segs: Segment[],
+  onPickPerson: (id: string) => void,
+  linkColor: string,
+  inactiveColor: string,
+  hrefFor: (id: string) => string,
+) {
   return segs.map((s, i) => {
     if (s.kind === 'text') return <span key={i}>{s.text}</span>;
     if (s.maalType === 'person') {
+      const id = String(s.maalId);
       return (
-        <span key={i} onClick={() => onPickPerson(String(s.maalId))}
-          style={{ color: linkColor, textDecoration: 'underline', cursor: 'pointer' }}>
+        <Link key={i} href={hrefFor(id)} onNavigate={() => onPickPerson(id)}
+          style={{ color: linkColor, textDecoration: 'underline' }}>
           {s.label}
-        </span>
+        </Link>
       );
     }
     return <span key={i} style={{ color: inactiveColor }}>{s.label}</span>;
@@ -29,8 +38,11 @@ export function NarrativRenderer(props: {
   onPickPerson: (id: string) => void;
   linkColor: string;
   inactiveColor: string;
+  // Hvor person-tokens peger hen. Default er publikumsfladen; redaktøren overstyrer til sin egen
+  // record-sti, så et cmd-klik i narrativ-preview'et ikke sender redaktøren over i læser-fladen.
+  hrefFor?: (id: string) => string;
 }) {
-  const { tekst, onPickPerson, linkColor, inactiveColor } = props;
+  const { tekst, onPickPerson, linkColor, inactiveColor, hrefFor = personPath } = props;
   const blocks = useMemo(() => groupBlocks(parseNarrativ(tekst)), [tekst]);
   const mediaIds = useMemo(
     () => [...new Set(blocks.filter((b): b is Extract<Block, { kind: 'media' }> => b.kind === 'media').map((b) => b.maalId))],
@@ -84,7 +96,7 @@ export function NarrativRenderer(props: {
             </div>
           );
         }
-        return <p key={i} style={{ margin: '0 0 0.6em', whiteSpace: 'pre-line' }}>{renderInline(b.segs, onPickPerson, linkColor, inactiveColor)}</p>;
+        return <p key={i} style={{ margin: '0 0 0.6em', whiteSpace: 'pre-line' }}>{renderInline(b.segs, onPickPerson, linkColor, inactiveColor, hrefFor)}</p>;
       })}
       {lightbox != null && (
         <Lightbox items={lightboxItems} index={lightbox} onClose={() => setLightbox(null)} onNavigate={setLightbox} />

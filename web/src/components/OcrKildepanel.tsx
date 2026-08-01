@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { normaliserOcrDato, type OcrFelt, type PersonKvalitetsarkRow } from '@daa/core';
 import type { OcrHistorikEntry } from '../data/personKvalitetsark';
+import { Link } from '../Link';
 
 // Struktur-kompatibel med parameter-objektet i personKvalitetsark.ts's retOcrFelt (den type
 // er ikke selv exporteret derfra) — bevidst dupliceret her frem for at ændre web/src/data/,
@@ -275,13 +276,13 @@ export function OcrKildepanel({
           <p style={{ margin: 0, fontSize: 13.5, color: T.muted }}>
             {blokarsagTekst(activeRow.blokarsager[felt])}
           </p>
-          <button
-            type="button"
-            onClick={() => onOpenPerson(activeRow.personId)}
-            style={{ ...secondaryButtonStyle(false), marginTop: 8 }}
+          <Link
+            href={`/redaktion/person/${activeRow.personId}`}
+            onNavigate={() => onOpenPerson(activeRow.personId)}
+            style={{ ...secondaryButtonStyle(false), marginTop: 8, display: 'inline-block' }}
           >
             Åbn person
-          </button>
+          </Link>
         </div>
       )}
 

@@ -319,7 +319,7 @@ describe('Redaktion — exit bevarer den valgte person', () => {
     await aabnKvalitetsark();
     // Tælle-kolonnen kalder altid onOpenPerson, uafhængigt af kanRettes — "Åbn person" skal
     // reelt VISE editoren, ikke kun opdatere URL'en mens griddet forbliver på skærmen.
-    fireEvent.click(screen.getByRole('button', { name: '2 titler' }));
+    fireEvent.click(screen.getByRole('link', { name: '2 titler' }));
     await waitFor(() => expect(window.location.pathname).toBe('/redaktion/person/1'));
     expect(screen.queryByText('Personers OCR-kvalitetsark')).toBeNull();
     expect(screen.getByRole('button', { name: 'Liste' }).getAttribute('aria-pressed')).toBe('true');
@@ -327,7 +327,7 @@ describe('Redaktion — exit bevarer den valgte person', () => {
 
   test('exit til liste (uden at åbne en person) mister ikke en allerede-åben person', async () => {
     await aabnKvalitetsark();
-    fireEvent.click(screen.getByRole('button', { name: '2 titler' }));
+    fireEvent.click(screen.getByRole('link', { name: '2 titler' }));
     await waitFor(() => expect(window.location.pathname).toBe('/redaktion/person/1'));
 
     // Tilbage i kvalitetsark og ud igen uden at åbne noget nyt — den tidligere åbnede person
