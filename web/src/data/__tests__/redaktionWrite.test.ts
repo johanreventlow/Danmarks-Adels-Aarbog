@@ -600,3 +600,40 @@ describe('fase 4: oversaetFejl', () => {
     expect(oversaetFejl(raa)).toMatch(forvent);
   });
 });
+
+// --- Union-redigering (2026-08-01): reparér en union der mangler sin ene part,
+// og fjern den tomme skal. Hullet kostede 65 barne-flytninger da 1939-loaderens
+// mor-løse børne-familier skulle rettes.
+describe('buildRpcCall — union-redigering', () => {
+  it('tilfoejPartner → red_tilfoej_partner', () => {
+    const c = { art: 'tilfoejPartner', subjektType: 'person', subjektId: '1198',
+      payload: { familyId: '726', personId: '1613' } } as Change;
+    expect(buildRpcCall(c)).toEqual({
+      fn: 'red_tilfoej_partner',
+      args: { p_family_id: 726, p_person_id: 1613, p_ordinal: null },
+    });
+  });
+
+  it('tilfoejPartner videresender ordinal når den er sat', () => {
+    const c = { art: 'tilfoejPartner', subjektType: 'person', subjektId: '1198',
+      payload: { familyId: '726', personId: '1613', ordinal: 2 } } as Change;
+    expect(buildRpcCall(c)?.args).toMatchObject({ p_ordinal: 2 });
+  });
+
+  it('tilfoejPartner uden personId giver null (ingen halvt kald)', () => {
+    const c = { art: 'tilfoejPartner', subjektType: 'person', subjektId: '1198',
+      payload: { familyId: '726' } } as Change;
+    expect(buildRpcCall(c)).toBeNull();
+  });
+
+  it('sletUnion → red_slet_union', () => {
+    const c = { art: 'sletUnion', subjektType: 'person', subjektId: '1198',
+      payload: { familyId: '726' } } as Change;
+    expect(buildRpcCall(c)).toEqual({ fn: 'red_slet_union', args: { p_family_id: 726 } });
+  });
+
+  it('sletUnion uden familyId giver null', () => {
+    const c = { art: 'sletUnion', subjektType: 'person', subjektId: '1198', payload: {} } as Change;
+    expect(buildRpcCall(c)).toBeNull();
+  });
+});

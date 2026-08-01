@@ -3639,3 +3639,74 @@ BEGIN
     RAISE NOTICE 'OK: lineage_slaegtsrod_uidx afviser dublet slægts-rod';
   END;
 END $$;
+
+-- =============================================================
+-- 2026-08-01: union-redigering — red_tilfoej_partner / red_slet_union
+-- Kører som redaktion via transaktions-lokal jwt-claim; hele blokken rulles
+-- tilbage til sidst (RAISE fanget af blokkens egen EXCEPTION-klausul), så
+-- prod-data er urørt.
+-- =============================================================
+DO $$
+DECLARE
+  v_uid uuid; v_fam bigint; v_a bigint; v_b bigint; v_barn bigint; v_fejlede boolean;
+BEGIN
+  SELECT id INTO v_uid FROM profiles WHERE rolle='redaktion' LIMIT 1;
+  IF v_uid IS NULL THEN RAISE NOTICE 'SPRINGER OVER: ingen redaktion-profil at køre som'; RETURN; END IF;
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_uid, 'role','authenticated')::text, true);
+
+  INSERT INTO person DEFAULT VALUES RETURNING id INTO v_a;
+  INSERT INTO person DEFAULT VALUES RETURNING id INTO v_b;
+  INSERT INTO person DEFAULT VALUES RETURNING id INTO v_barn;
+
+  -- Skallen bygges råt (red_opret_union kræver to partnere; red_tilfoej_barn ville
+  -- oprette en forældrefamilie-påstand og dermed forurene reference-testen nedenfor).
+  INSERT INTO family(type) VALUES ('vielse') RETURNING id INTO v_fam;
+  INSERT INTO family_member(family_id, person_id, rolle) VALUES (v_fam, v_a, 'partner');
+  INSERT INTO family_member(family_id, person_id, rolle) VALUES (v_fam, v_barn, 'barn');
+
+  -- 1) tilføj partner virker og er idempotent
+  PERFORM red_tilfoej_partner(v_fam, v_b);
+  PERFORM red_tilfoej_partner(v_fam, v_b);
+  IF (SELECT count(*) FROM family_member WHERE family_id=v_fam AND rolle='partner') <> 2 THEN
+    RAISE EXCEPTION 'FEJL: red_tilfoej_partner gav ikke præcis 2 partnere (idempotens brudt?)';
+  END IF;
+
+  -- 2) et barn i familien kan ikke også blive partner
+  v_fejlede := false;
+  BEGIN PERFORM red_tilfoej_partner(v_fam, v_barn);
+  EXCEPTION WHEN others THEN v_fejlede := true; END;
+  IF NOT v_fejlede THEN RAISE EXCEPTION 'FEJL: barn blev accepteret som partner i samme familie'; END IF;
+
+  -- 3) slet-union afvises så længe der er børn
+  v_fejlede := false;
+  BEGIN PERFORM red_slet_union(v_fam);
+  EXCEPTION WHEN others THEN v_fejlede := true; END;
+  IF NOT v_fejlede THEN RAISE EXCEPTION 'FEJL: union med barn blev slettet'; END IF;
+
+  -- 4) …og stadig når der er to partnere (evidensbåret union, invariant 1)
+  DELETE FROM family_member WHERE family_id=v_fam AND rolle='barn';
+  v_fejlede := false;
+  BEGIN PERFORM red_slet_union(v_fam);
+  EXCEPTION WHEN others THEN v_fejlede := true; END;
+  IF NOT v_fejlede THEN RAISE EXCEPTION 'FEJL: union med to partnere blev slettet i ét klik'; END IF;
+
+  -- 5) …og stadig når en påstand peger på familien (de mor-løse 1939-skaller:
+  --    børnene er flyttet væk, men bogens oprindelige påstand står tilbage)
+  PERFORM red_slet_familie_link(v_fam, v_b, 'partner');
+  INSERT INTO fact(subjekt_type, subjekt_id, faktatype) VALUES ('family', v_fam, 'vielse');
+  v_fejlede := false;
+  BEGIN PERFORM red_slet_union(v_fam);
+  EXCEPTION WHEN others THEN v_fejlede := true; END;
+  IF NOT v_fejlede THEN RAISE EXCEPTION 'FEJL: union med et hængende faktum blev slettet'; END IF;
+
+  -- 6) …men går igennem når skallen er reelt tom
+  DELETE FROM fact WHERE subjekt_type='family' AND subjekt_id=v_fam;
+  PERFORM red_slet_union(v_fam);
+  IF EXISTS(SELECT 1 FROM family WHERE id=v_fam) THEN RAISE EXCEPTION 'FEJL: tom union blev ikke slettet'; END IF;
+  IF EXISTS(SELECT 1 FROM family_member WHERE family_id=v_fam) THEN RAISE EXCEPTION 'FEJL: family_member-rækker overlevede sletningen'; END IF;
+
+  RAISE NOTICE 'OK: red_tilfoej_partner + red_slet_union — guards holder (barn, to partnere, hængende evidens)';
+  RAISE EXCEPTION 'ROLLBACK_TESTDATA';
+EXCEPTION WHEN others THEN
+  IF SQLERRM = 'ROLLBACK_TESTDATA' THEN RAISE NOTICE 'OK: testdata rullet tilbage'; ELSE RAISE; END IF;
+END $$;

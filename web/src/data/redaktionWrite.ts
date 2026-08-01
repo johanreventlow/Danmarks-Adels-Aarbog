@@ -23,6 +23,7 @@ export type Change = {
      | 'tilfoejOplysning' | 'opretFakta' | 'sletRelation' | 'sletMediaRelationUdenEvidens' | 'tilfoejRelation'
      | 'opretUnion' | 'tilfoejBarn' | 'setFamilieKonfidens' | 'sletFamilieLink'
      | 'setFamilieOrdinal' | 'flytBarn'
+     | 'tilfoejPartner' | 'sletUnion' // union-redigering (2026-08-01): reparér/ryd en union
      | 'sammeSom' | 'fjernSammeSom' // redaktionel identitets-sammenkædning (samme_som)
      | 'ikkeSammeSom' | 'fjernIkkeSammeSom' // persisteret identitets-afvisning (tværudgave §4)
      | 'publicerPersoner' // K2 selektiv publicering — rydder staged for udvalgte person-id'er (§7.20)
@@ -310,6 +311,18 @@ export function buildRpcCall(c: Change): RpcCall | null {
     return { fn: 'red_tilfoej_barn', args: {
       p_family_id: Number(p.familyId), p_barn_id: Number(p.barnId),
       p_rolle: p.rolle || 'barn', p_konfidens: p.konfidens ?? null } };
+  }
+  if (c.art === 'tilfoejPartner') {
+    const p = c.payload || {};
+    if (p.familyId == null || p.personId == null) return null;
+    return { fn: 'red_tilfoej_partner', args: {
+      p_family_id: Number(p.familyId), p_person_id: Number(p.personId),
+      p_ordinal: p.ordinal != null ? Number(p.ordinal) : null } };
+  }
+  if (c.art === 'sletUnion') {
+    const p = c.payload || {};
+    if (p.familyId == null) return null;
+    return { fn: 'red_slet_union', args: { p_family_id: Number(p.familyId) } };
   }
   if (c.art === 'setFamilieKonfidens') { const b = famLinkBase(c); if (!b) return null;
     return { fn: 'red_set_familie_konfidens', args: { ...b, p_konfidens: c.konfidens ?? null } }; }

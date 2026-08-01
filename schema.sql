@@ -2164,6 +2164,89 @@ BEGIN
   END IF;
 END $$;
 
+-- Tilføj en partner til en EKSISTERENDE union. red_opret_union laver altid en ny familie, så
+-- indtil nu kunne en union der manglede sin ene part (fx 1939-loaderens mor-løse børne-familier,
+-- 2026-08-01) kun repareres ved at flytte alle børnene væk. Denne funktion reparerer i stedet
+-- familien selv.
+--
+-- Børnenes forældrefamilie-slot peger på FAMILIEN, ikke på forældrene, så en ny partner ændrer
+-- ikke slottet — derfor intet _ensure_foraeldrefamilie_redaktionel-kald her (modsat red_tilfoej_barn,
+-- hvor barnet skifter familie). Den afledte forældre-mængde i app-laget udvides derimod, hvilket er
+-- hele pointen.
+--
+-- Cyklus-guard er spejlvendt af red_tilfoej_barns: dér må et barn ikke være ane til en partner;
+-- her må den nye partner ikke være efterkommer af et barn i familien (partneren bliver jo forælder
+-- til netop de børn). Samme pre-INSERT-uden-lås-forbehold som red_tilfoej_barn (single-writer-PoC).
+CREATE OR REPLACE FUNCTION red_tilfoej_partner(p_family_id bigint, p_person_id bigint, p_ordinal int DEFAULT NULL)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_cyklus boolean;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_tilfoej_partner', format('Tilføjede partner %s til familie %s', p_person_id, p_family_id), 'person', p_person_id);
+  IF NOT EXISTS(SELECT 1 FROM family WHERE id=p_family_id) THEN RAISE EXCEPTION 'Familie % findes ikke', p_family_id; END IF;
+  IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_person_id) THEN RAISE EXCEPTION 'Person % findes ikke', p_person_id; END IF;
+  IF EXISTS(SELECT 1 FROM family_member WHERE family_id=p_family_id AND person_id=p_person_id AND rolle<>'partner')
+    THEN RAISE EXCEPTION 'Person % er allerede barn i familie % — kan ikke også være partner', p_person_id, p_family_id; END IF;
+  -- Cyklus: er den nye partner efterkommer af et barn i familien?
+  WITH RECURSIVE efterkommere(pid) AS (
+    SELECT b.person_id FROM family_member b
+      WHERE b.family_id = p_family_id AND b.rolle IN ('barn','adopteret_barn','plejebarn','stedbarn')
+    UNION
+    SELECT b.person_id FROM efterkommere e
+      JOIN family_member par ON par.person_id = e.pid AND par.rolle = 'partner'
+      JOIN family_member b   ON b.family_id = par.family_id
+        AND b.rolle IN ('barn','adopteret_barn','plejebarn','stedbarn')
+  )
+  SELECT EXISTS(SELECT 1 FROM efterkommere WHERE pid = p_person_id) INTO v_cyklus;
+  IF v_cyklus THEN RAISE EXCEPTION 'Cyklus: person % er efterkommer af et barn i familie %', p_person_id, p_family_id; END IF;
+  -- Dup-guard (PK): no-op hvis linket allerede findes
+  IF EXISTS(SELECT 1 FROM family_member WHERE family_id=p_family_id AND person_id=p_person_id AND rolle='partner') THEN RETURN; END IF;
+  INSERT INTO family_member(family_id, person_id, rolle, ordinal, konfidens)
+    VALUES (p_family_id, p_person_id, 'partner', p_ordinal, NULL);
+END $$;
+
+-- Slet en TOM union-entitet. Modsvarer red_slet_familie_link, som bevidst aldrig rører selve
+-- family-rækken (Codex H1: family bærer facts/notes uden FK). Her slettes den — men kun når
+-- ingenting hænger på den.
+--
+-- Guard-valget er stramt med vilje (advisor 2026-08-01): 0 børn OG højst én partner. En union med
+-- to partnere er en evidensbåret påstand om et ægteskab; at kunne slette den med ét klik strider
+-- mod invariant 1 (påstande overskrives ikke). Vil man virkelig af med sådan en, fjernes partneren
+-- først — et bevidst ekstra skridt.
+--
+-- Reference-guarden er den strengeste af de tre, og den er tilsigtet: de 15 mor-løse 1939-skaller
+-- der blev tomme 2026-08-01 bliver AFVIST (verificeret mod prod-kopi: familie 726 er refereret 14
+-- steder). Deres børn er flyttet væk, men bogens oprindelige påstand "barnet hørte til denne
+-- familie" står stadig og er uforanderlig. At slette familien ville efterlade den påstand
+-- hængende i luften. Skallerne er altså ikke affald, men evidens der har mistet sin krop —
+-- funktionen rammer i praksis kun unioner en redaktør selv har oprettet ved en fejl.
+CREATE OR REPLACE FUNCTION red_slet_union(p_family_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_boern int; v_partnere int; v_refs int;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_slet_union', format('Slettede tom union %s', p_family_id), 'family', p_family_id);
+  IF NOT EXISTS(SELECT 1 FROM family WHERE id=p_family_id) THEN RAISE EXCEPTION 'Familie % findes ikke', p_family_id; END IF;
+  SELECT count(*) FILTER (WHERE rolle <> 'partner'), count(*) FILTER (WHERE rolle = 'partner')
+    INTO v_boern, v_partnere FROM family_member WHERE family_id=p_family_id;
+  IF v_boern > 0 THEN RAISE EXCEPTION 'Familie % har % barn/børn — flyt dem først', p_family_id, v_boern; END IF;
+  IF v_partnere > 1 THEN RAISE EXCEPTION 'Familie % har % partnere — en registreret union slettes ikke i ét klik; fjern partner først', p_family_id, v_partnere; END IF;
+  -- Ingen FK peger på family, så forældreløse rækker ville blive tavse. Tjek hver vej eksplicit.
+  SELECT (SELECT count(*) FROM fact WHERE subjekt_type='family' AND subjekt_id=p_family_id)
+       + (SELECT count(*) FROM assertion WHERE objekt_type='family' AND objekt_id=p_family_id)
+       + (SELECT count(*) FROM note WHERE target_type='family' AND target_id=p_family_id)
+       + (SELECT count(*) FROM narrative WHERE subjekt_type='family' AND subjekt_id=p_family_id)
+       + (SELECT count(*) FROM haendelse WHERE subjekt_type='family' AND subjekt_id=p_family_id)
+       + (SELECT count(*) FROM story WHERE subjekt_type='family' AND subjekt_id=p_family_id)
+       + (SELECT count(*) FROM suggestion WHERE subjekt_type='family' AND subjekt_id=p_family_id)
+       + (SELECT count(*) FROM relation WHERE (subjekt_type='family' AND subjekt_id=p_family_id)
+                                            OR (objekt_type='family' AND objekt_id=p_family_id))
+    INTO v_refs;
+  IF v_refs > 0 THEN RAISE EXCEPTION 'Familie % er refereret % sted(er) (fakta/påstande/noter/narrativer/hændelser/historier/forslag/relationer) — kan ikke slettes', p_family_id, v_refs; END IF;
+  DELETE FROM family_member WHERE family_id=p_family_id;
+  DELETE FROM family WHERE id=p_family_id;
+END $$;
+
 -- Ret ordinal (rækkefølge) på et familie-link. Bruges bl.a. til søskende-visningsrækkefølge
 -- (mobile/src/data/load.ts sorterer 'barn'-rækker efter ordinal) når fødselsår er ukendt/
 -- upræcist, men den indbyrdes rækkefølge kendes. Samme felt bruges for 'partner'-rækker til

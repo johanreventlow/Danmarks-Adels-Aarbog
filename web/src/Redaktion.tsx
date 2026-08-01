@@ -230,12 +230,15 @@ export default function Redaktion() {
   const [mediaBusy, setMediaBusy] = useState(false); // Slice B2: klient-genkodning tager et øjeblik
   // Retningsbekræftelse for et nyt samme_som-link: den valgte person + hvem der er kanonisk.
   const [ssConfirm, setSsConfirm] = useState<{ personId: string; navn: string; kanoniskId: string } | null>(null);
-  const [picker, setPicker] = useState<{ kind: 'barn' | 'partner' | 'hverv' | 'gods' | 'sammeSom'; familyId?: string } | null>(null);
+  // 'partner' opretter en NY union; 'unionPartner' tilføjer til en eksisterende (reparerer fx
+  // 1939-loaderens mor-løse børne-familier uden at flytte børnene).
+  const [picker, setPicker] = useState<{ kind: 'barn' | 'partner' | 'unionPartner' | 'hverv' | 'gods' | 'sammeSom'; familyId?: string } | null>(null);
   const [pickQuery, setPickQuery] = useState('');
   // Flyt et barn til et af PERSONENS EGNE andre forhold (brugerfund 2026-07-02: forkert
   // mor/far-par). Ikke en fri søgning som `picker` ovenfor — bevidst begrænset til de forhold
   // der allerede vises på denne side, så et barn ikke kan flyttes til en urelateret persons familie.
   const [flytBarn, setFlytBarn] = useState<{ fraFamilyId: string; personId: string; rolle: string; navn: string } | null>(null);
+  const [fjernPartner, setFjernPartner] = useState<{ familyId: string; personId: string; navn: string } | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -780,6 +783,7 @@ export default function Redaktion() {
       {renderPicker()}
       {renderSammeSomConfirm()}
       {renderFlytBarnPicker()}
+      {renderFjernPartner()}
       {renderMediaPicker()}
       {renderMediaTilknytPicker()}
       {renderMediaDetalje()}
@@ -1790,12 +1794,25 @@ export default function Redaktion() {
                         <span key={p.personId}>
                           <span onClick={() => openRecord('person', p.personId)} title="Åbn person" style={{ color: T.bordeaux, cursor: 'pointer' }}>{p.navn}</span>
                           {p.aar ? <span style={{ color: T.muted3, fontWeight: 500 }}> ({p.aar})</span> : null}
+                          {/* Fjern part: RPC'en fandtes hele tiden, kun rækken manglede. Rammer forældre-
+                              mængden for alle børn i unionen, derfor bekræftelse frem for ét klik. */}
+                          <span onClick={() => setFjernPartner({ familyId: u.familyId, personId: p.personId, navn: p.navn })}
+                            title="Fjern part fra forholdet" style={{ color: '#bcae93', fontSize: 12, cursor: 'pointer', padding: '0 3px' }}>✕</span>
                           {idx < u.partnere.length - 1 ? ', ' : ''}
                         </span>
                       )) : '(ukendt partner)'}
                     </span>
-                    <span onClick={() => setPicker({ kind: 'barn', familyId: u.familyId })} style={{ fontSize: 12, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>+ Tilføj barn</span>
+                    <span style={{ display: 'flex', gap: 12, flex: 'none' }}>
+                      <span onClick={() => setPicker({ kind: 'unionPartner', familyId: u.familyId })} style={{ fontSize: 12, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>+ Tilføj part</span>
+                      <span onClick={() => setPicker({ kind: 'barn', familyId: u.familyId })} style={{ fontSize: 12, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>+ Tilføj barn</span>
+                    </span>
                   </div>
+                  {/* Tom skal: kun når intet står tilbage at bevare. To parter = en registreret union,
+                      der slettes ikke i ét klik (invariant 1); DB'en afviser desuden hvis påstande peger på den. */}
+                  {u.boern.length === 0 && u.partnere.length <= 1 && (
+                    <div onClick={() => run({ art: 'sletUnion', subjektType: 'person', subjektId: pid, payload: { familyId: u.familyId } }, 'Slet tomt forhold')}
+                      style={{ fontFamily: T.mono, fontSize: 10, fontWeight: 600, color: T.muted2, cursor: 'pointer', marginBottom: 6 }}>slet tomt forhold</div>
+                  )}
                   {u.boern.map((b, i) => {
                     const opOrdinal = nudgeOrdinal(u.boern, i, 'op');
                     const nedOrdinal = nudgeOrdinal(u.boern, i, 'ned');
@@ -1857,12 +1874,12 @@ export default function Redaktion() {
 
   function renderPicker() {
     if (!picker) return null;
-    const isPerson = picker.kind === 'barn' || picker.kind === 'partner' || picker.kind === 'sammeSom';
+    const isPerson = picker.kind === 'barn' || picker.kind === 'partner' || picker.kind === 'unionPartner' || picker.kind === 'sammeSom';
     const q = pickQuery.trim().toLowerCase();
     const items: { id: string; label: string; sub: string }[] = isPerson
       ? persons.filter((p) => p.id !== recordId && p.navn.toLowerCase().includes(q)).slice(0, 40).map((p) => ({ id: p.id, label: p.navn, sub: p.aar || '—' }))
       : (recCache[picker.kind === 'hverv' ? 'org' : 'estate'] ?? []).filter((r) => (r.label + ' ' + r.sub).toLowerCase().includes(q)).slice(0, 40).map((r) => ({ id: r.id, label: r.label, sub: r.sub }));
-    const titel = picker.kind === 'barn' ? 'Vælg barn' : picker.kind === 'partner' ? 'Vælg partner' : picker.kind === 'sammeSom' ? 'Vælg samme person' : picker.kind === 'hverv' ? 'Vælg organisation' : 'Vælg gods';
+    const titel = picker.kind === 'barn' ? 'Vælg barn' : picker.kind === 'partner' ? 'Vælg partner' : picker.kind === 'unionPartner' ? 'Tilføj part til dette forhold' : picker.kind === 'sammeSom' ? 'Vælg samme person' : picker.kind === 'hverv' ? 'Vælg organisation' : 'Vælg gods';
     const onPick = (id: string) => {
       const sid = recordId!;
       if (picker.kind === 'sammeSom') {
@@ -1874,6 +1891,7 @@ export default function Redaktion() {
       const changes: Record<Exclude<typeof picker.kind, 'sammeSom'>, Change> = {
         barn: { art: 'tilfoejBarn', subjektType: 'person', subjektId: sid, payload: { familyId: picker.familyId, barnId: id, rolle: 'barn', konfidens: null } },
         partner: { art: 'opretUnion', subjektType: 'person', subjektId: sid, payload: { partnerA: sid, partnerB: id, type: 'vielse', ordinal: null } },
+        unionPartner: { art: 'tilfoejPartner', subjektType: 'person', subjektId: sid, payload: { familyId: picker.familyId, personId: id, ordinal: null } },
         hverv: { art: 'tilfoejRelation', subjektType: 'person', subjektId: sid, payload: { objektType: 'organisation', objektId: id, rolle: 'medlem', periodeRaw: null } },
         gods: { art: 'tilfoejRelation', subjektType: 'person', subjektId: sid, payload: { objektType: 'estate', objektId: id, rolle: 'ejer', periodeRaw: null } },
       };
@@ -2122,6 +2140,38 @@ export default function Redaktion() {
             <div onClick={() => setSsConfirm(null)} style={{ padding: '9px 16px', borderRadius: 9, background: T.beige, cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>Annullér</div>
             <div onClick={() => { run({ art: 'sammeSom', subjektType: 'person', subjektId: sid, payload: { aliasId: alias.id, objektId: kanonisk.id } }, 'Marker som samme person'); setSsConfirm(null); }}
               style={{ padding: '9px 16px', borderRadius: 9, background: T.bordeaux, color: '#fff', cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>Gem</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Fjern en part fra et forhold. Ikke en ren oprydning: hvert barn i unionen mister en
+  // forælder, og det er præcis den mængde tværudgave-sammenlægningen sammenligner — derfor
+  // siger dialogen antallet højt frem for at lade det ske stille.
+  function renderFjernPartner() {
+    if (!fjernPartner) return null;
+    const pid = recordId!;
+    // Antal børn udledes ved render frem for at ligge i state: familie-data kan blive genhentet
+    // mens dialogen står åben, og et tal kopieret ved åbningen ville så lyve.
+    const boern = (familie?.somPartner ?? []).find((u) => u.familyId === fjernPartner.familyId)?.boern.length ?? 0;
+    const udfoer = () => {
+      run({ art: 'sletFamilieLink', subjektType: 'person', subjektId: pid,
+        familyId: fjernPartner.familyId, personId: fjernPartner.personId, rolle: 'partner' }, 'Fjern part');
+      setFjernPartner(null);
+    };
+    return (
+      <div onClick={() => setFjernPartner(null)} style={overlay(96)}>
+        <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: '100%', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: '18px 20px' }}>
+          <div style={{ fontFamily: T.serif, fontSize: 19, fontWeight: 600, marginBottom: 6 }}>Fjern {fjernPartner.navn} fra forholdet?</div>
+          <div style={{ fontSize: 13.5, color: T.muted2, lineHeight: 1.5, marginBottom: 14 }}>
+            {boern > 0
+              ? `${boern} barn/børn i dette forhold mister ${fjernPartner.navn} som forælder. Personen slettes ikke — kun tilknytningen.`
+              : 'Personen slettes ikke — kun tilknytningen til dette forhold.'}
+          </div>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <div onClick={() => setFjernPartner(null)} style={btnGhost}>Annullér</div>
+            <div onClick={udfoer} style={{ padding: '9px 16px', borderRadius: 9, background: T.bordeaux, color: '#fff', cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>Fjern</div>
           </div>
         </div>
       </div>
