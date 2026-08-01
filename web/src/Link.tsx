@@ -7,7 +7,7 @@
 //
 // Ligger ved siden af router.ts (routing-infrastruktur), ikke i components/primitives.tsx, som er
 // Følgesvend-scoped og ikke importeres af Redaktion.tsx.
-import type { AnchorHTMLAttributes, MouseEvent } from 'react';
+import type { AnchorHTMLAttributes, CSSProperties, MouseEvent, ReactNode } from 'react';
 import { navigate } from './router';
 
 // Skal browserens egen klik-adfærd have forrang? Ja hvis en indre handler allerede har taget
@@ -48,4 +48,33 @@ export function Link({ href, onNavigate, stopPropagation = false, style, target,
       {children}
     </a>
   );
+}
+
+// Kort/flader hvor HELE fladen er målet: er målet adresserbart, bliver fladen et ægte anker —
+// ellers beholder den sin hidtidige <div onClick>. Samlet ét sted, fordi de tre kaldesteder
+// (PersonCard, feed-kortene, forsidens månedens-gods) ellers gentog samme gren med hver sin
+// lille afvigelse.
+//
+// display er en DEFAULT, ikke en overstyring: <a> er inline, så en flade uden eget display skal
+// blokke — men en flade der selv layouter (våben-kortet er flex) beholder sit eget. Omvendt
+// rækkefølge kostede våben-kortet dets side-om-side-layout.
+//
+// cursor sættes KUN i div-grenen; Link sætter den selv.
+//
+// Ingen stopPropagation her: alle tre kaldesteder er yderste flade. Får et kort inde i et andet
+// kort brug for den, tager Link den direkte — og så følger et kaldested med der viser hvorfor.
+export function KlikbarFlade({ href, onClick, style, children }: {
+  href?: string | null;
+  onClick?: () => void;
+  style?: CSSProperties;
+  children: ReactNode;
+}) {
+  if (href) {
+    return (
+      <Link href={href} onNavigate={onClick} style={{ display: 'block', ...style }}>
+        {children}
+      </Link>
+    );
+  }
+  return <div onClick={onClick} style={{ ...style, cursor: onClick ? 'pointer' : 'default' }}>{children}</div>;
 }

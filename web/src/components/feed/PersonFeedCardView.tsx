@@ -24,7 +24,7 @@ export function PersonFeedCardView({ card, href, person, media, onOpen, onSave, 
           stopPropagation, så article'ens egen onClick ikke navigerer oveni — heller ikke ved cmd-klik. */}
       <Link href={href ?? personPath(card.personId)} onNavigate={() => onOpen(card)} stopPropagation
         aria-label={`Åbn profil for ${person.name}`}
-        style={{ display: 'block', width: '100%', textAlign: 'left' }}>
+        style={{ display: 'block', width: '100%' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 11, paddingRight: 26 }}>
           <Avatar n={person.name} size={42} />
           <div style={{ minWidth: 0 }}>

@@ -353,7 +353,7 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
       <Link
         href={`/redaktion/person/${row.personId}`}
         onNavigate={() => onOpenPerson(row.personId)}
-        style={{ color: T.ink, font: 'inherit', textAlign: 'left', padding: 0, display: 'inline-block' }}
+        style={{ color: T.ink, display: 'inline-block' }}
       >
         {antal} {enhed}
       </Link>

@@ -1761,24 +1761,20 @@ export default function Redaktion() {
         ))}
       </div>
     );
-    // onOpen (valgfri): gør navnet klikbart → naviger til den person (kun for person-rækker,
-    // ikke hverv/godser). Skifter recordId som browse-listen gør; ugemte narrativ-edits kasseres
-    // stille — samme adfærd som person-listen (bevidst konsistent, ingen ny advarsel).
-    const linkRow = (navn: string, meta: string, onRemove: () => void, extra?: React.ReactNode, onOpen?: () => void, href?: string) => (
+    // aabn (valgfri): gør navnet til et ægte link til den person (kun for person-rækker, ikke
+    // hverv/godser). Sti og handler ligger i ÉT objekt, så et kaldested ikke kan give det ene
+    // uden det andet og tavst miste sin klik-handler. Skifter recordId som browse-listen gør;
+    // ugemte narrativ-edits kasseres stille — samme adfærd som person-listen (bevidst konsistent).
+    const linkRow = (navn: string, meta: string, onRemove: () => void, extra?: React.ReactNode, aabn?: { href: string; onNavigate: () => void }) => (
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 10, padding: '8px 11px', marginBottom: 6 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          {onOpen && href ? (
-            <Link href={href} onNavigate={onOpen} title="Åbn person"
+          {aabn ? (
+            <Link href={aabn.href} onNavigate={aabn.onNavigate} title="Åbn person"
               style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, lineHeight: 1.05, color: T.bordeaux, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
               {navn}<span style={{ fontSize: 11, opacity: .55 }}>↗</span>
             </Link>
           ) : (
-            // Fald-tilbage-grenen beholder onClick: et fremtidigt kaldested der giver onOpen men
-            // glemmer href ville ellers tavst miste sin klik-handler (ingen test ville fange det).
-            <div onClick={onOpen} title={onOpen ? 'Åbn person' : undefined}
-              style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, lineHeight: 1.05, cursor: onOpen ? 'pointer' : 'default', color: onOpen ? T.bordeaux : undefined, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              {navn}{onOpen && <span style={{ fontSize: 11, opacity: .55 }}>↗</span>}
-            </div>
+            <div style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, lineHeight: 1.05, cursor: 'default', display: 'inline-flex', alignItems: 'center', gap: 5 }}>{navn}</div>
           )}
           {meta && <div style={{ fontFamily: T.mono, fontSize: 9.5, color: T.muted2, marginTop: 1 }}>{meta}</div>}
         </div>
@@ -1822,7 +1818,7 @@ export default function Redaktion() {
                         <span onClick={() => setFlytBarn({ fraFamilyId: u.familyId, personId: b.personId, rolle: b.rolle, navn: b.navn })}
                           style={{ fontFamily: T.mono, fontSize: 10, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>flyt→</span>
                       </>,
-                      () => openRecord('person', b.personId), redaktionPath('person', b.personId));
+                      { href: redaktionPath('person', b.personId), onNavigate: () => openRecord('person', b.personId) });
                   })}
                 </div>
               ))}
@@ -1864,8 +1860,7 @@ export default function Redaktion() {
                   `${rolle} · ${forklaring}`,
                   () => run({ art: 'fjernSammeSom', subjektType: 'person', subjektId: pid, relationId: l.relationId }, 'Fjern samme-person-link'),
                   undefined,
-                  () => openRecord('person', l.modpartId),
-                  redaktionPath('person', l.modpartId),
+                  { href: redaktionPath('person', l.modpartId), onNavigate: () => openRecord('person', l.modpartId) },
                 );
               }) : <div style={{ fontSize: 12.5, color: T.muted3 }}>Ingen identitets-links.</div>}
             </>
@@ -2065,7 +2060,7 @@ export default function Redaktion() {
                 Mediet skal genoprettes fra filsiden. Upload-arket genopretter det ikke automatisk.
               </div>
               <Link href={decision.route} onNavigate={() => { afslut(); navigate(decision.route); }}
-                style={{ ...btnGreen, display: 'inline-block', textDecoration: 'none' }}>Åbn filsiden</Link>
+                style={{ ...btnGreen, display: 'inline-block' }}>Åbn filsiden</Link>
             </>
           ) : decision.kind === 'kladde' ? (
             <>

@@ -115,4 +115,22 @@ describe('PersonFeedCardView', () => {
     expect(screen.getByText('Pederstrup')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /^Åbn profil for/ })).toBeNull();
   });
+
+  // Kortskallens display er en DEFAULT, ikke en overstyring: <a> er inline, så en skal uden
+  // eget display skal blokke — men et kort der selv layouter (våben = billede + tekst side om
+  // side) skal beholde sit flex. Ankeret må ikke ændre kortets layout.
+  it('lader kortets eget layout vinde over ankerets blok-default', () => {
+    const vaaben: Extract<FeedCard, { kind: 'vaaben' }> = {
+      kind: 'vaaben', id: 'vaaben:1', armsId: '1', blazon: 'to skjolde', foot: 'DAA', kicker: 'Våben',
+    };
+    const gods: Extract<FeedCard, { kind: 'gods' }> = {
+      kind: 'gods', id: 'gods:1', estateId: '1', navn: 'Pederstrup', meta: 'Lolland', ownerDots: 2, kicker: 'Gods',
+    };
+
+    const { rerender } = render(<FeedCardView card={vaaben} href="/arms" onOpen={vi.fn()} onSave={vi.fn()} bookmarked={false} />);
+    expect(screen.getByRole('link').style.display).toBe('flex');
+
+    rerender(<FeedCardView card={gods} href="/estate/1" onOpen={vi.fn()} onSave={vi.fn()} bookmarked={false} />);
+    expect(screen.getByRole('link').style.display).toBe('block');
+  });
 });
