@@ -91,3 +91,78 @@ feed-kort (`components/feed/`).
 
 **Foreslået fix:** Nævn udvidelsen eksplicit ved fremlæggelse; Task 6 kan droppes uden at røre
 Task 1-5.
+
+---
+
+## Fase 1b — empirisk verifikation (2026-08-01, kørt i worktreet)
+
+### P6 [HIGH] — Alle `Redaktion.tsx`-linjenumre stammer fra den beskidte hovedmappe
+
+**Symptom:** Spec og plan blev skrevet ud fra `/Users/johanreventlow/TypeScript/danmarksadelsaarbog`,
+hvor en parallel session har ucommittede ændringer i `web/src/Redaktion.tsx` (branch
+`feat/union-redigering`). Branchen `feat/aegte-links` er brancet fra `origin/main` — samme fil,
+andre linjenumre.
+
+**Verifikation:** `grep -n` i worktreet mod `grep -n` i hovedmappen:
+
+| Element | plan (beskidt træ) | `origin/main` |
+|---|---|---|
+| `listRow` | 921-930 | **917-926** |
+| `linkRow` | 1769-1781 | **1765-1777** |
+| partner-navn | 1795 | **1791** |
+| børne-rækkens `linkRow`-kald | 1823/1831 | **1806/1814** |
+| forældre-navn | 1841 | **1824** |
+| "Samme person"-blok | 1862-1867 | **1845-1850** |
+| beslutnings-link (`<a href={decision.route}`) | 2065 | **2047** |
+| narrativ-preview | 1308 | 1308 (uændret) |
+
+Alle øvrige filer (`Folgesvend.tsx:429`, `OcrKildepanel.tsx:280`, `DetailPanel.tsx:111/170/181`,
+`EstatesView.tsx:62/104`, `BookmarksView.tsx:55`, `HomeView.tsx:90`) er urørte af den parallelle
+session og har de linjenumre planen angiver.
+
+**Konsekvens:** Implementeren rammer forkerte linjer i den ene fil hvor præcision betyder mest —
+og det er samme fil den parallelle session vil skulle merge med.
+
+**Fix:** Erstat tabellens venstre kolonne med højre i både spec og plan.
+
+### P2 — AFVIST (min egen fejl)
+
+Påstanden var at `React.CSSProperties` i `TreeView.tsx` ville give `TS2686`. Forkert: TS2686 rammer
+kun **værdi**-referencer til en UMD-global. I typeposition er det lovligt, og kodebasen gør det
+allerede uden React-import — `components/primitives.tsx:92` (`style?: React.CSSProperties`) og
+`Redaktion.tsx:2283` (`const inp: React.CSSProperties`). `import type { CSSProperties }` er
+stadig at foretrække (`TreeSearch.tsx:6` gør det), men det er stil, ikke fejl.
+
+### P3 — REKALIBRERET til LOW
+
+`web/tsconfig.json` har `"exclude": ["src/**/__tests__/**"]` — testfiler typecheckes slet ikke af
+`tsc --noEmit`, og vitest/esbuild typechecker heller ikke. Den beregnede modifier-nøgle kan altså
+ikke fejle nogen gate. Fire eksplicitte tilfælde er stadig tydeligere at læse.
+
+### P4 — BEKRÆFTET, ordlyd rettet
+
+Sonde kørt i worktreet (`web/src/__tests__/tmp-probe.test.tsx`, slettet igen):
+
+```
+✓ src/__tests__/tmp-probe.test.tsx (3 tests) 34ms
+stderr | src/__tests__/tmp-probe.test.tsx
+Not implemented: navigation to another Document
+```
+
+Den præcise ordlyd er `Not implemented: navigation to another Document` (ikke
+"navigation (except hash changes)").
+
+### Verificerede antagelser bag Task 1's testsuite
+
+Samme sonde bekræftede alle tre præmisser empirisk:
+
+1. `fireEvent.click(el)` returnerer **`false`** når `preventDefault()` blev kaldt og **`true`** når
+   det ikke blev — som testene i Task 1 antager.
+2. `fireEvent.click(el, { metaKey: true })` når frem til handleren med flaget sat.
+3. `fireEvent.click(el, { button: 1 })` når frem med `e.button === 1`.
+
+### Infrastruktur-note
+
+Worktreet manglede `node_modules`; `npm ci` kørt (1248 pakker, 20 s). Uden det fejler enhver
+`npm run test -w web` i worktreet med en uløselig `@testing-library/react`-import. Bør stå som
+trin 0 i planen.
