@@ -536,7 +536,12 @@ ikke-interaktiv `privat`-`span`, så hele rækken må lovligt være ankeret:
               {navn}<span style={{ fontSize: 11, opacity: .55 }}>↗</span>
             </Link>
           ) : (
-            <div style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, lineHeight: 1.05, display: 'inline-flex', alignItems: 'center', gap: 5 }}>{navn}</div>
+            // Fald-tilbage-grenen beholder onClick: et fremtidigt kaldested der giver onOpen men
+            // glemmer href ville ellers tavst miste sin klik-handler (ingen test ville fange det).
+            <div onClick={onOpen} title={onOpen ? 'Åbn person' : undefined}
+              style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, lineHeight: 1.05, cursor: onOpen ? 'pointer' : 'default', color: onOpen ? T.bordeaux : undefined, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              {navn}{onOpen && <span style={{ fontSize: 11, opacity: .55 }}>↗</span>}
+            </div>
           )}
           {meta && <div style={{ fontFamily: T.mono, fontSize: 9.5, color: T.muted2, marginTop: 1 }}>{meta}</div>}
         </div>
@@ -1390,7 +1395,7 @@ anker** — kun klik og Enter. Erstat testen:
     const profile = screen.getByRole('link', { name: 'Åbn profil for Anna Reventlow' });
     const user = userEvent.setup();
 
-    expect(profile.getAttribute('href')).toBe('/person/42'); // tilpas id til fixturens personId
+    expect(profile.getAttribute('href')).toBe('/person/42'); // fixturens portrait.personId er '42'
 
     fireEvent.click(profile);
     profile.focus();
