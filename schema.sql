@@ -2243,12 +2243,17 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_n int;
 BEGIN
   IF NEW.rolle <> 'partner' THEN RETURN NEW; END IF;
-  -- Kanonisk låserækkefølge for krydsinvarianten er samme_som-advisory-låsen FØR
-  -- family-rækkelåsen. enforce_samme_som_invariants tager samme advisory-lås, før den
-  -- læser family_member; dermed kan de to samtidige skriveveje ikke overse hinandens INSERT.
-  -- Låsen er transaktionsbundet og re-entrant: loaderens efterfølgende partner-rækker i
-  -- samme batch genbruger den, og den hurtige relation-forudsætning/CTE-sti nedenfor er uændret.
-  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  -- BEVIDST INGEN samme_som-advisory-lås her (Codex sol runde 7). Et forsøg på at lukke
+  -- krydsracet med den lås inverterede rækkefølgen mod loaderen: load_daa.R tager EXCLUSIVE på
+  -- bl.a. relation og flusher family_member FØR relation, mens red_samme_som holder advisory-
+  -- låsen og venter på relation — en ægte deadlock-cyklus der kan abortere en hel load.
+  -- RESTRISIKO, accepteret: to SAMTIDIGE transaktioner (én der tilføjer en part, én der linker
+  -- to parter som samme person) kan hver overse den andens ucommittede række og tilsammen
+  -- committe en selv-union. Det kræver to redaktører der skriver komplementært i samme
+  -- øjeblik — samme single-writer-antagelse som red_tilfoej_barns cyklus-tjek allerede hviler
+  -- på — og projektionen fanger tilstanden bagefter som karantæne, ikke som stille korruption.
+  -- Ægte lukning kræver at loaderne tager samme lås før deres LOCK TABLE; parkeret som
+  -- selvstændigt arbejde, fordi det rører tre prod-kritiske load-scripts.
   PERFORM 1 FROM family WHERE id = NEW.family_id FOR UPDATE;  -- serialisér samtidige skrivninger for SAMME familie
   -- Ved UPDATE står OLD-rækken stadig i tabellen (BEFORE-trigger) og skal trækkes fra på sin
   -- EGEN nøgle. At udelade "alle rækker med samme nye person_id" ville overafvise en legitim
