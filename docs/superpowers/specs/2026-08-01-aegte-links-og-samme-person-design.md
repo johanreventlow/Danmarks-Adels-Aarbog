@@ -39,8 +39,13 @@ Renderer et `<a href>`. `onClick` falder igennem til browserens egen adfærd nå
 - `e.defaultPrevented` (en indre handler har allerede taget klikket)
 - `e.button !== 0` (ikke venstreklik)
 - `e.metaKey || e.ctrlKey || e.shiftKey || e.altKey`
+- et eksplicit `target` forskelligt fra `_self`
 
 Ellers `e.preventDefault()` og derefter `onNavigate?.() ?? navigate(href)`.
+
+**Rækkefølgen er kritisk:** `stopPropagation` (når proppen er sat) skal ske **før** klikket afgives
+til browseren. Ellers bobler et cmd-klik op til et omsluttende korts `onClick`, som navigerer den
+aktuelle fane samtidig med at browseren åbner en ny. Reproduceret i review B1.
 
 Højreklik (`contextmenu`) og midterklik (`auxclick`) kræver ingen kode: de fyrer aldrig Reacts
 `onClick`, og virker i det øjeblik elementet har et `href`.
@@ -64,26 +69,38 @@ Alle beholder deres handler og får modifier-klik oveni.
 
 ### 3. Konverteringsliste
 
+Linjenumre er verificeret mod `origin/main` (branchens base). NB: de tal der oprindeligt stod her
+kom fra hovedmappen, hvor en parallel session har ucommittede ændringer i `Redaktion.tsx` — se
+`docs/reviews/aegte-links-plan-review-2026-08-01.md` P6.
+
 **Redaktion:**
-- `linkRow` (`Redaktion.tsx:1769`) får en `href`-parameter ved siden af `onOpen`
-- familie-navne: partnere (1795), forældre (1841), børn (1823/1831)
-- samme_person-rækker (1863)
-- record-listen (browse-visningen)
-- `components/OcrKildepanel.tsx:280` ("åbn person")
-- `Redaktion.tsx:2065` (allerede et `<a>`, men ubetinget `preventDefault`)
+- `linkRow` (`Redaktion.tsx:1765`) får en `href`-parameter ved siden af `onOpen`
+- familie-navne: partnere (1791), forældre (1824), børn (1806-1814)
+- samme_person-rækker (1845)
+- record-listen `listRow` (917)
+- narrativ-preview (1308) → peger på redaktørens egne poster
+- beslutnings-linket (2047 — allerede et `<a>`, men ubetinget `preventDefault`)
+- forældre-konflikt-rækker (2449)
+- `components/OcrKildepanel.tsx:280` + `components/PersonKvalitetsark.tsx:341,354` ("åbn person")
 
 **Følgesvend:**
-- `Folgesvend.tsx:429` ("Redaktion ↗", samme ubetingede `preventDefault`)
-- `components/primitives.tsx` `PersonCard` + `HomeView`
+- `Folgesvend.tsx:427` (brugerens egen avatar), `:429` ("Redaktion ↗", samme ubetingede `preventDefault`)
+- `components/primitives.tsx` `PersonCard` + `HomeView:90` (kuraterede kort) og `HomeView:98` ("Månedens gods")
 - `components/TreeView.tsx` (noder), `components/TreeSearch.tsx` (træffere)
 - `components/BookmarksView.tsx`
 - `components/DetailPanel.tsx` (forældre 111, ægtefælle 170, børn 181)
-- `components/NarrativRenderer.tsx` (person-links i prosa)
+- `components/NarrativRenderer.tsx` (person-links i prosa — dækker også AboutView og PresensView)
 - `components/EstatesView.tsx` (godser + ejere)
+- `components/PresensView.tsx:61` ("Se fuld profil")
+- `components/RelateView.tsx:87` (slægtskabsstiens trin — beholder `focusOnly`-adfærd ved venstreklik)
+- `components/feed/` (FeedStreamView, FeedCardView, PersonFeedCardView) — forsidens feed er en del
+  af web-fladen; kort hvis mål ikke er adresserbart får intet `href`
 
 **Bevidst urørt:**
 - `components/PresensView.tsx:301/307` — `href="#linje-…"` er in-page-ankre; at sende dem gennem
   `navigate()` ville pushe et fragment som en path.
+- `components/OverviewMapView.tsx:46` — kort-punkter navigerer via kort-rendererens
+  `onPointPress`-callback og kan ikke være ankre. Teknisk undtagelse.
 - `mobile/` (React Native har ingen `<a>`; uden for scope).
 
 **Sti-hjælpere:** Følgesvend-komponenter behøver ikke en ny prop pr. kaldested — person-stien er
@@ -103,15 +120,24 @@ hvis navn står der — derfor byttes rollen om:
 
 | `l.retning` | modpartens rolle | række-etiket | undertekst |
 |---|---|---|---|
-| `'alias'` | kanonisk | `KANONISK · <navn> (år)` | `den post du redigerer foldes ind i denne` |
-| `'kanonisk'` | alias | `ALIAS · <navn> (år)` | `foldes ind i den post du redigerer` |
+| `'alias'` | kanonisk | `KANONISK · <navn> (år)` | `den post du redigerer er markeret som alias for denne` |
+| `'kanonisk'` | alias | `ALIAS · <navn> (år)` | `markeret som alias for den post du redigerer` |
 
 Eksempel:
 
 ```
 KANONISK · Christian Detlev Reventlow (1671–1738)
-den post du redigerer foldes ind i denne
+den post du redigerer er markeret som alias for denne
 ```
+
+Underteksten beskriver **relationen**, ikke resultatet. Et samme_som-link medfører ikke altid en
+foldning — `Redaktion.tsx:2117-2119` viser "⚠ Foldes ikke endnu — … Linket oprettes, men personerne
+vises separat til konflikten er løst." En tekst der siger "foldes ind i" ville lyve netop dér hvor
+redaktøren har mest brug for præcision.
+
+Etiketten lever i sit eget modul, `web/src/data/sammeSom.ts`: hverken `Redaktion.tsx` eller
+`data/redaktionRead.ts` kan enheds-testes uden miljøvariabler, fordi begge trækker
+`web/src/supabase.ts` med ind, og det modul kaster ved import.
 
 Navnet linker til `/redaktion/person/<l.modpartId>` — **rå id, ikke kanoniseret**. Redaktøren
 arbejder i skrive-id-rummet (`loadModel({ collapse: false })`, Redaktion.tsx:350-352); en
@@ -134,9 +160,17 @@ navnet op på linje 1864.
   - cmd-/ctrl-/shift-/alt-klik → hverken `preventDefault` eller navigation (browseren får klikket)
   - `button !== 0` → samme
   - `onNavigate` kaldes i stedet for `navigate(href)` når den er sat
+  - **`stopPropagation` gælder også ved modifier-klik og ved `defaultPrevented`** (review B1)
   - elementet har et reelt `href`-attribut (det er det højreklik-menuen læser)
-- Redaktion-suiten: samme_person-rækken renderer `<a href="/redaktion/person/…">` med rå modpart-id
-- Eksisterende suiter skal blive grønne uændret — konverteringen må ikke ændre klik-adfærd.
+- `web/src/data/__tests__/sammeSom.test.ts`: retnings-tabellen begge veje + regressionsværn mod at
+  teksten igen kommer til at love en foldning
+- Eksisterende suiter skal blive grønne — **på nær tre**, der asserterer rollen `button` på
+  elementer der bliver ankre og derfor skal opdateres som en del af arbejdet:
+  `components/__tests__/PersonFeedCardView.test.tsx:40` (rollen `button` + Space-aktivering, som
+  et anker ikke understøtter), samme fil `:97`, og
+  `components/__tests__/OcrKildepanel.test.tsx:302`.
+
+Baseline før arbejdet: 55 testfiler / 637 tests grønne.
 
 ## Konflikt-hensyn
 
