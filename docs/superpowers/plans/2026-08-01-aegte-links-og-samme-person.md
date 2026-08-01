@@ -22,7 +22,7 @@
 - **Ingen fabrikerede links.** Et element får kun et `href` hvis målet faktisk er adresserbart i URL-grammatikken (`web/src/data/nav.ts` + `parseRedaktionPath`). Tilstand der bevidst ligger uden for URL'en (fx Slægtskabsfanens A/B-valg) får intet anker.
 - **Kirurgisk diff i `web/src/Redaktion.tsx`.** En parallel session har filen modificeret på branch `feat/union-redigering`. Rør kun de kaldesteder planen navngiver — ingen drive-by-konvertering af filens øvrige `<span onClick>`.
 - **Baseline:** 55 testfiler / 637 tests grønne i worktreet før første ændring. Tre af dem SKAL opdateres undervejs (Task 2 og Task 6) fordi de asserterer rollen `button` på elementer der bliver ankre — det er forventet, ikke en regression.
-- **Test-kommando:** `npm run test -w web` (vitest). Typecheck: `npx tsc --noEmit -p web/tsconfig.json`. Bemærk at `web/tsconfig.json` har `"exclude": ["src/**/__tests__/**"]` — testfiler typecheckes ikke.
+- **Test-kommando:** `npm run test -w web` (vitest). Typecheck: `npm exec -w web -- tsc -b`. Bemærk at `web/tsconfig.json` har `"exclude": ["src/**/__tests__/**"]` — testfiler typecheckes ikke.
 
 ## Filstruktur
 
@@ -372,7 +372,7 @@ Expected: PASS
 
 - [ ] **Step 9: Typecheck + fuld web-suite**
 
-Run: `npx tsc --noEmit -p web/tsconfig.json && npm run test -w web`
+Run: `npm exec -w web -- tsc -b && npm run test -w web`
 Expected: ingen typefejl; 637 + de nye tests grønne.
 
 - [ ] **Step 10: Commit**
@@ -690,7 +690,7 @@ Et anker har rollen `link`, ikke `button`. Erstat med:
 
 - [ ] **Step 8: Kør hele web-suiten**
 
-Run: `npx tsc --noEmit -p web/tsconfig.json && npm run test -w web`
+Run: `npm exec -w web -- tsc -b && npm run test -w web`
 Expected: PASS. `web/src/__tests__/Redaktion.kvalitetsark.test.tsx:323-338` asserterer allerede at et
 klik på "Åbn person" lander på `/redaktion/person/1` — den skal fortsat være grøn, nu via ankeret.
 
@@ -847,7 +847,7 @@ grundlægger-dubletter). Kontrollér:
 
 - [ ] **Step 7: Typecheck + fuld suite**
 
-Run: `npx tsc --noEmit -p web/tsconfig.json && npm run test -w web`
+Run: `npm exec -w web -- tsc -b && npm run test -w web`
 Expected: PASS
 
 - [ ] **Step 8: Commit**
@@ -1066,7 +1066,7 @@ bliver til:
 
 - [ ] **Step 7: Kør testene**
 
-Run: `npx tsc --noEmit -p web/tsconfig.json && npm run test -w web`
+Run: `npm exec -w web -- tsc -b && npm run test -w web`
 Expected: PASS — inkl. de eksisterende TreeView-/TreeSearch-tests, der klikker på navne og forventer
 ét `onPick`-kald.
 
@@ -1230,7 +1230,7 @@ Bogstav-/gren-hoppene i samme fil (linje 301/307) er `href="#linje-…"` og forb
 
 - [ ] **Step 7: Kør testene**
 
-Run: `npx tsc --noEmit -p web/tsconfig.json && npm run test -w web`
+Run: `npm exec -w web -- tsc -b && npm run test -w web`
 Expected: PASS
 
 - [ ] **Step 8: Commit**
@@ -1394,7 +1394,7 @@ Og linje 97 (arkivkortet i samme fil):
 
 - [ ] **Step 7: Kør testene**
 
-Run: `npx tsc --noEmit -p web/tsconfig.json && npm run test -w web`
+Run: `npm exec -w web -- tsc -b && npm run test -w web`
 Expected: PASS
 
 - [ ] **Step 8: Commit**
@@ -1416,7 +1416,7 @@ URL-grammatikken. Profilkontrollen er nu et anker, ikke en knap."
 
 - [ ] **Step 1: Kør hele web-suiten + typecheck**
 
-Run: `npx tsc --noEmit -p web/tsconfig.json && npm run test -w web`
+Run: `npm exec -w web -- tsc -b && npm run test -w web`
 Expected: PASS. Antallet skal være ≥ 637 tests (baseline) plus de nye.
 
 - [ ] **Step 2: Kør de øvrige workspaces (regression)**
