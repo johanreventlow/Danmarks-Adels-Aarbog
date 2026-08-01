@@ -4,10 +4,14 @@
 > er autoritative, og hvordan næste deploy forberedes sikkert. Changelog fortæller
 > historien; denne side fortæller tilstanden.
 >
-> **Sidst afstemt:** 2026-07-21 (fase 3-mediecutover, app-deploy og første janitorrapport;
-> det øvrige live-objektinventar er fra 2026-07-20). Opdatér ved hver prod-deploy. Ved uenighed med ældre planer/specs
-> gælder denne side for prod-status; ret derefter det forældede dokument i dets egen
-> dokumentationsrunde.
+> **Sidst afstemt:** 2026-07-31 (replay-dagen: IDENTITY + sekvens-gulv-migrationer
+> applied; to source-scoped `--replace`-kørsler af DAA 1939 — v2-strukturen med 48
+> unummererede + v3-fakta-laget; prod = 1804 personer, 569 1939-poster, alle
+> redaktionelle invarianter verificeret; se changelog 2026-07-31). Objektinventar
+> i §-afsnittene er fra 2026-07-20/21 og fortsat retvisende for skemaet — kun data
+> og sekvenser er ændret. Opdatér ved hver prod-deploy. Ved uenighed med ældre
+> planer/specs gælder denne side for prod-status; ret derefter det forældede
+> dokument i dets egen dokumentationsrunde.
 >
 > **Fund ved 2026-07-20-afstemningen:** denne sides "Sidst afstemt: 2026-07-01" havde stået
 > ureflekteret i tre uger. Et direkte objektinventar (tabeller + `pg_proc`-funktionsnavne)
