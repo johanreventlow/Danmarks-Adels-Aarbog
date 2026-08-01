@@ -1807,8 +1807,12 @@ GRANT EXECUTE ON FUNCTION public.red_slet_medierelation_uden_evidens(bigint) TO 
 -- Invarianten (træer, præcis én sink pr. komponent) håndhæves i en TRIGGER, så den gælder ALLE
 -- insert-veje (RPC/undo/load-script/manuel), ikke kun red_samme_som.
 -- ============================================================================
+-- SECURITY DEFINER (2026-08-01): guarden nedenfor kalder _samme_som_gruppe, hvis EXECUTE er
+-- revoked fra anon/authenticated. Alle reelle skriveveje går gennem definer-RPC'er og kører
+-- allerede som ejer, men uden dette ville en fremtidig ikke-ejer-sti fejle på rettigheder frem
+-- for på invarianten. Funktionen skriver intet — den læser og rejser.
 CREATE OR REPLACE FUNCTION enforce_samme_som_invariants() RETURNS trigger
-LANGUAGE plpgsql SET search_path=public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
   IF NEW.rolle <> 'samme_som' OR NEW.subjekt_type <> 'person' OR NEW.objekt_type <> 'person' THEN
     RETURN NEW; -- ikke et person→person samme_som — rør ikke
@@ -1826,6 +1830,22 @@ BEGIN
   IF EXISTS (SELECT 1 FROM relation WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'
              AND objekt_id = NEW.subjekt_id) THEN
     RAISE EXCEPTION 'samme_som: person % er allerede kanonisk for andre — skift retning via fjern+genopret', NEW.subjekt_id;
+  END IF;
+  -- Unionens to parter skal forblive to FORSKELLIGE personer. Den omvendte rækkefølge af
+  -- trg_partner_loft's guard (Codex sol runde 5): dér blokeres "alias tilføjes som part nr. 2",
+  -- her blokeres "to parter linkes bagefter". Uden begge er håndhævelsen asymmetrisk — samme
+  -- slutresultat, afhængigt af klik-rækkefølgen. Komponenterne læses FØR den nye kant er
+  -- indsat (BEFORE-trigger), hvilket er præcis de to sider der ville smelte sammen.
+  -- Rettelsen er ikke at afvise identiteten, men at rette unionen først: står de samme person
+  -- som gift med sig selv, er unionen forkert, ikke sammenkædningen.
+  IF EXISTS (
+    SELECT 1 FROM family_member a
+    JOIN family_member b ON b.family_id = a.family_id AND b.rolle = 'partner' AND b.person_id <> a.person_id
+    WHERE a.rolle = 'partner'
+      AND a.person_id IN (SELECT pid FROM _samme_som_gruppe(NEW.subjekt_id))
+      AND b.person_id IN (SELECT pid FROM _samme_som_gruppe(NEW.objekt_id))
+  ) THEN
+    RAISE EXCEPTION 'samme_som: % og % er parter i samme union — ret unionen først, ellers ville personen være gift med sig selv', NEW.subjekt_id, NEW.objekt_id;
   END IF;
   -- (Cyklus kan ikke opstå her: en ny alias→kanonisk-kant lukker kun en cyklus hvis alias er reachable
   -- fra kanonisk, dvs. alias har en indgående kant og dermed er et objekt — hvilket G4 allerede afviser.

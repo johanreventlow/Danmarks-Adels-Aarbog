@@ -4836,6 +4836,57 @@ RETURNS TABLE(pid bigint) LANGUAGE sql STABLE SECURITY INVOKER SET search_path=p
 $$;
 REVOKE EXECUTE ON FUNCTION _samme_som_gruppe(bigint) FROM PUBLIC, anon, authenticated;
 
+-- SECURITY DEFINER (2026-08-01): guarden nedenfor kalder _samme_som_gruppe, hvis EXECUTE er
+-- revoked fra anon/authenticated. Alle reelle skriveveje går gennem definer-RPC'er og kører
+-- allerede som ejer, men uden dette ville en fremtidig ikke-ejer-sti fejle på rettigheder frem
+-- for på invarianten. Funktionen skriver intet — den læser og rejser.
+CREATE OR REPLACE FUNCTION enforce_samme_som_invariants() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF NEW.rolle <> 'samme_som' OR NEW.subjekt_type <> 'person' OR NEW.objekt_type <> 'person' THEN
+    RETURN NEW; -- ikke et person→person samme_som — rør ikke
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation')); -- serialisér samme_som-inserts
+  IF NEW.subjekt_id = NEW.objekt_id THEN
+    RAISE EXCEPTION 'samme_som: kan ikke linke en person til sig selv';
+  END IF;
+  -- G3 out-degree ≤ 1: alias peger ikke allerede på en ANDEN kanonisk (multi-sink).
+  IF EXISTS (SELECT 1 FROM relation WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'
+             AND subjekt_id = NEW.subjekt_id AND objekt_id <> NEW.objekt_id) THEN
+    RAISE EXCEPTION 'samme_som: person % er allerede alias for en anden (ville give multi-sink)', NEW.subjekt_id;
+  END IF;
+  -- G4 alias er ikke en eksisterende kanonisk (sink): ville stille re-roote en komponent.
+  IF EXISTS (SELECT 1 FROM relation WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'
+             AND objekt_id = NEW.subjekt_id) THEN
+    RAISE EXCEPTION 'samme_som: person % er allerede kanonisk for andre — skift retning via fjern+genopret', NEW.subjekt_id;
+  END IF;
+  -- Unionens to parter skal forblive to FORSKELLIGE personer. Den omvendte rækkefølge af
+  -- trg_partner_loft's guard (Codex sol runde 5): dér blokeres "alias tilføjes som part nr. 2",
+  -- her blokeres "to parter linkes bagefter". Uden begge er håndhævelsen asymmetrisk — samme
+  -- slutresultat, afhængigt af klik-rækkefølgen. Komponenterne læses FØR den nye kant er
+  -- indsat (BEFORE-trigger), hvilket er præcis de to sider der ville smelte sammen.
+  -- Rettelsen er ikke at afvise identiteten, men at rette unionen først: står de samme person
+  -- som gift med sig selv, er unionen forkert, ikke sammenkædningen.
+  IF EXISTS (
+    SELECT 1 FROM family_member a
+    JOIN family_member b ON b.family_id = a.family_id AND b.rolle = 'partner' AND b.person_id <> a.person_id
+    WHERE a.rolle = 'partner'
+      AND a.person_id IN (SELECT pid FROM _samme_som_gruppe(NEW.subjekt_id))
+      AND b.person_id IN (SELECT pid FROM _samme_som_gruppe(NEW.objekt_id))
+  ) THEN
+    RAISE EXCEPTION 'samme_som: % og % er parter i samme union — ret unionen først, ellers ville personen være gift med sig selv', NEW.subjekt_id, NEW.objekt_id;
+  END IF;
+  -- (Cyklus kan ikke opstå her: en ny alias→kanonisk-kant lukker kun en cyklus hvis alias er reachable
+  -- fra kanonisk, dvs. alias har en indgående kant og dermed er et objekt — hvilket G4 allerede afviser.
+  -- G3+G4 håndhæver derfor invarianten fuldt. En eksplicit graf-walk her ville være død kode + kunne
+  -- fejle en urelateret insert hvis en cyklus var pre-injiceret via trigger-disabled rå-SQL.)
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_enforce_samme_som ON relation;
+CREATE TRIGGER trg_enforce_samme_som BEFORE INSERT ON relation
+  FOR EACH ROW WHEN (NEW.rolle = 'samme_som') EXECUTE FUNCTION enforce_samme_som_invariants();
+
 -- Tilføj barn til en union. Struktur-guards (Codex H3): barn ≠ partner i samme family;
 -- ingen ane-cyklus (recursiv CTE: descendants(barn) må ikke indeholde en partner i family).
 -- NB: cyklus-tjekket er pre-INSERT uden lås — to samtidige txn'er kan i teorien hver indsætte den anden
