@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { navigate, usePath } from './router';
 import { Link } from './Link';
+import { sammeSomEtiket } from './data/sammeSom';
 import { SammenlignUdgaver } from './components/SammenlignUdgaver';
 import { FeedStyring } from './components/FeedStyring';
 import { signIn, signOut, currentSession, type RedSession } from './data/auth';
@@ -1853,11 +1854,20 @@ export default function Redaktion() {
               {subHeader('Godser & besiddelser', () => setPicker({ kind: 'gods' }), '+ Tilføj gods', 10)}
               {godser.length ? godser.map((r) => linkRow(r.navn, [r.rolle, r.periode].filter(Boolean).join(' · '), () => run({ art: 'sletRelation', subjektType: 'person', subjektId: pid, relationId: String(r.relationId) }, 'Fjern gods'))) : <div style={{ fontSize: 12.5, color: T.muted3 }}>Ingen godser.</div>}
               {subHeader('Samme person', () => setPicker({ kind: 'sammeSom' }), '+ Marker som samme person', 10)}
-              {sammeSom.length ? sammeSom.map((l) => linkRow(
-                persons.find((p) => p.id === l.modpartId)?.navn ?? `#${l.modpartId}`,
-                l.retning === 'alias' ? 'denne foldes ind i' : 'foldes ind i denne',
-                () => run({ art: 'fjernSammeSom', subjektType: 'person', subjektId: pid, relationId: l.relationId }, 'Fjern samme-person-link'),
-              )) : <div style={{ fontSize: 12.5, color: T.muted3 }}>Ingen identitets-links.</div>}
+              {sammeSom.length ? sammeSom.map((l) => {
+                const modpart = persons.find((p) => p.id === l.modpartId);
+                const { rolle, forklaring } = sammeSomEtiket(l.retning);
+                // Rå modpart-id i stien: redaktøren arbejder i skrive-id-rummet (loadModel({ collapse: false })),
+                // så en kanonisering her ville åbne en anden post end den rækken navngiver.
+                return linkRow(
+                  [modpart?.navn ?? `#${l.modpartId}`, modpart?.aar ? `(${modpart.aar})` : ''].filter(Boolean).join(' '),
+                  `${rolle} · ${forklaring}`,
+                  () => run({ art: 'fjernSammeSom', subjektType: 'person', subjektId: pid, relationId: l.relationId }, 'Fjern samme-person-link'),
+                  undefined,
+                  () => openRecord('person', l.modpartId),
+                  redaktionPath('person', l.modpartId),
+                );
+              }) : <div style={{ fontSize: 12.5, color: T.muted3 }}>Ingen identitets-links.</div>}
             </>
           )}
         </div>
