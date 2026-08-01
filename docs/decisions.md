@@ -2,6 +2,30 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Hvad der bevidst IKKE blev et link (2026-08-01)
+
+**Besluttet ved link-konverteringen af web-fladen.** Reglen er "ingen fabrikerede
+links": et element får kun `href` hvis målet faktisk er adresserbart i
+URL-grammatikken. Tre fravalg — ret dem ikke uden at læse hvorfor:
+
+- **`RelateView`s stitrin** (`components/RelateView.tsx`) bruger `focusOnly`:
+  venstreklik skifter fokus **uden** at navigere, fordi Slægtskabs-fanen bevarer
+  sit mode. Et `href` ville stå i browserens statuslinje og love en side klikket
+  ikke går til. Rigtige næste skridt er ikke et anker, men en beslutning om
+  hvorvidt `/relate/<aId>/<bId>` skal være adresserbar (delbare slægtskabs-links).
+- **Kort-punkter** (`components/OverviewMapView.tsx`) navigerer via kort-rendererens
+  `onPointPress`-callback; rendereren kan ikke levere ankre. Teknisk undtagelse.
+- **Feed-kort af typen `slaegt`, `forbundet`, `samle`** får `null` fra
+  `hrefForCard`: deres mål (A/B-parret, browse-tilstanden) ligger uden for
+  URL-grammatikken.
+
+**Åben opfølgning:** fire håndbyggede `/redaktion/person/${id}`-strenge
+(`Redaktion.tsx`, `OcrKildepanel.tsx`, `PersonKvalitetsark.tsx` ×2) strider mod
+den regel `data/nav.ts` opstiller for sig selv. Rettelsen kræver at
+`redaktionPath`/`parseRedaktionPath` flyttes ud af `Redaktion.tsx` — at
+eksportere dem derfra ville give en import-cyklus, fordi `Redaktion.tsx`
+importerer begge komponenter. Bevidst udskudt, ikke overset.
+
 ## Kanonisk låseorden + id-gulv over versioneringshistorik (2026-07-31)
 
 **Besluttet (af sol-review-cyklussen):** (1) Alle scripts/migrationer der LOCKer flere
