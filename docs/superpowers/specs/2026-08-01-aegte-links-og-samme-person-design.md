@@ -6,14 +6,14 @@
 
 To ting, fundet ved brug af redaktør-fladen:
 
-1. **"Samme person" er utydelig.** Identitets-linkene i personeditoren (`web/src/Redaktion.tsx:1863-1867`)
+1. **"Samme person" er utydelig.** Identitets-linkene i personeditoren (`web/src/Redaktion.tsx:1845-1850`)
    viser modpartens navn uden årstal og med meta-teksten `denne foldes ind i` / `foldes ind i denne`.
    Man kan ikke se hvilken post der er den kanoniske, og navnet kan ikke klikkes — modsat familie-
    rækkerne lige ovenfor, der sender `onOpen` til `linkRow`.
 
 2. **Næsten ingen links er ægte links.** Al navigation i web-fladen er `<div onClick>` / `<span onClick>`.
    Det betyder ingen højreklik → "åbn i nyt vindue", ingen cmd/ctrl-klik, ingen midterklik, ingen
-   tastaturfokus. To elementer *ligner* links (`web/src/Folgesvend.tsx:429`, `web/src/Redaktion.tsx:2065`)
+   tastaturfokus. To elementer *ligner* links (`web/src/Folgesvend.tsx:429`, `web/src/Redaktion.tsx:2047`)
    men kalder `preventDefault()` ubetinget, så cmd-klik dør også der.
 
 ## Forudsætning (verificeret)
@@ -54,9 +54,8 @@ Højreklik (`contextmenu`) og midterklik (`auxclick`) kræver ingen kode: de fyr
 skifte URL:
 
 - `Folgesvend.navigateTree` sætter `prevFocusId` og pusher history-state
-- `Folgesvend.focusOnly` navigerer bevidst **ikke** (Slægtskab-fanen bevarer sit mode)
 - `Folgesvend.driftFocus` bruger `replace` frem for `push`
-- `Redaktion.tsx:2065` kalder `afslut()` før navigationen
+- `Redaktion.tsx:2047` kalder `afslut()` før navigationen
 
 Alle beholder deres handler og får modifier-klik oveni.
 
@@ -92,7 +91,6 @@ kom fra hovedmappen, hvor en parallel session har ucommittede ændringer i `Reda
 - `components/NarrativRenderer.tsx` (person-links i prosa — dækker også AboutView og PresensView)
 - `components/EstatesView.tsx` (godser + ejere)
 - `components/PresensView.tsx:61` ("Se fuld profil")
-- `components/RelateView.tsx:87` (slægtskabsstiens trin — beholder `focusOnly`-adfærd ved venstreklik)
 - `components/feed/` (FeedStreamView, FeedCardView, PersonFeedCardView) — forsidens feed er en del
   af web-fladen; kort hvis mål ikke er adresserbart får intet `href`
 
@@ -101,6 +99,9 @@ kom fra hovedmappen, hvor en parallel session har ucommittede ændringer i `Reda
   `navigate()` ville pushe et fragment som en path.
 - `components/OverviewMapView.tsx:46` — kort-punkter navigerer via kort-rendererens
   `onPointPress`-callback og kan ikke være ankre. Teknisk undtagelse.
+- `components/RelateView.tsx:87` — slægtskabsstiens trin bruger `focusOnly` (fokus uden navigation).
+  Et `href` ville love en side venstreklik ikke går til. Afventer at relate-tilstanden bliver
+  URL-adresserbar.
 - `mobile/` (React Native har ingen `<a>`; uden for scope).
 
 **Sti-hjælpere:** Følgesvend-komponenter behøver ikke en ny prop pr. kaldested — person-stien er
@@ -110,8 +111,8 @@ altid `/person/<id>`, og `Folgesvend`s path-sync-effekt kanoniserer alias-id'er 
 
 ### 4. "Samme person"-tydeliggørelse
 
-`Redaktion.tsx:1863-1867` genbruger ordforrådet fra bekræftelsesdialogen `renderSammeSomConfirm`
-(2128-2131: *KANONISK (beholdes)* / *FOLDES IND I OVENSTÅENDE*) i stedet for at opfinde et nyt:
+`Redaktion.tsx:1845-1850` genbruger ordforrådet fra bekræftelsesdialogen `renderSammeSomConfirm`
+(2110-2113: *KANONISK (beholdes)* / *FOLDES IND I OVENSTÅENDE*) i stedet for at opfinde et nyt:
 
 `SammeSomLink.retning` er klassificeret **set fra den redigerede person** (`mapSammeSomLinks`,
 `data/redaktionRead.ts:711-719`): `'alias'` = den redigerede er subjekt og peger på en kanonisk;
@@ -144,7 +145,7 @@ arbejder i skrive-id-rummet (`loadModel({ collapse: false })`, Redaktion.tsx:350
 kanonisering her ville sende brugeren til en anden post end den rækken navngiver.
 
 Årstal hentes fra `persons` (`fetchRedaktionPersoner()`, ikke linje-scopet), som allerede slår
-navnet op på linje 1864.
+navnet op på linje 1847.
 
 ## Antagelser
 

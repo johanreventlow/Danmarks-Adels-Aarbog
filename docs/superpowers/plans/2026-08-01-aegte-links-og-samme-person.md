@@ -39,7 +39,7 @@
 | `web/src/Folgesvend.tsx` | "Redaktion ↗" + brugerens egen avatar | Modificér |
 | `web/src/components/primitives.tsx` | `PersonCard` får valgfrit `href` | Modificér |
 | `web/src/components/HomeView.tsx`, `TreeSearch.tsx`, `TreeView.tsx` | Personkort/-noder + "Månedens gods" | Modificér |
-| `web/src/components/DetailPanel.tsx`, `NarrativRenderer.tsx`, `BookmarksView.tsx`, `EstatesView.tsx`, `PresensView.tsx`, `RelateView.tsx` | Detaljepanel, prosa-links, bogmærker, godser, præsensliste, slægtskabssti | Modificér |
+| `web/src/components/DetailPanel.tsx`, `NarrativRenderer.tsx`, `BookmarksView.tsx`, `EstatesView.tsx`, `PresensView.tsx` | Detaljepanel, prosa-links, bogmærker, godser, præsensliste | Modificér |
 | `web/src/components/feed/FeedStreamView.tsx`, `FeedCardView.tsx`, `PersonFeedCardView.tsx` | Forsidens feed-kort | Modificér |
 
 **Bevidst urørt:**
@@ -1082,17 +1082,16 @@ får ankeret på navnet, så HTML'en forbliver gyldig."
 
 ---
 
-### Task 5: Detaljepanel, bogmærker, godser, præsensliste og slægtskabssti
+### Task 5: Detaljepanel, bogmærker, godser og præsensliste
 
 **Files:**
 - Modify: `web/src/components/DetailPanel.tsx:111,170,181`
 - Modify: `web/src/components/BookmarksView.tsx:55-62`
 - Modify: `web/src/components/EstatesView.tsx:62-65,104-108`
 - Modify: `web/src/components/PresensView.tsx:60-66` ("Se fuld profil")
-- Modify: `web/src/components/RelateView.tsx:87` (slægtskabsstiens trin)
 - Test: `web/src/components/__tests__/BookmarksView.test.tsx`
 
-`DetailPanel`, `EstatesView`, `PresensView` og `RelateView` har ingen enheds-test der dækker deres
+`DetailPanel`, `EstatesView` og `PresensView` har ingen enheds-test der dækker deres
 navigation (props-fladen kræver fixtures der ikke findes). De dækkes af typecheck og af den manuelle
 gennemgang i Task 7. `BookmarksView` har allerede en fixture og dækker det interessante tilfælde:
 navn-anker inde i en række der også rummer en knap.
@@ -1229,37 +1228,19 @@ med:
 
 Bogstav-/gren-hoppene i samme fil (linje 301/307) er `href="#linje-…"` og forbliver urørte.
 
-- [ ] **Step 7: Konvertér slægtskabsstiens trin**
-
-`web/src/components/RelateView.tsx:87`. Handleren er `focusOnly` — den skifter fokus **uden** at
-navigere, fordi Slægtskabs-fanen bevidst bevarer sit mode. Det bevares: `onNavigate` kalder som hidtil
-`onPickStep`, og `href`'et gør det muligt at åbne personen i en ny fane uden at forlade fanen.
-
-Tilføj imports (`Link`, `personPath`) og erstat:
-
-```tsx
-                    <div onClick={() => onPickStep(st.id)} style={{ flex: 1, background: st.isLca ? '#f3ecdb' : T.paper, border: `1px solid ${st.isLca ? 'rgba(185,160,106,.5)' : 'rgba(34,31,26,.1)'}`, borderRadius: 11, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-```
-
-med (luk med `</Link>`):
-
-```tsx
-                    <Link href={personPath(st.id)} onNavigate={() => onPickStep(st.id)} style={{ flex: 1, background: st.isLca ? '#f3ecdb' : T.paper, border: `1px solid ${st.isLca ? 'rgba(185,160,106,.5)' : 'rgba(34,31,26,.1)'}`, borderRadius: 11, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
-```
-
-- [ ] **Step 8: Kør testene**
+- [ ] **Step 7: Kør testene**
 
 Run: `npx tsc --noEmit -p web/tsconfig.json && npm run test -w web`
 Expected: PASS
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add web/src/components/DetailPanel.tsx web/src/components/BookmarksView.tsx web/src/components/EstatesView.tsx web/src/components/PresensView.tsx web/src/components/RelateView.tsx web/src/components/__tests__/BookmarksView.test.tsx
-git commit -m "feat(web): detaljepanel, bogmærker, godser, præsensliste og slægtskabssti
+git add web/src/components/DetailPanel.tsx web/src/components/BookmarksView.tsx web/src/components/EstatesView.tsx web/src/components/PresensView.tsx web/src/components/__tests__/BookmarksView.test.tsx
+git commit -m "feat(web): detaljepanel, bogmærker, godser og præsensliste
 
-Forældre, ægtefælle, børn, bogmærke-navne, ejerrækken, godskortene,
-\"Se fuld profil\" og stiens trin kan nu åbnes i ny fane."
+Forældre, ægtefælle, børn, bogmærke-navne, ejerrækken, godskortene og
+\"Se fuld profil\" kan nu åbnes i ny fane."
 ```
 
 ---
@@ -1459,9 +1440,8 @@ side (ikke en 404, ikke forsiden) — og at almindeligt venstreklik gør præcis
 7. `/estates` → et godskort, derefter en ejer i ejerrækken
 8. `/bookmarks` → et bogmærke-navn
 9. `/praesens` → "Se fuld profil"
-10. `/relate` → et trin i slægtskabsstien (venstreklik skal **stadig** kun skifte fokus, ikke skifte fane)
-11. `/redaktion/person/<id>` → record-listen, et familie-navn, en "Samme person"-række
-12. Headerens "Redaktion ↗" og din egen avatar ved siden af
+10. `/redaktion/person/<id>` → record-listen, et familie-navn, en "Samme person"-række
+11. Headerens "Redaktion ↗" og din egen avatar ved siden af
 
 Kontrollér desuden **cmd-klik** på mindst ét træ-navn og ét bogmærke-navn: der må åbne en ny fane
 **uden** at den aktuelle fane også skifter person.
@@ -1489,4 +1469,4 @@ git commit -m "test(web): tilpas e2e-selectorer til ankre"
 - `PresensView`s bogstav-/gren-hop forbliver fragment-ankre (`href="#…"`) — de er allerede ægte links, blot in-page.
 - `OverviewMapView.tsx:46`: kort-punkter navigerer via kort-rendererens `onPointPress`-callback og kan ikke være ankre. Teknisk undtagelse.
 - Feed-kort af typen `slaegt`, `forbundet` og `samle` får bevidst intet `href`, fordi deres mål (A/B-parret, browse-tilstanden) ligger uden for URL-grammatikken.
-- Slægtskabsfanens trin (`RelateView`) beholder deres `focusOnly`-adfærd: venstreklik skifter fokus uden at navigere, mens `href`'et gør det muligt at åbne personen i en ny fane.
+- **`RelateView.tsx:87` (slægtskabsstiens trin) får bevidst intet anker.** Handleren er `focusOnly`: venstreklik skifter fokus uden at navigere. Et `href` browseren viser i statuslinjen, men som venstreklik ikke går til, ville være præcis det "ingen fabrikerede links"-reglen forbyder. Det rigtige næste skridt er ikke et anker, men en beslutning om hvorvidt `/relate/<aId>/<bId>` skal være adresserbar (delbare slægtskabs-links) — en selvstændig feature.
