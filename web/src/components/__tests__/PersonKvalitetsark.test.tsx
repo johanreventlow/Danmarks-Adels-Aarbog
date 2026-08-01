@@ -105,7 +105,7 @@ describe('PersonKvalitetsark — fysiske rækker (ingen samme_som-collapse)', ()
     navnCelle.focus();
     expect(document.activeElement).toBe(navnCelle);
     fireEvent.click(navnCelle);
-    const [aabnKnap] = screen.getAllByRole('button', { name: 'Åbn person' });
+    const [aabnKnap] = screen.getAllByRole('link', { name: 'Åbn person' });
     fireEvent.click(aabnKnap);
     expect(onOpenPerson).toHaveBeenCalledWith('9');
   });
@@ -427,10 +427,10 @@ describe('PersonKvalitetsark — celle-valg og navigation', () => {
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(screen.getByText(/flere kildebelagte påstande/i)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Åbn person' }));
+    fireEvent.click(screen.getByRole('link', { name: 'Åbn person' }));
     expect(onOpenPerson).toHaveBeenCalledWith('1');
 
-    fireEvent.click(screen.getByRole('button', { name: '2 titler' }));
+    fireEvent.click(screen.getByRole('link', { name: '2 titler' }));
     expect(onOpenPerson).toHaveBeenCalledWith('1');
   });
 });

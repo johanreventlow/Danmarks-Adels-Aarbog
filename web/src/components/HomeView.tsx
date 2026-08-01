@@ -5,6 +5,8 @@
 // data. Ingen fabrikerede opdaterings-datoer (der findes ingen timestamp-metadata; brief §8.4).
 import { useEffect, useMemo, useState } from 'react';
 import { T } from '../theme';
+import { KlikbarFlade } from '../Link';
+import { personPath, estatePath } from '../data/nav';
 import { PersonCard, SearchIcon, Crest } from './primitives';
 import { forsideStartpersoner, pickMaanedensGods } from '../data/home';
 import { FeedStreamView } from './feed/FeedStreamView';
@@ -87,7 +89,7 @@ export function HomeView({
       <div style={{ display: 'flex', gap: 13, marginTop: 13, flexWrap: 'wrap' }}>
         {curated.map((p) => (
           <div key={p.id} style={{ flex: 1, minWidth: 210 }}>
-            <PersonCard p={p} width="100%" onClick={() => onPickPerson(p.id)} />
+            <PersonCard p={p} width="100%" href={personPath(p.id)} onClick={() => onPickPerson(p.id)} />
           </div>
         ))}
       </div>
@@ -95,7 +97,13 @@ export function HomeView({
       {/* Nyt i arkivet — månedens gods (ægte data) + rolige indgange. */}
       <div style={{ marginTop: 34, fontFamily: T.mono, fontSize: 11, letterSpacing: '.16em', textTransform: 'uppercase', color: T.gold }}>Nyt i arkivet</div>
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginTop: 13 }}>
-        <div onClick={gods ? () => onOpenEstate(gods.id) : undefined} style={{ background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 15, overflow: 'hidden', cursor: gods ? 'pointer' : 'default' }}>
+        {/* Månedens gods: ankeret kun når der FINDES et gods at pege på — ellers er kortet
+            ren dekoration uden mål, og et href ville love en side der ikke findes. */}
+        <KlikbarFlade
+          href={gods ? estatePath(gods.id) : undefined}
+          onClick={gods ? () => onOpenEstate(gods.id) : undefined}
+          style={{ background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 15, overflow: 'hidden' }}
+        >
           <div style={{ height: 160, background: 'repeating-linear-gradient(45deg,#ece4d6 0 12px,#e2d8c8 12px 24px)', borderBottom: '1px solid rgba(34,31,26,.08)', display: 'flex', alignItems: 'flex-end', padding: 14 }}>
             <span style={{ fontFamily: T.mono, fontSize: 11, color: T.muted }}>{gods ? `gods · ${gods.navn}` : 'gods'}</span>
           </div>
@@ -104,7 +112,7 @@ export function HomeView({
             <div style={{ fontFamily: T.serif, fontSize: 24, fontWeight: 600, color: T.ink, marginTop: 5, lineHeight: 1.08 }}>{gods ? gods.navn : 'Følg ejerrækken gennem slægten'}</div>
             <div style={{ fontFamily: T.sans, fontSize: 14, lineHeight: 1.5, color: T.muted, marginTop: 7 }}>Følg ejerrækken gennem slægten — slægtled for slægtled, fra de tidligste besiddelser til lensafløsningen.</div>
           </div>
-        </div>
+        </KlikbarFlade>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
           <NytCard kicker="Udforsk" title="Åbn stamtræet" sub="Fokus- og kolonne-visning af hele slægten" onClick={onGoTree} />
           <NytCard kicker="Gennemse" title={`Alle ${personCount} personer`} sub="Søg, sortér og hop gennem alfabetet" onClick={onBrowseAll} />

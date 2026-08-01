@@ -1,5 +1,38 @@
 # Changelog
 
+## Ægte links i web-fladen + tydeligere "Samme person" (2026-08-01)
+
+Al navigation i `web/` var `<div onClick>`/`<span onClick>`: ingen højreklik →
+"åbn i nyt vindue", intet cmd/ctrl-klik, intet midterklik, ingen tastaturfokus.
+Ny primitiv `web/src/Link.tsx` renderer et rigtigt `<a href>` og afgiver klikket
+til browseren ved modifier-/ikke-venstreklik; ~14 komponenter konverteret i
+begge flader (redaktørbord + følgesvend + forsidens feed). Venstreklik-adfærden
+er uændret overalt — `onNavigate` bevarer hvert kaldesteds egen handler.
+
+Redaktørens "Samme person"-rækker viser nu `KANONISK`/`ALIAS` + årstal, og
+navnet linker til modpartens post (rå id — redaktøren arbejder i
+skrive-id-rummet). Teksten beskriver **relationen**, ikke resultatet: et
+samme_som-link medfører ikke altid en foldning, jf. dialogens "Foldes ikke
+endnu"-advarsel.
+
+To fejl fanget undervejs, begge reproduceret før rettelse:
+
+- **Dobbelt-navigation ved cmd-klik.** Primitiven afgav klikket til browseren
+  FØR `stopPropagation`, så et kort-`onClick` omkring ankeret navigerede den
+  aktuelle fane samtidig med at browseren åbnede en ny.
+- **Våben-feedkortet mistede sit layout.** Den delte klikbare flade satte
+  `display: 'block'` som overstyring i stedet for default, så kortets eget
+  `display: 'flex'` blev slået ihjel. Regressionstest tilføjet.
+
+Fem eksisterende tests asserterede rollen `button` på elementer der nu er
+ankre. Assertionerne er rettet, ikke komponenterne: at åbne en person ER
+navigation, så rollen skal være `link` — og Space aktiverer ikke et anker
+(kun klik og Enter).
+
+Status: 672 web-tests + 403 core + 129 feed grønne, `tsc -b` ren, Playwright
+grøn. Manuel browser-verifikation udestår. Review-spor:
+`docs/reviews/aegte-links-plan-review-2026-08-01.md`.
+
 ## Trin B: fakta-efterudtrækket i prod — v3 live (2026-07-31, aften)
 
 Anden replace samme dag (kæden er nu rutine): terra udtrak fakta af alle 546

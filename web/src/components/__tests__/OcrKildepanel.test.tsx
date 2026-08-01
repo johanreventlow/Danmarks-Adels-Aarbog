@@ -299,7 +299,11 @@ describe('OcrKildepanel — blokeret felt', () => {
     expect(screen.queryByRole('button', { name: 'Godkend som korrekt' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Udskyd' })).toBeNull();
     expect(screen.getByText(/flere kildebelagte påstande/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Åbn person' }));
+    // Ægte link (ikke knap): navigation hører til rollen 'link', og href'et er dét
+    // højreklik-menuen læser når redaktøren vil åbne personen i en ny fane.
+    const aabnPerson = screen.getByRole('link', { name: 'Åbn person' });
+    expect(aabnPerson.getAttribute('href')).toBe('/redaktion/person/1');
+    fireEvent.click(aabnPerson);
     expect(onOpenPerson).toHaveBeenCalledWith('1');
   });
 });

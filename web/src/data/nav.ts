@@ -64,6 +64,17 @@ export function pathForMode(m: Mode): string {
   return m === 'home' ? '/' : MODE_PATH[m];
 }
 
+// De to id-bærende dybe-links. Egne helpers, så et href aldrig håndbygges ved kaldestedet og
+// kan drive fra parseFolgesvendPath (samme begrundelse som MODE_PATH/PATH_MODE-tabellen ovenfor).
+// Ingen kanonisering her: Folgesvends path-sync-effekt kanoniserer et alias-id ved indlæsning
+// (navigate(…, { replace: true })), så et rå id i et href er sikkert.
+export function personPath(id: string): string {
+  return `/person/${id}`;
+}
+export function estatePath(id: string): string {
+  return `/estate/${id}`;
+}
+
 // Split-skærm (§5): er detalje-panelet åbent? Drevet af URL'en (review 26 anbef. 6: URL ER
 // split-tilstanden) — i tree betyder en eksplicit /person/:id "detalje åben", mens /stamtrae
 // (urlPersonId=null) er fuldt træ uden detalje. Relate bevarer sin focusOnly-drevne detalje

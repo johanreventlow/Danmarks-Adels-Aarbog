@@ -6,6 +6,7 @@
 // + korroboration fra den porterede finder). Godser/Våben/Om/Kort/Bogmærker følger.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { navigate, usePath } from './router';
+import { Link } from './Link';
 import { loadModel } from './data/model';
 import { initials } from './data/format';
 import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, TOM_PERSONDETALJE, type AboutSection, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
@@ -26,7 +27,7 @@ import PresensView from './components/PresensView';
 import { ArmsView } from './components/ArmsView';
 import { AboutView } from './components/AboutView';
 import type { TreeSearchBundle } from './components/TreeSearch';
-import { THEMES, themeOfMode, labelOfMode, parseFolgesvendPath, pathForMode, detailOpenFor, type Mode } from './data/nav';
+import { THEMES, themeOfMode, labelOfMode, parseFolgesvendPath, pathForMode, detailOpenFor, type Mode, personPath } from './data/nav';
 import { SearchIcon } from './components/primitives';
 import { T } from './theme';
 
@@ -424,9 +425,9 @@ export default function Folgesvend() {
             <div onClick={() => setLoginOpen(true)} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>Log ind</div>
           )}
           {meCanon && model?.byId[meCanon] && (
-            <div onClick={() => navigateTree(meCanon)} title="Din plads i slægten" style={{ width: 38, height: 38, borderRadius: '50%', background: '#f8ecef', border: `1.5px solid ${T.bordeaux}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{initials(model.byId[meCanon].name)}</div>
+            <Link href={personPath(meCanon)} onNavigate={() => navigateTree(meCanon)} title="Din plads i slægten" style={{ width: 38, height: 38, borderRadius: '50%', background: '#f8ecef', border: `1.5px solid ${T.bordeaux}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{initials(model.byId[meCanon].name)}</Link>
           )}
-          <a href="/redaktion" onClick={(e) => { e.preventDefault(); navigate('/redaktion'); }} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.bordeaux, textDecoration: 'none' }}>Redaktion ↗</a>
+          <Link href="/redaktion" style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.bordeaux }}>Redaktion ↗</Link>
         </div>
         </div>
 

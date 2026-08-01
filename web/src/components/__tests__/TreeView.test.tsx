@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent } from '@testing-library/react';
+import { vi } from 'vitest';
 import { TreeView } from '../TreeView';
 import { buildModel } from '@daa/core';
 import type { AppPerson, Db } from '../../data/types';
@@ -39,6 +40,35 @@ const search = {
 const props = { model, onPick: () => {}, onFocus: () => {}, hasBookmark: () => false, onToggleBookmark: () => {}, search };
 
 describe('TreeView', () => {
+  it('søskende-kortets navn er et ægte anker til /person/<id>', () => {
+    render(<TreeView {...props} focusId="A" />);
+    const anker = screen.getByText('Anna').closest('a');
+    expect(anker).not.toBeNull();
+    expect(anker!.getAttribute('href')).toBe('/person/A');
+  });
+
+  it('venstreklik på et børne-navn kalder onPick præcis én gang (kortet navigerer ikke også selv)', () => {
+    const onPick = vi.fn();
+    render(<TreeView {...props} onPick={onPick} focusId="A" />);
+    fireEvent.click(screen.getByText('Bo'));
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(onPick).toHaveBeenCalledWith('C1');
+  });
+
+  it('cmd-klik på et navn lader browseren åbne ny fane UDEN at kortet også navigerer', () => {
+    const onPick = vi.fn();
+    render(<TreeView {...props} onPick={onPick} focusId="A" />);
+    fireEvent.click(screen.getByText('Bo'), { metaKey: true });
+    expect(onPick).not.toHaveBeenCalled();
+  });
+
+  it('kolonne-variantens anker-kolonne har intet link (ikke-klikbar i dag)', () => {
+    render(<TreeView {...props} focusId="A" />);
+    fireEvent.click(screen.getByText('Kolonner'));
+    expect(screen.getByText('Anna').closest('a')).toBeNull();
+    expect(screen.getByText('Far').closest('a')?.getAttribute('href')).toBe('/person/F');
+  });
+
   it('viser Fokus-variant som standard (ingen kolonne-labels)', () => {
     render(<TreeView {...props} focusId="A" />);
     expect(screen.getByText('Denne generation')).toBeTruthy(); // variant A-markør

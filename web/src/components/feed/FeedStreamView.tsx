@@ -22,12 +22,27 @@ import {
   type FeedMediaCandidatesByPerson, type FeedMediaRequest, type WebFeedMediaByCard,
 } from '../../data/feedMedia';
 import { T } from '../../theme';
+import { personPath, estatePath, pathForMode } from '../../data/nav';
 import type { ArmsItem, EstateItem } from '../../data/public';
 import type { Model } from '../../data/types';
 import { FeedCardView } from './FeedCardView';
 
 const PAGE_SIZE = 12;
 const SEEN_EXCLUDED_KINDS = new Set<FeedCard['kind']>(['slaegt', 'dagensperson', 'samle']);
+
+// Hvor peger et feed-kort hen, som en adresserbar sti? null = målet ligger bevidst uden for
+// URL-grammatikken (Slægtskabsfanens A/B-par, browse-tilstand), og så får kortet intet anker —
+// et href ville love en side der ikke findes.
+export function hrefForCard(card: FeedCard): string | null {
+  switch (card.kind) {
+    case 'portrait': case 'citat': case 'arkiv': case 'historie': case 'embede':
+    case 'jubilaeum': case 'paadennedag': case 'dagensperson':
+      return personPath(card.personId);
+    case 'gods': return estatePath(card.estateId);
+    case 'vaaben': return pathForMode('arms');
+    case 'slaegt': case 'forbundet': case 'samle': return null;
+  }
+}
 
 export function FeedStreamView({
   model, estates, arms, meId, focusId, feedPins, bookmarkedIds,
@@ -281,6 +296,7 @@ export function FeedStreamView({
               bookmarked={pid ? hasBookmark(pid) : false}
               onSave={onSaveBookmark}
               onOpen={openCard}
+              href={hrefForCard(card)}
             />
           );
         })}

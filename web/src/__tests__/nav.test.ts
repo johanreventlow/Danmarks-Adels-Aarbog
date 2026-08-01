@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseFolgesvendPath, pathForMode, themeOfMode, labelOfMode, detailOpenFor, type Mode } from '../data/nav';
+import { parseFolgesvendPath, pathForMode, themeOfMode, labelOfMode, detailOpenFor, personPath, estatePath, type Mode } from '../data/nav';
 
 describe('parseFolgesvendPath', () => {
   it('/ (og tom sti) → forsiden (home)', () => {
@@ -82,5 +82,19 @@ describe('detailOpenFor (§5 split)', () => {
     expect(detailOpenFor('bookmarks', null, 'p1')).toBe(false);
     expect(detailOpenFor('estates', null, 'p1')).toBe(false);
     expect(detailOpenFor('arms', null, 'p1')).toBe(false);
+  });
+});
+
+describe('personPath / estatePath', () => {
+  it('bygger den dybe-linkbare person-sti', () => {
+    expect(personPath('482')).toBe('/person/482');
+  });
+  it('bygger den dybe-linkbare gods-sti', () => {
+    expect(estatePath('7')).toBe('/estate/7');
+  });
+  it('er den modsatte retning af parseFolgesvendPath', () => {
+    // Samme par-invariant som MODE_PATH/PATH_MODE: de to retninger må ikke komme ud af trit.
+    expect(parseFolgesvendPath(personPath('482')).personId).toBe('482');
+    expect(parseFolgesvendPath(estatePath('7')).estateId).toBe('7');
   });
 });

@@ -34,6 +34,25 @@ describe('NarrativRenderer', () => {
     expect(onPick).toHaveBeenCalledWith('482');
   });
 
+  it('person-token er et ægte anker med default-sti til publikumsfladen', () => {
+    render(<NarrativRenderer tekst="Se [[person:482|Chr. D. R.]] her." onPickPerson={vi.fn()} {...COLORS} />);
+    const link = screen.getByText('Chr. D. R.');
+    expect(link.tagName).toBe('A');
+    expect(link.getAttribute('href')).toBe('/person/482');
+  });
+
+  it('hrefFor overstyrer stien (redaktørens preview peger på redaktør-posten)', () => {
+    render(
+      <NarrativRenderer
+        tekst="Se [[person:482|Chr. D. R.]] her."
+        onPickPerson={vi.fn()}
+        hrefFor={(id) => `/redaktion/person/${id}`}
+        {...COLORS}
+      />,
+    );
+    expect(screen.getByText('Chr. D. R.').getAttribute('href')).toBe('/redaktion/person/482');
+  });
+
   it('renderer ikke-person-token som inaktiv tekst uden klik-effekt', () => {
     const onPick = vi.fn();
     render(<NarrativRenderer tekst="Se [[estate:7|Gammel Gaard]] her." onPickPerson={onPick} {...COLORS} />);

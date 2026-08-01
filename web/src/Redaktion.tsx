@@ -5,6 +5,8 @@
 // men struktur er ren React (ikke prototypens DCLogic).
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { navigate, usePath } from './router';
+import { Link } from './Link';
+import { sammeSomEtiket } from './data/sammeSom';
 import { SammenlignUdgaver } from './components/SammenlignUdgaver';
 import { FeedStyring } from './components/FeedStyring';
 import { signIn, signOut, currentSession, type RedSession } from './data/auth';
@@ -915,14 +917,14 @@ export default function Redaktion() {
     ];
     // Fælles liste-række (person + generiske entiteter): round = avatar-form, tail = valgfrit suffiks.
     const listRow = (o: { id: string; badge: string; label: string; sub: string; round: number | string; tail?: ReactNode }) => (
-      <div key={o.id} onClick={() => openRecord(entity, o.id)} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 9px', borderRadius: 9, cursor: 'pointer', background: o.id === recordId ? '#efe7d7' : 'transparent' }}>
+      <Link key={o.id} href={redaktionPath(entity, o.id)} onNavigate={() => openRecord(entity, o.id)} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 9px', borderRadius: 9, background: o.id === recordId ? '#efe7d7' : 'transparent' }}>
         <span style={{ width: 30, height: 30, borderRadius: o.round, background: T.beige, border: '1px solid rgba(34,31,26,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 13, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{o.badge}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontFamily: T.serif, fontSize: 16.5, fontWeight: 600, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.label}</div>
           <div style={{ fontFamily: T.mono, fontSize: 10, color: T.muted2, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.sub}</div>
         </div>
         {o.tail}
-      </div>
+      </Link>
     );
     const pRow = (p: { id: string; navn: string; aar: string; privat: boolean }) => listRow({
       id: p.id, badge: initials(p.navn), label: p.navn, sub: p.aar || '—', round: '50%',
@@ -1305,7 +1307,7 @@ export default function Redaktion() {
           {!!narrativUdkast.tekst && (
             <div style={{ marginTop: 8, ...annoBox, fontSize: 12.5, lineHeight: 1.5, color: T.muted }}>
               <div style={{ fontSize: 10.5, letterSpacing: '.08em', textTransform: 'uppercase', color: T.muted3, marginBottom: 3 }}>Sådan vises det for besøgende</div>
-              <NarrativRenderer tekst={narrativUdkast.tekst} onPickPerson={() => {}} linkColor={T.bordeaux} inactiveColor={T.muted2} />
+              <NarrativRenderer tekst={narrativUdkast.tekst} onPickPerson={() => {}} hrefFor={(id) => redaktionPath('person', id)} linkColor={T.bordeaux} inactiveColor={T.muted2} />
             </div>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 9 }}>
@@ -1759,16 +1761,21 @@ export default function Redaktion() {
         ))}
       </div>
     );
-    // onOpen (valgfri): gør navnet klikbart → naviger til den person (kun for person-rækker,
-    // ikke hverv/godser). Skifter recordId som browse-listen gør; ugemte narrativ-edits kasseres
-    // stille — samme adfærd som person-listen (bevidst konsistent, ingen ny advarsel).
-    const linkRow = (navn: string, meta: string, onRemove: () => void, extra?: React.ReactNode, onOpen?: () => void) => (
+    // aabn (valgfri): gør navnet til et ægte link til den person (kun for person-rækker, ikke
+    // hverv/godser). Sti og handler ligger i ÉT objekt, så et kaldested ikke kan give det ene
+    // uden det andet og tavst miste sin klik-handler. Skifter recordId som browse-listen gør;
+    // ugemte narrativ-edits kasseres stille — samme adfærd som person-listen (bevidst konsistent).
+    const linkRow = (navn: string, meta: string, onRemove: () => void, extra?: React.ReactNode, aabn?: { href: string; onNavigate: () => void }) => (
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 10, padding: '8px 11px', marginBottom: 6 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div onClick={onOpen} title={onOpen ? 'Åbn person' : undefined}
-            style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, lineHeight: 1.05, cursor: onOpen ? 'pointer' : 'default', color: onOpen ? T.bordeaux : undefined, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            {navn}{onOpen && <span style={{ fontSize: 11, opacity: .55 }}>↗</span>}
-          </div>
+          {aabn ? (
+            <Link href={aabn.href} onNavigate={aabn.onNavigate} title="Åbn person"
+              style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, lineHeight: 1.05, color: T.bordeaux, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              {navn}<span style={{ fontSize: 11, opacity: .55 }}>↗</span>
+            </Link>
+          ) : (
+            <div style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, lineHeight: 1.05, cursor: 'default', display: 'inline-flex', alignItems: 'center', gap: 5 }}>{navn}</div>
+          )}
           {meta && <div style={{ fontFamily: T.mono, fontSize: 9.5, color: T.muted2, marginTop: 1 }}>{meta}</div>}
         </div>
         {extra}
@@ -1788,7 +1795,7 @@ export default function Redaktion() {
                       {u.type || 'partnerskab'} ·{' '}
                       {u.partnere.length ? u.partnere.map((p, idx) => (
                         <span key={p.personId}>
-                          <span onClick={() => openRecord('person', p.personId)} title="Åbn person" style={{ color: T.bordeaux, cursor: 'pointer' }}>{p.navn}</span>
+                          <Link href={redaktionPath('person', p.personId)} onNavigate={() => openRecord('person', p.personId)} title="Åbn person" style={{ color: T.bordeaux }}>{p.navn}</Link>
                           {p.aar ? <span style={{ color: T.muted3, fontWeight: 500 }}> ({p.aar})</span> : null}
                           {idx < u.partnere.length - 1 ? ', ' : ''}
                         </span>
@@ -1811,7 +1818,7 @@ export default function Redaktion() {
                         <span onClick={() => setFlytBarn({ fraFamilyId: u.familyId, personId: b.personId, rolle: b.rolle, navn: b.navn })}
                           style={{ fontFamily: T.mono, fontSize: 10, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>flyt→</span>
                       </>,
-                      () => openRecord('person', b.personId));
+                      { href: redaktionPath('person', b.personId), onNavigate: () => openRecord('person', b.personId) });
                   })}
                 </div>
               ))}
@@ -1821,7 +1828,7 @@ export default function Redaktion() {
                   <span style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600 }}>
                     {sb.foraeldre.length ? sb.foraeldre.map((f, j) => (
                       <span key={f.personId}>
-                        <span onClick={() => openRecord('person', f.personId)} title="Åbn person" style={{ color: T.bordeaux, cursor: 'pointer' }}>{f.navn}</span>
+                        <Link href={redaktionPath('person', f.personId)} onNavigate={() => openRecord('person', f.personId)} title="Åbn person" style={{ color: T.bordeaux }}>{f.navn}</Link>
                         {j < sb.foraeldre.length - 1 ? ' & ' : ''}
                       </span>
                     )) : '(ukendt)'}
@@ -1843,11 +1850,19 @@ export default function Redaktion() {
               {subHeader('Godser & besiddelser', () => setPicker({ kind: 'gods' }), '+ Tilføj gods', 10)}
               {godser.length ? godser.map((r) => linkRow(r.navn, [r.rolle, r.periode].filter(Boolean).join(' · '), () => run({ art: 'sletRelation', subjektType: 'person', subjektId: pid, relationId: String(r.relationId) }, 'Fjern gods'))) : <div style={{ fontSize: 12.5, color: T.muted3 }}>Ingen godser.</div>}
               {subHeader('Samme person', () => setPicker({ kind: 'sammeSom' }), '+ Marker som samme person', 10)}
-              {sammeSom.length ? sammeSom.map((l) => linkRow(
-                persons.find((p) => p.id === l.modpartId)?.navn ?? `#${l.modpartId}`,
-                l.retning === 'alias' ? 'denne foldes ind i' : 'foldes ind i denne',
-                () => run({ art: 'fjernSammeSom', subjektType: 'person', subjektId: pid, relationId: l.relationId }, 'Fjern samme-person-link'),
-              )) : <div style={{ fontSize: 12.5, color: T.muted3 }}>Ingen identitets-links.</div>}
+              {sammeSom.length ? sammeSom.map((l) => {
+                const modpart = persons.find((p) => p.id === l.modpartId);
+                const { rolle, forklaring } = sammeSomEtiket(l.retning);
+                // Rå modpart-id i stien: redaktøren arbejder i skrive-id-rummet (loadModel({ collapse: false })),
+                // så en kanonisering her ville åbne en anden post end den rækken navngiver.
+                return linkRow(
+                  [modpart?.navn ?? `#${l.modpartId}`, modpart?.aar ? `(${modpart.aar})` : ''].filter(Boolean).join(' '),
+                  `${rolle} · ${forklaring}`,
+                  () => run({ art: 'fjernSammeSom', subjektType: 'person', subjektId: pid, relationId: l.relationId }, 'Fjern samme-person-link'),
+                  undefined,
+                  { href: redaktionPath('person', l.modpartId), onNavigate: () => openRecord('person', l.modpartId) },
+                );
+              }) : <div style={{ fontSize: 12.5, color: T.muted3 }}>Ingen identitets-links.</div>}
             </>
           )}
         </div>
@@ -2044,8 +2059,8 @@ export default function Redaktion() {
               <div style={{ fontSize: 13.5, color: T.muted, lineHeight: 1.5, marginBottom: 11 }}>
                 Mediet skal genoprettes fra filsiden. Upload-arket genopretter det ikke automatisk.
               </div>
-              <a href={decision.route} onClick={(e) => { e.preventDefault(); afslut(); navigate(decision.route); }}
-                style={{ ...btnGreen, display: 'inline-block', textDecoration: 'none' }}>Åbn filsiden</a>
+              <Link href={decision.route} onNavigate={() => { afslut(); navigate(decision.route); }}
+                style={{ ...btnGreen, display: 'inline-block' }}>Åbn filsiden</Link>
             </>
           ) : decision.kind === 'kladde' ? (
             <>
@@ -2446,14 +2461,14 @@ function ForaeldreKonflikterListe({ onOpen }: { onOpen: (personId: string) => vo
         <div style={{ fontSize: 13.5, color: T.muted }}>Ingen forældre-konflikter — alle personer har én afklaret forældrefamilie.</div>
       ) : (
         rows.map((r) => (
-          <div key={r.factId} onClick={() => onOpen(String(r.personId))}
-            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', marginBottom: 8, cursor: 'pointer',
+          <Link key={r.factId} href={`/redaktion/person/${r.personId}`} onNavigate={() => onOpen(String(r.personId))}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', marginBottom: 8,
               border: '1px solid rgba(136,26,51,.25)', borderRadius: 10, background: '#faf1dc' }}>
             <span style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux }}>{r.status ?? 'omstridt'}</span>
             <div style={{ flex: 1, fontSize: 14.5, color: '#3d382f', fontWeight: 600 }}>{r.navn ?? `Person ${r.personId}`}</div>
             <span style={{ fontSize: 12.5, color: T.muted }}>{r.antalFamilier} familier · {r.antalPaastande} påstande</span>
             <span style={{ color: T.bordeaux, fontSize: 16 }}>→</span>
-          </div>
+          </Link>
         ))
       )}
     </div>

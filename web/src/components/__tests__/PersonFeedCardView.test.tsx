@@ -37,17 +37,21 @@ describe('PersonFeedCardView', () => {
     expect(screen.getByRole('img', { name: 'Slægtsbillede' })).toBeTruthy();
   });
 
-  it('åbner personkortet med klik, Enter og Space på den store profilkontrol', async () => {
+  // Profilkontrollen er et ægte link, ikke en knap: at åbne en profil ER navigation. Derfor
+  // rollen 'link', et href højreklik-menuen kan bruge — og derfor ingen Space-aktivering,
+  // som er knappers tastatur-kontrakt, ikke ankres.
+  it('åbner personkortet med klik og Enter på den store profilkontrol', async () => {
     const { onOpen } = renderPersonCard();
-    const profile = screen.getByRole('button', { name: 'Åbn profil for Anna Reventlow' });
+    const profile = screen.getByRole('link', { name: 'Åbn profil for Anna Reventlow' });
     const user = userEvent.setup();
+
+    expect(profile.getAttribute('href')).toBe('/person/42');
 
     fireEvent.click(profile);
     profile.focus();
     await user.keyboard('{Enter}');
-    await user.keyboard(' ');
 
-    expect(onOpen).toHaveBeenCalledTimes(3);
+    expect(onOpen).toHaveBeenCalledTimes(2);
     expect(onOpen).toHaveBeenLastCalledWith(portrait);
   });
 
@@ -94,7 +98,7 @@ describe('PersonFeedCardView', () => {
     };
     render(<FeedCardView card={arkiv} person={person} media={[]} onOpen={vi.fn()} onSave={vi.fn()} bookmarked={false} />);
 
-    expect(screen.getByRole('button', { name: 'Åbn profil for Anna Reventlow' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Åbn profil for Anna Reventlow' })).toBeTruthy();
     expect(screen.getByText('Arkivfund')).toBeTruthy();
     expect(screen.getByText('Arvede godset i 1764.')).toBeTruthy();
     expect(screen.getByText('1764')).toBeTruthy();
@@ -110,5 +114,23 @@ describe('PersonFeedCardView', () => {
 
     expect(screen.getByText('Pederstrup')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /^Åbn profil for/ })).toBeNull();
+  });
+
+  // Kortskallens display er en DEFAULT, ikke en overstyring: <a> er inline, så en skal uden
+  // eget display skal blokke — men et kort der selv layouter (våben = billede + tekst side om
+  // side) skal beholde sit flex. Ankeret må ikke ændre kortets layout.
+  it('lader kortets eget layout vinde over ankerets blok-default', () => {
+    const vaaben: Extract<FeedCard, { kind: 'vaaben' }> = {
+      kind: 'vaaben', id: 'vaaben:1', armsId: '1', blazon: 'to skjolde', foot: 'DAA', kicker: 'Våben',
+    };
+    const gods: Extract<FeedCard, { kind: 'gods' }> = {
+      kind: 'gods', id: 'gods:1', estateId: '1', navn: 'Pederstrup', meta: 'Lolland', ownerDots: 2, kicker: 'Gods',
+    };
+
+    const { rerender } = render(<FeedCardView card={vaaben} href="/arms" onOpen={vi.fn()} onSave={vi.fn()} bookmarked={false} />);
+    expect(screen.getByRole('link').style.display).toBe('flex');
+
+    rerender(<FeedCardView card={gods} href="/estate/1" onOpen={vi.fn()} onSave={vi.fn()} bookmarked={false} />);
+    expect(screen.getByRole('link').style.display).toBe('block');
   });
 });

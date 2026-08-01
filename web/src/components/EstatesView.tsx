@@ -2,6 +2,8 @@
 // Udtrukket fra Folgesvend.tsx (review 27 W-K1) — samme komponent, blot flyttet fil.
 import { Suspense, useState } from 'react';
 import { T } from '../theme';
+import { Link } from '../Link';
+import { personPath, estatePath } from '../data/nav';
 import { withUrl } from '../data/media';
 import type { EstateInfo, EstateItem, EstateOwner } from '../data/public';
 import type { Geo } from '../data/types';
@@ -59,10 +61,10 @@ export function EstatesView({ estates, estateId, estate, info, owners, geo, geoL
                   <div style={{ width: 11, height: 11, borderRadius: '50%', background: T.bordeaux }} />
                   {i < owners.length - 1 && <div style={{ width: 2, flex: 1, minHeight: 28, background: 'rgba(136,26,51,.22)', marginTop: 2 }} />}
                 </div>
-                <div onClick={() => onPickOwner(o.personId)} style={{ flex: 1, cursor: 'pointer', paddingBottom: 18 }}>
+                <Link href={personPath(o.personId)} onNavigate={() => onPickOwner(o.personId)} style={{ flex: 1, paddingBottom: 18, display: 'block' }}>
                   {(o.periode || o.rolle) && <div style={{ fontFamily: T.mono, fontSize: 11.5, color: T.muted2 }}>{[o.periode, o.rolle].filter(Boolean).join(' · ')}</div>}
                   <div style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 600, lineHeight: 1.05, marginTop: 1 }}>{o.navn} ›</div>
-                </div>
+                </Link>
               </div>
             ))}
           </div>
@@ -101,11 +103,11 @@ export function EstatesView({ estates, estateId, estate, info, owners, geo, geoL
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 12 }}>
           {estates.map((e) => (
-            <div key={e.id} onClick={() => onOpen(e.id)} style={{ background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 13, padding: 15, cursor: 'pointer', boxShadow: '0 1px 2px rgba(34,31,26,.03)' }}>
+            <Link key={e.id} href={estatePath(e.id)} onNavigate={() => onOpen(e.id)} style={{ background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 13, padding: 15, boxShadow: '0 1px 2px rgba(34,31,26,.03)', display: 'block' }}>
               <span style={{ width: 36, height: 36, borderRadius: 8, background: T.beige, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 17, color: T.bordeaux }}>⌂</span>
               <div style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 600, lineHeight: 1.05, marginTop: 11 }}>{e.navn}</div>
               <div style={{ fontSize: 12.5, color: T.muted, marginTop: 3 }}>{[e.slags, e.ownerCount ? `${e.ownerCount} tilknytning${e.ownerCount === 1 ? '' : 'er'}` : ''].filter(Boolean).join(' · ') || '—'}</div>
-            </div>
+            </Link>
           ))}
         </div>
       )}

@@ -8,6 +8,7 @@
 // samme_som er read-only kontekst (Global Constraints), så to fysiske personer med
 // samme kanoniske person vises begge, uafhængigt af hinanden.
 import { useMemo, useState, type CSSProperties } from 'react';
+import { Link } from '../Link';
 import {
   filterKvalitetsark, sortKvalitetsark,
   type KvalitetsarkFilter, type KvalitetsarkPreset, type KvalitetsarkSortKey,
@@ -336,26 +337,26 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
           {value}
         </span>
         <p id={reasonId} style={{ fontSize: 10.5, color: T.muted2, margin: '2px 0 0' }}>{reasonText}</p>
-        <button
-          type="button"
-          onClick={() => onOpenPerson(row.personId)}
-          style={{ fontSize: 10.5, border: 0, background: 'transparent', color: T.bordeaux, cursor: 'pointer', padding: '2px 0' }}
+        <Link
+          href={`/redaktion/person/${row.personId}`}
+          onNavigate={() => onOpenPerson(row.personId)}
+          style={{ fontSize: 10.5, color: T.bordeaux, padding: '2px 0', display: 'inline-block' }}
         >
           Åbn person
-        </button>
+        </Link>
       </div>
     );
   }
 
   function renderCountCell(row: PersonKvalitetsarkRow, antal: number, enhed: string) {
     return (
-      <button
-        type="button"
-        onClick={() => onOpenPerson(row.personId)}
-        style={{ border: 0, background: 'transparent', color: T.ink, cursor: 'pointer', font: 'inherit', textAlign: 'left', padding: 0 }}
+      <Link
+        href={`/redaktion/person/${row.personId}`}
+        onNavigate={() => onOpenPerson(row.personId)}
+        style={{ color: T.ink, display: 'inline-block' }}
       >
         {antal} {enhed}
-      </button>
+      </Link>
     );
   }
 
