@@ -601,9 +601,9 @@ describe('fase 4: oversaetFejl', () => {
   });
 });
 
-// --- Union-redigering (2026-08-01): reparér en union der mangler sin ene part,
-// og fjern den tomme skal. Hullet kostede 65 barne-flytninger da 1939-loaderens
-// mor-løse børne-familier skulle rettes.
+// --- Union-redigering (2026-08-01): reparér en union der mangler sin ene part.
+// Hullet kostede 65 barne-flytninger da 1939-loaderens mor-løse børne-familier
+// skulle rettes — én "tilføj mor" havde været nok.
 describe('buildRpcCall — union-redigering', () => {
   it('tilfoejPartner → red_tilfoej_partner', () => {
     const c = { art: 'tilfoejPartner', subjektType: 'person', subjektId: '1198',

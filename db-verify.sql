@@ -3716,13 +3716,29 @@ BEGIN
   IF v_fejl IS NULL THEN RAISE EXCEPTION 'FEJL: alias for et barn blev accepteret som part (cyklus)'; END IF;
   IF v_fejl NOT LIKE 'Cyklus:%' THEN RAISE EXCEPTION 'FEJL: afvist, men af den forkerte grund: %', v_fejl; END IF;
 
+  -- 3b) …og heller ikke et alias for den SIDDENDE part (to parter, én person = selv-ægtefælle
+  --      efter collapse). Både gennem RPC'en og udenom den.
+  v_alias := red_opret_person('VERIFY far-alias');
+  PERFORM red_samme_som(v_alias, v_a);
+  v_fejl := NULL;
+  BEGIN PERFORM red_tilfoej_partner(v_fam, v_alias);
+  EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+  IF v_fejl IS NULL THEN RAISE EXCEPTION 'FEJL: alias for den siddende part blev accepteret som part nr. 2'; END IF;
+  IF v_fejl NOT LIKE '%samme person%' THEN RAISE EXCEPTION 'FEJL: afvist, men af den forkerte grund: %', v_fejl; END IF;
+
+  v_fejl := NULL;
+  BEGIN INSERT INTO family_member(family_id, person_id, rolle) VALUES (v_fam, v_alias, 'partner');
+  EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+  IF v_fejl IS NULL THEN RAISE EXCEPTION 'FEJL: rå INSERT omgik identitets-distinktheden'; END IF;
+  IF v_fejl NOT LIKE '%samme person%' THEN RAISE EXCEPTION 'FEJL: rå INSERT afvist af forkert grund: %', v_fejl; END IF;
+
   -- 4) negativ kontrol: guarden afviser ikke bare alt
   PERFORM red_tilfoej_partner(v_fam, red_opret_person('VERIFY urelateret'));
   IF (SELECT count(*) FROM family_member WHERE family_id=v_fam AND rolle='partner') <> 2 THEN
     RAISE EXCEPTION 'FEJL: en urelateret person blev ikke accepteret som part';
   END IF;
 
-  RAISE NOTICE 'OK: red_tilfoej_partner + trg_partner_loft — guards holder (to-parts-loft i RPC og tabel, legitim UPDATE, barn, identitets-cyklus, negativ kontrol)';
+  RAISE NOTICE 'OK: red_tilfoej_partner + trg_partner_loft — guards holder (to-parts-loft i RPC og tabel, legitim UPDATE, barn, identitets-cyklus, identitets-distinkthed, negativ kontrol)';
   RAISE EXCEPTION 'ROLLBACK_TESTDATA';
 EXCEPTION WHEN others THEN
   IF SQLERRM = 'ROLLBACK_TESTDATA' THEN RAISE NOTICE 'OK: testdata rullet tilbage'; ELSE RAISE; END IF;

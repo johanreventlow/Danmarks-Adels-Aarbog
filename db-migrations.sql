@@ -4803,12 +4803,12 @@ BEGIN
 END $$;
 
 -- =============================================================
--- 2026-08-01: UNION-REDIGERING — tilføj partner / slet tom union
+-- 2026-08-01: UNION-REDIGERING — tilføj part til en eksisterende union
 -- Redaktør-fladen kunne oprette unioner og flytte børn, men ikke reparere
--- en union der manglede sin ene part, og ikke fjerne den tomme skal der
--- bliver tilbage. Hullet kostede 65 barne-flytninger 2026-08-01, hvor én
--- "tilføj mor"-handling havde været nok.
--- Begge er CREATE OR REPLACE → idempotente. Ingen DDL på tabeller.
+-- en union der manglede sin ene part. Hullet kostede 65 barne-flytninger
+-- 2026-08-01, hvor én "tilføj mor"-handling havde været nok.
+-- Alle funktioner er CREATE OR REPLACE og triggeren DROP/CREATE →
+-- idempotent. Ingen DDL på tabeller.
 -- =============================================================
 -- Identitets-ækvivalens til struktur-guards. samme_som er retningsbestemt (subjekt=alias →
 -- objekt=kanonisk) og kan danne kæder; her returneres HELE den uorienterede komponent, så en
@@ -4898,16 +4898,16 @@ END $$;
 
 -- To parter pr. union — håndhævet i tabellen, ikke kun i RPC'en (Codex sol runde 2).
 -- En RPC-tælling dækkede hverken fortryd-stien (_version_upsert_row skriver rækken direkte
--- tilbage) eller to samtidige kald der hver ser ét eksisterende partner-link. Advisory-låsen
--- på family_id serialiserer indsættelser for SAMME familie, så tællingen er pålidelig; låsen
--- er transaktionsbundet og frigives med commit/rollback.
+-- tilbage) eller to samtidige kald der hver ser ét eksisterende partner-link. En rækkelås på
+-- family (SELECT … FOR UPDATE) serialiserer skrivninger for SAMME familie, så tællingen er
+-- pålidelig; låsen er transaktionsbundet og frigives med commit/rollback.
 -- Prod havde 0 overtrædelser da invarianten blev indført (654 familier m. 2 parter, 28 m. 1).
 CREATE OR REPLACE FUNCTION _tjek_partner_loft() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_n int;
 BEGIN
   IF NEW.rolle <> 'partner' THEN RETURN NEW; END IF;
-  PERFORM 1 FROM family WHERE id = NEW.family_id FOR UPDATE;  -- serialisér samtidige indsættelser for SAMME familie
+  PERFORM 1 FROM family WHERE id = NEW.family_id FOR UPDATE;  -- serialisér samtidige skrivninger for SAMME familie
   -- Ved UPDATE står OLD-rækken stadig i tabellen (BEFORE-trigger) og skal trækkes fra på sin
   -- EGEN nøgle. At udelade "alle rækker med samme nye person_id" ville overafvise en legitim
   -- omskrivning af en eksisterende parts person_id (Codex sol runde 3).
@@ -4917,6 +4917,29 @@ BEGIN
                AND fm.family_id = OLD.family_id AND fm.person_id = OLD.person_id AND fm.rolle = OLD.rolle);
   IF v_n >= 2 THEN
     RAISE EXCEPTION 'Familie % ville få % parter — en union har to', NEW.family_id, v_n + 1;
+  END IF;
+  -- De to parter skal være to FORSKELLIGE personer — også på identitet, ikke kun på id.
+  -- Et samme_som-alias for den siddende part ville ellers give en union hvor begge parter
+  -- kanoniserer til samme person; projektionen kalder det selv-ægtefælle og karantænerer hele
+  -- identitetsgruppen, så en ægte sammenkædning holder op med at folde (Codex sol runde 4).
+  -- Kun relevant når familien allerede HAR en part — springes over i det almindelige tilfælde,
+  -- så loaderens batch-indsættelser ikke betaler for opslaget på den første partner-række.
+  -- Hurtig forudsætning: har NEW.person_id overhovedet en samme_som-kant, hverken som subjekt
+  -- eller objekt, er dens komponent = {sig selv}, og et overlap ville kræve en anden partner-række
+  -- med præcis samme person_id — udelukket af primærnøglen. Uden dette filter betaler ENHVER
+  -- anden-part-indsættelse for en rekursiv CTE (målt: 602 µs/række mod 17 µs).
+  IF v_n > 0 AND EXISTS (
+    SELECT 1 FROM relation r WHERE r.rolle='samme_som' AND r.subjekt_type='person'
+      AND (r.subjekt_id = NEW.person_id OR r.objekt_id = NEW.person_id)
+  ) AND EXISTS (
+    SELECT 1 FROM family_member fm
+    WHERE fm.family_id = NEW.family_id AND fm.rolle = 'partner'
+      AND NOT (TG_OP = 'UPDATE'
+               AND fm.family_id = OLD.family_id AND fm.person_id = OLD.person_id AND fm.rolle = OLD.rolle)
+      AND EXISTS (SELECT 1 FROM _samme_som_gruppe(fm.person_id) a
+                  JOIN _samme_som_gruppe(NEW.person_id) b ON b.pid = a.pid)
+  ) THEN
+    RAISE EXCEPTION 'Person % er samme person som den anden part i familie % (samme_som)', NEW.person_id, NEW.family_id;
   END IF;
   RETURN NEW;
 END $$;
