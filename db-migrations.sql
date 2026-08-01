@@ -4843,10 +4843,23 @@ REVOKE EXECUTE ON FUNCTION _samme_som_gruppe(bigint) FROM PUBLIC, anon, authenti
 CREATE OR REPLACE FUNCTION enforce_samme_som_invariants() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    -- samme_som er en identitetspåstand med evidens knyttet til relationens stabile id.
+    -- En rolle-/endepunkts-UPDATE ville derfor genbruge den gamle evidens til en ny påstand.
+    -- Kræv slet+genopret (nyt relations-id) frem for en OLD-ekskluderende graf-guard;
+    -- metadata, som ikke ændrer påstandens semantik, kan fortsat opdateres på stedet.
+    IF (OLD.rolle = 'samme_som' OR NEW.rolle = 'samme_som')
+       AND ROW(OLD.rolle, OLD.subjekt_type, OLD.subjekt_id, OLD.objekt_type, OLD.objekt_id)
+           IS DISTINCT FROM
+           ROW(NEW.rolle, NEW.subjekt_type, NEW.subjekt_id, NEW.objekt_type, NEW.objekt_id) THEN
+      RAISE EXCEPTION 'samme_som: rolle og endepunkter er uforanderlige — brug slet+genopret';
+    END IF;
+    RETURN NEW;
+  END IF;
   IF NEW.rolle <> 'samme_som' OR NEW.subjekt_type <> 'person' OR NEW.objekt_type <> 'person' THEN
     RETURN NEW; -- ikke et person→person samme_som — rør ikke
   END IF;
-  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation')); -- serialisér samme_som-inserts
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation')); -- serialisér samme_som-mutationer
   IF NEW.subjekt_id = NEW.objekt_id THEN
     RAISE EXCEPTION 'samme_som: kan ikke linke en person til sig selv';
   END IF;
@@ -4886,6 +4899,10 @@ END $$;
 DROP TRIGGER IF EXISTS trg_enforce_samme_som ON relation;
 CREATE TRIGGER trg_enforce_samme_som BEFORE INSERT ON relation
   FOR EACH ROW WHEN (NEW.rolle = 'samme_som') EXECUTE FUNCTION enforce_samme_som_invariants();
+DROP TRIGGER IF EXISTS trg_enforce_samme_som_update ON relation;
+CREATE TRIGGER trg_enforce_samme_som_update BEFORE UPDATE ON relation
+  FOR EACH ROW WHEN (OLD.rolle = 'samme_som' OR NEW.rolle = 'samme_som')
+  EXECUTE FUNCTION enforce_samme_som_invariants();
 
 -- Tilføj barn til en union. Struktur-guards (Codex H3): barn ≠ partner i samme family;
 -- ingen ane-cyklus (recursiv CTE: descendants(barn) må ikke indeholde en partner i family).
@@ -4958,6 +4975,12 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_n int;
 BEGIN
   IF NEW.rolle <> 'partner' THEN RETURN NEW; END IF;
+  -- Kanonisk låserækkefølge for krydsinvarianten er samme_som-advisory-låsen FØR
+  -- family-rækkelåsen. enforce_samme_som_invariants tager samme advisory-lås, før den
+  -- læser family_member; dermed kan de to samtidige skriveveje ikke overse hinandens INSERT.
+  -- Låsen er transaktionsbundet og re-entrant: loaderens efterfølgende partner-rækker i
+  -- samme batch genbruger den, og den hurtige relation-forudsætning/CTE-sti nedenfor er uændret.
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
   PERFORM 1 FROM family WHERE id = NEW.family_id FOR UPDATE;  -- serialisér samtidige skrivninger for SAMME familie
   -- Ved UPDATE står OLD-rækken stadig i tabellen (BEFORE-trigger) og skal trækkes fra på sin
   -- EGEN nøgle. At udelade "alle rækker med samme nye person_id" ville overafvise en legitim

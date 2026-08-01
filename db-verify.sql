@@ -3751,13 +3751,57 @@ BEGIN
     IF v_fejl NOT LIKE '%samme union%' THEN RAISE EXCEPTION 'FEJL: afvist, men af den forkerte grund: %', v_fejl; END IF;
   END;
 
+  -- 3d) En eksisterende relation må ikke kunne omskrives TIL samme_som med rå UPDATE.
+  --      samme_som-identitet oprettes og fjernes som en hel relation, så dens evidens ikke
+  --      stiltiende genbruges til en anden rolle eller andre endepunkter.
+  DECLARE v_rel bigint; v_alias2 bigint; v_kanon2 bigint; v_anden bigint;
+  BEGIN
+    v_alias2 := red_opret_person('VERIFY UPDATE alias');
+    v_kanon2 := red_opret_person('VERIFY UPDATE kanonisk');
+    INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle)
+      VALUES ((SELECT coalesce(max(id),0)+1 FROM relation),
+              'person', v_alias2, 'person', v_kanon2, 'bekendt_med')
+      RETURNING id INTO v_rel;
+    v_fejl := NULL;
+    BEGIN
+      UPDATE relation SET rolle='samme_som' WHERE id=v_rel;
+      RAISE EXCEPTION 'VERIFY_UPDATE_BLEV_ACCEPTERET';
+    EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+    IF v_fejl = 'VERIFY_UPDATE_BLEV_ACCEPTERET' THEN
+      RAISE EXCEPTION 'FEJL: rå UPDATE kunne ændre en eksisterende relation til samme_som';
+    END IF;
+    IF v_fejl <> 'samme_som: rolle og endepunkter er uforanderlige — brug slet+genopret' THEN
+      RAISE EXCEPTION 'FEJL: rå samme_som-UPDATE afvist af forkert grund: %', v_fejl;
+    END IF;
+
+    -- 3e) Undo-hjælperens eksisterende-række-sti bruger UPDATE og skal ramme samme guard.
+    --      INSERT-stien for en slettet relation forbliver tilladt og valideres af insert-guarden.
+    v_rel := red_samme_som(v_alias2, v_kanon2);
+    v_anden := red_opret_person('VERIFY UPDATE andet endpoint');
+    v_fejl := NULL;
+    BEGIN
+      PERFORM _version_upsert_row(
+        'relation',
+        jsonb_set((SELECT to_jsonb(r) FROM relation r WHERE r.id=v_rel),
+                  '{objekt_id}', to_jsonb(v_anden), false)
+      );
+      RAISE EXCEPTION 'VERIFY_VERSION_UPSERT_BLEV_ACCEPTERET';
+    EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+    IF v_fejl = 'VERIFY_VERSION_UPSERT_BLEV_ACCEPTERET' THEN
+      RAISE EXCEPTION 'FEJL: _version_upsert_row kunne flytte et samme_som-endepunkt';
+    END IF;
+    IF v_fejl <> 'samme_som: rolle og endepunkter er uforanderlige — brug slet+genopret' THEN
+      RAISE EXCEPTION 'FEJL: _version_upsert_row samme_som-UPDATE afvist af forkert grund: %', v_fejl;
+    END IF;
+  END;
+
   -- 4) negativ kontrol: guarden afviser ikke bare alt
   PERFORM red_tilfoej_partner(v_fam, red_opret_person('VERIFY urelateret'));
   IF (SELECT count(*) FROM family_member WHERE family_id=v_fam AND rolle='partner') <> 2 THEN
     RAISE EXCEPTION 'FEJL: en urelateret person blev ikke accepteret som part';
   END IF;
 
-  RAISE NOTICE 'OK: red_tilfoej_partner + trg_partner_loft — guards holder (to-parts-loft i RPC og tabel, legitim UPDATE, barn, identitets-cyklus, identitets-distinkthed begge veje, negativ kontrol)';
+  RAISE NOTICE 'OK: red_tilfoej_partner + trg_partner_loft — guards holder (to-parts-loft i RPC og tabel, legitim partner-UPDATE, barn, identitets-cyklus, identitets-distinkthed begge veje, samme_som-immutability via rå UPDATE og _version_upsert_row, negativ kontrol)';
   RAISE EXCEPTION 'ROLLBACK_TESTDATA';
 EXCEPTION WHEN others THEN
   IF SQLERRM = 'ROLLBACK_TESTDATA' THEN RAISE NOTICE 'OK: testdata rullet tilbage'; ELSE RAISE; END IF;
