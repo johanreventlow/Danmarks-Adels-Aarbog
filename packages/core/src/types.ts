@@ -37,6 +37,25 @@ export type LineageSchemeEntryRef = {
   code: string;
   label: string;
 };
+export type EntityDescription = {
+  id: string;
+  subjectType: 'person' | 'slaegt' | 'lineage' | 'coat_of_arms' | 'media' | 'estate';
+  subjectId: string;
+  kind: 'overview' | 'history' | 'caption' | 'blazon_explanation';
+  languageCode: string;
+  text: string;
+  status: 'draft' | 'approved' | 'published' | 'archived';
+  citations: Array<{ sourceLabel: string; citationLabel: string }>;
+  version: number;
+};
+export type CoatOfArmsAssociation = {
+  subjectType: 'slaegt' | 'lineage' | 'person';
+  subjectId: string;
+  coatOfArmsId: string;
+  variantType: string | null;
+  validFrom: string | null;
+  validTo: string | null;
+};
 export type RawEstate = {
   id: number | string;
   navn: string | null;

@@ -696,6 +696,50 @@ BEGIN
   END;
 END $slaegt_verify$;
 
+-- ===== Evidensimport Fase 3 / Task 8: generelle beskrivelser og heraldik =====
+DO $entity_description_verify$
+DECLARE
+  v_description bigint;
+  v_slaegt bigint;
+  v_error text;
+BEGIN
+  IF to_regclass('public.entity_description') IS NULL
+     OR to_regclass('private.entity_description_source') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: Task 8 mangler entity_description-laget';
+  END IF;
+  IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid='public.entity_description'::regclass)
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.entity_description_source'::regclass) THEN
+    RAISE EXCEPTION 'FEJL: entity_description-laget mangler RLS';
+  END IF;
+  IF has_table_privilege('anon','private.entity_description_source','SELECT')
+     OR has_table_privilege('authenticated','private.entity_description_source','SELECT') THEN
+    RAISE EXCEPTION 'FEJL: private kilde-junction er direkte API-læsbar';
+  END IF;
+  BEGIN
+    INSERT INTO public.slaegt(navn,sorteringsnavn,slug,status)
+      VALUES ('Verify description clan','Verify description clan','verify-description-clan','active')
+      RETURNING id INTO v_slaegt;
+    INSERT INTO public.entity_description(subjekt_type,subjekt_id,kind,tekst,status)
+      VALUES ('slaegt',v_slaegt,'overview','Redaktionel oversigt','published')
+      RETURNING id INTO v_description;
+    IF v_description IS NULL THEN RAISE EXCEPTION 'FEJL: kunne ikke oprette slægtsbeskrivelse'; END IF;
+    v_error:=NULL;
+    BEGIN
+      INSERT INTO public.entity_description(subjekt_type,subjekt_id,kind,tekst,status)
+        VALUES ('ukendt_type',v_slaegt,'overview','Må ikke findes','draft');
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE '%ENTITY_DESCRIPTION_SUBJECT_INVALID%' THEN
+      RAISE EXCEPTION 'FEJL: ukendt beskrivelsesemne blev ikke afvist: %',v_error;
+    END IF;
+    RAISE EXCEPTION 'ROLLBACK_ENTITY_DESCRIPTION_VERIFY';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM='ROLLBACK_ENTITY_DESCRIPTION_VERIFY' THEN
+      RAISE NOTICE 'OK: entity descriptions er generelle, RLS-beskyttede og target-validerede';
+    ELSE RAISE;
+    END IF;
+  END;
+END $entity_description_verify$;
+
 -- ===== Evidensimport Fase 2 / Task 5: fortolkning, promotion og identitet =====
 DO $interpretation_verify$
 DECLARE

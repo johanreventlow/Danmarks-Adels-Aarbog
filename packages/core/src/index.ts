@@ -18,6 +18,7 @@ export * from './matchUdgaver';
 export * from './kildeProveniens';
 export * from './slaegtsrod';
 export * from './slaegter';
+export * from './entityDescriptions';
 export * from './presensLabels';
 export * from './presensListe';
 export * from './ocrKvalitet';
@@ -28,6 +29,8 @@ export type {
   SlaegtRef,
   LineageRef,
   LineageSchemeEntryRef,
+  EntityDescription,
+  CoatOfArmsAssociation,
   RawEstate,
   RawPlace,
   RawFact,
