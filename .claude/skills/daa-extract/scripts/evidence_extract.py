@@ -13,6 +13,8 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from evidence_contract import ContractError, validate_bundle
+
 
 class ExtractionError(ValueError):
     pass
@@ -21,6 +23,13 @@ class ExtractionError(ValueError):
 ROOT = Path(__file__).resolve().parents[4]
 PROFILES = ROOT / ".claude/skills/daa-extract/references/extraction-profiles.json"
 ALLOWED_MODELS = {"gpt-5.6-terra", "gpt-5.6-sol"}
+# Kategorierne er editionsneutrale: de beskriver hvad en bog kan hævde, ikke
+# hvordan én bestemt slægt eller OCR-profil skal repareres.
+CLAIM_FAMILIES = {
+    "person", "life_event", "relationship", "title", "form_of_address", "rank", "office",
+    "education", "estate", "residence", "military_service", "honour", "publication",
+    "lineage", "genealogy", "heraldry", "image", "reference",
+}
 
 
 def _canonical(value: Any) -> str:
@@ -93,10 +102,51 @@ def complete_batch(manifest: BatchManifest, output: Mapping[str, Any], *, token_
         raise ExtractionError("EXTRACTION_ACCOUNTING_INVALID")
     if set(output.get("record_keys", ())) != set(manifest.record_keys) or output.get("partial") is True:
         raise ExtractionError("EXTRACTION_PARTIAL_OUTPUT")
+    validate_output(output)
     completed = BatchManifest(**{**asdict(manifest), "output_hash": _sha(output), "token_count": token_count,
                                  "cost_usd": cost_usd, "validation_status": "green"})
     completed.validate()
     return completed
+
+
+def validate_output(output: Mapping[str, Any]) -> None:
+    """Validate granular claims without turning source claims into canonical facts.
+
+    A batch without claims is permitted during structural extraction.  Once a
+    claim exists, it must cite a valid evidence bundle; this deliberately makes
+    it impossible to pass a model's free text directly into projection.
+    """
+    claims = output.get("claims", [])
+    if not isinstance(claims, list):
+        raise ExtractionError("EXTRACTION_CLAIMS_INVALID")
+    if not claims:
+        return
+    bundle = output.get("evidence_bundle")
+    if not isinstance(bundle, Mapping):
+        raise ExtractionError("EXTRACTION_EVIDENCE_BUNDLE_REQUIRED")
+    try:
+        validate_bundle(bundle)
+    except (ContractError, KeyError, TypeError, ValueError) as exc:
+        raise ExtractionError("EXTRACTION_EVIDENCE_BUNDLE_INVALID") from exc
+    observation_ids = {str(observation.get("observation_id", ""))
+                       for observation in bundle.get("observations", []) if isinstance(observation, Mapping)}
+    persona_ids = {str(persona.get("persona_id", persona.get("id", "")))
+                   for persona in bundle.get("source_personas", []) if isinstance(persona, Mapping)}
+    for claim in claims:
+        if not isinstance(claim, Mapping):
+            raise ExtractionError("EXTRACTION_CLAIM_INVALID")
+        predicate = claim.get("predicate")
+        if not isinstance(predicate, str) or "." not in predicate or predicate.split(".", 1)[0] not in CLAIM_FAMILIES:
+            raise ExtractionError("EXTRACTION_PREDICATE_INVALID")
+        cited = claim.get("observation_ids")
+        if not isinstance(cited, list) or not cited or any(not isinstance(value, str) or value not in observation_ids for value in cited):
+            raise ExtractionError("EXTRACTION_OBSERVATION_REQUIRED")
+        if "value" not in claim:
+            raise ExtractionError("EXTRACTION_CLAIM_VALUE_REQUIRED")
+        if predicate.startswith("person."):
+            persona_id = claim.get("source_persona_id")
+            if not isinstance(persona_id, str) or persona_id not in persona_ids:
+                raise ExtractionError("EXTRACTION_PERSONA_REQUIRED")
 
 
 def reusable(existing: BatchManifest, candidate: BatchManifest) -> bool:

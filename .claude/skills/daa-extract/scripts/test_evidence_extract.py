@@ -2,10 +2,18 @@ from dataclasses import replace
 
 import pytest
 
+import evidence_extract
 from evidence_extract import ExtractionError, complete_batch, load_profile, prepare_batch, reusable
 
 
 RECORDS = [{"record_key": "record-a", "raw": "Født 1801."}, {"record_key": "record-b", "raw": "Gift 1820."}]
+
+
+def validate_output(*args, **kwargs):
+    implementation = getattr(evidence_extract, "validate_output", None)
+    if implementation is None:
+        pytest.fail("validate_output mangler")
+    return implementation(*args, **kwargs)
 
 
 def test_profiles_pin_terra_and_sol_without_ambient_settings(monkeypatch):
@@ -40,3 +48,49 @@ def test_only_identical_green_batch_is_reusable():
     green = complete_batch(pending, {"record_keys": ["record-a", "record-b"], "observations": []}, token_count=5, cost_usd=0.02)
     assert reusable(green, pending)
     assert not reusable(green, replace(pending, input_hash="changed"))
+
+
+def _bundle():
+    text = "Våben: tre roser."
+    return {
+        "schema_version": "1.0", "source_rendition": [], "source_records": [],
+        "source_record_anchor_events": [], "source_record_revision_events": [],
+        "record_placements": [], "persona_placements": [], "text_variants": [],
+        "mentions": [], "source_personas": [], "extraction_run": {"run_id": "run-1"},
+        "source_record_occurrences": [{
+            "occurrence_id": "occ-1", "rendition_id": "rendition-1", "extraction_run_id": "run-1",
+            "verbatim_text": text, "span": {"rendition_id": "rendition-1", "page_from": 1, "page_to": 1,
+                "char_from": 0, "char_to": len(text), "bbox": None},
+        }],
+        "observations": [{
+            "observation_id": "obs-1", "occurrence_id": "occ-1", "kind": "heraldry_clause",
+            "verbatim_text": text, "extraction_method": "model", "extraction_run_id": "run-1",
+            "span": {"rendition_id": "rendition-1", "page_from": 1, "page_to": 1,
+                "char_from": 0, "char_to": len(text), "bbox": None},
+        }],
+    }
+
+
+def test_granular_claim_requires_observed_evidence_bundle():
+    with pytest.raises(ExtractionError, match="EVIDENCE_BUNDLE"):
+        validate_output({"claims": [{"predicate": "title.rank", "observation_ids": ["obs-1"], "value": "greve"}]})
+
+
+def test_granular_claim_rejects_unknown_predicate_and_missing_observation():
+    with pytest.raises(ExtractionError, match="PREDICATE"):
+        validate_output({"evidence_bundle": _bundle(), "claims": [{"predicate": "made.up", "observation_ids": ["obs-1"], "value": "x"}]})
+    with pytest.raises(ExtractionError, match="OBSERVATION"):
+        validate_output({"evidence_bundle": _bundle(), "claims": [{"predicate": "heraldry.blazon", "observation_ids": ["missing"], "value": "tre roser"}]})
+
+
+def test_non_personal_heraldry_claim_is_valid_without_artificial_persona():
+    assert validate_output({"evidence_bundle": _bundle(), "claims": [{
+        "predicate": "heraldry.blazon", "observation_ids": ["obs-1"], "value": "tre roser",
+    }]}) is None
+
+
+def test_person_claim_requires_a_source_persona_not_an_invented_person():
+    with pytest.raises(ExtractionError, match="PERSONA"):
+        validate_output({"evidence_bundle": _bundle(), "claims": [{
+            "predicate": "person.name", "observation_ids": ["obs-1"], "value": "Anna",
+        }]})
