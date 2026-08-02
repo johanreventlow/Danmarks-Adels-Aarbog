@@ -479,6 +479,423 @@ EXCEPTION WHEN others THEN
   RAISE;
 END $evidence_concurrency$;
 
+-- ===== Evidensimport Fase 2 / Task 5: fortolkning, promotion og identitet =====
+DO $interpretation_verify$
+DECLARE
+  v_required text[] := ARRAY[
+    'interpretation','interpretation_observation','interpretation_promotion',
+    'source_persona_identity','source_persona_identity_event'
+  ];
+  v_missing text[];
+  v_actor uuid := '11000000-0000-0000-0000-000000000021';
+  v_member uuid := '11000000-0000-0000-0000-000000000022';
+  v_run uuid := '22000000-0000-0000-0000-000000000021';
+  v_rendition uuid := '33000000-0000-0000-0000-000000000021';
+  v_occurrence uuid := '55000000-0000-0000-0000-000000000021';
+  v_observation uuid := '66000000-0000-0000-0000-000000000021';
+  v_persona uuid := '88000000-0000-0000-0000-000000000021';
+  v_interpretation uuid := 'c1000000-0000-0000-0000-000000000021';
+  v_accepted_interpretation uuid;
+  v_error text;
+BEGIN
+  SELECT array_agg(required_name ORDER BY required_name) INTO v_missing
+    FROM unnest(v_required) AS required_name
+   WHERE to_regclass(format('private.%I',required_name)) IS NULL;
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: fortolkningslag mangler tabeller: %',v_missing;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname='private' AND c.relname=ANY(v_required) AND NOT c.relrowsecurity
+  ) THEN
+    RAISE EXCEPTION 'FEJL: mindst én privat fortolknings-/identitetstabel mangler RLS';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM unnest(v_required) AS required_name
+     WHERE has_table_privilege('anon',format('private.%I',required_name),'SELECT')
+        OR has_table_privilege('authenticated',format('private.%I',required_name),'SELECT')
+        OR has_table_privilege('authenticated',format('private.%I',required_name),'INSERT')
+        OR has_table_privilege('authenticated',format('private.%I',required_name),'UPDATE')
+  ) OR has_table_privilege('anon','private.interpretation_current','SELECT')
+     OR has_table_privilege('authenticated','private.interpretation_current','SELECT') THEN
+    RAISE EXCEPTION 'FEJL: fortolknings-/identitetslaget har direkte API-rettigheder';
+  END IF;
+  IF to_regprocedure(
+       'public.red_decide_interpretation(uuid,integer,text,jsonb)'
+     ) IS NULL
+     OR to_regprocedure(
+       'public.red_promote_interpretation(uuid,text,bigint,jsonb)'
+     ) IS NULL
+     OR to_regprocedure(
+       'public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)'
+     ) IS NULL THEN
+    RAISE EXCEPTION 'FEJL: fortolkningslaget mangler atomiske redaktions-RPCer';
+  END IF;
+  IF has_function_privilege(
+       'anon','public.red_decide_interpretation(uuid,integer,text,jsonb)','EXECUTE'
+     ) OR has_function_privilege(
+       'anon','public.red_promote_interpretation(uuid,text,bigint,jsonb)','EXECUTE'
+     ) OR has_function_privilege(
+       'anon',
+       'public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)',
+       'EXECUTE'
+     ) THEN
+    RAISE EXCEPTION 'FEJL: anon kan kalde fortolknings-/identitetsmutationer';
+  END IF;
+
+  BEGIN
+    INSERT INTO auth.users(id,email) VALUES
+      (v_actor,'interpretation-editor@test.invalid'),
+      (v_member,'interpretation-member@test.invalid');
+    INSERT INTO person(id,levende,privat,status) VALUES
+      (-987650021,false,false,'verify identity A'),
+      (-987650022,false,false,'verify identity B');
+    INSERT INTO profiles(id,rolle,email,navn) VALUES
+      (v_actor,'redaktion','interpretation-editor@test.invalid','Verify Editor'),
+      (v_member,'medlem','interpretation-member@test.invalid','Verify Member');
+    INSERT INTO source(id,titel,import_key)
+      VALUES (-987650021,'Fortolkning verify','verify:interpretation');
+    INSERT INTO private.extraction_run(
+      id,source_id,run_key,schema_version,extractor_version,profile_version,
+      input_sha256,manifest
+    ) VALUES (
+      v_run,-987650021,'interpretation-run','1.0','verify','verify',
+      repeat('1',64),'{}'
+    );
+    INSERT INTO private.source_rendition(
+      id,source_id,rendition_key,rendition_kind,content_sha256,metadata
+    ) VALUES (
+      v_rendition,-987650021,'interpretation-rendition','text_layer',
+      repeat('2',64),'{}'
+    );
+    INSERT INTO private.source_record_occurrence(
+      id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,
+      verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id
+    ) VALUES (
+      v_occurrence,v_rendition,'interpretation-occurrence',1,1,0,12,
+      'Anna døde 1','physical-interpretation','structural-interpretation',v_run
+    );
+    INSERT INTO private.source_observation(
+      id,occurrence_id,observation_kind,page_from,page_to,char_from,char_to,
+      verbatim_text,quality_status,extraction_method,extraction_run_id
+    ) VALUES (
+      v_observation,v_occurrence,'death_clause',1,1,0,12,'Anna døde 1',
+      'clear','verify',v_run
+    );
+    INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id)
+      VALUES (v_persona,-987650021,'interpretation-persona',v_run);
+
+    -- En fortolkning må aldrig eksistere uden mindst én bærende observation.
+    v_error := NULL;
+    BEGIN
+      INSERT INTO private.interpretation(
+        id,interpretation_key,version,source_id,source_persona_id,
+        interpretation_kind,predicate,value,schema_version,derivation_kind,
+        confidence,status,method,extraction_run_id
+      ) VALUES (
+        'c1000000-0000-0000-0000-000000000020',
+        'c0000000-0000-0000-0000-000000000020',1,-987650021,v_persona,
+        'property','death_date','{"raw":"1"}','1.0','source_statement',
+        1,'proposed','verify',v_run
+      );
+      SET CONSTRAINTS private.interpretation_has_observation IMMEDIATE;
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    SET CONSTRAINTS private.interpretation_has_observation DEFERRED;
+    IF v_error NOT LIKE 'EVIDENCE_INTERPRETATION_OBSERVATION_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: fortolkning uden observation blev ikke afvist: %',v_error;
+    END IF;
+
+    INSERT INTO private.interpretation(
+      id,interpretation_key,version,source_id,source_persona_id,
+      interpretation_kind,predicate,value,schema_version,derivation_kind,
+      confidence,status,method,extraction_run_id
+    ) VALUES (
+      v_interpretation,'c0000000-0000-0000-0000-000000000021',1,
+      -987650021,v_persona,'property','death_date','{"raw":"1"}','1.0',
+      'source_statement',1,'proposed','verify',v_run
+    );
+    INSERT INTO private.interpretation_observation(
+      interpretation_id,observation_id,evidence_role,ordinal
+    ) VALUES (v_interpretation,v_observation,'supporting',1);
+    SET CONSTRAINTS private.interpretation_has_observation IMMEDIATE;
+    SET CONSTRAINTS private.interpretation_has_observation DEFERRED;
+
+    -- Direkte promotion af et forslag er fail-closed.
+    v_error := NULL;
+    BEGIN
+      INSERT INTO private.interpretation_promotion(
+        interpretation_id,target_type,target_id,evidence,
+        promoted_by,promoted_by_name
+      ) VALUES (
+        v_interpretation,'person',-987650021,'{"basis":"invalid"}',
+        v_actor,'Verify Editor'
+      );
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_INTERPRETATION_NOT_ACCEPTED%' THEN
+      RAISE EXCEPTION 'FEJL: promotion uden accepted fortolkning blev ikke afvist: %',v_error;
+    END IF;
+
+    -- Et importpayload kan ikke selv erklære sig menneskeligt godkendt.
+    PERFORM set_config('request.jwt.claim.sub',v_member::text,true);
+    v_error := NULL;
+    BEGIN
+      PERFORM red_decide_interpretation(
+        v_interpretation,1,'accepted','{"basis":"fake human"}'
+      );
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_ROLE_FORBIDDEN%' THEN
+      RAISE EXCEPTION 'FEJL: medlem kunne fremstille menneskelig godkendelse: %',v_error;
+    END IF;
+
+    PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+    SELECT red_decide_interpretation(
+      v_interpretation,1,'accepted','{"basis":"reviewed"}'
+    ) INTO v_accepted_interpretation;
+    IF NOT EXISTS (
+      SELECT 1 FROM private.interpretation_current
+       WHERE interpretation_key='c0000000-0000-0000-0000-000000000021'
+         AND id=v_accepted_interpretation AND status='accepted' AND version=2
+         AND decided_by=v_actor AND decided_by_name='Verify Editor'
+    ) THEN
+      RAISE EXCEPTION 'FEJL: accepted fortolkning mangler versions-/aktøraudit';
+    END IF;
+    PERFORM red_promote_interpretation(
+      v_accepted_interpretation,'person',-987650021,'{"basis":"verified"}'
+    );
+    v_error:=NULL;
+    BEGIN
+      UPDATE private.interpretation SET predicate='rewritten'
+       WHERE id=v_accepted_interpretation;
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_APPEND_ONLY%' THEN
+      RAISE EXCEPTION 'FEJL: accepteret fortolkning kunne overskrives: %',v_error;
+    END IF;
+
+    -- En accepteret identitetsafgørelse uden aktørmetadata afvises selv ved
+    -- direkte ejer-write; almindelige roller har slet ingen tabeladgang.
+    v_error := NULL;
+    BEGIN
+      INSERT INTO private.source_persona_identity_event(
+        source_persona_id,canonical_person_id,decision_status,version,evidence
+      ) VALUES (
+        v_persona,-987650021,'accepted',1,'{"basis":"missing actor"}'
+      );
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error IS NULL THEN
+      RAISE EXCEPTION 'FEJL: identitetsafgørelse uden actor/tid blev accepteret';
+    END IF;
+
+    v_error := NULL;
+    BEGIN
+      INSERT INTO private.source_persona_identity(
+        source_persona_id,canonical_person_id,decision_status,version,evidence
+      ) VALUES (v_persona,NULL,'proposed',1,'{}');
+      SET CONSTRAINTS private.identity_state_has_event IMMEDIATE;
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    SET CONSTRAINTS private.identity_state_has_event DEFERRED;
+    IF v_error NOT LIKE 'EVIDENCE_IDENTITY_EVENT_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: identity-state uden event blev ikke afvist: %',v_error;
+    END IF;
+
+    PERFORM red_decide_source_persona_identity(
+      v_persona,-987650021,0,'accepted','{"basis":"reviewed"}'
+    );
+    IF (SELECT count(*) FROM private.source_persona_identity
+         WHERE source_persona_id=v_persona AND decision_status='accepted')<>1
+       OR NOT EXISTS (
+         SELECT 1 FROM private.source_persona_identity
+          WHERE source_persona_id=v_persona AND canonical_person_id=-987650021
+            AND version=1 AND decided_by=v_actor
+       ) THEN
+      RAISE EXCEPTION 'FEJL: persona fik ikke præcis ét aktivt kanonisk mål';
+    END IF;
+    v_error:=NULL;
+    BEGIN
+      UPDATE private.source_persona_identity_event SET evidence='{"rewritten":true}'
+       WHERE source_persona_id=v_persona AND version=1;
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_APPEND_ONLY%' THEN
+      RAISE EXCEPTION 'FEJL: identity-event kunne overskrives: %',v_error;
+    END IF;
+
+    v_error := NULL;
+    BEGIN
+      PERFORM red_decide_source_persona_identity(
+        v_persona,-987650022,0,'accepted','{"basis":"stale"}'
+      );
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_IDENTITY_VERSION_CONFLICT%' THEN
+      RAISE EXCEPTION 'FEJL: stale identitetsafgørelse blev ikke afvist: %',v_error;
+    END IF;
+
+    RAISE EXCEPTION 'ROLLBACK_INTERPRETATION_VERIFY';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM='ROLLBACK_INTERPRETATION_VERIFY' THEN
+      RAISE NOTICE 'OK: fortolkning, promotion og identitet er private, auditerede og fail-closed';
+    ELSE
+      RAISE;
+    END IF;
+  END;
+END $interpretation_verify$;
+
+-- To redaktørtransaktioner fra samme identity-version: persona-låsen skal
+-- serialisere dem, og den tabende afgørelse skal fejle på expected_version.
+DO $identity_concurrency$
+DECLARE
+  v_conn text := format(
+    'dbname=%s port=%s host=%s',current_database(),current_setting('port'),
+    split_part(current_setting('unix_socket_directories'),',',1)
+  );
+  v_actor uuid := '11000000-0000-0000-0000-000000000031';
+  v_persona uuid := '88000000-0000-0000-0000-000000000031';
+  v_a_pid integer;
+  v_b_pid integer;
+  v_busy integer;
+  v_version integer;
+  v_deadline timestamptz;
+  v_error text;
+  v_setup_connected boolean := false;
+  v_a_connected boolean := false;
+  v_b_connected boolean := false;
+  v_cleanup text := $cleanup$
+    SET session_replication_role=replica;
+    DELETE FROM private.source_persona_identity_event
+      WHERE source_persona_id='88000000-0000-0000-0000-000000000031';
+    DELETE FROM private.source_persona_identity
+      WHERE source_persona_id='88000000-0000-0000-0000-000000000031';
+    DELETE FROM private.source_persona
+      WHERE id='88000000-0000-0000-0000-000000000031';
+    DELETE FROM private.extraction_run
+      WHERE id='22000000-0000-0000-0000-000000000031';
+    DELETE FROM source WHERE id=-987650031;
+    DELETE FROM profiles WHERE id='11000000-0000-0000-0000-000000000031';
+    DELETE FROM auth.users WHERE id='11000000-0000-0000-0000-000000000031';
+    DELETE FROM person WHERE id IN (-987650031,-987650032);
+    SET session_replication_role=origin;
+  $cleanup$;
+BEGIN
+  IF to_regprocedure('public.dblink_connect(text,text)') IS NULL THEN
+    RAISE NOTICE 'SKIP: identity-samtidighed kræver dblink i disposable verify-base';
+    RETURN;
+  END IF;
+  PERFORM dblink_connect('identity_setup',v_conn||' application_name=daa_verify_identity_setup');
+  v_setup_connected:=true;
+  PERFORM dblink_exec('identity_setup',v_cleanup);
+  PERFORM dblink_exec('identity_setup',format(
+    'INSERT INTO auth.users(id,email) VALUES (''%s'',''identity-lock@test.invalid'')',v_actor));
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO person(id,levende,privat,status) VALUES '
+    || '(-987650031,false,false,''identity A''),(-987650032,false,false,''identity B'')');
+  PERFORM dblink_exec('identity_setup',format(
+    'INSERT INTO profiles(id,rolle,email,navn) VALUES '
+    || '(''%s'',''redaktion'',''identity-lock@test.invalid'',''Identity Editor'')',v_actor));
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO source(id,titel,import_key) VALUES '
+    || '(-987650031,''Identity lock'',''verify:identity:lock'')');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.extraction_run('
+    || 'id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) '
+    || 'VALUES (''22000000-0000-0000-0000-000000000031'',-987650031,''identity-lock-run'','
+    || '''1.0'',''verify'',''verify'',' || quote_literal(repeat('3',64)) || ',''{}'')');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES '
+    || '(''88000000-0000-0000-0000-000000000031'',-987650031,''identity-lock-persona'','
+    || '''22000000-0000-0000-0000-000000000031'')');
+  PERFORM dblink_exec('identity_setup','BEGIN');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.source_persona_identity_event('
+    || 'source_persona_id,canonical_person_id,decision_status,version,evidence) VALUES '
+    || '(''88000000-0000-0000-0000-000000000031'',NULL,''proposed'',1,''{}'')');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.source_persona_identity('
+    || 'source_persona_id,canonical_person_id,decision_status,version,evidence) VALUES '
+    || '(''88000000-0000-0000-0000-000000000031'',NULL,''proposed'',1,''{}'')');
+  PERFORM dblink_exec('identity_setup','COMMIT');
+
+  PERFORM dblink_connect('identity_a',v_conn||' application_name=daa_verify_identity_a');
+  v_a_connected:=true;
+  PERFORM dblink_connect('identity_b',v_conn||' application_name=daa_verify_identity_b');
+  v_b_connected:=true;
+  SELECT pid INTO v_a_pid FROM dblink('identity_a','SELECT pg_backend_pid()') AS t(pid integer);
+  SELECT pid INTO v_b_pid FROM dblink('identity_b','SELECT pg_backend_pid()') AS t(pid integer);
+
+  PERFORM dblink_exec('identity_a','BEGIN');
+  PERFORM dblink_exec('identity_a','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('identity_a',format(
+    'SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  SELECT version INTO v_version FROM dblink('identity_a',
+    'SELECT red_decide_source_persona_identity('
+    || '''88000000-0000-0000-0000-000000000031'',-987650031,1,''accepted'','
+    || '''{"basis":"A"}'')') AS t(version integer);
+  IF v_version<>2 THEN RAISE EXCEPTION 'FEJL: første identity-writer gav version %',v_version; END IF;
+
+  PERFORM dblink_exec('identity_b','BEGIN');
+  PERFORM dblink_exec('identity_b','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('identity_b',format(
+    'SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  PERFORM dblink_send_query('identity_b',
+    'SELECT red_decide_source_persona_identity('
+    || '''88000000-0000-0000-0000-000000000031'',-987650032,1,''accepted'','
+    || '''{"basis":"B"}'')');
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    EXIT WHEN v_a_pid=ANY(pg_blocking_pids(v_b_pid));
+    SELECT dblink_is_busy('identity_b') INTO v_busy;
+    IF v_busy=0 OR clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'FEJL: anden identity-writer blev ikke serialiseret på persona';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  PERFORM dblink_exec('identity_a','COMMIT');
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    SELECT dblink_is_busy('identity_b') INTO v_busy;
+    EXIT WHEN v_busy=0;
+    IF clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'FEJL: anden identity-writer afsluttede ikke efter COMMIT';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  v_error:=NULL;
+  BEGIN
+    PERFORM * FROM dblink_get_result('identity_b') AS t(version integer);
+  EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+  BEGIN
+    PERFORM * FROM dblink_get_result('identity_b') AS t(version integer);
+  EXCEPTION WHEN others THEN IF v_error IS NULL THEN v_error:=SQLERRM; END IF; END;
+  IF v_error NOT LIKE '%EVIDENCE_IDENTITY_VERSION_CONFLICT%' THEN
+    RAISE EXCEPTION 'FEJL: tabende identity-writer fejlede ikke fail-closed: %',v_error;
+  END IF;
+  PERFORM dblink_exec('identity_b','ROLLBACK');
+  PERFORM dblink_disconnect('identity_a'); v_a_connected:=false;
+  PERFORM dblink_disconnect('identity_b'); v_b_connected:=false;
+  IF NOT EXISTS (
+    SELECT 1 FROM private.source_persona_identity
+     WHERE source_persona_id=v_persona AND canonical_person_id=-987650031
+       AND decision_status='accepted' AND version=2
+  ) OR (SELECT count(*) FROM private.source_persona_identity
+         WHERE source_persona_id=v_persona)<>1 THEN
+    RAISE EXCEPTION 'FEJL: samtidighed efterlod ikke præcis ét vindende identitetsmål';
+  END IF;
+  PERFORM dblink_exec('identity_setup',v_cleanup);
+  PERFORM dblink_disconnect('identity_setup'); v_setup_connected:=false;
+  RAISE NOTICE 'OK: identitetsafgørelser serialiseres og expected_version er fail-closed';
+EXCEPTION WHEN others THEN
+  IF v_a_connected THEN
+    BEGIN PERFORM dblink_exec('identity_a','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('identity_a'); EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+  IF v_b_connected THEN
+    BEGIN PERFORM dblink_exec('identity_b','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('identity_b'); EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+  IF v_setup_connected THEN
+    BEGIN PERFORM dblink_exec('identity_setup',v_cleanup); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('identity_setup'); EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+  RAISE;
+END $identity_concurrency$;
+
 -- ===== Person OCR kvalitetsark — atomisk rettelse og historik =====
 -- Selvstændig transaktionsfixture. Alle positive og negative veje kører gennem
 -- den offentlige SECURITY DEFINER-flade, og blokken ruller altid tilbage.

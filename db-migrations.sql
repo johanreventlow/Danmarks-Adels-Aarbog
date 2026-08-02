@@ -5445,3 +5445,389 @@ REVOKE EXECUTE ON FUNCTION private.reject_evidence_mutation(),
                            private.validate_source_record_anchor_event(),
                            private.validate_source_record_revision_event()
   FROM PUBLIC,anon,authenticated;
+
+-- =====================================================================
+-- EVIDENSBASERET GENIMPORT FASE 2 / TASK 5 — FORTOLKNING OG IDENTITET
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS private.interpretation (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  interpretation_key uuid NOT NULL,
+  version integer NOT NULL CHECK(version>=1),
+  source_id bigint NOT NULL REFERENCES public.source(id),
+  source_persona_id uuid REFERENCES private.source_persona(id),
+  interpretation_kind text NOT NULL CHECK(
+    interpretation_kind IN ('property','relation','event','mention')),
+  predicate text NOT NULL CHECK(btrim(predicate)<>''),
+  value jsonb NOT NULL,
+  schema_version text NOT NULL CHECK(btrim(schema_version)<>''),
+  derivation_kind text NOT NULL CHECK(derivation_kind IN
+    ('source_statement','deterministic','model_inference','human_judgement')),
+  confidence numeric NOT NULL CHECK(confidence>=0 AND confidence<=1),
+  status text NOT NULL CHECK(status IN
+    ('proposed','accepted','rejected','unresolved','superseded')),
+  method text NOT NULL CHECK(btrim(method)<>''),
+  model_version text,
+  prompt_version text,
+  extraction_run_id uuid NOT NULL,
+  supersedes_id uuid REFERENCES private.interpretation(id),
+  decision_evidence jsonb NOT NULL DEFAULT '{}'::jsonb
+    CHECK(jsonb_typeof(decision_evidence)='object'),
+  decided_by uuid,
+  decided_by_name text,
+  decided_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(interpretation_key,version),
+  FOREIGN KEY(extraction_run_id,source_id) REFERENCES private.extraction_run(id,source_id),
+  CHECK((version=1 AND supersedes_id IS NULL) OR (version>1 AND supersedes_id IS NOT NULL)),
+  CHECK(status IN ('proposed','unresolved') OR
+    (decided_by IS NOT NULL AND nullif(btrim(decided_by_name),'') IS NOT NULL
+     AND decided_at IS NOT NULL AND decision_evidence<>'{}'::jsonb))
+);
+CREATE TABLE IF NOT EXISTS private.interpretation_observation (
+  interpretation_id uuid NOT NULL REFERENCES private.interpretation(id),
+  observation_id uuid NOT NULL REFERENCES private.source_observation(id),
+  evidence_role text NOT NULL CHECK(evidence_role IN ('supporting','context','contradicting')),
+  ordinal integer NOT NULL CHECK(ordinal>=1),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY(interpretation_id,observation_id), UNIQUE(interpretation_id,ordinal)
+);
+CREATE TABLE IF NOT EXISTS private.interpretation_promotion (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  interpretation_id uuid NOT NULL REFERENCES private.interpretation(id),
+  target_type text NOT NULL CHECK(target_type IN
+    ('person','family','fact','assertion','relation','narrative','haendelse',
+     'lineage','source','coat_of_arms','historical_event')),
+  target_id bigint NOT NULL,
+  evidence jsonb NOT NULL CHECK(jsonb_typeof(evidence)='object' AND evidence<>'{}'::jsonb),
+  promoted_by uuid NOT NULL,
+  promoted_by_name text NOT NULL CHECK(btrim(promoted_by_name)<>''),
+  promoted_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(interpretation_id,target_type,target_id)
+);
+CREATE TABLE IF NOT EXISTS private.source_persona_identity (
+  source_persona_id uuid PRIMARY KEY REFERENCES private.source_persona(id),
+  canonical_person_id bigint REFERENCES public.person(id),
+  decision_status text NOT NULL CHECK(decision_status IN
+    ('proposed','accepted','rejected','unresolved','superseded')),
+  version integer NOT NULL CHECK(version>=1),
+  evidence jsonb NOT NULL CHECK(jsonb_typeof(evidence)='object'),
+  decided_by uuid,
+  decided_by_name text,
+  decided_at timestamptz,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CHECK(decision_status<>'accepted' OR canonical_person_id IS NOT NULL),
+  CHECK(decision_status<>'unresolved' OR canonical_person_id IS NULL),
+  CHECK(decision_status='proposed' OR
+    (decided_by IS NOT NULL AND nullif(btrim(decided_by_name),'') IS NOT NULL
+     AND decided_at IS NOT NULL AND evidence<>'{}'::jsonb))
+);
+CREATE TABLE IF NOT EXISTS private.source_persona_identity_event (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_persona_id uuid NOT NULL REFERENCES private.source_persona(id),
+  canonical_person_id bigint REFERENCES public.person(id),
+  decision_status text NOT NULL CHECK(decision_status IN
+    ('proposed','accepted','rejected','unresolved','superseded')),
+  version integer NOT NULL CHECK(version>=1),
+  evidence jsonb NOT NULL CHECK(jsonb_typeof(evidence)='object'),
+  decided_by uuid,
+  decided_by_name text,
+  decided_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(source_persona_id,version),
+  CHECK(decision_status<>'accepted' OR canonical_person_id IS NOT NULL),
+  CHECK(decision_status<>'unresolved' OR canonical_person_id IS NULL),
+  CHECK(decision_status='proposed' OR
+    (decided_by IS NOT NULL AND nullif(btrim(decided_by_name),'') IS NOT NULL
+     AND decided_at IS NOT NULL AND evidence<>'{}'::jsonb))
+);
+
+CREATE OR REPLACE VIEW private.interpretation_current
+WITH (security_invoker=true) AS
+SELECT DISTINCT ON(interpretation_key) * FROM private.interpretation
+ORDER BY interpretation_key,version DESC,created_at DESC,id DESC;
+
+CREATE OR REPLACE FUNCTION private.validate_interpretation_scope()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
+DECLARE v_source bigint;
+BEGIN
+  IF NEW.source_persona_id IS NOT NULL THEN
+    SELECT source_id INTO v_source FROM private.source_persona WHERE id=NEW.source_persona_id;
+    IF v_source IS DISTINCT FROM NEW.source_id THEN
+      RAISE EXCEPTION 'EVIDENCE_SOURCE_MISMATCH: interpretation persona';
+    END IF;
+  END IF;
+  IF NEW.version>1 AND NOT EXISTS(
+    SELECT 1 FROM private.interpretation previous
+     WHERE previous.id=NEW.supersedes_id
+       AND previous.interpretation_key=NEW.interpretation_key
+       AND previous.version=NEW.version-1 AND previous.source_id=NEW.source_id
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_INTERPRETATION_VERSION_CONFLICT';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE OR REPLACE FUNCTION private.validate_interpretation_observation()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
+DECLARE v_interpretation_source bigint; v_observation_source bigint;
+BEGIN
+  SELECT source_id INTO v_interpretation_source FROM private.interpretation
+    WHERE id=NEW.interpretation_id;
+  SELECT r.source_id INTO v_observation_source FROM private.source_observation o
+    JOIN private.source_record_occurrence ro ON ro.id=o.occurrence_id
+    JOIN private.source_rendition r ON r.id=ro.rendition_id WHERE o.id=NEW.observation_id;
+  IF v_interpretation_source IS DISTINCT FROM v_observation_source THEN
+    RAISE EXCEPTION 'EVIDENCE_SOURCE_MISMATCH: interpretation observation';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE OR REPLACE FUNCTION private.assert_interpretation_has_observation()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+BEGIN
+  IF NOT EXISTS(SELECT 1 FROM private.interpretation_observation
+                 WHERE interpretation_id=NEW.id) THEN
+    RAISE EXCEPTION 'EVIDENCE_INTERPRETATION_OBSERVATION_REQUIRED: %',NEW.id;
+  END IF;
+  RETURN NULL;
+END $$;
+CREATE OR REPLACE FUNCTION private.validate_interpretation_promotion()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
+DECLARE v_exists boolean;
+BEGIN
+  IF NOT EXISTS(SELECT 1 FROM private.interpretation
+                 WHERE id=NEW.interpretation_id AND status='accepted') THEN
+    RAISE EXCEPTION 'EVIDENCE_INTERPRETATION_NOT_ACCEPTED';
+  END IF;
+  v_exists:=CASE NEW.target_type
+    WHEN 'person' THEN EXISTS(SELECT 1 FROM public.person WHERE id=NEW.target_id)
+    WHEN 'family' THEN EXISTS(SELECT 1 FROM public.family WHERE id=NEW.target_id)
+    WHEN 'fact' THEN EXISTS(SELECT 1 FROM public.fact WHERE id=NEW.target_id)
+    WHEN 'assertion' THEN EXISTS(SELECT 1 FROM public.assertion WHERE id=NEW.target_id)
+    WHEN 'relation' THEN EXISTS(SELECT 1 FROM public.relation WHERE id=NEW.target_id)
+    WHEN 'narrative' THEN EXISTS(SELECT 1 FROM public.narrative WHERE id=NEW.target_id)
+    WHEN 'haendelse' THEN EXISTS(SELECT 1 FROM public.haendelse WHERE id=NEW.target_id)
+    WHEN 'lineage' THEN EXISTS(SELECT 1 FROM public.lineage WHERE id=NEW.target_id)
+    WHEN 'source' THEN EXISTS(SELECT 1 FROM public.source WHERE id=NEW.target_id)
+    WHEN 'coat_of_arms' THEN EXISTS(SELECT 1 FROM public.coat_of_arms WHERE id=NEW.target_id)
+    WHEN 'historical_event' THEN EXISTS(SELECT 1 FROM public.historical_event WHERE id=NEW.target_id)
+    ELSE false END;
+  IF NOT v_exists THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_TARGET_NOT_FOUND: %.%',NEW.target_type,NEW.target_id;
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE OR REPLACE FUNCTION private.validate_source_persona_identity_event()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,private AS $$
+DECLARE v_expected integer;
+BEGIN
+  PERFORM 1 FROM private.source_persona WHERE id=NEW.source_persona_id FOR UPDATE;
+  SELECT coalesce(max(version),0)+1 INTO v_expected
+    FROM private.source_persona_identity_event WHERE source_persona_id=NEW.source_persona_id;
+  IF NEW.version<>v_expected THEN
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_VERSION_CONFLICT: expected %, got %',v_expected,NEW.version;
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE OR REPLACE FUNCTION private.assert_identity_state_event_consistency()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+BEGIN
+  IF TG_TABLE_NAME='source_persona_identity' THEN
+    IF NOT EXISTS(SELECT 1 FROM private.source_persona_identity_event e
+      WHERE e.source_persona_id=NEW.source_persona_id AND e.version=NEW.version
+        AND e.canonical_person_id IS NOT DISTINCT FROM NEW.canonical_person_id
+        AND e.decision_status=NEW.decision_status AND e.evidence=NEW.evidence
+        AND e.decided_by IS NOT DISTINCT FROM NEW.decided_by
+        AND e.decided_by_name IS NOT DISTINCT FROM NEW.decided_by_name
+        AND e.decided_at IS NOT DISTINCT FROM NEW.decided_at) THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_EVENT_REQUIRED';
+    END IF;
+  ELSIF NOT EXISTS(SELECT 1 FROM private.source_persona_identity
+    WHERE source_persona_id=NEW.source_persona_id AND version>=NEW.version) THEN
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_STATE_REQUIRED';
+  END IF;
+  RETURN NULL;
+END $$;
+
+DO $$
+DECLARE v_table text; v_trigger text;
+BEGIN
+  DROP TRIGGER IF EXISTS trg_interpretation_scope ON private.interpretation;
+  CREATE TRIGGER trg_interpretation_scope BEFORE INSERT ON private.interpretation
+    FOR EACH ROW EXECUTE FUNCTION private.validate_interpretation_scope();
+  DROP TRIGGER IF EXISTS trg_interpretation_observation_scope ON private.interpretation_observation;
+  CREATE TRIGGER trg_interpretation_observation_scope BEFORE INSERT
+    ON private.interpretation_observation FOR EACH ROW
+    EXECUTE FUNCTION private.validate_interpretation_observation();
+  DROP TRIGGER IF EXISTS interpretation_has_observation ON private.interpretation;
+  CREATE CONSTRAINT TRIGGER interpretation_has_observation AFTER INSERT
+    ON private.interpretation DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+    EXECUTE FUNCTION private.assert_interpretation_has_observation();
+  DROP TRIGGER IF EXISTS trg_interpretation_promotion_validate ON private.interpretation_promotion;
+  CREATE TRIGGER trg_interpretation_promotion_validate BEFORE INSERT
+    ON private.interpretation_promotion FOR EACH ROW
+    EXECUTE FUNCTION private.validate_interpretation_promotion();
+  DROP TRIGGER IF EXISTS trg_source_persona_identity_event_validate
+    ON private.source_persona_identity_event;
+  CREATE TRIGGER trg_source_persona_identity_event_validate BEFORE INSERT
+    ON private.source_persona_identity_event FOR EACH ROW
+    EXECUTE FUNCTION private.validate_source_persona_identity_event();
+  DROP TRIGGER IF EXISTS identity_state_has_event ON private.source_persona_identity;
+  CREATE CONSTRAINT TRIGGER identity_state_has_event AFTER INSERT OR UPDATE
+    ON private.source_persona_identity DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+    EXECUTE FUNCTION private.assert_identity_state_event_consistency();
+  DROP TRIGGER IF EXISTS identity_event_is_projected ON private.source_persona_identity_event;
+  CREATE CONSTRAINT TRIGGER identity_event_is_projected AFTER INSERT
+    ON private.source_persona_identity_event DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+    EXECUTE FUNCTION private.assert_identity_state_event_consistency();
+  FOREACH v_table IN ARRAY ARRAY[
+    'interpretation','interpretation_observation','interpretation_promotion',
+    'source_persona_identity_event'
+  ] LOOP
+    v_trigger='trg_'||v_table||'_append_only';
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON private.%I',v_trigger,v_table);
+    EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON private.%I FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation()',v_trigger,v_table);
+  END LOOP;
+  FOREACH v_table IN ARRAY ARRAY[
+    'interpretation','interpretation_observation','interpretation_promotion',
+    'source_persona_identity','source_persona_identity_event'
+  ] LOOP
+    EXECUTE format('ALTER TABLE private.%I ENABLE ROW LEVEL SECURITY',v_table);
+    EXECUTE format('REVOKE ALL ON TABLE private.%I FROM PUBLIC,anon,authenticated',v_table);
+  END LOOP;
+END $$;
+REVOKE ALL ON TABLE private.interpretation_current FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION private.validate_interpretation_scope(),
+ private.validate_interpretation_observation(),private.assert_interpretation_has_observation(),
+ private.validate_interpretation_promotion(),private.validate_source_persona_identity_event(),
+ private.assert_identity_state_event_consistency()
+FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION red_decide_interpretation(
+  p_interpretation_id uuid,p_expected_version integer,
+  p_decision_status text,p_evidence jsonb
+) RETURNS uuid
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_current private.interpretation%ROWTYPE;
+  v_actor uuid:=auth.uid();
+  v_actor_name text;
+  v_new_id uuid:=gen_random_uuid();
+BEGIN
+  IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN';
+  END IF;
+  SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text)
+    INTO v_actor_name FROM public.profiles WHERE id=v_actor;
+  IF v_actor_name IS NULL THEN RAISE EXCEPTION 'EVIDENCE_ACTOR_REQUIRED'; END IF;
+  IF p_decision_status NOT IN('accepted','rejected','unresolved','superseded')
+     OR jsonb_typeof(p_evidence)<>'object' OR p_evidence='{}'::jsonb THEN
+    RAISE EXCEPTION 'EVIDENCE_DECISION_INVALID';
+  END IF;
+  SELECT * INTO v_current FROM private.interpretation
+    WHERE id=p_interpretation_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_INTERPRETATION_NOT_FOUND'; END IF;
+  IF v_current.version<>p_expected_version OR EXISTS(
+    SELECT 1 FROM private.interpretation newer
+     WHERE newer.interpretation_key=v_current.interpretation_key
+       AND newer.version>v_current.version) THEN
+    RAISE EXCEPTION 'EVIDENCE_INTERPRETATION_VERSION_CONFLICT';
+  END IF;
+  INSERT INTO private.interpretation(
+    id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,
+    predicate,value,schema_version,derivation_kind,confidence,status,method,
+    model_version,prompt_version,extraction_run_id,supersedes_id,decision_evidence,
+    decided_by,decided_by_name,decided_at
+  ) VALUES (
+    v_new_id,v_current.interpretation_key,v_current.version+1,v_current.source_id,
+    v_current.source_persona_id,v_current.interpretation_kind,v_current.predicate,
+    v_current.value,v_current.schema_version,v_current.derivation_kind,
+    v_current.confidence,p_decision_status,v_current.method,v_current.model_version,
+    v_current.prompt_version,v_current.extraction_run_id,v_current.id,p_evidence,
+    v_actor,v_actor_name,clock_timestamp()
+  );
+  INSERT INTO private.interpretation_observation(
+    interpretation_id,observation_id,evidence_role,ordinal)
+  SELECT v_new_id,observation_id,evidence_role,ordinal
+    FROM private.interpretation_observation WHERE interpretation_id=v_current.id;
+  RETURN v_new_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION red_promote_interpretation(
+  p_interpretation_id uuid,p_target_type text,p_target_id bigint,p_evidence jsonb
+) RETURNS uuid
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_actor uuid:=auth.uid(); v_actor_name text; v_id uuid;
+BEGIN
+  IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN';
+  END IF;
+  SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text)
+    INTO v_actor_name FROM public.profiles WHERE id=v_actor;
+  IF v_actor_name IS NULL OR jsonb_typeof(p_evidence)<>'object'
+     OR p_evidence='{}'::jsonb THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_INVALID';
+  END IF;
+  INSERT INTO private.interpretation_promotion(
+    interpretation_id,target_type,target_id,evidence,promoted_by,promoted_by_name)
+  VALUES(p_interpretation_id,p_target_type,p_target_id,p_evidence,v_actor,v_actor_name)
+  RETURNING id INTO v_id;
+  RETURN v_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION red_decide_source_persona_identity(
+  p_source_persona_id uuid,p_canonical_person_id bigint,p_expected_version integer,
+  p_decision_status text,p_evidence jsonb
+) RETURNS integer
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_actor uuid:=auth.uid(); v_actor_name text; v_current_version integer;
+  v_new_version integer; v_decided_at timestamptz:=clock_timestamp();
+BEGIN
+  IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN';
+  END IF;
+  SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text)
+    INTO v_actor_name FROM public.profiles WHERE id=v_actor;
+  IF v_actor_name IS NULL THEN RAISE EXCEPTION 'EVIDENCE_ACTOR_REQUIRED'; END IF;
+  IF p_decision_status NOT IN('accepted','rejected','unresolved','superseded')
+     OR (p_decision_status='accepted' AND p_canonical_person_id IS NULL)
+     OR (p_decision_status='unresolved' AND p_canonical_person_id IS NOT NULL)
+     OR jsonb_typeof(p_evidence)<>'object' OR p_evidence='{}'::jsonb THEN
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_DECISION_INVALID';
+  END IF;
+  PERFORM 1 FROM private.source_persona WHERE id=p_source_persona_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_PERSONA_NOT_FOUND'; END IF;
+  SELECT version INTO v_current_version FROM private.source_persona_identity
+    WHERE source_persona_id=p_source_persona_id FOR UPDATE;
+  v_current_version:=coalesce(v_current_version,0);
+  IF v_current_version<>p_expected_version THEN
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_VERSION_CONFLICT: expected %, current %',
+      p_expected_version,v_current_version;
+  END IF;
+  v_new_version:=v_current_version+1;
+  INSERT INTO private.source_persona_identity_event(
+    source_persona_id,canonical_person_id,decision_status,version,evidence,
+    decided_by,decided_by_name,decided_at)
+  VALUES(p_source_persona_id,p_canonical_person_id,p_decision_status,v_new_version,
+    p_evidence,v_actor,v_actor_name,v_decided_at);
+  INSERT INTO private.source_persona_identity(
+    source_persona_id,canonical_person_id,decision_status,version,evidence,
+    decided_by,decided_by_name,decided_at,updated_at)
+  VALUES(p_source_persona_id,p_canonical_person_id,p_decision_status,v_new_version,
+    p_evidence,v_actor,v_actor_name,v_decided_at,v_decided_at)
+  ON CONFLICT(source_persona_id) DO UPDATE SET
+    canonical_person_id=excluded.canonical_person_id,
+    decision_status=excluded.decision_status,version=excluded.version,
+    evidence=excluded.evidence,decided_by=excluded.decided_by,
+    decided_by_name=excluded.decided_by_name,decided_at=excluded.decided_at,
+    updated_at=excluded.updated_at;
+  RETURN v_new_version;
+END $$;
+
+REVOKE ALL ON FUNCTION red_decide_interpretation(uuid,integer,text,jsonb),
+ red_promote_interpretation(uuid,text,bigint,jsonb),
+ red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)
+FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_decide_interpretation(uuid,integer,text,jsonb),
+ red_promote_interpretation(uuid,text,bigint,jsonb),
+ red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)
+TO authenticated;

@@ -19,7 +19,9 @@ begin
   foreach v_table in array array[
     'extraction_run','source_rendition','source_record','source_record_occurrence',
     'source_record_anchor_event','source_record_revision_event','source_observation',
-    'source_observation_text','source_mention','source_persona','source_persona_mention'
+    'source_observation_text','source_mention','source_persona','source_persona_mention',
+    'interpretation','interpretation_observation','interpretation_promotion',
+    'source_persona_identity','source_persona_identity_event'
   ] loop
     if to_regclass(format('private.%I',v_table)) is not null then
       execute format('alter table private.%I enable row level security',v_table);

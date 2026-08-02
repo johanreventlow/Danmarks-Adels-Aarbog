@@ -387,13 +387,13 @@ Databasen skal afvise to aktive kanoniske mål for samme persona, promotion uden
 
 - [ ] **Step 2: Implementér tabeller**
 
-Tilføj private.interpretation, interpretation_observation, interpretation_promotion, source_persona_identity og source_persona_identity_event.
+Tilføj private.interpretation, interpretation_observation, interpretation_promotion, source_persona_identity og source_persona_identity_event. `interpretation` er en append-only versionslog med stabil key og `supersedes_id`; en deferred constraint kræver mindst én observation ved commit. `source_persona_identity` er current-state-projektionen, og deferred constraints afstemmer den begge veje mod eventloggen.
 
 Én persona har højst én aktiv identitet. Status er proposed, accepted, rejected, unresolved eller superseded. Partial match modelleres med separate personaer/mentions.
 
 - [ ] **Step 3: Implementér atomiske security-definer-funktioner**
 
-Følg projektets current_rolle-, search_path-, revoke/grant- og auditmønster. Accept/afvis skal låse mål-rækken, kontrollere expected_version og skrive event samt ny tilstand i samme transaktion.
+Følg projektets current_rolle-, search_path-, revoke/grant- og auditmønster. Accept/afvis skal låse mål-rækken, kontrollere expected_version og skrive event samt ny tilstand i samme transaktion. Actor-id og navn udledes af `auth.uid()` og profilen inde i funktionen og kan ikke leveres af kaldets payload.
 
 - [ ] **Step 4: Test samtidighed og commit**
 

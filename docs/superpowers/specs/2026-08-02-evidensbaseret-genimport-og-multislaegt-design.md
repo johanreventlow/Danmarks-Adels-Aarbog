@@ -192,6 +192,8 @@ source_mention
 
 `source_persona_identity` er den aktuelle, versionerede identitetsafgørelse. Én kildeperson kan højst forbindes med én kanonisk person; én kanonisk person kan forbindes med mange kildepersoner.
 
+Den aktuelle række er en projektion af en append-only `source_persona_identity_event`-log. En deferred databaseinvariant kræver, at current state og eventloggen stemmer ved commit i begge retninger. Accept, afvisning og uafklaret-status skrives atomisk gennem en `SECURITY DEFINER`-funktion med `expected_version` og persona-rækkelås. Aktør-id og navn hentes fra den autentificerede redaktionssession; importpayloadet kan ikke selv angive en menneskelig godkender.
+
 ### 6.3 Identitetsworkflow
 
 Efter intern indlæsning foreslår systemet kandidatgrupper ud fra navn, datoer, forældre, ægtefæller, titler, godser, steder, eksterne henvisninger og kronologisk mulighed.
@@ -235,6 +237,8 @@ Hver fortolkning bærer:
 - reference til alle bærende observationer og omtaler;
 - struktureret værdi, tid, sted, aktører og roller.
 
+En fortolkning er append-only og versioneres med en stabil `interpretation_key`, versionsnummer og `supersedes_id`. En afgørelse opretter en ny version og kopierer de bærende observationslinks; den tidligere version opdateres ikke. En deferred constraint kræver mindst én observation ved commit, så fortolkning og links stadig kan indsættes atomisk i samme transaktion.
+
 Usikre eller uklassificerede fortolkninger bevares internt. De kasseres ikke og tvinges ikke ind i en upræcis faktatype.
 
 ### 7.2 Fire generelle udsagnsformer
@@ -272,6 +276,8 @@ Forfremmelse kræver:
 - sporbare værdier, datoer og roller;
 - tydelig adskillelse mellem udsagn og slutning;
 - ingen skjult konflikt med andre kilder.
+
+`interpretation_promotion` refererer den konkrete accepterede fortolkningsversion og et eksisterende kanonisk mål. Promotions er append-only og bærer sessionsafledt aktør, tidspunkt og beslutningsevidens; en senere ny fortolkningsversion omskriver ikke den historiske promotion.
 
 ### 8.2 Mapping
 
