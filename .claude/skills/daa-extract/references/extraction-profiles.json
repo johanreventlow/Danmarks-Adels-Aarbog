@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "profiles": {
+    "daa-1939-v1": {
+      "edition": "1939",
+      "version": "1.0.0",
+      "model_id": "gpt-5.6-terra",
+      "escalation_model_id": "gpt-5.6-sol",
+      "prompt_version": "evidence-extract-1.0.0",
+      "layout": "modern_stamtavle",
+      "record_identity": "record_key",
+      "requires_human_go_for_change": true
+    },
+    "daa-2018-20-v1": {
+      "edition": "2018-20",
+      "version": "1.0.0",
+      "model_id": "gpt-5.6-terra",
+      "escalation_model_id": "gpt-5.6-sol",
+      "prompt_version": "evidence-extract-1.0.0",
+      "layout": "modern_stamtavle",
+      "record_identity": "record_key",
+      "requires_human_go_for_change": true
+    }
+  }
+}
