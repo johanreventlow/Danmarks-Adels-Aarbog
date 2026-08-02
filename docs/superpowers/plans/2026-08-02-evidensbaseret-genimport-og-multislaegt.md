@@ -307,7 +307,8 @@ create table private.source_record_anchor_event (
   ),
   evidence jsonb not null,
   version integer not null default 1,
-  decided_by uuid references auth.users(id) on delete set null,
+  -- Immutable audit identifier: intentionally no FK to mutable auth.users.
+  decided_by uuid,
   decided_by_name text,
   decided_at timestamptz not null default now(),
   unique (occurrence_id, source_record_id, version)
@@ -325,7 +326,8 @@ create table private.source_record_revision_event (
   ),
   evidence jsonb not null,
   version integer not null,
-  decided_by uuid references auth.users(id) on delete set null,
+  -- Immutable audit identifier: intentionally no FK to mutable auth.users.
+  decided_by uuid,
   decided_by_name text,
   decided_at timestamptz not null default now(),
   unique (
@@ -338,7 +340,7 @@ Forslag, accept og afvisning er separate append-only events; current-state views
 
 - [ ] **Step 3: Gør rå evidens append-only**
 
-Blokér UPDATE og DELETE på rendition, record, observation, anchor events og revision events. Korrektion sker med ny extraction run, ny eventversion og supersedes_id, aldrig ved overskrivning.
+Blokér UPDATE og DELETE på rendition, record, observation, anchor events og revision events. Korrektion sker med ny extraction run, ny eventversion og supersedes_id, aldrig ved overskrivning. Aktør-/creator-UUID'er på append-only-rækker er frosne auditværdier uden FK til `auth.users`; ellers ville `ON DELETE SET NULL` selv være en forbudt UPDATE af historikken.
 
 - [ ] **Step 4: Lås laget privat**
 
@@ -356,7 +358,7 @@ alter default privileges in schema private
   revoke execute on functions from public, anon, authenticated;
 ~~~
 
-Kør ALTER DEFAULT PRIVILEGES som den samme ejerrolle, der skal oprette de senere private objekter; default privileges er ejer-specifikke. Verificér eksplicit, at anon og almindelig authenticated hverken kan læse eller mutere laget, og opret i testen en midlertidig tabel og funktion efter default-revokes for at bevise, at fremtidige objekter heller ikke lækker rettigheder.
+Kør ALTER DEFAULT PRIVILEGES som den samme ejerrolle, der skal oprette de senere private objekter; default privileges er ejer-specifikke. PostgreSQL's indbyggede `EXECUTE` til `PUBLIC` kan ikke fjernes schema-lokalt, så sikkerheden for senere private funktioner består af manglende `USAGE` på schemaet, schema-lokale default-revokes og eksplicit funktions-revoke ved hver migration — ikke af en global ændring, som ville påvirke public-RPC'er. Verificér effektiv adgang som rollerne, ikke kun den isolerede funktions-ACL. Opret i testen en midlertidig tabel og funktion efter default-revokes for at bevise, at fremtidige objekter heller ikke kan nås.
 
 - [ ] **Step 5: Test frisk lokal database og commit**
 

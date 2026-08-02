@@ -419,6 +419,415 @@ END $$;
 CREATE SCHEMA IF NOT EXISTS private;
 REVOKE ALL ON SCHEMA private FROM PUBLIC, anon, authenticated;
 
+-- Fremtidige objekter i det private evidenslag må ikke arve Supabases
+-- direkte standard-grants til API-rollerne. Gælder for den ejer, der kører DDL'en.
+ALTER DEFAULT PRIVILEGES IN SCHEMA private
+  REVOKE ALL ON TABLES FROM PUBLIC, anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA private
+  REVOKE ALL ON SEQUENCES FROM PUBLIC, anon, authenticated;
+-- Fjerner eventuelle schema-lokale Supabase-default-grants. PostgreSQLs
+-- implicitte PUBLIC-EXECUTE kan ikke fjernes schema-lokalt, men bliver
+-- ineffektiv uden USAGE på private; eksisterende funktioner revokes nedenfor.
+ALTER DEFAULT PRIVILEGES IN SCHEMA private
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated;
+
+-- ---------- PRIVAT, APPEND-ONLY KILDEEVIDENS ----------
+-- extraction_run er et færdigt, reproducerbart manifest. Delvise batchtilstande
+-- hører til arbejdsartefakterne og indlæses ikke som en grøn run-række.
+CREATE TABLE private.extraction_run (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_id         bigint NOT NULL REFERENCES public.source(id),
+  run_key           text NOT NULL CHECK (btrim(run_key) <> ''),
+  schema_version    text NOT NULL CHECK (btrim(schema_version) <> ''),
+  extractor_version text NOT NULL CHECK (btrim(extractor_version) <> ''),
+  profile_version   text NOT NULL CHECK (btrim(profile_version) <> ''),
+  input_sha256      text NOT NULL CHECK (input_sha256 ~ '^[0-9a-f]{64}$'),
+  manifest          jsonb NOT NULL DEFAULT '{}'::jsonb
+                    CHECK (jsonb_typeof(manifest)='object'),
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (source_id, run_key),
+  UNIQUE (id, source_id)
+);
+
+CREATE TABLE private.source_rendition (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_id      bigint NOT NULL REFERENCES public.source(id),
+  rendition_key  text NOT NULL CHECK (btrim(rendition_key) <> ''),
+  rendition_kind text NOT NULL CHECK (btrim(rendition_kind) <> ''),
+  content_sha256 text NOT NULL CHECK (content_sha256 ~ '^[0-9a-f]{64}$'),
+  metadata       jsonb NOT NULL DEFAULT '{}'::jsonb
+                 CHECK (jsonb_typeof(metadata)='object'),
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (source_id, rendition_key),
+  UNIQUE (id, source_id)
+);
+CREATE INDEX source_rendition_content_idx
+  ON private.source_rendition(source_id,content_sha256);
+
+CREATE TABLE private.source_record (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_id      bigint NOT NULL REFERENCES public.source(id),
+  record_key     text NOT NULL CHECK (btrim(record_key) <> ''),
+  record_kind    text NOT NULL CHECK (btrim(record_kind) <> ''),
+  created_run_id uuid NOT NULL,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (source_id,record_key),
+  UNIQUE (id,source_id),
+  FOREIGN KEY (created_run_id,source_id)
+    REFERENCES private.extraction_run(id,source_id)
+);
+
+CREATE TABLE private.source_record_occurrence (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  rendition_id           uuid NOT NULL REFERENCES private.source_rendition(id),
+  occurrence_key         text NOT NULL CHECK (btrim(occurrence_key) <> ''),
+  page_from              integer NOT NULL CHECK (page_from >= 1),
+  page_to                integer NOT NULL CHECK (page_to >= page_from),
+  column_label           text,
+  char_from              integer NOT NULL CHECK (char_from >= 0),
+  char_to                integer NOT NULL CHECK (char_to > char_from),
+  bbox                   jsonb,
+  verbatim_text          text NOT NULL CHECK (verbatim_text <> ''),
+  physical_fingerprint   text NOT NULL CHECK (btrim(physical_fingerprint) <> ''),
+  structural_fingerprint text NOT NULL CHECK (btrim(structural_fingerprint) <> ''),
+  extraction_run_id      uuid NOT NULL REFERENCES private.extraction_run(id),
+  created_at             timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (rendition_id,extraction_run_id,occurrence_key)
+);
+
+CREATE TABLE private.source_record_anchor_event (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  occurrence_id    uuid NOT NULL REFERENCES private.source_record_occurrence(id),
+  source_record_id uuid NOT NULL REFERENCES private.source_record(id),
+  decision_status  text NOT NULL
+                   CHECK (decision_status IN ('proposed','accepted','rejected')),
+  evidence         jsonb NOT NULL CHECK (jsonb_typeof(evidence)='object'),
+  version          integer NOT NULL CHECK (version >= 1),
+  -- Uforanderligt audit-id, bevidst uden FK til den mutable auth-livscyklus.
+  decided_by       uuid,
+  decided_by_name  text,
+  decided_at       timestamptz NOT NULL DEFAULT now(),
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (occurrence_id,source_record_id,version),
+  CHECK (
+    decision_status='proposed'
+    OR (
+      nullif(btrim(decided_by_name),'') IS NOT NULL
+      AND evidence <> '{}'::jsonb
+    )
+  )
+);
+
+CREATE TABLE private.source_record_revision_event (
+  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  predecessor_record_id uuid NOT NULL REFERENCES private.source_record(id),
+  successor_record_id   uuid NOT NULL REFERENCES private.source_record(id),
+  relation_kind         text NOT NULL
+                        CHECK (relation_kind IN ('split_into','merged_from','replaced_by')),
+  decision_status       text NOT NULL
+                        CHECK (decision_status IN ('proposed','accepted','rejected')),
+  evidence              jsonb NOT NULL CHECK (jsonb_typeof(evidence)='object'),
+  version               integer NOT NULL CHECK (version >= 1),
+  -- Uforanderligt audit-id, bevidst uden FK til den mutable auth-livscyklus.
+  decided_by            uuid,
+  decided_by_name       text,
+  decided_at            timestamptz NOT NULL DEFAULT now(),
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (predecessor_record_id,successor_record_id,relation_kind,version),
+  CHECK (predecessor_record_id <> successor_record_id),
+  CHECK (
+    decision_status='proposed'
+    OR (
+      nullif(btrim(decided_by_name),'') IS NOT NULL
+      AND evidence <> '{}'::jsonb
+    )
+  )
+);
+
+CREATE TABLE private.source_observation (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  occurrence_id     uuid NOT NULL REFERENCES private.source_record_occurrence(id),
+  observation_kind  text NOT NULL CHECK (btrim(observation_kind) <> ''),
+  page_from         integer NOT NULL CHECK (page_from >= 1),
+  page_to           integer NOT NULL CHECK (page_to >= page_from),
+  column_label      text,
+  char_from         integer NOT NULL CHECK (char_from >= 0),
+  char_to           integer NOT NULL CHECK (char_to > char_from),
+  bbox              jsonb,
+  verbatim_text     text NOT NULL CHECK (verbatim_text <> ''),
+  quality_status    text NOT NULL CHECK (
+    quality_status IN ('clear','ocr_uncertain','truncated','structurally_uncertain','illegible')
+  ),
+  extraction_method text NOT NULL CHECK (btrim(extraction_method) <> ''),
+  extraction_run_id uuid NOT NULL REFERENCES private.extraction_run(id),
+  created_at        timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE private.source_observation_text (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  observation_id  uuid NOT NULL REFERENCES private.source_observation(id),
+  rendition_id    uuid NOT NULL REFERENCES private.source_rendition(id),
+  version         integer NOT NULL CHECK (version >= 1),
+  verbatim_text   text NOT NULL CHECK (verbatim_text <> ''),
+  char_from       integer NOT NULL CHECK (char_from >= 0),
+  char_to         integer NOT NULL CHECK (char_to > char_from),
+  bbox            jsonb,
+  is_preferred    boolean NOT NULL DEFAULT false,
+  supersedes_id   uuid REFERENCES private.source_observation_text(id),
+  -- Uforanderligt audit-id, bevidst uden FK til den mutable auth-livscyklus.
+  created_by      uuid,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (observation_id,rendition_id,version),
+  CHECK (supersedes_id IS NULL OR supersedes_id <> id)
+);
+CREATE TABLE private.source_mention (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  observation_id   uuid NOT NULL REFERENCES private.source_observation(id),
+  mention_kind     text NOT NULL CHECK (btrim(mention_kind) <> ''),
+  char_from        integer NOT NULL CHECK (char_from >= 0),
+  char_to          integer NOT NULL CHECK (char_to > char_from),
+  verbatim_text    text NOT NULL CHECK (verbatim_text <> ''),
+  created_run_id   uuid NOT NULL REFERENCES private.extraction_run(id),
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE private.source_persona (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_id      bigint NOT NULL REFERENCES public.source(id),
+  persona_key    text NOT NULL CHECK (btrim(persona_key) <> ''),
+  created_run_id uuid NOT NULL,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (source_id,persona_key),
+  UNIQUE (id,source_id),
+  FOREIGN KEY (created_run_id,source_id)
+    REFERENCES private.extraction_run(id,source_id)
+);
+
+CREATE TABLE private.source_persona_mention (
+  persona_id   uuid NOT NULL REFERENCES private.source_persona(id),
+  mention_id   uuid NOT NULL REFERENCES private.source_mention(id),
+  mention_role text NOT NULL CHECK (btrim(mention_role) <> ''),
+  ordinal      integer NOT NULL CHECK (ordinal >= 1),
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (persona_id,mention_id),
+  UNIQUE (persona_id,ordinal)
+);
+
+-- Seneste event pr. logisk nøgle. Views ligger i private og er ikke API-flader.
+CREATE VIEW private.source_record_anchor_current
+WITH (security_invoker=true) AS
+SELECT DISTINCT ON (occurrence_id,source_record_id) *
+  FROM private.source_record_anchor_event
+ ORDER BY occurrence_id,source_record_id,version DESC,created_at DESC,id DESC;
+
+CREATE VIEW private.source_record_revision_current
+WITH (security_invoker=true) AS
+SELECT DISTINCT ON (predecessor_record_id,successor_record_id,relation_kind) *
+  FROM private.source_record_revision_event
+ ORDER BY predecessor_record_id,successor_record_id,relation_kind,
+          version DESC,created_at DESC,id DESC;
+
+CREATE VIEW private.source_observation_text_current
+WITH (security_invoker=true) AS
+SELECT DISTINCT ON (observation_id) *
+  FROM private.source_observation_text
+ ORDER BY observation_id,is_preferred DESC,version DESC,created_at DESC,id DESC;
+
+-- Alle rå kilde-/hypoteserækker er uforanderlige. En rettelse er en ny række/event.
+CREATE FUNCTION private.reject_evidence_mutation()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+BEGIN
+  RAISE EXCEPTION 'EVIDENCE_APPEND_ONLY: %.% kan ikke %',TG_TABLE_SCHEMA,TG_TABLE_NAME,TG_OP;
+END $$;
+
+CREATE FUNCTION private.validate_evidence_scope()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_source_a bigint;
+  v_source_b bigint;
+  v_text text;
+BEGIN
+  IF TG_TABLE_NAME='source_record_occurrence' THEN
+    SELECT source_id INTO v_source_a FROM private.source_rendition WHERE id=NEW.rendition_id;
+    SELECT source_id INTO v_source_b FROM private.extraction_run WHERE id=NEW.extraction_run_id;
+  ELSIF TG_TABLE_NAME='source_observation' THEN
+    SELECT r.source_id INTO v_source_a
+      FROM private.source_record_occurrence o
+      JOIN private.source_rendition r ON r.id=o.rendition_id
+     WHERE o.id=NEW.occurrence_id;
+    SELECT source_id INTO v_source_b FROM private.extraction_run WHERE id=NEW.extraction_run_id;
+    IF NEW.page_from < (SELECT page_from FROM private.source_record_occurrence WHERE id=NEW.occurrence_id)
+       OR NEW.page_to > (SELECT page_to FROM private.source_record_occurrence WHERE id=NEW.occurrence_id)
+       OR NEW.char_from < (SELECT char_from FROM private.source_record_occurrence WHERE id=NEW.occurrence_id)
+       OR NEW.char_to > (SELECT char_to FROM private.source_record_occurrence WHERE id=NEW.occurrence_id) THEN
+      RAISE EXCEPTION 'EVIDENCE_OBSERVATION_SPAN_INVALID';
+    END IF;
+  ELSIF TG_TABLE_NAME='source_observation_text' THEN
+    SELECT r.source_id INTO v_source_a
+      FROM private.source_observation o
+      JOIN private.source_record_occurrence ro ON ro.id=o.occurrence_id
+      JOIN private.source_rendition r ON r.id=ro.rendition_id
+     WHERE o.id=NEW.observation_id;
+    SELECT source_id INTO v_source_b FROM private.source_rendition WHERE id=NEW.rendition_id;
+    IF (NEW.version=1 AND NEW.supersedes_id IS NOT NULL)
+       OR (NEW.version>1 AND NOT EXISTS (
+         SELECT 1 FROM private.source_observation_text previous
+          WHERE previous.id=NEW.supersedes_id
+            AND previous.observation_id=NEW.observation_id
+            AND previous.rendition_id=NEW.rendition_id
+            AND previous.version=NEW.version-1
+       )) THEN
+      RAISE EXCEPTION 'EVIDENCE_TEXT_VERSION_CONFLICT';
+    END IF;
+  ELSIF TG_TABLE_NAME='source_mention' THEN
+    SELECT o.verbatim_text,r.source_id INTO v_text,v_source_a
+      FROM private.source_observation o
+      JOIN private.source_record_occurrence ro ON ro.id=o.occurrence_id
+      JOIN private.source_rendition r ON r.id=ro.rendition_id
+     WHERE o.id=NEW.observation_id;
+    SELECT source_id INTO v_source_b FROM private.extraction_run WHERE id=NEW.created_run_id;
+    IF NEW.char_to > length(v_text)
+       OR substr(v_text,NEW.char_from+1,NEW.char_to-NEW.char_from) <> NEW.verbatim_text THEN
+      RAISE EXCEPTION 'EVIDENCE_MENTION_SPAN_INVALID';
+    END IF;
+  ELSIF TG_TABLE_NAME='source_persona_mention' THEN
+    SELECT source_id INTO v_source_a FROM private.source_persona WHERE id=NEW.persona_id;
+    SELECT r.source_id INTO v_source_b
+      FROM private.source_mention m
+      JOIN private.source_observation o ON o.id=m.observation_id
+      JOIN private.source_record_occurrence ro ON ro.id=o.occurrence_id
+      JOIN private.source_rendition r ON r.id=ro.rendition_id
+     WHERE m.id=NEW.mention_id;
+  END IF;
+  IF v_source_a IS DISTINCT FROM v_source_b THEN
+    RAISE EXCEPTION 'EVIDENCE_SOURCE_MISMATCH: %',TG_TABLE_NAME;
+  END IF;
+  RETURN NEW;
+END $$;
+
+CREATE FUNCTION private.validate_source_record_anchor_event()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_occurrence_source bigint;
+  v_record_source bigint;
+  v_expected_version integer;
+BEGIN
+  IF NEW.decision_status<>'proposed' AND (
+    NEW.decided_by IS NULL
+    OR nullif(btrim(NEW.decided_by_name),'') IS NULL
+    OR NEW.evidence='{}'::jsonb
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_DECISION_METADATA_REQUIRED';
+  END IF;
+  PERFORM 1 FROM private.source_record_occurrence WHERE id=NEW.occurrence_id FOR UPDATE;
+  SELECT r.source_id INTO v_occurrence_source
+    FROM private.source_record_occurrence o
+    JOIN private.source_rendition r ON r.id=o.rendition_id
+   WHERE o.id=NEW.occurrence_id;
+  SELECT source_id INTO v_record_source FROM private.source_record WHERE id=NEW.source_record_id;
+  IF v_occurrence_source IS DISTINCT FROM v_record_source THEN
+    RAISE EXCEPTION 'EVIDENCE_SOURCE_MISMATCH: source_record_anchor_event';
+  END IF;
+  SELECT coalesce(max(version),0)+1 INTO v_expected_version
+    FROM private.source_record_anchor_event
+   WHERE occurrence_id=NEW.occurrence_id AND source_record_id=NEW.source_record_id;
+  IF NEW.version <> v_expected_version THEN
+    RAISE EXCEPTION 'EVIDENCE_EVENT_VERSION_CONFLICT: expected %, got %',v_expected_version,NEW.version;
+  END IF;
+  IF NEW.decision_status='accepted' AND EXISTS (
+    SELECT 1 FROM private.source_record_anchor_current c
+     WHERE c.occurrence_id=NEW.occurrence_id
+       AND c.decision_status='accepted'
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_ANCHOR_CONFLICT: occurrence har allerede en accepted anchor';
+  END IF;
+  RETURN NEW;
+END $$;
+
+CREATE FUNCTION private.validate_source_record_revision_event()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_predecessor_source bigint;
+  v_successor_source bigint;
+  v_expected_version integer;
+BEGIN
+  IF NEW.decision_status<>'proposed' AND (
+    NEW.decided_by IS NULL
+    OR nullif(btrim(NEW.decided_by_name),'') IS NULL
+    OR NEW.evidence='{}'::jsonb
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_DECISION_METADATA_REQUIRED';
+  END IF;
+  PERFORM id FROM private.source_record
+   WHERE id IN (NEW.predecessor_record_id,NEW.successor_record_id)
+   ORDER BY id FOR UPDATE;
+  SELECT source_id INTO v_predecessor_source FROM private.source_record WHERE id=NEW.predecessor_record_id;
+  SELECT source_id INTO v_successor_source FROM private.source_record WHERE id=NEW.successor_record_id;
+  IF v_predecessor_source IS DISTINCT FROM v_successor_source THEN
+    RAISE EXCEPTION 'EVIDENCE_SOURCE_MISMATCH: source_record_revision_event';
+  END IF;
+  SELECT coalesce(max(version),0)+1 INTO v_expected_version
+    FROM private.source_record_revision_event
+   WHERE predecessor_record_id=NEW.predecessor_record_id
+     AND successor_record_id=NEW.successor_record_id
+     AND relation_kind=NEW.relation_kind;
+  IF NEW.version <> v_expected_version THEN
+    RAISE EXCEPTION 'EVIDENCE_EVENT_VERSION_CONFLICT: expected %, got %',v_expected_version,NEW.version;
+  END IF;
+  RETURN NEW;
+END $$;
+
+CREATE TRIGGER trg_source_record_occurrence_scope
+  BEFORE INSERT ON private.source_record_occurrence
+  FOR EACH ROW EXECUTE FUNCTION private.validate_evidence_scope();
+CREATE TRIGGER trg_source_observation_scope
+  BEFORE INSERT ON private.source_observation
+  FOR EACH ROW EXECUTE FUNCTION private.validate_evidence_scope();
+CREATE TRIGGER trg_source_observation_text_scope
+  BEFORE INSERT ON private.source_observation_text
+  FOR EACH ROW EXECUTE FUNCTION private.validate_evidence_scope();
+CREATE TRIGGER trg_source_mention_scope
+  BEFORE INSERT ON private.source_mention
+  FOR EACH ROW EXECUTE FUNCTION private.validate_evidence_scope();
+CREATE TRIGGER trg_source_persona_mention_scope
+  BEFORE INSERT ON private.source_persona_mention
+  FOR EACH ROW EXECUTE FUNCTION private.validate_evidence_scope();
+CREATE TRIGGER trg_source_record_anchor_event_validate
+  BEFORE INSERT ON private.source_record_anchor_event
+  FOR EACH ROW EXECUTE FUNCTION private.validate_source_record_anchor_event();
+CREATE TRIGGER trg_source_record_revision_event_validate
+  BEFORE INSERT ON private.source_record_revision_event
+  FOR EACH ROW EXECUTE FUNCTION private.validate_source_record_revision_event();
+
+DO $$
+DECLARE v_table text;
+BEGIN
+  FOREACH v_table IN ARRAY ARRAY[
+    'extraction_run','source_rendition','source_record','source_record_occurrence',
+    'source_record_anchor_event','source_record_revision_event','source_observation',
+    'source_observation_text','source_mention','source_persona','source_persona_mention'
+  ] LOOP
+    EXECUTE format(
+      'CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON private.%I '
+      || 'FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation()',
+      'trg_' || v_table || '_append_only',v_table
+    );
+    EXECUTE format('ALTER TABLE private.%I ENABLE ROW LEVEL SECURITY',v_table);
+    EXECUTE format('REVOKE ALL ON TABLE private.%I FROM PUBLIC,anon,authenticated',v_table);
+  END LOOP;
+END $$;
+
+REVOKE ALL ON TABLE private.source_record_anchor_current,
+                    private.source_record_revision_current,
+                    private.source_observation_text_current
+  FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA private FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION private.reject_evidence_mutation(),
+                           private.validate_evidence_scope(),
+                           private.validate_source_record_anchor_event(),
+                           private.validate_source_record_revision_event()
+  FROM PUBLIC,anon,authenticated;
+
 CREATE OR REPLACE FUNCTION private.ocr_importeret(
   p_felt text, p_vaerdi text, p_raw text, p_min date, p_max date,
   p_qualifier text, p_calendar text, p_certainty text

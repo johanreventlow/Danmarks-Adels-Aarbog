@@ -132,6 +132,8 @@ Den fysiske forekomst i en bestemt source_rendition registreres først selvstæn
 
 source_record_anchor_event er den append-only afgørelseslog, som forbinder en occurrence med en logisk source_record. Forslag, accept og afvisning er hver sin uforanderlige, versionsnummererede event; den aktuelle tilstand udledes af den seneste event. En occurrence kan have flere historiske forslag, men højst én aktuelt accepteret forankring. Ved ny OCR kan en accepteret én-til-én-afgørelse forbinde den nye occurrence med den eksisterende logiske record uden at oprette en ny record.
 
+Aktør-id og aktørnavn fryses i afgørelseseventen som auditdata. Aktør-id'et har bevidst ingen fremmednøgle til `auth.users`: både `ON DELETE SET NULL` og cascading ville mutere en append-only event, mens `RESTRICT` ville koble historikkens levetid til kontoadministration. UUID og navnesnapshot bevares derfor uforandret, også hvis auth-kontoen senere slettes. Samme princip gælder `created_by` på append-only observationsversioner.
+
 Hvis segmenteringen splitter eller sammenlægger logiske poster, må en eksisterende record_key ikke genbruges som om kontinuiteten var én-til-én. Der oprettes nye records og eksplicitte source_record_revision_event-rækker med maskinkoderne split_into, merged_from eller replaced_by. Et afvist forslag kan senere foreslås igen som en ny version uden UPDATE af historikken. Tvetydig kontinuitet går til menneskelig review.
 
 Et source_mention-ID identificerer et tekstspan i en bestemt observationsversion. Et source_persona-ID er en uigennemsigtig hypotese inden for én bogudgave og kan samle flere mentions og records. Det overlever ikke stiltiende split eller merge; ændringen versionsføres.

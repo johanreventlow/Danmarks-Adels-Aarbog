@@ -40,6 +40,445 @@ DO $$ BEGIN
   END;
 END $$;
 
+-- ===== Evidensimport Fase 2 / Task 4: privat append-only kildelag =====
+-- Selvstændig fixture. Den beviser katalog, kilde-isolation, event-versionering,
+-- append-only-adfærd og rettigheder og ruller altid sine data tilbage.
+DO $evidence_verify$
+DECLARE
+  v_required text[] := ARRAY[
+    'extraction_run','source_rendition','source_record',
+    'source_record_occurrence','source_record_anchor_event',
+    'source_record_revision_event','source_observation',
+    'source_observation_text','source_mention','source_persona',
+    'source_persona_mention'
+  ];
+  v_missing text[];
+  v_actor uuid := '10000000-0000-0000-0000-000000000001';
+  v_run_a uuid := '20000000-0000-0000-0000-000000000001';
+  v_run_b uuid := '20000000-0000-0000-0000-000000000002';
+  v_rendition_a uuid := '30000000-0000-0000-0000-000000000001';
+  v_rendition_b uuid := '30000000-0000-0000-0000-000000000002';
+  v_record_a uuid := '40000000-0000-0000-0000-000000000001';
+  v_record_b uuid := '40000000-0000-0000-0000-000000000002';
+  v_record_foreign uuid := '40000000-0000-0000-0000-000000000003';
+  v_occurrence uuid := '50000000-0000-0000-0000-000000000001';
+  v_observation uuid := '60000000-0000-0000-0000-000000000001';
+  v_mention uuid := '70000000-0000-0000-0000-000000000001';
+  v_persona uuid := '80000000-0000-0000-0000-000000000001';
+  v_persona_foreign uuid := '80000000-0000-0000-0000-000000000002';
+  v_error text;
+BEGIN
+  SELECT array_agg(required_name ORDER BY required_name)
+    INTO v_missing
+    FROM unnest(v_required) AS required_name
+   WHERE to_regclass(format('private.%I', required_name)) IS NULL;
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: evidenslag mangler tabeller: %', v_missing;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname='private'
+       AND c.relname=ANY(v_required)
+       AND NOT c.relrowsecurity
+  ) THEN
+    RAISE EXCEPTION 'FEJL: mindst én privat evidenstabel mangler RLS';
+  END IF;
+  IF has_schema_privilege('anon','private','USAGE')
+     OR has_schema_privilege('authenticated','private','USAGE') THEN
+    RAISE EXCEPTION 'FEJL: anon/authenticated har USAGE på private';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM unnest(v_required) AS required_name
+     WHERE has_table_privilege('anon',format('private.%I',required_name),'SELECT')
+        OR has_table_privilege('authenticated',format('private.%I',required_name),'SELECT')
+        OR has_table_privilege('authenticated',format('private.%I',required_name),'INSERT')
+  ) THEN
+    RAISE EXCEPTION 'FEJL: privat evidenstabel har direkte anon/authenticated-rettighed';
+  END IF;
+
+  BEGIN
+    INSERT INTO auth.users(id,email) VALUES (v_actor,'evidence-verify@test.invalid');
+    INSERT INTO source(id,titel,import_key) VALUES
+      (-987650001,'Evidens verify A','verify:evidence:a'),
+      (-987650002,'Evidens verify B','verify:evidence:b');
+    INSERT INTO private.extraction_run(
+      id,source_id,run_key,schema_version,extractor_version,profile_version,
+      input_sha256,manifest
+    ) VALUES
+      (v_run_a,-987650001,'run-a','1.0','verify','verify',repeat('a',64),'{}'),
+      (v_run_b,-987650002,'run-b','1.0','verify','verify',repeat('b',64),'{}');
+    INSERT INTO private.source_rendition(
+      id,source_id,rendition_key,rendition_kind,content_sha256,metadata
+    ) VALUES
+      (v_rendition_a,-987650001,'rendition-a','text_layer',repeat('c',64),'{}'),
+      (v_rendition_b,-987650002,'rendition-b','text_layer',repeat('d',64),'{}');
+    INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
+      VALUES
+      (v_record_a,-987650001,'record-a','person_entry',v_run_a),
+      (v_record_b,-987650001,'record-b','person_entry',v_run_a),
+      (v_record_foreign,-987650002,'record-foreign','person_entry',v_run_b);
+    INSERT INTO private.source_record_occurrence(
+      id,rendition_id,occurrence_key,page_from,page_to,column_label,
+      char_from,char_to,bbox,verbatim_text,physical_fingerprint,
+      structural_fingerprint,extraction_run_id
+    ) VALUES (
+      v_occurrence,v_rendition_a,'occurrence-a',1,1,NULL,0,12,NULL,
+      'Anna Reventl','physical-a','structural-a',v_run_a
+    );
+
+    IF EXISTS (
+      SELECT 1 FROM private.source_record_anchor_event
+       WHERE occurrence_id=v_occurrence
+    ) THEN
+      RAISE EXCEPTION 'FEJL: occurrence kan ikke stå uforankret';
+    END IF;
+
+    INSERT INTO private.source_observation(
+      id,occurrence_id,observation_kind,page_from,page_to,column_label,
+      char_from,char_to,bbox,verbatim_text,quality_status,
+      extraction_method,extraction_run_id
+    ) VALUES (
+      v_observation,v_occurrence,'name_clause',1,1,NULL,0,12,NULL,
+      'Anna Reventl','clear','verify',v_run_a
+    );
+    INSERT INTO private.source_observation_text(
+      id,observation_id,rendition_id,version,verbatim_text,char_from,char_to,
+      bbox,is_preferred,created_by
+    ) VALUES (
+      '61000000-0000-0000-0000-000000000001',v_observation,v_rendition_a,
+      1,'Anna Reventl',0,12,NULL,true,v_actor
+    );
+    INSERT INTO private.source_mention(
+      id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id
+    ) VALUES (v_mention,v_observation,'person',0,4,'Anna',v_run_a);
+    INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id)
+      VALUES
+      (v_persona,-987650001,'persona-a',v_run_a),
+      (v_persona_foreign,-987650002,'persona-b',v_run_b);
+    INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
+      VALUES (v_persona,v_mention,'principal',1);
+
+    v_error := NULL;
+    BEGIN
+      INSERT INTO private.source_mention(
+        id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id
+      ) VALUES (
+        '70000000-0000-0000-0000-000000000002',v_observation,'person',0,99,
+        'udenfor',v_run_a
+      );
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_MENTION_SPAN_INVALID%' THEN
+      RAISE EXCEPTION 'FEJL: mention uden for observation blev ikke afvist korrekt: %',v_error;
+    END IF;
+
+    v_error := NULL;
+    BEGIN
+      INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
+        VALUES (v_persona_foreign,v_mention,'principal',1);
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_SOURCE_MISMATCH%' THEN
+      RAISE EXCEPTION 'FEJL: persona kunne samle mentions på tværs af kilder: %',v_error;
+    END IF;
+
+    v_error := NULL;
+    BEGIN
+      INSERT INTO private.source_record_anchor_event(
+        id,occurrence_id,source_record_id,decision_status,evidence,version
+      ) VALUES (
+        '90000000-0000-0000-0000-000000000001',v_occurrence,v_record_a,
+        'accepted','{}',1
+      );
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error IS NULL THEN
+      RAISE EXCEPTION 'FEJL: accepted anchor uden actor/evidence blev accepteret';
+    END IF;
+
+    INSERT INTO private.source_record_anchor_event(
+      id,occurrence_id,source_record_id,decision_status,evidence,version,
+      decided_by,decided_by_name
+    ) VALUES (
+      '90000000-0000-0000-0000-000000000002',v_occurrence,v_record_a,
+      'accepted','{"basis":"verify"}',1,v_actor,'Verify'
+    );
+    v_error := NULL;
+    BEGIN
+      INSERT INTO private.source_record_anchor_event(
+        id,occurrence_id,source_record_id,decision_status,evidence,version,
+        decided_by,decided_by_name
+      ) VALUES (
+        '90000000-0000-0000-0000-000000000003',v_occurrence,v_record_b,
+        'accepted','{"basis":"verify"}',1,v_actor,'Verify'
+      );
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_ANCHOR_CONFLICT%' THEN
+      RAISE EXCEPTION 'FEJL: to aktuelle accepted anchors blev ikke afvist korrekt: %',v_error;
+    END IF;
+
+    INSERT INTO private.source_record_anchor_event(
+      id,occurrence_id,source_record_id,decision_status,evidence,version,
+      decided_by,decided_by_name
+    ) VALUES
+      ('90000000-0000-0000-0000-000000000004',v_occurrence,v_record_a,
+       'rejected','{"basis":"review"}',2,v_actor,'Verify'),
+      ('90000000-0000-0000-0000-000000000005',v_occurrence,v_record_a,
+       'proposed','{"basis":"new evidence"}',3,NULL,NULL),
+      ('90000000-0000-0000-0000-000000000006',v_occurrence,v_record_b,
+       'accepted','{"basis":"review"}',1,v_actor,'Verify');
+    IF NOT EXISTS (
+      SELECT 1 FROM private.source_record_anchor_current
+       WHERE occurrence_id=v_occurrence AND source_record_id=v_record_b
+         AND decision_status='accepted'
+    ) THEN
+      RAISE EXCEPTION 'FEJL: current anchor-view udleder ikke seneste accepted event';
+    END IF;
+
+    v_error := NULL;
+    BEGIN
+      INSERT INTO private.source_record_anchor_event(
+        id,occurrence_id,source_record_id,decision_status,evidence,version
+      ) VALUES (
+        '90000000-0000-0000-0000-000000000007',v_occurrence,v_record_foreign,
+        'proposed','{"basis":"wrong source"}',1
+      );
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_SOURCE_MISMATCH%' THEN
+      RAISE EXCEPTION 'FEJL: anchor på tværs af kilder blev ikke afvist korrekt: %',v_error;
+    END IF;
+
+    INSERT INTO private.source_record_revision_event(
+      id,predecessor_record_id,successor_record_id,relation_kind,
+      decision_status,evidence,version
+    ) VALUES (
+      'a0000000-0000-0000-0000-000000000001',v_record_a,v_record_b,
+      'split_into','proposed','{"basis":"verify"}',1
+    );
+    INSERT INTO private.source_record_revision_event(
+      id,predecessor_record_id,successor_record_id,relation_kind,
+      decision_status,evidence,version,decided_by,decided_by_name
+    ) VALUES
+      ('a0000000-0000-0000-0000-000000000002',v_record_a,v_record_b,
+       'split_into','rejected','{"basis":"review"}',2,v_actor,'Verify'),
+      ('a0000000-0000-0000-0000-000000000003',v_record_a,v_record_b,
+       'split_into','proposed','{"basis":"new evidence"}',3,NULL,NULL);
+    IF NOT EXISTS (
+      SELECT 1 FROM private.source_record_revision_current
+       WHERE predecessor_record_id=v_record_a AND successor_record_id=v_record_b
+         AND relation_kind='split_into' AND decision_status='proposed' AND version=3
+    ) THEN
+      RAISE EXCEPTION 'FEJL: afvist revision kan ikke genforeslås append-only';
+    END IF;
+
+    v_error := NULL;
+    BEGIN
+      UPDATE private.source_observation SET quality_status='uncertain'
+       WHERE id=v_observation;
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_APPEND_ONLY%' THEN
+      RAISE EXCEPTION 'FEJL: rå observation kunne opdateres: %',v_error;
+    END IF;
+    v_error := NULL;
+    BEGIN
+      DELETE FROM private.source_record WHERE id=v_record_a;
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_APPEND_ONLY%' THEN
+      RAISE EXCEPTION 'FEJL: source record kunne slettes: %',v_error;
+    END IF;
+
+    DELETE FROM auth.users WHERE id=v_actor;
+    IF NOT EXISTS (
+      SELECT 1 FROM private.source_record_anchor_event
+       WHERE occurrence_id=v_occurrence AND decision_status='accepted'
+         AND decided_by=v_actor AND decided_by_name='Verify'
+    ) THEN
+      RAISE EXCEPTION 'FEJL: actorsletning bevarede ikke uforanderligt audit-id og navn';
+    END IF;
+
+    EXECUTE 'CREATE TABLE private._evidence_default_priv_verify(id integer)';
+    IF has_table_privilege('anon','private._evidence_default_priv_verify','SELECT')
+       OR has_table_privilege('authenticated','private._evidence_default_priv_verify','SELECT')
+       OR has_table_privilege('authenticated','private._evidence_default_priv_verify','INSERT') THEN
+      RAISE EXCEPTION 'FEJL: default privileges eksponerer et senere private-objekt';
+    END IF;
+    EXECUTE $sql$CREATE FUNCTION private._evidence_default_priv_verify()
+      RETURNS integer LANGUAGE sql AS 'SELECT 1'$sql$;
+    v_error := NULL;
+    BEGIN
+      SET LOCAL ROLE anon;
+      PERFORM private._evidence_default_priv_verify();
+      RESET ROLE;
+    EXCEPTION WHEN insufficient_privilege THEN v_error := SQLERRM; END;
+    IF v_error IS NULL THEN
+      RAISE EXCEPTION 'FEJL: anon kan kalde en senere private-funktion';
+    END IF;
+    v_error := NULL;
+    BEGIN
+      SET LOCAL ROLE authenticated;
+      PERFORM private._evidence_default_priv_verify();
+      RESET ROLE;
+    EXCEPTION WHEN insufficient_privilege THEN v_error := SQLERRM; END;
+    IF v_error IS NULL THEN
+      RAISE EXCEPTION 'FEJL: authenticated kan kalde en senere private-funktion';
+    END IF;
+    EXECUTE 'DROP FUNCTION private._evidence_default_priv_verify()';
+    EXECUTE 'DROP TABLE private._evidence_default_priv_verify';
+
+    RAISE EXCEPTION 'ROLLBACK_EVIDENCE_VERIFY';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM='ROLLBACK_EVIDENCE_VERIFY' THEN
+      RAISE NOTICE 'OK: privat append-only evidenslag — katalog, provenance, events, immutabilitet og ACL';
+    ELSE
+      RAISE;
+    END IF;
+  END;
+END $evidence_verify$;
+
+-- Reel to-forbindelses-test: occurrence-låsen skal serialisere to samtidige
+-- accepted-events, så præcis én vinder. Kun aktiv i disposable baser med dblink.
+DO $evidence_concurrency$
+DECLARE
+  v_conn text := format(
+    'dbname=%s port=%s host=%s', current_database(), current_setting('port'),
+    split_part(current_setting('unix_socket_directories'),',',1)
+  );
+  v_actor uuid := '10000000-0000-0000-0000-000000000011';
+  v_occurrence uuid := '50000000-0000-0000-0000-000000000011';
+  v_record_a uuid := '40000000-0000-0000-0000-000000000011';
+  v_record_b uuid := '40000000-0000-0000-0000-000000000012';
+  v_a_pid integer;
+  v_b_pid integer;
+  v_busy integer;
+  v_deadline timestamptz;
+  v_error text;
+  v_setup_connected boolean := false;
+  v_a_connected boolean := false;
+  v_b_connected boolean := false;
+  v_cleanup text := $cleanup$
+    SET session_replication_role=replica;
+    DELETE FROM private.source_record_anchor_event
+      WHERE occurrence_id='50000000-0000-0000-0000-000000000011';
+    DELETE FROM private.source_record_occurrence
+      WHERE id='50000000-0000-0000-0000-000000000011';
+    DELETE FROM private.source_record
+      WHERE id IN ('40000000-0000-0000-0000-000000000011','40000000-0000-0000-0000-000000000012');
+    DELETE FROM private.source_rendition
+      WHERE id='30000000-0000-0000-0000-000000000011';
+    DELETE FROM private.extraction_run
+      WHERE id='20000000-0000-0000-0000-000000000011';
+    DELETE FROM source WHERE id=-987650011;
+    DELETE FROM auth.users WHERE id='10000000-0000-0000-0000-000000000011';
+    SET session_replication_role=origin;
+  $cleanup$;
+BEGIN
+  IF to_regprocedure('public.dblink_connect(text,text)') IS NULL THEN
+    RAISE NOTICE 'SKIP: evidens-anchor samtidighed kræver dblink i disposable verify-base';
+    RETURN;
+  END IF;
+
+  PERFORM dblink_connect('evidence_setup',v_conn || ' application_name=daa_verify_evidence_setup');
+  v_setup_connected := true;
+  PERFORM dblink_exec('evidence_setup',v_cleanup);
+  PERFORM dblink_exec('evidence_setup',format(
+    'INSERT INTO auth.users(id,email) VALUES (''%s'',''evidence-lock@test.invalid'')',v_actor));
+  PERFORM dblink_exec('evidence_setup',
+    'INSERT INTO source(id,titel,import_key) VALUES (-987650011,''Evidence lock'',''verify:evidence:lock'')');
+  PERFORM dblink_exec('evidence_setup',
+    'INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) '
+    || 'VALUES (''20000000-0000-0000-0000-000000000011'',-987650011,''lock-run'',''1.0'',''verify'',''verify'','
+    || quote_literal(repeat('e',64)) || ',''{}'')');
+  PERFORM dblink_exec('evidence_setup',
+    'INSERT INTO private.source_rendition(id,source_id,rendition_key,rendition_kind,content_sha256,metadata) '
+    || 'VALUES (''30000000-0000-0000-0000-000000000011'',-987650011,''lock-rendition'',''text_layer'','
+    || quote_literal(repeat('f',64)) || ',''{}'')');
+  PERFORM dblink_exec('evidence_setup',
+    'INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id) VALUES '
+    || '(''40000000-0000-0000-0000-000000000011'',-987650011,''lock-a'',''person_entry'',''20000000-0000-0000-0000-000000000011''),'
+    || '(''40000000-0000-0000-0000-000000000012'',-987650011,''lock-b'',''person_entry'',''20000000-0000-0000-0000-000000000011'')');
+  PERFORM dblink_exec('evidence_setup',
+    'INSERT INTO private.source_record_occurrence(id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id) '
+    || 'VALUES (''50000000-0000-0000-0000-000000000011'',''30000000-0000-0000-0000-000000000011'',''lock-occurrence'',1,1,0,4,''Lock'',''physical'',''structural'',''20000000-0000-0000-0000-000000000011'')');
+
+  PERFORM dblink_connect('evidence_a',v_conn || ' application_name=daa_verify_evidence_a');
+  v_a_connected := true;
+  PERFORM dblink_connect('evidence_b',v_conn || ' application_name=daa_verify_evidence_b');
+  v_b_connected := true;
+  SELECT pid INTO v_a_pid FROM dblink('evidence_a','SELECT pg_backend_pid()') AS t(pid integer);
+  SELECT pid INTO v_b_pid FROM dblink('evidence_b','SELECT pg_backend_pid()') AS t(pid integer);
+
+  PERFORM dblink_exec('evidence_a','BEGIN');
+  PERFORM dblink_exec('evidence_a',format(
+    'INSERT INTO private.source_record_anchor_event(id,occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name) '
+    || 'VALUES (''90000000-0000-0000-0000-000000000011'',''%s'',''%s'',''accepted'',''{"basis":"A"}'',1,''%s'',''A'')',
+    v_occurrence,v_record_a,v_actor));
+
+  PERFORM dblink_exec('evidence_b','BEGIN');
+  PERFORM dblink_send_query('evidence_b',format(
+    'INSERT INTO private.source_record_anchor_event(id,occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name) '
+    || 'VALUES (''90000000-0000-0000-0000-000000000012'',''%s'',''%s'',''accepted'',''{"basis":"B"}'',1,''%s'',''B'') RETURNING id',
+    v_occurrence,v_record_b,v_actor));
+  v_deadline := clock_timestamp() + interval '3 seconds';
+  LOOP
+    EXIT WHEN v_a_pid=ANY(pg_blocking_pids(v_b_pid));
+    SELECT dblink_is_busy('evidence_b') INTO v_busy;
+    IF v_busy=0 OR clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'FEJL: anden anchor-writer blev ikke serialiseret på occurrence';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+
+  PERFORM dblink_exec('evidence_a','COMMIT');
+  v_deadline := clock_timestamp() + interval '3 seconds';
+  LOOP
+    SELECT dblink_is_busy('evidence_b') INTO v_busy;
+    EXIT WHEN v_busy=0;
+    IF clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'FEJL: anden anchor-writer afsluttede ikke efter første COMMIT';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  v_error := NULL;
+  BEGIN
+    PERFORM * FROM dblink_get_result('evidence_b') AS t(id uuid);
+  EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+  -- Asynkrone dblink-kald har et afsluttende tomt resultat efter selve fejlen.
+  -- Tøm det, før forbindelsen kan modtage ROLLBACK.
+  BEGIN
+    PERFORM * FROM dblink_get_result('evidence_b') AS t(id uuid);
+  EXCEPTION WHEN others THEN
+    IF v_error IS NULL THEN v_error := SQLERRM; END IF;
+  END;
+  IF v_error NOT LIKE '%EVIDENCE_ANCHOR_CONFLICT%' THEN
+    RAISE EXCEPTION 'FEJL: samtidig accepted-anchor tabte ikke fail-closed: %',v_error;
+  END IF;
+  PERFORM dblink_exec('evidence_b','ROLLBACK');
+  PERFORM dblink_disconnect('evidence_a'); v_a_connected := false;
+  PERFORM dblink_disconnect('evidence_b'); v_b_connected := false;
+
+  IF (SELECT count(*) FROM private.source_record_anchor_current
+       WHERE occurrence_id=v_occurrence AND decision_status='accepted') <> 1 THEN
+    RAISE EXCEPTION 'FEJL: samtidighedstesten efterlod ikke præcis én accepted anchor';
+  END IF;
+  PERFORM dblink_exec('evidence_setup',v_cleanup);
+  PERFORM dblink_disconnect('evidence_setup'); v_setup_connected := false;
+  RAISE NOTICE 'OK: source_record_anchor_event serialiserer samtidige accepted-afgørelser';
+EXCEPTION WHEN others THEN
+  IF v_a_connected THEN
+    BEGIN PERFORM dblink_exec('evidence_a','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('evidence_a'); EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+  IF v_b_connected THEN
+    BEGIN PERFORM dblink_exec('evidence_b','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('evidence_b'); EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+  IF v_setup_connected THEN
+    BEGIN PERFORM dblink_exec('evidence_setup',v_cleanup); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('evidence_setup'); EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+  RAISE;
+END $evidence_concurrency$;
+
 -- ===== Person OCR kvalitetsark — atomisk rettelse og historik =====
 -- Selvstændig transaktionsfixture. Alle positive og negative veje kører gennem
 -- den offentlige SECURITY DEFINER-flade, og blokken ruller altid tilbage.

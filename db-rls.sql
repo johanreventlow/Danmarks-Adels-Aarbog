@@ -1,4 +1,36 @@
 -- =====================================================================
+
+-- ---------- PRIVAT KILDEEVIDENS ----------
+-- Ingen API-rolle har direkte adgang. Default privileges gælder for den
+-- DDL-ejer, som kører filen; kør derfor deployment med den normale ejerrolle.
+revoke all on schema private from public, anon, authenticated;
+alter default privileges in schema private
+  revoke all on tables from public, anon, authenticated;
+alter default privileges in schema private
+  revoke all on sequences from public, anon, authenticated;
+-- Fjerner schema-lokale default-grants. Implicit PUBLIC-EXECUTE er ineffektiv
+-- uden USAGE på private; eksisterende funktioner revokes eksplicit nedenfor.
+alter default privileges in schema private
+  revoke execute on functions from public, anon, authenticated;
+
+do $$
+declare v_table text;
+begin
+  foreach v_table in array array[
+    'extraction_run','source_rendition','source_record','source_record_occurrence',
+    'source_record_anchor_event','source_record_revision_event','source_observation',
+    'source_observation_text','source_mention','source_persona','source_persona_mention'
+  ] loop
+    if to_regclass(format('private.%I',v_table)) is not null then
+      execute format('alter table private.%I enable row level security',v_table);
+      execute format('revoke all on table private.%I from public,anon,authenticated',v_table);
+    end if;
+  end loop;
+end $$;
+revoke all on all sequences in schema private from public, anon, authenticated;
+revoke execute on all functions in schema private from public, anon, authenticated;
+
+-- =====================================================================
 --  RLS-LAG · offentlig (anon) læseadgang med GDPR-filtrering
 --
 --  Erstatter den midlertidige permissive dev-RLS (web/dev-rls.sql, "USING true").
