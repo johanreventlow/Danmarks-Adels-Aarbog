@@ -44,6 +44,9 @@ Designet bygger på følgende bindende invarianter:
 10. **Indgiftning er ikke slægtsmedlemskab.** En ægtefælle får ikke automatisk ægtefællens slægtsnavn eller linjemedlemskab.
 11. **Kanonisk model er konservativ.** Det brede kandidatlag må være fleksibelt; den genealogiske kerne må kun rumme afklaret, principiel struktur.
 12. **Alt nyt er generelt.** Ingen permanente tabeller eller kolonner må være særlige for Reventlow, DAA 1939 eller en konkret OCR-fejlklasse.
+13. **Slægtled er kontekst, ikke personidentitet.** Bogens slægtled bevares pr. kildeplacering; ægteskab flytter ikke personer mellem slægtled.
+14. **Forekomstanker er ikke personanker.** En record_key identificerer en bogpost, mens personidentitet afgøres særskilt på positiv evidens.
+15. **Våben og beskrivelser er selvstændige, genbrugelige entiteter.** De knyttes til relevante subjekter gennem generelle relationer og versionsstyret tekst, ikke gennem særlige kolonner på hver objekttype.
 
 ## 3. Hvorfor den nuværende selektive rygrad ikke er nok
 
@@ -92,7 +95,7 @@ Posttypen afgør ikke, om der oprettes en person. En oversigtsomtale må ikke bl
 Den centrale nye enhed er den mindste fuldstændige, meningsbærende kildeklausul. Den bærer:
 
 - varigt uigennemsigtigt ID;
-- `source_record_id`;
+- `source_record_occurrence_id`;
 - side og fysisk placering;
 - start/slut-position i en tekstgengivelse;
 - eventuelle billedkoordinater;
@@ -103,11 +106,37 @@ Den centrale nye enhed er den mindste fuldstændige, meningsbærende kildeklausu
 
 Position og teksthash er genfindings- og kontrolsignaler, ikke observationens identitet.
 
+Observationen kan derfor udtrækkes, mens occurrence endnu er uforankret. Når source_record_anchor accepteres, får observationer og mentions logisk record-kontekst gennem ankret; rå observationer omskrives ikke.
+
 ### 4.4 `source_observation_text`
 
 Samme fysiske passage kan have flere transskriptioner. Tabellen forbinder observationen med hver gengivelses ordrette tekst og position. En menneskeligt godkendt tekst kan være foretrukken, mens rå OCR bevares.
 
 En rettelse opretter en ny version; den gamle tekst muteres ikke.
+
+### 4.5 Ankerkontrakt og record-versioner
+
+Modellen skelner mellem et forekomstanker og et identitetsanker.
+
+Et forekomstanker identificerer en bestemt logisk post eller omtale i én bogudgave. Det må ikke fortolkes som identitet for et menneske. Samme menneske kan have flere forekomstankre i samme bog, og forekomster i forskellige udgaver har som udgangspunkt forskellige ankre.
+
+En logisk source_record tilhører den bibliografiske kilde/udgave, ikke en bestemt OCR-gengivelse. Første accepterede segmentering tildeler posten en uigennemsigtig record_key, som registreres i manifest og identitetsregister. Nøglen udledes ikke alene af navn, linje, personnummer, side, slægtled, tekstposition eller teksthash.
+
+Den fysiske forekomst i en bestemt source_rendition registreres først selvstændigt som source_record_occurrence med:
+
+- rendition og extraction run;
+- side, spalte og eventuelle billedkoordinater;
+- start-/slutposition og ordret tekst;
+- fysisk og strukturel fingerprint;
+- et uigennemsigtigt occurrence-ID fra segmenteringskørslen.
+
+source_record_anchor er den versionerede afgørelse, som forbinder en occurrence med en logisk source_record. En occurrence kan have flere forslag, men højst én aktiv accepteret forankring. Ved ny OCR kan en accepteret én-til-én-afgørelse forbinde den nye occurrence med den eksisterende logiske record uden at oprette en ny record.
+
+Hvis segmenteringen splitter eller sammenlægger logiske poster, må en eksisterende record_key ikke genbruges som om kontinuiteten var én-til-én. Der oprettes nye records og eksplicitte, versionerede source_record_revision_link-rækker med relationerne splittet_til, samlet_fra eller erstattet_af. Tvetydig kontinuitet går til menneskelig review.
+
+Et source_mention-ID identificerer et tekstspan i en bestemt observationsversion. Et source_persona-ID er en uigennemsigtig hypotese inden for én bogudgave og kan samle flere mentions og records. Det overlever ikke stiltiende split eller merge; ændringen versionsføres.
+
+Identitetsankeret er ikke en enkelt teknisk nøgle. Det er den redaktionelt eller fail-closed accepterede forbindelse fra source_persona til kanonisk person, underbygget af positive observationer og kontrolleret for modstrid og global injectivitet. Layoutkoordinater er kandidatbevis og genfinding, aldrig alene identitetsbevis.
 
 ## 5. Granularitet
 
@@ -314,6 +343,34 @@ En grundlægger, der står som barn i én linje og rod i en anden, bliver:
 
 Personen oprettes ikke flere gange i den færdige model.
 
+### 9.7 Bogens slægtled er kildeplacering
+
+Slægtled i en stamtavle er en strukturel koordinat i en bestemt kildeopstilling, ikke en global egenskab ved personen.
+
+source_record_placement forbinder en source_record med en lineage_scheme_entry og bevarer:
+
+- bogens trykte nummer og ordrette slægtledslabel;
+- lokalt og eventuelt gennemgående slægtledstal;
+- kuld eller anden undergruppe;
+- hierarkisk section path;
+- observationen af den overskrift, som placeringen bygger på.
+
+source_persona_placement forbinder en kildepersona med recordplaceringen og en rolle såsom hovedperson, medhovedperson, omtalt_ægtefælle eller barnehenvisning. Kun en dokumenteret medlemsrolle kan danne grundlag for kanonisk lineage-medlemskab. En ægtefælle arver ikke postens slægtled eller medlemskab.
+
+Eksisterende slaegtled_lokal, slaegtled_gennem og kuld migreres som kildeplacering og bevares ordret, også hvis forskellige udgaver nummererer forskelligt.
+
+### 9.8 Ægteskab på tværs af slægtled
+
+En mand kan gifte sig med sin niece eller med et andet medlem, som bogen placerer i et andet slægtled. Det er ikke en modelkonflikt:
+
+- hver person beholder sin egen kildeplacering og sit eget lineage-medlemskab;
+- familie-/ægteskabsrelationen forbinder personerne uden at udligne deres slægtled;
+- en omtalt ægtefælle i mandens post får rollen omtalt_ægtefælle og flyttes ikke til mandens slægtled;
+- hvis niecen har egen post, bevares den som hendes selvstændige hovedplacering;
+- patrilineær medlemskabsregel og ægteskabsrelation behandles som forskellige akser.
+
+Genealogisk afstand eller generation beregnes kun ud fra parent-child-relationer og et angivet udgangspunkt. Spouse edges indgår aldrig i generationsberegningen. Der gemmes ingen enkelt global generation på personen, fordi flere aner, linjer, pedigree collapse og forskellige kilders nummerering kan give flere gyldige kontekster.
+
 ## 10. Slægtsnavn og visningsnavn
 
 Bogens ordrette navn forbliver en uforanderlig kildepåstand. Et manglende efternavn i en stamtavlepost må ikke omskrives i evidenslaget.
@@ -352,7 +409,27 @@ Tre opslag i samme bog vises som tre opslag/attestationer i samme kilde, ikke fe
 
 Modstridende oplysninger bevares som flere assertions. `conclusion` vælger eller markerer omstridt; den sletter aldrig alternative kildepåstande.
 
-## 12. Indgiftede personer
+## 12. Våben, afbildninger og generelle beskrivelser
+
+coat_of_arms er en selvstændig kanonisk entitet, ikke en enkelt kolonne på slægt eller lineage. En evidensbåret relation forbinder et våben med nul, én eller flere slægter, kanoniske linjer eller grene, personer og andre relevante entiteter.
+
+Relationen bærer rolle eller varianttype, gyldighedsperiode, status og provenance. Dermed kan en slægt have flere historiske våben, en gren have en variant, og samme våben kan være dokumenteret for flere enheder uden kopiering.
+
+Et kanonisk våben kan have flere media-afbildninger: bogscanning, fotografi, tegning eller rekonstruktion. Hver media-række beholder filmetadata, kunstner, datering, rettigheder og publikationsstatus. Forbindelsen mellem media og coat_of_arms angiver, at billedet afbilder eller fortolker netop dette våben.
+
+Tre teksttyper holdes adskilt:
+
+1. ordrette kildebeskrivelser bevares som source_record, observationer og assertions;
+2. struktureret blasonering er en eller flere kildepåstande om coat_of_arms med en redaktionel conclusion;
+3. redaktionel beskrivelse eller billedtekst gemmes i en generel, versionsstyret entity_description.
+
+entity_description kan knyttes til alle kanoniske entitetstyper, herunder person, slægt, lineage, coat_of_arms, media og estate. Den har mindst kind, sprog, tekst, status, offentlighed, version og provenance. Kinds omfatter overblik, historie, billedtekst og blasoneringsforklaring. Der oprettes ikke særlige beskrivelseskolonner pr. entitetstype.
+
+entity_description erstatter ikke source_record-narrativer og er ikke en story. source_record bevarer, hvad en kilde skriver; story er en redaktionel formidlingshistorie; entity_description er den stabile redaktionelle beskrivelse af en kanonisk entitet. Den eksisterende narrative-tabel behandles som overgangsmodel og må ikke fortsætte som en fjerde konkurrerende sandhed.
+
+En beskrivelse af et våben og en beskrivelse af en bestemt våbenafbilledning er forskellige poster. Den første knyttes til coat_of_arms; den anden til media. Begge kan have egne kilder og redaktionel historik.
+
+## 13. Indgiftede personer
 
 Indgiftede udtrækkes næsten lige så grundigt som hovedpersonen:
 
@@ -367,13 +444,13 @@ Indgiftede udtrækkes næsten lige så grundigt som hovedpersonen:
 
 Data forankres i ægteskabsklausulen. En indgiftet uden egen nummereret post kan stadig blive en kanonisk person efter identitetsafgørelse. Hvis personen senere importeres fra sin egen slægt, forbindes den nye kildeperson med den eksisterende kanoniske person.
 
-## 13. Udtræks- og korrektionshistorik
+## 14. Udtræks- og korrektionshistorik
 
-### 13.1 `extraction_run`
+### 14.1 `extraction_run`
 
 Binder inputhash, OCR-/tekstversion, segmenter, prompt, model, skemaversion, manifest og resultater sammen. En kørsel er reproducerbar og kan sammenlignes med tidligere kørsler.
 
-### 13.2 Redaktionelle rettelser
+### 14.2 Redaktionelle rettelser
 
 Redaktøren kan:
 
@@ -388,9 +465,9 @@ Varige beslutninger forankres i `record_key`, observations-ID, omtale-ID og kild
 
 Hvis en ny tekstversion ændrer evidensgrundlaget, markeres afhængige beslutninger som mulige `stale` og sendes til kontrol. De genbruges ikke tavst.
 
-## 14. Fuldstændighed og kvalitetsgater
+## 15. Fuldstændighed og kvalitetsgater
 
-### 14.1 Klausulregnskab
+### 15.1 Klausulregnskab
 
 Hver meningsbærende klausul får præcis én primær disposition:
 
@@ -401,7 +478,7 @@ Hver meningsbærende klausul får præcis én primær disposition:
 - ulæselig OCR;
 - kræver menneskelig vurdering.
 
-### 14.2 Blokerende gater
+### 15.2 Blokerende gater
 
 **Kilde og segmentering**
 
@@ -433,7 +510,7 @@ Hver meningsbærende klausul får præcis én primær disposition:
 - dubletter, splits og tvetydighed parkeres frem for at gættes;
 - ingen offentliggørelse før afstemningens gate er grøn.
 
-### 14.3 Korpusplausibilitet
+### 15.3 Korpusplausibilitet
 
 Kørslen sammenlignes med tidligere korpus og forventede signaler for mindst:
 
@@ -449,9 +526,11 @@ Kørslen sammenlignes med tidligere korpus og forventede signaler for mindst:
 
 En teknisk gyldig JSON-fil er ikke en kvalitetsgodkendelse. Absurd lav eller høj kategoridækning blokerer kørslen.
 
-## 15. 2018–20 som referencekorpus
+## 16. 2018–20 som referencekorpus
 
-2018–20 bruges til at udvikle og fryse metoden, fordi PDF'en har et pålideligt tekstlag, postgrænserne er forholdsvis klare, de 591 `record_key` er stabile, og det gamle udtræk giver en stærk regression.
+2018–20 bruges til at udvikle og fryse metoden, fordi PDF'en har et pålideligt tekstlag, postgrænserne er forholdsvis klare, de 591 nuværende record keys giver en stærk kontinuitetsbaseline, og det gamle udtræk giver en stærk regression. Kontinuiteten verificeres efter den nye ankerkontrakt; baseline-ID'er genbruges ikke alene, fordi de allerede findes.
+
+2018–20 og 1939 behandles som de to referenceprofiler for moderne DAA-stamtavler. De skal først definere en fælles layoutgrammatik for post, linje, slægtled, nummer, ægteskab og strukturelle afsnit; hver udgave har derefter kun en lille, versionsstyret profil for faktiske afvigelser. Ældre årbøger kan senere få egne profiler uden at ændre record-, observations-, persona- eller identitetsmodellen.
 
 Rækkefølge:
 
@@ -468,7 +547,7 @@ Rækkefølge:
 
 Nulevende personer behandles i et privat, godkendt miljø og må ikke sendes til ekstern modelbehandling uden særskilt databeskyttelsesgodkendelse.
 
-## 16. Overførsel til 1939
+## 17. Overførsel til 1939
 
 1939 bruger samme observations-, fortolknings-, kildeperson-, slægts- og identitetsmodel. Kun tekstgengivelse og segmenteringsprofil er udgavespecifikke.
 
@@ -478,7 +557,7 @@ En ny fuld OCR-kørsel besluttes kun efter en afgrænset, repræsentativ prøve,
 
 Det eksisterende 1939-v3-artefakt, identitetsregister, manuelle rettelser, tombstones og tidligere match bruges som regression og efterkontrol. De er ikke automatisk facit for den nye uafhængige udtrækning og matchning.
 
-## 17. Internt, kanonisk og offentligt
+## 18. Internt, kanonisk og offentligt
 
 Der er tre adskilte tilstande:
 
@@ -488,7 +567,7 @@ Der er tre adskilte tilstande:
 
 Kildelaget er ikke offentligt som standard. Nulevende, private, staged og uafklarede identiteter er fail-closed skjult. RLS skal beskytte alle nye tabeller i et eksponeret schema; et privat schema foretrækkes til råt observations- og kandidatmateriale.
 
-## 18. Token- og arbejdsøkonomi
+## 19. Token- og arbejdsøkonomi
 
 Dyre modeltrin begrænses til fortolkning og undtagelser. Følgende er deterministisk eller lokalt:
 
@@ -502,23 +581,26 @@ Dyre modeltrin begrænses til fortolkning og undtagelser. Følgende er determini
 
 Modellen ser én klausul/post ad gangen. Resultater caches uforanderligt. Kun ændrede, tvivlsomme eller fejlende poster genkøres. Sidebilleder beskæres til det relevante område frem for at sende hele PDF-sider, når visuel kontrol er nødvendig.
 
-## 19. Definition af færdigt grundudtræk
+## 20. Definition af færdigt grundudtræk
 
 Et grundudtræk kan erklæres afsluttet, når:
 
 - original og alle anvendte tekstgengivelser er bevaret;
-- alle kildeposter har stabil identitet;
+- alle logiske kildeposter har stabil record_key, og hver rendition-forekomst har fysisk provenance;
+- split, merge og re-OCR er bogført med eksplicitte revision links uden tvetydigt automatisk genbrug;
 - alle meningsbærende klausuler er registreret og bogført;
 - alle eksplicitte biografiske oplysninger er fortolket eller synligt parkeret;
 - personer, steder, organisationer og godser er markeret som omtaler;
 - alle fortolkninger har præcist kildebelæg;
 - alle afledte oplysninger kan genberegnes;
+- trykt slægtled er bevaret som kildeplacering uden at blive global personegenskab;
+- slægts-, linje- og våbenbeskrivelser samt billedtekster er bevaret med korrekt tekstrolle og subjekt;
 - identitets- og publiceringsgater er fail-closed;
 - fremtidige klassifikationer kan foretages fra observationslaget uden ny OCR, resegmentering eller grundudtræk.
 
 En fremtidig forskningsidé kan kræve en ny fortolkning eller kanonisk projektion. Den bør normalt ikke kræve, at PDF'en grundudtrækkes igen.
 
-## 20. Fremtidig arbejdsrækkefølge
+## 21. Fremtidig arbejdsrækkefølge
 
 Når pausen ophæves, er den godkendte rækkefølge:
 
@@ -534,4 +616,4 @@ Når pausen ophæves, er den godkendte rækkefølge:
 10. overfør metoden til 1939 med OCR-/segmenteringspilot først;
 11. skift først senere og særskilt godkendt fra gammel til ny database.
 
-Der udarbejdes ingen implementeringsplan og iværksættes intet af ovenstående som del af dette designnotat.
+Den særskilte implementeringsplan beskriver arbejdet. Hverken dette designnotat eller planen giver i sig selv tilladelse til at iværksætte extraction, databaseændringer eller cutover.

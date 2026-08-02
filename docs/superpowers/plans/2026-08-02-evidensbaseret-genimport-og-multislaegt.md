@@ -17,6 +17,9 @@
 - Bevar rå OCR og transskription ordret. Normaliseret tekst er altid en afledt variant med provenance.
 - Uden entydigt identitetsanker bliver resultatet en redaktionel opgave; systemet må aldrig gætte.
 - Samme kildepersona må højst have ét aktivt kanonisk mål.
+- record_key identificerer en logisk bogpost, aldrig automatisk et menneske. Layoutfelter er lokatorer, ikke varige ID'er.
+- Bogens slægtled lagres pr. kildeplacering. Ægteskabsrelationer indgår aldrig i generationsberegning eller automatisk lineage-medlemskab.
+- Våben, media og beskrivelser er generelle, versionsstyrede entiteter/forbindelser og må ikke modelleres som slægtsspecifikke specialfelter.
 - Kandidater, OCR og redaktionelle beslutninger er private og må ikke kunne læses af anon eller almindelige authenticated-brugere.
 - Commit kun syntetiske fixtures. Faktiske arbejdsartefakter, PDF-udtræk og potentielle persondata skal ligge i ignorerede arbejdsmapper.
 - Hold 1939- og 2018–20-profiler adskilt. Genkendelsesændringer må ikke ændre no-flag/default-adfærd uden regressionstest og godkendelse.
@@ -88,6 +91,7 @@ git commit -m "docs: freeze evidence import baselines"
 
 - Create: .claude/skills/daa-extract/references/observation-schema.json
 - Create: .claude/skills/daa-extract/references/interpretation-schema.json
+- Create: .claude/skills/daa-extract/references/source-anchor-contract.md
 - Create: .claude/skills/daa-extract/scripts/evidence_contract.py
 - Create: .claude/skills/daa-extract/scripts/test_evidence_contract.py
 - Create: .claude/skills/daa-extract/scripts/tests/fixtures/evidence-observation.synthetic.json
@@ -100,7 +104,12 @@ Test præcist:
 def test_observation_requires_exact_source_span(): ...
 def test_normalized_text_cannot_replace_verbatim_text(): ...
 def test_mention_offsets_must_be_inside_observation(): ...
-def test_source_persona_is_scoped_to_one_rendition(): ...
+def test_source_persona_is_scoped_to_one_source_edition(): ...
+def test_record_key_is_not_derived_from_layout_or_person_name(): ...
+def test_occurrence_can_remain_unanchored_without_data_loss(): ...
+def test_two_renditions_can_map_to_one_logical_record(): ...
+def test_occurrence_has_at_most_one_accepted_record_anchor(): ...
+def test_split_or_merge_requires_reviewed_revision_links(): ...
 def test_interpretation_requires_observation_ids(): ...
 def test_unknown_and_absent_are_distinct(): ...
 def test_confidence_is_not_an_identity_decision(): ...
@@ -116,31 +125,54 @@ class SourceSpan:
     rendition_id: str
     page_from: int
     page_to: int
+    column_label: str | None
     char_from: int
     char_to: int
+    bbox: tuple[int, int, int, int] | None
 
 @dataclass(frozen=True)
 class Observation:
     observation_id: str
-    record_key: str
+    occurrence_id: str
     kind: str
     verbatim_text: str
     span: SourceSpan
     extraction_method: str
     extraction_run_id: str
+
+@dataclass(frozen=True)
+class RecordOccurrence:
+    occurrence_id: str
+    rendition_id: str
+    extraction_run_id: str
+    span: SourceSpan
+    verbatim_text: str
+
+@dataclass(frozen=True)
+class RecordPlacement:
+    record_key: str
+    scheme_entry_id: str
+    printed_number: str | None
+    generation_local: int | None
+    generation_global: int | None
+    generation_label_raw: str | None
+    kuld_label: str | None
+    header_observation_id: str
 ~~~
 
 Validatoren afviser ukendte felter, tom verbatim_text, negative eller omvendte spans, dublerede ID'er og fortolkninger uden kendte observationer.
 
+source-anchor-contract.md fastlægger, at første accepterede segmentering opretter en logisk source_record med uigennemsigtig record_key og en accepteret source_record_anchor til den rå occurrence. En ny OCR-rendition opretter først en uforankret occurrence. Verificeret én-til-én-kontinuitet forankrer den til den eksisterende record; split, merge og tvivl opretter nye records eller reviewopgaver med versionsstyrede revision links.
+
 - [ ] **Step 3: Definér JSON Schema**
 
-Observationsskemaet kræver schema_version, source_rendition, source_records, observations, text_variants, mentions, source_personas og extraction_run. Fortolkningsskemaet kræver interpretation_id, observation_ids, predicate, typed value, status, method og created_at.
+Observationsskemaet kræver schema_version, source_rendition, source_records, source_record_occurrences, source_record_anchors, source_record_revision_links, record_placements, persona_placements, observations, text_variants, mentions, source_personas og extraction_run. Fortolkningsskemaet kræver interpretation_id, observation_ids, predicate, typed value, status, method og created_at.
 
 Ingen kontrakt må gøre en kildepersona direkte til kanonisk person uden særskilt identitetsafgørelse.
 
 - [ ] **Step 4: Tilføj syntetisk svær fixture**
 
-Fixture omfatter samme mand omtalt tre gange med forskellig prosa; barn i én linje og grundlægger i en anden; indgiftet uden afledt slægtsnavn; titel og embede; usikker, ukendt og manglende dato; samt modstridende kilder.
+Fixture omfatter samme mand omtalt tre gange med forskellig prosa; barn i én linje og grundlægger i en anden; en mand gift med sin niece fra et andet trykt slægtled; indgiftet uden afledt slægtsnavn; titel og embede; usikker, ukendt og manglende dato; samt modstridende kilder.
 
 - [ ] **Step 5: Test og commit**
 
@@ -164,11 +196,18 @@ git commit -m "feat: define evidence extraction contracts"
 
 - [ ] **Step 1: Skriv regressionstests**
 
-Test fuld tegnregnskab, nul eller flere observationer pr. klausul, record_key uafhængig af linjenummer, uændret default-output og editionsisolation.
+Test fuld tegnregnskab, nul eller flere observationer pr. klausul, record_key uafhængig af linjenummer, uændret default-output og editionsisolation. Tilføj testene:
+
+~~~python
+def test_generation_header_creates_record_placement_with_header_evidence(): ...
+def test_spouse_mention_does_not_inherit_principal_generation(): ...
+def test_uncle_and_niece_keep_different_printed_generations(): ...
+def test_spouse_edges_are_excluded_from_computed_generation(): ...
+~~~
 
 - [ ] **Step 2: Implementér ledger som sidecar**
 
-Tilføj et eksplicit flag --emit-evidence-ledger. Uden flag skal output være identisk med baseline. Hver ledger-række indeholder record_key, clause-ID, span, klassifikation og observations-ID'er.
+Tilføj et eksplicit flag --emit-evidence-ledger. Uden flag skal output være identisk med baseline. Hver ledger-række indeholder record_key, occurrence-ID, clause-ID, span, klassifikation og observations-ID'er. Strukturelle overskrifter giver record placement med ordret slægtledslabel, lokal/gennemgående ordinal, kuld og header-observation.
 
 - [ ] **Step 3: Tilføj dækningsinvariant**
 
@@ -203,18 +242,18 @@ git commit -m "feat: add source clause coverage ledger"
 
 - [ ] **Step 1: Skriv fejlede DB-verifikationer først**
 
-Tilføj assertions for tabeller, fremmednøgler, unikheder, immutabilitet og rettigheder før DDL.
+Tilføj assertions for tabeller, fremmednøgler, unikheder, immutabilitet og rettigheder før DDL. Test specifikt, at en occurrence kan eksistere uden anchor; højst én accepted anchor er aktiv; accepted kræver actor/timestamp/evidence; og split/merge aldrig kan repræsenteres som tavs én-til-én-genbrug.
 
 - [ ] **Step 2: Tilføj private tabeller**
 
-Implementér private.extraction_run, source_rendition, source_record, source_observation, source_observation_text, source_mention, source_persona og source_persona_mention. Junction-tabellen skal bevare mentionens rolle og rækkefølge i personaen.
+Implementér private.extraction_run, source_rendition, source_record, source_record_occurrence, source_record_anchor, source_record_revision_link, source_observation, source_observation_text, source_mention, source_persona og source_persona_mention. Junction-tabellen skal bevare mentionens rolle og rækkefølge i personaen.
 
 Kerne-DDL følger dette mønster:
 
 ~~~sql
 create table private.source_rendition (
   id uuid primary key default gen_random_uuid(),
-  source_id uuid not null references source(id),
+  source_id bigint not null references source(id),
   rendition_kind text not null,
   content_sha256 text not null,
   metadata jsonb not null default '{}'::jsonb,
@@ -223,17 +262,58 @@ create table private.source_rendition (
 
 create table private.source_record (
   id uuid primary key default gen_random_uuid(),
-  rendition_id uuid not null references private.source_rendition(id),
+  source_id bigint not null references source(id),
   record_key text not null,
+  record_kind text not null,
+  created_run_id uuid not null references private.extraction_run(id),
+  unique (source_id, record_key)
+);
+
+create table private.source_record_occurrence (
+  id uuid primary key default gen_random_uuid(),
+  rendition_id uuid not null references private.source_rendition(id),
+  occurrence_key text not null,
   page_from integer not null,
   page_to integer not null,
+  column_label text,
+  char_from integer not null,
+  char_to integer not null,
+  bbox jsonb,
   verbatim_text text not null,
+  physical_fingerprint text not null,
+  structural_fingerprint text not null,
   extraction_run_id uuid not null references private.extraction_run(id),
-  unique (rendition_id, record_key)
+  unique (rendition_id, extraction_run_id, occurrence_key)
+);
+
+create table private.source_record_anchor (
+  id uuid primary key default gen_random_uuid(),
+  occurrence_id uuid not null references private.source_record_occurrence(id),
+  source_record_id uuid not null references private.source_record(id),
+  status text not null check (
+    status in ('proposed','accepted','rejected','superseded')
+  ),
+  evidence jsonb not null,
+  version integer not null default 1,
+  decided_by uuid,
+  decided_at timestamptz
+);
+
+create table private.source_record_revision_link (
+  predecessor_record_id uuid not null references private.source_record(id),
+  successor_record_id uuid not null references private.source_record(id),
+  relation_kind text not null check (
+    relation_kind in ('splittet_til','samlet_fra','erstattet_af')
+  ),
+  status text not null check (status in ('proposed','accepted','rejected')),
+  evidence jsonb not null,
+  decided_by uuid,
+  decided_at timestamptz,
+  primary key (predecessor_record_id, successor_record_id, relation_kind)
 );
 ~~~
 
-Alle afledte entiteter peger tilbage til record, rendition og extraction run. Publicering af en record-narrativ er en særskilt promotion med auditspor; rå recordtekst bliver ikke offentlig alene ved indlæsning.
+Et partial unique index tillader højst én accepted source_record_anchor pr. occurrence. source_persona scopes til source_id, ikke rendition_id, så samme kildepersona kan overleve forbedret OCR. Forankring til en eksisterende record kræver accepteret én-til-én-kontinuitet; split, merge eller flere kandidater går til review. Observationer peger på occurrence og får logisk record-kontekst gennem den aktive anchor. Publicering af en record-narrativ er en særskilt promotion med auditspor; rå recordtekst bliver ikke offentlig alene ved indlæsning.
 
 - [ ] **Step 3: Gør rå evidens append-only**
 
@@ -316,7 +396,15 @@ git commit -m "feat: add interpretation and identity decision ledger"
 
 - [ ] **Step 1: Skriv modeltests**
 
-Bevis: to slægter kan begge have kode II; stamtavle og præsensliste kan nummerere samme lineage forskelligt; en lineage hører til én slægt; en person kan have flere memberships uden kopi; indgiftede arver ikke slægtsnavn; flere slægtsmedlemskaber kræver kontekst eller neutral etikette.
+Bevis: to slægter kan begge have kode II; stamtavle og præsensliste kan nummerere samme lineage forskelligt; en lineage hører til én slægt; en person kan have flere memberships uden kopi; indgiftede arver ikke slægtsnavn; flere slægtsmedlemskaber kræver kontekst eller neutral etikette. Tilføj desuden:
+
+~~~text
+En mand og hans niece kan være ægtefæller og beholde forskellige trykte slægtled.
+En spouse edge ændrer aldrig beregnet parent-child-generation.
+En omtalt ægtefælle arver ikke hovedpersonens record placement.
+Samme person kan have forskellige slægtledslabels i to source schemes.
+Der findes ingen global generation-kolonne på person.
+~~~
 
 - [ ] **Step 2: Implementér kanonisk DDL**
 
@@ -330,13 +418,17 @@ public.lineage_scheme_entry(id, scheme_id, code, label, sort_order)
 public.lineage_scheme_entry_lineage(entry_id, lineage_id, relation_kind)
 public.person_slaegt_membership(person_id, slaegt_id, membership_kind, source_basis)
 public.person_lineage_membership(person_id, lineage_id, role, valid_from, valid_to)
+private.source_record_placement(id, source_record_id, scheme_entry_id, printed_number, generation_local, generation_global, generation_label_raw, kuld_label, section_path, header_observation_id)
+private.source_persona_placement(source_persona_id, record_placement_id, placement_role, basis_observation_id, status)
 ~~~
 
 Flyt presens_kode-semantik til lineage_scheme_entry. Unikhed er (scheme_id, code), aldrig global code.
 
+source_record_placement er unik pr. (source_record_id, scheme_entry_id), og header_observation_id er obligatorisk. placement_role begrænses til principal_member, co_principal, mentioned_spouse og child_reference. Kun principal_member eller co_principal kan foreslås promoveret til lineage-medlemskab, og promotion kræver særskilt evidens. Genealogisk generation beregnes fra parent-child-relationer med valgt rod; family-partnere traverseres ikke som generationskanter.
+
 - [ ] **Step 3: Migrér eksisterende data tabsfrit**
 
-Opret Reventlow som slægt, forbind eksisterende lineages og opret schemes for kendte stamtavle-/præsensnummereringer. Migrationen er idempotent og kontrollerer rækkeantal før/efter.
+Opret Reventlow som slægt, forbind eksisterende lineages og opret schemes for kendte stamtavle-/præsensnummereringer. Migrér slaegtled_lokal, slaegtled_gennem og kuld fra person_external_id til kildeplacering uden at slette legacyfelterne i denne fase. Migrationen er idempotent og kontrollerer rækkeantal før/efter.
 
 - [ ] **Step 4: Bevar eksplicit kompatibilitetsprojektion**
 
@@ -411,13 +503,175 @@ git branch --show-current
 git commit -m "refactor: scope lineage navigation by clan and scheme"
 ~~~
 
+### Task 8: Modellér våben, afbildninger og generelle beskrivelser
+
+**Files:**
+
+- Modify: schema.sql
+- Modify: db-migrations.sql
+- Modify: db-rls.sql
+- Modify: db-verify.sql
+- Create: packages/core/src/entityDescriptions.ts
+- Create: packages/core/src/__tests__/entityDescriptions.test.ts
+- Modify: packages/core/src/types.ts
+- Modify: packages/core/src/index.ts
+
+**Interfaces:**
+
+- Consumes: slaegt- og lineage-ID'er fra Task 6 samt eksisterende coat_of_arms, media, relation, assertion og conclusion.
+- Produces: EntityDescription, CoatOfArmsAssociation og publicerbare read-projektioner til Task 9 og den offentlige kildevisning.
+
+- [ ] **Step 1: Skriv fejlede model- og RLS-tests**
+
+Test præcist:
+
+~~~text
+En slægt kan have flere historiske våben med periode og provenance.
+En lineage kan have sin egen variant uden at kopiere slægtens våben.
+Samme coat_of_arms kan forbindes med flere kanoniske entiteter.
+Ét coat_of_arms kan have flere media-afbildninger.
+Beskrivelse af våbnet og billedtekst til media er forskellige entity_description-rækker.
+Ordret kildebeskrivelse, blasonering og redaktionel tekst overskriver ikke hinanden.
+Kladder og rettighedsblokerede media er usynlige for anon.
+En relation med ukendt subjekt- eller objekttype afvises.
+~~~
+
+- [ ] **Step 2: Implementér en generel beskrivelsestabel**
+
+~~~sql
+create table entity_description (
+  id bigint primary key,
+  subjekt_type text not null,
+  subjekt_id bigint not null,
+  kind text not null check (
+    kind in ('overview','history','caption','blazon_explanation')
+  ),
+  language_code text not null default 'da',
+  tekst text not null,
+  status text not null check (status in ('draft','approved','published','archived')),
+  privat boolean not null default false,
+  version integer not null default 1,
+  created_at timestamptz not null default now(),
+  created_by uuid
+);
+
+create table entity_description_source (
+  description_id bigint not null references entity_description(id) on delete cascade,
+  source_record_id uuid not null references private.source_record(id),
+  citation_note text,
+  primary key (description_id, source_record_id)
+);
+~~~
+
+Følg projektets versioneringsmønster. En beskrivelse kan have nul, én eller flere source records gennem junction-tabellen; ordret kildetekst forbliver stadig i evidenslaget. Tilføj validering af tilladte subjekt_type-værdier og deres faktiske ID'er, så den polymorfe reference ikke kan pege på ikke-eksisterende slægt, lineage, coat_of_arms, media, person eller estate.
+
+entity_description er redaktionel, stabil entitetsprosa. source_record bevarer kildeprosa, og story bevarer formidlingshistorier. Migrér relevant eksisterende redaktionel narrative-tekst med type og provenance, og behold en tidsbegrænset kompatibilitetsprojektion; nye writes må ikke skabe en fjerde konkurrerende tekstsandhed. Tabellen og junction-tabellen får RLS, versionsregistrering og revoke/grant efter projektets mønster.
+
+- [ ] **Step 3: Genbrug coat_of_arms, media og relation**
+
+Bevar coat_of_arms som selvstændig entitet. Brug evidensbårne relationer fra slaegt, lineage eller person til coat_of_arms med rollen har_vaaben og kvalifikator for varianttype. Genbrug mediemodellens eksisterende retning fra media til coat_of_arms med rollen afbildet. Periode, konfidens og provenance ligger på relation/assertion, ikke som nye slægtskolonner. Migrér eksisterende coat_of_arms.blasonering til fact/assertion/conclusion og note til den korrekte beskrivelses-/noterolle; behold kun en kompatibilitetsprojektion under overgangen. Tilføj vocab- og valideringstest for de to roller og den kanoniske objekttype coat_of_arms.
+
+- [ ] **Step 4: Implementér core-typer**
+
+~~~typescript
+export type EntityDescription = {
+  id: string;
+  subjectType: "person" | "slaegt" | "lineage" | "coat_of_arms" | "media" | "estate";
+  subjectId: string;
+  kind: "overview" | "history" | "caption" | "blazon_explanation";
+  languageCode: string;
+  text: string;
+  status: "draft" | "approved" | "published" | "archived";
+  sourceRecordIds: string[];
+  version: number;
+};
+
+export type CoatOfArmsAssociation = {
+  subjectType: "slaegt" | "lineage" | "person";
+  subjectId: string;
+  coatOfArmsId: string;
+  variantType: string | null;
+  validFrom: string | null;
+  validTo: string | null;
+};
+~~~
+
+- [ ] **Step 5: Kør frisk/migreret DB samt core-tests og commit**
+
+~~~bash
+npm test --workspace packages/core -- --run packages/core/src/__tests__/entityDescriptions.test.ts
+npm test --workspace packages/core -- --run
+git diff --check
+git branch --show-current
+git add schema.sql db-migrations.sql db-rls.sql db-verify.sql packages/core/src/entityDescriptions.ts packages/core/src/__tests__/entityDescriptions.test.ts packages/core/src/types.ts packages/core/src/index.ts
+git branch --show-current
+git commit -m "feat: model entity descriptions and heraldic media"
+~~~
+
+### Task 9: Tilføj redaktørflade for beskrivelser og våben
+
+**Files:**
+
+- Modify: web/src/data/redaktionRead.ts
+- Modify: web/src/data/redaktionWrite.ts
+- Create: web/src/components/Entitetsbeskrivelser.tsx
+- Create: web/src/components/VaabenRedigering.tsx
+- Create: web/src/components/EntityDescriptionSection.tsx
+- Create: web/src/components/CoatOfArmsGallery.tsx
+- Create: web/src/components/__tests__/Entitetsbeskrivelser.test.tsx
+- Create: web/src/components/__tests__/VaabenRedigering.test.tsx
+- Create: web/src/components/__tests__/EntityDescriptionSection.test.tsx
+- Create: web/src/components/__tests__/CoatOfArmsGallery.test.tsx
+- Modify: web/src/Redaktion.tsx
+
+**Interfaces:**
+
+- Consumes: EntityDescription og CoatOfArmsAssociation fra Task 8.
+- Produces: versionskontrolleret redigering af beskrivelser, våbentilknytninger og billedtekster uden at publicere rå evidens.
+
+- [ ] **Step 1: Skriv UI- og RPC-tests**
+
+Test opret/redigér/arkivér beskrivelse; samtidighedskonflikt; særskilt blasonering og billedtekst; flere våben på samme slægt; variant på lineage; flere media pr. våben; rettighedsgate og private kladder.
+
+- [ ] **Step 2: Implementér read/write-RPC'er**
+
+~~~text
+red_entity_descriptions(subject_type, subject_id)
+red_upsert_entity_description(id, expected_version, subject_type, subject_id, kind, language_code, text, status, source_record_ids, private)
+red_coat_of_arms_associations(subject_type, subject_id)
+red_link_coat_of_arms(subject_type, subject_id, coat_of_arms_id, variant_type, valid_from, valid_to, evidence_note)
+red_link_coat_of_arms_media(coat_of_arms_id, media_id)
+~~~
+
+Alle mutationer rollechecks, versionskontrolleres og auditeres. Public read returnerer kun published beskrivelser og media, som også består mediarettighedsgaten.
+
+- [ ] **Step 3: Implementér komponenterne**
+
+Redaktøren vælger først entitet: slægt, lineage, våben eller media. UI gør det tydeligt, om teksten beskriver selve våbnet eller den konkrete afbildning. Tilknytning til en lineage viser altid slægtskontekst.
+
+- [ ] **Step 4: Implementér offentlig visning**
+
+EntityDescriptionSection viser kun published descriptions og markerer sprog/kind uden at eksponere private source_record-ID'er. CoatOfArmsGallery grupperer godkendte våben pr. slægt eller lineage, viser kun media der består rettighedsgaten, og holder våbenbeskrivelse og billedtekst adskilt.
+
+- [ ] **Step 5: Kør webtests og commit**
+
+~~~bash
+npm test --workspace web -- --run web/src/components/__tests__/Entitetsbeskrivelser.test.tsx web/src/components/__tests__/VaabenRedigering.test.tsx web/src/components/__tests__/EntityDescriptionSection.test.tsx web/src/components/__tests__/CoatOfArmsGallery.test.tsx
+npm test --workspace web -- --run
+git diff --check
+git branch --show-current
+git add schema.sql db-migrations.sql db-rls.sql db-verify.sql web/src/data/redaktionRead.ts web/src/data/redaktionWrite.ts web/src/components/Entitetsbeskrivelser.tsx web/src/components/VaabenRedigering.tsx web/src/components/EntityDescriptionSection.tsx web/src/components/CoatOfArmsGallery.tsx web/src/components/__tests__/Entitetsbeskrivelser.test.tsx web/src/components/__tests__/VaabenRedigering.test.tsx web/src/components/__tests__/EntityDescriptionSection.test.tsx web/src/components/__tests__/CoatOfArmsGallery.test.tsx web/src/Redaktion.tsx
+git branch --show-current
+git commit -m "feat: edit descriptions and heraldic associations"
+~~~
+
 **Stopport 3:** Review bekræfter, at modellen ikke indeholder 1939-linje, kildeår i kanoniske lineages eller globale romertal.
 
 ---
 
 ## Fase 4: Kildepersonaer og identitetsafklaring
 
-### Task 8: Byg fail-closed identitetskandidater
+### Task 10: Byg fail-closed identitetskandidater
 
 **Files:**
 
@@ -460,7 +714,7 @@ git branch --show-current
 git commit -m "feat: propose fail-closed source persona identities"
 ~~~
 
-### Task 9: Tilføj privat redaktørkø
+### Task 11: Tilføj privat redaktørkø
 
 **Files:**
 
@@ -512,33 +766,43 @@ git branch --show-current
 git commit -m "feat: add private source persona review queue"
 ~~~
 
-### Task 10: Tilføj mobil redaktørparitet
+### Task 12: Tilføj mobil redaktørparitet
 
 **Files:**
 
-- Modify: konkrete redaktionelle read/write-filer under mobile/
-- Create: mobil persona-kø og test med samme domænekontrakt som web
+- Modify: mobile/src/data/redaktionRead.ts
+- Modify: mobile/src/data/redaktionWrite.ts
+- Modify: mobile/src/data/__tests__/redaktionRead.test.ts
+- Modify: mobile/src/data/__tests__/redaktionWrite.test.ts
+- Create: mobile/src/app/redaktion/kildepersonaer.tsx
+- Create: mobile/src/components/redaktion/KildepersonaKo.tsx
+- Create: mobile/src/components/redaktion/Entitetsbeskrivelser.tsx
+- Create: mobile/src/components/redaktion/VaabenRedigering.tsx
+- Create: mobile/src/components/redaktion/__tests__/KildepersonaKo.test.tsx
+- Create: mobile/src/components/redaktion/__tests__/Entitetsbeskrivelser.test.tsx
+- Create: mobile/src/components/redaktion/__tests__/VaabenRedigering.test.tsx
+- Modify: mobile/src/app/redaktion/entitet/slaegt.tsx
+- Modify: mobile/src/app/redaktion/entitet/slaegt-narrativ.tsx
+- Modify: mobile/src/app/redaktion/entitet/[type].tsx
+- Modify: mobile/src/app/redaktion/entitet/materiale.tsx
 
-- [ ] **Step 1: Find konkrete modstykker**
+- [ ] **Step 1: Skriv data- og komponenttests**
 
-~~~bash
-rg -n "redaktionRead|redaktionWrite|SammenlignUdgaver|MatchOversigt" mobile
-~~~
+Test samme persona-actions og expected_version som web; slægts-/lineage-kontekst; beskrivelseskind og source links; våbenvariant; særskilt våbenbeskrivelse/billedtekst; mediarettigheder og privat kladde. Opret ikke en parallel identitetsalgoritme i klienten.
 
-Registrér de præcise filer før ændring. Opret ikke en parallel identitetsalgoritme i klienten.
+- [ ] **Step 2: Implementér mobilvisningerne**
 
-- [ ] **Step 2: Skriv og implementér paritetstests**
-
-Mobil bruger samme RPC'er, versionering og handlingstyper. Smal skærm må stable tekster, men ikke skjule provenance eller modstrid før afgørelse.
+Mobil bruger de samme RPC'er, versionering, EntityDescription-typer og persona-handlinger som web. Smal skærm må stable tekster, men ikke skjule provenance, modstrid, tekstrolle eller rettighedsstatus før afgørelse.
 
 - [ ] **Step 3: Kør scripts fra mobile/package.json og commit**
 
 ~~~bash
+npm test --workspace mobile -- --runInBand
 git diff --check
 git branch --show-current
 git add mobile
 git branch --show-current
-git commit -m "feat: add mobile source persona review parity"
+git commit -m "feat: add mobile evidence and heraldry editor parity"
 ~~~
 
 **Stopport 4:** Menneskelig test på fixture beviser én kanonisk person med flere selvstændige kildeforekomster.
@@ -547,7 +811,7 @@ git commit -m "feat: add mobile source persona review parity"
 
 ## Fase 5: Granulær udtrækning og kanonisk projektion
 
-### Task 11: Implementér versionsstyret, resumérbar extraction
+### Task 13: Implementér versionsstyret, resumérbar extraction
 
 **Files:**
 
@@ -558,6 +822,8 @@ git commit -m "feat: add mobile source persona review parity"
 - [ ] **Step 1: Skriv granularitetstests**
 
 Test navnedele/varianter; fødsel, dåb, død og begravelse separat; ægteskaber; forældre/børn; titel, tiltaleform, rang og embede separat; uddannelse, ejendom, bopæl, militærtjeneste, hæder og publikation; usikkerhed, negation og ukendt; indgiftedes oplysninger; samt modstridende påstande uden overskrivning.
+
+Test også ikke-personlige poster: slægts- og linjeindledninger, slægtledsoverskrifter, våbenbeskrivelser, blasoneringer, billedtekster og henvisninger fra en våbenafbilledning til slægt eller gren. De skal bruge samme observation/interpretation-kontrakt og må ikke skabe kunstige personer.
 
 - [ ] **Step 2: Implementér editionsprofiler**
 
@@ -583,7 +849,7 @@ git branch --show-current
 git commit -m "feat: add resumable granular evidence extraction"
 ~~~
 
-### Task 12: Byg ny projektionsloader ved siden af den gamle
+### Task 14: Byg ny projektionsloader ved siden af den gamle
 
 **Files:**
 
@@ -596,6 +862,8 @@ git commit -m "feat: add resumable granular evidence extraction"
 - [ ] **Step 1: Skriv transaktionelle tests**
 
 Test accepteret observation én gang; uafklaret persona uden kanonisk oprettelse; tre records til én person og tre versioner; flere lineages uden personkopi; indgiftet uden medlemskab; bevaret manuel afgørelse; fuld rollback; zero-match og mixed match/new; og positiv kildeprovenance.
+
+Test desuden, at mand og niece beholder hver sin source placement efter projektion; spouse relationen ændrer ingen generation; en accepteret våbenpåstand kan forbinde coat_of_arms med slægt/lineage; og en kildebeskrivelse ikke publiceres som redaktionel entity_description uden særskilt promotion.
 
 - [ ] **Step 2: Implementér loaderen**
 
@@ -621,7 +889,7 @@ git commit -m "feat: project accepted evidence into canonical genealogy"
 
 ## Fase 6: Kildeudgaver i offentlig visning
 
-### Task 13: Vis hver publiceret kilderecord separat
+### Task 15: Vis hver publiceret kilderecord separat
 
 **Files:**
 
@@ -673,7 +941,7 @@ git commit -m "feat: preserve distinct public source narratives"
 
 ## Fase 7: 2018–20 som pilot og første fulde import
 
-### Task 14: Kør stratificeret pilot uden produktionsmutation
+### Task 16: Kør stratificeret pilot uden produktionsmutation
 
 **Files:**
 
@@ -682,7 +950,7 @@ git commit -m "feat: preserve distinct public source narratives"
 
 - [ ] **Step 1: Fastlæg pilotudvalg før kørsel**
 
-Udvælg deterministisk mindst 30 records: simple personer, lange biografier, flere ægteskaber, indgiftede, flere lineages, titler/embeder, usikre datoer og levende personer. Repo-notatet indeholder kun record keys og aggregater, ikke persontekst.
+Udvælg deterministisk mindst 30 personrecords: simple personer, lange biografier, flere ægteskaber, indgiftede, flere lineages, titler/embeder, usikre datoer, levende personer og — hvis korpus indeholder det — ægteskab mellem medlemmer fra forskellige slægtled. Tilføj mindst 10 strukturelle/non-person records med linjeindledning, slægtledsoverskrift, slægtsbeskrivelse, våbenbeskrivelse eller billedtekst. Repo-notatet indeholder kun record keys og aggregater, ikke persontekst.
 
 - [ ] **Step 2: Kontrollér databeskyttelse**
 
@@ -694,7 +962,7 @@ Brug frosset profil, inputhash og batchmanifest. Intet output går til produktio
 
 - [ ] **Step 4: Gennemfør dobbelt review**
 
-Mål record-/klausuldækning, præcision/recall pr. type, exact-span-rate, ubegrundede normaliseringer, persona split/merge-fejl, uafklarede identiteter, indgiftedes dækning, titel/embede og token-/tidsforbrug. Kritiske identitetsfejl accepteres ikke.
+Mål record-/klausuldækning, præcision/recall pr. type, exact-span-rate, ubegrundede normaliseringer, record continuity ved ny rendition, persona split/merge-fejl, uafklarede identiteter, record/persona placement-roller, slægtledslabels, indgiftedes dækning, titel/embede, våben/beskrivelsesklassifikation og token-/tidsforbrug. Kritiske identitets- eller genankringsfejl accepteres ikke.
 
 - [ ] **Step 5: Projicér i parallel database**
 
@@ -712,7 +980,7 @@ git commit -m "docs: report 2018 evidence pilot"
 
 **Menneskelig GO 2018-A:** Godkend profil, kvalitetsgrænser og omkostning før fuld udtrækning.
 
-### Task 15: Kør fuld 2018–20-udtrækning og review
+### Task 17: Kør fuld 2018–20-udtrækning og review
 
 **Files:**
 
@@ -739,7 +1007,7 @@ git commit -m "docs: report full 2018 evidence extraction"
 
 ## Fase 8: 1939 OCR, pilot og fuld import
 
-### Task 16: Afgør om 1939 kræver nyt PDF-udtræk
+### Task 18: Afgør om 1939 kræver nyt PDF-udtræk
 
 **Files:**
 
@@ -768,7 +1036,7 @@ git branch --show-current
 git commit -m "docs: decide 1939 text extraction quality"
 ~~~
 
-### Task 17: Kør 1939-pilot med fælles kontrakt
+### Task 19: Kør 1939-pilot med fælles kontrakt
 
 **Files:**
 
@@ -776,9 +1044,9 @@ git commit -m "docs: decide 1939 text extraction quality"
 - Generated and ignored: pilotmanifest og batches
 
 - [ ] **Step 1:** Frys PDF-/råteksthash, OCR-version, profil og sider; normalisering ændrer ikke verbatim.
-- [ ] **Step 2:** Kør stratificeret udvalg med vanskelige strukturer, personnumre, dubletter og flere narrativer.
+- [ ] **Step 2:** Kør stratificeret udvalg med vanskelige strukturer, personnumre, dubletter, flere narrativer, slægtledsoverskrifter samt forekommende slægts-/våbenbeskrivelser.
 - [ ] **Step 3:** Sammenlign med 2018 og identitetsregister; de er kandidatankre, ikke facit.
-- [ ] **Step 4:** Auditér med 2018-mål plus OCR-fejl, segmenteringsdækning, tabte personer og personnumre.
+- [ ] **Step 4:** Auditér med 2018-mål plus OCR-fejl, segmenteringsdækning, record continuity, tabte personer, personnumre og korrekt placering af hovedperson kontra omtalt ægtefælle.
 - [ ] **Step 5:** Commit kun rapporten.
 
 ~~~bash
@@ -791,7 +1059,7 @@ git commit -m "docs: report 1939 evidence pilot"
 
 **Menneskelig GO 1939-A:** Godkend rendition, profil, kvalitet og omkostning før fuld udtrækning.
 
-### Task 18: Kør fuld 1939-udtrækning og tværudgave-review
+### Task 20: Kør fuld 1939-udtrækning og tværudgave-review
 
 **Files:**
 
@@ -817,7 +1085,7 @@ git commit -m "docs: report full 1939 evidence extraction"
 
 ## Fase 9: Cutover-rehearsal og særskilt produktionsbeslutning
 
-### Task 19: Rehearsér genopbygning og rollback
+### Task 21: Rehearsér genopbygning og rollback
 
 **Files:**
 
@@ -853,7 +1121,7 @@ git branch --show-current
 git commit -m "docs: rehearse evidence import cutover"
 ~~~
 
-### Task 20: Fremlæg særskilt GO/NO-GO-pakke
+### Task 22: Fremlæg særskilt GO/NO-GO-pakke
 
 **Files:**
 
@@ -888,14 +1156,18 @@ Programmet er først færdigt, når:
 - Observation, fortolkning, identitetsafgørelse og kanonisk promotion er adskilte trin.
 - Udtrækningen er granulær nok til nye formål uden nyt PDF-udtræk, medmindre OCR-renditionen senere forbedres.
 - Samme person kan optræde i flere records, bøger, lineages og roller uden persondublet.
+- Logiske source records overlever nye renditions gennem occurrences og eksplicitte revision links; split og merge bliver aldrig tavst genankret.
 - Forskellige kilders narrative tekster bevares og vises separat.
 - Slægt, kanonisk lineage og kildens nummereringsscheme er adskilt.
+- Trykt slægtled, lokalt slægtled, gennemgående slægtled og beregnet genealogisk afstand er adskilte; spouse edges påvirker ingen af dem.
 - Linjeetiketter er scoped til slægt og scheme; II er aldrig global identitet.
 - Efternavn afledes kun af eksplicit slægtsmedlemskab og kontekst, ikke ægteskab.
 - Flere slægter kan indlæses uden slægtsspecifikke felter eller kodegrene.
 - Alle importerede kanoniske fakta og relationer har positiv provenance.
 - Uafklarede identiteter forbliver redaktionelle opgaver.
 - Privat evidenslag og redaktørkø er utilgængelige offentligt.
+- Slægter, lineages og personer kan knyttes evidensbåret til våben; våben kan have flere media-afbildninger med egne beskrivelser og rettigheder.
+- Kildebeskrivelse, blasonering, redaktionel beskrivelse og billedtekst bevares som forskellige tekstroller.
 - 2018–20 og 1939 har hver bestået pilot, fuld validering og parallel projektion.
 - Backup, restore, rehearsal og rollback er afprøvet før produktionsbeslutning.
 
