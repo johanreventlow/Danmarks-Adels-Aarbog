@@ -479,6 +479,223 @@ EXCEPTION WHEN others THEN
   RAISE;
 END $evidence_concurrency$;
 
+-- ===== Evidensimport Fase 3 / Task 6: slægt, lineage og kildeschemes =====
+DO $slaegt_verify$
+DECLARE
+  v_required_public text[] := ARRAY[
+    'slaegt','lineage_scheme','lineage_scheme_entry',
+    'lineage_scheme_entry_lineage','person_slaegt_membership',
+    'person_lineage_membership','person_source_coordinate_legacy'
+  ];
+  v_required_private text[] := ARRAY[
+    'source_record_placement','source_persona_placement'
+  ];
+  v_missing text[];
+  v_slaegt_a bigint;
+  v_slaegt_b bigint;
+  v_scheme_a bigint;
+  v_scheme_b bigint;
+  v_presens_scheme bigint;
+  v_entry_a bigint;
+  v_entry_b bigint;
+  v_presens_entry bigint;
+  v_lineage_a bigint;
+  v_lineage_b bigint;
+  v_run uuid := 'a6000000-0000-0000-0000-000000000061';
+  v_rendition uuid := 'a6000000-0000-0000-0000-000000000062';
+  v_record_a uuid := 'a6000000-0000-0000-0000-000000000063';
+  v_record_b uuid := 'a6000000-0000-0000-0000-000000000064';
+  v_occurrence_a uuid := 'a6000000-0000-0000-0000-000000000065';
+  v_occurrence_b uuid := 'a6000000-0000-0000-0000-000000000066';
+  v_observation_a uuid := 'a6000000-0000-0000-0000-000000000067';
+  v_observation_b uuid := 'a6000000-0000-0000-0000-000000000068';
+  v_observation_nonheader uuid := 'a6000000-0000-0000-0000-00000000006a';
+  v_persona uuid := 'a6000000-0000-0000-0000-000000000069';
+  v_mention uuid := 'a6000000-0000-0000-0000-00000000006b';
+  v_placement uuid;
+  v_error text;
+BEGIN
+  SELECT array_agg(required_name ORDER BY required_name) INTO v_missing
+    FROM unnest(v_required_public) AS required_name
+   WHERE to_regclass(format('public.%I',required_name)) IS NULL;
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: Task 6 mangler offentlige modelobjekter: %',v_missing;
+  END IF;
+  SELECT array_agg(required_name ORDER BY required_name) INTO v_missing
+    FROM unnest(v_required_private) AS required_name
+   WHERE to_regclass(format('private.%I',required_name)) IS NULL;
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: Task 6 mangler private placement-objekter: %',v_missing;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema='public' AND table_name='lineage'
+       AND column_name='slaegt_id'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema='public' AND table_name='lineage'
+       AND column_name='canonical_label'
+  ) THEN
+    RAISE EXCEPTION 'FEJL: lineage mangler slægt- eller canonical_label-kontekst';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema='private' AND table_name='source_record_placement'
+       AND column_name='header_observation_id' AND is_nullable='NO'
+  ) THEN
+    RAISE EXCEPTION 'FEJL: source_record_placement mangler obligatorisk header-observation';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema='public' AND table_name='person'
+       AND column_name IN ('slaegtled_lokal','slaegtled_gennem','generation_local','generation_global')
+  ) THEN
+    RAISE EXCEPTION 'FEJL: genealogisk generation blev gjort til global person-attribut';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM unnest(v_required_public) AS required_name
+     JOIN pg_class c ON c.oid=to_regclass(format('public.%I',required_name))
+     WHERE c.relkind='r' AND NOT c.relrowsecurity
+  ) OR EXISTS (
+    SELECT 1 FROM unnest(v_required_private) AS required_name
+     JOIN pg_class c ON c.oid=to_regclass(format('private.%I',required_name))
+     WHERE NOT c.relrowsecurity
+  ) THEN
+    RAISE EXCEPTION 'FEJL: Task 6-modelobjekt mangler RLS';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM unnest(v_required_private) AS required_name
+     WHERE has_table_privilege('anon',format('private.%I',required_name),'SELECT')
+        OR has_table_privilege('authenticated',format('private.%I',required_name),'SELECT')
+        OR has_table_privilege('authenticated',format('private.%I',required_name),'INSERT')
+  ) OR has_table_privilege('anon','public.person_slaegt_membership','SELECT')
+     OR has_table_privilege('authenticated','public.person_lineage_membership','SELECT')
+     OR NOT has_table_privilege('anon','public.person_source_coordinate_legacy','SELECT') THEN
+    RAISE EXCEPTION 'FEJL: Task 6 har forkert direkte API-adgang';
+  END IF;
+
+  BEGIN
+    INSERT INTO public.slaegt(navn,sorteringsnavn,slug,status)
+      VALUES ('Verify slægt A','Verify slægt A','verify-slaegt-a','active')
+      RETURNING id INTO v_slaegt_a;
+    INSERT INTO public.slaegt(navn,sorteringsnavn,slug,status)
+      VALUES ('Verify slægt B','Verify slægt B','verify-slaegt-b','active')
+      RETURNING id INTO v_slaegt_b;
+    INSERT INTO public.lineage(slaegt_id,canonical_label,navn)
+      VALUES (v_slaegt_a,'II. linje','Verify lineage A') RETURNING id INTO v_lineage_a;
+    INSERT INTO public.lineage(slaegt_id,canonical_label,navn)
+      VALUES (v_slaegt_b,'II. linje','Verify lineage B') RETURNING id INTO v_lineage_b;
+    INSERT INTO public.lineage_scheme(slaegt_id,kind,label)
+      VALUES (v_slaegt_a,'stamtavle','Verify A') RETURNING id INTO v_scheme_a;
+    INSERT INTO public.lineage_scheme(slaegt_id,kind,label)
+      VALUES (v_slaegt_b,'stamtavle','Verify B') RETURNING id INTO v_scheme_b;
+    INSERT INTO public.lineage_scheme(slaegt_id,kind,label)
+      VALUES (v_slaegt_a,'presensliste','Verify A præsens') RETURNING id INTO v_presens_scheme;
+    INSERT INTO public.lineage_scheme_entry(scheme_id,code,label,sort_order)
+      VALUES (v_scheme_a,'II','II. linje',2) RETURNING id INTO v_entry_a;
+    INSERT INTO public.lineage_scheme_entry(scheme_id,code,label,sort_order)
+      VALUES (v_scheme_b,'II','II. linje',2) RETURNING id INTO v_entry_b;
+    INSERT INTO public.lineage_scheme_entry(scheme_id,code,label,sort_order)
+      VALUES (v_presens_scheme,'V','V. linje',5) RETURNING id INTO v_presens_entry;
+    INSERT INTO public.lineage_scheme_entry_lineage(entry_id,lineage_id,relation_kind)
+      VALUES (v_entry_a,v_lineage_a,'canonical'),(v_entry_b,v_lineage_b,'canonical'),
+             (v_presens_entry,v_lineage_a,'canonical');
+    IF (SELECT count(*) FROM public.lineage_scheme_entry WHERE code='II') < 2 THEN
+      RAISE EXCEPTION 'FEJL: samme kode II kunne ikke eksistere i to slægts-schemes';
+    END IF;
+    IF (SELECT count(*) FROM public.lineage_scheme_entry_lineage
+         WHERE lineage_id=v_lineage_a AND relation_kind='canonical') <> 2 THEN
+      RAISE EXCEPTION 'FEJL: samme lineage kunne ikke have forskellige stamtavle-/præsenskoder';
+    END IF;
+    INSERT INTO public.person(id) VALUES (-987650061);
+    INSERT INTO public.person_slaegt_membership(person_id,slaegt_id,membership_kind,source_basis)
+      VALUES (-987650061,v_slaegt_a,'agnatic','{"basis":"verify"}'),
+             (-987650061,v_slaegt_b,'cognatic','{"basis":"verify"}');
+    INSERT INTO public.person_lineage_membership(person_id,lineage_id,role,source_basis)
+      VALUES (-987650061,v_lineage_a,'member','{"basis":"verify"}'),
+             (-987650061,v_lineage_b,'founder','{"basis":"verify"}');
+    IF (SELECT count(*) FROM public.person WHERE id=-987650061)<>1
+       OR (SELECT count(*) FROM public.person_lineage_membership WHERE person_id=-987650061)<>2 THEN
+      RAISE EXCEPTION 'FEJL: flere lineage-medlemskaber skabte ikke præcis én person';
+    END IF;
+    v_error:=NULL;
+    BEGIN
+      INSERT INTO public.person_slaegt_membership(person_id,slaegt_id,membership_kind,source_basis)
+        VALUES (-987650061,v_slaegt_a,'affinal','{"basis":"spouse"}');
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error IS NULL THEN
+      RAISE EXCEPTION 'FEJL: indgiftethed kunne oprettes som slægtsmedlemskab';
+    END IF;
+    INSERT INTO public.source(id,titel) VALUES (-987650061,'Task 6 evidence source');
+    INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,
+                                       profile_version,input_sha256)
+      VALUES (v_run,-987650061,'task6','v1','verify','verify',repeat('a',64));
+    INSERT INTO private.source_rendition(id,source_id,rendition_key,rendition_kind,content_sha256)
+      VALUES (v_rendition,-987650061,'task6','ocr',repeat('b',64));
+    INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id) VALUES
+      (v_record_a,-987650061,'task6-a','person',v_run),
+      (v_record_b,-987650061,'task6-b','person',v_run);
+    INSERT INTO private.source_record_occurrence(
+      id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,
+      physical_fingerprint,structural_fingerprint,extraction_run_id
+    ) VALUES
+      (v_occurrence_a,v_rendition,'task6-a',1,1,0,12,'A observation','physical-a','structural-a',v_run),
+      (v_occurrence_b,v_rendition,'task6-b',2,2,0,12,'B observation','physical-b','structural-b',v_run);
+    INSERT INTO private.source_record_anchor_event(
+      occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name
+    ) VALUES
+      (v_occurrence_a,v_record_a,'accepted','{"basis":"verify"}',1,
+       'a6000000-0000-0000-0000-000000000060','Task 6 verify'),
+      (v_occurrence_b,v_record_b,'accepted','{"basis":"verify"}',1,
+       'a6000000-0000-0000-0000-000000000060','Task 6 verify');
+    INSERT INTO private.source_observation(
+      id,occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,
+      quality_status,extraction_method,extraction_run_id
+    ) VALUES
+      (v_observation_a,v_occurrence_a,'header',1,1,0,12,'A observation','clear','verify',v_run),
+      (v_observation_b,v_occurrence_b,'header',2,2,0,12,'B observation','clear','verify',v_run),
+      (v_observation_nonheader,v_occurrence_a,'name_clause',1,1,0,12,'A observation','clear','verify',v_run);
+    INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id)
+      VALUES (v_persona,-987650061,'task6-persona',v_run);
+    INSERT INTO private.source_mention(
+      id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id
+    ) VALUES (v_mention,v_observation_a,'person_name',0,12,'A observatio',v_run);
+    INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
+      VALUES (v_persona,v_mention,'primary',1);
+    v_error:=NULL;
+    BEGIN
+      INSERT INTO private.source_record_placement(
+        source_record_id,scheme_entry_id,header_observation_id
+      ) VALUES (v_record_a,v_entry_a,v_observation_nonheader);
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE '%EVIDENCE_PLACEMENT_HEADER_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: record-placering accepterede ikke-header-observation: %',v_error;
+    END IF;
+    INSERT INTO private.source_record_placement(
+      source_record_id,scheme_entry_id,header_observation_id
+    ) VALUES (v_record_a,v_entry_a,v_observation_a) RETURNING id INTO v_placement;
+    INSERT INTO private.source_persona_placement(
+      source_persona_id,record_placement_id,placement_role,basis_observation_id
+    ) VALUES (v_persona,v_placement,'principal_member',v_observation_a);
+    v_error:=NULL;
+    BEGIN
+      INSERT INTO private.source_persona_placement(
+        source_persona_id,record_placement_id,placement_role,basis_observation_id
+      ) VALUES (v_persona,v_placement,'mentioned_spouse',v_observation_nonheader);
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE '%EVIDENCE_PERSONA_PLACEMENT_BASIS_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: persona-placering krævede ikke egen record-forankret observation: %',v_error;
+    END IF;
+    RAISE EXCEPTION 'ROLLBACK_SLÆGT_VERIFY';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM='ROLLBACK_SLÆGT_VERIFY' THEN
+      RAISE NOTICE 'OK: slægt, lineage og kildeschemes er adskilt og context-scopede';
+    ELSE
+      RAISE;
+    END IF;
+  END;
+END $slaegt_verify$;
+
 -- ===== Evidensimport Fase 2 / Task 5: fortolkning, promotion og identitet =====
 DO $interpretation_verify$
 DECLARE

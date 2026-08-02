@@ -433,7 +433,7 @@ git commit -m "feat: add interpretation and identity decision ledger"
 - Inspect and inventory: .claude/skills/daa-extract/scripts/backfill_slaegtled.R
 - Inspect and inventory: .claude/skills/daa-extract/scripts/post_load_fixup.R
 
-- [ ] **Step 1: Skriv modeltests**
+- [x] **Step 1: Skriv modeltests**
 
 Bevis: to slægter kan begge have kode II; stamtavle og præsensliste kan nummerere samme lineage forskelligt; en lineage hører til én slægt; en person kan have flere memberships uden kopi; indgiftede arver ikke slægtsnavn; flere slægtsmedlemskaber kræver kontekst eller neutral etikette. Tilføj desuden:
 
@@ -445,7 +445,7 @@ Samme person kan have forskellige slægtledslabels i to source schemes.
 Der findes ingen global generation-kolonne på person.
 ~~~
 
-- [ ] **Step 2: Implementér kanonisk DDL**
+- [x] **Step 2: Implementér kanonisk DDL**
 
 Tilføj:
 
@@ -465,7 +465,7 @@ Flyt presens_kode-semantik til lineage_scheme_entry. Unikhed er (scheme_id, code
 
 source_record_placement er unik blandt aktive placeringer pr. (source_record_id, scheme_entry_id), og header_observation_id er obligatorisk. Tabellen har ingen legacy-undtagelse: uden accepteret source record og overskriftsobservation oprettes ingen placement. placement_role begrænses til principal_member, co_principal, mentioned_spouse og child_reference. Kun principal_member eller co_principal kan foreslås promoveret til lineage-medlemskab, og promotion kræver særskilt evidens. Genealogisk generation beregnes fra parent-child-relationer med valgt rod; family-partnere traverseres ikke som generationskanter.
 
-- [ ] **Step 3: Inventér alle legacy-forbrugere før migration**
+- [x] **Step 3: Inventér alle legacy-forbrugere før migration**
 
 Kør mindst:
 
@@ -475,15 +475,15 @@ rg -n "slaegtled_lokal|slaegtled_gennem|kuld|presens_kode" schema.sql db-migrati
 
 Registrér alle læsere og skrivere samt deres overgangskontrakt. Inventaret skal mindst omfatte SQL-funktionen med max(slaegtled_lokal), API-payloads, core generations/tree/matchUdgaver, web- og mobilloadere samt R-backfill/fixup. Ingen legacy-kolonne eller fallback fjernes, før hver consumer har en navngivet erstatning og en paritetstest.
 
-- [ ] **Step 4: Etablér schemes, men udskyd legacy-migrationen**
+- [x] **Step 4: Etablér schemes, men udskyd legacy-migrationen**
 
 Opret Reventlow som slægt, forbind eksisterende lineages og opret schemes for kendte stamtavle-/præsensnummereringer. Bevar slaegtled_lokal, slaegtled_gennem og kuld uændret i person_external_id og registrér deres rækkeantal/hash som migrationsbaseline. Opret ikke source_record_placements for dem i denne fase: før Task 17/20 mangler både verificeret source record og header-observation. Selve migrationsleddet udføres kildevis efter extraction og er idempotent.
 
-- [ ] **Step 5: Bevar eksplicit kompatibilitetsprojektion**
+- [x] **Step 5: Bevar eksplicit kompatibilitetsprojektion**
 
 Hvis klienter stadig læser presens_kode eller legacy-slægtled, lever et navngivet overgangs-view/RPC. Før extraction læser det legacyfelterne; efter kildevis migration læser det verificerede placements og falder kun tilbage for eksplicit uafklarede rækker. Undgå tavs prioritetsændring og dobbelt sandhed i tabellerne. Cutover-gaten kræver, at hver legacy-række er migreret med observeret evidens, eksplicit bevaret eller forklaret som uafklaret; ingen række må forsvinde tavst.
 
-- [ ] **Step 6: Implementér TypeScript-typer**
+- [x] **Step 6: Implementér TypeScript-typer**
 
 ~~~typescript
 export type SlaegtRef = { id: string; navn: string; slug: string };

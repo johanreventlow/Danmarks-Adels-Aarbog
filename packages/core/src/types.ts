@@ -24,6 +24,19 @@ export type RawLineage = {
   id?: string | number;
   parent_lineage_id?: string | number | null;
 };
+export type SlaegtRef = { id: string; navn: string; slug: string };
+export type LineageRef = {
+  id: string;
+  slaegtId: string;
+  canonicalLabel: string;
+  parentLineageId: string | null;
+};
+export type LineageSchemeEntryRef = {
+  id: string;
+  schemeId: string;
+  code: string;
+  label: string;
+};
 export type RawEstate = {
   id: number | string;
   navn: string | null;

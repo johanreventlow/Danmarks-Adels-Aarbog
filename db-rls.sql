@@ -236,7 +236,8 @@ begin
   -- =========================================================
   foreach t in array array[
     'vocab','repository','source','place','organisation','estate',
-    'coat_of_arms','lineage','family','historical_event'
+    'coat_of_arms','slaegt','lineage','lineage_scheme','lineage_scheme_entry',
+    'lineage_scheme_entry_lineage','family','historical_event'
   ] loop
     execute format('grant select on table public.%I to anon, authenticated;', t);
     execute format('alter table public.%I enable row level security;', t);
@@ -250,6 +251,10 @@ begin
     execute format('create policy auth_read on public.%I for select to authenticated using (true);', t);
   end loop;
 end $$;
+
+-- Overgangs-viewet er læsbart, men security_invoker lader fortsat de underliggende
+-- person_external_id-politikker afgøre hvilke personkoordinater en klient ser.
+GRANT SELECT ON public.person_source_coordinate_legacy TO anon, authenticated;
 
 -- 'media' har ingen egen levende/privat-kolonne; synligheden afledes af de personer billedet
 -- AFBILDER (relation rolle='afbildet' → person), via SECURITY DEFINER-helperne ovenfor.

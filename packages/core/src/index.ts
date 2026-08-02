@@ -17,6 +17,7 @@ export * from './navnevarianter';
 export * from './matchUdgaver';
 export * from './kildeProveniens';
 export * from './slaegtsrod';
+export * from './slaegter';
 export * from './presensLabels';
 export * from './presensListe';
 export * from './ocrKvalitet';
@@ -24,6 +25,9 @@ export { KONFIDENS_VALUES, KONFIDENS_RANK } from './types';
 export type {
   RawExtId,
   RawLineage,
+  SlaegtRef,
+  LineageRef,
+  LineageSchemeEntryRef,
   RawEstate,
   RawPlace,
   RawFact,
