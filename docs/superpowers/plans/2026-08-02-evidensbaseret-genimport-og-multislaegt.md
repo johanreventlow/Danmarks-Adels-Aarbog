@@ -738,11 +738,11 @@ git commit -m "feat: edit descriptions and heraldic associations"
 - Create: .claude/skills/daa-extract/scripts/test_source_persona.py
 - Modify: .claude/skills/daa-extract/scripts/identitetsregister.py
 
-- [ ] **Step 1: Skriv adversarial tests**
+- [x] **Step 1: Skriv adversarial tests**
 
 Test tre mentions til én persona uden automatisk kanonisk merge; ens navn uden positivt anker; ægtefælle-/datoanker; global injectivitet; modstridende personnumre; flere personaer fra én record; og bevarelse af manuelle beslutninger ved genudtræk.
 
-- [ ] **Step 2: Implementér kandidatobjekt**
+- [x] **Step 2: Implementér kandidatobjekt**
 
 ~~~python
 @dataclass(frozen=True)
@@ -757,11 +757,11 @@ class IdentityCandidate:
 
 Score rangerer kun. Automatisk accept kræver eksplicit versionsstyret policy med positive ankre og nul modstrid; ellers unresolved.
 
-- [ ] **Step 3: Bevar stabile identitetsnøgler**
+- [x] **Step 3: Bevar stabile identitetsnøgler**
 
 record_key og eksterne personnumre er evidens. (linje, nr) er kun lokator. Genudtræk remapper tidligere afgørelser via provenance, aldrig navn alene.
 
-- [ ] **Step 4: Test og commit**
+- [x] **Step 4: Test og commit**
 
 ~~~bash
 /usr/bin/python3 -m pytest .claude/skills/daa-extract/scripts/test_source_persona.py .claude/skills/daa-extract/scripts/test_identitetsregister.py -q
