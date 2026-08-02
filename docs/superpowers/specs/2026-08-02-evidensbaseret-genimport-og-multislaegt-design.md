@@ -74,7 +74,7 @@ En bestemt gengivelse af en kilde:
 - ABBYY-, Calamari- eller anden OCR;
 - menneskeligt korrigeret transskription.
 
-Rækken bærer mindst fil-/inputhash, metode, sprog, version, oprettelsestid og henvisning til den overordnede `source`. Flere gengivelser eksisterer samtidigt. En foretrukken gengivelse markeres uden at slette de øvrige.
+Rækken bærer et uigennemsigtigt rendition_key samt mindst fil-/inputhash, metode, sprog, version, oprettelsestid og henvisning til den overordnede `source`. rendition_key er identiteten; content-hash er et kontrol- og deduplikeringssignal. To forskellige metoder må derfor bevares som to renditions, selv hvis deres bytes er identiske. Flere gengivelser eksisterer samtidigt. En foretrukken gengivelse markeres uden at slette de øvrige.
 
 ### 4.2 `source_record`
 
@@ -106,7 +106,7 @@ Den centrale nye enhed er den mindste fuldstændige, meningsbærende kildeklausu
 
 Position og teksthash er genfindings- og kontrolsignaler, ikke observationens identitet.
 
-Observationen kan derfor udtrækkes, mens occurrence endnu er uforankret. Når source_record_anchor accepteres, får observationer og mentions logisk record-kontekst gennem ankret; rå observationer omskrives ikke.
+Observationen kan derfor udtrækkes, mens occurrence endnu er uforankret. Når en source_record_anchor_event accepterer forbindelsen, får observationer og mentions logisk record-kontekst gennem ankret; rå observationer omskrives ikke.
 
 ### 4.4 `source_observation_text`
 
@@ -130,9 +130,9 @@ Den fysiske forekomst i en bestemt source_rendition registreres først selvstæn
 - fysisk og strukturel fingerprint;
 - et uigennemsigtigt occurrence-ID fra segmenteringskørslen.
 
-source_record_anchor er den versionerede afgørelse, som forbinder en occurrence med en logisk source_record. En occurrence kan have flere forslag, men højst én aktiv accepteret forankring. Ved ny OCR kan en accepteret én-til-én-afgørelse forbinde den nye occurrence med den eksisterende logiske record uden at oprette en ny record.
+source_record_anchor_event er den append-only afgørelseslog, som forbinder en occurrence med en logisk source_record. Forslag, accept og afvisning er hver sin uforanderlige, versionsnummererede event; den aktuelle tilstand udledes af den seneste event. En occurrence kan have flere historiske forslag, men højst én aktuelt accepteret forankring. Ved ny OCR kan en accepteret én-til-én-afgørelse forbinde den nye occurrence med den eksisterende logiske record uden at oprette en ny record.
 
-Hvis segmenteringen splitter eller sammenlægger logiske poster, må en eksisterende record_key ikke genbruges som om kontinuiteten var én-til-én. Der oprettes nye records og eksplicitte, versionerede source_record_revision_link-rækker med relationerne splittet_til, samlet_fra eller erstattet_af. Tvetydig kontinuitet går til menneskelig review.
+Hvis segmenteringen splitter eller sammenlægger logiske poster, må en eksisterende record_key ikke genbruges som om kontinuiteten var én-til-én. Der oprettes nye records og eksplicitte source_record_revision_event-rækker med maskinkoderne split_into, merged_from eller replaced_by. Et afvist forslag kan senere foreslås igen som en ny version uden UPDATE af historikken. Tvetydig kontinuitet går til menneskelig review.
 
 Et source_mention-ID identificerer et tekstspan i en bestemt observationsversion. Et source_persona-ID er en uigennemsigtig hypotese inden for én bogudgave og kan samle flere mentions og records. Det overlever ikke stiltiende split eller merge; ændringen versionsføres.
 
@@ -216,7 +216,7 @@ Hvis redaktøren bekræfter identiteten, bliver resultatet:
 - tre partnerrelationer;
 - tre separate kildebelæg.
 
-Hvis kun to omtaler er samme mand, kan redaktøren gruppere to og lade den tredje blive en anden person. `same_som` bevares som reparationsmekanisme for kanoniske dubletter, der opdages senere, men er ikke den normale stagingmodel.
+Hvis kun to omtaler er samme mand, kan redaktøren gruppere to og lade den tredje blive en anden person. `samme_som` bevares som reparationsmekanisme for kanoniske dubletter, der opdages senere, men er ikke den normale stagingmodel.
 
 ## 7. Fortolkningslaget
 
@@ -355,9 +355,11 @@ source_record_placement forbinder en source_record med en lineage_scheme_entry o
 - hierarkisk section path;
 - observationen af den overskrift, som placeringen bygger på.
 
+Alle source_record_placements skal have en header-observation. En tabsfri overgang fra de nuværende felter kan ikke opfinde hverken en source record eller en sådan observation; derfor må legacy-felterne ikke migreres til denne tabel, før det relevante kildeudtræk findes og forbindelsen er verificeret.
+
 source_persona_placement forbinder en kildepersona med recordplaceringen og en rolle såsom hovedperson, medhovedperson, omtalt_ægtefælle eller barnehenvisning. Kun en dokumenteret medlemsrolle kan danne grundlag for kanonisk lineage-medlemskab. En ægtefælle arver ikke postens slægtled eller medlemskab.
 
-Eksisterende slaegtled_lokal, slaegtled_gennem og kuld migreres som kildeplacering og bevares ordret, også hvis forskellige udgaver nummererer forskelligt.
+Eksisterende slaegtled_lokal, slaegtled_gennem og kuld bevares ordret som kompatibilitetsinput, også hvis forskellige udgaver nummererer forskelligt. Efter fuld extraction migreres de kun til kildeplacering, når en accepteret source record og dens header-observation giver positiv provenance; uafklarede rækker forbliver legacy og går til review. De eksisterende læsefelter og projektioner udfases først, når alle SQL-, core-, web-, mobil- og loaderskrivere er inventeret, flyttet og verificeret med paritet. Cutover må ikke efterlade uforklarede legacy-rækker.
 
 ### 9.8 Ægteskab på tværs af slægtled
 
@@ -409,6 +411,8 @@ Tre opslag i samme bog vises som tre opslag/attestationer i samme kilde, ikke fe
 
 Modstridende oplysninger bevares som flere assertions. `conclusion` vælger eller markerer omstridt; den sletter aldrig alternative kildepåstande.
 
+Eksisterende rækker i narrative er en overgangskilde, indtil de kan forbindes med accepterede source records. Overgangen er eksplicit og tabsfri: hver legacy-narrativ skal enten mappes ved positiv kilde-/persona-evidens, bevares gennem en navngivet kompatibilitetsprojektion eller arkiveres ved redaktionel beslutning. Tekstlig lighed alene må ikke skabe forbindelsen, og offentlig record-visning må ikke antage fuld source_record-dækning før denne afstemning er grøn.
+
 ## 12. Våben, afbildninger og generelle beskrivelser
 
 coat_of_arms er en selvstændig kanonisk entitet, ikke en enkelt kolonne på slægt eller lineage. En evidensbåret relation forbinder et våben med nul, én eller flere slægter, kanoniske linjer eller grene, personer og andre relevante entiteter.
@@ -423,7 +427,7 @@ Tre teksttyper holdes adskilt:
 2. struktureret blasonering er en eller flere kildepåstande om coat_of_arms med en redaktionel conclusion;
 3. redaktionel beskrivelse eller billedtekst gemmes i en generel, versionsstyret entity_description.
 
-entity_description kan knyttes til alle kanoniske entitetstyper, herunder person, slægt, lineage, coat_of_arms, media og estate. Den har mindst kind, sprog, tekst, status, offentlighed, version og provenance. Kinds omfatter overblik, historie, billedtekst og blasoneringsforklaring. Der oprettes ikke særlige beskrivelseskolonner pr. entitetstype.
+entity_description kan knyttes til alle kanoniske entitetstyper, herunder person, slægt, lineage, coat_of_arms, media og estate. Den har mindst kind, sprog, tekst, status, offentlighed og version. Kinds omfatter overblik, historie, billedtekst og blasoneringsforklaring. Dens eventuelle source_record-proveniens ligger i en junction-tabel i private schema, som peger ind mod den offentlige beskrivelse; en public tabel eller API må aldrig indeholde private source_record-ID'er. Der oprettes ikke særlige beskrivelseskolonner pr. entitetstype.
 
 entity_description erstatter ikke source_record-narrativer og er ikke en story. source_record bevarer, hvad en kilde skriver; story er en redaktionel formidlingshistorie; entity_description er den stabile redaktionelle beskrivelse af en kanonisk entitet. Den eksisterende narrative-tabel behandles som overgangsmodel og må ikke fortsætte som en fjerde konkurrerende sandhed.
 
@@ -579,7 +583,7 @@ Dyre modeltrin begrænses til fortolkning og undtagelser. Følgende er determini
 - kandidatsøgning og korpusdiff;
 - databaseprojektion.
 
-Modellen ser én klausul/post ad gangen. Resultater caches uforanderligt. Kun ændrede, tvivlsomme eller fejlende poster genkøres. Sidebilleder beskæres til det relevante område frem for at sende hele PDF-sider, når visuel kontrol er nødvendig.
+Modellen ser én klausul/post ad gangen. Profilen fastlåser eksplicit model-ID, promptversion og eskalationsmodel; extractoren må ikke arve et ambient/default modelvalg. Kørslens manifest registrerer de effektive værdier, og ukendt eller ændret model blokerer merge uden en ny godkendt profilversion. Resultater caches uforanderligt. Kun ændrede, tvivlsomme eller fejlende poster genkøres, og den dyrere eskalationsmodel bruges kun til markerede undtagelser med særskilt budgetregnskab. Sidebilleder beskæres til det relevante område frem for at sende hele PDF-sider, når visuel kontrol er nødvendig.
 
 ## 20. Definition af færdigt grundudtræk
 
@@ -587,7 +591,7 @@ Et grundudtræk kan erklæres afsluttet, når:
 
 - original og alle anvendte tekstgengivelser er bevaret;
 - alle logiske kildeposter har stabil record_key, og hver rendition-forekomst har fysisk provenance;
-- split, merge og re-OCR er bogført med eksplicitte revision links uden tvetydigt automatisk genbrug;
+- split, merge og re-OCR er bogført med eksplicitte revision-events uden tvetydigt automatisk genbrug;
 - alle meningsbærende klausuler er registreret og bogført;
 - alle eksplicitte biografiske oplysninger er fortolket eller synligt parkeret;
 - personer, steder, organisationer og godser er markeret som omtaler;
@@ -615,5 +619,7 @@ Når pausen ophæves, er den godkendte rækkefølge:
 9. brug gamle match som efterkontrol;
 10. overfør metoden til 1939 med OCR-/segmenteringspilot først;
 11. skift først senere og særskilt godkendt fra gammel til ny database.
+
+Den kritiske vej er evidenskontrakt, privat lag, kildeplacering, identitetsafklaring, extraction, projektion, bogpiloter og cutover-rehearsal. Heraldik-/entity-description-editoren og mobil redaktørparitet er selvstændige, udskydelige spor: de må ikke blokere de første extraction- og identitets-GO'er, men skal have egne gater før de funktioner publiceres.
 
 Den særskilte implementeringsplan beskriver arbejdet. Hverken dette designnotat eller planen giver i sig selv tilladelse til at iværksætte extraction, databaseændringer eller cutover.
