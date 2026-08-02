@@ -20,7 +20,8 @@ rapporten (stderr) flagger manglende linje-kontekst og huller/dubletter i nr.
 """
 import contextlib
 import io
-import sys, re, json
+import sys, re, json, hashlib
+import clause_ledger
 from ordinals import ordinal_to_int
 
 PAGE_RE    = re.compile(r'^###\s*PAGE\s+(\d+)\s*###\s*$')
@@ -912,17 +913,94 @@ UDGAVE_PROFILER['1939-v2'] = {
 }
 
 
-def main(path, udgave=None):
+def _evidence_ledger(source_text):
+    """Emit source clauses without turning printed locators into record identity.
+
+    A record occurrence is local to this rendition.  ``record_key`` remains
+    null until a reviewer accepts an anchor in the private evidence layer.
+    """
+    clauses = []
+    observations = []
+    offset = 0
+    occurrence_counter = 0
+    current_occurrence = None
+    for raw_line in source_text.splitlines(True):
+        line_end = offset + len(raw_line)
+        line = raw_line.rstrip('\r\n')
+        classification = 'record_text'
+        observation_ids = []
+        if not line.strip() or PAGE_RE.match(line):
+            classification = 'layout'
+        elif (LINJE_NAME.search(line) or ROMAN_RE.match(line) or SLGT_RE.match(line)
+              or MARR_RE.match(line)):
+            classification = 'structural_header'
+            observation_id = 'obs-%08x' % offset
+            observation_ids = [observation_id]
+            observation = {
+                'observation_id': observation_id,
+                'kind': 'structural_header',
+                'verbatim_text': line,
+                'span': {'char_from': offset, 'char_to': line_end},
+            }
+            generation = SLGT_RE.match(line)
+            if generation:
+                observation.update({
+                    'kind': 'printed_generation_header',
+                    'generation_label_raw': generation.group(1),
+                    'generation_local': ordinal_to_int(generation.group(1)),
+                    'generation_global': (ordinal_to_int(generation.group(2))
+                                          if generation.group(2) else None),
+                })
+            observations.append(observation)
+            current_occurrence = None
+        elif POST_RE.match(line) or POST_1939_RE.match(line):
+            occurrence_counter += 1
+            current_occurrence = 'occ-%s-%04d' % (
+                hashlib.sha256(source_text.encode('utf-8')).hexdigest()[:12], occurrence_counter)
+        if classification == 'record_text' and current_occurrence is None:
+            # Unclassified prose is preserved as a distinct, unanchored source occurrence.
+            occurrence_counter += 1
+            current_occurrence = 'occ-%s-%04d' % (
+                hashlib.sha256(source_text.encode('utf-8')).hexdigest()[:12], occurrence_counter)
+        clauses.append({
+            'char_from': offset, 'char_to': line_end, 'classification': classification,
+            'observation_ids': observation_ids, 'record_key': None,
+            'occurrence_id': current_occurrence or 'layout-%08x' % offset,
+        })
+        offset = line_end
+    return {
+        'schema_version': '1.0',
+        'source_length': len(source_text),
+        'clauses': clause_ledger.build_ledger(source_text, clauses),
+        'observations': observations,
+        # No source_record exists until an explicit anchor decision.  Keeping
+        # this empty is fail-closed and prevents accidental locator identity.
+        'record_placements': [],
+    }
+
+
+def main(path, udgave=None, emit_evidence_ledger=None):
     profile = UDGAVE_PROFILER[udgave or '2018-20']
-    lines = open(path, encoding='utf-8', errors='replace').read().splitlines()
-    return profile['segmenter'](lines, profile)
+    source_text = open(path, encoding='utf-8', errors='replace').read()
+    posts = profile['segmenter'](source_text.splitlines(), profile)
+    if emit_evidence_ledger:
+        json.dump(_evidence_ledger(source_text),
+                  open(emit_evidence_ledger, 'w', encoding='utf-8'),
+                  ensure_ascii=False, indent=2)
+    return posts
 
 
 if __name__ == '__main__':
     if len(sys.argv) == 2:
         main(sys.argv[1])
+    elif len(sys.argv) == 4 and sys.argv[2] == '--emit-evidence-ledger':
+        main(sys.argv[1], emit_evidence_ledger=sys.argv[3])
+    elif (len(sys.argv) == 6 and sys.argv[2] == '--udgave'
+          and sys.argv[3] in ('1939', '1939-v2')
+          and sys.argv[4] == '--emit-evidence-ledger'):
+        main(sys.argv[1], udgave=sys.argv[3], emit_evidence_ledger=sys.argv[5])
     elif (len(sys.argv) == 4 and sys.argv[2] == '--udgave'
           and sys.argv[3] in ('1939', '1939-v2')):
         main(sys.argv[1], udgave=sys.argv[3])
     else:
-        sys.exit('brug: segment.py raw.txt [--udgave 1939|1939-v2] > posts.json')
+        sys.exit('brug: segment.py raw.txt [--udgave 1939|1939-v2] [--emit-evidence-ledger ledger.json] > posts.json')
