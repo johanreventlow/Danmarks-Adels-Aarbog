@@ -41,6 +41,7 @@ import { initials } from './data/format';
 import { NarrativRenderer } from './components/NarrativRenderer';
 import { Lightbox } from './components/Lightbox';
 import { MediaDetaljeOverlay } from './components/MediaDetaljeOverlay';
+import { KildepersonaKo } from './components/KildepersonaKo';
 
 const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 const MEDIA_RETTIGHED_STATUS = ['ukendt', 'public_domain', 'licenseret', 'tilladelse_givet', 'begraenset', 'spaerret'] as const;
@@ -82,6 +83,7 @@ const ENTITIES = [
   { key: 'feed', label: 'Feed-styring', icon: '⚑' },
   { key: 'sammenlign', label: 'Sammenlign udgaver', icon: '⇄' },
   { key: 'foraeldre-konflikter', label: 'Forældre-konflikter', icon: '⚠' },
+  { key: 'kildepersonaer', label: 'Kildepersonaer', icon: '⌕' },
 ];
 const FELT_DEFS: [string, string][] = [
   ['navn', 'Navn'], ['foedt', 'Født'], ['doed', 'Død'], ['titel', 'Titel/rang'],
@@ -760,13 +762,15 @@ export default function Redaktion() {
       {renderTopBar()}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {renderSidebar()}
-        {entity === 'feed' || entity === 'sammenlign' || entity === 'foraeldre-konflikter' ? (
+        {entity === 'feed' || entity === 'sammenlign' || entity === 'foraeldre-konflikter' || entity === 'kildepersonaer' ? (
           <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: T.paper }}>
             {entity === 'feed'
               ? <FeedStyring role={role} model={model} run={run} />
               : entity === 'sammenlign'
               ? <SammenlignUdgaver role={role} dryRun={dryRun} />
-              : <ForaeldreKonflikterListe onOpen={(id) => openRecord('person', id)} />}
+              : entity === 'foraeldre-konflikter'
+              ? <ForaeldreKonflikterListe onOpen={(id) => openRecord('person', id)} />
+              : <KildepersonaKo role={role} />}
           </div>
         ) : visKvalitetsark ? (
           renderKvalitetsark()

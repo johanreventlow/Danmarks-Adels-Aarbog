@@ -1270,6 +1270,24 @@ EXCEPTION WHEN others THEN
   RAISE;
 END $identity_concurrency$;
 
+-- Task 11: køens fire RPC'er må kun være tilgængelige gennem authenticated.
+DO $source_persona_queue_verify$
+BEGIN
+  IF to_regprocedure('public.red_source_persona_queue(text,bigint,uuid,integer)') IS NULL
+     OR to_regprocedure('public.red_source_persona_detail(uuid)') IS NULL
+     OR to_regprocedure('public.red_source_persona_history(uuid)') IS NULL
+     OR to_regprocedure('public.red_afgoer_source_persona(uuid,integer,text,bigint,text)') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: Task 11 mangler source-persona-køens RPCer';
+  END IF;
+  IF has_function_privilege('anon','public.red_source_persona_queue(text,bigint,uuid,integer)','EXECUTE')
+     OR has_function_privilege('anon','public.red_source_persona_detail(uuid)','EXECUTE')
+     OR has_function_privilege('anon','public.red_source_persona_history(uuid)','EXECUTE')
+     OR has_function_privilege('anon','public.red_afgoer_source_persona(uuid,integer,text,bigint,text)','EXECUTE') THEN
+    RAISE EXCEPTION 'FEJL: Task 11 eksponerer privat source-persona-kø for anon';
+  END IF;
+  RAISE NOTICE 'OK: Task 11 source-persona-kø er privat og har eksplicitte RPC-kontrakter';
+END $source_persona_queue_verify$;
+
 -- ===== Person OCR kvalitetsark — atomisk rettelse og historik =====
 -- Selvstændig transaktionsfixture. Alle positive og negative veje kører gennem
 -- den offentlige SECURITY DEFINER-flade, og blokken ruller altid tilbage.
