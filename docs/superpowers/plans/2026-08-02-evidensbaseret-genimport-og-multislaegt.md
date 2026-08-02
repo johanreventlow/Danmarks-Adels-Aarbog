@@ -526,11 +526,11 @@ git commit -m "feat: separate clans lineages and source schemes"
 - Modify: web/src/data/types.ts
 - Modify: relevante tests under web/src/data/__tests__/
 
-- [ ] **Step 1: Test kolliderende linjekoder**
+- [x] **Step 1: Test kolliderende linjekoder**
 
 Brug syntetiske slægter A og B med kode II samt to schemes med forskellig kode for samme lineage. Navigation, etiketter og cache må ikke krydse data.
 
-- [ ] **Step 2: Brug ID-baseret kontekst**
+- [x] **Step 2: Brug ID-baseret kontekst**
 
 ~~~typescript
 type LineageContext = {
@@ -543,7 +543,7 @@ type LineageContext = {
 
 Vis eksempelvis Reventlow · II. linje, når konteksten ellers er tvetydig.
 
-- [ ] **Step 3: Test og commit**
+- [x] **Step 3: Test og commit**
 
 ~~~bash
 npm test --workspace web -- --run

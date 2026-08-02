@@ -995,7 +995,7 @@ export default function Redaktion() {
                   {[{ linje: null as string | null, navn: null as string | null }, ...linjeList].map((l) => {
                     const on = activeLinje === l.linje;
                     return (
-                      <div key={l.linje ?? 'all'} onClick={() => setActiveLinje(l.linje)} title={l.navn ?? undefined} style={{ padding: '5px 11px', borderRadius: 15, fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: on ? T.bordeaux : 'transparent', color: on ? T.paper : T.muted, border: `1px solid ${on ? T.bordeaux : 'rgba(34,31,26,.18)'}` }}>{l.linje ? `Linje ${l.linje}` : 'Hele slægten'}</div>
+                      <div key={l.linje ?? 'all'} onClick={() => setActiveLinje(l.linje)} title={l.navn ?? undefined} style={{ padding: '5px 11px', borderRadius: 15, fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: on ? T.bordeaux : 'transparent', color: on ? T.paper : T.muted, border: `1px solid ${on ? T.bordeaux : 'rgba(34,31,26,.18)'}` }}>{l.linje ? (l.navn ?? `Linje ${l.linje}`) : 'Hele slægten'}</div>
                     );
                   })}
                 </div>
@@ -1003,7 +1003,7 @@ export default function Redaktion() {
             )}
 
             <div style={{ padding: '0 14px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <span style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>{`${activeLinje ? `Linje ${activeLinje} · ` : ''}${b.flat.length} ${query ? 'træffere' : 'personer'}`}</span>
+              <span style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>{`${activeLinje ? `${linjeList.find((l) => l.linje === activeLinje)?.navn ?? `Linje ${activeLinje}`} · ` : ''}${b.flat.length} ${query ? 'træffere' : 'personer'}`}</span>
               <div style={{ display: 'flex', background: '#e6ddcc', borderRadius: 7, padding: 2, gap: 2, flex: 'none' }}>
                 {(['navn', 'aar'] as const).map((s) => (
                   <span key={s} onClick={() => setBrowseSort(s)} style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 5, cursor: 'pointer', background: browseSort === s ? T.bordeaux : 'transparent', color: browseSort === s ? T.paper : '#3d382f' }}>{s === 'navn' ? 'A–Å' : 'Født'}</span>

@@ -70,7 +70,7 @@ export function TreeSearch(s: TreeSearchBundle) {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, flex: 1 }}>
               <LinjeChip label="Hele slægten" active={!s.activeLinje} onClick={() => s.setActiveLinje(null)} />
               {s.linjeList.map((l) => (
-                <LinjeChip key={l.linje} label={`Linje ${l.linje}`} title={l.navn ?? undefined} active={s.activeLinje === l.linje} onClick={() => s.setActiveLinje(l.linje)} />
+                <LinjeChip key={l.linje} label={l.navn ?? `Linje ${l.linje}`} title={l.navn ?? undefined} active={s.activeLinje === l.linje} onClick={() => s.setActiveLinje(l.linje)} />
               ))}
               {s.hasBookmarks && (
                 <span onClick={() => s.setBmOnly(!s.bmOnly)} title="Vis kun bogmærkede" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 15, fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: s.bmOnly ? T.bordeaux : T.paper, color: s.bmOnly ? T.paper : '#3d382f', border: `1px solid ${s.bmOnly ? T.bordeaux : 'rgba(34,31,26,.14)'}` }}>
