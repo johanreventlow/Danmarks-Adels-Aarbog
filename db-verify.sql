@@ -648,6 +648,45 @@ BEGIN
     END IF;
 
     PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_decide_interpretation(
+        v_interpretation,NULL,'accepted','{"basis":"null version"}'
+      );
+      RAISE EXCEPTION 'NULL_VERSION_BYPASS';
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_EXPECTED_VERSION_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: NULL expected_version bypassede fortolkningslåsen: %',v_error;
+    END IF;
+
+    -- Selv hvis ingestrollen senere får INSERT til proposal-loading, må den
+    -- ikke kunne forfalske en menneskelig afgørelse uden om RPC'en.
+    GRANT USAGE ON SCHEMA private TO service_role;
+    GRANT INSERT ON private.interpretation,
+                    private.interpretation_promotion,
+                    private.source_persona_identity_event
+      TO service_role;
+    ALTER ROLE service_role BYPASSRLS;
+    v_error:=NULL;
+    BEGIN
+      SET LOCAL ROLE service_role;
+      INSERT INTO private.interpretation(
+        id,interpretation_key,version,source_id,source_persona_id,
+        interpretation_kind,predicate,value,schema_version,derivation_kind,
+        confidence,status,method,extraction_run_id,decision_evidence,
+        decided_by,decided_by_name,decided_at
+      ) VALUES (
+        'c1000000-0000-0000-0000-000000000029',
+        'c0000000-0000-0000-0000-000000000029',1,-987650021,v_persona,
+        'property','fake_approval','{}','1.0','human_judgement',1,'accepted',
+        'forged',v_run,'{"basis":"forged"}',v_actor,'Forged',clock_timestamp()
+      );
+      RAISE EXCEPTION 'SERVICE_ROLE_FAKE_ACCEPTED';
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_DECISION_PROVENANCE_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: ingestrolle kunne skrive falsk accepted fortolkning: %',v_error;
+    END IF;
+
     SELECT red_decide_interpretation(
       v_interpretation,1,'accepted','{"basis":"reviewed"}'
     ) INTO v_accepted_interpretation;
@@ -662,6 +701,20 @@ BEGIN
     PERFORM red_promote_interpretation(
       v_accepted_interpretation,'person',-987650021,'{"basis":"verified"}'
     );
+    v_error:=NULL;
+    BEGIN
+      SET LOCAL ROLE service_role;
+      INSERT INTO private.interpretation_promotion(
+        interpretation_id,target_type,target_id,evidence,promoted_by,promoted_by_name
+      ) VALUES (
+        v_accepted_interpretation,'person',-987650022,'{"basis":"forged"}',
+        v_actor,'Forged'
+      );
+      RAISE EXCEPTION 'SERVICE_ROLE_FAKE_PROMOTION';
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_DECISION_PROVENANCE_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: ingestrolle kunne skrive falsk promotion: %',v_error;
+    END IF;
     v_error:=NULL;
     BEGIN
       UPDATE private.interpretation SET predicate='rewritten'
@@ -684,6 +737,21 @@ BEGIN
     IF v_error IS NULL THEN
       RAISE EXCEPTION 'FEJL: identitetsafgørelse uden actor/tid blev accepteret';
     END IF;
+    v_error:=NULL;
+    BEGIN
+      SET LOCAL ROLE service_role;
+      INSERT INTO private.source_persona_identity_event(
+        source_persona_id,canonical_person_id,decision_status,version,evidence,
+        decided_by,decided_by_name,decided_at
+      ) VALUES (
+        v_persona,-987650021,'accepted',1,'{"basis":"forged"}',
+        v_actor,'Forged',clock_timestamp()
+      );
+      RAISE EXCEPTION 'SERVICE_ROLE_FAKE_IDENTITY';
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_DECISION_PROVENANCE_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: ingestrolle kunne skrive falsk identitetsafgørelse: %',v_error;
+    END IF;
 
     v_error := NULL;
     BEGIN
@@ -695,6 +763,17 @@ BEGIN
     SET CONSTRAINTS private.identity_state_has_event DEFERRED;
     IF v_error NOT LIKE 'EVIDENCE_IDENTITY_EVENT_REQUIRED%' THEN
       RAISE EXCEPTION 'FEJL: identity-state uden event blev ikke afvist: %',v_error;
+    END IF;
+
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_decide_source_persona_identity(
+        v_persona,-987650021,NULL,'accepted','{"basis":"null version"}'
+      );
+      RAISE EXCEPTION 'NULL_VERSION_BYPASS';
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_EXPECTED_VERSION_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: NULL expected_version bypassede identity-låsen: %',v_error;
     END IF;
 
     PERFORM red_decide_source_persona_identity(
@@ -726,6 +805,40 @@ BEGIN
     EXCEPTION WHEN others THEN v_error := SQLERRM; END;
     IF v_error NOT LIKE 'EVIDENCE_IDENTITY_VERSION_CONFLICT%' THEN
       RAISE EXCEPTION 'FEJL: stale identitetsafgørelse blev ikke afvist: %',v_error;
+    END IF;
+
+    PERFORM red_decide_source_persona_identity(
+      v_persona,-987650022,1,'accepted','{"basis":"revised review"}'
+    );
+    v_error:=NULL;
+    BEGIN
+      UPDATE private.source_persona_identity state SET
+        canonical_person_id=event.canonical_person_id,
+        decision_status=event.decision_status,
+        version=event.version,
+        evidence=event.evidence,
+        decided_by=event.decided_by,
+        decided_by_name=event.decided_by_name,
+        decided_at=event.decided_at
+      FROM private.source_persona_identity_event event
+      WHERE state.source_persona_id=v_persona
+        AND event.source_persona_id=v_persona AND event.version=1;
+      SET CONSTRAINTS private.identity_state_has_event IMMEDIATE;
+      RAISE EXCEPTION 'IDENTITY_REWIND_BYPASS';
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    SET CONSTRAINTS private.identity_state_has_event DEFERRED;
+    IF v_error NOT LIKE 'EVIDENCE_IDENTITY_LATEST_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: current identity kunne rewindes til historisk event: %',v_error;
+    END IF;
+    v_error:=NULL;
+    BEGIN
+      DELETE FROM private.source_persona_identity WHERE source_persona_id=v_persona;
+      SET CONSTRAINTS private.identity_state_has_event IMMEDIATE;
+      RAISE EXCEPTION 'IDENTITY_DELETE_BYPASS';
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    SET CONSTRAINTS private.identity_state_has_event DEFERRED;
+    IF v_error NOT LIKE 'EVIDENCE_IDENTITY_STATE_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: current identity kunne slettes med eventhistorik: %',v_error;
     END IF;
 
     RAISE EXCEPTION 'ROLLBACK_INTERPRETATION_VERIFY';

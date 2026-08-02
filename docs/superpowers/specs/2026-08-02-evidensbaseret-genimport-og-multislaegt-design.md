@@ -192,7 +192,7 @@ source_mention
 
 `source_persona_identity` er den aktuelle, versionerede identitetsafgørelse. Én kildeperson kan højst forbindes med én kanonisk person; én kanonisk person kan forbindes med mange kildepersoner.
 
-Den aktuelle række er en projektion af en append-only `source_persona_identity_event`-log. En deferred databaseinvariant kræver, at current state og eventloggen stemmer ved commit i begge retninger. Accept, afvisning og uafklaret-status skrives atomisk gennem en `SECURITY DEFINER`-funktion med `expected_version` og persona-rækkelås. Aktør-id og navn hentes fra den autentificerede redaktionssession; importpayloadet kan ikke selv angive en menneskelig godkender.
+Den aktuelle række er en projektion af en append-only `source_persona_identity_event`-log. En deferred databaseinvariant kræver, at current state svarer præcist til den seneste event ved commit; state kan hverken tilbageskrives til en ældre event eller slettes, mens eventhistorikken findes. Accept, afvisning og uafklaret-status skrives atomisk gennem en `SECURITY DEFINER`-funktion med obligatorisk, ikke-negativ `expected_version` og persona-rækkelås. Aktør-id og navn hentes fra den autentificerede redaktionssession; importpayloadet kan ikke selv angive en menneskelig godkender. Direkte ingest må kun skrive `proposed` uden menneskelige aktørfelter. Alle øvrige statusser er beslutninger og kan kun skrives gennem den auditerede redaktionsfunktion.
 
 ### 6.3 Identitetsworkflow
 
@@ -277,7 +277,7 @@ Forfremmelse kræver:
 - tydelig adskillelse mellem udsagn og slutning;
 - ingen skjult konflikt med andre kilder.
 
-`interpretation_promotion` refererer den konkrete accepterede fortolkningsversion og et eksisterende kanonisk mål. Promotions er append-only og bærer sessionsafledt aktør, tidspunkt og beslutningsevidens; en senere ny fortolkningsversion omskriver ikke den historiske promotion.
+`interpretation_promotion` refererer den konkrete accepterede fortolkningsversion og et eksisterende kanonisk mål. Promotions er append-only og bærer sessionsafledt aktør, tidspunkt og beslutningsevidens; en senere ny fortolkningsversion omskriver ikke den historiske promotion. Ingest kan kun oprette unauditerede `proposed`-fortolkninger. `accepted`, `rejected`, `unresolved` og `superseded` er alle menneskelige beslutninger, og både disse og promotions kræver den auditerede redaktionsvej.
 
 ### 8.2 Mapping
 

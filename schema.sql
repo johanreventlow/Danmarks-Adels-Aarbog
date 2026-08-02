@@ -868,14 +868,18 @@ CREATE TABLE private.interpretation (
     (version=1 AND supersedes_id IS NULL)
     OR (version>1 AND supersedes_id IS NOT NULL)
   ),
-  CHECK (
-    status IN ('proposed','unresolved')
+  CONSTRAINT interpretation_decision_audit_check CHECK (
+    status='proposed'
     OR (
       decided_by IS NOT NULL
       AND nullif(btrim(decided_by_name),'') IS NOT NULL
       AND decided_at IS NOT NULL
       AND decision_evidence<>'{}'::jsonb
     )
+  ),
+  CONSTRAINT interpretation_proposal_actor_check CHECK (
+    status<>'proposed'
+    OR (decided_by IS NULL AND decided_by_name IS NULL AND decided_at IS NULL)
   )
 );
 
@@ -926,7 +930,7 @@ CREATE TABLE private.source_persona_identity (
   updated_at          timestamptz NOT NULL DEFAULT now(),
   CHECK (decision_status<>'accepted' OR canonical_person_id IS NOT NULL),
   CHECK (decision_status<>'unresolved' OR canonical_person_id IS NULL),
-  CHECK (
+  CONSTRAINT source_persona_identity_decision_audit_check CHECK (
     decision_status='proposed'
     OR (
       decided_by IS NOT NULL
@@ -934,6 +938,10 @@ CREATE TABLE private.source_persona_identity (
       AND decided_at IS NOT NULL
       AND evidence<>'{}'::jsonb
     )
+  ),
+  CONSTRAINT source_persona_identity_proposal_actor_check CHECK (
+    decision_status<>'proposed'
+    OR (decided_by IS NULL AND decided_by_name IS NULL AND decided_at IS NULL)
   )
 );
 
@@ -954,7 +962,7 @@ CREATE TABLE private.source_persona_identity_event (
   UNIQUE (source_persona_id,version),
   CHECK (decision_status<>'accepted' OR canonical_person_id IS NOT NULL),
   CHECK (decision_status<>'unresolved' OR canonical_person_id IS NULL),
-  CHECK (
+  CONSTRAINT source_persona_identity_event_decision_audit_check CHECK (
     decision_status='proposed'
     OR (
       decided_by IS NOT NULL
@@ -962,6 +970,10 @@ CREATE TABLE private.source_persona_identity_event (
       AND decided_at IS NOT NULL
       AND evidence<>'{}'::jsonb
     )
+  ),
+  CONSTRAINT source_persona_identity_event_proposal_actor_check CHECK (
+    decision_status<>'proposed'
+    OR (decided_by IS NULL AND decided_by_name IS NULL AND decided_at IS NULL)
   )
 );
 
@@ -975,6 +987,14 @@ CREATE FUNCTION private.validate_interpretation_scope()
 RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
 DECLARE v_source bigint;
 BEGIN
+  IF NEW.status<>'proposed' AND current_user<>(
+    SELECT pg_catalog.pg_get_userbyid(c.relowner)
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname='private' AND c.relname='interpretation'
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_DECISION_PROVENANCE_REQUIRED';
+  END IF;
   IF NEW.source_persona_id IS NOT NULL THEN
     SELECT source_id INTO v_source FROM private.source_persona
      WHERE id=NEW.source_persona_id;
@@ -1027,6 +1047,14 @@ CREATE FUNCTION private.validate_interpretation_promotion()
 RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
 DECLARE v_exists boolean;
 BEGIN
+  IF current_user<>(
+    SELECT pg_catalog.pg_get_userbyid(c.relowner)
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname='private' AND c.relname='interpretation_promotion'
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_DECISION_PROVENANCE_REQUIRED';
+  END IF;
   IF NOT EXISTS (
     SELECT 1 FROM private.interpretation i
      WHERE i.id=NEW.interpretation_id AND i.status='accepted'
@@ -1057,6 +1085,14 @@ CREATE FUNCTION private.validate_source_persona_identity_event()
 RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,private AS $$
 DECLARE v_expected integer;
 BEGIN
+  IF NEW.decision_status<>'proposed' AND current_user<>(
+    SELECT pg_catalog.pg_get_userbyid(c.relowner)
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname='private' AND c.relname='source_persona_identity_event'
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_DECISION_PROVENANCE_REQUIRED';
+  END IF;
   PERFORM 1 FROM private.source_persona WHERE id=NEW.source_persona_id FOR UPDATE;
   SELECT coalesce(max(version),0)+1 INTO v_expected
     FROM private.source_persona_identity_event
@@ -1068,28 +1104,66 @@ BEGIN
   RETURN NEW;
 END $$;
 
+CREATE FUNCTION private.validate_source_persona_identity_state()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,private AS $$
+BEGIN
+  IF NEW.decision_status<>'proposed' AND current_user<>(
+    SELECT pg_catalog.pg_get_userbyid(c.relowner)
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname='private' AND c.relname='source_persona_identity'
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_DECISION_PROVENANCE_REQUIRED';
+  END IF;
+  RETURN NEW;
+END $$;
+
 CREATE FUNCTION private.assert_identity_state_event_consistency()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE
+  v_persona_id uuid;
+  v_latest_version integer;
+  v_state_exists boolean;
 BEGIN
-  IF TG_TABLE_NAME='source_persona_identity' THEN
-    IF NOT EXISTS (
-      SELECT 1 FROM private.source_persona_identity_event e
-       WHERE e.source_persona_id=NEW.source_persona_id
-         AND e.version=NEW.version
-         AND e.canonical_person_id IS NOT DISTINCT FROM NEW.canonical_person_id
-         AND e.decision_status=NEW.decision_status
-         AND e.evidence=NEW.evidence
-         AND e.decided_by IS NOT DISTINCT FROM NEW.decided_by
-         AND e.decided_by_name IS NOT DISTINCT FROM NEW.decided_by_name
-         AND e.decided_at IS NOT DISTINCT FROM NEW.decided_at
-    ) THEN
-      RAISE EXCEPTION 'EVIDENCE_IDENTITY_EVENT_REQUIRED';
-    END IF;
-  ELSIF NOT EXISTS (
-    SELECT 1 FROM private.source_persona_identity i
-     WHERE i.source_persona_id=NEW.source_persona_id AND i.version>=NEW.version
-  ) THEN
+  v_persona_id:=CASE WHEN TG_OP='DELETE' THEN OLD.source_persona_id
+                     ELSE NEW.source_persona_id END;
+  SELECT max(version) INTO v_latest_version
+    FROM private.source_persona_identity_event
+   WHERE source_persona_id=v_persona_id;
+  SELECT EXISTS(
+    SELECT 1 FROM private.source_persona_identity
+     WHERE source_persona_id=v_persona_id
+  ) INTO v_state_exists;
+
+  IF v_latest_version IS NOT NULL AND NOT v_state_exists THEN
     RAISE EXCEPTION 'EVIDENCE_IDENTITY_STATE_REQUIRED';
+  END IF;
+  IF v_latest_version IS NULL AND v_state_exists THEN
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_EVENT_REQUIRED';
+  END IF;
+  IF v_latest_version IS NULL THEN RETURN NULL; END IF;
+  IF NOT EXISTS (
+    SELECT 1
+      FROM private.source_persona_identity i
+     WHERE i.source_persona_id=v_persona_id
+       AND i.version=v_latest_version
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_LATEST_REQUIRED';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+      FROM private.source_persona_identity i
+      JOIN private.source_persona_identity_event e
+        ON e.source_persona_id=i.source_persona_id AND e.version=i.version
+     WHERE i.source_persona_id=v_persona_id
+       AND i.canonical_person_id IS NOT DISTINCT FROM e.canonical_person_id
+       AND i.decision_status=e.decision_status
+       AND i.evidence=e.evidence
+       AND i.decided_by IS NOT DISTINCT FROM e.decided_by
+       AND i.decided_by_name IS NOT DISTINCT FROM e.decided_by_name
+       AND i.decided_at IS NOT DISTINCT FROM e.decided_at
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_EVENT_REQUIRED';
   END IF;
   RETURN NULL;
 END $$;
@@ -1109,8 +1183,11 @@ CREATE TRIGGER trg_interpretation_promotion_validate
 CREATE TRIGGER trg_source_persona_identity_event_validate
   BEFORE INSERT ON private.source_persona_identity_event
   FOR EACH ROW EXECUTE FUNCTION private.validate_source_persona_identity_event();
+CREATE TRIGGER trg_source_persona_identity_state_validate
+  BEFORE INSERT OR UPDATE ON private.source_persona_identity
+  FOR EACH ROW EXECUTE FUNCTION private.validate_source_persona_identity_state();
 CREATE CONSTRAINT TRIGGER identity_state_has_event
-  AFTER INSERT OR UPDATE ON private.source_persona_identity
+  AFTER INSERT OR UPDATE OR DELETE ON private.source_persona_identity
   DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION private.assert_identity_state_event_consistency();
 CREATE CONSTRAINT TRIGGER identity_event_is_projected
@@ -1146,6 +1223,7 @@ REVOKE EXECUTE ON FUNCTION private.validate_interpretation_scope(),
                            private.assert_interpretation_has_observation(),
                            private.validate_interpretation_promotion(),
                            private.validate_source_persona_identity_event(),
+                           private.validate_source_persona_identity_state(),
                            private.assert_identity_state_event_consistency()
   FROM PUBLIC,anon,authenticated;
 
@@ -4288,6 +4366,9 @@ BEGIN
   IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN
     RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN';
   END IF;
+  IF p_expected_version IS NULL OR p_expected_version<1 THEN
+    RAISE EXCEPTION 'EVIDENCE_EXPECTED_VERSION_REQUIRED';
+  END IF;
   SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text)
     INTO v_actor_name FROM public.profiles WHERE id=v_actor;
   IF v_actor_name IS NULL THEN RAISE EXCEPTION 'EVIDENCE_ACTOR_REQUIRED'; END IF;
@@ -4375,6 +4456,9 @@ DECLARE
 BEGIN
   IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN
     RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN';
+  END IF;
+  IF p_expected_version IS NULL OR p_expected_version<0 THEN
+    RAISE EXCEPTION 'EVIDENCE_EXPECTED_VERSION_REQUIRED';
   END IF;
   SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text)
     INTO v_actor_name FROM public.profiles WHERE id=v_actor;

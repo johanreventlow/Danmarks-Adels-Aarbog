@@ -381,21 +381,21 @@ git commit -m "feat: add private source evidence schema"
 - Modify: db-rls.sql
 - Modify: db-verify.sql
 
-- [ ] **Step 1: Skriv fail-closed verifikationer**
+- [x] **Step 1: Skriv fail-closed verifikationer**
 
-Databasen skal afvise to aktive kanoniske mål for samme persona, promotion uden accepteret fortolkning, fortolkning uden observation, afgørelse uden actor/tid og falsk menneskelig godkendelse.
+Databasen skal afvise to aktive kanoniske mål for samme persona, promotion uden accepteret fortolkning, fortolkning uden observation, afgørelse uden actor/tid og falsk menneskelig godkendelse. Verifikationen omfatter også `NULL`/ugyldig `expected_version`, direkte ingest af ikke-`proposed` status, tilbageskrivning til en historisk identitetsevent og sletning af current state med bevaret eventhistorik.
 
-- [ ] **Step 2: Implementér tabeller**
+- [x] **Step 2: Implementér tabeller**
 
 Tilføj private.interpretation, interpretation_observation, interpretation_promotion, source_persona_identity og source_persona_identity_event. `interpretation` er en append-only versionslog med stabil key og `supersedes_id`; en deferred constraint kræver mindst én observation ved commit. `source_persona_identity` er current-state-projektionen, og deferred constraints afstemmer den begge veje mod eventloggen.
 
-Én persona har højst én aktiv identitet. Status er proposed, accepted, rejected, unresolved eller superseded. Partial match modelleres med separate personaer/mentions.
+Én persona har højst én aktiv identitet. Status er proposed, accepted, rejected, unresolved eller superseded. Current state skal svare præcist til personaens seneste event. Partial match modelleres med separate personaer/mentions. Direkte ingest er proposal-only og må ikke levere menneskelige aktørfelter; unresolved er ligesom accept og afvisning en auditeret beslutning.
 
-- [ ] **Step 3: Implementér atomiske security-definer-funktioner**
+- [x] **Step 3: Implementér atomiske security-definer-funktioner**
 
-Følg projektets current_rolle-, search_path-, revoke/grant- og auditmønster. Accept/afvis skal låse mål-rækken, kontrollere expected_version og skrive event samt ny tilstand i samme transaktion. Actor-id og navn udledes af `auth.uid()` og profilen inde i funktionen og kan ikke leveres af kaldets payload.
+Følg projektets current_rolle-, search_path-, revoke/grant- og auditmønster. Accept/afvis skal låse mål-rækken, kræve en ikke-NULL `expected_version` og skrive event samt ny tilstand i samme transaktion. Actor-id og navn udledes af `auth.uid()` og profilen inde i funktionen og kan ikke leveres af kaldets payload. Kun tabel-/funktions-ejerens security-definer-vej må skrive en ikke-`proposed` fortolkning eller identitet og oprette en promotion; databaseejeren er fortsat en eksplicit betroet driftsrolle.
 
-- [ ] **Step 4: Test samtidighed og commit**
+- [x] **Step 4: Test samtidighed og commit**
 
 To afgørelser fra samme version skal give præcis én succes og én versionskonflikt. Offentlige brugere må ikke kalde mutationerne.
 
