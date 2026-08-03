@@ -167,11 +167,10 @@ def validate_output(output: Mapping[str, Any]) -> None:
             raise ExtractionError("EXTRACTION_OBSERVATION_REQUIRED")
         if "value" not in claim:
             raise ExtractionError("EXTRACTION_CLAIM_VALUE_REQUIRED")
-        if "record_key" in claim:
-            expected_keys = {accepted_record_by_occurrence.get(observation_occurrence[observation_id], "")
-                             for observation_id in cited}
-            if not isinstance(claim["record_key"], str) or claim["record_key"] not in expected_keys:
-                raise ExtractionError("EXTRACTION_RECORD_KEY_REQUIRED")
+        expected_keys = {accepted_record_by_occurrence.get(observation_occurrence[observation_id], "")
+                         for observation_id in cited}
+        if not isinstance(claim.get("record_key"), str) or claim["record_key"] not in expected_keys:
+            raise ExtractionError("EXTRACTION_RECORD_KEY_REQUIRED")
         if predicate.startswith("person."):
             persona_id = claim.get("source_persona_id")
             if not isinstance(persona_id, str) or persona_id not in persona_records:

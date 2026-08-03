@@ -71,6 +71,16 @@ def _bundle():
     }
 
 
+def _anchored_bundle():
+    bundle = _bundle()
+    bundle["source_records"] = [{"id": "record-1", "record_key": "rk-1"}]
+    bundle["source_record_anchor_events"] = [{
+        "event_id": "anchor-1", "occurrence_id": "occ-1", "source_record_id": "record-1",
+        "decision_status": "accepted", "version": 1,
+    }]
+    return bundle
+
+
 def test_granular_claim_requires_observed_evidence_bundle():
     with pytest.raises(ExtractionError, match="EVIDENCE_BUNDLE"):
         validate_output({"claims": [{"predicate": "title.rank", "observation_ids": ["obs-1"], "value": "greve"}]})
@@ -84,35 +94,31 @@ def test_granular_claim_rejects_unknown_predicate_and_missing_observation():
 
 
 def test_non_personal_heraldry_claim_is_valid_without_artificial_persona():
-    assert validate_output({"evidence_bundle": _bundle(), "claims": [{
-        "predicate": "heraldry.blazon", "observation_ids": ["obs-1"], "value": "tre roser",
+    assert validate_output({"evidence_bundle": _anchored_bundle(), "claims": [{
+        "predicate": "heraldry.blazon", "record_key": "rk-1", "observation_ids": ["obs-1"], "value": "tre roser",
     }]}) is None
 
 
 def test_person_claim_requires_a_source_persona_not_an_invented_person():
     with pytest.raises(ExtractionError, match="PERSONA"):
-        validate_output({"evidence_bundle": _bundle(), "claims": [{
-            "predicate": "person.name", "observation_ids": ["obs-1"], "value": "Anna",
+        validate_output({"evidence_bundle": _anchored_bundle(), "claims": [{
+            "predicate": "person.name", "record_key": "rk-1", "observation_ids": ["obs-1"], "value": "Anna",
         }]})
 
 
 def test_person_claim_requires_persona_traceable_to_an_accepted_record():
-    bundle = _bundle()
+    bundle = _anchored_bundle()
     bundle["source_personas"] = [{"persona_id": "persona-1"}]
     with pytest.raises(ExtractionError, match="PERSONA_RECORD"):
         validate_output({"evidence_bundle": bundle, "claims": [{
-            "predicate": "person.name", "source_persona_id": "persona-1",
+            "predicate": "person.name", "record_key": "rk-1", "source_persona_id": "persona-1",
             "observation_ids": ["obs-1"], "value": "Anna",
         }]})
 
     bundle["source_personas"] = [{"persona_id": "persona-1", "mention_ids": ["mention-1"]}]
     bundle["mentions"] = [{"mention_id": "mention-1", "observation_id": "obs-1"}]
-    bundle["source_record_anchor_events"] = [{
-        "event_id": "anchor-1", "occurrence_id": "occ-1", "source_record_id": "record-1",
-        "decision_status": "accepted", "version": 1,
-    }]
     assert validate_output({"evidence_bundle": bundle, "claims": [{
-        "predicate": "person.name", "source_persona_id": "persona-1",
+        "predicate": "person.name", "record_key": "rk-1", "source_persona_id": "persona-1",
         "observation_ids": ["obs-1"], "value": "Anna",
     }]}) is None
 
@@ -127,4 +133,17 @@ def test_claim_record_key_must_name_its_accepted_source_record():
     with pytest.raises(ExtractionError, match="RECORD_KEY"):
         validate_output({"evidence_bundle": bundle, "claims": [{
             "predicate": "heraldry.blazon", "record_key": "wrong", "observation_ids": ["obs-1"], "value": "tre roser",
+        }]})
+
+
+def test_every_granular_claim_requires_its_accepted_record_key():
+    bundle = _bundle()
+    bundle["source_records"] = [{"id": "record-1", "record_key": "rk-1"}]
+    bundle["source_record_anchor_events"] = [{
+        "event_id": "anchor-1", "occurrence_id": "occ-1", "source_record_id": "record-1",
+        "decision_status": "accepted", "version": 1,
+    }]
+    with pytest.raises(ExtractionError, match="RECORD_KEY"):
+        validate_output({"evidence_bundle": bundle, "claims": [{
+            "predicate": "heraldry.blazon", "observation_ids": ["obs-1"], "value": "tre roser",
         }]})
