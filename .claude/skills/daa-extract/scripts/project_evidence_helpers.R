@@ -13,9 +13,13 @@ build_evidence_projection_plan <- function(persona_states) {
   by_persona <- split(accepted, vapply(accepted, function(state) as.character(state$source_persona_id), character(1)))
   for (persona_id in names(by_persona)) {
     states <- by_persona[[persona_id]]
-    targets <- unique(vapply(states, function(state) as.integer(state$canonical_person_id), integer(1)))
-    if (!evidence_nonempty(persona_id) || length(targets) != 1L || is.na(targets) || targets < 1L)
+    raw_targets <- lapply(states, function(state) state$canonical_person_id)
+    if (!evidence_nonempty(persona_id) || any(vapply(raw_targets, function(target) {
+      is.null(target) || length(target) != 1L || is.na(target) || !is.numeric(target) || target < 1L
+    }, logical(1))))
       stop("EVIDENCE_PROJECTION_IDENTITY_CONFLICT")
+    targets <- unique(vapply(raw_targets, as.integer, integer(1)))
+    if (length(targets) != 1L) stop("EVIDENCE_PROJECTION_IDENTITY_CONFLICT")
   }
 
   provenance <- lapply(accepted, function(state) {

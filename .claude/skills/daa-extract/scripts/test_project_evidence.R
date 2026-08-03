@@ -36,6 +36,12 @@ testthat::test_that("en persona må ikke have modstridende accepterede kanoniske
   )), "IDENTITY")
 })
 
+testthat::test_that("accepteret persona uden kanonisk mål fejler med den navngivne identitetsfejl", {
+  testthat::expect_error(build_evidence_projection_plan(list(
+    list(source_persona_id = "a", source_id = 1939L, record_key = "r-1", status = "accepted", canonical_person_id = NULL)
+  )), "EVIDENCE_PROJECTION_IDENTITY_CONFLICT")
+})
+
 testthat::test_that("en hel accepteret batch skrives og committes samlet", {
   calls <- character(); written <- list()
   result <- project_evidence_batch(list(

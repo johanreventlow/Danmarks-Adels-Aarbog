@@ -163,3 +163,18 @@ def test_valid_claim_becomes_proposed_private_interpretation_not_canonical_fact(
         "derivation_kind": "model_inference", "confidence": 0.8, "method": "model",
         "extraction_run_id": "run-1", "record_key": "rk-1", "observation_ids": ["obs-1"],
     }]
+
+
+def test_unanchored_observation_cannot_bypass_record_key_gate_with_empty_string():
+    with pytest.raises(ExtractionError, match="RECORD_KEY"):
+        validate_output({"evidence_bundle": _bundle(), "claims": [{
+            "predicate": "heraldry.blazon", "record_key": "", "observation_ids": ["obs-1"], "value": "tre roser",
+        }]})
+
+
+def test_interpretation_candidate_requires_explicit_model_confidence():
+    with pytest.raises(ExtractionError, match="CONFIDENCE"):
+        build = getattr(evidence_extract, "build_interpretation_candidates")
+        build({"evidence_bundle": _anchored_bundle(), "claims": [{
+            "predicate": "heraldry.blazon", "record_key": "rk-1", "observation_ids": ["obs-1"], "value": "tre roser",
+        }]}, source_id=1939, extraction_run_id="run-1")

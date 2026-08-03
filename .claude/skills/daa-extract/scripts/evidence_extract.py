@@ -169,7 +169,9 @@ def validate_output(output: Mapping[str, Any]) -> None:
             raise ExtractionError("EXTRACTION_CLAIM_VALUE_REQUIRED")
         expected_keys = {accepted_record_by_occurrence.get(observation_occurrence[observation_id], "")
                          for observation_id in cited}
-        if not isinstance(claim.get("record_key"), str) or claim["record_key"] not in expected_keys:
+        record_key = claim.get("record_key")
+        if (not isinstance(record_key, str) or not record_key.strip() or not expected_keys
+                or "" in expected_keys or record_key not in expected_keys):
             raise ExtractionError("EXTRACTION_RECORD_KEY_REQUIRED")
         if predicate.startswith("person."):
             persona_id = claim.get("source_persona_id")
@@ -193,7 +195,7 @@ def build_interpretation_candidates(output: Mapping[str, Any], *, source_id: int
         predicate = str(claim["predicate"])
         family = predicate.split(".", 1)[0]
         kind = "relation" if family == "relationship" else "event" if family == "life_event" else "property"
-        confidence = claim.get("confidence", 0.5)
+        confidence = claim.get("confidence")
         if not isinstance(confidence, (int, float)) or isinstance(confidence, bool) or not 0 <= confidence <= 1:
             raise ExtractionError("EXTRACTION_CONFIDENCE_INVALID")
         candidates.append({
