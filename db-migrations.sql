@@ -6409,6 +6409,8 @@ ALTER TABLE private.entity_description_source ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE private.entity_description_source FROM PUBLIC,anon,authenticated;
 
 -- ---- 2026-08-03: validerede, atomiske evidens-promotions (Task 2) ----
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE OR REPLACE FUNCTION private.validate_interpretation_promotion_items(
   p_items jsonb,p_lock boolean DEFAULT false
 ) RETURNS TABLE(
@@ -6436,12 +6438,85 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'EVIDENCE_PROMOTION_ITEMS_INVALID';
   END IF;
+  -- Låseordenen følger de eksisterende writers: current fortolkning først
+  -- (red_decide_interpretation låser kun denne), derefter source_persona og
+  -- identity-state (red_decide_source_persona_identitys rækkefølge), så
+  -- append-only placement og til sidst kanonisk assertion/fact. De gennemsete
+  -- kanoniske writers tager ingen af de private låse, så der findes ingen
+  -- modsat cyklus i den relevante writerflade. Ukendte UUID'er bevares som
+  -- fail-closed output.
   IF p_lock THEN
-    PERFORM 1 FROM private.interpretation interpretation
-    WHERE interpretation.id=ANY(ARRAY(
-      SELECT (element.item->>'interpretation_id')::uuid
-        FROM jsonb_array_elements(p_items) AS element(item)
-    )) ORDER BY interpretation.id FOR UPDATE;
+    PERFORM 1
+      FROM private.interpretation interpretation
+     WHERE interpretation.id=ANY(ARRAY(
+       SELECT current_interpretation.id
+         FROM private.interpretation_current current_interpretation
+         JOIN private.interpretation requested
+           ON requested.interpretation_key=current_interpretation.interpretation_key
+        WHERE requested.id=ANY(ARRAY(
+          SELECT (element.item->>'interpretation_id')::uuid
+            FROM jsonb_array_elements(p_items) AS element(item)
+        ))
+     ))
+     ORDER BY interpretation.id FOR UPDATE;
+    PERFORM 1
+      FROM private.source_persona persona
+     WHERE persona.id=ANY(ARRAY(
+       SELECT current_interpretation.source_persona_id
+         FROM private.interpretation_current current_interpretation
+         JOIN private.interpretation requested
+           ON requested.interpretation_key=current_interpretation.interpretation_key
+        WHERE requested.id=ANY(ARRAY(
+          SELECT (element.item->>'interpretation_id')::uuid
+            FROM jsonb_array_elements(p_items) AS element(item)
+        ))
+     ))
+     ORDER BY persona.id FOR UPDATE;
+    PERFORM 1
+      FROM private.source_persona_identity identity_state
+     WHERE identity_state.source_persona_id=ANY(ARRAY(
+       SELECT current_interpretation.source_persona_id
+         FROM private.interpretation_current current_interpretation
+         JOIN private.interpretation requested
+           ON requested.interpretation_key=current_interpretation.interpretation_key
+        WHERE requested.id=ANY(ARRAY(
+          SELECT (element.item->>'interpretation_id')::uuid
+            FROM jsonb_array_elements(p_items) AS element(item)
+        ))
+     ))
+     ORDER BY identity_state.source_persona_id FOR UPDATE;
+    PERFORM 1
+      FROM private.source_persona_placement placement
+     WHERE placement.source_persona_id=ANY(ARRAY(
+       SELECT current_interpretation.source_persona_id
+         FROM private.interpretation_current current_interpretation
+         JOIN private.interpretation requested
+           ON requested.interpretation_key=current_interpretation.interpretation_key
+        WHERE requested.id=ANY(ARRAY(
+          SELECT (element.item->>'interpretation_id')::uuid
+            FROM jsonb_array_elements(p_items) AS element(item)
+        ))
+     ))
+     ORDER BY placement.source_persona_id,placement.record_placement_id,placement.placement_role
+       FOR SHARE;
+    PERFORM 1
+      FROM public.assertion assertion
+     WHERE assertion.id=ANY(ARRAY(
+       SELECT (element.item->>'target_id')::bigint
+         FROM jsonb_array_elements(p_items) AS element(item)
+     ))
+     ORDER BY assertion.id FOR SHARE;
+    PERFORM 1
+      FROM public.fact fact
+     WHERE fact.id=ANY(ARRAY(
+       SELECT assertion.target_id
+         FROM public.assertion assertion
+        WHERE assertion.id=ANY(ARRAY(
+          SELECT (element.item->>'target_id')::bigint
+            FROM jsonb_array_elements(p_items) AS element(item)
+        )) AND assertion.target_type='fact'
+     ))
+     ORDER BY fact.id FOR SHARE;
   END IF;
   RETURN QUERY
   WITH parsed AS (
@@ -6453,25 +6528,33 @@ BEGIN
              element.item->>'target_type',(element.item->>'target_id')::bigint) AS duplicate_count
       FROM jsonb_array_elements(p_items) WITH ORDINALITY AS element(item,ordinal)
   ), checked AS (
-    SELECT parsed.*,interpretation.status,interpretation.predicate,
-           interpretation.interpretation_kind,interpretation.value,
+    SELECT parsed.*,requested.id AS requested_id,current_interpretation.id AS current_id,
+           current_interpretation.status,current_interpretation.predicate,
+           current_interpretation.interpretation_kind,current_interpretation.value,
            rule.rule_key,rule.rule_version,rule.expected_fact_type,rule.value_kind,
+           rule.requires_persona_identity,rule.requires_principal_placement,rule.bulk_eligible,
            identity_state.canonical_person_id,assertion.id AS assertion_id,
            assertion.vaerdi_tekst,assertion.date_raw,
            fact.id AS fact_id,fact.subjekt_type,fact.subjekt_id,fact.faktatype,
            EXISTS (SELECT 1 FROM private.interpretation_observation observation
-                    WHERE observation.interpretation_id=parsed.interpretation_id) AS has_observation,
+                    WHERE observation.interpretation_id=current_interpretation.id) AS has_observation,
+           EXISTS (SELECT 1 FROM private.source_persona_placement placement
+                    WHERE placement.source_persona_id=current_interpretation.source_persona_id
+                      AND placement.status='accepted'
+                      AND placement.placement_role IN ('principal_member','co_principal')) AS has_principal_placement,
            EXISTS (SELECT 1 FROM private.interpretation_promotion promotion
-                    WHERE promotion.interpretation_id=parsed.interpretation_id
+                    WHERE promotion.interpretation_id=current_interpretation.id
                       AND promotion.target_type=parsed.target_type
                       AND promotion.target_id=parsed.target_id) AS already_promoted
       FROM parsed
-      LEFT JOIN private.interpretation interpretation ON interpretation.id=parsed.interpretation_id
-      LEFT JOIN private.interpretation_promotion_rule rule ON rule.predicate=interpretation.predicate
-        AND rule.interpretation_kind=interpretation.interpretation_kind
+      LEFT JOIN private.interpretation requested ON requested.id=parsed.interpretation_id
+      LEFT JOIN private.interpretation_current current_interpretation
+        ON current_interpretation.interpretation_key=requested.interpretation_key
+      LEFT JOIN private.interpretation_promotion_rule rule ON rule.predicate=current_interpretation.predicate
+        AND rule.interpretation_kind=current_interpretation.interpretation_kind
         AND rule.target_type=parsed.target_type AND rule.status='active'
       LEFT JOIN private.source_persona_identity identity_state
-        ON identity_state.source_persona_id=interpretation.source_persona_id
+        ON identity_state.source_persona_id=current_interpretation.source_persona_id
        AND identity_state.decision_status='accepted'
       LEFT JOIN public.assertion assertion ON assertion.id=parsed.target_id AND assertion.target_type='fact'
       LEFT JOIN public.fact fact ON fact.id=assertion.target_id
@@ -6481,13 +6564,19 @@ BEGIN
          validated.rule_version,validated.reason_code
     FROM (
       SELECT checked.*,CASE
-        WHEN checked.status IS NULL THEN 'EVIDENCE_INTERPRETATION_NOT_FOUND'
+        WHEN checked.requested_id IS NULL THEN 'EVIDENCE_INTERPRETATION_NOT_FOUND'
+        WHEN checked.current_id IS NULL OR checked.current_id<>checked.interpretation_id
+          THEN 'EVIDENCE_INTERPRETATION_NOT_CURRENT'
         WHEN checked.status<>'accepted' THEN 'EVIDENCE_INTERPRETATION_NOT_ACCEPTED'
         WHEN checked.rule_key IS NULL THEN 'EVIDENCE_PROMOTION_RULE_NOT_ACTIVE'
         WHEN NOT checked.has_observation THEN 'EVIDENCE_INTERPRETATION_OBSERVATION_REQUIRED'
-        WHEN checked.canonical_person_id IS NULL THEN 'EVIDENCE_PROMOTION_IDENTITY_REQUIRED'
+        WHEN checked.requires_persona_identity AND checked.canonical_person_id IS NULL
+          THEN 'EVIDENCE_PROMOTION_IDENTITY_REQUIRED'
+        WHEN checked.requires_principal_placement AND NOT checked.has_principal_placement
+          THEN 'EVIDENCE_PROMOTION_PRINCIPAL_PLACEMENT_REQUIRED'
         WHEN checked.assertion_id IS NULL OR checked.fact_id IS NULL THEN 'EVIDENCE_PROMOTION_TARGET_NOT_FOUND'
-        WHEN checked.subjekt_type<>'person' OR checked.subjekt_id<>checked.canonical_person_id
+        WHEN checked.requires_persona_identity
+             AND (checked.subjekt_type<>'person' OR checked.subjekt_id<>checked.canonical_person_id)
           THEN 'EVIDENCE_PROMOTION_IDENTITY_MISMATCH'
         WHEN checked.faktatype<>checked.expected_fact_type THEN 'EVIDENCE_PROMOTION_FACT_TYPE_MISMATCH'
         WHEN checked.value_kind='text' AND lower(btrim(normalize(checked.value #>> '{}',NFC)))
@@ -6496,6 +6585,8 @@ BEGIN
         WHEN checked.value_kind='date_raw' AND lower(btrim(normalize(checked.value #>> '{}',NFC)))
              IS DISTINCT FROM lower(btrim(normalize(checked.date_raw,NFC)))
           THEN 'EVIDENCE_PROMOTION_VALUE_MISMATCH'
+        WHEN jsonb_array_length(p_items)>1 AND NOT checked.bulk_eligible
+          THEN 'EVIDENCE_PROMOTION_BULK_NOT_ELIGIBLE'
         WHEN checked.duplicate_count>1 THEN 'EVIDENCE_PROMOTION_DUPLICATE_ITEM'
         WHEN checked.already_promoted THEN 'EVIDENCE_PROMOTION_ALREADY_PROMOTED'
         ELSE NULL END AS reason_code
@@ -6508,7 +6599,7 @@ CREATE OR REPLACE FUNCTION private.preview_interpretation_promotions(
   p_items jsonb,p_lock boolean DEFAULT false
 ) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-DECLARE v_items jsonb; v_hash text;
+DECLARE v_items jsonb; v_hash text; v_envelope jsonb;
 BEGIN
   SELECT coalesce(jsonb_agg(jsonb_build_object(
       'interpretation_id',checked.interpretation_id,'target_type',checked.target_type,
@@ -6516,7 +6607,12 @@ BEGIN
       'rule_version',checked.rule_version,'reason_code',checked.reason_code
     ) ORDER BY checked.item_ordinal),'[]'::jsonb)
     INTO v_items FROM private.validate_interpretation_promotion_items(p_items,p_lock) checked;
-  v_hash:=md5(v_items::text);
+  v_envelope:=jsonb_build_object(
+    'contract','interpretation-promotion-preview-v1',
+    'request',p_items,
+    'validated_items',v_items
+  );
+  v_hash:=encode(digest(v_envelope::text,'sha256'),'hex');
   RETURN jsonb_build_object('preview_hash',v_hash,'items',v_items);
 END $$;
 
@@ -6535,7 +6631,7 @@ RETURNS uuid
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE
   v_actor uuid:=auth.uid(); v_actor_name text; v_preview jsonb; v_reason text;
-  v_profile_hash text; v_batch_id uuid;
+  v_profile_hash text; v_profile jsonb; v_batch_id uuid;
 BEGIN
   IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN
     RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN';
@@ -6554,10 +6650,15 @@ BEGIN
    WHERE coalesce((item->>'eligible')::boolean,false)=false
    ORDER BY (item->>'interpretation_id')::uuid LIMIT 1;
   IF v_reason IS NOT NULL THEN RAISE EXCEPTION '%',v_reason; END IF;
-  SELECT md5(coalesce(jsonb_agg(jsonb_build_object(
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
       'rule_key',item->>'rule_key','rule_version',(item->>'rule_version')::integer
-    ) ORDER BY item->>'rule_key',(item->>'rule_version')::integer),'[]'::jsonb)::text)
-    INTO v_profile_hash FROM jsonb_array_elements(v_preview->'items') AS item;
+    ) ORDER BY item->>'rule_key',(item->>'rule_version')::integer),'[]'::jsonb)
+    INTO v_profile FROM jsonb_array_elements(v_preview->'items') AS item;
+  v_profile_hash:=encode(digest(jsonb_build_object(
+    'contract','interpretation-promotion-profile-v1',
+    'preview_hash',v_preview->>'preview_hash',
+    'rule_profile',v_profile
+  )::text,'sha256'),'hex');
   INSERT INTO private.interpretation_promotion_batch(
     rule_profile_hash,preview_hash,promoted_by,promoted_by_name,requested_count
   ) VALUES (v_profile_hash,p_preview_hash,v_actor,v_actor_name,jsonb_array_length(v_preview->'items'))
