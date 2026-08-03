@@ -795,11 +795,11 @@ git commit -m "feat: propose fail-closed source persona identities"
 - Create: web/src/components/__tests__/KildepersonaKo.test.tsx
 - Modify: web/src/Redaktion.tsx
 
-- [ ] **Step 1: Skriv RPC- og UI-tests**
+- [x] **Step 1: Skriv RPC- og UI-tests**
 
 Test køfiltre, pagination, evidensvisning, samme/forskellig/uafklaret, versionskonflikt og at afgørelse kræver synligt kildegrundlag.
 
-- [ ] **Step 2: Implementér redaktørbeskyttede read-RPC'er**
+- [x] **Step 2: Implementér redaktørbeskyttede read-RPC'er**
 
 ~~~text
 red_source_persona_queue(status, source_id, cursor, page_size)
@@ -809,7 +809,7 @@ red_source_persona_history(source_persona_id)
 
 Detail returnerer tekstversioner, spans, relationelle ankre, modstrid og historik.
 
-- [ ] **Step 3: Implementér atomisk write-RPC**
+- [x] **Step 3: Implementér atomisk write-RPC**
 
 ~~~text
 red_afgoer_source_persona(source_persona_id, expected_version, action, canonical_person_id, note)
@@ -817,11 +817,18 @@ red_afgoer_source_persona(source_persona_id, expected_version, action, canonical
 
 canonical_person_id kræves ved same og er forbudt ved different/unresolved.
 
-- [ ] **Step 4: Implementér webkøen**
+- [x] **Step 4: Implementér webkøen**
 
 Vis kildeomtaler og kanonisk kandidat side om side. Forskellige narrative tekster forbliver separate. En redaktør kan efter import bekræfte, at den tre gange omtalte ægtemand er samme person.
 
-- [ ] **Step 5: Test og commit**
+- [x] **Step 5: Test og commit**
+
+Bekræftet 2026-08-03: den private RPC-kontrakt returnerede `OK` på lokal
+database; webkomponenten har status-/kilde-filter, cursor-pagination, synligt
+ordret kildegrundlag, kandidatvælger og fail-closed same/different/unresolved.
+Komponenttesten dækker også versionskonflikt; webbuild og fuld web-suite er
+grønne. Den oprindelige DB-/RPC-implementering er commit `a3f030d`; UI- og
+testafslutningen committes separat.
 
 ~~~bash
 npm test --workspace web -- --run web/src/components/__tests__/KildepersonaKo.test.tsx
