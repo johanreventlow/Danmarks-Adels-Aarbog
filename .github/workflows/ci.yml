@@ -101,6 +101,30 @@ jobs:
       - run: python3 -m pip install --disable-pip-version-check -r .claude/skills/daa-extract/requirements-test.txt
       - run: python3 -m pytest .claude/skills/daa-extract/scripts/test_evidence_contract.py -q
 
+  evidence-promotion-db:
+    name: evidence promotion · PostgreSQL 17
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: evidence_promotion
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d evidence_promotion"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Evidens-promotionens isolerede databasekontrakt
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d evidence_promotion -v ON_ERROR_STOP=1 -f tests/sql/evidence-promotion-bootstrap.sql
+          psql -h localhost -U postgres -d evidence_promotion -v ON_ERROR_STOP=1 -f schema.sql
+          psql -h localhost -U postgres -d evidence_promotion -v ON_ERROR_STOP=1 -f db-rls.sql
+          psql -h localhost -U postgres -d evidence_promotion -v ON_ERROR_STOP=1 -f tests/sql/test-evidence-promotion.sql
+
   web:
     name: web · vitest + build
     runs-on: ubuntu-latest

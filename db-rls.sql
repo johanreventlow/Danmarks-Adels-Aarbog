@@ -8,8 +8,11 @@ alter default privileges in schema private
   revoke all on tables from public, anon, authenticated;
 alter default privileges in schema private
   revoke all on sequences from public, anon, authenticated;
--- Fjerner schema-lokale default-grants. Implicit PUBLIC-EXECUTE er ineffektiv
--- uden USAGE på private; eksisterende funktioner revokes eksplicit nedenfor.
+-- PostgreSQLs implicitte PUBLIC-EXECUTE på nye funktioner er global; et
+-- schema-lokalt REVOKE kan ikke fjerne den. Fremtidige funktioner skal derfor
+-- altid have en eksplicit, gennemset grant (også hvis private senere får USAGE).
+alter default privileges
+  revoke execute on functions from public, anon, authenticated;
 alter default privileges in schema private
   revoke execute on functions from public, anon, authenticated;
 
@@ -20,7 +23,8 @@ begin
     'extraction_run','source_rendition','source_record','source_record_occurrence',
     'source_record_anchor_event','source_record_revision_event','source_observation',
     'source_observation_text','source_mention','source_persona','source_persona_mention',
-    'interpretation','interpretation_observation','interpretation_promotion',
+    'interpretation','interpretation_observation','interpretation_promotion_rule',
+    'interpretation_promotion_batch','interpretation_promotion',
     'source_persona_identity','source_persona_identity_event'
   ] loop
     if to_regclass(format('private.%I',v_table)) is not null then
