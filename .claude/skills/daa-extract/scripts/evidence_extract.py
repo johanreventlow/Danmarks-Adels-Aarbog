@@ -130,8 +130,25 @@ def validate_output(output: Mapping[str, Any]) -> None:
         raise ExtractionError("EXTRACTION_EVIDENCE_BUNDLE_INVALID") from exc
     observation_ids = {str(observation.get("observation_id", ""))
                        for observation in bundle.get("observations", []) if isinstance(observation, Mapping)}
-    persona_ids = {str(persona.get("persona_id", persona.get("id", "")))
-                   for persona in bundle.get("source_personas", []) if isinstance(persona, Mapping)}
+    observation_occurrence = {str(observation.get("observation_id", "")): str(observation.get("occurrence_id", ""))
+                              for observation in bundle.get("observations", []) if isinstance(observation, Mapping)}
+    mention_observation = {str(mention.get("mention_id", mention.get("id", ""))): str(mention.get("observation_id", ""))
+                           for mention in bundle.get("mentions", []) if isinstance(mention, Mapping)}
+    anchored_occurrences = {str(anchor.get("occurrence_id", "")) for anchor in bundle.get("source_record_anchor_events", [])
+                            if isinstance(anchor, Mapping) and anchor.get("decision_status") == "accepted"
+                            and isinstance(anchor.get("source_record_id"), str) and anchor.get("source_record_id")}
+    persona_records = {}
+    for persona in bundle.get("source_personas", []):
+        if not isinstance(persona, Mapping):
+            continue
+        persona_id = str(persona.get("persona_id", persona.get("id", "")))
+        mention_ids = persona.get("mention_ids", [])
+        if not isinstance(mention_ids, list):
+            continue
+        persona_records[persona_id] = any(
+            observation_occurrence.get(mention_observation.get(str(mention_id), ""), "") in anchored_occurrences
+            for mention_id in mention_ids
+        )
     for claim in claims:
         if not isinstance(claim, Mapping):
             raise ExtractionError("EXTRACTION_CLAIM_INVALID")
@@ -145,8 +162,10 @@ def validate_output(output: Mapping[str, Any]) -> None:
             raise ExtractionError("EXTRACTION_CLAIM_VALUE_REQUIRED")
         if predicate.startswith("person."):
             persona_id = claim.get("source_persona_id")
-            if not isinstance(persona_id, str) or persona_id not in persona_ids:
+            if not isinstance(persona_id, str) or persona_id not in persona_records:
                 raise ExtractionError("EXTRACTION_PERSONA_REQUIRED")
+            if not persona_records[persona_id]:
+                raise ExtractionError("EXTRACTION_PERSONA_RECORD_REQUIRED")
 
 
 def reusable(existing: BatchManifest, candidate: BatchManifest) -> bool:
