@@ -1125,7 +1125,14 @@ DECLARE
   v_rendition uuid := '33000000-0000-0000-0000-000000000041';
   v_occurrence uuid := '55000000-0000-0000-0000-000000000041';
   v_observation uuid := '66000000-0000-0000-0000-000000000041';
+  v_header_observation uuid := '66000000-0000-0000-0000-000000000048';
+  v_mention uuid := '70000000-0000-0000-0000-000000000041';
   v_persona uuid := '88000000-0000-0000-0000-000000000041';
+  v_record uuid := '77000000-0000-0000-0000-000000000041';
+  v_record_placement uuid := '99000000-0000-0000-0000-000000000041';
+  v_slaegt_id bigint;
+  v_scheme_id bigint;
+  v_scheme_entry_id bigint;
   v_interpretation_1 uuid := 'c1000000-0000-0000-0000-000000000041';
   v_interpretation_2 uuid := 'c1000000-0000-0000-0000-000000000042';
   v_interpretation_3 uuid := 'c1000000-0000-0000-0000-000000000043';
@@ -1377,6 +1384,47 @@ BEGIN
     );
     INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id)
       VALUES (v_persona,-987650041,'promotion-persona',v_run);
+    INSERT INTO private.source_observation(
+      id,occurrence_id,observation_kind,page_from,page_to,char_from,char_to,
+      verbatim_text,quality_status,extraction_method,extraction_run_id
+    ) VALUES (
+      v_header_observation,v_occurrence,'header',1,1,0,12,'Anna Verify',
+      'clear','verify',v_run
+    );
+    INSERT INTO private.source_mention(
+      id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id
+    ) VALUES (v_mention,v_observation,'person',0,4,'Anna',v_run);
+    INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
+      VALUES (v_persona,v_mention,'principal',1);
+    INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
+      VALUES (v_record,-987650041,'promotion-placement-record','family_record',v_run);
+    INSERT INTO private.source_record_anchor_event(
+      occurrence_id,source_record_id,decision_status,evidence,version,
+      decided_by,decided_by_name
+    ) VALUES (
+      v_occurrence,v_record,'accepted','{"basis":"promotion verify"}',1,
+      v_actor,'Promotion Verify Editor'
+    );
+    INSERT INTO slaegt(navn,sorteringsnavn,slug)
+      VALUES ('Promotion Verify Family','promotion verify family','promotion-verify-family')
+      RETURNING id INTO v_slaegt_id;
+    INSERT INTO lineage_scheme(slaegt_id,source_id,kind,label)
+      VALUES (v_slaegt_id,-987650041,'stamtavle','Promotion verify scheme')
+      RETURNING id INTO v_scheme_id;
+    INSERT INTO lineage_scheme_entry(scheme_id,code,label,sort_order)
+      VALUES (v_scheme_id,'I','Promotion verify I',0)
+      RETURNING id INTO v_scheme_entry_id;
+    INSERT INTO private.source_record_placement(
+      id,source_record_id,scheme_entry_id,header_observation_id,status
+    ) VALUES (
+      v_record_placement,v_record,v_scheme_entry_id,v_header_observation,'accepted'
+    );
+    -- En accepteret ægtefælleomtale er bevidst ikke en hovedplacering.
+    INSERT INTO private.source_persona_placement(
+      source_persona_id,record_placement_id,placement_role,basis_observation_id,status
+    ) VALUES (
+      v_persona,v_record_placement,'mentioned_spouse',v_observation,'accepted'
+    );
     INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES
       (-987650041,'person',-987650041,'navn'),
       (-987650042,'person',-987650041,'titel'),
@@ -1471,7 +1519,20 @@ BEGIN
       jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650041)
     ));
     IF v_preview->'items'->0->>'reason_code'<>'EVIDENCE_PROMOTION_PRINCIPAL_PLACEMENT_REQUIRED' THEN
-      RAISE EXCEPTION 'FEJL: principal-placement-krav blev ikke håndhævet: %',v_preview;
+      RAISE EXCEPTION 'FEJL: accepteret ægtefælleomtale blev fejlagtigt accepteret som principal-placement: %',v_preview;
+    END IF;
+    RESET ROLE;
+    INSERT INTO private.source_persona_placement(
+      source_persona_id,record_placement_id,placement_role,basis_observation_id,status
+    ) VALUES (
+      v_persona,v_record_placement,'principal_member',v_observation,'accepted'
+    );
+    SET LOCAL ROLE authenticated;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650041)
+    ));
+    IF v_preview->'items'->0->>'eligible'<>'true' THEN
+      RAISE EXCEPTION 'FEJL: accepteret principal_member opfyldte ikke principal-placement-kravet: %',v_preview;
     END IF;
     v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
       jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650044)
@@ -1611,11 +1672,14 @@ DECLARE
   v_persona uuid := '88000000-0000-0000-0000-000000000051';
   v_interpretation_1 uuid := 'c1000000-0000-0000-0000-000000000051';
   v_interpretation_2 uuid := 'c1000000-0000-0000-0000-000000000052';
+  v_identity_interpretation_1 uuid := 'c1000000-0000-0000-0000-000000000053';
+  v_identity_interpretation_2 uuid := 'c1000000-0000-0000-0000-000000000054';
   v_a_pid integer;
   v_b_pid integer;
   v_busy integer;
   v_preview_hash text;
   v_error text;
+  v_version integer;
   v_deadline timestamptz;
   v_setup_connected boolean := false;
   v_a_connected boolean := false;
@@ -1624,15 +1688,21 @@ DECLARE
     SET session_replication_role=replica;
     DELETE FROM private.interpretation_promotion
       WHERE interpretation_id IN ('c1000000-0000-0000-0000-000000000051',
-                                  'c1000000-0000-0000-0000-000000000052');
+                                  'c1000000-0000-0000-0000-000000000052',
+                                  'c1000000-0000-0000-0000-000000000053',
+                                  'c1000000-0000-0000-0000-000000000054');
     DELETE FROM private.interpretation_promotion_batch
       WHERE promoted_by='11000000-0000-0000-0000-000000000051';
     DELETE FROM private.interpretation_observation
       WHERE interpretation_id IN ('c1000000-0000-0000-0000-000000000051',
-                                  'c1000000-0000-0000-0000-000000000052');
+                                  'c1000000-0000-0000-0000-000000000052',
+                                  'c1000000-0000-0000-0000-000000000053',
+                                  'c1000000-0000-0000-0000-000000000054');
     DELETE FROM private.interpretation
       WHERE id IN ('c1000000-0000-0000-0000-000000000051',
-                   'c1000000-0000-0000-0000-000000000052')
+                   'c1000000-0000-0000-0000-000000000052',
+                   'c1000000-0000-0000-0000-000000000053',
+                   'c1000000-0000-0000-0000-000000000054')
          OR source_id=-987650051;
     DELETE FROM private.source_persona_identity_event
       WHERE source_persona_id='88000000-0000-0000-0000-000000000051';
@@ -1649,7 +1719,7 @@ DECLARE
     DELETE FROM source WHERE id=-987650051;
     DELETE FROM profiles WHERE id='11000000-0000-0000-0000-000000000051';
     DELETE FROM auth.users WHERE id='11000000-0000-0000-0000-000000000051';
-    DELETE FROM person WHERE id=-987650051;
+    DELETE FROM person WHERE id IN (-987650051,-987650052);
     SET session_replication_role=origin;
   $cleanup$;
 BEGIN
@@ -1667,7 +1737,9 @@ BEGIN
     'INSERT INTO profiles(id,rolle,email,navn) VALUES (''%s'',''redaktion'',%L,''Promotion Editor'')',
     v_actor,'promotion-lock@test.invalid'));
   PERFORM dblink_exec('promotion_setup',
-    'INSERT INTO person(id,levende,privat,status) VALUES (-987650051,false,false,''promotion lock'');'
+    'INSERT INTO person(id,levende,privat,status) VALUES '
+    || '(-987650051,false,false,''promotion lock original''),'
+    || '(-987650052,false,false,''promotion lock identity successor'');'
     || 'INSERT INTO source(id,titel,import_key) VALUES (-987650051,''Promotion lock'',''verify:promotion:lock'');');
   PERFORM dblink_exec('promotion_setup',format(
     'INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) '
@@ -1704,9 +1776,18 @@ BEGIN
     || 'INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) VALUES (''%s'',''%s'',''supporting'',1);'
     || 'INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id,supersedes_id,decision_evidence,decided_by,decided_by_name,decided_at) '
     || 'VALUES (''%s'',''c0000000-0000-0000-0000-000000000051'',2,-987650051,''%s'',''property'',''person.name'',''"Anna Lock"'',''1.0'',''source_statement'',1,''accepted'',''verify'',''%s'',''%s'',''{"basis":"verify"}'',''%s'',''Promotion Editor'',clock_timestamp());'
+    || 'INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) VALUES (''%s'',''%s'',''supporting'',1);'
+    || 'INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id) '
+    || 'VALUES (''%s'',''c0000000-0000-0000-0000-000000000052'',1,-987650051,''%s'',''property'',''person.name'',''"Anna Lock"'',''1.0'',''source_statement'',1,''proposed'',''verify'',''%s'');'
+    || 'INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) VALUES (''%s'',''%s'',''supporting'',1);'
+    || 'INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id,supersedes_id,decision_evidence,decided_by,decided_by_name,decided_at) '
+    || 'VALUES (''%s'',''c0000000-0000-0000-0000-000000000052'',2,-987650051,''%s'',''property'',''person.name'',''"Anna Lock"'',''1.0'',''source_statement'',1,''accepted'',''verify'',''%s'',''%s'',''{"basis":"verify"}'',''%s'',''Promotion Editor'',clock_timestamp());'
     || 'INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) VALUES (''%s'',''%s'',''supporting'',1)',
     v_interpretation_1,v_persona,v_run,v_interpretation_1,v_observation,
-    v_interpretation_2,v_persona,v_run,v_interpretation_1,v_actor,v_interpretation_2,v_observation));
+    v_interpretation_2,v_persona,v_run,v_interpretation_1,v_actor,v_interpretation_2,v_observation,
+    v_identity_interpretation_1,v_persona,v_run,v_identity_interpretation_1,v_observation,
+    v_identity_interpretation_2,v_persona,v_run,v_identity_interpretation_1,v_actor,
+    v_identity_interpretation_2,v_observation));
   PERFORM dblink_exec('promotion_setup','COMMIT');
 
   PERFORM dblink_connect('promotion_a',v_conn||' application_name=daa_verify_promotion_a');
@@ -1771,9 +1852,80 @@ BEGIN
      OR EXISTS (SELECT 1 FROM private.interpretation_promotion_batch WHERE promoted_by=v_actor) THEN
     RAISE EXCEPTION 'FEJL: concurrent stale promotion efterlod audit-skrivning';
   END IF;
+
+  -- A ændrer identity-state gennem den rigtige redaktør-RPC. B har allerede
+  -- startet batchen og låser den aktuelle fortolkning, men skal derefter vente
+  -- på persona/identity-låsen og genberegne fail-closed efter A's COMMIT.
+  PERFORM dblink_connect('promotion_a',v_conn||' application_name=daa_verify_promotion_identity_a');
+  v_a_connected:=true;
+  PERFORM dblink_connect('promotion_b',v_conn||' application_name=daa_verify_promotion_identity_b');
+  v_b_connected:=true;
+  SELECT pid INTO v_a_pid FROM dblink('promotion_a','SELECT pg_backend_pid()') AS t(pid integer);
+  SELECT pid INTO v_b_pid FROM dblink('promotion_b','SELECT pg_backend_pid()') AS t(pid integer);
+  PERFORM dblink_exec('promotion_a','BEGIN');
+  PERFORM dblink_exec('promotion_a','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('promotion_a',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  SELECT preview->>'preview_hash' INTO v_preview_hash
+    FROM dblink('promotion_a',format(
+      'SELECT red_preview_interpretation_promotions(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb) AS preview',
+      v_identity_interpretation_2)) AS t(preview jsonb);
+  SELECT version INTO v_version FROM dblink('promotion_a',format(
+    'SELECT red_decide_source_persona_identity(''%s'',-987650052,1,''accepted'',''{"basis":"concurrent identity review"}'')',
+    v_persona)) AS t(version integer);
+  IF v_version<>2 THEN
+    RAISE EXCEPTION 'FEJL: concurrent identity-writer gav version %',v_version;
+  END IF;
+  PERFORM dblink_exec('promotion_b','BEGIN');
+  PERFORM dblink_exec('promotion_b','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('promotion_b',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  PERFORM dblink_send_query('promotion_b',format(
+    'SELECT red_promote_interpretations_batch(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb,%L)',
+    v_identity_interpretation_2,v_preview_hash));
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    EXIT WHEN v_a_pid=ANY(pg_blocking_pids(v_b_pid));
+    SELECT dblink_is_busy('promotion_b') INTO v_busy;
+    IF v_busy=0 OR clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'FEJL: promotion-batch nåede ikke persona/identity-låsen';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  PERFORM dblink_exec('promotion_a','COMMIT');
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    SELECT dblink_is_busy('promotion_b') INTO v_busy;
+    EXIT WHEN v_busy=0;
+    IF clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'FEJL: promotion-batch afsluttede ikke efter identity-COMMIT';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  v_error:=NULL;
+  BEGIN
+    PERFORM * FROM dblink_get_result('promotion_b') AS t(batch_id uuid);
+  EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+  BEGIN
+    PERFORM * FROM dblink_get_result('promotion_b') AS t(batch_id uuid);
+  EXCEPTION WHEN others THEN IF v_error IS NULL THEN v_error:=SQLERRM; END IF; END;
+  IF v_error NOT LIKE '%EVIDENCE_PROMOTION_PREVIEW_STALE%' THEN
+    RAISE EXCEPTION 'FEJL: identity-racet promotion fejlede ikke stale/fail-closed: %',v_error;
+  END IF;
+  PERFORM dblink_exec('promotion_b','ROLLBACK');
+  PERFORM dblink_disconnect('promotion_a'); v_a_connected:=false;
+  PERFORM dblink_disconnect('promotion_b'); v_b_connected:=false;
+  IF NOT EXISTS (
+       SELECT 1 FROM private.source_persona_identity
+        WHERE source_persona_id=v_persona AND canonical_person_id=-987650052
+          AND decision_status='accepted' AND version=2
+     )
+     OR EXISTS (SELECT 1 FROM private.interpretation_promotion
+                 WHERE interpretation_id=v_identity_interpretation_2)
+     OR EXISTS (SELECT 1 FROM private.interpretation_promotion_batch WHERE promoted_by=v_actor) THEN
+    RAISE EXCEPTION 'FEJL: identity-racet promotion efterlod forkert state eller audit-skrivning';
+  END IF;
   PERFORM dblink_exec('promotion_setup',v_cleanup);
   PERFORM dblink_disconnect('promotion_setup'); v_setup_connected:=false;
-  RAISE NOTICE 'OK: promotion-batch låser current fortolkning og afviser stale preview';
+  RAISE NOTICE 'OK: promotion-batch låser current fortolkning og personaidentitet og afviser stale preview';
 EXCEPTION WHEN others THEN
   IF v_a_connected THEN
     BEGIN PERFORM dblink_exec('promotion_a','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END;
