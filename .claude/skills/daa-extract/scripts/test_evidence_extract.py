@@ -147,3 +147,19 @@ def test_every_granular_claim_requires_its_accepted_record_key():
         validate_output({"evidence_bundle": bundle, "claims": [{
             "predicate": "heraldry.blazon", "observation_ids": ["obs-1"], "value": "tre roser",
         }]})
+
+
+def test_valid_claim_becomes_proposed_private_interpretation_not_canonical_fact():
+    implementation = getattr(evidence_extract, "build_interpretation_candidates", None)
+    if implementation is None:
+        pytest.fail("build_interpretation_candidates mangler")
+    candidates = implementation({"evidence_bundle": _anchored_bundle(), "claims": [{
+        "predicate": "heraldry.blazon", "record_key": "rk-1", "observation_ids": ["obs-1"],
+        "value": "tre roser", "confidence": 0.8,
+    }]}, source_id=1939, extraction_run_id="run-1")
+    assert candidates == [{
+        "source_id": 1939, "source_persona_id": None, "interpretation_kind": "property",
+        "predicate": "heraldry.blazon", "value": "tre roser", "status": "proposed",
+        "derivation_kind": "model_inference", "confidence": 0.8, "method": "model",
+        "extraction_run_id": "run-1", "record_key": "rk-1", "observation_ids": ["obs-1"],
+    }]

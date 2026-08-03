@@ -179,6 +179,33 @@ def validate_output(output: Mapping[str, Any]) -> None:
                 raise ExtractionError("EXTRACTION_PERSONA_RECORD_REQUIRED")
 
 
+def build_interpretation_candidates(output: Mapping[str, Any], *, source_id: int, extraction_run_id: str) -> list[dict[str, Any]]:
+    """Lower validated claims to private proposals, never canonical mutations.
+
+    The database ingestion step may assign UUIDs, but it must retain this exact
+    provenance payload and may only promote an accepted interpretation later.
+    """
+    if not isinstance(source_id, int) or source_id < 1 or not isinstance(extraction_run_id, str) or not extraction_run_id.strip():
+        raise ExtractionError("EXTRACTION_INTERPRETATION_CONTEXT_REQUIRED")
+    validate_output(output)
+    candidates = []
+    for claim in output.get("claims", []):
+        predicate = str(claim["predicate"])
+        family = predicate.split(".", 1)[0]
+        kind = "relation" if family == "relationship" else "event" if family == "life_event" else "property"
+        confidence = claim.get("confidence", 0.5)
+        if not isinstance(confidence, (int, float)) or isinstance(confidence, bool) or not 0 <= confidence <= 1:
+            raise ExtractionError("EXTRACTION_CONFIDENCE_INVALID")
+        candidates.append({
+            "source_id": source_id, "source_persona_id": claim.get("source_persona_id"),
+            "interpretation_kind": kind, "predicate": predicate, "value": claim["value"],
+            "status": "proposed", "derivation_kind": "model_inference", "confidence": float(confidence),
+            "method": "model", "extraction_run_id": extraction_run_id,
+            "record_key": claim["record_key"], "observation_ids": list(claim["observation_ids"]),
+        })
+    return candidates
+
+
 def reusable(existing: BatchManifest, candidate: BatchManifest) -> bool:
     """A changed input, profile, prompt or model always forces a fresh run."""
     return (existing.validation_status == "green" and existing.input_hash == candidate.input_hash
