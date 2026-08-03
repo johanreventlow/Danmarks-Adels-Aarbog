@@ -5852,6 +5852,100 @@ REVOKE EXECUTE ON FUNCTION private.validate_interpretation_scope(),
  private.assert_identity_state_event_consistency()
 FROM PUBLIC,anon,authenticated;
 
+-- =====================================================================
+-- EVIDENSBASERET GENIMPORT FASE 2 / TASK 1 — PROMOTIONREGLER OG BATCH-AUDIT
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS private.interpretation_promotion_rule (
+  rule_key text NOT NULL CHECK(btrim(rule_key)<>''),
+  rule_version integer NOT NULL CHECK(rule_version>=1),
+  predicate text NOT NULL CHECK(btrim(predicate)<>''),
+  interpretation_kind text NOT NULL CHECK(interpretation_kind='property'),
+  target_type text NOT NULL CHECK(target_type='assertion'),
+  expected_fact_type text NOT NULL CHECK(
+    expected_fact_type IN ('navn','tilnavn','titel','fødsel','død')),
+  value_kind text NOT NULL CHECK(value_kind IN ('text','date_raw')),
+  requires_persona_identity boolean NOT NULL DEFAULT true,
+  requires_principal_placement boolean NOT NULL DEFAULT false,
+  bulk_eligible boolean NOT NULL DEFAULT true,
+  status text NOT NULL CHECK(status IN ('active','retired')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY(rule_key,rule_version),
+  UNIQUE(predicate,rule_version)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS interpretation_promotion_rule_one_active_predicate
+  ON private.interpretation_promotion_rule(predicate) WHERE status='active';
+
+CREATE TABLE IF NOT EXISTS private.interpretation_promotion_batch (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  rule_profile_hash text NOT NULL CHECK(btrim(rule_profile_hash)<>''),
+  preview_hash text NOT NULL CHECK(btrim(preview_hash)<>''),
+  promoted_by uuid NOT NULL,
+  promoted_by_name text NOT NULL CHECK(btrim(promoted_by_name)<>''),
+  promoted_at timestamptz NOT NULL DEFAULT now(),
+  requested_count integer NOT NULL CHECK(requested_count>0)
+);
+
+INSERT INTO private.interpretation_promotion_rule(
+  rule_key,rule_version,predicate,interpretation_kind,target_type,expected_fact_type,
+  value_kind,requires_persona_identity,requires_principal_placement,bulk_eligible,status
+) VALUES
+  ('person-name-v1',1,'person.name','property','assertion','navn','text',true,false,true,'active'),
+  ('person-byname-v1',1,'person.byname','property','assertion','tilnavn','text',true,false,true,'active'),
+  ('person-title-v1',1,'person.title','property','assertion','titel','text',true,false,true,'active'),
+  ('person-birth-v1',1,'person.birth','property','assertion','fødsel','date_raw',true,false,true,'active'),
+  ('person-death-v1',1,'person.death','property','assertion','død','date_raw',true,false,true,'active')
+ON CONFLICT(rule_key,rule_version) DO NOTHING;
+
+ALTER TABLE private.interpretation_promotion
+  ADD COLUMN IF NOT EXISTS rule_key text,
+  ADD COLUMN IF NOT EXISTS rule_version integer,
+  ADD COLUMN IF NOT EXISTS batch_id uuid;
+
+DO $$
+BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pg_catalog.pg_constraint
+    WHERE conrelid='private.interpretation_promotion'::regclass
+      AND conname='interpretation_promotion_rule_fk') THEN
+    ALTER TABLE private.interpretation_promotion
+      ADD CONSTRAINT interpretation_promotion_rule_fk
+      FOREIGN KEY(rule_key,rule_version)
+      REFERENCES private.interpretation_promotion_rule(rule_key,rule_version);
+  END IF;
+  IF NOT EXISTS(SELECT 1 FROM pg_catalog.pg_constraint
+    WHERE conrelid='private.interpretation_promotion'::regclass
+      AND conname='interpretation_promotion_batch_fk') THEN
+    ALTER TABLE private.interpretation_promotion
+      ADD CONSTRAINT interpretation_promotion_batch_fk
+      FOREIGN KEY(batch_id) REFERENCES private.interpretation_promotion_batch(id);
+  END IF;
+  IF NOT EXISTS(SELECT 1 FROM pg_catalog.pg_constraint
+    WHERE conrelid='private.interpretation_promotion'::regclass
+      AND conname='interpretation_promotion_rule_pair_check') THEN
+    ALTER TABLE private.interpretation_promotion
+      ADD CONSTRAINT interpretation_promotion_rule_pair_check CHECK(
+        (rule_key IS NULL AND rule_version IS NULL)
+        OR (rule_key IS NOT NULL AND rule_version IS NOT NULL));
+  END IF;
+END $$;
+
+DO $$
+DECLARE v_table text; v_trigger text;
+BEGIN
+  FOREACH v_table IN ARRAY ARRAY[
+    'interpretation_promotion_rule','interpretation_promotion_batch'
+  ] LOOP
+    v_trigger:='trg_'||v_table||'_append_only';
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON private.%I',v_trigger,v_table);
+    EXECUTE format(
+      'CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON private.%I '
+      || 'FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation()',
+      v_trigger,v_table
+    );
+    EXECUTE format('ALTER TABLE private.%I ENABLE ROW LEVEL SECURITY',v_table);
+    EXECUTE format('REVOKE ALL ON TABLE private.%I FROM PUBLIC,anon,authenticated',v_table);
+  END LOOP;
+END $$;
+
 CREATE OR REPLACE FUNCTION red_decide_interpretation(
   p_interpretation_id uuid,p_expected_version integer,
   p_decision_status text,p_evidence jsonb

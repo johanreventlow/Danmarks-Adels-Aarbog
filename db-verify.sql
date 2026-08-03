@@ -1112,6 +1112,77 @@ BEGIN
   END;
 END $interpretation_verify$;
 
+-- ===== Evidensimport Fase 2 / Task 1: promotionregler og batch-audit =====
+DO $promotion_rule_verify$
+DECLARE
+  v_required text[] := ARRAY[
+    'interpretation_promotion_rule','interpretation_promotion_batch'
+  ];
+  v_missing text[];
+BEGIN
+  SELECT array_agg(required_name ORDER BY required_name) INTO v_missing
+    FROM unnest(v_required) AS required_name
+   WHERE to_regclass(format('private.%I',required_name)) IS NULL;
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: promotionregel-laget mangler';
+  END IF;
+  IF NOT EXISTS (
+       SELECT 1 FROM private.interpretation_promotion_rule
+        WHERE rule_key='person-name-v1' AND rule_version=1
+          AND predicate='person.name' AND interpretation_kind='property'
+          AND target_type='assertion' AND expected_fact_type='navn'
+          AND value_kind='text' AND requires_persona_identity
+          AND bulk_eligible AND status='active'
+     )
+     OR NOT EXISTS (
+       SELECT 1 FROM private.interpretation_promotion_rule
+        WHERE rule_key='person-byname-v1' AND rule_version=1
+          AND predicate='person.byname' AND interpretation_kind='property'
+          AND target_type='assertion' AND expected_fact_type='tilnavn'
+          AND value_kind='text' AND requires_persona_identity
+          AND bulk_eligible AND status='active'
+     )
+     OR NOT EXISTS (
+       SELECT 1 FROM private.interpretation_promotion_rule
+        WHERE rule_key='person-title-v1' AND rule_version=1
+          AND predicate='person.title' AND interpretation_kind='property'
+          AND target_type='assertion' AND expected_fact_type='titel'
+          AND value_kind='text' AND requires_persona_identity
+          AND bulk_eligible AND status='active'
+     )
+     OR NOT EXISTS (
+       SELECT 1 FROM private.interpretation_promotion_rule
+        WHERE rule_key='person-birth-v1' AND rule_version=1
+          AND predicate='person.birth' AND interpretation_kind='property'
+          AND target_type='assertion' AND expected_fact_type='fødsel'
+          AND value_kind='date_raw' AND requires_persona_identity
+          AND bulk_eligible AND status='active'
+     )
+     OR NOT EXISTS (
+       SELECT 1 FROM private.interpretation_promotion_rule
+        WHERE rule_key='person-death-v1' AND rule_version=1
+          AND predicate='person.death' AND interpretation_kind='property'
+          AND target_type='assertion' AND expected_fact_type='død'
+          AND value_kind='date_raw' AND requires_persona_identity
+          AND bulk_eligible AND status='active'
+     ) THEN
+    RAISE EXCEPTION 'FEJL: promotionregel-laget mangler';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM private.interpretation_promotion_rule
+     WHERE predicate='person.name' AND status='active' AND target_type='relation'
+  ) THEN
+    RAISE EXCEPTION 'FEJL: person.name må ikke promote til relation';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM private.interpretation_promotion_rule
+     WHERE rule_key='unknown-rule-v1' AND rule_version=1
+  ) THEN
+    RAISE EXCEPTION 'FEJL: ukendt promotionregel findes';
+  END IF;
+  RAISE NOTICE 'OK: promotionregler er eksplicitte, assertion-bundne og auditerbare';
+END $promotion_rule_verify$;
+
 -- To redaktørtransaktioner fra samme identity-version: persona-låsen skal
 -- serialisere dem, og den tabende afgørelse skal fejle på expected_version.
 DO $identity_concurrency$

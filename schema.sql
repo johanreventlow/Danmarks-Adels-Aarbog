@@ -894,9 +894,54 @@ CREATE TABLE private.interpretation_observation (
   UNIQUE (interpretation_id,ordinal)
 );
 
+CREATE TABLE private.interpretation_promotion_rule (
+  rule_key                      text NOT NULL CHECK (btrim(rule_key)<>''),
+  rule_version                  integer NOT NULL CHECK (rule_version>=1),
+  predicate                     text NOT NULL CHECK (btrim(predicate)<>''),
+  interpretation_kind           text NOT NULL CHECK (interpretation_kind='property'),
+  target_type                   text NOT NULL CHECK (target_type='assertion'),
+  expected_fact_type            text NOT NULL CHECK (
+                                 expected_fact_type IN ('navn','tilnavn','titel','fødsel','død')
+                               ),
+  value_kind                    text NOT NULL CHECK (value_kind IN ('text','date_raw')),
+  requires_persona_identity     boolean NOT NULL DEFAULT true,
+  requires_principal_placement  boolean NOT NULL DEFAULT false,
+  bulk_eligible                 boolean NOT NULL DEFAULT true,
+  status                        text NOT NULL CHECK (status IN ('active','retired')),
+  created_at                    timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (rule_key,rule_version),
+  UNIQUE (predicate,rule_version)
+);
+
+CREATE UNIQUE INDEX interpretation_promotion_rule_one_active_predicate
+  ON private.interpretation_promotion_rule(predicate) WHERE status='active';
+
+CREATE TABLE private.interpretation_promotion_batch (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  rule_profile_hash text NOT NULL CHECK (btrim(rule_profile_hash)<>''),
+  preview_hash      text NOT NULL CHECK (btrim(preview_hash)<>''),
+  promoted_by       uuid NOT NULL,
+  promoted_by_name  text NOT NULL CHECK (btrim(promoted_by_name)<>''),
+  promoted_at       timestamptz NOT NULL DEFAULT now(),
+  requested_count   integer NOT NULL CHECK (requested_count>0)
+);
+
+INSERT INTO private.interpretation_promotion_rule(
+  rule_key,rule_version,predicate,interpretation_kind,target_type,expected_fact_type,
+  value_kind,requires_persona_identity,requires_principal_placement,bulk_eligible,status
+) VALUES
+  ('person-name-v1',1,'person.name','property','assertion','navn','text',true,false,true,'active'),
+  ('person-byname-v1',1,'person.byname','property','assertion','tilnavn','text',true,false,true,'active'),
+  ('person-title-v1',1,'person.title','property','assertion','titel','text',true,false,true,'active'),
+  ('person-birth-v1',1,'person.birth','property','assertion','fødsel','date_raw',true,false,true,'active'),
+  ('person-death-v1',1,'person.death','property','assertion','død','date_raw',true,false,true,'active');
+
 CREATE TABLE private.interpretation_promotion (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   interpretation_id   uuid NOT NULL REFERENCES private.interpretation(id),
+  rule_key            text,
+  rule_version        integer,
+  batch_id            uuid REFERENCES private.interpretation_promotion_batch(id),
   target_type         text NOT NULL CHECK (
                         target_type IN (
                           'person','family','fact','assertion','relation','narrative',
@@ -910,7 +955,13 @@ CREATE TABLE private.interpretation_promotion (
   promoted_by         uuid NOT NULL,
   promoted_by_name    text NOT NULL CHECK (btrim(promoted_by_name)<>''),
   promoted_at         timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (interpretation_id,target_type,target_id)
+  UNIQUE (interpretation_id,target_type,target_id),
+  FOREIGN KEY (rule_key,rule_version)
+    REFERENCES private.interpretation_promotion_rule(rule_key,rule_version),
+  CHECK (
+    (rule_key IS NULL AND rule_version IS NULL)
+    OR (rule_key IS NOT NULL AND rule_version IS NOT NULL)
+  )
 );
 
 -- Én current-state-række pr. persona gør to samtidige aktive mål umulige.
@@ -1199,7 +1250,8 @@ DO $$
 DECLARE v_table text;
 BEGIN
   FOREACH v_table IN ARRAY ARRAY[
-    'interpretation','interpretation_observation','interpretation_promotion',
+    'interpretation','interpretation_observation','interpretation_promotion_rule',
+    'interpretation_promotion_batch','interpretation_promotion',
     'source_persona_identity_event'
   ] LOOP
     EXECUTE format(
@@ -1209,7 +1261,8 @@ BEGIN
     );
   END LOOP;
   FOREACH v_table IN ARRAY ARRAY[
-    'interpretation','interpretation_observation','interpretation_promotion',
+    'interpretation','interpretation_observation','interpretation_promotion_rule',
+    'interpretation_promotion_batch','interpretation_promotion',
     'source_persona_identity','source_persona_identity_event'
   ] LOOP
     EXECUTE format('ALTER TABLE private.%I ENABLE ROW LEVEL SECURITY',v_table);
