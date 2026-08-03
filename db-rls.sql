@@ -114,7 +114,7 @@ returns boolean language sql stable security definer set search_path = public as
     when p_type = 'person' then public.person_offentlig(p_id)
     when p_type = 'family' then public.family_offentlig(p_id)
     -- det faste ikke-PII-entitetssæt (sted/gods/våben/linje/organisation/begivenhed/kilde/media/arkiv)
-    when p_type in ('place','estate','coat_of_arms','lineage','organisation',
+    when p_type in ('place','estate','coat_of_arms','slaegt','lineage','organisation',
                     'historical_event','source','media','repository') then true
     else false  -- ukendt/fejlstavet type → fail-closed
   end;
@@ -255,6 +255,25 @@ end $$;
 -- Overgangs-viewet er læsbart, men security_invoker lader fortsat de underliggende
 -- person_external_id-politikker afgøre hvilke personkoordinater en klient ser.
 GRANT SELECT ON public.person_source_coordinate_legacy TO anon, authenticated;
+
+-- Generelle beskrivelser: publicerede, ikke-private beskrivelser følger deres
+-- kanoniske subjekts synlighed. Kildekoblinger forbliver i private schema og
+-- må kun læses gennem en senere redaktions-RPC.
+GRANT SELECT ON public.entity_description TO anon, authenticated;
+ALTER TABLE public.entity_description ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS anon_read ON public.entity_description;
+CREATE POLICY anon_read ON public.entity_description FOR SELECT TO anon
+  USING (status='published' AND privat=false
+         AND public.entitet_offentlig(subjekt_type,subjekt_id));
+DROP POLICY IF EXISTS auth_read ON public.entity_description;
+CREATE POLICY auth_read ON public.entity_description FOR SELECT TO authenticated
+  USING (status='published' AND privat=false
+         AND public.entitet_offentlig(subjekt_type,subjekt_id));
+DROP POLICY IF EXISTS redaktion_read ON public.entity_description;
+CREATE POLICY redaktion_read ON public.entity_description FOR SELECT TO authenticated
+  USING ((select public.current_rolle())='redaktion');
+ALTER TABLE private.entity_description_source ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.entity_description_source FROM PUBLIC,anon,authenticated;
 
 -- 'media' har ingen egen levende/privat-kolonne; synligheden afledes af de personer billedet
 -- AFBILDER (relation rolle='afbildet' → person), via SECURITY DEFINER-helperne ovenfor.
