@@ -25,11 +25,20 @@ PROFILES = ROOT / ".claude/skills/daa-extract/references/extraction-profiles.jso
 ALLOWED_MODELS = {"gpt-5.6-terra", "gpt-5.6-sol"}
 # Kategorierne er editionsneutrale: de beskriver hvad en bog kan hævde, ikke
 # hvordan én bestemt slægt eller OCR-profil skal repareres.
-CLAIM_FAMILIES = {
-    "person", "life_event", "relationship", "title", "form_of_address", "rank", "office",
-    "education", "estate", "residence", "military_service", "honour", "publication",
-    "lineage", "genealogy", "heraldry", "image", "reference",
-}
+# Det er med vilje en lukket, editionsneutral vokabularliste. En profil må ændre
+# layoutgenkendelse, aldrig gøre en ny semantisk claim-type gyldig uden kode,
+# test og menneskelig GO.
+ALLOWED_PREDICATES = frozenset({
+    "person.name", "person.name_part", "person.name_variant", "person.identity",
+    "person.uncertainty", "person.negation", "person.unknown",
+    "life_event.birth", "life_event.baptism", "life_event.death", "life_event.burial",
+    "relationship.marriage", "relationship.parent", "relationship.child",
+    "title.title", "form_of_address.form_of_address", "rank.rank", "office.office",
+    "education.education", "estate.estate", "residence.residence",
+    "military_service.military_service", "honour.honour", "publication.publication",
+    "lineage.introduction", "genealogy.generation_header",
+    "heraldry.description", "heraldry.blazon", "image.caption", "reference.cross_reference",
+})
 
 
 def _canonical(value: Any) -> str:
@@ -160,7 +169,7 @@ def validate_output(output: Mapping[str, Any]) -> None:
         if not isinstance(claim, Mapping):
             raise ExtractionError("EXTRACTION_CLAIM_INVALID")
         predicate = claim.get("predicate")
-        if not isinstance(predicate, str) or "." not in predicate or predicate.split(".", 1)[0] not in CLAIM_FAMILIES:
+        if not isinstance(predicate, str) or predicate not in ALLOWED_PREDICATES:
             raise ExtractionError("EXTRACTION_PREDICATE_INVALID")
         cited = claim.get("observation_ids")
         if not isinstance(cited, list) or not cited or any(not isinstance(value, str) or value not in observation_ids for value in cited):

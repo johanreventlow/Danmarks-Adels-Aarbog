@@ -897,25 +897,31 @@ git commit -m "feat: add mobile evidence and heraldry editor parity"
 - Create: .claude/skills/daa-extract/scripts/test_evidence_extract.py
 - Create: .claude/skills/daa-extract/references/extraction-profiles.json
 
-- [ ] **Step 1: Skriv granularitetstests**
+- [x] **Step 1: Skriv granularitetstests**
 
 Test navnedele/varianter; fødsel, dåb, død og begravelse separat; ægteskaber; forældre/børn; titel, tiltaleform, rang og embede separat; uddannelse, ejendom, bopæl, militærtjeneste, hæder og publikation; usikkerhed, negation og ukendt; indgiftedes oplysninger; samt modstridende påstande uden overskrivning.
 
 Test også ikke-personlige poster: slægts- og linjeindledninger, slægtledsoverskrifter, våbenbeskrivelser, blasoneringer, billedtekster og henvisninger fra en våbenafbilledning til slægt eller gren. De skal bruge samme observation/interpretation-kontrakt og må ikke skabe kunstige personer.
 
-- [ ] **Step 2: Implementér editionsprofiler**
+- [x] **Step 2: Implementér editionsprofiler**
 
 Profiler for 1939 og 2018–20 deler outputkontrakt. De beskriver layout/genkendelse, men opfinder ikke kildeårsspecifikke felter i genealogisk model. Hver versioneret profil fastlåser eksplicit `model_id`, `prompt_version` og `escalation_model_id`; første profil bruger `gpt-5.6-terra` som standard og `gpt-5.6-sol` kun til markerede undtagelser. En profilændring kræver en ny version og menneskelig GO.
 
-- [ ] **Step 3: Implementér resumérbare batches**
+- [x] **Step 3: Implementér resumérbare batches**
 
 Hver batch har inputhash, profilversion, extractorversion, det effektive model-ID, promptversion, record-ID'er, outputhash, token-/omkostningsregnskab og valideringsstatus. `evidence_extract.py` kræver en eksplicit profil og må hverken læse et ambient modelvalg eller falde tilbage til en global settings-default. Identiske grønne batches kan genbruges. Delvist output merges aldrig. Kun records, som en dokumenteret gate markerer, må køre én gang på eskalationsmodellen.
 
-- [ ] **Step 4: Implementér fail-closed validering**
+- [x] **Step 4: Implementér fail-closed validering**
 
 Afvis eksplicitte påstande uden span, tekst som ikke kan genfindes, mentions uden for tekst, ukendte typer, persona uden record, ufuldstændig batch samt manglende, ukendt eller profildrivet model-/prompt-ID. Test, at ændret ambient settings ikke kan ændre den effektive model.
 
 - [ ] **Step 5: Test og commit**
+
+2026-08-03: den fokuserede Task-13-suite er grøn (16 tests), og resten af
+script-suiten er grøn med 411 pass, 1 forventet skip og 2 fravalgte
+dataafhængige 1939-tests. Den ufiltrerede suite er ikke grøn: fem eksisterende
+`test_escalate_merge.py`-fejl og to 1939-OCR-tests, der kræver gitignorerede
+arbejdsartefakter. Task 13 må ikke kaldes fuldt verificeret, før de er afklaret.
 
 ~~~bash
 /usr/bin/python3 -m pytest .claude/skills/daa-extract/scripts/test_evidence_extract.py -q

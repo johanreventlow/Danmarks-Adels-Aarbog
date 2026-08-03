@@ -93,6 +93,30 @@ def test_granular_claim_rejects_unknown_predicate_and_missing_observation():
         validate_output({"evidence_bundle": _bundle(), "claims": [{"predicate": "heraldry.blazon", "observation_ids": ["missing"], "value": "tre roser"}]})
 
 
+def test_known_granular_predicates_are_explicit_and_unknown_subtypes_fail_closed():
+    bundle = _anchored_bundle()
+    expected_predicates = [
+        "life_event.birth", "life_event.baptism", "life_event.death", "life_event.burial",
+        "relationship.marriage", "relationship.parent", "relationship.child",
+        "title.title", "form_of_address.form_of_address", "rank.rank", "office.office",
+        "education.education", "estate.estate", "residence.residence",
+        "military_service.military_service", "honour.honour", "publication.publication",
+        "lineage.introduction", "genealogy.generation_header", "heraldry.blazon",
+        "image.caption", "reference.cross_reference",
+    ]
+    validate_output({"evidence_bundle": bundle, "claims": [{
+        "predicate": predicate, "record_key": "rk-1", "observation_ids": ["obs-1"], "value": "x",
+    } for predicate in expected_predicates]})
+
+    bundle["source_personas"] = [{"persona_id": "persona-1", "mention_ids": ["mention-1"]}]
+    bundle["mentions"] = [{"mention_id": "mention-1", "observation_id": "obs-1"}]
+    with pytest.raises(ExtractionError, match="PREDICATE"):
+        validate_output({"evidence_bundle": bundle, "claims": [{
+            "predicate": "person.invented", "record_key": "rk-1", "source_persona_id": "persona-1",
+            "observation_ids": ["obs-1"], "value": "x",
+        }]})
+
+
 def test_non_personal_heraldry_claim_is_valid_without_artificial_persona():
     assert validate_output({"evidence_bundle": _anchored_bundle(), "claims": [{
         "predicate": "heraldry.blazon", "record_key": "rk-1", "observation_ids": ["obs-1"], "value": "tre roser",
