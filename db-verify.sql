@@ -1620,19 +1620,42 @@ BEGIN
       RAISE EXCEPTION 'FEJL: promotion ændrede kanonisk genealogi';
     END IF;
 
+    -- To forskellige accepterede fortolkninger i én gyldig batch giver præcis
+    -- to audit-links og én ny batch; de opretter ikke kanoniske rækker.
+    SELECT count(*) INTO v_before_promotions FROM private.interpretation_promotion;
+    SELECT count(*) INTO v_before_batches FROM private.interpretation_promotion_batch;
+    SELECT count(*) INTO v_before_persons FROM person;
+    SELECT count(*) INTO v_before_facts FROM fact;
+    SELECT count(*) INTO v_before_assertions FROM assertion;
+    SET LOCAL ROLE authenticated;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_2,'target_type','assertion','target_id',-987650041),
+      jsonb_build_object('interpretation_id',v_accepted_3,'target_type','assertion','target_id',-987650041)
+    ));
+    PERFORM red_promote_interpretations_batch(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_2,'target_type','assertion','target_id',-987650041),
+      jsonb_build_object('interpretation_id',v_accepted_3,'target_type','assertion','target_id',-987650041)
+    ),v_preview->>'preview_hash');
+    RESET ROLE;
+    IF (SELECT count(*) FROM private.interpretation_promotion)<>v_before_promotions+2
+       OR (SELECT count(*) FROM private.interpretation_promotion_batch)<>v_before_batches+1
+       OR (SELECT count(*) FROM person)<>v_before_persons
+       OR (SELECT count(*) FROM fact)<>v_before_facts
+       OR (SELECT count(*) FROM assertion)<>v_before_assertions THEN
+      RAISE EXCEPTION 'FEJL: gyldig bulkbatch skrev ikke præcis to links/én batch uden kanonisk mutation';
+    END IF;
+
     SELECT count(*) INTO v_before_promotions FROM private.interpretation_promotion;
     SELECT count(*) INTO v_before_batches FROM private.interpretation_promotion_batch;
     SET LOCAL ROLE authenticated;
     v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
-      jsonb_build_object('interpretation_id',v_accepted_2,'target_type','assertion','target_id',-987650041),
-      jsonb_build_object('interpretation_id',v_accepted_3,'target_type','assertion','target_id',-987650041),
+      jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650041),
       jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650044)
     ));
     v_error:=NULL;
     BEGIN
       PERFORM red_promote_interpretations_batch(jsonb_build_array(
-        jsonb_build_object('interpretation_id',v_accepted_2,'target_type','assertion','target_id',-987650041),
-        jsonb_build_object('interpretation_id',v_accepted_3,'target_type','assertion','target_id',-987650041),
+        jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650041),
         jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650044)
       ),v_preview->>'preview_hash');
     EXCEPTION WHEN others THEN v_error:=SQLERRM;
