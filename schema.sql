@@ -941,7 +941,8 @@ CREATE TABLE private.interpretation_promotion (
   interpretation_id   uuid NOT NULL REFERENCES private.interpretation(id),
   rule_key            text,
   rule_version        integer,
-  batch_id            uuid REFERENCES private.interpretation_promotion_batch(id),
+  batch_id            uuid CONSTRAINT interpretation_promotion_batch_fk
+                      REFERENCES private.interpretation_promotion_batch(id),
   target_type         text NOT NULL CHECK (
                         target_type IN (
                           'person','family','fact','assertion','relation','narrative',
@@ -956,9 +957,9 @@ CREATE TABLE private.interpretation_promotion (
   promoted_by_name    text NOT NULL CHECK (btrim(promoted_by_name)<>''),
   promoted_at         timestamptz NOT NULL DEFAULT now(),
   UNIQUE (interpretation_id,target_type,target_id),
-  FOREIGN KEY (rule_key,rule_version)
+  CONSTRAINT interpretation_promotion_rule_fk FOREIGN KEY (rule_key,rule_version)
     REFERENCES private.interpretation_promotion_rule(rule_key,rule_version),
-  CHECK (
+  CONSTRAINT interpretation_promotion_rule_pair_check CHECK (
     (rule_key IS NULL AND rule_version IS NULL)
     OR (rule_key IS NOT NULL AND rule_version IS NOT NULL)
   )

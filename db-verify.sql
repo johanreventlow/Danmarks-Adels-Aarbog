@@ -1119,12 +1119,86 @@ DECLARE
     'interpretation_promotion_rule','interpretation_promotion_batch'
   ];
   v_missing text[];
+  v_error text;
 BEGIN
   SELECT array_agg(required_name ORDER BY required_name) INTO v_missing
     FROM unnest(v_required) AS required_name
    WHERE to_regclass(format('private.%I',required_name)) IS NULL;
   IF v_missing IS NOT NULL THEN
     RAISE EXCEPTION 'FEJL: promotionregel-laget mangler';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname='private' AND c.relname=ANY(v_required)
+       AND (
+         NOT c.relrowsecurity
+         OR has_table_privilege('anon',c.oid,'SELECT')
+         OR has_table_privilege('anon',c.oid,'INSERT')
+         OR has_table_privilege('anon',c.oid,'UPDATE')
+         OR has_table_privilege('anon',c.oid,'DELETE')
+         OR has_table_privilege('authenticated',c.oid,'SELECT')
+         OR has_table_privilege('authenticated',c.oid,'INSERT')
+         OR has_table_privilege('authenticated',c.oid,'UPDATE')
+         OR has_table_privilege('authenticated',c.oid,'DELETE')
+         OR EXISTS (
+           SELECT 1
+             FROM aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) acl
+            WHERE acl.grantee=0
+              AND acl.privilege_type IN ('SELECT','INSERT','UPDATE','DELETE')
+         )
+       )
+  ) THEN
+    RAISE EXCEPTION 'FEJL: promotionregel-laget har direkte API-rettigheder';
+  END IF;
+  IF (
+    SELECT count(*)
+      FROM pg_catalog.pg_trigger t
+      JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid
+     WHERE NOT t.tgisinternal
+       AND c.relnamespace='private'::regnamespace
+       AND c.relname=ANY(v_required)
+       AND t.tgname='trg_'||c.relname||'_append_only'
+       AND t.tgfoid='private.reject_evidence_mutation()'::regprocedure
+  )<>2 THEN
+    RAISE EXCEPTION 'FEJL: promotionregel-laget mangler append-only-triggere';
+  END IF;
+  IF (
+    SELECT count(*) FROM pg_catalog.pg_constraint c
+     WHERE c.conrelid='private.interpretation_promotion'::regclass
+       AND c.contype='f'
+       AND c.confrelid='private.interpretation_promotion_rule'::regclass
+  )<>1
+     OR NOT EXISTS (
+       SELECT 1 FROM pg_catalog.pg_constraint c
+        WHERE c.conrelid='private.interpretation_promotion'::regclass
+          AND c.conname='interpretation_promotion_rule_fk'
+     )
+     OR (
+       SELECT count(*) FROM pg_catalog.pg_constraint c
+        WHERE c.conrelid='private.interpretation_promotion'::regclass
+          AND c.contype='f'
+          AND c.confrelid='private.interpretation_promotion_batch'::regclass
+     )<>1
+     OR NOT EXISTS (
+       SELECT 1 FROM pg_catalog.pg_constraint c
+        WHERE c.conrelid='private.interpretation_promotion'::regclass
+          AND c.conname='interpretation_promotion_batch_fk'
+     )
+     OR (
+       SELECT count(*) FROM pg_catalog.pg_constraint c
+        WHERE c.conrelid='private.interpretation_promotion'::regclass
+          AND c.contype='c'
+          AND position('rule_key IS NULL' IN pg_get_constraintdef(c.oid))>0
+          AND position('rule_version IS NULL' IN pg_get_constraintdef(c.oid))>0
+     )<>1
+     OR NOT EXISTS (
+       SELECT 1 FROM pg_catalog.pg_constraint c
+        WHERE c.conrelid='private.interpretation_promotion'::regclass
+          AND c.conname='interpretation_promotion_rule_pair_check'
+     ) THEN
+    RAISE EXCEPTION 'FEJL: promotionregel-laget har ikke præcis én navngivet audit-constraint';
   END IF;
   IF NOT EXISTS (
        SELECT 1 FROM private.interpretation_promotion_rule
@@ -1168,17 +1242,55 @@ BEGIN
      ) THEN
     RAISE EXCEPTION 'FEJL: promotionregel-laget mangler';
   END IF;
-  IF EXISTS (
-    SELECT 1 FROM private.interpretation_promotion_rule
-     WHERE predicate='person.name' AND status='active' AND target_type='relation'
-  ) THEN
-    RAISE EXCEPTION 'FEJL: person.name må ikke promote til relation';
+  IF (
+    SELECT count(*) FROM private.interpretation_promotion_rule
+     WHERE rule_version=1 AND status='active'
+  )<>5 THEN
+    RAISE EXCEPTION 'FEJL: promotionregel-laget har ikke præcis fem aktive v1-regler';
   END IF;
   IF EXISTS (
     SELECT 1 FROM private.interpretation_promotion_rule
      WHERE rule_key='unknown-rule-v1' AND rule_version=1
   ) THEN
     RAISE EXCEPTION 'FEJL: ukendt promotionregel findes';
+  END IF;
+  v_error:=NULL;
+  BEGIN
+    INSERT INTO private.interpretation_promotion_rule(
+      rule_key,rule_version,predicate,interpretation_kind,target_type,expected_fact_type,
+      value_kind,status
+    ) VALUES (
+      'verify-relation-target',1,'person.name.relation','property','relation','navn',
+      'text','retired'
+    );
+  EXCEPTION WHEN others THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS NULL THEN
+    RAISE EXCEPTION 'FEJL: person.name må ikke promote til relation';
+  END IF;
+  v_error:=NULL;
+  BEGIN
+    UPDATE private.interpretation_promotion_rule
+       SET status='retired'
+     WHERE rule_key='person-name-v1' AND rule_version=1;
+  EXCEPTION WHEN others THEN v_error:=SQLERRM;
+  END;
+  IF v_error NOT LIKE 'EVIDENCE_APPEND_ONLY%' THEN
+    RAISE EXCEPTION 'FEJL: promotionregler er ikke append-only: %',v_error;
+  END IF;
+  BEGIN
+    INSERT INTO private.interpretation_promotion_batch(
+      rule_profile_hash,preview_hash,promoted_by,promoted_by_name,requested_count
+    ) VALUES (
+      'verify-rule-profile','verify-preview',gen_random_uuid(),'Verify Editor',1
+    );
+    UPDATE private.interpretation_promotion_batch
+       SET requested_count=2
+     WHERE rule_profile_hash='verify-rule-profile';
+  EXCEPTION WHEN others THEN v_error:=SQLERRM;
+  END;
+  IF v_error NOT LIKE 'EVIDENCE_APPEND_ONLY%' THEN
+    RAISE EXCEPTION 'FEJL: promotionbatches er ikke append-only: %',v_error;
   END IF;
   RAISE NOTICE 'OK: promotionregler er eksplicitte, assertion-bundne og auditerbare';
 END $promotion_rule_verify$;
