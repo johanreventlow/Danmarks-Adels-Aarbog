@@ -912,7 +912,9 @@ git branch --show-current
 git commit -m "feat: add resumable granular evidence extraction"
 ~~~
 
-### Task 14: Byg ny projektionsloader ved siden af den gamle
+### Task 14: Privat forslag-adapter; ingen kanonisk projektionsloader
+
+**Erstattet kontrakt (2026-08-03):** Den oprindelige writer-specifikation nedenfor er historisk og må ikke udføres. En accepteret fortolkning må ikke automatisk oprette eller ændre `person`, familie, facts, relationer, memberships, placement eller generation. Den operative vej er promotion-planen `2026-08-03-evidens-promotion-kontrakt.md`: den private ingest-/identitetsvej fortsætter, og `project_evidence.R` må kun forberede validerede requests til den versionerede redaktions-RPC. Zero-match og mixed-new bliver køtilstande uden personoprettelse.
 
 **Files:**
 

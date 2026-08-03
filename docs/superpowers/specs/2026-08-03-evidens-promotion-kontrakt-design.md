@@ -2,7 +2,7 @@
 
 **Dato:** 2026-08-03
 
-**Status:** Godkendt designretning; afventer review af dette notat før implementeringsplan.
+**Status:** Implementeret som privat promotion-backend og ikke-muterende dry-run-adapter. Se `docs/superpowers/reviews/evidence-promotion-contract.md` for observeret testbevis og den afgrænsede GO/NO-GO.
 
 **Scope:** En generel, editionsuafhængig kontrakt mellem accepterede fortolkninger i det private evidenslag og allerede eksisterende kanoniske genealogiske mål.
 
