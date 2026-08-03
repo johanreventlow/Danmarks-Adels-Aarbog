@@ -503,7 +503,15 @@ export type LineageSchemeEntryRef = {
 
 Cache- og opslagstaster indeholder stabile ID'er; rå II må aldrig være global nøgle.
 
-- [ ] **Step 7: Test frisk DB, migreret DB og alle legacy-consumers; commit**
+- [x] **Step 7: Test frisk DB, migreret DB og alle legacy-consumers; commit**
+
+Bekræftet 2026-08-03: frisk lokal DB (`schema.sql` + `db-rls.sql`) og en
+historisk-opgraderet lokal DB (schemaet fra `3c37da0`, den forudgående
+identity-migration, Task-6-migrationsblokken og Task-6 RLS-grants) bestod den
+fokuserede SQL-kontrakt. To syntetiske historiske lineages fik begge
+`slaegt_id` og `canonical_label`, samt hver sin stamtavle- og
+præsensliste-mapping. Core: 410/410; web: 653/653 med CI-miljøvariabler;
+mobile: 423/423. Se også commit `e7b1f96`.
 
 ~~~bash
 npm test --workspace packages/core -- --run packages/core/src/__tests__/slaegter.test.ts
