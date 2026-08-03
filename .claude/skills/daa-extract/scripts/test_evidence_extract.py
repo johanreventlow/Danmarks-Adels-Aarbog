@@ -115,3 +115,16 @@ def test_person_claim_requires_persona_traceable_to_an_accepted_record():
         "predicate": "person.name", "source_persona_id": "persona-1",
         "observation_ids": ["obs-1"], "value": "Anna",
     }]}) is None
+
+
+def test_claim_record_key_must_name_its_accepted_source_record():
+    bundle = _bundle()
+    bundle["source_records"] = [{"id": "record-1", "record_key": "rk-1"}]
+    bundle["source_record_anchor_events"] = [{
+        "event_id": "anchor-1", "occurrence_id": "occ-1", "source_record_id": "record-1",
+        "decision_status": "accepted", "version": 1,
+    }]
+    with pytest.raises(ExtractionError, match="RECORD_KEY"):
+        validate_output({"evidence_bundle": bundle, "claims": [{
+            "predicate": "heraldry.blazon", "record_key": "wrong", "observation_ids": ["obs-1"], "value": "tre roser",
+        }]})
