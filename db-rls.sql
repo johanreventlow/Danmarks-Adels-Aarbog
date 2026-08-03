@@ -25,7 +25,8 @@ begin
     'source_observation_text','source_mention','source_persona','source_persona_mention',
     'interpretation','interpretation_observation','interpretation_promotion_rule',
     'interpretation_promotion_batch','interpretation_promotion',
-    'source_persona_identity','source_persona_identity_event'
+    'source_persona_identity','source_persona_identity_event',
+    'narrative_record_publication'
   ] loop
     if to_regclass(format('private.%I',v_table)) is not null then
       execute format('alter table private.%I enable row level security',v_table);

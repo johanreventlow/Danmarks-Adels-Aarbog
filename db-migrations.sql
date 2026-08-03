@@ -6683,3 +6683,57 @@ REVOKE ALL ON FUNCTION red_preview_interpretation_promotions(jsonb),
  red_promote_interpretations_batch(jsonb,text) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION red_preview_interpretation_promotions(jsonb),
  red_promote_interpretations_batch(jsonb,text) TO authenticated;
+
+-- 2026-08-03: Task 15 — privat binding mellem public narrative og source-record.
+CREATE TABLE IF NOT EXISTS private.narrative_record_publication (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), narrative_id bigint NOT NULL UNIQUE REFERENCES public.narrative(id),
+  source_record_id uuid NOT NULL REFERENCES private.source_record(id), record_ref uuid NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+  record_label text NOT NULL CHECK (btrim(record_label)<>''), citation_label text NOT NULL CHECK (btrim(citation_label)<>''),
+  status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','published','withdrawn')),
+  created_at timestamptz NOT NULL DEFAULT now(), published_at timestamptz
+);
+CREATE OR REPLACE FUNCTION private.validate_narrative_record_publication()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE a bigint; b bigint; t text;
+BEGIN
+  SELECT source_id,subjekt_type INTO a,t FROM public.narrative WHERE id=NEW.narrative_id;
+  SELECT source_id INTO b FROM private.source_record WHERE id=NEW.source_record_id;
+  IF a IS NULL OR b IS NULL OR a<>b THEN RAISE EXCEPTION 'SOURCE_RECORD_PUBLICATION_SOURCE_MISMATCH'; END IF;
+  IF t<>'person' THEN RAISE EXCEPTION 'SOURCE_RECORD_PUBLICATION_SUBJECT_INVALID'; END IF;
+  IF TG_OP='UPDATE' AND (NEW.narrative_id<>OLD.narrative_id OR NEW.source_record_id<>OLD.source_record_id OR NEW.record_ref<>OLD.record_ref) THEN RAISE EXCEPTION 'SOURCE_RECORD_PUBLICATION_BINDING_IMMUTABLE'; END IF;
+  IF NEW.status='published' AND NEW.published_at IS NULL THEN NEW.published_at:=clock_timestamp(); END IF;
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS trg_narrative_record_publication_validate ON private.narrative_record_publication;
+CREATE TRIGGER trg_narrative_record_publication_validate BEFORE INSERT OR UPDATE ON private.narrative_record_publication FOR EACH ROW EXECUTE FUNCTION private.validate_narrative_record_publication();
+ALTER TABLE private.narrative_record_publication ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.narrative_record_publication FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION private.validate_narrative_record_publication() FROM PUBLIC,anon,authenticated;
+CREATE OR REPLACE FUNCTION public.public_person_bio_source_versions(p_person_ids bigint[])
+RETURNS TABLE(person_id bigint,record_ref uuid,source_label text,record_label text,narrative_text text,citation_label text,provenance_kind text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+  SELECT n.subjekt_id,p.record_ref,coalesce(nullif(btrim(s.udgave),''),nullif(btrim(s.titel),''),'DAA-udgave'),p.record_label,n.tekst,p.citation_label,'source_record'::text FROM public.narrative n JOIN public.person person ON person.id=n.subjekt_id JOIN public.source s ON s.id=n.source_id AND s.slags='DAA-udgave' JOIN private.narrative_record_publication p ON p.narrative_id=n.id AND p.status='published' WHERE n.subjekt_type='person' AND n.subjekt_id=ANY(p_person_ids) AND coalesce(n.privat,false)=false AND person.levende=false AND coalesce(person.privat,false)=false AND coalesce(person.staged,false)=false
+  UNION ALL
+  SELECT n.subjekt_id,NULL::uuid,coalesce(nullif(btrim(s.udgave),''),nullif(btrim(s.titel),''),'DAA-udgave'),'Overgangsdata'::text,n.tekst,coalesce(nullif(btrim(n.side),''),'')::text,'legacy_narrative'::text FROM public.narrative n JOIN public.person person ON person.id=n.subjekt_id JOIN public.source s ON s.id=n.source_id AND s.slags='DAA-udgave' WHERE n.subjekt_type='person' AND n.subjekt_id=ANY(p_person_ids) AND coalesce(n.privat,false)=false AND person.levende=false AND coalesce(person.privat,false)=false AND coalesce(person.staged,false)=false AND NOT EXISTS (SELECT 1 FROM private.narrative_record_publication p WHERE p.narrative_id=n.id)
+$$;
+REVOKE ALL ON FUNCTION public.public_person_bio_source_versions(bigint[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.public_person_bio_source_versions(bigint[]) TO anon,authenticated;
+CREATE OR REPLACE FUNCTION red_publicer_narrative_record(p_narrative_id bigint,p_source_record_id uuid,p_record_label text,p_citation_label text)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_id uuid;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  IF EXISTS (SELECT 1 FROM private.narrative_record_publication WHERE narrative_id=p_narrative_id) THEN RAISE EXCEPTION 'SOURCE_RECORD_PUBLICATION_ALREADY_BOUND'; END IF;
+  INSERT INTO private.narrative_record_publication(narrative_id,source_record_id,record_label,citation_label,status)
+    VALUES (p_narrative_id,p_source_record_id,p_record_label,p_citation_label,'published') RETURNING id INTO v_id;
+  RETURN v_id;
+END $$;
+CREATE OR REPLACE FUNCTION red_tilbagetraek_narrative_record(p_narrative_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  UPDATE private.narrative_record_publication SET status='withdrawn' WHERE narrative_id=p_narrative_id AND status='published';
+  IF NOT FOUND THEN RAISE EXCEPTION 'SOURCE_RECORD_PUBLICATION_NOT_PUBLISHED'; END IF;
+END $$;
+REVOKE ALL ON FUNCTION red_publicer_narrative_record(bigint,uuid,text,text),red_tilbagetraek_narrative_record(bigint) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_publicer_narrative_record(bigint,uuid,text,text),red_tilbagetraek_narrative_record(bigint) TO authenticated;

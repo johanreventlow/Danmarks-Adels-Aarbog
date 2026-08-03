@@ -40,6 +40,90 @@ DO $$ BEGIN
   END;
 END $$;
 
+-- =============================================================
+-- 2026-08-03: Task 15 — publicerede kilde-record-versioner
+-- Den offentlige read-flade må kun udlevere en opaque record_ref og aldrig
+-- private source_record-id'er. Uforbundne legacy-narrativer bevares særskilt.
+-- =============================================================
+DO $$
+DECLARE
+  v_person bigint := -987651001;
+  v_source bigint := -987651002;
+  v_run uuid := '11111111-1111-1111-1111-111111111151';
+  v_record uuid := '22222222-2222-2222-2222-222222222251';
+  v_bound_narrative bigint := -987651003;
+  v_legacy_narrative bigint := -987651004;
+  v_rows jsonb;
+BEGIN
+  IF to_regclass('private.narrative_record_publication') IS NULL
+     OR to_regprocedure('public.public_person_bio_source_versions(bigint[])') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: Task 15 publiceringsbinding eller read-RPC mangler';
+  END IF;
+  IF has_table_privilege('anon','private.narrative_record_publication','SELECT')
+     OR has_table_privilege('authenticated','private.narrative_record_publication','SELECT')
+     OR has_function_privilege('anon','red_publicer_narrative_record(bigint,uuid,text,text)','EXECUTE') THEN
+    RAISE EXCEPTION 'FEJL: Task 15 åbner privat binding eller redaktionsmutation';
+  END IF;
+
+  BEGIN
+    INSERT INTO person(id,levende,privat,staged,visning_navn)
+      VALUES (v_person,false,false,false,'VERIFY record-version');
+    INSERT INTO source(id,slags,titel,udgave,aar)
+      VALUES (v_source,'DAA-udgave','VERIFY Aarbogen','VERIFY 2026',2026);
+    INSERT INTO private.extraction_run(
+      id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest
+    ) VALUES (v_run,v_source,'task15-verify','1','verify','verify',repeat('1',64),'{}');
+    INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
+      VALUES (v_record,v_source,'verify-record','person_entry',v_run);
+    INSERT INTO narrative(id,subjekt_type,subjekt_id,source_id,tekst,privat) VALUES
+      (v_bound_narrative,'person',v_person,v_source,'Bundet record-tekst',false),
+      (v_legacy_narrative,'person',v_person,v_source,'Legacy-tekst',false);
+    INSERT INTO private.narrative_record_publication(
+      narrative_id,source_record_id,record_label,citation_label,status
+    ) VALUES (
+      v_bound_narrative,v_record,'Linje I, nr. 1','s. 1','published'
+    );
+
+    SELECT jsonb_agg(to_jsonb(row) ORDER BY row.provenance_kind,row.record_label)
+      INTO v_rows
+      FROM public.public_person_bio_source_versions(ARRAY[v_person]) AS row;
+    IF jsonb_array_length(v_rows) <> 2 THEN
+      RAISE EXCEPTION 'FEJL: Task 15 returnerede ikke både publiceret record og legacy-narrativ';
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM jsonb_array_elements(v_rows) value
+       WHERE value->>'provenance_kind'='source_record'
+         AND nullif(value->>'record_ref','') IS NOT NULL
+         AND value->>'narrative_text'='Bundet record-tekst'
+    ) THEN
+      RAISE EXCEPTION 'FEJL: Task 15 mangler publiceret source_record-projektion';
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM jsonb_array_elements(v_rows) value
+       WHERE value->>'provenance_kind'='legacy_narrative'
+         AND value->>'record_ref' IS NULL
+         AND value->>'narrative_text'='Legacy-tekst'
+    ) THEN
+      RAISE EXCEPTION 'FEJL: Task 15 bevarer ikke legacy-narrativ separat';
+    END IF;
+    IF EXISTS (
+      SELECT 1 FROM jsonb_array_elements(v_rows) value
+       WHERE value ? 'source_record_id' OR value ? 'source_persona_id'
+          OR value ? 'raw_text' OR value ? 'score'
+    ) THEN
+      RAISE EXCEPTION 'FEJL: Task 15 lækker privat record-/reviewdata';
+    END IF;
+    RAISE NOTICE 'OK: Task 15 publicerer record-version og legacy-narrativ uden private felter';
+    RAISE EXCEPTION 'ROLLBACK_TASK15_TESTDATA';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM='ROLLBACK_TASK15_TESTDATA' THEN
+      RAISE NOTICE 'OK: Task 15-testdata rullet tilbage';
+    ELSE
+      RAISE;
+    END IF;
+  END;
+END $$;
+
 -- ===== Evidensimport Fase 2 / Task 4: privat append-only kildelag =====
 -- Selvstændig fixture. Den beviser katalog, kilde-isolation, event-versionering,
 -- append-only-adfærd og rettigheder og ruller altid sine data tilbage.
