@@ -4898,6 +4898,219 @@ GRANT EXECUTE ON FUNCTION red_decide_interpretation(uuid,integer,text,jsonb),
                           red_afgoer_source_persona(uuid,integer,text,bigint,text)
   TO authenticated;
 
+-- ---------- EVIDENS-PROMOTION: VALIDERET PREVIEW OG ATOMISK BATCH ----------
+-- Det private resultat er en ren kontraktkontrol. Den opretter eller ændrer
+-- aldrig kanonisk genealogi; den finder alene eksisterende assertions.
+CREATE OR REPLACE FUNCTION private.validate_interpretation_promotion_items(
+  p_items jsonb,p_lock boolean DEFAULT false
+) RETURNS TABLE(
+  item_ordinal integer,interpretation_id uuid,target_type text,target_id bigint,
+  eligible boolean,rule_key text,rule_version integer,reason_code text
+)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  IF jsonb_typeof(p_items)<>'array' OR jsonb_array_length(p_items)=0 THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_ITEMS_INVALID';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM jsonb_array_elements(p_items) AS element(item)
+     WHERE jsonb_typeof(element.item)<>'object'
+        OR (SELECT array_agg(key ORDER BY key)
+              FROM jsonb_object_keys(element.item) AS key)
+             IS DISTINCT FROM ARRAY['interpretation_id','target_id','target_type']
+        OR jsonb_typeof(element.item->'interpretation_id')<>'string'
+        OR coalesce(element.item->>'interpretation_id','') !~*
+             '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        OR jsonb_typeof(element.item->'target_type')<>'string'
+        OR element.item->>'target_type'<>'assertion'
+        OR jsonb_typeof(element.item->'target_id')<>'number'
+        OR coalesce(element.item->>'target_id','') !~ '^-?[0-9]+$'
+        OR length(element.item->>'target_id')>19
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_ITEMS_INVALID';
+  END IF;
+
+  -- Alle fortolkninger låses i samme orden, før den afhængige identitets- og
+  -- assertionkontrol udføres. Ukendte UUID'er bevares som fail-closed output.
+  IF p_lock THEN
+    PERFORM 1
+      FROM private.interpretation interpretation
+     WHERE interpretation.id=ANY(ARRAY(
+       SELECT (element.item->>'interpretation_id')::uuid
+         FROM jsonb_array_elements(p_items) AS element(item)
+     ))
+     ORDER BY interpretation.id FOR UPDATE;
+  END IF;
+
+  RETURN QUERY
+  WITH parsed AS (
+    SELECT ordinal::integer AS item_ordinal,
+           (element.item->>'interpretation_id')::uuid AS interpretation_id,
+           element.item->>'target_type' AS target_type,
+           (element.item->>'target_id')::bigint AS target_id,
+           count(*) OVER (
+             PARTITION BY (element.item->>'interpretation_id')::uuid,
+                          element.item->>'target_type',(element.item->>'target_id')::bigint
+           ) AS duplicate_count
+      FROM jsonb_array_elements(p_items) WITH ORDINALITY AS element(item,ordinal)
+  ), checked AS (
+    SELECT parsed.*,interpretation.status,interpretation.predicate,
+           interpretation.interpretation_kind,interpretation.value,
+           rule.rule_key,rule.rule_version,rule.expected_fact_type,rule.value_kind,
+           identity_state.canonical_person_id,
+           assertion.id AS assertion_id,assertion.vaerdi_tekst,assertion.date_raw,
+           fact.id AS fact_id,fact.subjekt_type,fact.subjekt_id,fact.faktatype,
+           EXISTS (
+             SELECT 1 FROM private.interpretation_observation observation
+              WHERE observation.interpretation_id=parsed.interpretation_id
+           ) AS has_observation,
+           EXISTS (
+             SELECT 1 FROM private.interpretation_promotion promotion
+              WHERE promotion.interpretation_id=parsed.interpretation_id
+                AND promotion.target_type=parsed.target_type
+                AND promotion.target_id=parsed.target_id
+           ) AS already_promoted
+      FROM parsed
+      LEFT JOIN private.interpretation interpretation ON interpretation.id=parsed.interpretation_id
+      LEFT JOIN private.interpretation_promotion_rule rule
+        ON rule.predicate=interpretation.predicate
+       AND rule.interpretation_kind=interpretation.interpretation_kind
+       AND rule.target_type=parsed.target_type
+       AND rule.status='active'
+      LEFT JOIN private.source_persona_identity identity_state
+        ON identity_state.source_persona_id=interpretation.source_persona_id
+       AND identity_state.decision_status='accepted'
+      LEFT JOIN public.assertion assertion
+        ON assertion.id=parsed.target_id AND assertion.target_type='fact'
+      LEFT JOIN public.fact fact ON fact.id=assertion.target_id
+  )
+  SELECT validated.item_ordinal,validated.interpretation_id,validated.target_type,validated.target_id,
+         validated.reason_code IS NULL AS eligible,validated.rule_key,validated.rule_version,
+         validated.reason_code
+    FROM (
+      SELECT checked.*,
+        CASE
+          WHEN checked.status IS NULL THEN 'EVIDENCE_INTERPRETATION_NOT_FOUND'
+          WHEN checked.status<>'accepted' THEN 'EVIDENCE_INTERPRETATION_NOT_ACCEPTED'
+          WHEN checked.rule_key IS NULL THEN 'EVIDENCE_PROMOTION_RULE_NOT_ACTIVE'
+          WHEN NOT checked.has_observation THEN 'EVIDENCE_INTERPRETATION_OBSERVATION_REQUIRED'
+          WHEN checked.canonical_person_id IS NULL THEN 'EVIDENCE_PROMOTION_IDENTITY_REQUIRED'
+          WHEN checked.assertion_id IS NULL OR checked.fact_id IS NULL THEN 'EVIDENCE_PROMOTION_TARGET_NOT_FOUND'
+          WHEN checked.subjekt_type<>'person' OR checked.subjekt_id<>checked.canonical_person_id
+            THEN 'EVIDENCE_PROMOTION_IDENTITY_MISMATCH'
+          WHEN checked.faktatype<>checked.expected_fact_type THEN 'EVIDENCE_PROMOTION_FACT_TYPE_MISMATCH'
+          WHEN checked.value_kind='text' AND lower(btrim(normalize(checked.value #>> '{}',NFC)))
+               IS DISTINCT FROM lower(btrim(normalize(checked.vaerdi_tekst,NFC)))
+            THEN 'EVIDENCE_PROMOTION_VALUE_MISMATCH'
+          WHEN checked.value_kind='date_raw' AND lower(btrim(normalize(checked.value #>> '{}',NFC)))
+               IS DISTINCT FROM lower(btrim(normalize(checked.date_raw,NFC)))
+            THEN 'EVIDENCE_PROMOTION_VALUE_MISMATCH'
+          WHEN checked.duplicate_count>1 THEN 'EVIDENCE_PROMOTION_DUPLICATE_ITEM'
+          WHEN checked.already_promoted THEN 'EVIDENCE_PROMOTION_ALREADY_PROMOTED'
+          ELSE NULL
+        END AS reason_code
+      FROM checked
+    ) validated
+   ORDER BY validated.item_ordinal;
+END $$;
+
+CREATE OR REPLACE FUNCTION private.preview_interpretation_promotions(
+  p_items jsonb,p_lock boolean DEFAULT false
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_items jsonb; v_hash text;
+BEGIN
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'interpretation_id',checked.interpretation_id,'target_type',checked.target_type,
+      'target_id',checked.target_id,'eligible',checked.eligible,
+      'rule_key',checked.rule_key,'rule_version',checked.rule_version,
+      'reason_code',checked.reason_code
+    ) ORDER BY checked.item_ordinal),'[]'::jsonb)
+    INTO v_items
+    FROM private.validate_interpretation_promotion_items(p_items,p_lock) checked;
+  v_hash:=md5(v_items::text);
+  RETURN jsonb_build_object('preview_hash',v_hash,'items',v_items);
+END $$;
+
+CREATE OR REPLACE FUNCTION red_preview_interpretation_promotions(
+  p_items jsonb
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN';
+  END IF;
+  RETURN private.preview_interpretation_promotions(p_items,false);
+END $$;
+
+CREATE OR REPLACE FUNCTION red_promote_interpretations_batch(
+  p_items jsonb,p_preview_hash text
+) RETURNS uuid
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_actor uuid:=auth.uid(); v_actor_name text; v_preview jsonb; v_reason text;
+  v_profile_hash text; v_batch_id uuid;
+BEGIN
+  IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN';
+  END IF;
+  SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text)
+    INTO v_actor_name FROM public.profiles WHERE id=v_actor;
+  IF v_actor_name IS NULL OR nullif(btrim(p_preview_hash),'') IS NULL THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_INVALID';
+  END IF;
+
+  -- Genberegnes med de stabilt sorterede interpretation-låse i samme txn.
+  v_preview:=private.preview_interpretation_promotions(p_items,true);
+  IF v_preview->>'preview_hash'<>p_preview_hash THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_PREVIEW_STALE';
+  END IF;
+  SELECT item->>'reason_code' INTO v_reason
+    FROM jsonb_array_elements(v_preview->'items') AS item
+   WHERE coalesce((item->>'eligible')::boolean,false)=false
+   ORDER BY (item->>'interpretation_id')::uuid
+   LIMIT 1;
+  IF v_reason IS NOT NULL THEN
+    RAISE EXCEPTION '%',v_reason;
+  END IF;
+  SELECT md5(coalesce(jsonb_agg(jsonb_build_object(
+      'rule_key',item->>'rule_key','rule_version',(item->>'rule_version')::integer
+    ) ORDER BY item->>'rule_key',(item->>'rule_version')::integer),'[]'::jsonb)::text)
+    INTO v_profile_hash
+    FROM jsonb_array_elements(v_preview->'items') AS item;
+  INSERT INTO private.interpretation_promotion_batch(
+    rule_profile_hash,preview_hash,promoted_by,promoted_by_name,requested_count
+  ) VALUES (
+    v_profile_hash,p_preview_hash,v_actor,v_actor_name,jsonb_array_length(v_preview->'items')
+  ) RETURNING id INTO v_batch_id;
+  INSERT INTO private.interpretation_promotion(
+    interpretation_id,rule_key,rule_version,batch_id,target_type,target_id,evidence,
+    promoted_by,promoted_by_name
+  )
+  SELECT (item->>'interpretation_id')::uuid,item->>'rule_key',
+         (item->>'rule_version')::integer,v_batch_id,item->>'target_type',
+         (item->>'target_id')::bigint,
+         jsonb_build_object('promotion_kind','validated_rule','preview_hash',p_preview_hash),
+         v_actor,v_actor_name
+    FROM jsonb_array_elements(v_preview->'items') AS item;
+  RETURN v_batch_id;
+END $$;
+
+-- Den tidligere brede enkeltrække-RPC opfylder ikke v1-kontrakten og må derfor
+-- ikke være en klientvej. Alle nye manuelle og bulk-promotions går gennem batch-RPC'en.
+REVOKE EXECUTE ON FUNCTION private.validate_interpretation_promotion_items(jsonb,boolean),
+                           private.preview_interpretation_promotions(jsonb,boolean)
+  FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION red_promote_interpretation(uuid,text,bigint,jsonb)
+  FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION red_preview_interpretation_promotions(jsonb),
+                       red_promote_interpretations_batch(jsonb,text)
+  FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_preview_interpretation_promotions(jsonb),
+                          red_promote_interpretations_batch(jsonb,text)
+  TO authenticated;
+
 -- Døde links: mentions hvis mål ikke længere findes.
 -- Dækker HELE vokabularet i parse_mentions. Tidligere manglede family, place, organisation,
 -- source, coat_of_arms og historical_event — et dødt link af de typer blev altså ikke bare

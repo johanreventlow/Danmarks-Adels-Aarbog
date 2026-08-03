@@ -1120,6 +1120,24 @@ DECLARE
   ];
   v_missing text[];
   v_error text;
+  v_actor uuid := '11000000-0000-0000-0000-000000000041';
+  v_run uuid := '22000000-0000-0000-0000-000000000041';
+  v_rendition uuid := '33000000-0000-0000-0000-000000000041';
+  v_occurrence uuid := '55000000-0000-0000-0000-000000000041';
+  v_observation uuid := '66000000-0000-0000-0000-000000000041';
+  v_persona uuid := '88000000-0000-0000-0000-000000000041';
+  v_interpretation_1 uuid := 'c1000000-0000-0000-0000-000000000041';
+  v_interpretation_2 uuid := 'c1000000-0000-0000-0000-000000000042';
+  v_interpretation_3 uuid := 'c1000000-0000-0000-0000-000000000043';
+  v_accepted_1 uuid;
+  v_accepted_2 uuid;
+  v_accepted_3 uuid;
+  v_preview jsonb;
+  v_before_promotions integer;
+  v_before_batches integer;
+  v_before_persons integer;
+  v_before_facts integer;
+  v_before_assertions integer;
 BEGIN
   SELECT array_agg(required_name ORDER BY required_name) INTO v_missing
     FROM unnest(v_required) AS required_name
@@ -1298,6 +1316,184 @@ BEGIN
   IF v_error NOT LIKE 'EVIDENCE_APPEND_ONLY%' THEN
     RAISE EXCEPTION 'FEJL: promotionbatches er ikke append-only: %',v_error;
   END IF;
+
+  -- Task 2-kontrakten er selvstændig og rulles helt tilbage. Den beviser
+  -- både previewets fail-closed begrundelser og batchens all-or-nothing-write.
+  IF to_regprocedure('public.red_preview_interpretation_promotions(jsonb)') IS NULL
+     OR to_regprocedure('public.red_promote_interpretations_batch(jsonb,text)') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: promotion-preview/RPC mangler';
+  END IF;
+  IF has_function_privilege('anon','public.red_preview_interpretation_promotions(jsonb)','EXECUTE')
+     OR has_function_privilege('anon','public.red_promote_interpretations_batch(jsonb,text)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_preview_interpretation_promotions(jsonb)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_promote_interpretations_batch(jsonb,text)','EXECUTE')
+     OR has_function_privilege('authenticated','public.red_promote_interpretation(uuid,text,bigint,jsonb)','EXECUTE')
+     OR has_function_privilege('authenticated',
+          'private.validate_interpretation_promotion_items(jsonb,boolean)','EXECUTE') THEN
+    RAISE EXCEPTION 'FEJL: promotion-RPC/validator ACL er ikke fail-closed';
+  END IF;
+  BEGIN
+    INSERT INTO auth.users(id,email)
+      VALUES (v_actor,'promotion-verify-editor@test.invalid');
+    INSERT INTO profiles(id,rolle,navn,email)
+      VALUES (v_actor,'redaktion','Promotion Verify Editor',
+              'promotion-verify-editor@test.invalid');
+    INSERT INTO person(id,levende,privat,status) VALUES
+      (-987650041,false,false,'promotion canonical'),
+      (-987650042,false,false,'promotion forkert person');
+    INSERT INTO source(id,titel,import_key)
+      VALUES (-987650041,'Promotion verify','verify:promotion');
+    INSERT INTO private.extraction_run(
+      id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest
+    ) VALUES (
+      v_run,-987650041,'promotion-run','1.0','verify','verify',repeat('4',64),'{}'
+    );
+    INSERT INTO private.source_rendition(
+      id,source_id,rendition_key,rendition_kind,content_sha256,metadata
+    ) VALUES (
+      v_rendition,-987650041,'promotion-rendition','text_layer',repeat('5',64),'{}'
+    );
+    INSERT INTO private.source_record_occurrence(
+      id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,
+      verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id
+    ) VALUES (
+      v_occurrence,v_rendition,'promotion-occurrence',1,1,0,12,
+      'Anna Verify', 'physical-promotion','structural-promotion',v_run
+    );
+    INSERT INTO private.source_observation(
+      id,occurrence_id,observation_kind,page_from,page_to,char_from,char_to,
+      verbatim_text,quality_status,extraction_method,extraction_run_id
+    ) VALUES (
+      v_observation,v_occurrence,'name_clause',1,1,0,12,'Anna Verify',
+      'clear','verify',v_run
+    );
+    INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id)
+      VALUES (v_persona,-987650041,'promotion-persona',v_run);
+    INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES
+      (-987650041,'person',-987650041,'navn'),
+      (-987650042,'person',-987650041,'titel'),
+      (-987650043,'person',-987650041,'navn'),
+      (-987650044,'person',-987650042,'navn');
+    INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,calendar,uforanderlig) VALUES
+      (-987650041,'fact',-987650041,'Anna Verify','gregoriansk',true),
+      (-987650042,'fact',-987650042,'Anna Verify','gregoriansk',true),
+      (-987650043,'fact',-987650043,'Anden tekst','gregoriansk',true),
+      (-987650044,'fact',-987650044,'Anna Verify','gregoriansk',true);
+    INSERT INTO private.interpretation(
+      id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,
+      predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id
+    ) VALUES
+      (v_interpretation_1,'c0000000-0000-0000-0000-000000000041',1,-987650041,v_persona,
+       'property','person.name','"Anna Verify"','1.0','source_statement',1,'proposed','verify',v_run),
+      (v_interpretation_2,'c0000000-0000-0000-0000-000000000042',1,-987650041,v_persona,
+       'property','person.name','"Anna Verify"','1.0','source_statement',1,'proposed','verify',v_run),
+      (v_interpretation_3,'c0000000-0000-0000-0000-000000000043',1,-987650041,v_persona,
+       'property','person.name','"Anna Verify"','1.0','source_statement',1,'proposed','verify',v_run);
+    INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal)
+      VALUES (v_interpretation_1,v_observation,'supporting',1),
+             (v_interpretation_2,v_observation,'supporting',1),
+             (v_interpretation_3,v_observation,'supporting',1);
+    SET CONSTRAINTS private.interpretation_has_observation IMMEDIATE;
+    SET CONSTRAINTS private.interpretation_has_observation DEFERRED;
+
+    PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+    SET LOCAL ROLE authenticated;
+    PERFORM red_decide_source_persona_identity(
+      v_persona,-987650041,0,'accepted','{"basis":"promotion verify"}'
+    );
+    SELECT red_decide_interpretation(v_interpretation_1,1,'accepted','{"basis":"promotion verify"}')
+      INTO v_accepted_1;
+    SELECT red_decide_interpretation(v_interpretation_2,1,'accepted','{"basis":"promotion verify"}')
+      INTO v_accepted_2;
+    SELECT red_decide_interpretation(v_interpretation_3,1,'accepted','{"basis":"promotion verify"}')
+      INTO v_accepted_3;
+
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650041)
+    ));
+    IF v_preview->'items'->0->>'eligible'<>'true'
+       OR v_preview->'items'->0->>'rule_key'<>'person-name-v1'
+       OR v_preview->'items'->0->>'rule_version'<>'1'
+       OR v_preview->>'preview_hash' IS NULL THEN
+      RAISE EXCEPTION 'FEJL: samme person/fact-type/tekst blev ikke previewet som eligible: %',v_preview;
+    END IF;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650044)
+    ));
+    IF v_preview->'items'->0->>'reason_code'<>'EVIDENCE_PROMOTION_IDENTITY_MISMATCH' THEN
+      RAISE EXCEPTION 'FEJL: forkert person gav ikke identity mismatch: %',v_preview;
+    END IF;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650042)
+    ));
+    IF v_preview->'items'->0->>'reason_code'<>'EVIDENCE_PROMOTION_FACT_TYPE_MISMATCH' THEN
+      RAISE EXCEPTION 'FEJL: titel-fact gav ikke fact-type mismatch: %',v_preview;
+    END IF;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650043)
+    ));
+    IF v_preview->'items'->0->>'reason_code'<>'EVIDENCE_PROMOTION_VALUE_MISMATCH' THEN
+      RAISE EXCEPTION 'FEJL: afvigende tekst gav ikke value mismatch: %',v_preview;
+    END IF;
+
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650041)
+    ));
+    RESET ROLE;
+    SELECT count(*) INTO v_before_persons FROM person;
+    SELECT count(*) INTO v_before_facts FROM fact;
+    SELECT count(*) INTO v_before_assertions FROM assertion;
+    SET LOCAL ROLE authenticated;
+    PERFORM red_promote_interpretations_batch(
+      jsonb_build_array(jsonb_build_object(
+        'interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650041
+      )),v_preview->>'preview_hash'
+    );
+    RESET ROLE;
+    IF (SELECT count(*) FROM private.interpretation_promotion
+         WHERE interpretation_id=v_accepted_1 AND target_id=-987650041)<>1
+       OR (SELECT count(*) FROM private.interpretation_promotion_batch
+           WHERE requested_count=1 AND promoted_by=v_actor)<>1 THEN
+      RAISE EXCEPTION 'FEJL: gyldig enkeltpromotion oprettede ikke præcis ét audit-link og batch';
+    END IF;
+    IF (SELECT count(*) FROM person)<>v_before_persons
+       OR (SELECT count(*) FROM fact)<>v_before_facts
+       OR (SELECT count(*) FROM assertion)<>v_before_assertions THEN
+      RAISE EXCEPTION 'FEJL: promotion ændrede kanonisk genealogi';
+    END IF;
+
+    SELECT count(*) INTO v_before_promotions FROM private.interpretation_promotion;
+    SELECT count(*) INTO v_before_batches FROM private.interpretation_promotion_batch;
+    SET LOCAL ROLE authenticated;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_2,'target_type','assertion','target_id',-987650041),
+      jsonb_build_object('interpretation_id',v_accepted_3,'target_type','assertion','target_id',-987650041),
+      jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650044)
+    ));
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_promote_interpretations_batch(jsonb_build_array(
+        jsonb_build_object('interpretation_id',v_accepted_2,'target_type','assertion','target_id',-987650041),
+        jsonb_build_object('interpretation_id',v_accepted_3,'target_type','assertion','target_id',-987650041),
+        jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650044)
+      ),v_preview->>'preview_hash');
+    EXCEPTION WHEN others THEN v_error:=SQLERRM;
+    END;
+    RESET ROLE;
+    IF v_error NOT LIKE 'EVIDENCE_PROMOTION_IDENTITY_MISMATCH%'
+       OR (SELECT count(*) FROM private.interpretation_promotion)<>v_before_promotions
+       OR (SELECT count(*) FROM private.interpretation_promotion_batch)<>v_before_batches THEN
+      RAISE EXCEPTION 'FEJL: ugyldig batch var ikke atomisk: fejl=%',v_error;
+    END IF;
+    RESET ROLE;
+    RAISE EXCEPTION 'ROLLBACK_PROMOTION_RPC_VERIFY';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM='ROLLBACK_PROMOTION_RPC_VERIFY' THEN
+      RAISE NOTICE 'OK: promotion-preview validerer identitet, fact-type og værdi; batch er atomisk';
+    ELSE
+      RAISE;
+    END IF;
+  END;
   RAISE NOTICE 'OK: promotionregler er eksplicitte, assertion-bundne og auditerbare';
 END $promotion_rule_verify$;
 

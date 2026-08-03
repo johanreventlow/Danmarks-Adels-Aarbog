@@ -574,6 +574,10 @@ begin
   for fn in select proname from pg_proc where proname like 'red\_%' escape '\'
   loop execute format('grant execute on function public.%I to authenticated;', fn); end loop;
 end $$;
+-- Den historiske enkeltrække-RPC mangler v1's persona-/regel-/værdikontrol.
+-- Den må derfor ikke blive genåbnet af den generelle redaktions-RPC-grant ovenfor.
+revoke execute on function public.red_promote_interpretation(uuid,text,bigint,jsonb)
+  from public, anon, authenticated;
 -- "from public" alene revoker ikke anon/authenticated (Supabase grantér dem direkte,
 -- jf. 2026-07-02-hærdningen nedenfor) — naevn anon eksplicit så hygiejne-hensigten reelt holder.
 revoke all on function public.current_rolle() from public, anon;
