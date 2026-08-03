@@ -32,23 +32,23 @@
 - Produces `private.narrative_record_publication(narrative_id,source_record_id,record_ref,record_label,citation_label,status)`.
 - Produces `public.public_person_bio_source_versions(p_person_ids bigint[])`, der returnerer `person_id`, `record_ref`, `source_label`, `record_label`, `narrative_text`, `citation_label`, `provenance_kind`.
 
-- [ ] **Step 1: Skriv den fejlede DB-kontrakt**
+- [x] **Step 1: Skriv den fejlede DB-kontrakt**
 
 Tilføj en isoleret `DO`-blok til `db-verify.sql`, der opretter én offentlig person, to DAA-narrativer, én privat source-record og én `published` binding. Den skal kræve to resultater: den bundne række har en ikke-NULL opaque `record_ref` og `provenance_kind='source_record'`; den ubundne række har `record_ref IS NULL` og `provenance_kind='legacy_narrative'`. Tilføj negative assertions for privat person, privat narrativ, draft-binding og læk af private UUID-felter.
 
-- [ ] **Step 2: Kør kontrakten rødt**
+- [x] **Step 2: Kør kontrakten rødt**
 
 Kør `psql -v ON_ERROR_STOP=1 -f db-verify.sql` mod den disposable database. Forvent fejl, fordi bindingstabellen og RPC'en ikke findes.
 
-- [ ] **Step 3: Implementér minimal binding og RPC**
+- [x] **Step 3: Implementér minimal binding og RPC**
 
 Opret append-only `private.narrative_record_publication` med én række pr. narrativ, UUID `record_ref DEFAULT gen_random_uuid()`, redaktionel `record_label`/`citation_label` og status `draft|published|withdrawn`. Opret `red_publicer_narrative_record(...)` og `red_tilbagetraek_narrative_record(...)` som redaktion-gatede `SECURITY DEFINER`-veje. RPC'en må kun returnere den navngivne syv-kolonners projektionsform; den filtrerer med `person_offentlig`, `narrative.privat=false`, DAA-slag og binding-status.
 
-- [ ] **Step 4: Kør DB-kontrakten grønt**
+- [x] **Step 4: Kør DB-kontrakten grønt**
 
 Kør den samme DB-verifikation på en frisk database og bekræft, at anon/authenticated ikke kan læse bindingstabellen eller kalde redaktionsmutationerne.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit** (`5dccf19`)
 
 ```bash
 git add schema.sql db-migrations.sql db-rls.sql db-verify.sql
@@ -67,28 +67,28 @@ git commit -m "feat: expose published source record narratives safely"
 - Produces `BioSourceVersion` med `recordRef: string | null`, `provenanceKind: 'source_record' | 'legacy_narrative'`, én tekst per publiceret record.
 - Bevarer den eksisterende `BioVersion`/`buildBioVersions` uændret til fallback-klienter.
 
-- [ ] **Step 1: Skriv en fejlet core-test**
+- [x] **Step 1: Skriv en fejlet core-test**
 
 Tilføj en test med to rækker fra samme bog men forskellige `recordRef`; resultatet skal have længde to, i deterministisk record-label rækkefølge, uden tekstsammenfletning. Tilføj en legacy-række og assertér `recordRef=null` samt `provenanceKind='legacy_narrative'`.
 
-- [ ] **Step 2: Kør testen rødt**
+- [x] **Step 2: Kør testen rødt**
 
 ```bash
 npm test --workspace packages/core -- --run src/__tests__/bioVersions.test.ts
 ```
 
-- [ ] **Step 3: Implementér den minimale builder**
+- [x] **Step 3: Implementér den minimale builder**
 
 Tilføj `buildBioSourceVersions(rows)` som validerer den offentlige RPC-form, filtrerer tom tekst og returnerer hver række individuelt. Den må aldrig modtage eller repræsentere private source-record UUID'er.
 
-- [ ] **Step 4: Kør core-testene grønt**
+- [x] **Step 4: Kør core-testene grønt** (`28` filer / `411` tests; typecheck grøn)
 
 ```bash
 npm test --workspace packages/core -- --run
 npm run typecheck --workspace packages/core
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit** (`861244e`)
 
 ```bash
 git add packages/core/src/bioVersions.ts packages/core/src/types.ts packages/core/src/index.ts packages/core/src/__tests__/bioVersions.test.ts
@@ -109,22 +109,22 @@ git commit -m "feat: preserve public source records in bio versions"
 - Web og mobil kalder kun `public_person_bio_source_versions`; den eksisterende editionsbaserede data bruges som fallback, når RPC'en endnu ikke er deployet.
 - UI viser bog + recordetiket per version og mærker `legacy_narrative` som overgangsdata.
 
-- [ ] **Step 1: Skriv fejlede klienttests**
+- [x] **Step 1: Skriv fejlede klienttests**
 
 Test RPC-mapping af to records fra samme bog, en legacy-række og et svar med et ekstra privat UUID-felt. UI-data skal bevare de to records, vise legacy-mærkning og ignorere ukendte felter. Test fallback, når RPC'en mangler, mod det eksisterende `buildBioVersions`-resultat.
 
-- [ ] **Step 2: Kør tests rødt**
+- [x] **Step 2: Kør tests rødt**
 
 ```bash
 npm test --workspace web -- --run
 npm test --workspace mobile -- --runInBand
 ```
 
-- [ ] **Step 3: Implementér on-demand læsning og visning**
+- [x] **Step 3: Implementér on-demand læsning og visning**
 
 Web erstatter kun detaljens versionsdatasæt; standardbio er stadig første version. Mobil henter versionsdata efter personvalg, annullerer/ignorerer forældede svar og beholder `person.bio` indtil RPC-svaret findes. Begge UI'er viser ikke en recordvælger, hvis kun én version er synlig.
 
-- [ ] **Step 4: Kør fuld klientverifikation**
+- [x] **Step 4: Kør fuld klientverifikation** (web: `57` filer / `661` tests og build grøn med lokale offentlige Supabase-pladsholdere; mobil: `30` suiter / `425` tests og `tsc --noEmit` grøn)
 
 ```bash
 npm test --workspace web -- --run
@@ -133,7 +133,7 @@ npm test --workspace mobile -- --runInBand
 npm run typecheck --workspace mobile
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit** (`5a06e64`, `d0bb4b6`)
 
 ```bash
 git add web/src mobile/src packages/core/src
@@ -145,15 +145,19 @@ git commit -m "feat: show distinct public source narratives"
 **Files:**
 - Modify: `docs/superpowers/plans/2026-08-02-evidensbaseret-genimport-og-multislaegt.md`
 
-- [ ] **Step 1: Kør frisk og migreret DB-verifikation**
+- [x] **Step 1: Kør frisk og migreret DB-verifikation**
+
+Frisk `daa_task15_fresh_20260803` passerede Task 15-kontrakten. Den samlede `db-verify.sql` nåede en eksisterende, ikke-Task-15-fejl ved den gamle visning-navn-regression. Den historiske lokale kopi `daa_baseline` manglede Supabase's `auth.users`; med en minimal lokal stub passerede Task 15-kontrakten efter `db-migrations.sql` og `db-rls.sql`, hvorefter den samlede verifier senere stoppede i en eksisterende rolleforventning (`EVIDENCE_ROLE_FORBIDDEN`). Ingen produktionsdatabase blev brugt.
 
 Kør `schema.sql`, `db-rls.sql` og `db-verify.sql` på en tom, lokal PostgreSQL-database og derefter migrationsvejen på en historisk kopi. Notér præcist resultat og eventuelle miljøbegrænsninger.
 
-- [ ] **Step 2: Bekræft deployrækkefølge**
+- [x] **Step 2: Bekræft deployrækkefølge**
+
+Deployrækkefølge: (1) anvend Supabase-migrationen og read-RPC'en, (2) smoke-test som anon at RPC'en kun giver den navngivne offentlige projektion, (3) deploy Vercel-webklienten og derefter mobilklienten. Ved rollback rulles klienten først tilbage; allerede publicerede bindingsrækker trækkes kun tilbage ved en eksplicit redaktionel beslutning. Produktion er ikke ændret og kræver særskilt accept.
 
 Dokumentér: Supabase-migration og read-RPC først, derefter Vercel; smoke-test anon-læsning; rollback af Vercel før eventuel tilbagetrækning af publiceringsbindinger. Produktionsmigration kræver særskilt brugeraccept.
 
-- [ ] **Step 3: Opdatér hovedplan og commit**
+- [x] **Step 3: Opdatér hovedplan og commit**
 
 Markér kun Task 15-felter som færdige ved observeret testresultat.
 

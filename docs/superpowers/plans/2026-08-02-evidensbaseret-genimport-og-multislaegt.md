@@ -983,6 +983,8 @@ git commit -m "feat: project accepted evidence into canonical genealogy"
 
 ### Task 15: Vis hver publiceret kilderecord separat
 
+**Status 2026-08-03:** Den additive, fail-closed publiceringsvej, record-bevarende klientkontrakt og web/mobil-læsning er implementeret og verificeret lokalt. Den oprindelige Task 15 er dog ikke afsluttet som helhed: den specificerer også et særskilt kanonisk resumé og tre-record/udgave-konfliktacceptance, som den nuværende datamodel ikke definerer en autoritativ writer for. Indtil den afstemning findes, er de publicerede kilderecords og legacy-overgangsdata den sikre, afgrænsede visning; der er ikke deployet til Supabase eller Vercel.
+
 **Files:**
 
 - Modify: schema.sql
