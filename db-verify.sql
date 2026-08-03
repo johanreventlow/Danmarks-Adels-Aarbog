@@ -1152,16 +1152,21 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'FEJL: promotionregel-laget har direkte API-rettigheder';
   END IF;
-  IF (
-    SELECT count(*)
-      FROM pg_catalog.pg_trigger t
-      JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid
-     WHERE NOT t.tgisinternal
-       AND c.relnamespace='private'::regnamespace
-       AND c.relname=ANY(v_required)
-       AND t.tgname='trg_'||c.relname||'_append_only'
-       AND t.tgfoid='private.reject_evidence_mutation()'::regprocedure
-  )<>2 THEN
+  IF EXISTS (
+    SELECT 1
+      FROM unnest(v_required) AS required_name
+     WHERE (
+       SELECT count(*)
+         FROM pg_catalog.pg_trigger t
+         JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid
+        WHERE NOT t.tgisinternal
+          AND c.relnamespace='private'::regnamespace
+          AND c.relname=required_name
+          AND t.tgname='trg_'||c.relname||'_append_only'
+          AND t.tgfoid='private.reject_evidence_mutation()'::regprocedure
+          AND t.tgenabled='O'
+     )<>1
+  ) THEN
     RAISE EXCEPTION 'FEJL: promotionregel-laget mangler append-only-triggere';
   END IF;
   IF (
@@ -1278,6 +1283,7 @@ BEGIN
   IF v_error NOT LIKE 'EVIDENCE_APPEND_ONLY%' THEN
     RAISE EXCEPTION 'FEJL: promotionregler er ikke append-only: %',v_error;
   END IF;
+  v_error:=NULL;
   BEGIN
     INSERT INTO private.interpretation_promotion_batch(
       rule_profile_hash,preview_hash,promoted_by,promoted_by_name,requested_count
