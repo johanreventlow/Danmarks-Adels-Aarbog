@@ -915,13 +915,14 @@ Hver batch har inputhash, profilversion, extractorversion, det effektive model-I
 
 Afvis eksplicitte påstande uden span, tekst som ikke kan genfindes, mentions uden for tekst, ukendte typer, persona uden record, ufuldstændig batch samt manglende, ukendt eller profildrivet model-/prompt-ID. Test, at ændret ambient settings ikke kan ændre den effektive model.
 
-- [ ] **Step 5: Test og commit**
+- [x] **Step 5: Test og commit**
 
-2026-08-03: den fokuserede Task-13-suite er grøn (16 tests), og resten af
-script-suiten er grøn med 411 pass, 1 forventet skip og 2 fravalgte
-dataafhængige 1939-tests. Den ufiltrerede suite er ikke grøn: fem eksisterende
-`test_escalate_merge.py`-fejl og to 1939-OCR-tests, der kræver gitignorerede
-arbejdsartefakter. Task 13 må ikke kaldes fuldt verificeret, før de er afklaret.
+2026-08-03: den fulde scriptsuite er grøn: `427 passed, 3 skipped`. De tre
+skips er afgrænsede integrationstests, som eksplicit kræver gitignorerede
+1939-arbejdsartefakter (identitetsregister, Calamari-OCR og `raw.txt`).
+`test_escalate_merge.py`-fixtures indeholder nu den R9-påkrævede locator, så
+de afprøver deres tilsigtede promotion-/mergekontrakt frem for at blive afvist
+tidligere af locator-gaten.
 
 ~~~bash
 /usr/bin/python3 -m pytest .claude/skills/daa-extract/scripts/test_evidence_extract.py -q

@@ -13,6 +13,8 @@ import subprocess
 import sys
 import tempfile
 
+import pytest
+
 import segment as structural_segment
 
 
@@ -278,6 +280,8 @@ def test_v2_faktisk_ocr_bevarer_v1_nummererede_byte_for_byte():
     repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
     ocr = os.path.join(
         repo, "work_1939_stamtavle", "full_ocr_calamari_r6_clean.txt")
+    if not os.path.isfile(ocr):
+        pytest.skip("kræver den gitignorerede Calamari-OCR-artefakt")
 
     v1, _ = run_structural_path(ocr, "1939")
     v2, _ = run_structural_path(ocr, "1939-v2")
@@ -299,6 +303,8 @@ def test_v2_faktisk_ocr_bevarer_v1_nummererede_byte_for_byte():
 def test_v2_faktisk_ocr_taelling_unikhed_fail_closed_og_determinisme():
     repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
     ocr = os.path.join(repo, "work_1939_stamtavle", "raw.txt")
+    if not os.path.isfile(ocr):
+        pytest.skip("kræver den gitignorerede 1939 raw.txt-artefakt")
 
     foerste, rapport = run_structural_path(ocr, "1939-v2")
     anden, _ = run_structural_path(ocr, "1939-v2")

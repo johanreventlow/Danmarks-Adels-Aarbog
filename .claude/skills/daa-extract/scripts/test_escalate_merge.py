@@ -2,11 +2,17 @@ import os, sys, unittest, tempfile
 sys.path.insert(0, os.path.dirname(__file__))
 import escalate_merge as em
 
-SRC = {("I", "5"): {"raw_text": "Iwan † 1261. Gift med Sofie.", "linje": "I", "nr": 5}}
+SRC = {("I", "5"): {
+    "raw_text": "Iwan † 1261. Gift med Sofie.", "linje": "I", "nr": 5,
+    "side": "1", "lokal_id": "I.5",
+}}
 KEY = ("I", "5")
 
 def rec(**kw):
-    base = {"linje": "I", "nr": 5, "nr_label": "5", "navn": "Iwan", "facts": [], "aegteskaber": []}
+    base = {
+        "linje": "I", "nr": 5, "nr_label": "5", "navn": "Iwan", "facts": [], "aegteskaber": [],
+        "side": "1", "lokal_id": "I.5",
+    }
     base.update(kw); return base
 
 class TestDecide(unittest.TestCase):
@@ -69,7 +75,8 @@ class TestMerge(unittest.TestCase):
         # union-binding af børn).
         src_med_kontekst = {
             "raw_text": "Iwan † 1261. Gift med Sofie.", "linje": "I", "nr": 5,
-            "kuld": "I", "aegteskab_kontekst": "af første ægteskab med Sofie",
+            "side": "1", "lokal_id": "I.5", "kuld": "I",
+            "aegteskab_kontekst": "af første ægteskab med Sofie",
         }
         reext = rec(facts=[{"faktatype": "død", "date_raw": "† 1261"}])
         esc = [{"linje": "I", "nr": 5, "nr_label": "5", "grunde": ["R8: ..."]}]
@@ -141,13 +148,16 @@ class TestMergeNrLabel(unittest.TestCase):
         # validate.main() skriver nu nr_label ind i review-recorden.
         # merge_escalated bruger _key() = (linje, nr_label or str(nr)).
         # Review-record skal matche og fjernes ved promote.
-        src_linje_15a = {"raw_text": "Peter til X. † 1700.", "linje": "I", "nr": 15, "nr_label": "15a"}
+        src_linje_15a = {
+            "raw_text": "Peter til X. † 1700.", "linje": "I", "nr": 15,
+            "nr_label": "15a", "side": "2", "lokal_id": "I.15a",
+        }
         src_map = {("I", "15a"): src_linje_15a}
         known = {"I": {15}}
-        reext_rec = {"linje": "I", "nr": 15, "nr_label": "15a", "navn": "Peter",
+        reext_rec = {"linje": "I", "nr": 15, "nr_label": "15a", "navn": "Peter", "side": "2", "lokal_id": "I.15a",
                      "facts": [{"faktatype": "død", "date_raw": "† 1700"}],
                      "aegteskaber": []}
-        snap_rec = {"linje": "I", "nr": 15, "nr_label": "15a", "navn": "Peter",
+        snap_rec = {"linje": "I", "nr": 15, "nr_label": "15a", "navn": "Peter", "side": "2", "lokal_id": "I.15a",
                     "facts": [], "aegteskaber": []}
         # Review-record med nr_label (som validate.main() nu skriver)
         review_rec = {"linje": "I", "nr": 15, "nr_label": "15a", "navn": "Peter",
