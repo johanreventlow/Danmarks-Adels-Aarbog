@@ -28,3 +28,22 @@ build_evidence_projection_plan <- function(persona_states) {
   })
   list(canonical_person_ids = sort(unique(vapply(provenance, `[[`, integer(1), "canonical_person_id"))), provenance = provenance)
 }
+
+# Transaktionsrammen er med vilje afhængighedsinjiceret. Den kan dermed testes
+# uden database, mens den konkrete RPostgres-writer senere blot leverer de fire
+# callbacks. En fejl efter BEGIN kan aldrig ende i et delvist commit.
+project_evidence_batch <- function(persona_states, begin, write, commit, rollback) {
+  plan <- build_evidence_projection_plan(persona_states)
+  begin()
+  committed <- FALSE
+  tryCatch({
+    for (row in plan$provenance) write(row)
+    commit()
+    committed <- TRUE
+  }, error = function(error) {
+    rollback()
+    stop(error)
+  })
+  if (!committed) stop("EVIDENCE_PROJECTION_COMMIT_REQUIRED")
+  plan
+}

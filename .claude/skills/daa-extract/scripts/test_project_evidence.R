@@ -35,3 +35,27 @@ testthat::test_that("en persona må ikke have modstridende accepterede kanoniske
     list(source_persona_id = "a", source_id = 1939L, record_key = "r-1", status = "accepted", canonical_person_id = 88L)
   )), "IDENTITY")
 })
+
+testthat::test_that("en hel accepteret batch skrives og committes samlet", {
+  calls <- character(); written <- list()
+  result <- project_evidence_batch(list(
+    list(source_persona_id = "a", source_id = 1939L, record_key = "r-1", status = "accepted", canonical_person_id = 77L),
+    list(source_persona_id = "b", source_id = 1939L, record_key = "r-2", status = "accepted", canonical_person_id = 77L)
+  ), begin = function() calls <<- c(calls, "begin"),
+  write = function(row) { calls <<- c(calls, "write"); written[[length(written) + 1L]] <<- row },
+  commit = function() calls <<- c(calls, "commit"), rollback = function() calls <<- c(calls, "rollback"))
+  testthat::expect_equal(calls, c("begin", "write", "write", "commit"))
+  testthat::expect_length(written, 2L)
+  testthat::expect_equal(result$canonical_person_ids, 77L)
+})
+
+testthat::test_that("skrivefejl ruller hele batchen tilbage", {
+  calls <- character(); n <- 0L
+  testthat::expect_error(project_evidence_batch(list(
+    list(source_persona_id = "a", source_id = 1939L, record_key = "r-1", status = "accepted", canonical_person_id = 77L),
+    list(source_persona_id = "b", source_id = 1939L, record_key = "r-2", status = "accepted", canonical_person_id = 77L)
+  ), begin = function() calls <<- c(calls, "begin"),
+  write = function(row) { n <<- n + 1L; calls <<- c(calls, "write"); if (n == 2L) stop("DB failed") },
+  commit = function() calls <<- c(calls, "commit"), rollback = function() calls <<- c(calls, "rollback")), "DB failed")
+  testthat::expect_equal(calls, c("begin", "write", "write", "rollback"))
+})
