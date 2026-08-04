@@ -40,8 +40,11 @@ denne audit.
 
 ## Stratificeret audit og mangler
 
-Det validerede personartefakt dækker 546 nummererede records på sider 496–598.
-Det indeholder bl.a. 208 records i 64 normaliserede navnedubletgrupper, 38 med
+Det validerede historiske artefakt dækker 546 **coverage-records** på sider
+496–598: 505 nummererede poster, 23 stamfædre og 25 oversigtsposter, minus
+syv eksplicitte oversigtsdubletter. Det er derfor forkert at omtale alle 546
+som nummererede personer. Artefaktet indeholder bl.a. 208 records i 64
+normaliserede navnedubletgrupper, 38 med
 flere ægteskaber, 81 med børnehenvisning, seks lange narrativer og 39 usikre
 records. Det er brugbare kandidatstrata for en ny fælleskontraktkørsel.
 
@@ -53,6 +56,22 @@ record-continuity for sådanne strukturer, placement-roller og sammenligning
 med 2018's nye profil kan derfor ikke verificeres. `record_key` i det gamle
 artefakt er en stabil historisk identitet, men er ikke bevis for en ny,
 profile-pinned source-record-accept.
+
+## Igangværende ankerbaseret rekonstruktion
+
+Den nye, deterministiske Calamari-vej er stadig **NO-GO**, men har en
+afgrænset, testet forbedring: den genfinder 502 nummererede kandidater mod de
+tidligere 483. De tre resterende korte kandidatlinjer forbliver bevidst
+afvist, indtil de har en eksplicit rå-structure-bro og PDF-side. Linje-,
+stamfader- og oversigtsstrukturen er endnu ikke genoprettet fra Calamari og må
+derfor ikke projekteres eller bruges som identitet.
+
+En privat review-template med alle 546 baseline-record-keys er oprettet med
+review-status unreviewed. Den indeholder ingen kandidat, accept,
+dubletafgørelse eller menneskearksbeslutning og er ikke et coverage-resultat.
+Den næste menneskelige gennemgang skal udfylde sådanne beslutninger med
+positive ankre; der må ikke genereres dem ud fra navn, nummer eller tekstlig
+lighed.
 
 ## Før 1939-A kan forelægges
 
