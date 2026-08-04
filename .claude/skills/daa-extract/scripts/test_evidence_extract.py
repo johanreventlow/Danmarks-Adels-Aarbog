@@ -1,9 +1,10 @@
+import json
 from dataclasses import replace
 
 import pytest
 
 import evidence_extract
-from evidence_extract import ExtractionError, complete_batch, load_profile, prepare_batch, reusable
+from evidence_extract import ExtractionError, complete_batch, load_profile, manifest_payload, prepare_batch, reusable
 
 
 RECORDS = [{"record_key": "record-a", "raw": "Født 1801."}, {"record_key": "record-b", "raw": "Gift 1820."}]
@@ -48,6 +49,15 @@ def test_only_identical_green_batch_is_reusable():
     green = complete_batch(pending, {"record_keys": ["record-a", "record-b"], "observations": []}, token_count=5, cost_usd=0.02)
     assert reusable(green, pending)
     assert not reusable(green, replace(pending, input_hash="changed"))
+
+
+def test_manifest_payload_has_json_stable_record_keys():
+    batch = prepare_batch("daa-2018-20-v1", RECORDS, extraction_version="extractor-1")
+
+    payload = manifest_payload(batch)
+
+    assert payload["record_keys"] == ["record-a", "record-b"]
+    assert payload == json.loads(json.dumps(payload))
 
 
 def _bundle():

@@ -93,6 +93,14 @@ class BatchManifest:
             raise ExtractionError("EXTRACTION_GREEN_ACCOUNTING_REQUIRED")
 
 
+def manifest_payload(manifest: BatchManifest) -> dict[str, Any]:
+    """Return the canonical JSON representation used for persisted manifests."""
+    manifest.validate()
+    payload = asdict(manifest)
+    payload["record_keys"] = list(manifest.record_keys)
+    return payload
+
+
 def prepare_batch(profile_id: str, records: Sequence[Mapping[str, Any]], *, extraction_version: str,
                   escalate: bool = False, escalation_reason: str | None = None) -> BatchManifest:
     """Create a deterministic manifest without reading model-related environment/settings."""
