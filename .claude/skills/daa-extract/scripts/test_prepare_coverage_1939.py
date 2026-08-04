@@ -7,6 +7,8 @@ from prepare_coverage_1939 import (
     build_candidates,
     main,
     materialize_coverage,
+    review_to_decisions,
+    validate_review_template,
     write_review_template,
 )
 
@@ -163,6 +165,57 @@ def test_cli_can_write_review_template_with_only_baseline_and_output(tmp_path):
     ]
 
 
+def test_cli_can_check_review_without_writing(tmp_path, capsys):
+    baseline = tmp_path / "baseline.json"
+    review = tmp_path / "review.json"
+    baseline.write_text('[{"record_key":"rk-1"}]', encoding="utf-8")
+    write_review_template(baseline, review)
+
+    assert main(["--check-review", str(review), "--baseline", str(baseline)]) == 0
+
+    assert json.loads(capsys.readouterr().out) == {
+        "review": str(review),
+        "entries": 1,
+    }
+
+
+def test_cli_can_convert_only_a_complete_checked_review_to_decisions(tmp_path, capsys):
+    baseline = tmp_path / "baseline.json"
+    review = tmp_path / "review.json"
+    decisions = tmp_path / "decisions.json"
+    baseline.write_text('[{"record_key":"rk-1"}]', encoding="utf-8")
+    template = write_review_template(baseline, review)
+    template["entries"][0].update({
+        "review_status": "menneskeark",
+        "reason": "ingen entydig bro",
+    })
+    review.write_text(json.dumps(template), encoding="utf-8")
+
+    assert main([
+        "--review-to-decisions", str(review),
+        "--baseline", str(baseline),
+        "--out", str(decisions),
+    ]) == 0
+
+    assert json.loads(capsys.readouterr().out) == {
+        "out": str(decisions),
+        "entries": 1,
+    }
+    assert json.loads(decisions.read_text(encoding="utf-8")) == {
+        "entries": [{
+            "baseline_record_key": "rk-1",
+            "reason": "ingen entydig bro",
+            "status": "menneskeark",
+        }]
+    }
+    with pytest.raises(FileExistsError):
+        main([
+            "--review-to-decisions", str(review),
+            "--baseline", str(baseline),
+            "--out", str(decisions),
+        ])
+
+
 def test_write_review_template_lists_each_baseline_key_once(tmp_path):
     baseline = tmp_path / "baseline.json"
     out = tmp_path / "review.json"
@@ -183,3 +236,62 @@ def test_write_review_template_lists_each_baseline_key_once(tmp_path):
     ]
     with pytest.raises(FileExistsError):
         write_review_template(baseline, out)
+
+
+def test_validate_review_template_requires_current_baseline(tmp_path):
+    baseline = tmp_path / "baseline.json"
+    review = tmp_path / "review.json"
+    baseline.write_text('[{"record_key":"rk-1","sider":"496","_v2_lokal_id":"I.1"}]', encoding="utf-8")
+    write_review_template(baseline, review)
+
+    assert validate_review_template(review, baseline)["entries"][0]["review_status"] == "unreviewed"
+
+    baseline.write_text('[{"record_key":"rk-1"},{"record_key":"rk-2"}]', encoding="utf-8")
+    with pytest.raises(ValueError, match="baseline SHA-256"):
+        validate_review_template(review, baseline)
+
+
+def test_validate_review_template_refuses_unknown_entry_fields(tmp_path):
+    baseline = tmp_path / "baseline.json"
+    review = tmp_path / "review.json"
+    baseline.write_text('[{"record_key":"rk-1"}]', encoding="utf-8")
+    template = write_review_template(baseline, review)
+    template["entries"][0]["guessed_person_id"] = "never-infer"
+    review.write_text(json.dumps(template), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="uautoriserede"):
+        validate_review_template(review, baseline)
+
+
+def test_review_to_decisions_refuses_unreviewed_and_preserves_explicit_fields():
+    review = {
+        "entries": [{
+            "baseline_record_key": "rk-1",
+            "review_status": "accepteret",
+            "candidate_id": "candidate-1",
+            "post_index": 2,
+            "calamari_span": {"char_from": 10, "char_to": 20},
+            "calamari_verbatim_text": "kildetekst",
+            "pdf_pages": [496],
+            "kind": "line_header",
+            "raw_char_from": 30,
+            "raw_char_to": 40,
+        }]
+    }
+
+    decisions = review_to_decisions(review)
+
+    assert decisions == {"entries": [{
+        "baseline_record_key": "rk-1",
+        "candidate_id": "candidate-1",
+        "post_index": 2,
+        "calamari_span": {"char_from": 10, "char_to": 20},
+        "calamari_verbatim_text": "kildetekst",
+        "pdf_pages": [496],
+        "kind": "line_header",
+        "raw_char_from": 30,
+        "raw_char_to": 40,
+        "status": "accepteret",
+    }]}
+    with pytest.raises(ValueError, match="unreviewed"):
+        review_to_decisions({"entries": [{"baseline_record_key": "rk-1", "review_status": "unreviewed"}]})

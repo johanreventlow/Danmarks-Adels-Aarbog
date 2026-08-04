@@ -213,6 +213,63 @@ def write_review_template(baseline_path: Path, out_path: Path) -> dict:
     return template
 
 
+def validate_review_template(review_path: Path, baseline_path: Path) -> dict:
+    """Check a private review file still belongs to exactly this baseline."""
+    review = _mapping(json.loads(review_path.read_text(encoding="utf-8")), "review")
+    if review.get("schema_version") != 1:
+        raise ValueError("review schema_version skal være 1")
+    if review.get("baseline_sha256") != _sha256(baseline_path):
+        raise ValueError("review baseline SHA-256 matcher ikke")
+    entries = review.get("entries")
+    if not isinstance(entries, list):
+        raise ValueError("review entries skal være en liste")
+    expected = _baseline_keys(baseline_path)
+    actual = [entry.get("baseline_record_key") for entry in entries if isinstance(entry, Mapping)]
+    if len(actual) != len(entries) or set(actual) != expected or len(actual) != len(set(actual)):
+        raise ValueError("review baseline-dækning fejler")
+    allowed_fields = {
+        "baseline_record_key",
+        "review_status",
+        "baseline_locator",
+        "candidate_id",
+        "post_index",
+        "calamari_span",
+        "calamari_verbatim_text",
+        "pdf_pages",
+        "kind",
+        "raw_char_from",
+        "raw_char_to",
+        "duplicate_of_baseline_record_key",
+        "reason",
+        "review_note",
+    }
+    for entry in entries:
+        unknown = set(entry) - allowed_fields
+        if unknown:
+            raise ValueError("review har uautoriserede felter")
+    return dict(review)
+
+
+def review_to_decisions(review: dict) -> dict:
+    """Convert only fully reviewed entries; never infer a decision or bridge."""
+    root = _mapping(review, "review")
+    entries = root.get("entries")
+    if not isinstance(entries, list):
+        raise ValueError("review entries skal være en liste")
+    decisions = []
+    for value in entries:
+        entry = dict(_mapping(value, "review entry"))
+        status = entry.pop("review_status", None)
+        entry.pop("baseline_locator", None)
+        if status == "unreviewed":
+            raise ValueError("unreviewed entry kan ikke materialiseres")
+        if status not in ALLOWED_STATUSES:
+            raise ValueError("ukendt review_status")
+        entry["status"] = status
+        decisions.append(entry)
+    return {"entries": decisions}
+
+
 def materialize_coverage(
     calamari_path: Path,
     raw_path: Path,
@@ -267,7 +324,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Materialisér én ny, privat og fail-closed 1939 coverage-fil."
     )
-    parser.add_argument("--make-review-template", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--make-review-template", action="store_true")
+    mode.add_argument("--check-review", type=Path)
+    mode.add_argument("--review-to-decisions", type=Path)
     parser.add_argument("--calamari", type=Path)
     parser.add_argument("--raw", type=Path)
     parser.add_argument("--pdf", type=Path)
@@ -280,6 +340,25 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("--make-review-template kræver --baseline og --out")
         template = write_review_template(args.baseline, args.out)
         print(json.dumps({"out": str(args.out), "entries": len(template["entries"])}, ensure_ascii=False))
+        return 0
+    if args.check_review is not None:
+        if args.baseline is None:
+            parser.error("--check-review kræver --baseline")
+        review = validate_review_template(args.check_review, args.baseline)
+        print(json.dumps({"review": str(args.check_review), "entries": len(review["entries"])}, ensure_ascii=False))
+        return 0
+    if args.review_to_decisions is not None:
+        if args.baseline is None or args.out is None:
+            parser.error("--review-to-decisions kræver --baseline og --out")
+        if args.out.exists():
+            raise FileExistsError(args.out)
+        decisions = review_to_decisions(
+            validate_review_template(args.review_to_decisions, args.baseline)
+        )
+        with args.out.open("x", encoding="utf-8") as handle:
+            json.dump(decisions, handle, ensure_ascii=False, indent=2, sort_keys=True)
+            handle.write("\n")
+        print(json.dumps({"out": str(args.out), "entries": len(decisions["entries"])}, ensure_ascii=False))
         return 0
     missing = [flag for flag, value in {
         "--calamari": args.calamari,
