@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
+import io
+import json
+from pathlib import Path
 from collections.abc import Mapping
 
 from coverage_1939 import ALLOWED_STATUSES, POSTKLASSER, validate_coverage
+import segment
 
 
 def _mapping(value: object, label: str) -> Mapping:
@@ -156,4 +162,70 @@ def assemble_coverage(
 
     bundle = {"schema_version": 1, "source": source, "entries": entries}
     validate_coverage(bundle, expected_baseline_keys=expected_baseline_keys)
+    return bundle
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _baseline_keys(path: Path) -> set[str]:
+    records = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(records, list):
+        raise ValueError("baseline skal være en liste")
+    keys = [record.get("record_key") for record in records if isinstance(record, Mapping)]
+    if len(keys) != len(records) or any(not isinstance(key, str) or not key for key in keys):
+        raise ValueError("baseline record_key mangler")
+    if len(keys) != len(set(keys)):
+        raise ValueError("baseline record_key er dublet")
+    return set(keys)
+
+
+def materialize_coverage(
+    calamari_path: Path,
+    raw_path: Path,
+    pdf_path: Path,
+    baseline_path: Path,
+    decisions_path: Path,
+    out_path: Path,
+) -> dict:
+    """Materialize one new private coverage bundle; never overwrite output."""
+    if out_path.exists():
+        raise FileExistsError(out_path)
+    calamari_text = calamari_path.read_text(encoding="utf-8")
+    decisions_root = _mapping(json.loads(decisions_path.read_text(encoding="utf-8")), "decisions")
+    decisions = decisions_root.get("entries")
+    if not isinstance(decisions, list):
+        raise ValueError("decisions entries skal være en liste")
+    bridges = [decision for decision in decisions
+               if isinstance(decision, Mapping) and decision.get("status") == "accepteret"]
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        posts = segment._segment_1939_v2(
+            calamari_text.splitlines(), segment.UDGAVE_PROFILER["1939-v2"]
+        )
+    candidates = build_candidates(calamari_text, posts, bridges)
+    simplified = []
+    for decision in decisions:
+        entry = dict(_mapping(decision, "decision"))
+        if entry.get("status") == "accepteret":
+            entry = {
+                "baseline_record_key": entry.get("baseline_record_key"),
+                "status": "accepteret",
+                "candidate_id": entry.get("candidate_id"),
+            }
+        simplified.append(entry)
+    bundle = assemble_coverage(
+        {
+            "edition": "1939",
+            "calamari_sha256": _sha256(calamari_path),
+            "raw_ocr_sha256": _sha256(raw_path),
+            "pdf_sha256": _sha256(pdf_path),
+        },
+        _baseline_keys(baseline_path),
+        simplified,
+        candidates,
+    )
+    with out_path.open("x", encoding="utf-8") as handle:
+        json.dump(bundle, handle, ensure_ascii=False, indent=2, sort_keys=True)
+        handle.write("\n")
     return bundle

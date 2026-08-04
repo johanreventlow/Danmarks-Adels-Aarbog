@@ -1,6 +1,8 @@
+import json
+
 import pytest
 
-from prepare_coverage_1939 import assemble_coverage, build_candidates
+from prepare_coverage_1939 import assemble_coverage, build_candidates, materialize_coverage
 
 
 def post(**overrides):
@@ -98,3 +100,40 @@ def source():
         "raw_ocr_sha256": "b" * 64,
         "pdf_sha256": "c" * 64,
     }
+
+
+def test_materialize_coverage_writes_complete_bundle_once(tmp_path):
+    calamari = tmp_path / "calamari.txt"
+    raw = tmp_path / "raw.txt"
+    pdf = tmp_path / "book.pdf"
+    baseline = tmp_path / "baseline.json"
+    decisions = tmp_path / "decisions.json"
+    out = tmp_path / "coverage.json"
+    text = "### PAGE 496 ###\n   1. Alfa † 1900.\n"
+    calamari.write_text(text, encoding="utf-8")
+    raw.write_text("raw structure", encoding="utf-8")
+    pdf.write_bytes(b"pdf")
+    baseline.write_text('[{"record_key":"rk-1"}]', encoding="utf-8")
+    start = text.index("   1.")
+    decisions.write_text(
+        json.dumps({"entries": [{
+            "baseline_record_key": "rk-1",
+            "status": "accepteret",
+            "candidate_id": "candidate-1",
+            "post_index": 0,
+            "calamari_span": {"char_from": start, "char_to": len(text)},
+            "calamari_verbatim_text": text[start:],
+            "pdf_pages": [496],
+            "kind": "line_header",
+            "raw_char_from": 0,
+            "raw_char_to": 3,
+        }]}),
+        encoding="utf-8",
+    )
+
+    result = materialize_coverage(calamari, raw, pdf, baseline, decisions, out)
+
+    assert result["entries"][0]["candidate"]["candidate_id"] == "candidate-1"
+    assert json.loads(out.read_text(encoding="utf-8")) == result
+    with pytest.raises(FileExistsError):
+        materialize_coverage(calamari, raw, pdf, baseline, decisions, out)
