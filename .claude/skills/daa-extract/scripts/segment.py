@@ -292,7 +292,7 @@ def _linje_header_1939(lines, i, profile):
     return None
 
 
-def _slaegtled_header_1939(line, profile):
+def _slaegtled_header_1939(line, profile, *, fresh_page=False):
     """OCR spreder bogstaverne; kun centreret sats må ændre gruppe-state.
 
     Venstrestillede ``Slægtled I.`` er ombrudte krydshenvisninger inde i
@@ -304,7 +304,7 @@ def _slaegtled_header_1939(line, profile):
     """
     kerne = re.sub(r'^[\s"“”\'’•*^]+', '', line)
     indryk = len(line) - len(kerne)
-    if indryk < 8:
+    if indryk < 8 and not fresh_page:
         return None
     uden_mellemrum = re.sub(r'\s+', '', kerne)
     match = profile['slaegtled_re'].match(uden_mellemrum.lower())
@@ -804,7 +804,10 @@ def _segment_1939(lines, profile):
                 afsnit_frisk = False
                 i += 1; continue
 
-        slaegtled_header = _slaegtled_header_1939(line, profile)
+        slaegtled_header = _slaegtled_header_1939(
+            line, profile,
+            fresh_page=(i > 0 and bool(profile['page_re'].match(lines[i - 1]))),
+        )
         if slaegtled_header:
             _flush_1939(posts, cur, pre_label); cur = None
             slaegtled, ukendt = slaegtled_header

@@ -116,6 +116,17 @@ def test_calamari_line_header_uses_page_roman_and_line_name():
     assert [post["linje"] for post in posts] == ["IV"]
 
 
+def test_calamari_generation_header_requires_fresh_page():
+    posts, _ = run_structural(
+        "### PAGE 520 ###\n"
+        "Første Slægtled.\n"
+        "   1. Ceder † 1900.\n",
+        "1939",
+    )
+
+    assert [post["slaegtled"] for post in posts] == ["Første"]
+
+
 # ------------------------------------------------------ v2 unnumbered records
 
 def test_v2_udskiller_stamfader_efter_centreret_slaegtledsanker():
