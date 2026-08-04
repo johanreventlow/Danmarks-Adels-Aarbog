@@ -1047,11 +1047,11 @@ git commit -m "feat: preserve distinct public source narratives"
 - Create: docs/superpowers/reviews/2018-evidence-pilot.md
 - Generated and ignored: pilotmanifest, batchoutput og reviewark i privat arbejdsmappe
 
-- [ ] **Step 1: Fastlæg pilotudvalg før kørsel**
+- [x] **Step 1: Fastlæg pilotudvalg før kørsel**
 
 Udvælg deterministisk mindst 30 personrecords: simple personer, lange biografier, flere ægteskaber, indgiftede, flere lineages, titler/embeder, usikre datoer, levende personer og — hvis korpus indeholder det — ægteskab mellem medlemmer fra forskellige slægtled. Tilføj mindst 10 strukturelle/non-person records med linjeindledning, slægtledsoverskrift, slægtsbeskrivelse, våbenbeskrivelse eller billedtekst. Repo-notatet indeholder kun record keys og aggregater, ikke persontekst.
 
-- [ ] **Step 2: Kontrollér databeskyttelse**
+- [x] **Step 2: Kontrollér databeskyttelse**
 
 Hvis ekstern model skal behandle levende personers tekst, stop og indhent særskilt godkendelse af databehandler, retention og destination. Ellers brug lokal behandling eller ikke-følsomt udvalg.
 
@@ -1116,19 +1116,19 @@ git commit -m "docs: report full 2018 evidence extraction"
 - Create: docs/superpowers/reviews/1939-text-quality-decision.md
 - Inspect only: råtekst, sidebilleder, OCR-metadata og segmenteringsrapporter
 
-- [ ] **Step 1: Udtag stratificeret sideprøve**
+- [x] **Step 1: Udtag stratificeret sideprøve**
 
 Medtag tæt sats, spalter, sideskift, oversigter, unummererede grundlæggere, ægteskaber, fodnoter og kendte dårlige OCR-sider.
 
-- [ ] **Step 2: Sammenlign råtekst og sidebillede**
+- [x] **Step 2: Sammenlign råtekst og sidebillede**
 
 Mål tegnfejl, tabte linjer, forkert læserækkefølge, sammenklistrede felter, sideskift og navne-/nummerfejl. Ændr ikke eksisterende råtekst.
 
-- [ ] **Step 3: Vælg dokumenteret vej**
+- [x] **Step 3: Vælg dokumenteret vej**
 
 Vælg eksisterende råtekst som frosset rendition, gen-OCR af udpegede sider som ny rendition eller fuld gen-OCR som ny rendition. Slet aldrig gammel rendition.
 
-- [ ] **Step 4: Commit beslutningen**
+- [x] **Step 4: Commit beslutningen**
 
 ~~~bash
 git diff --check

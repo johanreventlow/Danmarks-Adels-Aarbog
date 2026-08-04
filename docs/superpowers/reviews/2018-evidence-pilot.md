@@ -1,7 +1,8 @@
-# 2018-20 evidence-pilot: forberedende NO-GO
+# 2018-20 evidence-pilot: klar til privat udtræk
 
 **Dato:** 2026-08-03  
-**Status:** Ingen extraction, modelkørsel eller produktionsmutation er udført.
+**Status:** Deterministisk input, segmentering og et privat manifest er klar.
+Ingen modelkørsel eller produktionsmutation er udført.
 
 ## Lokal, tekstfri feasibility-kontrol
 
@@ -22,23 +23,27 @@ er der tilstrækkelig variation til den personlige del af en senere pilot:
 Tallene er kun aggregater; rapporten indeholder ingen personprosa eller
 personidentifikatorer.
 
-## Blokeringer
+## Løst inputgate
 
-Pilotens nødvendige kildeside findes ikke i dette worktree: der er ingen rå
-2018-20-PDF, tekst-rendition eller andet input, der kan hashes og bindes til et
-batchmanifest. `data/extracted-2026-06-18/` indeholder 591 tidligere
-strukturerede person-outputfiler, ikke den rå kildetekst. Den lokale database
-har desuden nul `private.source_record`-rækker for udgaven, og kan derfor ikke
-levere de mindst ti krævede strukturelle/non-person records.
+Den frosne PDF er nu tilgængelig og har SHA-256
+`3beadfc15e3fa1a4090589af56cd4e95599a9231e8f979dfb60c4e27bbd8252a`.
+Den lokale, ignorerede rendition af PDF-side 93--247 giver 591 segmenterede
+personposter og en clause-ledger med strukturelle observationer. Manifestet
+vælger deterministisk 30 entydigt afdøde poster (seks strata) samt ti
+strukturelle observationer. Manifestet, råteksten og posterne ligger kun i
+`work/task16-2018-pilot/` og indeholder ikke i denne rapport.
 
-47 levende poster findes i udgaven. Der foreligger ingen særskilt godkendelse
-af ekstern databehandler, retention eller destination for deres tekst. Ingen
-sådan tekst er sendt til en model.
+Der er ingen repræsenterede personer med flere kanoniske lineage-memberships i
+den historiske baseline; det noteres som et uopfyldt stratum, ikke som en
+syntetisk pilotkategori.
+
+47 levende poster findes i udgaven. Den godkendte policy er, at de ekskluderes
+helt fra eksterne modelbatches. To flertydige lokatorgrupper (`I-15`, `I-41`)
+er også ekskluderet, fordi `(linje,nr)` ikke er et entydigt anker. Ingen sådan
+tekst er sendt til en model.
 
 ## Beslutning
 
-**NO-GO for Task 16, step 3--5.** En ny pilot må først starte, når en frosset
-2018-20-rendition med inputhash er stillet til rådighed, de strukturelle records
-kan indgå i manifestet, og behandling af eventuel levende-persontekst er
-udtrykkeligt afklaret. Da kan et deterministisk, ikke-levende 30-personers
-udvalg dannes fra den målte population ovenfor.
+**GO for Task 16, step 3 (privat udtræk af manifestet).** Modelbatcher må kun
+indeholde de 30 navngivne afdøde, entydige forekomster. Step 4--5 forbliver
+åbne, indtil outputs er valideret og gennemgået i en separat database.
