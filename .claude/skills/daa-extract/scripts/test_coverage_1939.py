@@ -97,6 +97,41 @@ def test_rejects_candidate_without_raw_excerpt_hash():
 
 
 @pytest.mark.parametrize(
+    ("target", "message"),
+    [
+        ("ukendt", "ukendt dubletmål"),
+        ("rk-4", "må ikke pege på sig selv"),
+        ("rk-2", "skal være accepteret"),
+        ("rk-3", "skal være accepteret"),
+    ],
+)
+def test_rejects_duplicate_without_accepted_distinct_baseline_target(target, message):
+    with pytest.raises(ValueError, match=message):
+        validate_coverage(
+            bundle(
+                accepted("rk-1"),
+                duplicate("rk-2", "rk-1"),
+                parked("rk-3"),
+                duplicate("rk-4", target),
+            ),
+            expected_baseline_keys={"rk-1", "rk-2", "rk-3", "rk-4"},
+        )
+
+
+def test_accepts_multiple_duplicates_with_one_accepted_target():
+    result = validate_coverage(
+        bundle(
+            accepted("rk-1"),
+            duplicate("rk-2", "rk-1"),
+            duplicate("rk-3", "rk-1"),
+        ),
+        expected_baseline_keys={"rk-1", "rk-2", "rk-3"},
+    )
+
+    assert result["rk-3"]["duplicate_of_baseline_record_key"] == "rk-1"
+
+
+@pytest.mark.parametrize(
     ("value", "expected_keys", "message"),
     [
         (bundle(accepted("rk-1")), {"rk-1", "rk-2"}, "baseline-dækning fejler"),

@@ -8,6 +8,7 @@ from prepare_coverage_1939 import (
     build_candidates,
     main,
     materialize_coverage,
+    review_summary,
     review_to_decisions,
     validate_review_template,
     write_review_template,
@@ -414,6 +415,34 @@ def test_cli_review_summary_lists_each_unreviewed_record(tmp_path, capsys):
             {"baseline_record_key": "rk-2", "issue": "unreviewed"},
         ],
     }
+
+
+def test_review_summary_lists_invalid_duplicate_target(tmp_path):
+    baseline = tmp_path / "baseline.json"
+    review = tmp_path / "review.json"
+    baseline.write_text(
+        '[{"record_key":"rk-1"},{"record_key":"rk-2"}]',
+        encoding="utf-8",
+    )
+    template = write_review_template(baseline, review)
+    entries = {entry["baseline_record_key"]: entry for entry in template["entries"]}
+    entries["rk-1"].update({
+        "review_status": "eksplicit_dublet",
+        "duplicate_of_baseline_record_key": "missing-target",
+    })
+    entries["rk-2"].update({
+        "review_status": "menneskeark",
+        "reason": "ingen entydig bro",
+    })
+    review.write_text(json.dumps(template), encoding="utf-8")
+
+    summary = review_summary(review, baseline)
+
+    assert summary["ready_for_decisions"] is False
+    assert summary["blockers"] == [{
+        "baseline_record_key": "rk-1",
+        "issue": "ukendt dubletmål",
+    }]
 
 
 def test_review_to_decisions_refuses_unreviewed_and_preserves_explicit_fields():

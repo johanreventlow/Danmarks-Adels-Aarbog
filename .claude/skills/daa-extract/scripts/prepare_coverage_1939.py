@@ -12,7 +12,12 @@ from pathlib import Path
 from collections import Counter
 from collections.abc import Mapping
 
-from coverage_1939 import ALLOWED_STATUSES, POSTKLASSER, validate_coverage
+from coverage_1939 import (
+    ALLOWED_STATUSES,
+    POSTKLASSER,
+    duplicate_target_errors,
+    validate_coverage,
+)
 import segment
 
 
@@ -364,6 +369,13 @@ def validate_review_template(review_path: Path, baseline_path: Path) -> dict:
         errors = _review_entry_errors(entry)
         if errors:
             raise ValueError(errors[0])
+    entries_by_key = {
+        entry["baseline_record_key"]: entry
+        for entry in review["entries"]
+    }
+    target_errors = duplicate_target_errors(entries_by_key, status_field="review_status")
+    if target_errors:
+        raise ValueError(next(iter(target_errors.values())))
     return review
 
 
@@ -381,6 +393,14 @@ def review_summary(review_path: Path, baseline_path: Path) -> dict:
             blockers.append({"baseline_record_key": key, "issue": "unreviewed"})
         for error in _review_entry_errors(entry):
             blockers.append({"baseline_record_key": key, "issue": error})
+    entries_by_key = {
+        entry["baseline_record_key"]: entry
+        for entry in review["entries"]
+    }
+    for key, error in duplicate_target_errors(
+        entries_by_key, status_field="review_status"
+    ).items():
+        blockers.append({"baseline_record_key": key, "issue": error})
     return {
         "review": str(review_path),
         "entries": len(review["entries"]),

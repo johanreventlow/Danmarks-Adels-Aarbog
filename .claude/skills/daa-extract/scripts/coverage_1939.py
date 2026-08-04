@@ -77,6 +77,24 @@ def _validate_candidate(value: object, seen_ids: set[str], seen_spans: set[tuple
         raise ValueError("raw_excerpt_sha256 skal være SHA-256 med små bogstaver")
 
 
+def duplicate_target_errors(
+    entries: Mapping[str, Mapping], *, status_field: str = "status"
+) -> dict[str, str]:
+    """Return every duplicate target that lacks one accepted, distinct owner."""
+    errors: dict[str, str] = {}
+    for key, entry in entries.items():
+        if entry.get(status_field) != "eksplicit_dublet":
+            continue
+        target = entry.get("duplicate_of_baseline_record_key")
+        if target not in entries:
+            errors[key] = "ukendt dubletmål"
+        elif target == key:
+            errors[key] = "dublet må ikke pege på sig selv"
+        elif entries[target].get(status_field) != "accepteret":
+            errors[key] = "dubletmål skal være accepteret"
+    return errors
+
+
 def validate_coverage(bundle: dict, *, expected_baseline_keys: set[str]) -> dict[str, dict]:
     """Validate complete private 1939 coverage without I/O or input mutation."""
     root = _mapping(bundle, "coverage")
@@ -124,4 +142,7 @@ def validate_coverage(bundle: dict, *, expected_baseline_keys: set[str]) -> dict
 
     if seen_keys != expected_baseline_keys:
         raise ValueError("baseline-dækning fejler")
+    target_errors = duplicate_target_errors(result)
+    if target_errors:
+        raise ValueError(next(iter(target_errors.values())))
     return result
