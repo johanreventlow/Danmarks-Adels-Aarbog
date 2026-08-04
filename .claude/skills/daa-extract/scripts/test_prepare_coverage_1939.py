@@ -1,6 +1,6 @@
 import pytest
 
-from prepare_coverage_1939 import build_candidates
+from prepare_coverage_1939 import assemble_coverage, build_candidates
 
 
 def post(**overrides):
@@ -62,3 +62,39 @@ def test_build_candidates_preserves_explicit_exact_calamari_slice():
 def test_build_candidates_rejects_unanchored_or_ambiguous_bridge(bridges, posts, message):
     with pytest.raises(ValueError, match=message):
         build_candidates("1. Alfa\n2. Beta\n", posts, bridges)
+
+
+def test_assemble_coverage_resolves_only_known_candidate_ids():
+    candidates = build_candidates("1. Alfa\n2. Beta\n", [post()], [bridge()])
+
+    result = assemble_coverage(
+        source(),
+        {"rk-1", "rk-2"},
+        [
+            {"baseline_record_key": "rk-1", "status": "accepteret", "candidate_id": "candidate-1"},
+            {"baseline_record_key": "rk-2", "status": "menneskeark", "reason": "ingen-entydig-bro"},
+        ],
+        candidates,
+    )
+
+    assert result["entries"][0]["candidate"] == candidates[0]
+    assert result["entries"][1]["status"] == "menneskeark"
+
+
+def test_assemble_coverage_rejects_unknown_candidate_id():
+    with pytest.raises(ValueError, match="ukendt candidate_id"):
+        assemble_coverage(
+            source(),
+            {"rk-1"},
+            [{"baseline_record_key": "rk-1", "status": "accepteret", "candidate_id": "ukendt"}],
+            [],
+        )
+
+
+def source():
+    return {
+        "edition": "1939",
+        "calamari_sha256": "a" * 64,
+        "raw_ocr_sha256": "b" * 64,
+        "pdf_sha256": "c" * 64,
+    }

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from coverage_1939 import POSTKLASSER
+from coverage_1939 import ALLOWED_STATUSES, POSTKLASSER, validate_coverage
 
 
 def _mapping(value: object, label: str) -> Mapping:
@@ -110,3 +110,50 @@ def build_candidates(calamari_text: str, posts: list[dict], raw_bridges: list[di
         if previous_end > next_start:
             raise ValueError("Calamari-spans overlapper")
     return candidates
+
+
+def assemble_coverage(
+    source: dict,
+    expected_baseline_keys: set[str],
+    decisions: list[dict],
+    candidates: list[dict],
+) -> dict:
+    """Resolve reviewer decisions to candidates, then revalidate complete coverage."""
+    if not isinstance(decisions, list):
+        raise ValueError("decisions skal være en liste")
+    candidate_by_id: dict[str, dict] = {}
+    for candidate_value in candidates:
+        candidate = _mapping(candidate_value, "candidate")
+        candidate_id = candidate.get("candidate_id")
+        if not isinstance(candidate_id, str) or not candidate_id:
+            raise ValueError("candidate_id mangler")
+        if candidate_id in candidate_by_id:
+            raise ValueError("candidate_id forekommer flere gange")
+        candidate_by_id[candidate_id] = dict(candidate)
+
+    entries: list[dict] = []
+    for decision_value in decisions:
+        decision = _mapping(decision_value, "decision")
+        status = decision.get("status")
+        if status not in ALLOWED_STATUSES:
+            raise ValueError("ukendt status")
+        entry = {
+            "baseline_record_key": decision.get("baseline_record_key"),
+            "status": status,
+        }
+        if status == "accepteret":
+            candidate_id = decision.get("candidate_id")
+            if candidate_id not in candidate_by_id:
+                raise ValueError("ukendt candidate_id")
+            entry["candidate"] = candidate_by_id[candidate_id]
+        elif status == "eksplicit_dublet":
+            entry["duplicate_of_baseline_record_key"] = decision.get(
+                "duplicate_of_baseline_record_key"
+            )
+        else:
+            entry["reason"] = decision.get("reason")
+        entries.append(entry)
+
+    bundle = {"schema_version": 1, "source": source, "entries": entries}
+    validate_coverage(bundle, expected_baseline_keys=expected_baseline_keys)
+    return bundle
