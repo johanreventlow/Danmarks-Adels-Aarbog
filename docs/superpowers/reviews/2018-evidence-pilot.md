@@ -2,8 +2,9 @@
 
 **Dato:** 2026-08-04
 **Status:** Deterministisk input, segmentering og et privat manifest er klar.
-De 30 godkendte personsegmenter er materialiseret som private, profile-pinnede
-source records. Ingen modelkørsel eller produktionsmutation er udført.
+De 30 godkendte personsegmenter og ti godkendte strukturelle observationer er
+materialiseret som private, profile-pinnede source records. Ingen modelkørsel
+eller produktionsmutation er udført.
 
 ## Lokal, tekstfri feasibility-kontrol
 
@@ -45,9 +46,10 @@ tekst er sendt til en model.
 
 ## Beslutning
 
-**GO for Task 16, step 3 (privat udtræk af denne batch).** Den private ledger
-har 30 accepterede personrecords, og batchmanifestet er profile-pinnet til
-`daa-2018-20-v1` / `gpt-5.6-terra`; det har status `pending` og må kun indeholde
-disse 30 afdøde, entydige forekomster. De ti strukturelle observationer er
-parkeret, fordi de endnu mangler positive PDF-sideankre. Step 4--5 forbliver
+**GO for Task 16, step 3 (privat udtræk af de to batches).** Den private ledger
+har 40 accepterede source records: 30 afdøde, entydige personrecords og ti
+strukturelle observationer med eksakte spans og positive PDF-sideankre.
+Person- og strukturmanifestet er hver profile-pinnet til
+`daa-2018-20-v1` / `gpt-5.6-terra` og har status `pending`. De 47 levende og de
+to flertydige lokatorgrupper er fortsat helt udelukket. Step 4--5 forbliver
 åbne, indtil modeloutput er fuldt valideret og gennemgået i en separat database.
