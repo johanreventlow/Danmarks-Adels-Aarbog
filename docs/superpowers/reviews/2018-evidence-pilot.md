@@ -1,8 +1,10 @@
-# 2018-20 evidence-pilot: klar til privat udtræk
+# 2018-20 evidence-pilot: klar til privat source-record-accept
 
 **Dato:** 2026-08-03  
 **Status:** Deterministisk input, segmentering og et privat manifest er klar.
-Ingen modelkørsel eller produktionsmutation er udført.
+Ingen modelkørsel eller produktionsmutation er udført. Modeludtræk er lukket,
+indtil manifestets accepterede segmenter er materialiseret som private,
+profile-pinnede source records.
 
 ## Lokal, tekstfri feasibility-kontrol
 
@@ -44,6 +46,10 @@ tekst er sendt til en model.
 
 ## Beslutning
 
-**GO for Task 16, step 3 (privat udtræk af manifestet).** Modelbatcher må kun
-indeholde de 30 navngivne afdøde, entydige forekomster. Step 4--5 forbliver
+**NO-GO for Task 16, step 3 endnu.** En unik `(linje,nr)`-lokator er et
+udvalgskriterium, ikke et opaque `record_key`. Før privat modeludtræk skal den
+private source-record-ledger modtage en eksplicit accepteret record pr.
+pilotsegment, binde den til den frosne rendition og materialisere et
+validerbart evidence bundle. Først derefter må et profile-pinnet batchmanifest
+oprettes, og kun for de 30 afdøde, entydige forekomster. Step 4--5 forbliver
 åbne, indtil outputs er valideret og gennemgået i en separat database.
