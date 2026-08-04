@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from prepare_coverage_1939 import assemble_coverage, build_candidates, materialize_coverage
+from prepare_coverage_1939 import assemble_coverage, build_candidates, main, materialize_coverage
 
 
 def post(**overrides):
@@ -137,3 +137,8 @@ def test_materialize_coverage_writes_complete_bundle_once(tmp_path):
     assert json.loads(out.read_text(encoding="utf-8")) == result
     with pytest.raises(FileExistsError):
         materialize_coverage(calamari, raw, pdf, baseline, decisions, out)
+
+
+def test_cli_requires_all_private_input_paths():
+    with pytest.raises(SystemExit):
+        main([])

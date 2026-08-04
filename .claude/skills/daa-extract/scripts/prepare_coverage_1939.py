@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import argparse
 import hashlib
 import io
 import json
@@ -229,3 +230,25 @@ def materialize_coverage(
         json.dump(bundle, handle, ensure_ascii=False, indent=2, sort_keys=True)
         handle.write("\n")
     return bundle
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Materialisér én ny, privat og fail-closed 1939 coverage-fil."
+    )
+    parser.add_argument("--calamari", required=True, type=Path)
+    parser.add_argument("--raw", required=True, type=Path)
+    parser.add_argument("--pdf", required=True, type=Path)
+    parser.add_argument("--baseline", required=True, type=Path)
+    parser.add_argument("--decisions", required=True, type=Path)
+    parser.add_argument("--out", required=True, type=Path)
+    args = parser.parse_args(argv)
+    bundle = materialize_coverage(
+        args.calamari, args.raw, args.pdf, args.baseline, args.decisions, args.out
+    )
+    print(json.dumps({"out": str(args.out), "entries": len(bundle["entries"])}, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
