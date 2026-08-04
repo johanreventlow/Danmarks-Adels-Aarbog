@@ -263,6 +263,78 @@ def test_validate_review_template_refuses_unknown_entry_fields(tmp_path):
         validate_review_template(review, baseline)
 
 
+@pytest.mark.parametrize(
+    ("status", "fields", "message"),
+    [
+        ("menneskeark", {}, "reason"),
+        ("eksplicit_dublet", {}, "duplicate_of_baseline_record_key"),
+        ("accepteret", {
+            "candidate_id": "candidate-1",
+            "calamari_span": {"char_from": 0, "char_to": 1},
+            "calamari_verbatim_text": "A",
+            "pdf_pages": [496],
+            "kind": "line_header",
+            "raw_char_from": 0,
+            "raw_char_to": 1,
+        }, "post_index"),
+    ],
+)
+def test_validate_review_template_rejects_incomplete_review_decisions(
+    tmp_path, status, fields, message
+):
+    baseline = tmp_path / "baseline.json"
+    review = tmp_path / "review.json"
+    baseline.write_text('[{"record_key":"rk-1"}]', encoding="utf-8")
+    template = write_review_template(baseline, review)
+    template["entries"][0].update({"review_status": status, **fields})
+    review.write_text(json.dumps(template), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        validate_review_template(review, baseline)
+
+
+def test_validate_review_template_rejects_ill_typed_accepted_anchor(tmp_path):
+    baseline = tmp_path / "baseline.json"
+    review = tmp_path / "review.json"
+    baseline.write_text('[{"record_key":"rk-1"}]', encoding="utf-8")
+    template = write_review_template(baseline, review)
+    template["entries"][0].update({
+        "review_status": "accepteret",
+        "candidate_id": "candidate-1",
+        "post_index": "not-an-index",
+        "calamari_span": {"char_from": 0, "char_to": 1},
+        "calamari_verbatim_text": "A",
+        "pdf_pages": [496],
+        "kind": "line_header",
+        "raw_char_from": 0,
+        "raw_char_to": 1,
+    })
+    review.write_text(json.dumps(template), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="post_index"):
+        validate_review_template(review, baseline)
+
+
+def test_cli_review_summary_lists_each_unreviewed_record(tmp_path, capsys):
+    baseline = tmp_path / "baseline.json"
+    review = tmp_path / "review.json"
+    baseline.write_text('[{"record_key":"rk-2"},{"record_key":"rk-1"}]', encoding="utf-8")
+    write_review_template(baseline, review)
+
+    assert main(["--review-summary", str(review), "--baseline", str(baseline)]) == 0
+
+    assert json.loads(capsys.readouterr().out) == {
+        "review": str(review),
+        "entries": 2,
+        "status_counts": {"unreviewed": 2},
+        "ready_for_decisions": False,
+        "blockers": [
+            {"baseline_record_key": "rk-1", "issue": "unreviewed"},
+            {"baseline_record_key": "rk-2", "issue": "unreviewed"},
+        ],
+    }
+
+
 def test_review_to_decisions_refuses_unreviewed_and_preserves_explicit_fields():
     review = {
         "entries": [{

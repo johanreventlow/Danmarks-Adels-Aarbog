@@ -8,10 +8,27 @@ import hashlib
 import io
 import json
 from pathlib import Path
+from collections import Counter
 from collections.abc import Mapping
 
 from coverage_1939 import ALLOWED_STATUSES, POSTKLASSER, validate_coverage
 import segment
+
+
+_REVIEW_ACCEPTED_FIELDS = {
+    "candidate_id",
+    "post_index",
+    "calamari_span",
+    "calamari_verbatim_text",
+    "pdf_pages",
+    "kind",
+    "raw_char_from",
+    "raw_char_to",
+}
+_REVIEW_DECISION_FIELDS = _REVIEW_ACCEPTED_FIELDS | {
+    "duplicate_of_baseline_record_key",
+    "reason",
+}
 
 
 def _mapping(value: object, label: str) -> Mapping:
@@ -213,8 +230,8 @@ def write_review_template(baseline_path: Path, out_path: Path) -> dict:
     return template
 
 
-def validate_review_template(review_path: Path, baseline_path: Path) -> dict:
-    """Check a private review file still belongs to exactly this baseline."""
+def _read_review_template(review_path: Path, baseline_path: Path) -> dict:
+    """Read the structural review ledger contract shared by checks and reports."""
     review = _mapping(json.loads(review_path.read_text(encoding="utf-8")), "review")
     if review.get("schema_version") != 1:
         raise ValueError("review schema_version skal være 1")
@@ -250,6 +267,103 @@ def validate_review_template(review_path: Path, baseline_path: Path) -> dict:
     return dict(review)
 
 
+def _review_entry_errors(entry: Mapping) -> list[str]:
+    """Return semantic decision errors without attempting any source matching."""
+    status = entry.get("review_status")
+    if status == "unreviewed":
+        if _REVIEW_DECISION_FIELDS.intersection(entry):
+            return ["unreviewed må ikke have beslutningsfelter"]
+        return []
+    if status not in ALLOWED_STATUSES:
+        return ["ukendt review_status"]
+    if status == "accepteret":
+        missing = [
+            f"accepteret kræver {field}"
+            for field in sorted(_REVIEW_ACCEPTED_FIELDS)
+            if field not in entry
+        ]
+        if missing:
+            return missing
+        candidate_id = entry["candidate_id"]
+        if not isinstance(candidate_id, str) or not candidate_id.strip():
+            return ["candidate_id skal være en ikke-tom streng"]
+        try:
+            _positive_int(entry["post_index"], "post_index", zero_allowed=True)
+            span = _mapping(entry["calamari_span"], "calamari_span")
+            char_from = _positive_int(
+                span.get("char_from"), "calamari_span char_from", zero_allowed=True
+            )
+            char_to = _positive_int(
+                span.get("char_to"), "calamari_span char_to", zero_allowed=True
+            )
+            if char_from >= char_to:
+                return ["calamari_span skal have char_from < char_to"]
+            verbatim = entry["calamari_verbatim_text"]
+            if not isinstance(verbatim, str) or not verbatim:
+                return ["calamari_verbatim_text skal være en ikke-tom streng"]
+            _pages(entry["pdf_pages"], "pdf_pages")
+            kind = entry["kind"]
+            if not isinstance(kind, str) or not kind.strip():
+                return ["kind skal være en ikke-tom streng"]
+            raw_from = _positive_int(
+                entry["raw_char_from"], "raw_char_from", zero_allowed=True
+            )
+            raw_to = _positive_int(
+                entry["raw_char_to"], "raw_char_to", zero_allowed=True
+            )
+            if raw_from >= raw_to:
+                return ["raw_char_from skal være mindre end raw_char_to"]
+        except ValueError as error:
+            return [str(error)]
+        return []
+    if status == "eksplicit_dublet":
+        target = entry.get("duplicate_of_baseline_record_key")
+        if not isinstance(target, str) or not target.strip():
+            return ["eksplicit_dublet kræver duplicate_of_baseline_record_key"]
+        if _REVIEW_ACCEPTED_FIELDS.intersection(entry) or "reason" in entry:
+            return ["eksplicit_dublet må ikke have kandidat- eller reason-felter"]
+        return []
+    reason = entry.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        return ["menneskeark kræver reason"]
+    if _REVIEW_ACCEPTED_FIELDS.intersection(entry) or "duplicate_of_baseline_record_key" in entry:
+        return ["menneskeark må ikke have kandidat- eller dubletfelter"]
+    return []
+
+
+def validate_review_template(review_path: Path, baseline_path: Path) -> dict:
+    """Check a private review file is baseline-complete and semantically usable."""
+    review = _read_review_template(review_path, baseline_path)
+    for entry in review["entries"]:
+        errors = _review_entry_errors(entry)
+        if errors:
+            raise ValueError(errors[0])
+    return review
+
+
+def review_summary(review_path: Path, baseline_path: Path) -> dict:
+    """Report every decision blocker without writing or inferring any bridge."""
+    review = _read_review_template(review_path, baseline_path)
+    status_counts: Counter[str] = Counter()
+    blockers: list[dict[str, str]] = []
+    for entry in review["entries"]:
+        key = entry["baseline_record_key"]
+        status = entry.get("review_status")
+        label = status if isinstance(status, str) else "invalid"
+        status_counts[label] += 1
+        if status == "unreviewed":
+            blockers.append({"baseline_record_key": key, "issue": "unreviewed"})
+        for error in _review_entry_errors(entry):
+            blockers.append({"baseline_record_key": key, "issue": error})
+    return {
+        "review": str(review_path),
+        "entries": len(review["entries"]),
+        "status_counts": dict(sorted(status_counts.items())),
+        "ready_for_decisions": not blockers,
+        "blockers": blockers,
+    }
+
+
 def review_to_decisions(review: dict) -> dict:
     """Convert only fully reviewed entries; never infer a decision or bridge."""
     root = _mapping(review, "review")
@@ -259,12 +373,13 @@ def review_to_decisions(review: dict) -> dict:
     decisions = []
     for value in entries:
         entry = dict(_mapping(value, "review entry"))
+        errors = _review_entry_errors(entry)
+        if errors:
+            raise ValueError(errors[0])
         status = entry.pop("review_status", None)
         entry.pop("baseline_locator", None)
         if status == "unreviewed":
             raise ValueError("unreviewed entry kan ikke materialiseres")
-        if status not in ALLOWED_STATUSES:
-            raise ValueError("ukendt review_status")
         entry["status"] = status
         decisions.append(entry)
     return {"entries": decisions}
@@ -327,6 +442,7 @@ def main(argv: list[str] | None = None) -> int:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--make-review-template", action="store_true")
     mode.add_argument("--check-review", type=Path)
+    mode.add_argument("--review-summary", type=Path)
     mode.add_argument("--review-to-decisions", type=Path)
     parser.add_argument("--calamari", type=Path)
     parser.add_argument("--raw", type=Path)
@@ -346,6 +462,14 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("--check-review kræver --baseline")
         review = validate_review_template(args.check_review, args.baseline)
         print(json.dumps({"review": str(args.check_review), "entries": len(review["entries"])}, ensure_ascii=False))
+        return 0
+    if args.review_summary is not None:
+        if args.baseline is None:
+            parser.error("--review-summary kræver --baseline")
+        print(json.dumps(
+            review_summary(args.review_summary, args.baseline),
+            ensure_ascii=False,
+        ))
         return 0
     if args.review_to_decisions is not None:
         if args.baseline is None or args.out is None:
