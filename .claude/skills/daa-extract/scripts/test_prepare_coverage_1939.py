@@ -1,4 +1,5 @@
 import json
+import hashlib
 
 import pytest
 
@@ -11,6 +12,8 @@ from prepare_coverage_1939 import (
     validate_review_template,
     write_review_template,
 )
+
+RAW_TEXT = "x" * 128
 
 
 def post(**overrides):
@@ -34,13 +37,15 @@ def bridge(**overrides):
         "kind": "line_header",
         "raw_char_from": 100,
         "raw_char_to": 112,
+        "raw_verbatim_text": RAW_TEXT[100:112],
+        "raw_excerpt_sha256": hashlib.sha256(RAW_TEXT[100:112].encode("utf-8")).hexdigest(),
     }
     value.update(overrides)
     return value
 
 
 def test_build_candidates_preserves_explicit_exact_calamari_slice():
-    result = build_candidates("1. Alfa\n2. Beta\n", [post()], [bridge()])
+    result = build_candidates("1. Alfa\n2. Beta\n", RAW_TEXT, [post()], [bridge()])
 
     assert result == [{
         "candidate_id": "candidate-1",
@@ -51,8 +56,57 @@ def test_build_candidates_preserves_explicit_exact_calamari_slice():
             "kind": "line_header",
             "raw_char_from": 100,
             "raw_char_to": 112,
+            "raw_excerpt_sha256": hashlib.sha256(
+                RAW_TEXT[100:112].encode("utf-8")
+            ).hexdigest(),
         },
     }]
+
+
+def test_build_candidates_preserves_verified_raw_excerpt():
+    raw_text = "rå Alfa"
+    raw_digest = hashlib.sha256("rå".encode("utf-8")).hexdigest()
+
+    result = build_candidates(
+        "1. Alfa\n",
+        raw_text,
+        [post()],
+        [bridge(
+            raw_char_from=0,
+            raw_char_to=2,
+            raw_verbatim_text="rå",
+            raw_excerpt_sha256=raw_digest,
+        )],
+    )
+
+    assert result[0]["raw_structure_bridge"] == {
+        "kind": "line_header",
+        "raw_char_from": 0,
+        "raw_char_to": 2,
+        "raw_excerpt_sha256": raw_digest,
+    }
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"raw_char_from": 0, "raw_char_to": 99}, "ikke eksakt rå-bro"),
+        ({"raw_char_from": 0, "raw_char_to": 2, "raw_verbatim_text": "forkert"}, "ikke eksakt rå-bro"),
+        ({"raw_char_from": 0, "raw_char_to": 2, "raw_excerpt_sha256": "0" * 64}, "rå-bro SHA-256"),
+    ],
+)
+def test_build_candidates_rejects_unverified_raw_excerpt(overrides, message):
+    raw_text = "rå Alfa"
+    values = {
+        "raw_char_from": 0,
+        "raw_char_to": 2,
+        "raw_verbatim_text": "rå",
+        "raw_excerpt_sha256": hashlib.sha256("rå".encode("utf-8")).hexdigest(),
+    }
+    values.update(overrides)
+
+    with pytest.raises(ValueError, match=message):
+        build_candidates("1. Alfa\n", raw_text, [post()], [bridge(**values)])
 
 
 @pytest.mark.parametrize(
@@ -71,11 +125,11 @@ def test_build_candidates_preserves_explicit_exact_calamari_slice():
 )
 def test_build_candidates_rejects_unanchored_or_ambiguous_bridge(bridges, posts, message):
     with pytest.raises(ValueError, match=message):
-        build_candidates("1. Alfa\n2. Beta\n", posts, bridges)
+        build_candidates("1. Alfa\n2. Beta\n", RAW_TEXT, posts, bridges)
 
 
 def test_assemble_coverage_resolves_only_known_candidate_ids():
-    candidates = build_candidates("1. Alfa\n2. Beta\n", [post()], [bridge()])
+    candidates = build_candidates("1. Alfa\n2. Beta\n", RAW_TEXT, [post()], [bridge()])
 
     result = assemble_coverage(
         source(),
@@ -132,9 +186,11 @@ def test_materialize_coverage_writes_complete_bundle_once(tmp_path):
             "calamari_span": {"char_from": start, "char_to": len(text)},
             "calamari_verbatim_text": text[start:],
             "pdf_pages": [496],
-            "kind": "line_header",
-            "raw_char_from": 0,
-            "raw_char_to": 3,
+                "kind": "line_header",
+                "raw_char_from": 0,
+                "raw_char_to": 3,
+                "raw_verbatim_text": "raw",
+                "raw_excerpt_sha256": hashlib.sha256(b"raw").hexdigest(),
         }]}),
         encoding="utf-8",
     )

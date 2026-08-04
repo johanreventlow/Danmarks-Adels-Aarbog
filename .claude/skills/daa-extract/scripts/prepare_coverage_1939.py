@@ -63,10 +63,17 @@ def _post_pages(value: object) -> list[int]:
     raise ValueError("post sider har ugyldigt format")
 
 
-def build_candidates(calamari_text: str, posts: list[dict], raw_bridges: list[dict]) -> list[dict]:
+def build_candidates(
+    calamari_text: str,
+    raw_text: str,
+    posts: list[dict],
+    raw_bridges: list[dict],
+) -> list[dict]:
     """Return only candidates with one exact, explicit Calamari/raw bridge."""
     if not isinstance(calamari_text, str):
         raise ValueError("calamari_text skal være en streng")
+    if not isinstance(raw_text, str):
+        raise ValueError("raw_text skal være en streng")
     if not isinstance(posts, list) or not all(isinstance(post, Mapping) for post in posts):
         raise ValueError("posts skal være en liste af mappings")
     if not isinstance(raw_bridges, list):
@@ -112,8 +119,14 @@ def build_candidates(calamari_text: str, posts: list[dict], raw_bridges: list[di
             raise ValueError("rå-bro kind mangler")
         raw_from = _positive_int(bridge.get("raw_char_from"), "rå-bro raw_char_from", zero_allowed=True)
         raw_to = _positive_int(bridge.get("raw_char_to"), "rå-bro raw_char_to", zero_allowed=True)
-        if raw_from >= raw_to:
-            raise ValueError("rå-bro skal have positiv længde")
+        if raw_from >= raw_to or raw_to > len(raw_text):
+            raise ValueError("ikke eksakt rå-bro")
+        raw_verbatim = bridge.get("raw_verbatim_text")
+        if not isinstance(raw_verbatim, str) or raw_text[raw_from:raw_to] != raw_verbatim:
+            raise ValueError("ikke eksakt rå-bro")
+        raw_digest = bridge.get("raw_excerpt_sha256")
+        if raw_digest != hashlib.sha256(raw_verbatim.encode("utf-8")).hexdigest():
+            raise ValueError("rå-bro SHA-256 matcher ikke")
 
         postklasse = post.get("postklasse") or "nummereret"
         if postklasse not in POSTKLASSER:
@@ -127,6 +140,7 @@ def build_candidates(calamari_text: str, posts: list[dict], raw_bridges: list[di
                 "kind": kind,
                 "raw_char_from": raw_from,
                 "raw_char_to": raw_to,
+                "raw_excerpt_sha256": raw_digest,
             },
         })
 
@@ -397,6 +411,7 @@ def materialize_coverage(
     if out_path.exists():
         raise FileExistsError(out_path)
     calamari_text = calamari_path.read_text(encoding="utf-8")
+    raw_text = raw_path.read_text(encoding="utf-8")
     decisions_root = _mapping(json.loads(decisions_path.read_text(encoding="utf-8")), "decisions")
     decisions = decisions_root.get("entries")
     if not isinstance(decisions, list):
@@ -407,7 +422,7 @@ def materialize_coverage(
         posts = segment._segment_1939_v2(
             calamari_text.splitlines(), segment.UDGAVE_PROFILER["1939-v2"]
         )
-    candidates = build_candidates(calamari_text, posts, bridges)
+    candidates = build_candidates(calamari_text, raw_text, posts, bridges)
     simplified = []
     for decision in decisions:
         entry = dict(_mapping(decision, "decision"))
