@@ -76,6 +76,32 @@ def run_structural_path(path, udgave):
     return posts, stderr.getvalue()
 
 
+# ------------------------------------------------ Calamari post headers
+
+def test_calamari_header_accepts_short_name_with_death_marker():
+    posts, _ = run_structural("   7. Ceder † 1891.\n", "1939")
+
+    assert [post["nr_label"] for post in posts] == ["7"]
+
+
+def test_calamari_header_accepts_short_name_with_birth_marker():
+    posts, _ = run_structural("   8. Ceder, f. 1864.\n", "1939")
+
+    assert [post["nr_label"] for post in posts] == ["8"]
+
+
+def test_calamari_header_does_not_accept_source_reference():
+    posts, _ = run_structural("   7. : Se S. 521.\n", "1939")
+
+    assert posts == []
+
+
+def test_calamari_header_does_not_accept_ordinary_numbered_prose():
+    posts, _ = run_structural("   7. Ceder.\n", "1939")
+
+    assert posts == []
+
+
 # ------------------------------------------------------ v2 unnumbered records
 
 def test_v2_udskiller_stamfader_efter_centreret_slaegtledsanker():

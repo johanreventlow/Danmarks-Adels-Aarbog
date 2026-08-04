@@ -81,6 +81,13 @@ SPAERRET_NAVN_1939_RE = re.compile(
     r"'?(?:[^\W\d_]|1)(?:\s+(?:[^\W\d_]|1)){1,}",
     re.UNICODE,
 )
+# Calamari samler ofte den trykte navnesats for korte personposter. En enkelt
+# stor navneform er kun tilstrækkelig, når den straks efterfølges af en trykt
+# fødsels- eller dødsmarkør; ren prosa og løse navnereferencer forbliver ude.
+CALAMARI_SHORT_POST_HEADER_1939_RE = re.compile(
+    r"^[A-ZÆØÅ][A-Za-zÆØÅæøå-]{2,}(?:,?\s+(?:†|\*|f\.\s|d\.\s)|\.\s+(?:f\.\s|d\.\s))",
+    re.UNICODE,
+)
 DATO_FORTSAETTELSE_1939_RE = re.compile(r'^\d+\s+s\.\s*M\.', re.I)
 KILDELINJE_1939_RE = re.compile(r': .*S\.\s*\d+\.?\s*$', re.I)
 NAVNLOEST_BARN_1939_RE = re.compile(r'^(?:En Søn|en Datter)\b', re.I)
@@ -321,6 +328,7 @@ def _post_start_1939(line, profile):
         not efter_markoer and profile['rent_spoergsmaalstegn_re'].match(rest)
         or profile['navnloest_barn_re'].match(efter_markoer)
         or profile['spaerret_navn_re'].search(efter_markoer[:80])
+        or profile['calamari_short_post_header_re'].search(efter_markoer[:80])
     )
     if not gyldigt_hoved:
         return None
@@ -886,7 +894,8 @@ UDGAVE_PROFILER = {
         'pre_linje_label': 'Stamme',
         'page_noise_re': PAGE_NOISE_1939_RE,
         'unnumbered_re': UNNUMBERED_1939_RE,
-        'spaerret_navn_re': SPAERRET_NAVN_1939_RE,
+    'spaerret_navn_re': SPAERRET_NAVN_1939_RE,
+        'calamari_short_post_header_re': CALAMARI_SHORT_POST_HEADER_1939_RE,
         'dato_fortsaettelse_re': DATO_FORTSAETTELSE_1939_RE,
         'kildelinje_re': KILDELINJE_1939_RE,
         'navnloest_barn_re': NAVNLOEST_BARN_1939_RE,
