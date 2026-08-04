@@ -333,6 +333,20 @@ def validate_bundle(bundle: Union[Path, Mapping[str, Any]]) -> None:
             raise ContractError("duplicate occurrence id")
         occurrence_ids.add(item.occurrence_id)
 
+    source_record_ids = set()
+    source_record_keys = set()
+    for value in bundle["source_records"]:
+        if not isinstance(value, Mapping):
+            raise ContractError("source record must be an object")
+        record_id = _require(value.get("id"), "source record id")
+        record_key = _require(value.get("record_key"), "source record key")
+        if record_id in source_record_ids:
+            raise ContractError("duplicate source record id")
+        if record_key in source_record_keys:
+            raise ContractError("duplicate source record key")
+        source_record_ids.add(record_id)
+        source_record_keys.add(record_key)
+
     observation_ids = set()
     for item in observations:
         item.validate()
@@ -347,6 +361,8 @@ def validate_bundle(bundle: Union[Path, Mapping[str, Any]]) -> None:
         item.validate()
         if item.occurrence_id not in occurrence_ids:
             raise ContractError("anchor references an unknown occurrence")
+        if item.source_record_id not in source_record_ids:
+            raise ContractError("anchor references an unknown source record")
         if item.decision_status == "accepted":
             previous = accepted_by_occurrence.setdefault(item.occurrence_id, item.source_record_id)
             if previous != item.source_record_id:

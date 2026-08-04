@@ -76,6 +76,10 @@ def evidence_bundle(**overrides):
     return bundle
 
 
+def source_record(record_id, record_key):
+    return {"id": record_id, "record_key": record_key}
+
+
 def test_observation_requires_exact_source_span():
     with pytest.raises(ContractError, match="verbatim"):
         Observation(
@@ -136,6 +140,25 @@ def test_occurrence_can_remain_unanchored_without_data_loss():
     assert validate_bundle(evidence_bundle()) is None
 
 
+def test_bundle_rejects_anchor_to_unknown_source_record():
+    bundle = evidence_bundle(
+        source_record_anchor_events=[
+            RecordAnchorEvent("anchor-1", "occurrence-1", "missing-record", "accepted", 1),
+        ],
+    )
+    with pytest.raises(ContractError, match="unknown source record"):
+        validate_bundle(bundle)
+
+
+def test_bundle_rejects_duplicate_source_record_key():
+    bundle = evidence_bundle(source_records=[
+        source_record("record-1", "record-same"),
+        source_record("record-2", "record-same"),
+    ])
+    with pytest.raises(ContractError, match="duplicate source record key"):
+        validate_bundle(bundle)
+
+
 def test_two_renditions_can_map_to_one_logical_record():
     second_occurrence = RecordOccurrence(
         occurrence_id="occurrence-2",
@@ -154,6 +177,7 @@ def test_two_renditions_can_map_to_one_logical_record():
         verbatim_text="Gift 12. Maj 1814 med Anna.",
     )
     bundle = evidence_bundle(
+        source_records=[source_record("record-1", "record-key-1")],
         source_record_occurrences=[occurrence(), second_occurrence],
         source_record_anchor_events=[
             RecordAnchorEvent("anchor-1", "occurrence-1", "record-1", "accepted", 1),
@@ -165,6 +189,10 @@ def test_two_renditions_can_map_to_one_logical_record():
 
 def test_occurrence_has_at_most_one_accepted_record_anchor():
     bundle = evidence_bundle(
+        source_records=[
+            source_record("record-1", "record-key-1"),
+            source_record("record-2", "record-key-2"),
+        ],
         source_record_anchor_events=[
             RecordAnchorEvent("anchor-1", "occurrence-1", "record-1", "accepted", 1),
             RecordAnchorEvent("anchor-2", "occurrence-1", "record-2", "accepted", 1),
