@@ -344,6 +344,8 @@ def _review_entry_errors(entry: Mapping) -> list[str]:
             raw_digest = entry["raw_excerpt_sha256"]
             if not isinstance(raw_digest, str) or not _SHA256_RE.fullmatch(raw_digest):
                 return ["raw_excerpt_sha256 skal være SHA-256 med små bogstaver"]
+            if raw_digest != hashlib.sha256(raw_verbatim.encode("utf-8")).hexdigest():
+                return ["raw_excerpt_sha256 matcher ikke raw_verbatim_text"]
         except ValueError as error:
             return [str(error)]
         return []
@@ -416,6 +418,18 @@ def review_to_decisions(review: dict) -> dict:
     entries = root.get("entries")
     if not isinstance(entries, list):
         raise ValueError("review entries skal være en liste")
+    entries_by_key: dict[str, Mapping] = {}
+    for value in entries:
+        entry = _mapping(value, "review entry")
+        key = entry.get("baseline_record_key")
+        if not isinstance(key, str) or not key:
+            raise ValueError("baseline_record_key mangler")
+        if key in entries_by_key:
+            raise ValueError("dublet baseline_record_key")
+        entries_by_key[key] = entry
+    target_errors = duplicate_target_errors(entries_by_key, status_field="review_status")
+    if target_errors:
+        raise ValueError(next(iter(target_errors.values())))
     decisions = []
     for value in entries:
         entry = dict(_mapping(value, "review entry"))
