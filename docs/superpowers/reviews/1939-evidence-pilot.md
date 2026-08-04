@@ -73,6 +73,12 @@ Den næste menneskelige gennemgang skal udfylde sådanne beslutninger med
 positive ankre; der må ikke genereres dem ud fra navn, nummer eller tekstlig
 lighed.
 
+En accepteret bro kræver nu både eksakt Calamari-udsnit og eksakt rå-OCR-
+udsnit med koordinater, ordret råtekst og SHA-256 for selve udsnittet. Den
+canonical coverage bevarer rå-koordinater og udsnitshash, mens filhashen
+fortsat binder hele rå-OCR-kilden. Uafklarede poster kan stadig valideres som
+review-ark, men kan aldrig materialiseres som beslutninger eller coverage.
+
 ## Før 1939-A kan forelægges
 
 1. Mint og acceptér source records — også de relevante non-person strukturer —
