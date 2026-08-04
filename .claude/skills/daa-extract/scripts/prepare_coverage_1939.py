@@ -182,6 +182,25 @@ def _baseline_keys(path: Path) -> set[str]:
     return set(keys)
 
 
+def write_review_template(baseline_path: Path, out_path: Path) -> dict:
+    """Write a new, decision-free private review ledger for every baseline key."""
+    if out_path.exists():
+        raise FileExistsError(out_path)
+    keys = sorted(_baseline_keys(baseline_path))
+    template = {
+        "schema_version": 1,
+        "baseline_sha256": _sha256(baseline_path),
+        "entries": [
+            {"baseline_record_key": key, "review_status": "unreviewed"}
+            for key in keys
+        ],
+    }
+    with out_path.open("x", encoding="utf-8") as handle:
+        json.dump(template, handle, ensure_ascii=False, indent=2, sort_keys=True)
+        handle.write("\n")
+    return template
+
+
 def materialize_coverage(
     calamari_path: Path,
     raw_path: Path,

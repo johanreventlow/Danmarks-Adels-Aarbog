@@ -2,7 +2,13 @@ import json
 
 import pytest
 
-from prepare_coverage_1939 import assemble_coverage, build_candidates, main, materialize_coverage
+from prepare_coverage_1939 import (
+    assemble_coverage,
+    build_candidates,
+    main,
+    materialize_coverage,
+    write_review_template,
+)
 
 
 def post(**overrides):
@@ -142,3 +148,19 @@ def test_materialize_coverage_writes_complete_bundle_once(tmp_path):
 def test_cli_requires_all_private_input_paths():
     with pytest.raises(SystemExit):
         main([])
+
+
+def test_write_review_template_lists_each_baseline_key_once(tmp_path):
+    baseline = tmp_path / "baseline.json"
+    out = tmp_path / "review.json"
+    baseline.write_text('[{"record_key":"rk-2"},{"record_key":"rk-1"}]', encoding="utf-8")
+
+    result = write_review_template(baseline, out)
+
+    assert result["baseline_sha256"]
+    assert result["entries"] == [
+        {"baseline_record_key": "rk-1", "review_status": "unreviewed"},
+        {"baseline_record_key": "rk-2", "review_status": "unreviewed"},
+    ]
+    with pytest.raises(FileExistsError):
+        write_review_template(baseline, out)
