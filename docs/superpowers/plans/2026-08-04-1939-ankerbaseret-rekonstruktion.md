@@ -16,6 +16,20 @@ trackede kode accepterer eller afviser dem, men opfinder aldrig et match.
 **Tech Stack:** Python 3 standardbibliotek, pytest, frosne private OCR/PDF
 artefakter og eksisterende `.claude/skills/daa-extract/scripts/segment.py`.
 
+## Execution status — 2026-08-04
+
+- **Task 1 complete:** fail-closed coverage-kontrakt og syntetiske negative
+  tests er implementeret.
+- **Task 2 complete (afgrænset):** Calamari genfinder 502 nummererede
+  kandidater; kun dokumenterede korte navne med livshændelsesmarkør accepteres.
+- **Task 3 complete:** eksplicitte spans, PDF-sider og rå structure-broer
+  valideres uden tekstlig eller navnebaseret matching.
+- **Task 4 in progress:** private materialiserings- og review-template-CLI'er
+  findes, men der er endnu ingen accepterede bridge-/coverage-beslutninger.
+- **Task 5 blocked by design:** den endelige GO/NO-GO-materialisering kan først
+  køres, når menneskearket har eksplicitte beslutninger. Ingen database- eller
+  faktapipeline-task afhænger af en uafklaret automatisering.
+
 ## Global Constraints
 
 - Calamari er primær ordret rendition; rå OCR leverer kun dokumenteret
