@@ -102,6 +102,20 @@ def test_calamari_header_does_not_accept_ordinary_numbered_prose():
     assert posts == []
 
 
+# ------------------------------------------------ Calamari line headers
+
+def test_calamari_line_header_uses_page_roman_and_line_name():
+    posts, _ = run_structural(
+        "### PAGE 520 ###\n"
+        "IV.\n"
+        "Den syntetiske Linje.\n"
+        "   1. Ceder † 1900.\n",
+        "1939",
+    )
+
+    assert [post["linje"] for post in posts] == ["IV"]
+
+
 # ------------------------------------------------------ v2 unnumbered records
 
 def test_v2_udskiller_stamfader_efter_centreret_slaegtledsanker():

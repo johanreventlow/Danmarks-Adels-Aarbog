@@ -72,6 +72,7 @@ PAGE_NOISE_1939_RE = re.compile(r'^\s*(?:Reventlow\s*\.?|\d{1,4})[\s.•*]*$', r
 # centreret romertal (evt. med .,-suffiks; OCR: IL=II) + navnelinje + "(S. nn).".
 LINJE_BLOK_ROMAN_1939_RE = re.compile(r'^\s{15,}([IVXL]{1,6})[.,]?\s*$')
 LINJE_NAVN_1939_RE = re.compile(r'\bLinjen?\b.*\.\s*$', re.I)
+CALAMARI_LINJE_ROMAN_1939_RE = re.compile(r'^\s*([IVXL]{1,6})[.,]?\s*$', re.I)
 SIDEHENVISNING_1939_RE = re.compile(r'^\s*\(S\.\s*\d+\)\.?\s*$')
 UNNUMBERED_1939_RE = re.compile(
     r"^\s{0,4}'?(?:[^\W\d_]|1)(?:\s+(?:[^\W\d_]|1)){1,}",
@@ -266,6 +267,16 @@ def _linje_header_1939(lines, i, profile):
     afsnit og navnelinjen som gruppekontekst.
     """
     line = lines[i]
+    # Calamari mister centreringen, men bevarer på en frisk side den komplette
+    # trykte blok: romertal efterfulgt af linjenavn. En løs romerreference i
+    # prosa kan aldrig opfylde side- og navnekravet samtidig.
+    calamari = CALAMARI_LINJE_ROMAN_1939_RE.match(line)
+    if (calamari and i > 0 and profile['page_re'].match(lines[i - 1])
+            and i + 1 < len(lines) and profile['linje_navn_re'].search(lines[i + 1])):
+        forbrug = 2
+        if i + 2 < len(lines) and profile['sidehenvisning_re'].match(lines[i + 2]):
+            forbrug = 3
+        return _normaliser_romertal_1939(calamari.group(1), profile), forbrug
     m = profile['linje_blok_roman_re'].match(line)
     if m and i + 1 < len(lines):
         naeste = lines[i + 1]
