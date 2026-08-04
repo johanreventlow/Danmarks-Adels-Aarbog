@@ -3,7 +3,8 @@ import copy
 import pytest
 
 from evidence_contract import validate_bundle
-from source_record_ledger import LedgerError, materialize
+from evidence_extract import prepare_batch
+from source_record_ledger import LedgerError, batch_records, materialize
 
 
 TEXT = "Født 1801."
@@ -88,3 +89,19 @@ def test_materialize_returns_a_contract_valid_bundle():
 
     assert validate_bundle(bundle) is None
     assert bundle["source_record_anchor_events"][0]["decision_status"] == "accepted"
+
+
+def test_batch_records_bind_verbatim_text_to_the_accepted_record_key():
+    _, bundle = materialize(review(), empty_ledger())
+
+    records = batch_records(bundle)
+    batch = prepare_batch("daa-2018-20-v1", records, extraction_version="ledger-1")
+    changed = prepare_batch("daa-2018-20-v1", [
+        {**records[0], "verbatim_text": "ændret"},
+    ], extraction_version="ledger-1")
+
+    assert records == [{
+        "record_key": bundle["source_records"][0]["record_key"],
+        "verbatim_text": TEXT,
+    }]
+    assert batch.input_hash != changed.input_hash

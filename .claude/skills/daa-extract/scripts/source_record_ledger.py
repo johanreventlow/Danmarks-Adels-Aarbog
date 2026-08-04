@@ -201,3 +201,34 @@ def materialize(review: Mapping[str, Any], ledger: Mapping[str, Any]) -> tuple[d
     except ContractError as exc:
         raise LedgerError("genereret bundle er ugyldigt") from exc
     return next_ledger, bundle
+
+
+def batch_records(bundle: Mapping[str, Any]) -> list[dict[str, str]]:
+    """Return verbatim model inputs only for unambiguous accepted records."""
+    try:
+        validate_bundle(bundle)
+    except ContractError as exc:
+        raise LedgerError("bundle er ugyldigt") from exc
+    record_keys = {
+        str(record["id"]): str(record["record_key"])
+        for record in bundle["source_records"]
+    }
+    occurrences = {
+        str(occurrence["occurrence_id"]): str(occurrence["verbatim_text"])
+        for occurrence in bundle["source_record_occurrences"]
+    }
+    accepted: dict[str, str] = {}
+    for anchor in bundle["source_record_anchor_events"]:
+        if anchor["decision_status"] != "accepted":
+            continue
+        source_record_id = str(anchor["source_record_id"])
+        occurrence_id = str(anchor["occurrence_id"])
+        if source_record_id in accepted:
+            raise LedgerError("flere accepterede renditioner for source record")
+        accepted[source_record_id] = occurrences[occurrence_id]
+    if not accepted:
+        raise LedgerError("ingen accepterede source records")
+    return [
+        {"record_key": record_keys[source_record_id], "verbatim_text": accepted[source_record_id]}
+        for source_record_id in sorted(accepted, key=lambda value: record_keys[value])
+    ]
