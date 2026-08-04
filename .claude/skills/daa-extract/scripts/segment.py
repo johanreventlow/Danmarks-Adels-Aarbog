@@ -118,6 +118,22 @@ def norm(s):
     return re.sub(r'\s+', ' ', s).strip()
 
 
+def segmentation_summary_1939(posts, source_text):
+    """Returnér kun reproducerbar 1939-strukturstatistik, aldrig posttekst."""
+    by_linje = {}
+    for post in posts:
+        linje = post.get("linje") or "<none>"
+        by_linje[linje] = by_linje.get(linje, 0) + 1
+    with_lokal_id = sum(bool(post.get("lokal_id")) for post in posts)
+    return {
+        "source_sha256": hashlib.sha256(source_text.encode("utf-8")).hexdigest(),
+        "posts": len(posts),
+        "with_lokal_id": with_lokal_id,
+        "without_lokal_id": len(posts) - with_lokal_id,
+        "by_linje": dict(sorted(by_linje.items())),
+    }
+
+
 def flush(posts, cur):
     if cur and cur.get('_lines'):
         cur['sider'] = (str(cur['_pages'][0]) if cur['_pages'][0] == cur['_pages'][-1]

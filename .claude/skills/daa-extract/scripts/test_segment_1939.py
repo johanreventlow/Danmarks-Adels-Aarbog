@@ -6,6 +6,7 @@ kører mod både den faktiske Calamari-OCR og ``raw.txt``-fallbacken.
 
 import segment_1939 as seg
 import contextlib
+import hashlib
 import io
 import os
 import json
@@ -125,6 +126,24 @@ def test_calamari_generation_header_requires_fresh_page():
     )
 
     assert [post["slaegtled"] for post in posts] == ["Første"]
+
+
+def test_1939_segmentation_summary_reports_structure_without_text():
+    posts = [
+        {"linje": "II", "lokal_id": "II.Tredje.1"},
+        {"linje": "II", "lokal_id": None},
+        {"linje": "Stamme", "lokal_id": None},
+    ]
+
+    summary = structural_segment.segmentation_summary_1939(posts, "syntetisk")
+
+    assert summary == {
+        "source_sha256": hashlib.sha256(b"syntetisk").hexdigest(),
+        "posts": 3,
+        "with_lokal_id": 1,
+        "without_lokal_id": 2,
+        "by_linje": {"II": 2, "Stamme": 1},
+    }
 
 
 # ------------------------------------------------------ v2 unnumbered records
