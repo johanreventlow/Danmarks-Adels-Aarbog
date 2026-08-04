@@ -150,6 +150,18 @@ def test_cli_requires_all_private_input_paths():
         main([])
 
 
+def test_cli_can_write_review_template_with_only_baseline_and_output(tmp_path):
+    baseline = tmp_path / "baseline.json"
+    out = tmp_path / "review.json"
+    baseline.write_text('[{"record_key":"rk-1"}]', encoding="utf-8")
+
+    assert main(["--make-review-template", "--baseline", str(baseline), "--out", str(out)]) == 0
+
+    assert json.loads(out.read_text(encoding="utf-8"))["entries"] == [
+        {"baseline_record_key": "rk-1", "review_status": "unreviewed"}
+    ]
+
+
 def test_write_review_template_lists_each_baseline_key_once(tmp_path):
     baseline = tmp_path / "baseline.json"
     out = tmp_path / "review.json"

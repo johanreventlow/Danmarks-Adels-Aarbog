@@ -255,13 +255,30 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Materialisér én ny, privat og fail-closed 1939 coverage-fil."
     )
-    parser.add_argument("--calamari", required=True, type=Path)
-    parser.add_argument("--raw", required=True, type=Path)
-    parser.add_argument("--pdf", required=True, type=Path)
-    parser.add_argument("--baseline", required=True, type=Path)
-    parser.add_argument("--decisions", required=True, type=Path)
-    parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--make-review-template", action="store_true")
+    parser.add_argument("--calamari", type=Path)
+    parser.add_argument("--raw", type=Path)
+    parser.add_argument("--pdf", type=Path)
+    parser.add_argument("--baseline", type=Path)
+    parser.add_argument("--decisions", type=Path)
+    parser.add_argument("--out", type=Path)
     args = parser.parse_args(argv)
+    if args.make_review_template:
+        if args.baseline is None or args.out is None:
+            parser.error("--make-review-template kræver --baseline og --out")
+        template = write_review_template(args.baseline, args.out)
+        print(json.dumps({"out": str(args.out), "entries": len(template["entries"])}, ensure_ascii=False))
+        return 0
+    missing = [flag for flag, value in {
+        "--calamari": args.calamari,
+        "--raw": args.raw,
+        "--pdf": args.pdf,
+        "--baseline": args.baseline,
+        "--decisions": args.decisions,
+        "--out": args.out,
+    }.items() if value is None]
+    if missing:
+        parser.error("materialisering kræver " + ", ".join(missing))
     bundle = materialize_coverage(
         args.calamari, args.raw, args.pdf, args.baseline, args.decisions, args.out
     )
