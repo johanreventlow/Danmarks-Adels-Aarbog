@@ -364,10 +364,35 @@ def test_validate_review_template_rejects_ill_typed_accepted_anchor(tmp_path):
         "kind": "line_header",
         "raw_char_from": 0,
         "raw_char_to": 1,
+        "raw_verbatim_text": "x",
+        "raw_excerpt_sha256": hashlib.sha256(b"x").hexdigest(),
     })
     review.write_text(json.dumps(template), encoding="utf-8")
 
     with pytest.raises(ValueError, match="post_index"):
+        validate_review_template(review, baseline)
+
+
+def test_validate_review_template_requires_raw_excerpt_proof(tmp_path):
+    baseline = tmp_path / "baseline.json"
+    review = tmp_path / "review.json"
+    baseline.write_text('[{"record_key":"rk-1"}]', encoding="utf-8")
+    template = write_review_template(baseline, review)
+    template["entries"][0].update({
+        "review_status": "accepteret",
+        "candidate_id": "candidate-1",
+        "post_index": 0,
+        "calamari_span": {"char_from": 0, "char_to": 1},
+        "calamari_verbatim_text": "A",
+        "pdf_pages": [496],
+        "kind": "line_header",
+        "raw_char_from": 0,
+        "raw_char_to": 1,
+        "raw_excerpt_sha256": hashlib.sha256(b"x").hexdigest(),
+    })
+    review.write_text(json.dumps(template), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="raw_verbatim_text"):
         validate_review_template(review, baseline)
 
 
@@ -404,6 +429,8 @@ def test_review_to_decisions_refuses_unreviewed_and_preserves_explicit_fields():
             "kind": "line_header",
             "raw_char_from": 30,
             "raw_char_to": 40,
+            "raw_verbatim_text": "råtekst",
+            "raw_excerpt_sha256": hashlib.sha256("råtekst".encode("utf-8")).hexdigest(),
         }]
     }
 
@@ -419,6 +446,8 @@ def test_review_to_decisions_refuses_unreviewed_and_preserves_explicit_fields():
         "kind": "line_header",
         "raw_char_from": 30,
         "raw_char_to": 40,
+        "raw_verbatim_text": "råtekst",
+        "raw_excerpt_sha256": hashlib.sha256("råtekst".encode("utf-8")).hexdigest(),
         "status": "accepteret",
     }]}
     with pytest.raises(ValueError, match="unreviewed"):

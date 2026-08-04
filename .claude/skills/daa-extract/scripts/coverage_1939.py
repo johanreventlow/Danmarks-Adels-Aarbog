@@ -72,6 +72,9 @@ def _validate_candidate(value: object, seen_ids: set[str], seen_spans: set[tuple
     raw_to = _nonnegative_int(bridge.get("raw_char_to"), "rå-bro raw_char_to")
     if raw_from >= raw_to:
         raise ValueError("rå-bro skal have raw_char_from < raw_char_to")
+    raw_digest = bridge.get("raw_excerpt_sha256")
+    if not isinstance(raw_digest, str) or not _SHA256_RE.fullmatch(raw_digest):
+        raise ValueError("raw_excerpt_sha256 skal være SHA-256 med små bogstaver")
 
 
 def validate_coverage(bundle: dict, *, expected_baseline_keys: set[str]) -> dict[str, dict]:

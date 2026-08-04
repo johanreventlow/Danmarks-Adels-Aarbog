@@ -29,6 +29,7 @@ def accepted(key, candidate_id="candidate-1", **overrides):
                 "kind": "line_header",
                 "raw_char_from": 20,
                 "raw_char_to": 30,
+                "raw_excerpt_sha256": "d" * 64,
             },
         },
     }
@@ -81,6 +82,17 @@ def test_rejects_duplicate_candidate_id():
         validate_coverage(
             bundle(accepted("rk-1"), accepted("rk-2", "candidate-1")),
             expected_baseline_keys={"rk-1", "rk-2"},
+        )
+
+
+def test_rejects_candidate_without_raw_excerpt_hash():
+    candidate = accepted("rk-1")["candidate"]
+    del candidate["raw_structure_bridge"]["raw_excerpt_sha256"]
+
+    with pytest.raises(ValueError, match="raw_excerpt_sha256"):
+        validate_coverage(
+            bundle(accepted("rk-1", candidate=candidate)),
+            expected_baseline_keys={"rk-1"},
         )
 
 

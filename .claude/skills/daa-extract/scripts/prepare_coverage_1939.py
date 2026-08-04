@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import io
 import json
+import re
 from pathlib import Path
 from collections import Counter
 from collections.abc import Mapping
@@ -24,11 +25,14 @@ _REVIEW_ACCEPTED_FIELDS = {
     "kind",
     "raw_char_from",
     "raw_char_to",
+    "raw_verbatim_text",
+    "raw_excerpt_sha256",
 }
 _REVIEW_DECISION_FIELDS = _REVIEW_ACCEPTED_FIELDS | {
     "duplicate_of_baseline_record_key",
     "reason",
 }
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _mapping(value: object, label: str) -> Mapping:
@@ -270,6 +274,8 @@ def _read_review_template(review_path: Path, baseline_path: Path) -> dict:
         "kind",
         "raw_char_from",
         "raw_char_to",
+        "raw_verbatim_text",
+        "raw_excerpt_sha256",
         "duplicate_of_baseline_record_key",
         "reason",
         "review_note",
@@ -327,6 +333,12 @@ def _review_entry_errors(entry: Mapping) -> list[str]:
             )
             if raw_from >= raw_to:
                 return ["raw_char_from skal være mindre end raw_char_to"]
+            raw_verbatim = entry["raw_verbatim_text"]
+            if not isinstance(raw_verbatim, str) or not raw_verbatim:
+                return ["raw_verbatim_text skal være en ikke-tom streng"]
+            raw_digest = entry["raw_excerpt_sha256"]
+            if not isinstance(raw_digest, str) or not _SHA256_RE.fullmatch(raw_digest):
+                return ["raw_excerpt_sha256 skal være SHA-256 med små bogstaver"]
         except ValueError as error:
             return [str(error)]
         return []
