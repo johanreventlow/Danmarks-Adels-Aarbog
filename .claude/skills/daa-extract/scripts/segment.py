@@ -940,7 +940,7 @@ def _evidence_ledger(source_text):
                 'observation_id': observation_id,
                 'kind': 'structural_header',
                 'verbatim_text': line,
-                'span': {'char_from': offset, 'char_to': line_end},
+                'span': {'char_from': offset, 'char_to': offset + len(line)},
             }
             generation = SLGT_RE.match(line)
             if generation:

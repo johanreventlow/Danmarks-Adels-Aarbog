@@ -115,6 +115,9 @@ class TestSegmentEvidenceSidecar(unittest.TestCase):
                               if obs["kind"] == "printed_generation_header")
             self.assertEqual(generation["generation_label_raw"], "Første")
             self.assertEqual(generation["generation_local"], 1)
+            start = generation["span"]["char_from"]
+            end = generation["span"]["char_to"]
+            self.assertEqual(self.RAW[start:end], generation["verbatim_text"])
             self.assertTrue(any(row["classification"] == "structural_header" for row in ledger["clauses"]))
             self.assertTrue(any(row["classification"] == "record_text" for row in ledger["clauses"]))
         finally:
