@@ -170,7 +170,7 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _baseline_keys(path: Path) -> set[str]:
+def _baseline_records(path: Path) -> dict[str, Mapping]:
     records = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(records, list):
         raise ValueError("baseline skal være en liste")
@@ -179,19 +179,31 @@ def _baseline_keys(path: Path) -> set[str]:
         raise ValueError("baseline record_key mangler")
     if len(keys) != len(set(keys)):
         raise ValueError("baseline record_key er dublet")
-    return set(keys)
+    return {record["record_key"]: record for record in records}
+
+
+def _baseline_keys(path: Path) -> set[str]:
+    return set(_baseline_records(path))
 
 
 def write_review_template(baseline_path: Path, out_path: Path) -> dict:
     """Write a new, decision-free private review ledger for every baseline key."""
     if out_path.exists():
         raise FileExistsError(out_path)
-    keys = sorted(_baseline_keys(baseline_path))
+    records = _baseline_records(baseline_path)
+    keys = sorted(records)
     template = {
         "schema_version": 1,
         "baseline_sha256": _sha256(baseline_path),
         "entries": [
-            {"baseline_record_key": key, "review_status": "unreviewed"}
+            {
+                "baseline_record_key": key,
+                "review_status": "unreviewed",
+                "baseline_locator": {
+                    "pages": records[key].get("sider"),
+                    "local_id": records[key].get("_v2_lokal_id"),
+                },
+            }
             for key in keys
         ],
     }

@@ -158,21 +158,28 @@ def test_cli_can_write_review_template_with_only_baseline_and_output(tmp_path):
     assert main(["--make-review-template", "--baseline", str(baseline), "--out", str(out)]) == 0
 
     assert json.loads(out.read_text(encoding="utf-8"))["entries"] == [
-        {"baseline_record_key": "rk-1", "review_status": "unreviewed"}
+        {"baseline_record_key": "rk-1", "review_status": "unreviewed",
+         "baseline_locator": {"pages": None, "local_id": None}}
     ]
 
 
 def test_write_review_template_lists_each_baseline_key_once(tmp_path):
     baseline = tmp_path / "baseline.json"
     out = tmp_path / "review.json"
-    baseline.write_text('[{"record_key":"rk-2"},{"record_key":"rk-1"}]', encoding="utf-8")
+    baseline.write_text(
+        '[{"record_key":"rk-2","sider":"501-502","_v2_lokal_id":"II.Fjerde.9"},'
+        '{"record_key":"rk-1","sider":"496","_v2_lokal_id":"Stamme.I.U1"}]',
+        encoding="utf-8",
+    )
 
     result = write_review_template(baseline, out)
 
     assert result["baseline_sha256"]
     assert result["entries"] == [
-        {"baseline_record_key": "rk-1", "review_status": "unreviewed"},
-        {"baseline_record_key": "rk-2", "review_status": "unreviewed"},
+        {"baseline_record_key": "rk-1", "review_status": "unreviewed",
+         "baseline_locator": {"pages": "496", "local_id": "Stamme.I.U1"}},
+        {"baseline_record_key": "rk-2", "review_status": "unreviewed",
+         "baseline_locator": {"pages": "501-502", "local_id": "II.Fjerde.9"}},
     ]
     with pytest.raises(FileExistsError):
         write_review_template(baseline, out)
