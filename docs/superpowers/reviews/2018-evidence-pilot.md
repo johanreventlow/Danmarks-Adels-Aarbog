@@ -1,10 +1,9 @@
-# 2018-20 evidence-pilot: klar til privat source-record-accept
+# 2018-20 evidence-pilot: klar til privat udtræk
 
-**Dato:** 2026-08-03  
+**Dato:** 2026-08-04
 **Status:** Deterministisk input, segmentering og et privat manifest er klar.
-Ingen modelkørsel eller produktionsmutation er udført. Modeludtræk er lukket,
-indtil manifestets accepterede segmenter er materialiseret som private,
-profile-pinnede source records.
+De 30 godkendte personsegmenter er materialiseret som private, profile-pinnede
+source records. Ingen modelkørsel eller produktionsmutation er udført.
 
 ## Lokal, tekstfri feasibility-kontrol
 
@@ -46,10 +45,9 @@ tekst er sendt til en model.
 
 ## Beslutning
 
-**NO-GO for Task 16, step 3 endnu.** En unik `(linje,nr)`-lokator er et
-udvalgskriterium, ikke et opaque `record_key`. Før privat modeludtræk skal den
-private source-record-ledger modtage en eksplicit accepteret record pr.
-pilotsegment, binde den til den frosne rendition og materialisere et
-validerbart evidence bundle. Først derefter må et profile-pinnet batchmanifest
-oprettes, og kun for de 30 afdøde, entydige forekomster. Step 4--5 forbliver
-åbne, indtil outputs er valideret og gennemgået i en separat database.
+**GO for Task 16, step 3 (privat udtræk af denne batch).** Den private ledger
+har 30 accepterede personrecords, og batchmanifestet er profile-pinnet til
+`daa-2018-20-v1` / `gpt-5.6-terra`; det har status `pending` og må kun indeholde
+disse 30 afdøde, entydige forekomster. De ti strukturelle observationer er
+parkeret, fordi de endnu mangler positive PDF-sideankre. Step 4--5 forbliver
+åbne, indtil modeloutput er fuldt valideret og gennemgået i en separat database.
