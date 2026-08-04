@@ -67,6 +67,14 @@ def test_materialize_rejects_changed_text_for_known_acceptance_without_mutating_
     assert ledger == ledger_before
 
 
+def test_materialize_rejects_changed_absolute_source_anchor_for_known_acceptance():
+    record = accepted(source_anchor={"char_from": 100, "char_to": 112})
+    ledger, _ = materialize(review(records=[record]), empty_ledger())
+
+    with pytest.raises(LedgerError, match="drift"):
+        materialize(review(records=[accepted(source_anchor={"char_from": 101, "char_to": 113})]), ledger)
+
+
 def test_materialize_rejects_duplicate_acceptance_id():
     with pytest.raises(LedgerError, match="duplicate acceptance"):
         materialize(review(records=[accepted("accept-1"), accepted("accept-1")]), empty_ledger())

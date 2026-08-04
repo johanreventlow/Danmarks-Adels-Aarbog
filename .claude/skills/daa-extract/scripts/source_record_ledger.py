@@ -57,6 +57,18 @@ def _span(record: Mapping[str, Any], rendition_id: str, verbatim_text: str) -> d
     }
 
 
+def _source_anchor(record: Mapping[str, Any]) -> dict[str, int] | None:
+    value = record.get("source_anchor")
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise LedgerError("source_anchor skal være objekt")
+    start, end = value.get("char_from"), value.get("char_to")
+    if not isinstance(start, int) or not isinstance(end, int) or start < 0 or end <= start:
+        raise LedgerError("source_anchor er ugyldig")
+    return {"char_from": start, "char_to": end}
+
+
 def _accepted_records(review: Mapping[str, Any]) -> tuple[dict[str, str], list[dict[str, Any]]]:
     if not isinstance(review, Mapping) or review.get("schema_version") != "1.0":
         raise LedgerError("review schema_version 1.0 kræves")
@@ -87,7 +99,7 @@ def _accepted_records(review: Mapping[str, Any]) -> tuple[dict[str, str], list[d
         if not isinstance(decision_version, int) or decision_version < 1:
             raise LedgerError("decision_version skal være positiv")
         verbatim_text = _require(raw.get("verbatim_text"), "verbatim_text")
-        accepted.append({
+        accepted_record = {
             **context,
             "acceptance_id": acceptance_id,
             "record_kind": _require(raw.get("record_kind"), "record_kind"),
@@ -95,14 +107,21 @@ def _accepted_records(review: Mapping[str, Any]) -> tuple[dict[str, str], list[d
             "decision_version": decision_version,
             "verbatim_text": verbatim_text,
             "span": _span(raw, context["rendition_id"], verbatim_text),
-        })
+        }
+        source_anchor = _source_anchor(raw)
+        if source_anchor is not None:
+            accepted_record["source_anchor"] = source_anchor
+        accepted.append(accepted_record)
     return context, sorted(accepted, key=lambda item: item["acceptance_id"])
 
 
 def _immutable(record: Mapping[str, Any]) -> str:
-    return _digest({key: record[key] for key in (
+    payload = {key: record[key] for key in (
         "source_id", "rendition_id", "rendition_sha256", "record_kind", "verbatim_text", "span",
-    )})
+    )}
+    if "source_anchor" in record:
+        payload["source_anchor"] = record["source_anchor"]
+    return _digest(payload)
 
 
 def _ledger_entries(ledger: Mapping[str, Any]) -> dict[str, dict[str, str]]:
