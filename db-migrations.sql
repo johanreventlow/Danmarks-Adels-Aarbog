@@ -5517,8 +5517,9 @@ CREATE TABLE IF NOT EXISTS private.source_persona_identity (
   decided_by_name text,
   decided_at timestamptz,
   updated_at timestamptz NOT NULL DEFAULT now(),
-  CHECK(decision_status<>'accepted' OR canonical_person_id IS NOT NULL),
-  CHECK(decision_status<>'unresolved' OR canonical_person_id IS NULL),
+  CONSTRAINT source_persona_identity_target_check CHECK(
+    (decision_status='accepted' AND canonical_person_id IS NOT NULL)
+    OR (decision_status<>'accepted' AND canonical_person_id IS NULL)),
   CONSTRAINT source_persona_identity_decision_audit_check CHECK(decision_status='proposed' OR
     (decided_by IS NOT NULL AND nullif(btrim(decided_by_name),'') IS NOT NULL
      AND decided_at IS NOT NULL AND evidence<>'{}'::jsonb)),
@@ -5538,8 +5539,9 @@ CREATE TABLE IF NOT EXISTS private.source_persona_identity_event (
   decided_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE(source_persona_id,version),
-  CHECK(decision_status<>'accepted' OR canonical_person_id IS NOT NULL),
-  CHECK(decision_status<>'unresolved' OR canonical_person_id IS NULL),
+  CONSTRAINT source_persona_identity_event_target_check CHECK(
+    (decision_status='accepted' AND canonical_person_id IS NOT NULL)
+    OR (decision_status<>'accepted' AND canonical_person_id IS NULL)),
   CONSTRAINT source_persona_identity_event_decision_audit_check CHECK(decision_status='proposed' OR
     (decided_by IS NOT NULL AND nullif(btrim(decided_by_name),'') IS NOT NULL
      AND decided_at IS NOT NULL AND evidence<>'{}'::jsonb)),
@@ -5626,6 +5628,73 @@ BEGIN
         (decided_by IS NULL AND decided_by_name IS NULL AND decided_at IS NULL));
   END IF;
 END $$;
+
+DO $identity_target_migration$
+DECLARE
+  v_bad_persona uuid;
+  v_table text;
+  v_constraint record;
+BEGIN
+  SELECT candidate.source_persona_id INTO v_bad_persona
+    FROM (
+      SELECT source_persona_id,canonical_person_id,decision_status
+        FROM private.source_persona_identity
+      UNION ALL
+      SELECT source_persona_id,canonical_person_id,decision_status
+        FROM private.source_persona_identity_event
+    ) candidate
+   WHERE (candidate.decision_status='accepted') IS DISTINCT FROM
+         (candidate.canonical_person_id IS NOT NULL)
+      OR (candidate.decision_status='accepted' AND NOT EXISTS (
+           SELECT 1 FROM private.source_persona_mention mention
+            WHERE mention.persona_id=candidate.source_persona_id
+         ))
+   ORDER BY candidate.source_persona_id
+   LIMIT 1;
+  IF FOUND THEN
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_MIGRATION_CONFLICT source_persona_id=%',v_bad_persona;
+  END IF;
+
+  FOREACH v_table IN ARRAY ARRAY[
+    'source_persona_identity','source_persona_identity_event'
+  ] LOOP
+    FOR v_constraint IN
+      SELECT c.conname
+        FROM pg_catalog.pg_constraint c
+       WHERE c.conrelid=format('private.%I',v_table)::regclass
+         AND c.contype='c'
+         AND pg_catalog.pg_get_constraintdef(c.oid) LIKE '%canonical_person_id%'
+         AND c.conname NOT IN (
+           'source_persona_identity_target_check',
+           'source_persona_identity_event_target_check'
+         )
+    LOOP
+      EXECUTE format('ALTER TABLE private.%I DROP CONSTRAINT %I',v_table,v_constraint.conname);
+    END LOOP;
+  END LOOP;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint
+      WHERE conrelid='private.source_persona_identity'::regclass
+        AND conname='source_persona_identity_target_check') THEN
+    ALTER TABLE private.source_persona_identity
+      ADD CONSTRAINT source_persona_identity_target_check CHECK(
+        (decision_status='accepted' AND canonical_person_id IS NOT NULL)
+        OR (decision_status<>'accepted' AND canonical_person_id IS NULL)
+      ) NOT VALID;
+    ALTER TABLE private.source_persona_identity
+      VALIDATE CONSTRAINT source_persona_identity_target_check;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint
+      WHERE conrelid='private.source_persona_identity_event'::regclass
+        AND conname='source_persona_identity_event_target_check') THEN
+    ALTER TABLE private.source_persona_identity_event
+      ADD CONSTRAINT source_persona_identity_event_target_check CHECK(
+        (decision_status='accepted' AND canonical_person_id IS NOT NULL)
+        OR (decision_status<>'accepted' AND canonical_person_id IS NULL)
+      ) NOT VALID;
+    ALTER TABLE private.source_persona_identity_event
+      VALIDATE CONSTRAINT source_persona_identity_event_target_check;
+  END IF;
+END $identity_target_migration$;
 
 CREATE OR REPLACE VIEW private.interpretation_current
 WITH (security_invoker=true) AS
@@ -6041,12 +6110,16 @@ BEGIN
   IF v_actor_name IS NULL THEN RAISE EXCEPTION 'EVIDENCE_ACTOR_REQUIRED'; END IF;
   IF p_decision_status NOT IN('accepted','rejected','unresolved','superseded')
      OR (p_decision_status='accepted' AND p_canonical_person_id IS NULL)
-     OR (p_decision_status='unresolved' AND p_canonical_person_id IS NOT NULL)
+     OR (p_decision_status<>'accepted' AND p_canonical_person_id IS NOT NULL)
      OR jsonb_typeof(p_evidence)<>'object' OR p_evidence='{}'::jsonb THEN
     RAISE EXCEPTION 'EVIDENCE_IDENTITY_DECISION_INVALID';
   END IF;
   PERFORM 1 FROM private.source_persona WHERE id=p_source_persona_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_PERSONA_NOT_FOUND'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM private.source_persona_mention
+                 WHERE persona_id=p_source_persona_id) THEN
+    RAISE EXCEPTION 'EVIDENCE_PERSONA_BASIS_REQUIRED';
+  END IF;
   SELECT version INTO v_current_version FROM private.source_persona_identity
     WHERE source_persona_id=p_source_persona_id FOR UPDATE;
   v_current_version:=coalesce(v_current_version,0);

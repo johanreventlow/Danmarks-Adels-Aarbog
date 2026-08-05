@@ -855,6 +855,7 @@ DECLARE
   v_rendition uuid := '33000000-0000-0000-0000-000000000021';
   v_occurrence uuid := '55000000-0000-0000-0000-000000000021';
   v_observation uuid := '66000000-0000-0000-0000-000000000021';
+  v_mention uuid := '77000000-0000-0000-0000-000000000021';
   v_persona uuid := '88000000-0000-0000-0000-000000000021';
   v_interpretation uuid := 'c1000000-0000-0000-0000-000000000021';
   v_accepted_interpretation uuid;
@@ -1010,6 +1011,31 @@ BEGIN
     END IF;
 
     PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_decide_source_persona_identity(
+        v_persona,-987650021,0,'accepted','{"basis":"direct without mention"}'
+      );
+      RAISE EXCEPTION 'IDENTITY_WITHOUT_MENTION_BYPASS';
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_PERSONA_BASIS_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: direkte accepted uden mention blev ikke afvist: %',v_error;
+    END IF;
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_decide_source_persona_identity(
+        v_persona,-987650021,0,'rejected','{"basis":"direct invalid target"}'
+      );
+      RAISE EXCEPTION 'IDENTITY_REJECTED_TARGET_BYPASS';
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_IDENTITY_DECISION_INVALID%' THEN
+      RAISE EXCEPTION 'FEJL: direkte rejected med target blev ikke afvist: %',v_error;
+    END IF;
+    INSERT INTO private.source_mention(
+      id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id
+    ) VALUES (v_mention,v_observation,'person',0,4,'Anna',v_run);
+    INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
+      VALUES (v_persona,v_mention,'principal',1);
     v_error:=NULL;
     BEGIN
       PERFORM red_decide_interpretation(
@@ -1793,6 +1819,7 @@ DECLARE
   v_rendition uuid := '33000000-0000-0000-0000-000000000051';
   v_occurrence uuid := '55000000-0000-0000-0000-000000000051';
   v_observation uuid := '66000000-0000-0000-0000-000000000051';
+  v_mention uuid := '77000000-0000-0000-0000-000000000051';
   v_persona uuid := '88000000-0000-0000-0000-000000000051';
   v_interpretation_1 uuid := 'c1000000-0000-0000-0000-000000000051';
   v_interpretation_2 uuid := 'c1000000-0000-0000-0000-000000000052';
@@ -1832,8 +1859,11 @@ DECLARE
       WHERE source_persona_id='88000000-0000-0000-0000-000000000051';
     DELETE FROM private.source_persona_identity
       WHERE source_persona_id='88000000-0000-0000-0000-000000000051';
+    DELETE FROM private.source_persona_mention
+      WHERE persona_id='88000000-0000-0000-0000-000000000051';
     DELETE FROM private.source_persona
       WHERE id='88000000-0000-0000-0000-000000000051';
+    DELETE FROM private.source_mention WHERE id='77000000-0000-0000-0000-000000000051';
     DELETE FROM private.source_observation WHERE id='66000000-0000-0000-0000-000000000051';
     DELETE FROM private.source_record_occurrence WHERE id='55000000-0000-0000-0000-000000000051';
     DELETE FROM private.source_rendition WHERE id='33000000-0000-0000-0000-000000000051';
@@ -1884,6 +1914,12 @@ BEGIN
   PERFORM dblink_exec('promotion_setup',format(
     'INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) '
     || 'VALUES (''%s'',-987650051,''promotion-lock-persona'',''%s'')',v_persona,v_run));
+  PERFORM dblink_exec('promotion_setup',format(
+    'INSERT INTO private.source_mention(id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id) '
+    || 'VALUES (''%s'',''%s'',''person'',0,4,''Anna'',''%s'');'
+    || 'INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal) '
+    || 'VALUES (''%s'',''%s'',''principal'',1)',
+    v_mention,v_observation,v_run,v_persona,v_mention));
   PERFORM dblink_exec('promotion_setup',
     'INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-987650051,''person'',-987650051,''navn'');'
     || 'INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,calendar,uforanderlig) '
@@ -2091,8 +2127,18 @@ DECLARE
       WHERE source_persona_id='88000000-0000-0000-0000-000000000031';
     DELETE FROM private.source_persona_identity
       WHERE source_persona_id='88000000-0000-0000-0000-000000000031';
+    DELETE FROM private.source_persona_mention
+      WHERE persona_id='88000000-0000-0000-0000-000000000031';
     DELETE FROM private.source_persona
       WHERE id='88000000-0000-0000-0000-000000000031';
+    DELETE FROM private.source_mention
+      WHERE id='77000000-0000-0000-0000-000000000031';
+    DELETE FROM private.source_observation
+      WHERE id='66000000-0000-0000-0000-000000000031';
+    DELETE FROM private.source_record_occurrence
+      WHERE id='55000000-0000-0000-0000-000000000031';
+    DELETE FROM private.source_rendition
+      WHERE id='33000000-0000-0000-0000-000000000031';
     DELETE FROM private.extraction_run
       WHERE id='22000000-0000-0000-0000-000000000031';
     DELETE FROM source WHERE id=-987650031;
@@ -2129,6 +2175,36 @@ BEGIN
     'INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES '
     || '(''88000000-0000-0000-0000-000000000031'',-987650031,''identity-lock-persona'','
     || '''22000000-0000-0000-0000-000000000031'')');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.source_rendition('
+    || 'id,source_id,rendition_key,rendition_kind,content_sha256,metadata) VALUES '
+    || '(''33000000-0000-0000-0000-000000000031'',-987650031,''identity-lock-rendition'','
+    || '''text_layer'',' || quote_literal(repeat('4',64)) || ',''{}'')');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.source_record_occurrence('
+    || 'id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,'
+    || 'physical_fingerprint,structural_fingerprint,extraction_run_id) VALUES '
+    || '(''55000000-0000-0000-0000-000000000031'','
+    || '''33000000-0000-0000-0000-000000000031'',''identity-lock-occurrence'',1,1,0,4,'
+    || '''Anna'',''identity-physical'',''identity-structural'','
+    || '''22000000-0000-0000-0000-000000000031'')');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.source_observation('
+    || 'id,occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,'
+    || 'quality_status,extraction_method,extraction_run_id) VALUES '
+    || '(''66000000-0000-0000-0000-000000000031'','
+    || '''55000000-0000-0000-0000-000000000031'',''person_name'',1,1,0,4,''Anna'','
+    || '''clear'',''verify'',''22000000-0000-0000-0000-000000000031'')');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.source_mention('
+    || 'id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id) VALUES '
+    || '(''77000000-0000-0000-0000-000000000031'','
+    || '''66000000-0000-0000-0000-000000000031'',''person'',0,4,''Anna'','
+    || '''22000000-0000-0000-0000-000000000031'')');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal) VALUES '
+    || '(''88000000-0000-0000-0000-000000000031'','
+    || '''77000000-0000-0000-0000-000000000031'',''principal'',1)');
   PERFORM dblink_exec('identity_setup','BEGIN');
   PERFORM dblink_exec('identity_setup',
     'INSERT INTO private.source_persona_identity_event('

@@ -980,8 +980,10 @@ CREATE TABLE private.source_persona_identity (
   decided_by_name     text,
   decided_at          timestamptz,
   updated_at          timestamptz NOT NULL DEFAULT now(),
-  CHECK (decision_status<>'accepted' OR canonical_person_id IS NOT NULL),
-  CHECK (decision_status<>'unresolved' OR canonical_person_id IS NULL),
+  CONSTRAINT source_persona_identity_target_check CHECK (
+    (decision_status='accepted' AND canonical_person_id IS NOT NULL)
+    OR (decision_status<>'accepted' AND canonical_person_id IS NULL)
+  ),
   CONSTRAINT source_persona_identity_decision_audit_check CHECK (
     decision_status='proposed'
     OR (
@@ -1012,8 +1014,10 @@ CREATE TABLE private.source_persona_identity_event (
   decided_at          timestamptz,
   created_at          timestamptz NOT NULL DEFAULT now(),
   UNIQUE (source_persona_id,version),
-  CHECK (decision_status<>'accepted' OR canonical_person_id IS NOT NULL),
-  CHECK (decision_status<>'unresolved' OR canonical_person_id IS NULL),
+  CONSTRAINT source_persona_identity_event_target_check CHECK (
+    (decision_status='accepted' AND canonical_person_id IS NOT NULL)
+    OR (decision_status<>'accepted' AND canonical_person_id IS NULL)
+  ),
   CONSTRAINT source_persona_identity_event_decision_audit_check CHECK (
     decision_status='proposed'
     OR (
@@ -4799,7 +4803,7 @@ BEGIN
   IF v_actor_name IS NULL THEN RAISE EXCEPTION 'EVIDENCE_ACTOR_REQUIRED'; END IF;
   IF p_decision_status NOT IN ('accepted','rejected','unresolved','superseded')
      OR (p_decision_status='accepted' AND p_canonical_person_id IS NULL)
-     OR (p_decision_status='unresolved' AND p_canonical_person_id IS NOT NULL)
+     OR (p_decision_status<>'accepted' AND p_canonical_person_id IS NOT NULL)
      OR jsonb_typeof(p_evidence)<>'object' OR p_evidence='{}'::jsonb THEN
     RAISE EXCEPTION 'EVIDENCE_IDENTITY_DECISION_INVALID';
   END IF;
@@ -4809,6 +4813,12 @@ BEGIN
   PERFORM 1 FROM private.source_persona
    WHERE id=p_source_persona_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_PERSONA_NOT_FOUND'; END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM private.source_persona_mention
+     WHERE persona_id=p_source_persona_id
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_PERSONA_BASIS_REQUIRED';
+  END IF;
   SELECT version INTO v_current_version
     FROM private.source_persona_identity
    WHERE source_persona_id=p_source_persona_id FOR UPDATE;
