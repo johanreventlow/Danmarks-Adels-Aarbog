@@ -19,7 +19,8 @@ _HUMAN_REASONS_DA = {
     "evidence_conflict": "Evidensen indeholder en konflikt.",
     "missing_rule_id": "Mangler stabil regelidentitet for den automatiske afgørelse.",
     "candidate_collision": "Kandidaten er knyttet til flere baseline-poster.",
-    "calamari_span_overlap": "Calamari-ankeret overlapper en anden automatisk kandidat.",
+    "calamari_span_overlap": "Calamari-ankeret overlapper en anden kandidat.",
+    "raw_ocr_span_overlap": "Rå-OCR-ankeret overlapper en anden kandidat.",
 }
 
 
@@ -30,8 +31,7 @@ def classify_review_entries(
     _validate_source_manifest(source)
     by_key = _complete_evidence_index(baseline_keys, evidence_entries)
     provisional = [_classify_one(key, by_key[key], source) for key in sorted(baseline_keys)]
-    _demote_candidate_collisions(provisional)
-    _demote_span_overlaps(provisional)
+    _demote_global_claim_collisions(provisional, by_key)
     if {entry["baseline_record_key"] for entry in provisional} != baseline_keys:
         raise ValueError("queue baseline-dækning fejler")
     return {
@@ -176,40 +176,101 @@ def _blocked(key: str, reason_code: str) -> dict:
     }
 
 
-def _demote_candidate_collisions(entries: list[dict]) -> None:
-    by_candidate_id: dict[str, list[dict]] = {}
-    for entry in entries:
-        if entry["queue_class"] != "auto_resolved":
+def _demote_global_claim_collisions(
+    entries: list[dict], evidence_by_key: dict[str, dict]
+) -> None:
+    """Demote global duplicate/overlap claims, including already-human evidence."""
+    claims = list(_all_candidate_claims(evidence_by_key))
+    reasons_by_key: dict[str, str] = {}
+    _add_collision_reason(
+        reasons_by_key, _duplicate_candidate_id_keys(claims), "candidate_collision"
+    )
+    _add_collision_reason(
+        reasons_by_key,
+        _overlapping_span_keys(claims, "calamari_span", "char_from", "char_to"),
+        "calamari_span_overlap",
+    )
+    _add_collision_reason(
+        reasons_by_key,
+        _overlapping_span_keys(
+            claims, "raw_structure_bridge", "raw_char_from", "raw_char_to"
+        ),
+        "raw_ocr_span_overlap",
+    )
+
+    entries_by_key = {entry["baseline_record_key"]: entry for entry in entries}
+    for key, reason_code in reasons_by_key.items():
+        entry = entries_by_key[key]
+        if entry["queue_class"] == "source_blocked":
             continue
-        by_candidate_id.setdefault(entry["candidate"]["candidate_id"], []).append(entry)
-    for colliding_entries in by_candidate_id.values():
-        if len(colliding_entries) > 1:
-            _demote(colliding_entries, "candidate_collision")
-
-
-def _demote_span_overlaps(entries: list[dict]) -> None:
-    automatic_entries = [
-        entry for entry in entries if entry["queue_class"] == "auto_resolved"
-    ]
-    overlapping: list[dict] = []
-    for index, left in enumerate(automatic_entries):
-        left_span = left["candidate"]["calamari_span"]
-        for right in automatic_entries[index + 1 :]:
-            right_span = right["candidate"]["calamari_span"]
-            if (
-                left_span["char_from"] < right_span["char_to"]
-                and right_span["char_from"] < left_span["char_to"]
-            ):
-                overlapping.extend((left, right))
-    if overlapping:
-        _demote(overlapping, "calamari_span_overlap")
-
-
-def _demote(entries: list[dict], reason_code: str) -> None:
-    for entry in entries:
-        key = entry["baseline_record_key"]
         entry.clear()
         entry.update(_human(key, reason_code))
+
+
+def _all_candidate_claims(evidence_by_key: dict[str, dict]):
+    for key, evidence in evidence_by_key.items():
+        for candidate in evidence.get("candidates", []):
+            if isinstance(candidate, Mapping):
+                yield key, candidate
+
+
+def _duplicate_candidate_id_keys(claims: list[tuple[str, Mapping]]) -> set[str]:
+    owners_by_candidate_id: dict[str, set[str]] = {}
+    for key, candidate in claims:
+        candidate_id = candidate.get("candidate_id")
+        if _nonempty_optional_string(candidate_id):
+            owners_by_candidate_id.setdefault(candidate_id, set()).add(key)
+    return {
+        key
+        for owners in owners_by_candidate_id.values()
+        if len(owners) > 1
+        for key in owners
+    }
+
+
+def _overlapping_span_keys(
+    claims: list[tuple[str, Mapping]],
+    container_field: str,
+    from_field: str,
+    to_field: str,
+) -> set[str]:
+    spans: list[tuple[str, int, int]] = []
+    for key, candidate in claims:
+        span = candidate.get(container_field)
+        if not isinstance(span, Mapping):
+            continue
+        char_from = span.get(from_field)
+        char_to = span.get(to_field)
+        if not _valid_half_open_span(char_from, char_to):
+            continue
+        spans.append((key, char_from, char_to))
+
+    colliding_keys: set[str] = set()
+    for index, (left_key, left_from, left_to) in enumerate(spans):
+        for right_key, right_from, right_to in spans[index + 1 :]:
+            if left_key == right_key:
+                continue
+            if left_from < right_to and right_from < left_to:
+                colliding_keys.update((left_key, right_key))
+    return colliding_keys
+
+
+def _add_collision_reason(
+    reasons_by_key: dict[str, str], keys: set[str], reason_code: str
+) -> None:
+    for key in keys:
+        reasons_by_key.setdefault(key, reason_code)
+
+
+def _valid_half_open_span(char_from: object, char_to: object) -> bool:
+    return (
+        isinstance(char_from, int)
+        and not isinstance(char_from, bool)
+        and isinstance(char_to, int)
+        and not isinstance(char_to, bool)
+        and char_from >= 0
+        and char_from < char_to
+    )
 
 
 def _nonempty_string(value: object, label: str) -> str:

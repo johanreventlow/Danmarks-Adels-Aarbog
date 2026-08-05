@@ -193,6 +193,103 @@ def test_equal_or_overlapping_calamari_spans_demote_all_automatic_entries(second
     ]
 
 
+@pytest.mark.parametrize(
+    "second_raw_span",
+    [
+        {"raw_char_from": 100, "raw_char_to": 110},
+        {"raw_char_from": 105, "raw_char_to": 115},
+    ],
+)
+def test_equal_or_overlapping_raw_ocr_spans_demote_all_automatic_entries(
+    second_raw_span,
+):
+    candidate_b = anchored_candidate("candidate-2")
+    candidate_b["calamari_span"] = {"char_from": 30, "char_to": 40}
+    candidate_b["raw_structure_bridge"].update(second_raw_span)
+    result = classify_review_entries(
+        source(),
+        {"rk-a", "rk-b"},
+        [evidence("rk-a", anchored_candidate("candidate-1")), evidence("rk-b", candidate_b)],
+    )
+    assert [entry["queue_class"] for entry in result["entries"]] == [
+        "human_required",
+        "human_required",
+    ]
+    assert [entry["reason_code"] for entry in result["entries"]] == [
+        "raw_ocr_span_overlap",
+        "raw_ocr_span_overlap",
+    ]
+
+
+def test_human_candidate_id_claim_demotes_otherwise_automatic_claimant():
+    automatic = anchored_candidate("candidate-shared")
+    human = anchored_candidate("candidate-shared")
+    human["calamari_span"] = {"char_from": 30, "char_to": 40}
+    human["raw_structure_bridge"].update(raw_char_from=300, raw_char_to=310)
+    result = classify_review_entries(
+        source(),
+        {"rk-auto", "rk-human"},
+        [
+            evidence("rk-auto", automatic),
+            evidence("rk-human", human, conflicts=["semantic_conflict"]),
+        ],
+    )
+    assert [entry["queue_class"] for entry in result["entries"]] == [
+        "human_required",
+        "human_required",
+    ]
+    assert [entry["reason_code"] for entry in result["entries"]] == [
+        "candidate_collision",
+        "candidate_collision",
+    ]
+
+
+def test_human_calamari_claim_demotes_otherwise_automatic_claimant():
+    automatic = anchored_candidate("candidate-auto")
+    human = anchored_candidate("candidate-human")
+    human["calamari_span"] = {"char_from": 15, "char_to": 25}
+    human["raw_structure_bridge"].update(raw_char_from=300, raw_char_to=310)
+    result = classify_review_entries(
+        source(),
+        {"rk-auto", "rk-human"},
+        [
+            evidence("rk-auto", automatic),
+            evidence("rk-human", human, conflicts=["semantic_conflict"]),
+        ],
+    )
+    assert [entry["queue_class"] for entry in result["entries"]] == [
+        "human_required",
+        "human_required",
+    ]
+    assert [entry["reason_code"] for entry in result["entries"]] == [
+        "calamari_span_overlap",
+        "calamari_span_overlap",
+    ]
+
+
+def test_human_raw_ocr_claim_demotes_otherwise_automatic_claimant():
+    automatic = anchored_candidate("candidate-auto")
+    human = anchored_candidate("candidate-human")
+    human["calamari_span"] = {"char_from": 30, "char_to": 40}
+    human["raw_structure_bridge"].update(raw_char_from=105, raw_char_to=115)
+    result = classify_review_entries(
+        source(),
+        {"rk-auto", "rk-human"},
+        [
+            evidence("rk-auto", automatic),
+            evidence("rk-human", human, conflicts=["semantic_conflict"]),
+        ],
+    )
+    assert [entry["queue_class"] for entry in result["entries"]] == [
+        "human_required",
+        "human_required",
+    ]
+    assert [entry["reason_code"] for entry in result["entries"]] == [
+        "raw_ocr_span_overlap",
+        "raw_ocr_span_overlap",
+    ]
+
+
 def test_input_objects_are_not_mutated():
     input_source = source()
     input_baseline = {"rk-1"}
