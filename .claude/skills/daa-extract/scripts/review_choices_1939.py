@@ -196,25 +196,31 @@ def _classification_index(value: object) -> dict[str, dict]:
     return result
 
 
-def _anchored_index(value: object, classification_keys: set[str]) -> dict[str, dict]:
+def _anchored_index(value: object) -> dict[str, object]:
+    """Index addressable wrappers without validating unrelated candidates."""
     anchored = _mapping(value, "anchored_candidates")
-    result: dict[str, dict] = {}
+    result: dict[str, object] = {}
     for map_id, raw_wrapper in anchored.items():
-        candidate_id = _nonempty(map_id, "anchored candidate_id")
-        wrapper = _mapping(raw_wrapper, "anchored candidate")
-        owner = _nonempty(wrapper.get("baseline_record_key"), "baseline_record_key")
-        candidate = wrapper.get("candidate")
-        if owner not in classification_keys:
-            raise ValueError("anchored candidate har ukendt baseline_record_key")
-        if not isinstance(candidate, Mapping) or candidate.get("candidate_id") != candidate_id:
-            raise ValueError("anchored candidate_id matcher ikke")
-        if not _candidate_is_valid(owner, candidate):
-            raise ValueError("anchored candidate er ugyldig")
-        result[candidate_id] = {
-            "baseline_record_key": owner,
-            "candidate": copy.deepcopy(dict(candidate)),
-        }
+        if isinstance(map_id, str) and map_id:
+            result[map_id] = copy.deepcopy(raw_wrapper)
     return result
+
+
+def _selected_candidate(
+    anchored: Mapping[str, object], key: str, candidate_id: str
+) -> dict | None:
+    """Return one exact, owner-matched candidate; malformed selections stay local."""
+    wrapper = anchored.get(candidate_id)
+    if not isinstance(wrapper, Mapping) or wrapper.get("baseline_record_key") != key:
+        return None
+    candidate = wrapper.get("candidate")
+    if (
+        not isinstance(candidate, Mapping)
+        or candidate.get("candidate_id") != candidate_id
+        or not _candidate_is_valid(key, candidate)
+    ):
+        return None
+    return copy.deepcopy(dict(candidate))
 
 
 def _span(candidate: Mapping, container: str, start: str, end: str) -> tuple[int, int]:
@@ -310,7 +316,7 @@ def convert_review_choices(
             raise ValueError("automatisk post uden audit må ikke have choice")
         validated_choices[key] = choice
 
-    anchored = _anchored_index(anchored_candidates, classification_keys)
+    anchored = _anchored_index(anchored_candidates)
     automatic_candidates = {
         key: entry["candidate"]
         for key, entry in indexed_classifications.items()
@@ -322,23 +328,21 @@ def convert_review_choices(
     for key, one_choice in validated_choices.items():
         if key in audit_keys or one_choice["outcome"] != "human_selected_candidate":
             continue
-        wrapper = anchored.get(one_choice["candidate_id"])
-        if wrapper is not None and wrapper["baseline_record_key"] == key:
-            proposed[key] = wrapper["candidate"]
+        selected = _selected_candidate(anchored, key, one_choice["candidate_id"])
+        if selected is not None:
+            proposed[key] = selected
     collision_keys = _manual_collision_keys(automatic_candidates, proposed)
 
     decisions: list[dict] = []
     audit_results: list[dict] = []
     for key, one_choice in validated_choices.items():
-        classification = indexed_classifications[key]
         if key in audit_keys:
-            audit_results.append(_audit_result(one_choice, classification))
             continue
         outcome = one_choice["outcome"]
         if outcome == "human_selected_candidate":
             candidate_id = one_choice["candidate_id"]
-            wrapper = anchored.get(candidate_id)
-            if wrapper is None or wrapper["baseline_record_key"] != key:
+            candidate = proposed.get(key)
+            if candidate is None:
                 decisions.append({
                     "baseline_record_key": key,
                     "status": "menneskeark",
@@ -378,5 +382,21 @@ def convert_review_choices(
     target_errors = duplicate_target_errors(statuses)
     if target_errors:
         raise ValueError(next(iter(target_errors.values())))
+
+    for key, one_choice in validated_choices.items():
+        if key not in audit_keys:
+            continue
+        if one_choice["outcome"] == "possible_duplicate":
+            audit_statuses = copy.deepcopy(statuses)
+            audit_statuses[key] = {
+                "status": "eksplicit_dublet",
+                "duplicate_of_baseline_record_key": one_choice[
+                    "duplicate_of_baseline_record_key"
+                ],
+            }
+            audit_target_errors = duplicate_target_errors(audit_statuses)
+            if key in audit_target_errors:
+                raise ValueError(audit_target_errors[key])
+        audit_results.append(_audit_result(one_choice, indexed_classifications[key]))
 
     return {"decisions": decisions, "audit_results": audit_results}
