@@ -9,7 +9,7 @@ import math
 import re
 from collections.abc import Mapping
 
-from coverage_1939 import validate_coverage
+from coverage_1939 import PresentationCandidateIdError, validate_coverage
 
 
 QUEUE_CLASSES = {"auto_resolved", "human_required", "source_blocked"}
@@ -199,7 +199,10 @@ def _classify_one(key: str, evidence: dict, source: dict) -> dict:
         return _human(key, "evidence_conflict")
     if not _nonempty_optional_string(evidence.get("rule_id")):
         return _human(key, "missing_rule_id")
-    _validate_one_candidate_with_existing_contract(key, candidate, source)
+    try:
+        _validate_one_candidate_with_existing_contract(key, candidate, source)
+    except PresentationCandidateIdError:
+        return _human(key, "missing_positive_provenance")
     return _automatic(key, candidate, evidence["rule_id"])
 
 

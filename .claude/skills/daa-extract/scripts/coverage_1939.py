@@ -36,6 +36,10 @@ LEGACY_REVIEW_ALLOWED_FIELDS = {
 } | LEGACY_REVIEW_DECISION_FIELDS
 
 
+class PresentationCandidateIdError(ValueError):
+    """Raised when display identity is presented as positive accepted evidence."""
+
+
 def _mapping(value: object, label: str) -> Mapping:
     if not isinstance(value, Mapping):
         raise ValueError(f"{label} skal være en mapping")
@@ -49,8 +53,18 @@ def _nonempty_string(value: object, label: str) -> str:
 
 
 def is_presentation_candidate_id(value: object) -> bool:
-    """Identify display-only IDs that can never be positive legacy evidence."""
+    """Identify display-only IDs that can never be positive accepted evidence."""
     return isinstance(value, str) and value.startswith(PRESENTATION_CANDIDATE_PREFIX)
+
+
+def validate_accepted_candidate_id(value: object) -> str:
+    """Validate the candidate identity shared by every accepted-evidence path."""
+    candidate_id = _nonempty_string(value, "candidate_id")
+    if is_presentation_candidate_id(candidate_id):
+        raise PresentationCandidateIdError(
+            "accepteret candidate_id bruger reserveret presentation:-namespace"
+        )
+    return candidate_id
 
 
 def _nonnegative_int(value: object, label: str) -> int:
@@ -71,7 +85,7 @@ def _validate_source(value: object) -> None:
 
 def _validate_candidate(value: object, seen_ids: set[str], seen_spans: set[tuple[int, int]]) -> None:
     candidate = _mapping(value, "candidate")
-    candidate_id = _nonempty_string(candidate.get("candidate_id"), "candidate_id")
+    candidate_id = validate_accepted_candidate_id(candidate.get("candidate_id"))
     if candidate_id in seen_ids:
         raise ValueError("ikke-injektiv kandidat: candidate_id forekommer flere gange")
     seen_ids.add(candidate_id)
@@ -142,11 +156,7 @@ def legacy_review_entry_errors(entry: Mapping) -> list[str]:
         if missing:
             return missing
         try:
-            candidate_id = _nonempty_string(entry["candidate_id"], "candidate_id")
-            if is_presentation_candidate_id(candidate_id):
-                return [
-                    "accepteret candidate_id bruger reserveret presentation:-namespace"
-                ]
+            validate_accepted_candidate_id(entry["candidate_id"])
             _nonnegative_int(entry["post_index"], "post_index")
             span = _mapping(entry["calamari_span"], "calamari_span")
             char_from = _nonnegative_int(span.get("char_from"), "calamari_span char_from")

@@ -105,6 +105,20 @@ def test_complete_unique_candidate_is_auto_resolved():
     ]
 
 
+def test_complete_presentation_candidate_with_apparent_provenance_requires_human():
+    candidate = anchored_candidate("presentation:1939-v2:post:7")
+    result = classify_review_entries(
+        source(), {"rk-1"}, [evidence("rk-1", candidate=candidate)]
+    )
+
+    assert result["entries"] == [{
+        "baseline_record_key": "rk-1",
+        "queue_class": "human_required",
+        "reason_code": "missing_positive_provenance",
+        "reason_da": "Mangler gyldig positiv proveniens.",
+    }]
+
+
 @pytest.mark.parametrize(
     "mutation,reason",
     [

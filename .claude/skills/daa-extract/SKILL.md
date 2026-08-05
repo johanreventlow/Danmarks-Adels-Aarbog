@@ -202,9 +202,11 @@ visningshjælp og bliver aldrig automatisk accepteret. Et namespaced
 stabile inden for de fastlåste kilder; id'et er ikke positiv proveniens. Task 5
 ignorerer sådanne id'er ved ankerindlæsning og parkerer altid et valgt
 `presentation:`-id som `menneskeark`, også hvis en kandidatfil forsøger at give det
-en komplet, fabrikeret kildebro. Den fælles autoritative legacy-validator afviser
-desuden et `presentation:`-id i enhver `accepteret` slutbeslutning, herunder review-
-templates, Task 4-eksporter og Task 6's publikationsgate.
+en komplet, fabrikeret kildebro. Den fælles autoritative accepted-candidate-
+validator afviser desuden et `presentation:`-id i enhver coverage- eller
+slutbeslutningssti. Derfor bliver komplet classifier-evidens med et sådant id
+`human_required`, Task 5 kan ikke ankre det, og legacy-templates, Task 4-eksporter
+og Task 6's publikationsgate afviser det som positiv evidens.
 
 ```bash
 /usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_review_queue_1939.py \

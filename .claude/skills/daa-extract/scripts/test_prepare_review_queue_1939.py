@@ -15,6 +15,7 @@ from prepare_review_queue_1939 import (
     build_review_view_model,
     main,
 )
+from review_queue_1939 import sample_auto_resolved
 
 
 def source():
@@ -334,6 +335,32 @@ def test_report_is_go_only_for_546_completed_or_validated_and_confirmed_records(
     assert report["stratum_counts"] == {"complete_anchor_v1|nummereret": 1}
     assert report["audit_blocked_rule_groups"] == []
     assert report["publication_gate"] == "GO"
+
+
+def test_546_presentation_automatics_cannot_pass_validation_or_publication():
+    normal_entries = [automatic(f"rk-{number}") for number in range(546)]
+    normal_manifest = manifest(*normal_entries)
+    audit_keys = sample_auto_resolved(normal_manifest)
+    presentation_entries = copy.deepcopy(normal_entries)
+    for number, entry in enumerate(presentation_entries):
+        entry["candidate"]["candidate_id"] = f"presentation:1939-v2:post:{number}"
+
+    report = build_queue_report(
+        manifest(*presentation_entries),
+        audit_keys=audit_keys,
+        completed_keys=set(),
+        audit_results=[{
+            "baseline_record_key": key,
+            "audit_status": "audit_confirmed",
+            "rule_id": "complete_anchor_v1",
+        } for key in audit_keys],
+    )
+
+    assert report["baseline_total"] == 546
+    assert report["audit_confirmed"] == len(audit_keys)
+    assert report["automatic_candidates_valid"] is False
+    assert report["audit_sample_matches"] is False
+    assert report["publication_gate"] == "NO-GO"
 
 
 def test_failed_audit_blocks_its_rule_group_and_publication():

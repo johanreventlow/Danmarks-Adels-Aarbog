@@ -3,7 +3,7 @@ import hashlib
 
 import pytest
 
-from coverage_1939 import legacy_review_entry_errors
+from coverage_1939 import legacy_review_entry_errors, validate_coverage
 from prepare_coverage_1939 import (
     assemble_coverage,
     build_candidates,
@@ -44,6 +44,46 @@ def bridge(**overrides):
     }
     value.update(overrides)
     return value
+
+
+def test_common_coverage_validator_rejects_presentation_candidate_only():
+    candidate = {
+        "candidate_id": "real-anchor",
+        "postklasse": "nummereret",
+        "calamari_span": {"char_from": 10, "char_to": 20},
+        "pdf_pages": [498],
+        "raw_structure_bridge": {
+            "kind": "record_start",
+            "raw_char_from": 100,
+            "raw_char_to": 110,
+            "raw_excerpt_sha256": "e" * 64,
+        },
+    }
+    bundle = {
+        "schema_version": 1,
+        "source": {
+            "edition": "1939",
+            "calamari_sha256": "a" * 64,
+            "raw_ocr_sha256": "b" * 64,
+            "pdf_sha256": "c" * 64,
+        },
+        "entries": [{
+            "baseline_record_key": "rk-1",
+            "status": "accepteret",
+            "candidate": candidate,
+        }],
+    }
+
+    assert validate_coverage(bundle, expected_baseline_keys={"rk-1"})[
+        "rk-1"
+    ]["candidate"]["candidate_id"] == "real-anchor"
+
+    bundle["entries"][0]["candidate"] = {
+        **candidate,
+        "candidate_id": "presentation:1939-v2:post:7",
+    }
+    with pytest.raises(ValueError, match="reserveret presentation"):
+        validate_coverage(bundle, expected_baseline_keys={"rk-1"})
 
 
 def test_build_candidates_preserves_explicit_exact_calamari_slice():
