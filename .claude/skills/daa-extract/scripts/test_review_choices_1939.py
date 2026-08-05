@@ -885,6 +885,15 @@ def test_choice_export_requires_complete_task4_record_key_accounting():
         validate_choice_export(value, expected_source(), {"rk-1", "rk-missing"})
 
 
+def test_choice_export_rejects_final_legacy_presentation_candidate_id():
+    exported = choice_export(final_accepted(
+        "rk-1", "presentation:1939-v2:post:7"
+    ))
+
+    with pytest.raises(ValueError, match="reserveret presentation"):
+        validate_choice_export(exported, expected_source(), {"rk-1"})
+
+
 def test_validation_and_conversion_do_not_mutate_inputs():
     exported = choice_export(choice("rk-1", "human_selected_candidate", candidate_id="c-1"))
     candidates = {"c-1": {

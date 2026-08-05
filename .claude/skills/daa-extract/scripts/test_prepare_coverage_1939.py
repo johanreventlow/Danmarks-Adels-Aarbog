@@ -3,6 +3,7 @@ import hashlib
 
 import pytest
 
+from coverage_1939 import legacy_review_entry_errors
 from prepare_coverage_1939 import (
     assemble_coverage,
     build_candidates,
@@ -418,6 +419,41 @@ def test_validate_review_template_rejects_wrong_raw_excerpt_hash(tmp_path):
     review.write_text(json.dumps(template), encoding="utf-8")
 
     with pytest.raises(ValueError, match="raw_excerpt_sha256"):
+        validate_review_template(review, baseline)
+
+
+def test_authoritative_legacy_validator_reserves_presentation_candidate_ids():
+    accepted = {
+        "baseline_record_key": "rk-1",
+        "review_status": "accepteret",
+        **bridge(candidate_id="real-anchor", raw_verbatim_text=RAW_TEXT[100:112]),
+    }
+    assert legacy_review_entry_errors(accepted) == []
+
+    presentation_only = {
+        **accepted,
+        "candidate_id": "presentation:1939-v2:post:7",
+    }
+    assert legacy_review_entry_errors(presentation_only) == [
+        "accepteret candidate_id bruger reserveret presentation:-namespace"
+    ]
+
+
+def test_legacy_review_template_rejects_presentation_candidate_id(tmp_path):
+    baseline = tmp_path / "baseline.json"
+    review = tmp_path / "review.json"
+    baseline.write_text('[{"record_key":"rk-1"}]', encoding="utf-8")
+    template = write_review_template(baseline, review)
+    template["entries"][0].update({
+        "review_status": "accepteret",
+        **bridge(
+            candidate_id="presentation:1939-v2:post:7",
+            raw_verbatim_text=RAW_TEXT[100:112],
+        ),
+    })
+    review.write_text(json.dumps(template), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="reserveret presentation"):
         validate_review_template(review, baseline)
 
 

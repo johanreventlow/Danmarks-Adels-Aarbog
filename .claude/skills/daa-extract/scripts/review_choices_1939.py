@@ -10,6 +10,7 @@ import re
 from coverage_1939 import (
     LEGACY_REVIEW_ALLOWED_FIELDS,
     duplicate_target_errors,
+    is_presentation_candidate_id,
     legacy_review_entry_errors,
     validate_coverage,
 )
@@ -22,7 +23,6 @@ _OUTCOMES = {
     "undecidable",
 }
 _FINAL_LEGACY_STATUSES = {"accepteret", "eksplicit_dublet", "menneskeark"}
-_PRESENTATION_CANDIDATE_PREFIX = "presentation:"
 _PRESERVED_METADATA_FIELDS = {"review_status", "baseline_locator", "review_note"}
 _SOURCE_FIELDS = {
     "edition",
@@ -279,7 +279,7 @@ def _anchored_index(value: object) -> dict[str, object]:
         if (
             isinstance(map_id, str)
             and map_id
-            and not map_id.startswith(_PRESENTATION_CANDIDATE_PREFIX)
+            and not is_presentation_candidate_id(map_id)
         ):
             result[map_id] = copy.deepcopy(raw_wrapper)
     return result
@@ -289,7 +289,7 @@ def _selected_candidate(
     anchored: Mapping[str, object], key: str, candidate_id: str
 ) -> dict | None:
     """Return one exact, owner-matched candidate; malformed selections stay local."""
-    if candidate_id.startswith(_PRESENTATION_CANDIDATE_PREFIX):
+    if is_presentation_candidate_id(candidate_id):
         return None
     wrapper = anchored.get(candidate_id)
     if not isinstance(wrapper, Mapping) or wrapper.get("baseline_record_key") != key:
@@ -481,7 +481,7 @@ def convert_review_choices(
             candidate_id = one_choice["candidate_id"]
             candidate = proposed.get(key)
             if candidate is None:
-                if candidate_id.startswith(_PRESENTATION_CANDIDATE_PREFIX):
+                if is_presentation_candidate_id(candidate_id):
                     reason = (
                         "human_selected_candidate_is_presentation_only:"
                         f"{candidate_id}"

@@ -676,7 +676,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         _write_json_exclusive(args.report_out, report)
         created.append(args.report_out)
-    except Exception:
+    except BaseException:
         for path in reversed(created):
             path.unlink(missing_ok=True)
         raise

@@ -10,6 +10,7 @@ from collections.abc import Mapping
 
 ALLOWED_STATUSES = {"accepteret", "eksplicit_dublet", "menneskeark"}
 POSTKLASSER = {"nummereret", "stamfader", "oversigtspost"}
+PRESENTATION_CANDIDATE_PREFIX = "presentation:"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 LEGACY_REVIEW_ACCEPTED_FIELDS = {
     "candidate_id",
@@ -45,6 +46,11 @@ def _nonempty_string(value: object, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{label} skal være en ikke-tom streng")
     return value
+
+
+def is_presentation_candidate_id(value: object) -> bool:
+    """Identify display-only IDs that can never be positive legacy evidence."""
+    return isinstance(value, str) and value.startswith(PRESENTATION_CANDIDATE_PREFIX)
 
 
 def _nonnegative_int(value: object, label: str) -> int:
@@ -136,7 +142,11 @@ def legacy_review_entry_errors(entry: Mapping) -> list[str]:
         if missing:
             return missing
         try:
-            _nonempty_string(entry["candidate_id"], "candidate_id")
+            candidate_id = _nonempty_string(entry["candidate_id"], "candidate_id")
+            if is_presentation_candidate_id(candidate_id):
+                return [
+                    "accepteret candidate_id bruger reserveret presentation:-namespace"
+                ]
             _nonnegative_int(entry["post_index"], "post_index")
             span = _mapping(entry["calamari_span"], "calamari_span")
             char_from = _nonnegative_int(span.get("char_from"), "calamari_span char_from")

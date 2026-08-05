@@ -458,6 +458,50 @@ def test_source_less_bare_accepted_546_review_is_rejected_without_outputs(tmp_pa
     assert not report_path.exists()
 
 
+def test_exact_source_546_presentation_acceptances_never_complete_or_publish(tmp_path):
+    args, queue_path, report_path, hashes = _pilot_cli_args(tmp_path)
+    baseline_path = tmp_path / "baseline.json"
+    evidence_path = tmp_path / "evidence.json"
+    review_path = tmp_path / "review.json"
+    records = [baseline(f"rk-{number}") for number in range(546)]
+    baseline_path.write_text(json.dumps(records), encoding="utf-8")
+    evidence_path.write_text(json.dumps({"entries": [
+        {"baseline_record_key": record["record_key"]} for record in records
+    ]}), encoding="utf-8")
+    source_value = {
+        "edition": "1939",
+        **hashes,
+        "baseline_sha256": hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
+        "profile_version": "1939-v2",
+    }
+    review_path.write_text(json.dumps({
+        "schema_version": 1,
+        "source": source_value,
+        "entries": [
+            {
+                **accepted_decision(
+                    record["record_key"],
+                    f"presentation:1939-v2:post:{number}",
+                ),
+                "post_index": number,
+                "calamari_span": {
+                    "char_from": number * 2,
+                    "char_to": number * 2 + 1,
+                },
+                "raw_char_from": number * 2,
+                "raw_char_to": number * 2 + 1,
+            }
+            for number, record in enumerate(records)
+        ],
+    }), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="reserveret presentation"):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
 def test_review_state_rejects_source_mismatch_and_malformed_accepted_evidence():
     mismatch = {"source": {**source(), "raw_ocr_sha256": "f" * 64}, "entries": []}
     with pytest.raises(ValueError, match="source hashes"):
@@ -593,3 +637,38 @@ def test_exclusive_writer_removes_partial_file_and_allows_immediate_retry(
     assert json.loads(out.read_text(encoding="utf-8")) == {
         "publication_gate": "NO-GO"
     }
+
+
+@pytest.mark.parametrize("interrupt_type", [KeyboardInterrupt, SystemExit])
+def test_aggregate_rollback_cleans_both_outputs_and_reraises_baseexception(
+    tmp_path, monkeypatch, interrupt_type
+):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    preexisting = tmp_path / "bevar.txt"
+    preexisting.write_text("bevar", encoding="utf-8")
+    real_dump = subject.json.dump
+    calls = 0
+    interruption = interrupt_type("simuleret afbrydelse")
+
+    def interrupt_second_output(value, handle, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            handle.write("{partial")
+            raise interruption
+        return real_dump(value, handle, **kwargs)
+
+    monkeypatch.setattr(subject.json, "dump", interrupt_second_output)
+    with pytest.raises(interrupt_type) as caught:
+        main(args)
+
+    assert caught.value is interruption
+    assert not queue_path.exists()
+    assert not report_path.exists()
+    assert preexisting.read_text(encoding="utf-8") == "bevar"
+
+    monkeypatch.setattr(subject.json, "dump", real_dump)
+    assert main(args) == 0
+    assert json.loads(queue_path.read_text(encoding="utf-8"))["schema_version"] == 1
+    assert json.loads(report_path.read_text(encoding="utf-8"))["publication_gate"] == "NO-GO"
+    assert preexisting.read_text(encoding="utf-8") == "bevar"
