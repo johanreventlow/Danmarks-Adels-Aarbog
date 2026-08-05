@@ -9,6 +9,7 @@ import { navigate, usePath } from './router';
 import { loadModel } from './data/model';
 import { initials } from './data/format';
 import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, TOM_PERSONDETALJE, type AboutSection, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
+import { personMemberIds } from './data/personMembers';
 import type { AppModel, Model } from './data/types';
 import { computeRelationship } from '@daa/core';
 import { buildBrowse, showSearchResults } from './data/browse';
@@ -177,7 +178,7 @@ export default function Folgesvend() {
     if (!focusId) { setDetail(null); return; }
     setDetail(null);
     // Foldet person: hent detalje for ALLE medlems-id'er (narrativ/relationer unioneres — spec §8).
-    const members = model?.byId[focusId]?.mergedFrom?.map((m) => m.personId);
+    const members = personMemberIds(focusId, model?.byId[focusId]);
     // Ingen bog-nummer (typisk en ægtefælle) → hent proveniens fra citationerne i stedet.
     const manglerBogNummer = !(model?.sourcesBy?.[focusId]?.length);
     fetchPersonDetail(focusId, members, manglerBogNummer).then(setDetail).catch(() => setDetail(TOM_PERSONDETALJE));
