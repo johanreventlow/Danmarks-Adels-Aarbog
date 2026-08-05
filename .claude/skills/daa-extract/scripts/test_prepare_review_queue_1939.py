@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -393,7 +394,8 @@ def _pilot_cli_args(tmp_path):
     report_path = tmp_path / "report.json"
     baseline_path.write_text(json.dumps([baseline("rk-1")]), encoding="utf-8")
     evidence_path.write_text(json.dumps({
-        "entries": [{"baseline_record_key": "rk-1"}],
+        "baseline_sha256": hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
+        "entries": [{"baseline_record_key": "rk-1", "review_status": "unreviewed"}],
     }), encoding="utf-8")
     review_path.write_text(json.dumps({
         "baseline_sha256": hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
@@ -420,6 +422,63 @@ def _pilot_cli_args(tmp_path):
     }
 
 
+def _cli_path(args, option):
+    return Path(args[args.index(option) + 1])
+
+
+def _exact_cli_source(args):
+    return {
+        "edition": "1939",
+        "baseline_sha256": hashlib.sha256(
+            _cli_path(args, "--baseline").read_bytes()
+        ).hexdigest(),
+        "calamari_sha256": hashlib.sha256(
+            _cli_path(args, "--calamari").read_bytes()
+        ).hexdigest(),
+        "raw_ocr_sha256": hashlib.sha256(
+            _cli_path(args, "--raw").read_bytes()
+        ).hexdigest(),
+        "pdf_sha256": hashlib.sha256(
+            _cli_path(args, "--pdf").read_bytes()
+        ).hexdigest(),
+        "profile_version": "1939-v2",
+    }
+
+
+def _source_bound_evidence(args, key="rk-1"):
+    raw_excerpt = "Rå OCR"
+    candidate = {
+        "candidate_id": "candidate-1",
+        "postklasse": "nummereret",
+        "calamari_span": {"char_from": 0, "char_to": 8},
+        "pdf_pages": [1],
+        "raw_structure_bridge": {
+            "kind": "record_start",
+            "raw_char_from": 0,
+            "raw_char_to": 6,
+            "raw_excerpt_sha256": hashlib.sha256(
+                raw_excerpt.encode("utf-8")
+            ).hexdigest(),
+        },
+    }
+    return {
+        "schema_version": 1,
+        "source": _exact_cli_source(args),
+        "entries": [{
+            "baseline_record_key": key,
+            "candidates": [candidate],
+            "positive_provenance": {
+                "kind": "record_key_v2_locator",
+                "baseline_record_key": key,
+                "candidate_id": candidate["candidate_id"],
+            },
+            "conflicts": [],
+            "source_blockers": [],
+            "rule_id": "complete_anchor_v1",
+        }],
+    }
+
+
 def test_main_writes_exclusive_queue_and_report_with_hashes_from_bytes(tmp_path):
     args, queue_path, report_path, hashes = _pilot_cli_args(tmp_path)
 
@@ -441,6 +500,233 @@ def test_main_writes_exclusive_queue_and_report_with_hashes_from_bytes(tmp_path)
     assert report["publication_gate"] == "NO-GO"
     with pytest.raises(FileExistsError):
         main(args)
+
+
+def test_source_less_positive_evidence_is_rejected_without_outputs(tmp_path):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    evidence = _source_bound_evidence(args)
+    evidence.pop("source")
+    evidence["baseline_sha256"] = _exact_cli_source(args)["baseline_sha256"]
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="source"):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
+def test_foreign_source_with_546_candidates_is_rejected_without_outputs(tmp_path):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    baseline_path = _cli_path(args, "--baseline")
+    evidence_path = _cli_path(args, "--evidence")
+    review_path = _cli_path(args, "--review")
+    records = [baseline(f"rk-{number}") for number in range(546)]
+    baseline_path.write_text(json.dumps(records), encoding="utf-8")
+    baseline_digest = hashlib.sha256(baseline_path.read_bytes()).hexdigest()
+    review_path.write_text(json.dumps({
+        "baseline_sha256": baseline_digest,
+        "entries": [
+            {"baseline_record_key": record["record_key"], "review_status": "unreviewed"}
+            for record in records
+        ],
+    }), encoding="utf-8")
+    foreign = _source_bound_evidence(args)
+    foreign["source"]["edition"] = "1940"
+    foreign["entries"] = []
+    for number, record in enumerate(records):
+        candidate = copy.deepcopy(_source_bound_evidence(args)["entries"][0])
+        candidate["baseline_record_key"] = record["record_key"]
+        candidate["candidates"][0]["candidate_id"] = f"foreign-{number}"
+        candidate["candidates"][0]["calamari_span"] = {
+            "char_from": number * 2,
+            "char_to": number * 2 + 1,
+        }
+        candidate["candidates"][0]["raw_structure_bridge"].update(
+            raw_char_from=number * 2,
+            raw_char_to=number * 2 + 1,
+        )
+        candidate["positive_provenance"].update(
+            baseline_record_key=record["record_key"],
+            candidate_id=f"foreign-{number}",
+        )
+        foreign["entries"].append(candidate)
+    evidence_path.write_text(json.dumps(foreign), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="evidence source"):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
+@pytest.mark.parametrize(
+    "mutation,error",
+    [
+        (
+            lambda evidence: evidence["entries"][0]["candidates"][0][
+                "raw_structure_bridge"
+            ].update(raw_excerpt_sha256="0" * 64),
+            "raw_excerpt_sha256 matcher ikke",
+        ),
+        (
+            lambda evidence: evidence["entries"][0]["candidates"][0][
+                "calamari_span"
+            ].update(char_to=9),
+            "Calamari-span",
+        ),
+        (
+            lambda evidence: evidence["entries"][0]["candidates"][0][
+                "raw_structure_bridge"
+            ].update(raw_char_to=7),
+            "rå-bro",
+        ),
+    ],
+)
+def test_exact_source_rejects_candidate_not_bound_to_current_text(
+    tmp_path, mutation, error
+):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    evidence = _source_bound_evidence(args)
+    mutation(evidence)
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=error):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
+@pytest.mark.parametrize(
+    "mutation,error",
+    [
+        (lambda evidence: evidence.update(audit_results=[]), "evidence root"),
+        (lambda evidence: evidence["source"].update(extra="x"), "evidence source"),
+        (lambda evidence: evidence["source"].pop("pdf_sha256"), "evidence source"),
+        (lambda evidence: evidence["entries"][0].update(extra="x"), "evidenspost"),
+        (
+            lambda evidence: evidence["entries"][0]["candidates"][0].update(extra="x"),
+            "candidate",
+        ),
+        (
+            lambda evidence: evidence["entries"][0]["positive_provenance"].update(
+                extra="x"
+            ),
+            "positive_provenance",
+        ),
+        (
+            lambda evidence: evidence["entries"][0]["positive_provenance"].update(
+                candidate_id="foreign-candidate"
+            ),
+            "positive_provenance",
+        ),
+    ],
+)
+def test_source_bound_evidence_rejects_unknown_or_incomplete_grammar(
+    tmp_path, mutation, error
+):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    evidence = _source_bound_evidence(args)
+    mutation(evidence)
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=error):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
+@pytest.mark.parametrize("source_bound", [False, True])
+def test_evidence_schema_version_rejects_boolean_one(tmp_path, source_bound):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    if source_bound:
+        evidence = _source_bound_evidence(args)
+    else:
+        evidence = json.loads(
+            _cli_path(args, "--evidence").read_text(encoding="utf-8")
+        )
+    evidence["schema_version"] = True
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="schema_version"):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
+@pytest.mark.parametrize(
+    "mutation,error",
+    [
+        (lambda entries: entries.clear(), "baseline-dækning"),
+        (lambda entries: entries.append(copy.deepcopy(entries[0])), "dublet evidence"),
+        (
+            lambda entries: entries[0].update(baseline_record_key="rk-foreign"),
+            "ukendt baseline_record_key",
+        ),
+    ],
+)
+def test_source_bound_evidence_requires_exact_unique_baseline_keys(
+    tmp_path, mutation, error
+):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    evidence = _source_bound_evidence(args)
+    mutation(evidence["entries"])
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=error):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
+def test_exact_source_bound_candidate_can_be_classified_automatically(tmp_path):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    evidence = _source_bound_evidence(args)
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+
+    assert main(args) == 0
+
+    queue = json.loads(queue_path.read_text(encoding="utf-8"))
+    assert queue["entries"][0]["queue_class"] == "auto_resolved"
+    assert queue["entries"][0]["candidate"] == evidence["entries"][0]["candidates"][0]
+    assert json.loads(report_path.read_text(encoding="utf-8"))["publication_gate"] == "NO-GO"
+
+
+def test_baseline_hash_and_keys_come_from_the_same_single_read(tmp_path, monkeypatch):
+    args, queue_path, _, _ = _pilot_cli_args(tmp_path)
+    baseline_path = _cli_path(args, "--baseline")
+    captured_bytes = baseline_path.read_bytes()
+    captured_digest = hashlib.sha256(captured_bytes).hexdigest()
+    real_read_bytes = Path.read_bytes
+    replaced = False
+
+    def replace_after_captured_read(path):
+        nonlocal replaced
+        value = real_read_bytes(path)
+        if path == baseline_path and not replaced:
+            replaced = True
+            path.write_text(json.dumps([baseline("rk-replaced")]), encoding="utf-8")
+        return value
+
+    monkeypatch.setattr(Path, "read_bytes", replace_after_captured_read)
+
+    assert main(args) == 0
+
+    queue = json.loads(queue_path.read_text(encoding="utf-8"))
+    assert queue["source"]["baseline_sha256"] == captured_digest
+    assert [entry["baseline_record_key"] for entry in queue["entries"]] == ["rk-1"]
+
+
+def test_strict_json_bytes_rejects_nested_duplicate_fields():
+    with pytest.raises(ValueError, match="dublet JSON-feltnavn"):
+        subject._strict_json_bytes(
+            b'{"entries":[{"baseline_record_key":"rk-1","nested":{"x":1,"x":2}}]}',
+            "evidence",
+        )
 
 
 def test_main_preflights_both_outputs_and_rejects_unpinned_profile(tmp_path):
@@ -466,9 +752,13 @@ def test_source_less_bare_accepted_546_review_is_rejected_without_outputs(tmp_pa
     review_path = tmp_path / "review.json"
     records = [baseline(f"rk-{number}") for number in range(546)]
     baseline_path.write_text(json.dumps(records), encoding="utf-8")
-    evidence_path.write_text(json.dumps({"entries": [
-        {"baseline_record_key": record["record_key"]} for record in records
-    ]}), encoding="utf-8")
+    evidence_path.write_text(json.dumps({
+        "baseline_sha256": hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
+        "entries": [
+            {"baseline_record_key": record["record_key"], "review_status": "unreviewed"}
+            for record in records
+        ],
+    }), encoding="utf-8")
     review_path.write_text(json.dumps({
         "schema_version": 1,
         "baseline_sha256": hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
@@ -492,9 +782,13 @@ def test_exact_source_546_presentation_acceptances_never_complete_or_publish(tmp
     review_path = tmp_path / "review.json"
     records = [baseline(f"rk-{number}") for number in range(546)]
     baseline_path.write_text(json.dumps(records), encoding="utf-8")
-    evidence_path.write_text(json.dumps({"entries": [
-        {"baseline_record_key": record["record_key"]} for record in records
-    ]}), encoding="utf-8")
+    evidence_path.write_text(json.dumps({
+        "baseline_sha256": hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
+        "entries": [
+            {"baseline_record_key": record["record_key"], "review_status": "unreviewed"}
+            for record in records
+        ],
+    }), encoding="utf-8")
     source_value = {
         "edition": "1939",
         **hashes,

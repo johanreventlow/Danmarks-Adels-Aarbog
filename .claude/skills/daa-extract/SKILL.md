@@ -208,6 +208,15 @@ slutbeslutningssti. Derfor bliver komplet classifier-evidens med et sådant id
 `human_required`, Task 5 kan ikke ankre det, og legacy-templates, Task 4-eksporter
 og Task 6's publikationsgate afviser det som positiv evidens.
 
+Task 6 accepterer kun source-løs evidens som den komplette, eksakte
+`unreviewed`-template med baseline-hash og uden kandidat-, proveniens-, konflikt-,
+blokker-, audit- eller beslutningsfelter; den normaliseres til nul kandidater.
+Evidens med kandidater kræver `schema_version: 1`, præcis de seks source-felter
+med hashes fra de aktuelle CLI-input og eksakt baseline-dækning uden dubletter.
+Ukendte root-, entry-, kandidat- og proveniensfelter afvises. Kandidatens
+Calamari- og rå-OCR-intervaller valideres mod de samme bytes, som source-hashene
+blev beregnet fra, og råuddragets SHA-256 skal matche det aktuelle tekstudsnit.
+
 ```bash
 /usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_review_queue_1939.py \
   --baseline ../../../work_1939_stamtavle/clean_1939_v2.json \

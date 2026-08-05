@@ -12,6 +12,7 @@ from pathlib import Path
 
 from coverage_1939 import (
     LEGACY_REVIEW_ALLOWED_FIELDS,
+    POSTKLASSER,
     duplicate_target_errors,
     legacy_review_entry_errors,
 )
@@ -31,6 +32,18 @@ _PINNED_PROFILE_VERSION = "1939-v2"
 _COLLISION_REASONS = (
     "candidate_collision", "calamari_span_overlap", "raw_ocr_span_overlap",
 )
+_SOURCE_FIELDS = {
+    "edition", "baseline_sha256", "calamari_sha256", "raw_ocr_sha256",
+    "pdf_sha256", "profile_version",
+}
+_EVIDENCE_ENTRY_FIELDS = {
+    "baseline_record_key", "candidates", "positive_provenance", "conflicts",
+    "source_blockers", "rule_id",
+}
+_CANDIDATE_FIELDS = {
+    "candidate_id", "postklasse", "calamari_span", "pdf_pages",
+    "raw_structure_bridge",
+}
 
 
 def _nonempty(value: object, label: str) -> str:
@@ -429,7 +442,7 @@ def build_queue_report(
     }
 
 
-def _strict_json(path: Path, label: str) -> object:
+def _strict_json_bytes(value: bytes, label: str) -> object:
     def reject_duplicate_keys(pairs):
         result = {}
         for key, value in pairs:
@@ -438,20 +451,212 @@ def _strict_json(path: Path, label: str) -> object:
             result[key] = value
         return result
 
-    return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicate_keys)
+    try:
+        text = value.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{label} skal være UTF-8") from error
+    return json.loads(text, object_pairs_hook=reject_duplicate_keys)
 
 
 def _hash_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-def _input_entries(value: object, label: str) -> list[dict]:
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{label} skal være en mapping")
+def _decoded_source_text(value: bytes, label: str) -> str:
+    try:
+        return value.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{label} skal være UTF-8") from error
+
+
+def _nonnegative_int(value: object, label: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{label} skal være et ikke-negativt heltal")
+    return value
+
+
+def _strict_string_list(value: object, label: str) -> list[str]:
+    if not isinstance(value, list):
+        raise ValueError(f"{label} skal være en liste")
+    return [_nonempty(item, label) for item in value]
+
+
+def _is_schema_version_one(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value == 1
+
+
+def _validate_source_bound_candidate(
+    value: object, calamari_text: str, raw_text: str
+) -> dict:
+    if not isinstance(value, Mapping) or set(value) != _CANDIDATE_FIELDS:
+        raise ValueError("evidence candidate har uautoriserede eller manglende felter")
+    candidate = copy.deepcopy(dict(value))
+    _nonempty(candidate.get("candidate_id"), "candidate_id")
+    if candidate.get("postklasse") not in POSTKLASSER:
+        raise ValueError("postklasse er ukendt")
+
+    span = candidate.get("calamari_span")
+    if not isinstance(span, Mapping) or set(span) != {"char_from", "char_to"}:
+        raise ValueError("Calamari-span har uautoriserede eller manglende felter")
+    char_from = _nonnegative_int(span.get("char_from"), "Calamari-span char_from")
+    char_to = _nonnegative_int(span.get("char_to"), "Calamari-span char_to")
+    if char_from >= char_to or char_to > len(calamari_text):
+        raise ValueError("Calamari-span er uden for den aktuelle kilde")
+    if not calamari_text[char_from:char_to]:
+        raise ValueError("Calamari-span er tomt")
+
+    pages = candidate.get("pdf_pages")
+    if not isinstance(pages, list) or not pages:
+        raise ValueError("PDF-side skal være en ikke-tom liste")
+    if any(not isinstance(page, int) or isinstance(page, bool) or page <= 0 for page in pages):
+        raise ValueError("PDF-side skal være et positivt heltal")
+
+    bridge = candidate.get("raw_structure_bridge")
+    bridge_fields = {"kind", "raw_char_from", "raw_char_to", "raw_excerpt_sha256"}
+    if not isinstance(bridge, Mapping) or set(bridge) != bridge_fields:
+        raise ValueError("rå-bro har uautoriserede eller manglende felter")
+    _nonempty(bridge.get("kind"), "rå-bro kind")
+    raw_from = _nonnegative_int(bridge.get("raw_char_from"), "rå-bro raw_char_from")
+    raw_to = _nonnegative_int(bridge.get("raw_char_to"), "rå-bro raw_char_to")
+    if raw_from >= raw_to or raw_to > len(raw_text):
+        raise ValueError("rå-bro er uden for den aktuelle kilde")
+    raw_excerpt = raw_text[raw_from:raw_to]
+    if not raw_excerpt:
+        raise ValueError("rå-bro er tom")
+    if bridge.get("raw_excerpt_sha256") != _hash_bytes(raw_excerpt.encode("utf-8")):
+        raise ValueError("raw_excerpt_sha256 matcher ikke den aktuelle rå-OCR-kilde")
+    return candidate
+
+
+def _source_less_evidence_entries(
+    value: Mapping, source: dict, baseline_keys: set[str]
+) -> list[dict]:
+    allowed_root = {"schema_version", "baseline_sha256", "entries"}
+    if set(value) - allowed_root or not {"baseline_sha256", "entries"} <= set(value):
+        raise ValueError("source-løs evidence skal være en strikt unreviewed template")
+    if not _is_schema_version_one(value.get("schema_version", 1)):
+        raise ValueError("source-løs evidence schema_version skal være 1")
+    if value.get("baseline_sha256") != source["baseline_sha256"]:
+        raise ValueError("evidence baseline hash matcher ikke")
     entries = value.get("entries")
     if not isinstance(entries, list):
-        raise ValueError(f"{label} entries skal være en liste")
-    return copy.deepcopy(entries)
+        raise ValueError("evidence entries skal være en liste")
+    allowed_entry = {
+        "baseline_record_key", "review_status", "baseline_locator", "review_note",
+    }
+    seen: set[str] = set()
+    normalized: list[dict] = []
+    for item in entries:
+        if (
+            not isinstance(item, Mapping)
+            or set(item) - allowed_entry
+            or not {"baseline_record_key", "review_status"} <= set(item)
+            or item.get("review_status") != "unreviewed"
+        ):
+            raise ValueError("source-løs evidence kræver source for positive felter")
+        key = _nonempty(item.get("baseline_record_key"), "baseline_record_key")
+        if key not in baseline_keys:
+            raise ValueError("evidence har ukendt baseline_record_key")
+        if key in seen:
+            raise ValueError("dublet evidence baseline_record_key")
+        seen.add(key)
+        _validate_review_metadata(item)
+        normalized.append({
+            "baseline_record_key": key,
+            "candidates": [],
+            "positive_provenance": None,
+            "conflicts": [],
+            "source_blockers": [],
+            "rule_id": None,
+        })
+    if seen != baseline_keys:
+        raise ValueError("source-løs evidence baseline-dækning fejler")
+    return normalized
+
+
+def _source_bound_evidence_entries(
+    value: Mapping,
+    source: dict,
+    baseline_keys: set[str],
+    calamari_text: str,
+    raw_text: str,
+) -> list[dict]:
+    if set(value) != {"schema_version", "source", "entries"}:
+        raise ValueError("evidence root har uautoriserede eller manglende felter")
+    if not _is_schema_version_one(value.get("schema_version")):
+        raise ValueError("evidence schema_version skal være 1")
+    evidence_source = value.get("source")
+    if (
+        not isinstance(evidence_source, Mapping)
+        or set(evidence_source) != _SOURCE_FIELDS
+        or dict(evidence_source) != source
+    ):
+        raise ValueError("evidence source matcher ikke de aktuelle CLI-kilder")
+    entries = value.get("entries")
+    if not isinstance(entries, list):
+        raise ValueError("evidence entries skal være en liste")
+
+    seen: set[str] = set()
+    validated: list[dict] = []
+    for item in entries:
+        if not isinstance(item, Mapping) or set(item) != _EVIDENCE_ENTRY_FIELDS:
+            raise ValueError("evidenspost har uautoriserede eller manglende felter")
+        entry = copy.deepcopy(dict(item))
+        key = _nonempty(entry.get("baseline_record_key"), "baseline_record_key")
+        if key not in baseline_keys:
+            raise ValueError("evidence har ukendt baseline_record_key")
+        if key in seen:
+            raise ValueError("dublet evidence baseline_record_key")
+        seen.add(key)
+
+        candidates = entry.get("candidates")
+        if not isinstance(candidates, list):
+            raise ValueError("candidates skal være en liste")
+        entry["candidates"] = [
+            _validate_source_bound_candidate(candidate, calamari_text, raw_text)
+            for candidate in candidates
+        ]
+        entry["conflicts"] = _strict_string_list(entry.get("conflicts"), "conflict")
+        entry["source_blockers"] = _strict_string_list(
+            entry.get("source_blockers"), "source_blocker"
+        )
+        rule_id = entry.get("rule_id")
+        if rule_id is not None:
+            _nonempty(rule_id, "rule_id")
+
+        provenance = entry.get("positive_provenance")
+        if provenance is not None:
+            provenance_fields = {"kind", "baseline_record_key", "candidate_id"}
+            if not isinstance(provenance, Mapping) or set(provenance) != provenance_fields:
+                raise ValueError("positive_provenance har uautoriserede eller manglende felter")
+            if (
+                provenance.get("kind") != "record_key_v2_locator"
+                or provenance.get("baseline_record_key") != key
+                or len(entry["candidates"]) != 1
+                or provenance.get("candidate_id") != entry["candidates"][0]["candidate_id"]
+            ):
+                raise ValueError("positive_provenance matcher ikke den entydige candidate")
+            entry["positive_provenance"] = copy.deepcopy(dict(provenance))
+        validated.append(entry)
+    if seen != baseline_keys:
+        raise ValueError("evidence baseline-dækning fejler")
+    return validated
+
+
+def _validated_evidence_entries(
+    value: object,
+    source: dict,
+    baseline_keys: set[str],
+    calamari_text: str,
+    raw_text: str,
+) -> list[dict]:
+    if not isinstance(value, Mapping):
+        raise ValueError("evidence skal være en mapping")
+    if "source" not in value:
+        return _source_less_evidence_entries(value, source, baseline_keys)
+    return _source_bound_evidence_entries(
+        value, source, baseline_keys, calamari_text, raw_text
+    )
 
 
 def _validate_review_metadata(entry: Mapping) -> None:
@@ -646,21 +851,34 @@ def main(argv: list[str] | None = None) -> int:
             raise FileExistsError(output)
 
     baseline_bytes = args.baseline.read_bytes()
-    baseline_value = _strict_json(args.baseline, "baseline")
+    evidence_bytes = args.evidence.read_bytes()
+    review_bytes = args.review.read_bytes()
+    calamari_bytes = args.calamari.read_bytes()
+    raw_bytes = args.raw.read_bytes()
+    pdf_bytes = args.pdf.read_bytes()
+
+    baseline_value = _strict_json_bytes(baseline_bytes, "baseline")
     _, baseline_keys = _baseline_index(baseline_value)
     source = {
         "edition": "1939",
         "baseline_sha256": _hash_bytes(baseline_bytes),
-        "calamari_sha256": _hash_bytes(args.calamari.read_bytes()),
-        "raw_ocr_sha256": _hash_bytes(args.raw.read_bytes()),
-        "pdf_sha256": _hash_bytes(args.pdf.read_bytes()),
+        "calamari_sha256": _hash_bytes(calamari_bytes),
+        "raw_ocr_sha256": _hash_bytes(raw_bytes),
+        "pdf_sha256": _hash_bytes(pdf_bytes),
         "profile_version": args.profile_version,
     }
-    evidence_entries = _input_entries(_strict_json(args.evidence, "evidence"), "evidence")
+    evidence_value = _strict_json_bytes(evidence_bytes, "evidence")
+    evidence_entries = _validated_evidence_entries(
+        evidence_value,
+        source,
+        baseline_keys,
+        _decoded_source_text(calamari_bytes, "Calamari"),
+        _decoded_source_text(raw_bytes, "rå OCR"),
+    )
     manifest = classify_review_entries(source, baseline_keys, evidence_entries)
     audit_keys = sample_auto_resolved(manifest)
     completed_keys, audit_results = _review_state(
-        _strict_json(args.review, "review"), source, baseline_keys
+        _strict_json_bytes(review_bytes, "review"), source, baseline_keys
     )
 
     created: list[Path] = []
