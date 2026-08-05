@@ -1132,6 +1132,39 @@ def _review_state(
     )
 
 
+def _require_exact_json_types(value: object, label: str) -> None:
+    value_type = type(value)
+    if value_type is dict:
+        for key, item in value.items():
+            if type(key) is not str:
+                raise ValueError(f"{label} kræver eksakte JSON-typer")
+            _require_exact_json_types(item, label)
+        return
+    if value_type is list:
+        for item in value:
+            _require_exact_json_types(item, label)
+        return
+    if value_type not in (str, int, float, bool, type(None)):
+        raise ValueError(f"{label} kræver eksakte JSON-typer")
+
+
+def _validate_publication_boundary_types(
+    manifest: object,
+    profile_version: object,
+    byte_values: tuple[tuple[str, object], ...],
+) -> None:
+    if type(manifest) is not dict:
+        raise ValueError("queue manifest kræver eksakte JSON-typer")
+    if type(profile_version) is not str:
+        raise ValueError("profile_version skal være eksakt str")
+    for label, value in byte_values:
+        if type(value) is not bytes:
+            raise ValueError(f"{label} skal være eksakt bytes")
+    _require_exact_json_types(manifest, "queue manifest")
+    if not is_schema_version_one(manifest.get("schema_version")):
+        raise ValueError("queue manifest schema_version skal være 1")
+
+
 def _build_publication_queue_report(
     manifest: dict,
     *,
@@ -1144,6 +1177,18 @@ def _build_publication_queue_report(
     profile_version: str,
 ) -> dict:
     """Rederive publication eligibility from the original CLI input bytes."""
+    _validate_publication_boundary_types(
+        manifest,
+        profile_version,
+        (
+            ("baseline_bytes", baseline_bytes),
+            ("evidence_bytes", evidence_bytes),
+            ("review_bytes", review_bytes),
+            ("calamari_bytes", calamari_bytes),
+            ("raw_bytes", raw_bytes),
+            ("pdf_bytes", pdf_bytes),
+        ),
+    )
     if profile_version != _PINNED_PROFILE_VERSION:
         raise ValueError(f"profile_version skal være {_PINNED_PROFILE_VERSION}")
     baseline_value = _strict_json_bytes(baseline_bytes, "baseline")

@@ -616,6 +616,179 @@ def _audit_confirmed(key, rule_id="complete_anchor_v1"):
     }
 
 
+def _publication_human_go_inputs(*, payloads=None):
+    keys = [f"rk-{number}" for number in range(546)]
+    baseline_text = json.dumps([baseline(key) for key in keys])
+    baseline_bytes = baseline_text.encode("utf-8")
+    calamari_bytes = b"Calamari"
+    raw_bytes = "R\u00e5 OCR".encode("utf-8")
+    pdf_bytes = b"PDF"
+    if payloads is not None:
+        baseline_bytes = payloads["baseline_bytes"]
+        calamari_bytes = payloads["calamari_bytes"]
+        raw_bytes = payloads["raw_bytes"]
+        pdf_bytes = payloads["pdf_bytes"]
+    source_value = {
+        "edition": "1939",
+        "baseline_sha256": hashlib.sha256(baseline_bytes).hexdigest(),
+        "calamari_sha256": hashlib.sha256(calamari_bytes).hexdigest(),
+        "raw_ocr_sha256": hashlib.sha256(raw_bytes).hexdigest(),
+        "pdf_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
+        "profile_version": "1939-v2",
+    }
+    evidence_text = json.dumps({
+        "schema_version": 1,
+        "baseline_sha256": source_value["baseline_sha256"],
+        "entries": [
+            {"baseline_record_key": key, "review_status": "unreviewed"}
+            for key in keys
+        ],
+    })
+    review_text = json.dumps({
+        "decisions": [
+            {
+                "baseline_record_key": key,
+                "status": "menneskeark",
+                "reason": "manuelt afsluttet",
+            }
+            for key in keys
+        ],
+        "audit_results": [],
+    })
+    evidence_bytes = evidence_text.encode("utf-8")
+    review_bytes = review_text.encode("utf-8")
+    if payloads is not None:
+        evidence_bytes = payloads["evidence_bytes"]
+        review_bytes = payloads["review_bytes"]
+    evidence_entries = [
+        {
+            "baseline_record_key": key,
+            "candidates": [],
+            "positive_provenance": None,
+            "conflicts": [],
+            "source_blockers": [],
+            "rule_id": None,
+        }
+        for key in keys
+    ]
+    return subject.classify_review_entries(
+        source_value, set(keys), evidence_entries
+    ), {
+        "baseline_bytes": baseline_bytes,
+        "evidence_bytes": evidence_bytes,
+        "review_bytes": review_bytes,
+        "calamari_bytes": calamari_bytes,
+        "raw_bytes": raw_bytes,
+        "pdf_bytes": pdf_bytes,
+        "profile_version": "1939-v2",
+    }, {
+        "baseline_text": baseline_text,
+        "evidence_text": evidence_text,
+        "review_text": review_text,
+    }
+
+
+def _decoding_bytes(payload, decoded_text):
+    class HostileBytes(bytes):
+        def decode(self, *args, **kwargs):
+            return decoded_text
+
+    return HostileBytes(payload)
+
+
+def test_publication_boundary_rejects_one_byte_decode_override_go_attack():
+    one_byte_payloads = {
+        field: b"x"
+        for field in (
+            "baseline_bytes", "evidence_bytes", "review_bytes", "calamari_bytes",
+            "raw_bytes", "pdf_bytes",
+        )
+    }
+    manifest_value, _, decoded = _publication_human_go_inputs(
+        payloads=one_byte_payloads
+    )
+    hostile = {
+        "baseline_bytes": _decoding_bytes(b"x", decoded["baseline_text"]),
+        "evidence_bytes": _decoding_bytes(b"x", decoded["evidence_text"]),
+        "review_bytes": _decoding_bytes(b"x", decoded["review_text"]),
+        "calamari_bytes": _decoding_bytes(b"x", "Calamari"),
+        "raw_bytes": _decoding_bytes(b"x", "R\u00e5 OCR"),
+        "pdf_bytes": _decoding_bytes(b"x", "PDF"),
+        "profile_version": "1939-v2",
+    }
+
+    with pytest.raises(ValueError, match="eksakt bytes"):
+        subject._build_publication_queue_report(manifest_value, **hostile)
+
+
+@pytest.mark.parametrize(
+    "byte_field",
+    [
+        "baseline_bytes", "evidence_bytes", "review_bytes", "calamari_bytes",
+        "raw_bytes", "pdf_bytes",
+    ],
+)
+def test_publication_boundary_rejects_each_bytes_subclass(byte_field):
+    manifest_value, inputs, _ = _publication_human_go_inputs()
+    hostile = dict(inputs)
+    original = hostile[byte_field]
+    hostile[byte_field] = _decoding_bytes(original, original.decode("utf-8"))
+
+    with pytest.raises(ValueError, match="eksakt bytes"):
+        subject._build_publication_queue_report(manifest_value, **hostile)
+
+
+@pytest.mark.parametrize("location", ["root", "source", "entry"])
+def test_publication_boundary_rejects_mapping_subclasses(location):
+    class HostileDict(dict):
+        pass
+
+    manifest_value, inputs, _ = _publication_human_go_inputs()
+    hostile_manifest = copy.deepcopy(manifest_value)
+    if location == "root":
+        hostile_manifest = HostileDict(hostile_manifest)
+    elif location == "source":
+        hostile_manifest["source"] = HostileDict(hostile_manifest["source"])
+    else:
+        hostile_manifest["entries"][0] = HostileDict(hostile_manifest["entries"][0])
+
+    with pytest.raises(ValueError, match="eksakte JSON-typer"):
+        subject._build_publication_queue_report(hostile_manifest, **inputs)
+
+
+@pytest.mark.parametrize("location", ["profile_argument", "manifest_profile"])
+def test_publication_boundary_rejects_str_subclasses(location):
+    class HostileStr(str):
+        pass
+
+    manifest_value, inputs, _ = _publication_human_go_inputs()
+    if location == "profile_argument":
+        inputs["profile_version"] = HostileStr("1939-v2")
+    else:
+        manifest_value["source"]["profile_version"] = HostileStr("1939-v2")
+
+    with pytest.raises(ValueError, match="eksakt str|eksakte JSON-typer"):
+        subject._build_publication_queue_report(manifest_value, **inputs)
+
+
+def test_publication_boundary_rejects_boolean_manifest_schema_version():
+    manifest_value, inputs, _ = _publication_human_go_inputs()
+    manifest_value["schema_version"] = True
+
+    with pytest.raises(ValueError, match="schema_version"):
+        subject._build_publication_queue_report(manifest_value, **inputs)
+
+
+def test_publication_boundary_allows_exact_builtin_inputs_to_reach_go():
+    manifest_value, inputs, _ = _publication_human_go_inputs()
+
+    report = subject._build_publication_queue_report(manifest_value, **inputs)
+
+    assert report["baseline_total"] == 546
+    assert report["completed"] == 546
+    assert report["publication_gate"] == "GO"
+
+
 def _legacy_accepted_from_evidence(evidence, *, locator=None):
     candidate = evidence["entries"][0]["candidates"][0]
     bridge = candidate["raw_structure_bridge"]
