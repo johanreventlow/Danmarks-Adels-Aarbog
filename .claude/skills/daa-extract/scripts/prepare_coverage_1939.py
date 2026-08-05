@@ -448,6 +448,18 @@ def _parse_anchored_candidates_json(text: str) -> object:
     return anchored
 
 
+def _parse_choice_export_json(text: str) -> object:
+    def reject_duplicate_keys(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"dublet JSON-nøgle i choices export: {key}")
+            result[key] = value
+        return result
+
+    return json.loads(text, object_pairs_hook=reject_duplicate_keys)
+
+
 def convert_choice_export(
     choices_path: Path,
     queue_manifest_path: Path,
@@ -476,11 +488,14 @@ def convert_choice_export(
             raise ValueError("dublet baseline_record_key")
         classifications[key] = copy.deepcopy(dict(entry))
 
-    choices_root = json.loads(choices_path.read_text(encoding="utf-8"))
-    choices = validate_choice_export(
+    choices_root = _parse_choice_export_json(
+        choices_path.read_text(encoding="utf-8")
+    )
+    choices_context = validate_choice_export(
         choices_root,
         dict(_mapping(queue.get("source"), "queue source")),
         set(classifications),
+        include_context=True,
     )
     anchored = _mapping(
         _parse_anchored_candidates_json(
@@ -489,7 +504,11 @@ def convert_choice_export(
         "anchored candidates",
     )
     converted = convert_review_choices(
-        choices, dict(anchored), classifications, audit_keys
+        choices_context["choices"],
+        dict(anchored),
+        classifications,
+        audit_keys,
+        final_legacy_entries=choices_context["final_legacy_entries"],
     )
     with out_path.open("x", encoding="utf-8") as handle:
         json.dump(converted, handle, ensure_ascii=False, indent=2, sort_keys=True)

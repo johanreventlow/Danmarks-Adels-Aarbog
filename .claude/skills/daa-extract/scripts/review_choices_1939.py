@@ -174,8 +174,12 @@ def _validate_legacy_export_entry(entry: Mapping) -> dict:
 
 
 def validate_choice_export(
-    value: dict, expected_source: dict, expected_keys: set[str]
-) -> dict[str, dict]:
+    value: dict,
+    expected_source: dict,
+    expected_keys: set[str],
+    *,
+    include_context: bool = False,
+) -> dict:
     """Validate one exact browser export without mutating it."""
     root = _mapping(value, "choice export")
     expected = _validate_source(expected_source)
@@ -198,6 +202,7 @@ def validate_choice_export(
 
     choices: dict[str, dict] = {}
     legacy_statuses: dict[str, dict] = {}
+    final_legacy_entries: dict[str, dict] = {}
     for entry in entries:
         key = entry["baseline_record_key"]
         if "outcome" in entry:
@@ -209,11 +214,18 @@ def validate_choice_export(
         else:
             validated = _validate_legacy_export_entry(entry)
             legacy_statuses[key] = validated
+            if validated["review_status"] in _FINAL_LEGACY_STATUSES:
+                final_legacy_entries[key] = validated
     target_errors = duplicate_target_errors(
         legacy_statuses, status_field="review_status"
     )
     if target_errors:
         raise ValueError(next(iter(target_errors.values())))
+    if include_context:
+        return {
+            "choices": choices,
+            "final_legacy_entries": final_legacy_entries,
+        }
     return choices
 
 
@@ -304,6 +316,49 @@ def _claims_conflict(left: Mapping, right: Mapping) -> bool:
     return False
 
 
+def _final_legacy_index(value: object, expected_keys: set[str]) -> dict[str, dict]:
+    if value is None:
+        return {}
+    entries = _mapping(value, "final_legacy_entries")
+    result: dict[str, dict] = {}
+    for map_key, raw_entry in entries.items():
+        key = _nonempty(map_key, "final legacy key")
+        if key not in expected_keys:
+            raise ValueError("final legacy har ukendt baseline_record_key")
+        entry = _validate_legacy_export_entry(
+            _mapping(raw_entry, "final legacy entry")
+        )
+        if entry.get("baseline_record_key") != key:
+            raise ValueError("final legacy har forkert baseline_record_key")
+        if entry["review_status"] not in _FINAL_LEGACY_STATUSES:
+            raise ValueError("final legacy entry skal have endelig status")
+        result[key] = entry
+    return result
+
+
+def _legacy_candidate_claim(entry: Mapping) -> dict:
+    return {
+        "candidate_id": entry["candidate_id"],
+        "calamari_span": copy.deepcopy(entry["calamari_span"]),
+        "raw_structure_bridge": {
+            "raw_char_from": entry["raw_char_from"],
+            "raw_char_to": entry["raw_char_to"],
+        },
+    }
+
+
+def _legacy_status(entry: Mapping) -> dict:
+    status = entry["review_status"]
+    result = {"status": status}
+    if status == "eksplicit_dublet":
+        result["duplicate_of_baseline_record_key"] = entry[
+            "duplicate_of_baseline_record_key"
+        ]
+    elif status == "menneskeark":
+        result["reason"] = entry["reason"]
+    return result
+
+
 def _manual_collision_keys(
     automatic_candidates: dict[str, dict], proposed: dict[str, dict]
 ) -> set[str]:
@@ -355,6 +410,8 @@ def convert_review_choices(
     anchored_candidates: dict[str, dict],
     classifications: dict[str, dict],
     audit_keys: set[str],
+    *,
+    final_legacy_entries: dict[str, dict] | None = None,
 ) -> dict:
     """Convert provisional choices, never inferring or replacing automatic evidence."""
     indexed_classifications = _classification_index(classifications)
@@ -365,6 +422,7 @@ def convert_review_choices(
         raise ValueError("audit har ukendt baseline_record_key")
     if any(indexed_classifications[key]["queue_class"] != "auto_resolved" for key in audit_keys):
         raise ValueError("audit kræver auto_resolved entry")
+    final_legacy = _final_legacy_index(final_legacy_entries, classification_keys)
 
     raw_choices = _mapping(choices, "choices")
     validated_choices: dict[str, dict] = {}
@@ -382,9 +440,17 @@ def convert_review_choices(
     automatic_candidates = {
         key: entry["candidate"]
         for key, entry in indexed_classifications.items()
-        if entry["queue_class"] == "auto_resolved"
+        if entry["queue_class"] == "auto_resolved" and key not in final_legacy
     }
-    _manual_collision_keys(automatic_candidates, {})
+    fixed_candidates = {
+        **automatic_candidates,
+        **{
+            key: _legacy_candidate_claim(entry)
+            for key, entry in final_legacy.items()
+            if entry["review_status"] == "accepteret"
+        },
+    }
+    _manual_collision_keys(fixed_candidates, {})
 
     proposed: dict[str, dict] = {}
     for key, one_choice in validated_choices.items():
@@ -393,7 +459,7 @@ def convert_review_choices(
         selected = _selected_candidate(anchored, key, one_choice["candidate_id"])
         if selected is not None:
             proposed[key] = selected
-    collision_keys = _manual_collision_keys(automatic_candidates, proposed)
+    collision_keys = _manual_collision_keys(fixed_candidates, proposed)
 
     decisions: list[dict] = []
     audit_results: list[dict] = []
@@ -439,6 +505,9 @@ def convert_review_choices(
         key: {"status": "accepteret" if entry["queue_class"] == "auto_resolved" else "menneskeark"}
         for key, entry in indexed_classifications.items()
     }
+    statuses.update({
+        key: _legacy_status(entry) for key, entry in final_legacy.items()
+    })
     for decision in decisions:
         statuses[decision["baseline_record_key"]] = decision
     target_errors = duplicate_target_errors(statuses)

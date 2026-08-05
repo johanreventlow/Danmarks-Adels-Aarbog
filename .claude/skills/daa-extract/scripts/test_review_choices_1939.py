@@ -70,6 +70,31 @@ def anchored_candidate(candidate_id, *, offset=0):
     }
 
 
+def final_accepted(key, candidate_id, *, offset=0):
+    raw_text = f"råtekst-{candidate_id}"
+    return {
+        "baseline_record_key": key,
+        "review_status": "accepteret",
+        "candidate_id": candidate_id,
+        "post_index": offset,
+        "calamari_span": {"char_from": 10 + offset, "char_to": 20 + offset},
+        "calamari_verbatim_text": f"kildetekst-{candidate_id}",
+        "pdf_pages": [498],
+        "kind": "manual_anchor",
+        "raw_char_from": 100 + offset,
+        "raw_char_to": 110 + offset,
+        "raw_verbatim_text": raw_text,
+        "raw_excerpt_sha256": hashlib.sha256(raw_text.encode("utf-8")).hexdigest(),
+    }
+
+
+def validated_context(*entries):
+    keys = {entry["baseline_record_key"] for entry in entries}
+    return validate_choice_export(
+        choice_export(*entries), expected_source(), keys, include_context=True
+    )
+
+
 def test_selected_candidate_promotes_only_when_exact_candidate_exists():
     converted = convert_review_choices(
         {"rk-1": choice("rk-1", "human_selected_candidate", candidate_id="c-1")},
@@ -307,6 +332,194 @@ def test_possible_duplicate_requires_an_accepted_distinct_target():
         "status": "eksplicit_dublet",
         "duplicate_of_baseline_record_key": "rk-2",
     }]
+
+
+def test_new_duplicate_can_target_final_accepted_legacy_without_reemitting_it():
+    context = validated_context(
+        choice(
+            "rk-new", "possible_duplicate",
+            duplicate_of_baseline_record_key="rk-final",
+        ),
+        final_accepted("rk-final", "c-final"),
+    )
+
+    converted = convert_review_choices(
+        context["choices"],
+        {},
+        {"rk-new": human("rk-new"), "rk-final": human("rk-final")},
+        set(),
+        final_legacy_entries=context["final_legacy_entries"],
+    )
+
+    assert converted == {
+        "decisions": [{
+            "baseline_record_key": "rk-new",
+            "status": "eksplicit_dublet",
+            "duplicate_of_baseline_record_key": "rk-final",
+        }],
+        "audit_results": [],
+    }
+
+
+def test_final_human_status_overrides_auto_queue_for_duplicate_targets():
+    context = validated_context(
+        choice(
+            "rk-new", "possible_duplicate",
+            duplicate_of_baseline_record_key="rk-final",
+        ),
+        {
+            "baseline_record_key": "rk-final",
+            "review_status": "menneskeark",
+            "reason": "historisk menneskeark",
+        },
+    )
+    target_classification = automatic("rk-final", "c-auto")
+    target_classification["candidate"] = anchored_candidate("c-auto", offset=50)
+
+    with pytest.raises(ValueError, match="dubletmål skal være accepteret"):
+        convert_review_choices(
+            context["choices"],
+            {},
+            {"rk-new": human("rk-new"), "rk-final": target_classification},
+            set(),
+            final_legacy_entries=context["final_legacy_entries"],
+        )
+
+
+def test_final_accepted_anchor_parks_every_overlapping_new_claim_without_reemission():
+    context = validated_context(
+        choice("rk-new-1", "human_selected_candidate", candidate_id="c-new-1"),
+        choice("rk-new-2", "human_selected_candidate", candidate_id="c-new-2"),
+        final_accepted("rk-final", "c-final"),
+    )
+
+    calamari_overlap_only = anchored_candidate("c-new-1")
+    calamari_overlap_only["raw_structure_bridge"].update({
+        "raw_char_from": 300,
+        "raw_char_to": 310,
+    })
+    raw_overlap_only = anchored_candidate("c-new-2", offset=50)
+    raw_overlap_only["raw_structure_bridge"].update({
+        "raw_char_from": 105,
+        "raw_char_to": 115,
+    })
+
+    converted = convert_review_choices(
+        context["choices"],
+        {
+            "c-new-1": {
+                "baseline_record_key": "rk-new-1",
+                "candidate": calamari_overlap_only,
+            },
+            "c-new-2": {
+                "baseline_record_key": "rk-new-2",
+                "candidate": raw_overlap_only,
+            },
+        },
+        {
+            "rk-new-1": human("rk-new-1"),
+            "rk-new-2": human("rk-new-2"),
+            "rk-final": human("rk-final"),
+        },
+        set(),
+        final_legacy_entries=context["final_legacy_entries"],
+    )
+
+    assert converted == {
+        "decisions": [
+            {
+                "baseline_record_key": "rk-new-1",
+                "status": "menneskeark",
+                "reason": "human_selected_candidate_not_globally_injective:c-new-1",
+            },
+            {
+                "baseline_record_key": "rk-new-2",
+                "status": "menneskeark",
+                "reason": "human_selected_candidate_not_globally_injective:c-new-2",
+            },
+        ],
+        "audit_results": [],
+    }
+
+
+def test_final_accepted_candidate_id_is_owned_across_baseline_records():
+    context = validated_context(
+        choice("rk-new", "human_selected_candidate", candidate_id="c-final"),
+        final_accepted("rk-final", "c-final"),
+    )
+
+    converted = convert_review_choices(
+        context["choices"],
+        {"c-final": {
+            "baseline_record_key": "rk-new",
+            "candidate": anchored_candidate("c-final", offset=50),
+        }},
+        {"rk-new": human("rk-new"), "rk-final": human("rk-final")},
+        set(),
+        final_legacy_entries=context["final_legacy_entries"],
+    )
+
+    assert converted["decisions"] == [{
+        "baseline_record_key": "rk-new",
+        "status": "menneskeark",
+        "reason": "human_selected_candidate_not_globally_injective:c-final",
+    }]
+
+
+def test_audit_duplicate_can_target_final_accepted_legacy():
+    context = validated_context(
+        choice(
+            "rk-a", "possible_duplicate",
+            duplicate_of_baseline_record_key="rk-final",
+        ),
+        final_accepted("rk-final", "c-final"),
+    )
+    audit_classification = automatic("rk-a", "c-a")
+    audit_classification["candidate"] = anchored_candidate("c-a", offset=50)
+
+    converted = convert_review_choices(
+        context["choices"],
+        {},
+        {"rk-a": audit_classification, "rk-final": human("rk-final")},
+        {"rk-a"},
+        final_legacy_entries=context["final_legacy_entries"],
+    )
+
+    assert converted == {
+        "decisions": [],
+        "audit_results": [{
+            "baseline_record_key": "rk-a",
+            "audit_status": "audit_failed",
+            "rule_id": "complete_anchor_v1",
+            "reason": "possible_duplicate:rk-final",
+        }],
+    }
+
+
+def test_audit_duplicate_rejects_final_nonaccepted_legacy_even_if_queue_is_auto():
+    context = validated_context(
+        choice(
+            "rk-a", "possible_duplicate",
+            duplicate_of_baseline_record_key="rk-final",
+        ),
+        {
+            "baseline_record_key": "rk-final",
+            "review_status": "menneskeark",
+            "reason": "historisk menneskeark",
+        },
+    )
+    audit_classification = automatic("rk-a", "c-a")
+    target_classification = automatic("rk-final", "c-target")
+    target_classification["candidate"] = anchored_candidate("c-target", offset=50)
+
+    with pytest.raises(ValueError, match="dubletmål skal være accepteret"):
+        convert_review_choices(
+            context["choices"],
+            {},
+            {"rk-a": audit_classification, "rk-final": target_classification},
+            {"rk-a"},
+            final_legacy_entries=context["final_legacy_entries"],
+        )
 
 
 @pytest.mark.parametrize(
