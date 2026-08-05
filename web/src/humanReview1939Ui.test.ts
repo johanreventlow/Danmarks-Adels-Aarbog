@@ -67,7 +67,7 @@ function acceptedDecision(recordKey: string, candidateId: string) {
   };
 }
 
-function viewModel(records: any[], source = {}) {
+function viewModel(records: any[], source = {}, sourceBlocked: any = 0) {
   return {
     schema_version: 1,
     source: {
@@ -78,7 +78,7 @@ function viewModel(records: any[], source = {}) {
     default_view: 'required',
     summary: { required: records.filter(r => r.queue_class !== 'auto_resolved').length,
       automatic: records.filter(r => r.queue_class === 'auto_resolved').length,
-      audit: records.filter(r => r.is_audit).length, completed: 0, source_blocked: 0 },
+      audit: records.filter(r => r.is_audit).length, completed: 0, source_blocked: sourceBlocked },
     views: {
       required: records.filter(r => r.queue_class !== 'auto_resolved').map(r => r.record_key),
       automatic: records.filter(r => r.queue_class === 'auto_resolved').map(r => r.record_key),
@@ -89,16 +89,18 @@ function viewModel(records: any[], source = {}) {
   };
 }
 
-function startReview({ storage, records, source, download = vi.fn() }: {
+function startReview({ storage, records, source, sourceBlocked, download = vi.fn() }: {
   storage: ReturnType<typeof memoryStorage>;
   records: any[];
   source?: Record<string, unknown>;
+  sourceBlocked?: any;
   download?: ReturnType<typeof vi.fn>;
 }) {
   document.body.innerHTML = '<aside data-role="save-state"></aside><main data-role="app"></main>';
   window.eval(uiSource);
   return {
-    controller: (window as any).DAA1939Review.init({ data: viewModel(records, source), storage,
+    controller: (window as any).DAA1939Review.init({
+      data: viewModel(records, source, sourceBlocked), storage,
       now: () => '2026-08-05T12:00:00+02:00', download }),
     download,
   };
@@ -634,6 +636,32 @@ describe('human 1939 review controller', () => {
     expect(details.textContent).toContain('Accepteret manuel tekst');
   });
 
+  it('initially shows an accepted cross-page candidate after three earlier list candidates', () => {
+    const record = humanRecord('rk-accepted', 'near-0');
+    const accepted = acceptedDecision('rk-accepted', 'z-manual-anchor');
+    record.decision = accepted;
+    record.candidates = ['near-0', 'near-1', 'near-2'].map(candidateId => ({
+      candidate_id: candidateId, lokal_id: candidateId, pdf_pages: [498], calamari_pages: [3],
+      raw_text: candidateId, rank_reason: 'samme_pdf_side',
+    }));
+    record.candidates.push({
+      candidate_id: 'z-manual-anchor', lokal_id: 'z-manual-anchor', pdf_pages: [700],
+      calamari_pages: [], raw_text: accepted.raw_verbatim_text,
+      rank_reason: 'accepteret_review_evidens', details: accepted,
+    });
+    record.initial_candidate_ids = ['near-0', 'near-1', 'near-2', 'z-manual-anchor'];
+    const { controller } = startReview({ storage: memoryStorage(), records: [record] });
+
+    controller.setView('completed');
+
+    const acceptedCard = Array.from(document.querySelectorAll<HTMLDetailsElement>('.candidate'))
+      .find(node => node.textContent?.includes('z-manual-anchor'))!;
+    expect(acceptedCard).not.toBeUndefined();
+    expect(acceptedCard.open).toBe(true);
+    expect(acceptedCard.querySelector('[data-role="candidate-details"]')!.textContent)
+      .toContain('manual_cross_page_anchor');
+  });
+
   it('shows the initially expanded candidates and expands the remainder on request', () => {
     const record = humanRecord('rk-1', 'c-1');
     record.candidates = ['c-1', 'c-2', 'c-3', 'c-4'].map(candidateId => ({
@@ -649,6 +677,27 @@ describe('human 1939 review controller', () => {
     document.querySelector<HTMLButtonElement>('[data-action="expand-candidates"]')!.click();
     expect(document.querySelectorAll('.candidate')).toHaveLength(4);
   });
+
+  it('shows the validated source-blocked count in the dashboard', () => {
+    startReview({ storage: memoryStorage(), records: [humanRecord('rk-1', 'c-1')],
+      sourceBlocked: 2 });
+
+    expect(document.querySelector('[data-role="dashboard"]')!.textContent)
+      .toContain('Kildeblokerede: 2');
+  });
+
+  it.each([-1, 1.5, '1'])(
+    'fails closed for an invalid source-blocked count: %s', sourceBlocked => {
+      const { controller } = startReview({ storage: memoryStorage(),
+        records: [humanRecord('rk-1', 'c-1')], sourceBlocked });
+
+      expect(controller.exportDraft()).toMatchObject({ recovery_blocked: true, entries: [] });
+      expect(document.querySelector('[data-role="save-state"]')!.textContent)
+        .toContain('Kildeoptællingen kan ikke bruges sikkert');
+      expect(document.querySelector('[data-role="dashboard"]')!.textContent)
+        .not.toContain(`Kildeblokerede: ${sourceBlocked}`);
+    },
+  );
 
   it('tracks candidate expansion safely for a prototype-like record key', () => {
     const record = humanRecord('__proto__', 'c-1');

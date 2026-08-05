@@ -142,6 +142,24 @@ def test_authoritative_accepted_decision_is_attached_when_not_page_near():
     assert record["candidate_count"] == 2
 
 
+def test_authoritative_accepted_candidate_is_in_initial_set_after_three_nearby_candidates():
+    decision = accepted_decision("rk-1", "z-manual-anchor")
+    model = build_review_view_model(
+        [baseline("rk-1")], manifest(human("rk-1")),
+        {"rk-1": [nearby(f"near-{number}", [498]) for number in range(3)]},
+        [], {"rk-1": decision},
+    )
+
+    record = model["records"][0]
+    assert [candidate["candidate_id"] for candidate in record["candidates"]] == [
+        "near-0", "near-1", "near-2", "z-manual-anchor",
+    ]
+    assert record["initial_candidate_ids"] == [
+        "near-0", "near-1", "near-2", "z-manual-anchor",
+    ]
+    assert record["candidates"][3]["details"] == decision
+
+
 def test_classifier_entry_is_retained_separately_and_is_not_presentation_mutated():
     entry = automatic("rk-1")
     queue = manifest(entry)

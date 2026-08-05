@@ -171,6 +171,11 @@ def _view_record(record: dict, classification: dict, nearby: list[dict], is_audi
     candidates = [_presentation_candidate(candidate) for candidate in nearby]
     candidates = _attach_anchored_details(candidates, classification)
     candidates = _attach_accepted_review(candidates, decision)
+    initial_candidate_ids = [candidate["candidate_id"] for candidate in candidates[:3]]
+    if isinstance(decision, Mapping) and decision.get("review_status") == "accepteret":
+        accepted_candidate_id = _nonempty(decision.get("candidate_id"), "candidate_id")
+        if accepted_candidate_id not in initial_candidate_ids:
+            initial_candidate_ids.append(accepted_candidate_id)
     queue_class = classification["queue_class"]
     completed = _is_completed(decision)
     return {
@@ -185,7 +190,7 @@ def _view_record(record: dict, classification: dict, nearby: list[dict], is_audi
         "is_audit": is_audit,
         "is_completed": completed,
         "candidate_count": len(candidates),
-        "initial_candidate_ids": [candidate["candidate_id"] for candidate in candidates[:3]],
+        "initial_candidate_ids": initial_candidate_ids,
         "candidates": candidates,
         "decision": decision,
     }

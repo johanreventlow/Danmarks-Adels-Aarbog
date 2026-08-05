@@ -267,7 +267,14 @@
       error: '',
       storageError: '',
       recoveryBlocked: false,
+      sourceBlockedCount: null,
     };
+    const sourceBlockedCount = data && data.summary && data.summary.source_blocked;
+    if (!Number.isInteger(sourceBlockedCount) || sourceBlockedCount < 0) {
+      blockRecovery(state, 'Kildeoptællingen kan ikke bruges sikkert.');
+      return state;
+    }
+    state.sourceBlockedCount = sourceBlockedCount;
     const modelDecisions = dictionary(records
       .filter(record => record.decision != null)
       .map(record => [record.record_key, record.decision]));
@@ -538,6 +545,11 @@
       if (view === state.activeView) button.setAttribute('aria-current', 'true');
       dashboard.append(button);
     });
+    if (state.sourceBlockedCount !== null) {
+      dashboard.append(element('p', `Kildeblokerede: ${state.sourceBlockedCount}`, {
+        'data-role': 'source-blocked-count',
+      }));
+    }
     dashboard.append(actionButton('Eksportér kladde', 'export-draft'));
     root.append(dashboard);
   }
@@ -553,11 +565,13 @@
     root.append(list);
   }
 
-  function renderCandidate(state, record, candidate, index) {
+  function renderCandidate(state, record, candidate) {
     const allVisible = state.expandedCandidates[record.record_key];
-    if (!allVisible && index >= 3) return null;
+    const initiallyVisible = Array.isArray(record.initial_candidate_ids)
+      && record.initial_candidate_ids.includes(candidate.candidate_id);
+    if (!allVisible && !initiallyVisible) return null;
     const details = element('details', undefined, { class: 'candidate' });
-    if (record.initial_candidate_ids.includes(candidate.candidate_id)) details.open = true;
+    if (initiallyVisible) details.open = true;
     details.append(element('summary', `Parserpost ${candidate.lokal_id || '(uden lokalt id)'}`));
     details.append(element('p', `PDF s. ${(candidate.pdf_pages || []).join('-')} · Calamari-scan ${(candidate.calamari_pages || []).join('-')}`));
     details.append(element('p', 'Boksens start og slut er parserens foreslåede postgrænse.'));
@@ -602,11 +616,14 @@
     root.append(element('h2', 'Ny OCR: kandidatposter'));
     const candidates = Array.isArray(record.candidates) ? record.candidates : [];
     if (!candidates.length) root.append(element('p', 'Ingen parserkandidat på samme PDF-side.'));
-    candidates.forEach((candidate, index) => {
-      const card = renderCandidate(state, record, candidate, index);
+    candidates.forEach(candidate => {
+      const card = renderCandidate(state, record, candidate);
       if (card) root.append(card);
     });
-    if (candidates.length > 3 && !state.expandedCandidates[record.record_key]) {
+    const hasHiddenCandidates = candidates.some(candidate =>
+      !Array.isArray(record.initial_candidate_ids)
+      || !record.initial_candidate_ids.includes(candidate.candidate_id));
+    if (hasHiddenCandidates && !state.expandedCandidates[record.record_key]) {
       const candidateTotal = Number.isInteger(record.candidate_count)
         ? record.candidate_count : candidates.length;
       root.append(actionButton(`Vis alle kandidater (${candidateTotal})`, 'expand-candidates'));

@@ -190,7 +190,7 @@ def main() -> int:
     )
     payload = json.dumps(
         {"baseline_sha256": baseline_hash, **model}, ensure_ascii=False,
-    ).replace("</", "<\\/")
+    ).replace("<", "\\u003c")
     controller = UI_PATH.read_text(encoding="utf-8")
     with args.out.open("x", encoding="utf-8") as handle:
         handle.write(HTML_PREFIX)

@@ -100,6 +100,38 @@ def test_main_embeds_the_committed_controller_bytes_without_inline_handlers(tmp_
     assert b"onclick=" not in rendered
 
 
+def test_main_escapes_mixed_case_closing_script_in_source_text(tmp_path, monkeypatch):
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    hostile_text = 'Før </ScRiPt><img data-injected="yes"> efter'
+    baseline_value = json.loads(baseline.read_text(encoding="utf-8"))
+    baseline_value[0]["narrative"] = hostile_text
+    baseline.write_text(json.dumps(baseline_value), encoding="utf-8")
+    source_value = _source(baseline.read_bytes(), calamari.read_bytes())
+    source.write_text(json.dumps({"schema_version": 1, "source": source_value}), encoding="utf-8")
+    queue_value = json.loads(queue.read_text(encoding="utf-8"))
+    queue_value["source"] = source_value
+    queue.write_text(json.dumps(queue_value), encoding="utf-8")
+    review_value = json.loads(review.read_text(encoding="utf-8"))
+    review_value["source"] = source_value
+    review_value["baseline_sha256"] = source_value["baseline_sha256"]
+    review.write_text(json.dumps(review_value), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
+
+    assert subject.main() == 0
+
+    rendered = out.read_text(encoding="utf-8")
+    assert len(re.findall(r"<script\b", rendered, flags=re.IGNORECASE)) == 1
+    assert len(re.findall(r"</script\s*>", rendered, flags=re.IGNORECASE)) == 1
+    assert '<img data-injected="yes">' not in rendered
+    embedded_json = re.search(
+        r"const DATA=(.*?);\n\(function \(global\)", rendered,
+    ).group(1)
+    assert "<" not in embedded_json
+    payload = json.loads(embedded_json)
+    assert payload["records"][0]["narrative"] == hostile_text
+
+
 @pytest.mark.parametrize("which", ["baseline", "queue", "review", "source"])
 def test_main_rejects_disagreeing_hashes(tmp_path, monkeypatch, which):
     baseline, review, queue, source, calamari = _write_inputs(tmp_path)
