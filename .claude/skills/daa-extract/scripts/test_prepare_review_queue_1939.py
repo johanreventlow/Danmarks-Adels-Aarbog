@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 
 import pytest
 
-from prepare_review_queue_1939 import build_review_view_model
+from prepare_review_queue_1939 import build_queue_report, build_review_view_model, main
 
 
 def source():
@@ -54,6 +55,15 @@ def automatic(key):
 
 
 def manifest(*entries):
+    return {"schema_version": 1, "source": source(), "entries": list(entries)}
+
+
+def queue_entry(key, queue_class, reason_code):
+    return {"baseline_record_key": key, "queue_class": queue_class,
+            "reason_code": reason_code, "reason_da": reason_code}
+
+
+def report_manifest(*entries):
     return {"schema_version": 1, "source": source(), "entries": list(entries)}
 
 
@@ -269,3 +279,148 @@ def test_inputs_are_not_mutated():
     snapshot = copy.deepcopy((records, queue, candidates, decisions))
     build_review_view_model(records, queue, candidates, ["rk-1"], decisions)
     assert (records, queue, candidates, decisions) == snapshot
+
+
+def test_report_accounts_for_every_record_and_fails_closed():
+    report = build_queue_report(
+        report_manifest(
+            queue_entry("rk-a", "auto_resolved", "complete_unique_anchored_candidate"),
+            queue_entry("rk-h", "human_required", "multiple_candidates"),
+            queue_entry("rk-b", "source_blocked", "raw_ocr_missing"),
+        ),
+        audit_keys=["rk-a"], completed_keys={"rk-h"}, audit_results=[],
+    )
+    assert report["baseline_total"] == 3
+    assert report["auto_resolved"] == 1
+    assert report["human_required"] == 1
+    assert report["source_blocked"] == 1
+    assert report["audit"] == 1
+    assert report["completed"] == 1
+    assert report["reason_code_counts"] == {
+        "complete_unique_anchored_candidate": 1,
+        "multiple_candidates": 1,
+        "raw_ocr_missing": 1,
+    }
+    assert report["collision_overlap_counts"] == {
+        "candidate_collision": 0,
+        "calamari_span_overlap": 0,
+        "raw_ocr_span_overlap": 0,
+    }
+    assert report["publication_gate"] == "NO-GO"
+
+
+def test_report_is_go_only_for_546_completed_or_validated_and_confirmed_records():
+    auto = automatic("rk-auto")
+    humans = [human(f"rk-human-{number}") for number in range(545)]
+    completed = {entry["baseline_record_key"] for entry in humans}
+    report = build_queue_report(
+        manifest(auto, *humans),
+        audit_keys=["rk-auto"],
+        completed_keys=completed,
+        audit_results=[{
+            "baseline_record_key": "rk-auto",
+            "audit_status": "audit_confirmed",
+            "rule_id": "complete_anchor_v1",
+        }],
+    )
+
+    assert report["baseline_total"] == 546
+    assert report["stratum_counts"] == {"complete_anchor_v1|nummereret": 1}
+    assert report["audit_blocked_rule_groups"] == []
+    assert report["publication_gate"] == "GO"
+
+
+def test_failed_audit_blocks_its_rule_group_and_publication():
+    auto = automatic("rk-auto")
+    humans = [human(f"rk-human-{number}") for number in range(545)]
+    report = build_queue_report(
+        manifest(auto, *humans),
+        audit_keys=["rk-auto"],
+        completed_keys={entry["baseline_record_key"] for entry in humans},
+        audit_results=[{
+            "baseline_record_key": "rk-auto",
+            "audit_status": "audit_failed",
+            "rule_id": "complete_anchor_v1",
+            "reason": "selected_different_candidate:c-other",
+        }],
+    )
+
+    assert report["audit_blocked_rule_groups"] == ["complete_anchor_v1|nummereret"]
+    assert report["publication_gate"] == "NO-GO"
+
+
+def _pilot_cli_args(tmp_path):
+    baseline_path = tmp_path / "baseline.json"
+    evidence_path = tmp_path / "evidence.json"
+    review_path = tmp_path / "review.json"
+    calamari_path = tmp_path / "calamari.txt"
+    raw_path = tmp_path / "raw.txt"
+    pdf_path = tmp_path / "book.pdf"
+    queue_path = tmp_path / "queue.json"
+    report_path = tmp_path / "report.json"
+    baseline_path.write_text(json.dumps([baseline("rk-1")]), encoding="utf-8")
+    evidence_path.write_text(json.dumps({
+        "entries": [{"baseline_record_key": "rk-1"}],
+    }), encoding="utf-8")
+    review_path.write_text(json.dumps({
+        "baseline_sha256": hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
+        "entries": [{"baseline_record_key": "rk-1", "review_status": "unreviewed"}],
+    }), encoding="utf-8")
+    calamari_path.write_text("Calamari", encoding="utf-8")
+    raw_path.write_text("Rå OCR", encoding="utf-8")
+    pdf_path.write_bytes(b"PDF")
+    return [
+        "--baseline", str(baseline_path),
+        "--evidence", str(evidence_path),
+        "--review", str(review_path),
+        "--calamari", str(calamari_path),
+        "--raw", str(raw_path),
+        "--pdf", str(pdf_path),
+        "--profile-version", "1939-v2",
+        "--queue-out", str(queue_path),
+        "--report-out", str(report_path),
+    ], queue_path, report_path, {
+        "baseline_sha256": hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
+        "calamari_sha256": hashlib.sha256(calamari_path.read_bytes()).hexdigest(),
+        "raw_ocr_sha256": hashlib.sha256(raw_path.read_bytes()).hexdigest(),
+        "pdf_sha256": hashlib.sha256(pdf_path.read_bytes()).hexdigest(),
+    }
+
+
+def test_main_writes_exclusive_queue_and_report_with_hashes_from_bytes(tmp_path):
+    args, queue_path, report_path, hashes = _pilot_cli_args(tmp_path)
+
+    assert main(args) == 0
+
+    queue = json.loads(queue_path.read_text(encoding="utf-8"))
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert queue["source"] == {"edition": "1939", **hashes,
+                               "profile_version": "1939-v2"}
+    assert queue["entries"] == [{
+        "baseline_record_key": "rk-1",
+        "queue_class": "human_required",
+        "reason_code": "no_candidate",
+        "reason_da": "Ingen kandidat med komplet kildebro.",
+    }]
+    assert report["source"] == queue["source"]
+    assert report["baseline_total"] == 1
+    assert report["human_required"] == 1
+    assert report["publication_gate"] == "NO-GO"
+    with pytest.raises(FileExistsError):
+        main(args)
+
+
+def test_main_preflights_both_outputs_and_rejects_unpinned_profile(tmp_path):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    report_path.write_text("bevar", encoding="utf-8")
+    with pytest.raises(FileExistsError):
+        main(args)
+    assert not queue_path.exists()
+    assert report_path.read_text(encoding="utf-8") == "bevar"
+
+    report_path.unlink()
+    args[args.index("1939-v2")] = "1939-v3"
+    with pytest.raises(ValueError, match="profile_version"):
+        main(args)
+    assert not queue_path.exists()
+    assert not report_path.exists()

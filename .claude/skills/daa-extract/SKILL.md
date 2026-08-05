@@ -192,6 +192,64 @@ Rscript .claude/skills/daa-extract/scripts/load_daa.R work/clean.json "DAA 2018-
 
 `work/` er en arbejdsmappe — git-ignorér den (kan indeholde levende-persondata).
 
+## Privat 1939-undtagelseskø
+
+Kør fra worktree-roden. Denne pilot bruger det komplette, men stadig uafgjorte
+`coverage-review.json` som konservativ evidensinput: poster uden en komplet kandidat
+og positiv proveniens bliver `human_required`. Samme-side-forslag i HTML'en er kun
+visningshjælp og bliver aldrig automatisk accepteret. Et namespaced
+`presentation:1939-v2:post:<indeks>`-id gør manglende eller kolliderende parser-id'er
+stabile inden for de fastlåste kilder; id'et er ikke positiv proveniens og må ikke
+bruges som `anchored_candidates` uden en separat eksakt kildebro.
+
+```bash
+/usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_review_queue_1939.py \
+  --baseline ../../../work_1939_stamtavle/clean_1939_v2.json \
+  --evidence work/task19-1939-pilot/coverage-review.json \
+  --review work/task19-1939-pilot/coverage-review.json \
+  --calamari ../../../work_1939_stamtavle/full_ocr_calamari_r6_clean.txt \
+  --raw ../../../work_1939_stamtavle/raw.txt \
+  --pdf "../../../Dansk Adels Aarbog - Reventlow 1939.pdf" \
+  --profile-version 1939-v2 \
+  --queue-out work/task19-1939-pilot/review-queue-manifest-v1.json \
+  --report-out work/task19-1939-pilot/review-queue-report-v1.json
+
+/usr/bin/python3 .claude/skills/daa-extract/scripts/make_human_review_1939.py \
+  --baseline ../../../work_1939_stamtavle/clean_1939_v2.json \
+  --queue-manifest work/task19-1939-pilot/review-queue-manifest-v1.json \
+  --source-manifest work/task19-1939-pilot/review-queue-manifest-v1.json \
+  --review work/task19-1939-pilot/coverage-review.json \
+  --calamari ../../../work_1939_stamtavle/full_ocr_calamari_r6_clean.txt \
+  --calamari-first-pdf-page 496 \
+  --out work/task19-1939-pilot/menneskeark-undtagelsesko-v1.html
+```
+
+Åbn lokalt med
+`open work/task19-1939-pilot/menneskeark-undtagelsesko-v1.html`. Søg efter den
+ønskede baselinepost, kontrollér alle kandidater, vælg/fortryd, genindlæs siden og
+brug **Eksportér privat kladde**. HTML og browserens `localStorage` er kun kladder.
+Den eksporterede `1939-review-kladd.json`, med de fastlåste source-hashes og valget,
+er den varige private overdragelse og skal opbevares uden for Git.
+
+Valget er fortsat kun foreløbigt. Validér og konvertér det fail-closed med Task 5,
+når en privat `anchored-candidates-v1.json` med kandidatens komplette, eksakte
+Calamari-/rå-OCR-bro findes:
+
+```bash
+/usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_coverage_1939.py \
+  --choices-to-decisions work/task19-1939-pilot/1939-review-kladd.json \
+  --queue-manifest work/task19-1939-pilot/review-queue-manifest-v1.json \
+  --anchored-candidates work/task19-1939-pilot/anchored-candidates-v1.json \
+  --out work/task19-1939-pilot/review-decisions-v1.json
+```
+
+Uden den eksakte ankermapping parkeres et kandidatvalg som `menneskeark`; der må
+aldrig konstrueres en positiv kobling fra HTML'ens samme-side-forslag. Flet først
+det validerede beslutnings-/auditresultat i en ny review-version, og regenerér kø,
+rapport og HTML med nye `v2`-filnavne. Alle scripts bruger eksklusiv oprettelse og
+nægter at overskrive eksisterende output. Slet eller genbrug derfor aldrig V1/V5
+som genkørselsmål. Ingen genereret fil under `work/` må committes.
+
 ## Vigtige principper
 
 - **Hver DAA-udgave er én `source`.** Modstridende udgaver = separate kilder,

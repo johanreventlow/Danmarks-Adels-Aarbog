@@ -16,6 +16,65 @@ def test_pages_expands_ranges_and_rejects_malformed_values():
     assert subject._pages("side 498") == []
 
 
+def test_presentation_candidates_are_deterministic_and_preserve_unique_local_id():
+    posts = [
+        {"lokal_id": None, "sider": "3", "raw_text": "Uden id"},
+        {"lokal_id": "Stamme.Volrad", "sider": "3", "raw_text": "Volrad"},
+    ]
+
+    first = subject._presentation_candidates(posts, 496, "1939-v2")
+    second = subject._presentation_candidates(posts, 496, "1939-v2")
+
+    assert first == second
+    assert first[0]["candidate_id"] == "presentation:1939-v2:post:0"
+    assert first[0]["lokal_id"] == "presentation:1939-v2:post:0"
+    assert first[1]["candidate_id"] == "Stamme.Volrad"
+    assert first[1]["lokal_id"] == "Stamme.Volrad"
+
+
+def test_colliding_local_ids_keep_presentation_value_but_get_unique_namespaced_ids():
+    posts = [
+        {"lokal_id": "Stamme.Dublet", "sider": "3", "raw_text": "Første"},
+        {"lokal_id": "Stamme.Dublet", "sider": "3", "raw_text": "Anden"},
+    ]
+
+    candidates = subject._presentation_candidates(posts, 496, "1939-v2")
+
+    assert [candidate["candidate_id"] for candidate in candidates] == [
+        "presentation:1939-v2:post:0", "presentation:1939-v2:post:1",
+    ]
+    assert [candidate["lokal_id"] for candidate in candidates] == [
+        "Stamme.Dublet", "Stamme.Dublet",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("posts", "profile", "message"),
+    [
+        ([{"lokal_id": None, "sider": "3"}], "", "profile_version"),
+        (
+            [
+                {"lokal_id": None, "sider": "3"},
+                {"lokal_id": "presentation:1939-v2:post:0", "sider": "3"},
+            ],
+            "1939-v2",
+            "candidate_id-kollision",
+        ),
+    ],
+)
+def test_presentation_candidate_identity_fails_closed(posts, profile, message):
+    with pytest.raises(ValueError, match=message):
+        subject._presentation_candidates(posts, 496, profile)
+
+
+def test_presentation_candidate_rejects_invalid_post_index():
+    with pytest.raises(ValueError, match="post_index"):
+        subject._candidate_from_post(
+            {"lokal_id": None, "sider": "3"}, 496, "1939-v2", -1,
+            force_presentation_id=True,
+        )
+
+
 def _source(baseline_bytes, calamari_bytes):
     return {
         "edition": "1939",
@@ -83,6 +142,34 @@ def test_main_shows_candidates_on_translated_pdf_pages(tmp_path, monkeypatch):
     assert "window.DAA1939Review.init({data: DATA, download: downloadDraft});" in rendered
     assert "data-action" in rendered
     assert "daa1939-review:" in rendered
+
+
+def test_main_generates_html_when_segment_posts_lack_or_duplicate_local_ids(
+    tmp_path, monkeypatch
+):
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    monkeypatch.setattr(subject.segment, "_segment_1939_v2", lambda *_: [
+        {"lokal_id": None, "sider": "3", "raw_text": "Uden id"},
+        {"lokal_id": "Stamme.Dublet", "sider": "3", "raw_text": "Første"},
+        {"lokal_id": "Stamme.Dublet", "sider": "3", "raw_text": "Anden"},
+    ])
+    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
+
+    assert subject.main() == 0
+
+    payload = json.loads(re.search(
+        r"const DATA=(.*?);\n\(function \(global\)", out.read_text(encoding="utf-8")
+    ).group(1))
+    candidates = payload["records"][0]["candidates"]
+    assert [candidate["candidate_id"] for candidate in candidates] == [
+        "presentation:1939-v2:post:0",
+        "presentation:1939-v2:post:1",
+        "presentation:1939-v2:post:2",
+    ]
+    assert [candidate["lokal_id"] for candidate in candidates] == [
+        "presentation:1939-v2:post:0", "Stamme.Dublet", "Stamme.Dublet",
+    ]
 
 
 def test_main_embeds_the_committed_controller_bytes_without_inline_handlers(tmp_path, monkeypatch):

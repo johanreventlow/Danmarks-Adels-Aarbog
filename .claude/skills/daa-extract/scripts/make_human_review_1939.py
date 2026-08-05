@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import contextlib
 import hashlib
 import io
@@ -111,20 +112,66 @@ def _assert_sourceless_review_is_unreviewed(decisions: dict[str, dict]) -> None:
             raise ValueError("legacy review med afgørelsesfelter kræver source manifest")
 
 
-def _candidate_from_post(post: dict, calamari_first_pdf_page: int) -> dict:
+def _candidate_from_post(
+    post: dict,
+    calamari_first_pdf_page: int,
+    profile_version: str,
+    post_index: int,
+    *,
+    force_presentation_id: bool = False,
+) -> dict:
+    if not isinstance(profile_version, str) or not profile_version.strip():
+        raise ValueError("profile_version skal være en ikke-tom streng")
+    if not isinstance(post_index, int) or isinstance(post_index, bool) or post_index < 0:
+        raise ValueError("post_index skal være et ikke-negativt heltal")
     calamari_pages = _pages(post.get("sider"))
     pdf_pages = [calamari_first_pdf_page + page - 1 for page in calamari_pages]
-    candidate_id = post.get("candidate_id") or post.get("lokal_id")
-    if not isinstance(candidate_id, str) or not candidate_id:
-        raise ValueError("segmentpost mangler candidate_id")
+    lokal_id = post.get("lokal_id")
+    if lokal_id is not None and (not isinstance(lokal_id, str) or not lokal_id.strip()):
+        raise ValueError("segmentpost lokal_id skal være en ikke-tom streng eller null")
+    existing_candidate_id = post.get("candidate_id") or lokal_id
+    if existing_candidate_id is not None and (
+        not isinstance(existing_candidate_id, str) or not existing_candidate_id.strip()
+    ):
+        raise ValueError("segmentpost candidate_id skal være en ikke-tom streng eller null")
+    candidate_id = existing_candidate_id
+    if force_presentation_id or candidate_id is None:
+        candidate_id = f"presentation:{profile_version}:post:{post_index}"
     return {
         "candidate_id": candidate_id,
-        "lokal_id": post.get("lokal_id") or candidate_id,
+        "lokal_id": lokal_id or candidate_id,
         "pdf_pages": pdf_pages,
         "calamari_pages": calamari_pages,
         "raw_text": post.get("raw_text") or "",
         "rank_reason": "samme_pdf_side",
     }
+
+
+def _presentation_candidates(
+    posts: list[dict], calamari_first_pdf_page: int, profile_version: str
+) -> list[dict]:
+    if not isinstance(profile_version, str) or not profile_version.strip():
+        raise ValueError("profile_version skal være en ikke-tom streng")
+    if not isinstance(posts, list) or any(not isinstance(post, dict) for post in posts):
+        raise ValueError("segmentposter skal være en liste af mappings")
+    existing_ids = [post.get("candidate_id") or post.get("lokal_id") for post in posts]
+    counts = Counter(value for value in existing_ids if isinstance(value, str) and value)
+    candidates = [
+        _candidate_from_post(
+            post,
+            calamari_first_pdf_page,
+            profile_version,
+            post_index,
+            force_presentation_id=(
+                existing_ids[post_index] is None or counts[existing_ids[post_index]] > 1
+            ),
+        )
+        for post_index, post in enumerate(posts)
+    ]
+    candidate_ids = [candidate["candidate_id"] for candidate in candidates]
+    if len(set(candidate_ids)) != len(candidate_ids):
+        raise ValueError("candidate_id-kollision i præsentationskandidater")
+    return candidates
 
 
 def main() -> int:
@@ -175,8 +222,10 @@ def main() -> int:
             segment.UDGAVE_PROFILER[source_manifest["profile_version"]],
         )
     by_pdf_page: dict[str, list[dict]] = {}
-    for post in posts:
-        candidate = _candidate_from_post(post, args.calamari_first_pdf_page)
+    candidates = _presentation_candidates(
+        posts, args.calamari_first_pdf_page, source_manifest["profile_version"]
+    )
+    for candidate in candidates:
         for page in candidate["pdf_pages"]:
             by_pdf_page.setdefault(str(page), []).append(candidate)
     nearby_candidates = {

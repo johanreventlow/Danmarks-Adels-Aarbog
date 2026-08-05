@@ -2,16 +2,29 @@
 
 from __future__ import annotations
 
+import argparse
 import copy
+from collections import Counter
 from collections.abc import Mapping
+import hashlib
+import json
+from pathlib import Path
 
-from review_queue_1939 import QUEUE_CLASSES, sample_auto_resolved
+from review_queue_1939 import (
+    QUEUE_CLASSES,
+    classify_review_entries,
+    sample_auto_resolved,
+)
 
 
 _PRESENTATION_FIELDS = (
     "candidate_id", "lokal_id", "pdf_pages", "calamari_pages", "raw_text", "rank_reason",
 )
 _COMPLETED_STATUSES = {"menneskeark", "eksplicit_dublet", "accepteret"}
+_PINNED_PROFILE_VERSION = "1939-v2"
+_COLLISION_REASONS = (
+    "candidate_collision", "calamari_span_overlap", "raw_ocr_span_overlap",
+)
 
 
 def _nonempty(value: object, label: str) -> str:
@@ -252,3 +265,298 @@ def build_review_view_model(baseline: list[dict], manifest: dict,
         "views": views,
         "records": view_records,
     }
+
+
+def _queue_entries(manifest: object) -> tuple[list[dict], dict[str, dict]]:
+    if not isinstance(manifest, Mapping) or manifest.get("schema_version") != 1:
+        raise ValueError("queue manifest schema_version skal være 1")
+    entries = manifest.get("entries")
+    if not isinstance(entries, list):
+        raise ValueError("queue manifest entries skal være en liste")
+    copied: list[dict] = []
+    by_key: dict[str, dict] = {}
+    for value in entries:
+        if not isinstance(value, Mapping):
+            raise ValueError("queue entry skal være en mapping")
+        entry = copy.deepcopy(dict(value))
+        key = _nonempty(entry.get("baseline_record_key"), "baseline_record_key")
+        if key in by_key:
+            raise ValueError("dublet baseline_record_key")
+        if entry.get("queue_class") not in QUEUE_CLASSES:
+            raise ValueError("ukendt queue_class")
+        _nonempty(entry.get("reason_code"), "reason_code")
+        _nonempty(entry.get("reason_da"), "reason_da")
+        copied.append(entry)
+        by_key[key] = entry
+    return copied, by_key
+
+
+def _stratum(entry: Mapping) -> str:
+    rule_id = entry.get("rule_id")
+    postklasse = entry.get("postklasse")
+    if not isinstance(rule_id, str) or not rule_id.strip():
+        return "invalid|invalid"
+    if not isinstance(postklasse, str) or not postklasse.strip():
+        return "invalid|invalid"
+    return f"{rule_id}|{postklasse}"
+
+
+def build_queue_report(
+    manifest: dict,
+    *,
+    audit_keys: list[str],
+    completed_keys: set[str],
+    audit_results: list[dict],
+) -> dict:
+    """Account for the private queue and keep publication fail-closed."""
+    entries, by_key = _queue_entries(manifest)
+    source = manifest.get("source")
+    if not isinstance(source, Mapping):
+        raise ValueError("source skal være en mapping")
+    if (
+        not isinstance(audit_keys, list)
+        or any(not isinstance(key, str) or not key for key in audit_keys)
+        or len(set(audit_keys)) != len(audit_keys)
+    ):
+        raise ValueError("audit_keys skal være unikke ikke-tomme strenge")
+    audit_set = set(audit_keys)
+    if not audit_set <= set(by_key):
+        raise ValueError("audit har ukendt baseline_record_key")
+    if any(by_key[key]["queue_class"] != "auto_resolved" for key in audit_set):
+        raise ValueError("audit kræver auto_resolved entry")
+    if (
+        not isinstance(completed_keys, set)
+        or any(not isinstance(key, str) or not key for key in completed_keys)
+        or not completed_keys <= set(by_key)
+    ):
+        raise ValueError("completed_keys er ugyldige")
+    if not isinstance(audit_results, list):
+        raise ValueError("audit_results skal være en liste")
+
+    result_by_key: dict[str, dict] = {}
+    for value in audit_results:
+        if not isinstance(value, Mapping):
+            raise ValueError("audit result skal være en mapping")
+        result = copy.deepcopy(dict(value))
+        key = _nonempty(result.get("baseline_record_key"), "audit baseline_record_key")
+        if key in result_by_key:
+            raise ValueError("dublet audit baseline_record_key")
+        if key not in audit_set:
+            raise ValueError("audit result har ikke-samplet baseline_record_key")
+        result_by_key[key] = result
+
+    expected_audit_keys: list[str] = []
+    automatic_candidates_valid = True
+    try:
+        expected_audit_keys = sample_auto_resolved(copy.deepcopy(manifest))
+    except (TypeError, ValueError):
+        automatic_candidates_valid = False
+    audit_sample_matches = automatic_candidates_valid and set(expected_audit_keys) == audit_set
+
+    reason_counts = Counter(entry["reason_code"] for entry in entries)
+    stratum_counts = Counter(
+        _stratum(entry) for entry in entries if entry["queue_class"] == "auto_resolved"
+    )
+    blocked_rule_groups: set[str] = set()
+    for key in audit_set | set(expected_audit_keys):
+        entry = by_key.get(key)
+        group = _stratum(entry) if entry is not None else "invalid|invalid"
+        result = result_by_key.get(key)
+        if (
+            entry is None
+            or result is None
+            or result.get("audit_status") != "audit_confirmed"
+            or result.get("rule_id") != entry.get("rule_id")
+        ):
+            blocked_rule_groups.add(group)
+    if not automatic_candidates_valid and any(
+        entry["queue_class"] == "auto_resolved" for entry in entries
+    ):
+        blocked_rule_groups.add("invalid|invalid")
+
+    counts = Counter(entry["queue_class"] for entry in entries)
+    human_keys = {
+        key for key, entry in by_key.items() if entry["queue_class"] == "human_required"
+    }
+    every_audit_confirmed = (
+        len(result_by_key) == len(audit_set)
+        and all(
+            result_by_key[key].get("audit_status") == "audit_confirmed"
+            for key in audit_set
+        )
+    )
+    publication_ready = all((
+        len(entries) == 546,
+        automatic_candidates_valid,
+        audit_sample_matches,
+        every_audit_confirmed,
+        human_keys <= completed_keys,
+        counts["source_blocked"] == 0,
+        not blocked_rule_groups,
+    ))
+    return {
+        "schema_version": 1,
+        "source": copy.deepcopy(dict(source)),
+        "baseline_total": len(entries),
+        "auto_resolved": counts["auto_resolved"],
+        "human_required": counts["human_required"],
+        "source_blocked": counts["source_blocked"],
+        "audit": len(audit_keys),
+        "completed": len(completed_keys),
+        "reason_code_counts": dict(sorted(reason_counts.items())),
+        "stratum_counts": dict(sorted(stratum_counts.items())),
+        "collision_overlap_counts": {
+            reason: reason_counts[reason] for reason in _COLLISION_REASONS
+        },
+        "automatic_candidates_valid": automatic_candidates_valid,
+        "audit_sample_matches": audit_sample_matches,
+        "audit_confirmed": sum(
+            result.get("audit_status") == "audit_confirmed"
+            for result in result_by_key.values()
+        ),
+        "audit_failed_or_undecidable": sum(
+            result.get("audit_status") != "audit_confirmed"
+            for result in result_by_key.values()
+        ) + len(audit_set - set(result_by_key)),
+        "audit_blocked_rule_groups": sorted(blocked_rule_groups),
+        "publication_gate": "GO" if publication_ready else "NO-GO",
+    }
+
+
+def _strict_json(path: Path, label: str) -> object:
+    def reject_duplicate_keys(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"{label} indeholder dublet JSON-feltnavn")
+            result[key] = value
+        return result
+
+    return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicate_keys)
+
+
+def _hash_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def _input_entries(value: object, label: str) -> list[dict]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{label} skal være en mapping")
+    entries = value.get("entries")
+    if not isinstance(entries, list):
+        raise ValueError(f"{label} entries skal være en liste")
+    return copy.deepcopy(entries)
+
+
+def _review_state(
+    value: object, source: dict, baseline_keys: set[str]
+) -> tuple[set[str], list[dict]]:
+    if not isinstance(value, Mapping):
+        raise ValueError("review skal være en mapping")
+    review_source = value.get("source")
+    if review_source is not None and review_source != source:
+        raise ValueError("review source hashes matcher ikke")
+    baseline_sha256 = value.get("baseline_sha256")
+    if baseline_sha256 is not None and baseline_sha256 != source["baseline_sha256"]:
+        raise ValueError("review baseline hash matcher ikke")
+
+    completed: set[str] = set()
+    seen: set[str] = set()
+    for container, status_field in ((value.get("entries", []), "review_status"),
+                                    (value.get("decisions", []), "status")):
+        if not isinstance(container, list):
+            raise ValueError("review entries/decisions skal være lister")
+        for item in container:
+            if not isinstance(item, Mapping):
+                raise ValueError("review decision skal være en mapping")
+            key = _nonempty(item.get("baseline_record_key"), "baseline_record_key")
+            if key not in baseline_keys:
+                raise ValueError("review har ukendt baseline_record_key")
+            if key in seen:
+                raise ValueError("dublet review baseline_record_key")
+            seen.add(key)
+            status = item.get(status_field)
+            if status in _COMPLETED_STATUSES:
+                completed.add(key)
+            elif status not in (None, "", "unreviewed"):
+                raise ValueError("ukendt review status")
+    audit_results = value.get("audit_results", [])
+    if not isinstance(audit_results, list):
+        raise ValueError("review audit_results skal være en liste")
+    return completed, copy.deepcopy(audit_results)
+
+
+def _write_json_exclusive(path: Path, value: object) -> None:
+    with path.open("x", encoding="utf-8") as handle:
+        json.dump(value, handle, ensure_ascii=False, indent=2, sort_keys=True)
+        handle.write("\n")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Forbered privat 1939-undtagelseskø")
+    parser.add_argument("--baseline", type=Path, required=True)
+    parser.add_argument("--evidence", type=Path, required=True)
+    parser.add_argument("--review", type=Path, required=True)
+    parser.add_argument("--calamari", type=Path, required=True)
+    parser.add_argument("--raw", type=Path, required=True)
+    parser.add_argument("--pdf", type=Path, required=True)
+    parser.add_argument("--profile-version", required=True)
+    parser.add_argument("--queue-out", type=Path, required=True)
+    parser.add_argument("--report-out", type=Path, required=True)
+    args = parser.parse_args(argv)
+
+    if args.profile_version != _PINNED_PROFILE_VERSION:
+        raise ValueError(f"profile_version skal være {_PINNED_PROFILE_VERSION}")
+    if args.queue_out == args.report_out:
+        raise ValueError("queue-out og report-out skal være forskellige")
+    for output in (args.queue_out, args.report_out):
+        if output.exists():
+            raise FileExistsError(output)
+
+    baseline_bytes = args.baseline.read_bytes()
+    baseline_value = _strict_json(args.baseline, "baseline")
+    _, baseline_keys = _baseline_index(baseline_value)
+    source = {
+        "edition": "1939",
+        "baseline_sha256": _hash_bytes(baseline_bytes),
+        "calamari_sha256": _hash_bytes(args.calamari.read_bytes()),
+        "raw_ocr_sha256": _hash_bytes(args.raw.read_bytes()),
+        "pdf_sha256": _hash_bytes(args.pdf.read_bytes()),
+        "profile_version": args.profile_version,
+    }
+    evidence_entries = _input_entries(_strict_json(args.evidence, "evidence"), "evidence")
+    manifest = classify_review_entries(source, baseline_keys, evidence_entries)
+    audit_keys = sample_auto_resolved(manifest)
+    completed_keys, audit_results = _review_state(
+        _strict_json(args.review, "review"), source, baseline_keys
+    )
+
+    created: list[Path] = []
+    try:
+        _write_json_exclusive(args.queue_out, manifest)
+        created.append(args.queue_out)
+        written_manifest = json.loads(args.queue_out.read_bytes())
+        report = build_queue_report(
+            written_manifest,
+            audit_keys=audit_keys,
+            completed_keys=completed_keys,
+            audit_results=audit_results,
+        )
+        _write_json_exclusive(args.report_out, report)
+        created.append(args.report_out)
+    except Exception:
+        for path in reversed(created):
+            path.unlink(missing_ok=True)
+        raise
+
+    print(json.dumps({
+        "queue_out": str(args.queue_out),
+        "report_out": str(args.report_out),
+        "baseline_total": report["baseline_total"],
+        "publication_gate": report["publication_gate"],
+    }, ensure_ascii=False, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
