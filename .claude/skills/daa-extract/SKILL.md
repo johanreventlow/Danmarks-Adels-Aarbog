@@ -289,9 +289,11 @@ status og dubletmål. `auto_resolved` må kun forekomme i den deterministiske
 auditpartition, mens `human_required` og `source_blocked` aldrig må forekomme i
 audit. Beslutnings- og auditnøgler skal være disjunkte, og begge artefakter
 skrives først efter at den samlede partition er valideret.
-Rapportbyggerens løse kompatibilitetsargumenter kan kun bruges til en
-diagnostisk `NO-GO`-rapport; `GO` kræver den private, source- og manifestbundne
-review-state, som Task 6 selv har valideret.
+Den offentlige rapportbygger er altid diagnostisk `NO-GO`, også når den får et
+tidligere valideret review-state-objekt. `GO` kan kun sættes i CLI'ens interne
+rapportgrænse efter en ny parsing, hashing, evidensvalidering, klassifikation og
+review-derivering fra de oprindelige input-bytes; et videregivet state-objekt
+giver aldrig publikationsautoritet.
 Alle scripts bruger eksklusiv oprettelse og
 nægter at overskrive eksisterende output. Slet eller genbrug derfor aldrig V1/V5
 som genkørselsmål. Ingen genereret fil under `work/` må committes.

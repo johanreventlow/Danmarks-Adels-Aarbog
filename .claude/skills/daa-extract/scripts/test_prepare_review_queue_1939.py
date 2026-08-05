@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import hashlib
 import json
 from pathlib import Path
@@ -345,7 +346,7 @@ def test_plain_mapping_cannot_fabricate_validated_review_state():
     humans = [human(f"rk-human-{number}") for number in range(545)]
     queue = manifest(auto, *humans)
 
-    with pytest.raises(ValueError, match="review_state.*valideret type"):
+    with pytest.raises(ValueError, match="review_state.*state-type"):
         build_queue_report(queue, review_state={
             "manifest": queue,
             "audit_keys": ["rk-auto"],
@@ -356,7 +357,7 @@ def test_plain_mapping_cannot_fabricate_validated_review_state():
         })
 
 
-def test_actual_review_state_validation_is_required_for_synthetic_go_boundary():
+def test_public_report_builder_is_no_go_even_for_actual_validated_review_state():
     auto = automatic("rk-auto")
     humans = [human(f"rk-human-{number}") for number in range(545)]
     queue = manifest(auto, *humans)
@@ -383,7 +384,7 @@ def test_actual_review_state_validation_is_required_for_synthetic_go_boundary():
     assert report["baseline_total"] == 546
     assert report["audit_confirmed"] == 1
     assert report["completed"] == 545
-    assert report["publication_gate"] == "GO"
+    assert report["publication_gate"] == "NO-GO"
 
     with pytest.raises(ValueError, match="må ikke blandes"):
         build_queue_report(
@@ -393,41 +394,60 @@ def test_actual_review_state_validation_is_required_for_synthetic_go_boundary():
         )
 
 
-@pytest.mark.parametrize(
-    ("tamper", "message"),
-    [
-        ("token", "internt valideret type"),
-        ("schema", "ugyldig intern schema"),
-        ("manifest", "manifest matcher ikke"),
-        ("source", "source matcher ikke"),
-    ],
-)
-def test_validated_review_state_is_rechecked_at_report_boundary(tamper, message):
-    queue = manifest(human("rk-human"))
+@pytest.mark.parametrize("attack", ["direct", "replace", "setattr", "clone"])
+def test_forgeable_review_state_never_grants_publication(attack):
+    auto = automatic("rk-auto")
+    humans = [human(f"rk-human-{number}") for number in range(545)]
+    queue = manifest(auto, *humans)
+    human_keys = {entry["baseline_record_key"] for entry in humans}
     review_state = _review_state(
         {
-            "decisions": [{
-                "baseline_record_key": "rk-human",
-                "status": "menneskeark",
-                "reason": "manuelt afsluttet",
-            }],
-            "audit_results": [],
+            "decisions": [],
+            "audit_results": [_audit_confirmed("rk-auto")],
         },
         source(),
-        {"rk-human"},
+        {"rk-auto", *human_keys},
         manifest=queue,
     )
-    if tamper == "token":
-        object.__setattr__(review_state, "_validation_token", object())
-    elif tamper == "schema":
-        object.__setattr__(review_state, "completed_keys", {"rk-human"})
-    elif tamper == "manifest":
-        review_state.manifest["entries"][0]["reason_code"] = "tampered"
+    if attack == "direct":
+        forged = subject._ValidatedReviewState(
+            source=copy.deepcopy(source()),
+            manifest=copy.deepcopy(queue),
+            audit_keys=("rk-auto",),
+            completed_keys=frozenset(human_keys),
+            audit_results=(_audit_confirmed("rk-auto"),),
+        )
+    elif attack == "replace":
+        forged = dataclasses.replace(
+            review_state, completed_keys=frozenset(human_keys)
+        )
+    elif attack == "setattr":
+        forged = review_state
+        object.__setattr__(forged, "completed_keys", frozenset(human_keys))
     else:
-        review_state.source["raw_ocr_sha256"] = "f" * 64
+        reviewed = _review_state(
+            {
+                "decisions": [
+                    {
+                        "baseline_record_key": key,
+                        "status": "menneskeark",
+                        "reason": "manuelt afsluttet",
+                    }
+                    for key in sorted(human_keys)
+                ],
+                "audit_results": [_audit_confirmed("rk-auto")],
+            },
+            source(),
+            {"rk-auto", *human_keys},
+            manifest=queue,
+        )
+        forged = copy.copy(reviewed)
 
-    with pytest.raises(ValueError, match=message):
-        build_queue_report(queue, review_state=review_state)
+    report = build_queue_report(queue, review_state=forged)
+
+    assert report["baseline_total"] == 546
+    assert report["completed"] == 545
+    assert report["publication_gate"] == "NO-GO"
 
 
 def test_546_presentation_automatics_cannot_pass_validation_or_publication():
@@ -623,6 +643,45 @@ def _write_task5_output(args, *decisions, audit_results=()):
         json.dumps(_task5_output(*decisions, audit_results=audit_results)),
         encoding="utf-8",
     )
+
+
+def test_cli_rederives_exact_546_review_inputs_for_go(tmp_path):
+    args, _, report_path, _ = _pilot_cli_args(tmp_path)
+    human_keys = [f"rk-human-{number}" for number in range(545)]
+    _cli_path(args, "--baseline").write_text(
+        json.dumps([baseline("rk-auto"), *[baseline(key) for key in human_keys]]),
+        encoding="utf-8",
+    )
+    evidence = _source_bound_evidence(args, key="rk-auto")
+    evidence["entries"].extend({
+        "baseline_record_key": key,
+        "candidates": [],
+        "positive_provenance": None,
+        "conflicts": [],
+        "source_blockers": [],
+        "rule_id": None,
+    } for key in human_keys)
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+    _write_task5_output(
+        args,
+        *[
+            {
+                "baseline_record_key": key,
+                "status": "menneskeark",
+                "reason": "manuelt afsluttet",
+            }
+            for key in human_keys
+        ],
+        audit_results=[_audit_confirmed("rk-auto")],
+    )
+
+    assert main(args) == 0
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["baseline_total"] == 546
+    assert report["completed"] == 545
+    assert report["audit_confirmed"] == 1
+    assert report["publication_gate"] == "GO"
 
 
 def test_task5_minimal_accepted_decision_joins_exact_source_evidence(tmp_path):

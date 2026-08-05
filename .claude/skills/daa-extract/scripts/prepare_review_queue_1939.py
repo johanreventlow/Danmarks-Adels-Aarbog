@@ -6,7 +6,7 @@ import argparse
 import copy
 from collections import Counter
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
@@ -50,19 +50,15 @@ _CANDIDATE_FIELDS = {
 }
 
 
-_VALIDATED_REVIEW_STATE_TOKEN = object()
-
-
 @dataclass(frozen=True)
 class _ValidatedReviewState:
-    """One validated partition consumed by both queue and report writers."""
+    """Validated partition data, never a publication-authority capability."""
 
     source: dict
     manifest: dict | None
     audit_keys: tuple[str, ...]
     completed_keys: frozenset[str]
     audit_results: tuple[dict, ...]
-    _validation_token: object = field(repr=False, compare=False)
 
     def __iter__(self):
         """Preserve the private helper's historical two-value unpacking API."""
@@ -358,16 +354,12 @@ def build_queue_report(
     audit_results: list[dict] | None = None,
     review_state: _ValidatedReviewState | None = None,
 ) -> dict:
-    """Account for the private queue and keep publication fail-closed."""
-    has_validated_review_state = False
+    """Build a diagnostic queue report whose public gate is always NO-GO."""
     if review_state is not None:
         if any(value is not None for value in (audit_keys, completed_keys, audit_results)):
             raise ValueError("review_state må ikke blandes med løse review-felter")
-        if (
-            type(review_state) is not _ValidatedReviewState
-            or review_state._validation_token is not _VALIDATED_REVIEW_STATE_TOKEN
-        ):
-            raise ValueError("review_state skal være en internt valideret type")
+        if type(review_state) is not _ValidatedReviewState:
+            raise ValueError("review_state skal have intern state-type")
         if review_state.manifest != manifest:
             raise ValueError("review_state manifest matcher ikke queue manifest")
         if review_state.source != manifest.get("source"):
@@ -381,7 +373,6 @@ def build_queue_report(
         audit_keys = list(review_state.audit_keys)
         completed_keys = set(review_state.completed_keys)
         audit_results = [copy.deepcopy(result) for result in review_state.audit_results]
-        has_validated_review_state = True
     entries, by_key = _queue_entries(manifest)
     source = manifest.get("source")
     if not isinstance(source, Mapping):
@@ -418,7 +409,7 @@ def build_queue_report(
             raise ValueError("audit result har ikke-samplet baseline_record_key")
         result_by_key[key] = result
 
-    if has_validated_review_state:
+    if review_state is not None:
         validated_results = _validate_audit_results(audit_results, set(by_key))
         if validated_results != audit_results:
             raise ValueError("review_state audit_results er ikke kanoniske")
@@ -466,25 +457,6 @@ def build_queue_report(
         blocked_rule_groups.add("invalid|invalid")
 
     counts = Counter(entry["queue_class"] for entry in entries)
-    human_keys = {
-        key for key, entry in by_key.items() if entry["queue_class"] == "human_required"
-    }
-    every_audit_confirmed = (
-        len(result_by_key) == len(audit_set)
-        and all(
-            result_by_key[key].get("audit_status") == "audit_confirmed"
-            for key in audit_set
-        )
-    )
-    publication_ready = has_validated_review_state and all((
-        len(entries) == 546,
-        automatic_candidates_valid,
-        audit_sample_matches,
-        every_audit_confirmed,
-        human_keys <= completed_keys,
-        counts["source_blocked"] == 0,
-        not blocked_rule_groups,
-    ))
     return {
         "schema_version": 1,
         "source": copy.deepcopy(dict(source)),
@@ -510,7 +482,7 @@ def build_queue_report(
             for result in result_by_key.values()
         ) + len(audit_set - set(result_by_key)),
         "audit_blocked_rule_groups": sorted(blocked_rule_groups),
-        "publication_gate": "GO" if publication_ready else "NO-GO",
+        "publication_gate": "NO-GO",
     }
 
 
@@ -1050,7 +1022,6 @@ def _review_state(
             audit_keys=tuple(sample_auto_resolved(dict(manifest))) if manifest else (),
             completed_keys=frozenset(),
             audit_results=(),
-            _validation_token=_VALIDATED_REVIEW_STATE_TOKEN,
         )
     if review_source is not None:
         if review_source != source:
@@ -1158,8 +1129,91 @@ def _review_state(
         audit_keys=tuple(audit_keys),
         completed_keys=frozenset(completed),
         audit_results=tuple(copy.deepcopy(audit_results)),
-        _validation_token=_VALIDATED_REVIEW_STATE_TOKEN,
     )
+
+
+def _build_publication_queue_report(
+    manifest: dict,
+    *,
+    baseline_bytes: bytes,
+    evidence_bytes: bytes,
+    review_bytes: bytes,
+    calamari_bytes: bytes,
+    raw_bytes: bytes,
+    pdf_bytes: bytes,
+    profile_version: str,
+) -> dict:
+    """Rederive publication eligibility from the original CLI input bytes."""
+    if profile_version != _PINNED_PROFILE_VERSION:
+        raise ValueError(f"profile_version skal være {_PINNED_PROFILE_VERSION}")
+    baseline_value = _strict_json_bytes(baseline_bytes, "baseline")
+    baseline_records, baseline_keys = _baseline_index(baseline_value)
+    baseline_by_key = {record["record_key"]: record for record in baseline_records}
+    source = {
+        "edition": "1939",
+        "baseline_sha256": _hash_bytes(baseline_bytes),
+        "calamari_sha256": _hash_bytes(calamari_bytes),
+        "raw_ocr_sha256": _hash_bytes(raw_bytes),
+        "pdf_sha256": _hash_bytes(pdf_bytes),
+        "profile_version": profile_version,
+    }
+    evidence_value = _strict_json_bytes(evidence_bytes, "evidence")
+    calamari_text = _decoded_source_text(calamari_bytes, "Calamari")
+    raw_text = _decoded_source_text(raw_bytes, "rå OCR")
+    evidence_entries = _validated_evidence_entries(
+        evidence_value,
+        source,
+        baseline_keys,
+        calamari_text,
+        raw_text,
+    )
+    rederived_manifest = classify_review_entries(
+        source, baseline_keys, evidence_entries
+    )
+    if rederived_manifest != manifest:
+        raise ValueError("queue manifest matcher ikke rederiverede CLI-input")
+    review_state = _review_state(
+        _strict_json_bytes(review_bytes, "review"),
+        source,
+        baseline_keys,
+        evidence_entries=(
+            evidence_entries
+            if isinstance(evidence_value, Mapping) and "source" in evidence_value
+            else None
+        ),
+        manifest=rederived_manifest,
+        baseline_by_key=baseline_by_key,
+        calamari_text=calamari_text,
+        raw_text=raw_text,
+    )
+    report = build_queue_report(rederived_manifest, review_state=review_state)
+
+    entries, by_key = _queue_entries(rederived_manifest)
+    audit_results = {
+        result["baseline_record_key"]: result
+        for result in review_state.audit_results
+    }
+    every_audit_confirmed = (
+        len(audit_results) == len(review_state.audit_keys)
+        and all(
+            audit_results[key]["audit_status"] == "audit_confirmed"
+            for key in review_state.audit_keys
+        )
+    )
+    human_keys = {
+        key for key, entry in by_key.items()
+        if entry["queue_class"] == "human_required"
+    }
+    publication_ready = all((
+        len(entries) == 546,
+        every_audit_confirmed,
+        human_keys <= review_state.completed_keys,
+        not any(
+            entry["queue_class"] == "source_blocked" for entry in entries
+        ),
+    ))
+    report["publication_gate"] = "GO" if publication_ready else "NO-GO"
+    return report
 
 
 def _write_json_exclusive(path: Path, value: object) -> None:
@@ -1251,9 +1305,15 @@ def main(argv: list[str] | None = None) -> int:
         _write_json_exclusive(args.queue_out, review_state.manifest)
         created.append(args.queue_out)
         written_manifest = json.loads(args.queue_out.read_bytes())
-        report = build_queue_report(
+        report = _build_publication_queue_report(
             written_manifest,
-            review_state=review_state,
+            baseline_bytes=baseline_bytes,
+            evidence_bytes=evidence_bytes,
+            review_bytes=review_bytes,
+            calamari_bytes=calamari_bytes,
+            raw_bytes=raw_bytes,
+            pdf_bytes=pdf_bytes,
+            profile_version=args.profile_version,
         )
         _write_json_exclusive(args.report_out, report)
         created.append(args.report_out)
