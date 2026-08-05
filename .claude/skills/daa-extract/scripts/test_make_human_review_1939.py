@@ -2,6 +2,7 @@ import json
 import re
 import sys
 import hashlib
+from pathlib import Path
 
 import pytest
 
@@ -67,7 +68,7 @@ def test_main_shows_candidates_on_translated_pdf_pages(tmp_path, monkeypatch):
     assert subject.main() == 0
 
     payload = json.loads(re.search(
-        r"const DATA=(.*?);\nlet rows=", out.read_text(encoding="utf-8")
+        r"const DATA=(.*?);\n\(function \(global\)", out.read_text(encoding="utf-8")
     ).group(1))
     assert payload["records"][0]["candidates"] == [{
         "candidate_id": "Stamme.Volrad",
@@ -79,15 +80,24 @@ def test_main_shows_candidates_on_translated_pdf_pages(tmp_path, monkeypatch):
     }]
     assert payload["default_view"] == "required"
     rendered = out.read_text(encoding="utf-8")
-    assert "function persist()" in rendered
-    assert "Visuelt spor er gemt lokalt" in rendered
-    assert "function sourceIdentity(source)" in rendered
-    assert "raw_ocr_sha256" in rendered
-    assert "pdf_sha256" in rendered
-    assert "profile_version" in rendered
-    assert "function viewKeys(view)" in rendered
-    assert "viewKeys(activeView)" in rendered
-    assert "s.onchange=()=>{decision.review_status=s.value;persist();showSaved('✓ Status er gemt lokalt.');render()}" in rendered
+    assert "window.DAA1939Review.init({data: DATA, download: downloadDraft});" in rendered
+    assert "data-action" in rendered
+    assert "daa1939-review:" in rendered
+
+
+def test_main_embeds_the_committed_controller_bytes_without_inline_handlers(tmp_path, monkeypatch):
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
+
+    assert subject.main() == 0
+
+    rendered = out.read_bytes()
+    committed = (Path(subject.__file__).parent / "human_review_1939_ui.js").read_bytes()
+    start = rendered.index(b"(function (global) {")
+    end = start + len(committed)
+    assert rendered[start:end] == committed
+    assert b"onclick=" not in rendered
 
 
 @pytest.mark.parametrize("which", ["baseline", "queue", "review", "source"])

@@ -14,72 +14,35 @@ from prepare_review_queue_1939 import build_review_view_model
 from review_queue_1939 import sample_auto_resolved
 
 
-HTML = r"""<!doctype html>
+UI_PATH = Path(__file__).with_name("human_review_1939_ui.js")
+HTML_PREFIX = """<!doctype html>
 <meta charset="utf-8">
 <title>1939 menneskeark</title>
 <style>
 body{font:16px system-ui;margin:0;display:grid;grid-template-columns:360px 1fr;height:100vh;color:#18212a}
 aside{border-right:1px solid #ccd5dd;padding:14px;overflow:auto;background:#fafbfd}main{padding:24px;overflow:auto;max-width:1280px}
-input,select,textarea,button{font:inherit;padding:8px;margin:4px 0;width:100%;box-sizing:border-box}textarea{min-height:96px}.row{padding:9px;border-bottom:1px solid #dde4ea;cursor:pointer}.active{background:#dceeff}.row small{color:#50606c}pre{white-space:pre-wrap;background:#f6f8fa;padding:14px;border-radius:5px;line-height:1.4}.candidate{border:1px solid #cad7e2;border-left:5px solid #3977a9;padding:14px;margin:14px 0;border-radius:5px}.candidate h4{margin:0 0 6px}.muted{color:#50606c}.warn{color:#8b4b00;font-weight:600}.saved{color:#166534;font-weight:600}.guide{background:#eef7f0;border-left:5px solid #398052;padding:12px}.candidate button{width:auto;padding:7px 11px}
+button,select{font:inherit;padding:8px;margin:4px 0;box-sizing:border-box}.candidate{border:1px solid #cad7e2;border-left:5px solid #3977a9;padding:14px;margin:14px 0;border-radius:5px}pre{white-space:pre-wrap;background:#f6f8fa;padding:14px;border-radius:5px}.saved{color:#166534;font-weight:600}
 </style>
 <aside>
   <h2>1939 menneskeark</h2>
   <p>Du undersøger en <b>historisk kildepost</b> – ikke om personen allerede er rigtig i databasen.</p>
-  <p class="muted">Gem gemmer kun i denne browser. Eksport henter en privat JSON-kopi; intet sendes eller overskrives.</p>
-  <p id="save-state" class="saved">Klar. Ændringer gemmes automatisk lokalt.</p>
-  <input id="q" placeholder="Søg navn, PDF-side eller id">
-  <button onclick="save()">Gem kladde lokalt</button>
-  <button onclick="downloadFile()">Eksportér kladde</button>
-  <div id="views"></div>
-  <div id="list"></div>
+  <p>Gemmer kun i denne browser. Eksport henter en privat JSON-kopi; intet sendes eller overskrives.</p>
+  <p data-role="save-state" class="saved">Klar. Ændringer gemmes automatisk lokalt.</p>
 </aside>
-<main id="card"></main>
+<main data-role="app"></main>
 <script>
-const DATA=__PAYLOAD__;
-let rows=DATA.records, selected=0, activeView=DATA.default_view;
-function sourceIdentity(source){return ['edition','baseline_sha256','calamari_sha256','raw_ocr_sha256','pdf_sha256','profile_version'].map(field=>field+'='+source[field]).join('|')}
-const key='daa1939-'+sourceIdentity(DATA.source);
-const saved=JSON.parse(localStorage.getItem(key)||'{}');
-function ensureDecision(r){return r.decision||(r.decision={baseline_record_key:r.record_key,review_status:'unreviewed'})}
-for(const r of rows)Object.assign(ensureDecision(r),saved[r.record_key]||{});
-function e(x){let d=document.createElement('div');d.textContent=x||'';return d.innerHTML}
-function persist(){localStorage.setItem(key,JSON.stringify(Object.fromEntries(rows.map(r=>[r.record_key,r.decision]))))}
-function showSaved(message){document.querySelector('#save-state').textContent=message}
-function isCompleted(decision){return ['menneskeark','eksplicit_dublet','accepteret'].includes((decision||{}).review_status)}
-function viewKeys(view){return view==='completed'?rows.filter(r=>isCompleted(r.decision)).map(r=>r.record_key):DATA.views[view]}
-function viewCount(view){return viewKeys(view).length}
-function setTrack(localId){
-  const r=rows[selected], decision=ensureDecision(r), note=`Visuelt spor: parserpost ${localId}. Kræver stadig eksakt Calamari- og rå-OCR-ankring.`;
-  decision.review_status='menneskeark';
-  decision.reason=note;
-  persist();
-  showSaved('✓ Visuelt spor er gemt lokalt.');
-  render();
+const DATA="""
+HTML_SUFFIX = """;
+function downloadDraft(draft) {
+  const blob = new Blob([JSON.stringify(draft, null, 2)], {type: 'application/json'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = '1939-review-kladd.json';
+  link.click();
 }
-function setView(view){activeView=view;selected=0;render()}
-function render(){
-  const q=document.querySelector('#q').value.toLowerCase();
-  const shown=rows.filter(r=>viewKeys(activeView).includes(r.record_key)&&JSON.stringify(r).toLowerCase().includes(q));
-  const views=document.querySelector('#views'); views.innerHTML='';
-  for(const view of ['required','automatic','audit','completed']){const b=document.createElement('button');b.textContent=view+' ('+viewCount(view)+')';b.onclick=()=>setView(view);if(view===activeView)b.className='active';views.append(b)}
-  const blocked=document.createElement('p');blocked.className='muted';blocked.textContent='Kildeblokeret: '+DATA.summary.source_blocked;views.append(blocked);
-  const list=document.querySelector('#list'); list.innerHTML='';
-  shown.forEach(r=>{const i=rows.indexOf(r),d=document.createElement('div');d.className='row '+(i===selected?'active':'');d.innerHTML='<b>'+e(r.navn||'(uden navn)')+'</b><br><small>PDF s. '+e(r.sider)+' · '+e(r.queue_class)+' · '+e((r.decision||{}).review_status||'unreviewed')+'</small>';d.onclick=()=>{selected=i;render()};list.append(d)});
-  if(!shown.includes(rows[selected]))selected=rows.indexOf(shown[0]);
-  const r=rows[selected]; if(!r)return;
-  const candidates=(r.candidates||[]).map(c=>'<details class="candidate" '+(r.initial_candidate_ids.includes(c.candidate_id)?'open':'')+'><summary><b>Parserpost '+e(c.lokal_id||'(uden lokalt id)')+'</b></summary><p class="muted">PDF s. '+e((c.pdf_pages||[]).join('-'))+' · Calamari-scan '+e((c.calamari_pages||[]).join('-'))+'</p><p><b>Boksens start og slut er parserens foreslåede postgrænse.</b> Den kan godt omtale flere beslægtede personer.</p><pre>'+e(c.raw_text)+'</pre><button onclick="setTrack('+JSON.stringify(c.lokal_id)+')">Markér som visuelt spor</button></details>').join('')||'<p class="warn">Ingen parserkandidat på samme PDF-side. Lad posten stå urørt eller send den til menneskearket med en begrundelse.</p>';
-  document.querySelector('#card').innerHTML='<h1>'+e(r.navn||'(uden navn)')+'</h1><p class="muted">PDF-sider: '+e(r.sider)+' · Klasse: '+e(r.queue_class)+' · Årsag: '+e(r.reason_code)+'</p><div class="guide"><b>Hvad skal du vurdere?</b> Om én af de viste kandidatposter ser ud til at rumme den relevante kildetekst for den gamle post. Side-nære kandidater er kun læsehjælp og ændrer aldrig klassifikationen. Vælg kun “Markér som visuelt spor”, når kandidaten tydeligt er den rigtige historiske sammenhæng. Det er <em>ikke</em> en endelig accept: en senere maskinel kontrol skal stadig finde de eksakte tekstankre.</div><h3>Gammel kildetekst (arvet, kan være bred)</h3><pre>'+e(r.narrative)+'</pre><h3>Ny OCR: kandidatposter på samme PDF-side</h3>'+candidates+'<h3>Din kladdeafgørelse</h3><label>Status<select id="status"><option value="unreviewed">Ikke gennemgået</option><option value="menneskeark">Menneskeark / kræver ankring</option><option value="eksplicit_dublet">Eksplicit dublet</option></select></label><label>Begrundelse (påkrævet ved menneskeark)<textarea id="reason"></textarea></label><label>Dubletmål: baseline record_key (kun ved eksplicit dublet)<input id="target"></label><p class="warn">Endelig “accepteret” kan ikke vælges her, fordi den kræver fulde, eksakte Calamari- og rå-OCR-ankre. Arket gætter aldrig.</p>';
-  const s=document.querySelector('#status'),reason=document.querySelector('#reason'),target=document.querySelector('#target');
-  const decision=ensureDecision(r);s.value=decision.review_status==='accepteret'?'unreviewed':decision.review_status;
-  reason.value=decision.reason||'';target.value=decision.duplicate_of_baseline_record_key||'';
-  s.onchange=()=>{decision.review_status=s.value;persist();showSaved('✓ Status er gemt lokalt.');render()};
-  reason.oninput=()=>{decision.reason=reason.value;persist();showSaved('✓ Kladde er gemt lokalt.')};
-  target.oninput=()=>{decision.duplicate_of_baseline_record_key=target.value;persist();showSaved('✓ Kladde er gemt lokalt.')};
-}
-function save(){persist();showSaved('✓ Hele kladden er gemt lokalt i browseren.')}
-function downloadFile(){const b=new Blob([JSON.stringify({schema_version:1,source:DATA.source,baseline_sha256:DATA.baseline_sha256,entries:rows.map(r=>r.decision)},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='1939-review-kladd.json';a.click()}
-document.querySelector('#q').oninput=render;render();
-</script>"""
+window.DAA1939Review.init({data: DATA, download: downloadDraft});
+</script>
+"""
 
 
 def _pages(value: object) -> list[int]:
@@ -204,8 +167,6 @@ def main() -> int:
     decisions = _review_decisions(review, baseline_hash, baseline_keys)
     if not isinstance(review, dict) or "source" not in review:
         _assert_sourceless_review_is_unreviewed(decisions)
-    # The extractor writes its normal artifact and diagnostics to standard
-    # streams. This UI generator consumes only its in-memory posts.
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         posts = segment._segment_1939_v2(
             calamari_bytes.decode("utf-8").splitlines(),
@@ -226,11 +187,16 @@ def main() -> int:
         records, queue, nearby_candidates, sample_auto_resolved(queue), decisions,
     )
     payload = json.dumps(
-        {"baseline_sha256": baseline_hash, **model},
-        ensure_ascii=False,
+        {"baseline_sha256": baseline_hash, **model}, ensure_ascii=False,
     ).replace("</", "<\\/")
+    controller = UI_PATH.read_text(encoding="utf-8")
     with args.out.open("x", encoding="utf-8") as handle:
-        handle.write(HTML.replace("__PAYLOAD__", payload))
+        handle.write(HTML_PREFIX)
+        handle.write(payload)
+        handle.write(";\n")
+        handle.write(controller)
+        handle.write("\n")
+        handle.write(HTML_SUFFIX)
     return 0
 
 
