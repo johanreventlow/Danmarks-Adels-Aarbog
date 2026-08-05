@@ -40,6 +40,11 @@ class PresentationCandidateIdError(ValueError):
     """Raised when display identity is presented as positive accepted evidence."""
 
 
+def is_schema_version_one(value: object) -> bool:
+    """Accept only JSON integer 1, never Python's equal booleans or floats."""
+    return type(value) is int and value == 1
+
+
 def _mapping(value: object, label: str) -> Mapping:
     if not isinstance(value, Mapping):
         raise ValueError(f"{label} skal være en mapping")
@@ -207,7 +212,7 @@ def legacy_review_entry_errors(entry: Mapping) -> list[str]:
 def validate_coverage(bundle: dict, *, expected_baseline_keys: set[str]) -> dict[str, dict]:
     """Validate complete private 1939 coverage without I/O or input mutation."""
     root = _mapping(bundle, "coverage")
-    if root.get("schema_version") != 1:
+    if not is_schema_version_one(root.get("schema_version")):
         raise ValueError("schema_version skal være 1")
     _validate_source(root.get("source"))
     entries = root.get("entries")

@@ -12,9 +12,13 @@ from pathlib import Path
 
 from coverage_1939 import (
     LEGACY_REVIEW_ALLOWED_FIELDS,
+    LEGACY_REVIEW_ACCEPTED_FIELDS,
     POSTKLASSER,
     duplicate_target_errors,
+    is_schema_version_one,
     legacy_review_entry_errors,
+    validate_accepted_candidate_id,
+    validate_coverage,
 )
 from review_choices_1939 import validate_choice_export
 from review_queue_1939 import (
@@ -150,7 +154,10 @@ def _baseline_index(baseline: object) -> tuple[list[dict], set[str]]:
 
 
 def _manifest_index(manifest: object, baseline_keys: set[str]) -> tuple[dict[str, dict], dict]:
-    if not isinstance(manifest, Mapping):
+    if (
+        not isinstance(manifest, Mapping)
+        or not is_schema_version_one(manifest.get("schema_version"))
+    ):
         raise ValueError("manifest skal være en mapping")
     # Task 2's sampler validates the Task 1 manifest grammar; it is deliberately
     # reused here instead of recreating a second classifier/validator.
@@ -287,7 +294,10 @@ def build_review_view_model(baseline: list[dict], manifest: dict,
 
 
 def _queue_entries(manifest: object) -> tuple[list[dict], dict[str, dict]]:
-    if not isinstance(manifest, Mapping) or manifest.get("schema_version") != 1:
+    if (
+        not isinstance(manifest, Mapping)
+        or not is_schema_version_one(manifest.get("schema_version"))
+    ):
         raise ValueError("queue manifest schema_version skal være 1")
     entries = manifest.get("entries")
     if not isinstance(entries, list):
@@ -481,10 +491,6 @@ def _strict_string_list(value: object, label: str) -> list[str]:
     return [_nonempty(item, label) for item in value]
 
 
-def _is_schema_version_one(value: object) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value == 1
-
-
 def _validate_source_bound_candidate(
     value: object, calamari_text: str, raw_text: str
 ) -> dict:
@@ -532,10 +538,10 @@ def _source_less_evidence_entries(
     value: Mapping, source: dict, baseline_keys: set[str]
 ) -> list[dict]:
     allowed_root = {"schema_version", "baseline_sha256", "entries"}
-    if set(value) - allowed_root or not {"baseline_sha256", "entries"} <= set(value):
-        raise ValueError("source-løs evidence skal være en strikt unreviewed template")
-    if not _is_schema_version_one(value.get("schema_version", 1)):
+    if not is_schema_version_one(value.get("schema_version")):
         raise ValueError("source-løs evidence schema_version skal være 1")
+    if set(value) != allowed_root:
+        raise ValueError("source-løs evidence skal være en strikt unreviewed template")
     if value.get("baseline_sha256") != source["baseline_sha256"]:
         raise ValueError("evidence baseline hash matcher ikke")
     entries = value.get("entries")
@@ -581,10 +587,10 @@ def _source_bound_evidence_entries(
     calamari_text: str,
     raw_text: str,
 ) -> list[dict]:
+    if not is_schema_version_one(value.get("schema_version")):
+        raise ValueError("evidence schema_version skal være 1")
     if set(value) != {"schema_version", "source", "entries"}:
         raise ValueError("evidence root har uautoriserede eller manglende felter")
-    if not _is_schema_version_one(value.get("schema_version")):
-        raise ValueError("evidence schema_version skal være 1")
     evidence_source = value.get("source")
     if (
         not isinstance(evidence_source, Mapping)
@@ -676,7 +682,9 @@ def _source_less_template_keys(
     value: Mapping, source: dict, baseline_keys: set[str]
 ) -> set[str]:
     allowed_root = {"schema_version", "baseline_sha256", "entries"}
-    if set(value) - allowed_root or value.get("schema_version", 1) != 1:
+    if not is_schema_version_one(value.get("schema_version")):
+        raise ValueError("review schema_version skal være 1")
+    if set(value) != allowed_root:
         raise ValueError("review source kræves for beslutnings- eller auditdata")
     if value.get("baseline_sha256") != source["baseline_sha256"]:
         raise ValueError("review baseline hash matcher ikke")
@@ -738,76 +746,238 @@ def _validate_audit_results(value: object, baseline_keys: set[str]) -> list[dict
     return results
 
 
+def _evidence_index(value: list[dict] | None) -> dict[str, dict] | None:
+    if value is None:
+        return None
+    result: dict[str, dict] = {}
+    for raw_entry in value:
+        entry = copy.deepcopy(dict(raw_entry))
+        key = _nonempty(entry.get("baseline_record_key"), "baseline_record_key")
+        if key in result:
+            raise ValueError("dublet evidence baseline_record_key")
+        result[key] = entry
+    return result
+
+
+def _normalize_review_decision(value: object, status_field: str) -> dict:
+    if not isinstance(value, Mapping):
+        raise ValueError("review decision skal være en mapping")
+    entry = copy.deepcopy(dict(value))
+    if status_field == "status":
+        if "review_status" in entry:
+            raise ValueError("review decision har både status og review_status")
+        entry["review_status"] = entry.pop("status", None)
+    if set(entry) - LEGACY_REVIEW_ALLOWED_FIELDS:
+        raise ValueError("review decision har uautoriserede felter")
+    _validate_review_metadata(entry)
+    status = entry.get("review_status")
+    if status == "accepteret":
+        minimal_fields = {
+            "baseline_record_key", "review_status", "candidate_id",
+            "baseline_locator", "review_note",
+        }
+        enriched = bool((set(entry) - minimal_fields) & LEGACY_REVIEW_ACCEPTED_FIELDS)
+        if not enriched:
+            validate_accepted_candidate_id(entry.get("candidate_id"))
+            return entry
+    errors = legacy_review_entry_errors(entry)
+    if errors:
+        raise ValueError(errors[0])
+    return entry
+
+
+def _joined_accepted_candidate(
+    entry: Mapping,
+    evidence_by_key: dict[str, dict] | None,
+    source: dict,
+) -> dict:
+    candidate_id = validate_accepted_candidate_id(entry.get("candidate_id"))
+    if evidence_by_key is None:
+        raise ValueError("accepteret beslutning kræver source-bound evidence")
+    key = entry["baseline_record_key"]
+    evidence = evidence_by_key.get(key)
+    if evidence is None:
+        raise ValueError("accepteret beslutning mangler evidence candidate for ejer")
+    if evidence.get("conflicts") or evidence.get("source_blockers"):
+        raise ValueError("accepteret evidence har konflikt eller source blocker")
+    matches = [
+        candidate
+        for candidate in evidence.get("candidates", [])
+        if isinstance(candidate, Mapping) and candidate.get("candidate_id") == candidate_id
+    ]
+    if len(matches) != 1:
+        raise ValueError("accepteret beslutning kræver præcis én evidence candidate for ejer")
+    provenance = evidence.get("positive_provenance")
+    if not isinstance(provenance, Mapping) or dict(provenance) != {
+        "kind": "record_key_v2_locator",
+        "baseline_record_key": key,
+        "candidate_id": candidate_id,
+    }:
+        raise ValueError("accepteret evidence mangler matchende positiv proveniens")
+    candidate = copy.deepcopy(dict(matches[0]))
+    validate_coverage(
+        {
+            "schema_version": 1,
+            "source": copy.deepcopy(source),
+            "entries": [{
+                "baseline_record_key": key,
+                "status": "accepteret",
+                "candidate": copy.deepcopy(candidate),
+            }],
+        },
+        expected_baseline_keys={key},
+    )
+
+    if (LEGACY_REVIEW_ACCEPTED_FIELDS - {"candidate_id"}) & set(entry):
+        raise ValueError(
+            "legacy accepted anchors kan ikke verificeres fuldt evidence-derived; "
+            "brug minimal Task 5-beslutning"
+        )
+    return candidate
+
+
+def _claims_overlap(left: Mapping, right: Mapping) -> bool:
+    if left["candidate_id"] == right["candidate_id"]:
+        return True
+    for container, start, end in (
+        ("calamari_span", "char_from", "char_to"),
+        ("raw_structure_bridge", "raw_char_from", "raw_char_to"),
+    ):
+        left_span = left[container]
+        right_span = right[container]
+        if left_span[start] < right_span[end] and right_span[start] < left_span[end]:
+            return True
+    return False
+
+
+def _validate_effective_state(
+    decisions: dict[str, dict],
+    accepted: dict[str, dict],
+    manifest: Mapping | None,
+    source: dict,
+) -> None:
+    statuses: dict[str, dict] = {}
+    effective_candidates: dict[str, dict] = {}
+    if manifest is not None:
+        _, queue_by_key = _queue_entries(manifest)
+        for key, classification in queue_by_key.items():
+            if classification["queue_class"] == "auto_resolved":
+                statuses[key] = {"status": "accepteret"}
+                effective_candidates[key] = copy.deepcopy(classification["candidate"])
+            else:
+                statuses[key] = {"status": "menneskeark"}
+    for key, decision in decisions.items():
+        status = decision["review_status"]
+        statuses[key] = {"status": status}
+        if status == "eksplicit_dublet":
+            statuses[key]["duplicate_of_baseline_record_key"] = decision[
+                "duplicate_of_baseline_record_key"
+            ]
+        if status == "accepteret":
+            effective_candidates[key] = copy.deepcopy(accepted[key])
+        else:
+            effective_candidates.pop(key, None)
+    target_errors = duplicate_target_errors(statuses)
+    if target_errors:
+        raise ValueError(next(iter(target_errors.values())))
+    if effective_candidates:
+        validate_coverage(
+            {
+                "schema_version": 1,
+                "source": copy.deepcopy(source),
+                "entries": [
+                    {
+                        "baseline_record_key": key,
+                        "status": "accepteret",
+                        "candidate": copy.deepcopy(candidate),
+                    }
+                    for key, candidate in sorted(effective_candidates.items())
+                ],
+            },
+            expected_baseline_keys=set(effective_candidates),
+        )
+    claims = sorted(effective_candidates.items())
+    for index, (left_key, left) in enumerate(claims):
+        for right_key, right in claims[index + 1:]:
+            if left_key != right_key and _claims_overlap(left, right):
+                raise ValueError("effektiv accepteret evidens er ikke globalt injektiv")
+
+
 def _review_state(
-    value: object, source: dict, baseline_keys: set[str]
+    value: object,
+    source: dict,
+    baseline_keys: set[str],
+    *,
+    evidence_entries: list[dict] | None = None,
+    manifest: Mapping | None = None,
 ) -> tuple[set[str], list[dict]]:
     if not isinstance(value, Mapping):
         raise ValueError("review skal være en mapping")
     review_source = value.get("source")
-    if review_source is None:
+    task5_output = review_source is None and set(value) == {"decisions", "audit_results"}
+    if review_source is None and not task5_output:
         _source_less_template_keys(value, source, baseline_keys)
         return set(), []
-    if review_source != source:
-        raise ValueError("review source hashes matcher ikke")
-    if value.get("schema_version") != 1:
-        raise ValueError("review schema_version skal være 1")
-    baseline_sha256 = value.get("baseline_sha256")
-    if baseline_sha256 is not None and baseline_sha256 != source["baseline_sha256"]:
-        raise ValueError("review baseline hash matcher ikke")
+    if review_source is not None:
+        if review_source != source:
+            raise ValueError("review source hashes matcher ikke")
+        if not is_schema_version_one(value.get("schema_version")):
+            raise ValueError("review schema_version skal være 1")
+        baseline_sha256 = value.get("baseline_sha256")
+        if baseline_sha256 is not None and baseline_sha256 != source["baseline_sha256"]:
+            raise ValueError("review baseline hash matcher ikke")
 
     entries = value.get("entries", [])
-    if "exported_at" in value or (
-        isinstance(entries, list)
-        and any(isinstance(item, Mapping) and "outcome" in item for item in entries)
+    if review_source is not None and (
+        "exported_at" in value
+        or (
+            isinstance(entries, list)
+            and any(isinstance(item, Mapping) and "outcome" in item for item in entries)
+        )
     ):
         context = validate_choice_export(
             copy.deepcopy(dict(value)), source, baseline_keys, include_context=True
         )
-        return set(context["final_legacy_entries"]), []
+        containers = [(list(context["final_legacy_entries"].values()), "review_status")]
+        audit_value: object = []
+    else:
+        if not task5_output:
+            allowed_root = {
+                "schema_version", "source", "baseline_sha256", "entries", "decisions",
+                "audit_results",
+            }
+            if set(value) - allowed_root:
+                raise ValueError("review har uautoriserede felter")
+        containers = [
+            (value.get("entries", []), "review_status"),
+            (value.get("decisions", []), "status"),
+        ]
+        audit_value = value.get("audit_results", [])
 
-    allowed_root = {
-        "schema_version", "source", "baseline_sha256", "entries", "decisions",
-        "audit_results",
-    }
-    if set(value) - allowed_root:
-        raise ValueError("review har uautoriserede felter")
-
-    legacy_entries: dict[str, dict] = {}
-    seen: set[str] = set()
-    for container, status_field in ((value.get("entries", []), "review_status"),
-                                    (value.get("decisions", []), "status")):
+    decisions: dict[str, dict] = {}
+    accepted: dict[str, dict] = {}
+    evidence_by_key = _evidence_index(evidence_entries)
+    for container, status_field in containers:
         if not isinstance(container, list):
             raise ValueError("review entries/decisions skal være lister")
         for item in container:
-            if not isinstance(item, Mapping):
-                raise ValueError("review decision skal være en mapping")
-            key = _nonempty(item.get("baseline_record_key"), "baseline_record_key")
+            entry = _normalize_review_decision(item, status_field)
+            key = _nonempty(entry.get("baseline_record_key"), "baseline_record_key")
             if key not in baseline_keys:
                 raise ValueError("review har ukendt baseline_record_key")
-            if key in seen:
+            if key in decisions:
                 raise ValueError("dublet review baseline_record_key")
-            seen.add(key)
-            entry = copy.deepcopy(dict(item))
-            if status_field == "status":
-                if "review_status" in entry:
-                    raise ValueError("review decision har både status og review_status")
-                entry["review_status"] = entry.pop("status", None)
-            if set(entry) - LEGACY_REVIEW_ALLOWED_FIELDS:
-                raise ValueError("review decision har uautoriserede felter")
-            _validate_review_metadata(entry)
-            errors = legacy_review_entry_errors(entry)
-            if errors:
-                raise ValueError(errors[0])
-            legacy_entries[key] = entry
-    target_errors = duplicate_target_errors(
-        legacy_entries, status_field="review_status"
-    )
-    if target_errors:
-        raise ValueError(next(iter(target_errors.values())))
-    audit_results = _validate_audit_results(value.get("audit_results", []), baseline_keys)
+            decisions[key] = entry
+            if entry["review_status"] == "accepteret":
+                accepted[key] = _joined_accepted_candidate(
+                    entry, evidence_by_key, source
+                )
+    _validate_effective_state(decisions, accepted, manifest, source)
+    audit_results = _validate_audit_results(audit_value, baseline_keys)
     completed = {
-        key for key, entry in legacy_entries.items()
-        if entry["review_status"] in _COMPLETED_STATUSES
+        key
+        for key, decision in decisions.items()
+        if decision["review_status"] in _COMPLETED_STATUSES
     }
     return completed, audit_results
 
@@ -868,17 +1038,27 @@ def main(argv: list[str] | None = None) -> int:
         "profile_version": args.profile_version,
     }
     evidence_value = _strict_json_bytes(evidence_bytes, "evidence")
+    calamari_text = _decoded_source_text(calamari_bytes, "Calamari")
+    raw_text = _decoded_source_text(raw_bytes, "rå OCR")
     evidence_entries = _validated_evidence_entries(
         evidence_value,
         source,
         baseline_keys,
-        _decoded_source_text(calamari_bytes, "Calamari"),
-        _decoded_source_text(raw_bytes, "rå OCR"),
+        calamari_text,
+        raw_text,
     )
     manifest = classify_review_entries(source, baseline_keys, evidence_entries)
     audit_keys = sample_auto_resolved(manifest)
     completed_keys, audit_results = _review_state(
-        _strict_json_bytes(review_bytes, "review"), source, baseline_keys
+        _strict_json_bytes(review_bytes, "review"),
+        source,
+        baseline_keys,
+        evidence_entries=(
+            evidence_entries
+            if isinstance(evidence_value, Mapping) and "source" in evidence_value
+            else None
+        ),
+        manifest=manifest,
     )
 
     created: list[Path] = []

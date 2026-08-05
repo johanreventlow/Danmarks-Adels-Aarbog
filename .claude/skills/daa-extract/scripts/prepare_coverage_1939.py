@@ -19,6 +19,7 @@ from coverage_1939 import (
     POSTKLASSER,
     duplicate_target_errors,
     legacy_review_entry_errors,
+    is_schema_version_one,
     validate_coverage,
 )
 from review_choices_1939 import convert_review_choices, validate_choice_export
@@ -245,7 +246,7 @@ def write_review_template(baseline_path: Path, out_path: Path) -> dict:
 def _read_review_template(review_path: Path, baseline_path: Path) -> dict:
     """Read the structural review ledger contract shared by checks and reports."""
     review = _mapping(json.loads(review_path.read_text(encoding="utf-8")), "review")
-    if review.get("schema_version") != 1:
+    if not is_schema_version_one(review.get("schema_version")):
         raise ValueError("review schema_version skal være 1")
     if review.get("baseline_sha256") != _sha256(baseline_path):
         raise ValueError("review baseline SHA-256 matcher ikke")
@@ -475,7 +476,7 @@ def convert_choice_export(
         ),
         "queue manifest",
     )
-    if queue.get("schema_version") != 1:
+    if not is_schema_version_one(queue.get("schema_version")):
         raise ValueError("queue manifest schema_version skal være 1")
     audit_keys = set(sample_auto_resolved(dict(queue)))
     entries = queue.get("entries")

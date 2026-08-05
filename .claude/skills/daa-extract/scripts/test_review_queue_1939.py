@@ -66,6 +66,18 @@ def queue_manifest(*entries, source_hash="a" * 64):
     }
 
 
+@pytest.mark.parametrize("invalid_version", [True, 1.0, "1", None])
+def test_sampler_schema_version_requires_exact_integer_one(invalid_version):
+    value = queue_manifest(human("rk-1"))
+    if invalid_version is None:
+        value.pop("schema_version")
+    else:
+        value["schema_version"] = invalid_version
+
+    with pytest.raises(ValueError, match="schema_version"):
+        sample_auto_resolved(value)
+
+
 def evidence(key, candidate=None, *, source_blockers=None, **overrides):
     candidates = [] if candidate is None else [candidate]
     value = {

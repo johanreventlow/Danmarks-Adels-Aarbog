@@ -10,6 +10,7 @@ import re
 from coverage_1939 import (
     LEGACY_REVIEW_ALLOWED_FIELDS,
     duplicate_target_errors,
+    is_schema_version_one,
     is_presentation_candidate_id,
     legacy_review_entry_errors,
     validate_coverage,
@@ -184,7 +185,7 @@ def validate_choice_export(
     """Validate one exact browser export without mutating it."""
     root = _mapping(value, "choice export")
     expected = _validate_source(expected_source)
-    if root.get("schema_version") != 1 or root.get("source") != expected:
+    if not is_schema_version_one(root.get("schema_version")) or root.get("source") != expected:
         raise ValueError("choice export source/version matcher ikke")
     allowed_root = {"schema_version", "source", "baseline_sha256", "exported_at", "entries"}
     if set(root) - allowed_root:

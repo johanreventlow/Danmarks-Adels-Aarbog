@@ -209,38 +209,51 @@ slutbeslutningssti. Derfor bliver komplet classifier-evidens med et sådant id
 og Task 6's publikationsgate afviser det som positiv evidens.
 
 Task 6 accepterer kun source-løs evidens som den komplette, eksakte
-`unreviewed`-template med baseline-hash og uden kandidat-, proveniens-, konflikt-,
+`unreviewed`-template med heltalsfeltet `schema_version: 1`, baseline-hash og uden kandidat-, proveniens-, konflikt-,
 blokker-, audit- eller beslutningsfelter; den normaliseres til nul kandidater.
 Evidens med kandidater kræver `schema_version: 1`, præcis de seks source-felter
 med hashes fra de aktuelle CLI-input og eksakt baseline-dækning uden dubletter.
 Ukendte root-, entry-, kandidat- og proveniensfelter afvises. Kandidatens
 Calamari- og rå-OCR-intervaller valideres mod de samme bytes, som source-hashene
 blev beregnet fra, og råuddragets SHA-256 skal matche det aktuelle tekstudsnit.
+Alle offentlige Task 4-6 JSON-grænser kræver det eksakte JSON-heltal `1`; `true`,
+`1.0`, `"1"` og manglende schema-version afvises.
+
+Den eksisterende private `coverage-review.json` er en bevaret, uversioneret V1-
+artefakt og må ikke omskrives. Opret en ny, eksklusiv versioneret template før
+en ny kørsel:
+
+```bash
+/usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_coverage_1939.py \
+  --make-review-template \
+  --baseline ../../../work_1939_stamtavle/clean_1939_v2.json \
+  --out work/task19-1939-pilot/coverage-review-v2.json
+```
 
 ```bash
 /usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_review_queue_1939.py \
   --baseline ../../../work_1939_stamtavle/clean_1939_v2.json \
-  --evidence work/task19-1939-pilot/coverage-review.json \
-  --review work/task19-1939-pilot/coverage-review.json \
+  --evidence work/task19-1939-pilot/coverage-review-v2.json \
+  --review work/task19-1939-pilot/coverage-review-v2.json \
   --calamari ../../../work_1939_stamtavle/full_ocr_calamari_r6_clean.txt \
   --raw ../../../work_1939_stamtavle/raw.txt \
   --pdf "../../../Dansk Adels Aarbog - Reventlow 1939.pdf" \
   --profile-version 1939-v2 \
-  --queue-out work/task19-1939-pilot/review-queue-manifest-v1.json \
-  --report-out work/task19-1939-pilot/review-queue-report-v1.json
+  --queue-out work/task19-1939-pilot/review-queue-manifest-v2.json \
+  --report-out work/task19-1939-pilot/review-queue-report-v2.json
 
 /usr/bin/python3 .claude/skills/daa-extract/scripts/make_human_review_1939.py \
   --baseline ../../../work_1939_stamtavle/clean_1939_v2.json \
-  --queue-manifest work/task19-1939-pilot/review-queue-manifest-v1.json \
-  --source-manifest work/task19-1939-pilot/review-queue-manifest-v1.json \
-  --review work/task19-1939-pilot/coverage-review.json \
+  --queue-manifest work/task19-1939-pilot/review-queue-manifest-v2.json \
+  --source-manifest work/task19-1939-pilot/review-queue-manifest-v2.json \
+  --review work/task19-1939-pilot/coverage-review-v2.json \
   --calamari ../../../work_1939_stamtavle/full_ocr_calamari_r6_clean.txt \
   --calamari-first-pdf-page 496 \
-  --out work/task19-1939-pilot/menneskeark-undtagelsesko-v1.html
+  --out work/task19-1939-pilot/menneskeark-undtagelsesko-v2.html
 ```
 
 Åbn lokalt med
-`open work/task19-1939-pilot/menneskeark-undtagelsesko-v1.html`. Søg efter den
+`open work/task19-1939-pilot/menneskeark-undtagelsesko-v2.html`. Søg efter den
 ønskede baselinepost, kontrollér alle kandidater, vælg/fortryd, genindlæs siden og
 brug **Eksportér privat kladde**. HTML og browserens `localStorage` er kun kladder.
 Den eksporterede `1939-review-kladd.json`, med de fastlåste source-hashes og valget,
@@ -253,23 +266,31 @@ Calamari-/rå-OCR-bro findes:
 ```bash
 /usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_coverage_1939.py \
   --choices-to-decisions work/task19-1939-pilot/1939-review-kladd.json \
-  --queue-manifest work/task19-1939-pilot/review-queue-manifest-v1.json \
+  --queue-manifest work/task19-1939-pilot/review-queue-manifest-v2.json \
   --anchored-candidates work/task19-1939-pilot/anchored-candidates-v1.json \
-  --out work/task19-1939-pilot/review-decisions-v1.json
+  --out work/task19-1939-pilot/review-decisions-v2.json
 ```
 
 Uden den eksakte ankermapping parkeres et kandidatvalg som `menneskeark`; der må
-aldrig konstrueres en positiv kobling fra HTML'ens samme-side-forslag. Flet først
-det validerede beslutnings-/auditresultat i en ny review-version, og regenerér kø,
-rapport og HTML med nye `v2`-filnavne. Alle scripts bruger eksklusiv oprettelse og
+aldrig konstrueres en positiv kobling fra HTML'ens samme-side-forslag. Regenerér kø,
+rapport og HTML med nye `v2`-filnavne. Task 6 kan læse Task 5's eksakte
+`review-decisions-v2.json` direkte: en minimal `accepteret` beslutning tæller kun,
+når `(baseline_record_key, candidate_id)` entydigt joiner samme ejer i en komplet,
+source-bundet evidence-fil med matchende positiv proveniens og uden konflikt.
+Alle automatiske og menneskeligt accepterede kandidat-id'er samt Calamari-/rå-
+intervaller valideres samlet for global injektivitet. Berigede legacy-ankre er
+ikke en alternativ sandhedskilde; brug Task 5's minimale beslutning.
+Alle scripts bruger eksklusiv oprettelse og
 nægter at overskrive eksisterende output. Slet eller genbrug derfor aldrig V1/V5
 som genkørselsmål. Ingen genereret fil under `work/` må committes.
 
 En source-løs reviewfil er kun gyldig som fuldt dækkende, strengt `unreviewed`
-template uden beslutnings- eller auditfelter. Så snart reviewet indeholder valg,
-slutbeslutninger eller auditresultater, skal `source` være komplet og identisk med
-køens source. Foreløbige Task 5-valg tæller aldrig som afsluttede; kun semantisk
-validerede legacy-slutbeslutninger tæller menneskeposter som gennemgået, og kun et
+template med eksakt `schema_version: 1` og uden beslutnings- eller auditfelter.
+Task 5's eksakte `{decisions, audit_results}`-output er den eneste source-løse
+beslutningsform; accepterede kandidatvalg får deres kildeidentitet fra det
+obligatoriske source-bundne evidence-join. Foreløbige Task 5-valg tæller aldrig
+som afsluttede; kun joinede minimale slutbeslutninger tæller menneskeposter som
+gennemgået, og kun et
 schema-gyldigt `audit_confirmed` kan opfylde en audit. `audit_failed` og
 `audit_undecidable` blokerer den berørte regelgruppe og dermed publikation.
 

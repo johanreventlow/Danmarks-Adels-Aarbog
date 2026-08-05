@@ -34,6 +34,18 @@ def choice_export(*entries):
     }
 
 
+@pytest.mark.parametrize("invalid_version", [True, 1.0, "1", None])
+def test_choice_export_schema_version_requires_exact_integer_one(invalid_version):
+    exported = choice_export(choice("rk-1", "undecidable", reason="uklar"))
+    if invalid_version is None:
+        exported.pop("schema_version")
+    else:
+        exported["schema_version"] = invalid_version
+
+    with pytest.raises(ValueError, match="source/version"):
+        validate_choice_export(exported, expected_source(), {"rk-1"})
+
+
 def human(key):
     return {
         "baseline_record_key": key,

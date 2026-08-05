@@ -77,6 +77,18 @@ def test_accepts_complete_injective_coverage_without_mutating_input():
     assert value == original
 
 
+@pytest.mark.parametrize("invalid_version", [True, 1.0, "1", None])
+def test_schema_version_requires_exact_integer_one(invalid_version):
+    value = bundle(parked("rk-1"))
+    if invalid_version is None:
+        value.pop("schema_version")
+    else:
+        value["schema_version"] = invalid_version
+
+    with pytest.raises(ValueError, match="schema_version"):
+        validate_coverage(value, expected_baseline_keys={"rk-1"})
+
+
 def test_rejects_duplicate_candidate_id():
     with pytest.raises(ValueError, match="ikke-injektiv kandidat"):
         validate_coverage(

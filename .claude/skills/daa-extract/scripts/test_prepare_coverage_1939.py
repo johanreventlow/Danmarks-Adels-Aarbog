@@ -708,6 +708,58 @@ def test_cli_choice_conversion_rejects_stale_source_without_output(tmp_path):
     assert not out.exists()
 
 
+@pytest.mark.parametrize("boundary", ["choice", "queue"])
+@pytest.mark.parametrize("invalid_version", [True, 1.0, "1"])
+def test_cli_choice_and_queue_schema_versions_require_exact_integer_one_without_output(
+    tmp_path, boundary, invalid_version
+):
+    choices = tmp_path / "choices.json"
+    queue = tmp_path / "queue.json"
+    candidates = tmp_path / "candidates.json"
+    out = tmp_path / "new-decisions.json"
+    source_value = {
+        "edition": "1939",
+        "baseline_sha256": "a" * 64,
+        "calamari_sha256": "b" * 64,
+        "raw_ocr_sha256": "c" * 64,
+        "pdf_sha256": "d" * 64,
+        "profile_version": "1939-v2",
+    }
+    choice_value = {
+        "schema_version": invalid_version if boundary == "choice" else 1,
+        "source": source_value,
+        "exported_at": "2026-08-05T12:00:00+02:00",
+        "entries": [{
+            "baseline_record_key": "rk-1",
+            "outcome": "undecidable",
+            "reason": "uklar kilde",
+        }],
+    }
+    queue_value = {
+        "schema_version": invalid_version if boundary == "queue" else 1,
+        "source": source_value,
+        "entries": [{
+            "baseline_record_key": "rk-1",
+            "queue_class": "human_required",
+            "reason_code": "multiple_candidates",
+            "reason_da": "flere",
+        }],
+    }
+    choices.write_text(json.dumps(choice_value), encoding="utf-8")
+    queue.write_text(json.dumps(queue_value), encoding="utf-8")
+    candidates.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="schema_version|source/version"):
+        main([
+            "--choices-to-decisions", str(choices),
+            "--queue-manifest", str(queue),
+            "--anchored-candidates", str(candidates),
+            "--out", str(out),
+        ])
+
+    assert not out.exists()
+
+
 @pytest.mark.parametrize(
     "raw_choices",
     [

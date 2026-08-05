@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+import prepare_coverage_1939 as task5_subject
 import prepare_review_queue_1939 as subject
 from prepare_review_queue_1939 import (
     _review_state,
@@ -394,10 +395,12 @@ def _pilot_cli_args(tmp_path):
     report_path = tmp_path / "report.json"
     baseline_path.write_text(json.dumps([baseline("rk-1")]), encoding="utf-8")
     evidence_path.write_text(json.dumps({
+        "schema_version": 1,
         "baseline_sha256": hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
         "entries": [{"baseline_record_key": "rk-1", "review_status": "unreviewed"}],
     }), encoding="utf-8")
     review_path.write_text(json.dumps({
+        "schema_version": 1,
         "baseline_sha256": hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
         "entries": [{"baseline_record_key": "rk-1", "review_status": "unreviewed"}],
     }), encoding="utf-8")
@@ -477,6 +480,243 @@ def _source_bound_evidence(args, key="rk-1"):
             "rule_id": "complete_anchor_v1",
         }],
     }
+
+
+def _task5_output(*decisions, audit_results=()):
+    return {
+        "decisions": list(decisions),
+        "audit_results": list(audit_results),
+    }
+
+
+def _minimal_accepted(key, candidate_id):
+    return {
+        "baseline_record_key": key,
+        "status": "accepteret",
+        "candidate_id": candidate_id,
+    }
+
+
+def _write_task5_output(args, *decisions, audit_results=()):
+    _cli_path(args, "--review").write_text(
+        json.dumps(_task5_output(*decisions, audit_results=audit_results)),
+        encoding="utf-8",
+    )
+
+
+def test_task5_minimal_accepted_decision_joins_exact_source_evidence(tmp_path):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    evidence = _source_bound_evidence(args)
+    evidence["entries"][0]["rule_id"] = None
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+    _write_task5_output(args, _minimal_accepted("rk-1", "candidate-1"))
+
+    assert main(args) == 0
+
+    assert json.loads(queue_path.read_text(encoding="utf-8"))["entries"][0][
+        "queue_class"
+    ] == "human_required"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["completed"] == 1
+    assert report["publication_gate"] == "NO-GO"
+
+
+def test_real_task5_cli_output_is_consumed_directly_by_task6_cli(tmp_path):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    evidence = _source_bound_evidence(args)
+    evidence["entries"][0]["rule_id"] = None
+    evidence_path = _cli_path(args, "--evidence")
+    evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+    candidate = evidence["entries"][0]["candidates"][0]
+    choices_path = tmp_path / "task5-choices.json"
+    task5_queue_path = tmp_path / "task5-queue.json"
+    anchored_path = tmp_path / "task5-anchored.json"
+    task5_out = tmp_path / "task5-decisions.json"
+    choices_path.write_text(json.dumps({
+        "schema_version": 1,
+        "source": evidence["source"],
+        "exported_at": "2026-08-05T12:00:00+02:00",
+        "entries": [{
+            "baseline_record_key": "rk-1",
+            "outcome": "human_selected_candidate",
+            "candidate_id": "candidate-1",
+        }],
+    }), encoding="utf-8")
+    task5_queue_path.write_text(json.dumps({
+        "schema_version": 1,
+        "source": evidence["source"],
+        "entries": [human("rk-1", "missing_rule_id")],
+    }), encoding="utf-8")
+    anchored_path.write_text(json.dumps({
+        "candidate-1": {
+            "baseline_record_key": "rk-1",
+            "candidate": candidate,
+        },
+    }), encoding="utf-8")
+
+    assert task5_subject.main([
+        "--choices-to-decisions", str(choices_path),
+        "--queue-manifest", str(task5_queue_path),
+        "--anchored-candidates", str(anchored_path),
+        "--out", str(task5_out),
+    ]) == 0
+    assert json.loads(task5_out.read_text(encoding="utf-8")) == _task5_output(
+        _minimal_accepted("rk-1", "candidate-1")
+    )
+    args[args.index("--review") + 1] = str(task5_out)
+
+    assert main(args) == 0
+
+    assert json.loads(report_path.read_text(encoding="utf-8"))["completed"] == 1
+    assert json.loads(queue_path.read_text(encoding="utf-8"))["entries"][0][
+        "queue_class"
+    ] == "human_required"
+
+
+@pytest.mark.parametrize(
+    "candidate_id,error",
+    [
+        ("unknown-candidate", "evidence candidate"),
+        ("presentation:1939-v2:post:7", "presentation"),
+    ],
+)
+def test_task5_accepted_unknown_or_presentation_candidate_rejects_without_outputs(
+    tmp_path, candidate_id, error
+):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    evidence = _source_bound_evidence(args)
+    evidence["entries"][0]["rule_id"] = None
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+    _write_task5_output(args, _minimal_accepted("rk-1", candidate_id))
+
+    with pytest.raises(ValueError, match=error):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
+def test_task5_accepted_candidate_must_be_owned_by_decision_key(tmp_path):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    baseline_path = _cli_path(args, "--baseline")
+    baseline_path.write_text(
+        json.dumps([baseline("rk-1"), baseline("rk-2")]), encoding="utf-8"
+    )
+    calamari_path = _cli_path(args, "--calamari")
+    raw_path = _cli_path(args, "--raw")
+    calamari_path.write_text("abcdefghij", encoding="utf-8")
+    raw_path.write_text("abcdefghij", encoding="utf-8")
+    entries = []
+    for key, candidate_id, start in (("rk-1", "c-1", 0), ("rk-2", "c-2", 5)):
+        excerpt = "abcdefghij"[start:start + 2]
+        entries.append({
+            "baseline_record_key": key,
+            "candidates": [{
+                "candidate_id": candidate_id,
+                "postklasse": "nummereret",
+                "calamari_span": {"char_from": start, "char_to": start + 2},
+                "pdf_pages": [1],
+                "raw_structure_bridge": {
+                    "kind": "record_start",
+                    "raw_char_from": start,
+                    "raw_char_to": start + 2,
+                    "raw_excerpt_sha256": hashlib.sha256(
+                        excerpt.encode("utf-8")
+                    ).hexdigest(),
+                },
+            }],
+            "positive_provenance": {
+                "kind": "record_key_v2_locator",
+                "baseline_record_key": key,
+                "candidate_id": candidate_id,
+            },
+            "conflicts": [],
+            "source_blockers": [],
+            "rule_id": None,
+        })
+    evidence = {
+        "schema_version": 1,
+        "source": _exact_cli_source(args),
+        "entries": entries,
+    }
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+    _write_task5_output(args, _minimal_accepted("rk-1", "c-2"))
+
+    with pytest.raises(ValueError, match="evidence candidate"):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
+def test_enriched_accepted_spans_cannot_substitute_for_joined_evidence(tmp_path):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    evidence = _source_bound_evidence(args)
+    evidence["entries"][0]["rule_id"] = None
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+    enriched = {
+        "baseline_record_key": "rk-1",
+        "status": "accepteret",
+        "candidate_id": "candidate-1",
+        "post_index": 0,
+        "calamari_span": {"char_from": 1, "char_to": 8},
+        "calamari_verbatim_text": "alamari",
+        "pdf_pages": [1],
+        "kind": "record_start",
+        "raw_char_from": 0,
+        "raw_char_to": 6,
+        "raw_verbatim_text": "Rå OCR",
+        "raw_excerpt_sha256": hashlib.sha256("Rå OCR".encode("utf-8")).hexdigest(),
+    }
+    _write_task5_output(args, enriched)
+
+    with pytest.raises(ValueError, match="evidence-derived"):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
+def test_two_final_acceptances_with_colliding_evidence_reject_without_outputs(tmp_path):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    baseline_path = _cli_path(args, "--baseline")
+    baseline_path.write_text(
+        json.dumps([baseline("rk-1"), baseline("rk-2")]), encoding="utf-8"
+    )
+    evidence = _source_bound_evidence(args)
+    first = evidence["entries"][0]
+    first["rule_id"] = None
+    second = copy.deepcopy(first)
+    second["baseline_record_key"] = "rk-2"
+    second["candidates"][0]["candidate_id"] = "candidate-2"
+    second["positive_provenance"].update(
+        baseline_record_key="rk-2", candidate_id="candidate-2"
+    )
+    evidence["source"] = _exact_cli_source(args)
+    evidence["entries"] = [first, second]
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+    _write_task5_output(
+        args,
+        _minimal_accepted("rk-1", "candidate-1"),
+        _minimal_accepted("rk-2", "candidate-2"),
+    )
+
+    with pytest.raises(ValueError, match="injektiv"):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
+def test_source_less_no_candidate_evidence_cannot_complete_task5_acceptance(tmp_path):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    _write_task5_output(args, _minimal_accepted("rk-1", "candidate-1"))
+
+    with pytest.raises(ValueError, match="source-bound evidence"):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
 
 
 def test_main_writes_exclusive_queue_and_report_with_hashes_from_bytes(tmp_path):
@@ -639,7 +879,10 @@ def test_source_bound_evidence_rejects_unknown_or_incomplete_grammar(
 
 
 @pytest.mark.parametrize("source_bound", [False, True])
-def test_evidence_schema_version_rejects_boolean_one(tmp_path, source_bound):
+@pytest.mark.parametrize("invalid_version", [True, 1.0, "1", None])
+def test_evidence_schema_version_requires_exact_integer_one(
+    tmp_path, source_bound, invalid_version
+):
     args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
     if source_bound:
         evidence = _source_bound_evidence(args)
@@ -647,8 +890,31 @@ def test_evidence_schema_version_rejects_boolean_one(tmp_path, source_bound):
         evidence = json.loads(
             _cli_path(args, "--evidence").read_text(encoding="utf-8")
         )
-    evidence["schema_version"] = True
+    if invalid_version is None:
+        evidence.pop("schema_version", None)
+    else:
+        evidence["schema_version"] = invalid_version
     _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="schema_version"):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
+@pytest.mark.parametrize("invalid_version", [True, 1.0, "1", None])
+def test_review_schema_version_requires_exact_integer_one_without_outputs(
+    tmp_path, invalid_version
+):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    review_path = _cli_path(args, "--review")
+    review = json.loads(review_path.read_text(encoding="utf-8"))
+    if invalid_version is None:
+        review.pop("schema_version")
+    else:
+        review["schema_version"] = invalid_version
+    review_path.write_text(json.dumps(review), encoding="utf-8")
 
     with pytest.raises(ValueError, match="schema_version"):
         main(args)
@@ -753,6 +1019,7 @@ def test_source_less_bare_accepted_546_review_is_rejected_without_outputs(tmp_pa
     records = [baseline(f"rk-{number}") for number in range(546)]
     baseline_path.write_text(json.dumps(records), encoding="utf-8")
     evidence_path.write_text(json.dumps({
+        "schema_version": 1,
         "baseline_sha256": hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
         "entries": [
             {"baseline_record_key": record["record_key"], "review_status": "unreviewed"}
@@ -775,6 +1042,34 @@ def test_source_less_bare_accepted_546_review_is_rejected_without_outputs(tmp_pa
     assert not report_path.exists()
 
 
+def test_546_fabricated_task5_acceptances_without_evidence_reject_without_outputs(
+    tmp_path,
+):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    baseline_path = _cli_path(args, "--baseline")
+    evidence_path = _cli_path(args, "--evidence")
+    records = [baseline(f"rk-{number}") for number in range(546)]
+    baseline_path.write_text(json.dumps(records), encoding="utf-8")
+    evidence_path.write_text(json.dumps({
+        "schema_version": 1,
+        "baseline_sha256": hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
+        "entries": [
+            {"baseline_record_key": record["record_key"], "review_status": "unreviewed"}
+            for record in records
+        ],
+    }), encoding="utf-8")
+    _write_task5_output(args, *(
+        _minimal_accepted(record["record_key"], f"fabricated-{number}")
+        for number, record in enumerate(records)
+    ))
+
+    with pytest.raises(ValueError, match="source-bound evidence"):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
 def test_exact_source_546_presentation_acceptances_never_complete_or_publish(tmp_path):
     args, queue_path, report_path, hashes = _pilot_cli_args(tmp_path)
     baseline_path = tmp_path / "baseline.json"
@@ -783,6 +1078,7 @@ def test_exact_source_546_presentation_acceptances_never_complete_or_publish(tmp
     records = [baseline(f"rk-{number}") for number in range(546)]
     baseline_path.write_text(json.dumps(records), encoding="utf-8")
     evidence_path.write_text(json.dumps({
+        "schema_version": 1,
         "baseline_sha256": hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
         "entries": [
             {"baseline_record_key": record["record_key"], "review_status": "unreviewed"}
@@ -838,19 +1134,17 @@ def test_review_state_rejects_source_mismatch_and_malformed_accepted_evidence():
         )
 
 
-def test_only_exact_source_semantically_complete_final_decisions_count_completed():
+def test_enriched_final_decision_without_source_bound_evidence_cannot_complete():
     accepted = accepted_decision("rk-1")
     converted = {**accepted, "status": accepted["review_status"]}
     converted.pop("review_status")
 
-    completed, audit_results = _review_state(
-        {"schema_version": 1, "source": source(), "decisions": [converted]},
-        source(),
-        {"rk-1"},
-    )
-
-    assert completed == {"rk-1"}
-    assert audit_results == []
+    with pytest.raises(ValueError, match="source-bound evidence"):
+        _review_state(
+            {"schema_version": 1, "source": source(), "decisions": [converted]},
+            source(),
+            {"rk-1"},
+        )
 
 
 def test_valid_provisional_choice_export_is_not_completed_before_conversion():

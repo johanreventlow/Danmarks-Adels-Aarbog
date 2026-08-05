@@ -9,7 +9,11 @@ import math
 import re
 from collections.abc import Mapping
 
-from coverage_1939 import PresentationCandidateIdError, validate_coverage
+from coverage_1939 import (
+    PresentationCandidateIdError,
+    is_schema_version_one,
+    validate_coverage,
+)
 
 
 QUEUE_CLASSES = {"auto_resolved", "human_required", "source_blocked"}
@@ -51,6 +55,8 @@ def sample_auto_resolved(
     _validate_rate(rate, minimum_per_stratum)
     if not isinstance(manifest, Mapping):
         raise ValueError("manifest skal være en mapping")
+    if not is_schema_version_one(manifest.get("schema_version")):
+        raise ValueError("manifest schema_version skal være 1")
     source = manifest.get("source")
     _validate_source_manifest(source)
     entries = manifest.get("entries")
