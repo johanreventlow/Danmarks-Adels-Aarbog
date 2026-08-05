@@ -153,6 +153,7 @@ def _view_record(record: dict, classification: dict, nearby: list[dict], is_audi
         "navn": copy.deepcopy(record.get("navn")),
         "sider": copy.deepcopy(record.get("sider")),
         "narrative": copy.deepcopy(record.get("narrative")),
+        "classification": copy.deepcopy(classification),
         "queue_class": queue_class,
         "reason_code": copy.deepcopy(classification.get("reason_code")),
         "reason_da": copy.deepcopy(classification.get("reason_da")),

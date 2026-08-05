@@ -81,6 +81,13 @@ def test_main_shows_candidates_on_translated_pdf_pages(tmp_path, monkeypatch):
     rendered = out.read_text(encoding="utf-8")
     assert "function persist()" in rendered
     assert "Visuelt spor er gemt lokalt" in rendered
+    assert "function sourceIdentity(source)" in rendered
+    assert "raw_ocr_sha256" in rendered
+    assert "pdf_sha256" in rendered
+    assert "profile_version" in rendered
+    assert "function viewKeys(view)" in rendered
+    assert "viewKeys(activeView)" in rendered
+    assert "s.onchange=()=>{decision.review_status=s.value;persist();showSaved('✓ Status er gemt lokalt.');render()}" in rendered
 
 
 @pytest.mark.parametrize("which", ["baseline", "queue", "review", "source"])
@@ -122,10 +129,38 @@ def test_main_accepts_task1_review_ledger_with_matching_baseline_hash(tmp_path, 
     out = tmp_path / "menneskeark.html"
     value = json.loads(review.read_text(encoding="utf-8"))
     value.pop("source")
+    value["entries"][0]["baseline_locator"] = {"pages": "498", "local_id": None}
     review.write_text(json.dumps(value), encoding="utf-8")
     monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
 
     assert subject.main() == 0
+
+
+def test_main_rejects_sourceless_review_with_a_human_decision(tmp_path, monkeypatch):
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    value = json.loads(review.read_text(encoding="utf-8"))
+    value.pop("source")
+    value["entries"][0].update(review_status="menneskeark", reason="vurderet")
+    review.write_text(json.dumps(value), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
+
+    with pytest.raises(ValueError, match="legacy review"):
+        subject.main()
+
+
+@pytest.mark.parametrize("field", ["calamari_sha256", "raw_ocr_sha256", "pdf_sha256", "profile_version"])
+def test_main_rejects_completed_review_with_changed_pinned_source(tmp_path, monkeypatch, field):
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    value = json.loads(review.read_text(encoding="utf-8"))
+    value["entries"][0].update(review_status="menneskeark", reason="vurderet")
+    value["source"][field] = "x" * 64 if field.endswith("sha256") else "1939-v1"
+    review.write_text(json.dumps(value), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
+
+    with pytest.raises(ValueError, match="review source hashes"):
+        subject.main()
 
 
 def test_main_rejects_review_missing_a_baseline_key(tmp_path, monkeypatch):

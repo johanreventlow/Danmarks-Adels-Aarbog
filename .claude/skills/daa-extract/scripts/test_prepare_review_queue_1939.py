@@ -106,6 +106,22 @@ def test_anchored_candidate_keeps_complete_private_evidence_under_details():
     assert candidate["details"] == anchored_candidate("rk-1")
 
 
+def test_classifier_entry_is_retained_separately_and_is_not_presentation_mutated():
+    entry = automatic("rk-1")
+    queue = manifest(entry)
+    original = copy.deepcopy(entry)
+    model = build_review_view_model(
+        [baseline("rk-1")], queue, {"rk-1": [nearby("rk-1", [498])]}, [], {},
+    )
+    record = model["records"][0]
+    assert record["classification"] == original
+    assert record["classification"]["rule_id"] == "complete_anchor_v1"
+    assert record["classification"]["postklasse"] == "nummereret"
+    record["candidates"][0]["details"]["postklasse"] = "ændret i visning"
+    assert record["classification"] == original
+    assert queue["entries"][0] == original
+
+
 def test_all_546_baseline_keys_are_accounted_for_exactly_once():
     records = [baseline(f"rk-{number}") for number in range(546)]
     entries = [human(record["record_key"]) for record in records]

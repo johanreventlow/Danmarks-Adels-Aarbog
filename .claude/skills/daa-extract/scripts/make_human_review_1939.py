@@ -37,13 +37,17 @@ input,select,textarea,button{font:inherit;padding:8px;margin:4px 0;width:100%;bo
 <script>
 const DATA=__PAYLOAD__;
 let rows=DATA.records, selected=0, activeView=DATA.default_view;
-const key='daa1939-'+DATA.baseline_sha256;
+function sourceIdentity(source){return ['edition','baseline_sha256','calamari_sha256','raw_ocr_sha256','pdf_sha256','profile_version'].map(field=>field+'='+source[field]).join('|')}
+const key='daa1939-'+sourceIdentity(DATA.source);
 const saved=JSON.parse(localStorage.getItem(key)||'{}');
 function ensureDecision(r){return r.decision||(r.decision={baseline_record_key:r.record_key,review_status:'unreviewed'})}
 for(const r of rows)Object.assign(ensureDecision(r),saved[r.record_key]||{});
 function e(x){let d=document.createElement('div');d.textContent=x||'';return d.innerHTML}
 function persist(){localStorage.setItem(key,JSON.stringify(Object.fromEntries(rows.map(r=>[r.record_key,r.decision]))))}
 function showSaved(message){document.querySelector('#save-state').textContent=message}
+function isCompleted(decision){return ['menneskeark','eksplicit_dublet','accepteret'].includes((decision||{}).review_status)}
+function viewKeys(view){return view==='completed'?rows.filter(r=>isCompleted(r.decision)).map(r=>r.record_key):DATA.views[view]}
+function viewCount(view){return viewKeys(view).length}
 function setTrack(localId){
   const r=rows[selected], decision=ensureDecision(r), note=`Visuelt spor: parserpost ${localId}. Kræver stadig eksakt Calamari- og rå-OCR-ankring.`;
   decision.review_status='menneskeark';
@@ -55,9 +59,9 @@ function setTrack(localId){
 function setView(view){activeView=view;selected=0;render()}
 function render(){
   const q=document.querySelector('#q').value.toLowerCase();
-  const shown=rows.filter(r=>DATA.views[activeView].includes(r.record_key)&&JSON.stringify(r).toLowerCase().includes(q));
+  const shown=rows.filter(r=>viewKeys(activeView).includes(r.record_key)&&JSON.stringify(r).toLowerCase().includes(q));
   const views=document.querySelector('#views'); views.innerHTML='';
-  for(const view of ['required','automatic','audit','completed']){const b=document.createElement('button');b.textContent=view+' ('+DATA.summary[view]+')';b.onclick=()=>setView(view);if(view===activeView)b.className='active';views.append(b)}
+  for(const view of ['required','automatic','audit','completed']){const b=document.createElement('button');b.textContent=view+' ('+viewCount(view)+')';b.onclick=()=>setView(view);if(view===activeView)b.className='active';views.append(b)}
   const blocked=document.createElement('p');blocked.className='muted';blocked.textContent='Kildeblokeret: '+DATA.summary.source_blocked;views.append(blocked);
   const list=document.querySelector('#list'); list.innerHTML='';
   shown.forEach(r=>{const i=rows.indexOf(r),d=document.createElement('div');d.className='row '+(i===selected?'active':'');d.innerHTML='<b>'+e(r.navn||'(uden navn)')+'</b><br><small>PDF s. '+e(r.sider)+' · '+e(r.queue_class)+' · '+e((r.decision||{}).review_status||'unreviewed')+'</small>';d.onclick=()=>{selected=i;render()};list.append(d)});
@@ -68,7 +72,7 @@ function render(){
   const s=document.querySelector('#status'),reason=document.querySelector('#reason'),target=document.querySelector('#target');
   const decision=ensureDecision(r);s.value=decision.review_status==='accepteret'?'unreviewed':decision.review_status;
   reason.value=decision.reason||'';target.value=decision.duplicate_of_baseline_record_key||'';
-  s.onchange=()=>{decision.review_status=s.value;persist();showSaved('✓ Status er gemt lokalt.')};
+  s.onchange=()=>{decision.review_status=s.value;persist();showSaved('✓ Status er gemt lokalt.');render()};
   reason.oninput=()=>{decision.reason=reason.value;persist();showSaved('✓ Kladde er gemt lokalt.')};
   target.oninput=()=>{decision.duplicate_of_baseline_record_key=target.value;persist();showSaved('✓ Kladde er gemt lokalt.')};
 }
@@ -133,6 +137,16 @@ def _review_decisions(value: object, baseline_hash: str,
     return decisions
 
 
+def _assert_sourceless_review_is_unreviewed(decisions: dict[str, dict]) -> None:
+    """Permit only the decision-free Task 1 template without source provenance."""
+    allowed_fields = {"baseline_record_key", "review_status", "baseline_locator"}
+    for decision in decisions.values():
+        if decision.get("review_status") != "unreviewed":
+            raise ValueError("legacy review med afgørelse kræver source manifest")
+        if set(decision) - allowed_fields:
+            raise ValueError("legacy review med afgørelsesfelter kræver source manifest")
+
+
 def _candidate_from_post(post: dict, calamari_first_pdf_page: int) -> dict:
     calamari_pages = _pages(post.get("sider"))
     pdf_pages = [calamari_first_pdf_page + page - 1 for page in calamari_pages]
@@ -188,6 +202,8 @@ def main() -> int:
         if isinstance(record, dict) and isinstance(record.get("record_key"), str)
     }
     decisions = _review_decisions(review, baseline_hash, baseline_keys)
+    if not isinstance(review, dict) or "source" not in review:
+        _assert_sourceless_review_is_unreviewed(decisions)
     # The extractor writes its normal artifact and diagnostics to standard
     # streams. This UI generator consumes only its in-memory posts.
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
