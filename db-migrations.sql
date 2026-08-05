@@ -6401,22 +6401,155 @@ CREATE TABLE IF NOT EXISTS private.source_record_placement (
   section_path text[] NOT NULL DEFAULT ARRAY[]::text[],
   header_observation_id uuid NOT NULL REFERENCES private.source_observation(id),
   supersedes_placement_id uuid REFERENCES private.source_record_placement(id),
-  status text NOT NULL DEFAULT 'proposed' CHECK(status IN ('proposed','accepted','superseded')),
+  initial_status text NOT NULL DEFAULT 'proposed' CHECK(initial_status IN ('proposed','accepted','rejected','superseded')),
   created_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS source_record_placement_active_uidx
-  ON private.source_record_placement(source_record_id,scheme_entry_id)
-  WHERE status<>'superseded';
 CREATE TABLE IF NOT EXISTS private.source_persona_placement (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   source_persona_id uuid NOT NULL REFERENCES private.source_persona(id),
   record_placement_id uuid NOT NULL REFERENCES private.source_record_placement(id),
   placement_role text NOT NULL CHECK(placement_role IN
     ('principal_member','co_principal','mentioned_spouse','child_reference')),
   basis_observation_id uuid NOT NULL REFERENCES private.source_observation(id),
-  status text NOT NULL DEFAULT 'proposed' CHECK(status IN ('proposed','accepted','rejected')),
+  initial_status text NOT NULL DEFAULT 'proposed' CHECK(initial_status IN ('proposed','accepted','rejected','superseded')),
   created_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY(source_persona_id,record_placement_id,placement_role)
+  UNIQUE(source_persona_id,record_placement_id,placement_role)
 );
+DO $placement_shape_migration$
+DECLARE v_status text;
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='private'
+             AND table_name='source_record_placement' AND column_name='status') THEN
+    FOR v_status IN SELECT DISTINCT status FROM private.source_record_placement
+      WHERE status NOT IN ('proposed','accepted','rejected','superseded') LOOP
+      RAISE EXCEPTION 'EVIDENCE_PLACEMENT_BACKFILL_MISMATCH: record status %',v_status;
+    END LOOP;
+    ALTER TABLE private.source_record_placement RENAME COLUMN status TO initial_status;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='private'
+             AND table_name='source_persona_placement' AND column_name='status') THEN
+    FOR v_status IN SELECT DISTINCT status FROM private.source_persona_placement
+      WHERE status NOT IN ('proposed','accepted','rejected','superseded') LOOP
+      RAISE EXCEPTION 'EVIDENCE_PLACEMENT_BACKFILL_MISMATCH: persona status %',v_status;
+    END LOOP;
+    ALTER TABLE private.source_persona_placement RENAME COLUMN status TO initial_status;
+  END IF;
+  ALTER TABLE private.source_record_placement
+    DROP CONSTRAINT IF EXISTS source_record_placement_status_check;
+  ALTER TABLE private.source_record_placement
+    DROP CONSTRAINT IF EXISTS source_record_placement_initial_status_check;
+  ALTER TABLE private.source_record_placement
+    ADD CONSTRAINT source_record_placement_initial_status_check
+    CHECK(initial_status IN ('proposed','accepted','rejected','superseded'));
+  ALTER TABLE private.source_persona_placement
+    DROP CONSTRAINT IF EXISTS source_persona_placement_status_check;
+  ALTER TABLE private.source_persona_placement
+    DROP CONSTRAINT IF EXISTS source_persona_placement_initial_status_check;
+  ALTER TABLE private.source_persona_placement
+    ADD CONSTRAINT source_persona_placement_initial_status_check
+    CHECK(initial_status IN ('proposed','accepted','rejected','superseded'));
+  ALTER TABLE private.source_persona_placement ADD COLUMN IF NOT EXISTS id uuid;
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.source_persona_placement'::regclass
+             AND tgname='trg_source_persona_placement_append_only' AND NOT tgisinternal) THEN
+    ALTER TABLE private.source_persona_placement DISABLE TRIGGER trg_source_persona_placement_append_only;
+  END IF;
+  UPDATE private.source_persona_placement SET id=gen_random_uuid() WHERE id IS NULL;
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.source_persona_placement'::regclass
+             AND tgname='trg_source_persona_placement_append_only' AND NOT tgisinternal) THEN
+    ALTER TABLE private.source_persona_placement ENABLE TRIGGER trg_source_persona_placement_append_only;
+  END IF;
+  ALTER TABLE private.source_persona_placement ALTER COLUMN id SET DEFAULT gen_random_uuid();
+  ALTER TABLE private.source_persona_placement ALTER COLUMN id SET NOT NULL;
+  IF EXISTS (SELECT 1 FROM pg_constraint
+              WHERE conrelid='private.source_persona_placement'::regclass
+                AND contype='p' AND pg_get_constraintdef(oid)<>'PRIMARY KEY (id)') THEN
+    ALTER TABLE private.source_persona_placement DROP CONSTRAINT source_persona_placement_pkey;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.source_persona_placement'::regclass
+                 AND contype='p') THEN
+    ALTER TABLE private.source_persona_placement ADD CONSTRAINT source_persona_placement_pkey PRIMARY KEY(id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.source_persona_placement'::regclass
+                 AND conname='source_persona_placement_business_key') THEN
+    ALTER TABLE private.source_persona_placement ADD CONSTRAINT source_persona_placement_business_key
+      UNIQUE(source_persona_id,record_placement_id,placement_role);
+  END IF;
+  DROP INDEX IF EXISTS private.source_record_placement_active_uidx;
+END $placement_shape_migration$;
+
+CREATE TABLE IF NOT EXISTS private.source_record_placement_decision (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  placement_id uuid NOT NULL REFERENCES private.source_record_placement(id),
+  version integer NOT NULL CHECK(version>=1),
+  decision_status text NOT NULL CHECK(decision_status IN ('proposed','accepted','rejected','superseded')),
+  evidence jsonb NOT NULL CHECK(jsonb_typeof(evidence)='object' AND evidence<>'{}'::jsonb),
+  decision_origin text NOT NULL CHECK(decision_origin IN ('ingest','migration','redaction')),
+  decided_by uuid,
+  decided_by_name text NOT NULL CHECK(btrim(decided_by_name)<>''),
+  decided_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(placement_id,version),
+  CHECK(decision_origin<>'redaction' OR decided_by IS NOT NULL)
+);
+CREATE TABLE IF NOT EXISTS private.source_persona_placement_decision (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  placement_id uuid NOT NULL REFERENCES private.source_persona_placement(id),
+  version integer NOT NULL CHECK(version>=1),
+  decision_status text NOT NULL CHECK(decision_status IN ('proposed','accepted','rejected','superseded')),
+  evidence jsonb NOT NULL CHECK(jsonb_typeof(evidence)='object' AND evidence<>'{}'::jsonb),
+  decision_origin text NOT NULL CHECK(decision_origin IN ('ingest','migration','redaction')),
+  decided_by uuid,
+  decided_by_name text NOT NULL CHECK(btrim(decided_by_name)<>''),
+  decided_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(placement_id,version),
+  CHECK(decision_origin<>'redaction' OR decided_by IS NOT NULL)
+);
+INSERT INTO private.source_record_placement_decision(
+  placement_id,version,decision_status,evidence,decision_origin,decided_by_name
+)
+SELECT id,1,initial_status,jsonb_build_object('legacy_status',initial_status),
+       'migration','legacy placement backfill'
+  FROM private.source_record_placement
+ WHERE NOT EXISTS (SELECT 1 FROM private.source_record_placement_decision existing
+                    WHERE existing.placement_id=source_record_placement.id
+                      AND existing.version=1)
+ON CONFLICT(placement_id,version) DO NOTHING;
+INSERT INTO private.source_persona_placement_decision(
+  placement_id,version,decision_status,evidence,decision_origin,decided_by_name
+)
+SELECT id,1,initial_status,jsonb_build_object('legacy_status',initial_status),
+       'migration','legacy placement backfill'
+  FROM private.source_persona_placement
+ WHERE NOT EXISTS (SELECT 1 FROM private.source_persona_placement_decision existing
+                    WHERE existing.placement_id=source_persona_placement.id
+                      AND existing.version=1)
+ON CONFLICT(placement_id,version) DO NOTHING;
+DO $placement_backfill_verify$
+BEGIN
+  IF EXISTS (SELECT 1 FROM private.source_record_placement placement
+             LEFT JOIN private.source_record_placement_decision decision
+               ON decision.placement_id=placement.id AND decision.version=1
+             WHERE decision.id IS NULL OR decision.decision_status<>placement.initial_status)
+     OR EXISTS (SELECT 1 FROM private.source_persona_placement placement
+             LEFT JOIN private.source_persona_placement_decision decision
+               ON decision.placement_id=placement.id AND decision.version=1
+             WHERE decision.id IS NULL OR decision.decision_status<>placement.initial_status) THEN
+    RAISE EXCEPTION 'EVIDENCE_PLACEMENT_BACKFILL_MISMATCH';
+  END IF;
+END $placement_backfill_verify$;
+CREATE OR REPLACE VIEW private.source_record_placement_current
+WITH (security_invoker=true) AS
+SELECT placement.*,decision.version,decision.decision_status,decision.evidence,
+ decision.decision_origin,decision.decided_by,decision.decided_by_name,decision.decided_at
+FROM private.source_record_placement placement JOIN
+ (SELECT DISTINCT ON(placement_id) * FROM private.source_record_placement_decision
+  ORDER BY placement_id,version DESC) decision ON decision.placement_id=placement.id;
+CREATE OR REPLACE VIEW private.source_persona_placement_current
+WITH (security_invoker=true) AS
+SELECT placement.*,decision.version,decision.decision_status,decision.evidence,
+ decision.decision_origin,decision.decided_by,decision.decided_by_name,decision.decided_at
+FROM private.source_persona_placement placement JOIN
+ (SELECT DISTINCT ON(placement_id) * FROM private.source_persona_placement_decision
+  ORDER BY placement_id,version DESC) decision ON decision.placement_id=placement.id;
 CREATE OR REPLACE FUNCTION private.validate_source_record_placement()
 RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
 BEGIN
@@ -6460,6 +6593,128 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
+CREATE OR REPLACE FUNCTION private.validate_placement_decision()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
+DECLARE v_initial text; v_previous text; v_version integer;
+  v_record uuid; v_entry bigint; v_record_placement uuid;
+BEGIN
+  IF TG_TABLE_NAME='source_record_placement_decision' THEN
+    SELECT initial_status INTO v_initial FROM private.source_record_placement WHERE id=NEW.placement_id;
+    SELECT version,decision_status INTO v_version,v_previous FROM private.source_record_placement_decision
+      WHERE placement_id=NEW.placement_id ORDER BY version DESC LIMIT 1;
+  ELSE
+    SELECT initial_status INTO v_initial FROM private.source_persona_placement WHERE id=NEW.placement_id;
+    SELECT version,decision_status INTO v_version,v_previous FROM private.source_persona_placement_decision
+      WHERE placement_id=NEW.placement_id ORDER BY version DESC LIMIT 1;
+  END IF;
+  IF v_initial IS NULL THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_NOT_FOUND'; END IF;
+  IF v_version IS NULL THEN
+    IF NEW.version<>1 OR NEW.decision_status<>v_initial OR NEW.decision_origin NOT IN ('ingest','migration') THEN
+      RAISE EXCEPTION 'EVIDENCE_PLACEMENT_INITIAL_DECISION_INVALID';
+    END IF;
+  ELSIF NEW.version<>v_version+1 OR NEW.decision_origin<>'redaction'
+    OR NOT ((v_previous='proposed' AND NEW.decision_status IN ('accepted','rejected'))
+         OR (v_previous='accepted' AND NEW.decision_status='superseded')) THEN
+    RAISE EXCEPTION 'EVIDENCE_PLACEMENT_TRANSITION_INVALID';
+  END IF;
+  IF NEW.decision_status='accepted' AND TG_TABLE_NAME='source_record_placement_decision' THEN
+    SELECT source_record_id,scheme_entry_id INTO v_record,v_entry
+      FROM private.source_record_placement WHERE id=NEW.placement_id;
+    PERFORM 1 FROM private.source_record WHERE id=v_record FOR UPDATE;
+    IF EXISTS(SELECT 1 FROM private.source_record_placement_current
+               WHERE source_record_id=v_record AND scheme_entry_id=v_entry
+                 AND id<>NEW.placement_id AND decision_status='accepted') THEN
+      RAISE EXCEPTION 'EVIDENCE_PLACEMENT_ALREADY_ACCEPTED';
+    END IF;
+  ELSIF NEW.decision_status='accepted' THEN
+    SELECT record_placement_id INTO v_record_placement
+      FROM private.source_persona_placement WHERE id=NEW.placement_id;
+    IF NOT EXISTS(SELECT 1 FROM private.source_record_placement_current
+                   WHERE id=v_record_placement AND decision_status='accepted') THEN
+      RAISE EXCEPTION 'EVIDENCE_RECORD_PLACEMENT_ACCEPTED_REQUIRED';
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE OR REPLACE FUNCTION private.require_placement_initial_decision()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  IF TG_TABLE_NAME='source_record_placement' THEN
+    IF NOT EXISTS(SELECT 1 FROM private.source_record_placement_decision WHERE placement_id=NEW.id AND version=1) THEN
+      RAISE EXCEPTION 'EVIDENCE_PLACEMENT_INITIAL_DECISION_REQUIRED'; END IF;
+  ELSIF NOT EXISTS(SELECT 1 FROM private.source_persona_placement_decision WHERE placement_id=NEW.id AND version=1) THEN
+    RAISE EXCEPTION 'EVIDENCE_PLACEMENT_INITIAL_DECISION_REQUIRED';
+  END IF; RETURN NULL;
+END $$;
+CREATE OR REPLACE FUNCTION private.propose_source_record_placement(
+  p_source_record_id uuid,p_scheme_entry_id bigint,p_header_observation_id uuid,
+  p_evidence jsonb,p_decided_by_name text DEFAULT 'evidence ingest')
+RETURNS uuid LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
+DECLARE v_id uuid;
+BEGIN
+  IF jsonb_typeof($4)<>'object' OR $4='{}'::jsonb OR btrim(coalesce($5,''))='' THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_PROPOSAL_INVALID'; END IF;
+  INSERT INTO private.source_record_placement(source_record_id,scheme_entry_id,header_observation_id,initial_status)
+    VALUES($1,$2,$3,'proposed') RETURNING id INTO v_id;
+  INSERT INTO private.source_record_placement_decision(placement_id,version,decision_status,evidence,decision_origin,decided_by_name)
+    VALUES(v_id,1,'proposed',$4,'ingest',$5); RETURN v_id;
+END $$;
+CREATE OR REPLACE FUNCTION private.propose_source_persona_placement(
+  p_source_persona_id uuid,p_record_placement_id uuid,p_placement_role text,
+  p_basis_observation_id uuid,p_evidence jsonb,p_decided_by_name text DEFAULT 'evidence ingest')
+RETURNS uuid LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
+DECLARE v_id uuid;
+BEGIN
+  IF jsonb_typeof($5)<>'object' OR $5='{}'::jsonb OR btrim(coalesce($6,''))='' THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_PROPOSAL_INVALID'; END IF;
+  INSERT INTO private.source_persona_placement(source_persona_id,record_placement_id,placement_role,basis_observation_id,initial_status)
+    VALUES($1,$2,$3,$4,'proposed') RETURNING id INTO v_id;
+  INSERT INTO private.source_persona_placement_decision(placement_id,version,decision_status,evidence,decision_origin,decided_by_name)
+    VALUES(v_id,1,'proposed',$5,'ingest',$6); RETURN v_id;
+END $$;
+CREATE OR REPLACE FUNCTION red_decide_source_record_placement(
+  p_placement_id uuid,p_expected_version integer,p_status text,p_evidence jsonb)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_actor uuid:=auth.uid(); v_name text; v_record uuid; v_entry bigint; v_version integer; v_status text;
+BEGIN
+  IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  IF $2 IS NULL OR $2<1 THEN RAISE EXCEPTION 'EVIDENCE_EXPECTED_VERSION_REQUIRED'; END IF;
+  IF $3 NOT IN ('accepted','rejected','superseded') OR jsonb_typeof($4)<>'object' OR $4='{}'::jsonb THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_DECISION_INVALID'; END IF;
+  SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text) INTO v_name FROM public.profiles WHERE id=v_actor;
+  IF v_name IS NULL THEN RAISE EXCEPTION 'EVIDENCE_ACTOR_REQUIRED'; END IF;
+  SELECT source_record_id,scheme_entry_id INTO v_record,v_entry FROM private.source_record_placement WHERE id=$1;
+  IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_NOT_FOUND'; END IF;
+  PERFORM 1 FROM private.source_record WHERE id=v_record FOR UPDATE;
+  PERFORM 1 FROM private.source_record_placement WHERE id=$1 FOR UPDATE;
+  SELECT version,decision_status INTO v_version,v_status FROM private.source_record_placement_decision WHERE placement_id=$1 ORDER BY version DESC LIMIT 1 FOR UPDATE;
+  IF v_version IS NULL THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_INITIAL_DECISION_REQUIRED'; END IF;
+  IF v_version<>$2 THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_VERSION_CONFLICT: expected %, current %',$2,v_version; END IF;
+  IF NOT ((v_status='proposed' AND $3 IN ('accepted','rejected')) OR (v_status='accepted' AND $3='superseded')) THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_TRANSITION_INVALID'; END IF;
+  IF $3='accepted' AND EXISTS(SELECT 1 FROM private.source_record_placement_current WHERE source_record_id=v_record AND scheme_entry_id=v_entry AND id<>$1 AND decision_status='accepted') THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_ALREADY_ACCEPTED'; END IF;
+  INSERT INTO private.source_record_placement_decision(placement_id,version,decision_status,evidence,decision_origin,decided_by,decided_by_name)
+    VALUES($1,v_version+1,$3,$4,'redaction',v_actor,v_name); RETURN v_version+1;
+END $$;
+CREATE OR REPLACE FUNCTION red_decide_source_persona_placement(
+  p_placement_id uuid,p_expected_version integer,p_status text,p_evidence jsonb)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_actor uuid:=auth.uid(); v_name text; v_persona uuid; v_record_placement uuid; v_version integer; v_status text;
+BEGIN
+  IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  IF $2 IS NULL OR $2<1 THEN RAISE EXCEPTION 'EVIDENCE_EXPECTED_VERSION_REQUIRED'; END IF;
+  IF $3 NOT IN ('accepted','rejected','superseded') OR jsonb_typeof($4)<>'object' OR $4='{}'::jsonb THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_DECISION_INVALID'; END IF;
+  SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text) INTO v_name FROM public.profiles WHERE id=v_actor;
+  IF v_name IS NULL THEN RAISE EXCEPTION 'EVIDENCE_ACTOR_REQUIRED'; END IF;
+  SELECT source_persona_id,record_placement_id INTO v_persona,v_record_placement FROM private.source_persona_placement WHERE id=$1;
+  IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_NOT_FOUND'; END IF;
+  PERFORM 1 FROM private.source_persona WHERE id=v_persona FOR UPDATE;
+  PERFORM 1 FROM private.source_record_placement WHERE id=v_record_placement FOR UPDATE;
+  PERFORM 1 FROM private.source_persona_placement WHERE id=$1 FOR UPDATE;
+  SELECT version,decision_status INTO v_version,v_status FROM private.source_persona_placement_decision WHERE placement_id=$1 ORDER BY version DESC LIMIT 1 FOR UPDATE;
+  IF v_version IS NULL THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_INITIAL_DECISION_REQUIRED'; END IF;
+  IF v_version<>$2 THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_VERSION_CONFLICT: expected %, current %',$2,v_version; END IF;
+  IF NOT ((v_status='proposed' AND $3 IN ('accepted','rejected')) OR (v_status='accepted' AND $3='superseded')) THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_TRANSITION_INVALID'; END IF;
+  IF $3='accepted' AND NOT EXISTS(SELECT 1 FROM private.source_record_placement_current WHERE id=v_record_placement AND decision_status='accepted') THEN RAISE EXCEPTION 'EVIDENCE_RECORD_PLACEMENT_ACCEPTED_REQUIRED'; END IF;
+  INSERT INTO private.source_persona_placement_decision(placement_id,version,decision_status,evidence,decision_origin,decided_by,decided_by_name)
+    VALUES($1,v_version+1,$3,$4,'redaction',v_actor,v_name); RETURN v_version+1;
+END $$;
 DO $$
 BEGIN
   DROP TRIGGER IF EXISTS trg_source_record_placement_validate ON private.source_record_placement;
@@ -6468,11 +6723,29 @@ BEGIN
   DROP TRIGGER IF EXISTS trg_source_persona_placement_validate ON private.source_persona_placement;
   CREATE TRIGGER trg_source_persona_placement_validate BEFORE INSERT ON private.source_persona_placement
     FOR EACH ROW EXECUTE FUNCTION private.validate_source_persona_placement();
+  DROP TRIGGER IF EXISTS trg_source_record_placement_decision_validate ON private.source_record_placement_decision;
+  CREATE TRIGGER trg_source_record_placement_decision_validate BEFORE INSERT ON private.source_record_placement_decision
+    FOR EACH ROW EXECUTE FUNCTION private.validate_placement_decision();
+  DROP TRIGGER IF EXISTS trg_source_persona_placement_decision_validate ON private.source_persona_placement_decision;
+  CREATE TRIGGER trg_source_persona_placement_decision_validate BEFORE INSERT ON private.source_persona_placement_decision
+    FOR EACH ROW EXECUTE FUNCTION private.validate_placement_decision();
+  DROP TRIGGER IF EXISTS trg_source_record_placement_has_decision ON private.source_record_placement;
+  CREATE CONSTRAINT TRIGGER trg_source_record_placement_has_decision AFTER INSERT ON private.source_record_placement
+    DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION private.require_placement_initial_decision();
+  DROP TRIGGER IF EXISTS trg_source_persona_placement_has_decision ON private.source_persona_placement;
+  CREATE CONSTRAINT TRIGGER trg_source_persona_placement_has_decision AFTER INSERT ON private.source_persona_placement
+    DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION private.require_placement_initial_decision();
   DROP TRIGGER IF EXISTS trg_source_record_placement_append_only ON private.source_record_placement;
   CREATE TRIGGER trg_source_record_placement_append_only BEFORE UPDATE OR DELETE ON private.source_record_placement
     FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation();
   DROP TRIGGER IF EXISTS trg_source_persona_placement_append_only ON private.source_persona_placement;
   CREATE TRIGGER trg_source_persona_placement_append_only BEFORE UPDATE OR DELETE ON private.source_persona_placement
+    FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation();
+  DROP TRIGGER IF EXISTS trg_source_record_placement_decision_append_only ON private.source_record_placement_decision;
+  CREATE TRIGGER trg_source_record_placement_decision_append_only BEFORE UPDATE OR DELETE ON private.source_record_placement_decision
+    FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation();
+  DROP TRIGGER IF EXISTS trg_source_persona_placement_decision_append_only ON private.source_persona_placement_decision;
+  CREATE TRIGGER trg_source_persona_placement_decision_append_only BEFORE UPDATE OR DELETE ON private.source_persona_placement_decision
     FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation();
 END $$;
 ALTER TABLE slaegt ENABLE ROW LEVEL SECURITY;
@@ -6483,10 +6756,20 @@ ALTER TABLE person_slaegt_membership ENABLE ROW LEVEL SECURITY;
 ALTER TABLE person_lineage_membership ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.source_record_placement ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.source_persona_placement ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_record_placement_decision ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_persona_placement_decision ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE person_slaegt_membership,person_lineage_membership,
- private.source_record_placement,private.source_persona_placement FROM PUBLIC,anon,authenticated;
+ private.source_record_placement,private.source_persona_placement,
+ private.source_record_placement_decision,private.source_persona_placement_decision FROM PUBLIC,anon,authenticated;
 REVOKE EXECUTE ON FUNCTION private.validate_source_record_placement(),
- private.validate_source_persona_placement() FROM PUBLIC,anon,authenticated;
+ private.validate_source_persona_placement(),private.validate_placement_decision(),
+ private.require_placement_initial_decision(),
+ private.propose_source_record_placement(uuid,bigint,uuid,jsonb,text),
+ private.propose_source_persona_placement(uuid,uuid,text,uuid,jsonb,text) FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION red_decide_source_record_placement(uuid,integer,text,jsonb),
+ red_decide_source_persona_placement(uuid,integer,text,jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION red_decide_source_record_placement(uuid,integer,text,jsonb),
+ red_decide_source_persona_placement(uuid,integer,text,jsonb) TO authenticated;
 
 -- ---- 2026-08-02: privat source-persona redaktørkø (Task 11) ----
 -- Schemaet er autoritativt; migrations-udgaven bevarer de samme fail-closed
@@ -6506,7 +6789,7 @@ CREATE OR REPLACE FUNCTION red_source_persona_detail(p_source_persona_id uuid) R
 DECLARE v_result jsonb;
 BEGIN
   IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
-  SELECT jsonb_build_object('persona',jsonb_build_object('source_persona_id',persona.id,'source_id',persona.source_id,'persona_key',persona.persona_key,'decision_status',coalesce(identity_state.decision_status,'proposed'),'version',coalesce(identity_state.version,0),'canonical_person_id',identity_state.canonical_person_id),'mentions',coalesce((SELECT jsonb_agg(jsonb_build_object('mention_kind',mention.mention_kind,'mention_role',persona_mention.mention_role,'verbatim_text',mention.verbatim_text,'observation_kind',observation.observation_kind,'page_from',observation.page_from,'page_to',observation.page_to,'text_versions',coalesce((SELECT jsonb_agg(jsonb_build_object('version',text_version.version,'verbatim_text',text_version.verbatim_text,'preferred',text_version.is_preferred) ORDER BY text_version.version) FROM private.source_observation_text text_version WHERE text_version.observation_id=observation.id),'[]'::jsonb)) ORDER BY persona_mention.ordinal) FROM private.source_persona_mention persona_mention JOIN private.source_mention mention ON mention.id=persona_mention.mention_id JOIN private.source_observation observation ON observation.id=mention.observation_id WHERE persona_mention.persona_id=persona.id),'[]'::jsonb),'placements',coalesce((SELECT jsonb_agg(jsonb_build_object('placement_role',persona_placement.placement_role,'printed_number',record_placement.printed_number,'generation_label_raw',record_placement.generation_label_raw)) FROM private.source_persona_placement persona_placement JOIN private.source_record_placement record_placement ON record_placement.id=persona_placement.record_placement_id WHERE persona_placement.source_persona_id=persona.id),'[]'::jsonb),'interpretations',coalesce((SELECT jsonb_agg(jsonb_build_object('predicate',interpretation.predicate,'value',interpretation.value,'status',interpretation.status,'confidence',interpretation.confidence,'derivation_kind',interpretation.derivation_kind) ORDER BY interpretation.created_at) FROM private.interpretation interpretation WHERE interpretation.source_persona_id=persona.id),'[]'::jsonb)) INTO v_result FROM private.source_persona persona LEFT JOIN private.source_persona_identity identity_state ON identity_state.source_persona_id=persona.id WHERE persona.id=p_source_persona_id;
+  SELECT jsonb_build_object('persona',jsonb_build_object('source_persona_id',persona.id,'source_id',persona.source_id,'persona_key',persona.persona_key,'decision_status',coalesce(identity_state.decision_status,'proposed'),'version',coalesce(identity_state.version,0),'canonical_person_id',identity_state.canonical_person_id),'mentions',coalesce((SELECT jsonb_agg(jsonb_build_object('mention_kind',mention.mention_kind,'mention_role',persona_mention.mention_role,'verbatim_text',mention.verbatim_text,'observation_kind',observation.observation_kind,'page_from',observation.page_from,'page_to',observation.page_to,'text_versions',coalesce((SELECT jsonb_agg(jsonb_build_object('version',text_version.version,'verbatim_text',text_version.verbatim_text,'preferred',text_version.is_preferred) ORDER BY text_version.version) FROM private.source_observation_text text_version WHERE text_version.observation_id=observation.id),'[]'::jsonb)) ORDER BY persona_mention.ordinal) FROM private.source_persona_mention persona_mention JOIN private.source_mention mention ON mention.id=persona_mention.mention_id JOIN private.source_observation observation ON observation.id=mention.observation_id WHERE persona_mention.persona_id=persona.id),'[]'::jsonb),'placements',coalesce((SELECT jsonb_agg(jsonb_build_object('placement_role',persona_placement.placement_role,'printed_number',record_placement.printed_number,'generation_label_raw',record_placement.generation_label_raw)) FROM private.source_persona_placement_current persona_placement JOIN private.source_record_placement_current record_placement ON record_placement.id=persona_placement.record_placement_id WHERE persona_placement.source_persona_id=persona.id AND persona_placement.decision_status='accepted' AND record_placement.decision_status='accepted'),'[]'::jsonb),'interpretations',coalesce((SELECT jsonb_agg(jsonb_build_object('predicate',interpretation.predicate,'value',interpretation.value,'status',interpretation.status,'confidence',interpretation.confidence,'derivation_kind',interpretation.derivation_kind) ORDER BY interpretation.created_at) FROM private.interpretation interpretation WHERE interpretation.source_persona_id=persona.id),'[]'::jsonb)) INTO v_result FROM private.source_persona persona LEFT JOIN private.source_persona_identity identity_state ON identity_state.source_persona_id=persona.id WHERE persona.id=p_source_persona_id;
   IF v_result IS NULL THEN RAISE EXCEPTION 'EVIDENCE_PERSONA_NOT_FOUND'; END IF; RETURN v_result;
 END $$;
 CREATE OR REPLACE FUNCTION red_source_persona_history(p_source_persona_id uuid) RETURNS TABLE(version integer,decision_status text,canonical_person_id bigint,evidence jsonb,decided_by_name text,decided_at timestamptz) LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
@@ -6704,9 +6987,9 @@ BEGIN
            fact.id AS fact_id,fact.subjekt_type,fact.subjekt_id,fact.faktatype,
            EXISTS (SELECT 1 FROM private.interpretation_observation observation
                     WHERE observation.interpretation_id=current_interpretation.id) AS has_observation,
-           EXISTS (SELECT 1 FROM private.source_persona_placement placement
+           EXISTS (SELECT 1 FROM private.source_persona_placement_current placement
                     WHERE placement.source_persona_id=current_interpretation.source_persona_id
-                      AND placement.status='accepted'
+                      AND placement.decision_status='accepted'
                       AND placement.placement_role IN ('principal_member','co_principal')) AS has_principal_placement,
            EXISTS (SELECT 1 FROM private.interpretation_promotion promotion
                     WHERE promotion.interpretation_id=current_interpretation.id
