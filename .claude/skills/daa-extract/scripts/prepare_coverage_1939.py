@@ -499,13 +499,52 @@ def materialize_coverage(
     return bundle
 
 
-def _unique_candidate_json_object(pairs: list[tuple[str, object]]) -> dict:
-    value: dict[str, object] = {}
-    for key, item in pairs:
-        if key in value:
+class _JsonObjectPairs(list):
+    """Preserve object-pair boundaries until root and nested keys are distinguishable."""
+
+
+class _AmbiguousAnchoredWrapper:
+    """Mark one wrapper whose nested JSON cannot be interpreted unambiguously."""
+
+    def __init__(self, value: object):
+        self.value = value
+
+
+def _collapse_nested_json(value: object) -> tuple[object, bool]:
+    if isinstance(value, _JsonObjectPairs):
+        collapsed: dict[str, object] = {}
+        ambiguous = False
+        for key, item in value:
+            child, child_ambiguous = _collapse_nested_json(item)
+            if key in collapsed:
+                ambiguous = True
+            collapsed[key] = child
+            ambiguous = ambiguous or child_ambiguous
+        return collapsed, ambiguous
+    if isinstance(value, list):
+        collapsed_items = []
+        ambiguous = False
+        for item in value:
+            child, child_ambiguous = _collapse_nested_json(item)
+            collapsed_items.append(child)
+            ambiguous = ambiguous or child_ambiguous
+        return collapsed_items, ambiguous
+    return value, False
+
+
+def _parse_anchored_candidates_json(text: str) -> object:
+    root = json.loads(text, object_pairs_hook=_JsonObjectPairs)
+    if not isinstance(root, _JsonObjectPairs):
+        return root
+    anchored: dict[str, object] = {}
+    for candidate_id, raw_wrapper in root:
+        if candidate_id in anchored:
             raise ValueError("dublet candidate_id i anchored candidates")
-        value[key] = item
-    return value
+        wrapper, ambiguous = _collapse_nested_json(raw_wrapper)
+        anchored[candidate_id] = (
+            _AmbiguousAnchoredWrapper(wrapper) if ambiguous else wrapper
+        )
+    return anchored
 
 
 def convert_choice_export(
@@ -543,9 +582,8 @@ def convert_choice_export(
         set(classifications),
     )
     anchored = _mapping(
-        json.loads(
-            anchored_candidates_path.read_text(encoding="utf-8"),
-            object_pairs_hook=_unique_candidate_json_object,
+        _parse_anchored_candidates_json(
+            anchored_candidates_path.read_text(encoding="utf-8")
         ),
         "anchored candidates",
     )
