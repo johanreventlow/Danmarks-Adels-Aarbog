@@ -313,4 +313,4 @@ def test_main_embeds_valid_cross_page_accepted_anchor_for_browser_audit(tmp_path
     attached = record["candidates"][0]
     assert attached["rank_reason"] == "accepteret_review_evidens"
     assert attached["raw_text"] == raw_text
-    assert attached["details"] == ledger["entries"][0]
+    assert attached["accepted_review_details"] == ledger["entries"][0]

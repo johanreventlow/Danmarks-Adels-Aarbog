@@ -303,7 +303,13 @@
         blockRecovery(state, 'Den lokale kladde kan ikke bruges til denne kilde eller version.');
         return state;
       }
-      const restored = decisionMap(Array.isArray(parsed.entries) ? parsed.entries : parsed.decisions);
+      if (!hasOwn(parsed, 'decisions') || hasOwn(parsed, 'entries')
+        || !parsed.decisions || typeof parsed.decisions !== 'object'
+        || Array.isArray(parsed.decisions)) {
+        blockRecovery(state, 'Den lokale kladde har en ugyldig beslutningsbeholder.');
+        return state;
+      }
+      const restored = decisionMap(parsed.decisions);
       state.decisions = validateDecisionState(
         overlayCachedDecisions(state.decisions, restored), recordByKey,
       );
@@ -576,12 +582,18 @@
     details.append(element('p', `PDF s. ${(candidate.pdf_pages || []).join('-')} · Calamari-scan ${(candidate.calamari_pages || []).join('-')}`));
     details.append(element('p', 'Boksens start og slut er parserens foreslåede postgrænse.'));
     details.append(element('pre', candidate.raw_text || ''));
-    if (candidate.details && typeof candidate.details === 'object') {
-      const technical = element('details', undefined, { 'data-role': 'candidate-details' });
-      technical.append(element('summary', 'Tekniske detaljer'));
-      technical.append(element('pre', JSON.stringify(candidate.details, null, 2)));
+    [
+      [candidate.details, 'Klassifikatorens evidens', 'classifier'],
+      [candidate.accepted_review_details, 'Accepteret review-evidens', 'accepted-review'],
+    ].forEach(([evidence, label, kind]) => {
+      if (!evidence || typeof evidence !== 'object') return;
+      const technical = element('details', undefined, {
+        'data-role': 'candidate-details', 'data-evidence-kind': kind,
+      });
+      technical.append(element('summary', label));
+      technical.append(element('pre', JSON.stringify(evidence, null, 2)));
       details.append(technical);
-    }
+    });
     if (isActionable(state, record)) {
       const button = actionButton('Vælg denne kandidat', 'select-candidate', { candidateId: candidate.candidate_id });
       const decision = state.decisions[record.record_key];

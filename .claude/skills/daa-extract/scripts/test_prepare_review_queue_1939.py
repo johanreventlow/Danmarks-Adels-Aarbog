@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 
 import pytest
 
@@ -138,7 +139,7 @@ def test_authoritative_accepted_decision_is_attached_when_not_page_near():
     accepted = record["candidates"][0]
     assert accepted["rank_reason"] == "accepteret_review_evidens"
     assert accepted["raw_text"] == "accepteret manuel tekst"
-    assert accepted["details"] == decision
+    assert accepted["accepted_review_details"] == decision
     assert record["candidate_count"] == 2
 
 
@@ -157,7 +158,29 @@ def test_authoritative_accepted_candidate_is_in_initial_set_after_three_nearby_c
     assert record["initial_candidate_ids"] == [
         "near-0", "near-1", "near-2", "z-manual-anchor",
     ]
-    assert record["candidates"][3]["details"] == decision
+    assert record["candidates"][3]["accepted_review_details"] == decision
+
+
+def test_classifier_and_accepted_review_evidence_remain_separate_for_same_candidate():
+    entry = automatic("rk-1")
+    decision = accepted_decision("rk-1", "rk-1")
+    classifier_bytes = json.dumps(
+        entry["candidate"], ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    model = build_review_view_model(
+        [baseline("rk-1")], manifest(entry),
+        {"rk-1": [nearby("rk-1", [498])]}, ["rk-1"], {"rk-1": decision},
+    )
+
+    candidate = model["records"][0]["candidates"][0]
+    assert json.dumps(
+        candidate["details"], ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8") == classifier_bytes
+    assert candidate["accepted_review_details"] == decision
+    candidate["accepted_review_details"]["kind"] = "ændret review-visning"
+    assert json.dumps(
+        candidate["details"], ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8") == classifier_bytes
 
 
 def test_classifier_entry_is_retained_separately_and_is_not_presentation_mutated():

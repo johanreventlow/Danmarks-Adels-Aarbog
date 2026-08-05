@@ -174,6 +174,67 @@ describe('human 1939 review controller', () => {
       .toBe('true');
   });
 
+  it('blocks an ambiguous current cache with entries and malformed decisions without overwrite', () => {
+    const storage = memoryStorage();
+    const records = [humanRecord('rk-1', 'c-1')];
+    const probe = startReview({ storage, records });
+    const payload = JSON.stringify({
+      schema_version: 1,
+      source: viewModel(records).source,
+      entries: [],
+      decisions: {
+        'rk-1': { baseline_record_key: 'rk-1', outcome: 'human_selected_candidate',
+          candidate_id: 'missing', decided_at: '2026-08-05T12:00:00+02:00' },
+      },
+    });
+    storage.setItem(probe.controller.storageKey, payload);
+    const originalSetItem = storage.setItem;
+    storage.setItem = vi.fn(originalSetItem);
+
+    const { controller } = startReview({ storage, records });
+
+    expect(controller.exportDraft()).toMatchObject({ recovery_blocked: true, entries: [] });
+    expect(controller.choose('human_selected_candidate', { candidate_id: 'c-1' })).toBe(false);
+    expect(storage.setItem).not.toHaveBeenCalled();
+    expect(storage.getItem(controller.storageKey)).toBe(payload);
+  });
+
+  it.each([
+    ['a legacy entries container', { entries: [] }],
+    ['no authoritative decisions container', {}],
+  ])('blocks current-schema cache with %s', (_label, container) => {
+    const storage = memoryStorage();
+    const records = [humanRecord('rk-1', 'c-1')];
+    const probe = startReview({ storage, records });
+    storage.setItem(probe.controller.storageKey, JSON.stringify({
+      schema_version: 1, source: viewModel(records).source, ...container,
+    }));
+
+    const { controller } = startReview({ storage, records });
+
+    expect(controller.exportDraft()).toMatchObject({ recovery_blocked: true, entries: [] });
+  });
+
+  it('blocks non-injective decisions in the authoritative cache container', () => {
+    const storage = memoryStorage();
+    const records = [humanRecord('rk-1', 'shared'), humanRecord('rk-2', 'shared')];
+    const probe = startReview({ storage, records });
+    storage.setItem(probe.controller.storageKey, JSON.stringify({
+      schema_version: 1,
+      source: viewModel(records).source,
+      decisions: {
+        'rk-1': { baseline_record_key: 'rk-1', outcome: 'human_selected_candidate',
+          candidate_id: 'shared', decided_at: '2026-08-05T12:00:00+02:00' },
+        'rk-2': { baseline_record_key: 'rk-2', outcome: 'human_selected_candidate',
+          candidate_id: 'shared', decided_at: '2026-08-05T12:01:00+02:00' },
+      },
+    }));
+
+    const { controller } = startReview({ storage, records });
+
+    expect(controller.exportDraft()).toMatchObject({ recovery_blocked: true, entries: [] });
+  });
+
   it('preserves completed decisions supplied by the view model', () => {
     const record = humanRecord('rk-1', 'candidate-1');
     record.decision = {
@@ -619,7 +680,7 @@ describe('human 1939 review controller', () => {
     record.candidates.push({
       candidate_id: 'manual-anchor', lokal_id: 'manual-anchor', pdf_pages: [700], calamari_pages: [],
       raw_text: accepted.raw_verbatim_text, rank_reason: 'accepteret_review_evidens',
-      details: accepted,
+      accepted_review_details: accepted,
     });
     record.initial_candidate_ids = ['near-page', 'manual-anchor'];
     const { controller } = startReview({ storage: memoryStorage(), records: [record] });
@@ -647,7 +708,7 @@ describe('human 1939 review controller', () => {
     record.candidates.push({
       candidate_id: 'z-manual-anchor', lokal_id: 'z-manual-anchor', pdf_pages: [700],
       calamari_pages: [], raw_text: accepted.raw_verbatim_text,
-      rank_reason: 'accepteret_review_evidens', details: accepted,
+      rank_reason: 'accepteret_review_evidens', accepted_review_details: accepted,
     });
     record.initial_candidate_ids = ['near-0', 'near-1', 'near-2', 'z-manual-anchor'];
     const { controller } = startReview({ storage: memoryStorage(), records: [record] });
@@ -660,6 +721,37 @@ describe('human 1939 review controller', () => {
     expect(acceptedCard.open).toBe(true);
     expect(acceptedCard.querySelector('[data-role="candidate-details"]')!.textContent)
       .toContain('manual_cross_page_anchor');
+  });
+
+  it('renders classifier and accepted-review evidence separately for the same audit candidate', () => {
+    const record = automaticRecord('rk-audit', 'same-candidate', true);
+    const accepted = acceptedDecision('rk-audit', 'same-candidate');
+    const classifierEvidence = {
+      candidate_id: 'same-candidate', postklasse: 'nummereret',
+      rule_id: 'complete_anchor_v1', classifier_only: 'bevar mig',
+    };
+    record.classification = { queue_class: 'auto_resolved', candidate: classifierEvidence };
+    record.decision = accepted;
+    record.candidates[0].details = classifierEvidence;
+    record.candidates[0].accepted_review_details = accepted;
+    const { controller } = startReview({ storage: memoryStorage(), records: [record] });
+
+    controller.setView('completed');
+
+    const classifier = document.querySelector<HTMLDetailsElement>(
+      '[data-role="candidate-details"][data-evidence-kind="classifier"]',
+    )!;
+    const acceptedReview = document.querySelector<HTMLDetailsElement>(
+      '[data-role="candidate-details"][data-evidence-kind="accepted-review"]',
+    )!;
+    expect(classifier).not.toBeNull();
+    expect(classifier.querySelector('summary')!.textContent).toBe('Klassifikatorens evidens');
+    expect(classifier.textContent).toContain('classifier_only');
+    expect(classifier.textContent).toContain('bevar mig');
+    expect(acceptedReview).not.toBeNull();
+    expect(acceptedReview.querySelector('summary')!.textContent).toBe('Accepteret review-evidens');
+    expect(acceptedReview.textContent).toContain('manual_cross_page_anchor');
+    expect(acceptedReview.open).toBe(false);
   });
 
   it('shows the initially expanded candidates and expands the remainder on request', () => {

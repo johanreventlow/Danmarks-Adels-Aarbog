@@ -83,7 +83,7 @@ def _attach_accepted_review(candidates: list[dict], decision: Mapping | None) ->
     candidate_id = _nonempty(decision.get("candidate_id"), "candidate_id")
     by_id = {candidate["candidate_id"]: candidate for candidate in candidates}
     if candidate_id in by_id:
-        by_id[candidate_id]["details"] = copy.deepcopy(dict(decision))
+        by_id[candidate_id]["accepted_review_details"] = copy.deepcopy(dict(decision))
         return candidates
     candidates.append({
         "candidate_id": candidate_id,
@@ -94,7 +94,7 @@ def _attach_accepted_review(candidates: list[dict], decision: Mapping | None) ->
             decision.get("raw_verbatim_text", decision.get("calamari_verbatim_text", ""))
         ),
         "rank_reason": "accepteret_review_evidens",
-        "details": copy.deepcopy(dict(decision)),
+        "accepted_review_details": copy.deepcopy(dict(decision)),
     })
     candidates.sort(key=lambda candidate: candidate["candidate_id"])
     return candidates
