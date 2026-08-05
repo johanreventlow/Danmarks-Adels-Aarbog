@@ -9,9 +9,21 @@
     'edition', 'baseline_sha256', 'calamari_sha256', 'raw_ocr_sha256', 'pdf_sha256',
     'profile_version',
   ];
+  const ACCEPTED_EVIDENCE_FIELDS = [
+    'candidate_id', 'post_index', 'calamari_span', 'calamari_verbatim_text', 'pdf_pages',
+    'kind', 'raw_char_from', 'raw_char_to', 'raw_verbatim_text', 'raw_excerpt_sha256',
+  ];
 
   function sourceIdentity(source) {
-    return SOURCE_FIELDS.map(field => `${field}=${source[field] || ''}`).join('|');
+    function canonical(value) {
+      if (Array.isArray(value)) return value.map(canonical);
+      if (value && typeof value === 'object') return Object.keys(value).sort().reduce((result, key) => {
+        result[key] = canonical(value[key]);
+        return result;
+      }, {});
+      return value;
+    }
+    return JSON.stringify(canonical(source || {}));
   }
 
   function storageKeyFor(data) {
@@ -40,10 +52,71 @@
     return value;
   }
 
+  function candidatesContain(record, candidateId) {
+    return typeof candidateId === 'string' && Array.isArray(record.candidates)
+      && record.candidates.some(candidate => candidate.candidate_id === candidateId);
+  }
+
+  function claimCandidate(owners, candidateId, recordKey) {
+    const owner = owners.get(candidateId);
+    if (owner && owner !== recordKey) throw new Error('Kandidaten er allerede valgt for en anden historisk post');
+    owners.set(candidateId, recordKey);
+  }
+
+  function autoCandidateOwners(recordByKey) {
+    const owners = new Map();
+    recordByKey.forEach((record, recordKey) => {
+      const candidateId = record.classification && record.classification.candidate
+        && record.classification.candidate.candidate_id;
+      if (candidateId !== undefined) {
+        if (typeof candidateId !== 'string' || !candidateId) throw new Error('Ugyldig automatisk kandidat');
+        claimCandidate(owners, candidateId, recordKey);
+      }
+    });
+    return owners;
+  }
+
+  function validateLegacyDecision(decision, record, recordKey, recordByKey, owners, hasOutcome) {
+    const status = decision.review_status;
+    if (status === undefined) return;
+    if (!['unreviewed', 'accepteret', 'eksplicit_dublet', 'menneskeark'].includes(status)) {
+      throw new Error('Ukendt review_status');
+    }
+    if (status === 'unreviewed') {
+      if (!hasOutcome && (hasOwn(decision, 'candidate_id') || hasOwn(decision, 'duplicate_of_baseline_record_key')
+        || hasOwn(decision, 'reason'))) throw new Error('Ugyldig ugennemgået post');
+      return;
+    }
+    if (status === 'accepteret') {
+      if (hasOutcome || ACCEPTED_EVIDENCE_FIELDS.some(field => !hasOwn(decision, field))
+        || !candidatesContain(record, decision.candidate_id)
+        || typeof decision.raw_excerpt_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(decision.raw_excerpt_sha256)) {
+        throw new Error('Ugyldig accepteret post');
+      }
+      claimCandidate(owners, decision.candidate_id, recordKey);
+      return;
+    }
+    if (status === 'eksplicit_dublet') {
+      if (hasOutcome || typeof decision.duplicate_of_baseline_record_key !== 'string'
+        || decision.duplicate_of_baseline_record_key === recordKey
+        || !recordByKey.has(decision.duplicate_of_baseline_record_key)
+        || hasOwn(decision, 'candidate_id') || hasOwn(decision, 'reason')) {
+        throw new Error('Ugyldig dubletpost');
+      }
+      return;
+    }
+    if (typeof decision.reason !== 'string' || !decision.reason.trim()) {
+      throw new Error('Ugyldig menneskearkpost');
+    }
+    if (!hasOutcome && (hasOwn(decision, 'candidate_id') || hasOwn(decision, 'duplicate_of_baseline_record_key'))) {
+      throw new Error('Ugyldig menneskearkpost');
+    }
+  }
+
   function validateDecisionState(value, recordByKey) {
     const decisions = decisionMap(value);
     const result = {};
-    const candidateOwners = new Map();
+    const candidateOwners = autoCandidateOwners(recordByKey);
     Object.entries(decisions).forEach(([recordKey, decision]) => {
       const record = recordByKey.get(recordKey);
       if (!record || !decision || typeof decision !== 'object'
@@ -51,20 +124,20 @@
       const hasOutcome = hasOwn(decision, 'outcome');
       const hasCandidate = hasOwn(decision, 'candidate_id');
       const hasDuplicate = hasOwn(decision, 'duplicate_of_baseline_record_key');
+      validateLegacyDecision(decision, record, recordKey, recordByKey, candidateOwners, hasOutcome);
       if (!hasOutcome) {
-        if (hasCandidate || hasDuplicate) throw new Error('Ugyldigt valg uden udfald');
+        if (decision.review_status === undefined && (hasCandidate || hasDuplicate)) {
+          throw new Error('Ugyldigt valg uden udfald');
+        }
         result[recordKey] = clone(decision);
         return;
       }
       if (!OUTCOMES.has(decision.outcome)) throw new Error('Ukendt udfald');
       if (decision.outcome === 'human_selected_candidate') {
-        const candidates = Array.isArray(record.candidates) ? record.candidates : [];
-        if (typeof decision.candidate_id !== 'string'
-          || !candidates.some(candidate => candidate.candidate_id === decision.candidate_id)
-          || hasDuplicate || candidateOwners.has(decision.candidate_id)) {
+        if (!candidatesContain(record, decision.candidate_id) || hasDuplicate) {
           throw new Error('Ugyldigt kandidatvalg');
         }
-        candidateOwners.set(decision.candidate_id, recordKey);
+        claimCandidate(candidateOwners, decision.candidate_id, recordKey);
       } else if (decision.outcome === 'possible_duplicate') {
         if (hasCandidate || typeof decision.duplicate_of_baseline_record_key !== 'string'
           || decision.duplicate_of_baseline_record_key === recordKey
@@ -83,6 +156,35 @@
     state.recoveryBlocked = true;
     state.decisions = {};
     state.storageError = message;
+  }
+
+  function sameValue(left, right) {
+    return sourceIdentity({ value: left }) === sourceIdentity({ value: right });
+  }
+
+  function overlayCachedDecisions(modelDecisions, restored) {
+    const browserFields = new Set([
+      'baseline_record_key', 'outcome', 'candidate_id', 'duplicate_of_baseline_record_key',
+      'decided_at', 'draft', 'reason',
+    ]);
+    const result = clone(modelDecisions);
+    Object.entries(restored).forEach(([recordKey, cached]) => {
+      const model = result[recordKey] || { baseline_record_key: recordKey };
+      Object.entries(cached).forEach(([field, value]) => {
+        if (field !== 'baseline_record_key' && hasOwn(model, field) && !sameValue(model[field], value)) {
+          throw new Error('Cachemetadata matcher ikke den aktuelle kilde');
+        }
+        if (browserFields.has(field)) return;
+        if (!hasOwn(model, field) || !sameValue(model[field], value)) {
+          throw new Error('Cachemetadata matcher ikke den aktuelle kilde');
+        }
+      });
+      result[recordKey] = {
+        ...model,
+        ...Object.fromEntries(Object.entries(cached).filter(([field]) => browserFields.has(field))),
+      };
+    });
+    return result;
   }
 
   function restoreOrInitialize(data, storage, now) {
@@ -122,7 +224,11 @@
       blockRecovery(state, 'Den lokale kladde kan ikke læses sikkert.');
       return state;
     }
-    if (!saved) return state;
+    if (saved === null) return state;
+    if (typeof saved !== 'string' || !saved) {
+      blockRecovery(state, 'Den lokale kladde kan ikke bruges sikkert.');
+      return state;
+    }
     try {
       const parsed = JSON.parse(saved);
       if (!parsed || parsed.schema_version !== REVIEW_SCHEMA_VERSION
@@ -131,7 +237,9 @@
         return state;
       }
       const restored = decisionMap(Array.isArray(parsed.entries) ? parsed.entries : parsed.decisions);
-      state.decisions = validateDecisionState({ ...state.decisions, ...restored }, recordByKey);
+      state.decisions = validateDecisionState(
+        overlayCachedDecisions(state.decisions, restored), recordByKey,
+      );
     } catch (_) {
       blockRecovery(state, 'Den lokale kladde kan ikke bruges sikkert.');
     }
@@ -140,7 +248,7 @@
 
   function completed(state, recordKey) {
     const decision = state.decisions[recordKey];
-    return Boolean(decision && decision.review_status !== 'unreviewed');
+    return Boolean(decision && (decision.outcome || decision.review_status !== 'unreviewed'));
   }
 
   function keysForView(state, view) {
@@ -181,6 +289,10 @@
   function validateUiChoice(state, outcome, payload) {
     const record = state.recordByKey.get(state.selectedKey);
     if (!record || !OUTCOMES.has(outcome)) throw new Error('Ugyldigt valg');
+    const existing = state.decisions[record.record_key];
+    if (existing && ['accepteret', 'eksplicit_dublet'].includes(existing.review_status)) {
+      throw new Error('Endelige legacy-afgørelser kan ikke ændres her');
+    }
     const decision = clone(state.decisions[record.record_key] || {
       baseline_record_key: record.record_key,
     });
@@ -199,6 +311,10 @@
       }
       if (Object.entries(state.decisions).some(([recordKey, choice]) => recordKey !== record.record_key
           && choice && choice.candidate_id === candidateId)) {
+        throw new Error('Kandidaten er allerede valgt for en anden historisk post');
+      }
+      const autoOwner = autoCandidateOwners(state.recordByKey).get(candidateId);
+      if (autoOwner && autoOwner !== record.record_key) {
         throw new Error('Kandidaten er allerede valgt for en anden historisk post');
       }
       decision.candidate_id = candidateId;
@@ -359,8 +475,7 @@
     details.append(element('pre', candidate.raw_text || ''));
     const button = actionButton('Vælg denne kandidat', 'select-candidate', { candidateId: candidate.candidate_id });
     const decision = state.decisions[record.record_key];
-    if (decision && decision.outcome === 'human_selected_candidate'
-      && decision.candidate_id === candidate.candidate_id) button.setAttribute('aria-pressed', 'true');
+    if (decision && decision.candidate_id === candidate.candidate_id) button.setAttribute('aria-pressed', 'true');
     details.append(button);
     return details;
   }
@@ -388,9 +503,9 @@
     }
     root.append(element('h2', 'Din afgørelse'));
     const current = state.decisions[record.record_key];
-    if (current && current.outcome) {
+    if (current && (current.outcome || current.review_status)) {
       const selection = current.candidate_id || current.duplicate_of_baseline_record_key || '';
-      root.append(element('p', `Nuværende valg: ${current.outcome}${selection ? ` (${selection})` : ''}`, {
+      root.append(element('p', `Nuværende valg: ${current.outcome || current.review_status}${selection ? ` (${selection})` : ''}`, {
         'data-role': 'decision-state',
       }));
     }

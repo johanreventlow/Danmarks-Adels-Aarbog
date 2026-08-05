@@ -50,12 +50,13 @@ function automaticRecord(recordKey: string, candidateId: string, audit = false) 
   };
 }
 
-function viewModel(records: any[]) {
+function viewModel(records: any[], source = {}) {
   return {
     schema_version: 1,
     source: {
       edition: '1939', baseline_sha256: 'a'.repeat(64), calamari_sha256: 'b'.repeat(64),
       raw_ocr_sha256: 'c'.repeat(64), pdf_sha256: 'd'.repeat(64), profile_version: '1939-v2',
+      ...source,
     },
     default_view: 'required',
     summary: { required: records.filter(r => r.queue_class !== 'auto_resolved').length,
@@ -71,15 +72,16 @@ function viewModel(records: any[]) {
   };
 }
 
-function startReview({ storage, records, download = vi.fn() }: {
+function startReview({ storage, records, source, download = vi.fn() }: {
   storage: ReturnType<typeof memoryStorage>;
   records: any[];
+  source?: Record<string, unknown>;
   download?: ReturnType<typeof vi.fn>;
 }) {
   document.body.innerHTML = '<aside data-role="save-state"></aside><main data-role="app"></main>';
   window.eval(uiSource);
   return {
-    controller: (window as any).DAA1939Review.init({ data: viewModel(records), storage,
+    controller: (window as any).DAA1939Review.init({ data: viewModel(records, source), storage,
       now: () => '2026-08-05T12:00:00+02:00', download }),
     download,
   };
@@ -166,12 +168,38 @@ describe('human 1939 review controller', () => {
     expect(controller.exportDraft().entries[0]).toMatchObject(record.decision);
   });
 
+  it('accepts and visibly renders real legacy review-ledger decisions', () => {
+    const records = [
+      humanRecord('rk-unreviewed', 'c-1'), humanRecord('rk-accepted', 'c-2'),
+      humanRecord('rk-duplicate', 'c-3'), humanRecord('rk-human', 'c-4'),
+    ];
+    records[0].decision = { baseline_record_key: 'rk-unreviewed', review_status: 'unreviewed',
+      baseline_locator: { pages: '498', local_id: 'I.1' } };
+    records[1].decision = { baseline_record_key: 'rk-accepted', review_status: 'accepteret',
+      candidate_id: 'c-2', post_index: 0, calamari_span: { char_from: 0, char_to: 1 },
+      calamari_verbatim_text: 'A', pdf_pages: [498], kind: 'line_header', raw_char_from: 0,
+      raw_char_to: 1, raw_verbatim_text: 'A',
+      raw_excerpt_sha256: '559aead08264d5795d3909718cdd05abd49572e84fe55590eef31a88a08fdffd' };
+    records[2].decision = { baseline_record_key: 'rk-duplicate', review_status: 'eksplicit_dublet',
+      duplicate_of_baseline_record_key: 'rk-unreviewed' };
+    records[3].decision = { baseline_record_key: 'rk-human', review_status: 'menneskeark',
+      reason: 'Kilden er ikke entydig.' };
+    const { controller } = startReview({ storage: memoryStorage(), records });
+
+    controller.setView('completed');
+
+    expect(document.querySelector('[data-role="record-list"]')!.textContent).toContain('Navn rk-accepted');
+    controller.selectRecord('rk-accepted');
+    expect(document.querySelector('[data-role="decision-state"]')!.textContent).toContain('accepteret');
+    expect(document.querySelector('[data-action="select-candidate"]')!.getAttribute('aria-pressed')).toBe('true');
+  });
+
   it('merges a new outcome without discarding review metadata', () => {
     const storage = memoryStorage();
     const record = humanRecord('rk-1', 'candidate-1');
     record.decision = {
       baseline_record_key: 'rk-1', review_status: 'menneskeark',
-      baseline_locator: { pages: '498', local_id: 'Stamme.Volrad' },
+      baseline_locator: { pages: '498', local_id: 'Stamme.Volrad' }, reason: 'Ikke entydigt anker.',
     };
     const { controller } = startReview({ storage, records: [record] });
 
@@ -180,10 +208,12 @@ describe('human 1939 review controller', () => {
     expect(JSON.parse(storage.getItem(controller.storageKey)!).decisions['rk-1']).toMatchObject({
       outcome: 'human_selected_candidate', review_status: 'menneskeark',
       baseline_locator: { pages: '498', local_id: 'Stamme.Volrad' },
+      reason: 'Ikke entydigt anker.',
     });
     expect(controller.exportDraft().entries[0]).toMatchObject({
       outcome: 'human_selected_candidate', review_status: 'menneskeark',
       baseline_locator: { pages: '498', local_id: 'Stamme.Volrad' },
+      reason: 'Ikke entydigt anker.',
     });
   });
 
@@ -237,6 +267,74 @@ describe('human 1939 review controller', () => {
     expect(controller.choose('undecidable')).toBe(false);
     expect(controller.exportDraft()).toMatchObject({ recovery_blocked: true });
     expect(storage.setItem).not.toHaveBeenCalled();
+  });
+
+  it('rejects a human candidate already owned by an auto-resolved classification', () => {
+    const auto = automaticRecord('rk-auto', 'auto-candidate');
+    auto.classification = { queue_class: 'auto_resolved', candidate: { candidate_id: 'shared' } };
+    const { controller } = startReview({ storage: memoryStorage(), records: [
+      humanRecord('rk-human', 'shared'), auto,
+    ] });
+
+    expect(controller.choose('human_selected_candidate', { candidate_id: 'shared' })).toBe(false);
+    expect(document.querySelector('[data-role="save-state"]')!.textContent).toContain('allerede valgt');
+  });
+
+  it('overlays cache outcomes onto current model metadata', () => {
+    const storage = memoryStorage();
+    const records = [humanRecord('rk-1', 'c-1')];
+    records[0].decision = { baseline_record_key: 'rk-1', review_status: 'unreviewed',
+      baseline_locator: { pages: '498', local_id: 'Stamme.I.1' } };
+    const probe = startReview({ storage, records });
+    storage.setItem(probe.controller.storageKey, JSON.stringify({
+      schema_version: 1, source: viewModel(records).source, decisions: {
+        'rk-1': { baseline_record_key: 'rk-1', outcome: 'human_selected_candidate', candidate_id: 'c-1' },
+      },
+    }));
+
+    const { controller } = startReview({ storage, records });
+
+    expect(controller.exportDraft().entries[0]).toMatchObject({
+      review_status: 'unreviewed', baseline_locator: { pages: '498', local_id: 'Stamme.I.1' },
+      outcome: 'human_selected_candidate', candidate_id: 'c-1',
+    });
+  });
+
+  it('rejects a cache whose metadata conflicts with the current model', () => {
+    const storage = memoryStorage();
+    const records = [humanRecord('rk-1', 'c-1')];
+    records[0].decision = { baseline_record_key: 'rk-1', review_status: 'menneskeark',
+      reason: 'Kildens aktuelle begrundelse.' };
+    const probe = startReview({ storage, records });
+    storage.setItem(probe.controller.storageKey, JSON.stringify({
+      schema_version: 1, source: viewModel(records).source, decisions: {
+        'rk-1': { baseline_record_key: 'rk-1', review_status: 'menneskeark',
+          reason: 'Forældet cachebegrundelse.', outcome: 'undecidable' },
+      },
+    }));
+
+    const { controller } = startReview({ storage, records });
+
+    expect(controller.exportDraft()).toMatchObject({ recovery_blocked: true });
+  });
+
+  it('blocks empty-string cache and full-source changes including extra metadata', () => {
+    const records = [humanRecord('rk-1', 'c-1')];
+    const storage = memoryStorage();
+    const setItem = vi.fn();
+    storage.getItem = () => '';
+    storage.setItem = setItem;
+    const { controller } = startReview({ storage, records, source: { import_run: 'run-1' } });
+    expect(controller.choose('undecidable')).toBe(false);
+    expect(setItem).not.toHaveBeenCalled();
+
+    const sourceOne = viewModel(records, { import_run: 'run-1' }).source;
+    const cached = JSON.stringify({ schema_version: 1, source: sourceOne, decisions: {} });
+    storage.getItem = () => cached;
+    const first = startReview({ storage, records, source: { import_run: 'run-1' } }).controller;
+    const changed = startReview({ storage, records, source: { import_run: 'run-2' } }).controller;
+    expect(first.storageKey).not.toBe(changed.storageKey);
+    expect(changed.exportDraft()).toMatchObject({ recovery_blocked: true });
   });
 
   it('rejects incompatible payload fields for non-selection outcomes', () => {
