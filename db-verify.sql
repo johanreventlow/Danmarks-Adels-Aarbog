@@ -675,15 +675,32 @@ BEGIN
       VALUES (v_slaegt_b,'stamtavle','Verify B') RETURNING id INTO v_scheme_b;
     INSERT INTO public.lineage_scheme(slaegt_id,kind,label)
       VALUES (v_slaegt_a,'presensliste','Verify A præsens') RETURNING id INTO v_presens_scheme;
-    INSERT INTO public.lineage_scheme_entry(scheme_id,code,label,sort_order)
-      VALUES (v_scheme_a,'II','II. linje',2) RETURNING id INTO v_entry_a;
-    INSERT INTO public.lineage_scheme_entry(scheme_id,code,label,sort_order)
-      VALUES (v_scheme_b,'II','II. linje',2) RETURNING id INTO v_entry_b;
-    INSERT INTO public.lineage_scheme_entry(scheme_id,code,label,sort_order)
-      VALUES (v_presens_scheme,'V','V. linje',5) RETURNING id INTO v_presens_entry;
-    INSERT INTO public.lineage_scheme_entry_lineage(entry_id,lineage_id,relation_kind)
-      VALUES (v_entry_a,v_lineage_a,'canonical'),(v_entry_b,v_lineage_b,'canonical'),
-             (v_presens_entry,v_lineage_a,'canonical');
+    INSERT INTO public.lineage_scheme_entry(scheme_id,slaegt_id,code,label,sort_order)
+      VALUES (v_scheme_a,v_slaegt_a,'II','II. linje',2) RETURNING id INTO v_entry_a;
+    INSERT INTO public.lineage_scheme_entry(scheme_id,slaegt_id,code,label,sort_order)
+      VALUES (v_scheme_b,v_slaegt_b,'II','II. linje',2) RETURNING id INTO v_entry_b;
+    INSERT INTO public.lineage_scheme_entry(scheme_id,slaegt_id,code,label,sort_order)
+      VALUES (v_presens_scheme,v_slaegt_a,'V','V. linje',5) RETURNING id INTO v_presens_entry;
+    INSERT INTO public.lineage_scheme_entry_lineage(entry_id,lineage_id,slaegt_id,relation_kind)
+      VALUES (v_entry_a,v_lineage_a,v_slaegt_a,'canonical'),
+             (v_entry_b,v_lineage_b,v_slaegt_b,'canonical'),
+             (v_presens_entry,v_lineage_a,v_slaegt_a,'canonical');
+    v_error:=NULL;
+    BEGIN
+      INSERT INTO public.lineage_scheme_entry_lineage(entry_id,lineage_id,slaegt_id,relation_kind)
+        VALUES (v_entry_a,v_lineage_b,v_slaegt_a,'canonical');
+    EXCEPTION WHEN foreign_key_violation THEN v_error:=SQLERRM; END;
+    IF v_error IS NULL THEN
+      RAISE EXCEPTION 'FEJL: cross-clan lineage mapping blev accepteret';
+    END IF;
+    IF (SELECT count(*) FROM pg_constraint WHERE conname IN (
+         'lineage_scheme_id_slaegt_uidx','lineage_id_slaegt_uidx',
+         'lineage_scheme_entry_id_slaegt_uidx','lineage_scheme_entry_scheme_slaegt_fkey',
+         'lineage_scheme_entry_lineage_entry_slaegt_fkey',
+         'lineage_scheme_entry_lineage_lineage_slaegt_fkey'
+       )) <> 6 THEN
+      RAISE EXCEPTION 'FEJL: lineage mangler deklarative slægtsconstraints';
+    END IF;
     IF (SELECT count(*) FROM public.lineage_scheme_entry WHERE code='II') < 2 THEN
       RAISE EXCEPTION 'FEJL: samme kode II kunne ikke eksistere i to slægts-schemes';
     END IF;
@@ -1495,8 +1512,8 @@ BEGIN
     INSERT INTO lineage_scheme(slaegt_id,source_id,kind,label)
       VALUES (v_slaegt_id,-987650041,'stamtavle','Promotion verify scheme')
       RETURNING id INTO v_scheme_id;
-    INSERT INTO lineage_scheme_entry(scheme_id,code,label,sort_order)
-      VALUES (v_scheme_id,'I','Promotion verify I',0)
+    INSERT INTO lineage_scheme_entry(scheme_id,slaegt_id,code,label,sort_order)
+      VALUES (v_scheme_id,v_slaegt_id,'I','Promotion verify I',0)
       RETURNING id INTO v_scheme_entry_id;
     INSERT INTO private.source_record_placement(
       id,source_record_id,scheme_entry_id,header_observation_id,status
