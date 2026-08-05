@@ -6,7 +6,7 @@ import copy
 
 import pytest
 
-from review_queue_1939 import classify_review_entries
+from review_queue_1939 import classify_review_entries, sample_auto_resolved
 
 
 def source(**overrides):
@@ -34,6 +34,35 @@ def anchored_candidate(candidate_id="candidate-1", postklasse="nummereret"):
             "raw_char_to": 110,
             "raw_excerpt_sha256": "e" * 64,
         },
+    }
+
+
+def automatic(key, rule_id="complete_anchor_v1", postklasse="nummereret"):
+    return {
+        "baseline_record_key": key,
+        "queue_class": "auto_resolved",
+        "reason_code": "complete_unique_anchored_candidate",
+        "reason_da": "komplet",
+        "candidate": anchored_candidate(key),
+        "rule_id": rule_id,
+        "postklasse": postklasse,
+    }
+
+
+def human(key):
+    return {
+        "baseline_record_key": key,
+        "queue_class": "human_required",
+        "reason_code": "no_candidate",
+        "reason_da": "ingen kandidat",
+    }
+
+
+def queue_manifest(*entries, source_hash="a" * 64):
+    return {
+        "schema_version": 1,
+        "source": source(baseline_sha256=source_hash),
+        "entries": list(entries),
     }
 
 
@@ -315,3 +344,73 @@ def test_every_key_is_accounted_for_once():
         "rk-h",
         "rk-b",
     }
+
+
+def test_sample_is_deterministic_stratified_and_automatic_only():
+    manifest = queue_manifest(
+        *[automatic(f"n-{i}", "complete_anchor_v1", "nummereret") for i in range(40)],
+        *[
+            automatic(f"o-{i}", "complete_anchor_v1", "oversigtspost")
+            for i in range(10)
+        ],
+        human("human-1"),
+    )
+    first = sample_auto_resolved(manifest)
+    second = sample_auto_resolved(copy.deepcopy(manifest))
+    assert first == second
+    assert len([key for key in first if key.startswith("n-")]) == 2
+    assert len([key for key in first if key.startswith("o-")]) == 2
+    assert "human-1" not in first
+
+
+def test_changed_source_hash_changes_seed_not_membership_rules():
+    entries = [automatic(f"rk-{i}") for i in range(100)]
+    first = sample_auto_resolved(queue_manifest(*entries, source_hash="a" * 64))
+    second = sample_auto_resolved(queue_manifest(*entries, source_hash="b" * 64))
+    assert first != second
+    assert len(first) == len(second)
+
+
+def test_sample_empty_or_single_member_strata():
+    assert sample_auto_resolved(queue_manifest(human("human-1"))) == []
+    assert sample_auto_resolved(queue_manifest(automatic("only"))) == ["only"]
+
+
+def test_sample_rate_zero_uses_minimum_and_rate_one_selects_everything():
+    manifest = queue_manifest(*[automatic(f"rk-{i}") for i in range(5)])
+    assert len(sample_auto_resolved(manifest, rate=0)) == 2
+    assert sample_auto_resolved(manifest, rate=1) == [
+        "rk-0",
+        "rk-1",
+        "rk-2",
+        "rk-3",
+        "rk-4",
+    ]
+
+
+@pytest.mark.parametrize("rate", [-0.01, 1.01])
+def test_sample_rejects_rates_outside_closed_unit_interval(rate):
+    with pytest.raises(ValueError):
+        sample_auto_resolved(queue_manifest(automatic("rk-1")), rate=rate)
+
+
+@pytest.mark.parametrize("minimum_per_stratum", [0, -1])
+def test_sample_rejects_non_positive_minimum_per_stratum(minimum_per_stratum):
+    with pytest.raises(ValueError):
+        sample_auto_resolved(
+            queue_manifest(automatic("rk-1")),
+            minimum_per_stratum=minimum_per_stratum,
+        )
+
+
+def test_sample_is_independent_of_manifest_order_and_does_not_mutate_it():
+    manifest = queue_manifest(
+        *[automatic(f"n-{i}", postklasse="nummereret") for i in range(40)],
+        *[automatic(f"o-{i}", postklasse="oversigtspost") for i in range(10)],
+        human("human-1"),
+    )
+    snapshot = copy.deepcopy(manifest)
+    reordered = copy.deepcopy(manifest)
+    reordered["entries"].reverse()
+    assert sample_auto_resolved(manifest) == sample_auto_resolved(reordered)
+    assert manifest == snapshot

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import copy
+from collections import defaultdict
+import hashlib
+import math
 import re
 from collections.abc import Mapping
 
@@ -39,6 +42,70 @@ def classify_review_entries(
         "source": copy.deepcopy(source),
         "entries": provisional,
     }
+
+
+def sample_auto_resolved(
+    manifest: dict, *, rate: float = 0.05, minimum_per_stratum: int = 2
+) -> list[str]:
+    """Select a deterministic, stratified audit sample without mutating evidence."""
+    _validate_rate(rate, minimum_per_stratum)
+    if not isinstance(manifest, Mapping):
+        raise ValueError("manifest skal være en mapping")
+    source = manifest.get("source")
+    _validate_source_manifest(source)
+    entries = manifest.get("entries")
+    if not isinstance(entries, list):
+        raise ValueError("manifest entries skal være en liste")
+
+    seed = _source_seed(source)
+    strata = defaultdict(list)
+    for entry in entries:
+        if not isinstance(entry, Mapping):
+            raise ValueError("manifest entry skal være en mapping")
+        if entry.get("queue_class") == "auto_resolved":
+            try:
+                stratum = (entry["rule_id"], entry["postklasse"])
+                key = entry["baseline_record_key"]
+            except KeyError as error:
+                raise ValueError("auto_resolved entry mangler sampling-felt") from error
+            if not all(isinstance(value, str) and value for value in (*stratum, key)):
+                raise ValueError("auto_resolved sampling-felter skal være ikke-tomme strenge")
+            strata[stratum].append(entry)
+
+    selected = []
+    for stratum, stratum_entries in sorted(strata.items()):
+        count = min(
+            len(stratum_entries),
+            max(minimum_per_stratum, math.ceil(len(stratum_entries) * rate)),
+        )
+        ordered = sorted(
+            stratum_entries,
+            key=lambda entry: hashlib.sha256(
+                f"{seed}|{stratum}|{entry['baseline_record_key']}".encode("utf-8")
+            ).hexdigest(),
+        )
+        selected.extend(entry["baseline_record_key"] for entry in ordered[:count])
+    return sorted(selected)
+
+
+def _validate_rate(rate: float, minimum_per_stratum: int) -> None:
+    if (
+        not isinstance(rate, (int, float))
+        or isinstance(rate, bool)
+        or not math.isfinite(rate)
+        or not 0 <= rate <= 1
+    ):
+        raise ValueError("rate skal være mellem 0 og 1")
+    if (
+        not isinstance(minimum_per_stratum, int)
+        or isinstance(minimum_per_stratum, bool)
+        or minimum_per_stratum <= 0
+    ):
+        raise ValueError("minimum_per_stratum skal være positiv")
+
+
+def _source_seed(source: Mapping) -> str:
+    return source["baseline_sha256"]
 
 
 def _validate_source_manifest(source: object) -> None:
