@@ -709,6 +709,79 @@ def test_cli_choice_json_rejects_every_recursive_duplicate_key_before_output(
     assert not out.exists()
 
 
+@pytest.mark.parametrize(
+    "raw_queue",
+    [
+        (
+            '{"schema_version":2,"schema_version":1,"source":{SOURCE},'
+            '"entries":[ENTRY]}'
+        ),
+        (
+            '{"schema_version":1,"source":{"edition":"1939",'
+            '"baseline_sha256":"' + ("f" * 64) + '","baseline_sha256":"' +
+            ("a" * 64) + '","calamari_sha256":"' + ("b" * 64) +
+            '","raw_ocr_sha256":"' + ("c" * 64) + '","pdf_sha256":"' +
+            ("d" * 64) + '","profile_version":"1939-v2"},"entries":[ENTRY]}'
+        ),
+        (
+            '{"schema_version":1,"source":{SOURCE},"entries":['
+            '{"baseline_record_key":"rk-1","queue_class":"auto_resolved",'
+            '"queue_class":"human_required","reason_code":"multiple_candidates",'
+            '"reason_da":"flere"}]}'
+        ),
+    ],
+    ids=["duplicate-root", "duplicate-source", "duplicate-entry"],
+)
+def test_cli_queue_json_rejects_every_recursive_duplicate_key_before_sampling_or_output(
+    tmp_path, raw_queue
+):
+    choices = tmp_path / "choices.json"
+    queue = tmp_path / "queue.json"
+    candidates = tmp_path / "candidates.json"
+    out = tmp_path / "new-decisions.json"
+    source_value = {
+        "edition": "1939",
+        "baseline_sha256": "a" * 64,
+        "calamari_sha256": "b" * 64,
+        "raw_ocr_sha256": "c" * 64,
+        "pdf_sha256": "d" * 64,
+        "profile_version": "1939-v2",
+    }
+    choices.write_text(json.dumps({
+        "schema_version": 1,
+        "source": source_value,
+        "exported_at": "2026-08-05T12:00:00+02:00",
+        "entries": [{
+            "baseline_record_key": "rk-1",
+            "outcome": "undecidable",
+            "reason": "uklar kilde",
+        }],
+    }), encoding="utf-8")
+    queue.write_text(
+        raw_queue.replace("{SOURCE}", json.dumps(source_value)).replace(
+            "ENTRY",
+            json.dumps({
+                "baseline_record_key": "rk-1",
+                "queue_class": "human_required",
+                "reason_code": "multiple_candidates",
+                "reason_da": "flere",
+            }),
+        ),
+        encoding="utf-8",
+    )
+    candidates.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="dublet JSON-nøgle i queue manifest"):
+        main([
+            "--choices-to-decisions", str(choices),
+            "--queue-manifest", str(queue),
+            "--anchored-candidates", str(candidates),
+            "--out", str(out),
+        ])
+
+    assert not out.exists()
+
+
 def test_cli_choice_conversion_rejects_duplicate_candidate_ids_in_json(tmp_path):
     choices = tmp_path / "choices.json"
     queue = tmp_path / "queue.json"

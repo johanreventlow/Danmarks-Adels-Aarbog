@@ -448,12 +448,12 @@ def _parse_anchored_candidates_json(text: str) -> object:
     return anchored
 
 
-def _parse_choice_export_json(text: str) -> object:
+def _parse_strict_json(text: str, label: str) -> object:
     def reject_duplicate_keys(pairs):
         result = {}
         for key, value in pairs:
             if key in result:
-                raise ValueError(f"dublet JSON-nøgle i choices export: {key}")
+                raise ValueError(f"dublet JSON-nøgle i {label}: {key}")
             result[key] = value
         return result
 
@@ -470,7 +470,10 @@ def convert_choice_export(
     if out_path.exists():
         raise FileExistsError(out_path)
     queue = _mapping(
-        json.loads(queue_manifest_path.read_text(encoding="utf-8")), "queue manifest"
+        _parse_strict_json(
+            queue_manifest_path.read_text(encoding="utf-8"), "queue manifest"
+        ),
+        "queue manifest",
     )
     if queue.get("schema_version") != 1:
         raise ValueError("queue manifest schema_version skal være 1")
@@ -488,8 +491,8 @@ def convert_choice_export(
             raise ValueError("dublet baseline_record_key")
         classifications[key] = copy.deepcopy(dict(entry))
 
-    choices_root = _parse_choice_export_json(
-        choices_path.read_text(encoding="utf-8")
+    choices_root = _parse_strict_json(
+        choices_path.read_text(encoding="utf-8"), "choices export"
     )
     choices_context = validate_choice_export(
         choices_root,
