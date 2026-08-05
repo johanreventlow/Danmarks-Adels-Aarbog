@@ -5,10 +5,6 @@
     'human_selected_candidate', 'no_candidate_fits', 'possible_duplicate', 'undecidable',
   ]);
   const REVIEW_SCHEMA_VERSION = 1;
-  const SOURCE_FIELDS = [
-    'edition', 'baseline_sha256', 'calamari_sha256', 'raw_ocr_sha256', 'pdf_sha256',
-    'profile_version',
-  ];
   const ACCEPTED_EVIDENCE_FIELDS = [
     'candidate_id', 'post_index', 'calamari_span', 'calamari_verbatim_text', 'pdf_pages',
     'kind', 'raw_char_from', 'raw_char_to', 'raw_verbatim_text', 'raw_excerpt_sha256',
@@ -20,7 +16,7 @@
       if (value && typeof value === 'object') return Object.keys(value).sort().reduce((result, key) => {
         result[key] = canonical(value[key]);
         return result;
-      }, {});
+      }, Object.create(null));
       return value;
     }
     return JSON.stringify(canonical(source || {}));
@@ -38,9 +34,15 @@
     return Object.prototype.hasOwnProperty.call(value, key);
   }
 
+  function dictionary(entries) {
+    const result = Object.create(null);
+    (entries || []).forEach(([key, value]) => { result[key] = value; });
+    return result;
+  }
+
   function decisionMap(value) {
     if (Array.isArray(value)) {
-      const result = {};
+      const result = Object.create(null);
       value.forEach(entry => {
         if (!entry || typeof entry !== 'object' || typeof entry.baseline_record_key !== 'string'
           || hasOwn(result, entry.baseline_record_key)) throw new Error('Ugyldig kladdepost');
@@ -49,7 +51,7 @@
       return result;
     }
     if (!value || typeof value !== 'object') throw new Error('Ugyldig kladde');
-    return value;
+    return dictionary(Object.entries(value));
   }
 
   function candidatesContain(record, candidateId) {
@@ -105,7 +107,7 @@
       }
       return;
     }
-    if (typeof decision.reason !== 'string' || !decision.reason.trim()) {
+    if (hasOutcome || typeof decision.reason !== 'string' || !decision.reason.trim()) {
       throw new Error('Ugyldig menneskearkpost');
     }
     if (!hasOutcome && (hasOwn(decision, 'candidate_id') || hasOwn(decision, 'duplicate_of_baseline_record_key'))) {
@@ -115,7 +117,7 @@
 
   function validateDecisionState(value, recordByKey) {
     const decisions = decisionMap(value);
-    const result = {};
+    const result = Object.create(null);
     const candidateOwners = autoCandidateOwners(recordByKey);
     Object.entries(decisions).forEach(([recordKey, decision]) => {
       const record = recordByKey.get(recordKey);
@@ -154,7 +156,7 @@
 
   function blockRecovery(state, message) {
     state.recoveryBlocked = true;
-    state.decisions = {};
+    state.decisions = Object.create(null);
     state.storageError = message;
   }
 
@@ -167,10 +169,14 @@
       'baseline_record_key', 'outcome', 'candidate_id', 'duplicate_of_baseline_record_key',
       'decided_at', 'draft', 'reason',
     ]);
-    const result = clone(modelDecisions);
+    const result = dictionary(Object.entries(modelDecisions).map(([key, value]) => [key, clone(value)]));
     Object.entries(restored).forEach(([recordKey, cached]) => {
       const model = result[recordKey] || { baseline_record_key: recordKey };
+      if (model.review_status && model.review_status !== 'unreviewed') {
+        throw new Error('Endelige legacy-afgørelser må ikke ændres af cache');
+      }
       Object.entries(cached).forEach(([field, value]) => {
+        if (!browserFields.has(field)) throw new Error('Cache må kun indeholde browserudfald');
         if (field !== 'baseline_record_key' && hasOwn(model, field) && !sameValue(model[field], value)) {
           throw new Error('Cachemetadata matcher ikke den aktuelle kilde');
         }
@@ -179,10 +185,8 @@
           throw new Error('Cachemetadata matcher ikke den aktuelle kilde');
         }
       });
-      result[recordKey] = {
-        ...model,
-        ...Object.fromEntries(Object.entries(cached).filter(([field]) => browserFields.has(field))),
-      };
+      result[recordKey] = Object.assign(Object.create(null), model,
+        Object.fromEntries(Object.entries(cached).filter(([field]) => browserFields.has(field))));
     });
     return result;
   }
@@ -194,7 +198,7 @@
       data,
       records,
       recordByKey,
-      decisions: {},
+      decisions: Object.create(null),
       selectedKey: records[0] && records[0].record_key,
       activeView: data.default_view || 'required',
       expandedCandidates: {},
@@ -208,7 +212,7 @@
       storageError: '',
       recoveryBlocked: false,
     };
-    const modelDecisions = Object.fromEntries(records
+    const modelDecisions = dictionary(records
       .filter(record => record.decision != null)
       .map(record => [record.record_key, record.decision]));
     try {
@@ -273,7 +277,14 @@
     state.storage.setItem(state.storageKey, JSON.stringify({
       schema_version: REVIEW_SCHEMA_VERSION,
       source: state.data.source,
-      decisions: state.decisions,
+      decisions: dictionary(Object.entries(state.decisions)
+        .filter(([, decision]) => decision.outcome)
+        .map(([recordKey, decision]) => [recordKey, Object.fromEntries(
+          Object.entries(decision).filter(([field]) => [
+            'baseline_record_key', 'outcome', 'candidate_id', 'duplicate_of_baseline_record_key',
+            'decided_at', 'draft', 'reason',
+          ].includes(field)),
+        )])),
     }));
   }
 
@@ -290,7 +301,7 @@
     const record = state.recordByKey.get(state.selectedKey);
     if (!record || !OUTCOMES.has(outcome)) throw new Error('Ugyldigt valg');
     const existing = state.decisions[record.record_key];
-    if (existing && ['accepteret', 'eksplicit_dublet'].includes(existing.review_status)) {
+    if (existing && ['accepteret', 'eksplicit_dublet', 'menneskeark'].includes(existing.review_status)) {
       throw new Error('Endelige legacy-afgørelser kan ikke ændres her');
     }
     const decision = clone(state.decisions[record.record_key] || {
@@ -480,6 +491,17 @@
     return details;
   }
 
+  function renderDuplicateOptions(state, record, duplicate) {
+    duplicate.replaceChildren(element('option', 'Vælg mulig dublet', { value: '' }));
+    const duplicateSearch = state.duplicateSearch.toLowerCase();
+    state.records.filter(other => other.record_key !== record.record_key)
+      .filter(other => !duplicateSearch || `${other.navn || ''} ${other.record_key}`
+        .toLowerCase().includes(duplicateSearch))
+      .forEach(other => {
+        duplicate.append(element('option', other.navn || other.record_key, { value: other.record_key }));
+      });
+  }
+
   function renderRecord(state, root) {
     const record = state.recordByKey.get(state.selectedKey);
     if (!record) {
@@ -518,14 +540,7 @@
     root.append(search);
     const duplicate = document.createElement('select');
     duplicate.setAttribute('data-role', 'duplicate-target');
-    duplicate.append(element('option', 'Vælg mulig dublet', { value: '' }));
-    const duplicateSearch = state.duplicateSearch.toLowerCase();
-    state.records.filter(other => other.record_key !== record.record_key)
-      .filter(other => !duplicateSearch || `${other.navn || ''} ${other.record_key}`
-        .toLowerCase().includes(duplicateSearch))
-      .forEach(other => {
-      duplicate.append(element('option', other.navn || other.record_key, { value: other.record_key }));
-    });
+    renderDuplicateOptions(state, record, duplicate);
     root.append(duplicate);
     root.append(actionButton('Mulig dublet', 'possible-duplicate'));
     root.append(actionButton('Kan ikke afgøres', 'undecidable'));
@@ -613,7 +628,9 @@
       const input = event.target;
       if (input && input.matches && input.matches('[data-role="duplicate-search"]')) {
         state.duplicateSearch = input.value;
-        render(state);
+        const record = state.recordByKey.get(state.selectedKey);
+        const duplicate = document.querySelector('[data-role="duplicate-target"]');
+        if (record && duplicate) renderDuplicateOptions(state, record, duplicate);
       }
     };
     document.addEventListener('click', clickListener);

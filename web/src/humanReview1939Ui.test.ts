@@ -198,24 +198,50 @@ describe('human 1939 review controller', () => {
     const storage = memoryStorage();
     const record = humanRecord('rk-1', 'candidate-1');
     record.decision = {
-      baseline_record_key: 'rk-1', review_status: 'menneskeark',
-      baseline_locator: { pages: '498', local_id: 'Stamme.Volrad' }, reason: 'Ikke entydigt anker.',
+      baseline_record_key: 'rk-1', review_status: 'unreviewed',
+      baseline_locator: { pages: '498', local_id: 'Stamme.Volrad' },
     };
     const { controller } = startReview({ storage, records: [record] });
 
     expect(controller.choose('human_selected_candidate', { candidate_id: 'candidate-1' })).toBe(true);
 
-    expect(JSON.parse(storage.getItem(controller.storageKey)!).decisions['rk-1']).toMatchObject({
-      outcome: 'human_selected_candidate', review_status: 'menneskeark',
-      baseline_locator: { pages: '498', local_id: 'Stamme.Volrad' },
-      reason: 'Ikke entydigt anker.',
-    });
+    const persisted = JSON.parse(storage.getItem(controller.storageKey)!).decisions['rk-1'];
+    expect(persisted).toMatchObject({ outcome: 'human_selected_candidate', candidate_id: 'candidate-1' });
+    expect(persisted).not.toHaveProperty('review_status');
+    expect(persisted).not.toHaveProperty('baseline_locator');
     expect(controller.exportDraft().entries[0]).toMatchObject({
-      outcome: 'human_selected_candidate', review_status: 'menneskeark',
+      outcome: 'human_selected_candidate', review_status: 'unreviewed',
       baseline_locator: { pages: '498', local_id: 'Stamme.Volrad' },
-      reason: 'Ikke entydigt anker.',
     });
   });
+
+  it.each(['accepteret', 'eksplicit_dublet', 'menneskeark'])(
+    'keeps final legacy status %s read-only for browser choices and cache outcomes', status => {
+      const records = [humanRecord('rk-1', 'c-1'), humanRecord('rk-2', 'c-2')];
+      const decision: any = { baseline_record_key: 'rk-1', review_status: status };
+      if (status === 'accepteret') Object.assign(decision, {
+        candidate_id: 'c-1', post_index: 0, calamari_span: { char_from: 0, char_to: 1 },
+        calamari_verbatim_text: 'A', pdf_pages: [498], kind: 'line_header', raw_char_from: 0,
+        raw_char_to: 1, raw_verbatim_text: 'A',
+        raw_excerpt_sha256: '559aead08264d5795d3909718cdd05abd49572e84fe55590eef31a88a08fdffd',
+      });
+      if (status === 'eksplicit_dublet') decision.duplicate_of_baseline_record_key = 'rk-2';
+      if (status === 'menneskeark') decision.reason = 'Historisk afgørelse.';
+      records[0].decision = decision;
+      const storage = memoryStorage();
+      const initial = startReview({ storage, records });
+      storage.setItem(initial.controller.storageKey, JSON.stringify({
+        schema_version: 1, source: viewModel(records).source, decisions: {
+          'rk-1': { baseline_record_key: 'rk-1', outcome: 'undecidable' },
+        },
+      }));
+
+      const { controller } = startReview({ storage, records });
+
+      expect(controller.exportDraft()).toMatchObject({ recovery_blocked: true });
+      expect(controller.choose('undecidable')).toBe(false);
+    },
+  );
 
   it('does not confirm or advance when persistence fails', () => {
     const storage = memoryStorage();
@@ -337,6 +363,27 @@ describe('human 1939 review controller', () => {
     expect(changed.exportDraft()).toMatchObject({ recovery_blocked: true });
   });
 
+  it('handles prototype-like record keys and source own properties without collisions', () => {
+    const storage = memoryStorage();
+    const records = [humanRecord('__proto__', 'c-proto'), humanRecord('toString', 'c-string')];
+    const sourceOne = Object.create(null);
+    Object.defineProperty(sourceOne, '__proto__', { value: 'one', enumerable: true });
+    const sourceTwo = Object.create(null);
+    Object.defineProperty(sourceTwo, '__proto__', { value: 'two', enumerable: true });
+    const first = startReview({ storage, records, source: sourceOne });
+    expect(first.controller.choose('human_selected_candidate', { candidate_id: 'c-proto' })).toBe(true);
+    const persisted = JSON.parse(storage.getItem(first.controller.storageKey)!);
+
+    expect(persisted.decisions['__proto__']).toMatchObject({ candidate_id: 'c-proto' });
+    expect(first.controller.exportDraft().entries.find(
+      (entry: any) => entry.baseline_record_key === '__proto__',
+    )).toMatchObject({ candidate_id: 'c-proto' });
+    first.controller.selectRecord('toString');
+    expect(first.controller.choose('human_selected_candidate', { candidate_id: 'c-string' })).toBe(true);
+    const second = startReview({ storage, records, source: sourceTwo });
+    expect(first.controller.storageKey).not.toBe(second.controller.storageKey);
+  });
+
   it('rejects incompatible payload fields for non-selection outcomes', () => {
     const { controller } = startReview({ storage: memoryStorage(), records: [humanRecord('rk-1', 'c-1')] });
 
@@ -451,9 +498,14 @@ describe('human 1939 review controller', () => {
     startReview({ storage: memoryStorage(), records: [
       humanRecord('rk-1', 'c-1'), humanRecord('rk-2', 'c-2'), humanRecord('rk-3', 'c-3'),
     ] });
-    const search = document.querySelector<HTMLInputElement>('[data-role="duplicate-search"]')!;
-    search.value = 'rk-2';
-    search.dispatchEvent(new Event('input', { bubbles: true }));
+    let search = document.querySelector<HTMLInputElement>('[data-role="duplicate-search"]')!;
+    search.focus();
+    for (const value of ['r', 'rk', 'rk-', 'rk-2']) {
+      search.value = value;
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+      expect(document.activeElement).toBe(search);
+      search = document.querySelector<HTMLInputElement>('[data-role="duplicate-search"]')!;
+    }
 
     expect(document.querySelector('[data-role="duplicate-target"]')!.textContent).toContain('Navn rk-2');
     expect(document.querySelector('[data-role="duplicate-target"]')!.textContent).not.toContain('Navn rk-3');

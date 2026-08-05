@@ -183,3 +183,63 @@ def test_main_rejects_review_missing_a_baseline_key(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="review baseline-dækning"):
         subject.main()
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("calamari_span", {"char_from": 1, "char_to": 1}, "char_from < char_to"),
+        ("raw_excerpt_sha256", "0" * 64, "matcher ikke raw_verbatim_text"),
+    ],
+)
+def test_main_reuses_authoritative_legacy_review_validation(
+    tmp_path, monkeypatch, field, value, message
+):
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    ledger = json.loads(review.read_text(encoding="utf-8"))
+    ledger["entries"][0].update({
+        "review_status": "accepteret",
+        "candidate_id": "candidate-1",
+        "post_index": 0,
+        "calamari_span": {"char_from": 0, "char_to": 1},
+        "calamari_verbatim_text": "A",
+        "pdf_pages": [498],
+        "kind": "line_header",
+        "raw_char_from": 0,
+        "raw_char_to": 1,
+        "raw_verbatim_text": "A",
+        "raw_excerpt_sha256": hashlib.sha256(b"A").hexdigest(),
+    })
+    ledger["entries"][0][field] = value
+    review.write_text(json.dumps(ledger), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
+
+    with pytest.raises(ValueError, match=message):
+        subject.main()
+
+
+def test_main_rejects_legacy_duplicate_target_that_is_not_accepted(tmp_path, monkeypatch):
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    baseline_value = [
+        {"record_key": "record-1", "navn": "Volrad", "sider": "498"},
+        {"record_key": "record-2", "navn": "Anden", "sider": "498"},
+    ]
+    baseline.write_text(json.dumps(baseline_value), encoding="utf-8")
+    source_value = _source(baseline.read_bytes(), calamari.read_bytes())
+    source.write_text(json.dumps({"schema_version": 1, "source": source_value}), encoding="utf-8")
+    queue.write_text(json.dumps({"schema_version": 1, "source": source_value, "entries": [
+        {"baseline_record_key": "record-1", "queue_class": "human_required", "reason_code": "x", "reason_da": "x"},
+        {"baseline_record_key": "record-2", "queue_class": "human_required", "reason_code": "x", "reason_da": "x"},
+    ]}), encoding="utf-8")
+    review.write_text(json.dumps({"schema_version": 1, "source": source_value,
+        "baseline_sha256": source_value["baseline_sha256"], "entries": [
+            {"baseline_record_key": "record-1", "review_status": "eksplicit_dublet",
+             "duplicate_of_baseline_record_key": "record-2"},
+            {"baseline_record_key": "record-2", "review_status": "unreviewed"},
+        ]}), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
+
+    with pytest.raises(ValueError, match="accepteret"):
+        subject.main()

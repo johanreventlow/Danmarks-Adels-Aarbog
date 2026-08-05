@@ -11,6 +11,7 @@ from pathlib import Path
 
 import segment
 from prepare_review_queue_1939 import build_review_view_model
+from prepare_coverage_1939 import validate_review_template
 from review_queue_1939 import sample_auto_resolved
 
 
@@ -167,6 +168,7 @@ def main() -> int:
     decisions = _review_decisions(review, baseline_hash, baseline_keys)
     if not isinstance(review, dict) or "source" not in review:
         _assert_sourceless_review_is_unreviewed(decisions)
+    validate_review_template(args.review, args.baseline)
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         posts = segment._segment_1939_v2(
             calamari_bytes.decode("utf-8").splitlines(),
