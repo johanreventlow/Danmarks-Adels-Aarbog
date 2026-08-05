@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const uiSource = readFileSync(resolve(
@@ -890,6 +892,88 @@ describe('human 1939 review controller', () => {
     expect(download).toHaveBeenCalledWith(expect.objectContaining({
       baseline_sha256: 'a'.repeat(64), exported_at: '2026-08-05T12:00:00+02:00', entries: expect.any(Array),
     }));
+  });
+
+  it('roundtrips the actual complete Task4 export through the Task5 CLI', () => {
+    const records: any[] = [
+      humanRecord('rk-choice', 'c-choice'),
+      humanRecord('rk-unreviewed', 'c-unused'),
+      humanRecord('rk-final', 'c-final'),
+    ];
+    records[0].decision = {
+      baseline_record_key: 'rk-choice', review_status: 'unreviewed',
+      baseline_locator: { pages: '498', local_id: 'Stamme.I.1' },
+      review_note: 'læst i originalen',
+    };
+    records[1].decision = {
+      baseline_record_key: 'rk-unreviewed', review_status: 'unreviewed',
+      baseline_locator: { pages: null, local_id: null },
+    };
+    records[2].decision = {
+      baseline_record_key: 'rk-final', review_status: 'menneskeark',
+      reason: 'Historisk afgørelse.',
+    };
+    const source = viewModel(records).source;
+    const { controller } = startReview({ storage: memoryStorage(), records });
+    expect(controller.choose('human_selected_candidate', { candidate_id: 'c-choice' })).toBe(true);
+    const exported = controller.exportDraft();
+    expect(exported.source).toEqual(source);
+    expect(exported.entries).toHaveLength(3);
+
+    const directory = mkdtempSync(join(tmpdir(), 'daa1939-task5-roundtrip-'));
+    try {
+      const choicesPath = join(directory, 'choices.json');
+      const queuePath = join(directory, 'queue.json');
+      const candidatesPath = join(directory, 'candidates.json');
+      const outPath = join(directory, 'decisions.json');
+      writeFileSync(choicesPath, JSON.stringify(exported));
+      writeFileSync(queuePath, JSON.stringify({
+        schema_version: 1,
+        source,
+        entries: records.map(record => ({
+          baseline_record_key: record.record_key,
+          queue_class: 'human_required',
+          reason_code: 'multiple_candidates',
+          reason_da: 'flere kandidater',
+        })),
+      }));
+      writeFileSync(candidatesPath, JSON.stringify({
+        'c-choice': {
+          baseline_record_key: 'rk-choice',
+          candidate: {
+            candidate_id: 'c-choice', postklasse: 'nummereret',
+            calamari_span: { char_from: 10, char_to: 20 }, pdf_pages: [498],
+            raw_structure_bridge: { kind: 'record_start', raw_char_from: 100,
+              raw_char_to: 110, raw_excerpt_sha256: 'e'.repeat(64) },
+          },
+        },
+      }));
+      const script = resolve(
+        process.cwd(), '../.claude/skills/daa-extract/scripts/prepare_coverage_1939.py',
+      );
+      const result = spawnSync('/usr/bin/python3', [
+        script,
+        '--choices-to-decisions', choicesPath,
+        '--queue-manifest', queuePath,
+        '--anchored-candidates', candidatesPath,
+        '--out', outPath,
+      ], {
+        cwd: resolve(process.cwd(), '..'),
+        encoding: 'utf8',
+        env: { ...process.env, PYTHONPYCACHEPREFIX: join(directory, 'pycache') },
+      });
+
+      expect(result.status, result.stderr).toBe(0);
+      expect(JSON.parse(readFileSync(outPath, 'utf8'))).toEqual({
+        decisions: [{
+          baseline_record_key: 'rk-choice', status: 'accepteret', candidate_id: 'c-choice',
+        }],
+        audit_results: [],
+      });
+      expect(JSON.parse(readFileSync(choicesPath, 'utf8')).source).toEqual(source);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('returns deep-cloned drafts to export and download callers', () => {

@@ -7,7 +7,12 @@ from collections.abc import Mapping
 from datetime import datetime
 import re
 
-from coverage_1939 import duplicate_target_errors, validate_coverage
+from coverage_1939 import (
+    LEGACY_REVIEW_ALLOWED_FIELDS,
+    duplicate_target_errors,
+    legacy_review_entry_errors,
+    validate_coverage,
+)
 
 
 _OUTCOMES = {
@@ -16,6 +21,8 @@ _OUTCOMES = {
     "no_candidate_fits",
     "undecidable",
 }
+_FINAL_LEGACY_STATUSES = {"accepteret", "eksplicit_dublet", "menneskeark"}
+_PRESERVED_METADATA_FIELDS = {"review_status", "baseline_locator", "review_note"}
 _SOURCE_FIELDS = {
     "edition",
     "baseline_sha256",
@@ -89,6 +96,23 @@ def _unique_entries(value: object, expected_keys: set[str]) -> list[Mapping]:
     return entries
 
 
+def _validate_preserved_metadata(entry: Mapping) -> None:
+    if "review_status" in entry and entry["review_status"] not in {
+        "unreviewed", *_FINAL_LEGACY_STATUSES,
+    }:
+        raise ValueError("ukendt review_status")
+    if "baseline_locator" in entry:
+        locator = _mapping(entry["baseline_locator"], "baseline_locator")
+        if set(locator) != {"pages", "local_id"}:
+            raise ValueError("baseline_locator har uautoriserede eller manglende felter")
+        if locator["pages"] is not None and not isinstance(locator["pages"], str):
+            raise ValueError("baseline_locator pages skal være en streng eller null")
+        if locator["local_id"] is not None and not isinstance(locator["local_id"], str):
+            raise ValueError("baseline_locator local_id skal være en streng eller null")
+    if "review_note" in entry and not isinstance(entry["review_note"], str):
+        raise ValueError("review_note skal være en streng")
+
+
 def _validate_choice(value: object, expected_keys: set[str]) -> dict:
     choice = _mapping(value, "choice")
     key = _nonempty(choice.get("baseline_record_key"), "baseline_record_key")
@@ -97,7 +121,14 @@ def _validate_choice(value: object, expected_keys: set[str]) -> dict:
     outcome = choice.get("outcome")
     if outcome not in _OUTCOMES:
         raise ValueError("ukendt outcome")
-    allowed = {"baseline_record_key", "outcome", "decided_at"}
+    status = choice.get("review_status")
+    if status in _FINAL_LEGACY_STATUSES:
+        raise ValueError("provisional outcome må ikke overskrive endelig legacy-status")
+    if status not in (None, "unreviewed"):
+        raise ValueError("ukendt review_status")
+    allowed = {
+        "baseline_record_key", "outcome", "decided_at", *_PRESERVED_METADATA_FIELDS,
+    }
     required = {"baseline_record_key", "outcome"}
     if outcome == "human_selected_candidate":
         allowed.add("candidate_id")
@@ -116,6 +147,7 @@ def _validate_choice(value: object, expected_keys: set[str]) -> dict:
         raise ValueError(f"choice kræver {field}")
     if "decided_at" in choice:
         _timestamp(choice["decided_at"], "beslutningstidspunkt")
+    _validate_preserved_metadata(choice)
     if outcome == "human_selected_candidate":
         _nonempty(choice["candidate_id"], "candidate_id")
     elif outcome == "possible_duplicate":
@@ -128,6 +160,17 @@ def _validate_choice(value: object, expected_keys: set[str]) -> dict:
     else:
         _nonempty(choice["reason"], "reason")
     return copy.deepcopy(dict(choice))
+
+
+def _validate_legacy_export_entry(entry: Mapping) -> dict:
+    unknown = set(entry) - LEGACY_REVIEW_ALLOWED_FIELDS
+    if unknown:
+        raise ValueError("choice har uautoriserede felter")
+    _validate_preserved_metadata(entry)
+    errors = legacy_review_entry_errors(entry)
+    if errors:
+        raise ValueError(errors[0])
+    return copy.deepcopy(dict(entry))
 
 
 def validate_choice_export(
@@ -149,10 +192,29 @@ def validate_choice_export(
     ):
         raise ValueError("forventede baseline-nøgler skal være ikke-tomme strenge")
     entries = _unique_entries(root.get("entries"), expected_keys)
-    return {
-        entry["baseline_record_key"]: _validate_choice(entry, expected_keys)
-        for entry in entries
-    }
+    actual_keys = {entry["baseline_record_key"] for entry in entries}
+    if actual_keys != expected_keys:
+        raise ValueError("choice export baseline-dækning fejler")
+
+    choices: dict[str, dict] = {}
+    legacy_statuses: dict[str, dict] = {}
+    for entry in entries:
+        key = entry["baseline_record_key"]
+        if "outcome" in entry:
+            validated = _validate_choice(entry, expected_keys)
+            choices[key] = validated
+            legacy_statuses[key] = {
+                "review_status": validated.get("review_status", "unreviewed")
+            }
+        else:
+            validated = _validate_legacy_export_entry(entry)
+            legacy_statuses[key] = validated
+    target_errors = duplicate_target_errors(
+        legacy_statuses, status_field="review_status"
+    )
+    if target_errors:
+        raise ValueError(next(iter(target_errors.values())))
+    return choices
 
 
 def _candidate_is_valid(key: str, candidate: object) -> bool:

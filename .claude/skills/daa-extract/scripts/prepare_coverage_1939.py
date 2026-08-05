@@ -15,8 +15,10 @@ from collections.abc import Mapping
 
 from coverage_1939 import (
     ALLOWED_STATUSES,
+    LEGACY_REVIEW_ALLOWED_FIELDS,
     POSTKLASSER,
     duplicate_target_errors,
+    legacy_review_entry_errors,
     validate_coverage,
 )
 from review_choices_1939 import convert_review_choices, validate_choice_export
@@ -24,22 +26,6 @@ from review_queue_1939 import sample_auto_resolved
 import segment
 
 
-_REVIEW_ACCEPTED_FIELDS = {
-    "candidate_id",
-    "post_index",
-    "calamari_span",
-    "calamari_verbatim_text",
-    "pdf_pages",
-    "kind",
-    "raw_char_from",
-    "raw_char_to",
-    "raw_verbatim_text",
-    "raw_excerpt_sha256",
-}
-_REVIEW_DECISION_FIELDS = _REVIEW_ACCEPTED_FIELDS | {
-    "duplicate_of_baseline_record_key",
-    "reason",
-}
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -270,26 +256,8 @@ def _read_review_template(review_path: Path, baseline_path: Path) -> dict:
     actual = [entry.get("baseline_record_key") for entry in entries if isinstance(entry, Mapping)]
     if len(actual) != len(entries) or set(actual) != expected or len(actual) != len(set(actual)):
         raise ValueError("review baseline-dækning fejler")
-    allowed_fields = {
-        "baseline_record_key",
-        "review_status",
-        "baseline_locator",
-        "candidate_id",
-        "post_index",
-        "calamari_span",
-        "calamari_verbatim_text",
-        "pdf_pages",
-        "kind",
-        "raw_char_from",
-        "raw_char_to",
-        "raw_verbatim_text",
-        "raw_excerpt_sha256",
-        "duplicate_of_baseline_record_key",
-        "reason",
-        "review_note",
-    }
     for entry in entries:
-        unknown = set(entry) - allowed_fields
+        unknown = set(entry) - LEGACY_REVIEW_ALLOWED_FIELDS
         if unknown:
             raise ValueError("review har uautoriserede felter")
     return dict(review)
@@ -297,74 +265,7 @@ def _read_review_template(review_path: Path, baseline_path: Path) -> dict:
 
 def _review_entry_errors(entry: Mapping) -> list[str]:
     """Return semantic decision errors without attempting any source matching."""
-    status = entry.get("review_status")
-    if status == "unreviewed":
-        if _REVIEW_DECISION_FIELDS.intersection(entry):
-            return ["unreviewed må ikke have beslutningsfelter"]
-        return []
-    if status not in ALLOWED_STATUSES:
-        return ["ukendt review_status"]
-    if status == "accepteret":
-        missing = [
-            f"accepteret kræver {field}"
-            for field in sorted(_REVIEW_ACCEPTED_FIELDS)
-            if field not in entry
-        ]
-        if missing:
-            return missing
-        candidate_id = entry["candidate_id"]
-        if not isinstance(candidate_id, str) or not candidate_id.strip():
-            return ["candidate_id skal være en ikke-tom streng"]
-        try:
-            _positive_int(entry["post_index"], "post_index", zero_allowed=True)
-            span = _mapping(entry["calamari_span"], "calamari_span")
-            char_from = _positive_int(
-                span.get("char_from"), "calamari_span char_from", zero_allowed=True
-            )
-            char_to = _positive_int(
-                span.get("char_to"), "calamari_span char_to", zero_allowed=True
-            )
-            if char_from >= char_to:
-                return ["calamari_span skal have char_from < char_to"]
-            verbatim = entry["calamari_verbatim_text"]
-            if not isinstance(verbatim, str) or not verbatim:
-                return ["calamari_verbatim_text skal være en ikke-tom streng"]
-            _pages(entry["pdf_pages"], "pdf_pages")
-            kind = entry["kind"]
-            if not isinstance(kind, str) or not kind.strip():
-                return ["kind skal være en ikke-tom streng"]
-            raw_from = _positive_int(
-                entry["raw_char_from"], "raw_char_from", zero_allowed=True
-            )
-            raw_to = _positive_int(
-                entry["raw_char_to"], "raw_char_to", zero_allowed=True
-            )
-            if raw_from >= raw_to:
-                return ["raw_char_from skal være mindre end raw_char_to"]
-            raw_verbatim = entry["raw_verbatim_text"]
-            if not isinstance(raw_verbatim, str) or not raw_verbatim:
-                return ["raw_verbatim_text skal være en ikke-tom streng"]
-            raw_digest = entry["raw_excerpt_sha256"]
-            if not isinstance(raw_digest, str) or not _SHA256_RE.fullmatch(raw_digest):
-                return ["raw_excerpt_sha256 skal være SHA-256 med små bogstaver"]
-            if raw_digest != hashlib.sha256(raw_verbatim.encode("utf-8")).hexdigest():
-                return ["raw_excerpt_sha256 matcher ikke raw_verbatim_text"]
-        except ValueError as error:
-            return [str(error)]
-        return []
-    if status == "eksplicit_dublet":
-        target = entry.get("duplicate_of_baseline_record_key")
-        if not isinstance(target, str) or not target.strip():
-            return ["eksplicit_dublet kræver duplicate_of_baseline_record_key"]
-        if _REVIEW_ACCEPTED_FIELDS.intersection(entry) or "reason" in entry:
-            return ["eksplicit_dublet må ikke have kandidat- eller reason-felter"]
-        return []
-    reason = entry.get("reason")
-    if not isinstance(reason, str) or not reason.strip():
-        return ["menneskeark kræver reason"]
-    if _REVIEW_ACCEPTED_FIELDS.intersection(entry) or "duplicate_of_baseline_record_key" in entry:
-        return ["menneskeark må ikke have kandidat- eller dubletfelter"]
-    return []
+    return legacy_review_entry_errors(entry)
 
 
 def validate_review_template(review_path: Path, baseline_path: Path) -> dict:

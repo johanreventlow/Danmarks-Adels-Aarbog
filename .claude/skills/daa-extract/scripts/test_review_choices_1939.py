@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 
 import pytest
 
@@ -365,6 +366,111 @@ def test_choice_export_accepts_browser_timestamp_and_redundant_baseline_hash():
     result = validate_choice_export(value, expected_source(), {"rk-1"})
 
     assert result["rk-1"]["candidate_id"] == "c-1"
+
+
+def test_choice_export_accepts_complete_task4_legacy_overlay_and_skips_untouched_entries():
+    raw_text = "råtekst"
+    value = choice_export(
+        choice(
+            "rk-choice",
+            "human_selected_candidate",
+            candidate_id="c-1",
+            decided_at="2026-08-05T12:01:00+02:00",
+            review_status="unreviewed",
+            baseline_locator={"pages": "498", "local_id": "Stamme.I.1"},
+            review_note="læst i originalen",
+        ),
+        {
+            "baseline_record_key": "rk-unreviewed",
+            "review_status": "unreviewed",
+            "baseline_locator": {"pages": None, "local_id": None},
+        },
+        {
+            "baseline_record_key": "rk-accepted",
+            "review_status": "accepteret",
+            "candidate_id": "c-final",
+            "post_index": 7,
+            "calamari_span": {"char_from": 10, "char_to": 20},
+            "calamari_verbatim_text": "kildetekst",
+            "pdf_pages": [498],
+            "kind": "manual_anchor",
+            "raw_char_from": 100,
+            "raw_char_to": 107,
+            "raw_verbatim_text": raw_text,
+            "raw_excerpt_sha256": hashlib.sha256(raw_text.encode("utf-8")).hexdigest(),
+        },
+        {
+            "baseline_record_key": "rk-human",
+            "review_status": "menneskeark",
+            "reason": "historisk afgørelse",
+        },
+    )
+
+    result = validate_choice_export(
+        value,
+        expected_source(),
+        {"rk-choice", "rk-unreviewed", "rk-accepted", "rk-human"},
+    )
+
+    assert result == {"rk-choice": {
+        "baseline_record_key": "rk-choice",
+        "outcome": "human_selected_candidate",
+        "candidate_id": "c-1",
+        "decided_at": "2026-08-05T12:01:00+02:00",
+        "review_status": "unreviewed",
+        "baseline_locator": {"pages": "498", "local_id": "Stamme.I.1"},
+        "review_note": "læst i originalen",
+    }}
+
+
+def test_choice_export_rejects_outcome_over_final_legacy_status():
+    value = choice_export(choice(
+        "rk-1", "undecidable", reason="nyt udfald",
+        review_status="menneskeark",
+    ))
+
+    with pytest.raises(ValueError, match="endelig legacy"):
+        validate_choice_export(value, expected_source(), {"rk-1"})
+
+
+@pytest.mark.parametrize(
+    ("entry", "message"),
+    [
+        (
+            {"baseline_record_key": "rk-1", "review_status": "unreviewed",
+             "baseline_locator": "498"},
+            "baseline_locator",
+        ),
+        (
+            {"baseline_record_key": "rk-1", "review_status": "unreviewed",
+             "review_note": 17},
+            "review_note",
+        ),
+        (
+            {"baseline_record_key": "rk-1", "review_status": "menneskeark"},
+            "reason",
+        ),
+        (
+            {"baseline_record_key": "rk-1", "review_status": "unreviewed",
+             "guessed_person_id": "må ikke accepteres"},
+            "uautoriserede",
+        ),
+    ],
+)
+def test_choice_export_rejects_malformed_or_unknown_legacy_metadata(entry, message):
+    with pytest.raises(ValueError, match=message):
+        validate_choice_export(
+            choice_export(entry), expected_source(), {"rk-1"}
+        )
+
+
+def test_choice_export_requires_complete_task4_record_key_accounting():
+    value = choice_export(
+        choice("rk-1", "undecidable", reason="uklar kilde")
+    )
+
+    with pytest.raises(ValueError, match="baseline-dækning"):
+        validate_choice_export(value, expected_source(), {"rk-1", "rk-missing"})
 
 
 def test_validation_and_conversion_do_not_mutate_inputs():
