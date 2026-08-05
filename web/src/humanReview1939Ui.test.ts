@@ -123,7 +123,7 @@ describe('human 1939 review controller', () => {
     ]);
   });
 
-  it('supports candidate ids containing quotes and Danish characters', () => {
+  it('preserves a hostile candidate id through click, storage and visible confirmation', () => {
     const storage = memoryStorage();
     const { controller } = startReview({ storage,
       records: [humanRecord('rk-1', 'Volrad "ældre"')] });
@@ -147,6 +147,10 @@ describe('human 1939 review controller', () => {
     expect(controller.exportDraft().entries[0]).toMatchObject({
       baseline_record_key: 'rk-1', outcome: 'human_selected_candidate', candidate_id: 'candidate-1',
     });
+    expect(document.querySelector('[data-role="decision-state"]')!.textContent)
+      .toContain('human_selected_candidate');
+    expect(document.querySelector('[data-action="select-candidate"]')!.getAttribute('aria-pressed'))
+      .toBe('true');
   });
 
   it('preserves completed decisions supplied by the view model', () => {
@@ -162,6 +166,27 @@ describe('human 1939 review controller', () => {
     expect(controller.exportDraft().entries[0]).toMatchObject(record.decision);
   });
 
+  it('merges a new outcome without discarding review metadata', () => {
+    const storage = memoryStorage();
+    const record = humanRecord('rk-1', 'candidate-1');
+    record.decision = {
+      baseline_record_key: 'rk-1', review_status: 'menneskeark',
+      baseline_locator: { pages: '498', local_id: 'Stamme.Volrad' },
+    };
+    const { controller } = startReview({ storage, records: [record] });
+
+    expect(controller.choose('human_selected_candidate', { candidate_id: 'candidate-1' })).toBe(true);
+
+    expect(JSON.parse(storage.getItem(controller.storageKey)!).decisions['rk-1']).toMatchObject({
+      outcome: 'human_selected_candidate', review_status: 'menneskeark',
+      baseline_locator: { pages: '498', local_id: 'Stamme.Volrad' },
+    });
+    expect(controller.exportDraft().entries[0]).toMatchObject({
+      outcome: 'human_selected_candidate', review_status: 'menneskeark',
+      baseline_locator: { pages: '498', local_id: 'Stamme.Volrad' },
+    });
+  });
+
   it('does not confirm or advance when persistence fails', () => {
     const storage = memoryStorage();
     storage.setItem = () => { throw new Error('quota'); };
@@ -175,29 +200,50 @@ describe('human 1939 review controller', () => {
     expect(controller.exportDraft().entries[0].draft).toBe(true);
   });
 
-  it('reports a storage read failure without preventing review or export', () => {
+  it.each([
+    ['a read exception', () => { throw new Error('security'); }],
+    ['malformed JSON', () => '{not json'],
+    ['an incompatible schema', (source: any) => JSON.stringify({ schema_version: 99, source, decisions: {} })],
+    ['an invalid candidate decision', (source: any) => JSON.stringify({
+      schema_version: 1, source, decisions: {
+        'rk-1': { baseline_record_key: 'rk-1', outcome: 'human_selected_candidate', candidate_id: 'missing' },
+      },
+    })],
+  ])('blocks recovery without overwriting storage after %s', (_label, saved: any) => {
+    const records = [humanRecord('rk-1', 'c-1')];
     const storage = memoryStorage();
-    storage.getItem = () => { throw new Error('security'); };
-    const { controller } = startReview({ storage, records: [humanRecord('rk-1', 'c-1')] });
+    const setItem = vi.fn();
+    storage.getItem = () => typeof saved === 'function' ? saved(viewModel(records).source) : saved;
+    storage.setItem = setItem;
+    const { controller, download } = startReview({ storage, records });
 
-    expect(controller.selectedKey).toBe('rk-1');
-    expect(document.querySelector('[data-role="save-state"]')!.textContent).toContain('kunne ikke læses');
-    controller.choose('human_selected_candidate', { candidate_id: 'c-1' });
-    expect(document.querySelector('[data-role="save-state"]')!.textContent).toContain('kunne ikke læses');
-    expect(controller.exportDraft().entries).toHaveLength(1);
+    expect(controller.choose('human_selected_candidate', { candidate_id: 'c-1' })).toBe(false);
+    expect(controller.undo()).toBe(false);
+    document.querySelector<HTMLButtonElement>('[data-action="export-draft"]')!.click();
+    expect(controller.exportDraft()).toMatchObject({ recovery_blocked: true });
+    expect(download).toHaveBeenCalledWith(expect.objectContaining({ recovery_blocked: true }));
+    expect(setItem).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-role="save-state"]')!.textContent).toContain('kan ikke');
   });
 
-  it('visibly rejects a locally cached draft with the wrong schema version', () => {
+  it('fails closed for a non-injective initial decision state', () => {
+    const records = [humanRecord('rk-1', 'shared'), humanRecord('rk-2', 'shared')];
+    records[0].decision = { baseline_record_key: 'rk-1', outcome: 'human_selected_candidate', candidate_id: 'shared' };
+    records[1].decision = { baseline_record_key: 'rk-2', outcome: 'human_selected_candidate', candidate_id: 'shared' };
     const storage = memoryStorage();
-    const records = [humanRecord('rk-1', 'c-1')];
+    storage.setItem = vi.fn();
     const { controller } = startReview({ storage, records });
-    storage.setItem(controller.storageKey, JSON.stringify({
-      schema_version: 99, source: viewModel(records).source, decisions: {},
-    }));
 
-    startReview({ storage, records });
+    expect(controller.choose('undecidable')).toBe(false);
+    expect(controller.exportDraft()).toMatchObject({ recovery_blocked: true });
+    expect(storage.setItem).not.toHaveBeenCalled();
+  });
 
-    expect(document.querySelector('[data-role="save-state"]')!.textContent).toContain('kan ikke bruges');
+  it('rejects incompatible payload fields for non-selection outcomes', () => {
+    const { controller } = startReview({ storage: memoryStorage(), records: [humanRecord('rk-1', 'c-1')] });
+
+    expect(controller.choose('no_candidate_fits', { candidate_id: 'c-1' })).toBe(false);
+    expect(controller.exportDraft().entries[0]).toMatchObject({ draft: true });
   });
 
   it('keeps next and previous within the active view boundaries', () => {
@@ -225,6 +271,19 @@ describe('human 1939 review controller', () => {
     expect(controller.selectedKey).toBe('rk-1');
     expect(controller.exportDraft().entries[0].draft).toBe(true);
     expect(JSON.parse(storage.getItem(controller.storageKey)!).decisions).toEqual({});
+  });
+
+  it('undo preserves the automatic queue and its selected record', () => {
+    const { controller } = startReview({ storage: memoryStorage(), records: [
+      humanRecord('rk-1', 'c-1'), automaticRecord('rk-2', 'c-2'), automaticRecord('rk-3', 'c-3'),
+    ] });
+    controller.setView('automatic');
+    controller.choose('human_selected_candidate', { candidate_id: 'c-2' });
+
+    expect(controller.undo()).toBe(true);
+
+    expect(controller.selectedKey).toBe('rk-2');
+    expect(document.querySelector('[data-role="record-list"]')!.textContent).not.toContain('Navn rk-1');
   });
 
   it('filters automatic and audit records and displays the audit label', () => {
@@ -311,5 +370,39 @@ describe('human 1939 review controller', () => {
     expect(download).toHaveBeenCalledWith(expect.objectContaining({
       baseline_sha256: 'a'.repeat(64), exported_at: '2026-08-05T12:00:00+02:00', entries: expect.any(Array),
     }));
+  });
+
+  it('returns deep-cloned drafts to export and download callers', () => {
+    const download = vi.fn();
+    const { controller } = startReview({ storage: memoryStorage(),
+      records: [humanRecord('rk-1', 'c-1')], download });
+    controller.choose('human_selected_candidate', { candidate_id: 'c-1' });
+    const exported = controller.exportDraft();
+    exported.source.edition = 'tampered';
+    exported.entries[0].candidate_id = 'tampered';
+    document.querySelector<HTMLButtonElement>('[data-action="export-draft"]')!.click();
+    const downloaded = download.mock.calls[0][0];
+    downloaded.entries[0].candidate_id = 'also-tampered';
+
+    expect(controller.exportDraft().source.edition).toBe('1939');
+    expect(controller.exportDraft().entries[0].candidate_id).toBe('c-1');
+  });
+
+  it('handles a hostile record key without interpolation through click, persistence and reload', () => {
+    const storage = memoryStorage();
+    const recordKey = 'Volrad "ældre" / Øst';
+    const candidateId = 'kandidat "ældre" / æ';
+    const records = [humanRecord(recordKey, candidateId)];
+    const { controller } = startReview({ storage, records });
+
+    document.querySelector<HTMLButtonElement>('[data-action="select-candidate"]')!.click();
+
+    expect(document.querySelector('[data-role="save-state"]')!.textContent).toContain('Visuelt spor er gemt lokalt');
+    expect(JSON.parse(storage.getItem(controller.storageKey)!).decisions[recordKey]).toMatchObject({
+      baseline_record_key: recordKey, candidate_id: candidateId,
+    });
+    startReview({ storage, records });
+    expect(document.querySelector('[data-role="decision-state"]')!.textContent).toContain(candidateId);
+    expect(document.querySelector('[data-action="select-candidate"]')!.getAttribute('aria-pressed')).toBe('true');
   });
 });

@@ -22,10 +22,67 @@
     return value == null ? value : JSON.parse(JSON.stringify(value));
   }
 
-  function isDecision(value, recordKey) {
-    return value && value.baseline_record_key === recordKey
-      && (OUTCOMES.has(value.outcome)
-        || ['unreviewed', 'menneskeark', 'eksplicit_dublet', 'accepteret'].includes(value.review_status));
+  function hasOwn(value, key) {
+    return Object.prototype.hasOwnProperty.call(value, key);
+  }
+
+  function decisionMap(value) {
+    if (Array.isArray(value)) {
+      const result = {};
+      value.forEach(entry => {
+        if (!entry || typeof entry !== 'object' || typeof entry.baseline_record_key !== 'string'
+          || hasOwn(result, entry.baseline_record_key)) throw new Error('Ugyldig kladdepost');
+        result[entry.baseline_record_key] = entry;
+      });
+      return result;
+    }
+    if (!value || typeof value !== 'object') throw new Error('Ugyldig kladde');
+    return value;
+  }
+
+  function validateDecisionState(value, recordByKey) {
+    const decisions = decisionMap(value);
+    const result = {};
+    const candidateOwners = new Map();
+    Object.entries(decisions).forEach(([recordKey, decision]) => {
+      const record = recordByKey.get(recordKey);
+      if (!record || !decision || typeof decision !== 'object'
+        || decision.baseline_record_key !== recordKey) throw new Error('Ugyldig kladdepost');
+      const hasOutcome = hasOwn(decision, 'outcome');
+      const hasCandidate = hasOwn(decision, 'candidate_id');
+      const hasDuplicate = hasOwn(decision, 'duplicate_of_baseline_record_key');
+      if (!hasOutcome) {
+        if (hasCandidate || hasDuplicate) throw new Error('Ugyldigt valg uden udfald');
+        result[recordKey] = clone(decision);
+        return;
+      }
+      if (!OUTCOMES.has(decision.outcome)) throw new Error('Ukendt udfald');
+      if (decision.outcome === 'human_selected_candidate') {
+        const candidates = Array.isArray(record.candidates) ? record.candidates : [];
+        if (typeof decision.candidate_id !== 'string'
+          || !candidates.some(candidate => candidate.candidate_id === decision.candidate_id)
+          || hasDuplicate || candidateOwners.has(decision.candidate_id)) {
+          throw new Error('Ugyldigt kandidatvalg');
+        }
+        candidateOwners.set(decision.candidate_id, recordKey);
+      } else if (decision.outcome === 'possible_duplicate') {
+        if (hasCandidate || typeof decision.duplicate_of_baseline_record_key !== 'string'
+          || decision.duplicate_of_baseline_record_key === recordKey
+          || !recordByKey.has(decision.duplicate_of_baseline_record_key)) {
+          throw new Error('Ugyldigt dubletvalg');
+        }
+      } else if (hasCandidate || hasDuplicate) {
+        throw new Error('Ugyldigt udvalg for dette udfald');
+      }
+      result[recordKey] = clone(decision);
+    });
+    return result;
+  }
+
+  function blockRecovery(state, message) {
+    state.recoveryBlocked = true;
+    state.decisions = {};
+    state.storageError = message;
   }
 
   function restoreOrInitialize(data, storage, now) {
@@ -47,17 +104,22 @@
       message: 'Klar. Ændringer gemmes automatisk lokalt.',
       error: '',
       storageError: '',
+      recoveryBlocked: false,
     };
-    records.forEach(record => {
-      if (isDecision(record.decision, record.record_key)) {
-        state.decisions[record.record_key] = clone(record.decision);
-      }
-    });
+    const modelDecisions = Object.fromEntries(records
+      .filter(record => record.decision != null)
+      .map(record => [record.record_key, record.decision]));
+    try {
+      state.decisions = validateDecisionState(modelDecisions, recordByKey);
+    } catch (_) {
+      blockRecovery(state, 'Kildens beslutninger kan ikke bruges sikkert.');
+      return state;
+    }
     let saved;
     try {
       saved = storage.getItem(state.storageKey);
     } catch (_) {
-      state.storageError = 'Den lokale kladde kunne ikke læses; du kan fortsætte med en ny kladde.';
+      blockRecovery(state, 'Den lokale kladde kan ikke læses sikkert.');
       return state;
     }
     if (!saved) return state;
@@ -65,20 +127,13 @@
       const parsed = JSON.parse(saved);
       if (!parsed || parsed.schema_version !== REVIEW_SCHEMA_VERSION
         || sourceIdentity(parsed.source || {}) !== sourceIdentity(data.source || {})) {
-        state.storageError = 'Den lokale kladde kan ikke bruges til denne kilde eller version.';
+        blockRecovery(state, 'Den lokale kladde kan ikke bruges til denne kilde eller version.');
         return state;
       }
-      const decisions = Array.isArray(parsed.entries)
-        ? Object.fromEntries(parsed.entries.map(entry => [entry.baseline_record_key, entry]))
-        : parsed.decisions;
-      if (!decisions || typeof decisions !== 'object') return state;
-      Object.entries(decisions).forEach(([recordKey, decision]) => {
-        if (recordByKey.has(recordKey) && isDecision(decision, recordKey)) {
-          state.decisions[recordKey] = clone(decision);
-        }
-      });
+      const restored = decisionMap(Array.isArray(parsed.entries) ? parsed.entries : parsed.decisions);
+      state.decisions = validateDecisionState({ ...state.decisions, ...restored }, recordByKey);
     } catch (_) {
-      state.storageError = 'Den lokale kladde kunne ikke læses; du kan fortsætte med en ny kladde.';
+      blockRecovery(state, 'Den lokale kladde kan ikke bruges sikkert.');
     }
     return state;
   }
@@ -106,6 +161,7 @@
   }
 
   function persist(state) {
+    if (state.recoveryBlocked) throw new Error('Gendannelse er blokeret');
     state.storage.setItem(state.storageKey, JSON.stringify({
       schema_version: REVIEW_SCHEMA_VERSION,
       source: state.data.source,
@@ -125,14 +181,20 @@
   function validateUiChoice(state, outcome, payload) {
     const record = state.recordByKey.get(state.selectedKey);
     if (!record || !OUTCOMES.has(outcome)) throw new Error('Ugyldigt valg');
-    const decision = {
+    const decision = clone(state.decisions[record.record_key] || {
       baseline_record_key: record.record_key,
-      outcome,
-      decided_at: state.now(),
-    };
+    });
+    delete decision.outcome;
+    delete decision.candidate_id;
+    delete decision.duplicate_of_baseline_record_key;
+    delete decision.decided_at;
+    delete decision.draft;
+    decision.outcome = outcome;
+    decision.decided_at = state.now();
     if (outcome === 'human_selected_candidate') {
       const candidateId = payload.candidate_id;
-      if (!record.candidates.some(candidate => candidate.candidate_id === candidateId)) {
+      if (hasOwn(payload, 'duplicate_of_baseline_record_key')
+        || !record.candidates.some(candidate => candidate.candidate_id === candidateId)) {
         throw new Error('Kandidaten findes ikke på denne post');
       }
       if (Object.entries(state.decisions).some(([recordKey, choice]) => recordKey !== record.record_key
@@ -143,10 +205,15 @@
     }
     if (outcome === 'possible_duplicate') {
       const target = payload.duplicate_of_baseline_record_key;
-      if (!state.recordByKey.has(target) || target === record.record_key) {
+      if (hasOwn(payload, 'candidate_id') || !state.recordByKey.has(target)
+        || target === record.record_key) {
         throw new Error('Vælg en anden kendt historisk post som dubletmål');
       }
       decision.duplicate_of_baseline_record_key = target;
+    }
+    if ((outcome === 'no_candidate_fits' || outcome === 'undecidable')
+      && (hasOwn(payload, 'candidate_id') || hasOwn(payload, 'duplicate_of_baseline_record_key'))) {
+      throw new Error('Ugyldigt udvalg for dette udfald');
     }
     if (typeof payload.reason === 'string' && payload.reason.trim()) {
       decision.reason = payload.reason.trim();
@@ -167,8 +234,10 @@
   }
 
   function choose(state, outcome, payload) {
+    if (state.recoveryBlocked) return false;
     const recordKey = state.selectedKey;
     const previous = clone(state.decisions[recordKey] || null);
+    const navigation = { activeView: state.activeView, selectedKey: state.selectedKey };
     let decision;
     try {
       decision = validateUiChoice(state, outcome, payload || {});
@@ -186,7 +255,7 @@
       render(state);
       return false;
     }
-    state.undoStack.push({ recordKey, previous });
+    state.undoStack.push({ recordKey, previous, navigation });
     showSaved(state, '✓ Visuelt spor er gemt lokalt.');
     moveToNextVisible(state);
     render(state);
@@ -194,6 +263,7 @@
   }
 
   function undo(state) {
+    if (state.recoveryBlocked) return false;
     const item = state.undoStack.pop();
     if (!item) return false;
     const current = clone(state.decisions[item.recordKey] || null);
@@ -207,8 +277,8 @@
       render(state);
       return false;
     }
-    state.selectedKey = item.recordKey;
-    state.activeView = 'required';
+    state.selectedKey = item.navigation.selectedKey;
+    state.activeView = item.navigation.activeView;
     showSaved(state, '✓ Fortrydelsen er gemt lokalt.');
     render(state);
     return true;
@@ -287,7 +357,11 @@
     details.append(element('p', `PDF s. ${(candidate.pdf_pages || []).join('-')} · Calamari-scan ${(candidate.calamari_pages || []).join('-')}`));
     details.append(element('p', 'Boksens start og slut er parserens foreslåede postgrænse.'));
     details.append(element('pre', candidate.raw_text || ''));
-    details.append(actionButton('Vælg denne kandidat', 'select-candidate', { candidateId: candidate.candidate_id }));
+    const button = actionButton('Vælg denne kandidat', 'select-candidate', { candidateId: candidate.candidate_id });
+    const decision = state.decisions[record.record_key];
+    if (decision && decision.outcome === 'human_selected_candidate'
+      && decision.candidate_id === candidate.candidate_id) button.setAttribute('aria-pressed', 'true');
+    details.append(button);
     return details;
   }
 
@@ -313,6 +387,13 @@
       root.append(actionButton('Vis alle kandidater', 'expand-candidates'));
     }
     root.append(element('h2', 'Din afgørelse'));
+    const current = state.decisions[record.record_key];
+    if (current && current.outcome) {
+      const selection = current.candidate_id || current.duplicate_of_baseline_record_key || '';
+      root.append(element('p', `Nuværende valg: ${current.outcome}${selection ? ` (${selection})` : ''}`, {
+        'data-role': 'decision-state',
+      }));
+    }
     root.append(actionButton('Ingen kandidat passer', 'no-candidate-fits'));
     const search = document.createElement('input');
     search.type = 'search';
@@ -352,6 +433,27 @@
     renderRecord(state, app);
   }
 
+  function exportDraft(state) {
+    if (state.recoveryBlocked) return {
+      schema_version: REVIEW_SCHEMA_VERSION,
+      source: clone(state.data.source),
+      exported_at: state.now(),
+      recovery_blocked: true,
+      entries: [],
+    };
+    return clone({
+      schema_version: REVIEW_SCHEMA_VERSION,
+      source: state.data.source,
+      baseline_sha256: state.data.source && state.data.source.baseline_sha256,
+      exported_at: state.now(),
+      entries: state.records.map(record => state.decisions[record.record_key] || {
+        baseline_record_key: record.record_key,
+        outcome: 'undecidable',
+        draft: true,
+      }),
+    });
+  }
+
   function createController(state, options) {
     const controller = {
       get selectedKey() { return state.selectedKey; },
@@ -362,17 +464,7 @@
       next: () => navigate(state, 1),
       previous: () => navigate(state, -1),
       setView: view => setView(state, view),
-      exportDraft: () => ({
-        schema_version: REVIEW_SCHEMA_VERSION,
-        source: clone(state.data.source),
-        baseline_sha256: state.data.source && state.data.source.baseline_sha256,
-        exported_at: state.now(),
-        entries: state.records.map(record => state.decisions[record.record_key] || {
-          baseline_record_key: record.record_key,
-          outcome: 'undecidable',
-          draft: true,
-        }),
-      }),
+      exportDraft: () => exportDraft(state),
     };
     controller.download = () => options.download(controller.exportDraft());
     return controller;
