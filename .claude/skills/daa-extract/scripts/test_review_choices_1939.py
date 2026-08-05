@@ -522,6 +522,154 @@ def test_audit_duplicate_rejects_final_nonaccepted_legacy_even_if_queue_is_auto(
         )
 
 
+def test_final_accepted_and_provisional_selected_candidate_for_same_key_are_rejected():
+    choices = {
+        "rk-1": choice(
+            "rk-1", "human_selected_candidate", candidate_id="c-provisional"
+        )
+    }
+    final_entries = {"rk-1": final_accepted("rk-1", "c-final")}
+    snapshot = copy.deepcopy((choices, final_entries))
+
+    with pytest.raises(
+        ValueError,
+        match="^modstridende final/provisional baseline_record_key-overlap$",
+    ):
+        convert_review_choices(
+            choices,
+            {"c-provisional": {
+                "baseline_record_key": "rk-1",
+                "candidate": anchored_candidate("c-provisional", offset=50),
+            }},
+            {"rk-1": human("rk-1")},
+            set(),
+            final_legacy_entries=final_entries,
+        )
+
+    assert (choices, final_entries) == snapshot
+
+
+@pytest.mark.parametrize(
+    "final_entry",
+    [
+        final_accepted("rk-1", "c-final"),
+        {
+            "baseline_record_key": "rk-1",
+            "review_status": "eksplicit_dublet",
+            "duplicate_of_baseline_record_key": "rk-target",
+        },
+        {
+            "baseline_record_key": "rk-1",
+            "review_status": "menneskeark",
+            "reason": "endelig historisk afgørelse",
+        },
+    ],
+    ids=["accepteret", "eksplicit_dublet", "menneskeark"],
+)
+@pytest.mark.parametrize(
+    "provisional_choice",
+    [
+        choice("rk-1", "human_selected_candidate", candidate_id="c-provisional"),
+        choice(
+            "rk-1",
+            "possible_duplicate",
+            duplicate_of_baseline_record_key="rk-target",
+        ),
+        choice("rk-1", "no_candidate_fits", reason="privat begrundelse"),
+        choice("rk-1", "undecidable", reason="privat begrundelse"),
+    ],
+    ids=["selected", "duplicate", "no-candidate", "undecidable"],
+)
+def test_final_legacy_status_rejects_every_provisional_outcome_for_same_key(
+    final_entry, provisional_choice
+):
+    with pytest.raises(
+        ValueError,
+        match="^modstridende final/provisional baseline_record_key-overlap$",
+    ):
+        convert_review_choices(
+            {"rk-1": provisional_choice},
+            {},
+            {"rk-1": human("rk-1"), "rk-target": human("rk-target")},
+            set(),
+            final_legacy_entries={"rk-1": final_entry},
+        )
+
+
+def test_final_legacy_and_audit_choice_for_same_key_are_rejected_without_audit_result():
+    with pytest.raises(
+        ValueError,
+        match="^modstridende final/provisional baseline_record_key-overlap$",
+    ):
+        convert_review_choices(
+            {"rk-a": choice(
+                "rk-a", "no_candidate_fits", reason="privat auditbegrundelse"
+            )},
+            {},
+            {"rk-a": automatic("rk-a", "c-auto")},
+            {"rk-a"},
+            final_legacy_entries={
+                "rk-a": {
+                    "baseline_record_key": "rk-a",
+                    "review_status": "menneskeark",
+                    "reason": "endelig historisk afgørelse",
+                }
+            },
+        )
+
+
+def test_overlap_is_checked_only_after_the_provisional_choice_is_validated():
+    malformed_choice = choice("rk-other", "undecidable", reason="uklar")
+
+    with pytest.raises(ValueError, match="forkert baseline_record_key"):
+        convert_review_choices(
+            {"rk-1": malformed_choice},
+            {},
+            {"rk-1": human("rk-1"), "rk-other": human("rk-other")},
+            set(),
+            final_legacy_entries={
+                "rk-1": {
+                    "baseline_record_key": "rk-1",
+                    "review_status": "menneskeark",
+                    "reason": "endelig historisk afgørelse",
+                }
+            },
+        )
+
+
+def test_disjoint_final_and_provisional_mappings_keep_approved_output():
+    choices = {
+        "rk-new": choice(
+            "rk-new", "human_selected_candidate", candidate_id="c-new"
+        )
+    }
+    candidates = {"c-new": {
+        "baseline_record_key": "rk-new",
+        "candidate": anchored_candidate("c-new", offset=50),
+    }}
+    classifications = {"rk-final": human("rk-final"), "rk-new": human("rk-new")}
+    final_entries = {"rk-final": final_accepted("rk-final", "c-final")}
+    snapshot = copy.deepcopy((choices, candidates, classifications, final_entries))
+
+    converted = convert_review_choices(
+        choices,
+        candidates,
+        classifications,
+        set(),
+        final_legacy_entries=final_entries,
+    )
+
+    assert converted == {
+        "decisions": [{
+            "baseline_record_key": "rk-new",
+            "status": "accepteret",
+            "candidate_id": "c-new",
+        }],
+        "audit_results": [],
+    }
+    assert (choices, candidates, classifications, final_entries) == snapshot
+
+
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [

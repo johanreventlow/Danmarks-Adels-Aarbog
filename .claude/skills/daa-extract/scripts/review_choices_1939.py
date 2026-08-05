@@ -436,6 +436,9 @@ def convert_review_choices(
             raise ValueError("automatisk post uden audit må ikke have choice")
         validated_choices[key] = choice
 
+    if set(validated_choices) & set(final_legacy):
+        raise ValueError("modstridende final/provisional baseline_record_key-overlap")
+
     anchored = _anchored_index(anchored_candidates)
     automatic_candidates = {
         key: entry["candidate"]
