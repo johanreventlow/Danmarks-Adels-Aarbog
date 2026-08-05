@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import re
 from collections.abc import Mapping
 
@@ -10,6 +11,28 @@ from collections.abc import Mapping
 ALLOWED_STATUSES = {"accepteret", "eksplicit_dublet", "menneskeark"}
 POSTKLASSER = {"nummereret", "stamfader", "oversigtspost"}
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+LEGACY_REVIEW_ACCEPTED_FIELDS = {
+    "candidate_id",
+    "post_index",
+    "calamari_span",
+    "calamari_verbatim_text",
+    "pdf_pages",
+    "kind",
+    "raw_char_from",
+    "raw_char_to",
+    "raw_verbatim_text",
+    "raw_excerpt_sha256",
+}
+LEGACY_REVIEW_DECISION_FIELDS = LEGACY_REVIEW_ACCEPTED_FIELDS | {
+    "duplicate_of_baseline_record_key",
+    "reason",
+}
+LEGACY_REVIEW_ALLOWED_FIELDS = {
+    "baseline_record_key",
+    "review_status",
+    "baseline_locator",
+    "review_note",
+} | LEGACY_REVIEW_DECISION_FIELDS
 
 
 def _mapping(value: object, label: str) -> Mapping:
@@ -93,6 +116,72 @@ def duplicate_target_errors(
         elif entries[target].get(status_field) != "accepteret":
             errors[key] = "dubletmål skal være accepteret"
     return errors
+
+
+def legacy_review_entry_errors(entry: Mapping) -> list[str]:
+    """Return authoritative semantic errors for one legacy review-ledger entry."""
+    status = entry.get("review_status")
+    if status == "unreviewed":
+        if LEGACY_REVIEW_DECISION_FIELDS.intersection(entry):
+            return ["unreviewed må ikke have beslutningsfelter"]
+        return []
+    if status not in ALLOWED_STATUSES:
+        return ["ukendt review_status"]
+    if status == "accepteret":
+        missing = [
+            f"accepteret kræver {field}"
+            for field in sorted(LEGACY_REVIEW_ACCEPTED_FIELDS)
+            if field not in entry
+        ]
+        if missing:
+            return missing
+        try:
+            _nonempty_string(entry["candidate_id"], "candidate_id")
+            _nonnegative_int(entry["post_index"], "post_index")
+            span = _mapping(entry["calamari_span"], "calamari_span")
+            char_from = _nonnegative_int(span.get("char_from"), "calamari_span char_from")
+            char_to = _nonnegative_int(span.get("char_to"), "calamari_span char_to")
+            if char_from >= char_to:
+                return ["calamari_span skal have char_from < char_to"]
+            _nonempty_string(entry["calamari_verbatim_text"], "calamari_verbatim_text")
+            pages = entry["pdf_pages"]
+            if not isinstance(pages, list) or not pages:
+                return ["pdf_pages skal være en ikke-tom liste"]
+            if any(
+                not isinstance(page, int) or isinstance(page, bool) or page <= 0
+                for page in pages
+            ):
+                return ["pdf_pages skal være et positivt heltal"]
+            _nonempty_string(entry["kind"], "kind")
+            raw_from = _nonnegative_int(entry["raw_char_from"], "raw_char_from")
+            raw_to = _nonnegative_int(entry["raw_char_to"], "raw_char_to")
+            if raw_from >= raw_to:
+                return ["raw_char_from skal være mindre end raw_char_to"]
+            raw_verbatim = _nonempty_string(entry["raw_verbatim_text"], "raw_verbatim_text")
+            raw_digest = entry["raw_excerpt_sha256"]
+            if not isinstance(raw_digest, str) or not _SHA256_RE.fullmatch(raw_digest):
+                return ["raw_excerpt_sha256 skal være SHA-256 med små bogstaver"]
+            if raw_digest != hashlib.sha256(raw_verbatim.encode("utf-8")).hexdigest():
+                return ["raw_excerpt_sha256 matcher ikke raw_verbatim_text"]
+        except ValueError as error:
+            return [str(error)]
+        return []
+    if status == "eksplicit_dublet":
+        target = entry.get("duplicate_of_baseline_record_key")
+        if not isinstance(target, str) or not target.strip():
+            return ["eksplicit_dublet kræver duplicate_of_baseline_record_key"]
+        if LEGACY_REVIEW_ACCEPTED_FIELDS.intersection(entry) or "reason" in entry:
+            return ["eksplicit_dublet må ikke have kandidat- eller reason-felter"]
+        return []
+    reason = entry.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        return ["menneskeark kræver reason"]
+    if (
+        LEGACY_REVIEW_ACCEPTED_FIELDS.intersection(entry)
+        or "duplicate_of_baseline_record_key" in entry
+    ):
+        return ["menneskeark må ikke have kandidat- eller dubletfelter"]
+    return []
 
 
 def validate_coverage(bundle: dict, *, expected_baseline_keys: set[str]) -> dict[str, dict]:
