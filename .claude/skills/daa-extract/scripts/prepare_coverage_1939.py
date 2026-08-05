@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import argparse
+import copy
 import hashlib
 import io
 import json
@@ -18,6 +19,8 @@ from coverage_1939 import (
     duplicate_target_errors,
     validate_coverage,
 )
+from review_choices_1939 import convert_review_choices, validate_choice_export
+from review_queue_1939 import sample_auto_resolved
 import segment
 
 
@@ -496,6 +499,53 @@ def materialize_coverage(
     return bundle
 
 
+def convert_choice_export(
+    choices_path: Path,
+    queue_manifest_path: Path,
+    anchored_candidates_path: Path,
+    out_path: Path,
+) -> dict:
+    """Write one new after-control result from a source-pinned browser export."""
+    if out_path.exists():
+        raise FileExistsError(out_path)
+    queue = _mapping(
+        json.loads(queue_manifest_path.read_text(encoding="utf-8")), "queue manifest"
+    )
+    if queue.get("schema_version") != 1:
+        raise ValueError("queue manifest schema_version skal være 1")
+    audit_keys = set(sample_auto_resolved(dict(queue)))
+    entries = queue.get("entries")
+    if not isinstance(entries, list):
+        raise ValueError("queue manifest entries skal være en liste")
+    classifications: dict[str, dict] = {}
+    for raw_entry in entries:
+        entry = _mapping(raw_entry, "queue manifest entry")
+        key = entry.get("baseline_record_key")
+        if not isinstance(key, str) or not key:
+            raise ValueError("baseline_record_key mangler")
+        if key in classifications:
+            raise ValueError("dublet baseline_record_key")
+        classifications[key] = copy.deepcopy(dict(entry))
+
+    choices_root = json.loads(choices_path.read_text(encoding="utf-8"))
+    choices = validate_choice_export(
+        choices_root,
+        dict(_mapping(queue.get("source"), "queue source")),
+        set(classifications),
+    )
+    anchored = _mapping(
+        json.loads(anchored_candidates_path.read_text(encoding="utf-8")),
+        "anchored candidates",
+    )
+    converted = convert_review_choices(
+        choices, dict(anchored), classifications, audit_keys
+    )
+    with out_path.open("x", encoding="utf-8") as handle:
+        json.dump(converted, handle, ensure_ascii=False, indent=2, sort_keys=True)
+        handle.write("\n")
+    return converted
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Materialisér én ny, privat og fail-closed 1939 coverage-fil."
@@ -505,11 +555,14 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--check-review", type=Path)
     mode.add_argument("--review-summary", type=Path)
     mode.add_argument("--review-to-decisions", type=Path)
+    mode.add_argument("--choices-to-decisions", type=Path)
     parser.add_argument("--calamari", type=Path)
     parser.add_argument("--raw", type=Path)
     parser.add_argument("--pdf", type=Path)
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--decisions", type=Path)
+    parser.add_argument("--queue-manifest", type=Path)
+    parser.add_argument("--anchored-candidates", type=Path)
     parser.add_argument("--out", type=Path)
     args = parser.parse_args(argv)
     if args.make_review_template:
@@ -544,6 +597,24 @@ def main(argv: list[str] | None = None) -> int:
             json.dump(decisions, handle, ensure_ascii=False, indent=2, sort_keys=True)
             handle.write("\n")
         print(json.dumps({"out": str(args.out), "entries": len(decisions["entries"])}, ensure_ascii=False))
+        return 0
+    if args.choices_to_decisions is not None:
+        if args.queue_manifest is None or args.anchored_candidates is None or args.out is None:
+            parser.error(
+                "--choices-to-decisions kræver --queue-manifest, "
+                "--anchored-candidates og --out"
+            )
+        converted = convert_choice_export(
+            args.choices_to_decisions,
+            args.queue_manifest,
+            args.anchored_candidates,
+            args.out,
+        )
+        print(json.dumps({
+            "out": str(args.out),
+            "decisions": len(converted["decisions"]),
+            "audit_results": len(converted["audit_results"]),
+        }, ensure_ascii=False))
         return 0
     missing = [flag for flag, value in {
         "--calamari": args.calamari,

@@ -514,3 +514,119 @@ def test_review_to_decisions_refuses_unreviewed_and_preserves_explicit_fields():
                 "duplicate_of_baseline_record_key": "missing",
             },
         ]})
+
+
+def test_cli_converts_versioned_browser_choices_exclusively(tmp_path, capsys):
+    choices = tmp_path / "choices.json"
+    queue = tmp_path / "queue.json"
+    candidates = tmp_path / "candidates.json"
+    out = tmp_path / "new-decisions.json"
+    manifest_source = {
+        "edition": "1939",
+        "baseline_sha256": "a" * 64,
+        "calamari_sha256": "b" * 64,
+        "raw_ocr_sha256": "c" * 64,
+        "pdf_sha256": "d" * 64,
+        "profile_version": "1939-v2",
+    }
+    candidate = {
+        "candidate_id": "c-1",
+        "postklasse": "nummereret",
+        "calamari_span": {"char_from": 10, "char_to": 20},
+        "pdf_pages": [498],
+        "raw_structure_bridge": {
+            "kind": "record_start",
+            "raw_char_from": 100,
+            "raw_char_to": 110,
+            "raw_excerpt_sha256": "e" * 64,
+        },
+    }
+    choices.write_text(json.dumps({
+        "schema_version": 1,
+        "source": manifest_source,
+        "baseline_sha256": "a" * 64,
+        "exported_at": "2026-08-05T12:00:00+02:00",
+        "entries": [{
+            "baseline_record_key": "rk-1",
+            "outcome": "human_selected_candidate",
+            "candidate_id": "c-1",
+            "decided_at": "2026-08-05T11:59:00+02:00",
+        }],
+    }), encoding="utf-8")
+    queue.write_text(json.dumps({
+        "schema_version": 1,
+        "source": manifest_source,
+        "entries": [{
+            "baseline_record_key": "rk-1",
+            "queue_class": "human_required",
+            "reason_code": "multiple_candidates",
+            "reason_da": "flere kandidater",
+        }],
+    }), encoding="utf-8")
+    candidates.write_text(json.dumps({
+        "c-1": {"baseline_record_key": "rk-1", "candidate": candidate}
+    }), encoding="utf-8")
+
+    assert main([
+        "--choices-to-decisions", str(choices),
+        "--queue-manifest", str(queue),
+        "--anchored-candidates", str(candidates),
+        "--out", str(out),
+    ]) == 0
+
+    assert json.loads(out.read_text(encoding="utf-8")) == {
+        "decisions": [{
+            "baseline_record_key": "rk-1",
+            "status": "accepteret",
+            "candidate_id": "c-1",
+        }],
+        "audit_results": [],
+    }
+    assert json.loads(capsys.readouterr().out) == {
+        "out": str(out), "decisions": 1, "audit_results": 0,
+    }
+    with pytest.raises(FileExistsError):
+        main([
+            "--choices-to-decisions", str(choices),
+            "--queue-manifest", str(queue),
+            "--anchored-candidates", str(candidates),
+            "--out", str(out),
+        ])
+
+
+def test_cli_choice_conversion_rejects_stale_source_without_output(tmp_path):
+    choices = tmp_path / "choices.json"
+    queue = tmp_path / "queue.json"
+    candidates = tmp_path / "candidates.json"
+    out = tmp_path / "new-decisions.json"
+    source_value = {
+        "edition": "1939",
+        "baseline_sha256": "a" * 64,
+        "calamari_sha256": "b" * 64,
+        "raw_ocr_sha256": "c" * 64,
+        "pdf_sha256": "d" * 64,
+        "profile_version": "1939-v2",
+    }
+    stale = dict(source_value, raw_ocr_sha256="f" * 64)
+    choices.write_text(json.dumps({
+        "schema_version": 1, "source": stale,
+        "exported_at": "2026-08-05T12:00:00+02:00",
+        "entries": [{"baseline_record_key": "rk-1", "outcome": "undecidable",
+                     "reason": "uklar kilde"}],
+    }), encoding="utf-8")
+    queue.write_text(json.dumps({
+        "schema_version": 1, "source": source_value,
+        "entries": [{"baseline_record_key": "rk-1", "queue_class": "human_required",
+                     "reason_code": "multiple_candidates", "reason_da": "flere"}],
+    }), encoding="utf-8")
+    candidates.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="source/version"):
+        main([
+            "--choices-to-decisions", str(choices),
+            "--queue-manifest", str(queue),
+            "--anchored-candidates", str(candidates),
+            "--out", str(out),
+        ])
+
+    assert not out.exists()
