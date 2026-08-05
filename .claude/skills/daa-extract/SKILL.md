@@ -199,8 +199,10 @@ Kør fra worktree-roden. Denne pilot bruger det komplette, men stadig uafgjorte
 og positiv proveniens bliver `human_required`. Samme-side-forslag i HTML'en er kun
 visningshjælp og bliver aldrig automatisk accepteret. Et namespaced
 `presentation:1939-v2:post:<indeks>`-id gør manglende eller kolliderende parser-id'er
-stabile inden for de fastlåste kilder; id'et er ikke positiv proveniens og må ikke
-bruges som `anchored_candidates` uden en separat eksakt kildebro.
+stabile inden for de fastlåste kilder; id'et er ikke positiv proveniens. Task 5
+ignorerer sådanne id'er ved ankerindlæsning og parkerer altid et valgt
+`presentation:`-id som `menneskeark`, også hvis en kandidatfil forsøger at give det
+en komplet, fabrikeret kildebro.
 
 ```bash
 /usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_review_queue_1939.py \
@@ -249,6 +251,14 @@ det validerede beslutnings-/auditresultat i en ny review-version, og regenerér 
 rapport og HTML med nye `v2`-filnavne. Alle scripts bruger eksklusiv oprettelse og
 nægter at overskrive eksisterende output. Slet eller genbrug derfor aldrig V1/V5
 som genkørselsmål. Ingen genereret fil under `work/` må committes.
+
+En source-løs reviewfil er kun gyldig som fuldt dækkende, strengt `unreviewed`
+template uden beslutnings- eller auditfelter. Så snart reviewet indeholder valg,
+slutbeslutninger eller auditresultater, skal `source` være komplet og identisk med
+køens source. Foreløbige Task 5-valg tæller aldrig som afsluttede; kun semantisk
+validerede legacy-slutbeslutninger tæller menneskeposter som gennemgået, og kun et
+schema-gyldigt `audit_confirmed` kan opfylde en audit. `audit_failed` og
+`audit_undecidable` blokerer den berørte regelgruppe og dermed publikation.
 
 ## Vigtige principper
 

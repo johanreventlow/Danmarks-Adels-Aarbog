@@ -8,7 +8,13 @@ import json
 
 import pytest
 
-from prepare_review_queue_1939 import build_queue_report, build_review_view_model, main
+import prepare_review_queue_1939 as subject
+from prepare_review_queue_1939 import (
+    _review_state,
+    build_queue_report,
+    build_review_view_model,
+    main,
+)
 
 
 def source():
@@ -424,3 +430,166 @@ def test_main_preflights_both_outputs_and_rejects_unpinned_profile(tmp_path):
         main(args)
     assert not queue_path.exists()
     assert not report_path.exists()
+
+
+def test_source_less_bare_accepted_546_review_is_rejected_without_outputs(tmp_path):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    baseline_path = tmp_path / "baseline.json"
+    evidence_path = tmp_path / "evidence.json"
+    review_path = tmp_path / "review.json"
+    records = [baseline(f"rk-{number}") for number in range(546)]
+    baseline_path.write_text(json.dumps(records), encoding="utf-8")
+    evidence_path.write_text(json.dumps({"entries": [
+        {"baseline_record_key": record["record_key"]} for record in records
+    ]}), encoding="utf-8")
+    review_path.write_text(json.dumps({
+        "schema_version": 1,
+        "baseline_sha256": hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
+        "entries": [
+            {"baseline_record_key": record["record_key"], "review_status": "accepteret"}
+            for record in records
+        ],
+    }), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="source"):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
+def test_review_state_rejects_source_mismatch_and_malformed_accepted_evidence():
+    mismatch = {"source": {**source(), "raw_ocr_sha256": "f" * 64}, "entries": []}
+    with pytest.raises(ValueError, match="source hashes"):
+        _review_state(mismatch, source(), {"rk-1"})
+
+    malformed = accepted_decision("rk-1")
+    malformed["raw_excerpt_sha256"] = "0" * 64
+    with pytest.raises(ValueError, match="matcher ikke raw_verbatim_text"):
+        _review_state(
+            {"schema_version": 1, "source": source(), "entries": [malformed]},
+            source(),
+            {"rk-1"},
+        )
+
+
+def test_only_exact_source_semantically_complete_final_decisions_count_completed():
+    accepted = accepted_decision("rk-1")
+    converted = {**accepted, "status": accepted["review_status"]}
+    converted.pop("review_status")
+
+    completed, audit_results = _review_state(
+        {"schema_version": 1, "source": source(), "decisions": [converted]},
+        source(),
+        {"rk-1"},
+    )
+
+    assert completed == {"rk-1"}
+    assert audit_results == []
+
+
+def test_valid_provisional_choice_export_is_not_completed_before_conversion():
+    completed, audit_results = _review_state(
+        {
+            "schema_version": 1,
+            "source": source(),
+            "exported_at": "2026-08-05T12:00:00+02:00",
+            "entries": [{
+                "baseline_record_key": "rk-1",
+                "outcome": "undecidable",
+                "reason": "kilden kan ikke afgøres",
+            }],
+        },
+        source(),
+        {"rk-1"},
+    )
+
+    assert completed == set()
+    assert audit_results == []
+
+
+def test_source_less_audit_and_invalid_audit_schema_are_rejected():
+    with pytest.raises(ValueError, match="source"):
+        _review_state(
+            {
+                "schema_version": 1,
+                "baseline_sha256": "a" * 64,
+                "entries": [{"baseline_record_key": "rk-1", "review_status": "unreviewed"}],
+                "audit_results": [{
+                    "baseline_record_key": "rk-1",
+                    "audit_status": "audit_confirmed",
+                    "rule_id": "complete_anchor_v1",
+                }],
+            },
+            source(),
+            {"rk-1"},
+        )
+
+    with pytest.raises(ValueError, match="audit result"):
+        _review_state(
+            {
+                "schema_version": 1,
+                "source": source(),
+                "audit_results": [{
+                    "baseline_record_key": "rk-1",
+                    "audit_status": "audit_confirmed",
+                    "rule_id": "complete_anchor_v1",
+                    "reason": "bekræftet må ikke have reason",
+                }],
+            },
+            source(),
+            {"rk-1"},
+        )
+
+
+def test_valid_failed_or_undecidable_audit_blocks_rule_group():
+    auto = automatic("rk-auto")
+    humans = [human(f"rk-human-{number}") for number in range(545)]
+    completed, audit_results = _review_state(
+        {
+            "schema_version": 1,
+            "source": source(),
+            "audit_results": [{
+                "baseline_record_key": "rk-auto",
+                "audit_status": "audit_undecidable",
+                "rule_id": "complete_anchor_v1",
+                "reason": "mennesket kunne ikke afgøre kontrollen",
+            }],
+        },
+        source(),
+        {"rk-auto", *{entry["baseline_record_key"] for entry in humans}},
+    )
+    completed.update(entry["baseline_record_key"] for entry in humans)
+
+    report = build_queue_report(
+        manifest(auto, *humans),
+        audit_keys=["rk-auto"],
+        completed_keys=completed,
+        audit_results=audit_results,
+    )
+
+    assert report["audit_confirmed"] == 0
+    assert report["audit_blocked_rule_groups"] == ["complete_anchor_v1|nummereret"]
+    assert report["publication_gate"] == "NO-GO"
+
+
+def test_exclusive_writer_removes_partial_file_and_allows_immediate_retry(
+    tmp_path, monkeypatch
+):
+    out = tmp_path / "report.json"
+    real_dump = subject.json.dump
+
+    def fail_mid_write(value, handle, **kwargs):
+        handle.write("{partial")
+        raise OSError("simuleret write-fejl")
+
+    monkeypatch.setattr(subject.json, "dump", fail_mid_write)
+    with pytest.raises(OSError, match="simuleret write-fejl"):
+        subject._write_json_exclusive(out, {"publication_gate": "NO-GO"})
+    assert not out.exists()
+
+    monkeypatch.setattr(subject.json, "dump", real_dump)
+    subject._write_json_exclusive(out, {"publication_gate": "NO-GO"})
+    assert json.loads(out.read_text(encoding="utf-8")) == {
+        "publication_gate": "NO-GO"
+    }

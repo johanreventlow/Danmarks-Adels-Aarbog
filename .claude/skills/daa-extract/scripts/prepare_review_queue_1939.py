@@ -10,6 +10,12 @@ import hashlib
 import json
 from pathlib import Path
 
+from coverage_1939 import (
+    LEGACY_REVIEW_ALLOWED_FIELDS,
+    duplicate_target_errors,
+    legacy_review_entry_errors,
+)
+from review_choices_1939 import validate_choice_export
 from review_queue_1939 import (
     QUEUE_CLASSES,
     classify_review_entries,
@@ -448,19 +454,120 @@ def _input_entries(value: object, label: str) -> list[dict]:
     return copy.deepcopy(entries)
 
 
+def _validate_review_metadata(entry: Mapping) -> None:
+    if "baseline_locator" in entry:
+        locator = entry["baseline_locator"]
+        if not isinstance(locator, Mapping) or set(locator) != {"pages", "local_id"}:
+            raise ValueError("baseline_locator har uautoriserede eller manglende felter")
+        if locator["pages"] is not None and not isinstance(locator["pages"], str):
+            raise ValueError("baseline_locator pages skal være en streng eller null")
+        if locator["local_id"] is not None and not isinstance(locator["local_id"], str):
+            raise ValueError("baseline_locator local_id skal være en streng eller null")
+    if "review_note" in entry and not isinstance(entry["review_note"], str):
+        raise ValueError("review_note skal være en streng")
+
+
+def _source_less_template_keys(
+    value: Mapping, source: dict, baseline_keys: set[str]
+) -> set[str]:
+    allowed_root = {"schema_version", "baseline_sha256", "entries"}
+    if set(value) - allowed_root or value.get("schema_version", 1) != 1:
+        raise ValueError("review source kræves for beslutnings- eller auditdata")
+    if value.get("baseline_sha256") != source["baseline_sha256"]:
+        raise ValueError("review baseline hash matcher ikke")
+    entries = value.get("entries")
+    if not isinstance(entries, list):
+        raise ValueError("source-løs review template entries skal være en liste")
+    allowed_entry = {
+        "baseline_record_key", "review_status", "baseline_locator", "review_note",
+    }
+    seen: set[str] = set()
+    for item in entries:
+        if (
+            not isinstance(item, Mapping)
+            or set(item) - allowed_entry
+            or item.get("review_status") != "unreviewed"
+        ):
+            raise ValueError("review source kræves for beslutnings- eller auditdata")
+        key = _nonempty(item.get("baseline_record_key"), "baseline_record_key")
+        if key not in baseline_keys:
+            raise ValueError("review har ukendt baseline_record_key")
+        if key in seen:
+            raise ValueError("dublet review baseline_record_key")
+        seen.add(key)
+        _validate_review_metadata(item)
+    if seen != baseline_keys:
+        raise ValueError("source-løs review template baseline-dækning fejler")
+    return seen
+
+
+def _validate_audit_results(value: object, baseline_keys: set[str]) -> list[dict]:
+    if not isinstance(value, list):
+        raise ValueError("review audit_results skal være en liste")
+    statuses = {"audit_confirmed", "audit_failed", "audit_undecidable"}
+    seen: set[str] = set()
+    results: list[dict] = []
+    for raw_result in value:
+        if not isinstance(raw_result, Mapping):
+            raise ValueError("audit result skal være en mapping")
+        result = copy.deepcopy(dict(raw_result))
+        key = _nonempty(result.get("baseline_record_key"), "audit baseline_record_key")
+        status = result.get("audit_status")
+        if key not in baseline_keys:
+            raise ValueError("audit result har ukendt baseline_record_key")
+        if key in seen:
+            raise ValueError("dublet audit baseline_record_key")
+        if status not in statuses:
+            raise ValueError("audit result har ukendt audit_status")
+        _nonempty(result.get("rule_id"), "audit rule_id")
+        required = {"baseline_record_key", "audit_status", "rule_id"}
+        if status == "audit_confirmed":
+            if set(result) != required:
+                raise ValueError("audit result har ugyldig schema")
+        else:
+            if set(result) != required | {"reason"}:
+                raise ValueError("audit result har ugyldig schema")
+            _nonempty(result["reason"], "audit reason")
+        seen.add(key)
+        results.append(result)
+    return results
+
+
 def _review_state(
     value: object, source: dict, baseline_keys: set[str]
 ) -> tuple[set[str], list[dict]]:
     if not isinstance(value, Mapping):
         raise ValueError("review skal være en mapping")
     review_source = value.get("source")
-    if review_source is not None and review_source != source:
+    if review_source is None:
+        _source_less_template_keys(value, source, baseline_keys)
+        return set(), []
+    if review_source != source:
         raise ValueError("review source hashes matcher ikke")
+    if value.get("schema_version") != 1:
+        raise ValueError("review schema_version skal være 1")
     baseline_sha256 = value.get("baseline_sha256")
     if baseline_sha256 is not None and baseline_sha256 != source["baseline_sha256"]:
         raise ValueError("review baseline hash matcher ikke")
 
-    completed: set[str] = set()
+    entries = value.get("entries", [])
+    if "exported_at" in value or (
+        isinstance(entries, list)
+        and any(isinstance(item, Mapping) and "outcome" in item for item in entries)
+    ):
+        context = validate_choice_export(
+            copy.deepcopy(dict(value)), source, baseline_keys, include_context=True
+        )
+        return set(context["final_legacy_entries"]), []
+
+    allowed_root = {
+        "schema_version", "source", "baseline_sha256", "entries", "decisions",
+        "audit_results",
+    }
+    if set(value) - allowed_root:
+        raise ValueError("review har uautoriserede felter")
+
+    legacy_entries: dict[str, dict] = {}
     seen: set[str] = set()
     for container, status_field in ((value.get("entries", []), "review_status"),
                                     (value.get("decisions", []), "status")):
@@ -475,21 +582,46 @@ def _review_state(
             if key in seen:
                 raise ValueError("dublet review baseline_record_key")
             seen.add(key)
-            status = item.get(status_field)
-            if status in _COMPLETED_STATUSES:
-                completed.add(key)
-            elif status not in (None, "", "unreviewed"):
-                raise ValueError("ukendt review status")
-    audit_results = value.get("audit_results", [])
-    if not isinstance(audit_results, list):
-        raise ValueError("review audit_results skal være en liste")
-    return completed, copy.deepcopy(audit_results)
+            entry = copy.deepcopy(dict(item))
+            if status_field == "status":
+                if "review_status" in entry:
+                    raise ValueError("review decision har både status og review_status")
+                entry["review_status"] = entry.pop("status", None)
+            if set(entry) - LEGACY_REVIEW_ALLOWED_FIELDS:
+                raise ValueError("review decision har uautoriserede felter")
+            _validate_review_metadata(entry)
+            errors = legacy_review_entry_errors(entry)
+            if errors:
+                raise ValueError(errors[0])
+            legacy_entries[key] = entry
+    target_errors = duplicate_target_errors(
+        legacy_entries, status_field="review_status"
+    )
+    if target_errors:
+        raise ValueError(next(iter(target_errors.values())))
+    audit_results = _validate_audit_results(value.get("audit_results", []), baseline_keys)
+    completed = {
+        key for key, entry in legacy_entries.items()
+        if entry["review_status"] in _COMPLETED_STATUSES
+    }
+    return completed, audit_results
 
 
 def _write_json_exclusive(path: Path, value: object) -> None:
-    with path.open("x", encoding="utf-8") as handle:
-        json.dump(value, handle, ensure_ascii=False, indent=2, sort_keys=True)
-        handle.write("\n")
+    created = False
+    try:
+        with path.open("x", encoding="utf-8") as handle:
+            created = True
+            json.dump(value, handle, ensure_ascii=False, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+    except BaseException:
+        if created:
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+        raise
 
 
 def main(argv: list[str] | None = None) -> int:

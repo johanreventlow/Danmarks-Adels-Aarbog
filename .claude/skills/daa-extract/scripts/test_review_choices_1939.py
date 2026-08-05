@@ -109,6 +109,57 @@ def test_selected_candidate_promotes_only_when_exact_candidate_exists():
     assert converted["audit_results"] == []
 
 
+def test_presentation_candidate_never_promotes_despite_complete_fabricated_anchor():
+    candidate_id = "presentation:1939-v2:post:7"
+    converted = convert_review_choices(
+        {"rk-1": choice(
+            "rk-1", "human_selected_candidate", candidate_id=candidate_id
+        )},
+        {candidate_id: {
+            "baseline_record_key": "rk-1",
+            "candidate": anchored_candidate(candidate_id),
+        }},
+        {"rk-1": human("rk-1")},
+        set(),
+    )
+
+    assert converted["decisions"] == [{
+        "baseline_record_key": "rk-1",
+        "status": "menneskeark",
+        "reason": (
+            "human_selected_candidate_is_presentation_only:"
+            "presentation:1939-v2:post:7"
+        ),
+    }]
+
+
+def test_unused_presentation_wrapper_does_not_affect_real_anchor_promotion():
+    presentation_id = "presentation:1939-v2:post:8"
+    converted = convert_review_choices(
+        {"rk-1": choice(
+            "rk-1", "human_selected_candidate", candidate_id="c-real"
+        )},
+        {
+            "c-real": {
+                "baseline_record_key": "rk-1",
+                "candidate": anchored_candidate("c-real"),
+            },
+            presentation_id: {
+                "baseline_record_key": "rk-unused",
+                "candidate": anchored_candidate(presentation_id),
+            },
+        },
+        {"rk-1": human("rk-1")},
+        set(),
+    )
+
+    assert converted["decisions"] == [{
+        "baseline_record_key": "rk-1",
+        "status": "accepteret",
+        "candidate_id": "c-real",
+    }]
+
+
 def test_selected_candidate_without_exact_anchor_remains_parked():
     converted = convert_review_choices(
         {"rk-1": choice("rk-1", "human_selected_candidate", candidate_id="c-1")},

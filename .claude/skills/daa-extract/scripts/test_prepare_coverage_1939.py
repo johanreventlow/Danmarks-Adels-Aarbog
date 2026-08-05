@@ -939,3 +939,43 @@ def test_cli_parks_selected_wrapper_with_nested_duplicate(tmp_path):
         "status": "menneskeark",
         "reason": "human_selected_candidate_requires_exact_anchor:c-bad",
     }]
+
+
+def test_cli_never_promotes_selected_presentation_candidate(tmp_path):
+    candidate_id = "presentation:1939-v2:post:7"
+    anchored_json = json.dumps({
+        candidate_id: {
+            "baseline_record_key": "rk-bad",
+            "candidate": {
+                "candidate_id": candidate_id,
+                "postklasse": "nummereret",
+                "calamari_span": {"char_from": 10, "char_to": 20},
+                "pdf_pages": [498],
+                "raw_structure_bridge": {
+                    "kind": "record_start",
+                    "raw_char_from": 100,
+                    "raw_char_to": 110,
+                    "raw_excerpt_sha256": "e" * 64,
+                },
+            },
+        },
+    })
+    choices, queue, candidates, out = _write_nested_duplicate_candidate_case(
+        tmp_path, candidate_id, anchored_json
+    )
+
+    assert main([
+        "--choices-to-decisions", str(choices),
+        "--queue-manifest", str(queue),
+        "--anchored-candidates", str(candidates),
+        "--out", str(out),
+    ]) == 0
+
+    assert json.loads(out.read_text(encoding="utf-8"))["decisions"] == [{
+        "baseline_record_key": "rk-bad",
+        "status": "menneskeark",
+        "reason": (
+            "human_selected_candidate_is_presentation_only:"
+            "presentation:1939-v2:post:7"
+        ),
+    }]

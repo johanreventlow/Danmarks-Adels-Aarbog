@@ -22,6 +22,7 @@ _OUTCOMES = {
     "undecidable",
 }
 _FINAL_LEGACY_STATUSES = {"accepteret", "eksplicit_dublet", "menneskeark"}
+_PRESENTATION_CANDIDATE_PREFIX = "presentation:"
 _PRESERVED_METADATA_FIELDS = {"review_status", "baseline_locator", "review_note"}
 _SOURCE_FIELDS = {
     "edition",
@@ -275,7 +276,11 @@ def _anchored_index(value: object) -> dict[str, object]:
     anchored = _mapping(value, "anchored_candidates")
     result: dict[str, object] = {}
     for map_id, raw_wrapper in anchored.items():
-        if isinstance(map_id, str) and map_id:
+        if (
+            isinstance(map_id, str)
+            and map_id
+            and not map_id.startswith(_PRESENTATION_CANDIDATE_PREFIX)
+        ):
             result[map_id] = copy.deepcopy(raw_wrapper)
     return result
 
@@ -284,6 +289,8 @@ def _selected_candidate(
     anchored: Mapping[str, object], key: str, candidate_id: str
 ) -> dict | None:
     """Return one exact, owner-matched candidate; malformed selections stay local."""
+    if candidate_id.startswith(_PRESENTATION_CANDIDATE_PREFIX):
+        return None
     wrapper = anchored.get(candidate_id)
     if not isinstance(wrapper, Mapping) or wrapper.get("baseline_record_key") != key:
         return None
@@ -474,10 +481,20 @@ def convert_review_choices(
             candidate_id = one_choice["candidate_id"]
             candidate = proposed.get(key)
             if candidate is None:
+                if candidate_id.startswith(_PRESENTATION_CANDIDATE_PREFIX):
+                    reason = (
+                        "human_selected_candidate_is_presentation_only:"
+                        f"{candidate_id}"
+                    )
+                else:
+                    reason = (
+                        "human_selected_candidate_requires_exact_anchor:"
+                        f"{candidate_id}"
+                    )
                 decisions.append({
                     "baseline_record_key": key,
                     "status": "menneskeark",
-                    "reason": f"human_selected_candidate_requires_exact_anchor:{candidate_id}",
+                    "reason": reason,
                 })
             elif key in collision_keys:
                 decisions.append({
