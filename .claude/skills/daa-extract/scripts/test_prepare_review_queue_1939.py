@@ -319,7 +319,7 @@ def test_report_accounts_for_every_record_and_fails_closed():
     assert report["publication_gate"] == "NO-GO"
 
 
-def test_report_is_go_only_for_546_completed_or_validated_and_confirmed_records():
+def test_loose_report_inputs_cannot_publish_even_with_546_fabricated_green_counts():
     auto = automatic("rk-auto")
     humans = [human(f"rk-human-{number}") for number in range(545)]
     completed = {entry["baseline_record_key"] for entry in humans}
@@ -337,7 +337,97 @@ def test_report_is_go_only_for_546_completed_or_validated_and_confirmed_records(
     assert report["baseline_total"] == 546
     assert report["stratum_counts"] == {"complete_anchor_v1|nummereret": 1}
     assert report["audit_blocked_rule_groups"] == []
+    assert report["publication_gate"] == "NO-GO"
+
+
+def test_plain_mapping_cannot_fabricate_validated_review_state():
+    auto = automatic("rk-auto")
+    humans = [human(f"rk-human-{number}") for number in range(545)]
+    queue = manifest(auto, *humans)
+
+    with pytest.raises(ValueError, match="review_state.*valideret type"):
+        build_queue_report(queue, review_state={
+            "manifest": queue,
+            "audit_keys": ["rk-auto"],
+            "completed_keys": {
+                entry["baseline_record_key"] for entry in humans
+            },
+            "audit_results": [_audit_confirmed("rk-auto")],
+        })
+
+
+def test_actual_review_state_validation_is_required_for_synthetic_go_boundary():
+    auto = automatic("rk-auto")
+    humans = [human(f"rk-human-{number}") for number in range(545)]
+    queue = manifest(auto, *humans)
+    human_keys = {entry["baseline_record_key"] for entry in humans}
+    review_state = _review_state(
+        {
+            "decisions": [
+                {
+                    "baseline_record_key": key,
+                    "status": "menneskeark",
+                    "reason": "manuelt afsluttet",
+                }
+                for key in sorted(human_keys)
+            ],
+            "audit_results": [_audit_confirmed("rk-auto")],
+        },
+        source(),
+        {"rk-auto", *human_keys},
+        manifest=queue,
+    )
+
+    report = build_queue_report(queue, review_state=review_state)
+
+    assert report["baseline_total"] == 546
+    assert report["audit_confirmed"] == 1
+    assert report["completed"] == 545
     assert report["publication_gate"] == "GO"
+
+    with pytest.raises(ValueError, match="må ikke blandes"):
+        build_queue_report(
+            queue,
+            completed_keys=human_keys,
+            review_state=review_state,
+        )
+
+
+@pytest.mark.parametrize(
+    ("tamper", "message"),
+    [
+        ("token", "internt valideret type"),
+        ("schema", "ugyldig intern schema"),
+        ("manifest", "manifest matcher ikke"),
+        ("source", "source matcher ikke"),
+    ],
+)
+def test_validated_review_state_is_rechecked_at_report_boundary(tamper, message):
+    queue = manifest(human("rk-human"))
+    review_state = _review_state(
+        {
+            "decisions": [{
+                "baseline_record_key": "rk-human",
+                "status": "menneskeark",
+                "reason": "manuelt afsluttet",
+            }],
+            "audit_results": [],
+        },
+        source(),
+        {"rk-human"},
+        manifest=queue,
+    )
+    if tamper == "token":
+        object.__setattr__(review_state, "_validation_token", object())
+    elif tamper == "schema":
+        object.__setattr__(review_state, "completed_keys", {"rk-human"})
+    elif tamper == "manifest":
+        review_state.manifest["entries"][0]["reason_code"] = "tampered"
+    else:
+        review_state.source["raw_ocr_sha256"] = "f" * 64
+
+    with pytest.raises(ValueError, match=message):
+        build_queue_report(queue, review_state=review_state)
 
 
 def test_546_presentation_automatics_cannot_pass_validation_or_publication():

@@ -6,7 +6,7 @@ import argparse
 import copy
 from collections import Counter
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import json
 from pathlib import Path
@@ -50,14 +50,19 @@ _CANDIDATE_FIELDS = {
 }
 
 
+_VALIDATED_REVIEW_STATE_TOKEN = object()
+
+
 @dataclass(frozen=True)
 class _ValidatedReviewState:
     """One validated partition consumed by both queue and report writers."""
 
+    source: dict
     manifest: dict | None
     audit_keys: tuple[str, ...]
     completed_keys: frozenset[str]
     audit_results: tuple[dict, ...]
+    _validation_token: object = field(repr=False, compare=False)
 
     def __iter__(self):
         """Preserve the private helper's historical two-value unpacking API."""
@@ -354,14 +359,29 @@ def build_queue_report(
     review_state: _ValidatedReviewState | None = None,
 ) -> dict:
     """Account for the private queue and keep publication fail-closed."""
+    has_validated_review_state = False
     if review_state is not None:
         if any(value is not None for value in (audit_keys, completed_keys, audit_results)):
             raise ValueError("review_state må ikke blandes med løse review-felter")
+        if (
+            type(review_state) is not _ValidatedReviewState
+            or review_state._validation_token is not _VALIDATED_REVIEW_STATE_TOKEN
+        ):
+            raise ValueError("review_state skal være en internt valideret type")
         if review_state.manifest != manifest:
             raise ValueError("review_state manifest matcher ikke queue manifest")
+        if review_state.source != manifest.get("source"):
+            raise ValueError("review_state source matcher ikke queue manifest")
+        if (
+            type(review_state.audit_keys) is not tuple
+            or type(review_state.completed_keys) is not frozenset
+            or type(review_state.audit_results) is not tuple
+        ):
+            raise ValueError("review_state har ugyldig intern schema")
         audit_keys = list(review_state.audit_keys)
         completed_keys = set(review_state.completed_keys)
         audit_results = [copy.deepcopy(result) for result in review_state.audit_results]
+        has_validated_review_state = True
     entries, by_key = _queue_entries(manifest)
     source = manifest.get("source")
     if not isinstance(source, Mapping):
@@ -397,6 +417,24 @@ def build_queue_report(
         if key not in audit_set:
             raise ValueError("audit result har ikke-samplet baseline_record_key")
         result_by_key[key] = result
+
+    if has_validated_review_state:
+        validated_results = _validate_audit_results(audit_results, set(by_key))
+        if validated_results != audit_results:
+            raise ValueError("review_state audit_results er ikke kanoniske")
+        if completed_keys & set(result_by_key):
+            raise ValueError("review_state beslutnings- og auditnøgler overlapper")
+        if any(by_key[key]["queue_class"] == "auto_resolved" for key in completed_keys):
+            raise ValueError("review_state har auto_resolved completed key")
+        expected_state_audit_keys = sample_auto_resolved(copy.deepcopy(manifest))
+        if audit_keys != expected_state_audit_keys:
+            raise ValueError("review_state audit sample matcher ikke manifest")
+        for key, result in result_by_key.items():
+            if (
+                by_key[key]["queue_class"] != "auto_resolved"
+                or result["rule_id"] != by_key[key].get("rule_id")
+            ):
+                raise ValueError("review_state audit matcher ikke auto_resolved entry")
 
     expected_audit_keys: list[str] = []
     automatic_candidates_valid = True
@@ -438,7 +476,7 @@ def build_queue_report(
             for key in audit_set
         )
     )
-    publication_ready = all((
+    publication_ready = has_validated_review_state and all((
         len(entries) == 546,
         automatic_candidates_valid,
         audit_sample_matches,
@@ -1007,10 +1045,12 @@ def _review_state(
     if review_source is None and not task5_output:
         _source_less_template_keys(value, source, baseline_keys)
         return _ValidatedReviewState(
+            source=copy.deepcopy(source),
             manifest=copy.deepcopy(dict(manifest)) if manifest is not None else None,
             audit_keys=tuple(sample_auto_resolved(dict(manifest))) if manifest else (),
             completed_keys=frozenset(),
             audit_results=(),
+            _validation_token=_VALIDATED_REVIEW_STATE_TOKEN,
         )
     if review_source is not None:
         if review_source != source:
@@ -1113,10 +1153,12 @@ def _review_state(
         if decision["review_status"] in _COMPLETED_STATUSES
     }
     return _ValidatedReviewState(
+        source=copy.deepcopy(source),
         manifest=validated_manifest,
         audit_keys=tuple(audit_keys),
         completed_keys=frozenset(completed),
         audit_results=tuple(copy.deepcopy(audit_results)),
+        _validation_token=_VALIDATED_REVIEW_STATE_TOKEN,
     )
 
 
