@@ -59,17 +59,19 @@ def sample_auto_resolved(
 
     seed = _source_seed(source)
     strata = defaultdict(list)
+    seen_keys: set[str] = set()
     for entry in entries:
         if not isinstance(entry, Mapping):
             raise ValueError("manifest entry skal være en mapping")
-        if entry.get("queue_class") == "auto_resolved":
-            try:
-                stratum = (entry["rule_id"], entry["postklasse"])
-                key = entry["baseline_record_key"]
-            except KeyError as error:
-                raise ValueError("auto_resolved entry mangler sampling-felt") from error
-            if not all(isinstance(value, str) and value for value in (*stratum, key)):
-                raise ValueError("auto_resolved sampling-felter skal være ikke-tomme strenge")
+        key = _nonempty_string(entry.get("baseline_record_key"), "baseline_record_key")
+        if key in seen_keys:
+            raise ValueError("dublet baseline_record_key")
+        seen_keys.add(key)
+        queue_class = entry.get("queue_class")
+        if queue_class not in QUEUE_CLASSES:
+            raise ValueError("ukendt queue_class")
+        if queue_class == "auto_resolved":
+            stratum = _validate_auto_resolved_entry(entry, source)
             strata[stratum].append(entry)
 
     selected = []
@@ -106,6 +108,24 @@ def _validate_rate(rate: float, minimum_per_stratum: int) -> None:
 
 def _source_seed(source: Mapping) -> str:
     return source["baseline_sha256"]
+
+
+def _validate_auto_resolved_entry(entry: Mapping, source: Mapping) -> tuple[str, str]:
+    _nonempty_string(entry.get("baseline_record_key"), "baseline_record_key")
+    if entry.get("queue_class") != "auto_resolved":
+        raise ValueError("queue_class skal være auto_resolved")
+    if entry.get("reason_code") != "complete_unique_anchored_candidate":
+        raise ValueError("auto_resolved reason_code er ugyldig")
+    _nonempty_string(entry.get("reason_da"), "reason_da")
+    rule_id = _nonempty_string(entry.get("rule_id"), "rule_id")
+    postklasse = _nonempty_string(entry.get("postklasse"), "postklasse")
+    candidate = entry.get("candidate")
+    if not isinstance(candidate, dict):
+        raise ValueError("auto_resolved entry kræver candidate som dict")
+    _validate_one_candidate_with_existing_contract(
+        entry["baseline_record_key"], candidate, source
+    )
+    return rule_id, postklasse
 
 
 def _validate_source_manifest(source: object) -> None:

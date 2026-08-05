@@ -414,3 +414,40 @@ def test_sample_is_independent_of_manifest_order_and_does_not_mutate_it():
     reordered["entries"].reverse()
     assert sample_auto_resolved(manifest) == sample_auto_resolved(reordered)
     assert manifest == snapshot
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda entry: entry.pop("candidate"),
+        lambda entry: entry.update(queue_class="auto_resolved "),
+        lambda entry: entry.update(reason_code="no_candidate"),
+        lambda entry: entry.update(reason_da=""),
+        lambda entry: entry.update(rule_id=""),
+        lambda entry: entry.update(postklasse=""),
+    ],
+)
+def test_sample_rejects_malformed_auto_resolved_entry(mutation):
+    entry = automatic("rk-1")
+    mutation(entry)
+    with pytest.raises(ValueError):
+        sample_auto_resolved(queue_manifest(entry))
+
+
+def test_sample_rejects_candidate_with_invalid_identity():
+    entry = automatic("rk-1")
+    entry["candidate"]["candidate_id"] = ""
+    with pytest.raises(ValueError):
+        sample_auto_resolved(queue_manifest(entry))
+
+
+@pytest.mark.parametrize(
+    "entries",
+    [
+        (automatic("rk-1"), automatic("rk-1", rule_id="other_rule_v1")),
+        (automatic("rk-1"), human("rk-1")),
+    ],
+)
+def test_sample_rejects_duplicate_baseline_record_keys_across_manifest(entries):
+    with pytest.raises(ValueError, match="dublet baseline_record_key"):
+        sample_auto_resolved(queue_manifest(*entries))
