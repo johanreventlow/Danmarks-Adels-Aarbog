@@ -5924,6 +5924,12 @@ FROM PUBLIC,anon,authenticated;
 -- =====================================================================
 -- EVIDENSBASERET GENIMPORT FASE 2 / TASK 1 — PROMOTIONREGLER OG BATCH-AUDIT
 -- =====================================================================
+CREATE TABLE IF NOT EXISTS private.interpretation_promotion_rule_line (
+  rule_key text PRIMARY KEY CHECK(btrim(rule_key)<>''),
+  predicate text NOT NULL UNIQUE CHECK(btrim(predicate)<>''),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(rule_key,predicate)
+);
 CREATE TABLE IF NOT EXISTS private.interpretation_promotion_rule (
   rule_key text NOT NULL CHECK(btrim(rule_key)<>''),
   rule_version integer NOT NULL CHECK(rule_version>=1),
@@ -5941,8 +5947,24 @@ CREATE TABLE IF NOT EXISTS private.interpretation_promotion_rule (
   PRIMARY KEY(rule_key,rule_version),
   UNIQUE(predicate,rule_version)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS interpretation_promotion_rule_one_active_predicate
-  ON private.interpretation_promotion_rule(predicate) WHERE status='active';
+DO $promotion_rule_line_backfill$
+BEGIN
+  IF EXISTS(SELECT 1 FROM private.interpretation_promotion_rule
+             GROUP BY rule_key HAVING count(DISTINCT predicate)<>1)
+     OR EXISTS(SELECT 1 FROM private.interpretation_promotion_rule
+               GROUP BY predicate HAVING count(DISTINCT rule_key)<>1) THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_LINE_CONFLICT';
+  END IF;
+  INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate)
+    SELECT DISTINCT rule_key,predicate FROM private.interpretation_promotion_rule
+  ON CONFLICT(rule_key) DO NOTHING;
+END $promotion_rule_line_backfill$;
+INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate) VALUES
+  ('person-name-v1','person.name'),('person-byname-v1','person.byname'),
+  ('person-title-v1','person.title'),('person-birth-v1','person.birth'),
+  ('person-death-v1','person.death')
+ON CONFLICT(rule_key) DO NOTHING;
+DROP INDEX IF EXISTS private.interpretation_promotion_rule_one_active_predicate;
 
 CREATE TABLE IF NOT EXISTS private.interpretation_promotion_batch (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -5964,6 +5986,43 @@ INSERT INTO private.interpretation_promotion_rule(
   ('person-birth-v1',1,'person.birth','property','assertion','fødsel','date_raw',true,false,true,'active'),
   ('person-death-v1',1,'person.death','property','assertion','død','date_raw',true,false,true,'active')
 ON CONFLICT(rule_key,rule_version) DO NOTHING;
+
+DO $promotion_rule_line_fk$
+BEGIN
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint
+     WHERE conrelid='private.interpretation_promotion_rule'::regclass
+       AND conname='interpretation_promotion_rule_line_fk') THEN
+    ALTER TABLE private.interpretation_promotion_rule
+      ADD CONSTRAINT interpretation_promotion_rule_line_fk
+      FOREIGN KEY(rule_key,predicate)
+      REFERENCES private.interpretation_promotion_rule_line(rule_key,predicate);
+  END IF;
+END $promotion_rule_line_fk$;
+CREATE OR REPLACE VIEW private.interpretation_promotion_rule_current
+WITH (security_invoker=true) AS
+SELECT DISTINCT ON(rule_key) * FROM private.interpretation_promotion_rule
+ORDER BY rule_key,rule_version DESC;
+CREATE OR REPLACE FUNCTION private.add_interpretation_promotion_rule_version(
+  p_rule_key text,p_predicate text,p_interpretation_kind text,p_target_type text,
+  p_expected_fact_type text,p_value_kind text,p_requires_persona_identity boolean,
+  p_requires_principal_placement boolean,p_bulk_eligible boolean,p_status text
+) RETURNS integer LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
+DECLARE v_predicate text; v_version integer;
+BEGIN
+  SELECT predicate INTO v_predicate FROM private.interpretation_promotion_rule_line
+    WHERE rule_key=p_rule_key FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_LINE_NOT_FOUND'; END IF;
+  IF v_predicate<>p_predicate THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_PREDICATE_MISMATCH'; END IF;
+  SELECT coalesce(max(rule_version),0)+1 INTO v_version
+    FROM private.interpretation_promotion_rule WHERE rule_key=p_rule_key;
+  INSERT INTO private.interpretation_promotion_rule(
+    rule_key,rule_version,predicate,interpretation_kind,target_type,expected_fact_type,
+    value_kind,requires_persona_identity,requires_principal_placement,bulk_eligible,status
+  ) VALUES(p_rule_key,v_version,p_predicate,p_interpretation_kind,p_target_type,
+    p_expected_fact_type,p_value_kind,p_requires_persona_identity,
+    p_requires_principal_placement,p_bulk_eligible,p_status);
+  RETURN v_version;
+END $$;
 
 ALTER TABLE private.interpretation_promotion
   ADD COLUMN IF NOT EXISTS rule_key text,
@@ -6001,7 +6060,8 @@ DO $$
 DECLARE v_table text; v_trigger text;
 BEGIN
   FOREACH v_table IN ARRAY ARRAY[
-    'interpretation_promotion_rule','interpretation_promotion_batch'
+    'interpretation_promotion_rule_line','interpretation_promotion_rule',
+    'interpretation_promotion_batch'
   ] LOOP
     v_trigger:='trg_'||v_table||'_append_only';
     EXECUTE format('DROP TRIGGER IF EXISTS %I ON private.%I',v_trigger,v_table);
@@ -6014,6 +6074,10 @@ BEGIN
     EXECUTE format('REVOKE ALL ON TABLE private.%I FROM PUBLIC,anon,authenticated',v_table);
   END LOOP;
 END $$;
+REVOKE ALL ON TABLE private.interpretation_promotion_rule_current FROM PUBLIC,anon,authenticated;
+REVOKE EXECUTE ON FUNCTION private.add_interpretation_promotion_rule_version(
+  text,text,text,text,text,text,boolean,boolean,boolean,text
+) FROM PUBLIC,anon,authenticated;
 
 CREATE OR REPLACE FUNCTION red_decide_interpretation(
   p_interpretation_id uuid,p_expected_version integer,
@@ -6909,6 +6973,18 @@ BEGIN
      ))
      ORDER BY interpretation.id FOR UPDATE;
     PERFORM 1
+      FROM private.interpretation_promotion_rule_line rule_line
+     WHERE rule_line.predicate=ANY(ARRAY(
+       SELECT current_interpretation.predicate
+         FROM private.interpretation_current current_interpretation
+         JOIN private.interpretation requested
+           ON requested.interpretation_key=current_interpretation.interpretation_key
+        WHERE requested.id=ANY(ARRAY(
+          SELECT (element.item->>'interpretation_id')::uuid
+            FROM jsonb_array_elements(p_items) AS element(item)
+        ))
+     )) ORDER BY rule_line.rule_key FOR UPDATE;
+    PERFORM 1
       FROM private.source_persona persona
      WHERE persona.id=ANY(ARRAY(
        SELECT current_interpretation.source_persona_id
@@ -6999,7 +7075,7 @@ BEGIN
       LEFT JOIN private.interpretation requested ON requested.id=parsed.interpretation_id
       LEFT JOIN private.interpretation_current current_interpretation
         ON current_interpretation.interpretation_key=requested.interpretation_key
-      LEFT JOIN private.interpretation_promotion_rule rule ON rule.predicate=current_interpretation.predicate
+      LEFT JOIN private.interpretation_promotion_rule_current rule ON rule.predicate=current_interpretation.predicate
         AND rule.interpretation_kind=current_interpretation.interpretation_kind
         AND rule.target_type=parsed.target_type AND rule.status='active'
       LEFT JOIN private.source_persona_identity identity_state

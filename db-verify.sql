@@ -1301,7 +1301,8 @@ END $interpretation_verify$;
 DO $promotion_rule_verify$
 DECLARE
   v_required text[] := ARRAY[
-    'interpretation_promotion_rule','interpretation_promotion_batch'
+    'interpretation_promotion_rule_line','interpretation_promotion_rule',
+    'interpretation_promotion_batch'
   ];
   v_missing text[];
   v_error text;
@@ -1340,12 +1341,17 @@ DECLARE
   v_before_persons integer;
   v_before_facts integer;
   v_before_assertions integer;
+  v_rule_version integer;
 BEGIN
   SELECT array_agg(required_name ORDER BY required_name) INTO v_missing
     FROM unnest(v_required) AS required_name
    WHERE to_regclass(format('private.%I',required_name)) IS NULL;
   IF v_missing IS NOT NULL THEN
     RAISE EXCEPTION 'FEJL: promotionregel-laget mangler';
+  END IF;
+  IF to_regclass('private.interpretation_promotion_rule_current') IS NULL
+     OR to_regprocedure('private.add_interpretation_promotion_rule_version(text,text,text,text,text,text,boolean,boolean,boolean,text)') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: promotionregel-laget mangler current-view/version-writer';
   END IF;
   IF EXISTS (
     SELECT 1
@@ -1481,6 +1487,8 @@ BEGIN
   END IF;
   v_error:=NULL;
   BEGIN
+    INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate)
+      VALUES ('verify-relation-target','person.name.relation');
     INSERT INTO private.interpretation_promotion_rule(
       rule_key,rule_version,predicate,interpretation_kind,target_type,expected_fact_type,
       value_kind,status
@@ -1630,6 +1638,9 @@ BEGIN
       (-987650042,'fact',-987650042,'Anna Verify','gregoriansk',true),
       (-987650043,'fact',-987650043,'Anden tekst','gregoriansk',true),
       (-987650044,'fact',-987650044,'Anna Verify','gregoriansk',true);
+    INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate) VALUES
+      ('verify-name-no-bulk','verify.person.name.no_bulk'),
+      ('verify-name-principal','verify.person.name.principal');
     INSERT INTO private.interpretation_promotion_rule(
       rule_key,rule_version,predicate,interpretation_kind,target_type,expected_fact_type,
       value_kind,requires_persona_identity,requires_principal_placement,bulk_eligible,status
@@ -1876,6 +1887,44 @@ BEGIN
       RAISE EXCEPTION 'FEJL: initial_status accepted blev fejlagtigt behandlet som current efter supersede: %',v_preview;
     END IF;
     RESET ROLE;
+    SELECT private.add_interpretation_promotion_rule_version(
+      'person-name-v1','person.name','property','assertion','navn','text',
+      true,false,true,'active'
+    ) INTO v_rule_version;
+    IF v_rule_version<>2 THEN RAISE EXCEPTION 'FEJL: promotionregel-version blev ikke 2'; END IF;
+    SET LOCAL ROLE authenticated;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650041)
+    ));
+    IF v_preview->'items'->0->>'rule_version'<>'2' THEN
+      RAISE EXCEPTION 'FEJL: preview brugte ikke current regelversion 2: %',v_preview; END IF;
+    RESET ROLE;
+    SELECT private.add_interpretation_promotion_rule_version(
+      'person-name-v1','person.name','property','assertion','navn','text',
+      true,false,true,'retired'
+    ) INTO v_rule_version;
+    IF v_rule_version<>3 THEN RAISE EXCEPTION 'FEJL: promotionregel-version blev ikke 3'; END IF;
+    SET LOCAL ROLE authenticated;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650041)
+    ));
+    IF v_preview->'items'->0->>'reason_code'<>'EVIDENCE_PROMOTION_RULE_NOT_ACTIVE' THEN
+      RAISE EXCEPTION 'FEJL: retired current-regel lod version 1 genopstå: %',v_preview; END IF;
+    RESET ROLE;
+    v_error:=NULL;
+    BEGIN
+      PERFORM private.add_interpretation_promotion_rule_version(
+        'person-name-v1','person.renamed','property','assertion','navn','text',
+        true,false,true,'active');
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_PROMOTION_RULE_PREDICATE_MISMATCH%' THEN
+      RAISE EXCEPTION 'FEJL: predicate-skift i samme regellinje blev ikke afvist: %',v_error; END IF;
+    v_error:=NULL;
+    BEGIN
+      INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate)
+        VALUES ('another-person-name','person.name');
+    EXCEPTION WHEN unique_violation THEN v_error:=SQLERRM; END;
+    IF v_error IS NULL THEN RAISE EXCEPTION 'FEJL: samme predicate fik en anden rule_key'; END IF;
     RAISE EXCEPTION 'ROLLBACK_PROMOTION_RPC_VERIFY';
   EXCEPTION WHEN others THEN
     IF SQLERRM='ROLLBACK_PROMOTION_RPC_VERIFY' THEN
@@ -1926,6 +1975,10 @@ DECLARE
                                   'c1000000-0000-0000-0000-000000000054');
     DELETE FROM private.interpretation_promotion_batch
       WHERE promoted_by='11000000-0000-0000-0000-000000000051';
+    DELETE FROM private.interpretation_promotion_rule
+      WHERE rule_key='verify-concurrent-name';
+    DELETE FROM private.interpretation_promotion_rule_line
+      WHERE rule_key='verify-concurrent-name';
     DELETE FROM private.interpretation_observation
       WHERE interpretation_id IN ('c1000000-0000-0000-0000-000000000051',
                                   'c1000000-0000-0000-0000-000000000052',
@@ -2006,6 +2059,11 @@ BEGIN
     'INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-987650051,''person'',-987650051,''navn'');'
     || 'INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,calendar,uforanderlig) '
     || 'VALUES (-987650051,''fact'',-987650051,''Anna Lock'',''gregoriansk'',true);');
+  PERFORM dblink_exec('promotion_setup',
+    'INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate) '
+    || 'VALUES (''verify-concurrent-name'',''verify.concurrent.name'');'
+    || 'INSERT INTO private.interpretation_promotion_rule(rule_key,rule_version,predicate,interpretation_kind,target_type,expected_fact_type,value_kind,requires_persona_identity,requires_principal_placement,bulk_eligible,status) '
+    || 'VALUES (''verify-concurrent-name'',1,''verify.concurrent.name'',''property'',''assertion'',''navn'',''text'',true,false,true,''active'');');
   PERFORM dblink_exec('promotion_setup',format(
     'INSERT INTO private.source_persona_identity_event(source_persona_id,canonical_person_id,decision_status,version,evidence,decided_by,decided_by_name,decided_at) '
     || 'VALUES (''%s'',-987650051,''accepted'',1,''{"basis":"verify"}'',''%s'',''Promotion Editor'',now());'
@@ -2020,10 +2078,10 @@ BEGIN
     || 'VALUES (''%s'',''c0000000-0000-0000-0000-000000000051'',2,-987650051,''%s'',''property'',''person.name'',''"Anna Lock"'',''1.0'',''source_statement'',1,''accepted'',''verify'',''%s'',''%s'',''{"basis":"verify"}'',''%s'',''Promotion Editor'',clock_timestamp());'
     || 'INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) VALUES (''%s'',''%s'',''supporting'',1);'
     || 'INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id) '
-    || 'VALUES (''%s'',''c0000000-0000-0000-0000-000000000052'',1,-987650051,''%s'',''property'',''person.name'',''"Anna Lock"'',''1.0'',''source_statement'',1,''proposed'',''verify'',''%s'');'
+    || 'VALUES (''%s'',''c0000000-0000-0000-0000-000000000052'',1,-987650051,''%s'',''property'',''verify.concurrent.name'',''"Anna Lock"'',''1.0'',''source_statement'',1,''proposed'',''verify'',''%s'');'
     || 'INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) VALUES (''%s'',''%s'',''supporting'',1);'
     || 'INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id,supersedes_id,decision_evidence,decided_by,decided_by_name,decided_at) '
-    || 'VALUES (''%s'',''c0000000-0000-0000-0000-000000000052'',2,-987650051,''%s'',''property'',''person.name'',''"Anna Lock"'',''1.0'',''source_statement'',1,''accepted'',''verify'',''%s'',''%s'',''{"basis":"verify"}'',''%s'',''Promotion Editor'',clock_timestamp());'
+    || 'VALUES (''%s'',''c0000000-0000-0000-0000-000000000052'',2,-987650051,''%s'',''property'',''verify.concurrent.name'',''"Anna Lock"'',''1.0'',''source_statement'',1,''accepted'',''verify'',''%s'',''%s'',''{"basis":"verify"}'',''%s'',''Promotion Editor'',clock_timestamp());'
     || 'INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) VALUES (''%s'',''%s'',''supporting'',1)',
     v_interpretation_1,v_persona,v_run,v_interpretation_1,v_observation,
     v_interpretation_2,v_persona,v_run,v_interpretation_1,v_actor,v_interpretation_2,v_observation,
@@ -2165,6 +2223,69 @@ BEGIN
      OR EXISTS (SELECT 1 FROM private.interpretation_promotion_batch WHERE promoted_by=v_actor) THEN
     RAISE EXCEPTION 'FEJL: identity-racet promotion efterlod forkert state eller audit-skrivning';
   END IF;
+
+  -- En ny regelversion låser regellinjen. Batchen med et v1-preview skal vente,
+  -- genberegne efter commit og afvise hash'en i stedet for at bruge v2 uset.
+  PERFORM dblink_connect('promotion_a',v_conn||' application_name=daa_verify_promotion_rule_a');
+  v_a_connected:=true;
+  PERFORM dblink_connect('promotion_b',v_conn||' application_name=daa_verify_promotion_rule_b');
+  v_b_connected:=true;
+  SELECT pid INTO v_a_pid FROM dblink('promotion_a','SELECT pg_backend_pid()') AS t(pid integer);
+  SELECT pid INTO v_b_pid FROM dblink('promotion_b','SELECT pg_backend_pid()') AS t(pid integer);
+  PERFORM dblink_exec('promotion_a','BEGIN');
+  PERFORM dblink_exec('promotion_a','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('promotion_a',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  SELECT version INTO v_version FROM dblink('promotion_a',format(
+    'SELECT red_decide_source_persona_identity(''%s'',-987650051,2,''accepted'',''{"basis":"restore for rule race"}'')',
+    v_persona)) AS t(version integer);
+  IF v_version<>3 THEN RAISE EXCEPTION 'FEJL: identity restore gav version %',v_version; END IF;
+  PERFORM dblink_exec('promotion_a','COMMIT');
+  PERFORM dblink_exec('promotion_a','BEGIN');
+  PERFORM dblink_exec('promotion_a','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('promotion_a',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  SELECT preview->>'preview_hash' INTO v_preview_hash
+    FROM dblink('promotion_a',format(
+      'SELECT red_preview_interpretation_promotions(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb) AS preview',
+      v_identity_interpretation_2)) AS t(preview jsonb);
+  PERFORM dblink_exec('promotion_a','COMMIT');
+  PERFORM dblink_exec('promotion_a','BEGIN');
+  SELECT version INTO v_version FROM dblink('promotion_a',
+    'SELECT private.add_interpretation_promotion_rule_version('
+    || '''verify-concurrent-name'',''verify.concurrent.name'',''property'',''assertion'',''navn'',''text'',true,false,true,''active'')'
+  ) AS t(version integer);
+  IF v_version<>2 THEN RAISE EXCEPTION 'FEJL: concurrent regel-writer gav version %',v_version; END IF;
+  PERFORM dblink_exec('promotion_b','BEGIN');
+  PERFORM dblink_exec('promotion_b','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('promotion_b',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  PERFORM dblink_send_query('promotion_b',format(
+    'SELECT red_promote_interpretations_batch(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb,%L)',
+    v_identity_interpretation_2,v_preview_hash));
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    EXIT WHEN v_a_pid=ANY(pg_blocking_pids(v_b_pid));
+    SELECT dblink_is_busy('promotion_b') INTO v_busy;
+    IF v_busy=0 OR clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'FEJL: promotion-batch ventede ikke på regellinjen'; END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  PERFORM dblink_exec('promotion_a','COMMIT');
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP SELECT dblink_is_busy('promotion_b') INTO v_busy; EXIT WHEN v_busy=0;
+    IF clock_timestamp()>v_deadline THEN RAISE EXCEPTION 'FEJL: rule-race batch afsluttede ikke'; END IF;
+    PERFORM pg_sleep(0.02); END LOOP;
+  v_error:=NULL;
+  BEGIN PERFORM * FROM dblink_get_result('promotion_b') AS t(batch_id uuid);
+  EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+  BEGIN PERFORM * FROM dblink_get_result('promotion_b') AS t(batch_id uuid);
+  EXCEPTION WHEN others THEN IF v_error IS NULL THEN v_error:=SQLERRM; END IF; END;
+  IF v_error NOT LIKE '%EVIDENCE_PROMOTION_PREVIEW_STALE%' THEN
+    RAISE EXCEPTION 'FEJL: rule-racet promotion fejlede ikke stale/fail-closed: %',v_error; END IF;
+  PERFORM dblink_exec('promotion_b','ROLLBACK');
+  PERFORM dblink_disconnect('promotion_a'); v_a_connected:=false;
+  PERFORM dblink_disconnect('promotion_b'); v_b_connected:=false;
+  IF EXISTS(SELECT 1 FROM private.interpretation_promotion
+             WHERE interpretation_id=v_identity_interpretation_2) THEN
+    RAISE EXCEPTION 'FEJL: rule-racet efterlod promotion med skjult regelversion'; END IF;
   PERFORM dblink_exec('promotion_setup',v_cleanup);
   PERFORM dblink_disconnect('promotion_setup'); v_setup_connected:=false;
   RAISE NOTICE 'OK: promotion-batch låser current fortolkning og personaidentitet og afviser stale preview';
