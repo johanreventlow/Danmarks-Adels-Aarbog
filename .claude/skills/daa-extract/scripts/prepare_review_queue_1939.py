@@ -6,12 +6,12 @@ import argparse
 import copy
 from collections import Counter
 from collections.abc import Mapping
+from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
 
 from coverage_1939 import (
-    LEGACY_REVIEW_ALLOWED_FIELDS,
     LEGACY_REVIEW_ACCEPTED_FIELDS,
     POSTKLASSER,
     duplicate_target_errors,
@@ -48,6 +48,21 @@ _CANDIDATE_FIELDS = {
     "candidate_id", "postklasse", "calamari_span", "pdf_pages",
     "raw_structure_bridge",
 }
+
+
+@dataclass(frozen=True)
+class _ValidatedReviewState:
+    """One validated partition consumed by both queue and report writers."""
+
+    manifest: dict | None
+    audit_keys: tuple[str, ...]
+    completed_keys: frozenset[str]
+    audit_results: tuple[dict, ...]
+
+    def __iter__(self):
+        """Preserve the private helper's historical two-value unpacking API."""
+        yield set(self.completed_keys)
+        yield [copy.deepcopy(result) for result in self.audit_results]
 
 
 def _nonempty(value: object, label: str) -> str:
@@ -333,11 +348,20 @@ def _stratum(entry: Mapping) -> str:
 def build_queue_report(
     manifest: dict,
     *,
-    audit_keys: list[str],
-    completed_keys: set[str],
-    audit_results: list[dict],
+    audit_keys: list[str] | None = None,
+    completed_keys: set[str] | None = None,
+    audit_results: list[dict] | None = None,
+    review_state: _ValidatedReviewState | None = None,
 ) -> dict:
     """Account for the private queue and keep publication fail-closed."""
+    if review_state is not None:
+        if any(value is not None for value in (audit_keys, completed_keys, audit_results)):
+            raise ValueError("review_state må ikke blandes med løse review-felter")
+        if review_state.manifest != manifest:
+            raise ValueError("review_state manifest matcher ikke queue manifest")
+        audit_keys = list(review_state.audit_keys)
+        completed_keys = set(review_state.completed_keys)
+        audit_results = [copy.deepcopy(result) for result in review_state.audit_results]
     entries, by_key = _queue_entries(manifest)
     source = manifest.get("source")
     if not isinstance(source, Mapping):
@@ -759,27 +783,65 @@ def _evidence_index(value: list[dict] | None) -> dict[str, dict] | None:
     return result
 
 
-def _normalize_review_decision(value: object, status_field: str) -> dict:
+def _normalize_review_decision(
+    value: object,
+    status_field: str,
+    *,
+    baseline_record: Mapping | None = None,
+) -> dict:
     if not isinstance(value, Mapping):
         raise ValueError("review decision skal være en mapping")
     entry = copy.deepcopy(dict(value))
     if status_field == "status":
         if "review_status" in entry:
             raise ValueError("review decision har både status og review_status")
-        entry["review_status"] = entry.pop("status", None)
-    if set(entry) - LEGACY_REVIEW_ALLOWED_FIELDS:
-        raise ValueError("review decision har uautoriserede felter")
-    _validate_review_metadata(entry)
-    status = entry.get("review_status")
-    if status == "accepteret":
-        minimal_fields = {
-            "baseline_record_key", "review_status", "candidate_id",
-            "baseline_locator", "review_note",
+        status = entry.get("status")
+        required_by_status = {
+            "accepteret": {"baseline_record_key", "status", "candidate_id"},
+            "menneskeark": {"baseline_record_key", "status", "reason"},
+            "eksplicit_dublet": {
+                "baseline_record_key", "status", "duplicate_of_baseline_record_key",
+            },
         }
-        enriched = bool((set(entry) - minimal_fields) & LEGACY_REVIEW_ACCEPTED_FIELDS)
-        if not enriched:
+        if status not in required_by_status:
+            raise ValueError("Task 5-beslutning har ukendt status")
+        if set(entry) != required_by_status[status]:
+            raise ValueError("Task 5-beslutning har ugyldige felter")
+        entry["review_status"] = entry.pop("status")
+        if status == "accepteret":
             validate_accepted_candidate_id(entry.get("candidate_id"))
-            return entry
+        else:
+            errors = legacy_review_entry_errors(entry)
+            if errors:
+                raise ValueError(errors[0])
+        return entry
+    if status_field != "review_status":
+        raise ValueError("ukendt review status-felt")
+
+    status = entry.get("review_status")
+    common = {"baseline_record_key", "review_status"}
+    optional_metadata = {"baseline_locator", "review_note"}
+    required_by_status = {
+        "unreviewed": common,
+        "accepteret": common | LEGACY_REVIEW_ACCEPTED_FIELDS,
+        "menneskeark": common | {"reason"},
+        "eksplicit_dublet": common | {"duplicate_of_baseline_record_key"},
+    }
+    if status not in required_by_status:
+        raise ValueError("ukendt review_status")
+    required = required_by_status[status]
+    if not required <= set(entry) or set(entry) - required - optional_metadata:
+        raise ValueError("legacy review decision har ugyldige felter")
+    _validate_review_metadata(entry)
+    if "baseline_locator" in entry:
+        if baseline_record is None:
+            raise ValueError("baseline_locator kræver aktuel baseline")
+        expected_locator = {
+            "pages": baseline_record.get("sider"),
+            "local_id": baseline_record.get("_v2_lokal_id"),
+        }
+        if entry["baseline_locator"] != expected_locator:
+            raise ValueError("baseline_locator matcher ikke aktuel baseline")
     errors = legacy_review_entry_errors(entry)
     if errors:
         raise ValueError(errors[0])
@@ -790,6 +852,8 @@ def _joined_accepted_candidate(
     entry: Mapping,
     evidence_by_key: dict[str, dict] | None,
     source: dict,
+    calamari_text: str | None = None,
+    raw_text: str | None = None,
 ) -> dict:
     candidate_id = validate_accepted_candidate_id(entry.get("candidate_id"))
     if evidence_by_key is None:
@@ -801,8 +865,8 @@ def _joined_accepted_candidate(
     if evidence.get("conflicts") or evidence.get("source_blockers"):
         raise ValueError("accepteret evidence har konflikt eller source blocker")
     matches = [
-        candidate
-        for candidate in evidence.get("candidates", [])
+        (index, candidate)
+        for index, candidate in enumerate(evidence.get("candidates", []))
         if isinstance(candidate, Mapping) and candidate.get("candidate_id") == candidate_id
     ]
     if len(matches) != 1:
@@ -814,7 +878,8 @@ def _joined_accepted_candidate(
         "candidate_id": candidate_id,
     }:
         raise ValueError("accepteret evidence mangler matchende positiv proveniens")
-    candidate = copy.deepcopy(dict(matches[0]))
+    candidate_index, matched_candidate = matches[0]
+    candidate = copy.deepcopy(dict(matched_candidate))
     validate_coverage(
         {
             "schema_version": 1,
@@ -828,11 +893,32 @@ def _joined_accepted_candidate(
         expected_baseline_keys={key},
     )
 
-    if (LEGACY_REVIEW_ACCEPTED_FIELDS - {"candidate_id"}) & set(entry):
-        raise ValueError(
-            "legacy accepted anchors kan ikke verificeres fuldt evidence-derived; "
-            "brug minimal Task 5-beslutning"
-        )
+    if LEGACY_REVIEW_ACCEPTED_FIELDS <= set(entry):
+        if calamari_text is None or raw_text is None:
+            raise ValueError("legacy accepted anchors kræver aktuelle OCR-kilder")
+        span = candidate["calamari_span"]
+        bridge = candidate["raw_structure_bridge"]
+        expected = {
+            "candidate_id": candidate["candidate_id"],
+            "post_index": candidate_index,
+            "calamari_span": span,
+            "calamari_verbatim_text": calamari_text[
+                span["char_from"]:span["char_to"]
+            ],
+            "pdf_pages": candidate["pdf_pages"],
+            "kind": bridge["kind"],
+            "raw_char_from": bridge["raw_char_from"],
+            "raw_char_to": bridge["raw_char_to"],
+            "raw_verbatim_text": raw_text[
+                bridge["raw_char_from"]:bridge["raw_char_to"]
+            ],
+            "raw_excerpt_sha256": bridge["raw_excerpt_sha256"],
+        }
+        for field, expected_value in expected.items():
+            if entry[field] != expected_value:
+                raise ValueError(
+                    f"legacy accepted {field} matcher ikke evidence-derived værdi"
+                )
     return candidate
 
 
@@ -910,14 +996,22 @@ def _review_state(
     *,
     evidence_entries: list[dict] | None = None,
     manifest: Mapping | None = None,
-) -> tuple[set[str], list[dict]]:
+    baseline_by_key: Mapping[str, Mapping] | None = None,
+    calamari_text: str | None = None,
+    raw_text: str | None = None,
+) -> _ValidatedReviewState:
     if not isinstance(value, Mapping):
         raise ValueError("review skal være en mapping")
     review_source = value.get("source")
     task5_output = review_source is None and set(value) == {"decisions", "audit_results"}
     if review_source is None and not task5_output:
         _source_less_template_keys(value, source, baseline_keys)
-        return set(), []
+        return _ValidatedReviewState(
+            manifest=copy.deepcopy(dict(manifest)) if manifest is not None else None,
+            audit_keys=tuple(sample_auto_resolved(dict(manifest))) if manifest else (),
+            completed_keys=frozenset(),
+            audit_results=(),
+        )
     if review_source is not None:
         if review_source != source:
             raise ValueError("review source hashes matcher ikke")
@@ -961,7 +1055,15 @@ def _review_state(
         if not isinstance(container, list):
             raise ValueError("review entries/decisions skal være lister")
         for item in container:
-            entry = _normalize_review_decision(item, status_field)
+            raw_key = item.get("baseline_record_key") if isinstance(item, Mapping) else None
+            baseline_record = (
+                baseline_by_key.get(raw_key)
+                if baseline_by_key is not None and isinstance(raw_key, str)
+                else None
+            )
+            entry = _normalize_review_decision(
+                item, status_field, baseline_record=baseline_record
+            )
             key = _nonempty(entry.get("baseline_record_key"), "baseline_record_key")
             if key not in baseline_keys:
                 raise ValueError("review har ukendt baseline_record_key")
@@ -970,16 +1072,52 @@ def _review_state(
             decisions[key] = entry
             if entry["review_status"] == "accepteret":
                 accepted[key] = _joined_accepted_candidate(
-                    entry, evidence_by_key, source
+                    entry, evidence_by_key, source, calamari_text, raw_text
                 )
-    _validate_effective_state(decisions, accepted, manifest, source)
     audit_results = _validate_audit_results(audit_value, baseline_keys)
+    audit_result_keys = {
+        result["baseline_record_key"] for result in audit_results
+    }
+    decision_keys = set(decisions)
+
+    audit_keys: list[str] = []
+    validated_manifest = copy.deepcopy(dict(manifest)) if manifest is not None else None
+    if manifest is not None:
+        _, queue_by_key = _queue_entries(dict(manifest))
+        audit_keys = sample_auto_resolved(dict(manifest))
+        audit_key_set = set(audit_keys)
+        for key in decision_keys:
+            if queue_by_key[key]["queue_class"] == "auto_resolved":
+                raise ValueError(
+                    "auto_resolved må kun have audit og må ikke have beslutning"
+                )
+        if decision_keys & audit_result_keys:
+            raise ValueError("beslutnings- og auditnøgler skal være disjunkte")
+        for result in audit_results:
+            key = result["baseline_record_key"]
+            queue_entry = queue_by_key[key]
+            queue_class = queue_entry["queue_class"]
+            if queue_class != "auto_resolved":
+                raise ValueError(f"audit må ikke tilhøre {queue_class}")
+            if key not in audit_key_set:
+                raise ValueError("audit result har ikke-samplet baseline_record_key")
+            if result["rule_id"] != queue_entry.get("rule_id"):
+                raise ValueError("audit rule_id matcher ikke auto_resolved entry")
+    elif audit_results:
+        raise ValueError("audit result kræver queue manifest")
+
+    _validate_effective_state(decisions, accepted, manifest, source)
     completed = {
         key
         for key, decision in decisions.items()
         if decision["review_status"] in _COMPLETED_STATUSES
     }
-    return completed, audit_results
+    return _ValidatedReviewState(
+        manifest=validated_manifest,
+        audit_keys=tuple(audit_keys),
+        completed_keys=frozenset(completed),
+        audit_results=tuple(copy.deepcopy(audit_results)),
+    )
 
 
 def _write_json_exclusive(path: Path, value: object) -> None:
@@ -1028,7 +1166,8 @@ def main(argv: list[str] | None = None) -> int:
     pdf_bytes = args.pdf.read_bytes()
 
     baseline_value = _strict_json_bytes(baseline_bytes, "baseline")
-    _, baseline_keys = _baseline_index(baseline_value)
+    baseline_records, baseline_keys = _baseline_index(baseline_value)
+    baseline_by_key = {record["record_key"]: record for record in baseline_records}
     source = {
         "edition": "1939",
         "baseline_sha256": _hash_bytes(baseline_bytes),
@@ -1048,8 +1187,7 @@ def main(argv: list[str] | None = None) -> int:
         raw_text,
     )
     manifest = classify_review_entries(source, baseline_keys, evidence_entries)
-    audit_keys = sample_auto_resolved(manifest)
-    completed_keys, audit_results = _review_state(
+    review_state = _review_state(
         _strict_json_bytes(review_bytes, "review"),
         source,
         baseline_keys,
@@ -1059,18 +1197,21 @@ def main(argv: list[str] | None = None) -> int:
             else None
         ),
         manifest=manifest,
+        baseline_by_key=baseline_by_key,
+        calamari_text=calamari_text,
+        raw_text=raw_text,
     )
+    if review_state.manifest is None:
+        raise ValueError("review_state mangler queue manifest")
 
     created: list[Path] = []
     try:
-        _write_json_exclusive(args.queue_out, manifest)
+        _write_json_exclusive(args.queue_out, review_state.manifest)
         created.append(args.queue_out)
         written_manifest = json.loads(args.queue_out.read_bytes())
         report = build_queue_report(
             written_manifest,
-            audit_keys=audit_keys,
-            completed_keys=completed_keys,
-            audit_results=audit_results,
+            review_state=review_state,
         )
         _write_json_exclusive(args.report_out, report)
         created.append(args.report_out)

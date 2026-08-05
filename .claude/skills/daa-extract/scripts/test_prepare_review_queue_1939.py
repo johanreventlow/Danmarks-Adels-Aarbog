@@ -13,6 +13,7 @@ import prepare_coverage_1939 as task5_subject
 import prepare_review_queue_1939 as subject
 from prepare_review_queue_1939 import (
     _review_state,
+    _validate_effective_state,
     build_queue_report,
     build_review_view_model,
     main,
@@ -497,6 +498,36 @@ def _minimal_accepted(key, candidate_id):
     }
 
 
+def _audit_confirmed(key, rule_id="complete_anchor_v1"):
+    return {
+        "baseline_record_key": key,
+        "audit_status": "audit_confirmed",
+        "rule_id": rule_id,
+    }
+
+
+def _legacy_accepted_from_evidence(evidence, *, locator=None):
+    candidate = evidence["entries"][0]["candidates"][0]
+    bridge = candidate["raw_structure_bridge"]
+    result = {
+        "baseline_record_key": evidence["entries"][0]["baseline_record_key"],
+        "review_status": "accepteret",
+        "candidate_id": candidate["candidate_id"],
+        "post_index": 0,
+        "calamari_span": copy.deepcopy(candidate["calamari_span"]),
+        "calamari_verbatim_text": "Calamari",
+        "pdf_pages": copy.deepcopy(candidate["pdf_pages"]),
+        "kind": bridge["kind"],
+        "raw_char_from": bridge["raw_char_from"],
+        "raw_char_to": bridge["raw_char_to"],
+        "raw_verbatim_text": "Rå OCR",
+        "raw_excerpt_sha256": bridge["raw_excerpt_sha256"],
+    }
+    if locator is not None:
+        result["baseline_locator"] = locator
+    return result
+
+
 def _write_task5_output(args, *decisions, audit_results=()):
     _cli_path(args, "--review").write_text(
         json.dumps(_task5_output(*decisions, audit_results=audit_results)),
@@ -519,6 +550,218 @@ def test_task5_minimal_accepted_decision_joins_exact_source_evidence(tmp_path):
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["completed"] == 1
     assert report["publication_gate"] == "NO-GO"
+
+
+def test_auto_decision_with_confirmed_audit_is_rejected_before_outputs(tmp_path):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    evidence = _source_bound_evidence(args)
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+    _write_task5_output(
+        args,
+        {
+            "baseline_record_key": "rk-1",
+            "status": "menneskeark",
+            "reason": "må ikke overskrive automatisk klassifikation",
+        },
+        audit_results=[_audit_confirmed("rk-1")],
+    )
+
+    with pytest.raises(ValueError, match="auto_resolved.*audit"):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
+def test_auto_decision_without_audit_is_rejected_before_outputs(tmp_path):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    evidence = _source_bound_evidence(args)
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+    _write_task5_output(args, {
+        "baseline_record_key": "rk-1",
+        "status": "menneskeark",
+        "reason": "automatisk nøgle må ikke være en menneskebeslutning",
+    })
+
+    with pytest.raises(ValueError, match="auto_resolved.*audit"):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
+def test_human_required_key_cannot_have_audit_result(tmp_path):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    evidence = _source_bound_evidence(args)
+    evidence["entries"][0]["rule_id"] = None
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+    _write_task5_output(args, audit_results=[_audit_confirmed("rk-1")])
+
+    with pytest.raises(ValueError, match="audit.*human_required"):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
+def test_decision_and_audit_key_sets_must_be_disjoint_before_outputs(tmp_path):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    evidence = _source_bound_evidence(args)
+    evidence["entries"][0]["rule_id"] = None
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+    _write_task5_output(
+        args,
+        {
+            "baseline_record_key": "rk-1",
+            "status": "menneskeark",
+            "reason": "parkeret",
+        },
+        audit_results=[_audit_confirmed("rk-1")],
+    )
+
+    with pytest.raises(ValueError, match="disjunkte"):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
+def test_source_blocked_key_cannot_have_audit_result(tmp_path):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    evidence = _source_bound_evidence(args)
+    evidence["entries"][0]["source_blockers"] = ["rå OCR mangler"]
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+    _write_task5_output(args, audit_results=[_audit_confirmed("rk-1")])
+
+    with pytest.raises(ValueError, match="audit.*source_blocked"):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"reason": "uautoriseret"},
+        {"duplicate_of_baseline_record_key": "rk-ukendt"},
+        {"review_note": "uautoriseret Task 5-metadata"},
+        {"baseline_locator": {"pages": "forkert", "local_id": None}},
+    ],
+    ids=["reason", "duplicate-target", "review-note", "locator"],
+)
+def test_task5_minimal_accepted_rejects_every_extra_field_without_outputs(
+    tmp_path, extra
+):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    evidence = _source_bound_evidence(args)
+    evidence["entries"][0]["rule_id"] = None
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+    _write_task5_output(
+        args, {**_minimal_accepted("rk-1", "candidate-1"), **extra}
+    )
+
+    with pytest.raises(ValueError, match="Task 5.*felter"):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
+@pytest.mark.parametrize(
+    "decision",
+    [
+        {
+            "baseline_record_key": "rk-1",
+            "status": "menneskeark",
+            "reason": "uklar",
+            "review_note": "ikke del af Task 5-output",
+        },
+        {
+            "baseline_record_key": "rk-1",
+            "status": "eksplicit_dublet",
+            "duplicate_of_baseline_record_key": "rk-2",
+            "review_note": "ikke del af Task 5-output",
+        },
+    ],
+    ids=["menneskeark", "duplicate"],
+)
+def test_task5_nonaccepted_statuses_have_exact_grammar(decision):
+    with pytest.raises(ValueError, match="Task 5.*felter"):
+        subject._normalize_review_decision(decision, "status")
+
+
+def test_legacy_enriched_acceptance_joins_current_source_and_exact_locator(tmp_path):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    evidence = _source_bound_evidence(args)
+    evidence["entries"][0]["rule_id"] = None
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+    review = {
+        "schema_version": 1,
+        "source": evidence["source"],
+        "entries": [_legacy_accepted_from_evidence(
+            evidence, locator={"pages": "498", "local_id": None}
+        )],
+    }
+    _cli_path(args, "--review").write_text(json.dumps(review), encoding="utf-8")
+
+    assert main(args) == 0
+
+    assert json.loads(report_path.read_text(encoding="utf-8"))["completed"] == 1
+    assert queue_path.exists()
+
+
+def test_legacy_false_baseline_locator_rejects_before_outputs(tmp_path):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    evidence = _source_bound_evidence(args)
+    evidence["entries"][0]["rule_id"] = None
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+    review = {
+        "schema_version": 1,
+        "source": evidence["source"],
+        "entries": [_legacy_accepted_from_evidence(
+            evidence, locator={"pages": "forkert", "local_id": None}
+        )],
+    }
+    _cli_path(args, "--review").write_text(json.dumps(review), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="baseline_locator matcher ikke"):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"post_index": 1},
+        {"reason": "accepteret må ikke have reason"},
+        {"duplicate_of_baseline_record_key": "rk-ukendt"},
+    ],
+    ids=["post-index", "reason", "duplicate-target"],
+)
+def test_legacy_acceptance_rejects_false_or_status_foreign_fields_before_outputs(
+    tmp_path, change
+):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    evidence = _source_bound_evidence(args)
+    evidence["entries"][0]["rule_id"] = None
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+    accepted = _legacy_accepted_from_evidence(evidence)
+    accepted.update(change)
+    _cli_path(args, "--review").write_text(json.dumps({
+        "schema_version": 1,
+        "source": evidence["source"],
+        "entries": [accepted],
+    }), encoding="utf-8")
+
+    expected = "evidence-derived" if "post_index" in change else "ugyldige felter"
+    with pytest.raises(ValueError, match=expected):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
 
 
 def test_real_task5_cli_output_is_consumed_directly_by_task6_cli(tmp_path):
@@ -670,7 +913,7 @@ def test_enriched_accepted_spans_cannot_substitute_for_joined_evidence(tmp_path)
     }
     _write_task5_output(args, enriched)
 
-    with pytest.raises(ValueError, match="evidence-derived"):
+    with pytest.raises(ValueError, match="Task 5.*felter"):
         main(args)
 
     assert not queue_path.exists()
@@ -706,6 +949,55 @@ def test_two_final_acceptances_with_colliding_evidence_reject_without_outputs(tm
 
     assert not queue_path.exists()
     assert not report_path.exists()
+
+
+@pytest.mark.parametrize(
+    "final_candidate",
+    [
+        {
+            **anchored_candidate("rk-auto"),
+            "calamari_span": {"char_from": 30, "char_to": 40},
+            "raw_structure_bridge": {
+                **anchored_candidate("rk-auto")["raw_structure_bridge"],
+                "raw_char_from": 130,
+                "raw_char_to": 140,
+            },
+        },
+        {
+            **anchored_candidate("c-final"),
+            "calamari_span": {"char_from": 15, "char_to": 25},
+            "raw_structure_bridge": {
+                **anchored_candidate("c-final")["raw_structure_bridge"],
+                "raw_char_from": 130,
+                "raw_char_to": 140,
+            },
+        },
+        {
+            **anchored_candidate("c-final"),
+            "calamari_span": {"char_from": 30, "char_to": 40},
+            "raw_structure_bridge": {
+                **anchored_candidate("c-final")["raw_structure_bridge"],
+                "raw_char_from": 105,
+                "raw_char_to": 115,
+            },
+        },
+    ],
+    ids=["candidate-id-only", "calamari-only", "raw-only"],
+)
+def test_automatic_and_final_accepted_claims_are_globally_injective(final_candidate):
+    queue = manifest(automatic("rk-auto"), human("rk-final"))
+    decisions = {
+        "rk-final": {
+            "baseline_record_key": "rk-final",
+            "review_status": "accepteret",
+            "candidate_id": final_candidate["candidate_id"],
+        }
+    }
+
+    with pytest.raises(ValueError, match="injektiv"):
+        _validate_effective_state(
+            decisions, {"rk-final": final_candidate}, queue, source()
+        )
 
 
 def test_source_less_no_candidate_evidence_cannot_complete_task5_acceptance(tmp_path):
@@ -1139,7 +1431,7 @@ def test_enriched_final_decision_without_source_bound_evidence_cannot_complete()
     converted = {**accepted, "status": accepted["review_status"]}
     converted.pop("review_status")
 
-    with pytest.raises(ValueError, match="source-bound evidence"):
+    with pytest.raises(ValueError, match="Task 5.*felter"):
         _review_state(
             {"schema_version": 1, "source": source(), "decisions": [converted]},
             source(),
@@ -1217,6 +1509,7 @@ def test_valid_failed_or_undecidable_audit_blocks_rule_group():
         },
         source(),
         {"rk-auto", *{entry["baseline_record_key"] for entry in humans}},
+        manifest=manifest(auto, *humans),
     )
     completed.update(entry["baseline_record_key"] for entry in humans)
 

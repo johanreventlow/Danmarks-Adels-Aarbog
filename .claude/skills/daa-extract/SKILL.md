@@ -279,7 +279,16 @@ når `(baseline_record_key, candidate_id)` entydigt joiner samme ejer i en kompl
 source-bundet evidence-fil med matchende positiv proveniens og uden konflikt.
 Alle automatiske og menneskeligt accepterede kandidat-id'er samt Calamari-/rå-
 intervaller valideres samlet for global injektivitet. Berigede legacy-ankre er
-ikke en alternativ sandhedskilde; brug Task 5's minimale beslutning.
+ikke en alternativ sandhedskilde: de accepteres kun med deres eksakte
+statusafhængige grammar, når locator, kandidat-id, kandidatindeks, spans,
+tekstsnit, sider, brotype og råhash alle matcher den aktuelle baseline,
+source-bundne evidence og de aktuelle OCR-kilder. Task 5-output er tilsvarende
+minimalt og eksakt: `accepteret` har kun nøgle, status og kandidat-id;
+`menneskeark` har kun nøgle, status og reason; `eksplicit_dublet` har kun nøgle,
+status og dubletmål. `auto_resolved` må kun forekomme i den deterministiske
+auditpartition, mens `human_required` og `source_blocked` aldrig må forekomme i
+audit. Beslutnings- og auditnøgler skal være disjunkte, og begge artefakter
+skrives først efter at den samlede partition er valideret.
 Alle scripts bruger eksklusiv oprettelse og
 nægter at overskrive eksisterende output. Slet eller genbrug derfor aldrig V1/V5
 som genkørselsmål. Ingen genereret fil under `work/` må committes.
