@@ -56,6 +56,24 @@ def manifest(*entries):
     return {"schema_version": 1, "source": source(), "entries": list(entries)}
 
 
+def accepted_decision(key, candidate_id="manual-anchor"):
+    raw_text = "accepteret manuel tekst"
+    return {
+        "baseline_record_key": key,
+        "review_status": "accepteret",
+        "candidate_id": candidate_id,
+        "post_index": 7,
+        "calamari_span": {"char_from": 10, "char_to": 20},
+        "calamari_verbatim_text": "accepteret Calamari-tekst",
+        "pdf_pages": [700],
+        "kind": "manual_cross_page_anchor",
+        "raw_char_from": 100,
+        "raw_char_to": 123,
+        "raw_verbatim_text": raw_text,
+        "raw_excerpt_sha256": "9051de1629f5ba1edae9157f0d8c6ef9f2e1ced6eeb95bb08cc5c28d938425c7",
+    }
+
+
 def test_multpage_candidate_is_deduplicated_by_candidate_id():
     model = build_review_view_model(
         [baseline("rk-1", pages="498-499")],
@@ -104,6 +122,24 @@ def test_anchored_candidate_keeps_complete_private_evidence_under_details():
         "rank_reason", "details",
     }
     assert candidate["details"] == anchored_candidate("rk-1")
+
+
+def test_authoritative_accepted_decision_is_attached_when_not_page_near():
+    decision = accepted_decision("rk-1")
+    model = build_review_view_model(
+        [baseline("rk-1")], manifest(human("rk-1")),
+        {"rk-1": [nearby("near-page", [498])]}, [], {"rk-1": decision},
+    )
+
+    record = model["records"][0]
+    assert [candidate["candidate_id"] for candidate in record["candidates"]] == [
+        "manual-anchor", "near-page",
+    ]
+    accepted = record["candidates"][0]
+    assert accepted["rank_reason"] == "accepteret_review_evidens"
+    assert accepted["raw_text"] == "accepteret manuel tekst"
+    assert accepted["details"] == decision
+    assert record["candidate_count"] == 2
 
 
 def test_classifier_entry_is_retained_separately_and_is_not_presentation_mutated():

@@ -76,6 +76,30 @@ def _attach_anchored_details(candidates: list[dict], classification: Mapping) ->
     return candidates
 
 
+def _attach_accepted_review(candidates: list[dict], decision: Mapping | None) -> list[dict]:
+    """Keep an authoritatively accepted manual anchor inspectable across page boundaries."""
+    if not isinstance(decision, Mapping) or decision.get("review_status") != "accepteret":
+        return candidates
+    candidate_id = _nonempty(decision.get("candidate_id"), "candidate_id")
+    by_id = {candidate["candidate_id"]: candidate for candidate in candidates}
+    if candidate_id in by_id:
+        by_id[candidate_id]["details"] = copy.deepcopy(dict(decision))
+        return candidates
+    candidates.append({
+        "candidate_id": candidate_id,
+        "lokal_id": candidate_id,
+        "pdf_pages": copy.deepcopy(decision.get("pdf_pages", [])),
+        "calamari_pages": [],
+        "raw_text": copy.deepcopy(
+            decision.get("raw_verbatim_text", decision.get("calamari_verbatim_text", ""))
+        ),
+        "rank_reason": "accepteret_review_evidens",
+        "details": copy.deepcopy(dict(decision)),
+    })
+    candidates.sort(key=lambda candidate: candidate["candidate_id"])
+    return candidates
+
+
 def _baseline_index(baseline: object) -> tuple[list[dict], set[str]]:
     if not isinstance(baseline, list):
         raise ValueError("baseline skal være en liste")
@@ -146,6 +170,7 @@ def _view_record(record: dict, classification: dict, nearby: list[dict], is_audi
                  decision: dict | None) -> dict:
     candidates = [_presentation_candidate(candidate) for candidate in nearby]
     candidates = _attach_anchored_details(candidates, classification)
+    candidates = _attach_accepted_review(candidates, decision)
     queue_class = classification["queue_class"]
     completed = _is_completed(decision)
     return {

@@ -243,3 +243,42 @@ def test_main_rejects_legacy_duplicate_target_that_is_not_accepted(tmp_path, mon
 
     with pytest.raises(ValueError, match="accepteret"):
         subject.main()
+
+
+def test_main_embeds_valid_cross_page_accepted_anchor_for_browser_audit(tmp_path, monkeypatch):
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    raw_text = "Accepteret manuel tekst"
+    ledger = json.loads(review.read_text(encoding="utf-8"))
+    ledger["entries"][0].update({
+        "review_status": "accepteret",
+        "candidate_id": "manual-anchor",
+        "post_index": 7,
+        "calamari_span": {"char_from": 10, "char_to": 20},
+        "calamari_verbatim_text": "Accepteret Calamari-tekst",
+        "pdf_pages": [700],
+        "kind": "manual_cross_page_anchor",
+        "raw_char_from": 100,
+        "raw_char_to": 123,
+        "raw_verbatim_text": raw_text,
+        "raw_excerpt_sha256": hashlib.sha256(raw_text.encode("utf-8")).hexdigest(),
+    })
+    review.write_text(json.dumps(ledger), encoding="utf-8")
+    monkeypatch.setattr(subject.segment, "_segment_1939_v2", lambda *_: [{
+        "lokal_id": "near-page", "sider": "3", "raw_text": "Nærliggende kandidat",
+    }])
+    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
+
+    assert subject.main() == 0
+
+    payload = json.loads(re.search(
+        r"const DATA=(.*?);\n\(function \(global\)", out.read_text(encoding="utf-8")
+    ).group(1))
+    record = payload["records"][0]
+    assert [candidate["candidate_id"] for candidate in record["candidates"]] == [
+        "manual-anchor", "near-page",
+    ]
+    attached = record["candidates"][0]
+    assert attached["rank_reason"] == "accepteret_review_evidens"
+    assert attached["raw_text"] == raw_text
+    assert attached["details"] == ledger["entries"][0]

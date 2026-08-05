@@ -50,6 +50,23 @@ function automaticRecord(recordKey: string, candidateId: string, audit = false) 
   };
 }
 
+function acceptedDecision(recordKey: string, candidateId: string) {
+  return {
+    baseline_record_key: recordKey,
+    review_status: 'accepteret',
+    candidate_id: candidateId,
+    post_index: 7,
+    calamari_span: { char_from: 10, char_to: 20 },
+    calamari_verbatim_text: 'Accepteret Calamari-tekst',
+    pdf_pages: [700],
+    kind: 'manual_cross_page_anchor',
+    raw_char_from: 100,
+    raw_char_to: 123,
+    raw_verbatim_text: 'Accepteret manuel tekst',
+    raw_excerpt_sha256: '408adad7923ea0cc08bb5979cbda1a5f727ab5957f69bdf243ddb8394e22c379',
+  };
+}
+
 function viewModel(records: any[], source = {}) {
   return {
     schema_version: 1,
@@ -116,9 +133,9 @@ describe('human 1939 review controller', () => {
     ] });
 
     expect(controller.choose('human_selected_candidate', { candidate_id: 'candidate-1' })).toBe(true);
-    expect(controller.choose('no_candidate_fits')).toBe(true);
+    expect(controller.choose('no_candidate_fits', { reason: 'Ingen af dem matcher kilden.' })).toBe(true);
     expect(controller.choose('possible_duplicate', { duplicate_of_baseline_record_key: 'rk-1' })).toBe(true);
-    expect(controller.choose('undecidable')).toBe(true);
+    expect(controller.choose('undecidable', { reason: 'Kilden er tvetydig.' })).toBe(true);
 
     expect(controller.exportDraft().entries.map((entry: any) => entry.outcome)).toEqual([
       'human_selected_candidate', 'no_candidate_fits', 'possible_duplicate', 'undecidable',
@@ -159,6 +176,7 @@ describe('human 1939 review controller', () => {
     const record = humanRecord('rk-1', 'candidate-1');
     record.decision = {
       baseline_record_key: 'rk-1', outcome: 'human_selected_candidate', candidate_id: 'candidate-1',
+      decided_at: '2026-08-05T11:00:00+02:00',
     };
     const { controller } = startReview({ storage: memoryStorage(), records: [record] });
 
@@ -191,7 +209,8 @@ describe('human 1939 review controller', () => {
     expect(document.querySelector('[data-role="record-list"]')!.textContent).toContain('Navn rk-accepted');
     controller.selectRecord('rk-accepted');
     expect(document.querySelector('[data-role="decision-state"]')!.textContent).toContain('accepteret');
-    expect(document.querySelector('[data-action="select-candidate"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector('[data-action="select-candidate"]')).toBeNull();
+    expect(document.querySelector('[data-role="decision-controls"]')).toBeNull();
   });
 
   it('merges a new outcome without discarding review metadata', () => {
@@ -282,10 +301,71 @@ describe('human 1939 review controller', () => {
     expect(document.querySelector('[data-role="save-state"]')!.textContent).toContain('kan ikke');
   });
 
+  it.each([
+    ['reason without outcome', { baseline_record_key: 'rk-1', reason: 'løst fragment' }],
+    ['draft without outcome', { baseline_record_key: 'rk-1', draft: true }],
+    ['timestamp without outcome', {
+      baseline_record_key: 'rk-1', decided_at: '2026-08-05T12:00:00+02:00',
+    }],
+    ['selection with an extraneous reason', {
+      baseline_record_key: 'rk-1', outcome: 'human_selected_candidate', candidate_id: 'c-1',
+      reason: 'må ikke være her', decided_at: '2026-08-05T12:00:00+02:00',
+    }],
+    ['reason outcome with a non-string reason', {
+      baseline_record_key: 'rk-1', outcome: 'no_candidate_fits', reason: 17,
+      decided_at: '2026-08-05T12:00:00+02:00',
+    }],
+    ['undecidable without a reason', {
+      baseline_record_key: 'rk-1', outcome: 'undecidable',
+      decided_at: '2026-08-05T12:00:00+02:00',
+    }],
+    ['selection with a non-string timestamp', {
+      baseline_record_key: 'rk-1', outcome: 'human_selected_candidate', candidate_id: 'c-1',
+      decided_at: 17,
+    }],
+  ])('blocks the whole cache for malformed provisional entry: %s', (_label, cached) => {
+    const storage = memoryStorage();
+    const records = [humanRecord('rk-1', 'c-1')];
+    const probe = startReview({ storage, records });
+    storage.setItem(probe.controller.storageKey, JSON.stringify({
+      schema_version: 1,
+      source: viewModel(records).source,
+      decisions: { 'rk-1': cached },
+    }));
+
+    const { controller } = startReview({ storage, records });
+
+    expect(controller.exportDraft()).toMatchObject({ recovery_blocked: true, entries: [] });
+    expect(document.querySelector('[data-role="save-state"]')!.textContent).toContain('kan ikke');
+  });
+
+  it('does not count metadata without a provisional outcome or final legacy status as completed', () => {
+    const record = humanRecord('rk-1', 'c-1');
+    record.decision = { baseline_record_key: 'rk-1' };
+    const { controller } = startReview({ storage: memoryStorage(), records: [record] });
+
+    controller.setView('completed');
+
+    expect(controller.selectedKey).toBeUndefined();
+    expect(document.querySelector('[data-role="record-list"]')!.textContent).not.toContain('Navn rk-1');
+  });
+
+  it('fails closed instead of completing an unknown legacy status', () => {
+    const record = humanRecord('rk-1', 'c-1');
+    record.decision = { baseline_record_key: 'rk-1', review_status: 'ukendt' };
+
+    const { controller } = startReview({ storage: memoryStorage(), records: [record] });
+
+    expect(controller.exportDraft()).toMatchObject({ recovery_blocked: true, entries: [] });
+    expect(document.querySelector('[data-role="save-state"]')!.textContent).toContain('kan ikke bruges');
+  });
+
   it('fails closed for a non-injective initial decision state', () => {
     const records = [humanRecord('rk-1', 'shared'), humanRecord('rk-2', 'shared')];
-    records[0].decision = { baseline_record_key: 'rk-1', outcome: 'human_selected_candidate', candidate_id: 'shared' };
-    records[1].decision = { baseline_record_key: 'rk-2', outcome: 'human_selected_candidate', candidate_id: 'shared' };
+    records[0].decision = { baseline_record_key: 'rk-1', outcome: 'human_selected_candidate',
+      candidate_id: 'shared', decided_at: '2026-08-05T11:00:00+02:00' };
+    records[1].decision = { baseline_record_key: 'rk-2', outcome: 'human_selected_candidate',
+      candidate_id: 'shared', decided_at: '2026-08-05T11:01:00+02:00' };
     const storage = memoryStorage();
     storage.setItem = vi.fn();
     const { controller } = startReview({ storage, records });
@@ -314,7 +394,8 @@ describe('human 1939 review controller', () => {
     const probe = startReview({ storage, records });
     storage.setItem(probe.controller.storageKey, JSON.stringify({
       schema_version: 1, source: viewModel(records).source, decisions: {
-        'rk-1': { baseline_record_key: 'rk-1', outcome: 'human_selected_candidate', candidate_id: 'c-1' },
+        'rk-1': { baseline_record_key: 'rk-1', outcome: 'human_selected_candidate', candidate_id: 'c-1',
+          decided_at: '2026-08-05T12:00:00+02:00' },
       },
     }));
 
@@ -391,6 +472,62 @@ describe('human 1939 review controller', () => {
     expect(controller.exportDraft().entries[0]).toMatchObject({ draft: true });
   });
 
+  it.each(['no_candidate_fits', 'undecidable'])(
+    'requires a visible non-empty reason for %s and exports it without final acceptance', outcome => {
+      const storage = memoryStorage();
+      const records = [humanRecord('rk-1', 'c-1')];
+      const { controller } = startReview({ storage, records });
+      let reason = document.querySelector<HTMLTextAreaElement>('[data-role="decision-reason"]')!;
+      expect(reason).not.toBeNull();
+
+      expect(controller.choose(outcome, { reason: '   ' })).toBe(false);
+      expect(controller.exportDraft().entries[0]).toEqual({
+        baseline_record_key: 'rk-1', draft: true,
+      });
+
+      reason = document.querySelector<HTMLTextAreaElement>('[data-role="decision-reason"]')!;
+      reason.value = outcome === 'no_candidate_fits'
+        ? 'Ingen af sidekandidaterne matcher den historiske post.'
+        : 'Kildeteksten er for tvetydig til en sikker afgørelse.';
+      document.querySelector<HTMLButtonElement>(
+        `[data-action="${outcome === 'no_candidate_fits' ? 'no-candidate-fits' : 'undecidable'}"]`,
+      )!.click();
+
+      expect(controller.exportDraft().entries[0]).toMatchObject({
+        baseline_record_key: 'rk-1', outcome, reason: reason.value,
+        decided_at: '2026-08-05T12:00:00+02:00',
+      });
+      expect(controller.exportDraft().entries[0]).not.toHaveProperty('review_status');
+      expect(document.querySelector<HTMLTextAreaElement>('[data-role="decision-reason"]')!.value)
+        .toBe(reason.value);
+      startReview({ storage, records });
+      expect(document.querySelector<HTMLTextAreaElement>('[data-role="decision-reason"]')!.value)
+        .toBe(reason.value);
+    },
+  );
+
+  it('exports the four provisional outcome shapes expected by the downstream validator', () => {
+    const { controller } = startReview({ storage: memoryStorage(), records: [
+      humanRecord('rk-1', 'c-1'), humanRecord('rk-2', 'c-2'),
+      humanRecord('rk-3', 'c-3'), humanRecord('rk-4', 'c-4'),
+    ] });
+    controller.choose('human_selected_candidate', { candidate_id: 'c-1' });
+    controller.choose('no_candidate_fits', { reason: 'Ingen kandidat passer.' });
+    controller.choose('possible_duplicate', { duplicate_of_baseline_record_key: 'rk-1' });
+    controller.choose('undecidable', { reason: 'Tvetydig kilde.' });
+
+    expect(controller.exportDraft().entries).toEqual([
+      { baseline_record_key: 'rk-1', outcome: 'human_selected_candidate', candidate_id: 'c-1',
+        decided_at: '2026-08-05T12:00:00+02:00' },
+      { baseline_record_key: 'rk-2', outcome: 'no_candidate_fits', reason: 'Ingen kandidat passer.',
+        decided_at: '2026-08-05T12:00:00+02:00' },
+      { baseline_record_key: 'rk-3', outcome: 'possible_duplicate',
+        duplicate_of_baseline_record_key: 'rk-1', decided_at: '2026-08-05T12:00:00+02:00' },
+      { baseline_record_key: 'rk-4', outcome: 'undecidable', reason: 'Tvetydig kilde.',
+        decided_at: '2026-08-05T12:00:00+02:00' },
+    ]);
+  });
+
   it('keeps next and previous within the active view boundaries', () => {
     const { controller } = startReview({ storage: memoryStorage(), records: [
       humanRecord('rk-1', 'c-1'), humanRecord('rk-2', 'c-2'),
@@ -420,7 +557,8 @@ describe('human 1939 review controller', () => {
 
   it('undo preserves the automatic queue and its selected record', () => {
     const { controller } = startReview({ storage: memoryStorage(), records: [
-      humanRecord('rk-1', 'c-1'), automaticRecord('rk-2', 'c-2'), automaticRecord('rk-3', 'c-3'),
+      humanRecord('rk-1', 'c-1'), automaticRecord('rk-2', 'c-2', true),
+      automaticRecord('rk-3', 'c-3', true),
     ] });
     controller.setView('automatic');
     controller.choose('human_selected_candidate', { candidate_id: 'c-2' });
@@ -443,8 +581,77 @@ describe('human 1939 review controller', () => {
     expect(document.querySelector('[data-role="audit-label"]')!.textContent).toContain('Kontrolprøve');
   });
 
+  it('keeps non-audit auto-resolved records inspectable but rejects and hides decisions', () => {
+    const records = [automaticRecord('rk-auto', 'c-auto'), automaticRecord('rk-auto-2', 'c-auto-2')];
+    const { controller } = startReview({ storage: memoryStorage(), records });
+
+    controller.setView('automatic');
+
+    expect(controller.selectedKey).toBe('rk-auto');
+    expect(document.querySelector('[data-role="decision-controls"]')).toBeNull();
+    expect(document.querySelector('[data-action="select-candidate"]')).toBeNull();
+    expect(document.querySelector('[data-role="navigation"]')).not.toBeNull();
+    document.querySelector<HTMLButtonElement>('[data-action="next"]')!.click();
+    expect(controller.selectedKey).toBe('rk-auto-2');
+    expect(controller.choose('human_selected_candidate', { candidate_id: 'c-auto-2' })).toBe(false);
+    expect(controller.exportDraft().entries[1]).toEqual({
+      baseline_record_key: 'rk-auto-2', draft: true,
+    });
+    expect(document.querySelector('[data-role="save-state"]')!.textContent).toContain('skrivebeskyt');
+  });
+
+  it('keeps audit auto-resolved records actionable', () => {
+    const record = automaticRecord('rk-audit', 'c-audit', true);
+    const { controller } = startReview({ storage: memoryStorage(), records: [record] });
+
+    controller.setView('audit');
+
+    expect(document.querySelector('[data-role="decision-controls"]')).not.toBeNull();
+    expect(controller.choose('human_selected_candidate', { candidate_id: 'c-audit' })).toBe(true);
+  });
+
+  it('renders authoritative accepted cross-page evidence in a collapsed technical disclosure', () => {
+    const record = humanRecord('rk-accepted', 'near-page');
+    const accepted = acceptedDecision('rk-accepted', 'manual-anchor');
+    record.decision = accepted;
+    record.candidates.push({
+      candidate_id: 'manual-anchor', lokal_id: 'manual-anchor', pdf_pages: [700], calamari_pages: [],
+      raw_text: accepted.raw_verbatim_text, rank_reason: 'accepteret_review_evidens',
+      details: accepted,
+    });
+    record.initial_candidate_ids = ['near-page', 'manual-anchor'];
+    const { controller } = startReview({ storage: memoryStorage(), records: [record] });
+
+    controller.setView('completed');
+
+    expect(controller.exportDraft()).not.toHaveProperty('recovery_blocked');
+    expect(document.querySelector('[data-role="decision-state"]')!.textContent).toContain('accepteret');
+    const details = Array.from(document.querySelectorAll<HTMLDetailsElement>(
+      '[data-role="candidate-details"]',
+    )).find(node => node.textContent?.includes('manual_cross_page_anchor'))!;
+    expect(details).not.toBeUndefined();
+    expect(details.open).toBe(false);
+    expect(details.textContent).toContain('Accepteret manuel tekst');
+  });
+
   it('shows the initially expanded candidates and expands the remainder on request', () => {
     const record = humanRecord('rk-1', 'c-1');
+    record.candidates = ['c-1', 'c-2', 'c-3', 'c-4'].map(candidateId => ({
+      candidate_id: candidateId, lokal_id: candidateId, pdf_pages: [498], calamari_pages: [3],
+      raw_text: candidateId, rank_reason: 'samme_pdf_side',
+    }));
+    record.initial_candidate_ids = ['c-1', 'c-2', 'c-3'];
+    startReview({ storage: memoryStorage(), records: [record] });
+
+    expect(document.querySelectorAll('.candidate')).toHaveLength(3);
+    expect(document.querySelector('[data-action="expand-candidates"]')!.textContent)
+      .toBe('Vis alle kandidater (4)');
+    document.querySelector<HTMLButtonElement>('[data-action="expand-candidates"]')!.click();
+    expect(document.querySelectorAll('.candidate')).toHaveLength(4);
+  });
+
+  it('tracks candidate expansion safely for a prototype-like record key', () => {
+    const record = humanRecord('__proto__', 'c-1');
     record.candidates = ['c-1', 'c-2', 'c-3', 'c-4'].map(candidateId => ({
       candidate_id: candidateId, lokal_id: candidateId, pdf_pages: [498], calamari_pages: [3],
       raw_text: candidateId, rank_reason: 'samme_pdf_side',
@@ -484,7 +691,8 @@ describe('human 1939 review controller', () => {
 
   it('keeps automatic review in its own view after a persisted choice', () => {
     const { controller } = startReview({ storage: memoryStorage(), records: [
-      humanRecord('rk-1', 'c-1'), automaticRecord('rk-2', 'c-2'), automaticRecord('rk-3', 'c-3'),
+      humanRecord('rk-1', 'c-1'), automaticRecord('rk-2', 'c-2', true),
+      automaticRecord('rk-3', 'c-3', true),
     ] });
     controller.setView('automatic');
 
@@ -492,6 +700,27 @@ describe('human 1939 review controller', () => {
 
     expect(controller.selectedKey).toBe('rk-3');
     expect(document.querySelector('[data-role="record-list"]')!.textContent).not.toContain('Navn rk-1');
+  });
+
+  it('clears a stale storage error after a later successful save', () => {
+    const storage = memoryStorage();
+    const realSetItem = storage.setItem;
+    let fail = true;
+    storage.setItem = (key, value) => {
+      if (fail) throw new Error('quota');
+      realSetItem(key, value);
+    };
+    const { controller } = startReview({ storage, records: [humanRecord('rk-1', 'c-1')] });
+    expect(controller.choose('human_selected_candidate', { candidate_id: 'c-1' })).toBe(false);
+    expect(document.querySelector('[data-role="save-state"]')!.textContent).toContain('Kunne ikke gemme');
+
+    fail = false;
+    expect(controller.choose('human_selected_candidate', { candidate_id: 'c-1' })).toBe(true);
+
+    expect(document.querySelector('[data-role="save-state"]')!.textContent)
+      .toContain('Visuelt spor er gemt lokalt');
+    expect(document.querySelector('[data-role="save-state"]')!.textContent)
+      .not.toContain('Kunne ikke gemme');
   });
 
   it('filters duplicate targets by the plain-text search', () => {
