@@ -499,6 +499,15 @@ def materialize_coverage(
     return bundle
 
 
+def _unique_candidate_json_object(pairs: list[tuple[str, object]]) -> dict:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("dublet candidate_id i anchored candidates")
+        value[key] = item
+    return value
+
+
 def convert_choice_export(
     choices_path: Path,
     queue_manifest_path: Path,
@@ -534,7 +543,10 @@ def convert_choice_export(
         set(classifications),
     )
     anchored = _mapping(
-        json.loads(anchored_candidates_path.read_text(encoding="utf-8")),
+        json.loads(
+            anchored_candidates_path.read_text(encoding="utf-8"),
+            object_pairs_hook=_unique_candidate_json_object,
+        ),
         "anchored candidates",
     )
     converted = convert_review_choices(

@@ -630,3 +630,64 @@ def test_cli_choice_conversion_rejects_stale_source_without_output(tmp_path):
         ])
 
     assert not out.exists()
+
+
+def test_cli_choice_conversion_rejects_duplicate_candidate_ids_in_json(tmp_path):
+    choices = tmp_path / "choices.json"
+    queue = tmp_path / "queue.json"
+    candidates = tmp_path / "candidates.json"
+    out = tmp_path / "new-decisions.json"
+    source_value = {
+        "edition": "1939",
+        "baseline_sha256": "a" * 64,
+        "calamari_sha256": "b" * 64,
+        "raw_ocr_sha256": "c" * 64,
+        "pdf_sha256": "d" * 64,
+        "profile_version": "1939-v2",
+    }
+    choices.write_text(json.dumps({
+        "schema_version": 1,
+        "source": source_value,
+        "exported_at": "2026-08-05T12:00:00+02:00",
+        "entries": [{
+            "baseline_record_key": "rk-1",
+            "outcome": "human_selected_candidate",
+            "candidate_id": "c-1",
+        }],
+    }), encoding="utf-8")
+    queue.write_text(json.dumps({
+        "schema_version": 1,
+        "source": source_value,
+        "entries": [{
+            "baseline_record_key": "rk-1",
+            "queue_class": "human_required",
+            "reason_code": "multiple_candidates",
+            "reason_da": "flere",
+        }],
+    }), encoding="utf-8")
+    wrapper = json.dumps({
+        "baseline_record_key": "rk-1",
+        "candidate": {
+            "candidate_id": "c-1",
+            "postklasse": "nummereret",
+            "calamari_span": {"char_from": 10, "char_to": 20},
+            "pdf_pages": [498],
+            "raw_structure_bridge": {
+                "kind": "record_start",
+                "raw_char_from": 100,
+                "raw_char_to": 110,
+                "raw_excerpt_sha256": "e" * 64,
+            },
+        },
+    })
+    candidates.write_text('{"c-1":' + wrapper + ',"c-1":' + wrapper + '}', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="dublet candidate_id"):
+        main([
+            "--choices-to-decisions", str(choices),
+            "--queue-manifest", str(queue),
+            "--anchored-candidates", str(candidates),
+            "--out", str(out),
+        ])
+
+    assert not out.exists()

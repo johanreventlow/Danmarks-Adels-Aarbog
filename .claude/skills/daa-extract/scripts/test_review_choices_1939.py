@@ -110,6 +110,43 @@ def test_selected_candidate_with_wrong_record_owner_remains_parked():
     assert converted["decisions"][0]["reason"].endswith(":c-1")
 
 
+def test_malformed_selected_candidate_parks_only_that_choice():
+    malformed = anchored_candidate("c-bad")
+    malformed["postklasse"] = "ukendt"
+
+    converted = convert_review_choices(
+        {"rk-1": choice("rk-1", "human_selected_candidate", candidate_id="c-bad")},
+        {"c-bad": {"baseline_record_key": "rk-1", "candidate": malformed}},
+        {"rk-1": human("rk-1")},
+        set(),
+    )
+
+    assert converted["decisions"] == [{
+        "baseline_record_key": "rk-1",
+        "status": "menneskeark",
+        "reason": "human_selected_candidate_requires_exact_anchor:c-bad",
+    }]
+
+
+def test_malformed_unused_candidate_does_not_abort_unrelated_valid_choice():
+    converted = convert_review_choices(
+        {"rk-1": choice("rk-1", "human_selected_candidate", candidate_id="c-1")},
+        {
+            "c-1": {
+                "baseline_record_key": "rk-1",
+                "candidate": anchored_candidate("c-1"),
+            },
+            "unused-bad": {"candidate": "ikke en kandidat"},
+        },
+        {"rk-1": human("rk-1")},
+        set(),
+    )
+
+    assert converted["decisions"] == [{
+        "baseline_record_key": "rk-1", "status": "accepteret", "candidate_id": "c-1",
+    }]
+
+
 def test_selected_candidate_colliding_with_automatic_anchor_remains_parked():
     converted = convert_review_choices(
         {"rk-h": choice("rk-h", "human_selected_candidate", candidate_id="c-h")},
@@ -170,6 +207,55 @@ def test_audit_selected_different_candidate_fails_with_stable_reason():
 
     assert converted["audit_results"][0]["audit_status"] == "audit_failed"
     assert converted["audit_results"][0]["reason"] == "selected_different_candidate:c-other"
+
+
+@pytest.mark.parametrize(
+    ("target", "target_classification", "message"),
+    [
+        ("rk-unknown", {}, "ukendt dubletmål"),
+        ("rk-a", {}, "sig selv"),
+        ("rk-human", {"rk-human": human("rk-human")}, "dubletmål skal være accepteret"),
+    ],
+)
+def test_audit_duplicate_rejects_unknown_or_nonaccepted_target(
+    target, target_classification, message
+):
+    classifications = {"rk-a": automatic("rk-a", candidate_id="c-a")}
+    classifications.update(target_classification)
+
+    with pytest.raises(ValueError, match=message):
+        convert_review_choices(
+            {"rk-a": choice(
+                "rk-a", "possible_duplicate", duplicate_of_baseline_record_key=target
+            )},
+            {},
+            classifications,
+            {"rk-a"},
+        )
+
+
+def test_audit_duplicate_with_accepted_target_emits_failure_without_rewrite():
+    target = automatic("rk-target", candidate_id="c-target")
+    target["candidate"] = anchored_candidate("c-target", offset=50)
+
+    converted = convert_review_choices(
+        {"rk-a": choice(
+            "rk-a", "possible_duplicate", duplicate_of_baseline_record_key="rk-target"
+        )},
+        {},
+        {"rk-a": automatic("rk-a", candidate_id="c-a"), "rk-target": target},
+        {"rk-a"},
+    )
+
+    assert converted == {
+        "decisions": [],
+        "audit_results": [{
+            "baseline_record_key": "rk-a",
+            "audit_status": "audit_failed",
+            "rule_id": "complete_anchor_v1",
+            "reason": "possible_duplicate:rk-target",
+        }],
+    }
 
 
 def test_choice_for_non_audit_automatic_record_is_rejected():
