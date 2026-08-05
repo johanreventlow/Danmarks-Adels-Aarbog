@@ -44,3 +44,6 @@ def test_main_shows_candidates_on_translated_pdf_pages(tmp_path, monkeypatch):
         "calamari_sider": "3",
         "raw_text": "Hr. Volrad",
     }]
+    rendered = out.read_text(encoding="utf-8")
+    assert "function persist()" in rendered
+    assert "Visuelt spor er gemt lokalt" in rendered

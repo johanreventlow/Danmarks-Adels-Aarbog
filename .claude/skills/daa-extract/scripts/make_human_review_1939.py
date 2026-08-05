@@ -18,12 +18,13 @@ HTML = r"""<!doctype html>
 <style>
 body{font:16px system-ui;margin:0;display:grid;grid-template-columns:360px 1fr;height:100vh;color:#18212a}
 aside{border-right:1px solid #ccd5dd;padding:14px;overflow:auto;background:#fafbfd}main{padding:24px;overflow:auto;max-width:1280px}
-input,select,textarea,button{font:inherit;padding:8px;margin:4px 0;width:100%;box-sizing:border-box}textarea{min-height:96px}.row{padding:9px;border-bottom:1px solid #dde4ea;cursor:pointer}.active{background:#dceeff}.row small{color:#50606c}pre{white-space:pre-wrap;background:#f6f8fa;padding:14px;border-radius:5px;line-height:1.4}.candidate{border:1px solid #cad7e2;border-left:5px solid #3977a9;padding:14px;margin:14px 0;border-radius:5px}.candidate h4{margin:0 0 6px}.muted{color:#50606c}.warn{color:#8b4b00;font-weight:600}.guide{background:#eef7f0;border-left:5px solid #398052;padding:12px}.candidate button{width:auto;padding:7px 11px}
+input,select,textarea,button{font:inherit;padding:8px;margin:4px 0;width:100%;box-sizing:border-box}textarea{min-height:96px}.row{padding:9px;border-bottom:1px solid #dde4ea;cursor:pointer}.active{background:#dceeff}.row small{color:#50606c}pre{white-space:pre-wrap;background:#f6f8fa;padding:14px;border-radius:5px;line-height:1.4}.candidate{border:1px solid #cad7e2;border-left:5px solid #3977a9;padding:14px;margin:14px 0;border-radius:5px}.candidate h4{margin:0 0 6px}.muted{color:#50606c}.warn{color:#8b4b00;font-weight:600}.saved{color:#166534;font-weight:600}.guide{background:#eef7f0;border-left:5px solid #398052;padding:12px}.candidate button{width:auto;padding:7px 11px}
 </style>
 <aside>
   <h2>1939 menneskeark</h2>
   <p>Du undersøger en <b>historisk kildepost</b> – ikke om personen allerede er rigtig i databasen.</p>
   <p class="muted">Gem gemmer kun i denne browser. Eksport henter en privat JSON-kopi; intet sendes eller overskrives.</p>
+  <p id="save-state" class="saved">Klar. Ændringer gemmes automatisk lokalt.</p>
   <input id="q" placeholder="Søg navn, PDF-side eller id">
   <button onclick="save()">Gem kladde lokalt</button>
   <button onclick="downloadFile()">Eksportér kladde</button>
@@ -37,10 +38,14 @@ const key='daa1939-'+DATA.baseline_sha256;
 const saved=JSON.parse(localStorage.getItem(key)||'{}');
 for(const r of rows)Object.assign(r.decision,saved[r.record_key]||{});
 function e(x){let d=document.createElement('div');d.textContent=x||'';return d.innerHTML}
+function persist(){localStorage.setItem(key,JSON.stringify(Object.fromEntries(rows.map(r=>[r.record_key,r.decision]))))}
+function showSaved(message){document.querySelector('#save-state').textContent=message}
 function setTrack(localId){
   const r=rows[selected], note=`Visuelt spor: parserpost ${localId}. Kræver stadig eksakt Calamari- og rå-OCR-ankring.`;
   r.decision.review_status='menneskeark';
   r.decision.reason=note;
+  persist();
+  showSaved('✓ Visuelt spor er gemt lokalt.');
   render();
 }
 function render(){
@@ -54,11 +59,11 @@ function render(){
   const s=document.querySelector('#status'),reason=document.querySelector('#reason'),target=document.querySelector('#target');
   s.value=r.decision.review_status==='accepteret'?'unreviewed':r.decision.review_status;
   reason.value=r.decision.reason||'';target.value=r.decision.duplicate_of_baseline_record_key||'';
-  s.onchange=()=>r.decision.review_status=s.value;
-  reason.oninput=()=>r.decision.reason=reason.value;
-  target.oninput=()=>r.decision.duplicate_of_baseline_record_key=target.value;
+  s.onchange=()=>{r.decision.review_status=s.value;persist();showSaved('✓ Status er gemt lokalt.')};
+  reason.oninput=()=>{r.decision.reason=reason.value;persist();showSaved('✓ Kladde er gemt lokalt.')};
+  target.oninput=()=>{r.decision.duplicate_of_baseline_record_key=target.value;persist();showSaved('✓ Kladde er gemt lokalt.')};
 }
-function save(){localStorage.setItem(key,JSON.stringify(Object.fromEntries(rows.map(r=>[r.record_key,r.decision]))));alert('Gemt lokalt i browseren.')}
+function save(){persist();showSaved('✓ Hele kladden er gemt lokalt i browseren.')}
 function downloadFile(){const b=new Blob([JSON.stringify({schema_version:1,baseline_sha256:DATA.baseline_sha256,entries:rows.map(r=>r.decision)},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='1939-review-kladd.json';a.click()}
 document.querySelector('#q').oninput=render;render();
 </script>"""
