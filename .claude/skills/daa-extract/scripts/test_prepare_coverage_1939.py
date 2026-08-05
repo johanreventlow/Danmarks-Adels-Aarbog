@@ -691,3 +691,101 @@ def test_cli_choice_conversion_rejects_duplicate_candidate_ids_in_json(tmp_path)
         ])
 
     assert not out.exists()
+
+
+def _write_nested_duplicate_candidate_case(tmp_path, selected_id, anchored_json):
+    choices = tmp_path / "choices.json"
+    queue = tmp_path / "queue.json"
+    candidates = tmp_path / "candidates.json"
+    out = tmp_path / "new-decisions.json"
+    source_value = {
+        "edition": "1939",
+        "baseline_sha256": "a" * 64,
+        "calamari_sha256": "b" * 64,
+        "raw_ocr_sha256": "c" * 64,
+        "pdf_sha256": "d" * 64,
+        "profile_version": "1939-v2",
+    }
+    key = "rk-good" if selected_id == "c-good" else "rk-bad"
+    choices.write_text(json.dumps({
+        "schema_version": 1,
+        "source": source_value,
+        "exported_at": "2026-08-05T12:00:00+02:00",
+        "entries": [{
+            "baseline_record_key": key,
+            "outcome": "human_selected_candidate",
+            "candidate_id": selected_id,
+        }],
+    }), encoding="utf-8")
+    queue.write_text(json.dumps({
+        "schema_version": 1,
+        "source": source_value,
+        "entries": [{
+            "baseline_record_key": key,
+            "queue_class": "human_required",
+            "reason_code": "multiple_candidates",
+            "reason_da": "flere",
+        }],
+    }), encoding="utf-8")
+    candidates.write_text(anchored_json, encoding="utf-8")
+    return choices, queue, candidates, out
+
+
+def _raw_wrapper(candidate_id, owner, *, duplicate_postklasse=False):
+    repeated = ',"postklasse":"nummereret"' if duplicate_postklasse else ""
+    return (
+        '{"baseline_record_key":' + json.dumps(owner) + ',"candidate":{'
+        '"candidate_id":' + json.dumps(candidate_id) + ','
+        '"postklasse":"nummereret"' + repeated + ','
+        '"calamari_span":{"char_from":10,"char_to":20},'
+        '"pdf_pages":[498],'
+        '"raw_structure_bridge":{"kind":"record_start","raw_char_from":100,'
+        '"raw_char_to":110,"raw_excerpt_sha256":"' + ("e" * 64) + '"}}}'
+    )
+
+
+def test_cli_ignores_nested_duplicate_in_unused_candidate_wrapper(tmp_path):
+    anchored_json = (
+        '{"c-good":' + _raw_wrapper("c-good", "rk-good")
+        + ',"c-bad":' + _raw_wrapper(
+            "c-bad", "rk-bad", duplicate_postklasse=True
+        ) + '}'
+    )
+    choices, queue, candidates, out = _write_nested_duplicate_candidate_case(
+        tmp_path, "c-good", anchored_json
+    )
+
+    assert main([
+        "--choices-to-decisions", str(choices),
+        "--queue-manifest", str(queue),
+        "--anchored-candidates", str(candidates),
+        "--out", str(out),
+    ]) == 0
+
+    assert json.loads(out.read_text(encoding="utf-8"))["decisions"] == [{
+        "baseline_record_key": "rk-good",
+        "status": "accepteret",
+        "candidate_id": "c-good",
+    }]
+
+
+def test_cli_parks_selected_wrapper_with_nested_duplicate(tmp_path):
+    anchored_json = '{"c-bad":' + _raw_wrapper(
+        "c-bad", "rk-bad", duplicate_postklasse=True
+    ) + '}'
+    choices, queue, candidates, out = _write_nested_duplicate_candidate_case(
+        tmp_path, "c-bad", anchored_json
+    )
+
+    assert main([
+        "--choices-to-decisions", str(choices),
+        "--queue-manifest", str(queue),
+        "--anchored-candidates", str(candidates),
+        "--out", str(out),
+    ]) == 0
+
+    assert json.loads(out.read_text(encoding="utf-8"))["decisions"] == [{
+        "baseline_record_key": "rk-bad",
+        "status": "menneskeark",
+        "reason": "human_selected_candidate_requires_exact_anchor:c-bad",
+    }]
