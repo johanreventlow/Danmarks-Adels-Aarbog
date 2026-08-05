@@ -43,7 +43,7 @@ def automatic(key, rule_id="complete_anchor_v1", postklasse="nummereret"):
         "queue_class": "auto_resolved",
         "reason_code": "complete_unique_anchored_candidate",
         "reason_da": "komplet",
-        "candidate": anchored_candidate(key),
+        "candidate": anchored_candidate(key, postklasse),
         "rule_id": rule_id,
         "postklasse": postklasse,
     }
@@ -438,6 +438,13 @@ def test_sample_rejects_candidate_with_invalid_identity():
     entry = automatic("rk-1")
     entry["candidate"]["candidate_id"] = ""
     with pytest.raises(ValueError):
+        sample_auto_resolved(queue_manifest(entry))
+
+
+def test_sample_rejects_candidate_postklasse_inconsistent_with_auto_entry():
+    entry = automatic("rk-1", postklasse="oversigtspost")
+    entry["candidate"]["postklasse"] = "nummereret"
+    with pytest.raises(ValueError, match="postklasse"):
         sample_auto_resolved(queue_manifest(entry))
 
 

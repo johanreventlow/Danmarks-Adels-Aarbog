@@ -125,6 +125,8 @@ def _validate_auto_resolved_entry(entry: Mapping, source: Mapping) -> tuple[str,
     _validate_one_candidate_with_existing_contract(
         entry["baseline_record_key"], candidate, source
     )
+    if candidate["postklasse"] != postklasse:
+        raise ValueError("candidate postklasse stemmer ikke med auto_resolved entry")
     return rule_id, postklasse
 
 
