@@ -1,4 +1,5 @@
 import copy
+import hashlib
 
 import pytest
 
@@ -8,6 +9,7 @@ from source_record_ledger import LedgerError, batch_records, materialize
 
 
 TEXT = "Født 1801."
+RENDITION_TEXT = "Forord\n" + TEXT + "\nSlut"
 
 
 def accepted(acceptance_id="accept-1", **overrides):
@@ -25,17 +27,19 @@ def accepted(acceptance_id="accept-1", **overrides):
             "char_to": len(TEXT),
             "bbox": None,
         },
+        "source_anchor": {"char_from": len("Forord\n"), "char_to": len("Forord\n") + len(TEXT)},
     }
     value.update(overrides)
     return value
 
 
-def review(*, source_id="2018-20", records=None):
+def review(*, source_id="2018-20", records=None, rendition_text=RENDITION_TEXT):
     return {
         "schema_version": "1.0",
         "source_id": source_id,
         "rendition_id": "rendition-2018-pdftext-v1",
-        "rendition_sha256": "a" * 64,
+        "rendition_sha256": hashlib.sha256(rendition_text.encode()).hexdigest(),
+        "rendition_text": rendition_text,
         "extraction_run_id": "segmentation-1",
         "records": records if records is not None else [accepted()],
     }
@@ -58,21 +62,35 @@ def test_materialize_mints_opaque_key_once_and_is_idempotent():
 def test_materialize_rejects_changed_text_for_known_acceptance_without_mutating_ledger():
     ledger, _ = materialize(review(), empty_ledger())
     ledger_before = copy.deepcopy(ledger)
+    changed_text = "Ændret tekst."
+    changed_rendition = "Forord\n" + changed_text + "\nSlut"
 
     with pytest.raises(LedgerError, match="drift"):
-        materialize(review(records=[accepted(verbatim_text="Ændret tekst.", span={
+        materialize(review(records=[accepted(verbatim_text=changed_text, span={
             "page_from": 101, "page_to": 101, "char_from": 0, "char_to": 13, "bbox": None,
-        })]), ledger)
+        }, source_anchor={
+            "char_from": len("Forord\n"), "char_to": len("Forord\n") + len(changed_text),
+        })], rendition_text=changed_rendition), ledger)
 
     assert ledger == ledger_before
 
 
 def test_materialize_rejects_changed_absolute_source_anchor_for_known_acceptance():
-    record = accepted(source_anchor={"char_from": 100, "char_to": 112})
-    ledger, _ = materialize(review(records=[record]), empty_ledger())
+    repeated = TEXT + " / " + TEXT
+    record = accepted(source_anchor={"char_from": 0, "char_to": len(TEXT)})
+    ledger, _ = materialize(review(records=[record], rendition_text=repeated), empty_ledger())
 
     with pytest.raises(LedgerError, match="drift"):
-        materialize(review(records=[accepted(source_anchor={"char_from": 101, "char_to": 113})]), ledger)
+        materialize(review(records=[accepted(source_anchor={
+            "char_from": len(TEXT) + 3, "char_to": len(TEXT) * 2 + 3,
+        })], rendition_text=repeated), ledger)
+
+
+def test_materialize_requires_absolute_source_anchor():
+    record = accepted()
+    record.pop("source_anchor")
+    with pytest.raises(LedgerError, match="source_anchor kræves"):
+        materialize(review(records=[record]), empty_ledger())
 
 
 def test_materialize_rejects_duplicate_acceptance_id():
