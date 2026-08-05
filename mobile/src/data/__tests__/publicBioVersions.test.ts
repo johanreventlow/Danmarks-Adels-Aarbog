@@ -1,4 +1,4 @@
-import { fetchPublicBioVersions } from '../publicBioVersions';
+import { fetchPublicBioVersions, fetchPublicBioVersionsForPerson } from '../publicBioVersions';
 
 describe('fetchPublicBioVersions', () => {
   it('bevarer hver record fra samme bog og filtrerer private ekstrakolonner', async () => {
@@ -13,5 +13,15 @@ describe('fetchPublicBioVersions', () => {
 
   it('fejl eller manglende RPC giver null, så skærmen beholder sin eksisterende bio', async () => {
     await expect(fetchPublicBioVersions({ rpc: jest.fn().mockResolvedValue({ data: null, error: { message: 'mangler' } }) } as never, ['1'])).resolves.toBeNull();
+  });
+
+  it('henter kildeversioner for både canonical og alle same_som-aliaser', async () => {
+    const rpc = jest.fn().mockResolvedValue({ data: [], error: null });
+    await fetchPublicBioVersionsForPerson({ rpc } as never, '10', [
+      { personId: '3', linje: 'III', nr: 3 },
+      { personId: '10', linje: 'I', nr: 1 },
+      { personId: '2', linje: 'II', nr: 2 },
+    ]);
+    expect(rpc).toHaveBeenCalledWith('public_person_bio_source_versions', { p_person_ids: [10, 2, 3] });
   });
 });

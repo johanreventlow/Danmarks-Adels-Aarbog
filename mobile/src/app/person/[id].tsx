@@ -14,7 +14,7 @@ import { TopBar } from '../../components/TopBar';
 import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
 import { lifeJourney } from '@daa/core';
 import type { BioSourceVersion } from '@daa/core';
-import { fetchPublicBioVersions } from '../../data/publicBioVersions';
+import { fetchPublicBioVersionsForPerson } from '../../data/publicBioVersions';
 import { childrenByMarriage, parentsOf, spousesOf } from '../../data/selectors';
 import { usePersonMedia } from '../../lib/media';
 import { supabase } from '../../lib/supabase';
@@ -59,11 +59,11 @@ export default function PersonScreen() {
   useEffect(() => {
     let current = true;
     if (!personId || !supabase) return () => { current = false; };
-    fetchPublicBioVersions(supabase, [personId]).then((versions) => {
+    fetchPublicBioVersionsForPerson(supabase, personId, person?.mergedFrom).then((versions) => {
       if (current) setBioVersionResult({ personId, versions });
     }).catch(() => { if (current) setBioVersionResult({ personId, versions: null }); });
     return () => { current = false; };
-  }, [personId]);
+  }, [personId, person?.mergedFrom]);
 
   // Medier (mediehåndtering Slice 0): model-hook FØR early-return så hook-kaldet er ubetinget.
   // lightboxItems (portræt+galleri, ÉT navigerbart sæt) bygges af hooken selv (Slice A).

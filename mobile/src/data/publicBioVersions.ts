@@ -1,4 +1,4 @@
-import { buildBioSourceVersions, type BioSourceVersion } from '@daa/core';
+import { buildBioSourceVersions, physicalPersonIds, type BioSourceVersion, type Provenance } from '@daa/core';
 
 export async function fetchPublicBioVersions(
   sb: { rpc: (name: string, args: unknown) => PromiseLike<{ data: unknown[] | null; error: unknown }> }, personIds: string[],
@@ -15,4 +15,12 @@ export async function fetchPublicBioVersions(
     return [{ record_ref: v.record_ref, source_label: v.source_label, record_label: v.record_label,
       narrative_text: v.narrative_text, citation_label: v.citation_label, provenance_kind: v.provenance_kind }];
   }));
+}
+
+export function fetchPublicBioVersionsForPerson(
+  sb: Parameters<typeof fetchPublicBioVersions>[0],
+  canonicalId: string,
+  mergedFrom?: ReadonlyArray<Provenance>,
+): Promise<BioSourceVersion[] | null> {
+  return fetchPublicBioVersions(sb, physicalPersonIds(canonicalId, mergedFrom));
 }
