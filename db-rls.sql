@@ -67,27 +67,6 @@ $$;
 revoke all on function public.family_offentlig(bigint) from public;
 grant execute on function public.family_offentlig(bigint) to anon, authenticated;
 
--- entitet_offentlig: fælles polymorf synligheds-regel for et (type,id)-mål. Erstatter det gentagne
--- "type <> 'person'"-mønster, der var FAIL-OPEN på to måder (Codex-fund F-02c): (1) family-mål blev
--- behandlet som offentligt → levende families vielse-/skilsmisse-fakta + noter lækkede til anon OG
--- authenticated; (2) enhver ukendt/fejlstavet discriminator (type-kolonnerne er fritekst uden CHECK)
--- blev behandlet som offentlig. FAIL-CLOSED ELSE. NB: fact/relation-mål (kun note/text_mention kan
--- pege der) håndteres IKKE her — de skal cascade gennem targetets EGEN RLS (se note/text_mention-
--- policyerne), ikke entitets-gates. SECURITY DEFINER pga. family_offentlig.
-create or replace function public.entitet_offentlig(p_type text, p_id bigint)
-returns boolean language sql stable security definer set search_path = public as $$
-  select case
-    when p_type = 'person' then public.person_offentlig(p_id)
-    when p_type = 'family' then public.family_offentlig(p_id)
-    -- det faste ikke-PII-entitetssæt (sted/gods/våben/linje/organisation/begivenhed/kilde/media/arkiv)
-    when p_type in ('place','estate','coat_of_arms','lineage','organisation',
-                    'historical_event','source','media','repository') then true
-    else false  -- ukendt/fejlstavet type → fail-closed
-  end;
-$$;
-revoke all on function public.entitet_offentlig(text, bigint) from public;
-grant execute on function public.entitet_offentlig(text, bigint) to anon, authenticated;
-
 -- media-gating-helpere. SECURITY DEFINER så de ser ALLE afbildet-relationer uden at blive
 -- re-filtreret af relation-RLS: et afbildet-link til en LEVENDE person er selv skjult for
 -- anon af relation-politikken, så en almindelig EXISTS-subquery i media-politikken ville
@@ -142,6 +121,31 @@ returns boolean language sql stable security definer set search_path=public as $
 $$;
 revoke all on function public.media_rettigheder_ok(bigint) from public;
 grant execute on function public.media_rettigheder_ok(bigint) to anon, authenticated;
+
+-- entitet_offentlig: fælles polymorf synligheds-regel for et (type,id)-mål. Erstatter det gentagne
+-- "type <> 'person'"-mønster, der var FAIL-OPEN på to måder (Codex-fund F-02c): (1) family-mål blev
+-- behandlet som offentligt → levende families vielse-/skilsmisse-fakta + noter lækkede til anon OG
+-- authenticated; (2) enhver ukendt/fejlstavet discriminator (type-kolonnerne er fritekst uden CHECK)
+-- blev behandlet som offentlig. FAIL-CLOSED ELSE. NB: fact/relation-mål (kun note/text_mention kan
+-- pege der) håndteres IKKE her — de skal cascade gennem targetets EGEN RLS (se note/text_mention-
+-- policyerne), ikke entitets-gates. SECURITY DEFINER pga. family_offentlig.
+-- Står EFTER media_rettigheder_ok fordi media-grenen kalder den (SQL-bodies valideres ved CREATE).
+create or replace function public.entitet_offentlig(p_type text, p_id bigint)
+returns boolean language sql stable security definer set search_path = public as $$
+  select case
+    when p_type = 'person' then public.person_offentlig(p_id)
+    when p_type = 'family' then public.family_offentlig(p_id)
+    -- media: fakta/noter/relationer følger publiceringsgaten (spec §1b, MM-01).
+    -- Redaktionen ser fortsat alt via det additive redaktion_read-lag.
+    when p_type = 'media' then public.media_rettigheder_ok(p_id)
+    -- det faste ikke-PII-entitetssæt (sted/gods/våben/linje/organisation/begivenhed/kilde/arkiv)
+    when p_type in ('place','estate','coat_of_arms','lineage','organisation',
+                    'historical_event','source','repository') then true
+    else false  -- ukendt/fejlstavet type → fail-closed
+  end;
+$$;
+revoke all on function public.entitet_offentlig(text, bigint) from public;
+grant execute on function public.entitet_offentlig(text, bigint) to anon, authenticated;
 
 -- Kort et storage-objekt tilbage til dets media-række. Stien er autoritativ:
 -- storage.objects.name == media.storage_path (unikt pr. (bucket,storage_path)) FOR 'large'-tieren;

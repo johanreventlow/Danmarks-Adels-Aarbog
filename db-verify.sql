@@ -3806,3 +3806,24 @@ BEGIN
 EXCEPTION WHEN others THEN
   IF SQLERRM = 'ROLLBACK_TESTDATA' THEN RAISE NOTICE 'OK: testdata rullet tilbage'; ELSE RAISE; END IF;
 END $$;
+
+
+-- Medie-metadata-faktatyper + RLS-skærpelse (2026-08-06)
+DO $$
+DECLARE v_n int; v_id bigint;
+BEGIN
+  SELECT count(*) INTO v_n FROM vocab WHERE scheme='faktatype' AND code IN
+    ('kilde_url','kilde_institution','ekstern_objekt_id','hentedato','fotograf','rettighedshaver',
+     'kreditlinje','beskrivelse','alt_tekst','teknik','fysiske_maal','datering');
+  IF v_n <> 12 THEN RAISE EXCEPTION 'medie-metadata-seeds: forventede 12, fandt %', v_n; END IF;
+  -- entitet_offentlig gater nu media på publicering (spec §1b): et upubliceret medie skal være mørkt
+  SELECT id INTO v_id FROM media WHERE NOT maa_publiceres LIMIT 1;
+  IF v_id IS NOT NULL AND entitet_offentlig('media', v_id) THEN
+    RAISE EXCEPTION 'entitet_offentlig(media) gater ikke upubliceret medie %', v_id;
+  END IF;
+  -- ikke-eksisterende medie → fail-closed
+  IF entitet_offentlig('media', -1) THEN
+    RAISE EXCEPTION 'entitet_offentlig(media, -1) burde være false';
+  END IF;
+  RAISE NOTICE 'OK: medie-metadata — 12 faktatype-seeds + entitet_offentlig gater media på publicering';
+END $$;

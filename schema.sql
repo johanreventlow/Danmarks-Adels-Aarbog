@@ -984,6 +984,23 @@ INSERT INTO vocab (scheme, code, label) VALUES
   ('faktatype','overhoved','Linje-/gren-overhoved — anker for præsenslisten')
 ON CONFLICT (scheme, code) DO NOTHING;
 
+-- Medie-metadata (spec docs/superpowers/specs/2026-08-06-medie-metadata-design.md §1).
+-- Faktatyper på media-entiteten — ingen kolonner (invariant 2+3). Skrives via red_upsert_fakta.
+INSERT INTO vocab (scheme, code, label) VALUES
+  ('faktatype','kilde_url',         'Kilde-URL — permalink til billedside hos ekstern kilde'),
+  ('faktatype','kilde_institution', 'Kilde-institution / datapartner'),
+  ('faktatype','ekstern_objekt_id', 'Institutionens objekt-/inventar-ID'),
+  ('faktatype','hentedato',         'Dato mediet blev hentet fra kilden'),
+  ('faktatype','fotograf',          'Fotograf af reproduktionen (≠ kunstner/ophavsmand)'),
+  ('faktatype','rettighedshaver',   'Rettighedshaver / Rechtewahrnehmung'),
+  ('faktatype','kreditlinje',       'Ordret kreditlinje som kilden kræver vist'),
+  ('faktatype','beskrivelse',       'Beskrivelse/proveniens-prosa'),
+  ('faktatype','alt_tekst',         'Alt-tekst til skærmlæsere'),
+  ('faktatype','teknik',            'Teknik/materiale (fx olie på lærred)'),
+  ('faktatype','fysiske_maal',      'Fysiske mål (fx 92 × 73 cm)'),
+  ('faktatype','datering',          'Datering af værket (fuzzy dato på fact)')
+ON CONFLICT (scheme, code) DO NOTHING;
+
 -- ---------- CACHE-REGENERERING & TRIGGERS ----------
 -- Recompute cache-felter fra personens konklusioner. Læser den VALGTE assertions værdi
 -- pr. faktatype. Dato-fakta (fødsel/død) bruger coalesce(date_raw, vaerdi_tekst).
