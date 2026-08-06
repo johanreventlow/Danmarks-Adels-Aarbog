@@ -501,12 +501,18 @@
     return true;
   }
 
+  function closeCompactPicker() {
+    if (typeof global.matchMedia !== 'function'
+      || !global.matchMedia('(max-width: 720px)').matches) return;
+    const picker = document.querySelector('[data-role="sidebar-picker"]');
+    if (picker) picker.removeAttribute('open');
+  }
+
   function selectRecord(state, recordKey) {
     if (!state.recordByKey.has(recordKey)) return false;
     state.selectedKey = recordKey;
     render(state);
-    const picker = document.querySelector('[data-role="sidebar-picker"]');
-    if (picker) picker.removeAttribute('open');
+    closeCompactPicker();
     return true;
   }
 
@@ -516,8 +522,7 @@
     state.recordSearch = '';
     normalizeSelection(state);
     render(state);
-    const picker = document.querySelector('[data-role="sidebar-picker"]');
-    if (picker) picker.removeAttribute('open');
+    closeCompactPicker();
     return true;
   }
 
@@ -831,11 +836,7 @@
 
   function init({ data, storage = global.localStorage, now = () => new Date().toISOString(), download = () => {} }) {
     if (global.__DAA1939ReviewCleanup) global.__DAA1939ReviewCleanup();
-    const sidebarPicker = document.querySelector('[data-role="sidebar-picker"]');
-    if (sidebarPicker && typeof global.matchMedia === 'function'
-      && global.matchMedia('(max-width: 720px)').matches) {
-      sidebarPicker.removeAttribute('open');
-    }
+    closeCompactPicker();
     const state = restoreOrInitialize(data, storage, now);
     const controller = createController(state, { download });
     const clickListener = event => {

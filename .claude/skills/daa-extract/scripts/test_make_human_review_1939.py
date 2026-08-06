@@ -297,6 +297,30 @@ def test_main_opens_the_native_sidebar_picker_for_desktop_by_default(tmp_path, m
     assert '<details data-role="sidebar-picker" open>' in rendered
 
 
+def test_main_gives_sidebar_names_and_record_content_independent_scroll_containers(
+    tmp_path, monkeypatch
+):
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
+
+    assert subject.main() == 0
+
+    rendered = out.read_text(encoding="utf-8")
+    style = re.search(r"<style>(.*?)</style>", rendered, flags=re.DOTALL).group(1)
+    aside_rule = re.search(r"aside\{([^}]*)\}", style).group(1)
+    main_rule = re.search(r"main\{([^}]*)\}", style).group(1)
+    list_rule = re.search(
+        r'\[data-role="record-list"\]\{([^}]*)\}', style,
+    ).group(1)
+    assert "height:100dvh" in aside_rule
+    assert "overflow:hidden" in aside_rule
+    assert "overflow:auto" in main_rule
+    assert "flex:1" in list_rule
+    assert "min-height:0" in list_rule
+    assert "overflow-y:auto" in list_rule
+
+
 def test_main_escapes_mixed_case_closing_script_in_source_text(tmp_path, monkeypatch):
     baseline, review, queue, source, calamari = _write_inputs(tmp_path)
     out = tmp_path / "menneskeark.html"

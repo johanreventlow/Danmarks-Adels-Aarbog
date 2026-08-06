@@ -198,17 +198,45 @@ describe('human 1939 review controller', () => {
   });
 
   it('closes the compact person picker after selecting a name', () => {
-    startReview({ storage: memoryStorage(), records: [
-      humanRecord('rk-1', 'c-1'), humanRecord('rk-2', 'c-2'),
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: query === '(max-width: 720px)', media: query,
+        addEventListener: vi.fn(), removeEventListener: vi.fn(),
+      })),
+    });
+    try {
+      startReview({ storage: memoryStorage(), records: [
+        humanRecord('rk-1', 'c-1'), humanRecord('rk-2', 'c-2'),
+      ] });
+      const picker = document.querySelector<HTMLDetailsElement>('[data-role="sidebar-picker"]')!;
+      picker.open = true;
+
+      document.querySelector<HTMLButtonElement>(
+        '[data-action="select-record"][data-record-key="rk-2"]',
+      )!.click();
+
+      expect(picker.open).toBe(false);
+    } finally {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true, value: originalMatchMedia,
+      });
+    }
+  });
+
+  it('keeps the desktop sidebar open after switching to audit samples', () => {
+    const { controller } = startReview({ storage: memoryStorage(), records: [
+      humanRecord('rk-1', 'c-1'), automaticRecord('rk-audit', 'c-audit', true),
     ] });
     const picker = document.querySelector<HTMLDetailsElement>('[data-role="sidebar-picker"]')!;
-    picker.open = true;
 
-    document.querySelector<HTMLButtonElement>(
-      '[data-action="select-record"][data-record-key="rk-2"]',
-    )!.click();
+    expect(picker.open).toBe(true);
+    controller.setView('audit');
 
-    expect(picker.open).toBe(false);
+    expect(picker.open).toBe(true);
+    expect(document.querySelector('[data-role="record-list"]')!.textContent)
+      .toContain('Navn rk-audit');
   });
 
   it('starts the native person picker closed on a small screen', () => {
