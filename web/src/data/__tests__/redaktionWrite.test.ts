@@ -347,6 +347,18 @@ describe('buildRpcCall — mediaFakta (medie-metadata Task 3)', () => {
       payload: { faktatype: 'kilde_url', vaerdi: 'javascript:alert(1)' } } as never)).toBeNull();
   });
 
+  // Regression (fix-runde 1): dateQualifier: '' er en uvalgt <select>-default i Task 4's kommende
+  // UI, ikke en ugyldig værdi — skal give et gyldigt kald UDEN p_date_qualifier, ikke null (som
+  // ellers ville degradere en direkte redaktør-skrivning tavst til red_suggest via planCall).
+  it('mediaFakta med tom dateQualifier-streng giver gyldigt kald uden p_date_qualifier', () => {
+    const rpc = buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'datering', vaerdi: '1840', dateQualifier: '' } } as never);
+    expect(rpc).toEqual({ fn: 'red_upsert_fakta', args: {
+      p_subjekt_type: 'media', p_subjekt_id: 42, p_faktatype: 'datering',
+      p_vaerdi: '1840', p_date_raw: '1840' } });
+    expect(rpc?.args).not.toHaveProperty('p_date_qualifier');
+  });
+
   it('mediaFakta afviser manglende mediaId og tom/blank værdi', () => {
     expect(buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7',
       payload: { faktatype: 'kilde_url', vaerdi: 'https://example.org' } } as never)).toBeNull();

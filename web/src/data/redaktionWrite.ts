@@ -479,7 +479,7 @@ if (c.art === 'mediaFakta') {
   if (!vaerdi) return null;
   if (faktatype === 'kilde_url' && !/^https?:\/\//i.test(vaerdi)) return null;
   const dateQualifier = p.dateQualifier as string | null | undefined;
-  if (dateQualifier != null && !MEDIA_DATE_QUALIFIERS.has(dateQualifier)) return null;
+  if (dateQualifier && !MEDIA_DATE_QUALIFIERS.has(dateQualifier)) return null;
   const args: Record<string, unknown> = {
     p_subjekt_type: 'media', p_subjekt_id: mediaId, p_faktatype: faktatype, p_vaerdi: vaerdi,
   };
