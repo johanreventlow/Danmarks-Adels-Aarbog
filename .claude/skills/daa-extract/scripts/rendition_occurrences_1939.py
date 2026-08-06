@@ -74,7 +74,10 @@ def _validate_page_map(rendition: str, page_map: object) -> tuple[tuple[int, int
         validated.append((source_page, pdf_page))
         previous_source_page = source_page
         previous_pdf_page = pdf_page
-    return tuple(validated)
+    mapping = tuple(validated)
+    if mapping != CALAMARI_R6_TO_PDF_V1:
+        raise ValueError("page_map must exactly equal CALAMARI_R6_TO_PDF_V1")
+    return mapping
 
 
 def _validate_complete_clause_partition(source_text: str, clauses: object) -> None:
@@ -142,9 +145,9 @@ def _map_pdf_page(page: int, rendition: str,
         if left_source < page < right_source:
             numerator = (page - left_source) * (right_pdf - left_pdf)
             denominator = right_source - left_source
-            if numerator % denominator:
-                raise ValueError("page_map does not define an integral PDF page")
-            return left_pdf + numerator // denominator
+            # Half pages round up, so the result is deterministic and does not
+            # inherit Python's banker's-rounding behaviour.
+            return left_pdf + (2 * numerator + denominator) // (2 * denominator)
     raise ValueError("page marker is outside page_map")
 
 

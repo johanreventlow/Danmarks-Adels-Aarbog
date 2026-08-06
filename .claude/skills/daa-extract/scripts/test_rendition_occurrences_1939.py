@@ -14,7 +14,7 @@ from rendition_occurrences_1939 import (
 def test_extracts_exact_source_only_occurrences():
     text = "### PAGE 1 ###\nI. Første Slægtled\n1. Alfa\nfortsat\n2. Beta\n"
     result = extract_rendition_occurrences(
-        text, rendition="calamari", page_map=((1, 496),)
+        text, rendition="calamari", page_map=CALAMARI_R6_TO_PDF_V1
     )
     assert result["source_sha256"] == hashlib.sha256(text.encode()).hexdigest()
     assert [o["printed_marker"] for o in result["occurrences"]] == ["1", "2"]
@@ -41,11 +41,11 @@ def test_output_is_deterministic_and_input_is_not_mutated(rendition):
     before = text
     first = extract_rendition_occurrences(
         text, rendition=rendition,
-        page_map=((1, 496),) if rendition == "calamari" else None,
+        page_map=CALAMARI_R6_TO_PDF_V1 if rendition == "calamari" else None,
     )
     second = extract_rendition_occurrences(
         text, rendition=rendition,
-        page_map=((1, 496),) if rendition == "calamari" else None,
+        page_map=CALAMARI_R6_TO_PDF_V1 if rendition == "calamari" else None,
     )
     assert first == second
     assert text == before
@@ -78,6 +78,24 @@ def test_pinned_calamari_map_uses_the_nonlinear_page_points():
     assert result["occurrences"][0]["pdf_pages"] == [555, 575]
 
 
+def test_pinned_calamari_map_rounds_half_pages_up_deterministically():
+    result = extract_rendition_occurrences(
+        "### PAGE 84 ###\n1. Alfa\n",
+        rendition="calamari",
+        page_map=CALAMARI_R6_TO_PDF_V1,
+    )
+    assert result["occurrences"][0]["pdf_pages"] == [597]
+
+
+def test_calamari_rejects_changed_but_ordered_pinned_map():
+    with pytest.raises(ValueError, match="page_map"):
+        extract_rendition_occurrences(
+            "1. Alfa\n",
+            rendition="calamari",
+            page_map=((1, 496), (5, 501)),
+        )
+
+
 @pytest.mark.parametrize("corruption", ["gap", "overlap", "verbatim"])
 def test_rejects_corrupted_ledger_clauses(monkeypatch, corruption):
     text = "1. Alfa\n2. Beta\n"
@@ -96,7 +114,7 @@ def test_rejects_corrupted_ledger_clauses(monkeypatch, corruption):
 def test_layout_page_marker_inside_occurrence_is_exact_and_reports_both_pages():
     text = "### PAGE 1 ###\n1. Alfa\n### PAGE 2 ###\nfortsat\n"
     result = extract_rendition_occurrences(
-        text, rendition="calamari", page_map=((1, 496), (2, 497))
+        text, rendition="calamari", page_map=CALAMARI_R6_TO_PDF_V1
     )
     occurrence = result["occurrences"][0]
     exact = text[occurrence["span"]["char_from"]:occurrence["span"]["char_to"]]
