@@ -25,7 +25,12 @@ from pathlib import Path
 import segment
 from coverage_1939 import validate_coverage
 from dual_rendition_evidence_1939 import align_renditions
-from make_human_review_1939 import _pages, _unique_exact_text_anchor_candidates
+from make_human_review_1939 import (
+    _pages,
+    _presentation_candidates,
+    _text_anchor_fallback_keys,
+    _unique_exact_text_anchor_candidates,
+)
 from review_choices_1939 import validate_choice_export
 from review_queue_1939 import sample_auto_resolved
 
@@ -357,6 +362,42 @@ def _assert_wrapper_candidates_valid(anchored: dict[str, dict]) -> None:
     )
 
 
+def _generator_text_anchor_candidates(
+    records: list[dict], classifications: Mapping, posts: list,
+    calamari_text: str, calamari_first_pdf_page: int, profile_version: str,
+) -> dict[str, dict]:
+    """Reproduce the generator's exact text-anchor eligibility and output.
+
+    Only records that are human_required in the queue AND have no nearby
+    parser candidates on their own PDF pages were ever offered a text
+    anchor; every other record must stay outside the anchor universe.
+    """
+    fallback_keys = _text_anchor_fallback_keys(
+        {"entries": list(classifications.values())}
+    )
+    by_pdf_page: dict[str, list[dict]] = {}
+    for candidate in _presentation_candidates(
+        posts, calamari_first_pdf_page, profile_version
+    ):
+        for page in candidate["pdf_pages"]:
+            by_pdf_page.setdefault(str(page), []).append(candidate)
+    nearby_candidates = {
+        record["record_key"]: sum(
+            (by_pdf_page.get(str(page), []) for page in _pages(record.get("sider"))),
+            [],
+        )
+        for record in records
+    }
+    return _unique_exact_text_anchor_candidates(
+        [
+            record for record in records
+            if record["record_key"] in fallback_keys
+            and not nearby_candidates[record["record_key"]]
+        ],
+        calamari_text, calamari_first_pdf_page, profile_version,
+    )
+
+
 def build_human_anchored_candidates(
     choices: dict,
     audit_keys: set[str],
@@ -398,8 +439,9 @@ def build_human_anchored_candidates(
     )
     _require_source_binding(calamari_occurrences, calamari_text, "calamari")
     _require_source_binding(raw_occurrences, raw_text, "raw OCR")
-    text_anchor_candidates = _unique_exact_text_anchor_candidates(
-        records, calamari_text, calamari_first_pdf_page, profile_version
+    text_anchor_candidates = _generator_text_anchor_candidates(
+        records, classifications, posts, calamari_text,
+        calamari_first_pdf_page, profile_version,
     )
 
     alignment = align_renditions(calamari_occurrences, raw_occurrences)
@@ -615,15 +657,24 @@ def main() -> int:
         result["anchored"], result["evidence_entries"], report, rewritten_export,
     )
     handles = []
+    created = []
     try:
         for out_path in out_paths:
             handles.append(out_path.open("x", encoding="utf-8"))
+            created.append(out_path)
         for handle, payload in zip(handles, payloads):
             json.dump(payload, handle, ensure_ascii=False, indent=2)
             handle.write("\n")
-    finally:
+    except BaseException:
         for handle in handles:
-            handle.close()
+            with contextlib.suppress(OSError):
+                handle.close()
+        for out_path in created:
+            with contextlib.suppress(OSError):
+                out_path.unlink()
+        raise
+    for handle in handles:
+        handle.close()
     return 0
 
 

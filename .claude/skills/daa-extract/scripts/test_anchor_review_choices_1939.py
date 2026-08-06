@@ -103,7 +103,7 @@ BASELINE_RECORDS = {
     "rec-b": {"record_key": "rec-b", "narrative": "Bertels narrativ.", "sider": "1"},
     "rec-c": {"record_key": "rec-c", "narrative": CAL_LINES[3], "sider": "1"},
     "rec-d": {"record_key": "rec-d", "narrative": "Daniels narrativ.", "sider": "3-4"},
-    "rec-e": {"record_key": "rec-e", "narrative": "Eriks narrativ.", "sider": "ukendt"},
+    "rec-e": {"record_key": "rec-e", "narrative": "Eriks narrativ.", "sider": ""},
     "rec-f": {"record_key": "rec-f", "narrative": "F-narrativ.", "sider": "1"},
     "rec-x": {"record_key": "rec-x", "narrative": "X-narrativ.", "sider": "1"},
 }
@@ -504,6 +504,33 @@ def test_text_anchor_uden_sidetilhoer_parkeres():
     assert parked["candidate_id"] == forged
 
 
+def test_text_anchor_for_post_med_nearby_kandidater_parkeres():
+    records = copy.deepcopy(BASELINE_RECORDS)
+    records["rec-c"]["sider"] = "11"
+    forged = text_anchor_id("rec-c", CAL_LINES[3])
+    result = build({"rec-c": choice("rec-c", forged)}, baseline_records=records)
+    assert result["anchored"] == {}
+    [parked] = result["parked"]
+    assert parked["reason_code"] == "text_anchor_not_reproducible"
+    assert parked["candidate_id"] == forged
+
+
+def test_aegte_anker_accepteres_trods_ikke_berettiget_overlap():
+    records = copy.deepcopy(BASELINE_RECORDS)
+    records["rec-x"]["narrative"] = "Cecilie Testdatter, f. 1904"
+    records["rec-x"]["sider"] = "11"
+    result = build(
+        {"rec-c": choice("rec-c", text_anchor_id("rec-c", CAL_LINES[3]))},
+        baseline_records=records,
+    )
+    assert result["parked"] == []
+    [wrapper] = result["anchored"].values()
+    assert wrapper["baseline_record_key"] == "rec-c"
+    assert wrapper["candidate"]["calamari_span"] == {
+        "char_from": SPAN_C[0], "char_to": SPAN_C[1],
+    }
+
+
 def test_pdf_fallback_laeser_record_sider_ikke_postens():
     posts = copy.deepcopy(POSTS)
     posts[2]["sider"] = "8"
@@ -644,6 +671,27 @@ def test_cli_afviser_duplikerede_output_stier(tmp_path, monkeypatch):
         subject.main()
     assert not paths["wrapper_out"].exists()
     assert not paths["report_out"].exists()
+
+
+def test_cli_fejl_under_skrivning_efterlader_ingen_output(tmp_path, monkeypatch):
+    paths = _write_cli_fixture(tmp_path)
+    monkeypatch.setattr(subject.segment, "_segment_1939_v2",
+                        lambda lines, profile: copy.deepcopy(POSTS))
+    monkeypatch.setattr("sys.argv", _cli_argv(paths))
+    original_open = subject.Path.open
+
+    def failing_open(self, *open_args, **open_kwargs):
+        if self == paths["rewritten_out"]:
+            raise OSError("disk fuld")
+        return original_open(self, *open_args, **open_kwargs)
+
+    monkeypatch.setattr("pathlib.Path.open", failing_open)
+    with pytest.raises(OSError, match="disk fuld"):
+        subject.main()
+    assert not paths["wrapper_out"].exists()
+    assert not paths["evidence_out"].exists()
+    assert not paths["report_out"].exists()
+    assert not paths["rewritten_out"].exists()
 
 
 def test_cli_rewritten_choices_bestaar_validate_choice_export(tmp_path, monkeypatch):
