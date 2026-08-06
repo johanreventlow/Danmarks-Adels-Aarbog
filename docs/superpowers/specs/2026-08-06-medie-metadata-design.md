@@ -80,8 +80,20 @@ medier. Skærpelse: media-grenen ændres til `media_rettigheder_ok(p_id)`
 
 - **Redaktionen er uberørt:** `fact`/`assertion`/`conclusion`/`citation` har
   additivt `redaktion_read`-lag (db-rls.sql:536-547).
-- **Afledt (ønsket):** note/text_mention/relation med media-mål følger nu også
-  publiceringsgaten via samme funktion.
+- **Afledt (verificeret mod db-rls.sql):** enhver anon/authenticated-politik der
+  kalder `entitet_offentlig(subjekt_type/target_type, id)` direkte skærpes for
+  `subjekt_type/target_type='media'` — det er `fact`, `relation` (både
+  subjekt- og objekt-siden), `narrative`, `haendelse`, `note` (else-grenen,
+  når target hverken er `fact` eller `relation`) og `story`. `assertion`/
+  `conclusion`/`citation` kalder ikke funktionen direkte, men arver
+  skærpelsen indirekte via deres `EXISTS`-cascade mod `fact`/`relation`
+  (og ses fortsat uændret af redaktionen via det additive `redaktion_read`-
+  lag ovenfor). `text_mention` er kun ramt på **kilde-siden**, når
+  `kilde_type='narrative'` og narrativets `subjekt_type='media'` (db-rls.sql:743)
+  — `text_mention`s **mål-side** ved `maal_type='media'` bruger derimod
+  `media_synlig_anon(maal_id)` (db-rls.sql:756), en separat funktion der
+  allerede publikationsgatede media-mål FØR denne branch. Den sti er altså
+  ikke en ny effekt af skærpelsen.
 - **Bevidst afgrænsning:** fakta følger PUBLICERINGS-gaten, ikke
   person-afbildningsgaten (`media_afbilder_skjult/privat` er rollespecifik og
   gælder fortsat media-rækken/bytes selv). Tekstfelterne må ikke indeholde

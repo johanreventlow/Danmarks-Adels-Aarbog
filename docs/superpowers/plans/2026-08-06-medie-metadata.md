@@ -442,7 +442,13 @@ it('mediaCaption bruger dateringFakt før datering', () => {
 - Ingen kodeændringer — runbook-afsnit tilføjes i PR-beskrivelsen.
 
 - [ ] **Step 1: Seeds + RLS-skærpelse mod prod** — `db-migrations.sql`-blokken (seeds + ny `entitet_offentlig`) via Supabase MCP `apply_migration`; derefter `db-verify.sql`-assertens DO-blok + `get_advisors(security)` (OBLIGATORISK — migrationen indeholder ægte DDL: CREATE OR REPLACE FUNCTION).
-- [ ] **Step 2: Empirisk RLS-tjek (nu meningsfuld efter skærpelsen)** — med anon-nøgle: REST-select `fact?subjekt_type=eq.media&subjekt_id=eq.<publiceret-id>` → rækker; samme for et upubliceret medie → tomt. VIGTIG regression: eksisterende publicerede mediers fakta (licens m.fl.) skal stadig komme tilbage. Dokumentér alle tre i PR.
+- [ ] **Step 2: Empirisk RLS-tjek (nu meningsfuld efter skærpelsen)** — `entitet_offentlig` skærper ikke kun `fact`, men enhver anon/authenticated-politik der kalder den direkte for `subjekt_type/target_type='media'`: `fact`, `relation` (subjekt- og objekt-siden), `narrative`, `haendelse`, `note` (else-grenen) og `story` (se spec §1b for den fulde opregning + hvorfor `text_mention`s mål-side og `assertion`/`conclusion`/`citation` IKKE er direkte ramt). Med anon-nøgle: REST-select `fact?subjekt_type=eq.media&subjekt_id=eq.<publiceret-id>` → rækker; samme for et upubliceret medie → tomt. Gentag samme publiceret/upubliceret-par for `narrative`, `story`, `haendelse`, `note` og `relation` hvis der findes rækker med media-subjekt (se baseline nedenfor — pr. 2026-08-06 er der ingen, så dette tjek bliver reelt først når sådanne rækker findes). VIGTIG regression: eksisterende publicerede mediers fakta (licens m.fl.) skal stadig komme tilbage. Dokumentér alle resultater i PR.
+
+  **Baseline før deploy (read-only kørt 2026-08-06 mod prod xjnvdhajfyrcytatnzos, FØR migrationen anvendes):**
+  antal rækker med media-subjekt/target pr. tabel — `narrative=0, story=0, haendelse=0, note=0, relation=0, fact=0`;
+  medie-status — `media_total=12, media_upub=0`. Dvs. skærpelsen mørklægger **nul rækker** i dag (ingen tabel har
+  media-subjekt-rækker, og ingen af de 12 medier er upublicerede). En fremtidig kørsel af samme optælling
+  sammenlignes mod denne baseline for at opdage utilsigtede regressioner.
 - [ ] **Step 3: Manuel E2E (DDB-casen)** — upload kopi af Luise Gräfin von Reventlow-billedet, udfyld alle felter fra Quellenangabe (kunstner: Rahl, Carl; fotograf: Sönke Ehlert; rettighedshaver + institution: Schleswig-Holsteinische Landesbibliothek — Landesgeschichtliche Sammlung; licens: CC BY-SA 4.0; kilde-URL: DDB-permalink; kreditlinje: ordret), publicér, verificér læser-visning anonymt.
 - [ ] **Step 4: Draft-PR** — `gh pr create --draft`, spec+plan linket, testplan med Step 1-3 som checkliste.
 
