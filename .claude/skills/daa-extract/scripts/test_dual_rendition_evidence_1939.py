@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import json
+from functools import lru_cache
 
 import pytest
 
@@ -75,6 +76,30 @@ def consensus_for(anchors, alignment, calamari, raw):
     )
 
 
+def reference_optimal_path_membership(edges, left_count, right_count):
+    """Exhaustively enumerate small monotone alignments for DP equivalence tests."""
+    @lru_cache(maxsize=None)
+    def paths(left_index, right_index):
+        if left_index == left_count:
+            return (frozenset(),)
+        candidates = list(paths(left_index + 1, right_index))
+        for candidate_right in range(right_index, right_count):
+            if (left_index, candidate_right) not in edges:
+                continue
+            candidates.extend(
+                path | {(left_index, candidate_right)}
+                for path in paths(left_index + 1, candidate_right + 1)
+            )
+        maximum = max(map(len, candidates))
+        return tuple(path for path in candidates if len(path) == maximum)
+
+    optimal_paths = paths(0, 0)
+    required = set(optimal_paths[0])
+    for path in optimal_paths[1:]:
+        required &= path
+    return min(2, len(optimal_paths)), frozenset(required)
+
+
 def test_unique_monotone_alignment_pairs_same_structural_sequence():
     cal = manifest(occ("c1", 0, "1"), occ("c2", 1, "2"))
     raw = manifest(occ("r1", 0, "1"), occ("r2", 1, "2"), rendition="raw_ocr")
@@ -85,8 +110,27 @@ def test_unique_monotone_alignment_pairs_same_structural_sequence():
     ]
 
 
-def test_optimal_path_membership_handles_500_unmatched_occurrences():
-    assert subject._optimal_path_membership(set(), 500, 1) == (1, frozenset())
+def test_optimal_path_membership_handles_1000_unmatched_occurrences():
+    assert subject._optimal_path_membership(set(), 1000, 1) == (1, frozenset())
+
+
+@pytest.mark.parametrize(
+    ("edges", "left_count", "right_count"),
+    [
+        (set(), 2, 2),
+        ({(0, 0), (1, 1), (2, 2)}, 3, 3),
+        ({(0, 0), (0, 1), (1, 1), (1, 2)}, 2, 3),
+        ({(0, 0), (1, 1), (1, 2), (2, 3)}, 3, 4),
+        ({(0, 1), (1, 0), (1, 2), (2, 1)}, 3, 3),
+    ],
+    ids=["zero", "invariant", "ambiguous", "invariant-prefix-suffix", "crossing"],
+)
+def test_optimal_path_membership_matches_exhaustive_small_reference(
+    edges, left_count, right_count,
+):
+    assert subject._optimal_path_membership(edges, left_count, right_count) == (
+        reference_optimal_path_membership(edges, left_count, right_count)
+    )
 
 
 def test_equally_valid_repeated_marker_is_ambiguous_not_guessed():

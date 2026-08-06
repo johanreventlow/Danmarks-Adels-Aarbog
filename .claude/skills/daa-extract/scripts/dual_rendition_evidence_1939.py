@@ -502,38 +502,34 @@ def _optimal_path_membership(
         right_edges[left_index].append(right_index)
     right_edges = tuple(tuple(sorted(indices)) for indices in right_edges)
 
-    cache: dict[tuple[int, int], tuple[int, frozenset[tuple[int, int]]]] = {}
-
-    def paths(left_index: int, right_index: int) -> tuple[int, frozenset[tuple[int, int]]]:
-        cache_key = (left_index, right_index)
-        if cache_key in cache:
-            return cache[cache_key]
-        if left_index == left_count:
-            result = 1, frozenset()
-            cache[cache_key] = result
-            return result
-        optimum = table[left_index][right_index]
-        branches = []
-        if table[left_index + 1][right_index] == optimum:
-            branches.append(paths(left_index + 1, right_index))
-        for candidate_right in right_edges[left_index]:
-            if candidate_right < right_index:
-                continue
-            if 1 + table[left_index + 1][candidate_right + 1] != optimum:
-                continue
-            count, required = paths(left_index + 1, candidate_right + 1)
-            branches.append((count, required | {(left_index, candidate_right)}))
-        if not branches:
-            raise AssertionError("optimal alignment state has no branch")
-        count = min(2, sum(branch_count for branch_count, _ in branches))
-        required = branches[0][1]
-        for _, branch_required in branches[1:]:
-            required = required & branch_required
-        result = count, frozenset(required)
-        cache[cache_key] = result
-        return result
-
-    return paths(0, 0)
+    next_counts = [1] * (right_count + 1)
+    next_required = [frozenset() for _ in range(right_count + 1)]
+    for left_index in range(left_count - 1, -1, -1):
+        counts = []
+        required_sets = []
+        for right_index in range(right_count + 1):
+            optimum = table[left_index][right_index]
+            branch_count = 0
+            required = None
+            if table[left_index + 1][right_index] == optimum:
+                branch_count += next_counts[right_index]
+                required = next_required[right_index]
+            for candidate_right in right_edges[left_index]:
+                if candidate_right < right_index:
+                    continue
+                if 1 + table[left_index + 1][candidate_right + 1] != optimum:
+                    continue
+                branch_count += next_counts[candidate_right + 1]
+                branch_required = next_required[candidate_right + 1] | {
+                    (left_index, candidate_right)
+                }
+                required = branch_required if required is None else required & branch_required
+            if required is None:
+                raise AssertionError("optimal alignment state has no branch")
+            counts.append(min(2, branch_count))
+            required_sets.append(frozenset(required))
+        next_counts, next_required = counts, required_sets
+    return next_counts[0], next_required[0]
 
 
 def _edges_present_in_every_optimal_alignment(
