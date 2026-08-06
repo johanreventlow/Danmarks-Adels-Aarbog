@@ -17,6 +17,10 @@ function props(overrides: Record<string, unknown> = {}) {
     media: baseMedia,
     anvendelse: { afbildet: [], mentions: [] },
     fletKandidater: [candidate],
+    // fakta/onGemFakta/onFjernFakta er REQUIRED props (Task 5 — strammet fra optionelle, se
+    // MediaDetaljeOverlay.tsx). Default her til en tom, "indlæst" fakta-sats + no-op handlers, så
+    // de øvrige describe-blokke (der ikke handler om kilde/beskrivelse) ikke skal kende til dem.
+    fakta: {} as MediaFakta, onGemFakta: noop, onFjernFakta: noop,
     onClose: noop, onPreview: noop, onGemMetadata: noop, onGemRettigheder: noop,
     onFjern: noop, onSlet: noop, onGenopret: noop,
     ...overrides,

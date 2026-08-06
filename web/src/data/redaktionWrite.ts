@@ -491,6 +491,11 @@ if (c.art === 'mediaFakta') {
   if (dateQualifier) args.p_date_qualifier = dateQualifier;
   if (dateRaw) args.p_date_raw = dateRaw;
   else if (MEDIA_DATE_FAKTATYPER.has(faktatype)) args.p_date_raw = vaerdi;
+  // Kildenote (Task 5-fund under wiring): overlayets "Kildenote"-felt sender den via payload —
+  // uden dette blev den stille droppet, og HVER gemt fakta fik proveniens "(kilde mangler)"
+  // (samme MM-03-degradering som feltet selv findes for at undgå). red_upsert_fakta accepterer
+  // p_kilde_fritekst allerede (se markerForaeldreUkendt ovenfor).
+  if (p.kildeFritekst != null) args.p_kilde_fritekst = String(p.kildeFritekst);
   return { fn: 'red_upsert_fakta', args };
 }
   // Blødt fjern (Slice 0h): sætter upload_status='fjernet', rører aldrig Storage-bytes eller

@@ -61,15 +61,15 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
   anvendelse?: MediaAnvendelse;
   anvendelseFejl?: string;
   fletKandidater?: FletKandidat[];
-  fakta?: MediaFakta; // undefined = henter stadig (Kilde og beskrivelse viser loader)
+  fakta: MediaFakta | undefined; // undefined = henter stadig (Kilde og beskrivelse viser loader)
   onClose: () => void;
   onPreview: () => void;
   onGemMetadata: (payload: Record<string, unknown>) => void;
   onGemRettigheder: (payload: Record<string, unknown>) => void;
-  // Optionelle indtil Task 5 wirer dem i Redaktion.tsx — sektionen "Kilde og beskrivelse"
-  // renderes kun når onGemFakta er givet (ingen død UI uden handler).
-  onGemFakta?: (changes: MediaFaktaChange[], kildeFritekst: string) => void;
-  onFjernFakta?: (factId: string) => void; // wiring: tilbagetraekFakta
+  // Required (Task 5 wirer dem i Redaktion.tsx): en fremtidig glemt wiring bliver hermed en
+  // kompileringsfejl i stedet for en tavst manglende "Kilde og beskrivelse"-sektion.
+  onGemFakta: (changes: MediaFaktaChange[], kildeFritekst: string) => void;
+  onFjernFakta: (factId: string) => void; // wiring: tilbagetraekFakta
   onFjern: () => void;
   onFjernTilknytning?: (relationId: string) => void;
   onTilknyt?: () => void;
@@ -166,7 +166,7 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
   const renderFaktaLabel = (id: string, tekst: string, factId?: string) => (
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
       <label htmlFor={id} style={{ display: 'block', flex: 1, ...label }}>{tekst}</label>
-      {factId && onFjernFakta ? <button type="button" aria-label={`Fjern ${tekst}`} onClick={() => { if (!fletBusy) onFjernFakta(factId); }}
+      {factId ? <button type="button" aria-label={`Fjern ${tekst}`} onClick={() => { if (!fletBusy) onFjernFakta(factId); }}
         style={{ border: 0, background: 'transparent', color: C.red, cursor: fletBusy ? 'default' : 'pointer', fontSize: 11.5, padding: 0 }}>Fjern</button> : null}
     </div>
   );
@@ -218,58 +218,56 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
             style={{ marginTop: 12, border: 0, borderRadius: 7, padding: '8px 13px', cursor: Object.keys(metadataPayload).length ? 'pointer' : 'default', background: C.green, color: '#fff', opacity: Object.keys(metadataPayload).length ? 1 : .45 }}>Gem metadata</button>
         </section>
 
-        {onGemFakta ? (
-          <section style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid rgba(34,31,26,.1)' }}>
-            <div style={{ fontWeight: 700, fontSize: 14 }}>Kilde og beskrivelse</div>
-            {!fakta ? <div style={{ marginTop: 9, fontSize: 13, color: C.muted2 }}>Henter kildefelter…</div> : <>
-              {FAKTA_GRUPPER.map((g) => (
-                <div key={g.titel}>
-                  <div style={{ marginTop: 12, fontSize: 12.5, fontWeight: 650, color: C.muted }}>{g.titel}</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 10 }}>
-                    {g.felter.map((f) => {
-                      const id = faktaFeltId(f.type);
-                      return (
-                        <div key={f.type} style={f.rows != null ? { gridColumn: '1 / -1' } : undefined}>
-                          {renderFaktaLabel(id, f.label, fakta[f.type]?.factId)}
-                          {f.rows != null
-                            ? <textarea id={id} rows={f.rows} value={faktaForm[f.type]} onChange={(e) => setFaktaForm((s) => ({ ...s, [f.type]: e.target.value }))} style={{ ...input, resize: 'vertical', fontFamily: 'inherit' }} />
-                            : <input id={id} type={f.inputType ?? 'text'} value={faktaForm[f.type]} onChange={(e) => setFaktaForm((s) => ({ ...s, [f.type]: e.target.value }))} style={input} />}
-                          {f.type === 'kilde_url' && kildeUrlUgyldig ? <div role="alert" style={{ marginTop: 4, color: C.red, fontSize: 12.5 }}>Kilde-URL skal starte med http:// eller https:// — feltet gemmes ikke.</div> : null}
-                          {f.hjaelp ? <div style={{ marginTop: 4, fontSize: 12, color: C.muted2 }}>{f.hjaelp}</div> : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-              <div style={{ marginTop: 12, fontSize: 12.5, fontWeight: 650, color: C.muted }}>Datering (værk)</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 10 }}>
-                <div style={{ gridColumn: '1 / -1' }}>
-                  {renderFaktaLabel(faktaFeltId('datering'), 'Datering (rå tekst)', fakta.datering?.factId)}
-                  <input id={faktaFeltId('datering')} value={vaerkDatering.vaerdi} onChange={(e) => setVaerkDatering((s) => ({ ...s, vaerdi: e.target.value }))} style={input} />
-                </div>
-                <div>
-                  <label htmlFor={faktaFeltId('datering-min')} style={{ display: 'block', ...label }}>Datering tidligst</label>
-                  <input id={faktaFeltId('datering-min')} type="date" value={vaerkDatering.dateMin} onChange={(e) => setVaerkDatering((s) => ({ ...s, dateMin: e.target.value }))} style={input} />
-                </div>
-                <div>
-                  <label htmlFor={faktaFeltId('datering-max')} style={{ display: 'block', ...label }}>Datering senest</label>
-                  <input id={faktaFeltId('datering-max')} type="date" value={vaerkDatering.dateMax} onChange={(e) => setVaerkDatering((s) => ({ ...s, dateMax: e.target.value }))} style={input} />
-                </div>
-                <div>
-                  <label htmlFor={faktaFeltId('datering-kval')} style={{ display: 'block', ...label }}>Datering kvalifikator</label>
-                  <select id={faktaFeltId('datering-kval')} value={vaerkDatering.dateQualifier} onChange={(e) => setVaerkDatering((s) => ({ ...s, dateQualifier: e.target.value }))} style={input}>
-                    {DATE_QUALIFIERS.map(([v, l]) => <option key={v || 'tom'} value={v}>{l}</option>)}
-                  </select>
+        <section style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid rgba(34,31,26,.1)' }}>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>Kilde og beskrivelse</div>
+          {!fakta ? <div style={{ marginTop: 9, fontSize: 13, color: C.muted2 }}>Henter kildefelter…</div> : <>
+            {FAKTA_GRUPPER.map((g) => (
+              <div key={g.titel}>
+                <div style={{ marginTop: 12, fontSize: 12.5, fontWeight: 650, color: C.muted }}>{g.titel}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 10 }}>
+                  {g.felter.map((f) => {
+                    const id = faktaFeltId(f.type);
+                    return (
+                      <div key={f.type} style={f.rows != null ? { gridColumn: '1 / -1' } : undefined}>
+                        {renderFaktaLabel(id, f.label, fakta[f.type]?.factId)}
+                        {f.rows != null
+                          ? <textarea id={id} rows={f.rows} value={faktaForm[f.type]} onChange={(e) => setFaktaForm((s) => ({ ...s, [f.type]: e.target.value }))} style={{ ...input, resize: 'vertical', fontFamily: 'inherit' }} />
+                          : <input id={id} type={f.inputType ?? 'text'} value={faktaForm[f.type]} onChange={(e) => setFaktaForm((s) => ({ ...s, [f.type]: e.target.value }))} style={input} />}
+                        {f.type === 'kilde_url' && kildeUrlUgyldig ? <div role="alert" style={{ marginTop: 4, color: C.red, fontSize: 12.5 }}>Kilde-URL skal starte med http:// eller https:// — feltet gemmes ikke.</div> : null}
+                        {f.hjaelp ? <div style={{ marginTop: 4, fontSize: 12, color: C.muted2 }}>{f.hjaelp}</div> : null}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-              <label htmlFor={faktaFeltId('kildenote')} style={{ display: 'block', ...label }}>Kildenote</label>
-              <input id={faktaFeltId('kildenote')} value={faktaKildeNote} onChange={(e) => setFaktaKildeNote(e.target.value)} style={input} />
-              <button type="button" disabled={fletBusy || !faktaChanges.length} onClick={() => { if (!fletBusy && faktaChanges.length) onGemFakta(faktaChanges, faktaKildeNote.trim()); }}
-                style={{ marginTop: 12, border: 0, borderRadius: 7, padding: '8px 13px', cursor: faktaChanges.length ? 'pointer' : 'default', background: C.green, color: '#fff', opacity: faktaChanges.length ? 1 : .45 }}>Gem kilde & beskrivelse</button>
-            </>}
-          </section>
-        ) : null}
+            ))}
+            <div style={{ marginTop: 12, fontSize: 12.5, fontWeight: 650, color: C.muted }}>Datering (værk)</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 10 }}>
+              <div style={{ gridColumn: '1 / -1' }}>
+                {renderFaktaLabel(faktaFeltId('datering'), 'Datering (rå tekst)', fakta.datering?.factId)}
+                <input id={faktaFeltId('datering')} value={vaerkDatering.vaerdi} onChange={(e) => setVaerkDatering((s) => ({ ...s, vaerdi: e.target.value }))} style={input} />
+              </div>
+              <div>
+                <label htmlFor={faktaFeltId('datering-min')} style={{ display: 'block', ...label }}>Datering tidligst</label>
+                <input id={faktaFeltId('datering-min')} type="date" value={vaerkDatering.dateMin} onChange={(e) => setVaerkDatering((s) => ({ ...s, dateMin: e.target.value }))} style={input} />
+              </div>
+              <div>
+                <label htmlFor={faktaFeltId('datering-max')} style={{ display: 'block', ...label }}>Datering senest</label>
+                <input id={faktaFeltId('datering-max')} type="date" value={vaerkDatering.dateMax} onChange={(e) => setVaerkDatering((s) => ({ ...s, dateMax: e.target.value }))} style={input} />
+              </div>
+              <div>
+                <label htmlFor={faktaFeltId('datering-kval')} style={{ display: 'block', ...label }}>Datering kvalifikator</label>
+                <select id={faktaFeltId('datering-kval')} value={vaerkDatering.dateQualifier} onChange={(e) => setVaerkDatering((s) => ({ ...s, dateQualifier: e.target.value }))} style={input}>
+                  {DATE_QUALIFIERS.map(([v, l]) => <option key={v || 'tom'} value={v}>{l}</option>)}
+                </select>
+              </div>
+            </div>
+            <label htmlFor={faktaFeltId('kildenote')} style={{ display: 'block', ...label }}>Kildenote</label>
+            <input id={faktaFeltId('kildenote')} value={faktaKildeNote} onChange={(e) => setFaktaKildeNote(e.target.value)} style={input} />
+            <button type="button" disabled={fletBusy || !faktaChanges.length} onClick={() => { if (!fletBusy && faktaChanges.length) onGemFakta(faktaChanges, faktaKildeNote.trim()); }}
+              style={{ marginTop: 12, border: 0, borderRadius: 7, padding: '8px 13px', cursor: faktaChanges.length ? 'pointer' : 'default', background: C.green, color: '#fff', opacity: faktaChanges.length ? 1 : .45 }}>Gem kilde & beskrivelse</button>
+          </>}
+        </section>
 
         <section style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid rgba(34,31,26,.1)' }}>
           <div style={{ fontWeight: 700, fontSize: 14 }}>Rettigheder og publicering</div>
@@ -283,9 +281,15 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
           </label>
           {warning && <div style={{ marginTop: 8, color: C.red, fontSize: 13 }}>Advarsel: status er {ret.status}, men mediet er markeret til publicering.</div>}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div><div style={label}>Licens</div><input disabled={fletBusy} value={ret.licens} onChange={(e) => { if (!fletBusy) setRet((r) => ({ ...r, licens: e.target.value })); }} style={input} /></div>
-            <div><div style={label}>Kildehenvisning</div><input disabled={fletBusy} value={ret.kildehenvisning} onChange={(e) => { if (!fletBusy) setRet((r) => ({ ...r, kildehenvisning: e.target.value })); }} style={input} /></div>
-            <div><div style={label}>Gengivelsestilladelse</div><input disabled={fletBusy} value={ret.gengivelsestilladelse} onChange={(e) => { if (!fletBusy) setRet((r) => ({ ...r, gengivelsestilladelse: e.target.value })); }} style={input} /></div>
+            {/* De tre fritekstfelter (ikke Kildenote) er gated på `fakta` (Task 4-reviewets Minor):
+                deres diff mod fakta-prop'en (retPayload ovenfor) forudsætter den er indlæst — mens
+                den stadig er undefined ville en uændret værdi fejlagtigt se "ny" ud og skabe en
+                dublet-assertion med "(kilde mangler)". Kun FELTERNE spærres, ikke Gem-knappen: en
+                fejlet/langsom fakta-hentning må ikke bricke status/må-publiceres, som intet har med
+                `fakta` at gøre. */}
+            <div><div style={label}>Licens</div><input disabled={fletBusy || !fakta} value={ret.licens} onChange={(e) => { if (!fletBusy) setRet((r) => ({ ...r, licens: e.target.value })); }} style={input} /></div>
+            <div><div style={label}>Kildehenvisning</div><input disabled={fletBusy || !fakta} value={ret.kildehenvisning} onChange={(e) => { if (!fletBusy) setRet((r) => ({ ...r, kildehenvisning: e.target.value })); }} style={input} /></div>
+            <div><div style={label}>Gengivelsestilladelse</div><input disabled={fletBusy || !fakta} value={ret.gengivelsestilladelse} onChange={(e) => { if (!fletBusy) setRet((r) => ({ ...r, gengivelsestilladelse: e.target.value })); }} style={input} /></div>
             <div><div style={label}>Kildenote</div><input disabled={fletBusy} value={ret.kildeFritekst} onChange={(e) => { if (!fletBusy) setRet((r) => ({ ...r, kildeFritekst: e.target.value })); }} style={input} /></div>
           </div>
           <button type="button" disabled={fletBusy} onClick={() => { if (!fletBusy) onGemRettigheder(retPayload); }} style={{ marginTop: 12, border: 0, borderRadius: 7, padding: '8px 13px', cursor: fletBusy ? 'default' : 'pointer', background: C.green, color: '#fff' }}>Gem rettigheder</button>

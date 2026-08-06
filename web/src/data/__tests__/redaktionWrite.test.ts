@@ -373,6 +373,21 @@ describe('buildRpcCall — mediaFakta (medie-metadata Task 3)', () => {
       p_subjekt_type: 'media', p_subjekt_id: 42, p_faktatype: 'hentedato',
       p_vaerdi: '2026-08-06', p_date_raw: '2026-08-06' } });
   });
+
+  // Task 5-fund (wiring-review): overlayets Kildenote-felt sender kildeFritekst i payload
+  // (Redaktion.tsx's onGemFakta) — uden p_kilde_fritekst her blev den stille droppet, og enhver
+  // gemt fakta fik proveniens "(kilde mangler)", uanset hvad brugeren skrev i noten.
+  it('mediaFakta medtager p_kilde_fritekst når payload.kildeFritekst er sat', () => {
+    const rpc = buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'fotograf', vaerdi: 'Sönke Ehlert', kildeFritekst: 'Arkivets e-mail 2026-08-01' } } as never);
+    expect(rpc?.args).toMatchObject({ p_kilde_fritekst: 'Arkivets e-mail 2026-08-01' });
+  });
+
+  it('mediaFakta udelader p_kilde_fritekst når kildenoten er null/udeladt', () => {
+    const rpc = buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'fotograf', vaerdi: 'Sönke Ehlert', kildeFritekst: null } } as never);
+    expect(rpc?.args).not.toHaveProperty('p_kilde_fritekst');
+  });
 });
 
 describe('buildRpcCall — tilknytMedia (mediehåndtering fase 2)', () => {
