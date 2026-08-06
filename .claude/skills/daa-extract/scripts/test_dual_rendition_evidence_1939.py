@@ -110,10 +110,32 @@ def test_volrad_span_containing_emeke_anchor_is_boundary_disagreement():
     assert result["rk-volrad"]["reason"] == "boundary_disagreement"
 
 
-def test_alignment_is_identical_after_deepcopy():
+def test_alignment_does_not_mutate_either_manifest():
     cal = manifest(occ("c1", 0, "1"), occ("c2", 1, "2"))
     raw = manifest(occ("r1", 0, "1"), occ("r2", 1, "2"), rendition="raw_ocr")
-    assert align_renditions(cal, raw) == align_renditions(copy.deepcopy(cal), copy.deepcopy(raw))
+    before = copy.deepcopy((cal, raw))
+    align_renditions(cal, raw)
+    assert (cal, raw) == before
+
+
+def test_invariant_prefix_survives_competing_optimal_suffix_alignments():
+    cal = manifest(
+        occ("c0", 0, "1"),
+        occ("c1", 1, "2"),
+        occ("c2", 2, "2"),
+    )
+    raw = manifest(
+        occ("r0", 0, "1"),
+        occ("r1", 1, "2"),
+        occ("r2", 2, "2"),
+        occ("r3", 3, "2"),
+        rendition="raw_ocr",
+    )
+    result = align_renditions(cal, raw)
+    assert result["pairs"] == [{
+        "calamari_occurrence_id": "c0", "raw_occurrence_id": "r0",
+    }]
+    assert result["ambiguous_occurrence_ids"] == ["c1", "c2", "r1", "r2", "r3"]
 
 
 def test_reordered_predecessor_is_not_consensus():
@@ -186,6 +208,40 @@ def test_document_edge_sentinel_allows_consensus():
     raw = manifest(occ("r1", 0, "1"), rendition="raw_ocr")
     result = consensus_for({"rk": anchor("rk", "calamari", "c1")}, alignment_for("c1", "r1"), cal, raw)
     assert result["rk"]["status"] == "consensus"
+
+
+def test_matching_section_transition_allows_consensus_at_the_section_edge():
+    cal = manifest(
+        occ("c1", 0, "1", section=("I",)),
+        occ("c2", 1, "2", section=("II",)),
+    )
+    raw = manifest(
+        occ("r1", 0, "1", section=("I",)),
+        occ("r2", 1, "2", section=("II",)),
+        rendition="raw_ocr",
+    )
+    result = consensus_for(
+        {"rk": anchor("rk", "calamari", "c1")}, alignment_for("c1", "r1"), cal, raw,
+    )
+    assert result["rk"]["status"] == "consensus"
+
+
+def test_one_sided_section_transition_is_successor_disagreement():
+    cal = manifest(
+        occ("c1", 0, "1", section=("I",)),
+        occ("c2", 1, "2", section=("II",)),
+    )
+    raw = manifest(
+        occ("r1", 0, "1", section=("I",)),
+        occ("r2", 1, "2", section=("I",)),
+        rendition="raw_ocr",
+    )
+    result = consensus_for(
+        {"rk": anchor("rk", "calamari", "c1")}, alignment_for("c1", "r1"), cal, raw,
+    )
+    assert result["rk"] == {
+        "record_key": "rk", "status": "unanchored", "reason": "successor_disagreement",
+    }
 
 
 def occurrence_manifest(rendition, text, spans=None):
