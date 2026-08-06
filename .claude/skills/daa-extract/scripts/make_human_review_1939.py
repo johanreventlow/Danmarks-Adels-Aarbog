@@ -124,6 +124,109 @@ def _assert_sourceless_review_is_unreviewed(decisions: dict[str, dict]) -> None:
             raise ValueError("legacy review med afgørelsesfelter kræver source manifest")
 
 
+def _validate_embedded_choice_decisions(model: dict, choice_keys: set[str]) -> None:
+    """Reject source-valid browser choices that the embedded UI would block."""
+    records = model.get("records")
+    if not isinstance(records, list):
+        raise ValueError("view model records skal være en liste")
+    by_key: dict[str, dict] = {}
+    for record in records:
+        if not isinstance(record, dict):
+            raise ValueError("view model record skal være en mapping")
+        key = record.get("record_key")
+        if not isinstance(key, str) or not key or key in by_key:
+            raise ValueError("view model record_key er ugyldig")
+        by_key[key] = record
+    if not choice_keys <= set(by_key):
+        raise ValueError("browser choice har ukendt baseline_record_key")
+
+    owners: dict[str, str] = {}
+
+    def claim(candidate_id: object, key: str) -> None:
+        if not isinstance(candidate_id, str) or not candidate_id:
+            raise ValueError("browser choice kandidat_id er ugyldigt")
+        owner = owners.get(candidate_id)
+        if owner is not None and owner != key:
+            raise ValueError("browser choice kandidat er allerede valgt for en anden post")
+        owners[candidate_id] = key
+
+    def contains_candidate(record: dict, candidate_id: object) -> bool:
+        candidates = record.get("candidates")
+        return (
+            isinstance(candidate_id, str)
+            and isinstance(candidates, list)
+            and any(
+                isinstance(candidate, dict) and candidate.get("candidate_id") == candidate_id
+                for candidate in candidates
+            )
+        )
+
+    for key, record in by_key.items():
+        classification = record.get("classification")
+        candidate = classification.get("candidate") if isinstance(classification, dict) else None
+        if candidate is not None:
+            if not isinstance(candidate, dict):
+                raise ValueError("browser choice automatisk kandidat er ugyldig")
+            claim(candidate.get("candidate_id"), key)
+
+    for key, record in by_key.items():
+        decision = record.get("decision")
+        if (
+            key not in choice_keys
+            and isinstance(decision, dict)
+            and decision.get("review_status") == "accepteret"
+        ):
+            candidate_id = decision.get("candidate_id")
+            if not contains_candidate(record, candidate_id):
+                raise ValueError("browser choice legacy-kandidat findes ikke blandt postens aktuelle kandidater")
+            claim(candidate_id, key)
+
+    required_by_outcome = {
+        "human_selected_candidate": {
+            "baseline_record_key", "outcome", "decided_at", "candidate_id",
+        },
+        "possible_duplicate": {
+            "baseline_record_key", "outcome", "decided_at",
+            "duplicate_of_baseline_record_key",
+        },
+        "no_candidate_fits": {
+            "baseline_record_key", "outcome", "decided_at", "reason",
+        },
+        "undecidable": {
+            "baseline_record_key", "outcome", "decided_at", "reason",
+        },
+    }
+    for key in choice_keys:
+        decision = by_key[key].get("decision")
+        if not isinstance(decision, dict):
+            raise ValueError("browser choice mangler decision")
+        outcome = decision.get("outcome")
+        required = required_by_outcome.get(outcome)
+        if required is None:
+            raise ValueError("browser choice har ukendt outcome")
+        if not isinstance(decision.get("decided_at"), str) or not decision["decided_at"].strip():
+            raise ValueError("browser choice decided_at mangler eller er ugyldigt")
+        if set(decision) != required:
+            raise ValueError("browser choice har uventede eller manglende felter")
+        if decision.get("baseline_record_key") != key:
+            raise ValueError("browser choice har forkert baseline_record_key")
+        if outcome == "human_selected_candidate":
+            candidate_id = decision.get("candidate_id")
+            if not contains_candidate(by_key[key], candidate_id):
+                raise ValueError(
+                    "browser choice kandidat findes ikke blandt postens aktuelle kandidater"
+                )
+            claim(candidate_id, key)
+        elif outcome == "possible_duplicate":
+            target = decision.get("duplicate_of_baseline_record_key")
+            if not isinstance(target, str) or not target or target not in by_key:
+                raise ValueError("browser choice dubletmål findes ikke")
+            if target == key:
+                raise ValueError("browser choice dubletmål må ikke pege på sig selv")
+        elif not isinstance(decision.get("reason"), str) or not decision["reason"].strip():
+            raise ValueError("browser choice reason mangler eller er ugyldigt")
+
+
 def _candidate_from_post(
     post: dict,
     calamari_first_pdf_page: int,
@@ -343,6 +446,7 @@ def main() -> int:
             and any(isinstance(entry, dict) and "outcome" in entry for entry in entries)
         )
     )
+    choice_keys: set[str] = set()
     if is_choice_export:
         context = validate_choice_export(
             review, source_manifest, baseline_keys, include_context=True,
@@ -355,6 +459,7 @@ def main() -> int:
             key: {field: value for field, value in choice.items() if field in browser_fields}
             for key, choice in context["choices"].items()
         }
+        choice_keys = set(context["choices"])
         decisions.update(context["final_legacy_entries"])
     else:
         decisions = _review_decisions(review, baseline_hash, baseline_keys)
@@ -397,6 +502,8 @@ def main() -> int:
     _hydrate_source_bound_candidates(
         model, calamari_bytes.decode("utf-8"), raw_bytes.decode("utf-8"),
     )
+    if is_choice_export:
+        _validate_embedded_choice_decisions(model, choice_keys)
     payload = json.dumps(
         {"baseline_sha256": baseline_hash, **model}, ensure_ascii=False,
     ).replace("<", "\\u003c")

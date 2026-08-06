@@ -608,6 +608,94 @@ def test_main_reembeds_a_source_validated_choice_export_with_browser_fields(
     }
 
 
+@pytest.mark.parametrize(
+    ("choice", "message"),
+    [
+        (
+            {"outcome": "human_selected_candidate", "candidate_id": "Stamme.Volrad"},
+            "decided_at",
+        ),
+        (
+            {
+                "outcome": "human_selected_candidate",
+                "candidate_id": "ukendt-kandidat",
+                "decided_at": "2026-08-06T12:00:00Z",
+            },
+            "findes ikke blandt postens aktuelle kandidater",
+        ),
+        (
+            {
+                "outcome": "possible_duplicate",
+                "duplicate_of_baseline_record_key": "manglende-record",
+                "decided_at": "2026-08-06T12:00:00Z",
+            },
+            "dubletmål findes ikke",
+        ),
+    ],
+)
+def test_main_rejects_browser_invalid_choice_export_before_writing_html(
+    tmp_path, monkeypatch, choice, message
+):
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    source_value = json.loads(source.read_text(encoding="utf-8"))["source"]
+    review.write_text(json.dumps({
+        "schema_version": 1,
+        "source": source_value,
+        "baseline_sha256": source_value["baseline_sha256"],
+        "exported_at": "2026-08-06T12:01:00Z",
+        "entries": [{"baseline_record_key": "record-1", **choice}],
+    }), encoding="utf-8")
+    monkeypatch.setattr(subject.segment, "_segment_1939_v2", lambda *_: [{
+        "lokal_id": "Stamme.Volrad", "sider": "3", "raw_text": "Hr. Volrad",
+    }])
+    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
+
+    with pytest.raises(ValueError, match=message):
+        subject.main()
+    assert not out.exists()
+
+
+def test_main_rejects_choice_export_with_candidate_owned_by_another_record(
+    tmp_path, monkeypatch
+):
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    baseline_value = json.loads(baseline.read_text(encoding="utf-8")) + [{
+        "record_key": "record-2", "navn": "Anden", "sider": "498",
+    }]
+    baseline.write_text(json.dumps(baseline_value), encoding="utf-8")
+    source_value = _source(
+        baseline.read_bytes(), calamari.read_bytes(), calamari.with_name("raw.txt").read_bytes(),
+    )
+    source.write_text(json.dumps({"schema_version": 1, "source": source_value}), encoding="utf-8")
+    queue.write_text(json.dumps({"schema_version": 1, "source": source_value, "entries": [
+        {"baseline_record_key": "record-1", "queue_class": "human_required",
+         "reason_code": "no_candidate", "reason_da": "ingen kandidat"},
+        {"baseline_record_key": "record-2", "queue_class": "human_required",
+         "reason_code": "no_candidate", "reason_da": "ingen kandidat"},
+    ]}), encoding="utf-8")
+    review.write_text(json.dumps({
+        "schema_version": 1,
+        "source": source_value,
+        "baseline_sha256": source_value["baseline_sha256"],
+        "exported_at": "2026-08-06T12:01:00Z",
+        "entries": [
+            {"baseline_record_key": key, "outcome": "human_selected_candidate",
+             "candidate_id": "Stamme.Volrad", "decided_at": "2026-08-06T12:00:00Z"}
+            for key in ("record-1", "record-2")
+        ],
+    }), encoding="utf-8")
+    monkeypatch.setattr(subject.segment, "_segment_1939_v2", lambda *_: [{
+        "lokal_id": "Stamme.Volrad", "sider": "3", "raw_text": "Hr. Volrad",
+    }])
+    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
+
+    with pytest.raises(ValueError, match="allerede valgt"):
+        subject.main()
+    assert not out.exists()
+
+
 def test_main_rejects_choice_export_with_changed_pinned_source(tmp_path, monkeypatch):
     baseline, review, queue, source, calamari = _write_inputs(tmp_path)
     out = tmp_path / "menneskeark.html"
