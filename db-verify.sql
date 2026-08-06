@@ -3807,6 +3807,96 @@ EXCEPTION WHEN others THEN
   IF SQLERRM = 'ROLLBACK_TESTDATA' THEN RAISE NOTICE 'OK: testdata rullet tilbage'; ELSE RAISE; END IF;
 END $$;
 
+-- ===== Issue #127: story_kilde i version_pk_registry + registry-dækning =====
+-- Forvent: alle tre blokke ender i NOTICE 'OK: ...'.
+
+-- 1) Registry-dækning: enhver tabel en red_*-funktion DML'er mod skal stå i
+--    version_pk_registry eller være eksplicit undtaget. Undtagelserne er
+--    dokumenteret: change_set (versioneringens egen infrastruktur),
+--    suggestion (forslags-kø, ikke kanonisk data — versioneres ved apply, #128),
+--    media_variant (afledt cache, B8-mønsteret — schema.sql-kommentar ved media_variant),
+--    slaegtsnavn_karantaene (afledt, selv-helbredende karantæne-liste).
+DO $$
+DECLARE v_missing text;
+BEGIN
+  SELECT string_agg(t.tabel, ', ' ORDER BY t.tabel) INTO v_missing
+  FROM (
+    SELECT DISTINCT lower(m.grp[2]) AS tabel
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    CROSS JOIN LATERAL regexp_matches(p.prosrc,
+      '(INSERT INTO|UPDATE|DELETE FROM)\s+([a-zA-Z_]+)', 'gi') AS m(grp)
+    WHERE n.nspname = 'public' AND p.proname LIKE 'red\_%'
+  ) t
+  JOIN pg_class c ON c.relname = t.tabel
+    AND c.relnamespace = 'public'::regnamespace AND c.relkind = 'r'
+  WHERE t.tabel NOT IN (SELECT tabel FROM version_pk_registry)
+    AND t.tabel NOT IN ('change_set','suggestion','media_variant','slaegtsnavn_karantaene');
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: red_*-DML-tabeller uden versionering (fortryd = tavs no-op): %', v_missing;
+  END IF;
+  RAISE NOTICE 'OK: alle red_*-DML-tabeller er versioneret eller eksplicit undtaget';
+END $$;
+
+-- 2) Trigger-paritet: en registry-række uden trg_log_-trigger logger intet.
+DO $$
+DECLARE v_missing text;
+BEGIN
+  SELECT string_agg(r.tabel, ', ' ORDER BY r.tabel) INTO v_missing
+  FROM version_pk_registry r
+  WHERE NOT EXISTS (
+    SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+    WHERE c.relnamespace = 'public'::regnamespace
+      AND c.relname = r.tabel AND t.tgname = 'trg_log_' || r.tabel);
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: registry-tabeller uden log_change-trigger: %', v_missing;
+  END IF;
+  RAISE NOTICE 'OK: alle registry-tabeller har deres trg_log_-trigger';
+END $$;
+
+-- 3) Adfærd: red_set_story_kilder logger story_kilde-events, og fortryd
+--    genskaber tilstanden (var tavs no-op før #127).
+DO $$
+DECLARE
+  v_redaktor uuid := '00000000-0000-0000-0000-0000000000d7';
+  v_person bigint; v_story bigint; v_src bigint; v_cs bigint;
+  v_events int; v_rows int;
+BEGIN
+  INSERT INTO auth.users(id,email) VALUES (v_redaktor,'verify-127@test')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,navn) VALUES (v_redaktor,'redaktion','VERIFY 127')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('request.jwt.claim.sub', v_redaktor::text, true);
+
+  v_person := red_opret_person('VERIFY 127 person');
+  INSERT INTO source(id,titel) VALUES ((SELECT coalesce(max(id),0)+1 FROM source),'VERIFY 127 kilde')
+    RETURNING id INTO v_src;
+  v_story := red_opret_story('person', v_person, 'VERIFY 127 story-tekst');
+
+  -- nyt change_set specifikt for kilde-kaldet, så fortryd rammer præcist
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_set_story_kilder(v_story,
+    jsonb_build_array(jsonb_build_object('source_id', v_src, 'side', '12')));
+  v_cs := current_setting('app.change_set_id', true)::bigint;
+
+  SELECT count(*) INTO v_events
+    FROM change_event WHERE change_set_id = v_cs AND tabel = 'story_kilde';
+  IF v_events = 0 THEN
+    RAISE EXCEPTION 'FEJL: red_set_story_kilder loggede ingen story_kilde-events — fortryd er tavs no-op (#127)';
+  END IF;
+
+  -- fortryd i eget change_set: kildelisten skal være tom igen
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_fortryd_change_set(v_cs);
+  SELECT count(*) INTO v_rows FROM story_kilde WHERE story_id = v_story;
+  IF v_rows <> 0 THEN
+    RAISE EXCEPTION 'FEJL: fortryd genskabte ikke tom kildeliste (% rækker tilbage)', v_rows;
+  END IF;
+
+  RAISE NOTICE 'OK: story_kilde versioneres — % events logget, fortryd genskabte tom kildeliste', v_events;
+  RAISE EXCEPTION 'ROLLBACK_TESTDATA';
+EXCEPTION WHEN others THEN
+  IF SQLERRM = 'ROLLBACK_TESTDATA' THEN RAISE NOTICE 'OK: testdata rullet tilbage'; ELSE RAISE; END IF;
 
 -- Medie-metadata-faktatyper + RLS-skærpelse (2026-08-06)
 DO $$

@@ -21,7 +21,8 @@ import {
 import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, insertAt, makeToken, previewSammeSom, type OcrFelt, type PersonKvalitetsarkRow } from '@daa/core';
 import { loadModel } from './data/model';
 import type { Model } from './data/types';
-import { submitChange, describeCall, oversaetFejl, planCall, resumeMediaUpload, type Change } from './data/redaktionWrite';
+import { submitChange, describeCall, erFortrydKonflikt, oversaetFejl, planCall, resumeMediaUpload, type Change } from './data/redaktionWrite';
+import { HistorikPanel, type FortrydUdfald } from './components/HistorikPanel';
 import {
   fetchPersonKvalitetsark, fetchOcrHistorik, retOcrFelt, oversaetOcrFejl, type OcrHistorikEntry,
 } from './data/personKvalitetsark';
@@ -696,6 +697,26 @@ export default function Redaktion() {
     }
   }, [dryRun, role, entity, recordId, loadPerson, refreshObjMedia, refreshMediaBibliotek, mediaDetalje]);
 
+  // Fortryd fra historik-panelet (issue #144): samme submitChange-flow som run(), men med
+  // rå-fejl-klassifikation FØR oversaetFejl — B9-konflikten ("nyere ændring rører samme data")
+  // skal tilbage til panelet som et eksplicit force-valg, ikke ende som død fejltekst i writeView.
+  const fortrydChangeSet = useCallback(async (changeSetId: string, force: boolean): Promise<FortrydUdfald> => {
+    const change: Change = { art: 'fortryd', subjektType: 'person', subjektId: recordId ?? '',
+      payload: { changeSetId, force } };
+    try {
+      const res = await submitChange(change, { dryRun, role });
+      setWriteView({ title: dryRun ? 'Dry-run · dette ville blive sendt' : 'Ændring fortrudt',
+        lines: [describeCall(res.call)], error: '', done: !dryRun, dryRun, direkte: res.direkte });
+      if (!dryRun && recordId) loadPerson(recordId, { skipMedia: true });
+      return 'ok';
+    } catch (e) {
+      const raw = String((e as Error)?.message ?? e);
+      if (!force && erFortrydKonflikt(raw)) return 'konflikt';
+      setWriteView({ title: 'Fortryd fejlede', lines: [], error: oversaetFejl(raw), done: false, dryRun, direkte: false });
+      return 'fejl';
+    }
+  }, [dryRun, role, recordId, loadPerson]);
+
   const nyStoryFraPost = useCallback((post: TidslinjePost) => {
     if (storySaveGuardRef.current.busy) return;
     storySaveGuardRef.current.invalidate();
@@ -1272,6 +1293,15 @@ export default function Redaktion() {
         {renderNarrativEditor({ type: 'person', id: p.id })}
 
         {renderMateriale({ subjektType: 'person', subjektId: p.id, uploadTarget: { afbildetPersonId: p.id } })}
+
+        {/* Historik-panelet er redaktion-only: hist_for_subjekt er rolle-gated i DB'en, og
+            fortryd kan ikke degradere til forslag — for medlemmer ville panelet kun kunne fejle. */}
+        {role === 'redaktion' ? (
+          <>
+            <div style={sectionHeader(24)}>Ændringshistorik</div>
+            <HistorikPanel personId={String(p.id)} onFortryd={fortrydChangeSet} />
+          </>
+        ) : null}
       </div>
     );
   }

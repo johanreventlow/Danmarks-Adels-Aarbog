@@ -5112,7 +5112,21 @@ WHERE (m.maal_type='person' AND NOT EXISTS (SELECT 1 FROM person  p WHERE p.id=m
    OR (m.maal_type='coat_of_arms' AND NOT EXISTS (SELECT 1 FROM coat_of_arms c WHERE c.id=m.maal_id))
    OR (m.maal_type='historical_event' AND NOT EXISTS (SELECT 1 FROM historical_event h WHERE h.id=m.maal_id));
 
+-- =====================================================================
+-- 2026-08-06: #127 — story_kilde manglede i version_pk_registry
+-- red_set_story_kilder kører DELETE+INSERT på story_kilde, men tabellen
+-- stod ikke i registryet → ingen log_change-trigger → fortryd var en
+-- tavs no-op (tomt reversal-change-set uden events). Registrér tabellen
+-- og hæng triggeren på; dæknings-assert i db-verify lukker fejlklassen.
+-- =====================================================================
 
+INSERT INTO version_pk_registry (tabel, pk_cols, skip_cols) VALUES
+  ('story_kilde', ARRAY['id'], '{}')
+ON CONFLICT (tabel) DO UPDATE SET pk_cols=excluded.pk_cols, skip_cols=excluded.skip_cols;
+
+DROP TRIGGER IF EXISTS trg_log_story_kilde ON story_kilde;
+CREATE TRIGGER trg_log_story_kilde AFTER INSERT OR UPDATE OR DELETE ON story_kilde
+  FOR EACH ROW EXECUTE FUNCTION log_change();
 
 -- 2026-08-06: medie-metadata-faktatyper + RLS-skærpelse (spec §1b)
 -- Medie-metadata (spec docs/superpowers/specs/2026-08-06-medie-metadata-design.md §1).

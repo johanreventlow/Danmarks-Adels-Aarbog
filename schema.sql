@@ -3177,6 +3177,7 @@ INSERT INTO version_pk_registry (tabel, pk_cols, skip_cols) VALUES
   ('narrative',          ARRAY['id'], '{}'),
   ('haendelse',          ARRAY['id'], ARRAY['subjekt_type','subjekt_id','narrative_id','noegle','span_start','span_laengde','klausul','kategori','date_min','date_max','date_qualifier','date_raw','fact_id','relation_id','pass_version']),
   ('story',              ARRAY['id'], '{}'),
+  ('story_kilde',        ARRAY['id'], '{}'),  -- red_set_story_kilder kører DELETE+INSERT her (#127)
   ('feed_pin',           ARRAY['id'], '{}'),
   ('note',               ARRAY['id'], '{}'),
   ('source',             ARRAY['id'], '{}'),

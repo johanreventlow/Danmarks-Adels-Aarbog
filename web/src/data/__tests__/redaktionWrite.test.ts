@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  buildResumeMediaUploadPlan, buildRpcCall, buildSuggestCall, FELT_FAKTATYPE,
+  buildResumeMediaUploadPlan, buildRpcCall, buildSuggestCall, erFortrydKonflikt, FELT_FAKTATYPE,
   oversaetFejl, planCall, submitChange, type Change,
 } from '../redaktionWrite';
 
@@ -713,5 +713,45 @@ describe('buildRpcCall — union-redigering', () => {
     const c = { art: 'tilfoejPartner', subjektType: 'person', subjektId: '1198',
       payload: { familyId: '726', personId: '1613' } } as Change;
     expect(planCall(c, 'medlem').fn).toBe('red_suggest');
+  });
+});
+
+// ===== Issue #144: fortryd (red_fortryd_change_set) i web-skrivelaget =====
+// Porteret fra mobilens mønster — hold i sync (jf. fil-header).
+
+describe('fortryd — buildRpcCall + rolle-gate + konflikt-genkendelse', () => {
+  const fortrydChange = (payload?: Record<string, unknown>): Change => ({
+    art: 'fortryd', subjektType: 'person', subjektId: '7', payload,
+  });
+
+  it('fortryd → red_fortryd_change_set m. Number-konverteret id + force', () => {
+    expect(buildRpcCall(fortrydChange({ changeSetId: '12', force: true }))).toEqual({
+      fn: 'red_fortryd_change_set', args: { p_change_set_id: 12, p_force: true },
+    });
+  });
+
+  it('fortryd uden force defaulter til p_force=false', () => {
+    expect(buildRpcCall(fortrydChange({ changeSetId: 12 }))).toEqual({
+      fn: 'red_fortryd_change_set', args: { p_change_set_id: 12, p_force: false },
+    });
+  });
+
+  it('fortryd uden changeSetId bygger intet kald', () => {
+    expect(buildRpcCall(fortrydChange())).toBeNull();
+    expect(buildRpcCall(fortrydChange({ force: true }))).toBeNull();
+  });
+
+  it('fortryd kan ALDRIG degradere til red_suggest — et fortryd-forslag ville lyve', async () => {
+    await expect(submitChange(fortrydChange({ changeSetId: 12 }), { dryRun: false, role: 'medlem' }))
+      .rejects.toThrow(/redaktør-rettigheder/);
+    await expect(submitChange(fortrydChange({ changeSetId: 12 }), { dryRun: true, role: undefined }))
+      .rejects.toThrow(/redaktør-rettigheder/);
+  });
+
+  it('erFortrydKonflikt matcher en statisk kopi af DB-RAISE-teksten (B9-divergens)', () => {
+    // Statisk kopi af schema.sql's RAISE — drifter formuleringen, opdateres denne test + regex manuelt.
+    expect(erFortrydKonflikt('FEJL: nyere ændring rører fact/{"id": 3} — afvist (brug force)')).toBe(true);
+    expect(erFortrydKonflikt('Kun redaktion')).toBe(false);
+    expect(erFortrydKonflikt('FEJL: change_set 12 er allerede fortrudt')).toBe(false);
   });
 });
