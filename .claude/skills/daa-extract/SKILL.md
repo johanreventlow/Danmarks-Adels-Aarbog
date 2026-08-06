@@ -214,8 +214,19 @@ en ny kørsel.
   --report-out work/task19-1939-pilot/dual-evidence-report-v2.json
 ```
 
-Brug derefter den source-bundne evidence-fil som Task 6's `--evidence`; kø og
-rapport er fortsat diagnostiske og eksklusive:
+Den eksisterende private `coverage-review.json` er en bevaret, uversioneret V1-
+artefakt og må ikke omskrives. Opret derfor den friske, eksklusive V2-template,
+før den første kø bygges:
+
+```bash
+/usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_coverage_1939.py \
+  --make-review-template \
+  --baseline ../../../work_1939_stamtavle/clean_1939_v2.json \
+  --out work/task19-1939-pilot/coverage-review-v2.json
+```
+
+Brug derefter den source-bundne evidence-fil som Task 6's `--evidence` og den
+friske template som `--review`; kø og rapport er diagnostiske og eksklusive:
 
 ```bash
 /usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_review_queue_1939.py \
@@ -226,42 +237,47 @@ rapport er fortsat diagnostiske og eksklusive:
   --raw ../../../work_1939_stamtavle/raw.txt \
   --pdf "../../../Dansk Adels Aarbog - Reventlow 1939.pdf" \
   --profile-version 1939-v2 \
-  --queue-out work/task19-1939-pilot/review-queue-manifest-v3.json \
-  --report-out work/task19-1939-pilot/review-queue-report-v3.json
+  --queue-out work/task19-1939-pilot/review-queue-manifest-v2.json \
+  --report-out work/task19-1939-pilot/review-queue-report-v2.json
 ```
 
-Generér V2-menneskearket fra den deterministiske kø og eksportér kun den private
-browserkladde. Den efterfølgende choices-to-decisions-konvertering er den
-deterministiske audit af kladden:
+Generér derefter V2-menneskearket fra den deterministiske kø:
 
 ```bash
 /usr/bin/python3 .claude/skills/daa-extract/scripts/make_human_review_1939.py \
   --baseline ../../../work_1939_stamtavle/clean_1939_v2.json \
-  --queue-manifest work/task19-1939-pilot/review-queue-manifest-v3.json \
-  --source-manifest work/task19-1939-pilot/review-queue-manifest-v3.json \
+  --queue-manifest work/task19-1939-pilot/review-queue-manifest-v2.json \
+  --source-manifest work/task19-1939-pilot/review-queue-manifest-v2.json \
   --review work/task19-1939-pilot/coverage-review-v2.json \
   --calamari ../../../work_1939_stamtavle/full_ocr_calamari_r6_clean.txt \
   --calamari-first-pdf-page 496 \
-  --out work/task19-1939-pilot/menneskeark-undtagelsesko-v3.html
+  --out work/task19-1939-pilot/menneskeark-undtagelsesko-v2.html
 
-open work/task19-1939-pilot/menneskeark-undtagelsesko-v3.html
-
-/usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_coverage_1939.py \
-  --choices-to-decisions work/task19-1939-pilot/1939-review-kladd.json \
-  --queue-manifest work/task19-1939-pilot/review-queue-manifest-v3.json \
-  --anchored-candidates work/task19-1939-pilot/dual-evidence-v2.json \
-  --out work/task19-1939-pilot/review-decisions-v3.json
+open work/task19-1939-pilot/menneskeark-undtagelsesko-v2.html
 ```
+
+Den deterministiske audit-stikprøve ligger allerede i
+`review-queue-manifest-v2.json` og `review-queue-report-v2.json`. I HTML'en:
+søg efter baselineposten, kontrollér kandidaterne, vælg/fortryd, genindlæs siden
+og brug **Eksportér privat kladde**. Browserens `localStorage`, HTML'en og den
+eksporterede `1939-review-kladd.json` er kladder; JSON-eksporten er den varige,
+private overdragelse og skal opbevares uden for Git.
+
+Kør **ikke** `--choices-to-decisions` med
+`--anchored-candidates work/task19-1939-pilot/dual-evidence-v2.json`: dual-
+evidence-filen og anchored-candidates-wrapperen har forskellige skemaer. En
+slutkonvertering kræver den særskilt definerede anchored-candidates-wrapper og
+ligger uden for denne V2-pilot, indtil en sådan adapter eller artefakt findes.
 
 `work/`-artefakterne og browserens eksport er private og ignorerede; de må aldrig
 committes. Overskriv eller slet ikke tidligere resultater for at genkøre: vælg nye,
 versionssuffikserede filnavne. Et `GO` fra et review-værktøj er kun review-go; det er
 ikke database-, loader- eller deployment-GO.
 
-Kør fra worktree-roden. Denne pilot bruger det komplette, men stadig uafgjorte
-`coverage-review.json` som konservativ evidensinput: poster uden en komplet kandidat
-og positiv proveniens bliver `human_required`. Samme-side-forslag i HTML'en er kun
-visningshjælp og bliver aldrig automatisk accepteret. Et namespaced
+V2-piloten bruger `dual-evidence-v2.json` som source-bundet evidens og den komplette,
+stadig uafgjorte `coverage-review-v2.json` som konservativ review-template: poster
+uden en komplet kandidat og positiv proveniens bliver `human_required`. Samme-side-
+forslag i HTML'en er kun visningshjælp og bliver aldrig automatisk accepteret. Et namespaced
 `presentation:1939-v2:post:<indeks>`-id gør manglende eller kolliderende parser-id'er
 stabile inden for de fastlåste kilder; id'et er ikke positiv proveniens. Task 5
 ignorerer sådanne id'er ved ankerindlæsning og parkerer altid et valgt
@@ -283,62 +299,17 @@ blev beregnet fra, og råuddragets SHA-256 skal matche det aktuelle tekstudsnit.
 Alle offentlige Task 4-6 JSON-grænser kræver det eksakte JSON-heltal `1`; `true`,
 `1.0`, `"1"` og manglende schema-version afvises.
 
-Den eksisterende private `coverage-review.json` er en bevaret, uversioneret V1-
-artefakt og må ikke omskrives. Opret en ny, eksklusiv versioneret template før
-en ny kørsel:
+### Legacy source-løs fallback (ikke del af V2-sekvensen)
 
-```bash
-/usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_coverage_1939.py \
-  --make-review-template \
-  --baseline ../../../work_1939_stamtavle/clean_1939_v2.json \
-  --out work/task19-1939-pilot/coverage-review-v2.json
-```
-
-```bash
-/usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_review_queue_1939.py \
-  --baseline ../../../work_1939_stamtavle/clean_1939_v2.json \
-  --evidence work/task19-1939-pilot/coverage-review-v2.json \
-  --review work/task19-1939-pilot/coverage-review-v2.json \
-  --calamari ../../../work_1939_stamtavle/full_ocr_calamari_r6_clean.txt \
-  --raw ../../../work_1939_stamtavle/raw.txt \
-  --pdf "../../../Dansk Adels Aarbog - Reventlow 1939.pdf" \
-  --profile-version 1939-v2 \
-  --queue-out work/task19-1939-pilot/review-queue-manifest-v2.json \
-  --report-out work/task19-1939-pilot/review-queue-report-v2.json
-
-/usr/bin/python3 .claude/skills/daa-extract/scripts/make_human_review_1939.py \
-  --baseline ../../../work_1939_stamtavle/clean_1939_v2.json \
-  --queue-manifest work/task19-1939-pilot/review-queue-manifest-v2.json \
-  --source-manifest work/task19-1939-pilot/review-queue-manifest-v2.json \
-  --review work/task19-1939-pilot/coverage-review-v2.json \
-  --calamari ../../../work_1939_stamtavle/full_ocr_calamari_r6_clean.txt \
-  --calamari-first-pdf-page 496 \
-  --out work/task19-1939-pilot/menneskeark-undtagelsesko-v2.html
-```
-
-Åbn lokalt med
-`open work/task19-1939-pilot/menneskeark-undtagelsesko-v2.html`. Søg efter den
-ønskede baselinepost, kontrollér alle kandidater, vælg/fortryd, genindlæs siden og
-brug **Eksportér privat kladde**. HTML og browserens `localStorage` er kun kladder.
-Den eksporterede `1939-review-kladd.json`, med de fastlåste source-hashes og valget,
-er den varige private overdragelse og skal opbevares uden for Git.
-
-Valget er fortsat kun foreløbigt. Validér og konvertér det fail-closed med Task 5,
-når en privat `anchored-candidates-v1.json` med kandidatens komplette, eksakte
-Calamari-/rå-OCR-bro findes:
-
-```bash
-/usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_coverage_1939.py \
-  --choices-to-decisions work/task19-1939-pilot/1939-review-kladd.json \
-  --queue-manifest work/task19-1939-pilot/review-queue-manifest-v2.json \
-  --anchored-candidates work/task19-1939-pilot/anchored-candidates-v1.json \
-  --out work/task19-1939-pilot/review-decisions-v2.json
-```
+Task 6 kan fortsat acceptere en komplet source-løs `unreviewed`-template som
+konservativ fallback, men den sti er ikke en fortsættelse af ovenstående V2-flow
+og må ikke skrive til de samme V2-filnavne. Brug kun fallbacken som en særskilt,
+versionsmærket kørsel uden positive kandidater.
 
 Uden den eksakte ankermapping parkeres et kandidatvalg som `menneskeark`; der må
-aldrig konstrueres en positiv kobling fra HTML'ens samme-side-forslag. Regenerér kø,
-rapport og HTML med nye `v2`-filnavne. Task 6 kan læse Task 5's eksakte
-`review-decisions-v2.json` direkte: en minimal `accepteret` beslutning tæller kun,
+aldrig konstrueres en positiv kobling fra HTML'ens samme-side-forslag. En senere
+slutkonvertering kan kun bruge den særskilte anchored-candidates-wrapper: en minimal
+`accepteret` beslutning tæller kun,
 når `(baseline_record_key, candidate_id)` entydigt joiner samme ejer i en komplet,
 source-bundet evidence-fil med matchende positiv proveniens og uden konflikt.
 Alle automatiske og menneskeligt accepterede kandidat-id'er samt Calamari-/rå-
