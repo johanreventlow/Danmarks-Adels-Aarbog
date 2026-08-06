@@ -9,7 +9,7 @@ import pytest
 import anchor_review_choices_1939 as subject
 from anchor_review_choices_1939 import build_human_anchored_candidates
 from coverage_1939 import validate_coverage
-from review_choices_1939 import convert_review_choices
+from review_choices_1939 import convert_review_choices, validate_choice_export
 
 
 PROFILE = "1939-v2"
@@ -216,6 +216,13 @@ def test_parserpost_valg_faar_span_og_approval():
         "baseline_record_key": "rec-a",
         "candidate_id": candidate_id,
     }
+    assert result["rewritten_choices"] == {
+        "rec-a": {
+            "baseline_record_key": "rec-a",
+            "outcome": "human_selected_candidate",
+            "candidate_id": candidate_id,
+        },
+    }
 
 
 def test_text_anchor_valg_genberegnes_og_forankres():
@@ -271,6 +278,7 @@ def test_overlap_med_automatisk_kandidat_parkeres():
     assert parked["reason_code"] == "overlaps_automatic_candidate"
     assert parked["candidate_id"] == "P1"
     assert isinstance(parked["reason_da"], str) and parked["reason_da"]
+    assert result["rewritten_choices"]["rec-a"]["candidate_id"] == "P1"
 
 
 def test_samme_kandidat_to_poster_parkerer_begge():
@@ -348,6 +356,14 @@ def test_audit_keys_og_andre_outcomes_springes_over():
     assert result["anchored"] == {}
     assert result["evidence_entries"] == []
     assert result["parked"] == []
+    assert result["rewritten_choices"] == {
+        "rec-a": choice("rec-a", "P1"),
+        "rec-b": {
+            "baseline_record_key": "rec-b",
+            "outcome": "no_candidate_fits",
+            "reason": "passer ikke",
+        },
+    }
 
 
 def test_ukendt_kandidat_id_parkeres_som_ikke_fundet():
@@ -400,12 +416,26 @@ def test_tomt_kildeudsnit_parkeres_som_verbatim_mismatch():
     assert parked["reason_code"] == "span_verbatim_mismatch"
 
 
+def test_pdf_fallback_laeser_record_sider_ikke_postens():
+    posts = copy.deepcopy(POSTS)
+    posts[2]["sider"] = "8"
+    records = copy.deepcopy(BASELINE_RECORDS)
+    records["rec-d"]["sider"] = "503"
+    result = build(
+        {"rec-d": choice("rec-d", "P4")},
+        posts=posts,
+        baseline_records=records,
+    )
+    [wrapper] = result["anchored"].values()
+    assert wrapper["candidate"]["pdf_pages"] == [503]
+
+
 def test_kaede_choices_til_accepteret_decision():
     result = build({"rec-a": choice("rec-a", "P1")})
     [(human_id, wrapper)] = result["anchored"].items()
     assert wrapper["baseline_record_key"] == "rec-a"
     converted = convert_review_choices(
-        {"rec-a": choice("rec-a", human_id)},
+        result["rewritten_choices"],
         result["anchored"],
         copy.deepcopy(CLASSIFICATIONS),
         set(),
@@ -457,6 +487,7 @@ def _write_cli_fixture(tmp_path, *, corrupt_calamari=False):
         "wrapper_out": tmp_path / "wrapper.json",
         "evidence_out": tmp_path / "evidence.json",
         "report_out": tmp_path / "report.json",
+        "rewritten_out": tmp_path / "rewritten-choices.json",
     }
     paths["choices"].write_text(json.dumps(export), encoding="utf-8")
     paths["queue"].write_text(json.dumps(queue), encoding="utf-8")
@@ -481,6 +512,7 @@ def _cli_argv(paths):
         "--wrapper-out", str(paths["wrapper_out"]),
         "--evidence-out", str(paths["evidence_out"]),
         "--report-out", str(paths["report_out"]),
+        "--rewritten-choices-out", str(paths["rewritten_out"]),
     ]
 
 
@@ -492,6 +524,7 @@ def test_cli_hash_gate_afviser_forkerte_kildebytes(tmp_path, monkeypatch):
     assert not paths["wrapper_out"].exists()
     assert not paths["evidence_out"].exists()
     assert not paths["report_out"].exists()
+    assert not paths["rewritten_out"].exists()
 
 
 def test_cli_skriver_wrapper_evidens_og_rapport(tmp_path, monkeypatch):
@@ -512,3 +545,21 @@ def test_cli_skriver_wrapper_evidens_og_rapport(tmp_path, monkeypatch):
     assert report["parked"] == []
     with pytest.raises(FileExistsError):
         subject.main()
+
+
+def test_cli_rewritten_choices_bestaar_validate_choice_export(tmp_path, monkeypatch):
+    paths = _write_cli_fixture(tmp_path)
+    monkeypatch.setattr(subject.segment, "_segment_1939_v2",
+                        lambda lines, profile: copy.deepcopy(POSTS))
+    monkeypatch.setattr("sys.argv", _cli_argv(paths))
+    assert subject.main() == 0
+    rewritten = json.loads(paths["rewritten_out"].read_text(encoding="utf-8"))
+    source = json.loads(paths["queue"].read_text(encoding="utf-8"))["source"]
+    assert rewritten["exported_at"] == "2026-08-06T12:00:00Z"
+    assert rewritten["baseline_sha256"] == source["baseline_sha256"]
+    assert [entry["baseline_record_key"] for entry in rewritten["entries"]] == list(
+        RECORD_KEYS
+    )
+    validated = validate_choice_export(rewritten, source, set(RECORD_KEYS))
+    assert validated["rec-a"]["candidate_id"] == expected_human_id(SPAN_A)
+    assert set(validated) == {"rec-a"}

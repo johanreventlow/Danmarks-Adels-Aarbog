@@ -5,8 +5,9 @@ selections reference presentation-only identities that can never become
 positive accepted evidence.  This module re-derives every selection as an
 exact, hash-locked Calamari span (fail-closed, never guessing) and emits
 the anchored-candidates wrapper required by ``convert_review_choices``,
-matching human evidence entries, and a parking report with one precise
-Danish reason per unresolvable choice.
+matching human evidence entries, rewritten choices whose anchored
+selections reference the new ``human:`` identities, and a parking report
+with one precise Danish reason per unresolvable choice.
 """
 
 from __future__ import annotations
@@ -406,6 +407,16 @@ def build_human_anchored_candidates(
         parked_by_key[key] = reason_code
         del resolved[key]
 
+    rewritten_choices: dict[str, dict] = {}
+    for key in sorted(choices):
+        rewritten = copy.deepcopy(dict(choices[key]))
+        if (
+            rewritten.get("outcome") == "human_selected_candidate"
+            and key in resolved
+        ):
+            rewritten["candidate_id"] = resolved[key]["candidate_id"]
+        rewritten_choices[key] = rewritten
+
     anchored: dict[str, dict] = {}
     evidence_entries: list[dict] = []
     for key in sorted(resolved):
@@ -440,6 +451,7 @@ def build_human_anchored_candidates(
         "anchored": anchored,
         "evidence_entries": evidence_entries,
         "parked": parked,
+        "rewritten_choices": rewritten_choices,
     }
 
 
@@ -455,6 +467,7 @@ def main() -> int:
     parser.add_argument("--wrapper-out", type=Path, required=True)
     parser.add_argument("--evidence-out", type=Path, required=True)
     parser.add_argument("--report-out", type=Path, required=True)
+    parser.add_argument("--rewritten-choices-out", type=Path, required=True)
     args = parser.parse_args()
 
     queue = json.loads(args.queue_manifest.read_text(encoding="utf-8"))
@@ -473,7 +486,10 @@ def main() -> int:
     ):
         if hashlib.sha256(content).hexdigest() != source.get(field):
             raise ValueError(f"{label} hash matcher ikke queue manifest")
-    for out_path in (args.wrapper_out, args.evidence_out, args.report_out):
+    for out_path in (
+        args.wrapper_out, args.evidence_out, args.report_out,
+        args.rewritten_choices_out,
+    ):
         if out_path.exists():
             raise FileExistsError(out_path)
 
@@ -488,11 +504,8 @@ def main() -> int:
         if key in baseline_records:
             raise ValueError("dublet record_key")
         baseline_records[key] = record
-    choices = validate_choice_export(
-        json.loads(args.choices.read_text(encoding="utf-8")),
-        source,
-        set(baseline_records),
-    )
+    export_root = json.loads(args.choices.read_text(encoding="utf-8"))
+    choices = validate_choice_export(export_root, source, set(baseline_records))
     audit_keys = set(sample_auto_resolved(queue))
     classifications = {
         entry["baseline_record_key"]: entry for entry in queue["entries"]
@@ -522,10 +535,26 @@ def main() -> int:
         "parked_count": len(result["parked"]),
         "parked": result["parked"],
     }
+    rewritten_entries = [
+        copy.deepcopy(
+            result["rewritten_choices"][entry["baseline_record_key"]]
+            if "outcome" in entry else entry
+        )
+        for entry in export_root["entries"]
+    ]
+    rewritten_export = {
+        "schema_version": 1,
+        "source": copy.deepcopy(source),
+        "baseline_sha256": source["baseline_sha256"],
+        "exported_at": export_root["exported_at"],
+        "entries": rewritten_entries,
+    }
+    validate_choice_export(rewritten_export, source, set(baseline_records))
     for out_path, payload in (
         (args.wrapper_out, result["anchored"]),
         (args.evidence_out, result["evidence_entries"]),
         (args.report_out, report),
+        (args.rewritten_choices_out, rewritten_export),
     ):
         with out_path.open("x", encoding="utf-8") as handle:
             json.dump(payload, handle, ensure_ascii=False, indent=2)
