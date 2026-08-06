@@ -7,7 +7,11 @@ import hashlib
 
 import pytest
 
-from review_choices_1939 import convert_review_choices, validate_choice_export
+from review_choices_1939 import (
+    _claims_conflict,
+    convert_review_choices,
+    validate_choice_export,
+)
 
 
 def choice(key, outcome, **fields):
@@ -918,3 +922,11 @@ def test_validation_and_conversion_do_not_mutate_inputs():
     convert_review_choices(choices, candidates, classifications, set())
 
     assert (exported, candidates, classifications) == snapshot
+
+
+def test_claims_conflict_haandterer_manglende_raa_bro():
+    left = {"candidate_id": "a", "calamari_span": {"char_from": 0, "char_to": 10}}
+    right = {"candidate_id": "b", "calamari_span": {"char_from": 20, "char_to": 30}}
+    assert _claims_conflict(left, right) is False
+    overlapping = {"candidate_id": "c", "calamari_span": {"char_from": 5, "char_to": 25}}
+    assert _claims_conflict(left, overlapping) is True

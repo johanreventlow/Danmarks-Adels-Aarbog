@@ -143,6 +143,58 @@ def test_accepts_multiple_duplicates_with_one_accepted_target():
     assert result["rk-3"]["duplicate_of_baseline_record_key"] == "rk-1"
 
 
+def _approval_candidate():
+    return {
+        "candidate_id": "human:1939-v2:span:" + "d" * 64,
+        "postklasse": "nummereret",
+        "calamari_span": {"char_from": 10, "char_to": 90},
+        "pdf_pages": [500],
+        "approval": {
+            "kind": "human_approved_span_v1",
+            "calamari_excerpt_sha256": "e" * 64,
+        },
+    }
+
+
+def test_accepteret_kandidat_med_approval_uden_bro_accepteres():
+    bundle_value = bundle(
+        accepted("rk-1", candidate=_approval_candidate()),
+    )
+    validate_coverage(bundle_value, expected_baseline_keys={"rk-1"})
+
+
+def test_accepteret_kandidat_uden_bro_og_uden_approval_afvises():
+    candidate = _approval_candidate()
+    del candidate["approval"]
+    bundle_value = bundle(accepted("rk-1", candidate=candidate))
+    with pytest.raises(ValueError, match="raw_structure_bridge eller approval"):
+        validate_coverage(bundle_value, expected_baseline_keys={"rk-1"})
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        {"kind": "noget_andet", "calamari_excerpt_sha256": "e" * 64},
+        {"kind": "human_approved_span_v1"},
+        {
+            "kind": "human_approved_span_v1",
+            "calamari_excerpt_sha256": "E" * 64,
+        },
+        {
+            "kind": "human_approved_span_v1",
+            "calamari_excerpt_sha256": "e" * 64,
+            "ekstra": 1,
+        },
+    ],
+)
+def test_approval_med_ukendt_kind_eller_ekstra_felter_afvises(corruption):
+    candidate = _approval_candidate()
+    candidate["approval"] = corruption
+    bundle_value = bundle(accepted("rk-1", candidate=candidate))
+    with pytest.raises(ValueError):
+        validate_coverage(bundle_value, expected_baseline_keys={"rk-1"})
+
+
 @pytest.mark.parametrize(
     ("value", "expected_keys", "message"),
     [

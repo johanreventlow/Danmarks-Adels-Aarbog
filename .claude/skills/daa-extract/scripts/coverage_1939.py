@@ -11,6 +11,7 @@ from collections.abc import Mapping
 ALLOWED_STATUSES = {"accepteret", "eksplicit_dublet", "menneskeark"}
 POSTKLASSER = {"nummereret", "stamfader", "oversigtspost"}
 PRESENTATION_CANDIDATE_PREFIX = "presentation:"
+APPROVAL_KINDS = {"human_approved_span_v1"}
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 LEGACY_REVIEW_ACCEPTED_FIELDS = {
     "candidate_id",
@@ -114,15 +115,29 @@ def _validate_candidate(value: object, seen_ids: set[str], seen_spans: set[tuple
     if any(not isinstance(page, int) or isinstance(page, bool) or page <= 0 for page in pages):
         raise ValueError("PDF-side skal være et positivt heltal")
 
-    bridge = _mapping(candidate.get("raw_structure_bridge"), "rå-bro")
-    _nonempty_string(bridge.get("kind"), "rå-bro kind")
-    raw_from = _nonnegative_int(bridge.get("raw_char_from"), "rå-bro raw_char_from")
-    raw_to = _nonnegative_int(bridge.get("raw_char_to"), "rå-bro raw_char_to")
-    if raw_from >= raw_to:
-        raise ValueError("rå-bro skal have raw_char_from < raw_char_to")
-    raw_digest = bridge.get("raw_excerpt_sha256")
-    if not isinstance(raw_digest, str) or not _SHA256_RE.fullmatch(raw_digest):
-        raise ValueError("raw_excerpt_sha256 skal være SHA-256 med små bogstaver")
+    bridge_value = candidate.get("raw_structure_bridge")
+    approval_value = candidate.get("approval")
+    if bridge_value is None and approval_value is None:
+        raise ValueError("accepteret candidate kræver raw_structure_bridge eller approval")
+    if bridge_value is not None:
+        bridge = _mapping(bridge_value, "rå-bro")
+        _nonempty_string(bridge.get("kind"), "rå-bro kind")
+        raw_from = _nonnegative_int(bridge.get("raw_char_from"), "rå-bro raw_char_from")
+        raw_to = _nonnegative_int(bridge.get("raw_char_to"), "rå-bro raw_char_to")
+        if raw_from >= raw_to:
+            raise ValueError("rå-bro skal have raw_char_from < raw_char_to")
+        raw_digest = bridge.get("raw_excerpt_sha256")
+        if not isinstance(raw_digest, str) or not _SHA256_RE.fullmatch(raw_digest):
+            raise ValueError("raw_excerpt_sha256 skal være SHA-256 med små bogstaver")
+    if approval_value is not None:
+        approval = _mapping(approval_value, "approval")
+        if set(approval) != {"kind", "calamari_excerpt_sha256"}:
+            raise ValueError("approval har uautoriserede eller manglende felter")
+        if approval.get("kind") not in APPROVAL_KINDS:
+            raise ValueError("approval kind er ukendt")
+        digest = approval.get("calamari_excerpt_sha256")
+        if not isinstance(digest, str) or not _SHA256_RE.fullmatch(digest):
+            raise ValueError("calamari_excerpt_sha256 skal være SHA-256 med små bogstaver")
 
 
 def duplicate_target_errors(

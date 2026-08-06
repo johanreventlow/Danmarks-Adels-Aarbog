@@ -18,6 +18,7 @@ from dual_rendition_evidence_1939 import (
 import prepare_coverage_1939 as task5_subject
 import prepare_review_queue_1939 as subject
 from prepare_review_queue_1939 import (
+    _claims_overlap,
     _review_state,
     _validate_effective_state,
     build_queue_report,
@@ -2205,3 +2206,11 @@ def test_aggregate_rollback_cleans_both_outputs_and_reraises_baseexception(
     assert json.loads(queue_path.read_text(encoding="utf-8"))["schema_version"] == 1
     assert json.loads(report_path.read_text(encoding="utf-8"))["publication_gate"] == "NO-GO"
     assert preexisting.read_text(encoding="utf-8") == "bevar"
+
+
+def test_claims_overlap_haandterer_manglende_raa_bro():
+    left = {"candidate_id": "a", "calamari_span": {"char_from": 0, "char_to": 10}}
+    right = {"candidate_id": "b", "calamari_span": {"char_from": 20, "char_to": 30}}
+    assert _claims_overlap(left, right) is False
+    overlapping = {"candidate_id": "c", "calamari_span": {"char_from": 5, "char_to": 25}}
+    assert _claims_overlap(left, overlapping) is True

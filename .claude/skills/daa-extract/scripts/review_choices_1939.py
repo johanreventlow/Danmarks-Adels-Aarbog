@@ -305,21 +305,18 @@ def _selected_candidate(
     return copy.deepcopy(dict(candidate))
 
 
-def _span(candidate: Mapping, container: str, start: str, end: str) -> tuple[int, int]:
-    value = candidate[container]
-    return value[start], value[end]
-
-
 def _claims_conflict(left: Mapping, right: Mapping) -> bool:
     if left["candidate_id"] == right["candidate_id"]:
         return True
-    for container, start, end in (
-        ("calamari_span", "char_from", "char_to"),
-        ("raw_structure_bridge", "raw_char_from", "raw_char_to"),
-    ):
-        left_from, left_to = _span(left, container, start, end)
-        right_from, right_to = _span(right, container, start, end)
-        if left_from < right_to and right_from < left_to:
+    left_span, right_span = left["calamari_span"], right["calamari_span"]
+    if (left_span["char_from"] < right_span["char_to"]
+            and right_span["char_from"] < left_span["char_to"]):
+        return True
+    left_bridge = left.get("raw_structure_bridge")
+    right_bridge = right.get("raw_structure_bridge")
+    if left_bridge is not None and right_bridge is not None:
+        if (left_bridge["raw_char_from"] < right_bridge["raw_char_to"]
+                and right_bridge["raw_char_from"] < left_bridge["raw_char_to"]):
             return True
     return False
 
