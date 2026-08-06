@@ -7,10 +7,10 @@ import type { MobileFeedMediaItem } from '../../lib/feedMedia';
 
 export function FeedMediaStrip({ media }: { media: MobileFeedMediaItem[] }) {
   const [width, setWidth] = useState(0);
+  const [ratios, setRatios] = useState<Record<string, number>>({});
   const [openIndex, setOpenIndex] = useState<number | null>(null);
   if (media.length === 0) return null;
 
-  const itemWidth = width > 0 ? (media.length === 1 ? width : Math.round(width * 0.78)) : undefined;
   const onLayout = (event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width);
 
   return (
@@ -20,13 +20,14 @@ export function FeedMediaStrip({ media }: { media: MobileFeedMediaItem[] }) {
           horizontal
           showsHorizontalScrollIndicator={false}
           decelerationRate="fast"
-          snapToAlignment="start"
-          snapToInterval={media.length > 1 && itemWidth ? itemWidth + 8 : undefined}
           contentContainerStyle={{ gap: 8 }}
           accessibilityLabel="Billeder tilknyttet personen"
         >
           {media.map((item, index) => {
             const label = item.titel || item.slags || 'medie';
+            const ratio = ratios[item.id];
+            const natural = ratio ? Math.round(220 * ratio) : 160;
+            const itemWidth = width > 0 ? Math.min(natural, width) : natural;
             return (
               <Pressable
                 key={item.id}
@@ -35,7 +36,15 @@ export function FeedMediaStrip({ media }: { media: MobileFeedMediaItem[] }) {
                 onPress={() => setOpenIndex(index)}
                 style={{ width: itemWidth, height: 220, backgroundColor: Colors.beige, borderWidth: 1, borderColor: Border.light, borderRadius: Radius.card, overflow: 'hidden' }}
               >
-                <Image source={{ uri: item.mediumUri }} style={{ width: '100%', height: '100%' }} contentFit="contain" />
+                <Image
+                  source={{ uri: item.mediumUri }}
+                  style={{ width: '100%', height: '100%' }}
+                  contentFit="contain"
+                  onLoad={(event) => {
+                    const { width: w, height: h } = event.source;
+                    if (w > 0 && h > 0) setRatios((prev) => (prev[item.id] ? prev : { ...prev, [item.id]: w / h }));
+                  }}
+                />
               </Pressable>
             );
           })}
