@@ -153,7 +153,12 @@ def _map_pdf_page(page: int, rendition: str,
 
 def _pages_in_slice(source_text: str, start: int, end: int, rendition: str,
                     page_mapping: tuple[tuple[int, int], ...] | None) -> list[int]:
-    pages = []
+    preceding_page = None
+    for raw_line in source_text[:start].splitlines():
+        match = _PAGE_RE.match(raw_line)
+        if match:
+            preceding_page = _map_pdf_page(int(match.group(1)), rendition, page_mapping)
+    pages = [preceding_page] if preceding_page is not None else []
     for raw_line in source_text[start:end].splitlines():
         match = _PAGE_RE.match(raw_line)
         if match:

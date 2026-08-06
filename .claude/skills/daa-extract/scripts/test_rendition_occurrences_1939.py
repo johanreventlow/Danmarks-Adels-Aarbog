@@ -122,6 +122,22 @@ def test_layout_page_marker_inside_occurrence_is_exact_and_reports_both_pages():
     assert occurrence["pdf_pages"] == [496, 497]
 
 
+def test_occurrence_inherits_preceding_calamari_page_marker():
+    result = extract_rendition_occurrences(
+        "### PAGE 1 ###\n1. Alfa\n2. Beta\n",
+        rendition="calamari", page_map=CALAMARI_R6_TO_PDF_V1,
+    )
+    assert [occurrence["pdf_pages"] for occurrence in result["occurrences"]] == [[496], [496]]
+
+
+def test_occurrence_inherits_only_nearest_preceding_calamari_page_marker():
+    result = extract_rendition_occurrences(
+        "### PAGE 1 ###\n1. Alfa\n### PAGE 2 ###\n2. Beta\n3. Gamma\n",
+        rendition="calamari", page_map=CALAMARI_R6_TO_PDF_V1,
+    )
+    assert result["occurrences"][2]["pdf_pages"] == [497]
+
+
 def test_leading_unclassified_prose_remains_an_unmarked_occurrence():
     result = extract_rendition_occurrences(
         "Indledende prosa uden trykt post.\n1. Alfa\n",
