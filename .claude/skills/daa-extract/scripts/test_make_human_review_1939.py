@@ -75,12 +75,12 @@ def test_presentation_candidate_rejects_invalid_post_index():
         )
 
 
-def _source(baseline_bytes, calamari_bytes):
+def _source(baseline_bytes, calamari_bytes, raw_bytes=b"Raa OCR Volrad"):
     return {
         "edition": "1939",
         "baseline_sha256": hashlib.sha256(baseline_bytes).hexdigest(),
         "calamari_sha256": hashlib.sha256(calamari_bytes).hexdigest(),
-        "raw_ocr_sha256": "c" * 64,
+        "raw_ocr_sha256": hashlib.sha256(raw_bytes).hexdigest(),
         "pdf_sha256": "d" * 64,
         "profile_version": "1939-v2",
     }
@@ -92,11 +92,13 @@ def _write_inputs(tmp_path):
     queue = tmp_path / "queue.json"
     source = tmp_path / "source.json"
     calamari = tmp_path / "calamari.txt"
+    raw = tmp_path / "raw.txt"
     baseline.write_text(json.dumps([{
         "record_key": "record-1", "navn": "Volrad", "sider": "498",
     }]), encoding="utf-8")
     calamari.write_text("### PAGE 0003 ###\nVolrad", encoding="utf-8")
-    source_value = _source(baseline.read_bytes(), calamari.read_bytes())
+    raw.write_text("Raa OCR Volrad", encoding="utf-8")
+    source_value = _source(baseline.read_bytes(), calamari.read_bytes(), raw.read_bytes())
     source.write_text(json.dumps({"schema_version": 1, "source": source_value}), encoding="utf-8")
     queue.write_text(json.dumps({"schema_version": 1, "source": source_value, "entries": [{
         "baseline_record_key": "record-1", "queue_class": "human_required",
@@ -113,7 +115,104 @@ def _argv(baseline, review, queue, source, calamari, out):
     return ["make_human_review_1939.py", "--baseline", str(baseline),
             "--queue-manifest", str(queue), "--source-manifest", str(source),
             "--review", str(review), "--calamari", str(calamari),
+            "--raw", str(calamari.with_name("raw.txt")),
             "--calamari-first-pdf-page", "496", "--out", str(out)]
+
+
+def test_hydrates_exact_dual_rendition_text_for_source_bound_candidate():
+    calamari = "forord\n3. Greve Otto Carl Ferdinand Christian Gottlieb\nslut"
+    raw = "forord\n3. Greve O t t o Carl Ferdinand Christian Gottlieb\nslut"
+    calamari_text = "3. Greve Otto Carl Ferdinand Christian Gottlieb"
+    raw_text = "3. Greve O t t o Carl Ferdinand Christian Gottlieb"
+    calamari_from = calamari.index(calamari_text)
+    raw_from = raw.index(raw_text)
+    evidence = {
+        "candidate_id": "candidate-otto",
+        "postklasse": "nummereret",
+        "calamari_span": {
+            "char_from": calamari_from,
+            "char_to": calamari_from + len(calamari_text),
+        },
+        "pdf_pages": [578],
+        "raw_structure_bridge": {
+            "kind": "dual_rendition_consensus_v1",
+            "raw_char_from": raw_from,
+            "raw_char_to": raw_from + len(raw_text),
+            "raw_excerpt_sha256": hashlib.sha256(raw_text.encode("utf-8")).hexdigest(),
+        },
+    }
+    model = {"records": [{
+        "queue_class": "auto_resolved",
+        "classification": {"candidate": evidence},
+        "candidates": [{
+        "candidate_id": "candidate-otto",
+        "details": evidence,
+    }]}]}
+
+    subject._hydrate_source_bound_candidates(model, calamari, raw)
+
+    candidate = model["records"][0]["candidates"][0]
+    assert candidate["calamari_verbatim_text"] == calamari_text
+    assert candidate["raw_verbatim_text"] == raw_text
+
+
+def test_source_hydration_rejects_wrong_raw_excerpt_hash():
+    evidence = {
+        "candidate_id": "candidate-1",
+        "postklasse": "nummereret",
+        "calamari_span": {"char_from": 0, "char_to": 1},
+        "pdf_pages": [498],
+        "raw_structure_bridge": {
+            "kind": "dual_rendition_consensus_v1",
+            "raw_char_from": 0,
+            "raw_char_to": 1,
+            "raw_excerpt_sha256": "0" * 64,
+        },
+    }
+    model = {"records": [{
+        "queue_class": "auto_resolved",
+        "classification": {"candidate": evidence},
+        "candidates": [{"candidate_id": "candidate-1", "details": evidence}],
+    }]}
+
+    with pytest.raises(ValueError, match="raw_excerpt_sha256"):
+        subject._hydrate_source_bound_candidates(model, "A", "A")
+
+
+def test_source_hydration_does_not_upgrade_a_human_page_candidate():
+    details = {
+        "candidate_id": "page-candidate",
+        "postklasse": "nummereret",
+        "calamari_span": {"char_from": 0, "char_to": 1},
+        "pdf_pages": [498],
+        "raw_structure_bridge": {
+            "kind": "dual_rendition_consensus_v1",
+            "raw_char_from": 0,
+            "raw_char_to": 1,
+            "raw_excerpt_sha256": hashlib.sha256(b"A").hexdigest(),
+        },
+    }
+    candidate = {"candidate_id": "page-candidate", "details": details}
+    model = {"records": [{
+        "queue_class": "human_required",
+        "classification": {"candidate": None},
+        "candidates": [candidate],
+    }]}
+
+    subject._hydrate_source_bound_candidates(model, "A", "A")
+
+    assert "calamari_verbatim_text" not in candidate
+    assert "raw_verbatim_text" not in candidate
+
+
+def test_main_rejects_changed_complete_raw_source(tmp_path, monkeypatch):
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    calamari.with_name("raw.txt").write_text("aendret raw OCR", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
+
+    with pytest.raises(ValueError, match="raw OCR hash"):
+        subject.main()
 
 
 def test_main_shows_candidates_on_translated_pdf_pages(tmp_path, monkeypatch):

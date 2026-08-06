@@ -257,6 +257,7 @@
       decisions: Object.create(null),
       selectedKey: records[0] && records[0].record_key,
       activeView: data.default_view || 'required',
+      recordSearch: '',
       expandedCandidates: Object.create(null),
       duplicateSearch: '',
       undoStack: [],
@@ -339,7 +340,11 @@
   }
 
   function visibleKeys(state) {
-    return keysForView(state, state.activeView);
+    const query = state.recordSearch.trim().toLowerCase();
+    return keysForView(state, state.activeView).filter(key => {
+      const record = state.recordByKey.get(key);
+      return !query || `${record && record.navn || ''} ${key}`.toLowerCase().includes(query);
+    });
   }
 
   function normalizeSelection(state) {
@@ -500,14 +505,19 @@
     if (!state.recordByKey.has(recordKey)) return false;
     state.selectedKey = recordKey;
     render(state);
+    const picker = document.querySelector('[data-role="sidebar-picker"]');
+    if (picker) picker.removeAttribute('open');
     return true;
   }
 
   function setView(state, view) {
     if (!['required', 'audit', 'completed'].includes(view)) return false;
     state.activeView = view;
+    state.recordSearch = '';
     normalizeSelection(state);
     render(state);
+    const picker = document.querySelector('[data-role="sidebar-picker"]');
+    if (picker) picker.removeAttribute('open');
     return true;
   }
 
@@ -565,11 +575,43 @@
     const list = element('nav', undefined, { 'data-role': 'record-list', 'aria-label': 'Poster' });
     visibleKeys(state).forEach(recordKey => {
       const record = state.recordByKey.get(recordKey);
-      const button = actionButton(record.navn || '(uden navn)', 'select-record', { recordKey });
+      const button = actionButton(undefined, 'select-record', { recordKey });
+      button.append(element('span', record.navn || '(uden navn)'));
+      const decision = state.decisions[recordKey];
+      let status = 'Mangler';
+      let statusKind = 'missing';
+      if (decision && FINAL_LEGACY_STATUSES.has(decision.review_status)) {
+        status = 'Afsluttet';
+        statusKind = 'final';
+      } else if (completed(state, recordKey)) {
+        status = 'Kladde gemt';
+        statusKind = 'draft';
+      }
+      button.append(element('span', status, {
+        'data-role': 'record-status', 'data-status': statusKind,
+      }));
       if (recordKey === state.selectedKey) button.setAttribute('aria-current', 'true');
       list.append(button);
     });
     root.append(list);
+  }
+
+  function renderSidebar(state, root) {
+    root.replaceChildren();
+    renderDashboard(state, root);
+    const allKeys = keysForView(state, state.activeView);
+    const missing = allKeys.filter(key => !completed(state, key)).length;
+    root.append(element('p', `${missing} mangler af ${allKeys.length}`, {
+      'data-role': 'missing-count',
+    }));
+    const search = document.createElement('input');
+    search.type = 'search';
+    search.value = state.recordSearch;
+    search.placeholder = 'Søg efter navn';
+    search.setAttribute('aria-label', 'Søg efter navn');
+    search.setAttribute('data-role', 'record-search');
+    root.append(search);
+    renderList(state, root);
   }
 
   function renderCandidate(state, record, candidate) {
@@ -579,14 +621,41 @@
     if (!allVisible && !initiallyVisible) return null;
     const details = element('details', undefined, { class: 'candidate' });
     if (initiallyVisible) details.open = true;
-    details.append(element('summary', `Parserpost ${candidate.lokal_id || '(uden lokalt id)'}`));
+    const pdfLabel = (candidate.pdf_pages || []).join('-') || 'ukendt';
+    details.append(element('summary', `Mulig kildepost · PDF s. ${pdfLabel}`));
     details.append(element('p', `PDF s. ${(candidate.pdf_pages || []).join('-')} · Calamari-scan ${(candidate.calamari_pages || []).join('-')}`));
     details.append(element('p', 'Boksens start og slut er parserens foreslåede postgrænse.'));
-    details.append(element('pre', candidate.raw_text || ''));
-    [
-      [candidate.details, 'Klassifikatorens evidens', 'classifier'],
-      [candidate.accepted_review_details, 'Accepteret review-evidens', 'accepted-review'],
-    ].forEach(([evidence, label, kind]) => {
+    if (typeof candidate.calamari_verbatim_text === 'string'
+      && typeof candidate.raw_verbatim_text === 'string') {
+      details.append(element('h3', 'Calamari-OCR – eksakt kildeudsnit', { class: 'source-label' }));
+      details.append(element('pre', candidate.calamari_verbatim_text, {
+        'data-role': 'calamari-source', class: 'source-text',
+      }));
+      details.append(element('h3', 'Rå OCR – samme kildepost', { class: 'source-label' }));
+      details.append(element('pre', candidate.raw_verbatim_text, {
+        'data-role': 'raw-source', class: 'source-text',
+      }));
+    } else {
+      details.append(element('h3', 'Parserens Calamari-OCR-udsnit', { class: 'source-label' }));
+      details.append(element('pre', candidate.raw_text || '', {
+        'data-role': 'parser-source', class: 'source-text',
+      }));
+    }
+    const technicalEvidence = [];
+    if (candidate.details) {
+      technicalEvidence.push([candidate.details, 'Klassifikatorens evidens', 'classifier']);
+    }
+    if (candidate.accepted_review_details) {
+      technicalEvidence.push([
+        candidate.accepted_review_details, 'Accepteret review-evidens', 'accepted-review',
+      ]);
+    }
+    if (!candidate.details) {
+      technicalEvidence.push([
+        { candidate_id: candidate.candidate_id }, 'Tekniske detaljer', 'candidate-identity',
+      ]);
+    }
+    technicalEvidence.forEach(([evidence, label, kind]) => {
       if (!evidence || typeof evidence !== 'object') return;
       const technical = element('details', undefined, {
         'data-role': 'candidate-details', 'data-evidence-kind': kind,
@@ -616,6 +685,24 @@
       });
   }
 
+  function decisionStatusText(state, current) {
+    if (current.candidate_id) {
+      return current.review_status === 'accepteret'
+        ? 'Kildeposten er accepteret.' : 'Kildepost valgt.';
+    }
+    if (current.duplicate_of_baseline_record_key) {
+      const duplicate = state.recordByKey.get(current.duplicate_of_baseline_record_key);
+      return `Mulig dublet: ${duplicate && duplicate.navn || 'anden historisk post'}.`;
+    }
+    const labels = {
+      no_candidate_fits: 'Ingen kandidat passer.',
+      undecidable: 'Kan ikke afgøres.',
+      menneskeark: 'Afsluttet som menneskeark.',
+    };
+    return labels[current.outcome] || labels[current.review_status]
+      || 'Afgørelse gemt.';
+  }
+
   function renderRecord(state, root) {
     const record = state.recordByKey.get(state.selectedKey);
     if (!record) {
@@ -623,6 +710,12 @@
       return;
     }
     root.append(element('h1', record.navn || '(uden navn)'));
+    const candidateCount = Array.isArray(record.candidates) ? record.candidates.length : 0;
+    root.append(element('p', candidateCount === 1
+      ? `Er denne kildepost den nævnte person: ${record.navn || '(uden navn)'}?`
+      : `Passer en af kildeposterne nedenfor til den nævnte person: ${record.navn || '(uden navn)'}?`, {
+      'data-role': 'review-question',
+    }));
     root.append(element('p', `PDF-sider: ${record.sider || 'ukendt'} · Klasse: ${record.queue_class} · Årsag: ${record.reason_da || record.reason_code || 'ukendt'}`));
     root.append(element('p', record.boundary_context
       || 'Calamari: ukendt · rå OCR: ukendt. Kræver menneskelig vurdering.', {
@@ -649,8 +742,7 @@
     root.append(element('h2', 'Din afgørelse'));
     const current = state.decisions[record.record_key];
     if (current && (current.outcome || current.review_status)) {
-      const selection = current.candidate_id || current.duplicate_of_baseline_record_key || '';
-      root.append(element('p', `Nuværende valg: ${current.outcome || current.review_status}${selection ? ` (${selection})` : ''}`, {
+      root.append(element('p', `Nuværende valg: ${decisionStatusText(state, current)}`, {
         'data-role': 'decision-state',
       }));
     }
@@ -694,10 +786,10 @@
     const saveState = document.querySelector('[data-role="save-state"]');
     if (saveState) saveState.textContent = state.storageError || state.error || state.message;
     const app = document.querySelector('[data-role="app"]');
-    if (!app) return;
+    const sidebar = document.querySelector('[data-role="sidebar-navigation"]');
+    if (!app || !sidebar) return;
     app.replaceChildren();
-    renderDashboard(state, app);
-    renderList(state, app);
+    renderSidebar(state, sidebar);
     renderRecord(state, app);
   }
 
@@ -774,6 +866,25 @@
         const record = state.recordByKey.get(state.selectedKey);
         const duplicate = document.querySelector('[data-role="duplicate-target"]');
         if (record && duplicate) renderDuplicateOptions(state, record, duplicate);
+      } else if (input && input.matches && input.matches('[data-role="record-search"]')) {
+        state.recordSearch = input.value;
+        normalizeSelection(state);
+        const sidebar = document.querySelector('[data-role="sidebar-navigation"]');
+        const app = document.querySelector('[data-role="app"]');
+        const missingCount = sidebar && sidebar.querySelector('[data-role="missing-count"]');
+        const oldList = sidebar && sidebar.querySelector('[data-role="record-list"]');
+        if (missingCount) {
+          const allKeys = keysForView(state, state.activeView);
+          missingCount.textContent = `${allKeys.filter(key => !completed(state, key)).length} mangler af ${allKeys.length}`;
+        }
+        if (sidebar && oldList) {
+          oldList.remove();
+          renderList(state, sidebar);
+        }
+        if (app) {
+          app.replaceChildren();
+          renderRecord(state, app);
+        }
       }
     };
     document.addEventListener('click', clickListener);

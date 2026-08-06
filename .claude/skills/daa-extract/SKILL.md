@@ -250,6 +250,7 @@ Generér derefter V2-menneskearket fra den deterministiske kø:
   --source-manifest work/task19-1939-pilot/review-queue-manifest-v2.json \
   --review work/task19-1939-pilot/coverage-review-v2.json \
   --calamari ../../../work_1939_stamtavle/full_ocr_calamari_r6_clean.txt \
+  --raw ../../../work_1939_stamtavle/raw.txt \
   --calamari-first-pdf-page 496 \
   --out work/task19-1939-pilot/menneskeark-undtagelsesko-v2.html
 

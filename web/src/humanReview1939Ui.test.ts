@@ -97,7 +97,7 @@ function startReview({ storage, records, source, sourceBlocked, download = vi.fn
   sourceBlocked?: any;
   download?: ReturnType<typeof vi.fn>;
 }) {
-  document.body.innerHTML = '<aside data-role="save-state"></aside><main data-role="app"></main>';
+  document.body.innerHTML = '<aside><p data-role="save-state"></p><details data-role="sidebar-picker"><summary>Vælg person</summary><div data-role="sidebar-navigation"></div></details></aside><main data-role="app"></main>';
   window.eval(uiSource);
   return {
     controller: (window as any).DAA1939Review.init({
@@ -134,7 +134,7 @@ function sourceBoundSuccessorModel({
 }
 
 function startModel(data: any, storage = memoryStorage()) {
-  document.body.innerHTML = '<aside data-role="save-state"></aside><main data-role="app"></main>';
+  document.body.innerHTML = '<aside><p data-role="save-state"></p><details data-role="sidebar-picker"><summary>Vælg person</summary><div data-role="sidebar-navigation"></div></details></aside><main data-role="app"></main>';
   window.eval(uiSource);
   return (window as any).DAA1939Review.init({
     data, storage, now: () => '2026-08-05T12:00:00+02:00', download: vi.fn(),
@@ -146,6 +146,107 @@ afterEach(() => {
 });
 
 describe('human 1939 review controller', () => {
+  it('renders navigation in the sidebar and starts main with the selected person', () => {
+    startReview({ storage: memoryStorage(), records: [
+      humanRecord('rk-1', 'c-1'), humanRecord('rk-2', 'c-2'),
+    ] });
+
+    const sidebar = document.querySelector('[data-role="sidebar-navigation"]')!;
+    expect(sidebar.querySelector('[data-role="dashboard"]')).not.toBeNull();
+    expect(sidebar.querySelector('[data-role="record-list"]')).not.toBeNull();
+    expect(document.querySelector('main > h1')!.textContent).toBe('Navn rk-1');
+    expect(document.querySelector('main [data-role="record-list"]')).toBeNull();
+  });
+
+  it('shows which names still need processing and updates the missing count', () => {
+    const { controller } = startReview({ storage: memoryStorage(), records: [
+      humanRecord('rk-1', 'c-1'), humanRecord('rk-2', 'c-2'),
+    ] });
+
+    const statusFor = (key: string) => document.querySelector(
+      `[data-action="select-record"][data-record-key="${key}"] [data-role="record-status"]`,
+    )!.textContent;
+    expect(document.querySelector('[data-role="missing-count"]')!.textContent)
+      .toBe('2 mangler af 2');
+    expect(statusFor('rk-1')).toBe('Mangler');
+    expect(statusFor('rk-2')).toBe('Mangler');
+
+    expect(controller.choose('human_selected_candidate', { candidate_id: 'c-1' })).toBe(true);
+
+    expect(document.querySelector('[data-role="missing-count"]')!.textContent)
+      .toBe('1 mangler af 2');
+    expect(statusFor('rk-1')).toBe('Kladde gemt');
+    expect(statusFor('rk-2')).toBe('Mangler');
+  });
+
+  it('searches names only within the active view and navigation follows the result', () => {
+    const { controller } = startReview({ storage: memoryStorage(), records: [
+      humanRecord('rk-1', 'c-1'), humanRecord('rk-2', 'c-2'),
+      automaticRecord('rk-audit', 'c-audit', true),
+    ] });
+    const search = document.querySelector<HTMLInputElement>('[data-role="record-search"]')!;
+    search.value = 'rk-2';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+
+    const list = document.querySelector('[data-role="record-list"]')!;
+    expect(list.textContent).toContain('Navn rk-2');
+    expect(list.textContent).not.toContain('Navn rk-1');
+    expect(list.textContent).not.toContain('Navn rk-audit');
+    expect(controller.selectedKey).toBe('rk-2');
+    expect(controller.previous()).toBe(false);
+    expect(controller.next()).toBe(false);
+  });
+
+  it('closes the compact person picker after selecting a name', () => {
+    startReview({ storage: memoryStorage(), records: [
+      humanRecord('rk-1', 'c-1'), humanRecord('rk-2', 'c-2'),
+    ] });
+    const picker = document.querySelector<HTMLDetailsElement>('[data-role="sidebar-picker"]')!;
+    picker.open = true;
+
+    document.querySelector<HTMLButtonElement>(
+      '[data-action="select-record"][data-record-key="rk-2"]',
+    )!.click();
+
+    expect(picker.open).toBe(false);
+  });
+
+  it('asks a readable question and shows both OCR renditions before technical ids', () => {
+    const record = automaticRecord('rk-otto', 'opaque-candidate-id', true);
+    Object.assign(record.candidates[0], {
+      calamari_verbatim_text: '3. Greve Otto Carl Ferdinand Christian Gottlieb',
+      raw_verbatim_text: '3. Greve O t t o Carl Ferdinand Christian Gottlieb',
+      details: { candidate_id: 'opaque-candidate-id', raw_excerpt_sha256: 'a'.repeat(64) },
+    });
+    startReview({ storage: memoryStorage(), records: [record] }).controller.setView('audit');
+
+    expect(document.querySelector('[data-role="review-question"]')!.textContent)
+      .toContain('Er denne kildepost den nævnte person: Navn rk-otto?');
+    expect(document.querySelector('[data-role="calamari-source"]')!.textContent)
+      .toContain('Otto Carl Ferdinand Christian Gottlieb');
+    expect(document.querySelector('[data-role="raw-source"]')!.textContent)
+      .toContain('O t t o Carl Ferdinand Christian Gottlieb');
+    const summary = document.querySelector('.candidate > summary')!;
+    expect(summary.textContent).toBe('Mulig kildepost · PDF s. 498');
+    expect(summary.textContent).not.toContain('opaque-candidate-id');
+    expect(document.querySelector('[data-role="candidate-details"]')!.textContent)
+      .toContain('opaque-candidate-id');
+  });
+
+  it('keeps the selected opaque candidate id out of the ordinary decision status', () => {
+    const record = automaticRecord('rk-audit', '1939:dual-v1:opaque', true);
+    const { controller } = startReview({ storage: memoryStorage(), records: [record] });
+    controller.setView('audit');
+
+    expect(controller.choose('human_selected_candidate', {
+      candidate_id: '1939:dual-v1:opaque',
+    })).toBe(true);
+
+    const status = document.querySelector('[data-role="decision-state"]')!.textContent!;
+    expect(status).toContain('Kildepost valgt');
+    expect(status).not.toContain('1939:dual-v1:opaque');
+  });
+
   it('renders the actual source-bound Volrad successor mismatch with Emeke once', () => {
     const controller = startModel(sourceBoundSuccessorModel());
 
@@ -213,7 +314,7 @@ describe('human 1939 review controller', () => {
     expect(first.controller.choose('human_selected_candidate', { candidate_id: 'candidate-1' })).toBe(true);
     document.body.innerHTML = '';
     const second = startReview({ storage, records: [humanRecord('rk-1', 'candidate-1')] });
-    expect(document.body.textContent).toContain('Nuværende valg: human_selected_candidate');
+    expect(document.body.textContent).toContain('Nuværende valg: Kildepost valgt.');
     expect(first.controller.exportDraft().schema_version).toBe(1);
     second.controller.exportDraft();
   });
@@ -304,7 +405,7 @@ describe('human 1939 review controller', () => {
       baseline_record_key: 'rk-1', outcome: 'human_selected_candidate', candidate_id: 'candidate-1',
     });
     expect(document.querySelector('[data-role="decision-state"]')!.textContent)
-      .toContain('human_selected_candidate');
+      .toContain('Kildepost valgt');
     expect(document.querySelector('[data-action="select-candidate"]')!.getAttribute('aria-pressed'))
       .toBe('true');
   });
@@ -1128,7 +1229,10 @@ describe('human 1939 review controller', () => {
       baseline_record_key: recordKey, candidate_id: candidateId,
     });
     startReview({ storage, records });
-    expect(document.querySelector('[data-role="decision-state"]')!.textContent).toContain(candidateId);
+    expect(document.querySelector('[data-role="decision-state"]')!.textContent)
+      .toBe('Nuværende valg: Kildepost valgt.');
+    expect(document.querySelector('[data-role="decision-state"]')!.textContent)
+      .not.toContain(candidateId);
     expect(document.querySelector('[data-action="select-candidate"]')!.getAttribute('aria-pressed')).toBe('true');
   });
 });

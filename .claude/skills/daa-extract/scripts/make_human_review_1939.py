@@ -11,7 +11,10 @@ import json
 from pathlib import Path
 
 import segment
-from prepare_review_queue_1939 import build_review_view_model
+from prepare_review_queue_1939 import (
+    _validate_source_bound_candidate,
+    build_review_view_model,
+)
 from prepare_coverage_1939 import validate_review_template
 from review_queue_1939 import sample_auto_resolved
 
@@ -21,15 +24,18 @@ HTML_PREFIX = """<!doctype html>
 <meta charset="utf-8">
 <title>1939 menneskeark</title>
 <style>
-body{font:16px system-ui;margin:0;display:grid;grid-template-columns:360px 1fr;height:100vh;color:#18212a}
-aside{border-right:1px solid #ccd5dd;padding:14px;overflow:auto;background:#fafbfd}main{padding:24px;overflow:auto;max-width:1280px}
-button,select{font:inherit;padding:8px;margin:4px 0;box-sizing:border-box}.candidate{border:1px solid #cad7e2;border-left:5px solid #3977a9;padding:14px;margin:14px 0;border-radius:5px}pre{white-space:pre-wrap;background:#f6f8fa;padding:14px;border-radius:5px}.saved{color:#166534;font-weight:600}
+*{box-sizing:border-box}body{font:16px system-ui;margin:0;display:grid;grid-template-columns:320px minmax(0,1fr);height:100dvh;color:#18212a}
+aside{border-right:1px solid #ccd5dd;padding:14px;background:#fafbfd;display:flex;flex-direction:column;min-height:0}main{padding:24px;overflow:auto;max-width:1280px;min-width:0}
+button,select,input{font:inherit;padding:8px;margin:4px 0}.candidate{border:1px solid #cad7e2;border-left:5px solid #3977a9;padding:14px;margin:14px 0;border-radius:5px}pre{white-space:pre-wrap;background:#f6f8fa;padding:14px;border-radius:5px}.saved{color:#166534;font-weight:600}
+[data-role="sidebar-picker"]{display:flex;flex-direction:column;min-height:0;flex:1}[data-role="sidebar-picker"]>summary{display:none}[data-role="sidebar-navigation"]{display:flex;flex-direction:column;min-height:0;flex:1}[data-role="record-search"]{width:100%}[data-role="record-list"]{display:flex;flex-direction:column;gap:4px;overflow:auto;padding-right:4px}[data-role="record-list"] button{text-align:left;display:flex;justify-content:space-between;gap:8px;align-items:center;border:1px solid #ccd5dd;background:white;border-radius:5px}[data-role="record-list"] button[aria-current="true"]{border-color:#3977a9;background:#eaf4fc}[data-role="record-status"]{font-size:.78rem;font-weight:700;color:#596773}[data-status="missing"]{color:#9a3412}[data-status="draft"]{color:#166534}[data-role="dashboard"] button{width:100%;text-align:left}[data-role="dashboard"] button[aria-current="true"]{font-weight:700;border-color:#3977a9}.source-label{margin-bottom:4px}.source-text{margin-top:0;border-left:4px solid #7496b4}
+@media(max-width:720px){body{display:block;height:auto}aside{position:sticky;top:0;z-index:10;border-right:0;border-bottom:1px solid #ccd5dd;max-height:72dvh}.sidebar-intro{display:none}[data-role="sidebar-picker"]{display:block}[data-role="sidebar-picker"]>summary{display:list-item;font-weight:700;cursor:pointer;padding:8px 0}[data-role="sidebar-picker"]:not([open])>[data-role="sidebar-navigation"]{display:none}main{padding:16px;overflow:visible}}
 </style>
 <aside>
-  <h2>1939 menneskeark</h2>
+  <div class="sidebar-intro"><h2>1939 menneskeark</h2>
   <p>Du undersøger en <b>historisk kildepost</b> – ikke om personen allerede er rigtig i databasen.</p>
-  <p>Gemmer kun i denne browser. Eksport henter en privat JSON-kopi; intet sendes eller overskrives.</p>
+  <p>Gemmer kun i denne browser. Eksport henter en privat JSON-kopi; intet sendes eller overskrives.</p></div>
   <p data-role="save-state" class="saved">Klar. Ændringer gemmes automatisk lokalt.</p>
+  <details data-role="sidebar-picker"><summary>Vælg person</summary><div data-role="sidebar-navigation"></div></details>
 </aside>
 <main data-role="app"></main>
 <script>
@@ -174,6 +180,43 @@ def _presentation_candidates(
     return candidates
 
 
+def _hydrate_source_bound_candidates(model: dict, calamari_text: str,
+                                     raw_text: str) -> None:
+    """Add exact display slices while keeping classifier evidence unchanged."""
+    records = model.get("records")
+    if not isinstance(records, list):
+        raise ValueError("view model records skal være en liste")
+    for record in records:
+        if not isinstance(record, dict):
+            raise ValueError("view model record skal være en mapping")
+        if record.get("queue_class") != "auto_resolved":
+            continue
+        classification = record.get("classification")
+        if not isinstance(classification, dict):
+            raise ValueError("automatisk record mangler klassifikation")
+        evidence = _validate_source_bound_candidate(
+            classification.get("candidate"), calamari_text, raw_text,
+        )
+        candidates = record.get("candidates", [])
+        if not isinstance(candidates, list):
+            raise ValueError("view model candidates skal være en liste")
+        matches = [candidate for candidate in candidates if isinstance(candidate, dict)
+                   and candidate.get("candidate_id") == evidence["candidate_id"]]
+        if len(matches) != 1:
+            raise ValueError("automatisk kandidat findes ikke entydigt i view model")
+        candidate = matches[0]
+        if candidate.get("details") != evidence:
+            raise ValueError("automatisk kandidats præsentation matcher ikke evidensen")
+        span = evidence["calamari_span"]
+        bridge = evidence["raw_structure_bridge"]
+        candidate["calamari_verbatim_text"] = calamari_text[
+            span["char_from"]:span["char_to"]
+        ]
+        candidate["raw_verbatim_text"] = raw_text[
+            bridge["raw_char_from"]:bridge["raw_char_to"]
+        ]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--baseline", type=Path, required=True)
@@ -181,6 +224,7 @@ def main() -> int:
     parser.add_argument("--source-manifest", type=Path, required=True)
     parser.add_argument("--review", type=Path, required=True)
     parser.add_argument("--calamari", type=Path, required=True)
+    parser.add_argument("--raw", type=Path, required=True)
     parser.add_argument("--calamari-first-pdf-page", type=int, required=True,
                         help="PDF page represented by Calamari's PAGE 0001")
     parser.add_argument("--out", type=Path, required=True)
@@ -192,15 +236,19 @@ def main() -> int:
     if not isinstance(records, list):
         raise ValueError("baseline skal være en liste")
     calamari_bytes = args.calamari.read_bytes()
+    raw_bytes = args.raw.read_bytes()
     source_manifest = _source_from_manifest(
         json.loads(args.source_manifest.read_text(encoding="utf-8"))
     )
     baseline_hash = hashlib.sha256(baseline_bytes).hexdigest()
     calamari_hash = hashlib.sha256(calamari_bytes).hexdigest()
+    raw_hash = hashlib.sha256(raw_bytes).hexdigest()
     if source_manifest.get("baseline_sha256") != baseline_hash:
         raise ValueError("baseline hash matcher ikke source manifest")
     if source_manifest.get("calamari_sha256") != calamari_hash:
         raise ValueError("calamari hash matcher ikke source manifest")
+    if source_manifest.get("raw_ocr_sha256") != raw_hash:
+        raise ValueError("raw OCR hash matcher ikke source manifest")
     queue = json.loads(args.queue_manifest.read_text(encoding="utf-8"))
     if not isinstance(queue, dict):
         raise ValueError("queue manifest skal være en mapping")
@@ -236,6 +284,9 @@ def main() -> int:
     }
     model = build_review_view_model(
         records, queue, nearby_candidates, sample_auto_resolved(queue), decisions,
+    )
+    _hydrate_source_bound_candidates(
+        model, calamari_bytes.decode("utf-8"), raw_bytes.decode("utf-8"),
     )
     payload = json.dumps(
         {"baseline_sha256": baseline_hash, **model}, ensure_ascii=False,
