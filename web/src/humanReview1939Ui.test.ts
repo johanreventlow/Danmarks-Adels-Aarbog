@@ -97,7 +97,7 @@ function startReview({ storage, records, source, sourceBlocked, download = vi.fn
   sourceBlocked?: any;
   download?: ReturnType<typeof vi.fn>;
 }) {
-  document.body.innerHTML = '<aside><p data-role="save-state"></p><details data-role="sidebar-picker" open><summary>Vælg person</summary><div data-role="sidebar-navigation"></div></details></aside><main data-role="app"></main>';
+  document.body.innerHTML = '<aside data-mobile-open="false"><p data-role="save-state"></p><button type="button" data-action="toggle-sidebar" aria-expanded="false">Vælg person</button><div data-role="sidebar-navigation"></div></aside><main data-role="app"></main>';
   window.eval(uiSource);
   return {
     controller: (window as any).DAA1939Review.init({
@@ -134,7 +134,7 @@ function sourceBoundSuccessorModel({
 }
 
 function startModel(data: any, storage = memoryStorage()) {
-  document.body.innerHTML = '<aside><p data-role="save-state"></p><details data-role="sidebar-picker" open><summary>Vælg person</summary><div data-role="sidebar-navigation"></div></details></aside><main data-role="app"></main>';
+  document.body.innerHTML = '<aside data-mobile-open="false"><p data-role="save-state"></p><button type="button" data-action="toggle-sidebar" aria-expanded="false">Vælg person</button><div data-role="sidebar-navigation"></div></aside><main data-role="app"></main>';
   window.eval(uiSource);
   return (window as any).DAA1939Review.init({
     data, storage, now: () => '2026-08-05T12:00:00+02:00', download: vi.fn(),
@@ -210,14 +210,17 @@ describe('human 1939 review controller', () => {
       startReview({ storage: memoryStorage(), records: [
         humanRecord('rk-1', 'c-1'), humanRecord('rk-2', 'c-2'),
       ] });
-      const picker = document.querySelector<HTMLDetailsElement>('[data-role="sidebar-picker"]')!;
-      picker.open = true;
+      const aside = document.querySelector('aside')!;
+      const toggle = document.querySelector<HTMLButtonElement>('[data-action="toggle-sidebar"]')!;
+      toggle.click();
+      expect(aside.getAttribute('data-mobile-open')).toBe('true');
 
       document.querySelector<HTMLButtonElement>(
         '[data-action="select-record"][data-record-key="rk-2"]',
       )!.click();
 
-      expect(picker.open).toBe(false);
+      expect(aside.getAttribute('data-mobile-open')).toBe('false');
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
     } finally {
       Object.defineProperty(window, 'matchMedia', {
         configurable: true, value: originalMatchMedia,
@@ -225,21 +228,21 @@ describe('human 1939 review controller', () => {
     }
   });
 
-  it('keeps the desktop sidebar open after switching to audit samples', () => {
+  it('keeps the desktop sidebar navigation mounted after switching to audit samples', () => {
     const { controller } = startReview({ storage: memoryStorage(), records: [
       humanRecord('rk-1', 'c-1'), automaticRecord('rk-audit', 'c-audit', true),
     ] });
-    const picker = document.querySelector<HTMLDetailsElement>('[data-role="sidebar-picker"]')!;
+    const navigation = document.querySelector('[data-role="sidebar-navigation"]')!;
 
-    expect(picker.open).toBe(true);
+    expect(navigation.isConnected).toBe(true);
     controller.setView('audit');
 
-    expect(picker.open).toBe(true);
+    expect(navigation.isConnected).toBe(true);
     expect(document.querySelector('[data-role="record-list"]')!.textContent)
       .toContain('Navn rk-audit');
   });
 
-  it('starts the native person picker closed on a small screen', () => {
+  it('opens and closes the separate mobile person menu without native details', () => {
     const originalMatchMedia = window.matchMedia;
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
@@ -249,16 +252,24 @@ describe('human 1939 review controller', () => {
       })),
     });
     try {
-      document.body.innerHTML = '<aside><p data-role="save-state"></p><details data-role="sidebar-picker" open><summary>Vælg person</summary><div data-role="sidebar-navigation"></div></details></aside><main data-role="app"></main>';
+      document.body.innerHTML = '<aside data-mobile-open="false"><p data-role="save-state"></p><button type="button" data-action="toggle-sidebar" aria-expanded="false">Vælg person</button><div data-role="sidebar-navigation"></div></aside><main data-role="app"></main>';
       window.eval(uiSource);
-
       (window as any).DAA1939Review.init({
-        data: viewModel([humanRecord('rk-1', 'c-1')]), storage: memoryStorage(),
-        now: () => '2026-08-05T12:00:00+02:00', download: vi.fn(),
+        data: viewModel([humanRecord('rk-1', 'c-1'), humanRecord('rk-2', 'c-2')]),
+        storage: memoryStorage(), now: () => '2026-08-05T12:00:00+02:00', download: vi.fn(),
       });
+      const aside = document.querySelector('aside')!;
+      const toggle = document.querySelector<HTMLButtonElement>('[data-action="toggle-sidebar"]')!;
 
-      expect(document.querySelector<HTMLDetailsElement>('[data-role="sidebar-picker"]')!.open)
-        .toBe(false);
+      toggle.click();
+      expect(aside.getAttribute('data-mobile-open')).toBe('true');
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+
+      document.querySelector<HTMLButtonElement>(
+        '[data-action="select-record"][data-record-key="rk-2"]',
+      )!.click();
+      expect(aside.getAttribute('data-mobile-open')).toBe('false');
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
     } finally {
       Object.defineProperty(window, 'matchMedia', {
         configurable: true, value: originalMatchMedia,

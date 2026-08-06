@@ -286,17 +286,6 @@ def test_main_embeds_the_committed_controller_bytes_without_inline_handlers(tmp_
     assert b"onclick=" not in rendered
 
 
-def test_main_opens_the_native_sidebar_picker_for_desktop_by_default(tmp_path, monkeypatch):
-    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
-    out = tmp_path / "menneskeark.html"
-    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
-
-    assert subject.main() == 0
-
-    rendered = out.read_text(encoding="utf-8")
-    assert '<details data-role="sidebar-picker" open>' in rendered
-
-
 def test_main_gives_sidebar_names_and_record_content_independent_scroll_containers(
     tmp_path, monkeypatch
 ):
@@ -319,6 +308,23 @@ def test_main_gives_sidebar_names_and_record_content_independent_scroll_containe
     assert "flex:1" in list_rule
     assert "min-height:0" in list_rule
     assert "overflow-y:auto" in list_rule
+
+
+def test_main_uses_a_plain_desktop_sidebar_and_a_separate_mobile_toggle(
+    tmp_path, monkeypatch
+):
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
+
+    assert subject.main() == 0
+
+    rendered = out.read_text(encoding="utf-8")
+    prefix = rendered.split("const DATA=", 1)[0]
+    assert '<aside data-mobile-open="false">' in prefix
+    assert 'data-action="toggle-sidebar"' in prefix
+    assert 'data-role="sidebar-navigation"' in prefix
+    assert "<details" not in prefix
 
 
 def test_main_escapes_mixed_case_closing_script_in_source_text(tmp_path, monkeypatch):

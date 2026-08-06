@@ -501,18 +501,29 @@
     return true;
   }
 
-  function closeCompactPicker() {
-    if (typeof global.matchMedia !== 'function'
-      || !global.matchMedia('(max-width: 720px)').matches) return;
-    const picker = document.querySelector('[data-role="sidebar-picker"]');
-    if (picker) picker.removeAttribute('open');
+  function isCompactViewport() {
+    return typeof global.matchMedia === 'function'
+      && global.matchMedia('(max-width: 720px)').matches;
+  }
+
+  function setCompactSidebarOpen(open) {
+    const sidebar = document.querySelector('aside');
+    const toggle = document.querySelector('[data-action="toggle-sidebar"]');
+    if (!sidebar || !toggle) return;
+    const expanded = isCompactViewport() && open;
+    sidebar.setAttribute('data-mobile-open', String(expanded));
+    toggle.setAttribute('aria-expanded', String(expanded));
+  }
+
+  function closeCompactSidebar() {
+    if (isCompactViewport()) setCompactSidebarOpen(false);
   }
 
   function selectRecord(state, recordKey) {
     if (!state.recordByKey.has(recordKey)) return false;
     state.selectedKey = recordKey;
     render(state);
-    closeCompactPicker();
+    closeCompactSidebar();
     return true;
   }
 
@@ -522,7 +533,7 @@
     state.recordSearch = '';
     normalizeSelection(state);
     render(state);
-    closeCompactPicker();
+    closeCompactSidebar();
     return true;
   }
 
@@ -836,7 +847,7 @@
 
   function init({ data, storage = global.localStorage, now = () => new Date().toISOString(), download = () => {} }) {
     if (global.__DAA1939ReviewCleanup) global.__DAA1939ReviewCleanup();
-    closeCompactPicker();
+    setCompactSidebarOpen(false);
     const state = restoreOrInitialize(data, storage, now);
     const controller = createController(state, { download });
     const clickListener = event => {
@@ -860,6 +871,10 @@
       else if (action === 'undo') undo(state);
       else if (action === 'next') navigate(state, 1);
       else if (action === 'previous') navigate(state, -1);
+      else if (action === 'toggle-sidebar') {
+        const sidebar = document.querySelector('aside');
+        setCompactSidebarOpen(!(sidebar && sidebar.getAttribute('data-mobile-open') === 'true'));
+      }
       else if (action === 'expand-candidates') {
         state.expandedCandidates[state.selectedKey] = true;
         render(state);
