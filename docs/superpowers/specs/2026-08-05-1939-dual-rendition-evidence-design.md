@@ -63,6 +63,24 @@ Each occurrence contains only source-derived data:
 - the previous and next occurrence IDs and structural signatures;
 - a post class: `nummereret`, `stamfader`, or `oversigtspost`.
 
+Calamari page numbers are not converted with a constant offset. Its cropped PDF
+omits illustration plates, so the mapping to physical PDF pages is the existing
+verified piecewise map with ID `calamari-r6-to-pdf-v1`. Its control points are
+stored as `(Calamari page, physical PDF page)`:
+
+```text
+(1,496), (5,500), (10,505), (15,510), (20,515), (25,520),
+(30,525), (40,535), (45,540), (50,545), (53,550), (58,555),
+(63,575), (68,580), (73,585), (78,590), (83,595), (85,598),
+(86,598)
+```
+
+Intermediate pages use deterministic piecewise-linear interpolation and nearest
+integer rounding. Raw OCR page markers already contain physical PDF pages and
+use mapping ID `raw-absolute-pdf-v1`. The mapping ID and control points are
+included in the private occurrence manifests. An absent, changed, unordered or
+non-monotone map blocks generation; no constant-offset fallback is allowed.
+
 Extraction preserves uncertain prose as an unanchored occurrence. It never
 assigns `record_key`, invents a missing header, or silently joins adjacent prose.
 
@@ -215,7 +233,8 @@ The first successful run creates new versioned artifacts, including:
 - `menneskeark-undtagelsesko-v2.html`.
 
 Every artifact records its schema/rule version and upstream hashes. Reuse is
-allowed only when all bytes, versions, counts and digests match.
+allowed only when all bytes, versions, page-mapping IDs/control points, counts
+and digests match.
 
 ## Testing and acceptance
 

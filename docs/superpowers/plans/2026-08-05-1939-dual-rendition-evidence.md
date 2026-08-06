@@ -18,6 +18,8 @@
 - Candidate IDs, occurrence IDs, Calamari spans and raw spans are globally injective and non-overlapping.
 - The seven known overview duplicates never become automatic people.
 - Existing V1/V5 and all other private artifacts are immutable. New outputs use exclusive creation and V2 names.
+- Calamari pages use the pinned piecewise `calamari-r6-to-pdf-v1` mapping;
+  raw-OCR markers use `raw-absolute-pdf-v1`. A constant-offset fallback is forbidden.
 - Generated OCR, PDF, occurrence, evidence, queue, report and HTML artifacts remain ignored and are never committed.
 - No task writes to the database, `load_daa.R`, Supabase, Vercel or production.
 - Before every source/doc mutation and commit, run `git branch --show-current` and require `feat/evidensbaseret-genimport`.
@@ -34,11 +36,10 @@
 - Read/reuse: `.claude/skills/daa-extract/scripts/segment.py`
 
 **Interfaces:**
-- Consumes: decoded OCR text, rendition name and the physical PDF page represented by OCR page 1.
-- Produces: `extract_rendition_occurrences(source_text: str, *, rendition: str, page_offset: int) -> dict`.
-- `page_offset` is added to each numeric source page marker. It is `495` for
-  Calamari (`PAGE 0001` = physical PDF page 496) and `0` for raw OCR, whose
-  markers already contain physical PDF pages.
+- Consumes: decoded OCR text, rendition name and an exact page-map definition.
+- Produces: `extract_rendition_occurrences(source_text: str, *, rendition: str, page_map: tuple[tuple[int, int], ...] | None) -> dict`.
+- `page_map=CALAMARI_R6_TO_PDF_V1` uses the pinned piecewise map. `page_map=None`
+  is allowed only for `raw_ocr`, whose page markers already contain physical PDF pages.
 - Root schema:
 
 ```python
@@ -47,6 +48,8 @@
     "rendition": "calamari",          # or "raw_ocr"
     "source_sha256": "a" * 64,
     "source_length": 1234,
+    "page_mapping_id": "calamari-r6-to-pdf-v1",
+    "page_mapping_points": [[1, 496], [5, 500]],
     "occurrences": [{
         "occurrence_id": "occ:calamari:<digest>",
         "order": 0,
@@ -71,7 +74,7 @@
 def test_extracts_exact_source_only_occurrences():
     text = "### PAGE 1 ###\nI. Første Slægtled\n1. Alfa\nfortsat\n2. Beta\n"
     result = extract_rendition_occurrences(
-        text, rendition="calamari", page_offset=495
+        text, rendition="calamari", page_map=((1, 496),)
     )
     assert result["source_sha256"] == hashlib.sha256(text.encode()).hexdigest()
     assert [o["printed_marker"] for o in result["occurrences"]] == ["1", "2"]
@@ -85,7 +88,7 @@ def test_extracts_exact_source_only_occurrences():
 def test_occurrence_ends_before_next_record_marker():
     text = "### PAGE 1 ###\n1. Volrad\nprosa\n2. Emeke\n"
     result = extract_rendition_occurrences(
-        text, rendition="raw_ocr", page_offset=0
+        text, rendition="raw_ocr", page_map=None
     )
     first, second = result["occurrences"]
     assert first["span"]["char_to"] <= second["span"]["char_from"]
@@ -112,12 +115,20 @@ RENDITIONS = {"calamari", "raw_ocr"}
 POST_CLASSES = {"nummereret", "stamfader", "oversigtspost"}
 
 
-def extract_rendition_occurrences(source_text, *, rendition, page_offset):
-    _validate_inputs(source_text, rendition, page_offset)
+CALAMARI_R6_TO_PDF_V1 = (
+    (1, 496), (5, 500), (10, 505), (15, 510), (20, 515),
+    (25, 520), (30, 525), (40, 535), (45, 540), (50, 545),
+    (53, 550), (58, 555), (63, 575), (68, 580), (73, 585),
+    (78, 590), (83, 595), (85, 598), (86, 598),
+)
+
+
+def extract_rendition_occurrences(source_text, *, rendition, page_map):
+    mapping = _validate_page_map(rendition, page_map)
     ledger = segment._evidence_ledger(source_text)
     _validate_complete_clause_partition(source_text, ledger["clauses"])
     occurrences = _collapse_occurrence_clauses(
-        source_text, ledger["clauses"], page_offset=page_offset
+        source_text, ledger["clauses"], page_mapping=mapping
     )
     _attach_neighbor_signatures(occurrences)
     _validate_occurrence_partition(occurrences, len(source_text))
@@ -150,32 +161,36 @@ def test_output_is_deterministic_and_input_is_not_mutated(rendition):
     text = "### PAGE 1 ###\n1. Alfa\n2. Beta\n"
     before = text
     first = extract_rendition_occurrences(
-        text, rendition=rendition, page_offset=495 if rendition == "calamari" else 0
+        text, rendition=rendition,
+        page_map=((1, 496),) if rendition == "calamari" else None,
     )
     second = extract_rendition_occurrences(
-        text, rendition=rendition, page_offset=495 if rendition == "calamari" else 0
+        text, rendition=rendition,
+        page_map=((1, 496),) if rendition == "calamari" else None,
     )
     assert first == second
     assert text == before
 
 
-@pytest.mark.parametrize("bad_offset", [True, 0.0, "0", None, -1])
-def test_page_offset_requires_nonnegative_exact_integer(bad_offset):
-    with pytest.raises(ValueError, match="page_offset"):
+@pytest.mark.parametrize("bad_map", [True, [(1, 496)], ((5, 500), (1, 496))])
+def test_calamari_page_map_requires_exact_ordered_tuple(bad_map):
+    with pytest.raises(ValueError, match="page_map"):
         extract_rendition_occurrences(
-            "1. Alfa\n", rendition="calamari", page_offset=bad_offset
+            "1. Alfa\n", rendition="calamari", page_map=bad_map
         )
 
 
 def test_repeated_printed_numbers_remain_distinct_occurrences():
     result = extract_rendition_occurrences(
-        "1. Alfa\nI.\n1. Beta\n", rendition="raw_ocr", page_offset=0
+        "1. Alfa\nI.\n1. Beta\n", rendition="raw_ocr", page_map=None
     )
     ones = [o for o in result["occurrences"] if o["printed_marker"] == "1"]
     assert len(ones) == 2
     assert len({o["occurrence_id"] for o in ones}) == 2
 ```
 
+Add a real pinned-map test asserting Calamari page 58 maps to PDF 555 and page
+63 maps to PDF 575; this catches accidental reintroduction of a constant offset.
 For the gap, overlap and verbatim-corruption tests, deep-copy the real ledger,
 change exactly one clause span or `verbatim_text`, monkeypatch
 `segment._evidence_ledger` to return it, and assert `ValueError`. Add one fixture
@@ -485,7 +500,7 @@ git commit -m "feat: derive unique 1939 OCR consensus"
 - Modify: `.claude/skills/daa-extract/scripts/test_prepare_review_queue_1939.py`
 
 **Interfaces:**
-- Produces: `build_source_bound_evidence(baseline_bytes: bytes, calamari_bytes: bytes, raw_bytes: bytes, pdf_bytes: bytes, *, profile_version: str, calamari_first_pdf_page: int) -> tuple[dict, dict, dict]` returning evidence, Calamari occurrence manifest and raw occurrence manifest.
+- Produces: `build_source_bound_evidence(baseline_bytes: bytes, calamari_bytes: bytes, raw_bytes: bytes, pdf_bytes: bytes, *, profile_version: str) -> tuple[dict, dict, dict]` returning evidence, Calamari occurrence manifest and raw occurrence manifest.
 - Positive provenance kind and rule ID are exactly `dual_rendition_consensus_v1`.
 - Extends the existing strict provenance-kind allowlist; all previous kinds and no-flag behavior remain unchanged.
 
@@ -499,7 +514,6 @@ def test_consensus_materializes_existing_strict_evidence_grammar():
         raw_bytes=b"### PAGE 1 ###\n1. A1fa prosa\n2. Beta\n",
         pdf_bytes=b"%PDF-synthetic",
         profile_version="1939-v2",
-        calamari_first_pdf_page=496,
     )
     entry = evidence["entries"][0]
     assert entry["positive_provenance"] == {
@@ -525,21 +539,21 @@ RULE_ID = "dual_rendition_consensus_v1"
 
 def build_source_bound_evidence(
     baseline_bytes, calamari_bytes, raw_bytes, pdf_bytes,
-    *, profile_version, calamari_first_pdf_page,
+    *, profile_version,
 ):
     _require_exact_boundary_types(
         baseline_bytes, calamari_bytes, raw_bytes, pdf_bytes,
-        profile_version, calamari_first_pdf_page,
+        profile_version,
     )
     baseline = _strict_baseline_json(baseline_bytes)
     calamari_text = calamari_bytes.decode("utf-8", errors="strict")
     raw_text = raw_bytes.decode("utf-8", errors="strict")
     cal_occ = extract_rendition_occurrences(
         calamari_text, rendition="calamari",
-        page_offset=calamari_first_pdf_page - 1,
+        page_map=CALAMARI_R6_TO_PDF_V1,
     )
     raw_occ = extract_rendition_occurrences(
-        raw_text, rendition="raw_ocr", page_offset=0
+        raw_text, rendition="raw_ocr", page_map=None
     )
     anchors = locate_baseline_anchors(
         baseline,
@@ -648,7 +662,7 @@ git commit -m "feat: materialize dual-rendition 1939 evidence"
 ```bash
 /usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_dual_rendition_evidence_1939.py \
   --baseline BASELINE.json --calamari CALAMARI.txt --raw RAW.txt --pdf SOURCE.pdf \
-  --profile-version 1939-v2 --calamari-first-pdf-page 496 \
+  --profile-version 1939-v2 \
   --calamari-occurrences-out CAL.json --raw-occurrences-out RAW.json \
   --evidence-out EVIDENCE.json --report-out REPORT.json
 ```
@@ -801,12 +815,12 @@ it('starts on exceptions and exposes automatic records only as samples', () => {
 
 it('preserves save, reload, undo and export behavior in V2', () => {
   const storage = memoryStorage();
-  const first = startReview({
+  startReview({
     storage, records: [humanRecord('rk-1', 'candidate-1')],
   });
   document.querySelector<HTMLButtonElement>('[data-action="select-candidate"]')!.click();
   expect(document.querySelector('[data-role="save-state"]')!.textContent).toContain('Gemt');
-  first.controller.destroy();
+  document.body.innerHTML = '';
   const second = startReview({
     storage, records: [humanRecord('rk-1', 'candidate-1')],
   });
