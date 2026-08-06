@@ -13,7 +13,17 @@ def test_pages_expands_ranges_and_rejects_malformed_values():
     assert subject._pages("496-498") == [496, 497, 498]
     assert subject._pages("498") == [498]
     assert subject._pages("498-496") == []
-    assert subject._pages("side 498") == []
+
+
+def test_pages_afviser_uparsebar_sideangivelse():
+    assert subject._pages(None) == []
+    assert subject._pages("") == []
+    assert subject._pages("8") == [8]
+    assert subject._pages("8-10") == [8, 9, 10]
+    with pytest.raises(ValueError):
+        subject._pages("ukendt")
+    with pytest.raises(ValueError):
+        subject._pages("side 498")
 
 
 def test_presentation_candidates_are_deterministic_and_preserve_unique_local_id():

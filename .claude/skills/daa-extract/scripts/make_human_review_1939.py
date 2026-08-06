@@ -56,13 +56,16 @@ window.DAA1939Review.init({data: DATA, download: downloadDraft});
 
 
 def _pages(value: object) -> list[int]:
-    """Expand a simple page span without silently dropping middle pages."""
-    parts = str(value or "").split("-", 1)
+    """Expand a simple page span, failing loudly on unparseable input."""
+    text = str(value or "")
+    if not text:
+        return []
+    parts = text.split("-", 1)
     try:
         first = int(parts[0])
         last = int(parts[-1])
-    except ValueError:
-        return []
+    except ValueError as exc:
+        raise ValueError("segmentpost sider er ugyldige") from exc
     return list(range(first, last + 1)) if last >= first else []
 
 

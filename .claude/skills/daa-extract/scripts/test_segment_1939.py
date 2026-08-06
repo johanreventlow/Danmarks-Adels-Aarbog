@@ -304,6 +304,42 @@ def test_v2_bevarer_alle_v1_nummererede_poster_post_for_post():
     assert v2_nummererede == v1
 
 
+def test_v2_poster_baerer_kildelinje_interval():
+    # Bevarer det halvåbne linje-interval hver post blev bygget af, så en
+    # senere adapter kan udlede karaktér-offsets deterministisk uden at
+    # gen-parse teksten.
+    raw = "\n".join([
+        "                    IV.",
+        "Den danske grevelige Linje af 1673.",
+        "                  (S. 43).",
+        "                     F ø rste S læ gtled .",
+        "  T e s t A n e er en unummereret stamfader.",
+        "                     A ndet S læ gtled .",
+        "1. T e s t B o har første nummererede narrativ",
+        "   og fortsætter her.",
+        "2. T e s t C a r l har andet nummererede narrativ.",
+    ])
+    lines = raw.split("\n")
+
+    posts, _ = run_structural(raw, "1939-v2")
+    nummererede = [post for post in posts if post.get("nr") is not None]
+    stamfaedre = [post for post in posts if post.get("postklasse") == "stamfader"]
+
+    assert all(isinstance(post.get("linjer"), dict) for post in nummererede)
+    first = next(post for post in nummererede if post["nr"] == 1)
+    assert lines[first["linjer"]["fra"]].startswith("1. T e s t B o")
+    assert first["linjer"]["til"] == first["linjer"]["fra"] + 2
+
+    second = next(post for post in nummererede if post["nr"] == 2)
+    assert lines[second["linjer"]["fra"]].startswith("2. T e s t C a r l")
+    assert second["linjer"]["til"] == second["linjer"]["fra"] + 1
+
+    assert len(stamfaedre) == 1
+    assert isinstance(stamfaedre[0]["linjer"], dict)
+    assert lines[stamfaedre[0]["linjer"]["fra"]].startswith("  T e s t A n e")
+    assert stamfaedre[0]["linjer"]["til"] == stamfaedre[0]["linjer"]["fra"] + 1
+
+
 def test_v2_lokal_ids_er_unikke_og_output_deterministisk():
     raw = "\n".join([
         "                    IL",

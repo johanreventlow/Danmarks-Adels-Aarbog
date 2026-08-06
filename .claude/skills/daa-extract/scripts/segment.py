@@ -388,6 +388,10 @@ def _flush_1939(posts, cur, pre_linje_label=None):
         cur['lokal_id'] = None
     cur['raw_text'] = norm(' '.join(cur.pop('_lines')))
     cur.pop('_pages')
+    linje_fra = cur.pop('_linje_fra', None)
+    linje_til = cur.pop('_linje_til', None)
+    if linje_fra is not None:
+        cur['linjer'] = {'fra': linje_fra, 'til': linje_til}
     posts.append(cur)
 
 
@@ -522,7 +526,9 @@ def _unummereret_post_1939(lines, start, slut, *, lokal_id, postklasse,
             if side_match:
                 aktiv_side = int(side_match.group(1))
                 break
-    for line in lines[start:slut]:
+    foerste = sidste = None
+    for indeks in range(start, slut):
+        line = lines[indeks]
         side_match = PAGE_RE.match(line)
         if side_match:
             aktiv_side = int(side_match.group(1))
@@ -530,6 +536,9 @@ def _unummereret_post_1939(lines, start, slut, *, lokal_id, postklasse,
         if not line.strip() or PAGE_NOISE_1939_RE.match(line):
             continue
         tekstlinjer.append(line.strip())
+        if foerste is None:
+            foerste = indeks
+        sidste = indeks
         if aktiv_side is not None and (not sider or sider[-1] != aktiv_side):
             sider.append(aktiv_side)
     if not tekstlinjer:
@@ -545,6 +554,7 @@ def _unummereret_post_1939(lines, start, slut, *, lokal_id, postklasse,
         'sider': sidefelt, 'lokal_id': lokal_id,
         'raw_text': norm(' '.join(tekstlinjer)), 'postklasse': postklasse,
         'dublet_af_stamtavle': dublet,
+        'linjer': {'fra': foerste, 'til': sidste + 1},
     }
 
 
@@ -869,6 +879,7 @@ def _segment_1939(lines, profile):
                 'slaegtled_lokal': ordinal_to_int(slaegtled) if slaegtled else None,
                 'slaegtled_gennem': None, 'aegteskab_kontekst': None,
                 '_lines': [m.group(4)], '_pages': [page],
+                '_linje_fra': i, '_linje_til': i + 1,
             }
             i += 1; continue
 
@@ -878,6 +889,7 @@ def _segment_1939(lines, profile):
 
         if cur is not None:
             cur['_lines'].append(line.strip())
+            cur['_linje_til'] = i + 1
         else:
             # Mellem strukturheader og første nummererede post er teksten en
             # gruppebeskrivelse, ikke en del af nogen persons kildetekst.
