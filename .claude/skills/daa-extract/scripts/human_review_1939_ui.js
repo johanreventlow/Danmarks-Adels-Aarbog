@@ -831,6 +831,11 @@
 
   function init({ data, storage = global.localStorage, now = () => new Date().toISOString(), download = () => {} }) {
     if (global.__DAA1939ReviewCleanup) global.__DAA1939ReviewCleanup();
+    const sidebarPicker = document.querySelector('[data-role="sidebar-picker"]');
+    if (sidebarPicker && typeof global.matchMedia === 'function'
+      && global.matchMedia('(max-width: 720px)').matches) {
+      sidebarPicker.removeAttribute('open');
+    }
     const state = restoreOrInitialize(data, storage, now);
     const controller = createController(state, { download });
     const clickListener = event => {

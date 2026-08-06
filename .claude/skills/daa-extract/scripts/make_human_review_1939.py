@@ -35,7 +35,7 @@ button,select,input{font:inherit;padding:8px;margin:4px 0}.candidate{border:1px 
   <p>Du undersøger en <b>historisk kildepost</b> – ikke om personen allerede er rigtig i databasen.</p>
   <p>Gemmer kun i denne browser. Eksport henter en privat JSON-kopi; intet sendes eller overskrives.</p></div>
   <p data-role="save-state" class="saved">Klar. Ændringer gemmes automatisk lokalt.</p>
-  <details data-role="sidebar-picker"><summary>Vælg person</summary><div data-role="sidebar-navigation"></div></details>
+  <details data-role="sidebar-picker" open><summary>Vælg person</summary><div data-role="sidebar-navigation"></div></details>
 </aside>
 <main data-role="app"></main>
 <script>

@@ -286,6 +286,17 @@ def test_main_embeds_the_committed_controller_bytes_without_inline_handlers(tmp_
     assert b"onclick=" not in rendered
 
 
+def test_main_opens_the_native_sidebar_picker_for_desktop_by_default(tmp_path, monkeypatch):
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
+
+    assert subject.main() == 0
+
+    rendered = out.read_text(encoding="utf-8")
+    assert '<details data-role="sidebar-picker" open>' in rendered
+
+
 def test_main_escapes_mixed_case_closing_script_in_source_text(tmp_path, monkeypatch):
     baseline, review, queue, source, calamari = _write_inputs(tmp_path)
     out = tmp_path / "menneskeark.html"

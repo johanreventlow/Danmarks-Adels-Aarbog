@@ -97,7 +97,7 @@ function startReview({ storage, records, source, sourceBlocked, download = vi.fn
   sourceBlocked?: any;
   download?: ReturnType<typeof vi.fn>;
 }) {
-  document.body.innerHTML = '<aside><p data-role="save-state"></p><details data-role="sidebar-picker"><summary>Vælg person</summary><div data-role="sidebar-navigation"></div></details></aside><main data-role="app"></main>';
+  document.body.innerHTML = '<aside><p data-role="save-state"></p><details data-role="sidebar-picker" open><summary>Vælg person</summary><div data-role="sidebar-navigation"></div></details></aside><main data-role="app"></main>';
   window.eval(uiSource);
   return {
     controller: (window as any).DAA1939Review.init({
@@ -134,7 +134,7 @@ function sourceBoundSuccessorModel({
 }
 
 function startModel(data: any, storage = memoryStorage()) {
-  document.body.innerHTML = '<aside><p data-role="save-state"></p><details data-role="sidebar-picker"><summary>Vælg person</summary><div data-role="sidebar-navigation"></div></details></aside><main data-role="app"></main>';
+  document.body.innerHTML = '<aside><p data-role="save-state"></p><details data-role="sidebar-picker" open><summary>Vælg person</summary><div data-role="sidebar-navigation"></div></details></aside><main data-role="app"></main>';
   window.eval(uiSource);
   return (window as any).DAA1939Review.init({
     data, storage, now: () => '2026-08-05T12:00:00+02:00', download: vi.fn(),
@@ -209,6 +209,33 @@ describe('human 1939 review controller', () => {
     )!.click();
 
     expect(picker.open).toBe(false);
+  });
+
+  it('starts the native person picker closed on a small screen', () => {
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: query === '(max-width: 720px)', media: query,
+        addEventListener: vi.fn(), removeEventListener: vi.fn(),
+      })),
+    });
+    try {
+      document.body.innerHTML = '<aside><p data-role="save-state"></p><details data-role="sidebar-picker" open><summary>Vælg person</summary><div data-role="sidebar-navigation"></div></details></aside><main data-role="app"></main>';
+      window.eval(uiSource);
+
+      (window as any).DAA1939Review.init({
+        data: viewModel([humanRecord('rk-1', 'c-1')]), storage: memoryStorage(),
+        now: () => '2026-08-05T12:00:00+02:00', download: vi.fn(),
+      });
+
+      expect(document.querySelector<HTMLDetailsElement>('[data-role="sidebar-picker"]')!.open)
+        .toBe(false);
+    } finally {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true, value: originalMatchMedia,
+      });
+    }
   });
 
   it('asks a readable question and shows both OCR renditions before technical ids', () => {
