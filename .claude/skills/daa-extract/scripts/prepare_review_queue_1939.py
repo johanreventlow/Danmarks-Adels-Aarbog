@@ -61,6 +61,8 @@ _CANDIDATE_FIELDS = _REQUIRED_CANDIDATE_FIELDS | {
 _PROVENANCE_KINDS = {
     "record_key_v2_locator", "dual_rendition_consensus_v1", *APPROVAL_KINDS,
 }
+_HUMAN_RULE_ID = "human_anchor_v1"
+_HUMAN_APPROVAL_KIND = "human_approved_span_v1"
 
 
 @dataclass(frozen=True)
@@ -704,6 +706,37 @@ def _validate_dual_consensus_contract(entry: dict, source: dict) -> None:
         raise ValueError("dual consensus candidate_id matcher ikke source-bound evidens")
 
 
+def _validate_human_evidence_contract(entry: dict) -> None:
+    candidates = entry["candidates"]
+    provenance = entry.get("positive_provenance")
+    approval_candidates = [
+        candidate for candidate in candidates if "approval" in candidate
+    ]
+    provenance_kind = (
+        provenance.get("kind") if isinstance(provenance, Mapping) else None
+    )
+    human_marked = approval_candidates or any(
+        isinstance(marker, str) and marker.startswith("human_")
+        for marker in (entry.get("rule_id"), provenance_kind)
+    )
+    if not human_marked:
+        return
+    approval = (
+        approval_candidates[0].get("approval")
+        if len(candidates) == 1 and len(approval_candidates) == 1
+        else None
+    )
+    if (
+        not isinstance(approval, Mapping)
+        or approval.get("kind") != _HUMAN_APPROVAL_KIND
+        or provenance_kind != _HUMAN_APPROVAL_KIND
+        or entry.get("rule_id") != _HUMAN_RULE_ID
+    ):
+        raise ValueError(
+            "menneskegodkendt evidens kræver sammenhængende human-kontrakt"
+        )
+
+
 def _source_less_evidence_entries(
     value: Mapping, source: dict, baseline_keys: set[str]
 ) -> list[dict]:
@@ -838,6 +871,7 @@ def _source_bound_evidence_entries(
             ):
                 raise ValueError("positive_provenance matcher ikke den entydige candidate")
             entry["positive_provenance"] = copy.deepcopy(dict(provenance))
+        _validate_human_evidence_contract(entry)
         if len(entry["candidates"]) == 1 and entry["positive_provenance"] is not None:
             _validate_dual_consensus_contract(entry, source)
         validated.append(entry)

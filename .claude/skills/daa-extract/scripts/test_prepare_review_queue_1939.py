@@ -866,6 +866,43 @@ def test_source_bound_evidence_accepts_approval_only_human_candidate(tmp_path):
     assert validated == evidence["entries"]
 
 
+@pytest.mark.parametrize("with_raw_bridge", [False, True])
+@pytest.mark.parametrize(
+    "mutate_markers",
+    [
+        lambda entry: entry.update(rule_id="complete_anchor_v1"),
+        lambda entry: entry["positive_provenance"].update(
+            kind="record_key_v2_locator"
+        ),
+    ],
+)
+def test_source_bound_human_evidence_rejects_mixed_human_and_auto_markers(
+    tmp_path, with_raw_bridge, mutate_markers,
+):
+    args, _, _, _ = _pilot_cli_args(tmp_path)
+    evidence = _human_source_bound_evidence(args)
+    entry = evidence["entries"][0]
+    if with_raw_bridge:
+        entry["candidates"][0]["raw_structure_bridge"] = {
+            "kind": "record_start",
+            "raw_char_from": 0,
+            "raw_char_to": 6,
+            "raw_excerpt_sha256": hashlib.sha256(
+                "Rå OCR".encode("utf-8")
+            ).hexdigest(),
+        }
+    mutate_markers(entry)
+
+    with pytest.raises(ValueError, match="sammenhængende human-kontrakt"):
+        subject._source_bound_evidence_entries(
+            evidence,
+            evidence["source"],
+            {"rk-1"},
+            "Calamari OCR",
+            "Rå OCR",
+        )
+
+
 def test_approval_only_candidate_requires_explicit_evidence_loader_opt_in(tmp_path):
     args, _, _, _ = _pilot_cli_args(tmp_path)
     candidate = _human_source_bound_evidence(args)["entries"][0]["candidates"][0]

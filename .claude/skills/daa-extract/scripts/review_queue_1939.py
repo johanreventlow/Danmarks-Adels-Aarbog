@@ -285,6 +285,12 @@ def _classify_one(key: str, evidence: dict, source: dict) -> dict:
 
 
 def _is_human_evidence(evidence: Mapping) -> bool:
+    candidates = evidence.get("candidates")
+    if isinstance(candidates, list) and any(
+        isinstance(candidate, Mapping) and "approval" in candidate
+        for candidate in candidates
+    ):
+        return True
     provenance = evidence.get("positive_provenance")
     provenance_kind = (
         provenance.get("kind") if isinstance(provenance, Mapping) else None

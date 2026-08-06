@@ -168,6 +168,23 @@ def test_human_anchor_evidence_remains_human_required():
     assert result["entries"][0]["reason_code"] == "human_approved_evidence"
 
 
+@pytest.mark.parametrize("with_raw_bridge", [False, True])
+def test_approval_candidate_with_auto_markers_never_auto_resolves(with_raw_bridge):
+    candidate = human_approved_candidate()
+    if with_raw_bridge:
+        candidate["raw_structure_bridge"] = anchored_candidate()[
+            "raw_structure_bridge"
+        ]
+    result = classify_review_entries(
+        source(),
+        {"rk-1"},
+        [evidence("rk-1", candidate=candidate)],
+    )
+
+    assert result["entries"][0]["queue_class"] == "human_required"
+    assert result["entries"][0]["reason_code"] == "human_approved_evidence"
+
+
 def test_complete_presentation_candidate_with_apparent_provenance_requires_human():
     candidate = anchored_candidate("presentation:1939-v2:post:7")
     result = classify_review_entries(
