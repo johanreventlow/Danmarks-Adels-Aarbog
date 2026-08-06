@@ -8,6 +8,10 @@ vi.mock('../../supabase', () => ({
       state.events.push(`rpc:${fn}`);
       return { data: fn === 'red_upload_media' ? 91 : null, error: null };
     }),
+    // redaktionWrite.ts importerer nu media.ts (mediaFakta-arten, Task 3), som kalder
+    // supabase.auth.onAuthStateChange ved modul-load (TTL-cache-invalidering) — mocket skal
+    // derfor have en 'auth'-gren, selvom denne testfil ikke selv bruger auth.
+    auth: { onAuthStateChange: vi.fn() },
   },
 }));
 
