@@ -107,7 +107,10 @@ function startReview({ storage, records, source, sourceBlocked, download = vi.fn
   };
 }
 
-function sourceBoundSuccessorModel() {
+function sourceBoundSuccessorModel({
+  calamari = '### PAGE 1 ###\n1. Volrad\n### PAGE 1 ###\n2. Emeke\n',
+  rawOcr = '### PAGE 496 ###\n1. Volrad\n### PAGE 496 ###\n3. Emeke\n',
+}: { calamari?: string; rawOcr?: string } = {}) {
   const script = [
     'import json',
     'from dual_rendition_evidence_1939 import build_source_bound_evidence',
@@ -117,7 +120,7 @@ function sourceBoundSuccessorModel() {
     "  {'record_key':'rk-volrad','_v2_lokal_id':'I.1','_narrativ_kilde':'calamari','narrative':'Volrad'},",
     "  {'record_key':'rk-emeke','_v2_lokal_id':'I.2','_narrativ_kilde':'calamari','narrative':'Emeke'},",
     ']).encode()',
-    "evidence, _, _ = build_source_bound_evidence(source_baseline, b'### PAGE 1 ###\\n1. Volrad\\n### PAGE 1 ###\\n2. Emeke\\n', b'### PAGE 496 ###\\n1. Volrad\\n### PAGE 496 ###\\n3. Emeke\\n', b'%PDF-synthetic', profile_version='1939-v2')",
+    `evidence, _, _ = build_source_bound_evidence(source_baseline, ${JSON.stringify(calamari)}.encode(), ${JSON.stringify(rawOcr)}.encode(), b'%PDF-synthetic', profile_version='1939-v2')`,
     "queue = classify_review_entries(evidence['source'], {'rk-volrad', 'rk-emeke'}, evidence['entries'])",
     "print(json.dumps(build_review_view_model([{'record_key':'rk-volrad','navn':'Volrad','sider':'498','narrative':'Volrad'}, {'record_key':'rk-emeke','navn':'Emeke','sider':'498','narrative':'Emeke'}], queue, {}, [], {})))",
   ].join('\n');
@@ -148,7 +151,19 @@ describe('human 1939 review controller', () => {
 
     expect(controller.selectedKey).toBe('rk-volrad');
     const boundaryContext = document.querySelector('[data-role="boundary-context"]')!.textContent!;
-    expect(boundaryContext).toContain('Calamari: følgende post fundet');
+    expect(boundaryContext).toContain('Calamari: følgende post “### PAGE 1 ###');
+    expect(boundaryContext.match(/Emeke/g)).toHaveLength(2);
+  });
+
+  it('renders the raw OCR neighbor when Calamari lacks the successor', () => {
+    const controller = startModel(sourceBoundSuccessorModel({
+      calamari: '### PAGE 1 ###\n1. Volrad\n',
+      rawOcr: '### PAGE 496 ###\n1. Volrad\n### PAGE 496 ###\n2. Emeke\n',
+    }));
+
+    expect(controller.selectedKey).toBe('rk-volrad');
+    const boundaryContext = document.querySelector('[data-role="boundary-context"]')!.textContent!;
+    expect(boundaryContext).toContain('Calamari: følgende post mangler');
     expect(boundaryContext.match(/Emeke/g)).toHaveLength(1);
   });
 

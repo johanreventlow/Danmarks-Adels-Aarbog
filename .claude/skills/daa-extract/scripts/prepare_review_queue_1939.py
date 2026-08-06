@@ -250,13 +250,14 @@ def _boundary_context(classification: Mapping) -> str:
             "predecessor": "foregående post",
             "successor": "følgende post",
         }.get(direction)
-        if direction_da is not None and isinstance(calamari, Mapping):
-            raw_text = raw_ocr.get("text") if isinstance(raw_ocr, Mapping) else None
-            raw_detail = (
-                f'{direction_da} “{raw_text}”' if isinstance(raw_text, str)
-                else f"{direction_da} mangler"
-            )
-            return f"Calamari: {direction_da} fundet · rå OCR: {raw_detail}."
+        if direction_da is not None and (
+            isinstance(calamari, Mapping) or isinstance(raw_ocr, Mapping)
+        ):
+            def source_detail(excerpt: object) -> str:
+                text = excerpt.get("text") if isinstance(excerpt, Mapping) else None
+                return f'{direction_da} “{text}”' if isinstance(text, str) else f"{direction_da} mangler"
+
+            return f"Calamari: {source_detail(calamari)} · rå OCR: {source_detail(raw_ocr)}."
     reason_code = classification.get("reason_code")
     if reason_code in _BOUNDARY_CONTEXT_DA:
         return _BOUNDARY_CONTEXT_DA[reason_code]

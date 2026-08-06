@@ -311,6 +311,34 @@ def test_source_bound_successor_disagreement_carries_emeke_to_the_view_model_onc
     assert next(item for item in queue["entries"] if item["baseline_record_key"] == "rk-volrad")[
         "reason_code"
     ] == "successor_disagreement"
+    assert record["boundary_context"].count("Emeke") == 2
+
+
+def test_source_bound_successor_keeps_raw_excerpt_when_calamari_lacks_neighbor():
+    source_baseline = json.dumps([
+        {"record_key": "rk-volrad", "_v2_lokal_id": "I.1",
+         "_narrativ_kilde": "calamari", "narrative": "Volrad"},
+        {"record_key": "rk-emeke", "_v2_lokal_id": "I.2",
+         "_narrativ_kilde": "calamari", "narrative": "Emeke"},
+    ]).encode("utf-8")
+    evidence, _, _ = build_source_bound_evidence(
+        source_baseline,
+        b"### PAGE 1 ###\n1. Volrad\n",
+        b"### PAGE 496 ###\n1. Volrad\n### PAGE 496 ###\n2. Emeke\n",
+        b"%PDF-synthetic", profile_version="1939-v2",
+    )
+    queue = subject.classify_review_entries(
+        evidence["source"], {"rk-volrad", "rk-emeke"}, evidence["entries"],
+    )
+    model = build_review_view_model(
+        [baseline("rk-volrad"), baseline("rk-emeke")], queue, {}, [], {},
+    )
+    record = next(item for item in model["records"] if item["record_key"] == "rk-volrad")
+
+    assert record["boundary_context"] == (
+        "Calamari: følgende post mangler · rå OCR: følgende post “"
+        "### PAGE 496 ###\n2. Emeke\n”."
+    )
     assert record["boundary_context"].count("Emeke") == 1
 
 
