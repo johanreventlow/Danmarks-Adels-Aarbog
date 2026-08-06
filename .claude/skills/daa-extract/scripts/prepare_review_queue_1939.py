@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
+import re
 
 from coverage_1939 import (
     LEGACY_REVIEW_ACCEPTED_FIELDS,
@@ -47,6 +48,7 @@ _EVIDENCE_ENTRY_FIELDS = {
 }
 _OPTIONAL_EVIDENCE_ENTRY_FIELDS = _EVIDENCE_ENTRY_FIELDS | {"boundary_evidence"}
 _BOUNDARY_EXCERPT_LIMIT = 160
+_BOUNDARY_RECORD_LINE_RE = re.compile(r"^\s*\??\s*\d{1,4}[a-z]?\.\s+\S.*$", re.IGNORECASE)
 _CANDIDATE_FIELDS = {
     "candidate_id", "postklasse", "calamari_span", "pdf_pages",
     "raw_structure_bridge",
@@ -255,9 +257,23 @@ def _boundary_context(classification: Mapping) -> str:
         ):
             def source_detail(excerpt: object) -> str:
                 text = excerpt.get("text") if isinstance(excerpt, Mapping) else None
-                return f'{direction_da} “{text}”' if isinstance(text, str) else f"{direction_da} mangler"
+                if not isinstance(text, str):
+                    return f"{direction_da} mangler"
+                lines = text.splitlines()
+                display = next(
+                    (line.strip() for line in lines if _BOUNDARY_RECORD_LINE_RE.fullmatch(line)),
+                    text.strip(),
+                )
+                return f'{direction_da} “{display}”'
 
-            return f"Calamari: {source_detail(calamari)} · rå OCR: {source_detail(raw_ocr)}."
+            calamari_detail = source_detail(calamari)
+            raw_detail = source_detail(raw_ocr)
+            if (
+                isinstance(calamari, Mapping) and isinstance(raw_ocr, Mapping)
+                and calamari_detail == raw_detail
+            ):
+                return f"Calamari og rå OCR: {calamari_detail}."
+            return f"Calamari: {calamari_detail} · rå OCR: {raw_detail}."
     reason_code = classification.get("reason_code")
     if reason_code in _BOUNDARY_CONTEXT_DA:
         return _BOUNDARY_CONTEXT_DA[reason_code]

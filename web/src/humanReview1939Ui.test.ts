@@ -109,7 +109,7 @@ function startReview({ storage, records, source, sourceBlocked, download = vi.fn
 
 function sourceBoundSuccessorModel({
   calamari = '### PAGE 1 ###\n1. Volrad\n### PAGE 1 ###\n2. Emeke\n',
-  rawOcr = '### PAGE 496 ###\n1. Volrad\n### PAGE 496 ###\n3. Emeke\n',
+  rawOcr = '### PAGE 496 ###\n1. Volrad\nII.\n### PAGE 496 ###\n2. Emeke\n',
 }: { calamari?: string; rawOcr?: string } = {}) {
   const script = [
     'import json',
@@ -151,7 +151,18 @@ describe('human 1939 review controller', () => {
 
     expect(controller.selectedKey).toBe('rk-volrad');
     const boundaryContext = document.querySelector('[data-role="boundary-context"]')!.textContent!;
-    expect(boundaryContext).toContain('Calamari: følgende post “### PAGE 1 ###');
+    expect(boundaryContext).toContain('Calamari og rå OCR: følgende post');
+    expect(boundaryContext.match(/Emeke/g)).toHaveLength(1);
+  });
+
+  it('renders different successor excerpts under their own source labels', () => {
+    startModel(sourceBoundSuccessorModel({
+      rawOcr: '### PAGE 496 ###\n1. Volrad\n### PAGE 496 ###\n3. Emeke\n',
+    }));
+
+    const boundaryContext = document.querySelector('[data-role="boundary-context"]')!.textContent!;
+    expect(boundaryContext).toContain('Calamari: følgende post');
+    expect(boundaryContext).toContain('rå OCR: følgende post');
     expect(boundaryContext.match(/Emeke/g)).toHaveLength(2);
   });
 
@@ -164,6 +175,17 @@ describe('human 1939 review controller', () => {
     expect(controller.selectedKey).toBe('rk-volrad');
     const boundaryContext = document.querySelector('[data-role="boundary-context"]')!.textContent!;
     expect(boundaryContext).toContain('Calamari: følgende post mangler');
+    expect(boundaryContext.match(/Emeke/g)).toHaveLength(1);
+  });
+
+  it('renders the Calamari neighbor when raw OCR lacks the successor', () => {
+    startModel(sourceBoundSuccessorModel({
+      rawOcr: '### PAGE 496 ###\n1. Volrad\n',
+    }));
+
+    const boundaryContext = document.querySelector('[data-role="boundary-context"]')!.textContent!;
+    expect(boundaryContext).toContain('Calamari: følgende post');
+    expect(boundaryContext).toContain('rå OCR: følgende post mangler');
     expect(boundaryContext.match(/Emeke/g)).toHaveLength(1);
   });
 
