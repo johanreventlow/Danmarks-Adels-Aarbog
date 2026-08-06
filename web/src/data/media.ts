@@ -203,6 +203,81 @@ export function mediaCaption(m: { titel?: string | null; kunstner?: string | nul
 // tilbage fra `media`-selectet og udelades stille (renderer'en viser det som inaktiv gråtekst).
 export type EmbeddedMedia = { titel: string; mediumUrl: string; largeUrl: string };
 
+// Medie-fakta (medie-metadata, Task 2): strukturerede fakta på 'media' som subjekt — kildeoplysninger,
+// fotograf, kreditlinje, teknik osv. SKRIVE-whitelist (12 koder — de 3 rettigheds-koder skrives
+// fortsat via red_set_media_rettigheder, se redaktionWrite.ts) + LÆSE-union (MM-03: 12 + de 3
+// eksisterende rettigheds-koder, så et redigerings-overlay kan præudfylde dem sammen).
+export const MEDIA_FAKTATYPER = ['kilde_url', 'kilde_institution', 'ekstern_objekt_id', 'hentedato',
+  'fotograf', 'rettighedshaver', 'kreditlinje', 'beskrivelse', 'alt_tekst', 'teknik', 'fysiske_maal', 'datering'] as const;
+export const MEDIA_FAKTA_LAES = [...MEDIA_FAKTATYPER, 'licens', 'kildehenvisning', 'gengivelsestilladelse'] as const;
+export type MediaFaktatype = typeof MEDIA_FAKTATYPER[number];
+export type MediaFaktaLaesKode = typeof MEDIA_FAKTA_LAES[number];
+export type MediaFaktaVaerdi = {
+  factId: string; vaerdi: string | null;
+  dateMin: string | null; dateMax: string | null; dateQualifier: string | null; dateRaw: string | null;
+};
+export type MediaFakta = Partial<Record<MediaFaktaLaesKode, MediaFaktaVaerdi>>;
+
+type RawMediaFact = { id: number; subjekt_id: number; faktatype: string };
+type RawMediaAssert = {
+  id: number; target_id: number; vaerdi_tekst: string | null;
+  date_min: string | null; date_max: string | null; date_qualifier: string | null; date_raw: string | null;
+};
+type RawMediaConc = { target_id: number; valgt_assertion_id: number | null; status?: string };
+
+// Ren/testbar: joiner fact→assertion via conclusion.valgt_assertion_id, gruppér pr. media-id
+// (fact.subjekt_id) → faktatype. MM-02: en conclusion-række med status sat men ≠ 'afklaret'
+// ignoreres defensivt — fetchMediaFakta filtrerer allerede i selecten, men join-funktionen skal
+// ikke stole blindt på det (fx hvis kaldt med ufiltrerede rows fra et andet sted).
+export function joinMediaFakta(
+  facts: RawMediaFact[], assertions: RawMediaAssert[], conclusions: RawMediaConc[],
+): Map<string, MediaFakta> {
+  const out = new Map<string, MediaFakta>();
+  const assertById = new Map(assertions.map((a) => [a.id, a]));
+  const concByFact = new Map(conclusions.map((c) => [c.target_id, c]));
+  for (const f of facts) {
+    const conc = concByFact.get(f.id);
+    if (!conc || conc.valgt_assertion_id == null) continue;
+    if (conc.status != null && conc.status !== 'afklaret') continue;
+    const a = assertById.get(conc.valgt_assertion_id);
+    if (!a) continue;
+    const faktatype = f.faktatype as MediaFaktaLaesKode;
+    const mediaId = String(f.subjekt_id);
+    const fakta = out.get(mediaId) ?? {};
+    fakta[faktatype] = {
+      factId: String(f.id), vaerdi: a.vaerdi_tekst,
+      dateMin: a.date_min, dateMax: a.date_max, dateQualifier: a.date_qualifier, dateRaw: a.date_raw,
+    };
+    out.set(mediaId, fakta);
+  }
+  return out;
+}
+
+// Henter medie-fakta for et sæt media-id'er. Spejler fetchPersonEvidence-mønsteret
+// (redaktionRead.ts:129-142): fact-select på subjekt_type='media' → assertion/conclusion på
+// target_type='fact'. MM-02: conclusion-selecten filtrerer eksplicit .eq('status','afklaret') —
+// red_tilbagetraek_fakta beholder valgt_assertion_id (schema.sql:1379-1380), så uden filteret
+// ville "fjernede" værdier fortsat vises. RLS afgør synlighed (anon ser kun publicerede mediers fakta).
+export async function fetchMediaFakta(mediaIds: number[]): Promise<Map<string, MediaFakta>> {
+  if (!mediaIds.length) return new Map();
+  const { data: facts } = await supabase
+    .from('fact').select('id,subjekt_id,faktatype')
+    .eq('subjekt_type', 'media').in('subjekt_id', mediaIds).in('faktatype', MEDIA_FAKTA_LAES);
+  const factIds = (facts ?? []).map((f: RawMediaFact) => f.id);
+  if (!factIds.length) return new Map();
+  const [{ data: assertions }, { data: conclusions }] = await Promise.all([
+    supabase.from('assertion').select('id,target_id,vaerdi_tekst,date_min,date_max,date_qualifier,date_raw')
+      .eq('target_type', 'fact').in('target_id', factIds),
+    supabase.from('conclusion').select('target_id,valgt_assertion_id,status')
+      .eq('target_type', 'fact').in('target_id', factIds).eq('status', 'afklaret'),
+  ]);
+  return joinMediaFakta(
+    (facts ?? []) as RawMediaFact[],
+    (assertions ?? []) as RawMediaAssert[],
+    (conclusions ?? []) as RawMediaConc[],
+  );
+}
+
 export async function fetchMediaByIds(mediaIds: number[]): Promise<Map<string, EmbeddedMedia>> {
   const out = new Map<string, EmbeddedMedia>();
   if (!mediaIds.length) return out;
