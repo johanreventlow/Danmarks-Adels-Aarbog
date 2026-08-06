@@ -21,6 +21,22 @@ The review UI and publication gate are already fail-closed and independently
 reviewed. This phase supplies them with source-bound evidence; it does not
 relax their contracts.
 
+## Trust and risk model
+
+This is a private editorial import tool, not a hostile-input service. Artifacts
+produced by one step of the same pinned local pipeline are trusted as that
+step's output. A consumer validates the fields it actually relies on and the
+cross-step facts needed to prevent a wrong import; it does not revalidate every
+unused metadata field merely to defend against a deliberately forged internal
+JSON file.
+
+The realistic risks in scope are stale or mixed source files, ambiguous or
+missing ownership, incomplete coverage, overlaps, reordered records, identity
+collisions and accidental malformed input. Source hashes, exact narrative
+ownership, complete span partitions, injectivity, deterministic output and the
+human exception queue remain required. Deliberate manipulation of ignored
+intermediate artifacts is outside the threat model.
+
 The baseline has 546 unique `_v2_lokal_id` values, but a locator is not source
 identity and cannot prove a match by itself. Existing Calamari segmentation also
 contains missing and colliding structural identifiers. Reusing those identifiers
@@ -280,10 +296,13 @@ classification reflect the dual-rendition boundary result.
 
 ### Review gate
 
-An independent adversarial review traces source bytes through occurrence
-extraction, consensus, evidence, queue, audit and HTML. Private review use is
-`GO` only with no unresolved P0/P1 finding. Database reimport and deployment
-remain `NO-GO` and outside this specification.
+An independent data-quality review traces source bytes through occurrence
+extraction, consensus, evidence, queue, audit and HTML. It attempts to expose
+realistic pipeline failures that could omit, duplicate or misassign source
+records, but does not require defenses against deliberately forged trusted
+intermediate files. Private review use is `GO` only with no unresolved P0/P1
+finding within this risk model. Database reimport and deployment remain
+`NO-GO` and outside this specification.
 
 ## Non-goals
 

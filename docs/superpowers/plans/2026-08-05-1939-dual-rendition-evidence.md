@@ -25,6 +25,11 @@
 - Before every source/doc mutation and commit, run `git branch --show-current` and require `feat/evidensbaseret-genimport`.
 - Use `/usr/bin/python3 -m pytest`; report focused and full-suite results separately.
 - Each task requires a fresh independent review before the next task starts.
+- Treat artifacts emitted by the same pinned local pipeline as trusted internal
+  inputs. Validate consumed fields and facts that prevent realistic wrong
+  imports; do not duplicate an upstream schema validator for unused metadata or
+  add defenses whose only purpose is resisting deliberately forged internal
+  JSON.
 
 ---
 
@@ -963,7 +968,7 @@ Do not stage any `work/` file. If no source bug was found, Task 7 has no commit.
 
 ---
 
-### Task 8: Independent adversarial review and handoff
+### Task 8: Independent data-quality review and handoff
 
 **Files:**
 - Review only all tracked changes from Tasks 1–7.
@@ -980,12 +985,14 @@ Trace source bytes → clause ledger → occurrence spans → unique narrative a
 candidate/provenance → queue class → audit sample → HTML/export → publication
 report.
 
-- [ ] **Step 2: Attempt to falsify every automatic gate**
+- [ ] **Step 2: Attempt to falsify every automatic gate within the risk model**
 
 Exercise substituted source bytes, duplicate narratives, repeated markers,
 equally optimal alignments, neighbor reorder, section edges, page drift,
-occurrence/candidate/span collisions, forged provenance, presentation IDs,
-subclassed boundary objects, stale V1 review data and incomplete audits.
+occurrence/candidate/span collisions, stale or mixed pipeline artifacts,
+presentation IDs, stale V1 review data and incomplete audits. Do not require
+defenses against deliberately forged trusted intermediate JSON or exhaustive
+revalidation of upstream metadata that the consumer does not use.
 
 - [ ] **Step 3: Verify scope and immutable private history**
 
