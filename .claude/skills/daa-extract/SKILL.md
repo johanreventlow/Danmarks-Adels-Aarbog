@@ -264,16 +264,55 @@ og brug **Eksportér privat kladde**. Browserens `localStorage`, HTML'en og den
 eksporterede `1939-review-kladd.json` er kladder; JSON-eksporten er den varige,
 private overdragelse og skal opbevares uden for Git.
 
-Kør **ikke** `--choices-to-decisions` med
-`--anchored-candidates work/task19-1939-pilot/dual-evidence-v2.json`: dual-
-evidence-filen og anchored-candidates-wrapperen har forskellige skemaer. En
-slutkonvertering kræver den særskilt definerede anchored-candidates-wrapper og
-ligger uden for denne V2-pilot, indtil en sådan adapter eller artefakt findes.
+Efterforankr browser-eksporten med adapteren. Brug altid næste ledige run-suffix:
+alle fire outputfiler oprettes eksklusivt, og den omskrevne choices-fil er det
+eneste korrekte input til den efterfølgende konvertering.
+
+```bash
+/usr/bin/python3 .claude/skills/daa-extract/scripts/anchor_review_choices_1939.py \
+  --choices /sti/til/1939-review-kladd.json \
+  --queue-manifest work/task19-1939-pilot/review-queue-manifest-v2-run-e.json \
+  --baseline ../../../work_1939_stamtavle/clean_1939_v2.json \
+  --calamari ../../../work_1939_stamtavle/full_ocr_calamari_r6_clean.txt \
+  --raw ../../../work_1939_stamtavle/raw.txt \
+  --calamari-occurrences work/task19-1939-pilot/calamari-occurrences-v2-run-f.json \
+  --raw-occurrences work/task19-1939-pilot/raw-occurrences-v2-run-f.json \
+  --calamari-first-pdf-page 496 \
+  --wrapper-out work/task19-1939-pilot/human-anchored-candidates-v3-run-a.json \
+  --evidence-out work/task19-1939-pilot/human-evidence-v3-run-a.json \
+  --report-out work/task19-1939-pilot/human-anchor-report-v3-run-a.json \
+  --rewritten-choices-out work/task19-1939-pilot/1939-review-kladd-rewritten-v3-run-a.json
+
+jq '{anchored_count, parked_count, parked}' \
+  work/task19-1939-pilot/human-anchor-report-v3-run-a.json
+
+/usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_coverage_1939.py \
+  --choices-to-decisions work/task19-1939-pilot/1939-review-kladd-rewritten-v3-run-a.json \
+  --queue-manifest work/task19-1939-pilot/review-queue-manifest-v2-run-e.json \
+  --anchored-candidates work/task19-1939-pilot/human-anchored-candidates-v3-run-a.json \
+  --out work/task19-1939-pilot/coverage-decisions-v3-run-a.json
+```
+
+Læs altid hele parkeringsrapporten, og undersøg hver parkering; adapteren gætter
+aldrig. `human-evidence`-filen er det source-bundne join-grundlag for den senere
+publikationsgate. Hvis privat coverage efter en særskilt godkendelse skal
+materialiseres, bruges de konverterede beslutninger og de samme fastlåste kilder:
+
+```bash
+/usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_coverage_1939.py \
+  --calamari ../../../work_1939_stamtavle/full_ocr_calamari_r6_clean.txt \
+  --raw ../../../work_1939_stamtavle/raw.txt \
+  --pdf "../../../Dansk Adels Aarbog - Reventlow 1939.pdf" \
+  --baseline ../../../work_1939_stamtavle/clean_1939_v2.json \
+  --decisions work/task19-1939-pilot/coverage-decisions-v3-run-a.json \
+  --out work/task19-1939-pilot/coverage-v3-run-a.json
+```
 
 `work/`-artefakterne og browserens eksport er private og ignorerede; de må aldrig
 committes. Overskriv eller slet ikke tidligere resultater for at genkøre: vælg nye,
 versionssuffikserede filnavne. Et `GO` fra et review-værktøj er kun review-go; det er
-ikke database-, loader- eller deployment-GO.
+ikke database-, loader- eller deployment-GO. Materialisering, DB-skrivning og deploy
+kræver hver deres særskilte godkendelse.
 
 V2-piloten bruger `dual-evidence-v2.json` som source-bundet evidens og den komplette,
 stadig uafgjorte `coverage-review-v2.json` som konservativ review-template: poster

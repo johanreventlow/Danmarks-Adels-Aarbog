@@ -2,6 +2,23 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Menneskevalg: approval er identitetsankeret; råbroen er valgfri (2026-08-06)
+
+**Besluttet:** Et valideret menneskevalg bindes til det eksakte, hash-fastlåste
+Calamari-span med `approval.kind = human_approved_span_v1`. En invariant
+Calamari↔rå-OCR-occurrence-bro registreres, når den findes entydigt, men er ikke
+et krav for et menneskegodkendt valg: mennesket har allerede truffet
+identitetsafgørelsen, og råbroen tilføjer redundant proveniens. Automatiske
+afgørelser beholder kravet om dual-rendition-evidens. Globale krav om entydigt
+ejerskab, kandidat-id-injektivitet og ikke-overlappende spans er uændrede.
+
+**Udskudt backlog:** Slutarkets store occurrence på side 597–598 resegmenteres
+ikke nu. Approval-stien gør den manglende invariante råbro ikke-blokerende, mens en
+resegmentering ville ændre occurrence-identiteter og alignment på tværs af de
+fastlåste artefakter uden at tilføje identitetssikkerhed til de allerede
+menneskegodkendte valg. Arbejdet genåbnes kun, hvis senere automatisk behandling
+kræver finere occurrence-grænser.
+
 ## Kanonisk låseorden + id-gulv over versioneringshistorik (2026-07-31)
 
 **Besluttet (af sol-review-cyklussen):** (1) Alle scripts/migrationer der LOCKer flere

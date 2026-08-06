@@ -1,5 +1,23 @@
 # Changelog
 
+## Menneskegodkendte 1939-valg kan efterforankres fail-closed (2026-08-06)
+
+Et uafhængigt review fandt en reel blindgyde: browserens fagligt godkendte
+kandidatvalg kunne eksporteres, men ingen komponent producerede den
+anchored-candidates-wrapper, som slutkonverteringen kræver. Den nye
+`anchor_review_choices_1939.py` validerer eksport og kildehashes, genskaber det
+valgte Calamari-span deterministisk, registrerer en invariant rå-OCR-bro hvor den
+findes og ellers en eksplicit menneskelig approval. Den skriver samtidig en
+omskrevet choice-eksport og human-evidence til publikationsgatens kildejoin; ingen
+`presentation:`-identitet bliver accepteret direkte.
+
+Real-data-replayet bevarede alle 25 ikke-audit menneskevalg uden fejlmatch: 13 fik
+bytevalideret råbro og 12 approval alene; konverteringen gav 25 `accepteret`, de
+fem `no_candidate_fits` forblev parkeret som `menneskeark`, og alle fem auditvalg
+blev `audit_confirmed`. En eksporteret 35-valgs kladde kan desuden genindlejres
+felt-for-felt i et nyt menneskeark. Resultatet er et review-/filworkflow; det er
+ikke i sig selv database-, loader- eller deployment-GO.
+
 ## Trin B: fakta-efterudtrækket i prod — v3 live (2026-07-31, aften)
 
 Anden replace samme dag (kæden er nu rutine): terra udtrak fakta af alle 546
