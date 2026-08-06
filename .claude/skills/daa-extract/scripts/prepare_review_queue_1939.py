@@ -223,6 +223,28 @@ def _is_completed(decision: dict | None) -> bool:
     return True
 
 
+_BOUNDARY_CONTEXT_DA = {
+    "boundary_disagreement": "Calamari: postgrænsen afviger · rå OCR: postgrænsen afviger.",
+    "predecessor_disagreement": "Calamari: foregående post afviger · rå OCR: foregående post afviger.",
+    "successor_disagreement": "Calamari: følgende post afviger · rå OCR: følgende post afviger.",
+    "missing_in_calamari": "Calamari: ingen sikker postgrænse · rå OCR: postgrænse fundet.",
+    "missing_in_raw_ocr": "Calamari: postgrænse fundet · rå OCR: ingen sikker postgrænse.",
+    "multiple_calamari_occurrences": "Calamari: flere mulige postgrænser · rå OCR: én sammenligning mulig.",
+    "multiple_raw_occurrences": "Calamari: én sammenligning mulig · rå OCR: flere mulige postgrænser.",
+}
+
+
+def _boundary_context(classification: Mapping) -> str:
+    """Provide a brief human diagnostic without exposing source hashes by default."""
+    supplied = classification.get("boundary_context")
+    if isinstance(supplied, str) and supplied.strip():
+        return supplied
+    reason_code = classification.get("reason_code")
+    if reason_code in _BOUNDARY_CONTEXT_DA:
+        return _BOUNDARY_CONTEXT_DA[reason_code]
+    return "Calamari: ukendt · rå OCR: ukendt. Kræver menneskelig vurdering."
+
+
 def _view_record(record: dict, classification: dict, nearby: list[dict], is_audit: bool,
                  decision: dict | None) -> dict:
     candidates = [_presentation_candidate(candidate) for candidate in nearby]
@@ -244,6 +266,7 @@ def _view_record(record: dict, classification: dict, nearby: list[dict], is_audi
         "queue_class": queue_class,
         "reason_code": copy.deepcopy(classification.get("reason_code")),
         "reason_da": copy.deepcopy(classification.get("reason_da")),
+        "boundary_context": _boundary_context(classification),
         "is_audit": is_audit,
         "is_completed": completed,
         "candidate_count": len(candidates),
@@ -288,8 +311,6 @@ def build_review_view_model(baseline: list[dict], manifest: dict,
     views = {
         "required": [record["record_key"] for record in view_records
                      if record["queue_class"] in {"human_required", "source_blocked"}],
-        "automatic": [record["record_key"] for record in view_records
-                      if record["queue_class"] == "auto_resolved"],
         "audit": [record["record_key"] for record in view_records if record["is_audit"]],
         "completed": [record["record_key"] for record in view_records if record["is_completed"]],
     }
@@ -299,7 +320,7 @@ def build_review_view_model(baseline: list[dict], manifest: dict,
         "default_view": "required",
         "summary": {
             "required": len(views["required"]),
-            "automatic": len(views["automatic"]),
+            "automatic": sum(record["queue_class"] == "auto_resolved" for record in view_records),
             "audit": len(views["audit"]),
             "completed": len(views["completed"]),
             "source_blocked": sum(

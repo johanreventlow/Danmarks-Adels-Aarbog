@@ -219,6 +219,28 @@ def test_main_escapes_mixed_case_closing_script_in_source_text(tmp_path, monkeyp
     assert payload["records"][0]["narrative"] == hostile_text
 
 
+def test_main_escapes_mixed_case_closing_script_in_diagnostic_reason(tmp_path, monkeypatch):
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    hostile_reason = 'Før </ScRiPt><img data-injected="reason"> efter'
+    queue_value = json.loads(queue.read_text(encoding="utf-8"))
+    queue_value["entries"][0].update(
+        reason_code="boundary_disagreement", reason_da=hostile_reason,
+    )
+    queue.write_text(json.dumps(queue_value), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
+
+    assert subject.main() == 0
+
+    rendered = out.read_text(encoding="utf-8")
+    assert len(re.findall(r"<script\b", rendered, flags=re.IGNORECASE)) == 1
+    assert '<img data-injected="reason">' not in rendered
+    payload = json.loads(re.search(
+        r"const DATA=(.*?);\n\(function \(global\)", rendered,
+    ).group(1))
+    assert payload["records"][0]["reason_da"] == hostile_reason
+
+
 @pytest.mark.parametrize("which", ["baseline", "queue", "review", "source"])
 def test_main_rejects_disagreeing_hashes(tmp_path, monkeypatch, which):
     baseline, review, queue, source, calamari = _write_inputs(tmp_path)

@@ -83,7 +83,6 @@ function viewModel(records: any[], source = {}, sourceBlocked: any = 0) {
       audit: records.filter(r => r.is_audit).length, completed: 0, source_blocked: sourceBlocked },
     views: {
       required: records.filter(r => r.queue_class !== 'auto_resolved').map(r => r.record_key),
-      automatic: records.filter(r => r.queue_class === 'auto_resolved').map(r => r.record_key),
       audit: records.filter(r => r.is_audit).map(r => r.record_key),
       completed: [],
     },
@@ -113,6 +112,63 @@ afterEach(() => {
 });
 
 describe('human 1939 review controller', () => {
+  it('starts on exceptions and exposes automatic records only as samples', () => {
+    startReview({ storage: memoryStorage(), records: [
+      humanRecord('rk-human', 'candidate-human'),
+      automaticRecord('rk-audit', 'candidate-audit', true),
+      automaticRecord('rk-hidden', 'candidate-hidden'),
+    ] });
+
+    expect(document.body.textContent).toContain('rk-human');
+    expect(document.body.textContent).not.toContain('rk-audit');
+    expect(document.body.textContent).not.toContain('rk-hidden');
+    document.querySelector<HTMLButtonElement>('[data-view="audit"]')!.click();
+    expect(document.body.textContent).toContain('rk-audit');
+    expect(document.body.textContent).not.toContain('rk-hidden');
+  });
+
+  it('preserves save, reload, undo and export behavior in V2', () => {
+    const storage = memoryStorage();
+    const first = startReview({ storage, records: [humanRecord('rk-1', 'candidate-1')] });
+    document.querySelector<HTMLButtonElement>('[data-action="select-candidate"]')!.click();
+    expect(document.querySelector('[data-role="save-state"]')!.textContent).toContain('gemt lokalt');
+    expect(first.controller.undo()).toBe(true);
+    expect(first.controller.choose('human_selected_candidate', { candidate_id: 'candidate-1' })).toBe(true);
+    document.body.innerHTML = '';
+    const second = startReview({ storage, records: [humanRecord('rk-1', 'candidate-1')] });
+    expect(document.body.textContent).toContain('Nuværende valg: human_selected_candidate');
+    expect(first.controller.exportDraft().schema_version).toBe(1);
+    second.controller.exportDraft();
+  });
+
+  it('renders hostile diagnostics as text and falls back for an unknown reason code', () => {
+    const record = humanRecord('rk-[<Volrad>]', 'candidate-1');
+    record.reason_code = 'fremtidig_ukendt_kode';
+    record.reason_da = 'Før </ScRiPt><img data-injected="reason"> efter';
+    startReview({ storage: memoryStorage(), records: [record] });
+
+    expect(document.body.textContent).toContain(record.reason_da);
+    expect(document.querySelector('[data-injected="reason"]')).toBeNull();
+    expect(document.querySelector('[data-role="boundary-context"]')!.textContent)
+      .toBe('Calamari: ukendt · rå OCR: ukendt. Kræver menneskelig vurdering.');
+  });
+
+  it('keeps an empty audit stratum separate from a source-blocked-only queue', () => {
+    const record = humanRecord('rk-blocked', 'candidate-1');
+    record.queue_class = 'source_blocked';
+    record.reason_code = 'missing_in_raw_ocr';
+    record.reason_da = 'Rå OCR mangler for denne post.';
+    record.boundary_context = 'Calamari: postgrænse fundet · rå OCR: ingen sikker postgrænse.';
+    const { controller } = startReview({ storage: memoryStorage(), records: [record], sourceBlocked: 1 });
+
+    expect(document.body.textContent).toContain('rk-blocked');
+    expect(document.body.textContent).toContain(record.boundary_context);
+    expect(document.querySelector('[data-view="audit"]')!.textContent).toContain('(0)');
+    document.querySelector<HTMLButtonElement>('[data-view="audit"]')!.click();
+    expect(document.body.textContent).toContain('Der er ingen poster i denne visning.');
+    expect(controller.selectedKey).toBeUndefined();
+  });
+
   it('records the candidate id, persists it, and confirms success', () => {
     const storage = memoryStorage();
     const { controller } = startReview({ storage, records: [humanRecord('rk-1', 'candidate-1')] });
@@ -620,12 +676,12 @@ describe('human 1939 review controller', () => {
     expect(JSON.parse(storage.getItem(controller.storageKey)!).decisions).toEqual({});
   });
 
-  it('undo preserves the automatic queue and its selected record', () => {
+  it('undo preserves the audit queue and its selected record', () => {
     const { controller } = startReview({ storage: memoryStorage(), records: [
       humanRecord('rk-1', 'c-1'), automaticRecord('rk-2', 'c-2', true),
       automaticRecord('rk-3', 'c-3', true),
     ] });
-    controller.setView('automatic');
+    controller.setView('audit');
     controller.choose('human_selected_candidate', { candidate_id: 'c-2' });
 
     expect(controller.undo()).toBe(true);
@@ -634,35 +690,24 @@ describe('human 1939 review controller', () => {
     expect(document.querySelector('[data-role="record-list"]')!.textContent).not.toContain('Navn rk-1');
   });
 
-  it('filters automatic and audit records and displays the audit label', () => {
+  it('filters deterministic audit records and displays the audit label', () => {
     const { controller } = startReview({ storage: memoryStorage(), records: [
       humanRecord('rk-1', 'c-1'), automaticRecord('rk-2', 'c-2', true),
     ] });
 
-    controller.setView('automatic');
+    controller.setView('audit');
     expect(controller.selectedKey).toBe('rk-2');
     expect(document.querySelector('[data-role="record-list"]')!.textContent).toContain('Navn rk-2');
-    controller.setView('audit');
     expect(document.querySelector('[data-role="audit-label"]')!.textContent).toContain('Kontrolprøve');
   });
 
-  it('keeps non-audit auto-resolved records inspectable but rejects and hides decisions', () => {
+  it('keeps non-audit auto-resolved records out of the browser views', () => {
     const records = [automaticRecord('rk-auto', 'c-auto'), automaticRecord('rk-auto-2', 'c-auto-2')];
     const { controller } = startReview({ storage: memoryStorage(), records });
 
-    controller.setView('automatic');
-
-    expect(controller.selectedKey).toBe('rk-auto');
-    expect(document.querySelector('[data-role="decision-controls"]')).toBeNull();
-    expect(document.querySelector('[data-action="select-candidate"]')).toBeNull();
-    expect(document.querySelector('[data-role="navigation"]')).not.toBeNull();
-    document.querySelector<HTMLButtonElement>('[data-action="next"]')!.click();
-    expect(controller.selectedKey).toBe('rk-auto-2');
-    expect(controller.choose('human_selected_candidate', { candidate_id: 'c-auto-2' })).toBe(false);
-    expect(controller.exportDraft().entries[1]).toEqual({
-      baseline_record_key: 'rk-auto-2', draft: true,
-    });
-    expect(document.querySelector('[data-role="save-state"]')!.textContent).toContain('skrivebeskyt');
+    expect(controller.setView('automatic')).toBe(false);
+    expect(controller.selectedKey).toBeUndefined();
+    expect(document.querySelector('[data-role="record-list"]')!.textContent).not.toContain('rk-auto');
   });
 
   it('keeps audit auto-resolved records actionable', () => {
@@ -832,12 +877,12 @@ describe('human 1939 review controller', () => {
     expect(document.querySelector('[data-role="save-state"]')!.textContent).toContain('allerede valgt');
   });
 
-  it('keeps automatic review in its own view after a persisted choice', () => {
+  it('keeps audit review in its own view after a persisted choice', () => {
     const { controller } = startReview({ storage: memoryStorage(), records: [
       humanRecord('rk-1', 'c-1'), automaticRecord('rk-2', 'c-2', true),
       automaticRecord('rk-3', 'c-3', true),
     ] });
-    controller.setView('automatic');
+    controller.setView('audit');
 
     expect(controller.choose('human_selected_candidate', { candidate_id: 'c-2' })).toBe(true);
 

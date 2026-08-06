@@ -107,18 +107,16 @@ def test_multpage_candidate_is_deduplicated_by_candidate_id():
     assert [c["candidate_id"] for c in model["records"][0]["candidates"]] == ["c-1"]
 
 
-def test_required_is_default_and_automatic_remains_inspectable():
+def test_default_view_contains_only_real_exceptions():
     model = build_review_view_model(
         [baseline("rk-a"), baseline("rk-h")],
         manifest(automatic("rk-a"), human("rk-h")),
         {"rk-a": [], "rk-h": []}, [], {},
     )
-    assert model["summary"] == {
-        "required": 1, "automatic": 1, "audit": 0, "completed": 0, "source_blocked": 0,
-    }
     assert model["default_view"] == "required"
     assert model["views"]["required"] == ["rk-h"]
-    assert model["views"]["automatic"] == ["rk-a"]
+    assert model["views"]["audit"] == []
+    assert "automatic" not in model["views"]
 
 
 def test_top_three_is_presentation_only_and_all_candidates_survive():
@@ -254,13 +252,45 @@ def test_conflicting_duplicate_candidate_fails_closed():
         )
 
 
-def test_audit_records_are_automatic_and_are_exposed_in_their_own_view():
+def test_audit_records_are_automatic_but_are_exposed_only_as_deterministic_samples():
     model = build_review_view_model(
         [baseline("rk-1")], manifest(automatic("rk-1")), {}, ["rk-1"], {},
     )
-    assert model["views"]["automatic"] == ["rk-1"]
     assert model["views"]["audit"] == ["rk-1"]
     assert model["records"][0]["is_audit"] is True
+
+
+def test_diagnostic_reason_is_danish_specific_and_compares_boundaries():
+    entry = human("rk-1", "boundary_disagreement")
+    entry["reason_da"] = "OCR-kilderne er uenige om postens grænse."
+    record = build_review_view_model(
+        [baseline("rk-1")], manifest(entry), {}, [], {},
+    )["records"][0]
+
+    assert record["reason_code"] == "boundary_disagreement"
+    assert "grænse" in record["reason_da"].lower()
+    assert "Calamari" in record["boundary_context"]
+    assert "rå OCR" in record["boundary_context"]
+
+
+def test_unknown_diagnostic_is_fail_closed_and_never_automatic():
+    entry = human("rk-1", "fremtidig_ukendt_kode")
+    record = build_review_view_model(
+        [baseline("rk-1")], manifest(entry), {}, [], {},
+    )["records"][0]
+
+    assert record["queue_class"] == "human_required"
+    assert record["boundary_context"] == "Calamari: ukendt · rå OCR: ukendt. Kræver menneskelig vurdering."
+
+
+def test_successor_disagreement_retains_a_short_successor_context_once():
+    entry = human("rk-volrad", "successor_disagreement")
+    entry["boundary_context"] = "Calamari: næste post Volrad · rå OCR: næste post Emeke."
+    record = build_review_view_model(
+        [baseline("rk-volrad")], manifest(entry), {}, [], {},
+    )["records"][0]
+
+    assert record["boundary_context"].count("Emeke") == 1
 
 
 def test_source_blocked_is_required_with_visible_reason_and_subcount():

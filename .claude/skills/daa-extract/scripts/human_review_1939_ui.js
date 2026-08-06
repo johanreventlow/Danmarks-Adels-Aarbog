@@ -504,7 +504,7 @@
   }
 
   function setView(state, view) {
-    if (!['required', 'automatic', 'audit', 'completed'].includes(view)) return false;
+    if (!['required', 'audit', 'completed'].includes(view)) return false;
     state.activeView = view;
     normalizeSelection(state);
     render(state);
@@ -544,10 +544,11 @@
 
   function renderDashboard(state, root) {
     const dashboard = element('section', undefined, { 'data-role': 'dashboard' });
-    const names = { required: 'Kræver menneskeark', automatic: 'Automatiske', audit: 'Kontrolprøve', completed: 'Afsluttede' };
-    ['required', 'automatic', 'audit', 'completed'].forEach(view => {
+    const names = { required: 'Kræver menneskeark', audit: 'Stikprøver', completed: 'Afsluttede' };
+    ['required', 'audit', 'completed'].forEach(view => {
       const count = keysForView(state, view).length;
       const button = actionButton(`${names[view]} (${count})`, 'set-view', { view });
+      button.dataset.view = view;
       if (view === state.activeView) button.setAttribute('aria-current', 'true');
       dashboard.append(button);
     });
@@ -606,7 +607,8 @@
   function renderDuplicateOptions(state, record, duplicate) {
     duplicate.replaceChildren(element('option', 'Vælg mulig dublet', { value: '' }));
     const duplicateSearch = state.duplicateSearch.toLowerCase();
-    state.records.filter(other => other.record_key !== record.record_key)
+    visibleKeys(state).map(key => state.recordByKey.get(key))
+      .filter(other => other && other.record_key !== record.record_key)
       .filter(other => !duplicateSearch || `${other.navn || ''} ${other.record_key}`
         .toLowerCase().includes(duplicateSearch))
       .forEach(other => {
@@ -622,6 +624,10 @@
     }
     root.append(element('h1', record.navn || '(uden navn)'));
     root.append(element('p', `PDF-sider: ${record.sider || 'ukendt'} · Klasse: ${record.queue_class} · Årsag: ${record.reason_da || record.reason_code || 'ukendt'}`));
+    root.append(element('p', record.boundary_context
+      || 'Calamari: ukendt · rå OCR: ukendt. Kræver menneskelig vurdering.', {
+      'data-role': 'boundary-context',
+    }));
     if (record.is_audit) root.append(element('p', 'Kontrolprøve: denne automatiske afgørelse skal også læses af et menneske.', { 'data-role': 'audit-label' }));
     root.append(element('h2', 'Gammel kildetekst'));
     root.append(element('pre', record.narrative || ''));
