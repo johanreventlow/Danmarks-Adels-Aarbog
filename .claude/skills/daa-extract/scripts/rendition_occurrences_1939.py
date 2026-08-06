@@ -319,7 +319,7 @@ def extract_rendition_occurrences(source_text: str, *, rendition: str,
         "source_sha256": _sha256_text(source_text),
         "source_length": len(source_text),
         "page_mapping_id": (
-            "calamari-r6-to-pdf-v1" if rendition == "calamari" else "raw-ocr-physical-pdf-v1"
+            "calamari-r6-to-pdf-v1" if rendition == "calamari" else "raw-absolute-pdf-v1"
         ),
         "page_mapping_points": [list(point) for point in page_mapping] if page_mapping else [],
         "occurrences": occurrences,

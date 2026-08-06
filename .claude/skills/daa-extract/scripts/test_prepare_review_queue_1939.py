@@ -315,6 +315,34 @@ def test_source_bound_successor_disagreement_carries_emeke_to_the_view_model_onc
     assert record["boundary_context"].count("Emeke") == 1
 
 
+def test_exact_raw_anchor_failure_reaches_queue_and_view_with_specific_source_diagnosis():
+    source_baseline = json.dumps([{
+        "record_key": "rk-volrad", "_v2_lokal_id": "I.1",
+        "_narrativ_kilde": "raw", "narrative": "Volrad",
+    }]).encode("utf-8")
+    evidence, _, _ = build_source_bound_evidence(
+        source_baseline,
+        b"### PAGE 1 ###\n1. Volrad\n",
+        b"### PAGE 496 ###\n1. V o l r a d\n",
+        b"%PDF-synthetic", profile_version="1939-v2",
+    )
+    queue = subject.classify_review_entries(
+        evidence["source"], {"rk-volrad"}, evidence["entries"],
+    )
+    record = build_review_view_model(
+        [baseline("rk-volrad")], queue, {}, [], {},
+    )["records"][0]
+
+    assert evidence["entries"][0]["conflicts"] == ["missing_exact_baseline_narrative"]
+    assert evidence["entries"][0]["anchor_rendition"] == "raw_ocr"
+    assert record["reason_code"] == "missing_exact_baseline_narrative"
+    assert record["reason_da"] == (
+        "Det lagrede narrativ findes ikke præcist én gang i rå OCR; "
+        "derfor findes ingen positiv kildebro."
+    )
+    assert record["boundary_context"] == "Rå OCR: intet præcist, entydigt narrativanker."
+
+
 def test_source_bound_successor_shows_different_excerpts_per_source():
     source_baseline = json.dumps([
         {"record_key": "rk-volrad", "_v2_lokal_id": "I.1",
@@ -479,9 +507,11 @@ def test_inputs_are_not_mutated():
 
 
 def test_report_accounts_for_every_record_and_fails_closed():
+    auto = queue_entry("rk-a", "auto_resolved", "complete_unique_anchored_candidate")
+    auto.update(rule_id="complete_anchor_v1", postklasse="nummereret")
     report = build_queue_report(
         report_manifest(
-            queue_entry("rk-a", "auto_resolved", "complete_unique_anchored_candidate"),
+            auto,
             queue_entry("rk-h", "human_required", "multiple_candidates"),
             queue_entry("rk-b", "source_blocked", "raw_ocr_missing"),
         ),
@@ -498,6 +528,15 @@ def test_report_accounts_for_every_record_and_fails_closed():
         "multiple_candidates": 1,
         "raw_ocr_missing": 1,
     }
+    assert report["classification_matrix"] == [
+        {"queue_class": "auto_resolved", "reason_code": "complete_unique_anchored_candidate",
+         "rule_id": "complete_anchor_v1", "postklasse": "nummereret", "count": 1},
+        {"queue_class": "human_required", "reason_code": "multiple_candidates",
+         "rule_id": "ikke_fastlagt", "postklasse": "ikke_fastlagt", "count": 1},
+        {"queue_class": "source_blocked", "reason_code": "raw_ocr_missing",
+         "rule_id": "ikke_fastlagt", "postklasse": "ikke_fastlagt", "count": 1},
+    ]
+    assert sum(row["count"] for row in report["classification_matrix"]) == 3
     assert report["collision_overlap_counts"] == {
         "candidate_collision": 0,
         "calamari_span_overlap": 0,

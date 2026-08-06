@@ -66,6 +66,23 @@ def _anchor_counts(records: list[dict], anchors: dict[str, dict]) -> dict[str, d
     }
 
 
+def _anchor_failure_reason_counts(
+    records: list[dict], anchors: dict[str, dict],
+) -> dict[str, dict[str, int]]:
+    counts = {"calamari": Counter(), "raw_ocr": Counter(), "unknown": Counter()}
+    for record in records:
+        rendition = _NARRATIVE_RENDITIONS.get(record["_narrativ_kilde"], "unknown")
+        anchor = anchors[record["record_key"]]
+        if anchor.get("status") != "unique_exact_anchor":
+            reason = anchor.get("reason")
+            if isinstance(reason, str):
+                counts[rendition][reason] += 1
+    return {
+        rendition: dict(sorted(counter.items()))
+        for rendition, counter in sorted(counts.items())
+    }
+
+
 def _report(
     evidence: dict, baseline: list[dict], calamari_text: str, raw_text: str,
     calamari_occurrences: dict, raw_occurrences: dict,
@@ -94,6 +111,7 @@ def _report(
         "source": evidence["source"],
         "baseline_total": len(baseline),
         "exact_anchor_counts": _anchor_counts(baseline, anchors),
+        "exact_anchor_failure_reason_counts": _anchor_failure_reason_counts(baseline, anchors),
         "occurrence_counts": {
             "calamari": len(calamari_occurrences["occurrences"]),
             "raw_ocr": len(raw_occurrences["occurrences"]),

@@ -190,6 +190,14 @@ reasons are:
 - `known_overview_duplicate`;
 - `source_material_missing`.
 
+Exact-anchor failures are also retained through evidence, queue and the HTML
+view rather than being collapsed to a structural fallback:
+`missing_exact_baseline_narrative`, `repeated_exact_baseline_narrative`,
+`anchor_outside_occurrence`, `anchor_occurrence_collision`, and
+`unknown_narrative_source`. When the pinned narrative source is known, the
+private diagnostic names Calamari or raw OCR; it never describes a broad OCR
+occurrence as a positive source bridge.
+
 A source file that is absent, has a wrong hash, cannot be decoded, or cannot be
 fully accounted for blocks generation. It does not yield a partial positive
 artifact.
@@ -284,6 +292,11 @@ The private run must:
 - leave all earlier private artifacts byte-for-byte unchanged.
 
 The report records exact counts by queue class, post class, rule and reason code.
+Its canonical classification matrix covers every baseline entry; a human or
+source-blocked entry without a reliable rule or post class uses
+`ikke_fastlagt`, never an omitted stratum. The dual-evidence report also records
+exact-anchor failure reasons separately for Calamari, raw OCR and unknown
+narrative source.
 No target count of automatic records is a correctness criterion. A low automatic
 count is acceptable; a false positive is not.
 

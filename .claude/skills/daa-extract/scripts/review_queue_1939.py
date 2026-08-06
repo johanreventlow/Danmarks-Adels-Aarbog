@@ -34,6 +34,11 @@ _CONSENSUS_CONFLICT_CODES = {
     "span_overlap",
     "ambiguous_structure",
     "known_overview_duplicate",
+    "missing_exact_baseline_narrative",
+    "repeated_exact_baseline_narrative",
+    "anchor_outside_occurrence",
+    "anchor_occurrence_collision",
+    "unknown_narrative_source",
 }
 _HUMAN_REASONS_DA = {
     "no_candidate": "Ingen kandidat med komplet kildebro.",
@@ -57,6 +62,11 @@ _HUMAN_REASONS_DA = {
     "span_overlap": "Kildeintervallet overlapper en anden post.",
     "ambiguous_structure": "Kildestrukturen er ikke entydig.",
     "known_overview_duplicate": "Kendt oversigtsdublet kræver menneskelig vurdering.",
+    "missing_exact_baseline_narrative": "Det lagrede narrativ findes ikke præcist én gang i den angivne OCR-kilde; derfor findes ingen positiv kildebro.",
+    "repeated_exact_baseline_narrative": "Det lagrede narrativ forekommer flere gange i den angivne OCR-kilde; derfor findes ingen entydig positiv kildebro.",
+    "anchor_outside_occurrence": "Det lagrede narrativ ligger ikke inden for præcis én kildepost; derfor findes ingen positiv kildebro.",
+    "anchor_occurrence_collision": "Den samme kildepost kræves af flere baseline-poster; derfor findes ingen positiv kildebro.",
+    "unknown_narrative_source": "Postens narrativesource er ukendt; derfor findes ingen positiv kildebro.",
 }
 _SOURCE_BLOCKER_DIAGNOSTICS_DA = {
     "raw_ocr_missing": (
@@ -243,7 +253,10 @@ def _classify_one(key: str, evidence: dict, source: dict) -> dict:
     conflict_reason = _allowlisted_consensus_conflict(evidence.get("conflicts"))
     if len(candidates) != 1:
         if not candidates and conflict_reason is not None:
-            return _human(key, conflict_reason, evidence.get("boundary_evidence"))
+            return _human(
+                key, conflict_reason, evidence.get("boundary_evidence"),
+                evidence.get("anchor_rendition"),
+            )
         if evidence.get("conflicts"):
             return _human(key, "evidence_conflict")
         return _human(key, "no_candidate" if not candidates else "multiple_candidates")
@@ -257,6 +270,7 @@ def _classify_one(key: str, evidence: dict, source: dict) -> dict:
     if evidence.get("conflicts"):
         return _human(
             key, conflict_reason or "evidence_conflict", evidence.get("boundary_evidence"),
+            evidence.get("anchor_rendition"),
         )
     if not _nonempty_optional_string(evidence.get("rule_id")):
         return _human(key, "missing_rule_id")
@@ -354,15 +368,33 @@ def _automatic(key: str, candidate: object, rule_id: str) -> dict:
     }
 
 
-def _human(key: str, reason_code: str, boundary_evidence: object = None) -> dict:
+def _human_reason_da(reason_code: str, anchor_rendition: object) -> str:
+    source_da = {"calamari": "Calamari", "raw_ocr": "rå OCR"}.get(anchor_rendition)
+    if reason_code == "missing_exact_baseline_narrative" and source_da:
+        return f"Det lagrede narrativ findes ikke præcist én gang i {source_da}; derfor findes ingen positiv kildebro."
+    if reason_code == "repeated_exact_baseline_narrative" and source_da:
+        return f"Det lagrede narrativ forekommer flere gange i {source_da}; derfor findes ingen entydig positiv kildebro."
+    if reason_code == "anchor_outside_occurrence" and source_da:
+        return f"Det lagrede narrativ ligger ikke inden for præcis én {source_da}-post; derfor findes ingen positiv kildebro."
+    if reason_code == "anchor_occurrence_collision" and source_da:
+        return f"Den samme {source_da}-post kræves af flere baseline-poster; derfor findes ingen positiv kildebro."
+    return _HUMAN_REASONS_DA[reason_code]
+
+
+def _human(
+    key: str, reason_code: str, boundary_evidence: object = None,
+    anchor_rendition: object = None,
+) -> dict:
     result = {
         "baseline_record_key": key,
         "queue_class": "human_required",
         "reason_code": reason_code,
-        "reason_da": _HUMAN_REASONS_DA[reason_code],
+        "reason_da": _human_reason_da(reason_code, anchor_rendition),
     }
     if boundary_evidence is not None:
         result["boundary_evidence"] = copy.deepcopy(boundary_evidence)
+    if anchor_rendition in {"calamari", "raw_ocr"}:
+        result["anchor_rendition"] = anchor_rendition
     return result
 
 

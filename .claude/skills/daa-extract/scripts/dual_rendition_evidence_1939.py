@@ -28,6 +28,11 @@ _CONFLICT_CODES = {
     "span_overlap",
     "ambiguous_structure",
     "known_overview_duplicate",
+    "missing_exact_baseline_narrative",
+    "repeated_exact_baseline_narrative",
+    "anchor_outside_occurrence",
+    "anchor_occurrence_collision",
+    "unknown_narrative_source",
 }
 _BOUNDARY_EXCERPT_LIMIT = 160
 
@@ -112,6 +117,8 @@ def _materialize_complete_evidence(
         }
         if result["status"] != "consensus":
             entry["conflicts"] = [_consensus_conflict(result)]
+            if result.get("anchor_rendition") in NARRATIVE_SOURCES.values():
+                entry["anchor_rendition"] = result["anchor_rendition"]
             boundary_evidence = _boundary_evidence(
                 result, calamari_by_id, raw_by_id, calamari_text, raw_text,
             )
@@ -321,27 +328,30 @@ def _validated_occurrence_index(manifest: object, source_text: str, rendition: s
     return tuple(validated)
 
 
-def _unanchored(record_key: str, reason: str) -> dict:
-    return {"record_key": record_key, "status": "unanchored", "reason": reason}
+def _unanchored(record_key: str, reason: str, rendition: str | None = None) -> dict:
+    result = {"record_key": record_key, "status": "unanchored", "reason": reason}
+    if rendition in NARRATIVE_SOURCES.values():
+        result["rendition"] = rendition
+    return result
 
 
 def _locate_one_exact_anchor(record: dict, source_text: str, occurrences: tuple[dict, ...], rendition: str) -> dict:
     record_key = record["record_key"]
     narrative = record["narrative"]
     if not narrative:
-        return _unanchored(record_key, "missing_exact_baseline_narrative")
+        return _unanchored(record_key, "missing_exact_baseline_narrative", rendition)
     first = source_text.find(narrative)
     if first < 0:
-        return _unanchored(record_key, "missing_exact_baseline_narrative")
+        return _unanchored(record_key, "missing_exact_baseline_narrative", rendition)
     if source_text.find(narrative, first + 1) >= 0:
-        return _unanchored(record_key, "repeated_exact_baseline_narrative")
+        return _unanchored(record_key, "repeated_exact_baseline_narrative", rendition)
     end = first + len(narrative)
     owners = [
         occurrence for occurrence in occurrences
         if occurrence["span"]["char_from"] <= first and end <= occurrence["span"]["char_to"]
     ]
     if len(owners) != 1:
-        return _unanchored(record_key, "anchor_outside_occurrence")
+        return _unanchored(record_key, "anchor_outside_occurrence", rendition)
     owner = owners[0]
     return {
         "record_key": record_key,
@@ -360,7 +370,9 @@ def _demote_anchor_occurrence_collisions(anchors: dict[str, dict]) -> dict[str, 
             claimants.setdefault((anchor["rendition"], anchor["occurrence_id"]), []).append(record_key)
     collisions = {record_key for keys in claimants.values() if len(keys) > 1 for record_key in keys}
     for record_key in collisions:
-        anchors[record_key] = _unanchored(record_key, "anchor_occurrence_collision")
+        anchors[record_key] = _unanchored(
+            record_key, "anchor_occurrence_collision", anchors[record_key].get("rendition")
+        )
     return anchors
 
 
@@ -698,10 +710,13 @@ def _reciprocal_occurrence_owners(
 
 def _unanchored_consensus(
     record_key: str, reason: str, boundary_occurrences: dict | None = None,
+    anchor_rendition: str | None = None,
 ) -> dict:
     result = {"record_key": record_key, "status": "unanchored", "reason": reason}
     if boundary_occurrences is not None:
         result["boundary_occurrences"] = boundary_occurrences
+    if anchor_rendition in NARRATIVE_SOURCES.values():
+        result["anchor_rendition"] = anchor_rendition
     return result
 
 
@@ -732,7 +747,11 @@ def _derive_one_consensus(
 ) -> dict:
     if type(anchor) is not dict or anchor.get("status") != "unique_exact_anchor":
         reason = anchor.get("reason") if type(anchor) is dict else None
-        return _unanchored_consensus(record_key, reason if _is_exact_str(reason) else "ambiguous_structure")
+        rendition = anchor.get("rendition") if type(anchor) is dict else None
+        return _unanchored_consensus(
+            record_key, reason if _is_exact_str(reason) else "ambiguous_structure",
+            anchor_rendition=rendition,
+        )
     rendition = anchor.get("rendition")
     occurrence_id = anchor.get("occurrence_id")
     if rendition == "calamari":

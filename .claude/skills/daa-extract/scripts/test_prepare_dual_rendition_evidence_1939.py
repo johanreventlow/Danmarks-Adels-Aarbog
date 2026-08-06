@@ -1,5 +1,6 @@
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -59,6 +60,27 @@ def test_cli_writes_four_exclusive_source_bound_outputs(tmp_path):
     assert report["artifact_sha256"]["evidence"] == hashlib.sha256(
         outputs["evidence"].read_bytes()
     ).hexdigest()
+
+
+def test_cli_reports_exact_anchor_failure_reasons_by_rendition(tmp_path):
+    args, outputs = cli_fixture(tmp_path, suffix="missing-raw-anchor")
+    baseline = Path(args[args.index("--baseline") + 1])
+    raw = Path(args[args.index("--raw") + 1])
+    baseline.write_bytes(json.dumps([{
+        "record_key": "rk-1", "_v2_lokal_id": "I.1",
+        "_narrativ_kilde": "raw", "narrative": "Volrad",
+    }]).encode("utf-8"))
+    raw.write_bytes(b"### PAGE 496 ###\n1. V o l r a d\n")
+
+    assert subject.main(args) == 0
+
+    report = json.loads(outputs["report"].read_text(encoding="utf-8"))
+    assert report["exact_anchor_counts"]["raw_ocr"] == {"unanchored": 1}
+    assert report["exact_anchor_failure_reason_counts"] == {
+        "calamari": {},
+        "raw_ocr": {"missing_exact_baseline_narrative": 1},
+        "unknown": {},
+    }
 
 
 def test_cli_refuses_existing_output_before_reading_sources(tmp_path):

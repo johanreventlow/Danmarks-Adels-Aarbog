@@ -78,6 +78,16 @@ def test_pinned_calamari_map_uses_the_nonlinear_page_points():
     assert result["occurrences"][0]["pdf_pages"] == [555, 575]
 
 
+def test_raw_occurrence_manifest_uses_approved_absolute_pdf_mapping_id():
+    result = extract_rendition_occurrences(
+        "### PAGE 498 ###\n1. Volrad\n",
+        rendition="raw_ocr", page_map=None,
+    )
+
+    assert result["page_mapping_id"] == "raw-absolute-pdf-v1"
+    assert result["occurrences"][0]["pdf_pages"] == [498]
+
+
 def test_pinned_calamari_map_rounds_half_pages_up_deterministically():
     result = extract_rendition_occurrences(
         "### PAGE 84 ###\n1. Alfa\n",

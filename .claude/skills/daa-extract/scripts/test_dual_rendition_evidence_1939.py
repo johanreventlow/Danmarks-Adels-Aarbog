@@ -408,7 +408,8 @@ def test_missing_or_repeated_narrative_never_anchors(text, reason):
         raw_occurrences=occurrence_manifest("raw_ocr", "1. A1fa prosa\n"),
     )
     assert result["rk-1"] == {
-        "record_key": "rk-1", "status": "unanchored", "reason": reason,
+        "record_key": "rk-1", "rendition": "calamari",
+        "status": "unanchored", "reason": reason,
     }
 
 
@@ -472,7 +473,8 @@ def test_empty_narrative_is_never_an_anchor():
         raw_occurrences=occurrence_manifest("raw_ocr", ""),
     )
     assert result["rk-1"] == {
-        "record_key": "rk-1", "status": "unanchored", "reason": "missing_exact_baseline_narrative",
+        "record_key": "rk-1", "rendition": "calamari",
+        "status": "unanchored", "reason": "missing_exact_baseline_narrative",
     }
 
 
@@ -484,7 +486,8 @@ def test_narrative_crossing_two_occurrences_is_not_anchored():
         raw_occurrences=occurrence_manifest("raw_ocr", ""),
     )
     assert result["rk-1"] == {
-        "record_key": "rk-1", "status": "unanchored", "reason": "anchor_outside_occurrence",
+        "record_key": "rk-1", "rendition": "calamari",
+        "status": "unanchored", "reason": "anchor_outside_occurrence",
     }
 
 
@@ -496,8 +499,8 @@ def test_two_records_claiming_one_occurrence_are_both_unanchored():
         raw_occurrences=occurrence_manifest("raw_ocr", ""),
     )
     assert result == {
-        "rk-1": {"record_key": "rk-1", "status": "unanchored", "reason": "anchor_occurrence_collision"},
-        "rk-2": {"record_key": "rk-2", "status": "unanchored", "reason": "anchor_occurrence_collision"},
+        "rk-1": {"record_key": "rk-1", "rendition": "calamari", "status": "unanchored", "reason": "anchor_occurrence_collision"},
+        "rk-2": {"record_key": "rk-2", "rendition": "calamari", "status": "unanchored", "reason": "anchor_occurrence_collision"},
     }
 
 
@@ -509,7 +512,8 @@ def test_near_matches_only_differing_by_whitespace_case_or_soft_hyphen_never_anc
         raw_occurrences=occurrence_manifest("raw_ocr", ""),
     )
     assert result["rk-1"] == {
-        "record_key": "rk-1", "status": "unanchored", "reason": "missing_exact_baseline_narrative",
+        "record_key": "rk-1", "rendition": "calamari",
+        "status": "unanchored", "reason": "missing_exact_baseline_narrative",
     }
 
 
@@ -587,7 +591,8 @@ def test_locator_and_name_without_an_exact_narrative_anchor_stay_human_work():
         "baseline_record_key": "rk-1",
         "candidates": [],
         "positive_provenance": None,
-        "conflicts": ["ambiguous_structure"],
+        "conflicts": ["missing_exact_baseline_narrative"],
+        "anchor_rendition": "calamari",
         "source_blockers": [],
         "rule_id": None,
     }]

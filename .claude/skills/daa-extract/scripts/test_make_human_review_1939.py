@@ -241,6 +241,35 @@ def test_main_escapes_mixed_case_closing_script_in_diagnostic_reason(tmp_path, m
     assert payload["records"][0]["reason_da"] == hostile_reason
 
 
+def test_main_embeds_specific_raw_exact_anchor_failure_diagnosis(tmp_path, monkeypatch):
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    queue_value = json.loads(queue.read_text(encoding="utf-8"))
+    queue_value["entries"][0].update(
+        reason_code="missing_exact_baseline_narrative",
+        reason_da=(
+            "Det lagrede narrativ findes ikke præcist én gang i rå OCR; "
+            "derfor findes ingen positiv kildebro."
+        ),
+        anchor_rendition="raw_ocr",
+    )
+    queue.write_text(json.dumps(queue_value), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
+
+    assert subject.main() == 0
+
+    payload = json.loads(re.search(
+        r"const DATA=(.*?);\n\(function \(global\)", out.read_text(encoding="utf-8")
+    ).group(1))
+    record = payload["records"][0]
+    assert record["reason_code"] == "missing_exact_baseline_narrative"
+    assert record["reason_da"] == (
+        "Det lagrede narrativ findes ikke præcist én gang i rå OCR; "
+        "derfor findes ingen positiv kildebro."
+    )
+    assert record["boundary_context"] == "Rå OCR: intet præcist, entydigt narrativanker."
+
+
 @pytest.mark.parametrize("which", ["baseline", "queue", "review", "source"])
 def test_main_rejects_disagreeing_hashes(tmp_path, monkeypatch, which):
     baseline, review, queue, source, calamari = _write_inputs(tmp_path)

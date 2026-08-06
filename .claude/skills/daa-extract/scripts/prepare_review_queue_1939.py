@@ -46,7 +46,9 @@ _EVIDENCE_ENTRY_FIELDS = {
     "baseline_record_key", "candidates", "positive_provenance", "conflicts",
     "source_blockers", "rule_id",
 }
-_OPTIONAL_EVIDENCE_ENTRY_FIELDS = _EVIDENCE_ENTRY_FIELDS | {"boundary_evidence"}
+_OPTIONAL_EVIDENCE_ENTRY_FIELDS = _EVIDENCE_ENTRY_FIELDS | {
+    "anchor_rendition", "boundary_evidence",
+}
 _BOUNDARY_EXCERPT_LIMIT = 160
 _BOUNDARY_RECORD_LINE_RE = re.compile(r"^\s*\??\s*\d{1,4}[a-z]?\.\s+\S.*$", re.IGNORECASE)
 _CANDIDATE_FIELDS = {
@@ -243,6 +245,19 @@ def _boundary_context(classification: Mapping) -> str:
     source_blocked = classification.get("boundary_context")
     if isinstance(source_blocked, str) and source_blocked.strip():
         return source_blocked
+    if classification.get("reason_code") in {
+        "missing_exact_baseline_narrative",
+        "repeated_exact_baseline_narrative",
+        "anchor_outside_occurrence",
+        "anchor_occurrence_collision",
+    }:
+        source_da = {"calamari": "Calamari", "raw_ocr": "Rå OCR"}.get(
+            classification.get("anchor_rendition")
+        )
+        if source_da:
+            return f"{source_da}: intet præcist, entydigt narrativanker."
+    if classification.get("reason_code") == "unknown_narrative_source":
+        return "Narrativkilden er ukendt; ingen kildebro kan fastslås."
     boundary_evidence = classification.get("boundary_evidence")
     if isinstance(boundary_evidence, Mapping):
         direction = boundary_evidence.get("direction")
@@ -494,6 +509,15 @@ def build_queue_report(
     audit_sample_matches = automatic_candidates_valid and set(expected_audit_keys) == audit_set
 
     reason_counts = Counter(entry["reason_code"] for entry in entries)
+    matrix_counts = Counter(
+        (
+            entry["queue_class"],
+            entry["reason_code"],
+            entry.get("rule_id") if isinstance(entry.get("rule_id"), str) else "ikke_fastlagt",
+            entry.get("postklasse") if isinstance(entry.get("postklasse"), str) else "ikke_fastlagt",
+        )
+        for entry in entries
+    )
     stratum_counts = Counter(
         _stratum(entry) for entry in entries if entry["queue_class"] == "auto_resolved"
     )
@@ -525,6 +549,16 @@ def build_queue_report(
         "audit": len(audit_keys),
         "completed": len(completed_keys),
         "reason_code_counts": dict(sorted(reason_counts.items())),
+        "classification_matrix": [
+            {
+                "queue_class": queue_class,
+                "reason_code": reason_code,
+                "rule_id": rule_id,
+                "postklasse": postklasse,
+                "count": count,
+            }
+            for (queue_class, reason_code, rule_id, postklasse), count in sorted(matrix_counts.items())
+        ],
         "stratum_counts": dict(sorted(stratum_counts.items())),
         "collision_overlap_counts": {
             reason: reason_counts[reason] for reason in _COLLISION_REASONS
@@ -743,6 +777,9 @@ def _source_bound_evidence_entries(
         entry["source_blockers"] = _strict_string_list(
             entry.get("source_blockers"), "source_blocker"
         )
+        anchor_rendition = entry.get("anchor_rendition")
+        if anchor_rendition is not None and anchor_rendition not in {"calamari", "raw_ocr"}:
+            raise ValueError("anchor_rendition har ugyldig kilde")
         _validate_boundary_evidence(
             entry.get("boundary_evidence"), calamari_text, raw_text,
         )
