@@ -638,10 +638,25 @@
     const details = element('details', undefined, { class: 'candidate' });
     if (initiallyVisible) details.open = true;
     const pdfLabel = (candidate.pdf_pages || []).join('-') || 'ukendt';
+    const exactTextFallbackMessages = {
+      entydigt_tekstanker_uden_forventet_side:
+        'Teksten er fundet entydigt i Calamari-OCR uden for det gamle sidetal.',
+      entydigt_tekstanker_uden_parserkandidat:
+        'Teksten er fundet entydigt i Calamari-OCR, men parseren har ikke afgrænset en post.',
+    };
+    const exactTextFallbackMessage = exactTextFallbackMessages[candidate.rank_reason];
+    const isExactTextFallback = Boolean(exactTextFallbackMessage);
     details.append(element('summary', `Mulig kildepost · PDF s. ${pdfLabel}`));
     details.append(element('p', `PDF s. ${(candidate.pdf_pages || []).join('-')} · Calamari-scan ${(candidate.calamari_pages || []).join('-')}`));
-    details.append(element('p', 'Boksens start og slut er parserens foreslåede postgrænse.'));
-    if (typeof candidate.calamari_verbatim_text === 'string'
+    details.append(element('p', isExactTextFallback
+      ? exactTextFallbackMessage
+      : 'Boksens start og slut er parserens foreslåede postgrænse.'));
+    if (isExactTextFallback) {
+      details.append(element('h3', 'Calamari-OCR – entydigt tekstfund', { class: 'source-label' }));
+      details.append(element('pre', candidate.raw_text || '', {
+        'data-role': 'calamari-source', class: 'source-text',
+      }));
+    } else if (typeof candidate.calamari_verbatim_text === 'string'
       && typeof candidate.raw_verbatim_text === 'string') {
       details.append(element('h3', 'Calamari-OCR – eksakt kildeudsnit', { class: 'source-label' }));
       details.append(element('pre', candidate.calamari_verbatim_text, {

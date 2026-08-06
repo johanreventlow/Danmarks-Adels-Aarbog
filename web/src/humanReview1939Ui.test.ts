@@ -299,6 +299,42 @@ describe('human 1939 review controller', () => {
       .toContain('opaque-candidate-id');
   });
 
+  it('labels an exact text fallback without calling it a parser boundary', () => {
+    const record = humanRecord('rk-markvard', 'presentation:1939-v2:text-anchor:abc');
+    Object.assign(record.candidates[0], {
+      pdf_pages: [580],
+      calamari_pages: [85],
+      raw_text: 'Markvard sælger 1423 en Rente af 100 Mark Lybsk.',
+      rank_reason: 'entydigt_tekstanker_uden_forventet_side',
+    });
+
+    startReview({ storage: memoryStorage(), records: [record] });
+
+    expect(document.querySelector('.candidate')!.textContent)
+      .toContain('Teksten er fundet entydigt i Calamari-OCR uden for det gamle sidetal.');
+    expect(document.querySelector('.candidate')!.textContent)
+      .toContain('Calamari-OCR – entydigt tekstfund');
+    expect(document.querySelector('.candidate')!.textContent)
+      .not.toContain('parserens foreslåede postgrænse');
+  });
+
+  it('explains an exact text fallback on the expected page as a parser gap', () => {
+    const record = humanRecord('rk-markvard', 'presentation:1939-v2:text-anchor:def');
+    Object.assign(record.candidates[0], {
+      pdf_pages: [580],
+      calamari_pages: [85],
+      raw_text: 'Markvard sælger 1423 en Rente af 100 Mark Lybsk.',
+      rank_reason: 'entydigt_tekstanker_uden_parserkandidat',
+    });
+
+    startReview({ storage: memoryStorage(), records: [record] });
+
+    expect(document.querySelector('.candidate')!.textContent)
+      .toContain('Teksten er fundet entydigt i Calamari-OCR, men parseren har ikke afgrænset en post.');
+    expect(document.querySelector('.candidate')!.textContent)
+      .not.toContain('parserens foreslåede postgrænse');
+  });
+
   it('keeps the selected opaque candidate id out of the ordinary decision status', () => {
     const record = automaticRecord('rk-audit', '1939:dual-v1:opaque', true);
     const { controller } = startReview({ storage: memoryStorage(), records: [record] });

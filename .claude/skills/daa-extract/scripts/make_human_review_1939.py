@@ -9,6 +9,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import re
 
 import segment
 from prepare_review_queue_1939 import (
@@ -181,6 +182,75 @@ def _presentation_candidates(
     return candidates
 
 
+_CALAMARI_PAGE_MARKER = re.compile(r"(?m)^### PAGE (\d{4}) ###\s*$")
+
+
+def _text_anchor_fallback_keys(manifest: dict) -> set[str]:
+    entries = manifest.get("entries", []) if isinstance(manifest, dict) else []
+    return {
+        entry["baseline_record_key"]
+        for entry in entries
+        if isinstance(entry, dict)
+        and entry.get("queue_class") == "human_required"
+        and isinstance(entry.get("baseline_record_key"), str)
+    }
+
+
+def _unique_exact_text_anchor_candidates(
+    records: list[dict], calamari_text: str, calamari_first_pdf_page: int,
+    profile_version: str,
+) -> dict[str, dict]:
+    """Build display-only candidates for unique, non-overlapping exact text spans."""
+    markers = list(_CALAMARI_PAGE_MARKER.finditer(calamari_text))
+    page_spans = [
+        (int(marker.group(1)), marker.end(),
+         markers[index + 1].start() if index + 1 < len(markers) else len(calamari_text))
+        for index, marker in enumerate(markers)
+    ]
+    claims: dict[str, tuple[int, int, int, set[int]]] = {}
+    for record in records:
+        key = record.get("record_key")
+        narrative = record.get("narrative")
+        if not isinstance(key, str) or not key or not isinstance(narrative, str) or not narrative:
+            continue
+        start = calamari_text.find(narrative)
+        if start < 0 or calamari_text.find(narrative, start + 1) >= 0:
+            continue
+        end = start + len(narrative)
+        owners = [page for page, page_start, page_end in page_spans
+                  if page_start <= start and end <= page_end]
+        if len(owners) == 1:
+            claims[key] = (start, end, owners[0], set(_pages(record.get("sider"))))
+    overlapping = {
+        key
+        for key, (start, end, _, _) in claims.items()
+        for other_key, (other_start, other_end, _, _) in claims.items()
+        if key != other_key and start < other_end and other_start < end
+    }
+    result = {}
+    for key, (start, end, calamari_page, expected_pdf_pages) in claims.items():
+        if key in overlapping:
+            continue
+        digest = hashlib.sha256(
+            f"{profile_version}\0{key}\0{start}\0{end}".encode("utf-8")
+        ).hexdigest()
+        candidate_id = f"presentation:{profile_version}:text-anchor:{digest}"
+        pdf_page = calamari_first_pdf_page + calamari_page - 1
+        result[key] = {
+            "candidate_id": candidate_id,
+            "lokal_id": candidate_id,
+            "pdf_pages": [pdf_page],
+            "calamari_pages": [calamari_page],
+            "raw_text": calamari_text[start:end],
+            "rank_reason": (
+                "entydigt_tekstanker_uden_parserkandidat"
+                if pdf_page in expected_pdf_pages
+                else "entydigt_tekstanker_uden_forventet_side"
+            ),
+        }
+    return result
+
+
 def _hydrate_source_bound_candidates(model: dict, calamari_text: str,
                                      raw_text: str) -> None:
     """Add exact display slices while keeping classifier evidence unchanged."""
@@ -283,6 +353,18 @@ def main() -> int:
         )
         for record in records
     }
+    fallback_candidates = _unique_exact_text_anchor_candidates(
+        [
+            record for record in records
+            if record["record_key"] in _text_anchor_fallback_keys(queue)
+            and not nearby_candidates[record["record_key"]]
+        ],
+        calamari_bytes.decode("utf-8"),
+        args.calamari_first_pdf_page,
+        source_manifest["profile_version"],
+    )
+    for record_key, candidate in fallback_candidates.items():
+        nearby_candidates[record_key] = [candidate]
     model = build_review_view_model(
         records, queue, nearby_candidates, sample_auto_resolved(queue), decisions,
     )

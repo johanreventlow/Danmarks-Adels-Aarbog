@@ -75,6 +75,55 @@ def test_presentation_candidate_rejects_invalid_post_index():
         )
 
 
+def test_exact_text_anchor_fallback_rejects_a_repeated_narrative():
+    narrative = "Markvard sælger en Rente af 100 Mark Lybsk."
+    source = f"### PAGE 0085 ###\n{narrative}\n{narrative}"
+
+    candidates = subject._unique_exact_text_anchor_candidates(
+        [{"record_key": "rk-markvard", "narrative": narrative}],
+        source, 496, "1939-v2",
+    )
+
+    assert candidates == {}
+
+
+def test_exact_text_anchor_fallback_rejects_overlapping_baseline_claims():
+    full = "Markvard sælger 1423 en Rente af 100 Mark Lybsk til Abbed Bertram."
+    nested = "en Rente af 100 Mark Lybsk"
+    source = f"### PAGE 0085 ###\n{full}"
+
+    candidates = subject._unique_exact_text_anchor_candidates([
+        {"record_key": "rk-full", "narrative": full},
+        {"record_key": "rk-nested", "narrative": nested},
+    ], source, 496, "1939-v2")
+
+    assert candidates == {}
+
+
+def test_text_anchor_fallback_is_limited_to_human_required_records():
+    manifest = {"entries": [
+        {"baseline_record_key": "rk-human", "queue_class": "human_required"},
+        {"baseline_record_key": "rk-auto", "queue_class": "auto_resolved"},
+        {"baseline_record_key": "rk-blocked", "queue_class": "source_blocked"},
+    ]}
+
+    assert subject._text_anchor_fallback_keys(manifest) == {"rk-human"}
+
+
+def test_exact_text_fallback_distinguishes_a_parser_gap_on_the_expected_page():
+    narrative = "Markvard sælger 1423 en Rente af 100 Mark Lybsk."
+    source = f"### PAGE 0085 ###\n{narrative}"
+
+    candidates = subject._unique_exact_text_anchor_candidates(
+        [{"record_key": "rk-markvard", "narrative": narrative, "sider": "580"}],
+        source, 496, "1939-v2",
+    )
+
+    assert candidates["rk-markvard"]["rank_reason"] == (
+        "entydigt_tekstanker_uden_parserkandidat"
+    )
+
+
 def _source(baseline_bytes, calamari_bytes, raw_bytes=b"Raa OCR Volrad"):
     return {
         "edition": "1939",
@@ -241,6 +290,59 @@ def test_main_shows_candidates_on_translated_pdf_pages(tmp_path, monkeypatch):
     assert "window.DAA1939Review.init({data: DATA, download: downloadDraft});" in rendered
     assert "data-action" in rendered
     assert "daa1939-review:" in rendered
+
+
+def test_main_shows_a_unique_exact_text_anchor_when_the_baseline_page_is_stale(
+    tmp_path, monkeypatch
+):
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    narrative = (
+        "Markvard (Marquardus Revetlo ''laicus, frater religiosi\n"
+        "viri domini Hartwic Reventlo ordinis Carthusiensis sælger\n"
+        "1423 til Abbed Bertram i Reinfeld en Rente af 100 Mark Lybsk\n"
+        "(Reinfeld Nr. 13, Statsark. i Kiel)."
+    )
+    baseline_value = json.loads(baseline.read_text(encoding="utf-8"))
+    baseline_value[0].update(navn="Markvard", sider="597", narrative=narrative)
+    baseline.write_text(json.dumps(baseline_value), encoding="utf-8")
+    calamari.write_text(
+        "### PAGE 0085 ###\n" + narrative + "\n### PAGE 0086 ###\nNæste side",
+        encoding="utf-8",
+    )
+    source_value = _source(
+        baseline.read_bytes(), calamari.read_bytes(),
+        calamari.with_name("raw.txt").read_bytes(),
+    )
+    source.write_text(json.dumps({"schema_version": 1, "source": source_value}), encoding="utf-8")
+    queue_value = json.loads(queue.read_text(encoding="utf-8"))
+    queue_value["source"] = source_value
+    queue.write_text(json.dumps(queue_value), encoding="utf-8")
+    review_value = json.loads(review.read_text(encoding="utf-8"))
+    review_value["source"] = source_value
+    review_value["baseline_sha256"] = source_value["baseline_sha256"]
+    review.write_text(json.dumps(review_value), encoding="utf-8")
+    monkeypatch.setattr(subject.segment, "_segment_1939_v2", lambda *_: [])
+    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
+
+    assert subject.main() == 0
+
+    payload = json.loads(re.search(
+        r"const DATA=(.*?);\n\(function \(global\)", out.read_text(encoding="utf-8")
+    ).group(1))
+    assert len(payload["records"][0]["candidates"]) == 1
+    candidate_id = payload["records"][0]["candidates"][0]["candidate_id"]
+    assert payload["records"][0]["candidates"] == [{
+        "candidate_id": candidate_id,
+        "lokal_id": candidate_id,
+        "pdf_pages": [580],
+        "calamari_pages": [85],
+        "raw_text": narrative,
+        "rank_reason": "entydigt_tekstanker_uden_forventet_side",
+    }]
+    assert candidate_id.startswith(
+        "presentation:1939-v2:text-anchor:"
+    )
 
 
 def test_main_generates_html_when_segment_posts_lack_or_duplicate_local_ids(
