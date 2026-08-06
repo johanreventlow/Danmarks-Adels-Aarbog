@@ -194,6 +194,70 @@ Rscript .claude/skills/daa-extract/scripts/load_daa.R work/clean.json "DAA 2018-
 
 ## Privat 1939-undtagelseskø
 
+### Kildebundet dual-rendition-evidens (1939-v2)
+
+Kør fra worktree-roden. Start med at materialisere de fire private, kildebundne
+artefakter. CLI'en læser hver inputfil som bytes én gang, har ingen outputsti i
+rapporten og opretter alle outputs eksklusivt; brug derfor altid nye filnavne ved
+en ny kørsel.
+
+```bash
+/usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_dual_rendition_evidence_1939.py \
+  --baseline ../../../work_1939_stamtavle/clean_1939_v2.json \
+  --calamari ../../../work_1939_stamtavle/full_ocr_calamari_r6_clean.txt \
+  --raw ../../../work_1939_stamtavle/raw.txt \
+  --pdf "../../../Dansk Adels Aarbog - Reventlow 1939.pdf" \
+  --profile-version 1939-v2 \
+  --calamari-occurrences-out work/task19-1939-pilot/calamari-occurrences-v2.json \
+  --raw-occurrences-out work/task19-1939-pilot/raw-occurrences-v2.json \
+  --evidence-out work/task19-1939-pilot/dual-evidence-v2.json \
+  --report-out work/task19-1939-pilot/dual-evidence-report-v2.json
+```
+
+Brug derefter den source-bundne evidence-fil som Task 6's `--evidence`; kø og
+rapport er fortsat diagnostiske og eksklusive:
+
+```bash
+/usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_review_queue_1939.py \
+  --baseline ../../../work_1939_stamtavle/clean_1939_v2.json \
+  --evidence work/task19-1939-pilot/dual-evidence-v2.json \
+  --review work/task19-1939-pilot/coverage-review-v2.json \
+  --calamari ../../../work_1939_stamtavle/full_ocr_calamari_r6_clean.txt \
+  --raw ../../../work_1939_stamtavle/raw.txt \
+  --pdf "../../../Dansk Adels Aarbog - Reventlow 1939.pdf" \
+  --profile-version 1939-v2 \
+  --queue-out work/task19-1939-pilot/review-queue-manifest-v3.json \
+  --report-out work/task19-1939-pilot/review-queue-report-v3.json
+```
+
+Generér V2-menneskearket fra den deterministiske kø og eksportér kun den private
+browserkladde. Den efterfølgende choices-to-decisions-konvertering er den
+deterministiske audit af kladden:
+
+```bash
+/usr/bin/python3 .claude/skills/daa-extract/scripts/make_human_review_1939.py \
+  --baseline ../../../work_1939_stamtavle/clean_1939_v2.json \
+  --queue-manifest work/task19-1939-pilot/review-queue-manifest-v3.json \
+  --source-manifest work/task19-1939-pilot/review-queue-manifest-v3.json \
+  --review work/task19-1939-pilot/coverage-review-v2.json \
+  --calamari ../../../work_1939_stamtavle/full_ocr_calamari_r6_clean.txt \
+  --calamari-first-pdf-page 496 \
+  --out work/task19-1939-pilot/menneskeark-undtagelsesko-v3.html
+
+open work/task19-1939-pilot/menneskeark-undtagelsesko-v3.html
+
+/usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_coverage_1939.py \
+  --choices-to-decisions work/task19-1939-pilot/1939-review-kladd.json \
+  --queue-manifest work/task19-1939-pilot/review-queue-manifest-v3.json \
+  --anchored-candidates work/task19-1939-pilot/dual-evidence-v2.json \
+  --out work/task19-1939-pilot/review-decisions-v3.json
+```
+
+`work/`-artefakterne og browserens eksport er private og ignorerede; de må aldrig
+committes. Overskriv eller slet ikke tidligere resultater for at genkøre: vælg nye,
+versionssuffikserede filnavne. Et `GO` fra et review-værktøj er kun review-go; det er
+ikke database-, loader- eller deployment-GO.
+
 Kør fra worktree-roden. Denne pilot bruger det komplette, men stadig uafgjorte
 `coverage-review.json` som konservativ evidensinput: poster uden en komplet kandidat
 og positiv proveniens bliver `human_required`. Samme-side-forslag i HTML'en er kun
