@@ -18,6 +18,7 @@ from prepare_review_queue_1939 import (
 )
 from prepare_coverage_1939 import validate_review_template
 from review_queue_1939 import sample_auto_resolved
+from review_choices_1939 import validate_choice_export
 
 
 UI_PATH = Path(__file__).with_name("human_review_1939_ui.js")
@@ -334,10 +335,32 @@ def main() -> int:
         record["record_key"] for record in records
         if isinstance(record, dict) and isinstance(record.get("record_key"), str)
     }
-    decisions = _review_decisions(review, baseline_hash, baseline_keys)
-    if not isinstance(review, dict) or "source" not in review:
-        _assert_sourceless_review_is_unreviewed(decisions)
-    validate_review_template(args.review, args.baseline)
+    entries = review.get("entries") if isinstance(review, dict) else None
+    is_choice_export = isinstance(review, dict) and "source" in review and (
+        "exported_at" in review
+        or (
+            isinstance(entries, list)
+            and any(isinstance(entry, dict) and "outcome" in entry for entry in entries)
+        )
+    )
+    if is_choice_export:
+        context = validate_choice_export(
+            review, source_manifest, baseline_keys, include_context=True,
+        )
+        browser_fields = {
+            "baseline_record_key", "outcome", "candidate_id",
+            "duplicate_of_baseline_record_key", "decided_at", "reason",
+        }
+        decisions = {
+            key: {field: value for field, value in choice.items() if field in browser_fields}
+            for key, choice in context["choices"].items()
+        }
+        decisions.update(context["final_legacy_entries"])
+    else:
+        decisions = _review_decisions(review, baseline_hash, baseline_keys)
+        if not isinstance(review, dict) or "source" not in review:
+            _assert_sourceless_review_is_unreviewed(decisions)
+        validate_review_template(args.review, args.baseline)
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         posts = segment._segment_1939_v2(
             calamari_bytes.decode("utf-8").splitlines(),

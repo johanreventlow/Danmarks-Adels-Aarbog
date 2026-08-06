@@ -568,6 +568,62 @@ def test_main_accepts_task1_review_ledger_with_matching_baseline_hash(tmp_path, 
     assert subject.main() == 0
 
 
+def test_main_reembeds_a_source_validated_choice_export_with_browser_fields(
+    tmp_path, monkeypatch
+):
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    source_value = json.loads(source.read_text(encoding="utf-8"))["source"]
+    choice = {
+        "baseline_record_key": "record-1",
+        "outcome": "human_selected_candidate",
+        "candidate_id": "Stamme.Volrad",
+        "decided_at": "2026-08-06T12:00:00Z",
+        "review_status": "unreviewed",
+        "baseline_locator": {"pages": "498", "local_id": None},
+        "review_note": "Bevares ikke i den genindlejrede browser-kladde.",
+    }
+    review.write_text(json.dumps({
+        "schema_version": 1,
+        "source": source_value,
+        "baseline_sha256": source_value["baseline_sha256"],
+        "exported_at": "2026-08-06T12:01:00Z",
+        "entries": [choice],
+    }), encoding="utf-8")
+    monkeypatch.setattr(subject.segment, "_segment_1939_v2", lambda *_: [{
+        "lokal_id": "Stamme.Volrad", "sider": "3", "raw_text": "Hr. Volrad",
+    }])
+    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
+
+    assert subject.main() == 0
+
+    payload = json.loads(re.search(
+        r"const DATA=(.*?);\n\(function \(global\)", out.read_text(encoding="utf-8")
+    ).group(1))
+    assert payload["records"][0]["decision"] == {
+        "baseline_record_key": "record-1",
+        "outcome": "human_selected_candidate",
+        "candidate_id": "Stamme.Volrad",
+        "decided_at": "2026-08-06T12:00:00Z",
+    }
+
+
+def test_main_rejects_choice_export_with_changed_pinned_source(tmp_path, monkeypatch):
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    choice_export = json.loads(review.read_text(encoding="utf-8"))
+    choice_export["exported_at"] = "2026-08-06T12:01:00Z"
+    choice_export["entries"][0].update(
+        outcome="no_candidate_fits", reason="Ingen kandidat passer."
+    )
+    choice_export["source"]["calamari_sha256"] = "0" * 64
+    review.write_text(json.dumps(choice_export), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
+
+    with pytest.raises(ValueError, match="review source hashes"):
+        subject.main()
+
+
 def test_main_rejects_sourceless_review_with_a_human_decision(tmp_path, monkeypatch):
     baseline, review, queue, source, calamari = _write_inputs(tmp_path)
     out = tmp_path / "menneskeark.html"
