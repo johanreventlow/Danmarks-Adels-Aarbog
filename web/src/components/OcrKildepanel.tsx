@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { normaliserOcrDato, type OcrFelt, type PersonKvalitetsarkRow } from '@daa/core';
 import type { OcrHistorikEntry } from '../data/personKvalitetsark';
+import { formatTidspunkt } from '../data/format';
 import { Link } from '../Link';
 
 // Struktur-kompatibel med parameter-objektet i personKvalitetsark.ts's retOcrFelt (den type
@@ -97,13 +98,6 @@ function importeretVaerdi(row: PersonKvalitetsarkRow, felt: OcrFelt): string | n
 
 function displayEllerStreg(v: string | null | undefined): string {
   return v ?? '—';
-}
-
-function formatTidspunkt(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 const inputStyle: CSSProperties = {
