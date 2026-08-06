@@ -416,7 +416,9 @@ describe('human 1939 review controller', () => {
     expect(first.controller.choose('human_selected_candidate', { candidate_id: 'candidate-1' })).toBe(true);
     document.body.innerHTML = '';
     const second = startReview({ storage, records: [humanRecord('rk-1', 'candidate-1')] });
-    expect(document.body.textContent).toContain('Nuværende valg: Kildepost valgt.');
+    expect(document.body.textContent).toContain(
+      'Nuværende valg: Kildepost valgt (gemt som observation til efterforankring).',
+    );
     expect(first.controller.exportDraft().schema_version).toBe(1);
     second.controller.exportDraft();
   });
@@ -512,6 +514,127 @@ describe('human 1939 review controller', () => {
       .toBe('true');
   });
 
+  it('sætter en enkelt ugyldig kladdepost i karantæne uden at miste de øvrige', () => {
+    const storage = memoryStorage();
+    const records = [humanRecord('rk-1', 'shared'), humanRecord('rk-2', 'shared')];
+    const probe = startReview({ storage, records });
+    storage.setItem(probe.controller.storageKey, JSON.stringify({
+      schema_version: 1,
+      source: viewModel(records).source,
+      decisions: {
+        'rk-2': { baseline_record_key: 'rk-2', outcome: 'human_selected_candidate',
+          candidate_id: 'shared', decided_at: '2026-08-05T12:01:00+02:00' },
+        'rk-1': { baseline_record_key: 'rk-1', outcome: 'human_selected_candidate',
+          candidate_id: 'shared', decided_at: '2026-08-05T12:00:00+02:00' },
+      },
+    }));
+
+    const { controller } = startReview({ storage, records });
+
+    expect(controller.exportDraft()).not.toHaveProperty('recovery_blocked');
+    expect(controller.exportDraft().entries).toEqual([
+      { baseline_record_key: 'rk-1', outcome: 'human_selected_candidate',
+        candidate_id: 'shared', decided_at: '2026-08-05T12:00:00+02:00' },
+      { baseline_record_key: 'rk-2', draft: true },
+    ]);
+    expect(document.querySelector('[data-role="save-state"]')!.textContent)
+      .toContain('1 kladdepost i karantæne');
+    expect(document.querySelector('[data-role="save-state"]')!.textContent)
+      .toContain('Kandidaten er allerede valgt for en anden historisk post');
+  });
+
+  it('round-tripper karantænen gennem persist og genindlæsning', () => {
+    const storage = memoryStorage();
+    const records = [humanRecord('rk-1', 'c-1'), humanRecord('rk-2', 'c-2')];
+    const invalid = { baseline_record_key: 'rk-2', outcome: 'no_candidate_fits',
+      reason: 17, decided_at: '2026-08-05T12:01:00+02:00' };
+    const probe = startReview({ storage, records });
+    storage.setItem(probe.controller.storageKey, JSON.stringify({
+      schema_version: 1,
+      source: viewModel(records).source,
+      decisions: { 'rk-2': invalid },
+    }));
+
+    const first = startReview({ storage, records });
+    expect(first.controller.choose('human_selected_candidate', { candidate_id: 'c-1' })).toBe(true);
+    expect(JSON.parse(storage.getItem(first.controller.storageKey)!).quarantined).toEqual({
+      'rk-2': { entry: invalid, reason: 'Skriv en begrundelse for dette udfald' },
+    });
+
+    startReview({ storage, records });
+
+    expect(document.querySelector('[data-role="save-state"]')!.textContent)
+      .toContain('1 kladdepost i karantæne');
+    expect(document.querySelector('[data-role="save-state"]')!.textContent)
+      .toContain('Skriv en begrundelse for dette udfald');
+    expect(document.querySelector('[data-action="export-quarantine"]')).not.toBeNull();
+  });
+
+  it('holder hoved-eksporten skemaren og eksporterer karantænen separat', async () => {
+    const storage = memoryStorage();
+    const records = [humanRecord('rk-1', 'c-1')];
+    const invalid = { baseline_record_key: 'rk-1', outcome: 'human_selected_candidate',
+      candidate_id: 'missing', decided_at: '2026-08-05T12:00:00+02:00' };
+    const probe = startReview({ storage, records });
+    storage.setItem(probe.controller.storageKey, JSON.stringify({
+      schema_version: 1,
+      source: viewModel(records).source,
+      decisions: { 'rk-1': invalid },
+    }));
+    const download = vi.fn();
+    const createObjectURL = vi.fn(() => 'blob:quarantine');
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const { controller } = startReview({ storage, records, download });
+
+    document.querySelector<HTMLButtonElement>('[data-action="export-draft"]')!.click();
+
+    expect(Object.keys(download.mock.calls[0][0]).sort()).toEqual([
+      'baseline_sha256', 'entries', 'exported_at', 'schema_version', 'source',
+    ]);
+    expect(controller.exportDraft()).not.toHaveProperty('quarantined');
+    const quarantineButton = document.querySelector<HTMLButtonElement>(
+      '[data-action="export-quarantine"]',
+    );
+    expect(quarantineButton).not.toBeNull();
+    quarantineButton!.click();
+    expect(click).toHaveBeenCalledOnce();
+    expect((click.mock.instances[0] as HTMLAnchorElement).download)
+      .toBe('1939-review-karantaene.json');
+    const blob = createObjectURL.mock.calls[0][0];
+    const exported = await new Promise<any>((resolveExport, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolveExport(JSON.parse(String(reader.result)));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(blob);
+    });
+    expect(exported.quarantined).toEqual({
+      'rk-1': { entry: invalid, reason: 'Ugyldigt kandidatvalg' },
+    });
+  });
+
+  it('mærker læsehjælps-kandidater og forankrede kandidater forskelligt', () => {
+    const record = humanRecord('rk-1', 'anchored');
+    record.candidates[0].details = { candidate_id: 'anchored', kind: 'line_header' };
+    record.candidates.push({
+      candidate_id: 'reading-aid', lokal_id: 'reading-aid', pdf_pages: [498], calamari_pages: [3],
+      raw_text: 'Ny OCR reading-aid', rank_reason: 'samme_pdf_side',
+    });
+    record.initial_candidate_ids = ['anchored', 'reading-aid'];
+    const { controller } = startReview({ storage: memoryStorage(), records: [record] });
+    const candidates = document.querySelectorAll<HTMLElement>('.candidate');
+
+    expect(candidates[0].textContent)
+      .toContain('Forankret kildeevidens — kan accepteres direkte.');
+    expect(candidates[1].textContent).toContain(
+      'Læsehjælp — dit valg gemmes som redaktionel observation og efterforankres maskinelt.',
+    );
+    expect(controller.choose('human_selected_candidate', { candidate_id: 'reading-aid' })).toBe(true);
+    expect(document.querySelector('[data-role="decision-state"]')!.textContent).toBe(
+      'Nuværende valg: Kildepost valgt (gemt som observation til efterforankring).',
+    );
+  });
+
   it('blocks an ambiguous current cache with entries and malformed decisions without overwrite', () => {
     const storage = memoryStorage();
     const records = [humanRecord('rk-1', 'c-1')];
@@ -553,7 +676,7 @@ describe('human 1939 review controller', () => {
     expect(controller.exportDraft()).toMatchObject({ recovery_blocked: true, entries: [] });
   });
 
-  it('blocks non-injective decisions in the authoritative cache container', () => {
+  it('quarantines the later of two non-injective cached decisions deterministically', () => {
     const storage = memoryStorage();
     const records = [humanRecord('rk-1', 'shared'), humanRecord('rk-2', 'shared')];
     const probe = startReview({ storage, records });
@@ -570,7 +693,14 @@ describe('human 1939 review controller', () => {
 
     const { controller } = startReview({ storage, records });
 
-    expect(controller.exportDraft()).toMatchObject({ recovery_blocked: true, entries: [] });
+    expect(controller.exportDraft()).not.toHaveProperty('recovery_blocked');
+    expect(controller.exportDraft().entries).toEqual([
+      { baseline_record_key: 'rk-1', outcome: 'human_selected_candidate',
+        candidate_id: 'shared', decided_at: '2026-08-05T12:00:00+02:00' },
+      { baseline_record_key: 'rk-2', draft: true },
+    ]);
+    expect(document.querySelector('[data-role="save-state"]')!.textContent)
+      .toContain('1 kladdepost i karantæne');
   });
 
   it('preserves completed decisions supplied by the view model', () => {
@@ -658,7 +788,10 @@ describe('human 1939 review controller', () => {
 
       const { controller } = startReview({ storage, records });
 
-      expect(controller.exportDraft()).toMatchObject({ recovery_blocked: true });
+      expect(controller.exportDraft()).not.toHaveProperty('recovery_blocked');
+      expect(controller.exportDraft().entries[0]).toMatchObject(decision);
+      expect(document.querySelector('[data-role="save-state"]')!.textContent)
+        .toContain('1 kladdepost i karantæne');
       expect(controller.choose('undecidable')).toBe(false);
     },
   );
@@ -680,10 +813,8 @@ describe('human 1939 review controller', () => {
     ['a read exception', () => { throw new Error('security'); }],
     ['malformed JSON', () => '{not json'],
     ['an incompatible schema', (source: any) => JSON.stringify({ schema_version: 99, source, decisions: {} })],
-    ['an invalid candidate decision', (source: any) => JSON.stringify({
-      schema_version: 1, source, decisions: {
-        'rk-1': { baseline_record_key: 'rk-1', outcome: 'human_selected_candidate', candidate_id: 'missing' },
-      },
+    ['an invalid quarantine container', (source: any) => JSON.stringify({
+      schema_version: 1, source, decisions: {}, quarantined: [],
     })],
   ])('blocks recovery without overwriting storage after %s', (_label, saved: any) => {
     const records = [humanRecord('rk-1', 'c-1')];
@@ -724,7 +855,7 @@ describe('human 1939 review controller', () => {
       baseline_record_key: 'rk-1', outcome: 'human_selected_candidate', candidate_id: 'c-1',
       decided_at: 17,
     }],
-  ])('blocks the whole cache for malformed provisional entry: %s', (_label, cached) => {
+  ])('quarantines a malformed provisional entry: %s', (_label, cached) => {
     const storage = memoryStorage();
     const records = [humanRecord('rk-1', 'c-1')];
     const probe = startReview({ storage, records });
@@ -736,8 +867,12 @@ describe('human 1939 review controller', () => {
 
     const { controller } = startReview({ storage, records });
 
-    expect(controller.exportDraft()).toMatchObject({ recovery_blocked: true, entries: [] });
-    expect(document.querySelector('[data-role="save-state"]')!.textContent).toContain('kan ikke');
+    expect(controller.exportDraft()).not.toHaveProperty('recovery_blocked');
+    expect(controller.exportDraft().entries).toEqual([
+      { baseline_record_key: 'rk-1', draft: true },
+    ]);
+    expect(document.querySelector('[data-role="save-state"]')!.textContent)
+      .toContain('1 kladdepost i karantæne');
   });
 
   it('does not count metadata without a provisional outcome or final legacy status as completed', () => {
@@ -823,7 +958,10 @@ describe('human 1939 review controller', () => {
 
     const { controller } = startReview({ storage, records });
 
-    expect(controller.exportDraft()).toMatchObject({ recovery_blocked: true });
+    expect(controller.exportDraft()).not.toHaveProperty('recovery_blocked');
+    expect(controller.exportDraft().entries[0]).toMatchObject(records[0].decision);
+    expect(document.querySelector('[data-role="save-state"]')!.textContent)
+      .toContain('1 kladdepost i karantæne');
   });
 
   it('blocks empty-string cache and full-source changes including extra metadata', () => {
@@ -1332,7 +1470,7 @@ describe('human 1939 review controller', () => {
     });
     startReview({ storage, records });
     expect(document.querySelector('[data-role="decision-state"]')!.textContent)
-      .toBe('Nuværende valg: Kildepost valgt.');
+      .toBe('Nuværende valg: Kildepost valgt (gemt som observation til efterforankring).');
     expect(document.querySelector('[data-role="decision-state"]')!.textContent)
       .not.toContain(candidateId);
     expect(document.querySelector('[data-action="select-candidate"]')!.getAttribute('aria-pressed')).toBe('true');

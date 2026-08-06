@@ -219,32 +219,67 @@
     return sourceIdentity({ value: left }) === sourceIdentity({ value: right });
   }
 
-  function overlayCachedDecisions(modelDecisions, restored) {
+  function quarantineMap(value) {
+    if (value === undefined) return Object.create(null);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error('Ugyldig karantænebeholder');
+    }
+    const result = Object.create(null);
+    Object.entries(value).forEach(([recordKey, item]) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)
+        || !hasOwn(item, 'entry') || typeof item.reason !== 'string' || !item.reason.trim()) {
+        throw new Error('Ugyldig karantænepost');
+      }
+      result[recordKey] = { entry: clone(item.entry), reason: item.reason };
+    });
+    return result;
+  }
+
+  function overlayCachedDecisions(modelDecisions, restored, recordByKey, quarantined) {
     const browserFields = new Set([
       'baseline_record_key', 'outcome', 'candidate_id', 'duplicate_of_baseline_record_key',
       'decided_at', 'reason',
     ]);
     const result = dictionary(Object.entries(modelDecisions).map(([key, value]) => [key, clone(value)]));
-    Object.entries(restored).forEach(([recordKey, cached]) => {
-      validateProvisionalChoice(cached, true);
-      const model = result[recordKey] || { baseline_record_key: recordKey };
-      if (model.review_status && model.review_status !== 'unreviewed') {
-        throw new Error('Endelige legacy-afgørelser må ikke ændres af cache');
-      }
-      Object.entries(cached).forEach(([field, value]) => {
-        if (!browserFields.has(field)) throw new Error('Cache må kun indeholde browserudfald');
-        if (field !== 'baseline_record_key' && hasOwn(model, field) && !sameValue(model[field], value)) {
-          throw new Error('Cachemetadata matcher ikke den aktuelle kilde');
+    Object.entries(restored).sort(([left], [right]) => left.localeCompare(right))
+      .forEach(([recordKey, cached]) => {
+        try {
+          validateProvisionalChoice(cached, true);
+          const model = result[recordKey] || { baseline_record_key: recordKey };
+          if (model.review_status && model.review_status !== 'unreviewed') {
+            throw new Error('Endelige legacy-afgørelser må ikke ændres af cache');
+          }
+          Object.entries(cached).forEach(([field, value]) => {
+            if (!browserFields.has(field)) throw new Error('Cache må kun indeholde browserudfald');
+            if (field !== 'baseline_record_key' && hasOwn(model, field)
+              && !sameValue(model[field], value)) {
+              throw new Error('Cachemetadata matcher ikke den aktuelle kilde');
+            }
+          });
+          const overlaid = Object.assign(Object.create(null), model,
+            Object.fromEntries(Object.entries(cached).filter(([field]) => browserFields.has(field))));
+          const candidate = dictionary(Object.entries(result));
+          candidate[recordKey] = overlaid;
+          validateDecisionState(candidate, recordByKey);
+          result[recordKey] = overlaid;
+          delete quarantined[recordKey];
+        } catch (error) {
+          quarantined[recordKey] = {
+            entry: clone(cached),
+            reason: error && error.message || 'Ugyldig kladdepost',
+          };
         }
-        if (browserFields.has(field)) return;
-        if (!hasOwn(model, field) || !sameValue(model[field], value)) {
-          throw new Error('Cachemetadata matcher ikke den aktuelle kilde');
-        }
-      });
-      result[recordKey] = Object.assign(Object.create(null), model,
-        Object.fromEntries(Object.entries(cached).filter(([field]) => browserFields.has(field))));
     });
     return result;
+  }
+
+  function quarantineMessage(state) {
+    const entries = Object.entries(state.quarantined);
+    if (!entries.length) return '';
+    const count = entries.length;
+    const reasons = entries.sort(([left], [right]) => left.localeCompare(right))
+      .map(([, item]) => item.reason).join('; ');
+    return `${count} kladdepost${count === 1 ? '' : 'er'} i karantæne: ${reasons}`;
   }
 
   function restoreOrInitialize(data, storage, now) {
@@ -268,6 +303,7 @@
       error: '',
       storageError: '',
       recoveryBlocked: false,
+      quarantined: Object.create(null),
       sourceBlockedCount: null,
     };
     const sourceBlockedCount = data && data.summary && data.summary.source_blocked;
@@ -310,9 +346,10 @@
         blockRecovery(state, 'Den lokale kladde har en ugyldig beslutningsbeholder.');
         return state;
       }
+      state.quarantined = quarantineMap(parsed.quarantined);
       const restored = decisionMap(parsed.decisions);
-      state.decisions = validateDecisionState(
-        overlayCachedDecisions(state.decisions, restored), recordByKey,
+      state.decisions = overlayCachedDecisions(
+        state.decisions, restored, recordByKey, state.quarantined,
       );
     } catch (_) {
       blockRecovery(state, 'Den lokale kladde kan ikke bruges sikkert.');
@@ -361,6 +398,7 @@
       decisions: dictionary(Object.entries(state.decisions)
         .filter(([, decision]) => hasOwn(decision, 'outcome'))
         .map(([recordKey, decision]) => [recordKey, cacheEntry(decision)])),
+      quarantined: clone(state.quarantined),
     }));
   }
 
@@ -584,6 +622,9 @@
       }));
     }
     dashboard.append(actionButton('Eksportér kladde', 'export-draft'));
+    if (Object.keys(state.quarantined).length) {
+      dashboard.append(actionButton('Eksportér karantæne', 'export-quarantine'));
+    }
     root.append(dashboard);
   }
 
@@ -647,6 +688,9 @@
     const exactTextFallbackMessage = exactTextFallbackMessages[candidate.rank_reason];
     const isExactTextFallback = Boolean(exactTextFallbackMessage);
     details.append(element('summary', `Mulig kildepost · PDF s. ${pdfLabel}`));
+    details.append(element('p', candidate.details
+      ? 'Forankret kildeevidens — kan accepteres direkte.'
+      : 'Læsehjælp — dit valg gemmes som redaktionel observation og efterforankres maskinelt.'));
     details.append(element('p', `PDF s. ${(candidate.pdf_pages || []).join('-')} · Calamari-scan ${(candidate.calamari_pages || []).join('-')}`));
     details.append(element('p', isExactTextFallback
       ? exactTextFallbackMessage
@@ -718,8 +762,13 @@
 
   function decisionStatusText(state, current) {
     if (current.candidate_id) {
-      return current.review_status === 'accepteret'
-        ? 'Kildeposten er accepteret.' : 'Kildepost valgt.';
+      if (current.review_status === 'accepteret') return 'Kildeposten er accepteret.';
+      const record = state.recordByKey.get(current.baseline_record_key);
+      const candidate = record && Array.isArray(record.candidates)
+        && record.candidates.find(item => item.candidate_id === current.candidate_id);
+      return candidate && candidate.details
+        ? 'Kildepost valgt.'
+        : 'Kildepost valgt (gemt som observation til efterforankring).';
     }
     if (current.duplicate_of_baseline_record_key) {
       const duplicate = state.recordByKey.get(current.duplicate_of_baseline_record_key);
@@ -815,7 +864,10 @@
   function render(state) {
     normalizeSelection(state);
     const saveState = document.querySelector('[data-role="save-state"]');
-    if (saveState) saveState.textContent = state.storageError || state.error || state.message;
+    if (saveState) saveState.textContent = [
+      state.storageError || state.error || state.message,
+      quarantineMessage(state),
+    ].filter(Boolean).join(' ');
     const app = document.querySelector('[data-role="app"]');
     const sidebar = document.querySelector('[data-role="sidebar-navigation"]');
     if (!app || !sidebar) return;
@@ -844,6 +896,23 @@
     });
   }
 
+  function exportQuarantine(state) {
+    return clone({
+      schema_version: REVIEW_SCHEMA_VERSION,
+      source: state.data.source,
+      exported_at: state.now(),
+      quarantined: state.quarantined,
+    });
+  }
+
+  function downloadJson(value, filename) {
+    const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = global.URL.createObjectURL(blob);
+    link.download = filename;
+    link.click();
+  }
+
   function createController(state, options) {
     const controller = {
       get selectedKey() { return state.selectedKey; },
@@ -855,8 +924,14 @@
       previous: () => navigate(state, -1),
       setView: view => setView(state, view),
       exportDraft: () => exportDraft(state),
+      exportQuarantine: () => exportQuarantine(state),
     };
     controller.download = () => options.download(controller.exportDraft());
+    controller.downloadQuarantine = () => {
+      if (Object.keys(state.quarantined).length) {
+        downloadJson(controller.exportQuarantine(), '1939-review-karantaene.json');
+      }
+    };
     return controller;
   }
 
@@ -894,6 +969,7 @@
         state.expandedCandidates[state.selectedKey] = true;
         render(state);
       } else if (action === 'export-draft') controller.download();
+      else if (action === 'export-quarantine') controller.downloadQuarantine();
     };
     const inputListener = event => {
       const input = event.target;
