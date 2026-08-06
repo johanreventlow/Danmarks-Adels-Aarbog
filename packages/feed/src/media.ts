@@ -10,6 +10,9 @@ export type FeedMediaCandidate = {
   largePath: string;
   mediumPath: string | null;
   primaer?: boolean;
+  // Medie-metadata (Task 6), valgfrit: alt-tekst-fakt for feedets billeder. Optional så eksisterende
+  // kaldere/tests der bygger kandidater uden fakta-berigelse ikke skal opdateres.
+  altTekst?: string | null;
 };
 
 const PORTRAIT_KINDS = new Set<FeedCard['kind']>(['portrait', 'dagensperson']);

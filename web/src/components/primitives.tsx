@@ -58,7 +58,7 @@ export const MediaThumb = ({ m, w, h, radius = 10, onClick }: { m: MediaItem; w:
   if (!m.url) return null;
   const cap = mediaCaption(m);
   return (
-    <img src={m.thumbUrl ?? m.url} alt={m.titel || m.slags || 'medie'} title={cap || undefined}
+    <img src={m.thumbUrl ?? m.url} alt={m.altTekst || m.titel || m.slags || 'billede'} title={cap || undefined}
       onClick={onClick}
       style={{ width: w, height: h, objectFit: 'cover', borderRadius: radius, border: '1px solid rgba(34,31,26,.1)', cursor: 'zoom-in', display: 'block' }} />
   );

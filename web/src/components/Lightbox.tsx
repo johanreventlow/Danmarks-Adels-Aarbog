@@ -10,7 +10,17 @@ import { useEffect } from 'react';
 import { T } from '../theme';
 import { mediaCaption } from '../data/media';
 
-export type LightboxItem = { id: string; url: string | null; titel?: string | null; kunstner?: string | null; datering?: string | null };
+// MM-11: kilde_url whitelist — kun http(s)-URLs vises som klikbart link (spejler
+// MediaDetaljeOverlay.tsx's KILDE_URL_RE, som håndhæver det samme ved skrivning).
+const KILDE_URL_RE = /^https?:\/\//i;
+
+// Alle nye felter valgfrie (bagudkompatibelt — narrativ-indlejrede billeder (EmbeddedMedia) og
+// andre kaldere uden medie-metadata sender bare id/url/titel/kunstner/datering som hidtil).
+export type LightboxItem = {
+  id: string; url: string | null; titel?: string | null; kunstner?: string | null; datering?: string | null;
+  altTekst?: string | null; kreditlinje?: string | null; kildeUrl?: string | null;
+  kildeInstitution?: string | null; beskrivelse?: string | null; dateringFakt?: string | null;
+};
 
 export function Lightbox({ items, index, onClose, onNavigate }: {
   items: LightboxItem[];
@@ -34,6 +44,10 @@ export function Lightbox({ items, index, onClose, onNavigate }: {
   const m = items[index];
   if (!m?.url) return null;
   const cap = mediaCaption(m);
+  // MM-11: kildelinket vises kun for en gyldig http(s)-url — alt andet (fx en injiceret
+  // 'javascript:'-streng) udelades stille i stedet for at blive et klikbart, aktivt link.
+  const kildeLinkOk = !!m.kildeUrl && KILDE_URL_RE.test(m.kildeUrl);
+  const visInfoBlok = cap || items.length > 1 || m.kreditlinje || kildeLinkOk || m.beskrivelse;
 
   return (
     <div onClick={onClose} data-overlay style={{
@@ -56,11 +70,31 @@ export function Lightbox({ items, index, onClose, onNavigate }: {
           ›
         </span>
       )}
-      <img src={m.url} alt={m.titel || 'billede'} onClick={(e) => e.stopPropagation()}
+      <img src={m.url} alt={m.altTekst || m.titel || 'billede'} onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: '92vw', maxHeight: '82vh', objectFit: 'contain', borderRadius: 6, boxShadow: '0 24px 70px rgba(0,0,0,.55)' }} />
-      {(cap || items.length > 1) && (
+      {visInfoBlok && (
         <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 14, textAlign: 'center', maxWidth: '80vw' }}>
           {cap && <div style={{ fontFamily: T.sans, fontSize: 14, color: T.cream }}>{cap}</div>}
+          {/* Kreditlinjen vises ALTID når udfyldt — aldrig bag fold (juridisk krav ved
+              CC-licenser, fx Deutsche Digitale Bibliothek kræver deres Quellenangabe vist). */}
+          {m.kreditlinje && (
+            <div style={{ fontFamily: T.sans, fontSize: 12, color: T.muted3, marginTop: 4 }}>{m.kreditlinje}</div>
+          )}
+          {kildeLinkOk && (
+            <div style={{ marginTop: 4 }}>
+              <a href={m.kildeUrl!} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                style={{ fontFamily: T.sans, fontSize: 12, color: T.cream }}>
+                Se hos {m.kildeInstitution || 'kilden'} ↗
+              </a>
+            </div>
+          )}
+          {m.beskrivelse && (
+            <details onClick={(e) => e.stopPropagation()}
+              style={{ marginTop: 6, textAlign: 'left', fontFamily: T.sans, fontSize: 12, color: T.cream }}>
+              <summary style={{ cursor: 'pointer', textAlign: 'center' }}>Om billedet</summary>
+              <div style={{ marginTop: 4 }}>{m.beskrivelse}</div>
+            </details>
+          )}
           {items.length > 1 && (
             <div style={{ fontFamily: T.mono, fontSize: 11, color: T.muted3, marginTop: 4 }}>{index + 1} / {items.length}</div>
           )}

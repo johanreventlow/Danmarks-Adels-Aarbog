@@ -13,6 +13,17 @@ export type MediaItem = {
   url: string | null; // kortlivet signed URL til FULD størrelse ('large' — media-rækkens egen storage_path)
   thumbUrl: string | null; // 'thumb'-variant (billedstørrelser 2026-07-05, Slice B3); falder tilbage til url hvis ingen findes
   primaer?: boolean;
+  // Medie-metadata (Task 6): berigelse fra fetchMediaFakta, joinet ind i loadMediaItems — se
+  // mediaFaktaFelter herunder. RLS betyder en tom berigelse (alle null) er normal for et
+  // upubliceret medie (anon ser ingen fakta-rækker for det).
+  altTekst: string | null;
+  kreditlinje: string | null;
+  kildeUrl: string | null;
+  kildeInstitution: string | null;
+  beskrivelse: string | null;
+  teknik: string | null;
+  fysiskeMaal: string | null;
+  dateringFakt: string | null; // Global Constraint: vinder ALTID over `datering`-kolonnen i visning.
 };
 
 type RawMediaRow = {
@@ -81,12 +92,16 @@ export function fetchThumbPathByMediaId(mediaIds: Array<number | string>): Promi
 
 // Fælles: hent media-rækker for et sæt id'er, signér, og map til MediaItem (rækkefølge = mediaIds).
 // Rækker fra FØR Slice B har ingen variant-række; thumbUrl falder da tilbage til den fulde url.
+// Medie-metadata (Task 6): fetchMediaFakta batches parallelt med de to øvrige queries — den fælles
+// hale for BÅDE fetchPersonMedia og fetchObjectMedia (begge løber gennem fetchMediaByRelation →
+// loadMediaItems), så én berigelse her dækker begge retninger uden dublering.
 async function loadMediaItems(mediaIds: number[]): Promise<MediaItem[]> {
   if (!mediaIds.length) return [];
-  const [rows, thumbPathByMediaId] = await Promise.all([
+  const [rows, thumbPathByMediaId, faktaByMediaId] = await Promise.all([
     getAll<RawMediaRow>(() =>
       supabase.from('media').select('id,slags,titel,kunstner,datering,storage_path').in('id', mediaIds)),
     fetchThumbPathByMediaId(mediaIds),
+    fetchMediaFakta(mediaIds),
   ]);
   const signed = await signPaths([
     ...rows.map((r) => r.storage_path ?? ''),
@@ -103,6 +118,7 @@ async function loadMediaItems(mediaIds: number[]): Promise<MediaItem[]> {
         id: String(r.id), slags: r.slags ?? '', titel: r.titel ?? '',
         kunstner: r.kunstner ?? '', datering: r.datering ?? '',
         url, thumbUrl: (thumbPath ? signed.get(thumbPath) : null) ?? url,
+        ...mediaFaktaFelter(faktaByMediaId.get(String(r.id))),
       };
     });
 }
@@ -190,9 +206,11 @@ export function pickPortrait(media: MediaItem[]): MediaItem | null {
 }
 
 // Billedtekst: titel · kunstner · datering (kun de udfyldte). Delt af MediaThumb (primitives.tsx)
-// og Lightbox — samme formel, ét sted (/simplify-fund, Slice A).
-export function mediaCaption(m: { titel?: string | null; kunstner?: string | null; datering?: string | null }): string {
-  return [m.titel, m.kunstner, m.datering].filter(Boolean).join(' · ');
+// og Lightbox — samme formel, ét sted (/simplify-fund, Slice A). Global Constraint (medie-metadata
+// Task 6): `dateringFakt` (den strukturerede fakt) vinder ALTID over den rå `datering`-kolonne i
+// visning, hvis begge er sat.
+export function mediaCaption(m: { titel?: string | null; kunstner?: string | null; datering?: string | null; dateringFakt?: string | null }): string {
+  return [m.titel, m.kunstner, m.dateringFakt ?? m.datering].filter(Boolean).join(' · ');
 }
 
 // Billeder indlejret i narrativer (billedstørrelser 2026-07-05, Slice C). Et [[media:ID|...]]-
@@ -217,6 +235,27 @@ export type MediaFaktaVaerdi = {
   dateMin: string | null; dateMax: string | null; dateQualifier: string | null; dateRaw: string | null;
 };
 export type MediaFakta = Partial<Record<MediaFaktaLaesKode, MediaFaktaVaerdi>>;
+
+// Ren mapper: MediaFakta → MediaItem's berigelses-felter. Delt af loadMediaItems (person-/objekt-
+// medier) og feedMedia.ts's fetchFeedMediaCandidates (kun altTekst-feltet derfra) — udtrukket så
+// felt-til-felt-mapningen (og dateringFakt's dateRaw??vaerdi-forrang) testes ét sted, uafhængigt af
+// Supabase. `fakta` er undefined når mediet ikke har nogen (RLS-gatede/upublicerede medier — normalt).
+export function mediaFaktaFelter(fakta: MediaFakta | undefined): {
+  altTekst: string | null; kreditlinje: string | null; kildeUrl: string | null;
+  kildeInstitution: string | null; beskrivelse: string | null;
+  teknik: string | null; fysiskeMaal: string | null; dateringFakt: string | null;
+} {
+  return {
+    altTekst: fakta?.alt_tekst?.vaerdi ?? null,
+    kreditlinje: fakta?.kreditlinje?.vaerdi ?? null,
+    kildeUrl: fakta?.kilde_url?.vaerdi ?? null,
+    kildeInstitution: fakta?.kilde_institution?.vaerdi ?? null,
+    beskrivelse: fakta?.beskrivelse?.vaerdi ?? null,
+    teknik: fakta?.teknik?.vaerdi ?? null,
+    fysiskeMaal: fakta?.fysiske_maal?.vaerdi ?? null,
+    dateringFakt: fakta?.datering?.dateRaw ?? fakta?.datering?.vaerdi ?? null,
+  };
+}
 
 type RawMediaFact = { id: number; subjekt_id: number; faktatype: string };
 type RawMediaAssert = {

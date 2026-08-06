@@ -2,7 +2,7 @@ import { getAll } from '@daa/core';
 import { selectFeedMedia } from '@daa/feed';
 import type { FeedCard, FeedMediaCandidate } from '@daa/feed';
 import { supabase } from '../supabase';
-import { signPaths } from './media';
+import { signPaths, fetchMediaFakta } from './media';
 
 export type FeedMediaRequest = {
   cardId: string;
@@ -19,6 +19,7 @@ export type WebFeedMediaItem = {
   mediumUrl: string;
   largeUrl: string;
   primaer?: boolean;
+  altTekst?: string | null; // medie-metadata Task 6 — bruges af FeedMediaStrip som img-alt
 };
 
 export type FeedMediaCandidatesByPerson = Record<string, FeedMediaCandidate[]>;
@@ -73,13 +74,14 @@ export async function fetchFeedMediaCandidates(
     const mediaIds = [...new Set(relations.map((relation) => relation.objekt_id))];
     if (!mediaIds.length) return out;
 
-    const [mediaRows, variants] = await Promise.all([
+    const [mediaRows, variants, faktaByMediaId] = await Promise.all([
       getAll<RawMedia>(() =>
         supabase.from('media').select('id,slags,titel,kunstner,datering,storage_path').in('id', mediaIds),
       ),
       getAll<RawVariant>(() =>
         supabase.from('media_variant').select('media_id,storage_path').eq('tier', 'medium').in('media_id', mediaIds),
       ),
+      fetchMediaFakta(mediaIds),
     ]);
     const mediaById = new Map(mediaRows
       .filter((row): row is RawMedia & { storage_path: string } => !!row.storage_path)
@@ -101,6 +103,7 @@ export async function fetchFeedMediaCandidates(
         datering: media.datering ?? '',
         largePath: media.storage_path,
         mediumPath: mediumPathByMediaId.get(media.id) ?? null,
+        altTekst: faktaByMediaId.get(String(media.id))?.alt_tekst?.vaerdi ?? null,
         ...(relation.kvalifikator?.primaer === true ? { primaer: true } : {}),
       };
       const existing = candidates.get(candidate.id);
@@ -155,6 +158,7 @@ export async function resolveFeedMediaForCards(
         datering: candidate.datering,
         mediumUrl: (candidate.mediumPath ? signed.get(candidate.mediumPath) : undefined) ?? largeUrl,
         largeUrl,
+        altTekst: candidate.altTekst ?? null,
         ...(candidate.primaer === true ? { primaer: true } : {}),
       });
     }

@@ -4,6 +4,7 @@ type FakeRow = Record<string, unknown>;
 
 const mocks = vi.hoisted(() => ({
   signPaths: vi.fn(),
+  fetchMediaFakta: vi.fn(),
 }));
 
 let byTable: Record<string, FakeRow[]> = {};
@@ -39,7 +40,7 @@ vi.mock('../../supabase', () => ({
   },
 }));
 
-vi.mock('../media', () => ({ signPaths: mocks.signPaths }));
+vi.mock('../media', () => ({ signPaths: mocks.signPaths, fetchMediaFakta: mocks.fetchMediaFakta }));
 
 const { fetchFeedMediaCandidates, resolveFeedMediaForCards } = await import('../feedMedia');
 
@@ -69,6 +70,8 @@ beforeEach(() => {
   inCalls.length = 0;
   mocks.signPaths.mockReset();
   mocks.signPaths.mockResolvedValue(new Map());
+  mocks.fetchMediaFakta.mockReset();
+  mocks.fetchMediaFakta.mockResolvedValue(new Map());
 });
 
 describe('fetchFeedMediaCandidates', () => {
@@ -105,6 +108,20 @@ describe('fetchFeedMediaCandidates', () => {
     expect(result['99']).toEqual([]);
   });
 
+  it('beriger kandidaterne med altTekst fra fetchMediaFakta (medie-metadata Task 6)', async () => {
+    mocks.fetchMediaFakta.mockResolvedValue(new Map([
+      ['101', { alt_tekst: { factId: '9', vaerdi: 'En dame i sort kjole', dateMin: null, dateMax: null, dateQualifier: null, dateRaw: null } }],
+    ]));
+
+    const result = await fetchFeedMediaCandidates(['10'], canonicalIdById);
+
+    expect(mocks.fetchMediaFakta).toHaveBeenCalledWith([101, 102]);
+    expect(result['10']).toEqual([
+      expect.objectContaining({ id: '101', altTekst: 'En dame i sort kjole' }),
+      expect.objectContaining({ id: '102', altTekst: null }),
+    ]);
+  });
+
   it('advarer og giver tomme nøgler ved fetch-fejl', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     failQueries = true;
@@ -118,7 +135,7 @@ describe('fetchFeedMediaCandidates', () => {
 describe('resolveFeedMediaForCards', () => {
   const candidates = {
     '10': [
-      { id: '101', slags: 'maleri', titel: 'A', kunstner: 'K1', datering: '1800', largePath: 'large/101.jpg', mediumPath: 'medium/101.jpg', primaer: true },
+      { id: '101', slags: 'maleri', titel: 'A', kunstner: 'K1', datering: '1800', largePath: 'large/101.jpg', mediumPath: 'medium/101.jpg', primaer: true, altTekst: 'En dame i sort kjole' },
       { id: '102', slags: 'brev', titel: 'B', kunstner: '', datering: '', largePath: 'large/102.jpg', mediumPath: null },
     ],
   };
@@ -139,8 +156,8 @@ describe('resolveFeedMediaForCards', () => {
       'medium/101.jpg', 'large/101.jpg', 'large/102.jpg',
     ]));
     expect(result['arkiv:10']).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: '101', mediumUrl: 'signed-medium-101', largeUrl: 'signed-large-101', primaer: true }),
-      expect.objectContaining({ id: '102', mediumUrl: 'signed-large-102', largeUrl: 'signed-large-102' }),
+      expect.objectContaining({ id: '101', mediumUrl: 'signed-medium-101', largeUrl: 'signed-large-101', primaer: true, altTekst: 'En dame i sort kjole' }),
+      expect.objectContaining({ id: '102', mediumUrl: 'signed-large-102', largeUrl: 'signed-large-102', altTekst: null }),
     ]));
   });
 

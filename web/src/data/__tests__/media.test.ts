@@ -10,8 +10,11 @@ vi.mock('../../supabase', () => ({
 
 import { dedupPreferPrimaer, pickPortrait, type MediaItem } from '../media';
 
-const m = (id: number, slags: string, url: string | null, primaer?: boolean): MediaItem =>
-  ({ id: String(id), slags, titel: '', kunstner: '', datering: '', url, thumbUrl: url, primaer });
+const m = (id: number, slags: string, url: string | null, primaer?: boolean): MediaItem => ({
+  id: String(id), slags, titel: '', kunstner: '', datering: '', url, thumbUrl: url, primaer,
+  altTekst: null, kreditlinje: null, kildeUrl: null, kildeInstitution: null,
+  beskrivelse: null, teknik: null, fysiskeMaal: null, dateringFakt: null,
+});
 
 describe('pickPortrait med primaer-flag (fase 4)', () => {
   it('primaer vinder over slags-heuristikken', () => {
