@@ -3,7 +3,189 @@ import hashlib
 
 import pytest
 
-from dual_rendition_evidence_1939 import locate_baseline_anchors
+from dual_rendition_evidence_1939 import (
+    align_renditions,
+    derive_consensus,
+    locate_baseline_anchors,
+)
+
+
+def occ(occurrence_id, order, marker, *, text="tekst", pages=(496,),
+        post_class="nummereret", section=("I",), span=None):
+    start, end = span if span is not None else (order * 10, order * 10 + 10)
+    return {
+        "occurrence_id": occurrence_id,
+        "order": order,
+        "span": {"char_from": start, "char_to": end},
+        "pdf_pages": list(pages),
+        "post_class": post_class,
+        "printed_marker": marker,
+        "section_signature": list(section),
+        "text": text,
+    }
+
+
+def manifest(*occurrences, rendition="calamari"):
+    return {
+        "rendition": rendition,
+        "source_length": max((item["span"]["char_to"] for item in occurrences), default=0),
+        "occurrences": list(occurrences),
+    }
+
+
+def anchor(record_key, rendition, occurrence_id):
+    return {
+        "record_key": record_key,
+        "rendition": rendition,
+        "occurrence_id": occurrence_id,
+        "status": "unique_exact_anchor",
+    }
+
+
+def alignment_for(*occurrence_ids):
+    return {"pairs": [
+        {"calamari_occurrence_id": occurrence_ids[index], "raw_occurrence_id": occurrence_ids[index + 1]}
+        for index in range(0, len(occurrence_ids), 2)
+    ]}
+
+
+def anchors_with_nested_successor(volrad_key, emeke_key):
+    return {
+        volrad_key: anchor(volrad_key, "calamari", "c-volrad"),
+        emeke_key: anchor(emeke_key, "calamari", "c-emeke"),
+    }
+
+
+def volrad_manifest(rendition, *, nested):
+    prefix = "c" if rendition == "calamari" else "r"
+    return manifest(
+        occ("%s-volrad" % prefix, 0, "1", span=(0, 15 if nested else 10)),
+        occ("%s-emeke" % prefix, 1, "2", span=(10, 20)),
+        rendition=rendition,
+    )
+
+
+def consensus_for(anchors, alignment, calamari, raw):
+    return derive_consensus(
+        anchors, alignment, calamari_manifest=calamari, raw_manifest=raw,
+    )
+
+
+def test_unique_monotone_alignment_pairs_same_structural_sequence():
+    cal = manifest(occ("c1", 0, "1"), occ("c2", 1, "2"))
+    raw = manifest(occ("r1", 0, "1"), occ("r2", 1, "2"), rendition="raw_ocr")
+    result = align_renditions(cal, raw)
+    assert result["pairs"] == [
+        {"calamari_occurrence_id": "c1", "raw_occurrence_id": "r1"},
+        {"calamari_occurrence_id": "c2", "raw_occurrence_id": "r2"},
+    ]
+
+
+def test_equally_valid_repeated_marker_is_ambiguous_not_guessed():
+    cal = manifest(occ("c1", 0, "1"))
+    raw = manifest(occ("r1", 0, "1"), occ("r2", 1, "1"), rendition="raw_ocr")
+    result = align_renditions(cal, raw)
+    assert result["pairs"] == []
+    assert result["ambiguous_occurrence_ids"] == ["c1", "r1", "r2"]
+
+
+def test_different_ocr_wording_can_consensus_when_boundaries_match():
+    alignment = align_renditions(
+        manifest(occ("c1", 0, "1", text="Volrad")),
+        manifest(occ("r1", 0, "1", text="V o 1 r a d"), rendition="raw_ocr"),
+    )
+    assert alignment["pairs"] == [{
+        "calamari_occurrence_id": "c1", "raw_occurrence_id": "r1",
+    }]
+
+
+def test_volrad_span_containing_emeke_anchor_is_boundary_disagreement():
+    result = consensus_for(
+        anchors_with_nested_successor("rk-volrad", "rk-emeke"),
+        alignment_for("c-volrad", "r-volrad", "c-emeke", "r-emeke"),
+        volrad_manifest("calamari", nested=False),
+        volrad_manifest("raw_ocr", nested=True),
+    )
+    assert result["rk-volrad"]["status"] == "unanchored"
+    assert result["rk-volrad"]["reason"] == "boundary_disagreement"
+
+
+def test_alignment_is_identical_after_deepcopy():
+    cal = manifest(occ("c1", 0, "1"), occ("c2", 1, "2"))
+    raw = manifest(occ("r1", 0, "1"), occ("r2", 1, "2"), rendition="raw_ocr")
+    assert align_renditions(cal, raw) == align_renditions(copy.deepcopy(cal), copy.deepcopy(raw))
+
+
+def test_reordered_predecessor_is_not_consensus():
+    cal = manifest(occ("c1", 0, "1"), occ("c2", 1, "2"))
+    raw = manifest(occ("r1", 0, "2"), occ("r2", 1, "1"), rendition="raw_ocr")
+    result = consensus_for(
+        {"rk": anchor("rk", "calamari", "c2")}, alignment_for("c1", "r2", "c2", "r1"), cal, raw,
+    )
+    assert result["rk"] == {"record_key": "rk", "status": "unanchored", "reason": "predecessor_disagreement"}
+
+
+def test_missing_successor_is_not_consensus():
+    cal = manifest(occ("c1", 0, "1"), occ("c2", 1, "2"))
+    raw = manifest(occ("r1", 0, "1"), rendition="raw_ocr")
+    result = consensus_for({"rk": anchor("rk", "calamari", "c1")}, alignment_for("c1", "r1"), cal, raw)
+    assert result["rk"] == {"record_key": "rk", "status": "unanchored", "reason": "successor_disagreement"}
+
+
+def test_page_disagreement_is_not_consensus():
+    cal = manifest(occ("c1", 0, "1", pages=(496,)))
+    raw = manifest(occ("r1", 0, "1", pages=(497,)), rendition="raw_ocr")
+    result = consensus_for({"rk": anchor("rk", "calamari", "c1")}, alignment_for("c1", "r1"), cal, raw)
+    assert result["rk"] == {"record_key": "rk", "status": "unanchored", "reason": "page_disagreement"}
+
+
+def test_post_class_disagreement_creates_no_compatibility_edge_or_consensus():
+    cal = manifest(occ("c1", 0, "1", post_class="nummereret"))
+    raw = manifest(occ("r1", 0, "1", post_class="stamfader"), rendition="raw_ocr")
+    alignment = align_renditions(cal, raw)
+    assert alignment["calamari_unmatched"] == ["c1"]
+    assert alignment["raw_unmatched"] == ["r1"]
+    result = consensus_for({"rk": anchor("rk", "calamari", "c1")}, alignment_for("c1", "r1"), cal, raw)
+    assert result["rk"] == {"record_key": "rk", "status": "unanchored", "reason": "post_class_disagreement"}
+
+
+def test_two_record_keys_owning_one_occurrence_are_not_consensus():
+    cal = manifest(occ("c1", 0, "1"))
+    raw = manifest(occ("r1", 0, "1"), rendition="raw_ocr")
+    result = consensus_for(
+        {"rk-1": anchor("rk-1", "calamari", "c1"), "rk-2": anchor("rk-2", "calamari", "c1")},
+        alignment_for("c1", "r1"), cal, raw,
+    )
+    assert result == {
+        "rk-1": {"record_key": "rk-1", "status": "unanchored", "reason": "occurrence_collision"},
+        "rk-2": {"record_key": "rk-2", "status": "unanchored", "reason": "occurrence_collision"},
+    }
+
+
+def test_overlapping_accepted_spans_are_not_consensus():
+    cal = manifest(
+        occ("c1", 0, "1", section=("I",), span=(0, 10)),
+        occ("c2", 1, "2", section=("II",), span=(5, 15)),
+    )
+    raw = manifest(
+        occ("r1", 0, "1", section=("I",), span=(0, 10)),
+        occ("r2", 1, "2", section=("II",), span=(5, 15)), rendition="raw_ocr",
+    )
+    result = consensus_for(
+        {"rk-1": anchor("rk-1", "calamari", "c1"), "rk-2": anchor("rk-2", "calamari", "c2")},
+        alignment_for("c1", "r1", "c2", "r2"), cal, raw,
+    )
+    assert result == {
+        "rk-1": {"record_key": "rk-1", "status": "unanchored", "reason": "span_overlap"},
+        "rk-2": {"record_key": "rk-2", "status": "unanchored", "reason": "span_overlap"},
+    }
+
+
+def test_document_edge_sentinel_allows_consensus():
+    cal = manifest(occ("c1", 0, "1"))
+    raw = manifest(occ("r1", 0, "1"), rendition="raw_ocr")
+    result = consensus_for({"rk": anchor("rk", "calamari", "c1")}, alignment_for("c1", "r1"), cal, raw)
+    assert result["rk"]["status"] == "consensus"
 
 
 def occurrence_manifest(rendition, text, spans=None):
