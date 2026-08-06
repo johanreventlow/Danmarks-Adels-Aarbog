@@ -39,6 +39,19 @@ def anchored_candidate(candidate_id="candidate-1", postklasse="nummereret"):
     }
 
 
+def human_approved_candidate(candidate_id="human:1939-v2:span:abc123"):
+    return {
+        "candidate_id": candidate_id,
+        "postklasse": "nummereret",
+        "calamari_span": {"char_from": 10, "char_to": 20},
+        "pdf_pages": [498],
+        "approval": {
+            "kind": "human_approved_span_v1",
+            "calamari_excerpt_sha256": "e" * 64,
+        },
+    }
+
+
 def automatic(key, rule_id="complete_anchor_v1", postklasse="nummereret"):
     return {
         "baseline_record_key": key,
@@ -132,6 +145,27 @@ def test_complete_unique_candidate_is_auto_resolved():
             "postklasse": "nummereret",
         }
     ]
+
+
+def test_human_anchor_evidence_remains_human_required():
+    candidate = human_approved_candidate()
+    result = classify_review_entries(
+        source(),
+        {"rk-1"},
+        [evidence(
+            "rk-1",
+            candidate=candidate,
+            positive_provenance={
+                "kind": "human_approved_span_v1",
+                "baseline_record_key": "rk-1",
+                "candidate_id": candidate["candidate_id"],
+            },
+            rule_id="human_anchor_v1",
+        )],
+    )
+
+    assert result["entries"][0]["queue_class"] == "human_required"
+    assert result["entries"][0]["reason_code"] == "human_approved_evidence"
 
 
 def test_complete_presentation_candidate_with_apparent_provenance_requires_human():

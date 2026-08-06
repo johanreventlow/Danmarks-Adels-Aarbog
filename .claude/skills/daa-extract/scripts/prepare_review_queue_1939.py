@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 
 from coverage_1939 import (
+    APPROVAL_KINDS,
     LEGACY_REVIEW_ACCEPTED_FIELDS,
     POSTKLASSER,
     duplicate_target_errors,
@@ -51,11 +52,15 @@ _OPTIONAL_EVIDENCE_ENTRY_FIELDS = _EVIDENCE_ENTRY_FIELDS | {
 }
 _BOUNDARY_EXCERPT_LIMIT = 160
 _BOUNDARY_RECORD_LINE_RE = re.compile(r"^\s*\??\s*\d{1,4}[a-z]?\.\s+\S.*$", re.IGNORECASE)
-_CANDIDATE_FIELDS = {
+_REQUIRED_CANDIDATE_FIELDS = {
     "candidate_id", "postklasse", "calamari_span", "pdf_pages",
-    "raw_structure_bridge",
 }
-_PROVENANCE_KINDS = {"record_key_v2_locator", "dual_rendition_consensus_v1"}
+_CANDIDATE_FIELDS = _REQUIRED_CANDIDATE_FIELDS | {
+    "raw_structure_bridge", "approval",
+}
+_PROVENANCE_KINDS = {
+    "record_key_v2_locator", "dual_rendition_consensus_v1", *APPROVAL_KINDS,
+}
 
 
 @dataclass(frozen=True)
@@ -618,9 +623,13 @@ def _strict_string_list(value: object, label: str) -> list[str]:
 
 
 def _validate_source_bound_candidate(
-    value: object, calamari_text: str, raw_text: str
+    value: object, calamari_text: str, raw_text: str, *,
+    allow_approval_only: bool = False,
 ) -> dict:
-    if not isinstance(value, Mapping) or set(value) != _CANDIDATE_FIELDS:
+    if (
+        not isinstance(value, Mapping)
+        or not _REQUIRED_CANDIDATE_FIELDS <= set(value) <= _CANDIDATE_FIELDS
+    ):
         raise ValueError("evidence candidate har uautoriserede eller manglende felter")
     candidate = copy.deepcopy(dict(value))
     _nonempty(candidate.get("candidate_id"), "candidate_id")
@@ -644,19 +653,29 @@ def _validate_source_bound_candidate(
         raise ValueError("PDF-side skal være et positivt heltal")
 
     bridge = candidate.get("raw_structure_bridge")
-    bridge_fields = {"kind", "raw_char_from", "raw_char_to", "raw_excerpt_sha256"}
-    if not isinstance(bridge, Mapping) or set(bridge) != bridge_fields:
-        raise ValueError("rå-bro har uautoriserede eller manglende felter")
-    _nonempty(bridge.get("kind"), "rå-bro kind")
-    raw_from = _nonnegative_int(bridge.get("raw_char_from"), "rå-bro raw_char_from")
-    raw_to = _nonnegative_int(bridge.get("raw_char_to"), "rå-bro raw_char_to")
-    if raw_from >= raw_to or raw_to > len(raw_text):
-        raise ValueError("rå-bro er uden for den aktuelle kilde")
-    raw_excerpt = raw_text[raw_from:raw_to]
-    if not raw_excerpt:
-        raise ValueError("rå-bro er tom")
-    if bridge.get("raw_excerpt_sha256") != _hash_bytes(raw_excerpt.encode("utf-8")):
-        raise ValueError("raw_excerpt_sha256 matcher ikke den aktuelle rå-OCR-kilde")
+    if bridge is not None:
+        bridge_fields = {"kind", "raw_char_from", "raw_char_to", "raw_excerpt_sha256"}
+        if not isinstance(bridge, Mapping) or set(bridge) != bridge_fields:
+            raise ValueError("rå-bro har uautoriserede eller manglende felter")
+        _nonempty(bridge.get("kind"), "rå-bro kind")
+        raw_from = _nonnegative_int(bridge.get("raw_char_from"), "rå-bro raw_char_from")
+        raw_to = _nonnegative_int(bridge.get("raw_char_to"), "rå-bro raw_char_to")
+        if raw_from >= raw_to or raw_to > len(raw_text):
+            raise ValueError("rå-bro er uden for den aktuelle kilde")
+        raw_excerpt = raw_text[raw_from:raw_to]
+        if not raw_excerpt:
+            raise ValueError("rå-bro er tom")
+        if bridge.get("raw_excerpt_sha256") != _hash_bytes(raw_excerpt.encode("utf-8")):
+            raise ValueError("raw_excerpt_sha256 matcher ikke den aktuelle rå-OCR-kilde")
+    approval = candidate.get("approval")
+    if approval is not None:
+        excerpt = calamari_text[char_from:char_to]
+        if approval["calamari_excerpt_sha256"] != _hash_bytes(excerpt.encode("utf-8")):
+            raise ValueError("calamari_excerpt_sha256 matcher ikke den aktuelle Calamari-kilde")
+    if bridge is None and not allow_approval_only:
+        raise ValueError(
+            "kandidat med kun menneskegodkendelse kræver evidensindlæserens opt-in"
+        )
     return candidate
 
 
@@ -664,8 +683,11 @@ def _validate_dual_consensus_contract(entry: dict, source: dict) -> None:
     """Check only the cross-layer facts consumed by the dual-consensus rule."""
     candidate = entry["candidates"][0]
     provenance = entry["positive_provenance"]
-    bridge = candidate["raw_structure_bridge"]
-    markers = (entry["rule_id"], provenance["kind"], bridge["kind"])
+    bridge = candidate.get("raw_structure_bridge")
+    markers = (
+        entry["rule_id"], provenance["kind"],
+        bridge.get("kind") if isinstance(bridge, Mapping) else None,
+    )
     candidate_id = candidate["candidate_id"]
     is_dual = RULE_ID in markers or candidate_id.startswith("1939:dual-v1:")
     if not is_dual:
@@ -769,10 +791,26 @@ def _source_bound_evidence_entries(
         candidates = entry.get("candidates")
         if not isinstance(candidates, list):
             raise ValueError("candidates skal være en liste")
-        entry["candidates"] = [
-            _validate_source_bound_candidate(candidate, calamari_text, raw_text)
-            for candidate in candidates
-        ]
+        validated_candidates = []
+        for candidate in candidates:
+            validate_coverage(
+                {
+                    "schema_version": 1,
+                    "source": copy.deepcopy(source),
+                    "entries": [{
+                        "baseline_record_key": key,
+                        "status": "accepteret",
+                        "candidate": copy.deepcopy(candidate),
+                    }],
+                },
+                expected_baseline_keys={key},
+            )
+            validated_candidates.append(
+                _validate_source_bound_candidate(
+                    candidate, calamari_text, raw_text, allow_approval_only=True,
+                )
+            )
+        entry["candidates"] = validated_candidates
         entry["conflicts"] = _strict_string_list(entry.get("conflicts"), "conflict")
         entry["source_blockers"] = _strict_string_list(
             entry.get("source_blockers"), "source_blocker"
@@ -1058,7 +1096,9 @@ def _joined_accepted_candidate(
         if calamari_text is None or raw_text is None:
             raise ValueError("legacy accepted anchors kræver aktuelle OCR-kilder")
         span = candidate["calamari_span"]
-        bridge = candidate["raw_structure_bridge"]
+        bridge = candidate.get("raw_structure_bridge")
+        if not isinstance(bridge, Mapping):
+            raise ValueError("legacy accepted anchors kræver rå-bro")
         expected = {
             "candidate_id": candidate["candidate_id"],
             "post_index": candidate_index,

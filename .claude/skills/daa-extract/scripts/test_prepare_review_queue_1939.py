@@ -819,6 +819,114 @@ def _source_bound_evidence(args, key="rk-1"):
     }
 
 
+def _human_source_bound_evidence(args, key="rk-1"):
+    calamari_excerpt = "Calamari"
+    candidate = {
+        "candidate_id": "human:1939-v2:span:abc123",
+        "postklasse": "nummereret",
+        "calamari_span": {"char_from": 0, "char_to": len(calamari_excerpt)},
+        "pdf_pages": [1],
+        "approval": {
+            "kind": "human_approved_span_v1",
+            "calamari_excerpt_sha256": hashlib.sha256(
+                calamari_excerpt.encode("utf-8")
+            ).hexdigest(),
+        },
+    }
+    return {
+        "schema_version": 1,
+        "source": _exact_cli_source(args),
+        "entries": [{
+            "baseline_record_key": key,
+            "candidates": [candidate],
+            "positive_provenance": {
+                "kind": "human_approved_span_v1",
+                "baseline_record_key": key,
+                "candidate_id": candidate["candidate_id"],
+            },
+            "conflicts": [],
+            "source_blockers": [],
+            "rule_id": "human_anchor_v1",
+        }],
+    }
+
+
+def test_source_bound_evidence_accepts_approval_only_human_candidate(tmp_path):
+    args, _, _, _ = _pilot_cli_args(tmp_path)
+    evidence = _human_source_bound_evidence(args)
+
+    validated = subject._source_bound_evidence_entries(
+        evidence,
+        evidence["source"],
+        {"rk-1"},
+        "Calamari OCR",
+        "Rå OCR",
+    )
+
+    assert validated == evidence["entries"]
+
+
+def test_approval_only_candidate_requires_explicit_evidence_loader_opt_in(tmp_path):
+    args, _, _, _ = _pilot_cli_args(tmp_path)
+    candidate = _human_source_bound_evidence(args)["entries"][0]["candidates"][0]
+
+    with pytest.raises(ValueError, match="kun menneskegodkendelse"):
+        subject._validate_source_bound_candidate(
+            candidate,
+            "Calamari OCR",
+            "Rå OCR",
+        )
+
+
+def test_joined_accepted_candidate_accepts_matching_human_evidence(tmp_path):
+    args, _, _, _ = _pilot_cli_args(tmp_path)
+    evidence = _human_source_bound_evidence(args)
+    [validated] = subject._source_bound_evidence_entries(
+        evidence,
+        evidence["source"],
+        {"rk-1"},
+        "Calamari OCR",
+        "Rå OCR",
+    )
+    candidate_id = validated["candidates"][0]["candidate_id"]
+
+    joined = subject._joined_accepted_candidate(
+        {
+            "baseline_record_key": "rk-1",
+            "status": "accepteret",
+            "candidate_id": candidate_id,
+        },
+        {"rk-1": validated},
+        evidence["source"],
+    )
+
+    assert joined == validated["candidates"][0]
+
+
+def test_legacy_accepted_fields_require_raw_bridge_for_comparison(tmp_path):
+    args, _, _, _ = _pilot_cli_args(tmp_path)
+    evidence = _human_source_bound_evidence(args)
+    [validated] = subject._source_bound_evidence_entries(
+        evidence,
+        evidence["source"],
+        {"rk-1"},
+        "Calamari OCR",
+        "Rå OCR",
+    )
+    decision = accepted_decision(
+        "rk-1", validated["candidates"][0]["candidate_id"]
+    )
+
+    with pytest.raises(ValueError, match="legacy accepted anchors kræver rå-bro"):
+        subject._joined_accepted_candidate(
+            decision,
+            {"rk-1": validated},
+            evidence["source"],
+            "Calamari OCR",
+            "Rå OCR",
+        )
+
+
 def _dual_source_bound_evidence(args, key="rk-1"):
     evidence = _source_bound_evidence(args, key)
     entry = evidence["entries"][0]

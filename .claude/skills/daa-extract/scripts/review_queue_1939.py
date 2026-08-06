@@ -41,6 +41,7 @@ _CONSENSUS_CONFLICT_CODES = {
     "unknown_narrative_source",
 }
 _HUMAN_REASONS_DA = {
+    "human_approved_evidence": "Menneskegodkendt evidens kræver en menneskelig beslutning.",
     "no_candidate": "Ingen kandidat med komplet kildebro.",
     "multiple_candidates": "Flere kandidater kræver menneskelig vurdering.",
     "missing_positive_provenance": "Mangler gyldig positiv proveniens.",
@@ -249,6 +250,8 @@ def _validate_evidence_shape(entry: dict) -> None:
 def _classify_one(key: str, evidence: dict, source: dict) -> dict:
     if evidence.get("source_blockers"):
         return _blocked(key, evidence["source_blockers"][0])
+    if _is_human_evidence(evidence):
+        return _human(key, "human_approved_evidence")
     candidates = evidence.get("candidates") or []
     conflict_reason = _allowlisted_consensus_conflict(evidence.get("conflicts"))
     if len(candidates) != 1:
@@ -279,6 +282,17 @@ def _classify_one(key: str, evidence: dict, source: dict) -> dict:
     except PresentationCandidateIdError:
         return _human(key, "missing_positive_provenance")
     return _automatic(key, candidate, evidence["rule_id"])
+
+
+def _is_human_evidence(evidence: Mapping) -> bool:
+    provenance = evidence.get("positive_provenance")
+    provenance_kind = (
+        provenance.get("kind") if isinstance(provenance, Mapping) else None
+    )
+    return any(
+        isinstance(marker, str) and marker.startswith("human_")
+        for marker in (evidence.get("rule_id"), provenance_kind)
+    )
 
 
 def _valid_dual_consensus_contract(
