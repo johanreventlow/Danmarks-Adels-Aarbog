@@ -607,19 +607,19 @@ failure codes. `_classify_one` may preserve the highest-priority allowlisted
 code as `reason_code`, but it must still return `human_required`; unknown or
 multiple malformed codes return `evidence_conflict`.
 
-- [ ] **Step 5: Add adversarial evidence tests**
+- [ ] **Step 5: Add realistic data-quality evidence tests**
 
 Add tests that reject/demote:
 
 - bool/float/string schema versions and page offsets;
-- bytes subclasses and mapping/list/string subclasses at trust boundaries;
 - a candidate whose source span or raw digest does not match current bytes;
 - changed baseline, Calamari, raw or PDF bytes;
 - duplicate candidate IDs, occurrence owners or overlapping spans;
 - a `presentation:` candidate ID;
 - a source-less artifact with positive fields;
 - a v2 locator plus name/page but no exact narrative ownership anchor;
-- a fabricated dual-consensus provenance attached to a non-consensus candidate.
+- a dual-consensus provenance/candidate mismatch caused by an internal
+  programming or serialization error;
 - an occurrence representing one of the seven filtered overview duplicates in
   both renditions: because it has no key in the 546-record baseline, it remains
   unmatched and cannot create an extra evidence entry or person.
