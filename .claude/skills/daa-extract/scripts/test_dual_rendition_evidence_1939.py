@@ -85,6 +85,10 @@ def test_unique_monotone_alignment_pairs_same_structural_sequence():
     ]
 
 
+def test_optimal_path_membership_handles_500_unmatched_occurrences():
+    assert subject._optimal_path_membership(set(), 500, 1) == (1, frozenset())
+
+
 def test_equally_valid_repeated_marker_is_ambiguous_not_guessed():
     cal = manifest(occ("c1", 0, "1"))
     raw = manifest(occ("r1", 0, "1"), occ("r2", 1, "1"), rendition="raw_ocr")

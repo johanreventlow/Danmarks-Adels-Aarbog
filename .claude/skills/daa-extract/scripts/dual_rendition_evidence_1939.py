@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from functools import lru_cache
 
 from rendition_occurrences_1939 import (
     CALAMARI_R6_TO_PDF_V1,
@@ -503,10 +502,16 @@ def _optimal_path_membership(
         right_edges[left_index].append(right_index)
     right_edges = tuple(tuple(sorted(indices)) for indices in right_edges)
 
-    @lru_cache(maxsize=None)
+    cache: dict[tuple[int, int], tuple[int, frozenset[tuple[int, int]]]] = {}
+
     def paths(left_index: int, right_index: int) -> tuple[int, frozenset[tuple[int, int]]]:
+        cache_key = (left_index, right_index)
+        if cache_key in cache:
+            return cache[cache_key]
         if left_index == left_count:
-            return 1, frozenset()
+            result = 1, frozenset()
+            cache[cache_key] = result
+            return result
         optimum = table[left_index][right_index]
         branches = []
         if table[left_index + 1][right_index] == optimum:
@@ -524,7 +529,9 @@ def _optimal_path_membership(
         required = branches[0][1]
         for _, branch_required in branches[1:]:
             required = required & branch_required
-        return count, frozenset(required)
+        result = count, frozenset(required)
+        cache[cache_key] = result
+        return result
 
     return paths(0, 0)
 
