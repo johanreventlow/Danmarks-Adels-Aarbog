@@ -88,10 +88,14 @@ medier. Skærpelse: media-grenen ændres til `media_rettigheder_ok(p_id)`
   `conclusion`/`citation` kalder ikke funktionen direkte, men arver
   skærpelsen indirekte via deres `EXISTS`-cascade mod `fact`/`relation`
   (og ses fortsat uændret af redaktionen via det additive `redaktion_read`-
-  lag ovenfor). `text_mention` er kun ramt på **kilde-siden**, når
-  `kilde_type='narrative'` og narrativets `subjekt_type='media'` (db-rls.sql:743)
-  — `text_mention`s **mål-side** ved `maal_type='media'` bruger derimod
-  `media_synlig_anon(maal_id)` (db-rls.sql:756), en separat funktion der
+  lag ovenfor). `text_mention` er ramt på **kilde-siden** ad TO stier:
+  (a) `kilde_type='narrative'` hvor narrativets `subjekt_type='media'`
+  (db-rls.sql:743), og (b) `kilde_type='note'` hvor notens `target_type='media'`
+  — else-grenen i den indlejrede CASE (db-rls.sql:749). Sti (b) er
+  defensiv i dag (ingen live-skriver opretter media-noter, jf.
+  schema.sql:3039), men hører med til billedet. `text_mention`s
+  **mål-side** ved `maal_type='media'` bruger derimod
+  `media_synlig_anon(maal_id)` (db-rls.sql:755), en separat funktion der
   allerede publikationsgatede media-mål FØR denne branch. Den sti er altså
   ikke en ny effekt af skærpelsen.
 - **Bevidst afgrænsning:** fakta følger PUBLICERINGS-gaten, ikke
