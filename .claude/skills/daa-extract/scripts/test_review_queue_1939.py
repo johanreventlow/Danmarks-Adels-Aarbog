@@ -158,6 +158,40 @@ def test_missing_source_material_is_source_blocked():
     assert result["entries"][0]["reason_code"] == "raw_ocr_missing"
 
 
+def test_allowlisted_dual_consensus_conflict_is_preserved_for_human_review():
+    result = classify_review_entries(
+        source(), {"rk-1"}, [evidence("rk-1", conflicts=["boundary_disagreement"])]
+    )
+    assert result["entries"] == [{
+        "baseline_record_key": "rk-1",
+        "queue_class": "human_required",
+        "reason_code": "boundary_disagreement",
+        "reason_da": "OCR-kilderne er uenige om postens grænse.",
+    }]
+
+
+@pytest.mark.parametrize("conflicts", [["invented_reason"], ["boundary_disagreement", "page_disagreement"]])
+def test_unknown_or_multiple_consensus_conflicts_are_generic_evidence_conflicts(conflicts):
+    result = classify_review_entries(
+        source(), {"rk-1"}, [evidence("rk-1", conflicts=conflicts)]
+    )
+    assert result["entries"][0]["reason_code"] == "evidence_conflict"
+
+
+def test_dual_consensus_provenance_is_an_automatic_candidate_kind():
+    candidate = anchored_candidate()
+    result = classify_review_entries(source(), {"rk-1"}, [evidence(
+        "rk-1", candidate=candidate,
+        positive_provenance={
+            "kind": "dual_rendition_consensus_v1",
+            "baseline_record_key": "rk-1",
+            "candidate_id": candidate["candidate_id"],
+        },
+        rule_id="dual_rendition_consensus_v1",
+    )])
+    assert result["entries"][0]["queue_class"] == "auto_resolved"
+
+
 @pytest.mark.parametrize(
     "candidate_mutation",
     [

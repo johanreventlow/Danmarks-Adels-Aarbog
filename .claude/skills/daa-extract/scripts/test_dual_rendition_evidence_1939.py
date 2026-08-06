@@ -1,13 +1,16 @@
 import copy
 import hashlib
+import json
 
 import pytest
 
 from dual_rendition_evidence_1939 import (
     align_renditions,
+    build_source_bound_evidence,
     derive_consensus,
     locate_baseline_anchors,
 )
+from review_queue_1939 import classify_review_entries
 
 
 def occ(occurrence_id, order, marker, *, text="tekst", pages=(496,),
@@ -442,3 +445,87 @@ def test_inputs_are_not_mutated():
         calamari_occurrences=calamari_manifest, raw_occurrences=raw_manifest,
     )
     assert (records, calamari_manifest, raw_manifest) == before
+
+
+def baseline_bytes(narrative, *, source="calamari"):
+    return json.dumps([{
+        "record_key": "rk-1",
+        "_v2_lokal_id": "I.1",
+        "_narrativ_kilde": source,
+        "narrative": narrative,
+    }], ensure_ascii=False).encode("utf-8")
+
+
+def test_consensus_materializes_existing_strict_evidence_grammar():
+    evidence, cal_occ, raw_occ = build_source_bound_evidence(
+        baseline_bytes=baseline_bytes("Alfa prosa"),
+        calamari_bytes=b"### PAGE 1 ###\n1. Alfa prosa\n### PAGE 1 ###\n2. Beta\n",
+        raw_bytes=b"### PAGE 496 ###\n1. A1fa prosa\n### PAGE 496 ###\n2. Beta\n",
+        pdf_bytes=b"%PDF-synthetic",
+        profile_version="1939-v2",
+    )
+    entry = evidence["entries"][0]
+    assert entry["positive_provenance"] == {
+        "kind": "dual_rendition_consensus_v1",
+        "baseline_record_key": "rk-1",
+        "candidate_id": entry["candidates"][0]["candidate_id"],
+    }
+    assert cal_occ["rendition"] == "calamari"
+    assert raw_occ["rendition"] == "raw_ocr"
+    classify_review_entries(evidence["source"], {"rk-1"}, evidence["entries"])
+
+
+def test_locator_and_name_without_an_exact_narrative_anchor_stay_human_work():
+    evidence, _, _ = build_source_bound_evidence(
+        baseline_bytes=baseline_bytes("Alfa prosa"),
+        calamari_bytes="### PAGE 1 ###\n1. Alfa ændret\n".encode("utf-8"),
+        raw_bytes="### PAGE 496 ###\n1. A1fa ændret\n".encode("utf-8"),
+        pdf_bytes=b"%PDF-synthetic",
+        profile_version="1939-v2",
+    )
+    assert evidence["entries"] == [{
+        "baseline_record_key": "rk-1",
+        "candidates": [],
+        "positive_provenance": None,
+        "conflicts": ["ambiguous_structure"],
+        "source_blockers": [],
+        "rule_id": None,
+    }]
+
+
+def test_unkeyed_overview_occurrence_cannot_create_an_extra_evidence_entry():
+    evidence, _, _ = build_source_bound_evidence(
+        baseline_bytes=baseline_bytes("Alfa prosa"),
+        calamari_bytes=(
+            "### PAGE 1 ###\n1. Alfa prosa\n"
+            "### PAGE 1 ###\n2. Gentaget oversigt\n"
+        ).encode("utf-8"),
+        raw_bytes=(
+            "### PAGE 496 ###\n1. A1fa prosa\n"
+            "### PAGE 496 ###\n2. Gentaget oversigt\n"
+        ).encode("utf-8"),
+        pdf_bytes=b"%PDF-synthetic",
+        profile_version="1939-v2",
+    )
+    assert [entry["baseline_record_key"] for entry in evidence["entries"]] == ["rk-1"]
+
+
+@pytest.mark.parametrize("value", ["not-bytes", None])
+def test_materialization_requires_source_bytes(value):
+    with pytest.raises(ValueError, match="bytes"):
+        build_source_bound_evidence(
+            baseline_bytes=value,
+            calamari_bytes=b"", raw_bytes=b"", pdf_bytes=b"",
+            profile_version="1939-v2",
+        )
+
+
+def test_materialization_requires_the_pinned_profile_version():
+    with pytest.raises(ValueError, match="profile_version"):
+        build_source_bound_evidence(
+            baseline_bytes=baseline_bytes("Alfa prosa"),
+            calamari_bytes=b"### PAGE 1 ###\n1. Alfa prosa\n",
+            raw_bytes=b"### PAGE 496 ###\n1. A1fa prosa\n",
+            pdf_bytes=b"%PDF-synthetic",
+            profile_version="un-pinned",
+        )

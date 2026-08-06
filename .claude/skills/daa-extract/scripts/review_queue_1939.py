@@ -18,7 +18,22 @@ from coverage_1939 import (
 
 QUEUE_CLASSES = {"auto_resolved", "human_required", "source_blocked"}
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-_PROVENANCE_KINDS = {"record_key_v2_locator"}
+_PROVENANCE_KINDS = {"record_key_v2_locator", "dual_rendition_consensus_v1"}
+_CONSENSUS_CONFLICT_CODES = {
+    "missing_in_calamari",
+    "missing_in_raw_ocr",
+    "multiple_calamari_occurrences",
+    "multiple_raw_occurrences",
+    "boundary_disagreement",
+    "predecessor_disagreement",
+    "successor_disagreement",
+    "page_disagreement",
+    "post_class_disagreement",
+    "occurrence_collision",
+    "span_overlap",
+    "ambiguous_structure",
+    "known_overview_duplicate",
+}
 _HUMAN_REASONS_DA = {
     "no_candidate": "Ingen kandidat med komplet kildebro.",
     "multiple_candidates": "Flere kandidater kræver menneskelig vurdering.",
@@ -28,6 +43,19 @@ _HUMAN_REASONS_DA = {
     "candidate_collision": "Kandidaten er knyttet til flere baseline-poster.",
     "calamari_span_overlap": "Calamari-ankeret overlapper en anden kandidat.",
     "raw_ocr_span_overlap": "Rå-OCR-ankeret overlapper en anden kandidat.",
+    "missing_in_calamari": "Posten kan ikke afgrænses i Calamari-kilden.",
+    "missing_in_raw_ocr": "Posten kan ikke afgrænses i rå OCR.",
+    "multiple_calamari_occurrences": "Flere Calamari-forekomster er mulige.",
+    "multiple_raw_occurrences": "Flere rå-OCR-forekomster er mulige.",
+    "boundary_disagreement": "OCR-kilderne er uenige om postens grænse.",
+    "predecessor_disagreement": "OCR-kilderne er uenige om den foregående post.",
+    "successor_disagreement": "OCR-kilderne er uenige om den følgende post.",
+    "page_disagreement": "OCR-kilderne er uenige om PDF-siden.",
+    "post_class_disagreement": "OCR-kilderne er uenige om posttypen.",
+    "occurrence_collision": "En kildeforekomst er krævet af flere poster.",
+    "span_overlap": "Kildeintervallet overlapper en anden post.",
+    "ambiguous_structure": "Kildestrukturen er ikke entydig.",
+    "known_overview_duplicate": "Kendt oversigtsdublet kræver menneskelig vurdering.",
 }
 
 
@@ -194,7 +222,12 @@ def _classify_one(key: str, evidence: dict, source: dict) -> dict:
     if evidence.get("source_blockers"):
         return _blocked(key, evidence["source_blockers"][0])
     candidates = evidence.get("candidates") or []
+    conflict_reason = _allowlisted_consensus_conflict(evidence.get("conflicts"))
     if len(candidates) != 1:
+        if not candidates and conflict_reason is not None:
+            return _human(key, conflict_reason)
+        if evidence.get("conflicts"):
+            return _human(key, "evidence_conflict")
         return _human(key, "no_candidate" if not candidates else "multiple_candidates")
     candidate = candidates[0]
     candidate_id = candidate.get("candidate_id") if isinstance(candidate, Mapping) else None
@@ -202,7 +235,7 @@ def _classify_one(key: str, evidence: dict, source: dict) -> dict:
     if not _valid_positive_provenance(provenance, key, candidate_id):
         return _human(key, "missing_positive_provenance")
     if evidence.get("conflicts"):
-        return _human(key, "evidence_conflict")
+        return _human(key, conflict_reason or "evidence_conflict")
     if not _nonempty_optional_string(evidence.get("rule_id")):
         return _human(key, "missing_rule_id")
     try:
@@ -210,6 +243,17 @@ def _classify_one(key: str, evidence: dict, source: dict) -> dict:
     except PresentationCandidateIdError:
         return _human(key, "missing_positive_provenance")
     return _automatic(key, candidate, evidence["rule_id"])
+
+
+def _allowlisted_consensus_conflict(conflicts: object) -> str | None:
+    if (
+        isinstance(conflicts, list)
+        and len(conflicts) == 1
+        and isinstance(conflicts[0], str)
+        and conflicts[0] in _CONSENSUS_CONFLICT_CODES
+    ):
+        return conflicts[0]
+    return None
 
 
 def _valid_positive_provenance(

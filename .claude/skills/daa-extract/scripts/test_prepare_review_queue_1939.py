@@ -1576,6 +1576,43 @@ def test_exact_source_bound_candidate_can_be_classified_automatically(tmp_path):
     assert json.loads(report_path.read_text(encoding="utf-8"))["publication_gate"] == "NO-GO"
 
 
+def test_prepare_queue_accepts_the_dual_rendition_consensus_provenance_kind(tmp_path):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    evidence = _source_bound_evidence(args)
+    evidence["entries"][0]["positive_provenance"]["kind"] = "dual_rendition_consensus_v1"
+    evidence["entries"][0]["rule_id"] = "dual_rendition_consensus_v1"
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+
+    assert main(args) == 0
+
+    queue = json.loads(queue_path.read_text(encoding="utf-8"))
+    assert queue["entries"][0]["queue_class"] == "auto_resolved"
+    assert queue["entries"][0]["rule_id"] == "dual_rendition_consensus_v1"
+    assert json.loads(report_path.read_text(encoding="utf-8"))["publication_gate"] == "NO-GO"
+
+
+@pytest.mark.parametrize("option,replacement", [
+    ("--baseline", json.dumps([baseline("rk-1", pages="499")]).encode("utf-8")),
+    ("--calamari", b"changed Calamari"),
+    ("--raw", b"changed raw OCR"),
+    ("--pdf", b"%PDF-changed"),
+])
+def test_prepare_queue_rejects_evidence_from_stale_or_mixed_source_bytes(
+    tmp_path, option, replacement
+):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    _cli_path(args, "--evidence").write_text(
+        json.dumps(_source_bound_evidence(args)), encoding="utf-8"
+    )
+    _cli_path(args, option).write_bytes(replacement)
+
+    with pytest.raises(ValueError, match="evidence source matcher ikke"):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
+
+
 def test_baseline_hash_and_keys_come_from_the_same_single_read(tmp_path, monkeypatch):
     args, queue_path, _, _ = _pilot_cli_args(tmp_path)
     baseline_path = _cli_path(args, "--baseline")

@@ -3,11 +3,194 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from functools import lru_cache
+
+from rendition_occurrences_1939 import (
+    CALAMARI_R6_TO_PDF_V1,
+    extract_rendition_occurrences,
+)
 
 
 NARRATIVE_SOURCES = {"calamari": "calamari", "raw": "raw_ocr"}
 POST_CLASSES = {"nummereret", "stamfader", "oversigtspost"}
+RULE_ID = "dual_rendition_consensus_v1"
+_CONFLICT_CODES = {
+    "missing_in_calamari",
+    "missing_in_raw_ocr",
+    "multiple_calamari_occurrences",
+    "multiple_raw_occurrences",
+    "boundary_disagreement",
+    "predecessor_disagreement",
+    "successor_disagreement",
+    "page_disagreement",
+    "post_class_disagreement",
+    "occurrence_collision",
+    "span_overlap",
+    "ambiguous_structure",
+    "known_overview_duplicate",
+}
+
+
+def _canonical_json(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _strict_baseline_json(value: bytes) -> list[dict]:
+    def reject_duplicate_keys(pairs):
+        result = {}
+        for key, item in pairs:
+            if key in result:
+                raise ValueError("baseline contains duplicate JSON field names")
+            result[key] = item
+        return result
+
+    try:
+        baseline = json.loads(value.decode("utf-8"), object_pairs_hook=reject_duplicate_keys)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("baseline must be UTF-8 JSON") from error
+    return _validate_baseline_records(baseline)
+
+
+def _require_boundary_types(
+    baseline_bytes: object, calamari_bytes: object, raw_bytes: object,
+    pdf_bytes: object, profile_version: object,
+) -> None:
+    if not all(isinstance(value, bytes) for value in (
+        baseline_bytes, calamari_bytes, raw_bytes, pdf_bytes,
+    )):
+        raise ValueError("source material must be bytes")
+    if not isinstance(profile_version, str) or not profile_version:
+        raise ValueError("profile_version must be a nonempty string")
+    if profile_version != "1939-v2":
+        raise ValueError("profile_version must be 1939-v2")
+
+
+def _consensus_conflict(consensus: dict) -> str:
+    reason = consensus.get("reason")
+    return reason if reason in _CONFLICT_CODES else "ambiguous_structure"
+
+
+def _candidate_id(record_key: str, calamari_span: dict, raw_span: dict) -> str:
+    payload = _canonical_json({
+        "record_key": record_key,
+        "calamari_span": calamari_span,
+        "raw_span": raw_span,
+        "source": RULE_ID,
+    })
+    return "1939:dual-v1:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _occurrence_by_id(manifest: dict) -> dict[str, dict]:
+    return {occurrence["occurrence_id"]: occurrence for occurrence in manifest["occurrences"]}
+
+
+def _materialize_complete_evidence(
+    baseline: list[dict], consensus: dict[str, dict], *,
+    baseline_bytes: bytes, calamari_bytes: bytes, raw_bytes: bytes,
+    pdf_bytes: bytes, profile_version: str, calamari_manifest: dict,
+    raw_manifest: dict,
+) -> dict:
+    calamari_by_id = _occurrence_by_id(calamari_manifest)
+    raw_by_id = _occurrence_by_id(raw_manifest)
+    raw_text = raw_bytes.decode("utf-8")
+    entries = []
+    candidate_ids = set()
+    for record in baseline:
+        key = record["record_key"]
+        result = consensus[key]
+        entry = {
+            "baseline_record_key": key,
+            "candidates": [],
+            "positive_provenance": None,
+            "conflicts": [],
+            "source_blockers": [],
+            "rule_id": None,
+        }
+        if result["status"] != "consensus":
+            entry["conflicts"] = [_consensus_conflict(result)]
+            entries.append(entry)
+            continue
+        calamari = calamari_by_id.get(result["calamari_occurrence_id"])
+        raw = raw_by_id.get(result["raw_occurrence_id"])
+        if calamari is None or raw is None:
+            entry["conflicts"] = ["ambiguous_structure"]
+            entries.append(entry)
+            continue
+        calamari_span = dict(calamari["span"])
+        raw_span = dict(raw["span"])
+        raw_excerpt = raw_text[raw_span["char_from"]:raw_span["char_to"]]
+        candidate_id = _candidate_id(key, calamari_span, raw_span)
+        if candidate_id in candidate_ids:
+            raise ValueError("candidate IDs must be globally injective")
+        candidate_ids.add(candidate_id)
+        candidate = {
+            "candidate_id": candidate_id,
+            "postklasse": calamari["post_class"],
+            "calamari_span": calamari_span,
+            "pdf_pages": list(calamari["pdf_pages"]),
+            "raw_structure_bridge": {
+                "kind": RULE_ID,
+                "raw_char_from": raw_span["char_from"],
+                "raw_char_to": raw_span["char_to"],
+                "raw_excerpt_sha256": hashlib.sha256(raw_excerpt.encode("utf-8")).hexdigest(),
+            },
+        }
+        entry.update({
+            "candidates": [candidate],
+            "positive_provenance": {
+                "kind": RULE_ID,
+                "baseline_record_key": key,
+                "candidate_id": candidate_id,
+            },
+            "rule_id": RULE_ID,
+        })
+        entries.append(entry)
+    return {
+        "schema_version": 1,
+        "source": {
+            "edition": "1939",
+            "baseline_sha256": hashlib.sha256(baseline_bytes).hexdigest(),
+            "calamari_sha256": hashlib.sha256(calamari_bytes).hexdigest(),
+            "raw_ocr_sha256": hashlib.sha256(raw_bytes).hexdigest(),
+            "pdf_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
+            "profile_version": profile_version,
+        },
+        "entries": entries,
+    }
+
+
+def build_source_bound_evidence(
+    baseline_bytes: bytes, calamari_bytes: bytes, raw_bytes: bytes, pdf_bytes: bytes,
+    *, profile_version: str,
+) -> tuple[dict, dict, dict]:
+    """Materialize one fail-closed evidence entry for every baseline record key."""
+    _require_boundary_types(
+        baseline_bytes, calamari_bytes, raw_bytes, pdf_bytes, profile_version
+    )
+    baseline = _strict_baseline_json(baseline_bytes)
+    try:
+        calamari_text = calamari_bytes.decode("utf-8")
+        raw_text = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError("OCR source material must be UTF-8") from error
+    cal_occ = extract_rendition_occurrences(
+        calamari_text, rendition="calamari", page_map=CALAMARI_R6_TO_PDF_V1,
+    )
+    raw_occ = extract_rendition_occurrences(raw_text, rendition="raw_ocr", page_map=None)
+    anchors = locate_baseline_anchors(
+        baseline, calamari_text=calamari_text, raw_text=raw_text,
+        calamari_occurrences=cal_occ, raw_occurrences=raw_occ,
+    )
+    consensus = derive_consensus(
+        anchors, align_renditions(cal_occ, raw_occ),
+        calamari_manifest=cal_occ, raw_manifest=raw_occ,
+    )
+    return _materialize_complete_evidence(
+        baseline, consensus, baseline_bytes=baseline_bytes,
+        calamari_bytes=calamari_bytes, raw_bytes=raw_bytes, pdf_bytes=pdf_bytes,
+        profile_version=profile_version, calamari_manifest=cal_occ, raw_manifest=raw_occ,
+    ), cal_occ, raw_occ
 
 
 def _is_exact_int(value: object) -> bool:

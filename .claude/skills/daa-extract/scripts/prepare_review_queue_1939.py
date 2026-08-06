@@ -48,6 +48,7 @@ _CANDIDATE_FIELDS = {
     "candidate_id", "postklasse", "calamari_span", "pdf_pages",
     "raw_structure_bridge",
 }
+_PROVENANCE_KINDS = {"record_key_v2_locator", "dual_rendition_consensus_v1"}
 
 
 @dataclass(frozen=True)
@@ -670,7 +671,7 @@ def _source_bound_evidence_entries(
             if not isinstance(provenance, Mapping) or set(provenance) != provenance_fields:
                 raise ValueError("positive_provenance har uautoriserede eller manglende felter")
             if (
-                provenance.get("kind") != "record_key_v2_locator"
+                provenance.get("kind") not in _PROVENANCE_KINDS
                 or provenance.get("baseline_record_key") != key
                 or len(entry["candidates"]) != 1
                 or provenance.get("candidate_id") != entry["candidates"][0]["candidate_id"]
@@ -882,11 +883,13 @@ def _joined_accepted_candidate(
     if len(matches) != 1:
         raise ValueError("accepteret beslutning kræver præcis én evidence candidate for ejer")
     provenance = evidence.get("positive_provenance")
-    if not isinstance(provenance, Mapping) or dict(provenance) != {
-        "kind": "record_key_v2_locator",
-        "baseline_record_key": key,
-        "candidate_id": candidate_id,
-    }:
+    if (
+        not isinstance(provenance, Mapping)
+        or set(provenance) != {"kind", "baseline_record_key", "candidate_id"}
+        or provenance.get("kind") not in _PROVENANCE_KINDS
+        or provenance.get("baseline_record_key") != key
+        or provenance.get("candidate_id") != candidate_id
+    ):
         raise ValueError("accepteret evidence mangler matchende positiv proveniens")
     candidate_index, matched_candidate = matches[0]
     candidate = copy.deepcopy(dict(matched_candidate))
