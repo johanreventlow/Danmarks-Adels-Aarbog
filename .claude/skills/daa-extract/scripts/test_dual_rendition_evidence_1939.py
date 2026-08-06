@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+import dual_rendition_evidence_1939 as subject
 from dual_rendition_evidence_1939 import (
     align_renditions,
     build_source_bound_evidence,
@@ -247,6 +248,37 @@ def test_one_sided_section_transition_is_successor_disagreement():
     }
 
 
+def test_unkeyed_aligned_overview_cannot_certify_a_keyed_successor_boundary():
+    cal = manifest(occ("c-keyed", 0, "1"), occ("c-overview", 1, "2"))
+    raw = manifest(
+        occ("r-keyed", 0, "1"), occ("r-overview", 1, "2"), rendition="raw_ocr"
+    )
+    result = consensus_for(
+        {"rk-keyed": anchor("rk-keyed", "calamari", "c-keyed")},
+        alignment_for("c-keyed", "r-keyed", "c-overview", "r-overview"), cal, raw,
+    )
+    assert result["rk-keyed"] == {
+        "record_key": "rk-keyed",
+        "status": "unanchored",
+        "reason": "successor_disagreement",
+    }
+
+
+def test_reciprocally_anchored_neighbor_can_certify_a_keyed_successor_boundary():
+    cal = manifest(occ("c-keyed", 0, "1"), occ("c-neighbor", 1, "2"))
+    raw = manifest(
+        occ("r-keyed", 0, "1"), occ("r-neighbor", 1, "2"), rendition="raw_ocr"
+    )
+    result = consensus_for(
+        {
+            "rk-keyed": anchor("rk-keyed", "calamari", "c-keyed"),
+            "rk-neighbor": anchor("rk-neighbor", "calamari", "c-neighbor"),
+        },
+        alignment_for("c-keyed", "r-keyed", "c-neighbor", "r-neighbor"), cal, raw,
+    )
+    assert result["rk-keyed"]["status"] == "consensus"
+
+
 def occurrence_manifest(rendition, text, spans=None):
     spans = ([(0, len(text))] if text else []) if spans is None else spans
     return {
@@ -459,8 +491,8 @@ def baseline_bytes(narrative, *, source="calamari"):
 def test_consensus_materializes_existing_strict_evidence_grammar():
     evidence, cal_occ, raw_occ = build_source_bound_evidence(
         baseline_bytes=baseline_bytes("Alfa prosa"),
-        calamari_bytes=b"### PAGE 1 ###\n1. Alfa prosa\n### PAGE 1 ###\n2. Beta\n",
-        raw_bytes=b"### PAGE 496 ###\n1. A1fa prosa\n### PAGE 496 ###\n2. Beta\n",
+        calamari_bytes=b"### PAGE 1 ###\n1. Alfa prosa\n",
+        raw_bytes=b"### PAGE 496 ###\n1. A1fa prosa\n",
         pdf_bytes=b"%PDF-synthetic",
         profile_version="1939-v2",
     )
@@ -529,3 +561,24 @@ def test_materialization_requires_the_pinned_profile_version():
             pdf_bytes=b"%PDF-synthetic",
             profile_version="un-pinned",
         )
+
+
+def test_consensus_occurrence_id_and_span_mismatch_stays_human_work(monkeypatch):
+    original = subject.derive_consensus
+
+    def mismatched_consensus(*args, **kwargs):
+        result = original(*args, **kwargs)
+        result["rk-1"]["calamari_span"] = {"char_from": 1, "char_to": 2}
+        return result
+
+    monkeypatch.setattr(subject, "derive_consensus", mismatched_consensus)
+    evidence, _, _ = subject.build_source_bound_evidence(
+        baseline_bytes=baseline_bytes("Alfa prosa"),
+        calamari_bytes=b"### PAGE 1 ###\n1. Alfa prosa\n",
+        raw_bytes=b"### PAGE 496 ###\n1. A1fa prosa\n",
+        pdf_bytes=b"%PDF-synthetic",
+        profile_version="1939-v2",
+    )
+    assert evidence["entries"][0]["candidates"] == []
+    assert evidence["entries"][0]["positive_provenance"] is None
+    assert evidence["entries"][0]["conflicts"] == ["boundary_disagreement"]

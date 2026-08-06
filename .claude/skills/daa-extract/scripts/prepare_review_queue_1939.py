@@ -20,6 +20,7 @@ from coverage_1939 import (
     validate_accepted_candidate_id,
     validate_coverage,
 )
+from dual_rendition_evidence_1939 import RULE_ID, deterministic_candidate_id
 from review_choices_1939 import validate_choice_export
 from review_queue_1939 import (
     QUEUE_CLASSES,
@@ -569,6 +570,28 @@ def _validate_source_bound_candidate(
     return candidate
 
 
+def _validate_dual_consensus_contract(entry: dict, source: dict) -> None:
+    """Check only the cross-layer facts consumed by the dual-consensus rule."""
+    candidate = entry["candidates"][0]
+    provenance = entry["positive_provenance"]
+    bridge = candidate["raw_structure_bridge"]
+    markers = (entry["rule_id"], provenance["kind"], bridge["kind"])
+    candidate_id = candidate["candidate_id"]
+    is_dual = RULE_ID in markers or candidate_id.startswith("1939:dual-v1:")
+    if not is_dual:
+        return
+    if markers != (RULE_ID, RULE_ID, RULE_ID):
+        raise ValueError("dual consensus rule/kind matcher ikke")
+    expected_id = deterministic_candidate_id(
+        entry["baseline_record_key"], candidate["calamari_span"], {
+            "char_from": bridge["raw_char_from"],
+            "char_to": bridge["raw_char_to"],
+        }, source,
+    )
+    if candidate_id != expected_id:
+        raise ValueError("dual consensus candidate_id matcher ikke source-bound evidens")
+
+
 def _source_less_evidence_entries(
     value: Mapping, source: dict, baseline_keys: set[str]
 ) -> list[dict]:
@@ -678,6 +701,8 @@ def _source_bound_evidence_entries(
             ):
                 raise ValueError("positive_provenance matcher ikke den entydige candidate")
             entry["positive_provenance"] = copy.deepcopy(dict(provenance))
+        if len(entry["candidates"]) == 1 and entry["positive_provenance"] is not None:
+            _validate_dual_consensus_contract(entry, source)
         validated.append(entry)
     if seen != baseline_keys:
         raise ValueError("evidence baseline-dækning fejler")

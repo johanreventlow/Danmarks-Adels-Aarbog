@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from dual_rendition_evidence_1939 import RULE_ID, deterministic_candidate_id
 import prepare_coverage_1939 as task5_subject
 import prepare_review_queue_1939 as subject
 from prepare_review_queue_1939 import (
@@ -591,6 +592,27 @@ def _source_bound_evidence(args, key="rk-1"):
             "rule_id": "complete_anchor_v1",
         }],
     }
+
+
+def _dual_source_bound_evidence(args, key="rk-1"):
+    evidence = _source_bound_evidence(args, key)
+    entry = evidence["entries"][0]
+    candidate = entry["candidates"][0]
+    bridge = candidate["raw_structure_bridge"]
+    candidate["raw_structure_bridge"]["kind"] = RULE_ID
+    candidate["candidate_id"] = deterministic_candidate_id(
+        key, candidate["calamari_span"], {
+            "char_from": bridge["raw_char_from"],
+            "char_to": bridge["raw_char_to"],
+        }, evidence["source"],
+    )
+    entry["positive_provenance"] = {
+        "kind": RULE_ID,
+        "baseline_record_key": key,
+        "candidate_id": candidate["candidate_id"],
+    }
+    entry["rule_id"] = RULE_ID
+    return evidence
 
 
 def _task5_output(*decisions, audit_results=()):
@@ -1578,17 +1600,37 @@ def test_exact_source_bound_candidate_can_be_classified_automatically(tmp_path):
 
 def test_prepare_queue_accepts_the_dual_rendition_consensus_provenance_kind(tmp_path):
     args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
-    evidence = _source_bound_evidence(args)
-    evidence["entries"][0]["positive_provenance"]["kind"] = "dual_rendition_consensus_v1"
-    evidence["entries"][0]["rule_id"] = "dual_rendition_consensus_v1"
+    evidence = _dual_source_bound_evidence(args)
     _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
 
     assert main(args) == 0
 
     queue = json.loads(queue_path.read_text(encoding="utf-8"))
     assert queue["entries"][0]["queue_class"] == "auto_resolved"
-    assert queue["entries"][0]["rule_id"] == "dual_rendition_consensus_v1"
+    assert queue["entries"][0]["rule_id"] == RULE_ID
     assert json.loads(report_path.read_text(encoding="utf-8"))["publication_gate"] == "NO-GO"
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda entry: entry.update(rule_id="complete_anchor_v1"),
+    lambda entry: entry["candidates"][0]["raw_structure_bridge"].update(kind="record_start"),
+    lambda entry: entry["positive_provenance"].update(kind="record_key_v2_locator"),
+    lambda entry: entry["candidates"][0].update(candidate_id="1939:dual-v1:stale"),
+])
+def test_prepare_queue_rejects_dual_consensus_cross_layer_mismatch(tmp_path, mutate):
+    args, queue_path, report_path, _ = _pilot_cli_args(tmp_path)
+    evidence = _dual_source_bound_evidence(args)
+    entry = evidence["entries"][0]
+    mutate(entry)
+    if entry["positive_provenance"]["candidate_id"] != entry["candidates"][0]["candidate_id"]:
+        entry["positive_provenance"]["candidate_id"] = entry["candidates"][0]["candidate_id"]
+    _cli_path(args, "--evidence").write_text(json.dumps(evidence), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="dual consensus"):
+        main(args)
+
+    assert not queue_path.exists()
+    assert not report_path.exists()
 
 
 @pytest.mark.parametrize("option,replacement", [

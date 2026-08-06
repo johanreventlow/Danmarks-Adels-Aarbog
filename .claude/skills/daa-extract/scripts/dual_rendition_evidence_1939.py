@@ -71,12 +71,14 @@ def _consensus_conflict(consensus: dict) -> str:
     return reason if reason in _CONFLICT_CODES else "ambiguous_structure"
 
 
-def _candidate_id(record_key: str, calamari_span: dict, raw_span: dict) -> str:
+def deterministic_candidate_id(
+    record_key: str, calamari_span: dict, raw_span: dict, source: dict,
+) -> str:
     payload = _canonical_json({
         "record_key": record_key,
         "calamari_span": calamari_span,
         "raw_span": raw_span,
-        "source": RULE_ID,
+        "source": source,
     })
     return "1939:dual-v1:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -88,8 +90,8 @@ def _occurrence_by_id(manifest: dict) -> dict[str, dict]:
 def _materialize_complete_evidence(
     baseline: list[dict], consensus: dict[str, dict], *,
     baseline_bytes: bytes, calamari_bytes: bytes, raw_bytes: bytes,
-    pdf_bytes: bytes, profile_version: str, calamari_manifest: dict,
-    raw_manifest: dict,
+    pdf_bytes: bytes, profile_version: str, source: dict,
+    calamari_manifest: dict, raw_manifest: dict,
 ) -> dict:
     calamari_by_id = _occurrence_by_id(calamari_manifest)
     raw_by_id = _occurrence_by_id(raw_manifest)
@@ -119,8 +121,15 @@ def _materialize_complete_evidence(
             continue
         calamari_span = dict(calamari["span"])
         raw_span = dict(raw["span"])
+        if (
+            result.get("calamari_span") != calamari_span
+            or result.get("raw_span") != raw_span
+        ):
+            entry["conflicts"] = ["boundary_disagreement"]
+            entries.append(entry)
+            continue
         raw_excerpt = raw_text[raw_span["char_from"]:raw_span["char_to"]]
-        candidate_id = _candidate_id(key, calamari_span, raw_span)
+        candidate_id = deterministic_candidate_id(key, calamari_span, raw_span, source)
         if candidate_id in candidate_ids:
             raise ValueError("candidate IDs must be globally injective")
         candidate_ids.add(candidate_id)
@@ -148,14 +157,7 @@ def _materialize_complete_evidence(
         entries.append(entry)
     return {
         "schema_version": 1,
-        "source": {
-            "edition": "1939",
-            "baseline_sha256": hashlib.sha256(baseline_bytes).hexdigest(),
-            "calamari_sha256": hashlib.sha256(calamari_bytes).hexdigest(),
-            "raw_ocr_sha256": hashlib.sha256(raw_bytes).hexdigest(),
-            "pdf_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
-            "profile_version": profile_version,
-        },
+        "source": source,
         "entries": entries,
     }
 
@@ -186,10 +188,19 @@ def build_source_bound_evidence(
         anchors, align_renditions(cal_occ, raw_occ),
         calamari_manifest=cal_occ, raw_manifest=raw_occ,
     )
+    source = {
+        "edition": "1939",
+        "baseline_sha256": hashlib.sha256(baseline_bytes).hexdigest(),
+        "calamari_sha256": hashlib.sha256(calamari_bytes).hexdigest(),
+        "raw_ocr_sha256": hashlib.sha256(raw_bytes).hexdigest(),
+        "pdf_sha256": hashlib.sha256(pdf_bytes).hexdigest(),
+        "profile_version": profile_version,
+    }
     return _materialize_complete_evidence(
         baseline, consensus, baseline_bytes=baseline_bytes,
         calamari_bytes=calamari_bytes, raw_bytes=raw_bytes, pdf_bytes=pdf_bytes,
-        profile_version=profile_version, calamari_manifest=cal_occ, raw_manifest=raw_occ,
+        profile_version=profile_version, source=source,
+        calamari_manifest=cal_occ, raw_manifest=raw_occ,
     ), cal_occ, raw_occ
 
 
@@ -584,7 +595,8 @@ def _has_nested_same_section_boundary(occurrences: tuple[dict, ...], index: int)
 
 def _neighbors_agree(
     calamari: tuple[dict, ...], raw: tuple[dict, ...], calamari_index: int, raw_index: int,
-    calamari_to_raw: dict[str, str | None], direction: int,
+    calamari_to_raw: dict[str, str | None], calamari_owners: dict[str, str | None],
+    raw_owners: dict[str, str | None], direction: int,
 ) -> bool:
     calamari_token = _edge_token(calamari, calamari_index, direction)
     raw_token = _edge_token(raw, raw_index, direction)
@@ -592,12 +604,47 @@ def _neighbors_agree(
         return False
     if calamari_token[0] != "occurrence":
         return calamari_token == raw_token
-    mapped = calamari_to_raw.get(calamari_token[1])
-    if mapped != raw_token[1]:
+    calamari_neighbor_id = calamari_token[1]
+    raw_neighbor_id = raw_token[1]
+    if calamari_to_raw.get(calamari_neighbor_id) != raw_neighbor_id:
+        return False
+    owner = calamari_owners.get(calamari_neighbor_id)
+    if owner is None or owner != raw_owners.get(raw_neighbor_id):
         return False
     return _compatible(
         calamari[calamari_index + direction], raw[raw_index + direction]
     )
+
+
+def _reciprocal_occurrence_owners(
+    anchors: dict[str, dict], calamari_to_raw: dict[str, str | None],
+    raw_to_calamari: dict[str, str | None],
+) -> tuple[dict[str, str | None], dict[str, str | None]]:
+    """Bind an aligned occurrence only when one baseline anchor owns both sides."""
+    calamari_claims: dict[str, set[str]] = {}
+    raw_claims: dict[str, set[str]] = {}
+    for record_key, anchor in anchors.items():
+        if type(anchor) is not dict or anchor.get("status") != "unique_exact_anchor":
+            continue
+        occurrence_id = anchor.get("occurrence_id")
+        if anchor.get("rendition") == "calamari":
+            calamari_id, raw_id = occurrence_id, calamari_to_raw.get(occurrence_id)
+        elif anchor.get("rendition") == "raw_ocr":
+            raw_id, calamari_id = occurrence_id, raw_to_calamari.get(occurrence_id)
+        else:
+            continue
+        if not _is_exact_str(calamari_id) or not _is_exact_str(raw_id):
+            continue
+        calamari_claims.setdefault(calamari_id, set()).add(record_key)
+        raw_claims.setdefault(raw_id, set()).add(record_key)
+
+    def unique_owner(claims: dict[str, set[str]]) -> dict[str, str | None]:
+        return {
+            occurrence_id: next(iter(record_keys)) if len(record_keys) == 1 else None
+            for occurrence_id, record_keys in claims.items()
+        }
+
+    return unique_owner(calamari_claims), unique_owner(raw_claims)
 
 
 def _unanchored_consensus(record_key: str, reason: str) -> dict:
@@ -607,6 +654,7 @@ def _unanchored_consensus(record_key: str, reason: str) -> dict:
 def _derive_one_consensus(
     record_key: str, anchor: object, calamari_to_raw: dict[str, str | None], raw_to_calamari: dict[str, str | None],
     calamari: tuple[dict, ...], raw: tuple[dict, ...], calamari_by_id: dict[str, int], raw_by_id: dict[str, int],
+    calamari_owners: dict[str, str | None], raw_owners: dict[str, str | None],
 ) -> dict:
     if type(anchor) is not dict or anchor.get("status") != "unique_exact_anchor":
         reason = anchor.get("reason") if type(anchor) is dict else None
@@ -632,9 +680,15 @@ def _derive_one_consensus(
         return _unanchored_consensus(record_key, "boundary_disagreement")
     if _has_nested_same_section_boundary(calamari, calamari_index) or _has_nested_same_section_boundary(raw, raw_index):
         return _unanchored_consensus(record_key, "boundary_disagreement")
-    if not _neighbors_agree(calamari, raw, calamari_index, raw_index, calamari_to_raw, -1):
+    if not _neighbors_agree(
+        calamari, raw, calamari_index, raw_index, calamari_to_raw,
+        calamari_owners, raw_owners, -1,
+    ):
         return _unanchored_consensus(record_key, "predecessor_disagreement")
-    if not _neighbors_agree(calamari, raw, calamari_index, raw_index, calamari_to_raw, 1):
+    if not _neighbors_agree(
+        calamari, raw, calamari_index, raw_index, calamari_to_raw,
+        calamari_owners, raw_owners, 1,
+    ):
         return _unanchored_consensus(record_key, "successor_disagreement")
     return {
         "record_key": record_key,
@@ -683,6 +737,9 @@ def derive_consensus(
     calamari = _validated_occurrences(calamari_manifest, "calamari")
     raw = _validated_occurrences(raw_manifest, "raw_ocr")
     calamari_to_raw, raw_to_calamari = _bidirectional_pair_index(alignment.get("pairs"))
+    calamari_owners, raw_owners = _reciprocal_occurrence_owners(
+        anchors, calamari_to_raw, raw_to_calamari
+    )
     calamari_by_id = {occurrence["occurrence_id"]: index for index, occurrence in enumerate(calamari)}
     raw_by_id = {occurrence["occurrence_id"]: index for index, occurrence in enumerate(raw)}
     result = {}
@@ -691,6 +748,6 @@ def derive_consensus(
             raise ValueError("anchor record_key must be a nonempty string")
         result[record_key] = _derive_one_consensus(
             record_key, anchors[record_key], calamari_to_raw, raw_to_calamari,
-            calamari, raw, calamari_by_id, raw_by_id,
+            calamari, raw, calamari_by_id, raw_by_id, calamari_owners, raw_owners,
         )
     return _demote_global_consensus_conflicts(result)

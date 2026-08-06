@@ -14,6 +14,7 @@ from coverage_1939 import (
     is_schema_version_one,
     validate_coverage,
 )
+from dual_rendition_evidence_1939 import RULE_ID, deterministic_candidate_id
 
 
 QUEUE_CLASSES = {"auto_resolved", "human_required", "source_blocked"}
@@ -230,6 +231,8 @@ def _classify_one(key: str, evidence: dict, source: dict) -> dict:
             return _human(key, "evidence_conflict")
         return _human(key, "no_candidate" if not candidates else "multiple_candidates")
     candidate = candidates[0]
+    if not _valid_dual_consensus_contract(key, evidence, candidate, source):
+        return _human(key, "evidence_conflict")
     candidate_id = candidate.get("candidate_id") if isinstance(candidate, Mapping) else None
     provenance = evidence.get("positive_provenance")
     if not _valid_positive_provenance(provenance, key, candidate_id):
@@ -243,6 +246,38 @@ def _classify_one(key: str, evidence: dict, source: dict) -> dict:
     except PresentationCandidateIdError:
         return _human(key, "missing_positive_provenance")
     return _automatic(key, candidate, evidence["rule_id"])
+
+
+def _valid_dual_consensus_contract(
+    key: str, evidence: dict, candidate: object, source: dict,
+) -> bool:
+    if not isinstance(candidate, Mapping):
+        return True
+    provenance = evidence.get("positive_provenance")
+    bridge = candidate.get("raw_structure_bridge")
+    markers = (
+        evidence.get("rule_id"),
+        provenance.get("kind") if isinstance(provenance, Mapping) else None,
+        bridge.get("kind") if isinstance(bridge, Mapping) else None,
+    )
+    candidate_id = candidate.get("candidate_id")
+    is_dual = RULE_ID in markers or (
+        isinstance(candidate_id, str) and candidate_id.startswith("1939:dual-v1:")
+    )
+    if not is_dual:
+        return True
+    if markers != (RULE_ID, RULE_ID, RULE_ID):
+        return False
+    try:
+        expected_id = deterministic_candidate_id(
+            key, candidate["calamari_span"], {
+                "char_from": bridge["raw_char_from"],
+                "char_to": bridge["raw_char_to"],
+            }, source,
+        )
+    except (KeyError, TypeError):
+        return False
+    return candidate_id == expected_id
 
 
 def _allowlisted_consensus_conflict(conflicts: object) -> str | None:

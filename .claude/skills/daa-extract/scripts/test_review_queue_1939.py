@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import copy
+import json
 
 import pytest
 
+from dual_rendition_evidence_1939 import build_source_bound_evidence
 from review_queue_1939 import classify_review_entries, sample_auto_resolved
 
 
@@ -100,6 +102,21 @@ def evidence(key, candidate=None, *, source_blockers=None, **overrides):
     return value
 
 
+def dual_evidence():
+    return build_source_bound_evidence(
+        json.dumps([{
+            "record_key": "rk-1",
+            "_v2_lokal_id": "I.1",
+            "_narrativ_kilde": "calamari",
+            "narrative": "Alfa prosa",
+        }]).encode("utf-8"),
+        b"### PAGE 1 ###\n1. Alfa prosa\n",
+        b"### PAGE 496 ###\n1. A1fa prosa\n",
+        b"%PDF-synthetic",
+        profile_version="1939-v2",
+    )[0]
+
+
 def test_complete_unique_candidate_is_auto_resolved():
     result = classify_review_entries(
         source(), {"rk-1"}, [evidence("rk-1", candidate=anchored_candidate())]
@@ -179,17 +196,37 @@ def test_unknown_or_multiple_consensus_conflicts_are_generic_evidence_conflicts(
 
 
 def test_dual_consensus_provenance_is_an_automatic_candidate_kind():
-    candidate = anchored_candidate()
-    result = classify_review_entries(source(), {"rk-1"}, [evidence(
-        "rk-1", candidate=candidate,
-        positive_provenance={
-            "kind": "dual_rendition_consensus_v1",
-            "baseline_record_key": "rk-1",
-            "candidate_id": candidate["candidate_id"],
-        },
-        rule_id="dual_rendition_consensus_v1",
-    )])
+    bundle = dual_evidence()
+    result = classify_review_entries(
+        bundle["source"], {"rk-1"}, bundle["entries"]
+    )
     assert result["entries"][0]["queue_class"] == "auto_resolved"
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda entry: entry.update(rule_id="complete_anchor_v1"),
+    lambda entry: entry["candidates"][0]["raw_structure_bridge"].update(kind="record_start"),
+    lambda entry: entry["positive_provenance"].update(kind="record_key_v2_locator"),
+    lambda entry: entry["candidates"][0].update(candidate_id="1939:dual-v1:stale"),
+])
+def test_dual_consensus_cross_layer_mismatch_never_auto_resolves(mutate):
+    bundle = dual_evidence()
+    entry = bundle["entries"][0]
+    mutate(entry)
+    if entry["positive_provenance"]["candidate_id"] != entry["candidates"][0]["candidate_id"]:
+        entry["positive_provenance"]["candidate_id"] = entry["candidates"][0]["candidate_id"]
+    result = classify_review_entries(bundle["source"], {"rk-1"}, [entry])
+    assert result["entries"][0]["queue_class"] == "human_required"
+    assert result["entries"][0]["reason_code"] == "evidence_conflict"
+
+
+def test_dual_consensus_candidate_id_is_bound_to_current_complete_source_identity():
+    bundle = dual_evidence()
+    source = copy.deepcopy(bundle["source"])
+    source["pdf_sha256"] = "f" * 64
+    result = classify_review_entries(source, {"rk-1"}, bundle["entries"])
+    assert result["entries"][0]["queue_class"] == "human_required"
+    assert result["entries"][0]["reason_code"] == "evidence_conflict"
 
 
 @pytest.mark.parametrize(
