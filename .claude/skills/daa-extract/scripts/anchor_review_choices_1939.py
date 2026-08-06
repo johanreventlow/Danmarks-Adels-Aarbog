@@ -403,7 +403,6 @@ def build_human_anchored_candidates(
     audit_keys: set[str],
     classifications: dict,
     baseline_bytes: bytes,
-    posts: list,
     calamari_text: str,
     raw_text: str,
     calamari_occurrences: dict,
@@ -412,7 +411,11 @@ def build_human_anchored_candidates(
     expected_source: Mapping,
     calamari_first_pdf_page: int,
 ) -> dict:
-    """Re-anchor every manual choice fail-closed, parking what cannot be proven."""
+    """Re-anchor every manual choice fail-closed, parking what cannot be proven.
+
+    Parser posts are always re-derived internally from the hash-gated
+    Calamari text; no caller can supply a stale or forged post universe.
+    """
     _nonempty(profile_version, "profile_version")
     choices = _mapping(choices, "choices")
     classifications = _mapping(classifications, "classifications")
@@ -420,10 +423,6 @@ def build_human_anchored_candidates(
         not isinstance(key, str) for key in audit_keys
     ):
         raise ValueError("audit_keys skal være et sæt af strenge")
-    if not isinstance(posts, list) or any(
-        not isinstance(post, Mapping) for post in posts
-    ):
-        raise ValueError("posts skal være en liste af mappings")
     if not isinstance(calamari_text, str) or not isinstance(raw_text, str):
         raise ValueError("kildetekster skal være strenge")
     if (
@@ -439,6 +438,13 @@ def build_human_anchored_candidates(
     )
     _require_source_binding(calamari_occurrences, calamari_text, "calamari")
     _require_source_binding(raw_occurrences, raw_text, "raw OCR")
+    if profile_version not in segment.UDGAVE_PROFILER:
+        raise ValueError("ukendt profile_version")
+    with contextlib.redirect_stdout(io.StringIO()), \
+            contextlib.redirect_stderr(io.StringIO()):
+        posts = segment._segment_1939_v2(
+            calamari_text.splitlines(), segment.UDGAVE_PROFILER[profile_version]
+        )
     text_anchor_candidates = _generator_text_anchor_candidates(
         records, classifications, posts, calamari_text,
         calamari_first_pdf_page, profile_version,
@@ -616,20 +622,11 @@ def main() -> int:
         args.calamari_occurrences.read_text(encoding="utf-8")
     )
     raw_occurrences = json.loads(args.raw_occurrences.read_text(encoding="utf-8"))
-    profile_version = source.get("profile_version")
-    if profile_version not in segment.UDGAVE_PROFILER:
-        raise ValueError("ukendt profile_version")
-    calamari_text = calamari_bytes.decode("utf-8")
-    with contextlib.redirect_stdout(io.StringIO()), \
-            contextlib.redirect_stderr(io.StringIO()):
-        posts = segment._segment_1939_v2(
-            calamari_text.splitlines(), segment.UDGAVE_PROFILER[profile_version]
-        )
     result = build_human_anchored_candidates(
-        choices, audit_keys, classifications, baseline_bytes, posts,
-        calamari_text, raw_bytes.decode("utf-8"), calamari_occurrences,
-        raw_occurrences, profile_version, source,
-        args.calamari_first_pdf_page,
+        choices, audit_keys, classifications, baseline_bytes,
+        calamari_bytes.decode("utf-8"), raw_bytes.decode("utf-8"),
+        calamari_occurrences, raw_occurrences, source.get("profile_version"),
+        source, args.calamari_first_pdf_page,
     )
     report = {
         "schema_version": 1,
@@ -665,6 +662,8 @@ def main() -> int:
         for handle, payload in zip(handles, payloads):
             json.dump(payload, handle, ensure_ascii=False, indent=2)
             handle.write("\n")
+        for handle in handles:
+            handle.close()
     except BaseException:
         for handle in handles:
             with contextlib.suppress(OSError):
@@ -673,8 +672,6 @@ def main() -> int:
             with contextlib.suppress(OSError):
                 out_path.unlink()
         raise
-    for handle in handles:
-        handle.close()
     return 0
 
 

@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+from unittest import mock
 
 import pytest
 
@@ -199,20 +200,24 @@ def build(choices, *, audit_keys=frozenset(), classifications=None, posts=None,
         **source_for(baseline_bytes, calamari_text, raw_text),
         **(source_overrides or {}),
     }
-    return build_human_anchored_candidates(
-        choices,
-        set(audit_keys),
-        classifications or copy.deepcopy(CLASSIFICATIONS),
-        baseline_bytes,
-        posts or copy.deepcopy(POSTS),
-        calamari_text,
-        raw_text,
-        cal_occurrences or copy.deepcopy(CAL_OCCURRENCES),
-        raw_occurrences or copy.deepcopy(RAW_OCCURRENCES),
-        PROFILE,
-        expected_source,
-        first_pdf_page,
-    )
+    posts_value = posts or copy.deepcopy(POSTS)
+    with mock.patch.object(
+        subject.segment, "_segment_1939_v2",
+        lambda lines, profile: copy.deepcopy(posts_value),
+    ):
+        return build_human_anchored_candidates(
+            choices,
+            set(audit_keys),
+            classifications or copy.deepcopy(CLASSIFICATIONS),
+            baseline_bytes,
+            calamari_text,
+            raw_text,
+            cal_occurrences or copy.deepcopy(CAL_OCCURRENCES),
+            raw_occurrences or copy.deepcopy(RAW_OCCURRENCES),
+            PROFILE,
+            expected_source,
+            first_pdf_page,
+        )
 
 
 def test_parserpost_valg_faar_span_og_approval():
@@ -504,6 +509,25 @@ def test_text_anchor_uden_sidetilhoer_parkeres():
     assert parked["candidate_id"] == forged
 
 
+def test_posts_kan_ikke_leveres_udefra():
+    records = copy.deepcopy(BASELINE_RECORDS)
+    baseline_bytes = baseline_bytes_for(records)
+    expected_source = source_for(baseline_bytes, CALAMARI_TEXT, RAW_TEXT)
+    with pytest.raises(TypeError):
+        build_human_anchored_candidates(
+            {}, set(), copy.deepcopy(CLASSIFICATIONS), baseline_bytes,
+            [], CALAMARI_TEXT, RAW_TEXT, copy.deepcopy(CAL_OCCURRENCES),
+            copy.deepcopy(RAW_OCCURRENCES), PROFILE, expected_source, 11,
+        )
+    with pytest.raises(TypeError):
+        build_human_anchored_candidates(
+            {}, set(), copy.deepcopy(CLASSIFICATIONS), baseline_bytes,
+            CALAMARI_TEXT, RAW_TEXT, copy.deepcopy(CAL_OCCURRENCES),
+            copy.deepcopy(RAW_OCCURRENCES), PROFILE, expected_source, 11,
+            posts=[],
+        )
+
+
 def test_text_anchor_for_post_med_nearby_kandidater_parkeres():
     records = copy.deepcopy(BASELINE_RECORDS)
     records["rec-c"]["sider"] = "11"
@@ -687,6 +711,39 @@ def test_cli_fejl_under_skrivning_efterlader_ingen_output(tmp_path, monkeypatch)
 
     monkeypatch.setattr("pathlib.Path.open", failing_open)
     with pytest.raises(OSError, match="disk fuld"):
+        subject.main()
+    assert not paths["wrapper_out"].exists()
+    assert not paths["evidence_out"].exists()
+    assert not paths["report_out"].exists()
+    assert not paths["rewritten_out"].exists()
+
+
+def test_cli_fejl_ved_lukning_efterlader_ingen_output(tmp_path, monkeypatch):
+    paths = _write_cli_fixture(tmp_path)
+    monkeypatch.setattr(subject.segment, "_segment_1939_v2",
+                        lambda lines, profile: copy.deepcopy(POSTS))
+    monkeypatch.setattr("sys.argv", _cli_argv(paths))
+    original_open = subject.Path.open
+
+    class FailingCloseHandle:
+        def __init__(self, handle):
+            self._handle = handle
+
+        def write(self, text):
+            return self._handle.write(text)
+
+        def close(self):
+            self._handle.close()
+            raise OSError("disk fuld ved lukning")
+
+    def wrapping_open(self, *open_args, **open_kwargs):
+        handle = original_open(self, *open_args, **open_kwargs)
+        if self == paths["report_out"]:
+            return FailingCloseHandle(handle)
+        return handle
+
+    monkeypatch.setattr("pathlib.Path.open", wrapping_open)
+    with pytest.raises(OSError, match="disk fuld ved lukning"):
         subject.main()
     assert not paths["wrapper_out"].exists()
     assert not paths["evidence_out"].exists()
