@@ -73,16 +73,17 @@ describe('PersonFeedCardView', () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it('viser flere medier som en vandret stribe og ét som et kort i fuld bredde', () => {
-    const { rerender } = render(<PersonFeedCardView card={portrait} person={person} media={media} onOpen={vi.fn()} onSave={vi.fn()} bookmarked={false} />);
+  it('viser medier i en vandret stribe med fast højde og naturlig bredde pr. billede', () => {
+    render(<PersonFeedCardView card={portrait} person={person} media={media} onOpen={vi.fn()} onSave={vi.fn()} bookmarked={false} />);
     const first = screen.getByRole('button', { name: 'Åbn billede: Portræt fra arkivet' });
+    const img = first.querySelector('img');
 
     expect(first.parentElement?.style.display).toBe('flex');
     expect(first.parentElement?.style.overflowX).toBe('auto');
-    expect(first.style.flexBasis).toBe('78%');
-
-    rerender(<PersonFeedCardView card={portrait} person={person} media={[media[0]]} onOpen={vi.fn()} onSave={vi.fn()} bookmarked={false} />);
-    expect(screen.getByRole('button', { name: 'Åbn billede: Portræt fra arkivet' }).style.flexBasis).toBe('100%');
+    expect(first.style.flex).toBe('0 0 auto');
+    expect(first.style.maxWidth).toBe('100%');
+    expect(img?.style.height).toBe('240px');
+    expect(img?.style.width).toBe('auto');
   });
 
   it('udelader media-striben, når kortet ikke har tilgængelige medier', () => {
