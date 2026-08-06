@@ -189,6 +189,9 @@
         result[recordKey] = clone(decision);
         return;
       }
+      if (record.queue_class === 'auto_resolved' && !record.is_audit) {
+        throw new Error('Non-audit auto_resolved-poster må ikke have browservalg');
+      }
       validateProvisionalChoice(decision, false);
       if (decision.outcome === 'human_selected_candidate') {
         if (!candidatesContain(record, decision.candidate_id) || hasDuplicate) {
@@ -492,6 +495,9 @@
     if (state.recoveryBlocked) return false;
     const recordKey = state.selectedKey;
     const previous = clone(state.decisions[recordKey] || null);
+    const hadQuarantine = hasOwn(state.quarantined, recordKey);
+    const previousQuarantine = hadQuarantine
+      ? clone(state.quarantined[recordKey]) : null;
     const navigation = { activeView: state.activeView, selectedKey: state.selectedKey };
     let decision;
     try {
@@ -502,10 +508,13 @@
       return false;
     }
     state.decisions[recordKey] = decision;
+    delete state.quarantined[recordKey];
     try {
       persist(state);
     } catch (_) {
       restoreDecision(state, recordKey, previous);
+      if (hadQuarantine) state.quarantined[recordKey] = previousQuarantine;
+      else delete state.quarantined[recordKey];
       showStorageError(state);
       render(state);
       return false;
@@ -687,8 +696,11 @@
     };
     const exactTextFallbackMessage = exactTextFallbackMessages[candidate.rank_reason];
     const isExactTextFallback = Boolean(exactTextFallbackMessage);
+    const hasAnchoredEvidence = Boolean(
+      candidate.details || candidate.accepted_review_details
+    );
     details.append(element('summary', `Mulig kildepost · PDF s. ${pdfLabel}`));
-    details.append(element('p', candidate.details
+    details.append(element('p', hasAnchoredEvidence
       ? 'Forankret kildeevidens — kan accepteres direkte.'
       : 'Læsehjælp — dit valg gemmes som redaktionel observation og efterforankres maskinelt.'));
     details.append(element('p', `PDF s. ${(candidate.pdf_pages || []).join('-')} · Calamari-scan ${(candidate.calamari_pages || []).join('-')}`));
@@ -725,7 +737,7 @@
         candidate.accepted_review_details, 'Accepteret review-evidens', 'accepted-review',
       ]);
     }
-    if (!candidate.details) {
+    if (!hasAnchoredEvidence) {
       technicalEvidence.push([
         { candidate_id: candidate.candidate_id }, 'Tekniske detaljer', 'candidate-identity',
       ]);
@@ -766,7 +778,7 @@
       const record = state.recordByKey.get(current.baseline_record_key);
       const candidate = record && Array.isArray(record.candidates)
         && record.candidates.find(item => item.candidate_id === current.candidate_id);
-      return candidate && candidate.details
+      return candidate && (candidate.details || candidate.accepted_review_details)
         ? 'Kildepost valgt.'
         : 'Kildepost valgt (gemt som observation til efterforankring).';
     }

@@ -20,13 +20,15 @@ bogfører* denne afgørelse deterministisk — den gætter aldrig selv.
 
 ```text
 browser-eksport (uændret format)
+base-evidence (komplet, source-bundet baseline-dækning)
   → anchor_review_choices_1939.py            (NY: efterforankring, fail-closed)
       → anchored-candidates-wrapper           (input til convert_choice_export)
-      → human-evidence-entries                (input til Task 6-evidensjoin)
+      → composed evidence-bundle              (base + sikre human-erstatninger)
       → parkeringsrapport                     (præcise danske årsager)
   → convert_choice_export                     (eksisterende, uændret flow)
-  → decisions {accepteret | menneskeark | eksplicit_dublet}
-  → materialisering/coverage                  (eksisterende validering)
+  → Task-5-output {decisions, audit_results}
+  → prepare_review_queue --evidence composed --review Task-5-output
+  → publikationskø + rapport                  (review-/fil-GO)
 ```
 
 ## 2. Rå-bro-beslutningen
@@ -99,12 +101,19 @@ injektivitetskontrollen og parkerer begge.
 
 ## 6. Task 6-sømmen
 
-Publikationsgatens evidensjoin (`_joined_accepted_candidate`) kræver i dag en
-dual-evidence-entry med positiv proveniens, som kun de 93 automatiske poster
-har. Adapteren udsteder derfor også human-evidence-entries i samme skema
-(kandidat + `positive_provenance` med kind `human_approved_span_v1`), og
-evidensindlæsningen accepterer approval-kandidater. Uden dette flyttes
-blindgyden blot fra konverteringen til publikationsgaten.
+Publikationsgatens evidensjoin (`_joined_accepted_candidate`) kræver komplet,
+source-bundet baseline-dækning. Adapteren tager derfor et obligatorisk
+`--base-evidence`, validerer det med publikationsjoinets kontrakt og erstatter kun
+samme baseline-key, når base-entryen hverken har source blockers, kandidat eller
+positiv proveniens. Alle andre entries bevares. Resultatet er ét komplet composed
+evidence-bundle med human-kandidater og `positive_provenance.kind =
+human_approved_span_v1`; den bare human-fragmentliste er ikke et gyldigt join-input.
+
+Task-5-outputtet med præcis `{decisions, audit_results}` leveres som
+`prepare_review_queue_1939.py --review`, mens composed evidence leveres som
+`--evidence`. Denne samling kan give publikationsrapportens review-/fil-GO. Der
+findes ingen approval-capable privat coverage-materializer, så et sådant GO er
+ikke materialiserings-, database-, loader- eller deploy-GO.
 
 ## 7. Fejlveje (udtømmende)
 
@@ -129,3 +138,5 @@ Ingen fejlvej falder tilbage til navn-, nummer- eller sidebaseret gæt.
   approval-stien gør den ikke længere blokerende. Noteret som backlog.
 - Selve importen/promotion til kanonisk model: særskilt, senere godkendelse
   (jf. promotion-kontrakten 2026-08-03).
+- Ny coverage-materialisering: kræver separat design, godkendelse og replay;
+  workflowet her stopper ved review-/fil-GO.

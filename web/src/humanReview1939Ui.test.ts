@@ -570,6 +570,52 @@ describe('human 1939 review controller', () => {
     expect(document.querySelector('[data-action="export-quarantine"]')).not.toBeNull();
   });
 
+  it('removes only the selected records quarantine entry after a valid save', () => {
+    const storage = memoryStorage();
+    const records = [humanRecord('rk-1', 'c-1'), humanRecord('rk-2', 'c-2')];
+    const probe = startReview({ storage, records });
+    storage.setItem(probe.controller.storageKey, JSON.stringify({
+      schema_version: 1,
+      source: viewModel(records).source,
+      decisions: {},
+      quarantined: {
+        'rk-1': { entry: { stale: 'one' }, reason: 'Forældet valg.' },
+        'rk-2': { entry: { stale: 'two' }, reason: 'Andet forældet valg.' },
+      },
+    }));
+    const { controller } = startReview({ storage, records });
+
+    expect(controller.choose('human_selected_candidate', { candidate_id: 'c-1' })).toBe(true);
+
+    expect(JSON.parse(storage.getItem(controller.storageKey)!).quarantined).toEqual({
+      'rk-2': { entry: { stale: 'two' }, reason: 'Andet forældet valg.' },
+    });
+  });
+
+  it('restores the decision and quarantine atomically when persistence fails', () => {
+    const storage = memoryStorage();
+    const records = [humanRecord('rk-1', 'c-1')];
+    const probe = startReview({ storage, records });
+    storage.setItem(probe.controller.storageKey, JSON.stringify({
+      schema_version: 1,
+      source: viewModel(records).source,
+      decisions: {},
+      quarantined: {
+        'rk-1': { entry: { stale: true }, reason: 'Forældet valg.' },
+      },
+    }));
+    storage.setItem = () => { throw new Error('quota'); };
+    const { controller } = startReview({ storage, records });
+
+    expect(controller.choose('human_selected_candidate', { candidate_id: 'c-1' })).toBe(false);
+
+    expect(controller.exportDraft().entries[0]).toMatchObject({ draft: true });
+    expect(document.querySelector('[data-role="save-state"]')!.textContent)
+      .toContain('1 kladdepost i karantæne');
+    expect(document.querySelector('[data-role="save-state"]')!.textContent)
+      .toContain('Forældet valg.');
+  });
+
   it('holder hoved-eksporten skemaren og eksporterer karantænen separat', async () => {
     const storage = memoryStorage();
     const records = [humanRecord('rk-1', 'c-1')];
@@ -633,6 +679,22 @@ describe('human 1939 review controller', () => {
     expect(document.querySelector('[data-role="decision-state"]')!.textContent).toBe(
       'Nuværende valg: Kildepost valgt (gemt som observation til efterforankring).',
     );
+  });
+
+  it('treats accepted-review-only evidence as anchored in its label and status', () => {
+    const record = humanRecord('rk-1', 'accepted-only');
+    record.candidates[0].accepted_review_details = {
+      baseline_record_key: 'rk-1', review_status: 'accepteret', candidate_id: 'accepted-only',
+    };
+    const { controller } = startReview({ storage: memoryStorage(), records: [record] });
+
+    expect(document.querySelector('.candidate')!.textContent)
+      .toContain('Forankret kildeevidens — kan accepteres direkte.');
+    expect(controller.choose(
+      'human_selected_candidate', { candidate_id: 'accepted-only' },
+    )).toBe(true);
+    expect(document.querySelector('[data-role="decision-state"]')!.textContent)
+      .toBe('Nuværende valg: Kildepost valgt.');
   });
 
   it('blocks an ambiguous current cache with entries and malformed decisions without overwrite', () => {
@@ -1126,6 +1188,20 @@ describe('human 1939 review controller', () => {
     expect(controller.setView('automatic')).toBe(false);
     expect(controller.selectedKey).toBeUndefined();
     expect(document.querySelector('[data-role="record-list"]')!.textContent).not.toContain('rk-auto');
+  });
+
+  it('fails closed for a provisional choice embedded on a non-audit auto record', () => {
+    const record = automaticRecord('rk-auto', 'c-auto');
+    record.decision = {
+      baseline_record_key: 'rk-auto', outcome: 'human_selected_candidate',
+      candidate_id: 'c-auto', decided_at: '2026-08-05T12:00:00+02:00',
+    };
+    const storage = memoryStorage();
+    storage.setItem = vi.fn();
+    const { controller } = startReview({ storage, records: [record] });
+
+    expect(controller.exportDraft()).toMatchObject({ recovery_blocked: true, entries: [] });
+    expect(storage.setItem).not.toHaveBeenCalled();
   });
 
   it('keeps audit auto-resolved records actionable', () => {

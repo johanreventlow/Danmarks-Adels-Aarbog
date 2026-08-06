@@ -73,6 +73,29 @@ def validate_accepted_candidate_id(value: object) -> str:
     return candidate_id
 
 
+def deterministic_human_candidate_id(
+    profile_version: object,
+    char_from: object,
+    char_to: object,
+    calamari_excerpt_sha256: object,
+) -> str:
+    """Return the one canonical identity for a human-approved source span."""
+    profile = _nonempty_string(profile_version, "profile_version")
+    start = _nonnegative_int(char_from, "Calamari-span char_from")
+    end = _nonnegative_int(char_to, "Calamari-span char_to")
+    if start >= end:
+        raise ValueError("Calamari-span skal have char_from < char_to")
+    if (
+        not isinstance(calamari_excerpt_sha256, str)
+        or not _SHA256_RE.fullmatch(calamari_excerpt_sha256)
+    ):
+        raise ValueError("calamari_excerpt_sha256 skal være SHA-256 med små bogstaver")
+    digest = hashlib.sha256(
+        f"{profile}\0{start}\0{end}\0{calamari_excerpt_sha256}".encode("utf-8")
+    ).hexdigest()
+    return f"human:{profile}:span:{digest}"
+
+
 def _nonnegative_int(value: object, label: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise ValueError(f"{label} skal være et ikke-negativt heltal")

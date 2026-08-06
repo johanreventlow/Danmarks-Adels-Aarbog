@@ -175,3 +175,33 @@ def test_neighbor_signatures_are_the_canonical_digest_of_actual_neighbors():
     assert second["successor_signature"] == _canonical_occurrence_signature(third)
     assert third["predecessor_signature"] == _canonical_occurrence_signature(second)
     assert third["successor_signature"] is None
+
+
+def test_last_multi_page_occurrence_has_exact_end_boundary_and_identity():
+    text = (
+        "### PAGE 1 ###\n1. Alfa\n### PAGE 2 ###\n2. Beta\n"
+        "### PAGE 3 ###\nfortsat"
+    )
+    result = extract_rendition_occurrences(
+        text, rendition="calamari", page_map=CALAMARI_R6_TO_PDF_V1,
+    )
+
+    assert result["occurrences"][-1] == {
+        "occurrence_id": (
+            "occ:calamari:"
+            "167e8e1934f830686afc43f5e2ac9e805a361f7b71b4bb51b48430d03d595f2e"
+        ),
+        "order": 1,
+        "span": {"char_from": 23, "char_to": 68},
+        "verbatim_sha256": (
+            "f2a0b4dbd75ae4125aa27bbbec3697c2f3a331b2e1c76cf7fc93a4b3e44520cf"
+        ),
+        "pdf_pages": [496, 497, 498],
+        "post_class": "nummereret",
+        "printed_marker": "2",
+        "section_signature": [],
+        "predecessor_signature": (
+            "836b1b0a4a28de98a5967f82e8f2c50aae07e6d1764998558a4c7f6561991d20"
+        ),
+        "successor_signature": None,
+    }

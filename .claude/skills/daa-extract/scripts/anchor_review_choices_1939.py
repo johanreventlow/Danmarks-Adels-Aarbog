@@ -23,13 +23,21 @@ from collections.abc import Mapping
 from pathlib import Path
 
 import segment
-from coverage_1939 import validate_coverage
+from coverage_1939 import deterministic_human_candidate_id, validate_coverage
 from dual_rendition_evidence_1939 import align_renditions
 from make_human_review_1939 import (
     _pages,
     _presentation_candidates,
     _text_anchor_fallback_keys,
     _unique_exact_text_anchor_candidates,
+)
+from prepare_review_queue_1939 import (
+    validate_effective_candidate_injectivity,
+    validate_source_bound_evidence,
+)
+from rendition_occurrences_1939 import (
+    CALAMARI_R6_TO_PDF_V1,
+    extract_rendition_occurrences,
 )
 from review_choices_1939 import validate_choice_export
 from review_queue_1939 import sample_auto_resolved
@@ -137,14 +145,20 @@ def _require_expected_source(
         raise ValueError("profile_version matcher ikke expected_source")
 
 
-def _require_source_binding(manifest: object, source_text: str, label: str) -> None:
-    """Reject occurrence manifests not provably built from this exact text."""
-    checked = _mapping(manifest, f"{label} occurrence-manifest")
-    if (
-        checked.get("source_length") != len(source_text)
-        or checked.get("source_sha256") != _sha256_text(source_text)
-    ):
-        raise ValueError(f"{label} occurrence-manifest matcher ikke kildeteksten")
+def _regenerated_occurrence_manifest(
+    supplied: object, source_text: str, rendition: str,
+) -> dict:
+    """Accept only the canonical manifest regenerated from exact source bytes."""
+    regenerated = extract_rendition_occurrences(
+        source_text,
+        rendition=rendition,
+        page_map=CALAMARI_R6_TO_PDF_V1 if rendition == "calamari" else None,
+    )
+    if supplied != regenerated:
+        if rendition == "calamari":
+            raise ValueError("calamari_occurrence_manifest_mismatch")
+        raise ValueError("raw_ocr_occurrence_manifest_mismatch")
+    return regenerated
 
 
 def _line_offsets(calamari_text: str) -> tuple[list[str], list[int]]:
@@ -225,15 +239,26 @@ def _unique_covering_occurrence(
 
 
 def _resolve_pdf_pages(covering: Mapping | None, record: Mapping) -> list[int]:
-    if covering is not None:
-        return list(covering["pdf_pages"])
     try:
-        pages = _pages(record.get("sider"))
+        record_pages = _pages(record.get("sider"))
     except ValueError as error:
         raise _Parked("pdf_pages_mismatch") from error
-    if not pages or any(page <= 0 for page in pages):
+    if not record_pages or any(page <= 0 for page in record_pages):
         raise _Parked("pdf_pages_mismatch")
-    return pages
+    if covering is None:
+        return record_pages
+    occurrence_pages = covering.get("pdf_pages")
+    if (
+        not isinstance(occurrence_pages, list)
+        or not occurrence_pages
+        or any(
+            not isinstance(page, int) or isinstance(page, bool) or page <= 0
+            for page in occurrence_pages
+        )
+        or not set(record_pages).issubset(occurrence_pages)
+    ):
+        raise _Parked("pdf_pages_mismatch")
+    return list(occurrence_pages)
 
 
 def _raw_bridge(
@@ -362,6 +387,59 @@ def _assert_wrapper_candidates_valid(anchored: dict[str, dict]) -> None:
     )
 
 
+def compose_human_evidence_bundle(
+    base_evidence: object,
+    human_entries: list[dict],
+    source: dict,
+    baseline_keys: set[str],
+    calamari_text: str,
+    raw_text: str,
+) -> dict:
+    """Replace only evidence-free baseline slots and retain complete coverage."""
+    base_entries = validate_source_bound_evidence(
+        base_evidence, source, baseline_keys, calamari_text, raw_text,
+    )
+    human_by_key: dict[str, dict] = {}
+    for item in human_entries:
+        entry = _mapping(item, "human evidence entry")
+        key = _nonempty(entry.get("baseline_record_key"), "baseline_record_key")
+        if key not in baseline_keys:
+            raise ValueError("human evidence har ukendt baseline_record_key")
+        if key in human_by_key:
+            raise ValueError("dublet human evidence baseline_record_key")
+        human_by_key[key] = copy.deepcopy(dict(entry))
+
+    composed_entries: list[dict] = []
+    for base_entry in base_entries:
+        key = base_entry["baseline_record_key"]
+        human_entry = human_by_key.get(key)
+        if human_entry is None:
+            composed_entries.append(copy.deepcopy(base_entry))
+            continue
+        if base_entry.get("source_blockers"):
+            raise ValueError("human evidence må ikke erstatte en source-blokeret base-entry")
+        if base_entry.get("candidates") or base_entry.get("positive_provenance") is not None:
+            raise ValueError("human evidence må ikke erstatte eksisterende positiv evidens")
+        composed_entries.append(human_entry)
+
+    composed = {
+        "schema_version": 1,
+        "source": copy.deepcopy(source),
+        "entries": composed_entries,
+    }
+    validated = validate_source_bound_evidence(
+        composed, source, baseline_keys, calamari_text, raw_text,
+    )
+    effective = {
+        entry["baseline_record_key"]: entry["candidates"][0]
+        for entry in validated
+        if len(entry["candidates"]) == 1
+        and entry.get("positive_provenance") is not None
+    }
+    validate_effective_candidate_injectivity(effective, source)
+    return composed
+
+
 def _generator_text_anchor_candidates(
     records: list[dict], classifications: Mapping, posts: list,
     calamari_text: str, calamari_first_pdf_page: int, profile_version: str,
@@ -436,8 +514,12 @@ def build_human_anchored_candidates(
     _require_expected_source(
         expected_source, baseline_bytes, calamari_text, raw_text, profile_version
     )
-    _require_source_binding(calamari_occurrences, calamari_text, "calamari")
-    _require_source_binding(raw_occurrences, raw_text, "raw OCR")
+    calamari_occurrences = _regenerated_occurrence_manifest(
+        calamari_occurrences, calamari_text, "calamari"
+    )
+    raw_occurrences = _regenerated_occurrence_manifest(
+        raw_occurrences, raw_text, "raw_ocr"
+    )
     if profile_version not in segment.UDGAVE_PROFILER:
         raise ValueError("ukendt profile_version")
     with contextlib.redirect_stdout(io.StringIO()), \
@@ -489,12 +571,8 @@ def build_human_anchored_candidates(
                 cal_occurrence_list, char_from, char_to
             )
             candidate = {
-                "candidate_id": "human:%s:span:%s" % (
-                    profile_version,
-                    hashlib.sha256(
-                        f"{profile_version}\0{char_from}\0{char_to}\0{excerpt_sha}"
-                        .encode("utf-8")
-                    ).hexdigest(),
+                "candidate_id": deterministic_human_candidate_id(
+                    profile_version, char_from, char_to, excerpt_sha,
                 ),
                 "postklasse": _postklasse(post, classifications.get(key)),
                 "calamari_span": {"char_from": char_from, "char_to": char_to},
@@ -577,6 +655,7 @@ def main() -> int:
     parser.add_argument("--raw", type=Path, required=True)
     parser.add_argument("--calamari-occurrences", type=Path, required=True)
     parser.add_argument("--raw-occurrences", type=Path, required=True)
+    parser.add_argument("--base-evidence", type=Path, required=True)
     parser.add_argument("--calamari-first-pdf-page", type=int, required=True,
                         help="PDF page represented by Calamari's PAGE 0001")
     parser.add_argument("--wrapper-out", type=Path, required=True)
@@ -628,6 +707,15 @@ def main() -> int:
         calamari_occurrences, raw_occurrences, source.get("profile_version"),
         source, args.calamari_first_pdf_page,
     )
+    base_evidence = json.loads(args.base_evidence.read_text(encoding="utf-8"))
+    evidence_bundle = compose_human_evidence_bundle(
+        base_evidence,
+        result["evidence_entries"],
+        source,
+        set(baseline_records),
+        calamari_bytes.decode("utf-8"),
+        raw_bytes.decode("utf-8"),
+    )
     report = {
         "schema_version": 1,
         "source": copy.deepcopy(source),
@@ -651,7 +739,7 @@ def main() -> int:
     }
     validate_choice_export(rewritten_export, source, set(baseline_records))
     payloads = (
-        result["anchored"], result["evidence_entries"], report, rewritten_export,
+        result["anchored"], evidence_bundle, report, rewritten_export,
     )
     handles = []
     created = []

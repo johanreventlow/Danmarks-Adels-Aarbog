@@ -696,6 +696,68 @@ def test_main_rejects_choice_export_with_candidate_owned_by_another_record(
     assert not out.exists()
 
 
+def _embedded_record(key, candidate_id, *, queue_class="human_required",
+                     is_audit=False, decision=None, classification=None):
+    return {
+        "record_key": key,
+        "queue_class": queue_class,
+        "is_audit": is_audit,
+        "candidates": [{"candidate_id": candidate_id}],
+        "decision": decision,
+        "classification": classification,
+    }
+
+
+def test_embedded_choice_rejects_non_audit_auto_resolved_record_before_html():
+    decision = {
+        "baseline_record_key": "record-auto",
+        "outcome": "human_selected_candidate",
+        "candidate_id": "candidate-auto",
+        "decided_at": "2026-08-06T12:00:00Z",
+    }
+    model = {"records": [_embedded_record(
+        "record-auto", "candidate-auto", queue_class="auto_resolved",
+        decision=decision,
+        classification={"queue_class": "auto_resolved", "candidate": {
+            "candidate_id": "candidate-auto",
+        }},
+    )]}
+
+    with pytest.raises(ValueError, match="auto_resolved"):
+        subject._validate_embedded_choice_decisions(model, {"record-auto"})
+
+
+@pytest.mark.parametrize("existing_kind", ["automatic", "accepted_legacy"])
+def test_embedded_choice_rejects_candidate_owned_by_existing_decision(existing_kind):
+    shared = "shared-candidate"
+    choice = {
+        "baseline_record_key": "record-choice",
+        "outcome": "human_selected_candidate",
+        "candidate_id": shared,
+        "decided_at": "2026-08-06T12:00:00Z",
+    }
+    chosen = _embedded_record("record-choice", shared, decision=choice)
+    if existing_kind == "automatic":
+        existing = _embedded_record(
+            "record-existing", shared, queue_class="auto_resolved",
+            classification={
+                "queue_class": "auto_resolved",
+                "candidate": {"candidate_id": shared},
+            },
+        )
+    else:
+        existing = _embedded_record("record-existing", shared, decision={
+            "baseline_record_key": "record-existing",
+            "review_status": "accepteret",
+            "candidate_id": shared,
+        })
+
+    with pytest.raises(ValueError, match="allerede valgt"):
+        subject._validate_embedded_choice_decisions(
+            {"records": [chosen, existing]}, {"record-choice"},
+        )
+
+
 def test_main_rejects_choice_export_with_changed_pinned_source(tmp_path, monkeypatch):
     baseline, review, queue, source, calamari = _write_inputs(tmp_path)
     out = tmp_path / "menneskeark.html"

@@ -4,7 +4,7 @@
 
 **Goal:** Gør redaktørens menneskeark-valg anvendelige som accepteret, source-bound evidens (fail-closed), og gør menneskearbejdet migrerbart og ærligt mærket i UI'en.
 
-**Architecture:** Nyt adapter-script efterforankrer eksporterede valg deterministisk til hash-fastlåste Calamari-spans (rå-bro hvor invariant alignment findes, ellers eksplicit `approval`), producerer den manglende anchored-candidates-wrapper + human-evidence-entries. Kandidat-kontrakten udvides bagudkompatibelt (`raw_structure_bridge` ELLER `approval`). Generator + UI får reproducerbar kladde-genindlejring og per-post-karantæne.
+**Architecture:** Nyt adapter-script efterforankrer eksporterede valg deterministisk til hash-fastlåste Calamari-spans (rå-bro hvor invariant alignment findes, ellers eksplicit `approval`), producerer den manglende anchored-candidates-wrapper og komponerer sikre human-erstatninger ind i et obligatorisk, komplet base-evidence-bundle. Kandidat-kontrakten udvides bagudkompatibelt (`raw_structure_bridge` ELLER `approval`). Task-5-outputtet `{decisions, audit_results}` joines med composed evidence i `prepare_review_queue_1939.py`; grænsen er review-/fil-GO, ikke coverage-materialisering. Generator + UI får reproducerbar kladde-genindlejring og per-post-karantæne.
 
 **Tech Stack:** Python 3 (stdlib only, `/usr/bin/python3` har pytest 8.4.2 — homebrew-python har IKKE pytest), vanilla JS (`human_review_1939_ui.js`, testes via vitest i `web/`).
 
@@ -275,7 +275,7 @@ def test_pages_afviser_uparsebar_sideangivelse():
 - Test: `.claude/skills/daa-extract/scripts/test_anchor_review_choices_1939.py`
 
 **Interfaces:**
-- Consumes: Task 1-kontrakten (`APPROVAL_KINDS`, approval-kandidater), Task 2-felterne (`post["linjer"]`), eksisterende `validate_choice_export` (`review_choices_1939.py:178`), `sample_auto_resolved` (`review_queue_1939.py:104`), `align_renditions` (`dual_rendition_evidence_1939.py:602` — returnerer `{"pairs": [{"calamari_occurrence_id", "raw_occurrence_id"}], "calamari_unmatched": […], "raw_unmatched": […], "ambiguous_occurrence_ids": […]}`), `segment._segment_1939_v2`, generatorens text-anchor-algoritme.
+- Consumes: Task 1-kontrakten (`APPROVAL_KINDS`, approval-kandidater), Task 2-felterne (`post["linjer"]`), eksisterende `validate_choice_export` (`review_choices_1939.py:178`), `sample_auto_resolved` (`review_queue_1939.py:104`), `align_renditions`, canonical `extract_rendition_occurrences`, `segment._segment_1939_v2`, generatorens text-anchor-algoritme og et obligatorisk komplet `--base-evidence` med eksakt source/baseline-dækning.
 - Produces (public API brugt af Task 4-5 og CLI):
 
 ```python
@@ -283,21 +283,32 @@ def build_human_anchored_candidates(
     choices: dict[str, dict],          # fra validate_choice_export
     audit_keys: set[str],
     classifications: dict[str, dict],  # queue-manifest entries by key
-    baseline_records: dict[str, dict], # record_key -> baseline record
-    posts: list[dict],                 # segment-v2 poster MED "linjer"
+    baseline_bytes: bytes,
     calamari_text: str,
     raw_text: str,
     calamari_occurrences: dict,        # occurrence-manifest (indlæst JSON)
     raw_occurrences: dict,
     profile_version: str,
+    expected_source: dict,
+    calamari_first_pdf_page: int,
 ) -> dict:
     """Returnerer {"anchored": {candidate_id: wrapper}, "evidence_entries": [...],
     "parked": [{"baseline_record_key", "reason_code", "reason_da", "candidate_id"}]}"""
+
+def compose_human_evidence_bundle(
+    base_evidence: dict,
+    human_entries: list[dict],
+    source: dict,
+    baseline_keys: set[str],
+    calamari_text: str,
+    raw_text: str,
+) -> dict:
+    """Returnerer komplet valideret evidence-bundle."""
 ```
 
   - wrapper-format (præcis det `_anchored_index`/`_selected_candidate` i `review_choices_1939.py:275-305` kræver): `{candidate_id: {"baseline_record_key": key, "candidate": {…accepteret kandidat-skema…}}}`.
-  - evidence_entries-format: som dual-evidence-entries: `{"baseline_record_key", "candidates": [kandidat], "conflicts": [], "source_blockers": [], "rule_id": "human_anchor_v1", "positive_provenance": {"kind": "human_approved_span_v1", "baseline_record_key", "candidate_id"}}`.
-  - CLI: `--choices --queue-manifest --baseline --calamari --raw --calamari-occurrences --raw-occurrences --wrapper-out --evidence-out --report-out` (alle out eksklusive; hashes i queue-manifestets `source` valideres mod de faktiske bytes af baseline/calamari/raw FØR noget andet).
+  - Human-entry-format: som dual-evidence-entries: `{"baseline_record_key", "candidates": [kandidat], "conflicts": [], "source_blockers": [], "rule_id": "human_anchor_v1", "positive_provenance": {"kind": "human_approved_span_v1", "baseline_record_key", "candidate_id"}}`. CLI'ens `--evidence-out` er ikke denne fragmentliste, men et komplet bundle hvor hver human-entry kun erstatter samme evidensfrie base-key; øvrige base-entries bevares.
+  - CLI: `--choices --queue-manifest --baseline --calamari --raw --calamari-occurrences --raw-occurrences --base-evidence --wrapper-out --evidence-out --report-out --rewritten-choices-out` (alle out eksklusive; source, fuld dækning og global effektiv kandidat-/span-injektivitet valideres før outputs åbnes).
 
 **Algoritme (fail-closed, deterministisk):**
 
@@ -308,14 +319,14 @@ def build_human_anchored_candidates(
    - For post-kandidater: span fra `post["linjer"]` via offsets-tabel (`offsets[i] = kumulativ længde af linjer + 1 pr. linje`); mangler `linjer` → park `parser_post_not_found`.
 2. Verbatim: `excerpt = calamari_text[char_from:char_to]`; tom eller whitespace-kun → park `span_verbatim_mismatch`. `calamari_excerpt_sha256 = sha256(excerpt.encode("utf-8"))`.
 3. Kandidat-id: `f"human:{profil}:span:" + sha256(f"{profil}\0{char_from}\0{char_to}\0{excerpt_sha}".encode()).hexdigest()`.
-4. PDF-sider: entydigt dækkende Calamari-occurrence (span indeholdt i occurrence-span) → brug occurrencens `pdf_pages`. Ingen eller flere dækkende → brug postens/text-ankerets sider fra generator-logikken (`calamari_first_pdf_page` er IKKE et CLI-input her — udled siderne af occurrence eller af record `sider`-feltet; kan ingen af delene etableres entydigt → park `pdf_pages_mismatch`).
+4. PDF-sider: record-sider parses altid og skal være positive. Ved entydigt dækkende Calamari-occurrence kræves `record_pages ⊆ occurrence.pdf_pages`, og hele den grove occurrence-side-liste bevares; mismatch parkeres som `pdf_pages_mismatch`. Uden dækkende occurrence bruges de validerede record-sider.
 5. Rå-bro: hvis den entydigt dækkende Calamari-occurrence har et invariant par i `align_renditions(...)["pairs"]` → bro = den parrede rå-occurrences span, `kind = "human_approved_occurrence_pair_v1"`, `raw_excerpt_sha256 = sha256(raw_text[raw_from:raw_to])`. Ellers ingen bro. `approval`-feltet sættes ALTID på menneskekandidater (også med bro).
 6. Globale kontroller (over auto-kandidater fra `classifications[queue_class=="auto_resolved"]["candidate"]` + alle menneskekandidater):
    - samme kandidat-id valgt af to poster → park begge `candidate_claimed_by_multiple_records`;
    - calamari-span-overlap mod auto → park `overlaps_automatic_candidate`;
    - calamari-span-overlap indbyrdes → park begge `overlaps_other_manual_choice`;
    - rå-span-overlap (kun broede) tilsvarende.
-7. Output: kun kandidater der består ALLE kontroller kommer i wrapper + evidence_entries; alt andet i `parked` med dansk `reason_da`.
+7. Output: kun kandidater der består ALLE kontroller kommer i wrapper og erstatter deres egen evidensfrie slot i det komplette composed bundle; alt andet i `parked`, mens base-entryen bevares. Base-source/dækning, eksisterende positiv evidens og den samlede retained-auto + human-injektivitet er hard failures.
 
 - [ ] **Step 1: Skriv testfil med syntetisk mini-fixture.** Byg i testen en lille kilde (2 sider, 3 poster m. `linjer`), occurrence-manifester med spans der dækker posterne, alignment-venlige occurrences (genbrug fixture-mønstre fra `test_dual_rendition_evidence_1939.py` for manifest-form). Test mindst:
 
@@ -346,15 +357,15 @@ def test_kaede_choices_til_accepteret_decision():
 
 ---
 
-### Task 4: Task 6-sømmen — evidensjoin accepterer human-evidence
+### Task 4: Task 6-sømmen — evidensjoin accepterer composed human-evidence
 
 **Files:**
 - Modify: `.claude/skills/daa-extract/scripts/prepare_review_queue_1939.py` (`_PROVENANCE_KINDS`-konstanten, `_source_bound_evidence_entries` linje 731-810, `_joined_accepted_candidate` linje 1010-1083)
 - Test: `.claude/skills/daa-extract/scripts/test_prepare_review_queue_1939.py`
 
 **Interfaces:**
-- Consumes: Task 3's evidence_entries-format.
-- Produces: `--evidence` kan indeholde entries med `rule_id: "human_anchor_v1"`, `positive_provenance.kind: "human_approved_span_v1"` og approval-kandidater (uden bro); `_joined_accepted_candidate` joiner accepterede choice-beslutninger mod dem. Klassifikator-adfærd for auto-sporet er UÆNDRET: `human_approved_span_v1`-evidens må ALDRIG gøre en post `auto_resolved` — den er kun join-grundlag for menneskebeslutninger.
+- Consumes: Task 3's komplette composed evidence-bundle samt Task-5-filen med præcis `{decisions, audit_results}` som `--review`.
+- Produces: `--evidence` kan indeholde entries med `rule_id: "human_anchor_v1"`, `positive_provenance.kind: "human_approved_span_v1"` og approval-kandidater (uden bro); `_joined_accepted_candidate` joiner accepterede choice-beslutninger mod dem. Klassifikator-adfærd for auto-sporet er UÆNDRET: `human_approved_span_v1`-evidens må ALDRIG gøre en post `auto_resolved` — den er kun join-grundlag for menneskebeslutninger. Output er publikationskø/-rapport og højst review-/fil-GO.
 
 - [ ] **Step 1: Læs `_PROVENANCE_KINDS`, `_source_bound_evidence_entries` og `_validate_one_candidate_with_existing_contract` (`review_queue_1939.py:339`) og kortlæg præcis hvor kind- og kandidatformen håndhæves.**
 - [ ] **Step 2: Fejlende tests:** (a) evidence-entry med approval-kandidat + `human_approved_span_v1`-proveniens validerer; (b) `_joined_accepted_candidate` joiner en accepteret beslutning mod den; (c) klassifikatoren (`classify_review_entries`/`_classify_one`) gør IKKE posten `auto_resolved` på human-evidens — den forbliver `human_required`.
@@ -389,10 +400,10 @@ def test_kaede_choices_til_accepteret_decision():
 - Test: `web/src/humanReview1939Ui.test.ts`
 
 **Interfaces:**
-- Consumes: model-data uændret; `candidate.details` = source-bound evidens (findes kun på forankrede kandidater).
+- Consumes: model-data uændret; `candidate.details || candidate.accepted_review_details` = source-bound evidens.
 - Produces:
   1. **Karantæne:** ugyldige POSTER i den gemte kladde flyttes til `state.quarantined = {key: {entry, reason}}` i stedet for at `blockRecovery` rydder alt. Kilde-/schema-mismatch for HELE kladden blokerer fortsat som i dag. `persist()` round-tripper karantænen under nøglen `quarantined` i storage-payloaden (og `restoreOrInitialize` genindlæser den). Hoved-eksporten er UÆNDRET skemaren (ingen nye root-felter); en separat knap `Eksportér karantæne` downloader `1939-review-karantaene.json` når karantænen er ikke-tom. Banner viser antal + årsag.
-  2. **Mærkning:** i `renderCandidate`: kandidater med `candidate.details` får linjen `Forankret kildeevidens — kan accepteres direkte.`; øvrige får `Læsehjælp — dit valg gemmes som redaktionel observation og efterforankres maskinelt.` `decisionStatusText` for et kandidatvalg uden details-kandidat: `Kildepost valgt (gemt som observation til efterforankring).`
+  2. **Mærkning:** i `renderCandidate`: kandidater med `candidate.details || candidate.accepted_review_details` får linjen `Forankret kildeevidens — kan accepteres direkte.`; øvrige får `Læsehjælp — dit valg gemmes som redaktionel observation og efterforankres maskinelt.` `decisionStatusText` spejler samme skel.
 
 - [ ] **Step 1: Fejlende vitest-tests:**
 
@@ -421,10 +432,10 @@ Genbrug testfilens eksisterende `init`-harness og storage-mock.
 
 **Steps:**
 
-- [ ] **Step 1: Real-data-replay (rapportér tal, commit intet under `work/`):** kør adapteren mod den rigtige eksport `/Users/johanreventlow/Downloads/1939-review-kladd(3).json` + `work/task19-1939-pilot/review-queue-manifest-v2-run-e.json` + occurrences run-f + kilderne; derefter `prepare_coverage_1939.py --choices-to-decisions … --anchored-candidates <ny wrapper>`. Forventning (fra reviewets empiri): mindst 16 af 25 manuelle valg → `accepteret` (6 med rå-bro, resten approval-alene), 0 fejlmatch, de 5 `no_candidate_fits` parkeret som hidtil, 5 `audit_confirmed`. Afvigelser undersøges før videre skridt.
+- [ ] **Step 1: Real-data-replay (rapportér tal, commit intet under `work/`):** kør adapteren mod den rigtige eksport `/Users/johanreventlow/Downloads/1939-review-kladd(3).json` + `work/task19-1939-pilot/review-queue-manifest-v2-run-e.json` + occurrences run-f + det komplette source-bundne `dual-evidence-v2-run-f.json`; derefter `prepare_coverage_1939.py --choices-to-decisions … --anchored-candidates <ny wrapper>`. Facit: 25/25 manuelle valg → `accepteret`, heraf 13 med rå-bro og 12 approval-alene; 0 fejlmatch, fem `no_candidate_fits` → `menneskeark`, 5/5 `audit_confirmed`.
 - [ ] **Step 2: Generér nyt menneskeark med `--review <eksporten>`** (Task 5-vejen) til `work/task19-1939-pilot/menneskeark-undtagelsesko-v3-run-a.html` og verificér at alle 35 valg er indlejret (samme kontrol som reviewets: udtræk `const DATA`, sammenlign felt for felt).
-- [ ] **Step 3: SKILL.md:** erstat "Kør **ikke** `--choices-to-decisions` …/ligger uden for denne V2-pilot"-afsnittet med den faktiske adapter-kommandosekvens (adapter → convert → evt. materialisering), inkl. at parkeringsrapporten skal læses, og at et review-GO stadig ikke er DB-/deploy-GO.
-- [ ] **Step 4: `docs/changelog.md`** (dateret entry: reviewfund + adapter implementeret) og **`docs/decisions.md`** (beslutning: approval-kontrakten/rå-bro valgfri for menneskevalg; backlog: slutark-occurrence-resegmentering udskudt med begrundelse).
+- [ ] **Step 3: SKILL.md:** dokumentér den faktiske sekvens: adapter med `--base-evidence` → Task-5 `{decisions,audit_results}` → `prepare_review_queue_1939.py --evidence <composed> --review <Task-5>`. Læs parkeringsrapporten. Der findes ingen approval-capable privat coverage-materializer; stop ved review-/fil-GO, og kræv separat design/godkendelse/replay for ny materialisering.
+- [ ] **Step 4: `docs/changelog.md`** (dateret entry: reviewfund + adapter + komplet composition implementeret) og **`docs/decisions.md`** (beslutning: approval-kontrakten/rå-bro valgfri for menneskevalg; komplet base-composition; fil-GO-grænse; backlog: slutark-occurrence-resegmentering udskudt med begrundelse).
 - [ ] **Step 5: Fuld verifikation:** alle scripts-suiter + `cd web && npx vitest run src/humanReview1939Ui.test.ts` + `npm run build -w web` er IKKE nødvendig (ingen web-app-ændringer ud over testfilen). Rapportér samlede tal.
 - [ ] **Step 6: Commit** — `docs: adapter-workflow, changelog og beslutninger for 1939-efterforankring`
 

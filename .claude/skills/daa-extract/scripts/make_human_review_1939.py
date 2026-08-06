@@ -197,10 +197,19 @@ def _validate_embedded_choice_decisions(model: dict, choice_keys: set[str]) -> N
         },
     }
     for key in choice_keys:
-        decision = by_key[key].get("decision")
+        record = by_key[key]
+        decision = record.get("decision")
         if not isinstance(decision, dict):
             raise ValueError("browser choice mangler decision")
         outcome = decision.get("outcome")
+        if (
+            outcome is not None
+            and record.get("queue_class") == "auto_resolved"
+            and not record.get("is_audit")
+        ):
+            raise ValueError(
+                "browser choice på non-audit auto_resolved-post er ikke tilladt"
+            )
         required = required_by_outcome.get(outcome)
         if required is None:
             raise ValueError("browser choice har ukendt outcome")
@@ -212,7 +221,7 @@ def _validate_embedded_choice_decisions(model: dict, choice_keys: set[str]) -> N
             raise ValueError("browser choice har forkert baseline_record_key")
         if outcome == "human_selected_candidate":
             candidate_id = decision.get("candidate_id")
-            if not contains_candidate(by_key[key], candidate_id):
+            if not contains_candidate(record, candidate_id):
                 raise ValueError(
                     "browser choice kandidat findes ikke blandt postens aktuelle kandidater"
                 )

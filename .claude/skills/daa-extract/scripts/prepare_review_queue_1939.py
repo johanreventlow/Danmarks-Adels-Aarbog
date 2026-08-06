@@ -17,6 +17,7 @@ from coverage_1939 import (
     LEGACY_REVIEW_ACCEPTED_FIELDS,
     POSTKLASSER,
     duplicate_target_errors,
+    deterministic_human_candidate_id,
     is_schema_version_one,
     legacy_review_entry_errors,
     validate_accepted_candidate_id,
@@ -706,7 +707,7 @@ def _validate_dual_consensus_contract(entry: dict, source: dict) -> None:
         raise ValueError("dual consensus candidate_id matcher ikke source-bound evidens")
 
 
-def _validate_human_evidence_contract(entry: dict) -> None:
+def _validate_human_evidence_contract(entry: dict, source: Mapping) -> None:
     candidates = entry["candidates"]
     provenance = entry.get("positive_provenance")
     approval_candidates = [
@@ -735,6 +736,19 @@ def _validate_human_evidence_contract(entry: dict) -> None:
         raise ValueError(
             "menneskegodkendt evidens kræver sammenhængende human-kontrakt"
         )
+    candidate = candidates[0]
+    span = candidate["calamari_span"]
+    expected_id = deterministic_human_candidate_id(
+        source.get("profile_version"),
+        span["char_from"],
+        span["char_to"],
+        approval["calamari_excerpt_sha256"],
+    )
+    if (
+        candidate.get("candidate_id") != expected_id
+        or provenance.get("candidate_id") != expected_id
+    ):
+        raise ValueError("human candidate_id matcher ikke source-bound evidens")
 
 
 def _source_less_evidence_entries(
@@ -871,13 +885,28 @@ def _source_bound_evidence_entries(
             ):
                 raise ValueError("positive_provenance matcher ikke den entydige candidate")
             entry["positive_provenance"] = copy.deepcopy(dict(provenance))
-        _validate_human_evidence_contract(entry)
+        _validate_human_evidence_contract(entry, source)
         if len(entry["candidates"]) == 1 and entry["positive_provenance"] is not None:
             _validate_dual_consensus_contract(entry, source)
         validated.append(entry)
     if seen != baseline_keys:
         raise ValueError("evidence baseline-dækning fejler")
     return validated
+
+
+def validate_source_bound_evidence(
+    value: object,
+    source: dict,
+    baseline_keys: set[str],
+    calamari_text: str,
+    raw_text: str,
+) -> list[dict]:
+    """Validate the exact complete source-bound bundle used by publication."""
+    if not isinstance(value, Mapping) or "source" not in value:
+        raise ValueError("evidence skal være en source-bundet mapping")
+    return _source_bound_evidence_entries(
+        value, source, baseline_keys, calamari_text, raw_text,
+    )
 
 
 def _validate_boundary_evidence(
@@ -915,8 +944,8 @@ def _validated_evidence_entries(
         raise ValueError("evidence skal være en mapping")
     if "source" not in value:
         return _source_less_evidence_entries(value, source, baseline_keys)
-    return _source_bound_evidence_entries(
-        value, source, baseline_keys, calamari_text, raw_text
+    return validate_source_bound_evidence(
+        value, source, baseline_keys, calamari_text, raw_text,
     )
 
 
@@ -1173,6 +1202,37 @@ def _claims_overlap(left: Mapping, right: Mapping) -> bool:
     return False
 
 
+def validate_effective_candidate_injectivity(
+    effective_candidates: Mapping[str, Mapping], source: dict,
+) -> None:
+    """Apply the canonical global accepted-candidate collision contract."""
+    candidates = {
+        _nonempty(key, "baseline_record_key"): copy.deepcopy(dict(candidate))
+        for key, candidate in effective_candidates.items()
+    }
+    if candidates:
+        validate_coverage(
+            {
+                "schema_version": 1,
+                "source": copy.deepcopy(source),
+                "entries": [
+                    {
+                        "baseline_record_key": key,
+                        "status": "accepteret",
+                        "candidate": copy.deepcopy(candidate),
+                    }
+                    for key, candidate in sorted(candidates.items())
+                ],
+            },
+            expected_baseline_keys=set(candidates),
+        )
+    claims = sorted(candidates.items())
+    for index, (left_key, left) in enumerate(claims):
+        for right_key, right in claims[index + 1:]:
+            if left_key != right_key and _claims_overlap(left, right):
+                raise ValueError("effektiv accepteret evidens er ikke globalt injektiv")
+
+
 def _validate_effective_state(
     decisions: dict[str, dict],
     accepted: dict[str, dict],
@@ -1203,27 +1263,7 @@ def _validate_effective_state(
     target_errors = duplicate_target_errors(statuses)
     if target_errors:
         raise ValueError(next(iter(target_errors.values())))
-    if effective_candidates:
-        validate_coverage(
-            {
-                "schema_version": 1,
-                "source": copy.deepcopy(source),
-                "entries": [
-                    {
-                        "baseline_record_key": key,
-                        "status": "accepteret",
-                        "candidate": copy.deepcopy(candidate),
-                    }
-                    for key, candidate in sorted(effective_candidates.items())
-                ],
-            },
-            expected_baseline_keys=set(effective_candidates),
-        )
-    claims = sorted(effective_candidates.items())
-    for index, (left_key, left) in enumerate(claims):
-        for right_key, right in claims[index + 1:]:
-            if left_key != right_key and _claims_overlap(left, right):
-                raise ValueError("effektiv accepteret evidens er ikke globalt injektiv")
+    validate_effective_candidate_injectivity(effective_candidates, source)
 
 
 def _review_state(

@@ -277,42 +277,49 @@ eneste korrekte input til den efterfølgende konvertering.
   --raw ../../../work_1939_stamtavle/raw.txt \
   --calamari-occurrences work/task19-1939-pilot/calamari-occurrences-v2-run-f.json \
   --raw-occurrences work/task19-1939-pilot/raw-occurrences-v2-run-f.json \
+  --base-evidence work/task19-1939-pilot/dual-evidence-v2-run-f.json \
   --calamari-first-pdf-page 496 \
-  --wrapper-out work/task19-1939-pilot/human-anchored-candidates-v3-run-a.json \
-  --evidence-out work/task19-1939-pilot/human-evidence-v3-run-a.json \
-  --report-out work/task19-1939-pilot/human-anchor-report-v3-run-a.json \
-  --rewritten-choices-out work/task19-1939-pilot/1939-review-kladd-rewritten-v3-run-a.json
+  --wrapper-out work/task19-1939-pilot/human-anchored-candidates-v3-run-b.json \
+  --evidence-out work/task19-1939-pilot/composed-evidence-v3-run-b.json \
+  --report-out work/task19-1939-pilot/human-anchor-report-v3-run-b.json \
+  --rewritten-choices-out work/task19-1939-pilot/1939-review-kladd-rewritten-v3-run-b.json
 
 jq '{anchored_count, parked_count, parked}' \
-  work/task19-1939-pilot/human-anchor-report-v3-run-a.json
+  work/task19-1939-pilot/human-anchor-report-v3-run-b.json
 
 /usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_coverage_1939.py \
-  --choices-to-decisions work/task19-1939-pilot/1939-review-kladd-rewritten-v3-run-a.json \
+  --choices-to-decisions work/task19-1939-pilot/1939-review-kladd-rewritten-v3-run-b.json \
   --queue-manifest work/task19-1939-pilot/review-queue-manifest-v2-run-e.json \
-  --anchored-candidates work/task19-1939-pilot/human-anchored-candidates-v3-run-a.json \
-  --out work/task19-1939-pilot/coverage-decisions-v3-run-a.json
-```
+  --anchored-candidates work/task19-1939-pilot/human-anchored-candidates-v3-run-b.json \
+  --out work/task19-1939-pilot/coverage-decisions-v3-run-b.json
 
-Læs altid hele parkeringsrapporten, og undersøg hver parkering; adapteren gætter
-aldrig. `human-evidence`-filen er det source-bundne join-grundlag for den senere
-publikationsgate. Hvis privat coverage efter en særskilt godkendelse skal
-materialiseres, bruges de konverterede beslutninger og de samme fastlåste kilder:
-
-```bash
-/usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_coverage_1939.py \
+/usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_review_queue_1939.py \
+  --baseline ../../../work_1939_stamtavle/clean_1939_v2.json \
+  --evidence work/task19-1939-pilot/composed-evidence-v3-run-b.json \
+  --review work/task19-1939-pilot/coverage-decisions-v3-run-b.json \
   --calamari ../../../work_1939_stamtavle/full_ocr_calamari_r6_clean.txt \
   --raw ../../../work_1939_stamtavle/raw.txt \
   --pdf "../../../Dansk Adels Aarbog - Reventlow 1939.pdf" \
-  --baseline ../../../work_1939_stamtavle/clean_1939_v2.json \
-  --decisions work/task19-1939-pilot/coverage-decisions-v3-run-a.json \
-  --out work/task19-1939-pilot/coverage-v3-run-a.json
+  --profile-version 1939-v2 \
+  --queue-out work/task19-1939-pilot/publication-queue-v3-run-b.json \
+  --report-out work/task19-1939-pilot/publication-report-v3-run-b.json
 ```
+
+Læs altid hele parkeringsrapporten, og undersøg hver parkering; adapteren gætter
+aldrig. `composed-evidence` er et komplet source-bundet bundle: base-evidensen
+bevares for alle andre baseline-keys, og kun validerede human-entries erstatter
+deres egen tomme slot. Task-5-filen med præcis `{decisions, audit_results}` bruges
+som `prepare_review_queue_1939.py --review` sammen med composed evidence som
+`--evidence`; queue- og report-output er publikationsjoinets filbaserede resultat.
+
+Der findes ingen approval-capable privat coverage-materializer. Workflowet stopper
+derfor ved review-/fil-GO. Ny coverage-materialisering kræver særskilt design,
+godkendelse og replay; den må ikke udledes af publikationsrapportens `GO`.
 
 `work/`-artefakterne og browserens eksport er private og ignorerede; de må aldrig
 committes. Overskriv eller slet ikke tidligere resultater for at genkøre: vælg nye,
 versionssuffikserede filnavne. Et `GO` fra et review-værktøj er kun review-go; det er
-ikke database-, loader- eller deployment-GO. Materialisering, DB-skrivning og deploy
-kræver hver deres særskilte godkendelse.
+ikke coverage-materialiserings-, database-, loader- eller deployment-GO.
 
 V2-piloten bruger `dual-evidence-v2.json` som source-bundet evidens og den komplette,
 stadig uafgjorte `coverage-review-v2.json` som konservativ review-template: poster

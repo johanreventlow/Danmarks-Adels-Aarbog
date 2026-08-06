@@ -8,15 +8,20 @@ anchored-candidates-wrapper, som slutkonverteringen kræver. Den nye
 `anchor_review_choices_1939.py` validerer eksport og kildehashes, genskaber det
 valgte Calamari-span deterministisk, registrerer en invariant rå-OCR-bro hvor den
 findes og ellers en eksplicit menneskelig approval. Den skriver samtidig en
-omskrevet choice-eksport og human-evidence til publikationsgatens kildejoin; ingen
-`presentation:`-identitet bliver accepteret direkte.
+omskrevet choice-eksport og komponerer de nye human-entries ind i et obligatorisk,
+komplet source-bundet base-evidence-bundle; ingen `presentation:`-identitet bliver
+accepteret direkte. Base-entries med blockers eller eksisterende positiv evidens
+kan ikke erstattes, og global retained-auto + human-injektivitet valideres før output.
 
 Real-data-replayet bevarede alle 25 ikke-audit menneskevalg uden fejlmatch: 13 fik
 bytevalideret råbro og 12 approval alene; konverteringen gav 25 `accepteret`, de
 fem `no_candidate_fits` forblev parkeret som `menneskeark`, og alle fem auditvalg
 blev `audit_confirmed`. En eksporteret 35-valgs kladde kan desuden genindlejres
-felt-for-felt i et nyt menneskeark. Resultatet er et review-/filworkflow; det er
-ikke i sig selv database-, loader- eller deployment-GO.
+felt-for-felt i et nyt menneskeark. Task-5-outputtet `{decisions, audit_results}`
+joines som `--review` mod composed evidence som `--evidence`. Resultatet er et
+review-/filworkflow; der findes ingen approval-capable privat coverage-materializer,
+og resultatet er derfor ikke coverage-materialiserings-, database-, loader- eller
+deployment-GO.
 
 ## Trin B: fakta-efterudtrækket i prod — v3 live (2026-07-31, aften)
 

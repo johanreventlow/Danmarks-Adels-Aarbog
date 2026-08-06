@@ -8,8 +8,13 @@ from unittest import mock
 import pytest
 
 import anchor_review_choices_1939 as subject
+import prepare_review_queue_1939 as publication_subject
 from anchor_review_choices_1939 import build_human_anchored_candidates
 from coverage_1939 import validate_coverage
+from rendition_occurrences_1939 import (
+    CALAMARI_R6_TO_PDF_V1,
+    extract_rendition_occurrences,
+)
 from review_choices_1939 import convert_review_choices, validate_choice_export
 
 
@@ -26,8 +31,9 @@ CAL_LINES = [
 ]
 CALAMARI_TEXT = "\n".join(CAL_LINES)
 RAW_LINES = [
+    "### PAGE 496 ###",
     "1. Anders Testesen, f. 1900, d. 1960 paa Testgaard (raa).",
-    "2. Bertel Testesen raa-divergerende.",
+    "3. Bertel Testesen raa-divergerende.",
     "Cecilie Testdatter raa.",
 ]
 RAW_TEXT = "\n".join(RAW_LINES)
@@ -65,48 +71,22 @@ POSTS = [
 ]
 
 
-def occ(occurrence_id, order, span, marker, pages=(11,)):
-    return {
-        "occurrence_id": occurrence_id,
-        "order": order,
-        "span": {"char_from": span[0], "char_to": span[1]},
-        "pdf_pages": list(pages),
-        "post_class": "nummereret",
-        "printed_marker": marker,
-        "section_signature": ["I"],
-    }
-
-
-CAL_OCCURRENCES = {
-    "rendition": "calamari",
-    "source_length": len(CALAMARI_TEXT),
-    "source_sha256": sha(CALAMARI_TEXT),
-    "occurrences": [
-        occ("c1", 0, SPAN_A, "1"),
-        occ("c2", 1, SPAN_B, "2"),
-        occ("c3", 2, SPAN_C, "3", pages=(12,)),
-    ],
-}
-RAW_OCCURRENCES = {
-    "rendition": "raw_ocr",
-    "source_length": len(RAW_TEXT),
-    "source_sha256": sha(RAW_TEXT),
-    "occurrences": [
-        occ("r1", 0, raw_line_span(0), "1"),
-        occ("r2", 1, raw_line_span(1), "X"),
-        occ("r3", 2, raw_line_span(2), "Y", pages=(12,)),
-    ],
-}
+CAL_OCCURRENCES = extract_rendition_occurrences(
+    CALAMARI_TEXT, rendition="calamari", page_map=CALAMARI_R6_TO_PDF_V1,
+)
+RAW_OCCURRENCES = extract_rendition_occurrences(
+    RAW_TEXT, rendition="raw_ocr", page_map=None,
+)
 
 RECORD_KEYS = ("rec-a", "rec-b", "rec-c", "rec-d", "rec-e", "rec-f", "rec-x")
 BASELINE_RECORDS = {
-    "rec-a": {"record_key": "rec-a", "narrative": "Anders' narrativ.", "sider": "1"},
-    "rec-b": {"record_key": "rec-b", "narrative": "Bertels narrativ.", "sider": "1"},
-    "rec-c": {"record_key": "rec-c", "narrative": CAL_LINES[3], "sider": "1"},
+    "rec-a": {"record_key": "rec-a", "narrative": "Anders' narrativ.", "sider": "496"},
+    "rec-b": {"record_key": "rec-b", "narrative": "Bertels narrativ.", "sider": "496"},
+    "rec-c": {"record_key": "rec-c", "narrative": CAL_LINES[3], "sider": "496"},
     "rec-d": {"record_key": "rec-d", "narrative": "Daniels narrativ.", "sider": "3-4"},
     "rec-e": {"record_key": "rec-e", "narrative": "Eriks narrativ.", "sider": ""},
-    "rec-f": {"record_key": "rec-f", "narrative": "F-narrativ.", "sider": "1"},
-    "rec-x": {"record_key": "rec-x", "narrative": "X-narrativ.", "sider": "1"},
+    "rec-f": {"record_key": "rec-f", "narrative": "F-narrativ.", "sider": "496"},
+    "rec-x": {"record_key": "rec-x", "narrative": "X-narrativ.", "sider": "496"},
 }
 
 
@@ -126,7 +106,7 @@ AUTO_CANDIDATE = {
     "candidate_id": "1939:dual-v1:" + "f" * 64,
     "postklasse": "nummereret",
     "calamari_span": {"char_from": SPAN_A[0], "char_to": SPAN_A[0] + 5},
-    "pdf_pages": [11],
+    "pdf_pages": [496],
     "raw_structure_bridge": {
         "kind": "dual_rendition_consensus_v1",
         "raw_char_from": AUTO_RAW_SPAN[0],
@@ -190,6 +170,21 @@ def source_for(baseline_bytes, calamari_text, raw_text):
     }
 
 
+def base_evidence_for(source, keys=RECORD_KEYS):
+    return {
+        "schema_version": 1,
+        "source": copy.deepcopy(source),
+        "entries": [{
+            "baseline_record_key": key,
+            "candidates": [],
+            "positive_provenance": None,
+            "conflicts": ["manual_review_required"],
+            "source_blockers": [],
+            "rule_id": None,
+        } for key in keys],
+    }
+
+
 def build(choices, *, audit_keys=frozenset(), classifications=None, posts=None,
           baseline_records=None, calamari_text=CALAMARI_TEXT, raw_text=RAW_TEXT,
           cal_occurrences=None, raw_occurrences=None, source_overrides=None,
@@ -230,7 +225,7 @@ def test_parserpost_valg_faar_span_og_approval():
     assert candidate["candidate_id"] == candidate_id
     assert candidate["calamari_span"] == {"char_from": SPAN_A[0], "char_to": SPAN_A[1]}
     assert candidate["postklasse"] == "nummereret"
-    assert candidate["pdf_pages"] == [11]
+    assert candidate["pdf_pages"] == [496]
     assert candidate["approval"] == {
         "kind": "human_approved_span_v1",
         "calamari_excerpt_sha256": sha(CALAMARI_TEXT[SPAN_A[0]:SPAN_A[1]]),
@@ -263,7 +258,7 @@ def test_text_anchor_valg_genberegnes_og_forankres():
     assert wrapper["baseline_record_key"] == "rec-c"
     candidate = wrapper["candidate"]
     assert candidate["calamari_span"] == {"char_from": SPAN_C[0], "char_to": SPAN_C[1]}
-    assert candidate["pdf_pages"] == [12]
+    assert candidate["pdf_pages"] == [496]
     assert candidate["postklasse"] == "nummereret"
     assert candidate["approval"]["calamari_excerpt_sha256"] == sha(CAL_LINES[3])
 
@@ -271,7 +266,8 @@ def test_text_anchor_valg_genberegnes_og_forankres():
 def test_valg_med_alignet_occurrence_faar_raa_bro():
     result = build({"rec-a": choice("rec-a", "P1")})
     [wrapper] = result["anchored"].values()
-    raw_span = raw_line_span(0)
+    raw_span_value = RAW_OCCURRENCES["occurrences"][0]["span"]
+    raw_span = (raw_span_value["char_from"], raw_span_value["char_to"])
     assert wrapper["candidate"]["raw_structure_bridge"] == {
         "kind": "human_approved_occurrence_pair_v1",
         "raw_char_from": raw_span[0],
@@ -425,18 +421,19 @@ def test_text_anchor_digest_mismatch_parkeres():
     assert parked["candidate_id"] == forged
 
 
-def test_pdf_sider_falder_tilbage_til_record_sider_eller_parkerer():
+def test_pdf_sider_parkerer_naar_grov_occurrence_ikke_indeholder_record_sider():
     result = build({
         "rec-d": choice("rec-d", "P4"),
         "rec-e": choice("rec-e", "P5"),
     })
-    [wrapper] = result["anchored"].values()
-    assert wrapper["baseline_record_key"] == "rec-d"
-    assert wrapper["candidate"]["pdf_pages"] == [3, 4]
-    assert "raw_structure_bridge" not in wrapper["candidate"]
-    [parked] = result["parked"]
-    assert parked["baseline_record_key"] == "rec-e"
-    assert parked["reason_code"] == "pdf_pages_mismatch"
+    assert result["anchored"] == {}
+    assert {
+        parked["baseline_record_key"]: parked["reason_code"]
+        for parked in result["parked"]
+    } == {
+        "rec-d": "pdf_pages_mismatch",
+        "rec-e": "pdf_pages_mismatch",
+    }
 
 
 def test_tomt_kildeudsnit_parkeres_som_verbatim_mismatch():
@@ -449,16 +446,69 @@ def test_tomt_kildeudsnit_parkeres_som_verbatim_mismatch():
 def test_occurrence_manifest_skal_matche_kildetekst():
     forged_sha = copy.deepcopy(CAL_OCCURRENCES)
     forged_sha["source_sha256"] = "0" * 64
-    with pytest.raises(ValueError, match="occurrence-manifest"):
+    with pytest.raises(ValueError, match="^calamari_occurrence_manifest_mismatch$"):
         build({"rec-a": choice("rec-a", "P1")}, cal_occurrences=forged_sha)
     forged_length = copy.deepcopy(CAL_OCCURRENCES)
     forged_length["source_length"] = len(CALAMARI_TEXT) + 5
-    with pytest.raises(ValueError, match="occurrence-manifest"):
+    with pytest.raises(ValueError, match="^calamari_occurrence_manifest_mismatch$"):
         build({"rec-a": choice("rec-a", "P1")}, cal_occurrences=forged_length)
     forged_raw = copy.deepcopy(RAW_OCCURRENCES)
     forged_raw["source_sha256"] = "0" * 64
-    with pytest.raises(ValueError, match="occurrence-manifest"):
+    with pytest.raises(ValueError, match="^raw_ocr_occurrence_manifest_mismatch$"):
         build({"rec-a": choice("rec-a", "P1")}, raw_occurrences=forged_raw)
+
+
+@pytest.mark.parametrize(
+    ("rendition", "mutation", "message"),
+    [
+        ("calamari", "span", "calamari_occurrence_manifest_mismatch"),
+        ("calamari", "occurrence_id", "calamari_occurrence_manifest_mismatch"),
+        ("calamari", "pdf_pages", "calamari_occurrence_manifest_mismatch"),
+        ("calamari", "verbatim_sha256", "calamari_occurrence_manifest_mismatch"),
+        ("calamari", "neighbor", "calamari_occurrence_manifest_mismatch"),
+        ("calamari", "alignment", "calamari_occurrence_manifest_mismatch"),
+        ("raw_ocr", "span", "raw_ocr_occurrence_manifest_mismatch"),
+        ("raw_ocr", "occurrence_id", "raw_ocr_occurrence_manifest_mismatch"),
+        ("raw_ocr", "pdf_pages", "raw_ocr_occurrence_manifest_mismatch"),
+        ("raw_ocr", "verbatim_sha256", "raw_ocr_occurrence_manifest_mismatch"),
+        ("raw_ocr", "neighbor", "raw_ocr_occurrence_manifest_mismatch"),
+        ("raw_ocr", "alignment", "raw_ocr_occurrence_manifest_mismatch"),
+    ],
+)
+def test_occurrence_manifest_metadata_regenereres_fra_source_bytes(
+    rendition, mutation, message,
+):
+    cal_manifest = copy.deepcopy(CAL_OCCURRENCES)
+    raw_manifest = copy.deepcopy(RAW_OCCURRENCES)
+    manifest = cal_manifest if rendition == "calamari" else raw_manifest
+    occurrence = manifest["occurrences"][0]
+    if mutation == "span":
+        occurrence["span"]["char_from"] += 1
+    elif mutation == "occurrence_id":
+        occurrence["occurrence_id"] += "-forged"
+    elif mutation == "pdf_pages":
+        occurrence["pdf_pages"] = [497]
+    elif mutation == "verbatim_sha256":
+        occurrence["verbatim_sha256"] = "0" * 64
+    elif mutation == "neighbor":
+        occurrence["successor_signature"] = "0" * 64
+    else:
+        occurrence["printed_marker"] = "999"
+
+    with pytest.raises(ValueError, match=message):
+        build(
+            {"rec-a": choice("rec-a", "P1")},
+            cal_occurrences=cal_manifest,
+            raw_occurrences=raw_manifest,
+        )
+
+
+def test_pdf_sider_bevarer_grov_flersidet_occurrence_men_kraever_subset():
+    covering = {"pdf_pages": [496, 497]}
+    assert subject._resolve_pdf_pages(covering, {"sider": "496"}) == [496, 497]
+    with pytest.raises(subject._Parked) as mismatch:
+        subject._resolve_pdf_pages(covering, {"sider": "498"})
+    assert mismatch.value.reason_code == "pdf_pages_mismatch"
 
 
 def test_kernen_afviser_kilder_der_ikke_matcher_expected_source():
@@ -530,9 +580,13 @@ def test_posts_kan_ikke_leveres_udefra():
 
 def test_text_anchor_for_post_med_nearby_kandidater_parkeres():
     records = copy.deepcopy(BASELINE_RECORDS)
-    records["rec-c"]["sider"] = "11"
+    records["rec-c"]["sider"] = "496"
     forged = text_anchor_id("rec-c", CAL_LINES[3])
-    result = build({"rec-c": choice("rec-c", forged)}, baseline_records=records)
+    result = build(
+        {"rec-c": choice("rec-c", forged)},
+        baseline_records=records,
+        first_pdf_page=496,
+    )
     assert result["anchored"] == {}
     [parked] = result["parked"]
     assert parked["reason_code"] == "text_anchor_not_reproducible"
@@ -555,18 +609,8 @@ def test_aegte_anker_accepteres_trods_ikke_berettiget_overlap():
     }
 
 
-def test_pdf_fallback_laeser_record_sider_ikke_postens():
-    posts = copy.deepcopy(POSTS)
-    posts[2]["sider"] = "8"
-    records = copy.deepcopy(BASELINE_RECORDS)
-    records["rec-d"]["sider"] = "503"
-    result = build(
-        {"rec-d": choice("rec-d", "P4")},
-        posts=posts,
-        baseline_records=records,
-    )
-    [wrapper] = result["anchored"].values()
-    assert wrapper["candidate"]["pdf_pages"] == [503]
+def test_pdf_fallback_laeser_record_sider_uden_daekkende_occurrence():
+    assert subject._resolve_pdf_pages(None, {"sider": "503"}) == [503]
 
 
 def test_kaede_choices_til_accepteret_decision():
@@ -584,6 +628,75 @@ def test_kaede_choices_til_accepteret_decision():
         "status": "accepteret",
         "candidate_id": human_id,
     } in converted["decisions"]
+
+
+def _composition_fixture():
+    records = copy.deepcopy(BASELINE_RECORDS)
+    baseline_bytes = baseline_bytes_for(records)
+    source = source_for(baseline_bytes, CALAMARI_TEXT, RAW_TEXT)
+    human_result = build({"rec-a": choice("rec-a", "P1")})
+    return (
+        base_evidence_for(source), human_result["evidence_entries"], source,
+        set(records),
+    )
+
+
+@pytest.mark.parametrize("corruption", ["source", "missing", "unknown", "duplicate"])
+def test_composition_afviser_forkert_source_eller_baseline_daekning(corruption):
+    base, human_entries, source, baseline_keys = _composition_fixture()
+    if corruption == "source":
+        base["source"]["calamari_sha256"] = "0" * 64
+    elif corruption == "missing":
+        base["entries"].pop()
+    elif corruption == "unknown":
+        base["entries"][-1]["baseline_record_key"] = "ukendt"
+    else:
+        base["entries"][-1]["baseline_record_key"] = base["entries"][0][
+            "baseline_record_key"
+        ]
+
+    with pytest.raises(ValueError):
+        subject.compose_human_evidence_bundle(
+            base, human_entries, source, baseline_keys, CALAMARI_TEXT, RAW_TEXT,
+        )
+
+
+@pytest.mark.parametrize("blocked_kind", ["source_blocker", "existing_evidence"])
+def test_composition_afviser_erstatning_af_blokeret_eller_positiv_base_entry(
+    blocked_kind,
+):
+    base, human_entries, source, baseline_keys = _composition_fixture()
+    base_by_key = {entry["baseline_record_key"]: entry for entry in base["entries"]}
+    if blocked_kind == "source_blocker":
+        base_by_key["rec-a"]["source_blockers"] = ["raw_ocr_missing"]
+        message = "source-blokeret"
+    else:
+        base_by_key["rec-a"] = copy.deepcopy(human_entries[0])
+        base["entries"] = [
+            base_by_key[entry["baseline_record_key"]] for entry in base["entries"]
+        ]
+        message = "eksisterende positiv evidens"
+
+    with pytest.raises(ValueError, match=message):
+        subject.compose_human_evidence_bundle(
+            base, human_entries, source, baseline_keys, CALAMARI_TEXT, RAW_TEXT,
+        )
+
+
+def test_composition_afviser_global_kollision_mod_retained_positiv_kandidat():
+    base, human_entries, source, baseline_keys = _composition_fixture()
+    retained = copy.deepcopy(human_entries[0])
+    retained["baseline_record_key"] = "rec-x"
+    retained["positive_provenance"]["baseline_record_key"] = "rec-x"
+    base["entries"] = [
+        retained if entry["baseline_record_key"] == "rec-x" else entry
+        for entry in base["entries"]
+    ]
+
+    with pytest.raises(ValueError, match="injektiv"):
+        subject.compose_human_evidence_bundle(
+            base, human_entries, source, baseline_keys, CALAMARI_TEXT, RAW_TEXT,
+        )
 
 
 def _write_cli_fixture(tmp_path, *, corrupt_calamari=False):
@@ -623,6 +736,7 @@ def _write_cli_fixture(tmp_path, *, corrupt_calamari=False):
         "raw": tmp_path / "raw.txt",
         "cal_occ": tmp_path / "cal-occ.json",
         "raw_occ": tmp_path / "raw-occ.json",
+        "base_evidence": tmp_path / "base-evidence.json",
         "wrapper_out": tmp_path / "wrapper.json",
         "evidence_out": tmp_path / "evidence.json",
         "report_out": tmp_path / "report.json",
@@ -635,6 +749,9 @@ def _write_cli_fixture(tmp_path, *, corrupt_calamari=False):
     paths["raw"].write_bytes(raw_bytes)
     paths["cal_occ"].write_text(json.dumps(CAL_OCCURRENCES), encoding="utf-8")
     paths["raw_occ"].write_text(json.dumps(RAW_OCCURRENCES), encoding="utf-8")
+    paths["base_evidence"].write_text(
+        json.dumps(base_evidence_for(source)), encoding="utf-8"
+    )
     return paths
 
 
@@ -648,6 +765,7 @@ def _cli_argv(paths):
         "--raw", str(paths["raw"]),
         "--calamari-occurrences", str(paths["cal_occ"]),
         "--raw-occurrences", str(paths["raw_occ"]),
+        "--base-evidence", str(paths["base_evidence"]),
         "--calamari-first-pdf-page", "11",
         "--wrapper-out", str(paths["wrapper_out"]),
         "--evidence-out", str(paths["evidence_out"]),
@@ -678,7 +796,47 @@ def test_cli_skriver_wrapper_evidens_og_rapport(tmp_path, monkeypatch):
     assert candidate_id == expected_human_id(SPAN_A)
     assert entry["baseline_record_key"] == "rec-a"
     evidence = json.loads(paths["evidence_out"].read_text(encoding="utf-8"))
-    assert [item["baseline_record_key"] for item in evidence] == ["rec-a"]
+    assert evidence["schema_version"] == 1
+    assert evidence["source"] == json.loads(
+        paths["queue"].read_text(encoding="utf-8")
+    )["source"]
+    assert [item["baseline_record_key"] for item in evidence["entries"]] == list(
+        RECORD_KEYS
+    )
+    human_entry = next(
+        item for item in evidence["entries"]
+        if item["baseline_record_key"] == "rec-a"
+    )
+    assert human_entry["rule_id"] == "human_anchor_v1"
+    assert human_entry["positive_provenance"]["candidate_id"] == candidate_id
+
+    validated = publication_subject._source_bound_evidence_entries(
+        evidence, evidence["source"], set(RECORD_KEYS), CALAMARI_TEXT, RAW_TEXT,
+    )
+    manifest = publication_subject.classify_review_entries(
+        evidence["source"], set(RECORD_KEYS), validated,
+    )
+    state = publication_subject._review_state(
+        {
+            "decisions": [{
+                "baseline_record_key": "rec-a",
+                "status": "accepteret",
+                "candidate_id": candidate_id,
+            }],
+            "audit_results": [],
+        },
+        evidence["source"],
+        set(RECORD_KEYS),
+        evidence_entries=validated,
+        manifest=manifest,
+        baseline_by_key={
+            record["record_key"]: record
+            for record in json.loads(paths["baseline"].read_text(encoding="utf-8"))
+        },
+        calamari_text=CALAMARI_TEXT,
+        raw_text=RAW_TEXT,
+    )
+    assert "rec-a" in state.completed_keys
     report = json.loads(paths["report_out"].read_text(encoding="utf-8"))
     assert report["anchored_count"] == 1
     assert report["parked_count"] == 0

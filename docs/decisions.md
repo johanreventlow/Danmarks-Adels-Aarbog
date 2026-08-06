@@ -12,6 +12,13 @@ identitetsafgørelsen, og råbroen tilføjer redundant proveniens. Automatiske
 afgørelser beholder kravet om dual-rendition-evidens. Globale krav om entydigt
 ejerskab, kandidat-id-injektivitet og ikke-overlappende spans er uændrede.
 
+**Evidence- og GO-grænse:** Adapteren kræver et komplet source-bundet
+base-evidence-bundle og erstatter kun samme evidensfrie baseline-key med en
+valideret human-entry. Task-5-filen `{decisions, audit_results}` og dette composed
+bundle joines i `prepare_review_queue_1939.py`. Der findes ingen approval-capable
+privat coverage-materializer; workflowet stopper ved review-/fil-GO. En senere
+materialisering kræver selvstændigt design, godkendelse og replay.
+
 **Udskudt backlog:** Slutarkets store occurrence på side 597–598 resegmenteres
 ikke nu. Approval-stien gør den manglende invariante råbro ikke-blokerende, mens en
 resegmentering ville ændre occurrence-identiteter og alignment på tværs af de

@@ -821,16 +821,23 @@ def _source_bound_evidence(args, key="rk-1"):
 
 def _human_source_bound_evidence(args, key="rk-1"):
     calamari_excerpt = "Calamari"
+    calamari_excerpt_sha256 = hashlib.sha256(
+        calamari_excerpt.encode("utf-8")
+    ).hexdigest()
+    candidate_digest = hashlib.sha256(
+        (
+            "1939-v2\0"
+            f"0\0{len(calamari_excerpt)}\0{calamari_excerpt_sha256}"
+        ).encode("utf-8")
+    ).hexdigest()
     candidate = {
-        "candidate_id": "human:1939-v2:span:abc123",
+        "candidate_id": f"human:1939-v2:span:{candidate_digest}",
         "postklasse": "nummereret",
         "calamari_span": {"char_from": 0, "char_to": len(calamari_excerpt)},
         "pdf_pages": [1],
         "approval": {
             "kind": "human_approved_span_v1",
-            "calamari_excerpt_sha256": hashlib.sha256(
-                calamari_excerpt.encode("utf-8")
-            ).hexdigest(),
+            "calamari_excerpt_sha256": calamari_excerpt_sha256,
         },
     }
     return {
@@ -849,6 +856,34 @@ def _human_source_bound_evidence(args, key="rk-1"):
             "rule_id": "human_anchor_v1",
         }],
     }
+
+
+@pytest.mark.parametrize(
+    "forged_candidate_id",
+    [
+        "human:1939-v2:span:abc123",
+        "human:1939-v2:span:" + "A" * 64,
+        "human:1939-v1:span:" + "a" * 64,
+        "vilkaarlig-human-id",
+    ],
+)
+def test_source_bound_human_evidence_rejects_noncanonical_candidate_id(
+    tmp_path, forged_candidate_id,
+):
+    args, _, _, _ = _pilot_cli_args(tmp_path)
+    evidence = _human_source_bound_evidence(args)
+    entry = evidence["entries"][0]
+    entry["candidates"][0]["candidate_id"] = forged_candidate_id
+    entry["positive_provenance"]["candidate_id"] = forged_candidate_id
+
+    with pytest.raises(ValueError, match="human candidate_id matcher ikke"):
+        subject._source_bound_evidence_entries(
+            evidence,
+            evidence["source"],
+            {"rk-1"},
+            "Calamari OCR",
+            "Rå OCR",
+        )
 
 
 def test_source_bound_evidence_accepts_approval_only_human_candidate(tmp_path):
