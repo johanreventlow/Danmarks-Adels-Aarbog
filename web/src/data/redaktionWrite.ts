@@ -42,6 +42,7 @@ export type Change = {
      | 'erstatMediaFil' // fase 4 (M4): erstat bytes, behold identitet — bytes FØR RPC, hård gate
      | 'udrensMedia' // fase 4 (M11): permanent sletning (kun fra 'fjernet'); result = {stier}
      | 'saetPortraet' // fase 4 (M10): {"primaer":true} på afbildet-relationen; mediaId udeladt = ryd
+     | 'fortryd' // issue #144: red_fortryd_change_set — historik-panelets fortryd-knap
      | 'forslag'; // generisk entitets-feltredigering uden direkte RPC → red_suggest
   subjektType: string;
   subjektId: string;
@@ -146,6 +147,12 @@ export function buildRpcCall(c: Change): RpcCall | null {
   if (c.art === 'haendelseStatus') {
     if (c.haendelseId == null || !Number.isFinite(c.haendelseId) || !c.status || !['kandidat','interessant','skjult'].includes(c.status)) return null;
     return { fn: 'red_set_haendelse_status', args: { p_haendelse_id: c.haendelseId, p_status: c.status } };
+  }
+  if (c.art === 'fortryd') {
+    const csId = c.payload?.changeSetId;
+    if (csId == null) return null;
+    return { fn: 'red_fortryd_change_set',
+             args: { p_change_set_id: Number(csId), p_force: Boolean(c.payload?.force) } };
   }
   if (c.art === 'opretStory') {
     const p = c.payload || {};
@@ -564,18 +571,20 @@ export function planCall(c: Change, role: string | undefined): RpcCall {
 export async function submitChange(c: Change, opts: { dryRun: boolean; role?: string }) {
   const call = planCall(c, opts.role);
   const direkte = call.fn !== 'red_suggest';
-  // uploadMedia kan IKKE degradere til red_suggest: forslags-laget gemmer kun p_payload som jsonb,
-  // og en rå File-værdi JSON-serialiserer til '{}' (ingen egne enumerable felter) — en sådan
-  // "forslag sendt"-kvittering ville lyve. UI'en skjuler allerede knappen for ikke-redaktion
-  // (Redaktion.tsx), men denne gate er den robuste, ikke UI-afhængige grænse (fejler tydeligt
-  // fremfor at oprette et korrupt forslag med falsk succes).
-  // erstatMediaFil bærer fil-bytes (samme fælde som uploadMedia); udrensMedia er destruktiv og
-  // afhænger af de RETURNEREDE stier — et "udrens-forslag" ville lyve om begge dele (spec §6).
-  if ((c.art === 'uploadMedia' || c.art === 'erstatMediaFil') && !direkte) {
-    throw new Error('Medieupload kræver redaktør-rettigheder — kan ikke sendes som forslag.');
-  }
-  if (c.art === 'udrensMedia' && !direkte) {
-    throw new Error('Udrensning kræver redaktør-rettigheder — kan ikke sendes som forslag.');
+  // Arter der IKKE kan degradere til red_suggest — et forslag ville kvittere som sendt, men lyve.
+  // UI'en skjuler typisk knapperne for ikke-redaktion (Redaktion.tsx); denne gate er den robuste,
+  // ikke UI-afhængige grænse (fejler tydeligt fremfor at oprette et korrupt forslag m. falsk succes).
+  // Søster til KRAEVER_GYLDIGT_KALD i planCall (samme per-art-invariant-mekanik).
+  const IKKE_DEGRADERBAR: Record<string, string> = {
+    // forslags-laget gemmer kun p_payload som jsonb — en rå File-værdi JSON-serialiserer til '{}'
+    uploadMedia: 'Medieupload',
+    erstatMediaFil: 'Medieupload', // bærer fil-bytes, samme fælde som uploadMedia
+    udrensMedia: 'Udrensning', // destruktiv + afhænger af de RETURNEREDE stier (spec §6)
+    fortryd: 'Fortryd', // et "fortryd-forslag" er en tom kø-post der kvitteres, mens intet fortrydes
+  };
+  const gateNavn = IKKE_DEGRADERBAR[c.art];
+  if (gateNavn && !direkte) {
+    throw new Error(`${gateNavn} kræver redaktør-rettigheder — kan ikke sendes som forslag.`);
   }
   if (opts.dryRun) return { dryRun: true as const, call, direkte };
   if (c.art === 'erstatMediaFil') {
@@ -614,6 +623,14 @@ export async function submitChange(c: Change, opts: { dryRun: boolean; role?: st
     if (bekraeftError) throw new Error(bekraeftError.message);
   }
   return { dryRun: false as const, call, direkte, result: data };
+}
+
+// Genkender red_fortryd_change_set's B9-divergens-RAISE ("... afvist (brug force)").
+// PORTERET fra mobilens redaktionWrite — hold i sync. Regex'en pinner IKKE mod den levende
+// DB-tekst — kun mod testens hardkodede kopi; drifter schema.sql's RAISE-formulering,
+// skal matchen opdateres her manuelt.
+export function erFortrydKonflikt(rawMessage: string): boolean {
+  return /afvist.*force/i.test(rawMessage);
 }
 
 // PostgREST/Postgres-fejl → dansk UI-tekst (spec §9). Fald tilbage til rå besked.
