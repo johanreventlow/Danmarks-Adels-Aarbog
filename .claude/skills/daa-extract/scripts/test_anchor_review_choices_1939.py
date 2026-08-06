@@ -174,19 +174,44 @@ def expected_human_id(span):
     return f"human:{PROFILE}:span:{digest}"
 
 
+def baseline_bytes_for(records):
+    return json.dumps([records[key] for key in sorted(records)]).encode("utf-8")
+
+
+def source_for(baseline_bytes, calamari_text, raw_text):
+    return {
+        "edition": "1939",
+        "baseline_sha256": hashlib.sha256(baseline_bytes).hexdigest(),
+        "calamari_sha256": sha(calamari_text),
+        "raw_ocr_sha256": sha(raw_text),
+        "pdf_sha256": "c" * 64,
+        "profile_version": PROFILE,
+    }
+
+
 def build(choices, *, audit_keys=frozenset(), classifications=None, posts=None,
-          baseline_records=None):
+          baseline_records=None, calamari_text=CALAMARI_TEXT, raw_text=RAW_TEXT,
+          cal_occurrences=None, raw_occurrences=None, source_overrides=None,
+          first_pdf_page=11):
+    records = baseline_records or copy.deepcopy(BASELINE_RECORDS)
+    baseline_bytes = baseline_bytes_for(records)
+    expected_source = {
+        **source_for(baseline_bytes, calamari_text, raw_text),
+        **(source_overrides or {}),
+    }
     return build_human_anchored_candidates(
         choices,
         set(audit_keys),
         classifications or copy.deepcopy(CLASSIFICATIONS),
-        baseline_records or copy.deepcopy(BASELINE_RECORDS),
+        baseline_bytes,
         posts or copy.deepcopy(POSTS),
-        CALAMARI_TEXT,
-        RAW_TEXT,
-        copy.deepcopy(CAL_OCCURRENCES),
-        copy.deepcopy(RAW_OCCURRENCES),
+        calamari_text,
+        raw_text,
+        cal_occurrences or copy.deepcopy(CAL_OCCURRENCES),
+        raw_occurrences or copy.deepcopy(RAW_OCCURRENCES),
         PROFILE,
+        expected_source,
+        first_pdf_page,
     )
 
 
@@ -416,6 +441,69 @@ def test_tomt_kildeudsnit_parkeres_som_verbatim_mismatch():
     assert parked["reason_code"] == "span_verbatim_mismatch"
 
 
+def test_occurrence_manifest_skal_matche_kildetekst():
+    forged_sha = copy.deepcopy(CAL_OCCURRENCES)
+    forged_sha["source_sha256"] = "0" * 64
+    with pytest.raises(ValueError, match="occurrence-manifest"):
+        build({"rec-a": choice("rec-a", "P1")}, cal_occurrences=forged_sha)
+    forged_length = copy.deepcopy(CAL_OCCURRENCES)
+    forged_length["source_length"] = len(CALAMARI_TEXT) + 5
+    with pytest.raises(ValueError, match="occurrence-manifest"):
+        build({"rec-a": choice("rec-a", "P1")}, cal_occurrences=forged_length)
+    forged_raw = copy.deepcopy(RAW_OCCURRENCES)
+    forged_raw["source_sha256"] = "0" * 64
+    with pytest.raises(ValueError, match="occurrence-manifest"):
+        build({"rec-a": choice("rec-a", "P1")}, raw_occurrences=forged_raw)
+
+
+def test_kernen_afviser_kilder_der_ikke_matcher_expected_source():
+    with pytest.raises(ValueError, match="calamari hash"):
+        build({"rec-a": choice("rec-a", "P1")},
+              source_overrides={"calamari_sha256": "d" * 64})
+    with pytest.raises(ValueError, match="baseline hash"):
+        build({"rec-a": choice("rec-a", "P1")},
+              source_overrides={"baseline_sha256": "d" * 64})
+    with pytest.raises(ValueError, match="raw OCR hash"):
+        build({"rec-a": choice("rec-a", "P1")},
+              source_overrides={"raw_ocr_sha256": "d" * 64})
+    with pytest.raises(ValueError, match="profile_version"):
+        build({"rec-a": choice("rec-a", "P1")},
+              source_overrides={"profile_version": "1939-v1"})
+
+
+def test_cr_i_calamari_afvises():
+    with pytest.raises(ValueError, match="CR"):
+        build({"rec-a": choice("rec-a", "P1")},
+              calamari_text=CALAMARI_TEXT.replace("\n", "\r\n", 1))
+
+
+def test_offsetdrift_parkeres_som_verbatim_mismatch(monkeypatch):
+    original = subject._line_offsets
+
+    def drifted(calamari_text):
+        lines, offsets = original(calamari_text)
+        return lines, [
+            offset + (1 if index else 0) for index, offset in enumerate(offsets)
+        ]
+
+    monkeypatch.setattr(subject, "_line_offsets", drifted)
+    result = build({"rec-a": choice("rec-a", "P1")})
+    assert result["anchored"] == {}
+    [parked] = result["parked"]
+    assert parked["reason_code"] == "span_verbatim_mismatch"
+
+
+def test_text_anchor_uden_sidetilhoer_parkeres():
+    records = copy.deepcopy(BASELINE_RECORDS)
+    records["rec-x"]["narrative"] = "### PAGE 0001 ###"
+    forged = text_anchor_id("rec-x", "### PAGE 0001 ###")
+    result = build({"rec-x": choice("rec-x", forged)}, baseline_records=records)
+    assert result["anchored"] == {}
+    [parked] = result["parked"]
+    assert parked["reason_code"] == "text_anchor_not_reproducible"
+    assert parked["candidate_id"] == forged
+
+
 def test_pdf_fallback_laeser_record_sider_ikke_postens():
     posts = copy.deepcopy(POSTS)
     posts[2]["sider"] = "8"
@@ -509,6 +597,7 @@ def _cli_argv(paths):
         "--raw", str(paths["raw"]),
         "--calamari-occurrences", str(paths["cal_occ"]),
         "--raw-occurrences", str(paths["raw_occ"]),
+        "--calamari-first-pdf-page", "11",
         "--wrapper-out", str(paths["wrapper_out"]),
         "--evidence-out", str(paths["evidence_out"]),
         "--report-out", str(paths["report_out"]),
@@ -545,6 +634,16 @@ def test_cli_skriver_wrapper_evidens_og_rapport(tmp_path, monkeypatch):
     assert report["parked"] == []
     with pytest.raises(FileExistsError):
         subject.main()
+
+
+def test_cli_afviser_duplikerede_output_stier(tmp_path, monkeypatch):
+    paths = _write_cli_fixture(tmp_path)
+    paths["evidence_out"] = paths["wrapper_out"]
+    monkeypatch.setattr("sys.argv", _cli_argv(paths))
+    with pytest.raises(ValueError, match="output-stier"):
+        subject.main()
+    assert not paths["wrapper_out"].exists()
+    assert not paths["report_out"].exists()
 
 
 def test_cli_rewritten_choices_bestaar_validate_choice_export(tmp_path, monkeypatch):

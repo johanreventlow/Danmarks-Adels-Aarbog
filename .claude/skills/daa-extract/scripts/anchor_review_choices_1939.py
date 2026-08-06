@@ -25,7 +25,7 @@ from pathlib import Path
 import segment
 from coverage_1939 import validate_coverage
 from dual_rendition_evidence_1939 import align_renditions
-from make_human_review_1939 import _pages
+from make_human_review_1939 import _pages, _unique_exact_text_anchor_candidates
 from review_choices_1939 import validate_choice_export
 from review_queue_1939 import sample_auto_resolved
 
@@ -95,6 +95,53 @@ def _sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _baseline_records(baseline_bytes: object) -> tuple[list[dict], dict[str, dict]]:
+    """Parse the exact baseline bytes into records and a key index."""
+    if not isinstance(baseline_bytes, bytes):
+        raise ValueError("baseline_bytes skal være bytes")
+    try:
+        records = json.loads(baseline_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("baseline skal være UTF-8 JSON") from error
+    if not isinstance(records, list):
+        raise ValueError("baseline skal være en liste")
+    by_key: dict[str, dict] = {}
+    for record in records:
+        if not isinstance(record, dict):
+            raise ValueError("baseline record skal være en mapping")
+        key = _nonempty(record.get("record_key"), "record_key")
+        if key in by_key:
+            raise ValueError("dublet record_key")
+        by_key[key] = record
+    return records, by_key
+
+
+def _require_expected_source(
+    expected_source: object, baseline_bytes: bytes, calamari_text: str,
+    raw_text: str, profile_version: str,
+) -> None:
+    """Bind every supplied source to the queue-manifest provenance hashes."""
+    source = _mapping(expected_source, "expected_source")
+    if hashlib.sha256(baseline_bytes).hexdigest() != source.get("baseline_sha256"):
+        raise ValueError("baseline hash matcher ikke expected_source")
+    if _sha256_text(calamari_text) != source.get("calamari_sha256"):
+        raise ValueError("calamari hash matcher ikke expected_source")
+    if _sha256_text(raw_text) != source.get("raw_ocr_sha256"):
+        raise ValueError("raw OCR hash matcher ikke expected_source")
+    if profile_version != source.get("profile_version"):
+        raise ValueError("profile_version matcher ikke expected_source")
+
+
+def _require_source_binding(manifest: object, source_text: str, label: str) -> None:
+    """Reject occurrence manifests not provably built from this exact text."""
+    checked = _mapping(manifest, f"{label} occurrence-manifest")
+    if (
+        checked.get("source_length") != len(source_text)
+        or checked.get("source_sha256") != _sha256_text(source_text)
+    ):
+        raise ValueError(f"{label} occurrence-manifest matcher ikke kildeteksten")
+
+
 def _line_offsets(calamari_text: str) -> tuple[list[str], list[int]]:
     lines = calamari_text.splitlines()
     offsets = []
@@ -108,26 +155,22 @@ def _line_offsets(calamari_text: str) -> tuple[list[str], list[int]]:
 def _resolve_span(
     choice_id: str, key: str, baseline_records: Mapping, posts: list,
     lines: list[str], offsets: list[int], calamari_text: str,
-    profile_version: str,
+    profile_version: str, text_anchor_candidates: Mapping[str, dict],
 ) -> tuple[int, int, Mapping | None]:
     """Return the exact half-open source span for one choice, or park it."""
     text_anchor = re.fullmatch(
         rf"presentation:{re.escape(profile_version)}:text-anchor:(.+)", choice_id
     )
     if text_anchor:
-        narrative = baseline_records[key].get("narrative")
-        if not isinstance(narrative, str) or not narrative:
+        generated = text_anchor_candidates.get(key)
+        if (
+            not isinstance(generated, Mapping)
+            or generated.get("candidate_id") != choice_id
+        ):
             raise _Parked("text_anchor_not_reproducible")
+        narrative = baseline_records[key]["narrative"]
         start = calamari_text.find(narrative)
-        if start < 0 or calamari_text.find(narrative, start + 1) >= 0:
-            raise _Parked("text_anchor_not_reproducible")
-        end = start + len(narrative)
-        digest = hashlib.sha256(
-            f"{profile_version}\0{key}\0{start}\0{end}".encode("utf-8")
-        ).hexdigest()
-        if text_anchor.group(1) != digest:
-            raise _Parked("text_anchor_not_reproducible")
-        return start, end, None
+        return start, start + len(narrative), None
     post_match = re.fullmatch(
         rf"presentation:{re.escape(profile_version)}:post:(\d+)", choice_id
     )
@@ -157,7 +200,12 @@ def _resolve_span(
         or fra < 0 or til <= fra or til > len(lines)
     ):
         raise _Parked("parser_post_not_found")
-    return offsets[fra], offsets[til - 1] + len(lines[til - 1]), post
+    char_from = offsets[fra]
+    char_to = offsets[til - 1] + len(lines[til - 1])
+    excerpt = calamari_text[char_from:char_to]
+    if not excerpt.startswith(lines[fra]) or not excerpt.endswith(lines[til - 1]):
+        raise _Parked("span_verbatim_mismatch")
+    return char_from, char_to, post
 
 
 def _unique_covering_occurrence(
@@ -313,19 +361,20 @@ def build_human_anchored_candidates(
     choices: dict,
     audit_keys: set[str],
     classifications: dict,
-    baseline_records: dict,
+    baseline_bytes: bytes,
     posts: list,
     calamari_text: str,
     raw_text: str,
     calamari_occurrences: dict,
     raw_occurrences: dict,
     profile_version: str,
+    expected_source: Mapping,
+    calamari_first_pdf_page: int,
 ) -> dict:
     """Re-anchor every manual choice fail-closed, parking what cannot be proven."""
     _nonempty(profile_version, "profile_version")
     choices = _mapping(choices, "choices")
     classifications = _mapping(classifications, "classifications")
-    baseline_records = _mapping(baseline_records, "baseline_records")
     if not isinstance(audit_keys, set) or any(
         not isinstance(key, str) for key in audit_keys
     ):
@@ -336,6 +385,22 @@ def build_human_anchored_candidates(
         raise ValueError("posts skal være en liste af mappings")
     if not isinstance(calamari_text, str) or not isinstance(raw_text, str):
         raise ValueError("kildetekster skal være strenge")
+    if (
+        not isinstance(calamari_first_pdf_page, int)
+        or isinstance(calamari_first_pdf_page, bool)
+    ):
+        raise ValueError("calamari_first_pdf_page skal være et heltal")
+    if "\r" in calamari_text:
+        raise ValueError("Calamari-kilden indeholder CR — kun LF understøttes")
+    records, baseline_records = _baseline_records(baseline_bytes)
+    _require_expected_source(
+        expected_source, baseline_bytes, calamari_text, raw_text, profile_version
+    )
+    _require_source_binding(calamari_occurrences, calamari_text, "calamari")
+    _require_source_binding(raw_occurrences, raw_text, "raw OCR")
+    text_anchor_candidates = _unique_exact_text_anchor_candidates(
+        records, calamari_text, calamari_first_pdf_page, profile_version
+    )
 
     alignment = align_renditions(calamari_occurrences, raw_occurrences)
     pair_by_calamari = {
@@ -366,7 +431,7 @@ def build_human_anchored_candidates(
         try:
             char_from, char_to, post = _resolve_span(
                 choice_id, key, baseline_records, posts, lines, offsets,
-                calamari_text, profile_version,
+                calamari_text, profile_version, text_anchor_candidates,
             )
             excerpt = calamari_text[char_from:char_to]
             if not excerpt.strip():
@@ -464,6 +529,8 @@ def main() -> int:
     parser.add_argument("--raw", type=Path, required=True)
     parser.add_argument("--calamari-occurrences", type=Path, required=True)
     parser.add_argument("--raw-occurrences", type=Path, required=True)
+    parser.add_argument("--calamari-first-pdf-page", type=int, required=True,
+                        help="PDF page represented by Calamari's PAGE 0001")
     parser.add_argument("--wrapper-out", type=Path, required=True)
     parser.add_argument("--evidence-out", type=Path, required=True)
     parser.add_argument("--report-out", type=Path, required=True)
@@ -486,24 +553,17 @@ def main() -> int:
     ):
         if hashlib.sha256(content).hexdigest() != source.get(field):
             raise ValueError(f"{label} hash matcher ikke queue manifest")
-    for out_path in (
+    out_paths = (
         args.wrapper_out, args.evidence_out, args.report_out,
         args.rewritten_choices_out,
-    ):
+    )
+    if len({str(out_path.resolve()) for out_path in out_paths}) != len(out_paths):
+        raise ValueError("output-stier skal være forskellige")
+    for out_path in out_paths:
         if out_path.exists():
             raise FileExistsError(out_path)
 
-    records = json.loads(baseline_bytes)
-    if not isinstance(records, list):
-        raise ValueError("baseline skal være en liste")
-    baseline_records: dict[str, dict] = {}
-    for record in records:
-        if not isinstance(record, dict):
-            raise ValueError("baseline record skal være en mapping")
-        key = _nonempty(record.get("record_key"), "record_key")
-        if key in baseline_records:
-            raise ValueError("dublet record_key")
-        baseline_records[key] = record
+    _, baseline_records = _baseline_records(baseline_bytes)
     export_root = json.loads(args.choices.read_text(encoding="utf-8"))
     choices = validate_choice_export(export_root, source, set(baseline_records))
     audit_keys = set(sample_auto_resolved(queue))
@@ -524,9 +584,10 @@ def main() -> int:
             calamari_text.splitlines(), segment.UDGAVE_PROFILER[profile_version]
         )
     result = build_human_anchored_candidates(
-        choices, audit_keys, classifications, baseline_records, posts,
+        choices, audit_keys, classifications, baseline_bytes, posts,
         calamari_text, raw_bytes.decode("utf-8"), calamari_occurrences,
-        raw_occurrences, profile_version,
+        raw_occurrences, profile_version, source,
+        args.calamari_first_pdf_page,
     )
     report = {
         "schema_version": 1,
@@ -550,15 +611,19 @@ def main() -> int:
         "entries": rewritten_entries,
     }
     validate_choice_export(rewritten_export, source, set(baseline_records))
-    for out_path, payload in (
-        (args.wrapper_out, result["anchored"]),
-        (args.evidence_out, result["evidence_entries"]),
-        (args.report_out, report),
-        (args.rewritten_choices_out, rewritten_export),
-    ):
-        with out_path.open("x", encoding="utf-8") as handle:
+    payloads = (
+        result["anchored"], result["evidence_entries"], report, rewritten_export,
+    )
+    handles = []
+    try:
+        for out_path in out_paths:
+            handles.append(out_path.open("x", encoding="utf-8"))
+        for handle, payload in zip(handles, payloads):
             json.dump(payload, handle, ensure_ascii=False, indent=2)
             handle.write("\n")
+    finally:
+        for handle in handles:
+            handle.close()
     return 0
 
 
