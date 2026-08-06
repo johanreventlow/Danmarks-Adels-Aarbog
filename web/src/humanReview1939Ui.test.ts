@@ -107,11 +107,51 @@ function startReview({ storage, records, source, sourceBlocked, download = vi.fn
   };
 }
 
+function sourceBoundSuccessorModel() {
+  const script = [
+    'import json',
+    'from dual_rendition_evidence_1939 import build_source_bound_evidence',
+    'from review_queue_1939 import classify_review_entries',
+    'from prepare_review_queue_1939 import build_review_view_model',
+    'source_baseline = json.dumps([',
+    "  {'record_key':'rk-volrad','_v2_lokal_id':'I.1','_narrativ_kilde':'calamari','narrative':'Volrad'},",
+    "  {'record_key':'rk-emeke','_v2_lokal_id':'I.2','_narrativ_kilde':'calamari','narrative':'Emeke'},",
+    ']).encode()',
+    "evidence, _, _ = build_source_bound_evidence(source_baseline, b'### PAGE 1 ###\\n1. Volrad\\n### PAGE 1 ###\\n2. Emeke\\n', b'### PAGE 496 ###\\n1. Volrad\\n### PAGE 496 ###\\n3. Emeke\\n', b'%PDF-synthetic', profile_version='1939-v2')",
+    "queue = classify_review_entries(evidence['source'], {'rk-volrad', 'rk-emeke'}, evidence['entries'])",
+    "print(json.dumps(build_review_view_model([{'record_key':'rk-volrad','navn':'Volrad','sider':'498','narrative':'Volrad'}, {'record_key':'rk-emeke','navn':'Emeke','sider':'498','narrative':'Emeke'}], queue, {}, [], {})))",
+  ].join('\n');
+  const result = spawnSync('/usr/bin/python3', ['-c', script], {
+    cwd: resolve(process.cwd(), '../.claude/skills/daa-extract/scripts'),
+    encoding: 'utf8',
+    env: { ...process.env, PYTHONPYCACHEPREFIX: join(tmpdir(), 'daa1939-ui-v2-pycache') },
+  });
+  expect(result.status, result.stderr).toBe(0);
+  return JSON.parse(result.stdout);
+}
+
+function startModel(data: any, storage = memoryStorage()) {
+  document.body.innerHTML = '<aside data-role="save-state"></aside><main data-role="app"></main>';
+  window.eval(uiSource);
+  return (window as any).DAA1939Review.init({
+    data, storage, now: () => '2026-08-05T12:00:00+02:00', download: vi.fn(),
+  });
+}
+
 afterEach(() => {
   document.body.innerHTML = '';
 });
 
 describe('human 1939 review controller', () => {
+  it('renders the actual source-bound Volrad successor mismatch with Emeke once', () => {
+    const controller = startModel(sourceBoundSuccessorModel());
+
+    expect(controller.selectedKey).toBe('rk-volrad');
+    const boundaryContext = document.querySelector('[data-role="boundary-context"]')!.textContent!;
+    expect(boundaryContext).toContain('Calamari: følgende post fundet');
+    expect(boundaryContext.match(/Emeke/g)).toHaveLength(1);
+  });
+
   it('starts on exceptions and exposes automatic records only as samples', () => {
     startReview({ storage: memoryStorage(), records: [
       humanRecord('rk-human', 'candidate-human'),

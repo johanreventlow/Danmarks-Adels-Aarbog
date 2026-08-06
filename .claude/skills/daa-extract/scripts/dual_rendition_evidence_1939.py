@@ -30,6 +30,7 @@ _CONFLICT_CODES = {
     "ambiguous_structure",
     "known_overview_duplicate",
 }
+_BOUNDARY_EXCERPT_LIMIT = 160
 
 
 def _canonical_json(value: object) -> str:
@@ -95,6 +96,7 @@ def _materialize_complete_evidence(
 ) -> dict:
     calamari_by_id = _occurrence_by_id(calamari_manifest)
     raw_by_id = _occurrence_by_id(raw_manifest)
+    calamari_text = calamari_bytes.decode("utf-8")
     raw_text = raw_bytes.decode("utf-8")
     entries = []
     candidate_ids = set()
@@ -111,6 +113,11 @@ def _materialize_complete_evidence(
         }
         if result["status"] != "consensus":
             entry["conflicts"] = [_consensus_conflict(result)]
+            boundary_evidence = _boundary_evidence(
+                result, calamari_by_id, raw_by_id, calamari_text, raw_text,
+            )
+            if boundary_evidence is not None:
+                entry["boundary_evidence"] = boundary_evidence
             entries.append(entry)
             continue
         calamari = calamari_by_id.get(result["calamari_occurrence_id"])
@@ -159,6 +166,45 @@ def _materialize_complete_evidence(
         "schema_version": 1,
         "source": source,
         "entries": entries,
+    }
+
+
+def _bounded_occurrence_excerpt(occurrence: object, source_text: str) -> dict | None:
+    if not isinstance(occurrence, dict):
+        return None
+    span = occurrence.get("span")
+    if not isinstance(span, dict):
+        return None
+    start, end = span.get("char_from"), span.get("char_to")
+    if type(start) is not int or type(end) is not int or start < 0 or end <= start:
+        return None
+    bounded_end = min(end, start + _BOUNDARY_EXCERPT_LIMIT)
+    return {
+        "char_from": start,
+        "char_to": bounded_end,
+        "text": source_text[start:bounded_end],
+    }
+
+
+def _boundary_evidence(
+    consensus: dict, calamari_by_id: dict[str, dict], raw_by_id: dict[str, dict],
+    calamari_text: str, raw_text: str,
+) -> dict | None:
+    boundary = consensus.get("boundary_occurrences")
+    if not isinstance(boundary, dict) or set(boundary) != {
+        "direction", "calamari_occurrence_id", "raw_occurrence_id",
+    }:
+        return None
+    if boundary["direction"] not in {"predecessor", "successor"}:
+        return None
+    return {
+        "direction": boundary["direction"],
+        "calamari": _bounded_occurrence_excerpt(
+            calamari_by_id.get(boundary["calamari_occurrence_id"]), calamari_text,
+        ),
+        "raw_ocr": _bounded_occurrence_excerpt(
+            raw_by_id.get(boundary["raw_occurrence_id"]), raw_text,
+        ),
     }
 
 
@@ -647,8 +693,33 @@ def _reciprocal_occurrence_owners(
     return unique_owner(calamari_claims), unique_owner(raw_claims)
 
 
-def _unanchored_consensus(record_key: str, reason: str) -> dict:
-    return {"record_key": record_key, "status": "unanchored", "reason": reason}
+def _unanchored_consensus(
+    record_key: str, reason: str, boundary_occurrences: dict | None = None,
+) -> dict:
+    result = {"record_key": record_key, "status": "unanchored", "reason": reason}
+    if boundary_occurrences is not None:
+        result["boundary_occurrences"] = boundary_occurrences
+    return result
+
+
+def _boundary_occurrences(
+    calamari: tuple[dict, ...], raw: tuple[dict, ...], calamari_index: int,
+    raw_index: int, direction: int,
+) -> dict:
+    label = "successor" if direction > 0 else "predecessor"
+    calamari_neighbor = calamari_index + direction
+    raw_neighbor = raw_index + direction
+    return {
+        "direction": label,
+        "calamari_occurrence_id": (
+            calamari[calamari_neighbor]["occurrence_id"]
+            if 0 <= calamari_neighbor < len(calamari) else None
+        ),
+        "raw_occurrence_id": (
+            raw[raw_neighbor]["occurrence_id"]
+            if 0 <= raw_neighbor < len(raw) else None
+        ),
+    }
 
 
 def _derive_one_consensus(
@@ -684,12 +755,18 @@ def _derive_one_consensus(
         calamari, raw, calamari_index, raw_index, calamari_to_raw,
         calamari_owners, raw_owners, -1,
     ):
-        return _unanchored_consensus(record_key, "predecessor_disagreement")
+        return _unanchored_consensus(
+            record_key, "predecessor_disagreement",
+            _boundary_occurrences(calamari, raw, calamari_index, raw_index, -1),
+        )
     if not _neighbors_agree(
         calamari, raw, calamari_index, raw_index, calamari_to_raw,
         calamari_owners, raw_owners, 1,
     ):
-        return _unanchored_consensus(record_key, "successor_disagreement")
+        return _unanchored_consensus(
+            record_key, "successor_disagreement",
+            _boundary_occurrences(calamari, raw, calamari_index, raw_index, 1),
+        )
     return {
         "record_key": record_key,
         "status": "consensus",

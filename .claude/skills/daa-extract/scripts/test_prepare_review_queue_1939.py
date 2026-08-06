@@ -10,7 +10,11 @@ from pathlib import Path
 
 import pytest
 
-from dual_rendition_evidence_1939 import RULE_ID, deterministic_candidate_id
+from dual_rendition_evidence_1939 import (
+    RULE_ID,
+    build_source_bound_evidence,
+    deterministic_candidate_id,
+)
 import prepare_coverage_1939 as task5_subject
 import prepare_review_queue_1939 as subject
 from prepare_review_queue_1939 import (
@@ -283,14 +287,86 @@ def test_unknown_diagnostic_is_fail_closed_and_never_automatic():
     assert record["boundary_context"] == "Calamari: ukendt · rå OCR: ukendt. Kræver menneskelig vurdering."
 
 
-def test_successor_disagreement_retains_a_short_successor_context_once():
-    entry = human("rk-volrad", "successor_disagreement")
-    entry["boundary_context"] = "Calamari: næste post Volrad · rå OCR: næste post Emeke."
+def test_source_bound_successor_disagreement_carries_emeke_to_the_view_model_once():
+    source_baseline = json.dumps([
+        {"record_key": "rk-volrad", "_v2_lokal_id": "I.1",
+         "_narrativ_kilde": "calamari", "narrative": "Volrad"},
+        {"record_key": "rk-emeke", "_v2_lokal_id": "I.2",
+         "_narrativ_kilde": "calamari", "narrative": "Emeke"},
+    ]).encode("utf-8")
+    evidence, _, _ = build_source_bound_evidence(
+        source_baseline,
+        b"### PAGE 1 ###\n1. Volrad\n### PAGE 1 ###\n2. Emeke\n",
+        b"### PAGE 496 ###\n1. Volrad\n### PAGE 496 ###\n3. Emeke\n",
+        b"%PDF-synthetic", profile_version="1939-v2",
+    )
+    queue = subject.classify_review_entries(
+        evidence["source"], {"rk-volrad", "rk-emeke"}, evidence["entries"],
+    )
+    model = build_review_view_model(
+        [baseline("rk-volrad"), baseline("rk-emeke")], queue, {}, [], {},
+    )
+    record = next(item for item in model["records"] if item["record_key"] == "rk-volrad")
+
+    assert next(item for item in queue["entries"] if item["baseline_record_key"] == "rk-volrad")[
+        "reason_code"
+    ] == "successor_disagreement"
+    assert record["boundary_context"].count("Emeke") == 1
+
+
+def test_source_blocked_raw_ocr_missing_has_specific_source_bound_diagnostic():
+    queue = subject.classify_review_entries(
+        source(), {"rk-blocked"}, [{
+            "baseline_record_key": "rk-blocked", "candidates": [],
+            "positive_provenance": None, "conflicts": [],
+            "source_blockers": ["raw_ocr_missing"], "rule_id": None,
+        }],
+    )
     record = build_review_view_model(
-        [baseline("rk-volrad")], manifest(entry), {}, [], {},
+        [baseline("rk-blocked")], queue, {}, [], {},
     )["records"][0]
 
-    assert record["boundary_context"].count("Emeke") == 1
+    assert record["reason_da"] == "Rå OCR-kilden mangler; posten kan ikke sammenholdes sikkert."
+    assert record["boundary_context"] == "Calamari: tilgængelig · rå OCR: mangler."
+
+
+def test_source_bound_boundary_excerpt_must_match_the_pinned_raw_ocr_bytes():
+    source_baseline = json.dumps([
+        {"record_key": "rk-volrad", "_v2_lokal_id": "I.1",
+         "_narrativ_kilde": "calamari", "narrative": "Volrad"},
+        {"record_key": "rk-emeke", "_v2_lokal_id": "I.2",
+         "_narrativ_kilde": "calamari", "narrative": "Emeke"},
+    ]).encode("utf-8")
+    calamari = "### PAGE 1 ###\n1. Volrad\n### PAGE 1 ###\n2. Emeke\n"
+    raw_ocr = "### PAGE 496 ###\n1. Volrad\n### PAGE 496 ###\n3. Emeke\n"
+    evidence, _, _ = build_source_bound_evidence(
+        source_baseline, calamari.encode("utf-8"), raw_ocr.encode("utf-8"),
+        b"%PDF-synthetic", profile_version="1939-v2",
+    )
+    tampered = copy.deepcopy(evidence)
+    tampered["entries"][0]["boundary_evidence"]["raw_ocr"]["text"] = "opfundet"
+
+    with pytest.raises(ValueError, match="boundary_evidence matcher"):
+        subject._source_bound_evidence_entries(
+            tampered, evidence["source"], {"rk-volrad", "rk-emeke"}, calamari, raw_ocr,
+        )
+
+
+def test_unknown_source_blocker_stays_generic_and_fail_closed():
+    queue = subject.classify_review_entries(
+        source(), {"rk-blocked"}, [{
+            "baseline_record_key": "rk-blocked", "candidates": [],
+            "positive_provenance": None, "conflicts": [],
+            "source_blockers": ["future_source_blocker"], "rule_id": None,
+        }],
+    )
+    record = build_review_view_model(
+        [baseline("rk-blocked")], queue, {}, [], {},
+    )["records"][0]
+
+    assert record["queue_class"] == "source_blocked"
+    assert record["reason_da"] == "Kildemateriale er blokeret: future_source_blocker."
+    assert record["boundary_context"] == "Calamari: ukendt · rå OCR: ukendt. Kræver menneskelig vurdering."
 
 
 def test_source_blocked_is_required_with_visible_reason_and_subcount():

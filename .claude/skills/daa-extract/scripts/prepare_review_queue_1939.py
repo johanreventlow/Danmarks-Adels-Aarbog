@@ -45,6 +45,8 @@ _EVIDENCE_ENTRY_FIELDS = {
     "baseline_record_key", "candidates", "positive_provenance", "conflicts",
     "source_blockers", "rule_id",
 }
+_OPTIONAL_EVIDENCE_ENTRY_FIELDS = _EVIDENCE_ENTRY_FIELDS | {"boundary_evidence"}
+_BOUNDARY_EXCERPT_LIMIT = 160
 _CANDIDATE_FIELDS = {
     "candidate_id", "postklasse", "calamari_span", "pdf_pages",
     "raw_structure_bridge",
@@ -236,9 +238,25 @@ _BOUNDARY_CONTEXT_DA = {
 
 def _boundary_context(classification: Mapping) -> str:
     """Provide a brief human diagnostic without exposing source hashes by default."""
-    supplied = classification.get("boundary_context")
-    if isinstance(supplied, str) and supplied.strip():
-        return supplied
+    source_blocked = classification.get("boundary_context")
+    if isinstance(source_blocked, str) and source_blocked.strip():
+        return source_blocked
+    boundary_evidence = classification.get("boundary_evidence")
+    if isinstance(boundary_evidence, Mapping):
+        direction = boundary_evidence.get("direction")
+        raw_ocr = boundary_evidence.get("raw_ocr")
+        calamari = boundary_evidence.get("calamari")
+        direction_da = {
+            "predecessor": "foregående post",
+            "successor": "følgende post",
+        }.get(direction)
+        if direction_da is not None and isinstance(calamari, Mapping):
+            raw_text = raw_ocr.get("text") if isinstance(raw_ocr, Mapping) else None
+            raw_detail = (
+                f'{direction_da} “{raw_text}”' if isinstance(raw_text, str)
+                else f"{direction_da} mangler"
+            )
+            return f"Calamari: {direction_da} fundet · rå OCR: {raw_detail}."
     reason_code = classification.get("reason_code")
     if reason_code in _BOUNDARY_CONTEXT_DA:
         return _BOUNDARY_CONTEXT_DA[reason_code]
@@ -684,7 +702,10 @@ def _source_bound_evidence_entries(
     seen: set[str] = set()
     validated: list[dict] = []
     for item in entries:
-        if not isinstance(item, Mapping) or set(item) != _EVIDENCE_ENTRY_FIELDS:
+        if (
+            not isinstance(item, Mapping)
+            or not _EVIDENCE_ENTRY_FIELDS <= set(item) <= _OPTIONAL_EVIDENCE_ENTRY_FIELDS
+        ):
             raise ValueError("evidenspost har uautoriserede eller manglende felter")
         entry = copy.deepcopy(dict(item))
         key = _nonempty(entry.get("baseline_record_key"), "baseline_record_key")
@@ -704,6 +725,9 @@ def _source_bound_evidence_entries(
         entry["conflicts"] = _strict_string_list(entry.get("conflicts"), "conflict")
         entry["source_blockers"] = _strict_string_list(
             entry.get("source_blockers"), "source_blocker"
+        )
+        _validate_boundary_evidence(
+            entry.get("boundary_evidence"), calamari_text, raw_text,
         )
         rule_id = entry.get("rule_id")
         if rule_id is not None:
@@ -728,6 +752,30 @@ def _source_bound_evidence_entries(
     if seen != baseline_keys:
         raise ValueError("evidence baseline-dækning fejler")
     return validated
+
+
+def _validate_boundary_evidence(
+    value: object, calamari_text: str, raw_text: str,
+) -> None:
+    if value is None:
+        return
+    if not isinstance(value, Mapping) or set(value) != {"direction", "calamari", "raw_ocr"}:
+        raise ValueError("boundary_evidence har ugyldigt schema")
+    if value.get("direction") not in {"predecessor", "successor"}:
+        raise ValueError("boundary_evidence har ugyldig retning")
+    for label, source_text in (("calamari", calamari_text), ("raw_ocr", raw_text)):
+        excerpt = value.get(label)
+        if excerpt is None:
+            continue
+        if not isinstance(excerpt, Mapping) or set(excerpt) != {"char_from", "char_to", "text"}:
+            raise ValueError("boundary_evidence har ugyldigt uddrag")
+        start, end, text = excerpt.get("char_from"), excerpt.get("char_to"), excerpt.get("text")
+        if (
+            type(start) is not int or type(end) is not int or not isinstance(text, str)
+            or start < 0 or end <= start or end - start > _BOUNDARY_EXCERPT_LIMIT
+            or end > len(source_text) or source_text[start:end] != text
+        ):
+            raise ValueError("boundary_evidence matcher ikke den bundne kilde")
 
 
 def _validated_evidence_entries(

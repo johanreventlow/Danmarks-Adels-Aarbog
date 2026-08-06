@@ -58,6 +58,20 @@ _HUMAN_REASONS_DA = {
     "ambiguous_structure": "Kildestrukturen er ikke entydig.",
     "known_overview_duplicate": "Kendt oversigtsdublet kræver menneskelig vurdering.",
 }
+_SOURCE_BLOCKER_DIAGNOSTICS_DA = {
+    "raw_ocr_missing": (
+        "Rå OCR-kilden mangler; posten kan ikke sammenholdes sikkert.",
+        "Calamari: tilgængelig · rå OCR: mangler.",
+    ),
+    "calamari_missing": (
+        "Calamari-kilden mangler; posten kan ikke sammenholdes sikkert.",
+        "Calamari: mangler · rå OCR: tilgængelig.",
+    ),
+    "pdf_missing": (
+        "PDF-kilden mangler; sidereferencen kan ikke kontrolleres.",
+        "Calamari: ukendt · rå OCR: ukendt. Kræver menneskelig vurdering.",
+    ),
+}
 
 
 def classify_review_entries(
@@ -217,6 +231,9 @@ def _validate_evidence_shape(entry: dict) -> None:
             raise ValueError(f"{field} skal være en liste")
     for blocker in entry.get("source_blockers", []):
         _nonempty_string(blocker, "source_blocker")
+    boundary_evidence = entry.get("boundary_evidence")
+    if boundary_evidence is not None and not isinstance(boundary_evidence, Mapping):
+        raise ValueError("boundary_evidence skal være en mapping eller null")
 
 
 def _classify_one(key: str, evidence: dict, source: dict) -> dict:
@@ -226,7 +243,7 @@ def _classify_one(key: str, evidence: dict, source: dict) -> dict:
     conflict_reason = _allowlisted_consensus_conflict(evidence.get("conflicts"))
     if len(candidates) != 1:
         if not candidates and conflict_reason is not None:
-            return _human(key, conflict_reason)
+            return _human(key, conflict_reason, evidence.get("boundary_evidence"))
         if evidence.get("conflicts"):
             return _human(key, "evidence_conflict")
         return _human(key, "no_candidate" if not candidates else "multiple_candidates")
@@ -238,7 +255,9 @@ def _classify_one(key: str, evidence: dict, source: dict) -> dict:
     if not _valid_positive_provenance(provenance, key, candidate_id):
         return _human(key, "missing_positive_provenance")
     if evidence.get("conflicts"):
-        return _human(key, conflict_reason or "evidence_conflict")
+        return _human(
+            key, conflict_reason or "evidence_conflict", evidence.get("boundary_evidence"),
+        )
     if not _nonempty_optional_string(evidence.get("rule_id")):
         return _human(key, "missing_rule_id")
     try:
@@ -335,21 +354,32 @@ def _automatic(key: str, candidate: object, rule_id: str) -> dict:
     }
 
 
-def _human(key: str, reason_code: str) -> dict:
-    return {
+def _human(key: str, reason_code: str, boundary_evidence: object = None) -> dict:
+    result = {
         "baseline_record_key": key,
         "queue_class": "human_required",
         "reason_code": reason_code,
         "reason_da": _HUMAN_REASONS_DA[reason_code],
     }
+    if boundary_evidence is not None:
+        result["boundary_evidence"] = copy.deepcopy(boundary_evidence)
+    return result
 
 
 def _blocked(key: str, reason_code: str) -> dict:
+    reason_da, boundary_context = _SOURCE_BLOCKER_DIAGNOSTICS_DA.get(
+        reason_code,
+        (
+            f"Kildemateriale er blokeret: {reason_code}.",
+            "Calamari: ukendt · rå OCR: ukendt. Kræver menneskelig vurdering.",
+        ),
+    )
     return {
         "baseline_record_key": key,
         "queue_class": "source_blocked",
         "reason_code": reason_code,
-        "reason_da": f"Kildemateriale er blokeret: {reason_code}.",
+        "reason_da": reason_da,
+        "boundary_context": boundary_context,
     }
 
 

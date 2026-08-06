@@ -148,14 +148,26 @@ def test_reordered_predecessor_is_not_consensus():
     result = consensus_for(
         {"rk": anchor("rk", "calamari", "c2")}, alignment_for("c1", "r2", "c2", "r1"), cal, raw,
     )
-    assert result["rk"] == {"record_key": "rk", "status": "unanchored", "reason": "predecessor_disagreement"}
+    assert result["rk"] == {
+        "record_key": "rk", "status": "unanchored", "reason": "predecessor_disagreement",
+        "boundary_occurrences": {
+            "direction": "predecessor", "calamari_occurrence_id": "c1",
+            "raw_occurrence_id": None,
+        },
+    }
 
 
 def test_missing_successor_is_not_consensus():
     cal = manifest(occ("c1", 0, "1"), occ("c2", 1, "2"))
     raw = manifest(occ("r1", 0, "1"), rendition="raw_ocr")
     result = consensus_for({"rk": anchor("rk", "calamari", "c1")}, alignment_for("c1", "r1"), cal, raw)
-    assert result["rk"] == {"record_key": "rk", "status": "unanchored", "reason": "successor_disagreement"}
+    assert result["rk"] == {
+        "record_key": "rk", "status": "unanchored", "reason": "successor_disagreement",
+        "boundary_occurrences": {
+            "direction": "successor", "calamari_occurrence_id": "c2",
+            "raw_occurrence_id": None,
+        },
+    }
 
 
 def test_page_disagreement_is_not_consensus():
@@ -245,6 +257,10 @@ def test_one_sided_section_transition_is_successor_disagreement():
     )
     assert result["rk"] == {
         "record_key": "rk", "status": "unanchored", "reason": "successor_disagreement",
+        "boundary_occurrences": {
+            "direction": "successor", "calamari_occurrence_id": "c2",
+            "raw_occurrence_id": "r2",
+        },
     }
 
 
@@ -261,6 +277,10 @@ def test_unkeyed_aligned_overview_cannot_certify_a_keyed_successor_boundary():
         "record_key": "rk-keyed",
         "status": "unanchored",
         "reason": "successor_disagreement",
+        "boundary_occurrences": {
+            "direction": "successor", "calamari_occurrence_id": "c-overview",
+            "raw_occurrence_id": "r-overview",
+        },
     }
 
 
