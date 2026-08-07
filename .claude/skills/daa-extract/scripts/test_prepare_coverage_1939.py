@@ -219,8 +219,13 @@ def test_materialize_coverage_writes_complete_bundle_once(tmp_path):
     pdf.write_bytes(b"pdf")
     baseline.write_text('[{"record_key":"rk-1"}]', encoding="utf-8")
     start = text.index("   1.")
+    baseline_sha256 = hashlib.sha256(baseline.read_bytes()).hexdigest()
     decisions.write_text(
-        json.dumps({"entries": [{
+        json.dumps({
+            "schema_version": 1,
+            "edition": "1939",
+            "baseline_sha256": baseline_sha256,
+            "entries": [{
             "baseline_record_key": "rk-1",
             "status": "accepteret",
             "candidate_id": "candidate-1",
@@ -243,6 +248,34 @@ def test_materialize_coverage_writes_complete_bundle_once(tmp_path):
     assert json.loads(out.read_text(encoding="utf-8")) == result
     with pytest.raises(FileExistsError):
         materialize_coverage(calamari, raw, pdf, baseline, decisions, out)
+
+
+def test_materialize_coverage_rejects_stale_decision_baseline_without_output(tmp_path):
+    calamari = tmp_path / "calamari.txt"
+    raw = tmp_path / "raw.txt"
+    pdf = tmp_path / "book.pdf"
+    baseline = tmp_path / "baseline.json"
+    decisions = tmp_path / "decisions.json"
+    out = tmp_path / "coverage.json"
+    calamari.write_text("unused", encoding="utf-8")
+    raw.write_text("unused", encoding="utf-8")
+    pdf.write_bytes(b"unused")
+    baseline.write_text('[{"record_key":"rk-1"}]', encoding="utf-8")
+    decisions.write_text(json.dumps({
+        "schema_version": 1,
+        "edition": "1939",
+        "baseline_sha256": "0" * 64,
+        "entries": [{
+            "baseline_record_key": "rk-1",
+            "status": "menneskeark",
+            "reason": "uklar",
+        }],
+    }), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="baseline SHA-256"):
+        materialize_coverage(calamari, raw, pdf, baseline, decisions, out)
+
+    assert not out.exists()
 
 
 def test_cli_requires_all_private_input_paths():
@@ -300,6 +333,9 @@ def test_cli_can_convert_only_a_complete_checked_review_to_decisions(tmp_path, c
         "entries": 1,
     }
     assert json.loads(decisions.read_text(encoding="utf-8")) == {
+        "schema_version": 1,
+        "edition": "1939",
+        "baseline_sha256": hashlib.sha256(baseline.read_bytes()).hexdigest(),
         "entries": [{
             "baseline_record_key": "rk-1",
             "reason": "ingen entydig bro",
@@ -325,6 +361,7 @@ def test_write_review_template_lists_each_baseline_key_once(tmp_path):
 
     result = write_review_template(baseline, out)
 
+    assert result["edition"] == "1939"
     assert result["baseline_sha256"]
     assert result["entries"] == [
         {"baseline_record_key": "rk-1", "review_status": "unreviewed",
@@ -563,6 +600,9 @@ def test_review_summary_lists_invalid_duplicate_target(tmp_path):
 
 def test_review_to_decisions_refuses_unreviewed_and_preserves_explicit_fields():
     review = {
+        "schema_version": 1,
+        "edition": "1939",
+        "baseline_sha256": "a" * 64,
         "entries": [{
             "baseline_record_key": "rk-1",
             "review_status": "accepteret",
@@ -581,7 +621,11 @@ def test_review_to_decisions_refuses_unreviewed_and_preserves_explicit_fields():
 
     decisions = review_to_decisions(review)
 
-    assert decisions == {"entries": [{
+    assert decisions == {
+        "schema_version": 1,
+        "edition": "1939",
+        "baseline_sha256": "a" * 64,
+        "entries": [{
         "baseline_record_key": "rk-1",
         "candidate_id": "candidate-1",
         "post_index": 2,
@@ -596,9 +640,12 @@ def test_review_to_decisions_refuses_unreviewed_and_preserves_explicit_fields():
         "status": "accepteret",
     }]}
     with pytest.raises(ValueError, match="unreviewed"):
-        review_to_decisions({"entries": [{"baseline_record_key": "rk-1", "review_status": "unreviewed"}]})
+        review_to_decisions({
+            **review,
+            "entries": [{"baseline_record_key": "rk-1", "review_status": "unreviewed"}],
+        })
     with pytest.raises(ValueError, match="ukendt dubletmål"):
-        review_to_decisions({"entries": [
+        review_to_decisions({**review, "entries": [
             review["entries"][0],
             {
                 "baseline_record_key": "rk-2",

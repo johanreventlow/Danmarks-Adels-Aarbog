@@ -572,7 +572,9 @@ DECLARE
     'person_lineage_membership','person_source_coordinate_legacy'
   ];
   v_required_private text[] := ARRAY[
-    'source_record_placement','source_persona_placement'
+    'source_record_placement','source_persona_placement',
+    'source_record_placement_decision','source_persona_placement_decision',
+    'source_record_placement_current','source_persona_placement_current'
   ];
   v_missing text[];
   v_slaegt_a bigint;
@@ -596,7 +598,11 @@ DECLARE
   v_observation_nonheader uuid := 'a6000000-0000-0000-0000-00000000006a';
   v_persona uuid := 'a6000000-0000-0000-0000-000000000069';
   v_mention uuid := 'a6000000-0000-0000-0000-00000000006b';
+  v_actor uuid := 'a6000000-0000-0000-0000-00000000006c';
   v_placement uuid;
+  v_persona_placement uuid;
+  v_rejected_placement uuid;
+  v_version integer;
   v_error text;
 BEGIN
   SELECT array_agg(required_name ORDER BY required_name) INTO v_missing
@@ -631,6 +637,17 @@ BEGIN
   END IF;
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
+     WHERE table_schema='private'
+       AND table_name IN ('source_record_placement','source_persona_placement')
+       AND column_name='status'
+  ) OR (SELECT count(*) FROM information_schema.columns
+         WHERE table_schema='private'
+           AND table_name IN ('source_record_placement','source_persona_placement')
+           AND column_name='initial_status')<>2 THEN
+    RAISE EXCEPTION 'FEJL: placement-basekolonnen ligner stadig autoritativ status';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
      WHERE table_schema='public' AND table_name='person'
        AND column_name IN ('slaegtled_lokal','slaegtled_gennem','generation_local','generation_global')
   ) THEN
@@ -643,7 +660,7 @@ BEGIN
   ) OR EXISTS (
     SELECT 1 FROM unnest(v_required_private) AS required_name
      JOIN pg_class c ON c.oid=to_regclass(format('private.%I',required_name))
-     WHERE NOT c.relrowsecurity
+     WHERE c.relkind='r' AND NOT c.relrowsecurity
   ) THEN
     RAISE EXCEPTION 'FEJL: Task 6-modelobjekt mangler RLS';
   END IF;
@@ -659,6 +676,9 @@ BEGIN
   END IF;
 
   BEGIN
+    INSERT INTO auth.users(id,email) VALUES (v_actor,'placement-verify@test.invalid');
+    INSERT INTO public.profiles(id,rolle,navn,email)
+      VALUES (v_actor,'redaktion','Placement Verify','placement-verify@test.invalid');
     INSERT INTO public.slaegt(navn,sorteringsnavn,slug,status)
       VALUES ('Verify slægt A','Verify slægt A','verify-slaegt-a','active')
       RETURNING id INTO v_slaegt_a;
@@ -675,15 +695,32 @@ BEGIN
       VALUES (v_slaegt_b,'stamtavle','Verify B') RETURNING id INTO v_scheme_b;
     INSERT INTO public.lineage_scheme(slaegt_id,kind,label)
       VALUES (v_slaegt_a,'presensliste','Verify A præsens') RETURNING id INTO v_presens_scheme;
-    INSERT INTO public.lineage_scheme_entry(scheme_id,code,label,sort_order)
-      VALUES (v_scheme_a,'II','II. linje',2) RETURNING id INTO v_entry_a;
-    INSERT INTO public.lineage_scheme_entry(scheme_id,code,label,sort_order)
-      VALUES (v_scheme_b,'II','II. linje',2) RETURNING id INTO v_entry_b;
-    INSERT INTO public.lineage_scheme_entry(scheme_id,code,label,sort_order)
-      VALUES (v_presens_scheme,'V','V. linje',5) RETURNING id INTO v_presens_entry;
-    INSERT INTO public.lineage_scheme_entry_lineage(entry_id,lineage_id,relation_kind)
-      VALUES (v_entry_a,v_lineage_a,'canonical'),(v_entry_b,v_lineage_b,'canonical'),
-             (v_presens_entry,v_lineage_a,'canonical');
+    INSERT INTO public.lineage_scheme_entry(scheme_id,slaegt_id,code,label,sort_order)
+      VALUES (v_scheme_a,v_slaegt_a,'II','II. linje',2) RETURNING id INTO v_entry_a;
+    INSERT INTO public.lineage_scheme_entry(scheme_id,slaegt_id,code,label,sort_order)
+      VALUES (v_scheme_b,v_slaegt_b,'II','II. linje',2) RETURNING id INTO v_entry_b;
+    INSERT INTO public.lineage_scheme_entry(scheme_id,slaegt_id,code,label,sort_order)
+      VALUES (v_presens_scheme,v_slaegt_a,'V','V. linje',5) RETURNING id INTO v_presens_entry;
+    INSERT INTO public.lineage_scheme_entry_lineage(entry_id,lineage_id,slaegt_id,relation_kind)
+      VALUES (v_entry_a,v_lineage_a,v_slaegt_a,'canonical'),
+             (v_entry_b,v_lineage_b,v_slaegt_b,'canonical'),
+             (v_presens_entry,v_lineage_a,v_slaegt_a,'canonical');
+    v_error:=NULL;
+    BEGIN
+      INSERT INTO public.lineage_scheme_entry_lineage(entry_id,lineage_id,slaegt_id,relation_kind)
+        VALUES (v_entry_a,v_lineage_b,v_slaegt_a,'canonical');
+    EXCEPTION WHEN foreign_key_violation THEN v_error:=SQLERRM; END;
+    IF v_error IS NULL THEN
+      RAISE EXCEPTION 'FEJL: cross-clan lineage mapping blev accepteret';
+    END IF;
+    IF (SELECT count(*) FROM pg_constraint WHERE conname IN (
+         'lineage_scheme_id_slaegt_uidx','lineage_id_slaegt_uidx',
+         'lineage_scheme_entry_id_slaegt_uidx','lineage_scheme_entry_scheme_slaegt_fkey',
+         'lineage_scheme_entry_lineage_entry_slaegt_fkey',
+         'lineage_scheme_entry_lineage_lineage_slaegt_fkey'
+       )) <> 6 THEN
+      RAISE EXCEPTION 'FEJL: lineage mangler deklarative slægtsconstraints';
+    END IF;
     IF (SELECT count(*) FROM public.lineage_scheme_entry WHERE code='II') < 2 THEN
       RAISE EXCEPTION 'FEJL: samme kode II kunne ikke eksistere i to slægts-schemes';
     END IF;
@@ -758,9 +795,16 @@ BEGIN
     INSERT INTO private.source_record_placement(
       source_record_id,scheme_entry_id,header_observation_id
     ) VALUES (v_record_a,v_entry_a,v_observation_a) RETURNING id INTO v_placement;
+    INSERT INTO private.source_record_placement_decision(
+      placement_id,version,decision_status,evidence,decision_origin,decided_by_name
+    ) VALUES (v_placement,1,'proposed','{"basis":"verify proposal"}','ingest','verify ingest');
     INSERT INTO private.source_persona_placement(
       source_persona_id,record_placement_id,placement_role,basis_observation_id
-    ) VALUES (v_persona,v_placement,'principal_member',v_observation_a);
+    ) VALUES (v_persona,v_placement,'principal_member',v_observation_a)
+      RETURNING id INTO v_persona_placement;
+    INSERT INTO private.source_persona_placement_decision(
+      placement_id,version,decision_status,evidence,decision_origin,decided_by_name
+    ) VALUES (v_persona_placement,1,'proposed','{"basis":"verify proposal"}','ingest','verify ingest');
     v_error:=NULL;
     BEGIN
       INSERT INTO private.source_persona_placement(
@@ -770,6 +814,37 @@ BEGIN
     IF v_error NOT LIKE '%EVIDENCE_PERSONA_PLACEMENT_BASIS_REQUIRED%' THEN
       RAISE EXCEPTION 'FEJL: persona-placering krævede ikke egen record-forankret observation: %',v_error;
     END IF;
+    PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+    SET LOCAL ROLE authenticated;
+    SELECT red_decide_source_record_placement(v_placement,1,'accepted','{"basis":"review"}') INTO v_version;
+    IF v_version<>2 THEN RAISE EXCEPTION 'FEJL: record placement version blev ikke 2'; END IF;
+    SELECT red_decide_source_persona_placement(v_persona_placement,1,'accepted','{"basis":"review"}') INTO v_version;
+    IF v_version<>2 THEN RAISE EXCEPTION 'FEJL: persona placement version blev ikke 2'; END IF;
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_decide_source_persona_placement(v_persona_placement,1,'superseded','{"basis":"stale"}');
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_PLACEMENT_VERSION_CONFLICT%' THEN
+      RAISE EXCEPTION 'FEJL: stale placement-version blev ikke afvist: %',v_error;
+    END IF;
+    SELECT red_decide_source_persona_placement(v_persona_placement,2,'superseded','{"basis":"replacement"}') INTO v_version;
+    SELECT red_decide_source_record_placement(v_placement,2,'superseded','{"basis":"replacement"}') INTO v_version;
+    RESET ROLE;
+    INSERT INTO private.source_record_placement(source_record_id,scheme_entry_id,header_observation_id)
+      VALUES (v_record_a,v_entry_a,v_observation_a) RETURNING id INTO v_rejected_placement;
+    INSERT INTO private.source_record_placement_decision(
+      placement_id,version,decision_status,evidence,decision_origin,decided_by_name
+    ) VALUES (v_rejected_placement,1,'proposed','{"basis":"verify rejection"}','ingest','verify ingest');
+    SET LOCAL ROLE authenticated;
+    PERFORM red_decide_source_record_placement(v_rejected_placement,1,'rejected','{"basis":"review"}');
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_decide_source_record_placement(v_rejected_placement,2,'accepted','{"basis":"reopen"}');
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_PLACEMENT_TRANSITION_INVALID%' THEN
+      RAISE EXCEPTION 'FEJL: rejected placement kunne genåbnes: %',v_error;
+    END IF;
+    RESET ROLE;
     RAISE EXCEPTION 'ROLLBACK_SLÆGT_VERIFY';
   EXCEPTION WHEN others THEN
     IF SQLERRM='ROLLBACK_SLÆGT_VERIFY' THEN
@@ -838,6 +913,7 @@ DECLARE
   v_rendition uuid := '33000000-0000-0000-0000-000000000021';
   v_occurrence uuid := '55000000-0000-0000-0000-000000000021';
   v_observation uuid := '66000000-0000-0000-0000-000000000021';
+  v_mention uuid := '77000000-0000-0000-0000-000000000021';
   v_persona uuid := '88000000-0000-0000-0000-000000000021';
   v_interpretation uuid := 'c1000000-0000-0000-0000-000000000021';
   v_accepted_interpretation uuid;
@@ -993,6 +1069,31 @@ BEGIN
     END IF;
 
     PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_decide_source_persona_identity(
+        v_persona,-987650021,0,'accepted','{"basis":"direct without mention"}'
+      );
+      RAISE EXCEPTION 'IDENTITY_WITHOUT_MENTION_BYPASS';
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_PERSONA_BASIS_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: direkte accepted uden mention blev ikke afvist: %',v_error;
+    END IF;
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_decide_source_persona_identity(
+        v_persona,-987650021,0,'rejected','{"basis":"direct invalid target"}'
+      );
+      RAISE EXCEPTION 'IDENTITY_REJECTED_TARGET_BYPASS';
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_IDENTITY_DECISION_INVALID%' THEN
+      RAISE EXCEPTION 'FEJL: direkte rejected med target blev ikke afvist: %',v_error;
+    END IF;
+    INSERT INTO private.source_mention(
+      id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id
+    ) VALUES (v_mention,v_observation,'person',0,4,'Anna',v_run);
+    INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
+      VALUES (v_persona,v_mention,'principal',1);
     v_error:=NULL;
     BEGIN
       PERFORM red_decide_interpretation(
@@ -1200,7 +1301,8 @@ END $interpretation_verify$;
 DO $promotion_rule_verify$
 DECLARE
   v_required text[] := ARRAY[
-    'interpretation_promotion_rule','interpretation_promotion_batch'
+    'interpretation_promotion_rule_line','interpretation_promotion_rule',
+    'interpretation_promotion_batch'
   ];
   v_missing text[];
   v_error text;
@@ -1214,6 +1316,8 @@ DECLARE
   v_persona uuid := '88000000-0000-0000-0000-000000000041';
   v_record uuid := '77000000-0000-0000-0000-000000000041';
   v_record_placement uuid := '99000000-0000-0000-0000-000000000041';
+  v_spouse_placement uuid := '99000000-0000-0000-0000-000000000042';
+  v_principal_placement uuid := '99000000-0000-0000-0000-000000000043';
   v_slaegt_id bigint;
   v_scheme_id bigint;
   v_scheme_entry_id bigint;
@@ -1237,12 +1341,17 @@ DECLARE
   v_before_persons integer;
   v_before_facts integer;
   v_before_assertions integer;
+  v_rule_version integer;
 BEGIN
   SELECT array_agg(required_name ORDER BY required_name) INTO v_missing
     FROM unnest(v_required) AS required_name
    WHERE to_regclass(format('private.%I',required_name)) IS NULL;
   IF v_missing IS NOT NULL THEN
     RAISE EXCEPTION 'FEJL: promotionregel-laget mangler';
+  END IF;
+  IF to_regclass('private.interpretation_promotion_rule_current') IS NULL
+     OR to_regprocedure('private.add_interpretation_promotion_rule_version(text,text,text,text,text,text,boolean,boolean,boolean,text)') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: promotionregel-laget mangler current-view/version-writer';
   END IF;
   IF EXISTS (
     SELECT 1
@@ -1378,6 +1487,8 @@ BEGIN
   END IF;
   v_error:=NULL;
   BEGIN
+    INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate)
+      VALUES ('verify-relation-target','person.name.relation');
     INSERT INTO private.interpretation_promotion_rule(
       rule_key,rule_version,predicate,interpretation_kind,target_type,expected_fact_type,
       value_kind,status
@@ -1495,20 +1606,28 @@ BEGIN
     INSERT INTO lineage_scheme(slaegt_id,source_id,kind,label)
       VALUES (v_slaegt_id,-987650041,'stamtavle','Promotion verify scheme')
       RETURNING id INTO v_scheme_id;
-    INSERT INTO lineage_scheme_entry(scheme_id,code,label,sort_order)
-      VALUES (v_scheme_id,'I','Promotion verify I',0)
+    INSERT INTO lineage_scheme_entry(scheme_id,slaegt_id,code,label,sort_order)
+      VALUES (v_scheme_id,v_slaegt_id,'I','Promotion verify I',0)
       RETURNING id INTO v_scheme_entry_id;
     INSERT INTO private.source_record_placement(
-      id,source_record_id,scheme_entry_id,header_observation_id,status
+      id,source_record_id,scheme_entry_id,header_observation_id,initial_status
     ) VALUES (
       v_record_placement,v_record,v_scheme_entry_id,v_header_observation,'accepted'
     );
+    INSERT INTO private.source_record_placement_decision(
+      placement_id,version,decision_status,evidence,decision_origin,decided_by_name
+    ) VALUES (v_record_placement,1,'accepted','{"basis":"verify fixture"}',
+              'migration','legacy placement backfill');
     -- En accepteret ægtefælleomtale er bevidst ikke en hovedplacering.
     INSERT INTO private.source_persona_placement(
-      source_persona_id,record_placement_id,placement_role,basis_observation_id,status
+      id,source_persona_id,record_placement_id,placement_role,basis_observation_id,initial_status
     ) VALUES (
-      v_persona,v_record_placement,'mentioned_spouse',v_observation,'accepted'
+      v_spouse_placement,v_persona,v_record_placement,'mentioned_spouse',v_observation,'accepted'
     );
+    INSERT INTO private.source_persona_placement_decision(
+      placement_id,version,decision_status,evidence,decision_origin,decided_by_name
+    ) VALUES (v_spouse_placement,1,'accepted','{"basis":"verify fixture"}',
+              'migration','legacy placement backfill');
     INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES
       (-987650041,'person',-987650041,'navn'),
       (-987650042,'person',-987650041,'titel'),
@@ -1519,6 +1638,9 @@ BEGIN
       (-987650042,'fact',-987650042,'Anna Verify','gregoriansk',true),
       (-987650043,'fact',-987650043,'Anden tekst','gregoriansk',true),
       (-987650044,'fact',-987650044,'Anna Verify','gregoriansk',true);
+    INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate) VALUES
+      ('verify-name-no-bulk','verify.person.name.no_bulk'),
+      ('verify-name-principal','verify.person.name.principal');
     INSERT INTO private.interpretation_promotion_rule(
       rule_key,rule_version,predicate,interpretation_kind,target_type,expected_fact_type,
       value_kind,requires_persona_identity,requires_principal_placement,bulk_eligible,status
@@ -1607,10 +1729,14 @@ BEGIN
     END IF;
     RESET ROLE;
     INSERT INTO private.source_persona_placement(
-      source_persona_id,record_placement_id,placement_role,basis_observation_id,status
+      id,source_persona_id,record_placement_id,placement_role,basis_observation_id,initial_status
     ) VALUES (
-      v_persona,v_record_placement,'principal_member',v_observation,'accepted'
+      v_principal_placement,v_persona,v_record_placement,'principal_member',v_observation,'accepted'
     );
+    INSERT INTO private.source_persona_placement_decision(
+      placement_id,version,decision_status,evidence,decision_origin,decided_by_name
+    ) VALUES (v_principal_placement,1,'accepted','{"basis":"verify fixture"}',
+              'migration','legacy placement backfill');
     SET LOCAL ROLE authenticated;
     v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
       jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650041)
@@ -1750,7 +1876,55 @@ BEGIN
        OR (SELECT count(*) FROM private.interpretation_promotion_batch)<>v_before_batches THEN
       RAISE EXCEPTION 'FEJL: ugyldig batch var ikke atomisk: fejl=%',v_error;
     END IF;
+    SET LOCAL ROLE authenticated;
+    PERFORM red_decide_source_persona_placement(
+      v_principal_placement,1,'superseded','{"basis":"placement no longer current"}'
+    );
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650041)
+    ));
+    IF v_preview->'items'->0->>'reason_code'<>'EVIDENCE_PROMOTION_PRINCIPAL_PLACEMENT_REQUIRED' THEN
+      RAISE EXCEPTION 'FEJL: initial_status accepted blev fejlagtigt behandlet som current efter supersede: %',v_preview;
+    END IF;
     RESET ROLE;
+    SELECT private.add_interpretation_promotion_rule_version(
+      'person-name-v1','person.name','property','assertion','navn','text',
+      true,false,true,'active'
+    ) INTO v_rule_version;
+    IF v_rule_version<>2 THEN RAISE EXCEPTION 'FEJL: promotionregel-version blev ikke 2'; END IF;
+    SET LOCAL ROLE authenticated;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650041)
+    ));
+    IF v_preview->'items'->0->>'rule_version'<>'2' THEN
+      RAISE EXCEPTION 'FEJL: preview brugte ikke current regelversion 2: %',v_preview; END IF;
+    RESET ROLE;
+    SELECT private.add_interpretation_promotion_rule_version(
+      'person-name-v1','person.name','property','assertion','navn','text',
+      true,false,true,'retired'
+    ) INTO v_rule_version;
+    IF v_rule_version<>3 THEN RAISE EXCEPTION 'FEJL: promotionregel-version blev ikke 3'; END IF;
+    SET LOCAL ROLE authenticated;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650041)
+    ));
+    IF v_preview->'items'->0->>'reason_code'<>'EVIDENCE_PROMOTION_RULE_NOT_ACTIVE' THEN
+      RAISE EXCEPTION 'FEJL: retired current-regel lod version 1 genopstå: %',v_preview; END IF;
+    RESET ROLE;
+    v_error:=NULL;
+    BEGIN
+      PERFORM private.add_interpretation_promotion_rule_version(
+        'person-name-v1','person.renamed','property','assertion','navn','text',
+        true,false,true,'active');
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_PROMOTION_RULE_PREDICATE_MISMATCH%' THEN
+      RAISE EXCEPTION 'FEJL: predicate-skift i samme regellinje blev ikke afvist: %',v_error; END IF;
+    v_error:=NULL;
+    BEGIN
+      INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate)
+        VALUES ('another-person-name','person.name');
+    EXCEPTION WHEN unique_violation THEN v_error:=SQLERRM; END;
+    IF v_error IS NULL THEN RAISE EXCEPTION 'FEJL: samme predicate fik en anden rule_key'; END IF;
     RAISE EXCEPTION 'ROLLBACK_PROMOTION_RPC_VERIFY';
   EXCEPTION WHEN others THEN
     IF SQLERRM='ROLLBACK_PROMOTION_RPC_VERIFY' THEN
@@ -1776,6 +1950,7 @@ DECLARE
   v_rendition uuid := '33000000-0000-0000-0000-000000000051';
   v_occurrence uuid := '55000000-0000-0000-0000-000000000051';
   v_observation uuid := '66000000-0000-0000-0000-000000000051';
+  v_mention uuid := '77000000-0000-0000-0000-000000000051';
   v_persona uuid := '88000000-0000-0000-0000-000000000051';
   v_interpretation_1 uuid := 'c1000000-0000-0000-0000-000000000051';
   v_interpretation_2 uuid := 'c1000000-0000-0000-0000-000000000052';
@@ -1800,6 +1975,10 @@ DECLARE
                                   'c1000000-0000-0000-0000-000000000054');
     DELETE FROM private.interpretation_promotion_batch
       WHERE promoted_by='11000000-0000-0000-0000-000000000051';
+    DELETE FROM private.interpretation_promotion_rule
+      WHERE rule_key='verify-concurrent-name';
+    DELETE FROM private.interpretation_promotion_rule_line
+      WHERE rule_key='verify-concurrent-name';
     DELETE FROM private.interpretation_observation
       WHERE interpretation_id IN ('c1000000-0000-0000-0000-000000000051',
                                   'c1000000-0000-0000-0000-000000000052',
@@ -1815,8 +1994,11 @@ DECLARE
       WHERE source_persona_id='88000000-0000-0000-0000-000000000051';
     DELETE FROM private.source_persona_identity
       WHERE source_persona_id='88000000-0000-0000-0000-000000000051';
+    DELETE FROM private.source_persona_mention
+      WHERE persona_id='88000000-0000-0000-0000-000000000051';
     DELETE FROM private.source_persona
       WHERE id='88000000-0000-0000-0000-000000000051';
+    DELETE FROM private.source_mention WHERE id='77000000-0000-0000-0000-000000000051';
     DELETE FROM private.source_observation WHERE id='66000000-0000-0000-0000-000000000051';
     DELETE FROM private.source_record_occurrence WHERE id='55000000-0000-0000-0000-000000000051';
     DELETE FROM private.source_rendition WHERE id='33000000-0000-0000-0000-000000000051';
@@ -1867,10 +2049,21 @@ BEGIN
   PERFORM dblink_exec('promotion_setup',format(
     'INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) '
     || 'VALUES (''%s'',-987650051,''promotion-lock-persona'',''%s'')',v_persona,v_run));
+  PERFORM dblink_exec('promotion_setup',format(
+    'INSERT INTO private.source_mention(id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id) '
+    || 'VALUES (''%s'',''%s'',''person'',0,4,''Anna'',''%s'');'
+    || 'INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal) '
+    || 'VALUES (''%s'',''%s'',''principal'',1)',
+    v_mention,v_observation,v_run,v_persona,v_mention));
   PERFORM dblink_exec('promotion_setup',
     'INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-987650051,''person'',-987650051,''navn'');'
     || 'INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,calendar,uforanderlig) '
     || 'VALUES (-987650051,''fact'',-987650051,''Anna Lock'',''gregoriansk'',true);');
+  PERFORM dblink_exec('promotion_setup',
+    'INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate) '
+    || 'VALUES (''verify-concurrent-name'',''verify.concurrent.name'');'
+    || 'INSERT INTO private.interpretation_promotion_rule(rule_key,rule_version,predicate,interpretation_kind,target_type,expected_fact_type,value_kind,requires_persona_identity,requires_principal_placement,bulk_eligible,status) '
+    || 'VALUES (''verify-concurrent-name'',1,''verify.concurrent.name'',''property'',''assertion'',''navn'',''text'',true,false,true,''active'');');
   PERFORM dblink_exec('promotion_setup',format(
     'INSERT INTO private.source_persona_identity_event(source_persona_id,canonical_person_id,decision_status,version,evidence,decided_by,decided_by_name,decided_at) '
     || 'VALUES (''%s'',-987650051,''accepted'',1,''{"basis":"verify"}'',''%s'',''Promotion Editor'',now());'
@@ -1885,10 +2078,10 @@ BEGIN
     || 'VALUES (''%s'',''c0000000-0000-0000-0000-000000000051'',2,-987650051,''%s'',''property'',''person.name'',''"Anna Lock"'',''1.0'',''source_statement'',1,''accepted'',''verify'',''%s'',''%s'',''{"basis":"verify"}'',''%s'',''Promotion Editor'',clock_timestamp());'
     || 'INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) VALUES (''%s'',''%s'',''supporting'',1);'
     || 'INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id) '
-    || 'VALUES (''%s'',''c0000000-0000-0000-0000-000000000052'',1,-987650051,''%s'',''property'',''person.name'',''"Anna Lock"'',''1.0'',''source_statement'',1,''proposed'',''verify'',''%s'');'
+    || 'VALUES (''%s'',''c0000000-0000-0000-0000-000000000052'',1,-987650051,''%s'',''property'',''verify.concurrent.name'',''"Anna Lock"'',''1.0'',''source_statement'',1,''proposed'',''verify'',''%s'');'
     || 'INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) VALUES (''%s'',''%s'',''supporting'',1);'
     || 'INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id,supersedes_id,decision_evidence,decided_by,decided_by_name,decided_at) '
-    || 'VALUES (''%s'',''c0000000-0000-0000-0000-000000000052'',2,-987650051,''%s'',''property'',''person.name'',''"Anna Lock"'',''1.0'',''source_statement'',1,''accepted'',''verify'',''%s'',''%s'',''{"basis":"verify"}'',''%s'',''Promotion Editor'',clock_timestamp());'
+    || 'VALUES (''%s'',''c0000000-0000-0000-0000-000000000052'',2,-987650051,''%s'',''property'',''verify.concurrent.name'',''"Anna Lock"'',''1.0'',''source_statement'',1,''accepted'',''verify'',''%s'',''%s'',''{"basis":"verify"}'',''%s'',''Promotion Editor'',clock_timestamp());'
     || 'INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) VALUES (''%s'',''%s'',''supporting'',1)',
     v_interpretation_1,v_persona,v_run,v_interpretation_1,v_observation,
     v_interpretation_2,v_persona,v_run,v_interpretation_1,v_actor,v_interpretation_2,v_observation,
@@ -2030,6 +2223,69 @@ BEGIN
      OR EXISTS (SELECT 1 FROM private.interpretation_promotion_batch WHERE promoted_by=v_actor) THEN
     RAISE EXCEPTION 'FEJL: identity-racet promotion efterlod forkert state eller audit-skrivning';
   END IF;
+
+  -- En ny regelversion låser regellinjen. Batchen med et v1-preview skal vente,
+  -- genberegne efter commit og afvise hash'en i stedet for at bruge v2 uset.
+  PERFORM dblink_connect('promotion_a',v_conn||' application_name=daa_verify_promotion_rule_a');
+  v_a_connected:=true;
+  PERFORM dblink_connect('promotion_b',v_conn||' application_name=daa_verify_promotion_rule_b');
+  v_b_connected:=true;
+  SELECT pid INTO v_a_pid FROM dblink('promotion_a','SELECT pg_backend_pid()') AS t(pid integer);
+  SELECT pid INTO v_b_pid FROM dblink('promotion_b','SELECT pg_backend_pid()') AS t(pid integer);
+  PERFORM dblink_exec('promotion_a','BEGIN');
+  PERFORM dblink_exec('promotion_a','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('promotion_a',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  SELECT version INTO v_version FROM dblink('promotion_a',format(
+    'SELECT red_decide_source_persona_identity(''%s'',-987650051,2,''accepted'',''{"basis":"restore for rule race"}'')',
+    v_persona)) AS t(version integer);
+  IF v_version<>3 THEN RAISE EXCEPTION 'FEJL: identity restore gav version %',v_version; END IF;
+  PERFORM dblink_exec('promotion_a','COMMIT');
+  PERFORM dblink_exec('promotion_a','BEGIN');
+  PERFORM dblink_exec('promotion_a','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('promotion_a',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  SELECT preview->>'preview_hash' INTO v_preview_hash
+    FROM dblink('promotion_a',format(
+      'SELECT red_preview_interpretation_promotions(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb) AS preview',
+      v_identity_interpretation_2)) AS t(preview jsonb);
+  PERFORM dblink_exec('promotion_a','COMMIT');
+  PERFORM dblink_exec('promotion_a','BEGIN');
+  SELECT version INTO v_version FROM dblink('promotion_a',
+    'SELECT private.add_interpretation_promotion_rule_version('
+    || '''verify-concurrent-name'',''verify.concurrent.name'',''property'',''assertion'',''navn'',''text'',true,false,true,''active'')'
+  ) AS t(version integer);
+  IF v_version<>2 THEN RAISE EXCEPTION 'FEJL: concurrent regel-writer gav version %',v_version; END IF;
+  PERFORM dblink_exec('promotion_b','BEGIN');
+  PERFORM dblink_exec('promotion_b','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('promotion_b',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  PERFORM dblink_send_query('promotion_b',format(
+    'SELECT red_promote_interpretations_batch(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb,%L)',
+    v_identity_interpretation_2,v_preview_hash));
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    EXIT WHEN v_a_pid=ANY(pg_blocking_pids(v_b_pid));
+    SELECT dblink_is_busy('promotion_b') INTO v_busy;
+    IF v_busy=0 OR clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'FEJL: promotion-batch ventede ikke på regellinjen'; END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  PERFORM dblink_exec('promotion_a','COMMIT');
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP SELECT dblink_is_busy('promotion_b') INTO v_busy; EXIT WHEN v_busy=0;
+    IF clock_timestamp()>v_deadline THEN RAISE EXCEPTION 'FEJL: rule-race batch afsluttede ikke'; END IF;
+    PERFORM pg_sleep(0.02); END LOOP;
+  v_error:=NULL;
+  BEGIN PERFORM * FROM dblink_get_result('promotion_b') AS t(batch_id uuid);
+  EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+  BEGIN PERFORM * FROM dblink_get_result('promotion_b') AS t(batch_id uuid);
+  EXCEPTION WHEN others THEN IF v_error IS NULL THEN v_error:=SQLERRM; END IF; END;
+  IF v_error NOT LIKE '%EVIDENCE_PROMOTION_PREVIEW_STALE%' THEN
+    RAISE EXCEPTION 'FEJL: rule-racet promotion fejlede ikke stale/fail-closed: %',v_error; END IF;
+  PERFORM dblink_exec('promotion_b','ROLLBACK');
+  PERFORM dblink_disconnect('promotion_a'); v_a_connected:=false;
+  PERFORM dblink_disconnect('promotion_b'); v_b_connected:=false;
+  IF EXISTS(SELECT 1 FROM private.interpretation_promotion
+             WHERE interpretation_id=v_identity_interpretation_2) THEN
+    RAISE EXCEPTION 'FEJL: rule-racet efterlod promotion med skjult regelversion'; END IF;
   PERFORM dblink_exec('promotion_setup',v_cleanup);
   PERFORM dblink_disconnect('promotion_setup'); v_setup_connected:=false;
   RAISE NOTICE 'OK: promotion-batch låser current fortolkning og personaidentitet og afviser stale preview';
@@ -2074,8 +2330,18 @@ DECLARE
       WHERE source_persona_id='88000000-0000-0000-0000-000000000031';
     DELETE FROM private.source_persona_identity
       WHERE source_persona_id='88000000-0000-0000-0000-000000000031';
+    DELETE FROM private.source_persona_mention
+      WHERE persona_id='88000000-0000-0000-0000-000000000031';
     DELETE FROM private.source_persona
       WHERE id='88000000-0000-0000-0000-000000000031';
+    DELETE FROM private.source_mention
+      WHERE id='77000000-0000-0000-0000-000000000031';
+    DELETE FROM private.source_observation
+      WHERE id='66000000-0000-0000-0000-000000000031';
+    DELETE FROM private.source_record_occurrence
+      WHERE id='55000000-0000-0000-0000-000000000031';
+    DELETE FROM private.source_rendition
+      WHERE id='33000000-0000-0000-0000-000000000031';
     DELETE FROM private.extraction_run
       WHERE id='22000000-0000-0000-0000-000000000031';
     DELETE FROM source WHERE id=-987650031;
@@ -2112,6 +2378,36 @@ BEGIN
     'INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES '
     || '(''88000000-0000-0000-0000-000000000031'',-987650031,''identity-lock-persona'','
     || '''22000000-0000-0000-0000-000000000031'')');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.source_rendition('
+    || 'id,source_id,rendition_key,rendition_kind,content_sha256,metadata) VALUES '
+    || '(''33000000-0000-0000-0000-000000000031'',-987650031,''identity-lock-rendition'','
+    || '''text_layer'',' || quote_literal(repeat('4',64)) || ',''{}'')');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.source_record_occurrence('
+    || 'id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,'
+    || 'physical_fingerprint,structural_fingerprint,extraction_run_id) VALUES '
+    || '(''55000000-0000-0000-0000-000000000031'','
+    || '''33000000-0000-0000-0000-000000000031'',''identity-lock-occurrence'',1,1,0,4,'
+    || '''Anna'',''identity-physical'',''identity-structural'','
+    || '''22000000-0000-0000-0000-000000000031'')');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.source_observation('
+    || 'id,occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,'
+    || 'quality_status,extraction_method,extraction_run_id) VALUES '
+    || '(''66000000-0000-0000-0000-000000000031'','
+    || '''55000000-0000-0000-0000-000000000031'',''person_name'',1,1,0,4,''Anna'','
+    || '''clear'',''verify'',''22000000-0000-0000-0000-000000000031'')');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.source_mention('
+    || 'id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id) VALUES '
+    || '(''77000000-0000-0000-0000-000000000031'','
+    || '''66000000-0000-0000-0000-000000000031'',''person'',0,4,''Anna'','
+    || '''22000000-0000-0000-0000-000000000031'')');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal) VALUES '
+    || '(''88000000-0000-0000-0000-000000000031'','
+    || '''77000000-0000-0000-0000-000000000031'',''principal'',1)');
   PERFORM dblink_exec('identity_setup','BEGIN');
   PERFORM dblink_exec('identity_setup',
     'INSERT INTO private.source_persona_identity_event('
@@ -2206,6 +2502,141 @@ EXCEPTION WHEN others THEN
   END IF;
   RAISE;
 END $identity_concurrency$;
+
+-- To forskellige forslag til samme record/scheme-entry må ikke begge kunne
+-- accepteres. Parent-recordlåsen serialiserer den første afgørelse.
+DO $placement_concurrency$
+DECLARE
+  v_conn text := format('dbname=%s port=%s host=%s',current_database(),current_setting('port'),
+    split_part(current_setting('unix_socket_directories'),',',1));
+  v_actor uuid := '11000000-0000-0000-0000-000000000071';
+  v_a uuid := '99000000-0000-0000-0000-000000000071';
+  v_b uuid := '99000000-0000-0000-0000-000000000072';
+  v_a_pid integer; v_b_pid integer; v_busy integer; v_version integer;
+  v_deadline timestamptz; v_error text;
+  v_setup_connected boolean:=false; v_a_connected boolean:=false; v_b_connected boolean:=false;
+  v_cleanup text := $cleanup$
+    SET session_replication_role=replica;
+    DELETE FROM private.source_record_placement_decision WHERE placement_id IN
+      ('99000000-0000-0000-0000-000000000071','99000000-0000-0000-0000-000000000072');
+    DELETE FROM private.source_record_placement WHERE id IN
+      ('99000000-0000-0000-0000-000000000071','99000000-0000-0000-0000-000000000072');
+    DELETE FROM lineage_scheme_entry WHERE id=-987650071;
+    DELETE FROM lineage_scheme WHERE id=-987650071;
+    DELETE FROM slaegt WHERE id=-987650071;
+    DELETE FROM private.source_observation WHERE id='66000000-0000-0000-0000-000000000071';
+    DELETE FROM private.source_record_anchor_event WHERE occurrence_id='55000000-0000-0000-0000-000000000071';
+    DELETE FROM private.source_record_occurrence WHERE id='55000000-0000-0000-0000-000000000071';
+    DELETE FROM private.source_record WHERE id='77000000-0000-0000-0000-000000000071';
+    DELETE FROM private.source_rendition WHERE id='33000000-0000-0000-0000-000000000071';
+    DELETE FROM private.extraction_run WHERE id='22000000-0000-0000-0000-000000000071';
+    DELETE FROM source WHERE id=-987650071;
+    DELETE FROM profiles WHERE id='11000000-0000-0000-0000-000000000071';
+    DELETE FROM auth.users WHERE id='11000000-0000-0000-0000-000000000071';
+    SET session_replication_role=origin;
+  $cleanup$;
+BEGIN
+  IF to_regprocedure('public.dblink_connect(text,text)') IS NULL THEN
+    RAISE NOTICE 'SKIP: placement-samtidighed kræver dblink i disposable verify-base'; RETURN;
+  END IF;
+  PERFORM dblink_connect('placement_setup',v_conn||' application_name=daa_verify_placement_setup');
+  v_setup_connected:=true; PERFORM dblink_exec('placement_setup',v_cleanup);
+  PERFORM dblink_exec('placement_setup',format(
+    'INSERT INTO auth.users(id,email) VALUES (%L,%L)',v_actor,'placement-lock@test.invalid'));
+  PERFORM dblink_exec('placement_setup',format(
+    'INSERT INTO profiles(id,rolle,email,navn) VALUES (%L,''redaktion'',%L,''Placement Editor'')',
+    v_actor,'placement-lock@test.invalid'));
+  PERFORM dblink_exec('placement_setup',
+    'INSERT INTO source(id,titel,import_key) VALUES (-987650071,''Placement lock'',''verify:placement:lock'')');
+  PERFORM dblink_exec('placement_setup',
+    'INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) '
+    || 'VALUES (''22000000-0000-0000-0000-000000000071'',-987650071,''placement-lock-run'',''1.0'',''verify'',''verify'','
+    || quote_literal(repeat('7',64)) || ',''{}'')');
+  PERFORM dblink_exec('placement_setup',
+    'INSERT INTO private.source_rendition(id,source_id,rendition_key,rendition_kind,content_sha256,metadata) '
+    || 'VALUES (''33000000-0000-0000-0000-000000000071'',-987650071,''placement-lock-rendition'',''text_layer'','
+    || quote_literal(repeat('8',64)) || ',''{}'')');
+  PERFORM dblink_exec('placement_setup',
+    'INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id) VALUES '
+    || '(''77000000-0000-0000-0000-000000000071'',-987650071,''placement-lock-record'',''person'','
+    || '''22000000-0000-0000-0000-000000000071'')');
+  PERFORM dblink_exec('placement_setup',
+    'INSERT INTO private.source_record_occurrence(id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id) VALUES '
+    || '(''55000000-0000-0000-0000-000000000071'',''33000000-0000-0000-0000-000000000071'',''placement-lock-occurrence'',1,1,0,6,''Header'',''placement-physical'',''placement-structural'',''22000000-0000-0000-0000-000000000071'')');
+  PERFORM dblink_exec('placement_setup',
+    'INSERT INTO private.source_record_anchor_event(occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name) VALUES '
+    || '(''55000000-0000-0000-0000-000000000071'',''77000000-0000-0000-0000-000000000071'',''accepted'',''{"basis":"verify"}'',1,'
+    || quote_literal(v_actor) || ',''Placement Editor'')');
+  PERFORM dblink_exec('placement_setup',
+    'INSERT INTO private.source_observation(id,occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id) VALUES '
+    || '(''66000000-0000-0000-0000-000000000071'',''55000000-0000-0000-0000-000000000071'',''header'',1,1,0,6,''Header'',''clear'',''verify'',''22000000-0000-0000-0000-000000000071'')');
+  PERFORM dblink_exec('placement_setup',
+    'INSERT INTO slaegt(id,navn,sorteringsnavn,slug) VALUES (-987650071,''Placement Family'',''placement family'',''placement-family-verify'')');
+  PERFORM dblink_exec('placement_setup',
+    'INSERT INTO lineage_scheme(id,slaegt_id,source_id,kind,label) VALUES (-987650071,-987650071,-987650071,''stamtavle'',''Placement verify'')');
+  PERFORM dblink_exec('placement_setup',
+    'INSERT INTO lineage_scheme_entry(id,scheme_id,slaegt_id,code,label,sort_order) VALUES (-987650071,-987650071,-987650071,''I'',''I'',1)');
+  PERFORM dblink_exec('placement_setup','BEGIN');
+  PERFORM dblink_exec('placement_setup',format(
+    'INSERT INTO private.source_record_placement(id,source_record_id,scheme_entry_id,header_observation_id) VALUES (%L,''77000000-0000-0000-0000-000000000071'',-987650071,''66000000-0000-0000-0000-000000000071''),(%L,''77000000-0000-0000-0000-000000000071'',-987650071,''66000000-0000-0000-0000-000000000071'')',v_a,v_b));
+  PERFORM dblink_exec('placement_setup',format(
+    'INSERT INTO private.source_record_placement_decision(placement_id,version,decision_status,evidence,decision_origin,decided_by_name) VALUES (%L,1,''proposed'',''{"basis":"A"}'',''ingest'',''verify ingest''),(%L,1,''proposed'',''{"basis":"B"}'',''ingest'',''verify ingest'')',v_a,v_b));
+  PERFORM dblink_exec('placement_setup','COMMIT');
+
+  PERFORM dblink_connect('placement_a',v_conn||' application_name=daa_verify_placement_a'); v_a_connected:=true;
+  PERFORM dblink_connect('placement_b',v_conn||' application_name=daa_verify_placement_b'); v_b_connected:=true;
+  SELECT pid INTO v_a_pid FROM dblink('placement_a','SELECT pg_backend_pid()') AS t(pid integer);
+  SELECT pid INTO v_b_pid FROM dblink('placement_b','SELECT pg_backend_pid()') AS t(pid integer);
+  PERFORM dblink_exec('placement_a','BEGIN');
+  PERFORM dblink_exec('placement_a','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('placement_a',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  SELECT version INTO v_version FROM dblink('placement_a',format(
+    'SELECT red_decide_source_record_placement(%L,1,''accepted'',''{"basis":"A"}'')',v_a)) AS t(version integer);
+  IF v_version<>2 THEN RAISE EXCEPTION 'FEJL: første placement-writer gav version %',v_version; END IF;
+  PERFORM dblink_exec('placement_b','BEGIN');
+  PERFORM dblink_exec('placement_b','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('placement_b',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  PERFORM dblink_send_query('placement_b',format(
+    'SELECT red_decide_source_record_placement(%L,1,''accepted'',''{"basis":"B"}'')',v_b));
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    EXIT WHEN v_a_pid=ANY(pg_blocking_pids(v_b_pid));
+    SELECT dblink_is_busy('placement_b') INTO v_busy;
+    IF v_busy=0 OR clock_timestamp()>v_deadline THEN RAISE EXCEPTION 'FEJL: anden placement-writer blev ikke serialiseret'; END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  PERFORM dblink_exec('placement_a','COMMIT');
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP SELECT dblink_is_busy('placement_b') INTO v_busy; EXIT WHEN v_busy=0;
+    IF clock_timestamp()>v_deadline THEN RAISE EXCEPTION 'FEJL: anden placement-writer afsluttede ikke'; END IF;
+    PERFORM pg_sleep(0.02); END LOOP;
+  v_error:=NULL;
+  BEGIN PERFORM * FROM dblink_get_result('placement_b') AS t(version integer);
+  EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+  BEGIN PERFORM * FROM dblink_get_result('placement_b') AS t(version integer);
+  EXCEPTION WHEN others THEN IF v_error IS NULL THEN v_error:=SQLERRM; END IF; END;
+  IF v_error NOT LIKE '%EVIDENCE_PLACEMENT_ALREADY_ACCEPTED%' THEN
+    RAISE EXCEPTION 'FEJL: tabende placement-writer fejlede ikke fail-closed: %',v_error; END IF;
+  PERFORM dblink_exec('placement_b','ROLLBACK');
+  PERFORM dblink_disconnect('placement_a'); v_a_connected:=false;
+  PERFORM dblink_disconnect('placement_b'); v_b_connected:=false;
+  IF (SELECT count(*) FROM private.source_record_placement_current
+       WHERE source_record_id='77000000-0000-0000-0000-000000000071'
+         AND scheme_entry_id=-987650071 AND decision_status='accepted')<>1
+     OR EXISTS(SELECT 1 FROM private.source_record_placement_decision WHERE placement_id=v_b AND version=2) THEN
+    RAISE EXCEPTION 'FEJL: placement-race efterlod ikke præcis én accepted decision'; END IF;
+  PERFORM dblink_exec('placement_setup',v_cleanup);
+  PERFORM dblink_disconnect('placement_setup'); v_setup_connected:=false;
+  RAISE NOTICE 'OK: placement-afgørelser serialiseres på parent-record og er globalt entydige';
+EXCEPTION WHEN others THEN
+  IF v_a_connected THEN BEGIN PERFORM dblink_exec('placement_a','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('placement_a'); EXCEPTION WHEN others THEN NULL; END; END IF;
+  IF v_b_connected THEN BEGIN PERFORM dblink_exec('placement_b','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('placement_b'); EXCEPTION WHEN others THEN NULL; END; END IF;
+  IF v_setup_connected THEN BEGIN PERFORM dblink_exec('placement_setup',v_cleanup); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('placement_setup'); EXCEPTION WHEN others THEN NULL; END; END IF;
+  RAISE;
+END $placement_concurrency$;
 
 -- Task 11: køens fire RPC'er må kun være tilgængelige gennem authenticated.
 DO $source_persona_queue_verify$

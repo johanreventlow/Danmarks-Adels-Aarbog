@@ -1,5 +1,6 @@
 """Acceptance tests for the edition-neutral evidence extraction contract."""
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -74,6 +75,85 @@ def evidence_bundle(**overrides):
     }
     bundle.update(overrides)
     return bundle
+
+
+def linked_bundle():
+    rendition_text = "Forord. Anna blev født 1801. Efterskrift."
+    occurrence_text = "Anna blev født 1801."
+    occurrence_from = rendition_text.index(occurrence_text)
+    occurrence_to = occurrence_from + len(occurrence_text)
+    observation_text = "Anna"
+    observation_from = rendition_text.index(observation_text)
+    observation_to = observation_from + len(observation_text)
+    return {
+        "schema_version": "1.1",
+        "source_rendition": [{
+            "rendition_id": "rendition-2018-pdftext-v1",
+            "source_id": "2018-20",
+            "sha256": hashlib.sha256(rendition_text.encode("utf-8")).hexdigest(),
+            "verbatim_text": rendition_text,
+        }],
+        "source_records": [{
+            "id": "record-1",
+            "record_key": "rk-1",
+            "source_id": "2018-20",
+        }],
+        "source_record_occurrences": [{
+            "occurrence_id": "occurrence-1",
+            "rendition_id": "rendition-2018-pdftext-v1",
+            "extraction_run_id": "run-1",
+            "verbatim_text": occurrence_text,
+            "span": {
+                "rendition_id": "rendition-2018-pdftext-v1",
+                "page_from": 1,
+                "page_to": 1,
+                "column_label": None,
+                "char_from": occurrence_from,
+                "char_to": occurrence_to,
+            },
+        }],
+        "source_record_anchor_events": [{
+            "event_id": "anchor-1",
+            "occurrence_id": "occurrence-1",
+            "source_record_id": "record-1",
+            "decision_status": "accepted",
+            "version": 1,
+        }],
+        "source_record_revision_events": [],
+        "record_placements": [],
+        "persona_placements": [],
+        "observations": [{
+            "observation_id": "obs-1",
+            "occurrence_id": "occurrence-1",
+            "kind": "person_name",
+            "verbatim_text": observation_text,
+            "span": {
+                "rendition_id": "rendition-2018-pdftext-v1",
+                "page_from": 1,
+                "page_to": 1,
+                "column_label": None,
+                "char_from": observation_from,
+                "char_to": observation_to,
+            },
+            "extraction_method": "deterministic",
+            "extraction_run_id": "run-1",
+        }],
+        "text_variants": [],
+        "mentions": [{
+            "mention_id": "mention-1",
+            "observation_id": "obs-1",
+            "char_from": 0,
+            "char_to": len(observation_text),
+            "verbatim_text": observation_text,
+        }],
+        "source_personas": [{
+            "persona_id": "persona-1",
+            "source_id": "2018-20",
+            "mention_ids": ["mention-1"],
+        }],
+        "extraction_run": {"run_id": "run-1"},
+        "interpretations": [],
+    }
 
 
 def source_record(record_id, record_key):
@@ -281,6 +361,28 @@ def test_bundle_rejects_unknown_top_level_fields():
 def test_bundle_rejects_duplicate_occurrence_ids():
     bundle = evidence_bundle(source_record_occurrences=[occurrence(), occurrence()])
     with pytest.raises(ContractError, match="duplicate occurrence"):
+        validate_bundle(bundle)
+
+
+def test_bundle_rejects_observation_outside_its_occurrence():
+    bundle = linked_bundle()
+    bundle["observations"][0]["span"].update(char_from=0, char_to=4)
+    bundle["observations"][0]["verbatim_text"] = "Foro"
+    with pytest.raises(ContractError, match="inside its occurrence"):
+        validate_bundle(bundle)
+
+
+def test_bundle_rejects_unknown_nested_mention_field():
+    bundle = linked_bundle()
+    bundle["mentions"][0]["invented"] = True
+    with pytest.raises(ContractError, match="unknown mention fields"):
+        validate_bundle(bundle)
+
+
+def test_bundle_rejects_rendition_hash_drift():
+    bundle = linked_bundle()
+    bundle["source_rendition"][0]["sha256"] = "0" * 64
+    with pytest.raises(ContractError, match="rendition sha256"):
         validate_bundle(bundle)
 
 

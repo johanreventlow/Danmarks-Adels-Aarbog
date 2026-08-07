@@ -141,6 +141,8 @@ def validate_output(output: Mapping[str, Any]) -> None:
     bundle = output.get("evidence_bundle")
     if not isinstance(bundle, Mapping):
         raise ExtractionError("EXTRACTION_EVIDENCE_BUNDLE_REQUIRED")
+    if bundle.get("schema_version") != "1.1":
+        raise ExtractionError("EXTRACTION_EVIDENCE_BUNDLE_VERSION_REQUIRED")
     try:
         validate_bundle(bundle)
     except (ContractError, KeyError, TypeError, ValueError) as exc:
@@ -151,9 +153,6 @@ def validate_output(output: Mapping[str, Any]) -> None:
                               for observation in bundle.get("observations", []) if isinstance(observation, Mapping)}
     mention_observation = {str(mention.get("mention_id", mention.get("id", ""))): str(mention.get("observation_id", ""))
                            for mention in bundle.get("mentions", []) if isinstance(mention, Mapping)}
-    anchored_occurrences = {str(anchor.get("occurrence_id", "")) for anchor in bundle.get("source_record_anchor_events", [])
-                            if isinstance(anchor, Mapping) and anchor.get("decision_status") == "accepted"
-                            and isinstance(anchor.get("source_record_id"), str) and anchor.get("source_record_id")}
     record_keys = {str(record.get("id", "")): str(record.get("record_key", ""))
                    for record in bundle.get("source_records", []) if isinstance(record, Mapping)}
     accepted_record_by_occurrence = {
@@ -161,7 +160,7 @@ def validate_output(output: Mapping[str, Any]) -> None:
         for anchor in bundle.get("source_record_anchor_events", []) if isinstance(anchor, Mapping)
         and anchor.get("decision_status") == "accepted"
     }
-    persona_records = {}
+    persona_observations: dict[str, set[str]] = {}
     for persona in bundle.get("source_personas", []):
         if not isinstance(persona, Mapping):
             continue
@@ -169,10 +168,11 @@ def validate_output(output: Mapping[str, Any]) -> None:
         mention_ids = persona.get("mention_ids", [])
         if not isinstance(mention_ids, list):
             continue
-        persona_records[persona_id] = any(
-            observation_occurrence.get(mention_observation.get(str(mention_id), ""), "") in anchored_occurrences
+        persona_observations[persona_id] = {
+            mention_observation[str(mention_id)]
             for mention_id in mention_ids
-        )
+            if str(mention_id) in mention_observation
+        }
     for claim in claims:
         if not isinstance(claim, Mapping):
             raise ExtractionError("EXTRACTION_CLAIM_INVALID")
@@ -192,10 +192,10 @@ def validate_output(output: Mapping[str, Any]) -> None:
             raise ExtractionError("EXTRACTION_RECORD_KEY_REQUIRED")
         if predicate.startswith("person."):
             persona_id = claim.get("source_persona_id")
-            if not isinstance(persona_id, str) or persona_id not in persona_records:
+            if not isinstance(persona_id, str) or persona_id not in persona_observations:
                 raise ExtractionError("EXTRACTION_PERSONA_REQUIRED")
-            if not persona_records[persona_id]:
-                raise ExtractionError("EXTRACTION_PERSONA_RECORD_REQUIRED")
+            if not set(cited).issubset(persona_observations[persona_id]):
+                raise ExtractionError("EXTRACTION_PERSONA_OBSERVATION_REQUIRED")
 
 
 def build_interpretation_candidates(output: Mapping[str, Any], *, source_id: int, extraction_run_id: str) -> list[dict[str, Any]]:

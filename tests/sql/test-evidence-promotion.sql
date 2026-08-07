@@ -64,8 +64,11 @@ BEGIN
 
     FOREACH v_table IN ARRAY ARRAY[
       'private.interpretation_promotion_rule',
+      'private.interpretation_promotion_rule_line',
       'private.interpretation_promotion_batch',
-      'private.interpretation_promotion'
+      'private.interpretation_promotion',
+      'private.source_record_placement_decision',
+      'private.source_persona_placement_decision'
     ] LOOP
       SELECT c.relrowsecurity INTO v_rls
         FROM pg_class c WHERE c.oid=v_table::regclass;
@@ -105,7 +108,8 @@ BEGIN
     FOREACH v_function IN ARRAY ARRAY[
       'private.validate_interpretation_promotion()'::regprocedure,
       'private.validate_interpretation_promotion_items(jsonb,boolean)'::regprocedure,
-      'private.preview_interpretation_promotions(jsonb,boolean)'::regprocedure
+      'private.preview_interpretation_promotions(jsonb,boolean)'::regprocedure,
+      'private.add_interpretation_promotion_rule_version(text,text,text,text,text,text,boolean,boolean,boolean,text)'::regprocedure
     ] LOOP
       IF has_function_privilege(v_role,v_function,'EXECUTE') THEN
         RAISE EXCEPTION 'EVIDENCE_PROMOTION_RLS_TEST_FAILED: % kan kalde %',v_role,v_function;
@@ -149,7 +153,9 @@ BEGIN
 
   FOREACH v_public_function IN ARRAY ARRAY[
     'public.red_preview_interpretation_promotions(jsonb)'::regprocedure,
-    'public.red_promote_interpretations_batch(jsonb,text)'::regprocedure
+    'public.red_promote_interpretations_batch(jsonb,text)'::regprocedure,
+    'public.red_decide_source_record_placement(uuid,integer,text,jsonb)'::regprocedure,
+    'public.red_decide_source_persona_placement(uuid,integer,text,jsonb)'::regprocedure
   ] LOOP
     IF has_function_privilege('anon',v_public_function,'EXECUTE')
        OR NOT has_function_privilege('authenticated',v_public_function,'EXECUTE') THEN

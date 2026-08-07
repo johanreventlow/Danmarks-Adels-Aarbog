@@ -224,6 +224,7 @@ def write_review_template(baseline_path: Path, out_path: Path) -> dict:
     keys = sorted(records)
     template = {
         "schema_version": 1,
+        "edition": "1939",
         "baseline_sha256": _sha256(baseline_path),
         "entries": [
             {
@@ -248,6 +249,10 @@ def _read_review_template(review_path: Path, baseline_path: Path) -> dict:
     review = _mapping(json.loads(review_path.read_text(encoding="utf-8")), "review")
     if not is_schema_version_one(review.get("schema_version")):
         raise ValueError("review schema_version skal være 1")
+    if "edition" not in review:
+        review["edition"] = "1939"
+    elif review.get("edition") != "1939":
+        raise ValueError("review edition skal være 1939")
     if review.get("baseline_sha256") != _sha256(baseline_path):
         raise ValueError("review baseline SHA-256 matcher ikke")
     entries = review.get("entries")
@@ -261,7 +266,7 @@ def _read_review_template(review_path: Path, baseline_path: Path) -> dict:
         unknown = set(entry) - LEGACY_REVIEW_ALLOWED_FIELDS
         if unknown:
             raise ValueError("review har uautoriserede felter")
-    return dict(review)
+    return review
 
 
 def _review_entry_errors(entry: Mapping) -> list[str]:
@@ -320,6 +325,13 @@ def review_summary(review_path: Path, baseline_path: Path) -> dict:
 def review_to_decisions(review: dict) -> dict:
     """Convert only fully reviewed entries; never infer a decision or bridge."""
     root = _mapping(review, "review")
+    if not is_schema_version_one(root.get("schema_version")):
+        raise ValueError("review schema_version skal være 1")
+    if root.get("edition") != "1939":
+        raise ValueError("review edition skal være 1939")
+    baseline_sha256 = root.get("baseline_sha256")
+    if not isinstance(baseline_sha256, str) or not _SHA256_RE.fullmatch(baseline_sha256):
+        raise ValueError("review baseline_sha256 skal være SHA-256 med små bogstaver")
     entries = root.get("entries")
     if not isinstance(entries, list):
         raise ValueError("review entries skal være en liste")
@@ -347,7 +359,12 @@ def review_to_decisions(review: dict) -> dict:
             raise ValueError("unreviewed entry kan ikke materialiseres")
         entry["status"] = status
         decisions.append(entry)
-    return {"entries": decisions}
+    return {
+        "schema_version": 1,
+        "edition": "1939",
+        "baseline_sha256": baseline_sha256,
+        "entries": decisions,
+    }
 
 
 def materialize_coverage(
@@ -361,12 +378,18 @@ def materialize_coverage(
     """Materialize one new private coverage bundle; never overwrite output."""
     if out_path.exists():
         raise FileExistsError(out_path)
-    calamari_text = calamari_path.read_text(encoding="utf-8")
-    raw_text = raw_path.read_text(encoding="utf-8")
     decisions_root = _mapping(json.loads(decisions_path.read_text(encoding="utf-8")), "decisions")
+    if not is_schema_version_one(decisions_root.get("schema_version")):
+        raise ValueError("decisions schema_version skal være 1")
+    if decisions_root.get("edition") != "1939":
+        raise ValueError("decisions edition skal være 1939")
+    if decisions_root.get("baseline_sha256") != _sha256(baseline_path):
+        raise ValueError("decisions baseline SHA-256 matcher ikke")
     decisions = decisions_root.get("entries")
     if not isinstance(decisions, list):
         raise ValueError("decisions entries skal være en liste")
+    calamari_text = calamari_path.read_text(encoding="utf-8")
+    raw_text = raw_path.read_text(encoding="utf-8")
     bridges = [decision for decision in decisions
                if isinstance(decision, Mapping) and decision.get("status") == "accepteret"]
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):

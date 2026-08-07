@@ -37,13 +37,16 @@ def _selection_key(locator: object) -> tuple[str, str]:
 
 
 def build_accepted_review(posts: Sequence[Mapping[str, Any]], manifest: Mapping[str, Any], *, rendition_id: str,
-                          extraction_run_id: str, reviewed_by: str) -> dict[str, Any]:
+                          extraction_run_id: str, reviewed_by: str, rendition_text: str) -> dict[str, Any]:
     """Build only the user-approved person acceptances; never infer an identity."""
     if manifest.get("schema_version") != "1.0":
         raise ReviewPreparationError("manifest schema_version 1.0 kræves")
     source_hash = _require(manifest.get("raw_text_sha256"), "manifest raw_text_sha256")
     if len(source_hash) != 64 or any(char not in "0123456789abcdef" for char in source_hash.lower()):
         raise ReviewPreparationError("manifest raw_text_sha256 er ugyldig")
+    rendition_text = _require(rendition_text, "rendition_text")
+    if hashlib.sha256(rendition_text.encode("utf-8")).hexdigest() != source_hash.lower():
+        raise ReviewPreparationError("rendition teksthash matcher ikke manifest")
     by_key: dict[tuple[str, str], Mapping[str, Any]] = {}
     for post in posts:
         key = (_require(post.get("linje"), "post linje"), _require(post.get("nr_label"), "post nr_label"))
@@ -69,6 +72,9 @@ def build_accepted_review(posts: Sequence[Mapping[str, Any]], manifest: Mapping[
         text = _require(post.get("raw_text"), "post raw_text")
         if hashlib.sha256(text.encode("utf-8")).hexdigest() != _require(item.get("raw_text_sha256"), "post raw_text_sha256"):
             raise ReviewPreparationError("post teksthash matcher ikke manifest")
+        anchor_from = rendition_text.find(text)
+        if anchor_from < 0 or rendition_text.find(text, anchor_from + 1) >= 0:
+            raise ReviewPreparationError("post tekstanker er ikke entydigt")
         page_from, page_to = _page_span(post.get("sider"))
         records.append({
             "acceptance_id": f"task16-2018-person-{locator}",
@@ -84,6 +90,7 @@ def build_accepted_review(posts: Sequence[Mapping[str, Any]], manifest: Mapping[
                 "char_to": len(text),
                 "bbox": None,
             },
+            "source_anchor": {"char_from": anchor_from, "char_to": anchor_from + len(text)},
         })
     if not records:
         raise ReviewPreparationError("manifest har ingen person occurrences")
@@ -92,6 +99,7 @@ def build_accepted_review(posts: Sequence[Mapping[str, Any]], manifest: Mapping[
         "source_id": "2018-20",
         "rendition_id": _require(rendition_id, "rendition_id"),
         "rendition_sha256": source_hash.lower(),
+        "rendition_text": rendition_text,
         "extraction_run_id": _require(extraction_run_id, "extraction_run_id"),
         "records": records,
     }

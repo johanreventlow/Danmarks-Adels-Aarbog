@@ -31,7 +31,8 @@ def _stable_id(prefix: str, source_id: str, acceptance_id: str) -> str:
     return f"{prefix}-{_digest([source_id, acceptance_id])[:24]}"
 
 
-def _span(record: Mapping[str, Any], rendition_id: str, verbatim_text: str) -> dict[str, Any]:
+def _span(record: Mapping[str, Any], rendition_id: str, verbatim_text: str,
+          source_anchor: Mapping[str, int]) -> dict[str, Any]:
     value = record.get("span")
     if not isinstance(value, Mapping):
         raise LedgerError("span kræves")
@@ -51,16 +52,16 @@ def _span(record: Mapping[str, Any], rendition_id: str, verbatim_text: str) -> d
         "page_from": value["page_from"],
         "page_to": value["page_to"],
         "column_label": value.get("column_label"),
-        "char_from": value["char_from"],
-        "char_to": value["char_to"],
+        "char_from": source_anchor["char_from"],
+        "char_to": source_anchor["char_to"],
         "bbox": list(bbox) if bbox is not None else None,
     }
 
 
-def _source_anchor(record: Mapping[str, Any]) -> dict[str, int] | None:
+def _source_anchor(record: Mapping[str, Any]) -> dict[str, int]:
     value = record.get("source_anchor")
     if value is None:
-        return None
+        raise LedgerError("source_anchor kræves")
     if not isinstance(value, Mapping):
         raise LedgerError("source_anchor skal være objekt")
     start, end = value.get("char_from"), value.get("char_to")
@@ -77,9 +78,12 @@ def _accepted_records(review: Mapping[str, Any]) -> tuple[dict[str, str], list[d
         "rendition_id": _require(review.get("rendition_id"), "rendition_id"),
         "rendition_sha256": _require(review.get("rendition_sha256"), "rendition_sha256").lower(),
         "extraction_run_id": _require(review.get("extraction_run_id"), "extraction_run_id"),
+        "rendition_text": _require(review.get("rendition_text"), "rendition_text"),
     }
     if len(context["rendition_sha256"]) != 64 or any(char not in "0123456789abcdef" for char in context["rendition_sha256"]):
         raise LedgerError("rendition_sha256 er ugyldig")
+    if hashlib.sha256(context["rendition_text"].encode("utf-8")).hexdigest() != context["rendition_sha256"]:
+        raise LedgerError("rendition teksthash matcher ikke rendition_sha256")
     records = review.get("records")
     if not isinstance(records, list) or not records:
         raise LedgerError("review records kræves")
@@ -99,6 +103,9 @@ def _accepted_records(review: Mapping[str, Any]) -> tuple[dict[str, str], list[d
         if not isinstance(decision_version, int) or decision_version < 1:
             raise LedgerError("decision_version skal være positiv")
         verbatim_text = _require(raw.get("verbatim_text"), "verbatim_text")
+        source_anchor = _source_anchor(raw)
+        if context["rendition_text"][source_anchor["char_from"]:source_anchor["char_to"]] != verbatim_text:
+            raise LedgerError("source_anchor matcher ikke verbatim_text")
         accepted_record = {
             **context,
             "acceptance_id": acceptance_id,
@@ -106,11 +113,9 @@ def _accepted_records(review: Mapping[str, Any]) -> tuple[dict[str, str], list[d
             "reviewed_by": reviewed_by,
             "decision_version": decision_version,
             "verbatim_text": verbatim_text,
-            "span": _span(raw, context["rendition_id"], verbatim_text),
+            "span": _span(raw, context["rendition_id"], verbatim_text, source_anchor),
+            "source_anchor": source_anchor,
         }
-        source_anchor = _source_anchor(raw)
-        if source_anchor is not None:
-            accepted_record["source_anchor"] = source_anchor
         accepted.append(accepted_record)
     return context, sorted(accepted, key=lambda item: item["acceptance_id"])
 
@@ -157,7 +162,11 @@ def _bundle(context: Mapping[str, str], records: list[dict[str, Any]], entries: 
         acceptance_id = record["acceptance_id"]
         source_record_id = _stable_id("source-record", context["source_id"], acceptance_id)
         occurrence_id = _stable_id("occurrence", context["source_id"], acceptance_id)
-        source_records.append({"id": source_record_id, "record_key": entries[acceptance_id]["record_key"]})
+        source_records.append({
+            "id": source_record_id,
+            "record_key": entries[acceptance_id]["record_key"],
+            "source_id": context["source_id"],
+        })
         occurrences.append({
             "occurrence_id": occurrence_id,
             "rendition_id": context["rendition_id"],
@@ -173,10 +182,12 @@ def _bundle(context: Mapping[str, str], records: list[dict[str, Any]], entries: 
             "version": record["decision_version"],
         })
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "source_rendition": [{
             "rendition_id": context["rendition_id"],
+            "source_id": context["source_id"],
             "sha256": context["rendition_sha256"],
+            "verbatim_text": context["rendition_text"],
         }],
         "source_records": source_records,
         "source_record_occurrences": occurrences,

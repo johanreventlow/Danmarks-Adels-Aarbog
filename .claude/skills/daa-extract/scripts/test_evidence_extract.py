@@ -1,3 +1,4 @@
+import hashlib
 import json
 from dataclasses import replace
 
@@ -63,7 +64,10 @@ def test_manifest_payload_has_json_stable_record_keys():
 def _bundle():
     text = "Våben: tre roser."
     return {
-        "schema_version": "1.0", "source_rendition": [], "source_records": [],
+        "schema_version": "1.1", "source_rendition": [{
+            "rendition_id": "rendition-1", "source_id": "2018-20",
+            "sha256": hashlib.sha256(text.encode()).hexdigest(), "verbatim_text": text,
+        }], "source_records": [],
         "source_record_anchor_events": [], "source_record_revision_events": [],
         "record_placements": [], "persona_placements": [], "text_variants": [],
         "mentions": [], "source_personas": [], "extraction_run": {"run_id": "run-1"},
@@ -83,12 +87,70 @@ def _bundle():
 
 def _anchored_bundle():
     bundle = _bundle()
-    bundle["source_records"] = [{"id": "record-1", "record_key": "rk-1"}]
+    bundle["source_records"] = [{"id": "record-1", "record_key": "rk-1", "source_id": "2018-20"}]
     bundle["source_record_anchor_events"] = [{
         "event_id": "anchor-1", "occurrence_id": "occ-1", "source_record_id": "record-1",
         "decision_status": "accepted", "version": 1,
     }]
     return bundle
+
+
+def two_person_bundle():
+    rendition_text = "Anna. Bodil."
+    bundle = {
+        "schema_version": "1.1",
+        "source_rendition": [{
+            "rendition_id": "rendition-1", "source_id": "2018-20",
+            "sha256": hashlib.sha256(rendition_text.encode()).hexdigest(),
+            "verbatim_text": rendition_text,
+        }],
+        "source_records": [
+            {"id": "record-a", "record_key": "rk-a", "source_id": "2018-20"},
+            {"id": "record-b", "record_key": "rk-b", "source_id": "2018-20"},
+        ],
+        "source_record_occurrences": [], "source_record_anchor_events": [],
+        "source_record_revision_events": [], "record_placements": [], "persona_placements": [],
+        "observations": [], "text_variants": [], "mentions": [], "source_personas": [],
+        "extraction_run": {"run_id": "run-1"}, "interpretations": [],
+    }
+    for suffix, name, start in (("a", "Anna", 0), ("b", "Bodil", 6)):
+        end = start + len(name)
+        bundle["source_record_occurrences"].append({
+            "occurrence_id": "occ-" + suffix, "rendition_id": "rendition-1",
+            "extraction_run_id": "run-1", "verbatim_text": name,
+            "span": {"rendition_id": "rendition-1", "page_from": 1, "page_to": 1,
+                     "char_from": start, "char_to": end, "bbox": None},
+        })
+        bundle["source_record_anchor_events"].append({
+            "event_id": "anchor-" + suffix, "occurrence_id": "occ-" + suffix,
+            "source_record_id": "record-" + suffix, "decision_status": "accepted", "version": 1,
+        })
+        bundle["observations"].append({
+            "observation_id": "obs-" + suffix, "occurrence_id": "occ-" + suffix,
+            "kind": "person_name", "verbatim_text": name, "extraction_method": "model",
+            "extraction_run_id": "run-1",
+            "span": {"rendition_id": "rendition-1", "page_from": 1, "page_to": 1,
+                     "char_from": start, "char_to": end, "bbox": None},
+        })
+        bundle["mentions"].append({
+            "mention_id": "mention-" + suffix, "observation_id": "obs-" + suffix,
+            "char_from": 0, "char_to": len(name), "verbatim_text": name,
+        })
+        bundle["source_personas"].append({
+            "persona_id": "persona-" + suffix, "source_id": "2018-20",
+            "mention_ids": ["mention-" + suffix],
+        })
+    return bundle
+
+
+def test_person_claim_rejects_another_personas_observation():
+    bundle = two_person_bundle()
+    with pytest.raises(ExtractionError, match="PERSONA_OBSERVATION"):
+        validate_output({"evidence_bundle": bundle, "claims": [{
+            "predicate": "person.name", "record_key": "rk-b",
+            "source_persona_id": "persona-a", "observation_ids": ["obs-b"],
+            "value": "Bodil",
+        }]})
 
 
 def test_granular_claim_requires_observed_evidence_bundle():
@@ -118,8 +180,6 @@ def test_known_granular_predicates_are_explicit_and_unknown_subtypes_fail_closed
         "predicate": predicate, "record_key": "rk-1", "observation_ids": ["obs-1"], "value": "x",
     } for predicate in expected_predicates]})
 
-    bundle["source_personas"] = [{"persona_id": "persona-1", "mention_ids": ["mention-1"]}]
-    bundle["mentions"] = [{"mention_id": "mention-1", "observation_id": "obs-1"}]
     with pytest.raises(ExtractionError, match="PREDICATE"):
         validate_output({"evidence_bundle": bundle, "claims": [{
             "predicate": "person.invented", "record_key": "rk-1", "source_persona_id": "persona-1",
@@ -140,17 +200,16 @@ def test_person_claim_requires_a_source_persona_not_an_invented_person():
         }]})
 
 
-def test_person_claim_requires_persona_traceable_to_an_accepted_record():
+def test_person_claim_accepts_complete_persona_observation_chain():
     bundle = _anchored_bundle()
-    bundle["source_personas"] = [{"persona_id": "persona-1"}]
-    with pytest.raises(ExtractionError, match="PERSONA_RECORD"):
-        validate_output({"evidence_bundle": bundle, "claims": [{
-            "predicate": "person.name", "record_key": "rk-1", "source_persona_id": "persona-1",
-            "observation_ids": ["obs-1"], "value": "Anna",
-        }]})
-
-    bundle["source_personas"] = [{"persona_id": "persona-1", "mention_ids": ["mention-1"]}]
-    bundle["mentions"] = [{"mention_id": "mention-1", "observation_id": "obs-1"}]
+    text = bundle["observations"][0]["verbatim_text"]
+    bundle["source_personas"] = [{
+        "persona_id": "persona-1", "source_id": "2018-20", "mention_ids": ["mention-1"],
+    }]
+    bundle["mentions"] = [{
+        "mention_id": "mention-1", "observation_id": "obs-1",
+        "char_from": 0, "char_to": len(text), "verbatim_text": text,
+    }]
     assert validate_output({"evidence_bundle": bundle, "claims": [{
         "predicate": "person.name", "record_key": "rk-1", "source_persona_id": "persona-1",
         "observation_ids": ["obs-1"], "value": "Anna",
@@ -159,7 +218,7 @@ def test_person_claim_requires_persona_traceable_to_an_accepted_record():
 
 def test_claim_record_key_must_name_its_accepted_source_record():
     bundle = _bundle()
-    bundle["source_records"] = [{"id": "record-1", "record_key": "rk-1"}]
+    bundle["source_records"] = [{"id": "record-1", "record_key": "rk-1", "source_id": "2018-20"}]
     bundle["source_record_anchor_events"] = [{
         "event_id": "anchor-1", "occurrence_id": "occ-1", "source_record_id": "record-1",
         "decision_status": "accepted", "version": 1,
@@ -172,7 +231,7 @@ def test_claim_record_key_must_name_its_accepted_source_record():
 
 def test_every_granular_claim_requires_its_accepted_record_key():
     bundle = _bundle()
-    bundle["source_records"] = [{"id": "record-1", "record_key": "rk-1"}]
+    bundle["source_records"] = [{"id": "record-1", "record_key": "rk-1", "source_id": "2018-20"}]
     bundle["source_record_anchor_events"] = [{
         "event_id": "anchor-1", "occurrence_id": "occ-1", "source_record_id": "record-1",
         "decision_status": "accepted", "version": 1,
@@ -203,6 +262,16 @@ def test_unanchored_observation_cannot_bypass_record_key_gate_with_empty_string(
     with pytest.raises(ExtractionError, match="RECORD_KEY"):
         validate_output({"evidence_bundle": _bundle(), "claims": [{
             "predicate": "heraldry.blazon", "record_key": "", "observation_ids": ["obs-1"], "value": "tre roser",
+        }]})
+
+
+def test_claims_reject_legacy_draft_bundle_version():
+    bundle = _anchored_bundle()
+    bundle["schema_version"] = "1.0"
+    with pytest.raises(ExtractionError, match="BUNDLE_VERSION"):
+        validate_output({"evidence_bundle": bundle, "claims": [{
+            "predicate": "heraldry.blazon", "record_key": "rk-1",
+            "observation_ids": ["obs-1"], "value": "tre roser",
         }]})
 
 
