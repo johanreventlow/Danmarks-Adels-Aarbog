@@ -164,6 +164,16 @@ def _validate_choice(value: object, expected_keys: set[str]) -> dict:
     return copy.deepcopy(dict(choice))
 
 
+def _is_draft_placeholder(entry: Mapping) -> bool:
+    """Identify the browser's exact undecided-record shape; it is never a decision.
+
+    Strict by construction: any entry that is not EXACTLY
+    ``{baseline_record_key, draft: true}`` falls through to legacy-entry
+    validation, where the unrecognised ``draft`` field is rejected fail-closed.
+    """
+    return set(entry) == {"baseline_record_key", "draft"} and entry.get("draft") is True
+
+
 def _validate_legacy_export_entry(entry: Mapping) -> dict:
     unknown = set(entry) - LEGACY_REVIEW_ALLOWED_FIELDS
     if unknown:
@@ -207,6 +217,12 @@ def validate_choice_export(
     final_legacy_entries: dict[str, dict] = {}
     for entry in entries:
         key = entry["baseline_record_key"]
+        if _is_draft_placeholder(entry):
+            # Browser export placeholder for an untouched record: counts toward
+            # baseline coverage, carries no preserved metadata, is never a
+            # final legacy entry and never a choice.
+            legacy_statuses[key] = {"review_status": "unreviewed"}
+            continue
         if "outcome" in entry:
             validated = _validate_choice(entry, expected_keys)
             choices[key] = validated

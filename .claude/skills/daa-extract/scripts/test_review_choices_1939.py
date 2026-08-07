@@ -851,6 +851,58 @@ def test_choice_export_accepts_complete_task4_legacy_overlay_and_skips_untouched
     }}
 
 
+def test_choice_export_accepts_browser_draft_placeholders_alongside_outcomes():
+    """The browser's exportDraft fallback for untouched records must validate.
+
+    human_review_1939_ui.js's exportDraft has always fallen back to
+    {baseline_record_key, draft: true} for records with no decision. In the
+    choice-export-embedding generator path (make_human_review_1939.py Task 5)
+    that fallback fires for every untouched record, so the contract must
+    accept it as "no decision" rather than reject the whole export.
+    """
+    value = choice_export(
+        choice("rk-choice", "undecidable", reason="uklar"),
+        {"baseline_record_key": "rk-draft-1", "draft": True},
+        {"baseline_record_key": "rk-draft-2", "draft": True},
+    )
+
+    result = validate_choice_export(
+        value, expected_source(), {"rk-choice", "rk-draft-1", "rk-draft-2"},
+    )
+
+    assert result == {"rk-choice": {
+        "baseline_record_key": "rk-choice",
+        "outcome": "undecidable",
+        "reason": "uklar",
+    }}
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"baseline_record_key": "rk-1", "draft": False},
+        {"baseline_record_key": "rk-1", "draft": "true"},
+        {"baseline_record_key": "rk-1", "draft": True, "review_status": "unreviewed"},
+    ],
+)
+def test_choice_export_rejects_non_exact_draft_shapes(entry):
+    with pytest.raises(ValueError, match="uautoriserede"):
+        validate_choice_export(choice_export(entry), expected_source(), {"rk-1"})
+
+
+def test_draft_placeholder_still_counts_toward_baseline_coverage():
+    value = choice_export({"baseline_record_key": "rk-draft", "draft": True})
+
+    with pytest.raises(ValueError, match="baseline-dækning"):
+        validate_choice_export(
+            value, expected_source(), {"rk-draft", "rk-missing"},
+        )
+
+    # Full coverage (draft entry alone) validates and yields no choices.
+    result = validate_choice_export(value, expected_source(), {"rk-draft"})
+    assert result == {}
+
+
 def test_choice_export_rejects_outcome_over_final_legacy_status():
     value = choice_export(choice(
         "rk-1", "undecidable", reason="nyt udfald",

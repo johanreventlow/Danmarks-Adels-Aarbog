@@ -608,6 +608,74 @@ def test_main_reembeds_a_source_validated_choice_export_with_browser_fields(
     }
 
 
+def test_main_synthesizes_unreviewed_decisions_for_every_untouched_choice_export_record(
+    tmp_path, monkeypatch
+):
+    """Generator parity: every baseline key gets a model decision.
+
+    Regression test for the browser round-trip bug: exportDraft
+    (human_review_1939_ui.js) has always fallen back to
+    {baseline_record_key, draft: true} for a record with no decision. In the
+    legacy flow this fallback never fired because the review template always
+    supplied review_status: unreviewed + baseline_locator for every record.
+    The choice-export-embedding generator path must supply the same
+    unreviewed+locator decision for untouched records so the browser's
+    fallback never fires and the locator survives every export/import cycle.
+    """
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    baseline_value = json.loads(baseline.read_text(encoding="utf-8")) + [{
+        "record_key": "record-2", "navn": "Anden", "sider": "499",
+        "_v2_lokal_id": "Stamme.Anden",
+    }]
+    baseline.write_text(json.dumps(baseline_value), encoding="utf-8")
+    source_value = _source(
+        baseline.read_bytes(), calamari.read_bytes(), calamari.with_name("raw.txt").read_bytes(),
+    )
+    source.write_text(json.dumps({"schema_version": 1, "source": source_value}), encoding="utf-8")
+    queue.write_text(json.dumps({"schema_version": 1, "source": source_value, "entries": [
+        {"baseline_record_key": "record-1", "queue_class": "human_required",
+         "reason_code": "no_candidate", "reason_da": "ingen kandidat"},
+        {"baseline_record_key": "record-2", "queue_class": "human_required",
+         "reason_code": "no_candidate", "reason_da": "ingen kandidat"},
+    ]}), encoding="utf-8")
+    review.write_text(json.dumps({
+        "schema_version": 1,
+        "source": source_value,
+        "baseline_sha256": source_value["baseline_sha256"],
+        "exported_at": "2026-08-06T12:01:00Z",
+        "entries": [
+            {"baseline_record_key": "record-1", "outcome": "undecidable",
+             "decided_at": "2026-08-06T12:00:00Z", "reason": "uklar kilde"},
+            # The browser's actual exportDraft fallback shape for an
+            # untouched record — never a decision, must still validate.
+            {"baseline_record_key": "record-2", "draft": True},
+        ],
+    }), encoding="utf-8")
+    monkeypatch.setattr(subject.segment, "_segment_1939_v2", lambda *_: [{
+        "lokal_id": "Stamme.Volrad", "sider": "3", "raw_text": "Hr. Volrad",
+    }])
+    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
+
+    assert subject.main() == 0
+
+    payload = json.loads(re.search(
+        r"const DATA=(.*?);\n\(function \(global\)", out.read_text(encoding="utf-8")
+    ).group(1))
+    by_key = {record["record_key"]: record for record in payload["records"]}
+    assert by_key["record-1"]["decision"] == {
+        "baseline_record_key": "record-1",
+        "outcome": "undecidable",
+        "decided_at": "2026-08-06T12:00:00Z",
+        "reason": "uklar kilde",
+    }
+    assert by_key["record-2"]["decision"] == {
+        "baseline_record_key": "record-2",
+        "review_status": "unreviewed",
+        "baseline_locator": {"pages": "499", "local_id": "Stamme.Anden"},
+    }
+
+
 @pytest.mark.parametrize(
     ("choice", "message"),
     [

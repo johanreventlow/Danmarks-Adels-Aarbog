@@ -361,6 +361,22 @@ def test_validate_review_template_refuses_unknown_entry_fields(tmp_path):
         validate_review_template(review, baseline)
 
 
+def test_validate_review_template_rejects_browser_draft_placeholder(tmp_path):
+    """draft is a browser-export-only shape (review_choices_1939._is_draft_placeholder);
+    a plain legacy review ledger (write_review_template's own format) must
+    stay strict and never accept it as a valid entry.
+    """
+    baseline = tmp_path / "baseline.json"
+    review = tmp_path / "review.json"
+    baseline.write_text('[{"record_key":"rk-1"}]', encoding="utf-8")
+    template = write_review_template(baseline, review)
+    template["entries"][0] = {"baseline_record_key": "rk-1", "draft": True}
+    review.write_text(json.dumps(template), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="uautoriserede"):
+        validate_review_template(review, baseline)
+
+
 @pytest.mark.parametrize(
     ("status", "fields", "message"),
     [
@@ -668,6 +684,73 @@ def test_cli_converts_versioned_browser_choices_exclusively(tmp_path, capsys):
             "--anchored-candidates", str(candidates),
             "--out", str(out),
         ])
+
+
+def test_cli_choice_conversion_ignores_browser_draft_placeholders(tmp_path, capsys):
+    """convert_choice_export is a third live consumer of validate_choice_export.
+
+    It only reads the validated `choices` / `final_legacy_entries` dicts, never
+    the raw export entries — so a browser export containing draft placeholders
+    (the real shape of the user's 546-entry file, 446 of them untouched) must
+    convert cleanly and simply produce no decision for the untouched records.
+    """
+    choices = tmp_path / "choices.json"
+    queue = tmp_path / "queue.json"
+    candidates = tmp_path / "candidates.json"
+    out = tmp_path / "new-decisions.json"
+    manifest_source = {
+        "edition": "1939",
+        "baseline_sha256": "a" * 64,
+        "calamari_sha256": "b" * 64,
+        "raw_ocr_sha256": "c" * 64,
+        "pdf_sha256": "d" * 64,
+        "profile_version": "1939-v2",
+    }
+    choices.write_text(json.dumps({
+        "schema_version": 1,
+        "source": manifest_source,
+        "baseline_sha256": "a" * 64,
+        "exported_at": "2026-08-05T12:00:00+02:00",
+        "entries": [
+            {
+                "baseline_record_key": "rk-1",
+                "outcome": "undecidable",
+                "decided_at": "2026-08-05T11:59:00+02:00",
+                "reason": "uklar kilde",
+            },
+            {"baseline_record_key": "rk-2", "draft": True},
+        ],
+    }), encoding="utf-8")
+    queue.write_text(json.dumps({
+        "schema_version": 1,
+        "source": manifest_source,
+        "entries": [
+            {"baseline_record_key": "rk-1", "queue_class": "human_required",
+             "reason_code": "no_candidate", "reason_da": "ingen kandidat"},
+            {"baseline_record_key": "rk-2", "queue_class": "human_required",
+             "reason_code": "no_candidate", "reason_da": "ingen kandidat"},
+        ],
+    }), encoding="utf-8")
+    candidates.write_text(json.dumps({}), encoding="utf-8")
+
+    assert main([
+        "--choices-to-decisions", str(choices),
+        "--queue-manifest", str(queue),
+        "--anchored-candidates", str(candidates),
+        "--out", str(out),
+    ]) == 0
+
+    assert json.loads(out.read_text(encoding="utf-8")) == {
+        "decisions": [{
+            "baseline_record_key": "rk-1",
+            "status": "menneskeark",
+            "reason": "undecidable:uklar kilde",
+        }],
+        "audit_results": [],
+    }
+    assert json.loads(capsys.readouterr().out) == {
+        "out": str(out), "decisions": 1, "audit_results": 0,
+    }
 
 
 def test_cli_choice_conversion_rejects_stale_source_without_output(tmp_path):

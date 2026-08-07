@@ -699,7 +699,7 @@ def test_composition_afviser_global_kollision_mod_retained_positiv_kandidat():
         )
 
 
-def _write_cli_fixture(tmp_path, *, corrupt_calamari=False):
+def _write_cli_fixture(tmp_path, *, corrupt_calamari=False, use_draft_placeholders=False):
     baseline = [copy.deepcopy(BASELINE_RECORDS[key]) for key in RECORD_KEYS]
     baseline_bytes = json.dumps(baseline).encode("utf-8")
     calamari_bytes = CALAMARI_TEXT.encode("utf-8")
@@ -717,13 +717,21 @@ def _write_cli_fixture(tmp_path, *, corrupt_calamari=False):
         "source": source,
         "entries": [human_required(key) for key in RECORD_KEYS],
     }
+    if use_draft_placeholders:
+        # The browser's actual exportDraft fallback shape for an untouched
+        # record (human_review_1939_ui.js) — never a decision, must still
+        # flow through the adapter chain end to end.
+        untouched_entry = lambda key: {"baseline_record_key": key, "draft": True}
+    else:
+        untouched_entry = lambda key: {
+            "baseline_record_key": key, "review_status": "unreviewed",
+        }
     export = {
         "schema_version": 1,
         "source": source,
         "exported_at": "2026-08-06T12:00:00Z",
         "entries": [choice("rec-a", "P1")] + [
-            {"baseline_record_key": key, "review_status": "unreviewed"}
-            for key in RECORD_KEYS if key != "rec-a"
+            untouched_entry(key) for key in RECORD_KEYS if key != "rec-a"
         ],
     }
     if corrupt_calamari:
@@ -922,6 +930,43 @@ def test_cli_rewritten_choices_bestaar_validate_choice_export(tmp_path, monkeypa
     assert [entry["baseline_record_key"] for entry in rewritten["entries"]] == list(
         RECORD_KEYS
     )
+    validated = validate_choice_export(rewritten, source, set(RECORD_KEYS))
+    assert validated["rec-a"]["candidate_id"] == expected_human_id(SPAN_A)
+    assert set(validated) == {"rec-a"}
+
+
+def test_cli_rewritten_choices_round_trips_browser_draft_placeholders(tmp_path, monkeypatch):
+    """The adapter chain must tolerate draft entries end to end.
+
+    A choices export produced by the browser's actual exportDraft fallback
+    carries {baseline_record_key, draft: true} for every untouched record.
+    build_human_anchored_candidates must flow those through unresolved, and
+    the rewritten choices file it emits must preserve them verbatim so it
+    still passes validate_choice_export on a subsequent run.
+    """
+    paths = _write_cli_fixture(tmp_path, use_draft_placeholders=True)
+    monkeypatch.setattr(subject.segment, "_segment_1939_v2",
+                        lambda lines, profile: copy.deepcopy(POSTS))
+    monkeypatch.setattr("sys.argv", _cli_argv(paths))
+    assert subject.main() == 0
+
+    original_export = json.loads(paths["choices"].read_text(encoding="utf-8"))
+    rewritten = json.loads(paths["rewritten_out"].read_text(encoding="utf-8"))
+    source = json.loads(paths["queue"].read_text(encoding="utf-8"))["source"]
+    assert [entry["baseline_record_key"] for entry in rewritten["entries"]] == list(
+        RECORD_KEYS
+    )
+    draft_entries = [
+        entry for entry in rewritten["entries"]
+        if entry["baseline_record_key"] != "rec-a"
+    ]
+    assert draft_entries == [
+        entry for entry in original_export["entries"]
+        if entry["baseline_record_key"] != "rec-a"
+    ]
+    assert all(entry == {"baseline_record_key": entry["baseline_record_key"], "draft": True}
+               for entry in draft_entries)
+
     validated = validate_choice_export(rewritten, source, set(RECORD_KEYS))
     assert validated["rec-a"]["candidate_id"] == expected_human_id(SPAN_A)
     assert set(validated) == {"rec-a"}

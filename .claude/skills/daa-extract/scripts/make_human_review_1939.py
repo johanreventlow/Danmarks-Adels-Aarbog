@@ -447,6 +447,10 @@ def main() -> int:
         record["record_key"] for record in records
         if isinstance(record, dict) and isinstance(record.get("record_key"), str)
     }
+    records_by_key = {
+        record["record_key"]: record for record in records
+        if isinstance(record, dict) and isinstance(record.get("record_key"), str)
+    }
     entries = review.get("entries") if isinstance(review, dict) else None
     is_choice_export = isinstance(review, dict) and "source" in review and (
         "exported_at" in review
@@ -470,6 +474,21 @@ def main() -> int:
         }
         choice_keys = set(context["choices"])
         decisions.update(context["final_legacy_entries"])
+        # Synthesize a model decision for every remaining baseline key, matching
+        # write_review_template's shape exactly. Without this, records the
+        # editor never touched carry no decision at all, and the browser's
+        # exportDraft fallback re-serializes them as {baseline_record_key,
+        # draft: true} placeholders on the next round-trip — losing the
+        # baseline_locator that lets the editor navigate back to the source.
+        for key in baseline_keys - set(decisions):
+            decisions[key] = {
+                "baseline_record_key": key,
+                "review_status": "unreviewed",
+                "baseline_locator": {
+                    "pages": records_by_key[key].get("sider"),
+                    "local_id": records_by_key[key].get("_v2_lokal_id"),
+                },
+            }
     else:
         decisions = _review_decisions(review, baseline_hash, baseline_keys)
         if not isinstance(review, dict) or "source" not in review:
