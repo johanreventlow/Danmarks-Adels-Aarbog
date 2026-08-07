@@ -320,6 +320,76 @@ describe('buildRpcCall — filside fase 1', () => {
   });
 });
 
+describe('buildRpcCall — mediaFakta (medie-metadata Task 3)', () => {
+  it('mediaFakta mapper til red_upsert_fakta på media-subjekt', () => {
+    const rpc = buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'kilde_url', vaerdi: 'https://www.deutsche-digitale-bibliothek.de/item/H4Z…' } } as never);
+    expect(rpc).toEqual({ fn: 'red_upsert_fakta', args: {
+      p_subjekt_type: 'media', p_subjekt_id: 42, p_faktatype: 'kilde_url',
+      p_vaerdi: 'https://www.deutsche-digitale-bibliothek.de/item/H4Z…' } });
+  });
+
+  it('mediaFakta afviser ukendt faktatype', () => {
+    expect(buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'levende', vaerdi: 'x' } } as never)).toBeNull();
+  });
+
+  it('mediaFakta datering sætter p_date_raw og date-felter (kanoniske engelske qualifiers)', () => {
+    const rpc = buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'datering', vaerdi: 'ca. 1840', dateMin: '1835-01-01', dateMax: '1845-12-31', dateQualifier: 'about' } } as never);
+    expect(rpc?.args).toMatchObject({ p_date_raw: 'ca. 1840', p_date_min: '1835-01-01', p_date_max: '1845-12-31', p_date_qualifier: 'about' });
+  });
+
+  it('mediaFakta afviser ugyldig qualifier og ikke-http(s) kilde_url', () => {
+    expect(buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'datering', vaerdi: '1840', dateQualifier: 'ca' } } as never)).toBeNull();
+    expect(buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'kilde_url', vaerdi: 'javascript:alert(1)' } } as never)).toBeNull();
+  });
+
+  // Regression (fix-runde 1): dateQualifier: '' er en uvalgt <select>-default i Task 4's kommende
+  // UI, ikke en ugyldig værdi — skal give et gyldigt kald UDEN p_date_qualifier, ikke null (som
+  // ellers ville degradere en direkte redaktør-skrivning tavst til red_suggest via planCall).
+  it('mediaFakta med tom dateQualifier-streng giver gyldigt kald uden p_date_qualifier', () => {
+    const rpc = buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'datering', vaerdi: '1840', dateQualifier: '' } } as never);
+    expect(rpc).toEqual({ fn: 'red_upsert_fakta', args: {
+      p_subjekt_type: 'media', p_subjekt_id: 42, p_faktatype: 'datering',
+      p_vaerdi: '1840', p_date_raw: '1840' } });
+    expect(rpc?.args).not.toHaveProperty('p_date_qualifier');
+  });
+
+  it('mediaFakta afviser manglende mediaId og tom/blank værdi', () => {
+    expect(buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7',
+      payload: { faktatype: 'kilde_url', vaerdi: 'https://example.org' } } as never)).toBeNull();
+    expect(buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'kilde_institution', vaerdi: '   ' } } as never)).toBeNull();
+  });
+
+  it('mediaFakta hentedato uden eksplicitte date-felter sætter kun p_date_raw', () => {
+    const rpc = buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'hentedato', vaerdi: '2026-08-06' } } as never);
+    expect(rpc).toEqual({ fn: 'red_upsert_fakta', args: {
+      p_subjekt_type: 'media', p_subjekt_id: 42, p_faktatype: 'hentedato',
+      p_vaerdi: '2026-08-06', p_date_raw: '2026-08-06' } });
+  });
+
+  // Task 5-fund (wiring-review): overlayets Kildenote-felt sender kildeFritekst i payload
+  // (Redaktion.tsx's onGemFakta) — uden p_kilde_fritekst her blev den stille droppet, og enhver
+  // gemt fakta fik proveniens "(kilde mangler)", uanset hvad brugeren skrev i noten.
+  it('mediaFakta medtager p_kilde_fritekst når payload.kildeFritekst er sat', () => {
+    const rpc = buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'fotograf', vaerdi: 'Sönke Ehlert', kildeFritekst: 'Arkivets e-mail 2026-08-01' } } as never);
+    expect(rpc?.args).toMatchObject({ p_kilde_fritekst: 'Arkivets e-mail 2026-08-01' });
+  });
+
+  it('mediaFakta udelader p_kilde_fritekst når kildenoten er null/udeladt', () => {
+    const rpc = buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'fotograf', vaerdi: 'Sönke Ehlert', kildeFritekst: null } } as never);
+    expect(rpc?.args).not.toHaveProperty('p_kilde_fritekst');
+  });
+});
+
 describe('buildRpcCall — tilknytMedia (mediehåndtering fase 2)', () => {
   it('person står på subjekt-siden', () => {
     expect(buildRpcCall({ art: 'tilknytMedia', subjektType: 'media', subjektId: '91', mediaId: '91',

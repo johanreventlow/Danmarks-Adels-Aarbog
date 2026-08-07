@@ -5127,3 +5127,40 @@ ON CONFLICT (tabel) DO UPDATE SET pk_cols=excluded.pk_cols, skip_cols=excluded.s
 DROP TRIGGER IF EXISTS trg_log_story_kilde ON story_kilde;
 CREATE TRIGGER trg_log_story_kilde AFTER INSERT OR UPDATE OR DELETE ON story_kilde
   FOR EACH ROW EXECUTE FUNCTION log_change();
+
+-- 2026-08-06: medie-metadata-faktatyper + RLS-skærpelse (spec §1b)
+-- Medie-metadata (spec docs/superpowers/specs/2026-08-06-medie-metadata-design.md §1).
+-- Faktatyper på media-entiteten — ingen kolonner (invariant 2+3). Skrives via red_upsert_fakta.
+INSERT INTO vocab (scheme, code, label) VALUES
+  ('faktatype','kilde_url',         'Kilde-URL — permalink til billedside hos ekstern kilde'),
+  ('faktatype','kilde_institution', 'Kilde-institution / datapartner'),
+  ('faktatype','ekstern_objekt_id', 'Institutionens objekt-/inventar-ID'),
+  ('faktatype','hentedato',         'Dato mediet blev hentet fra kilden'),
+  ('faktatype','fotograf',          'Fotograf af reproduktionen (≠ kunstner/ophavsmand)'),
+  ('faktatype','rettighedshaver',   'Rettighedshaver / Rechtewahrnehmung'),
+  ('faktatype','kreditlinje',       'Ordret kreditlinje som kilden kræver vist'),
+  ('faktatype','beskrivelse',       'Beskrivelse/proveniens-prosa'),
+  ('faktatype','alt_tekst',         'Alt-tekst til skærmlæsere'),
+  ('faktatype','teknik',            'Teknik/materiale (fx olie på lærred)'),
+  ('faktatype','fysiske_maal',      'Fysiske mål (fx 92 × 73 cm)'),
+  ('faktatype','datering',          'Datering af værket (fuzzy dato på fact)')
+ON CONFLICT (scheme, code) DO NOTHING;
+
+-- RLS-skærpelse (MM-01): media fjernes fra altid-true-sættet i entitet_offentlig og gates på
+-- media_rettigheder_ok (upload_status='klar' AND maa_publiceres). Et upubliceret medies fakta/
+-- noter/relationer er dermed mørke for publikum; redaktionen ser fortsat alt via det additive
+-- redaktion_read-lag. CREATE OR REPLACE bevarer eksisterende grants (anon, authenticated).
+create or replace function public.entitet_offentlig(p_type text, p_id bigint)
+returns boolean language sql stable security definer set search_path = public as $$
+  select case
+    when p_type = 'person' then public.person_offentlig(p_id)
+    when p_type = 'family' then public.family_offentlig(p_id)
+    -- media: fakta/noter/relationer følger publiceringsgaten (spec §1b, MM-01).
+    -- Redaktionen ser fortsat alt via det additive redaktion_read-lag.
+    when p_type = 'media' then public.media_rettigheder_ok(p_id)
+    -- det faste ikke-PII-entitetssæt (sted/gods/våben/linje/organisation/begivenhed/kilde/arkiv)
+    when p_type in ('place','estate','coat_of_arms','lineage','organisation',
+                    'historical_event','source','repository') then true
+    else false  -- ukendt/fejlstavet type → fail-closed
+  end;
+$$;

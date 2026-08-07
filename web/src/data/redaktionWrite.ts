@@ -5,6 +5,8 @@
 import { supabase } from '../supabase';
 import { performUpload } from './mediaUpload';
 import type { ResizedVariant } from './mediaUpload';
+import { MEDIA_FAKTATYPER } from './media';
+import type { MediaFaktatype } from './media';
 
 // felt → fact.faktatype. koen er BEVIDST udeladt: arbejdsværdi på person, ikke et fact.
 // daab/begravelse/floruit/naturalisering er del af rygraden og lå allerede i DB (loaderen
@@ -16,6 +18,14 @@ export const FELT_FAKTATYPE: Record<string, string> = {
   overhoved: 'overhoved', // præsensliste-anker: 'II linje, 1. gren' (spec 2026-07-22 §4)
 };
 const DATE_FELT = new Set(['foedt', 'doed', 'daab', 'begravelse', 'floruit', 'naturalisering']);
+
+// Medie-metadata (Task 3): kanoniske engelske date_qualifier-værdier (schema.sql:826, MM-07) —
+// afviser alt andet i stedet for at lade en fri tekststreng ramme kolonnen ukontrolleret.
+const MEDIA_DATE_QUALIFIERS = new Set(['about', 'before', 'after']);
+// Faktatyper der bruger 'vaerdi' som selve den frie datotekst (samme konvention som person-
+// DATE_FELT ovenfor, linje 240): p_date_raw defaulter til vaerdi, medmindre payload.dateRaw
+// eksplicit overstyrer.
+const MEDIA_DATE_FAKTATYPER = new Set(['hentedato', 'datering']);
 
 export type Change = {
   art: 'fakta' | 'narrativ' | 'relation' | 'gods' | 'hverv'
@@ -37,6 +47,7 @@ export type Change = {
      | 'setFeedPin' | 'fjernFeedPin'
      | 'uploadMedia' // mediehåndtering Slice 0g — redaktør-upload (portræt/objekt-foto)
      | 'opdaterMedia' | 'genopretMedia' | 'mediaRettigheder' // fase 1 filside
+     | 'mediaFakta' // medie-metadata (Task 3): strukturerede fakta på 'media' som subjekt
      | 'tilknytMedia' // fase 2: genbrug eksisterende medie via red_relation
      | 'fjernMedia' // Slice 0h — blødt fjern (upload_status='fjernet'); unlink går via sletRelation
      | 'erstatMediaFil' // fase 4 (M4): erstat bytes, behold identitet — bytes FØR RPC, hård gate
@@ -459,6 +470,40 @@ if (c.art === 'mediaRettigheder') {
     if (typeof value === 'string' && value.trim()) args[arg] = value.trim();
   }
   return { fn: 'red_set_media_rettigheder', args };
+}
+// Medie-metadata (Task 3): strukturerede fakta på 'media' som subjekt — kildeoplysninger,
+// fotograf, kreditlinje, teknik osv. Whitelist mod MEDIA_FAKTATYPER (12 koder): de 3
+// rettigheds-koder (licens/kildehenvisning/gengivelsestilladelse) er BEVIDST ikke med — de
+// skrives fortsat via red_set_media_rettigheder ovenfor. Fjernelse af et felt går gennem den
+// eksisterende 'tilbagetraekFakta'-art (factId fra MediaFaktaVaerdi.factId) — ingen ny kode her.
+if (c.art === 'mediaFakta') {
+  const mediaId = parsePostgresBigintId(c.mediaId);
+  if (mediaId == null) return null;
+  const p = c.payload || {};
+  const faktatype = p.faktatype as MediaFaktatype | undefined;
+  if (!faktatype || !(MEDIA_FAKTATYPER as readonly string[]).includes(faktatype)) return null;
+  const vaerdi = typeof p.vaerdi === 'string' ? p.vaerdi.trim() : '';
+  if (!vaerdi) return null;
+  if (faktatype === 'kilde_url' && !/^https?:\/\//i.test(vaerdi)) return null;
+  const dateQualifier = p.dateQualifier as string | null | undefined;
+  if (dateQualifier && !MEDIA_DATE_QUALIFIERS.has(dateQualifier)) return null;
+  const args: Record<string, unknown> = {
+    p_subjekt_type: 'media', p_subjekt_id: mediaId, p_faktatype: faktatype, p_vaerdi: vaerdi,
+  };
+  const dateMin = p.dateMin as string | null | undefined;
+  const dateMax = p.dateMax as string | null | undefined;
+  const dateRaw = p.dateRaw as string | null | undefined;
+  if (dateMin) args.p_date_min = dateMin;
+  if (dateMax) args.p_date_max = dateMax;
+  if (dateQualifier) args.p_date_qualifier = dateQualifier;
+  if (dateRaw) args.p_date_raw = dateRaw;
+  else if (MEDIA_DATE_FAKTATYPER.has(faktatype)) args.p_date_raw = vaerdi;
+  // Kildenote (Task 5-fund under wiring): overlayets "Kildenote"-felt sender den via payload —
+  // uden dette blev den stille droppet, og HVER gemt fakta fik proveniens "(kilde mangler)"
+  // (samme MM-03-degradering som feltet selv findes for at undgå). red_upsert_fakta accepterer
+  // p_kilde_fritekst allerede (se markerForaeldreUkendt ovenfor).
+  if (p.kildeFritekst != null) args.p_kilde_fritekst = String(p.kildeFritekst);
+  return { fn: 'red_upsert_fakta', args };
 }
   // Blødt fjern (Slice 0h): sætter upload_status='fjernet', rører aldrig Storage-bytes eller
   // relationen. At AFKOBLE et billede fra én person (uden at slette det andre steder) er derimod

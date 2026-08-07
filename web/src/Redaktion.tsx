@@ -37,7 +37,7 @@ import {
 } from './data/mediaDedup';
 import { executeMediaMerge, fetchMediaMergeRelationEvidence, findMediaMergeCandidates, mediaMentionFingerprint, sortMediaForQueue } from './data/mediaMerge';
 import { executeUdrens } from './data/mediaUdrens';
-import { withUrl } from './data/media';
+import { withUrl, fetchMediaFakta, type MediaFakta } from './data/media';
 import { supabase } from './supabase';
 import { buildBrowse } from './data/browse';
 import { initials } from './data/format';
@@ -58,7 +58,7 @@ type MediaDedupState = {
 };
 // Change-arter der kan ændre et materiale-galleri (Slice 0h) — bruges til at afgøre om
 // person-editorens/objekt-editorens medieliste skal genhentes efter et gemt kald.
-const MEDIA_ARTER = new Set(['uploadMedia', 'opdaterMedia', 'genopretMedia', 'mediaRettigheder', 'fjernMedia', 'sletRelation', 'sletMediaRelationUdenEvidens', 'tilknytMedia', 'erstatMediaFil', 'udrensMedia', 'saetPortraet']);
+const MEDIA_ARTER = new Set(['uploadMedia', 'opdaterMedia', 'genopretMedia', 'mediaRettigheder', 'mediaFakta', 'fjernMedia', 'sletRelation', 'sletMediaRelationUdenEvidens', 'tilknytMedia', 'erstatMediaFil', 'udrensMedia', 'saetPortraet']);
 // Generiske entiteter med et materiale-galleri (Slice 0h) — spejler mobiles HAR_MATERIALE.
 const HAR_OBJEKT_MATERIALE = new Set(['estate', 'arms']);
 // --- Tokens (fra designet) ---
@@ -220,6 +220,10 @@ export default function Redaktion() {
   const [mediaKoe, setMediaKoe] = useState<MedieKoe | 'alle'>('alle');
   const [mediaAnvendelse, setMediaAnvendelse] = useState<MediaAnvendelse | undefined>();
   const [mediaAnvendelseFejl, setMediaAnvendelseFejl] = useState('');
+  // Medie-fakta (medie-metadata Task 5): kilde/beskrivelse-felter til "Kilde og beskrivelse"-
+  // sektionen i overlayet. undefined = henter stadig eller intet valgt medie (overlayet viser
+  // en loader, jf. MediaDetaljeOverlay's fakta-prop-kontrakt).
+  const [mediaFakta, setMediaFakta] = useState<MediaFakta | undefined>();
   const [udrensPreview, setUdrensPreview] = useState<UdrensPreview | undefined>();
   const [mediaLightbox, setMediaLightbox] = useState<number | null>(null); // Slice A
   const [mediaDetalje, setMediaDetalje] = useState<{ id: string; subjektType: string; subjektId: string } | null>(null);
@@ -268,6 +272,23 @@ export default function Redaktion() {
   const setSc = (k: string, v: string) => setScratch((s) => ({ ...s, [k]: v }));
   const refreshMediaBibliotek = useCallback(() => {
     fetchMediaBibliotek().then(setMediaBibliotek).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
+  }, []);
+  // Eksplicit genhentning af medie-fakta efter et LIVE gem/fjern (medie-metadata Task 5). Bruges af
+  // onGemFakta/onFjernFakta i renderMediaDetalje — 'tilbagetraekFakta' er en generisk art og udløser
+  // derfor IKKE run()'s automatiske MEDIA_ARTER-refetch (MM-08). mediaDetaljeRef-tjekket (samme
+  // mønster som run()'s post-write mediaAnvendelse-refetch) beskytter mod at et medie-skift midt i
+  // kaldet skriver stale fakta ind for det medie brugeren har forladt.
+  const refetchMediaFakta = useCallback(() => {
+    const id = mediaDetaljeRef.current?.id;
+    if (!id) return Promise.resolve();
+    return fetchMediaFakta([Number(id)]).then((m) => {
+      // ?? {}: et medie UDEN fakta har ingen kort i map'et — uden fallback ville "intet fundet"
+      // forblive umuligt at skelne fra "henter stadig" (begge er undefined), og overlayets loader
+      // ville aldrig forsvinde for et medie der reelt bare ikke har kilde-felter endnu.
+      if (mediaDetaljeRef.current?.id === id) setMediaFakta(m.get(id) ?? {});
+    }).catch(() => {
+      if (mediaDetaljeRef.current?.id === id) setMediaFakta(undefined);
+    });
   }, []);
 
   // --- Personers OCR-kvalitetsark (Task 9b) ---
@@ -424,13 +445,19 @@ export default function Redaktion() {
 
   useEffect(() => {
     mediaDetaljeRef.current = mediaDetalje;
-    if (!mediaDetalje) { setMediaAnvendelse(undefined); setMediaAnvendelseFejl(''); return; }
+    if (!mediaDetalje) { setMediaAnvendelse(undefined); setMediaAnvendelseFejl(''); setMediaFakta(undefined); return; }
     let aktiv = true;
     setMediaAnvendelse(undefined);
     setMediaAnvendelseFejl('');
+    setMediaFakta(undefined);
     fetchMediaAnvendelse(mediaDetalje.id)
       .then((a) => { if (aktiv) setMediaAnvendelse(a); })
       .catch(() => { if (aktiv) setMediaAnvendelseFejl('Kunne ikke kontrollere anvendelser. Sletning er derfor blokeret.'); });
+    // MM-08: samme aktiv-guard som anvendelse-hentningen ovenfor — et hurtigt medie-skift må
+    // ikke lade en sen .then() skrive stale fakta ind for det NYE (nu åbne) medie.
+    fetchMediaFakta([Number(mediaDetalje.id)])
+      .then((m) => { if (aktiv) setMediaFakta(m.get(mediaDetalje.id) ?? {}); })
+      .catch(() => { if (aktiv) setMediaFakta(undefined); });
     return () => { aktiv = false; };
   }, [mediaDetalje?.id]);
   useEffect(() => {
@@ -1658,6 +1685,7 @@ export default function Redaktion() {
         anvendelse={mediaAnvendelse}
         anvendelseFejl={mediaAnvendelseFejl}
         fletKandidater={fletKandidater}
+        fakta={mediaFakta}
         onClose={() => {
           setMediaDetalje(null); setMediaLightbox(null);
           if (entity === 'media') { setRecordId(null); navigate(redaktionPath('media', null)); }
@@ -1670,6 +1698,26 @@ export default function Redaktion() {
           subjektId: mediaDetalje.subjektId, mediaId: m.id, payload }, 'Opdater medie')}
         onGemRettigheder={(payload) => run({ art: 'mediaRettigheder', subjektType: mediaDetalje.subjektType,
           subjektId: mediaDetalje.subjektId, mediaId: m.id, payload }, 'Gem rettigheder')}
+        onGemFakta={async (changes, kildeFritekst) => {
+          // Sekventielt awaited (MM-08): parallelle run()-kald ville give delvise opdateringer +
+          // race om det fælles resultatpanel (writeView). Ét gemt fakta ad gangen, i rækkefølge.
+          // run() sluger fejl internt og returnerer undefined (viser den i writeView) — uden break
+          // her ville et fejlet felt midt i loopet blive tavst overskrevet af et SENERE felts
+          // succes-visning, og brugeren ville tro alle felter blev gemt.
+          for (const ch of changes) {
+            const res = await run({ art: 'mediaFakta', subjektType: mediaDetalje.subjektType,
+              subjektId: mediaDetalje.subjektId, mediaId: m.id,
+              payload: { ...ch, kildeFritekst: kildeFritekst || null } }, `Gem ${ch.faktatype}`);
+            if (!res) break;
+          }
+          if (!dryRun) await refetchMediaFakta(); // overlayet skal vise de netop gemte værdier
+        }}
+        onFjernFakta={async (factId) => {
+          await run({ art: 'tilbagetraekFakta', subjektType: mediaDetalje.subjektType,
+            subjektId: mediaDetalje.subjektId, factId }, 'Fjern medie-fakt');
+          // tilbagetraekFakta er en generisk art (ikke i MEDIA_ARTER) → run() genhenter den ikke selv.
+          if (!dryRun) await refetchMediaFakta();
+        }}
         onFjern={() => relationId && run({ art: 'sletRelation', subjektType: mediaDetalje.subjektType,
           subjektId: mediaDetalje.subjektId, relationId }, 'Fjern billede')}
         onFjernTilknytning={(id) => run({ art: 'sletRelation', subjektType: 'media', subjektId: m.id, relationId: id }, 'Fjern tilknytning')}

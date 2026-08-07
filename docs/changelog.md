@@ -1,5 +1,32 @@
 # Changelog
 
+## Medie-metadata-udvidelse (2026-08-06)
+
+Udvider hvad der kan registreres om et medie, så eksternt hentede billeder
+(fx fra Deutsche Digitale Bibliothek) kan håndteres korrekt: 12 nye
+medie-faktatyper som `vocab`-seeds (kilde-URL, kilde-institution, eksternt
+objekt-ID, hentedato, fotograf, rettighedshaver, kreditlinje, beskrivelse,
+alt-tekst, teknik, fysiske mål, datering) — data, ikke nye kolonner
+(invariant 2+3).
+
+RLS skærpes samtidig (MM-01): `entitet_offentlig('media', id)` returnerede
+hidtil ubetinget `true`, så anon og medlemmer kunne læse fakta på
+upublicerede medier. Funktionen kalder nu `media_rettigheder_ok(p_id)`, så
+media-fakta følger samme publiceringsgate som mediet selv. Redaktionen er
+uberørt (additivt `redaktion_read`-lag).
+
+Redaktør-overlayet (`MediaDetaljeOverlay`) får feltgrupper for kilde, ophav,
+rettigheder, beskrivelse, fysisk objekt og datering, med præudfyld fra
+eksisterende fakta og proveniens-værn (kun ændrede felter gensendes ved
+gem, så uændrede værdier ikke degraderes til "kilde mangler"). Læser-visningen
+viser kreditlinjen altid når den er udfyldt (juridisk krav ved
+CC-licenser, må ikke gemmes bag fold), kilde-URL som ægte link, historik-prosa
+foldbar, og `alt_tekst` på thumbnail/lightbox.
+
+Status: 733 web-tests grønne. DB-migrationen (vocab-seeds + RLS-skærpelse)
+er IKKE kørt mod prod endnu — gated, kræver eksplicit go (se
+`docs/superpowers/plans/2026-08-06-medie-metadata.md`, Task 7).
+
 ## Ægte links i web-fladen + tydeligere "Samme person" (2026-08-01)
 
 Al navigation i `web/` var `<div onClick>`/`<span onClick>`: ingen højreklik →

@@ -4,7 +4,19 @@
 > er autoritative, og hvordan næste deploy forberedes sikkert. Changelog fortæller
 > historien; denne side fortæller tilstanden.
 >
-> **Sidst afstemt:** 2026-08-01 (union-redigering: `red_tilfoej_partner`,
+> **Sidst afstemt:** 2026-08-06 (medie-metadata: 12 nye `vocab`-faktatyper for medier
+> — `kilde_url`, `kilde_institution`, `ekstern_objekt_id`, `hentedato`, `fotograf`,
+> `rettighedshaver`, `kreditlinje`, `beskrivelse`, `alt_tekst`, `teknik`,
+> `fysiske_maal`, `datering` — samt RLS-skærpelse af `entitet_offentlig`:
+> media-grenen gik fra ubetinget `true` til `media_rettigheder_ok(p_id)`, så et
+> upubliceret medies fakta/noter/relationer nu er mørke for publikum. Applied til
+> prod via migration `medie_metadata_faktatyper_og_rls_gate`. Verificeret efter
+> deploy: 12/12 seeds; publiceret medie fortsat synligt; upubliceret medie mørkt
+> (rollback-DO-blok, ingen data ændret); `place` fortsat true; ukendt type
+> fail-closed; grants til anon+authenticated bevaret; `get_advisors(security)` =
+> 0 ERROR og ingen nye WARN. Nul eksisterende rækker mørklagt — der fandtes ingen
+> upublicerede medier og ingen media-fakta ved deploy. Se changelog 2026-08-06).
+> Forudgående afstemning 2026-08-01 (union-redigering: `red_tilfoej_partner`,
 > `_samme_som_gruppe`, `trg_partner_loft`, opdateret `red_tilfoej_barn`,
 > `enforce_samme_som_invariants` m. UPDATE-trigger og udvidet `red_doede_links`
 > applied til prod; data: 65 børn flyttet + 7 forældre matchet → 0 karantænerede

@@ -50,6 +50,18 @@ test('linje-sektion viser linjenummer, titel, navn og dens grene', () => {
   expect(screen.getByText('1. gren')).toBeTruthy(); // fra den indlejrede gren-sektion
 });
 
+test('linje-sektion — våbenbilledets alt-tekst foretrækker altTekst-fakt over den hardkodede tekst', () => {
+  const gruppe: PresensLinjeGruppe = { linje: 'II', grene: [gren] };
+  const vaaben = {
+    id: 'v1', slags: 'våben', titel: '', kunstner: '', datering: '', url: 'https://x/vaaben.png', thumbUrl: null,
+    altTekst: 'Skjoldmærke: delt af sølv og rødt', kreditlinje: null, kildeUrl: null, kildeInstitution: null,
+    beskrivelse: null, teknik: null, fysiskeMaal: null, dateringFakt: null,
+  };
+  const info: PresensLinjeInfo = { titel: 'Den grevelige linje af 1673', slaegtsnavn: 'Reventlow', vaaben };
+  render(<PresensLinjeSektion gruppe={gruppe} info={info} navnAf={navnAf} aarAf={aarAf} onPick={() => {}} />);
+  expect(screen.getByAltText('Skjoldmærke: delt af sølv og rødt')).toBeTruthy();
+});
+
 test('linje-sektion uden info (data endnu ikke tilknyttet) viser stadig grenene', () => {
   const gruppe: PresensLinjeGruppe = { linje: 'IV', grene: [gren] };
   render(<PresensLinjeSektion gruppe={gruppe} info={undefined} navnAf={navnAf} aarAf={aarAf} onPick={() => {}} />);
