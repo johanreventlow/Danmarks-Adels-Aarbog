@@ -66,10 +66,10 @@ Forsiden viser fire tal og indgange:
 - Afsluttet.
 
 Den obligatoriske kø viser én sag ad gangen. Øverst forklares på almindeligt
-dansk, hvorfor sagen er i køen. Den gamle baseline-tekst og de tre højest
-rangerede, deduplikerede kandidater vises side om side. Hvis der findes flere,
-vises det samlede antal og `Vis alle kandidater`; ingen kandidat skjules uden
-denne oplysning. Rangeringen er kun læsehjælp. Tekniske felter som hashes og
+dansk, hvorfor sagen er i køen. Den gamle baseline-tekst og *alle* deduplikerede
+kandidater vises side om side, alle foldet ud fra start (ændret 2026-08-07;
+tidligere blev kun de tre højest rangerede vist bag `Vis alle kandidater`).
+Ingen kandidat skjules. Rangeringen er kun læsehjælp. Tekniske felter som hashes og
 interne nøgler skjules under `Vis detaljer`.
 
 Redaktøren vælger én af fire handlinger:

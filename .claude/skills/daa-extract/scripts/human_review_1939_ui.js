@@ -296,7 +296,6 @@
       selectedKey: records[0] && records[0].record_key,
       activeView: data.default_view || 'required',
       recordSearch: '',
-      expandedCandidates: Object.create(null),
       duplicateSearch: '',
       undoStack: [],
       storageKey: storageKeyFor(data),
@@ -681,12 +680,8 @@
   }
 
   function renderCandidate(state, record, candidate) {
-    const allVisible = state.expandedCandidates[record.record_key];
-    const initiallyVisible = Array.isArray(record.initial_candidate_ids)
-      && record.initial_candidate_ids.includes(candidate.candidate_id);
-    if (!allVisible && !initiallyVisible) return null;
     const details = element('details', undefined, { class: 'candidate' });
-    if (initiallyVisible) details.open = true;
+    details.open = true;
     const pdfLabel = (candidate.pdf_pages || []).join('-') || 'ukendt';
     const exactTextFallbackMessages = {
       entydigt_tekstanker_uden_forventet_side:
@@ -823,14 +818,6 @@
       const card = renderCandidate(state, record, candidate);
       if (card) root.append(card);
     });
-    const hasHiddenCandidates = candidates.some(candidate =>
-      !Array.isArray(record.initial_candidate_ids)
-      || !record.initial_candidate_ids.includes(candidate.candidate_id));
-    if (hasHiddenCandidates && !state.expandedCandidates[record.record_key]) {
-      const candidateTotal = Number.isInteger(record.candidate_count)
-        ? record.candidate_count : candidates.length;
-      root.append(actionButton(`Vis alle kandidater (${candidateTotal})`, 'expand-candidates'));
-    }
     root.append(element('h2', 'Din afgørelse'));
     const current = state.decisions[record.record_key];
     if (current && (current.outcome || current.review_status)) {
@@ -977,10 +964,7 @@
         const sidebar = document.querySelector('aside');
         setCompactSidebarOpen(!(sidebar && sidebar.getAttribute('data-mobile-open') === 'true'));
       }
-      else if (action === 'expand-candidates') {
-        state.expandedCandidates[state.selectedKey] = true;
-        render(state);
-      } else if (action === 'export-draft') controller.download();
+      else if (action === 'export-draft') controller.download();
       else if (action === 'export-quarantine') controller.downloadQuarantine();
     };
     const inputListener = event => {

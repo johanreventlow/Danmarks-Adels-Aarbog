@@ -1295,7 +1295,7 @@ describe('human 1939 review controller', () => {
     expect(acceptedReview.open).toBe(false);
   });
 
-  it('shows the initially expanded candidates and expands the remainder on request', () => {
+  it('renders every candidate expanded without a reveal button', () => {
     const record = humanRecord('rk-1', 'c-1');
     record.candidates = ['c-1', 'c-2', 'c-3', 'c-4'].map(candidateId => ({
       candidate_id: candidateId, lokal_id: candidateId, pdf_pages: [498], calamari_pages: [3],
@@ -1304,11 +1304,12 @@ describe('human 1939 review controller', () => {
     record.initial_candidate_ids = ['c-1', 'c-2', 'c-3'];
     startReview({ storage: memoryStorage(), records: [record] });
 
-    expect(document.querySelectorAll('.candidate')).toHaveLength(3);
-    expect(document.querySelector('[data-action="expand-candidates"]')!.textContent)
-      .toBe('Vis alle kandidater (4)');
-    document.querySelector<HTMLButtonElement>('[data-action="expand-candidates"]')!.click();
-    expect(document.querySelectorAll('.candidate')).toHaveLength(4);
+    const candidates = Array.from(
+      document.querySelectorAll<HTMLDetailsElement>('.candidate'),
+    );
+    expect(candidates).toHaveLength(4);
+    expect(candidates.every(candidate => candidate.open)).toBe(true);
+    expect(document.querySelector('[data-action="expand-candidates"]')).toBeNull();
   });
 
   it('shows the validated source-blocked count in the dashboard', () => {
@@ -1332,7 +1333,7 @@ describe('human 1939 review controller', () => {
     },
   );
 
-  it('tracks candidate expansion safely for a prototype-like record key', () => {
+  it('renders every candidate for a prototype-like record key', () => {
     const record = humanRecord('__proto__', 'c-1');
     record.candidates = ['c-1', 'c-2', 'c-3', 'c-4'].map(candidateId => ({
       candidate_id: candidateId, lokal_id: candidateId, pdf_pages: [498], calamari_pages: [3],
@@ -1341,8 +1342,6 @@ describe('human 1939 review controller', () => {
     record.initial_candidate_ids = ['c-1', 'c-2', 'c-3'];
     startReview({ storage: memoryStorage(), records: [record] });
 
-    expect(document.querySelectorAll('.candidate')).toHaveLength(3);
-    document.querySelector<HTMLButtonElement>('[data-action="expand-candidates"]')!.click();
     expect(document.querySelectorAll('.candidate')).toHaveLength(4);
   });
 
