@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 from collections.abc import Mapping
 
@@ -70,13 +71,15 @@ def _validated_ordered_spans(spans: object) -> list[dict]:
 
 def _entry(record_key: object, candidate: object, origin: str) -> dict:
     char_from, char_to = _span_of(candidate, "accepteret spænd")
-    return _validated_span({
+    span = _validated_span({
         "baseline_record_key": record_key,
         "candidate_id": candidate.get("candidate_id"),
         "char_from": char_from,
         "char_to": char_to,
         "origin": origin,
     }, "accepteret spænd")
+    span["candidate"] = copy.deepcopy(candidate)
+    return span
 
 
 def collect_accepted_spans(anchored: object, automatic: object) -> list[dict]:
@@ -101,7 +104,8 @@ def collect_accepted_spans(anchored: object, automatic: object) -> list[dict]:
             raise BoundaryError(f"post {key} ejer et spænd to gange")
         owners[key] = span["candidate_id"]
     spans.sort(key=lambda span: (span["char_from"], span["char_to"]))
-    return _validated_ordered_spans(spans)
+    _validated_ordered_spans(spans)
+    return spans
 
 
 def boundary_id_for(before: Mapping | None, after: Mapping | None,

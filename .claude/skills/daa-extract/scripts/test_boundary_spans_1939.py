@@ -41,6 +41,23 @@ def test_spans_are_sorted_by_position_and_carry_their_origin():
     assert spans[0]["char_from"] == 0 and spans[0]["char_to"] == 100
 
 
+def test_collected_span_carries_an_unchanged_deepcopy_of_the_candidate():
+    accepted = automatic("rk-a", "1939:a", 0, 100)
+    candidate = accepted["rk-a"]["candidate"]
+    candidate["raw_structure_bridge"] = {
+        "kind": "dual_rendition_consensus_v1",
+        "raw_char_from": 10,
+        "raw_char_to": 20,
+        "raw_excerpt_sha256": "b" * 64,
+    }
+
+    [span] = collect_accepted_spans({}, accepted)
+
+    assert span["candidate"] == candidate
+    assert span["candidate"] is not candidate
+    assert span["candidate"]["raw_structure_bridge"] is not candidate["raw_structure_bridge"]
+
+
 def test_overlapping_spans_fail_closed():
     with pytest.raises(BoundaryError, match="overlapper"):
         collect_accepted_spans(
