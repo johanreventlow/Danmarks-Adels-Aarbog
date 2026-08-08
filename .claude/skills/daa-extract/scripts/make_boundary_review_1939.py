@@ -294,11 +294,11 @@ def main() -> int:
     with args.out.open("x", encoding="utf-8") as handle:
         handle.write(HTML_PREFIX)
         handle.write(payload)
-        handle.write(";\\n")
+        handle.write(";\n")
         handle.write(shared)
-        handle.write("\\n")
+        handle.write("\n")
         handle.write(controller)
-        handle.write("\\n")
+        handle.write("\n")
         handle.write(HTML_SUFFIX)
     print(f"{model['summary']['graenser']} grænser · "
           f"{model['summary']['med_signal']} med signal")

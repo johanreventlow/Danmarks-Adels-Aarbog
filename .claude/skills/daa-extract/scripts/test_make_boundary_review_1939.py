@@ -1,5 +1,7 @@
 import hashlib
 import json
+import shutil
+import subprocess
 import sys
 
 import pytest
@@ -291,6 +293,44 @@ def test_main_writes_a_self_contained_page(tmp_path, monkeypatch):
     assert "window.DAABoundaryReview.init(" in rendered
     assert "DAAReviewShared" in rendered
     assert "const DATA=" in rendered
+
+
+def test_main_emits_a_node_parseable_script_block(tmp_path, monkeypatch):
+    """A literal backslash-n separator makes the generated page unparseable."""
+    if shutil.which("node") is None:
+        pytest.skip("node findes ikke på PATH")
+
+    inputs = _write_inputs(tmp_path)
+    out = tmp_path / "graenser.html"
+    monkeypatch.setattr(sys, "argv", _argv(*inputs, out))
+
+    assert subject.main() == 0
+
+    rendered = out.read_text(encoding="utf-8")
+    script = rendered.split("<script>", 1)[1].split("</script>", 1)[0]
+    script_path = tmp_path / "graenser.js"
+    script_path.write_text(script, encoding="utf-8")
+    result = subprocess.run(
+        ["node", "--check", str(script_path)], text=True, capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
+def test_main_separates_data_from_the_first_module_with_only_semicolon_and_whitespace(
+    tmp_path, monkeypatch
+):
+    """A literal backslash-n outside DATA is JavaScript syntax, not whitespace."""
+    inputs = _write_inputs(tmp_path)
+    out = tmp_path / "graenser.html"
+    monkeypatch.setattr(sys, "argv", _argv(*inputs, out))
+
+    assert subject.main() == 0
+
+    rendered = out.read_text(encoding="utf-8")
+    data_start = rendered.index("const DATA=")
+    first_module = rendered.index("(function (global)", data_start)
+    data_end = rendered.rindex("}", data_start, first_module)
+    assert set(rendered[data_end + 1:first_module]) <= {";", " ", "\t", "\r", "\n"}
 
 
 def test_main_refuses_a_changed_calamari_file(tmp_path, monkeypatch):

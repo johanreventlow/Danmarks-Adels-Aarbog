@@ -1,5 +1,7 @@
 import json
 import re
+import shutil
+import subprocess
 import sys
 import hashlib
 from pathlib import Path
@@ -302,6 +304,27 @@ def test_main_shows_candidates_on_translated_pdf_pages(tmp_path, monkeypatch):
     assert "window.DAA1939Review.init({data: DATA, download: downloadDraft});" in rendered
     assert "data-action" in rendered
     assert "daa1939-review:" in rendered
+
+
+def test_main_emits_a_node_parseable_script_block(tmp_path, monkeypatch):
+    """A literal backslash-n separator makes the generated page unparseable."""
+    if shutil.which("node") is None:
+        pytest.skip("node findes ikke på PATH")
+
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    monkeypatch.setattr(sys, "argv", _argv(baseline, review, queue, source, calamari, out))
+
+    assert subject.main() == 0
+
+    rendered = out.read_text(encoding="utf-8")
+    script = rendered.split("<script>", 1)[1].split("</script>", 1)[0]
+    script_path = tmp_path / "menneskeark.js"
+    script_path.write_text(script, encoding="utf-8")
+    result = subprocess.run(
+        ["node", "--check", str(script_path)], text=True, capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
 
 
 def test_main_shows_a_unique_exact_text_anchor_when_the_baseline_page_is_stale(
