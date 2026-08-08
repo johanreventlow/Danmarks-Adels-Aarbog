@@ -144,27 +144,25 @@ def _folded_name(navn: object) -> str:
     return fold_ocr(" ".join(_NAME_TOKEN_RE.findall(stripped)[:3]))[:20]
 
 
-def _head_window(record: Mapping) -> str:
-    """Return the narrative opening with printed number and rank removed."""
-    narrative = record.get("narrative")
-    if not isinstance(narrative, str):
+def _head_window(record: Mapping, text: object) -> str:
+    """Return the text opening with printed number and rank removed."""
+    if not isinstance(text, str):
         return ""
-    window = narrative.lstrip()[:_HEAD_WINDOW]
+    window = text.lstrip()[:_HEAD_WINDOW]
     number = _printed_number(record)
     if number is not None:
         window = re.sub(rf"^\(?\??\s*{number}\s*[a-z]?[.,)]?\s*", "", window)
     return _TITEL_RE.sub("", window.lstrip())
 
 
-def _opens_with_own_head(record: Mapping) -> bool:
-    """True when the narrative opens with this record's own printed head."""
-    narrative = record.get("narrative")
-    if not isinstance(narrative, str) or not narrative.strip():
+def _opens_with_own_head(record: Mapping, text: object) -> bool:
+    """True when the supplied text opens with this record's printed head."""
+    if not isinstance(text, str) or not text.strip():
         return True
     stem = _name_stem(record.get("navn"))
     if not stem:
         return True
-    folded = fold_ocr(_head_window(record))
+    folded = fold_ocr(_head_window(record, text))
     if stem in folded[:60]:
         return True
     name = _folded_name(record.get("navn"))
@@ -174,10 +172,10 @@ def _opens_with_own_head(record: Mapping) -> bool:
     return ratio >= _HEAD_SIMILARITY
 
 
-def _swallowed_heads(record: Mapping, siblings: Sequence[Mapping]) -> list[dict]:
-    """Find later siblings' printed heads sitting inside this narrative."""
-    narrative = record.get("narrative")
-    if not isinstance(narrative, str) or not narrative.strip():
+def _swallowed_heads(record: Mapping, text: object,
+                     siblings: Sequence[Mapping]) -> list[dict]:
+    """Find later siblings' printed heads sitting inside the supplied text."""
+    if not isinstance(text, str) or not text.strip():
         return []
     own = _printed_number(record)
     if own is None:
@@ -194,7 +192,7 @@ def _swallowed_heads(record: Mapping, siblings: Sequence[Mapping]) -> list[dict]
     # One pass over the narrative: every printed number followed by text.  A hit
     # only counts when the text is that sibling's own name, which is what keeps
     # a date continuation like '23 s. M.' out of the results.
-    for match in _EMBEDDED_HEAD_RE.finditer(narrative):
+    for match in _EMBEDDED_HEAD_RE.finditer(text):
         if match.start() == 0:
             continue
         number = int(match.group(1))
@@ -204,7 +202,7 @@ def _swallowed_heads(record: Mapping, siblings: Sequence[Mapping]) -> list[dict]
         if not fold_ocr(match.group(2)).startswith(stem):
             continue
         found[number] = {
-            "sibling_record_key": sibling["record_key"],
+            "sibling_record_key": sibling.get("record_key"),
             "sibling_navn": sibling.get("navn"),
             "sibling_orig_nr": number,
             "position": match.start(),
@@ -234,14 +232,15 @@ def find_boundary_defects(baseline: object) -> dict:
 
     missing_head = {
         record["record_key"] for record in records
-        if _printed_number(record) is not None and not _opens_with_own_head(record)
+        if _printed_number(record) is not None
+        and not _opens_with_own_head(record, record.get("narrative"))
     }
     pairs: list[dict] = []
     swallowed_only: list[dict] = []
     paired_orphans: set[str] = set()
     for record in records:
         siblings = by_group.get(_group_key(record), [])
-        for hit in _swallowed_heads(record, siblings):
+        for hit in _swallowed_heads(record, record.get("narrative"), siblings):
             entry = {
                 "gruppe_nr": record.get("_gruppe_nr"),
                 "gren": _branch(record),
