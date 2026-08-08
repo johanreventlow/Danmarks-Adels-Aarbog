@@ -23,6 +23,7 @@ from review_choices_1939 import validate_choice_export
 
 
 UI_PATH = Path(__file__).with_name("human_review_1939_ui.js")
+SHARED_UI_PATH = Path(__file__).with_name("review_ui_shared.js")
 HTML_PREFIX = """<!doctype html>
 <meta charset="utf-8">
 <title>1939 menneskeark</title>
@@ -579,11 +580,14 @@ def main() -> int:
     payload = json.dumps(
         {"baseline_sha256": baseline_hash, **model}, ensure_ascii=False,
     ).replace("<", "\\u003c")
+    shared = SHARED_UI_PATH.read_text(encoding="utf-8")
     controller = UI_PATH.read_text(encoding="utf-8")
     with args.out.open("x", encoding="utf-8") as handle:
         handle.write(HTML_PREFIX)
         handle.write(payload)
         handle.write(";\n")
+        handle.write(shared)
+        handle.write("\n")
         handle.write(controller)
         handle.write("\n")
         handle.write(HTML_SUFFIX)

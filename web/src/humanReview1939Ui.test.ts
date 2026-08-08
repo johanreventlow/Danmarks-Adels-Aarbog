@@ -8,6 +8,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const uiSource = readFileSync(resolve(
   process.cwd(), '../.claude/skills/daa-extract/scripts/human_review_1939_ui.js',
 ), 'utf8');
+const sharedSource = readFileSync(resolve(
+  process.cwd(), '../.claude/skills/daa-extract/scripts/review_ui_shared.js',
+), 'utf8');
 
 function memoryStorage() {
   const values = new Map<string, string>();
@@ -98,6 +101,7 @@ function startReview({ storage, records, source, sourceBlocked, download = vi.fn
   download?: ReturnType<typeof vi.fn>;
 }) {
   document.body.innerHTML = '<aside data-mobile-open="false"><p data-role="save-state"></p><button type="button" data-action="toggle-sidebar" aria-expanded="false">Vælg person</button><div data-role="sidebar-navigation"></div></aside><main data-role="app"></main>';
+  window.eval(sharedSource);
   window.eval(uiSource);
   return {
     controller: (window as any).DAA1939Review.init({
@@ -135,6 +139,7 @@ function sourceBoundSuccessorModel({
 
 function startModel(data: any, storage = memoryStorage()) {
   document.body.innerHTML = '<aside data-mobile-open="false"><p data-role="save-state"></p><button type="button" data-action="toggle-sidebar" aria-expanded="false">Vælg person</button><div data-role="sidebar-navigation"></div></aside><main data-role="app"></main>';
+  window.eval(sharedSource);
   window.eval(uiSource);
   return (window as any).DAA1939Review.init({
     data, storage, now: () => '2026-08-05T12:00:00+02:00', download: vi.fn(),
@@ -253,6 +258,7 @@ describe('human 1939 review controller', () => {
     });
     try {
       document.body.innerHTML = '<aside data-mobile-open="false"><p data-role="save-state"></p><button type="button" data-action="toggle-sidebar" aria-expanded="false">Vælg person</button><div data-role="sidebar-navigation"></div></aside><main data-role="app"></main>';
+      window.eval(sharedSource);
       window.eval(uiSource);
       (window as any).DAA1939Review.init({
         data: viewModel([humanRecord('rk-1', 'c-1'), humanRecord('rk-2', 'c-2')]),

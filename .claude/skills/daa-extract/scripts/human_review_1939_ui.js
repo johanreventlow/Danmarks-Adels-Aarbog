@@ -1,6 +1,10 @@
 (function (global) {
   'use strict';
 
+  const {
+    element, actionButton, clone, hasOwn, dictionary, sameValue, downloadJson,
+  } = global.DAAReviewShared;
+
   const OUTCOMES = new Set([
     'human_selected_candidate', 'no_candidate_fits', 'possible_duplicate', 'undecidable',
   ]);
@@ -29,20 +33,6 @@
 
   function storageKeyFor(data) {
     return `daa1939-review:v${REVIEW_SCHEMA_VERSION}:${sourceIdentity(data.source || {})}`;
-  }
-
-  function clone(value) {
-    return value == null ? value : JSON.parse(JSON.stringify(value));
-  }
-
-  function hasOwn(value, key) {
-    return Object.prototype.hasOwnProperty.call(value, key);
-  }
-
-  function dictionary(entries) {
-    const result = Object.create(null);
-    (entries || []).forEach(([key, value]) => { result[key] = value; });
-    return result;
   }
 
   function decisionMap(value) {
@@ -216,10 +206,6 @@
     state.recoveryBlocked = true;
     state.decisions = Object.create(null);
     state.storageError = message;
-  }
-
-  function sameValue(left, right) {
-    return sourceIdentity({ value: left }) === sourceIdentity({ value: right });
   }
 
   function quarantineMap(value) {
@@ -593,21 +579,6 @@
     return true;
   }
 
-  function element(tag, text, attributes) {
-    const node = document.createElement(tag);
-    if (text !== undefined) node.textContent = text;
-    Object.entries(attributes || {}).forEach(([name, value]) => {
-      if (value !== undefined && value !== null) node.setAttribute(name, String(value));
-    });
-    return node;
-  }
-
-  function actionButton(text, action, data) {
-    const button = element('button', text, { type: 'button', 'data-action': action });
-    Object.entries(data || {}).forEach(([key, value]) => { button.dataset[key] = String(value); });
-    return button;
-  }
-
   function isActionable(state, record) {
     if (state.recoveryBlocked || (record.queue_class === 'auto_resolved' && !record.is_audit)) return false;
     const decision = state.decisions[record.record_key];
@@ -902,14 +873,6 @@
       exported_at: state.now(),
       quarantined: state.quarantined,
     });
-  }
-
-  function downloadJson(value, filename) {
-    const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' });
-    const link = document.createElement('a');
-    link.href = global.URL.createObjectURL(blob);
-    link.download = filename;
-    link.click();
   }
 
   function createController(state, options) {

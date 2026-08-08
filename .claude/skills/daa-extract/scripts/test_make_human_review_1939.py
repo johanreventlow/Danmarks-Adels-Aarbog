@@ -394,7 +394,9 @@ def test_main_embeds_the_committed_controller_bytes_without_inline_handlers(tmp_
 
     rendered = out.read_bytes()
     committed = (Path(subject.__file__).parent / "human_review_1939_ui.js").read_bytes()
-    start = rendered.index(b"(function (global) {")
+    start = rendered.index(
+        b"(function (global) {", rendered.index(b"global.DAAReviewShared")
+    )
     end = start + len(committed)
     assert rendered[start:end] == committed
     assert b"onclick=" not in rendered
