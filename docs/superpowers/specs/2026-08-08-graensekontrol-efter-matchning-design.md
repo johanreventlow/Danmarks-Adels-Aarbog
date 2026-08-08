@@ -1,8 +1,8 @@
 # Grænsekontrol efter matchning — design
 
 **Dato:** 2026-08-08
-**Status:** godkendt design, implementering ikke startet
-**Anledning:** redaktøren vil kunne verificere at postgrænserne står korrekt, før 1939-teksterne importeres. Vi har allerede importeret forkerte tekster én gang; det må ikke gentages.
+**Status:** godkendt design efter adversarial review (Codex gpt-5.6-sol, NO-GO på første udgave); implementering ikke startet
+**Anledning:** redaktøren vil kunne verificere at postgrænserne står korrekt, før 1939-teksterne importeres. Vi har importeret forkerte tekster én gang; det må ikke gentages.
 
 ## Problemet
 
@@ -16,33 +16,32 @@ Et accepteret anker beviser at teksten står i kilden. Det beviser ikke at græn
 
 ## Placering i kæden
 
-Kontrollen kan først køre når valg er oversat til eksakte kildespænd, og den skal køre før noget skrives til databasen. Der er præcis ét sted hvor begge ting er sande:
+Kontrollen kræver eksakte, hash-låste spænd, og den skal ligge **før materialisering**. Begge betingelser er opfyldt straks efter forankringen: `build_human_anchored_candidates()` har på det tidspunkt allerede produceret spændene (`anchor_review_choices_1939.py:558`). Komponeringen tilføjer ikke noget kontrollen har brug for.
 
 ```
 menneskeark (matchning)
    ↓ eksport af kladde
-anchor_review_choices_1939            ← oversætter valg til eksakte kildespænd
-   ↓ forankrede kandidater + omskrevne valg
-review_choices_1939 + compose_evidence
-   ↓ sammensat evidens: ét calamari_span pr. accepteret post
+anchor_review_choices_1939            ← producerer eksakte, hash-låste spænd
 ━━━ GRÆNSEKONTROL (dette design) ━━━
-   ↓ grænse-domme + rettede spænd + OCR-noter
-(tilbage gennem forankringen, hvis noget blev rettet)
-   ↓
+   ↓ grænse-domme + (fase 2) afløsende spænd
+review_choices_1939 + compose_evidence
+   ↓ sammensat evidens
 materialisering til databasen          ← findes ikke endnu
 ```
 
-Før forankringen findes spændene ikke — et kandidatvalg er kun et id. Efter materialiseringen er teksterne blevet påstande, og påstande overskrives aldrig (invariant 1); en rettelse ville da koste ny påstand plus ny konklusion. I dette punkt er spændene præcise **og** stadig blot filer, så en rettet grænse er blot et andet spænd i samme kladde. Det sparer hele afløsnings-maskineriet — og det er derfor kontrollen **skal** ligge før import.
+Kontrollen lægges **før** compose, ikke efter. Grunden er praktisk: en ugyldig rettelse er billigere at kassere før komponeringen end at rulle tilbage efter. Det er også dér afløsningsproblemet nedenfor er til at håndtere, fordi `compose_human_evidence_bundle()` endnu ikke har fastlåst en positiv proveniens.
+
+Efter materialiseringen er teksterne blevet påstande, og påstande overskrives aldrig (invariant 1). Kravet "før materialisering" er hårdt. Påstanden i første udgave af dette design — at der kun findes *ét* muligt sted — holdt ikke: hoved- og slugningssignalerne kan endda køres endnu tidligere som et præventivt filter, hvor de er et gulv og ikke en optælling (`detect_boundary_defects_1939.py:23`).
 
 ## Omfang
 
 **Med:** alle skæringer mellem accepterede spænd, inklusive de 93 maskinafgjorte og de 5 stikprøver. De automatiske spænd er afgjort af en regel om entydige ankre, ikke af en kontrol af hvor posten holder op, så deres grænser er lige så udsatte som de menneskevalgte.
 
-**Uden for:** selve rettelsen af OCR-tegn (noteres her, rettes i egen opgave — se nedenfor), og materialisering til databasen.
+**Uden for:** rettelse af OCR-tegn (noteres her, rettes i egen opgave), og materialisering.
 
 ## Arkitektur
 
-**Selvstændig flade**, ikke en femte fane i menneskearket. Grænsekontrollen har en anden enhed (par af spænd, ikke én post), en anden interaktion (flyt et skæringspunkt) og et andet output (rettede spænd). `human_review_1939_ui.js` er omkring 1000 linjer og bærer en gennemgang der er i gang; at presse en fremmed enhed ind i den lægger risikoen på igangværende arbejde.
+**Selvstændig flade**, ikke en femte fane i menneskearket. Grænsekontrollen har en anden enhed (par af spænd, ikke én post), en anden interaktion (flyt et skæringspunkt) og et andet output. `human_review_1939_ui.js` er omkring 1000 linjer og bærer en gennemgang der er i gang.
 
 | Fil | Rolle |
 |---|---|
@@ -50,137 +49,192 @@ Før forankringen findes spændene ikke — et kandidatvalg er kun et id. Efter 
 | `boundary_review_1939_ui.js` | selve fladen |
 | `review_ui_shared.js` | delt UI-grundstof: elementer, knapper, lokal lagring, eksport, karantæne |
 
-`human_review_1939_ui.js` flyttes over på det delte modul i samme ombæring. Ellers divergerer de to flader. Regressionsværnet er at menneskearkets 88 tests skal bestå **uændret** — ændrer de sig, er adfærd flyttet og ikke kun kode.
+`human_review_1939_ui.js` flyttes over på det delte modul i samme ombæring. Regressionsværnet er at menneskearkets 88 tests består **uændret** — ændrer de sig, er adfærd flyttet og ikke kun kode.
 
 ### Input
 
 | Fil | Hvad den giver |
 |---|---|
-| `composed-evidence-*.json` | postens accepterede `calamari_span` — de entries der har positiv proveniens og præcis én kandidat. Entries med `conflicts` eller `source_blockers` har intet accepteret spænd og indgår ikke som grænseejere; de tælles som ubesluttede i dækningsregnskabet |
+| `human-anchored-candidates-*.json` + `rewritten-choices-*.json` | de accepterede, hash-låste spænd med id og godkendelse |
+| kø-manifestets automatiske kandidater | de maskinafgjorte spænd, som også er grænseejere |
 | `clean_1939_v2.json` | navn, trykt nummer (`_orig_nr`), søskendegruppe (`_gruppe_nr`, ellers `_v2_lokal_id`-gren) |
 | `full_ocr_calamari_r6_clean.txt` | kildeteksten spændene peger ind i |
-| `raw.txt` | anden gengivelse, til at bekræfte skæringspunkter og OCR-fejl |
-| `review-queue-manifest-*.json` | kø-klasse, så automatiske og stikprøver kan mærkes |
+| `raw.txt` | anden gengivelse: bekræfter skæringspunkter og OCR-fejl, og bruges i den negative kontrol nedenfor |
 
-Klausul-regnskabet (se nedenfor) findes ikke som fil og udledes i processen af den hash-låste Calamari-tekst — samme mønster som `make_human_review_1939.py`, der kalder `segment._segment_1939_v2` undervejs.
+Klausul-regnskabet udledes i processen af den hash-låste Calamari-tekst (`segment.py --emit-evidence-ledger`), samme mønster som `make_human_review_1939.py` bruger til segmentering.
 
 ### Output
 
 - `menneskeark-graenser-<version>.html` — selvbærende fil, alt indlejret, gemmer lokalt, eksporterer JSON
-- `graense-domme.json` — kildens hash-blok + én dom pr. grænse
+- `graense-domme.json` — kildens hash-blok + én dom pr. grænse-revision
 - `ocr-noter.json` — noter hængt på poster, til den senere rettelsesopgave
 
 ## Kontrollens form: dækning, ikke bare skæringer
 
-Kontrollen er en **dækningskontrol af hele kildeteksten**: hvert tegn skal enten ligge inde i et accepteret spænd, eller i et stykke der udtrykkeligt er erklæret ejerløst. Grænserne er de steder hvor status skifter.
+Hvert tegn i kilden skal enten ligge inde i et accepteret spænd eller i et stykke der udtrykkeligt er erklæret ejerløst. Grænserne er de steder hvor status skifter.
 
-Ejerløs tekst er legitim og almindelig: generationsoverskrifter ("Sjette Slægtled"), linjeoverskrifter, romertal, gruppebeskrivelser, sidemarkører, kildelinjer. Den kategori findes allerede i datamodellen: `segment.py --emit-evidence-ledger` deler kildeteksten linje for linje i `record_text`, `structural_header`, `layout` og `noise` (validerede værdier i `clause_ledger.py`). Et hul kan derfor **slås op** frem for at gættes.
+Ejerløs tekst er legitim og almindelig: generationsoverskrifter ("Sjette Slægtled"), linjeoverskrifter, romertal, gruppebeskrivelser, sidemarkører, kildelinjer.
+
+**Randene hører med.** Spændene sorteres eksplicit efter `char_from`, og kildeteksten får en start- og en slut-sentinel, så hullet før det første og efter det sidste accepterede spænd også bliver en grænse. Uden dem ville dækningskravet være usandt ved bogens to ender. Nul accepterede spænd giver én grænse (hele teksten ejerløs); ét spænd giver to.
 
 ### Signaler
 
 | Signal | Bunke | Betydning |
 |---|---|---|
 | Hul med ejerløs brødtekst | Kræver vurdering | hullet indeholder `record_text` — prosa ingen post ejer |
-| Hul med kun overskrift/layout | Hurtig bekræftelse | forventet; vises med hvad der står |
-| Overlap | Hård fejl | to spænd dækker samme tegn; adapteren parkerer den slags, så optræder det, er noget galt højere op i kæden |
+| Hul uden brødtekst og uden hoved i nogen gengivelse | Hurtig bekræftelse | forventet ejerløst; vises med hvad der står |
+| Overlap | Hård fejl | to spænd dækker samme tegn |
 | Mangler eget hoved | Kræver vurdering | spændet åbner ikke med sin posts trykte hoved (OCR-tolerant match) |
 | Slugt hoved | Kræver vurdering | spændet bærer en senere søskendes trykte hoved |
 | Nummerspring | Kræver vurdering | de accepterede spænd i en søskendegruppe ligger i anden rækkefølge end de trykte numre, eller et nummer mangler blandt dem |
 | Længdeafvigelse | Kun sortering | spændet er markant kortere eller længere end sine søskende; aldrig en advarsel i sig selv |
 
-De fire midterste signaler er logik der allerede findes og er testet i `detect_boundary_defects_1939.py` (`fold_ocr`, `_opens_with_own_head`, `_swallowed_heads`). De skal pege på de accepterede spænd i stedet for på de gamle narrativer. Nummerspring og længdeafvigelse er nye.
+De fire midterste signaler findes og er testet i `detect_boundary_defects_1939.py` (`fold_ocr`, `_opens_with_own_head`, `_swallowed_heads`); de skal pege på de accepterede spænd i stedet for på de gamle narrativer. Nummerspring og længdeafvigelse er nye.
 
-**Forbehold:** regnskabets klassifikation hviler på de samme linjebaserede regler der tabte `7. H e i n r i c h`. En overskrift kan blive læst som brødtekst og omvendt. Regnskabet **sorterer og forklarer**; den faktiske tekst vises altid. Ved tvivl vises frem for at skjules.
+### Hvad der må massebekræftes — og hvorfor regnskabet ikke er nok
+
+Klausul-regnskabet klassificerer linjer med brede regler og kalder alt andet `record_text` (`segment.py:978`). Det bruger de generelle `LINJE_NAME`, `ROMAN_RE`, `SLGT_RE` og `MARR_RE` — ikke 1939-v2-profilens fulde strukturlogik (`segment.py:981`). En manglende person, hvis hoved fejlklassificeres som `structural_header`, ville derfor kunne havne i den bunke der godkendes i stræk. At "teksten altid vises" er ikke et værn, når fladen samtidig tilbyder godkendelse af tyve ad gangen.
+
+Derfor gælder en **negativ kontrol på tværs af gengivelser** som port til hurtig bekræftelse. Et hul må kun massebekræftes hvis alle tre holder:
+
+1. ingen `record_text`-klausul i hullet,
+2. ingen linje i hullet matcher et trykt hoved i Calamari,
+3. ingen linje i hullets *modsvarende* stykke i rå OCR matcher et trykt hoved.
+
+Punkt 3 er det afgørende: netop den fejl der skabte hele problemet — et hoved Calamari tabte — er synlig i den anden gengivelse. Fejler nogen af de tre, går hullet til individuel vurdering. Regnskabet **sorterer**; den negative kontrol **porter**.
 
 ### Visning
 
-- **Kræver vurdering:** én skæring pr. skærm med fuld tekstkontekst — hvad det foregående spænd slutter med, hvad det efterfølgende begynder med, og hvad der eventuelt ligger imellem.
-- **Hurtig bekræftelse:** flere skæringer pr. skærm i en tabel, godkendes i stræk.
+- **Kræver vurdering:** én skæring pr. skærm med fuld tekstkontekst.
+- **Hurtig bekræftelse:** flere pr. skærm, godkendes i stræk.
 
-Fuld dækning i begge tilfælde: ingen skæring er utilgængelig, men de mistænkte kommer først, så en halvfærdig gennemgang stadig har dækket det farligste.
+Fuld dækning i begge tilfælde: ingen skæring er utilgængelig, men de mistænkte kommer først.
 
-## Rettelsen
+## Grænsens identitet og revision
 
-**Skæringsvinduet** starter som de sidste 10 linjer af det foregående spænd + hele hullet + de første 10 linjer af det efterfølgende. Tallet er en navngiven konstant, ikke et skøn pr. sag. Er et spænd kortere end 10 linjer, tages hele spændet.
+Identiteten udledes af de to nabospænd **plus et revisionsnummer**. Uden revisionsnummeret kan forløbet A → B → A give det oprindelige grænse-id igen, og en gammel `graense_ok` ville da fremstå som gyldig for en grænse der har været igennem to rettelser. Domme er append-only med en forældrekæde: en ny revision arver ikke en tidligere dom, og en tidligere dom kan aldrig genaktiveres alene ved id-lighed.
 
-**Vinduet kan udvides på stedet.** Er en lang tekst blevet skåret over, ligger det rigtige skæringspunkt måske længere væk end 10 linjer, og et fast tal ville da skjule netop det punkt du skal pege på. Fladen har derfor to udvidelser: *vis 20 linjer mere* i den ende du undersøger, og *vis hele spændet*. Udvidelsen ændrer kun hvad du kan se og vælge imellem — ikke hvilke punkter der er gyldige, og ikke dommen. Et skæringspunkt er gyldigt hvis det er en linjestart inden for de to spænd og hullet mellem dem, uanset hvor meget af dem der er fremvist.
+En flytning ændrer **begge** nabospænd og kan derfor invalidere op til **tre** grænser: den flyttede plus de to yderligere skæringer som de ændrede spænd har mod deres andre naboer. Alle tre får ny revision og skal bekræftes igen.
 
-Hver linjestart i vinduet er et muligt skæringspunkt, mærket:
+## Fase 1 — se og dømme
 
-| Mærke | Hvorfra |
-|---|---|
-| trykt hoved | linjen matcher `POST_1939_RE`, eller matcher postens eget navn OCR-tolerant |
-| rå OCR har hoved her | den anden gengivelse har et trykt hoved hvor Calamari mangler det — Heinrich-tilfældet |
-| overskrift · brødtekst · layout | klausul-regnskabets klassifikation |
-
-Mærket "rå OCR har hoved her" er det stærkeste, fordi det er to uafhængige gengivelser af samme trykte side frem for en læsning mod en maskine.
-
-### Fire slags rettelse
-
-1. **Flyt skæringen** mellem to naboer — begge spænd ændres.
-2. **Læg hullet til den ene nabo** — ét spænd forlænges.
-3. **Erklær hullet ejerløst** — intet spænd ændres, dækningsregnskabet lukker.
-4. **Her mangler en post** — hullet rummer en person ingen har matchet. Kan ikke løses ved at flytte en grænse; får sin egen dom og går tilbage i matchningskøen. Ellers skjules en manglende person som en grænsejustering.
-
-### Hvorfor rettelsen ikke kræver nye evidensbegreber
-
-Et flyttet spænd er stadig et eksakt, sammenhængende udsnit af den hash-låste kilde. Det hash-låses som i dag: id fra `coverage_1939.deterministic_human_candidate_id`, godkendelse `human_approved_span_v1` med `calamari_excerpt_sha256`. Kæden får ingen ny *slags* bevis — kun en ny **producent** af spænd (fladen) ved siden af den bestående (parserens post). Netop den producent manglede, da det viste sig at Heinrich ikke kunne forankres: `anchor_review_choices_1939` udleder spænd *fra* en valgt parser-post, og uden parser-post findes intet spænd at godkende.
-
-Før fladen udsender noget, skal de rettede spænd bestå kædens bestående kontroller: ingen overlap, og global injektivitet — ét spænd må kun tilhøre én post.
-
-## Domme, lagring og vejen tilbage
-
-**Grænsens identitet** udledes deterministisk af de to spænd den ligger imellem. Flyttes en grænse, ændrer de tilstødende spænd sig, og grænsen får ny identitet og skal bekræftes igen. Det er tilsigtet: en rettelse skaber en ny grænse frem for en rettet gammel.
+Fase 1 ændrer ingen spænd. Den kan derfor kun rumme domme der ikke kræver et skæringspunkt:
 
 | Dom | Ledsagende felt |
 |---|---|
 | `graense_ok` | — |
-| `graense_flyttet` | valgt skæringspunkt |
+| `graense_forkert` | begrundelse |
 | `hul_ejerloest` | — |
-| `hul_lagt_til_post` | hvilken nabo der får teksten |
 | `manglende_post` | — |
 | `kan_ikke_afgoeres` | begrundelse |
 
-**OCR-noter hænger på posten**, ikke på skæringen — posten bærer teksten. Felter: hvad der står, hvad der burde stå, om rå OCR bekræfter, fri bemærkning. De havner i `ocr-noter.json` og rører ikke grænsedommene.
+`graense_flyttet` og `hul_lagt_til_post` hører til fase 2, fordi de kræver et valgt skæringspunkt og en afløsning af accepteret evidens. At love dem i fase 1 var en fejl i første udgave af dette design.
 
-**Gengivelsesfilen ændres aldrig.** Hele kæden validerer mod `calamari_sha256`, og hvert spænd bærer en `calamari_excerpt_sha256` over netop sin tekst. Rettes tegn i filen, ophører den med at være en gengivelse af det trykte og bliver en redigeret afskrift, og alle hidtidige spænd og hashes falder. En OCR-rettelse er en ny påstand om hvad den trykte side siger, med egen proveniens, oven på en uforanderlig gengivelse. Rettelsesmekanismen designes som sin egen opgave, men **skal være gennemført før materialisering** — ellers importeres forkert tekst.
+**Hvad fase 1 er værd alene:** en importspærring og en optælling. Den svarer på hvor mange grænser der er gale, hvilket er den viden der mangler mest — og som afgør om fase 2 er værd at bygge. Den giver ikke redaktøren en reparationshandling. Det skal siges tydeligt, så forventningen er rigtig: efter fase 1 er de gale grænser kendte og standset, ikke rettede.
 
-**Lagring:** browserens lokale lager mens der arbejdes, eksport som den portable tilstand. `file://`-dokumenter får hvert sit lager pr. fil, så en ny fil betyder altid: eksportér først. Generatoren kan indlejre en tidligere eksport ved genbygning, og fladen viser hvor længe siden der sidst blev eksporteret.
+## Fase 2 — rette
 
-**Videre i kæden:**
+### Skæringsvinduet
 
-- `graense_flyttet` og `hul_lagt_til_post` → rettede spænd med id og godkendelse, ind i den bestående forankringskæde
-- `manglende_post` og `kan_ikke_afgoeres` → parkeringsliste med maskinlæsbar årsag
-- OCR-noter → egen fil til den senere rettelsesopgave
+Starter som de sidste 10 linjer af det foregående spænd + hele hullet + de første 10 linjer af det efterfølgende; navngiven konstant. Er et spænd kortere, tages hele spændet.
+
+**Vinduet kan udvides på stedet:** *vis 20 linjer mere* og *vis hele spændet*. Er en lang tekst skåret over, ligger det rigtige punkt måske længere væk end 10 linjer, og et fast tal ville skjule netop det. Udvidelsen ændrer kun hvad der er fremvist — ikke hvilke punkter der er gyldige. Et skæringspunkt er gyldigt hvis det er en linjestart inden for de to spænd og hullet mellem dem.
+
+Hvert punkt er mærket:
+
+| Mærke | Hvorfra |
+|---|---|
+| trykt hoved | linjen matcher `POST_1939_RE`, eller matcher postens eget navn OCR-tolerant |
+| rå OCR har hoved her | den anden gengivelse har et trykt hoved hvor Calamari mangler det |
+| overskrift · brødtekst · layout | klausul-regnskabets klassifikation |
+
+### Fire slags rettelse
+
+1. **Flyt skæringen** — begge nabospænd afløses.
+2. **Læg hullet til den ene nabo** — ét spænd afløses.
+3. **Erklær hullet ejerløst** — intet spænd ændres.
+4. **Her mangler en post** — hullet rummer en person ingen har matchet; går tilbage i matchningskøen frem for at blive skjult som en grænsejustering.
+
+### Autoriseret afløsning — designets tungeste del
+
+En grænserettelse på en post der allerede har accepteret evidens er **en erstatning af positiv evidens**, og det er udtrykkeligt forbudt i dag: `compose_human_evidence_bundle()` afviser at menneske-evidens erstatter en base-entry der har kandidater eller `positive_provenance` (`anchor_review_choices_1939.py:419-420`). Det rammer både automatisk og tidligere menneskegodkendt evidens, altså praktisk taget alle grænseejere.
+
+Guarden er rigtig og skal ikke løsnes. Der skal i stedet indføres én **navngiven, autoriseret afløsningsoperation** med eksplicit semantik:
+
+- det gamle accepterede spænd markeres **afløst**, ikke slettet; det nye bærer en henvisning til hvad det afløser
+- afløsningen er kun lovlig med en registreret grænsedom som årsag — ikke som en almindelig genkomponering
+
+Kandidat*formatet* kræver derimod ingen ny evidensart. Kontrakten er producent-neutral: den kræver spænd, postklasse, PDF-sider og godkendelse eller bro (`coverage_1939.py:115`), og human-kontrakten genberegner id'et uden reference til en parser-post (`prepare_review_queue_1939.py:710`). Første udgave af dette design konkluderede derfra at "kun en ny producent" manglede. Det var for hurtigt: formatet rækker, men operationen mangler.
+
+### Hvad en afløsning invaliderer
+
+Kandidat-id'et udledes deterministisk af spændet (`coverage_1939.py:76`), så et ændret spænd er et nyt id. Følgende skal genberegnes eller invalideres, og planen skal behandle hvert punkt eksplicit:
+
+1. den gamle `positive_provenance` og dens composed-evidence-entry
+2. den omskrevne choice, der peger på det gamle kandidat-id
+3. kø-manifestets automatiske kandidat og `rule_id`, hvis posten var maskinafgjort
+4. stikprøven og dens audit-resultat, som valideres mod det aktuelle manifest og `rule_id` (`prepare_review_queue_1939.py:501`)
+5. alle grænsedomme der er incidente til de to ændrede spænd — op til tre grænser
+6. `pdf_pages` for det nye spænd (se nedenfor)
+
+### PDF-sider efter en flytning
+
+`_resolve_pdf_pages()` bruger den ene forekomst der dækker spændet, og falder ellers tilbage til baseline-postens trykte sider (`anchor_review_choices_1939.py:241`). Et flyttet spænd kan krydse de gamle forekomstgrænser, og så er faldgruben netop den fejl vi lige har rettet et andet sted: sider hentet fra det forkerte sted. Det nye spænds `pdf_pages` skal derfor udledes af sidemarkørerne **inde i spændet** gennem `CALAMARI_R6_TO_PDF_V1`, med samme oversættelse som `make_human_review_1939._pdf_page_for` nu bruger — aldrig fra baseline-postens sider.
+
+## OCR-noter
+
+Noter hænger på **posten**, ikke på skæringen — posten bærer teksten. Felter: hvad der står, hvad der burde stå, om rå OCR bekræfter, fri bemærkning. De havner i `ocr-noter.json` og rører ikke grænsedommene.
+
+**Gengivelsesfilen ændres aldrig.** Kæden validerer mod `calamari_sha256`, og hvert spænd bærer en `calamari_excerpt_sha256` over sin tekst. Rettes tegn i filen, ophører den med at være en gengivelse af det trykte, og alle hidtidige spænd og hashes falder. En OCR-rettelse er en ny påstand om hvad den trykte side siger, med egen proveniens, oven på en uforanderlig gengivelse. Egen opgave — men **skal være gennemført før materialisering**, ellers importeres forkert tekst.
+
+## Lagring
+
+Browserens lokale lager mens der arbejdes; eksport er den portable tilstand. `file://`-dokumenter får hvert sit lager pr. fil, så en ny fil betyder altid: eksportér først. Generatoren kan indlejre en tidligere eksport ved genbygning, og fladen viser hvor længe siden der sidst blev eksporteret.
+
+## Overlap: hvem der faktisk garanterer det
+
+Første udgave af dette design tilskrev overlap-garantien den forkerte kontrol. Den korrekte kæde:
+
+- `anchor_review_choices_1939` parkerer manuel-mod-automatisk og manuel-mod-manuel overlap (`anchor_review_choices_1939.py:347`) — men sammenligner **ikke** automatiske kandidater indbyrdes
+- automatiske indbyrdes dækkes tidligere: køklassifikationen demoterer alle kandidatkrav med overlap (`review_queue_1939.py:438`)
+- den kanoniske slutkontrol sammenligner alle effektive accepterede kandidater (`validate_effective_candidate_injectivity`, `prepare_review_queue_1939.py:1205`)
+
+Kæden er altså dækket, men den nye generator **skal kalde den kanoniske globale kontrol eksplicit**. `validate_source_bound_evidence()` validerer kandidater enkeltvis og beviser ikke globalt fravær af overlap (`prepare_review_queue_1939.py:838`).
 
 ## Fejlhåndtering
 
-Fail-closed på: kildehash der ikke matcher; spænd der overlapper allerede i inputtet; et klausul-regnskab der ikke kan udledes af samme tekst; en dom der peger på en grænse som ikke længere findes; et rettet spænd der bryder injektivitet eller overlapper; et skæringspunkt der ikke er en linjestart i vinduet.
+Fail-closed på: kildehash der ikke matcher; spænd der overlapper allerede i inputtet; et klausul-regnskab der ikke kan udledes af samme tekst; en dom der peger på en grænse-revision som ikke længere findes; et afløsende spænd der bryder global injektivitet eller overlapper; et skæringspunkt der ikke er en linjestart inden for de to spænd og hullet.
 
-Karantæne frem for kassering: en ugyldig gemt dom ryger i karantæne med en dansk årsag og vises. Den forsvinder aldrig stille. Samme adfærd som menneskearket har i dag.
+Karantæne frem for kassering: en ugyldig gemt dom ryger i karantæne med en dansk årsag og vises. Den forsvinder aldrig stille — samme adfærd som menneskearket har i dag.
 
 ## Test
 
-- én enhedstest pr. signal: hul klassificeret af regnskabet, manglende hoved, slugt hoved, nummerspring, overlap som hård fejl
-- grænse-id er stabilt på tværs af genbygning
-- en rettelse bliver en gyldig forankret kandidat med korrekt `calamari_excerpt_sha256`
-- injektivitetsbrud afvises
+**Fase 1**
+
+- én enhedstest pr. signal: hul med brødtekst, hul der porter til hurtig bekræftelse, manglende hoved, slugt hoved, nummerspring, overlap som hård fejl
+- den negative kontrol: et hul hvor rå OCR har et hoved Calamari mangler, må **ikke** kunne massebekræftes
+- randene: hul før første og efter sidste spænd; nul og ét accepteret spænd
+- grænse-id og revisionsnummer er stabile på tværs af genbygning; en A → B → A-cyklus genaktiverer ikke en gammel dom
 - rundtur: eksportér → genbyg → domme indlejret
 - menneskearkets 88 tests består uændret efter udtrækket af det delte UI-modul
-- én manuel kørsel mod de rigtige data som verifikation — ikke som test
 
-## Faseopdeling af implementeringen
+**Fase 2**
 
-Designet er større end én sikker leverance, så planen deler det i to. Fase 1 kan bruges alene: den fortæller hvor mange grænser der er gale, hvilket er den viden der mangler mest.
+- en afløsning bliver en gyldig kandidat med korrekt `calamari_excerpt_sha256` og deterministisk id
+- afløsning uden registreret grænsedom afvises
+- alle seks invalideringspunkter dækkes, hvert med sin egen test — særligt stikprøve/audit og de op til tre incidente grænser
+- `pdf_pages` for et flyttet spænd udledes af spændets egne sidemarkører gennem sidekortet, ikke af baseline-postens sider
+- global injektivitet kaldes og afviser et kolliderende afløsende spænd
 
-**Fase 1 — se og dømme.** Delt UI-modul udtrukket, signaler beregnet, flade med begge bunker, de seks domme, eksport, OCR-noter. Ingen rettelse af spænd. Resultat: en dækningsopgørelse over hele kildeteksten og en maskinlæsbar liste over hvilke grænser der er gale.
-
-**Fase 2 — rette.** Skæringsvindue med mærkede punkter, de fire rettelsesformer, rettede spænd som forankrede kandidater med hash og id, injektivitetskontrol før udsendelse, tilbagevejen gennem forankringskæden.
-
-Grunden til rækkefølgen: fase 2's værdi afhænger af fase 1's tal. Er der 12 gale grænser, kan de måske rettes hurtigere gennem matchningskøen end gennem ny kode. Er der 150, er fase 2 uundgåelig.
+Dertil én manuel kørsel mod de rigtige data som verifikation — ikke som test.
 
 ## Kendte begrænsninger
 
-- Klausul-regnskabets klassifikation er heuristisk og bygger på de regler der allerede har fejlet én gang. Den sorterer; den afgør ikke.
+- Klausul-regnskabets klassifikation er heuristisk og bygger på regler der allerede har fejlet én gang. Den sorterer; den negative tværgengivelses-kontrol porter.
 - Nummerspring kan kun ses inden for en søskendegruppe. En grænse der er skredet på tværs af grupper er kun synlig gennem hoved-signalerne.
 - Adapterens globale injektivitetskontrol har endnu ikke kørt mod rigtige data med de omkring 200 ekstra tekstankre som ændringen af ankerreglen bragte i spil. Den konflikt kan først vise sig ved forankring.
+- Fase 1 standser og optæller; den retter ikke. Uden fase 2 skal rettelserne gå gennem matchningskøen.
+
+## Reviewhistorik
+
+Første udgave blev afvist (NO-GO) i adversarial review, Codex gpt-5.6-sol, 2026-08-08. Otte fund, alle efterprøvet i koden og indarbejdet ovenfor. De tre alvorligste: afløsningsforbuddet i `compose_human_evidence_bundle` (kritisk — designet havde ingen lovlig vej tilbage i kæden), den manglende invalideringsgraf, og at klausul-regnskabet ikke er stærkt nok til at porte massebekræftelse. Dertil: grænseidentitet kunne cykle, fase 1 lovede en dom den ikke kunne indfri, overlap-garantien var tilskrevet den forkerte kontrol, placeringen var overhævdet som unik, og randtilfælde samt `pdf_pages` efter en flytning manglede.
