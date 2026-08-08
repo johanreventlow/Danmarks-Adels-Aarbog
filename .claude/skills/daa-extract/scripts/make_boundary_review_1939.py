@@ -56,7 +56,52 @@ window.DAABoundaryReview.init({data: DATA, download: downloadDraft});
 
 def _group_of(record: Mapping) -> object:
     gruppe = record.get("_gruppe_nr")
-    return ("gruppe", gruppe) if gruppe is not None else ("gren", record.get("_v2_lokal_id"))
+    if gruppe is not None:
+        return ("gruppe", gruppe)
+    local_id = record.get("_v2_lokal_id")
+    branch = local_id.rsplit(".", 1)[0] if isinstance(local_id, str) and "." in local_id else local_id
+    return ("gren", branch)
+
+
+def _raw_bridge(span: Mapping | None, raw_length: int) -> tuple[int, int] | None:
+    if span is None:
+        return None
+    candidate = span.get("candidate")
+    bridge = candidate.get("raw_structure_bridge") if isinstance(candidate, Mapping) else None
+    if bridge is None:
+        return None
+    if not isinstance(bridge, Mapping):
+        raise BoundaryError("rå-OCR-broen skal være en mapping")
+    raw_from, raw_to = bridge.get("raw_char_from"), bridge.get("raw_char_to")
+    if any(isinstance(value, bool) or not isinstance(value, int) or value < 0
+           for value in (raw_from, raw_to)):
+        raise BoundaryError("rå-OCR-broen har ugyldige koordinater")
+    if raw_to <= raw_from or raw_to > raw_length:
+        raise BoundaryError("rå-OCR-broen ligger uden for den rå OCR-kilde")
+    return raw_from, raw_to
+
+
+def _raw_gap_window(boundary: Mapping, by_key: Mapping,
+                    raw_text: str) -> tuple[str, str | None]:
+    neighbours = []
+    for side in ("before", "after"):
+        boundary_span = boundary.get(side)
+        key = boundary_span.get("baseline_record_key") if isinstance(boundary_span, Mapping) else None
+        neighbours.append(by_key.get(key) if key is not None else None)
+    before_bridge = _raw_bridge(neighbours[0], len(raw_text))
+    after_bridge = _raw_bridge(neighbours[1], len(raw_text))
+    if before_bridge is None or after_bridge is None:
+        return "", (
+            "Hullet kan ikke kontrolleres i rå OCR, fordi mindst ét "
+            "nabospænd mangler en rå struktur-bro."
+        )
+    raw_from, raw_to = before_bridge[1], after_bridge[0]
+    if raw_to < raw_from:
+        return "", (
+            "Hullet kan ikke kontrolleres i rå OCR, fordi nabospændenes "
+            "rå koordinater står i forkert rækkefølge."
+        )
+    return raw_text[raw_from:raw_to], None
 
 
 def build_boundary_view_model(spans: list[dict], clauses: list[dict],
@@ -70,20 +115,24 @@ def build_boundary_view_model(spans: list[dict], clauses: list[dict],
         dict(source),
     )
     groups: dict[object, list[dict]] = {}
-    for key, span in by_key.items():
-        record = records.get(key)
-        if record is None:
-            raise BoundaryError(f"accepteret spænd har ukendt post {key}")
-        entry = {**copy.deepcopy(dict(record)), "char_from": span["char_from"]}
+    for key, record in records.items():
+        if not isinstance(record, Mapping):
+            raise BoundaryError(f"baseline-post {key} skal være en mapping")
+        entry = copy.deepcopy(dict(record))
+        if key in by_key:
+            entry["char_from"] = by_key[key]["char_from"]
         groups.setdefault(_group_of(record), []).append(entry)
     signals_by_key: dict[str, list[str]] = {}
     for key, span in by_key.items():
+        if key not in records:
+            raise BoundaryError(f"accepteret spænd har ukendt post {key}")
         record = records[key]
         siblings = groups[_group_of(record)]
         lengths = [
             by_key[sibling["record_key"]]["char_to"]
             - by_key[sibling["record_key"]]["char_from"]
-            for sibling in siblings if sibling["record_key"] != key
+            for sibling in siblings
+            if sibling["record_key"] != key and sibling["record_key"] in by_key
         ]
         signals_by_key[key] = span_signals(
             span, record, calamari_text[span["char_from"]:span["char_to"]],
@@ -93,14 +142,16 @@ def build_boundary_view_model(spans: list[dict], clauses: list[dict],
     for boundary in boundaries:
         gap = boundary["gap"]
         gap_text = calamari_text[gap["char_from"]:gap["char_to"]]
-        raw_window = raw_text[gap["char_from"]:gap["char_to"]] if raw_text else ""
+        raw_window, raw_block_reason = _raw_gap_window(boundary, by_key, raw_text)
         summary = classify_gap(clauses, gap)
         signals = []
         for side in ("before", "after"):
             span = boundary[side]
             if span is not None:
                 signals.extend(signals_by_key.get(span["baseline_record_key"], []))
-        bulk = may_bulk_confirm(gap_text, raw_window, summary) and not [
+        bulk = raw_block_reason is None and may_bulk_confirm(
+            gap_text, raw_window, summary,
+        ) and not [
             signal for signal in signals if signal != "laengdeafvigelse"
         ]
         entry = {
@@ -119,6 +170,8 @@ def build_boundary_view_model(spans: list[dict], clauses: list[dict],
             "after_navn": (records[boundary["after"]["baseline_record_key"]].get("navn")
                            if boundary["after"] else None),
         }
+        if raw_block_reason is not None:
+            entry["bulk_block_reason_da"] = raw_block_reason
         entries.append(entry)
         (view_bulk if bulk else view_required).append(entry["boundary_id"])
     return {
@@ -150,15 +203,26 @@ def _automatic_candidates(queue: Mapping) -> dict:
     entries = queue.get("entries")
     if not isinstance(entries, list):
         raise BoundaryError("queue manifest entries skal være en liste")
-    return {
-        entry["baseline_record_key"]: {
-            "baseline_record_key": entry["baseline_record_key"],
+    result = {}
+    for entry in entries:
+        if not isinstance(entry, Mapping) or entry.get("queue_class") != "auto_resolved":
+            continue
+        key = entry.get("baseline_record_key")
+        if not isinstance(key, str) or not key:
+            raise BoundaryError("automatisk køpost mangler baseline_record_key")
+        if not isinstance(entry.get("candidate"), Mapping):
+            raise BoundaryError(
+                f"automatisk køpost {key} mangler en kandidat-mapping"
+            )
+        if key in result:
+            raise BoundaryError(
+                f"automatisk kø har dublet baseline_record_key {key}"
+            )
+        result[key] = {
+            "baseline_record_key": key,
             "candidate": entry["candidate"],
         }
-        for entry in entries
-        if isinstance(entry, Mapping) and entry.get("queue_class") == "auto_resolved"
-        and isinstance(entry.get("candidate"), Mapping)
-    }
+    return result
 
 
 def _clauses_for(text: str) -> list[dict]:

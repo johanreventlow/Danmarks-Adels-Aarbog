@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { expect, it, describe } from 'vitest';
+import { expect, it, describe, vi } from 'vitest';
 
 const sharedSource = readFileSync(resolve(
   process.cwd(), '../.claude/skills/daa-extract/scripts/review_ui_shared.js',
@@ -41,7 +41,7 @@ function boundary(id: string, bulk = false) {
   };
 }
 
-function start(boundaries = [boundary('g-1')]) {
+function start(boundaries = [boundary('g-1')], options: any = {}) {
   document.body.innerHTML =
     '<aside><div data-role="sidebar-navigation"></div>'
     + '<p data-role="save-state"></p></aside><main data-role="app"></main>';
@@ -58,11 +58,13 @@ function start(boundaries = [boundary('g-1')]) {
       hurtig_bekraeftelse: boundaries.filter(b => b.bulk_confirmable).map(b => b.boundary_id),
     },
     boundaries,
+    ...(options.tidligere_domme ? { tidligere_domme: options.tidligere_domme } : {}),
   };
   window.eval(sharedSource);
   window.eval(uiSource);
   return (window as any).DAABoundaryReview.init({
-    data, storage: memoryStorage(), now: () => '2026-08-08T10:00:00.000Z',
+    data, storage: options.storage || memoryStorage(),
+    now: () => '2026-08-08T10:00:00.000Z', download: options.download,
   });
 }
 
@@ -91,6 +93,52 @@ describe('grænsegennemgang', () => {
     expect(controller.exportDraft().entries).toEqual([{
       boundary_id: 'g-1', revision: 0, verdict: 'graense_ok',
       decided_at: '2026-08-08T10:00:00.000Z',
+    }]);
+  });
+
+  it('renderer eksportknappen og sender kladden til download-handleren', () => {
+    const download = vi.fn();
+    start([boundary('g-1')], { download });
+
+    document.querySelector<HTMLButtonElement>('[data-action="export-draft"]')!.click();
+
+    expect(download).toHaveBeenCalledWith(expect.objectContaining({
+      schema_version: 1, entries: [],
+    }));
+  });
+
+  it('gendanner indlejrede tidligere domme før den lokale kladde lægges ovenpå', () => {
+    const tidligere_domme = {
+      schema_version: 1, source: { edition: '1939' },
+      entries: [{ boundary_id: 'g-1', revision: 0, verdict: 'graense_ok',
+                  decided_at: '2026-08-08T08:00:00.000Z' }],
+      ocr_noter: [],
+    };
+    const embedded = start([boundary('g-1')], { tidligere_domme });
+
+    expect(embedded.exportDraft().entries).toEqual([{
+      boundary_id: 'g-1', revision: 0, verdict: 'graense_ok',
+      decided_at: '2026-08-08T08:00:00.000Z',
+    }]);
+
+    const storage = memoryStorage();
+    storage.setItem(
+      `daa1939-graenser:v1:${JSON.stringify({ edition: '1939', profile_version: '1939-v2',
+        baseline_sha256: 'a'.repeat(64), calamari_sha256: 'b'.repeat(64),
+        raw_ocr_sha256: 'c'.repeat(64), pdf_sha256: 'd'.repeat(64) })}`,
+      JSON.stringify({ verdicts: { 'g-1': {
+        boundary_id: 'g-1', revision: 0, verdict: 'hul_ejerloest',
+        decided_at: '2026-08-08T09:00:00.000Z',
+      } } }),
+    );
+    const controller = start([boundary('g-1')], {
+      storage,
+      tidligere_domme,
+    });
+
+    expect(controller.exportDraft().entries).toEqual([{
+      boundary_id: 'g-1', revision: 0, verdict: 'hul_ejerloest',
+      decided_at: '2026-08-08T09:00:00.000Z',
     }]);
   });
 

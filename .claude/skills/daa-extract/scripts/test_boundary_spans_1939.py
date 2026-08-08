@@ -116,8 +116,14 @@ def test_boundary_id_is_stable_and_revision_bearing():
 
     assert first == boundary_id_for(before, after, 0)
     assert first != boundary_id_for(before, after, 1)
-    with pytest.raises(BoundaryError, match="sorteret"):
-        boundary_id_for(after, before, 0)
+    assert first != boundary_id_for(after, before, 0)
+
+
+def test_boundary_id_accepts_the_public_minimal_neighbour_contract():
+    before = {"candidate_id": "human:a", "char_from": 0, "char_to": 100}
+    after = {"candidate_id": "human:b", "char_from": 100, "char_to": 200}
+
+    assert boundary_id_for(before, after, 0).startswith("graense:1939-v2:")
 
 
 def test_boundary_id_survives_a_cycle_only_through_its_revision():
@@ -154,9 +160,9 @@ def test_build_boundaries_rejects_malformed_spans_with_danish_boundary_error(spa
 @pytest.mark.parametrize(
     ("before", "after", "message"),
     [
-        ({"candidate_id": "human:a", "char_from": 0, "char_to": 100,
-          "origin": "menneske"}, None, "mangler"),
-        (None, accepted_span("rk-b", "human:b", 100, -1), "ugyldig"),
+        ({"char_from": 0, "char_to": 100}, None, "candidate_id"),
+        (None, {"candidate_id": "human:b", "char_from": 100, "char_to": -1},
+         "ugyldig"),
     ],
 )
 def test_boundary_id_for_rejects_malformed_neighbour_spans_with_danish_boundary_error(

@@ -36,6 +36,106 @@ def automatic_span(key, candidate_id, char_from, char_to):
     }
 
 
+def test_raw_window_uses_the_neighbour_bridges_not_calamari_coordinates():
+    calamari = "1. Anders\nOversigt\n2. Birgit\n"
+    raw_gap = "7. H e i n r i c h til Gottesgabe".ljust(40, " ")
+    raw = "x" * 50 + "1. Anders\n" + raw_gap + "2. Birgit\n"
+    before = automatic_span("rk-1", "1939:1", 0, 10)
+    after = automatic_span("rk-2", "1939:2", 19, 29)
+    before["candidate"]["raw_structure_bridge"].update({
+        "raw_char_from": 50, "raw_char_to": 60,
+    })
+    after["candidate"]["raw_structure_bridge"].update({
+        "raw_char_from": 100, "raw_char_to": 110,
+    })
+    records = {
+        "rk-1": {"record_key": "rk-1", "navn": "Anders", "_orig_nr": 1,
+                 "_gruppe_nr": 1, "_v2_lokal_id": "I.1", "sider": "496"},
+        "rk-2": {"record_key": "rk-2", "navn": "Birgit", "_orig_nr": 2,
+                 "_gruppe_nr": 1, "_v2_lokal_id": "I.2", "sider": "496"},
+    }
+
+    model = build_boundary_view_model(
+        [before, after],
+        [{"char_from": 0, "char_to": len(calamari),
+          "classification": "structural_header"}],
+        calamari, raw, records, SOURCE,
+    )
+
+    middle = model["boundaries"][1]
+    assert middle["raw_window"] == raw_gap
+    assert middle["bulk_confirmable"] is False
+
+
+def test_missing_raw_bridge_blocks_bulk_confirmation_with_a_danish_reason():
+    calamari = "1. Anders\nOversigt\n2. Birgit\n"
+    before = automatic_span("rk-1", "1939:1", 0, 10)
+    after = automatic_span("rk-2", "1939:2", 19, 29)
+    del after["candidate"]["raw_structure_bridge"]
+    after["candidate"]["approval"] = {
+        "kind": "human_approved_span_v1", "calamari_excerpt_sha256": "f" * 64,
+    }
+    records = {
+        "rk-1": {"record_key": "rk-1", "navn": "Anders", "_orig_nr": 1,
+                 "_gruppe_nr": 1, "_v2_lokal_id": "I.1", "sider": "496"},
+        "rk-2": {"record_key": "rk-2", "navn": "Birgit", "_orig_nr": 2,
+                 "_gruppe_nr": 1, "_v2_lokal_id": "I.2", "sider": "496"},
+    }
+
+    model = build_boundary_view_model(
+        [before, after],
+        [{"char_from": 0, "char_to": len(calamari),
+          "classification": "structural_header"}],
+        calamari, "1. Anders\nOversigt\n2. Birgit\n", records, SOURCE,
+    )
+
+    middle = model["boundaries"][1]
+    assert middle["raw_window"] == ""
+    assert middle["bulk_confirmable"] is False
+    assert "rå OCR" in middle["bulk_block_reason_da"]
+
+
+def test_unspanned_baseline_sibling_can_reveal_a_swallowed_head():
+    calamari = "6. Christine Augusta; g. 1708.\n7 Heinrich til Gottesgabe\n"
+    span = automatic_span("rk-6", "1939:6", 0, len(calamari))
+    span["candidate"]["raw_structure_bridge"]["raw_char_to"] = len(calamari)
+    records = {
+        "rk-6": {"record_key": "rk-6", "navn": "Christine Augusta", "_orig_nr": 6,
+                 "_v2_lokal_id": "III.Sjette.III.6", "sider": "535"},
+        "rk-7": {"record_key": "rk-7", "navn": "Heinrich", "_orig_nr": 7,
+                 "_v2_lokal_id": "III.Sjette.III.7", "sider": "535"},
+    }
+
+    model = build_boundary_view_model(
+        [span], [{"char_from": 0, "char_to": len(calamari),
+                  "classification": "record_text"}],
+        calamari, calamari, records, SOURCE,
+    )
+
+    assert all("slugt_hoved" in boundary["signals"]
+               for boundary in model["boundaries"])
+
+
+def test_automatic_candidates_rejects_an_auto_record_without_a_mapping_candidate():
+    queue = {"entries": [{"baseline_record_key": "rk-1",
+                           "queue_class": "auto_resolved", "candidate": None}]}
+
+    with pytest.raises(subject.BoundaryError, match="automatisk køpost.*kandidat"):
+        subject._automatic_candidates(queue)
+
+
+def test_automatic_candidates_rejects_duplicate_baseline_record_keys():
+    queue = {"entries": [
+        {"baseline_record_key": "rk-1", "queue_class": "auto_resolved",
+         "candidate": {"candidate_id": "c-1"}},
+        {"baseline_record_key": "rk-1", "queue_class": "auto_resolved",
+         "candidate": {"candidate_id": "c-2"}},
+    ]}
+
+    with pytest.raises(subject.BoundaryError, match="dublet baseline_record_key.*rk-1"):
+        subject._automatic_candidates(queue)
+
+
 def test_a_gap_with_a_head_only_in_raw_ocr_requires_judgement():
     calamari = "6. Christine Augusta; g. 1708.\n7 Heinrich til Gottesgabe\n"
     raw = "6. Christine Augusta; g. 1708.\n7. H e i n r i c h til Gottesgabe\n"

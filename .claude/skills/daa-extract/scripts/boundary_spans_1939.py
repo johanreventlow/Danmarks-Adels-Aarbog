@@ -69,6 +69,23 @@ def _validated_ordered_spans(spans: object) -> list[dict]:
     return validated
 
 
+def _validated_boundary_id_span(span: object, label: str) -> dict:
+    """Valider kun boundary_id_for's offentlige, minimale nabokontrakt."""
+    if not isinstance(span, Mapping):
+        raise BoundaryError(f"{label} skal være en mapping")
+    candidate_id = span.get("candidate_id")
+    if not isinstance(candidate_id, str) or not candidate_id:
+        raise BoundaryError(f"{label} mangler candidate_id")
+    char_from, char_to = _coordinates(
+        span.get("char_from"), span.get("char_to"), label,
+    )
+    return {
+        "candidate_id": candidate_id,
+        "char_from": char_from,
+        "char_to": char_to,
+    }
+
+
 def _entry(record_key: object, candidate: object, origin: str) -> dict:
     char_from, char_to = _span_of(candidate, "accepteret spænd")
     span = _validated_span({
@@ -118,10 +135,10 @@ def boundary_id_for(before: Mapping | None, after: Mapping | None,
     if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
         raise BoundaryError("revision skal være et ikke-negativt heltal")
 
-    before = None if before is None else _validated_span(before, "forrige spænd")
-    after = None if after is None else _validated_span(after, "næste spænd")
-    if before is not None and after is not None:
-        _validated_ordered_spans([before, after])
+    before = (None if before is None else
+              _validated_boundary_id_span(before, "forrige spænd"))
+    after = (None if after is None else
+             _validated_boundary_id_span(after, "næste spænd"))
 
     def part(span: Mapping | None, label: str) -> str:
         if span is None:

@@ -52,8 +52,10 @@ def _number_skip(record: Mapping, span: Mapping,
     for sibling in siblings:
         number = _printed_number(sibling)
         position = sibling.get("char_from")
-        if number is None or position is None or number == own:
+        if number is None or number == own:
             continue
+        if position is None:
+            return True
         if isinstance(position, bool) or not isinstance(position, int) or position < 0:
             raise SignalError("søskende har ugyldig char_from")
         if (number < own) != (position < span["char_from"]):

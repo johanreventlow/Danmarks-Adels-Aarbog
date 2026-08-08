@@ -59,17 +59,32 @@
     });
   }
 
-  function restore(state) {
-    const saved = readStoredDraft(state.storage, state.storageKey);
+  function restorePayload(state, saved) {
     if (saved == null) return;
     if (!saved || typeof saved !== 'object' || Array.isArray(saved)) {
       quarantine(state, 'kladde', saved, 'Den gemte kladde har et ugyldigt format.');
       return;
     }
-    const savedVerdicts = hasOwn(saved, 'verdicts') ? saved.verdicts : saved;
-    const entries = savedVerdicts && typeof savedVerdicts === 'object'
-      && !Array.isArray(savedVerdicts) ? Object.entries(savedVerdicts) : [];
-    if (!savedVerdicts || typeof savedVerdicts !== 'object' || Array.isArray(savedVerdicts)) {
+    let entries;
+    let savedVerdicts;
+    if (hasOwn(saved, 'entries')) {
+      if (!Array.isArray(saved.entries)) {
+        quarantine(state, 'domme', saved.entries, 'Den gemte domsamling er ugyldig.');
+        entries = [];
+      } else {
+        entries = saved.entries.map((entry, index) => [
+          entry && typeof entry.boundary_id === 'string'
+            ? entry.boundary_id : `indlejret-dom-${index}`,
+          entry,
+        ]);
+      }
+    } else {
+      savedVerdicts = hasOwn(saved, 'verdicts') ? saved.verdicts : saved;
+      entries = savedVerdicts && typeof savedVerdicts === 'object'
+        && !Array.isArray(savedVerdicts) ? Object.entries(savedVerdicts) : [];
+    }
+    if (entries.length === 0 && savedVerdicts !== undefined
+      && (!savedVerdicts || typeof savedVerdicts !== 'object' || Array.isArray(savedVerdicts))) {
       quarantine(state, 'domme', savedVerdicts, 'Den gemte domsamling er ugyldig.');
     }
     entries.forEach(([storedId, storedEntry]) => {
@@ -105,6 +120,11 @@
         }
       });
     }
+  }
+
+  function restore(state) {
+    restorePayload(state, state.data.tidligere_domme);
+    restorePayload(state, readStoredDraft(state.storage, state.storageKey));
   }
 
   function persist(state) {
@@ -233,6 +253,7 @@
         `Bekræft ${quick.length} porterede huller som ejerløse`, 'bulk-confirm',
       ));
     }
+    sidebar.append(actionButton('Eksportér kladde', 'export-draft'));
   }
 
   function renderSignals(boundary) {

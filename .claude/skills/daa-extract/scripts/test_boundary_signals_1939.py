@@ -186,6 +186,18 @@ def test_siblings_out_of_printed_order_give_a_number_skip():
     assert "nummerspring" in signals
 
 
+def test_a_numbered_sibling_without_an_accepted_span_gives_a_number_skip():
+    own = record("Christine Augusta", 6, char_from=0)
+    missing = record("Heinrich", 7)
+
+    signals = span_signals(
+        {"char_from": 0, "char_to": 100}, own,
+        "6. Christine Augusta; g. 1708.", [own, missing],
+    )
+
+    assert "nummerspring" in signals
+
+
 def test_a_span_far_shorter_than_its_siblings_is_flagged_for_sorting_only():
     own = record("Kort", 3, char_from=0)
     siblings = [own, record("Lang", 4, char_from=100), record("Lang", 5, char_from=900)]
