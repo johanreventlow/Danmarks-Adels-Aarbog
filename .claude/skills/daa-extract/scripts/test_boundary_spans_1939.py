@@ -20,6 +20,16 @@ def automatic(key, cid, char_from, char_to):
                                 "pdf_pages": [500]}}}
 
 
+def accepted_span(key, cid, char_from, char_to):
+    return {
+        "baseline_record_key": key,
+        "candidate_id": cid,
+        "char_from": char_from,
+        "char_to": char_to,
+        "origin": "menneske",
+    }
+
+
 def test_spans_are_sorted_by_position_and_carry_their_origin():
     spans = collect_accepted_spans(
         {**anchored("rk-b", "human:b", 200, 300)},
@@ -82,19 +92,58 @@ def test_adjacent_spans_give_an_empty_gap():
 
 
 def test_boundary_id_is_stable_and_revision_bearing():
-    before = {"candidate_id": "human:a", "char_from": 0, "char_to": 100}
-    after = {"candidate_id": "human:b", "char_from": 100, "char_to": 200}
+    before = accepted_span("rk-a", "human:a", 0, 100)
+    after = accepted_span("rk-b", "human:b", 100, 200)
 
     first = boundary_id_for(before, after, 0)
 
     assert first == boundary_id_for(before, after, 0)
     assert first != boundary_id_for(before, after, 1)
-    assert first != boundary_id_for(after, before, 0)
+    with pytest.raises(BoundaryError, match="sorteret"):
+        boundary_id_for(after, before, 0)
 
 
 def test_boundary_id_survives_a_cycle_only_through_its_revision():
     """A -> B -> A giver samme spænd igen; kun revisionen skiller dommene."""
-    before = {"candidate_id": "human:a", "char_from": 0, "char_to": 100}
-    after = {"candidate_id": "human:b", "char_from": 100, "char_to": 200}
+    before = accepted_span("rk-a", "human:a", 0, 100)
+    after = accepted_span("rk-b", "human:b", 100, 200)
 
     assert boundary_id_for(before, after, 0) != boundary_id_for(before, after, 2)
+
+
+@pytest.mark.parametrize(
+    ("spans", "message"),
+    [
+        ([{"candidate_id": "human:a", "char_from": 0, "char_to": 100,
+           "origin": "menneske"}], "mangler"),
+        ([{"baseline_record_key": "rk-a", "char_from": 0, "char_to": 100,
+           "origin": "menneske"}], "mangler"),
+        ([{"baseline_record_key": "rk-a", "candidate_id": "human:a",
+           "char_to": 100, "origin": "menneske"}], "ugyldig"),
+        ([{"baseline_record_key": "rk-a", "candidate_id": "human:a",
+           "char_from": 0, "origin": "menneske"}], "ugyldig"),
+        ([accepted_span("rk-a", "human:a", -1, 100)], "ugyldig"),
+        ([accepted_span("rk-b", "human:b", 100, 200),
+          accepted_span("rk-a", "human:a", 0, 100)], "sorteret"),
+        ([accepted_span("rk-a", "human:a", 0, 100),
+          accepted_span("rk-b", "human:b", 50, 150)], "overlapper"),
+    ],
+)
+def test_build_boundaries_rejects_malformed_spans_with_danish_boundary_error(spans, message):
+    with pytest.raises(BoundaryError, match=message):
+        build_boundaries(spans, source_length=200)
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "message"),
+    [
+        ({"candidate_id": "human:a", "char_from": 0, "char_to": 100,
+          "origin": "menneske"}, None, "mangler"),
+        (None, accepted_span("rk-b", "human:b", 100, -1), "ugyldig"),
+    ],
+)
+def test_boundary_id_for_rejects_malformed_neighbour_spans_with_danish_boundary_error(
+    before, after, message,
+):
+    with pytest.raises(BoundaryError, match=message):
+        boundary_id_for(before, after, 0)

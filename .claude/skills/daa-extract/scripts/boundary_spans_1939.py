@@ -10,6 +10,15 @@ class BoundaryError(ValueError):
     pass
 
 
+def _coordinates(char_from: object, char_to: object, label: str) -> tuple[int, int]:
+    for value in (char_from, char_to):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise BoundaryError(f"{label} har ugyldige koordinater")
+    if char_to <= char_from:
+        raise BoundaryError(f"{label} har tomt spænd")
+    return char_from, char_to
+
+
 def _span_of(candidate: object, label: str) -> tuple[int, int]:
     if not isinstance(candidate, Mapping):
         raise BoundaryError(f"{label} mangler kandidat")
@@ -17,21 +26,24 @@ def _span_of(candidate: object, label: str) -> tuple[int, int]:
     if not isinstance(span, Mapping):
         raise BoundaryError(f"{label} mangler calamari_span")
     char_from, char_to = span.get("char_from"), span.get("char_to")
-    for value in (char_from, char_to):
-        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-            raise BoundaryError(f"{label} har ugyldigt calamari_span")
-    if char_to <= char_from:
-        raise BoundaryError(f"{label} har tomt calamari_span")
-    return char_from, char_to
+    return _coordinates(char_from, char_to, f"{label} har ugyldigt calamari_span")
 
 
-def _entry(record_key: object, candidate: object, origin: str) -> dict:
+def _validated_span(span: object, label: str) -> dict:
+    if not isinstance(span, Mapping):
+        raise BoundaryError(f"{label} skal være en mapping")
+    record_key = span.get("baseline_record_key")
     if not isinstance(record_key, str) or not record_key:
-        raise BoundaryError("accepteret spænd mangler baseline_record_key")
-    char_from, char_to = _span_of(candidate, f"post {record_key}")
-    candidate_id = candidate.get("candidate_id")
+        raise BoundaryError(f"{label} mangler baseline_record_key")
+    candidate_id = span.get("candidate_id")
     if not isinstance(candidate_id, str) or not candidate_id:
-        raise BoundaryError(f"post {record_key} mangler candidate_id")
+        raise BoundaryError(f"{label} mangler candidate_id")
+    origin = span.get("origin")
+    if origin not in {"menneske", "automatisk"}:
+        raise BoundaryError(f"{label} har ugyldig oprindelse")
+    char_from, char_to = _coordinates(
+        span.get("char_from"), span.get("char_to"), label,
+    )
     return {
         "baseline_record_key": record_key,
         "candidate_id": candidate_id,
@@ -39,6 +51,32 @@ def _entry(record_key: object, candidate: object, origin: str) -> dict:
         "char_to": char_to,
         "origin": origin,
     }
+
+
+def _validated_ordered_spans(spans: object) -> list[dict]:
+    if not isinstance(spans, list):
+        raise BoundaryError("spænd skal leveres som en liste")
+    validated = [_validated_span(span, "accepteret spænd") for span in spans]
+    for left, right in zip(validated, validated[1:]):
+        if (right["char_from"], right["char_to"]) < (left["char_from"], left["char_to"]):
+            raise BoundaryError("accepterede spænd er ikke sorteret")
+        if right["char_from"] < left["char_to"]:
+            raise BoundaryError(
+                f"spænd overlapper: {left['baseline_record_key']} og "
+                f"{right['baseline_record_key']}"
+            )
+    return validated
+
+
+def _entry(record_key: object, candidate: object, origin: str) -> dict:
+    char_from, char_to = _span_of(candidate, "accepteret spænd")
+    return _validated_span({
+        "baseline_record_key": record_key,
+        "candidate_id": candidate.get("candidate_id"),
+        "char_from": char_from,
+        "char_to": char_to,
+        "origin": origin,
+    }, "accepteret spænd")
 
 
 def collect_accepted_spans(anchored: object, automatic: object) -> list[dict]:
@@ -63,13 +101,7 @@ def collect_accepted_spans(anchored: object, automatic: object) -> list[dict]:
             raise BoundaryError(f"post {key} ejer et spænd to gange")
         owners[key] = span["candidate_id"]
     spans.sort(key=lambda span: (span["char_from"], span["char_to"]))
-    for left, right in zip(spans, spans[1:]):
-        if right["char_from"] < left["char_to"]:
-            raise BoundaryError(
-                f"spænd overlapper: {left['baseline_record_key']} og "
-                f"{right['baseline_record_key']}"
-            )
-    return spans
+    return _validated_ordered_spans(spans)
 
 
 def boundary_id_for(before: Mapping | None, after: Mapping | None,
@@ -81,6 +113,11 @@ def boundary_id_for(before: Mapping | None, after: Mapping | None,
     """
     if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
         raise BoundaryError("revision skal være et ikke-negativt heltal")
+
+    before = None if before is None else _validated_span(before, "forrige spænd")
+    after = None if after is None else _validated_span(after, "næste spænd")
+    if before is not None and after is not None:
+        _validated_ordered_spans([before, after])
 
     def part(span: Mapping | None, label: str) -> str:
         if span is None:
@@ -98,6 +135,7 @@ def build_boundaries(spans: list[dict], source_length: int) -> list[dict]:
     """Én grænse pr. skifte i ejerskab, inklusive kildens to rande."""
     if isinstance(source_length, bool) or not isinstance(source_length, int) or source_length < 0:
         raise BoundaryError("source_length skal være et ikke-negativt heltal")
+    spans = _validated_ordered_spans(spans)
     for span in spans:
         if span["char_to"] > source_length:
             raise BoundaryError(
