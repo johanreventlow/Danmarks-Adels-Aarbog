@@ -446,32 +446,17 @@ def _generator_text_anchor_candidates(
 ) -> dict[str, dict]:
     """Reproduce the generator's exact text-anchor eligibility and output.
 
-    Only records that are human_required in the queue AND have no nearby
-    parser candidates on their own PDF pages were ever offered a text
-    anchor; every other record must stay outside the anchor universe.
+    Every record that is human_required in the queue is offered its unique
+    exact-text anchor, exactly as the generator does; auto_resolved and
+    source_blocked records stay outside the anchor universe.  Page neighbours no
+    longer gate this — suppressing a proven anchor because the parser happened to
+    delimit something on the same page is what a correct page map exposed.
     """
     fallback_keys = _text_anchor_fallback_keys(
         {"entries": list(classifications.values())}
     )
-    by_pdf_page: dict[str, list[dict]] = {}
-    for candidate in _presentation_candidates(
-        posts, calamari_first_pdf_page, profile_version
-    ):
-        for page in candidate["pdf_pages"]:
-            by_pdf_page.setdefault(str(page), []).append(candidate)
-    nearby_candidates = {
-        record["record_key"]: sum(
-            (by_pdf_page.get(str(page), []) for page in _pages(record.get("sider"))),
-            [],
-        )
-        for record in records
-    }
     return _unique_exact_text_anchor_candidates(
-        [
-            record for record in records
-            if record["record_key"] in fallback_keys
-            and not nearby_candidates[record["record_key"]]
-        ],
+        [record for record in records if record["record_key"] in fallback_keys],
         calamari_text, calamari_first_pdf_page, profile_version,
     )
 

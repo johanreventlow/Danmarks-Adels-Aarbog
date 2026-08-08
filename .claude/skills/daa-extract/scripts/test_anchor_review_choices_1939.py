@@ -578,28 +578,15 @@ def test_posts_kan_ikke_leveres_udefra():
         )
 
 
-def test_text_anchor_for_post_med_nearby_kandidater_parkeres():
+def test_text_anchor_accepteres_ogsaa_naar_posten_har_nearby_kandidater():
+    """En bevist tekstforankring maa ikke fortraenges af naboer paa samme side."""
     records = copy.deepcopy(BASELINE_RECORDS)
     records["rec-c"]["sider"] = "496"
-    forged = text_anchor_id("rec-c", CAL_LINES[3])
+    anchor = text_anchor_id("rec-c", CAL_LINES[3])
     result = build(
-        {"rec-c": choice("rec-c", forged)},
+        {"rec-c": choice("rec-c", anchor)},
         baseline_records=records,
         first_pdf_page=496,
-    )
-    assert result["anchored"] == {}
-    [parked] = result["parked"]
-    assert parked["reason_code"] == "text_anchor_not_reproducible"
-    assert parked["candidate_id"] == forged
-
-
-def test_aegte_anker_accepteres_trods_ikke_berettiget_overlap():
-    records = copy.deepcopy(BASELINE_RECORDS)
-    records["rec-x"]["narrative"] = "Cecilie Testdatter, f. 1904"
-    records["rec-x"]["sider"] = "11"
-    result = build(
-        {"rec-c": choice("rec-c", text_anchor_id("rec-c", CAL_LINES[3]))},
-        baseline_records=records,
     )
     assert result["parked"] == []
     [wrapper] = result["anchored"].values()
@@ -607,6 +594,38 @@ def test_aegte_anker_accepteres_trods_ikke_berettiget_overlap():
     assert wrapper["candidate"]["calamari_span"] == {
         "char_from": SPAN_C[0], "char_to": SPAN_C[1],
     }
+
+
+def test_tekstanker_parkeres_naar_en_anden_post_kraever_et_overlappende_span():
+    """To poster kan ikke begge eje samme tekst, saa begge anker droppes."""
+    records = copy.deepcopy(BASELINE_RECORDS)
+    records["rec-x"]["narrative"] = "Cecilie Testdatter, f. 1904"
+    result = build(
+        {"rec-c": choice("rec-c", text_anchor_id("rec-c", CAL_LINES[3]))},
+        baseline_records=records,
+    )
+    assert result["anchored"] == {}
+    [parked] = result["parked"]
+    assert parked["reason_code"] == "text_anchor_not_reproducible"
+
+
+def test_tekstanker_udenfor_human_required_forbliver_udenfor_ankeruniverset():
+    """auto_resolved-poster maa aldrig faa et tekstanker, uanset sidetal."""
+    classifications = copy.deepcopy(CLASSIFICATIONS)
+    classifications["rec-c"] = {
+        "baseline_record_key": "rec-c", "queue_class": "auto_resolved",
+        "reason_code": "complete_unique_anchored_candidate",
+        "reason_da": "automatisk", "rule_id": "dual_rendition_consensus_v1",
+        "candidate": copy.deepcopy(AUTO_CANDIDATE),
+    }
+    forged = text_anchor_id("rec-c", CAL_LINES[3])
+    result = build(
+        {"rec-c": choice("rec-c", forged)},
+        audit_keys={"rec-c"},
+        classifications=classifications,
+    )
+    assert result["anchored"] == {}
+    assert result["rewritten_choices"]["rec-c"]["candidate_id"] == forged
 
 
 def test_pdf_fallback_laeser_record_sider_uden_daekkende_occurrence():

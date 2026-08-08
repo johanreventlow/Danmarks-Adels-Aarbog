@@ -17,6 +17,7 @@ from prepare_review_queue_1939 import (
     build_review_view_model,
 )
 from prepare_coverage_1939 import validate_review_template
+from rendition_occurrences_1939 import CALAMARI_R6_TO_PDF_V1, _map_pdf_page
 from review_queue_1939 import sample_auto_resolved
 from review_choices_1939 import validate_choice_export
 
@@ -68,6 +69,28 @@ def _pages(value: object) -> list[int]:
     except ValueError as exc:
         raise ValueError("segmentpost sider er ugyldige") from exc
     return list(range(first, last + 1)) if last >= first else []
+
+
+_CALAMARI_R6_FIRST_PDF_PAGE = CALAMARI_R6_TO_PDF_V1[0][1]
+
+
+def _pdf_page_for(calamari_page: int, calamari_first_pdf_page: int) -> int:
+    """Translate a Calamari page, preferring the calibrated map over counting.
+
+    Calamari does not scan every PDF page — plate pages such as 546 are absent —
+    so ``first_pdf_page + page - 1`` drifts by up to 17 pages from Calamari page
+    51 onwards.  Candidates are matched to records by PDF page, so a drifting
+    page hands a record the wrong person's source post.
+    ``CALAMARI_R6_TO_PDF_V1`` is the same map the occurrence and evidence layers
+    already use, and it is specific to the R6 rendition: it applies exactly when
+    the caller's first page is the map's own first page.  Any other origin is a
+    rendition this module has no measured map for, where counting is the only
+    thing available — ``main`` refuses that combination for the real 1939-v2 run,
+    so counting can never silently reach the review queue.
+    """
+    if calamari_first_pdf_page == _CALAMARI_R6_FIRST_PDF_PAGE:
+        return _map_pdf_page(calamari_page, "calamari", CALAMARI_R6_TO_PDF_V1)
+    return calamari_first_pdf_page + calamari_page - 1
 
 
 def _display_span(pages: list[int]) -> str | None:
@@ -249,7 +272,11 @@ def _candidate_from_post(
     if not isinstance(post_index, int) or isinstance(post_index, bool) or post_index < 0:
         raise ValueError("post_index skal være et ikke-negativt heltal")
     calamari_pages = _pages(post.get("sider"))
-    pdf_pages = [calamari_first_pdf_page + page - 1 for page in calamari_pages]
+    pdf_pages: list[int] = []
+    for page in calamari_pages:
+        pdf_page = _pdf_page_for(page, calamari_first_pdf_page)
+        if pdf_page not in pdf_pages:
+            pdf_pages.append(pdf_page)
     lokal_id = post.get("lokal_id")
     if lokal_id is not None and (not isinstance(lokal_id, str) or not lokal_id.strip()):
         raise ValueError("segmentpost lokal_id skal være en ikke-tom streng eller null")
@@ -351,7 +378,7 @@ def _unique_exact_text_anchor_candidates(
             f"{profile_version}\0{key}\0{start}\0{end}".encode("utf-8")
         ).hexdigest()
         candidate_id = f"presentation:{profile_version}:text-anchor:{digest}"
-        pdf_page = calamari_first_pdf_page + calamari_page - 1
+        pdf_page = _pdf_page_for(calamari_page, calamari_first_pdf_page)
         result[key] = {
             "candidate_id": candidate_id,
             "lokal_id": candidate_id,
@@ -436,6 +463,15 @@ def main() -> int:
         raise ValueError("calamari hash matcher ikke source manifest")
     if source_manifest.get("raw_ocr_sha256") != raw_hash:
         raise ValueError("raw OCR hash matcher ikke source manifest")
+    if (source_manifest.get("profile_version") == "1939-v2"
+            and args.calamari_first_pdf_page != _CALAMARI_R6_FIRST_PDF_PAGE):
+        # Without this gate a mistyped first page would silently fall back to
+        # counting pages, and every candidate after PDF 547 would be offered to
+        # the wrong record.
+        raise ValueError(
+            "1939-v2 kræver --calamari-first-pdf-page "
+            f"{_CALAMARI_R6_FIRST_PDF_PAGE} (CALAMARI_R6_TO_PDF_V1)"
+        )
     queue = json.loads(args.queue_manifest.read_text(encoding="utf-8"))
     if not isinstance(queue, dict):
         raise ValueError("queue manifest skal være en mapping")
@@ -512,18 +548,26 @@ def main() -> int:
         )
         for record in records
     }
+    # The exact-text anchor is the strongest display evidence available: the
+    # baseline narrative found verbatim and uniquely in the source.  Offering it
+    # only when the page neighbours were empty meant that fixing the page map
+    # replaced a proven anchor with weaker same-page guesses, so it is always
+    # offered, and first.
     fallback_candidates = _unique_exact_text_anchor_candidates(
         [
             record for record in records
             if record["record_key"] in _text_anchor_fallback_keys(queue)
-            and not nearby_candidates[record["record_key"]]
         ],
         calamari_bytes.decode("utf-8"),
         args.calamari_first_pdf_page,
         source_manifest["profile_version"],
     )
     for record_key, candidate in fallback_candidates.items():
-        nearby_candidates[record_key] = [candidate]
+        others = [
+            nearby for nearby in nearby_candidates[record_key]
+            if nearby["candidate_id"] != candidate["candidate_id"]
+        ]
+        nearby_candidates[record_key] = [candidate, *others]
     model = build_review_view_model(
         records, queue, nearby_candidates, sample_auto_resolved(queue), decisions,
     )

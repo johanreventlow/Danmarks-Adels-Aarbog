@@ -124,8 +124,10 @@ def test_exact_text_fallback_distinguishes_a_parser_gap_on_the_expected_page():
     narrative = "Markvard sælger 1423 en Rente af 100 Mark Lybsk."
     source = f"### PAGE 0085 ###\n{narrative}"
 
+    # Calamari page 85 translates to PDF 598 through CALAMARI_R6_TO_PDF_V1, so
+    # 598 is the record's own expected page for this branch.
     candidates = subject._unique_exact_text_anchor_candidates(
-        [{"record_key": "rk-markvard", "narrative": narrative, "sider": "580"}],
+        [{"record_key": "rk-markvard", "narrative": narrative, "sider": "598"}],
         source, 496, "1939-v2",
     )
 
@@ -345,7 +347,7 @@ def test_main_shows_a_unique_exact_text_anchor_when_the_baseline_page_is_stale(
     assert payload["records"][0]["candidates"] == [{
         "candidate_id": candidate_id,
         "lokal_id": candidate_id,
-        "pdf_pages": [580],
+        "pdf_pages": [598],
         "calamari_pages": [85],
         "raw_text": narrative,
         "rank_reason": "entydigt_tekstanker_uden_forventet_side",
@@ -978,3 +980,42 @@ def test_main_embeds_valid_cross_page_accepted_anchor_for_browser_audit(tmp_path
     assert attached["rank_reason"] == "accepteret_review_evidens"
     assert attached["raw_text"] == raw_text
     assert attached["accepted_review_details"] == ledger["entries"][0]
+
+
+def test_pdf_pages_come_from_the_calibrated_map_not_from_counting():
+    """Calamari skips plate pages, so counting drifts up to 17 pages."""
+    assert subject._pdf_page_for(1, 496) == 496
+    assert subject._pdf_page_for(50, 496) == 545
+    # PDF 546 is a plate page absent from Calamari: page 51 is already 547.
+    assert subject._pdf_page_for(51, 496) == 547
+    assert subject._pdf_page_for(63, 496) == 575
+    assert subject._pdf_page_for(86, 496) == 598
+
+
+def test_pdf_page_translation_counts_when_the_origin_is_not_the_r6_map():
+    """No measured map exists for another page origin, so counting is all there is."""
+    assert subject._pdf_page_for(63, 11) == 73
+
+
+def test_main_refuses_a_1939_v2_run_with_a_first_page_the_map_disagrees_with(
+    tmp_path, monkeypatch
+):
+    baseline, review, queue, source, calamari = _write_inputs(tmp_path)
+    out = tmp_path / "menneskeark.html"
+    argv = _argv(baseline, review, queue, source, calamari, out)
+    argv[argv.index("--calamari-first-pdf-page") + 1] = "495"
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(ValueError, match="CALAMARI_R6_TO_PDF_V1"):
+        subject.main()
+    assert not out.exists()
+
+
+def test_candidate_from_post_translates_a_late_page_with_the_map():
+    candidate = subject._candidate_from_post(
+        {"lokal_id": "III.Sjette.V.1", "sider": "63", "raw_text": "Heinrich"},
+        496, "1939-v2", 0,
+    )
+
+    assert candidate["calamari_pages"] == [63]
+    assert candidate["pdf_pages"] == [575]
