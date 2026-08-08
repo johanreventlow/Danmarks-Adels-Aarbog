@@ -101,7 +101,11 @@ Fuld dækning i begge tilfælde: ingen skæring er utilgængelig, men de mistæn
 
 ## Rettelsen
 
-**Skæringsvinduet** er de sidste 10 linjer af det foregående spænd + hele hullet + de første 10 linjer af det efterfølgende. Tallet er en navngiven konstant, ikke et skøn pr. sag, så vinduet er ens for alle grænser og kan ændres på ét sted. Er et spænd kortere end 10 linjer, tages hele spændet. Hver linjestart i vinduet er et muligt skæringspunkt, mærket:
+**Skæringsvinduet** starter som de sidste 10 linjer af det foregående spænd + hele hullet + de første 10 linjer af det efterfølgende. Tallet er en navngiven konstant, ikke et skøn pr. sag. Er et spænd kortere end 10 linjer, tages hele spændet.
+
+**Vinduet kan udvides på stedet.** Er en lang tekst blevet skåret over, ligger det rigtige skæringspunkt måske længere væk end 10 linjer, og et fast tal ville da skjule netop det punkt du skal pege på. Fladen har derfor to udvidelser: *vis 20 linjer mere* i den ende du undersøger, og *vis hele spændet*. Udvidelsen ændrer kun hvad du kan se og vælge imellem — ikke hvilke punkter der er gyldige, og ikke dommen. Et skæringspunkt er gyldigt hvis det er en linjestart inden for de to spænd og hullet mellem dem, uanset hvor meget af dem der er fremvist.
+
+Hver linjestart i vinduet er et muligt skæringspunkt, mærket:
 
 | Mærke | Hvorfra |
 |---|---|
