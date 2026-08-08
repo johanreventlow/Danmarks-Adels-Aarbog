@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import re
+
+import segment
 
 
 class SignalError(ValueError):
@@ -10,6 +13,44 @@ class SignalError(ValueError):
 
 
 KLASSER = ("record_text", "structural_header", "layout", "noise")
+
+
+# Et trykt hoved uden punktum ("7 Heinrich") er netop den form Calamari tabte.
+# Porten skal derfor være bredere end selve postregelen, ellers lukker den
+# præcis den fejl igennem som den findes for.
+_LOEST_HOVED_RE = re.compile(
+    r"(?m)^\s{0,4}\??\s{0,2}\d{1,3}\s*[a-z]?\.?\s+(?!(?:Jan|Febr|Marts|April|Maj|Juni|"
+    r"Juli|Aug|Sept|Okt|Nov|Dec|Aar|s\.\s*M))[^\W\d_]",
+    re.UNICODE,
+)
+
+
+def _har_trykt_hoved(text: str) -> bool:
+    if not isinstance(text, str):
+        raise SignalError("tekst skal være en streng")
+    for line in text.splitlines():
+        if segment.POST_1939_RE.match(line):
+            return True
+    return bool(_LOEST_HOVED_RE.search(text))
+
+
+def may_bulk_confirm(gap_text: str, raw_text_window: str,
+                     gap_summary: Mapping) -> bool:
+    """Porten til hurtig bekræftelse: tre krav, alle skal holde.
+
+    1. ingen brødtekst i hullet ifølge regnskabet
+    2. intet trykt hoved i Calamari-hullet
+    3. intet trykt hoved i rå OCR's modsvarende stykke
+
+    Punkt 3 er det afgørende. Et hoved Calamari har tabt, er stadig synligt i
+    den anden gengivelse, og uden dette krav kunne en manglende person havne i
+    den bunke der godkendes tyve ad gangen.
+    """
+    if not isinstance(gap_summary, Mapping) or "har_broedtekst" not in gap_summary:
+        raise SignalError("hul-opsummering mangler har_broedtekst")
+    if gap_summary["har_broedtekst"]:
+        return False
+    return not _har_trykt_hoved(gap_text) and not _har_trykt_hoved(raw_text_window)
 
 
 def classify_gap(clauses: list[dict], gap: Mapping) -> dict:
