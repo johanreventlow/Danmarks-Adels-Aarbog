@@ -62,12 +62,15 @@ def test_raw_window_uses_the_neighbour_bridges_not_calamari_coordinates():
         calamari, raw, records, SOURCE,
     )
 
-    middle = model["boundaries"][1]
+    middle = next(entry for entry in model["boundaries"]
+                  if entry["gap"] == {"char_from": 10, "char_to": 19})
     assert middle["raw_window"] == raw_gap
-    assert middle["bulk_confirmable"] is False
+    assert "hoved_i_raa_ocr" in middle["signals"]
+    assert "bulk_confirmable" not in middle
+    assert "bulk_block_reason_da" not in middle
 
 
-def test_missing_raw_bridge_blocks_bulk_confirmation_with_a_danish_reason():
+def test_missing_raw_bridge_makes_no_claim_about_raw_ocr():
     calamari = "1. Anders\nOversigt\n2. Birgit\n"
     before = automatic_span("rk-1", "1939:1", 0, 10)
     after = automatic_span("rk-2", "1939:2", 19, 29)
@@ -91,8 +94,9 @@ def test_missing_raw_bridge_blocks_bulk_confirmation_with_a_danish_reason():
 
     middle = model["boundaries"][1]
     assert middle["raw_window"] == ""
-    assert middle["bulk_confirmable"] is False
-    assert "rå OCR" in middle["bulk_block_reason_da"]
+    assert "hoved_i_raa_ocr" not in middle["signals"]
+    assert "bulk_confirmable" not in middle
+    assert "bulk_block_reason_da" not in middle
 
 
 def test_unspanned_baseline_sibling_can_reveal_a_swallowed_head():
@@ -136,7 +140,7 @@ def test_automatic_candidates_rejects_duplicate_baseline_record_keys():
         subject._automatic_candidates(queue)
 
 
-def test_a_gap_with_a_head_only_in_raw_ocr_requires_judgement():
+def test_a_tail_without_a_span_precise_raw_window_has_no_bulk_bucket_or_raw_claim():
     calamari = "6. Christine Augusta; g. 1708.\n7 Heinrich til Gottesgabe\n"
     raw = "6. Christine Augusta; g. 1708.\n7. H e i n r i c h til Gottesgabe\n"
     spans = [automatic_span("rk-6", "1939:6", 0, 30)]
@@ -152,9 +156,61 @@ def test_a_gap_with_a_head_only_in_raw_ocr_requires_judgement():
     )
 
     tail = model["boundaries"][-1]
-    assert tail["bulk_confirmable"] is False
-    assert tail["boundary_id"] in model["views"]["kraever_vurdering"]
+    assert "hoved_i_raa_ocr" not in tail["signals"]
     assert model["summary"]["graenser"] == 2
+    assert model["summary"]["med_signal"] == sum(
+        bool(entry["signals"]) for entry in model["boundaries"]
+    )
+    assert model["views"] == {
+        "graenser": [entry["boundary_id"] for entry in model["boundaries"]],
+    }
+    assert "hurtig_bekraeftelse" not in model["views"]
+
+
+def test_boundaries_are_one_list_sorted_by_suspicion():
+    calamari = "1. Anders\nMellemtekst\n2. Birgit\n3. Cecilie\n"
+    spans = [
+        automatic_span("rk-1", "1939:1", 0, 10),
+        automatic_span("rk-2", "1939:2", 22, 32),
+        automatic_span("rk-3", "1939:3", 32, len(calamari)),
+    ]
+    records = {
+        "rk-1": {"record_key": "rk-1", "navn": "Anders", "_orig_nr": 1,
+                 "_gruppe_nr": 1, "_v2_lokal_id": "I.1", "sider": "496"},
+        "rk-2": {"record_key": "rk-2", "navn": "Birgit", "_orig_nr": 2,
+                 "_gruppe_nr": 1, "_v2_lokal_id": "I.2", "sider": "496"},
+        "rk-3": {"record_key": "rk-3", "navn": "Cecilie", "_orig_nr": 3,
+                 "_gruppe_nr": 1, "_v2_lokal_id": "I.3", "sider": "496"},
+    }
+    clauses = [
+        {"char_from": 0, "char_to": 10, "classification": "structural_header"},
+        {"char_from": 10, "char_to": 22, "classification": "record_text"},
+        {"char_from": 22, "char_to": len(calamari),
+         "classification": "structural_header"},
+    ]
+    raw_head = "7. H e i n r i c h til Gottesgabe".ljust(40, " ")
+    raw = "1. Anders\n".ljust(50, " ") + "2. Birgit\n" + raw_head + "3. Cecilie\n"
+    spans[0]["candidate"]["raw_structure_bridge"].update({
+        "raw_char_from": 0, "raw_char_to": 10,
+    })
+    spans[1]["candidate"]["raw_structure_bridge"].update({
+        "raw_char_from": 50, "raw_char_to": 60,
+    })
+    spans[2]["candidate"]["raw_structure_bridge"].update({
+        "raw_char_from": 100, "raw_char_to": 111,
+    })
+
+    model = build_boundary_view_model(spans, clauses, calamari, raw, records, SOURCE)
+
+    priorities = []
+    for entry in model["boundaries"]:
+        non_length = [signal for signal in entry["signals"]
+                      if signal != "laengdeafvigelse"]
+        priorities.append(0 if non_length else 1 if entry["gap_summary"]["har_broedtekst"] else 2)
+    assert priorities == [0, 1, 2, 2]
+    assert model["views"]["graenser"] == [
+        entry["boundary_id"] for entry in model["boundaries"]
+    ]
 
 
 def test_the_canonical_global_injectivity_contract_is_called(monkeypatch):

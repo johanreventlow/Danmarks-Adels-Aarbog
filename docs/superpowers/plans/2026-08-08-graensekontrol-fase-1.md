@@ -10,6 +10,28 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-08-graensekontrol-efter-matchning-design.md`
 
+## Bindende slutrettelse: massebekræftelses-bunken er fjernet
+
+Den målte evidens viser, at 0 af 352 forankrede spænd er spændpræcise; 349 er
+delspænd i en forekomst, hvis `raw_structure_bridge` dækker hele den rå
+forekomst, og kun 110 har en rå-bro. Et råvindue kan derfor begynde for sent,
+så et negativt hoved-fund kan være falsk.
+
+Dette afsnit erstatter alle senere historiske trin om `may_bulk_confirm`,
+`bulk_confirmable`, `bulk_block_reason_da`, `kraever_vurdering` og
+`hurtig_bekraeftelse`:
+
+- Omdøb kontrollen til `raa_ocr_hoved_i_hul(gap_text, raw_window)`. Kun et
+  positivt råfund giver signalet `hoved_i_raa_ocr`; intet vindue eller intet
+  fund giver ingen påstand.
+- View-modelen har `summary: {graenser, med_signal}` og én
+  `views.graenser`-liste: øvrige signaler før ren `laengdeafvigelse`, derefter
+  huller med brødtekst, derefter resten.
+- UI'et viser én liste, de fem domme, eksport, OCR-noter og karantæne. Der er
+  ingen masseknap eller hurtig-bekræftelsestabel.
+- Bunken kan kun genindføres efter en spændpræcis rå-kontrol via
+  `align_renditions`.
+
 ## Global Constraints
 
 - **Gengivelsesfilerne ændres aldrig.** `full_ocr_calamari_r6_clean.txt` og `raw.txt` er hash-låste kilder. Ingen kode i denne plan skriver til dem.
@@ -17,7 +39,7 @@
 - **Fail-closed.** Ugyldigt input hæver `ValueError` med en dansk besked. Aldrig et stille fravalg.
 - **Fejlbeskeder og UI-tekst er på dansk.** Kode-identifikatorer og feltnavne er på engelsk, som resten af `daa-extract`.
 - **Arbejdsmapperne må ikke committes.** `work/`, `work_1939_stamtavle/` og `work_presens/` er gitignorerede og indeholder PII. Ingen `git add` af filer derfra, og ingen prosa fra dem i commit-beskeder.
-- **Klausul-regnskabet sorterer; den negative tværgengivelses-kontrol porter.** Intet hul må kunne massebekræftes alene fordi regnskabet kalder det en overskrift.
+- **Klausul-regnskabet og rå-OCR-kontrollen sorterer kun.** Fase 1 har ingen massebekræftelse; manglende råvindue og negativt hoved-fund giver ingen påstand.
 - **Grænse-id indeholder et revisionsnummer.** En dom hører til én revision og genaktiveres aldrig ved id-lighed alene.
 - **Testkommando:** `python3 -m pytest <fil> -q` fra `.claude/skills/daa-extract/scripts`. Systemets Python mangler pytest; opret ét virtuelt miljø først:
   `python3 -m venv /tmp/daa-venv && /tmp/daa-venv/bin/pip install -r .claude/skills/daa-extract/requirements-test.txt` og brug `/tmp/daa-venv/bin/python -m pytest`.
@@ -31,7 +53,7 @@
 | `.claude/skills/daa-extract/scripts/human_review_1939_ui.js` | **ændres** — bruger det delte modul i stedet for egne kopier |
 | `.claude/skills/daa-extract/scripts/make_human_review_1939.py` | **ændres** — indlejrer det delte modul før controlleren |
 | `.claude/skills/daa-extract/scripts/boundary_spans_1939.py` | **ny** — samler accepterede spænd, danner grænser med revision, fail-closed på overlap |
-| `.claude/skills/daa-extract/scripts/boundary_signals_1939.py` | **ny** — de seks signaler, hulklassifikation, negativ tværgengivelses-port |
+| `.claude/skills/daa-extract/scripts/boundary_signals_1939.py` | **ny** — signaler, hulklassifikation og positivt rå-OCR-signal |
 | `.claude/skills/daa-extract/scripts/make_boundary_review_1939.py` | **ny** — CLI, hash-validering, view-model, HTML-udskrivning |
 | `.claude/skills/daa-extract/scripts/boundary_review_1939_ui.js` | **ny** — fladen: visning, fem domme, OCR-noter, lagring, eksport |
 | `web/src/boundaryReview1939Ui.test.ts` | **ny** — vitest for fladen |
@@ -643,7 +665,12 @@ slås op frem for gættes. Klassifikationen sorterer; den porter ikke."
 
 ---
 
-### Task 4: Den negative tværgengivelses-port
+### Task 4: Positivt rå-OCR-signal
+
+Slutrettelsen øverst er den gældende opgave: `raa_ocr_hoved_i_hul` giver kun
+`hoved_i_raa_ocr` ved et positivt fund. Der findes ingen negativ port.
+
+<!-- UDGÅET HISTORIK: den følgende oprindelige Task 4 må ikke implementeres.
 
 **Files:**
 - Modify: `.claude/skills/daa-extract/scripts/boundary_signals_1939.py`
@@ -767,6 +794,8 @@ synlig i den anden gengivelse."
 ```
 
 ---
+
+UDGÅET HISTORIK SLUT -->
 
 ### Task 5: Hoved-, slugnings-, nummerspring- og længdesignaler
 
@@ -978,7 +1007,13 @@ er rent sorteringssignal og bliver aldrig en advarsel i sig selv."
 
 ---
 
-### Task 6: View-model med bunker og global injektivitetskontrol
+### Task 6: Én mistankesorteret view-model og global injektivitetskontrol
+
+Slutrettelsen øverst er den gældende opgave: view-modelen har kun
+`views.graenser`, `summary: {graenser, med_signal}` og ingen bulkfelter.
+Den kanoniske globale injektivitetskontrol bevares.
+
+<!-- UDGÅET HISTORIK: den følgende oprindelige to-bunke-model må ikke implementeres.
 
 **Files:**
 - Create: `.claude/skills/daa-extract/scripts/make_boundary_review_1939.py`
@@ -1196,7 +1231,14 @@ og beviser ikke globalt fravær af overlap."
 
 ---
 
-### Task 7: Fladen
+UDGÅET HISTORIK SLUT -->
+
+### Task 7: Fladen med én grænseliste
+
+Slutrettelsen øverst er den gældende opgave: alle grænser vises i samme
+scrollbare liste; fem domme, eksport, OCR-noter og karantæne bevares.
+
+<!-- UDGÅET HISTORIK: den følgende oprindelige to-bunke-UI må ikke implementeres.
 
 **Files:**
 - Create: `.claude/skills/daa-extract/scripts/boundary_review_1939_ui.js`
@@ -1478,6 +1520,8 @@ Calamari-hullet, fordi det er dér et tabt hoved er synligt."
 
 ---
 
+UDGÅET HISTORIK SLUT -->
+
 ### Task 8: Generator-CLI og manuel verifikation
 
 **Files:**
@@ -1690,8 +1734,7 @@ def main() -> int:
         handle.write("\n")
         handle.write(HTML_SUFFIX)
     print(f"{model['summary']['graenser']} grænser · "
-          f"{model['summary']['kraever_vurdering']} kræver vurdering · "
-          f"{model['summary']['hurtig_bekraeftelse']} hurtig bekræftelse")
+          f"{model['summary']['med_signal']} med signal")
     return 0
 
 
@@ -1734,8 +1777,8 @@ python3 .claude/skills/daa-extract/scripts/make_boundary_review_1939.py \
 Kontrollér tre ting og skriv tallene i commit-beskeden:
 
 1. antal grænser svarer til antal accepterede spænd plus én
-2. `kræver vurdering` er ikke nul — er den nul, er porten for løs, ikke dataene rene
-3. de to kendte grænsefejl fra `graensefejl-v3.json` (nr. 6 → nr. 7 side 535, nr. 3 → nr. 5 side 528) ligger i `kræver vurdering`, ikke i hurtig bekræftelse. Er de i den forkerte bunke, er signalerne koblet forkert til spændene.
+2. `med_signal` er ikke nul — er den nul, er signalerne koblet forkert, ikke dataene rene
+3. de to kendte grænsefejl fra `graensefejl-v3.json` (nr. 6 → nr. 7 side 535, nr. 3 → nr. 5 side 528) ligger tidligt i den ene mistankesorterede liste
 
 Filen må ikke committes — `work/` er gitignoreret og indeholder PII.
 
@@ -1758,7 +1801,7 @@ Manuel kørsel mod de rigtige data: <indsæt de tre tal fra step 6>."
 
 ## Selv-review
 
-**Spec-dækning.** Hver sektion i spec'ens fase 1 har en task: delt UI-modul (1), spænd og grænser med revision og rande (2), klausul-regnskab (3), negativ tværgengivelses-port (4), de fire spænd-signaler (5), bunker og global injektivitet (6), fladen med fem domme og OCR-noter (7), CLI med hash-validering og indlejret eksport (8). Fase 2 er ude af planen, som spec'en foreskriver.
+**Spec-dækning.** Hver sektion i spec'ens fase 1 har en task: delt UI-modul (1), spænd og grænser med revision og rande (2), klausul-regnskab (3), positivt rå-OCR-signal (4), de øvrige spænd-signaler (5), én mistankesorteret view-model og global injektivitet (6), fladen med fem domme og OCR-noter (7), CLI med hash-validering og indlejret eksport (8). Fase 2 er ude af planen, som spec'en foreskriver.
 
 **Ikke dækket med vilje:** spec'ens fase 2 i sin helhed — afløsningsoperationen, skæringsvinduet, invalideringsgrafen og `pdf_pages` efter en flytning. De hører i en senere plan, hvis fase 1's tal berettiger dem.
 

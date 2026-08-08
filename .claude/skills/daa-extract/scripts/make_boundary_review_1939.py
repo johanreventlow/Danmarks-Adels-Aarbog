@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 import segment
-from boundary_signals_1939 import classify_gap, may_bulk_confirm, span_signals
+from boundary_signals_1939 import classify_gap, raa_ocr_hoved_i_hul, span_signals
 from boundary_spans_1939 import BoundaryError, build_boundaries, collect_accepted_spans
 from prepare_review_queue_1939 import validate_effective_candidate_injectivity
 
@@ -27,7 +27,7 @@ HTML_PREFIX = """<!doctype html>
 *{box-sizing:border-box}body{font:16px system-ui;margin:0;display:grid;grid-template-columns:320px minmax(0,1fr);height:100dvh;color:#18212a}
 aside{border-right:1px solid #ccd5dd;padding:14px;background:#fafbfd;display:flex;flex-direction:column;min-height:0;height:100dvh;overflow:hidden}main{padding:24px;overflow:auto;max-width:1280px;min-width:0}
 button,select,input{font:inherit;padding:8px;margin:4px 0}.candidate{border:1px solid #cad7e2;border-left:5px solid #3977a9;padding:14px;margin:14px 0;border-radius:5px}pre{white-space:pre-wrap;background:#f6f8fa;padding:14px;border-radius:5px}.saved{color:#166534;font-weight:600}
-[data-action="toggle-sidebar"]{display:none;width:100%;text-align:left}[data-role="sidebar-navigation"]{display:flex;flex-direction:column;min-height:0;flex:1;overflow:hidden}[data-role="record-search"]{width:100%}[data-role="record-list"]{display:flex;flex-direction:column;gap:4px;flex:1;min-height:0;overflow-y:auto;padding-right:4px}[data-role="record-list"] button{text-align:left;display:flex;justify-content:space-between;gap:8px;align-items:center;border:1px solid #ccd5dd;background:white;border-radius:5px}[data-role="record-list"] button[aria-current="true"]{border-color:#3977a9;background:#eaf4fc}[data-role="record-status"]{font-size:.78rem;font-weight:700;color:#596773}[data-status="missing"]{color:#9a3412}[data-status="draft"]{color:#166534}[data-role="dashboard"] button{width:100%;text-align:left}[data-role="dashboard"] button[aria-current="true"]{font-weight:700;border-color:#3977a9}.source-label{margin-bottom:4px}.source-text{margin-top:0;border-left:4px solid #7496b4}
+[data-action="toggle-sidebar"]{display:none;width:100%;text-align:left}[data-role="sidebar-navigation"]{display:flex;flex-direction:column;min-height:0;flex:1;overflow:hidden}[data-role="boundary-list"]{flex:1;min-height:0;overflow-y:auto;padding-right:4px}[data-role="record-search"]{width:100%}[data-role="record-list"]{display:flex;flex-direction:column;gap:4px;flex:1;min-height:0;overflow-y:auto;padding-right:4px}[data-role="record-list"] button{text-align:left;display:flex;justify-content:space-between;gap:8px;align-items:center;border:1px solid #ccd5dd;background:white;border-radius:5px}[data-role="record-list"] button[aria-current="true"]{border-color:#3977a9;background:#eaf4fc}[data-role="record-status"]{font-size:.78rem;font-weight:700;color:#596773}[data-status="missing"]{color:#9a3412}[data-status="draft"]{color:#166534}[data-role="dashboard"] button{width:100%;text-align:left}[data-role="dashboard"] button[aria-current="true"]{font-weight:700;border-color:#3977a9}.source-label{margin-bottom:4px}.source-text{margin-top:0;border-left:4px solid #7496b4}
 @media(max-width:720px){body{display:block;height:auto}aside{position:sticky;top:0;z-index:10;border-right:0;border-bottom:1px solid #ccd5dd;height:auto;max-height:72dvh;overflow:auto}.sidebar-intro{display:none}[data-action="toggle-sidebar"]{display:block}[data-role="sidebar-navigation"]{overflow:visible}aside[data-mobile-open="false"] [data-role="sidebar-navigation"]{display:none}main{padding:16px;overflow:visible}}
 </style>
 <aside data-mobile-open="false">
@@ -81,8 +81,7 @@ def _raw_bridge(span: Mapping | None, raw_length: int) -> tuple[int, int] | None
     return raw_from, raw_to
 
 
-def _raw_gap_window(boundary: Mapping, by_key: Mapping,
-                    raw_text: str) -> tuple[str, str | None]:
+def _raw_gap_window(boundary: Mapping, by_key: Mapping, raw_text: str) -> str:
     neighbours = []
     for side in ("before", "after"):
         boundary_span = boundary.get(side)
@@ -91,23 +90,23 @@ def _raw_gap_window(boundary: Mapping, by_key: Mapping,
     before_bridge = _raw_bridge(neighbours[0], len(raw_text))
     after_bridge = _raw_bridge(neighbours[1], len(raw_text))
     if before_bridge is None or after_bridge is None:
-        return "", (
-            "Hullet kan ikke kontrolleres i rå OCR, fordi mindst ét "
-            "nabospænd mangler en rå struktur-bro."
-        )
+        return ""
     raw_from, raw_to = before_bridge[1], after_bridge[0]
     if raw_to < raw_from:
-        return "", (
-            "Hullet kan ikke kontrolleres i rå OCR, fordi nabospændenes "
-            "rå koordinater står i forkert rækkefølge."
-        )
-    return raw_text[raw_from:raw_to], None
+        return ""
+    return raw_text[raw_from:raw_to]
 
 
 def build_boundary_view_model(spans: list[dict], clauses: list[dict],
                               calamari_text: str, raw_text: str,
                               records: Mapping, source: Mapping) -> dict:
-    """Saml grænserne, deres signaler og deres bunke — uden at ændre et spænd."""
+    """Saml alle grænser i én mistankesorteret liste uden at ændre et spænd.
+
+    ``summary.graenser`` er det samlede antal grænser, mens
+    ``summary.med_signal`` tæller grænser med mindst ét signal. Signaler ud over
+    ren længdeafvigelse står først, derefter huller med brødtekst og til sidst
+    resten. Der findes ingen massebekræftelses-bunke.
+    """
     boundaries = build_boundaries(spans, len(calamari_text))
     by_key = {span["baseline_record_key"]: span for span in spans}
     validate_effective_candidate_injectivity(
@@ -138,29 +137,25 @@ def build_boundary_view_model(spans: list[dict], clauses: list[dict],
             span, record, calamari_text[span["char_from"]:span["char_to"]],
             siblings, sibling_lengths=lengths,
         )
-    view_required, view_bulk, entries = [], [], []
+    entries = []
     for boundary in boundaries:
         gap = boundary["gap"]
         gap_text = calamari_text[gap["char_from"]:gap["char_to"]]
-        raw_window, raw_block_reason = _raw_gap_window(boundary, by_key, raw_text)
+        raw_window = _raw_gap_window(boundary, by_key, raw_text)
         summary = classify_gap(clauses, gap)
         signals = []
         for side in ("before", "after"):
             span = boundary[side]
             if span is not None:
                 signals.extend(signals_by_key.get(span["baseline_record_key"], []))
-        bulk = raw_block_reason is None and may_bulk_confirm(
-            gap_text, raw_window, summary,
-        ) and not [
-            signal for signal in signals if signal != "laengdeafvigelse"
-        ]
+        if raw_window and raa_ocr_hoved_i_hul(gap_text, raw_window):
+            signals.append("hoved_i_raa_ocr")
         entry = {
             **boundary,
             "gap_summary": summary,
             "gap_text": gap_text,
             "raw_window": raw_window,
             "signals": sorted(set(signals)),
-            "bulk_confirmable": bulk,
             "before_context": calamari_text[
                 max(0, gap["char_from"] - KONTEKST_TEGN):gap["char_from"]],
             "after_context": calamari_text[
@@ -170,22 +165,20 @@ def build_boundary_view_model(spans: list[dict], clauses: list[dict],
             "after_navn": (records[boundary["after"]["baseline_record_key"]].get("navn")
                            if boundary["after"] else None),
         }
-        if raw_block_reason is not None:
-            entry["bulk_block_reason_da"] = raw_block_reason
         entries.append(entry)
-        (view_bulk if bulk else view_required).append(entry["boundary_id"])
+    entries.sort(key=lambda entry: (
+        0 if any(signal != "laengdeafvigelse" for signal in entry["signals"])
+        else 1 if entry["gap_summary"]["har_broedtekst"] else 2,
+    ))
+    view_boundaries = [entry["boundary_id"] for entry in entries]
     return {
         "schema_version": 1,
         "source": copy.deepcopy(dict(source)),
         "summary": {
             "graenser": len(entries),
-            "kraever_vurdering": len(view_required),
-            "hurtig_bekraeftelse": len(view_bulk),
+            "med_signal": sum(bool(entry["signals"]) for entry in entries),
         },
-        "views": {
-            "kraever_vurdering": view_required,
-            "hurtig_bekraeftelse": view_bulk,
-        },
+        "views": {"graenser": view_boundaries},
         "boundaries": entries,
     }
 
@@ -308,8 +301,7 @@ def main() -> int:
         handle.write("\\n")
         handle.write(HTML_SUFFIX)
     print(f"{model['summary']['graenser']} grænser · "
-          f"{model['summary']['kraever_vurdering']} kræver vurdering · "
-          f"{model['summary']['hurtig_bekraeftelse']} hurtig bekræftelse")
+          f"{model['summary']['med_signal']} med signal")
     return 0
 
 

@@ -107,45 +107,25 @@ def span_signals(span: Mapping, record: Mapping, span_text: str,
     return signals
 
 
-def may_bulk_confirm(gap_text: str, raw_text_window: str,
-                     gap_summary: Mapping) -> bool:
-    """Porten til hurtig bekræftelse: tre krav, alle skal holde.
+def raa_ocr_hoved_i_hul(gap_text: str, raw_text_window: str) -> bool:
+    """Find et trykt hoved i det rå OCR-vindue som et positivt signal.
 
-    1. ingen brødtekst i hullet ifølge regnskabet
-    2. intet trykt hoved i Calamari-hullet
-    3. intet trykt hoved i rå OCR's modsvarende stykke
-
-    Punkt 3 er det afgørende. Et hoved Calamari har tabt, er stadig synligt i
-    den anden gengivelse, og uden dette krav kunne en manglende person havne i
-    den bunke der godkendes tyve ad gangen.
+    ``gap_text`` valideres som den Calamari-kontekst signalet sammenholdes med,
+    men et hoved dér er ikke et rå-OCR-fund. Et positivt fund i rå OCR er
+    troværdigt. Fraværet af et fund er ikke: de nuværende rå struktur-broer
+    dækker hele forekomster og er ikke spændpræcise, så vinduet kan begynde for
+    sent. Funktionen må derfor aldrig bruges som negativ port eller tilladelse.
     """
-    if not isinstance(gap_summary, Mapping):
-        raise SignalError("hul-opsummering skal være en mapping")
-    if set(gap_summary) != {"tegn", "klasser", "har_broedtekst"}:
-        raise SignalError("hul-opsummering skal have tegn, klasser og har_broedtekst")
-    tegn = gap_summary["tegn"]
-    if isinstance(tegn, bool) or not isinstance(tegn, int) or tegn < 0:
-        raise SignalError("hul-opsummering har ugyldigt tegnantal")
-    klasser = gap_summary["klasser"]
-    if not isinstance(klasser, Mapping) or set(klasser) != set(KLASSER):
-        raise SignalError("hul-opsummering har ugyldige klasser")
-    for antal in klasser.values():
-        if isinstance(antal, bool) or not isinstance(antal, int) or antal < 0:
-            raise SignalError("hul-opsummering har ugyldige klasseantal")
-    if not isinstance(gap_summary["har_broedtekst"], bool):
-        raise SignalError("hul-opsummering har ugyldigt har_broedtekst")
-    if gap_summary["har_broedtekst"]:
-        return False
-    return not _har_trykt_hoved(gap_text) and not _har_trykt_hoved(raw_text_window)
+    if not isinstance(gap_text, str) or not isinstance(raw_text_window, str):
+        raise SignalError("hultekst og rå OCR-vindue skal være strenge")
+    return _har_trykt_hoved(raw_text_window)
 
 
 def classify_gap(clauses: list[dict], gap: Mapping) -> dict:
     """Opsummér hvad der ligger i hullet mellem to spænd.
 
-    Regnskabet sorterer kun. Om et hul må massebekræftes afgøres af den
-    negative tværgengivelses-kontrol, ikke af denne klassifikation: regnskabet
-    kalder alt uklassificeret ``record_text`` og bruger ikke 1939-v2-profilens
-    fulde strukturlogik.
+    Regnskabet sorterer kun. Det kalder alt uklassificeret ``record_text`` og
+    bruger ikke 1939-v2-profilens fulde strukturlogik.
     """
     if not isinstance(gap, Mapping):
         raise SignalError("hul skal være en mapping")

@@ -1,6 +1,11 @@
 import pytest
 
-from boundary_signals_1939 import SignalError, classify_gap, may_bulk_confirm, span_signals
+from boundary_signals_1939 import (
+    SignalError,
+    classify_gap,
+    raa_ocr_hoved_i_hul,
+    span_signals,
+)
 
 
 def record(navn, orig_nr, gruppe=1, char_from=None):
@@ -82,55 +87,24 @@ def test_missing_clauses_fail_closed():
         classify_gap(None, {"char_from": 20, "char_to": 45})
 
 
-CLEAN_SUMMARY = {"tegn": 30, "klasser": {"record_text": 0, "structural_header": 1,
-                                         "layout": 1, "noise": 0},
-                 "har_broedtekst": False}
-
-
-def test_a_heading_only_gap_may_be_bulk_confirmed():
-    assert may_bulk_confirm("Sjette Slægtled\n", "Sjette Slægtled\n", CLEAN_SUMMARY) is True
-
-
-def test_prose_in_the_gap_blocks_bulk_confirmation():
-    summary = {**CLEAN_SUMMARY, "har_broedtekst": True}
-
-    assert may_bulk_confirm("noget prosa\n", "noget prosa\n", summary) is False
-
-
-def test_a_printed_head_in_calamari_blocks_bulk_confirmation():
-    assert may_bulk_confirm("7. Heinrich til Gottesgabe\n", "", CLEAN_SUMMARY) is False
-
-
-def test_a_printed_head_only_in_raw_ocr_still_blocks_bulk_confirmation():
+def test_a_printed_head_only_in_raw_ocr_is_a_positive_signal():
     """Netop den fejl der skabte problemet: Calamari tabte hovedet, rå OCR har det."""
-    assert may_bulk_confirm(
-        "7 Heinrich til Gottesgabe\n", "7. H e i n r i c h til Gottesgabe\n", CLEAN_SUMMARY,
-    ) is False
+    assert raa_ocr_hoved_i_hul(
+        "Sjette Slægtled\n", "7. H e i n r i c h til Gottesgabe\n",
+    ) is True
 
 
-def test_an_empty_gap_may_be_bulk_confirmed():
-    empty = {"tegn": 0, "klasser": dict.fromkeys(
-        ("record_text", "structural_header", "layout", "noise"), 0),
-        "har_broedtekst": False}
-
-    assert may_bulk_confirm("", "", empty) is True
+def test_no_printed_head_in_raw_ocr_is_not_a_negative_claim():
+    assert raa_ocr_hoved_i_hul("Sjette Slægtled\n", "Sjette Slægtled\n") is False
 
 
-def test_integer_prose_signal_is_rejected():
-    with pytest.raises(SignalError, match="har_broedtekst"):
-        may_bulk_confirm("", "", {**CLEAN_SUMMARY, "har_broedtekst": 0})
+def test_a_calamari_head_without_a_raw_match_is_not_a_raw_ocr_signal():
+    assert raa_ocr_hoved_i_hul("7. Heinrich til Gottesgabe\n", "") is False
 
 
-def test_summary_without_classes_is_rejected():
-    with pytest.raises(SignalError, match="klasser"):
-        may_bulk_confirm("", "", {"tegn": 0, "har_broedtekst": False})
-
-
-def test_summary_with_wrong_class_keys_is_rejected():
-    with pytest.raises(SignalError, match="klasser"):
-        may_bulk_confirm(
-            "", "", {"tegn": 0, "klasser": {"layout": 0}, "har_broedtekst": False},
-        )
+def test_raw_ocr_signal_rejects_non_text_inputs():
+    with pytest.raises(SignalError, match="streng"):
+        raa_ocr_hoved_i_hul("", None)
 
 
 def test_a_span_opening_with_its_own_printed_head_has_no_signal():

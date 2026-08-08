@@ -19,6 +19,7 @@
     slugt_hoved: 'Spændet bærer en senere søskendes trykte hoved.',
     nummerspring: 'De trykte numre står i anden rækkefølge end teksten.',
     laengdeafvigelse: 'Spændet er markant kortere eller længere end søskendene.',
+    hoved_i_raa_ocr: 'Rå OCR viser et trykt hoved i vinduet ved grænsen.',
   };
   const VERDICT_DA = {
     graense_ok: 'Grænsen er korrekt',
@@ -67,6 +68,7 @@
     }
     let entries;
     let savedVerdicts;
+    let duplicateIds = new Set();
     if (hasOwn(saved, 'entries')) {
       if (!Array.isArray(saved.entries)) {
         quarantine(state, 'domme', saved.entries, 'Den gemte domsamling er ugyldig.');
@@ -77,6 +79,11 @@
             ? entry.boundary_id : `indlejret-dom-${index}`,
           entry,
         ]);
+        const counts = dictionary([]);
+        entries.forEach(([storedId]) => {
+          counts[storedId] = (counts[storedId] || 0) + 1;
+        });
+        duplicateIds = new Set(Object.keys(counts).filter(id => counts[id] > 1));
       }
     } else {
       savedVerdicts = hasOwn(saved, 'verdicts') ? saved.verdicts : saved;
@@ -87,9 +94,14 @@
       && (!savedVerdicts || typeof savedVerdicts !== 'object' || Array.isArray(savedVerdicts))) {
       quarantine(state, 'domme', savedVerdicts, 'Den gemte domsamling er ugyldig.');
     }
-    entries.forEach(([storedId, storedEntry]) => {
+    entries.forEach(([storedId, storedEntry], index) => {
       const entry = storedEntry && typeof storedEntry === 'object'
         ? Object.assign({ boundary_id: storedId }, clone(storedEntry)) : storedEntry;
+      if (duplicateIds.has(storedId)) {
+        quarantine(state, `dublet-dom-${storedId}-${index}`, entry,
+          `Den gemte domsamling har flere domme for grænsen ${storedId}.`);
+        return;
+      }
       const boundary = state.byId.get(storedId);
       if (!boundary) {
         quarantine(state, storedId, entry,
@@ -227,16 +239,9 @@
 
   function renderSidebar(state, sidebar) {
     sidebar.replaceChildren();
-    const required = state.data.views.kraever_vurdering || [];
-    const quick = state.data.views.hurtig_bekraeftelse || [];
-    sidebar.append(actionButton(
-      `Kræver vurdering (${required.length})`, 'show-required',
-    ));
-    sidebar.append(actionButton(
-      `Hurtig bekræftelse (${quick.length})`, 'show-quick',
-    ));
+    const ids = state.data.views.graenser || [];
+    sidebar.append(element('p', `Alle grænser (${ids.length})`));
     const list = element('ul', undefined, { 'data-role': 'boundary-list' });
-    const ids = state.activeView === 'hurtig_bekraeftelse' ? quick : required;
     ids.forEach(id => {
       const boundary = state.byId.get(id);
       if (!boundary) return;
@@ -248,11 +253,6 @@
       list.append(item);
     });
     sidebar.append(list);
-    if (quick.length) {
-      sidebar.append(actionButton(
-        `Bekræft ${quick.length} porterede huller som ejerløse`, 'bulk-confirm',
-      ));
-    }
     sidebar.append(actionButton('Eksportér kladde', 'export-draft'));
   }
 
@@ -322,27 +322,6 @@
     root.append(renderNoteFields(boundary));
   }
 
-  function renderQuick(state, root) {
-    root.append(element('h1', 'Hurtig bekræftelse af porterede huller'));
-    const table = element('table', undefined, { 'data-role': 'quick-boundaries' });
-    const head = element('tr');
-    ['Før', 'Hul', 'Efter', 'Dom'].forEach(label => head.append(element('th', label)));
-    table.append(head);
-    (state.data.views.hurtig_bekraeftelse || []).forEach(id => {
-      const boundary = state.byId.get(id);
-      if (!boundary || !boundary.bulk_confirmable) return;
-      const row = element('tr');
-      row.append(element('td', boundary.before_navn || 'Ukendt'));
-      row.append(element('td', boundary.gap_text || 'Tomt hul'));
-      row.append(element('td', boundary.after_navn || 'Ukendt'));
-      row.append(element('td', state.verdicts[id]
-        ? VERDICT_DA[state.verdicts[id].verdict] : 'Ikke bedømt'));
-      table.append(row);
-    });
-    root.append(table);
-    root.append(actionButton('Bekræft alle porterede huller som ejerløse', 'bulk-confirm'));
-  }
-
   function render(state) {
     const saveState = document.querySelector('[data-role="save-state"]');
     if (saveState) {
@@ -353,8 +332,7 @@
     if (!app || !sidebar) return;
     renderSidebar(state, sidebar);
     app.replaceChildren();
-    if (state.activeView === 'hurtig_bekraeftelse') renderQuick(state, app);
-    else renderBoundary(state, app);
+    renderBoundary(state, app);
   }
 
   function init({ data, storage = global.localStorage,
@@ -363,16 +341,14 @@
       global.__DAABoundaryReviewCleanup();
     }
     const views = data.views || {};
-    const required = views.kraever_vurdering || [];
-    const quick = views.hurtig_bekraeftelse || [];
+    const boundaries = views.graenser || [];
     const state = {
       data,
       byId: new Map((data.boundaries || []).map(boundary => [boundary.boundary_id, boundary])),
       verdicts: dictionary([]),
       notes: dictionary([]),
       quarantined: dictionary([]),
-      selectedId: required[0] || quick[0],
-      activeView: required.length ? 'kraever_vurdering' : 'hurtig_bekraeftelse',
+      selectedId: boundaries[0],
       storage,
       storageKey: storageKeyFor(data),
       now,
@@ -392,23 +368,10 @@
       if (VERDICTS.has(action)) {
         const field = document.querySelector('[data-role="reason"]');
         record(state, state.selectedId, action, { begrundelse: field && field.value });
-      } else if (action === 'bulk-confirm') {
-        (state.data.views.hurtig_bekraeftelse || []).forEach(id => {
-          const boundary = state.byId.get(id);
-          if (boundary && boundary.bulk_confirmable) record(state, id, 'hul_ejerloest', {});
-        });
       } else if (action === 'export-draft') controller.download();
       else if (action === 'select-boundary') {
         const id = target.getAttribute('data-boundary-id');
         if (state.byId.has(id)) state.selectedId = id;
-        render(state);
-      } else if (action === 'show-required') {
-        state.activeView = 'kraever_vurdering';
-        state.selectedId = (state.data.views.kraever_vurdering || [])[0];
-        render(state);
-      } else if (action === 'show-quick') {
-        state.activeView = 'hurtig_bekraeftelse';
-        state.selectedId = (state.data.views.hurtig_bekraeftelse || [])[0];
         render(state);
       } else if (action === 'save-note') {
         const recordKey = document.querySelector('[data-role="note-record-key"]');

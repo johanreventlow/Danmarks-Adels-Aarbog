@@ -1,7 +1,7 @@
 # Grænsekontrol efter matchning — design
 
 **Dato:** 2026-08-08
-**Status:** godkendt design efter adversarial review (Codex gpt-5.6-sol, NO-GO på første udgave); implementering ikke startet
+**Status:** fase 1 implementeret og verificeret mod rigtige data 2026-08-08 (11 commits); fase 2 ikke startet. Design godkendt efter adversarial review (Codex gpt-5.6-sol, NO-GO på første udgave)
 **Anledning:** redaktøren vil kunne verificere at postgrænserne står korrekt, før 1939-teksterne importeres. Vi har importeret forkerte tekster én gang; det må ikke gentages.
 
 ## Problemet
@@ -79,36 +79,33 @@ Ejerløs tekst er legitim og almindelig: generationsoverskrifter ("Sjette Slægt
 
 ### Signaler
 
-| Signal | Bunke | Betydning |
+| Signal | Virkning | Betydning |
 |---|---|---|
-| Hul med ejerløs brødtekst | Kræver vurdering | hullet indeholder `record_text` — prosa ingen post ejer |
-| Hul uden brødtekst og uden hoved i nogen gengivelse | Hurtig bekræftelse | forventet ejerløst; vises med hvad der står |
+| Hul med ejerløs brødtekst | Sorteres tidligt | hullet indeholder `record_text` — prosa ingen post ejer |
+| Hoved i rå OCR | Sorteres først | et positivt fund viser et trykt hoved i det etablerede råvindue |
 | Overlap | Hård fejl | to spænd dækker samme tegn |
-| Mangler eget hoved | Kræver vurdering | spændet åbner ikke med sin posts trykte hoved (OCR-tolerant match) |
-| Slugt hoved | Kræver vurdering | spændet bærer en senere søskendes trykte hoved |
-| Nummerspring | Kræver vurdering | de accepterede spænd i en søskendegruppe ligger i anden rækkefølge end de trykte numre, eller et nummer mangler blandt dem |
+| Mangler eget hoved | Sorteres først | spændet åbner ikke med sin posts trykte hoved (OCR-tolerant match) |
+| Slugt hoved | Sorteres først | spændet bærer en senere søskendes trykte hoved |
+| Nummerspring | Sorteres først | de accepterede spænd i en søskendegruppe ligger i anden rækkefølge end de trykte numre, eller et nummer mangler blandt dem |
 | Længdeafvigelse | Kun sortering | spændet er markant kortere eller længere end sine søskende; aldrig en advarsel i sig selv |
 
-De fire midterste signaler findes og er testet i `detect_boundary_defects_1939.py` (`fold_ocr`, `_opens_with_own_head`, `_swallowed_heads`); de skal pege på de accepterede spænd i stedet for på de gamle narrativer. Nummerspring og længdeafvigelse er nye.
+Hoved- og slugningslogikken findes og er testet i `detect_boundary_defects_1939.py` (`fold_ocr`, `_opens_with_own_head`, `_swallowed_heads`); den skal pege på de accepterede spænd i stedet for på de gamle narrativer. Nummerspring, længdeafvigelse og det positive rå-OCR-signal tilføjes i grænsefladen.
 
-### Hvad der må massebekræftes — og hvorfor regnskabet ikke er nok
+### Ingen massebekræftelse med de nuværende rå-broer
 
-Klausul-regnskabet klassificerer linjer med brede regler og kalder alt andet `record_text` (`segment.py:978`). Det bruger de generelle `LINJE_NAME`, `ROMAN_RE`, `SLGT_RE` og `MARR_RE` — ikke 1939-v2-profilens fulde strukturlogik (`segment.py:981`). En manglende person, hvis hoved fejlklassificeres som `structural_header`, ville derfor kunne havne i den bunke der godkendes i stræk. At "teksten altid vises" er ikke et værn, når fladen samtidig tilbyder godkendelse af tyve ad gangen.
+Klausul-regnskabet klassificerer linjer med brede regler og kalder alt andet `record_text` (`segment.py:978`). Det bruger de generelle `LINJE_NAME`, `ROMAN_RE`, `SLGT_RE` og `MARR_RE` — ikke 1939-v2-profilens fulde strukturlogik (`segment.py:981`). Det er derfor et sorteringssignal, ikke en godkendelsesport.
 
-Derfor gælder en **negativ kontrol på tværs af gengivelser** som port til hurtig bekræftelse. Et hul må kun massebekræftes hvis alle tre holder:
+Den målte kontrol af evidensen viste, at **0 af 352 forankrede spænd er spændpræcise**. For 349 spænd er det forankrede Calamari-spænd kun et delspænd inde i en forekomst, mens `raw_structure_bridge` dækker hele den parrede rå-forekomst; kun 110 spænd har overhovedet en rå-bro. Det afledte råvindue begynder derfor for sent i hvert enkelt tilfælde. Et hoved kan ligge tidligere i samme rå-forekomst og blive overset, så fravær af et fund er et muligt falsk negativ.
 
-1. ingen `record_text`-klausul i hullet,
-2. ingen linje i hullet matcher et trykt hoved i Calamari,
-3. ingen linje i hullets *modsvarende* stykke i rå OCR matcher et trykt hoved.
+Massebekræftelses-bunken er derfor fjernet. Alle grænser vises i én liste. Signaler ud over `laengdeafvigelse` sorteres først, derefter huller med brødtekst og til sidst resten.
 
-Punkt 3 er det afgørende: netop den fejl der skabte hele problemet — et hoved Calamari tabte — er synlig i den anden gengivelse. Fejler nogen af de tre, går hullet til individuel vurdering. Regnskabet **sorterer**; den negative kontrol **porter**.
+Rå-OCR-kontrollen bevares asymmetrisk: et positivt fund af et trykt hoved tilføjer signalet `hoved_i_raa_ocr`. Et manglende vindue eller fravær af et fund tilføjer intet signal og beviser intet. En massebekræftelses-bunke kan først genindføres, når `align_renditions` producerer en spændpræcis rå-kontrol.
 
 ### Visning
 
-- **Kræver vurdering:** én skæring pr. skærm med fuld tekstkontekst.
-- **Hurtig bekræftelse:** flere pr. skærm, godkendes i stræk.
+- **Alle grænser:** én skæring pr. skærm med fuld tekstkontekst, mistankesorteret som ovenfor.
 
-Fuld dækning i begge tilfælde: ingen skæring er utilgængelig, men de mistænkte kommer først.
+Ingen skæring er utilgængelig, og ingen dom kan sættes på flere grænser ad gangen.
 
 ## Grænsens identitet og revision
 
@@ -211,8 +208,9 @@ Karantæne frem for kassering: en ugyldig gemt dom ryger i karantæne med en dan
 
 **Fase 1**
 
-- én enhedstest pr. signal: hul med brødtekst, hul der porter til hurtig bekræftelse, manglende hoved, slugt hoved, nummerspring, overlap som hård fejl
-- den negative kontrol: et hul hvor rå OCR har et hoved Calamari mangler, må **ikke** kunne massebekræftes
+- én enhedstest pr. signal: hul med brødtekst, hoved i rå OCR, manglende hoved, slugt hoved, nummerspring, overlap som hård fejl
+- rå-OCR-kontrollen: et hoved som kun rå OCR har bevaret, giver `hoved_i_raa_ocr`; et manglende vindue giver intet signal
+- view-model og UI har én liste over alle grænser og ingen massebekræftelses-kontrol
 - randene: hul før første og efter sidste spænd; nul og ét accepteret spænd
 - grænse-id og revisionsnummer er stabile på tværs af genbygning; en A → B → A-cyklus genaktiverer ikke en gammel dom
 - rundtur: eksportér → genbyg → domme indlejret
@@ -230,7 +228,8 @@ Dertil én manuel kørsel mod de rigtige data som verifikation — ikke som test
 
 ## Kendte begrænsninger
 
-- Klausul-regnskabets klassifikation er heuristisk og bygger på regler der allerede har fejlet én gang. Den sorterer; den negative tværgengivelses-kontrol porter.
+- Klausul-regnskabets klassifikation er heuristisk og bygger på regler der allerede har fejlet én gang. Den sorterer kun.
+- De nuværende `raw_structure_bridge`-værdier er forekomst-brede, ikke spændpræcise: 0 af 352 forankrede spænd er spændpræcise, 349 er delspænd, og kun 110 har en rå-bro. Fravær af et rå-OCR-hoved kan derfor ikke bruges negativt. En sikker genindførelse af massebekræftelse kræver spændpræcis rå-kontrol via `align_renditions`.
 - Nummerspring kan kun ses inden for en søskendegruppe. En grænse der er skredet på tværs af grupper er kun synlig gennem hoved-signalerne.
 - Adapterens globale injektivitetskontrol har endnu ikke kørt mod rigtige data med de omkring 200 ekstra tekstankre som ændringen af ankerreglen bragte i spil. Den konflikt kan først vise sig ved forankring.
 - Fase 1 standser og optæller; den retter ikke. Uden fase 2 skal rettelserne gå gennem matchningskøen.

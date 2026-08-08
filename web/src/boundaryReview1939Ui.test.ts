@@ -19,7 +19,7 @@ function memoryStorage() {
   };
 }
 
-function boundary(id: string, bulk = false) {
+function boundary(id: string) {
   return {
     boundary_id: id, revision: 0,
     before: { baseline_record_key: 'rk-6', candidate_id: 'human:6',
@@ -33,7 +33,6 @@ function boundary(id: string, bulk = false) {
     gap_text: '7 Heinrich til Gottesgabe',
     raw_window: '7. H e i n r i c h til Gottesgabe',
     signals: ['slugt_hoved'],
-    bulk_confirmable: bulk,
     before_context: '...s. A. Kapitain ved',
     after_context: 'Prins Georgs Reg., 1703 Sek.major',
     before_navn: 'Christine Augusta',
@@ -51,12 +50,8 @@ function start(boundaries = [boundary('g-1')], options: any = {}) {
               baseline_sha256: 'a'.repeat(64), calamari_sha256: 'b'.repeat(64),
               raw_ocr_sha256: 'c'.repeat(64), pdf_sha256: 'd'.repeat(64) },
     summary: { graenser: boundaries.length,
-               kraever_vurdering: boundaries.filter(b => !b.bulk_confirmable).length,
-               hurtig_bekraeftelse: boundaries.filter(b => b.bulk_confirmable).length },
-    views: {
-      kraever_vurdering: boundaries.filter(b => !b.bulk_confirmable).map(b => b.boundary_id),
-      hurtig_bekraeftelse: boundaries.filter(b => b.bulk_confirmable).map(b => b.boundary_id),
-    },
+               med_signal: boundaries.filter(b => b.signals.length).length },
+    views: { graenser: boundaries.map(b => b.boundary_id) },
     boundaries,
     ...(options.tidligere_domme ? { tidligere_domme: options.tidligere_domme } : {}),
   };
@@ -168,15 +163,13 @@ describe('grænsegennemgang', () => {
     }]);
   });
 
-  it('massebekræfter kun grænser der er portet til det', () => {
-    const controller = start([boundary('g-1'), boundary('g-2', true)]);
+  it('viser alle grænser i én liste uden massebekræftelse', () => {
+    start([boundary('g-1'), boundary('g-2')]);
 
-    expect(controller.verdict('g-1', 'hul_ejerloest')).toBe(true);
-    document.querySelector<HTMLButtonElement>('[data-action="bulk-confirm"]')!.click();
-    const ids = controller.exportDraft().entries.map((e: any) => e.boundary_id);
-    expect(ids).toContain('g-2');
-    expect(controller.exportDraft().entries
-      .find((e: any) => e.boundary_id === 'g-2').verdict).toBe('hul_ejerloest');
+    expect(document.querySelectorAll('[data-action="select-boundary"]')).toHaveLength(2);
+    expect(document.querySelector('[data-action="bulk-confirm"]')).toBeNull();
+    expect(document.querySelector('[data-role="quick-boundaries"]')).toBeNull();
+    expect(document.body.textContent).not.toContain('Hurtig bekræftelse');
   });
 
   it('sætter en ugyldig gemt dom i karantæne frem for at kassere den', () => {
@@ -190,13 +183,31 @@ describe('grænsegennemgang', () => {
     window.eval(uiSource);
     (window as any).DAABoundaryReview.init({
       data: { schema_version: 1, source: { edition: '1939' },
-              summary: { graenser: 1, kraever_vurdering: 1, hurtig_bekraeftelse: 0 },
-              views: { kraever_vurdering: ['g-1'], hurtig_bekraeftelse: [] },
+              summary: { graenser: 1, med_signal: 1 },
+              views: { graenser: ['g-1'] },
               boundaries: [boundary('g-1')] },
       storage, now: () => '2026-08-08T10:00:00.000Z',
     });
 
     expect(document.querySelector('[data-role="save-state"]')!.textContent)
       .toContain('karantæne');
+  });
+
+  it('sætter alle dublerede indlejrede domme i karantæne', () => {
+    const duplicate = {
+      schema_version: 1, source: { edition: '1939' }, ocr_noter: [],
+      entries: [
+        { boundary_id: 'g-1', revision: 0, verdict: 'graense_ok',
+          decided_at: '2026-08-08T08:00:00.000Z' },
+        { boundary_id: 'g-1', revision: 0, verdict: 'hul_ejerloest',
+          decided_at: '2026-08-08T09:00:00.000Z' },
+      ],
+    };
+
+    const controller = start([boundary('g-1')], { tidligere_domme: duplicate });
+
+    expect(controller.exportDraft().entries).toEqual([]);
+    expect(document.querySelector('[data-role="save-state"]')!.textContent)
+      .toContain('flere domme for grænsen g-1');
   });
 });
