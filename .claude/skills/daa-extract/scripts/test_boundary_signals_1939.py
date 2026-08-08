@@ -51,6 +51,29 @@ def test_a_reversed_gap_fails_closed():
         classify_gap(CLAUSES, {"char_from": 40, "char_to": 20})
 
 
+def test_an_uncovered_character_in_a_nonempty_gap_fails_closed():
+    with pytest.raises(SignalError, match="dækker ikke hele hullet"):
+        classify_gap(
+            [clause(20, 30, "structural_header"), clause(31, 45, "layout")],
+            {"char_from": 20, "char_to": 45},
+        )
+
+
+def test_a_reversed_clause_fails_closed():
+    with pytest.raises(SignalError, match="ugyldige positioner"):
+        classify_gap([clause(45, 20, "layout")], {"char_from": 20, "char_to": 45})
+
+
+def test_a_clause_without_coordinates_fails_closed():
+    with pytest.raises(SignalError, match="ugyldige positioner"):
+        classify_gap([{"classification": "layout"}], {"char_from": 20, "char_to": 45})
+
+
+def test_missing_clauses_fail_closed():
+    with pytest.raises(SignalError, match="klausuler"):
+        classify_gap(None, {"char_from": 20, "char_to": 45})
+
+
 CLEAN_SUMMARY = {"tegn": 30, "klasser": {"record_text": 0, "structural_header": 1,
                                          "layout": 1, "noise": 0},
                  "har_broedtekst": False}
@@ -83,3 +106,20 @@ def test_an_empty_gap_may_be_bulk_confirmed():
         "har_broedtekst": False}
 
     assert may_bulk_confirm("", "", empty) is True
+
+
+def test_integer_prose_signal_is_rejected():
+    with pytest.raises(SignalError, match="har_broedtekst"):
+        may_bulk_confirm("", "", {**CLEAN_SUMMARY, "har_broedtekst": 0})
+
+
+def test_summary_without_classes_is_rejected():
+    with pytest.raises(SignalError, match="klasser"):
+        may_bulk_confirm("", "", {"tegn": 0, "har_broedtekst": False})
+
+
+def test_summary_with_wrong_class_keys_is_rejected():
+    with pytest.raises(SignalError, match="klasser"):
+        may_bulk_confirm(
+            "", "", {"tegn": 0, "klasser": {"layout": 0}, "har_broedtekst": False},
+        )

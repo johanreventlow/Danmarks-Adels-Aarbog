@@ -46,8 +46,21 @@ def may_bulk_confirm(gap_text: str, raw_text_window: str,
     den anden gengivelse, og uden dette krav kunne en manglende person havne i
     den bunke der godkendes tyve ad gangen.
     """
-    if not isinstance(gap_summary, Mapping) or "har_broedtekst" not in gap_summary:
-        raise SignalError("hul-opsummering mangler har_broedtekst")
+    if not isinstance(gap_summary, Mapping):
+        raise SignalError("hul-opsummering skal være en mapping")
+    if set(gap_summary) != {"tegn", "klasser", "har_broedtekst"}:
+        raise SignalError("hul-opsummering skal have tegn, klasser og har_broedtekst")
+    tegn = gap_summary["tegn"]
+    if isinstance(tegn, bool) or not isinstance(tegn, int) or tegn < 0:
+        raise SignalError("hul-opsummering har ugyldigt tegnantal")
+    klasser = gap_summary["klasser"]
+    if not isinstance(klasser, Mapping) or set(klasser) != set(KLASSER):
+        raise SignalError("hul-opsummering har ugyldige klasser")
+    for antal in klasser.values():
+        if isinstance(antal, bool) or not isinstance(antal, int) or antal < 0:
+            raise SignalError("hul-opsummering har ugyldige klasseantal")
+    if not isinstance(gap_summary["har_broedtekst"], bool):
+        raise SignalError("hul-opsummering har ugyldigt har_broedtekst")
     if gap_summary["har_broedtekst"]:
         return False
     return not _har_trykt_hoved(gap_text) and not _har_trykt_hoved(raw_text_window)
@@ -69,18 +82,40 @@ def classify_gap(clauses: list[dict], gap: Mapping) -> dict:
             raise SignalError("hul har ugyldige positioner")
     if char_to < char_from:
         raise SignalError("hul slutter før det begynder")
-    counts = dict.fromkeys(KLASSER, 0)
+    if not isinstance(clauses, list):
+        raise SignalError("klausuler skal være en liste")
+    validated_clauses = []
     for item in clauses:
         if not isinstance(item, Mapping):
             raise SignalError("klausul skal være en mapping")
+        clause_from, clause_to = item.get("char_from"), item.get("char_to")
+        for value in (clause_from, clause_to):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise SignalError("klausul har ugyldige positioner")
+        if clause_to <= clause_from:
+            raise SignalError("klausul har ugyldige positioner")
         classification = item.get("classification")
         if classification not in KLASSER:
             raise SignalError("ukendt klausul-klassifikation")
-        if char_to <= item["char_from"] or item["char_to"] <= char_from:
-            continue
-        if char_from == char_to:
+        validated_clauses.append((clause_from, clause_to, classification))
+
+    counts = dict.fromkeys(KLASSER, 0)
+    for clause_from, clause_to, classification in validated_clauses:
+        if char_to <= clause_from or clause_to <= char_from:
             continue
         counts[classification] += 1
+    covered_until = char_from
+    for clause_from, clause_to, _ in sorted(validated_clauses):
+        if char_to <= clause_from or clause_to <= char_from:
+            continue
+        covered_from = max(char_from, clause_from)
+        if covered_from > covered_until:
+            raise SignalError("klausuler dækker ikke hele hullet")
+        covered_until = max(covered_until, min(char_to, clause_to))
+        if covered_until == char_to:
+            break
+    if covered_until < char_to:
+        raise SignalError("klausuler dækker ikke hele hullet")
     return {
         "tegn": char_to - char_from,
         "klasser": counts,
