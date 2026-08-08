@@ -45,6 +45,7 @@ def test_finds_the_boundary_pair_when_a_head_is_swallowed_by_its_predecessor():
 
     assert report["summary"] == {
         "poster": 2, "graensefejl_par": 1, "slugt_hoved": 0, "mangler_eget_hoved": 0,
+        "delt_narrativ": 0,
     }
     pair = report["graensefejl_par"][0]
     assert pair["swallower"]["record_key"] == "rk-6"
@@ -152,6 +153,44 @@ def test_orphan_without_a_swallowing_predecessor_is_reported_alone():
     assert report["graensefejl_par"] == []
 
 
+def test_printed_numbers_stored_as_text_are_read_like_integers():
+    """The baseline carries _orig_nr as int for some records and str for others."""
+    swallower = record(
+        key="rk-6", navn="Christine Augusta", orig_nr="6",
+        narrative="6. Christine Augusta; g. 1708.\n7 Heinrich til Gottesgabe",
+    )
+    orphan = record(key="rk-7", navn="Heinrich", orig_nr="7",
+                    narrative="Prins Georgs Reg., 1703 Sek.major.")
+
+    report = find_boundary_defects([swallower, orphan])
+
+    assert report["summary"]["graensefejl_par"] == 1
+    assert report["graensefejl_par"][0]["orphan"]["_orig_nr"] == 7
+
+
+def test_records_without_a_group_number_group_by_their_printed_branch():
+    """55 baseline records carry no _gruppe_nr; the printed branch stands in."""
+    swallower = record(
+        key="rk-7", navn="Margrethe", orig_nr=7, gruppe=None,
+        lokal_id="III.Andet.7",
+        narrative="7. Margrethe, g. m. Otto.\n8 Henning til Wittenberg, 1620 Ltnt.",
+    )
+    orphan = record(key="rk-8", navn="Henning", orig_nr=8, gruppe=None,
+                    lokal_id="III.Andet.8",
+                    narrative="var 1640 Amtmand paa Steinburg.")
+    # Same printed number and name, different branch, and it opens mid-sentence:
+    # grouping by branch is what stops it from being paired with rk-7.
+    other_branch = record(key="rk-x", navn="Henning", orig_nr=8, gruppe=None,
+                          lokal_id="I.Ottende.8",
+                          narrative="fik 1702 Skøde paa Gaarden.")
+
+    report = find_boundary_defects([swallower, orphan, other_branch])
+
+    assert report["summary"]["graensefejl_par"] == 1
+    assert report["graensefejl_par"][0]["orphan"]["record_key"] == "rk-8"
+    assert [entry["record_key"] for entry in report["mangler_eget_hoved"]] == ["rk-x"]
+
+
 def test_unnumbered_record_is_counted_but_never_flagged_on_numbering():
     unnumbered = record(key="rk-u", navn="Gotskalk af Reventlow", orig_nr=None,
                         narrative="nævnes 1223 som Vidne.", lokal_id="Stamme.I.U1")
@@ -160,7 +199,23 @@ def test_unnumbered_record_is_counted_but_never_flagged_on_numbering():
 
     assert report["summary"] == {
         "poster": 1, "graensefejl_par": 0, "slugt_hoved": 0, "mangler_eget_hoved": 0,
+        "delt_narrativ": 0,
     }
+
+
+def test_records_sharing_one_narrative_verbatim_are_grouped():
+    text = "1666. Gift o. 1632 m. Christine Rantzau paa Lindved."
+    first = record(key="rk-1", navn="Margrethe", orig_nr=1, narrative=text)
+    second = record(key="rk-2", navn="Bertram", orig_nr=2, narrative=text)
+    short = record(key="rk-3", navn="Henrich", orig_nr=3, narrative="† ung.")
+    short_twin = record(key="rk-4", navn="Henning", orig_nr=4, narrative="† ung.")
+
+    report = find_boundary_defects([first, second, short, short_twin])
+
+    assert report["summary"]["delt_narrativ"] == 1
+    group = report["delt_narrativ"][0]
+    assert group["tegn"] == len(text)
+    assert [entry["record_key"] for entry in group["poster"]] == ["rk-1", "rk-2"]
 
 
 def test_suggested_reason_carries_the_greppable_prefix_and_both_numbers():

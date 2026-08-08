@@ -11,11 +11,19 @@ already carries (``_orig_nr`` inside ``_gruppe_nr``):
 ``mangler_eget_hoved``
     A record does not open with its own printed head, but no sibling admits to
     holding it.  The head is lost somewhere else, or the name is unrecognisable.
+``delt_narrativ``
+    Two or more records carry the exact same narrative.  The cut did not divide
+    the text, it duplicated it, so at most one of them owns what it says.
 
 Matching is OCR-tolerant on names (letterspacing plus the confusable glyphs this
 scan measured in the 1939 rendition) and strict on numbers, so a printed date
 continuation like ``23 s. M.`` can never pose as a sibling head.  The scan reads
 the baseline only; it never guesses a repair.
+
+**The result is a floor, not a census.** Only boundaries that slipped *forward*
+are provable this way: a head has to survive somewhere as a printed number plus
+its own name.  A head that slipped backwards, or that OCR destroyed entirely, is
+invisible here — which is why an orphan can appear without any swallower.
 """
 
 from __future__ import annotations
@@ -54,9 +62,13 @@ _TITEL_RE = re.compile(
 _EMBEDDED_HEAD_RE = re.compile(r"(?<![\d.,])\b(\d{1,3})\s*[a-z]?\.?\s+(\S.{0,44})")
 _HEAD_WINDOW = 90
 _NAME_PREFIX = 4
+# Short shared strings ("† ung.", "N. N.") are legitimately repeated across
+# siblings; a shared narrative only means something once it carries content.
+_SHARED_MIN_CHARS = 30
 # A dropped or garbled initial ("ilhelmine" for "Wilhelmine", "MWancy" for
-# "Nancy") still leaves the printed head recognisable.  Measured against the
-# 1939 rendition: 0.7 separates those from genuine mid-sentence openings.
+# "Nancy") still leaves the printed head recognisable.  0.7 is a default, not a
+# fitted value: on this rendition the flag count barely moves between 0.6 and
+# 0.8, so the two populations sit far apart and the exact cut hardly matters.
 _HEAD_SIMILARITY = 0.7
 
 
@@ -94,14 +106,34 @@ def _name_stem(navn: object) -> str:
 
 
 def _printed_number(record: Mapping) -> int | None:
+    """Read the printed sibling number, which the baseline stores as int or str."""
     value = record.get("_orig_nr")
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        value = int(value) if value.strip().isdigit() else None
+    if not isinstance(value, int) or value < 1:
         return None
     return value
 
 
+def _branch(record: Mapping) -> object:
+    """Name the printed branch: ``_v2_lokal_id`` without its trailing number."""
+    lokal_id = record.get("_v2_lokal_id")
+    if isinstance(lokal_id, str) and "." in lokal_id:
+        return lokal_id.rsplit(".", 1)[0]
+    return lokal_id
+
+
 def _group_key(record: Mapping) -> object:
-    return record.get("_gruppe_nr")
+    """Identify the sibling set: the group number, else the printed branch.
+
+    55 baseline records carry no ``_gruppe_nr``.  Their ``_v2_lokal_id`` still
+    ends in the printed number, so the part before it names the branch and keeps
+    an unrelated branch's number 8 from posing as this branch's sibling.
+    """
+    gruppe = record.get("_gruppe_nr")
+    return ("gruppe", gruppe) if gruppe is not None else ("gren", _branch(record))
 
 
 def _folded_name(navn: object) -> str:
@@ -211,7 +243,8 @@ def find_boundary_defects(baseline: object) -> dict:
         siblings = by_group.get(_group_key(record), [])
         for hit in _swallowed_heads(record, siblings):
             entry = {
-                "gruppe_nr": _group_key(record),
+                "gruppe_nr": record.get("_gruppe_nr"),
+                "gren": _branch(record),
                 "swallower": _identity(record),
                 "orphan": _identity(next(
                     sibling for sibling in siblings
@@ -230,16 +263,27 @@ def find_boundary_defects(baseline: object) -> dict:
         _identity(record) for record in records
         if record["record_key"] in missing_head - paired_orphans
     ]
+    shared: dict[str, list[Mapping]] = {}
+    for record in records:
+        narrative = record.get("narrative")
+        if isinstance(narrative, str) and len(narrative.strip()) >= _SHARED_MIN_CHARS:
+            shared.setdefault(narrative.strip(), []).append(record)
+    shared_groups = [
+        {"tegn": len(narrative), "poster": [_identity(record) for record in group]}
+        for narrative, group in shared.items() if len(group) > 1
+    ]
     return {
         "summary": {
             "poster": len(records),
             "graensefejl_par": len(pairs),
             "slugt_hoved": len(swallowed_only),
             "mangler_eget_hoved": len(orphans),
+            "delt_narrativ": len(shared_groups),
         },
         "graensefejl_par": pairs,
         "slugt_hoved": swallowed_only,
         "mangler_eget_hoved": orphans,
+        "delt_narrativ": shared_groups,
     }
 
 
@@ -275,6 +319,11 @@ def _markdown(report: Mapping) -> str:
         f"- Grænsefejl-par (hoved slugt + forældreløs post): {report['summary']['graensefejl_par']}",
         f"- Slugt hoved uden forældreløs modpart: {report['summary']['slugt_hoved']}",
         f"- Mangler eget hoved uden kendt sluger: {report['summary']['mangler_eget_hoved']}",
+        f"- Delt narrativ (samme tekst på flere poster): {report['summary']['delt_narrativ']}",
+        "",
+        "Listen er et **gulv, ikke en optælling**: kun grænser der er skredet",
+        "fremad kan bevises af den trykte nummerering. Et hoved der er skredet",
+        "bagud, eller som OCR har ødelagt helt, er usynligt her.",
         "",
     ]
     if report["graensefejl_par"]:
@@ -298,6 +347,15 @@ def _markdown(report: Mapping) -> str:
                 f" indeholder “{entry['swallowed_head']}”"
                 f" (`{entry['swallower']['record_key']}`)"
             )
+        lines.append("")
+    if report["delt_narrativ"]:
+        lines += ["## Delt narrativ (samme tekst på flere poster)", ""]
+        for group in report["delt_narrativ"]:
+            navne = " · ".join(
+                f"nr {entry['_orig_nr']} {entry['navn']} (side {entry['sider']})"
+                for entry in group["poster"]
+            )
+            lines.append(f"- {group['tegn']} tegn delt af: {navne}")
         lines.append("")
     if report["mangler_eget_hoved"]:
         lines += ["## Mangler eget hoved (sluger ukendt)", ""]
@@ -328,7 +386,8 @@ def main() -> int:
     print(
         f"{summary['poster']} poster · {summary['graensefejl_par']} grænsefejl-par · "
         f"{summary['slugt_hoved']} slugt hoved · "
-        f"{summary['mangler_eget_hoved']} mangler eget hoved"
+        f"{summary['mangler_eget_hoved']} mangler eget hoved · "
+        f"{summary['delt_narrativ']} delt narrativ"
     )
     return 0
 
