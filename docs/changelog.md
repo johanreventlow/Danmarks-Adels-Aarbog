@@ -1,5 +1,38 @@
 # Changelog
 
+## Grænsekontrollen som én tekst frem for 446 kasser (2026-08-09)
+
+Fase 1's flade besvarede "er denne skæring rigtig?" én kasse ad gangen, men fase 1's
+egentlige fund var dækningen: 75,3 % af Calamari-teksten er ejet af en post, og 101
+poster ejer intet. Et hul er praktisk talt usynligt i en flade, der kun viser
+skæringer mellem spænd, som allerede findes. Ny flade (brugerens forslag): hele
+teksten i én tekstboks, skæringerne som markørlinjer, navigation via browserens egen
+søgning. Markøren siger kun "her klippes"; ejerskab afgøres i en senere runde.
+Tavshed er godkendelse, så eksporten registrerer i stedet ændringen mod de 446
+forudsatte. Gæt inde i huller er forslag, der kun tæller, hvis mennesket fjerner
+ordet `FORSLAG?`.
+
+Kildeteksten bruger allerede `###` til sine egne 86 sidemarkører, så fladens markører
+fik `===`: ellers ville integritetskontrollen fjerne bogens egne linjer sammen med
+vores, og en sletning i kilden kunne passere ubemærket. Kontrollen stripper kun
+navngivne mønstre og byte-sammenligner resten med kilden, løbende og ikke først ved
+eksport; eksport er umulig — ikke frarådet — mens den er brudt.
+
+Målingen korrigerede to tal, vi troede vi kendte: de 46.015 ejerløse tegn sidder i
+**97 huller, ikke 355** (258 af "hullerne" er linjeskiftet mellem to poster), og
+kilden er 186.655 tegn, ikke 189.671 — det tal var bytes. Tre fejl fundet ved at køre
+mod rigtige data frem for syntetiske: generatoren krævede at hver skæring lå ved et
+linjestart (352 af 446 gør ikke, de ligger ved linjens slut), 256 bannere annoncerede
+et linjeskift som ejerløs tekst, og **to huller med rigtig tekst — 868 og 6.330 tegn —
+var helt usynlige, fordi koden krævede en nabo på begge sider.** Dokumentets kant har
+ingen nabo. Samme fejlmønster som dagen før: fravær af bevis læst som bevis på fravær.
+
+Verificeret i Chromium mod rigtige data: 21/21 kontroller, inkl. at en eksport kan
+læses tilbage i en ny fil (445 forudsatte + 1 egen skæring overlevede). Suiten er
+1.106 grønne. Resultatet er et skæringssæt og review-/fil-GO — ingen materialisering;
+afløsning af accepteret evidens kræver fortsat en autoriseret operation (beslutning
+2026-08-08).
+
 ## Menneskegodkendte 1939-valg kan efterforankres fail-closed (2026-08-06)
 
 Et uafhængigt review fandt en reel blindgyde: browserens fagligt godkendte

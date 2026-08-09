@@ -17,14 +17,20 @@ fund var et andet: **dækningen mangler.** Verificeret mod artefaktet
 
 | Størrelse | Værdi |
 |---|---|
-| Calamari-tekst | 189.671 tegn · 3.939 linjer · 86 `### PAGE nnnn ###`-linjer |
+| Calamari-tekst | 186.655 tegn (189.671 bytes) · 3.939 linjer · 86 `### PAGE nnnn ###`-linjer |
 | Accepterede spænd | 445 (352 menneskeforankrede + 93 automatiske) |
 | Grænser | 446 · 248 med mindst ét signal |
 | Signal om forskubbet skæring | 12 (`mangler_eget_hoved` 10 + `slugt_hoved` 2) |
 | Øvrige signaler | `laengdeafvigelse` 190 · `nummerspring` 80 · `hoved_i_raa_ocr` 5 |
-| Dækket tekst | 140.640 tegn = **74,1 %** |
-| Ejerløst | 49.031 tegn · heraf 46.015 i 355 indre huller · største hul 8.996 |
+| Dækket tekst | 140.640 tegn = **75,3 %** |
+| Ejerløst | 46.015 tegn — **45.757 i 97 huller med rigtig tekst**, resten 258 enkelt-linjeskift |
+| Største hul | 8.996 tegn |
 | Poster uden spænd | 101 |
+
+**Hullerne er få og store, ikke mange og små.** 355 grænser har et hul, men 258 af
+dem er blot linjeskiftet mellem to poster. Det reelle dækningsproblem sidder i
+**97 steder**. To af dem er dokumentets kanter (868 og 6.330 tegn) — de er lige
+så meget ejerløs tekst som resten, og må ikke falde ud fordi de mangler en nabo.
 
 Et hul er praktisk talt usynligt i en kasse-for-kasse-flade: man ser kun skæringer
 mellem spænd der allerede findes. I én sammenhængende tekst er hullet fysisk
@@ -104,7 +110,11 @@ Alt genereres deterministisk. Ingen model involveret.
 - 446 `=== GRÆNSESKÆRING ===` ved grænsepositionerne fra
   `build_boundary_view_model` (`before.char_to` / `after.char_from`).
 - De 12 forskubbet-skærings-signaler får signalnavn på linjen.
-- 355 `=== EJERLØS TEKST · N tegn ===` ved hullernes begyndelse.
+- 97 `=== EJERLØS TEKST · N tegn ===` ved begyndelsen af hvert hul der indeholder
+  **rigtig tekst**. Et hul der kun er whitespace får intet banner — det er
+  typografi, ikke et dækningsproblem, og 258 falske bannere ville drukne signalet
+  i brugerens `Cmd+F`-navigation. Et hul registreres på `gap`-koordinaterne alene:
+  fraværet af en nabo (dokumentets kanter) må aldrig få hullet til at forsvinde.
 - `=== FORSLAG? SKÆRING ===` inde i huller, hvor en linje matcher det trykte
   nummermønster `_PRINTED_MARKER_RE` fra `rendition_occurrences_1939.py`
   (`^\s*\??\s*(\d{1,4}[a-z]?)\.\s+\S`). Ingen anden gætte-kilde.

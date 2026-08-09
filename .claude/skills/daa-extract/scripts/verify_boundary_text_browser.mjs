@@ -1,0 +1,181 @@
+// Ægte browserverifikation af 1939-tekstfladen (spec §10.5).
+//
+// Ikke jsdom. Fase 1 kostede fire fejl som udelukkende en rigtig browser fandt:
+// en uparsebar scriptblok (blank side), en tom kasse der læstes som frikendelse,
+// manglende fremdrift, og kontekst der rakte ud over spændets kant. Ingen af dem
+// var synlige i en diff eller en jsdom-kørsel.
+//
+// Brug:
+//   node .claude/skills/daa-extract/scripts/verify_boundary_text_browser.mjs \
+//     <sti-til-html> <sti-til-calamari-tekst>
+//
+// Playwright hentes fra web/node_modules, så scriptet kan køres fra repo-roden.
+// Printer KUN tal og status — aldrig tekstindhold; work/ indeholder PII.
+
+import { createRequire } from 'node:module';
+import { readFileSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(here, '../../../..');
+const { chromium } = createRequire(join(repoRoot, 'web', 'package.json'))('playwright');
+
+const FORVENTET = { graenser: 446, huller: 97, pdfsider: 86 };
+
+const htmlPath = resolve(process.argv[2]);
+const sourcePath = resolve(process.argv[3]);
+const source = readFileSync(sourcePath, 'utf8');
+
+const results = [];
+const record = (name, ok, detail) => {
+  results.push({ name, ok });
+  console.log(`${ok ? 'OK  ' : 'FEJL'}  ${name}${detail ? ` — ${detail}` : ''}`);
+};
+
+const browser = await chromium.launch();
+const context = await browser.newContext({ acceptDownloads: true });
+const page = await context.newPage();
+
+const pageErrors = [];
+page.on('pageerror', error => pageErrors.push(String(error)));
+page.on('console', message => {
+  if (message.type() === 'error') pageErrors.push(`console: ${message.text()}`);
+});
+
+await page.goto(`file://${htmlPath}`);
+await page.waitForLoadState('networkidle');
+
+// 1. Fladen renderer, og scriptblokken kastede ikke.
+const box = page.locator('textarea').first();
+await box.waitFor({ state: 'visible', timeout: 15000 });
+record('fladen renderer med en tekstboks', true);
+record('ingen JavaScript-fejl ved indlæsning', pageErrors.length === 0,
+  pageErrors.length ? pageErrors.slice(0, 3).join(' | ') : 'ingen');
+
+// 2. Teksten er komplet, og bogens egne sidemarkører er intakte.
+const value = await box.inputValue();
+const sourcePages = (source.match(/^### PAGE \d+ ###$/gm) || []).length;
+const shownPages = (value.match(/^### PAGE \d+ ###$/gm) || []).length;
+record('bogens egne ###-sidemarkører er intakte',
+  shownPages === sourcePages, `kilde ${sourcePages}, vist ${shownPages}`);
+record('teksten er komplet', value.length >= source.length,
+  `kilde ${source.length} tegn, vist ${value.length} tegn (+${value.length - source.length} markør)`);
+
+const markers = {
+  graense: (value.match(/^=== GRÆNSESKÆRING(?: · SIGNAL [^=]*)? ===$/gm) || []).length,
+  forslag: (value.match(/^=== FORSLAG\? SKÆRING ===$/gm) || []).length,
+  ejerloes: (value.match(/^=== EJERLØS TEKST · \d+ tegn ===$/gm) || []).length,
+  pdfside: (value.match(/^=== PDF-SIDE \d+ ===$/gm) || []).length,
+};
+console.log(`      markører: ${JSON.stringify(markers)}`);
+record(`${FORVENTET.graenser} grænsemarkører forudsat`,
+  markers.graense === FORVENTET.graenser, `fandt ${markers.graense}`);
+record(`kun huller med rigtig tekst får banner (${FORVENTET.huller})`,
+  markers.ejerloes === FORVENTET.huller, `fandt ${markers.ejerloes}`);
+record(`${FORVENTET.pdfsider} PDF-sidelinjer`,
+  markers.pdfside === FORVENTET.pdfsider, `fandt ${markers.pdfside}`);
+
+// Kant-hullerne må ikke være forsvundet: det største hul er 8.996 tegn, og de to
+// kanter er 868 og 6.330. Findes 6.330-banneret ikke, er kanten faldet ud.
+record('dokumentets kant-hul (6.330 tegn) er annonceret',
+  value.includes('=== EJERLØS TEKST · 6330 tegn ==='));
+
+// 3. Gaten reagerer løbende — ikke først ved eksport.
+//
+// Linjenummeret skal vælges bevidst: fladen består af både bogtekst og markører,
+// og de to slags ændring er forskellige fund. En blind nedadpil ramte tidligere en
+// markørlinje og målte dermed noget andet end den troede.
+const lines = value.split('\n');
+const isMarker = line => line.startsWith('===');
+const isSourcePage = line => line.startsWith('###');
+const bookLine = lines.findIndex(line =>
+  line.trim() && !isMarker(line) && !isSourcePage(line));
+const markerLine = lines.findIndex(isMarker);
+
+const statusText = async () => (await page.locator('body').innerText())
+  .split('\n').filter(line => /urørt|ændret|ukendt|markør|bogtekst/i.test(line)).join(' | ');
+
+record('gate-status vises inden ændring', /urørt/i.test(await statusText()));
+
+// Caret sættes på nøjagtig tegnposition. ArrowDown flytter sig efter OMBRUDTE
+// linjer i en tekstboks, ikke efter rigtige linjer — en tidligere udgave af denne
+// test redigerede derfor et helt andet sted, end den troede, og målte fladen forkert.
+const typeOnLine = async (index, keystroke) => {
+  await page.evaluate(lineIndex => {
+    const field = document.querySelector('textarea');
+    const caret = field.value.split('\n').slice(0, lineIndex + 1).join('\n').length;
+    field.focus();
+    field.setSelectionRange(caret, caret);
+  }, index);
+  await page.keyboard.type(keystroke);
+  await page.waitForTimeout(900); // debounce
+};
+
+await typeOnLine(bookLine, 'X');
+const afterBook = await statusText();
+record('gaten fanger én indsat karakter i bogteksten',
+  /ændret/i.test(afterBook), `linje ${bookLine + 1} · ${afterBook.slice(0, 120)}`);
+record('gaten peger på et linjenummer', /linje\s*\d+/i.test(afterBook));
+
+await page.keyboard.press('Backspace');
+await page.waitForTimeout(900);
+record('gaten er grøn igen efter fortrydelse', /urørt/i.test(await statusText()));
+
+// En ødelagt markørlinje er et andet fund end en ændret bogtekst — begge skal fanges.
+await typeOnLine(markerLine, 'X');
+const afterMarker = await statusText();
+record('en ødelagt markørlinje fanges som ukendt markør',
+  /ukendt/i.test(afterMarker), `linje ${markerLine + 1} · ${afterMarker.slice(0, 120)}`);
+await page.keyboard.press('Backspace');
+await page.waitForTimeout(900);
+
+// Bryd gaten igen, så eksport-blokeringen nedenfor måler det den tror.
+await typeOnLine(bookLine, 'X');
+record('gaten er brudt inden eksport-forsøget', /ændret/i.test(await statusText()));
+
+// 4. Eksport skal være umulig — ikke frarådet — mens gaten er brudt.
+const exportButton = page.locator('button', { hasText: /eksport/i }).first();
+const hasExport = await exportButton.count() > 0;
+record('eksportknap findes', hasExport);
+
+if (hasExport) {
+  const blocked = await Promise.race([
+    page.waitForEvent('download', { timeout: 3000 }).then(() => 'download'),
+    exportButton.click().then(() => page.waitForTimeout(2500)).then(() => 'ingen'),
+  ]).catch(() => 'ingen');
+  record('eksport blokeret mens gaten er brudt', blocked === 'ingen', `resultat: ${blocked}`);
+}
+
+// 5. Gendan, eksportér, kontrollér filnavn og format.
+await page.keyboard.press('Backspace');
+await page.waitForTimeout(900);
+record('gaten bliver grøn igen når tegnet fjernes', /urørt/i.test(await statusText()));
+
+if (hasExport) {
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 10000 }),
+    exportButton.click(),
+  ]);
+  const name = download.suggestedFilename();
+  record('eksportfilnavn', name === '1939-graenseflade.json', name);
+  const target = join(mkdtempSync(join(tmpdir(), 'graenseflade-')), 'eksport.json');
+  await download.saveAs(target);
+  const draft = JSON.parse(readFileSync(target, 'utf8'));
+  record('eksport har de aftalte felter',
+    ['schema_version', 'source', 'skaeringer', 'aendringsregnskab'].every(key => key in draft),
+    Object.keys(draft).join(', '));
+  const regnskab = draft.aendringsregnskab || {};
+  record('ændringsregnskabet summer',
+    (regnskab.beholdt ?? -1) + (regnskab.slettet ?? -1) === FORVENTET.graenser,
+    JSON.stringify(regnskab));
+  record('den redigerede tekst eksporteres IKKE',
+    !JSON.stringify(draft).includes('=== GRÆNSESKÆRING ==='));
+}
+
+await browser.close();
+
+const failed = results.filter(result => !result.ok).length;
+console.log(`\n${results.length - failed}/${results.length} kontroller bestået`);
+process.exit(failed ? 1 : 0);
