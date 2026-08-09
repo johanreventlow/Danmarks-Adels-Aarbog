@@ -79,6 +79,12 @@ Inline-tags (må stå midt i en linje):
 | `[[OCR: Rcventlow \| burde stå Reventlow]]` | OCR-note, knyttet til stedet. **Venstre side er den rå tekst uden nøgleord**; kun højre side bærer ordene `burde stå`. Skriver man "der står" på venstre side, ender nøgleordet inde i værdien |
 | `[[UDELAD]] … [[/UDELAD]]` | tekst der ikke hører til nogen post (overskrifter, kolumnetitler). Betyder **ikke** "slet fra kilden" |
 
+`[[UDELAD]]` og `[[/UDELAD]]` må stå klistret til teksten **eller alene på hver sin
+linje** — overskrifter er deres egne linjer, så det er den naturlige skrivemåde. En
+linje der kun består af et udelad-tag fjernes med sit linjeskift, som markørlinjerne.
+Alle fire kombinationer skal give **samme `char_from`/`char_to`** for samme tekststykke;
+ellers ville skrivemåden ændre betydningen. Målt: alle fire giver 43–89 på samme afsnit.
+
 Begge tags er noteringer, ikke tekstændringer: de holder byte-gaten grøn og eksporteres
 med kildekoordinater. Syntaksen kan ikke gættes, så fladen skal vise den på skærmen
 (uden for tekstboksen — en nøgle inde i teksten ville forurene indholdet).
