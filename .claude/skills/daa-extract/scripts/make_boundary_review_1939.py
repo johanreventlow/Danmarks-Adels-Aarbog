@@ -97,6 +97,17 @@ def _raw_gap_window(boundary: Mapping, by_key: Mapping, raw_text: str) -> str:
     return raw_text[raw_from:raw_to]
 
 
+def _page_evidence(boundary_span: Mapping | None, by_key: Mapping,
+                   records: Mapping) -> tuple[object, object]:
+    if boundary_span is None:
+        return None, None
+    record_key = boundary_span["baseline_record_key"]
+    span = by_key[record_key]
+    candidate = span.get("candidate")
+    pdf_pages = candidate.get("pdf_pages") if isinstance(candidate, Mapping) else None
+    return copy.deepcopy(pdf_pages), copy.deepcopy(records[record_key].get("sider"))
+
+
 def build_boundary_view_model(spans: list[dict], clauses: list[dict],
                               calamari_text: str, raw_text: str,
                               records: Mapping, source: Mapping) -> dict:
@@ -150,6 +161,12 @@ def build_boundary_view_model(spans: list[dict], clauses: list[dict],
                 signals.extend(signals_by_key.get(span["baseline_record_key"], []))
         if raw_window and raa_ocr_hoved_i_hul(gap_text, raw_window):
             signals.append("hoved_i_raa_ocr")
+        before_pdf_pages, before_sider = _page_evidence(
+            boundary["before"], by_key, records,
+        )
+        after_pdf_pages, after_sider = _page_evidence(
+            boundary["after"], by_key, records,
+        )
         entry = {
             **boundary,
             "gap_summary": summary,
@@ -164,6 +181,10 @@ def build_boundary_view_model(spans: list[dict], clauses: list[dict],
                             if boundary["before"] else None),
             "after_navn": (records[boundary["after"]["baseline_record_key"]].get("navn")
                            if boundary["after"] else None),
+            "before_pdf_pages": before_pdf_pages,
+            "before_sider": before_sider,
+            "after_pdf_pages": after_pdf_pages,
+            "after_sider": after_sider,
         }
         entries.append(entry)
     entries.sort(key=lambda entry: (

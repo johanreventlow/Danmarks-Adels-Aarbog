@@ -37,6 +37,10 @@ function boundary(id: string) {
     after_context: 'Prins Georgs Reg., 1703 Sek.major',
     before_navn: 'Christine Augusta',
     after_navn: 'Heinrich',
+    before_pdf_pages: [535],
+    before_sider: '534',
+    after_pdf_pages: [536],
+    after_sider: '536',
   };
 }
 
@@ -83,6 +87,17 @@ describe('grænsegennemgang', () => {
       .toBeTruthy();
     expect(cutMarker.compareDocumentPosition(afterContext) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
+  });
+
+  it('viser PDF-side og postens hævdede side ved begge spænd og markerer uenighed', () => {
+    start();
+
+    const evidence = document.querySelector('[data-role="boundary-evidence"]')!;
+    expect(evidence.textContent).toContain('PDF s. 535 · posten hævder s. 534 (uenige)');
+    expect(evidence.textContent).toContain('PDF s. 536 · posten hævder s. 536');
+    const list = document.querySelector('[data-role="boundary-list"]')!;
+    expect(list.textContent).toContain('PDF s. 535 · posten hævder s. 534 (uenige)');
+    expect(list.textContent).toContain('PDF s. 536 · posten hævder s. 536');
   });
 
   it('viser at rå OCR har et hoved Calamari mangler', () => {

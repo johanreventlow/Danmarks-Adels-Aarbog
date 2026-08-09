@@ -268,6 +268,26 @@
     });
   }
 
+  function pageEvidence(pdfPages, sider) {
+    const pdf = Array.isArray(pdfPages)
+      ? pdfPages.filter(page => typeof page === 'string' || typeof page === 'number')
+        .map(page => String(page).trim()).filter(Boolean)
+      : [];
+    const claimed = typeof sider === 'string' || typeof sider === 'number'
+      ? String(sider).trim() : '';
+    const claimedPages = (claimed.match(/\d+/g) || []).map(Number);
+    const disagreement = pdf.length && claimedPages.length
+      && !claimedPages.every(page => pdf.includes(String(page)));
+    return `${pdf.length ? `PDF s. ${pdf.join(', ')}` : 'PDF-side ikke angivet'} · ${
+      claimed ? `posten hævder s. ${claimed}` : 'posten hævder ingen side'
+    }${disagreement ? ' (uenige)' : ''}`;
+  }
+
+  function boundaryPageEvidence(boundary) {
+    return `${pageEvidence(boundary.before_pdf_pages, boundary.before_sider)} → ${
+      pageEvidence(boundary.after_pdf_pages, boundary.after_sider)}`;
+  }
+
   function renderSidebar(state, sidebar) {
     sidebar.replaceChildren();
     const ids = boundaryIds(state);
@@ -287,6 +307,9 @@
       button.setAttribute('data-status', decidedEntry ? 'decided' : 'missing');
       if (hasRiskSignal) button.setAttribute('data-risk', 'signal');
       button.append(element('span', `${boundary.before_navn || 'Ukendt'} → ${boundary.after_navn || 'Ukendt'}`));
+      button.append(element('span', boundaryPageEvidence(boundary), {
+        'data-role': 'boundary-pages',
+      }));
       button.append(element('span', decidedEntry ? VERDICT_DA[decidedEntry.verdict] : 'Udestår', {
         'data-role': 'boundary-status', 'data-status': decidedEntry ? 'decided' : 'missing',
       }));
@@ -357,9 +380,15 @@
     root.append(navigation);
     const sides = element('section', undefined, { 'data-role': 'boundary-evidence' });
     sides.append(element('h2', `Slutningen af forrige spænd: ${boundary.before_navn || 'Ukendt navn'}`));
+    sides.append(element('p', pageEvidence(boundary.before_pdf_pages, boundary.before_sider), {
+      'data-role': 'before-pages',
+    }));
     sides.append(element('p', boundary.before_context || 'Ingen kontekst før skæringen.'));
     sides.append(element('p', '—— SKÆRING MELLEM SPÆNDENE ——', { 'data-role': 'cut-marker' }));
     sides.append(element('h2', `Begyndelsen af næste spænd: ${boundary.after_navn || 'Ukendt navn'}`));
+    sides.append(element('p', pageEvidence(boundary.after_pdf_pages, boundary.after_sider), {
+      'data-role': 'after-pages',
+    }));
     sides.append(element('p', boundary.after_context || 'Ingen kontekst efter skæringen.'));
     appendEvidenceText(sides, 'Calamari-hullet', boundary.gap_text,
       'Intet hul: de to spænd støder op til hinanden.', 'gap-text');

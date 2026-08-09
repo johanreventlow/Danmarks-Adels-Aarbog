@@ -101,6 +101,31 @@ def test_missing_raw_bridge_makes_no_claim_about_raw_ocr():
     assert "bulk_block_reason_da" not in middle
 
 
+def test_boundary_view_model_keeps_pdf_and_claimed_printed_pages_separately():
+    calamari = "1. Anders\n2. Birgit\n"
+    before = automatic_span("rk-1", "1939:1", 0, 10)
+    after = automatic_span("rk-2", "1939:2", 10, 20)
+    before["candidate"]["pdf_pages"] = [535]
+    after["candidate"]["pdf_pages"] = [536]
+    records = {
+        "rk-1": {"record_key": "rk-1", "navn": "Anders", "_orig_nr": 1,
+                 "_gruppe_nr": 1, "_v2_lokal_id": "I.1", "sider": "534"},
+        "rk-2": {"record_key": "rk-2", "navn": "Birgit", "_orig_nr": 2,
+                 "_gruppe_nr": 1, "_v2_lokal_id": "I.2", "sider": "536"},
+    }
+
+    model = build_boundary_view_model(
+        [before, after], [], calamari, calamari, records, SOURCE,
+    )
+
+    middle = next(entry for entry in model["boundaries"]
+                  if entry["gap"] == {"char_from": 10, "char_to": 10})
+    assert middle["before_pdf_pages"] == [535]
+    assert middle["before_sider"] == "534"
+    assert middle["after_pdf_pages"] == [536]
+    assert middle["after_sider"] == "536"
+
+
 def test_unspanned_baseline_sibling_can_reveal_a_swallowed_head():
     calamari = "6. Christine Augusta; g. 1708.\n7 Heinrich til Gottesgabe\n"
     span = automatic_span("rk-6", "1939:6", 0, len(calamari))
