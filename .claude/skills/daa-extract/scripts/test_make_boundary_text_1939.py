@@ -173,7 +173,7 @@ def test_export_is_fail_closed_and_accounts_for_boundaries_proposals_and_user_cu
     payload = exported["value"]
     assert payload["skaeringer"] == [
         {"char_offset": 0, "oprindelse": "forudsat"},
-        {"char_offset": 2, "oprindelse": "forudsat"},
+        {"char_offset": 2, "oprindelse": "forslag_godkendt"},
         {"char_offset": 9, "oprindelse": "bruger"},
     ]
     assert payload["aendringsregnskab"] == {
@@ -191,6 +191,25 @@ def test_export_is_fail_closed_and_accounts_for_boundaries_proposals_and_user_cu
     assert "linje 1" in broken["error"]
 
 
+def test_approved_proposal_at_an_expected_boundary_round_trips_without_losing_either_marker(tmp_path):
+    source = "A\n1. B\n"
+    base = [
+        {"kind": "boundary", "char_offset": 2, "text": "=== GRÆNSESKÆRING ==="},
+        {"kind": "proposal", "char_offset": 2, "text": "=== FORSLAG? SKÆRING ==="},
+    ]
+    edited = subject.compose_marked_text(source, [
+        base[0], {"kind": "cut", "char_offset": 2, "text": "=== SKÆRING ==="},
+    ])
+    exported = _node_call(tmp_path, "buildExport", edited, {
+        "sourceText": source, "source": SOURCE,
+        "expectedBoundaryOffsets": [2], "expectedProposalOffsets": [2],
+    }, "2026-08-09T10:00:00.000Z")["value"]
+    assert exported["skaeringer"] == [
+        {"char_offset": 2, "oprindelse": "forslag_godkendt"},
+    ]
+    assert subject.compose_marked_text(source, subject.apply_markeringer(base, exported)) == edited
+
+
 def test_restore_book_text_keeps_markers_at_nearest_valid_source_line(tmp_path):
     source = "første\nanden\ntredje\n"
     changed = "førsteX\n=== SKÆRING ===\nanden\ntredje\n"
@@ -198,6 +217,25 @@ def test_restore_book_text_keeps_markers_at_nearest_valid_source_line(tmp_path):
     assert restored["ok"] is True
     assert restored["text"] == "første\n=== SKÆRING ===\nanden\ntredje\n"
     assert _node_call(tmp_path, "parseMarkedText", restored["text"], source)["gate"]["ok"] is True
+
+
+def test_untouched_and_deleted_proposals_share_the_sum_but_round_trip_differently(tmp_path):
+    source = "A\n1. B\n"
+    data = {
+        "sourceText": source, "source": SOURCE,
+        "expectedBoundaryOffsets": [], "expectedProposalOffsets": [2],
+    }
+    untouched = _node_call(
+        tmp_path, "buildExport", "A\n=== FORSLAG? SKÆRING ===\n1. B\n", data,
+        "2026-08-09T10:00:00.000Z",
+    )["value"]
+    deleted = _node_call(
+        tmp_path, "buildExport", source, data, "2026-08-09T10:00:00.000Z",
+    )["value"]
+    assert untouched["aendringsregnskab"]["forslag_bortfaldet"] == 1
+    assert deleted["aendringsregnskab"]["forslag_bortfaldet"] == 1
+    assert untouched["slettede"] == []
+    assert deleted["slettede"] == [{"char_offset": 2, "var": "FORSLAG"}]
 
 
 def _write_inputs(tmp_path: Path):
@@ -254,9 +292,28 @@ def test_main_writes_parseable_html_and_refuses_overwrite(tmp_path, monkeypatch)
     assert result.returncode == 0, result.stderr
     assert "\\n(function (global)" not in script
 
+    mutated = script.replace(";\n(function (global)", ";\\n(function (global)", 1)
+    assert mutated != script
+    mutated_path = tmp_path / "mutated-generated.js"
+    mutated_path.write_text(mutated, encoding="utf-8")
+    mutation = subprocess.run(
+        ["node", "--check", str(mutated_path)], text=True, capture_output=True,
+    )
+    assert mutation.returncode != 0
+
     monkeypatch.setattr(sys, "argv", _argv(inputs, out))
     with pytest.raises(FileExistsError):
         subject.main()
+
+
+def test_main_validates_source_hash_before_creating_output(tmp_path, monkeypatch):
+    inputs = _write_inputs(tmp_path)
+    inputs[3].write_text("ændret\n", encoding="utf-8")
+    out = tmp_path / "flade.html"
+    monkeypatch.setattr(sys, "argv", _argv(inputs, out))
+    with pytest.raises(ValueError, match="calamari hash"):
+        subject.main()
+    assert not out.exists()
 
 
 def test_export_reload_round_trip_reconstructs_the_same_marked_surface(tmp_path):
@@ -281,3 +338,37 @@ def test_export_reload_round_trip_reconstructs_the_same_marked_surface(tmp_path)
     rebuilt = subject.compose_marked_text(source, rebuilt_annotations)
     assert rebuilt == edited
 
+
+def test_init_prefers_local_storage_then_debounces_gate_and_autosave_by_300_ms(tmp_path):
+    if shutil.which("node") is None:
+        pytest.skip("node findes ikke på PATH")
+    runner = tmp_path / "ui-runner.js"
+    runner.write_text(
+        "const fs=require('fs'),vm=require('vm');\n"
+        "const listeners={},nodes={};\n"
+        "function node(name){return nodes[name]={value:'',textContent:'',disabled:false,dataset:{},"
+        "addEventListener:(event,fn)=>{listeners[name+':'+event]=fn}}}\n"
+        "node('text');node('gate');node('save');node('export');node('restore');\n"
+        "const selectors={'[data-role=\\\"boundary-text\\\"]':nodes.text,'[data-role=\\\"gate-status\\\"]':nodes.gate,"
+        "'[data-role=\\\"save-status\\\"]':nodes.save,'[data-action=\\\"export\\\"]':nodes.export,"
+        "'[data-action=\\\"restore\\\"]':nodes.restore};\n"
+        "let delay=null,callback=null,writes=0;const context={console,TextEncoder,TextDecoder,"
+        "document:{querySelector:s=>selectors[s]},localStorage:{},clearTimeout:()=>{},"
+        "setTimeout:(fn,ms)=>{callback=fn;delay=ms},DAAReviewShared:{"
+        "readStoredDraft:()=>({marked_text:'gemt\\n'}),writeStoredDraft:()=>{writes++;return ''},downloadJson:()=>{}}};\n"
+        "context.globalThis=context;vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[2],'utf8'),context);\n"
+        "context.DAABoundaryText.init({source:{calamari_sha256:'x'},sourceText:'gemt\\n',initialText:'indlejret\\n',"
+        "expectedBoundaryOffsets:[],expectedProposalOffsets:[]});\n"
+        "nodes.text.value='ændret\\n';listeners['text:input']();\n"
+        "const before={value:nodes.text.value,delay,writes};callback();\n"
+        "process.stdout.write(JSON.stringify({before,gate:nodes.gate.textContent,writes}));\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        ["node", str(runner), str(subject.UI_PATH)], text=True, capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+    value = json.loads(result.stdout)
+    assert value["before"] == {"value": "ændret\n", "delay": 300, "writes": 1}
+    assert value["gate"] == "bogteksten er ændret ved linje 1"
+    assert value["writes"] == 2
