@@ -121,6 +121,21 @@
   const LINE_RANK = { pdf: 10, boundary: 20, hole: 30, proposal: 40, cut: 50 };
   const INLINE_RANK = { udelad_start: 0, ocr: 1, udelad_end: 2 };
 
+  function lineMarkerDisplayOffset(source, canonicalOffset) {
+    if (canonicalOffset === 0 || ['\n', '\r'].includes(source[canonicalOffset - 1])) {
+      return canonicalOffset;
+    }
+    for (let offset = canonicalOffset; offset < source.length; offset += 1) {
+      const character = source[offset];
+      if (!/^\s$/u.test(character)) {
+        throw new Error(`linjemarkør ved ${canonicalOffset} har ikke-whitespace før næste linjestart`);
+      }
+      if (character === '\n') return offset + 1;
+      if (character === '\r' && source[offset + 1] !== '\n') return offset + 1;
+    }
+    throw new Error(`linjemarkør ved ${canonicalOffset} har ingen efterfølgende linjestart`);
+  }
+
   function composeMarkedText(sourceText, annotations) {
     const source = chars(sourceText);
     const grouped = new Map();
@@ -129,8 +144,10 @@
       if (!Number.isInteger(offset) || offset < 0 || offset > source.length) {
         throw new Error('markør har ugyldig kildetekstposition');
       }
-      if (!grouped.has(offset)) grouped.set(offset, []);
-      grouped.get(offset).push(annotation);
+      const displayOffset = Object.hasOwn(LINE_RANK, annotation.kind)
+        ? lineMarkerDisplayOffset(source, offset) : offset;
+      if (!grouped.has(displayOffset)) grouped.set(displayOffset, []);
+      grouped.get(displayOffset).push(annotation);
     });
     const result = [];
     for (let offset = 0; offset <= source.length; offset += 1) {
@@ -138,9 +155,6 @@
       const lineItems = items.filter(item => Object.hasOwn(LINE_RANK, item.kind))
         .sort((left, right) => LINE_RANK[left.kind] - LINE_RANK[right.kind]
           || String(left.text).localeCompare(String(right.text)));
-      if (lineItems.length && offset > 0 && !['\n', '\r'].includes(source[offset - 1])) {
-        throw new Error(`linjemarkør ved ${offset} står ikke ved et linjeskift`);
-      }
       lineItems.forEach(item => result.push(item.text + '\n'));
       items.filter(item => Object.hasOwn(INLINE_RANK, item.kind))
         .sort((left, right) => INLINE_RANK[left.kind] - INLINE_RANK[right.kind])
@@ -155,38 +169,65 @@
     return result.join('');
   }
 
+  function canonicalMarkers(markers, data) {
+    const mappings = Array.isArray(data.lineMarkerMappings) ? data.lineMarkerMappings : [];
+    return markers.map(marker => {
+      const atDisplay = mappings.filter(mapping => mapping.displayOffset === marker.char_offset);
+      let mapping = atDisplay.find(candidate => (
+        candidate.kind === marker.kind && candidate.text === marker.text
+      ));
+      if (!mapping && marker.kind === 'cut') {
+        mapping = atDisplay.find(candidate => candidate.kind === 'cut')
+          || atDisplay.find(candidate => candidate.kind === 'proposal')
+          || atDisplay.find(candidate => candidate.kind === 'boundary');
+      }
+      if (!mapping) mapping = atDisplay.find(candidate => candidate.kind === marker.kind);
+      return mapping ? {
+        ...marker,
+        char_offset: mapping.canonicalOffset,
+        originHint: mapping.origin || null,
+      } : marker;
+    });
+  }
+
   function buildExport(markedText, data, exportedAt) {
     const parsed = parseMarkedText(markedText, data.sourceText);
     if (!parsed.ok) return { ok: false, error: parsed.error };
     if (!parsed.gate.ok) return { ok: false, error: parsed.gate.message };
+    const markers = canonicalMarkers(parsed.markers, data);
     const expectedBoundaries = new Set(data.expectedBoundaryOffsets);
     const expectedProposals = new Set(data.expectedProposalOffsets);
     const acceptedByOffset = new Map();
     const proposalMarkers = new Set();
-    parsed.markers.forEach(marker => {
+    markers.forEach(marker => {
       if (marker.kind === 'proposal') proposalMarkers.add(marker.char_offset);
       if (marker.kind === 'boundary' || marker.kind === 'cut') {
         if (!acceptedByOffset.has(marker.char_offset)) acceptedByOffset.set(marker.char_offset, []);
-        acceptedByOffset.get(marker.char_offset).push(marker.kind);
+        acceptedByOffset.get(marker.char_offset).push(marker);
       }
     });
-    const cuts = Array.from(acceptedByOffset).map(([char_offset, kinds]) => ({
-      char_offset,
-      oprindelse: expectedProposals.has(char_offset) && kinds.includes('cut') ? 'forslag_godkendt'
-        : expectedBoundaries.has(char_offset) ? 'forudsat'
-          : 'bruger',
-    })).sort((left, right) => left.char_offset - right.char_offset);
+    const cuts = Array.from(acceptedByOffset).map(([char_offset, accepted]) => {
+      const cut = accepted.find(marker => marker.kind === 'cut');
+      return {
+        char_offset,
+        oprindelse: cut && cut.originHint ? cut.originHint
+          : expectedProposals.has(char_offset) && cut ? 'forslag_godkendt'
+            : expectedBoundaries.has(char_offset) ? 'forudsat'
+              : 'bruger',
+      };
+    }).sort((left, right) => left.char_offset - right.char_offset);
     const kept = data.expectedBoundaryOffsets.filter(offset => acceptedByOffset.has(offset));
     const approvedProposals = data.expectedProposalOffsets.filter(offset => {
-      const kinds = acceptedByOffset.get(offset) || [];
-      return kinds.includes('cut');
+      const accepted = acceptedByOffset.get(offset) || [];
+      return accepted.some(marker => marker.kind === 'cut');
     });
     const deleted = data.expectedBoundaryOffsets
       .filter(offset => !acceptedByOffset.has(offset))
       .map(char_offset => ({ char_offset, var: 'GRÆNSESKÆRING' }));
     data.expectedProposalOffsets.forEach(char_offset => {
-      const kinds = acceptedByOffset.get(char_offset) || [];
-      if (!proposalMarkers.has(char_offset) && !kinds.includes('cut')) {
+      const accepted = acceptedByOffset.get(char_offset) || [];
+      if (!proposalMarkers.has(char_offset)
+          && !accepted.some(marker => marker.kind === 'cut')) {
         deleted.push({ char_offset, var: 'FORSLAG' });
       }
     });

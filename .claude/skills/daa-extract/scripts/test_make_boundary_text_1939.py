@@ -65,7 +65,7 @@ def test_build_text_model_reuses_boundaries_and_only_shift_signals():
         "source": SOURCE,
         "boundaries": [
             _boundary(0, inner=False),
-            _boundary(7, signals=("laengdeafvigelse", "mangler_eget_hoved"),
+            _boundary(6, signals=("laengdeafvigelse", "mangler_eget_hoved"),
                       gap_to=18),
             _boundary(len(text), inner=False),
         ],
@@ -73,11 +73,11 @@ def test_build_text_model_reuses_boundaries_and_only_shift_signals():
 
     result = subject.build_text_model(text, model)
 
-    assert [item["char_offset"] for item in result["forudsatte_skaeringer"]] == [0, 7, len(text)]
+    assert [item["char_offset"] for item in result["forudsatte_skaeringer"]] == [0, 6, len(text)]
     assert result["forudsatte_skaeringer"][1]["text"] == (
         "=== GRÆNSESKÆRING · SIGNAL mangler_eget_hoved ==="
     )
-    assert result["huller"] == [{"char_offset": 7, "tegn": 11}]
+    assert result["huller"] == [{"char_offset": 6, "tegn": 12}]
     assert result["forslag"] == [{"char_offset": 7}]
 
 
@@ -149,6 +149,43 @@ def test_view_offsets_are_converted_to_source_character_offsets_both_ways(tmp_pa
     assert [marker["char_offset"] for marker in parsed["markers"]] == [3]
     assert parsed["ocrNotes"] == [{"char_offset": 4, "staar": "B", "burde_staa": "C"}]
     assert parsed["bookText"] == source
+
+
+def test_boundary_before_newline_uses_line_start_for_view_and_canonical_offset_for_export(tmp_path):
+    source = "Post.\nNæste\n"
+    annotations = [
+        {"kind": "boundary", "char_offset": 5, "text": "=== GRÆNSESKÆRING ==="},
+    ]
+
+    marked = subject.compose_marked_text(source, annotations)
+
+    assert marked == "Post.\n=== GRÆNSESKÆRING ===\nNæste\n"
+    assert _node_call(tmp_path, "composeMarkedText", source, annotations) == marked
+    parsed = _node_call(tmp_path, "parseMarkedText", marked, source)
+    assert parsed["markers"] == [
+        {"kind": "boundary", "char_offset": 6, "text": "=== GRÆNSESKÆRING ==="},
+    ]
+    mappings = subject.line_marker_mappings(source, annotations)
+    exported = _node_call(tmp_path, "buildExport", marked, {
+        "sourceText": source,
+        "source": SOURCE,
+        "expectedBoundaryOffsets": [5],
+        "expectedProposalOffsets": [],
+        "lineMarkerMappings": mappings,
+    }, "2026-08-09T10:00:00.000Z")
+    assert exported["value"]["skaeringer"] == [
+        {"char_offset": 5, "oprindelse": "forudsat"},
+    ]
+
+
+def test_line_marker_cannot_move_across_non_whitespace_source_text():
+    source = "Post.\nNæste\n"
+    annotations = [
+        {"kind": "boundary", "char_offset": 2, "text": "=== GRÆNSESKÆRING ==="},
+    ]
+
+    with pytest.raises(subject.BoundaryError, match="ikke-whitespace"):
+        subject.compose_marked_text(source, annotations)
 
 
 def test_export_is_fail_closed_and_accounts_for_boundaries_proposals_and_user_cuts(tmp_path):
@@ -260,8 +297,19 @@ def _write_inputs(tmp_path: Path):
         "pdf_sha256": "d" * 64,
     }
     source_manifest.write_text(json.dumps({"schema_version": 1, "source": source}), encoding="utf-8")
-    queue.write_text(json.dumps({"schema_version": 1, "source": source, "entries": []}), encoding="utf-8")
-    anchored.write_text("{}", encoding="utf-8")
+    queue.write_text(json.dumps({"schema_version": 1, "source": source, "entries": [{
+        "baseline_record_key": "rk-a", "queue_class": "human_required",
+        "reason_code": "manual", "reason_da": "menneskelig forankring",
+    }]}), encoding="utf-8")
+    anchored.write_text(json.dumps({"human:a": {
+        "baseline_record_key": "rk-a", "candidate": {
+            "candidate_id": "human:a", "postklasse": "nummereret",
+            "calamari_span": {"char_from": 18, "char_to": 27},
+            "pdf_pages": [496],
+            "approval": {"kind": "human_approved_span_v1",
+                         "calamari_excerpt_sha256": "e" * 64},
+        },
+    }}), encoding="utf-8")
     return baseline, queue, source_manifest, calamari, raw, anchored
 
 

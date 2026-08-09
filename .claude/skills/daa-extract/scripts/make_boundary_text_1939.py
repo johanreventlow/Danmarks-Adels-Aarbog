@@ -161,6 +161,44 @@ _LINE_RANK = {"pdf": 10, "boundary": 20, "hole": 30, "proposal": 40, "cut": 50}
 _INLINE_RANK = {"udelad_start": 0, "ocr": 1, "udelad_end": 2}
 
 
+def _line_marker_display_offset(source_text: str, canonical_offset: int) -> int:
+    """Find næste linjestart uden at flytte markøren hen over bogtekst."""
+    if canonical_offset == 0 or source_text[canonical_offset - 1:canonical_offset] in {"\n", "\r"}:
+        return canonical_offset
+    for offset in range(canonical_offset, len(source_text)):
+        character = source_text[offset]
+        if not character.isspace():
+            raise BoundaryError(
+                f"linjemarkør ved {canonical_offset} har ikke-whitespace før næste linjestart"
+            )
+        if character == "\n":
+            return offset + 1
+        if character == "\r" and source_text[offset + 1:offset + 2] != "\n":
+            return offset + 1
+    raise BoundaryError(f"linjemarkør ved {canonical_offset} har ingen efterfølgende linjestart")
+
+
+def line_marker_mappings(source_text: str, annotations: list[Mapping]) -> list[dict]:
+    """Beskriv den tabsfri kanonisk↔visning-omregning for linjemarkører."""
+    mappings = []
+    for item in annotations:
+        if item.get("kind") not in _LINE_RANK:
+            continue
+        canonical = item.get("char_offset")
+        if isinstance(canonical, bool) or not isinstance(canonical, int) or not 0 <= canonical <= len(source_text):
+            raise BoundaryError("markør har ugyldig kildetekstposition")
+        mapping = {
+            "kind": item["kind"],
+            "text": item["text"],
+            "canonicalOffset": canonical,
+            "displayOffset": _line_marker_display_offset(source_text, canonical),
+        }
+        if item.get("origin") is not None:
+            mapping["origin"] = item["origin"]
+        mappings.append(mapping)
+    return mappings
+
+
 def compose_marked_text(source_text: str, annotations: list[Mapping]) -> str:
     """Indsæt markører ved kildens tegnkoordinater uden at ændre kildeteksten."""
     by_offset: dict[int, list[Mapping]] = {}
@@ -168,7 +206,11 @@ def compose_marked_text(source_text: str, annotations: list[Mapping]) -> str:
         offset = item.get("char_offset")
         if isinstance(offset, bool) or not isinstance(offset, int) or not 0 <= offset <= len(source_text):
             raise BoundaryError("markør har ugyldig kildetekstposition")
-        by_offset.setdefault(offset, []).append(item)
+        display_offset = (
+            _line_marker_display_offset(source_text, offset)
+            if item.get("kind") in _LINE_RANK else offset
+        )
+        by_offset.setdefault(display_offset, []).append(item)
 
     parts = []
     for offset in range(len(source_text) + 1):
@@ -177,8 +219,6 @@ def compose_marked_text(source_text: str, annotations: list[Mapping]) -> str:
             (item for item in items if item.get("kind") in _LINE_RANK),
             key=lambda item: (_LINE_RANK[item["kind"]], item.get("text", "")),
         )
-        if line_items and offset and source_text[offset - 1] not in "\r\n":
-            raise BoundaryError(f"linjemarkør ved {offset} står ikke ved et linjeskift")
         for item in line_items:
             parts.append(item["text"] + "\n")
         inline_items = sorted(
@@ -217,7 +257,8 @@ def apply_markeringer(base: list[Mapping], exported: Mapping) -> list[dict]:
         if kind == "proposal":
             if cuts.get(offset) == "forslag_godkendt":
                 result.append({"kind": "cut", "char_offset": offset,
-                               "text": "=== SKÆRING ==="})
+                               "text": "=== SKÆRING ===",
+                               "origin": "forslag_godkendt"})
                 continue
             if (offset, "FORSLAG") in deleted:
                 continue
@@ -227,7 +268,7 @@ def apply_markeringer(base: list[Mapping], exported: Mapping) -> list[dict]:
     for offset, origin in sorted(cuts.items()):
         if offset not in occupied and origin in {"bruger", "forslag_godkendt"}:
             result.append({"kind": "cut", "char_offset": offset,
-                           "text": "=== SKÆRING ==="})
+                           "text": "=== SKÆRING ===", "origin": origin})
     result.extend({"kind": "ocr", **dict(item)} for item in exported.get("ocr_noter", []))
     for item in exported.get("udeladelser", []):
         result.append({"kind": "udelad_start", "char_offset": item["char_from"]})
@@ -279,13 +320,20 @@ def main() -> int:
         records, source,
     )
     text_model = build_text_model(calamari_text, boundary_model)
-    annotations = _base_annotations(text_model)
+    base_annotations = _base_annotations(text_model)
+    annotations = base_annotations
     if args.markeringer:
         exported = json.loads(args.markeringer.read_text(encoding="utf-8"))
         if exported.get("source") != source:
             raise ValueError("markeringer matcher ikke source manifest")
         annotations = apply_markeringer(annotations, exported)
     initial_text = compose_marked_text(calamari_text, annotations)
+    mappings = line_marker_mappings(calamari_text, base_annotations)
+    mappings.extend(line_marker_mappings(calamari_text, annotations))
+    unique_mappings = list({
+        (item["kind"], item["text"], item["canonicalOffset"], item["displayOffset"], item.get("origin")):
+        item for item in mappings
+    }.values())
     data = {
         "schemaVersion": 1,
         "source": source,
@@ -293,6 +341,7 @@ def main() -> int:
         "initialText": initial_text,
         "expectedBoundaryOffsets": [item["char_offset"] for item in text_model["forudsatte_skaeringer"]],
         "expectedProposalOffsets": [item["char_offset"] for item in text_model["forslag"]],
+        "lineMarkerMappings": unique_mappings,
     }
     payload = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")
     shared = SHARED_UI_PATH.read_text(encoding="utf-8")
