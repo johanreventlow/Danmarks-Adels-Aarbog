@@ -294,6 +294,13 @@
     return section;
   }
 
+  function appendEvidenceText(section, heading, text, emptyText, role) {
+    section.append(element('h2', heading));
+    const hasText = typeof text === 'string' && text.trim();
+    section.append(element(hasText ? 'pre' : 'p', hasText ? text : emptyText,
+      { 'data-role': role }));
+  }
+
   function renderBoundary(state, root) {
     const boundary = state.byId.get(state.selectedId);
     if (!boundary) {
@@ -302,14 +309,16 @@
     }
     root.append(element('h1', 'Grænsegennemgang 1939'));
     const sides = element('section', undefined, { 'data-role': 'boundary-evidence' });
-    sides.append(element('h2', `Før: ${boundary.before_navn || 'Ukendt navn'}`));
+    sides.append(element('h2', `Slutningen af forrige spænd: ${boundary.before_navn || 'Ukendt navn'}`));
     sides.append(element('p', boundary.before_context || 'Ingen kontekst før skæringen.'));
-    sides.append(element('h2', 'Calamari-hullet'));
-    sides.append(element('pre', boundary.gap_text || '', { 'data-role': 'gap-text' }));
-    sides.append(element('h2', 'Råt OCR-vindue'));
-    sides.append(element('pre', boundary.raw_window || '', { 'data-role': 'raw-window' }));
-    sides.append(element('h2', `Efter: ${boundary.after_navn || 'Ukendt navn'}`));
+    sides.append(element('p', '—— SKÆRING MELLEM SPÆNDENE ——', { 'data-role': 'cut-marker' }));
+    sides.append(element('h2', `Begyndelsen af næste spænd: ${boundary.after_navn || 'Ukendt navn'}`));
     sides.append(element('p', boundary.after_context || 'Ingen kontekst efter skæringen.'));
+    appendEvidenceText(sides, 'Calamari-hullet', boundary.gap_text,
+      'Intet hul: de to spænd støder op til hinanden.', 'gap-text');
+    appendEvidenceText(sides, 'Råt OCR-vindue', boundary.raw_window,
+      'Rå OCR kan ikke sammenholdes her: mindst ét nabospænd mangler en rå-bro, så fraværet af et fund beviser intet.',
+      'raw-window');
     root.append(sides);
     root.append(renderSignals(boundary));
     const controls = element('section', undefined, { 'data-role': 'verdict-controls' });

@@ -67,11 +67,22 @@ describe('grænsegennemgang', () => {
   it('viser begge sider af skæringen og hvad der ligger imellem', () => {
     start();
 
-    const text = document.querySelector('[data-role="app"]')!.textContent!;
+    const evidence = document.querySelector('[data-role="boundary-evidence"]')!;
+    const text = evidence.textContent!;
     expect(text).toContain('Christine Augusta');
     expect(text).toContain('Heinrich');
     expect(text).toContain('7 Heinrich til Gottesgabe');
-    expect(text).toContain('slugt_hoved');
+    expect(document.querySelector('[data-role="app"]')!.textContent).toContain('slugt_hoved');
+    const beforeContext = Array.from(evidence.querySelectorAll('p'))
+      .find(node => node.textContent === '...s. A. Kapitain ved')!;
+    const cutMarker = evidence.querySelector('[data-role="cut-marker"]')!;
+    const afterContext = Array.from(evidence.querySelectorAll('p'))
+      .find(node => node.textContent === 'Prins Georgs Reg., 1703 Sek.major')!;
+    expect(cutMarker.textContent).toContain('SKÆRING MELLEM SPÆNDENE');
+    expect(beforeContext.compareDocumentPosition(cutMarker) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(cutMarker.compareDocumentPosition(afterContext) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
   });
 
   it('viser at rå OCR har et hoved Calamari mangler', () => {
@@ -79,6 +90,32 @@ describe('grænsegennemgang', () => {
 
     expect(document.querySelector('[data-role="raw-window"]')!.textContent)
       .toContain('H e i n r i c h');
+  });
+
+  it('forklarer et tomt hul i stedet for at vise et tomt pre-felt', () => {
+    const adjacent = { ...boundary('g-1'), gap_text: '\n  ' };
+    start([adjacent]);
+
+    expect(document.querySelector('[data-role="gap-text"]')!.textContent)
+      .toContain('Intet hul: de to spænd støder op til hinanden.');
+    expect(document.querySelector('pre[data-role="gap-text"]')).toBeNull();
+  });
+
+  it('forklarer at rå OCR ikke kan sammenholdes, når vinduet er tomt', () => {
+    const withoutRawBridge = { ...boundary('g-1'), raw_window: '   ' };
+    start([withoutRawBridge]);
+
+    expect(document.querySelector('[data-role="raw-window"]')!.textContent)
+      .toContain('Rå OCR kan ikke sammenholdes her: mindst ét nabospænd mangler en rå-bro');
+    expect(document.querySelector('pre[data-role="raw-window"]')).toBeNull();
+  });
+
+  it('viser fortsat et ikke-tomt rå-OCR-vindue i data-role raw-window', () => {
+    start();
+
+    const rawWindow = document.querySelector('[data-role="raw-window"]')!;
+    expect(rawWindow.tagName).toBe('PRE');
+    expect(rawWindow.textContent).toContain('H e i n r i c h');
   });
 
   it('gemmer en godkendelse og eksporterer den', () => {
