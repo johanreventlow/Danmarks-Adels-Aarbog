@@ -63,12 +63,25 @@
     const book = [];
     const fieldLinesByBookLine = [];
     let bookOffset = 0;
+    let bookTail = '';
     let viewIndex = 0;
     let lineNumber = 1;
     let openOmission = null;
 
     function failure(message, line) {
       return { ok: false, line, error: `${message} ved linje ${line}` };
+    }
+
+    function appendBook(value) {
+      book.push(value);
+      bookOffset += charLength(value);
+      bookTail = (bookTail + value).slice(-2);
+    }
+
+    function offsetBeforeTrailingLineBreak() {
+      if (bookTail.endsWith('\r\n')) return bookOffset - 2;
+      if (bookTail.endsWith('\n') || bookTail.endsWith('\r')) return bookOffset - 1;
+      return bookOffset;
     }
 
     while (viewIndex < markedText.length) {
@@ -86,6 +99,30 @@
         continue;
       }
       if (content.startsWith('===')) return failure('ukendt ===-markør', lineNumber);
+      if (content === '[[UDELAD]]') {
+        if (openOmission !== null) return failure('indlejret UDELAD-tag', lineNumber);
+        openOmission = { char_from: bookOffset, line: lineNumber };
+        viewIndex = end;
+        lineNumber += 1;
+        continue;
+      }
+      if (content === '[[/UDELAD]]') {
+        if (openOmission === null) return failure('uparret /UDELAD-tag', lineNumber);
+        omissions.push({
+          char_from: openOmission.char_from,
+          char_to: offsetBeforeTrailingLineBreak(),
+        });
+        openOmission = null;
+        viewIndex = end;
+        lineNumber += 1;
+        continue;
+      }
+      const trimmed = content.trim();
+      const tagInterior = trimmed.slice(2, -2);
+      if (trimmed.startsWith('[[') && trimmed.endsWith(']]')
+          && !tagInterior.includes('[[') && !tagInterior.includes(']]')) {
+        return failure('ukendt inline-tag', lineNumber);
+      }
       fieldLinesByBookLine.push(lineNumber);
 
       let position = 0;
@@ -97,13 +134,11 @@
         }
         if (opening === -1) {
           const tail = rawLine.slice(position);
-          book.push(tail);
-          bookOffset += charLength(tail);
+          appendBook(tail);
           break;
         }
         const plain = rawLine.slice(position, opening);
-        book.push(plain);
-        bookOffset += charLength(plain);
+        appendBook(plain);
         const tagEnd = rawLine.indexOf(']]', opening + 2);
         if (tagEnd === -1) return failure('uparret inline-tag', lineNumber);
         const tag = rawLine.slice(opening, tagEnd + 2);

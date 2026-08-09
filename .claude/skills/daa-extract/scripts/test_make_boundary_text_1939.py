@@ -230,6 +230,62 @@ def test_unknown_markers_and_unpaired_inline_tags_fail_with_line(tmp_path, marke
     assert parsed["line"] == line
 
 
+def test_all_four_udelad_forms_export_identical_source_coordinates_and_rebuild(tmp_path):
+    source = "Før\nFemte slægtled.\nEfter\n"
+    prefix = "Før\n"
+    omitted = "Femte slægtled."
+    forms = [
+        "Før\n[[UDELAD]]Femte slægtled.[[/UDELAD]]\nEfter\n",
+        "Før\n[[UDELAD]]\nFemte slægtled.\n[[/UDELAD]]\nEfter\n",
+        "Før\n[[UDELAD]]\nFemte slægtled.[[/UDELAD]]\nEfter\n",
+        "Før\n[[UDELAD]]Femte slægtled.\n[[/UDELAD]]\nEfter\n",
+    ]
+    expected = {"char_from": len(prefix), "char_to": len(prefix) + len(omitted)}
+    exports = []
+
+    for marked in forms:
+        parsed = _node_call(tmp_path, "parseMarkedText", marked, source)
+        assert parsed["ok"] is True
+        assert parsed["gate"]["ok"] is True
+        exported = _node_call(tmp_path, "buildExport", marked, {
+            "sourceText": source,
+            "source": SOURCE,
+            "expectedBoundaryOffsets": [],
+            "expectedProposalOffsets": [],
+            "lineMarkerMappings": [],
+        }, "2026-08-09T10:00:00.000Z")["value"]
+        assert exported["udeladelser"] == [expected]
+        exports.append(exported["udeladelser"])
+
+        rebuilt = subject.compose_marked_text(
+            source, subject.apply_markeringer([], exported),
+        )
+        reparsed = _node_call(tmp_path, "parseMarkedText", rebuilt, source)
+        assert reparsed["gate"]["ok"] is True
+        assert reparsed["omissions"] == [expected]
+
+    assert exports == [[expected]] * 4
+
+
+def test_tag_like_solo_lines_fail_as_tags_while_real_book_changes_still_hit_gate(tmp_path):
+    source = "Før\nFemte slægtled.\nEfter\n"
+    for marked, error in (
+        ("[[OCR: Rcventlow | burde stå Reventlow]]\n" + source,
+         "ukendt inline-tag ved linje 1"),
+        (" [[UDELAD]]\n" + source, "ukendt inline-tag ved linje 1"),
+        ("[[UDELAD]]\n" + source, "uparret UDELAD-tag ved linje 1"),
+        ("[[/UDELAD]]\n" + source, "uparret /UDELAD-tag ved linje 1"),
+    ):
+        parsed = _node_call(tmp_path, "parseMarkedText", marked, source)
+        assert parsed == {"ok": False, "line": 1, "error": error}
+
+    changed = "Før\n[[UDELAD]]\nFemte Xslægtled.\n[[/UDELAD]]\nEfter\n"
+    parsed = _node_call(tmp_path, "parseMarkedText", changed, source)
+    assert parsed["ok"] is True
+    assert parsed["gate"]["ok"] is False
+    assert parsed["gate"]["message"].startswith("bogteksten er ændret ved linje ")
+
+
 def test_view_offsets_are_converted_to_source_character_offsets_both_ways(tmp_path):
     source = "A😀\nB\n"
     annotations = [
@@ -491,6 +547,43 @@ def test_main_validates_source_hash_before_creating_output(tmp_path, monkeypatch
     assert not out.exists()
 
 
+def test_main_markeringer_rebuilds_an_udelad_export_as_a_valid_surface(
+    tmp_path, monkeypatch
+):
+    inputs = _write_inputs(tmp_path)
+    source = json.loads(inputs[2].read_text(encoding="utf-8"))["source"]
+    markeringer = tmp_path / "1939-graenseflade.json"
+    markeringer.write_text(json.dumps({
+        "schema_version": 1,
+        "source": source,
+        "exported_at": "2026-08-09T10:00:00.000Z",
+        "skaeringer": [],
+        "aendringsregnskab": {
+            "forudsat": 2, "beholdt": 0, "slettet": 2, "tilfoejet": 0,
+            "forslag_forudsat": 0, "forslag_godkendt": 0,
+            "forslag_bortfaldet": 0,
+        },
+        "slettede": [
+            {"char_offset": 18, "var": "GRÆNSESKÆRING"},
+            {"char_offset": 27, "var": "GRÆNSESKÆRING"},
+        ],
+        "ocr_noter": [],
+        "udeladelser": [{"char_from": 18, "char_to": 27}],
+    }), encoding="utf-8")
+    out = tmp_path / "genindlaest.html"
+    monkeypatch.setattr(sys, "argv", _argv(inputs, out, markeringer))
+
+    assert subject.main() == 0
+
+    rendered = out.read_text(encoding="utf-8")
+    data = json.loads(rendered.split("const DATA=", 1)[1].split(
+        ";\n(function (global)", 1
+    )[0])
+    parsed = _node_call(tmp_path, "parseMarkedText", data["initialText"], data["sourceText"])
+    assert parsed["gate"]["ok"] is True
+    assert parsed["omissions"] == [{"char_from": 18, "char_to": 27}]
+
+
 def test_export_reload_round_trip_reconstructs_the_same_marked_surface(tmp_path):
     source = "A\n1. B\nC\n"
     base = [
@@ -500,7 +593,7 @@ def test_export_reload_round_trip_reconstructs_the_same_marked_surface(tmp_path)
     edited_annotations = [
         {"kind": "cut", "char_offset": 2, "text": "=== SKÆRING ==="},
         {"kind": "cut", "char_offset": 7, "text": "=== SKÆRING ==="},
-        {"kind": "ocr", "char_offset": 9, "staar": "C", "burde_staa": "D"},
+        {"kind": "ocr", "char_offset": 8, "staar": "C", "burde_staa": "D"},
         {"kind": "udelad_start", "char_offset": 0},
         {"kind": "udelad_end", "char_offset": 1},
     ]
