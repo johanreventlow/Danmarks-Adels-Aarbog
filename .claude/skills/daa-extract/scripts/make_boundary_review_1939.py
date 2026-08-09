@@ -167,16 +167,32 @@ def build_boundary_view_model(spans: list[dict], clauses: list[dict],
         after_pdf_pages, after_sider = _page_evidence(
             boundary["after"], by_key, records,
         )
+        before_span = boundary["before"]
+        after_span = boundary["after"]
+        before_context_from = max(
+            before_span["char_from"] if before_span else 0,
+            gap["char_from"] - KONTEKST_TEGN,
+        )
+        after_context_to = min(
+            after_span["char_to"] if after_span else len(calamari_text),
+            gap["char_to"] + KONTEKST_TEGN,
+        )
         entry = {
             **boundary,
             "gap_summary": summary,
             "gap_text": gap_text,
             "raw_window": raw_window,
             "signals": sorted(set(signals)),
-            "before_context": calamari_text[
-                max(0, gap["char_from"] - KONTEKST_TEGN):gap["char_from"]],
-            "after_context": calamari_text[
-                gap["char_to"]:gap["char_to"] + KONTEKST_TEGN],
+            "before_context": calamari_text[before_context_from:gap["char_from"]],
+            "before_context_complete": (
+                before_context_from == before_span["char_from"]
+                if before_span else None
+            ),
+            "after_context": calamari_text[gap["char_to"]:after_context_to],
+            "after_context_complete": (
+                after_context_to == after_span["char_to"]
+                if after_span else None
+            ),
             "before_navn": (records[boundary["before"]["baseline_record_key"]].get("navn")
                             if boundary["before"] else None),
             "after_navn": (records[boundary["after"]["baseline_record_key"]].get("navn")

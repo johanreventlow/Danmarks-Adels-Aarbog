@@ -126,6 +126,85 @@ def test_boundary_view_model_keeps_pdf_and_claimed_printed_pages_separately():
     assert middle["after_sider"] == "536"
 
 
+def test_context_stays_inside_the_two_neighbour_spans():
+    calamari = "indledning" + "A" * 10 + "|" + "B" * 10 + "afslutning"
+    before = automatic_span("rk-1", "1939:1", 10, 20)
+    after = automatic_span("rk-2", "1939:2", 21, 31)
+    records = {
+        "rk-1": {"record_key": "rk-1", "navn": "Anders", "_orig_nr": 1,
+                 "_gruppe_nr": 1, "_v2_lokal_id": "I.1", "sider": "496"},
+        "rk-2": {"record_key": "rk-2", "navn": "Birgit", "_orig_nr": 2,
+                 "_gruppe_nr": 1, "_v2_lokal_id": "I.2", "sider": "496"},
+    }
+
+    model = build_boundary_view_model(
+        [before, after], [{"char_from": 0, "char_to": len(calamari),
+                           "classification": "record_text"}],
+        calamari, calamari, records, SOURCE,
+    )
+
+    middle = next(entry for entry in model["boundaries"]
+                  if entry["gap"] == {"char_from": 20, "char_to": 21})
+    assert middle["before_context"] == "A" * 10
+    assert middle["after_context"] == "B" * 10
+    assert middle["before_context_complete"] is True
+    assert middle["after_context_complete"] is True
+
+
+def test_context_keeps_the_400_character_limit_for_long_neighbour_spans():
+    calamari = "A" * 401 + "|" + "B" * 401
+    before = automatic_span("rk-1", "1939:1", 0, 401)
+    after = automatic_span("rk-2", "1939:2", 402, 803)
+    records = {
+        "rk-1": {"record_key": "rk-1", "navn": "Anders", "_orig_nr": 1,
+                 "_gruppe_nr": 1, "_v2_lokal_id": "I.1", "sider": "496"},
+        "rk-2": {"record_key": "rk-2", "navn": "Birgit", "_orig_nr": 2,
+                 "_gruppe_nr": 1, "_v2_lokal_id": "I.2", "sider": "496"},
+    }
+
+    model = build_boundary_view_model(
+        [before, after], [{"char_from": 0, "char_to": len(calamari),
+                           "classification": "record_text"}],
+        calamari, calamari, records, SOURCE,
+    )
+
+    middle = next(entry for entry in model["boundaries"]
+                  if entry["gap"] == {"char_from": 401, "char_to": 402})
+    assert middle["before_context"] == "A" * 400
+    assert middle["after_context"] == "B" * 400
+    assert middle["before_context_complete"] is False
+    assert middle["after_context_complete"] is False
+
+
+def test_context_at_source_edges_stops_at_the_source_ends():
+    calamari = "indledning" + "ABCDE" + "afslutning"
+    span = automatic_span("rk-1", "1939:1", 10, 15)
+    records = {
+        "rk-1": {"record_key": "rk-1", "navn": "Anders", "_orig_nr": 1,
+                 "_gruppe_nr": 1, "_v2_lokal_id": "I.1", "sider": "496"},
+    }
+
+    model = build_boundary_view_model(
+        [span], [{"char_from": 0, "char_to": len(calamari),
+                  "classification": "record_text"}],
+        calamari, calamari, records, SOURCE,
+    )
+
+    leading = next(entry for entry in model["boundaries"]
+                   if entry["gap"] == {"char_from": 0, "char_to": 10})
+    trailing = next(entry for entry in model["boundaries"]
+                    if entry["gap"] == {"char_from": 15, "char_to": len(calamari)})
+    assert leading["before_context"] == ""
+    assert leading["before_context_complete"] is None
+    assert leading["after_context"] == "ABCDE"
+    assert leading["after_context_complete"] is True
+    assert trailing["before_context"] == "ABCDE"
+    assert trailing["before_context_complete"] is True
+    assert trailing["after_context"] == ""
+    assert trailing["gap_text"] == "afslutning"
+    assert trailing["after_context_complete"] is None
+
+
 def test_unspanned_baseline_sibling_can_reveal_a_swallowed_head():
     calamari = "6. Christine Augusta; g. 1708.\n7 Heinrich til Gottesgabe\n"
     span = automatic_span("rk-6", "1939:6", 0, len(calamari))

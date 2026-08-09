@@ -367,6 +367,18 @@
       { 'data-role': role }));
   }
 
+  function appendContextBoundary(section, complete, edge) {
+    if (complete === true) {
+      section.append(element('p', `—— spændet ${edge} her ——`, {
+        'data-role': `context-${edge}`,
+      }));
+    } else if (complete === false) {
+      section.append(element('p', '—— Der er mere tekst i spændet end vist her. ——', {
+        'data-role': 'context-truncated',
+      }));
+    }
+  }
+
   function renderBoundary(state, root) {
     const boundary = state.byId.get(state.selectedId);
     if (!boundary) {
@@ -383,6 +395,7 @@
     sides.append(element('p', pageEvidence(boundary.before_pdf_pages, boundary.before_sider), {
       'data-role': 'before-pages',
     }));
+    appendContextBoundary(sides, boundary.before_context_complete, 'begynder');
     sides.append(element('p', boundary.before_context || 'Ingen kontekst før skæringen.'));
     sides.append(element('p', '—— SKÆRING MELLEM SPÆNDENE ——', { 'data-role': 'cut-marker' }));
     sides.append(element('h2', `Begyndelsen af næste spænd: ${boundary.after_navn || 'Ukendt navn'}`));
@@ -390,6 +403,7 @@
       'data-role': 'after-pages',
     }));
     sides.append(element('p', boundary.after_context || 'Ingen kontekst efter skæringen.'));
+    appendContextBoundary(sides, boundary.after_context_complete, 'slutter');
     appendEvidenceText(sides, 'Calamari-hullet', boundary.gap_text,
       'Intet hul: de to spænd støder op til hinanden.', 'gap-text');
     appendEvidenceText(sides, 'Råt OCR-vindue', boundary.raw_window,

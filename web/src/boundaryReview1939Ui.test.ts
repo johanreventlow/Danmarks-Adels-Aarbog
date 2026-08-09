@@ -34,7 +34,9 @@ function boundary(id: string) {
     raw_window: '7. H e i n r i c h til Gottesgabe',
     signals: ['slugt_hoved'],
     before_context: '...s. A. Kapitain ved',
+    before_context_complete: true,
     after_context: 'Prins Georgs Reg., 1703 Sek.major',
+    after_context_complete: true,
     before_navn: 'Christine Augusta',
     after_navn: 'Heinrich',
     before_pdf_pages: [535],
@@ -87,6 +89,25 @@ describe('grænsegennemgang', () => {
       .toBeTruthy();
     expect(cutMarker.compareDocumentPosition(afterContext) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
+  });
+
+  it('mærker spændenes begyndelse og slutning når konteksten dækker dem helt', () => {
+    start();
+
+    const evidence = document.querySelector('[data-role="boundary-evidence"]')!;
+    expect(evidence.textContent).toContain('—— spændet begynder her ——');
+    expect(evidence.textContent).toContain('—— spændet slutter her ——');
+  });
+
+  it('fortæller når den viste kontekst kun er et udsnit af spændet', () => {
+    start([{
+      ...boundary('g-1'),
+      before_context_complete: false,
+      after_context_complete: false,
+    }]);
+
+    expect(document.querySelector('[data-role="boundary-evidence"]')!.textContent)
+      .toContain('Der er mere tekst i spændet end vist her.');
   });
 
   it('viser PDF-side og postens hævdede side ved begge spænd og markerer uenighed', () => {
