@@ -33,6 +33,7 @@ HTML_PREFIX = """<!doctype html>
 main{height:100dvh;display:flex;flex-direction:column;gap:10px;padding:14px}
 .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.toolbar button{font:inherit;padding:8px 12px}
 [data-role="gate-status"]{font-weight:700}[data-gate="ok"]{color:#166534}[data-gate="error"]{color:#b42318}
+details{border:1px solid #cbd5df;border-radius:4px;background:#fff;padding:7px 10px}summary{cursor:pointer;font-weight:700}details ul{margin:8px 0 2px;padding-left:24px}details li{margin:3px 0}code{font:14px ui-monospace,SFMono-Regular,Menlo,monospace}
 textarea{flex:1;min-height:0;width:100%;resize:none;border:1px solid #9aa8b5;border-radius:4px;padding:14px;font:15px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre;tab-size:2}
 </style>
 <main>
@@ -42,6 +43,17 @@ textarea{flex:1;min-height:0;width:100%;resize:none;border:1px solid #9aa8b5;bor
     <button type="button" data-action="export">Eksportér 1939-graenseflade.json</button>
     <span data-role="save-status">Klar. Ændringer gemmes automatisk lokalt.</span>
   </div>
+  <details data-role="editing-key">
+    <summary>Nøgle til redigering</summary>
+    <ul>
+      <li><code>=== GRÆNSESKÆRING ===</code> er godkendt, når du lader linjen stå.</li>
+      <li>Forkast en skæring ved at slette hele markørlinjen.</li>
+      <li>Tilføj en skæring med en ny linje: <code>=== SKÆRING ===</code>.</li>
+      <li>Et <code>=== FORSLAG? SKÆRING ===</code> tæller først, når du fjerner <code>FORSLAG? </code>, så linjen bliver <code>=== SKÆRING ===</code>.</li>
+      <li><code>=== EJERLØS TEKST · N tegn ===</code> betyder, at ingen post ejer teksten. Brug Cmd+F på EJERLØS.</li>
+      <li>OCR-note: <code>[[OCR: Rcventlow | burde stå Reventlow]]</code>. Venstre side er rå tekst; skriv ikke “der står”.</li>
+    </ul>
+  </details>
   <textarea data-role="boundary-text" spellcheck="false" aria-label="1939-grænsetekst"></textarea>
 </main>
 <script>

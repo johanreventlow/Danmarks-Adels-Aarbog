@@ -447,6 +447,40 @@ def test_main_writes_parseable_html_and_refuses_overwrite(tmp_path, monkeypatch,
         subject.main()
 
 
+def test_generated_help_key_is_outside_textarea_and_cannot_change_text_payload(
+    tmp_path, monkeypatch
+):
+    inputs = _write_inputs(tmp_path)
+    out = tmp_path / "flade-med-noegle.html"
+    monkeypatch.setattr(sys, "argv", _argv(inputs, out))
+    assert subject.main() == 0
+    rendered = out.read_text(encoding="utf-8")
+
+    key_start = rendered.index('<details data-role="editing-key">')
+    key_end = rendered.index("</details>", key_start) + len("</details>")
+    textarea_start = rendered.index('<textarea data-role="boundary-text"')
+    textarea_content_start = rendered.index(">", textarea_start) + 1
+    textarea_end = rendered.index("</textarea>", textarea_content_start)
+    assert key_start < key_end < textarea_start
+    assert rendered[textarea_content_start:textarea_end] == ""
+
+    key = rendered[key_start:key_end]
+    assert "Nøgle til redigering" in key
+    assert key.count("<li>") == 6
+    assert "[[OCR: Rcventlow | burde stå Reventlow]]" in key
+    assert "der står Rcventlow" not in key
+
+    without_key = rendered[:key_start] + rendered[key_end:]
+    payload = lambda html: html.split("const DATA=", 1)[1].split(
+        ";\n(function (global)", 1
+    )[0]
+    assert payload(rendered) == payload(without_key)
+    without_textarea_start = without_key.index('<textarea data-role="boundary-text"')
+    without_content_start = without_key.index(">", without_textarea_start) + 1
+    without_textarea_end = without_key.index("</textarea>", without_content_start)
+    assert without_key[without_content_start:without_textarea_end] == ""
+
+
 def test_main_validates_source_hash_before_creating_output(tmp_path, monkeypatch):
     inputs = _write_inputs(tmp_path)
     inputs[3].write_text("ændret\n", encoding="utf-8")
