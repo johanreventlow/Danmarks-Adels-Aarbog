@@ -154,6 +154,51 @@ def test_page_markers_follow_source_page_lines_and_use_the_pdf_map():
     ]
 
 
+def test_build_page_view_models_assigns_boundary_marker_to_new_page_once():
+    page_1 = "### PAGE 0001 ###\nFørste side.\n"
+    page_2 = "### PAGE 0005 ###\nAnden side.\n"
+    page_3 = "### PAGE 0010 ###\nTredje side.\n"
+    source = page_1 + page_2 + page_3
+    second_start = len(page_1)
+    third_start = second_start + len(page_2)
+    annotations = [
+        {
+            "kind": "boundary",
+            "char_offset": second_start,
+            "text": "=== GRÆNSESKÆRING · SIGNAL mangler_eget_hoved ===",
+        },
+        {
+            "kind": "hole",
+            "char_offset": page_1.index("Første"),
+            "text": "=== EJERLØS TEKST · 12 tegn ===",
+        },
+        {
+            "kind": "proposal",
+            "char_offset": third_start,
+            "text": "=== FORSLAG? SKÆRING ===",
+        },
+    ]
+
+    pages = subject.build_page_view_models(source, annotations)
+
+    assert [page["sourcePage"] for page in pages] == [1, 5, 10]
+    assert [page["pdfPage"] for page in pages] == [496, 500, 505]
+    assert [page["charFrom"] for page in pages] == [0, second_start, third_start]
+    assert [page["charTo"] for page in pages] == [second_start, third_start, len(source)]
+    assert "GRÆNSESKÆRING · SIGNAL" not in pages[0]["initialText"]
+    assert pages[1]["initialText"].count("GRÆNSESKÆRING · SIGNAL") == 1
+    assert "GRÆNSESKÆRING · SIGNAL" not in pages[2]["initialText"]
+    assert sum(page["initialText"].count("GRÆNSESKÆRING · SIGNAL") for page in pages) == 1
+    assert [page["counts"] for page in pages] == [
+        {"ejerloes": 1, "forslag": 0, "signaler": 0},
+        {"ejerloes": 0, "forslag": 0, "signaler": 1},
+        {"ejerloes": 0, "forslag": 1, "signaler": 0},
+    ]
+    assert "".join(page["initialText"] for page in pages) == subject.compose_marked_text(
+        source, annotations
+    )
+
+
 def test_compose_and_strip_preserve_source_bytes_including_source_page_marker(tmp_path):
     source = "### PAGE 0001 ###\n1. Ægir\n"
     annotations = [
@@ -214,6 +259,122 @@ def test_byte_gate_does_not_strip_a_deleted_source_page_line(tmp_path):
     assert parsed["ok"] is True
     assert parsed["gate"]["ok"] is False
     assert parsed["gate"]["line"] == 2
+
+
+def test_page_gate_checks_hidden_pages_and_reports_pdf_page_and_local_line(tmp_path):
+    page_1 = "### PAGE 0001 ###\nFørste\n"
+    page_2 = "### PAGE 0002 ###\nAnden\n"
+    source = page_1 + page_2
+    pages = subject.build_page_view_models(source, [])
+    page_texts = [page["initialText"] for page in pages]
+    page_texts[1] = page_texts[1].replace("Anden", "AndenX")
+
+    result = _node_call(tmp_path, "validatePageTexts", page_texts, {
+        "sourceText": source,
+        "pages": pages,
+    })
+
+    assert result == {
+        "ok": False,
+        "pageIndex": 1,
+        "pdfPage": 497,
+        "pageLine": 2,
+        "message": "bogteksten er ændret på side 497 ved linje 2",
+    }
+
+
+def test_page_export_keeps_boundary_at_page_start_once_and_exports_progress(tmp_path):
+    page_1 = "### PAGE 0001 ###\nFørste\n"
+    page_2 = "### PAGE 0002 ###\nAnden\n"
+    source = page_1 + page_2
+    boundary_offset = len(page_1)
+    annotations = [{
+        "kind": "boundary",
+        "char_offset": boundary_offset,
+        "text": "=== GRÆNSESKÆRING ===",
+    }]
+    pages = subject.build_page_view_models(source, annotations)
+    page_texts = [page["initialText"] for page in pages]
+
+    exported = _node_call(tmp_path, "buildExportFromPages", page_texts, {
+        "sourceText": source,
+        "source": SOURCE,
+        "pages": pages,
+        "expectedBoundaryOffsets": [boundary_offset],
+        "expectedProposalOffsets": [],
+        "lineMarkerMappings": subject.line_marker_mappings(source, annotations),
+    }, "2026-08-09T10:00:00.000Z", [496, 497])
+
+    assert exported["ok"] is True
+    assert exported["value"]["skaeringer"] == [
+        {"char_offset": boundary_offset, "oprindelse": "forudsat"},
+    ]
+    assert exported["value"]["aendringsregnskab"]["beholdt"] == 1
+    assert exported["value"]["sider"] == {
+        "i_alt": 2,
+        "gennemgaaet": [496, 497],
+    }
+
+
+def test_progress_counter_and_page_list_include_status_and_waiting_signals(tmp_path):
+    data = {
+        "pages": [
+            {"ordinal": 1, "pdfPage": 496,
+             "counts": {"ejerloes": 2, "forslag": 1, "signaler": 0}},
+            {"ordinal": 2, "pdfPage": 497,
+             "counts": {"ejerloes": 0, "forslag": 0, "signaler": 3}},
+        ],
+    }
+
+    progress = _node_call(tmp_path, "pageProgress", data, [496], 1)
+
+    assert progress["counter"] == "side 2 af 2 · 1 mangler"
+    assert progress["items"] == [
+        "PDF-side 496 · gennemgået · 2 ejerløs · 1 forslag · 0 signal",
+        "PDF-side 497 · mangler · 0 ejerløs · 0 forslag · 3 signal",
+    ]
+
+
+def test_page_acknowledgement_requires_green_gate_advances_and_can_be_undone(tmp_path):
+    data = {"pages": [
+        {"pdfPage": 496}, {"pdfPage": 497}, {"pdfPage": 498},
+    ]}
+
+    blocked = _node_call(tmp_path, "togglePageCompletion", data, [], 0, False)
+    assert blocked == {"reviewedPages": [], "currentIndex": 0, "changed": False}
+
+    completed = _node_call(tmp_path, "togglePageCompletion", data, [], 0, True)
+    assert completed == {"reviewedPages": [496], "currentIndex": 1, "changed": True}
+
+    undone = _node_call(tmp_path, "togglePageCompletion", data, [496], 0, False)
+    assert undone == {"reviewedPages": [], "currentIndex": 0, "changed": True}
+
+
+def test_unknown_marker_on_hidden_page_reports_that_page_and_its_local_line(tmp_path):
+    page_1 = "### PAGE 0001 ###\nFørste\n"
+    page_2 = "### PAGE 0002 ###\nAnden\n"
+    source = page_1 + page_2
+    annotations = [{
+        "kind": "boundary", "char_offset": 0, "text": "=== GRÆNSESKÆRING ===",
+    }]
+    pages = subject.build_page_view_models(source, annotations)
+    page_texts = [page["initialText"] for page in pages]
+    page_texts[1] = page_texts[1].replace(
+        "### PAGE 0002 ###\n", "### PAGE 0002 ###\n=== UKENDT ===\n",
+    )
+
+    result = _node_call(tmp_path, "validatePageTexts", page_texts, {
+        "sourceText": source,
+        "pages": pages,
+    })
+
+    assert result == {
+        "ok": False,
+        "pageIndex": 1,
+        "pdfPage": 497,
+        "pageLine": 2,
+        "message": "ukendt ===-markør på side 497 ved linje 2",
+    }
 
 
 @pytest.mark.parametrize(
@@ -423,8 +584,11 @@ def test_untouched_and_deleted_proposals_share_the_sum_but_round_trip_differentl
     assert deleted["slettede"] == [{"char_offset": 2, "var": "FORSLAG"}]
 
 
-def _write_inputs(tmp_path: Path):
-    source_text = "### PAGE 0001 ###\n1. Anders\n"
+def _write_inputs(tmp_path: Path, page_count=1):
+    source_text = "### PAGE 0001 ###\n1. Anders\n" + "".join(
+        f"### PAGE {page:04d} ###\nSide {page}\n"
+        for page in range(2, page_count + 1)
+    )
     calamari = tmp_path / "calamari.txt"
     raw = tmp_path / "raw.txt"
     baseline = tmp_path / "baseline.json"
@@ -481,6 +645,9 @@ def test_main_writes_parseable_html_and_refuses_overwrite(tmp_path, monkeypatch,
     rendered = out.read_text(encoding="utf-8")
     assert "<textarea" in rendered
     assert "DAABoundaryText.init" in rendered
+    assert 'data-role="page-progress"' in rendered
+    assert 'data-role="page-list"' in rendered
+    assert 'data-action="complete-page"' in rendered
 
     script = rendered.split("<script>", 1)[1].split("</script>", 1)[0]
     script_path = tmp_path / "generated.js"
@@ -579,9 +746,49 @@ def test_main_markeringer_rebuilds_an_udelad_export_as_a_valid_surface(
     data = json.loads(rendered.split("const DATA=", 1)[1].split(
         ";\n(function (global)", 1
     )[0])
+    assert data["completedPages"] == []
     parsed = _node_call(tmp_path, "parseMarkedText", data["initialText"], data["sourceText"])
     assert parsed["gate"]["ok"] is True
     assert parsed["omissions"] == [{"char_from": 18, "char_to": 27}]
+
+
+def test_main_markeringer_round_trips_two_reviewed_pages_and_84_missing(
+    tmp_path, monkeypatch
+):
+    inputs = _write_inputs(tmp_path, page_count=86)
+    source = json.loads(inputs[2].read_text(encoding="utf-8"))["source"]
+    markeringer = tmp_path / "to-gennemgaaede.json"
+    markeringer.write_text(json.dumps({
+        "schema_version": 1,
+        "source": source,
+        "exported_at": "2026-08-09T10:00:00.000Z",
+        "skaeringer": [
+            {"char_offset": 18, "oprindelse": "forudsat"},
+            {"char_offset": 27, "oprindelse": "forudsat"},
+        ],
+        "aendringsregnskab": {
+            "forudsat": 2, "beholdt": 2, "slettet": 0, "tilfoejet": 0,
+            "forslag_forudsat": 0, "forslag_godkendt": 0,
+            "forslag_bortfaldet": 0,
+        },
+        "slettede": [],
+        "ocr_noter": [],
+        "udeladelser": [],
+        "sider": {"i_alt": 86, "gennemgaaet": [496, 497]},
+    }), encoding="utf-8")
+    out = tmp_path / "86-sider.html"
+    monkeypatch.setattr(sys, "argv", _argv(inputs, out, markeringer))
+
+    assert subject.main() == 0
+
+    rendered = out.read_text(encoding="utf-8")
+    data = json.loads(rendered.split("const DATA=", 1)[1].split(
+        ";\n(function (global)", 1
+    )[0])
+    assert len(data["pages"]) == 86
+    assert data["completedPages"] == [496, 497]
+    progress = _node_call(tmp_path, "pageProgress", data, data["completedPages"], 0)
+    assert progress["counter"] == "side 1 af 86 · 84 mangler"
 
 
 def test_export_reload_round_trip_reconstructs_the_same_marked_surface(tmp_path):
@@ -614,18 +821,23 @@ def test_init_prefers_local_storage_then_debounces_gate_and_autosave_by_300_ms(t
     runner.write_text(
         "const fs=require('fs'),vm=require('vm');\n"
         "const listeners={},nodes={};\n"
-        "function node(name){return nodes[name]={value:'',textContent:'',disabled:false,dataset:{},"
+        "function node(name){return nodes[name]={value:'',textContent:'',innerHTML:'',disabled:false,dataset:{},"
         "addEventListener:(event,fn)=>{listeners[name+':'+event]=fn}}}\n"
-        "node('text');node('gate');node('save');node('export');node('restore');\n"
+        "node('text');node('gate');node('save');node('export');node('restore');"
+        "node('complete');node('progress');node('list');\n"
         "const selectors={'[data-role=\\\"boundary-text\\\"]':nodes.text,'[data-role=\\\"gate-status\\\"]':nodes.gate,"
         "'[data-role=\\\"save-status\\\"]':nodes.save,'[data-action=\\\"export\\\"]':nodes.export,"
-        "'[data-action=\\\"restore\\\"]':nodes.restore};\n"
+        "'[data-action=\\\"restore\\\"]':nodes.restore,'[data-action=\\\"complete-page\\\"]':nodes.complete,"
+        "'[data-role=\\\"page-progress\\\"]':nodes.progress,'[data-role=\\\"page-list\\\"]':nodes.list};\n"
         "let delay=null,callback=null,writes=0;const context={console,TextEncoder,TextDecoder,"
         "document:{querySelector:s=>selectors[s]},localStorage:{},clearTimeout:()=>{},"
         "setTimeout:(fn,ms)=>{callback=fn;delay=ms},DAAReviewShared:{"
-        "readStoredDraft:()=>({marked_text:'gemt\\n'}),writeStoredDraft:()=>{writes++;return ''},downloadJson:()=>{}}};\n"
+        "readStoredDraft:()=>({page_texts:['gemt\\n'],reviewed_pages:[],current_page:0}),"
+        "writeStoredDraft:()=>{writes++;return ''},downloadJson:()=>{}}};\n"
         "context.globalThis=context;vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[2],'utf8'),context);\n"
         "context.DAABoundaryText.init({source:{calamari_sha256:'x'},sourceText:'gemt\\n',initialText:'indlejret\\n',"
+        "pages:[{ordinal:1,pdfPage:496,charFrom:0,charTo:5,initialText:'indlejret\\n',"
+        "counts:{ejerloes:0,forslag:0,signaler:0}}],completedPages:[],"
         "expectedBoundaryOffsets:[],expectedProposalOffsets:[]});\n"
         "nodes.text.value='ændret\\n';listeners['text:input']();\n"
         "const before={value:nodes.text.value,delay,writes};callback();\n"
@@ -638,5 +850,5 @@ def test_init_prefers_local_storage_then_debounces_gate_and_autosave_by_300_ms(t
     assert result.returncode == 0, result.stderr
     value = json.loads(result.stdout)
     assert value["before"] == {"value": "ændret\n", "delay": 300, "writes": 1}
-    assert value["gate"] == "bogteksten er ændret ved linje 1 (kildens linje 1)"
+    assert value["gate"] == "bogteksten er ændret på side 496 ved linje 1"
     assert value["writes"] == 2

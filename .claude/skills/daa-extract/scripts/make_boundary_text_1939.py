@@ -34,11 +34,18 @@ main{height:100dvh;display:flex;flex-direction:column;gap:10px;padding:14px}
 .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.toolbar button{font:inherit;padding:8px 12px}
 [data-role="gate-status"]{font-weight:700}[data-gate="ok"]{color:#166534}[data-gate="error"]{color:#b42318}
 details{border:1px solid #cbd5df;border-radius:4px;background:#fff;padding:7px 10px}summary{cursor:pointer;font-weight:700}details ul{margin:8px 0 2px;padding-left:24px}details li{margin:3px 0}code{font:14px ui-monospace,SFMono-Regular,Menlo,monospace}
-textarea{flex:1;min-height:0;width:100%;resize:none;border:1px solid #9aa8b5;border-radius:4px;padding:14px;font:15px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre;tab-size:2}
+.workspace{display:grid;grid-template-columns:minmax(260px,330px) minmax(0,1fr);gap:10px;flex:1;min-height:0}
+[data-role="page-list"]{overflow:auto;border:1px solid #cbd5df;border-radius:4px;background:#fff;padding:6px;display:flex;flex-direction:column;gap:4px}
+[data-role="page-list"] button{font:13px/1.3 system-ui;text-align:left;border:1px solid transparent;border-radius:3px;background:#f3f5f7;padding:7px;cursor:pointer}
+[data-role="page-list"] button[aria-current="page"]{border-color:#2563eb;background:#eff6ff}
+textarea{min-height:0;width:100%;resize:none;border:1px solid #9aa8b5;border-radius:4px;padding:14px;font:15px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre;tab-size:2}
+@media(max-width:800px){.workspace{grid-template-columns:1fr;grid-template-rows:minmax(100px,25vh) minmax(0,1fr)}}
 </style>
 <main>
   <div class="toolbar">
     <span data-role="gate-status" data-gate="ok">bogteksten er urørt</span>
+    <strong data-role="page-progress">side 1 af 86 · 86 mangler</strong>
+    <button type="button" data-action="complete-page">Færdig med siden</button>
     <button type="button" data-action="restore">Gendan bogteksten, behold mine markører</button>
     <button type="button" data-action="export">Eksportér 1939-graenseflade.json</button>
     <span data-role="save-status">Klar. Ændringer gemmes automatisk lokalt.</span>
@@ -54,7 +61,10 @@ textarea{flex:1;min-height:0;width:100%;resize:none;border:1px solid #9aa8b5;bor
       <li>OCR-note: <code>[[OCR: Rcventlow | burde stå Reventlow]]</code>. Venstre side er rå tekst; skriv ikke “der står”.</li>
     </ul>
   </details>
-  <textarea data-role="boundary-text" spellcheck="false" aria-label="1939-grænsetekst"></textarea>
+  <div class="workspace">
+    <nav data-role="page-list" aria-label="Bogsider"></nav>
+    <textarea data-role="boundary-text" spellcheck="false" aria-label="1939-grænsetekst"></textarea>
+  </div>
 </main>
 <script>
 const DATA="""
@@ -169,6 +179,58 @@ def _base_annotations(text_model: Mapping) -> list[dict]:
         "text": f"=== PDF-SIDE {item['pdf_side']} ===",
     } for item in text_model["pdf_sider"])
     return annotations
+
+
+def build_page_view_models(source_text: str, annotations: list[Mapping]) -> list[dict]:
+    """Del kilden på dens egne PAGE-linjer og giv hver markør én side."""
+    starts = []
+    for line_offset, line, _ in _line_offsets(source_text):
+        match = _PAGE_RE.fullmatch(line)
+        if match:
+            starts.append((line_offset, int(match.group(1))))
+    if not starts:
+        raise BoundaryError("kildeteksten indeholder ingen ### PAGE-linjer")
+    if starts[0][0] != 0:
+        raise BoundaryError("kildeteksten har tekst før første ### PAGE-linje")
+
+    pages = []
+    for index, (char_from, source_page) in enumerate(starts):
+        char_to = starts[index + 1][0] if index + 1 < len(starts) else len(source_text)
+        page_annotations = []
+        counts = {"ejerloes": 0, "forslag": 0, "signaler": 0}
+        for annotation in annotations:
+            offset = annotation.get("char_offset")
+            if not isinstance(offset, int) or isinstance(offset, bool):
+                raise BoundaryError("markør har ugyldig kildetekstposition")
+            belongs = char_from <= offset < char_to
+            if index == len(starts) - 1 and offset == char_to:
+                belongs = True
+            if not belongs:
+                continue
+            local = dict(annotation)
+            local["char_offset"] = offset - char_from
+            page_annotations.append(local)
+            if annotation.get("kind") == "hole":
+                counts["ejerloes"] += 1
+            elif annotation.get("kind") == "proposal":
+                counts["forslag"] += 1
+            elif (
+                annotation.get("kind") == "boundary"
+                and "· SIGNAL " in str(annotation.get("text", ""))
+            ):
+                counts["signaler"] += 1
+
+        page_source = source_text[char_from:char_to]
+        pages.append({
+            "ordinal": index + 1,
+            "sourcePage": source_page,
+            "pdfPage": _pdf_page(source_page),
+            "charFrom": char_from,
+            "charTo": char_to,
+            "initialText": compose_marked_text(page_source, page_annotations),
+            "counts": counts,
+        })
+    return pages
 
 
 _LINE_RANK = {"pdf": 10, "boundary": 20, "hole": 30, "proposal": 40, "cut": 50}
@@ -290,6 +352,26 @@ def apply_markeringer(base: list[Mapping], exported: Mapping) -> list[dict]:
     return result
 
 
+def _completed_pages(exported: Mapping | None, pages: list[Mapping]) -> list[int]:
+    if not exported or "sider" not in exported:
+        return []
+    sides = exported.get("sider")
+    if not isinstance(sides, Mapping) or sides.get("i_alt") != len(pages):
+        raise BoundaryError("markeringernes sidefremskridt matcher ikke fladen")
+    reviewed = sides.get("gennemgaaet")
+    if not isinstance(reviewed, list):
+        raise BoundaryError("markeringernes gennemgåede sider er ugyldige")
+    allowed = {page["pdfPage"] for page in pages}
+    if any(
+        isinstance(page, bool) or not isinstance(page, int) or page not in allowed
+        for page in reviewed
+    ):
+        raise BoundaryError("markeringerne henviser til en ukendt PDF-side")
+    if len(set(reviewed)) != len(reviewed):
+        raise BoundaryError("markeringerne gentager en gennemgået PDF-side")
+    return sorted(reviewed)
+
+
 def _load_inputs(args) -> tuple[bytes, bytes, bytes, dict, Mapping]:
     baseline_bytes = args.baseline.read_bytes()
     calamari_bytes = args.calamari.read_bytes()
@@ -336,12 +418,16 @@ def main() -> int:
     text_model = build_text_model(calamari_text, boundary_model)
     base_annotations = _base_annotations(text_model)
     annotations = base_annotations
+    exported = None
     if args.markeringer:
         exported = json.loads(args.markeringer.read_text(encoding="utf-8"))
         if exported.get("source") != source:
             raise ValueError("markeringer matcher ikke source manifest")
         annotations = apply_markeringer(annotations, exported)
     initial_text = compose_marked_text(calamari_text, annotations)
+    pages = build_page_view_models(calamari_text, annotations)
+    if "".join(page["initialText"] for page in pages) != initial_text:
+        raise BoundaryError("siderne kan ikke samles til den markerede tekst")
     mappings = line_marker_mappings(calamari_text, base_annotations)
     mappings.extend(line_marker_mappings(calamari_text, annotations))
     unique_mappings = list({
@@ -353,6 +439,8 @@ def main() -> int:
         "source": source,
         "sourceText": calamari_text,
         "initialText": initial_text,
+        "pages": pages,
+        "completedPages": _completed_pages(exported, pages),
         "expectedBoundaryOffsets": [item["char_offset"] for item in text_model["forudsatte_skaeringer"]],
         "expectedProposalOffsets": [item["char_offset"] for item in text_model["forslag"]],
         "lineMarkerMappings": unique_mappings,

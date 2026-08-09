@@ -22,7 +22,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '../../../..');
 const { chromium } = createRequire(join(repoRoot, 'web', 'package.json'))('playwright');
 
-const FORVENTET = { graenser: 446, huller: 97, pdfsider: 86, ejerloeseTegn: 45757 };
+const FORVENTET = { graenser: 446, huller: 97, pdfsider: 86, ejerloeseTegn: 45757,
+                    forslag: 61, signaler: 12 };
 
 const htmlPath = resolve(process.argv[2]);
 const sourcePath = resolve(process.argv[3]);
@@ -55,7 +56,37 @@ record('ingen JavaScript-fejl ved indlæsning', pageErrors.length === 0,
   pageErrors.length ? pageErrors.slice(0, 3).join(' | ') : 'ingen');
 
 // 2. Teksten er komplet, og bogens egne sidemarkører er intakte.
-const value = await box.inputValue();
+//
+// Fladen viser én bogside ad gangen, så tekstboksen rummer kun et udsnit. Hele
+// dokumentet samles ved at bladre listen igennem — at måle på den synlige side og
+// kalde det dokumentet ville være samme fejl som resten af denne fil advarer mod.
+const pageButtons = page.locator('button[data-action="select-page"], button:has-text("PDF-side")');
+const pageCount = await pageButtons.count();
+record(`sidelisten har ${FORVENTET.pdfsider} rækker`,
+  pageCount === FORVENTET.pdfsider, `fandt ${pageCount}`);
+
+const pageTexts = [];
+for (let index = 0; index < pageCount; index += 1) {
+  await pageButtons.nth(index).click();
+  pageTexts.push(await box.inputValue());
+}
+await pageButtons.nth(0).click();
+const value = pageTexts.join('\n');
+
+// Sidelisten er navigationen nu, hvor browserens søgning kun når den synlige side.
+// Dens tal skal derfor summe til helheden — ellers skjuler sideopdelingen netop det,
+// fladen findes for at vise.
+const listRows = (await page.locator('body').innerText())
+  .split('\n').filter(row => /^PDF-side \d+ ·/.test(row));
+const listSum = label => listRows.reduce((total, row) =>
+  total + Number((row.match(new RegExp(`(\\d+) ${label}`)) || [0, 0])[1]), 0);
+record('sidelistens ejerløs-tal summer til helheden',
+  listSum('ejerløs') === FORVENTET.huller, `${listSum('ejerløs')}`);
+record('sidelistens forslag-tal summer til helheden',
+  listSum('forslag') === FORVENTET.forslag, `${listSum('forslag')}`);
+record('sidelistens signal-tal summer til helheden',
+  listSum('signal') === FORVENTET.signaler, `${listSum('signal')}`);
+
 const sourcePages = (source.match(/^### PAGE \d+ ###$/gm) || []).length;
 const shownPages = (value.match(/^### PAGE \d+ ###$/gm) || []).length;
 record('bogens egne ###-sidemarkører er intakte',
@@ -95,7 +126,7 @@ record('bannerne dækker de målte 45.757 ejerløse tegn',
 // Linjenummeret skal vælges bevidst: fladen består af både bogtekst og markører,
 // og de to slags ændring er forskellige fund. En blind nedadpil ramte tidligere en
 // markørlinje og målte dermed noget andet end den troede.
-const lines = value.split('\n');
+const lines = (await box.inputValue()).split('\n');
 const isMarker = line => line.startsWith('===');
 const isSourcePage = line => line.startsWith('###');
 const bookLine = lines.findIndex(line =>
@@ -181,6 +212,19 @@ if (hasExport) {
   record('den redigerede tekst eksporteres IKKE',
     !JSON.stringify(draft).includes('=== GRÆNSESKÆRING ==='));
 }
+
+// Kvitteringen er det eneste, der gør "antal manglende sider" ærligt — den skal
+// tælle ned, og den må ikke kunne gives mens siden har en fejl.
+const tael = async () => ((await page.locator('body').innerText())
+  .split('\n').find(row => /af \d+ ·/.test(row)) || '');
+const faerdig = page.locator('button', { hasText: /Færdig med siden/ }).first();
+record('kvitteringen er mulig når gaten er grøn', !(await faerdig.isDisabled()));
+const foer = await tael();
+await faerdig.click();
+await page.waitForTimeout(500);
+const efter = await tael();
+record('kvitteringen tæller manglende sider ned', foer !== efter && /mangler/.test(efter),
+  `${foer} → ${efter}`);
 
 await browser.close();
 

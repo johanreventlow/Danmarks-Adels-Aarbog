@@ -48,12 +48,14 @@
     const line = fieldLinesByBookLine[bookLine - 1]
       || fieldLinesByBookLine[fieldLinesByBookLine.length - 1]
       || 1;
-    return {
+    const result = {
       ok: false,
       line,
       sourceLine,
       message: `bogteksten er ændret ved linje ${line} (kildens linje ${sourceLine})`,
     };
+    Object.defineProperty(result, 'sourceOffset', { value: position });
+    return result;
   }
 
   function parseMarkedText(markedText, sourceText) {
@@ -67,9 +69,12 @@
     let viewIndex = 0;
     let lineNumber = 1;
     let openOmission = null;
+    const viewOffsets = new Map([[0, 0]]);
 
     function failure(message, line) {
-      return { ok: false, line, error: `${message} ved linje ${line}` };
+      const result = { ok: false, line, error: `${message} ved linje ${line}` };
+      Object.defineProperty(result, 'sourceOffset', { value: bookOffset });
+      return result;
     }
 
     function appendBook(value) {
@@ -85,6 +90,7 @@
     }
 
     while (viewIndex < markedText.length) {
+      if (!viewOffsets.has(bookOffset)) viewOffsets.set(bookOffset, viewIndex);
       let next = markedText.indexOf('\n', viewIndex);
       const end = next === -1 ? markedText.length : next + 1;
       const rawLine = markedText.slice(viewIndex, end);
@@ -161,7 +167,8 @@
     }
     if (openOmission !== null) return failure('uparret UDELAD-tag', openOmission.line);
     const bookText = book.join('');
-    return {
+    if (!viewOffsets.has(bookOffset)) viewOffsets.set(bookOffset, viewIndex);
+    const result = {
       ok: true,
       bookText,
       markers,
@@ -169,6 +176,8 @@
       omissions,
       gate: gateFor(bookText, sourceText, fieldLinesByBookLine),
     };
+    Object.defineProperty(result, 'viewOffsets', { value: viewOffsets });
+    return result;
   }
 
   const LINE_RANK = { pdf: 10, boundary: 20, hole: 30, proposal: 40, cut: 50 };
@@ -307,6 +316,101 @@
     };
   }
 
+  function pageIndexForSourceOffset(pages, sourceOffset) {
+    const found = pages.findIndex((page, index) => (
+      sourceOffset >= page.charFrom
+      && (sourceOffset < page.charTo || (index === pages.length - 1 && sourceOffset === page.charTo))
+    ));
+    return found === -1 ? 0 : found;
+  }
+
+  function newlineCount(value) {
+    return chars(value).filter(character => character === '\n').length;
+  }
+
+  function validatePageTexts(pageTexts, data) {
+    const markedText = pageTexts.join('');
+    const parsed = parseMarkedText(markedText, data.sourceText);
+    const gate = parsed.ok ? parsed.gate : parsed;
+    if (parsed.ok && gate.ok) return { ok: true, message: gate.message };
+    const sourceOffset = Number.isInteger(gate.sourceOffset) ? gate.sourceOffset : 0;
+    const pageIndex = pageIndexForSourceOffset(data.pages, sourceOffset);
+    const precedingLines = pageTexts.slice(0, pageIndex)
+      .reduce((total, pageText) => total + newlineCount(pageText), 0);
+    const globalFieldLine = Number.isInteger(gate.line) ? gate.line : 1;
+    const pageLine = Math.max(1, globalFieldLine - precedingLines);
+    const page = data.pages[pageIndex];
+    const baseMessage = parsed.ok
+      ? 'bogteksten er ændret'
+      : gate.error.replace(/ ved linje \d+$/, '');
+    return {
+      ok: false,
+      pageIndex,
+      pdfPage: page.pdfPage,
+      pageLine,
+      message: `${baseMessage} på side ${page.pdfPage} ved linje ${pageLine}`,
+    };
+  }
+
+  function reviewedPdfPages(data, reviewedPages) {
+    const allowed = new Set(data.pages.map(page => page.pdfPage));
+    return Array.from(new Set((reviewedPages || []).filter(page => allowed.has(page))))
+      .sort((left, right) => left - right);
+  }
+
+  function buildExportFromPages(pageTexts, data, exportedAt, reviewedPages) {
+    const exported = buildExport(pageTexts.join(''), data, exportedAt);
+    if (!exported.ok) return exported;
+    exported.value.sider = {
+      i_alt: data.pages.length,
+      gennemgaaet: reviewedPdfPages(data, reviewedPages),
+    };
+    return exported;
+  }
+
+  function pageProgress(data, reviewedPages, currentIndex) {
+    const reviewed = new Set(reviewedPdfPages(data, reviewedPages));
+    const missing = data.pages.length - reviewed.size;
+    return {
+      counter: `side ${currentIndex + 1} af ${data.pages.length} · ${missing} mangler`,
+      items: data.pages.map(page => (
+        `PDF-side ${page.pdfPage} · ${reviewed.has(page.pdfPage) ? 'gennemgået' : 'mangler'}`
+        + ` · ${page.counts.ejerloes} ejerløs`
+        + ` · ${page.counts.forslag} forslag`
+        + ` · ${page.counts.signaler} signal`
+      )),
+    };
+  }
+
+  function togglePageCompletion(data, reviewedPages, currentIndex, gateOk) {
+    const reviewed = new Set(reviewedPdfPages(data, reviewedPages));
+    const pdfPage = data.pages[currentIndex].pdfPage;
+    if (reviewed.has(pdfPage)) {
+      reviewed.delete(pdfPage);
+      return {
+        reviewedPages: Array.from(reviewed).sort((left, right) => left - right),
+        currentIndex,
+        changed: true,
+      };
+    }
+    if (!gateOk) return {
+      reviewedPages: Array.from(reviewed), currentIndex, changed: false,
+    };
+    reviewed.add(pdfPage);
+    let nextIndex = data.pages.findIndex((page, index) => (
+      index > currentIndex && !reviewed.has(page.pdfPage)
+    ));
+    if (nextIndex === -1) {
+      nextIndex = data.pages.findIndex(page => !reviewed.has(page.pdfPage));
+    }
+    if (nextIndex === -1) nextIndex = currentIndex;
+    return {
+      reviewedPages: Array.from(reviewed).sort((left, right) => left - right),
+      currentIndex: nextIndex,
+      changed: true,
+    };
+  }
+
   function nearestLineOffset(sourceText, wanted) {
     const source = chars(sourceText);
     const offsets = [0];
@@ -347,26 +451,58 @@
     const saveStatus = document.querySelector('[data-role="save-status"]');
     const exportButton = document.querySelector('[data-action="export"]');
     const restoreButton = document.querySelector('[data-action="restore"]');
+    const completeButton = document.querySelector('[data-action="complete-page"]');
+    const progressNode = document.querySelector('[data-role="page-progress"]');
+    const pageList = document.querySelector('[data-role="page-list"]');
     const storageKey = STORAGE_PREFIX + data.source.calamari_sha256;
     const stored = shared.readStoredDraft(global.localStorage, storageKey);
-    textarea.value = stored && typeof stored.marked_text === 'string'
-      ? stored.marked_text : data.initialText;
+    const initialPageTexts = data.pages.map(page => page.initialText);
+    const storedTexts = stored && Array.isArray(stored.page_texts)
+      && stored.page_texts.length === data.pages.length
+      && stored.page_texts.every(value => typeof value === 'string')
+      ? stored.page_texts : null;
+    const pageTexts = storedTexts ? storedTexts.slice() : initialPageTexts;
+    let reviewedPages = reviewedPdfPages(
+      data,
+      stored && Array.isArray(stored.reviewed_pages)
+        ? stored.reviewed_pages : data.completedPages,
+    );
+    let currentIndex = stored && Number.isInteger(stored.current_page)
+      && stored.current_page >= 0 && stored.current_page < data.pages.length
+      ? stored.current_page : 0;
+    textarea.value = pageTexts[currentIndex];
     let timer = null;
 
+    function renderPageControls(gate) {
+      const progress = pageProgress(data, reviewedPages, currentIndex);
+      progressNode.textContent = progress.counter;
+      const reviewed = new Set(reviewedPages);
+      pageList.innerHTML = progress.items.map((label, index) => (
+        `<button type="button" data-page-index="${index}"`
+        + `${index === currentIndex ? ' aria-current="page"' : ''}`
+        + `>${label}</button>`
+      )).join('');
+      completeButton.textContent = reviewed.has(data.pages[currentIndex].pdfPage)
+        ? 'Fjern mærket gennemgået' : 'Færdig med siden';
+      completeButton.disabled = !gate.ok
+        && !reviewed.has(data.pages[currentIndex].pdfPage);
+    }
+
     function refresh() {
-      const parsed = parseMarkedText(textarea.value, data.sourceText);
-      const gate = parsed.ok ? parsed.gate : {
-        ok: false,
-        message: parsed.error,
-      };
+      pageTexts[currentIndex] = textarea.value;
+      const gate = validatePageTexts(pageTexts, data);
       gateStatus.textContent = gate.message;
       gateStatus.dataset.gate = gate.ok ? 'ok' : 'error';
       exportButton.disabled = !gate.ok;
+      renderPageControls(gate);
       const error = shared.writeStoredDraft(global.localStorage, storageKey, {
-        schema_version: 1,
-        marked_text: textarea.value,
+        schema_version: 2,
+        page_texts: pageTexts,
+        current_page: currentIndex,
+        reviewed_pages: reviewedPages,
       });
       saveStatus.textContent = error || 'Gemt lokalt.';
+      return gate;
     }
 
     textarea.addEventListener('input', () => {
@@ -374,7 +510,8 @@
       timer = global.setTimeout(refresh, 300);
     });
     exportButton.addEventListener('click', () => {
-      const exported = buildExport(textarea.value, data);
+      pageTexts[currentIndex] = textarea.value;
+      const exported = buildExportFromPages(pageTexts, data, null, reviewedPages);
       if (!exported.ok) {
         refresh();
         return;
@@ -382,19 +519,48 @@
       shared.downloadJson(exported.value, '1939-graenseflade.json');
     });
     restoreButton.addEventListener('click', () => {
-      const restored = restoreBookText(textarea.value, data.sourceText);
+      pageTexts[currentIndex] = textarea.value;
+      const restored = restoreBookText(pageTexts.join(''), data.sourceText);
       if (!restored.ok) {
         gateStatus.textContent = restored.error;
         gateStatus.dataset.gate = 'error';
         return;
       }
-      textarea.value = restored.text;
+      const restoredParsed = parseMarkedText(restored.text, data.sourceText);
+      const restoredPages = data.pages.map((page, index) => {
+        const start = restoredParsed.viewOffsets.get(page.charFrom);
+        const end = index + 1 < data.pages.length
+          ? restoredParsed.viewOffsets.get(data.pages[index + 1].charFrom)
+          : restored.text.length;
+        return restored.text.slice(start, end);
+      });
+      restoredPages.forEach((text, index) => { pageTexts[index] = text; });
+      textarea.value = pageTexts[currentIndex];
+      refresh();
+    });
+    completeButton.addEventListener('click', () => {
+      const gate = refresh();
+      const result = togglePageCompletion(
+        data, reviewedPages, currentIndex, gate.ok,
+      );
+      reviewedPages = result.reviewedPages;
+      currentIndex = result.currentIndex;
+      textarea.value = pageTexts[currentIndex];
+      refresh();
+    });
+    pageList.addEventListener('click', event => {
+      const button = event.target.closest('[data-page-index]');
+      if (!button) return;
+      pageTexts[currentIndex] = textarea.value;
+      currentIndex = Number(button.dataset.pageIndex);
+      textarea.value = pageTexts[currentIndex];
       refresh();
     });
     refresh();
   }
 
   global.DAABoundaryText = {
-    parseMarkedText, composeMarkedText, buildExport, restoreBookText, init,
+    parseMarkedText, composeMarkedText, buildExport, restoreBookText,
+    validatePageTexts, buildExportFromPages, pageProgress, togglePageCompletion, init,
   };
 }(typeof globalThis === 'undefined' ? this : globalThis));
