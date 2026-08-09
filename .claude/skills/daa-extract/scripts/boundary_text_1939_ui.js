@@ -30,7 +30,7 @@
     return null;
   }
 
-  function gateFor(bookText, sourceText) {
+  function gateFor(bookText, sourceText, fieldLinesByBookLine) {
     const actual = new TextEncoder().encode(bookText);
     const expected = new TextEncoder().encode(sourceText);
     let byte = 0;
@@ -43,8 +43,17 @@
     let position = 0;
     while (position < actualChars.length && position < expectedChars.length
            && actualChars[position] === expectedChars[position]) position += 1;
-    const line = lineAt(sourceText, position);
-    return { ok: false, line, message: `bogteksten er ændret ved linje ${line}` };
+    const sourceLine = lineAt(sourceText, position);
+    const bookLine = lineAt(bookText, position);
+    const line = fieldLinesByBookLine[bookLine - 1]
+      || fieldLinesByBookLine[fieldLinesByBookLine.length - 1]
+      || 1;
+    return {
+      ok: false,
+      line,
+      sourceLine,
+      message: `bogteksten er ændret ved linje ${line} (kildens linje ${sourceLine})`,
+    };
   }
 
   function parseMarkedText(markedText, sourceText) {
@@ -52,6 +61,7 @@
     const ocrNotes = [];
     const omissions = [];
     const book = [];
+    const fieldLinesByBookLine = [];
     let bookOffset = 0;
     let viewIndex = 0;
     let lineNumber = 1;
@@ -76,6 +86,7 @@
         continue;
       }
       if (content.startsWith('===')) return failure('ukendt ===-markør', lineNumber);
+      fieldLinesByBookLine.push(lineNumber);
 
       let position = 0;
       while (position < rawLine.length) {
@@ -115,7 +126,14 @@
     }
     if (openOmission !== null) return failure('uparret UDELAD-tag', openOmission.line);
     const bookText = book.join('');
-    return { ok: true, bookText, markers, ocrNotes, omissions, gate: gateFor(bookText, sourceText) };
+    return {
+      ok: true,
+      bookText,
+      markers,
+      ocrNotes,
+      omissions,
+      gate: gateFor(bookText, sourceText, fieldLinesByBookLine),
+    };
   }
 
   const LINE_RANK = { pdf: 10, boundary: 20, hole: 30, proposal: 40, cut: 50 };

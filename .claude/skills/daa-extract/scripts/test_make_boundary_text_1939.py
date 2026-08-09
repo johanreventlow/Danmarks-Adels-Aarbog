@@ -175,7 +175,35 @@ def test_byte_gate_reports_inserted_character_line(tmp_path):
     assert parsed["gate"] == {
         "ok": False,
         "line": 2,
-        "message": "bogteksten er ændret ved linje 2",
+        "sourceLine": 2,
+        "message": "bogteksten er ændret ved linje 2 (kildens linje 2)",
+    }
+
+
+def test_gate_reports_textarea_line_when_marker_lines_shift_source_numbering(tmp_path):
+    source = "første\nanden\n"
+    marked = (
+        "=== GRÆNSESKÆRING ===\n"
+        "første\n"
+        "=== PDF-SIDE 496 ===\n"
+        "andenX\n"
+    )
+
+    parsed = _node_call(tmp_path, "parseMarkedText", marked, source)
+
+    assert parsed["gate"] == {
+        "ok": False,
+        "line": 4,
+        "sourceLine": 2,
+        "message": "bogteksten er ændret ved linje 4 (kildens linje 2)",
+    }
+
+    broken_marker = marked.replace("=== PDF-SIDE 496 ===", "=== UKENDT ===")
+    grammar_error = _node_call(tmp_path, "parseMarkedText", broken_marker, source)
+    assert grammar_error == {
+        "ok": False,
+        "line": 3,
+        "error": "ukendt ===-markør ved linje 3",
     }
 
 
@@ -483,5 +511,5 @@ def test_init_prefers_local_storage_then_debounces_gate_and_autosave_by_300_ms(t
     assert result.returncode == 0, result.stderr
     value = json.loads(result.stdout)
     assert value["before"] == {"value": "ændret\n", "delay": 300, "writes": 1}
-    assert value["gate"] == "bogteksten er ændret ved linje 1"
+    assert value["gate"] == "bogteksten er ændret ved linje 1 (kildens linje 1)"
     assert value["writes"] == 2
