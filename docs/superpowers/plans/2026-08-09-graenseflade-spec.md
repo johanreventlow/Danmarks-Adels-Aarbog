@@ -193,6 +193,43 @@ separat opgave.
 `work/` er gitignoreret og indeholder PII: artefakter må aldrig committes eller
 sendes til en model.
 
+## 9b. Sidevisning med fremskridt (tilføjet 2026-08-09 efter brugerens ønske)
+
+4.630 linjer i én køre er for meget at forholde sig til. Fladen viser derfor **én
+bogside ad gangen**, med fremskridt og en tæller over manglende sider — samme
+navigationsform som menneskearket.
+
+**Sideenheden er bogens egen.** Kildeteksten har 86 `### PAGE nnnn ###`-linjer; en side
+løber fra sin `### PAGE`-linje til lige før den næste. Der opfindes ingen sideinddeling.
+
+**Kvittering pr. side.** Knappen "Færdig med siden" markerer siden gennemgået og går
+til næste. Brugeren valgte tavshed = godkendt for de enkelte skæringer, så kvitteringen
+er det eneste sted, hvor fladen ved, at et stykke arbejde er *set*. Uden den er
+"antal manglende sider" et gæt. 86 klik for hele bogen — ikke 446.
+
+En side kan **ikke** kvitteres, mens dens gate er brudt: en ukendt markør eller en ændret
+bogtekst skal rettes først. Ellers ville kvitteringen påstå mere, end den ved.
+
+**Byte-gaten dækker fortsat hele dokumentet**, ikke kun den synlige side. Teksten samles
+af alle sider — redigerede som urørte — og sammenlignes med kilden som hidtil. Ellers
+kunne en side, man ikke kigger på, drive fra kilden i stilhed. Fejlmeldingen angiver
+**både sidetal og linje inde på den side**, fordi et linjenummer i hele dokumentet er
+ubrugeligt, når man kun ser én side.
+
+**Markører på en sidegrænse tilhører præcis én side.** En markør, hvis position falder
+sammen med en sides begyndelse, hører til den side, der **begynder** der, og vises øverst
+på den. Reglen skal testes: en markør der optræder på to sider, ville tælles to gange i
+ændringsregnskabet, og en der falder mellem to sider, ville forsvinde.
+
+**Sidelisten erstatter `Cmd+F`.** Browserens søgning når kun den synlige side, så
+navigationen flytter til en liste over de 86 sider, hver med sin status (gennemgået /
+mangler) og hvad der venter på den: antal ejerløs-bannere, forslag og signal-markører.
+Ellers ville sideopdelingen skjule netop det, fladen findes for at gøre synligt.
+
+**Eksporten får sidernes tilstand:** `sider: {i_alt, gennemgaaet: [<pdf-side>, …]}`.
+Et importeret sæt uden feltet betyder "ingen sider gennemgået" — det må ikke fejle.
+Alt øvrigt i eksporten er uændret; sidevisningen ændrer ikke, hvad en markør betyder.
+
 ## 10. Succeskriterier
 
 1. Byte-gaten fanger én indsat karakter et vilkårligt sted i teksten og peger på
