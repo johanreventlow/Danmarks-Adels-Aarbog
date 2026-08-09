@@ -2477,3 +2477,49 @@ efter DDL: 139 → 135 lints (revoke på de to nye trigger-funktioner).
 loader-låsen (parkeret, se decisions) · 1235/1237 peger begge på 1930-id 527
 (sandsynlig dublet i 1939-posten) · 15 mor-løse skaller står tilbage med én part og
 0 børn, bevidst ikke slettet.
+
+## Grænsekontrol fase 1 + 1939-matchningen færdiggjort (2026-08-08)
+
+**Matchningen er komplet.** Alle 453 `human_required`-poster og alle 5 stikprøver er
+afgjort (402 kandidatvalg, 55 "ingen kandidat passer", 1 uafgjort). De 88 uden afgørelse
+er præcis de automatiske ikke-stikprøver, som fladen forbyder valg på. Forankret:
+**352 spænd, 45 parkerede, ingen injektivitetsfejl** — den risiko vi havde udpeget som
+utestet med 131 tekstankre i spil holdt. Parkeringsårsager: 26 `pdf_pages_mismatch`
+(alle tekstankre, koncentreret på s. 571-573 og 596-598 = sidekortets grovkornede
+område), 19 overlap.
+
+**To fejl rettet i menneskeark-generatoren før det.** (1) Fladen viste kun de tre
+øverste kandidater bag "Vis alle kandidater"; nu vises alle, foldet ud. (2) Calamari
+mangler 18 PDF-sider (plancher), men generatoren regnede sidetal lineært i stedet for
+at bruge `CALAMARI_R6_TO_PDF_V1`. Målt: tabellen rammer trykt side 321/362, lineær
+149/362 — og opdelt ved side 547 er lineær **0/205**. Sidefiksen alene gjorde det værre
+(101 → 57 korrekte kandidater), fordi korrekte sider fortrængte det eksakte tekstanker;
+ankeret tilbydes nu altid og først: **101 → 301**.
+
+**Detektor for skævt delte baseline-poster** (`detect_boundary_defects_1939.py`): 2
+grænsefejl-par, 17 poster uden eget hoved, 5 grupper der deler ordret samme narrativ.
+Bruger den trykte søskendenummerering; resultatet er et gulv, ikke en optælling.
+
+**Grænsekontrol fase 1 bygget** (17 commits, `c150ae7..59c75fa`): delt UI-modul
+udtrukket fra menneskearket, grænser dannet af accepterede spænd med revisionsbærende
+id, klausul-regnskab, fire spænd-signaler, view-model med eksplicit kald af den
+kanoniske globale injektivitetskontrol, selvstændig browserflade med fem domme,
+OCR-noter og karantæne, samt CLI med hash-validering. 1083 Python-tests, 773 web-tests,
+menneskearkets 88 uændret gennem refaktoren.
+
+**Kørt mod rigtige data:** 446 grænser (= 445 spænd + 1), 248 med signal.
+`slugt_hoved` 2 · `nummerspring` 80 · `mangler_eget_hoved` 10 · `hoved_i_raa_ocr` 5.
+
+**Fase 1's egentlige svar:** grænserne er overvejende i orden — kun 12 bærer et signal
+om en forskubbet skæring. Det der mangler er **dækning**: 101 poster ejer intet spænd,
+og **46.015 tegn** af kilden ejes af ingen, i 355 huller (største 8.996 tegn).
+
+**Fem fejl fundet af reviews, én af et tal, fire af brugerens browsertest.** Se
+decisions for mønsteret. Brugerens fund: uparsebar genereret fil (blank side), to tomme
+kasser der læstes som frikendelse, manglende fremdrift/navigation i en flade til 446
+poster, manglende sidetal, og kontekst der rakte ud over spændets kant (352 af 446).
+
+**Udestår.** Ikke pushet, ikke merget · `manglende_post` registrerer ikke *hvilken*
+post der mangler (struktureret felt foreslået, ikke bygget) · brugeren vil diskutere en
+anden fremgangsmåde i næste session · fase 2 bør planlægges forfra på tallene ovenfor ·
+eksport-knappen er ikke verificeret i en rigtig browser.

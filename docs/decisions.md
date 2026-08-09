@@ -1274,3 +1274,59 @@ advisory-låsen gav deadlock). Peer-review er ikke monotont forbedrende. Og
 `get_advisors(security)` fangede efter deploy noget ingen af de otte runder så: to nye
 `SECURITY DEFINER`-trigger-funktioner stod åbne for `anon` via Supabases default-grants.
 Codex læser SQL; advisoren læser den kørende bases ACL.
+
+## Grænsekontrollen ligger før materialisering, og massebekræftelse er droppet (2026-08-08)
+
+**Placering.** Grænsekontrollen kræver eksakte, hash-låste spænd og skal ligge før
+materialisering. Begge betingelser er opfyldt straks efter forankringen, så kontrollen
+lægges der — ikke efter komponeringen, hvor en ugyldig rettelse er dyrere at kassere.
+Efter materialisering er teksterne påstande, og påstande overskrives aldrig (invariant 1).
+Første udgave hævdede at der kun fandtes ét muligt sted; det holdt ikke.
+
+**Afløsning af accepteret evidens er forbudt i dag, og guarden skal ikke løsnes.**
+`compose_human_evidence_bundle()` afviser at menneske-evidens erstatter en entry med
+kandidater eller positiv proveniens. En grænserettelse ER en sådan erstatning, så fase 2
+kræver én navngiven, autoriseret afløsningsoperation med eksplicit invalideringsgraf —
+seks punkter, herunder stikprøve/audit og op til tre incidente grænser, fordi en flytning
+ændrer begge nabospænd. Kandidat*formatet* kræver derimod ingen ny evidensart; det er
+producent-neutralt. Formatet rakte, operationen manglede.
+
+**Massebekræftelses-bunken er fjernet.** Den lovede at et hul var positivt bevist tomt,
+herunder at der ikke var et trykt hoved i rå OCR's modsvarende stykke. Men det modsvarende
+stykke findes ikke: et menneskeforankret Calamari-spænd er et delspænd inde i en
+forekomst, mens dets `raw_structure_bridge` dækker hele den parrede rå-forekomst. **Målt:
+0 af 352 forankrede spænd er spændpræcise; 349 er delspænd; kun 110 har en rå-bro.** Rå-
+vinduet begyndte derfor at læse for sent i hvert enkelt tilfælde. Valgt løsning: drop
+bunken, alle 446 grænser til individuel vurdering. Rå-kontrollen er ikke slettet men
+**vendt** — et positivt fund er troværdigt, fraværet af et fund beviser intet — så den er
+nu signalet `hoved_i_raa_ocr`. En spændpræcis kontrol via `align_renditions` er
+forudsætningen for at genindføre en bunke. Afvist: at portere på Calamari alene, fordi det
+er præcis den fejlmåde designet findes for.
+
+**Revision 0 i fase 1 er tilsigtet.** Grænse-id bærer et revisionsnummer, men fase 1
+ændrer aldrig et spænd, så der findes ingen anden revision. Bumpning og forældrekæde bygges
+i fase 2 sammen med afløsningen. Reviewet kaldte det en spec-fejl; afgjort at planen gælder.
+
+**Dagens gennemgående fejlmønster: fravær af bevis læst som bevis på fravær.** Otte
+tilfælde. Sidemodellen der talte sider i stedet for at slå dem op; porten der kaldte et
+ukontrolleret hul tomt; en opsummering hvor `har_broedtekst=0` slap igennem; et
+injektivitetskald der udregnede sin egen godkendelseshash og dermed gjorde kontrollen
+indholdsløs; et rå-OCR-vindue der ledte i den forkerte tekst; søskendegrupper bygget kun af
+spænd-ejere, så `slugt_hoved` fyrede **0 gange** i et datasæt med fire kendte grænsefejl; en
+tom kasse i UI'et der læstes som frikendelse; og kontekst der rakte ud over spændets kant
+uden nogen markering. Fælles: koden bestod sine tests, fordi testene fodrede den med
+sandheden. **Nul er et signal** — et signal bygget til en kendt fejl, der aldrig fyrer, er
+et resultat om koden, ikke om dataene.
+
+**Testværn skal måle egenskaben, ikke teksten.** Task 8's tests hævdede at de rigtige
+strenge stod i den genererede HTML; filen var alligevel uparsebar, fordi generatoren skrev
+`";\\n"` i stedet for et linjeskift — blank side, fundet af brugeren efter otte tasks, tre
+reviews og en fix-bølge. Begge generatorer har nu en test der **parser** scriptblokken med
+`node --check`, mutationstestet ved at genindsætte fejlen. Og gaten for det delte UI-modul
+var **tallet 88**, ikke "grønne tests": et tal fanger en adfærdsændring som en farve skjuler.
+
+**Delegering til Codex: arbejdsdelingen blev omvendt af sandkassen.** Delegaten kan ikke
+committe (`index.lock` nægtet) og har ingen PyPI-adgang, og runtimen kører kun én opgave ad
+gangen — et parallelt dispatch afvises, og en død proces kan efterlade en forældet
+"kører"-lås der blokerer alt. Arbejdsdeling: delegaten skriver kode og tests, kontrol-
+sessionen kører testene og committer med delegaten navngivet.
