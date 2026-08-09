@@ -151,6 +151,36 @@
     return !error;
   }
 
+  function boundaryIds(state) {
+    return (state.data.views.graenser || []).filter(id => state.byId.has(id));
+  }
+
+  function isDecided(state, id) {
+    return hasOwn(state.verdicts, id);
+  }
+
+  function navigate(state, direction) {
+    const ids = boundaryIds(state);
+    const position = ids.indexOf(state.selectedId);
+    const nextPosition = position + direction;
+    if (position < 0 || nextPosition < 0 || nextPosition >= ids.length) return false;
+    state.selectedId = ids[nextPosition];
+    render(state);
+    return true;
+  }
+
+  function moveToNextUndecided(state) {
+    const ids = boundaryIds(state);
+    const position = ids.indexOf(state.selectedId);
+    const next = ids.slice(position + 1).find(id => !isDecided(state, id));
+    if (next) {
+      state.selectedId = next;
+      return true;
+    }
+    state.message = 'Alle grænser er dømt.';
+    return false;
+  }
+
   function record(state, id, verdict, payload) {
     const boundary = state.byId.get(id);
     if (!boundary || !VERDICTS.has(verdict)) {
@@ -180,6 +210,7 @@
       render(state);
       return false;
     }
+    moveToNextUndecided(state);
     render(state);
     return true;
   }
@@ -239,17 +270,29 @@
 
   function renderSidebar(state, sidebar) {
     sidebar.replaceChildren();
-    const ids = state.data.views.graenser || [];
+    const ids = boundaryIds(state);
     sidebar.append(element('p', `Alle grænser (${ids.length})`));
+    const decided = ids.filter(id => isDecided(state, id)).length;
+    sidebar.append(element('p', `${ids.length - decided} mangler af ${ids.length} · ${decided} dømt`, {
+      'data-role': 'missing-count',
+    }));
     const list = element('ul', undefined, { 'data-role': 'boundary-list' });
     ids.forEach(id => {
       const boundary = state.byId.get(id);
       if (!boundary) return;
       const item = element('li');
-      item.append(actionButton(
-        `${boundary.before_navn || 'Ukendt'} → ${boundary.after_navn || 'Ukendt'}`,
-        'select-boundary', { boundaryId: id },
-      ));
+      const decidedEntry = state.verdicts[id];
+      const hasRiskSignal = (boundary.signals || []).some(signal => signal !== 'laengdeafvigelse');
+      const button = actionButton(undefined, 'select-boundary', { boundaryId: id });
+      button.setAttribute('data-status', decidedEntry ? 'decided' : 'missing');
+      if (hasRiskSignal) button.setAttribute('data-risk', 'signal');
+      button.append(element('span', `${boundary.before_navn || 'Ukendt'} → ${boundary.after_navn || 'Ukendt'}`));
+      button.append(element('span', decidedEntry ? VERDICT_DA[decidedEntry.verdict] : 'Udestår', {
+        'data-role': 'boundary-status', 'data-status': decidedEntry ? 'decided' : 'missing',
+      }));
+      if (hasRiskSignal) button.append(element('span', 'Signal', { 'data-role': 'boundary-risk' }));
+      if (id === state.selectedId) button.setAttribute('aria-current', 'true');
+      item.append(button);
       list.append(item);
     });
     sidebar.append(list);
@@ -308,6 +351,10 @@
       return;
     }
     root.append(element('h1', 'Grænsegennemgang 1939'));
+    const navigation = element('p', undefined, { 'data-role': 'navigation' });
+    navigation.append(actionButton('Forrige', 'previous'));
+    navigation.append(actionButton('Næste', 'next'));
+    root.append(navigation);
     const sides = element('section', undefined, { 'data-role': 'boundary-evidence' });
     sides.append(element('h2', `Slutningen af forrige spænd: ${boundary.before_navn || 'Ukendt navn'}`));
     sides.append(element('p', boundary.before_context || 'Ingen kontekst før skæringen.'));
@@ -365,14 +412,17 @@
     };
     restore(state);
     const controller = {
+      get selectedId() { return state.selectedId; },
       verdict: (id, verdict, payload) => record(state, id, verdict, payload || {}),
       note: (recordKey, note) => addNote(state, recordKey, note),
+      next: () => navigate(state, 1),
+      previous: () => navigate(state, -1),
       exportDraft: () => exportDraft(state),
       download: () => download(exportDraft(state)),
     };
     const clickListener = event => {
-      const target = event.target;
-      const action = target && target.getAttribute && target.getAttribute('data-action');
+      const target = event.target && event.target.closest && event.target.closest('[data-action]');
+      const action = target && target.getAttribute('data-action');
       if (!action) return;
       if (VERDICTS.has(action)) {
         const field = document.querySelector('[data-role="reason"]');
@@ -382,7 +432,9 @@
         const id = target.getAttribute('data-boundary-id');
         if (state.byId.has(id)) state.selectedId = id;
         render(state);
-      } else if (action === 'save-note') {
+      } else if (action === 'next') navigate(state, 1);
+      else if (action === 'previous') navigate(state, -1);
+      else if (action === 'save-note') {
         const recordKey = document.querySelector('[data-role="note-record-key"]');
         const staar = document.querySelector('[data-role="note-staar"]');
         const burde = document.querySelector('[data-role="note-burde"]');

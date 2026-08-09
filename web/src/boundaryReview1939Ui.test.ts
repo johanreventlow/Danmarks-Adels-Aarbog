@@ -209,6 +209,60 @@ describe('grænsegennemgang', () => {
     expect(document.body.textContent).not.toContain('Hurtig bekræftelse');
   });
 
+  it('viser og opdaterer tælleren for udømte grænser', () => {
+    const controller = start([boundary('g-1'), boundary('g-2')]);
+
+    expect(document.querySelector('[data-role="missing-count"]')!.textContent)
+      .toBe('2 mangler af 2 · 0 dømt');
+    controller.verdict('g-1', 'graense_ok');
+    expect(document.querySelector('[data-role="missing-count"]')!.textContent)
+      .toBe('1 mangler af 2 · 1 dømt');
+  });
+
+  it('mærker en dømt grænse med sin dom og synligt risikosignal i listen', () => {
+    const controller = start([boundary('g-1'), {
+      ...boundary('g-2'), signals: ['laengdeafvigelse', 'slugt_hoved'],
+    }]);
+
+    controller.verdict('g-1', 'hul_ejerloest');
+    const items = document.querySelectorAll<HTMLButtonElement>('[data-action="select-boundary"]');
+    expect(items[0].getAttribute('data-status')).toBe('decided');
+    expect(items[0].textContent).toContain('Hullet er ejerløst');
+    expect(items[1].getAttribute('data-risk')).toBe('signal');
+    expect(items[1].textContent).toContain('Signal');
+  });
+
+  it('rykker til næste udømte grænse først efter en gemt dom', () => {
+    const controller = start([boundary('g-1'), boundary('g-2'), boundary('g-3')]);
+
+    expect(controller.verdict('g-1', 'graense_ok')).toBe(true);
+    expect(controller.selectedId).toBe('g-2');
+  });
+
+  it('bliver på grænsen når lagring af dommen fejler', () => {
+    const storage = {
+      getItem: () => null,
+      setItem: () => { throw new Error('ingen lagerplads'); },
+      removeItem: () => undefined,
+    };
+    const controller = start([boundary('g-1'), boundary('g-2')], { storage });
+
+    expect(controller.verdict('g-1', 'graense_ok')).toBe(false);
+    expect(controller.selectedId).toBe('g-1');
+    expect(document.querySelector('[data-role="missing-count"]')!.textContent)
+      .toBe('2 mangler af 2 · 0 dømt');
+  });
+
+  it('navigerer næste og forrige i grænselistens rækkefølge', () => {
+    const controller = start([boundary('g-1'), boundary('g-2'), boundary('g-3')]);
+
+    expect(controller.next()).toBe(true);
+    expect(controller.selectedId).toBe('g-2');
+    expect(controller.previous()).toBe(true);
+    expect(controller.selectedId).toBe('g-1');
+    expect(controller.previous()).toBe(false);
+  });
+
   it('sætter en ugyldig gemt dom i karantæne frem for at kassere den', () => {
     const storage = memoryStorage();
     storage.setItem('daa1939-graenser:v1:{"edition":"1939"}',
