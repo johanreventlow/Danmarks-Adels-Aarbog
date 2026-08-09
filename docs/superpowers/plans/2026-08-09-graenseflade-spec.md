@@ -76,8 +76,12 @@ Inline-tags (må stå midt i en linje):
 
 | Tag | Betydning |
 |---|---|
-| `[[OCR: der står X \| burde stå Y]]` | OCR-note, knyttet til stedet |
+| `[[OCR: Rcventlow \| burde stå Reventlow]]` | OCR-note, knyttet til stedet. **Venstre side er den rå tekst uden nøgleord**; kun højre side bærer ordene `burde stå`. Skriver man "der står" på venstre side, ender nøgleordet inde i værdien |
 | `[[UDELAD]] … [[/UDELAD]]` | tekst der ikke hører til nogen post (overskrifter, kolumnetitler). Betyder **ikke** "slet fra kilden" |
+
+Begge tags er noteringer, ikke tekstændringer: de holder byte-gaten grøn og eksporteres
+med kildekoordinater. Syntaksen kan ikke gættes, så fladen skal vise den på skærmen
+(uden for tekstboksen — en nøgle inde i teksten ville forurene indholdet).
 
 Ukendte `===`-linjer og uparrede `[[…]]` er en **fejl**, ikke stiltiende accept:
 eksporten afvises med linjenummer.

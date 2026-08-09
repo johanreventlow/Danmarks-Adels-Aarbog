@@ -22,7 +22,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '../../../..');
 const { chromium } = createRequire(join(repoRoot, 'web', 'package.json'))('playwright');
 
-const FORVENTET = { graenser: 446, huller: 97, pdfsider: 86 };
+const FORVENTET = { graenser: 446, huller: 97, pdfsider: 86, ejerloeseTegn: 45757 };
 
 const htmlPath = resolve(process.argv[2]);
 const sourcePath = resolve(process.argv[3]);
@@ -77,10 +77,18 @@ record(`kun huller med rigtig tekst får banner (${FORVENTET.huller})`,
 record(`${FORVENTET.pdfsider} PDF-sidelinjer`,
   markers.pdfside === FORVENTET.pdfsider, `fandt ${markers.pdfside}`);
 
-// Kant-hullerne må ikke være forsvundet: det største hul er 8.996 tegn, og de to
-// kanter er 868 og 6.330. Findes 6.330-banneret ikke, er kanten faldet ud.
-record('dokumentets kant-hul (6.330 tegn) er annonceret',
-  value.includes('=== EJERLØS TEKST · 6330 tegn ==='));
+// Kant-hullerne må ikke være forsvundet: de to kanter er 868 og 6.330 tegn, og de
+// faldt oprindeligt ud, fordi de mangler en nabo på den ene side.
+record('dokumentets kant-huller (868 og 6.330 tegn) er annonceret',
+  value.includes('=== EJERLØS TEKST · 6330 tegn ===')
+  && value.includes('=== EJERLØS TEKST · 868 tegn ==='));
+
+// Antallet alene beviser ikke at det er de RIGTIGE huller: summen skal ramme den
+// målte mængde ejerløs tekst med indhold.
+const bannerSum = [...value.matchAll(/^=== EJERLØS TEKST · (\d+) tegn ===$/gm)]
+  .reduce((total, match) => total + Number(match[1]), 0);
+record('bannerne dækker de målte 45.757 ejerløse tegn',
+  bannerSum === FORVENTET.ejerloeseTegn, `sum ${bannerSum}`);
 
 // 3. Gaten reagerer løbende — ikke først ved eksport.
 //
