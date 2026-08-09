@@ -110,13 +110,15 @@ def build_text_model(calamari_text: str, boundary_model: Mapping) -> dict:
 
         gap = boundary.get("gap")
         before, after = boundary.get("before"), boundary.get("after")
-        if (isinstance(gap, Mapping) and isinstance(before, Mapping)
-                and isinstance(after, Mapping) and gap["char_to"] > gap["char_from"]):
+        if isinstance(gap, Mapping) and gap["char_to"] > gap["char_from"]:
             gap_from, gap_to = gap["char_from"], gap["char_to"]
-            holes.append({"char_offset": gap_from, "tegn": gap_to - gap_from})
-            for line_offset, line, _ in _line_offsets(calamari_text[gap_from:gap_to]):
-                if _PRINTED_MARKER_RE.match(line):
-                    proposals.append({"char_offset": gap_from + line_offset})
+            gap_text = calamari_text[gap_from:gap_to]
+            if gap_text.strip():
+                holes.append({"char_offset": gap_from, "tegn": gap_to - gap_from})
+                if isinstance(before, Mapping) and isinstance(after, Mapping):
+                    for line_offset, line, _ in _line_offsets(gap_text):
+                        if _PRINTED_MARKER_RE.match(line):
+                            proposals.append({"char_offset": gap_from + line_offset})
 
     pdf_pages = []
     for line_offset, line, next_offset in _line_offsets(calamari_text):

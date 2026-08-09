@@ -81,6 +81,70 @@ def test_build_text_model_reuses_boundaries_and_only_shift_signals():
     assert result["forslag"] == [{"char_offset": 7}]
 
 
+def test_build_text_model_does_not_banner_a_whitespace_only_gap():
+    text = "A\nB\n"
+    model = {
+        "source": SOURCE,
+        "boundaries": [_boundary(1, gap_to=2)],
+    }
+
+    result = subject.build_text_model(text, model)
+
+    assert result["huller"] == []
+
+
+def test_build_text_model_banners_real_text_at_both_document_edges():
+    text = "kant\nPOST\nslut"
+    span = {"char_from": 5, "char_to": 9, "baseline_record_key": "post"}
+    model = {
+        "source": SOURCE,
+        "boundaries": [
+            {
+                "before": None,
+                "after": span,
+                "gap": {"char_from": 0, "char_to": 5},
+                "signals": [],
+            },
+            {
+                "before": span,
+                "after": None,
+                "gap": {"char_from": 9, "char_to": len(text)},
+                "signals": [],
+            },
+        ],
+    }
+
+    result = subject.build_text_model(text, model)
+
+    assert result["huller"] == [
+        {"char_offset": 0, "tegn": 5},
+        {"char_offset": 9, "tegn": 5},
+    ]
+
+
+def test_edge_banners_do_not_expand_the_existing_inner_gap_proposal_set():
+    text = "1. kant\nPOST\n2. slut"
+    span = {"char_from": 8, "char_to": 12, "baseline_record_key": "post"}
+    model = {
+        "source": SOURCE,
+        "boundaries": [
+            {
+                "before": None, "after": span,
+                "gap": {"char_from": 0, "char_to": 8}, "signals": [],
+            },
+            {
+                "before": span, "after": None,
+                "gap": {"char_from": 12, "char_to": len(text)}, "signals": [],
+            },
+        ],
+    }
+
+    result = subject.build_text_model(text, model)
+
+    assert len(result["huller"]) == 2
+    assert result["forslag"] == []
+
+
 def test_page_markers_follow_source_page_lines_and_use_the_pdf_map():
     text = "### PAGE 0001 ###\nBog\n### PAGE 0005 ###\nMere\n"
     result = subject.build_text_model(text, {"source": SOURCE, "boundaries": []})
@@ -324,11 +388,12 @@ def _argv(inputs, out, markeringer=None):
     return argv
 
 
-def test_main_writes_parseable_html_and_refuses_overwrite(tmp_path, monkeypatch):
+def test_main_writes_parseable_html_and_refuses_overwrite(tmp_path, monkeypatch, capsys):
     inputs = _write_inputs(tmp_path)
     out = tmp_path / "flade.html"
     monkeypatch.setattr(sys, "argv", _argv(inputs, out))
     assert subject.main() == 0
+    assert capsys.readouterr().out == "2 grænser · 1 huller · 0 forslag · 1 PDF-sider\n"
     rendered = out.read_text(encoding="utf-8")
     assert "<textarea" in rendered
     assert "DAABoundaryText.init" in rendered
