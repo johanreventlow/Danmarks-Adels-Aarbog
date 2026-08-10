@@ -1,5 +1,40 @@
 # Changelog
 
+## Hele 1939-bogen gennemgået i tekstfladen (2026-08-10)
+
+Mennesket har været igennem alle 86 sider. Skæringssættet gik fra 446 forudsatte til
+**651**: 414 beholdt, 32 forkastet, 237 nye — plus **132 udeladelser** af tekst der ikke
+hører til nogen post (overskrifter, slægtled-etiketter og indledende oversigter). Målt
+mod bogens egen evidens er dækningen lukket: **alle 68 trykte postnumre i ejerløs tekst
+er nu enten skåret eller udeladt**, mod 68 uden ejer ved fase 1's afslutning.
+
+To fejl fundet undervejs, begge af den slags ingen gate kan se:
+
+**76 udeladelser begyndte ét tegn efter et linjeskift**, så overskriftens første bogstav
+blev stående som ejet tekst (`eneralmajor` i stedet for `Generalmajor`). Brugeren fandt
+én; en måling fandt de øvrige 75. Rettet maskinelt efter en entydig regel og efterprøvet
+på en anden egenskab end den rettede: udeladelser der starter ved et linjeskift gik fra
+53 til 129, uden overlap eller tomme områder. Fejlen kunne ikke genskabes som en levende
+fejl i den nuværende flade — tre genindlæsninger, begge tag-skrivemåder og gen-indlæsning
+via `--markeringer` gav alle nul afvigelse — så årsagen står åben.
+
+**Sidetallet 598 dækker to kildesider.** Fremskridtet var nøglet på det trykte tal, så
+86 af 86 var uopnåeligt, og — værre — kvittering for den ene side fik den anden til at
+fremstå gennemgået. Identiteten er nu kildesiden (altid unik), det trykte tal en etiket
+(`PDF-side 598 (1/2)`), og gamle eksporter oversættes fail-closed: et tvetydigt sidetal
+markerer ingen af siderne og rapporteres.
+
+Nyt: `check_graenseflade_export.py` kontrollerer en menneskelig gennemgang for de
+fejlmåder byte-gaten ikke kan se (én-tegns-forskydning, overlap, skæringer midt i en
+linje, trykte numre uden ejer, diff mod forrige eksport).
+`docs/superpowers/plans/2026-08-10-graenseflade-overdragelse.md` er en selvstændig
+overdragelsesprompt med invarianter, verifikationsveje og fem udestående opgaver.
+
+Tre gange kaldte en kontrol korrekt arbejde for en fejl: den ledte efter en skæring
+*inde i* et hul (den rigtige placering er kanten), viste linjen *før* en skæring ved et
+linjeslut, og krævede at udeladelser flugtede med linjer. Verificér mod noget kilden selv
+siger — bogens trykte postnumre — ikke mod din egen definition af færdig.
+
 ## Grænsekontrollen som én tekst frem for 446 kasser (2026-08-09)
 
 Fase 1's flade besvarede "er denne skæring rigtig?" én kasse ad gangen, men fase 1's

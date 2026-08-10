@@ -2,6 +2,36 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Grænsekontrollen som redigerbar tekst: tre valg der bærer resten (2026-08-09/10)
+
+**Annoteringssyntaksen må ikke dele tegn med det, den annoterer.** Kildeteksten
+indeholder allerede 86 `### PAGE nnnn ###`-linjer, så fladens egne markører fik `===`.
+Havde begge brugt `###`, ville integritetskontrollens strip fjerne bogens egne linjer
+sammen med vores — og en sletning i kilden kunne passere ubemærket. Reglen er derfor
+skarp: `===` er fladens, `###` er bogens, og strip matcher eksakte navngivne mønstre,
+aldrig et catch-all.
+
+**Tavshed er godkendelse for den enkelte skæring — men ikke for en side.**
+Brugervalgt: en urørt markør er en accepteret skæring (446 klik ville flytte den
+gamle arbejdsbyrde ind i en ny flade). Eksporten registrerer derfor *ændringen* mod
+det forudsatte sæt, ikke en dom pr. grænse. Men "antal manglende sider" kan kun være
+ærligt, hvis noget markerer en side som set, så sidevisningen fik en kvittering pr.
+side: 86 klik, ikke 446 domme. Kvitteringen er deaktiveret mens siden har en fejl.
+*Fravalgt:* auto-besøgt (et hurtigt gennemblad ville tælle som en gennemgang).
+
+**Identitet skal være entydig, ikke bare trykt.** Sidefremskridtet blev først nøglet
+på det trykte PDF-sidetal — men bogens to sidste sider bærer begge tallet 598, så to
+sider delte én plads: 86/86 var uopnåeligt, og kvittering for den ene fik den anden
+til at fremstå gennemgået. Nøglen er nu kildesiden (1-86). Samme mønster som
+lokal_id-valget 2026-07-30: alt beregnet eller genbrugt taber, kun entydige etiketter
+står fast. Gamle eksporter oversættes fail-closed — et tvetydigt tal markerer ingen
+side, fordi et gæt ville påstå at en uset side var gennemgået.
+
+**Fladen giver review-/fil-GO, ikke materialisering.** Grænsen fra 2026-08-08 står:
+afløsning af accepteret evidens kræver en selvstændig, autoriseret operation. Runde 2
+— hvem der ejer hvilket stykke — er bevidst adskilt fra runde 1, så "hvor brydes
+teksten" (afgøres af teksten selv) ikke blandes med "hvem er det" (kræver bogens numre).
+
 ## Menneskevalg: approval er identitetsankeret; råbroen er valgfri (2026-08-06)
 
 **Besluttet:** Et valideret menneskevalg bindes til det eksakte, hash-fastlåste
