@@ -352,10 +352,39 @@
     };
   }
 
-  function reviewedPdfPages(data, reviewedPages) {
-    const allowed = new Set(data.pages.map(page => page.pdfPage));
+  function reviewedSourcePages(data, reviewedPages) {
+    const allowed = new Set(data.pages.map(page => page.sourcePage));
     return Array.from(new Set((reviewedPages || []).filter(page => allowed.has(page))))
       .sort((left, right) => left - right);
+  }
+
+  function legacyProgressMessage(translated, dropped) {
+    const droppedText = dropped === 1
+      ? '1 bortfalden (tvetydigt PDF-sidetal)'
+      : `${dropped} bortfaldne (tvetydige PDF-sidetal)`;
+    return `Sidefremskridt fra gammel eksport: ${translated} oversat · ${droppedText}`;
+  }
+
+  function migrateLegacyPdfPages(data, legacyPages) {
+    const sourcesByPdf = new Map();
+    data.pages.forEach(page => {
+      if (!sourcesByPdf.has(page.pdfPage)) sourcesByPdf.set(page.pdfPage, []);
+      sourcesByPdf.get(page.pdfPage).push(page.sourcePage);
+    });
+    const reviewedPages = [];
+    let dropped = 0;
+    Array.from(new Set(legacyPages || [])).forEach(pdfPage => {
+      const sources = sourcesByPdf.get(pdfPage) || [];
+      if (sources.length === 1) reviewedPages.push(sources[0]);
+      else dropped += 1;
+    });
+    reviewedPages.sort((left, right) => left - right);
+    return {
+      reviewedPages,
+      translated: reviewedPages.length,
+      dropped,
+      message: legacyProgressMessage(reviewedPages.length, dropped),
+    };
   }
 
   function buildExportFromPages(pageTexts, data, exportedAt, reviewedPages) {
@@ -363,30 +392,42 @@
     if (!exported.ok) return exported;
     exported.value.sider = {
       i_alt: data.pages.length,
-      gennemgaaet: reviewedPdfPages(data, reviewedPages),
+      identitet: 'kildeside',
+      gennemgaaet: reviewedSourcePages(data, reviewedPages),
     };
     return exported;
   }
 
   function pageProgress(data, reviewedPages, currentIndex) {
-    const reviewed = new Set(reviewedPdfPages(data, reviewedPages));
+    const reviewed = new Set(reviewedSourcePages(data, reviewedPages));
     const missing = data.pages.length - reviewed.size;
+    const pdfTotals = new Map();
+    const pdfSeen = new Map();
+    data.pages.forEach(page => pdfTotals.set(
+      page.pdfPage, (pdfTotals.get(page.pdfPage) || 0) + 1,
+    ));
     return {
       counter: `side ${currentIndex + 1} af ${data.pages.length} · ${missing} mangler`,
-      items: data.pages.map(page => (
-        `PDF-side ${page.pdfPage} · ${reviewed.has(page.pdfPage) ? 'gennemgået' : 'mangler'}`
-        + ` · ${page.counts.ejerloes} ejerløs`
-        + ` · ${page.counts.forslag} forslag`
-        + ` · ${page.counts.signaler} signal`
-      )),
+      items: data.pages.map(page => {
+        const occurrence = (pdfSeen.get(page.pdfPage) || 0) + 1;
+        pdfSeen.set(page.pdfPage, occurrence);
+        const total = pdfTotals.get(page.pdfPage);
+        const label = total > 1
+          ? `PDF-side ${page.pdfPage} (${occurrence}/${total})`
+          : `PDF-side ${page.pdfPage}`;
+        return `${label} · ${reviewed.has(page.sourcePage) ? 'gennemgået' : 'mangler'}`
+          + ` · ${page.counts.ejerloes} ejerløs`
+          + ` · ${page.counts.forslag} forslag`
+          + ` · ${page.counts.signaler} signal`;
+      }),
     };
   }
 
   function togglePageCompletion(data, reviewedPages, currentIndex, gateOk) {
-    const reviewed = new Set(reviewedPdfPages(data, reviewedPages));
-    const pdfPage = data.pages[currentIndex].pdfPage;
-    if (reviewed.has(pdfPage)) {
-      reviewed.delete(pdfPage);
+    const reviewed = new Set(reviewedSourcePages(data, reviewedPages));
+    const sourcePage = data.pages[currentIndex].sourcePage;
+    if (reviewed.has(sourcePage)) {
+      reviewed.delete(sourcePage);
       return {
         reviewedPages: Array.from(reviewed).sort((left, right) => left - right),
         currentIndex,
@@ -396,12 +437,12 @@
     if (!gateOk) return {
       reviewedPages: Array.from(reviewed), currentIndex, changed: false,
     };
-    reviewed.add(pdfPage);
+    reviewed.add(sourcePage);
     let nextIndex = data.pages.findIndex((page, index) => (
-      index > currentIndex && !reviewed.has(page.pdfPage)
+      index > currentIndex && !reviewed.has(page.sourcePage)
     ));
     if (nextIndex === -1) {
-      nextIndex = data.pages.findIndex(page => !reviewed.has(page.pdfPage));
+      nextIndex = data.pages.findIndex(page => !reviewed.has(page.sourcePage));
     }
     if (nextIndex === -1) nextIndex = currentIndex;
     return {
@@ -454,6 +495,7 @@
     const completeButton = document.querySelector('[data-action="complete-page"]');
     const progressNode = document.querySelector('[data-role="page-progress"]');
     const pageList = document.querySelector('[data-role="page-list"]');
+    const progressImportStatus = document.querySelector('[data-role="progress-import-status"]');
     const storageKey = STORAGE_PREFIX + data.source.calamari_sha256;
     const stored = shared.readStoredDraft(global.localStorage, storageKey);
     const initialPageTexts = data.pages.map(page => page.initialText);
@@ -462,11 +504,18 @@
       && stored.page_texts.every(value => typeof value === 'string')
       ? stored.page_texts : null;
     const pageTexts = storedTexts ? storedTexts.slice() : initialPageTexts;
-    let reviewedPages = reviewedPdfPages(
-      data,
-      stored && Array.isArray(stored.reviewed_pages)
-        ? stored.reviewed_pages : data.completedPages,
-    );
+    let progressImportMessage = data.progressImportMessage || '';
+    let reviewedPages;
+    if (stored && Array.isArray(stored.reviewed_source_pages)) {
+      reviewedPages = reviewedSourcePages(data, stored.reviewed_source_pages);
+    } else if (stored && Array.isArray(stored.reviewed_pages)) {
+      const migration = migrateLegacyPdfPages(data, stored.reviewed_pages);
+      reviewedPages = migration.reviewedPages;
+      progressImportMessage = migration.message;
+    } else {
+      reviewedPages = reviewedSourcePages(data, data.completedPages);
+    }
+    progressImportStatus.textContent = progressImportMessage;
     let currentIndex = stored && Number.isInteger(stored.current_page)
       && stored.current_page >= 0 && stored.current_page < data.pages.length
       ? stored.current_page : 0;
@@ -482,10 +531,10 @@
         + `${index === currentIndex ? ' aria-current="page"' : ''}`
         + `>${label}</button>`
       )).join('');
-      completeButton.textContent = reviewed.has(data.pages[currentIndex].pdfPage)
+      completeButton.textContent = reviewed.has(data.pages[currentIndex].sourcePage)
         ? 'Fjern mærket gennemgået' : 'Færdig med siden';
       completeButton.disabled = !gate.ok
-        && !reviewed.has(data.pages[currentIndex].pdfPage);
+        && !reviewed.has(data.pages[currentIndex].sourcePage);
     }
 
     function refresh() {
@@ -496,10 +545,10 @@
       exportButton.disabled = !gate.ok;
       renderPageControls(gate);
       const error = shared.writeStoredDraft(global.localStorage, storageKey, {
-        schema_version: 2,
+        schema_version: 3,
         page_texts: pageTexts,
         current_page: currentIndex,
-        reviewed_pages: reviewedPages,
+        reviewed_source_pages: reviewedPages,
       });
       saveStatus.textContent = error || 'Gemt lokalt.';
       return gate;
@@ -561,6 +610,7 @@
 
   global.DAABoundaryText = {
     parseMarkedText, composeMarkedText, buildExport, restoreBookText,
-    validatePageTexts, buildExportFromPages, pageProgress, togglePageCompletion, init,
+    validatePageTexts, buildExportFromPages, pageProgress, togglePageCompletion,
+    migrateLegacyPdfPages, init,
   };
 }(typeof globalThis === 'undefined' ? this : globalThis));

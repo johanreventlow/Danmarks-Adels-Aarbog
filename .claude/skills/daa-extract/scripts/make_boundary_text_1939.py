@@ -45,6 +45,7 @@ textarea{min-height:0;width:100%;resize:none;border:1px solid #9aa8b5;border-rad
   <div class="toolbar">
     <span data-role="gate-status" data-gate="ok">bogteksten er urørt</span>
     <strong data-role="page-progress">side 1 af 86 · 86 mangler</strong>
+    <span data-role="progress-import-status"></span>
     <button type="button" data-action="complete-page">Færdig med siden</button>
     <button type="button" data-action="restore">Gendan bogteksten, behold mine markører</button>
     <button type="button" data-action="export">Eksportér 1939-graenseflade.json</button>
@@ -352,24 +353,62 @@ def apply_markeringer(base: list[Mapping], exported: Mapping) -> list[dict]:
     return result
 
 
-def _completed_pages(exported: Mapping | None, pages: list[Mapping]) -> list[int]:
+def _legacy_progress_message(translated: int, dropped: int) -> str:
+    dropped_text = (
+        "1 bortfalden (tvetydigt PDF-sidetal)"
+        if dropped == 1
+        else f"{dropped} bortfaldne (tvetydige PDF-sidetal)"
+    )
+    return (
+        f"Sidefremskridt fra gammel eksport: {translated} oversat · {dropped_text}"
+    )
+
+
+def _completed_pages(
+    exported: Mapping | None, pages: list[Mapping]
+) -> tuple[list[int], dict | None]:
     if not exported or "sider" not in exported:
-        return []
+        return [], None
     sides = exported.get("sider")
     if not isinstance(sides, Mapping) or sides.get("i_alt") != len(pages):
         raise BoundaryError("markeringernes sidefremskridt matcher ikke fladen")
     reviewed = sides.get("gennemgaaet")
     if not isinstance(reviewed, list):
         raise BoundaryError("markeringernes gennemgåede sider er ugyldige")
-    allowed = {page["pdfPage"] for page in pages}
+    if len(set(reviewed)) != len(reviewed):
+        raise BoundaryError("markeringerne gentager en gennemgået side")
+
+    identity = sides.get("identitet")
+    if identity == "kildeside":
+        allowed = {page["sourcePage"] for page in pages}
+        if any(
+            isinstance(page, bool) or not isinstance(page, int) or page not in allowed
+            for page in reviewed
+        ):
+            raise BoundaryError("markeringerne henviser til en ukendt kildeside")
+        return sorted(reviewed), None
+    if identity is not None:
+        raise BoundaryError("markeringernes sideidentitet er ukendt")
+
+    sources_by_pdf: dict[int, list[int]] = {}
+    for page in pages:
+        sources_by_pdf.setdefault(page["pdfPage"], []).append(page["sourcePage"])
     if any(
-        isinstance(page, bool) or not isinstance(page, int) or page not in allowed
+        isinstance(page, bool) or not isinstance(page, int) or page not in sources_by_pdf
         for page in reviewed
     ):
         raise BoundaryError("markeringerne henviser til en ukendt PDF-side")
-    if len(set(reviewed)) != len(reviewed):
-        raise BoundaryError("markeringerne gentager en gennemgået PDF-side")
-    return sorted(reviewed)
+    translated = [
+        sources_by_pdf[pdf_page][0]
+        for pdf_page in reviewed if len(sources_by_pdf[pdf_page]) == 1
+    ]
+    dropped = sum(len(sources_by_pdf[pdf_page]) != 1 for pdf_page in reviewed)
+    migration = {
+        "translated": len(translated),
+        "dropped": dropped,
+        "message": _legacy_progress_message(len(translated), dropped),
+    }
+    return sorted(translated), migration
 
 
 def _load_inputs(args) -> tuple[bytes, bytes, bytes, dict, Mapping]:
@@ -434,13 +473,17 @@ def main() -> int:
         (item["kind"], item["text"], item["canonicalOffset"], item["displayOffset"], item.get("origin")):
         item for item in mappings
     }.values())
+    completed_pages, progress_migration = _completed_pages(exported, pages)
     data = {
         "schemaVersion": 1,
         "source": source,
         "sourceText": calamari_text,
         "initialText": initial_text,
         "pages": pages,
-        "completedPages": _completed_pages(exported, pages),
+        "completedPages": completed_pages,
+        "progressImportMessage": (
+            progress_migration["message"] if progress_migration else None
+        ),
         "expectedBoundaryOffsets": [item["char_offset"] for item in text_model["forudsatte_skaeringer"]],
         "expectedProposalOffsets": [item["char_offset"] for item in text_model["forslag"]],
         "lineMarkerMappings": unique_mappings,
@@ -462,6 +505,8 @@ def main() -> int:
         f"{len(text_model['huller'])} huller · {len(text_model['forslag'])} forslag · "
         f"{len(text_model['pdf_sider'])} PDF-sider"
     )
+    if progress_migration:
+        print(progress_migration["message"])
     return 0
 
 

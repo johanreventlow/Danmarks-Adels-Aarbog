@@ -303,7 +303,7 @@ def test_page_export_keeps_boundary_at_page_start_once_and_exports_progress(tmp_
         "expectedBoundaryOffsets": [boundary_offset],
         "expectedProposalOffsets": [],
         "lineMarkerMappings": subject.line_marker_mappings(source, annotations),
-    }, "2026-08-09T10:00:00.000Z", [496, 497])
+    }, "2026-08-09T10:00:00.000Z", [1, 2])
 
     assert exported["ok"] is True
     assert exported["value"]["skaeringer"] == [
@@ -312,21 +312,22 @@ def test_page_export_keeps_boundary_at_page_start_once_and_exports_progress(tmp_
     assert exported["value"]["aendringsregnskab"]["beholdt"] == 1
     assert exported["value"]["sider"] == {
         "i_alt": 2,
-        "gennemgaaet": [496, 497],
+        "identitet": "kildeside",
+        "gennemgaaet": [1, 2],
     }
 
 
 def test_progress_counter_and_page_list_include_status_and_waiting_signals(tmp_path):
     data = {
         "pages": [
-            {"ordinal": 1, "pdfPage": 496,
+            {"ordinal": 1, "sourcePage": 1, "pdfPage": 496,
              "counts": {"ejerloes": 2, "forslag": 1, "signaler": 0}},
-            {"ordinal": 2, "pdfPage": 497,
+            {"ordinal": 2, "sourcePage": 2, "pdfPage": 497,
              "counts": {"ejerloes": 0, "forslag": 0, "signaler": 3}},
         ],
     }
 
-    progress = _node_call(tmp_path, "pageProgress", data, [496], 1)
+    progress = _node_call(tmp_path, "pageProgress", data, [1], 1)
 
     assert progress["counter"] == "side 2 af 2 · 1 mangler"
     assert progress["items"] == [
@@ -337,17 +338,116 @@ def test_progress_counter_and_page_list_include_status_and_waiting_signals(tmp_p
 
 def test_page_acknowledgement_requires_green_gate_advances_and_can_be_undone(tmp_path):
     data = {"pages": [
-        {"pdfPage": 496}, {"pdfPage": 497}, {"pdfPage": 498},
+        {"sourcePage": 1, "pdfPage": 496},
+        {"sourcePage": 2, "pdfPage": 497},
+        {"sourcePage": 3, "pdfPage": 498},
     ]}
 
     blocked = _node_call(tmp_path, "togglePageCompletion", data, [], 0, False)
     assert blocked == {"reviewedPages": [], "currentIndex": 0, "changed": False}
 
     completed = _node_call(tmp_path, "togglePageCompletion", data, [], 0, True)
-    assert completed == {"reviewedPages": [496], "currentIndex": 1, "changed": True}
+    assert completed == {"reviewedPages": [1], "currentIndex": 1, "changed": True}
 
-    undone = _node_call(tmp_path, "togglePageCompletion", data, [496], 0, False)
+    undone = _node_call(tmp_path, "togglePageCompletion", data, [1], 0, False)
     assert undone == {"reviewedPages": [], "currentIndex": 0, "changed": True}
+
+
+def test_duplicate_pdf_labels_have_independent_source_page_progress(tmp_path):
+    data = {"pages": [
+        {"sourcePage": 85, "pdfPage": 598,
+         "counts": {"ejerloes": 0, "forslag": 0, "signaler": 0}},
+        {"sourcePage": 86, "pdfPage": 598,
+         "counts": {"ejerloes": 0, "forslag": 0, "signaler": 0}},
+    ]}
+
+    first = _node_call(tmp_path, "togglePageCompletion", data, [], 0, True)
+    assert first == {"reviewedPages": [85], "currentIndex": 1, "changed": True}
+    after_first = _node_call(tmp_path, "pageProgress", data, first["reviewedPages"], 1)
+    assert after_first == {
+        "counter": "side 2 af 2 · 1 mangler",
+        "items": [
+            "PDF-side 598 (1/2) · gennemgået · 0 ejerløs · 0 forslag · 0 signal",
+            "PDF-side 598 (2/2) · mangler · 0 ejerløs · 0 forslag · 0 signal",
+        ],
+    }
+
+    second = _node_call(
+        tmp_path, "togglePageCompletion", data, first["reviewedPages"], 1, True,
+    )
+    assert second == {"reviewedPages": [85, 86], "currentIndex": 1, "changed": True}
+    assert _node_call(
+        tmp_path, "pageProgress", data, second["reviewedPages"], 1,
+    )["counter"] == "side 2 af 2 · 0 mangler"
+
+
+def test_legacy_pdf_progress_migrates_unique_values_and_drops_ambiguous_value():
+    pages = [
+        {"sourcePage": 1, "pdfPage": 496},
+        {"sourcePage": 85, "pdfPage": 598},
+        {"sourcePage": 86, "pdfPage": 598},
+    ]
+    exported = {"sider": {"i_alt": 3, "gennemgaaet": [496, 598]}}
+
+    completed, migration = subject._completed_pages(exported, pages)
+
+    assert completed == [1]
+    assert migration == {
+        "translated": 1,
+        "dropped": 1,
+        "message": (
+            "Sidefremskridt fra gammel eksport: 1 oversat · "
+            "1 bortfalden (tvetydigt PDF-sidetal)"
+        ),
+    }
+
+
+def test_legacy_browser_progress_uses_the_same_fail_closed_migration(tmp_path):
+    data = {"pages": [
+        {"sourcePage": 1, "pdfPage": 496},
+        {"sourcePage": 85, "pdfPage": 598},
+        {"sourcePage": 86, "pdfPage": 598},
+    ]}
+
+    migration = _node_call(tmp_path, "migrateLegacyPdfPages", data, [496, 598])
+
+    assert migration == {
+        "reviewedPages": [1],
+        "translated": 1,
+        "dropped": 1,
+        "message": (
+            "Sidefremskridt fra gammel eksport: 1 oversat · "
+            "1 bortfalden (tvetydigt PDF-sidetal)"
+        ),
+    }
+
+
+def test_new_source_page_progress_round_trips_without_migration_loss(tmp_path):
+    source = "### PAGE 0085 ###\nNæstsidste\n### PAGE 0086 ###\nSidste\n"
+    pages = subject.build_page_view_models(source, [])
+    page_texts = [page["initialText"] for page in pages]
+    data = {
+        "sourceText": source,
+        "source": SOURCE,
+        "pages": pages,
+        "expectedBoundaryOffsets": [],
+        "expectedProposalOffsets": [],
+        "lineMarkerMappings": [],
+    }
+
+    exported = _node_call(
+        tmp_path, "buildExportFromPages", page_texts, data,
+        "2026-08-10T10:00:00.000Z", [85, 86],
+    )["value"]
+
+    assert exported["sider"] == {
+        "i_alt": 2,
+        "identitet": "kildeside",
+        "gennemgaaet": [85, 86],
+    }
+    completed, migration = subject._completed_pages(exported, pages)
+    assert completed == [85, 86]
+    assert migration is None
 
 
 def test_unknown_marker_on_hidden_page_reports_that_page_and_its_local_line(tmp_path):
@@ -786,7 +886,7 @@ def test_main_markeringer_round_trips_two_reviewed_pages_and_84_missing(
         ";\n(function (global)", 1
     )[0])
     assert len(data["pages"]) == 86
-    assert data["completedPages"] == [496, 497]
+    assert data["completedPages"] == [1, 2]
     progress = _node_call(tmp_path, "pageProgress", data, data["completedPages"], 0)
     assert progress["counter"] == "side 1 af 86 · 84 mangler"
 
@@ -824,11 +924,12 @@ def test_init_prefers_local_storage_then_debounces_gate_and_autosave_by_300_ms(t
         "function node(name){return nodes[name]={value:'',textContent:'',innerHTML:'',disabled:false,dataset:{},"
         "addEventListener:(event,fn)=>{listeners[name+':'+event]=fn}}}\n"
         "node('text');node('gate');node('save');node('export');node('restore');"
-        "node('complete');node('progress');node('list');\n"
+        "node('complete');node('progress');node('list');node('importStatus');\n"
         "const selectors={'[data-role=\\\"boundary-text\\\"]':nodes.text,'[data-role=\\\"gate-status\\\"]':nodes.gate,"
         "'[data-role=\\\"save-status\\\"]':nodes.save,'[data-action=\\\"export\\\"]':nodes.export,"
         "'[data-action=\\\"restore\\\"]':nodes.restore,'[data-action=\\\"complete-page\\\"]':nodes.complete,"
-        "'[data-role=\\\"page-progress\\\"]':nodes.progress,'[data-role=\\\"page-list\\\"]':nodes.list};\n"
+        "'[data-role=\\\"page-progress\\\"]':nodes.progress,'[data-role=\\\"page-list\\\"]':nodes.list,"
+        "'[data-role=\\\"progress-import-status\\\"]':nodes.importStatus};\n"
         "let delay=null,callback=null,writes=0;const context={console,TextEncoder,TextDecoder,"
         "document:{querySelector:s=>selectors[s]},localStorage:{},clearTimeout:()=>{},"
         "setTimeout:(fn,ms)=>{callback=fn;delay=ms},DAAReviewShared:{"
@@ -836,7 +937,7 @@ def test_init_prefers_local_storage_then_debounces_gate_and_autosave_by_300_ms(t
         "writeStoredDraft:()=>{writes++;return ''},downloadJson:()=>{}}};\n"
         "context.globalThis=context;vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[2],'utf8'),context);\n"
         "context.DAABoundaryText.init({source:{calamari_sha256:'x'},sourceText:'gemt\\n',initialText:'indlejret\\n',"
-        "pages:[{ordinal:1,pdfPage:496,charFrom:0,charTo:5,initialText:'indlejret\\n',"
+        "pages:[{ordinal:1,sourcePage:1,pdfPage:496,charFrom:0,charTo:5,initialText:'indlejret\\n',"
         "counts:{ejerloes:0,forslag:0,signaler:0}}],completedPages:[],"
         "expectedBoundaryOffsets:[],expectedProposalOffsets:[]});\n"
         "nodes.text.value='ændret\\n';listeners['text:input']();\n"
