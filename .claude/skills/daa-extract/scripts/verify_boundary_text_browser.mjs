@@ -77,15 +77,9 @@ const value = pageTexts.join('\n');
 // Dens tal skal derfor summe til helheden — ellers skjuler sideopdelingen netop det,
 // fladen findes for at vise.
 const listRows = (await page.locator('body').innerText())
-  .split('\n').filter(row => /^PDF-side \d+ ·/.test(row));
+  .split('\n').filter(row => /^PDF-side \d+/.test(row));
 const listSum = label => listRows.reduce((total, row) =>
   total + Number((row.match(new RegExp(`(\\d+) ${label}`)) || [0, 0])[1]), 0);
-record('sidelistens ejerløs-tal summer til helheden',
-  listSum('ejerløs') === FORVENTET.huller, `${listSum('ejerløs')}`);
-record('sidelistens forslag-tal summer til helheden',
-  listSum('forslag') === FORVENTET.forslag, `${listSum('forslag')}`);
-record('sidelistens signal-tal summer til helheden',
-  listSum('signal') === FORVENTET.signaler, `${listSum('signal')}`);
 
 const sourcePages = (source.match(/^### PAGE \d+ ###$/gm) || []).length;
 const shownPages = (value.match(/^### PAGE \d+ ###$/gm) || []).length;
@@ -97,14 +91,27 @@ record('teksten er komplet', value.length >= source.length,
 const markers = {
   graense: (value.match(/^=== GRÆNSESKÆRING(?: · SIGNAL [^=]*)? ===$/gm) || []).length,
   forslag: (value.match(/^=== FORSLAG\? SKÆRING ===$/gm) || []).length,
+  signaler: (value.match(/^=== GRÆNSESKÆRING · SIGNAL [^=]* ===$/gm) || []).length,
   ejerloes: (value.match(/^=== EJERLØS TEKST · \d+ tegn ===$/gm) || []).length,
+  ejerloesSlut: (value.match(/^=== SLUT EJERLØS TEKST ===$/gm) || []).length,
   pdfside: (value.match(/^=== PDF-SIDE \d+ ===$/gm) || []).length,
 };
 console.log(`      markører: ${JSON.stringify(markers)}`);
-record(`${FORVENTET.graenser} grænsemarkører forudsat`,
-  markers.graense === FORVENTET.graenser, `fandt ${markers.graense}`);
+const modelCounts = await page.evaluate('({ graenser: DATA.expectedBoundaryOffsets.length, forslag: DATA.expectedProposalOffsets.length })');
+record(`${FORVENTET.graenser} grænser findes i det forudsatte modelsæt`,
+  modelCounts.graenser === FORVENTET.graenser, `fandt ${modelCounts.graenser}`);
+record(`${FORVENTET.forslag} forslag findes i det forudsatte modelsæt`,
+  modelCounts.forslag === FORVENTET.forslag, `fandt ${modelCounts.forslag}`);
+record('sidelistens ejerløs-tal summer til de viste startmarkører',
+  listSum('ejerløs') === markers.ejerloes, `${listSum('ejerløs')} / ${markers.ejerloes}`);
+record('sidelistens forslag-tal summer til de viste forslag',
+  listSum('forslag') === markers.forslag, `${listSum('forslag')} / ${markers.forslag}`);
+record('sidelistens signal-tal summer til de viste signalmarkører',
+  listSum('signal') === markers.signaler, `${listSum('signal')} / ${markers.signaler}`);
 record(`kun huller med rigtig tekst får banner (${FORVENTET.huller})`,
   markers.ejerloes === FORVENTET.huller, `fandt ${markers.ejerloes}`);
+record('hvert ejerløst hul har en slutmarkør',
+  markers.ejerloesSlut === FORVENTET.huller, `fandt ${markers.ejerloesSlut}`);
 record(`${FORVENTET.pdfsider} PDF-sidelinjer`,
   markers.pdfside === FORVENTET.pdfsider, `fandt ${markers.pdfside}`);
 
@@ -120,6 +127,28 @@ const bannerSum = [...value.matchAll(/^=== EJERLØS TEKST · (\d+) tegn ===$/gm)
   .reduce((total, match) => total + Number(match[1]), 0);
 record('bannerne dækker de målte 45.757 ejerløse tegn',
   bannerSum === FORVENTET.ejerloeseTegn, `sum ${bannerSum}`);
+
+// En godkendt forslagstekst kan dele vist linjestart med en allerede importeret
+// brugerskæring. De to ens SKÆRING-linjer skal konsumere hver sin kanoniske mapping,
+// og listeetiketten skal stemme med regnskabet.
+const proposalAccounting = await page.evaluate(() => {
+  const sourceText = 'A \nB\n';
+  return globalThis.DAABoundaryText.buildExport(
+    'A \n=== SKÆRING ===\n=== SKÆRING ===\nB\n',
+    {
+      sourceText, source: {}, expectedBoundaryOffsets: [], expectedProposalOffsets: [3],
+      lineMarkerMappings: [
+        { kind: 'proposal', text: '=== FORSLAG? SKÆRING ===', canonicalOffset: 3, displayOffset: 3 },
+        { kind: 'cut', text: '=== SKÆRING ===', canonicalOffset: 1, displayOffset: 3, origin: 'bruger' },
+      ],
+    },
+    '2026-08-10T10:00:00.000Z',
+  );
+});
+record('in-place-godkendt forslag bogføres levende ved samplacerede skæringer',
+  proposalAccounting.ok
+  && proposalAccounting.value.aendringsregnskab.forslag_godkendt === 1
+  && proposalAccounting.value.skaeringer.some(item => item.oprindelse === 'forslag_godkendt'));
 
 // 3. Gaten reagerer løbende — ikke først ved eksport.
 //
@@ -170,6 +199,41 @@ record('en ødelagt markørlinje fanges som ukendt markør',
 await page.keyboard.press('Backspace');
 await page.waitForTimeout(900);
 
+// UDELAD efter første ikke-blanke tegn på en linje bevarer bogteksten byte-for-byte,
+// men skal give en levende formadvarsel. Vælg en rigtig linje uden eksisterende tags
+// og sæt markeringen med setSelectionRange-uafhængig, deterministisk strengredigering.
+const beforeOmissionWarning = await box.inputValue();
+const warningLines = beforeOmissionWarning.split('\n');
+let omissionDepth = 0;
+let warningLine = -1;
+for (let index = 0; index < warningLines.length; index += 1) {
+  const line = warningLines[index];
+  const opens = (line.match(/\[\[UDELAD\]\]/g) || []).length;
+  const closes = (line.match(/\[\[\/UDELAD\]\]/g) || []).length;
+  if (omissionDepth === 0 && opens === 0 && closes === 0
+      && /^\S.{2,}$/u.test(line) && !line.startsWith('===') && !line.startsWith('###')) {
+    warningLine = index;
+    break;
+  }
+  omissionDepth += opens - closes;
+}
+record('fandt en boglinje til ét-tegnsadvarslen', warningLine >= 0, `linje ${warningLine + 1}`);
+if (warningLine >= 0) {
+  const line = warningLines[warningLine];
+  const [firstCharacter, ...rest] = Array.from(line);
+  warningLines[warningLine] = `${firstCharacter}[[UDELAD]]${rest.join('')}[[/UDELAD]]`;
+  await box.fill(warningLines.join('\n'));
+  await page.waitForTimeout(900);
+  const warningText = await page.locator('[data-role="omission-warning"]').innerText();
+  record('fladen advarer levende om det efterladte tegn',
+    /efterlader ét ikke-blankt tegn/i.test(warningText), warningText);
+  record('én-tegnsadvarslen ændrer ikke byte-gaten', /urørt/i.test(await statusText()));
+  await box.fill(beforeOmissionWarning);
+  await page.waitForTimeout(900);
+  record('advarslen forsvinder når markeringen rettes',
+    (await page.locator('[data-role="omission-warning"]').innerText()) === '');
+}
+
 // Bryd gaten igen, så eksport-blokeringen nedenfor måler det den tror.
 await typeOnLine(bookLine, 'X');
 record('gaten er brudt inden eksport-forsøget', /ændret/i.test(await statusText()));
@@ -209,6 +273,12 @@ if (hasExport) {
   record('ændringsregnskabet summer',
     (regnskab.beholdt ?? -1) + (regnskab.slettet ?? -1) === FORVENTET.graenser,
     JSON.stringify(regnskab));
+  record('viste forudsatte grænser matcher regnskabets beholdte',
+    markers.graense === regnskab.beholdt, `${markers.graense} / ${regnskab.beholdt}`);
+  record('forslagsoprindelser matcher regnskabets godkendte',
+    draft.skaeringer.filter(item => item.oprindelse === 'forslag_godkendt').length
+      === regnskab.forslag_godkendt,
+    `${draft.skaeringer.filter(item => item.oprindelse === 'forslag_godkendt').length} / ${regnskab.forslag_godkendt}`);
   record('den redigerede tekst eksporteres IKKE',
     !JSON.stringify(draft).includes('=== GRÆNSESKÆRING ==='));
 }
@@ -217,7 +287,9 @@ if (hasExport) {
 // tælle ned, og den må ikke kunne gives mens siden har en fejl.
 const tael = async () => ((await page.locator('body').innerText())
   .split('\n').find(row => /af \d+ ·/.test(row)) || '');
-const faerdig = page.locator('button', { hasText: /Færdig med siden/ }).first();
+const missingPage = page.locator('[data-role="page-list"] button', { hasText: /mangler/ }).first();
+if (await missingPage.count()) await missingPage.click();
+const faerdig = page.locator('[data-action="complete-page"]').first();
 record('kvitteringen er mulig når gaten er grøn', !(await faerdig.isDisabled()));
 const foer = await tael();
 await faerdig.click();

@@ -7,6 +7,7 @@
     ['proposal', /^=== FORSLAG\? SKÆRING ===$/],
     ['cut', /^=== SKÆRING ===$/],
     ['hole', /^=== EJERLØS TEKST · (0|[1-9]\d*) tegn ===$/],
+    ['holeEnd', /^=== SLUT EJERLØS TEKST ===$/],
     ['pdf', /^=== PDF-SIDE (0|[1-9]\d*) ===$/],
   ];
   const STORAGE_PREFIX = 'daa-1939-graenseflade:';
@@ -180,7 +181,9 @@
     return result;
   }
 
-  const LINE_RANK = { pdf: 10, boundary: 20, hole: 30, proposal: 40, cut: 50 };
+  const LINE_RANK = {
+    pdf: 10, boundary: 20, hole: 30, holeEnd: 35, proposal: 40, cut: 50,
+  };
   const INLINE_RANK = { udelad_start: 0, ocr: 1, udelad_end: 2 };
 
   function lineMarkerDisplayOffset(source, canonicalOffset) {
@@ -233,23 +236,59 @@
 
   function canonicalMarkers(markers, data) {
     const mappings = Array.isArray(data.lineMarkerMappings) ? data.lineMarkerMappings : [];
-    return markers.map(marker => {
-      const atDisplay = mappings.filter(mapping => mapping.displayOffset === marker.char_offset);
-      let mapping = atDisplay.find(candidate => (
-        candidate.kind === marker.kind && candidate.text === marker.text
-      ));
-      if (!mapping && marker.kind === 'cut') {
-        mapping = atDisplay.find(candidate => candidate.kind === 'cut')
-          || atDisplay.find(candidate => candidate.kind === 'proposal')
-          || atDisplay.find(candidate => candidate.kind === 'boundary');
+    const result = markers.map(marker => marker);
+    const indexesByDisplay = new Map();
+    markers.forEach((marker, index) => {
+      if (!indexesByDisplay.has(marker.char_offset)) {
+        indexesByDisplay.set(marker.char_offset, []);
       }
-      if (!mapping) mapping = atDisplay.find(candidate => candidate.kind === marker.kind);
-      return mapping ? {
-        ...marker,
-        char_offset: mapping.canonicalOffset,
-        originHint: mapping.origin || null,
-      } : marker;
+      indexesByDisplay.get(marker.char_offset).push(index);
     });
+
+    indexesByDisplay.forEach((markerIndexes, displayOffset) => {
+      const candidates = mappings
+        .filter(mapping => mapping.displayOffset === displayOffset)
+        .sort((left, right) => (LINE_RANK[left.kind] || 999) - (LINE_RANK[right.kind] || 999)
+          || String(left.text).localeCompare(String(right.text)));
+      const used = new Set();
+      const assigned = new Set();
+
+      function assign(markerIndex, candidateIndex) {
+        const marker = markers[markerIndex];
+        const mapping = candidates[candidateIndex];
+        result[markerIndex] = {
+          ...marker,
+          char_offset: mapping.canonicalOffset,
+          originHint: mapping.origin || null,
+        };
+        assigned.add(markerIndex);
+        used.add(candidateIndex);
+      }
+
+      markerIndexes.forEach(markerIndex => {
+        const marker = markers[markerIndex];
+        const candidateIndex = candidates.findIndex((candidate, index) => (
+          !used.has(index) && candidate.kind === marker.kind && candidate.text === marker.text
+        ));
+        if (candidateIndex !== -1) assign(markerIndex, candidateIndex);
+      });
+      markerIndexes.forEach(markerIndex => {
+        if (assigned.has(markerIndex) || markers[markerIndex].kind !== 'cut') return;
+        const candidateIndex = candidates.findIndex((candidate, index) => (
+          !used.has(index) && ['cut', 'proposal', 'boundary'].includes(candidate.kind)
+        ));
+        if (candidateIndex !== -1) assign(markerIndex, candidateIndex);
+      });
+      markerIndexes.forEach(markerIndex => {
+        if (assigned.has(markerIndex)) return;
+        const marker = markers[markerIndex];
+        const candidateIndex = candidates.findIndex((candidate, index) => (
+          !used.has(index) && candidate.kind === marker.kind
+        ));
+        if (candidateIndex !== -1) assign(markerIndex, candidateIndex);
+      });
+    });
+    return result;
   }
 
   function buildExport(markedText, data, exportedAt) {
@@ -272,8 +311,8 @@
       const cut = accepted.find(marker => marker.kind === 'cut');
       return {
         char_offset,
-        oprindelse: cut && cut.originHint ? cut.originHint
-          : expectedProposals.has(char_offset) && cut ? 'forslag_godkendt'
+        oprindelse: expectedProposals.has(char_offset) && cut ? 'forslag_godkendt'
+          : cut && cut.originHint ? cut.originHint
             : expectedBoundaries.has(char_offset) ? 'forudsat'
               : 'bruger',
       };
@@ -350,6 +389,28 @@
       pageLine,
       message: `${baseMessage} på side ${page.pdfPage} ved linje ${pageLine}`,
     };
+  }
+
+  function omissionWarnings(markedText, data) {
+    const parsed = parseMarkedText(markedText, data.sourceText);
+    if (!parsed.ok) return [];
+    const source = chars(data.sourceText);
+    return parsed.omissions.filter(omission => {
+      const start = omission.char_from;
+      return start >= 2 && source[start - 2] === '\n' && source[start - 1].trim() !== '';
+    }).map(omission => {
+      const charOffset = omission.char_from;
+      const leftoverOffset = charOffset - 1;
+      const pageIndex = pageIndexForSourceOffset(data.pages, leftoverOffset);
+      const page = data.pages[pageIndex];
+      const pageSource = source.slice(page.charFrom, page.charTo).join('');
+      return {
+        charOffset,
+        sourcePage: page.sourcePage,
+        pdfPage: page.pdfPage,
+        pageLine: lineAt(pageSource, leftoverOffset - page.charFrom),
+      };
+    });
   }
 
   function reviewedSourcePages(data, reviewedPages) {
@@ -496,6 +557,7 @@
     const progressNode = document.querySelector('[data-role="page-progress"]');
     const pageList = document.querySelector('[data-role="page-list"]');
     const progressImportStatus = document.querySelector('[data-role="progress-import-status"]');
+    const omissionWarning = document.querySelector('[data-role="omission-warning"]');
     const storageKey = STORAGE_PREFIX + data.source.calamari_sha256;
     const stored = shared.readStoredDraft(global.localStorage, storageKey);
     const initialPageTexts = data.pages.map(page => page.initialText);
@@ -540,8 +602,16 @@
     function refresh() {
       pageTexts[currentIndex] = textarea.value;
       const gate = validatePageTexts(pageTexts, data);
+      const warnings = omissionWarnings(pageTexts.join(''), data);
       gateStatus.textContent = gate.message;
       gateStatus.dataset.gate = gate.ok ? 'ok' : 'error';
+      if (warnings.length) {
+        const first = warnings[0];
+        const count = warnings.length === 1 ? 'En UDELAD-markering' : `${warnings.length} UDELAD-markeringer`;
+        omissionWarning.textContent = `${count} efterlader ét ikke-blankt tegn; første på kildeside ${first.sourcePage} (PDF-side ${first.pdfPage}), linje ${first.pageLine}.`;
+      } else {
+        omissionWarning.textContent = '';
+      }
       exportButton.disabled = !gate.ok;
       renderPageControls(gate);
       const error = shared.writeStoredDraft(global.localStorage, storageKey, {
@@ -610,7 +680,7 @@
 
   global.DAABoundaryText = {
     parseMarkedText, composeMarkedText, buildExport, restoreBookText,
-    validatePageTexts, buildExportFromPages, pageProgress, togglePageCompletion,
+    validatePageTexts, omissionWarnings, buildExportFromPages, pageProgress, togglePageCompletion,
     migrateLegacyPdfPages, init,
   };
 }(typeof globalThis === 'undefined' ? this : globalThis));

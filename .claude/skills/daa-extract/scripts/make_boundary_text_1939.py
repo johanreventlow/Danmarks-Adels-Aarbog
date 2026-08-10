@@ -33,6 +33,7 @@ HTML_PREFIX = """<!doctype html>
 main{height:100dvh;display:flex;flex-direction:column;gap:10px;padding:14px}
 .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.toolbar button{font:inherit;padding:8px 12px}
 [data-role="gate-status"]{font-weight:700}[data-gate="ok"]{color:#166534}[data-gate="error"]{color:#b42318}
+[data-role="omission-warning"]{font-weight:700;color:#9a3412}
 details{border:1px solid #cbd5df;border-radius:4px;background:#fff;padding:7px 10px}summary{cursor:pointer;font-weight:700}details ul{margin:8px 0 2px;padding-left:24px}details li{margin:3px 0}code{font:14px ui-monospace,SFMono-Regular,Menlo,monospace}
 .workspace{display:grid;grid-template-columns:minmax(260px,330px) minmax(0,1fr);gap:10px;flex:1;min-height:0}
 [data-role="page-list"]{overflow:auto;border:1px solid #cbd5df;border-radius:4px;background:#fff;padding:6px;display:flex;flex-direction:column;gap:4px}
@@ -46,6 +47,7 @@ textarea{min-height:0;width:100%;resize:none;border:1px solid #9aa8b5;border-rad
     <span data-role="gate-status" data-gate="ok">bogteksten er urørt</span>
     <strong data-role="page-progress">side 1 af 86 · 86 mangler</strong>
     <span data-role="progress-import-status"></span>
+    <span data-role="omission-warning" aria-live="polite"></span>
     <button type="button" data-action="complete-page">Færdig med siden</button>
     <button type="button" data-action="restore">Gendan bogteksten, behold mine markører</button>
     <button type="button" data-action="export">Eksportér 1939-graenseflade.json</button>
@@ -58,7 +60,7 @@ textarea{min-height:0;width:100%;resize:none;border:1px solid #9aa8b5;border-rad
       <li>Forkast en skæring ved at slette hele markørlinjen.</li>
       <li>Tilføj en skæring med en ny linje: <code>=== SKÆRING ===</code>.</li>
       <li>Et <code>=== FORSLAG? SKÆRING ===</code> tæller først, når du fjerner <code>FORSLAG? </code>, så linjen bliver <code>=== SKÆRING ===</code>.</li>
-      <li><code>=== EJERLØS TEKST · N tegn ===</code> betyder, at ingen post ejer teksten. Brug Cmd+F på EJERLØS.</li>
+      <li><code>=== EJERLØS TEKST · N tegn ===</code> og <code>=== SLUT EJERLØS TEKST ===</code> indrammer tekst, som ingen post ejer.</li>
       <li>OCR-note: <code>[[OCR: Rcventlow | burde stå Reventlow]]</code>. Venstre side er rå tekst; skriv ikke “der står”.</li>
     </ul>
   </details>
@@ -137,7 +139,11 @@ def build_text_model(calamari_text: str, boundary_model: Mapping) -> dict:
             gap_from, gap_to = gap["char_from"], gap["char_to"]
             gap_text = calamari_text[gap_from:gap_to]
             if gap_text.strip():
-                holes.append({"char_offset": gap_from, "tegn": gap_to - gap_from})
+                holes.append({
+                    "char_offset": gap_from,
+                    "char_to": gap_to,
+                    "tegn": gap_to - gap_from,
+                })
                 if isinstance(before, Mapping) and isinstance(after, Mapping):
                     for line_offset, line, _ in _line_offsets(gap_text):
                         if _PRINTED_MARKER_RE.match(line):
@@ -170,6 +176,10 @@ def _base_annotations(text_model: Mapping) -> list[dict]:
     annotations.extend({
         "kind": "hole", "char_offset": item["char_offset"],
         "text": f"=== EJERLØS TEKST · {item['tegn']} tegn ===",
+    } for item in text_model["huller"])
+    annotations.extend({
+        "kind": "holeEnd", "char_offset": item["char_to"],
+        "text": "=== SLUT EJERLØS TEKST ===",
     } for item in text_model["huller"])
     annotations.extend({
         "kind": "proposal", "char_offset": item["char_offset"],
@@ -234,7 +244,10 @@ def build_page_view_models(source_text: str, annotations: list[Mapping]) -> list
     return pages
 
 
-_LINE_RANK = {"pdf": 10, "boundary": 20, "hole": 30, "proposal": 40, "cut": 50}
+_LINE_RANK = {
+    "pdf": 10, "boundary": 20, "hole": 30, "holeEnd": 35,
+    "proposal": 40, "cut": 50,
+}
 _INLINE_RANK = {"udelad_start": 0, "ocr": 1, "udelad_end": 2}
 
 
@@ -332,7 +345,7 @@ def apply_markeringer(base: list[Mapping], exported: Mapping) -> list[dict]:
         if kind == "boundary" and (offset, "GRÆNSESKÆRING") in deleted:
             continue
         if kind == "proposal":
-            if cuts.get(offset) == "forslag_godkendt":
+            if cuts.get(offset) in {"bruger", "forslag_godkendt"}:
                 result.append({"kind": "cut", "char_offset": offset,
                                "text": "=== SKÆRING ===",
                                "origin": "forslag_godkendt"})

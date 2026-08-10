@@ -77,7 +77,7 @@ def test_build_text_model_reuses_boundaries_and_only_shift_signals():
     assert result["forudsatte_skaeringer"][1]["text"] == (
         "=== GRÆNSESKÆRING · SIGNAL mangler_eget_hoved ==="
     )
-    assert result["huller"] == [{"char_offset": 6, "tegn": 12}]
+    assert result["huller"] == [{"char_offset": 6, "char_to": 18, "tegn": 12}]
     assert result["forslag"] == [{"char_offset": 7}]
 
 
@@ -117,8 +117,41 @@ def test_build_text_model_banners_real_text_at_both_document_edges():
     result = subject.build_text_model(text, model)
 
     assert result["huller"] == [
-        {"char_offset": 0, "tegn": 5},
-        {"char_offset": 9, "tegn": 5},
+        {"char_offset": 0, "char_to": 5, "tegn": 5},
+        {"char_offset": 9, "char_to": 14, "tegn": 5},
+    ]
+
+
+def test_hole_annotations_frame_the_exact_source_span_and_strip_without_offset_drift(
+    tmp_path,
+):
+    source = "F\nEjerløst\nN\n"
+    text_model = {
+        "forudsatte_skaeringer": [],
+        "huller": [{"char_offset": 2, "char_to": 11, "tegn": 9}],
+        "forslag": [],
+        "pdf_sider": [],
+    }
+
+    annotations = subject._base_annotations(text_model)
+    marked = subject.compose_marked_text(source, annotations)
+
+    assert marked == (
+        "F\n"
+        "=== EJERLØS TEKST · 9 tegn ===\n"
+        "Ejerløst\n"
+        "=== SLUT EJERLØS TEKST ===\n"
+        "N\n"
+    )
+    parsed = _node_call(tmp_path, "parseMarkedText", marked, source)
+    assert parsed["ok"] is True
+    assert parsed["bookText"] == source
+    assert parsed["gate"]["ok"] is True
+    assert parsed["markers"] == [
+        {"kind": "hole", "char_offset": 2,
+         "text": "=== EJERLØS TEKST · 9 tegn ==="},
+        {"kind": "holeEnd", "char_offset": 11,
+         "text": "=== SLUT EJERLØS TEKST ==="},
     ]
 
 
@@ -528,6 +561,39 @@ def test_all_four_udelad_forms_export_identical_source_coordinates_and_rebuild(t
     assert exports == [[expected]] * 4
 
 
+@pytest.mark.parametrize(("marked", "expected_count"), [
+    ("Før\nX[[UDELAD]]Overskrift[[/UDELAD]]\nEfter\n", 1),
+    ("Før\n[[UDELAD]]XOverskrift[[/UDELAD]]\nEfter\n", 0),
+    ("Før\nXO[[UDELAD]]verskrift[[/UDELAD]]\nEfter\n", 0),
+    ("Før\n [[UDELAD]]Overskrift[[/UDELAD]]\nEfter\n", 0),
+])
+def test_omission_warning_only_fires_for_one_nonblank_character_after_line_start(
+    tmp_path, marked, expected_count,
+):
+    source = "Før\nXOverskrift\nEfter\n" if "XO" in marked else (
+        "Før\n Overskrift\nEfter\n" if "\n [[" in marked
+        else "Før\nXOverskrift\nEfter\n"
+    )
+    pages = [{
+        "ordinal": 1, "sourcePage": 1, "pdfPage": 496,
+        "charFrom": 0, "charTo": len(source),
+    }]
+
+    warnings = _node_call(tmp_path, "omissionWarnings", marked, {
+        "sourceText": source,
+        "pages": pages,
+    })
+
+    assert len(warnings) == expected_count
+    if expected_count:
+        assert warnings == [{
+            "charOffset": 5,
+            "sourcePage": 1,
+            "pdfPage": 496,
+            "pageLine": 2,
+        }]
+
+
 def test_tag_like_solo_lines_fail_as_tags_while_real_book_changes_still_hit_gate(tmp_path):
     source = "Før\nFemte slægtled.\nEfter\n"
     for marked, error in (
@@ -656,6 +722,82 @@ def test_approved_proposal_at_an_expected_boundary_round_trips_without_losing_ei
     assert subject.compose_marked_text(source, subject.apply_markeringer(base, exported)) == edited
 
 
+def test_colocated_user_cut_and_in_place_approved_proposal_keep_distinct_canonical_offsets(
+    tmp_path,
+):
+    source = "A \nB\n"
+    # Offset 1 ligger før whitespace og vises derfor ved linjestarten på offset 3.
+    # Forslaget ligger kanonisk på offset 3. Efter in-place-godkendelsen er de to
+    # viste linjer ens, men de skal stadig konsumere hver sin mapping.
+    mappings = subject.line_marker_mappings(source, [
+        {"kind": "proposal", "char_offset": 3,
+         "text": "=== FORSLAG? SKÆRING ==="},
+        {"kind": "cut", "char_offset": 1, "text": "=== SKÆRING ===",
+         "origin": "bruger"},
+    ])
+    marked = "A \n=== SKÆRING ===\n=== SKÆRING ===\nB\n"
+
+    exported = _node_call(tmp_path, "buildExport", marked, {
+        "sourceText": source,
+        "source": SOURCE,
+        "expectedBoundaryOffsets": [],
+        "expectedProposalOffsets": [3],
+        "lineMarkerMappings": mappings,
+    }, "2026-08-10T10:00:00.000Z")
+
+    assert exported["ok"] is True
+    assert exported["value"]["skaeringer"] == [
+        {"char_offset": 1, "oprindelse": "bruger"},
+        {"char_offset": 3, "oprindelse": "forslag_godkendt"},
+    ]
+    assert exported["value"]["aendringsregnskab"]["forslag_godkendt"] == 1
+    assert exported["value"]["aendringsregnskab"]["forslag_bortfaldet"] == 0
+
+
+def test_expected_proposal_offset_overrides_stale_user_origin_hint(tmp_path):
+    source = "A\n"
+    marked = "=== SKÆRING ===\nA\n"
+    mappings = subject.line_marker_mappings(source, [{
+        "kind": "cut", "char_offset": 0, "text": "=== SKÆRING ===",
+        "origin": "bruger",
+    }])
+
+    exported = _node_call(tmp_path, "buildExport", marked, {
+        "sourceText": source,
+        "source": SOURCE,
+        "expectedBoundaryOffsets": [],
+        "expectedProposalOffsets": [0],
+        "lineMarkerMappings": mappings,
+    }, "2026-08-10T10:00:00.000Z")["value"]
+
+    assert exported["skaeringer"] == [
+        {"char_offset": 0, "oprindelse": "forslag_godkendt"},
+    ]
+    assert exported["aendringsregnskab"]["forslag_godkendt"] == 1
+
+
+def test_reload_replaces_proposal_with_cut_even_when_old_export_called_it_user():
+    source = "A\n1. B\n"
+    base = [{
+        "kind": "proposal", "char_offset": 2,
+        "text": "=== FORSLAG? SKÆRING ===",
+    }]
+    old_export = {
+        "skaeringer": [{"char_offset": 2, "oprindelse": "bruger"}],
+        "slettede": [],
+        "ocr_noter": [],
+        "udeladelser": [],
+    }
+
+    rebuilt = subject.apply_markeringer(base, old_export)
+
+    assert rebuilt == [{
+        "kind": "cut", "char_offset": 2, "text": "=== SKÆRING ===",
+        "origin": "forslag_godkendt",
+    }]
+    assert subject.compose_marked_text(source, rebuilt) == "A\n=== SKÆRING ===\n1. B\n"
+
+
 def test_restore_book_text_keeps_markers_at_nearest_valid_source_line(tmp_path):
     source = "første\nanden\ntredje\n"
     changed = "førsteX\n=== SKÆRING ===\nanden\ntredje\n"
@@ -748,6 +890,7 @@ def test_main_writes_parseable_html_and_refuses_overwrite(tmp_path, monkeypatch,
     assert 'data-role="page-progress"' in rendered
     assert 'data-role="page-list"' in rendered
     assert 'data-action="complete-page"' in rendered
+    assert 'data-role="omission-warning"' in rendered
 
     script = rendered.split("<script>", 1)[1].split("</script>", 1)[0]
     script_path = tmp_path / "generated.js"
@@ -924,12 +1067,13 @@ def test_init_prefers_local_storage_then_debounces_gate_and_autosave_by_300_ms(t
         "function node(name){return nodes[name]={value:'',textContent:'',innerHTML:'',disabled:false,dataset:{},"
         "addEventListener:(event,fn)=>{listeners[name+':'+event]=fn}}}\n"
         "node('text');node('gate');node('save');node('export');node('restore');"
-        "node('complete');node('progress');node('list');node('importStatus');\n"
+        "node('complete');node('progress');node('list');node('importStatus');node('warning');\n"
         "const selectors={'[data-role=\\\"boundary-text\\\"]':nodes.text,'[data-role=\\\"gate-status\\\"]':nodes.gate,"
         "'[data-role=\\\"save-status\\\"]':nodes.save,'[data-action=\\\"export\\\"]':nodes.export,"
         "'[data-action=\\\"restore\\\"]':nodes.restore,'[data-action=\\\"complete-page\\\"]':nodes.complete,"
         "'[data-role=\\\"page-progress\\\"]':nodes.progress,'[data-role=\\\"page-list\\\"]':nodes.list,"
-        "'[data-role=\\\"progress-import-status\\\"]':nodes.importStatus};\n"
+        "'[data-role=\\\"progress-import-status\\\"]':nodes.importStatus,"
+        "'[data-role=\\\"omission-warning\\\"]':nodes.warning};\n"
         "let delay=null,callback=null,writes=0;const context={console,TextEncoder,TextDecoder,"
         "document:{querySelector:s=>selectors[s]},localStorage:{},clearTimeout:()=>{},"
         "setTimeout:(fn,ms)=>{callback=fn;delay=ms},DAAReviewShared:{"
