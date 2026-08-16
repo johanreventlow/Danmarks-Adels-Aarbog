@@ -1,5 +1,7 @@
 # DAA 1939 Partial-Overlap Reconciliation Design
 
+> **Status: SUPERSEDED / NO-GO.** Replay viste, at to unikke baseline-narrativer var forurenet med tekst fra naboposter. Generisk partial-overlap-routing ville derfor skabe falske ejerskabskanter mod korrekt accepterede targets. Designet erstattes af `2026-08-17-1939-legacy-anchor-repair-design.md`.
+
 ## Formål
 
 Når et baseline-narrativ forekommer præcis én gang i den hashbundne Calamari-tekst, men kun overlapper en ny post delvist, må reconciliatoren ikke kassere den positive kildeevidens. Den skal bevare overlaprelationen som en menneskekrævende boundary review uden at godkende identitet, ejerskab eller grænse automatisk.
@@ -60,4 +62,3 @@ Reconciliatorens tests skal dække:
 - eksisterende exact-span, fully-contained narrative og prior-positive-span adfærd er uændret.
 
 Efter replay kræves en deterministisk audit af accepterede key-sæt, ejerskab, dispositioner, rapportidentitet, hashes og deep preservation. Den fulde scriptsuite skal bestå før næste visuelle beslutningsbatch.
-
