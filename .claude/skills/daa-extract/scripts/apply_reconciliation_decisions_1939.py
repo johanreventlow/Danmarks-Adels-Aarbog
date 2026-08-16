@@ -14,7 +14,7 @@ class DecisionError(ValueError):
     """Raised when a decision cannot safely be applied to its exact source."""
 
 
-RESOLVED_DISPOSITIONS = {"unchanged", "accepted_carryover"}
+RESOLVED_DISPOSITIONS = {"unchanged", "accepted_carryover", "retired_duplicate"}
 ALLOWED_SOURCE_DISPOSITIONS = {"split_review", "split_merge_review"}
 
 
@@ -101,13 +101,57 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
         raise DecisionError("mindst én decision kræves")
 
     decision_by_old = {}
+    retirement_by_retired = {}
+    retirement_by_canonical = {}
+    affected_old_keys = set()
     selected_targets = set()
     annotation_by_new = {}
     for decision in raw_decisions:
         old_key = _text(decision.get("baseline_record_key"), "decision baseline_record_key")
-        if old_key in decision_by_old:
-            raise DecisionError("decision har dublet baseline_record_key")
+        if old_key in affected_old_keys:
+            raise DecisionError("decision har modstridende baseline_record_key")
         old = old_by_key.get(old_key)
+        if decision.get("decision_kind") == "retire_duplicate_record":
+            if set(decision) != {
+                "baseline_record_key", "decision_kind",
+                "canonical_baseline_record_key", "new_record_key", "reason",
+            } or decision.get("reason") != "duplicate_extraction_record":
+                raise DecisionError("ukendt duplicate retirement-handling")
+            canonical_key = _text(
+                decision.get("canonical_baseline_record_key"),
+                "canonical_baseline_record_key",
+            )
+            target = _text(decision.get("new_record_key"), "new_record_key")
+            canonical = old_by_key.get(canonical_key)
+            if old is None or canonical is None or target not in new_by_key:
+                raise DecisionError("duplicate retirement peger på ukendt record")
+            if old_key == canonical_key or canonical_key in affected_old_keys:
+                raise DecisionError("duplicate retirement har modstridende baseline-records")
+            if (old.get("disposition") != "merge_review"
+                    or canonical.get("disposition") != "merge_review"):
+                raise DecisionError("duplicate retirement kræver to merge-review records")
+            old_span = old.get("source_span")
+            canonical_span = canonical.get("source_span")
+            if (not isinstance(old_span, Mapping) or old_span != canonical_span
+                    or type(old_span.get("char_from")) is not int
+                    or type(old_span.get("char_to")) is not int
+                    or old_span["char_from"] < 0
+                    or old_span["char_to"] <= old_span["char_from"]):
+                raise DecisionError("duplicate retirement kræver identisk kildespænd")
+            for entry in (old, canonical):
+                matches = entry.get("matches")
+                if (not isinstance(matches, list) or len(matches) != 1
+                        or not isinstance(matches[0], Mapping)
+                        or matches[0].get("new_record_key") != target):
+                    raise DecisionError("duplicate retirement kræver ét fælles mål")
+            if target in selected_targets:
+                raise DecisionError("flere beslutninger bruger samme new_record_key")
+            affected_old_keys.update((old_key, canonical_key))
+            selected_targets.add(target)
+            retirement = (decision, canonical_key, target)
+            retirement_by_retired[old_key] = retirement
+            retirement_by_canonical[canonical_key] = (decision, old_key, target)
+            continue
         if old is None or old.get("disposition") not in ALLOWED_SOURCE_DISPOSITIONS:
             raise DecisionError("decision må kun afgøre en eksisterende split-review")
         if (decision.get("decision_kind") != "select_carryover_target"
@@ -122,6 +166,7 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
             raise DecisionError("valgt new_record_key er ikke kandidat for baseline-record")
         if selected in selected_targets:
             raise DecisionError("flere beslutninger vælger samme new_record_key")
+        affected_old_keys.add(old_key)
         selected_targets.add(selected)
 
         annotations = _objects(decision.get("record_annotations", []), "record_annotations")
@@ -147,12 +192,36 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
         other_owners = [key for key in original_owners[selected] if key != old_key]
         if other_owners and not all(key in decision_by_old for key in other_owners):
             raise DecisionError("valgt mål har fortsat flere baseline-ejere")
+    for retired_key, (_, canonical_key, target) in retirement_by_retired.items():
+        if set(original_owners[target]) != {retired_key, canonical_key}:
+            raise DecisionError("duplicate retirement har ikke præcis to ejere")
 
     resolved_baseline = []
     for entry in baseline_entries:
         output = dict(entry)
-        choice = decision_by_old.get(entry["baseline_record_key"])
-        if choice is not None:
+        old_key = entry["baseline_record_key"]
+        retirement = retirement_by_retired.get(old_key)
+        retained = retirement_by_canonical.get(old_key)
+        choice = decision_by_old.get(old_key)
+        if retirement is not None:
+            decision, canonical_key, _ = retirement
+            output["matches"] = []
+            output["disposition"] = "retired_duplicate"
+            output["canonical_baseline_record_key"] = canonical_key
+            output["retirement_reason"] = decision.get("reason")
+            output["reviewed_by"] = reviewed_by
+            output["decision_batch"] = decision_batch
+        elif retained is not None:
+            _, _, target = retained
+            output["matches"] = [
+                dict(match) for match in entry["matches"]
+                if match.get("new_record_key") == target
+            ]
+            output["disposition"] = "accepted_carryover"
+            output["reconciliation_basis"] = "human_retained_duplicate_target"
+            output["reviewed_by"] = reviewed_by
+            output["decision_batch"] = decision_batch
+        elif choice is not None:
             _, selected = choice
             output["matches"] = [
                 dict(match) for match in entry["matches"]
@@ -171,7 +240,10 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
                 owners[match.get("new_record_key")].append(entry["baseline_record_key"])
     disposition_by_old = {}
     for entry in resolved_baseline:
-        if entry["baseline_record_key"] in decision_by_old:
+        if entry["baseline_record_key"] in retirement_by_retired:
+            disposition = "retired_duplicate"
+        elif (entry["baseline_record_key"] in decision_by_old
+              or entry["baseline_record_key"] in retirement_by_canonical):
             disposition = "accepted_carryover"
         else:
             disposition = _unresolved_disposition(entry, owners)
@@ -210,8 +282,9 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
     report = {
         "baseline_total": len(resolved_baseline),
         "new_total": len(resolved_new),
-        "applied_decisions": len(decision_by_old),
+        "applied_decisions": len(raw_decisions),
         "accepted_carryovers": baseline_counts.get("accepted_carryover", 0),
+        "retired_duplicates": baseline_counts.get("retired_duplicate", 0),
         "baseline_dispositions": dict(sorted(baseline_counts.items())),
         "new_dispositions": dict(sorted(new_counts.items())),
         "remaining_baseline_review": remaining_baseline,

@@ -80,6 +80,88 @@ def decision_document(reconciliation_sha256, *, selected="new-a", annotations=No
     }
 
 
+def duplicate_reconciliation():
+    source = reconciliation()
+    source["baseline_entries"] = [
+        {
+            "baseline_record_key": "old-a",
+            "name": "Ditlev Reventlow",
+            "source_span": {"char_from": 0, "char_to": 10},
+            "matches": [{
+                "new_record_key": "new-a",
+                "geometry_relation": "narrative_inside_new",
+            }],
+            "disposition": "merge_review",
+        },
+        {
+            "baseline_record_key": "old-b",
+            "name": "DitlevReventlow",
+            "source_span": {"char_from": 0, "char_to": 10},
+            "matches": [{
+                "new_record_key": "new-a",
+                "geometry_relation": "narrative_inside_new",
+            }],
+            "disposition": "merge_review",
+        },
+    ]
+    source["new_entries"] = [{
+        "new_record_key": "new-a",
+        "source_span": {"char_from": 0, "char_to": 20},
+        "baseline_record_keys": ["old-a", "old-b"],
+        "disposition": "merge_review",
+    }]
+    return source
+
+
+def duplicate_decision_document(reconciliation_sha256):
+    document = decision_document(reconciliation_sha256)
+    document["decisions"] = [{
+        "baseline_record_key": "old-b",
+        "decision_kind": "retire_duplicate_record",
+        "canonical_baseline_record_key": "old-a",
+        "new_record_key": "new-a",
+        "reason": "duplicate_extraction_record",
+    }]
+    return document
+
+
+def duplicate_case(mutation):
+    source = duplicate_reconciliation()
+    if mutation == "different_source_span":
+        source["baseline_entries"][1]["source_span"] = {
+            "char_from": 1,
+            "char_to": 10,
+        }
+    elif mutation == "wrong_shared_target":
+        source["baseline_entries"][1]["matches"][0]["new_record_key"] = "new-b"
+        source["new_entries"].append({
+            "new_record_key": "new-b",
+            "source_span": {"char_from": 20, "char_to": 30},
+            "baseline_record_keys": ["old-b"],
+            "disposition": "merge_review",
+        })
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    document = duplicate_decision_document(digest)
+    decision = document["decisions"][0]
+    if mutation == "unknown_canonical_key":
+        decision["canonical_baseline_record_key"] = "missing"
+    elif mutation == "same_canonical_and_retired_key":
+        decision["canonical_baseline_record_key"] = "old-b"
+    elif mutation == "reverse_retirement_conflict":
+        document["decisions"].append({
+            "baseline_record_key": "old-a",
+            "decision_kind": "retire_duplicate_record",
+            "canonical_baseline_record_key": "old-b",
+            "new_record_key": "new-a",
+            "reason": "duplicate_extraction_record",
+        })
+    elif mutation == "wrong_reason":
+        decision["reason"] = "similar_name"
+    elif mutation == "unexpected_field":
+        decision["note"] = "looks duplicated"
+    return source, document, digest
+
+
 def encoded(value):
     return (json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode()
 
@@ -170,3 +252,41 @@ def test_report_recounts_resolved_and_remaining_reviews():
     assert result["report"]["remaining_new_review"] == 1
     assert result["report"]["reconciliation_gate"] == "NO-GO"
 
+
+def test_retires_duplicate_but_preserves_audit_and_single_owner():
+    source = duplicate_reconciliation()
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    document = duplicate_decision_document(digest)
+
+    result = apply_decisions(source, document, reconciliation_sha256=digest)
+
+    canonical, retired = result["baseline_entries"]
+    assert canonical["disposition"] == "accepted_carryover"
+    assert canonical["reconciliation_basis"] == "human_retained_duplicate_target"
+    assert retired["disposition"] == "retired_duplicate"
+    assert retired["matches"] == []
+    assert retired["canonical_baseline_record_key"] == "old-a"
+    assert retired["retirement_reason"] == "duplicate_extraction_record"
+    assert retired["reviewed_by"] == "johan-reventlow"
+    assert result["new_entries"][0]["baseline_record_keys"] == ["old-a"]
+    assert result["new_entries"][0]["disposition"] == "accepted_carryover"
+    assert result["report"]["retired_duplicates"] == 1
+    assert result["report"]["remaining_baseline_review"] == 0
+    assert result["report"]["remaining_new_review"] == 0
+    assert result["report"]["reconciliation_gate"] == "GO"
+
+
+@pytest.mark.parametrize("mutation", [
+    "different_source_span",
+    "wrong_shared_target",
+    "unknown_canonical_key",
+    "same_canonical_and_retired_key",
+    "reverse_retirement_conflict",
+    "wrong_reason",
+    "unexpected_field",
+])
+def test_rejects_unproven_or_conflicting_duplicate_retirement(mutation):
+    source, document, digest = duplicate_case(mutation)
+
+    with pytest.raises(DecisionError):
+        apply_decisions(source, document, reconciliation_sha256=digest)
