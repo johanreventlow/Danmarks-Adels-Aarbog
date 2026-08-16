@@ -23,6 +23,24 @@ SOURCE = {
 }
 
 
+@pytest.mark.parametrize(
+    ("source_page", "pdf_page"),
+    [(59, 571), (60, 572), (61, 573), (62, 574)],
+)
+def test_pdf_page_skips_inserted_portraits_before_source_page_59(
+    source_page, pdf_page,
+):
+    assert subject._pdf_page(source_page) == pdf_page
+
+
+@pytest.mark.parametrize(
+    ("source_page", "pdf_page"),
+    [(84, 596), (85, 597), (86, 598)],
+)
+def test_pdf_page_keeps_final_text_pages_consecutive(source_page, pdf_page):
+    assert subject._pdf_page(source_page) == pdf_page
+
+
 def _boundary(offset: int, *, signals=(), gap_to=None, inner=True):
     before = ({"char_from": 0, "char_to": offset, "baseline_record_key": "a"}
               if inner or offset else None)

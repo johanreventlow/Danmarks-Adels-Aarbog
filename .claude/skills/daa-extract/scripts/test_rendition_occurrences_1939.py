@@ -78,6 +78,22 @@ def test_pinned_calamari_map_uses_the_nonlinear_page_points():
     assert result["occurrences"][0]["pdf_pages"] == [555, 575]
 
 
+@pytest.mark.parametrize(
+    ("source_page", "pdf_page"),
+    [(59, 571), (60, 572), (61, 573), (62, 574)],
+)
+def test_pinned_calamari_map_keeps_inserted_portrait_pages_out_of_text_pages(
+    source_page, pdf_page,
+):
+    result = extract_rendition_occurrences(
+        f"### PAGE {source_page} ###\n1. Alfa\n",
+        rendition="calamari",
+        page_map=CALAMARI_R6_TO_PDF_V1,
+    )
+
+    assert result["occurrences"][0]["pdf_pages"] == [pdf_page]
+
+
 def test_raw_occurrence_manifest_uses_approved_absolute_pdf_mapping_id():
     result = extract_rendition_occurrences(
         "### PAGE 498 ###\n1. Volrad\n",
@@ -88,13 +104,19 @@ def test_raw_occurrence_manifest_uses_approved_absolute_pdf_mapping_id():
     assert result["occurrences"][0]["pdf_pages"] == [498]
 
 
-def test_pinned_calamari_map_rounds_half_pages_up_deterministically():
+@pytest.mark.parametrize(
+    ("source_page", "pdf_page"),
+    [(84, 596), (85, 597), (86, 598)],
+)
+def test_pinned_calamari_map_keeps_final_text_pages_consecutive(
+    source_page, pdf_page,
+):
     result = extract_rendition_occurrences(
-        "### PAGE 84 ###\n1. Alfa\n",
+        f"### PAGE {source_page} ###\n1. Alfa\n",
         rendition="calamari",
         page_map=CALAMARI_R6_TO_PDF_V1,
     )
-    assert result["occurrences"][0]["pdf_pages"] == [597]
+    assert result["occurrences"][0]["pdf_pages"] == [pdf_page]
 
 
 def test_calamari_rejects_changed_but_ordered_pinned_map():
