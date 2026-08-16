@@ -56,6 +56,9 @@ def _unique(entries: Sequence[Mapping[str, Any]], field: str, label: str) -> dic
 
 
 def _unresolved_disposition(entry: Mapping[str, Any], owners: Mapping[str, list[str]]) -> str:
+    original = entry.get("disposition")
+    if original == "retired_duplicate":
+        return original
     matches = entry.get("matches")
     if not isinstance(matches, list) or not matches:
         return "unresolved"
@@ -67,7 +70,6 @@ def _unresolved_disposition(entry: Mapping[str, Any], owners: Mapping[str, list[
         return "split_merge_review" if target_has_multiple else "split_review"
     if target_has_multiple:
         return "merge_review"
-    original = entry.get("disposition")
     if original in RESOLVED_DISPOSITIONS:
         return str(original)
     if entry.get("evidence_method") == "unique_exact_narrative" or original == "text_anchor_review":

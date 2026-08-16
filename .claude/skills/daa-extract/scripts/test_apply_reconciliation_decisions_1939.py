@@ -344,6 +344,52 @@ def test_retires_duplicate_but_preserves_audit_and_single_owner():
     assert result["report"]["reconciliation_gate"] == "GO"
 
 
+def test_later_decision_batch_preserves_prior_duplicate_retirement():
+    source = duplicate_reconciliation()
+    first_digest = hashlib.sha256(encoded(source)).hexdigest()
+    first = apply_decisions(
+        source,
+        duplicate_decision_document(first_digest),
+        reconciliation_sha256=first_digest,
+    )
+    first["baseline_entries"].append({
+        "baseline_record_key": "old-c",
+        "name": "Clara",
+        "matches": [{
+            "new_record_key": "new-c",
+            "geometry_relation": "old_inside_new",
+        }],
+        "disposition": "boundary_change_review",
+    })
+    first["new_entries"].append({
+        "new_record_key": "new-c",
+        "record_kind": "unclassified",
+        "source_span": {"char_from": 20, "char_to": 30},
+        "baseline_record_keys": ["old-c"],
+        "disposition": "boundary_change_review",
+    })
+    second_digest = hashlib.sha256(encoded(first)).hexdigest()
+    second_document = decision_document(second_digest)
+    second_document["decisions"] = [{
+        "baseline_record_key": "old-c",
+        "decision_kind": "accept_boundary_change",
+        "selected_new_record_key": "new-c",
+    }]
+
+    result = apply_decisions(
+        first, second_document, reconciliation_sha256=second_digest,
+    )
+
+    retired = next(
+        entry for entry in result["baseline_entries"]
+        if entry["baseline_record_key"] == "old-b"
+    )
+    assert retired["disposition"] == "retired_duplicate"
+    assert retired["canonical_baseline_record_key"] == "old-a"
+    assert result["report"]["retired_duplicates"] == 1
+    assert result["report"]["remaining_baseline_review"] == 0
+
+
 @pytest.mark.parametrize("mutation", [
     "different_source_span",
     "wrong_shared_target",
