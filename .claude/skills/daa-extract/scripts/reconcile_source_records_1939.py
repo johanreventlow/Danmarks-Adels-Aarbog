@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -15,6 +16,9 @@ from dual_rendition_evidence_1939 import deterministic_candidate_id
 
 class ReconciliationError(ValueError):
     """Raised when record reconciliation would require trusting drifted input."""
+
+
+PAGE_MARKER_RE = re.compile(r"^### PAGE \d+ ###$", re.M)
 
 
 def _sha256(value: object, field: str) -> str:
@@ -168,6 +172,41 @@ def _relation(old_start: int, old_end: int, new_start: int, new_end: int) -> str
     return "partial_overlap"
 
 
+def _boundary_delta(source_text: str, old_start: int, old_end: int,
+                    new_start: int, new_end: int) -> str:
+    parts = []
+    if old_start < new_start:
+        parts.append(source_text[old_start:min(old_end, new_start)])
+    if new_start < old_start:
+        parts.append(source_text[new_start:min(new_end, old_start)])
+    if old_end < new_end:
+        parts.append(source_text[max(new_start, old_end):new_end])
+    if new_end < old_end:
+        parts.append(source_text[max(old_start, new_end):old_end])
+    return "".join(parts)
+
+
+def _mechanical_boundary_basis(entry: Mapping[str, Any], baseline: Mapping[str, Any],
+                               new_record: Mapping[str, Any], source_text: str) -> str | None:
+    old_span = entry.get("source_span")
+    if not isinstance(old_span, Mapping):
+        return None
+    old_start, old_end = old_span["char_from"], old_span["char_to"]
+    new_start, new_end = new_record["char_from"], new_record["char_to"]
+    narrative = baseline.get("narrative")
+    if isinstance(narrative, str) and narrative:
+        exact = _find_all(source_text, narrative)
+        if (len(exact) == 1 and new_start <= exact[0][0]
+                and exact[0][1] <= new_end):
+            return "unique_exact_narrative_inside_new"
+    delta = _boundary_delta(
+        source_text, old_start, old_end, new_start, new_end
+    )
+    if not PAGE_MARKER_RE.sub("", delta).strip():
+        return "layout_only_boundary_delta"
+    return None
+
+
 def build_reconciliation(baseline_records: object, evidence: Mapping[str, Any],
                          materialization: Mapping[str, Any], ledger: Mapping[str, Any], *,
                          baseline_sha256: str) -> dict[str, Any]:
@@ -307,11 +346,13 @@ def build_reconciliation(baseline_records: object, evidence: Mapping[str, Any],
         for match in entry["matches"]:
             owners[match["new_record_key"]].append(entry["baseline_record_key"])
 
+    new_by_key = {record["record_key"]: record for record in new_records}
     baseline_entries = []
     disposition_by_old = {}
     for entry in preliminary:
         matches = entry["matches"]
         target_has_multiple = any(len(owners[match["new_record_key"]]) > 1 for match in matches)
+        reconciliation_basis = None
         if not matches:
             disposition = "unresolved"
         elif len(matches) > 1 and target_has_multiple:
@@ -324,11 +365,21 @@ def build_reconciliation(baseline_records: object, evidence: Mapping[str, Any],
             disposition = "text_anchor_review"
         elif matches[0]["geometry_relation"] == "exact_span":
             disposition = "unchanged"
+            reconciliation_basis = "exact_positive_span"
         else:
-            disposition = "boundary_change_review"
+            reconciliation_basis = _mechanical_boundary_basis(
+                entry,
+                baseline_by_key[entry["baseline_record_key"]],
+                new_by_key[matches[0]["new_record_key"]],
+                source_text,
+            )
+            disposition = ("unchanged" if reconciliation_basis is not None
+                           else "boundary_change_review")
         disposition_by_old[entry["baseline_record_key"]] = disposition
         output = {key: value for key, value in entry.items() if value is not None}
         output["disposition"] = disposition
+        if reconciliation_basis is not None:
+            output["reconciliation_basis"] = reconciliation_basis
         baseline_entries.append(output)
 
     new_entries = []
@@ -350,6 +401,10 @@ def build_reconciliation(baseline_records: object, evidence: Mapping[str, Any],
 
     baseline_counts = Counter(entry["disposition"] for entry in baseline_entries)
     new_counts = Counter(entry["disposition"] for entry in new_entries)
+    unchanged_bases = Counter(
+        entry["reconciliation_basis"] for entry in baseline_entries
+        if entry["disposition"] == "unchanged"
+    )
     gate = ("GO" if baseline_counts == {"unchanged": len(baseline_entries)}
             and new_counts == {"unchanged": len(new_entries)} else "NO-GO")
     return {
@@ -368,6 +423,7 @@ def build_reconciliation(baseline_records: object, evidence: Mapping[str, Any],
             "unique_exact_narrative_anchors": exact_narrative_count,
             "baseline_dispositions": dict(sorted(baseline_counts.items())),
             "new_dispositions": dict(sorted(new_counts.items())),
+            "unchanged_bases": dict(sorted(unchanged_bases.items())),
             "reconciliation_gate": gate,
         },
     }

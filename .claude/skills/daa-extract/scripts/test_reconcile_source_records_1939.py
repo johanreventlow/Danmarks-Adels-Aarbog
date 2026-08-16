@@ -120,6 +120,7 @@ def test_exact_one_to_one_positive_spans_are_unchanged_and_gate_go():
         "unique_exact_narrative_anchors": 0,
         "baseline_dispositions": {"unchanged": 2},
         "new_dispositions": {"unchanged": 2},
+        "unchanged_bases": {"exact_positive_span": 2},
         "reconciliation_gate": "GO",
     }
     assert result["baseline_entries"][0] == {
@@ -129,7 +130,87 @@ def test_exact_one_to_one_positive_spans_are_unchanged_and_gate_go():
         "source_span": {"char_from": 0, "char_to": 8},
         "matches": [{"new_record_key": "new-a", "geometry_relation": "exact_span"}],
         "disposition": "unchanged",
+        "reconciliation_basis": "exact_positive_span",
     }
+
+
+@pytest.mark.parametrize("layout_prefix", ["\n", "### PAGE 0002 ###\n"])
+def test_one_to_one_boundary_delta_with_only_layout_is_proven_unchanged(layout_prefix):
+    text = layout_prefix + "1. Anna\n"
+    start = len(layout_prefix)
+    values = inputs(
+        text=text,
+        spans=[(0, len(text), "accept-a", "new-a")],
+        baseline=[{"record_key": "old-a", "navn": "Anna", "narrative": "ikke ordret"}],
+        evidence={
+            "schema_version": 1,
+            "source": {
+                "edition": "1939", "profile_version": "1939-v2",
+                "baseline_sha256": "b" * 64,
+                "calamari_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            },
+            "entries": [anchored("old-a", start, len(text), text)],
+        },
+    )
+
+    result = reconcile(values)
+
+    assert result["baseline_entries"][0]["disposition"] == "unchanged"
+    assert result["baseline_entries"][0]["reconciliation_basis"] == (
+        "layout_only_boundary_delta"
+    )
+
+
+def test_unique_exact_baseline_narrative_inside_changed_boundary_proves_same_record():
+    text = "Overskrift\n1. Anna\nNabotekst\n"
+    old_start = text.index("1. Anna")
+    old_end = old_start + len("1. Anna\n")
+    values = inputs(
+        text=text,
+        spans=[(0, len(text), "accept-a", "new-a")],
+        baseline=[{"record_key": "old-a", "navn": "Anna", "narrative": "1. Anna\n"}],
+        evidence={
+            "schema_version": 1,
+            "source": {
+                "edition": "1939", "profile_version": "1939-v2",
+                "baseline_sha256": "b" * 64,
+                "calamari_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            },
+            "entries": [anchored("old-a", old_start, old_end, text)],
+        },
+    )
+
+    result = reconcile(values)
+
+    assert result["baseline_entries"][0]["disposition"] == "unchanged"
+    assert result["baseline_entries"][0]["reconciliation_basis"] == (
+        "unique_exact_narrative_inside_new"
+    )
+
+
+def test_meaningful_boundary_delta_without_exact_narrative_stays_in_review():
+    text = "Overskrift\n1. Anna\nNabotekst\n"
+    old_start = text.index("1. Anna")
+    old_end = old_start + len("1. Anna\n")
+    values = inputs(
+        text=text,
+        spans=[(0, len(text), "accept-a", "new-a")],
+        baseline=[{"record_key": "old-a", "navn": "Anna", "narrative": "normaliseret Anna"}],
+        evidence={
+            "schema_version": 1,
+            "source": {
+                "edition": "1939", "profile_version": "1939-v2",
+                "baseline_sha256": "b" * 64,
+                "calamari_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            },
+            "entries": [anchored("old-a", old_start, old_end, text)],
+        },
+    )
+
+    result = reconcile(values)
+
+    assert result["baseline_entries"][0]["disposition"] == "boundary_change_review"
+    assert "reconciliation_basis" not in result["baseline_entries"][0]
 
 
 def test_one_old_span_crossing_two_new_records_is_a_split_review():
