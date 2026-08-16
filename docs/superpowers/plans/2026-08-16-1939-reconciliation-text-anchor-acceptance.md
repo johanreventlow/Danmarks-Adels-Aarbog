@@ -102,7 +102,7 @@ Expected: one failure with `DecisionError`, because `accept_text_anchor` current
 
 - [ ] **Step 4: Implement the minimal validated branch**
 
-Insert this branch immediately before the existing `accept_boundary_change` branch so the two actions cannot authorize one another:
+Insert this branch immediately after the existing `accept_boundary_change` branch so the two actions remain adjacent while their distinct decision kinds keep them independent:
 
 ```python
 if decision.get("decision_kind") == "accept_text_anchor":
