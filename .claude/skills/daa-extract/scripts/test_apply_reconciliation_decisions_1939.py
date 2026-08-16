@@ -301,6 +301,113 @@ def test_accepts_exactly_one_human_reviewed_text_anchor():
     assert result["new_entries"][0]["disposition"] == "accepted_carryover"
 
 
+@pytest.mark.parametrize("mutation", [
+    "wrong_disposition",
+    "wrong_evidence_method",
+    "zero_matches",
+    "extra_match",
+    "wrong_target",
+    "unknown_target",
+    "extra_field",
+])
+def test_text_anchor_acceptance_fails_closed_on_drift(mutation):
+    source = text_anchor_reconciliation()
+    decision = {
+        "baseline_record_key": "old-a",
+        "decision_kind": "accept_text_anchor",
+        "selected_new_record_key": "new-a",
+    }
+    if mutation == "wrong_disposition":
+        source["baseline_entries"][0]["disposition"] = "boundary_change_review"
+    elif mutation == "wrong_evidence_method":
+        source["baseline_entries"][0]["evidence_method"] = "geometry_only"
+    elif mutation == "zero_matches":
+        source["baseline_entries"][0]["matches"] = []
+    elif mutation == "extra_match":
+        source["baseline_entries"][0]["matches"].append({
+            "new_record_key": "new-b", "geometry_relation": "partial_overlap",
+        })
+    elif mutation == "wrong_target":
+        source["new_entries"].append({
+            "new_record_key": "new-b",
+            "record_kind": "unclassified",
+            "source_span": {"char_from": 10, "char_to": 20},
+            "baseline_record_keys": [],
+            "disposition": "unmatched_new_review",
+        })
+        decision["selected_new_record_key"] = "new-b"
+    elif mutation == "unknown_target":
+        decision["selected_new_record_key"] = "missing"
+    elif mutation == "extra_field":
+        decision["note"] = "looks exact"
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    document = text_anchor_decision_document(digest)
+    document["decisions"] = [decision]
+
+    with pytest.raises(DecisionError):
+        apply_decisions(source, document, reconciliation_sha256=digest)
+
+
+def test_text_anchor_acceptance_rejects_same_batch_target_reuse():
+    source = text_anchor_reconciliation()
+    source["baseline_entries"].append({
+        "baseline_record_key": "old-b",
+        "name": "Bent",
+        "matches": [{
+            "new_record_key": "new-b", "geometry_relation": "new_inside_old",
+        }],
+        "disposition": "text_anchor_review",
+        "evidence_method": "unique_exact_narrative",
+    })
+    source["new_entries"].append({
+        "new_record_key": "new-b",
+        "record_kind": "unclassified",
+        "source_span": {"char_from": 10, "char_to": 20},
+        "baseline_record_keys": ["old-b"],
+        "disposition": "text_anchor_review",
+    })
+    source["baseline_entries"][1]["matches"][0]["new_record_key"] = "new-a"
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    document = text_anchor_decision_document(digest)
+    document["decisions"].append({
+        "baseline_record_key": "old-b",
+        "decision_kind": "accept_text_anchor",
+        "selected_new_record_key": "new-a",
+    })
+
+    with pytest.raises(DecisionError):
+        apply_decisions(source, document, reconciliation_sha256=digest)
+
+
+def test_text_anchor_acceptance_rejects_unresolved_competing_owner():
+    source = text_anchor_reconciliation()
+    source["baseline_entries"].append({
+        "baseline_record_key": "old-b",
+        "name": "Bent",
+        "matches": [{
+            "new_record_key": "new-a", "geometry_relation": "partial_overlap",
+        }],
+        "disposition": "merge_review",
+    })
+    source["new_entries"][0]["baseline_record_keys"] = ["old-a", "old-b"]
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    document = text_anchor_decision_document(digest)
+
+    with pytest.raises(DecisionError):
+        apply_decisions(source, document, reconciliation_sha256=digest)
+
+
+def test_text_anchor_acceptance_rejects_hash_drift_after_document_creation():
+    source = text_anchor_reconciliation()
+    original_digest = hashlib.sha256(encoded(source)).hexdigest()
+    document = text_anchor_decision_document(original_digest)
+    source["report"]["reconciliation_gate"] = "GO"
+    mutated_digest = hashlib.sha256(encoded(source)).hexdigest()
+
+    with pytest.raises(DecisionError):
+        apply_decisions(source, document, reconciliation_sha256=mutated_digest)
+
+
 @pytest.mark.parametrize("mutation", ["wrong_disposition", "extra_match", "wrong_target", "extra_field"])
 def test_boundary_change_acceptance_fails_closed_on_drift(mutation):
     source = reconciliation()
