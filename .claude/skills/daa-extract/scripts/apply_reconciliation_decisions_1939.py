@@ -57,7 +57,7 @@ def _unique(entries: Sequence[Mapping[str, Any]], field: str, label: str) -> dic
 
 def _unresolved_disposition(entry: Mapping[str, Any], owners: Mapping[str, list[str]]) -> str:
     original = entry.get("disposition")
-    if original == "retired_duplicate":
+    if original in {"retired_duplicate", "retired_fragment"}:
         return original
     matches = entry.get("matches")
     if not isinstance(matches, list) or not matches:
@@ -137,6 +137,23 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
                     or canonical.get("disposition") != "merge_review"
                     or target_entry.get("disposition") != "merge_review"):
                 raise DecisionError("continuation fragment kræver merge-review records")
+            declared_owners = target_entry.get("baseline_record_keys")
+            derived_owners = [
+                entry["baseline_record_key"] for entry in baseline_entries
+                if any(
+                    isinstance(match, Mapping) and match.get("new_record_key") == target
+                    for match in entry.get("matches", [])
+                )
+            ]
+            if (not isinstance(declared_owners, list)
+                    or any(type(owner) is not str for owner in declared_owners)
+                    or len(declared_owners) != 2
+                    or len(set(declared_owners)) != 2
+                    or set(declared_owners) != {canonical_key, old_key}
+                    or declared_owners != derived_owners):
+                raise DecisionError(
+                    "continuation fragment kræver præcise deklarerede baseline-ejere"
+                )
             canonical_span = canonical.get("source_span")
             fragment_span = old.get("source_span")
             target_span = target_entry.get("source_span")

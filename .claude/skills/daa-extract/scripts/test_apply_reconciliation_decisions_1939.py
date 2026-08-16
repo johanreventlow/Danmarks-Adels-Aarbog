@@ -596,6 +596,10 @@ def test_retires_contiguous_continuation_fragment_and_retains_only_canonical_own
     "canonical_outside_target",
     "fragment_outside_target",
     "extra_owner",
+    "target_ghost_owner",
+    "target_missing_owner",
+    "target_duplicate_owner",
+    "target_invalid_owner_type",
     "unknown_canonical_key",
     "unknown_fragment_key",
     "unknown_target_key",
@@ -635,6 +639,14 @@ def test_continuation_fragment_retirement_fails_closed_on_unproven_or_drifted_in
             "disposition": "merge_review",
         })
         source["new_entries"][0]["baseline_record_keys"].append("old-extra")
+    elif mutation == "target_ghost_owner":
+        source["new_entries"][0]["baseline_record_keys"].append("old-ghost")
+    elif mutation == "target_missing_owner":
+        source["new_entries"][0]["baseline_record_keys"] = ["old-canonical"]
+    elif mutation == "target_duplicate_owner":
+        source["new_entries"][0]["baseline_record_keys"].append("old-fragment")
+    elif mutation == "target_invalid_owner_type":
+        source["new_entries"][0]["baseline_record_keys"] = "old-canonical"
     digest = hashlib.sha256(encoded(source)).hexdigest()
     document = continuation_fragment_decision_document(digest)
     decision = document["decisions"][0]
@@ -651,6 +663,68 @@ def test_continuation_fragment_retirement_fails_closed_on_unproven_or_drifted_in
 
     with pytest.raises(DecisionError):
         apply_decisions(source, document, reconciliation_sha256=digest)
+
+
+def test_later_batch_preserves_continuation_fragment_history_and_report_counts():
+    source = continuation_fragment_reconciliation()
+    first_digest = hashlib.sha256(encoded(source)).hexdigest()
+    first = apply_decisions(
+        source,
+        continuation_fragment_decision_document(first_digest),
+        reconciliation_sha256=first_digest,
+    )
+    prior_baseline = {
+        entry["baseline_record_key"]: entry
+        for entry in copy.deepcopy(first["baseline_entries"])
+    }
+    prior_new = {
+        entry["new_record_key"]: entry
+        for entry in copy.deepcopy(first["new_entries"])
+    }
+    second_source = copy.deepcopy(first)
+    second_source["baseline_entries"].append({
+        "baseline_record_key": "old-fresh-boundary",
+        "name": "Fresh Boundary",
+        "matches": [{
+            "new_record_key": "new-fresh-boundary",
+            "geometry_relation": "new_inside_old",
+        }],
+        "disposition": "boundary_change_review",
+    })
+    second_source["new_entries"].append({
+        "new_record_key": "new-fresh-boundary",
+        "record_kind": "unclassified",
+        "source_span": {"char_from": 20, "char_to": 30},
+        "baseline_record_keys": ["old-fresh-boundary"],
+        "disposition": "boundary_change_review",
+    })
+    second_digest = hashlib.sha256(encoded(second_source)).hexdigest()
+    second_document = decision_document(second_digest)
+    second_document["decisions"] = [{
+        "baseline_record_key": "old-fresh-boundary",
+        "decision_kind": "accept_boundary_change",
+        "selected_new_record_key": "new-fresh-boundary",
+    }]
+
+    result = apply_decisions(
+        second_source, second_document, reconciliation_sha256=second_digest,
+    )
+
+    result_baseline = {
+        entry["baseline_record_key"]: entry for entry in result["baseline_entries"]
+    }
+    result_new = {
+        entry["new_record_key"]: entry for entry in result["new_entries"]
+    }
+    for key, entry in prior_baseline.items():
+        assert result_baseline[key] == entry
+    for key, entry in prior_new.items():
+        assert result_new[key] == entry
+    assert result["report"]["accepted_carryovers"] == 2
+    assert result["report"]["retired_fragments"] == 1
+    assert result["report"]["remaining_baseline_review"] == 0
+    assert result["report"]["remaining_new_review"] == 0
+    assert result["report"]["reconciliation_gate"] == "GO"
 
 
 def test_later_decision_batch_preserves_prior_duplicate_retirement():
