@@ -82,6 +82,29 @@ def decision_document(reconciliation_sha256, *, selected="new-a", annotations=No
     }
 
 
+def text_anchor_reconciliation():
+    source = reconciliation()
+    source["baseline_entries"] = [source["baseline_entries"][0]]
+    old = source["baseline_entries"][0]
+    old["matches"] = [old["matches"][0]]
+    old["disposition"] = "text_anchor_review"
+    old["evidence_method"] = "unique_exact_narrative"
+    source["new_entries"] = [source["new_entries"][0]]
+    source["new_entries"][0]["baseline_record_keys"] = ["old-a"]
+    source["new_entries"][0]["disposition"] = "text_anchor_review"
+    return source
+
+
+def text_anchor_decision_document(reconciliation_sha256):
+    document = decision_document(reconciliation_sha256)
+    document["decisions"] = [{
+        "baseline_record_key": "old-a",
+        "decision_kind": "accept_text_anchor",
+        "selected_new_record_key": "new-a",
+    }]
+    return document
+
+
 def duplicate_reconciliation():
     source = reconciliation()
     source["baseline_entries"] = [
@@ -251,6 +274,30 @@ def test_accepts_exactly_one_human_reviewed_boundary_change():
     old = result["baseline_entries"][0]
     assert old["disposition"] == "accepted_carryover"
     assert old["reconciliation_basis"] == "human_accepted_boundary_change"
+    assert result["new_entries"][0]["disposition"] == "accepted_carryover"
+
+
+def test_accepts_exactly_one_human_reviewed_text_anchor():
+    source = text_anchor_reconciliation()
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+
+    result = apply_decisions(
+        source,
+        text_anchor_decision_document(digest),
+        reconciliation_sha256=digest,
+    )
+
+    old = result["baseline_entries"][0]
+    assert old["matches"] == [{
+        "new_record_key": "new-a",
+        "geometry_relation": "new_inside_old",
+    }]
+    assert old["selected_new_record_key"] == "new-a"
+    assert old["disposition"] == "accepted_carryover"
+    assert old["reconciliation_basis"] == "human_accepted_text_anchor"
+    assert old["reviewed_by"] == "johan-reventlow"
+    assert old["decision_batch"] == "batch-1"
+    assert result["new_entries"][0]["baseline_record_keys"] == ["old-a"]
     assert result["new_entries"][0]["disposition"] == "accepted_carryover"
 
 

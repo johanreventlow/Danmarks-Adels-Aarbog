@@ -179,6 +179,36 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
                 decision, selected, "human_accepted_boundary_change",
             )
             continue
+        if decision.get("decision_kind") == "accept_text_anchor":
+            if set(decision) != {
+                "baseline_record_key", "decision_kind", "selected_new_record_key",
+            } or old is None or old.get("disposition") != "text_anchor_review":
+                raise DecisionError(
+                    "text-anchor acceptance kræver én eksisterende text-anchor review"
+                )
+            if old.get("evidence_method") != "unique_exact_narrative":
+                raise DecisionError(
+                    "text-anchor acceptance kræver unique_exact_narrative"
+                )
+            matches = old.get("matches")
+            selected = _text(
+                decision.get("selected_new_record_key"), "selected_new_record_key"
+            )
+            if (not isinstance(matches, list) or len(matches) != 1
+                    or not isinstance(matches[0], Mapping)
+                    or matches[0].get("new_record_key") != selected
+                    or selected not in new_by_key):
+                raise DecisionError(
+                    "text-anchor acceptance kræver præcis ét eksisterende mål"
+                )
+            if selected in selected_targets:
+                raise DecisionError("flere beslutninger vælger samme new_record_key")
+            affected_old_keys.add(old_key)
+            selected_targets.add(selected)
+            decision_by_old[old_key] = (
+                decision, selected, "human_accepted_text_anchor",
+            )
+            continue
         if old is None or old.get("disposition") not in ALLOWED_SOURCE_DISPOSITIONS:
             raise DecisionError("decision må kun afgøre en eksisterende split-review")
         if (decision.get("decision_kind") != "select_carryover_target"
@@ -256,6 +286,7 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
                 dict(match) for match in entry["matches"]
                 if match.get("new_record_key") == selected
             ]
+            output["selected_new_record_key"] = selected
             output["disposition"] = "accepted_carryover"
             output["reconciliation_basis"] = reconciliation_basis
             output["reviewed_by"] = reviewed_by
