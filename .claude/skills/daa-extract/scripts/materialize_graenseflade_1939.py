@@ -53,7 +53,8 @@ def _pdf_page(source_page: int) -> int:
     raise MaterializationError(f"kildeside {source_page} findes ikke i sidekortet")
 
 
-def _validated_geometry(data: Mapping[str, Any], source_text: str) -> tuple[list[int], list[tuple[int, int]]]:
+def _validated_geometry(data: Mapping[str, Any], source_text: str) -> tuple[
+        list[int], list[tuple[int, int]], list[tuple[int, int]]]:
     if not isinstance(data, Mapping) or data.get("schema_version") != 1:
         raise MaterializationError("grænseeksport schema_version 1 kræves")
     source = data.get("source")
@@ -108,7 +109,31 @@ def _validated_geometry(data: Mapping[str, Any], source_text: str) -> tuple[list
     omissions.sort()
     if any(right_start < left_end for (_, left_end), (right_start, _) in zip(omissions, omissions[1:])):
         raise MaterializationError("grænseeksport har overlap mellem udeladelser")
-    return cuts, omissions
+
+    raw_structural = data.get("strukturelle_henvisninger", [])
+    if not isinstance(raw_structural, list):
+        raise MaterializationError("strukturelle_henvisninger skal være en liste")
+    structural = []
+    for item in raw_structural:
+        if (not isinstance(item, Mapping)
+                or set(item) != {"char_from", "char_to", "record_kind", "person_creation"}
+                or item.get("record_kind") != "structural_context"
+                or item.get("person_creation") != "forbidden"):
+            raise MaterializationError("strukturel henvisning er ugyldig")
+        start, end = item.get("char_from"), item.get("char_to")
+        if (type(start) is not int or type(end) is not int or start < 0
+                or end <= start or end > len(source_text)):
+            raise MaterializationError("strukturel henvisning ligger uden for kildeteksten")
+        structural.append((start, end))
+    structural.sort()
+    if len(structural) != len(set(structural)):
+        raise MaterializationError("grænseeksport har dublet strukturel henvisning")
+    if any(right_start < left_end for (_, left_end), (right_start, _) in zip(structural, structural[1:])):
+        raise MaterializationError("grænseeksport har overlap mellem strukturelle henvisninger")
+    if any(s_start < o_end and s_end > o_start for s_start, s_end in structural
+           for o_start, o_end in omissions):
+        raise MaterializationError("strukturel henvisning overlapper udeladelse")
+    return cuts, omissions, structural
 
 
 def _meaningful_bounds(source_text: str, start: int, end: int,
@@ -151,7 +176,7 @@ def build_materialization(data: Mapping[str, Any], source_text: str, *,
     reviewed_by = _require_text(reviewed_by, "reviewed_by")
     if not isinstance(source_text, str) or not source_text:
         raise MaterializationError("kildetekst kræves")
-    cuts, omissions = _validated_geometry(data, source_text)
+    cuts, omissions, structural = _validated_geometry(data, source_text)
     source_hash = hashlib.sha256(source_text.encode("utf-8")).hexdigest()
 
     page_matches = list(PAGE_RE.finditer(source_text))
@@ -165,6 +190,7 @@ def build_materialization(data: Mapping[str, Any], source_text: str, *,
         raise MaterializationError("meningsbærende tekst før første skæring er uden ejer")
 
     records = []
+    matched_structural = set()
     intervals = []
     omitted_count = unresolved_count = 0
     for order, interval_start in enumerate(cuts, start=1):
@@ -212,9 +238,12 @@ def build_materialization(data: Mapping[str, Any], source_text: str, *,
         page_from, page_to = _page_span(page_starts, page_numbers, record_start, record_end)
         verbatim_text = source_text[record_start:record_end]
         acceptance_id = _acceptance_id(source_hash, record_start, record_end)
+        record_kind = "structural_context" if (record_start, record_end) in structural else "unclassified"
+        if record_kind == "structural_context":
+            matched_structural.add((record_start, record_end))
         records.append({
             "acceptance_id": acceptance_id,
-            "record_kind": "unclassified",
+            "record_kind": record_kind,
             "decision_status": "accepted",
             "reviewed_by": reviewed_by,
             "decision_version": 1,
@@ -235,12 +264,15 @@ def build_materialization(data: Mapping[str, Any], source_text: str, *,
             "record_span": {"char_from": record_start, "char_to": record_end},
         })
 
+    if matched_structural != set(structural):
+        raise MaterializationError("strukturel henvisning matcher ikke et helt cut-interval")
     report = {
         "materialization_gate": "GO" if unresolved_count == 0 else "NO-GO",
         "cut_intervals": len(cuts),
         "accepted_record_candidates": len(records),
         "omitted_intervals": omitted_count,
         "unresolved_intervals": unresolved_count,
+        "structural_record_candidates": len(matched_structural),
     }
     return {
         "schema_version": "1.0",

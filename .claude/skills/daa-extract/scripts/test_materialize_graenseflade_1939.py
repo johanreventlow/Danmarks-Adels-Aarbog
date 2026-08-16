@@ -13,8 +13,9 @@ MaterializationError = subject.MaterializationError
 build_materialization = subject.build_materialization
 
 
-def export_for(text: str, *, cuts: list[int], omissions: list[tuple[int, int]] = ()) -> dict:
-    return {
+def export_for(text: str, *, cuts: list[int], omissions: list[tuple[int, int]] = (),
+               structural: list[tuple[int, int]] = ()) -> dict:
+    result = {
         "schema_version": 1,
         "source": {
             "edition": "1939",
@@ -32,6 +33,42 @@ def export_for(text: str, *, cuts: list[int], omissions: list[tuple[int, int]] =
         ],
         "sider": {"i_alt": 1, "identitet": "kildeside", "gennemgaaet": [1]},
     }
+    if structural:
+        result["strukturelle_henvisninger"] = [{
+            "char_from": start,
+            "char_to": end,
+            "record_kind": "structural_context",
+            "person_creation": "forbidden",
+        } for start, end in structural]
+    return result
+
+
+def test_materializes_exact_cut_bounded_structural_context_record():
+    text = "### PAGE 0001 ###\n1. Anna\nBørn: II.\n2. Bent\n"
+    first = text.index("1. Anna")
+    reference = text.index("Børn: II.")
+    second = text.index("2. Bent")
+
+    result = build_materialization(
+        export_for(
+            text,
+            cuts=[first, reference, second],
+            structural=[(reference, second)],
+        ),
+        text,
+        rendition_id="rendition-1",
+        extraction_run_id="run-1",
+        reviewed_by="editor-1",
+    )
+
+    assert [record["record_kind"] for record in result["source_record_review"]["records"]] == [
+        "unclassified", "structural_context", "unclassified",
+    ]
+    assert result["source_record_review"]["records"][1]["source_anchor"] == {
+        "char_from": reference,
+        "char_to": second,
+    }
+    assert result["report"]["structural_record_candidates"] == 1
 
 
 def test_builds_exact_unclassified_review_records_without_minting_record_keys():
@@ -55,6 +92,7 @@ def test_builds_exact_unclassified_review_records_without_minting_record_keys():
         "accepted_record_candidates": 2,
         "omitted_intervals": 0,
         "unresolved_intervals": 0,
+        "structural_record_candidates": 0,
     }
     assert [record["verbatim_text"] for record in review["records"]] == [
         "1. Anna\n",
@@ -130,10 +168,55 @@ def test_internal_omission_between_meaningful_text_is_parked_fail_closed():
         "accepted_record_candidates": 0,
         "omitted_intervals": 0,
         "unresolved_intervals": 1,
+        "structural_record_candidates": 0,
     }
     assert result["source_record_review"]["records"] == []
     assert result["intervals"][0]["disposition"] == "unresolved"
     assert result["intervals"][0]["reason"] == "omission_splits_meaningful_text"
+
+
+def test_rejects_structural_context_that_is_not_an_exact_available_interval():
+    text = "### PAGE 0001 ###\n1. Anna\nBørn: II.\n2. Bent\n"
+    first = text.index("1. Anna")
+    reference = text.index("Børn: II.")
+    second = text.index("2. Bent")
+
+    with pytest.raises(MaterializationError, match="overlapper udeladelse"):
+        build_materialization(
+            export_for(
+                text, cuts=[first, reference, second],
+                omissions=[(reference, second)], structural=[(reference, second)],
+            ), text, rendition_id="r", extraction_run_id="x", reviewed_by="e",
+        )
+
+    with pytest.raises(MaterializationError, match="helt cut-interval"):
+        build_materialization(
+            export_for(
+                text, cuts=[first, reference, second],
+                structural=[(reference + 1, second)],
+            ), text, rendition_id="r", extraction_run_id="x", reviewed_by="e",
+        )
+
+    duplicate = export_for(
+        text, cuts=[first, reference, second], structural=[(reference, second)]
+    )
+    duplicate["strukturelle_henvisninger"].append(
+        dict(duplicate["strukturelle_henvisninger"][0])
+    )
+    with pytest.raises(MaterializationError, match="dublet"):
+        build_materialization(
+            duplicate, text, rendition_id="r", extraction_run_id="x", reviewed_by="e",
+        )
+
+    overlap = export_for(
+        text, cuts=[first, reference, second], structural=[
+            (reference, second), (reference + 1, second + 1),
+        ]
+    )
+    with pytest.raises(MaterializationError, match="overlap"):
+        build_materialization(
+            overlap, text, rendition_id="r", extraction_run_id="x", reviewed_by="e",
+        )
 
 
 def test_source_record_artifacts_mint_opaque_keys_only_after_gate_is_go():
