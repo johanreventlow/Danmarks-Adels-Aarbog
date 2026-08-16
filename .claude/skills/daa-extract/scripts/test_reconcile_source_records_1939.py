@@ -20,6 +20,7 @@ def inputs(*, text="1. Anna\n2. Bent\n", spans=None, baseline=None, evidence=Non
     for start, end, acceptance_id, record_key in spans:
         records.append({
             "acceptance_id": acceptance_id,
+            "record_kind": "unclassified",
             "verbatim_text": text[start:end],
             "source_anchor": {"char_from": start, "char_to": end},
         })
@@ -410,3 +411,28 @@ def test_inactive_append_only_ledger_history_does_not_enter_current_reconciliati
     assert {entry["new_record_key"] for entry in result["new_entries"]} == {
         "new-a", "new-b",
     }
+
+
+def test_structural_record_kind_is_preserved_in_reconciliation_output():
+    values = inputs()
+    values[2]["source_record_review"]["records"][0]["record_kind"] = (
+        "structural_context"
+    )
+
+    result = reconcile(values)
+
+    assert result["new_entries"][0]["record_kind"] == "structural_context"
+    assert result["new_entries"][1]["record_kind"] == "unclassified"
+
+
+@pytest.mark.parametrize("record_kind", [None, "person", "", 17])
+def test_unknown_or_missing_record_kind_fails_closed(record_kind):
+    values = inputs()
+    record = values[2]["source_record_review"]["records"][0]
+    if record_kind is None:
+        record.pop("record_kind")
+    else:
+        record["record_kind"] = record_kind
+
+    with pytest.raises(ReconciliationError, match="record_kind"):
+        reconcile(values)

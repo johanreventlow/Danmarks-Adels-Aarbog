@@ -42,12 +42,14 @@ def reconciliation():
         "new_entries": [
             {
                 "new_record_key": "new-a",
+                "record_kind": "unclassified",
                 "source_span": {"char_from": 0, "char_to": 10},
                 "baseline_record_keys": ["old-a"],
                 "disposition": "split_review",
             },
             {
                 "new_record_key": "new-b",
+                "record_kind": "unclassified",
                 "source_span": {"char_from": 10, "char_to": 20},
                 "baseline_record_keys": ["old-a", "old-b"],
                 "disposition": "split_merge_review",
@@ -202,6 +204,20 @@ def test_nonselected_target_without_another_owner_becomes_unmatched():
     assert result["new_entries"][1]["disposition"] == "unmatched_new_review"
 
 
+def test_nonselected_structural_context_is_resolved_without_person_creation():
+    source = reconciliation()
+    source["baseline_entries"] = source["baseline_entries"][:1]
+    source["new_entries"][1]["baseline_record_keys"] = ["old-a"]
+    source["new_entries"][1]["record_kind"] = "structural_context"
+
+    result = apply(source=source)
+
+    structural = result["new_entries"][1]
+    assert structural["baseline_record_keys"] == []
+    assert structural["disposition"] == "accepted_structural_context"
+    assert result["report"]["remaining_new_review"] == 0
+
+
 def test_cross_reference_annotation_is_preserved_and_forbids_person_creation():
     annotations = [{
         "new_record_key": "new-b",
@@ -214,6 +230,58 @@ def test_cross_reference_annotation_is_preserved_and_forbids_person_creation():
     ))
 
     assert result["new_entries"][1]["human_annotation"] == annotations[0]
+
+
+def test_accepts_exactly_one_human_reviewed_boundary_change():
+    source = reconciliation()
+    source["baseline_entries"] = source["baseline_entries"][:1]
+    source["baseline_entries"][0]["matches"] = source["baseline_entries"][0]["matches"][:1]
+    source["baseline_entries"][0]["disposition"] = "boundary_change_review"
+    source["new_entries"] = source["new_entries"][:1]
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    document = decision_document(digest)
+    document["decisions"] = [{
+        "baseline_record_key": "old-a",
+        "decision_kind": "accept_boundary_change",
+        "selected_new_record_key": "new-a",
+    }]
+
+    result = apply_decisions(source, document, reconciliation_sha256=digest)
+
+    old = result["baseline_entries"][0]
+    assert old["disposition"] == "accepted_carryover"
+    assert old["reconciliation_basis"] == "human_accepted_boundary_change"
+    assert result["new_entries"][0]["disposition"] == "accepted_carryover"
+
+
+@pytest.mark.parametrize("mutation", ["wrong_disposition", "extra_match", "wrong_target", "extra_field"])
+def test_boundary_change_acceptance_fails_closed_on_drift(mutation):
+    source = reconciliation()
+    source["baseline_entries"] = source["baseline_entries"][:1]
+    source["baseline_entries"][0]["matches"] = source["baseline_entries"][0]["matches"][:1]
+    source["baseline_entries"][0]["disposition"] = "boundary_change_review"
+    source["new_entries"] = source["new_entries"][:1]
+    decision = {
+        "baseline_record_key": "old-a",
+        "decision_kind": "accept_boundary_change",
+        "selected_new_record_key": "new-a",
+    }
+    if mutation == "wrong_disposition":
+        source["baseline_entries"][0]["disposition"] = "text_anchor_review"
+    elif mutation == "extra_match":
+        source["baseline_entries"][0]["matches"].append({
+            "new_record_key": "new-b", "geometry_relation": "partial_overlap",
+        })
+    elif mutation == "wrong_target":
+        decision["selected_new_record_key"] = "new-b"
+    elif mutation == "extra_field":
+        decision["note"] = "looks right"
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    document = decision_document(digest)
+    document["decisions"] = [decision]
+
+    with pytest.raises(DecisionError):
+        apply_decisions(source, document, reconciliation_sha256=digest)
 
 
 @pytest.mark.parametrize("selected", ["missing", "new-b"])

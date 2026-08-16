@@ -14,7 +14,10 @@ class DecisionError(ValueError):
     """Raised when a decision cannot safely be applied to its exact source."""
 
 
-RESOLVED_DISPOSITIONS = {"unchanged", "accepted_carryover", "retired_duplicate"}
+RESOLVED_DISPOSITIONS = {
+    "unchanged", "accepted_carryover", "accepted_structural_context",
+    "retired_duplicate",
+}
 ALLOWED_SOURCE_DISPOSITIONS = {"split_review", "split_merge_review"}
 
 
@@ -152,6 +155,28 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
             retirement_by_retired[old_key] = retirement
             retirement_by_canonical[canonical_key] = (decision, old_key, target)
             continue
+        if decision.get("decision_kind") == "accept_boundary_change":
+            if set(decision) != {
+                "baseline_record_key", "decision_kind", "selected_new_record_key",
+            } or old is None or old.get("disposition") != "boundary_change_review":
+                raise DecisionError("boundary acceptance kræver én eksisterende boundary-change review")
+            matches = old.get("matches")
+            selected = _text(
+                decision.get("selected_new_record_key"), "selected_new_record_key"
+            )
+            if (not isinstance(matches, list) or len(matches) != 1
+                    or not isinstance(matches[0], Mapping)
+                    or matches[0].get("new_record_key") != selected
+                    or selected not in new_by_key):
+                raise DecisionError("boundary acceptance kræver præcis ét eksisterende mål")
+            if selected in selected_targets:
+                raise DecisionError("flere beslutninger vælger samme new_record_key")
+            affected_old_keys.add(old_key)
+            selected_targets.add(selected)
+            decision_by_old[old_key] = (
+                decision, selected, "human_accepted_boundary_change",
+            )
+            continue
         if old is None or old.get("disposition") not in ALLOWED_SOURCE_DISPOSITIONS:
             raise DecisionError("decision må kun afgøre en eksisterende split-review")
         if (decision.get("decision_kind") != "select_carryover_target"
@@ -181,14 +206,16 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
             if annotated in annotation_by_new:
                 raise DecisionError("dublet record annotation")
             annotation_by_new[annotated] = dict(annotation)
-        decision_by_old[old_key] = (decision, selected)
+        decision_by_old[old_key] = (
+            decision, selected, "human_selected_split_target",
+        )
 
     original_owners: dict[str, list[str]] = defaultdict(list)
     for entry in baseline_entries:
         for match in entry.get("matches", []):
             if isinstance(match, Mapping) and match.get("new_record_key") in new_by_key:
                 original_owners[match["new_record_key"]].append(entry["baseline_record_key"])
-    for old_key, (_, selected) in decision_by_old.items():
+    for old_key, (_, selected, _) in decision_by_old.items():
         other_owners = [key for key in original_owners[selected] if key != old_key]
         if other_owners and not all(key in decision_by_old for key in other_owners):
             raise DecisionError("valgt mål har fortsat flere baseline-ejere")
@@ -222,13 +249,13 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
             output["reviewed_by"] = reviewed_by
             output["decision_batch"] = decision_batch
         elif choice is not None:
-            _, selected = choice
+            _, selected, reconciliation_basis = choice
             output["matches"] = [
                 dict(match) for match in entry["matches"]
                 if match.get("new_record_key") == selected
             ]
             output["disposition"] = "accepted_carryover"
-            output["reconciliation_basis"] = "human_selected_split_target"
+            output["reconciliation_basis"] = reconciliation_basis
             output["reviewed_by"] = reviewed_by
             output["decision_batch"] = decision_batch
         resolved_baseline.append(output)
@@ -257,7 +284,9 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
         old_keys = owners.get(key, [])
         output["baseline_record_keys"] = old_keys
         if not old_keys:
-            disposition = "unmatched_new_review"
+            disposition = ("accepted_structural_context"
+                           if entry.get("record_kind") == "structural_context"
+                           else "unmatched_new_review")
         elif len(old_keys) > 1:
             disposition = "merge_review"
         else:

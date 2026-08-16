@@ -19,6 +19,7 @@ class ReconciliationError(ValueError):
 
 
 PAGE_MARKER_RE = re.compile(r"^### PAGE \d+ ###$", re.M)
+ALLOWED_RECORD_KINDS = {"unclassified", "structural_context"}
 
 
 def _sha256(value: object, field: str) -> str:
@@ -101,6 +102,9 @@ def _new_records(materialization: Mapping[str, Any], ledger: Mapping[str, Any]) 
         if not isinstance(raw, Mapping):
             raise ReconciliationError("materialiseret record skal være et objekt")
         acceptance_id = _text(raw.get("acceptance_id"), "acceptance_id")
+        record_kind = raw.get("record_kind")
+        if record_kind not in ALLOWED_RECORD_KINDS:
+            raise ReconciliationError("materialiseret record_kind er ugyldig")
         if acceptance_id in acceptance_ids:
             raise ReconciliationError("materialisering har dublet acceptance_id")
         acceptance_ids.add(acceptance_id)
@@ -115,6 +119,7 @@ def _new_records(materialization: Mapping[str, Any], ledger: Mapping[str, Any]) 
         result.append({
             "acceptance_id": acceptance_id,
             "record_key": record_key,
+            "record_kind": record_kind,
             "char_from": start,
             "char_to": end,
         })
@@ -394,6 +399,7 @@ def build_reconciliation(baseline_records: object, evidence: Mapping[str, Any],
             disposition = disposition_by_old[old_keys[0]]
         new_entries.append({
             "new_record_key": new["record_key"],
+            "record_kind": new["record_kind"],
             "source_span": {"char_from": new["char_from"], "char_to": new["char_to"]},
             "baseline_record_keys": old_keys,
             "disposition": disposition,
