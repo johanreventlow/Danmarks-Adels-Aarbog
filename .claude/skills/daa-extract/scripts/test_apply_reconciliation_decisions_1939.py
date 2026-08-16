@@ -299,6 +299,16 @@ def test_accepts_exactly_one_human_reviewed_text_anchor():
     assert old["decision_batch"] == "batch-1"
     assert result["new_entries"][0]["baseline_record_keys"] == ["old-a"]
     assert result["new_entries"][0]["disposition"] == "accepted_carryover"
+    assert result["report"]["accepted_carryovers"] == 1
+    assert result["report"]["baseline_dispositions"] == {
+        "accepted_carryover": 1,
+    }
+    assert result["report"]["new_dispositions"] == {
+        "accepted_carryover": 1,
+    }
+    assert result["report"]["remaining_baseline_review"] == 0
+    assert result["report"]["remaining_new_review"] == 0
+    assert result["report"]["reconciliation_gate"] == "GO"
 
 
 @pytest.mark.parametrize("mutation", [
@@ -542,6 +552,179 @@ def test_later_decision_batch_preserves_prior_duplicate_retirement():
     assert retired["canonical_baseline_record_key"] == "old-a"
     assert result["report"]["retired_duplicates"] == 1
     assert result["report"]["remaining_baseline_review"] == 0
+
+
+def test_later_text_anchor_batch_preserves_prior_history_and_recounts_reports():
+    """Catch regression where recomputation overwrites earlier decision audits."""
+    source = {
+        "schema_version": "1.0",
+        "source": {
+            "edition": "1939",
+            "baseline_sha256": "a" * 64,
+            "calamari_sha256": "b" * 64,
+        },
+        "baseline_entries": [
+            {
+                "baseline_record_key": "old-prior-boundary",
+                "name": "Prior Boundary",
+                "matches": [{
+                    "new_record_key": "new-prior-boundary",
+                    "geometry_relation": "new_inside_old",
+                }],
+                "disposition": "boundary_change_review",
+            },
+            {
+                "baseline_record_key": "old-duplicate-canonical",
+                "name": "Duplicate Canonical",
+                "source_span": {"char_from": 10, "char_to": 20},
+                "matches": [{
+                    "new_record_key": "new-duplicate",
+                    "geometry_relation": "narrative_inside_new",
+                }],
+                "disposition": "merge_review",
+            },
+            {
+                "baseline_record_key": "old-duplicate-retired",
+                "name": "Duplicate Retired",
+                "source_span": {"char_from": 10, "char_to": 20},
+                "matches": [{
+                    "new_record_key": "new-duplicate",
+                    "geometry_relation": "narrative_inside_new",
+                }],
+                "disposition": "merge_review",
+            },
+        ],
+        "new_entries": [
+            {
+                "new_record_key": "new-prior-boundary",
+                "record_kind": "unclassified",
+                "source_span": {"char_from": 0, "char_to": 10},
+                "baseline_record_keys": ["old-prior-boundary"],
+                "disposition": "boundary_change_review",
+            },
+            {
+                "new_record_key": "new-duplicate",
+                "record_kind": "unclassified",
+                "source_span": {"char_from": 10, "char_to": 30},
+                "baseline_record_keys": [
+                    "old-duplicate-canonical", "old-duplicate-retired",
+                ],
+                "disposition": "merge_review",
+            },
+            {
+                "new_record_key": "new-structural",
+                "record_kind": "structural_context",
+                "source_span": {"char_from": 30, "char_to": 40},
+                "baseline_record_keys": [],
+                "disposition": "accepted_structural_context",
+            },
+        ],
+        "report": {"reconciliation_gate": "NO-GO"},
+    }
+    first_digest = hashlib.sha256(encoded(source)).hexdigest()
+    first_document = {
+        "schema_version": "1.0",
+        "source": {
+            "edition": "1939",
+            "reconciliation_sha256": first_digest,
+            "baseline_sha256": "a" * 64,
+            "calamari_sha256": "b" * 64,
+        },
+        "reviewed_by": "prior-reviewer",
+        "decision_batch": "prior-batch",
+        "decisions": [
+            {
+                "baseline_record_key": "old-prior-boundary",
+                "decision_kind": "accept_boundary_change",
+                "selected_new_record_key": "new-prior-boundary",
+            },
+            {
+                "baseline_record_key": "old-duplicate-retired",
+                "decision_kind": "retire_duplicate_record",
+                "canonical_baseline_record_key": "old-duplicate-canonical",
+                "new_record_key": "new-duplicate",
+                "reason": "duplicate_extraction_record",
+            },
+        ],
+    }
+    first = apply_decisions(source, first_document, reconciliation_sha256=first_digest)
+    first["baseline_entries"].append({
+        "baseline_record_key": "old-fresh-text-anchor",
+        "name": "Fresh Text Anchor",
+        "matches": [{
+            "new_record_key": "new-fresh-text-anchor",
+            "geometry_relation": "new_inside_old",
+        }],
+        "disposition": "text_anchor_review",
+        "evidence_method": "unique_exact_narrative",
+    })
+    first["new_entries"].append({
+        "new_record_key": "new-fresh-text-anchor",
+        "record_kind": "unclassified",
+        "source_span": {"char_from": 40, "char_to": 50},
+        "baseline_record_keys": ["old-fresh-text-anchor"],
+        "disposition": "text_anchor_review",
+    })
+    prior_baseline = {
+        entry["baseline_record_key"]: entry
+        for entry in first["baseline_entries"]
+        if entry["baseline_record_key"] != "old-fresh-text-anchor"
+    }
+    second_digest = hashlib.sha256(encoded(first)).hexdigest()
+    second_document = {
+        "schema_version": "1.0",
+        "source": {
+            "edition": "1939",
+            "reconciliation_sha256": second_digest,
+            "baseline_sha256": "a" * 64,
+            "calamari_sha256": "b" * 64,
+        },
+        "reviewed_by": "text-anchor-reviewer",
+        "decision_batch": "text-anchor-batch",
+        "decisions": [{
+            "baseline_record_key": "old-fresh-text-anchor",
+            "decision_kind": "accept_text_anchor",
+            "selected_new_record_key": "new-fresh-text-anchor",
+        }],
+    }
+
+    result = apply_decisions(first, second_document, reconciliation_sha256=second_digest)
+
+    result_baseline = {
+        entry["baseline_record_key"]: entry for entry in result["baseline_entries"]
+    }
+    for key, entry in prior_baseline.items():
+        assert result_baseline[key] == entry
+    assert result_baseline["old-fresh-text-anchor"]["disposition"] == "accepted_carryover"
+    assert result_baseline["old-fresh-text-anchor"]["reconciliation_basis"] == (
+        "human_accepted_text_anchor"
+    )
+    assert result_baseline["old-fresh-text-anchor"]["reviewed_by"] == "text-anchor-reviewer"
+    assert result_baseline["old-fresh-text-anchor"]["decision_batch"] == "text-anchor-batch"
+    structural = next(
+        entry for entry in result["new_entries"]
+        if entry["new_record_key"] == "new-structural"
+    )
+    assert structural["baseline_record_keys"] == []
+    assert structural["disposition"] == "accepted_structural_context"
+    duplicate_target = next(
+        entry for entry in result["new_entries"]
+        if entry["new_record_key"] == "new-duplicate"
+    )
+    assert duplicate_target["baseline_record_keys"] == ["old-duplicate-canonical"]
+    assert result["report"]["accepted_carryovers"] == 3
+    assert result["report"]["retired_duplicates"] == 1
+    assert result["report"]["baseline_dispositions"] == {
+        "accepted_carryover": 3,
+        "retired_duplicate": 1,
+    }
+    assert result["report"]["new_dispositions"] == {
+        "accepted_carryover": 3,
+        "accepted_structural_context": 1,
+    }
+    assert result["report"]["remaining_baseline_review"] == 0
+    assert result["report"]["remaining_new_review"] == 0
+    assert result["report"]["reconciliation_gate"] == "GO"
 
 
 @pytest.mark.parametrize("mutation", [
