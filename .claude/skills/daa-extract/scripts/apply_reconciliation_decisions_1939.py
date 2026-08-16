@@ -16,7 +16,7 @@ class DecisionError(ValueError):
 
 RESOLVED_DISPOSITIONS = {
     "unchanged", "accepted_carryover", "accepted_structural_context",
-    "retired_duplicate",
+    "retired_duplicate", "retired_fragment",
 }
 ALLOWED_SOURCE_DISPOSITIONS = {"split_review", "split_merge_review"}
 
@@ -116,6 +116,60 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
         if old_key in affected_old_keys:
             raise DecisionError("decision har modstridende baseline_record_key")
         old = old_by_key.get(old_key)
+        if decision.get("decision_kind") == "retire_continuation_fragment":
+            if set(decision) != {
+                "baseline_record_key", "decision_kind",
+                "canonical_baseline_record_key", "new_record_key", "reason",
+            } or decision.get("reason") != "continuation_extraction_fragment":
+                raise DecisionError("ukendt continuation fragment retirement-handling")
+            canonical_key = _text(
+                decision.get("canonical_baseline_record_key"),
+                "canonical_baseline_record_key",
+            )
+            target = _text(decision.get("new_record_key"), "new_record_key")
+            canonical = old_by_key.get(canonical_key)
+            target_entry = new_by_key.get(target)
+            if old is None or canonical is None or target_entry is None:
+                raise DecisionError("continuation fragment peger på ukendt record")
+            if old_key == canonical_key or canonical_key in affected_old_keys:
+                raise DecisionError("continuation fragment har modstridende baseline-records")
+            if (old.get("disposition") != "merge_review"
+                    or canonical.get("disposition") != "merge_review"
+                    or target_entry.get("disposition") != "merge_review"):
+                raise DecisionError("continuation fragment kræver merge-review records")
+            canonical_span = canonical.get("source_span")
+            fragment_span = old.get("source_span")
+            target_span = target_entry.get("source_span")
+            spans = (canonical_span, fragment_span, target_span)
+            if any(
+                not isinstance(span, Mapping)
+                or type(span.get("char_from")) is not int
+                or type(span.get("char_to")) is not int
+                or span["char_from"] < 0
+                or span["char_to"] <= span["char_from"]
+                for span in spans
+            ):
+                raise DecisionError("continuation fragment kræver gyldige kildespænd")
+            if (canonical_span["char_to"] > fragment_span["char_from"]
+                    or fragment_span["char_from"] - canonical_span["char_to"] > 1):
+                raise DecisionError("continuation fragment kræver sammenhængende rækkefølge")
+            if (target_span["char_from"] > canonical_span["char_from"]
+                    or target_span["char_to"] < fragment_span["char_to"]):
+                raise DecisionError("continuation fragment skal ligge i målets kildespænd")
+            for entry in (old, canonical):
+                matches = entry.get("matches")
+                if (not isinstance(matches, list) or len(matches) != 1
+                        or not isinstance(matches[0], Mapping)
+                        or matches[0].get("new_record_key") != target):
+                    raise DecisionError("continuation fragment kræver ét fælles mål")
+            if target in selected_targets:
+                raise DecisionError("flere beslutninger bruger samme new_record_key")
+            affected_old_keys.update((old_key, canonical_key))
+            selected_targets.add(target)
+            retirement = (decision, canonical_key, target, "fragment")
+            retirement_by_retired[old_key] = retirement
+            retirement_by_canonical[canonical_key] = (decision, old_key, target, "fragment")
+            continue
         if decision.get("decision_kind") == "retire_duplicate_record":
             if set(decision) != {
                 "baseline_record_key", "decision_kind",
@@ -153,9 +207,9 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
                 raise DecisionError("flere beslutninger bruger samme new_record_key")
             affected_old_keys.update((old_key, canonical_key))
             selected_targets.add(target)
-            retirement = (decision, canonical_key, target)
+            retirement = (decision, canonical_key, target, "duplicate")
             retirement_by_retired[old_key] = retirement
-            retirement_by_canonical[canonical_key] = (decision, old_key, target)
+            retirement_by_canonical[canonical_key] = (decision, old_key, target, "duplicate")
             continue
         if decision.get("decision_kind") == "accept_boundary_change":
             if set(decision) != {
@@ -251,7 +305,7 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
         other_owners = [key for key in original_owners[selected] if key != old_key]
         if other_owners and not all(key in decision_by_old for key in other_owners):
             raise DecisionError("valgt mål har fortsat flere baseline-ejere")
-    for retired_key, (_, canonical_key, target) in retirement_by_retired.items():
+    for retired_key, (_, canonical_key, target, _) in retirement_by_retired.items():
         if set(original_owners[target]) != {retired_key, canonical_key}:
             raise DecisionError("duplicate retirement har ikke præcis to ejere")
 
@@ -263,21 +317,27 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
         retained = retirement_by_canonical.get(old_key)
         choice = decision_by_old.get(old_key)
         if retirement is not None:
-            decision, canonical_key, _ = retirement
+            decision, canonical_key, _, retirement_kind = retirement
             output["matches"] = []
-            output["disposition"] = "retired_duplicate"
+            output["disposition"] = (
+                "retired_fragment" if retirement_kind == "fragment" else "retired_duplicate"
+            )
             output["canonical_baseline_record_key"] = canonical_key
             output["retirement_reason"] = decision.get("reason")
             output["reviewed_by"] = reviewed_by
             output["decision_batch"] = decision_batch
         elif retained is not None:
-            _, _, target = retained
+            _, _, target, retirement_kind = retained
             output["matches"] = [
                 dict(match) for match in entry["matches"]
                 if match.get("new_record_key") == target
             ]
             output["disposition"] = "accepted_carryover"
-            output["reconciliation_basis"] = "human_retained_duplicate_target"
+            if retirement_kind == "fragment":
+                output["selected_new_record_key"] = target
+                output["reconciliation_basis"] = "human_accepted_contiguous_merge"
+            else:
+                output["reconciliation_basis"] = "human_retained_duplicate_target"
             output["reviewed_by"] = reviewed_by
             output["decision_batch"] = decision_batch
         elif choice is not None:
@@ -301,7 +361,8 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
     disposition_by_old = {}
     for entry in resolved_baseline:
         if entry["baseline_record_key"] in retirement_by_retired:
-            disposition = "retired_duplicate"
+            disposition = retirement_by_retired[entry["baseline_record_key"]][3]
+            disposition = "retired_fragment" if disposition == "fragment" else "retired_duplicate"
         elif (entry["baseline_record_key"] in decision_by_old
               or entry["baseline_record_key"] in retirement_by_canonical):
             disposition = "accepted_carryover"
@@ -347,6 +408,7 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
         "applied_decisions": len(raw_decisions),
         "accepted_carryovers": baseline_counts.get("accepted_carryover", 0),
         "retired_duplicates": baseline_counts.get("retired_duplicate", 0),
+        "retired_fragments": baseline_counts.get("retired_fragment", 0),
         "baseline_dispositions": dict(sorted(baseline_counts.items())),
         "new_dispositions": dict(sorted(new_counts.items())),
         "remaining_baseline_review": remaining_baseline,

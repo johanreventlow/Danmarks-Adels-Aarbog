@@ -188,6 +188,50 @@ def duplicate_case(mutation):
     return source, document, digest
 
 
+def continuation_fragment_reconciliation():
+    source = reconciliation()
+    source["baseline_entries"] = [
+        {
+            "baseline_record_key": "old-canonical",
+            "name": "Hedevig Ida",
+            "source_span": {"char_from": 0, "char_to": 10},
+            "matches": [{
+                "new_record_key": "new-a",
+                "geometry_relation": "old_inside_new",
+            }],
+            "disposition": "merge_review",
+        },
+        {
+            "baseline_record_key": "old-fragment",
+            "source_span": {"char_from": 10, "char_to": 20},
+            "matches": [{
+                "new_record_key": "new-a",
+                "geometry_relation": "old_inside_new",
+            }],
+            "disposition": "merge_review",
+        },
+    ]
+    source["new_entries"] = [{
+        "new_record_key": "new-a",
+        "source_span": {"char_from": 0, "char_to": 20},
+        "baseline_record_keys": ["old-canonical", "old-fragment"],
+        "disposition": "merge_review",
+    }]
+    return source
+
+
+def continuation_fragment_decision_document(reconciliation_sha256):
+    document = decision_document(reconciliation_sha256)
+    document["decisions"] = [{
+        "baseline_record_key": "old-fragment",
+        "decision_kind": "retire_continuation_fragment",
+        "canonical_baseline_record_key": "old-canonical",
+        "new_record_key": "new-a",
+        "reason": "continuation_extraction_fragment",
+    }]
+    return document
+
+
 def encoded(value):
     return (json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode()
 
@@ -507,6 +551,106 @@ def test_retires_duplicate_but_preserves_audit_and_single_owner():
     assert result["report"]["remaining_baseline_review"] == 0
     assert result["report"]["remaining_new_review"] == 0
     assert result["report"]["reconciliation_gate"] == "GO"
+
+
+def test_retires_contiguous_continuation_fragment_and_retains_only_canonical_owner():
+    source = continuation_fragment_reconciliation()
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+
+    result = apply_decisions(
+        source,
+        continuation_fragment_decision_document(digest),
+        reconciliation_sha256=digest,
+    )
+
+    canonical, fragment = result["baseline_entries"]
+    assert canonical["matches"] == [{
+        "new_record_key": "new-a", "geometry_relation": "old_inside_new",
+    }]
+    assert canonical["selected_new_record_key"] == "new-a"
+    assert canonical["disposition"] == "accepted_carryover"
+    assert canonical["reconciliation_basis"] == "human_accepted_contiguous_merge"
+    assert canonical["reviewed_by"] == "johan-reventlow"
+    assert canonical["decision_batch"] == "batch-1"
+    assert fragment["matches"] == []
+    assert fragment["disposition"] == "retired_fragment"
+    assert fragment["canonical_baseline_record_key"] == "old-canonical"
+    assert fragment["retirement_reason"] == "continuation_extraction_fragment"
+    assert fragment["reviewed_by"] == "johan-reventlow"
+    assert fragment["decision_batch"] == "batch-1"
+    assert result["new_entries"][0]["baseline_record_keys"] == ["old-canonical"]
+    assert result["new_entries"][0]["disposition"] == "accepted_carryover"
+    assert result["report"]["accepted_carryovers"] == 1
+    assert result["report"]["retired_fragments"] == 1
+    assert result["report"]["remaining_baseline_review"] == 0
+    assert result["report"]["remaining_new_review"] == 0
+    assert result["report"]["reconciliation_gate"] == "GO"
+
+
+@pytest.mark.parametrize("mutation", [
+    "baseline_not_merge_review",
+    "target_not_merge_review",
+    "different_target",
+    "non_contiguous_spans",
+    "reversed_spans",
+    "canonical_outside_target",
+    "fragment_outside_target",
+    "extra_owner",
+    "unknown_canonical_key",
+    "unknown_fragment_key",
+    "unknown_target_key",
+    "stale_reconciliation_hash",
+    "unexpected_field",
+])
+def test_continuation_fragment_retirement_fails_closed_on_unproven_or_drifted_input(mutation):
+    source = continuation_fragment_reconciliation()
+    if mutation == "baseline_not_merge_review":
+        source["baseline_entries"][0]["disposition"] = "unchanged"
+    elif mutation == "target_not_merge_review":
+        source["new_entries"][0]["disposition"] = "unchanged"
+    elif mutation == "different_target":
+        source["baseline_entries"][1]["matches"][0]["new_record_key"] = "new-b"
+        source["new_entries"].append({
+            "new_record_key": "new-b",
+            "source_span": {"char_from": 10, "char_to": 20},
+            "baseline_record_keys": ["old-fragment"],
+            "disposition": "merge_review",
+        })
+    elif mutation == "non_contiguous_spans":
+        source["baseline_entries"][1]["source_span"] = {"char_from": 12, "char_to": 20}
+    elif mutation == "reversed_spans":
+        source["baseline_entries"][0]["source_span"] = {"char_from": 10, "char_to": 20}
+        source["baseline_entries"][1]["source_span"] = {"char_from": 0, "char_to": 10}
+    elif mutation == "canonical_outside_target":
+        source["new_entries"][0]["source_span"] = {"char_from": 1, "char_to": 20}
+    elif mutation == "fragment_outside_target":
+        source["new_entries"][0]["source_span"] = {"char_from": 0, "char_to": 19}
+    elif mutation == "extra_owner":
+        source["baseline_entries"].append({
+            "baseline_record_key": "old-extra",
+            "source_span": {"char_from": 20, "char_to": 30},
+            "matches": [{
+                "new_record_key": "new-a", "geometry_relation": "partial_overlap",
+            }],
+            "disposition": "merge_review",
+        })
+        source["new_entries"][0]["baseline_record_keys"].append("old-extra")
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    document = continuation_fragment_decision_document(digest)
+    decision = document["decisions"][0]
+    if mutation == "unknown_canonical_key":
+        decision["canonical_baseline_record_key"] = "missing"
+    elif mutation == "unknown_fragment_key":
+        decision["baseline_record_key"] = "missing"
+    elif mutation == "unknown_target_key":
+        decision["new_record_key"] = "missing"
+    elif mutation == "stale_reconciliation_hash":
+        document["source"]["reconciliation_sha256"] = "c" * 64
+    elif mutation == "unexpected_field":
+        decision["note"] = "contiguous"
+
+    with pytest.raises(DecisionError):
+        apply_decisions(source, document, reconciliation_sha256=digest)
 
 
 def test_later_decision_batch_preserves_prior_duplicate_retirement():
