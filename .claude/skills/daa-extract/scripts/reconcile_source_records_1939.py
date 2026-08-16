@@ -119,8 +119,8 @@ def _new_records(materialization: Mapping[str, Any], ledger: Mapping[str, Any]) 
             "char_to": end,
         })
         previous_end = end
-    if set(ledger_by_acceptance) != acceptance_ids:
-        raise ReconciliationError("ledger og materialisering har forskelligt recordregnskab")
+    if not acceptance_ids <= set(ledger_by_acceptance):
+        raise ReconciliationError("aktive materialiseringsrecords mangler i ledger")
     return source_text, source_hash, result
 
 

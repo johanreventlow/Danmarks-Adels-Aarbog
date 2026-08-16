@@ -390,3 +390,23 @@ def test_cli_writes_full_reconciliation_and_summary_exclusively(tmp_path):
             "--report-out", str(report_path),
         ])
     assert not (tmp_path / "second.json").exists()
+
+
+def test_inactive_append_only_ledger_history_does_not_enter_current_reconciliation():
+    values = inputs()
+    baseline, evidence, materialization, ledger = values
+    ledger["entries"].append({
+        "acceptance_id": "historical-acceptance",
+        "record_key": "historical-record-key",
+        "immutable": "c" * 64,
+    })
+
+    result = build_reconciliation(
+        baseline, evidence, materialization, ledger,
+        baseline_sha256="b" * 64,
+    )
+
+    assert result["report"]["new_total"] == 2
+    assert {entry["new_record_key"] for entry in result["new_entries"]} == {
+        "new-a", "new-b",
+    }
