@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 
@@ -648,7 +649,16 @@ def test_later_text_anchor_batch_preserves_prior_history_and_recounts_reports():
         ],
     }
     first = apply_decisions(source, first_document, reconciliation_sha256=first_digest)
-    first["baseline_entries"].append({
+    prior_baseline = {
+        entry["baseline_record_key"]: entry
+        for entry in copy.deepcopy(first["baseline_entries"])
+    }
+    prior_new = {
+        entry["new_record_key"]: entry
+        for entry in copy.deepcopy(first["new_entries"])
+    }
+    second_source = copy.deepcopy(first)
+    second_source["baseline_entries"].append({
         "baseline_record_key": "old-fresh-text-anchor",
         "name": "Fresh Text Anchor",
         "matches": [{
@@ -658,19 +668,14 @@ def test_later_text_anchor_batch_preserves_prior_history_and_recounts_reports():
         "disposition": "text_anchor_review",
         "evidence_method": "unique_exact_narrative",
     })
-    first["new_entries"].append({
+    second_source["new_entries"].append({
         "new_record_key": "new-fresh-text-anchor",
         "record_kind": "unclassified",
         "source_span": {"char_from": 40, "char_to": 50},
         "baseline_record_keys": ["old-fresh-text-anchor"],
         "disposition": "text_anchor_review",
     })
-    prior_baseline = {
-        entry["baseline_record_key"]: entry
-        for entry in first["baseline_entries"]
-        if entry["baseline_record_key"] != "old-fresh-text-anchor"
-    }
-    second_digest = hashlib.sha256(encoded(first)).hexdigest()
+    second_digest = hashlib.sha256(encoded(second_source)).hexdigest()
     second_document = {
         "schema_version": "1.0",
         "source": {
@@ -688,13 +693,20 @@ def test_later_text_anchor_batch_preserves_prior_history_and_recounts_reports():
         }],
     }
 
-    result = apply_decisions(first, second_document, reconciliation_sha256=second_digest)
+    result = apply_decisions(
+        second_source, second_document, reconciliation_sha256=second_digest,
+    )
 
     result_baseline = {
         entry["baseline_record_key"]: entry for entry in result["baseline_entries"]
     }
     for key, entry in prior_baseline.items():
         assert result_baseline[key] == entry
+    result_new = {
+        entry["new_record_key"]: entry for entry in result["new_entries"]
+    }
+    for key, entry in prior_new.items():
+        assert result_new[key] == entry
     assert result_baseline["old-fresh-text-anchor"]["disposition"] == "accepted_carryover"
     assert result_baseline["old-fresh-text-anchor"]["reconciliation_basis"] == (
         "human_accepted_text_anchor"
@@ -712,6 +724,9 @@ def test_later_text_anchor_batch_preserves_prior_history_and_recounts_reports():
         if entry["new_record_key"] == "new-duplicate"
     )
     assert duplicate_target["baseline_record_keys"] == ["old-duplicate-canonical"]
+    assert result["report"]["baseline_total"] == 4
+    assert result["report"]["new_total"] == 4
+    assert result["report"]["applied_decisions"] == 1
     assert result["report"]["accepted_carryovers"] == 3
     assert result["report"]["retired_duplicates"] == 1
     assert result["report"]["baseline_dispositions"] == {
