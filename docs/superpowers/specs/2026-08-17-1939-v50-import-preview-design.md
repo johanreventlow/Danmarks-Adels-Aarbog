@@ -2,7 +2,7 @@
 
 **Dato:** 2026-08-17
 
-**Status:** Godkendt designretning. Implementering afventer designspec-review.
+**Status:** Godkendt design. Implementering følger den separate plan.
 
 ## Formål
 
