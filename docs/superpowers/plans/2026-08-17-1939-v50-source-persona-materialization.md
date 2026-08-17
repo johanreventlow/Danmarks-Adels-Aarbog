@@ -29,25 +29,25 @@
 - Consumes: import-preview v1, database-preview v1 og en ordnet liste af identity-decisions v1 med deres SHA-256.
 - Produces: `build_source_persona_materialization(...) -> dict`, `write_outputs(...)` og CLI-output med schema `1939-v50-source-persona-materialization-v1`.
 
-- [ ] **Step 1: Skriv failing tests for 24→17-kontrakten og entydig target-validering**
+- [x] **Step 1: Skriv failing tests for 24→17-kontrakten og entydig target-validering**
 
   Små fixtures skal kontrollere, at kun `genuinely_new_pending` kan materialiseres, at canonical person-id matcher databaseankeret, og at source/candidate/person er globalt entydige.
 
-- [ ] **Step 2: Kør fokuseret RED**
+- [x] **Step 2: Kør fokuseret RED**
 
   Run: `cd .claude/skills/daa-extract/scripts && /usr/bin/python3 -B -m pytest -q test_materialize_source_personas_1939_v50.py`
 
   Expected: FAIL fordi modulet eller builderen ikke findes.
 
-- [ ] **Step 3: Implementér minimal lukket builder**
+- [x] **Step 3: Implementér minimal lukket builder**
 
   Builderen validerer schemas/gates/hashes, afleder deterministisk UUIDv5 fra det logiske `source_id` og `new_record_key`, bevarer database-source-id separat, kopierer source span/verbatim og emitterer 24 accepted identities, 17 pending samt nul canonical mutations.
 
-- [ ] **Step 4: Tilføj negative drift-tests**
+- [x] **Step 4: Tilføj negative drift-tests**
 
   Afvis mindst ukendt batchschema, ændret inputhash, duplicate source/candidate/person, source uden for pending-sættet, target/person mismatch, ændret source span og enhver write-authority.
 
-- [ ] **Step 5: Kør fokuseret GREEN og commit**
+- [x] **Step 5: Kør fokuseret GREEN og commit**
 
   Run: `cd .claude/skills/daa-extract/scripts && /usr/bin/python3 -B -m pytest -q test_materialize_source_personas_1939_v50.py`
 
@@ -65,25 +65,25 @@
 - Consumes: import-preview v1 plus source-persona-materialization v1 og dets hash.
 - Produces: database-preview schema `1939-v50-database-preview-v2` med `source_personas`, 17 pending og uændrede canonical mutation-gates.
 
-- [ ] **Step 1: Skriv failing R-tests for materialiseringsvalidering og 24/17-output**
+- [x] **Step 1: Skriv failing R-tests for materialiseringsvalidering og 24/17-output**
 
   Tests skal bruge den eksisterende dependency-injected queryadapter og assertére, at forkert import-preview-hash, source-id, count, target eller gate afvises før domænesammenligning.
 
-- [ ] **Step 2: Kør fokuseret RED**
+- [x] **Step 2: Kør fokuseret RED**
 
   Run: `Rscript -e 'source(".claude/skills/daa-extract/scripts/test_preview_reimport_1939_v50.R")'`
 
   Expected: FAIL fordi v2-inputtet endnu ikke understøttes.
 
-- [ ] **Step 3: Implementér v2 som snæver udvidelse**
+- [x] **Step 3: Implementér v2 som snæver udvidelse**
 
   Tilføj CLI-argumenterne `--source-personas` og `--source-personas-sha256`; valider materialiseringen og sammenlign private persona-/identitytabeller, når capability-proben viser dem. Ved manglende tabeller emitér null comparisons og stabile capability-blockers.
 
-- [ ] **Step 4: Bevar read-only- og SQL-whitelist-testene**
+- [x] **Step 4: Bevar read-only- og SQL-whitelist-testene**
 
   Assertér fortsat `BEGIN READ ONLY` før første domænequery, rollback/disconnect på alle veje og nul credentialfelter i output.
 
-- [ ] **Step 5: Kør fokuseret GREEN og commit**
+- [x] **Step 5: Kør fokuseret GREEN og commit**
 
   Run: `Rscript -e 'source(".claude/skills/daa-extract/scripts/test_preview_reimport_1939_v50.R")'`
 
@@ -101,19 +101,19 @@
 - Consumes: de låste task21/task22-artefakter og den eksisterende read-only databaseforbindelse.
 - Produces: hashbundne realdataresultater uden databasewrites.
 
-- [ ] **Step 1: Generér source-persona-materialiseringen eksklusivt**
+- [x] **Step 1: Generér source-persona-materialiseringen eksklusivt**
 
   Brug import-preview v1, database-preview v1 og identity-decisions v1-v4; forvent 24 accepted, 17 pending og 0 canonical mutations.
 
-- [ ] **Step 2: Genbyg til temp og sammenlign bytes**
+- [x] **Step 2: Genbyg til temp og sammenlign bytes**
 
   JSON og Markdown skal være byteidentiske; alle 24 source-, candidate- og person-id'er skal være entydige.
 
-- [ ] **Step 3: Kør den virkelige database-preview v2 read-only**
+- [x] **Step 3: Kør den virkelige database-preview v2 read-only**
 
   Brug direct/session-mode connection, afvis port 6543, verificér `transaction_read_only=on`, og skriv kun lokale outputfiler efter disconnect.
 
-- [ ] **Step 4: Auditér resultatet**
+- [x] **Step 4: Auditér resultatet**
 
   Bekræft 24 materialiserede, 17 pending, 0 canonical person creates/updates/deletes, capability-blockers som stabile og ingen credentials i output.
 
@@ -127,11 +127,11 @@
 - Consumes: alle fokuserede og realdata-resultater.
 - Produces: reproducerbar kommando, eksakte counts og ærlig GO/NO-GO-status.
 
-- [ ] **Step 1: Dokumentér kommandoer og gates**
+- [x] **Step 1: Dokumentér kommandoer og gates**
 
   Skeln `source_persona_materialization_gate: GO`, read-only dry-run-status og `reimport_gate: NO-GO`.
 
-- [ ] **Step 2: Kør fuld verifikation**
+- [x] **Step 2: Kør fuld verifikation**
 
   Run: `cd .claude/skills/daa-extract/scripts && /usr/bin/python3 -B -m pytest -q`
 
@@ -139,10 +139,10 @@
 
   Run: `git diff --check && git status --short`
 
-- [ ] **Step 3: Commit dokumentation og eventuelle snævre rettelser**
+- [x] **Step 3: Commit dokumentation og eventuelle snævre rettelser**
 
   Commit: `docs(1939): report source persona dry run`
 
-- [ ] **Step 4: Handoff**
+- [x] **Step 4: Handoff**
 
   Rapportér artefakthashes, testtal, database-read-only-bevis, resterende blockers og at en egentlig writer fortsat kræver separat autorisation.

@@ -418,16 +418,11 @@ legacy `kilde_span` ordret mod v50-verbatim og sætter altid
 `canonical_mutations_authorized: false`. Genuinely-new, structural og
 cross-reference må aldrig skabe personer.
 
-Kør derefter den aktuelle Supabase-sammenligning. Credentials læses fra
-`~/.Renviron`; angiv dem aldrig på kommandolinjen eller i rapporten:
-
-```bash
-Rscript .claude/skills/daa-extract/scripts/preview_reimport_1939_v50.R \
-  --input=work/task21-1939-v50-import-preview/import-preview-v1.json \
-  --output=work/task21-1939-v50-import-preview/database-preview-v1.json \
-  --report=work/task21-1939-v50-import-preview/database-preview-v1-report.md \
-  --source-edition='DAA 1939'
-```
+Det låste `database-preview-v1.json` er identitetsreviewets databasesnapshot.
+Efter identitetsreviewet materialiseres de godkendte beslutninger og den
+aktuelle Supabase-sammenligning køres som v2 med kommandoerne nedenfor.
+Credentials læses fra `~/.Renviron`; angiv dem aldrig på kommandolinjen eller i
+rapporten.
 
 Databasevejen afviser transaction pooler-port 6543, starter `BEGIN READ ONLY`,
 verificerer `transaction_read_only=on`, whitelister SQL til read-only grammar og
@@ -480,6 +475,44 @@ Manifestet er altid `review_only`, alle kandidatlinks er `unresolved`, og
 at pakken er komplet og reproducerbar; det er ikke identitets-, person-create-,
 writer- eller reimport-GO. Alle tre output ligger under ignoreret `work/` og må
 ikke committes.
+
+### Materialisér godkendte identiteter og kør database-preview v2
+
+De fire godkendte beslutningsbatches materialiseres deterministisk som
+source-persona-kandidater. Targets kan være både `matched` og `database_only`,
+men record-key/person-id-parret skal være entydigt i det hashbundne v1-snapshot:
+
+```bash
+/usr/bin/python3 -B .claude/skills/daa-extract/scripts/materialize_source_personas_1939_v50.py \
+  --import-preview work/task21-1939-v50-import-preview/import-preview-v1.json \
+  --database-preview work/task21-1939-v50-import-preview/database-preview-v1.json \
+  --identity-decisions work/task22-1939-v50-identity-review/identity-decisions-v1.json \
+    work/task22-1939-v50-identity-review/identity-decisions-v2.json \
+    work/task22-1939-v50-identity-review/identity-decisions-v3.json \
+    work/task22-1939-v50-identity-review/identity-decisions-v4.json \
+  --output work/task23-1939-v50-source-personas/source-persona-materialization-v1.json \
+  --report work/task23-1939-v50-source-personas/source-persona-materialization-v1-report.md \
+  --expected-decisions 24 \
+  --expected-remaining-pending 17
+```
+
+Bind derefter database-preview v2 til materialiseringens faktiske SHA-256:
+
+```bash
+Rscript .claude/skills/daa-extract/scripts/preview_reimport_1939_v50.R \
+  --input=work/task21-1939-v50-import-preview/import-preview-v1.json \
+  --source-personas=work/task23-1939-v50-source-personas/source-persona-materialization-v1.json \
+  --source-personas-sha256=<sha256> \
+  --output=work/task23-1939-v50-source-personas/database-preview-v2.json \
+  --report=work/task23-1939-v50-source-personas/database-preview-v2-report.md \
+  --expected-database=postgres \
+  --source-edition='DAA 1939'
+```
+
+`source_persona_materialization_gate: GO` betyder kun, at de godkendte
+identitetsbeslutninger er materialiseret konsistent. Manglende private
+source-record/persona-tabeller, resterende identiteter, provenancearbejde eller
+writerautorisation holder fortsat `dry_run_gate` og `reimport_gate` på `NO-GO`.
 
 ## Vigtige principper
 
