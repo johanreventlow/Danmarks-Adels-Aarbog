@@ -270,6 +270,22 @@ database_preview_sql_registry <- function() {
       "JOIN public.family_member fm ON fm.family_id = target.family_id",
       "JOIN public.person p ON p.id = fm.person_id",
       "ORDER BY target.person_id, fm.family_id, fm.rolle, fm.person_id"
+    ),
+    profile_family_facts = paste(
+      "SELECT target.person_id AS target_person_id, f.id AS fact_id,",
+      "f.subjekt_id AS family_id, f.faktatype, a.id AS assertion_id,",
+      "a.vaerdi_tekst, a.date_raw, c.id AS citation_id, c.citat_tekst,",
+      "c.side AS citation_side,",
+      "(SELECT count(*) FROM public.change_event ce",
+      " JOIN public.change_set cs ON cs.id = ce.change_set_id",
+      " WHERE ce.tabel = 'fact' AND ce.row_pk->>'id' = f.id::text",
+      " AND left(cs.operation, 4) = 'red_') AS editorial_events",
+      "FROM public.family_member target",
+      "JOIN public.person_external_id pei ON pei.person_id = target.person_id AND pei.source_id = $1",
+      "JOIN public.fact f ON f.subjekt_type = 'family' AND f.subjekt_id = target.family_id",
+      "LEFT JOIN public.assertion a ON a.target_type = 'fact' AND a.target_id = f.id",
+      "LEFT JOIN public.citation c ON c.assertion_id = a.id AND c.source_id = $1",
+      "ORDER BY target.person_id, f.subjekt_id, f.id, a.id, c.id"
     )
   )
 }

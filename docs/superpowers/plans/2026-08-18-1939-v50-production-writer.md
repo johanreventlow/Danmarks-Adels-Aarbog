@@ -63,19 +63,57 @@ alle låste hashes og filinterfaces i stedet for at genbruge dem stiltiende.
 ### Task 1: Byg det lukkede provenance-reviewmanifest
 
 **Files:**
+- Create: `.claude/skills/daa-extract/scripts/profile_provenance_review_1939_v50_helpers.R`
+- Create: `.claude/skills/daa-extract/scripts/profile_provenance_review_1939_v50.R`
+- Create: `.claude/skills/daa-extract/scripts/test_profile_provenance_review_1939_v50.R`
+- Create: `tests/testthat/test-profile-provenance-review-1939-v50.R`
+- Modify: `.claude/skills/daa-extract/scripts/preview_reimport_1939_v50_helpers.R`
+- Modify: `.claude/skills/daa-extract/scripts/test_preview_reimport_1939_v50.R`
 - Create: `.claude/skills/daa-extract/scripts/build_provenance_review_1939_v50.py`
 - Create: `.claude/skills/daa-extract/scripts/test_build_provenance_review_1939_v50.py`
+- Generate ignored: `work/task25-1939-v50-production-writer/provenance-database-profiles-v1.json`
 - Generate ignored: `work/task25-1939-v50-production-writer/provenance-review-v1.json`
 - Generate ignored: `work/task25-1939-v50-production-writer/provenance-review-v1-report.md`
 
 **Interfaces:**
 - Consumes: den autoritative import-preview v1, source-persona-materialisering
   v2, remaining-identity-decisions v1, database-preview v3 fix3, v50
-  reconciliation, boundary-materialisering og den hashbundne Calamari-tekst.
+  reconciliation, boundary-materialisering, den hashbundne Calamari-tekst og
+  et nyt read-only profiludtræk af alle 543 mapped targets med konkrete facts,
+  relations-, family-, membership- og family-fact-rækker samt source/editorial
+  provenance.
 - Produces schema `1939-v50-provenance-review-v1` med præcis 305 subjects i
   stabil `(category, source_record_key, source_order, object_order)`-orden.
 
-- [ ] **Step 1: Skriv RED-test for eksakt 130/94/81-dækning**
+- [ ] **Step 1: Skriv RED-test for det read-only 543-profilsudtræk**
+
+  Brug en instrumenteret databasegateway og kræv `BEGIN READ ONLY` før første
+  domænequery, `transaction_read_only=on`, præcis de deklarerede
+  record-key/person-ID-par og komplette row-level facts, relations, families,
+  memberships og family facts med citation/source- og editorial-events.
+
+- [ ] **Step 2: Kør R-RED og implementér det mindste profiludtræk**
+
+  Genbrug den eksisterende identity-profile-queryform og dens eksakte SQL-
+  registry; generalisér ikke v1-outputtet. Tilføj kun den manglende lukkede
+  `profile_family_facts`-query. Det nye output er
+  `1939-v50-provenance-db-profiles-v1`, hashbundet til database-preview fix3 og
+  de 543 deklarerede par. Det er altid `review_only` og uden write-authority.
+
+  Run:
+
+  ```bash
+  Rscript .claude/skills/daa-extract/scripts/test_profile_provenance_review_1939_v50.R
+  ```
+
+- [ ] **Step 3: Kør liveprofilen read-only og dobbeltbyg semantisk**
+
+  Profilér de 543 mapped targets i to nye `BEGIN READ ONLY`-sessioner. Snapshot-
+  tid må variere; øvrig semantik og alle row IDs/provenancefelter skal være
+  identiske. Manglende family-fact-, citation- eller editorial-kapabilitet
+  fejler lukket.
+
+- [ ] **Step 4: Skriv Python-RED-test for eksakt 130/94/81-dækning**
 
   Byg en lille fixture med fakta, ægteskab og relation og kræv én subject pr.
   inputobjekt, unik `review_subject_id`, raw payload, source-record, span,
@@ -90,7 +128,7 @@ alle låste hashes og filinterfaces i stedet for at genbruge dem stiltiende.
   assert review["database_write_authorized"] is False
   ```
 
-- [ ] **Step 2: Kør fokuseret RED**
+- [ ] **Step 5: Kør fokuseret Python-RED**
 
   Run:
 
@@ -102,7 +140,7 @@ alle låste hashes og filinterfaces i stedet for at genbruge dem stiltiende.
   Expected: collection fejler med `ModuleNotFoundError`, fordi builderen ikke
   findes.
 
-- [ ] **Step 3: Implementér lukket lineage- og subjectvalidering**
+- [ ] **Step 6: Implementér lukket lineage- og subjectvalidering**
 
   Implementér `build_provenance_review(...) -> dict`. Kræv eksakte inputhashes,
   kendte schema-versioner, 543 entydige existing targets, de otte eksakte
@@ -110,7 +148,7 @@ alle låste hashes og filinterfaces i stedet for at genbruge dem stiltiende.
   130/94/81 parkerede objekter. Afvis ukendte felter, duplicate IDs, ukendte
   targets og enhver write-authority.
 
-- [ ] **Step 4: Implementér kun evidenspræsentation, ikke afgørelser**
+- [ ] **Step 7: Implementér kun evidenspræsentation, ikke afgørelser**
 
   For hvert subject medtag:
 
@@ -124,24 +162,31 @@ alle låste hashes og filinterfaces i stedet for at genbruge dem stiltiende.
   Normaliseret tekst må kun være `presentation_only`; den kan ikke autorisere
   en disposition.
 
-- [ ] **Step 5: Tilføj mutations- og determinismetests**
+- [ ] **Step 8: Tilføj mutations- og determinismetests**
 
   Afvis mindst: 129/131 facts, 93/95 marriages, 80/82 relations, duplicate
   subject, ændret inputhash, ændret Calamari-substring, forkert target-owner,
   ukendt category, skjult authority, reordering og ekstra felt. Genbyg under to
   `PYTHONHASHSEED`-værdier og kræv byteidentisk JSON.
 
-- [ ] **Step 6: Generér realdatareview eksklusivt og auditér 305/305**
+- [ ] **Step 9: Generér realdatareview eksklusivt og auditér 305/305**
 
   CLI'en skal kræve alle inputstier og deres forventede SHA-256 eksplicit.
   Skriv ikke output, hvis en eksisterende fil findes. Genbyg til `mktemp -d`,
   brug `cmp`, og kontrollér præcis 305 unikke subjects samt 130/94/81.
 
-- [ ] **Step 7: Commit builder og tests**
+- [ ] **Step 10: Commit profiler, builder og tests**
 
   ```bash
-  git add .claude/skills/daa-extract/scripts/build_provenance_review_1939_v50.py \
-    .claude/skills/daa-extract/scripts/test_build_provenance_review_1939_v50.py
+  git add .claude/skills/daa-extract/scripts/profile_provenance_review_1939_v50_helpers.R \
+    .claude/skills/daa-extract/scripts/profile_provenance_review_1939_v50.R \
+    .claude/skills/daa-extract/scripts/test_profile_provenance_review_1939_v50.R \
+    tests/testthat/test-profile-provenance-review-1939-v50.R \
+    .claude/skills/daa-extract/scripts/preview_reimport_1939_v50_helpers.R \
+    .claude/skills/daa-extract/scripts/test_preview_reimport_1939_v50.R \
+    .claude/skills/daa-extract/scripts/build_provenance_review_1939_v50.py \
+    .claude/skills/daa-extract/scripts/test_build_provenance_review_1939_v50.py \
+    docs/superpowers/plans/2026-08-18-1939-v50-production-writer.md
   git commit -m "feat(1939): build production provenance review"
   ```
 
