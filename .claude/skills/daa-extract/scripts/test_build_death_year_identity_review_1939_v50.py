@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 
 import build_death_year_identity_review_1939_v50 as subject
 import pytest
@@ -132,13 +133,21 @@ def test_rejects_name_introduced_after_parent_transition():
     assert subject.qualifying_candidate(source_text, profile) is None
 
 
+def test_rejects_partial_first_name_when_full_profile_name_differs():
+    profile = profile_row(
+        "old-christian", 1220, "Christian Detlev", "10 Dec. 1775")
+    assert subject.qualifying_candidate(
+        "Christian Ditlev til Christianssæde († 1775).", profile) is None
+
+
 def test_builds_closed_review_with_exact_coverage_and_no_authority():
     result = subject.build_death_year_review(
         **fixture_inputs(), expected_subjects=2, expected_links=1,
         expected_profiles=3)
     assert result["schema_version"] == "1939-v50-death-year-identity-review-v1"
     assert result["counts"] == {
-        "subjects": 2, "profiles": 3, "candidate_links": 1,
+        "subjects": 2, "profiles": 3, "searchable_profiles": 3,
+        "unsearchable_profiles": 0, "candidate_links": 1,
         "linked_subjects": 1, "unlinked_subjects": 1,
     }
     assert result["review_only"] is True
@@ -153,7 +162,7 @@ def test_builds_closed_review_with_exact_coverage_and_no_authority():
     "mapped_schema", "mapped_gate", "decision_write_authority",
     "duplicate_decision_source", "profile_count", "duplicate_person_id",
     "missing_clean_profile", "subject_count", "link_count",
-    "ambiguous_candidate",
+    "ambiguous_candidate", "mapped_profile_count",
 ])
 def test_fails_closed_on_input_drift_or_ambiguity(mutation):
     inputs = copy.deepcopy(fixture_inputs())
@@ -170,6 +179,9 @@ def test_fails_closed_on_input_drift_or_ambiguity(mutation):
         batch["counts"] = {"decisions": 2, "same": 2}
     elif mutation == "profile_count":
         inputs["database_preview"]["person_anchors"]["matched_count"] = 2
+    elif mutation == "mapped_profile_count":
+        inputs["mapped_review"]["counts"].update({
+            "profiles": 4, "searchable_profiles": 4})
     elif mutation == "duplicate_person_id":
         inputs["database_preview"]["person_anchors"]["matched"][2]["person_id"] = 1137
     elif mutation == "missing_clean_profile":
@@ -189,3 +201,35 @@ def test_fails_closed_on_input_drift_or_ambiguity(mutation):
         subject.build_death_year_review(
             **inputs, expected_subjects=2, expected_links=expected_links,
             expected_profiles=3)
+
+
+def test_outputs_are_exclusive_and_byte_deterministic(tmp_path: Path):
+    result = subject.build_death_year_review(
+        **fixture_inputs(), expected_subjects=2, expected_links=1,
+        expected_profiles=3)
+    output, report = tmp_path / "review.json", tmp_path / "review.md"
+    subject.write_outputs(result, output, report)
+    first = output.read_bytes(), report.read_bytes()
+    with pytest.raises(FileExistsError):
+        subject.write_outputs(result, output, report)
+    output.unlink()
+    report.unlink()
+    subject.write_outputs(result, output, report)
+    assert (output.read_bytes(), report.read_bytes()) == first
+
+
+def test_preserves_declared_nameless_profile_in_coverage_but_not_search():
+    inputs = copy.deepcopy(fixture_inputs())
+    review = inputs["mapped_review"]
+    review["counts"].update({
+        "searchable_profiles": 2,
+        "unsearchable_profiles": 1,
+    })
+    review["unsearchable_profile_keys"] = ["old-other"]
+    inputs["clean_records"][2]["navn"] = None
+    result = subject.build_death_year_review(
+        **inputs, expected_subjects=2, expected_links=1,
+        expected_profiles=3)
+    assert result["counts"]["profiles"] == 3
+    assert result["counts"]["searchable_profiles"] == 2
+    assert result["counts"]["unsearchable_profiles"] == 1

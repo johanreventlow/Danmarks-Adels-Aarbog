@@ -2,10 +2,14 @@
 """Build a review-only v50 identity package from principal death-year evidence."""
 from __future__ import annotations
 
+import argparse
+import hashlib
+import json
 import re
+from pathlib import Path
 from typing import Any
 
-from build_identity_review_1939_v50 import _best_literal_name
+from build_identity_review_1939_v50 import WORD_RE
 
 
 class DeathYearIdentityReviewError(ValueError):
@@ -51,15 +55,20 @@ def principal_end(source: str) -> int:
 
 def literal_name_signal(source: str, name: str, limit: int,
                         record_key: str) -> dict[str, Any] | None:
-    found = _best_literal_name(source, name)
-    if found is None or found[1] > limit:
+    words = WORD_RE.findall(name)
+    if not words:
         return None
-    start, end, literal = found
+    pattern = re.compile(
+        r"(?<!\w)" + r"\s+".join(re.escape(word) for word in words) + r"(?!\w)")
+    found = pattern.search(source, 0, limit)
+    if found is None:
+        return None
+    start, end = found.span()
     return {
         "kind": "literal_name",
         "source_start": start,
         "source_end": end,
-        "text": literal,
+        "text": source[start:end],
         "profile_source": {
             "kind": "profile",
             "id": record_key,
@@ -121,7 +130,8 @@ def qualifying_candidate(source: str,
     }
 
 
-def _validate_mapped_review(review: dict[str, Any]) -> list[dict[str, Any]]:
+def _validate_mapped_review(
+        review: dict[str, Any]) -> tuple[list[dict[str, Any]], set[str]]:
     if (not isinstance(review, dict) or
         review.get("schema_version") != "1939-v50-mapped-identity-review-v1" or
         review.get("review_only") is not True or
@@ -148,12 +158,20 @@ def _validate_mapped_review(review: dict[str, Any]) -> list[dict[str, Any]]:
     candidate_links = sum(len(row["candidates"]) for row in subjects)
     linked = sum(bool(row["candidates"]) for row in subjects)
     ambiguous = sum(len(row["candidates"]) > 1 for row in subjects)
+    unsearchable = review.get("unsearchable_profile_keys")
     if (counts.get("candidate_links") != candidate_links or
         counts.get("linked_subjects") != linked or
         counts.get("unlinked_subjects") != len(subjects) - linked or
-        counts.get("ambiguous_subjects") != ambiguous):
+        counts.get("ambiguous_subjects") != ambiguous or
+        not isinstance(counts.get("profiles"), int) or
+        not isinstance(counts.get("searchable_profiles"), int) or
+        not isinstance(counts.get("unsearchable_profiles"), int) or
+        counts["searchable_profiles"] + counts["unsearchable_profiles"] !=
+        counts["profiles"] or not isinstance(unsearchable, list) or
+        any(not isinstance(key, str) or not key for key in unsearchable) or
+        len(set(unsearchable)) != counts["unsearchable_profiles"]):
         _fail("DEATH_YEAR_IDENTITY_MAPPED_REVIEW_INVALID")
-    return subjects
+    return subjects, set(unsearchable)
 
 
 def _validate_decision_batches(
@@ -194,7 +212,9 @@ def _validate_decision_batches(
 
 def _validate_profiles(database_preview: dict[str, Any],
                        clean_records: list[dict[str, Any]],
-                       expected_profiles: int) -> list[dict[str, Any]]:
+                       expected_profiles: int,
+                       declared_unsearchable: set[str]) -> tuple[
+                           list[dict[str, Any]], set[str]]:
     if (not isinstance(database_preview, dict) or
         database_preview.get("schema_version") != "1939-v50-database-preview-v1" or
         database_preview.get("canonical_mutations_authorized") is not False or
@@ -216,6 +236,7 @@ def _validate_profiles(database_preview: dict[str, Any],
         if isinstance(row, dict) and isinstance(row.get("record_key"), str):
             clean_by_key.setdefault(row["record_key"], []).append(row)
     profiles = []
+    observed_unsearchable: set[str] = set()
     seen_keys: set[str] = set()
     seen_people: set[int] = set()
     for anchor in matched:
@@ -225,7 +246,16 @@ def _validate_profiles(database_preview: dict[str, Any],
         if key in seen_keys or person_id in seen_people or len(rows) != 1:
             _fail("DEATH_YEAR_IDENTITY_PROFILE_COVERAGE_INVALID")
         clean = rows[0]
-        name = _text(clean.get("navn"))
+        name = clean.get("navn")
+        if not isinstance(name, str) or not name:
+            if key not in declared_unsearchable:
+                _fail("DEATH_YEAR_IDENTITY_PROFILE_COVERAGE_INVALID")
+            observed_unsearchable.add(key)
+            seen_keys.add(key)
+            seen_people.add(person_id)
+            continue
+        if key in declared_unsearchable:
+            _fail("DEATH_YEAR_IDENTITY_PROFILE_COVERAGE_INVALID")
         facts = []
         for index, fact in enumerate(clean.get("facts") or []):
             if not isinstance(fact, dict):
@@ -242,7 +272,9 @@ def _validate_profiles(database_preview: dict[str, Any],
         })
         seen_keys.add(key)
         seen_people.add(person_id)
-    return sorted(profiles, key=lambda row: row["record_key"])
+    if observed_unsearchable != declared_unsearchable:
+        _fail("DEATH_YEAR_IDENTITY_PROFILE_COVERAGE_INVALID")
+    return sorted(profiles, key=lambda row: row["record_key"]), observed_unsearchable
 
 
 def _validate_hashes(input_hashes: dict[str, Any], batch_count: int) -> dict[str, Any]:
@@ -271,10 +303,16 @@ def build_death_year_review(*, mapped_review: dict[str, Any],
                             expected_links: int = 11,
                             expected_profiles: int = 543) -> dict[str, Any]:
     hashes = _validate_hashes(input_hashes, len(identity_decision_batches))
-    subjects = _validate_mapped_review(mapped_review)
+    subjects, declared_unsearchable = _validate_mapped_review(mapped_review)
+    if mapped_review["counts"]["profiles"] != expected_profiles:
+        _fail("DEATH_YEAR_IDENTITY_PROFILE_COVERAGE_INVALID")
     decided_sources, decided_people = _validate_decision_batches(
         identity_decision_batches)
-    profiles = _validate_profiles(database_preview, clean_records, expected_profiles)
+    profiles, unsearchable = _validate_profiles(
+        database_preview, clean_records, expected_profiles,
+        declared_unsearchable)
+    if len(profiles) + len(unsearchable) != expected_profiles:
+        _fail("DEATH_YEAR_IDENTITY_PROFILE_COVERAGE_INVALID")
     remaining = [row for row in subjects if row["new_record_key"] not in decided_sources]
     if len(remaining) != expected_subjects:
         _fail("DEATH_YEAR_IDENTITY_SUBJECT_COVERAGE_INVALID")
@@ -318,7 +356,9 @@ def build_death_year_review(*, mapped_review: dict[str, Any],
         "canonical_mutations_authorized": False,
         "database_write_authorized": False,
         "counts": {
-            "subjects": len(output_subjects), "profiles": len(profiles),
+            "subjects": len(output_subjects), "profiles": expected_profiles,
+            "searchable_profiles": len(profiles),
+            "unsearchable_profiles": len(unsearchable),
             "candidate_links": link_count, "linked_subjects": linked,
             "unlinked_subjects": len(output_subjects) - linked,
         },
@@ -328,3 +368,113 @@ def build_death_year_review(*, mapped_review: dict[str, Any],
         "database_gate": "NO-GO",
         "reimport_gate": "NO-GO",
     }
+
+
+def render_markdown(result: dict[str, Any]) -> str:
+    counts = result["counts"]
+    lines = [
+        "# DAA 1939 v50 death-year identity review",
+        "",
+        "Review-only kandidatpakke. Ingen identitets- eller databasebeslutning er autoriseret.",
+        "",
+        f"- subjects: {counts['subjects']}",
+        f"- kandidatlinks: {counts['candidate_links']}",
+        f"- uden link: {counts['unlinked_subjects']}",
+        f"- identity decision: **{result['identity_decision_gate']}**",
+        f"- database: **{result['database_gate']}**",
+        f"- reimport: **{result['reimport_gate']}**",
+        "",
+        "## Kandidater",
+        "",
+    ]
+    number = 0
+    for row in result["subjects"]:
+        for candidate in row["candidates"]:
+            number += 1
+            death_years = sorted({
+                signal["text"] for signal in candidate["signals"]
+                if signal["kind"] == "literal_death_year"})
+            lines.append(
+                f"{number}. `{row['new_record_key']}` → "
+                f"`{candidate['candidate_record_key']}` "
+                f"(person {candidate['candidate_person_id']}, "
+                f"{candidate['candidate_display_name']}, død {', '.join(death_years)})")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def write_outputs(result: dict[str, Any], output_path: Path | str,
+                  report_path: Path | str) -> None:
+    output, report = Path(output_path), Path(report_path)
+    if output.resolve() == report.resolve():
+        _fail("DEATH_YEAR_IDENTITY_OUTPUT_INVALID")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    report.parent.mkdir(parents=True, exist_ok=True)
+    created = []
+    try:
+        with output.open("x", encoding="utf-8", newline="\n") as handle:
+            created.append(output)
+            json.dump(result, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+        with report.open("x", encoding="utf-8", newline="\n") as handle:
+            created.append(report)
+            handle.write(render_markdown(result))
+    except Exception:
+        for path in created:
+            path.unlink(missing_ok=True)
+        raise
+
+
+def _load_bytes(path: Path) -> tuple[bytes, Any]:
+    payload = path.read_bytes()
+    return payload, json.loads(payload)
+
+
+def _digest(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mapped-review", required=True, type=Path)
+    parser.add_argument("--database-preview", required=True, type=Path)
+    parser.add_argument("--clean", required=True, type=Path)
+    parser.add_argument("--identity-decisions", required=True, type=Path,
+                        action="append")
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--report", required=True, type=Path)
+    parser.add_argument("--expected-subjects", type=int, default=30)
+    parser.add_argument("--expected-links", type=int, default=11)
+    parser.add_argument("--expected-profiles", type=int, default=543)
+    args = parser.parse_args(argv)
+
+    mapped_bytes, mapped_review = _load_bytes(args.mapped_review)
+    database_bytes, database_preview = _load_bytes(args.database_preview)
+    clean_bytes, clean_records = _load_bytes(args.clean)
+    decision_payloads = [_load_bytes(path) for path in args.identity_decisions]
+    result = build_death_year_review(
+        mapped_review=mapped_review,
+        database_preview=database_preview,
+        clean_records=clean_records,
+        identity_decision_batches=[value for _, value in decision_payloads],
+        input_hashes={
+            "mapped_review_sha256": _digest(mapped_bytes),
+            "database_preview_sha256": _digest(database_bytes),
+            "clean_sha256": _digest(clean_bytes),
+            "identity_decision_sha256s": [
+                _digest(payload) for payload, _ in decision_payloads],
+        },
+        expected_subjects=args.expected_subjects,
+        expected_links=args.expected_links,
+        expected_profiles=args.expected_profiles,
+    )
+    write_outputs(result, args.output, args.report)
+    print(json.dumps({
+        "output": str(args.output), "report": str(args.report),
+        **result["counts"], "database_write_authorized": False,
+    }, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
