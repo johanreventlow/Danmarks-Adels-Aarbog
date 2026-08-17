@@ -144,6 +144,15 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
                 or len(declared_owners) != len(set(declared_owners))
                 or declared_owners != original_owners[entry["new_record_key"]]):
             raise DecisionError("new-entry baseline-ejere matcher ikke forward matches")
+        if entry.get("disposition") == "accepted_genuinely_new_source_record":
+            if (entry.get("record_kind") != "unclassified"
+                    or declared_owners != []
+                    or original_owners[entry["new_record_key"]] != []
+                    or entry.get("acceptance_basis")
+                    != "human_verified_genuinely_new_source_record"):
+                raise DecisionError("tidligere genuinely-new acceptance er ugyldig")
+            _text(entry.get("reviewed_by"), "genuinely-new reviewed_by")
+            _text(entry.get("decision_batch"), "genuinely-new decision_batch")
     raw_decisions = _objects(decisions.get("decisions"), "decisions")
     if not raw_decisions:
         raise DecisionError("mindst én decision kræves")
@@ -174,6 +183,7 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
                     or decision.get("reason")
                     != "visually_verified_distinct_source_record"
                     or target_entry is None
+                    or target_entry.get("record_kind") != "unclassified"
                     or _span(decision.get("new_source_span"), "new_source_span")
                     != _span(target_entry.get("source_span"), "target source_span")
                     or target_entry.get("disposition") != "unmatched_new_review"

@@ -413,6 +413,16 @@ def test_genuinely_new_acceptance_rejects_non_ownerless_or_preannotated_target(m
         apply_decisions(source, document, reconciliation_sha256=digest)
 
 
+def test_genuinely_new_acceptance_rejects_structural_target_kind():
+    source = genuinely_new_reconciliation()
+    source["new_entries"][0]["record_kind"] = "structural_context"
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    document = genuinely_new_decision_document(digest)
+
+    with pytest.raises(DecisionError):
+        apply_decisions(source, document, reconciliation_sha256=digest)
+
+
 def test_genuinely_new_acceptance_rejects_duplicate_or_cross_kind_target_reuse():
     source = genuinely_new_reconciliation()
     digest = hashlib.sha256(encoded(source)).hexdigest()
@@ -451,10 +461,9 @@ def test_genuinely_new_acceptance_rejects_stale_source_hashes():
             apply_decisions(source, document, reconciliation_sha256=digest)
 
 
-def test_later_batch_preserves_genuinely_new_acceptance_provenance():
+def later_batch_after_genuinely_new_acceptance():
     first_source = genuinely_new_reconciliation()
     first = apply_genuinely_new(source=first_source)
-    prior = copy.deepcopy(first["new_entries"][0])
     second_source = copy.deepcopy(first)
     second_source["baseline_entries"].append({
         "baseline_record_key": "old-fresh-boundary",
@@ -478,6 +487,64 @@ def test_later_batch_preserves_genuinely_new_acceptance_provenance():
         "decision_kind": "accept_boundary_change",
         "selected_new_record_key": "new-fresh-boundary",
     }]
+    return second_source, second_document, second_digest
+
+
+@pytest.mark.parametrize("mutation", [
+    "consistent_nonempty_owner",
+    "inconsistent_nonempty_owner",
+    "wrong_kind",
+    "missing_acceptance_basis",
+    "wrong_acceptance_basis",
+    "missing_reviewed_by",
+    "empty_reviewed_by",
+    "wrong_type_reviewed_by",
+    "missing_decision_batch",
+    "empty_decision_batch",
+    "wrong_type_decision_batch",
+])
+def test_later_batch_rejects_malformed_genuinely_new_acceptance(mutation):
+    source, document, _ = later_batch_after_genuinely_new_acceptance()
+    accepted = source["new_entries"][0]
+    if mutation == "consistent_nonempty_owner":
+        source["baseline_entries"].append({
+            "baseline_record_key": "old-prior-owner",
+            "matches": [{"new_record_key": "new-genuine"}],
+            "disposition": "boundary_change_review",
+        })
+        accepted["baseline_record_keys"] = ["old-prior-owner"]
+    elif mutation == "inconsistent_nonempty_owner":
+        accepted["baseline_record_keys"] = ["old-ghost-owner"]
+    elif mutation == "wrong_kind":
+        accepted["record_kind"] = "structural_context"
+    elif mutation == "missing_acceptance_basis":
+        accepted.pop("acceptance_basis")
+    elif mutation == "wrong_acceptance_basis":
+        accepted["acceptance_basis"] = "unverified"
+    elif mutation == "missing_reviewed_by":
+        accepted.pop("reviewed_by")
+    elif mutation == "empty_reviewed_by":
+        accepted["reviewed_by"] = ""
+    elif mutation == "wrong_type_reviewed_by":
+        accepted["reviewed_by"] = []
+    elif mutation == "missing_decision_batch":
+        accepted.pop("decision_batch")
+    elif mutation == "empty_decision_batch":
+        accepted["decision_batch"] = ""
+    elif mutation == "wrong_type_decision_batch":
+        accepted["decision_batch"] = []
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    document["source"]["reconciliation_sha256"] = digest
+
+    with pytest.raises(DecisionError):
+        apply_decisions(source, document, reconciliation_sha256=digest)
+
+
+def test_later_batch_preserves_genuinely_new_acceptance_provenance():
+    second_source, second_document, second_digest = (
+        later_batch_after_genuinely_new_acceptance()
+    )
+    prior = copy.deepcopy(second_source["new_entries"][0])
 
     result = apply_decisions(
         second_source, second_document, reconciliation_sha256=second_digest,
