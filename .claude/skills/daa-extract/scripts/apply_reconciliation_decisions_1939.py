@@ -16,7 +16,7 @@ class DecisionError(ValueError):
 
 RESOLVED_DISPOSITIONS = {
     "unchanged", "accepted_carryover", "accepted_structural_context",
-    "retired_duplicate", "retired_fragment",
+    "accepted_genuinely_new_source_record", "retired_duplicate", "retired_fragment",
 }
 ALLOWED_SOURCE_DISPOSITIONS = {"split_review", "split_merge_review"}
 
@@ -160,7 +160,38 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
     affected_old_keys = set()
     selected_targets = set()
     annotation_by_new = {}
+    genuinely_new_acceptances = {}
     for decision in raw_decisions:
+        if decision.get("decision_kind") == "accept_genuinely_new":
+            if set(decision) != {
+                "decision_kind", "new_record_key", "new_source_span",
+                "record_kind", "reason",
+            }:
+                raise DecisionError("ukendt genuinely-new acceptance-handling")
+            target = _text(decision.get("new_record_key"), "new_record_key")
+            target_entry = new_by_key.get(target)
+            if (decision.get("record_kind") != "unclassified"
+                    or decision.get("reason")
+                    != "visually_verified_distinct_source_record"
+                    or target_entry is None
+                    or _span(decision.get("new_source_span"), "new_source_span")
+                    != _span(target_entry.get("source_span"), "target source_span")
+                    or target_entry.get("disposition") != "unmatched_new_review"
+                    or target_entry.get("baseline_record_keys") != []
+                    or original_owners[target] != []
+                    or any(field in target_entry for field in (
+                        "human_annotation", "acceptance_basis", "reviewed_by",
+                        "decision_batch",
+                    ))):
+                raise DecisionError(
+                    "genuinely-new acceptance kræver ejerløs unmatched unclassified target"
+                )
+            if (target in selected_targets or target in annotation_by_new
+                    or target in genuinely_new_acceptances):
+                raise DecisionError("flere beslutninger bruger samme new_record_key")
+            genuinely_new_acceptances[target] = dict(decision)
+            selected_targets.add(target)
+            continue
         old_key = _text(decision.get("baseline_record_key"), "decision baseline_record_key")
         if old_key in affected_old_keys:
             raise DecisionError("decision har modstridende baseline_record_key")
@@ -507,15 +538,24 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
         key = entry["new_record_key"]
         old_keys = owners.get(key, [])
         output["baseline_record_keys"] = old_keys
-        if not old_keys:
+        if key in genuinely_new_acceptances:
+            output["disposition"] = "accepted_genuinely_new_source_record"
+            output["acceptance_basis"] = "human_verified_genuinely_new_source_record"
+            output["reviewed_by"] = reviewed_by
+            output["decision_batch"] = decision_batch
+        elif entry.get("disposition") == "accepted_genuinely_new_source_record":
+            output["disposition"] = "accepted_genuinely_new_source_record"
+        elif not old_keys:
             disposition = ("accepted_structural_context"
                            if entry.get("record_kind") == "structural_context"
                            else "unmatched_new_review")
+            output["disposition"] = disposition
         elif len(old_keys) > 1:
             disposition = "merge_review"
+            output["disposition"] = disposition
         else:
             disposition = disposition_by_old[old_keys[0]]
-        output["disposition"] = disposition
+            output["disposition"] = disposition
         if key in annotation_by_new:
             output["human_annotation"] = annotation_by_new[key]
             output["reviewed_by"] = reviewed_by

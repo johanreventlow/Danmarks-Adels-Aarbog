@@ -60,6 +60,58 @@ def reconciliation():
     }
 
 
+def genuinely_new_reconciliation():
+    """One ownerless new source record, with no baseline match to accept."""
+    return {
+        "schema_version": "1.0",
+        "source": {
+            "edition": "1939",
+            "baseline_sha256": "a" * 64,
+            "calamari_sha256": "b" * 64,
+        },
+        "baseline_entries": [],
+        "new_entries": [{
+            "new_record_key": "new-genuine",
+            "record_kind": "unclassified",
+            "source_span": {"char_from": 10, "char_to": 20},
+            "baseline_record_keys": [],
+            "disposition": "unmatched_new_review",
+        }],
+        "report": {"reconciliation_gate": "NO-GO"},
+    }
+
+
+def genuinely_new_decision_document(reconciliation_sha256, decisions=None):
+    return {
+        "schema_version": "1.0",
+        "source": {
+            "edition": "1939",
+            "reconciliation_sha256": reconciliation_sha256,
+            "baseline_sha256": "a" * 64,
+            "calamari_sha256": "b" * 64,
+        },
+        "reviewed_by": "johan-reventlow",
+        "decision_batch": "genuinely-new-batch-1",
+        "decisions": decisions or [{
+            "decision_kind": "accept_genuinely_new",
+            "new_record_key": "new-genuine",
+            "new_source_span": {"char_from": 10, "char_to": 20},
+            "record_kind": "unclassified",
+            "reason": "visually_verified_distinct_source_record",
+        }],
+    }
+
+
+def apply_genuinely_new(source=None, document=None):
+    source = source or genuinely_new_reconciliation()
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    return apply_decisions(
+        source,
+        document or genuinely_new_decision_document(digest),
+        reconciliation_sha256=digest,
+    )
+
+
 def decision_document(reconciliation_sha256, *, selected="new-a", annotations=None):
     decision = {
         "baseline_record_key": "old-a",
@@ -241,6 +293,201 @@ def apply(document=None, source=None):
     digest = hashlib.sha256(encoded(source)).hexdigest()
     return apply_decisions(source, document or decision_document(digest),
                            reconciliation_sha256=digest)
+
+
+def test_accepts_one_visually_verified_genuinely_new_source_record():
+    source = genuinely_new_reconciliation()
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    decisions = genuinely_new_decision_document(digest)
+
+    result = apply_decisions(source, decisions, reconciliation_sha256=digest)
+
+    accepted = result["new_entries"][0]
+    assert result["baseline_entries"] == source["baseline_entries"]
+    assert accepted["baseline_record_keys"] == []
+    assert accepted["disposition"] == "accepted_genuinely_new_source_record"
+    assert accepted["acceptance_basis"] == "human_verified_genuinely_new_source_record"
+    assert accepted["reviewed_by"] == decisions["reviewed_by"]
+    assert accepted["decision_batch"] == decisions["decision_batch"]
+    assert result["report"]["remaining_new_review"] == 0
+    assert result["report"]["reconciliation_gate"] == "GO"
+
+
+def test_accepts_multiple_distinct_ownerless_genuinely_new_source_records():
+    source = genuinely_new_reconciliation()
+    source["new_entries"].append({
+        "new_record_key": "new-genuine-second",
+        "record_kind": "unclassified",
+        "source_span": {"char_from": 20, "char_to": 30},
+        "baseline_record_keys": [],
+        "disposition": "unmatched_new_review",
+    })
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    decisions = genuinely_new_decision_document(digest, decisions=[
+        {
+            "decision_kind": "accept_genuinely_new",
+            "new_record_key": "new-genuine",
+            "new_source_span": {"char_from": 10, "char_to": 20},
+            "record_kind": "unclassified",
+            "reason": "visually_verified_distinct_source_record",
+        },
+        {
+            "decision_kind": "accept_genuinely_new",
+            "new_record_key": "new-genuine-second",
+            "new_source_span": {"char_from": 20, "char_to": 30},
+            "record_kind": "unclassified",
+            "reason": "visually_verified_distinct_source_record",
+        },
+    ])
+
+    result = apply_decisions(source, decisions, reconciliation_sha256=digest)
+
+    assert [entry["disposition"] for entry in result["new_entries"]] == [
+        "accepted_genuinely_new_source_record",
+        "accepted_genuinely_new_source_record",
+    ]
+    assert all(entry["baseline_record_keys"] == [] for entry in result["new_entries"])
+    assert result["report"]["reconciliation_gate"] == "GO"
+
+
+@pytest.mark.parametrize("mutation", [
+    {"new_record_key": "missing"},
+    {"new_source_span": {"char_from": 10, "char_to": 21}},
+    {"new_source_span": {"char_from": 20, "char_to": 20}},
+    {"record_kind": "structural_context"},
+    {"reason": "name_match"},
+    {"extra": True},
+])
+def test_genuinely_new_acceptance_rejects_wrong_closed_decision(mutation):
+    source = genuinely_new_reconciliation()
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    document = genuinely_new_decision_document(digest)
+    document["decisions"][0].update(mutation)
+
+    with pytest.raises(DecisionError):
+        apply_decisions(source, document, reconciliation_sha256=digest)
+
+
+@pytest.mark.parametrize("mutation", [
+    "declared_owner",
+    "hidden_forward_owner",
+    "malformed_reverse_owners",
+    "duplicate_reverse_owners",
+    "accepted_structural_context",
+    "human_annotation",
+    "acceptance_basis",
+    "reviewed_by",
+    "decision_batch",
+])
+def test_genuinely_new_acceptance_rejects_non_ownerless_or_preannotated_target(mutation):
+    source = genuinely_new_reconciliation()
+    target = source["new_entries"][0]
+    if mutation in {"declared_owner", "malformed_reverse_owners", "duplicate_reverse_owners"}:
+        source["baseline_entries"].append({
+            "baseline_record_key": "old-owner",
+            "matches": [{"new_record_key": "new-genuine"}],
+            "disposition": "boundary_change_review",
+        })
+    if mutation == "declared_owner":
+        target["baseline_record_keys"] = ["old-owner"]
+    elif mutation == "hidden_forward_owner":
+        source["baseline_entries"].append({
+            "baseline_record_key": "old-hidden-owner",
+            "matches": [{"new_record_key": "new-genuine"}],
+            "disposition": "boundary_change_review",
+        })
+    elif mutation == "malformed_reverse_owners":
+        target["baseline_record_keys"] = "old-owner"
+    elif mutation == "duplicate_reverse_owners":
+        target["baseline_record_keys"] = ["old-owner", "old-owner"]
+    elif mutation == "accepted_structural_context":
+        target["disposition"] = "accepted_structural_context"
+    elif mutation == "human_annotation":
+        target["human_annotation"] = {"note": "prior"}
+    else:
+        target[mutation] = "prior"
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    document = genuinely_new_decision_document(digest)
+
+    with pytest.raises(DecisionError):
+        apply_decisions(source, document, reconciliation_sha256=digest)
+
+
+def test_genuinely_new_acceptance_rejects_duplicate_or_cross_kind_target_reuse():
+    source = genuinely_new_reconciliation()
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    duplicate = genuinely_new_decision_document(digest)
+    duplicate["decisions"].append(dict(duplicate["decisions"][0]))
+
+    with pytest.raises(DecisionError):
+        apply_decisions(source, duplicate, reconciliation_sha256=digest)
+
+    reused_source = genuinely_new_reconciliation()
+    reused_source["baseline_entries"].append({
+        "baseline_record_key": "old-reuse",
+        "matches": [{"new_record_key": "new-genuine"}],
+        "disposition": "boundary_change_review",
+    })
+    reused_source["new_entries"][0]["baseline_record_keys"] = ["old-reuse"]
+    reused_digest = hashlib.sha256(encoded(reused_source)).hexdigest()
+    reused = genuinely_new_decision_document(reused_digest)
+    reused["decisions"].append({
+        "baseline_record_key": "old-reuse",
+        "decision_kind": "accept_boundary_change",
+        "selected_new_record_key": "new-genuine",
+    })
+
+    with pytest.raises(DecisionError):
+        apply_decisions(reused_source, reused, reconciliation_sha256=reused_digest)
+
+
+def test_genuinely_new_acceptance_rejects_stale_source_hashes():
+    source = genuinely_new_reconciliation()
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    for field in ("reconciliation_sha256", "baseline_sha256", "calamari_sha256"):
+        document = genuinely_new_decision_document(digest)
+        document["source"][field] = "c" * 64
+        with pytest.raises(DecisionError):
+            apply_decisions(source, document, reconciliation_sha256=digest)
+
+
+def test_later_batch_preserves_genuinely_new_acceptance_provenance():
+    first_source = genuinely_new_reconciliation()
+    first = apply_genuinely_new(source=first_source)
+    prior = copy.deepcopy(first["new_entries"][0])
+    second_source = copy.deepcopy(first)
+    second_source["baseline_entries"].append({
+        "baseline_record_key": "old-fresh-boundary",
+        "matches": [{
+            "new_record_key": "new-fresh-boundary",
+            "geometry_relation": "new_inside_old",
+        }],
+        "disposition": "boundary_change_review",
+    })
+    second_source["new_entries"].append({
+        "new_record_key": "new-fresh-boundary",
+        "record_kind": "unclassified",
+        "source_span": {"char_from": 30, "char_to": 40},
+        "baseline_record_keys": ["old-fresh-boundary"],
+        "disposition": "boundary_change_review",
+    })
+    second_digest = hashlib.sha256(encoded(second_source)).hexdigest()
+    second_document = decision_document(second_digest)
+    second_document["decisions"] = [{
+        "baseline_record_key": "old-fresh-boundary",
+        "decision_kind": "accept_boundary_change",
+        "selected_new_record_key": "new-fresh-boundary",
+    }]
+
+    result = apply_decisions(
+        second_source, second_document, reconciliation_sha256=second_digest,
+    )
+
+    genuinely_new = next(
+        entry for entry in result["new_entries"]
+        if entry["new_record_key"] == "new-genuine"
+    )
+    assert genuinely_new == prior
 
 
 def test_selected_split_target_inherits_old_key_and_other_target_is_recomputed():
