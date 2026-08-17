@@ -63,6 +63,7 @@ required_database_columns <- function() {
     "public.assertion" = c("id", "target_type", "target_id"),
     "public.citation" = c("assertion_id", "source_id", "citat_tekst"),
     "public.change_event" = c("change_set_id", "tabel", "row_pk"),
+    "public.change_set" = c("id", "operation"),
     "private.source_record" = c("source_id", "record_key", "record_kind")
   )
 }
@@ -133,6 +134,26 @@ event_count <- function(frame) {
   as.integer(sum(as.integer(frame$editorial_events) > 0L, na.rm = TRUE))
 }
 
+provenance_matrix <- function(frame) {
+  if (!nrow(frame)) {
+    return(list(source_only = 0L, editorial_only = 0L, both = 0L, neither = 0L))
+  }
+  source_bound <- as.integer(frame$source_citations) > 0L
+  editorial <- as.integer(frame$editorial_events) > 0L
+  list(
+    source_only = as.integer(sum(source_bound & !editorial, na.rm = TRUE)),
+    editorial_only = as.integer(sum(!source_bound & editorial, na.rm = TRUE)),
+    both = as.integer(sum(source_bound & editorial, na.rm = TRUE)),
+    neither = as.integer(sum(!source_bound & !editorial, na.rm = TRUE))
+  )
+}
+
+named_counts <- function(values) {
+  if (!length(values)) return(list())
+  counts <- table(as.character(values), useNA = "no")
+  as.list(setNames(as.integer(counts), names(counts)))
+}
+
 build_database_preview <- function(preview, query_fn, execute_fn, expected_database,
                                    expected_source_edition = "DAA 1939",
                                    snapshot_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")) {
@@ -184,9 +205,12 @@ build_database_preview <- function(preview, query_fn, execute_fn, expected_datab
     expected <- paste(table, required[[table]], sep = ".")
     setdiff(expected, actual)
   }), use.names = FALSE)
-  if (length(missing)) {
-    preview_stop("DB_PREVIEW_CAPABILITY_BLOCKER", paste(sort(missing), collapse = ","))
+  missing <- sort(missing)
+  missing_public <- missing[startsWith(missing, "public.")]
+  if (length(missing_public)) {
+    preview_stop("DB_PREVIEW_CAPABILITY_BLOCKER", paste(missing_public, collapse = ","))
   }
+  private_source_record_available <- !any(startsWith(missing, "private.source_record."))
 
   source <- query(
     "SELECT id, udgave, import_key FROM public.source WHERE udgave = $1 ORDER BY id",
@@ -211,7 +235,9 @@ build_database_preview <- function(preview, query_fn, execute_fn, expected_datab
   narratives <- query(paste(
     "SELECT n.id, pei.person_id, pei.record_key, n.tekst, n.privat,",
     "(SELECT count(*) FROM public.change_event ce",
-    " WHERE ce.tabel = 'narrative' AND ce.row_pk->>'id' = n.id::text) AS editorial_events",
+    " JOIN public.change_set cs ON cs.id = ce.change_set_id",
+    " WHERE ce.tabel = 'narrative' AND ce.row_pk->>'id' = n.id::text",
+    " AND left(cs.operation, 4) = 'red_') AS editorial_events",
     "FROM public.narrative n",
     "JOIN public.person_external_id pei ON pei.person_id = n.subjekt_id AND pei.source_id = $1",
     "WHERE n.subjekt_type = 'person' AND n.source_id = $1",
@@ -220,7 +246,9 @@ build_database_preview <- function(preview, query_fn, execute_fn, expected_datab
   facts <- query(paste(
     "SELECT f.id, pei.person_id, pei.record_key, f.faktatype,",
     "(SELECT count(*) FROM public.change_event ce",
-    " WHERE ce.tabel = 'fact' AND ce.row_pk->>'id' = f.id::text) AS editorial_events,",
+    " JOIN public.change_set cs ON cs.id = ce.change_set_id",
+    " WHERE ce.tabel = 'fact' AND ce.row_pk->>'id' = f.id::text",
+    " AND left(cs.operation, 4) = 'red_') AS editorial_events,",
     "(SELECT count(*) FROM public.assertion a JOIN public.citation c ON c.assertion_id = a.id",
     " WHERE a.target_type = 'fact' AND a.target_id = f.id AND c.source_id = $1) AS source_citations",
     "FROM public.fact f",
@@ -231,7 +259,9 @@ build_database_preview <- function(preview, query_fn, execute_fn, expected_datab
   relations <- query(paste(
     "SELECT r.id, r.rolle,",
     "(SELECT count(*) FROM public.change_event ce",
-    " WHERE ce.tabel = 'relation' AND ce.row_pk->>'id' = r.id::text) AS editorial_events,",
+    " JOIN public.change_set cs ON cs.id = ce.change_set_id",
+    " WHERE ce.tabel = 'relation' AND ce.row_pk->>'id' = r.id::text",
+    " AND left(cs.operation, 4) = 'red_') AS editorial_events,",
     "(SELECT count(*) FROM public.assertion a JOIN public.citation c ON c.assertion_id = a.id",
     " WHERE a.target_type = 'relation' AND a.target_id = r.id AND c.source_id = $1) AS source_citations",
     "FROM public.relation r",
@@ -244,19 +274,23 @@ build_database_preview <- function(preview, query_fn, execute_fn, expected_datab
   family_members <- query(paste(
     "SELECT fm.family_id, fm.person_id, fm.rolle,",
     "(SELECT count(*) FROM public.change_event ce",
+    " JOIN public.change_set cs ON cs.id = ce.change_set_id",
     " WHERE ce.tabel = 'family_member'",
     " AND ce.row_pk->>'family_id' = fm.family_id::text",
-    " AND ce.row_pk->>'person_id' = fm.person_id::text) AS editorial_events",
+    " AND ce.row_pk->>'person_id' = fm.person_id::text",
+    " AND left(cs.operation, 4) = 'red_') AS editorial_events",
     "FROM public.family_member fm",
     "WHERE EXISTS (SELECT 1 FROM public.person_external_id pei",
     "  WHERE pei.source_id = $1 AND pei.person_id = fm.person_id)",
     "ORDER BY fm.family_id, fm.person_id, fm.rolle"
   ), list(source_id))
-  source_records <- query(
-    paste("SELECT sr.record_key, sr.record_kind FROM private.source_record sr",
-      "WHERE sr.source_id = $1 ORDER BY sr.record_key"),
-    list(source_id)
-  )
+  source_records <- if (private_source_record_available) {
+    query(
+      paste("SELECT sr.record_key, sr.record_kind FROM private.source_record sr",
+        "WHERE sr.source_id = $1 ORDER BY sr.record_key"),
+      list(source_id)
+    )
+  } else data.frame(record_key = character(), record_kind = character())
 
   active_keys <- sort(vapply(preview$mapped_existing, function(row) row$baseline_record_key, character(1L)))
   retired_keys <- sort(vapply(preview$retired_legacy, function(row) row$baseline_record_key, character(1L)))
@@ -283,12 +317,38 @@ build_database_preview <- function(preview, query_fn, execute_fn, expected_datab
   }
   database_only <- sort(setdiff(unique(db_keys), c(active_keys, retired_keys)))
   retired_present <- sort(intersect(retired_keys, unique(db_keys)))
+  anchor_details <- function(keys) {
+    lapply(keys, function(key) {
+      index <- which(db_keys == key)[[1L]]
+      list(
+        record_key = key,
+        person_id = as.integer(anchors$person_id[[index]]),
+        visning_navn = as.character(anchors$visning_navn[[index]]),
+        staged = as.logical(anchors$staged[[index]]),
+        source_narrative_count = as.integer(sum(narratives$person_id == anchors$person_id[[index]],
+          na.rm = TRUE)),
+        fact_count = as.integer(sum(facts$person_id == anchors$person_id[[index]], na.rm = TRUE)),
+        family_member_count = as.integer(sum(family_members$person_id == anchors$person_id[[index]],
+          na.rm = TRUE))
+      )
+    })
+  }
+  database_only_details <- anchor_details(database_only)
+  retired_present_details <- anchor_details(retired_present)
 
   preview_source_keys <- sort(vapply(preview$source_records, function(row) row$new_record_key, character(1L)))
-  database_source_keys <- if (nrow(source_records)) sort(unique(as.character(source_records$record_key))) else character()
-  source_inserts <- sort(setdiff(preview_source_keys, database_source_keys))
-  source_existing <- sort(intersect(preview_source_keys, database_source_keys))
-  source_database_only <- sort(setdiff(database_source_keys, preview_source_keys))
+  database_source_keys <- if (private_source_record_available && nrow(source_records)) {
+    sort(unique(as.character(source_records$record_key)))
+  } else character()
+  source_inserts <- if (private_source_record_available) {
+    sort(setdiff(preview_source_keys, database_source_keys))
+  } else NULL
+  source_existing <- if (private_source_record_available) {
+    sort(intersect(preview_source_keys, database_source_keys))
+  } else NULL
+  source_database_only <- if (private_source_record_available) {
+    sort(setdiff(database_source_keys, preview_source_keys))
+  } else NULL
 
   source_verbatim <- setNames(
     vapply(preview$source_records, function(row) scalar_text(row$verbatim_text), character(1L)),
@@ -331,10 +391,11 @@ build_database_preview <- function(preview, query_fn, execute_fn, expected_datab
   marriage_counts <- preview$counts$marriages
   relationship_counts <- preview$counts$relationships
   blockers <- c(
-    paste0("missing_person_anchor:", missing_keys),
+    if (!private_source_record_available) "database_capability_blocker:private.source_record" else character(),
+    if (length(missing_keys)) paste0("missing_person_anchor:", missing_keys) else character(),
     vapply(collisions, function(row) paste0("person_anchor_collision:", row$baseline_record_key), character(1L)),
     vapply(narrative_collisions, function(row) paste0("narrative_collision:", row$baseline_record_key), character(1L)),
-    if (length(database_only)) paste0("database_only_person_records:", length(database_only)) else character(),
+    if (length(database_only)) paste0("unmapped_existing_1939_person_records:", length(database_only)) else character(),
     if (length(preview$genuinely_new_pending)) paste0("genuinely_new_identity_pending:", length(preview$genuinely_new_pending)) else character(),
     if (safe_sum(fact_counts$missing_provenance) + safe_sum(fact_counts$nonliteral_provenance))
       paste0("fact_provenance_pending:", safe_sum(fact_counts$missing_provenance) + safe_sum(fact_counts$nonliteral_provenance)) else character(),
@@ -360,20 +421,25 @@ build_database_preview <- function(preview, query_fn, execute_fn, expected_datab
     ),
     source = list(id = source_id, udgave = as.character(source$udgave[[1L]]),
       import_key = as.character(source$import_key[[1L]])),
-    capabilities = list(required_columns = safe_sum(lengths(required)), missing = list()),
+    capabilities = list(required_columns = safe_sum(lengths(required)),
+      missing = as_character_list(missing)),
     canonical_mutations_authorized = FALSE,
     person_anchors = list(
       matched_count = length(matched), missing_count = length(missing_keys),
       collision_count = length(collisions), retired_present_count = length(retired_present),
       matched = matched, missing_record_keys = as_character_list(missing_keys),
       collisions = collisions, retired_present_record_keys = as_character_list(retired_present),
-      database_only_record_keys = as_character_list(database_only)
+      retired_present = retired_present_details,
+      database_only_record_keys = as_character_list(database_only),
+      database_only = database_only_details
     ),
     source_records = list(
-      existing_count = length(source_existing), insert_count = length(source_inserts),
-      existing_record_keys = as_character_list(source_existing),
-      insert_record_keys = as_character_list(source_inserts),
-      database_only_record_keys = as_character_list(source_database_only)
+      comparison_available = private_source_record_available,
+      existing_count = if (private_source_record_available) length(source_existing) else NULL,
+      insert_count = if (private_source_record_available) length(source_inserts) else NULL,
+      existing_record_keys = if (private_source_record_available) as_character_list(source_existing) else NULL,
+      insert_record_keys = if (private_source_record_available) as_character_list(source_inserts) else NULL,
+      database_only_record_keys = if (private_source_record_available) as_character_list(source_database_only) else NULL
     ),
     narratives = list(
       insert_count = length(narrative_inserts), update_count = length(narrative_updates),
@@ -389,7 +455,8 @@ build_database_preview <- function(preview, query_fn, execute_fn, expected_datab
       database_existing_count = nrow(facts),
       database_editorial_count = event_count(facts),
       database_source_cited_count = if (nrow(facts))
-        as.integer(sum(as.integer(facts$source_citations) > 0L, na.rm = TRUE)) else 0L
+        as.integer(sum(as.integer(facts$source_citations) > 0L, na.rm = TRUE)) else 0L,
+      database_provenance_matrix = provenance_matrix(facts)
     ),
     relations = list(
       preview_marriage_literal_count = safe_sum(marriage_counts$source_bound_literal),
@@ -401,11 +468,13 @@ build_database_preview <- function(preview, query_fn, execute_fn, expected_datab
       database_relation_editorial_count = event_count(relations),
       database_family_member_editorial_count = event_count(family_members),
       database_source_cited_relation_count = if (nrow(relations))
-        as.integer(sum(as.integer(relations$source_citations) > 0L, na.rm = TRUE)) else 0L
+        as.integer(sum(as.integer(relations$source_citations) > 0L, na.rm = TRUE)) else 0L,
+      database_provenance_matrix = provenance_matrix(relations),
+      database_role_counts = named_counts(relations$rolle)
     ),
     expected_database_changes = list(
-      source_record_inserts = as_character_list(source_inserts),
-      source_record_existing = as_character_list(source_existing),
+      source_record_inserts = if (private_source_record_available) as_character_list(source_inserts) else NULL,
+      source_record_existing = if (private_source_record_available) as_character_list(source_existing) else NULL,
       legacy_retirements_present = as_character_list(retired_present),
       narrative_inserts = narrative_inserts, narrative_updates = narrative_updates,
       fact_candidates_eligible = safe_sum(fact_counts$source_bound_literal),
@@ -414,12 +483,20 @@ build_database_preview <- function(preview, query_fn, execute_fn, expected_datab
       canonical_person_deletes = list(), authorized = FALSE
     ),
     blockers = as_character_list(unique(blockers)),
-    dry_run_gate = "GO",
+    dry_run_gate = if (private_source_record_available) "GO" else "NO-GO",
     reimport_gate = "NO-GO"
   )
 }
 
 render_database_preview_markdown <- function(preview) {
+  source_record_lines <- if (isTRUE(preview$source_records$comparison_available)) {
+    c(
+      sprintf("- eksisterende source records: %d", preview$source_records$existing_count),
+      sprintf("- forventede source-record inserts: %d", preview$source_records$insert_count)
+    )
+  } else {
+    "- source-record sammenligning: utilgængelig (privat evidenslag mangler)"
+  }
   lines <- c(
     "# DAA 1939 v50 database-preview",
     "",
@@ -436,11 +513,11 @@ render_database_preview_markdown <- function(preview) {
     sprintf("- manglende: %d", preview$person_anchors$missing_count),
     sprintf("- kollisioner: %d", preview$person_anchors$collision_count),
     sprintf("- pensionerede stadig i databasen: %d", preview$person_anchors$retired_present_count),
-    sprintf("- database-only record keys: %d", length(preview$person_anchors$database_only_record_keys)),
+    sprintf("- eksisterende 1939-personposter uden v50-baseline-mapping: %d",
+      length(preview$person_anchors$database_only_record_keys)),
     "",
     "## Source records og narrativer",
-    sprintf("- eksisterende source records: %d", preview$source_records$existing_count),
-    sprintf("- forventede source-record inserts: %d", preview$source_records$insert_count),
+    source_record_lines,
     sprintf("- narrative inserts/updates/unchanged/kollisioner: %d/%d/%d/%d",
       preview$narratives$insert_count, preview$narratives$update_count,
       preview$narratives$unchanged_count, preview$narratives$collision_count),
@@ -451,6 +528,11 @@ render_database_preview_markdown <- function(preview) {
     sprintf("- eksisterende facts / med redaktionelt spor / med 1939-citation: %d/%d/%d",
       preview$facts$database_existing_count, preview$facts$database_editorial_count,
       preview$facts$database_source_cited_count),
+    sprintf("- fact provenance source-only/editorial-only/begge/ingen: %d/%d/%d/%d",
+      preview$facts$database_provenance_matrix$source_only,
+      preview$facts$database_provenance_matrix$editorial_only,
+      preview$facts$database_provenance_matrix$both,
+      preview$facts$database_provenance_matrix$neither),
     sprintf("- sikre ægteskabskandidater / parkerede: %d/%d",
       preview$relations$preview_marriage_literal_count,
       preview$relations$preview_marriage_parked_count),
@@ -459,6 +541,14 @@ render_database_preview_markdown <- function(preview) {
     sprintf("- eksisterende relationer / family members: %d/%d",
       preview$relations$database_relation_count,
       preview$relations$database_family_member_count),
+    sprintf("- relation provenance source-only/editorial-only/begge/ingen: %d/%d/%d/%d",
+      preview$relations$database_provenance_matrix$source_only,
+      preview$relations$database_provenance_matrix$editorial_only,
+      preview$relations$database_provenance_matrix$both,
+      preview$relations$database_provenance_matrix$neither),
+    sprintf("- relationer pr. rolle: %s", paste(sprintf("%s=%s",
+      names(preview$relations$database_role_counts),
+      unlist(preview$relations$database_role_counts, use.names = FALSE)), collapse = ", ")),
     "",
     sprintf("- dry-run gate: **%s**", preview$dry_run_gate),
     sprintf("- reimport gate: **%s**", preview$reimport_gate),

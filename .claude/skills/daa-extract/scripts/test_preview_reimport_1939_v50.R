@@ -177,6 +177,10 @@ testthat::test_that("read-only bootstrap sker før alle domænequeries og rollba
   testthat::expect_identical(calls[[length(calls)]]$sql, "ROLLBACK")
   testthat::expect_identical(result$database$transaction_read_only, "on")
   testthat::expect_false(result$canonical_mutations_authorized)
+  domain_sql <- paste(vapply(Filter(function(call) call$kind == "query", calls),
+    function(call) call$sql, character(1L)), collapse = "\n")
+  testthat::expect_match(domain_sql, "JOIN public.change_set cs")
+  testthat::expect_match(domain_sql, "left\\(cs.operation, 4\\) = 'red_'")
 })
 
 testthat::test_that("preview klassificerer anchors, source records og beskyttede rækker", {
@@ -191,6 +195,11 @@ testthat::test_that("preview klassificerer anchors, source records og beskyttede
   testthat::expect_equal(result$person_anchors$missing_count, 0L)
   testthat::expect_equal(result$person_anchors$collision_count, 0L)
   testthat::expect_equal(result$person_anchors$database_only_record_keys, list("db-only"))
+  testthat::expect_equal(result$person_anchors$database_only, list(list(
+    record_key = "db-only", person_id = 102L, visning_navn = "Database-only",
+    staged = FALSE, source_narrative_count = 0L, fact_count = 0L,
+    family_member_count = 0L
+  )))
   testthat::expect_equal(result$person_anchors$retired_present_count, 0L)
   testthat::expect_equal(result$source_records$insert_count, 3L)
   testthat::expect_equal(result$source_records$existing_count, 1L)
@@ -202,12 +211,20 @@ testthat::test_that("preview klassificerer anchors, source records og beskyttede
   testthat::expect_equal(result$facts$database_existing_count, 2L)
   testthat::expect_equal(result$facts$database_editorial_count, 1L)
   testthat::expect_equal(result$facts$database_source_cited_count, 1L)
+  testthat::expect_equal(result$facts$database_provenance_matrix,
+    list(source_only = 1L, editorial_only = 1L, both = 0L, neither = 0L))
   testthat::expect_equal(result$relations$database_relation_count, 1L)
   testthat::expect_equal(result$relations$database_family_member_count, 1L)
+  testthat::expect_equal(result$relations$database_provenance_matrix,
+    list(source_only = 0L, editorial_only = 0L, both = 0L, neither = 1L))
+  testthat::expect_equal(result$relations$database_role_counts, list(ejer = 1L))
   testthat::expect_equal(result$expected_database_changes$canonical_person_creates, list())
   testthat::expect_false(result$expected_database_changes$authorized)
   testthat::expect_identical(result$dry_run_gate, "GO")
   testthat::expect_identical(result$reimport_gate, "NO-GO")
+  testthat::expect_false("missing_person_anchor:" %in% unlist(result$blockers))
+  testthat::expect_true("unmapped_existing_1939_person_records:1" %in%
+    unlist(result$blockers))
 })
 
 testthat::test_that("forkert database eller source stopper fail-closed", {
@@ -249,6 +266,38 @@ testthat::test_that("read-only off og capability drift stopper synligt", {
     preview_fixture(), missing_capability, fake2$execute,
     expected_database = "postgres", expected_source_edition = "DAA 1939"
   ), "DB_PREVIEW_CAPABILITY_BLOCKER")
+})
+
+testthat::test_that("manglende privat source-recordlag giver delvis NO-GO rapport", {
+  fake <- fake_database()
+  public_only <- function(sql, params = list()) {
+    if (grepl("information_schema.columns", sql, fixed = TRUE)) {
+      required <- required_database_columns()
+      required <- required[startsWith(names(required), "public.")]
+      return(do.call(rbind, lapply(names(required), function(table) {
+        bits <- strsplit(table, "\\.", fixed = FALSE)[[1L]]
+        data.frame(table_schema = bits[[1L]], table_name = bits[[2L]],
+          column_name = required[[table]])
+      })))
+    }
+    fake$query(sql, params)
+  }
+
+  result <- build_database_preview(
+    preview_fixture(), public_only, fake$execute,
+    expected_database = "postgres", expected_source_edition = "DAA 1939",
+    snapshot_at = "2026-08-17T12:00:00Z"
+  )
+
+  testthat::expect_false(result$source_records$comparison_available)
+  testthat::expect_null(result$source_records$insert_count)
+  testthat::expect_equal(result$capabilities$missing,
+    list("private.source_record.record_key", "private.source_record.record_kind",
+      "private.source_record.source_id"))
+  testthat::expect_true("database_capability_blocker:private.source_record" %in%
+    unlist(result$blockers))
+  testthat::expect_identical(result$dry_run_gate, "NO-GO")
+  testthat::expect_identical(result$person_anchors$matched_count, 1L)
 })
 
 testthat::test_that("previewvalidering afviser canonical autorisation og malformed input", {
