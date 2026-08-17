@@ -62,11 +62,15 @@ Rscript .claude/skills/daa-extract/scripts/preview_reimport_1939_v50.R \
   --input=work/task21-1939-v50-import-preview/import-preview-v1.json \
   --source-personas=work/task24-1939-v50-remaining-identities/source-persona-materialization-v2.json \
   --source-personas-sha256=450e2dae158573131d19333be3cebefe36bf6a5d269c7ff0059e17c5fcafa97c \
-  --output=work/task24-1939-v50-remaining-identities/database-preview-v3.json \
-  --report=work/task24-1939-v50-remaining-identities/database-preview-v3-report.md \
+  --output=work/task24-1939-v50-remaining-identities/database-preview-v3-fix3-a.json \
+  --report=work/task24-1939-v50-remaining-identities/database-preview-v3-fix3-a-report.md \
   --expected-database=postgres \
   --source-edition='DAA 1939'
 ```
+
+Den autoritative dobbeltkørsel gentager den sidste kommando i en ny read-only
+session med outputparret `database-preview-v3-fix3-b.json` og
+`database-preview-v3-fix3-b-report.md`.
 
 Credentials læses af R-processen fra miljøet/`~/.Renviron`; de må ikke tilføjes
 til kommandoer, JSON eller Markdown.
@@ -92,14 +96,19 @@ Alle nedenstående bytehashes er genberegnet direkte med `shasum -a 256`.
 | remaining decisions v1 Markdown | `71cb7d2a48e042dc3c38ca05bc1ad6fda6bee7126e9354c0c6968d3bf89005d8` |
 | source-persona v2 JSON | `450e2dae158573131d19333be3cebefe36bf6a5d269c7ff0059e17c5fcafa97c` |
 | source-persona v2 Markdown | `461537ee73f2937f2b5de79e38883a4dafb2d48a9e6e1637ca543f996e188397` |
-| live v3 final A JSON | `279fcb9969f9a4371d995e97c4fffa55589289bcc34a000c03e2bdca29714e6c` |
-| live v3 final A Markdown | `1e1c7dcfec444913b3fb97514e9fe5155e41c38034dff0334abc0d28eb61d16c` |
-| live v3 final B JSON | `3ee66ff9d2b914fe8cb07587b5cf02c0e3586beed80f4d29258302476bb0026a` |
-| live v3 final B Markdown | `479f602a78dac377a9a4f0fb6ce8681cc7c52f1dfd6bbfe767b91fafe261be2a` |
+| `database-preview-v3-fix3-a.json` | `279fcb9969f9a4371d995e97c4fffa55589289bcc34a000c03e2bdca29714e6c` |
+| `database-preview-v3-fix3-a-report.md` | `1e1c7dcfec444913b3fb97514e9fe5155e41c38034dff0334abc0d28eb61d16c` |
+| `database-preview-v3-fix3-b.json` | `3ee66ff9d2b914fe8cb07587b5cf02c0e3586beed80f4d29258302476bb0026a` |
+| `database-preview-v3-fix3-b-report.md` | `479f602a78dac377a9a4f0fb6ce8681cc7c52f1dfd6bbfe767b91fafe261be2a` |
 
-Live A og B er semantisk identiske efter fjernelse af `snapshot_at`; den låste
-semantiske SHA-256 er
+De autoritative fix3-kørsler A og B er semantisk identiske efter fjernelse af
+`snapshot_at`; den låste semantiske SHA-256 er
 `343fb43e8f10476967c5ff981f56380c672fc23234638076ec5c5c97a61925a8`.
+De ældre filer `database-preview-v3-final-a.json`,
+`database-preview-v3-final-a-report.md`, `database-preview-v3-final-b.json` og
+`database-preview-v3-final-b-report.md` er pre-fix-snapshots. De er bevaret som
+historik, men er ikke de autoritative Task 5-resultater og bruges ikke til
+hash-, count- eller gatepåstandene i denne rapport.
 Kilde-PDF'en er den u-krypterede 86-siders fil
 `/Users/johanreventlow/TypeScript/danmarksadelsaarbog/Dansk Adels Aarbog - Reventlow 1939 stamtavle.pdf`.
 
