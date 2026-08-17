@@ -240,6 +240,7 @@ def test_spanless_adoption_resolves_two_independent_pairs_and_report_counts():
     "baseline_batch",
     "baseline_annotation",
     "baseline_prior_adoption",
+    "baseline_target_only_prior_acceptance",
     "target_wrong_disposition",
     "target_wrong_kind",
     "target_wrong_span",
@@ -283,6 +284,12 @@ def test_spanless_adoption_rejects_any_unproven_input(mutation):
         baseline["human_annotation"] = {"note": "not allowed"}
     elif mutation == "baseline_prior_adoption":
         baseline["spanless_baseline_recovery"] = {"reason": "not allowed"}
+    elif mutation == "baseline_target_only_prior_acceptance":
+        baseline["prior_genuinely_new_acceptance"] = {
+            "acceptance_basis": "human_verified_genuinely_new_source_record",
+            "reviewed_by": "old-reviewer",
+            "decision_batch": "old-batch",
+        }
     elif mutation == "target_wrong_disposition":
         target["disposition"] = "unmatched_new_review"
     elif mutation == "target_wrong_kind":
@@ -484,6 +491,42 @@ def test_later_batch_preserves_spanless_adoption_graph_and_prior_provenance():
         "reviewed_by": "old-reviewer",
         "decision_batch": "old-batch",
     }
+
+
+def test_later_batch_rejects_target_only_prior_acceptance_on_adopted_spanless_adoption_baseline():
+    source = spanless_adoption_reconciliation()
+    first_digest = hashlib.sha256(encoded(source)).hexdigest()
+    adopted = apply_decisions(
+        source,
+        spanless_adoption_decision_document(first_digest),
+        reconciliation_sha256=first_digest,
+    )
+    adopted["baseline_entries"][0]["prior_genuinely_new_acceptance"] = {
+        "acceptance_basis": "human_verified_genuinely_new_source_record",
+        "reviewed_by": "old-reviewer",
+        "decision_batch": "old-batch",
+    }
+    adopted["baseline_entries"].append({
+        "baseline_record_key": "old-fresh-boundary",
+        "matches": [{"new_record_key": "new-fresh-boundary"}],
+        "disposition": "boundary_change_review",
+    })
+    adopted["new_entries"].append({
+        "new_record_key": "new-fresh-boundary",
+        "source_span": {"char_from": 30, "char_to": 40},
+        "baseline_record_keys": ["old-fresh-boundary"],
+        "disposition": "boundary_change_review",
+    })
+    later_digest = hashlib.sha256(encoded(adopted)).hexdigest()
+    later_document = decision_document(later_digest)
+    later_document["decisions"] = [{
+        "baseline_record_key": "old-fresh-boundary",
+        "decision_kind": "accept_boundary_change",
+        "selected_new_record_key": "new-fresh-boundary",
+    }]
+
+    with pytest.raises(DecisionError):
+        apply_decisions(adopted, later_document, reconciliation_sha256=later_digest)
 
 
 @pytest.mark.parametrize("mutation", [

@@ -142,7 +142,8 @@ def _validate_historical_spanless_adoptions(
                 or not isinstance(matches[0], Mapping)
                 or set(matches[0]) != {"new_record_key", "geometry_relation"}
                 or matches[0].get("geometry_relation")
-                != "human_recovered_spanless_baseline"):
+                != "human_recovered_spanless_baseline"
+                or "prior_genuinely_new_acceptance" in baseline):
             raise DecisionError("historisk spanless adoption-baseline er ugyldig")
         target_key = _text(matches[0].get("new_record_key"), "historisk adoption target")
         if (baseline.get("selected_new_record_key") != target_key
@@ -334,6 +335,7 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
                     or any(field in old for field in (
                         "selected_new_record_key", "reconciliation_basis", "reviewed_by",
                         "decision_batch", "human_annotation", "spanless_baseline_recovery",
+                        "prior_genuinely_new_acceptance",
                     ))
                     or target_entry is None
                     or target_entry.get("record_kind") != "unclassified"
