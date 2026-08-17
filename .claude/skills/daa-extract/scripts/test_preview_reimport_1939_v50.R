@@ -213,6 +213,25 @@ testthat::test_that("SQL-vagten tillader kun den snævre read-only grammatik", {
   }
 })
 
+testthat::test_that("SQL-vagten afviser mutation-capable SELECT-funktioner", {
+  attacks <- c(
+    "SELECT public.red_set_koen(101, 'mand')",
+    "SELECT set_config('search_path', 'evil', false)",
+    "SELECT nextval('person_id_seq')",
+    "SELECT setval('person_id_seq', 1)",
+    "SELECT pg_notify('channel', 'payload')",
+    "SELECT pg_advisory_unlock_all()",
+    "SELECT dblink_exec('dbname=x', 'DELETE FROM person')",
+    "SELECT lo_import('/tmp/secret')",
+    paste("WITH mutated AS (SELECT public.red_set_koen(101, 'mand'))",
+      "SELECT * FROM mutated"),
+    "EXPLAIN SELECT set_config('search_path', 'evil', false)"
+  )
+  for (sql in attacks) {
+    testthat::expect_error(assert_read_only_sql(sql), "DB_PREVIEW_SQL_FORBIDDEN")
+  }
+})
+
 testthat::test_that("read-only bootstrap sker før alle domænequeries og rollbacker", {
   fake <- fake_database()
 
@@ -603,11 +622,14 @@ source_persona_v2_fixture <- function() {
 }
 
 fake_database_v3 <- function(target_person_override = NULL,
-                             expose_private_tables = FALSE) {
+                             expose_private_tables = FALSE,
+                             missing_family_capability = FALSE) {
   fake <- fake_database()
   query <- function(sql, params = list()) {
     if (grepl("information_schema.columns", sql, fixed = TRUE)) {
       required <- required_database_columns()
+      required[["public.family"]] <- c("id", "type")
+      if (missing_family_capability) required[["public.family"]] <- NULL
       if (!expose_private_tables) required <- required[startsWith(names(required), "public.")]
       return(do.call(rbind, lapply(names(required), function(table) {
         bits <- strsplit(table, "\\.")[[1L]]
@@ -628,6 +650,25 @@ fake_database_v3 <- function(target_person_override = NULL,
         visning_navn = sprintf("Target %02d", seq_len(32L))
       ))
     }
+    if (grepl("FROM public.family fam", sql, fixed = TRUE)) {
+      return(data.frame(id = c(501L, 502L), type = c("vielse", "ugift union"),
+        editorial_events = c(1L, 0L)))
+    }
+    if (grepl("FROM public.fact f", sql, fixed = TRUE) &&
+        grepl("f.subjekt_type = 'family'", sql, fixed = TRUE)) {
+      return(data.frame(
+        id = c(601L, 602L, 603L), family_id = c(501L, 501L, 502L),
+        faktatype = c("vielse", "skilsmisse", "vielse"),
+        editorial_events = c(0L, 1L, 1L), source_citations = c(1L, 0L, 1L)
+      ))
+    }
+    if (grepl("FROM public.family_member fm", sql, fixed = TRUE)) {
+      return(data.frame(
+        family_id = c(501L, 501L, 502L, 502L),
+        person_id = c(101L, 999L, 102L, 998L),
+        rolle = rep("partner", 4L), editorial_events = c(1L, 0L, 0L, 1L)
+      ))
+    }
     if (grepl("FROM private.", sql, fixed = TRUE)) {
       stop("private table query was attempted")
     }
@@ -644,9 +685,46 @@ testthat::test_that("v1-input bevarer database-preview v2-kontrakten", {
     expected_source_edition = "DAA 1939", snapshot_at = "2026-08-17T12:00:00Z"
   )
   testthat::expect_identical(result$schema_version, "1939-v50-database-preview-v2")
+  testthat::expect_false("families" %in% names(result))
   testthat::expect_false("new_person_candidate_count" %in% names(result$source_personas))
   testthat::expect_false(any(grepl("genuinely_new_person_creation_pending",
     unlist(result$blockers), fixed = TRUE)))
+})
+
+testthat::test_that("v3 stopper hvis public family capability mangler", {
+  fake <- fake_database_v3(missing_family_capability = TRUE)
+  testthat::expect_error(build_database_preview(
+    preview_v2_fixture(), source_persona_v2_fixture(), fixture_sha("e"), fixture_sha("d"),
+    fake$query, fake$execute, expected_database = "postgres"
+  ), "DB_PREVIEW_CAPABILITY_BLOCKER.*public.family")
+  testthat::expect_identical(tail(fake$calls(), 1L)[[1L]]$sql, "ROLLBACK")
+})
+
+testthat::test_that("v3 sammenligner family rows, komplette medlemmer og family facts", {
+  fake <- fake_database_v3()
+  result <- build_database_preview(
+    preview_v2_fixture(), source_persona_v2_fixture(), fixture_sha("e"), fixture_sha("d"),
+    fake$query, fake$execute, expected_database = "postgres",
+    expected_source_edition = "DAA 1939", snapshot_at = "2026-08-17T12:00:00Z"
+  )
+
+  testthat::expect_identical(result$families$comparison_basis,
+    "family_rows_complete_members_and_family_facts")
+  testthat::expect_identical(result$families$database_family_count, 2L)
+  testthat::expect_identical(result$families$database_family_editorial_count, 1L)
+  testthat::expect_identical(result$families$database_family_member_count, 4L)
+  testthat::expect_identical(result$families$database_family_member_editorial_count, 2L)
+  testthat::expect_identical(result$families$database_family_fact_count, 3L)
+  testthat::expect_identical(result$families$database_family_fact_editorial_count, 2L)
+  testthat::expect_identical(result$families$database_family_fact_source_cited_count, 2L)
+  testthat::expect_identical(result$families$database_family_fact_provenance_matrix,
+    list(source_only = 1L, editorial_only = 1L, both = 1L, neither = 0L))
+  testthat::expect_identical(result$families$database_change_coverage,
+    list(family_rows = 1L, family_members = 2L, family_facts = 2L))
+  testthat::expect_identical(result$relations$database_family_member_count, 4L)
+  report <- render_database_preview_markdown(result)
+  testthat::expect_match(report, "family facts / med redaktionelt spor / med 1939-citation: 3/2/2",
+    fixed = TRUE)
 })
 
 testthat::test_that("v2-input giver v3 med 32/32 targets og praecise blockers", {

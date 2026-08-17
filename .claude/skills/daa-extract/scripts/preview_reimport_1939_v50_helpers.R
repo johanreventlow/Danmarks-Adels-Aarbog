@@ -84,12 +84,26 @@ assert_read_only_sql <- function(sql) {
     "\\b(insert|update|delete|merge|create|alter|drop|truncate|copy|call|do|grant|revoke|vacuum|refresh|pg_advisory[a-z_]*|dblink)\\b",
     lower, perl = TRUE
   )
+  if (startsWith(lower, "select ")) {
+    call_matches <- regmatches(lower, gregexpr(
+      "\\b[a-z_][a-z0-9_$]*(?:\\s*\\.\\s*[a-z_][a-z0-9_$]*)?\\s*(?=\\()",
+      lower, perl = TRUE
+    ))[[1L]]
+    call_names <- if (length(call_matches) && !identical(call_matches, "")) {
+      gsub("\\s+", "", call_matches, perl = TRUE)
+    } else character()
+    allowed_calls <- c(
+      "current_database", "current_setting", "count", "left",
+      "where", "and", "or", "not", "in", "exists"
+    )
+    if (length(setdiff(call_names, allowed_calls))) banned <- TRUE
+  }
   if (!allowed_start || banned) preview_stop("DB_PREVIEW_SQL_FORBIDDEN")
   invisible(TRUE)
 }
 
-required_database_columns <- function() {
-  list(
+required_database_columns <- function(include_family = FALSE) {
+  required <- list(
     "public.source" = c("id", "udgave", "import_key"),
     "public.person_external_id" = c("person_id", "source_id", "record_key", "linje", "nr"),
     "public.person" = c("id", "staged", "visning_navn"),
@@ -106,6 +120,8 @@ required_database_columns <- function() {
     "private.source_persona_identity" = c(
       "source_persona_id", "canonical_person_id", "decision_status")
   )
+  if (isTRUE(include_family)) required[["public.family"]] <- c("id", "type")
+  required
 }
 
 validate_preview_connection <- function(host, user, password, port, database) {
@@ -641,7 +657,7 @@ build_database_preview <- function(preview, source_persona_materialization,
     "WHERE table_schema IN ('public','private')",
     "ORDER BY table_schema, table_name, ordinal_position"
   ))
-  required <- required_database_columns()
+  required <- required_database_columns(include_family = is_v3)
   actual <- if (nrow(columns)) {
     paste(columns$table_schema, columns$table_name, columns$column_name, sep = ".")
   } else character()
@@ -710,6 +726,38 @@ build_database_preview <- function(preview, source_persona_materialization,
     "WHERE f.subjekt_type = 'person'",
     "ORDER BY pei.record_key, f.id"
   ), list(source_id))
+  families <- if (is_v3) {
+    query(paste(
+      "SELECT fam.id, fam.type,",
+      "(SELECT count(*) FROM public.change_event ce",
+      " JOIN public.change_set cs ON cs.id = ce.change_set_id",
+      " WHERE ce.tabel = 'family' AND ce.row_pk->>'id' = fam.id::text",
+      " AND left(cs.operation, 4) = 'red_') AS editorial_events",
+      "FROM public.family fam",
+      "WHERE EXISTS (SELECT 1 FROM public.family_member scope",
+      " JOIN public.person_external_id pei ON pei.person_id = scope.person_id",
+      " WHERE scope.family_id = fam.id AND pei.source_id = $1)",
+      "ORDER BY fam.id"
+    ), list(source_id))
+  } else data.frame(id = integer(), type = character(), editorial_events = integer())
+  family_facts <- if (is_v3) {
+    query(paste(
+      "SELECT f.id, f.subjekt_id AS family_id, f.faktatype,",
+      "(SELECT count(*) FROM public.change_event ce",
+      " JOIN public.change_set cs ON cs.id = ce.change_set_id",
+      " WHERE ce.tabel = 'fact' AND ce.row_pk->>'id' = f.id::text",
+      " AND left(cs.operation, 4) = 'red_') AS editorial_events,",
+      "(SELECT count(*) FROM public.assertion a JOIN public.citation c ON c.assertion_id = a.id",
+      " WHERE a.target_type = 'fact' AND a.target_id = f.id AND c.source_id = $1) AS source_citations",
+      "FROM public.fact f",
+      "WHERE f.subjekt_type = 'family' AND EXISTS (",
+      " SELECT 1 FROM public.family_member scope",
+      " JOIN public.person_external_id pei ON pei.person_id = scope.person_id",
+      " WHERE scope.family_id = f.subjekt_id AND pei.source_id = $1)",
+      "ORDER BY f.subjekt_id, f.id"
+    ), list(source_id))
+  } else data.frame(id = integer(), family_id = integer(), faktatype = character(),
+    editorial_events = integer(), source_citations = integer())
   relations <- query(paste(
     "SELECT r.id, r.rolle,",
     "(SELECT count(*) FROM public.change_event ce",
@@ -725,19 +773,37 @@ build_database_preview <- function(preview, source_persona_materialization,
     "       WHERE pei.source_id = $1 AND pei.person_id = r.objekt_id))",
     "ORDER BY r.id"
   ), list(source_id))
-  family_members <- query(paste(
-    "SELECT fm.family_id, fm.person_id, fm.rolle,",
-    "(SELECT count(*) FROM public.change_event ce",
-    " JOIN public.change_set cs ON cs.id = ce.change_set_id",
-    " WHERE ce.tabel = 'family_member'",
-    " AND ce.row_pk->>'family_id' = fm.family_id::text",
-    " AND ce.row_pk->>'person_id' = fm.person_id::text",
-    " AND left(cs.operation, 4) = 'red_') AS editorial_events",
-    "FROM public.family_member fm",
-    "WHERE EXISTS (SELECT 1 FROM public.person_external_id pei",
-    "  WHERE pei.source_id = $1 AND pei.person_id = fm.person_id)",
-    "ORDER BY fm.family_id, fm.person_id, fm.rolle"
-  ), list(source_id))
+  family_members <- if (is_v3) {
+    query(paste(
+      "SELECT fm.family_id, fm.person_id, fm.rolle,",
+      "(SELECT count(*) FROM public.change_event ce",
+      " JOIN public.change_set cs ON cs.id = ce.change_set_id",
+      " WHERE ce.tabel = 'family_member'",
+      " AND ce.row_pk->>'family_id' = fm.family_id::text",
+      " AND ce.row_pk->>'person_id' = fm.person_id::text",
+      " AND ce.row_pk->>'rolle' = fm.rolle",
+      " AND left(cs.operation, 4) = 'red_') AS editorial_events",
+      "FROM public.family_member fm",
+      "WHERE EXISTS (SELECT 1 FROM public.family_member scope",
+      " JOIN public.person_external_id pei ON pei.person_id = scope.person_id",
+      " WHERE scope.family_id = fm.family_id AND pei.source_id = $1)",
+      "ORDER BY fm.family_id, fm.person_id, fm.rolle"
+    ), list(source_id))
+  } else {
+    query(paste(
+      "SELECT fm.family_id, fm.person_id, fm.rolle,",
+      "(SELECT count(*) FROM public.change_event ce",
+      " JOIN public.change_set cs ON cs.id = ce.change_set_id",
+      " WHERE ce.tabel = 'family_member'",
+      " AND ce.row_pk->>'family_id' = fm.family_id::text",
+      " AND ce.row_pk->>'person_id' = fm.person_id::text",
+      " AND left(cs.operation, 4) = 'red_') AS editorial_events",
+      "FROM public.family_member fm",
+      "WHERE EXISTS (SELECT 1 FROM public.person_external_id pei",
+      "  WHERE pei.source_id = $1 AND pei.person_id = fm.person_id)",
+      "ORDER BY fm.family_id, fm.person_id, fm.rolle"
+    ), list(source_id))
+  }
   source_records <- if (private_source_record_available) {
     query(
       paste("SELECT sr.record_key, sr.record_kind FROM private.source_record sr",
@@ -967,7 +1033,7 @@ build_database_preview <- function(preview, source_persona_materialization,
     "production_writer_not_authorized"
   )
 
-  list(
+  result <- list(
     schema_version = if (is_v3) "1939-v50-database-preview-v3" else
       "1939-v50-database-preview-v2",
     snapshot_at = scalar_text(snapshot_at, "DB_PREVIEW_INPUT_INVALID"),
@@ -1079,10 +1145,55 @@ build_database_preview <- function(preview, source_persona_materialization,
       "GO" else "NO-GO",
     reimport_gate = "NO-GO"
   )
+  if (is_v3) {
+    result$families <- list(
+      comparison_basis = "family_rows_complete_members_and_family_facts",
+      database_family_count = nrow(families),
+      database_family_editorial_count = event_count(families),
+      database_family_type_counts = named_counts(families$type),
+      database_family_member_count = nrow(family_members),
+      database_family_member_editorial_count = event_count(family_members),
+      database_family_member_role_counts = named_counts(family_members$rolle),
+      database_family_fact_count = nrow(family_facts),
+      database_family_fact_editorial_count = event_count(family_facts),
+      database_family_fact_source_cited_count = if (nrow(family_facts))
+        as.integer(sum(as.integer(family_facts$source_citations) > 0L,
+          na.rm = TRUE)) else 0L,
+      database_family_fact_provenance_matrix = provenance_matrix(family_facts),
+      database_family_fact_type_counts = named_counts(family_facts$faktatype),
+      database_change_coverage = list(
+        family_rows = event_count(families),
+        family_members = event_count(family_members),
+        family_facts = event_count(family_facts)
+      )
+    )
+  }
+  result
 }
 
 render_database_preview_markdown <- function(preview) {
   is_v3 <- identical(preview$schema_version, "1939-v50-database-preview-v3")
+  family_lines <- if (is_v3) {
+    c(
+      "",
+      "## Familier og familie-facts",
+      sprintf("- family rows / med redaktionelt spor: %d/%d",
+        preview$families$database_family_count,
+        preview$families$database_family_editorial_count),
+      sprintf("- komplette family members / med redaktionelt spor: %d/%d",
+        preview$families$database_family_member_count,
+        preview$families$database_family_member_editorial_count),
+      sprintf("- family facts / med redaktionelt spor / med 1939-citation: %d/%d/%d",
+        preview$families$database_family_fact_count,
+        preview$families$database_family_fact_editorial_count,
+        preview$families$database_family_fact_source_cited_count),
+      sprintf("- family-fact provenance source-only/editorial-only/begge/ingen: %d/%d/%d/%d",
+        preview$families$database_family_fact_provenance_matrix$source_only,
+        preview$families$database_family_fact_provenance_matrix$editorial_only,
+        preview$families$database_family_fact_provenance_matrix$both,
+        preview$families$database_family_fact_provenance_matrix$neither)
+    )
+  } else character()
   source_record_lines <- if (isTRUE(preview$source_records$comparison_available)) {
     c(
       sprintf("- eksisterende source records: %d", preview$source_records$existing_count),
@@ -1157,6 +1268,7 @@ render_database_preview_markdown <- function(preview) {
       preview$facts$database_provenance_matrix$editorial_only,
       preview$facts$database_provenance_matrix$both,
       preview$facts$database_provenance_matrix$neither),
+    family_lines,
     sprintf("- sikre ægteskabskandidater / parkerede: %d/%d",
       preview$relations$preview_marriage_literal_count,
       preview$relations$preview_marriage_parked_count),
