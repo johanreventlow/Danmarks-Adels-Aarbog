@@ -1112,6 +1112,8 @@ def test_repairs_disjoint_and_overlapping_legacy_anchors_with_complete_provenanc
     "target_duplicate_owner",
     "target_malformed_owners",
     "target_previously_annotated",
+    "target_hidden_forward_owner",
+    "target_unknown_owner",
     "stale_baseline_span",
     "wrong_declared_stale_span",
     "mismatched_target_span",
@@ -1149,6 +1151,14 @@ def test_legacy_anchor_repair_fails_closed_on_unproven_or_drifted_input(mutation
             "record_kind": "cross_reference",
             "person_creation": "forbidden_without_separate_evidence",
         }
+    elif mutation == "target_hidden_forward_owner":
+        source["baseline_entries"].append({
+            "baseline_record_key": "old-hidden-owner",
+            "matches": [{"new_record_key": "new-margrethe"}],
+            "disposition": "boundary_change_review",
+        })
+    elif mutation == "target_unknown_owner":
+        source["new_entries"][0]["baseline_record_keys"] = ["old-missing"]
     elif mutation == "stale_baseline_span":
         source["baseline_entries"][0]["source_span"] = {"char_from": 50370, "char_to": 50567}
     elif mutation == "mismatched_target_span":

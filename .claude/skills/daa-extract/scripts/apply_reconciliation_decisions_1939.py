@@ -128,6 +128,22 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
     new_entries = _objects(reconciliation.get("new_entries"), "new_entries")
     old_by_key = _unique(baseline_entries, "baseline_record_key", "baseline_entries")
     new_by_key = _unique(new_entries, "new_record_key", "new_entries")
+    original_owners: dict[str, list[str]] = defaultdict(list)
+    for entry in baseline_entries:
+        matches = entry.get("matches", [])
+        if not isinstance(matches, list):
+            raise DecisionError("baseline matches skal være en liste")
+        for match in matches:
+            if isinstance(match, Mapping) and match.get("new_record_key") in new_by_key:
+                original_owners[match["new_record_key"]].append(entry["baseline_record_key"])
+    for entry in new_entries:
+        declared_owners = entry.get("baseline_record_keys")
+        if (not isinstance(declared_owners, list)
+                or any(type(owner) is not str or owner not in old_by_key
+                       for owner in declared_owners)
+                or len(declared_owners) != len(set(declared_owners))
+                or declared_owners != original_owners[entry["new_record_key"]]):
+            raise DecisionError("new-entry baseline-ejere matcher ikke forward matches")
     raw_decisions = _objects(decisions.get("decisions"), "decisions")
     if not raw_decisions:
         raise DecisionError("mindst én decision kræves")
@@ -171,13 +187,7 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
                     or target_entry.get("disposition") != "merge_review"):
                 raise DecisionError("continuation fragment kræver merge-review records")
             declared_owners = target_entry.get("baseline_record_keys")
-            derived_owners = [
-                entry["baseline_record_key"] for entry in baseline_entries
-                if any(
-                    isinstance(match, Mapping) and match.get("new_record_key") == target
-                    for match in entry.get("matches", [])
-                )
-            ]
+            derived_owners = original_owners[target]
             if (not isinstance(declared_owners, list)
                     or any(type(owner) is not str for owner in declared_owners)
                     or len(declared_owners) != 2
@@ -400,11 +410,6 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
             decision, selected, "human_selected_split_target",
         )
 
-    original_owners: dict[str, list[str]] = defaultdict(list)
-    for entry in baseline_entries:
-        for match in entry.get("matches", []):
-            if isinstance(match, Mapping) and match.get("new_record_key") in new_by_key:
-                original_owners[match["new_record_key"]].append(entry["baseline_record_key"])
     for old_key, (_, selected, _) in decision_by_old.items():
         other_owners = [key for key in original_owners[selected] if key != old_key]
         if other_owners and not all(key in decision_by_old for key in other_owners):
