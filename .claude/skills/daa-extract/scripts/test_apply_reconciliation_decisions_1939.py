@@ -168,6 +168,11 @@ def test_nonperson_classification_accepts_structural_context_without_owner():
         "classification_basis": "human_verified_structural_context",
         "reviewed_by": "new-nonperson-reviewer",
         "decision_batch": "nonperson-classification-batch-1",
+        "classification_history": {
+            "source_reconciliation_sha256": digest,
+            "classification_reviewed_by": "new-nonperson-reviewer",
+            "classification_decision_batch": "nonperson-classification-batch-1",
+        },
     }
     assert crossref["baseline_record_keys"] == []
     assert crossref["disposition"] == "unmatched_new_review"
@@ -210,6 +215,13 @@ def test_nonperson_classification_resolves_annotated_cross_reference_without_own
         "classification_basis": "human_confirmed_existing_cross_reference_annotation",
         "resolved_by": "new-nonperson-reviewer",
         "resolution_batch": "nonperson-classification-batch-1",
+        "classification_history": {
+            "source_reconciliation_sha256": digest,
+            "annotation_reviewed_by": "old-crossref-reviewer",
+            "annotation_decision_batch": "old-crossref-batch",
+            "resolution_reviewed_by": "new-nonperson-reviewer",
+            "resolution_decision_batch": "nonperson-classification-batch-1",
+        },
     }
     assert result["report"]["new_dispositions"] == {
         "accepted_cross_reference": 1,
@@ -267,6 +279,7 @@ def test_nonperson_classification_accepts_mixed_closed_batch():
     "hidden_forward_owner",
     "existing_classification_metadata",
     "existing_resolution_metadata",
+    "existing_classification_history",
 ])
 def test_nonperson_classification_rejects_closed_cross_reference_contract(mutation):
     source = nonperson_classification_reconciliation()
@@ -310,6 +323,8 @@ def test_nonperson_classification_rejects_closed_cross_reference_contract(mutati
         target["classification_basis"] = "conflicting"
     elif mutation == "existing_resolution_metadata":
         target["resolved_by"] = "previous-reviewer"
+    elif mutation == "existing_classification_history":
+        target["classification_history"] = {}
 
     digest = hashlib.sha256(encoded(source)).hexdigest()
     document = nonperson_classification_decision_document(
@@ -451,6 +466,7 @@ def test_nonperson_classification_rejects_cross_reference_annotation_drift(mutat
     ("reviewed_by", "old-reviewer"),
     ("decision_batch", "old-batch"),
     ("classification_basis", "conflicting"),
+    ("classification_history", {}),
 ])
 def test_nonperson_classification_rejects_structural_conflicting_human_metadata(field, value):
     source = nonperson_classification_reconciliation()
@@ -525,22 +541,28 @@ def test_nonperson_classification_later_batch_deeply_preserves_human_history():
     "crossref_annotation",
     "crossref_missing_old_reviewer",
     "crossref_wrong_old_reviewer",
+    "crossref_different_old_reviewer",
     "crossref_missing_old_batch",
     "crossref_wrong_old_batch",
+    "crossref_different_old_batch",
     "crossref_missing_resolved_by",
     "crossref_empty_resolved_by",
     "crossref_wrong_resolved_by",
+    "crossref_different_resolved_by",
     "crossref_missing_resolution_batch",
     "crossref_empty_resolution_batch",
     "crossref_wrong_resolution_batch",
+    "crossref_different_resolution_batch",
     "structural_wrong_disposition",
     "structural_wrong_kind",
     "structural_owner",
     "structural_wrong_basis",
     "structural_missing_reviewer",
     "structural_wrong_reviewer",
+    "structural_different_reviewer",
     "structural_missing_batch",
     "structural_wrong_batch",
+    "structural_different_batch",
     "structural_annotation",
 ])
 def test_nonperson_classification_rejects_malformed_later_history(mutation):
@@ -560,22 +582,30 @@ def test_nonperson_classification_rejects_malformed_later_history(mutation):
         del crossref["reviewed_by"]
     elif mutation == "crossref_wrong_old_reviewer":
         crossref["reviewed_by"] = 1
+    elif mutation == "crossref_different_old_reviewer":
+        crossref["reviewed_by"] = "different-old-reviewer"
     elif mutation == "crossref_missing_old_batch":
         del crossref["decision_batch"]
     elif mutation == "crossref_wrong_old_batch":
         crossref["decision_batch"] = 1
+    elif mutation == "crossref_different_old_batch":
+        crossref["decision_batch"] = "different-old-batch"
     elif mutation == "crossref_missing_resolved_by":
         del crossref["resolved_by"]
     elif mutation == "crossref_empty_resolved_by":
         crossref["resolved_by"] = ""
     elif mutation == "crossref_wrong_resolved_by":
         crossref["resolved_by"] = 1
+    elif mutation == "crossref_different_resolved_by":
+        crossref["resolved_by"] = "different-resolution-reviewer"
     elif mutation == "crossref_missing_resolution_batch":
         del crossref["resolution_batch"]
     elif mutation == "crossref_empty_resolution_batch":
         crossref["resolution_batch"] = ""
     elif mutation == "crossref_wrong_resolution_batch":
         crossref["resolution_batch"] = 1
+    elif mutation == "crossref_different_resolution_batch":
+        crossref["resolution_batch"] = "different-resolution-batch"
     elif mutation == "structural_wrong_disposition":
         structural["disposition"] = "unmatched_new_review"
     elif mutation == "structural_wrong_kind":
@@ -588,10 +618,14 @@ def test_nonperson_classification_rejects_malformed_later_history(mutation):
         del structural["reviewed_by"]
     elif mutation == "structural_wrong_reviewer":
         structural["reviewed_by"] = 1
+    elif mutation == "structural_different_reviewer":
+        structural["reviewed_by"] = "different-structural-reviewer"
     elif mutation == "structural_missing_batch":
         del structural["decision_batch"]
     elif mutation == "structural_wrong_batch":
         structural["decision_batch"] = 1
+    elif mutation == "structural_different_batch":
+        structural["decision_batch"] = "different-structural-batch"
     elif mutation == "structural_annotation":
         structural["human_annotation"] = {"note": "not allowed"}
 
@@ -624,6 +658,61 @@ def test_nonperson_classification_keeps_machine_structural_history_compatible():
     machine = result["new_entries"][1]
     assert machine["disposition"] == "accepted_structural_context"
     assert "classification_basis" not in machine
+    assert "classification_history" not in machine
+
+
+@pytest.mark.parametrize("mutation", [
+    "crossref_missing_history",
+    "crossref_extra_history_field",
+    "crossref_invalid_source_hash",
+    "crossref_wrong_source_hash_type",
+    "crossref_different_source_hash",
+    "crossref_wrong_annotation_reviewer_mirror",
+    "crossref_wrong_annotation_batch_mirror",
+    "crossref_wrong_resolution_reviewer_mirror",
+    "crossref_wrong_resolution_batch_mirror",
+    "structural_missing_history",
+    "structural_extra_history_field",
+    "structural_invalid_source_hash",
+    "structural_wrong_source_hash_type",
+    "structural_different_source_hash",
+    "structural_wrong_reviewer_mirror",
+    "structural_wrong_batch_mirror",
+])
+def test_nonperson_classification_rejects_malformed_or_mismatched_history(mutation):
+    source = later_nonperson_reconciliation()
+    structural, crossref = source["new_entries"][:2]
+    target = crossref if mutation.startswith("crossref_") else structural
+    if mutation.endswith("missing_history"):
+        del target["classification_history"]
+    elif mutation.endswith("extra_history_field"):
+        target["classification_history"]["unexpected"] = True
+    elif mutation.endswith("invalid_source_hash"):
+        target["classification_history"]["source_reconciliation_sha256"] = "not-a-hash"
+    elif mutation.endswith("wrong_source_hash_type"):
+        target["classification_history"]["source_reconciliation_sha256"] = 1
+    elif mutation.endswith("different_source_hash"):
+        target["classification_history"]["source_reconciliation_sha256"] = "c" * 64
+    elif mutation == "crossref_wrong_annotation_reviewer_mirror":
+        target["classification_history"]["annotation_reviewed_by"] = "different"
+    elif mutation == "crossref_wrong_annotation_batch_mirror":
+        target["classification_history"]["annotation_decision_batch"] = "different"
+    elif mutation == "crossref_wrong_resolution_reviewer_mirror":
+        target["classification_history"]["resolution_reviewed_by"] = "different"
+    elif mutation == "crossref_wrong_resolution_batch_mirror":
+        target["classification_history"]["resolution_decision_batch"] = "different"
+    elif mutation == "structural_wrong_reviewer_mirror":
+        target["classification_history"]["classification_reviewed_by"] = "different"
+    elif mutation == "structural_wrong_batch_mirror":
+        target["classification_history"]["classification_decision_batch"] = "different"
+
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    with pytest.raises(DecisionError):
+        apply_decisions(
+            source,
+            later_nonperson_decision_document(digest),
+            reconciliation_sha256=digest,
+        )
 
 
 def spanless_adoption_reconciliation():
