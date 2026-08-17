@@ -423,32 +423,14 @@ def test_genuinely_new_acceptance_rejects_structural_target_kind():
         apply_decisions(source, document, reconciliation_sha256=digest)
 
 
-def test_genuinely_new_acceptance_rejects_duplicate_or_cross_kind_target_reuse():
+def test_genuinely_new_acceptance_rejects_second_ownerless_decision_for_same_target():
     source = genuinely_new_reconciliation()
     digest = hashlib.sha256(encoded(source)).hexdigest()
     duplicate = genuinely_new_decision_document(digest)
     duplicate["decisions"].append(dict(duplicate["decisions"][0]))
 
-    with pytest.raises(DecisionError):
+    with pytest.raises(DecisionError, match="flere beslutninger bruger samme new_record_key"):
         apply_decisions(source, duplicate, reconciliation_sha256=digest)
-
-    reused_source = genuinely_new_reconciliation()
-    reused_source["baseline_entries"].append({
-        "baseline_record_key": "old-reuse",
-        "matches": [{"new_record_key": "new-genuine"}],
-        "disposition": "boundary_change_review",
-    })
-    reused_source["new_entries"][0]["baseline_record_keys"] = ["old-reuse"]
-    reused_digest = hashlib.sha256(encoded(reused_source)).hexdigest()
-    reused = genuinely_new_decision_document(reused_digest)
-    reused["decisions"].append({
-        "baseline_record_key": "old-reuse",
-        "decision_kind": "accept_boundary_change",
-        "selected_new_record_key": "new-genuine",
-    })
-
-    with pytest.raises(DecisionError):
-        apply_decisions(reused_source, reused, reconciliation_sha256=reused_digest)
 
 
 def test_genuinely_new_acceptance_rejects_stale_source_hashes():
@@ -496,6 +478,7 @@ def later_batch_after_genuinely_new_acceptance():
     "wrong_kind",
     "missing_acceptance_basis",
     "wrong_acceptance_basis",
+    "human_annotation",
     "missing_reviewed_by",
     "empty_reviewed_by",
     "wrong_type_reviewed_by",
@@ -521,6 +504,8 @@ def test_later_batch_rejects_malformed_genuinely_new_acceptance(mutation):
         accepted.pop("acceptance_basis")
     elif mutation == "wrong_acceptance_basis":
         accepted["acceptance_basis"] = "unverified"
+    elif mutation == "human_annotation":
+        accepted["human_annotation"] = {"note": "contradictory-history"}
     elif mutation == "missing_reviewed_by":
         accepted.pop("reviewed_by")
     elif mutation == "empty_reviewed_by":

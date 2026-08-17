@@ -148,6 +148,7 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
             if (entry.get("record_kind") != "unclassified"
                     or declared_owners != []
                     or original_owners[entry["new_record_key"]] != []
+                    or "human_annotation" in entry
                     or entry.get("acceptance_basis")
                     != "human_verified_genuinely_new_source_record"):
                 raise DecisionError("tidligere genuinely-new acceptance er ugyldig")
@@ -196,8 +197,7 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
                 raise DecisionError(
                     "genuinely-new acceptance kræver ejerløs unmatched unclassified target"
                 )
-            if (target in selected_targets or target in annotation_by_new
-                    or target in genuinely_new_acceptances):
+            if target in selected_targets or target in annotation_by_new:
                 raise DecisionError("flere beslutninger bruger samme new_record_key")
             genuinely_new_acceptances[target] = dict(decision)
             selected_targets.add(target)
