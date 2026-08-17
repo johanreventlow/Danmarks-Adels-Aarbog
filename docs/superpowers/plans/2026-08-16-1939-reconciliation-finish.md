@@ -54,11 +54,11 @@
 - Consumes: v31 after Task 1.
 - Produces: a source-ordered, hash-bound review manifest pairing every one of the 49 unresolved baseline entries with zero or more plausible unmatched-new entries, while also listing every unmatched-new entry not proposed for a baseline.
 
-- [ ] Sort baseline entries with spans by `char_from`, followed by spanless baseline entries in stable input order; sort unmatched-new entries by `char_from`.
-- [ ] Generate candidates only from exact source overlap, bounded source proximity, or literal/name evidence derived from the hash-bound Calamari and baseline record. Do not manufacture names or identities.
-- [ ] Record candidate evidence, competing ownership, full source spans, source pages, and a fail-closed proposed class: `same_record_review`, `baseline_missing_span_review`, `genuinely_new_review`, `structural_review`, or `unresolved`.
-- [ ] Prove coverage: all 49 unresolved baseline keys and all remaining unmatched-new keys occur exactly once as subjects; candidate references may repeat only as explicit alternatives.
-- [ ] Run deterministic schema, source-hash, injectivity, coverage, and `git diff --check` audits.
+- [x] Sort baseline entries with spans by `char_from`, followed by spanless baseline entries in stable input order; sort unmatched-new entries by `char_from`.
+- [x] Generate candidates only from exact source overlap, bounded source proximity, or literal/name evidence derived from the hash-bound Calamari and baseline record. Do not manufacture names or identities.
+- [x] Record candidate evidence, competing ownership, full source spans, source pages, and a fail-closed proposed class: `same_record_review`, `baseline_missing_span_review`, `genuinely_new_review`, `structural_review`, or `unresolved`.
+- [x] Prove coverage: all 49 unresolved baseline keys and all remaining unmatched-new keys occur exactly once as subjects; candidate references may repeat only as explicit alternatives.
+- [x] Run deterministic schema, source-hash, injectivity, coverage, and `git diff --check` audits.
 
 ### Task 3: Repair two contaminated legacy anchors
 
@@ -94,8 +94,21 @@
 - Consumes: a regenerated, v32-bound paired manifest and the latest reconciliation hash.
 - Produces: reviewed decisions for every clear pair or genuinely new/structural record; genuinely ambiguous hierarchy or identity remains explicitly unresolved for user review.
 
-- [ ] Review subjects in batches of at most 12, preserving manifest source order and using complete relevant PDF pages plus literal Calamari.
-- [ ] Apply only decision kinds already supported and tested. If a reviewed case requires a new semantic decision, stop that case, add a separately reviewed interpreter task, and continue the other subjects.
-- [ ] After each batch, audit exact decision/hash binding, changed sets, ownership, deep preservation, report identity, OCR literal substrings, focused tests, and `git diff --check`.
-- [ ] Continue without routine user confirmation. Ask only about genuine hierarchy, ownership, identity, or source-boundary ambiguity that cannot be resolved from PDF and Calamari.
-- [ ] Finish with a zero-queue audit or an explicit ambiguity ledger naming every remaining key and exact blocker.
+- [x] Review subjects in batches of at most 12, preserving manifest source order and using complete relevant PDF pages plus literal Calamari.
+- [x] Apply only decision kinds already supported and tested. If a reviewed case requires a new semantic decision, stop that case, add a separately reviewed interpreter task, and continue the other subjects.
+- [x] After each batch, audit exact decision/hash binding, changed sets, ownership, deep preservation, report identity, OCR literal substrings, focused tests, and `git diff --check`.
+- [x] Continue without routine user confirmation. Ask only about genuine hierarchy, ownership, identity, or source-boundary ambiguity that cannot be resolved from PDF and Calamari.
+- [x] Finish with a zero-queue audit or an explicit ambiguity ledger naming every remaining key and exact blocker.
+
+### Final reconciliation checkpoint
+
+- Final artifact: `source-record-reconciliation-v50.json`, SHA-256
+  `6e2749f98edb0aee0ec0240c06c3f46ab80d26e23ce0e7f5ed7f186895734b0b`.
+- Final report: SHA-256
+  `4f56f13f6f532735ccb0f0fedce1b77042ed365e2ad6cfff278e74606a2cec03`.
+- Coverage: 546/546 baseline records resolved and 592/592 new records resolved;
+  zero remaining reviews and `reconciliation_gate: GO`.
+- Ownership audit: all forward/reverse owner lists agree and every target has at
+  most one baseline owner.
+- v49 to v50 replay is byte-identical and changes exactly the five approved
+  Claus/Henrik/Engelke/Carlstein baseline records and their five selected targets.
