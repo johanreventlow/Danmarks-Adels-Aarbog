@@ -16,7 +16,8 @@ class DecisionError(ValueError):
 
 RESOLVED_DISPOSITIONS = {
     "unchanged", "accepted_carryover", "accepted_structural_context",
-    "accepted_genuinely_new_source_record", "retired_duplicate", "retired_fragment",
+    "accepted_cross_reference", "accepted_genuinely_new_source_record",
+    "retired_duplicate", "retired_fragment",
 }
 ALLOWED_SOURCE_DISPOSITIONS = {"split_review", "split_merge_review"}
 
@@ -210,6 +211,64 @@ def _validate_historical_spanless_adoptions(
         raise DecisionError("historisk spanless adoption-target er delvis")
 
 
+def _validate_historical_nonperson_classifications(
+        new_entries: Sequence[Mapping[str, Any]],
+        owners: Mapping[str, list[str]],
+) -> None:
+    """Reject malformed human non-person classification history."""
+    for entry in new_entries:
+        key = _text(entry.get("new_record_key"), "new_record_key")
+        is_cross_reference = (
+            entry.get("disposition") == "accepted_cross_reference"
+            or entry.get("classification_basis")
+            == "human_confirmed_existing_cross_reference_annotation"
+            or "resolved_by" in entry
+            or "resolution_batch" in entry
+        )
+        is_human_structural = (
+            entry.get("classification_basis") == "human_verified_structural_context"
+            or (entry.get("record_kind") == "structural_context"
+                and any(field in entry for field in (
+                    "classification_basis", "reviewed_by", "decision_batch",
+                    "human_annotation", "resolved_by", "resolution_batch",
+                )))
+        )
+        if is_cross_reference:
+            annotation = entry.get("human_annotation")
+            if (entry.get("disposition") != "accepted_cross_reference"
+                    or entry.get("record_kind") != "cross_reference"
+                    or entry.get("baseline_record_keys") != []
+                    or owners.get(key, []) != []
+                    or entry.get("classification_basis")
+                    != "human_confirmed_existing_cross_reference_annotation"
+                    or not isinstance(annotation, Mapping)
+                    or set(annotation) != {
+                        "new_record_key", "record_kind", "person_creation",
+                    }
+                    or annotation.get("new_record_key") != key
+                    or annotation.get("record_kind") != "cross_reference"
+                    or annotation.get("person_creation")
+                    != "forbidden_without_separate_evidence"):
+                raise DecisionError("historisk cross-reference classification er ugyldig")
+            _text(entry.get("reviewed_by"), "historisk cross-reference reviewed_by")
+            _text(entry.get("decision_batch"), "historisk cross-reference decision_batch")
+            _text(entry.get("resolved_by"), "historisk cross-reference resolved_by")
+            _text(entry.get("resolution_batch"), "historisk cross-reference resolution_batch")
+        elif is_human_structural:
+            if (entry.get("record_kind") != "structural_context"
+                    or entry.get("disposition") != "accepted_structural_context"
+                    or entry.get("baseline_record_keys") != []
+                    or owners.get(key, []) != []
+                    or entry.get("classification_basis")
+                    != "human_verified_structural_context"
+                    or "human_annotation" in entry
+                    or "resolved_by" in entry
+                    or "resolution_batch" in entry):
+                raise DecisionError("historisk structural classification er ugyldig")
+            _text(entry.get("reviewed_by"), "historisk structural reviewed_by")
+            _text(entry.get("decision_batch"), "historisk structural decision_batch")
+
+
 def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, Any], *,
                     reconciliation_sha256: str) -> dict[str, Any]:
     """Return a new queue with exact, reviewed split-target choices applied."""
@@ -263,6 +322,9 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
     _validate_historical_spanless_adoptions(
         baseline_entries, new_entries, original_owners, new_by_key,
     )
+    _validate_historical_nonperson_classifications(
+        new_entries, original_owners,
+    )
     raw_decisions = _objects(decisions.get("decisions"), "decisions")
     if not raw_decisions:
         raise DecisionError("mindst én decision kræves")
@@ -282,7 +344,73 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
     genuinely_new_acceptances = {}
     spanless_adoptions = {}
     spanless_adoptions_by_target = {}
+    structural_context_acceptances = {}
+    cross_reference_resolutions = {}
     for decision in raw_decisions:
+        if decision.get("decision_kind") == "accept_structural_context":
+            if set(decision) != {
+                "decision_kind", "new_record_key", "new_source_span", "reason",
+            }:
+                raise DecisionError("ukendt structural-context acceptance-handling")
+            target = _text(decision.get("new_record_key"), "new_record_key")
+            target_entry = new_by_key.get(target)
+            if (decision.get("reason") != "human_verified_structural_narrative"
+                    or target_entry is None
+                    or target_entry.get("record_kind") != "unclassified"
+                    or _span(decision.get("new_source_span"), "new_source_span")
+                    != _span(target_entry.get("source_span"), "target source_span")
+                    or target_entry.get("disposition") != "unmatched_new_review"
+                    or target_entry.get("baseline_record_keys") != []
+                    or original_owners[target] != []
+                    or any(field in target_entry for field in (
+                        "human_annotation", "reviewed_by", "decision_batch",
+                        "classification_basis", "resolved_by", "resolution_batch",
+                    ))):
+                raise DecisionError(
+                    "structural classification kræver ejerløs unmatched unclassified target"
+                )
+            if target in selected_targets or target in annotation_by_new:
+                raise DecisionError("flere beslutninger bruger samme new_record_key")
+            structural_context_acceptances[target] = dict(decision)
+            selected_targets.add(target)
+            continue
+        if decision.get("decision_kind") == "resolve_annotated_cross_reference":
+            if set(decision) != {
+                "decision_kind", "new_record_key", "new_source_span", "reason",
+            }:
+                raise DecisionError("ukendt cross-reference resolution-handling")
+            target = _text(decision.get("new_record_key"), "new_record_key")
+            target_entry = new_by_key.get(target)
+            annotation = target_entry.get("human_annotation") if target_entry else None
+            if (decision.get("reason") != "human_verified_cross_reference"
+                    or target_entry is None
+                    or target_entry.get("record_kind") != "unclassified"
+                    or _span(decision.get("new_source_span"), "new_source_span")
+                    != _span(target_entry.get("source_span"), "target source_span")
+                    or target_entry.get("disposition") != "unmatched_new_review"
+                    or target_entry.get("baseline_record_keys") != []
+                    or original_owners[target] != []
+                    or not isinstance(annotation, Mapping)
+                    or set(annotation) != {
+                        "new_record_key", "record_kind", "person_creation",
+                    }
+                    or annotation.get("new_record_key") != target
+                    or annotation.get("record_kind") != "cross_reference"
+                    or annotation.get("person_creation")
+                    != "forbidden_without_separate_evidence"
+                    or any(field in target_entry for field in (
+                        "classification_basis", "resolved_by", "resolution_batch",
+                    ))):
+                raise DecisionError(
+                    "cross-reference resolution kræver præcist annoteret ejerløst target"
+                )
+            _text(target_entry.get("reviewed_by"), "cross-reference reviewed_by")
+            _text(target_entry.get("decision_batch"), "cross-reference decision_batch")
+            if target in selected_targets or target in annotation_by_new:
+                raise DecisionError("flere beslutninger bruger samme new_record_key")
+            cross_reference_resolutions[target] = dict(decision)
+            selected_targets.add(target)
+            continue
         if decision.get("decision_kind") == "accept_genuinely_new":
             if set(decision) != {
                 "decision_kind", "new_record_key", "new_source_span",
@@ -739,8 +867,26 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
             output["acceptance_basis"] = "human_verified_genuinely_new_source_record"
             output["reviewed_by"] = reviewed_by
             output["decision_batch"] = decision_batch
+        elif key in structural_context_acceptances:
+            output["record_kind"] = "structural_context"
+            output["disposition"] = "accepted_structural_context"
+            output["classification_basis"] = "human_verified_structural_context"
+            output["reviewed_by"] = reviewed_by
+            output["decision_batch"] = decision_batch
+        elif key in cross_reference_resolutions:
+            output["record_kind"] = "cross_reference"
+            output["disposition"] = "accepted_cross_reference"
+            output["classification_basis"] = (
+                "human_confirmed_existing_cross_reference_annotation"
+            )
+            output["resolved_by"] = reviewed_by
+            output["resolution_batch"] = decision_batch
         elif entry.get("disposition") == "accepted_genuinely_new_source_record":
             output["disposition"] = "accepted_genuinely_new_source_record"
+        elif (entry.get("disposition") == "accepted_cross_reference"
+              or entry.get("classification_basis")
+              == "human_verified_structural_context"):
+            output["disposition"] = entry["disposition"]
         elif not old_keys:
             disposition = ("accepted_structural_context"
                            if entry.get("record_kind") == "structural_context"
