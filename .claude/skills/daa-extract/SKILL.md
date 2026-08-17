@@ -390,6 +390,57 @@ gennemgået, og kun et
 schema-gyldigt `audit_confirmed` kan opfylde en audit. `audit_failed` og
 `audit_undecidable` blokerer den berørte regelgruppe og dermed publikation.
 
+## 1939 v50 import-preview (ikke-skrivende)
+
+Brug denne vej efter en afsluttet v50-reconciliation, når personer, narrativer,
+facts, relationer, provenance og forventede databaseændringer skal kontrolleres
+før reimport. Brug **ikke** `load_daa.R --dry-run`: den gamle loader udfører
+midlertidige writes og tager loader-låse, selv om transaktionen bagefter rulles
+tilbage.
+
+Byg først det DB-frie, hashbundne preview fra de eksakte godkendte v50-input:
+
+```bash
+/usr/bin/python3 .claude/skills/daa-extract/scripts/prepare_reimport_1939_v50.py \
+  --reconciliation work/task20-1939-full/source-record-reconciliation-v50.json \
+  --reconciliation-report work/task20-1939-full/source-record-reconciliation-report-v50.json \
+  --ledger work/task20-1939-full/source-record-ledger-v3-ditlev.json \
+  --materialization work/task20-1939-full/boundary-materialization-v3-ditlev.json \
+  --clean /Users/johanreventlow/TypeScript/danmarksadelsaarbog/work_1939_stamtavle/clean_1939_v3.json \
+  --calamari /Users/johanreventlow/TypeScript/danmarksadelsaarbog/work_1939_stamtavle/full_ocr_calamari_r6_clean.txt \
+  --output work/task21-1939-v50-import-preview/import-preview-v1.json \
+  --report work/task21-1939-v50-import-preview/import-preview-v1-report.md
+```
+
+Builderen er pinned til v50-, report-, ledger-, materialization-, clean- og
+Calamari-hashene. Den bogfører hver source record præcis én gang, klassificerer
+legacy `kilde_span` ordret mod v50-verbatim og sætter altid
+`canonical_mutations_authorized: false`. Genuinely-new, structural og
+cross-reference må aldrig skabe personer.
+
+Kør derefter den aktuelle Supabase-sammenligning. Credentials læses fra
+`~/.Renviron`; angiv dem aldrig på kommandolinjen eller i rapporten:
+
+```bash
+Rscript .claude/skills/daa-extract/scripts/preview_reimport_1939_v50.R \
+  --input=work/task21-1939-v50-import-preview/import-preview-v1.json \
+  --output=work/task21-1939-v50-import-preview/database-preview-v1.json \
+  --report=work/task21-1939-v50-import-preview/database-preview-v1-report.md \
+  --source-edition='DAA 1939'
+```
+
+Databasevejen afviser transaction pooler-port 6543, starter `BEGIN READ ONLY`,
+verificerer `transaction_read_only=on`, whitelister SQL til read-only grammar og
+rollbacker/lukker forbindelsen før lokale output skrives. Manglende offentlige
+tabeller/kolonner stopper kørslen. Manglende `private.source_record` bevares som
+en eksplicit capability-blocker i en delvis `NO-GO`-rapport; den må aldrig
+fortolkes som en tom tabel eller som tilladelse til at antage inserts.
+
+Alle preview-output oprettes eksklusivt under `work/` og må ikke committes.
+`dry_run_gate` kan kun være GO for en komplet kontrolkørsel. `reimport_gate`
+forbliver NO-GO, indtil identiteter, parkeret provenance, private source records
+og en særskilt godkendt writer/replay/rollback-plan er på plads.
+
 ## Vigtige principper
 
 - **Hver DAA-udgave er én `source`.** Modstridende udgaver = separate kilder,
