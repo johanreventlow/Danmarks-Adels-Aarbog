@@ -81,6 +81,528 @@ def genuinely_new_reconciliation():
     }
 
 
+def spanless_adoption_reconciliation():
+    """One spanless unresolved baseline and one accepted, ownerless target."""
+    return {
+        "schema_version": "1.0",
+        "source": {
+            "edition": "1939",
+            "baseline_sha256": "a" * 64,
+            "calamari_sha256": "b" * 64,
+        },
+        "baseline_entries": [{
+            "baseline_record_key": "old-spanless",
+            "name": "Recovered Person",
+            "matches": [],
+            "unresolved_reason": "narrative_not_exact",
+            "disposition": "unresolved",
+        }],
+        "new_entries": [{
+            "new_record_key": "new-genuine",
+            "record_kind": "unclassified",
+            "source_span": {"char_from": 10, "char_to": 20},
+            "baseline_record_keys": [],
+            "disposition": "accepted_genuinely_new_source_record",
+            "acceptance_basis": "human_verified_genuinely_new_source_record",
+            "reviewed_by": "old-reviewer",
+            "decision_batch": "old-batch",
+        }],
+        "report": {"reconciliation_gate": "NO-GO"},
+    }
+
+
+def spanless_adoption_decision_document(reconciliation_sha256, decisions=None):
+    return {
+        "schema_version": "1.0",
+        "source": {
+            "edition": "1939",
+            "reconciliation_sha256": reconciliation_sha256,
+            "baseline_sha256": "a" * 64,
+            "calamari_sha256": "b" * 64,
+        },
+        "reviewed_by": "new-reviewer",
+        "decision_batch": "spanless-adoption-batch-1",
+        "decisions": decisions or [{
+            "baseline_record_key": "old-spanless",
+            "decision_kind": "adopt_genuinely_new_target",
+            "selected_new_record_key": "new-genuine",
+            "selected_new_source_span": {"char_from": 10, "char_to": 20},
+            "reason": "spanless_baseline_exact_source_recovery",
+        }],
+    }
+
+
+def test_spanless_adoption_recovers_baseline_and_preserves_genuine_new_provenance():
+    source = spanless_adoption_reconciliation()
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+
+    result = apply_decisions(
+        source,
+        spanless_adoption_decision_document(digest),
+        reconciliation_sha256=digest,
+    )
+
+    baseline = result["baseline_entries"][0]
+    assert "source_span" not in baseline
+    assert baseline["matches"] == [{
+        "new_record_key": "new-genuine",
+        "geometry_relation": "human_recovered_spanless_baseline",
+    }]
+    assert baseline["selected_new_record_key"] == "new-genuine"
+    assert baseline["disposition"] == "accepted_carryover"
+    assert baseline["reconciliation_basis"] == "human_adopted_spanless_baseline"
+    assert baseline["reviewed_by"] == "new-reviewer"
+    assert baseline["decision_batch"] == "spanless-adoption-batch-1"
+    assert baseline["spanless_baseline_recovery"] == {
+        "selected_new_source_span": {"char_from": 10, "char_to": 20},
+        "reason": "spanless_baseline_exact_source_recovery",
+    }
+
+    target = result["new_entries"][0]
+    assert target["baseline_record_keys"] == ["old-spanless"]
+    assert target["disposition"] == "accepted_carryover"
+    assert target["reconciliation_basis"] == "human_adopted_spanless_baseline"
+    assert target["reviewed_by"] == "new-reviewer"
+    assert target["decision_batch"] == "spanless-adoption-batch-1"
+    assert "acceptance_basis" not in target
+    assert target["prior_genuinely_new_acceptance"] == {
+        "acceptance_basis": "human_verified_genuinely_new_source_record",
+        "reviewed_by": "old-reviewer",
+        "decision_batch": "old-batch",
+    }
+
+
+def test_spanless_adoption_resolves_two_independent_pairs_and_report_counts():
+    source = spanless_adoption_reconciliation()
+    source["baseline_entries"].append({
+        "baseline_record_key": "old-spanless-second",
+        "name": "Second Recovered Person",
+        "matches": [],
+        "unresolved_reason": "narrative_not_exact",
+        "disposition": "unresolved",
+    })
+    source["new_entries"].append({
+        "new_record_key": "new-genuine-second",
+        "record_kind": "unclassified",
+        "source_span": {"char_from": 30, "char_to": 40},
+        "baseline_record_keys": [],
+        "disposition": "accepted_genuinely_new_source_record",
+        "acceptance_basis": "human_verified_genuinely_new_source_record",
+        "reviewed_by": "old-reviewer-second",
+        "decision_batch": "old-batch-second",
+    })
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    document = spanless_adoption_decision_document(digest, [{
+        "baseline_record_key": "old-spanless",
+        "decision_kind": "adopt_genuinely_new_target",
+        "selected_new_record_key": "new-genuine",
+        "selected_new_source_span": {"char_from": 10, "char_to": 20},
+        "reason": "spanless_baseline_exact_source_recovery",
+    }, {
+        "baseline_record_key": "old-spanless-second",
+        "decision_kind": "adopt_genuinely_new_target",
+        "selected_new_record_key": "new-genuine-second",
+        "selected_new_source_span": {"char_from": 30, "char_to": 40},
+        "reason": "spanless_baseline_exact_source_recovery",
+    }])
+
+    result = apply_decisions(source, document, reconciliation_sha256=digest)
+
+    assert [entry["selected_new_record_key"] for entry in result["baseline_entries"]] == [
+        "new-genuine", "new-genuine-second",
+    ]
+    assert [entry["baseline_record_keys"] for entry in result["new_entries"]] == [
+        ["old-spanless"], ["old-spanless-second"],
+    ]
+    assert result["report"] == {
+        "baseline_total": 2,
+        "new_total": 2,
+        "applied_decisions": 2,
+        "accepted_carryovers": 2,
+        "retired_duplicates": 0,
+        "retired_fragments": 0,
+        "baseline_dispositions": {"accepted_carryover": 2},
+        "new_dispositions": {"accepted_carryover": 2},
+        "remaining_baseline_review": 0,
+        "remaining_new_review": 0,
+        "reconciliation_gate": "GO",
+    }
+
+
+@pytest.mark.parametrize("mutation", [
+    "baseline_source_span",
+    "baseline_missing_unresolved_reason",
+    "baseline_wrong_unresolved_reason",
+    "baseline_existing_match",
+    "baseline_selected_target",
+    "baseline_reconciliation_basis",
+    "baseline_reviewer",
+    "baseline_batch",
+    "baseline_annotation",
+    "baseline_prior_adoption",
+    "target_wrong_disposition",
+    "target_wrong_kind",
+    "target_wrong_span",
+    "target_declared_owner",
+    "target_hidden_forward_owner",
+    "target_annotation",
+    "target_reconciliation_basis",
+    "target_prior_adoption",
+    "target_missing_acceptance_basis",
+    "target_empty_acceptance_basis",
+    "target_wrong_type_acceptance_basis",
+    "target_wrong_value_acceptance_basis",
+    "target_missing_reviewer",
+    "target_empty_reviewer",
+    "target_wrong_type_reviewer",
+    "target_missing_batch",
+    "target_empty_batch",
+    "target_wrong_type_batch",
+])
+def test_spanless_adoption_rejects_any_unproven_input(mutation):
+    source = spanless_adoption_reconciliation()
+    baseline = source["baseline_entries"][0]
+    target = source["new_entries"][0]
+    if mutation == "baseline_source_span":
+        baseline["source_span"] = {"char_from": 0, "char_to": 10}
+    elif mutation == "baseline_missing_unresolved_reason":
+        del baseline["unresolved_reason"]
+    elif mutation == "baseline_wrong_unresolved_reason":
+        baseline["unresolved_reason"] = "unique_exact_narrative_outside_new_record"
+    elif mutation == "baseline_existing_match":
+        baseline["matches"] = [{"new_record_key": "new-genuine"}]
+    elif mutation == "baseline_selected_target":
+        baseline["selected_new_record_key"] = "new-genuine"
+    elif mutation == "baseline_reconciliation_basis":
+        baseline["reconciliation_basis"] = "human_selected_split_target"
+    elif mutation == "baseline_reviewer":
+        baseline["reviewed_by"] = "prior-reviewer"
+    elif mutation == "baseline_batch":
+        baseline["decision_batch"] = "prior-batch"
+    elif mutation == "baseline_annotation":
+        baseline["human_annotation"] = {"note": "not allowed"}
+    elif mutation == "baseline_prior_adoption":
+        baseline["spanless_baseline_recovery"] = {"reason": "not allowed"}
+    elif mutation == "target_wrong_disposition":
+        target["disposition"] = "unmatched_new_review"
+    elif mutation == "target_wrong_kind":
+        target["record_kind"] = "cross_reference"
+    elif mutation == "target_wrong_span":
+        target["source_span"] = {"char_from": 10, "char_to": 21}
+    elif mutation == "target_declared_owner":
+        target["baseline_record_keys"] = ["old-spanless"]
+    elif mutation == "target_hidden_forward_owner":
+        source["baseline_entries"].append({
+            "baseline_record_key": "old-hidden",
+            "matches": [{"new_record_key": "new-genuine"}],
+            "disposition": "unresolved",
+            "unresolved_reason": "narrative_not_exact",
+        })
+        target["baseline_record_keys"] = ["old-hidden"]
+    elif mutation == "target_annotation":
+        target["human_annotation"] = {"note": "not allowed"}
+    elif mutation == "target_reconciliation_basis":
+        target["reconciliation_basis"] = "human_selected_split_target"
+    elif mutation == "target_prior_adoption":
+        target["prior_genuinely_new_acceptance"] = {}
+    elif mutation in {"target_missing_reviewer", "target_empty_reviewer", "target_wrong_type_reviewer"}:
+        field = "reviewed_by"
+        if mutation.startswith("target_missing_"):
+            del target[field]
+        elif mutation.startswith("target_empty_"):
+            target[field] = ""
+        else:
+            target[field] = []
+    elif mutation in {"target_missing_batch", "target_empty_batch", "target_wrong_type_batch"}:
+        field = "decision_batch"
+        if mutation.startswith("target_missing_"):
+            del target[field]
+        elif mutation.startswith("target_empty_"):
+            target[field] = ""
+        else:
+            target[field] = []
+    elif mutation.startswith("target_missing_"):
+        del target[mutation.removeprefix("target_missing_")]
+    elif mutation.startswith("target_empty_"):
+        target[mutation.removeprefix("target_empty_")] = ""
+    elif mutation.startswith("target_wrong_type_"):
+        target[mutation.removeprefix("target_wrong_type_")] = []
+    elif mutation == "target_wrong_value_acceptance_basis":
+        target["acceptance_basis"] = "not-human-verified"
+    else:
+        raise AssertionError(mutation)
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+
+    with pytest.raises(DecisionError):
+        apply_decisions(
+            source,
+            spanless_adoption_decision_document(digest),
+            reconciliation_sha256=digest,
+        )
+
+
+@pytest.mark.parametrize("mutation", [
+    "missing_baseline_key",
+    "missing_decision_kind",
+    "missing_selected_target",
+    "missing_selected_span",
+    "missing_reason",
+    "extra_field",
+    "unknown_baseline",
+    "unknown_target",
+    "duplicate_baseline",
+    "two_baselines_one_target",
+    "wrong_reason",
+    "stale_reconciliation_hash",
+    "stale_baseline_hash",
+    "stale_calamari_hash",
+])
+def test_spanless_adoption_rejects_malformed_or_stale_decisions(mutation):
+    source = spanless_adoption_reconciliation()
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    document = spanless_adoption_decision_document(digest)
+    decision = document["decisions"][0]
+    if mutation.startswith("missing_"):
+        field = {
+            "missing_baseline_key": "baseline_record_key",
+            "missing_decision_kind": "decision_kind",
+            "missing_selected_target": "selected_new_record_key",
+            "missing_selected_span": "selected_new_source_span",
+            "missing_reason": "reason",
+        }[mutation]
+        del decision[field]
+    elif mutation == "extra_field":
+        decision["note"] = "not allowed"
+    elif mutation == "unknown_baseline":
+        decision["baseline_record_key"] = "missing"
+    elif mutation == "unknown_target":
+        decision["selected_new_record_key"] = "missing"
+    elif mutation == "duplicate_baseline":
+        document["decisions"].append(copy.deepcopy(decision))
+    elif mutation == "two_baselines_one_target":
+        source["baseline_entries"].append({
+            "baseline_record_key": "old-spanless-second",
+            "matches": [],
+            "unresolved_reason": "narrative_not_exact",
+            "disposition": "unresolved",
+        })
+        digest = hashlib.sha256(encoded(source)).hexdigest()
+        document = spanless_adoption_decision_document(digest, [decision, {
+            "baseline_record_key": "old-spanless-second",
+            "decision_kind": "adopt_genuinely_new_target",
+            "selected_new_record_key": "new-genuine",
+            "selected_new_source_span": {"char_from": 10, "char_to": 20},
+            "reason": "spanless_baseline_exact_source_recovery",
+        }])
+    elif mutation == "wrong_reason":
+        decision["reason"] = "similarity"
+    elif mutation == "stale_reconciliation_hash":
+        document["source"]["reconciliation_sha256"] = "c" * 64
+    elif mutation == "stale_baseline_hash":
+        document["source"]["baseline_sha256"] = "c" * 64
+    elif mutation == "stale_calamari_hash":
+        document["source"]["calamari_sha256"] = "c" * 64
+    else:
+        raise AssertionError(mutation)
+
+    with pytest.raises(DecisionError):
+        apply_decisions(source, document, reconciliation_sha256=digest)
+
+
+def historical_spanless_adoption_reconciliation():
+    source = spanless_adoption_reconciliation()
+    source["baseline_entries"][0].update({
+        "matches": [{
+            "new_record_key": "new-genuine",
+            "geometry_relation": "human_recovered_spanless_baseline",
+        }],
+        "selected_new_record_key": "new-genuine",
+        "disposition": "accepted_carryover",
+        "reconciliation_basis": "human_adopted_spanless_baseline",
+        "reviewed_by": "new-reviewer",
+        "decision_batch": "spanless-adoption-batch-1",
+        "spanless_baseline_recovery": {
+            "selected_new_source_span": {"char_from": 10, "char_to": 20},
+            "reason": "spanless_baseline_exact_source_recovery",
+        },
+    })
+    source["new_entries"][0].pop("acceptance_basis")
+    source["new_entries"][0].update({
+        "baseline_record_keys": ["old-spanless"],
+        "disposition": "accepted_carryover",
+        "reconciliation_basis": "human_adopted_spanless_baseline",
+        "reviewed_by": "new-reviewer",
+        "decision_batch": "spanless-adoption-batch-1",
+        "prior_genuinely_new_acceptance": {
+            "acceptance_basis": "human_verified_genuinely_new_source_record",
+            "reviewed_by": "old-reviewer",
+            "decision_batch": "old-batch",
+        },
+    })
+    return source
+
+
+def later_batch_with_historical_spanless_adoption():
+    source = historical_spanless_adoption_reconciliation()
+    source["baseline_entries"].append({
+        "baseline_record_key": "old-fresh-boundary",
+        "matches": [{"new_record_key": "new-fresh-boundary"}],
+        "disposition": "boundary_change_review",
+    })
+    source["new_entries"].append({
+        "new_record_key": "new-fresh-boundary",
+        "source_span": {"char_from": 30, "char_to": 40},
+        "baseline_record_keys": ["old-fresh-boundary"],
+        "disposition": "boundary_change_review",
+    })
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    document = decision_document(digest)
+    document["decisions"] = [{
+        "baseline_record_key": "old-fresh-boundary",
+        "decision_kind": "accept_boundary_change",
+        "selected_new_record_key": "new-fresh-boundary",
+    }]
+    return source, document, digest
+
+
+def test_later_batch_preserves_spanless_adoption_graph_and_prior_provenance():
+    source, document, digest = later_batch_with_historical_spanless_adoption()
+    prior_baseline = copy.deepcopy(source["baseline_entries"][0])
+    prior_target = copy.deepcopy(source["new_entries"][0])
+
+    result = apply_decisions(source, document, reconciliation_sha256=digest)
+
+    assert result["baseline_entries"][0] == prior_baseline
+    assert result["new_entries"][0] == prior_target
+    assert result["baseline_entries"][0]["matches"] == [{
+        "new_record_key": "new-genuine",
+        "geometry_relation": "human_recovered_spanless_baseline",
+    }]
+    assert result["new_entries"][0]["baseline_record_keys"] == ["old-spanless"]
+    assert result["new_entries"][0]["prior_genuinely_new_acceptance"] == {
+        "acceptance_basis": "human_verified_genuinely_new_source_record",
+        "reviewed_by": "old-reviewer",
+        "decision_batch": "old-batch",
+    }
+
+
+@pytest.mark.parametrize("mutation", [
+    "baseline_missing_match",
+    "baseline_wrong_match_key",
+    "baseline_wrong_match_geometry",
+    "baseline_missing_selected_key",
+    "baseline_wrong_selected_key",
+    "baseline_wrong_basis",
+    "baseline_missing_recovery",
+    "baseline_missing_recovery_span",
+    "baseline_wrong_recovery_span",
+    "baseline_missing_recovery_reason",
+    "baseline_wrong_recovery_reason",
+    "baseline_missing_reviewer",
+    "baseline_wrong_reviewer",
+    "baseline_missing_batch",
+    "baseline_wrong_batch",
+    "target_missing_owners",
+    "target_extra_owner",
+    "target_wrong_disposition",
+    "target_missing_basis",
+    "target_wrong_basis",
+    "target_missing_reviewer",
+    "target_wrong_reviewer",
+    "target_missing_batch",
+    "target_wrong_batch",
+    "target_reintroduced_acceptance_basis",
+    "target_missing_prior",
+    "target_missing_prior_acceptance_basis",
+    "target_wrong_prior_acceptance_basis",
+    "target_missing_prior_reviewer",
+    "target_wrong_prior_reviewer",
+    "target_missing_prior_batch",
+    "target_wrong_prior_batch",
+])
+def test_later_batch_rejects_each_corrupt_spanless_adoption_field(mutation):
+    source, document, _ = later_batch_with_historical_spanless_adoption()
+    baseline = source["baseline_entries"][0]
+    target = source["new_entries"][0]
+    if mutation == "baseline_missing_match":
+        baseline["matches"] = []
+    elif mutation == "baseline_wrong_match_key":
+        baseline["matches"][0]["new_record_key"] = "new-fresh-boundary"
+    elif mutation == "baseline_wrong_match_geometry":
+        baseline["matches"][0]["geometry_relation"] = "old_inside_new"
+    elif mutation == "baseline_missing_selected_key":
+        del baseline["selected_new_record_key"]
+    elif mutation == "baseline_wrong_selected_key":
+        baseline["selected_new_record_key"] = "new-fresh-boundary"
+    elif mutation == "baseline_wrong_basis":
+        baseline["reconciliation_basis"] = "human_selected_split_target"
+    elif mutation == "baseline_missing_recovery":
+        del baseline["spanless_baseline_recovery"]
+    elif mutation == "baseline_missing_recovery_span":
+        del baseline["spanless_baseline_recovery"]["selected_new_source_span"]
+    elif mutation == "baseline_wrong_recovery_span":
+        baseline["spanless_baseline_recovery"]["selected_new_source_span"] = {
+            "char_from": 10, "char_to": 21,
+        }
+    elif mutation == "baseline_missing_recovery_reason":
+        del baseline["spanless_baseline_recovery"]["reason"]
+    elif mutation == "baseline_wrong_recovery_reason":
+        baseline["spanless_baseline_recovery"]["reason"] = "similarity"
+    elif mutation == "baseline_missing_reviewer":
+        del baseline["reviewed_by"]
+    elif mutation == "baseline_wrong_reviewer":
+        baseline["reviewed_by"] = "wrong-reviewer"
+    elif mutation == "baseline_missing_batch":
+        del baseline["decision_batch"]
+    elif mutation == "baseline_wrong_batch":
+        baseline["decision_batch"] = "wrong-batch"
+    elif mutation == "target_missing_owners":
+        target["baseline_record_keys"] = []
+    elif mutation == "target_extra_owner":
+        target["baseline_record_keys"].append("old-fresh-boundary")
+    elif mutation == "target_wrong_disposition":
+        target["disposition"] = "unmatched_new_review"
+    elif mutation == "target_missing_basis":
+        del target["reconciliation_basis"]
+    elif mutation == "target_wrong_basis":
+        target["reconciliation_basis"] = "human_selected_split_target"
+    elif mutation == "target_missing_reviewer":
+        del target["reviewed_by"]
+    elif mutation == "target_wrong_reviewer":
+        target["reviewed_by"] = "wrong-reviewer"
+    elif mutation == "target_missing_batch":
+        del target["decision_batch"]
+    elif mutation == "target_wrong_batch":
+        target["decision_batch"] = "wrong-batch"
+    elif mutation == "target_reintroduced_acceptance_basis":
+        target["acceptance_basis"] = "human_verified_genuinely_new_source_record"
+    elif mutation == "target_missing_prior":
+        del target["prior_genuinely_new_acceptance"]
+    elif mutation.startswith("target_missing_prior_"):
+        field = {
+            "acceptance_basis": "acceptance_basis",
+            "reviewer": "reviewed_by",
+            "batch": "decision_batch",
+        }[mutation.removeprefix("target_missing_prior_")]
+        del target["prior_genuinely_new_acceptance"][field]
+    elif mutation.startswith("target_wrong_prior_"):
+        field = {
+            "acceptance_basis": "acceptance_basis",
+            "reviewer": "reviewed_by",
+            "batch": "decision_batch",
+        }[mutation.removeprefix("target_wrong_prior_")]
+        target["prior_genuinely_new_acceptance"][field] = (
+            "wrong-value" if field == "acceptance_basis" else []
+        )
+    else:
+        raise AssertionError(mutation)
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    document["source"]["reconciliation_sha256"] = digest
+
+    with pytest.raises(DecisionError):
+        apply_decisions(source, document, reconciliation_sha256=digest)
+
+
 def genuinely_new_decision_document(reconciliation_sha256, decisions=None):
     return {
         "schema_version": "1.0",

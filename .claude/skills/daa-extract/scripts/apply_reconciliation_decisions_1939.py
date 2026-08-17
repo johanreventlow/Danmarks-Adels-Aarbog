@@ -104,6 +104,111 @@ def _unresolved_disposition(entry: Mapping[str, Any], owners: Mapping[str, list[
     return "boundary_change_review"
 
 
+def _validate_historical_spanless_adoptions(
+        baseline_entries: Sequence[Mapping[str, Any]],
+        new_entries: Sequence[Mapping[str, Any]],
+        owners: Mapping[str, list[str]],
+        new_by_key: Mapping[str, Mapping[str, Any]],
+) -> None:
+    """Reject any partial or mismatched spanless-baseline adoption graph."""
+    adoptions_by_baseline: dict[str, str] = {}
+    adoptions_by_target: dict[str, str] = {}
+    baseline_markers = set()
+    target_markers = set()
+
+    for baseline in baseline_entries:
+        key = _text(baseline.get("baseline_record_key"), "baseline_record_key")
+        matches = baseline.get("matches")
+        has_recovered_match = (
+            isinstance(matches, list)
+            and any(
+                isinstance(match, Mapping)
+                and match.get("geometry_relation")
+                == "human_recovered_spanless_baseline"
+                for match in matches
+            )
+        )
+        is_adoption = (
+            baseline.get("reconciliation_basis") == "human_adopted_spanless_baseline"
+        )
+        if is_adoption or has_recovered_match or "spanless_baseline_recovery" in baseline:
+            baseline_markers.add(key)
+        if not is_adoption:
+            continue
+        if ("source_span" in baseline
+                or baseline.get("disposition") != "accepted_carryover"
+                or not isinstance(matches, list)
+                or len(matches) != 1
+                or not isinstance(matches[0], Mapping)
+                or set(matches[0]) != {"new_record_key", "geometry_relation"}
+                or matches[0].get("geometry_relation")
+                != "human_recovered_spanless_baseline"):
+            raise DecisionError("historisk spanless adoption-baseline er ugyldig")
+        target_key = _text(matches[0].get("new_record_key"), "historisk adoption target")
+        if (baseline.get("selected_new_record_key") != target_key
+                or target_key not in new_by_key):
+            raise DecisionError("historisk spanless adoption mangler præcist mål")
+        recovery = baseline.get("spanless_baseline_recovery")
+        if (not isinstance(recovery, Mapping)
+                or set(recovery) != {"selected_new_source_span", "reason"}
+                or recovery.get("reason")
+                != "spanless_baseline_exact_source_recovery"):
+            raise DecisionError("historisk spanless adoption-recovery er ugyldig")
+        _span(recovery.get("selected_new_source_span"), "historisk adoption kildespænd")
+        _text(baseline.get("reviewed_by"), "historisk adoption reviewed_by")
+        _text(baseline.get("decision_batch"), "historisk adoption decision_batch")
+        if key in adoptions_by_baseline or target_key in adoptions_by_target:
+            raise DecisionError("historisk spanless adoption har dublet ejer eller mål")
+        adoptions_by_baseline[key] = target_key
+        adoptions_by_target[target_key] = key
+
+    for target in new_entries:
+        key = _text(target.get("new_record_key"), "new_record_key")
+        is_adoption = (
+            target.get("reconciliation_basis") == "human_adopted_spanless_baseline"
+        )
+        if is_adoption or "prior_genuinely_new_acceptance" in target:
+            target_markers.add(key)
+        if key not in adoptions_by_target and not is_adoption:
+            continue
+        if not is_adoption:
+            raise DecisionError("historisk spanless adoption-target er delvis")
+        baseline_key = adoptions_by_target.get(key)
+        if (baseline_key is None
+                or target.get("record_kind") != "unclassified"
+                or target.get("disposition") != "accepted_carryover"
+                or target.get("baseline_record_keys") != [baseline_key]
+                or owners.get(key, []) != [baseline_key]
+                or "acceptance_basis" in target
+                or "human_annotation" in target):
+            raise DecisionError("historisk spanless adoption-target er ugyldig")
+        prior = target.get("prior_genuinely_new_acceptance")
+        if (not isinstance(prior, Mapping)
+                or set(prior) != {
+                    "acceptance_basis", "reviewed_by", "decision_batch",
+                }
+                or prior.get("acceptance_basis")
+                != "human_verified_genuinely_new_source_record"):
+            raise DecisionError("historisk spanless adoption mangler prior acceptance")
+        _text(prior.get("reviewed_by"), "historisk prior reviewed_by")
+        _text(prior.get("decision_batch"), "historisk prior decision_batch")
+        baseline = next(
+            entry for entry in baseline_entries
+            if entry.get("baseline_record_key") == baseline_key
+        )
+        recovery = baseline["spanless_baseline_recovery"]
+        if (_span(target.get("source_span"), "historisk target source_span")
+                != _span(recovery["selected_new_source_span"], "historisk recovery span")
+                or target.get("reviewed_by") != baseline.get("reviewed_by")
+                or target.get("decision_batch") != baseline.get("decision_batch")):
+            raise DecisionError("historisk spanless adoption-metadata matcher ikke")
+
+    if baseline_markers != set(adoptions_by_baseline):
+        raise DecisionError("historisk spanless adoption-baseline er delvis")
+    if target_markers != set(adoptions_by_target):
+        raise DecisionError("historisk spanless adoption-target er delvis")
+
+
 def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, Any], *,
                     reconciliation_sha256: str) -> dict[str, Any]:
     """Return a new queue with exact, reviewed split-target choices applied."""
@@ -154,6 +259,9 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
                 raise DecisionError("tidligere genuinely-new acceptance er ugyldig")
             _text(entry.get("reviewed_by"), "genuinely-new reviewed_by")
             _text(entry.get("decision_batch"), "genuinely-new decision_batch")
+    _validate_historical_spanless_adoptions(
+        baseline_entries, new_entries, original_owners, new_by_key,
+    )
     raw_decisions = _objects(decisions.get("decisions"), "decisions")
     if not raw_decisions:
         raise DecisionError("mindst én decision kræves")
@@ -171,6 +279,8 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
     selected_targets = set()
     annotation_by_new = {}
     genuinely_new_acceptances = {}
+    spanless_adoptions = {}
+    spanless_adoptions_by_target = {}
     for decision in raw_decisions:
         if decision.get("decision_kind") == "accept_genuinely_new":
             if set(decision) != {
@@ -206,6 +316,51 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
         if old_key in affected_old_keys:
             raise DecisionError("decision har modstridende baseline_record_key")
         old = old_by_key.get(old_key)
+        if decision.get("decision_kind") == "adopt_genuinely_new_target":
+            if set(decision) != {
+                "baseline_record_key", "decision_kind", "selected_new_record_key",
+                "selected_new_source_span", "reason",
+            } or decision.get("reason") != "spanless_baseline_exact_source_recovery":
+                raise DecisionError("ukendt spanless adoption-handling")
+            target = _text(
+                decision.get("selected_new_record_key"), "selected_new_record_key"
+            )
+            target_entry = new_by_key.get(target)
+            if (old is None
+                    or "source_span" in old
+                    or old.get("disposition") != "unresolved"
+                    or old.get("unresolved_reason") != "narrative_not_exact"
+                    or old.get("matches") != []
+                    or any(field in old for field in (
+                        "selected_new_record_key", "reconciliation_basis", "reviewed_by",
+                        "decision_batch", "human_annotation", "spanless_baseline_recovery",
+                    ))
+                    or target_entry is None
+                    or target_entry.get("record_kind") != "unclassified"
+                    or _span(decision.get("selected_new_source_span"), "selected_new_source_span")
+                    != _span(target_entry.get("source_span"), "target source_span")
+                    or target_entry.get("disposition")
+                    != "accepted_genuinely_new_source_record"
+                    or target_entry.get("baseline_record_keys") != []
+                    or original_owners[target] != []
+                    or any(field in target_entry for field in (
+                        "human_annotation", "reconciliation_basis",
+                        "prior_genuinely_new_acceptance",
+                    ))
+                    or target_entry.get("acceptance_basis")
+                    != "human_verified_genuinely_new_source_record"):
+                raise DecisionError(
+                    "spanless adoption kræver ejerløs accepted genuinely-new target"
+                )
+            _text(target_entry.get("reviewed_by"), "genuinely-new reviewed_by")
+            _text(target_entry.get("decision_batch"), "genuinely-new decision_batch")
+            if target in selected_targets or target in annotation_by_new:
+                raise DecisionError("flere beslutninger bruger samme new_record_key")
+            affected_old_keys.add(old_key)
+            selected_targets.add(target)
+            spanless_adoptions[old_key] = (decision, target)
+            spanless_adoptions_by_target[target] = old_key
+            continue
         if decision.get("decision_kind") == "retire_continuation_fragment":
             if set(decision) != {
                 "baseline_record_key", "decision_kind",
@@ -466,6 +621,7 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
         retirement = retirement_by_retired.get(old_key)
         retained = retirement_by_canonical.get(old_key)
         repair = legacy_anchor_repairs.get(old_key)
+        adoption = spanless_adoptions.get(old_key)
         choice = decision_by_old.get(old_key)
         if retirement is not None:
             decision, canonical_key, _, retirement_kind = retirement
@@ -510,6 +666,22 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
                 ],
                 "reason": decision["reason"],
             }
+        elif adoption is not None:
+            decision, target = adoption
+            output.pop("source_span", None)
+            output["matches"] = [{
+                "new_record_key": target,
+                "geometry_relation": "human_recovered_spanless_baseline",
+            }]
+            output["selected_new_record_key"] = target
+            output["disposition"] = "accepted_carryover"
+            output["reconciliation_basis"] = "human_adopted_spanless_baseline"
+            output["reviewed_by"] = reviewed_by
+            output["decision_batch"] = decision_batch
+            output["spanless_baseline_recovery"] = {
+                "selected_new_source_span": dict(decision["selected_new_source_span"]),
+                "reason": decision["reason"],
+            }
         elif choice is not None:
             _, selected, reconciliation_basis = choice
             output["matches"] = [
@@ -535,7 +707,8 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
             disposition = "retired_fragment" if disposition == "fragment" else "retired_duplicate"
         elif (entry["baseline_record_key"] in decision_by_old
               or entry["baseline_record_key"] in retirement_by_canonical
-              or entry["baseline_record_key"] in legacy_anchor_repairs):
+              or entry["baseline_record_key"] in legacy_anchor_repairs
+              or entry["baseline_record_key"] in spanless_adoptions):
             disposition = "accepted_carryover"
         else:
             disposition = _unresolved_disposition(entry, owners)
@@ -548,7 +721,18 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
         key = entry["new_record_key"]
         old_keys = owners.get(key, [])
         output["baseline_record_keys"] = old_keys
-        if key in genuinely_new_acceptances:
+        if key in spanless_adoptions_by_target:
+            output["prior_genuinely_new_acceptance"] = {
+                "acceptance_basis": entry["acceptance_basis"],
+                "reviewed_by": entry["reviewed_by"],
+                "decision_batch": entry["decision_batch"],
+            }
+            output.pop("acceptance_basis", None)
+            output["disposition"] = "accepted_carryover"
+            output["reconciliation_basis"] = "human_adopted_spanless_baseline"
+            output["reviewed_by"] = reviewed_by
+            output["decision_batch"] = decision_batch
+        elif key in genuinely_new_acceptances:
             output["disposition"] = "accepted_genuinely_new_source_record"
             output["acceptance_basis"] = "human_verified_genuinely_new_source_record"
             output["reviewed_by"] = reviewed_by
