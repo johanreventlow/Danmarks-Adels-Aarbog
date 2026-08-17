@@ -34,9 +34,9 @@
 - Consumes: exact v32 bytes and the 12 source records visually verified in `.superpowers/sdd/2026-08-16-1939-reconciliation-finish/task-4-report.md`.
 - Produces: `accepted_genuinely_new_source_record` new-entry dispositions with `acceptance_basis: "human_verified_genuinely_new_source_record"`, `reviewed_by`, and `decision_batch`; no baseline changes.
 
-- [ ] **Step 1: Add the resolved disposition and a minimal test fixture**
+- [ ] **Step 1: Add a minimal test fixture**
 
-Add `"accepted_genuinely_new_source_record"` to `RESOLVED_DISPOSITIONS`. In the test file, add a fixture whose only new-entry is:
+In the test file, add a fixture whose only new-entry is:
 
 ```python
 {
@@ -118,7 +118,11 @@ Expected: the new negative tests fail because the branch and preservation rule d
 
 - [ ] **Step 6: Implement the minimal decision branch**
 
-Before extracting `baseline_record_key` in the decision loop, branch on `decision_kind == "accept_genuinely_new"`. Require the exact field set:
+Add `"accepted_genuinely_new_source_record"` to `RESOLVED_DISPOSITIONS`.
+Then, before extracting `baseline_record_key` in the decision loop, branch on
+`decision_kind == "accept_genuinely_new"`.
+
+Require the exact field set:
 
 ```python
 {
