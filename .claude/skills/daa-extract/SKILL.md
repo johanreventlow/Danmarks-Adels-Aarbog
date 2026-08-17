@@ -514,6 +514,87 @@ identitetsbeslutninger er materialiseret konsistent. Manglende private
 source-record/persona-tabeller, resterende identiteter, provenancearbejde eller
 writerautorisation holder fortsat `dry_run_gate` og `reimport_gate` på `NO-GO`.
 
+### Afslut de 17 resterende v50-identitetsrecords
+
+Når v1-materialiseringen har præcis 24 personaer og 17
+`remaining_genuinely_new_pending`, bygges reviewmanifestet fra de syv låste
+input. Kommandoen kræver 543 mapped og 23 database-only profiler; output er
+fortsat review-only:
+
+```bash
+/usr/bin/python3 -B .claude/skills/daa-extract/scripts/build_remaining_identity_review_1939_v50.py \
+  --source-personas=work/task23-1939-v50-source-personas/source-persona-materialization-v1.json \
+  --import-preview=work/task21-1939-v50-import-preview/import-preview-v1.json \
+  --database-preview=work/task21-1939-v50-import-preview/database-preview-v1.json \
+  --database-profiles=work/task22-1939-v50-identity-review/database-profiles-v1.json \
+  --clean=/Users/johanreventlow/TypeScript/danmarksadelsaarbog/work_1939_stamtavle/clean_1939_v3.json \
+  --boundary-materialization=work/task20-1939-full/boundary-materialization-v3-ditlev.json \
+  --calamari=/Users/johanreventlow/TypeScript/danmarksadelsaarbog/work_1939_stamtavle/full_ocr_calamari_r6_clean.txt \
+  --output=work/task24-1939-v50-remaining-identities/remaining-identity-review-v1.json \
+  --report=work/task24-1939-v50-remaining-identities/remaining-identity-review-v1-report.md \
+  --expected-subjects=17 \
+  --expected-mapped-profiles=543 \
+  --expected-database-only-profiles=23
+```
+
+Revieweren skal inspicere de komplette relevante sider i
+`/Users/johanreventlow/TypeScript/danmarksadelsaarbog/Dansk Adels Aarbog - Reventlow 1939 stamtavle.pdf`
+mod manifestets Calamari-tekst, naboer, senere keyed records og profiler. Et
+lukket forslag har præcis én af `same_existing_person`,
+`new_person_candidate`, `structural_or_summary` og `unresolved` pr. source key.
+Forslaget er menneskelig/reviewmæssig evidens, ikke write-authority.
+
+Materialisér derefter kun det komplette, hashbundne forslag til lukkede
+beslutninger:
+
+```bash
+/usr/bin/python3 -B .claude/skills/daa-extract/scripts/materialize_remaining_identity_decisions_1939_v50.py \
+  --review work/task24-1939-v50-remaining-identities/remaining-identity-review-v1.json \
+  --proposal work/task24-1939-v50-remaining-identities/remaining-identity-proposals-v1.json \
+  --import-preview work/task21-1939-v50-import-preview/import-preview-v1.json \
+  --database-preview work/task21-1939-v50-import-preview/database-preview-v1.json \
+  --output work/task24-1939-v50-remaining-identities/remaining-identity-decisions-v1.json \
+  --report work/task24-1939-v50-remaining-identities/remaining-identity-decisions-v1-report.md \
+  --expected-decisions 17
+```
+
+Append kun `same_existing_person` til den eksisterende v1-personaliste.
+`new_person_candidate`, `structural_or_summary` og `unresolved` bevares i
+separate lister og kan aldrig få persona- eller canonical autoritet:
+
+```bash
+/usr/bin/python3 -B .claude/skills/daa-extract/scripts/materialize_remaining_source_personas_1939_v50.py \
+  --source-personas-v1 work/task23-1939-v50-source-personas/source-persona-materialization-v1.json \
+  --remaining-decisions work/task24-1939-v50-remaining-identities/remaining-identity-decisions-v1.json \
+  --database-preview work/task21-1939-v50-import-preview/database-preview-v1.json \
+  --output work/task24-1939-v50-remaining-identities/source-persona-materialization-v2.json \
+  --report work/task24-1939-v50-remaining-identities/source-persona-materialization-v2-report.md
+```
+
+Kør til sidst v3-previewet i en ny read-only databasesession og bind CLI'en til
+v2-filens faktiske SHA-256:
+
+```bash
+Rscript .claude/skills/daa-extract/scripts/preview_reimport_1939_v50.R \
+  --input=work/task21-1939-v50-import-preview/import-preview-v1.json \
+  --source-personas=work/task24-1939-v50-remaining-identities/source-persona-materialization-v2.json \
+  --source-personas-sha256=450e2dae158573131d19333be3cebefe36bf6a5d269c7ff0059e17c5fcafa97c \
+  --output=work/task24-1939-v50-remaining-identities/database-preview-v3.json \
+  --report=work/task24-1939-v50-remaining-identities/database-preview-v3-report.md \
+  --expected-database=postgres \
+  --source-edition='DAA 1939'
+```
+
+Alle Task 24-output oprettes eksklusivt, ligger under ignoreret `work/` og må
+ikke committes; brug nye suffikser ved en kontrolgenkørsel. `review_gate: GO`,
+`source_persona_materialization_gate: GO` og et reproducerbart read-only
+preview betyder kun, at de lokale kontroltrin er komplette. De private
+source-record/persona-capabilities, otte personoprettelser, resterende
+provenance og en særskilt godkendt production writer er fortsat blokerende.
+`database_write_authorized` og `canonical_mutations_authorized` skal være
+`false`, canonical create/update/delete skal være tomme, og `reimport_gate`
+forbliver `NO-GO`.
+
 ## Vigtige principper
 
 - **Hver DAA-udgave er én `source`.** Modstridende udgaver = separate kilder,
