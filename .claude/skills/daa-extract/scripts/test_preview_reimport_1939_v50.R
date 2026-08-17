@@ -199,7 +199,10 @@ testthat::test_that("SQL-vagten tillader kun den snævre read-only grammatik", {
   allowed <- c(
     "BEGIN READ ONLY", "SET LOCAL statement_timeout = '30s'",
     "SET LOCAL lock_timeout = '2s'", "SHOW transaction_read_only",
-    "SELECT current_database()", "ROLLBACK"
+    paste("SELECT current_database() AS database_name,",
+      "current_setting('server_version') AS server_version,",
+      "current_setting('server_version_num') AS server_version_num"),
+    "ROLLBACK"
   )
   for (sql in allowed) testthat::expect_invisible(assert_read_only_sql(sql))
 
@@ -225,11 +228,25 @@ testthat::test_that("SQL-vagten afviser mutation-capable SELECT-funktioner", {
     "SELECT lo_import('/tmp/secret')",
     paste("WITH mutated AS (SELECT public.red_set_koen(101, 'mand'))",
       "SELECT * FROM mutated"),
-    "EXPLAIN SELECT set_config('search_path', 'evil', false)"
+    "EXPLAIN SELECT set_config('search_path', 'evil', false)",
+    "SELECT pg_catalog.\"set_config\"('search_path', 'evil', false)",
+    "SELECT \"nextval\"('person_id_seq')",
+    "SELECT pg_catalog.\"pg_notify\"('channel', 'payload')",
+    "SELECT public.\"red_set_koen\"(101, 'mand')",
+    "SELECT 42 AS harmless",
+    "SELECT pg_catalog.current_database()",
+    "SELECT current_database() -- registered-looking comment"
   )
   for (sql in attacks) {
     testthat::expect_error(assert_read_only_sql(sql), "DB_PREVIEW_SQL_FORBIDDEN")
   }
+})
+
+testthat::test_that("SQL-vagten tillader hele og kun previewets statiske registry", {
+  registry <- database_preview_sql_registry()
+  testthat::expect_true(length(registry) > 0L)
+  testthat::expect_false(anyDuplicated(names(registry)) > 0L)
+  for (sql in registry) testthat::expect_invisible(assert_read_only_sql(sql))
 })
 
 testthat::test_that("read-only bootstrap sker før alle domænequeries og rollbacker", {
@@ -689,6 +706,58 @@ testthat::test_that("v1-input bevarer database-preview v2-kontrakten", {
   testthat::expect_false("new_person_candidate_count" %in% names(result$source_personas))
   testthat::expect_false(any(grepl("genuinely_new_person_creation_pending",
     unlist(result$blockers), fixed = TRUE)))
+})
+
+testthat::test_that("v1 CLI stdout er byte-identisk med pre-Task5-formatet", {
+  fake <- fake_database()
+  result <- build_database_preview(
+    preview_fixture(), source_persona_fixture(), fixture_sha("e"), fixture_sha("d"),
+    fake$query, fake$execute, expected_database = "postgres",
+    expected_source_edition = "DAA 1939", snapshot_at = "2026-08-17T12:00:00Z"
+  )
+  result_path <- tempfile(fileext = ".rds")
+  stdout_path <- tempfile()
+  stderr_path <- tempfile()
+  on.exit(unlink(c(result_path, stdout_path, stderr_path)), add = TRUE)
+  saveRDS(result, result_path)
+  expression <- sprintf(
+    "source(%s); preview <- readRDS(%s); cat(render_database_preview_cli_stdout(preview, 'out.json', 'report.md'))",
+    encodeString(helpers, quote = "\""), encodeString(result_path, quote = "\"")
+  )
+  status <- system2(file.path(R.home("bin"), "Rscript"),
+    c("--vanilla", "-e", shQuote(expression)), stdout = stdout_path, stderr = stderr_path)
+  testthat::expect_identical(status, 0L)
+  actual <- readBin(stdout_path, what = "raw", n = file.info(stdout_path)$size)
+  expected <- charToRaw(paste0(
+    '{"output":"out.json","report":"report.md","dry_run_gate":"GO",',
+    '"reimport_gate":"NO-GO","person_anchors":{"matched":1,"missing":0,"collisions":0},',
+    '"expected_source_record_inserts":3,"planned_source_personas":1,',
+    '"remaining_identity_pending":0,"canonical_mutations_authorized":false}\n'
+  ))
+  testthat::expect_identical(actual, expected)
+})
+
+testthat::test_that("v3 CLI stdout bruger den udvidede v3-summary", {
+  fake <- fake_database_v3()
+  result <- build_database_preview(
+    preview_v2_fixture(), source_persona_v2_fixture(), fixture_sha("e"), fixture_sha("d"),
+    fake$query, fake$execute, expected_database = "postgres",
+    expected_source_edition = "DAA 1939", snapshot_at = "2026-08-17T12:00:00Z"
+  )
+  summary <- jsonlite::fromJSON(render_database_preview_cli_stdout(
+    result, "out-v3.json", "report-v3.md"), simplifyVector = FALSE)
+  testthat::expect_identical(names(summary), c(
+    "schema_version", "output", "report", "dry_run_gate", "reimport_gate",
+    "person_anchors", "expected_source_record_inserts", "planned_source_personas",
+    "matched_source_persona_targets", "mismatched_source_persona_targets",
+    "remaining_identity_pending", "new_person_creation_pending",
+    "structural_or_summary", "canonical_mutations_authorized"
+  ))
+  testthat::expect_identical(summary$schema_version, "1939-v50-database-preview-v3")
+  testthat::expect_identical(summary$matched_source_persona_targets, 32L)
+  testthat::expect_identical(summary$mismatched_source_persona_targets, 0L)
+  testthat::expect_identical(summary$new_person_creation_pending, 8L)
+  testthat::expect_identical(summary$structural_or_summary, 1L)
 })
 
 testthat::test_that("v3 stopper hvis public family capability mangler", {

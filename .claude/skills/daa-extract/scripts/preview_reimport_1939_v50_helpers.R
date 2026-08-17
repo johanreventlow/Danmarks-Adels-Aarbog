@@ -67,38 +67,154 @@ as_character_list <- function(values) {
   lapply(as.character(values), identity)
 }
 
+database_preview_sql_registry <- function() {
+  list(
+    begin_read_only = "BEGIN READ ONLY",
+    rollback = "ROLLBACK",
+    statement_timeout = "SET LOCAL statement_timeout = '30s'",
+    lock_timeout = "SET LOCAL lock_timeout = '2s'",
+    transaction_read_only = "SHOW transaction_read_only",
+    metadata = paste(
+      "SELECT current_database() AS database_name,",
+      "current_setting('server_version') AS server_version,",
+      "current_setting('server_version_num') AS server_version_num"
+    ),
+    capability_columns = paste(
+      "SELECT table_schema, table_name, column_name",
+      "FROM information_schema.columns",
+      "WHERE table_schema IN ('public','private')",
+      "ORDER BY table_schema, table_name, ordinal_position"
+    ),
+    source = "SELECT id, udgave, import_key FROM public.source WHERE udgave = $1 ORDER BY id",
+    anchors = paste(
+      "SELECT pei.person_id, pei.record_key, pei.linje, pei.nr, p.staged, p.visning_navn",
+      "FROM public.person_external_id pei",
+      "JOIN public.person p ON p.id = pei.person_id",
+      "WHERE pei.source_id = $1",
+      "ORDER BY pei.record_key, pei.person_id"
+    ),
+    narratives = paste(
+      "SELECT n.id, pei.person_id, pei.record_key, n.tekst, n.privat,",
+      "(SELECT count(*) FROM public.change_event ce",
+      " JOIN public.change_set cs ON cs.id = ce.change_set_id",
+      " WHERE ce.tabel = 'narrative' AND ce.row_pk->>'id' = n.id::text",
+      " AND left(cs.operation, 4) = 'red_') AS editorial_events",
+      "FROM public.narrative n",
+      "JOIN public.person_external_id pei ON pei.person_id = n.subjekt_id AND pei.source_id = $1",
+      "WHERE n.subjekt_type = 'person' AND n.source_id = $1",
+      "ORDER BY pei.record_key, n.id"
+    ),
+    person_facts = paste(
+      "SELECT f.id, pei.person_id, pei.record_key, f.faktatype,",
+      "(SELECT count(*) FROM public.change_event ce",
+      " JOIN public.change_set cs ON cs.id = ce.change_set_id",
+      " WHERE ce.tabel = 'fact' AND ce.row_pk->>'id' = f.id::text",
+      " AND left(cs.operation, 4) = 'red_') AS editorial_events,",
+      "(SELECT count(*) FROM public.assertion a JOIN public.citation c ON c.assertion_id = a.id",
+      " WHERE a.target_type = 'fact' AND a.target_id = f.id AND c.source_id = $1) AS source_citations",
+      "FROM public.fact f",
+      "JOIN public.person_external_id pei ON pei.person_id = f.subjekt_id AND pei.source_id = $1",
+      "WHERE f.subjekt_type = 'person'",
+      "ORDER BY pei.record_key, f.id"
+    ),
+    families = paste(
+      "SELECT fam.id, fam.type,",
+      "(SELECT count(*) FROM public.change_event ce",
+      " JOIN public.change_set cs ON cs.id = ce.change_set_id",
+      " WHERE ce.tabel = 'family' AND ce.row_pk->>'id' = fam.id::text",
+      " AND left(cs.operation, 4) = 'red_') AS editorial_events",
+      "FROM public.family fam",
+      "WHERE EXISTS (SELECT 1 FROM public.family_member scope",
+      " JOIN public.person_external_id pei ON pei.person_id = scope.person_id",
+      " WHERE scope.family_id = fam.id AND pei.source_id = $1)",
+      "ORDER BY fam.id"
+    ),
+    family_facts = paste(
+      "SELECT f.id, f.subjekt_id AS family_id, f.faktatype,",
+      "(SELECT count(*) FROM public.change_event ce",
+      " JOIN public.change_set cs ON cs.id = ce.change_set_id",
+      " WHERE ce.tabel = 'fact' AND ce.row_pk->>'id' = f.id::text",
+      " AND left(cs.operation, 4) = 'red_') AS editorial_events,",
+      "(SELECT count(*) FROM public.assertion a JOIN public.citation c ON c.assertion_id = a.id",
+      " WHERE a.target_type = 'fact' AND a.target_id = f.id AND c.source_id = $1) AS source_citations",
+      "FROM public.fact f",
+      "WHERE f.subjekt_type = 'family' AND EXISTS (",
+      " SELECT 1 FROM public.family_member scope",
+      " JOIN public.person_external_id pei ON pei.person_id = scope.person_id",
+      " WHERE scope.family_id = f.subjekt_id AND pei.source_id = $1)",
+      "ORDER BY f.subjekt_id, f.id"
+    ),
+    relations = paste(
+      "SELECT r.id, r.rolle,",
+      "(SELECT count(*) FROM public.change_event ce",
+      " JOIN public.change_set cs ON cs.id = ce.change_set_id",
+      " WHERE ce.tabel = 'relation' AND ce.row_pk->>'id' = r.id::text",
+      " AND left(cs.operation, 4) = 'red_') AS editorial_events,",
+      "(SELECT count(*) FROM public.assertion a JOIN public.citation c ON c.assertion_id = a.id",
+      " WHERE a.target_type = 'relation' AND a.target_id = r.id AND c.source_id = $1) AS source_citations",
+      "FROM public.relation r",
+      "WHERE (r.subjekt_type = 'person' AND EXISTS (SELECT 1 FROM public.person_external_id pei",
+      "       WHERE pei.source_id = $1 AND pei.person_id = r.subjekt_id))",
+      "   OR (r.objekt_type = 'person' AND EXISTS (SELECT 1 FROM public.person_external_id pei",
+      "       WHERE pei.source_id = $1 AND pei.person_id = r.objekt_id))",
+      "ORDER BY r.id"
+    ),
+    family_members_v3 = paste(
+      "SELECT fm.family_id, fm.person_id, fm.rolle,",
+      "(SELECT count(*) FROM public.change_event ce",
+      " JOIN public.change_set cs ON cs.id = ce.change_set_id",
+      " WHERE ce.tabel = 'family_member'",
+      " AND ce.row_pk->>'family_id' = fm.family_id::text",
+      " AND ce.row_pk->>'person_id' = fm.person_id::text",
+      " AND ce.row_pk->>'rolle' = fm.rolle",
+      " AND left(cs.operation, 4) = 'red_') AS editorial_events",
+      "FROM public.family_member fm",
+      "WHERE EXISTS (SELECT 1 FROM public.family_member scope",
+      " JOIN public.person_external_id pei ON pei.person_id = scope.person_id",
+      " WHERE scope.family_id = fm.family_id AND pei.source_id = $1)",
+      "ORDER BY fm.family_id, fm.person_id, fm.rolle"
+    ),
+    family_members_v2 = paste(
+      "SELECT fm.family_id, fm.person_id, fm.rolle,",
+      "(SELECT count(*) FROM public.change_event ce",
+      " JOIN public.change_set cs ON cs.id = ce.change_set_id",
+      " WHERE ce.tabel = 'family_member'",
+      " AND ce.row_pk->>'family_id' = fm.family_id::text",
+      " AND ce.row_pk->>'person_id' = fm.person_id::text",
+      " AND left(cs.operation, 4) = 'red_') AS editorial_events",
+      "FROM public.family_member fm",
+      "WHERE EXISTS (SELECT 1 FROM public.person_external_id pei",
+      "  WHERE pei.source_id = $1 AND pei.person_id = fm.person_id)",
+      "ORDER BY fm.family_id, fm.person_id, fm.rolle"
+    ),
+    source_records = paste(
+      "SELECT sr.record_key, sr.record_kind FROM private.source_record sr",
+      "WHERE sr.source_id = $1 ORDER BY sr.record_key"
+    ),
+    source_personas = paste(
+      "SELECT sp.id::text AS source_persona_id, sp.persona_key,",
+      "spi.canonical_person_id, spi.decision_status",
+      "FROM private.source_persona sp",
+      "LEFT JOIN private.source_persona_identity spi ON spi.source_persona_id = sp.id",
+      "WHERE sp.source_id = $1 ORDER BY sp.persona_key, sp.id"
+    )
+  )
+}
+
+normalize_database_preview_sql <- function(sql) {
+  gsub("\\s+", " ", trimws(sql), perl = TRUE)
+}
+
 assert_read_only_sql <- function(sql) {
   sql <- scalar_text(sql, "DB_PREVIEW_SQL_FORBIDDEN")
-  trimmed <- trimws(sql)
-  lower <- tolower(trimmed)
-  if (grepl(";|--|/\\*|\\*/", trimmed, perl = TRUE)) {
+  if (grepl(";|--|/\\*|\\*/", sql, perl = TRUE)) {
     preview_stop("DB_PREVIEW_SQL_FORBIDDEN")
   }
-  controls <- c(
-    "begin read only", "rollback", "set local statement_timeout = '30s'",
-    "set local lock_timeout = '2s'"
-  )
-  allowed_start <- startsWith(lower, "select ") || startsWith(lower, "show ") ||
-    lower %in% controls
-  banned <- grepl(
-    "\\b(insert|update|delete|merge|create|alter|drop|truncate|copy|call|do|grant|revoke|vacuum|refresh|pg_advisory[a-z_]*|dblink)\\b",
-    lower, perl = TRUE
-  )
-  if (startsWith(lower, "select ")) {
-    call_matches <- regmatches(lower, gregexpr(
-      "\\b[a-z_][a-z0-9_$]*(?:\\s*\\.\\s*[a-z_][a-z0-9_$]*)?\\s*(?=\\()",
-      lower, perl = TRUE
-    ))[[1L]]
-    call_names <- if (length(call_matches) && !identical(call_matches, "")) {
-      gsub("\\s+", "", call_matches, perl = TRUE)
-    } else character()
-    allowed_calls <- c(
-      "current_database", "current_setting", "count", "left",
-      "where", "and", "or", "not", "in", "exists"
-    )
-    if (length(setdiff(call_names, allowed_calls))) banned <- TRUE
+  registered <- vapply(database_preview_sql_registry(),
+    normalize_database_preview_sql, character(1L))
+  if (!normalize_database_preview_sql(sql) %in% registered) {
+    preview_stop("DB_PREVIEW_SQL_FORBIDDEN")
   }
-  if (!allowed_start || banned) preview_stop("DB_PREVIEW_SQL_FORBIDDEN")
   invisible(TRUE)
 }
 
@@ -621,6 +737,7 @@ build_database_preview <- function(preview, source_persona_materialization,
   expected_database <- scalar_text(expected_database, "DB_PREVIEW_DATABASE_MISMATCH")
   expected_source_edition <- scalar_text(expected_source_edition, "DB_PREVIEW_SOURCE_MISMATCH")
   if (!is.function(query_fn) || !is.function(execute_fn)) preview_stop("DB_PREVIEW_INPUT_INVALID")
+  sql <- database_preview_sql_registry()
 
   execute <- function(sql, params = list()) {
     assert_read_only_sql(sql)
@@ -633,30 +750,21 @@ build_database_preview <- function(preview, source_persona_materialization,
     value
   }
 
-  execute("BEGIN READ ONLY")
-  on.exit(try(execute("ROLLBACK"), silent = TRUE), add = TRUE)
-  execute("SET LOCAL statement_timeout = '30s'")
-  execute("SET LOCAL lock_timeout = '2s'")
+  execute(sql$begin_read_only)
+  on.exit(try(execute(sql$rollback), silent = TRUE), add = TRUE)
+  execute(sql$statement_timeout)
+  execute(sql$lock_timeout)
 
-  readonly <- query("SHOW transaction_read_only")
+  readonly <- query(sql$transaction_read_only)
   if (nrow(readonly) != 1L || !identical(as.character(readonly$transaction_read_only[[1L]]), "on")) {
     preview_stop("DB_PREVIEW_NOT_READ_ONLY")
   }
-  metadata <- query(paste(
-    "SELECT current_database() AS database_name,",
-    "current_setting('server_version') AS server_version,",
-    "current_setting('server_version_num') AS server_version_num"
-  ))
+  metadata <- query(sql$metadata)
   if (nrow(metadata) != 1L || !identical(as.character(metadata$database_name[[1L]]), expected_database)) {
     preview_stop("DB_PREVIEW_DATABASE_MISMATCH")
   }
 
-  columns <- query(paste(
-    "SELECT table_schema, table_name, column_name",
-    "FROM information_schema.columns",
-    "WHERE table_schema IN ('public','private')",
-    "ORDER BY table_schema, table_name, ordinal_position"
-  ))
+  columns <- query(sql$capability_columns)
   required <- required_database_columns(include_family = is_v3)
   actual <- if (nrow(columns)) {
     paste(columns$table_schema, columns$table_name, columns$column_name, sep = ".")
@@ -678,10 +786,7 @@ build_database_preview <- function(preview, source_persona_materialization,
     preview_stop("DB_PREVIEW_PRIVATE_TABLE_DRIFT")
   }
 
-  source <- query(
-    "SELECT id, udgave, import_key FROM public.source WHERE udgave = $1 ORDER BY id",
-    list(expected_source_edition)
-  )
+  source <- query(sql$source, list(expected_source_edition))
   if (nrow(source) != 1L || !identical(as.character(source$udgave[[1L]]), expected_source_edition)) {
     preview_stop("DB_PREVIEW_SOURCE_MISMATCH")
   }
@@ -691,134 +796,31 @@ build_database_preview <- function(preview, source_persona_materialization,
     preview_stop("DB_PREVIEW_SOURCE_MISMATCH")
   }
 
-  anchors <- query(paste(
-    "SELECT pei.person_id, pei.record_key, pei.linje, pei.nr, p.staged, p.visning_navn",
-    "FROM public.person_external_id pei",
-    "JOIN public.person p ON p.id = pei.person_id",
-    "WHERE pei.source_id = $1",
-    "ORDER BY pei.record_key, pei.person_id"
-  ), list(source_id))
+  anchors <- query(sql$anchors, list(source_id))
   if (nrow(anchors) && (any(is.na(anchors$record_key)) || any(!nzchar(anchors$record_key)))) {
     preview_stop("DB_PREVIEW_PERSON_ANCHOR_INVALID")
   }
 
-  narratives <- query(paste(
-    "SELECT n.id, pei.person_id, pei.record_key, n.tekst, n.privat,",
-    "(SELECT count(*) FROM public.change_event ce",
-    " JOIN public.change_set cs ON cs.id = ce.change_set_id",
-    " WHERE ce.tabel = 'narrative' AND ce.row_pk->>'id' = n.id::text",
-    " AND left(cs.operation, 4) = 'red_') AS editorial_events",
-    "FROM public.narrative n",
-    "JOIN public.person_external_id pei ON pei.person_id = n.subjekt_id AND pei.source_id = $1",
-    "WHERE n.subjekt_type = 'person' AND n.source_id = $1",
-    "ORDER BY pei.record_key, n.id"
-  ), list(source_id))
-  facts <- query(paste(
-    "SELECT f.id, pei.person_id, pei.record_key, f.faktatype,",
-    "(SELECT count(*) FROM public.change_event ce",
-    " JOIN public.change_set cs ON cs.id = ce.change_set_id",
-    " WHERE ce.tabel = 'fact' AND ce.row_pk->>'id' = f.id::text",
-    " AND left(cs.operation, 4) = 'red_') AS editorial_events,",
-    "(SELECT count(*) FROM public.assertion a JOIN public.citation c ON c.assertion_id = a.id",
-    " WHERE a.target_type = 'fact' AND a.target_id = f.id AND c.source_id = $1) AS source_citations",
-    "FROM public.fact f",
-    "JOIN public.person_external_id pei ON pei.person_id = f.subjekt_id AND pei.source_id = $1",
-    "WHERE f.subjekt_type = 'person'",
-    "ORDER BY pei.record_key, f.id"
-  ), list(source_id))
+  narratives <- query(sql$narratives, list(source_id))
+  facts <- query(sql$person_facts, list(source_id))
   families <- if (is_v3) {
-    query(paste(
-      "SELECT fam.id, fam.type,",
-      "(SELECT count(*) FROM public.change_event ce",
-      " JOIN public.change_set cs ON cs.id = ce.change_set_id",
-      " WHERE ce.tabel = 'family' AND ce.row_pk->>'id' = fam.id::text",
-      " AND left(cs.operation, 4) = 'red_') AS editorial_events",
-      "FROM public.family fam",
-      "WHERE EXISTS (SELECT 1 FROM public.family_member scope",
-      " JOIN public.person_external_id pei ON pei.person_id = scope.person_id",
-      " WHERE scope.family_id = fam.id AND pei.source_id = $1)",
-      "ORDER BY fam.id"
-    ), list(source_id))
+    query(sql$families, list(source_id))
   } else data.frame(id = integer(), type = character(), editorial_events = integer())
   family_facts <- if (is_v3) {
-    query(paste(
-      "SELECT f.id, f.subjekt_id AS family_id, f.faktatype,",
-      "(SELECT count(*) FROM public.change_event ce",
-      " JOIN public.change_set cs ON cs.id = ce.change_set_id",
-      " WHERE ce.tabel = 'fact' AND ce.row_pk->>'id' = f.id::text",
-      " AND left(cs.operation, 4) = 'red_') AS editorial_events,",
-      "(SELECT count(*) FROM public.assertion a JOIN public.citation c ON c.assertion_id = a.id",
-      " WHERE a.target_type = 'fact' AND a.target_id = f.id AND c.source_id = $1) AS source_citations",
-      "FROM public.fact f",
-      "WHERE f.subjekt_type = 'family' AND EXISTS (",
-      " SELECT 1 FROM public.family_member scope",
-      " JOIN public.person_external_id pei ON pei.person_id = scope.person_id",
-      " WHERE scope.family_id = f.subjekt_id AND pei.source_id = $1)",
-      "ORDER BY f.subjekt_id, f.id"
-    ), list(source_id))
+    query(sql$family_facts, list(source_id))
   } else data.frame(id = integer(), family_id = integer(), faktatype = character(),
     editorial_events = integer(), source_citations = integer())
-  relations <- query(paste(
-    "SELECT r.id, r.rolle,",
-    "(SELECT count(*) FROM public.change_event ce",
-    " JOIN public.change_set cs ON cs.id = ce.change_set_id",
-    " WHERE ce.tabel = 'relation' AND ce.row_pk->>'id' = r.id::text",
-    " AND left(cs.operation, 4) = 'red_') AS editorial_events,",
-    "(SELECT count(*) FROM public.assertion a JOIN public.citation c ON c.assertion_id = a.id",
-    " WHERE a.target_type = 'relation' AND a.target_id = r.id AND c.source_id = $1) AS source_citations",
-    "FROM public.relation r",
-    "WHERE (r.subjekt_type = 'person' AND EXISTS (SELECT 1 FROM public.person_external_id pei",
-    "       WHERE pei.source_id = $1 AND pei.person_id = r.subjekt_id))",
-    "   OR (r.objekt_type = 'person' AND EXISTS (SELECT 1 FROM public.person_external_id pei",
-    "       WHERE pei.source_id = $1 AND pei.person_id = r.objekt_id))",
-    "ORDER BY r.id"
-  ), list(source_id))
+  relations <- query(sql$relations, list(source_id))
   family_members <- if (is_v3) {
-    query(paste(
-      "SELECT fm.family_id, fm.person_id, fm.rolle,",
-      "(SELECT count(*) FROM public.change_event ce",
-      " JOIN public.change_set cs ON cs.id = ce.change_set_id",
-      " WHERE ce.tabel = 'family_member'",
-      " AND ce.row_pk->>'family_id' = fm.family_id::text",
-      " AND ce.row_pk->>'person_id' = fm.person_id::text",
-      " AND ce.row_pk->>'rolle' = fm.rolle",
-      " AND left(cs.operation, 4) = 'red_') AS editorial_events",
-      "FROM public.family_member fm",
-      "WHERE EXISTS (SELECT 1 FROM public.family_member scope",
-      " JOIN public.person_external_id pei ON pei.person_id = scope.person_id",
-      " WHERE scope.family_id = fm.family_id AND pei.source_id = $1)",
-      "ORDER BY fm.family_id, fm.person_id, fm.rolle"
-    ), list(source_id))
+    query(sql$family_members_v3, list(source_id))
   } else {
-    query(paste(
-      "SELECT fm.family_id, fm.person_id, fm.rolle,",
-      "(SELECT count(*) FROM public.change_event ce",
-      " JOIN public.change_set cs ON cs.id = ce.change_set_id",
-      " WHERE ce.tabel = 'family_member'",
-      " AND ce.row_pk->>'family_id' = fm.family_id::text",
-      " AND ce.row_pk->>'person_id' = fm.person_id::text",
-      " AND left(cs.operation, 4) = 'red_') AS editorial_events",
-      "FROM public.family_member fm",
-      "WHERE EXISTS (SELECT 1 FROM public.person_external_id pei",
-      "  WHERE pei.source_id = $1 AND pei.person_id = fm.person_id)",
-      "ORDER BY fm.family_id, fm.person_id, fm.rolle"
-    ), list(source_id))
+    query(sql$family_members_v2, list(source_id))
   }
   source_records <- if (private_source_record_available) {
-    query(
-      paste("SELECT sr.record_key, sr.record_kind FROM private.source_record sr",
-        "WHERE sr.source_id = $1 ORDER BY sr.record_key"),
-      list(source_id)
-    )
+    query(sql$source_records, list(source_id))
   } else data.frame(record_key = character(), record_kind = character())
   database_source_personas <- if (private_source_persona_available) {
-    query(paste(
-      "SELECT sp.id::text AS source_persona_id, sp.persona_key,",
-      "spi.canonical_person_id, spi.decision_status",
-      "FROM private.source_persona sp",
-      "LEFT JOIN private.source_persona_identity spi ON spi.source_persona_id = sp.id",
-      "WHERE sp.source_id = $1 ORDER BY sp.persona_key, sp.id"
-    ), list(source_id))
+    query(sql$source_personas, list(source_id))
   } else data.frame(source_persona_id = character(), persona_key = character(),
     canonical_person_id = integer(), decision_status = character())
 
@@ -1295,6 +1297,49 @@ render_database_preview_markdown <- function(preview) {
     vapply(preview$blockers, function(value) paste0("- `", value, "`"), character(1L))
   } else "- ingen"
   paste(c(lines, blockers, ""), collapse = "\n")
+}
+
+render_database_preview_cli_stdout <- function(preview, output_path, report_path) {
+  is_v3 <- identical(preview$schema_version, "1939-v50-database-preview-v3")
+  summary <- if (is_v3) {
+    list(
+      schema_version = preview$schema_version,
+      output = output_path,
+      report = report_path,
+      dry_run_gate = preview$dry_run_gate,
+      reimport_gate = preview$reimport_gate,
+      person_anchors = list(
+        matched = preview$person_anchors$matched_count,
+        missing = preview$person_anchors$missing_count,
+        collisions = preview$person_anchors$collision_count
+      ),
+      expected_source_record_inserts = preview$source_records$insert_count,
+      planned_source_personas = preview$source_personas$planned_count,
+      matched_source_persona_targets = preview$source_personas$target_matched_count,
+      mismatched_source_persona_targets = preview$source_personas$target_mismatch_count,
+      remaining_identity_pending = preview$source_personas$remaining_pending_count,
+      new_person_creation_pending = preview$source_personas$new_person_candidate_count,
+      structural_or_summary = preview$source_personas$structural_or_summary_count,
+      canonical_mutations_authorized = FALSE
+    )
+  } else {
+    list(
+      output = output_path,
+      report = report_path,
+      dry_run_gate = preview$dry_run_gate,
+      reimport_gate = preview$reimport_gate,
+      person_anchors = list(
+        matched = preview$person_anchors$matched_count,
+        missing = preview$person_anchors$missing_count,
+        collisions = preview$person_anchors$collision_count
+      ),
+      expected_source_record_inserts = preview$source_records$insert_count,
+      planned_source_personas = preview$source_personas$planned_count,
+      remaining_identity_pending = preview$source_personas$remaining_pending_count,
+      canonical_mutations_authorized = FALSE
+    )
+  }
+  paste0(jsonlite::toJSON(summary, auto_unbox = TRUE, null = "null"), "\n")
 }
 
 write_database_preview_outputs <- function(preview, output_path, report_path) {

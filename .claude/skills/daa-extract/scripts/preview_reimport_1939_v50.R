@@ -81,31 +81,6 @@ DBI::dbDisconnect(connection)
 connection <- NULL
 
 write_database_preview_outputs(database_preview, args$output, args$report)
-cat(jsonlite::toJSON(list(
-  schema_version = database_preview$schema_version,
-  output = args$output,
-  report = args$report,
-  dry_run_gate = database_preview$dry_run_gate,
-  reimport_gate = database_preview$reimport_gate,
-  person_anchors = list(
-    matched = database_preview$person_anchors$matched_count,
-    missing = database_preview$person_anchors$missing_count,
-    collisions = database_preview$person_anchors$collision_count
-  ),
-  expected_source_record_inserts = database_preview$source_records$insert_count,
-  planned_source_personas = database_preview$source_personas$planned_count,
-  matched_source_persona_targets =
-    database_preview$source_personas$target_matched_count %||%
-      database_preview$source_personas$planned_count -
-      length(database_preview$source_personas$target_mismatches),
-  mismatched_source_persona_targets =
-    database_preview$source_personas$target_mismatch_count %||%
-      length(database_preview$source_personas$target_mismatches),
-  remaining_identity_pending = database_preview$source_personas$remaining_pending_count,
-  new_person_creation_pending =
-    database_preview$source_personas$new_person_candidate_count %||% 0L,
-  structural_or_summary =
-    database_preview$source_personas$structural_or_summary_count %||% 0L,
-  canonical_mutations_authorized = FALSE
-), auto_unbox = TRUE, null = "null"))
-cat("\n")
+cat(render_database_preview_cli_stdout(
+  database_preview, args$output, args$report
+))
