@@ -152,6 +152,11 @@ def test_literal_candidate_and_normalized_presentation_only_and_later_record_evi
     values["import_preview"]["genuinely_new_pending"].pop()
     values["import_preview"]["counts"]["genuinely_new_pending"] = 3
     values["import_preview"]["source_records"].extend(values["import_preview"]["genuinely_new_pending"])
+    values["calamari_text"] += " " * (120 - len(values["calamari_text"])) + later["verbatim_text"]
+    values["boundary_materialization"]["source_record_review"]["records"].append({
+        "verbatim_text": later["verbatim_text"], "span": {"page_from": 505, "page_to": 505},
+        "source_anchor": later["source_span"],
+    })
     result = subject.build_remaining_review(**values)
     iven = next(row for row in result["subjects"] if row["new_record_key"] == "new-b")
     candidate = next(row for row in iven["candidates"] if row["candidate_record_key"] == "old-iven")
@@ -171,6 +176,31 @@ def test_literal_candidate_and_normalized_presentation_only_and_later_record_evi
     assert presentation["proposed_action"] == "unresolved"
     assert presentation["signals"][0]["authoritative"] is False
     assert presentation["signals"][0]["text"] == "Iven Reventlow"
+
+
+def test_rejects_fabricated_later_source_record_before_it_can_be_authoritative():
+    values = fixture_inputs()
+    values["import_preview"]["source_records"] = [
+        *values["import_preview"]["genuinely_new_pending"],
+        _source("fabricated-later", 120, "Iven Reventlow omtales igen.\n"),
+    ]
+    with pytest.raises(subject.RemainingIdentityReviewError):
+        subject.build_remaining_review(**values)
+
+
+def test_later_occurrences_do_not_rescan_full_profile_pool(monkeypatch):
+    calls = []
+    original = subject._profile_signals
+
+    def counted(source_text, profile):
+        calls.append((source_text, profile["record_key"]))
+        return original(source_text, profile)
+
+    monkeypatch.setattr(subject, "_profile_signals", counted)
+    subject.build_remaining_review(**fixture_inputs())
+    # Three review subjects and a three-profile pool: candidate discovery only.
+    # Later-occurrence discovery must reuse those discovered terms.
+    assert len(calls) == 9
 
 
 @pytest.mark.parametrize("mutation", [
@@ -209,3 +239,35 @@ def test_fails_closed_before_output_on_drift_or_authority(mutation, tmp_path):
         subject.build_remaining_review(**values)
     output, report = tmp_path / "review.json", tmp_path / "review.md"
     assert not output.exists() and not report.exists()
+
+
+@pytest.mark.parametrize("pool", ["matched", "database_only"])
+def test_rejects_duplicate_canonical_person_id_within_a_profile_pool(pool):
+    values = fixture_inputs()
+    if pool == "matched":
+        values["database_preview"]["person_anchors"]["matched"][1]["person_id"] = 101
+    else:
+        duplicate = copy.deepcopy(values["database_preview"]["person_anchors"]["database_only"][0])
+        duplicate["record_key"] = "db-only-duplicate"
+        values["database_preview"]["person_anchors"]["database_only"].append(duplicate)
+        values["database_preview"]["person_anchors"]["database_only_record_keys"].append("db-only-duplicate")
+        duplicate_profile = copy.deepcopy(values["database_only_profiles"]["profiles"][0])
+        duplicate_profile["record_key"] = "db-only-duplicate"
+        values["database_only_profiles"]["profiles"].append(duplicate_profile)
+        values["database_preview"]["person_anchors"]["database_only"] [0]["person_id"] = 201
+        values["expected_database_only_profiles"] = 2
+        values["database_only_profiles"]["counts"]["profiles"] = 2
+    with pytest.raises(subject.RemainingIdentityReviewError):
+        subject.build_remaining_review(**values)
+
+
+def test_cli_rejects_smaller_self_consistent_universe_before_opening_inputs():
+    with pytest.raises(subject.RemainingIdentityReviewError):
+        subject.main([
+            "--source-personas", "missing-source.json", "--import-preview", "missing-import.json",
+            "--database-preview", "missing-database.json", "--database-profiles", "missing-profiles.json",
+            "--clean", "missing-clean.json", "--boundary-materialization", "missing-boundary.json",
+            "--calamari", "missing-calamari.txt", "--output", "output.json", "--report", "report.md",
+            "--expected-subjects", "3", "--expected-mapped-profiles", "2",
+            "--expected-database-only-profiles", "1",
+        ])

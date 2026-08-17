@@ -14,6 +14,7 @@ from build_mapped_identity_review_1939_v50 import filter_principal_signals
 
 
 SCHEMA_VERSION = "1939-v50-remaining-identity-review-v1"
+PRODUCTION_COUNTS = (17, 543, 23)
 HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
 
@@ -207,7 +208,9 @@ def _validate_profiles(database_preview: dict[str, Any], database_only_profiles:
     if (len(mapped_pairs) != len(matched) or len(db_pairs) != len(db_only) or
             len(set(mapped_pairs)) != len(mapped_pairs) or len(set(db_pairs)) != len(db_pairs) or
             len({key for key, _ in mapped_pairs}) != len(mapped_pairs) or
+            len({person for _, person in mapped_pairs}) != len(mapped_pairs) or
             len({key for key, _ in db_pairs}) != len(db_pairs) or
+            len({person for _, person in db_pairs}) != len(db_pairs) or
             {key for key, _ in mapped_pairs} & {key for key, _ in db_pairs} or
             {person for _, person in mapped_pairs} & {person for _, person in db_pairs}):
         _fail("REMAINING_IDENTITY_PROFILE_COVERAGE_INVALID")
@@ -229,7 +232,8 @@ def _validate_profiles(database_preview: dict[str, Any], database_only_profiles:
             _fail("REMAINING_IDENTITY_DATABASE_ONLY_INVALID")
         profile_pairs.append((_text(profile["record_key"], "REMAINING_IDENTITY_DATABASE_ONLY_INVALID"),
                               _positive_int(profile["person_id"], "REMAINING_IDENTITY_DATABASE_ONLY_INVALID")))
-    if sorted(profile_pairs) != sorted(db_pairs) or len(set(profile_pairs)) != len(profile_pairs):
+    if (sorted(profile_pairs) != sorted(db_pairs) or len(set(profile_pairs)) != len(profile_pairs) or
+            len({person for _, person in profile_pairs}) != len(profile_pairs)):
         _fail("REMAINING_IDENTITY_DATABASE_ONLY_INVALID")
     if not isinstance(clean_records, list):
         _fail("REMAINING_IDENTITY_PROFILE_COVERAGE_INVALID")
@@ -247,25 +251,39 @@ def _validate_profiles(database_preview: dict[str, Any], database_only_profiles:
             sorted(profiles, key=lambda row: row["record_key"]))
 
 
-def _page_evidence(boundary_materialization: dict[str, Any], hashes: dict[str, str],
-                   subjects: list[dict[str, Any]], calamari_text: str) -> dict[str, dict[str, int]]:
+def _source_record_index(source_records: list[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
+    return tuple({"record": row, "words": tuple(WORD_RE.finditer(row["verbatim_text"]))}
+                 for row in sorted(source_records, key=lambda row: (
+                     row["source_span"]["char_from"], row["new_record_key"])))
+
+
+def _validate_boundary_evidence(boundary_materialization: dict[str, Any], hashes: dict[str, str],
+                                source_records: list[dict[str, Any]], subjects: list[dict[str, Any]],
+                                calamari_text: str) -> dict[str, dict[str, int]]:
     review = boundary_materialization.get("source_record_review") if isinstance(boundary_materialization, dict) else None
     if (not isinstance(review, dict) or review.get("schema_version") != "1.0" or
             review.get("source_id") != "1939" or review.get("rendition_sha256") != hashes["calamari_sha256"] or
             not isinstance(review.get("records"), list) or not isinstance(calamari_text, str)):
         _fail("REMAINING_IDENTITY_BOUNDARY_INVALID")
-    result = {}
-    for subject in subjects:
-        span, text = subject["source_span"], subject["verbatim_text"]
+    boundary_by_source: dict[tuple[int, int, str], list[dict[str, Any]]] = {}
+    for row in review["records"]:
+        if not isinstance(row, dict):
+            _fail("REMAINING_IDENTITY_BOUNDARY_INVALID")
+        anchor, text = row.get("source_anchor"), row.get("verbatim_text")
+        if (not isinstance(anchor, dict) or set(anchor) != {"char_from", "char_to"} or
+                not isinstance(text, str) or not text):
+            _fail("REMAINING_IDENTITY_BOUNDARY_INVALID")
+        start = _nonnegative_int(anchor["char_from"], "REMAINING_IDENTITY_BOUNDARY_INVALID")
+        end = _nonnegative_int(anchor["char_to"], "REMAINING_IDENTITY_BOUNDARY_INVALID")
+        if end <= start or end - start != len(text):
+            _fail("REMAINING_IDENTITY_BOUNDARY_INVALID")
+        boundary_by_source.setdefault((start, end, text), []).append(row)
+    pages_by_key = {}
+    for record in source_records:
+        span, text = record["source_span"], record["verbatim_text"]
         if calamari_text[span["char_from"]:span["char_to"]] != text:
             _fail("REMAINING_IDENTITY_CALAMARI_MISMATCH")
-        matches = []
-        for row in review["records"]:
-            if not isinstance(row, dict):
-                _fail("REMAINING_IDENTITY_BOUNDARY_INVALID")
-            anchor = row.get("source_anchor")
-            if isinstance(anchor, dict) and anchor == span and row.get("verbatim_text") == text:
-                matches.append(row)
+        matches = boundary_by_source.get((span["char_from"], span["char_to"], text), [])
         if len(matches) != 1:
             _fail("REMAINING_IDENTITY_BOUNDARY_INVALID")
         page = matches[0].get("span")
@@ -273,8 +291,8 @@ def _page_evidence(boundary_materialization: dict[str, Any], hashes: dict[str, s
                 _positive_int(page.get("page_from"), "REMAINING_IDENTITY_BOUNDARY_INVALID") >
                 _positive_int(page.get("page_to"), "REMAINING_IDENTITY_BOUNDARY_INVALID")):
             _fail("REMAINING_IDENTITY_BOUNDARY_INVALID")
-        result[subject["new_record_key"]] = {"page_from": page["page_from"], "page_to": page["page_to"]}
-    return result
+        pages_by_key[record["new_record_key"]] = {"page_from": page["page_from"], "page_to": page["page_to"]}
+    return {row["new_record_key"]: pages_by_key[row["new_record_key"]] for row in subjects}
 
 
 def _normalize_ocr(value: str) -> str:
@@ -302,6 +320,17 @@ def _normalized_signal(source: str, name: str) -> dict[str, Any] | None:
     return None
 
 
+def _normalized_signal_from_words(source: str, source_words: tuple[re.Match[str], ...],
+                                  normalized_name: str, name_word_count: int) -> dict[str, Any] | None:
+    for index in range(len(source_words) - name_word_count + 1):
+        window = source_words[index:index + name_word_count]
+        if _normalize_ocr(" ".join(match.group() for match in window)) == normalized_name:
+            return {"kind": "normalized_name",
+                    "text": source[window[0].start():window[-1].end()],
+                    "authoritative": False}
+    return None
+
+
 def _candidate_rows(source: str, profiles: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     candidates, presentations = [], []
     for profile in profiles:
@@ -324,23 +353,33 @@ def _candidate_rows(source: str, profiles: list[dict[str, Any]]) -> tuple[list[d
             sorted(presentations, key=lambda row: row["candidate_record_key"]))
 
 
-def _later_occurrences(subject: dict[str, Any], source_records: list[dict[str, Any]],
-                       profiles: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    terms = [profile["display_name"] for profile in profiles
-             if isinstance(profile.get("display_name"), str) and profile["display_name"]
-             if _normalized_signal(subject["verbatim_text"], profile["display_name"]) is not None or
-             any(signal.get("kind") == "literal_name" for signal in _profile_signals(subject["verbatim_text"], profile))]
+def _search_terms(rows: list[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
+    terms: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        name = row["candidate_display_name"]
+        words = WORD_RE.findall(name)
+        normalized = _normalize_ocr(name)
+        if words and normalized:
+            terms.setdefault(normalized, {"literal": re.compile(
+                r"(?<!\w)" + r"\s+".join(map(re.escape, words)) + r"(?!\w)", re.IGNORECASE),
+                "normalized": normalized, "word_count": len(words)})
+    return tuple(terms[key] for key in sorted(terms))
+
+
+def _later_occurrences(subject: dict[str, Any], source_index: tuple[dict[str, Any], ...],
+                       terms: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
     result = []
-    for record in source_records:
+    for indexed in source_index:
+        record = indexed["record"]
         if record["new_record_key"] == subject["new_record_key"] or record["source_span"]["char_from"] <= subject["source_span"]["char_from"]:
             continue
-        for name in terms:
-            found = re.search(r"(?<!\w)" + r"\s+".join(map(re.escape, WORD_RE.findall(name))) + r"(?!\w)",
-                              record["verbatim_text"], re.IGNORECASE)
+        for term in terms:
+            found = term["literal"].search(record["verbatim_text"])
             if found:
                 signal = {"kind": "literal_name", "text": found.group(), "authoritative": True}
             else:
-                signal = _normalized_signal(record["verbatim_text"], name)
+                signal = _normalized_signal_from_words(
+                    record["verbatim_text"], indexed["words"], term["normalized"], term["word_count"])
             if signal is not None:
                 result.append({"record_key": record["new_record_key"], "source_span": record["source_span"],
                                "signal": {key: signal[key] for key in ("kind", "text", "authoritative")}})
@@ -360,9 +399,11 @@ def build_remaining_review(*, source_persona_v1: dict[str, Any], import_preview:
     mapped, database_only = _validate_profiles(
         database_preview, database_only_profiles, clean_records, hashes,
         expected_mapped_profiles, expected_database_only_profiles)
-    pages = _page_evidence(boundary_materialization, hashes, subjects, calamari_text)
+    pages = _validate_boundary_evidence(
+        boundary_materialization, hashes, source_records, subjects, calamari_text)
     ordered = sorted(subjects, key=lambda row: (row["source_span"]["char_from"], row["new_record_key"]))
     profile_pool = [*mapped, *database_only]
+    source_index = _source_record_index(source_records)
     output = []
     for index, row in enumerate(ordered):
         candidates, presentations = _candidate_rows(row["verbatim_text"], profile_pool)
@@ -372,7 +413,8 @@ def build_remaining_review(*, source_persona_v1: dict[str, Any], import_preview:
                                  "source_span": ordered[index - 1]["source_span"]} if index else None),
             "next_record": ({"new_record_key": ordered[index + 1]["new_record_key"],
                             "source_span": ordered[index + 1]["source_span"]} if index + 1 < len(ordered) else None),
-            "later_occurrences": _later_occurrences(row, source_records, profile_pool),
+            "later_occurrences": _later_occurrences(
+                row, source_index, _search_terms([*candidates, *presentations])),
             "candidates": candidates, "presentation_candidates": presentations,
         })
     return {"schema_version": SCHEMA_VERSION,
@@ -437,6 +479,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-mapped-profiles", type=int, default=543)
     parser.add_argument("--expected-database-only-profiles", type=int, default=23)
     args = parser.parse_args(argv)
+    if (args.expected_subjects, args.expected_mapped_profiles,
+            args.expected_database_only_profiles) != PRODUCTION_COUNTS:
+        _fail("REMAINING_IDENTITY_PRODUCTION_COUNTS_INVALID")
     source_bytes, source_personas = _load(args.source_personas)
     import_bytes, import_preview = _load(args.import_preview)
     database_bytes, database_preview = _load(args.database_preview)
