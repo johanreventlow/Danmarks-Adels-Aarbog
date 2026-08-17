@@ -123,10 +123,11 @@ fake_database <- function() {
     if (grepl("FROM public.fact f", sql, fixed = TRUE)) {
       return(data.frame(id = c(301, 302), person_id = c(101, 101),
         record_key = c("old-a", "old-a"), faktatype = c("navn", "fødsel"),
-        editorial_events = c(0L, 1L)))
+        editorial_events = c(0L, 1L), source_citations = c(1L, 0L)))
     }
     if (grepl("FROM public.relation r", sql, fixed = TRUE)) {
-      return(data.frame(id = 401, rolle = "ejer", editorial_events = 0L))
+      return(data.frame(id = 401, rolle = "ejer", editorial_events = 0L,
+        source_citations = 0L))
     }
     if (grepl("FROM public.family_member fm", sql, fixed = TRUE)) {
       return(data.frame(family_id = 501, person_id = 101, rolle = "partner",
@@ -200,6 +201,7 @@ testthat::test_that("preview klassificerer anchors, source records og beskyttede
   )))
   testthat::expect_equal(result$facts$database_existing_count, 2L)
   testthat::expect_equal(result$facts$database_editorial_count, 1L)
+  testthat::expect_equal(result$facts$database_source_cited_count, 1L)
   testthat::expect_equal(result$relations$database_relation_count, 1L)
   testthat::expect_equal(result$relations$database_family_member_count, 1L)
   testthat::expect_equal(result$expected_database_changes$canonical_person_creates, list())
@@ -257,4 +259,44 @@ testthat::test_that("previewvalidering afviser canonical autorisation og malform
   invalid <- preview_fixture()
   invalid$mapped_existing[[1L]]$baseline_record_key <- NULL
   testthat::expect_error(validate_import_preview(invalid), "DB_PREVIEW_INPUT_INVALID")
+})
+
+testthat::test_that("database-preview outputs er eksklusive og uden credentials", {
+  fake <- fake_database()
+  result <- build_database_preview(
+    preview_fixture(), fake$query, fake$execute,
+    expected_database = "postgres", expected_source_edition = "DAA 1939",
+    snapshot_at = "2026-08-17T12:00:00Z"
+  )
+  directory <- tempfile("v50-db-preview-")
+  dir.create(directory)
+  on.exit(unlink(directory, recursive = TRUE), add = TRUE)
+  output <- file.path(directory, "preview.json")
+  report <- file.path(directory, "preview.md")
+
+  write_database_preview_outputs(result, output, report)
+
+  parsed <- jsonlite::fromJSON(output, simplifyVector = FALSE)
+  testthat::expect_identical(parsed$database$database_name, "postgres")
+  text <- paste(readLines(report, warn = FALSE), collapse = "\n")
+  testthat::expect_match(text, "read-only")
+  testthat::expect_false(grepl("password|postgresql://|supabase_password", text,
+    ignore.case = TRUE))
+  testthat::expect_error(write_database_preview_outputs(result, output, report),
+    "File exists|findes")
+})
+
+testthat::test_that("forbindelsesvagten afviser transaction pooler og manglende secrets", {
+  testthat::expect_error(validate_preview_connection(
+    host = "pooler.example", user = "postgres", password = "secret",
+    port = 6543L, database = "postgres"
+  ), "DB_PREVIEW_TRANSACTION_POOLER_FORBIDDEN")
+  testthat::expect_error(validate_preview_connection(
+    host = "", user = "postgres", password = "secret",
+    port = 5432L, database = "postgres"
+  ), "DB_PREVIEW_CREDENTIALS_MISSING")
+  testthat::expect_invisible(validate_preview_connection(
+    host = "db.example", user = "postgres", password = "secret",
+    port = 5432L, database = "postgres"
+  ))
 })
