@@ -11,7 +11,7 @@ preview_fixture <- function() {
     schema_version = "1939-v50-import-preview-v1",
     generator_version = "prepare_reimport_1939_v50.py:v1",
     source = list(
-      edition = "1939", source_id = "daa-1939", rendition_id = "rendition",
+      edition = "1939", source_id = 7L, rendition_id = "rendition",
       input_hashes = as.list(setNames(rep(paste(rep("a", 64L), collapse = ""), 6L),
         c("calamari_sha256", "clean_sha256", "ledger_sha256",
           "materialization_sha256", "reconciliation_report_sha256",
@@ -66,7 +66,9 @@ preview_fixture <- function() {
       fact_candidates = list(), marriage_candidates = list(), authorized = FALSE
     )),
     genuinely_new_pending = list(list(new_record_key = "new-b",
-      person_creation = "forbidden")),
+      source_span = list(char_from = 10L, char_to = 20L), verbatim_text = "Bent ny",
+      person_creation = "forbidden", pending_gates = list(
+        "source_persona", "identity", "interpretation_provenance"))),
     source_only_records = list(
       list(new_record_key = "new-s", classification = "source_only_structural",
         person_creation = "forbidden"),
@@ -83,6 +85,53 @@ preview_fixture <- function() {
     reimport_blockers = list("database_comparison_pending")
   )
 }
+
+source_persona_fixture <- function() {
+  list(
+    schema_version = "1939-v50-source-persona-materialization-v1",
+    generator_version = "materialize_source_personas_1939_v50.py:v1",
+    source = list(
+      edition = "1939", source_id = 7L,
+      input_hashes = list(
+        database_preview_sha256 = paste(rep("b", 64L), collapse = ""),
+        identity_decision_sha256s = list(paste(rep("c", 64L), collapse = "")),
+        import_preview_sha256 = paste(rep("d", 64L), collapse = "")
+      )
+    ),
+    canonical_mutations_authorized = FALSE,
+    database_write_authorized = FALSE,
+    counts = list(
+      approved_identity_decisions = 1L, source_personas = 1L,
+      accepted_identities = 1L, remaining_genuinely_new_pending = 0L
+    ),
+    source_personas = list(list(
+      source_persona_id = "89d4ecfb-3408-5c38-8ce4-1af1b8a21157",
+      persona_key = "1939:new-b", source_id = 7L,
+      source_record_key = "new-b",
+      source_span = list(char_from = 10L, char_to = 20L),
+      verbatim_text = "Bent ny", target_baseline_record_key = "old-a",
+      canonical_person_id = 101L, identity_status = "accepted",
+      identity_decision = list(
+        decision_batch = "batch-1",
+        decision_batch_sha256 = paste(rep("c", 64L), collapse = ""),
+        candidate_evidence_sha256 = paste(rep("f", 64L), collapse = ""),
+        confirmation = "ja", reviewed_by = "codex-assisted:johan-reventlow"
+      ),
+      database_write_authorized = FALSE
+    )),
+    remaining_genuinely_new_pending = list(),
+    expected_database_changes = list(
+      source_persona_candidates = list("89d4ecfb-3408-5c38-8ce4-1af1b8a21157"),
+      source_persona_identity_candidates = list("89d4ecfb-3408-5c38-8ce4-1af1b8a21157"),
+      canonical_person_creates = list(), canonical_person_updates = list(),
+      canonical_person_deletes = list(), authorized = FALSE
+    ),
+    source_persona_materialization_gate = "GO",
+    database_write_gate = "NO-GO", reimport_gate = "NO-GO"
+  )
+}
+
+fixture_sha <- function(char) paste(rep(char, 64L), collapse = "")
 
 fake_database <- function() {
   calls <- list()
@@ -137,6 +186,10 @@ fake_database <- function() {
       return(data.frame(record_key = c("new-a", "old-private"),
         record_kind = c("unclassified", "unclassified")))
     }
+    if (grepl("FROM private.source_persona sp", sql, fixed = TRUE)) {
+      return(data.frame(source_persona_id = character(), persona_key = character(),
+        canonical_person_id = integer(), decision_status = character()))
+    }
     stop(paste("uventet fake-query:", sql))
   }
   list(execute = execute, query = query, calls = function() calls)
@@ -164,7 +217,8 @@ testthat::test_that("read-only bootstrap sker før alle domænequeries og rollba
   fake <- fake_database()
 
   result <- build_database_preview(
-    preview_fixture(), fake$query, fake$execute,
+    preview_fixture(), source_persona_fixture(), fixture_sha("e"), fixture_sha("d"),
+    fake$query, fake$execute,
     expected_database = "postgres", expected_source_edition = "DAA 1939",
     snapshot_at = "2026-08-17T12:00:00Z"
   )
@@ -186,7 +240,8 @@ testthat::test_that("read-only bootstrap sker før alle domænequeries og rollba
 testthat::test_that("preview klassificerer anchors, source records og beskyttede rækker", {
   fake <- fake_database()
   result <- build_database_preview(
-    preview_fixture(), fake$query, fake$execute,
+    preview_fixture(), source_persona_fixture(), fixture_sha("e"), fixture_sha("d"),
+    fake$query, fake$execute,
     expected_database = "postgres", expected_source_edition = "DAA 1939",
     snapshot_at = "2026-08-17T12:00:00Z"
   )
@@ -204,6 +259,11 @@ testthat::test_that("preview klassificerer anchors, source records og beskyttede
   testthat::expect_equal(result$source_records$insert_count, 3L)
   testthat::expect_equal(result$source_records$existing_count, 1L)
   testthat::expect_equal(result$source_records$database_only_record_keys, list("old-private"))
+  testthat::expect_equal(result$source_personas$planned_count, 1L)
+  testthat::expect_equal(result$source_personas$remaining_pending_count, 0L)
+  testthat::expect_equal(result$source_personas$insert_count, 1L)
+  testthat::expect_equal(result$source_personas$existing_count, 0L)
+  testthat::expect_equal(result$source_personas$collision_count, 0L)
   testthat::expect_equal(result$narratives$update_candidates, list(list(
     baseline_record_key = "old-a", narrative_id = 201,
     editorial_events = 1L, authorized = FALSE
@@ -230,14 +290,16 @@ testthat::test_that("preview klassificerer anchors, source records og beskyttede
 testthat::test_that("forkert database eller source stopper fail-closed", {
   fake <- fake_database()
   testthat::expect_error(build_database_preview(
-    preview_fixture(), fake$query, fake$execute,
+    preview_fixture(), source_persona_fixture(), fixture_sha("e"), fixture_sha("d"),
+    fake$query, fake$execute,
     expected_database = "wrong", expected_source_edition = "DAA 1939"
   ), "DB_PREVIEW_DATABASE_MISMATCH")
   testthat::expect_identical(tail(fake$calls(), 1L)[[1L]]$sql, "ROLLBACK")
 
   query <- fake_database()$query
   testthat::expect_error(build_database_preview(
-    preview_fixture(), query, function(...) invisible(0L),
+    preview_fixture(), source_persona_fixture(), fixture_sha("e"), fixture_sha("d"),
+    query, function(...) invisible(0L),
     expected_database = "postgres", expected_source_edition = "ukendt"
   ), "DB_PREVIEW_SOURCE_MISMATCH")
 })
@@ -251,7 +313,8 @@ testthat::test_that("read-only off og capability drift stopper synligt", {
     fake$query(sql, params)
   }
   testthat::expect_error(build_database_preview(
-    preview_fixture(), bad_readonly, fake$execute,
+    preview_fixture(), source_persona_fixture(), fixture_sha("e"), fixture_sha("d"),
+    bad_readonly, fake$execute,
     expected_database = "postgres", expected_source_edition = "DAA 1939"
   ), "DB_PREVIEW_NOT_READ_ONLY")
 
@@ -263,7 +326,8 @@ testthat::test_that("read-only off og capability drift stopper synligt", {
     fake2$query(sql, params)
   }
   testthat::expect_error(build_database_preview(
-    preview_fixture(), missing_capability, fake2$execute,
+    preview_fixture(), source_persona_fixture(), fixture_sha("e"), fixture_sha("d"),
+    missing_capability, fake2$execute,
     expected_database = "postgres", expected_source_edition = "DAA 1939"
   ), "DB_PREVIEW_CAPABILITY_BLOCKER")
 })
@@ -284,7 +348,8 @@ testthat::test_that("manglende privat source-recordlag giver delvis NO-GO rappor
   }
 
   result <- build_database_preview(
-    preview_fixture(), public_only, fake$execute,
+    preview_fixture(), source_persona_fixture(), fixture_sha("e"), fixture_sha("d"),
+    public_only, fake$execute,
     expected_database = "postgres", expected_source_edition = "DAA 1939",
     snapshot_at = "2026-08-17T12:00:00Z"
   )
@@ -292,10 +357,20 @@ testthat::test_that("manglende privat source-recordlag giver delvis NO-GO rappor
   testthat::expect_false(result$source_records$comparison_available)
   testthat::expect_null(result$source_records$insert_count)
   testthat::expect_equal(result$capabilities$missing,
-    list("private.source_record.record_key", "private.source_record.record_kind",
-      "private.source_record.source_id"))
+    list(
+      "private.source_persona_identity.canonical_person_id",
+      "private.source_persona_identity.decision_status",
+      "private.source_persona_identity.source_persona_id",
+      "private.source_persona.id", "private.source_persona.persona_key",
+      "private.source_persona.source_id", "private.source_record.record_key",
+      "private.source_record.record_kind", "private.source_record.source_id"
+    ))
   testthat::expect_true("database_capability_blocker:private.source_record" %in%
     unlist(result$blockers))
+  testthat::expect_true("database_capability_blocker:private.source_persona" %in%
+    unlist(result$blockers))
+  testthat::expect_false(result$source_personas$comparison_available)
+  testthat::expect_null(result$source_personas$insert_count)
   testthat::expect_identical(result$dry_run_gate, "NO-GO")
   testthat::expect_identical(result$person_anchors$matched_count, 1L)
 })
@@ -310,10 +385,34 @@ testthat::test_that("previewvalidering afviser canonical autorisation og malform
   testthat::expect_error(validate_import_preview(invalid), "DB_PREVIEW_INPUT_INVALID")
 })
 
+testthat::test_that("source-persona-materialisering valideres fail-closed mod preview og hash", {
+  valid <- source_persona_fixture()
+  testthat::expect_invisible(validate_source_persona_materialization(
+    valid, preview_fixture(), fixture_sha("d"), fixture_sha("e")))
+
+  mutations <- list(
+    function(value) { value$source$input_hashes$import_preview_sha256 <- fixture_sha("0"); value },
+    function(value) { value$source$source_id <- 8L; value },
+    function(value) { value$counts$source_personas <- 2L; value },
+    function(value) { value$source_personas[[1L]]$target_baseline_record_key <- "unknown"; value },
+    function(value) { value$source_personas[[1L]]$canonical_person_id <- NA_integer_; value },
+    function(value) { value$source_personas[[1L]]$source_persona_id <- "not-a-uuid"; value },
+    function(value) { value$database_write_authorized <- TRUE; value },
+    function(value) { value$source_persona_materialization_gate <- "NO-GO"; value }
+  )
+  for (mutate in mutations) {
+    invalid <- mutate(source_persona_fixture())
+    testthat::expect_error(validate_source_persona_materialization(
+      invalid, preview_fixture(), fixture_sha("d"), fixture_sha("e")),
+      "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  }
+})
+
 testthat::test_that("database-preview outputs er eksklusive og uden credentials", {
   fake <- fake_database()
   result <- build_database_preview(
-    preview_fixture(), fake$query, fake$execute,
+    preview_fixture(), source_persona_fixture(), fixture_sha("e"), fixture_sha("d"),
+    fake$query, fake$execute,
     expected_database = "postgres", expected_source_edition = "DAA 1939",
     snapshot_at = "2026-08-17T12:00:00Z"
   )

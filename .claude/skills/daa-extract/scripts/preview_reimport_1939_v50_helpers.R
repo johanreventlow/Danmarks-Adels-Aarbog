@@ -25,6 +25,26 @@ scalar_false <- function(value, code = "DB_PREVIEW_CANONICAL_MUTATION_FORBIDDEN"
   invisible(TRUE)
 }
 
+scalar_sha256 <- function(value, code = "DB_PREVIEW_SOURCE_PERSONA_INVALID") {
+  value <- scalar_text(value, code)
+  if (!grepl("^[0-9a-f]{64}$", value)) preview_stop(code)
+  value
+}
+
+scalar_positive_integer <- function(value, code = "DB_PREVIEW_SOURCE_PERSONA_INVALID") {
+  if (!is.numeric(value) || length(value) != 1L || is.na(value) ||
+      value < 1 || value != floor(value)) preview_stop(code)
+  as.integer(value)
+}
+
+scalar_uuid_v5 <- function(value, code = "DB_PREVIEW_SOURCE_PERSONA_INVALID") {
+  value <- scalar_text(value, code)
+  if (!grepl(
+      "^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      value)) preview_stop(code)
+  value
+}
+
 as_character_list <- function(values) {
   if (!length(values)) return(list())
   lapply(as.character(values), identity)
@@ -64,7 +84,10 @@ required_database_columns <- function() {
     "public.citation" = c("assertion_id", "source_id", "citat_tekst"),
     "public.change_event" = c("change_set_id", "tabel", "row_pk"),
     "public.change_set" = c("id", "operation"),
-    "private.source_record" = c("source_id", "record_key", "record_kind")
+    "private.source_record" = c("source_id", "record_key", "record_kind"),
+    "private.source_persona" = c("id", "source_id", "persona_key"),
+    "private.source_persona_identity" = c(
+      "source_persona_id", "canonical_person_id", "decision_status")
   )
 }
 
@@ -124,6 +147,96 @@ validate_import_preview <- function(preview) {
   invisible(TRUE)
 }
 
+validate_source_persona_materialization <- function(materialization, preview,
+                                                      input_preview_sha256,
+                                                      materialization_sha256) {
+  validate_import_preview(preview)
+  input_preview_sha256 <- scalar_sha256(input_preview_sha256)
+  materialization_sha256 <- scalar_sha256(materialization_sha256)
+  if (!is.list(materialization) ||
+      !identical(materialization$schema_version,
+        "1939-v50-source-persona-materialization-v1") ||
+      !identical(materialization$source_persona_materialization_gate, "GO") ||
+      !identical(materialization$database_write_gate, "NO-GO") ||
+      !identical(materialization$reimport_gate, "NO-GO")) {
+    preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  }
+  scalar_false(materialization$canonical_mutations_authorized,
+    "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  scalar_false(materialization$database_write_authorized,
+    "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  if (!is.list(materialization$source) ||
+      !identical(materialization$source$edition, "1939") ||
+      as.integer(materialization$source$source_id) != as.integer(preview$source$source_id) ||
+      !is.list(materialization$source$input_hashes) ||
+      !identical(materialization$source$input_hashes$import_preview_sha256,
+        input_preview_sha256) || !is.list(materialization$counts) ||
+      !is.list(materialization$source_personas) ||
+      !is.list(materialization$remaining_genuinely_new_pending) ||
+      !is.list(materialization$expected_database_changes)) {
+    preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  }
+  personas <- materialization$source_personas
+  remaining <- materialization$remaining_genuinely_new_pending
+  counts <- materialization$counts
+  if (!identical(as.integer(counts$approved_identity_decisions), length(personas)) ||
+      !identical(as.integer(counts$source_personas), length(personas)) ||
+      !identical(as.integer(counts$accepted_identities), length(personas)) ||
+      !identical(as.integer(counts$remaining_genuinely_new_pending), length(remaining))) {
+    preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  }
+  pending_by_key <- setNames(preview$genuinely_new_pending,
+    vapply(preview$genuinely_new_pending, function(row) scalar_text(row$new_record_key),
+      character(1L)))
+  mapped_keys <- vapply(preview$mapped_existing,
+    function(row) scalar_text(row$baseline_record_key), character(1L))
+  persona_keys <- character()
+  source_keys <- character()
+  target_keys <- character()
+  canonical_ids <- integer()
+  for (row in personas) {
+    if (!is.list(row)) preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+    source_key <- scalar_text(row$source_record_key, "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+    pending <- pending_by_key[[source_key]]
+    if (is.null(pending) || as.integer(row$source_id) != as.integer(preview$source$source_id) ||
+        !identical(row$source_span, pending$source_span) ||
+        !identical(row$verbatim_text, pending$verbatim_text) ||
+        !identical(row$identity_status, "accepted") ||
+        !identical(row$database_write_authorized, FALSE)) {
+      preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+    }
+    persona_key <- scalar_text(row$persona_key, "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+    if (!identical(persona_key, paste0("1939:", source_key))) {
+      preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+    }
+    persona_keys <- c(persona_keys, persona_key)
+    scalar_uuid_v5(row$source_persona_id)
+    source_keys <- c(source_keys, source_key)
+    target_keys <- c(target_keys,
+      scalar_text(row$target_baseline_record_key, "DB_PREVIEW_SOURCE_PERSONA_INVALID"))
+    canonical_ids <- c(canonical_ids, scalar_positive_integer(row$canonical_person_id))
+  }
+  remaining_keys <- vapply(remaining,
+    function(row) scalar_text(row$new_record_key, "DB_PREVIEW_SOURCE_PERSONA_INVALID"),
+    character(1L))
+  pending_keys <- names(pending_by_key)
+  if (anyDuplicated(persona_keys) || anyDuplicated(source_keys) ||
+      anyDuplicated(target_keys) || anyDuplicated(canonical_ids) ||
+      anyDuplicated(remaining_keys) || length(intersect(source_keys, remaining_keys)) ||
+      !setequal(c(source_keys, remaining_keys), pending_keys) ||
+      !all(target_keys %in% mapped_keys)) {
+    preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  }
+  changes <- materialization$expected_database_changes
+  if (!identical(changes$authorized, FALSE) ||
+      !identical(changes$canonical_person_creates, list()) ||
+      !identical(changes$canonical_person_updates, list()) ||
+      !identical(changes$canonical_person_deletes, list())) {
+    preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  }
+  invisible(TRUE)
+}
+
 safe_sum <- function(values) {
   if (!length(values)) return(0L)
   as.integer(sum(as.integer(values), na.rm = TRUE))
@@ -154,10 +267,15 @@ named_counts <- function(values) {
   as.list(setNames(as.integer(counts), names(counts)))
 }
 
-build_database_preview <- function(preview, query_fn, execute_fn, expected_database,
+build_database_preview <- function(preview, source_persona_materialization,
+                                   source_persona_materialization_sha256,
+                                   input_preview_sha256,
+                                   query_fn, execute_fn, expected_database,
                                    expected_source_edition = "DAA 1939",
                                    snapshot_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")) {
   validate_import_preview(preview)
+  validate_source_persona_materialization(source_persona_materialization, preview,
+    input_preview_sha256, source_persona_materialization_sha256)
   expected_database <- scalar_text(expected_database, "DB_PREVIEW_DATABASE_MISMATCH")
   expected_source_edition <- scalar_text(expected_source_edition, "DB_PREVIEW_SOURCE_MISMATCH")
   if (!is.function(query_fn) || !is.function(execute_fn)) preview_stop("DB_PREVIEW_INPUT_INVALID")
@@ -211,6 +329,9 @@ build_database_preview <- function(preview, query_fn, execute_fn, expected_datab
     preview_stop("DB_PREVIEW_CAPABILITY_BLOCKER", paste(missing_public, collapse = ","))
   }
   private_source_record_available <- !any(startsWith(missing, "private.source_record."))
+  private_source_persona_available <-
+    !any(startsWith(missing, "private.source_persona.")) &&
+    !any(startsWith(missing, "private.source_persona_identity."))
 
   source <- query(
     "SELECT id, udgave, import_key FROM public.source WHERE udgave = $1 ORDER BY id",
@@ -291,6 +412,16 @@ build_database_preview <- function(preview, query_fn, execute_fn, expected_datab
       list(source_id)
     )
   } else data.frame(record_key = character(), record_kind = character())
+  database_source_personas <- if (private_source_persona_available) {
+    query(paste(
+      "SELECT sp.id::text AS source_persona_id, sp.persona_key,",
+      "spi.canonical_person_id, spi.decision_status",
+      "FROM private.source_persona sp",
+      "LEFT JOIN private.source_persona_identity spi ON spi.source_persona_id = sp.id",
+      "WHERE sp.source_id = $1 ORDER BY sp.persona_key, sp.id"
+    ), list(source_id))
+  } else data.frame(source_persona_id = character(), persona_key = character(),
+    canonical_person_id = integer(), decision_status = character())
 
   active_keys <- sort(vapply(preview$mapped_existing, function(row) row$baseline_record_key, character(1L)))
   retired_keys <- sort(vapply(preview$retired_legacy, function(row) row$baseline_record_key, character(1L)))
@@ -350,6 +481,64 @@ build_database_preview <- function(preview, query_fn, execute_fn, expected_datab
     sort(setdiff(database_source_keys, preview_source_keys))
   } else NULL
 
+  planned_personas <- source_persona_materialization$source_personas
+  planned_persona_keys <- vapply(planned_personas,
+    function(row) scalar_text(row$persona_key), character(1L))
+  database_persona_keys <- if (private_source_persona_available &&
+      nrow(database_source_personas)) {
+    as.character(database_source_personas$persona_key)
+  } else character()
+  database_persona_groups <- split(seq_len(nrow(database_source_personas)),
+    database_persona_keys)
+  persona_existing <- list()
+  persona_inserts <- list()
+  persona_collisions <- list()
+  target_mismatches <- list()
+  for (row in planned_personas) {
+    anchor_indexes <- db_groups[[row$target_baseline_record_key]] %||% integer()
+    if (length(anchor_indexes) != 1L ||
+        as.integer(anchors$person_id[[anchor_indexes[[1L]]]]) !=
+          as.integer(row$canonical_person_id)) {
+      target_mismatches[[length(target_mismatches) + 1L]] <- list(
+        source_record_key = row$source_record_key,
+        target_baseline_record_key = row$target_baseline_record_key,
+        canonical_person_id = as.integer(row$canonical_person_id)
+      )
+    }
+    if (!private_source_persona_available) next
+    indexes <- database_persona_groups[[row$persona_key]] %||% integer()
+    candidate <- list(
+      source_persona_id = row$source_persona_id,
+      persona_key = row$persona_key,
+      source_record_key = row$source_record_key,
+      canonical_person_id = as.integer(row$canonical_person_id),
+      authorized = FALSE
+    )
+    if (!length(indexes)) {
+      persona_inserts[[length(persona_inserts) + 1L]] <- candidate
+    } else if (length(indexes) != 1L) {
+      persona_collisions[[length(persona_collisions) + 1L]] <- c(candidate,
+        list(reason = "duplicate_persona_key"))
+    } else {
+      index <- indexes[[1L]]
+      same <- identical(as.character(database_source_personas$source_persona_id[[index]]),
+          row$source_persona_id) &&
+        identical(as.integer(database_source_personas$canonical_person_id[[index]]),
+          as.integer(row$canonical_person_id)) &&
+        identical(as.character(database_source_personas$decision_status[[index]]),
+          "accepted")
+      if (same) {
+        persona_existing[[length(persona_existing) + 1L]] <- candidate
+      } else {
+        persona_collisions[[length(persona_collisions) + 1L]] <- c(candidate,
+          list(reason = "existing_persona_or_identity_mismatch"))
+      }
+    }
+  }
+  persona_database_only <- if (private_source_persona_available) {
+    sort(setdiff(unique(database_persona_keys), planned_persona_keys))
+  } else NULL
+
   source_verbatim <- setNames(
     vapply(preview$source_records, function(row) scalar_text(row$verbatim_text), character(1L)),
     vapply(preview$source_records, function(row) row$new_record_key, character(1L))
@@ -392,11 +581,18 @@ build_database_preview <- function(preview, query_fn, execute_fn, expected_datab
   relationship_counts <- preview$counts$relationships
   blockers <- c(
     if (!private_source_record_available) "database_capability_blocker:private.source_record" else character(),
+    if (!private_source_persona_available) "database_capability_blocker:private.source_persona" else character(),
     if (length(missing_keys)) paste0("missing_person_anchor:", missing_keys) else character(),
     vapply(collisions, function(row) paste0("person_anchor_collision:", row$baseline_record_key), character(1L)),
+    vapply(target_mismatches, function(row) paste0(
+      "source_persona_target_mismatch:", row$source_record_key), character(1L)),
+    vapply(persona_collisions, function(row) paste0(
+      "source_persona_collision:", row$source_record_key), character(1L)),
     vapply(narrative_collisions, function(row) paste0("narrative_collision:", row$baseline_record_key), character(1L)),
     if (length(database_only)) paste0("unmapped_existing_1939_person_records:", length(database_only)) else character(),
-    if (length(preview$genuinely_new_pending)) paste0("genuinely_new_identity_pending:", length(preview$genuinely_new_pending)) else character(),
+    if (length(source_persona_materialization$remaining_genuinely_new_pending))
+      paste0("genuinely_new_identity_pending:",
+        length(source_persona_materialization$remaining_genuinely_new_pending)) else character(),
     if (safe_sum(fact_counts$missing_provenance) + safe_sum(fact_counts$nonliteral_provenance))
       paste0("fact_provenance_pending:", safe_sum(fact_counts$missing_provenance) + safe_sum(fact_counts$nonliteral_provenance)) else character(),
     if (safe_sum(marriage_counts$missing_provenance) + safe_sum(marriage_counts$nonliteral_provenance))
@@ -407,11 +603,16 @@ build_database_preview <- function(preview, query_fn, execute_fn, expected_datab
   )
 
   list(
-    schema_version = "1939-v50-database-preview-v1",
+    schema_version = "1939-v50-database-preview-v2",
     snapshot_at = scalar_text(snapshot_at, "DB_PREVIEW_INPUT_INVALID"),
     input_preview = list(
       schema_version = preview$schema_version,
+      sha256 = input_preview_sha256,
       input_hashes = preview$source$input_hashes
+    ),
+    source_persona_materialization = list(
+      schema_version = source_persona_materialization$schema_version,
+      sha256 = source_persona_materialization_sha256
     ),
     database = list(
       database_name = as.character(metadata$database_name[[1L]]),
@@ -440,6 +641,21 @@ build_database_preview <- function(preview, query_fn, execute_fn, expected_datab
       existing_record_keys = if (private_source_record_available) as_character_list(source_existing) else NULL,
       insert_record_keys = if (private_source_record_available) as_character_list(source_inserts) else NULL,
       database_only_record_keys = if (private_source_record_available) as_character_list(source_database_only) else NULL
+    ),
+    source_personas = list(
+      comparison_available = private_source_persona_available,
+      planned_count = length(planned_personas),
+      remaining_pending_count = length(
+        source_persona_materialization$remaining_genuinely_new_pending),
+      existing_count = if (private_source_persona_available) length(persona_existing) else NULL,
+      insert_count = if (private_source_persona_available) length(persona_inserts) else NULL,
+      collision_count = if (private_source_persona_available) length(persona_collisions) else NULL,
+      existing = if (private_source_persona_available) persona_existing else NULL,
+      insert_candidates = if (private_source_persona_available) persona_inserts else NULL,
+      collisions = if (private_source_persona_available) persona_collisions else NULL,
+      target_mismatches = target_mismatches,
+      database_only_persona_keys = if (private_source_persona_available)
+        as_character_list(persona_database_only) else NULL
     ),
     narratives = list(
       insert_count = length(narrative_inserts), update_count = length(narrative_updates),
@@ -475,6 +691,10 @@ build_database_preview <- function(preview, query_fn, execute_fn, expected_datab
     expected_database_changes = list(
       source_record_inserts = if (private_source_record_available) as_character_list(source_inserts) else NULL,
       source_record_existing = if (private_source_record_available) as_character_list(source_existing) else NULL,
+      source_persona_inserts = if (private_source_persona_available) persona_inserts else NULL,
+      source_persona_existing = if (private_source_persona_available) persona_existing else NULL,
+      source_persona_identity_candidates = if (private_source_persona_available)
+        c(persona_inserts, persona_existing) else NULL,
       legacy_retirements_present = as_character_list(retired_present),
       narrative_inserts = narrative_inserts, narrative_updates = narrative_updates,
       fact_candidates_eligible = safe_sum(fact_counts$source_bound_literal),
@@ -483,7 +703,8 @@ build_database_preview <- function(preview, query_fn, execute_fn, expected_datab
       canonical_person_deletes = list(), authorized = FALSE
     ),
     blockers = as_character_list(unique(blockers)),
-    dry_run_gate = if (private_source_record_available) "GO" else "NO-GO",
+    dry_run_gate = if (private_source_record_available && private_source_persona_available)
+      "GO" else "NO-GO",
     reimport_gate = "NO-GO"
   )
 }
@@ -496,6 +717,23 @@ render_database_preview_markdown <- function(preview) {
     )
   } else {
     "- source-record sammenligning: utilgængelig (privat evidenslag mangler)"
+  }
+  source_persona_lines <- if (isTRUE(preview$source_personas$comparison_available)) {
+    c(
+      sprintf("- planlagte source-personaer: %d", preview$source_personas$planned_count),
+      sprintf("- eksisterende / inserts / kollisioner: %d/%d/%d",
+        preview$source_personas$existing_count, preview$source_personas$insert_count,
+        preview$source_personas$collision_count),
+      sprintf("- resterende uafklarede identiteter: %d",
+        preview$source_personas$remaining_pending_count)
+    )
+  } else {
+    c(
+      sprintf("- planlagte source-personaer: %d", preview$source_personas$planned_count),
+      "- source-persona sammenligning: utilgængelig (privat evidenslag mangler)",
+      sprintf("- resterende uafklarede identiteter: %d",
+        preview$source_personas$remaining_pending_count)
+    )
   }
   lines <- c(
     "# DAA 1939 v50 database-preview",
@@ -518,6 +756,7 @@ render_database_preview_markdown <- function(preview) {
     "",
     "## Source records og narrativer",
     source_record_lines,
+    source_persona_lines,
     sprintf("- narrative inserts/updates/unchanged/kollisioner: %d/%d/%d/%d",
       preview$narratives$insert_count, preview$narratives$update_count,
       preview$narratives$unchanged_count, preview$narratives$collision_count),

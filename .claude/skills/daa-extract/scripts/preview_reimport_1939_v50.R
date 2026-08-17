@@ -14,7 +14,8 @@ script_path <- normalizePath(sub("^--file=", "", script_argument[[1L]]))
 source(file.path(dirname(script_path), "preview_reimport_1939_v50_helpers.R"))
 
 parse_cli <- function(args) {
-  allowed <- c("input", "output", "report", "expected-database", "source-edition")
+  allowed <- c("input", "source-personas", "source-personas-sha256", "output",
+    "report", "expected-database", "source-edition")
   values <- list("source-edition" = "DAA 1939")
   for (arg in args) {
     if (!grepl("^--[^=]+=.+$", arg)) stop("DB_PREVIEW_USAGE", call. = FALSE)
@@ -25,9 +26,16 @@ parse_cli <- function(args) {
     }
     values[[key]] <- value
   }
-  required <- c("input", "output", "report")
+  required <- c("input", "source-personas", "source-personas-sha256", "output", "report")
   if (any(!required %in% names(values))) stop("DB_PREVIEW_USAGE", call. = FALSE)
   values
+}
+
+sha256_file <- function(path) {
+  connection <- file(path, open = "rb")
+  on.exit(close(connection), add = TRUE)
+  raw <- readBin(connection, what = "raw", n = file.info(path)$size)
+  digest::digest(raw, algo = "sha256", serialize = FALSE)
 }
 
 args <- parse_cli(commandArgs(trailingOnly = TRUE))
@@ -40,7 +48,16 @@ expected_database <- args[["expected-database"]] %||% database
 validate_preview_connection(host, user, password, port, database)
 
 preview <- jsonlite::fromJSON(args$input, simplifyVector = FALSE)
+source_personas <- jsonlite::fromJSON(args[["source-personas"]], simplifyVector = FALSE)
+input_preview_sha256 <- sha256_file(args$input)
+source_personas_sha256 <- sha256_file(args[["source-personas"]])
+if (!identical(source_personas_sha256,
+    scalar_sha256(args[["source-personas-sha256"]]))) {
+  preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+}
 validate_import_preview(preview)
+validate_source_persona_materialization(source_personas, preview,
+  input_preview_sha256, source_personas_sha256)
 
 connection <- DBI::dbConnect(
   RPostgres::Postgres(), host = host, port = port, dbname = database,
@@ -57,7 +74,8 @@ execute <- function(sql, params = list()) {
 }
 
 database_preview <- build_database_preview(
-  preview, query, execute,
+  preview, source_personas, source_personas_sha256, input_preview_sha256,
+  query, execute,
   expected_database = expected_database,
   expected_source_edition = args[["source-edition"]]
 )
@@ -76,6 +94,8 @@ cat(jsonlite::toJSON(list(
     collisions = database_preview$person_anchors$collision_count
   ),
   expected_source_record_inserts = database_preview$source_records$insert_count,
+  planned_source_personas = database_preview$source_personas$planned_count,
+  remaining_identity_pending = database_preview$source_personas$remaining_pending_count,
   canonical_mutations_authorized = FALSE
 ), auto_unbox = TRUE, null = "null"))
 cat("\n")
